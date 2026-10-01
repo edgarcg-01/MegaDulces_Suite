@@ -4,6 +4,21 @@ import {
   compareWarehouseCodes, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, validarSeguimiento,
 } from '@megadulces/contracts';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
+
+/**
+ * `[ZN.8]` — **El proyecto desde el que este servicio pregunta por el alcance.**
+ *
+ * Una constante por archivo, no un parámetro hilado por cada función: así se ve de un vistazo a
+ * qué área pertenece el servicio y un `grep AREA` enumera quién declara la suya. Es el proyecto
+ * `compras` de `AUTHZ_TREE` — el mismo que ya separa el menú, las migas y los permisos.
+ *
+ * Qué habilita: que alguien pueda tener un alcance acá distinto del que tiene en el resto. El
+ * caso que lo motivó es real — una encargada de operaciones que **hace el pedido de todas las
+ * sucursales** y en las demás pantallas sólo mira su plaza. Antes eso exigía mover su única
+ * palanca, y su bitácora muestra cuatro cambios en quince días, cada uno arreglando una pantalla
+ * y rompiendo otra.
+ */
+const AREA = 'compras';
 import {
   clasificarRecepciones, filtroSucursalOc, OcAbierta, OcDocRow, OcFollowupRow, OcHistoryRow, OcLineRow, OcReceiptRow,
   resumenOcAbiertas, TOPE_CONSULTA_OC,
@@ -297,7 +312,7 @@ export class CommercialReplenishmentService {
     // `object` y no `Record<string, unknown>`: las Query de este archivo son interfaces con
     // campos declarados, y TS no las considera asignables a un indice de string. El cast es de
     // FORMA, no de contenido — `warehouseIds` sólo lee los alias de `PARAM_ALIASES`.
-    return this.scope.warehouseIds(q as Record<string, unknown>, 'compras/pedido');
+    return this.scope.warehouseIds(q as Record<string, unknown>, 'compras/pedido', AREA);
   }
 
   /** Expresiones SQL compartidas (existencia disponible, en tránsito, bucket). */
@@ -1598,7 +1613,7 @@ export class CommercialReplenishmentService {
     // pedir ninguna, se veía la red completa. `readParam` devuelve los códigos de sucursal (la
     // misma llave que trae la OC) YA recortados a lo que la persona alcanza; `[]` = ninguna.
     const alcance = filtroSucursalOc(
-      await this.scope.readParam(suc ? { warehouse_codes: suc } : {}, 'warehouse', 'compras/oc-abiertas'),
+      await this.scope.readParam(suc ? { warehouse_codes: suc } : {}, 'warehouse', 'compras/oc-abiertas', AREA),
     );
     const vacio = {
       ...resumenOcAbiertas([]), total_minimo: false, seguimiento_habilitado: false,
@@ -1701,7 +1716,7 @@ export class CommercialReplenishmentService {
   /** `[RA-PRO.61/62]` ¿La persona alcanza esta sucursal? Mismo recorte que la lista (`[ZN.3.3]`). */
   private async alcanzaSucursalOc(sucursal: string): Promise<boolean> {
     const a = filtroSucursalOc(
-      await this.scope.readParam({ warehouse_codes: sucursal }, 'warehouse', 'compras/oc-abiertas'),
+      await this.scope.readParam({ warehouse_codes: sucursal }, 'warehouse', 'compras/oc-abiertas', AREA),
     );
     return a.todas || a.codigos.includes(sucursal);
   }

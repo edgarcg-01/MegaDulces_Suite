@@ -38,6 +38,8 @@ import {
   isPlatformAdminRole,
 } from '@megadulces/platform-core';
 import { evaluarDivergencia } from '@megadulces/contracts/authz/divergencia';
+// `[ZN.8]` Las áreas se DERIVAN de AUTHZ_TREE: copiarlas acá las haría divergir (ADR-056).
+import { AREAS_DE_ALCANCE, AREA_TODAS, esAreaDeAlcance } from '@megadulces/contracts/authz/scope-areas';
 
 interface RequesterContext {
   sub: string;
@@ -2097,11 +2099,22 @@ export class UsersService {
   async setScope(
     id: string,
     dimension: string,
-    dto: { mode?: string | null; values?: string[] | null; mode_write?: string | null; nota?: string | null },
+    dto: { mode?: string | null; values?: string[] | null; mode_write?: string | null; nota?: string | null; area?: string | null },
     requester: RequesterContext,
   ) {
     const dim = await this.knex('identity.scope_dimensions').where({ code: dimension }).first('code', 'supports_own');
     if (!dim) throw new BadRequestException(`La dimensión de alcance "${dimension}" no existe.`);
+
+    // `[ZN.8]` El área se valida contra `AUTHZ_TREE`, que es donde viven los proyectos. Sin esto
+    // un typo (`"compra"`) se guardaría feliz y crearía una excepción que **no aplica a ninguna
+    // pantalla** — invisible, porque el resolvedor simplemente nunca la encuentra y cae al `'*'`.
+    const area = (dto.area ?? AREA_TODAS).trim() || AREA_TODAS;
+    if (!esAreaDeAlcance(area)) {
+      throw new BadRequestException(
+        `El área "${area}" no es un proyecto conocido. Las válidas son: ` +
+          `${AREA_TODAS} (todas) y ${AREAS_DE_ALCANCE.map((a) => a.id).join(', ')}.`,
+      );
+    }
 
     const user = await this.knex('users').where({ id, tenant_id: this.tenantId }).first('id', 'username');
     if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
@@ -2139,17 +2152,20 @@ export class UsersService {
     }
 
     const previo = await this.knex('identity.user_scopes')
-      .where({ tenant_id: this.tenantId, user_id: id, dimension })
+      .where({ tenant_id: this.tenantId, user_id: id, dimension, area })
       .first('mode', 'values', 'mode_write');
 
     // Heredar del rol = borrar la fila propia.
     if (dto.mode == null) {
+      // `[ZN.8]` Borrar la regla de un ÁREA la devuelve a lo que diga su `'*'` (y si no hay, al
+      // rol). Borrar la de `'*'` la devuelve al rol sin tocar las excepciones por área: son
+      // decisiones distintas y se retiran por separado.
       await this.knex('identity.user_scopes')
-        .where({ tenant_id: this.tenantId, user_id: id, dimension })
+        .where({ tenant_id: this.tenantId, user_id: id, dimension, area })
         .del();
-      await this.recordEvent(this.knex, id, 'scope_changed', { dimension, de: previo ?? null, a: null, hereda_del_rol: true }, requester);
+      await this.recordEvent(this.knex, id, 'scope_changed', { dimension, area, de: previo ?? null, a: null, hereda_del_rol: true }, requester);
       this.scopeService?.invalidateUser?.(this.tenantId, id);
-      return { dimension, hereda_del_rol: true };
+      return { dimension, area, hereda_del_rol: true };
     }
 
     if (dto.mode === 'own' && !dim.supports_own) {
@@ -2194,6 +2210,7 @@ export class UsersService {
       tenant_id: this.tenantId,
       user_id: id,
       dimension,
+      area,
       mode: dto.mode,
       values,
       mode_write: dto.mode_write ?? null,
@@ -2203,12 +2220,34 @@ export class UsersService {
     };
     await this.knex('identity.user_scopes')
       .insert({ ...fila, created_by: requester.sub })
-      .onConflict(['tenant_id', 'user_id', 'dimension'])
+      .onConflict(['tenant_id', 'user_id', 'dimension', 'area'])
       .merge(fila);
 
-    await this.recordEvent(this.knex, id, 'scope_changed', { dimension, de: previo ?? null, a: { mode: dto.mode, values, mode_write: dto.mode_write ?? null } }, requester);
+    await this.recordEvent(this.knex, id, 'scope_changed', { dimension, area, de: previo ?? null, a: { mode: dto.mode, values, mode_write: dto.mode_write ?? null } }, requester);
     this.scopeService?.invalidateUser?.(this.tenantId, id);
-    return { dimension, mode: dto.mode, values, mode_write: dto.mode_write ?? null };
+    return { dimension, area, mode: dto.mode, values, mode_write: dto.mode_write ?? null };
+  }
+
+  /**
+   * `[ZN.8]` — Las excepciones por ÁREA de una persona, para que la ficha las pueda mostrar.
+   *
+   * `describe()` resuelve UN área a la vez (la que pregunta la pantalla), así que por sí solo no
+   * puede decir «en Compras ve las 9 y en Tienda sólo Morelia»: eso exige ver las reglas, no el
+   * resultado. Devuelve sólo las que NO son `'*'`; la regla general ya viaja en `dimensions`.
+   *
+   * ⚠️ Van con `label` resuelto desde `AUTHZ_TREE`. Mandar el id pelado obligaría al front a
+   * tener su propia tabla de nombres de proyecto — la copia a mano que esta fase evita.
+   */
+  async scopeAreaOverrides(id: string) {
+    const rows = await this.knex('identity.user_scopes')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .whereNot('area', AREA_TODAS)
+      .orderBy(['area', 'dimension'])
+      .select('dimension', 'area', 'mode', 'values', 'mode_write', 'nota');
+    return rows.map((r: Record<string, unknown>) => ({
+      ...r,
+      area_label: AREAS_DE_ALCANCE.find((a) => a.id === r['area'])?.label ?? String(r['area']),
+    }));
   }
 
   /**

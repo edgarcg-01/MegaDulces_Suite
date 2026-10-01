@@ -370,6 +370,9 @@ export class UsersController {
       user_id: scope.userId,
       role_name: scope.roleName,
       dimensions: await this.scope.describe(scope),
+      // `[ZN.8]` Las excepciones por área. `dimensions` responde «qué ve en general»; esto
+      // responde «y dónde ve distinto», que es la pregunta que el alcance no podía contestar.
+      excepciones: await this.usersService.scopeAreaOverrides(id),
     };
   }
 
