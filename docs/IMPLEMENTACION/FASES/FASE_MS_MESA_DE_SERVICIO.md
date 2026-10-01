@@ -12,6 +12,8 @@
 
 Estado: **📋 DISEÑADO 2026-10-01 — sin código.** Plan para presentar a Edgar. Nada de esto está
 en `main`; lo único tocado hoy es documentación (esta fase, ADR-081, tracker, `CLAUDE.md`).
+**Tablas y accesos que se solicitan, con su propósito:**
+[`FASE_MS_SOLICITUD_TABLAS_Y_ACCESOS.md`](FASE_MS_SOLICITUD_TABLAS_Y_ACCESOS.md) — pendiente de aprobación de Edgar.
 
 ---
 
