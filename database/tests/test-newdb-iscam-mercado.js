@@ -210,14 +210,31 @@ const skip = (msg) => { nomedido++; console.log('  — NO MEDIDO: ' + msg); };
     check(enVista[0].n > 0, 'y la vista las publica con veredicto propio, no escondidas entre las demas');
   }
 
-  console.log('\n[7] La advertencia viaja con el dato');
+  console.log('\n[7] La advertencia viaja con el dato, y dice lo que se midio');
   const adv = await q(`
-    SELECT numerador_inflado_por_traspasos AS flag, length(advertencia) AS largo
-    FROM analytics.v_iscam_share LIMIT 1`);
-  if (!adv.length) { skip('sin filas: la advertencia no se puede leer'); }
+    SELECT numerador_con_residuo_sin_explicar AS flag, residuo_pct_medido AS pct,
+           length(advertencia) AS largo, advertencia
+    FROM analytics.v_iscam_share LIMIT 1`).catch(() => null);
+  if (!adv) {
+    fail++;
+    console.log('  ✘ la vista no publica numerador_con_residuo_sin_explicar: '
+      + 'la columna vieja afirmaba una causa que la medicion por sucursal refuto');
+  } else if (!adv.length) { skip('sin filas: la advertencia no se puede leer'); }
   else {
-    check(adv[0].flag === true, 'la vista marca que el numerador viene inflado por traspasos');
+    check(adv[0].flag === true, 'la vista marca que al numerador le queda un residuo sin explicar');
+    check(Number(adv[0].pct) > 0 && Number(adv[0].pct) < 25,
+      `y lo publica MEDIDO: ${adv[0].pct}% (la version anterior afirmaba 54% sin medirlo)`);
     check(Number(adv[0].largo) > 200, 'y explica por que, con el numero medido, en la misma fila');
+    // ⛔ La causa vieja quedo refutada. Si vuelve a publicarse sin decirlo, es una regresion.
+    check(!/inflado por traspasos/i.test(adv[0].advertencia)
+      || /refut|CORREGIDA/i.test(adv[0].advertencia),
+      'la advertencia ya no atribuye la brecha a los traspasos sin decir que esa causa se refuto');
+    const senales = await q(`
+      SELECT clave FROM analytics.price_signal_registry
+      WHERE motivo_ausencia ILIKE '%inflado por traspasos%'
+        AND motivo_ausencia NOT ILIKE '%refut%'`).catch(() => []);
+    check(senales.length === 0,
+      `ninguna senal del registro sigue publicando la causa refutada (${senales.length} lo hacen)`);
   }
 
   console.log('\n[8] ⛔ Lo que a proposito NO se importo');
