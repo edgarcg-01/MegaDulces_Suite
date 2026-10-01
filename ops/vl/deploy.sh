@@ -90,7 +90,20 @@ estado() {
   ssh_md '
     # ⚠️ Los comodines van ESCAPADOS: sin eso el shell de afuera los expande contra su CWD antes
     # de que `find` los vea, y el digest sale de un conjunto distinto en cada contenedor.
-    DIG="find /app/database/importers /app/services/feeds-ingest /app/ops/vl /app/libs -type f \( -name \*.js -o -name \*.sh \) | sort | xargs md5sum | md5sum | cut -c1-12"
+    # ⭐ [INFRA.5 2026-09-30] `/app/ops/ingest` FALTABA, y es donde vive `health.js` — el código
+    # que decide si un carril está `healthy` y, por lo tanto, si `ods-autoheal` lo reinicia. O sea
+    # que el detector de deriva no hasheaba al que decide la salud. Medido el día que se encontró,
+    # con `ods-reconcile-full` corriendo código viejo de verdad:
+    #
+    #            digest sin ops/ingest    digest con ops/ingest
+    #   latest        9f90143b18af             9dcdd3d5107b
+    #   el carril     9f90143b18af  ← "igual"  9efbf981013b  ← DISTINTO
+    #
+    # Su `health.js` tenía md5 `5d88e4fa…` contra `d50d567d…` de la imagen, y **cero** ocurrencias
+    # de `otroEntregando` (la caducidad del guard de dueño, `[OBS.4.4]`) contra 5 en los otros
+    # siete. El detector igual imprimía «imagen vieja, MISMO codigo».
+    # Son **2 archivos de 194**: un punto ciego del 1% que escondía un healthcheck viejo.
+    DIG="find /app/database/importers /app/services/feeds-ingest /app/ops/ingest /app/ops/vl /app/libs -type f \( -name \*.js -o -name \*.sh \) | sort | xargs md5sum | md5sum | cut -c1-12"
     ACT=$(docker image inspect -f "{{.Id}}" trade-ingest:latest 2>/dev/null | cut -c8-19)
     echo "  trade-ingest:latest = ${ACT:-NO EXISTE}"
     REF=$(docker run --rm trade-ingest:latest sh -c "$DIG" 2>/dev/null)
