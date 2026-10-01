@@ -746,7 +746,47 @@ medido, en vez de definir el término por lo que debería hacer.
 
 ---
 
-## 20 · Lo que sigue
+## 20 · `[PR.V5]` · El término se explica DONDE se usa
+
+El About de `[PR.V4]` definía los siete verbos — pero **detrás de un botón**. Quien lee
+«Corregir la escalera» en la cola sigue sin saber qué es una escalera, y mandarlo a abrir un
+cajón es pedirle un clic para entender la pantalla que ya está mirando.
+
+Ahora cada verbo lleva **su glossá** impresa al lado:
+
+| verbo | lo que ahora dice debajo |
+|---|---|
+| Corregir la escalera | la caja sale más cara por pieza que la suelta |
+| Revisar el costo | el costo se movió y el precio sigue igual |
+| Aterrizar el precio | falta muy poco para el siguiente precio redondo |
+| Subir el precio | hay espacio hasta el siguiente precio redondo |
+| Liberar capital | inventario parado que se mueve bajando el precio |
+| Precio atípico | no es mercancía ordinaria: no se propone nada |
+| Sin acción defendible | no hay con qué sostener una propuesta |
+
+### ⭐ Y un hueco que apareció al hacerlo
+
+**La ventana del expediente nunca decía qué hacer.** Mostraba producto, precio, costo, margen,
+historia, simulador y plazas — pero no repetía la acción que hizo entrar a la persona. Alguien
+abría un renglón que decía «Corregir la escalera» y adentro no había **ni una palabra** sobre qué
+es una escalera ni qué hacer con ella. Ahora la propuesta va arriba de todo, con su glosa y su
+grado de certeza.
+
+### ⚠️ Lo que eso dejó, y se corrigió en el mismo paso
+
+Agregar la glosa en los dos lugares dejó **dos copias del mismo mapa de etiquetas**, que se
+desincronizan sin que nadie se entere. Vive en `precios-vocabulario.ts` y los dos componentes lo
+leen de ahí — una sola voz, verificada con un grep que no devuelve nada fuera de ese archivo.
+
+⛔⛔ **Undécima vez con el acento grave**, la segunda en esta sesión: el comentario HTML que
+anuncia la propuesta lo escribí con `` `[PR.V5]` `` adentro del template. El gate lo marcó al
+instante, pero **lo escribí igual, horas después de documentarlo dos veces**.
+
+**Verificado:** `nx build view` · `nx test view` **1,387** · lint 0 errores · gate de templates.
+
+---
+
+## 21 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado

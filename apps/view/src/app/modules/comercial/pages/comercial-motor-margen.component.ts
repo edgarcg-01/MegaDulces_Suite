@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { etiquetaAccion, glosaAccion, textoCerteza } from '../precios-vocabulario';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { PRECIOS_TABS } from '../precios-tabs';
@@ -95,6 +96,11 @@ import {
         <button type="button" class="mm-card" [class.is-sel]="filtroAccion() === a.accion"
                 (click)="filtrarPor(a.accion)">
           <span class="mm-card-t">{{ etiqueta(a.accion) }}</span>
+          <!-- La frase que dice QUE significa el verbo. Va aca y no en la ayuda: quien lee
+               "Corregir la escalera" por primera vez no sabe que es una escalera, y mandarlo
+               a un cajon de ayuda es pedirle un clic para entender la pantalla que esta
+               mirando. -->
+          <span class="mm-card-g">{{ glosa(a.accion) }}</span>
           <span class="mm-card-m comm-num">{{ dinero(a) }}</span>
           <span class="mm-card-bar" aria-hidden="true">
             <span class="mm-card-bar-f" [style.width.%]="parte(a)"></span>
@@ -131,7 +137,7 @@ import {
         <span class="mm-sec-t">Sin decisión posible</span>
         @for (a of accionesSinDecision(); track a.accion) {
           <span class="mm-nodec-r">
-            <span>{{ etiqueta(a.accion) }}</span>
+            <span>{{ etiqueta(a.accion) }} <em>{{ glosa(a.accion) }}</em></span>
             <span class="comm-num">{{ a.celdas | number }}</span>
           </span>
         }
@@ -331,6 +337,7 @@ import {
     .mm-card:hover { background: var(--surface-hover); }
     .mm-card.is-sel { border-color: var(--action); }
     .mm-card-t { font-size: var(--fs-sm); font-weight: 600; line-height: 1.25; min-height: 2.2em; }
+    .mm-card-g { font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.35; min-height: 2.5em; }
     .mm-card-m {
       font-size: var(--fs-lg); font-weight: 600; letter-spacing: -.02em;
       font-variant-numeric: tabular-nums;
@@ -717,27 +724,23 @@ export class ComercialMotorMargenComponent {
     return '—';
   }
 
-  etiqueta(a: string): string {
-    return ({
-      corregir_escalera: 'Corregir la escalera',
-      revisar_costo: 'Revisar el costo',
-      aterrizar_precio: 'Aterrizar el precio',
-      subir_precio: 'Subir el precio',
-      liberar_capital: 'Liberar capital',
-      precio_atipico: 'Precio atípico',
-      sin_accion_defendible: 'Sin acción defendible',
-    } as Record<string, string>)[a] ?? a;
-  }
+  /**
+   * `[PR.V5]` Qué significa cada verbo, en una línea y sin jerga.
+   *
+   * ⭐ Va EN la tarjeta, no en la ayuda contextual. «Corregir la escalera» no le dice nada a
+   * quien no sabe qué es una escalera, y mandarlo a abrir un cajón es pedirle un clic para
+   * entender la pantalla que ya está mirando. La ayuda explica a fondo; esto evita tener que
+   * abrirla.
+   */
+  /**
+   * `[PR.V5]` Que significa cada verbo, en una linea. Va EN la tarjeta y no en la ayuda:
+   * mandar a abrir un cajon para entender la pantalla que ya se esta mirando es un clic de mas.
+   */
+  glosa(a: string): string { return glosaAccion(a); }
 
-  certezaTxt(c: string): string {
-    return ({
-      aritmetica: 'aritmética',
-      efecto_no_medido: 'efecto no medido',
-      regla_de_operacion: 'regla de operación',
-      fuera_de_alcance: 'fuera de alcance',
-      sin_evidencia: 'sin evidencia',
-    } as Record<string, string>)[c] ?? c;
-  }
+  etiqueta(a: string): string { return etiquetaAccion(a); }
+
+  certezaTxt(c: string): string { return textoCerteza(c); }
 
   senalTxt(s: string): string {
     return ({
