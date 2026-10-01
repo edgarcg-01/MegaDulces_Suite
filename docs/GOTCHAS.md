@@ -3865,3 +3865,44 @@ pantalla igual de lenta.
 ⚠️ `environment.apiUrl` es `'/api'` (relativo), así que `wsBase()` devuelve el origen del dev server
 y **todo el tráfico de sockets pasa por el proxy**. Con una `apiUrl` absoluta iría directo al API y
 esta trampa no aparecería — por eso no se ve en producción, donde Caddy sirve todo del mismo origen.
+
+## 74. Un `mv` sobre un archivo montado como *bind mount* desengancha el montaje PARA SIEMPRE — el contenedor sigue leyendo el archivo viejo, sin un solo error
+
+Un bind mount **de archivo** (no de directorio) ata el **inodo**, no el nombre. Docker resuelve la
+ruta una vez, al crear el contenedor, y se queda con ese inodo.
+
+`mv -f nuevo viejo` **no sobrescribe**: desenlaza el inodo viejo y pone uno nuevo con el mismo
+nombre. El host ve el archivo actualizado; el contenedor sigue leyendo el inodo original, que ya no
+tiene nombre pero sigue vivo porque el montaje lo referencia. **Nada falla.** No hay error, no hay
+aviso, y `docker inspect` sigue mostrando el montaje con la ruta correcta.
+
+**Medido el 2026-09-30 en `md`**, con el balanceo de `api2` ya escrito en el `Caddyfile`:
+
+```
+host    inodo 7733543   mtime 2026-09-30 19:13   api-balanceado ×3
+dentro  inodo 7734129   mtime 2026-09-24 18:36   api-balanceado ×0
+```
+
+**Todo cambio de `Caddyfile` desde el 24-sep fue invisible**, seis días, y el síntoma era que
+`ops/prod/deploy.sh --recrear caddy` imprimía `── Recreando: caddy ──` y no recreaba nada.
+
+**Por qué el `mv` estaba ahí, y por qué para los `.sh` es correcto.** `sh` lee un guion **por
+posición** mientras lo ejecuta: sobrescribir el inodo de un guion en curso le hace ejecutar basura
+desde el byte donde iba, y `auto-deploy.sh` puede estar corriendo (dispara cada 5 min). Para un
+guion, `mv` es la forma segura. La regla real no es "usar `mv`" sino:
+
+| el archivo lo lee… | cómo se actualiza |
+|---|---|
+| un intérprete, **por posición, mientras corre** (`.sh`) | `mv -f` (inodo nuevo) |
+| un proceso que lo lee **entero al arrancar** y está **montado** (`Caddyfile`, `nginx.conf`) | `cat nuevo > viejo` (conserva el inodo) |
+
+**Y conservar el inodo no alcanza.** Caddy lee su config **sólo al arrancar**: con el inodo bien,
+la config nueva queda en disco y nunca en memoria. Además Compose compara la **especificación** del
+servicio —imagen, puertos, variables—, y un archivo montado distinto no le cambia nada, así que
+`docker compose up -d caddy` es un **no-op silencioso** para un cambio de configuración. Hace falta
+`--force-recreate` (o un `caddy reload`). Las dos mitades están en `ops/prod/deploy.sh` (`[INFRA.6]`).
+
+> ⚠️ **Cómo se reconoce**, porque el síntoma no apunta al archivo: el cambio de config "no hace
+> efecto" y uno sospecha de la sintaxis. El diagnóstico son dos comandos —
+> `stat -c %i <ruta en el host>` contra `docker exec <c> stat -c %i <ruta adentro>`. Si los inodos
+> difieren, el montaje está roto y **ningún reinicio lo arregla**: hay que recrear el contenedor.

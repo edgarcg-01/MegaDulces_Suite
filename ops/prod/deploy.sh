@@ -336,7 +336,24 @@ subir_compose() {
   done
   # ⛔ Se mueve encima, nunca se sobrescribe el inodo en curso: `sh` lee el guion POR POSICIÓN
   # mientras lo ejecuta. `auto-deploy.sh` puede estar corriendo justo ahora (dispara cada 5 min).
-  ssh_md "cd ~/ops/prod && for a in $_guiones; do mv -f \".\$a.nuevo\" \"\$a\"; done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh dev-ro-crear.sh dev-ro-verificar.sh"
+  # ⛔ [INFRA.6 2026-09-30] EL `Caddyfile` NO SE MUEVE ENCIMA: SE ESCRIBE EN SU LUGAR.
+  # `prod-caddy` lo monta como BIND MOUNT **DE ARCHIVO** (`~/ops/prod/Caddyfile` →
+  # `/etc/caddy/Caddyfile`), y un bind mount de archivo ata el **INODO**, no el nombre. `mv -f`
+  # crea un inodo nuevo y DESENGANCHA el montaje para siempre: el contenedor sigue leyendo el
+  # archivo viejo mientras el del host cambia, sin un solo error ni un aviso.
+  #
+  # Medido hoy, con el balanceo de `api2` ya escrito:
+  #   host   inodo 7733543  mtime 2026-09-30 19:13  `api-balanceado` ×3
+  #   dentro inodo 7734129  mtime 2026-09-24 18:36  `api-balanceado` ×0
+  # O sea que **todo cambio de Caddyfile desde el 24-sep fue invisible**, y `--recrear caddy`
+  # parecía funcionar: imprimía «Recreando: caddy» y no recreaba nada.
+  #
+  # `cat >` conserva el inodo. Es seguro para ESTE archivo justo por lo contrario de los `.sh`:
+  # Caddy no lo ejecuta por posición, lo lee entero al arrancar. Los guiones siguen con `mv`.
+  ssh_md "cd ~/ops/prod && for a in $_guiones; do
+            if [ \"\$a\" = Caddyfile ]; then cat \".\$a.nuevo\" > \"\$a\" && rm -f \".\$a.nuevo\"
+            else mv -f \".\$a.nuevo\" \"\$a\"; fi
+          done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh dev-ro-crear.sh dev-ro-verificar.sh"
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
 }
 
@@ -510,8 +527,16 @@ recrear() {
   # un `docker compose up` sin esta variable ponía la cadena VACÍA y **pisaba el valor de la
   # imagen**. Se quitó la declaración del compose; dejar acá el export sería reconstruir el
   # mismo acoplamiento por la otra punta.
+  # ⛔ [INFRA.6] `caddy` SIEMPRE se fuerza. Su configuración no viaja en la imagen ni en la
+  # especificación del servicio: viaja en un archivo montado. Compose compara la ESPECIFICACIÓN,
+  # así que un Caddyfile distinto no le cambia nada y deja el contenedor en pie — `up -d caddy`
+  # es un **no-op silencioso** para un cambio de config. Y aunque el inodo ahora se conserve
+  # (ver `subir_compose`), Caddy lee el archivo **sólo al arrancar**: sin recrear, la config nueva
+  # queda en disco y nunca en memoria. Medido: el balanceo de `api2` no entró hasta forzarlo.
+  forzar=""
+  case " $servicios " in *" caddy "*) forzar="--force-recreate" ;; esac
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a &&
-    docker compose -p prod up -d $servicios 2>&1 | grep -E 'Recreated|Started|Created|Error' | sed 's/^/   /'"
+    docker compose -p prod up -d $forzar $servicios 2>&1 | grep -E 'Recreated|Started|Created|Error' | sed 's/^/   /'"
   echo
   echo "── Salud ──"
   ssh_md "for c in $servicios; do
