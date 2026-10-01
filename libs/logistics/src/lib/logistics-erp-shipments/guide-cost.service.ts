@@ -1,5 +1,73 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
+import type { Coverage } from '@megadulces/contracts';
+
+// ─── Los tipos del borde HTTP (ADR-052) ──────────────────────────────────────
+// Se exportan para que el controller use EL MISMO tipo que el servicio y no un `any`: un
+// `@Query() q: any` deja pasar cualquier cosa al SQL y el compilador no dice nada.
+// ⭐ `cobertura` reusa `Coverage` de `libs/contracts` en vez de re-declarar `measured/pct/note`
+// a mano — es la regla de ADR-056: un primitivo que ya vive en `libs/` no se reinventa por fase.
+
+export interface GuideCostQuery {
+  from?: string; to?: string; canal?: string; sucursal?: string; concepto?: string; limit?: string;
+}
+
+export interface ConceptosQuery { from?: string; to?: string; canal?: string }
+
+/** La fila cruda del nivel 1. Postgres devuelve `numeric` como string, por eso el union. */
+interface GuiaCostoRow {
+  dia: string; sucursal: string; guia: string; canal: string;
+  paradas: number | string;
+  mercancia: number | string | null;
+  costo: number | string | null;
+  conceptos: number | null;
+  origen_peor: string | null;
+  pct_admin: number | string | null;
+  transporte_clave: string | null;
+  unidades: number | string | null;
+}
+
+/** La guía ya normalizada. ⚠️ `null` NUNCA es 0: "no se registró gasto" no es "fue gratis". */
+export interface GuiaCosto extends Omit<GuiaCostoRow, 'paradas' | 'mercancia' | 'costo'> {
+  paradas: number;
+  mercancia: number | null;
+  costo: number | null;
+  costo_por_parada: number | null;
+  costo_estado: 'no_medido' | 'atribuido';
+  costo_motivo: string | null;
+}
+
+/** Por qué este reporte NO publica margen. Se declara, no se dibuja (ADR-056). */
+export interface MargenDeclarado {
+  disponible: false;
+  motivo: string;
+  requiere: string;
+  en_su_lugar: string;
+}
+
+export interface GuideCostReport {
+  guias: GuiaCosto[];
+  totales: {
+    guias: number; guias_con_costo: number; paradas: number;
+    costo: number; mercancia: number;
+    costo_por_parada: number | null;
+    mostradas: number;
+    /** `true` cuando la lista está recortada por `limit`: el total NO sale de estas filas. */
+    truncado: boolean;
+  };
+  retorno: {
+    erosion_pct: number | null;
+    pesos_movidos_por_peso_gastado: number | null;
+    nota: string;
+  };
+  cobertura: Coverage;
+  margen_declarado: MargenDeclarado;
+}
+
+export interface ConceptoCosto {
+  concepto: string; cuentas: string; ventanas: string;
+  guias: number; total: number;
+}
 
 /**
  * `[CGU.4]` — **Qué cuesta cada guía de embarque, y de qué pólizas sale ese costo.**
@@ -55,7 +123,7 @@ export class GuideCostService {
    * pantalla se calcularía sobre una muestra sesgada (sólo los días que tuvieron gasto) y
    * nadie lo sabría.
    */
-  async listCosts(q: { from?: string; to?: string; canal?: string; sucursal?: string; concepto?: string; limit?: string }) {
+  async listCosts(q: GuideCostQuery): Promise<GuideCostReport> {
     const { from, to } = rango(q);
     const limit = Math.min(500, Math.max(1, parseInt(q.limit || '200', 10) || 200));
 
@@ -109,7 +177,7 @@ export class GuideCostService {
         params,
       );
 
-      const guias = rows.map((r: any) => ({
+      const guias: GuiaCosto[] = (rows as GuiaCostoRow[]).map((r) => ({
         ...r,
         paradas: Number(r.paradas),
         mercancia: r.mercancia === null ? null : Number(r.mercancia),
@@ -186,7 +254,7 @@ export class GuideCostService {
    * ⚠️ Sale de los datos, no de una lista fija: si Contabilidad da de alta un concepto nuevo,
    * aparece solo. Una lista quemada en el front lo dejaría invisible y nadie se enteraría.
    */
-  async conceptos(q: { from?: string; to?: string; canal?: string }) {
+  async conceptos(q: ConceptosQuery): Promise<ConceptoCosto[]> {
     const { from, to } = rango(q);
     return this.tk.run(M, async (trx) => {
       const { rows } = await trx.raw(
@@ -203,7 +271,7 @@ export class GuideCostService {
           ORDER BY sum(atribuido) DESC`,
         [M, from, to, ...(q.canal ? [q.canal] : [])],
       );
-      return rows.map((r: any) => ({ ...r, total: Number(r.total), guias: Number(r.guias) }));
+      return (rows as ConceptoCosto[]).map((r) => ({ ...r, total: Number(r.total), guias: Number(r.guias) }));
     });
   }
 
@@ -326,7 +394,7 @@ export class GuideCostService {
   }
 
   /** El mismo motivo en los tres niveles: si cambia, cambia en un solo lugar. */
-  private motivoSinMargen() {
+  private motivoSinMargen(): MargenDeclarado {
     return {
       disponible: false,
       motivo: 'No hay COGS para el canal que factura. Dos fuentes, las dos medidas: (1) el '

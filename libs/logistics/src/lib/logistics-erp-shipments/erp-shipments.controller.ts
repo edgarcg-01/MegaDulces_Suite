@@ -3,6 +3,9 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { ErpShipmentsService } from './erp-shipments.service';
 import { GuideCostService } from './guide-cost.service';
+import type {
+  ConceptosQuery, ConceptoCosto, GuideCostQuery, GuideCostReport,
+} from './guide-cost.service';
 
 /**
  * EMB — Embarques reales del ERP para la pantalla `/logistica/shipments`.
@@ -70,14 +73,14 @@ export class ErpShipmentsController {
   @Get('costs')
   @RequirePermissions(Permission.LOGISTICS_EXPENSES_VER)
   @ApiOperation({ summary: 'Guías del período con su costo ATRIBUIDO (el gasto no existe por guía) y su dilución' })
-  costs(@Query() q: any) {
+  costs(@Query() q: GuideCostQuery): Promise<GuideCostReport> {
     return this.cost.listCosts(q);
   }
 
   @Get('costs/conceptos')
   @RequirePermissions(Permission.LOGISTICS_EXPENSES_VER)
   @ApiOperation({ summary: 'Catálogo de tipos de gasto del período — alimenta el filtro' })
-  costConceptos(@Query() q: any) {
+  costConceptos(@Query() q: ConceptosQuery): Promise<ConceptoCosto[]> {
     return this.cost.conceptos(q);
   }
 
