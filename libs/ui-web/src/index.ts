@@ -29,3 +29,23 @@ export {
   ajustarARejilla,
 } from './order/qty-units';
 export type { Presentacion } from './order/qty-units';
+
+/**
+ * `[KBD.1]` Teclado en tablas. ⛔ NO es una navegación propia: `pSelectableRow` de PrimeNG ya
+ * mueve con `↑↓`, `Home`/`End`, `Enter`/`Space` y ya hace roving tabindex. Acá viven los DOS
+ * huecos que ese componente deja — la guarda (PrimeNG no mira `event.target`, así que un campo
+ * dentro de una fila pierde sus teclas) y el salto buscador→lista.
+ */
+export { installRowNavGuard, bajarAlPrimerRenglon, volverAlBuscador } from './keyboard/row-nav';
+
+/**
+ * `[KBD.2]` Búsqueda tokenizada en el CLIENTE, con la misma semántica que `applySmartSearch` del
+ * servidor. Para listas COMPLETAS en memoria (catálogo offline, combos). ⚠️ Sobre una lista
+ * paginada filtra sólo la página: ahí el texto va al servidor, no a esta función.
+ */
+export {
+  normalizarBusqueda,
+  tokensDeBusqueda,
+  coincideBusqueda,
+  filtrarPorBusqueda,
+} from './search/buscar-en-cliente';

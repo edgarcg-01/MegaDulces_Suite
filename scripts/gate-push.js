@@ -74,6 +74,10 @@ const GATES = [
   { nombre: 'API retirada de PrimeNG', script: 'check-primeng-api.js', ms: 2084 },
   { nombre: 'reactividad de señales', script: 'check-signal-reactivity.js', ms: 1801 },
   { nombre: 'literales de template', script: 'check-template-literals.js', ms: 2521 },
+  // `[KBD]` Las dos de 2026-10-01. Son las más baratas de la lista (~200 ms cada una):
+  // escaneo por regex sobre .component.ts, sin red y sin DB.
+  { nombre: 'teclado en tablas', script: 'check-keyboard-nav.js', ms: 197 },
+  { nombre: 'búsqueda tokenizada', script: 'check-busqueda.js', ms: 198 },
 ];
 
 /** Un sha de puros ceros = la ref se está borrando. */
