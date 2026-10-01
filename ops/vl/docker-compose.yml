@@ -291,6 +291,9 @@ services:
       # Se descubrió porque `cdc_reconcile_chicas` no existía en `cron_runs` — la llave estaba
       # registrada en `CRON_JOBS` y eso la delató.
       ODS_RECONCILE_HB_KEY: cdc_reconcile_chicas
+      # [K3S.7] health.js lee ODS_HB_KEY, no ODS_RECONCILE_HB_KEY: sin ella el chequeo
+      # imprime "no se evalua" y SALE 0 -- healthy pase lo que pase. Venia asi.
+      ODS_HB_KEY: cdc_reconcile_chicas
       ODS_HB_MAX_MIN: "90"
       ODS_HB_IGNORE_ERROR: "1"
       ODS_DELETE_SOBRANTES: "0"

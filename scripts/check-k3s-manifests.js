@@ -99,6 +99,17 @@ function revisar(doc, archivo) {
     }
   }
 
+  // [K3S.7] Una `livenessProbe` que corre `health.js` SIN `ODS_HB_KEY` es decorativa: el script
+  // imprime «sin ODS_HB_URL/ODS_HB_KEY — no se evalúa» y **sale 0**, así que el pod queda healthy
+  // pase lo que pase. ⚠️ `ODS_RECONCILE_HB_KEY` NO sirve: esa la lee el reconciliador para elegir
+  // SU renglón, no el chequeo. Se descubrió ejecutando la sonda a mano en vez de esperar sus 20
+  // min de `initialDelay`, y venía así desde Compose — o sea que el defecto no lo trajo K3s.
+  if (kind === 'Deployment' && doc.some((l) => /health\.js/.test(l))) {
+    r.push([doc.some((l) => /ODS_HB_KEY/.test(l)),
+      `${et}: la sonda corre health.js y declara ODS_HB_KEY — sin ella sale 0 SIEMPRE `
+      + '(ODS_RECONCILE_HB_KEY no cuenta: la lee el reconciliador, no el chequeo)']);
+  }
+
   if (kind === 'Service') {
     // El puente de nombres: un Service sin selector NECESITA sus Endpoints, o resuelve a nada.
     r.push([!tiene(doc, 'selector'),
