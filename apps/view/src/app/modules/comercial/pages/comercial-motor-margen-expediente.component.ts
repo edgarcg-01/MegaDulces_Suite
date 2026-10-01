@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { etiquetaAccion, glosaAccion, textoCerteza } from '../precios-vocabulario';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DialogModule } from 'primeng/dialog';
@@ -73,6 +74,15 @@ import {
         @if (d.accion.e3_estado_inventario) {
           <span class="mx-tag">{{ d.accion.e3_estado_inventario }}</span>
         }
+      </div>
+      <!-- [PR.V5] Lo que el motor PROPONE, dicho aqui. La ventana mostraba precio, costo,
+           margen e historia y nunca repetia la accion que hizo a la persona entrar: alguien
+           abria un renglon que decia "Corregir la escalera" y adentro no habia ni una palabra
+           sobre que es una escalera ni que hacer con ella. -->
+      <div class="mx-propuesta">
+        <span class="mx-prop-v">{{ etiqueta(d.accion.accion) }}</span>
+        <span class="mx-prop-g">{{ glosa(d.accion.accion) }}</span>
+        <span class="mx-prop-c" [attr.data-c]="d.accion.certeza">{{ certezaTxt(d.accion.certeza) }}</span>
       </div>
       <dl class="mx-cifras">
         <div><dt>Precio hoy</dt><dd class="comm-num">{{ d.accion.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</dd></div>
@@ -301,6 +311,21 @@ import {
 </p-dialog>
   `,
   styles: [`
+    /* [PR.V5] La propuesta, arriba de todo: el verbo, lo que significa y que tan en firme esta. */
+    .mx-propuesta {
+      display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem;
+      padding: .55rem .75rem; margin-bottom: .75rem;
+      border: 1px solid var(--border-color); border-left: 3px solid var(--action);
+      border-radius: var(--r-md); background: var(--surface-2);
+    }
+    .mx-prop-v { font-size: var(--fs-sm); font-weight: 700; }
+    .mx-prop-g { font-size: var(--fs-xs); color: var(--fg-2); }
+    .mx-prop-c {
+      margin-left: auto; font-size: var(--fs-nano); font-weight: 700;
+      letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 4px; background: var(--neutral-200); color: var(--neutral-800);
+    }
+    .mx-prop-c[data-c='efecto_no_medido'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     :host ::ng-deep .mx-dlg .p-dialog-content { padding-top: var(--sp-2); }
 
     .mx-skel { display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -598,6 +623,14 @@ export class ComercialMotorMargenExpedienteComponent {
     const m = this.margenes();
     return m.length >= 2 ? (Math.max(...m) - Math.min(...m)).toFixed(2) : null;
   });
+
+  etiqueta(a: string): string { return etiquetaAccion(a); }
+
+  /** ⭐ Qué significa el verbo, en una línea. Mismo texto que la cola: una sola voz. */
+  /** Mismo texto que la cola: el vocabulario vive en un solo lugar. */
+  glosa(a: string): string { return glosaAccion(a); }
+
+  certezaTxt(c: string): string { return textoCerteza(c); }
 
   num(v: string | number | null | undefined): string {
     if (v === null || v === undefined) return '—';
