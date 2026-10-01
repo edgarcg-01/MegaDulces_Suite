@@ -130,6 +130,8 @@ services:
 
   # ═══ CARRIL CALIENTE ═══ venta, movimientos y catálogos. @15 s.
   ods-live-hot:
+    # [K3S.10] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     <<: *lane
     container_name: ods-live-hot
     environment:

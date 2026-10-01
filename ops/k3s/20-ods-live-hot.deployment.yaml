@@ -31,7 +31,7 @@ metadata:
   labels:
     carril: ods-live-hot
     singleton: "true"
-    migracion: preparado         # migrado = ya NO lo corre Compose · preparado = todavia si          # lo lee el candado
+    migracion: migrado           # migrado = ya NO lo corre Compose · preparado = todavia si          # lo lee el candado
 spec:
   replicas: 1                  # ⛔ NUNCA subir: ver el encabezado
   strategy:

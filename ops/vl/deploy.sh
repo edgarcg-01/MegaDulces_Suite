@@ -54,7 +54,7 @@ RUTAS="ops/ingest ops/vl database/importers database/scripts services/feeds-inge
 # peleandoselo -- la falla que la guarda de dueno de health.js detecta, causada por nosotros.
 # El servicio sigue declarado en el compose bajo el perfil `retirado-k3s`: no arranca solo.
 # Lo candadea `npm run check:k3s` (bloque "ningun carril en los dos mundos").
-SERVICIOS_DEF="feeds-cron feeds-livefast store-poller ods-live-hot ods-reconcile-full"
+SERVICIOS_DEF="feeds-cron feeds-livefast store-poller ods-reconcile-full"
 
 ssh_md() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$SRV" "$@"; }
 
