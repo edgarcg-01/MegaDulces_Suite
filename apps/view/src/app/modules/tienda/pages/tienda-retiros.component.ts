@@ -1,5 +1,5 @@
 import {
-  ChangeDetectionStrategy, Component, OnInit, computed, inject, signal,
+  ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -8,7 +8,9 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { AuthService } from '../../../core/services/auth.service';
-import { VerificadorService, type SucursalVerificador } from '../verificador.service';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { DataScopeService } from '../../../core/services/data-scope.service';
+import { SucursalPickerComponent, unCodigo } from '../../../shared/components/sucursal-picker/sucursal-picker.component';
 import {
   RetirosService, MOTIVOS, MOTIVO_LABEL,
   type Retiro, type ResumenSupervisor, type VoidReason,
@@ -43,7 +45,7 @@ type Aviso = { tono: 'ok' | 'warn' | 'bad'; texto: string; detalle?: string } | 
 @Component({
   selector: 'app-tienda-retiros',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule, SucursalPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
   <div class="pg">
@@ -52,10 +54,10 @@ type Aviso = { tono: 'ok' | 'warn' | 'bad'; texto: string; detalle?: string } | 
         <h1>Retiros en caja</h1>
         <p class="sub">Lo que se quitó del ticket y quién lo autorizó. Kepler pide la contraseña pero no guarda el hecho.</p>
       </div>
-      <p-select [options]="sucursales()" optionLabel="nombre" optionValue="codigo"
-                [ngModel]="sucursal()" (ngModelChange)="cambiarSucursal($event)"
-                placeholder="Elegí la sucursal" styleClass="sel" [filter]="true" filterBy="nombre,codigo">
-      </p-select>
+      <!-- [ZN.7] Del ALCANCE, no del catalogo publico del verificador: el endpoint de retiros
+           ya rechaza con 403 una sucursal ajena, asi que ofrecerlas todas era ofrecer un error. -->
+      <app-sucursal-picker [valor]="sucursal()" (valorChange)="cambiarSucursal(unCodigo($event))"
+                           placeholder="Elegí la sucursal" etiqueta="Sucursal" />
     </header>
 
     <nav class="tabs">
@@ -235,11 +237,13 @@ type Aviso = { tono: 'ok' | 'warn' | 'bad'; texto: string; detalle?: string } | 
 })
 export class TiendaRetirosComponent implements OnInit {
   private readonly svc = inject(RetirosService);
-  private readonly verificador = inject(VerificadorService);
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
+  /** `[ZN.7]` Alcance de sucursales: alimenta el selector y valida la preselección. */
+  private readonly scope = inject(DataScopeService);
+  readonly unCodigo = unCodigo;
 
-  readonly sucursales = signal<SucursalVerificador[]>([]);
   readonly sucursal = signal<string | null>(null);
   readonly tab = signal<Pestana>('registrar');
   readonly cargando = signal(false);
@@ -272,17 +276,17 @@ export class TiendaRetirosComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.verificador.sucursales().subscribe({
-      next: (s) => {
-        this.sucursales.set(s ?? []);
+    // `[ZN.7]` La preselección se valida contra el ALCANCE: que la sucursal EXISTA no alcanza,
+    // tiene que ser una que esta persona pueda leer, o el 403 llega después del clic.
+    this.scope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (ops) => {
         // Precedencia: `?sucursal=NN` (la máquina del mostrador sin cuenta de esa tienda) →
         // la sucursal de la ficha → nada, y entonces se pide. Nunca se adivina.
         const q = this.route.snapshot.queryParamMap.get('sucursal');
         const propia = this.auth.user()?.warehouse_code ?? null;
-        const elegida = [q, propia].find((c) => c && (s ?? []).some((x) => x.codigo === c)) ?? null;
+        const elegida = [q, propia].find((c) => c && ops.some((o) => o.value === c)) ?? null;
         if (elegida) this.cambiarSucursal(elegida);
       },
-      error: () => this.sucursales.set([]),
     });
   }
 

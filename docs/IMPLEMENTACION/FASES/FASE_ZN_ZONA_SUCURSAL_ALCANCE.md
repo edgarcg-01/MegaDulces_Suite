@@ -535,3 +535,85 @@ y con nombre** en el bloque [6] del candado, que las reporta sin fallar.
 **Decisión registrada (2026-09-30):** a la gente de oficina **la zona no le aplica** — su eje ya es
 `red`, así que van a `zona_id = NULL` + regla explícita (`all`/`none`). Medido: **13 de esos 20 ya
 están en `all`**, o sea que quitarles el valor engañoso no les cambia lo que ven.
+
+---
+
+## 12. ZN.7 — El selector de sucursal, una sola vez 🔨 en código (2026-10-01)
+
+Pedido: *«todo lo que involucre ver una o más sucursales: hay que dar las opciones en el frontend,
+para que hagamos dinámicos esos permisos»*.
+
+### 12.1 ⛔ La regla que apareció midiendo, y que reordena el trabajo
+
+**El selector y el endpoint tienen que ir juntos.** Un selector que respeta el alcance sobre un
+endpoint que no lo respeta **no es medio arreglo: es una mentira nueva** — le recorta a la persona
+lo que puede *pedir* mientras le sigue mostrando *todo*, y a quien no tiene regla le dice «Sin
+sucursal asignada» encima de una tabla con las nueve.
+
+Se descubrió al migrar `logistica/erp-trips-panel` y **se revirtió esa migración**: su controlador
+(`erp-shipments.controller.ts`) toma `sucursal` crudo, sin `ScopeService`.
+
+⇒ Sólo se migra una pantalla cuando **su endpoint ya aplica alcance**. El resto no es trabajo de
+frontend: es ZN.3.
+
+### 12.2 El censo (16 pantallas, 6 fuentes distintas)
+
+| de dónde salen las opciones | pantallas | ¿respeta alcance? |
+|---|---|---|
+| `DataScopeService.misSucursales()` | `comercial-tickets` · `tienda-arqueo` · `compras-entradas{,-pendientes,-revision}` · `comercial-documentos` | ✅ |
+| **`/api/sucursales` (PÚBLICO, del verificador)** | `tienda-verificador` · `tienda-etiquetas` · **`tienda-faltantes`** · **`tienda-retiros`** | ❌ |
+| endpoint GX `analytics/expenses/sucursales` | `comercial-egresos` · `comercial-egreso-detalle` · `finanzas-solicitudes` | ❌ (su controller tiene **0** usos de scope) |
+| **arreglo escrito a mano en el componente** | `logistica/erp-trips-panel` | ❌ y **viejo** |
+| `STORE_BRANCHES` del bundle | `televenta-quote-new` | ❌ |
+| endpoint propio | `anden` · `tienda-caducidades-expediente` · `compras-catalogo-reporte` | sin medir |
+
+⚠️ **Corrección a §2.5 de este documento:** decía *«`store-branches.ts` importado por 14
+componentes → todos ofrecen las 9 sucursales a cualquiera»*. Hoy es falso: **14 de los 16 sólo
+importan `branchName()`**, que es una etiqueta, no una fuente de opciones. ZN.2 ya los había
+migrado; lo que queda de ese archivo en ellos es la deuda `branchName` de §5.5.
+
+⛔ El arreglo a mano de Logística lista **00–06**: desde esa pantalla **Morelia (07 y 08) no se
+puede filtrar**, y dos opciones se llaman `"04"` y `"05"` a secas.
+
+### 12.3 Antes de cerrar nada, a quién le cambia
+
+| situación | personas |
+|---|---|
+| `own` **con** sucursal en su ficha → ve 1 | 47 |
+| `all` → ve las 9 | 46 |
+| `listed` → su lista | 32 |
+| **sin regla → el selector queda vacío** | **6** |
+| `none` a propósito → vacío | 4 |
+| **`own` sin sucursal → vacío** | **1** |
+
+Los **7** que quedarían con el selector vacío **ya no ven filas**: sin regla, `build()` resuelve
+`none` y el `WHERE` sale en `false`. El picker no les quita nada — **deja de mentirles**.
+
+Y en las dos pantallas migradas, **cero bloqueados**: los 31 de mostrador (`cajero` 18,
+`encargado_tienda` 7, `auxiliar_tienda` 4, `verificador_precios` 2) tienen todos `warehouse_code`,
+y `superadmin` resuelve por god-mode antes de consultar reglas.
+
+### 12.4 Lo entregado
+
+- **`shared/components/sucursal-picker`** — el primitivo. El idiom no se inventó: estaba bien
+  resuelto en `comercial-tickets` y se subió tal cual, con sus **cuatro** estados (`null` ≠ `[]`,
+  y *una sola sucursal es un hecho de la sesión, no un desplegable de una opción*). Más `unCodigo()`,
+  que estrecha el valor a un código **en un solo lugar** en vez de un ternario por pantalla.
+- **`tienda-faltantes`** y **`tienda-retiros`** migradas: sus endpoints **sí** aplican alcance
+  (`floor-stockouts`, y `pos-line-voids` que directamente **responde 403** a una sucursal ajena).
+  Antes ofrecían las nueve desde el catálogo **público**, así que una cajera de La Piedad podía
+  reportar un faltante a nombre de Morelia, o pedir un retiro y comerse el 403 después del clic.
+  La **preselección** (`?sucursal=NN` → la sucursal de la ficha) también se valida ahora contra el
+  alcance: que la sucursal exista no alcanza.
+- Candado `sucursal-picker.component.spec.ts` (8 casos, **rojo ejercido**: colapsando `null` en
+  `[]` cae el primero, que es justo el contra-ejemplo).
+
+### 12.5 Declarado, NO construido
+
+| pantalla | qué falta primero |
+|---|---|
+| `logistica/erp-trips-panel` | alcance en `erp-shipments.controller` (hoy 0 usos). **Su lista a mano queda viva y vieja** |
+| `comercial-egresos` · `egreso-detalle` · `finanzas-solicitudes` | alcance en `commercial-analytics.controller` — el dominio VG+GX entero lo ignora |
+| `televenta-quote-new` | ningún `ScopeService` en televenta; su rol es `own` con 3 personas |
+| `tienda-verificador` · `tienda-etiquetas` | **a propósito**: son kiosco de mostrador y el catálogo público es su fuente correcta — la sucursal ahí es la de la máquina, no la de la persona |
+| `anden` · `caducidades-expediente` · `catalogo-reporte` | sin medir si su endpoint acota |
