@@ -50,7 +50,21 @@ const ONLY = (process.argv.find((a) => a.startsWith('--tables=')) || '').split('
 const WATCH_ARG = process.argv.find((a) => a === '--watch' || a.startsWith('--watch='));
 const WATCH_SEC = WATCH_ARG ? Math.max(3, Number(WATCH_ARG.split('=')[1] || 10)) : 0;
 
-const TABLES = (ONLY || process.env.KP_ODS_TABLES || 'kdm1,kdm2,kdii,kdil,kdig,kdik,kdib,kdb1,kdid,kdij,kdue,kduv,kdud,kdm_rutas,kdm_transporte,kdm_chofer,kdpord')
+// [INFRA.3] SIN LISTA POR DEFECTO, A PROPOSITO. Aca vivia la CUARTA copia a mano del conjunto
+// de tablas; el comentario de ops/vl/docker-compose.yml:160 ya la habia nombrado "el hallazgo
+// grande" sin desactivarla. Medido hoy, las copias YA DIVERGIAN: este default traia kdib
+// --retirada el 2026-09-24 porque su destino NO EXISTE-- y le FALTABAN seis familias que si se
+// embarcan: kdco, kdc3, kdpv_folio_caja, kdxd, kdxe y kdc2* (las polizas mensuales).
+//
+// Nadie lo notaba porque los dos contenedores fijan KP_ODS_TABLES: el default solo sale a
+// escena cuando alguien corre el script A MANO --depuracion, puesta al dia, recuperacion--,
+// que es justo cuando menos se mira lo que se embarco. Un default EQUIVOCADO es peor que no
+// tener default: shipea un conjunto plausible y calla.
+//
+// Vacio aca y freno explicito en la entrada CLI (abajo). NO se sale del proceso en esta linea:
+// este archivo se IMPORTA --database/tests/test-ods-dest-fingerprint.js usa su __test-- y salir
+// al cargar romperia ese candado.
+const TABLES = (ONLY || process.env.KP_ODS_TABLES || '')
   .split(',').map((s) => s.trim()).filter(Boolean);
 // Catálogos mutables (UPDATE in-place) → carril hash. El resto → carril ctid (append-only o grande).
 // kdb1 (catálogo de cuentas de banco) es chico y mutable → hash; lo consume el libro de bancos Kepler.
@@ -649,6 +663,15 @@ async function cycleAll({ apply, full }) {
 // candado de "destino nuevo" nació sin prueba negativa. Mismo patrón que `lib/cron-heartbeat.js`.
 // Invocado como script (que es como lo invocan el cron y el compose) el comportamiento es idéntico.
 if (require.main === module) {
+  // [INFRA.3] El freno del default retirado: sin tablas no hay nada que shipear, y seguir
+  // seria entregar el VACIO con cara de exito. ALL_MODE (KP_ODS_TABLES="*") no usa esta lista.
+  if (!ALL_MODE && !TABLES.length) {
+    console.error('replicate-ods-live: SIN TABLAS que procesar. Falta KP_ODS_TABLES (o --only).');
+    console.error('  NO hay lista por defecto a proposito: la que habia estaba vieja, y shipear');
+    console.error('  un conjunto equivocado se ve exactamente igual que shipear bien.');
+    console.error('  El conjunto de produccion vive en ops/vl/docker-compose.yml (ods-live-hot).');
+    process.exit(1);
+  }
   (async () => {
     console.log(`\n=== replicate-ods-LIVE — replicas locales → kepler_ods (${APPLY || WATCH_SEC ? 'APPLY' : 'DRY-RUN'}${FULL ? ', FULL' : ''}${WATCH_SEC ? `, WATCH ${WATCH_SEC}s` : ''}) ===`);
     console.log(`  sink: ${sink.sinkMode()}  ·  ramas: ${BRANCH_CODES.join(',')}  ·  tablas: ${ALL_MODE ? 'TODAS (espejo completo md.*)' : TABLES.length}`);
