@@ -79,6 +79,28 @@ export class ObjectStorageService {
     return { key, kind: isPdf ? 'pdf' : 'image' };
   }
 
+  /**
+   * Sube un binario ya en memoria (multipart), de CUALQUIER tipo: documentos, fotos, video.
+   * No pasa por data URI a propósito — un video de 100 MB en base64 son ~133 MB de texto que
+   * habría que armar y volver a decodificar. La extensión sale del nombre original (saneada);
+   * el `ContentType` es el que declaró el navegador.
+   */
+  async putBuffer(
+    body: Buffer,
+    contentType: string,
+    folder = 'docs',
+    originalName = '',
+  ): Promise<{ key: string }> {
+    if (!this.isConfigured()) throw new BadRequestException('Almacenamiento no configurado (faltan env S3_*).');
+    const ext = (/\.([a-z0-9]{1,8})$/i.exec(originalName || '')?.[1] || 'bin').toLowerCase();
+    const key = `${folder.replace(/^\/+|\/+$/g, '')}/${randomUUID()}.${ext}`;
+    await this.client().send(new PutObjectCommand({
+      Bucket: this.bucket, Key: key, Body: body,
+      ContentType: contentType || 'application/octet-stream', ContentDisposition: 'inline',
+    }));
+    return { key };
+  }
+
   /** URL prefirmada de lectura (temporal) para abrir el archivo inline en el navegador. */
   async signedUrl(key: string, ttlSec = 600): Promise<string> {
     if (!key || !this.isConfigured()) return '';

@@ -573,4 +573,11 @@ export enum Permission {
   // se les asigna cada uno (ver PR).
   CATALOGO_INTERNO_VER = 'CATALOGO_INTERNO_VER',
   CATALOGO_INTERNO_COSTOS_VER = 'CATALOGO_INTERNO_COSTOS_VER',
+
+  // ── Desarrolladores › Proyectos (Fase DEV, 2026-10-01) ────────────────
+  // Bitácora de ideas/proyectos del equipo de desarrollo: cada idea se da de
+  // alta como una orden (folio DEV-AAAA-NNNN) con objetivo, evidencia
+  // (documentos, fotos, video, dictado) y un responsable del equipo.
+  DEV_PROJECTS_VER = 'DEV_PROJECTS_VER',
+  DEV_PROJECTS_GESTIONAR = 'DEV_PROJECTS_GESTIONAR',
 }
