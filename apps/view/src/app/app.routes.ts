@@ -835,7 +835,8 @@ export const routes: Routes = [
         // Pagos. La página y el backend existían desde TP; faltaba la ruta.
         path: 'obligaciones',
         loadComponent: () => import('./modules/compras/pages/compras-obligaciones.component').then(m => m.ComprasObligacionesComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
+        // [RE.32] Finanzas entra a confirmar lo que Compras le entregó (sólo ve la pestaña Entregas).
+        canActivate: [anyPermissionGuard(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_GESTIONAR)]
       },
       {
         // TP.7 — cuentas bancarias de pago a proveedor (alta/cambio por solicitud). Mismo permiso.
