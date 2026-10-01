@@ -147,6 +147,38 @@ estado() {
     else
       echo "  ✓ los 8 carriles en la misma imagen"
     fi'
+
+  # ⛔ [K3S.21] Y LOS PODS TAMBIÉN. Todo el bloque de arriba mira SÓLO contenedores de Docker,
+  # así que desde que los carriles se fueron a K3s este detector dejó de verlos: los 7 que de
+  # verdad alimentan el ODS quedaron fuera del único chequeo que compara CÓDIGO.
+  #
+  # No es hipotético. El mismo punto ciego, del lado de prod, dejó a los pods del API 36
+  # commits atrás sirviendo a los usuarios internos durante horas (2026-10-01) — y nadie lo vio
+  # porque el verificador medía el :8080 de Docker, que sí estaba al día.
+  #
+  # ⭐ Compara el DIGEST DEL CÓDIGO, no el ID de imagen, por la misma razón que [CPU.4]: con
+  # ~10 sesiones sobre el repo la imagen cambia de ID varias veces al día por archivos ajenos
+  # al contexto de build. Medido hoy: los 7 pods tenían imagen distinta a `latest` y código
+  # IDÉNTICO. Una alarma que grita en falso enseña a ignorar el tablero.
+  echo
+  echo "── Versión por pod de K3s ──"
+  ssh_md '
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    command -v k3s >/dev/null 2>&1 || { echo "   (no hay k3s en este host)"; exit 0; }
+    DIG="find /app/database/importers /app/services/feeds-ingest /app/ops/ingest /app/ops/vl /app/libs -type f \( -name \*.js -o -name \*.sh \) | sort | xargs md5sum | md5sum | cut -c1-12"
+    REF=$(docker run --rm --entrypoint sh trade-ingest:latest -c "$DIG" 2>/dev/null)
+    echo "   trade-ingest:latest = ${REF:-NO SE PUDO MEDIR}"
+    viejos=0; n=0
+    for p in $(k3s kubectl get pods -n ingesta -o name 2>/dev/null); do
+      n=$((n+1))
+      d=$(k3s kubectl exec -n ingesta $p -- sh -c "$DIG" 2>/dev/null)
+      if [ -z "$d" ]; then printf "   %-40s %s\n" "${p#pod/}" "NO MEDIDO (no se pudo entrar al pod)"
+      elif [ "$d" = "$REF" ]; then printf "   %-40s %s\n" "${p#pod/}" "$d"
+      else printf "   %-40s %s  <- CODIGO VIEJO\n" "${p#pod/}" "$d"; viejos=$((viejos+1)); fi
+    done
+    if [ "$n" -eq 0 ]; then echo "   (ningun pod en el namespace ingesta)"
+    elif [ "$viejos" -gt 0 ]; then echo "   ⛔ $viejos pod(s) con CODIGO viejo — corre: ops/vl/deploy.sh --k3s"
+    else echo "   ✓ los $n pods corren el MISMO codigo que la imagen"; fi'
 }
 
 # AVISA de lo que NO va a viajar, y sigue.
