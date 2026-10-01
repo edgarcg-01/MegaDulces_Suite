@@ -56,6 +56,47 @@ También corregido: el bloque final de la compuerta moría con `bind message sup
 comparaba `m.c1=$1` (el **almacén** contra la **sucursal**) y le faltaba un parámetro, así que la
 lista de SKUs faltantes nunca se imprimía.
 
+### Fixed — el sensor del CEDIS vigilaba un feed que nosotros apagamos; ahora vigila lo que lo destraba (IC.CEDIS.2, 2026-09-30)
+Cierra el paso que quedaba de IC.CEDIS.1: el sensor de `db-health`, que **no necesitaba un rótulo
+nuevo sino una fuente nueva**.
+
+⛔ **`stock_cedis_00` iba a ponerse ROJO el 2026-10-02 ~12:07 y quedarse rojo para siempre**, diciendo
+*"el feed se cayó"*, que es **falso**: el feed lo retiramos nosotros al declarar el corte, y
+`import-cedis-stock-wincaja.js` era su único escritor. Última escritura real medida en prod: **29/09
+12:07, 196 SKUs** — con `warnH: 30` ya estaba en warn a las **31.1 h**. Un rojo permanente por una
+decisión propia no es una alarma: es ruido que enseña a ignorar el tablero. **Sonda RETIRADA** con su
+fecha y su motivo. ⭐ Y no queda ciega: el mecanismo de `retiredOn` la pasa a `warn` si la tabla
+vuelve a recibir datos posteriores al corte — o sea que **la retirada se auto-denuncia el día que
+deja de ser cierta**, que es justo el día que se encienda `stockMap({cedis:true})`.
+
+⭐ **El relevo mide la CONDICIÓN que destraba el hueco**, no un proceso: `cedis_kepler_saldo` compara
+el saldo de arranque de `kepler_ods.kdil` (sucursal 00, sin pseudo-SKUs) contra lo que se contó en la
+captura `N-A-45` **más reciente**. Mientras no cuadre, la existencia del CEDIS sigue sirviendo la foto
+del 28-sep; cuando cuadre, el sensor se pone verde y **ése es el día de encender `cedis:true`**. El
+umbral **1.5× está copiado de `check-cedis-cutover.js`**, no inventado acá — dos umbrales para el
+mismo hecho serían dos verdades.
+
+⚠️ **Nace rojo y es correcto que nazca rojo:** 12,181,690 u contra 340,077 u = **35.82×**. Lo corrige
+quien cargó el inventario, **en Kepler** (ADR-040). ⚠️ Se toma la captura **más reciente** y no la suma
+del histórico: hoy hay una sola (30-sep, 127 líneas), así que no cambia la cifra — cambia qué pasa el
+día que vuelvan a cargar, que es justo lo que queremos que pase.
+
+**Los tres estados, probados contra prod con el SQL extraído del archivo** (no con una copia a mano):
+hoy → `35.82x` + *"corregir EN KEPLER"*; con el saldo escalado a ×0.027 → `0.97x` + *"se puede
+encender stockMap cedis:true"*; sin captura `N-A-45` → **`NO MEDIDO`**, y cae en crítico, nunca en
+verde (ADR-056). Costo: **16 ms**.
+
+⚠️ **El comentario que decía *"el CEDIS real es BPIRAPUATO y vive en WINCAJA, no en Kepler"* dejó de
+ser cierto hoy** — se deja escrito, fechado y tachado en vez de borrarlo, porque explica la sonda. La
+línea que de verdad se evalúa es el `retiredOn`: un comentario no avisa cuando caduca.
+
+**Hallazgo colateral — el candado `test-db-health-tz-bias.js` estaba ROJO desde antes** (verificado
+reproduciendo su predicado contra `HEAD`, no asumiéndolo): `expense_log_date` casteaba `::timestamp`
+sin estar declarado en `CAST_JUSTIFICADO`. Medido en prod: `analytics.expense_entries.fecha` es
+**`date` (OID 1082)** → cast **redundante, no sesgado**, mismo caso que `sales_daily_date`. Declarado
+con la medición. El candado vuelve a **8 ✓ / 0 ✗ / 1 NO MEDIDO** (los bloques con DB se declaran, no
+se dibujan verdes).
+
 ### Fixed — el tope de la lista de cambios contaba renglones, no etiquetas (ETQ-CAMBIOS.7, 2026-09-30)
 Continuación del audit de `/tienda/etiquetas/cambios`. **Dos correcciones a lo que yo mismo
 reporté**, las dos por medir mal:
