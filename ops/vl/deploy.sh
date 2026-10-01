@@ -48,7 +48,13 @@ RUTAS="ops/ingest ops/vl database/importers database/scripts services/feeds-inge
 # próxima divergencia caiga en un archivo inocuo.
 #
 # Si agregás un servicio al compose que corra código de este repo, va ACÁ también.
-SERVICIOS_DEF="feeds-cron feeds-livefast store-poller ods-live-hot ods-live-mirror ods-reconcile ods-reconcile-chicas ods-reconcile-full"
+# � [K3S.6 2026-10-01] `ods-reconcile-chicas` SALIO de esta lista: vive en K3s desde hoy.
+# No es cosmetico. Los dos mundos comparten ODS_RECONCILE_HB_KEY=cdc_reconcile_chicas, asi que
+# si --todo lo resucitara en Compose habria DOS duenos del mismo renglon de analytics.cron_runs
+# peleandoselo -- la falla que la guarda de dueno de health.js detecta, causada por nosotros.
+# El servicio sigue declarado en el compose bajo el perfil `retirado-k3s`: no arranca solo.
+# Lo candadea `npm run check:k3s` (bloque "ningun carril en los dos mundos").
+SERVICIOS_DEF="feeds-cron feeds-livefast store-poller ods-live-hot ods-live-mirror ods-reconcile ods-reconcile-full"
 
 ssh_md() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$SRV" "$@"; }
 

@@ -25,6 +25,7 @@ metadata:
   labels:
     carril: ods-reconcile-chicas
     singleton: "true"
+    migracion: migrado            # migrado = ya NO lo corre Compose · preparado = todavia si
 spec:
   replicas: 1
   strategy:
