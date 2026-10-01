@@ -54,7 +54,7 @@ REMOTO="~/build-prod"
 # Mientras corran en Compose tienen que estar acá, o `--todo` los deja fuera del despliegue.
 # ⚠️ Esta línea y la etiqueta `migracion:` de ops/k3s/*.yaml son DOS declaraciones del mismo
 # hecho — `npm run check:k3s` las compara y se pone rojo si se contradicen. Se mueven juntas.
-SERVICIOS_DEF="registry pg-prod pg-rag redis api worker portal vendor backup"
+SERVICIOS_DEF="registry pg-prod pg-rag redis api worker backup"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
