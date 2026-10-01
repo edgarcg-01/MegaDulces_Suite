@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — Guía de Cobranza: Total factura · Abonos/Pagos · Saldo (GT.17, 2026-09-30)
+- Cada factura de la guía imprime su total, lo abonado (pagos y notas de crédito) y el saldo, en vez
+  de Descuento e Importe. Sin cartera el abono sale «—». Las guías archivadas se reimprimen igual que
+  se firmaron.
 ### Added — `[CI.SELLO]` no se paga GitHub Pro, así que la compuerta se muda al despliegue (2026-09-30)
 
 Decisión: **la cuenta no pasa a Pro**, y el repo no vuelve a público (los docs traen IPs internas,
