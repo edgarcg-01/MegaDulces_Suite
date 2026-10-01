@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { PRECIOS_TABS } from '../precios-tabs';
 import { agruparCola, type FilaCola } from '../agrupar-cola';
 import { CommonModule } from '@angular/common';
@@ -48,7 +49,7 @@ import {
 @Component({
   selector: 'app-comercial-motor-margen',
   standalone: true,
-  imports: [CommonModule, PageTabsComponent, TableModule, ButtonModule, SkeletonModule,
+  imports: [CommonModule, PageTabsComponent, ContextHelpComponent, TableModule, ButtonModule, SkeletonModule,
     ComercialMotorMargenExpedienteComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -64,9 +65,12 @@ import {
         certeza</strong>. No cambia ningún precio &mdash; la captura sigue siendo en Kepler.
       </p>
     </div>
-    <button type="button" pButton class="p-button-text p-button-sm"
-            icon="pi pi-refresh" label="Actualizar"
-            [loading]="cargando()" (click)="recargar()"></button>
+    <div class="mm-head-acc">
+      <app-context-help topic="motor-margen" />
+      <button type="button" pButton class="p-button-text p-button-sm"
+              icon="pi pi-refresh" label="Actualizar"
+              [loading]="cargando()" (click)="recargar()"></button>
+    </div>
   </header>
 
   @if (error(); as e) {
@@ -304,6 +308,7 @@ import {
     .mm-skel { display: flex; flex-direction: column; gap: var(--sp-2); }
 
     /* ══ [PR.V3] Rotulo de seccion ══════════════════════════════════════════════════════ */
+    .mm-head-acc { display: flex; align-items: center; gap: var(--sp-2); }
     .mm-sec-h { display: flex; align-items: baseline; gap: var(--sp-2); }
     .mm-sec-t {
       font-size: var(--fs-micro); letter-spacing: .08em; text-transform: uppercase;
