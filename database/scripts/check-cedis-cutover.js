@@ -43,6 +43,9 @@ const PSEUDO = ['00001', '00002', '00022'];  // pseudo-SKUs contables (VENTAS AL
 
 const iFecha = process.argv.indexOf('--fecha');
 const FECHA = iFecha > -1 ? process.argv[iFecha + 1] : null;
+// --csv: la lista COMPLETA de faltantes en CSV, para pasársela a almacén. Sin esto el informe
+// corta en 40 y dice "y N más", que sirve para leer en pantalla pero no para ir a cargarlos.
+const CSV = process.argv.includes('--csv');
 
 const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
 const num = (n) => Number(n || 0).toLocaleString('en-US');
@@ -317,16 +320,62 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
       const exceso = Number(saldo.sin_pseudo) - Number(cap.unidades);
       const razon = Number(cap.unidades) > 0 ? Number(saldo.sin_pseudo) / Number(cap.unidades) : null;
       console.log(`   diferencia            : ${num(exceso)} u  (razón ${razon ? razon.toFixed(2) : '—'}×)`);
+
+      // ── La prueba DIRECTA, SKU por SKU ────────────────────────────────────────────────────
+      // ⛔ La razón de arriba NO puede distinguir las dos cosas que la hacen grande, y se leen
+      // igual aunque pidan acciones opuestas:
+      //   (a) la carga se SUMÓ encima de SKUs que ya tenían saldo  → se corrige el documento;
+      //   (b) el almacén ya traía saldo de OTROS SKUs, ajeno a la carga → se investiga el saldo.
+      // Medido el 2026-09-30 en el CEDIS: razón 35.82× y, sin embargo, **los 127 SKUs cargados
+      // estaban TODOS en cero antes de la entrada** — o sea (b), no (a). El diagnóstico que
+      // imprimía esta compuerta ("la carga parece haberse SUMADO") mandaba a corregir en Kepler
+      // un documento que está bien, y se citó como fundamento en la migración del cutover.
+      // Un almacén que ya opera dispara esa razón SIEMPRE: dar de alta 127 SKUs nuevos en uno
+      // que arrastra 5,019 no es sumar, es dar de alta.
+      const [dir] = await q(
+        `WITH carga AS (
+           SELECT l.c8 AS sku, sum(l.c9::numeric) AS u
+             FROM kepler_ods.kdm1 m
+             JOIN kepler_ods.kdm2 l
+               ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
+              AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
+            WHERE m.sucursal=$1 AND m.c1=$3 AND m.c2='N' AND m.c3='A' AND m.c4='30'
+              AND m.c9::date = $2::date
+            GROUP BY 1)
+         SELECT count(*)::int AS skus,
+                count(*) FILTER (WHERE s.previo > 0.01)::int AS con_saldo_previo,
+                round(sum(GREATEST(s.previo,0)),2) AS u_previas
+           FROM carga c
+           LEFT JOIN LATERAL (
+             SELECT GREATEST(l.c4::numeric + l.c8::numeric - l.c9::numeric,0) - c.u AS previo
+               FROM kepler_ods.kdil l
+              WHERE l.sucursal=$1 AND l.c1=$3 AND l.c3 = c.sku) s ON true`,
+        [KEP_SUC, fechaElegida, almElegido]);
+
+      if (!dir || !Number(dir.skus)) {
+        console.log('   ⚠️ NO MEDIDO (a): no se pudieron recuperar los SKUs de la entrada N-A-30.');
+        console.log('      No es un visto bueno: la prueba directa no corrió.');
+      } else if (Number(dir.con_saldo_previo) > 0) {
+        alarmas++;
+        console.log(`   ⛔ ALARMA (a): ${num(dir.con_saldo_previo)} de ${num(dir.skus)} SKUs cargados YA tenían`);
+        console.log(`      saldo antes de la entrada (${num(dir.u_previas)} u) → la carga se SUMÓ encima.`);
+        console.log('      Hay que corregir el documento en Kepler ANTES de que el almacén se mueva.');
+      } else {
+        console.log(`   ✔ los ${num(dir.skus)} SKUs cargados estaban en CERO antes de la entrada:`);
+        console.log('     la carga NO se sumó a nada. El documento está bien.');
+      }
+
+      // El saldo ajeno a la carga se reporta aparte, porque es OTRA pregunta y otro dueño.
       if (razon != null && razon > 1.5) {
         alarmas++;
-        console.log('   ⛔ ALARMA: el saldo es MUY superior a lo capturado → la carga parece haberse');
-        console.log('      SUMADO al saldo previo en vez de reemplazarlo. Hay que corregirlo en Kepler');
-        console.log('      ANTES de que el CEDIS empiece a mover mercancía.');
+        console.log(`   ⛔ ALARMA (b): el almacén arrastra ${num(exceso)} u de saldo que NO vienen de esta`);
+        console.log('      carga. Mientras no se establezca de dónde salen, NO apuntar la existencia');
+        console.log('      de este almacén a Kepler: publicaría ese arrastre como inventario real.');
       } else if (razon != null) {
-        console.log('   ✔ el saldo es del orden de lo capturado → parece haber reemplazado');
+        console.log('   ✔ el saldo es del orden de lo capturado → el almacén no arrastra saldo ajeno');
       }
-      console.log('   ⚠️ Es una señal por ORDEN DE MAGNITUD, no una prueba: entre la captura y esta');
-      console.log('      medición hay movimientos reales. Sirve para detectar el error grande.');
+      console.log('   ⚠️ (b) es una señal por ORDEN DE MAGNITUD: entre la captura y esta medición hay');
+      console.log('      movimientos reales. (a) sí es una prueba directa, SKU por SKU.');
     }
 
     // ── 3. Cobertura: qué NO llegó desde Wincaja ─────────────────────────────
@@ -392,13 +441,22 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
            FROM wincaja.v_stock w
           WHERE w.source_branch=$2 AND w.existencia > 0 AND w.in_kepler_catalog
             AND w.sku NOT IN (SELECT sku FROM carga)
-          ORDER BY w.valor_inventario DESC NULLS LAST LIMIT 40`,
+          ORDER BY w.valor_inventario DESC NULLS LAST ${CSV ? '' : 'LIMIT 40'}`,
         [KEP_SUC, WIN_BRANCH, fechaElegida, almElegido]);
-      console.log('\n   SKU      existencia        valor');
-      for (const r of det) {
-        console.log(`   ${String(r.sku).padEnd(8)} ${String(num(r.existencia)).padStart(10)}  ${String(money(r.valor)).padStart(12)}`);
+      if (CSV) {
+        console.log(`\n--- CSV: ${det.length} SKU(s) con existencia en Wincaja ${WIN_BRANCH} que NO entraron ---`);
+        console.log('sku,existencia,valor');
+        for (const r of det) console.log(`${r.sku},${r.existencia},${r.valor}`);
+        console.log('--- fin CSV ---');
+      } else {
+        console.log('\n   SKU      existencia        valor');
+        for (const r of det) {
+          console.log(`   ${String(r.sku).padEnd(8)} ${String(num(r.existencia)).padStart(10)}  ${String(money(r.valor)).padStart(12)}`);
+        }
+        if (Number(cob.faltan) > det.length) {
+          console.log(`   … y ${num(Number(cob.faltan) - det.length)} más — corré con --csv para la lista completa`);
+        }
       }
-      if (Number(cob.faltan) > det.length) console.log(`   … y ${num(Number(cob.faltan) - det.length)} más`);
     } else {
       console.log('   ✔ todo lo que Wincaja tenía con existencia llegó a Kepler');
     }
