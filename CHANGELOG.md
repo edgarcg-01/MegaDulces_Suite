@@ -9,6 +9,23 @@
 ---
 
 ## [Unreleased]
+### Fixed — cotización telefónica: el pedido DICTADO se captura sin mouse y sin errores de cantidad (COT.16, 2026-10-01)
+Probado con 3 pedidos dictados de 15 partidas (productos reales del top-45 de mayoreo de la
+sucursal 01) y verificado después en la pantalla real, sólo teclado:
+- **Tres errores que pasaban sin aviso:** clics rápidos en "+" perdían cantidad (4 clics: 8→9);
+  el mismo producto pedido dos veces quedaba en 2 renglones sin precio de mayoreo; el desglose
+  decía `(20PZS $56.50)` a un bulto de 20 KG, también en el Excel/PDF que recibe el cliente.
+- **Captura:** cantidad tecleable (Enter agrega), ↑↓ + Enter en el buscador, cursor al buscador al
+  elegir cliente, botones de unidad de menor a mayor (Pieza 1 · Paquete 10 · Caja 140) con el
+  nombre real de la base, renglón "no manejado", bandeja de una línea, layout con riel derecho.
+- **Buscador:** entiende el dictado ("paleta"→PAL, "chocolate"→CHOC, "pistaches", "chiquitos"→MINI,
+  "25 por 35", "de kilo"→1KG) y ordena por lo más vendido en la sucursal.
+- **Changed:** `applySmartSearch` (`libs/platform-core`) gana `synonyms`/`stem`/`ignore`, opcionales
+  (los demás buscadores no cambian). Se quitó el re-orden alfabético del front que había pedido el
+  PM: manda el orden del servidor.
+- **Known:** la previa de precio tarda ~2.9 s por clic por `analytics.v_label_presentations` (no
+  empuja el filtro del SKU). Se arregla reescribiendo la vista, en PR aparte.
+
 ### Fixed — el CEDIS declara su corte a Kepler, y la contención que lo protegía ya se había evaporado (IC.CEDIS.1, 2026-09-30)
 Pedido: *"ya CEDIS usa el 9.95, hay que integrar la nueva información, borrar las referencias
 BIRAPUATO y funcionar históricos"*.
