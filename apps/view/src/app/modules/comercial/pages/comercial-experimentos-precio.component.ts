@@ -254,6 +254,11 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
           [style]="{ width: '34rem', maxWidth: '94vw' }"
           header="Diseñar experimento de precio">
   <div class="xp-form">
+    <p class="xp-f-intro">
+      Diseñar <strong>no cambia ningún precio</strong>: parte las celdas elegibles en dos ramas
+      —tratamiento y control— y entrega la lista de precios a capturar en Kepler. El veredicto
+      llega después, cuando la ventana posterior se cumpla.
+    </p>
     <label class="xp-f">
       <span class="xp-f-l">Nombre</span>
       <input pInputText type="text" [(ngModel)]="nombre" name="nombre"
@@ -286,8 +291,11 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
       @for (e of estratos(); track e.clave) {
         <label class="xp-chk" [class.is-off]="!e.viable">
           <input type="checkbox" [checked]="estratosSel().has(e.clave)" (change)="alternar(e.clave)" />
-          <span class="xp-chk-t">{{ e.clave }}</span>
-          <span class="xp-chk-n">pide {{ e.nPorRama | number }} · hay {{ e.elegibles | number }}</span>
+          <span class="xp-chk-t">{{ rango(e) }}</span>
+          <!-- nPorRama * 2, igual que la tabla de abajo: el n es POR RAMA y el experimento tiene
+               dos (tratamiento y control). Mostrar 291 aca y 582 alla es el mismo numero dicho de
+               dos maneras en la misma pantalla. -->
+          <span class="xp-chk-n">necesita {{ e.nPorRama * 2 | number }} · hay {{ e.elegibles | number }}</span>
           @if (!e.viable) { <span class="xp-chk-w">no alcanza</span> }
         </label>
       }
@@ -310,6 +318,9 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
     .xp-head-acc { display: flex; align-items: center; gap: var(--sp-2); }
     .xp-empty-nota { font-size: var(--fs-xs); color: var(--fg-3); margin-top: var(--sp-2); }
     .xp-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+    .xp-f-intro { margin: 0; font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.5;
+      padding: .55rem .7rem; border-radius: var(--r-md); background: var(--surface-2); }
+    .xp-f-intro strong { color: var(--fg-1); font-weight: 600; }
     .xp-f { display: flex; flex-direction: column; gap: 4px; }
     .xp-f-l { font-size: var(--fs-xs); font-weight: 600; color: var(--fg-1); }
     .xp-f-h { font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.45; }

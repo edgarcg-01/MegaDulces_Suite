@@ -876,7 +876,28 @@ que la ejercite es un apagado silencioso.**
 
 ---
 
-## 23 · Lo que sigue
+## 23 · `[PR.V8]` · El diálogo decía el mismo número de dos maneras
+
+Preguntado al verlo: *«¿esto qué es?»*. Tres defectos, y el del medio es el que importa.
+
+| defecto | lo que mostraba | lo que muestra |
+|---|---|---|
+| clave interna en pantalla | `a_bajo_10` | **$1 - $10** — el mismo `rango()` que la tabla |
+| ⛔ **el mismo número, dos veces distinto** | diálogo *«pide 291»* / tabla *«Necesita 582»* | **necesita 582** en los dos |
+| no decía qué hace el botón | — | una línea arriba del formulario |
+
+El segundo salía de que `nPorRama` es **por rama** y el experimento tiene dos — tratamiento y
+control. La tabla ya imprimía `nPorRama * 2`; mi diálogo imprimía el crudo. **Dos cifras para la
+misma cantidad, a quince centímetros una de otra**, y quien compara concluye que una de las dos
+está mal.
+
+⭐ Reusar un dato del backend no exime de reusar **la forma en que esa pantalla ya lo publica**.
+
+**Verificado:** `nx build view` · `nx test view` **1,387** · lint 0 errores.
+
+---
+
+## 24 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
