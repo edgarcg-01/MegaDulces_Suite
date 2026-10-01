@@ -5,6 +5,109 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-01 — DM.19: las órdenes de entrada del CEDIS eran de SIETE plazas, y el ERP ya lo decía
+
+Edgar: *"antes Morelia Abastos y CEDIS (no sé si más sucursales) subían sus órdenes de entrada a
+Kepler, y necesitamos tener diferenciadas cuáles eran de cada una, para que no se le cargue
+información a CEDIS que no le corresponde, pero esto en el histórico"*.
+
+**Su duda era la pregunta correcta: no eran dos plazas, eran siete.** De los 9,839 documentos
+`X-A-20` ("Aplica Orden Entrada") que Kepler tiene en la sucursal `00`, sólo **2,311 por
+$206,804,400** son del CEDIS. **6,078 por $219,380,811 son de otras plazas** — más dinero ajeno
+que propio:
+
+| plaza | docs | importe |
+|---|---|---|
+| Morelia Abastos | 2,510 | $95,367,762 |
+| Padre Hidalgo | 1,246 | $57,131,761 |
+| Canindo | 768 | $56,732,747 |
+| Morelia Madero | 644 | $3,585,314 |
+| 8 Esquinas | 474 | $4,270,560 |
+| La Piedad Abastos | 304 | $1,138,505 |
+| Yurécuaro | 84 | $128,376 |
+| Zamora Centro | 48 | $1,025,784 |
+
+### ⭐ El catálogo lo tenía el ERP — segunda vez en dos días
+
+`kdm1.c12` es el **centro de compra** y `kepler_ods.kdxv` es su catálogo (`c2` código, `c3`
+descripción). El ERP escribe la plaza con todas sus letras: `C-010` = *"COMPRA PROVEEDOR MORELIA
+ABAST"*. Igual que `pv_suc_ip` en `[DM.18]`, **no había que inferir nada** — y por segunda vez
+en dos días el reflejo fue construir el inferidor antes de preguntarle al ERP.
+
+⚠️ **La misma columna significa cosas distintas según el doctype.** El log de `[DM.18]` dice *"ni
+`c12` (cajero)"* sobre el traspaso `U-D-41`, y es correcto **ahí**: en `X-A-20` ese mismo `c12`
+es el centro de compra. Leer el decode de un doctype y aplicarlo a otro es cómo se pierde un
+campo que estaba a la vista.
+
+### ⛔ El catálogo colisiona ENTRE RAMAS
+
+`C-010` es *"COMPRA PROVEEDOR MORELIA ABAST"* en la rama `00` y *"COMPRA PROVEEDOR PADRE
+HIDALGO"* en la `01`, que lo reusó para lo suyo. El join va **por sucursal**, nunca por código
+solo — mismo modo de falla que los dos vocabularios de `kepler_doc_tipo`. El bloque 3 del candado
+es exactamente esa prueba negativa.
+
+### Cómo se verificó: dos testigos independientes, con placebo
+
+1. **Dentro del documento.** `c11` trae `<plaza>-<remisión del proveedor>`. No es la serie del
+   proveedor: el prefijo `30` abarca **108 proveedores distintos**. Concuerda con `c12`
+   **99.6% fila por fila**.
+2. **Fuera de Kepler.** Cruce contra `wincaja.movimiento_proveedores` por importe y fecha: la
+   diagonal se enciende sola (`30→30` 62.5% · `50→50` 51.9% · `10→10` 46.9%) con off-diagonal de
+   0.0–3.9%. El placebo contra el CEDIS da **0.9%**, o sea **71× el piso de ruido**.
+   *Sin el placebo, un 62% no significa nada.*
+
+### ⭐ Para saber si es del CEDIS no hace falta nombrar la plaza
+
+Dentro del catálogo de UNA sucursal, dos códigos `COMPRA PROVEEDOR` distintos son dos plazas
+distintas. Así que basta identificar el **centro propio** —el único cuya evidencia apunta a la
+sucursal misma— y todo otro centro de plaza es, por construcción, de otra. Eso cubre a `C-004`,
+`C-005` y `C-021`, que el ERP nombra pero tienen poca evidencia para resolverse solos.
+
+### ⛔ El hueco, declarado: $91.5M que no se pueden atribuir
+
+`c12` se empezó a usar de verdad en **feb-2026** (98–100%). Antes casi nadie lo llenaba:
+**nov-2025 11% · dic-2025 9% · ene-2026 65%**. Son **1,450 documentos por $91,458,017** (17.7%
+del dinero) sin origen declarable.
+
+Se intentó rescatarlos contra `wincaja.maestro_mov_almacen` tipo `C`, el único testigo con
+historia profunda. **Precisión altísima —placebo de 0.3%— pero recall 25%**: recuperó 107
+documentos por $850k. **No se dibuja: se declara `sin_centro`.**
+
+⚠️ Y lo que sobra **no se da por CEDIS**: promedia **$66,760** por documento, entre los **$88,948**
+del CEDIS y los **$36,260** de las otras plazas. Es mezcla, y la lectura cómoda estaba a un paso.
+
+⛔ La serie vieja `001` **se llama "CEDIS"** y no sirve: de los 137 documentos que traen el segundo
+testigo, **72 la contradicen** (pureza 47%). Un rótulo no es una medición.
+
+### Una pureza que era artefacto de mi propio umbral
+
+El primer corte de `c12` contra `c11` lo saqué con `HAVING count(*) >= 25` y leí *"separa 1 a 1,
+cero contaminación"*. Sin el umbral, la serie `C-NNN` da 98.7–99.8% (bien) pero la numérica vieja
+cae a 47–61%. **El filtro que puse para leer la tabla me escondió justo el grupo malo.**
+
+### Hallazgo colateral, declarado sin resolver
+
+La rama `03` (8 Esquinas) repite el patrón: **452 documentos por $9.94M en 2025** bajo el centro
+*"COMPRA MERCANCIAS LA PIEDAD AB"*, que se apagan en 2026 (18 docs) justo después de que La Piedad
+estrena su propio Kepler. **No se afirma la causa**: `wincaja.movimiento_proveedores` no tiene la
+rama 42, así que no hay segundo testigo.
+
+### Entregado
+
+- Mig `20261001260000_erp_goods_receipt_origin.js` → **prod batch 669, 0.1 s**, identidad
+  verificada. Dos vistas **derive-no-copy** sobre `kepler_ods`: `analytics.v_erp_purchase_center`
+  y `analytics.v_erp_goods_receipt_origin`. Ninguna tabla, ningún importer.
+- Candado `test-newdb-goods-receipt-origin.js` — **9 OK · 0 FALLAS · 0 NO MEDIDOS** contra prod,
+  con **tres pruebas negativas** (la colisión entre ramas · el umbral frenando por porcentaje
+  *y* por tamaño de muestra con filas reales de los dos lados · un centro con 99.3% de evidencia
+  que **no** publica origen porque no es de compra).
+- `VERDAD_ABSOLUTA.md` §5 (resolvedor) y §7 (hueco con monto).
+
+⚠️ **Pendiente:** la pantalla `/compras/entradas` y `analytics.erp_goods_receipts` todavía
+publican todo como CEDIS — su columna `concepto` es texto libre (*"CEDIS"*, *"ALMACEN 40"*,
+*"3% PP a 48 hrs"*) y **4,618 filas la traen vacía**. Falta consumir la vista.
+
+---
 ## 2026-10-01 — DM.18: el mapa `TI### → sucursal` lo dice Kepler; dejamos de adivinarlo
 Edgar, sobre el resolvedor que había construido contra Wincaja: *"pero si existen en Kepler, ¿por
 qué tomar las de Wincaja?"*. La pregunta era correcta y llevó a dos respuestas.
