@@ -70,7 +70,7 @@ describe('[DEV.8] DevProyectosComponent', () => {
     // Sin micrófono en pruebas: el reconocedor se reemplaza ANTES de ngOnInit.
     (c as unknown as { recognitionFactory: () => unknown }).recognitionFactory = opts.dictation === false
       ? () => null
-      : () => ({ lang: '', continuous: false, interimResults: false, onresult: null, onerror: null, onend: null, start() {}, stop() {} });
+      : () => ({ lang: '', continuous: false, interimResults: false, onresult: null, onerror: null, onend: null, start: vi.fn(), stop: vi.fn() });
     fix.detectChanges();
     await fix.whenStable();
     fix.detectChanges();
@@ -202,7 +202,7 @@ describe('[DEV.10] seguimiento de un proyecto ya hecho', () => {
     fix = TestBed.createComponent(DevProyectosComponent);
     c = fix.componentInstance;
     (c as unknown as { recognitionFactory: () => unknown }).recognitionFactory = () => {
-      rec = { lang: '', continuous: false, interimResults: false, onresult: null, onerror: null, onend: null, start() {}, stop() {} } as any;
+      rec = { lang: '', continuous: false, interimResults: false, onresult: null, onerror: null, onend: null, start: vi.fn(), stop: vi.fn() } as any;
       return rec;
     };
     fix.detectChanges();
