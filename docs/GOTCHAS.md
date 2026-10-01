@@ -3908,7 +3908,7 @@ servicio —imagen, puertos, variables—, y un archivo montado distinto no le c
 > difieren, el montaje está roto y **ningún reinicio lo arregla**: hay que recrear el contenedor.
 
 
-## 75. `npm run migrate:new` sobre una base VACÍA no llega al final: se detiene en la migración 88 y en la 435 de 975
+## 75. `npm run migrate:new` sobre una base VACÍA no llega al final: se detiene en la migración 88, y otra vez en la primera que necesita `kepler_ods`
 
 **Qué se vivió (2026-10-01, Fase MS).** Se levantó un Postgres 18 limpio y se corrió `npm run migrate:new`
 siguiendo `ONBOARDING.md`. Se detiene **dos veces**, por motivos distintos:
@@ -3926,7 +3926,9 @@ columnas `c1..cN` con tipos concretos).
 > ⚠️ **Por qué es peligroso.** `migrate:new` no falla de entrada: **avanza 435 migraciones y falla a la
 > mitad**, dejando una base a medio hacer que *parece* una base de desarrollo. Quien la use encuentra
 > tablas que faltan sin que nada le diga por qué. Un `knex_migrations` con 435 filas no significa "casi
-> terminó": significa que las 540 restantes nunca se probaron contra esa estructura.
+> terminó": significa que las ~540 restantes nunca se probaron contra esa estructura.
+> (El denominador envejece solo: ese día había **975** migraciones y crecen cada semana — lo que
+> no cambia es **dónde** se detiene, que es lo útil de este §.)
 
 **Qué hacer.** Para una base de desarrollo con la **estructura real de prod**, un dump **solo de estructura**
 más los datos de `knex_migrations`, desde una persona con acceso a `md`:

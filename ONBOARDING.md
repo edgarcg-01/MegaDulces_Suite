@@ -65,9 +65,9 @@ npm run seed:testdata     # data de prueba comercial (brands/products/prices/cus
 
 > Atajo: `npm run dev:bootstrap` hace up + ambas migraciones de un jalón.
 
-> ⛔ **`migrate:new` sobre una base vacía NO llega al final** (2026-10-01): se detiene en la migración 88 (necesita el tenant, que crea la semilla `01`) y en la 435 de 975 (necesita `kepler_ods.*`, que crea la ingesta del ERP y no una migración). Hasta que se corrija este paso, la base de desarrollo se arma desde un dump **solo de estructura** de prod. Ver [`docs/GOTCHAS.md` §75](docs/GOTCHAS.md).
+> ⛔ **`migrate:new` sobre una base vacía NO llega al final** (2026-10-01): se detiene en la migración 88 (necesita el tenant, que crea la semilla `01`) y más adelante en la 435 —de las 975 que había ese día— (necesita `kepler_ods.*`, que crea la ingesta del ERP y no una migración). Hasta que se corrija este paso, la base de desarrollo se arma desde un dump **solo de estructura** de prod. Ver [`docs/GOTCHAS.md` §75](docs/GOTCHAS.md).
 
-> **Alternativa (lo que usa el lead):** en vez del Docker local, apuntar `DATABASE_URL_NEW` a la DB compartida en `192.168.0.245:5432/postgres_platform`. Requiere estar en la red de la oficina. Para empezar, **usá el Docker local** — es autocontenido y no rompes data compartida.
+> ⛔ **La «alternativa del lead» ya no existe.** Acá decía que se podía apuntar `DATABASE_URL_NEW` a `192.168.0.245:5432/postgres_platform`: ese espejo **no se usa desde el 2026-09-12** y hoy **ni conecta** (`3D000`), aunque `pg_database` lo siga listando. Si tu `.env` todavía lo trae, es exactamente la trampa que cierra [`GOTCHAS.md` §75](docs/GOTCHAS.md) — cambialo. El destino de desarrollo es el **Docker local**; la estructura real de prod sale del dump de arriba, **nunca** de apuntar el `.env` a prod.
 
 ---
 
