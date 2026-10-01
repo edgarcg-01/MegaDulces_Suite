@@ -103,30 +103,39 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
       </div>
     </div>
 
-    <app-metric-strip [items]="kpis()" ariaLabel="Costo logístico del período" />
+    <!-- ⭐ El ALCANCE de las cifras, antes de las cifras. Sin este renglón, un strip que cambió
+         de denominador al hacer clic en una fila se lee como si el período entero hubiera
+         encogido. El botón de salida va acá, no escondido en la tabla. -->
+    <div class="gc-scope" [class.gc-scope--guia]="alcance().esGuia">
+      <span class="gc-scope-l">Mostrando</span>
+      <strong>{{ alcance().titulo }}</strong>
+      <small>{{ alcance().detalle }}</small>
+      <button pButton [text]="true" size="small" icon="pi pi-times"
+              *ngIf="alcance().esGuia" (click)="verTodoElPeriodo()">Ver todo el período</button>
+    </div>
 
-    <!-- El retorno que SÍ se puede medir. No es margen y lo dice. -->
-    <div class="gc-roi" *ngIf="lista()?.retorno as r">
-      <div class="gc-roi-cell">
-        <span>Erosión logística</span>
-        <strong>{{ r.erosion_pct !== null ? (r.erosion_pct + '%') : 'sin medir' }}</strong>
-        <small>del valor movido se va en logística</small>
-      </div>
+    <app-metric-strip [items]="kpis()" [ariaLabel]="'Costo logístico · ' + alcance().titulo" />
+
+    <!-- El retorno que SÍ se puede medir. No es margen y lo dice. Sigue al mismo alcance que
+         las cards: dejarlo en el período mientras arriba se ve una guía sería comparar dos
+         universos distintos sin avisar. -->
+    <div class="gc-roi" *ngIf="lista() as L">
       <div class="gc-roi-cell">
         <span>Por cada $1 de logística</span>
-        <strong>{{ r.pesos_movidos_por_peso_gastado !== null
-                   ? ('$' + r.pesos_movidos_por_peso_gastado) : 'sin medir' }}</strong>
+        <strong>{{ alcance().pesosPorPeso !== null
+                   ? ('$' + alcance().pesosPorPeso) : 'sin medir' }}</strong>
         <small>de mercancía movida</small>
       </div>
-      <div class="gc-roi-cell gc-roi-merc" *ngIf="lista()?.mercancia as mc">
+      <div class="gc-roi-cell gc-roi-merc">
         <span>Mercancía movida</span>
-        <strong>{{ mc.valor | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>
-        <small [title]="mc.nota">valor de lo movido, no su costo</small>
+        <strong *ngIf="alcance().mercancia !== null">{{ alcance().mercancia | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>
+        <strong *ngIf="alcance().mercancia === null" class="gc-nm">sin medir</strong>
+        <small [title]="L.mercancia.nota">valor de lo movido, no su costo</small>
       </div>
-      <div class="gc-roi-cell gc-roi-nm" *ngIf="lista()?.margen_declarado as m">
+      <div class="gc-roi-cell gc-roi-nm">
         <span>Margen de ganancia</span>
         <strong>no disponible</strong>
-        <small [title]="m.motivo">{{ m.en_su_lugar || m.motivo }}</small>
+        <small [title]="L.margen_declarado.motivo">{{ L.margen_declarado.en_su_lugar || L.margen_declarado.motivo }}</small>
       </div>
     </div>
 
@@ -146,7 +155,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
       <!-- NIVEL 1 — las guías -->
       <section class="gc-master">
         <p-table [value]="guias()" [loading]="cargando()" selectionMode="single"
-                 [(selection)]="sel" (selectionChange)="abrirGuia($event)"
+                 [selection]="sel()" (selectionChange)="abrirGuia($event)"
                  dataKey="guia" [scrollable]="true" scrollHeight="52vh"
                  styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
           <ng-template #header>
@@ -161,7 +170,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
             </tr>
           </ng-template>
           <ng-template #body let-g>
-            <tr [pSelectableRow]="g" [class.gc-sel]="sel?.guia === g.guia && sel?.dia === g.dia">
+            <tr [pSelectableRow]="g" [class.gc-sel]="sel()?.guia === g.guia && sel()?.dia === g.dia">
               <td>{{ g.dia }}</td>
               <td class="gc-mono">{{ g.sucursal }} · {{ g.guia }}</td>
               <td><p-tag [value]="etiquetaCanal(g.canal)" [severity]="sevCanal(g.canal)" /></td>
@@ -207,7 +216,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 
       <!-- NIVEL 2 — los conceptos de la guía elegida -->
       <aside class="gc-detail">
-        <ng-container *ngIf="sel as g; else pickOne">
+        <ng-container *ngIf="sel() as g; else pickOne">
           <header class="gc-dhead">
             <h3>{{ g.sucursal }} · {{ g.guia }}</h3>
             <p>{{ g.dia }} · {{ g.paradas }} paradas · {{ etiquetaCanal(g.canal) }}</p>
@@ -384,6 +393,18 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
       display:block; }
     .gc-pick { padding:3rem 1rem; }
     .gc-sk { display:flex; flex-direction:column; gap:.4rem; }
+    /* El renglon de alcance: discreto cuando es el periodo, marcado cuando se acoto a una guia.
+       El cambio de color es el aviso de que las cifras de abajo cambiaron de denominador. */
+    .gc-scope { display:flex; align-items:baseline; gap:.5rem; flex-wrap:wrap;
+      padding:.35rem .1rem .55rem; font-size:.8rem; }
+    .gc-scope-l { font-size:.68rem; font-weight:600; text-transform:uppercase;
+      letter-spacing:.05em; color:var(--text-muted,#78716c); }
+    .gc-scope strong { font-weight:700; color:var(--text-main,#1c1917); }
+    .gc-scope small { color:var(--text-muted,#78716c); }
+    .gc-scope--guia { border-left:3px solid var(--action,#ea580c); padding-left:.6rem;
+      background:color-mix(in srgb, var(--action,#ea580c) 6%, transparent);
+      border-radius:0 var(--radius-sm,6px) var(--radius-sm,6px) 0; }
+    .gc-scope--guia strong { color:var(--action,#ea580c); }
     .gc-roi { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.75rem;
       margin:.9rem 0; }
     .gc-roi-cell { padding:.7rem .9rem; border:1px solid var(--border,#e7e5e4);
@@ -457,7 +478,9 @@ export class GuideCostPanelComponent implements OnInit {
   readonly cargando = signal(false);
   readonly guias = computed(() => this.lista()?.guias ?? []);
 
-  sel: GuideCostRow | null = null;
+  /** ⚠️ SEÑAL, no campo plano: las cards son `computed()` sobre la selección y un campo plano
+      no las despierta — el strip se quedaría en los totales del período al elegir una guía. */
+  readonly sel = signal<GuideCostRow | null>(null);
   readonly detalle = signal<GuideCostBreakdown | null>(null);
   readonly cargandoDet = signal(false);
 
@@ -511,7 +534,7 @@ export class GuideCostPanelComponent implements OnInit {
 
   cargar() {
     this.cargando.set(true);
-    this.sel = null; this.detalle.set(null);
+    this.sel.set(null); this.detalle.set(null);
     this.api.guideCostFiltros({
       from: this.fmt(this.desde), to: this.fmt(this.hasta), canal: this.canal() || undefined,
     }).subscribe({
@@ -534,9 +557,14 @@ export class GuideCostPanelComponent implements OnInit {
     });
   }
 
+  /** Deshace la selección: las cards vuelven al período completo. */
+  verTodoElPeriodo() {
+    this.sel.set(null); this.detalle.set(null); this.abierta.set(null);
+  }
+
   abrirGuia(g: GuideCostRow | null) {
     if (!g) return;
-    this.sel = g;
+    this.sel.set(g);
     this.cargandoDet.set(true); this.detalle.set(null);
     this.api.guideCostBreakdown(g.sucursal, g.guia, this.fmt(this.desde), this.fmt(this.hasta))
       .subscribe({
@@ -546,38 +574,126 @@ export class GuideCostPanelComponent implements OnInit {
   }
 
   abrirConcepto(concepto: string) {
-    if (!this.sel) return;
+    const s = this.sel();
+    if (!s) return;
     this.conceptoSel.set(concepto);
     this.lineas.set(null);
     this.verLineas = true;
-    this.api.guideCostLines(this.sel.sucursal, this.sel.guia, concepto,
+    this.api.guideCostLines(s.sucursal, s.guia, concepto,
       this.fmt(this.desde), this.fmt(this.hasta))
       .subscribe({ next: (l) => this.lineas.set(l) });
   }
 
   /**
-   * ⛔ Los KPIs vienen del SERVIDOR (`totales`), calculados sobre el rango COMPLETO.
+   * `[CGU.12]` — **El alcance de las cifras: el período, o la guía elegida.**
    *
-   * Sumarlos acá sobre `guias()` era el bug reportado: la lista trae 300 filas y en 30 días hay
-   * **847 guías**, así que el total mostraba **$349,691 contra $1,251,514 reales** — subdeclaraba
-   * el 72 % y se leía como un dato, no como un truncamiento. Un total que depende del tamaño de
-   * página no es un total.
+   * Pedido del usuario: *"las cards dinámicas … el costo atribuido, al seleccionar una sola guía,
+   * cambia a mostrar sólo lo que se seleccionó"*. Un strip que no se mueve al elegir una fila
+   * obliga a buscar la misma cifra dos veces: arriba el período, abajo en el desglose.
+   *
+   * ⛔ **Sin selección los totales son del SERVIDOR, nunca sumados acá.** La lista trae 300 filas
+   * y en 30 días hay **847 guías**: sumarlas en el cliente mostraba **$349,691 contra $1,251,514
+   * reales** — subdeclaraba el 72 % y se leía como un dato, no como un truncamiento. Un total que
+   * depende del tamaño de página no es un total.
+   *
+   * ⭐ **Con una guía elegida SÍ se puede sumar acá, y no es contradicción**: la fila ya trae su
+   * costo calculado por el servidor sobre TODOS sus conceptos. No se agrega nada; se lee una fila.
+   */
+  readonly alcance = computed(() => {
+    const L = this.lista();
+    const g = this.sel();
+    const t = L?.totales;
+    const totalPeriodo = t?.costo ?? 0;
+
+    if (g) {
+      const costo = g.costo;
+      const merc = g.mercancia;
+      return {
+        esGuia: true,
+        titulo: `guía ${g.sucursal} · ${g.guia}`,
+        detalle: `${g.dia} · ${g.paradas} paradas · ${this.etiquetaCanal(g.canal)}`,
+        costo, directo: g.costo_directo, prorrateado: g.costo_prorrateado,
+        mercancia: merc, paradas: g.paradas, guias: 1,
+        porParada: g.costo_por_parada,
+        // Qué porcentaje del costo del período se va en ESTA guía.
+        pctDelPeriodo: costo !== null && totalPeriodo
+          ? Number((100 * costo / totalPeriodo).toFixed(2)) : null,
+        // Lo que el costo representa sobre lo que se movió. NULL si falta cualquiera de los dos:
+        // dividir por una mercancía ausente da infinito, y un infinito se pinta como un número.
+        pctDelValor: costo !== null && merc ? Number((100 * costo / merc).toFixed(2)) : null,
+        pesosPorPeso: costo && merc ? Number((merc / costo).toFixed(1)) : null,
+        truncado: false, mostradas: 1,
+      };
+    }
+    return {
+      esGuia: false,
+      titulo: 'todo el período',
+      // La TRUNCACIÓN se declara acá porque los totales son del rango completo y la tabla no:
+      // sin esta coletilla, 300 filas debajo de un total de 847 guías se leen como el total.
+      detalle: t
+        ? `${t.guias} guías · ${t.paradas} paradas`
+          + (t.truncado ? ` · tabla mostrando ${t.mostradas}` : '')
+        : '',
+      costo: t ? t.costo : null,
+      directo: t ? t.costo_directo : null,
+      prorrateado: t ? t.costo_prorrateado : null,
+      mercancia: t ? t.mercancia : null,
+      paradas: t?.paradas ?? 0, guias: t?.guias ?? 0,
+      porParada: t?.costo_por_parada ?? null,
+      pctDelPeriodo: null,
+      pctDelValor: L?.retorno.erosion_pct ?? null,
+      pesosPorPeso: L?.retorno.pesos_movidos_por_peso_gastado ?? null,
+      truncado: !!t?.truncado, mostradas: t?.mostradas ?? 0,
+    };
+  });
+
+  /** % de una parte sobre el costo del alcance, para las bajadas de Directo y Prorrateo. */
+  private pctDelCosto(parte: number | null, total: number | null) {
+    return parte !== null && total ? `${(100 * parte / total).toFixed(1)}% del costo` : 'sin medir';
+  }
+
+  /**
+   * Las cards. Cambian de alcance, no de significado: la 1ª siempre es el costo atribuido, la 5ª
+   * siempre es lo que ese costo representa sobre lo movido.
+   *
+   * ⚠️ `null` se manda como **cadena** ('sin medir'): el strip lo pinta como texto. Mandar 0 sería
+   * decir que el viaje fue gratis (ADR-056), y un 0 en el denominador de un ratio da infinito.
    */
   readonly kpis = computed<MetricStripItem[]>(() => {
-    const t = this.lista()?.totales;
-    const cob = this.lista()?.cobertura;
-    if (!t) return [];
+    const a = this.alcance();
+    if (!this.lista()) return [];
+    const nm = 'sin medir';
     return [
-      { label: 'Costo operativo directo', value: t.costo_directo, format: 'currency',
-        tone: 'brand', sub: 'su departamento es este canal' },
-      { label: 'Prorrateo administrativo', value: t.costo_prorrateado, format: 'currency',
-        sub: `${t.pct_prorrateado ?? 0}% del costo · repartido por actividad` },
-      { label: 'Guías', value: t.guias, format: 'number',
-        sub: t.truncado ? `${t.paradas} paradas · mostrando ${t.mostradas}` : `${t.paradas} paradas` },
-      { label: 'Costo por parada', value: t.costo_por_parada ?? 0, format: 'currency',
-        sub: 'directo + prorrateo' },
+      { label: 'Costo atribuido', value: a.costo ?? nm, format: 'currency', tone: 'brand',
+        sub: a.esGuia
+          ? (a.pctDelPeriodo !== null ? `${a.pctDelPeriodo}% del costo del período` : 'sin medir')
+          : 'directo + prorrateo' },
+      { label: 'Costo operativo directo', value: a.directo ?? nm, format: 'currency',
+        sub: this.pctDelCosto(a.directo, a.costo) + ' · su departamento es este canal' },
+      { label: 'Prorrateo administrativo', value: a.prorrateado ?? nm, format: 'currency',
+        sub: this.pctDelCosto(a.prorrateado, a.costo) + ' · repartido por actividad' },
+      { label: 'Costo por parada', value: a.porParada ?? nm, format: 'currency',
+        sub: a.esGuia ? `${a.paradas} paradas de esta guía`
+                      : `promedio de ${a.paradas} paradas` },
+      // ⭐ Reemplaza a la vieja card de COBERTURA (qué % de las guías tenía gasto), que respondía
+      // una pregunta de calidad del dato en el lugar donde se espera una de dinero. Lo que el
+      // costo REPRESENTA sobre lo movido es la cifra accionable; la cobertura sigue declarada en
+      // la banda de abajo, que es su lugar.
+      { label: 'Del valor movido', value: a.pctDelValor ?? nm, format: 'percent',
+        tone: 'warn',
+        sub: a.mercancia !== null
+          ? `se va en logística de ${this.corto(a.mercancia)} movidos`
+          : 'sin mercancía medida' },
     ];
   });
+
+  /** Moneda corta para las bajadas: $186.2 M no rompe el renglón, $186,231,044 sí. */
+  private corto(v: number) {
+    const abs = Math.abs(v);
+    if (abs >= 1e6) return `$${(v / 1e6).toFixed(1)} M`;
+    if (abs >= 1e3) return `$${(v / 1e3).toFixed(0)} k`;
+    return `$${v.toFixed(0)}`;
+  }
 
   etiquetaCanal(c: string) {
     return c === 'cliente' ? 'A cliente'
