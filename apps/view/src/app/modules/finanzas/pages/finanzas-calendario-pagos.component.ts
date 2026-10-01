@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
@@ -66,7 +67,7 @@ const REPROGRAM_REASON_OPTS: { label: string; value: ReprogramReason }[] = [
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, CheckboxModule, ToastModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, CheckboxModule, ToastModule, MetricStripComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in cal-page">
@@ -81,6 +82,10 @@ const REPROGRAM_REASON_OPTS: { label: string; value: ReprogramReason }[] = [
           <input type="date" [(ngModel)]="date" (change)="reload()" class="cal-date-input" aria-label="Fecha" />
           <button pButton type="button" class="p-button-sm p-button-outlined" (click)="shiftDay(1)"><span class="pi pi-angle-right"></span></button>
           <button pButton type="button" class="p-button-sm p-button-text" (click)="goToday()">Hoy</button>
+          <!-- [RE.32] Lo que Compras entrega a Finanzas se confirma allá; Finanzas no ve el menú de Compras. -->
+          <a pButton class="p-button-sm p-button-outlined" routerLink="/compras/obligaciones" [queryParams]="{ tab: 'entregas' }">
+            <span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Entregas de Compras</span>
+          </a>
         </div>
       </header>
 

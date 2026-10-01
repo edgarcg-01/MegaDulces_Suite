@@ -13,6 +13,45 @@
 - Cada factura de la guía imprime su total, lo abonado (pagos y notas de crédito) y el saldo, en vez
   de Descuento e Importe. Sin cartera el abono sale «—». Las guías archivadas se reimprimen igual que
   se firmaron.
+### Added — `[CI.SELLO]` no se paga GitHub Pro, así que la compuerta se muda al despliegue (2026-09-30)
+
+Decisión: **la cuenta no pasa a Pro**, y el repo no vuelve a público (los docs traen IPs internas,
+hostnames de DB y cifras del negocio). O sea que `main` **nunca** va a tener protección del lado de
+GitHub — no es un pendiente, es el escenario definitivo.
+
+⭐ **Entonces la compuerta se mueve a donde sí somos dueños: el despliegue.** Prod dejó Railway el
+2026-09-22 y hoy la despliega `ops/prod/auto-deploy.sh` desde `md`.
+
+**Added**
+- Job `sellar` en `ci.yml`: cuando pasan `build` + `secret-scan`, mueve la rama marcadora
+  **`ci-green`** al commit probado. Sólo en `push` a `main`; un PR verde no es algo que se despliegue.
+- `ops/prod/compuerta-ci.sh` — 4 veredictos: `SELLADO` (0) · `ESPERANDO` (10) · `FRENADO` (20) ·
+  `NO_MEDIDO` (30). Vive en su propio archivo, como `clasificar-migraciones.awk`, **para poder
+  probarlo**: una compuerta con la lógica embebida sólo se testea duplicándola, y un test que
+  duplica la lógica se pone verde con la lógica equivocada.
+- `ops/prod/test-compuerta-ci.sh` — 6 casos, **2 negativos**, corriendo el mismo archivo que corre
+  en prod. `npm run check:compuerta-ci`.
+- `auto-deploy.sh` llama a la compuerta antes de construir. Escape: `AUTO_DEPLOY_SIN_CI=1`.
+
+**Qué frena y qué no, a propósito:** build roto o secreto filtrado → frena. `verify`
+(lint/tests/estilo) → **no** frena: hoy está rojo por deuda preexistente y exigirlo dejaría a
+producción sin despliegues desde el primer día. Apretarlo exige antes partir `verify` en dos.
+Y "todavía sin sello" no es error: espera y reintenta cada 5 min; recién a los 30 min grita.
+
+**Fixed**
+- ⛔ La cabecera de `auto-deploy.sh` afirmaba *"acá sólo entra lo que pasó por la rama protegida"* —
+  **era falso**, y era la premisa de todo su argumento de seguridad. Hasta hoy desplegaba lo que
+  hubiera en `origin/main`, verde o rojo.
+- `REMOTO` en `auto-deploy.sh` apuntaba al nombre viejo del repo; venía funcionando por cortesía
+  del redirect de GitHub, no por estar bien.
+- ⛔ **El candado encontró un bug en la compuerta antes de que llegara a prod**: `git rev-parse` con
+  una ref inexistente **imprime la ref de vuelta en stdout** y sale con error, así que el chequeo de
+  "vacío" nunca disparaba y un repo *sin* marcador se veía igual que uno con el CI corriendo
+  (`ESPERANDO` en vez de `NO_MEDIDO`). Se arregla con `--verify --quiet`.
+
+**Removed**
+- `scripts/apply-branch-protection.js` y su comando npm. Sin Pro no puede correr nunca, y un script
+  que no puede correr insinúa un pendiente que no existe.
 
 ### Added — Tickets: bandeja por filtros y desglose por pieza y partida (TK.12 + TK.13, 2026-09-30)
 - `/comercial/tickets` arranca con una bandeja: sucursal, rango de fechas y cliente; se busca dentro
@@ -419,6 +458,34 @@ crecimiento. El primer YoY legítimo de las 8 es **marzo-2027 vs marzo-2026**.
   **que es justo el artefacto**: se calcula por **operación continua**, que los excluye solo. Más:
   en el resolvedor va **`kepler_code`, no `warehouse_code`** (`[IC.CEDIS]` midió el mismo día que
   resuelve 2 de 8).
+### Added — Entrega de compras a Finanzas con folio, y la fecha de recepción real (RE.31–RE.32, 2026-09-29)
+El auxiliar de compras ve lo recibido **por fecha de recepción o de factura**, con brinco por sucursal y
+proveedor A-Z, marca lo que tiene en físico y validado y genera una **entrega `ENT-YYYY-NNNNN`** con quién
+entrega y quién recibe, más su PDF para firmas. La persona de Finanzas la confirma y puede **regresar
+renglón por renglón**.
+
+- **La fecha de recepción ya salía de Kepler, sólo que nadie la leía**: es la captura del vale de entrada
+  (`kdm1.c68`). Verificada contra un árbitro independiente — 417 fotos subidas a `/compras/entradas`, ninguna
+  anterior a esa captura. Y la columna que la vista llamaba `receipt_date` **es la fecha de factura**.
+- Semana del 21 al 27 de septiembre: 244 entradas por entregar, $12.67M, de las 9 sucursales.
+- Una entrada no puede estar en dos entregas vivas: lo garantiza un índice único parcial en la base.
+- **Pendiente:** 2 migraciones más (van con las de RE.30, ver el runbook) + redeploy + re-login + QA visual.
+
+### Added — Plazos de pago por proveedor, primera etapa de Obligaciones = entrega Compras→Finanzas (RE.30, 2026-09-29)
+El vencimiento de lo que Compras entrega a Finanzas depende de dos datos del **proveedor** que no
+existían bien: cuántos días exactos da y si corren **desde la factura o desde la recepción**.
+
+- **Kepler no sirve de fuente**: su condición sale "de contado" en el 68% de las recepciones porque
+  el plazo nunca se capturó allá (2026: 207 proveedores / $94.0M siempre contado, 97 / $234.7M mixtos).
+  Queda al lado, sólo para comparar.
+- **La fecha de recepción física tampoco existe en Kepler**: el 89% de la cadena comparte la fecha de
+  factura, y la columna que la vista llama `receipt_date` **es** la de factura. La captura la zona (RE.31).
+- `catalog.suppliers` gana `credit_term_base` + confirmación + `is_internal` (reusa el `credit_days`
+  de la Fase PP) e historial append-only. Pestaña **"Plazos por proveedor"** en `/compras/obligaciones`:
+  contra prod, 307 proveedores en 12 meses, **285 sin plazo, 46 cubren el 80%**.
+- ⚠️ `COMPRAS_OBLIGACIONES_*` estaban repartidos a **cero roles** (el candado de reparto está rojo en prod por eso). Se reparten, y se separa `COMPRAS_PLAZOS_AUTORIZAR` (lo negocian comprador/dirección) de `_GESTIONAR` (el auxiliar opera y extiende facturas).
+- El bundle inicial de `view` estaba al límite al empezar (1,399.75 / 1,400 kB); con BND.1–3 ya en `main` mide ~1.22 MB.
+- **Pendiente:** aplicar 2 migraciones + redeploy + re-login + QA visual.
 
 ### Fixed — el candado de paridad del Sell-Out se ponía verde con nueve días de hueco (VSO.7, 2026-09-28)
 El tracker anotaba **una** falla —*"el bloque del HUECO mide presencia (`count>0`), da ✔ con nueve
