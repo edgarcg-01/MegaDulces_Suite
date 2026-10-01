@@ -389,11 +389,11 @@ MS.6 auto-asignación balanceada (patrón `assignPending` de `recon_tasks`) · M
 
 | # | Qué | Por qué importa |
 |---|---|---|
-| **P1** | **Nombre de la sucursal 06.** El catálogo (`branches.ts`, `store-branches.ts`) dice **"Canindo"**; "**Canindo Abastos**" sólo existe como nombre de cuenta (`TLMKT Canindo Abastos`) y en un importer. "La Piedad Abastos" (02) sí coincide. | Renombrar es un cambio del **catálogo** (y de `commercial.warehouses.name`), fuera de esta fase. El módulo ya resuelve el nombre del catálogo, así que se corrige en un solo lugar. |
+| **P1** ✅ | **Nombre de la sucursal 06 — resuelto 2026-10-01:** se toma **tal cual está en el catálogo** (`Canindo`, `La Piedad Abastos`). El módulo no escribe nombres a mano. | Si algún día se quiere «Canindo Abastos», es un cambio del catálogo (`branches.ts`, `store-branches.ts`, `commercial.warehouses.name`) y el módulo lo hereda solo. |
 | **P2** | Confirmar la interpretación de "tarea en la Bitácora/task" (§5). | Define qué construye MS.2.8 / MS.8. |
 | **P3** | Lib nueva `libs/service-desk` vs módulo dentro de una lib existente. | Costo de arranque vs aislamiento. |
-| **P4** | ¿Quién es coordinador de TI y quiénes son agentes? | Alimenta responsabilidades y el reparto de permisos. |
-| **P5** | **Dependencias externas:** `SMTP_*` configurado en prod (hoy sin confirmar; el correo queda **apagado** sin eso) · **plantilla de utilidad aprobada por Meta** para WhatsApp (OBS.5 ya figura ⚠️ BLOCKED por lo mismo) · bucket de adjuntos en prod. | Sin esto, "avisa por número y correo" no sale a producción aunque el código esté listo. |
+| **P4** ✅ | **Personas de la cola — resuelto 2026-10-01:** Jorge Rubio (Sistemas), Edgar (Desarrollo) y Frank (Dirección General). **Falta definir el rol de cada uno** (quién atiende, quién coordina); se propone en MS.1.4 contra el padrón real. | Alimenta responsabilidades y el reparto de permisos. Frank está en otro departamento que los otros dos: la membresía por puesto no basta, requiere excepción por persona (`user_responsibilities`, con nota obligatoria). |
+| **P5** ⏸️ | **Dependencias externas — decisión 2026-10-01: «solo construye».** SMTP en prod, plantilla de Meta y bucket NO se gestionan en esta entrega: la Mesa de Servicio se **construye** y el despliegue/avisos reales se resuelven **cuando se unifique con task**. | El código de avisos se escribe detrás del puerto y se prueba con adaptadores simulados; `MS.4` (despliegue) queda diferido. |
 | **P6** | ¿El reloj de `Urgente` es calendario (24/7), como propongo? | Cambia cuándo se marca un incumplimiento. |
 
 ## 10. Declarado, no construido

@@ -7441,7 +7441,7 @@ semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso)
 
 **Post-MVP declarado:** MS.5 alcance de campo (vendor / enlace público) · MS.6 auto-asignación · MS.7 más colas · MS.8 puente Bitácora real + unificación · MS.9 vínculo con inventario de equipos.
 
-**⚠️ Pendientes por decidir (Edgar):** P1 nombre de la sucursal 06 ("Canindo" en el catálogo vs "Canindo Abastos") · P2 interpretación de "tarea en la Bitácora/task" · P3 lib nueva vs módulo en lib existente · P4 coordinador y agentes de TI · P5 `SMTP_*` en prod + plantilla de Meta + bucket · P6 reloj calendario para `Urgente`.
+**Decisiones 2026-10-01:** P1 ✅ nombres tal cual el catálogo · P4 ✅ personas: Jorge Rubio (Sistemas), Edgar (Desarrollo), Frank (Dirección General) — falta el rol de cada uno · P5 ⏸️ "solo construye": SMTP/Meta/bucket y el despliegue se resuelven al unificar con task. **Siguen con default recomendado:** P2 tarea = el propio ticket + puente a la Bitácora después · P3 lib nueva `libs/service-desk` · P6 reloj corrido para `Urgente`.
 
 ---
 
