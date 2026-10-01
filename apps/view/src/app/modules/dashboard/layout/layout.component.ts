@@ -38,7 +38,7 @@ import { HealthAlertToastComponent } from './health-alert-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
 
 /** Clave interna de proyecto de este layout: indexa los `*NavGroups` escritos a mano (deuda SN). */
-type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing';
+type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores';
 
 /** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp) cae al default. */
 const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
@@ -56,6 +56,7 @@ const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
   // que es como se llama el canal en el ERP y en la URL. Sin esta entrada el proyecto caía
   // al default `trademk` y el sidebar le habría mostrado el nav de Trade Marketing.
   televenta: 'telemarketing',
+  desarrolladores: 'desarrolladores',
 };
 
 interface NavItem {
@@ -716,6 +717,16 @@ export class LayoutComponent implements OnInit, OnDestroy {
   ];
 
   // Contabilidad (cumplimiento SAT / CFDI). Proyecto propio, separado de Finanzas.
+  // Fase DEV — Desarrolladores. Un solo módulo hoy; nav propio para no caer al de Trade.
+  private desarrolladoresNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Desarrolladores',
+      items: [
+        { label: 'Proyectos', icon: 'pi pi-code', route: '/desarrolladores/proyectos', anyOf: [Permission.DEV_PROJECTS_VER, Permission.DEV_PROJECTS_GESTIONAR] },
+      ],
+    },
+  ];
+
   private contabilidadNavGroups: { title: string; items: NavItem[] }[] = [
     {
       title: 'Fiscal / SAT',
@@ -955,6 +966,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     // Contabilidad: superficie contable/fiscal propia. Un rol contable puede no tener
     // REPORTES_VER_* → early-return para que el sidebar no quede vacío. Cada item por permiso.
+    if (this.currentProject() === 'desarrolladores') {
+      return this.dedupeByRoute(this.flatOf(this.desarrolladoresNavGroups).filter((i) => this.hasPermFor(i)));
+    }
     if (this.currentProject() === 'contabilidad') {
       return this.dedupeByRoute(this.flatOf(this.contabilidadNavGroups).filter((i) => this.hasPermFor(i)));
     }
@@ -1030,6 +1044,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     if (this.currentProject() === 'finanzas') {
       return this.mapGroups(this.finanzasNavGroups, true);
+    }
+    if (this.currentProject() === 'desarrolladores') {
+      return this.mapGroups(this.desarrolladoresNavGroups, true);
     }
     if (this.currentProject() === 'contabilidad') {
       return this.mapGroups(this.contabilidadNavGroups, true);

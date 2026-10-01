@@ -447,9 +447,19 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
     order: 9,
     label: 'Sistemas, Servicios y Mantenimiento',
     icon: 'pi pi-wrench',
-    description: 'Solicitudes, continuidad y proyectos. Sin módulo todavía (P-10).',
-    status: 'planned',
-    entries: [],
+    description: 'Proyectos del equipo de desarrollo. Solicitudes y continuidad siguen sin módulo (P-10).',
+    // Fase DEV (2026-10-01): deja de ser `planned` con su primer módulo real. Lo demás que este
+    // espacio promete (solicitudes, continuidad, mantenimiento) se DECLARA en la descripción en
+    // vez de pintarse como tarjeta vacía — §22 de la spec veta los «Próximamente».
+    status: 'active',
+    entries: [
+      {
+        id: 'desarrolladores',
+        kind: 'project',
+        project: 'desarrolladores',
+        source: { status: 'propuesta', cite: 'pedido de Sistemas 2026-10-01 — la parte «proyectos» de P-10' },
+      },
+    ],
   },
   {
     id: 'configuracion-de-la-suite',

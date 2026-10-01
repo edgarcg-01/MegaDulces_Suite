@@ -4,6 +4,7 @@ import {
   SUITE_SPACES,
   SUITE_UNCLASSIFIED,
   entryPermissions,
+  entryRoute,
   primaryDestinations,
   resolveProjectForUrl,
   resolveSpaceForUrl,
@@ -67,10 +68,23 @@ describe('SUITE_SPACES · el mapa contra el árbol', () => {
     expect(ordenados.map((s) => s.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
-  it('los tres espacios sin módulo son planned y no llevan entradas', () => {
+  it('los dos espacios sin módulo son planned y no llevan entradas', () => {
+    // Eran tres: «Sistemas, Servicios y Mantenimiento» se activó con Desarrolladores › Proyectos
+    // (Fase DEV, 2026-10-01). Si vuelve a quedar sin entradas, tiene que volver a `planned`.
     const planned = SUITE_SPACES.filter((s) => s.status === 'planned').map((s) => s.id).sort();
-    expect(planned).toEqual(['operacion-por-zonas', 'recursos-humanos', 'sistemas-servicios-mantenimiento']);
+    expect(planned).toEqual(['operacion-por-zonas', 'recursos-humanos']);
     for (const s of SUITE_SPACES.filter((x) => x.status === 'planned')) expect(s.entries).toEqual([]);
+  });
+
+  it('Desarrolladores vive en «Sistemas, Servicios y Mantenimiento» y abre con sus dos permisos', () => {
+    const espacio = SUITE_SPACES.find((s) => s.id === 'sistemas-servicios-mantenimiento')!;
+    expect(espacio.status).toBe('active');
+    const entrada = espacio.entries.find((e) => e.project === 'desarrolladores')!;
+    expect(entrada).toBeDefined();
+    expect(entryRoute(entrada)).toBe('/desarrolladores');
+    expect(entryPermissions(entrada).sort()).toEqual(
+      [Permission.DEV_PROJECTS_GESTIONAR, Permission.DEV_PROJECTS_VER].sort(),
+    );
   });
 
   it('cada proyecto de la app view tiene exactamente una casa primaria (espacio o sin clasificar)', () => {
@@ -214,7 +228,7 @@ describe('visibleSuiteMap · lo que ve cada persona', () => {
   it('sin permisos: ningún espacio, y los planned igual se DECLARAN', () => {
     const vis = visibleSuiteMap({}, false, null);
     expect(vis.spaces).toEqual([]);
-    expect(vis.declared.map((s) => s.id)).toEqual(['operacion-por-zonas', 'recursos-humanos', 'sistemas-servicios-mantenimiento']);
+    expect(vis.declared.map((s) => s.id)).toEqual(['operacion-por-zonas', 'recursos-humanos']);
   });
 
   it('permisos en null (todavía no cargaron) se tratan como vacío, no como error', () => {
@@ -242,11 +256,13 @@ describe('visibleSuiteMap · lo que ve cada persona', () => {
       'almacenes-y-logistica',
       'administracion-y-finanzas',
       'auditoria-prevencion-control',
+      'sistemas-servicios-mantenimiento',
       'configuracion-de-la-suite',
     ]);
-    // Trece puertas primarias: los 14 proyectos menos WhatsApp, que no tiene ruta.
-    // (+1 Presupuestos, módulo propio desde Fase PU; +1 MKT, proyecto propio desde [MKT.0].)
-    expect(primaryDestinations(vis)).toHaveLength(13);
+    // Catorce puertas primarias: los 15 proyectos menos WhatsApp, que no tiene ruta.
+    // (+1 Presupuestos, módulo propio desde Fase PU; +1 MKT, proyecto propio desde [MKT.0];
+    //  +1 Desarrolladores, Fase DEV 2026-10-01.)
+    expect(primaryDestinations(vis)).toHaveLength(14);
     expect(ids(vis)).not.toContain('whatsapp-bot');
   });
 

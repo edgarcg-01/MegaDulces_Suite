@@ -85,6 +85,34 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase DEV — Desarrolladores › Proyectos (bitácora del equipo) · 2026-10-01
+
+Pedido de Sistemas: *«cuando se nos ocurre un nuevo proyecto no lo escribimos»*. Cada idea se da de
+alta como una **orden** (folio `DEV-AAAA-NNNN`) con nombre, objetivo (escrito o **dictado**),
+evidencia (cualquier archivo, **foto** y **video** tomados en pantalla) y un responsable del equipo.
+
+- 🧪 **[DEV.0]** mig `20261001120000_devtools_projects`: schema `devtools` — `dev_team` · `projects` ·
+  `project_attachments` · `project_sequences`, RLS forzado en las 4, CHECKs de prioridad/estado/tipo.
+  El equipo se siembra **por nombre**, no por UUID (Edgar Dayan Cortés García · Ángel David Cisneros
+  Salazar · Luis Francisco López Gutiérrez); quien no aparece se avisa con `NOTICE`, no se inventa.
+  Aplicada **sólo en `platform_local`**; idempotencia probada (re-run en transacción revertida).
+- 🧪 **[DEV.1–4]** backend `apps/api/src/modules/dev-projects` (`/api/dev/projects`): CRUD + baja lógica,
+  folio por UPSERT atómico, responsable validado contra `dev_team`, adjuntos **multipart** (el JSON
+  global es 2 MB y un video no cabe; tope 200 MB) vía `ObjectStorageService.putBuffer` (nuevo).
+  Unitarios **47/47**.
+- 🧪 **[DEV.5–8]** frontend `/desarrolladores/proyectos` (lista densa + ficha). Dictado con Web Speech API
+  (`es-MX`, re-arranque tras silencio, «nueva línea»; ⛔ «punto» NO es comando: «punto de venta»).
+  Cámara con `getUserMedia`/`MediaRecorder`. Unitarios **41/41**; suite `view` 1406 ✓.
+- 🧪 **[DEV.9]** smoke HTTP `database/tests/test-newdb-dev-projects.js` **26/26** contra API + bucket local
+  (incluye RLS 0/3/0 y la URL firmada devolviendo el mismo archivo).
+- Permisos nuevos `DEV_PROJECTS_VER/_GESTIONAR` — ⚠️ **NO repartidos** a ningún rol: hoy sólo los ve
+  el god-mode (los tres del equipo son `superadmin` en local). Si alguien sin god-mode debe usarlo,
+  falta la migración de reparto (lección LC.6.2).
+- Mapa de la suite: el espacio 9 «Sistemas, Servicios y Mantenimiento» pasa de `planned` a `active`.
+- **Pendiente:** verificar el equipo en `platform_test`/prod (`.245` no respondió el 2026-10-01; en
+  local Edgar sólo existe como `edgar_cortes` **cliente B2B sin nombre**), validación visual con cámara
+  y micrófono reales, `client_max_body_size` del proxy de prod ≥ 200 MB, migración a prod, PR.
+
 ### Fase CXC.20 — `/finanzas/cartera`: una sola verdad del saldo, una sola pasada · 2026-09-24 · ADR-056
 
 Disparado por *"analiza /finanzas/cartera"*. Siete hallazgos, todos medidos contra prod el
