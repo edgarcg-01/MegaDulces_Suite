@@ -41,6 +41,15 @@ export type ScopeMode = 'none' | 'own' | 'listed' | 'all';
 /** De dónde salió la regla — es lo que hace explicable el "Acceso efectivo". */
 export type ScopeSource = 'user' | 'role' | 'default' | 'platform_admin';
 
+/**
+ * `[ZN.8]` — El área que significa **«donde no haya una más específica»**.
+ *
+ * Es `'*'` y no `NULL` a propósito: `area` entra en la PK de `user_scopes`/`role_scopes`, y en
+ * una PK `NULL` no compara consigo mismo — dos reglas «sin área» se verían como distintas y el
+ * `onConflict` no las atraparía.
+ */
+export const AREA_DEFECTO = '*';
+
 export interface ResolvedDimension {
   mode: ScopeMode;
   /** Valores concretos para lectura. Vacío cuando `mode` es `all` o `none`. */
@@ -116,4 +125,6 @@ export interface ScopeRuleRow {
   values: string[] | null;
   mode_write: ScopeMode | null;
   nota?: string | null;
+  /** `[ZN.8]` Proyecto donde aplica, o `'*'`. Ver `AREA_DEFECTO`. */
+  area?: string;
 }
