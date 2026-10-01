@@ -81,6 +81,22 @@ const CLASIFICA = `CASE
     sumaPatrones === p.juzgables,
     patrones.map((x) => `${x.patron}:${x.skus}`).join(' '));
 
+  // ── 2-bis. ⭐ EL CRUCE: DOS implementaciones del mismo veredicto ──────────────────────
+  // `[EXP.1a]` bajó la clasificación a la vista, para que el servicio y la matvista de señales
+  // lean UNA definición en vez de copiarla. Lo que este archivo aporta es el testigo
+  // INDEPENDIENTE: `CLASIFICA` sigue escrito acá, a mano, y tiene que coincidir fila por fila.
+  // ⛔ Comparar la vista contra sí misma pasaría la lógica rota en verde — es exactamente lo
+  // que le ocurrió a IC.0 y lo que DM.15 volvió a medir. Dos implementaciones, o nada.
+  {
+    const [x] = (await c.query(`
+      SELECT count(*)::int AS filas,
+             count(*) FILTER (WHERE h.patron IS DISTINCT FROM ${CLASIFICA})::int AS difieren
+        FROM analytics.v_sku_count_variance_history h`)).rows;
+    t(`⭐ el \`patron\` de la vista coincide con la derivación independiente en las ${x.filas} filas`,
+      Number(x.difieren) === 0,
+      `${x.difieren} filas difieren`);
+  }
+
   // ── 3. EL CORTE — que los umbrales separen de verdad, no de nombre ────────────────────
   const comp = patrones.find((x) => x.patron === 'se_compensa');
   if (comp) {
@@ -208,10 +224,14 @@ const CLASIFICA = `CASE
   const [wh] = (await c.query(`
     SELECT warehouse_id FROM analytics.v_sku_count_variance_history
      WHERE veces_contado >= 2 GROUP BY 1 ORDER BY count(*) DESC LIMIT 1`)).rows;
+  // [EXP.1a] `patron` ya viene de la vista — dejó de derivarse acá. Antes esto decía
+  // `SELECT *, <CASE> AS patron`, y al aparecer la columna en la vista el `*` la trajo también:
+  // dos `patron` en el mismo CTE, consulta ambigua. La derivación local NO se tiró: se movió al
+  // bloque de CRUCE de abajo, que es donde sirve — comparar DOS implementaciones. Usarla acá
+  // sería verificar la vista contra sí misma.
   const CONSULTA = `
     WITH h AS MATERIALIZED (
-      SELECT *, ${CLASIFICA.replace(/h\./g, '')} AS patron
-        FROM analytics.v_sku_count_variance_history h WHERE warehouse_id = $1),
+      SELECT * FROM analytics.v_sku_count_variance_history h WHERE warehouse_id = $1),
     juz AS (SELECT * FROM h WHERE veces_contado >= 2 AND veces_descuadro > 0)
     SELECT (SELECT json_agg(x) FROM (SELECT * FROM juz
               ORDER BY abs(pesos_neto) DESC, veces_descuadro DESC, sku LIMIT 100) x) AS items,
@@ -247,7 +267,7 @@ const CLASIFICA = `CASE
     const arma = (w, pat) => `
       WITH h AS MATERIALIZED (
         SELECT warehouse_id, warehouse_code, sku, veces_contado, veces_descuadro, pesos_abs,
-               pesos_neto, ${CLASIFICA.replace(/h\./g, '')} AS patron
+               pesos_neto, h.patron
           FROM analytics.v_sku_count_variance_history h
          ${w ? 'WHERE warehouse_id = ?' : ''}),
       juz AS (SELECT * FROM h WHERE veces_contado >= 2 AND veces_descuadro > 0)
