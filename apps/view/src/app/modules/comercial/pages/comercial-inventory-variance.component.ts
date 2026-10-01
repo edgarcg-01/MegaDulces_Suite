@@ -13,7 +13,7 @@ import {
   InventoryVarianceCoverage, InventoryCountPlan, InventoryVarianceKpi, Warehouse,
   InventoryReincidencia, InventoryReincidenciaItem,
   RollforwardPeriodos, RollforwardPeriodo, RollforwardItem, RollforwardTotales,
-  RollforwardFreshness,
+  RollforwardFreshness, InventoryVarianceEmbudoRow, InventoryVarianceExplicacion,
 } from '../comercial.service';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -526,6 +526,52 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
             </div>
           }
 
+          <!-- [EXP.1b] EL EMBUDO. Es lo que convierte la pantalla de un listado en una
+               decisión: de todo el descuadre del evento, cuánto ya tiene causa conocida y
+               cuánto hay que caminar. Los chips FILTRAN la tabla de abajo. -->
+          @if (embudoEvento().length) {
+            <div class="inv-var-embudo">
+              <p class="inv-var-embudo-t">
+                ¿Por dónde empezar? De
+                <strong>{{ fmtMoney(embudoTotal()) }}</strong> de descuadre:
+              </p>
+              <div class="inv-var-chips">
+                <button type="button" class="inv-var-chip"
+                  [class.is-on]="explicacionFilter === null"
+                  (click)="filtrarExplicacion(null)">
+                  Todo <span class="inv-var-chip-n">{{ embudoSkus() }}</span>
+                </button>
+                @for (e of embudoEvento(); track e.explicacion) {
+                  <button type="button" class="inv-var-chip"
+                    [class]="'inv-var-chip sev-' + explicacionSev(e.explicacion)"
+                    [class.is-on]="explicacionFilter === e.explicacion"
+                    [pTooltip]="explicacionTooltip(e.explicacion)" tooltipPosition="top"
+                    (click)="filtrarExplicacion(e.explicacion)">
+                    {{ explicacionLabel(e.explicacion) }}
+                    <span class="inv-var-chip-n">{{ e.skus }}</span>
+                    <span class="inv-var-chip-$">{{ fmtMoney(e.pesos_abs) }}</span>
+                  </button>
+                }
+              </div>
+              <!-- ⛔ Las dos cosas que esta tira NO puede dejar de decir. -->
+              @if (pila(); as p) {
+                <p class="inv-var-embudo-lead">
+                  La pila que hay que caminar son <strong>{{ p.skus }} SKUs</strong> por
+                  <strong>{{ fmtMoney(p.pesos_abs) }}</strong> —
+                  {{ pctPila() }}% del descuadre del evento.
+                </p>
+              }
+              @if (noMedido(); as n) {
+                <p class="inv-var-note inv-var-warn">
+                  ⚠️ <strong>{{ n.skus }} SKUs</strong> por
+                  <strong>{{ fmtMoney(n.pesos_abs) }}</strong> no se pudieron juzgar: les falta
+                  un testigo (casi siempre el conteo anterior o una segunda observación). Eso
+                  <strong>no</strong> quiere decir que no tengan causa.
+                </p>
+              }
+            </div>
+          }
+
           <!-- ⛔ El "debía haber" es DERIVADO: Kepler emite la diferencia, no el teórico.
                Cuánto no se pudo reconstruir va en pantalla, no en un .md que nadie abre. -->
           @if (sinTeorico() > 0) {
@@ -545,6 +591,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
                 <th class="num">Diferencia</th><th class="num">Costo</th><th class="num">Importe</th>
                 <!-- [IC.12] El costo del ajuste contra el que implica la captura del MISMO día. -->
                 <th>Costo vs. contado</th>
+                <!-- [EXP.1b] Qué lo explica, y con qué. -->
+                <th>Explicación</th>
               </tr>
             </ng-template>
             <ng-template #body let-l>
@@ -582,10 +630,35 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
                       : 'Sin costo contado con qué juzgarlo: el SKU no está en la captura de ese día, o la captura lo valuó en cero'"
                   ></p-tag>
                 </td>
+                <!-- [EXP.1b] La etiqueta va con SUS INSUMOS en el tooltip: una explicación que
+                     no se puede auditar es una opinión. Y las dos salvedades del renglón
+                     —signos mezclados y la pista de inventario de más— se ven acá. -->
+                <td>
+                  @if (l.explicacion) {
+                    <p-tag [severity]="explicacionSev(l.explicacion)"
+                      [value]="explicacionLabel(l.explicacion)"
+                      [pTooltip]="explicacionDetalle(l)" tooltipPosition="left"></p-tag>
+                    @if (l.excede_la_venta) {
+                      <i class="pi pi-arrow-up inv-var-pista"
+                        [pTooltip]="'Pista: la diferencia equivale a ' + l.dias_de_venta
+                          + ' días de venta. ⚠️ No es una explicación — la misma regla dispara '
+                          + 'en el 10% de los faltantes, donde no explica nada.'"></i>
+                    }
+                    @if (l.signos_mezclados) {
+                      <i class="pi pi-exclamation-triangle inv-var-pista"
+                        [pTooltip]="'Este SKU se ajustó como sobrante Y como faltante el mismo '
+                          + 'día (' + l.lineas + ' líneas). El veredicto sale del NETO: '
+                          + fmtMoney(l.importe_neto) + ', no de ' + fmtMoney(l.importe_bruto) + '.'"></i>
+                    }
+                  } @else {
+                    <span class="inv-var-nd"
+                      pTooltip="Sin señales calculadas para este renglón: es una carga inicial, o la vista de señales no se ha refrescado.">—</span>
+                  }
+                </td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="9" class="inv-var-note">
+              <tr><td colspan="10" class="inv-var-note">
                 Sin renglones para este evento con el filtro actual.
               </td></tr>
             </ng-template>
@@ -617,6 +690,26 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
       font-size: var(--fs-xs); margin-bottom: .625rem; }
     .inv-var-warn { color: var(--warn-fg); }
     .inv-var-empty { text-align: center; padding: 1.5rem; color: var(--fg-3); }
+    /* [EXP.1b] El embudo. Los chips son filtros, no adornos: por eso son <button>. */
+    .inv-var-embudo { margin: .75rem 0 1rem; }
+    .inv-var-embudo-t { font-size: var(--fs-sm); color: var(--fg-2); margin: 0 0 .5rem; }
+    .inv-var-embudo-lead { font-size: var(--fs-base); color: var(--fg-1); margin: .625rem 0 0;
+      max-width: 68ch; line-height: 1.45; }
+    .inv-var-chips { display: flex; gap: .375rem; flex-wrap: wrap; }
+    .inv-var-chip { display: inline-flex; align-items: baseline; gap: .375rem;
+      padding: .3rem .55rem; border-radius: var(--radius-sm, 6px); cursor: pointer;
+      border: 1px solid var(--border-1); background: var(--surface-1);
+      font-size: var(--fs-xs); color: var(--fg-2); font-family: inherit; }
+    .inv-var-chip:hover { border-color: var(--border-2); }
+    .inv-var-chip.is-on { border-color: var(--action); background: var(--surface-2);
+      color: var(--fg-1); font-weight: 600; }
+    .inv-var-chip-n { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .inv-var-chip-$ { font-variant-numeric: tabular-nums; color: var(--fg-3); }
+    .inv-var-chip.sev-danger .inv-var-chip-n { color: var(--bad-fg); }
+    .inv-var-chip.sev-warn .inv-var-chip-n { color: var(--warn-fg); }
+    .inv-var-chip.sev-success .inv-var-chip-n { color: var(--ok-fg); }
+    .inv-var-pista { font-size: var(--fs-nano); color: var(--warn-fg); margin-left: .35rem;
+      cursor: help; }
     .inv-var-tabs { margin-bottom: .75rem; }
     .inv-var-prog h2.inv-var-h2 { font-size: var(--fs-h3); margin: 1.25rem 0 .5rem; }
     .inv-var-salv { font-size: var(--fs-nano); color: var(--fg-3); }
@@ -635,6 +728,8 @@ export class ComercialInventoryVarianceComponent {
   readonly frescura = signal<RollforwardFreshness | null>(null);
   readonly lines = signal<InventoryVarianceLine[]>([]);
   readonly coverage = signal<InventoryVarianceCoverage | null>(null);
+  /** [EXP.1b] El embudo del evento abierto. */
+  readonly embudo = signal<InventoryVarianceEmbudoRow[]>([]);
   readonly loading = signal(false);
   readonly loadingDetail = signal(false);
   readonly warehouses = signal<Warehouse[]>([]);
@@ -902,19 +997,156 @@ export class ComercialInventoryVarianceComponent {
 
   openDetail() {
     const e = this.selected;
-    if (!e) { this.lines.set([]); this.coverage.set(null); return; }
-    this.loadingDetail.set(true);
-    this.api.inventoryVarianceDetail({ warehouse_id: e.warehouse_id, fecha: e.fecha })
-      .subscribe({
-        next: (l) => { this.lines.set(l ?? []); this.loadingDetail.set(false); },
-        error: () => { this.lines.set([]); this.loadingDetail.set(false); },
-      });
+    if (!e) {
+      this.lines.set([]); this.coverage.set(null); this.embudo.set([]);
+      this.explicacionFilter = null;
+      return;
+    }
+    // Abrir otro evento limpia el filtro: dejarlo pegado haría que la tabla saliera vacía sin
+    // motivo visible, que es la peor forma de un filtro.
+    this.explicacionFilter = null;
+    this.cargarLineas();
     // La cobertura sólo tiene sentido para un conteo: una carga inicial no "deja sin contar",
     // trae lo que el ERP viejo tenía.
     if (e.tipo_evento === 'conteo') {
       this.api.inventoryVarianceCoverage(e.warehouse_id, e.fecha)
         .subscribe({ next: (c) => this.coverage.set(c), error: () => this.coverage.set(null) });
+      this.api.inventoryVarianceEmbudo({
+        warehouse_id: e.warehouse_id, date_from: e.fecha, date_to: e.fecha,
+      }).subscribe({
+        next: (r) => this.embudo.set(r?.items ?? []),
+        error: () => this.embudo.set([]),
+      });
+    } else {
+      this.embudo.set([]);
     }
+  }
+
+  private cargarLineas() {
+    const e = this.selected;
+    if (!e) return;
+    this.loadingDetail.set(true);
+    this.api.inventoryVarianceDetail({
+      warehouse_id: e.warehouse_id, fecha: e.fecha,
+      explicacion: this.explicacionFilter ?? undefined,
+    }).subscribe({
+      next: (l) => { this.lines.set(l ?? []); this.loadingDetail.set(false); },
+      error: () => { this.lines.set([]); this.loadingDetail.set(false); },
+    });
+  }
+
+  // ── [EXP.1b] El embudo ────────────────────────────────────────────────────────────────
+
+  /** `null` = sin filtrar. El chip activo vuelve a pulsarse para quitarlo. */
+  explicacionFilter: InventoryVarianceExplicacion | null = null;
+
+  filtrarExplicacion(e: InventoryVarianceExplicacion | null) {
+    this.explicacionFilter = this.explicacionFilter === e ? null : e;
+    this.cargarLineas();
+  }
+
+  /** El embudo del evento abierto, ordenado como se decide: la pila accionable primero. */
+  readonly embudoEvento = computed(() => {
+    const orden: InventoryVarianceExplicacion[] = ['sin_explicacion', 'merma_sostenida',
+      'sobra_sostenida', 'costo_de_caja', 'se_compensa', 'movimientos_lo_explican', 'no_medido'];
+    return [...this.embudo()].sort(
+      (a, b) => orden.indexOf(a.explicacion) - orden.indexOf(b.explicacion));
+  });
+
+  readonly embudoTotal = computed(() =>
+    this.embudo().reduce((s, x) => s + Number(x.pesos_abs || 0), 0));
+  readonly embudoSkus = computed(() =>
+    this.embudo().reduce((s, x) => s + Number(x.skus || 0), 0));
+  readonly pila = computed(() =>
+    this.embudo().find((x) => x.explicacion === 'sin_explicacion') ?? null);
+  readonly noMedido = computed(() =>
+    this.embudo().find((x) => x.explicacion === 'no_medido') ?? null);
+
+  pctPila(): string {
+    const t = this.embudoTotal(); const p = this.pila();
+    if (!t || !p) return '0';
+    return (100 * Number(p.pesos_abs) / t).toFixed(1);
+  }
+
+  explicacionLabel(e: InventoryVarianceExplicacion | null | undefined): string {
+    switch (e) {
+      case 'costo_de_caja': return 'Costo de caja';
+      case 'movimientos_lo_explican': return 'Los movimientos lo explican';
+      case 'merma_sostenida': return 'Merma sostenida';
+      case 'sobra_sostenida': return 'Sobra sostenida';
+      case 'se_compensa': return 'Se compensa';
+      case 'sin_explicacion': return 'Sin explicación';
+      case 'no_medido': return 'No se pudo juzgar';
+      default: return '—';
+    }
+  }
+
+  explicacionSev(e: InventoryVarianceExplicacion | null | undefined):
+  'danger' | 'warn' | 'success' | 'secondary' | 'info' {
+    switch (e) {
+      // Rojo SOLO para lo que exige caminar el anaquel. Un rojo que significa cuatro cosas
+      // deja de significar ninguna — es la lección de LC.16.
+      case 'sin_explicacion': return 'danger';
+      case 'merma_sostenida': return 'warn';
+      case 'sobra_sostenida': return 'warn';
+      case 'costo_de_caja': return 'info';
+      case 'se_compensa': return 'success';
+      case 'movimientos_lo_explican': return 'success';
+      default: return 'secondary';
+    }
+  }
+
+  explicacionTooltip(e: InventoryVarianceExplicacion): string {
+    switch (e) {
+      case 'costo_de_caja':
+        return 'El ajuste declara la cantidad en piezas y la valúa al costo de la caja. El '
+          + 'importe que publica Kepler está inflado por el factor de caja; la mercancía puede '
+          + 'estar bien.';
+      case 'movimientos_lo_explican':
+        return 'La conciliación contra el conteo anterior cuadra: compras, traspasos y ventas '
+          + 'explican la diferencia.';
+      case 'merma_sostenida':
+        return 'El SKU pierde en conteo tras conteo y no se recupera. Es la pérdida que sí es '
+          + 'pérdida.';
+      case 'sobra_sostenida':
+        return 'El SKU aparece de más una y otra vez sin corregirse: suele ser unidad o '
+          + 'captura, no mercancía.';
+      case 'se_compensa':
+        return 'El descuadre se revierte entre conteos: la misma cantidad entra y sale. Es '
+          + 'ruido de conteo, no dinero perdido.';
+      case 'sin_explicacion':
+        return 'Se consultaron todos los testigos y ninguno lo explica. ESTA es la pila que hay '
+          + 'que caminar.';
+      case 'no_medido':
+        return '⛔ NO quiere decir que no haya causa: falta un testigo. Casi siempre no hay '
+          + 'conteo anterior con el cual comparar, o es la primera vez que se cuenta el almacén.';
+      default: return '';
+    }
+  }
+
+  /** La etiqueta con SUS INSUMOS: una explicación que no se puede auditar es una opinión. */
+  explicacionDetalle(l: InventoryVarianceLine): string {
+    const base = this.explicacionTooltip(l.explicacion as InventoryVarianceExplicacion);
+    const p: string[] = [];
+    if (l.veces_contado != null) {
+      p.push(`Contado ${l.veces_contado} veces, descuadró ${l.veces_descuadro ?? 0}`
+        + (l.retencion != null ? ` (retiene ${Math.round(Number(l.retencion) * 100)}%)` : ''));
+    }
+    if (l.rf_veredicto) p.push(`Conciliación del período: ${l.rf_veredicto}`);
+    if (l.demanda_motivo === 'medida' && l.dias_de_venta != null) {
+      p.push(`Equivale a ${l.dias_de_venta} días de venta`);
+    } else if (l.demanda_motivo && l.demanda_motivo !== 'medida') {
+      p.push(`Días de venta sin medir: ${l.demanda_motivo.replace(/_/g, ' ')}`);
+    }
+    if (l.oe_fecha) {
+      p.push(`Última entrada ${l.oe_fecha}: ${l.oe_cantidad} ${l.oe_unidad} a `
+        + this.fmtMoney(l.oe_costo_unitario)
+        + (l.oe_unidad_discrepa ? ` ⚠️ el ajuste dice ${l.unidad_erp}` : ''));
+    }
+    if (l.testigos_faltantes?.length) {
+      p.push(`Falta: ${l.testigos_faltantes.join(', ')}`);
+    }
+    return p.length ? `${base}\n\n${p.join('\n')}` : base;
   }
 
   fmtMoney(n: number | null | undefined): string {

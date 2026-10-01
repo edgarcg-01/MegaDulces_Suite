@@ -1136,6 +1136,12 @@ const CRON_JOBS: CronCfg[] = [
   // Acá no es cosmético: /almacen/inventory/diferencias seguiría publicando el descuadre del
   // trimestre pasado, y su banda de dinero en disputa, como si fueran los de este.
   { key: 'analytics_refresh_count_variance',    label: 'Refresh MV descuadre de conteos (IC.12)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [EXP.1b] Las señales que explican el descuadre. Sin esta fila el sensor cae en
+  // `cfg ? classify : 'ok'` y la MV parada se ve VERDE. Acá el modo de falla es peor que
+  // quedarse vieja: esta MV publica una PARTICIÓN de explicaciones, y si envejece mientras las
+  // de arriba se refrescan, la pantalla etiqueta renglones nuevos con los testigos de la semana
+  // pasada — un veredicto equivocado se lee con la misma confianza que uno correcto.
+  { key: 'analytics_refresh_count_signals',     label: 'Refresh MV señales del descuadre (EXP.1b)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [CGU.6] La MV del costo por guia. ⚠️ El umbral sigue a la cadencia del LATIDO, no a la del
   // refresco: la MV se refresca cada 30 min, pero ese array escribe un latido AGREGADO y la llave
   // POR MV la escribe el loop NOCTURNO. Umbral de nocturno (26/50), no de 30 min -- con warn a 2 h

@@ -232,6 +232,23 @@ export class AnalyticsRefreshService {
       // parada no vacía la pantalla: la deja publicando el descuadre del trimestre anterior.
       ['analytics.mv_erp_physical_count_variance', 'analytics_refresh_count_variance',
         'Refresh MV descuadre de conteos (nightly)', []],
+      // [EXP.1b] Las señales del descuadre por SKU — la LLAVE que une Diferencias con el
+      // roll-forward, el historial, la demanda y las órdenes de entrada.
+      //
+      // ⭐ `deps` NO está vacío, y es la única entrada de este bloque donde importa: esta MV LEE
+      // las dos de arriba. Van antes en el array, pero **ordenar no es depender** (ADR-056): sin
+      // declararlo, si el roll-forward falla esta MV se materializa igual, con `rf_veredicto` en
+      // NULL para todo — y un NULL en ese campo se clasifica como `no_medido`, o sea que la
+      // pantalla diría «falta un testigo» en vez de «el refresco se cayó». Exactamente el fallo
+      // que VP.1 midió en el sell-out.
+      //
+      // Poblado medido contra prod: ~50 s sobre 20,849 pares. Nocturno por la misma razón que
+      // las dos de arriba: Kepler cuenta cada tres meses.
+      //
+      // ⚠️ Su umbral está en `CRON_JOBS` (`analytics_refresh_count_signals`).
+      ['analytics.mv_erp_count_line_signals', 'analytics_refresh_count_signals',
+        'Refresh MV señales del descuadre (nightly)',
+        ['analytics.mv_erp_physical_count_variance', 'analytics.mv_erp_count_rollforward']],
       // [WMS-BI.4.3] Copia cacheada del resolvedor de unidad (`analytics.v_unit_truth`, ADR-057).
       // `deps` vacío a propósito: NO deriva de otra MV, sale de la vista canónica, que a su vez
       // sale del ODS. Se materializa por COSTO: medido con EXPLAIN contra prod, el join vivo

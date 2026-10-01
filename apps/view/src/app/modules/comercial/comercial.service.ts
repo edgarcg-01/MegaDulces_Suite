@@ -1597,12 +1597,26 @@ export class ComercialService {
   }
 
   inventoryVarianceDetail(params: {
-    warehouse_id: string; fecha: string; signo?: 'sobrante' | 'faltante'; limit?: number;
+    warehouse_id: string; fecha: string; signo?: 'sobrante' | 'faltante';
+    explicacion?: string; limit?: number;
   }) {
     let p = new HttpParams().set('warehouse_id', params.warehouse_id).set('fecha', params.fecha);
     if (params.signo) p = p.set('signo', params.signo);
+    if (params.explicacion) p = p.set('explicacion', params.explicacion);
     if (params.limit != null) p = p.set('limit', String(params.limit));
     return this.http.get<InventoryVarianceLine[]>(`${this.base}/inventory/variance/detail`, { params: p });
+  }
+
+  /** [EXP.1b] El embudo: cuánto del descuadre cae en cada explicación. */
+  inventoryVarianceEmbudo(params: {
+    warehouse_id?: string; date_from?: string; date_to?: string;
+  } = {}) {
+    let p = new HttpParams();
+    if (params.warehouse_id) p = p.set('warehouse_id', params.warehouse_id);
+    if (params.date_from) p = p.set('date_from', params.date_from);
+    if (params.date_to) p = p.set('date_to', params.date_to);
+    return this.http.get<{ items: InventoryVarianceEmbudoRow[]; freshness: RollforwardFreshness }>(
+      `${this.base}/inventory/variance/embudo`, { params: p });
   }
 
   inventoryVarianceCoverage(warehouse_id: string, fecha: string) {
@@ -3057,6 +3071,62 @@ export interface InventoryVarianceLine {
   ficha_costo_base?: number | null;
   ficha_costo_caja?: number | null;
   ficha_factor_caja?: number | null;
+
+  // ── [EXP.1b] Las señales, por SKU ──────────────────────────────────────────────────
+  /** La partición de causas. ⛔ `no_medido` NO es «no hay causa»: es que falta un testigo. */
+  explicacion?: InventoryVarianceExplicacion | null;
+  /** Qué testigo faltó, cuando faltó. Vacío ⟺ se consultaron todos. */
+  testigos_faltantes?: string[] | null;
+  /** El mismo SKU ajustado como sobrante Y faltante el mismo día. 504 pares en el histórico,
+   *  todos en el almacén 02 entre nov-2025 y ene-2026, con $4,376,696 que se cancelan solos. */
+  signos_mezclados?: boolean | null;
+  /** Cuántas líneas del ajuste trae este SKU en este evento. */
+  lineas?: number | null;
+  /** Con signo (la variación real del SKU) y sin signo (cuadra con la tabla por línea). */
+  importe_neto?: number | null;
+  importe_bruto?: number | null;
+  rf_veredicto?: 'cuadra' | 'merma' | 'sobrante' | 'no_recontado' | null;
+  rf_no_explicado?: number | null;
+  rf_importe_no_explicado?: number | null;
+  veces_contado?: number | null;
+  veces_descuadro?: number | null;
+  /** |neto| / bruto del histórico: separa el error de captura de la merma. */
+  retencion?: number | null;
+  patron?: 'merma' | 'sobra' | 'se_compensa' | 'mixto' | 'sin_dinero' | null;
+  demanda_diaria?: number | null;
+  /** Por qué no hay días de venta, cuando no los hay. Nunca se rellena con cero. */
+  demanda_motivo?: 'medida' | 'sin_demanda_registrada' | 'conteo_anterior_a_la_ventana'
+    | 'sin_venta_en_90d' | null;
+  dias_de_venta?: number | null;
+  /** ⚠️ PISTA, no explicación: su placebo dispara en el 10.1% de los faltantes, donde no
+   *  explica nada. Sirve para ORDENAR la pila accionable, no para vaciarla. */
+  excede_la_venta?: boolean | null;
+  oe_fecha?: string | null;
+  oe_folio?: string | null;
+  oe_unidad?: string | null;
+  oe_costo_unitario?: number | null;
+  oe_cantidad?: number | null;
+  /** El ajuste declara una unidad y la compra otra: sospechoso por construcción. */
+  oe_unidad_discrepa?: boolean | null;
+}
+
+export type InventoryVarianceExplicacion =
+  | 'costo_de_caja' | 'movimientos_lo_explican' | 'merma_sostenida' | 'sobra_sostenida'
+  | 'se_compensa' | 'sin_explicacion' | 'no_medido';
+
+/** [EXP.1b] Una fila del embudo: (almacén, fecha, explicación). */
+export interface InventoryVarianceEmbudoRow {
+  warehouse_id: string;
+  warehouse_code: string;
+  fecha: string;
+  explicacion: InventoryVarianceExplicacion;
+  skus: number;
+  /** Se agrega sobre el NETO por SKU, no sobre el bruto por línea. */
+  pesos_abs: number;
+  pesos_sobrante: number;
+  pesos_faltante: number;
+  con_pista: number;
+  signos_mezclados: number;
 }
 
 export interface InventoryVarianceCoverage {
