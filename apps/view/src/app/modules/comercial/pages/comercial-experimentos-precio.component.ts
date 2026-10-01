@@ -60,13 +60,9 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
       </p>
     </div>
     <div class="xp-head-acc">
-      <button type="button" pButton class="p-button-text p-button-sm"
-              icon="pi pi-refresh" label="Actualizar"
-              [loading]="cargando()" (click)="recargar()"></button>
+      <p-button type="button" icon="pi pi-refresh" label="Actualizar" [loading]="cargando()" (click)="recargar()" styleClass="p-button-text p-button-sm" />
       @if (puedeDisenar()) {
-        <button type="button" pButton class="p-button-sm"
-                icon="pi pi-plus" label="Diseñar experimento"
-                (click)="abrirDiseno()"></button>
+        <p-button type="button" icon="pi pi-plus" label="Diseñar experimento" (click)="abrirDiseno()" styleClass="p-button-sm" />
       }
     </div>
   </header>
@@ -74,8 +70,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
   @if (error(); as e) {
     <div class="xp-err" role="alert">
       <span>{{ e }}</span>
-      <button type="button" pButton class="p-button-sm p-button-text" label="Reintentar"
-              (click)="recargar()"></button>
+      <p-button type="button" label="Reintentar" (click)="recargar()" styleClass="p-button-sm p-button-text" />
     </div>
   }
 
@@ -138,8 +133,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
                   <strong>924 celdas elegibles</strong> y el diseño pide 582.
                 </p>
                 @if (puedeDisenar()) {
-                  <button type="button" pButton class="p-button-sm" icon="pi pi-plus"
-                          label="Diseñar el primero" (click)="abrirDiseno()"></button>
+                  <p-button type="button" icon="pi pi-plus" label="Diseñar el primero" (click)="abrirDiseno()" styleClass="p-button-sm" />
                 } @else {
                   <p class="xp-empty-nota">Lo diseña quien tenga el permiso de gestión.</p>
                 }
@@ -235,9 +229,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
                   <td class="comm-num xp-old">{{ c.precio_antes | number: '1.2-2' }}</td>
                   <td class="comm-num xp-new">{{ c.precio_propuesto | number: '1.2-2' }}</td>
                   <td>
-                    <button type="button" pButton class="p-button-sm p-button-text"
-                            label="Ya lo capturé" [loading]="marcando() === c.id"
-                            (click)="marcar(c)"></button>
+                    <p-button type="button" label="Ya lo capturé" [loading]="marcando() === c.id" (click)="marcar(c)" styleClass="p-button-sm p-button-text" />
                   </td>
                 </tr>
               } @empty {
@@ -307,11 +299,8 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
   </div>
 
   <ng-template #footer>
-    <button type="button" pButton class="p-button-text p-button-sm" label="Cancelar"
-            (click)="dialogoAbierto = false"></button>
-    <button type="button" pButton class="p-button-sm" label="Diseñar"
-            [disabled]="!nombre().trim() || !estratosSel().size || guardando()"
-            [loading]="guardando()" (click)="disenar()"></button>
+    <p-button type="button" label="Cancelar" (click)="dialogoAbierto = false" styleClass="p-button-text p-button-sm" />
+    <p-button type="button" label="Diseñar" [disabled]="!nombre().trim() || !estratosSel().size || guardando()" [loading]="guardando()" (click)="disenar()" styleClass="p-button-sm" />
   </ng-template>
 </p-dialog>
 </div>

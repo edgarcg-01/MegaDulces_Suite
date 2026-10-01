@@ -832,7 +832,51 @@ de escribirlos son treinta segundos; renombrar después costó dos vueltas.
 
 ---
 
-## 22 · Lo que sigue
+## 22 · `[PR.V7]` · El botón salía **sin texto**, y la compuerta que lo vigilaba estaba apagada
+
+Reportado con una captura: dos píldoras naranjas vacías donde debían decir «Actualizar» y
+«Diseñar experimento». En PrimeNG 22 la **directiva** `pButton` perdió `label` e `icon`, así que
+`<button pButton label="X">` se pinta vacío. La forma que sí funciona es el **componente**
+`<p-button label icon styleClass>`.
+
+### ⛔⛔ Lo grave no fue el botón
+
+`scripts/check-primeng-api.js` **ya tenía esta regla**, escrita el 2026-09-02 con su diagnóstico y
+su arreglo. No la detectó. La causa, en una línea:
+
+```js
+if (/p-button/.test(tag)) continue; // <p-button pButton> es otro defecto, no éste
+```
+
+Dos defectos encimados: el regex de arriba sólo matchea `<button` y `<a`, así que **un
+`<p-button>` nunca llegaba hasta ahí** y el salto no servía a su propósito; y ese mismo patrón
+matchea **`class="p-button-sm"`**, que lleva casi todo botón de la app. **La regla se saltaba a sí
+misma.**
+
+| | antes | medido |
+|---|---:|---:|
+| lo que reportaba | **2** | |
+| lo que había | | **32** en 16 archivos |
+
+⭐ **Un `continue` dentro de una compuerta es una excepción, y una excepción sin prueba negativa
+que la ejercite es un apagado silencioso.**
+
+### Qué se hizo
+
+- **10 botones convertidos** a `<p-button>` en Motor de margen y Experimentos — incluidos
+  «Actualizar», «Reintentar», «Ya lo capturé» y «Ver todas las acciones», que llevaban tiempo
+  saliendo sin texto.
+- **El salto retirado**, con el motivo escrito en su lugar.
+- **Techo = 22**, la deuda medida que queda en el resto de la app. No es una meta: es lo que hay,
+  congelado para que la 23ª no entre. Antes el techo decía 3 y no enforzaba nada.
+- ✅ **Prueba negativa:** con un botón roto a propósito la compuerta marca **23 contra 22**; al
+  retirarlo vuelve a verde.
+
+**Verificado:** `nx build view` · `nx test view` **1,387** · lint 0 errores.
+
+---
+
+## 23 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
