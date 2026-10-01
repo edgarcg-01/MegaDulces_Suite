@@ -2451,18 +2451,53 @@ Ninguno es trabajo desperdiciado si el clúster nunca llega; todos son prerequis
 1. ✅ **Redis + adapter de socket.io** (`[INFRA.1]`, hecho el 2026-09-30). El adapter **ya estaba
    escrito y nunca encendido** (`main.ts:355-357`): sólo faltaba `REDIS_URL`. Verificado en prod:
    «adapter cross-instance ACTIVO», 42 canales pub/sub y 14 patrones con los 13 namespaces.
-2. ⬜ **`prod-api` a 2 réplicas detrás de Caddy.** Da deploy sin caída *hoy* y obliga a que el API
-   sea stateless de verdad — mejor descubrir que duele con 2 contenedores que con un clúster.
-   ⚠️ Socket.IO con transporte de sondeo exige **afinidad de sesión**: Caddy necesita
-   `lb_policy cookie`, o forzar transporte websocket. Se mide y se decide; no se improvisa.
-3. ⬜ **Declarar la restricción de los carriles singleton.** Hoy vive en un comentario del compose;
-   en K8s hace falta `replicas=1` explícito o leader election.
+2. ✅ **`prod-api` a 2 réplicas detrás de Caddy** (`[INFRA.2]`, 2026-10-01). Medido: **20 peticiones
+   → 10 a `prod-api` / 10 a `prod-api-2`**, con `Set-Cookie: lb=…` presente (la afinidad de sesión
+   que Socket.IO exige con transporte de sondeo, `lb_policy cookie`).
+   ⛔ **Desplegarlo destapó que el `Caddyfile` llevaba 6 días sin poder desplegarse** — ver
+   `[INFRA.6]` y `GOTCHAS.md` #74: `mv` sobre un bind mount de archivo desengancha el montaje, y
+   `up -d caddy` es un no-op para un cambio de config. Dos fallas mudas apiladas.
+3. ✅ **Declarar la restricción de los carriles singleton** (`[INFRA.4]`, 2026-10-01). Y no quedó
+   como declaración: es un candado ejecutable, `database/tests/test-ods-lane-partition.js`,
+   15 aserciones con tres pruebas negativas hechas rompiendo el compose de verdad. Candadea que
+   ningún carril se traslape (dos shippers se pisan `ods.ctl`, que llavea sólo `(table_name)`),
+   que los huecos estén declarados con motivo, y que `ODS_HASH_TABLES ⊆ KP_ODS_TABLES`.
 4. ⬜ **Sacar `docker.sock` de `ods-autoheal`.** Es la **única pieza atada a Docker en concreto**;
    en K8s la reemplazan las liveness probes nativas. Desata el amarre y cierra el agujero de root.
+   ⚠️ **Objeción medida (2026-10-01):** el reemplazo obvio —que cada carril se mate solo— **no
+   cubre el caso para el que el brazo existe**: un proceso COLGADO no puede auto-terminarse, su
+   bucle está trabado (es exactamente la falla del 04-09, 15 h con CPU 0.00 % y cero entrega).
+   Hace falta un supervisor **dentro** del contenedor, o un proxy del socket acotado a
+   `containers:read` + `post:restart`. No es un borrado de línea.
 5. ⬜ **Secretos fuera de archivos** (`/secrets/feeds.env`, más las credenciales embebidas en
    `import-contpaqi-cfdis.js`).
-6. ⬜ **VL.5 (Wincaja / Jet 32-bit).** Es lo único que **nunca** va a orquestarse; mientras siga,
-   «todo en el clúster» es imposible por definición. Es decisión de negocio, no de infraestructura.
+6. ✅ **VL.5 (Wincaja / Jet 32-bit)** (`[WR.7]`, 2026-10-01). Se resolvió **retirándolo, no
+   portándolo**: el CEDIS migró su PdV a Kepler el 30-sep y con él se fue la última sucursal viva
+   en Wincaja. Los tres procesos PM2 fuera (`pm2 delete` + `pm2 save` — un `stop` no alcanza: el
+   resurrect los revive, y ya había pasado). El histórico `w00`/`w30`/`w32` se queda.
+   ⚠️ Lo único que sigue atado a Jet 32-bit es **Caja General**, que es otro tema y sigue vivo.
+
+### Revisión del 2026-10-01 — cuatro de los seis pasos hechos, y el gatillo SIGUE sin dispararse
+
+Medido en `md` el mismo día: `pg-prod` **11.96 GiB** + `pgvector-md` **4.35 GiB** = 16.3 GiB,
+contra **1.06 GiB entre los otros 19 contenedores** —las dos APIs, portal, vendor, worker y todos
+los carriles juntos—. Load 2.38, 8 GB disponibles, disco al 59 %. El argumento central del ADR es
+**más cierto hoy** que cuando se escribió: K3s pondría un control plane a competir con 16 GB de
+Postgres para orquestar el 6 % de la máquina.
+
+⚖️ **Y lo que juega en contra, dicho sin barrerlo.** De los cuatro hallazgos de infraestructura del
+01-oct, **dos los habría evitado un clúster**: el `Caddyfile` inmutable (un ConfigMap montado se
+refresca solo — ⚠️ *salvo con `subPath`, que repite la trampa del inodo*) y la **deriva de imagen**
+(un `Deployment` rota todos los pods; `up -d <servicio>` dejó uno atrás con código viejo). Los
+otros dos **no**, o serían peores: los 505 reinicios de `ods-reconcile-full` son el footgun
+canónico de `livenessProbe` —y `CronJob` + `activeDeadlineSeconds` lo repite—, y la partición de
+carriles empeora, porque programar réplicas libremente es justo lo que acá está prohibido.
+Dos a dos: no alcanza para mover la decisión con un solo nodo.
+
+**Lo que falta de la tabla del contexto es una sola línea: HA real.** Las otras tres se cerraron
+dentro de Compose. HA no la da ninguna herramienta: la da una **segunda máquina**. Candidato
+aparecido hoy: `.243` quedó con sólo Caja General, así que liberarla y reinstalarla como Linux es
+lo que dispararía el gatillo. **Es una decisión de fierro y de negocio, no de sustrato.**
 
 ### Declarado, no resuelto
 
