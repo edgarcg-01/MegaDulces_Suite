@@ -339,10 +339,24 @@ subir_compose() {
   #
   # ⛔ Y el carril sigue corriendo su copia INSTALADA, no la del clon que él mismo mantiene: así
   # un commit malo no puede dejar sin carril al mecanismo que tendría que revertirlo.
-  _guiones="docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
+  _guiones="docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh aplicar-k3s-prod.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
   for a in $_guiones; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
+  # ── [K3S.26] LOS MANIFIESTOS DE K3s TAMBIÉN VIAJAN ─────────────────────────────────────
+  # `aplicar-k3s-prod.sh` lee de `~/ops/k3s/`, la copia INSTALADA — mismo criterio que rige
+  # para `auto-deploy.sh` y `verificar.sh`: el carril corre lo que se instaló a propósito, no
+  # lo que haya en un clon que él mismo mantiene. Así un commit malo no puede dejar sin carril
+  # al mecanismo que tendría que revertirlo.
+  #
+  # ⚠️ El corolario, que hay que saber antes de editar algo por SSH: el repo GANA sobre `md`.
+  # Un ajuste hecho a mano allá se pisa en el próximo despliegue.
+  ssh_md "mkdir -p ~/ops/k3s"
+  for a in "$REPO"/ops/k3s/*.yaml; do
+    [ -f "$a" ] || continue
+    scp -q -o BatchMode=yes "$a" "$SRV:ops/k3s/.$(basename "$a").nuevo"
+  done
+  ssh_md "cd ~/ops/k3s && for a in .*.yaml.nuevo; do [ -f \"\$a\" ] || continue; b=\${a#.}; mv -f \"\$a\" \"\${b%.nuevo}\"; done"
   # ⛔ Se mueve encima, nunca se sobrescribe el inodo en curso: `sh` lee el guion POR POSICIÓN
   # mientras lo ejecuta. `auto-deploy.sh` puede estar corriendo justo ahora (dispara cada 5 min).
   # ⛔ [INFRA.6 2026-09-30] EL `Caddyfile` NO SE MUEVE ENCIMA: SE ESCRIBE EN SU LUGAR.

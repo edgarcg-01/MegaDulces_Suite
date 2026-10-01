@@ -431,6 +431,30 @@ for s in $SERVICIOS; do
   fi
 done
 
+# ═══ [K3S.26] Y LO QUE VIVE EN K3s ═════════════════════════════════════════════════════════
+#
+# HOY ES UN NO-OP, a propósito: los manifiestos de prod están marcados `migracion: preparado`
+# —las cuatro apps corren en Compose— así que el guion no aplica nada y sale 0.
+#
+# ⭐ Se cablea igual, y ANTES de que haga falta. El 2026-10-01 se intentó mover `portal` y
+# `vendor` al clúster y hubo que revertir en el acto, porque este carril actualizaba Compose y
+# no K3s: el primer despliegue compartido los habría dejado viejos EN SILENCIO. Construir el
+# camino el día del corte es cómo el corte termina haciéndose a mano.
+#
+# ⛔ Va ANTES del `up -d` de Compose y ABORTA si falla. Los servicios de los dos mundos son
+# disjuntos (lo candadea `npm run check:k3s`), así que no hay orden "correcto" entre ellos —
+# pero un despliegue a medias que reporta éxito parcial es peor que uno que no ocurrió.
+if [ -f "$HOME/ops/prod/aplicar-k3s-prod.sh" ]; then
+  if _k3s_out=$(sh "$HOME/ops/prod/aplicar-k3s-prod.sh" "$DESEADO" 2>&1); then
+    echo "$_k3s_out" | sed 's/^/      /'
+  else
+    di "FALLO: no se pudo aplicar a K3s"
+    echo "$_k3s_out" | sed 's/^/      /'
+    latir error "apply a K3s falló en $DESEADO"
+    exit 1
+  fi
+fi
+
 cd "$HOME/ops/prod" || exit 1
 set -a; . "$HOME/secrets/prod-compose.env"; set +a
 docker compose -p prod up -d $SERVICIOS >/dev/null 2>&1

@@ -140,13 +140,32 @@ interno.megadulcessuite.com {
 # apuntan al puerto del host del contenedor de Docker, y `api2` está en retiro.
 portal.megadulcessuite.com {
 	import tls-dns-cloudflare
-	# [K3S.20] 8081 = el contenedor de Docker. El 30081 es el pod, y el pod sirve un
-	# bundle 36 commits viejo. Vuelve al NodePort cuando las imagenes se publiquen solas.
+	# [K3S.25] SIGUE EN DOCKER (8081), y el 2026-10-01 estuvo un rato en el pod (30081).
+	#
+	# El canario SALIÓ BIEN y queda medido: con los pods arriba y sin tráfico, el md5 de lo
+	# que sirve el pod es IDÉNTICO al del contenedor, y ngsw.json da 200 en los dos mundos.
+	#
+	# ⛔ Se REVIRTIÓ igual, por mi propia regla escrita unas horas antes en este archivo: no se
+	# vuelve al NodePort hasta que exista un camino AUTOMÁTICO. Y no existía para prod —
+	# `auto-deploy.sh` actualizaba Compose y no K3s, así que el primer despliegue compartido
+	# habría dejado estos pods viejos EN SILENCIO. Mover el ingreso antes que el despliegue es
+	# publicar una versión que nadie eligió.
+	#
+	# El camino ya está puesto ([K3S.24] publica, [K3S.26] aplica). Lo que falta para volver:
+	#   1. marcar portal/vendor como `migracion: migrado` en ops/k3s/40-portal-vendor…
+	#   2. cambiar estas dos líneas a 30081 / 30082
+	#   3. ⛔ el túnel de Cloudflare — hoy apunta a `http://portal:10000`, DNS de Docker, así
+	#      que apagar el contenedor rompe el sitio público. Eso ya tumbó prod una vez hoy.
 	reverse_proxy 192.168.0.222:8081
 }
 
 vendedor.megadulcessuite.com {
 	import tls-dns-cloudflare
-	# [K3S.20] 8082 = el contenedor de Docker. Mismo motivo que portal.
+	# [K3S.25] Mismo estado y mismo motivo que portal: canario probado, vuelta pendiente.
+	#
+	# ⚠️ Y el API va DESPUÉS que estos dos, no a la vez. portal y vendor son apátridas y
+	# sirven estáticos; el API arrastra sesiones, el adaptador de socket.io sobre Redis y el
+	# Throttler, que depende de `app.set('trust proxy', 1)` — un salto más en la cadena le
+	# cambia la IP del cliente. Un corte a la vez.
 	reverse_proxy 192.168.0.222:8082
 }
