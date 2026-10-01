@@ -2,7 +2,15 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequireAnyPermission, RequirePermissions } from '@megadulces/platform-core';
-import { DevProjectsService, type UploadedFileLike } from './dev-projects.service';
+import {
+  DevProjectsService,
+  type DevProjectAttachment,
+  type DevProjectDetail,
+  type DevProjectNote,
+  type DevProjectRow,
+  type DevTeamMember,
+  type UploadedFileLike,
+} from './dev-projects.service';
 import { MAX_ATTACHMENT_BYTES, type DevProjectInput } from './dev-projects.rules';
 
 /**
@@ -23,56 +31,66 @@ export class DevProjectsController {
   @Get('team')
   @RequireAnyPermission(Permission.DEV_PROJECTS_VER, Permission.DEV_PROJECTS_GESTIONAR)
   @ApiOperation({ summary: 'Equipo de desarrollo al que se le puede asignar un proyecto.' })
-  team() {
+  team(): Promise<DevTeamMember[]> {
     return this.svc.team();
   }
 
   @Get()
   @RequireAnyPermission(Permission.DEV_PROJECTS_VER, Permission.DEV_PROJECTS_GESTIONAR)
   @ApiOperation({ summary: 'Lista de proyectos (filtros: status, assignee, search).' })
-  list(@Query('status') status?: string, @Query('assignee') assignee?: string, @Query('search') search?: string) {
+  list(
+    @Query('status') status?: string,
+    @Query('assignee') assignee?: string,
+    @Query('search') search?: string,
+  ): Promise<DevProjectRow[]> {
     return this.svc.list({ status, assignee, search });
   }
 
   @Get(':id')
   @RequireAnyPermission(Permission.DEV_PROJECTS_VER, Permission.DEV_PROJECTS_GESTIONAR)
   @ApiOperation({ summary: 'Detalle del proyecto con sus adjuntos (URL prefirmada temporal).' })
-  detail(@Param('id', ParseUUIDPipe) id: string) {
+  detail(@Param('id', ParseUUIDPipe) id: string): Promise<DevProjectDetail> {
     return this.svc.detail(id);
   }
 
   @Post()
   @RequirePermissions(Permission.DEV_PROJECTS_GESTIONAR)
   @ApiOperation({ summary: 'Da de alta un proyecto (genera folio DEV-AAAA-NNNN).' })
-  create(@Body() body: DevProjectInput) {
+  create(@Body() body: DevProjectInput): Promise<DevProjectDetail> {
     return this.svc.create(body);
   }
 
   @Patch(':id')
   @RequirePermissions(Permission.DEV_PROJECTS_GESTIONAR)
   @ApiOperation({ summary: 'Edita nombre, objetivo, prioridad, estado, responsable o fecha compromiso.' })
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() body: DevProjectInput) {
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() body: DevProjectInput): Promise<DevProjectDetail> {
     return this.svc.update(id, body);
   }
 
   @Delete(':id')
   @RequirePermissions(Permission.DEV_PROJECTS_GESTIONAR)
   @ApiOperation({ summary: 'Baja lógica del proyecto (se conserva con deleted_at).' })
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  remove(@Param('id', ParseUUIDPipe) id: string): Promise<{ ok: true }> {
     return this.svc.remove(id);
   }
 
   @Post(':id/notes')
   @RequirePermissions(Permission.DEV_PROJECTS_GESTIONAR)
   @ApiOperation({ summary: 'Agrega una nota o una modificación al seguimiento (en cualquier estado, incluso terminado).' })
-  addNote(@Param('id', ParseUUIDPipe) id: string, @Body() body: { kind?: string; body?: string }) {
+  addNote(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { kind?: string; body?: string },
+  ): Promise<DevProjectNote> {
     return this.svc.addNote(id, body);
   }
 
   @Delete(':id/notes/:noteId')
   @RequirePermissions(Permission.DEV_PROJECTS_GESTIONAR)
   @ApiOperation({ summary: 'Quita una nota o modificación (baja lógica). El registro automático de cambios no se borra.' })
-  removeNote(@Param('id', ParseUUIDPipe) id: string, @Param('noteId', ParseUUIDPipe) noteId: string) {
+  removeNote(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('noteId', ParseUUIDPipe) noteId: string,
+  ): Promise<{ ok: true }> {
     return this.svc.removeNote(id, noteId);
   }
 
@@ -85,14 +103,17 @@ export class DevProjectsController {
     @UploadedFile() file: UploadedFileLike,
     @Body('source') source?: string,
     @Body('note_id') noteId?: string,
-  ) {
+  ): Promise<DevProjectAttachment> {
     return this.svc.addAttachment(id, file, source, noteId || null);
   }
 
   @Delete(':id/attachments/:attachmentId')
   @RequirePermissions(Permission.DEV_PROJECTS_GESTIONAR)
   @ApiOperation({ summary: 'Quita un adjunto (baja lógica).' })
-  removeAttachment(@Param('id', ParseUUIDPipe) id: string, @Param('attachmentId', ParseUUIDPipe) attachmentId: string) {
+  removeAttachment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+  ): Promise<{ ok: true }> {
     return this.svc.removeAttachment(id, attachmentId);
   }
 }

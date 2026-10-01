@@ -5,6 +5,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse, HttpEventType } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { coincideBusqueda } from '@megadulces/ui-web';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
@@ -138,7 +139,9 @@ const KIND_ICON: Record<string, string> = {
           </div>
 
           <div class="dp-table-wrap">
-            <table class="dp-table">
+            <!-- dt-cards-ok: abajo del punto de quiebre esta tabla se OCULTA y la reemplaza
+                 la lista .dp-cards de aca abajo. No se apila: se cambia por otra cosa. -->
+            <table class="dp-table dt-cards-ok">
               <thead>
                 <tr>
                   <th>Folio</th><th>Proyecto</th><th>Responsable</th><th>Prioridad</th><th>Estado</th>
@@ -721,12 +724,14 @@ export class DevProyectosComponent implements OnInit {
   readonly visible = computed(() => {
     const st = this.fStatus();
     const as = this.fAssignee();
-    const q = this.fSearch().trim().toLowerCase();
+    const q = this.fSearch();
     return this.projects().filter((p) => {
       if (st && p.status !== st) return false;
       if (as === 'sin_asignar' && p.assignee_user_id) return false;
       if (as && as !== 'sin_asignar' && p.assignee_user_id !== as) return false;
-      if (q && !`${p.folio} ${p.title} ${p.objective ?? ''}`.toLowerCase().includes(q)) return false;
+      // Tokenizado y sin acentos: buscar "pina" tiene que encontrar PIÑA, y "DEV-1 tablero"
+      // tiene que encontrar la fila aunque las dos palabras esten en campos distintos.
+      if (!coincideBusqueda(q, p.folio, p.title, p.objective)) return false;
       return true;
     });
   });

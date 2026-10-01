@@ -77,6 +77,56 @@ export interface DevProjectDetail extends DevProjectRow {
   notes: DevProjectNote[];
 }
 
+/**
+ * `[DEV.14]` Las filas CRUDAS que devuelve knex, declaradas. No son el contrato de salida:
+ * `created_at` llega como `Date` de pg (GOTCHAS: pg devuelve `date`/`timestamptz` como objeto,
+ * no string) y los `count` como `string`. Por eso los mapeadores convierten en vez de castear.
+ */
+interface DbTeamRow {
+  user_id: string;
+  display_name: string;
+  username: string | null;
+}
+
+interface DbAttachmentRow {
+  id: string;
+  kind: AttachmentKind;
+  source: AttachmentSource;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number | string;
+  created_at: Date | string;
+  created_by_username: string | null;
+  note_id: string | null;
+  storage_key: string;
+}
+
+interface DbNoteRow {
+  id: string;
+  kind: NoteKind;
+  body: string;
+  changes: FieldChange[] | null;
+  created_at: Date | string;
+  created_by_username: string | null;
+}
+
+interface DbProjectRow {
+  id: string;
+  folio: string;
+  title: string;
+  objective: string | null;
+  priority: DevProjectPriority;
+  status: DevProjectStatus;
+  assignee_user_id: string | null;
+  assignee_name: string | null;
+  due_date: string | null;
+  created_at: Date | string;
+  created_by_username: string | null;
+  updated_at: Date | string;
+  attachments_count: number | string | null;
+  notes_count: number | string | null;
+}
+
 export interface UploadedFileLike {
   buffer: Buffer;
   originalname: string;
@@ -109,7 +159,11 @@ export class DevProjectsService {
         .where('t.active', true)
         .orderBy([{ column: 't.sort_order' }, { column: 't.display_name' }])
         .select('t.user_id', 't.display_name', 'u.username');
-      return rows.map((r: any) => ({ user_id: r.user_id, display_name: r.display_name, username: r.username ?? null }));
+      return (rows as DbTeamRow[]).map((r) => ({
+      user_id: r.user_id,
+      display_name: r.display_name,
+      username: r.username ?? null,
+    }));
     });
   }
 
@@ -146,12 +200,14 @@ export class DevProjectsService {
     });
     // La firma va FUERA de la transacción: es una llamada de red y no debe sostener la conexión.
     const signed: DevProjectAttachment[] = await Promise.all(
-      attachments.map(async (a: any) => mapAttachment(a, (await this.storage.signedUrl(a.storage_key).catch(() => '')) || null)),
+      (attachments as DbAttachmentRow[]).map(async (a) =>
+        mapAttachment(a, (await this.storage.signedUrl(a.storage_key).catch(() => '')) || null),
+      ),
     );
     return {
       ...row,
       attachments: signed.filter((a) => !a.note_id),
-      notes: notes.map((n: any) => ({
+      notes: (notes as DbNoteRow[]).map((n) => ({
         id: n.id,
         kind: n.kind,
         body: n.body,
@@ -324,7 +380,7 @@ export class DevProjectsService {
 
     const { key } = await this.storage.putBuffer(file.buffer, mime, `devtools/${tenantId}/projects/${projectId}`, fileName);
 
-    let row: any;
+    let row: DbAttachmentRow;
     try {
       row = await this.tk.run(async (trx) => {
         const [r] = await trx('devtools.project_attachments')
@@ -395,7 +451,7 @@ export class DevProjectsService {
       .leftJoin('devtools.dev_team as t', 't.user_id', 'u.id')
       .whereIn('u.id', wanted)
       .select('u.id', trx.raw('coalesce(t.display_name, u.nombre, u.username) as name'));
-    return new Map(rows.map((r: any) => [r.id as string, r.name as string]));
+    return new Map((rows as { id: string; name: string }[]).map((r) => [r.id, r.name]));
   }
 
   private async assertTeamMember(trx: Knex.Transaction, userId: string): Promise<void> {
@@ -404,7 +460,7 @@ export class DevProjectsService {
   }
 }
 
-function mapRow(r: any): DevProjectRow {
+function mapRow(r: DbProjectRow): DevProjectRow {
   return {
     id: r.id,
     folio: r.folio,
@@ -429,7 +485,7 @@ function iso(v: unknown): string {
   return v instanceof Date ? v.toISOString() : String(v);
 }
 
-function mapAttachment(a: any, url: string | null): DevProjectAttachment {
+function mapAttachment(a: DbAttachmentRow, url: string | null): DevProjectAttachment {
   return {
     id: a.id,
     kind: a.kind,
