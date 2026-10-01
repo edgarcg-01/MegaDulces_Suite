@@ -224,7 +224,6 @@ interface ProductOption {
       [visible]="dialogVisible"
       (visibleChange)="dialogVisible = $event"
       [header]="dialogHeader()"
-      [wizardStep]="wizardStep()"
       [selectedType]="selectedType()"
       [editing]="editing()"
       [form]="form"
@@ -236,8 +235,7 @@ interface ProductOption {
       [bundle]="bundleValue"
       [bannerPreviewError]="bannerPreviewError()"
       (hide)="onDialogHide()"
-      (chooseType)="chooseType($event)"
-      (backToChoose)="backToChoose()"
+      (typeChange)="chooseType($event)"
       (cancel)="closeDialog()"
       (save)="save()"
       (addTier)="addTier()"
@@ -409,7 +407,6 @@ export class ComercialPromotionsComponent {
 
   // Dialog state
   dialogVisible = false;
-  readonly wizardStep = signal<'choose-type' | 'configure'>('choose-type');
   readonly selectedType = signal<PromotionType | null>(null);
   readonly editing = signal<Promotion | null>(null);
   readonly saving = signal(false);
@@ -428,7 +425,7 @@ export class ComercialPromotionsComponent {
 
   readonly dialogHeader = computed(() => {
     if (this.editing()) return `Editar: ${this.editing()!.name}`;
-    if (this.wizardStep() === 'choose-type') return 'Nueva promoción · Elegí el tipo';
+    // Ya no existe el "· Elegí el tipo": no hay un paso donde no se esté creando nada.
     const t = this.selectedType();
     return t ? `Nueva promoción · ${PROMOTION_META[t].label}` : 'Nueva promoción';
   });
@@ -514,31 +511,54 @@ export class ComercialPromotionsComponent {
 
   // ── Dialog: open / close / steps ─────────────────────────────────
 
+  /**
+   * Mecánica con la que abre el alta.
+   *
+   * ⚠️ **Es un supuesto declarado, no una medición.** `commercial.promotions` tiene **0 filas**
+   * (medido 2026-09-30): nadie ha creado todavía una promoción con este motor, así que no hay
+   * un tipo "más usado" del que derivarlo. Se elige el más elemental —un porcentaje sobre un
+   * producto, que sólo pide producto y %— porque es el que menos campos obliga a llenar si
+   * después se cambia. El día que haya uso real, esto se deriva de los datos.
+   */
+  private static readonly TIPO_POR_DEFECTO: PromotionType = 'percent_off_product';
+
   openCreate(): void {
     this.editing.set(null);
-    this.selectedType.set(null);
-    this.wizardStep.set('choose-type');
+    // Se abre YA creando: el tipo es un campo del formulario, no una antesala.
+    this.selectedType.set(ComercialPromotionsComponent.TIPO_POR_DEFECTO);
+    this.buildForm(ComercialPromotionsComponent.TIPO_POR_DEFECTO);
     this.dialogVisible = true;
   }
 
   openEdit(p: Promotion): void {
     this.editing.set(p);
     this.selectedType.set(p.promotion_type);
-    this.wizardStep.set('configure');
     this.buildForm(p.promotion_type, p);
     this.dialogVisible = true;
   }
 
+  /**
+   * Cambio de mecánica desde el selector en línea.
+   *
+   * Reconstruye SÓLO los campos del tipo y **devuelve lo que la persona ya escribió**. Sin
+   * esto, cambiar de tipo borraría el código, el nombre y la vigencia — y el selector en línea
+   * sería peor que el paso previo que vino a reemplazar, no mejor.
+   */
   chooseType(t: PromotionType): void {
+    if (t === this.selectedType()) return;
+    // `getRawValue` y no `value`: `code` se deshabilita al editar y `value` lo omitiría.
+    const previo = this.form?.getRawValue() ?? {};
     this.selectedType.set(t);
     this.buildForm(t);
-    this.wizardStep.set('configure');
-  }
-
-  backToChoose(): void {
-    this.wizardStep.set('choose-type');
-    this.selectedType.set(null);
-    this.form = null;
+    const comunes = [
+      'code', 'name', 'description', 'banner_url',
+      'starts_at', 'ends_at', 'priority', 'usage_limit', 'active',
+    ];
+    const rescatado: Record<string, unknown> = {};
+    for (const k of comunes) {
+      if (this.form?.get(k) && previo[k] !== undefined) rescatado[k] = previo[k];
+    }
+    this.form?.patchValue(rescatado);
   }
 
   closeDialog(): void {

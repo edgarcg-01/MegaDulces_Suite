@@ -15,7 +15,15 @@ export interface PromotionMeta {
   label: string;
   shortLabel: string; // para badge en lista
   icon: string; // pi pi-...
-  color: string; // CSS color para badge
+  /**
+   * Color del grupo. **Token `--chart-N`, nunca un hex.** DESIGN.md §Q.6 manda que el color
+   * de grupo salga de la secuencia categorica del sistema, y su Anti-slop #1 mata el morado
+   * `#8b5cf6` y el azul `#2563EB` de la IA. Aca vivian los seis hex default de Tailwind
+   * -incluido ese morado-: era el hallazgo #4 de la tabla de QA de DESIGN.md, y alimentaba
+   * dos pantallas. `--chart-1..8` ya viene ordenada por separacion perceptual y SIN morado,
+   * y trae su variante dark, que un hex no tiene.
+   */
+  color: string;
   description: string;
   example: string;
 }
@@ -26,7 +34,7 @@ export const PROMOTION_META: Record<PromotionType, PromotionMeta> = {
     label: 'Descuento % en producto',
     shortLabel: '% off producto',
     icon: 'pi pi-percentage',
-    color: '#3b82f6',
+    color: 'var(--chart-1)',
     description: 'Aplica un porcentaje de descuento sobre un producto específico.',
     example: '-15% en Trufas Surtidas 12pz',
   },
@@ -35,7 +43,7 @@ export const PROMOTION_META: Record<PromotionType, PromotionMeta> = {
     label: 'Descuento % en pedido total',
     shortLabel: '% off pedido',
     icon: 'pi pi-shopping-bag',
-    color: '#8b5cf6',
+    color: 'var(--chart-2)',
     description: 'Aplica un descuento al total del pedido. Opcional: mínimo de compra.',
     example: '-10% en pedidos > $5,000',
   },
@@ -44,7 +52,7 @@ export const PROMOTION_META: Record<PromotionType, PromotionMeta> = {
     label: 'NxM (2x1, 3x2, etc.)',
     shortLabel: 'NxM',
     icon: 'pi pi-clone',
-    color: '#16a34a',
+    color: 'var(--chart-3)',
     description: 'Compra N unidades del producto, paga sólo M.',
     example: '2x1, 3x2 en Pulparindo',
   },
@@ -53,7 +61,7 @@ export const PROMOTION_META: Record<PromotionType, PromotionMeta> = {
     label: 'Descuento por volumen',
     shortLabel: 'Volumen',
     icon: 'pi pi-chart-bar',
-    color: '#f59e0b',
+    color: 'var(--chart-4)',
     description: 'Tiers por cantidad: a más unidades, mayor descuento.',
     example: '10+ unidades: -5%, 30+: -12%',
   },
@@ -62,7 +70,7 @@ export const PROMOTION_META: Record<PromotionType, PromotionMeta> = {
     label: 'Pack a precio fijo',
     shortLabel: 'Pack',
     icon: 'pi pi-box',
-    color: '#ec4899',
+    color: 'var(--chart-5)',
     description: 'Combo de varios productos a un precio total fijo.',
     example: 'Pack dulcería básica $499',
   },
@@ -71,7 +79,7 @@ export const PROMOTION_META: Record<PromotionType, PromotionMeta> = {
     label: 'Compra cruzada',
     shortLabel: 'Cross-sell',
     icon: 'pi pi-arrow-right-arrow-left',
-    color: '#06b6d4',
+    color: 'var(--chart-6)',
     description: 'Si compra el producto A, descuento en el producto B.',
     example: 'Trufas + Chocolates → -20% en Chocolates',
   },
