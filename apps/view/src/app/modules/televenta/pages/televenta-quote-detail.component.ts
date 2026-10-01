@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterModule } from '@angular/router';
@@ -17,7 +17,10 @@ import {
   QuoteCatalogRow,
   PricedLine,
   Rung,
-  nombreUnidadMayor,
+  nombreUnidadBase,
+  abrevUnidadBase,
+  opcionesUnidad,
+  type OpcionUnidad,
 } from '../quotes.service';
 import {
   exportQuotePdf,
@@ -219,6 +222,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                   <i class="pi pi-search search-ico" aria-hidden="true"></i>
                   <input
                     id="prodSearchInput"
+                    #buscadorArticulo
                     type="search"
                     class="input search-prod-input"
                     [(ngModel)]="termino"
@@ -295,59 +299,31 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                     </div>
                   </div>
 
-                  <!-- PREGUNTA: ¿El precio es por caja (o bulto/cubeta) o por pieza? -->
+                  <!-- Unidades de MENOR a MAYOR (izq → der), sólo las que el ERP declara, con el
+                       nombre real de la base (Paquete, Kilo, Pieza…) — mismo criterio que el alta. -->
                   <div class="pregunta-seccion">
-                    <span class="pregunta-lbl">¿El precio es por {{ mayor(e).toLowerCase() }} o por {{ e.sold_by_kg ? 'kilo' : 'pieza' }}?</span>
-                    <div class="unit-toggle-group" role="group" [attr.aria-label]="'Seleccionar si el precio es por ' + mayor(e).toLowerCase() + ' o por unidad'">
-                      <!-- Opción Pieza (o KG) -->
-                      <button
-                        type="button"
-                        class="unit-toggle-btn"
-                        [class.unit-toggle-active]="rung() === 'base'"
-                        (click)="setRung('base')"
-                        [disabled]="guardando()"
-                      >
-                        <i class="pi pi-tag" aria-hidden="true"></i>
-                        <span class="unit-title">{{ e.sold_by_kg ? 'Kilo (KG)' : 'Pieza' }}</span>
-                        <span class="unit-sub">Unidad individual</span>
-                      </button>
-
-                      <!-- Opción Caja -->
-                      <button
-                        type="button"
-                        class="unit-toggle-btn"
-                        [class.unit-toggle-active]="rung() === 'box'"
-                        (click)="setRung('box')"
-                        [disabled]="guardando()"
-                      >
-                        <i class="pi pi-box" aria-hidden="true"></i>
-                        <span class="unit-title">{{ mayor(e) }}</span>
-                        <span class="unit-sub">
-                          @if (e.box_size) {
-                            {{ e.box_size }} {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pzas') }} / {{ mayor(e).toLowerCase() }}
-                          } @else {
-                            Por empaque mayor
-                          }
-                        </span>
-                        @if (rung() === 'box' && previa()?.volume_tier; as vt) {
-                          <span class="unit-badge-mayoreo">
-                            Mayoreo: {{ dinero(vt.price) }} (desde {{ vt.min_qty }} {{ mayor(e).toLowerCase() }}s)
-                          </span>
-                        }
-                      </button>
-
-                      <!-- Opción Paquete (si tiene pack_size) -->
-                      @if (e.pack_size && e.pack_size > 1) {
+                    @if (opcionesUnidad(e).length > 1) {
+                      <span class="pregunta-lbl">¿En qué unidad lo pide?</span>
+                    } @else {
+                      <span class="pregunta-lbl">Unidad de venta</span>
+                    }
+                    <div class="unit-toggle-group" role="group" aria-label="Unidad de venta del artículo">
+                      @for (o of opcionesUnidad(e); track o.rung) {
                         <button
                           type="button"
                           class="unit-toggle-btn"
-                          [class.unit-toggle-active]="rung() === 'pack'"
-                          (click)="setRung('pack')"
+                          [class.unit-toggle-active]="rung() === o.rung"
+                          (click)="setRung(o.rung)"
                           [disabled]="guardando()"
                         >
-                          <i class="pi pi-clone" aria-hidden="true"></i>
-                          <span class="unit-title">Paquete</span>
-                          <span class="unit-sub">{{ e.pack_size }} {{ e.unit_base || 'pzas' }}</span>
+                          <i class="pi {{ o.icono }}" aria-hidden="true"></i>
+                          <span class="unit-title">{{ o.titulo }}</span>
+                          <span class="unit-sub">{{ o.detalle }}</span>
+                          @if (o.rung === rung() && previa()?.volume_tier; as vt) {
+                            <span class="unit-badge-mayoreo">
+                              Mayoreo: {{ dinero(vt.price) }} (desde {{ vt.min_qty }})
+                            </span>
+                          }
                         </button>
                       }
                     </div>
@@ -410,7 +386,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                               <span class="previa-amount">{{ p.unit_price | currency:'MXN':'symbol-narrow':'1.2-4' }}</span>
                               <span class="previa-unit-sub">/ {{ p.unit_label || labelUnidadActiva() }}</span>
                               @if (p.unit_factor && p.unit_factor > 1) {
-                                <span class="previa-menor-sub">({{ p.unit_factor }}PZS {{ (p.unit_price / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>
+                                <span class="previa-menor-sub">({{ p.unit_factor }} {{ abrevBase(elegido()) }} {{ (p.unit_price / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>
                               }
                             </div>
                           } @else {
@@ -475,7 +451,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                                   Precio lista: <span class="strikethrough">{{ dinero(p.list_price) }}</span> →
                                   Con descuento por volumen: <b>{{ dinero(p.unit_price) }}</b> / {{ p.unit_label || labelUnidadActiva() }}
                                   @if (p.unit_factor && p.unit_factor > 1) {
-                                    ({{ p.unit_factor }}PZS {{ (p.unit_price! / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})
+                                    ({{ p.unit_factor }} {{ abrevBase(elegido()) }} {{ (p.unit_price! / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})
                                   }
                                   · Ahorro total: <b>{{ dinero(((p.list_price || 0) - (p.unit_price || 0)) * cantidad) }}</b>
                                 </span>
@@ -613,7 +589,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                       <div class="p-unit-cell">
                         <span class="p-unit-main">{{ num(l.unit_price) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
                         @if (num(l.qty_factor) && num(l.qty_factor)! > 1) {
-                          <span class="p-unit-sub-breakdown">({{ num(l.qty_factor) }}PZS {{ (num(l.unit_price)! / num(l.qty_factor)!) | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>
+                          <span class="p-unit-sub-breakdown">({{ num(l.qty_factor) }} {{ baseDeLinea(l) }} {{ (num(l.unit_price)! / num(l.qty_factor)!) | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>
                         }
                       </div>
                     } @else {
@@ -724,7 +700,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .search-input-wrap { position: relative; display: flex; align-items: center; }
       .search-ico { position: absolute; left: 0.75rem; color: var(--text-muted); font-size: 0.875rem; pointer-events: none; }
       .search-spinner { position: absolute; right: 0.75rem; color: var(--action); font-size: 0.875rem; }
-      .search-prod-input { padding-left: 2.25rem; font-size: 0.9375rem; min-height: 42px; border-radius: 8px; width: 100%; }
+      .input.search-prod-input { padding-left: 2.25rem; font-size: 0.9375rem; min-height: 42px; border-radius: 8px; width: 100%; }
 
       /* Desplegable ordenado alfabéticamente */
       .cat-dropdown {
@@ -942,6 +918,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
 })
 export class TeleventaQuoteDetailComponent implements OnInit {
   private readonly svc = inject(QuotesService);
+  private readonly injector = inject(Injector);
   private readonly toast = inject(MessageService);
   private readonly route = inject(ActivatedRoute);
 
@@ -960,6 +937,9 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly buscando = signal(false);
   readonly catalogoAbierto = signal(false);
   readonly elegido = signal<QuoteCatalogRow | null>(null);
+  /** El buscador de artículo: al agregar un renglón el cursor vuelve acá para el siguiente. */
+  private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
+  private focoSinAbrirCatalogo = false;
 
   termino = '';
   cantidad = 1;
@@ -1073,6 +1053,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   }
 
   onFoco(): void {
+    if (this.focoSinAbrirCatalogo) return;
     this.catalogoAbierto.set(true);
     if (this.resultados().length === 0) this.buscar$.next();
   }
@@ -1105,17 +1086,25 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.previa$.next();
   }
 
-  /** Nombre de la unidad mayor del artículo: Caja, Bulto o Cubeta, según lo declara el ERP. */
-  mayor(e: QuoteCatalogRow | null): string {
-    return nombreUnidadMayor(e?.box_label);
+  /** Unidades del artículo de MENOR a MAYOR (Pieza 1 · Paquete 10 · Caja 140). */
+  opcionesUnidad(e: QuoteCatalogRow): OpcionUnidad[] {
+    return opcionesUnidad(e);
+  }
+
+  /** Abreviatura de la unidad base para el desglose ("12 PAQ $41.82"), nunca "PZS" fijo. */
+  abrevBase(e: QuoteCatalogRow | null): string {
+    return abrevUnidadBase(e?.unit_base, !!e?.sold_by_kg);
+  }
+
+  /** Lo mismo, para un renglón ya guardado (la unidad base viene del JOIN del detalle). */
+  baseDeLinea(l: QuoteLine): string {
+    return abrevUnidadBase(l.product_unit_base, !!l.product_sold_by_kg);
   }
 
   labelUnidadActiva(): string {
-    const r = this.rung();
     const e = this.elegido();
-    if (r === 'box') return this.mayor(e);
-    if (r === 'pack') return 'Paquete';
-    return e?.sold_by_kg ? 'KG' : 'Pieza';
+    if (!e) return 'Pieza';
+    return opcionesUnidad(e).find((o) => o.rung === this.rung())?.titulo ?? nombreUnidadBase(e.unit_base, e.sold_by_kg);
   }
 
   esDescuentoVolumen(): boolean {
@@ -1150,6 +1139,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
           this.limpiarAlta();
           this.recargar();
           this.guardando.set(false);
+          this.volverAlBuscador();
         },
         error: (err) => this.falla(err, 'No se pudo agregar el renglón'),
       });
@@ -1170,6 +1160,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
           this.limpiarAlta();
           this.recargar();
           this.guardando.set(false);
+          this.volverAlBuscador();
         },
         error: (err) => this.falla(err, 'No se pudo guardar el renglón'),
       });
@@ -1214,6 +1205,23 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       },
       error: (err) => this.falla(err, 'No se pudo quitar el renglón'),
     });
+  }
+
+  /**
+   * El cursor vuelve al buscador para escanear/escribir el siguiente sin tocar el mouse. Sin
+   * abrir la lista: taparía los renglones recién recargados; al teclear se abre sola.
+   * `afterNextRender` porque el input está `[disabled]` mientras se guarda: hay que esperar a que
+   * la pantalla lo vuelva a habilitar, si no el `focus()` cae sobre un control deshabilitado.
+   */
+  private volverAlBuscador(): void {
+    this.focoSinAbrirCatalogo = true;
+    afterNextRender(
+      () => {
+        this.buscadorArticulo()?.nativeElement.focus();
+        this.focoSinAbrirCatalogo = false;
+      },
+      { injector: this.injector },
+    );
   }
 
   private limpiarAlta(): void {
@@ -1303,10 +1311,14 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       barcode: l.product_barcode ?? null,
       content: l.product_content ?? null,
       unit_label: l.qty_unit || 'PZA',
-      rung: ['CJA', 'CAJA', 'BTO', 'BULTO', 'CUB', 'CUBETA'].includes((l.qty_unit || '').toUpperCase())
+      // BTO/CUB son unidad mayor SÓLO con factor > 1: 13 SKUs los tienen como unidad BASE (15143
+      // nace BTO a $89.39 sin caja) — mismo criterio que `isUnidadMayor` del entregable.
+      rung: ['CJA', 'CAJA'].includes((l.qty_unit || '').toUpperCase())
+        || (['BTO', 'BULTO', 'CUB', 'CUBETA'].includes((l.qty_unit || '').toUpperCase()) && (this.num(l.qty_factor) ?? 0) > 1)
         ? 'box'
         : (l.qty_unit === 'PAQ' || l.qty_unit === 'Paquete' ? 'pack' : 'base'),
       factor: this.num(l.qty_factor),
+      base_unit: this.baseDeLinea(l),
       quantity: Number(l.quantity) || 1,
       unit_price: this.num(l.unit_price),
       line_total: Number(l.line_total) || 0,
