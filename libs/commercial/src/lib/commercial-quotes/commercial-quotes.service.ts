@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
+import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
 
 /**
  * `[E.12]` — Cotizaciones de mayoreo.
@@ -379,6 +380,10 @@ export class CommercialQuotesService {
           p.sku AS product_sku,
           lp.content  AS product_content,
           lp.barcode  AS product_barcode,
+          -- La unidad BASE del producto: rotula el desglose "(12 PAQ $41.82)". Antes decía
+          -- "12PZS" fijo, también para un bulto de 20 KG o una caja de 12 PAQUETES (COT.16).
+          lp.unit_base  AS product_unit_base,
+          lp.sold_by_kg AS product_sold_by_kg,
           -- El descuento se DERIVA, no se guarda: guardado aparte se desincroniza del precio
           -- en cuanto alguien edita uno de los dos.
           CASE
@@ -521,25 +526,57 @@ export class CommercialQuotesService {
     return this.tk.run(async (knex) => {
       // Búsqueda por PALABRAS (COT.16): cada palabra tiene que aparecer en el nombre o el SKU,
       // en cualquier orden ("altos rollo 25 35" encuentra "ALTOS ROLLO 25X35 ..."). Estricta,
-      // sin trigramas. El código de barras va APARTE y por igualdad exacta: es lo que manda el
-      // lector, y meterlo al substring haría que "25" pegara con medio catálogo de códigos.
-      const inner = knex('analytics.v_label_prices')
-        .select('sku', 'name', 'content', 'barcode', 'unit_base', 'piece_price', 'pack_size', 'box_size', 'box_price', 'sold_by_kg')
-        .where('sucursal', suc)
+      // sin trigramas, pero con el vocabulario del dictado: abreviaturas de Kepler ("paleta" →
+      // PAL), singular ("pistaches" → PISTACHOS) y sin palabras de relleno ("25 por 35"). El
+      // código de barras va APARTE y por igualdad exacta: es lo que manda el lector, y meterlo al
+      // substring haría que "25" pegara con medio catálogo de códigos.
+      //
+      // ORDEN: después de los aciertos exactos (SKU / código de barras / prefijo de SKU), lo que
+      // MÁS SE VENDE en esa sucursal — antes era alfabético y el producto buscado salía en el
+      // lugar 4, 6 u 8 ("cimarron": lugar 23 de 50; con este orden, el 1). La venta sale de
+      // `analytics.product_demand` (ventana 30 d, por almacén = sucursal), ya agregada: sumar
+      // `mv_kepler_sales_daily` al vuelo tardaba 3.4 s por búsqueda, esto 110–200 ms.
+      const demanda = knex
+        .select(knex.raw('btrim(p.sku) AS sku'), knex.raw('max(d.revenue) AS revenue'))
+        .from('analytics.product_demand as d')
+        .join('commercial.warehouses as w', function () {
+          this.on('w.id', '=', 'd.warehouse_id').andOn('w.tenant_id', '=', 'd.tenant_id');
+        })
+        .join('catalog.products as p', function () {
+          this.on('p.id', '=', 'd.product_id').andOn('p.tenant_id', '=', 'd.tenant_id');
+        })
+        .whereRaw('d.tenant_id = public.current_tenant_id()')
+        .where('w.code', suc)
+        .whereNull('w.deleted_at')
+        .whereNull('p.deleted_at')
+        .groupByRaw('btrim(p.sku)');
+
+      const inner = knex
+        .select('v.sku', 'v.name', 'v.content', 'v.barcode', 'v.unit_base', 'v.piece_price', 'v.pack_size', 'v.box_size', 'v.box_price', 'v.sold_by_kg', 'dem.revenue')
+        .from('analytics.v_label_prices as v')
+        .leftJoin(demanda.as('dem'), 'dem.sku', 'v.sku')
+        .where('v.sucursal', suc)
         .orderByRaw(
-          `CASE WHEN upper(sku) = upper(?) THEN 0
-                WHEN barcode = ?          THEN 1
-                WHEN sku ILIKE ?          THEN 2
+          `CASE WHEN upper(v.sku) = upper(?) THEN 0
+                WHEN v.barcode = ?          THEN 1
+                WHEN v.sku ILIKE ?          THEN 2
                 ELSE 3 END,
-           name NULLS LAST,
-           sku`,
+           dem.revenue DESC NULLS LAST,
+           v.name NULLS LAST,
+           v.sku`,
           [term, term, `${term}%`],
         )
         .limit(n);
       if (term) {
         inner.andWhere((g) => {
-          g.where('barcode', term).orWhere((porPalabras) =>
-            applySmartSearch(porPalabras, term, { columns: ['name', 'sku'], fuzzy: false }),
+          g.where('v.barcode', term).orWhere((porPalabras) =>
+            applySmartSearch(porPalabras, term, {
+              columns: ['v.name', 'v.sku'],
+              fuzzy: false,
+              stem: true,
+              synonyms: SINONIMOS_CATALOGO,
+              ignore: PALABRAS_RELLENO,
+            }),
           );
         });
       }
@@ -584,6 +621,7 @@ export class CommercialQuotesService {
                 WHEN v.barcode = :term          THEN 1
                 WHEN v.sku ILIKE :pre           THEN 2
                 ELSE 3 END,
+           v.revenue DESC NULLS LAST,
            v.name NULLS LAST,
            v.sku
         `,

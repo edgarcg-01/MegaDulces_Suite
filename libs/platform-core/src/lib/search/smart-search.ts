@@ -26,10 +26,50 @@ export interface SmartSearchOptions {
    * no debe traer `alto rollito`). Default `true` (el comportamiento de siempre).
    */
   fuzzy?: boolean;
+  /**
+   * Sinónimos de PALABRA COMPLETA: palabra que dice la gente → cómo viene escrita en los datos.
+   * Cada sinónimo se busca como palabra entera (`\m…\M`), no como substring: `pal` (paleta en
+   * Kepler) no debe pegar con "PALOMITAS". También vale pegado a un NÚMERO por delante, porque
+   * así se escriben las medidas ("1KG", "500GR", "1K"): `kg` pega con "1kg" pero no con "akgx".
+   * Las claves y valores van normalizados (minúsculas, sin acentos, sólo `[a-z0-9]`); lo que no
+   * cumpla se ignora. Default: ninguno.
+   */
+  synonyms?: Record<string, string[]>;
+  /**
+   * `true` = además de la palabra tal cual, prueba su forma SINGULAR y sin DIMINUTIVO
+   * ("pistaches" → "pistach", "payasitos" → "payaso", "paletas" → "paleta"). Español simple, sólo
+   * palabras alfabéticas ≥ 5 letras. Las variantes se suman con OR: nunca quitan resultados.
+   * Default `false`.
+   */
+  stem?: boolean;
+  /**
+   * Palabras de relleno que NO se exigen ("de", "por", "la"): quien dicta dice "altos 25 por 35"
+   * y el catálogo dice "ALTOS 25X35". Se descartan del query; si el query quedara vacío se
+   * usan las palabras originales (nunca se convierte en "traer todo"). Default: ninguna.
+   */
+  ignore?: string[];
 }
 
 /** Identificador SQL válido (`col` o `alias.col`). Las columnas vienen de código, no de input. */
 const IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$/;
+
+/** Palabra segura para meter en una regex de Postgres (los sinónimos vienen de código). */
+const WORD = /^[a-z0-9]+$/;
+
+/**
+ * Formas de una palabra en español sin plural ni diminutivo. Devuelve SÓLO las variantes
+ * distintas de la palabra original (puede ser vacío).
+ */
+export function stemVariants(tok: string): string[] {
+  if (tok.length < 5 || !/^[a-z]+$/.test(tok)) return [];
+  const out = new Set<string>();
+  const dim = tok.match(/^(.{3,})it([oa])s?$/); // payasitos → payaso, bolsitas → bolsa
+  if (dim) out.add(dim[1] + dim[2]);
+  if (tok.endsWith('es') && tok.length >= 6) out.add(tok.slice(0, -2)); // pistaches → pistach
+  if (tok.endsWith('s')) out.add(tok.slice(0, -1)); // paletas → paleta
+  out.delete(tok);
+  return [...out];
+}
 
 /** Rango de marcas diacríticas combinantes (para quitar acentos en JS, igual que f_unaccent). */
 const DIACRITICS = new RegExp('[\\u0300-\\u036f]', 'g');
@@ -73,7 +113,10 @@ export function applySmartSearch(
   if (!columns.length && !numeric.length) return;
 
   const threshold = opts.threshold ?? 0.35;
-  const tokens = norm(raw).split(/\s+/).filter(Boolean);
+  const todos = norm(raw).split(/\s+/).filter(Boolean);
+  const ignorar = new Set((opts.ignore ?? []).map(norm));
+  const utiles = todos.filter((t) => !ignorar.has(t));
+  const tokens = utiles.length ? utiles : todos;
   const hay = `public.f_unaccent(lower(concat_ws(' ', ${columns.join(', ')})))`;
   const isNumeric = /^[\d][\d.,\s-]*$/.test(raw);
   const digits = raw.replace(/[^\d]/g, '');
@@ -85,6 +128,14 @@ export function applySmartSearch(
         for (const tok of tokens) {
           allTok.andWhere((one: Knex.QueryBuilder) => {
             one.whereRaw(`${hay} LIKE ?`, [`%${tok}%`]);
+            // Variantes que SUMAN (OR): singular/sin diminutivo y sinónimos de palabra completa.
+            const formas = opts.stem ? [tok, ...stemVariants(tok)] : [tok];
+            for (const v of formas) {
+              if (v !== tok) one.orWhereRaw(`${hay} LIKE ?`, [`%${v}%`]);
+              for (const syn of opts.synonyms?.[v] ?? []) {
+                if (WORD.test(syn)) one.orWhereRaw(`${hay} ~ ?`, [`(\\m|[0-9])${syn}\\M`]);
+              }
+            }
             // Fuzzy (trigramas) SOLO para tokens de PALABRA (alfabéticos ≥ 4): los códigos con
             // dígitos (RFC/folio/monto) matchean por substring exacto; el fuzzy sobre ellos trae
             // ruido (p.ej. "herl690" pegaría con medio catálogo por trigramas compartidos).
