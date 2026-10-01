@@ -252,24 +252,13 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
         source: { status: 'confirmado', cite: '§9 + §23 fila Compras' },
       },
       {
-        id: 'mkt-promociones',
-        kind: 'module',
-        icon: 'pi pi-percentage',
-        project: 'comercial',
-        module: 'promotions',
+        // `[MKT.0]` Antes eran dos enlaces cruzados (Promociones, Promos ERP) al proyecto
+        // Comercial; ahora MKT es proyecto propio y ellos son sus submódulos.
+        id: 'mkt',
+        kind: 'project',
+        project: 'mkt',
         group: ['Mercadotecnia'],
-        crossLink: true,
-        source: { status: 'propuesta', cite: '§10 — campañas y promociones' },
-      },
-      {
-        id: 'mkt-erp-promos',
-        kind: 'module',
-        icon: 'pi pi-tags',
-        project: 'comercial',
-        module: 'erp-promos',
-        group: ['Mercadotecnia'],
-        crossLink: true,
-        source: { status: 'propuesta', cite: '§10 — promociones vigentes en el ERP' },
+        source: { status: 'confirmado', cite: '§10 + proyecto propio (decisión usuario 2026-09-28)' },
       },
       /*
        * `[SN.12]` Planogramas, Scoring y Catálogos de captura SALIERON de acá y viven ahora en

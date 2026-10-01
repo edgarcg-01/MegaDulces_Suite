@@ -3292,6 +3292,50 @@ lo alimente, es lo que dejó el módulo muerto.
 **Pendiente:** el dato humano de `[GX.39.1]` · validación visual · aplicar `20260928160000` a Railway
 **antes** del redeploy (si el código sale primero, «Mis gastos» consulta una columna que no existe) ·
 redeploy api+view. **Sin permisos nuevos → sin re-login.**
+
+### 🔨 [GX.57] + [GX.58] · el concepto obligatorio y el botón «Revisado» — 2026-10-01
+
+Dos pedidos del usuario sobre el módulo ya construido, los dos de una línea y ninguno de una línea.
+
+- [x] **[GX.57]** 🧪 **El concepto del gasto deja de ser opcional.** Pedido textual: *«aqui en donde
+  dice concepto opcional, debe ser obligatorio escribir concepto»*.
+  ⛔ **La regla estaba escrita DOS veces y las dos decían lo mismo — lo flojo:** `puedeEnviar()` en la
+  pantalla y un `if` suelto en `create()` exigían el motivo **sólo cuando el gasto no llevaba
+  evidencia**. Como `[GX.19]` fija la captura en `no_comprobable`… no: al revés. Para todo lo que
+  **sí** lleva evidencia el campo era de verdad opcional en los dos lados, y la captura rellenaba el
+  hueco con el concepto que venía del vale de Kepler → el expediente guardaba un concepto que **nadie
+  tecleó**. La regla se mudó entera a `faltaParaMandar()` (`libs/contracts`), que es la que enciende el
+  botón **y** la que devuelve el `400`: un faltante nuevo `concepto`, último de la lista porque es el
+  último campo de la pantalla.
+  ⚠️ **`comentarios` pasó de propiedad plana a SEÑAL**, y no es cosmetica: ahora lo lee el `computed`
+  de la compuerta, y un `computed` sobre un campo plano queda **congelado** — el botón se habría
+  quedado apagado de por vida diciendo «Falta: El concepto» con el concepto escrito a la vista. Es el
+  defecto exacto de `[GX.22]` en esta misma pantalla y de `[CG.22]` en Caja General.
+  ⛔ **Lo que NO hace, declarado:** no exige que el concepto DIGA algo — un punto lo pasa. El pedido
+  fue «obligatorio escribir concepto», no «escribir una frase»; hay precedente de mínimo en el repo
+  (`solicitarReapertura` pide 10 caracteres) y **se dejó sin tomar** en vez de inventarle un umbral.
+  ⚠️ El «Comentarios (opcional)» del paso de **subir evidencia** sigue opcional a propósito: ese gasto
+  ya tiene su concepto desde la captura.
+  ⭐ **La prueba acotó el cambio:** escrita contra el archivo entero salía roja, porque el mismo mensaje
+  existe **dos veces más** — en `approve()` y en `validate()`. No son copias: son el guard de quien
+  **firma**, para cuando el aprobador reclasifica a `no_comprobable`. Borrarlas de arrastre habría
+  abierto un hueco en la aprobación por «ordenar» la captura. · *2026-10-01*
+- [x] **[GX.58]** 🧪 **El botón «Aprobar» dice ahora «Revisado»** («Revisado como provisional» en su
+  variante), en `vale-gasto-peek`, que es el visor que usan Aprobación e Historial.
+  ⚠️ Cambia la PALABRA, no la acción: sigue emitiendo `aprobar` y el vale sigue quedando en estado
+  `aprobada`. Los rótulos de estado («Aprobado · falta ejercer») y el aviso de éxito **no se tocaron** y
+  se declaran acá en vez de cambiarlos de arrastre. El «Aprobar» de `expense-evidence-peek`
+  (pantalla Solicitudes, otro flujo) tampoco — queda abierto si debe seguirlo. · *2026-10-01*
+- [x] **[GX.57/58.t]** Pruebas: `aporte-solicitante.spec.ts` **+7** (contrato 233→240; agregar el
+  concepto al estado «completo» puso **26 en rojo de golpe**, que es la prueba de que la compuerta
+  muerde en todos los caminos) · `concepto-obligatorio.spec.ts` **nuevo, 5** (el cableado del servidor
+  + la prueba negativa) · `finanzas-capturar-gasto.component.spec.ts` **+5** (incluida ⭐ *escribir el
+  concepto DESBLOQUEA el botón*, la que cubre el congelamiento) · `vale-gasto-peek.component.spec.ts`
+  **+1** y tres afirmaciones corregidas. `contracts` 240/240 · `finance` 315/315 · `view` 1385/1385.
+  `nx build api` + `nx build view` OK; compuerta de literales verde (**la rompió un acento grave en un
+  comentario del template, sexta vez en este repo**).
+
+**Pendiente:** validación visual · redeploy api+view. **Sin migraciones ni permisos nuevos → sin re-login.**
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.
@@ -6118,6 +6162,32 @@ TP.6-TP.8+TP.10".
       fiscal» de las comprobaciones de gasto (Finanzas) NO se tocaron: otro dominio y trabajo en
       curso de la sesión de gastos. Con prueba negativa (reponer la leyenda en el pie la pone roja).
       · *2026-09-30*
+- [x] **[TK.15]** 🧪 **El código del producto, en la misma línea que el nombre** (pedido del usuario
+      2026-10-01, con su propósito dicho: *«optimice el interlineado para no gastar tanto papel»*).
+      Antes eran dos bloques — el nombre y, debajo, «Código 83243» — o sea **un renglón de texto
+      garantizado por producto**, aunque el nombre entrara en una sola línea.
+      ⭐ **Medido renderizando con Chromium el PDF REAL del usuario** (folio `08UD1003-0001247`, los 16
+      renglones de su página 1, antes y después del mismo servicio): alto de la tabla **171.7 mm →
+      140 mm (−18.5 %)** y, lo único que se traduce en papel, **renglones que entran en UNA hoja carta:
+      13 → 18 (+38 %)**.
+      ⛔ **Lo que NO logra, dicho para que nadie lo repita como logro:** el ticket de 30 renglones que
+      originó el pedido **sigue en 2 páginas**. 30 productos no entran en una hoja con este encabezado y
+      este resumen. Lo que se gana es que todo ticket de 14 a 18 renglones pasa de dos hojas a una.
+      ⚠️ **Dos mediciones que corrigen comentarios del repo.** (1) `[TK.13]` decía que la celda de
+      producto queda «arriba del p95 de 41 caracteres»: con las 9 columnas de este documento son **~27
+      por línea**, que es por qué los nombres envolvían. (2) Se probó apretar el `padding` de las filas
+      (2px → 1px): da **16 mm menos y CERO páginas** — el papel se gasta en hojas, no en milímetros — así
+      que **no se hizo**, y se deja la cifra para que la decisión sea con el número a la vista.
+      ⛔ Se quitó la palabra «Código»: **se midió antes de decidirlo** y costaba ~0 líneas (7 caracteres
+      rara vez empujan un salto), así que es limpieza, **no ahorro** — si se prefiere el rótulo, vuelve
+      con una palabra.
+      ⚠️ **Un defecto se vio sólo en la maqueta renderizada, no leyendo el código:** sin un espacio
+      entre los dos `span` el PDF impríma «20606· equivale a 1 PAQ», pegado.
+      Pruebas: `ticket-carta-codigo-inline.spec.ts` **nuevo, 7** (con la negativa ⭐ *el código ya NO
+      vive en un bloque debajo*, que es lo único que ahorra papel — una prueba que sólo buscara el
+      número quedaría verde si alguien devuelve el `div`) + `ticket-carta-desglose.spec.ts` ajustada.
+      `commercial` 311/311 (los 5 archivos que no cargan vienen de main, verificado con la rama limpia).
+      **Pendiente: validación visual + redeploy api.** · *2026-10-01*
 - [x] **[TK.a3]** 🧪 **Las 4 pruebas en rojo de `view:test` que venían de main**, arregladas:
       · `detalle-home.service.spec.ts` (2) seguía afirmando el tablero de ANTES de `[AUD-DAT.21]`:
         su doble no traía `salesByRouteDashboard` (el servicio tronaba) y exigía `> 0` en clientes y

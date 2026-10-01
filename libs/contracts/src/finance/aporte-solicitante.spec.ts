@@ -20,6 +20,10 @@ const completo = (): EstadoAporte => ({
     { role: 'comprobante_1', live: true },
   ],
   exige_evidencia: true,
+  // `[GX.57]` El concepto es obligatorio desde 2026-10-01: un estado «completo» sin el
+  // concepto ya no es completo. Agregarlo acá puso en rojo 26 pruebas de golpe, que es
+  // justo la prueba de que la compuerta nueva muerde en todos los caminos.
+  concepto: 'Garrafones de agua para la oficina',
 });
 
 describe('[GX.14] la compuerta de quien gasta', () => {
@@ -48,7 +52,7 @@ describe('[GX.14] la compuerta de quien gasta', () => {
   });
 
   it('pide el dato de forma de pago ANTES que la foto: es el que se resuelve primero', () => {
-    const faltan = faltaParaMandar({ forma_pago: null, archivos: [], exige_evidencia: true });
+    const faltan = faltaParaMandar({ forma_pago: null, archivos: [], exige_evidencia: true, concepto: 'x' });
     expect(faltan[0].id).toBe('forma_pago');
     expect(faltan[1].id).toBe('evidencia');
   });
@@ -110,8 +114,8 @@ describe('[GX.14] la compuerta de quien gasta', () => {
   it('un gasto no comprobable NO necesita foto, pero SÍ forma de pago', () => {
     // El dinero salió de algún lado aunque no haya papel: por eso la forma de pago no
     // cuelga de `exige_evidencia`.
-    expect(faltaParaMandar({ forma_pago: 'efectivo', forma_pago_detalle: 'Caja chica', archivos: [], exige_evidencia: false })).toEqual([]);
-    expect(faltaParaMandar({ forma_pago: null, archivos: [], exige_evidencia: false }).map((f) => f.id)).toEqual(['forma_pago']);
+    expect(faltaParaMandar({ forma_pago: 'efectivo', forma_pago_detalle: 'Caja chica', archivos: [], exige_evidencia: false, concepto: 'x' })).toEqual([]);
+    expect(faltaParaMandar({ forma_pago: null, archivos: [], exige_evidencia: false, concepto: 'x' }).map((f) => f.id)).toEqual(['forma_pago']);
   });
 
   /**
@@ -275,6 +279,76 @@ describe('[GX.14] la compuerta de quien gasta', () => {
     });
   });
 
+  /**
+   * `[GX.57]` **El concepto dejó de ser opcional.**
+   *
+   * Pedido textual del usuario (2026-10-01): *«aqui en donde dice concepto opcional, debe ser
+   * obligatorio escribir concepto»*.
+   *
+   * ⛔ **Por qué se prueba acá y no en la pantalla.** Antes la regla estaba escrita DOS veces
+   * —`puedeEnviar()` en el componente y un `if` suelto en `create()`— y además **decían cosas
+   * distintas**: las dos la exigían sólo cuando el gasto no llevaba evidencia. O sea que para
+   * todo lo que la captura genera hoy, el campo era de verdad opcional en los dos lados. Al
+   * mudarla acá, el botón y el 400 leen la misma línea y una sola prueba cubre a los dos.
+   */
+  describe('[GX.57] el concepto es obligatorio', () => {
+    it('sin concepto no se manda, y lo nombra', () => {
+      const faltan = faltaParaMandar({ ...completo(), concepto: null });
+      expect(faltan.map((f) => f.id)).toEqual(['concepto']);
+      expect(faltan[0].label).toBe('El concepto');
+      expect(puedeMandar({ ...completo(), concepto: null })).toBe(false);
+    });
+
+    it('un concepto de puros espacios es no haberlo escrito', () => {
+      expect(faltaParaMandar({ ...completo(), concepto: '   ' }).map((f) => f.id)).toEqual(['concepto']);
+    });
+
+    /**
+     * ⭐ **La prueba que cubre el cambio real.** Antes, un gasto CON evidencia pasaba sin
+     * concepto — era el camino normal de la captura. Si alguien devuelve la regla a
+     * `exige_evidencia`, esto se pone rojo.
+     */
+    it('lo exige TAMBIÉN cuando el gasto lleva evidencia', () => {
+      expect(faltaParaMandar({ ...completo(), exige_evidencia: true, concepto: '' })
+        .map((f) => f.id)).toEqual(['concepto']);
+    });
+
+    /** Y al gasto sin evidencia, que ya lo exigía: no se perdió nada al mudar la regla. */
+    it('lo sigue exigiendo al gasto que no lleva evidencia', () => {
+      expect(faltaParaMandar({
+        forma_pago: 'efectivo', forma_pago_detalle: 'Caja chica', archivos: [],
+        exige_evidencia: false, concepto: '',
+      }).map((f) => f.id)).toEqual(['concepto']);
+    });
+
+    /**
+     * ⚠️ Va ÚLTIMO a propósito: es el último campo de la pantalla, y el botón muestra el
+     * primer faltante. Pedir el concepto antes que la forma de pago mandaría a la persona
+     * al final del formulario para después hacerla volver.
+     */
+    it('se pide después de la forma de pago y del archivo', () => {
+      const faltan = faltaParaMandar({ forma_pago: null, archivos: [], exige_evidencia: true, concepto: '' });
+      expect(faltan.map((f) => f.id)).toEqual(['forma_pago', 'evidencia', 'concepto']);
+    });
+
+    /**
+     * ⛔ **Lo que esta compuerta NO hace, dicho con una prueba en vez de con un comentario.**
+     * Un punto la pasa. Está declarado en el contrato: el pedido fue «obligatorio escribir
+     * concepto», no «escribir una frase». Si algún día se decide un largo mínimo, esta
+     * prueba se da vuelta y marca exactamente dónde tocarlo.
+     */
+    it('NO exige que el concepto diga algo: un carácter alcanza', () => {
+      expect(faltaParaMandar({ ...completo(), concepto: '.' })).toEqual([]);
+    });
+
+    /** El concepto no toca la deuda del comprobante: son dos preguntas distintas. */
+    it('no cambia quién queda debiendo el comprobante', () => {
+      expect(quedaDebiendoComprobante({
+        ...completo(), concepto: '', archivos: [{ role: 'cotizacion', live: false }],
+      })).toBe(true);
+    });
+  });
+
   it('cada faltante trae texto corto para el botón y texto largo para el 400', () => {
     for (const f of faltaParaMandar({ forma_pago: null, archivos: [], exige_evidencia: true })) {
       expect(f.label.length).toBeGreaterThan(0);
@@ -322,7 +396,7 @@ describe('[GX.14] el catálogo de formas de pago', () => {
 
   /** Y la compuerta lo respeta sin que nadie la edite: esa es la gracia de derivarla. */
   it('efectivo ya no genera el faltante del dato del pago', () => {
-    const faltan = faltaParaMandar({ forma_pago: 'efectivo', forma_pago_detalle: null, archivos: [], exige_evidencia: false });
+    const faltan = faltaParaMandar({ forma_pago: 'efectivo', forma_pago_detalle: null, archivos: [], exige_evidencia: false, concepto: 'x' });
     expect(faltan.map((f) => f.id)).not.toContain('forma_pago_detalle');
   });
 

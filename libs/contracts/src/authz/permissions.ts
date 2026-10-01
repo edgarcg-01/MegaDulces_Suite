@@ -203,6 +203,17 @@ export enum Permission {
   COMMERCIAL_PROMOTIONS_VER = 'COMMERCIAL_PROMOTIONS_VER',
   COMMERCIAL_PROMOTIONS_GESTIONAR = 'COMMERCIAL_PROMOTIONS_GESTIONAR',
 
+  // Módulo: MKT — Acuerdos promocionales con proveedor, el formato MKTN001 (`[MKT.1]`).
+  // Par PROPIO y no derivado de COMMERCIAL_PROMOTIONS_*: ésas gobiernan el motor de PRECIO que
+  // aplica reglas a un pedido; éstas gobiernan el CONVENIO firmado con el proveedor, con su
+  // presupuesto, su evidencia y su autorización. Distinto dueño y distinto ciclo de vida.
+  MKT_AGREEMENTS_VER = 'MKT_AGREEMENTS_VER',
+  MKT_AGREEMENTS_GESTIONAR = 'MKT_AGREEMENTS_GESTIONAR',
+  // Tercera clave, FUERA del par: subir la foto de la exhibición es lo que hace la plaza, y no
+  // debe arrastrar consigo poder crear ni autorizar un acuerdo (mismo criterio que
+  // `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` en TP.6: preparar ≠ autorizar).
+  MKT_AGREEMENT_EVIDENCE_SUBIR = 'MKT_AGREEMENT_EVIDENCE_SUBIR',
+
   // Módulo: Comercial — Telemarketing (Fase E; antes "Televenta" / "Remote Manager")
   COMMERCIAL_TELEVENTA_VER = 'COMMERCIAL_TELEVENTA_VER',
   COMMERCIAL_TELEVENTA_OPERATE = 'COMMERCIAL_TELEVENTA_OPERATE',
@@ -376,7 +387,7 @@ export enum Permission {
   NIVELACION_VER = 'NIVELACION_VER',
   NIVELACION_GESTIONAR = 'NIVELACION_GESTIONAR',
   // Páginas independientes que estaban bajo un permiso compartido:
-  COMMERCIAL_ERP_PROMOS_VER = 'COMMERCIAL_ERP_PROMOS_VER',   // /comercial/erp-promos (promos del ERP)
+  COMMERCIAL_ERP_PROMOS_VER = 'COMMERCIAL_ERP_PROMOS_VER',   // /mkt/erp-promos (promos del ERP)
   COMMERCIAL_VENDOR_SALES_VER = 'COMMERCIAL_VENDOR_SALES_VER', // /comercial/vendor-sales (ventas de vendedor)
   COMMERCIAL_CARTERA_VER = 'COMMERCIAL_CARTERA_VER',
   COMMERCIAL_CARTERA_GESTIONAR = 'COMMERCIAL_CARTERA_GESTIONAR',

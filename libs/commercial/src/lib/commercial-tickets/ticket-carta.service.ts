@@ -183,8 +183,31 @@ export class TicketCartaService {
   private fila(l: TicketLinea, cols: Cols, desglosado: boolean): string {
     const d = desgloseLinea(l, desglosado);
     const unidad = l.unidad ? `${esc(l.unidad)} ` : '';
-    const producto = `<td><div class="p-name">${esc(l.descripcion || l.sku || '')}</div>
-        <div class="p-sku">Código ${esc(l.sku || 's/c')}${l.equivalencia ? ` &middot; equivale a ${esc(l.equivalencia)}` : ''}</div></td>`;
+    /**
+     * `[TK.15]` **El código va en la MISMA línea que el nombre.** Pedido del usuario
+     * (2026-10-01), con su propósito dicho: *«optimice el interlineado para no gastar tanto
+     * papel»*.
+     *
+     * Antes eran dos bloques: el nombre y, debajo, «Código 83243». O sea **un renglón de
+     * texto garantizado por producto**, aunque el nombre entrara en una sola línea.
+     *
+     * ⚠️ Medido sobre el PDF real que mandó el usuario (30 renglones, 2 páginas): con las 9
+     * columnas de ese documento la celda de producto queda en ~24.5% del ancho, que a 8.5pt
+     * son **~27 caracteres por línea** — no los 41 que decía el comentario de TK.13, que se
+     * escribió para un documento con menos columnas. Con nombres de 25 a 44 caracteres, el
+     * código entra al final de la última línea del nombre en vez de estrenar la suya.
+     *
+     * ⛔ Se quitó la palabra «Código». Es ambiguo a propósito declararlo: el número queda sin
+     * rótulo, apoyado en que vive dentro de la columna «Producto» y pegado al nombre. Se
+     * midió antes de decidirlo y la palabra costaba ~0 líneas (7 caracteres rara vez empujan
+     * un salto), así que esto es preferencia de limpieza, no ahorro: si se prefiere el
+     * rótulo, vuelve con una palabra.
+     */
+    const codigo = `<span class="p-sku">&middot; ${esc(l.sku || 's/c')}</span>`;
+    // El espacio ANTES del span es obligatorio: sin él la equivalencia se pega al código
+    // («20606· equivale a 1 PAQ»). Se vio en la maqueta renderizada, no en el código.
+    const equiv = l.equivalencia ? ` <span class="p-eq">&middot; equivale a ${esc(l.equivalencia)}</span>` : '';
+    const producto = `<td class="p-td"><span class="p-name">${esc(l.descripcion || l.sku || '')}</span> ${codigo}${equiv}</td>`;
     const cuantas = `<td class="r">${unidad}<i>&times;</i> ${cant(l.cantidad)}</td>`;
     if (l.cantidad === 1) {
       return `<tr class="u uno">${producto}${cuantas}${this.celdas(d.partida, cols, l)}</tr>`;
@@ -294,8 +317,14 @@ table.det thead th.l{text-align:left}
 table.det tbody tr{break-inside:avoid}
 table.det tbody td{padding:2px 5px;border-bottom:1px solid var(--line-2);vertical-align:top}
 table.det td.r{text-align:right}
-.p-name{font-weight:700;font-size:8.5pt;line-height:1.18}
-.p-sku{font-size:7pt;color:var(--muted);font-weight:600;margin-top:1px;line-height:1.2}
+/* [TK.15] Producto y codigo en el MISMO flujo de texto: el codigo deja de ocupar un renglon
+   propio y se acomoda al final del nombre. La celda fija el interlineado para los dos, porque
+   con dos line-height distintos en la misma linea manda el mayor y el ahorro se diluye.
+   nowrap en el codigo: partido en dos lineas no se puede leer ni dictar. */
+td.p-td{line-height:1.14}
+.p-name{font-weight:700;font-size:8.5pt}
+.p-sku{font-size:7pt;color:var(--muted);font-weight:700;white-space:nowrap}
+.p-eq{font-size:7pt;color:var(--muted);font-weight:600}
 td i{font-style:normal;color:var(--muted);font-size:7pt;font-weight:600}
 /* El tachado es lo que hace legible la promesa "antes costaba X, pagaste Y" sin leer la
    columna de descuento: se ve de un vistazo y sobrevive a una fotocopia en blanco y negro. */

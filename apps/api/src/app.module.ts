@@ -65,6 +65,11 @@ import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
 import { CommercialStockoutsModule } from '@megadulces/commercial';
 // [BP] Bitácora de retiros en caja — Kepler autentica el retiro con supervisor y no lo guarda.
 import { CommercialPosVoidsModule } from '@megadulces/commercial';
+// [MKT.1] Acuerdos con proveedor (formato MKTN001) + expediente de evidencia por plaza.
+import { CommercialPromoAgreementsModule } from '@megadulces/commercial';
+// [MKT.6] La otra mitad: el expediente prueba que se EJECUTÓ, esto mide si SIRVIÓ (venta del
+// ERP contra una línea base del mismo largo). Sólo lectura y sin permisos nuevos.
+import { CommercialPromoSelloutModule } from '@megadulces/commercial';
 import { CommercialReplenishmentModule, CommercialMovementsModule, CommercialLabelsModule, CommercialSalesDocumentsModule, CommercialBiAlmacenModule, CommercialTicketsModule } from '@megadulces/commercial';
 // Resolvedor universal de refs — "todo es clickeable" (/compras/entradas, /compras/compras-360)
 import { EntityRefModule } from '@megadulces/commercial';
@@ -194,6 +199,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialExpiryReviewsModule,
       CommercialStockoutsModule,
       CommercialPosVoidsModule,
+      CommercialPromoAgreementsModule,
+      CommercialPromoSelloutModule,
       CommercialOrdersModule,
       CommercialPaymentsModule,
       CommercialHomeDeliveryModule,

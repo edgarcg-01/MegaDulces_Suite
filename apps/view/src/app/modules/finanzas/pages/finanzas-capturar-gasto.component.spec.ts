@@ -70,6 +70,9 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     comp.clasificacion.set('no_comprobable');
     comp.formaPago.set('efectivo');
     comp.names.set({ cotizacion: 'cotizacion-proveedor.pdf' });
+    // `[GX.57]` El concepto es obligatorio desde 2026-10-01. Va declarado porque esta prueba
+    // mide la COTIZACIÓN: sin él el `toEqual([])` fallaría por otra razón.
+    comp.comentarios.set('Material para la bodega');
     expect(comp.faltan().map((f) => f.id)).toEqual([]);
   });
 
@@ -78,6 +81,7 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     comp.clasificacion.set('no_comprobable');
     comp.formaPago.set('efectivo');
     comp.names.set({});
+    comp.comentarios.set('Material para la bodega');
     expect(comp.faltan().map((f) => f.id)).toEqual(['evidencia']);
   });
 
@@ -105,6 +109,108 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     expect(comp.enviarLabel()).not.toContain('El dato del pago');
   });
 
+  /**
+   * `[GX.57]` — **El concepto es obligatorio.**
+   *
+   * Pedido textual (2026-10-01): *«aqui en donde dice concepto opcional, debe ser obligatorio
+   * escribir concepto»*.
+   */
+  describe('[GX.57] el concepto', () => {
+    const listoMenosElConcepto = () => {
+      comp.gasto.set({
+        folio: '0049641', beneficiario: 'PREVENCION', importe: 387.25, sucursal: '01',
+        solicitante: 'PREVENCION', fecha: '2026-09-27', concepto: 'BALATAS',
+      } as never);
+      comp.clasificacion.set('no_comprobable');
+      comp.formaPago.set('efectivo');
+      comp.names.set({ comprobante_1: 'vale.jpg' });
+      comp.sellos.set({ comprobante_1: { live: true } } as never);
+    };
+
+    it('con todo lo demás puesto, falta el concepto y el botón lo nombra', () => {
+      listoMenosElConcepto();
+      expect(comp.faltan().map((f) => f.id)).toEqual(['concepto']);
+      expect(comp.puedeEnviar()).toBe(false);
+      expect(comp.enviarLabel()).toContain('El concepto');
+    });
+
+    /**
+     * ⭐⭐ **LA PRUEBA QUE SOSTIENE EL CAMBIO, y la que casi no existe.**
+     *
+     * `faltan()` es un `computed` y `comentarios` era una **propiedad plana**. Un `computed`
+     * sólo se recalcula cuando cambia una SEÑAL que leyó: con el campo plano, escribir el
+     * concepto no invalidaba nada y el botón se quedaba apagado **para siempre**, diciendo
+     * «Falta: El concepto» con el concepto escrito a la vista.
+     *
+     * ⛔ No es hipotético: pasó en esta misma pantalla con el dato del pago (GX.22) y en
+     * Caja General con el botón Guardar (CG.22). Por eso `comentarios` es ahora una señal.
+     */
+    it('⭐ escribir el concepto DESBLOQUEA el botón', () => {
+      listoMenosElConcepto();
+      expect(comp.puedeEnviar()).toBe(false);
+
+      comp.comentarios.set('Balatas de la camioneta de reparto');
+
+      expect(comp.faltan()).toEqual([]);
+      expect(comp.puedeEnviar()).toBe(true);
+      expect(comp.enviarLabel()).toBe('Enviar a aprobación');
+    });
+
+    /** Puros espacios no es haberlo escrito — y el botón no se enciende por teclear la barra. */
+    it('puros espacios no cuentan', () => {
+      listoMenosElConcepto();
+      comp.comentarios.set('    ');
+      expect(comp.puedeEnviar()).toBe(false);
+      expect(comp.enviarLabel()).toContain('El concepto');
+    });
+
+    /**
+     * ⛔ **El concepto que viaja es el que se escribió, no el del vale de Kepler.** Acá había
+     * un respaldo (`comentarios || g.concepto`) que, con la caja vacía, guardaba el concepto
+     * que traía la solicitud: el expediente quedaba con un concepto que nadie tecleó.
+     */
+    it('el concepto escrito es el que se manda', () => {
+      listoMenosElConcepto();
+      comp.comentarios.set('  Balatas de la camioneta  ');
+      (comp as unknown as { uploaded: Record<string, unknown> }).uploaded = {
+        comprobante_1: { url: 'https://x/vale.jpg', role: 'comprobante_1' },
+      };
+
+      comp.submit();
+      const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/expenses/proofs'));
+      expect(req.request.body.comentarios).toBe('Balatas de la camioneta');
+      // ⛔ Y NO el concepto que vino de Kepler.
+      expect(req.request.body.comentarios).not.toBe('BALATAS');
+      req.flush({ id: 'p1' });
+    });
+
+    /**
+     * El rótulo lo dice ANTES de teclear: un botón apagado se lee tarde, y en táctil el
+     * `title` del botón deshabilitado no se lee nunca.
+     *
+     * ⚠️ Se renderiza de verdad. Comprobarlo sobre el texto del archivo daría verde con el
+     * rótulo escrito dentro de un bloque que la pantalla nunca muestra.
+     */
+    it('la pantalla rotula el campo como obligatorio, y ya no dice «opcional»', () => {
+      const fix = TestBed.createComponent(FinanzasCapturarGastoComponent);
+      const c = fix.componentInstance;
+      c.gasto.set({
+        folio: '0049641', beneficiario: 'PREVENCION', importe: 387.25, sucursal: '01',
+        solicitante: 'PREVENCION', fecha: '2026-09-27', concepto: 'BALATAS',
+      } as never);
+      c.clasificacion.set('no_comprobable');
+      fix.detectChanges();
+
+      const marca = fix.nativeElement.querySelector('.cap-req') as HTMLElement | null;
+      expect(marca).toBeTruthy();
+      expect(marca!.textContent).toContain('obligatorio');
+      const rotulo = marca!.parentElement as HTMLElement;
+      expect(rotulo.textContent).toContain('Concepto');
+      // ⛔ La palabra que el usuario señaló no puede seguir en ese rótulo.
+      expect(rotulo.textContent).not.toContain('opcional)');
+    });
+  });
+
   it('mientras guarda, lo dice', () => {
     comp.saving.set(true);
     expect(comp.enviarLabel()).toBe('Enviando…');
@@ -130,6 +236,7 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     // camara viaja aparte de `names` — `faltan()` los lee a los dos.
     comp.names.set({ comprobante_1: 'vale.jpg' });
     comp.sellos.set({ comprobante_1: { live: true } } as never);
+    comp.comentarios.set('Balatas de la camioneta de reparto');
 
     expect(comp.faltan()).toEqual([]);
     expect(comp.puedeEnviar()).toBe(true);
@@ -226,6 +333,9 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     comp.names.set({ comprobante_1: 'vale.pdf' });
     (comp as unknown as { fileData: Record<string, string> })
       .fileData['comprobante_1'] = 'data:application/pdf;base64,JVBERi0=';
+    // `[GX.57]` Sin concepto `submit()` ni arranca, y la prueba se quedaba esperando una
+    // petición que nunca salía. Lo que se mide acá es el ERROR DE SUBIDA, no la compuerta.
+    comp.comentarios.set('Vale de combustible');
 
     comp.submit();
     http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/upload'))
@@ -247,6 +357,9 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     comp.names.set({ comprobante_1: 'vale.pdf' });
     (comp as unknown as { fileData: Record<string, string> })
       .fileData['comprobante_1'] = 'data:application/pdf;base64,JVBERi0=';
+    // `[GX.57]` Sin concepto `submit()` ni arranca, y la prueba se quedaba esperando una
+    // petición que nunca salía. Lo que se mide acá es el ERROR DE SUBIDA, no la compuerta.
+    comp.comentarios.set('Vale de combustible');
 
     comp.submit();
     http.expectOne((r) => r.url.endsWith('/upload')).flush(null, { status: 500, statusText: 'Server Error' });
