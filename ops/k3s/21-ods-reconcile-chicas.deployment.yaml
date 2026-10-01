@@ -58,6 +58,15 @@ spec:
           env:
             - name: ODS_RECONCILE_HB_KEY
               value: cdc_reconcile_chicas    # ⛔ propia: sin ella pisa el renglón de otro carril
+            # ⛔ [K3S.7] SIN ESTO LA SONDA ES DECORATIVA. `health.js` lee ODS_HB_KEY, NO
+            # ODS_RECONCILE_HB_KEY (que sólo usa el reconciliador para SU renglón). Sin ella
+            # imprime «sin ODS_HB_URL/ODS_HB_KEY — no se evalúa» y **sale 0**: healthy pase lo
+            # que pase. Medido al forzar la verificación en vez de esperarla, y es un defecto
+            # PREEXISTENTE: en Compose este carril venía reportando healthy sin comprobar nada.
+            # Verificado con la llave puesta: «cdc_reconcile_chicas ok (0.8 min)», y con una
+            # llave inventada sale con código 1. Las dos direcciones.
+            - name: ODS_HB_KEY
+              value: cdc_reconcile_chicas
             - name: ODS_HB_MAX_MIN
               value: "90"
             - name: ODS_HB_IGNORE_ERROR
