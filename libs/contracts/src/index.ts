@@ -38,6 +38,10 @@ export * from './http/kpi-threshold.contract';
 // Producer `OrgController` y consumer `/admin/*` importan de acá: un cambio de forma es error de
 // compilación en los dos lados. La pantalla que esto reemplaza declaraba sus 12 tipos adentro.
 export * from './http/identity-org.contract';
+// [RE.30] Plazo de pago por proveedor (días exactos + desde factura/recepción) — /compras/obligaciones.
+export * from './http/supplier-credit-terms.contract';
+// [RE.32] Entrega de compras recibidas a Finanzas (folio ENT-YYYY-NNNNN, quién entrega y quién recibe).
+export * from './http/purchase-delivery.contract';
 // [OR.4] Trabajo: el vocabulario común de una tarea asignada. El reparto se construyó CUATRO veces
 // (recon_tasks, supervisor_tasks, inventory_count_assignments, daily_assignments) y ninguna subió a
 // libs/. Esto NO crea una quinta tabla: declara el mapeo de las cuatro a un solo vocabulario, y
