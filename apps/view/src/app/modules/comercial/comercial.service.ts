@@ -5,7 +5,7 @@ import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
 import type { Freshness, ExpenseFamilia } from '@megadulces/contracts';
 import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
-import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeSources as IncomeSourcesT } from '@megadulces/contracts';
+import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
 export interface AddressJsonb {
@@ -2069,6 +2069,12 @@ export class ComercialService {
   incomeSources(p: IncomeParams) {
     return this.http.get<IncomeSourcesT>(`${this.base}/analytics/income/sources`, { params: this.incomeParams(p) });
   }
+  /** `[IG.6]` Conciliación vendido vs cobrado por sucursal. `grain` = dia | mes | trimestre. */
+  incomeRecon(p: IncomeParams & { grain?: IncomeGrainT }) {
+    let q = this.incomeParams(p);
+    if (p.grain) q = q.set('grain', p.grain);
+    return this.http.get<IncomeReconT>(`${this.base}/analytics/income/conciliacion`, { params: q });
+  }
   private incomeParams(p: IncomeParams): HttpParams {
     let q = new HttpParams();
     if (p.from) q = q.set('from', p.from);
@@ -3420,6 +3426,7 @@ export interface VendorSaleLine {
 export type {
   IncomeGroupBy, IncomeCanalRow, IncomeRow, IncomeSeriesPoint, IncomeReport,
   IncomeTreeNode, IncomeTree, IncomeSourceRow, IncomeSources,
+  IncomeGrain, IncomeKind, IncomeBridgeItem, IncomeReconRow, IncomeRecon,
 } from '@megadulces/contracts';
 
 /** Parámetros de consulta (no son wire de respuesta: los arma esta app). */
