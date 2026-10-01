@@ -398,7 +398,7 @@ ERP cambió y hay que enterarse.
 
 ## 12 · Capa 4 · **Visual** — la pantalla, y lo que no puede ver
 
-`/comercial/motor-margen`: el triage de las 86,163 celdas, las 29 señales cableadas en 13
+`/comercial/precios/motor`: el triage de las 86,163 celdas, las 29 señales cableadas en 13
 familias, y **las 15 que faltan declaradas con su motivo** — el registro se publica en pantalla,
 no se esconde.
 
@@ -624,7 +624,44 @@ Convertir «16 días de financiamiento no cobrado» en pesos exige una **tasa de
 
 ---
 
-## 17 · Lo que sigue
+## 17 · `[PR.V2]` · El motor y los experimentos, bajo una sola entrada
+
+Eran dos renglones hermanos del sidebar que responden la misma pregunta en dos tiempos: el motor
+dice **qué precio conviene mover**, y el experimento es **lo único que puede convertir esa acción
+de «efecto no medido» a medida**. Ahora son **Control de margen** — una entrada, con selector
+segmentado estilo iOS.
+
+- **Rutas:** `/comercial/precios/motor` y `/comercial/precios/experimentos`. Las dos viejas
+  quedan como **redirect** (hay marcadores y enlaces en estos docs), mismo criterio que `[CAT.1]`.
+- **Selector:** `PageTabsComponent` con `variant="liquid"` — **ya existía**, ya navega por ruta y
+  ya filtra por permiso. No se construyó uno nuevo.
+
+### ⚠️ Por qué la entrada NO puede tener un permiso único
+
+Medido en prod antes de juntarlas: **5 roles ven las dos** (direccion, gerente_compras,
+jefe_marketing, marketing, superadmin), pero **2 ven sólo el motor** (`compras`, `finanzas`) y
+**1 sólo los experimentos** (`telemarketing`). Con un permiso único, alguien perdía la entrada
+entera; y un `redirectTo` fijo a `motor` **rebotaba a `telemarketing`** contra su propio guard.
+Por eso: `anyOf` en el sidebar, `anyPermissionGuard` en la ruta, y **`preciosHomeGuard`** eligiendo
+la primera pestaña que esa persona sí puede abrir.
+
+### ⭐ Dos cosas que el código existente enseñó, y una que rompí
+
+- **No hay componente shell.** Almacén tiene uno porque monta la barra para ~19 páginas; acá son
+  dos. Y un padre anidado **rompe el parser de `landing-guards.spec`**, que sólo lee rutas hijas
+  a un nivel: los tres candidatos salían como «la ruta no existe». Almacén ya resolvía esto
+  **no indentando** las hijas de su shell. Las rutas quedaron **planas, con el prefijo adentro**.
+- **La compuerta atrapó el rebote antes de que existiera.** `landing-guards.spec` falló en el
+  primer intento y por eso se midió el reparto de permisos.
+- ⛔⛔ **Décima vez con el acento grave**, y esta vez en un comentario **CSS** dentro de
+  `styles:` — escrito horas después de documentar el caso en §14. El gate lo marcó en el acto.
+
+**Verificado:** `nx build view` · `landing-guards.spec` **24/24** · `nx test view` **1,380** ·
+`contracts` **245** · lint 0 errores. **Validación visual pendiente.**
+
+---
+
+## 18 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
