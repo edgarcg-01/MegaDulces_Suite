@@ -9,6 +9,53 @@
 ---
 
 ## [Unreleased]
+### Fixed — el CEDIS declara su corte a Kepler, y la contención que lo protegía ya se había evaporado (IC.CEDIS.1, 2026-09-30)
+Pedido: *"ya CEDIS usa el 9.95, hay que integrar la nueva información, borrar las referencias
+BIRAPUATO y funcionar históricos"*.
+
+⛔⛔ **Lo urgente no era la integración.** `import-cedis-stock-wincaja.js` hace un MERGE **con
+DELETE**, y lo frenaban dos puertas: **A) cutover** (`kepler_code`, en NULL) y **B) frescura** (la
+fuente llevaba 10 días muerta). Medido hoy: **la puerta B dejó de frenar** — el último movimiento de
+Wincaja `00` pasó a ser del **2026-09-28 (2 días, tope 3)** porque los carriles PM2 de la réplica,
+parados desde el 22-sep, **se reiniciaron en esta misma sesión**. La única contención era
+circunstancial y se evaporó sola.
+
+**Declarado el corte, en las dos tablas que el guard consulta** (porque discrepaban):
+`commercial.warehouses.00.kepler_code = '00'` + `wincaja.branches.00.kepler_cutover_date =
+2026-09-30`. Verificado en prod: el guard ahora devuelve `ok:false · reason:'cutover_done'` — **por
+diseño, no por accidente**. La fecha sale del hecho: la carga inicial es `N-A-45`/`N-A-30` folio
+`0000001` del 30-sep (127 líneas · $8,655,455 · 340,077 u).
+
+⛔ **"Borrar las referencias BIRAPUATO" habría roto los históricos que el mismo pedido quiere
+conservar.** `wincaja_source_branch = '00'` **es** el puente al pasado: el resolvedor de corte lo usa
+para decidir *antes del 30-sep → Wincaja · desde → Kepler*. Se conserva. Lo que sí salió es el
+**rótulo**: `CEDIS BPIRAPUATO` → `CEDIS Irapuato` (nombraba el archivo `.mdb`, no el almacén).
+
+⚠️ **Y "ya usa el 9.95" es cierto para el inventario, no para la venta.** Kepler `00` **ya vendía
+desde antes** (79–143 docs/día hasta el 20-sep y más atrás): es OFICINAS/facturación centralizada. Y
+**`00` no aparece en `wincaja.v_sales_lines`** — sólo `30` y `32`. El CEDIS **nunca vendió al menudeo
+en Wincaja**; su papel ahí era existencia. Por eso el sell-out nunca lo tuvo.
+
+⛔ **NO se apuntó la existencia a Kepler, a propósito.** El mecanismo existe (`stockMap({cedis:true})`)
+y queda APAGADO: `kdil` de la `00` trae **12,181,690 u** sin pseudo-SKUs contra **340,077** capturadas
+= **35.82×**. La carga parece haberse SUMADO al saldo viejo de OFICINAS. Encenderlo hoy inflaría el
+CEDIS 35 veces en la pantalla de almacén y en el sugerido de compras. **Consecuencia declarada:**
+`commercial.stock` del CEDIS queda **congelado en la foto del 2026-09-28** — congelado y declarado le
+gana a 35× y mudo, pero es un hueco con nombre.
+
+⭐ **Radio medido antes de aplicar, no después:** declarar el corte mete la `00` al resolvedor y la
+pierna Kepler del sell-out filtra por ahí. Lo que entraría en el próximo refresh es **$0.00** (sólo 2
+documentos con almacén `00`, importe cero: los millones son doctypes fuera de `(8,10,12)`).
+
+**Las otras 3 alarmas de `check-cedis-cutover.js`, para el negocio:** la carga cubre **127 líneas
+contra 196 SKUs con existencia (65%)** — el patrón de Padre Hidalgo, *cargó una ruta y no el
+almacén*; el saldo parece **sumado y no reemplazado**; y **104 SKUs / $516,534 (6.3%)** no llegaron.
+Más **2 documentos fechados 2026-10-08**, ocho días en el futuro, por $1,200,000.
+
+También corregido: el bloque final de la compuerta moría con `bind message supplies 2 parameters` —
+comparaba `m.c1=$1` (el **almacén** contra la **sucursal**) y le faltaba un parámetro, así que la
+lista de SKUs faltantes nunca se imprimía.
+
 ### Fixed — el tope de la lista de cambios contaba renglones, no etiquetas (ETQ-CAMBIOS.7, 2026-09-30)
 Continuación del audit de `/tienda/etiquetas/cambios`. **Dos correcciones a lo que yo mismo
 reporté**, las dos por medir mal:
