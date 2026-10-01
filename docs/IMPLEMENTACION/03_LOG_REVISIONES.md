@@ -5,6 +5,49 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-30 — DM.15: el traspaso que decía haberse hecho a otra sucursal
+Reporte de Edgar sobre `/almacen/movimientos`: *"nos estamos inventando traspasos a sucursal,
+mencionando que se hizo a otra sucursal, peor aún, que cuadra la información"*.
+
+- **Mi primera hipótesis era falsa, y la medición la descartó antes de tocar código.** Acusé al
+  desempate del pareo (`ORDER BY abs(qty_enviada − qty_recibida)`: elige el candidato que mejor
+  cuadra y después declara que cuadra). Medido: de los 52 sospechosos, **0** tenían disponible el
+  candidato correcto, y **49 de 52 tenían un solo candidato** — no hubo desempate que sesgar.
+- **Y el árbitro con el que los acusé era el que mentía.** Usé `transfer_dest_map`, que lo puebla
+  el mismo pareo: verificar la vista contra sí misma. Con un testigo de verdad independiente
+  —`dest_label`, el texto que Kepler escribe en el envío— **1,561 de 1,562 pares de 180 días
+  coinciden** con el almacén que recibió ($66.86M). El único que contradice es una **ruta** de
+  Canindo acreditada a 8ESQ ($15,566), y ni ése se publica como OK.
+- **La máquina de inventar era el mapa**: `TI009 "SUCURSAL MORELIA MADERO" → MD-32`, el almacén
+  **Wincaja** de esa tienda — `deleted_at` puesto y **cero recepciones en toda su historia** —
+  mientras quien recibe es el Kepler `07`. En pantalla, los envíos sin recepción salían hacia una
+  sucursal que ya no existe, y **la misma ruta física aparecía partida en dos filas de la matriz**
+  (`00→07` por pareo, `01→MD-32` por mapa): sus totales no cuadraban ni contra sí mismos.
+- **El dato se corrigió sin escribir el valor a mano**: se soltó `TI009` a NULL y se le devolvió la
+  decisión al auto-ligado, que lo resolvió a `07 Morelia Madero` con **91.2% de evidencia** (52 de
+  57 envíos) contra 1.8% de los candidatos de ruido.
+- Candado `[DM.11e]` extendido de 3 a 7 bloques. **ANTES 5 OK / 2 FALLAS · DESPUÉS 6 OK / 0 FALLAS**
+  contra prod.
+
+**Lecciones:**
+- ⭐⭐ *Un árbitro que sale de la misma máquina que juzga no arbitra: refleja.* `transfer_dest_map`
+  lo escribe el pareo, así que usarlo para auditar el pareo era verificar la vista contra sí misma
+  — y me hizo acusar al componente sano durante tres mediciones. El testigo bueno (`dest_label`)
+  **ya estaba en la tabla**, viene del ERP y nadie lo usaba.
+- ⭐ *Dos ausencias distintas no se reportan igual.* Un almacén **retirado** que nunca recibió es un
+  vínculo falso; uno que **opera** y no registra recepciones (el CEDIS) puede ser el destino
+  correcto y simplemente no es verificable por esta vía. Mezclarlos convierte un hueco de la fuente
+  en un error del mapa, o peor, al revés.
+- ⭐ *Un detector que sólo se prueba contra la basura viva se vuelve utilería el día que la basura
+  se limpia.* Al corregir el mapa, el bloque de prueba negativa se quedó sin casos y tuvo que
+  declararse NO MEDIDO; se reescribió contra **casos fabricados**, como ya hacía el bloque 2.
+- ⚠️ *El nombre no distingue dos almacenes de la misma tienda en dos ERP.* El candado anterior
+  preguntaba "¿hablan del mismo lugar?" y daba verde con razón. Faltaba la otra pregunta: **¿sigue
+  vivo, y alguna vez recibió algo?**
+- ⚠️ Un archivo copiado a un contenedor con `docker cp` es **efímero**: `prod-api` se reinició a
+  mitad de sesión y el test volvió a su versión de imagen, mostrando sólo 3 de 7 bloques sin avisar.
+
+---
 ## 2026-09-30 — TK.14 + TK.a3: sin leyenda fiscal en los papeles, y main vuelve a verde en `view:test`
 - **TK.14**: se quitó «fiscal / no fiscal» de la carta PDF, reporte por cliente, anexo (AX), guía de
   cobranza y del tipo de documento («Factura Cont No Fiscal» → «Factura de contado»).
