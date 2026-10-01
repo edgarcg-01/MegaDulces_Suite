@@ -91,7 +91,7 @@ Pedido de Sistemas: *«cuando se nos ocurre un nuevo proyecto no lo escribimos»
 alta como una **orden** (folio `DEV-AAAA-NNNN`) con nombre, objetivo (escrito o **dictado**),
 evidencia (cualquier archivo, **foto** y **video** tomados en pantalla) y un responsable del equipo.
 
-- 🧪 **[DEV.0]** mig `20261001120000_devtools_projects`: schema `devtools` — `dev_team` · `projects` ·
+- 🧪 **[DEV.0]** mig `20261001210000_devtools_projects`: schema `devtools` — `dev_team` · `projects` ·
   `project_attachments` · `project_sequences`, RLS forzado en las 4, CHECKs de prioridad/estado/tipo.
   El equipo se siembra **por nombre**, no por UUID (Edgar Dayan Cortés García · Ángel David Cisneros
   Salazar · Luis Francisco López Gutiérrez); quien no aparece se avisa con `NOTICE`, no se inventa.
@@ -107,7 +107,7 @@ evidencia (cualquier archivo, **foto** y **video** tomados en pantalla) y un res
   (incluye RLS 0/3/0 y la URL firmada devolviendo el mismo archivo).
 - 🧪 **[DEV.10]** seguimiento: *«que a proyectos ya hechos se les agreguen notas o modificaciones»*.
   Editar ya era posible pero **pisaba** (objetivo, responsable y el porqué se perdían) → mig
-  `20261001130000_devtools_project_notes`: `devtools.project_notes` (`nota` · `modificacion` ·
+  `20261001210100_devtools_project_notes`: `devtools.project_notes` (`nota` · `modificacion` ·
   `cambio`) + `project_attachments.note_id`. Cada PATCH deja un `cambio` escrito por el SERVIDOR con
   el antes/después (`changes` jsonb; el objetivo viejo se conserva ahí, no en el resumen); reenviar
   los mismos valores no deja rastro. Notas y modificaciones con texto escrito o dictado y sus propios

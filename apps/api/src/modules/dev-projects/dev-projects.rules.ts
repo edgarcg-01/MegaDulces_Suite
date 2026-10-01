@@ -3,7 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 /**
  * `[DEV.1]` Reglas puras de Desarrolladores › Proyectos — sin base ni red, para poder probarlas
  * en unitario. El servicio las usa antes de tocar Postgres; la base además las sostiene con
- * CHECKs (`20261001120000_devtools_projects.js`), así que una regla nueva va en LOS DOS lados.
+ * CHECKs (`20261001210000_devtools_projects.js`), así que una regla nueva va en LOS DOS lados.
  */
 
 export const DEV_PROJECT_PRIORITIES = ['baja', 'media', 'alta', 'urgente'] as const;
