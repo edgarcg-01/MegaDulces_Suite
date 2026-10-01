@@ -5,6 +5,108 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-01 — DM.19.1-3: cablear el origen a la pantalla, y una retractación
+
+Edgar: *"arranquemos"*. Al enganchar el resolvedor a `/compras/entradas` aparecieron tres cosas
+que `[DM.19]` no había visto, y una de ellas **tira abajo un hallazgo que publiqué esa misma
+mañana**.
+
+### ⛔ 1. La retractación: el "segundo caso" de la rama 03 no existe
+
+`[DM.19]` declaró que la rama `03` repetía el patrón del CEDIS: *452 documentos por $9.94M en
+2025 bajo "COMPRA MERCANCIAS LA PIEDAD AB"*. **Medido con el almacén a la vista, es falso:**
+
+| de dónde sale la fila | centro | docs | importe |
+|---|---|---|---|
+| almacén **propio** (03) | LA PIEDAD | **1** | **$1** |
+| RÉPLICA del almacén 02 | LA PIEDAD | 467 | $10,332,920 |
+| RÉPLICA del almacén 01 | LA PIEDAD | 2 | $4,800 |
+
+**469 de 470 son filas de réplica** — el caso ya conocido de `VERDAD_ABSOLUTA.md` §9.9 (la `03`
+arrastra el almacén `02`, congelado el 2026-01-07; identidad documental probada: **501 de 501**
+idénticos en folio, serie, fecha e importe). Dicen "LA PIEDAD" **porque son de La Piedad**, y la
+vista publicada ya los filtraba. No hay segundo caso.
+
+⭐ La lección: *agrupar sin la columna de identidad convierte una réplica en un hallazgo.* Misma
+familia que `[IC.0]`, donde la `03` arrastraba 220 cabeceras del `02`.
+
+### ⛔ 2. Mi vista miraba otro universo que la pantalla, y el join inflaba la lista
+
+La vista publicada recorta con dos filtros que yo no había copiado: `btrim(c1)=sucursal` (sólo
+el almacén propio) y `c43 <> 'C'` (sin cancelados). Sin el primero la vista **no era única** por
+`(sucursal, folio, doc_prefix)` —14,059 filas contra 13,554 llaves— y el `LEFT JOIN` llevaba la
+sucursal `03` de **1,007 a 1,510 renglones**.
+
+⚠️ **Y ese 1,510 no era un dato: era la inflación de mi propio join.** Un `count(*)` del lado
+izquierdo de un `LEFT JOIN` cuenta el fan-out, no las filas de la tabla. Es el modo de falla que
+ya tuvo su migración propia (`20260819140000_fix_erp_goods_receipts_fanout`).
+
+Arreglado copiando el criterio del publicador, no inventando uno (`[DM.19.1]`, batch 670).
+
+### 3. El join costaba 5.5 s, y no había índice que lo arreglara
+
+```
+el conteo que hace la pantalla, con LEFT JOIN  →  5.5 s   ⛔ gate < 1 s
+Nested Loop Left Join → Materialize (rows=12,919, loops=3,126)
+```
+
+El planner re-escanea el resolvedor **una vez por documento**, y a una vista no se le puede
+indexar la llave. ⭐ **Pero la vista publicada ya escanea `kdm1`**, así que `ap.c12` sale gratis
+y el catálogo de centros son 138 filas que se hashean: el origen pasa a vivir **dentro** de
+`analytics.erp_goods_receipts` (`[DM.19.3]`, batch 672).
+
+**0.35 s** medido tras el cambio, y los **20+ servicios** que leen esa vista —rentabilidad,
+reabasto, recepción, obligaciones a proveedor, varianza de inventario, comprobantes— ven el
+origen sin tocar una línea. Se rechazó la matvista: pediría refresco agendado para un dato que
+hoy está fresco sin mantenimiento. `v_erp_goods_receipt_origin` queda como **proyección** sobre
+la publicada, así que el veredicto tiene **una sola** definición.
+
+⚠️ `[DM.19.2]` (batch 671) fue el intento intermedio: un `WITH … AS MATERIALIZED` dentro del
+resolvedor. Bajó de 20.5 s a 0.6 s **medido solo**, pero no sobrevivía al join desde la pantalla.
+
+### Lo que ve el usuario
+
+- Filtro **Plaza** (`propia` / `otra` / `sin_declarar`), tercer eje junto a Estado y Cuadre, con
+  su valor en la URL para que *"mandame las 5,820 que no son del CEDIS"* sea un link.
+- Chip en la fila **sólo cuando la compra NO es de esa sucursal** — pintarlo en las 2,267 que sí
+  lo son sería ruido en la columna más leída. El tooltip trae lo que escribió el ERP y, si el
+  segundo testigo discrepa, lo dice.
+- Dos KPIs nuevos que van **siempre**, aunque no se filtre: *De otra plaza* y *Plaza sin
+  declarar*, contados **por separado** — el hueco no se suma a lo propio (ADR-056).
+- ⚠️ En la API se llama `plaza_*` y no `origen_*`: acá `origen` ya significa *en qué servidor se
+  capturó* (`oficinas` | `sucursal`). Son dos preguntas distintas.
+
+### Verificación
+
+`test-newdb-goods-receipt-origin.js` → **12 OK · 0 FALLAS · 0 NO MEDIDOS** contra prod, ahora con
+**cinco pruebas negativas** (la colisión de catálogo entre ramas · el umbral frenando por
+porcentaje *y* por muestra · un centro con evidencia alta que no publica origen · el fan-out de
+la vista publicada · la réplica de la `03` que queda fuera).
+
+⚠️ **El bloque 10 falló primero por MI test, no por el sistema**: pareaba por folio, y el folio
+se repite entre almacenes — exactamente el error que esta entrada documenta, cometido al
+escribir la prueba que lo vigila.
+
+⚠️ **Sexta vez que un acento grave rompe el build acá**: los comentarios que puse dentro del
+`template:` y del bloque de estilos cerraban el template literal.
+
+### Cifras finales (universo alineado al de la pantalla)
+
+```
+otra_plaza              5,414 docs · $217,088,146
+propio (CEDIS)          2,267 docs · $206,907,867
+centro_no_dice_plaza    1,194 docs · $ 88,823,147
+otra_plaza_sin_nombre     406 docs · $  2,292,666
+sin_centro                 45 docs · $  2,670,520
+```
+
+**5,820 documentos por $219,380,811 NO son del CEDIS.** El hueco —**1,239 por $91,493,667**— se
+publica aparte. Bajan los documentos contra `[DM.19]` (salen cancelados y réplica) y **el dinero
+ajeno no se mueve ni un peso**.
+
+**Pendiente:** redeploy de api+view y validación visual. Sin permisos nuevos → sin re-login.
+
+---
 ## 2026-10-01 — DM.19: las órdenes de entrada del CEDIS eran de SIETE plazas, y el ERP ya lo decía
 
 Edgar: *"antes Morelia Abastos y CEDIS (no sé si más sucursales) subían sus órdenes de entrada a

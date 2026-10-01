@@ -203,6 +203,30 @@ fi
 SERVICIOS="${AUTO_DEPLOY_SERVICIOS:-$SERVICIOS}"
 di "servicios: $SERVICIOS"
 
+# ═══ [K3S.27] QUÉ SE CONSTRUYE ≠ QUÉ SE DESPLIEGA DÓNDE ═════════════════════════════════════
+#
+# `$SERVICIOS` es "lo que cambió y hay que construir". Eso NO dice en qué mundo vive cada uno.
+# Hasta el 2026-10-01 daba igual porque todos estaban en Compose; desde que `portal` y `vendor`
+# viven en K3s, pasar la lista entera a `docker compose up -d` RESUCITA sus contenedores —
+# la misma trampa que ya mordió con `depends_on` ([K3S.19], [K3S.23]).
+#
+# ⛔ ESTA LISTA Y LA ETIQUETA `migracion:` DE ops/k3s/*.yaml SON DOS DECLARACIONES DEL MISMO
+# HECHO. Si se contradicen, el servicio se despliega en el mundo equivocado o en ninguno.
+# Se mueven juntas, y `npm run check:k3s` compara el lado de `SERVICIOS_DEF`.
+SERVICIOS_K3S="${AUTO_DEPLOY_SERVICIOS_K3S:-portal vendor}"
+
+SERVICIOS_COMPOSE=''
+_s_k3s_tocados=''
+for s in $SERVICIOS; do
+  case " $SERVICIOS_K3S " in
+    *" $s "*) _s_k3s_tocados="$_s_k3s_tocados $s" ;;
+    *)        SERVICIOS_COMPOSE="$SERVICIOS_COMPOSE $s" ;;
+  esac
+done
+SERVICIOS_COMPOSE=$(echo "$SERVICIOS_COMPOSE" | sed 's/^ *//')
+_s_k3s_tocados=$(echo "$_s_k3s_tocados" | sed 's/^ *//')
+di "   en Compose: ${SERVICIOS_COMPOSE:-(ninguno)}  ·  en K3s: ${_s_k3s_tocados:-(ninguno)}"
+
 if [ "$SECO" = 1 ]; then di "SECO: acá se construiría y recrearía ($SERVICIOS). No se toca nada."; exit 0; fi
 
 # ── La compuerta de migraciones, ANTES de construir ─────────────────────────
@@ -457,7 +481,7 @@ fi
 
 cd "$HOME/ops/prod" || exit 1
 set -a; . "$HOME/secrets/prod-compose.env"; set +a
-docker compose -p prod up -d $SERVICIOS >/dev/null 2>&1
+docker compose -p prod up -d $SERVICIOS_COMPOSE >/dev/null 2>&1
 
 # ── Verificar ENTREGA, no el rótulo ─────────────────────────────────────────
 # ⚠️ La ventana era de 60 s y el arranque medido es de ~15 s — parecía de sobra. Pero cuando el
@@ -471,7 +495,11 @@ vivo_ahora=''
 for i in $(seq 1 24); do
   # `[VL.20.4]` Se vigilan los contenedores que ESTE despliegue tocó, no dos fijos: con portal y
   # vendedor en la lista, dejarlos fuera sería desplegarlos sin mirar si arrancan.
-  for s in $SERVICIOS; do
+  # ⚠️ [K3S.27] Sólo los de COMPOSE: un servicio que vive en K3s no tiene contenedor, y
+  # `docker inspect` de uno apagado devolvería "exited" — que no es un bucle de reinicio, así
+  # que este bucle lo daría por bueno sin haber mirado nada. A los pods los verifica
+  # `aplicar-k3s-prod.sh`, que espera el rollout y corta ante ImagePullBackOff.
+  for s in $SERVICIOS_COMPOSE; do
     c=$(cont_de "$s"); [ -n "$c" ] || continue
     _st=$(docker inspect -f '{{.State.Status}} {{.State.Restarting}} {{.RestartCount}}' "$c" 2>/dev/null)
     case "$_st" in
@@ -506,7 +534,19 @@ revertir() {
       _falta="$_falta $img"
     fi
   done
-  cd "$HOME/ops/prod" && docker compose -p prod up -d --force-recreate $SERVICIOS >/dev/null 2>&1
+  cd "$HOME/ops/prod" && docker compose -p prod up -d --force-recreate $SERVICIOS_COMPOSE >/dev/null 2>&1
+  # ⛔ [K3S.27] Y LOS DE K3s TAMBIÉN SE REVIERTEN. Retaguear `:latest` en Docker no mueve un
+  # pod: el Deployment pide una imagen por COMMIT. `rollout undo` lo devuelve al ReplicaSet
+  # anterior, cuya imagen sigue en containerd. Sin esto, "revertido." sería mentira para la
+  # mitad del despliegue — y mentir en el camino de reversión es peor que no tenerlo.
+  for s in $_s_k3s_tocados; do
+    if KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl rollout undo "deploy/$s" -n prod >/dev/null 2>&1; then
+      di "  $s (K3s) → rollout undo"
+    else
+      di "  ⛔ $s (K3s): NO se pudo revertir"
+      _falta="$_falta $s(k3s)"
+    fi
+  done
   if [ -n "$_falta" ]; then
     di "revertido PARCIALMENTE — quedó sin revertir:$_falta"
   else

@@ -1,6 +1,12 @@
 /**
  * `[DM.19]` — **De qué plaza es una orden de entrada que Kepler registró en el CEDIS.**
  *
+ * ⛔ **RETRACTADO EL MISMO DÍA, ver `20261001270000`:** la sección "HALLAZGO COLATERAL" de abajo
+ * (la rama `03` con 452 documentos de "LA PIEDAD") es **FALSA**. Con el almacén a la vista, 469
+ * de 470 son filas de RÉPLICA del almacén `02` — dicen "LA PIEDAD" porque **son** de La Piedad.
+ * ⚠️ Esta vista además miraba un universo más ancho que el de la pantalla; lo corrigen
+ * `20261001270000` (universo), `…280000` (costo) y `…290000` (el origen pasa a la vista publicada).
+ *
  * ── QUÉ PASÓ ────────────────────────────────────────────────────────────────────────────────
  * Reporte de Edgar (2026-10-01): *"antes Morelia Abastos y CEDIS (no sé si más sucursales)
  * subían sus órdenes de entrada a Kepler, y necesitamos tener diferenciadas cuáles eran de cada

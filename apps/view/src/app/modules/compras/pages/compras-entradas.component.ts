@@ -167,6 +167,15 @@ interface AttachFile {
           <p-select [options]="cuadreOpts" [ngModel]="cuadreSel()" (onChange)="setCuadre($event.value)"
                     optionLabel="label" optionValue="value" placeholder="Cualquiera" [showClear]="true"
                     appendTo="body" ariaLabel="Filtrar por cuadre del documento" /></div>
+        <!--
+          [DM.19] Plaza. Tercer eje, y el que contesta la pregunta que originó la fase:
+          "mostrame lo que NO es del CEDIS". No se fusiona con Estado ni con Cuadre porque
+          responde otra cosa — a quién le toca el gasto, no en qué va el trámite.
+        -->
+        <div class="cb-field"><label>Plaza</label>
+          <p-select [options]="plazaOpts" [ngModel]="plazaSel()" (onChange)="setPlaza($event.value)"
+                    optionLabel="label" optionValue="value" placeholder="Cualquiera" [showClear]="true"
+                    appendTo="body" ariaLabel="Filtrar por la plaza a la que corresponde la compra" /></div>
         @if (dinero()) {
           <div class="cb-field"><label>Ajuste</label>
             <p-select [options]="ajusteOpts" [ngModel]="ajusteSel()" (onChange)="setAjuste($event.value)"
@@ -343,6 +352,17 @@ interface AttachFile {
                           [attr.aria-label]="'Ver ficha de ' + (c.proveedor_nombre || c.proveedor_code)">{{ c.proveedor_nombre || c.proveedor_code }}</button>
                 } @else { {{ c.proveedor_nombre || '—' }} }
                 <div class="cb-sub">{{ c.proveedor_rfc || c.proveedor_code }}</div>
+                <!--
+                  [DM.19] La plaza, SOLO cuando no es la de la fila. Pintarla en las 2,267
+                  entradas que sí son del CEDIS sería ruido en la columna que más se lee; lo que
+                  hay que ver es lo que NO le toca. "Sin declarar" va en gris y con su palabra,
+                  porque es un vacío de datos y no un problema del proveedor.
+                -->
+                @if (plazaChip(c); as pz) {
+                  <div class="cb-plaza" [attr.data-pz]="pz.tono" [pTooltip]="pz.tip" tooltipPosition="top">
+                    <i class="pi" [ngClass]="pz.icon" aria-hidden="true"></i> {{ pz.texto }}
+                  </div>
+                }
               </td>
               <td class="mono muted">
                 @if (c.oc_folio) {
@@ -1325,6 +1345,13 @@ interface AttachFile {
        pudo leer. Pintarla de ámbar la mete en la misma cola que los descuadres reales, y son
        cosas que se arreglan distinto — una se re-escanea, la otra se audita. */
     .cb-cuadre[data-cuadre="sin_datos"] { color: var(--text-muted); }
+    /* [DM.19] La plaza de la compra. El color NUNCA va solo (DESIGN.md §5): cada estado trae
+       su icono y su palabra, y el gris de "sin declarar" dice que falta el dato, no que este mal. */
+    .cb-plaza { display: inline-flex; align-items: center; gap: .25rem; margin-top: .15rem;
+                font-size: var(--fs-micro); font-weight: 600; white-space: nowrap; }
+    .cb-plaza .pi { font-size: .7rem; }
+    .cb-plaza[data-pz="ajena"] { color: var(--warn-fg); }
+    .cb-plaza[data-pz="sin"]   { color: var(--text-muted); font-weight: 500; }
     /* RE.26 — el apartado de validación: los dos botones que deciden van juntos y separados
        del resto de las acciones, con el estado dicho en palabras al lado. */
     .cb-valida { display: inline-flex; align-items: center; gap: .15rem; }
@@ -2094,6 +2121,9 @@ export class ComprasEntradasComponent {
     // en la URL tiene que ignorarse, no convertirse en un filtro vacío que parece "sin datos".
     const cua = qp.get('cuadre');
     if (cua && this.cuadreOpts.some((o) => o.value === cua)) this.cuadreSel.set(cua);
+    // `[DM.19]` Misma validación: "mandame las 5,820 que no son del CEDIS" tiene que ser un link.
+    const pl = qp.get('plaza');
+    if (pl && this.plazaOpts.some((o) => o.value === pl)) this.plazaSel.set(pl);
     // `[RE.29]` El periodo, ANTES de la primera carga: si se leyera después, el primer viaje
     // sale con el carril del proceso y la tabla salta de un universo al otro. `fromIso` devuelve
     // `null` ante basura, así que un `?from=ayer` se ignora en vez de convertirse en un filtro
@@ -2130,6 +2160,37 @@ export class ComprasEntradasComponent {
    * `No se leyó` va aparte de `Por revisar` porque son dos trabajos: uno se re-escanea, el otro
    * se audita. Y va en tono neutro, no de alerta — el proveedor no hizo nada mal.
    */
+  /**
+   * `[DM.19]` — el chip de PLAZA. Devuelve `null` cuando la compra es de esta misma sucursal:
+   * esa es la mayoría y no aporta nada verla repetida.
+   *
+   * Tres casos que NO se mezclan:
+   *   · nombrada        → el ERP la dice y la evidencia alcanza para resolverla.
+   *   · sin resolver    → el ERP la nombra (p.ej. "COMPRA PROVEEDOR YURECUARO") pero hay poca
+   *                       evidencia; se muestra **lo que el ERP escribió**, no una deducción.
+   *   · sin declarar    → el documento no dice de quién es. ⛔ No es "del CEDIS".
+   */
+  plazaChip(c: EntradaRow): { texto: string; tono: 'ajena' | 'sin'; icon: string; tip: string } | null {
+    const v = c.plaza_veredicto;
+    if (!v || v === 'propio') return null;
+    if (v === 'otra_plaza' || v === 'otra_plaza_sin_nombre') {
+      const nombre = c.plaza_nombre || c.plaza_centro || 'otra plaza';
+      const testigo = c.plaza_testigo && c.plaza_concuerdan === false
+        ? ` La referencia del proveedor dice ${c.plaza_testigo}.`
+        : '';
+      return {
+        texto: nombre, tono: 'ajena', icon: 'pi-arrow-right-arrow-left',
+        tip: `Esta compra no es de esta sucursal. El centro de compra de Kepler dice `
+          + `"${c.plaza_centro || nombre}".${testigo}`,
+      };
+    }
+    return {
+      texto: 'Plaza sin declarar', tono: 'sin', icon: 'pi-question-circle',
+      tip: 'El documento no dice a qué plaza corresponde. No significa que sea de esta sucursal: '
+        + 'el centro de compra casi no se llenaba antes de febrero de 2026.',
+    };
+  }
+
   kpiItems(r: EntradasReport): MetricStripItem[] {
     if (this.dinero()) {
       return [
@@ -2145,6 +2206,15 @@ export class ComprasEntradasComponent {
       { label: 'Con remisión', value: r.kpis.con_comprobante, tone: 'ok' },
       { label: 'Validadas', value: r.kpis.validados, tone: 'ok' },
       { label: '$ por comprobar', value: this.moneyShort(r.kpis.monto_pendiente), tone: 'warn' },
+      // `[DM.19]` Van SIEMPRE, aunque no se esté filtrando por plaza: el CEDIS cargaba
+      // $219,380,811 de otras siete plazas y nada en pantalla lo decía. Y el hueco va aparte,
+      // nunca sumado a lo propio — es un vacío de datos, no un veredicto (ADR-056).
+      ...(r.kpis.plaza_ajena ? [{
+        label: 'De otra plaza', value: this.moneyShort(r.kpis.monto_plaza_ajena), tone: 'warn' as const,
+      }] : []),
+      ...(r.kpis.plaza_sin_declarar ? [{
+        label: 'Plaza sin declarar', value: this.moneyShort(r.kpis.monto_plaza_sin_declarar),
+      }] : []),
     ];
   }
 
@@ -2170,6 +2240,22 @@ export class ComprasEntradasComponent {
     { label: 'No se leyó', value: 'sin_datos' },
   ];
   setCuadre(v: string | null) { this.cuadreSel.set(v || null); this.page.set(1); this.syncUrl(); this.load(); }
+  /**
+   * `[DM.19]` — **de qué PLAZA es la compra.** Eje separado de todo lo demás: no habla del
+   * trámite ni del documento, sino de a quién le toca el gasto.
+   *
+   * ⚠️ `Sin declarar` dice literalmente eso. **No es "del CEDIS"**: son documentos de nov-2025
+   * a ene-2026, cuando el centro de compra casi no se llenaba, y su monto promedio queda ENTRE
+   * el del CEDIS y el de las otras plazas — o sea que es mezcla. Ofrecerlo como filtro propio
+   * es lo que impide que se lea como "lo demás es mío".
+   */
+  readonly plazaSel = signal<string | null>(null);
+  readonly plazaOpts = [
+    { label: 'De esta sucursal', value: 'propia' },
+    { label: 'De otra plaza', value: 'otra' },
+    { label: 'Sin declarar', value: 'sin_declarar' },
+  ];
+  setPlaza(v: string | null) { this.plazaSel.set(v || null); this.page.set(1); this.syncUrl(); this.load(); }
   /**
    * `[RE.29]` — **el periodo.** `from`/`to` existían en el contrato del endpoint desde RE.13.0
    * y se aplican tanto a las filas como a los KPIs (`kpiBase`), pero esta pantalla nunca los
@@ -2345,6 +2431,7 @@ export class ComprasEntradasComponent {
         // RE.25 — el cuadre viaja en la URL para que "mandame las 44 que no se leyeron" sea un
         // link que se pega en un chat, igual que el resto de los lentes de esta pantalla.
         cuadre: this.cuadreSel() || null,
+        plaza: this.plazaSel() || null,
         // `[RE.29]` El periodo, en la URL. DESIGN.md §Ing.UI: en Operations el rango de fechas
         // vive en query params — sin eso, F5 pierde el mes que estabas mirando y "mandame agosto"
         // no es un link. Los nombres son los del endpoint (`from`/`to`), como en costo-neto.
@@ -2365,6 +2452,7 @@ export class ComprasEntradasComponent {
       search: this.search || undefined,
       warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
       cuadre: (this.cuadreSel() || undefined) as EntradasQuery['cuadre'],
+      plaza: (this.plazaSel() || undefined) as EntradasQuery['plaza'],
       // `[RE.29]` El periodo. Va junto con el carril que le corresponde (ver `carril()`): con
       // rango explícito el carril se abre a `todo`, o el propio backend se comería el rango.
       from: this.toIso(this.dateFrom()),

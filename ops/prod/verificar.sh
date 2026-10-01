@@ -32,7 +32,14 @@ fi
 q() { psql -h $PGH -p $PGP -U $PGU -d $DB -At -q -c "$1" 2>/dev/null; }
 
 titulo "Contenedores"
-for c in pg-prod pg-rag prod-api prod-worker prod-portal prod-vendor prod-backup; do
+# ⛔ [K3S.25] `prod-portal` y `prod-vendor` SALIERON de esta lista: viven en K3s desde el
+# 2026-10-01 y sus contenedores están detenidos a propósito. Dejarlos acá reportaba dos fallas
+# rojas sobre un estado sano, que es exactamente cómo se aprende a ignorar el tablero.
+#
+# ⚠️ Y el reverso importa igual: si un servicio vuelve a Compose, tiene que VOLVER a esta
+# línea. Un contenedor que nadie vigila es indistinguible de uno que no existe.
+# Los pods se verifican abajo, por su NodePort y pidiendo un recurso real.
+for c in pg-prod pg-rag prod-api prod-worker prod-backup; do
   est=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$c" 2>/dev/null)
   case "$est" in
     healthy|running) ok "$c: $est" ;;
@@ -114,10 +121,21 @@ prod_n=$(grep -o '"total":[0-9]*' "$_tmp" 2>/dev/null | head -1 | cut -d: -f2)
 rm -f "$_tmp"
 prod_n=${prod_n:-0}
 [ "$prod_n" -ge 5000 ] && ok "/api/kp/precios-todos: $prod_n productos" || mal "/api/kp/precios-todos: $prod_n (se esperaban >= 5000)"
-for par in "portal:8081" "vendor:8082"; do
+# ⛔ [K3S.25] LOS PUERTOS CAMBIARON PORQUE CAMBIÓ EL MUNDO. `portal` y `vendor` viven en K3s
+# desde el 2026-10-01: el 8081/8082 de Docker está MUERTO y este bloque habría reportado dos
+# fallas sobre un estado sano — la misma clase de falso rojo que tenía el bloque de la ingesta.
+#
+# ⭐ Y no basta con cambiar el número: se pide además un RECURSO REAL (`ngsw.json`), no sólo
+# la raíz. Un nginx vivo sirviendo su página por defecto devuelve 200 igual.
+for par in "portal:30081" "vendor:30082"; do
   n=${par%%:*}; p=${par#*:}
   c=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "http://127.0.0.1:$p/" 2>/dev/null)
-  [ "$c" = 200 ] && ok "$n (:$p): HTTP 200" || mal "$n (:$p): HTTP $c"
+  g=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "http://127.0.0.1:$p/ngsw.json" 2>/dev/null)
+  if [ "$c" = 200 ] && [ "$g" = 200 ]; then
+    ok "$n (pod :$p): raíz 200 · ngsw.json 200"
+  else
+    mal "$n (pod :$p): raíz $c · ngsw.json $g"
+  fi
 done
 
 titulo "El respaldo"

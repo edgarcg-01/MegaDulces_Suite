@@ -37,7 +37,7 @@ kind: Deployment
 metadata:
   name: portal
   namespace: prod
-  labels: { app: portal, singleton: "false", migracion: preparado }
+  labels: { app: portal, singleton: "false", migracion: migrado }
 spec:
   replicas: 2
   selector:
@@ -75,7 +75,7 @@ kind: Deployment
 metadata:
   name: vendor
   namespace: prod
-  labels: { app: vendor, singleton: "false", migracion: preparado }
+  labels: { app: vendor, singleton: "false", migracion: migrado }
 spec:
   replicas: 2
   selector:
