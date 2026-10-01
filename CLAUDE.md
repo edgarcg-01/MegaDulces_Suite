@@ -274,7 +274,7 @@ Detalle de cada fase en [`docs/IMPLEMENTACION/FASES/`](docs/IMPLEMENTACION/FASES
   32-bit sobre unidad mapeada — Fase VL.5) y el respaldo diario.
   **Qué corre dónde, medido: [`ops/README.md`](ops/README.md).** Despliegue: `ops/vl/deploy.sh`.
 - **DB legacy**: Postgres en Railway (host `switchback.proxy.rlw...`). Ya no es prod.
-- **DB nueva multi-tenant**: la de prod es `pg-prod` en `md` (arriba). Para desarrollo local: `192.168.0.245:5432/postgres_platform` (Postgres 18.4); los smoke tests exigen un destino seguro (`assert-safe-target`).
+- **DB nueva multi-tenant**: la de prod es `pg-prod` en `md` (arriba). Para desarrollo: el stack Docker local (`npm run dev:up`, `.env.dev.example`). ⛔ **`192.168.0.245` (`platform_test`, `postgres_platform`) ya no se usa** — era un espejo viejo que no se revive (decisión 2026-09-12) y hoy ni conecta. Los smoke tests exigen un destino seguro (`assert-safe-target`).
 - **Primer tenant**: `mega_dulces` con UUID `00000000-0000-0000-0000-00000000d01c`.
 - **WhatsApp BSP**: pendiente decidir (ADR-006).
 - **LLM provider**: pendiente decidir (ADR-007, recomendado Claude Haiku 4.5).
