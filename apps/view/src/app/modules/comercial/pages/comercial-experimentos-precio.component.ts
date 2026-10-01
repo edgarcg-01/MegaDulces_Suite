@@ -88,7 +88,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
         &middot; asignación reproducible.
         @if (x.dias_dispersion !== null && x.dias_dispersion > 7) {
           <span class="xp-warn">
-            &nbsp;⚠️ la captura se extendió {{ x.dias_dispersion }} días: las dos ramas dejan de
+            &nbsp;<i class="pi pi-exclamation-triangle mx-ico" aria-label="Advertencia"></i> la captura se extendió {{ x.dias_dispersion }} días: las dos ramas dejan de
             compartir calendario y la estacionalidad entra como sesgo.
           </span>
         }
@@ -209,7 +209,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 
           <h3 class="xp-det-h3">Lista de captura</h3>
           <p class="xp-nota">
-            ⛔ Sólo el <strong>tratamiento</strong>. El control no se toca &mdash; ése es su trabajo.
+            <i class="pi pi-ban mx-ico" aria-label="Bloqueante"></i> Sólo el <strong>tratamiento</strong>. El control no se toca &mdash; ése es su trabajo.
           </p>
           <table class="xp-cap">
             <thead>

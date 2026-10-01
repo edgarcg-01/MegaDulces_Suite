@@ -104,7 +104,7 @@ import {
         <p class="mx-nota">
           El costo y el precio salen de los <strong>mismos renglones costeados</strong> del ERP.
           @if (mesesParciales() > 0) {
-            ⚠️ {{ mesesParciales() }} de {{ d.historia.length }} meses tienen cobertura de costo
+            <i class="pi pi-exclamation-triangle mx-ico" aria-label="Advertencia"></i> {{ mesesParciales() }} de {{ d.historia.length }} meses tienen cobertura de costo
             parcial &mdash; ahí la línea de costo describe sólo una parte de la venta.
           }
         </p>
@@ -129,7 +129,7 @@ import {
         <!-- ⭐⭐ El veredicto de comparabilidad, ANTES que el número. -->
         <p class="mx-ver" [class.is-no]="comparables() === 0">
           @if (comparables() === 0) {
-            ⛔ <strong>Ninguno de estos {{ medibles().length }} cambios es comparable.</strong>
+            <i class="pi pi-ban mx-ico" aria-label="Bloqueante"></i> <strong>Ninguno de estos {{ medibles().length }} cambios es comparable.</strong>
             En todos, el volumen ya se estaba moviendo <em>antes</em> de tocar el precio
             (la barra clara), así que lo de después no se le puede atribuir al precio.
           } @else {
@@ -138,7 +138,7 @@ import {
           }
         </p>
         <p class="mx-nota">
-          ⛔ <strong>No hay una curva de elasticidad y no se va a dibujar una.</strong> Medida
+          <i class="pi pi-ban mx-ico" aria-label="Bloqueante"></i> <strong>No hay una curva de elasticidad y no se va a dibujar una.</strong> Medida
           sobre todo el catálogo, la región es <span class="mx-mono">[−1.415, −0.045]</span> &mdash;
           un factor 31&times; de ancho. Y una <em>baja</em> de precio produce el mismo movimiento
           negativo que un <em>alza</em>, que es imposible si lo causara el precio: es reversión a
@@ -202,7 +202,7 @@ import {
                 <strong class="comm-num">{{ s.umbral_equilibrio_pct }}%</strong>
                 del volumen para quedar peor que como estás.
               } @else {
-                ⚠️ Es una <strong>baja</strong>: tendrías que <strong>ganar</strong>
+                <i class="pi pi-exclamation-triangle mx-ico" aria-label="Advertencia"></i> Es una <strong>baja</strong>: tendrías que <strong>ganar</strong>
                 <strong class="comm-num">{{ -(+s.umbral_equilibrio_pct) | number:'1.0-2' }}%</strong>
                 de volumen sólo para empatar.
               }
@@ -213,7 +213,7 @@ import {
               Un umbral sin costo sería un invento.
             </p>
           }
-          <p class="mx-nota">⛔ Lo que esto <strong>no</strong> dice: {{ s.no_sabe }}</p>
+          <p class="mx-nota"><i class="pi pi-ban mx-ico" aria-label="Bloqueante"></i> Lo que esto <strong>no</strong> dice: {{ s.no_sabe }}</p>
         }
       } @else {
         <p class="mx-nota">
@@ -232,8 +232,8 @@ import {
             <th scope="col">Plaza</th>
             <th scope="col" class="comm-num">Precio</th>
             <th scope="col" class="comm-num">Costo</th>
-            <th scope="col" class="comm-num">Margen real</th>
-            <th scope="col">Qué hacer</th>
+            <th scope="col" class="comm-num">Margen que se cobró</th>
+            <th scope="col">Qué propone el motor</th>
           </tr>
         </thead>
         <tbody>
@@ -243,7 +243,12 @@ import {
               <td class="comm-num">{{ num(p.precio_actual) }}</td>
               <td class="comm-num">{{ num(p.a1_costo_hoy) }}</td>
               <td class="comm-num">{{ pct(p.margen_realizado_pct) }}</td>
-              <td class="mx-min">{{ p.accion }}</td>
+              <td class="mx-plz-acc">
+                <span class="mx-plz-v">{{ etiqueta(p.accion) }}</span>
+                @if (!p.es_esta && p.accion !== d.accion.accion) {
+                  <span class="mx-plz-dif">distinta de esta plaza</span>
+                }
+              </td>
             </tr>
           }
         </tbody>
@@ -286,7 +291,7 @@ import {
         <!-- ⛔ La fecha de caducidad, antes de que alguien lo lea como actual. -->
         @if (atrasoMax() > 45) {
           <p class="mx-nota mx-warn">
-            ⚠️ El dato más reciente tiene <strong>{{ atrasoMax() }} días</strong>. Lo registraba
+            <i class="pi pi-exclamation-triangle mx-ico" aria-label="Advertencia"></i> El dato más reciente tiene <strong>{{ atrasoMax() }} días</strong>. Lo registraba
             Wincaja y dejó de hacerlo el día que esta plaza pasó a Kepler &mdash; no es que hayan
             dejado de faltar productos.
           </p>
@@ -294,12 +299,12 @@ import {
       } @else {
         <p class="mx-vacio">
           <span class="mx-nd">n/d</span> &mdash; sin registros de faltante para este producto.
-          ⚠️ No significa que no haya faltado: sólo las plazas que todavía corrían Wincaja lo
+          <i class="pi pi-exclamation-triangle mx-ico" aria-label="Advertencia"></i> No significa que no haya faltado: sólo las plazas que todavía corrían Wincaja lo
           registraban.
         </p>
       }
       <p class="mx-nota">
-        ⛔ Esto mide <strong>cuánto se perdió</strong> valuado a nuestro precio, no contra qué
+        <i class="pi pi-ban mx-ico" aria-label="Bloqueante"></i> Esto mide <strong>cuánto se perdió</strong> valuado a nuestro precio, no contra qué
         precio se perdió. <strong>No existe ninguna fuente de precio de competencia.</strong>
       </p>
     </section>
@@ -414,6 +419,23 @@ import {
     /* La plaza que se está mirando se distingue por PESO, no por color de fondo. */
     .mx-tab tr.is-esta td { font-weight: var(--fw-bold); color: var(--fg-1); }
     .mx-min { font-size: var(--fs-nano); color: var(--fg-3); }
+    /* [PR.V9] .mx-tab no tenia NI UNA regla: sin padding, los encabezados se leian
+       "MARGEN REAL QUE HACER" de corrido y las celdas "11.08%subir_precio". */
+    .mx-tab { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+    .mx-tab th {
+      text-align: left; font-size: var(--fs-micro); font-weight: 700;
+      letter-spacing: .05em; text-transform: uppercase; color: var(--fg-2);
+      padding: .45rem .75rem .45rem 0; border-bottom: 1px solid var(--border-color);
+      white-space: nowrap;
+    }
+    .mx-tab th.comm-num, .mx-tab td.comm-num { text-align: right; padding-right: 1.25rem; }
+    .mx-tab td { padding: .45rem .75rem .45rem 0; border-bottom: 1px solid var(--surface-2); }
+    .mx-tab tr.is-esta td { font-weight: 600; background: var(--surface-2); }
+    .mx-plz-acc { display: flex; flex-direction: column; gap: 2px; }
+    .mx-plz-v { font-size: var(--fs-sm); }
+    .mx-plz-dif { font-size: var(--fs-nano); color: var(--warn-soft-fg); }
+    /* El icono que reemplazo a los emojis: mismo tono que el texto que acompana. */
+    .mx-ico { font-size: .8em; vertical-align: baseline; margin-right: .2em; }
   `],
 })
 export class ComercialMotorMargenExpedienteComponent {

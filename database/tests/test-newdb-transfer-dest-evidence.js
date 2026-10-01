@@ -358,6 +358,57 @@ const concuerdan = (label, whCode, whName) => {
       }
     }
 
+    // ── 8. [DM.18] El mapa coincide con el CATÁLOGO del ERP ─────────────────────────────────
+    // Los bloques 1-7 vigilan una INFERENCIA; éste la vuelve innecesaria para los TI###.
+    // `md.pv_suc_ip` (ya en el ODS) trae el mapa puesto por Kepler, y las dos veces que
+    // inferimos mal —[DM.11e] y [DM.15]— el catálogo ya decía lo correcto.
+    console.log('\n[8] El mapa coincide con el catálogo del ERP (pv_suc_ip)');
+    const cat = await db.query(
+      `SELECT c.dest_code, c.warehouse_code AS erp, w.code AS mapa, c.es_consistente,
+              c.ramas_que_lo_declaran
+         FROM analytics.v_erp_branch_catalog c
+         LEFT JOIN analytics.transfer_dest_map dm
+           ON dm.tenant_id = c.tenant_id AND dm.dest_code = c.dest_code
+         LEFT JOIN commercial.warehouses w ON w.id = dm.warehouse_id
+        WHERE c.tenant_id = $1
+        ORDER BY c.dest_code`, [T]).then((r) => r.rows).catch(() => null);
+
+    if (cat === null) {
+      skip('analytics.v_erp_branch_catalog no existe: falta la migración 20261001230000.');
+    } else if (!cat.length) {
+      skip('el catálogo del ERP llegó vacío: pv_suc_ip no está poblada en el ODS.');
+    } else {
+      // Dos preguntas distintas y se responden por separado: (a) ¿las 9 copias del catálogo
+      // coinciden entre sí?, (b) ¿nuestro mapa coincide con ellas? Un catálogo divergente no
+      // puede arbitrar nada, así que se declara en vez de elegir una copia.
+      const divergentes = cat.filter((r) => !r.es_consistente);
+      const discrepan = cat.filter((r) => r.es_consistente && r.mapa && r.mapa !== r.erp);
+      const sinLigar = cat.filter((r) => r.es_consistente && !r.mapa);
+      if (divergentes.length) {
+        divergentes.forEach((r) => console.log(`     · ${r.dest_code}: las copias del catálogo NO coinciden entre POS`));
+        skip(`${divergentes.length} código(s) con catálogo divergente: no se puede arbitrar, se declara.`);
+      }
+      if (discrepan.length) {
+        discrepan.forEach((r) => console.log(`     · ${r.dest_code}: el ERP dice ${r.erp} y el mapa dice ${r.mapa}`));
+        bad(`${discrepan.length} de ${cat.length} destinos contradicen el catálogo del ERP.`);
+      } else if (sinLigar.length) {
+        sinLigar.forEach((r) => console.log(`     · ${r.dest_code}: el ERP dice ${r.erp} y el mapa no lo tiene ligado`));
+        bad(`${sinLigar.length} destino(s) que el ERP declara siguen sin ligar en el mapa.`);
+      } else {
+        pass(`los ${cat.length} códigos del catálogo coinciden con el mapa (${cat[0].ramas_que_lo_declaran} copias de acuerdo).`);
+      }
+
+      // PRUEBA NEGATIVA: el detector tiene que marcar una discrepancia FABRICADA. Sin esto,
+      // "coinciden los 9" y "no sé comparar" se ven exactamente igual de verdes.
+      const fabricado = cat.map((r) => (r.dest_code === 'TI009' ? { ...r, mapa: 'MD-32' } : r));
+      const pilla = fabricado.filter((r) => r.es_consistente && r.mapa && r.mapa !== r.erp);
+      if (pilla.length === 1 && pilla[0].dest_code === 'TI009') {
+        pass('PRUEBA NEGATIVA · con TI009 apuntado otra vez a MD-32 (el bug de [DM.15]) el detector lo marca.');
+      } else {
+        bad(`la prueba negativa marcó ${pilla.length} en vez de 1: el comparador no discrimina.`);
+      }
+    }
+
     if (process.env.DEEP === '1') {
       console.log('\n[3b] Evidencia de todos los TI% (DEEP)');
       const codes = (await db.query(

@@ -64,8 +64,36 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 2026-06-27 (canal wincaja_ruta). Se traduce 01-NNN → RUTA-NN para que cada ruta quede
 // en UN solo almacén con timeline continua (cutover natural: Wincaja <06-28, Kepler >=06-29,
 // sin solape). Mapeo por número de ruta (verificado vía forma_pago). NO crear 01-NNN.
-const ROUTE_MAP = { '01-001': 'RUTA-21', '01-002': 'RUTA-22', '01-003': 'RUTA-23', '01-004': 'RUTA-26', '01-005': 'RUTA-27', '01-006': 'RUTA-28' };
+// ⛔ ESTE MAPA ERA FIJO Y SE PUDRIÓ. Decía exactamente esto y nada más:
+//     { '01-001':'RUTA-21', '01-002':'RUTA-22', '01-003':'RUTA-23',
+//       '01-004':'RUTA-26', '01-005':'RUTA-27', '01-006':'RUTA-28' }
+// El 2026-09-09 se dieron de alta **cinco camionetas más** (Canindo, `ruta_501`…`ruta_505`), que
+// empujan a `mart.ventas` con almacén `06-001`…`06-005`. Como no estaban acá, `mapAlmacen` las
+// devolvía tal cual, `whTo.get('06-001')` no encontraba nada y la fila se **descartaba**: sólo
+// engordaba el contador `noWh`, un número sin nombres en un log que nadie mira. Resultado medido
+// el 2026-10-01: **49 días** de venta de ruta llegando al runner y sin publicarse — la `ruta_502`
+// tenía venta de HOY en `mart.ventas` y la pantalla la mostraba congelada en el 11 de agosto.
+//
+// ⭐ El arreglo no es agregar cinco líneas: es **dejar de mantener la lista a mano**. El par
+// (ruta → almacén) ya viaja en el propio push —`mart.ventas` guarda `sucursal='ruta_501'` junto a
+// `almacen='06-001'`— así que el mapa se DERIVA del dato y una camioneta nueva se registra sola.
+// Verificado antes de reemplazar: la derivación reproduce las 6 entradas fijas **exactas** y suma
+// las 5 que faltaban. Esa coincidencia es la prueba cruzada, no una suposición.
+//
+// ⚠️ Es el mismo defecto que el inventario `INVENTARIO_Y_PLAN_RUTAS.md` ya se había detectado a sí
+// mismo («decía FLOTA COMPLETA: 6 camionetas… y en producción hay 11»). Ahí se corrigió el doc;
+// acá nadie corrigió el código. Un control que se declara cerrado deja de mirarse.
+let ROUTE_MAP = {};
 const mapAlmacen = (a) => ROUTE_MAP[a] || a;
+
+/** Deriva almacén→warehouse de ruta desde el propio push. `ruta_501` + `06-001` → RUTA-501. */
+async function buildRouteMap(src) {
+  const { rows } = await src.query(
+    `SELECT DISTINCT almacen, 'RUTA-' || upper(split_part(sucursal, '_', 2)) AS destino
+       FROM mart.ventas
+      WHERE sucursal LIKE 'ruta\\_%' AND coalesce(btrim(almacen),'') <> ''`);
+  return Object.fromEntries(rows.map((r) => [r.almacen, r.destino]));
+}
 
 /** Un ciclo completo: lee el mart, normaliza unidades, UPSERT a analytics.sales_daily.
  *  src/db persistentes. Devuelve stat {status, rows} para el heartbeat. */
@@ -122,6 +150,19 @@ async function runCycle(src, db) {
   }
   const whs = (await db.query(`SELECT id, code FROM commercial.warehouses WHERE tenant_id=$1`, [M])).rows;
   const whTo = new Map(whs.map((w) => [w.code, w.id]));
+
+  // El mapa de rutas se deriva del push en cada corrida: una camioneta nueva entra sola.
+  ROUTE_MAP = await buildRouteMap(src);
+  const rutasSinWh = Object.entries(ROUTE_MAP).filter(([, dest]) => !whTo.has(dest));
+  console.log(`  mapa de rutas (derivado del push): ${Object.keys(ROUTE_MAP).length} almacenes `
+    + `→ ${Object.entries(ROUTE_MAP).map(([a, d]) => `${a}→${d}`).join(' ')}`);
+  if (rutasSinWh.length) {
+    // ⛔ Esto NO puede volver a ser un número sin nombre: una camioneta que empuja y cuyo almacén
+    // destino no existe pierde su venta entera, en silencio, hasta que alguien lo note (49 días).
+    console.warn(`  ⛔ ${rutasSinWh.length} ruta(s) empujan pero su almacén NO existe en `
+      + `commercial.warehouses: ${rutasSinWh.map(([a, d]) => `${a}→${d}`).join(', ')} `
+      + '— su venta se va a DESCARTAR. Darlos de alta o la cifra de esas rutas queda congelada.');
+  }
   const nWeight = prods.filter((p) => productKind(p.unit_sale, p.unit_base) === 'weight').length;
   console.log(`  lookup destino: ${skuTo.size} products c/sku (${nWeight} de peso) · ${whTo.size} warehouses`);
 
@@ -153,12 +194,21 @@ async function runCycle(src, db) {
   // (product, warehouse, channel, fecha). cost = revenue/(1+markup/100) al final.
   const acc = new Map();
   let noSku = 0, noWh = 0, unconv = 0;
+  // Qué almacenes se están tirando, con su peso. El contador agregado `noWh` existía desde
+  // siempre y no alcanzó: hay que poder NOMBRAR al que se cae, no sólo contarlo.
+  const whFaltantes = new Map();
   for (const r of agg) {
     const p = skuTo.get(r.sku);
     if (!p) { noSku++; continue; }
     const alm = mapAlmacen(r.almacen);
     const wid = whTo.get(alm);
-    if (!wid) { noWh++; continue; }
+    if (!wid) {
+      noWh++;
+      const f = whFaltantes.get(alm) || { filas: 0, revenue: 0 };
+      f.filas++; f.revenue += Number(r.revenue || 0);
+      whFaltantes.set(alm, f);
+      continue;
+    }
     const cant = Number(r.cant);
     const unitPrice = cant !== 0 ? Number(r.revenue) / cant : 0;
     const conv = toCanonicalPriced(p, r.unidad, cant, unitPrice);
@@ -206,6 +256,13 @@ async function runCycle(src, db) {
   console.log(`  (sin markup → cost NULL: ${noMarkup} · líneas sin conversión limpia: ${unconv}`
     + ` · filas con peldaño MEZCLADO: ${mixed})`);
   console.log(`  a cargar: ${rows.length} (sin sku en catálogo: ${noSku}, sin warehouse: ${noWh})`);
+  if (whFaltantes.size) {
+    // Ordenado por DINERO, no por filas: lo que importa es cuánta venta se está perdiendo.
+    const top = [...whFaltantes.entries()].sort((a, b) => b[1].revenue - a[1].revenue);
+    console.warn(`  ⛔ venta DESCARTADA por almacén sin warehouse (${whFaltantes.size} almacenes): `
+      + top.map(([a, f]) => `${a} ${f.filas} filas $${Math.round(f.revenue).toLocaleString('es-MX')}`)
+          .join(' · '));
+  }
   console.table(Object.fromEntries(Object.entries(byChannel).map(([k, v]) => [k, { filas: v.filas, revenue: Math.round(v.revenue) }])));
 
   if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return { status: 'ok', rows: 0 }; }

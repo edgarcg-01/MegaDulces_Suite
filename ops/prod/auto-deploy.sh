@@ -407,6 +407,54 @@ for s in api worker portal vendor; do
   fi
 done
 
+# ═══ [K3S.24] AL REGISTRY, EN CADA DESPLIEGUE ══════════════════════════════════════════════
+#
+# Este es el camino que despliega ~7 veces al día; `ops/prod/deploy.sh` casi no se usa. Una
+# política escrita sólo en el carril que nadie corre es una política que no existe — medido con
+# la poda de imágenes, que vivía ahí y dejó 80 GB de caché sin tope ([VL.20.5]).
+#
+# Se publica aunque hoy NINGÚN pod de prod consuma estas imágenes: las cuatro apps siguen en
+# Compose. El camino tiene que existir antes del corte, no inventarse el día del corte.
+#
+# ⚠️ No frena el despliegue si falla: nada en producción depende todavía del registry.
+# ⛔ EL DÍA QUE UNA APP MIGRE A K3s ESTO TIENE QUE FRENAR — si no, el pod se queda con la
+#    imagen vieja y el carril reporta DESPLEGADO igual. Es exactamente el defecto del
+#    2026-10-01, y la única razón de que hoy sea un aviso es que nadie lo consume.
+for s in $SERVICIOS; do
+  img=$(img_de "$s"); [ -n "$img" ] || continue
+  docker image inspect "$img:$DESEADO" >/dev/null 2>&1 || continue
+  docker tag "$img:$DESEADO" "localhost:5000/$img:$DESEADO" 2>/dev/null
+  if docker push "localhost:5000/$img:$DESEADO" >/dev/null 2>&1; then
+    di "publicada localhost:5000/$img:$DESEADO"
+  else
+    di "⚠️ no se pudo publicar $img:$DESEADO (no frena: hoy ningun pod de prod lo consume)"
+  fi
+done
+
+# ═══ [K3S.26] Y LO QUE VIVE EN K3s ═════════════════════════════════════════════════════════
+#
+# HOY ES UN NO-OP, a propósito: los manifiestos de prod están marcados `migracion: preparado`
+# —las cuatro apps corren en Compose— así que el guion no aplica nada y sale 0.
+#
+# ⭐ Se cablea igual, y ANTES de que haga falta. El 2026-10-01 se intentó mover `portal` y
+# `vendor` al clúster y hubo que revertir en el acto, porque este carril actualizaba Compose y
+# no K3s: el primer despliegue compartido los habría dejado viejos EN SILENCIO. Construir el
+# camino el día del corte es cómo el corte termina haciéndose a mano.
+#
+# ⛔ Va ANTES del `up -d` de Compose y ABORTA si falla. Los servicios de los dos mundos son
+# disjuntos (lo candadea `npm run check:k3s`), así que no hay orden "correcto" entre ellos —
+# pero un despliegue a medias que reporta éxito parcial es peor que uno que no ocurrió.
+if [ -f "$HOME/ops/prod/aplicar-k3s-prod.sh" ]; then
+  if _k3s_out=$(sh "$HOME/ops/prod/aplicar-k3s-prod.sh" "$DESEADO" 2>&1); then
+    echo "$_k3s_out" | sed 's/^/      /'
+  else
+    di "FALLO: no se pudo aplicar a K3s"
+    echo "$_k3s_out" | sed 's/^/      /'
+    latir error "apply a K3s falló en $DESEADO"
+    exit 1
+  fi
+fi
+
 cd "$HOME/ops/prod" || exit 1
 set -a; . "$HOME/secrets/prod-compose.env"; set +a
 docker compose -p prod up -d $SERVICIOS >/dev/null 2>&1

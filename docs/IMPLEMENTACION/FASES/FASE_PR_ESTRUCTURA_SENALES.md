@@ -897,7 +897,316 @@ está mal.
 
 ---
 
-## 24 · Lo que sigue
+## 24 · `[PR.V9]` · Emojis en la interfaz, y una tabla sin una sola regla de estilo
+
+Dos reportes sobre el expediente, los dos ciertos.
+
+### 1 · «dices «subir precio» un porcentaje pero no dices si subir ese margen»
+
+La tabla de plazas imprimía **el código interno** (`subir_precio`) pegado al porcentaje, y los
+encabezados decían «MARGEN REAL QUÉ HACER» de corrido. Causa: **`.mx-tab` no tenía NI UNA regla
+de estilo** — sin `padding`, celdas y encabezados se leen como una sola palabra. Es el mismo
+defecto que «Corregir la escaleraARITMÉTICA», otra vez y en otra tabla.
+
+| | antes | ahora |
+|---|---|---|
+| la acción | `subir_precio` | **Subir el precio**, con `etiquetaAccion()` |
+| el encabezado | «Margen real» / «Qué hacer» | **«Margen que se cobró»** / **«Qué propone el motor»** |
+| separación | ninguna | `.mx-tab` con sus reglas |
+
+### 2 · ⛔ Emojis, con la regla escrita y sin nada que la vigilara
+
+**10 emojis** en párrafos de la interfaz del expediente y de experimentos, escritos por quien
+conocía la regla *«iconos, nunca emojis»*. Reemplazados por PrimeIcons con su rótulo.
+
+⭐ **Y la compuerta no existía**, así que se construyó: `scripts/check-no-emoji-ui.js`, registrada
+en `compuertas.js`. Mide **75** en texto visible de toda la app — techo en **75**, la deuda medida,
+congelada para que la 76ª no entre. Prueba negativa: con uno de más marca **76 contra 75** y falla.
+
+Qué mira y qué no: sólo lo que se **renderiza** (adentro de `template:`, salteando comentarios), y
+**deja fuera a propósito** `✓ ✗ ✕`, que son marcas tipográficas y no pictogramas — meterlas
+triplicaría el conteo con casos discutibles y volvería la compuerta ignorable.
+
+Por qué no es estética: un emoji **lo pinta la fuente del sistema operativo**, así que el mismo
+párrafo sale distinto en Windows, en Android y en el navegador del vendedor; no hereda el color
+del texto; no se alinea a la rejilla; y un lector de pantalla lo lee con su nombre Unicode.
+
+**Verificado:** `nx build view` · `nx test view` **1,387** · lint 0 errores · la compuerta nueva en
+`check-all`.
+
+---
+
+## 25 · `[PR.M1]`+`[PR.M2]` · ISCAM: la posición de mercado entra al motor
+
+La entrega mensual de **ISCAM** estaba en el disco y nadie la había mirado desde acá. Trae lo
+que el registro declaraba inexistente, y algo que ni contemplaba.
+
+### ⛔⛔ Primero, dos veces estuve por publicar lo contrario de la verdad
+
+**(1)** Los dos **Cubos** parecen datos de competencia — tienen código de barras, precio y 668
+marcas. No lo son: `Mayorista` tiene **un solo valor** y sus 11 «sucursales» son **las nuestras**.
+Es nuestro propio dato devuelto con la taxonomía de ISCAM. La refutación de **F1 sigue en pie**.
+
+**(2)** El mercado sí está, pero en el **SURF**: 1,500,880 registros con cuatro medidas — lo
+nuestro y lo del mercado, actual y anterior. Y al leerlo, **mi primer parser se quedó con 9,772
+de 1,500,880 registros (el 0.65 %)** porque descartaba el registro entero al ver un `<m/>` (medida
+ausente); hay **1,491,108**. Publiqué un share de **5.79 %** donde el real es **3.80 %**, y un
+mercado de $960.9M donde son **$1,464.8M**.
+
+⭐⭐ **Lo único que lo delató fue contar los registros leídos contra el `recordCount` declarado.**
+El subconjunto sobreviviente daba cifras perfectamente plausibles. Ese conteo es ahora un
+**candado que aborta la carga** si falta un solo registro.
+
+### El grano: dos cifras ciertas, y no son la misma
+
+| universo | share |
+|---|---:|
+| **Mayoreo Puro** — nuestro canal | **5.36 %** |
+| Mayoreo total | **3.80 %** |
+
+La diferencia son **$426.8M de mercado medido en subcanales donde no vendemos nada**
+(Autoservicios Propios del Mayoreo, Cash & Carry). Las dos son ciertas y responden preguntas
+distintas; el candado exige que **sigan siendo distintas**, porque si se igualaran alguien aplanó
+el subcanal.
+
+### ⚠️ Y la advertencia viaja en una columna, no en un correo
+
+A ISCAM se le trasladan **todas las salidas, traspasos entre sucursales incluidos** (deuda técnica
+de Wincaja). Medido: la brecha contra `analytics.sales_daily` es de **$19.5M a $21.6M por mes**,
+estable en cinco meses — el **22-29 %** de los traspasos del período. Si la distorsión fuera sólo
+nuestra el share sería **~3.80 %** y no 5.36 %; si los demás mayoristas del panel cargan la misma
+deuda, está bien. **Cuál de las dos es no se puede saber desde el archivo**, y por eso
+`v_iscam_share` lo publica en `numerador_inflado_por_traspasos` con su motivo al lado.
+
+### Lo que esto le da al motor
+
+- **`C1 · Segmento / grupo par`** es **núcleo** y decía *«no existe segmento formal»*. Eso dejó de
+  ser cierto: la taxonomía de seis niveles existe, se paga todos los meses y **cruza por código
+  de barras** — 3,895 códigos que alcanzan **1,574 SKUs y $42.85M de venta 90 d**. Se corrigió el
+  motivo; sigue en `no_existe` porque **falta cablearla**.
+- **`H3` participación de mercado** y **`H4` terreno ganado o perdido**, que el registro no
+  contemplaba. Lo que agregan: subir el precio con **16.12 %** de una categoría es fijar precio;
+  con **2.04 %** es seguirlo. Y subir en **Frituras** — mercado **+19.1 %**, nosotros **−14.3 %**,
+  **−3.11 pp** de share — es echarle nafta al fuego. Ataca de frente la certeza
+  `efecto_no_medido`: no mide elasticidad, pero dice si ya veníamos perdiendo terreno.
+
+### ⛔ Lo que NO se importó
+
+`PcioDisp`. Parece un precio; su fórmula, leída del propio archivo, es **`Val / Vol / 24`** — un
+divisor **fijo de 24 para todo el catálogo**. Es la trampa de la escalera de unidades otra vez.
+
+### ⚠️ Y un candado que rompí sin notarlo
+
+`test-newdb-price-signals.js` afirma un conteo **clavado** de señales. Estaba en **46** y la base
+tenía **49**: agregué H1, H2 y E5 en tres commits y **nunca volví a correrlo**. Además violaba su
+regla de que *una señal NO cableada no apunte a una columna* — H1 y H2 lo hacían. Las dos cosas
+corregidas, y el conteo ahora lleva **escrito qué entró en cada salto**.
+
+**Aplicado a prod (batches 660 y 661)** · julio-2026 cargado: **13,425 filas de mercado + 3,895
+códigos** · candado `test-newdb-iscam-mercado.js` **14 ✓ / 0 ✗** contra prod.
+
+---
+
+## 26 · `[PR.M3]` · La competencia deja de ser un total: ISCAM baja a marca
+
+`[PR.M1]` agregó por categoría **y tiró dos dimensiones que el archivo ya traía**: `Fabricante`
+(8,247 en el diccionario) y `SubMarca` (35,164). Con eso "el mercado" era un número y la
+competencia, invisible. El grano fino son **406,799 filas** contra 13,483.
+
+### Lo que se midió antes de tocar nada
+
+| hipótesis | veredicto |
+|---|---|
+| las 116 `ClaveINTEGRADOPadre` del diccionario están en los registros y el importador sumó al panel entero | ⛔ **REFUTADA** — hay **1 sola clave** en los 1,500,880 registros, la nuestra. El diccionario las arrastra del caché maestro del panel |
+| el grano fino suma distinto al que publica prod | ⛔ **REFUTADA** — 13,483 claves, **0 fuera, peor diferencia 0.0000** |
+| el CHECK `mercado >= nuestro` descarta ruido | ⛔ **REFUTADA** — descarta **evidencia**: 285 filas con **$9.51M de venta nuestra** |
+
+⭐ El cruce contra lo publicado en prod: **13,387 idénticas**, 38 que difieren **en un centavo**
+(orden de suma en coma flotante), 0 sólo en prod, y **58 que sólo existen en el grano nuevo** —
+las que el CHECK borraba, todas `volumen` y en categorías que no vendemos.
+
+### La foto, Región III · Mayoreo Puro · DULCES · valor · julio-2026
+
+| veredicto | marcas | nuestro | competencia |
+|---|--:|--:|--:|
+| perdiendo | 440 | $28.79M | $539.35M |
+| ganando | 360 | $17.41M | $277.60M |
+| **ausentes** | **868** | **$0** | **$77.07M** |
+| estable | 141 | $6.91M | $78.20M |
+| sin_comparativo | 371 | $1.67M | $10.98M |
+| sin_respaldo | 56 | $0.84M | **no medible** |
+
+Fabricantes donde la competencia más creció en pesos: **EFFEM LUCAS** +$11.05M (nuestro share
+3.00 %, −0.84 pp) · **MARCAS NESTLÉ** +$7.54M (1.12 %) · **DE LA ROSA** +$5.68M (9.49 %, −0.74 pp) ·
+**BARCEL** +$4.87M (**−2.87 pp**) · **SABRITAS** +$4.24M (**−2.01 pp**) · **FRITOS TOTIS** (−1.11 pp).
+
+⭐ Barcel, Sabritas y Totis son **Frituras** — la categoría que `H4` ya marcaba (mercado +19.1 %,
+nosotros −14.3 %). Ahora se sabe **quién** se lo llevó.
+
+### Los dos defectos que encontró el candado, en mi propio trabajo
+
+1. ⛔ **`competencia` recortada a cero con `GREATEST`** rompía la identidad
+   `nuestro + competencia = mercado` en **21 de 40 categorías** y publicaba "la competencia no
+   vendió nada" sobre **$0.84M de venta nuestra**. Ahora es **NULL** donde los dos insumos se
+   contradicen: lo que no se puede calcular se declara, no se dibuja como cero.
+2. ⛔ **La bandera `mercado_menor_que_nuestro` contradecía a su propia fila** en **4,389 casos**:
+   la calculaba en JS en coma flotante y la columna guarda `numeric(18,4)`; esas 4,389 tenían
+   mercado **exactamente igual** a lo nuestro una vez redondeado. Pasó a **columna GENERADA**.
+   ⚠️ **Mi cifra pública de "4,674 filas" estaba inflada por polvo de suma: son 285.**
+
+---
+
+## 27 · `[PR.M4]` · La competencia con NOMBRE: DENUE deja de servir sólo para prospectar
+
+El módulo de prospección (ADR-025) cosecha INEGI con tres clases de **menudeo** — 461160
+dulcerías, 461110 abarrotes, 462112 minisúper. Esos son **clientes posibles**. Las clases de
+**mayoreo** nunca se pidieron, y ahí está la competencia.
+
+| clase SCIAN | qué es | unidades |
+|---|---|--:|
+| **431180** | Comercio al por mayor de **dulces y materias primas para repostería** | **215** |
+| 431110 | Comercio al por mayor de abarrotes | 842 |
+| 431199 | Comercio al por mayor de otros alimentos | 99 |
+
+Medido en vivo el 2026-10-01 sobre Michoacán + Guanajuato + Jalisco: **1,158 unidades, 2 nuestras
+y 1,156 de competencia**. Por tamaño: **17 con 251+ personas**, 25 de 101-250, 33 de 51-100.
+
+Con nombre: **MAYOREO DULCERO DE OCCIDENTE** (Zapopan) · **GRUPO DULCERO TARAHUMARA** (Guadalajara) ·
+**ALCARUZZ** · **DISTRIBUIDORA REAL ALTEÑO** (Tepatitlán) · **DULCERÍA DE LOS ALTOS** (Ocotlán y
+Tepatitlán) · **DISTRIBUIDORA DE DULCES DEL BAJÍO HERMANOS VÁZQUEZ** (8 sucursales en León e
+Irapuato) · **DULCERÍA EL DESCONTÓN** (Morelia) · **SUCURSAL MADRAZO** (León).
+
+⚠️ La clase 431180 **mezcla mayoristas con centros de distribución de fabricantes**: ahí salen
+también DISTRIBUIDORA DE LA ROSA y FERRERO DE MÉXICO. Se declara, no se filtra a mano.
+
+### Por qué una columna y no una tabla
+
+Una unidad de DENUE es una unidad de DENUE: mismos 22 campos, misma llave, mismo upsert. Lo que
+cambia no es la **forma** sino el **papel**, y eso es `prospect_stores.rol`
+(`prospecto` | `competidor` | `propio`).
+
+⛔ **Y el filtro por `rol` es requisito de corrección, no adorno:** `dedup()` **purga** todo lo
+que caiga fuera de la geocerca de 100 km y corre en cron nocturno. Sin separar el rol, la primera
+pasada habría borrado en silencio a todos los competidores de Guadalajara y León — justo los más
+grandes — y el `whitespace_score` habría tratado a un mayorista rival como una tienda por abrir.
+
+⭐ DENUE **nos ve a nosotros**: MEGA DULCES DE LOS ALTOS, Pino Suárez 259, La Piedad — la misma
+dirección que `commercial.warehouses` guarda para 8ES. Esas unidades se marcan `propio` y no
+cuentan para ninguno de los dos lados.
+
+### Lo que esta fuente NO dice, y no se deduce
+
+⛔ DENUE es un **censo**: qué existe, dónde, de qué tamaño por rango de personal, y cómo
+contactarlo. **No dice cuánto vende, ni a qué precio, ni qué surte.**
+
+⛔⛔ **Las dos fuentes no se pueden empatar.** ISCAM dice *cuánto* vende la competencia pero
+**anonimiza** a sus 116 participantes; DENUE dice *quién* es pero no cuánto vende. No hay llave
+entre ellas y **no se va a inventar una**. El hueco se declara.
+
+⚠️ La cercanía se mide contra **nuestros clientes**, no contra nuestras sucursales:
+`commercial.warehouses` tiene `latitude`/`longitude` **en NULL en las 22 filas**. Se usan los
+**438 de 937 clientes** con coordenadas (46.7 %) más 1,604 PdV auditados — y por eso
+`propios_1km`/`propios_5km` son un **piso**, no un conteo completo.
+
+---
+
+## 28 · `[PR.M5]` · El Cubo: 31 meses de NUESTRA venta — y una advertencia mía que estaba mal
+
+### ⛔⛔ Lo primero: la corrección
+
+`[PR.M2]` publicó, en una columna de la vista y en los motivos de C1/H3/H4, que *«el numerador
+viene inflado por traspasos; la brecha contra `sales_daily` es de $19.5M a $21.6M por mes»*.
+**La brecha existe. La causa estaba mal.**
+
+Medido el 2026-10-01 con **control de cobertura** — comparando **sólo las sucursales que nuestro
+propio fact ya tiene ese mes**:
+
+| | razón ISCAM / nosotros |
+|---|---|
+| todo contra todo | **1.54** |
+| mismas sucursales | **1.105 a 1.371** (mediana ~1.25) |
+| mismas sucursales, jun y jul-2026 | **1.106 y 1.105** |
+
+La diferencia entre 1.54 y 1.11 **no es traspaso**: es que `analytics.sales_daily` **no tenía
+esas sucursales**.
+
+| almacén | nuestro fact arranca |
+|---|---|
+| 01 PH · 02 LPA · 06 CAN | 2025-01 |
+| 03 8ES · 04 YU · 05 DAMASO | 2026-01 |
+| **07 MM · 08 MA** | **2026-09** |
+| 2024 entero | **no existe** |
+
+Y **08 Morelia Abastos es la sucursal más grande del Cubo**: $18.7M al mes, el **34 %** de la
+venta que ISCAM nos publica.
+
+⚠️ Queda un **residuo de ~10 %** sobre sucursales comunes en los meses recientes. Ése sí podría
+ser traspaso, y ahora se declara como lo que es: un 10 %, no un 54 %.
+
+⭐ Se cae también la conclusión derivada que escribí — *«si la distorsión fuera sólo nuestra el
+share sería ~3.80 % y no 5.36 %»*: esa resta descontaba del numerador una inflación que en su
+mayor parte no existe.
+
+### Lo que los Cubos resultaron ser
+
+Los describí como «nuestro dato devuelto con su taxonomía» y los usé sólo para sacar 3,895
+códigos de barras. Son **445,310 registros · 31 meses (ene-2024 → jul-2026) · 11 nombres de
+sucursal · 8,207 presentaciones**, con `Vol` y `Val` por celda, taxonomía de siete niveles
+(Segmento › Categoría › SubCategoría › Fabricante › Marca › SubMarca › Producto), gramaje, y el
+**empaque escrito en el nombre**: `CHICLE MAX AIR DENTYNE ICE BLUE 2S [32 D/100 P] - 2.8 Grs`.
+
+⭐⭐ **$1,281.30M — el 68 % del Cubo — es venta NUESTRA que `analytics.sales_daily` no tiene:**
+
+| | monto | % |
+|---|--:|--:|
+| comparable (ISCAM y libros, misma celda) | $604.14M | 32.0 % |
+| **sólo en ISCAM**, sucursal mapeable | **$489.23M** | 25.9 % |
+| 2024 y ene-2025, plaza agregada sin almacén mapeable | $792.07M | 42.0 % |
+
+De los $489.23M, **$368.84M son Morelia Abastos entera**.
+
+### Las decisiones que se tomaron midiendo
+
+- ⛔ **La llave no es única**: (mes, sucursal, ProductoDetalle) tiene **1,289 colisiones**, y con
+  CodBar todavía **695**. Se usa un **hash de la tupla de dimensiones**, el mismo patrón que la
+  réplica de Wincaja cuando no hay PK natural.
+- ⛔ **Tres nombres no se mapean a propósito.** Hasta ene-2025 ISCAM agregaba en TRES plazas
+  (LA PIEDAD, MORELIA, ZAMORA) y desde feb-2025 desagrega en ocho. Una plaza agregada no es una
+  sucursal nuestra: va con `warehouse_code` NULL **y el motivo escrito**, no con un almacén
+  inventado.
+- ⚠️ **El empaque se guarda CRUDO y no se usa.** Parsea en el **100 %** de las 8,207
+  presentaciones (D de 1 a 360, P de 1 a 2000), y sería un tercer testigo del factor de caja —
+  un tema que este proyecto ya pagó dos veces. Pero que D y P signifiquen *display* y *pieza* es
+  **lo que parece, no lo verificado**: hasta probarlo contra el dinero no se cablea a ningún
+  resolvedor, y el candado **exige que ninguna vista lo consuma**.
+
+### ⭐ El control que encontró el bug, y el bug
+
+El cargador comprueba que **los dos Cubos coincidan** antes de dar por buena la afirmación de que
+da igual cuál se cargue. En la primera corrida uno dio **$1,885.44M** y el otro **$0.00M**.
+
+La causa era mía: copié un lector que busca **todo** en el diccionario de la tabla dinámica.
+Las dimensiones vienen como índice (`<x v="7"/>`), pero `Vol` y `Val` **no tienen diccionario** —
+llegan como número directo (`<n v="123.4"/>`). Un lector que siempre busca en el diccionario
+devuelve `undefined` para las medidas y **las carga como cero, sin fallar**.
+
+Por eso el candado exige que **ningún mes sume cero**: un mes en cero no es un mes malo, es el
+lector roto.
+
+⚠️ Y **sexta vez** que un acento grave dentro de un comentario rompe un literal de plantilla en
+este repo. Lo cazó `node --check` en un segundo.
+
+### El cruce que vale
+
+El Cubo y el SURF son **archivos distintos** de la entrega, armados por ISCAM por caminos
+distintos. El total del Cubo para julio-2026 reproduce el `MedActMayo` del SURF **al peso**:
+**$55.62M contra $55.62M, diferencia $0.00**. Si coincidieran por construcción no probaría nada.
+
+Candado `test-newdb-iscam-cubo.js`: **13 ✓ / 0 ✗ / 0 no medido**.
+
+---
+
+## 29 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado

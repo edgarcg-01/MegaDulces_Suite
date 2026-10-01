@@ -167,6 +167,156 @@ export class ProspectsService {
     return { enabled: true, fetched, upserted };
   }
 
+  // ── [PR.M4] La competencia ──────────────────────────────────────────────────
+
+  /** Las clases SCIAN de MAYOREO del tenant. Las de menudeo (`scianCodes`) son los clientes. */
+  private competidorScian(cfg: any): string[] {
+    const raw = cfg?.competidor_scian_codes;
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(arr) && arr.length ? arr.map(String) : ['431180', '431110', '431199'];
+  }
+
+  private competidorEntidades(cfg: any): string[] {
+    const raw = cfg?.competidor_entidades;
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(arr) && arr.length ? arr.map(String) : ['16'];
+  }
+
+  /** DENUE nos ve a nosotros mismos. Una unidad propia no es prospecto ni competencia. */
+  private static esNuestra(u: DenueUnit): boolean {
+    const t = `${u.email || ''} ${u.web || ''}`.toLowerCase();
+    return t.includes('megadulces') || /^mega dulces/i.test(u.nombre || '');
+  }
+
+  /**
+   * Cosecha de competidores mayoristas por clase SCIAN y entidad.
+   *
+   * ⛔ Sin geocerca a propósito, y no es un descuido: los rivales grandes están en Guadalajara y
+   *    León, fuera del radio de 100 km que acota la prospección. Recortarlos por distancia
+   *    escondería justo a los que importan. El filtro correcto no es el radio sino la cercanía a
+   *    NUESTROS puntos, que se mide aparte en `medirProximidadCompetidores`.
+   */
+  async ingestCompetitors(user: any, entidades?: string[], maxPages = 20) {
+    if (!this.denue.enabled) return { enabled: false, fetched: 0, upserted: 0 };
+    const tenantId = this.tenantId(user);
+    const cfg = await this.getConfig(user);
+    const ents = entidades?.length ? entidades.map(String) : this.competidorEntidades(cfg);
+    const PAGE = 100;
+    let fetched = 0;
+    let upserted = 0;
+    let propias = 0;
+    for (const entidad of ents) {
+      for (const clase of this.competidorScian(cfg)) {
+        for (let page = 0; page < maxPages; page++) {
+          const ini = page * PAGE + 1;
+          const units = await this.denue.buscarAreaAct({
+            entidad, municipio: '0', clase, ini, fin: ini + PAGE - 1,
+          });
+          if (!units.length) break;
+          fetched += units.length;
+          propias += units.filter((u) => ProspectsService.esNuestra(u)).length;
+          upserted += await this.upsertUnits(tenantId, units, 'competidor');
+          if (units.length < PAGE) break;
+        }
+      }
+    }
+    const prox = await this.medirProximidadCompetidores(user);
+    return { enabled: true, fetched, upserted, propias, entidades: ents, ...prox };
+  }
+
+  /**
+   * Cuántos puntos NUESTROS tiene cada competidor a 1 km y a 5 km.
+   *
+   * Es la cifra que separa a un rival que respira sobre nuestros clientes de uno que está a
+   * 200 km. ⚠️ La cobertura se DECLARA porque es parcial: sólo entran clientes y PdV con
+   * coordenadas; los que no las tienen no restan ni suman, y por eso el resultado es un PISO.
+   */
+  async medirProximidadCompetidores(user: any) {
+    const tenantId = this.tenantId(user);
+    const comp = await this.knex('commercial.prospect_stores')
+      .where({ tenant_id: tenantId, rol: 'competidor' })
+      .whereNotNull('lat').whereNotNull('lng')
+      .select('id', 'lat', 'lng');
+
+    const clientes = await this.knex('commercial.customers')
+      .where({ tenant_id: tenantId }).whereNull('deleted_at')
+      .whereNotNull('latitude').select('latitude as lat', 'longitude as lng');
+    const pdv = await this.knex('stores')
+      .where({ tenant_id: tenantId }).whereNull('deleted_at')
+      .whereNotNull('latitud').select('latitud as lat', 'longitud as lng');
+    const totalClientes = await this.knex('commercial.customers')
+      .where({ tenant_id: tenantId }).whereNull('deleted_at').count({ n: '*' });
+
+    const propios = [...clientes, ...pdv]
+      .map((p: any) => ({ lat: +p.lat, lng: +p.lng }))
+      .filter((p) => !isNaN(p.lat) && !isNaN(p.lng));
+
+    // Sin un solo punto propio con coordenadas no se puede medir nada: se DECLARA y se sale,
+    // en vez de escribir ceros que se leerían como "no tiene a nadie cerca".
+    if (!propios.length) {
+      return { proximidad: 'no_medida', motivo: 'ningún punto propio tiene coordenadas' };
+    }
+
+    let medidos = 0;
+    for (const c of comp) {
+      const clat = +c.lat;
+      const clng = +c.lng;
+      let n1 = 0;
+      let n5 = 0;
+      let cerca = Infinity;
+      for (const p of propios) {
+        const d = ProspectsService.haversine(clat, clng, p.lat, p.lng);
+        if (d < cerca) cerca = d;
+        if (d <= 1000) n1++;
+        if (d <= 5000) n5++;
+      }
+      await this.knex('commercial.prospect_stores').where({ id: c.id }).update({
+        propios_1km: n1,
+        propios_5km: n5,
+        nearest_customer_m: isFinite(cerca) ? Math.round(cerca) : null,
+        proximidad_medida_at: this.knex.fn.now(),
+        updated_at: this.knex.fn.now(),
+      });
+      medidos++;
+    }
+    const totC = Number((totalClientes as any)[0]?.n || 0);
+    return {
+      proximidad: 'medida',
+      competidores_medidos: medidos,
+      puntos_propios_usados: propios.length,
+      cobertura_clientes_pct: totC ? Math.round((clientes.length / totC) * 1000) / 10 : null,
+      nota: 'es un PISO: los clientes sin coordenadas no se pudieron contar',
+    };
+  }
+
+  /** La competencia, ordenada por lo que de verdad amenaza: cuántos puntos nuestros rodea. */
+  async listCompetitors(
+    user: any,
+    filters: { tipo?: string; entidad?: string; municipio?: string; min_tamano?: number; limit?: number },
+  ) {
+    const tenantId = this.tenantId(user);
+    let q = this.knex('commercial.v_competidores').where({ tenant_id: tenantId });
+    if (filters.tipo) q = q.where('tipo_competencia', filters.tipo);
+    if (filters.entidad) q = q.where('entidad', filters.entidad);
+    if (filters.municipio) q = q.where('municipio', 'ilike', `%${filters.municipio}%`);
+    if (filters.min_tamano != null) q = q.where('tamano_orden', '>=', filters.min_tamano);
+    const rows = await q
+      .orderByRaw('propios_5km DESC NULLS LAST, tamano_orden DESC NULLS LAST')
+      .limit(Math.min(filters.limit || 500, 2000));
+    return {
+      total: rows.length,
+      enabled: this.denue.enabled,
+      declara: 'DENUE es un censo: dice qué existe, dónde y de qué tamaño por rango de personal. '
+        + 'NO dice cuánto vende ni a qué precio. El cuánto-vende viene de ISCAM, agregado y '
+        + 'anónimo, y las dos fuentes no se pueden empatar.',
+      competidores: rows.map((r: any) => ({
+        ...r,
+        lat: r.lat != null ? Number(r.lat) : null,
+        lng: r.lng != null ? Number(r.lng) : null,
+      })),
+    };
+  }
+
   private async touchIngested(tenantId?: string) {
     if (!tenantId) return;
     await this.knex('commercial.prospect_sources')
@@ -174,8 +324,18 @@ export class ProspectsService {
       .update({ last_ingested_at: this.knex.fn.now(), updated_at: this.knex.fn.now() });
   }
 
-  /** UPSERT por (tenant, source, source_ref). Refresca last_seen_at. */
-  private async upsertUnits(tenantId: string | undefined, units: DenueUnit[]): Promise<number> {
+  /**
+   * UPSERT por (tenant, source, source_ref). Refresca last_seen_at.
+   *
+   * ⭐ `rol` dice qué papel juega la unidad, no qué forma tiene: la misma unidad de DENUE con los
+   *   mismos 22 campos es un cliente posible si vende al menudeo y un rival si vende al mayoreo.
+   *   Una unidad nuestra se marca `propio` y no cuenta para ninguno de los dos. [PR.M4]
+   */
+  private async upsertUnits(
+    tenantId: string | undefined,
+    units: DenueUnit[],
+    rol: 'prospecto' | 'competidor' = 'prospecto',
+  ): Promise<number> {
     if (!tenantId || !units.length) return 0;
     const rows = units
       .filter((u) => u.id)
@@ -183,6 +343,7 @@ export class ProspectsService {
         tenant_id: tenantId,
         source: 'denue',
         source_ref: u.id,
+        rol: ProspectsService.esNuestra(u) ? 'propio' : rol,
         nombre: u.nombre || null,
         razon_social: u.razon_social || null,
         scian: u.scian || null,
@@ -209,6 +370,11 @@ export class ProspectsService {
       .insert(rows)
       .onConflict(['tenant_id', 'source', 'source_ref'])
       .merge({
+        // Una unidad marcada `propio` NO se degrada por una re-cosecha: si alguna vez dejamos de
+        // reconocerla por el nombre o el correo, seguiría siendo nuestra.
+        rol: this.knex.raw(
+          "CASE WHEN commercial.prospect_stores.rol = 'propio' THEN 'propio' ELSE EXCLUDED.rol END",
+        ),
         nombre: this.knex.raw('EXCLUDED.nombre'),
         razon_social: this.knex.raw('EXCLUDED.razon_social'),
         scian: this.knex.raw('EXCLUDED.scian'),
@@ -247,8 +413,11 @@ export class ProspectsService {
     const clng = cfg?.center_lng != null ? Number(cfg.center_lng) : null;
     const rkm = cfg?.max_radius_km != null ? Number(cfg.max_radius_km) : null;
     if (clat != null && clng != null && rkm) {
+      // ⛔ `rol` NO es opcional acá: esta purga borra todo lo que caiga fuera de la geocerca de
+      //    100 km, y corre en el cron nocturno. Sin el filtro se llevaría por delante a los
+      //    competidores de Guadalajara y León — justo los más grandes. [PR.M4]
       const all = await this.knex('commercial.prospect_stores')
-        .where({ tenant_id: tenantId })
+        .where({ tenant_id: tenantId, rol: 'prospecto' })
         .whereIn('status', ['candidate', 'covered'])
         .whereNotNull('lat')
         .whereNotNull('lng')
@@ -262,7 +431,7 @@ export class ProspectsService {
     }
 
     const prospects = await this.knex('commercial.prospect_stores')
-      .where({ tenant_id: tenantId })
+      .where({ tenant_id: tenantId, rol: 'prospecto' })
       .whereIn('status', ['candidate', 'covered'])
       .whereNotNull('lat')
       .whereNotNull('lng')
@@ -360,7 +529,7 @@ export class ProspectsService {
     const tenantId = this.tenantId(user);
     const cfg = await this.getConfig(user);
     let q = this.knex('commercial.prospect_stores')
-      .where({ tenant_id: tenantId })
+      .where({ tenant_id: tenantId, rol: 'prospecto' })
       .whereNotNull('lat')
       .whereNotNull('lng');
     q = q.where('status', filters.status || 'candidate');
@@ -446,7 +615,7 @@ export class ProspectsService {
     const tenantId = this.tenantId(user);
     const cfg = await this.getConfig(user);
     const rows = await this.knex('commercial.prospect_stores')
-      .where({ tenant_id: tenantId })
+      .where({ tenant_id: tenantId, rol: 'prospecto' })
       .whereIn('status', ['candidate', 'covered', 'converted'])
       .select('scian', 'municipio', 'status');
 
