@@ -5,6 +5,101 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-30 — EXP.1: las señales que explican el descuadre (la llave que faltaba)
+
+Etapa 1 del plan aprobado tras el reproche de Edgar sobre `/almacen/inventory/diferencias`:
+*"a esta vista le falta demasiada información... debemos cazar esta información, enlazarla con
+los demás módulos"*.
+
+### El diagnóstico no cambió: no faltan datos, falta la llave
+
+El roll-forward, el historial de descuadre, la demanda y las órdenes de entrada **ya existían**,
+indexados por `(almacén, fecha)` o por `(almacén, par de conteos)` — **nunca por SKU**. Esta etapa
+construye esa llave: `analytics.mv_erp_count_line_signals`, grano
+`(tenant_id, warehouse_id, fecha, sku)`.
+
+### El embudo, medido en prod sobre sep-2026
+
+De **$8,859,397** brutos:
+
+| explicación | SKUs | $ |
+|---|---:|---:|
+| `costo_de_caja` (IC.12) | 107 | $4,365,322 |
+| `merma_sostenida` | 945 | $259,566 |
+| `se_compensa` | 655 | $232,133 |
+| `sobra_sostenida` | 554 | $230,232 |
+| `movimientos_lo_explican` | 42 | $4,128 |
+| **`sin_explicacion`** | **818** | **$248,436** |
+| `no_medido` | 4,180 | $3,519,579 |
+
+**La pila que hay que caminar son 818 SKUs y $248,436** — 97.2 % menos ruido. Y los $3.52 M que
+no se pueden juzgar van **declarados, no disfrazados de "sin causa"**: el testigo que falta es
+estructural (un almacén contado UNA vez no tiene conteo previo del cual rodar ni segunda
+observación con la cual llamar a algo reincidente — `01` y `06` están en ese caso).
+
+### ⭐ El hallazgo que apareció al bajar al grano del SKU
+
+`cantidad` e `importe` vienen **sin signo**; la dirección va en la columna `signo`. Al agrupar por
+SKU resulta que **504 pares traen los DOS signos el mismo día en el mismo almacén** — el mismo SKU
+ajustado como sobrante y como faltante a la vez, hasta en **6 folios** distintos:
+
+    bruto (suma de magnitudes) .... $5,081,362
+    neto  (suma con signo) ........ $  704,666
+    se cancela solo ............... $4,376,696
+
+Está **entero en La Piedad (`02`), entre nov-2025 y ene-2026** — en **enero son el 54.3 % del
+descuadre del mes**. Cero en sep-2026. ⛔ El `importe` de Kepler **no se corrige** (ADR-040): se
+publican los dos y `signos_mezclados` dice cuándo difieren. El veredicto se calcula sobre el NETO.
+
+### Tres refutaciones medidas, y las tres estaban en mi propio plan
+
+1. ⛔ **La entrada duplicada NO aplica.** Las **1,001** recepciones marcadas en
+   `erp_goods_receipt_dedup` son **todas de la sucursal `00`**, y el universo contado son las
+   sucursales `01` a `06`. Intersección vacía. El plan la listaba como señal con "4,565 pares".
+2. ⛔ **`erp_goods_receipt_lines` es una VISTA sin índices**, no una tabla con `ix_erpgrl_sku` como
+   yo había escrito. Unirla por fila la re-evalúa: la consulta pasaba de **1.2 s a más de 120 s**.
+   Va en un CTE `MATERIALIZED`. *Lo caro no era el dato: era mi lateral.*
+3. ⛔ **La demanda no explica nada, y por eso tampoco puede bloquear nada.** Su placebo falla:
+   "la diferencia supera 90 días de venta" dispara en el **16.9 % de los sobrantes** y en el
+   **10.1 % de los faltantes**, donde no explica absolutamente nada — razón **1.67×**, y la razón
+   se queda entre 1.5× y 1.75× en **todos** los umbrales probados (30/90/180/365 días). No hay
+   corte que la vuelva discriminante (compárese con el peldaño del costo: **0 de 8,643** cargas
+   iniciales). Sale como **PISTA**, no como explicación.
+
+   ⭐ **Y mi primera versión la ponía a bloquear.** Mientras figuraba en `testigos_faltantes`,
+   **2,040 SKUs y $2.04 M** caían en `no_medido` sin motivo — todo conteo anterior a 90 días era
+   injuzgable por un testigo que no participa en ningún veredicto. *Un testigo que no puede
+   explicar tampoco puede impedir.*
+
+### Una definición, dos lectores
+
+`[EXP.1a]` baja el `patron` de reincidencia (umbrales medidos 0.2 / 0.8) de TypeScript a SQL, en
+`v_sku_count_variance_history`. La matvista necesitaba el mismo veredicto y copiarlo habría creado
+la segunda definición — el error exacto que ABC.6 cometió con `clase_motivo` esta misma semana.
+La migración **envuelve la definición vigente** en vez de reescribirla, para no hacer la tercera
+copia del anti-réplica. Los 0.2/0.8 que el servicio sigue publicando en la leyenda quedan como
+**espejo vigilado**: el candado los compara contra los bordes que la vista produce de verdad.
+
+### Lo que el candado protege (`test-newdb-variance-senales.js`)
+
+El grano (22,332 líneas sobre 20,849 pares = **1,483 de más**), el abanico del roll-forward
+(verificado **1:1** por `hasta = fecha`), la frontera entre `sin_explicacion` y `no_medido`, el
+espejo de los umbrales, la refutación de la entrada duplicada — y, lo que más importa, **re-mide
+el placebo de la pista en vez de mirar sólo la salida**: un candado que comprueba el resultado
+deja pasar un cambio de premisa.
+
+### Costos medidos
+
+Poblado de la matvista **~50 s** (nocturno, umbral propio `analytics_refresh_count_signals` en
+`CRON_JOBS` — sin umbral el sensor da verde incondicional). `deps` declara las dos matvistas de
+las que lee: **ordenar no es depender**; sin eso, si el roll-forward falla ésta se materializa
+igual con `rf_veredicto` en NULL y la pantalla diría "falta un testigo" en vez de "el refresco se
+cayó".
+
+**Pendiente:** aplicar las 2 migraciones a prod + redeploy. Sin permisos nuevos → sin re-login.
+
+---
+
 ## 2026-09-30 — DM.15: el traspaso que decía haberse hecho a otra sucursal
 Reporte de Edgar sobre `/almacen/movimientos`: *"nos estamos inventando traspasos a sucursal,
 mencionando que se hizo a otra sucursal, peor aún, que cuadra la información"*.

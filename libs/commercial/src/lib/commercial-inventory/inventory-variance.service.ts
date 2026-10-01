@@ -163,12 +163,29 @@ export class InventoryVarianceService {
     warehouse_id: string;
     fecha: string;
     signo?: 'sobrante' | 'faltante';
+    explicacion?: string;
     limit?: number;
   }) {
     const limit = Math.min(Math.max(Number(params.limit) || 200, 1), 2000);
     return this.tk.run(async (knex) => {
       // ⚠️ MATVIEW: sin RLS. El tenant se filtra a mano.
       const q = knex('analytics.mv_erp_physical_count_variance as v')
+        // [EXP.1b] Las señales que explican el renglón.
+        //
+        // ⭐ La dirección del join importa: `v` es por LÍNEA de kdm2 y `s` es por SKU, así que
+        // esto es MUCHOS-A-UNO y **no abanica**. Al revés sí lo haría — por eso las señales
+        // viven en su propia matvista y no como columnas de ésta (hay 1,483 líneas de más
+        // sobre el mismo universo de 20,849 pares).
+        //
+        // Dos líneas del mismo SKU en el mismo día comparten explicación, y eso es correcto:
+        // la causa es del SKU-día, no del renglón. Cuando las dos líneas traen signo opuesto
+        // —504 pares en el histórico— el veredicto sale del NETO y `signos_mezclados` lo dice.
+        .leftJoin('analytics.mv_erp_count_line_signals as s', function () {
+          this.on('s.tenant_id', '=', 'v.tenant_id')
+            .andOn('s.warehouse_id', '=', 'v.warehouse_id')
+            .andOn('s.fecha', '=', 'v.fecha')
+            .andOn('s.sku', '=', 'v.sku');
+        })
         .where('v.tenant_id', knex.raw('public.current_tenant_id()'))
         .andWhere('v.warehouse_id', params.warehouse_id)
         .andWhereRaw('v.fecha = ?::date', [params.fecha])
@@ -179,11 +196,86 @@ export class InventoryVarianceService {
           // cualquiera pueda juzgar el renglón sin creerle a la etiqueta.
           'v.costo_contado', 'v.razon_costo', 'v.costo_veredicto',
           'v.importe_en_costo_contado', 'v.ficha_peldano', 'v.ficha_costo_base',
-          'v.ficha_costo_caja', 'v.ficha_factor_caja')
+          'v.ficha_costo_caja', 'v.ficha_factor_caja',
+          // [EXP.1b] El veredicto y SUS INSUMOS. Van los dos: una etiqueta que no se puede
+          // auditar es una opinión.
+          's.explicacion', 's.testigos_faltantes', 's.signos_mezclados', 's.lineas',
+          's.importe_neto', 's.importe_bruto',
+          's.rf_veredicto', 's.rf_no_explicado', 's.rf_importe_no_explicado',
+          's.veces_contado', 's.veces_descuadro', 's.retencion', 's.patron',
+          's.demanda_diaria', 's.demanda_motivo', 's.dias_de_venta', 's.excede_la_venta',
+          's.oe_fecha', 's.oe_folio', 's.oe_unidad', 's.oe_costo_unitario', 's.oe_cantidad',
+          's.oe_unidad_discrepa')
         .orderBy('v.importe', 'desc')
         .limit(limit);
       if (params.signo) q.andWhere('v.signo', params.signo);
+      // ⛔ El filtro clave de la pantalla: `sin_explicacion` es la pila que se camina. Va sobre
+      // la matvista de señales, así que un renglón sin fila allá (carga inicial, o la MV sin
+      // refrescar) NO entra en ningún filtro — y eso es a propósito: no se le puede atribuir
+      // una explicación a algo que no se juzgó.
+      if (params.explicacion) q.andWhere('s.explicacion', params.explicacion);
       return q;
+    });
+  }
+
+  /**
+   * `[EXP.1b]` EL EMBUDO — cuánto del descuadre cae en cada explicación.
+   *
+   * Es la tira que convierte la pantalla de un listado en una decisión. Medido en prod sobre
+   * sep-2026: de **$8,859,397** brutos, la pila `sin_explicacion` son **818 SKUs / $248,436**.
+   *
+   * ⛔ Las tres cosas que esta tira NO puede dejar de decir:
+   *
+   * 1. **`no_medido` no es «sin causa».** Son $3,519,579 del mismo mes donde falta un testigo
+   *    —casi siempre el roll-forward o el historial— porque un almacén contado UNA vez no
+   *    tiene conteo previo del cual rodar ni segunda observación con la cual llamar a algo
+   *    reincidente. Mezclarlo con `sin_explicacion` inflaría la pila 14 veces.
+   * 2. **Se agrega sobre el NETO por SKU, no sobre el bruto por línea.** En el histórico hay
+   *    504 pares con los dos signos el mismo día cuyos **$4,376,696 se cancelan solos** (todos
+   *    en el almacén 02, nov-2025 a ene-2026). Sumar magnitudes ahí publica un problema que no
+   *    existe.
+   * 3. **`excede_la_venta` es una PISTA y va aparte de la partición**, con su falso positivo
+   *    medido: dispara en el 10.1% de los faltantes, donde no explica nada.
+   */
+  async embudo(params: {
+    warehouse_id?: string;
+    date_from?: string;
+    date_to?: string;
+  } = {}) {
+    return this.tk.run(async (knex) => {
+      // ⚠️ MATVIEW: sin RLS. Tenant a mano.
+      const q = knex('analytics.mv_erp_count_line_signals as s')
+        .where('s.tenant_id', knex.raw('public.current_tenant_id()'))
+        .select('s.warehouse_id', 's.warehouse_code', 's.fecha', 's.explicacion')
+        .count('* as skus')
+        .select(
+          knex.raw('coalesce(round(sum(abs(s.importe_neto)), 2), 0) as pesos_abs'),
+          knex.raw("coalesce(round(sum(s.importe_neto) filter (where s.importe_neto > 0), 2), 0) as pesos_sobrante"),
+          knex.raw("coalesce(round(-sum(s.importe_neto) filter (where s.importe_neto < 0), 2), 0) as pesos_faltante"),
+          knex.raw('count(*) filter (where s.excede_la_venta)::int as con_pista'),
+          knex.raw('count(*) filter (where s.signos_mezclados)::int as signos_mezclados'),
+        )
+        .groupBy('s.warehouse_id', 's.warehouse_code', 's.fecha', 's.explicacion')
+        .orderBy([{ column: 's.fecha', order: 'desc' }, { column: 's.warehouse_code' },
+          { column: 's.explicacion' }]);
+
+      if (params.warehouse_id) q.where('s.warehouse_id', params.warehouse_id);
+      if (params.date_from) q.where('s.fecha', '>=', params.date_from);
+      if (params.date_to) q.where('s.fecha', '<=', params.date_to);
+
+      const [rows, freshness] = await Promise.all([
+        q, this.frescura(knex, 'analytics_refresh_count_signals'),
+      ]);
+      return {
+        items: rows.map((r: Record<string, unknown>) => ({
+          ...r,
+          skus: Number(r['skus']),
+          pesos_abs: Number(r['pesos_abs']),
+          pesos_sobrante: Number(r['pesos_sobrante']),
+          pesos_faltante: Number(r['pesos_faltante']),
+        })),
+        freshness,
+      };
     });
   }
 
@@ -398,16 +490,25 @@ export class InventoryVarianceService {
   async reincidencia(params: {
     warehouse_id?: string;
     patron?: string;
+    sku?: string;
     limit?: number;
   } = {}) {
-    // Umbrales MEDIDOS (ver el bloque de arriba), no elegidos: son los bordes del valle de una
-    // distribución bimodal. Si el histórico crece y la forma cambia, se vuelven a medir.
-    const SE_COMPENSA = 0.2;
-    const PERSISTE = 0.8;
+    // ⭐ [EXP.1a] `patron` y `retencion` YA NO SE DERIVAN ACÁ: se LEEN de
+    // `v_sku_count_variance_history`, que es donde viven desde esa migración. Los umbrales
+    // medidos (0.2 / 0.8) bajaron a SQL porque la matvista de señales de `[EXP.1b]` necesita
+    // el mismo veredicto, y copiarlo habría creado la segunda definición — el error exacto que
+    // ABC.6 cometió con `clase_motivo` esta misma semana.
+    //
+    // Los dos que SIGUEN acá son los que nadie más consume: `UN_SOLO_EVENTO` juzga la
+    // concentración (otra consulta, otra vista) y `MIN_CONTEOS` es el piso de esta pantalla.
     const UN_SOLO_EVENTO = 0.9;
     const MIN_CONTEOS = 2;
     const limit = Math.min(500, Math.max(1, Number(params.limit) || 100));
     const wh = params.warehouse_id;
+    const filtros = [
+      ...(wh ? ['warehouse_id = ?'] : []),
+      ...(params.sku ? ['sku = ?'] : []),
+    ];
 
     // ⛔ El CTE va MATERIALIZED a propósito: sin eso la vista se deriva una vez por cada uno de
     // los tres usos (items, resumen, sin_base) y la consulta pasa de ~0.65 s a varios segundos.
@@ -415,14 +516,9 @@ export class InventoryVarianceService {
       WITH h AS MATERIALIZED (
         SELECT warehouse_id, warehouse_code, sku, veces_contado, veces_descuadro,
                veces_sobrante, veces_faltante, tasa_descuadre, tasa_motivo,
-               pesos_abs, pesos_neto, ultimo_descuadre,
-               CASE WHEN pesos_abs = 0 THEN 'sin_dinero'
-                    WHEN abs(pesos_neto)/pesos_abs < ${SE_COMPENSA} THEN 'se_compensa'
-                    WHEN abs(pesos_neto)/pesos_abs >= ${PERSISTE} AND pesos_neto < 0 THEN 'merma'
-                    WHEN abs(pesos_neto)/pesos_abs >= ${PERSISTE} AND pesos_neto > 0 THEN 'sobra'
-                    ELSE 'mixto' END AS patron
+               pesos_abs, pesos_neto, ultimo_descuadre, retencion, patron
           FROM analytics.v_sku_count_variance_history
-         ${wh ? 'WHERE warehouse_id = ?' : ''}
+         ${filtros.length ? 'WHERE ' + filtros.join(' AND ') : ''}
       ),
       juz AS (SELECT * FROM h WHERE veces_contado >= ${MIN_CONTEOS} AND veces_descuadro > 0)
       SELECT
@@ -436,7 +532,8 @@ export class InventoryVarianceService {
            coalesce(string_agg(DISTINCT warehouse_code, ', ' ORDER BY warehouse_code), '') AS almacenes
            FROM h WHERE veces_contado < ${MIN_CONTEOS}) s) AS sin_base`;
     const bindHistoria = [
-      ...(wh ? [wh] : []), ...(params.patron ? [params.patron] : []), limit,
+      ...(wh ? [wh] : []), ...(params.sku ? [params.sku] : []),
+      ...(params.patron ? [params.patron] : []), limit,
     ];
 
     // La CONCENTRACIÓN sale de la vista de eventos, no de IC.3 — que no la tiene.
@@ -489,7 +586,17 @@ export class InventoryVarianceService {
       items,
       resumen: hist?.resumen || [],
       min_conteos: MIN_CONTEOS,
-      umbrales: { se_compensa: SE_COMPENSA, persiste: PERSISTE, un_solo_evento: UN_SOLO_EVENTO },
+      // ⚠️ Estos dos números son un ESPEJO para la leyenda de la pantalla: el cálculo vive en
+      // `analytics.v_sku_count_variance_history` desde `[EXP.1a]`. Un espejo puede desfasarse,
+      // así que no queda suelto — `test-newdb-variance-senales.js` compara estos valores contra
+      // los bordes que la vista produce de verdad y se pone ROJO si divergen. Deuda vigilada,
+      // no deuda silenciosa (mismo criterio que la duplicación declarada en IC.3).
+      umbrales: {
+        se_compensa: 0.2,
+        persiste: 0.8,
+        un_solo_evento: UN_SOLO_EVENTO,
+        fuente: 'analytics.v_sku_count_variance_history.patron',
+      },
       sin_base: {
         ...(hist?.sin_base || { skus: 0, pesos_abs: 0, almacenes: '' }),
         motivo: `menos de ${MIN_CONTEOS} conteos: sin dos observaciones no hay reincidencia que medir`,
@@ -575,15 +682,24 @@ export class InventoryVarianceService {
     desde: string;
     hasta: string;
     veredicto?: string;
+    sku?: string;
     limit?: number;
   }) {
     const limit = Math.min(1000, Math.max(1, Number(params.limit) || 150));
     return this.tk.run(async (knex) => {
-      const base = () => knex('analytics.mv_erp_count_rollforward as r')
-        .where('r.tenant_id', knex.raw('public.current_tenant_id()'))
-        .andWhere('r.warehouse_id', params.warehouse_id)
-        .andWhereRaw('r.desde = ?::date', [params.desde])
-        .andWhereRaw('r.hasta = ?::date', [params.hasta]);
+      const base = () => {
+        const b = knex('analytics.mv_erp_count_rollforward as r')
+          .where('r.tenant_id', knex.raw('public.current_tenant_id()'))
+          .andWhere('r.warehouse_id', params.warehouse_id)
+          .andWhereRaw('r.desde = ?::date', [params.desde])
+          .andWhereRaw('r.hasta = ?::date', [params.hasta]);
+        // [EXP.2] Filtro OPCIONAL por SKU para el expediente del renglón. Va en `base()`, que
+        // alimenta tanto los totales como la lista: si fuera sólo en la lista, el expediente
+        // mostraría un SKU con los totales de todo el almacén al lado, que es peor que no
+        // mostrarlos. Los consumidores que no lo pasan no cambian de resultado.
+        if (params.sku) b.andWhere('r.sku', params.sku);
+        return b;
+      };
 
       const [tot] = await base()
         .select(knex.raw(`
