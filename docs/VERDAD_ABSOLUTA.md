@@ -442,7 +442,7 @@ divergir.
 
 | necesitás | leé | nunca |
 |---|---|---|
-| ⭐⭐ **la unidad que KEPLER usó** (su escalera `PZA→PAQ→CJA`) | `analytics.mv_kepler_unit_ladder` | deducirla de `c84`, de la etiquetera o del override: Kepler la **declara** por renglón y calcula con ella (`c9 = c56 × c58`, 99.99%). ADR-063 · §14 |
+| ⭐⭐ **la unidad que KEPLER usó** (su escalera `PZA→PAQ→CJA` — ⚠️ la unidad mayor NO siempre es `CJA`: en granel es `BTO` y en cubeta `CUB`, 170 SKUs sin caja, medido 2026-09-30) | `analytics.mv_kepler_unit_ladder` | deducirla de `c84`, de la etiquetera o del override: Kepler la **declara** por renglón y calcula con ella (`c9 = c56 × c58`, 99.99%). ADR-063 · §14 |
 | existencia por almacén × producto | `analytics.v_erp_stock_on_hand` | `commercial.stock` (acierta 91%) |
 | ⭐ **clase ABC que fija el nivel de servicio** | `analytics.v_abc_class` | `commercial.abc_classification` desde el reabasto (llega tarde) · recalcular el Pareto (§12.4) |
 | ⭐ **costo unitario para VALUAR** (los dos ERPs) | `analytics.v_erp_unit_cost` | `catalog.products.cost_base` / `cost_with_tax` (§12) |
