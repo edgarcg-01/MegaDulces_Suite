@@ -166,7 +166,66 @@ function revisar(doc, archivo) {
     A(enCompose.length > 0, 'se pudo leer la lista de carriles de Compose para comparar');
   }
 
-  console.log('\n4) Las reglas se rompen a propósito  ← negativas en memoria');
+  console.log('\n4) ⛔ Ningún carril vive en los DOS mundos  ← el riesgo propio de migrar');
+  // Durante la migración conviven Compose y K3s. Si un carril queda en los dos, los dos escriben
+  // el MISMO renglón de `analytics.cron_runs` (comparten `ODS_RECONCILE_HB_KEY`/`ODS_HB_KEY`) y se
+  // lo pisan — la falla que la guarda de dueño de `health.js` detecta, causada por nosotros.
+  // Se compara contra `SERVICIOS_DEF` de `ops/vl/deploy.sh`, que es lo que `--todo` levanta.
+  const deploySh = path.join(__dirname, '..', 'ops', 'vl', 'deploy.sh');
+  if (!fs.existsSync(deploySh)) {
+    NM('no encontré ops/vl/deploy.sh para comparar los dos mundos');
+  } else {
+    const m = fs.readFileSync(deploySh, 'utf8').match(/^SERVICIOS_DEF="([^"]*)"/m);
+    if (!m) {
+      NM('no pude leer SERVICIOS_DEF de ops/vl/deploy.sh (¿cambió de forma?)');
+    } else {
+      const enCompose = m[1].split(/\s+/).filter(Boolean);
+      const enK3s = [];
+      for (const f of archivos) {
+        for (const doc of documentos(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
+          const k = campo(doc, 'kind');
+          if (k === 'Deployment' || k === 'CronJob') enK3s.push(campo(doc, 'name'));
+        }
+      }
+      // ⚠️ Tener MANIFIESTO no es estar MIGRADO, y confundirlos hacía que el candado marcara
+      // como peligro algo que no lo era: `ods-live-hot` tiene su YAML escrito y sigue corriendo
+      // —correctamente— en Compose. Por eso cada manifiesto declara su estado en la etiqueta
+      // `migracion`, y la regla se aplica a lo que DICE, no a que el archivo exista:
+      //    migrado   → el carril ya corre en K3s  ⇒ NO puede seguir en SERVICIOS_DEF
+      //    preparado → el YAML está escrito y sin aplicar ⇒ SÍ debe seguir en SERVICIOS_DEF
+      // La trampa que esto cierra: un `kubectl apply -f ops/k3s/` aplicaría también los
+      // `preparado` y crearía el doble-corredor al instante, en silencio.
+      const migrados = []; const preparados = []; const sinMarca = [];
+      for (const f of archivos) {
+        for (const doc of documentos(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
+          const k = campo(doc, 'kind');
+          if (k !== 'Deployment' && k !== 'CronJob') continue;
+          const n = campo(doc, 'name'); const est = campo(doc, 'migracion');
+          if (est === 'migrado') migrados.push(n);
+          else if (est === 'preparado') preparados.push(n);
+          else sinMarca.push(n);
+        }
+      }
+      A(sinMarca.length === 0,
+        sinMarca.length === 0
+          ? 'los manifiestos declaran su estado de migración'
+          : `SIN etiqueta 'migracion': ${sinMarca.join(', ')} — no se puede decidir si es peligro o no`);
+      const dobles = migrados.filter((n) => enCompose.includes(n));
+      A(dobles.length === 0,
+        dobles.length === 0
+          ? `ninguno de los ${migrados.length} MIGRADO(s) sigue en SERVICIOS_DEF`
+          : `EN LOS DOS MUNDOS: ${dobles.join(', ')} — se pisarían el renglón de cron_runs`);
+      const huerfanos = preparados.filter((n) => !enCompose.includes(n));
+      A(huerfanos.length === 0,
+        huerfanos.length === 0
+          ? `los ${preparados.length} PREPARADO(s) siguen corriendo en Compose, como corresponde`
+          : `NO LOS CORRE NADIE: ${huerfanos.join(', ')} — marcados 'preparado' pero fuera de Compose`);
+      console.log(`  ⓘ migrados: ${migrados.join(', ') || 'ninguno'}`);
+      console.log(`  ⓘ preparados (YAML escrito, todavía en Compose): ${preparados.join(', ') || 'ninguno'}`);
+    }
+  }
+
+  console.log('\n5) Las reglas se rompen a propósito  ← negativas en memoria');
   const malo1 = ['kind: Deployment', 'name: x', 'replicas: 2', 'type: Recreate'];
   A(revisar(malo1, 'test').some(([c, m]) => !c && /replicas=1/.test(m)), 'replicas=2 se detecta');
   const malo2 = ['kind: Deployment', 'name: x', 'replicas: 1'];

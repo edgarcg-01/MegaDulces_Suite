@@ -266,6 +266,15 @@ services:
   # (kdpv_prod_util 222, kdii 26, …). Propagar ese DELETE es una decisión con evidencia aparte, no
   # un efecto colateral de encender un carril.
   ods-reconcile-chicas:
+    # ⛔ [K3S.6 2026-10-01] MIGRADO A K3s — primer carril que se fue. El perfil lo deja declarado
+    # pero NO lo arranca: `docker compose up -d` sin nombrarlo lo ignora. Si corriera a la vez que
+    # el Deployment `ingesta/ods-reconcile-chicas`, los dos escribirían el renglón
+    # `cdc_reconcile_chicas` de `analytics.cron_runs` y se lo pisarían. Un carril = un dueño.
+    # Verificado al migrar: el latido pasó de `host=9da95f2080de` (este contenedor) a
+    # `host=ods-reconcile-chicas-f6d56b558-k674k` (el pod), status ok, primera pasada en 10 s.
+    # Volver atrás: `docker compose --profile retirado-k3s up -d ods-reconcile-chicas` y borrar
+    # el Deployment. No se pierde una fila: el carril es idempotente y su tope de latido es 90 min.
+    profiles: ["retirado-k3s"]
     <<: *lane
     container_name: ods-reconcile-chicas
     depends_on: [ods-live-hot]
