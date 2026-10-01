@@ -255,9 +255,15 @@ const APP_SOURCES: SourceCfg[] = [
   //  acá: es el mismo con el que la compuerta grita *"la carga se SUMÓ al saldo viejo en vez de
   //  reemplazarlo"*. Dos umbrales distintos para el mismo hecho serían dos verdades.
   //
-  //  ⚠️ **Nace ROJA, y es correcto que nazca roja.** Medido en prod el 2026-09-30: `kdil` de la
-  //  sucursal 00 trae 12,181,690 u (sin pseudo-SKUs) contra 340,077 u capturadas = **35.82×**.
-  //  No lo arreglamos nosotros: se corrige EN KEPLER (ADR-040, no escribimos el ERP).
+  //  ⛔ **RECTIFICADO `[IC.CEDIS.12]` (01-oct): el 35.82× NO era "la carga se sumó al saldo
+  //  viejo".** Acá decía que esta sonda *"nace ROJA y es correcto que nazca roja"* porque `kdil`
+  //  traía 12,181,690 u contra 340,077 capturadas. El reporte de existencia del propio Kepler
+  //  (123 págs, 9,496 SKUs, sin omitir ceros) arbitró otra cosa: el CEDIS tiene saldo en **148
+  //  SKUs / 357,471 u**, y `c4+c8-c9` los reproduce **148 de 148**. La carga está PERFECTA; lo que
+  //  sobra es el residuo de cuando `md_00` era la base de PRUEBA (Fase CA). O sea que la premisa
+  //  de esta sonda era falsa y se habría quedado roja para siempre pidiendo corregir en Kepler una
+  //  carga que nunca estuvo mal — justo el ruido que la sonda de arriba se retiró para no hacer.
+  //  Ahora el numerador lleva el mismo filtro de corte que la vista publicada: hoy **1.00×**.
   //
   //  ⚠️ Se toma **la captura MÁS RECIENTE**, no la suma del histórico: el día que vuelvan a cargar
   //  —que es justo lo que queremos— sumar las dos lecturas daría un denominador inflado y la sonda
@@ -282,20 +288,28 @@ const APP_SOURCES: SourceCfg[] = [
                   WHERE m.sucursal='00' AND m.c2='N' AND m.c3='A' AND m.c4='45'
                     AND m.c9::date = (SELECT dia FROM ult)),
                sal AS (
+                 -- [IC.CEDIS.12] Mide LO QUE SE PUBLICA, no la tabla cruda: mismo filtro de corte
+                 -- que analytics.v_erp_stock_on_hand. Dos criterios para el mismo hecho serían
+                 -- dos verdades, y el de la tabla cruda ya no describe nada vivo.
+                 -- (sin acentos graves acá dentro: esto vive en un template literal)
                  SELECT sum(GREATEST(c4::numeric + c8::numeric - c9::numeric, 0))
                           FILTER (WHERE c3 <> ALL(ARRAY['00001','00002','00022'])) AS u
-                   FROM kepler_ods.kdil WHERE sucursal='00' AND c1='00')
+                   FROM kepler_ods.kdil
+                  WHERE sucursal='00' AND c1='00'
+                    AND GREATEST(c6, c7)::date >= (SELECT min(c.cutover_date)
+                                                     FROM analytics.v_branch_erp_cutover c
+                                                    WHERE c.kepler_code = '00'))
           SELECT CASE WHEN COALESCE(cap.u,0) = 0 THEN now() - interval '100 days'
                       WHEN sal.u / cap.u <= 1.5  THEN now()
                       ELSE now() - interval '100 days' END AS last_update,
                  CASE WHEN COALESCE(cap.u,0) = 0
                       THEN 'NO MEDIDO: no hay captura N-A-45 en la sucursal 00'
-                      ELSE 'kdil ' || round(sal.u,0) || ' u vs contado ' || round(cap.u,0) ||
+                      ELSE 'publicado ' || round(sal.u,0) || ' u vs contado ' || round(cap.u,0) ||
                            ' u (' || to_char(cap.dia,'DD/MM') || ') = ' ||
                            round(sal.u / cap.u, 2) || 'x' ||
                            CASE WHEN sal.u / cap.u > 1.5
-                                THEN ' - la carga se SUMO al saldo viejo: corregir EN KEPLER'
-                                ELSE ' - cuadra: se puede encender stockMap cedis:true' END
+                                THEN ' - revivio residuo de la base de prueba: ver [4c] del candado'
+                                ELSE ' - cuadra con lo contado' END
                  END AS note_extra
             FROM sal, cap`,
     warnH: 24, critH: 48, cadence: 'continuo (replica logica md_00) - se retira al encender cedis:true',

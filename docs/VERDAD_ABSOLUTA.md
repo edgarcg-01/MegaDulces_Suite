@@ -2082,3 +2082,98 @@ el sugerido de compras. Publicar los 1.8 M sería repetir hoy el error de ayer �
 forma de medición*, sólo que con mejor corazonada. Lo que la vuelve publicable es barato y sólo lo
 da el ERP: **el reporte completo con «omitir productos en cero = Sí»**, que son ~2 páginas en vez
 de 123 y cierra la precisión de un tirón.
+
+---
+
+### §17.9 ⭐⭐ RESUELTO — el censo completo estaba en el PDF, y la precisión era medible desde el principio
+
+`[IC.CEDIS.12]` · 2026-10-01 · **batch 655 en prod** · candado `test-newdb-cedis-stock-truth.js`
+**15 ✓ · 0 ✗ · 2 NO MEDIDO** contra prod.
+
+§17.8.1 cerró diciendo que la precisión quedaba sin probar y que hacía falta pedirle al ERP el
+reporte con *«omitir productos en cero = Sí»*. **No hacía falta: ya estaba.** El reporte de 123
+páginas se corrió con ese filtro **en blanco**, o sea que trae las filas en cero — es el **censo
+completo del almacén, 9,496 SKUs**. Lo que faltaba no era evidencia, era **leerla entera**: yo había
+transcrito a mano una parte y de ahí salió la frase *"precisión no reclamable desde una
+transcripción parcial"*. La limitación era mía, no del documento.
+
+> ⭐ **La lección de método, y es la que se generaliza:** *antes de declarar que falta evidencia,
+> agotar la que ya está sobre la mesa.* Pedir un dato que ya tenés cuesta un día de espera y hace
+> que una pantalla siga vacía mientras tanto.
+
+⚠️ Y al leerlo entero hubo que arbitrar **el parse antes que el dato**: `pdftotext -layout` apareaba
+las descripciones **corridas un renglón** (daba `08057` = *GOMA LOMBRIZ*), `-table` las apareaba
+bien (`08057` = *NESTLE CARLOS V SUIZO*, 11,200 u). Se resolvió con un testigo externo, no a ojo:
+`-table` coincide con lo que ya se había leído del PDF y asigna a `00001/00002/00022` las
+descripciones de pseudo-SKU que el proyecto ya excluía por otra vía. *Un extractor de PDF es una
+fuente de datos más: también hay que arbitrarlo.*
+
+#### Lo que dice el censo
+
+| | SKUs | unidades base |
+|---|---:|---:|
+| el CEDIS tiene existencia en | **148** | **357,471** |
+| la plataforma publicaba | 4,653 | 12,181,690 |
+
+⭐ **La fórmula nunca estuvo mal: `c4+c8−c9` reproduce los 148 EXACTO, 148 de 148.** Lo sucio es la
+**tabla**: 4,499 SKUs / 11.82 M u que `kdil` arrastra y el ERP da en cero. Y tiene nombre, ya
+documentado en Fase CA — hasta el corte del 30-sep, **`md_00` era la base de PRUEBA del CEDIS**.
+Lo que publicábamos era el residuo de esa base.
+
+#### La regla, y por qué no es una fecha clavada
+
+Se publica sólo lo que tuvo **actividad posterior al corte de la rama**, con el resolvedor que ya
+existía (`analytics.v_branch_erp_cutover`). Medido contra el censo: **127 marcadas, 127 confirmadas
+— precisión 100 %**. Es **auto-sanable**: las filas de residuo tienen las fechas muertas y nunca
+vuelven a cruzar el umbral; las vivas se actualizan solas con cada movimiento. El patrón en las
+nueve ramas lo confirma sin sobreajuste — *cuanto más viejo el corte, menos residuo*:
+
+| rama | corte | sobrevive | rama | corte | sobrevive |
+|---|---|---:|---|---|---:|
+| 02 | 2025-10-10 | 100.0 % | 06 | 2026-08-15 | 92.0 % |
+| 01 | 2026-06-27 | 100.0 % | 08 | 2026-09-19 | 89.5 % |
+| 03/04/05 | −infinity | 100.0 % | 07 | 2026-09-08 | 85.5 % |
+| **00** | **2026-09-30** | **2.7 %** | | | |
+
+⛔ **Por eso se aplica SÓLO a la 00: es la única rama con árbitro.** En 01–05 sería un no-op literal;
+en 06/07/08 recortaría 8–14.5 % de los SKUs **sin nada con qué juzgar** si eso es residuo o
+existencia real parada, y el modo de falla sería *tirar mercancía buena en silencio*. Que ese riesgo
+es real está medido acá mismo: en la 00 la regla deja fuera **21 SKUs que el ERP confirma**.
+
+#### Dos implementaciones, el mismo número
+
+Verificar una vista contra sí misma pasa bugs en verde, así que la cifra se cruzó contra una
+reconstrucción independiente: la suma de los movimientos que **afectan inventario** (`kdmm.c8='S'`)
+desde el corte. **127 renglones / 340,077 u** — idéntico al snapshot filtrado e idéntico al reporte.
+
+> ⚠️ Ese cruce primero dio **9×** por un `JOIN` a `kdmm` **sin `sucursal`**: el catálogo de doctypes
+> está replicado en las nueve ramas y multiplica. **Anti-réplica también al unir CATÁLOGOS, no sólo
+> hechos** — la regla ya existía para `kdm1`/`kdil` y no se había extendido a `kdmm`.
+
+#### ⛔ Huecos declarados, con número
+
+1. **21 SKUs / 17,394 u (4.9 %)** entraron el 22-sep, antes del corte, y no se han movido: la regla
+   no los ve. **Vuelven solos** al primer movimiento. Se prefiere perderlos a aflojar el umbral —
+   con corte al 22-sep la precisión se desploma a **39.3 %**.
+2. **SKU `99225` (10 u)** fuera por no estar en `catalog.products`. La vista publica 126 de 127.
+3. **Residuo latente: 4,526 SKUs / 11.84 M u**, de los cuales **2,890 / 10.36 M u traen el
+   acumulador sucio** (`c9>0`). Hoy **0 de 127** filas publicadas están contaminadas; si Kepler
+   reactiva una, entra con sus acumuladores viejos. Lo vigila el bloque `[4c]` del candado, con su
+   prueba negativa. ⭐ El arreglo de fondo es **purgar el residuo en Kepler**, y no lo hacemos
+   nosotros (ADR-040).
+
+#### Lo que se RETRACTA
+
+- ⛔ **`kdik.c6` NO es una columna de existencia**: reproduce **0 de los 148**. Cae la lectura de
+  §17.4, que la trataba como un segundo testigo que *"contradice en las ocho sucursales"*. No
+  contradice: **mide otra cosa**. Deja de ser un hueco de existencia y pasa a ser una columna sin
+  decodificar. (`kdik.c5` sí replica la fórmula de `kdil`, con el mismo residuo.)
+- ⛔ **La regla del centinela (`c7='1800-01-01'`) queda refutada como regla de publicar.** Contra el
+  censo completo: recall 100 % pero **precisión 8.4 %** — marca 1,757 filas para acertar 148. Los
+  dos testigos de §17.8/§17.8.1 probaban el **recall**, y el recall sin precisión no publica nada.
+  *Tenía razón en no republicar; la razón que di —"precisión sin probar"— era además medible.*
+- ⛔ **El «35.82×» que mantenía roja la sonda `cedis_kepler_saldo` era una premisa falsa.** Decía
+  *"la carga se SUMÓ al saldo viejo: corregir EN KEPLER"*. La carga estaba **perfecta**; lo que
+  sobraba era el residuo. La sonda habría quedado roja para siempre pidiendo arreglar algo que
+  nunca estuvo mal — exactamente el ruido que su predecesora se retiró para no hacer. Ahora mide
+  **lo publicado** con el mismo filtro de corte que la vista: **1.00×**.

@@ -53,27 +53,39 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX');
   const q = async (sql, p = []) => (await c.query(sql, p)).rows;
 
   try {
-    // ── 1. LA REGRESIÓN: el CEDIS existe en la vista ────────────────────────────────────────
-    // ⛔ ESTE BLOQUE SE DIO VUELTA EL MISMO DÍA, y la vuelta es la lección.
+    // ── 1. EL CEDIS SE PUBLICA, PERO SÓLO LO ARBITRADO ──────────────────────────────────────
+    // ⛔ ESTE BLOQUE SE DIO VUELTA DOS VECES EN DOS DÍAS, y las dos vueltas son la lección.
     //
-    // A las 09:11 se publicó el CEDIS (batch 647) argumentando que su volumen «está repartido entre
-    // miles de SKUs, así que es un almacén y no un artefacto». A las 09:38 Edgar sacó del propio
-    // Kepler el reporte de existencia del `ALMACÉN Cedis` y da **0.00 en ~140 filas de la línea
-    // 036**, donde la plataforma publicaba 3,288 / 24,192 / 21,600 unidades. A las 09:55 se retiró
-    // (batch 653). *Estar repartido no lo hace real — eso era una corazonada con forma de medición.*
+    // 01-oct 09:11 — se publica el CEDIS (batch 647) con el argumento de que su volumen «está
+    //   repartido entre miles de SKUs, así que es un almacén y no un artefacto».
+    // 01-oct 09:55 — se retira (batch 653): Edgar saca del propio Kepler el reporte de existencia
+    //   del ALMACÉN Cedis y da 0.00 donde la vista publicaba miles. *Estar repartido no lo hace
+    //   real — eso era una corazonada con forma de medición.*
+    // 01-oct       — llega el reporte COMPLETO (123 págs, 9,496 SKUs, sin omitir ceros) y arbitra:
+    //   el CEDIS tiene existencia en 148 SKUs / 357,471 u, y `c4+c8-c9` los reproduce 148 de 148.
+    //   La fórmula estaba bien; la TABLA arrastra el residuo de cuando md_00 era base de PRUEBA.
+    //   Se republica filtrado por actividad posterior al corte (batch 655).
     //
-    // Mientras la cifra esté contestada por el ERP, el candado exige lo CONTRARIO: que NO se
-    // publique. Volver a meterlo sin árbitro tiene que poner esto en rojo.
-    console.log('\n[1] El CEDIS NO se publica mientras su existencia esté en disputa');
+    // Ahora el candado exige las DOS cosas a la vez, porque cada una sola se puede satisfacer
+    // haciendo trampa: que el CEDIS **esté** en la vista (si desaparece, volvimos a dejar al
+    // comprador a ciegas sobre el nodo que surte a la red) y que lo publicado **no** sea la cifra
+    // cruda (si reaparecen los millones, se cayó el filtro de corte). El valor exacto y el
+    // residuo los vigila [4c]; acá sólo se fija que no se pueda volver a ninguno de los dos
+    // extremos sin que esto se ponga rojo.
+    console.log('\n[1] El CEDIS se publica, y sólo lo arbitrado');
     const [cedis] = await q(
       `SELECT count(*)::int skus, COALESCE(sum(qty_stock_units),0)::numeric u
          FROM analytics.v_erp_stock_on_hand WHERE warehouse_code = $1`, [SUC]);
-    chk(cedis.skus === 0,
+    const TECHO = 2000000; // la cifra cruda era 12.18 M; lo arbitrado, 0.34 M
+    chk(cedis.skus > 0 && Number(cedis.u) < TECHO,
       cedis.skus === 0
-        ? `el almacén ${SUC} está FUERA de v_erp_stock_on_hand, con su motivo escrito `
-          + '(el reporte de Kepler da 0.00 donde la vista publicaba miles)'
-        : `⛔ el CEDIS volvió a publicarse con ${n(cedis.skus)} SKUs / ${n(Math.round(cedis.u))} u `
-          + 'sin que se haya arbitrado la contradicción con el reporte del ERP (ver VERDAD_ABSOLUTA §17.7)');
+        ? `⛔ el almacén ${SUC} volvió a quedar FUERA de la vista — el comprador decide a ciegas `
+          + 'sobre el nodo que surte a la red, y el reporte del ERP ya lo arbitró'
+        : Number(cedis.u) >= TECHO
+          ? `⛔ el CEDIS publica ${n(cedis.skus)} SKUs / ${n(Math.round(cedis.u))} u: se cayó el `
+            + 'filtro de corte y volvió el residuo de la base de prueba'
+          : `el CEDIS publica ${n(cedis.skus)} SKUs / ${n(Math.round(cedis.u))} u — presente y `
+            + `por debajo del techo de ${n(TECHO)} u que separa lo arbitrado de la cifra cruda`);
 
     const ramas = await q(
       `SELECT warehouse_code FROM analytics.v_erp_stock_on_hand
@@ -180,6 +192,74 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX');
                .join(', ')} publica(n) fuera de escala — en disputa hasta tener testigo externo`);
     }
 
+    // ── 4c. LO QUE SE PUBLICA DEL CEDIS, ARBITRADO (IC.CEDIS.12) ──────────────────────────
+    // [4b] mide la tabla CRUDA y tiene que seguir marcando el 17× — kdil sigue sucia, no la
+    // arreglamos nosotros (ADR-040). Lo que cambia es lo que PUBLICAMOS: sólo las filas con
+    // actividad posterior al corte de la rama. Este bloque vigila esa cifra, y lo hace
+    // CRUZANDO DOS IMPLEMENTACIONES — verificar una vista contra sí misma pasa bugs en verde.
+    console.log('\n[4c] El CEDIS publicado: snapshot filtrado == movimientos desde el corte');
+    const [cut] = await q(
+      `SELECT min(cutover_date)::date::text AS d FROM analytics.v_branch_erp_cutover
+        WHERE kepler_code = $1`, [SUC]);
+    const corte = (cut && cut.d) || CORTE;
+    // (a) lo que la vista publica hoy
+    const [vis] = await q(
+      `SELECT count(*)::int skus, COALESCE(round(sum(s.qty_stock_units)),0)::bigint u
+         FROM analytics.v_erp_stock_on_hand s
+         JOIN commercial.warehouses w ON w.id = s.warehouse_id
+        WHERE s.source = 'kepler_ods' AND w.kepler_code = $1`, [SUC]);
+    // (b) reconstrucción INDEPENDIENTE: suma de los movimientos que afectan inventario desde
+    //     el corte. ⚠️ kdmm se une CON sucursal: el catálogo está replicado en las nueve ramas
+    //     y sin esa columna el resultado sale multiplicado por 9 (pasó al construir esto).
+    const [mov] = await q(
+      `SELECT COALESCE(round(sum(CASE WHEN m.c3='A' THEN l.c9::numeric ELSE -l.c9::numeric END)),0)::bigint u
+         FROM kepler_ods.kdm1 m
+         JOIN kepler_ods.kdm2 l
+           ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
+          AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
+         JOIN kepler_ods.kdmm mm
+           ON mm.sucursal=m.sucursal AND mm.c1=m.c2 AND mm.c2=m.c3 AND mm.c3=m.c4 AND mm.c4=m.c5
+        WHERE m.sucursal=$1 AND m.c1=m.sucursal AND mm.c8='S' AND m.c9::date >= $2::date`,
+      [SUC, corte]);
+    if (!vis || Number(vis.skus) === 0) {
+      nm(`la vista no publica nada para la sucursal ${SUC} — nada que cruzar`);
+    } else {
+      // El SKU fuera de catalog.products explica la diferencia residual; se tolera 1%.
+      const dv = Math.abs(Number(vis.u) - Number(mov.u));
+      chk(dv / Math.max(Number(mov.u), 1) < 0.01,
+        `dos implementaciones coinciden: vista ${n(vis.u)} u vs movimientos desde ${corte} ` +
+        `${n(mov.u)} u (Δ ${n(dv)}, tope 1%)`);
+      // Y ya no es el outlier: lo publicado tiene que caber contra sus pares.
+      const nodoPub = Number(vis.u);
+      const maxPar = Math.max(...mag.filter((r) => r.sucursal !== SUC).map((r) => Number(r.u)));
+      chk(nodoPub / maxPar <= UMBRAL,
+        `lo publicado del CEDIS entra en escala: ${n(nodoPub)} u = ` +
+        `${(nodoPub / maxPar).toFixed(2)}× su mayor par (umbral ${UMBRAL}×)`);
+    }
+    // ⭐ CENTINELA DEL RESIDUO: ninguna fila publicada puede venir de un renglón cuya última
+    // ENTRADA es anterior al corte. Hoy son 0 de 127; si Kepler reactiva una fila vieja, entra
+    // con sus acumuladores sucios (hay 2,890 filas / 10.36 M u esperando) y esto se pone rojo.
+    const [res] = await q(
+      `SELECT count(*)::int n, COALESCE(round(sum(c4+c8-c9)),0)::bigint u
+         FROM kepler_ods.kdil
+        WHERE sucursal=$1 AND sucursal=c1 AND (c4+c8-c9) > 0
+          AND btrim(c3) <> ALL(ARRAY['00001','00002','00022'])
+          AND GREATEST(c6,c7)::date >= $2::date AND c6::date < $2::date`, [SUC, corte]);
+    chk(Number(res.n) === 0,
+      Number(res.n) === 0
+        ? 'ninguna fila publicada arrastra acumuladores previos al corte (0 revividas)'
+        : `⛔ ${res.n} fila(s) de residuo revivieron y publican ${n(res.u)} u con acumulador sucio`);
+    // Prueba negativa: sin el filtro de corte el residuo TIENE que aparecer, o el centinela
+    // está midiendo un conjunto vacío y se pondría verde por construcción.
+    const [resNeg] = await q(
+      `SELECT count(*)::int n FROM kepler_ods.kdil
+        WHERE sucursal=$1 AND sucursal=c1 AND (c4+c8-c9) > 0
+          AND btrim(c3) <> ALL(ARRAY['00001','00002','00022'])
+          AND GREATEST(c6,c7)::date < $2::date`, [SUC, corte]);
+    chk(Number(resNeg.n) > 0,
+      `prueba negativa: sin el filtro de corte quedan ${n(resNeg.n)} filas de residuo — ` +
+      'el centinela mira un conjunto no vacío, no es un no-op');
+
     // ── 5. EL HUECO DECLARADO: kdil vs kdik en TODAS las sucursales ─────────────────────────
     console.log('\n[5] Hueco declarado — Kepler tiene DOS existencias y no coinciden');
     const div = await q(
@@ -196,9 +276,16 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX');
         GROUP BY 1 ORDER BY 1`);
     const fuera = div.filter((r) => r.razon == null || Math.abs(Number(r.razon) - 1) > 0.02);
     if (fuera.length) {
+      // ⛔ RETRACTADO (IC.CEDIS.12): acá decía «un testigo que contradice SIEMPRE no arbitra»,
+      // dando a entender que kdik era un segundo candidato a existencia. Ya se midió contra el
+      // censo del ERP y NO lo es: de los 148 SKUs con saldo real en el CEDIS, `kdik.c6`
+      // reproduce **0**. No contradice: mide otra cosa. El que sí cuadró 148 de 148 fue
+      // `kdil.c4+c8-c9`. Esta discrepancia deja de ser un hueco de existencia y pasa a ser una
+      // columna sin decodificar — por eso sigue en NO MEDIDO, pero por otra razón.
       nm(`kdil vs kdik discrepan en ${fuera.length} de ${div.length} sucursales `
         + `(${fuera.map((r) => `${r.suc}=${r.razon}x`).join(' ')}) — `
-        + 'un testigo que contradice SIEMPRE no arbitra; se publica kdil, igual que en las 8');
+        + 'kdik.c6 NO es existencia (reproduce 0 de los 148 que el ERP confirma en el CEDIS): '
+        + 'queda como columna sin decodificar, no como testigo en disputa');
     } else {
       chk(true, 'kdil y kdik coinciden en todas las sucursales — el hueco se cerró, actualizá el doc');
     }
