@@ -54,21 +54,36 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX');
 
   try {
     // ── 1. LA REGRESIÓN: el CEDIS existe en la vista ────────────────────────────────────────
-    console.log('\n[1] El CEDIS está publicado');
+    // ⛔ ESTE BLOQUE SE DIO VUELTA EL MISMO DÍA, y la vuelta es la lección.
+    //
+    // A las 09:11 se publicó el CEDIS (batch 647) argumentando que su volumen «está repartido entre
+    // miles de SKUs, así que es un almacén y no un artefacto». A las 09:38 Edgar sacó del propio
+    // Kepler el reporte de existencia del `ALMACÉN Cedis` y da **0.00 en ~140 filas de la línea
+    // 036**, donde la plataforma publicaba 3,288 / 24,192 / 21,600 unidades. A las 09:55 se retiró
+    // (batch 653). *Estar repartido no lo hace real — eso era una corazonada con forma de medición.*
+    //
+    // Mientras la cifra esté contestada por el ERP, el candado exige lo CONTRARIO: que NO se
+    // publique. Volver a meterlo sin árbitro tiene que poner esto en rojo.
+    console.log('\n[1] El CEDIS NO se publica mientras su existencia esté en disputa');
     const [cedis] = await q(
       `SELECT count(*)::int skus, COALESCE(sum(qty_stock_units),0)::numeric u
          FROM analytics.v_erp_stock_on_hand WHERE warehouse_code = $1`, [SUC]);
-    chk(cedis.skus > 0,
-      `el almacén ${SUC} tiene ${n(cedis.skus)} SKUs en v_erp_stock_on_hand `
-      + `(${n(Math.round(cedis.u))} u) — estuvo en CERO el 2026-09-30`);
+    chk(cedis.skus === 0,
+      cedis.skus === 0
+        ? `el almacén ${SUC} está FUERA de v_erp_stock_on_hand, con su motivo escrito `
+          + '(el reporte de Kepler da 0.00 donde la vista publicaba miles)'
+        : `⛔ el CEDIS volvió a publicarse con ${n(cedis.skus)} SKUs / ${n(Math.round(cedis.u))} u `
+          + 'sin que se haya arbitrado la contradicción con el reporte del ERP (ver VERDAD_ABSOLUTA §17.7)');
 
     const ramas = await q(
       `SELECT warehouse_code FROM analytics.v_erp_stock_on_hand
         GROUP BY 1 HAVING count(*) > 0 ORDER BY 1`);
     // Guarda anti-no-op: si la vista se vacía entera, el bloque 1 pasaría igual de "verde" mirando
     // sólo al CEDIS. Las 8 hermanas son el control.
-    chk(ramas.length >= 9,
-      `la vista publica ${ramas.length} almacenes (${ramas.map((r) => r.warehouse_code).join(',')}) — se esperan >= 9`);
+    // Guarda anti-no-op: con el CEDIS retirado, el bloque de arriba pasaría igual si la vista se
+    // vaciara ENTERA. Las 8 hermanas son el control de que sigue viva.
+    chk(ramas.length >= 8,
+      `la vista publica ${ramas.length} almacenes (${ramas.map((r) => r.warehouse_code).join(',')}) — se esperan >= 8`);
 
     // ── 2. SIN DOBLE CONTEO entre las dos piernas ───────────────────────────────────────────
     console.log('\n[2] Las dos piernas no se solapan');
@@ -196,12 +211,20 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX');
                   AND s.score_salvedad IS DISTINCT FROM 'sin_datos')::int              AS contables`,
       [SUC]);
 
-    const corrio = prog.abc_al && prog.fix_al && new Date(prog.abc_al) > new Date(prog.fix_al);
-    if (prog.abc_cedis > 0) {
+    // ⛔ Mientras el CEDIS esté retirado de la vista NO puede entrar al programa de conteo: la
+    // cadena entera cuelga de `v_erp_stock_on_hand`. Se DECLARA en vez de fallar -- no es una
+    // regresión, es la consecuencia buscada de retirarlo, y vuelve sola cuando se arbitre.
+    const [enVista] = await q(
+      `SELECT count(*)::int n FROM analytics.v_erp_stock_on_hand WHERE warehouse_code = $1`, [SUC]);
+    if (enVista.n === 0) {
+      nm('el CEDIS está retirado de la existencia publicada (IC.CEDIS.9), así que no puede entrar '
+        + 'al conteo rotativo: la cadena cuelga de v_erp_stock_on_hand. Se destraba al arbitrar '
+        + 'la contradicción con el reporte del ERP');
+    } else if (prog.abc_cedis > 0) {
       chk(prog.contables > 0,
         `el CEDIS aporta ${n(prog.contables)} SKUs CONTABLES al plan `
         + `(${n(prog.abc_cedis)} clasificados) — ya está en la ola rotativa`);
-    } else if (!corrio) {
+    } else if (!(prog.abc_al && prog.fix_al && new Date(prog.abc_al) > new Date(prog.fix_al))) {
       nm('el nocturno de ABC (03:30) todavía no corrió desde que se arregló la vista — '
         + `último cómputo ${prog.abc_al ? new Date(prog.abc_al).toISOString().slice(0, 16) : '(nunca)'}`
         + '; el CEDIS entra en la próxima corrida');

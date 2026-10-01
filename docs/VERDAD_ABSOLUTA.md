@@ -1946,3 +1946,51 @@ El bloque 7 de `test-newdb-cedis-stock-truth.js` lo vigila, y **distingue dos co
 y piden lo contrario**: si el nocturno aún no corrió desde el arreglo reporta **NO MEDIDO**; si corrió
 **después** y el CEDIS igual no está, **FALLA**. Sin esa distinción el candado daría rojo el mismo día
 del arreglo, que es como se enseña a ignorarlo.
+
+### 17.7 ⛔⛔ EL REPORTE DEL PROPIO KEPLER TUMBA LA CIFRA — y no es un tema del CEDIS
+
+**Lo trajo un humano, el mismo día.** Edgar sacó del ERP el *"Reporte de existencia por productos"*
+(01/10/2026 09:38) con filtros `Sucursal = CEDIS`, `Almacén = ALMACÉN Cedis`, `Línea 036`. Las ~140
+filas dan **0.00 en las tres unidades**. Contra lo que esta plataforma publicaba:
+
+| SKU | descripción | publicado | Kepler |
+|---|---|---|---|
+| 65000 | PELON PELONAZO 4P | **3,288** | **0.00** |
+| 65001 | PELON PELO RICO TAM EXH 10P | **24,192** | 0.00 |
+| 65002 | PELON PELO RICO TAM BLS 12+2 | **21,600** | 0.00 |
+| 95757 | HERSHEYS CHISPAS SEMI-AMARGO 2.5KG | 36 | 0.00 |
+
+⛔ **No se puede echar la culpa al entorno.** Verificado uno por uno: la rama `00` replica
+**192.168.9.95 / `md_00`** —la máquina que el CEDIS usa hoy—, la sucursal tiene **un solo almacén**
+(`c1='00'`, 126,475 documentos) y la réplica está **fresca** (8 documentos de hoy).
+
+⚠️ **Y la aritmética tampoco falla.** La reconstrucción desde documentos DA LA RAZÓN a la fórmula:
+para el `65000`, `X-A-20` (aplica orden de entrada) suma **3,384** y `U-D-40` (embarque) **96** →
+3,288 = exactamente `c4+c8−c9`. O sea que `c8`/`c9` son los acumulados que la doc describe. **Dos
+fuentes del MISMO Kepler no coinciden, y no sabemos cuál publica el reporte.**
+
+⭐⭐ **Lo que esto significa, y es más grande que el CEDIS:** `v_erp_stock_on_hand` usa esta misma
+fórmula para las **nueve** sucursales. Si está mal, está mal en todas. Y encaja con §17.4: `kdik.c6`
+—que discrepa de `kdil` en las nueve— vale **96** para el `65000`, que es exactamente `c9`. Hay al
+menos **tres** lecturas posibles de la existencia en Kepler y nunca se arbitraron contra el ERP.
+
+**Decisión: se RETIRA el CEDIS de la existencia publicada** (mig `20261001170000`, batch 653), el
+mismo día que se publicó. Dos razones, las dos explícitas:
+
+1. ⛔ **El argumento de ayer queda refutado.** Se publicó diciendo que el volumen «está repartido
+   entre miles de SKUs, así que es un almacén y no un artefacto». **Estar repartido no lo hace
+   real** — eso era una corazonada con forma de medición. El ERP dice cero.
+2. Esa cifra ($298M) alimentaba esa misma noche `inventory_health` → ABC → `reorder_policy` → el
+   **sugerido de compras**. ADR-056: lo que no se puede medir se DECLARA, no se dibuja.
+
+⚠️ **Esto reabre el reporte original** (*"/compras/existencia no muestra el CEDIS"*) y se asume a
+conciencia: **ausente y declarado le gana a presente y falso**, sobre todo alimentando compras.
+
+⭐ **Lo que lo destraba, y es la pieza que a este documento le falta para las NUEVE ramas:** el mismo
+reporte del ERP **sin el filtro de línea** y con *omitir productos en cero = Sí*. Eso contesta "qué
+tiene de verdad el almacén" **según el propio Kepler**, que es el árbitro independiente de existencia
+que nunca tuvimos. Corrido por sucursal, arbitra el dataset completo — no sólo el CEDIS.
+
+⭐ **La lección de método, que ya había costado una vez en esta misma fase:** la medición que yo tenía
+(*"está repartido, luego es real"*) no era un árbitro, era una **plausibilidad**. Un árbitro es una
+fuente que puede decir que NO. El reporte del ERP dijo que no en la primera consulta.
