@@ -1,0 +1,83 @@
+# ═══ CARRIL CALIENTE ═══  [K3S.2]  — el molde de los 5 carriles continuos
+#
+# ⛔⛔ `strategy: Recreate` NO ES COSMÉTICO. ES LO QUE EVITA PERDER FILAS EN SILENCIO.
+#
+# El default de un Deployment es `RollingUpdate` con `maxSurge: 25%`, que con `replicas: 1`
+# redondea a 1: K8s **levanta el pod nuevo ANTES de matar el viejo**. Durante esa ventana hay
+# DOS shippers vivos contra las mismas réplicas, y el estado del CDC es compartido sin ninguna
+# dimensión que diga quién lo escribió:
+#
+#     ods.ctl     ON CONFLICT (table_name)
+#     ods.shadow  ON CONFLICT (table_name, pk_text)
+#
+# Se pisan el watermark, uno graba un ctid viejo encima del nuevo, y las filas del medio NO se
+# vuelven a mirar. Sin error, sin reintento, sin una línea de log. Es el mismo modo de falla que
+# costó seis días de precios viejos en la Fase OBS, y el que `[INFRA.4]` candadeó del lado de
+# Compose (`database/tests/test-ods-lane-partition.js`).
+#
+# ⭐ Dicho de otra forma: lo principal que K8s vende —programar réplicas libremente— acá es un
+#    DEFECTO. Por eso `replicas: 1` y `Recreate` van juntos y los verifica un candado
+#    (`scripts/check-k3s-manifests.js`), no la memoria de quien edite el YAML.
+#
+# ⚠️ `Recreate` implica un hueco de ~segundos sin carril en cada despliegue. Es ACEPTABLE y es la
+#    decisión correcta: el carril es incremental por watermark, así que al volver retoma donde
+#    quedó. Un hueco de segundos se repone solo; una carrera de watermark no se repone nunca.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ods-live-hot
+  namespace: ingesta
+  labels:
+    carril: ods-live-hot
+    singleton: "true"          # lo lee el candado
+spec:
+  replicas: 1                  # ⛔ NUNCA subir: ver el encabezado
+  strategy:
+    type: Recreate             # ⛔ NUNCA RollingUpdate: ver el encabezado
+  selector:
+    matchLabels:
+      carril: ods-live-hot
+  template:
+    metadata:
+      labels:
+        carril: ods-live-hot
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: shipper
+          image: trade-ingest:latest
+          imagePullPolicy: IfNotPresent     # la imagen se importa al containerd del nodo
+          command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=15"]
+          envFrom:
+            - secretRef:
+                name: ingest-env            # calca /home/superoot/secrets/ingest.env
+          env:
+            # Mismas variables que `ops/vl/docker-compose.yml`. La lista de tablas sigue siendo
+            # la fuente única: si se toca acá, se toca allá, y `[INFRA.4]` compara las dos.
+            - name: ODS_HB_KEY
+              value: ods_live_hot
+            - name: ODS_HB_MAX_MIN
+              value: "20"
+            - name: KP_ODS_TABLES
+              value: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+            - name: ODS_HASH_TABLES
+              value: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+          # ⭐ ACÁ SE DISUELVE EL PUNTO 3. Esta sonda ES el brazo: cuando falla, el kubelet
+          # reinicia el contenedor. No hace falta `ods-autoheal`, y por lo tanto no hace falta
+          # montar `/var/run/docker.sock` —que equivale a root en el host— en una imagen de
+          # terceros. El mismo `health.js` que hoy corre como HEALTHCHECK de Docker, sin cambiarle
+          # una línea: mide ENTREGA contra `analytics.cron_runs`, no «el proceso vive».
+          livenessProbe:
+            exec:
+              command: ["node", "/app/ops/ingest/health.js"]
+            initialDelaySeconds: 60         # = start_period del compose
+            periodSeconds: 60
+            timeoutSeconds: 10              # = timeout del compose
+            failureThreshold: 5             # = retries del compose
+          resources:
+            # Medido el 2026-10-01: este carril usa ~26 MB. El `limit` es holgado a propósito —
+            # un OOMKill por apretar de más es peor que la memoria que ahorra.
+            requests: { memory: "64Mi", cpu: "50m" }
+            limits:   { memory: "512Mi" }

@@ -1,0 +1,80 @@
+# ═══ EL PUENTE DE NOMBRES ═══  [K3S.1]
+#
+# ⭐ ESTO ES LO QUE HACE QUE LA MIGRACIÓN NO TOQUE NI UNA CREDENCIAL.
+#
+# Los carriles resuelven sus tres destinos por DNS de la red de Docker — medido el 2026-10-01
+# dentro de `ods-live-hot`:
+#
+#     DATABASE_URL_NEW  ->  pg-prod:5432
+#     ODS_HB_URL        ->  pg-prod:5432
+#     ODS_SOURCE_BASE   ->  pg-ods:5432
+#
+# En K3s esos nombres no existen, así que el camino obvio sería reescribir el entorno a IPs.
+# ⛔ Se rechaza: el entorno vive en `/home/superoot/secrets/ingest.env` y tocar credenciales
+# está BLOCKED por decisión del usuario (`[A.0bis.1-3]`). Además, un entorno distinto entre
+# Compose y K3s significa que durante la migración conviven DOS verdades sobre a dónde escribe
+# cada carril — que es exactamente cómo se termina shipeando a la base equivocada (pasó en
+# `[VL.14]`: el ship de Caja General escribía a la producción VIEJA y nadie lo notaba).
+#
+# En su lugar: un `Service` SIN selector más sus `Endpoints` a mano. K8s publica el nombre
+# `pg-prod` dentro del clúster y lo apunta al host. El contenedor no se entera de nada: misma
+# imagen, mismo secreto, misma URL. Y cuando algún día Postgres entre al clúster, se le pone
+# selector a este mismo Service y los carriles siguen sin cambiar.
+#
+# ⚠️ Los dos Postgres NO se mudan, y no es pereza: `pg-prod` usa 11.96 GiB y `pgvector-md`
+#    4.35 GiB contra 1.06 GiB de TODO lo demás junto. Meter 16 GiB de estado en el clúster para
+#    orquestar 1 GiB de proceso es el argumento invertido. Entran al final, si entran.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingesta
+---
+# ── pg-prod: el DESTINO (prod, :5434 en el host) ──────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-prod
+  namespace: ingesta
+spec:
+  # Sin `selector` a propósito: los Endpoints se declaran a mano, abajo.
+  ports:
+    - name: postgres
+      port: 5432          # el puerto que el entorno YA dice (pg-prod:5432)
+      targetPort: 5434    # el puerto REAL en el host
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: pg-prod           # el nombre DEBE coincidir con el Service de arriba
+  namespace: ingesta
+subsets:
+  - addresses:
+      - ip: 192.168.0.222
+    ports:
+      - name: postgres
+        port: 5434
+---
+# ── pg-ods: la FUENTE (las 8 réplicas lógicas, :5433 en el host) ──────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-ods
+  namespace: ingesta
+spec:
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5433
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: pg-ods
+  namespace: ingesta
+subsets:
+  - addresses:
+      - ip: 192.168.0.222
+    ports:
+      - name: postgres
+        port: 5433
