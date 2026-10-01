@@ -96,12 +96,29 @@ interno.megadulcessuite.com {
 	import api-balanceado
 }
 
+# ⭐ [K3S.14] APUNTAN AL PUERTO DEL HOST, NO AL NOMBRE DE DOCKER — y eso es lo que DESACOPLA
+# la migración a K3s del camino de entrada del sitio.
+#
+# `reverse_proxy portal:10000` resolvía por DNS de la red de Docker, así que el día que `portal`
+# se vuelva un pod, Caddy deja de encontrarlo y el sitio cae. Apuntando a `192.168.0.222:8081`
+# —el puerto que el contenedor YA publica, y que el pod va a publicar igual con `hostPort`—
+# Caddy funciona en los dos mundos sin enterarse de cuál está corriendo.
+#
+# El orden importa: este cambio se hizo CON LAS APPS TODAVÍA EN DOCKER y se verificó que el
+# sitio seguía contestando. Recién después se mueve cada app. Así cada paso es reversible por
+# separado, en vez de que un solo corte mueva el ingreso y la app a la vez.
+#
+# ⚠️ El bloque `(api-balanceado)` NO se tocó: reparte entre `api` y `api2`, y `api2` no publica
+# puerto en el host, así que no tiene equivalente por IP. Ése se resuelve cuando el API migre
+# —ahí son `replicas: 2` de un solo Deployment, que es su forma natural— y Caddy pasa a usar el
+# DNS del clúster. Mientras tanto sigue por DNS de Docker, que es correcto porque los dos siguen
+# siendo contenedores.
 portal.megadulcessuite.com {
 	import tls-dns-cloudflare
-	reverse_proxy portal:10000
+	reverse_proxy 192.168.0.222:8081
 }
 
 vendedor.megadulcessuite.com {
 	import tls-dns-cloudflare
-	reverse_proxy vendor:10000
+	reverse_proxy 192.168.0.222:8082
 }
