@@ -5,6 +5,51 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-01 — DM.17: el traspaso que decía salir del CEDIS y salió de Morelia Abastos
+Edgar: *"antes al 9.95 se subían CEDIS y Morelia Abastos; hay que diferenciar los históricos"*.
+**Primero dije que no podía validarlo. Me equivoqué, y el error fue de método.**
+
+- Busqué por **terceros y clientes** —si Abastos vivía ahí, su cartera se notaría— y dio negativo:
+  6 de 804 terceros nombran "Morelia" y resultaron ser **nombres de calle** (`MIRADOR MORELIA 60`).
+  También descarté por volumen con un cruce que mi propio placebo tumbó (la `08` daba 25.7% contra
+  un piso de ruido de 15-22%). Concluí "no pude validarlo" sobre algo que era cierto.
+- **El rastro no estaba en el tercero: estaba en el documento.** `kdm1.c24` guarda el folio del
+  ticket Wincaja de origen. Lo tuve delante al validar el documento 0000317 dos turnos antes y no
+  lo miré. Lo destrabó un ticket impreso que trajo Edgar.
+- `T990008354` (almacén **30 Morelia Abastos**, 90041 ×48 + 90044 ×15 = 63 u / $1,407.66) se pasó
+  a Kepler como cadena `U-D-40` 0000759 → `U-D-41` 0000712 → `U-A-50` 0000317, y los dos primeros
+  quedaron en la **sucursal `00`**. La pantalla publicaba "CEDIS".
+
+**⭐ El caso trae su propio control, y por eso el candado es fuerte:** ese folio existe en DOS ramas
+Wincaja y las dos se cargaron a la `00`, con veredictos opuestos — 0000712 (24-sep, 63 u) es de la
+rama 30, y 0000757 (29-sep, 99218 ×100) es del CEDIS de verdad. Mismo folio, mismo destino, y lo
+único que los separa es el contenido.
+
+**Entregado:** `analytics.v_transfer_true_origin` (mig `20261001220000`, prod batch 662) + índice
+`ix_wcj_maestro_documento` + candado `test-newdb-transfer-true-origin.js` **5/5 contra prod**.
+Medido: **57 documentos / $1,515,473 no salieron de la sucursal que Kepler dice** (40 Morelia
+Abastos, 17 Canindo) · 62 CEDIS confirmados · **3,538 / $74.5M no verificables**.
+
+**Lecciones:**
+- ⭐⭐ *Un placebo que tumba tu señal no prueba que la tesis sea falsa — prueba que tu llave es
+  mala.* El cruce por terceros era ruido, y de ahí salté a "no pude validarlo". La conclusión
+  correcta era "necesito otra llave", y la llave existía en la misma tabla.
+- ⭐ *El desambiguador es el CONTENIDO, no el importe.* Medido: por folio solo, 105 de 122
+  ambiguos (el folio de ticket tampoco es único entre ramas — mismo modo de falla que `[DM.15]`);
+  por importe resuelve 36 y pierde matches reales ($2,668.00 contra $1,533.34 en el mismo envío);
+  por SKU+cantidad, 120 de 121 medibles.
+- ⭐ *Cuando la cobertura es baja, el número que hay que publicar es la cobertura.* 96.7% no es
+  verificable, y el candado lo imprime siempre: sin eso, "3,538 fuera de réplica" se lee igual
+  que "3,538 están bien".
+- ⚠️ **Dos tablas de 2 GB con `last_analyze` VACÍO.** `wincaja.maestro_mov_almacen` (1.5 M) y
+  `detalles_mov_almacen` (10 M) nunca se habían analizado, así que el planner elegía nested-loop
+  —el mismo problema que documenta su propio importer—. `ANALYZE`: 678 ms y 611 ms. Beneficia a
+  todos sus consumidores, no sólo a esta vista.
+- ⛔ **Mi primera consulta estuvo 10 minutos corriendo en prod en horario hábil** antes de que la
+  cancelara: agregaba las dos tablas enteras en vez de acotar por los 632 folios que necesitaba.
+  Desde entonces, `SET statement_timeout` en toda exploración contra prod.
+
+---
 ## 2026-10-01 — El hueco más grande de VERDAD_ABSOLUTA.md estaba cerrado y nadie lo sabía
 Edgar: *"wincaja ya sólo existe para históricos; el `.9.95` ya tiene Kepler y toda la información
 de Kepler CEDIS ya es la oficial"*. Se midió antes de registrarlo.
