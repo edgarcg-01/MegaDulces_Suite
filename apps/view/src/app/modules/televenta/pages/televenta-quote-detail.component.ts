@@ -1311,7 +1311,10 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       barcode: l.product_barcode ?? null,
       content: l.product_content ?? null,
       unit_label: l.qty_unit || 'PZA',
-      rung: ['CJA', 'CAJA', 'BTO', 'BULTO', 'CUB', 'CUBETA'].includes((l.qty_unit || '').toUpperCase())
+      // BTO/CUB son unidad mayor SÓLO con factor > 1: 13 SKUs los tienen como unidad BASE (15143
+      // nace BTO a $89.39 sin caja) — mismo criterio que `isUnidadMayor` del entregable.
+      rung: ['CJA', 'CAJA'].includes((l.qty_unit || '').toUpperCase())
+        || (['BTO', 'BULTO', 'CUB', 'CUBETA'].includes((l.qty_unit || '').toUpperCase()) && (this.num(l.qty_factor) ?? 0) > 1)
         ? 'box'
         : (l.qty_unit === 'PAQ' || l.qty_unit === 'Paquete' ? 'pack' : 'base'),
       factor: this.num(l.qty_factor),
