@@ -60,14 +60,14 @@ async function tenantRls(knex, table) {
 }
 
 exports.up = async function up(knex) {
-  const S = knex.schema.withSchema('commercial');
-  if ((await S.hasTable('purchase_delivery_sequences')) && (await S.hasTable('purchase_deliveries'))
-      && (await S.hasTable('purchase_delivery_lines'))) {
+  const S = () => knex.schema.withSchema('commercial'); // ⛔ FÁBRICA, no instancia: un SchemaBuilder ACUMULA sentencias, y de la 2a `has*()` en adelante devuelve un ARRAY (truthy) en vez de un booleano -- el `if (!...)` se vuelve falso siempre y el DDL se SALTA en silencio. Medido en prod 2026-09-30.
+  if ((await S().hasTable('purchase_delivery_sequences')) && (await S().hasTable('purchase_deliveries'))
+      && (await S().hasTable('purchase_delivery_lines'))) {
     return;
   }
   await knex.raw(`SET LOCAL lock_timeout = '3s'`);
 
-  if (!(await S.hasTable('purchase_delivery_sequences'))) {
+  if (!(await S().hasTable('purchase_delivery_sequences'))) {
     await knex.raw(`
       CREATE TABLE commercial.purchase_delivery_sequences (
         tenant_id     uuid NOT NULL REFERENCES identity.tenants (id) ON DELETE CASCADE,
@@ -82,7 +82,7 @@ exports.up = async function up(knex) {
     await tenantRls(knex, 'purchase_delivery_sequences');
   }
 
-  if (!(await S.hasTable('purchase_deliveries'))) {
+  if (!(await S().hasTable('purchase_deliveries'))) {
     await knex.raw(`
       CREATE TABLE commercial.purchase_deliveries (
         id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -123,7 +123,7 @@ exports.up = async function up(knex) {
     await tenantRls(knex, 'purchase_deliveries');
   }
 
-  if (!(await S.hasTable('purchase_delivery_lines'))) {
+  if (!(await S().hasTable('purchase_delivery_lines'))) {
     await knex.raw(`
       CREATE TABLE commercial.purchase_delivery_lines (
         id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
