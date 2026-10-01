@@ -126,3 +126,53 @@ export class ConvertProspectDto {
   @IsString()
   customer_id?: string;
 }
+
+// ── [PR.M4] La competencia ───────────────────────────────────────────────────
+
+export class IngestCompetitorsDto {
+  @ApiProperty({
+    required: false,
+    description: 'Claves de entidad INEGI a cosechar (2 dígitos). Por defecto, las del tenant.',
+    example: ['16', '11', '14'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  entidades?: string[];
+}
+
+export class CompetitorListFilterDto {
+  @ApiProperty({ required: false, enum: ['directa', 'abarrotes', 'otros alimentos'] })
+  @IsOptional()
+  @IsIn(['directa', 'abarrotes', 'otros alimentos'])
+  tipo?: string;
+
+  @ApiProperty({ required: false, description: 'Clave de entidad INEGI (2 dígitos)' })
+  @IsOptional()
+  @IsString()
+  entidad?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  municipio?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Tamaño mínimo por rango de personal: 1 = 0 a 5 … 7 = 251 y más',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(7)
+  min_tamano?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(2000)
+  limit?: number;
+}

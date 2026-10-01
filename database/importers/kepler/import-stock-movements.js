@@ -300,6 +300,38 @@ async function main() {
       GROUP BY dest_code
       ON CONFLICT (tenant_id, dest_code) DO UPDATE
         SET dest_label = COALESCE(EXCLUDED.dest_label, analytics.transfer_dest_map.dest_label), updated_at = now()`, [M]);
+    // [DM.18] EL CATÁLOGO DEL ERP MANDA — y corre ANTES del auto-ligado, no después.
+    //
+    // `md.pv_suc_ip` (ya en el ODS vía el carril espejo) trae el mapa TI### -> sucursal
+    // explícito, puesto por Kepler. Dos veces inferimos lo que este catálogo decía: [DM.11e]
+    // ató el CEDIS a 8ESQ con 13% de evidencia, y [DM.15] ató Morelia Madero al almacén
+    // Wincaja BORRADO de la misma tienda, que ningún umbral podía ver porque los dos se
+    // llaman igual. Adivinar al lado de una fuente autoritativa es el defecto, no el umbral.
+    //
+    // ⛔ Se aplica aunque YA haya warehouse_id, al revés que el auto-ligado: el ERP es la
+    // verdad, así que un valor que lo contradiga está mal aunque lo haya puesto un humano.
+    // Sólo toca los códigos que el catálogo cubre (los TI###); los de CLIENTE no aparecen ahí
+    // y quedan intactos para la curación manual y la heurística.
+    //
+    // `es_consistente` es el freno: son 9 copias del catálogo (una por POS) y hoy las 9
+    // coinciden, pero eso es una medición con fecha. Si alguna diverge, NO se escribe nada —
+    // se declara. Elegir una copia al azar sería repetir el error con otra cara.
+    const porCatalogo = await db.query(`
+      UPDATE analytics.transfer_dest_map dm
+         SET warehouse_id = c.warehouse_id, updated_at = now()
+        FROM analytics.v_erp_branch_catalog c
+       WHERE dm.tenant_id = c.tenant_id AND dm.dest_code = c.dest_code
+         AND c.es_consistente
+         AND dm.warehouse_id IS DISTINCT FROM c.warehouse_id`, []);
+    if (porCatalogo.rowCount) {
+      console.log(`[DM.18] ${porCatalogo.rowCount} dest_code corregidos desde el catálogo del ERP (pv_suc_ip).`);
+    }
+    const discrepan = await db.query(
+      `SELECT count(*)::int n FROM analytics.v_erp_branch_catalog WHERE NOT es_consistente`, []);
+    if (discrepan.rows[0]?.n) {
+      console.log(`[DM.18] ⚠️ ${discrepan.rows[0].n} código(s) con el catálogo DIVERGENTE entre POS: no se tocan, se declaran.`);
+    }
+
     // DM.11d — auto-liga warehouse_id por VERDAD DE RECEPCIÓN: el almacén que EFECTIVAMENTE
     // recibe los envíos de cada dest_code (pareo folio+serie+ventana 15d, mismo criterio que
     // transfers-check). Env-agnóstico (no adivina por código ni nombre) y solo usa la platform

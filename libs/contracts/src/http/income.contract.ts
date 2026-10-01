@@ -133,3 +133,78 @@ export interface IncomeSources {
   to: string;
   fuentes: IncomeSourceRow[];
 }
+
+// ─────────── `[IG.6]` Conciliación: lo VENDIDO y lo COBRADO, sin obligarlos a ser iguales ──────
+//
+// Pedido de Edgar: *"casar todos los ingresos a cada tienda y saber de dónde viene cada ingreso"*.
+//
+// ⛔ La razón de que sean DOS columnas y no una: la medición que disparó esto encontró que el
+// ingreso publicado incluye **el CEDIS facturándole a sus propias tiendas** ($41.25 M de ago-2026,
+// 73.8 % del doctype). Obligar a que vendido == cobrado forzaría a elegir una de las dos cifras y
+// esconder la otra; acá las dos se publican y la diferencia se EXPLICA renglón por renglón.
+
+/** Qué es el cliente de una venta. `sin_catalogo` es NO MEDIDO, no "externo por default". */
+export type IncomeKind =
+  | 'externo'
+  | 'interno_sucursal'
+  | 'interno_punto_venta'
+  | 'interno_ruta'
+  | 'interno_traspaso'
+  | 'interno_telemarketing'
+  | 'sin_catalogo';
+
+/** Grano temporal del corte. */
+export type IncomeGrain = 'dia' | 'mes' | 'trimestre';
+
+/**
+ * Un tramo del puente entre lo vendido y lo cobrado. `monto: null` = NO MEDIDO.
+ * `resta` dice si el tramo se descuenta del vendido para llegar al cobrado, o si sólo acompaña.
+ */
+export interface IncomeBridgeItem {
+  key: string;
+  label: string;
+  monto: number | null;
+  resta: boolean;
+  nota: string;
+}
+
+export interface IncomeReconRow {
+  periodo: string;
+  warehouse_code: string;
+  warehouse_name: string;
+  kepler_sucursal: string;
+  /** Venta a cliente REAL, ya sin el envoltorio fiscal. Es el ingreso del negocio. */
+  vendido_externo: number;
+  /** Traspaso dentro de la casa. NO es ingreso: se publica para que se vea, no para sumarlo. */
+  vendido_interno: number;
+  /** Cliente que no está en `kdud`. Declarado aparte: no se cuenta como externo. */
+  vendido_sin_catalogo: number;
+  /** `U-D-6` Factura global: envuelve fiscalmente a los tickets `U-D-10`. Informativo. */
+  envoltorio_fiscal: number;
+  docs: number;
+  cobrado_efectivo: number;
+  cobrado_banco: number;
+  /** Cobro cuya cuenta de tesorería no resuelve contra `kdb1`. NO MEDIDO, no cero. */
+  cobrado_sin_cuenta: number;
+  cobros: number;
+  /** Cuentas distintas por las que entró dinero ese período (el "cuántos depósitos diferentes"). */
+  cuentas: Array<{ code: string; nombre: string | null; medio: 'efectivo' | 'banco' | 'sin_catalogo'; cobros: number; importe: number }>;
+  /** Aplicaciones cobro→factura de `kdm5`: cuántos pagos distintos se casaron, y contra cuántas facturas. */
+  pagos_casados: number;
+  facturas_casadas: number;
+  importe_casado: number;
+  /** `true` cuando el documento trae fecha posterior a hoy (Kepler lo permite). */
+  tiene_fecha_futura: boolean;
+}
+
+export interface IncomeRecon {
+  from: string;
+  to: string;
+  grain: IncomeGrain;
+  freshness: Freshness;
+  rows: IncomeReconRow[];
+  totales: Omit<IncomeReconRow, 'periodo' | 'warehouse_code' | 'warehouse_name' | 'kepler_sucursal' | 'cuentas'>;
+  bridge: IncomeBridgeItem[];
+  /** Lo que esta pantalla NO puede medir, con su monto. Nunca se dibuja como cero. */
+  huecos: IncomeBridgeItem[];
+}

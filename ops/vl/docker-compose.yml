@@ -315,7 +315,28 @@ services:
   ods-reconcile-full:
     <<: *lane
     container_name: ods-reconcile-full
-    depends_on: [ods-live-hot]
+    # ⛔ [K3S.23] SIN depends_on, y esto rompia el despliegue ENTERO desde [K3S.13].
+    #
+    # Decia `depends_on: [ods-live-hot]`. Ese carril se fue a K3s y quedo bajo el perfil
+    # `retirado-k3s`; este es el UNICO que no tiene perfil, o sea el unico siempre activo.
+    # Compose excluye el destino por perfil y lo reporta como si no existiera:
+    #
+    #     service "ods-reconcile-full" depends on undefined service "ods-live-hot":
+    #     invalid compose project
+    #
+    # No es un aviso: el proyecto queda INVALIDO, asi que `ops/vl/deploy.sh --todo` y `--k3s`
+    # abortaban en la validacion. Nadie podia desplegar la ingesta y no se noto hasta que
+    # alguien corrio el deploy — porque la validacion corre DESPUES del build, al final.
+    #
+    # ⚠️ Los otros tres `depends_on: [ods-live-hot]` (lineas ~194/225/286) SE QUEDAN: esos
+    # servicios viven en el MISMO perfil que su dependencia, asi que o entran los dos o no
+    # entra ninguno. Y si algun dia se revierte la migracion activando el perfil, la
+    # dependencia vuelve a ser cierta. Borrarlos "por consistencia" seria perder el orden
+    # de arranque del unico camino de rollback que queda.
+    #
+    # ⭐ Lo que ya no se puede expresar: "arranca despues del carril caliente". Compose no
+    # sabe esperar un pod. El reconciliador nocturno no lo necesita — corre a las 02:10 y
+    # su propio preflight verifica la base antes de tocar nada.
     environment:
       TZ: America/Mexico_City
       ODS_RECONCILE_HB_KEY: cdc_reconcile_full

@@ -20,8 +20,10 @@ import {
 } from '@megadulces/platform-core';
 import { ProspectsService } from './prospects.service';
 import {
+  CompetitorListFilterDto,
   ConvertProspectDto,
   IngestAreaDto,
+  IngestCompetitorsDto,
   IngestNearbyDto,
   ProspectConfigDto,
   ProspectListFilterDto,
@@ -108,6 +110,31 @@ export class ProspectsController {
   @ApiOperation({ summary: 'Re-corre el dedup contra stores + clientes' })
   dedup(@ReqUser() user: any) {
     return this.service.dedup(user);
+  }
+
+  // ── [PR.M4] La competencia. Van ANTES de las rutas con `:id` ───────────────
+
+  @Get('competidores')
+  @RequirePermissions(Permission.COMMERCIAL_MAP_PROSPECTS_VER)
+  @ApiOperation({
+    summary: 'Competidores mayoristas censados por DENUE, ordenados por cuántos puntos nuestros rodean',
+  })
+  competidores(@ReqUser() user: any, @Query() filters: CompetitorListFilterDto) {
+    return this.service.listCompetitors(user, filters);
+  }
+
+  @Post('ingest-competitors')
+  @RequirePermissions(Permission.COMMERCIAL_MAP_PROSPECTS_GESTIONAR)
+  @ApiOperation({ summary: 'Cosecha competidores por clase SCIAN de mayoreo (4311xx) y entidad' })
+  ingestCompetitors(@ReqUser() user: any, @Body() dto: IngestCompetitorsDto) {
+    return this.service.ingestCompetitors(user, dto.entidades);
+  }
+
+  @Post('competidores/medir-proximidad')
+  @RequirePermissions(Permission.COMMERCIAL_MAP_PROSPECTS_GESTIONAR)
+  @ApiOperation({ summary: 'Recalcula cuántos puntos propios rodea cada competidor (1 km y 5 km)' })
+  medirProximidad(@ReqUser() user: any) {
+    return this.service.medirProximidadCompetidores(user);
   }
 
   @Post(':id/dismiss')

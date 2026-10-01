@@ -34,7 +34,8 @@ import type {
 import { EXPENSE_FAMILIA_SERIES_KEY, expenseFamiliaLabel } from '@megadulces/contracts';
 // [IG.1] Canales de venta: la etiqueta se define UNA vez (el canal vive en c6, no en la cuenta).
 import { SALES_CANAL_RESIDUO, SALES_CANAL_SERIES_KEY, salesCanalLabel } from '@megadulces/contracts';
-import type { IncomeReport, IncomeSources, IncomeTree } from '@megadulces/contracts';
+import type { IncomeBridgeItem, IncomeGrain, IncomeRecon, IncomeReconRow, IncomeReport,
+  IncomeSources, IncomeTree } from '@megadulces/contracts';
 /** Nodos del árbol de ingresos mientras se arma (los hijos viven en un Map por clave). */
 interface TreePlaza { key: string; label: string; level: string; total: number; movs: number }
 /** Un agregado de una sola columna `v`; knex devuelve el numérico de Postgres como texto. */
@@ -2887,6 +2888,182 @@ export class CommercialAnalyticsService {
             .map((p) => ({ ...p, share_pct: share(p.total) })),
         }));
       return { from, to, total: +total.toFixed(2), tree };
+    });
+  }
+
+  /**
+   * `[IG.6]` **Conciliación por sucursal: lo VENDIDO contra lo COBRADO, sin obligarlos a cuadrar.**
+   *
+   * Pedido de Edgar: *"casar todos los ingresos a cada tienda y saber de dónde viene cada ingreso"*,
+   * con el ejemplo *"ventas PH de ayer: ¿se hizo depósito? ¿se dio efectivo? ¿cuántos pagos
+   * diferentes se casaron?"*.
+   *
+   * ⛔ **Por qué son DOS columnas y no una.** Lo que disparó esto fue medir que el ingreso que hoy
+   * publica esta pantalla incluye **el CEDIS facturándole a sus propias tiendas**: de los $55.96 M
+   * de `U-D-13` en ago-2026, **$41.25 M (73.8 %) van a clientes cuyo código ES una sucursal de la
+   * red** (`10-00 → 01 PH`, `42-00 → 02`…) y otros $6.07 M a rutas propias. Forzar un solo número
+   * obligaría a elegir cuál esconder. Acá se publican los dos y la diferencia se EXPLICA.
+   *
+   * ⚠️ El `vendido_externo` **excluye `U-D-6`** (Factura global), que es el envoltorio fiscal de los
+   * tickets `U-D-10`: medido por sucursal en ago, la razón `U-D-6/U-D-10` va de 0.745 a 0.989.
+   * Sumarlos duplicaría el mostrador entero. Se publica aparte, informativo.
+   *
+   * ⛔ **HUECO DECLARADO, y es el grande**: el medio de pago del MOSTRADOR no existe en Kepler.
+   * `kdm1.c45` (la cuenta de tesorería) viene vacía en el **100 %** de los documentos de venta —
+   * sólo los cobros la traen— y el corte de caja `U-D-23` existe **1 de cada 5 días**. De los
+   * $308,511 que PH vendió en mostrador el 30-sep no hay registro de en qué forma entraron. Esta
+   * pantalla NO los inventa: van al puente como tramo con monto, no como cero.
+   */
+  async incomeRecon(q: IncomeQueryFilters & { grain?: IncomeGrain }): Promise<IncomeRecon> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    const grain: IncomeGrain =
+      q.grain === 'dia' || q.grain === 'trimestre' ? q.grain : 'mes';
+    // El corte temporal se arma UNA vez y se usa en las dos piernas: si vendido y cobrado se
+    // agruparan distinto, el puente compararía períodos que no son el mismo.
+    const periodoSql =
+      grain === 'dia'
+        ? `to_char(%I, 'YYYY-MM-DD')`
+        : grain === 'trimestre'
+          ? `to_char(%I, 'YYYY') || '-T' || to_char(%I, 'Q')`
+          : `to_char(%I, 'YYYY-MM')`;
+    const per = (col: string) =>
+      grain === 'trimestre'
+        ? `to_char(${col}, 'YYYY') || '-T' || to_char(${col}, 'Q')`
+        : `to_char(${col}, '${grain === 'dia' ? 'YYYY-MM-DD' : 'YYYY-MM'}')`;
+    void periodoSql;
+
+    return this.tk.run(async (trx) => {
+      const freshness = await this.incomeFreshness(trx);
+
+      const vend = (await trx.raw(
+        `SELECT ${per('v.fecha')} AS periodo, v.warehouse_code, v.warehouse_name,
+                v.sucursal AS kepler_sucursal,
+                COALESCE(sum(v.importe) FILTER (
+                  WHERE v.kind = 'externo' AND NOT v.es_envoltorio_fiscal), 0)      AS vendido_externo,
+                COALESCE(sum(v.importe) FILTER (WHERE v.es_interno), 0)             AS vendido_interno,
+                COALESCE(sum(v.importe) FILTER (WHERE v.kind = 'sin_catalogo'), 0)  AS vendido_sin_catalogo,
+                COALESCE(sum(v.importe) FILTER (WHERE v.es_envoltorio_fiscal), 0)   AS envoltorio_fiscal,
+                COALESCE(sum(v.docs), 0)::int                                       AS docs,
+                bool_or(v.fecha_futura)                                             AS tiene_fecha_futura
+           FROM analytics.v_erp_income_daily v
+          WHERE v.tenant_id = ? AND v.fecha BETWEEN ?::date AND ?::date
+          GROUP BY 1, 2, 3, 4`,
+        [tenantId, from, to])).rows as Array<Record<string, unknown>>;
+
+      const cob = (await trx.raw(
+        `SELECT ${per('c.fecha')} AS periodo, c.warehouse_code,
+                COALESCE(sum(c.importe) FILTER (WHERE c.medio = 'efectivo'), 0)     AS cobrado_efectivo,
+                COALESCE(sum(c.importe) FILTER (WHERE c.medio = 'banco'), 0)        AS cobrado_banco,
+                COALESCE(sum(c.importe) FILTER (WHERE c.medio = 'sin_catalogo'), 0) AS cobrado_sin_cuenta,
+                COALESCE(sum(c.cobros), 0)::int                                     AS cobros,
+                jsonb_agg(jsonb_build_object(
+                  'code', c.cuenta_code, 'nombre', c.cuenta_nombre, 'medio', c.medio,
+                  'cobros', c.cobros, 'importe', round(c.importe, 2))
+                  ORDER BY c.importe DESC)                                          AS cuentas
+           FROM analytics.v_erp_collection_daily c
+          WHERE c.tenant_id = ? AND c.fecha BETWEEN ?::date AND ?::date
+          GROUP BY 1, 2`,
+        [tenantId, from, to])).rows as Array<Record<string, unknown>>;
+
+      // Las aplicaciones cobro→factura salen de `kdm5`, el libro de aplicaciones del ERP. Es lo
+      // que contesta "cuántos pagos diferentes se casaron": en PH el 30-sep fueron 10 cobros
+      // contra 18 facturas por $163,150.01, que cuadra AL CENTAVO con los depósitos del día.
+      // ⚠️ Se une kdm1 para fechar la aplicación por el documento que APLICA (el cobro), no por
+      // la factura: si no, un pago de hoy contra una factura vieja caería en el mes equivocado.
+      const apl = (await trx.raw(
+        `SELECT ${per('m.c9::date')} AS periodo, w.code AS warehouse_code,
+                count(*)::int                        AS pagos_casados,
+                count(DISTINCT a.c11)::int           AS facturas_casadas,
+                COALESCE(sum(a.c12::numeric), 0)     AS importe_casado
+           FROM kepler_ods.kdm5 a
+           JOIN kepler_ods.kdm1 m
+             ON m.sucursal = a.sucursal AND m.c1 = a.c1 AND m.c2 = a.c2 AND m.c3 = a.c3
+            AND m.c4 = a.c4 AND m.c5 = a.c5 AND m.c6 = a.c6
+           JOIN commercial.warehouses w
+             ON w.kepler_code = a.sucursal AND w.tenant_id = ? AND w.deleted_at IS NULL
+          WHERE a.c2 = 'U' AND a.c3 = 'A' AND a.c4 IN ('5','7')
+            AND btrim(coalesce(m.c43::text,'')) <> 'C'
+            AND m.c9::date BETWEEN ?::date AND ?::date
+          GROUP BY 1, 2`,
+        [tenantId, from, to])).rows as Array<Record<string, unknown>>;
+
+      const n = (x: unknown) => +(Number(x ?? 0).toFixed(2));
+      const key = (p: unknown, w: unknown) => `${String(p)}|${String(w)}`;
+      const cobMap = new Map(cob.map((r) => [key(r['periodo'], r['warehouse_code']), r]));
+      const aplMap = new Map(apl.map((r) => [key(r['periodo'], r['warehouse_code']), r]));
+
+      const rows: IncomeReconRow[] = vend.map((v) => {
+        const k = key(v['periodo'], v['warehouse_code']);
+        const c = cobMap.get(k);
+        const a = aplMap.get(k);
+        return {
+          periodo: String(v['periodo']),
+          warehouse_code: String(v['warehouse_code']),
+          warehouse_name: String(v['warehouse_name'] ?? v['warehouse_code']),
+          kepler_sucursal: String(v['kepler_sucursal']),
+          vendido_externo: n(v['vendido_externo']),
+          vendido_interno: n(v['vendido_interno']),
+          vendido_sin_catalogo: n(v['vendido_sin_catalogo']),
+          envoltorio_fiscal: n(v['envoltorio_fiscal']),
+          docs: Number(v['docs'] ?? 0),
+          cobrado_efectivo: n(c?.['cobrado_efectivo']),
+          cobrado_banco: n(c?.['cobrado_banco']),
+          cobrado_sin_cuenta: n(c?.['cobrado_sin_cuenta']),
+          cobros: Number(c?.['cobros'] ?? 0),
+          cuentas: (c?.['cuentas'] as IncomeReconRow['cuentas']) ?? [],
+          pagos_casados: Number(a?.['pagos_casados'] ?? 0),
+          facturas_casadas: Number(a?.['facturas_casadas'] ?? 0),
+          importe_casado: n(a?.['importe_casado']),
+          tiene_fecha_futura: Boolean(v['tiene_fecha_futura']),
+        };
+      }).sort((x, y) => (x.periodo === y.periodo
+        ? y.vendido_externo - x.vendido_externo
+        : y.periodo.localeCompare(x.periodo)));
+
+      const suma = (f: (r: IncomeReconRow) => number) => n(rows.reduce((s, r) => s + f(r), 0));
+      const totales = {
+        vendido_externo: suma((r) => r.vendido_externo),
+        vendido_interno: suma((r) => r.vendido_interno),
+        vendido_sin_catalogo: suma((r) => r.vendido_sin_catalogo),
+        envoltorio_fiscal: suma((r) => r.envoltorio_fiscal),
+        docs: rows.reduce((s, r) => s + r.docs, 0),
+        cobrado_efectivo: suma((r) => r.cobrado_efectivo),
+        cobrado_banco: suma((r) => r.cobrado_banco),
+        cobrado_sin_cuenta: suma((r) => r.cobrado_sin_cuenta),
+        cobros: rows.reduce((s, r) => s + r.cobros, 0),
+        pagos_casados: rows.reduce((s, r) => s + r.pagos_casados, 0),
+        facturas_casadas: rows.reduce((s, r) => s + r.facturas_casadas, 0),
+        importe_casado: suma((r) => r.importe_casado),
+        tiene_fecha_futura: rows.some((r) => r.tiene_fecha_futura),
+      };
+
+      const cobradoTotal = n(totales.cobrado_efectivo + totales.cobrado_banco + totales.cobrado_sin_cuenta);
+      const bridge: IncomeBridgeItem[] = [
+        { key: 'vendido_externo', label: 'Vendido a cliente real', monto: totales.vendido_externo, resta: false,
+          nota: 'Sin traspaso interno y sin la factura global, que envuelve a los tickets.' },
+        { key: 'cobrado', label: 'Cobrado en el período', monto: cobradoTotal, resta: false,
+          nota: 'Cobros U-A-5 y U-A-7 con su cuenta de tesorería resuelta contra el catálogo de bancos.' },
+        { key: 'desfase', label: 'Diferencia vendido − cobrado', monto: n(totales.vendido_externo - cobradoTotal), resta: false,
+          nota: 'NO es faltante: es plazo de crédito. Lo vendido se devenga, lo cobrado entra después.' },
+      ];
+
+      const huecos: IncomeBridgeItem[] = [
+        { key: 'interno', label: 'Traspaso dentro de la casa (excluido del ingreso)',
+          monto: totales.vendido_interno, resta: true,
+          nota: 'El CEDIS facturando a sus propias tiendas y rutas. Está en la cifra que publica el tablero contable.' },
+        { key: 'envoltorio', label: 'Factura global U-D-6 (envuelve a los tickets)',
+          monto: totales.envoltorio_fiscal, resta: true,
+          nota: 'Si se suma a los tickets U-D-10 se duplica el mostrador entero.' },
+        { key: 'sin_catalogo', label: 'Cliente fuera del catálogo — NO MEDIDO',
+          monto: totales.vendido_sin_catalogo, resta: true,
+          nota: 'No se cuenta como externo por default: no se sabe qué es.' },
+        { key: 'mostrador_sin_medio', label: 'Mostrador sin medio de pago en el ERP — NO MEDIDO',
+          monto: null, resta: false,
+          nota: 'kdm1.c45 viene vacía en el 100% de los documentos de venta y el corte U-D-23 existe 1 de cada 5 días: Kepler no guarda si el ticket se pagó en efectivo o con tarjeta.' },
+      ];
+
+      return { from, to, grain, freshness, rows, totales, bridge, huecos };
     });
   }
 

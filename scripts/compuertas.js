@@ -71,6 +71,11 @@ const COMPUERTAS = [
    */
   { nombre: 'tablas densas', script: 'check-dense-tables.js', que: 'ninguna tabla nueva sin salida en un teléfono (DESIGN §553)', push: true, ms: 1146 },
   { nombre: 'tokens CSS', script: 'check-css-tokens.js', que: 'sin var(--token) inexistente: la declaración se cae en silencio', push: true, ms: 1318 },
+  // `[PR.V9]` Nace de un reporte con captura: el expediente del motor imprimia emojis en
+  // parrafos de la interfaz, con la regla "iconos, nunca emojis" escrita desde hace rato y
+  // nada que la vigilara. Un emoji lo pinta la fuente del SISTEMA OPERATIVO: el mismo
+  // parrafo sale distinto en Windows, en Android y en el navegador del vendedor.
+  { nombre: 'sin emojis', script: 'check-no-emoji-ui.js', que: 'el texto que ve el usuario no lleva emojis (iconos, nunca emojis)', push: true, ms: 420 },
   { nombre: 'teclado', script: 'check-keyboard-nav.js', que: 'lo que se hace con el mouse se puede hacer con el teclado (DESIGN D.7)', push: true, ms: 197 },
   { nombre: 'búsqueda', script: 'check-busqueda.js', que: 'ningún buscador con .toLowerCase().includes() (DESIGN D.8)', push: true, ms: 198 },
   // `[NX.3]` Es la única de las cuatro que atrapa un defecto INVISIBLE en la máquina de quien lo

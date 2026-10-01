@@ -5,6 +5,199 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-01 — DM.19: las órdenes de entrada del CEDIS eran de SIETE plazas, y el ERP ya lo decía
+
+Edgar: *"antes Morelia Abastos y CEDIS (no sé si más sucursales) subían sus órdenes de entrada a
+Kepler, y necesitamos tener diferenciadas cuáles eran de cada una, para que no se le cargue
+información a CEDIS que no le corresponde, pero esto en el histórico"*.
+
+**Su duda era la pregunta correcta: no eran dos plazas, eran siete.** De los 9,839 documentos
+`X-A-20` ("Aplica Orden Entrada") que Kepler tiene en la sucursal `00`, sólo **2,311 por
+$206,804,400** son del CEDIS. **6,078 por $219,380,811 son de otras plazas** — más dinero ajeno
+que propio:
+
+| plaza | docs | importe |
+|---|---|---|
+| Morelia Abastos | 2,510 | $95,367,762 |
+| Padre Hidalgo | 1,246 | $57,131,761 |
+| Canindo | 768 | $56,732,747 |
+| Morelia Madero | 644 | $3,585,314 |
+| 8 Esquinas | 474 | $4,270,560 |
+| La Piedad Abastos | 304 | $1,138,505 |
+| Yurécuaro | 84 | $128,376 |
+| Zamora Centro | 48 | $1,025,784 |
+
+### ⭐ El catálogo lo tenía el ERP — segunda vez en dos días
+
+`kdm1.c12` es el **centro de compra** y `kepler_ods.kdxv` es su catálogo (`c2` código, `c3`
+descripción). El ERP escribe la plaza con todas sus letras: `C-010` = *"COMPRA PROVEEDOR MORELIA
+ABAST"*. Igual que `pv_suc_ip` en `[DM.18]`, **no había que inferir nada** — y por segunda vez
+en dos días el reflejo fue construir el inferidor antes de preguntarle al ERP.
+
+⚠️ **La misma columna significa cosas distintas según el doctype.** El log de `[DM.18]` dice *"ni
+`c12` (cajero)"* sobre el traspaso `U-D-41`, y es correcto **ahí**: en `X-A-20` ese mismo `c12`
+es el centro de compra. Leer el decode de un doctype y aplicarlo a otro es cómo se pierde un
+campo que estaba a la vista.
+
+### ⛔ El catálogo colisiona ENTRE RAMAS
+
+`C-010` es *"COMPRA PROVEEDOR MORELIA ABAST"* en la rama `00` y *"COMPRA PROVEEDOR PADRE
+HIDALGO"* en la `01`, que lo reusó para lo suyo. El join va **por sucursal**, nunca por código
+solo — mismo modo de falla que los dos vocabularios de `kepler_doc_tipo`. El bloque 3 del candado
+es exactamente esa prueba negativa.
+
+### Cómo se verificó: dos testigos independientes, con placebo
+
+1. **Dentro del documento.** `c11` trae `<plaza>-<remisión del proveedor>`. No es la serie del
+   proveedor: el prefijo `30` abarca **108 proveedores distintos**. Concuerda con `c12`
+   **99.6% fila por fila**.
+2. **Fuera de Kepler.** Cruce contra `wincaja.movimiento_proveedores` por importe y fecha: la
+   diagonal se enciende sola (`30→30` 62.5% · `50→50` 51.9% · `10→10` 46.9%) con off-diagonal de
+   0.0–3.9%. El placebo contra el CEDIS da **0.9%**, o sea **71× el piso de ruido**.
+   *Sin el placebo, un 62% no significa nada.*
+
+### ⭐ Para saber si es del CEDIS no hace falta nombrar la plaza
+
+Dentro del catálogo de UNA sucursal, dos códigos `COMPRA PROVEEDOR` distintos son dos plazas
+distintas. Así que basta identificar el **centro propio** —el único cuya evidencia apunta a la
+sucursal misma— y todo otro centro de plaza es, por construcción, de otra. Eso cubre a `C-004`,
+`C-005` y `C-021`, que el ERP nombra pero tienen poca evidencia para resolverse solos.
+
+### ⛔ El hueco, declarado: $91.5M que no se pueden atribuir
+
+`c12` se empezó a usar de verdad en **feb-2026** (98–100%). Antes casi nadie lo llenaba:
+**nov-2025 11% · dic-2025 9% · ene-2026 65%**. Son **1,450 documentos por $91,458,017** (17.7%
+del dinero) sin origen declarable.
+
+Se intentó rescatarlos contra `wincaja.maestro_mov_almacen` tipo `C`, el único testigo con
+historia profunda. **Precisión altísima —placebo de 0.3%— pero recall 25%**: recuperó 107
+documentos por $850k. **No se dibuja: se declara `sin_centro`.**
+
+⚠️ Y lo que sobra **no se da por CEDIS**: promedia **$66,760** por documento, entre los **$88,948**
+del CEDIS y los **$36,260** de las otras plazas. Es mezcla, y la lectura cómoda estaba a un paso.
+
+⛔ La serie vieja `001` **se llama "CEDIS"** y no sirve: de los 137 documentos que traen el segundo
+testigo, **72 la contradicen** (pureza 47%). Un rótulo no es una medición.
+
+### Una pureza que era artefacto de mi propio umbral
+
+El primer corte de `c12` contra `c11` lo saqué con `HAVING count(*) >= 25` y leí *"separa 1 a 1,
+cero contaminación"*. Sin el umbral, la serie `C-NNN` da 98.7–99.8% (bien) pero la numérica vieja
+cae a 47–61%. **El filtro que puse para leer la tabla me escondió justo el grupo malo.**
+
+### Hallazgo colateral, declarado sin resolver
+
+La rama `03` (8 Esquinas) repite el patrón: **452 documentos por $9.94M en 2025** bajo el centro
+*"COMPRA MERCANCIAS LA PIEDAD AB"*, que se apagan en 2026 (18 docs) justo después de que La Piedad
+estrena su propio Kepler. **No se afirma la causa**: `wincaja.movimiento_proveedores` no tiene la
+rama 42, así que no hay segundo testigo.
+
+### Entregado
+
+- Mig `20261001260000_erp_goods_receipt_origin.js` → **prod batch 669, 0.1 s**, identidad
+  verificada. Dos vistas **derive-no-copy** sobre `kepler_ods`: `analytics.v_erp_purchase_center`
+  y `analytics.v_erp_goods_receipt_origin`. Ninguna tabla, ningún importer.
+- Candado `test-newdb-goods-receipt-origin.js` — **9 OK · 0 FALLAS · 0 NO MEDIDOS** contra prod,
+  con **tres pruebas negativas** (la colisión entre ramas · el umbral frenando por porcentaje
+  *y* por tamaño de muestra con filas reales de los dos lados · un centro con 99.3% de evidencia
+  que **no** publica origen porque no es de compra).
+- `VERDAD_ABSOLUTA.md` §5 (resolvedor) y §7 (hueco con monto).
+
+⚠️ **Pendiente:** la pantalla `/compras/entradas` y `analytics.erp_goods_receipts` todavía
+publican todo como CEDIS — su columna `concepto` es texto libre (*"CEDIS"*, *"ALMACEN 40"*,
+*"3% PP a 48 hrs"*) y **4,618 filas la traen vacía**. Falta consumir la vista.
+
+---
+## 2026-10-01 — DM.18: el mapa `TI### → sucursal` lo dice Kepler; dejamos de adivinarlo
+Edgar, sobre el resolvedor que había construido contra Wincaja: *"pero si existen en Kepler, ¿por
+qué tomar las de Wincaja?"*. La pregunta era correcta y llevó a dos respuestas.
+
+**1. Para el ORIGEN, Kepler genuinamente no tiene el dato.** Probado por dos vías:
+- **Diff campo por campo** de los dos documentos control (`0000712` de Abastos y `0000757` del
+  CEDIS, misma sucursal, orígenes distintos): **idénticos** salvo folio, fecha, importe y
+  consecutivos. Ni `c12` (cajero), ni `c67`, ni `c80`–`c86` los distinguen.
+- **El ODS no perdió nada**: `md.kdm1` tiene 200 columnas en el origen (9.95) y el ODS tiene 201
+  (las 200 + `sucursal`, que agrega el shipper). No hay columna escondida.
+Y fallaron otras tres vías internas: *salió sin haber entrado* (el CEDIS sí compró los SKUs),
+*corte por fecha* (**8 documentos de Abastos son posteriores al cutover**, hasta el 28-sep: la
+mezcla no terminó con la migración) y la bitácora `kdlogmov` (es de configuración).
+
+**2. Pero para el DESTINO el catálogo existía, y llevaba ahí todo el tiempo.** `md.pv_suc_ip` —en
+el POS de cada sucursal y ya replicada al ODS por el carril espejo— trae el mapa explícito:
+`00 TI000 Cedis Oficinas · 01 TI001 Hidalgo · 02 TI008 La Piedad · 03 TI002 8 Esquinas ·
+04 TI003 Yurécuaro · 05 TI007 Zamora Centro · 06 TI006 Canindo · 07 TI009 Morelia Madero ·
+08 TI004 Morelia Abastos`.
+
+**Las dos veces que inferimos mal, el catálogo ya decía lo correcto** — `[DM.11e]` (CEDIS→8ESQ con
+13% de evidencia, $123,454) y `[DM.15]` (Morelia Madero→MD-32, el almacén Wincaja borrado). El
+defecto no era el umbral: era adivinar al lado de una fuente autoritativa.
+
+**Entregado:** `analytics.v_erp_branch_catalog` (vista **derive-no-copy** sobre el ODS, mig
+`20261001230000`, prod batch 667) + el paso `[DM.18]` en `import-stock-movements.js` que corrige
+`transfer_dest_map` desde el catálogo **antes** del auto-ligado + bloque 8 del candado con prueba
+negativa. `test-newdb-transfer-dest-evidence.js` **8 OK / 0 FALLAS** contra prod.
+
+**Medido:** los 9 códigos coinciden, **9 copias de acuerdo, 0 divergentes**, y el paso nuevo
+corregiría **0 filas** — es preventivo, y de paso **confirma la corrección de `[DM.15]`**
+(`TI009 → 07`), que hasta hoy se sostenía sobre evidencia de recepción y ahora sobre el ERP.
+
+**Lecciones:**
+- ⭐⭐ *Antes de construir un inferidor, buscar si el ERP ya tiene el catálogo.* Dos incidentes y
+  tres capas de umbral para una tabla de 10 filas que estaba replicada desde siempre. La pregunta
+  "¿y si el dato ya existe?" no se la hizo nadie —yo incluido— hasta que la hizo Edgar.
+- ⭐ *Son 9 copias, no una fuente.* Cada POS guarda su catálogo, así que el consenso se MIDE y se
+  publica por fila (`es_consistente`, `ramas_que_lo_declaran`). Hoy las 9 coinciden, pero eso es
+  una medición con fecha: si alguna diverge, el importer no escribe nada y lo declara. Elegir una
+  copia al azar sería repetir el error con otra cara.
+- ⚠️ *Una pregunta del usuario puede valer más que diez mediciones mías.* Yo tenía el resolvedor
+  contra Wincaja con 3.3% de cobertura y lo daba por terminado.
+
+---
+## 2026-10-01 — DM.17: el traspaso que decía salir del CEDIS y salió de Morelia Abastos
+Edgar: *"antes al 9.95 se subían CEDIS y Morelia Abastos; hay que diferenciar los históricos"*.
+**Primero dije que no podía validarlo. Me equivoqué, y el error fue de método.**
+
+- Busqué por **terceros y clientes** —si Abastos vivía ahí, su cartera se notaría— y dio negativo:
+  6 de 804 terceros nombran "Morelia" y resultaron ser **nombres de calle** (`MIRADOR MORELIA 60`).
+  También descarté por volumen con un cruce que mi propio placebo tumbó (la `08` daba 25.7% contra
+  un piso de ruido de 15-22%). Concluí "no pude validarlo" sobre algo que era cierto.
+- **El rastro no estaba en el tercero: estaba en el documento.** `kdm1.c24` guarda el folio del
+  ticket Wincaja de origen. Lo tuve delante al validar el documento 0000317 dos turnos antes y no
+  lo miré. Lo destrabó un ticket impreso que trajo Edgar.
+- `T990008354` (almacén **30 Morelia Abastos**, 90041 ×48 + 90044 ×15 = 63 u / $1,407.66) se pasó
+  a Kepler como cadena `U-D-40` 0000759 → `U-D-41` 0000712 → `U-A-50` 0000317, y los dos primeros
+  quedaron en la **sucursal `00`**. La pantalla publicaba "CEDIS".
+
+**⭐ El caso trae su propio control, y por eso el candado es fuerte:** ese folio existe en DOS ramas
+Wincaja y las dos se cargaron a la `00`, con veredictos opuestos — 0000712 (24-sep, 63 u) es de la
+rama 30, y 0000757 (29-sep, 99218 ×100) es del CEDIS de verdad. Mismo folio, mismo destino, y lo
+único que los separa es el contenido.
+
+**Entregado:** `analytics.v_transfer_true_origin` (mig `20261001220000`, prod batch 662) + índice
+`ix_wcj_maestro_documento` + candado `test-newdb-transfer-true-origin.js` **5/5 contra prod**.
+Medido: **57 documentos / $1,515,473 no salieron de la sucursal que Kepler dice** (40 Morelia
+Abastos, 17 Canindo) · 62 CEDIS confirmados · **3,538 / $74.5M no verificables**.
+
+**Lecciones:**
+- ⭐⭐ *Un placebo que tumba tu señal no prueba que la tesis sea falsa — prueba que tu llave es
+  mala.* El cruce por terceros era ruido, y de ahí salté a "no pude validarlo". La conclusión
+  correcta era "necesito otra llave", y la llave existía en la misma tabla.
+- ⭐ *El desambiguador es el CONTENIDO, no el importe.* Medido: por folio solo, 105 de 122
+  ambiguos (el folio de ticket tampoco es único entre ramas — mismo modo de falla que `[DM.15]`);
+  por importe resuelve 36 y pierde matches reales ($2,668.00 contra $1,533.34 en el mismo envío);
+  por SKU+cantidad, 120 de 121 medibles.
+- ⭐ *Cuando la cobertura es baja, el número que hay que publicar es la cobertura.* 96.7% no es
+  verificable, y el candado lo imprime siempre: sin eso, "3,538 fuera de réplica" se lee igual
+  que "3,538 están bien".
+- ⚠️ **Dos tablas de 2 GB con `last_analyze` VACÍO.** `wincaja.maestro_mov_almacen` (1.5 M) y
+  `detalles_mov_almacen` (10 M) nunca se habían analizado, así que el planner elegía nested-loop
+  —el mismo problema que documenta su propio importer—. `ANALYZE`: 678 ms y 611 ms. Beneficia a
+  todos sus consumidores, no sólo a esta vista.
+- ⛔ **Mi primera consulta estuvo 10 minutos corriendo en prod en horario hábil** antes de que la
+  cancelara: agregaba las dos tablas enteras en vez de acotar por los 632 folios que necesitaba.
+  Desde entonces, `SET statement_timeout` en toda exploración contra prod.
+
+---
 ## 2026-10-01 — El hueco más grande de VERDAD_ABSOLUTA.md estaba cerrado y nadie lo sabía
 Edgar: *"wincaja ya sólo existe para históricos; el `.9.95` ya tiene Kepler y toda la información
 de Kepler CEDIS ya es la oficial"*. Se midió antes de registrarlo.
