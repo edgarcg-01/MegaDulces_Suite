@@ -235,15 +235,37 @@ const LITERAL_CORTE = /source_branch\s*=\s*'[^']+'(::text)?\s*AND\s*\w*\.?busine
       noMedido('mv_sales_blended contiene cada sucursal del resolvedor',
         'la matvista está WITH NO DATA — falta el REFRESH');
     } else {
+      // ⚠️ Se exige presencia en el blend SÓLO a quien vende en la FUENTE. El bug de Abastos es
+      // "vende y su venta no llega al fact"; un almacén que no vende en ningún lado no es ese
+      // bug. Sin esta condición el check se puso rojo el 2026-09-30, cuando `[IC.CEDIS.1]`
+      // sumó el CEDIS `00` al resolvedor: distribuye a las sucursales, **no vende al público**,
+      // así que se le estaba exigiendo estar en un fact de VENTAS. Medido: es el único del
+      // resolvedor sin una sola fila en `mv_kepler_sales_daily`.
+      // ⛔ El criterio NO es una lista de exclusión: es la pregunta "¿vende?". Si el CEDIS
+      // empieza a vender mañana, vuelve a entrar al check solo.
       const faltan = await q(
         `SELECT x.kepler_code FROM analytics.v_branch_erp_cutover x
-          WHERE NOT EXISTS (
+          WHERE EXISTS (
+            SELECT 1 FROM analytics.mv_kepler_sales_daily m WHERE m.source_branch = x.kepler_code)
+            AND NOT EXISTS (
             SELECT 1 FROM analytics.mv_sales_blended b
               JOIN commercial.warehouses w ON w.id = b.warehouse_id
              WHERE w.tenant_id = x.tenant_id AND w.code::text = x.kepler_code)
           ORDER BY 1`);
-      check('mv_sales_blended contiene cada sucursal del resolvedor', faltan.length === 0,
+      check('mv_sales_blended contiene cada sucursal del resolvedor QUE VENDE', faltan.length === 0,
         `sin una sola fila: ${faltan.map((r) => r.kepler_code).join(', ')} — es el bug de Abastos repitiéndose`);
+
+      // Lo excluido se DECLARA, nunca se descuenta en silencio: si mañana aparecen cinco
+      // sucursales "que no venden", eso es un hallazgo, no una exención.
+      const sinVenta = await q(
+        `SELECT x.kepler_code FROM analytics.v_branch_erp_cutover x
+          WHERE NOT EXISTS (
+            SELECT 1 FROM analytics.mv_kepler_sales_daily m WHERE m.source_branch = x.kepler_code)
+          ORDER BY 1`);
+      if (sinVenta.length) {
+        console.log(`     (fuera del check por no vender en la fuente: ${sinVenta.map((r) => r.kepler_code).join(', ')}`
+          + ' — almacenes de distribución; si alguno empieza a vender, vuelve a entrar solo)');
+      }
     }
   }
 
@@ -325,6 +347,47 @@ const LITERAL_CORTE = /source_branch\s*=\s*'[^']+'(::text)?\s*AND\s*\w*\.?busine
               AND w.code::text = COALESCE(b.kepler_code, b.warehouse_code) || 'X')`);
     check('PRUEBA NEGATIVA · con el destino adulterado, el detector de huérfanas SÍ las encuentra',
       pillaHuerf > 0, 'devolvió 0 con un destino imposible: el check de arriba es un espejo');
+  }
+
+  // ── 6 · [SB.2] Wincaja ya sólo existe para HISTÓRICOS ─────────────────────────────────────
+  // ⭐⭐ Vigila una AFIRMACIÓN de `docs/VERDAD_ABSOLUTA.md` §8, no una vista: que la venta viva
+  // sea 100% Kepler. Existe porque ese documento declaraba *"Wincaja — 37.6% de la venta de los
+  // últimos 30 días — fuera de alcance por decisión"* como su hueco MÁS GRANDE, y esa cifra
+  // **caducó sin avisar**: medida el 2026-10-01 da 0.0% ($230 contra $44.5M). Una medición con
+  // fecha escrita a mano es código que caduca; si sostiene una decisión —acá, que un tercio de
+  // la venta no tiene árbitro— va en un test que se pone rojo, no en un párrafo.
+  //
+  // ⚠️ Se clasifica por el CUTOVER (tener `kepler_code`), NO por el prefijo `MD-%` del código:
+  // el prefijo es una convención de nombre, y dos almacenes de la misma tienda pueden convivir
+  // en los dos ERP — pasó con `MD-32` contra `07` (ver `[DM.15]`).
+  //
+  // ⛔ Que esté verde NO autoriza retirar Wincaja: sigue siendo el único acceso al pasado
+  // anterior al corte de cada plaza. Mide la operación VIVA, no el histórico.
+  console.log('\n6 · Wincaja ya sólo existe para históricos (la venta viva es 100% Kepler)');
+  const pesos = (n) => '$' + Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const [venta] = await q(`
+    SELECT round(sum(s.revenue)::numeric, 2) AS total,
+           round(COALESCE(sum(s.revenue) FILTER (
+             WHERE w.kepler_code IS NULL AND w.code NOT ILIKE 'RUTA%'), 0)::numeric, 2) AS sin_kepler,
+           count(DISTINCT s.warehouse_id) FILTER (
+             WHERE w.kepler_code IS NULL AND w.code NOT ILIKE 'RUTA%') AS almacenes
+      FROM analytics.sales_daily s
+      JOIN commercial.warehouses w ON w.id = s.warehouse_id
+     WHERE s.sale_date >= CURRENT_DATE - 30`);
+
+  if (!venta || !Number(venta.total)) {
+    nm++;
+    console.log('  ~ NO MEDIDO: no hay venta en los últimos 30 días contra la cual medir.');
+  } else {
+    const sinKepler = Number(venta.sin_kepler) || 0;
+    const pct = 100 * sinKepler / Number(venta.total);
+    console.log(`     Kepler ${pesos(Number(venta.total) - sinKepler)} · sin kepler_code ${pesos(sinKepler)} (${pct.toFixed(1)}%)`);
+    // El umbral es 1%, no 0: un almacén que cierra deja cola de días sueltos, y exigir el cero
+    // exacto volvería ruidoso un gate que debe hablar sólo cuando Wincaja VUELVA a operar.
+    check('la venta viva de los últimos 30 días es Kepler (VERDAD_ABSOLUTA §8)',
+      pct < 1.0,
+      `${venta.almacenes} almacén(es) sin kepler_code venden ${pesos(sinKepler)} = ${pct.toFixed(1)}%`
+      + ' — si Wincaja volvió a operar, §8 y la tabla de estado de VERDAD_ABSOLUTA.md están viejas');
   }
 
   console.log(`\nRESUMEN · ${ok} OK · ${fail} FALLAS · ${nm} NO MEDIDOS\n`);
