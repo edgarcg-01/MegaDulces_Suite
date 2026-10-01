@@ -568,7 +568,63 @@ margen** y las tres medirían la tabla de markup. La excepción es el **plazo**,
 
 ---
 
-## 16 · Lo que sigue
+## 16 · `[PR.S4]` · H2 · Prima por plazo — refutada por el **control de confusión**
+
+Tras H1, el plazo era la única candidata que **no toca el costo**. Y arrancaba fuerte: cartera
+**$67.58 M**, **90.7 %** de documentos vencidos, **890 clientes marcados «contado» con $37.31 M de
+saldo**.
+
+### La primera lectura parecía un hallazgo grande
+
+Mismo SKU, misma unidad, 45 días:
+
+| medición | promedio | mediana | p10 | p90 |
+|---|---:|---:|---:|---:|
+| **REAL** (crédito vs contado) | **−4.80 %** | −4.69 % | −8.16 | −0.94 |
+| **PLACEBO** (mitad al azar) | +0.06 % | 0.00 % | −2.45 | +2.79 |
+
+El placebo centrado en cero: no era ruido. El cliente a crédito pagaba **4.80 % menos** en el
+**93.1 %** de los 608 SKU comparables. Leído así: se lo financia **y** se le descuenta.
+
+### ⛔⛔ El control de volumen lo desarmó
+
+La línea a crédito tiene **cantidad mediana 12.00** contra **2.00** la de contado — compran **6×
+más por renglón**. Dentro de tramos de cantidad comparable:
+
+| tramo | SKUs | dif. precio |
+|---|---:|---:|
+| 1 | 7 | −1.01 % |
+| 2-3 | 21 | −2.44 % |
+| 4-10 | 108 | **−0.00 %** |
+| 11-30 | 61 | **+0.23 %** |
+| 30+ | 34 | −0.46 % |
+
+Ponderado por venta: **−0.14 %** sobre $3.56 M. **El −4.80 % era el descuento por volumen.** El
+precio **sí** está bien puesto para el plazo pactado.
+
+⭐ **Dos controles distintos en la misma sesión, y ninguno sustituye al otro.** A H1 la mató un
+control **negativo** (un caso donde el efecto debía desaparecer, y desapareció). A H2 la mató un
+control de **confusión** (una tercera variable que explica el efecto entero).
+
+### Lo que queda, y es de cobranza, no de precio
+
+Pactado **5.1 días** contra **21.2 reales** (4×), y las facturas marcadas **«0 contado» se cobran a
+14.3 días** (mediana 11, p90 30). ⚠️ Medido sobre el **14.9 %** de las facturas (788 de 5,276 en 180
+días), el único subconjunto con `dias_pago` poblado — **no se extrapola**.
+
+### E5 · La ausencia que el registro nunca declaró
+
+Convertir «16 días de financiamiento no cobrado» en pesos exige una **tasa de costo de capital**, y
+⛔ **no existía en el registro, en ninguna familia**. La acción `liberar_capital` publica
+**$60.46 M** de saldo que por eso no se puede ordenar contra los flujos. Ahora es **E5**, en
+`inventario`, estado `no_existe`: es una **decisión de dirección financiera**, no un dato derivable.
+
+**Aplicadas a prod 2026-10-01 (batch 652)**, identidad verificada. Registro: **29 cableadas /
+16 no_existe / 4 refutadas**.
+
+---
+
+## 17 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
@@ -579,8 +635,10 @@ margen** y las tres medirían la tabla de markup. La excepción es el **plazo**,
 - **Validación visual de la ventana** — lo único que no puedo hacer yo, y donde aparecieron los
   tres defectos de la capa 3.
 - ⚠️ **Ya está en `origin/main`**: otra sesión empujó `main` y se llevó estos commits con ella (índice de git compartido). No queda push pendiente de esta fase.
-- **D5 · tasa de costo de capital** — sin ella el saldo inmovilizado no se puede ordenar contra
+- **E5 · tasa de costo de capital** — sin ella el saldo inmovilizado no se puede ordenar contra
   los flujos. Bloquea priorizar `liberar_capital`.
+  ⚠️ **Corrección:** esto decía **D5**, y `D5` es «Frecuencia de cambio» y está **cableada**.
+  La tasa de capital no tenía clave en el registro; se le dio **E5** el 2026-10-01.
 - **G4 · intocables y contratos** — los 24 precios atípicos esperan esa marca.
 - **D2 · el piso de margen** — sin él el motor sólo puede subir.
 - **El experimento A/B** — es lo único que puede convertir `subir_precio` de `efecto_no_medido` a
