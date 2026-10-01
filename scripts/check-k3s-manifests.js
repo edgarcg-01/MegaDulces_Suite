@@ -236,7 +236,56 @@ function revisar(doc, archivo) {
     }
   }
 
-  console.log('\n5) Las reglas se rompen a propósito  ← negativas en memoria');
+  console.log('\n5) ⛔ El manifiesto no DERIVA del compose que reemplaza');
+  // ⚠️ Migrar duplica el entorno: la lista de tablas del ODS ya vivía copiada a mano en varios
+  // lugares (`[INFRA.3]`/`[INFRA.4]`) y un manifiesto de K3s suma UNA MÁS. Si el día de mañana
+  // alguien toca la del compose y no la del manifiesto, el carril migrado embarca un conjunto
+  // distinto del que el repo cree — y eso se ve exactamente igual que embarcar bien.
+  // Se comparan las variables que deciden QUÉ se embarca, no todas: las de cadencia y latido
+  // cambian legítimamente entre mundos.
+  const CRITICAS = ['KP_ODS_TABLES', 'ODS_EXCLUDE_TABLES', 'ODS_HASH_TABLES'];
+  const composeTxt = fs.existsSync(path.join(__dirname, '..', 'ops', 'vl', 'docker-compose.yml'))
+    ? fs.readFileSync(path.join(__dirname, '..', 'ops', 'vl', 'docker-compose.yml'), 'utf8') : null;
+  if (!composeTxt) {
+    NM('sin el compose no se puede comparar la deriva del entorno');
+  } else {
+    const lineasC = composeTxt.split(/\r?\n/);
+    /** El valor de una variable dentro del servicio `svc` del compose. */
+    const envCompose = (svc, clave) => {
+      const i = lineasC.findIndex((l) => l === `  ${svc}:`);
+      if (i < 0) return undefined;
+      for (let j = i + 1; j < lineasC.length; j++) {
+        if (lineasC[j].trim() !== '' && /^\s{0,2}\S/.test(lineasC[j])) break;
+        const m = lineasC[j].match(new RegExp('^\\s+' + clave + ':\\s*(.+?)\\s*$'));
+        if (m) return m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
+      }
+      return undefined;
+    };
+    let comparadas = 0;
+    for (const f of archivos) {
+      for (const doc of documentos(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
+        const k = campo(doc, 'kind');
+        if (k !== 'Deployment' && k !== 'CronJob') continue;
+        const n = campo(doc, 'name');
+        for (const v of CRITICAS) {
+          // en el manifiesto la forma es `- name: X` / `value: Y`
+          const idx = doc.findIndex((l) => new RegExp(`- name: ${v}\\s*$`).test(l));
+          if (idx < 0) continue;
+          const val = (doc[idx + 1] || '').match(/^\s*value:\s*(.+?)\s*$/);
+          const enManifiesto = val ? val[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '') : null;
+          const enCompose2 = envCompose(n, v);
+          comparadas++;
+          A(enCompose2 !== undefined && enManifiesto === enCompose2,
+            enCompose2 === undefined
+              ? `${n}.${v}: está en el manifiesto y NO en el compose — no se puede comparar`
+              : `${n}.${v} coincide con el compose (${String(enManifiesto).slice(0, 40)}…)`);
+        }
+      }
+    }
+    if (!comparadas) console.log('  ⓘ ningún manifiesto declara listas de tablas todavía');
+  }
+
+  console.log('\n6) Las reglas se rompen a propósito  ← negativas en memoria');
   const malo1 = ['kind: Deployment', 'name: x', 'replicas: 2', 'type: Recreate'];
   A(revisar(malo1, 'test').some(([c, m]) => !c && /replicas=1/.test(m)), 'replicas=2 se detecta');
   const malo2 = ['kind: Deployment', 'name: x', 'replicas: 1'];
