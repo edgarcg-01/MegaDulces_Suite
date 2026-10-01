@@ -617,3 +617,91 @@ y `superadmin` resuelve por god-mode antes de consultar reglas.
 | `televenta-quote-new` | ningún `ScopeService` en televenta; su rol es `own` con 3 personas |
 | `tienda-verificador` · `tienda-etiquetas` | **a propósito**: son kiosco de mostrador y el catálogo público es su fuente correcta — la sucursal ahí es la de la máquina, no la de la persona |
 | `anden` · `caducidades-expediente` · `catalogo-reporte` | sin medir si su endpoint acota |
+
+---
+
+## 13. ZN.8 — El alcance puede variar por ÁREA 🚀 en prod (2026-10-01)
+
+Pedido: *«Aide hace el pedido de TODAS las sucursales, ve reportes de ALGUNAS, y en otras sólo
+quiere ver la zona Morelia. Es por eso que quiero darle ese dinamismo»*.
+
+### 13.1 El modelo no lo expresaba — y la bitácora lo prueba
+
+`identity.user_scopes` tenía PK `(tenant, user, dimension)`: **un valor por persona y dimensión,
+igual en toda la app**. La única forma de ver más en un lado y menos en otro era mover esa
+palanca. Su bitácora, medida:
+
+| fecha | de | a |
+|---|---|---|
+| 09-15 | `all` | `listed ['30','07']` |
+| 09-21 | `listed ['07','08']` | `all` |
+| 09-30 17:27 | `all` | `own` |
+| 09-30 18:49 | `own` | `listed ['07','08']` (`[ZN.6.1]`) |
+
+**Cuatro cambios en quince días, cada uno arreglando una pantalla y rompiendo otra.** No era
+descuido: faltaba un eje.
+
+### 13.2 La decisión que se consultó: techo o vista
+
+Son dos capas que se parecen y no son lo mismo —el **techo** (qué filas *puede* ver: seguridad,
+fail-closed) y la **vista** (qué *mira* por default: comodidad)—. Se ofreció resolverlo con la
+vista, que es mucho más barato. **El usuario eligió el techo: «no debe poder».** Esto es el techo.
+
+### 13.3 Lo entregado
+
+- `area varchar(40) NOT NULL DEFAULT '*'` en `user_scopes` y `role_scopes`, **dentro de la PK**.
+  ⭐ **Aditiva:** las 46 reglas de usuario y 294 de rol quedaron en `'*'` — cero cambio de
+  comportamiento hasta que alguien cree una excepción a propósito.
+- Precedencia de cuatro escalones: `usuario+área` → `usuario+'*'` → `rol+área` → `rol+'*'` →
+  fail-closed. ⚠️ **El usuario gana siempre al rol**, incluso su `'*'` contra un rol con área.
+- `elegirRegla()` en `libs/contracts`, **pura y con candado** (12 casos): es la pieza que falla
+  **en silencio** — si elige mal no hay excepción ni log, sólo alguien viendo de más o de menos.
+- **El área la declara el SERVICIO** (una constante por archivo), no la URL. Deducirla del
+  request en el CLS se rompe mudo en los crons y al renombrar un prefijo de ruta.
+- Las áreas se **derivan** de `AUTHZ_TREE` (13 proyectos). Por módulo **no**: son 60+ y nadie
+  mantiene una matriz de 129 personas × 6 dimensiones × 60 módulos.
+- **La pantalla** (`persona-datos`): por dimensión, la regla general y debajo, subordinadas, las
+  **excepciones por área** — agregar, ver con su motivo, y quitar. Es lo que convierte esto en
+  algo que se configura desde `/admin/personas` en vez de por migración.
+
+### 13.4 Lo que midió y corrigió el candado
+
+⭐ **Me corrigió a mí:** escribí `'tienda'` como ejemplo de área dando por hecho que el id del
+proyecto era su prefijo de ruta. Es **`pdv`** («Punto de Venta»); `/tienda` es la **ruta**. Ese
+typo se habría guardado feliz y habría creado una excepción que **no aplica a ninguna pantalla**
+— invisible, porque el resolvedor nunca la encuentra y cae al `'*'`. Por eso `setScope` valida
+contra el árbol.
+
+⚠️ **Dos trampas medidas:**
+
+1. **El DDL no acepta parámetros ligados.** `ADD COLUMN … DEFAULT ?` revienta con *«bind message
+   supplies 1 parameters, but prepared statement requires 0»* — misma familia que el `SET` que
+   necesita `set_config` (GOTCHAS §67). El primer intento falló y rollbackeó limpio.
+2. **El área va en la CLAVE del caché.** Sin eso, la primera pantalla que resuelva le sirve su
+   alcance a las demás durante 30 s — síntoma intermitente, el peor de depurar. Y
+   `invalidateUser` ahora barre **todas** las áreas: borrar sólo `tenant:user` dejaba vivas las
+   demás, o sea que cambiar el alcance en Compras no se notaba **en Compras**.
+
+### 13.5 En prod
+
+Migraciones **650** y **651**. `[ZN.8.1]` es la primera excepción real y es la del pedido:
+
+| Aide, dimensión `warehouse` | |
+|---|---|
+| en `compras` | `all` |
+| en el resto (`'*'`) | `listed ['07','08']` |
+
+⚠️ **Ensancha** lo que ve en Compras, así que no se infirió: sale de lo que el usuario describió
+como su trabajo. Reversible con `down()`.
+
+Candado `test-newdb-zn8-alcance-por-area.js` contra prod: **7 ok · 0 fallos · 1 declarado** (el
+bloque que compara contra el árbol no corre dentro de `prod-api`, que no lleva el fuente TS).
+
+### 13.6 Declarado, NO construido
+
+- **El subconjunto de sucursales para los REPORTES** — el usuario lo iba a confirmar. Inventarlo
+  sería dibujar una regla que nadie pidió, y una regla de alcance equivocada **no se ve**.
+- **Las otras 22 clases** que consumen `warehouse` no declaran área, o sea resuelven `'*'`:
+  idéntico a antes. Se migran cuando haga falta, no antes.
+- **La capa de vista** (preferencia por pantalla, que sigue a la persona entre dispositivos). Hoy
+  13 pantallas guardan filtros en `localStorage`, que es por navegador.

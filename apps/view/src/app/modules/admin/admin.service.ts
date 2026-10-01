@@ -224,7 +224,12 @@ export class AdminService {
   setAlcance(
     id: string,
     dimension: string,
-    body: { mode: string | null; values?: string[]; mode_write?: string | null; nota?: string },
+    /**
+     * `[ZN.8]` `area` = el proyecto donde aplica. Omitirlo toca la regla GENERAL (`'*'`), que es
+     * lo de siempre. Con `mode: null` + `area`, se retira sólo esa excepción y la persona vuelve
+     * a lo que diga su regla general — que no es lo mismo que volver al rol.
+     */
+    body: { mode: string | null; values?: string[]; mode_write?: string | null; nota?: string; area?: string },
   ): Observable<unknown> {
     return this.http.put(`${this.users}/${id}/scope/${dimension}`, body);
   }
