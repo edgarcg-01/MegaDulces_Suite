@@ -36,7 +36,7 @@ spec:
       restartPolicy: Always
       containers:
         - name: shipper
-          image: trade-ingest:latest
+          image: localhost:5000/trade-ingest:__COMMIT__
           imagePullPolicy: IfNotPresent
           command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=300"]
           envFrom:

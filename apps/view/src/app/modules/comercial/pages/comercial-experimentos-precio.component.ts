@@ -2,12 +2,16 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { PRECIOS_TABS } from '../precios-tabs';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
+import { DialogModule } from 'primeng/dialog';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import {
   ExperimentosPrecioService, type EstratoDef, type ExperimentoRow,
   type CapturaRow, type ResultadoRow,
@@ -37,7 +41,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 @Component({
   selector: 'app-comercial-experimentos-precio',
   standalone: true,
-  imports: [CommonModule, PageTabsComponent, TableModule, ButtonModule, SkeletonModule, ToastModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, PageTabsComponent, TableModule, ButtonModule, SkeletonModule, ToastModule, DialogModule, MetricStripComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -55,16 +59,18 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
         <strong>no cambia precios</strong> &mdash; entrega la lista y registra lo capturado.
       </p>
     </div>
-    <button type="button" pButton class="p-button-text p-button-sm"
-            icon="pi pi-refresh" label="Actualizar"
-            [loading]="cargando()" (click)="recargar()"></button>
+    <div class="xp-head-acc">
+      <p-button type="button" icon="pi pi-refresh" label="Actualizar" [loading]="cargando()" (click)="recargar()" styleClass="p-button-text p-button-sm" />
+      @if (puedeDisenar()) {
+        <p-button type="button" icon="pi pi-plus" label="Diseñar experimento" (click)="abrirDiseno()" styleClass="p-button-sm" />
+      }
+    </div>
   </header>
 
   @if (error(); as e) {
     <div class="xp-err" role="alert">
       <span>{{ e }}</span>
-      <button type="button" pButton class="p-button-sm p-button-text" label="Reintentar"
-              (click)="recargar()"></button>
+      <p-button type="button" label="Reintentar" (click)="recargar()" styleClass="p-button-sm p-button-text" />
     </div>
   }
 
@@ -125,8 +131,12 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
                 <p>
                   El primero está dimensionado y listo: el estrato de menos de $10 tiene
                   <strong>924 celdas elegibles</strong> y el diseño pide 582.
-                  Lo diseña quien tenga el permiso de gestión.
                 </p>
+                @if (puedeDisenar()) {
+                  <p-button type="button" icon="pi pi-plus" label="Diseñar el primero" (click)="abrirDiseno()" styleClass="p-button-sm" />
+                } @else {
+                  <p class="xp-empty-nota">Lo diseña quien tenga el permiso de gestión.</p>
+                }
               </div>
             </td></tr>
           </ng-template>
@@ -219,9 +229,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
                   <td class="comm-num xp-old">{{ c.precio_antes | number: '1.2-2' }}</td>
                   <td class="comm-num xp-new">{{ c.precio_propuesto | number: '1.2-2' }}</td>
                   <td>
-                    <button type="button" pButton class="p-button-sm p-button-text"
-                            label="Ya lo capturé" [loading]="marcando() === c.id"
-                            (click)="marcar(c)"></button>
+                    <p-button type="button" label="Ya lo capturé" [loading]="marcando() === c.id" (click)="marcar(c)" styleClass="p-button-sm p-button-text" />
                   </td>
                 </tr>
               } @empty {
@@ -238,9 +246,102 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
       }
     </div>
   }
+
+<!-- [PR.V6] Disenar el experimento. El backend ya tenia POST /commercial/price-experiments y
+     los tres endpoints del flujo de captura; la pantalla solo llamaba a los dos de lectura, asi
+     que quien SI tenia el permiso veia un texto diciendole que lo hace otra persona. -->
+<p-dialog [(visible)]="dialogoAbierto" [modal]="true" [draggable]="false"
+          [style]="{ width: '34rem', maxWidth: '94vw' }"
+          header="Diseñar experimento de precio">
+  <div class="xp-form">
+    <p class="xp-f-intro">
+      Diseñar <strong>no cambia ningún precio</strong>: parte las celdas elegibles en dos ramas
+      —tratamiento y control— y entrega la lista de precios a capturar en Kepler. El veredicto
+      llega después, cuando la ventana posterior se cumpla.
+    </p>
+    <label class="xp-f">
+      <span class="xp-f-l">Nombre</span>
+      <input pInputText type="text" [(ngModel)]="nombre" name="nombre"
+             placeholder="Aterrizaje .99 — menores de $10" />
+    </label>
+
+    <div class="xp-f">
+      <span class="xp-f-l">Terminación a probar</span>
+      <div class="xp-seg" role="group" aria-label="Terminación">
+        @for (m of MODOS; track m.v) {
+          <button type="button" [class.is-on]="modo() === m.v" (click)="modo.set(m.v)">
+            .{{ m.v }}
+          </button>
+        }
+      </div>
+      <span class="xp-f-h">{{ glosaModo() }}</span>
+    </div>
+
+    <label class="xp-f">
+      <span class="xp-f-l">Semilla</span>
+      <input type="number" [(ngModel)]="semillaN" name="semilla" class="xp-num" />
+      <span class="xp-f-h">
+        Se guarda con el experimento. Sin ella la asignación no se puede reproducir, y un
+        resultado que no se puede reproducir no es un resultado.
+      </span>
+    </label>
+
+    <div class="xp-f">
+      <span class="xp-f-l">Estratos</span>
+      @for (e of estratos(); track e.clave) {
+        <label class="xp-chk" [class.is-off]="!e.viable">
+          <input type="checkbox" [checked]="estratosSel().has(e.clave)" (change)="alternar(e.clave)" />
+          <span class="xp-chk-t">{{ rango(e) }}</span>
+          <!-- nPorRama * 2, igual que la tabla de abajo: el n es POR RAMA y el experimento tiene
+               dos (tratamiento y control). Mostrar 291 aca y 582 alla es el mismo numero dicho de
+               dos maneras en la misma pantalla. -->
+          <span class="xp-chk-n">necesita {{ e.nPorRama * 2 | number }} · hay {{ e.elegibles | number }}</span>
+          @if (!e.viable) { <span class="xp-chk-w">no alcanza</span> }
+        </label>
+      }
+      <span class="xp-f-h">
+        Los que no alcanzan se pueden marcar igual, y entran declarados sin potencia: ocultarlos
+        haría creer que el experimento cubre el catálogo entero.
+      </span>
+    </div>
+  </div>
+
+  <ng-template #footer>
+    <p-button type="button" label="Cancelar" (click)="dialogoAbierto = false" styleClass="p-button-text p-button-sm" />
+    <p-button type="button" label="Diseñar" [disabled]="!nombre().trim() || !estratosSel().size || guardando()" [loading]="guardando()" (click)="disenar()" styleClass="p-button-sm" />
+  </ng-template>
+</p-dialog>
 </div>
   `,
   styles: [`
+    /* [PR.V6] El formulario de diseno. */
+    .xp-head-acc { display: flex; align-items: center; gap: var(--sp-2); }
+    .xp-empty-nota { font-size: var(--fs-xs); color: var(--fg-3); margin-top: var(--sp-2); }
+    .xp-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+    .xp-f-intro { margin: 0; font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.5;
+      padding: .55rem .7rem; border-radius: var(--r-md); background: var(--surface-2); }
+    .xp-f-intro strong { color: var(--fg-1); font-weight: 600; }
+    .xp-f { display: flex; flex-direction: column; gap: 4px; }
+    .xp-f-l { font-size: var(--fs-xs); font-weight: 600; color: var(--fg-1); }
+    .xp-f-h { font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.45; }
+    .xp-num { width: 10rem; padding: .4rem .55rem; font-family: var(--font-mono);
+      border: 1px solid var(--border-color); border-radius: var(--r-sm); background: var(--surface-card);
+      color: var(--fg-1); }
+    .xp-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--r-md);
+      background: var(--surface-2); width: fit-content; }
+    .xp-seg button { border: none; background: none; cursor: pointer; font: inherit;
+      font-size: var(--fs-sm); font-family: var(--font-mono); color: var(--fg-2);
+      padding: .3rem .7rem; border-radius: calc(var(--r-md) - 2px); }
+    .xp-seg button.is-on { background: var(--surface-card); color: var(--fg-1); font-weight: 600;
+      box-shadow: 0 1px 2px rgba(9,9,11,.08); }
+    .xp-chk { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm);
+      padding: .25rem 0; cursor: pointer; }
+    .xp-chk.is-off .xp-chk-t { color: var(--fg-2); }
+    .xp-chk-t { font-family: var(--font-mono); }
+    .xp-chk-n { font-size: var(--fs-xs); color: var(--fg-2); font-variant-numeric: tabular-nums; }
+    .xp-chk-w { font-size: var(--fs-nano); font-weight: 700; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--warn-soft-fg); background: var(--warn-soft-bg);
+      padding: 1px 5px; border-radius: 3px; }
     /* [PR.V2] El selector segmentado va ARRIBA del encabezado de la pagina, como en
        Almacen y Contabilidad. El padding horizontal ya lo pone .surf-page: aca solo
        hace falta separarlo del borde superior y del titulo.
@@ -324,6 +425,46 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
   `],
 })
 export class ComercialExperimentosPrecioComponent {
+  private readonly permisos = inject(PermissionsService);
+
+  /**
+   * [PR.V6] Quien puede disenar. El backend exige COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR en el
+   * POST; aca se usa la MISMA clave para no mostrar un boton que el servidor va a rechazar.
+   */
+  readonly puedeDisenar = this.permisos.has$(Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR);
+
+  dialogoAbierto = false;
+  readonly nombre = signal('');
+  readonly modo = signal<'00' | '50' | '90' | '99'>('99');
+  semillaN = 1;
+  /** Los estratos marcados en el dialogo. (El otro `sel` es el experimento abierto.) */
+  readonly estratosSel = signal<Set<string>>(new Set());
+  readonly guardando = signal(false);
+
+  readonly MODOS: ReadonlyArray<{ v: '00' | '50' | '90' | '99'; g: string }> = [
+    { v: '99', g: 'La mas comun y la que el motor propone por default.' },
+    { v: '90', g: 'Alza menor que .99: util cuando el salto a .99 se pasa del umbral.' },
+    { v: '50', g: 'Media unidad. Rara en dulceria.' },
+    { v: '00', g: 'Precio cerrado. Sube menos, pero se lee como mas caro.' },
+  ];
+
+  glosaModo(): string {
+    return this.MODOS.find((m) => m.v === this.modo())?.g ?? '';
+  }
+
+  alternar(clave: string): void {
+    const s = new Set(this.estratosSel());
+    if (s.has(clave)) s.delete(clave); else s.add(clave);
+    this.estratosSel.set(s);
+  }
+
+  abrirDiseno(): void {
+    // Los viables vienen marcados; los que no alcanzan hay que pedirlos a proposito.
+    this.estratosSel.set(new Set(this.estratos().filter((e) => e.viable).map((e) => e.clave)));
+    this.nombre.set('Aterrizaje .' + this.modo());
+    this.semillaN = Math.floor(Math.random() * 1e6);
+    this.dialogoAbierto = true;
+  }
   /** `[PR.V2]` El selector segmentado: el motor y sus experimentos, bajo una sola
    *  entrada del sidebar. `PageTabs` esconde la barra si el rol sólo alcanza una. */
   readonly tabs = PRECIOS_TABS;
@@ -432,5 +573,25 @@ export class ComercialExperimentosPrecioComponent {
   rango(e: EstratoDef): string {
     if (e.max > 1e8) return `> $${e.min}`;
     return `$${e.min} – $${e.max}`;
+  }
+
+  disenar(): void {
+    this.guardando.set(true);
+    this.api.disenar(this.nombre().trim(), this.modo(), this.semillaN, [...this.estratosSel()])
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.guardando.set(false);
+          this.dialogoAbierto = false;
+          this.toast.add({ severity: 'success', summary: 'Experimento diseñado',
+            detail: 'Ningun precio cambio: la lista para capturar en Kepler ya esta.' });
+          this.recargar();
+        },
+        error: (e) => {
+          this.guardando.set(false);
+          this.toast.add({ severity: 'error', summary: 'No se pudo disenar',
+            detail: e?.error?.message ?? 'Error inesperado' });
+        },
+      });
   }
 }

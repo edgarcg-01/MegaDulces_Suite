@@ -1,0 +1,109 @@
+# ═══ PORTAL Y VENDEDOR ═══  [K3S.15]  — las dos apps de cara al cliente
+#
+# Van primero de producción porque son las de menor consecuencia: sirven estáticos, no tienen
+# estado, no escriben a ninguna base, y si algo sale mal se vuelve a Compose con un comando.
+#
+# ⭐ `hostPort` IGUAL al que publican hoy (8081 / 8082). Eso es lo que hace que Caddy no se
+# entere: en `[K3S.14]` ya se le cambió el `reverse_proxy` de `portal:10000` —DNS de Docker— a
+# `192.168.0.222:8081`, y se verificó con las apps TODAVÍA en Docker (200 por Cloudflare en
+# 30 ms). Ahora el pod ocupa ese mismo puerto y el ingreso no cambia ni se redespliega.
+#
+# ⛔ `replicas: 1` NO es por el patrón singleton de los carriles —estas apps sí serían
+# replicables— sino por `hostPort`: dos pods no pueden tomar el mismo puerto del nodo. Cuando
+# Caddy entre al clúster y pase a resolver por Service, esto puede subir y `hostPort` se va.
+#
+# ⚠️ El orden de apagado importa: PRIMERO se para el contenedor de Compose, DESPUÉS se aplica el
+# Deployment. Al revés, el pod no puede tomar el 8081 —lo tiene Docker— y queda en Pending sin
+# decir nada obvio.
+---
+apiVersion: v1
+kind: Service
+metadata: { name: portal, namespace: prod }
+spec:
+  type: NodePort
+  selector: { app: portal }
+  ports: [{ name: http, port: 10000, targetPort: 10000, nodePort: 30081 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: vendor, namespace: prod }
+spec:
+  type: NodePort
+  selector: { app: vendor }
+  ports: [{ name: http, port: 10000, targetPort: 10000, nodePort: 30082 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal
+  namespace: prod
+  labels: { app: portal, singleton: "false", migracion: preparado }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: portal }
+  template:
+    metadata:
+      labels: { app: portal }
+    spec:
+      containers:
+        - name: portal
+          image: localhost:5000/trade-prod-portal:__COMMIT__
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 10000 }]
+          envFrom:
+            - secretRef: { name: prod-env }
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: TZ
+              value: America/Mexico_City
+            - name: PORT
+              value: "10000"
+            - name: TLS_TERMINADO
+              value: "true"
+          readinessProbe:
+            httpGet: { path: /, port: 10000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { memory: "32Mi", cpu: "25m" }
+            limits:   { memory: "256Mi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vendor
+  namespace: prod
+  labels: { app: vendor, singleton: "false", migracion: preparado }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: vendor }
+  template:
+    metadata:
+      labels: { app: vendor }
+    spec:
+      containers:
+        - name: vendor
+          image: localhost:5000/trade-prod-vendor:__COMMIT__
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 10000 }]
+          envFrom:
+            - secretRef: { name: prod-env }
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: TZ
+              value: America/Mexico_City
+            - name: PORT
+              value: "10000"
+            - name: TLS_TERMINADO
+              value: "true"
+          readinessProbe:
+            httpGet: { path: /, port: 10000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { memory: "32Mi", cpu: "25m" }
+            limits:   { memory: "256Mi" }

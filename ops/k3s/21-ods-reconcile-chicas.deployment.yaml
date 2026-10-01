@@ -42,7 +42,7 @@ spec:
       restartPolicy: Always
       containers:
         - name: reconciliador
-          image: trade-ingest:latest
+          image: localhost:5000/trade-ingest:__COMMIT__
           imagePullPolicy: IfNotPresent     # ⛔ la imagen vive en dockerd; hay que IMPORTARLA
                                             #    al containerd de k3s o el pod queda en ErrImagePull
           command:

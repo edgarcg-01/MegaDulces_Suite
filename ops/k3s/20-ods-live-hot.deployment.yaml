@@ -48,7 +48,7 @@ spec:
       restartPolicy: Always
       containers:
         - name: shipper
-          image: trade-ingest:latest
+          image: localhost:5000/trade-ingest:__COMMIT__
           imagePullPolicy: IfNotPresent     # la imagen se importa al containerd del nodo
           command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=15"]
           envFrom:

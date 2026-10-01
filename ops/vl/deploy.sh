@@ -27,7 +27,10 @@ set -eu
 SRV="${DEPLOY_HOST:-superoot@192.168.0.222}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 # Las MISMAS rutas que copia ops/ingest/Dockerfile. Si ahí se agrega un COPY, acá también.
-RUTAS="ops/ingest ops/vl database/importers database/scripts services/feeds-ingest libs/platform-core/src/lib/provenance/target-guard.js"
+# [K3S.21] `ops/k3s` viaja: los manifiestos se aplican desde la copia de HEAD en `md`, no desde
+# lo que alguien tenga en su editor. Antes no viajaban porque se aplicaban A MANO, que es
+# exactamente el camino que esta entrega cierra.
+RUTAS="ops/ingest ops/vl ops/k3s database/importers database/scripts services/feeds-ingest libs/platform-core/src/lib/provenance/target-guard.js"
 # ⭐ [CT.1] LOS OCHO CARRILES, y que estuvieran sólo tres fue la causa de una deriva real.
 #
 # Hasta el 2026-09-24 esta línea decía `feeds-cron feeds-livefast store-poller`: los cinco
@@ -48,7 +51,7 @@ RUTAS="ops/ingest ops/vl database/importers database/scripts services/feeds-inge
 # próxima divergencia caiga en un archivo inocuo.
 #
 # Si agregás un servicio al compose que corra código de este repo, va ACÁ también.
-# � [K3S.6 2026-10-01] `ods-reconcile-chicas` SALIO de esta lista: vive en K3s desde hoy.
+# � [K3S.6 2026-10-01] `ods-reconcile-chicas` SALIO de esta lista: vive en K3s desde hoy.
 # No es cosmetico. Los dos mundos comparten ODS_RECONCILE_HB_KEY=cdc_reconcile_chicas, asi que
 # si --todo lo resucitara en Compose habria DOS duenos del mismo renglon de analytics.cron_runs
 # peleandoselo -- la falla que la guarda de dueno de health.js detecta, causada por nosotros.
@@ -144,6 +147,38 @@ estado() {
     else
       echo "  ✓ los 8 carriles en la misma imagen"
     fi'
+
+  # ⛔ [K3S.21] Y LOS PODS TAMBIÉN. Todo el bloque de arriba mira SÓLO contenedores de Docker,
+  # así que desde que los carriles se fueron a K3s este detector dejó de verlos: los 7 que de
+  # verdad alimentan el ODS quedaron fuera del único chequeo que compara CÓDIGO.
+  #
+  # No es hipotético. El mismo punto ciego, del lado de prod, dejó a los pods del API 36
+  # commits atrás sirviendo a los usuarios internos durante horas (2026-10-01) — y nadie lo vio
+  # porque el verificador medía el :8080 de Docker, que sí estaba al día.
+  #
+  # ⭐ Compara el DIGEST DEL CÓDIGO, no el ID de imagen, por la misma razón que [CPU.4]: con
+  # ~10 sesiones sobre el repo la imagen cambia de ID varias veces al día por archivos ajenos
+  # al contexto de build. Medido hoy: los 7 pods tenían imagen distinta a `latest` y código
+  # IDÉNTICO. Una alarma que grita en falso enseña a ignorar el tablero.
+  echo
+  echo "── Versión por pod de K3s ──"
+  ssh_md '
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    command -v k3s >/dev/null 2>&1 || { echo "   (no hay k3s en este host)"; exit 0; }
+    DIG="find /app/database/importers /app/services/feeds-ingest /app/ops/ingest /app/ops/vl /app/libs -type f \( -name \*.js -o -name \*.sh \) | sort | xargs md5sum | md5sum | cut -c1-12"
+    REF=$(docker run --rm --entrypoint sh trade-ingest:latest -c "$DIG" 2>/dev/null)
+    echo "   trade-ingest:latest = ${REF:-NO SE PUDO MEDIR}"
+    viejos=0; n=0
+    for p in $(k3s kubectl get pods -n ingesta -o name 2>/dev/null); do
+      n=$((n+1))
+      d=$(k3s kubectl exec -n ingesta $p -- sh -c "$DIG" 2>/dev/null)
+      if [ -z "$d" ]; then printf "   %-40s %s\n" "${p#pod/}" "NO MEDIDO (no se pudo entrar al pod)"
+      elif [ "$d" = "$REF" ]; then printf "   %-40s %s\n" "${p#pod/}" "$d"
+      else printf "   %-40s %s  <- CODIGO VIEJO\n" "${p#pod/}" "$d"; viejos=$((viejos+1)); fi
+    done
+    if [ "$n" -eq 0 ]; then echo "   (ningun pod en el namespace ingesta)"
+    elif [ "$viejos" -gt 0 ]; then echo "   ⛔ $viejos pod(s) con CODIGO viejo — corre: ops/vl/deploy.sh --k3s"
+    else echo "   ✓ los $n pods corren el MISMO codigo que la imagen"; fi'
 }
 
 # AVISA de lo que NO va a viajar, y sigue.
@@ -188,6 +223,59 @@ construir() {
   ssh_md 'cp ~/build-ingest/ops/vl/docker-compose.yml ~/ops/vl/docker-compose.yml && cd ~/ops/vl && docker compose config >/dev/null && echo "   compose válido"'
 }
 
+# ═══ [K3S.21] PUBLICAR — el paso que faltaba entre construir y K3s ══════════════════════════
+#
+# Hasta el 2026-10-01 NO existía camino automático: las imágenes entraban a containerd a mano,
+# con `docker save | sudo k3s ctr images import`. Y lo que se hace a mano se olvida — los pods
+# quedaron 36 commits atrás y le sirvieron ese build a los usuarios internos, con TODOS los
+# rótulos en verde (pod Running, sonda 200, y el verificador midiendo el otro mundo).
+#
+# ⭐ EL TAG ES EL COMMIT, NUNCA `latest`. Con `latest` + `imagePullPolicy: IfNotPresent` el
+# kubelet no vuelve a jalar jamás; con el commit adentro del tag, un commit distinto es un tag
+# distinto, y un tag distinto OBLIGA a crear un pod nuevo. La obsolescencia deja de ser
+# improbable y pasa a ser imposible. Y si la imagen falta, falla A LA VISTA (ImagePullBackOff).
+#
+# Medido: las 5 imágenes (5 GB) suben en 5 s. Es loopback y las capas se deduplican.
+publicar() {
+  commit=$(cd "$REPO" && git rev-parse --short HEAD)
+  echo "── Publicando trade-ingest:$commit en el registry local ──"
+  ssh_md "docker tag trade-ingest:latest localhost:5000/trade-ingest:$commit && \
+    docker push localhost:5000/trade-ingest:$commit >/dev/null 2>&1 && echo '   publicada'" || {
+    echo "   ⛔ no se pudo publicar. ¿Está arriba el registry?  docker ps | grep prod-registry"
+    exit 1
+  }
+}
+
+# ═══ [K3S.21] APLICAR LOS MANIFIESTOS, con el commit sustituido ═════════════════════════════
+#
+# ⛔ SÓLO SE APLICAN LOS `migracion: migrado`, y el filtro no es cosmético. Un
+# `kubectl apply -f ops/k3s/` a secas aplicaría también los `preparado` —los que tienen el YAML
+# escrito pero siguen corriendo en Compose— y crearía el doble-corredor AL INSTANTE y en
+# silencio: dos dueños del mismo renglón de `analytics.cron_runs` pisándose el latido.
+#
+# El filtro es POR ARCHIVO, y lo que lo vuelve confiable es que `npm run check:k3s` exige que un
+# archivo no mezcle los dos estados. Sin esa regla, el filtro sería una suposición.
+aplicar_k3s() {
+  commit=$(cd "$REPO" && git rev-parse --short HEAD)
+  echo "── Aplicando manifiestos de K3s (sólo los MIGRADO) ──"
+  ssh_md "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; cd ~/build-ingest/ops/k3s && for f in *.yaml; do \
+    if grep -q 'migracion: preparado' \$f; then echo \"   — \$f (PREPARADO: corre en Compose, no se aplica)\"; \
+    else sed 's/__COMMIT__/$commit/g' \$f | k3s kubectl apply -f - >/dev/null && echo \"   ✓ \$f\"; fi; done" || {
+    echo "   ⛔ falló el apply. Si dice ImagePullBackOff, falta /etc/rancher/k3s/registries.yaml"
+    echo "      (necesita root una sola vez; el archivo está en ~superoot/registries.yaml)"
+    exit 1
+  }
+  echo
+  echo "── Esperando a que los pods tomen la imagen nueva ──"
+  ssh_md "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; \
+    for d in \$(k3s kubectl get deploy -n ingesta -o name 2>/dev/null); do \
+      printf '   %-34s ' \"\$d\"; \
+      k3s kubectl rollout status -n ingesta \$d --timeout=120s 2>&1 | tail -1; done"
+  echo
+  echo "   ⚠️ 'rollout complete' dice que el pod arrancó, NO que esté entregando."
+  echo "      El veredicto sigue siendo el latido en analytics.cron_runs (ADR-053)."
+}
+
 recrear() {
   servicios="$*"
   echo "── Recreando: $servicios ──"
@@ -203,7 +291,12 @@ recrear() {
 case "${1:---todo}" in
   --estado)      estado ;;
   --solo-imagen) verificar_limpio; construir ;;
-  --todo)        verificar_limpio; construir; recrear $SERVICIOS_DEF ;;
+  # [K3S.21] Reaplicar K3s sin tocar Compose. ⛔ CONSTRUYE IGUAL, a propósito: si publicara
+  # `trade-ingest:latest` tal como esté, le pondría el tag del commit de HEAD a una imagen que
+  # puede ser de OTRO commit — un tag que miente sobre lo que contiene, que es exactamente la
+  # clase de defecto que esta entrega cierra. El build está cacheado: si no cambió nada, es rápido.
+  --k3s)         verificar_limpio; construir; publicar; aplicar_k3s ;;
+  --todo)        verificar_limpio; construir; publicar; aplicar_k3s; recrear $SERVICIOS_DEF ;;
   -*)            sed -n '2,10p' "$0"; exit 2 ;;
-  *)             verificar_limpio; construir; recrear "$@" ;;
+  *)             verificar_limpio; construir; publicar; aplicar_k3s; recrear "$@" ;;
 esac

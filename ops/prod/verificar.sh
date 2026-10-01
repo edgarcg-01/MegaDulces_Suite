@@ -131,9 +131,36 @@ fi
 nm "latido backup_prod — vive en prod, se mira con: psql \"\$ODS_HB_URL\" -c \"select * from analytics.cron_runs where job_key='backup_prod'\""
 
 titulo "La ingesta (no se toca desde acá, pero si la rompimos hay que saberlo)"
+# ⛔ [K3S.22] CUENTA LOS DOS MUNDOS, Y ANTES CONTABA UNO SOLO.
+#
+# Este bloque exigía >=9 contenedores con la etiqueta de Compose `vl`. Desde que los 7 carriles
+# se fueron a K3s quedan 3, así que reportaba ROJO sobre un estado perfectamente SANO — medido
+# el 2026-10-01: "sólo 3 de 3 sanos", con los 7 pods corriendo y entregando.
+#
+# ⭐ Eso no es un detalle cosmético: una alarma que grita en falso enseña a ignorar el tablero,
+# y así es como la próxima falla REAL pasa inadvertida. Es la misma lección de [CT.1] (4
+# versiones conviviendo 13 días) y de [CPU.4] (7 carriles marcados viejos con código idéntico).
+#
+# ⚠️ Si no hay k3s en el host, la mitad de K3s se DECLARA no medida — no se da por buena. Lo que
+# no se puede medir nunca cuenta como verde (ADR-056).
 viv=$(docker ps --filter "label=com.docker.compose.project=vl" --format '{{.Names}}' | wc -l)
 san=$(docker ps --filter "label=com.docker.compose.project=vl" --filter "health=healthy" --format '{{.Names}}' | wc -l)
-[ "$viv" -ge 9 ] && [ "$san" -ge 8 ] && ok "$san de $viv contenedores sanos" || mal "sólo $san de $viv sanos"
+if command -v k3s >/dev/null 2>&1; then
+  KC=/etc/rancher/k3s/k3s.yaml
+  pods=$(KUBECONFIG=$KC k3s kubectl get pods -n ingesta --no-headers 2>/dev/null)
+  pviv=$(printf '%s\n' "$pods" | grep -c . )
+  psan=$(printf '%s\n' "$pods" | awk '$2=="1/1" && $3=="Running"' | grep -c . )
+  echo "   ⓘ Compose: $san/$viv sanos  ·  K3s(ingesta): $psan/$pviv listos"
+  tviv=$((viv + pviv)); tsan=$((san + psan))
+  [ "$tviv" -ge 9 ] && [ "$tsan" -ge 8 ] \
+    && ok "$tsan de $tviv carriles sanos (los dos mundos)" \
+    || mal "sólo $tsan de $tviv carriles sanos (los dos mundos)"
+else
+  [ "$viv" -ge 3 ] && [ "$san" -ge "$viv" ] \
+    && ok "$san de $viv contenedores de Compose sanos" \
+    || mal "sólo $san de $viv contenedores de Compose sanos"
+  nm "la mitad de K3s — no hay k3s en este host, así que NO se midió (no se da por buena)"
+fi
 
 printf '\n\033[1m══ Veredicto ══\033[0m\n'
 if [ "$fallas" = 0 ]; then

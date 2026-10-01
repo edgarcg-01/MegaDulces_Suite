@@ -59,7 +59,7 @@ spec:
                 path: feeds.env
       containers:
         - name: cron
-          image: trade-ingest:latest
+          image: localhost:5000/trade-ingest:__COMMIT__
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args: ["crontab /app/ops/vl/crontab.feeds && exec crond -f -d 8"]

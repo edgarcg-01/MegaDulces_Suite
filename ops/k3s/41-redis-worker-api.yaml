@@ -1,0 +1,212 @@
+# ═══ EL TRÍO ACOPLADO: redis + worker + api ═══  [K3S.16]
+#
+# ⛔ ESTOS TRES SE MUEVEN JUNTOS, Y NO ES COMODIDAD. `redis` NO publica puerto en el host, así
+# que no puede quedar partido entre los dos mundos: si se queda en Docker, un `api` en K3s no lo
+# alcanza; si se va a K3s, el `api` que quede en Docker pierde el adaptador de socket.io, la
+# caché y la cola. La alternativa —exponer 6379 en el host— se descarta: ese redis **no tiene
+# contraseña**, y publicarlo en la LAN por conveniencia de una migración es la clase de
+# "temporal" que se queda.
+#
+# ⭐ SE PUEDE ARRANCAR CON VOLUMEN NUEVO, y eso se MIDIÓ antes de decidirlo: `dbsize` = **0
+# claves**, **0 claves `bull:*`**, 1.25 MB de memoria. No hay cola que perder. Si hubiera habido
+# trabajos encolados, este manifiesto no sería así — habría que mover el AOF primero.
+#
+# ⭐ EL `api2` QUE ARMAMOS A MANO DESAPARECE ACÁ. En Compose hicieron falta dos servicios
+# copiados con un ancla para tener dos réplicas; en K8s es `replicas: 2` de un solo Deployment.
+# El balanceo deja de ser cosa de Caddy y pasa al Service, y la afinidad de sesión que Socket.IO
+# exige la da `sessionAffinity: ClientIP`.
+#
+# ⚠️ ORDEN DEL CORTE, y cada paso tiene su motivo:
+#   1. `worker` se PARA en Docker antes de arrancar en K3s. Dos workers = los 51 @Cron dos
+#      veces, y ahí sí hay escritura duplicada. Se acepta el hueco de segundos.
+#   2. `api` arranca EN PARALELO con el de Docker y se verifica por su NodePort ANTES de mover
+#      a Caddy. Dos APIs atendiendo a la vez es inofensivo —ya corren dos hoy— así que el
+#      cambio de tráfico se hace sobre algo ya probado, no a ciegas.
+---
+# ── El puente a pg-prod, otra vez: los Service son por NAMESPACE ──────────────
+apiVersion: v1
+kind: Service
+metadata: { name: pg-prod, namespace: prod }
+spec:
+  ports: [{ name: postgres, port: 5432, targetPort: 5434 }]
+---
+apiVersion: v1
+kind: Endpoints
+metadata: { name: pg-prod, namespace: prod }
+subsets:
+  - addresses: [{ ip: 192.168.0.222 }]
+    ports: [{ name: postgres, port: 5434 }]
+---
+# ── redis ────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: redis-data, namespace: prod }
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 2Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: redis, namespace: prod }
+spec:
+  selector: { app: redis }
+  ports: [{ name: redis, port: 6379, targetPort: 6379 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: prod
+  labels: { app: redis, singleton: "true", migracion: preparado }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # ⛔ un PVC ReadWriteOnce no se comparte entre dos pods
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          # ⛔ `noeviction` es requisito de BullMQ: con otra política Redis tira claves de la
+          # cola bajo presión de memoria y los trabajos desaparecen sin error.
+          command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
+          ports: [{ containerPort: 6379 }]
+          volumeMounts:
+            - { name: datos, mountPath: /data }
+          livenessProbe:
+            exec: { command: ["redis-cli", "ping"] }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: { memory: "64Mi", cpu: "25m" }
+            limits:   { memory: "640Mi" }
+      volumes:
+        - name: datos
+          persistentVolumeClaim: { claimName: redis-data }
+---
+# ── worker: SINGLETON de verdad (51 @Cron) ───────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: prod
+  labels: { app: worker, singleton: "true", migracion: preparado }
+spec:
+  replicas: 1             # ⛔ NUNCA subir: son 51 @Cron, dos pods = cada uno dos veces
+  strategy:
+    type: Recreate        # ⛔ RollingUpdate solaparía dos workers durante el despliegue
+  selector:
+    matchLabels: { app: worker }
+  template:
+    metadata:
+      labels: { app: worker }
+    spec:
+      # ⛔ [K3S.18] ESTO REEMPLAZA AL depends_on: condition: service_healthy DE COMPOSE, y se
+      # agrego DESPUES de que su ausencia mordiera. Sin el, K8s arranca los pods EN PARALELO:
+      # el API gano la carrera, pidio Redis, recibio ECONNREFUSED y el adaptador de socket.io
+      # se quedo "en modo in-memory" PARA SIEMPRE -- no reintenta. Con dos replicas eso
+      # significa que un cliente en la replica A no recibe lo que emite la B, en silencio.
+      # Medido: el redis del cluster tenia 1 canal y 0 patrones, contra 56 y 14 en el de Docker.
+      # ⚠️ Acá la version de Compose era MAS correcta que mi traduccion: expresaba la
+      # dependencia y yo la deje caer. Migrar no es copiar campos, es conservar INVARIANTES.
+      initContainers:
+        - name: esperar-redis
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "until nc -z redis 6379; do echo esperando-redis; sleep 2; done"]
+      containers:
+        - name: worker
+          image: localhost:5000/trade-prod-worker:__COMMIT__
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef: { name: prod-env }
+          env:
+            - { name: TZ,                     value: America/Mexico_City }
+            - { name: NODE_ENV,               value: production }
+            - { name: REDIS_URL,              value: "redis://redis:6379" }
+            - { name: WORKER,                 value: "true" }
+            - { name: ENABLE_WORKER_QUEUE,    value: "true" }
+            - { name: RUN_MIGRATIONS_ON_BOOT, value: "0" }
+          resources:
+            requests: { memory: "256Mi", cpu: "100m" }
+            limits:   { memory: "2Gi" }
+---
+# ── api: DOS réplicas de UN Deployment (adiós al api2 copiado a mano) ─────────
+apiVersion: v1
+kind: Service
+metadata: { name: api, namespace: prod }
+spec:
+  type: NodePort
+  # ⭐ Socket.IO con transporte de sondeo exige AFINIDAD DE SESIÓN: dos peticiones del mismo
+  # cliente tienen que caer en la misma réplica o el handshake se rompe. En Caddy eso era
+  # `lb_policy cookie`; acá lo da el Service, y por eso Caddy ya no necesita saber nada.
+  sessionAffinity: ClientIP
+  selector: { app: api }
+  ports:
+    - { name: http, port: 10000, targetPort: 10000, nodePort: 30080 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: prod
+  labels: { app: api, singleton: "false", migracion: preparado }
+spec:
+  replicas: 2             # lo que en Compose eran `api` + `api2`, copiados a mano
+  selector:
+    matchLabels: { app: api }
+  template:
+    metadata:
+      labels: { app: api }
+    spec:
+      # ⛔ [K3S.18] ESTO REEMPLAZA AL depends_on: condition: service_healthy DE COMPOSE, y se
+      # agrego DESPUES de que su ausencia mordiera. Sin el, K8s arranca los pods EN PARALELO:
+      # el API gano la carrera, pidio Redis, recibio ECONNREFUSED y el adaptador de socket.io
+      # se quedo "en modo in-memory" PARA SIEMPRE -- no reintenta. Con dos replicas eso
+      # significa que un cliente en la replica A no recibe lo que emite la B, en silencio.
+      # Medido: el redis del cluster tenia 1 canal y 0 patrones, contra 56 y 14 en el de Docker.
+      # ⚠️ Acá la version de Compose era MAS correcta que mi traduccion: expresaba la
+      # dependencia y yo la deje caer. Migrar no es copiar campos, es conservar INVARIANTES.
+      initContainers:
+        - name: esperar-redis
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "until nc -z redis 6379; do echo esperando-redis; sleep 2; done"]
+      containers:
+        - name: api
+          image: localhost:5000/trade-prod-api:__COMMIT__
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 10000 }]
+          envFrom:
+            - secretRef: { name: prod-env }
+          env:
+            - { name: TZ,             value: America/Mexico_City }
+            - { name: NODE_ENV,       value: production }
+            - { name: REDIS_URL,      value: "redis://redis:6379" }
+            - { name: PORT,           value: "10000" }
+            - { name: API_PORT,       value: "3333" }
+            - { name: API_PREFIX,     value: api }
+            - { name: TLS_TERMINADO,  value: "true" }
+          # `readiness` saca del balanceo a la réplica que todavía no sirve; `liveness` reinicia
+          # a la que dejó de servir. Son preguntas distintas y por eso son dos sondas.
+          readinessProbe:
+            httpGet: { path: /api/health, port: 10000 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /api/health, port: 10000 }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests: { memory: "384Mi", cpu: "200m" }
+            limits:   { memory: "2Gi" }

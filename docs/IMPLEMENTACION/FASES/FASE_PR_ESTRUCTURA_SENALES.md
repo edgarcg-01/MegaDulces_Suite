@@ -786,7 +786,118 @@ instante, pero **lo escribí igual, horas después de documentarlo dos veces**.
 
 ---
 
-## 21 · Lo que sigue
+## 21 · `[PR.V6]` · La pestaña de Experimentos no tenía nada que clickear
+
+Reportado al abrirla como superadmin: *«¿aquí qué hago? no existe información o algo que pueda
+clickear»*. El estado vacío decía **«Lo diseña quien tenga el permiso de gestión»** — a una
+persona que **tenía** ese permiso. La pantalla nombraba una condición en vez de dar la acción.
+
+### ⛔ Y no faltaba backend
+
+| endpoint | existía | lo usaba la pantalla |
+|---|---|---|
+| `GET /estratos` | sí | sí |
+| `GET /` listar | sí | sí |
+| **`POST /` diseñar** | **sí** | ⛔ **no** |
+| `GET /:id/captura` | sí | sí |
+| `PATCH /units/:id/aplicada` | sí | sí |
+| `GET /:id/resultados` | sí | sí |
+
+El servicio del frontend **ya tenía los seis métodos**, incluido `disenar`. De los seis, era el
+**único con cero llamadas**: todo el resto del flujo ya estaba cableado y aparecía en cuanto
+existiera un experimento. Faltaba exactamente un botón.
+
+### El diálogo, y por qué pide lo que pide
+
+- **Terminación** (`.99` por default) — el servicio documenta que el alza implícita de aterrizar
+  a `.99` vale **+$659,564/30 d**, así que esa es la que se prueba primero.
+- **Semilla**, obligatoria y con su motivo impreso al lado: *sin ella la asignación no se puede
+  reproducir, y un resultado que no se puede reproducir no es un resultado*.
+- **Estratos**: los viables vienen marcados; los que **no alcanzan se muestran igual**, marcables
+  a propósito, porque ocultarlos haría creer que el experimento cubre el catálogo entero — que es
+  la misma regla que el backend ya aplica en `GET /estratos`.
+
+⚠️ El botón se gatea con **la misma clave** que el `POST` exige
+(`COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR`): mostrar uno que el servidor va a rechazar es peor que
+no mostrarlo.
+
+### ⚠️ Lo que costó, y es evitable
+
+Declaré un `sel` para los estratos marcados **y el componente ya tenía un `sel`** — el experimento
+abierto. El build cayó con nueve errores en cascada. Revisar los nombres contra el archivo antes
+de escribirlos son treinta segundos; renombrar después costó dos vueltas.
+
+**Verificado:** `nx build view` · `nx test view` **1,387** · lint 0 errores · gate de templates ·
+`<ng-template #footer>` y cero `pTemplate` (PrimeNG 22). **Validación visual pendiente.**
+
+---
+
+## 22 · `[PR.V7]` · El botón salía **sin texto**, y la compuerta que lo vigilaba estaba apagada
+
+Reportado con una captura: dos píldoras naranjas vacías donde debían decir «Actualizar» y
+«Diseñar experimento». En PrimeNG 22 la **directiva** `pButton` perdió `label` e `icon`, así que
+`<button pButton label="X">` se pinta vacío. La forma que sí funciona es el **componente**
+`<p-button label icon styleClass>`.
+
+### ⛔⛔ Lo grave no fue el botón
+
+`scripts/check-primeng-api.js` **ya tenía esta regla**, escrita el 2026-09-02 con su diagnóstico y
+su arreglo. No la detectó. La causa, en una línea:
+
+```js
+if (/p-button/.test(tag)) continue; // <p-button pButton> es otro defecto, no éste
+```
+
+Dos defectos encimados: el regex de arriba sólo matchea `<button` y `<a`, así que **un
+`<p-button>` nunca llegaba hasta ahí** y el salto no servía a su propósito; y ese mismo patrón
+matchea **`class="p-button-sm"`**, que lleva casi todo botón de la app. **La regla se saltaba a sí
+misma.**
+
+| | antes | medido |
+|---|---:|---:|
+| lo que reportaba | **2** | |
+| lo que había | | **32** en 16 archivos |
+
+⭐ **Un `continue` dentro de una compuerta es una excepción, y una excepción sin prueba negativa
+que la ejercite es un apagado silencioso.**
+
+### Qué se hizo
+
+- **10 botones convertidos** a `<p-button>` en Motor de margen y Experimentos — incluidos
+  «Actualizar», «Reintentar», «Ya lo capturé» y «Ver todas las acciones», que llevaban tiempo
+  saliendo sin texto.
+- **El salto retirado**, con el motivo escrito en su lugar.
+- **Techo = 22**, la deuda medida que queda en el resto de la app. No es una meta: es lo que hay,
+  congelado para que la 23ª no entre. Antes el techo decía 3 y no enforzaba nada.
+- ✅ **Prueba negativa:** con un botón roto a propósito la compuerta marca **23 contra 22**; al
+  retirarlo vuelve a verde.
+
+**Verificado:** `nx build view` · `nx test view` **1,387** · lint 0 errores.
+
+---
+
+## 23 · `[PR.V8]` · El diálogo decía el mismo número de dos maneras
+
+Preguntado al verlo: *«¿esto qué es?»*. Tres defectos, y el del medio es el que importa.
+
+| defecto | lo que mostraba | lo que muestra |
+|---|---|---|
+| clave interna en pantalla | `a_bajo_10` | **$1 - $10** — el mismo `rango()` que la tabla |
+| ⛔ **el mismo número, dos veces distinto** | diálogo *«pide 291»* / tabla *«Necesita 582»* | **necesita 582** en los dos |
+| no decía qué hace el botón | — | una línea arriba del formulario |
+
+El segundo salía de que `nPorRama` es **por rama** y el experimento tiene dos — tratamiento y
+control. La tabla ya imprimía `nPorRama * 2`; mi diálogo imprimía el crudo. **Dos cifras para la
+misma cantidad, a quince centímetros una de otra**, y quien compara concluye que una de las dos
+está mal.
+
+⭐ Reusar un dato del backend no exime de reusar **la forma en que esa pantalla ya lo publica**.
+
+**Verificado:** `nx build view` · `nx test view` **1,387** · lint 0 errores.
+
+---
+
+## 24 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado

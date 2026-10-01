@@ -68,17 +68,14 @@ import {
     </div>
     <div class="mm-head-acc">
       <app-context-help topic="motor-margen" />
-      <button type="button" pButton class="p-button-text p-button-sm"
-              icon="pi pi-refresh" label="Actualizar"
-              [loading]="cargando()" (click)="recargar()"></button>
+      <p-button type="button" icon="pi pi-refresh" label="Actualizar" [loading]="cargando()" (click)="recargar()" styleClass="p-button-text p-button-sm" />
     </div>
   </header>
 
   @if (error(); as e) {
     <div class="mm-err" role="alert">
       <span>{{ e }}</span>
-      <button type="button" pButton class="p-button-sm p-button-text" label="Reintentar"
-              (click)="recargar()"></button>
+      <p-button type="button" label="Reintentar" (click)="recargar()" styleClass="p-button-sm p-button-text" />
     </div>
   }
 
@@ -282,8 +279,7 @@ import {
                   que no haya margen: significa que las señales disponibles no alcanzan para
                   sostener una propuesta.
                 </p>
-                <button type="button" pButton class="p-button-sm p-button-text"
-                        label="Ver todas las acciones" (click)="filtrarPor(null)"></button>
+                <p-button type="button" label="Ver todas las acciones" (click)="filtrarPor(null)" styleClass="p-button-sm p-button-text" />
               </div>
             </td></tr>
           </ng-template>

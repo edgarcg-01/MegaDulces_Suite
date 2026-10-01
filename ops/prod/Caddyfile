@@ -57,14 +57,40 @@
 # Los chequeos activos son lo que convierte esto en despliegue sin caída: Caddy saca de
 # rotación la réplica que deja de contestar `/api/health`, así que recrear una no corta a
 # nadie. Sin ellos, balancear hacia un contenedor que se está reiniciando es repartir 502.
+# ⭐ [K3S.16] EL BALANCEO SE FUE DE CADDY AL CLÚSTER. Acá había dos upstreams —`api` y `api2`,
+# dos servicios de Compose copiados a mano con un ancla— y Caddy repartía con `lb_policy cookie`
+# para darle a Socket.IO la afinidad de sesión que su transporte de sondeo exige.
+#
+# En K8s eso es UN Deployment con `replicas: 2` y un Service con `sessionAffinity: ClientIP`:
+# el reparto y la afinidad los hace el clúster, y Caddy vuelve a ser lo que debe ser —un
+# terminador de TLS que habla con UN destino—. `api2` deja de existir como concepto.
+#
+# ⚠️ El `health_uri` también se fue, y no se perdió: lo reemplaza la `readinessProbe` del pod,
+# que es estrictamente mejor — saca del balanceo a la réplica que no sirve ANTES de mandarle
+# tráfico, en vez de descubrirlo con una petición fallida.
 (api-balanceado) {
-	reverse_proxy api:10000 api2:10000 {
-		lb_policy cookie
-		health_uri /api/health
-		health_interval 10s
-		health_timeout 3s
-	}
+	# ⛔ [K3S.20 2026-10-01] VUELTO AL API DE DOCKER, a proposito y temporalmente.
+	# Apuntar al NodePort dejo a los usuarios INTERNOS (agentes de caja, oficina) sirviendo
+	# 13a2379 mientras Docker servia ece8269: las imagenes de K3s estaban 36 commits atras
+	# y NADIE lo vio, porque verificar.sh mide el :8080 de Docker y no este camino.
+	# ⚠️ No se vuelve al NodePort hasta que exista un camino AUTOMATICO de build -> containerd.
+	# Migrar el ingreso antes que el despliegue es publicar una version que nadie eligio.
+	#
+	# Se apunta al PUERTO DEL HOST (8080), no al nombre de Docker: la forma de [K3S.14]
+	# sigue siendo la buena -- lo que estaba mal era el numero, no la forma.
+	reverse_proxy 192.168.0.222:8080
 }
+
+# [K3S.22] Acá vivía `(api-balanceado-viejo)`, que repartía entre `api` y `api2` con
+# `lb_policy cookie`. Se borra porque `api2` dejó de existir en el compose el 2026-10-01:
+# un fragmento que nombra un destino inexistente es una trampa esperando a que alguien lo
+# importe de vuelta creyendo que es el camino de respaldo.
+#
+# ⭐ Lo que ese fragmento SÍ sabía y conviene no perder: la afinidad de sesión por COOKIE.
+# Al traducirla a K8s la puse como `sessionAffinity: ClientIP`, y NO son equivalentes — la
+# cookie reparte por navegador; la IP de origen, detrás de un proxy, es UNA sola. Medido el
+# 2026-10-01: 12 de 12 pedidos al mismo pod. Si alguna vez el ingreso vuelve a entrar al
+# clúster, la afinidad tiene que resolverse donde se ve al cliente, no en el Service.
 
 # ── Los tres destinos ───────────────────────────────────────────────────────
 # Verificados alcanzables por nombre desde la red `prod_default` (HTTP 200 los tres).
@@ -108,17 +134,19 @@ interno.megadulcessuite.com {
 # sitio seguía contestando. Recién después se mueve cada app. Así cada paso es reversible por
 # separado, en vez de que un solo corte mueva el ingreso y la app a la vez.
 #
-# ⚠️ El bloque `(api-balanceado)` NO se tocó: reparte entre `api` y `api2`, y `api2` no publica
-# puerto en el host, así que no tiene equivalente por IP. Ése se resuelve cuando el API migre
-# —ahí son `replicas: 2` de un solo Deployment, que es su forma natural— y Caddy pasa a usar el
-# DNS del clúster. Mientras tanto sigue por DNS de Docker, que es correcto porque los dos siguen
-# siendo contenedores.
+# ⚠️ [K3S.20] Este párrafo decía que `(api-balanceado)` NO se había tocado y que repartía entre
+# `api` y `api2`. Las dos cosas dejaron de ser ciertas el 2026-10-01 y se corrigen acá mismo,
+# porque un comentario que miente cuesta más que no tener comentario: ahora los TRES sitios
+# apuntan al puerto del host del contenedor de Docker, y `api2` está en retiro.
 portal.megadulcessuite.com {
 	import tls-dns-cloudflare
+	# [K3S.20] 8081 = el contenedor de Docker. El 30081 es el pod, y el pod sirve un
+	# bundle 36 commits viejo. Vuelve al NodePort cuando las imagenes se publiquen solas.
 	reverse_proxy 192.168.0.222:8081
 }
 
 vendedor.megadulcessuite.com {
 	import tls-dns-cloudflare
+	# [K3S.20] 8082 = el contenedor de Docker. Mismo motivo que portal.
 	reverse_proxy 192.168.0.222:8082
 }
