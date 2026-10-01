@@ -313,6 +313,27 @@ function revisar(doc, archivo) {
         huerfanos.length === 0
           ? `los ${preparados.length} PREPARADO(s) siguen corriendo en Compose, como corresponde`
           : `NO LOS CORRE NADIE: ${huerfanos.join(', ')} — marcados 'preparado' pero fuera de Compose`);
+      // ⛔ [K3S.21] UN ARCHIVO NO MEZCLA LOS DOS ESTADOS. El despliegue (`aplicar_k3s` en
+      // ops/vl/deploy.sh) filtra POR ARCHIVO: si un .yaml contiene 'migracion: preparado' se
+      // saltea ENTERO. Con los dos estados en el mismo archivo, el `migrado` dejaría de
+      // aplicarse EN SILENCIO — o, al revés, un `preparado` se aplicaría y crearía el
+      // doble-corredor. Esta regla es lo único que vuelve válido a aquel filtro; sin ella,
+      // el deploy estaría suponiendo.
+      const mezclados = [];
+      for (const f of archivos) {
+        const estados = new Set();
+        for (const doc of documentos(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
+          const k = campo(doc, 'kind');
+          if (k !== 'Deployment' && k !== 'CronJob') continue;
+          const est = campo(doc, 'migracion');
+          if (est) estados.add(est);
+        }
+        if (estados.size > 1) mezclados.push(`${f} (${[...estados].join(' + ')})`);
+      }
+      A(mezclados.length === 0,
+        mezclados.length === 0
+          ? 'ningún archivo mezcla migrado con preparado — el filtro por archivo del deploy es válido'
+          : `MEZCLAN ESTADOS: ${mezclados.join(', ')} — aplicar_k3s saltearía el archivo ENTERO`);
       console.log(`  ⓘ migrados: ${migrados.join(', ') || 'ninguno'}`);
       console.log(`  ⓘ preparados (YAML escrito, todavía en Compose): ${preparados.join(', ') || 'ninguno'}`);
     }
