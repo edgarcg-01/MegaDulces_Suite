@@ -207,7 +207,30 @@ const APP_SOURCES: SourceCfg[] = [
   //        del '00' (Wincaja Irapuato con guard "no borra si vacío" sirve existencia vieja). El CEDIS es
   //        alta-actividad → si su stock no se movió en 24-48h es congelamiento real, no falta de venta.
   {
-    key: 'stock_cedis_00', label: 'Stock CEDIS 00 (no enmascarado por 01-06)', table: 'commercial.stock', tsCandidates: [],
+    key: 'stock_cedis_00', label: 'Stock CEDIS 00 (foto congelada — ver sonda del saldo)', table: 'commercial.stock', tsCandidates: [],
+    // ⛔ RETIRADA `[IC.CEDIS.2]`. **No se cayó: la apagamos nosotros, y el dato quedó congelado.**
+    //
+    // El 2026-09-30 el CEDIS declaró su corte a Kepler (mig `20260930140000`). Eso cierra la puerta
+    // A de `lib/cedis-source-guard.js` y retira a `import-cedis-stock-wincaja.js`, que era el ÚNICO
+    // escritor de esta fila. Última escritura real medida en prod: **29/09 12:07, 196 SKUs**.
+    //
+    // ⚠️ Y la existencia NO se repuntó a Kepler, a propósito: `stockMap({ cedis: true })` queda
+    // apagado porque `kepler_ods.kdil` de la sucursal 00 trae **12,181,690 u** contra **340,077**
+    // capturadas (**35.82×**, medido en prod el 30-sep) — encenderlo publicaría el CEDIS 35 veces
+    // inflado en la pantalla de almacén y en el sugerido de compras.
+    //
+    // ⛔ Sin esta retirada la sonda entraba en `crit` el **2026-10-02 ~12:07** (72 h) y se quedaba
+    // roja para siempre diciendo *"el feed se cayó"*, que es falso. Un rojo permanente por una
+    // decisión nuestra no es una alarma: es ruido que enseña a ignorar el tablero.
+    //
+    // ⭐ Pero no queda ciega, y acá el mecanismo de `retiredOn` hace justo lo que hace falta: el
+    // día que se encienda `cedis: true`, esta tabla vuelve a recibir datos posteriores al corte y
+    // la sonda pasa a `warn` pidiendo revisarla. O sea que la retirada se auto-denuncia cuando deja
+    // de ser cierta. Lo que destraba ese día lo vigila la sonda de abajo, no ésta.
+    retiredOn: '2026-09-30',
+    retiredWhy: 'el CEDIS cortó a Kepler y se retiró su feed Wincaja; la existencia queda '
+      + 'CONGELADA en la foto del 28-sep hasta que el saldo de arranque de Kepler cuadre '
+      + '(hoy 35.82x) y se encienda stockMap cedis:true',
     // `[W4.3]` SIN `::timestamp` — ver el bloque ⚠️ de `wincaja_existencias_entrega` más abajo.
     // `commercial.stock.updated_at` es `timestamptz` (medido), así que el cast le quitaba 6.00 h
     // exactas a la edad. Con el sensor en `warnH: 30`, el día del barrido reportaba **29.44 h** y
@@ -218,7 +241,64 @@ const APP_SOURCES: SourceCfg[] = [
             FROM commercial.stock s
             JOIN commercial.warehouses w ON w.id=s.warehouse_id AND w.tenant_id=s.tenant_id
            WHERE w.code='00'`,
-    warnH: 30, critH: 72, cadence: 'stock @15min + nightly (Wincaja Irapuato)',
+    warnH: 30, critH: 72, cadence: 'stock @15min + nightly (Wincaja Irapuato) — RETIRADO 30-sep',
+  },
+  // `[IC.CEDIS.2]` ⭐ EL RELEVO de la sonda de arriba — y el motivo por el que ésta es un cambio de
+  //  FUENTE y no de rótulo. La de arriba vigilaba un feed que nosotros apagamos; ésta vigila **la
+  //  condición que destraba el hueco**, que es la única pregunta viva sobre el CEDIS hoy.
+  //
+  //  Mientras el saldo de arranque de Kepler no cuadre contra lo que se contó físicamente,
+  //  `stockMap({ cedis: true })` no se puede encender y la existencia del CEDIS sigue sirviendo la
+  //  foto del 28-sep. Cuando cuadre, esta sonda se pone verde — y ése es el día de encenderlo.
+  //
+  //  El umbral **1.5× está COPIADO de `database/scripts/check-cedis-cutover.js`**, no inventado
+  //  acá: es el mismo con el que la compuerta grita *"la carga se SUMÓ al saldo viejo en vez de
+  //  reemplazarlo"*. Dos umbrales distintos para el mismo hecho serían dos verdades.
+  //
+  //  ⚠️ **Nace ROJA, y es correcto que nazca roja.** Medido en prod el 2026-09-30: `kdil` de la
+  //  sucursal 00 trae 12,181,690 u (sin pseudo-SKUs) contra 340,077 u capturadas = **35.82×**.
+  //  No lo arreglamos nosotros: se corrige EN KEPLER (ADR-040, no escribimos el ERP).
+  //
+  //  ⚠️ Se toma **la captura MÁS RECIENTE**, no la suma del histórico: el día que vuelvan a cargar
+  //  —que es justo lo que queremos— sumar las dos lecturas daría un denominador inflado y la sonda
+  //  diría que cuadró cuando no. Hoy hay una sola (30-sep, 127 líneas), así que no cambia la cifra;
+  //  cambia qué pasa el día que importe.
+  //
+  //  La condición se codifica como EDAD porque `classify()` sólo sabe leer edad — mismo recurso que
+  //  `wincaja_month_coverage`. Sin captura NO se dibuja verde: cae en crítico y lo DICE (ADR-056).
+  //  Costo medido en prod: **16 ms**.
+  {
+    key: 'cedis_kepler_saldo', label: 'CEDIS — saldo de arranque en Kepler (destraba la existencia)',
+    table: 'kepler_ods.kdil', tsCandidates: [],
+    sql: `WITH ult AS (
+                 SELECT max(c9)::date AS dia FROM kepler_ods.kdm1
+                  WHERE sucursal='00' AND c2='N' AND c3='A' AND c4='45'),
+               cap AS (
+                 SELECT sum(l.c9::numeric) AS u, (SELECT dia FROM ult) AS dia
+                   FROM kepler_ods.kdm1 m
+                   JOIN kepler_ods.kdm2 l
+                     ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
+                    AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
+                  WHERE m.sucursal='00' AND m.c2='N' AND m.c3='A' AND m.c4='45'
+                    AND m.c9::date = (SELECT dia FROM ult)),
+               sal AS (
+                 SELECT sum(GREATEST(c4::numeric + c8::numeric - c9::numeric, 0))
+                          FILTER (WHERE c3 <> ALL(ARRAY['00001','00002','00022'])) AS u
+                   FROM kepler_ods.kdil WHERE sucursal='00' AND c1='00')
+          SELECT CASE WHEN COALESCE(cap.u,0) = 0 THEN now() - interval '100 days'
+                      WHEN sal.u / cap.u <= 1.5  THEN now()
+                      ELSE now() - interval '100 days' END AS last_update,
+                 CASE WHEN COALESCE(cap.u,0) = 0
+                      THEN 'NO MEDIDO: no hay captura N-A-45 en la sucursal 00'
+                      ELSE 'kdil ' || round(sal.u,0) || ' u vs contado ' || round(cap.u,0) ||
+                           ' u (' || to_char(cap.dia,'DD/MM') || ') = ' ||
+                           round(sal.u / cap.u, 2) || 'x' ||
+                           CASE WHEN sal.u / cap.u > 1.5
+                                THEN ' - la carga se SUMO al saldo viejo: corregir EN KEPLER'
+                                ELSE ' - cuadra: se puede encender stockMap cedis:true' END
+                 END AS note_extra
+            FROM sal, cap`,
+    warnH: 24, critH: 48, cadence: 'continuo (replica logica md_00) - se retira al encender cedis:true',
   },
   // (P0-4/5) Oficinas '00' en el ODS: las vistas erp_supplier_payments/erp_collections derivan de
   //          kepler_ods.kdm1 sucursal='00'. La 00 entró a la replicación lógica 2026-08-20; este sensor
@@ -484,8 +564,13 @@ const APP_SOURCES: SourceCfg[] = [
   //      indefinidamente sin que nadie se enterara, y es el nodo que SURTE A LA RED.
   //      Detectado 2026-08-31: llevaba 6 días parado (último movimiento 26/08) y ninguna alerta.
   //
-  //      ⚠️ El CEDIS real es **BPIRAPUATO (Irapuato) y vive en WINCAJA**, no en Kepler — la
-  //      sucursal Kepler '00' es OFICINAS. Ver docs/ERP_KEPLER.md §2.3.
+  //      ⚠️ ESTO YA NO ES CIERTO, y se deja escrito en vez de borrarse porque explica la sonda:
+  //      decía *"el CEDIS real es BPIRAPUATO (Irapuato) y vive en WINCAJA, no en Kepler — la
+  //      sucursal Kepler '00' es OFICINAS"*. Fue verdad hasta el **2026-09-30**, cuando el CEDIS
+  //      cortó a Kepler (mig `20260930140000`). La 00 de Kepler sigue arrastrando el saldo de
+  //      OFICINAS —por eso la carga aparece 35.82× inflada— pero el almacén ya es el CEDIS.
+  //      Un comentario no avisa cuando deja de ser cierto; por eso la línea de abajo es un
+  //      `retiredOn` con fecha, que sí se evalúa. Ver docs/ERP_KEPLER.md §2.3.
   //
   //      Se mide sobre MOVIMIENTOS (`maestro_mov_almacen`), no ventas. Umbrales derivados de la
   //      cadencia real, no inventados: opera lunes-sábado (73 de 90 días), hueco máximo entre

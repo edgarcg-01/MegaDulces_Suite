@@ -71,6 +71,11 @@ const CAST_JUSTIFICADO = {
     + 'el primer barrido manual: el parser viejo lo saltaba por su comentario largo. Lo encontró '
     + 'este candado en su primera corrida, que es el argumento de por qué el candado existe.',
   sales_daily_date: 'sale_date es date (medido en pg_attribute) — cast redundante.',
+  expense_log_date:
+    'fecha es date (medido en pg_attribute contra prod 2026-09-30: typname date, OID 1082, y '
+    + 'pg_typeof(max(fecha)) = date) — cast redundante, no sesgado. ⚠️ El candado llevaba tiempo '
+    + 'ROJO por esta entrada faltante: el sensor existía y casteaba, pero nadie lo había declarado. '
+    + 'Un candado que vive en rojo deja de leerse, que es el modo de falla que vino a cerrar.',
   bank_recon_period: 'to_date(period) + 1 mes ya es naive por aritmética de fechas — cast redundante.',
 };
 
