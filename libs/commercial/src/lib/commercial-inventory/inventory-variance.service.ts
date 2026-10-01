@@ -1,6 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, isPlatformAdminRole } from '@megadulces/platform-core';
+
+/** Quien pide el expediente. Lo arma el controlador desde `req.user`. */
+export interface ActorExpediente {
+  sub?: string;
+  id?: string;
+  tenant_id?: string;
+  role_name?: string;
+  /** El mapa FRESCO que `RolesGuard` deja en `request.user.permissions`. */
+  permissions?: Record<string, boolean>;
+  /**
+   * Los ROLES frescos de DB que `RolesGuard` deja en `request.user.roles_frescos`.
+   * ⛔ No se usa `role_name` del token: degradar a un admin tiene que surtir efecto al
+   * instante, no en 12 h (lección de `[AUTHZ-HARD.2]`).
+   */
+  roles_frescos?: string[];
+}
 
 /**
  * [IC.0] El descuadre del conteo físico de Kepler, visible.
@@ -279,6 +295,234 @@ export class InventoryVarianceService {
     });
   }
 
+
+  /**
+   * `[EXP.2]` ⭐⭐ **EL EXPEDIENTE DEL RENGLÓN** — lo que se abre al dar clic.
+   *
+   * El reproche que originó esto: *"podemos llegar a saber si tuvo órdenes de entrada, compras,
+   * ajustes... debemos cazar esta información, enlazarla con los demás módulos"*. Y era
+   * correcto: las piezas existían, enlazadas por `(almacén, fecha)` o por `(almacén, par de
+   * conteos)` — **nunca por SKU**. `[EXP.1b]` construyó la llave; esto la usa.
+   *
+   * **Un solo viaje.** Ocho llamadas serían ocho estados de carga en la misma ventana y el
+   * panel se armaría a pedazos (mismo criterio que `margin-engine.expediente()`).
+   *
+   * ── ⛔ Cada sección declara su permiso, y NUNCA se omite en silencio ──────────────────
+   *
+   * Un panel al que le faltan tres bloques sin decir por qué se lee como «no hay nada que ver».
+   * Cada sección devuelve `{ datos }` o `{ oculto: true, permiso, motivo }`.
+   *
+   * ⚠️ **El god-mode se resuelve por ROL, no por el mapa** (ADR-054), y acá eso no es
+   * teórico: medido en prod, `superadmin` —**7 personas**— tiene `COMMERCIAL_PREVENTION_VER`
+   * **ausente** de su mapa y entra por god-mode. Gatear sólo contra el mapa les ocultaría la
+   * sección de Prevención a los siete. Por eso se piden los roles FRESCOS de DB (los mismos
+   * que usa `RolesGuard`), no el `role_name` del token: degradar a un admin tiene que surtir
+   * efecto al instante, que es la lección de `[AUTHZ-HARD.2]`.
+   *
+   * ── Lo que la medición del 2026-09-30 corrigió de este diseño ─────────────────────────
+   *
+   * ⛔ El plan daba por sentado que `analytics.stock_movements` es una **ventana rodante de
+   * 120 días**, y que por eso un conteo de nov-2025 devolvería vacío. **Es falso**: la tabla
+   * tiene 3,755,552 filas desde **2020-03-20**. Lo que sí hay que declarar es otro piso, y es
+   * POR ALMACÉN: hasta dic-2025 el feed cubría **5 almacenes** y desde ene-2026 cubre **8**.
+   * O sea que la ausencia de movimientos puede ser «no hubo» o «ese almacén todavía no
+   * alimentaba», y las dos se ven igual si no se dice cuál.
+   *
+   * ⚠️ `prevencion` tiene `COMPRAS_ENTRADAS_VER` en **`false`**: el equipo que investiga la
+   * diferencia no puede ver las compras que explicarían un sobrante. Queda **declarado**, no
+   * arreglado de contrabando — es la misma disciplina de `[EXP.0]` con `supervisor`.
+   */
+  async expediente(
+    params: { warehouse_id: string; sku: string; fecha: string },
+    actor?: ActorExpediente,
+  ) {
+    // ⭐ Roles FRESCOS de DB (los deja `RolesGuard` en el request), no el `role_name` del
+    // token. Si el guard no corrió —ruta sin `@RequirePermissions`— no hay god-mode que
+    // conceder: `roles_frescos` llega vacío y se cae a lo que diga el mapa. Falla cerrado.
+    const esAdmin = (actor?.roles_frescos ?? []).some((r) => isPlatformAdminRole(r));
+    const puede = (...claves: string[]) =>
+      esAdmin || claves.some((k) => actor?.permissions?.[k] === true);
+    const oculto = (permiso: string, que: string) => ({
+      oculto: true as const,
+      permiso,
+      motivo: `${que} no se muestra porque tu perfil no incluye ${permiso}. `
+        + 'No es que no haya información: es que no te corresponde verla.',
+    });
+
+    const verMovimientos = puede('COMMERCIAL_MOVEMENTS_VER', 'RECONCILIATION_VER');
+    const verEntradas = puede('COMPRAS_ENTRADAS_VER');
+    const verExistencia = puede('EXISTENCIA_VER');
+    const verPrevencion = puede('COMMERCIAL_PREVENTION_VER');
+
+    return this.tk.run(async (knex) => {
+      const T = knex.raw('public.current_tenant_id()');
+
+      // ⚠️ MATVIEW sin RLS: el tenant va a mano en TODAS las de abajo.
+      const [senal] = await knex('analytics.mv_erp_count_line_signals as s')
+        .where('s.tenant_id', T)
+        .andWhere('s.warehouse_id', params.warehouse_id)
+        .andWhere('s.sku', params.sku)
+        .andWhereRaw('s.fecha = ?::date', [params.fecha])
+        .select('*');
+
+      if (!senal) {
+        return {
+          encontrado: false,
+          motivo: 'No hay señales calculadas para este SKU en este evento. Puede ser una carga '
+            + 'inicial (que no es un descuadre) o que la vista de señales no se haya refrescado.',
+        };
+      }
+
+      const productId = senal['product_id'] as string | null;
+
+      // La ventana de los movimientos: el período que TERMINA en este conteo si existe, y si
+      // no, 90 días hacia atrás. Se declara cuál de las dos se usó — no es lo mismo.
+      const [prev] = await knex('analytics.mv_erp_count_line_signals as s')
+        .where('s.tenant_id', T)
+        .andWhere('s.warehouse_id', params.warehouse_id)
+        .andWhere('s.sku', params.sku)
+        .andWhereRaw('s.fecha < ?::date', [params.fecha])
+        .orderBy('s.fecha', 'desc').limit(1)
+        .select('s.fecha');
+      const desde = prev?.['fecha'] ?? null;
+
+      const [
+        lineas, eventos, rollforward, movimientos, entradas, existencia, prevencion,
+      ] = await Promise.all([
+        // 1 · Las LÍNEAS del ajuste en este evento. Es lo que hace visible el caso de los dos
+        //     signos: 504 pares en el histórico donde el mismo SKU se ajustó en las dos
+        //     direcciones el mismo día.
+        knex('analytics.mv_erp_physical_count_variance as v')
+          .where('v.tenant_id', T)
+          .andWhere('v.warehouse_id', params.warehouse_id)
+          .andWhere('v.sku', params.sku)
+          .andWhereRaw('v.fecha = ?::date', [params.fecha])
+          .select('v.folio', 'v.serie', 'v.linea', 'v.signo', 'v.cantidad', 'v.costo_unitario',
+            'v.importe', 'v.contado', 'v.teorico', 'v.teorico_salvedad', 'v.costo_contado',
+            'v.razon_costo', 'v.costo_veredicto', 'v.importe_en_costo_contado')
+          .orderBy(['v.folio', 'v.linea']),
+
+        // 2 · ⭐ La TRAYECTORIA del SKU entre conteos. Sale gratis de la misma matvista: es la
+        //     única pieza que ya estaba indexada por SKU y nadie podía ver desde acá.
+        knex('analytics.mv_erp_count_line_signals as s')
+          .where('s.tenant_id', T)
+          .andWhere('s.warehouse_id', params.warehouse_id)
+          .andWhere('s.sku', params.sku)
+          .select('s.fecha', 's.signo', 's.cantidad_neta', 's.importe_neto', 's.importe_bruto',
+            's.lineas', 's.signos_mezclados', 's.explicacion', 's.rf_veredicto',
+            's.excede_la_venta', 's.dias_de_venta')
+          .orderBy('s.fecha', 'desc'),
+
+        // 3 · La conciliación de TODOS los períodos del SKU, no sólo el de este conteo.
+        knex('analytics.mv_erp_count_rollforward as r')
+          .where('r.tenant_id', T)
+          .andWhere('r.warehouse_id', params.warehouse_id)
+          .andWhere('r.sku', params.sku)
+          .select('r.desde', 'r.hasta', 'r.dias', 'r.contado_inicio', 'r.compras', 'r.recibido',
+            'r.vendido', 'r.enviado', 'r.esperado', 'r.contado_fin', 'r.no_explicado',
+            'r.importe_no_explicado', 'r.veredicto')
+          .select(knex.raw('(r.esperado < 0) AS esperado_imposible'))
+          .orderBy('r.hasta', 'desc'),
+
+        // 4 · Los movimientos documento a documento.
+        verMovimientos && productId
+          ? knex.raw(`
+              WITH piso AS (
+                SELECT min(doc_date) AS desde_real
+                  FROM analytics.stock_movements
+                 WHERE tenant_id = public.current_tenant_id() AND warehouse_id = ?
+              ), mov AS (
+                SELECT doc_date, movement_label, movement_kind, signed_qty, qty, folio,
+                       doc_code, source_branch, dest_label
+                  FROM analytics.stock_movements
+                 WHERE tenant_id = public.current_tenant_id() AND warehouse_id = ?
+                   AND product_id = ?
+                   AND doc_date >  coalesce(?::date, ?::date - 90)
+                   AND doc_date <= ?::date
+                 ORDER BY doc_date DESC LIMIT 300
+              )
+              SELECT (SELECT json_agg(m) FROM mov m) AS items,
+                     (SELECT desde_real FROM piso) AS feed_desde`,
+          [params.warehouse_id, params.warehouse_id, productId,
+            desde, params.fecha, params.fecha]).then((r) => r.rows[0])
+          : null,
+
+        // 5 · Las órdenes de entrada del SKU, antes del conteo.
+        verEntradas
+          ? knex('analytics.erp_goods_receipt_lines as l')
+            .join('analytics.erp_goods_receipts as h', function () {
+              this.on('h.tenant_id', '=', 'l.tenant_id')
+                .andOn('h.sucursal', '=', 'l.sucursal').andOn('h.folio', '=', 'l.folio');
+            })
+            .where('l.tenant_id', T)
+            .andWhere('h.warehouse_id', params.warehouse_id)
+            .andWhere('l.sku', params.sku)
+            .andWhereRaw('h.receipt_date <= ?::date', [params.fecha])
+            .andWhereRaw('h.receipt_date >= ?::date - 365', [params.fecha])
+            .select('h.receipt_date', 'h.folio', 'h.proveedor_nombre', 'h.oc_folio',
+              'l.cantidad', 'l.unidad', 'l.costo_unitario', 'l.importe')
+            .orderBy('h.receipt_date', 'desc').limit(40)
+          : null,
+
+        // 6 · La existencia de HOY, con su unidad.
+        verExistencia && productId
+          ? knex('analytics.v_erp_stock_on_hand as e')
+            .where('e.tenant_id', T)
+            .andWhere('e.warehouse_id', params.warehouse_id)
+            .andWhere('e.product_id', productId)
+            .select('e.qty_stock_units', 'e.display_box_factor', 'e.unit_source', 'e.source')
+            .first()
+          : null,
+
+        // 7 · El expediente de Prevención, si alguien ya lo abrió. ⛔ Sólo CUENTA Y LIGA: abrir
+        //     uno es un acto con dueño y va por su propio endpoint.
+        verPrevencion && productId
+          ? knex('commercial.inventory_investigations as i')
+            .where('i.warehouse_id', params.warehouse_id)
+            .andWhere('i.product_id', productId)
+            .select('i.id', 'i.folio', 'i.status', 'i.root_cause', 'i.difference',
+              'i.value_at_cost', 'i.opened_at', 'i.opened_by', 'i.resolved_at')
+            .orderBy('i.opened_at', 'desc').limit(10)
+          : null,
+      ]);
+
+      const mov = movimientos as { items: unknown[] | null; feed_desde: string | null } | null;
+      const ventanaDesde = desde ?? null;
+      const pisoFeed = mov?.feed_desde ?? null;
+
+      return {
+        encontrado: true,
+        senal,
+        lineas,
+        eventos,
+        rollforward,
+        // ⛔ Cada bloque gateado dice su permiso cuando está oculto. Omitirlo en silencio haría
+        // que un panel a medias se leyera como «no hay nada que ver».
+        movimientos: verMovimientos
+          ? {
+            items: mov?.items ?? [],
+            ventana: { desde: ventanaDesde, hasta: params.fecha,
+              origen: ventanaDesde ? 'conteo_anterior' : 'noventa_dias' },
+            // ⛔ El piso del feed, POR ALMACÉN. Sin esto, «ese almacén todavía no alimentaba»
+            // se lee exactamente igual que «no hubo movimientos».
+            feed_desde: pisoFeed,
+            feed_cubre: pisoFeed != null && ventanaDesde != null
+              ? String(pisoFeed) <= String(ventanaDesde) : null,
+          }
+          : oculto('COMMERCIAL_MOVEMENTS_VER', 'El detalle documento a documento'),
+        entradas: verEntradas
+          ? { items: entradas ?? [] }
+          : oculto('COMPRAS_ENTRADAS_VER', 'Las órdenes de entrada del SKU'),
+        existencia: verExistencia
+          ? { datos: existencia ?? null,
+            motivo: existencia ? null : 'El SKU no tiene existencia registrada hoy en este almacén.' }
+          : oculto('EXISTENCIA_VER', 'La existencia de hoy'),
+        prevencion: verPrevencion
+          ? { items: prevencion ?? [] }
+          : oculto('COMMERCIAL_PREVENTION_VER', 'El expediente de investigación'),
+      };
+    });
+  }
 
   /**
    * ⛔ LA COBERTURA — lo que el conteo NO tocó.

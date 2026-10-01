@@ -46,6 +46,76 @@ Al investigar el cutover del CEDIS (avisado por Edgar: *"cedis ya es ahora 9.95"
   que ya la usa cuesta menos que la retractación.
 
 ---
+## 2026-09-30 — EXP.2: el expediente del renglón (el renglón deja de ser un callejón)
+
+Etapa 2 del plan. `[EXP.1b]` construyó la llave por SKU; esto la usa: al hacer clic en un
+renglón se abre un `app-side-peek` con **ocho secciones en un solo viaje** — las líneas del
+ajuste, la trayectoria del SKU entre conteos, la conciliación de cada período, los movimientos
+documento a documento, las órdenes de entrada, la existencia de hoy y el expediente de
+Prevención. Ocho llamadas serían ocho estados de carga en la misma ventana.
+
+### ⛔ Cada sección declara su permiso. Ninguna se omite en silencio
+
+Un panel al que le faltan tres bloques sin decir por qué se lee como *"no hay nada que ver"*.
+Cada sección devuelve `{ datos }` o `{ oculto: true, permiso, motivo }`.
+
+### ⭐ El gate por el mapa habría estado MAL, y la medición lo atrapó antes
+
+ADR-054 dice que el god-mode se resuelve **por nombre de rol**, no por el mapa de permisos — y
+el guard corta *antes* de mirarlo. Medido en prod: **`superadmin` (7 personas) NO tiene
+`COMMERCIAL_PREVENTION_VER` en su mapa**. Gatear sólo contra el mapa le habría ocultado la
+sección de Prevención a los siete.
+
+Y los roles se piden **frescos de DB**, no del `role_name` del token: degradar a un admin tiene
+que surtir efecto al instante, no en 12 h (`[AUTHZ-HARD.2]`).
+
+⛔ **Dónde se resuelve, y por qué ahí.** La opción obvia era inyectar
+`PermissionsCacheService` en el servicio: `AbilityModule` es `@Global()`. Pero se registra en
+`app.module` en la línea **422** y los módulos de negocio en la **192**, y este repo ya
+documenta —con una app que no arrancaba— que **con `@Global()` el orden de registro sigue
+mandando**. Habría compilado y reventado al bootear. En su lugar, `RolesGuard` deja
+`roles_frescos` en el request, dos líneas al lado de donde ya deja `permissions`.
+
+### ⛔ Dos afirmaciones de mi propio plan que la medición refutó
+
+1. **`analytics.stock_movements` NO es ventana rodante de 120 días.** Son **3,755,805 filas
+   desde 2020-03-20** (2,385 días). El `fuera_de_ventana` que el plan pedía no correspondía.
+2. **Pero sí hay un piso, y es POR ALMACÉN — peor de lo supuesto.** Medido:
+
+   | almacén | el diario arranca |
+   |---|---|
+   | 02 | 2020-07-16 |
+   | 01 | 2020-07-25 |
+   | 06 | 2020-10-28 |
+   | **03** | **2026-01-01** |
+   | **04** | **2026-01-02** |
+   | **05** | **2026-01-02** |
+
+   Para los conteos de **marzo-2026 de esas tres plazas** la ventana empieza antes de que el
+   feed existiera. *"No hubo movimientos"* y *"ese almacén todavía no alimentaba"* se ven
+   idénticos si no se dice cuál — por eso la sección publica `feed_desde` y `feed_cubre`.
+
+### ⚠️ Un hueco que se declara, no se arregla de contrabando
+
+`prevencion` tiene **`COMPRAS_ENTRADAS_VER` en `false`**: el equipo que investiga la diferencia
+**no ve las compras que explicarían un sobrante**. Queda declarado con su nombre — misma
+disciplina que `[EXP.0]` con `supervisor`. Repartirlo es una decisión de alcance, no un
+detalle de implementación.
+
+### Candado (`test-newdb-variance-expediente.js`): **10 ✓ / 0 ✗ / 1 no medido**
+
+Re-mide la premisa del god-mode (si algún día `superadmin` gana la clave, lo dice — no para
+romperse, para que nadie borre la rama por los motivos equivocados), fija la refutación de la
+ventana, vigila el hueco de Prevención y comprueba que la ventana use el conteo anterior.
+
+**Declara lo que no puede:** el endpoint por HTTP, que el guard deje `roles_frescos`, y el clic.
+En vivo falta confirmar **una** cosa que desde la base no se ve: que un `superadmin` **no**
+reciba el bloque de Prevención como oculto.
+
+**Pendiente:** redeploy api+view + validación visual. Sin permisos nuevos → sin re-login.
+
+---
+
 ## 2026-09-30 — EXP.1: las señales que explican el descuadre (la llave que faltaba)
 
 Etapa 1 del plan aprobado tras el reproche de Edgar sobre `/almacen/inventory/diferencias`:

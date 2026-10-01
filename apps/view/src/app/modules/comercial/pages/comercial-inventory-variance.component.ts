@@ -14,7 +14,9 @@ import {
   InventoryReincidencia, InventoryReincidenciaItem,
   RollforwardPeriodos, RollforwardPeriodo, RollforwardItem, RollforwardTotales,
   RollforwardFreshness, InventoryVarianceEmbudoRow, InventoryVarianceExplicacion,
+  InventoryVarianceExpediente, BloqueOculto, esOculto,
 } from '../comercial.service';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
@@ -41,7 +43,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule,
     ToggleSwitchModule, SelectButtonModule, TooltipModule, MetricCardComponent,
-    ContextHelpComponent, TableDensityComponent, FreshnessPillComponent],
+    ContextHelpComponent, TableDensityComponent, FreshnessPillComponent, SidePeekComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page inv-var">
@@ -549,7 +551,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
                     (click)="filtrarExplicacion(e.explicacion)">
                     {{ explicacionLabel(e.explicacion) }}
                     <span class="inv-var-chip-n">{{ e.skus }}</span>
-                    <span class="inv-var-chip-$">{{ fmtMoney(e.pesos_abs) }}</span>
+                    <span class="inv-var-chip-money">{{ fmtMoney(e.pesos_abs) }}</span>
                   </button>
                 }
               </div>
@@ -596,8 +598,12 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
               </tr>
             </ng-template>
             <ng-template #body let-l>
-              <tr>
-                <td class="tabular">{{ l.sku }}</td>
+              <!-- [EXP.2] El renglón deja de ser un callejón sin salida: abre su expediente. -->
+              <tr class="inv-var-row" (click)="abrirExpediente(l)"
+                  [class.inv-var-row-sel]="peekSku() === l.sku">
+                <td class="tabular">
+                  <i class="pi pi-search-plus"></i>{{ l.sku }}
+                </td>
                 <td>{{ l.descripcion }}</td>
                 <td>{{ l.unidad_erp }}</td>
                 <!-- DERIVADO (contado −/+ diferencia): Kepler no guarda el teórico. Lo que no
@@ -665,6 +671,185 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
           </p-table>
         </section>
       }
+
+      <!-- ═══ [EXP.2] EL EXPEDIENTE DEL RENGLÓN ═══════════════════════════════════════
+           Lo que el renglón no podía contar: su trayectoria entre conteos, la conciliación
+           de cada período, los movimientos documento a documento, las compras y el
+           expediente de Prevención. ⛔ Cada bloque que el perfil no alcanza SE DECLARA. -->
+      <app-side-peek [open]="peek()" (openChange)="peek.set($event)" [width]="640"
+                     [title]="peekSku() || 'Expediente'" [subtitle]="peekSub()">
+        @if (loadingExp()) {
+          <p class="inv-var-note">Reuniendo el expediente…</p>
+        } @else if (exp(); as x) {
+          @if (!x.encontrado) {
+            <p class="inv-var-note inv-var-warn">{{ x.motivo }}</p>
+          } @else {
+            <!-- Respuesta primero: qué lo explica y con qué. -->
+            @if (x.senal; as s) {
+              <div class="inv-var-exp-head">
+                <p-tag [severity]="explicacionSev(s.explicacion)"
+                  [value]="explicacionLabel(s.explicacion)"></p-tag>
+                <span class="inv-var-exp-money"
+                      [class.inv-var-mas]="(s.importe_neto || 0) > 0"
+                      [class.inv-var-menos]="(s.importe_neto || 0) < 0">
+                  {{ fmtMoney(s.importe_neto) }}
+                </span>
+                <span class="inv-var-exp-q">{{ $any(s)['cantidad_neta'] }} {{ s.unidad_erp }}</span>
+              </div>
+              <p class="inv-var-exp-lead">{{ explicacionTooltip($any(s.explicacion)) }}</p>
+              @if (s.testigos_faltantes?.length) {
+                <p class="inv-var-note inv-var-warn">
+                  No se pudo consultar: <strong>{{ s.testigos_faltantes?.join(', ') }}</strong>.
+                  Eso no quiere decir que no haya causa.
+                </p>
+              }
+              @if (s.signos_mezclados) {
+                <p class="inv-var-note inv-var-warn">
+                  ⚠️ Este SKU se ajustó como sobrante <strong>y</strong> como faltante el mismo
+                  día, en {{ s.lineas }} líneas. El bruto es {{ fmtMoney(s.importe_bruto) }} y
+                  el neto {{ fmtMoney(s.importe_neto) }} — el veredicto sale del neto.
+                </p>
+              }
+            }
+
+            <!-- 1 · La trayectoria entre conteos: la pieza que nadie podía ver desde acá. -->
+            @if (x.eventos?.length) {
+              <h3 class="inv-var-exp-h">Este SKU, conteo tras conteo</h3>
+              <table class="inv-var-exp-t">
+                <tr><th>Fecha</th><th class="num">Diferencia</th><th>Qué lo explicó</th></tr>
+                @for (e of x.eventos; track $any(e)['fecha']) {
+                  <tr [class.is-aqui]="$any(e)['fecha'] === peekFecha()">
+                    <td class="tabular">{{ $any(e)['fecha'] }}</td>
+                    <td class="num tabular"
+                        [class.inv-var-mas]="$any(e)['importe_neto'] > 0"
+                        [class.inv-var-menos]="$any(e)['importe_neto'] < 0">
+                      {{ fmtMoney($any(e)['importe_neto']) }}
+                    </td>
+                    <td>{{ explicacionLabel($any(e)['explicacion']) }}</td>
+                  </tr>
+                }
+              </table>
+            }
+
+            <!-- 2 · La conciliación de cada período. -->
+            @if (x.rollforward?.length) {
+              <h3 class="inv-var-exp-h">A dónde se fue, período por período</h3>
+              <table class="inv-var-exp-t">
+                <tr><th>Período</th><th class="num">Debía quedar</th><th class="num">Se contó</th>
+                  <th class="num">Sin explicar</th><th>Veredicto</th></tr>
+                @for (r of x.rollforward; track $any(r)['hasta']) {
+                  <tr>
+                    <td class="tabular">{{ $any(r)['desde'] }} → {{ $any(r)['hasta'] }}</td>
+                    <td class="num tabular">
+                      @if ($any(r)['esperado_imposible']) {
+                        <span class="inv-var-imposible"
+                          pTooltip="Negativo: salió más de lo que había según el conteo anterior. No es merma ni sobrante — falta una entrada que no estamos capturando.">{{ $any(r)['esperado'] }}</span>
+                      } @else { {{ $any(r)['esperado'] }} }
+                    </td>
+                    <td class="num tabular">{{ $any(r)['contado_fin'] }}</td>
+                    <td class="num tabular">{{ fmtMoney($any(r)['importe_no_explicado']) }}</td>
+                    <td>{{ $any(r)['veredicto'] }}</td>
+                  </tr>
+                }
+              </table>
+            }
+
+            <!-- 3 · Los movimientos, con el piso del feed declarado. -->
+            <h3 class="inv-var-exp-h">Movimientos del período</h3>
+            @if (ocultoDe(x.movimientos); as o) {
+              <p class="inv-var-note inv-var-oculto"><i class="pi pi-lock"></i> {{ o.motivo }}</p>
+            } @else if (movs(x); as m) {
+              @if (m.feed_cubre === false) {
+                <p class="inv-var-note inv-var-warn">
+                  ⚠️ El diario de este almacén arranca el <strong>{{ m.feed_desde }}</strong>,
+                  después de donde empieza el período. Lo que no aparezca puede ser que no
+                  ocurrió, o que todavía no se alimentaba.
+                </p>
+              }
+              @if (!m.items.length) {
+                <p class="inv-var-note">Sin movimientos entre
+                  {{ m.ventana.desde || 'hace 90 días' }} y {{ m.ventana.hasta }}.</p>
+              } @else {
+                <table class="inv-var-exp-t">
+                  <tr><th>Fecha</th><th>Documento</th><th class="num">Cantidad</th><th>Hacia / desde</th></tr>
+                  @for (d of m.items; track $index) {
+                    <tr>
+                      <td class="tabular">{{ $any(d)['doc_date'] }}</td>
+                      <td>{{ $any(d)['movement_label'] }}
+                        <span class="inv-var-salv">{{ $any(d)['folio'] }}</span></td>
+                      <td class="num tabular">{{ $any(d)['signed_qty'] }}</td>
+                      <td>{{ $any(d)['dest_label'] || $any(d)['source_branch'] || '—' }}</td>
+                    </tr>
+                  }
+                </table>
+              }
+            }
+
+            <!-- 4 · Las compras. -->
+            <h3 class="inv-var-exp-h">Órdenes de entrada</h3>
+            @if (ocultoDe(x.entradas); as o) {
+              <p class="inv-var-note inv-var-oculto"><i class="pi pi-lock"></i> {{ o.motivo }}</p>
+            } @else if (items(x.entradas); as e) {
+              @if (!e.length) {
+                <p class="inv-var-note">Sin entradas del SKU en este almacén en el último año.</p>
+              } @else {
+                <table class="inv-var-exp-t">
+                  <tr><th>Fecha</th><th>Proveedor</th><th class="num">Cantidad</th>
+                    <th>Un.</th><th class="num">Costo</th></tr>
+                  @for (r of e; track $index) {
+                    <tr>
+                      <td class="tabular">{{ $any(r)['receipt_date'] }}</td>
+                      <td>{{ $any(r)['proveedor_nombre'] || '—' }}</td>
+                      <td class="num tabular">{{ $any(r)['cantidad'] }}</td>
+                      <td>{{ $any(r)['unidad'] }}</td>
+                      <td class="num tabular">{{ fmtMoney($any(r)['costo_unitario']) }}</td>
+                    </tr>
+                  }
+                </table>
+              }
+            }
+
+            <!-- 5 · Existencia de hoy. -->
+            <h3 class="inv-var-exp-h">Existencia hoy</h3>
+            @if (ocultoDe(x.existencia); as o) {
+              <p class="inv-var-note inv-var-oculto"><i class="pi pi-lock"></i> {{ o.motivo }}</p>
+            } @else if (existenciaDe(x); as ex) {
+              @if (!ex.datos) {
+                <p class="inv-var-note">{{ ex.motivo }}</p>
+              } @else {
+                <p class="inv-var-exp-dato">
+                  <strong>{{ $any(ex.datos)['qty_stock_units'] }}</strong>
+                  <span class="inv-var-salv">
+                    unidad de {{ $any(ex.datos)['unit_source'] }} · fuente
+                    {{ $any(ex.datos)['source'] }}</span>
+                </p>
+              }
+            }
+
+            <!-- 6 · Prevención. -->
+            <h3 class="inv-var-exp-h">Expediente de investigación</h3>
+            @if (ocultoDe(x.prevencion); as o) {
+              <p class="inv-var-note inv-var-oculto"><i class="pi pi-lock"></i> {{ o.motivo }}</p>
+            } @else if (items(x.prevencion); as p) {
+              @if (!p.length) {
+                <p class="inv-var-note">Nadie abrió un expediente por este SKU en este almacén.</p>
+              } @else {
+                <table class="inv-var-exp-t">
+                  <tr><th>Folio</th><th>Estado</th><th>Causa</th><th class="num">Valor</th></tr>
+                  @for (i of p; track $any(i)['id']) {
+                    <tr>
+                      <td class="tabular">{{ $any(i)['folio'] }}</td>
+                      <td>{{ $any(i)['status'] }}</td>
+                      <td>{{ $any(i)['root_cause'] || '—' }}</td>
+                      <td class="num tabular">{{ fmtMoney($any(i)['value_at_cost']) }}</td>
+                    </tr>
+                  }
+                </table>
+              }
+            }
+          }
+        }
+      </app-side-peek>
     </div>
   `,
   styles: [`
@@ -704,12 +889,34 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
     .inv-var-chip.is-on { border-color: var(--action); background: var(--surface-2);
       color: var(--fg-1); font-weight: 600; }
     .inv-var-chip-n { font-variant-numeric: tabular-nums; font-weight: 600; }
-    .inv-var-chip-$ { font-variant-numeric: tabular-nums; color: var(--fg-3); }
+    .inv-var-chip-money { font-variant-numeric: tabular-nums; color: var(--fg-3); }
     .inv-var-chip.sev-danger .inv-var-chip-n { color: var(--bad-fg); }
     .inv-var-chip.sev-warn .inv-var-chip-n { color: var(--warn-fg); }
     .inv-var-chip.sev-success .inv-var-chip-n { color: var(--ok-fg); }
     .inv-var-pista { font-size: var(--fs-nano); color: var(--warn-fg); margin-left: .35rem;
       cursor: help; }
+    /* [EXP.2] El expediente. */
+    .inv-var-exp-head { display: flex; gap: .625rem; align-items: baseline; flex-wrap: wrap;
+      margin-bottom: .375rem; }
+    .inv-var-exp-money { font-size: var(--fs-h3); font-variant-numeric: tabular-nums;
+      font-weight: 600; }
+    .inv-var-exp-q { font-size: var(--fs-xs); color: var(--fg-3);
+      font-variant-numeric: tabular-nums; }
+    .inv-var-exp-lead { font-size: var(--fs-sm); color: var(--fg-2); margin: 0 0 .75rem;
+      max-width: 60ch; line-height: 1.45; }
+    .inv-var-exp-h { font-size: var(--fs-sm); font-weight: 600; color: var(--fg-1);
+      margin: 1.125rem 0 .375rem; padding-bottom: .25rem;
+      border-bottom: 1px solid var(--border-1); }
+    .inv-var-exp-t { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
+    .inv-var-exp-t th { text-align: left; color: var(--fg-3); font-weight: 500;
+      padding: .25rem .375rem; }
+    .inv-var-exp-t th.num { text-align: right; }
+    .inv-var-exp-t td { padding: .25rem .375rem; border-top: 1px solid var(--border-1); }
+    .inv-var-exp-t tr.is-aqui { background: var(--surface-2); font-weight: 600; }
+    .inv-var-exp-dato { font-size: var(--fs-base); margin: .25rem 0; }
+    /* ⛔ Lo oculto se VE. Un bloque que desaparece se lee como un bloque vacío. */
+    .inv-var-oculto { display: flex; gap: .375rem; align-items: baseline; color: var(--fg-3);
+      font-style: italic; }
     .inv-var-tabs { margin-bottom: .75rem; }
     .inv-var-prog h2.inv-var-h2 { font-size: var(--fs-h3); margin: 1.25rem 0 .5rem; }
     .inv-var-salv { font-size: var(--fs-nano); color: var(--fg-3); }
@@ -1122,6 +1329,63 @@ export class ComercialInventoryVarianceComponent {
           + 'conteo anterior con el cual comparar, o es la primera vez que se cuenta el almacén.';
       default: return '';
     }
+  }
+
+  // ── [EXP.2] El expediente del renglón ─────────────────────────────────────────────────
+
+  readonly peek = signal(false);
+  readonly peekSku = signal<string | null>(null);
+  readonly peekFecha = signal<string | null>(null);
+  readonly exp = signal<InventoryVarianceExpediente | null>(null);
+  readonly loadingExp = signal(false);
+
+  peekSub(): string {
+    const e = this.selected;
+    return e ? `${e.warehouse_code} · ${e.fecha}` : '';
+  }
+
+  abrirExpediente(l: InventoryVarianceLine) {
+    const e = this.selected;
+    if (!e) return;
+    this.peekSku.set(l.sku);
+    this.peekFecha.set(e.fecha);
+    this.exp.set(null);
+    this.loadingExp.set(true);
+    this.peek.set(true);
+    this.api.inventoryVarianceExpediente({
+      warehouse_id: e.warehouse_id, sku: l.sku, fecha: e.fecha,
+    }).subscribe({
+      next: (x) => { this.exp.set(x); this.loadingExp.set(false); },
+      // ⛔ Un error NO se muestra como expediente vacío: eso se leería como «no hay nada».
+      error: () => {
+        this.exp.set({ encontrado: false,
+          motivo: 'No se pudo reunir el expediente. Volvé a intentarlo; si sigue, avisá a Sistemas.' });
+        this.loadingExp.set(false);
+      },
+    });
+  }
+
+  /** Devuelve el bloque sólo si está OCULTO — la plantilla lo usa para declarar el permiso. */
+  ocultoDe(b: unknown): BloqueOculto | null {
+    return esOculto(b) ? b : null;
+  }
+
+  /** Los items de un bloque visible. Devuelve null si el bloque está oculto o ausente. */
+  items(b: unknown): Record<string, unknown>[] | null {
+    if (!b || esOculto(b)) return null;
+    return (b as { items?: Record<string, unknown>[] }).items ?? [];
+  }
+
+  movs(x: InventoryVarianceExpediente) {
+    const m = x.movimientos;
+    if (!m || esOculto(m)) return null;
+    return m;
+  }
+
+  existenciaDe(x: InventoryVarianceExpediente) {
+    const e = x.existencia;
+    if (!e || esOculto(e)) return null;
+    return e;
   }
 
   /** La etiqueta con SUS INSUMOS: una explicación que no se puede auditar es una opinión. */
