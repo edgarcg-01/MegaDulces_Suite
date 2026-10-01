@@ -54,10 +54,24 @@ const campo = (lineas, clave) => {
   const re = new RegExp('^\\s*' + clave + ':\\s*(.+?)\\s*$');
   for (const l of lineas) {
     const m = l.match(re);
-    if (m) return m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
+    if (m) {
+      const v = m[1].replace(/\s+#.*$/, '').trim();
+      // ⚠️ Un valor que abre llave NO es un valor: es un mapa en línea. La primera versión
+      // devolvía `{ name: redis, namespace: prod }` como si fuera el nombre, y el candado
+      // reportaba «Service (sin nombre)» sobre manifiestos correctos.
+      if (!v.startsWith('{')) return v.replace(/^["']|["']$/g, '');
+    }
+    // YAML admite las dos formas, y los manifiestos del repo usan las dos:
+    //   metadata:\n  name: redis        ← bloque
+    //   metadata: { name: redis, ... }  ← en línea
+    const inl = l.match(new RegExp('[{,]\\s*' + clave + ':\\s*([^,}]+)'));
+    if (inl) return inl[1].trim().replace(/^["']|["']$/g, '');
   }
   return null;
 };
+/** ¿Existe la clave, en bloque o en línea? (distinto de leer su valor) */
+const tieneClave = (lineas, clave) => lineas.some((l) =>
+  new RegExp('^\\s*' + clave + ':').test(l) || new RegExp('[{,]\\s*' + clave + ':').test(l));
 const tiene = (lineas, clave) => lineas.some((l) => new RegExp('^\\s*' + clave + ':').test(l));
 
 /** Las reglas, aplicadas a UN documento. Devuelve [{ok, msg}]. */
@@ -68,12 +82,35 @@ function revisar(doc, archivo) {
   const r = [];
 
   if (kind === 'Deployment') {
-    const replicas = campo(doc, 'replicas');
-    const strategy = campo(doc, 'type');
-    r.push([replicas === '1', `${et}: replicas=1 (es ${replicas}) — más de uno se pisa ods.ctl`]);
-    r.push([strategy === 'Recreate',
-      `${et}: strategy=Recreate (es ${strategy || 'AUSENTE → el default es RollingUpdate'}) `
-      + '— RollingUpdate solapa dos shippers y pierde filas en silencio']);
+    // ⭐ [K3S.19] EL INVARIANTE NO ES «TODO ES SINGLETON», y la primera versión de esta regla lo
+    // confundía: marcaba en rojo al `api`, que legítimamente tiene DOS réplicas y DEBE usar
+    // RollingUpdate —ésa es justamente la razón de migrarlo—. El invariante real es:
+    //
+    //     lo que comparte estado SIN DUEÑO se corre de a uno; lo apátrida, no.
+    //
+    // Los carriles del ODS escriben `ods.ctl`, que llavea sólo `(table_name)`: dos copias se
+    // pisan y pierden filas. El `api` no comparte nada de eso. Por eso cada Deployment DECLARA
+    // su naturaleza en la etiqueta `singleton`, y la regla sigue a lo que dice — no al revés.
+    // Y la etiqueta es OBLIGATORIA: omitirla no puede significar «no es singleton», porque
+    // justo lo que se quiere evitar es que alguien agregue un carril sin pensarlo.
+    const singleton = campo(doc, 'singleton');
+    r.push([singleton === 'true' || singleton === 'false',
+      `${et}: declara la etiqueta singleton (es ${singleton === null ? 'AUSENTE' : singleton})`
+      + ' — sin ella no se puede decidir si replicarlo pierde datos']);
+    if (singleton === 'true') {
+      const replicas = campo(doc, 'replicas');
+      const strategy = campo(doc, 'type');
+      r.push([replicas === '1', `${et}: SINGLETON con replicas=1 (es ${replicas}) — más de uno se pisa ods.ctl`]);
+      r.push([strategy === 'Recreate',
+        `${et}: SINGLETON con strategy=Recreate (es ${strategy || 'AUSENTE → el default es RollingUpdate'}) `
+        + '— RollingUpdate solapa dos y pierde filas en silencio']);
+    } else if (singleton === 'false') {
+      // El caso contrario también se candadea: si algo apátrida quedó en 1 réplica, no hay
+      // despliegue sin caída y la migración no compró lo que decía comprar.
+      const replicas = campo(doc, 'replicas');
+      r.push([Number(replicas) >= 2,
+        `${et}: apátrida con replicas>=2 (es ${replicas}) — con una sola no hay deploy sin caída`]);
+    }
   }
 
   if (kind === 'CronJob') {
@@ -110,10 +147,43 @@ function revisar(doc, archivo) {
       + '(ODS_RECONCILE_HB_KEY no cuenta: la lee el reconciliador, no el chequeo)']);
   }
 
+  // ⛔ [K3S.21] LA IMAGEN PROPIA SE NOMBRA POR COMMIT, NUNCA "latest".
+  //
+  // Esta regla NO existía, y por eso nadie vio lo que pasó el 2026-10-01: los DOCE manifiestos
+  // decían "<imagen>:latest" con imagePullPolicy IfNotPresent, que es exactamente la
+  // combinación que hace que el kubelet NO vuelva a jalar nunca. Los pods quedaron 36 commits
+  // atrás y le sirvieron ese build a los usuarios internos durante horas — con TODOS los
+  // rótulos en verde: el pod Running, la sonda 200, y verificar.sh midiendo el :8080 de
+  // Docker, que sí estaba al día. El rótulo no era el veredicto.
+  //
+  // Con el tag por commit la obsolescencia deja de ser improbable y pasa a ser IMPOSIBLE: si
+  // el commit cambia, el tag cambia, y un tag distinto obliga a crear un pod nuevo. Y si la
+  // imagen no está publicada, falla A LA VISTA (ImagePullBackOff) en vez de servir algo viejo
+  // en silencio — que es la única clase de falla aceptable acá.
+  //
+  // "__COMMIT__" es un marcador que sustituye el despliegue. Aplicar el manifiesto crudo a
+  // mano falla ruidosamente, y eso es deliberado: no hay camino silencioso.
+  const imagenes = doc
+    .filter((l) => /^\s*image:/.test(l))
+    .map((l) => l.replace(/^\s*image:\s*/, '').trim());
+  for (const img of imagenes) {
+    // busybox, redis y demás públicas se jalan de Docker Hub y no son nuestras: no aplican.
+    if (!/trade-(ingest|prod-)/.test(img)) continue;
+    r.push([img.startsWith('localhost:5000/'),
+      `${et}: imagen propia servida por el registry local (es "${img}") — sin registry hay `
+      + 'que importarla a mano con sudo, y lo que se hace a mano se olvida']);
+    r.push([/:__COMMIT__$/.test(img),
+      `${et}: imagen propia etiquetada por commit, no latest (es "${img}") — `
+      + 'latest con IfNotPresent es cómo los pods quedaron 36 commits atrás']);
+  }
+
   if (kind === 'Service') {
-    // El puente de nombres: un Service sin selector NECESITA sus Endpoints, o resuelve a nada.
-    r.push([!tiene(doc, 'selector'),
-      `${et}: sin selector (el puente a Postgres del host se declara con Endpoints a mano)`]);
+    // ⚠️ HAY DOS CLASES DE Service y la primera versión las trataba igual, marcando en rojo a
+    // los normales. Un Service CON selector encuentra sus pods solo; uno SIN selector es un
+    // PUENTE a algo de afuera del clúster y necesita sus `Endpoints` escritos a mano, o el DNS
+    // resuelve a nada. Sólo a ésos se les exige el par, abajo en el bloque 2.
+    const esPuente = !tieneClave(doc, 'selector');
+    console.log(`  ⓘ ${et}: ${esPuente ? 'PUENTE (sin selector) → necesita Endpoints' : 'normal (con selector)'}`);
   }
   return r;
 }
@@ -146,7 +216,7 @@ function revisar(doc, archivo) {
   for (const f of archivos) {
     for (const doc of documentos(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
       const k = campo(doc, 'kind'); const n = campo(doc, 'name');
-      if (k === 'Service') svc.push(n);
+      if (k === 'Service' && !tieneClave(doc, 'selector')) svc.push(n);  // sólo los PUENTES
       if (k === 'Endpoints') eps.push(n);
     }
   }
@@ -181,16 +251,28 @@ function revisar(doc, archivo) {
   // Durante la migración conviven Compose y K3s. Si un carril queda en los dos, los dos escriben
   // el MISMO renglón de `analytics.cron_runs` (comparten `ODS_RECONCILE_HB_KEY`/`ODS_HB_KEY`) y se
   // lo pisan — la falla que la guarda de dueño de `health.js` detecta, causada por nosotros.
-  // Se compara contra `SERVICIOS_DEF` de `ops/vl/deploy.sh`, que es lo que `--todo` levanta.
-  const deploySh = path.join(__dirname, '..', 'ops', 'vl', 'deploy.sh');
-  if (!fs.existsSync(deploySh)) {
-    NM('no encontré ops/vl/deploy.sh para comparar los dos mundos');
+  // ⛔ [K3S.22] SE LEEN LOS DOS deploy.sh, NO UNO SOLO. Hasta el 2026-10-01 esta regla miraba
+  // únicamente `ops/vl/deploy.sh` (la ingesta). Para `api`, `portal`, `vendor`, `worker` y
+  // `redis` —que viven en `ops/prod/deploy.sh`— comparaba contra una lista donde NUNCA podían
+  // aparecer: pasaba EN EL VACÍO. Los cinco estaban marcados `migrado` mientras servían
+  // producción desde Compose, y el candado decía ✔ igual.
+  // ⭐ Una regla que no puede fallar no es una regla; es una afirmación con forma de prueba.
+  const deployShs = [
+    path.join(__dirname, '..', 'ops', 'vl', 'deploy.sh'),
+    path.join(__dirname, '..', 'ops', 'prod', 'deploy.sh'),
+  ];
+  const sinArchivo = deployShs.filter((p) => !fs.existsSync(p));
+  if (sinArchivo.length) {
+    NM(`no encontré ${sinArchivo.join(', ')} para comparar los dos mundos`);
   } else {
-    const m = fs.readFileSync(deploySh, 'utf8').match(/^SERVICIOS_DEF="([^"]*)"/m);
-    if (!m) {
-      NM('no pude leer SERVICIOS_DEF de ops/vl/deploy.sh (¿cambió de forma?)');
+    const listas = deployShs.map((p) => ({
+      ruta: p, m: fs.readFileSync(p, 'utf8').match(/^SERVICIOS_DEF="([^"]*)"/m),
+    }));
+    const ilegibles = listas.filter((x) => !x.m).map((x) => path.basename(path.dirname(x.ruta)));
+    if (ilegibles.length) {
+      NM(`no pude leer SERVICIOS_DEF de: ${ilegibles.join(', ')} (¿cambió de forma?)`);
     } else {
-      const enCompose = m[1].split(/\s+/).filter(Boolean);
+      const enCompose = listas.flatMap((x) => x.m[1].split(/\s+/)).filter(Boolean);
       const enK3s = [];
       for (const f of archivos) {
         for (const doc of documentos(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
@@ -286,9 +368,9 @@ function revisar(doc, archivo) {
   }
 
   console.log('\n6) Las reglas se rompen a propósito  ← negativas en memoria');
-  const malo1 = ['kind: Deployment', 'name: x', 'replicas: 2', 'type: Recreate'];
+  const malo1 = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 2', 'type: Recreate'];
   A(revisar(malo1, 'test').some(([c, m]) => !c && /replicas=1/.test(m)), 'replicas=2 se detecta');
-  const malo2 = ['kind: Deployment', 'name: x', 'replicas: 1'];
+  const malo2 = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 1'];
   A(revisar(malo2, 'test').some(([c, m]) => !c && /RollingUpdate/.test(m)),
     'strategy AUSENTE se detecta (es el caso peligroso: nadie lo escribió mal, lo omitió)');
   const malo3 = ['kind: CronJob', 'name: y', 'concurrencyPolicy: Allow', 'backoffLimit: 0', 'timeZone: X'];
@@ -297,7 +379,24 @@ function revisar(doc, archivo) {
     'backoffLimit: 0', 'timeZone: X', 'livenessProbe:', 'ODS_RECONCILE_HB_KEY', '--apply'];
   A(revisar(malo4, 'test').some(([c, m]) => !c && /SIN livenessProbe/.test(m)),
     'un Job con livenessProbe se detecta (el footgun de los 505 reinicios)');
-  const bueno = ['kind: Deployment', 'name: x', 'replicas: 1', 'type: Recreate'];
+  // ⛔ [K3S.21] Las negativas de la regla de imagen. Sin ellas la regla sería una INTENCIÓN:
+  // nació pasando limpia sobre los 12 manifiestos que yo mismo acababa de corregir, y ése es
+  // justamente el caso que no prueba nada.
+  const malo5 = ['kind: Deployment', 'name: x', 'singleton: "false"', 'replicas: 2',
+    'image: localhost:5000/trade-prod-api:latest'];
+  A(revisar(malo5, 'test').some(([c, m]) => !c && /etiquetada por commit/.test(m)),
+    'una imagen propia con latest se detecta (el defecto que dejó a los pods 36 commits atrás)');
+  const malo6 = ['kind: Deployment', 'name: x', 'singleton: "false"', 'replicas: 2',
+    'image: trade-ingest:__COMMIT__'];
+  A(revisar(malo6, 'test').some(([c, m]) => !c && /registry local/.test(m)),
+    'una imagen propia SIN el registry se detecta — volvería al import a mano con sudo');
+  // ⭐ El control que impide que la regla se vuelva ruido: lo público NO es nuestro.
+  const publicas = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 1',
+    'type: Recreate', 'image: busybox:1.36', 'image: redis:7-alpine'];
+  A(revisar(publicas, 'test').every(([c]) => c),
+    'y NO marca a busybox ni redis: se jalan de Docker Hub y no las construimos nosotros');
+
+  const bueno = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 1', 'type: Recreate'];
   A(revisar(bueno, 'test').every(([c]) => c), 'y NO marca de más: un manifiesto correcto pasa limpio');
 
   console.log(`\n=== ${ok} ✔ · ${fail} ✖ · ${nm} no medido ===\n`);

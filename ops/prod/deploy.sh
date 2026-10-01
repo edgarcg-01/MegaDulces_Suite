@@ -45,7 +45,16 @@ set -eu
 SRV="${DEPLOY_HOST:-superoot@192.168.0.222}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 REMOTO="~/build-prod"
-SERVICIOS_DEF="pg-prod pg-rag api worker portal vendor backup"
+# � [K3S.17] api, worker, portal y vendor SALIERON: viven en K3s desde 2026-10-01.
+# Quedan los que NO migraron: los dos Postgres (16.3 GiB de estado contra 1.06 GiB de
+# proceso -- ver ops/k3s/README.md) y el respaldo, que depende de ellos.
+# [K3S.22 2026-10-01] VUELVEN api/worker/portal/vendor/redis. Se habían sacado al migrarlos a
+# K3s, pero la migración se PAUSÓ el mismo día: los pods quedaron 36 commits atrás porque no
+# existe camino automático de build → containerd, y sirvieron ese build a los usuarios internos.
+# Mientras corran en Compose tienen que estar acá, o `--todo` los deja fuera del despliegue.
+# ⚠️ Esta línea y la etiqueta `migracion:` de ops/k3s/*.yaml son DOS declaraciones del mismo
+# hecho — `npm run check:k3s` las compara y se pone rojo si se contradicen. Se mueven juntas.
+SERVICIOS_DEF="registry pg-prod pg-rag redis api worker portal vendor backup"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
