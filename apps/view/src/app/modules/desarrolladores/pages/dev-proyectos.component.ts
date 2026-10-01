@@ -170,10 +170,42 @@ const KIND_ICON: Record<string, string> = {
               </tbody>
             </table>
           </div>
+
+          <!-- Teléfono: la tabla de 8 columnas no cabe; la misma lista va como tarjetas. -->
+          <ul class="dp-cards" aria-label="Proyectos">
+            @for (p of visible(); track p.id) {
+              <li>
+                <button type="button" class="dp-card" [class.sel]="selectedId() === p.id" (click)="abrir(p.id)">
+                  <span class="dp-card-top">
+                    <span class="mono">{{ p.folio }}</span>
+                    <span class="dp-st" [attr.data-s]="p.status">{{ statusLabel[p.status] }}</span>
+                  </span>
+                  <span class="dp-card-title">{{ p.title }}</span>
+                  <span class="dp-card-meta">
+                    <span>{{ p.assignee_name || 'Sin asignar' }}</span>
+                    <span class="dp-pri" [attr.data-p]="p.priority">{{ priorityLabel[p.priority] }}</span>
+                  </span>
+                  <span class="dp-card-meta muted">
+                    <span><i class="pi pi-paperclip" aria-hidden="true"></i> {{ p.attachments_count }}</span>
+                    <span><i class="pi pi-comments" aria-hidden="true"></i> {{ p.notes_count }}</span>
+                    <span class="mono">{{ p.created_at | date:'dd/MM/yy' }}</span>
+                  </span>
+                </button>
+              </li>
+            } @empty {
+              <li class="dp-empty">
+                @if (loading()) { Cargando… }
+                @else if (projects().length) { Ningún proyecto con estos filtros. }
+                @else { Todavía no hay proyectos. }
+              </li>
+            }
+          </ul>
         </section>
 
         @if (panelOpen()) {
-          <section class="dp-detail" aria-label="Ficha del proyecto">
+          <section class="dp-detail" #detailPanel aria-label="Ficha del proyecto">
+            <p-button class="dp-back" icon="pi pi-arrow-left" label="Volver a la lista" [text]="true" severity="secondary"
+                      size="small" (onClick)="cerrar()" />
             <div class="dp-detail-head">
               <div>
                 <span class="mono dp-folio">{{ current()?.folio || 'Folio al guardar' }}</span>
@@ -463,7 +495,6 @@ const KIND_ICON: Record<string, string> = {
 
     .dp-body { display: grid; grid-template-columns: 1fr; gap: var(--sp-4); align-items: start; }
     .dp-body.has-detail { grid-template-columns: minmax(0, 1.25fr) minmax(360px, 1fr); }
-    @media (max-width: 1100px) { .dp-body.has-detail { grid-template-columns: 1fr; } }
 
     .dp-list, .dp-detail { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); }
     .dp-filters { display: flex; gap: var(--sp-2); padding: var(--sp-3); border-bottom: 1px solid var(--border-color); flex-wrap: wrap; }
@@ -558,6 +589,54 @@ const KIND_ICON: Record<string, string> = {
     .dp-audit { margin: 0; color: var(--text-faint); font-size: var(--fs-xs); }
     .dp-foot { display: flex; align-items: center; gap: var(--sp-2); border-top: 1px solid var(--border-color); padding-top: var(--sp-3); }
     .dp-spacer { flex: 1; }
+
+    /* ── Responsivo: va AL FINAL a propósito — con la misma especificidad gana la regla posterior,
+       y escrito antes de las reglas base quedaba anulado (medido: la ficha seguía a 2 columnas). */
+    /* ⛔ Sin min-width: 0 la columna del grid toma el ancho natural de la tabla (medido: 639 px en
+       una pantalla de 390) y recorta Estado/Adjuntos/Notas/Alta sin dejar desplazarse hasta ellos. */
+    .dp-list, .dp-detail { min-width: 0; }
+    .dp-cards, .dp-back { display: none; }
+
+    /* Una sola columna: la ficha REEMPLAZA a la lista (abajo de ella, en el teléfono, nadie la ve). */
+    @media (max-width: 1100px) {
+      .dp-body.has-detail { grid-template-columns: 1fr; }
+      .dp-body.has-detail .dp-list { display: none; }
+      .dp-detail { position: static; }
+      .dp-back { display: inline-flex; align-self: flex-start; margin: calc(-1 * var(--sp-2)) 0 0 calc(-1 * var(--sp-2)); }
+    }
+
+    /* Teléfono: tarjetas en vez de tabla, campos a una columna, botones de tamaño de dedo. */
+    @media (max-width: 640px) {
+      .dp-page { padding: var(--sp-3); gap: var(--sp-3); }
+      .dp-head p-button, .dp-head p-button ::ng-deep button { width: 100%; }
+      .dp-head > div { width: 100%; }
+      .dp-counts { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+      .dp-chip { flex: none; min-height: 36px; }
+      .dp-filters p-select { flex: 1 1 100%; }
+      .dp-table-wrap { display: none; }
+      .dp-cards { display: flex; flex-direction: column; gap: var(--sp-2); list-style: none; margin: 0; padding: var(--sp-2); }
+      .dp-card { width: 100%; text-align: left; display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-3);
+        border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main);
+        font: inherit; cursor: pointer; }
+      .dp-card.sel { border-color: var(--action); background: var(--surface-selected-bg); }
+      .dp-card:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+      .dp-card-top, .dp-card-meta { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); font-size: var(--fs-xs); }
+      .dp-card-meta.muted { color: var(--text-muted); justify-content: flex-start; gap: var(--sp-4); }
+      .dp-card-meta.muted .mono { margin-left: auto; }
+      .dp-card-title { font-weight: 600; font-size: var(--fs-sm); }
+      .dp-cards .dp-empty { list-style: none; text-align: center; color: var(--text-muted); padding: var(--sp-5); }
+      .dp-detail { padding: var(--sp-3); }
+      .dp-grid { grid-template-columns: 1fr; }
+      .dp-attach-actions p-button { flex: 1 1 auto; }
+      .dp-attach-actions p-button ::ng-deep button, .dp-composer-foot p-button ::ng-deep button { min-height: 40px; }
+      .dp-attach-actions p-button ::ng-deep button { width: 100%; justify-content: center; }
+      .dp-foot { flex-wrap: wrap; }
+      .dp-foot .dp-spacer { flex-basis: 100%; height: 0; }
+      .dp-foot p-button { flex: 1 1 auto; }
+      .dp-foot p-button ::ng-deep button { width: 100%; justify-content: center; min-height: 44px; }
+      .dp-kind { flex-wrap: wrap; }
+      .dp-entry-head { flex-wrap: wrap; }
+    }
   `],
 })
 export class DevProyectosComponent implements OnInit {
@@ -567,6 +646,7 @@ export class DevProyectosComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
 
   private readonly objectiveRef = viewChild<ElementRef<HTMLTextAreaElement>>('objective');
+  private readonly detailRef = viewChild<ElementRef<HTMLElement>>('detailPanel');
 
   /** Se sobreescribe en pruebas: el navegador real no tiene micrófono en CI. */
   protected recognitionFactory: RecognitionFactory = browserRecognitionFactory;
@@ -708,6 +788,7 @@ export class DevProyectosComponent implements OnInit {
     this.formError.set(null);
     this.notice.set(null);
     this.panelOpen.set(true);
+    this.mostrarFicha();
   }
 
   async abrir(id: string): Promise<void> {
@@ -718,6 +799,7 @@ export class DevProyectosComponent implements OnInit {
     this.formError.set(null);
     this.notice.set(null);
     this.panelOpen.set(true);
+    this.mostrarFicha();
     try {
       const d = await firstValueFrom(this.api.detail(id));
       this.setCurrent(d);
@@ -880,6 +962,12 @@ export class DevProyectosComponent implements OnInit {
 
   noteIcon(kind: string): string {
     return kind === 'modificacion' ? 'pi pi-pencil' : kind === 'cambio' ? 'pi pi-history' : 'pi pi-comment';
+  }
+
+  /** En una sola columna la ficha reemplaza a la lista: se lleva la vista a su inicio. */
+  private mostrarFicha(): void {
+    if (typeof window === 'undefined' || !window.matchMedia?.('(max-width: 1100px)').matches) return;
+    setTimeout(() => this.detailRef()?.nativeElement.scrollIntoView({ block: 'start' }));
   }
 
   private resetNoteDraft(): void {
