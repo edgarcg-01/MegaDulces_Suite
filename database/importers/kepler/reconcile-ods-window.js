@@ -157,6 +157,32 @@ const BRANCH_CODES = (ONLY_BRANCH
   : (process.env.ODS_LIVE_BRANCHES || BRANCHES.map((b) => b.code).join(',')).split(','))
   .map((s) => s.trim()).filter(Boolean);
 
+// ⛔ [OBS.12 2026-10-01] PODA ≠ BORRADO. El `--delete-sobrantes` existe para propagar lo que el
+// ORIGEN borró (el caso `08/kdpord`: 2,934 documentos borrados que el ODS seguía publicando).
+// Pero hay tablas donde el origen **poda por edad**, y ahí "sobrante" no es basura: es HISTORIA
+// que el ODS guarda justamente porque el origen ya no la tiene. Borrarla es lo contrario de
+// reconciliar.
+//
+// Medido el 2026-10-01, y es lo que tenía al carril nocturno en `error` todas las noches:
+//   `00/kdij` (kardex del CEDIS) — ORIGEN 149 filas, rango 22-sep → 30-sep (**9 días**);
+//   ODS 62,991 filas, rango ago-2024 → 30-sep. El reconciliador quería borrar **62,864
+//   (99.8 %)** y sólo lo frenó `MAX_DELETE_FRAC`. Dos años de kardex a una fracción de distancia.
+//
+// ⚠️ NO es una heurística, y a propósito: se declara la tabla **y la columna** que lleva la fecha
+// del registro. Adivinar la columna —«la primera de tipo fecha»— podría proteger filas que SÍ
+// deben borrarse, que es el defecto que este archivo existe para evitar. Si no está declarada
+// acá, el comportamiento es el de siempre.
+//
+// La regla es el discriminador, y se verificó contra los DOS casos, incluido el que no debe
+// cambiar:
+//   `00/kdij`   → 61,478 de 62,991 (97.6 %) anteriores a la fila más vieja del origen → PODA
+//   `08/kdpord` → 0 de 3,205 (0.0 %) → borrado real, **sigue propagándose igual**
+// Lo que queda dentro de la ventana del origen SÍ se borra: una baja real reciente se propaga.
+const PODA_POR_EDAD = new Map(
+  (process.env.ODS_PODA_POR_EDAD || '00/kdij:c10')
+    .split(',').map((s) => s.trim()).filter(Boolean)
+    .map((s) => { const [k, col] = s.split(':'); return [k, col]; }));
+
 const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
 const mapType = (dt) => ({
   numeric: 'numeric', 'double precision': 'double precision', real: 'real', integer: 'integer',
@@ -327,7 +353,11 @@ async function reconcile(local, prod, code, table) {
   const keyExprExact = pkKeyExpr(meta, null);
   // ⛔ El timestamp se lee como TEXTO, no como Date: el driver devuelve un Date de JS y al
   // mandarlo de vuelta lo reescribe con huso — que es EXACTAMENTE el bug que estamos limpiando.
-  const tsSel = [...(pkChk.fechaCols || [])].map((k) => `, ${qid(k)}::text AS ${qid('_t_' + k)}`).join('');
+  // [OBS.12] Si esta tabla×rama está declarada como podada por el origen, su columna de fecha
+  // viaja en el SELECT para poder separar «historia» de «baja real» más abajo.
+  const podaCol = PODA_POR_EDAD.get(`${code}/${table}`) || null;
+  const tsSel = [...(pkChk.fechaCols || [])].map((k) => `, ${qid(k)}::text AS ${qid('_t_' + k)}`).join('')
+    + (podaCol ? `, ${qid(podaCol)}::text AS "_poda_f"` : '');
   const loc = (await local.query(`SELECT ${pkList}, ${keyExpr} AS _k, ${keyExprExact} AS _x FROM md.${qid(table)} ${wLoc}`)).rows;
   // Freno #1: una réplica que devuelve 0 filas en el scope NO prueba "todo se borró en origen" —
   // prueba réplica rota/vacía. Con el ODS lleno, borrar por esto lo vaciaría. Nunca se borra así.
@@ -353,12 +383,39 @@ async function reconcile(local, prod, code, table) {
   if (DELETE_SOB && sobran.length) {
     // Sin ventana (`--full` o `--chicas`), `sobran` YA es la comparación completa: no hay artefacto
     // de ventana que re-confirmar. Con ventana sí, y por eso se re-chequea contra la tabla entera.
-    const confirmadas = SIN_VENTANA
+    let confirmadas = SIN_VENTANA
       ? sobran
       : await (async () => {
         const found = await existsInReplicaFull(local, table, meta.pk, sobran, keyExpr);
         return sobran.filter((r) => !found.has(keyOf(meta.pk, r)));
       })();
+    // ── [OBS.12] La historia que el ORIGEN podó NO se borra ──────────────────────────────
+    // Corte = la fila más vieja que el origen todavía tiene. Todo lo anterior no pudo ser
+    // «borrado»: el origen ya no llega hasta ahí. Lo que cae DENTRO de la ventana sí se
+    // evalúa como siempre, así que una baja real reciente se sigue propagando.
+    if (podaCol && confirmadas.length) {
+      const { rows: [mn] } = await local.query(
+        `SELECT min(${qid(podaCol)})::text AS d FROM md.${qid(table)}`);
+      const corte = mn && mn.d ? String(mn.d).slice(0, 10) : null;
+      if (corte) {
+        const historia = confirmadas.filter((r) => {
+          const v = r._poda_f;
+          return v && String(v).slice(0, 10) < corte;
+        });
+        if (historia.length) {
+          const claves = new Set(historia.map((r) => r._k));
+          confirmadas = confirmadas.filter((r) => !claves.has(r._k));
+          // Se REPORTA siempre: un skip mudo se lee igual que «no había nada que borrar».
+          extra.conservadas_por_poda =
+            `${historia.length} filas anteriores a ${corte} (la más vieja del origen) — el origen `
+            + `PODA esta tabla, así que eso es historia del ODS, no basura. NO se borran.`;
+        }
+      } else {
+        extra.poda_no_medida =
+          `declarada como podada pero ${podaCol} no dio corte — no se borra nada por las dudas`;
+        confirmadas = [];
+      }
+    }
     extra.confirmadas_borrar = confirmadas.length;
     if (confirmadas.length > MAX_DELETE_FRAC * Math.max(pro.length, 1)) {
       extra.delete_abortado = `${confirmadas.length}/${pro.length} (${(100 * confirmadas.length / Math.max(pro.length, 1)).toFixed(0)}%) > ${(100 * MAX_DELETE_FRAC).toFixed(0)}% — ABORTADO, revisar a mano`;

@@ -41,7 +41,12 @@
 const { Client } = require('pg');
 
 const SUB_BASE = process.env.ODS_SOURCE_BASE
-  || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
+  // ⚠️ [OBS.12 2026-10-01] El mensaje nombraba `DATABASE_URL_NEW`, que NO es la variable que esta
+  // línea lee. Un operador la exporta, vuelve a correr y recibe el mismo error sin pista — pasó,
+  // tres intentos. Es el mismo defecto que `[INFRA.3]` dejó en su propio freno el mismo día
+  // (decía `--only`, la bandera real es `--tables=`): **el mensaje de un freno nombra lo que el
+  // freno LEE, no lo que uno recuerda que se llama.**
+  || (() => { throw new Error('falta ODS_SOURCE_BASE (la URL del contenedor de RÉPLICAS, hoy 192.168.0.222:5433) — no es DATABASE_URL_NEW, que es el DESTINO. La copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
 const { replicaDbName: localDbName, BRANCHES: CATALOGO } = require('../lib/kepler-branches'); // convención única
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
