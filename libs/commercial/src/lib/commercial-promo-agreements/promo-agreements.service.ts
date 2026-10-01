@@ -88,6 +88,51 @@ export interface CodigoDto {
   descripcion?: string | null;
 }
 
+/**
+ * `[MKT.6]` Un codigo del acuerdo, **tal como lo SELECCIONA `obtener()`**.
+ *
+ * La nulabilidad no se supuso: sale de la migracion `20260928120000`
+ * (`position smallint NOT NULL`, `code varchar(40) NOT NULL`, `descripcion varchar(160)`
+ * sin NOT NULL). Declarar un campo como no-nulo cuando la columna si lo admite es como se
+ * cuela un `undefined` en pantalla sin que el tipo avise.
+ */
+export interface CodigoDelAcuerdo {
+  id: string;
+  position: number;
+  code: string;
+  descripcion: string | null;
+}
+
+/**
+ * `[MKT.6]` Un archivo del expediente, tal como lo selecciona `obtener()`. Misma fuente de
+ * nulabilidad: la migracion. `channel_id` es NULL a proposito -- son los papeles de la
+ * NEGOCIACION, que no cuelgan de ninguna plaza.
+ */
+export interface ArchivoDelExpediente {
+  id: string;
+  channel_id: string | null;
+  kind: string;
+  file_name: string;
+  file_url: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  nota: string | null;
+  uploaded_by_username: string | null;
+  uploaded_at: string;
+}
+
+/**
+ * `[MKT.6]` El expediente completo de un acuerdo: la cabecera mas sus tres colecciones.
+ *
+ * Se arma con `ReturnType<typeof mapearCabecera>` y `mapearCanal` en vez de repetir sus
+ * campos: si el mapper cambia de forma, este tipo cambia solo en vez de mentir.
+ */
+export type AcuerdoDetalle = ReturnType<typeof mapearCabecera> & {
+  codigos: CodigoDelAcuerdo[];
+  canales: ReturnType<typeof mapearCanal>[];
+  archivos: ArchivoDelExpediente[];
+};
+
 export interface CrearAcuerdoDto {
   empresa: string;
   proveedor: string;
@@ -215,7 +260,7 @@ export class PromoAgreementsService {
   }
 
   /** El expediente completo de un acuerdo: carátula + códigos + canales + archivos. */
-  async obtener(id: string, verDinero: boolean) {
+  async obtener(id: string, verDinero: boolean): Promise<AcuerdoDetalle> {
     const sc = await this.scope.current();
 
     return this.tk.run(async (trx) => {
@@ -316,7 +361,7 @@ export class PromoAgreementsService {
   // ESCRITURA — el alta (Mercadotecnia)
   // ───────────────────────────────────────────────────────────────────────────────────────────
 
-  async crear(dto: CrearAcuerdoDto, usuario: { id?: string; username?: string }) {
+  async crear(dto: CrearAcuerdoDto, usuario: { id?: string; username?: string }): Promise<ReturnType<typeof mapearCabecera>> {
     this.validarCarátula(dto);
     const tenantId = this.tenantCtx.requireTenantId();
 
@@ -361,7 +406,7 @@ export class PromoAgreementsService {
   }
 
   /** Reemplaza los canales participantes. Sólo en borrador: cambiarlos después mueve el papel. */
-  async fijarCanales(id: string, canales: CanalDto[]) {
+  async fijarCanales(id: string, canales: CanalDto[]): Promise<{ ok: true; canales: number }> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const a = await trx('commercial.promo_agreements').select('status').where('id', id).first();
@@ -395,7 +440,7 @@ export class PromoAgreementsService {
    * `commercial.order_sequences` que ya usan pedidos, picking, cotizaciones y embarques — no un
    * `MAX()+1`, que con dos autorizaciones simultáneas asigna el mismo número a las dos.
    */
-  async autorizar(id: string, usuario: { id?: string; username?: string }) {
+  async autorizar(id: string, usuario: { id?: string; username?: string }): Promise<ReturnType<typeof mapearCabecera>> {
     const tenantId = this.tenantCtx.requireTenantId();
 
     return this.tk.run(async (trx) => {
@@ -430,7 +475,7 @@ export class PromoAgreementsService {
     });
   }
 
-  async cambiarEstado(id: string, status: AgreementStatus) {
+  async cambiarEstado(id: string, status: AgreementStatus): Promise<ReturnType<typeof mapearCabecera>> {
     if (!STATUSES.includes(status)) throw new BadRequestException(`Estado inválido: ${status}`);
     if (status === 'borrador') throw new BadRequestException('No se regresa a borrador: el folio ya salió.');
 
@@ -462,7 +507,7 @@ export class PromoAgreementsService {
     channelId: string,
     dto: { file_name: string; file_url: string; mime_type?: string; size_bytes?: number; nota?: string; kind?: FileKind },
     usuario: { id?: string; username?: string },
-  ) {
+  ): Promise<ReturnType<typeof mapearCanal>> {
     if (!dto?.file_name?.trim() || !dto?.file_url?.trim()) {
       throw new BadRequestException('Falta el archivo');
     }
@@ -506,7 +551,7 @@ export class PromoAgreementsService {
   }
 
   /** Baja lógica de una pieza de evidencia. Recalcula el contador: nunca `-= 1`. */
-  async quitarEvidencia(fileId: string) {
+  async quitarEvidencia(fileId: string): Promise<ReturnType<typeof mapearCanal>> {
     return this.tk.run(async (trx) => {
       const f = await trx('commercial.promo_agreement_files')
         .select('id', 'channel_id')

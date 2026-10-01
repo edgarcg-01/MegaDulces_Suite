@@ -10,6 +10,25 @@ import {
 } from './promo-agreements.service';
 
 /**
+ * `[MKT.6]` La forma del request autenticado.
+ *
+ * NO es un tipo nuevo: es **exactamente** la que `verDinero()` ya declaraba inline unas
+ * lineas mas abajo. Se le pone nombre para que los `@Req()` dejen de ser `any` -- un `any`
+ * aca es el agujero por donde `req.user.permissions` se lee mal sin que nada se queje, y
+ * de ese booleano depende que el MONTO negociado viaje o no en el JSON.
+ */
+interface AuthedRequest {
+  user?: {
+    permissions?: Record<string, boolean> | string[];
+    // `crear`, `autorizar` y `subirEvidencia` firman con QUIEN lo hizo: el `any` tapaba
+    // que estos dos campos se leen, y un typo en cualquiera de ellos habria guardado el
+    // acuerdo a nombre de `undefined` sin que nada fallara.
+    id?: string;
+    username?: string;
+  };
+}
+
+/**
  * `[MKT.1]` — Acuerdos con proveedor (formato MKTN001). **Dos módulos, un expediente.**
  *
  * ── Quién puede qué ──────────────────────────────────────────────────────────────────────────
@@ -57,14 +76,14 @@ export class PromoAgreementsController {
       'El alcance recorta las filas: Mercadotecnia ve las once plazas, la plaza ve sólo los ' +
       'acuerdos donde participa. El monto negociado sólo viaja con MKT_AGREEMENTS_GESTIONAR.',
   })
-  listar(@Req() req: any, @Query('status') status?: AgreementStatus) {
+  listar(@Req() req: AuthedRequest, @Query('status') status?: AgreementStatus): ReturnType<PromoAgreementsService['listar']> {
     return this.service.listar({ status, verDinero: this.verDinero(req) });
   }
 
   @Get('resumen')
   @RequireAnyPermission(Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENT_EVIDENCE_SUBIR)
   @ApiOperation({ summary: 'KPIs del tablero (cobertura de expedientes; el monto sólo si se puede ver)' })
-  resumen(@Req() req: any) {
+  resumen(@Req() req: AuthedRequest): ReturnType<PromoAgreementsService['resumen']> {
     return this.service.resumen(this.verDinero(req));
   }
 
@@ -76,7 +95,7 @@ export class PromoAgreementsController {
     summary: 'Lo que corre en una plaza, con su expediente',
     description: 'La sucursal viaja explícita y se valida contra el alcance: pedir otra da 403.',
   })
-  porSucursal(@Param('code') code: string) {
+  porSucursal(@Param('code') code: string): ReturnType<PromoAgreementsService['listarPorSucursal']> {
     return this.service.listarPorSucursal(code);
   }
 
@@ -84,10 +103,10 @@ export class PromoAgreementsController {
   @RequirePermissions(Permission.MKT_AGREEMENT_EVIDENCE_SUBIR)
   @ApiOperation({ summary: 'Subir evidencia de ejecución al expediente de esa plaza' })
   subirEvidencia(
-    @Req() req: any,
+    @Req() req: AuthedRequest,
     @Param('channelId') channelId: string,
     @Body() dto: { file_name: string; file_url: string; mime_type?: string; size_bytes?: number; nota?: string; kind?: FileKind },
-  ) {
+  ): ReturnType<PromoAgreementsService['subirEvidencia']> {
     return this.service.subirEvidencia(channelId, dto, {
       id: req?.user?.id,
       username: req?.user?.username,
@@ -97,7 +116,7 @@ export class PromoAgreementsController {
   @Delete('evidencia/:fileId')
   @RequirePermissions(Permission.MKT_AGREEMENT_EVIDENCE_SUBIR)
   @ApiOperation({ summary: 'Quitar una pieza de evidencia (baja lógica; recalcula la cobertura)' })
-  quitarEvidencia(@Param('fileId') fileId: string) {
+  quitarEvidencia(@Param('fileId') fileId: string): ReturnType<PromoAgreementsService['quitarEvidencia']> {
     return this.service.quitarEvidencia(fileId);
   }
 
@@ -109,7 +128,7 @@ export class PromoAgreementsController {
     summary: 'Expediente completo: carátula, códigos, canales y archivos',
     description: 'La plaza recibe sólo su canal; si el acuerdo no toca ninguna de sus plazas, 404.',
   })
-  obtener(@Req() req: any, @Param('id') id: string) {
+  obtener(@Req() req: AuthedRequest, @Param('id') id: string): ReturnType<PromoAgreementsService['obtener']> {
     return this.service.obtener(id, this.verDinero(req));
   }
 
@@ -118,7 +137,7 @@ export class PromoAgreementsController {
   @Post()
   @RequirePermissions(Permission.MKT_AGREEMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Levantar el formato MKTN001 (nace en borrador, sin folio)' })
-  crear(@Req() req: any, @Body() dto: CrearAcuerdoDto) {
+  crear(@Req() req: AuthedRequest, @Body() dto: CrearAcuerdoDto): ReturnType<PromoAgreementsService['crear']> {
     return this.service.crear(dto, { id: req?.user?.id, username: req?.user?.username });
   }
 
@@ -128,7 +147,7 @@ export class PromoAgreementsController {
     summary: 'Fijar los canales participantes (abre un expediente por cada uno)',
     description: 'Sólo en borrador, y nunca sobre un canal que ya subió evidencia.',
   })
-  fijarCanales(@Param('id') id: string, @Body() dto: { canales: CanalDto[] }) {
+  fijarCanales(@Param('id') id: string, @Body() dto: { canales: CanalDto[] }): ReturnType<PromoAgreementsService['fijarCanales']> {
     return this.service.fijarCanales(id, dto?.canales ?? []);
   }
 
@@ -138,14 +157,14 @@ export class PromoAgreementsController {
     summary: 'Autorizar: asigna folio y lo vuelve un compromiso',
     description: 'Exige al menos un canal participante. El folio se genera SÓLO acá (patrón TP.8).',
   })
-  autorizar(@Req() req: any, @Param('id') id: string) {
+  autorizar(@Req() req: AuthedRequest, @Param('id') id: string): ReturnType<PromoAgreementsService['autorizar']> {
     return this.service.autorizar(id, { id: req?.user?.id, username: req?.user?.username });
   }
 
   @Patch(':id/estado')
   @RequirePermissions(Permission.MKT_AGREEMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Mover el estado: vigente · cerrado · cancelado' })
-  cambiarEstado(@Param('id') id: string, @Body() dto: { status: AgreementStatus }) {
+  cambiarEstado(@Param('id') id: string, @Body() dto: { status: AgreementStatus }): ReturnType<PromoAgreementsService['cambiarEstado']> {
     return this.service.cambiarEstado(id, dto?.status);
   }
 }
