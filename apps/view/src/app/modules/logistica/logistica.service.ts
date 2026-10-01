@@ -1705,6 +1705,10 @@ export interface GuideCostRow {
   paradas: number;
   mercancia: number | null;
   costo: number | null;
+  /** El gasto cuyo DEPARTAMENTO es este canal: se sabe de quién es. */
+  costo_directo: number | null;
+  /** El bucket administrativo que no declara canal y se asigna por actividad. */
+  costo_prorrateado: number | null;
   costo_por_parada: number | null;
   costo_estado: 'atribuido' | 'no_medido';
   costo_motivo: string | null;
@@ -1744,6 +1748,8 @@ export interface GuideCostFiltros {
 export interface GuideCostTotales {
   guias: number; guias_con_costo: number; paradas: number;
   costo: number; mercancia: number; costo_por_parada: number | null;
+  /** La misma cifra partida por NATURALEZA: lo que se sabe vs lo que se reparte. */
+  costo_directo: number; costo_prorrateado: number; pct_prorrateado: number | null;
   mostradas: number;
   /** true = la lista está paginada y sumarla daría menos que `costo`. */
   truncado: boolean;
@@ -1797,6 +1803,8 @@ export interface GuideCostConcepto {
 export interface GuideCostFamilia {
   familia: string;
   total: number;
+  directo: number;
+  prorrateado: number;
   pct_del_total: number | null;
   conceptos: GuideCostConcepto[];
 }
