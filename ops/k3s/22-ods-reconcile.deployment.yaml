@@ -1,0 +1,67 @@
+# ═══ RECONCILIADOR DE VENTANA (3 días) ═══  [K3S.8]
+#
+# Mismo molde que el piloto y mismo motivo para ir segundo: `ODS_DELETE_SOBRANTES: "0"` — no
+# propaga DELETE, así que lo peor que puede pasar es que deje de reponer huecos, y eso lo grita
+# su propio latido (`cdc_reconcile`, tope 45 min).
+#
+# ⚠️ `ODS_HB_KEY` va explícita, que es la lección de `[K3S.7]`: `health.js` lee ESA variable y
+# nada más. Este carril ya la traía bien en Compose —se verificó ejecutando la sonda: «health:
+# cdc_reconcile ok (0.6 min, status=ok)»— y acá se conserva igual.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ods-reconcile
+  namespace: ingesta
+  labels:
+    carril: ods-reconcile
+    singleton: "true"
+    migracion: migrado
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      carril: ods-reconcile
+  template:
+    metadata:
+      labels:
+        carril: ods-reconcile
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: reconciliador
+          image: trade-ingest:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - node
+            - database/importers/kepler/reconcile-ods-window.js
+            - --days=3
+            - --apply
+            - --watch=900
+          envFrom:
+            - secretRef:
+                name: ingest-env
+          env:
+            - name: ODS_HB_KEY
+              value: cdc_reconcile
+            - name: ODS_HB_MAX_MIN
+              value: "45"
+            - name: ODS_RECONCILE_ALERT
+              value: "1000"
+            - name: ODS_HB_IGNORE_ERROR
+              value: "1"
+            - name: ODS_DELETE_SOBRANTES
+              value: "0"
+          livenessProbe:
+            exec:
+              command: ["node", "/app/ops/ingest/health.js"]
+            initialDelaySeconds: 1200
+            periodSeconds: 120
+            timeoutSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests: { memory: "64Mi", cpu: "50m" }
+            limits:   { memory: "512Mi" }

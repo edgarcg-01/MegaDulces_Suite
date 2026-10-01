@@ -185,6 +185,8 @@ services:
 
   # ═══ ESPEJO COMPLETO ═══ todo md.* MENOS el set del hot. @300 s.
   ods-live-mirror:
+    # [K3S.9] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     <<: *lane
     container_name: ods-live-mirror
     depends_on: [ods-live-hot]
@@ -214,6 +216,8 @@ services:
   # "el contenedor está roto": reiniciarlo no repone ni una fila. Por eso
   # ODS_HB_IGNORE_ERROR=1 y el healthcheck juzga sólo la antigüedad del latido.
   ods-reconcile:
+    # [K3S.8] MIGRADO A K3s 2026-10-01 -- no arranca solo. Ver ops/k3s/README.md
+    profiles: ["retirado-k3s"]
     <<: *lane
     container_name: ods-reconcile
     depends_on: [ods-live-hot]

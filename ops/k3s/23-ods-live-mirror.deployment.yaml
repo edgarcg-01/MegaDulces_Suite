@@ -1,0 +1,63 @@
+# ═══ ESPEJO COMPLETO ═══  [K3S.9]  — todo md.* MENOS el set del caliente. @300 s.
+#
+# ⚠️ LAS DOS LISTAS SON UNA COPIA MÁS, y por eso están candadeadas. Migrar duplica el entorno: el
+# conjunto de tablas del ODS ya vivía escrito a mano en varios lugares (es el «hallazgo grande»
+# que `[INFRA.3]` y `[INFRA.4]` desactivaron este mismo día), y este manifiesto suma una.
+# El bloque 5 de `npm run check:k3s` compara `KP_ODS_TABLES` y `ODS_EXCLUDE_TABLES` contra el
+# servicio del compose: si alguien toca una y no la otra, falla. Sin eso, el carril migrado
+# embarcaría un conjunto distinto del que el repo cree — y eso se lee igual que embarcar bien.
+#
+# ⛔ `Recreate` + `replicas: 1` no es opcional: este carril y `ods-live-hot` se REPARTEN las
+# tablas (uno el set caliente, el otro todo lo demás). Dos copias del espejo se pisarían
+# `ods.ctl` entre ellas además de con el caliente, y `ods.ctl` llavea sólo `(table_name)`.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ods-live-mirror
+  namespace: ingesta
+  labels:
+    carril: ods-live-mirror
+    singleton: "true"
+    migracion: migrado
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      carril: ods-live-mirror
+  template:
+    metadata:
+      labels:
+        carril: ods-live-mirror
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: shipper
+          image: trade-ingest:latest
+          imagePullPolicy: IfNotPresent
+          command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=300"]
+          envFrom:
+            - secretRef:
+                name: ingest-env
+          env:
+            - name: ODS_HB_KEY
+              value: ods_live_mirror
+            - name: ODS_HB_MAX_MIN
+              value: "45"
+            - name: KP_ODS_TABLES
+              value: "*"
+            - name: ODS_EXCLUDE_TABLES
+              value: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+          livenessProbe:
+            exec:
+              command: ["node", "/app/ops/ingest/health.js"]
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests: { memory: "64Mi", cpu: "50m" }
+            limits:   { memory: "512Mi" }
