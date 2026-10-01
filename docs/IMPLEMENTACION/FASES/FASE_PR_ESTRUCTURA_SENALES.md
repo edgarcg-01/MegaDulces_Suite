@@ -786,7 +786,53 @@ instante, pero **lo escribí igual, horas después de documentarlo dos veces**.
 
 ---
 
-## 21 · Lo que sigue
+## 21 · `[PR.V6]` · La pestaña de Experimentos no tenía nada que clickear
+
+Reportado al abrirla como superadmin: *«¿aquí qué hago? no existe información o algo que pueda
+clickear»*. El estado vacío decía **«Lo diseña quien tenga el permiso de gestión»** — a una
+persona que **tenía** ese permiso. La pantalla nombraba una condición en vez de dar la acción.
+
+### ⛔ Y no faltaba backend
+
+| endpoint | existía | lo usaba la pantalla |
+|---|---|---|
+| `GET /estratos` | sí | sí |
+| `GET /` listar | sí | sí |
+| **`POST /` diseñar** | **sí** | ⛔ **no** |
+| `GET /:id/captura` | sí | sí |
+| `PATCH /units/:id/aplicada` | sí | sí |
+| `GET /:id/resultados` | sí | sí |
+
+El servicio del frontend **ya tenía los seis métodos**, incluido `disenar`. De los seis, era el
+**único con cero llamadas**: todo el resto del flujo ya estaba cableado y aparecía en cuanto
+existiera un experimento. Faltaba exactamente un botón.
+
+### El diálogo, y por qué pide lo que pide
+
+- **Terminación** (`.99` por default) — el servicio documenta que el alza implícita de aterrizar
+  a `.99` vale **+$659,564/30 d**, así que esa es la que se prueba primero.
+- **Semilla**, obligatoria y con su motivo impreso al lado: *sin ella la asignación no se puede
+  reproducir, y un resultado que no se puede reproducir no es un resultado*.
+- **Estratos**: los viables vienen marcados; los que **no alcanzan se muestran igual**, marcables
+  a propósito, porque ocultarlos haría creer que el experimento cubre el catálogo entero — que es
+  la misma regla que el backend ya aplica en `GET /estratos`.
+
+⚠️ El botón se gatea con **la misma clave** que el `POST` exige
+(`COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR`): mostrar uno que el servidor va a rechazar es peor que
+no mostrarlo.
+
+### ⚠️ Lo que costó, y es evitable
+
+Declaré un `sel` para los estratos marcados **y el componente ya tenía un `sel`** — el experimento
+abierto. El build cayó con nueve errores en cascada. Revisar los nombres contra el archivo antes
+de escribirlos son treinta segundos; renombrar después costó dos vueltas.
+
+**Verificado:** `nx build view` · `nx test view` **1,387** · lint 0 errores · gate de templates ·
+`<ng-template #footer>` y cero `pTemplate` (PrimeNG 22). **Validación visual pendiente.**
+
+---
+
+## 22 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
