@@ -6,7 +6,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 
 /**
  * `[E.12]` — Cotizaciones de mayoreo.
@@ -424,15 +424,18 @@ export class CommercialQuotesService {
     const n = Math.min(Math.max(Number(limit) || 20, 1), 50);
 
     return this.tk.run(async (knex) => {
+      // Búsqueda por PALABRAS (COT.16): cada palabra tiene que aparecer en el código, el nombre
+      // o el RFC, en cualquier orden ("ortiz vera" encuentra "GRUPO ORTIZ VERA"). Estricta, sin
+      // trigramas: el operador escribe lo que ve en el padrón.
+      const hit = knex('analytics.v_erp_wholesale_customers')
+        .distinct('customer_code')
+        .orderBy('customer_code')
+        .limit(n);
+      applySmartSearch(hit, term, { columns: ['customer_code', 'name', 'rfc'], fuzzy: false });
+
       const res = await knex.raw(
         `
-        WITH hit AS (
-          SELECT DISTINCT customer_code
-          FROM analytics.v_erp_wholesale_customers
-          WHERE :term = '' OR customer_code ILIKE :like OR name ILIKE :like
-          ORDER BY customer_code
-          LIMIT :lim
-        )
+        WITH hit AS ?
         SELECT
           v.customer_code,
           max(v.name)                      AS name,
@@ -462,7 +465,7 @@ export class CommercialQuotesService {
         GROUP BY v.customer_code
         ORDER BY v.customer_code
         `,
-        { term, like: `%${term}%`, lim: n },
+        [hit],
       );
       return res.rows;
     });
@@ -516,6 +519,31 @@ export class CommercialQuotesService {
     const n = Math.min(Math.max(Number(limit) || 30, 1), 50);
 
     return this.tk.run(async (knex) => {
+      // Búsqueda por PALABRAS (COT.16): cada palabra tiene que aparecer en el nombre o el SKU,
+      // en cualquier orden ("altos rollo 25 35" encuentra "ALTOS ROLLO 25X35 ..."). Estricta,
+      // sin trigramas. El código de barras va APARTE y por igualdad exacta: es lo que manda el
+      // lector, y meterlo al substring haría que "25" pegara con medio catálogo de códigos.
+      const inner = knex('analytics.v_label_prices')
+        .select('sku', 'name', 'content', 'barcode', 'unit_base', 'piece_price', 'pack_size', 'box_size', 'box_price', 'sold_by_kg')
+        .where('sucursal', suc)
+        .orderByRaw(
+          `CASE WHEN upper(sku) = upper(?) THEN 0
+                WHEN barcode = ?          THEN 1
+                WHEN sku ILIKE ?          THEN 2
+                ELSE 3 END,
+           name NULLS LAST,
+           sku`,
+          [term, term, `${term}%`],
+        )
+        .limit(n);
+      if (term) {
+        inner.andWhere((g) => {
+          g.where('barcode', term).orWhere((porPalabras) =>
+            applySmartSearch(porPalabras, term, { columns: ['name', 'sku'], fuzzy: false }),
+          );
+        });
+      }
+
       const res = await knex.raw(
         // La unidad mayor se completa con BTO/CUB cuando no hay caja, o el botón diría "Caja" y
         // la previa "Bulto".
@@ -537,24 +565,7 @@ export class CommercialQuotesService {
                CASE WHEN v.box_size IS NOT NULL OR v.box_price IS NOT NULL THEN 'CJA'
                     ELSE m.unidad END AS box_label,
                v.sold_by_kg
-          FROM (
-            SELECT sku, name, content, barcode, unit_base, piece_price, pack_size, box_size,
-                   box_price, sold_by_kg
-              FROM analytics.v_label_prices
-             WHERE sucursal = :branch
-               AND (:term = ''
-                    OR sku ILIKE :pre
-                    OR barcode = :term
-                    OR name ILIKE :like)
-             ORDER BY
-               CASE WHEN upper(sku) = upper(:term) THEN 0
-                    WHEN barcode = :term          THEN 1
-                    WHEN sku ILIKE :pre           THEN 2
-                    ELSE 3 END,
-               name NULLS LAST,
-               sku
-             LIMIT :lim
-          ) v
+          FROM :inner v
           LEFT JOIN LATERAL (
             SELECT s.unidad, s.factor
               FROM kepler_ods.kdii k
@@ -576,7 +587,7 @@ export class CommercialQuotesService {
            v.name NULLS LAST,
            v.sku
         `,
-        { branch: suc, term, pre: `${term}%`, like: `%${term}%`, lim: n },
+        { inner, branch: suc, term, pre: `${term}%` },
       );
 
       // Los `numeric` de Postgres llegan como STRING por JSON (GOTCHAS §6): el tipo TS miente

@@ -19,6 +19,13 @@ export interface SmartSearchOptions {
   numeric?: string[];
   /** Umbral de similitud de trigramas por token (0..1). Default `0.35`. */
   threshold?: number;
+  /**
+   * `false` = modo ESTRICTO: cada token tiene que aparecer literalmente (substring, sin acentos
+   * ni mayúsculas), sin el OR de trigramas. Para buscadores donde el operador escribe las
+   * palabras exactas del renglón y un "parecido" sería ruido (cotizaciones: `altos rollo 25 35`
+   * no debe traer `alto rollito`). Default `true` (el comportamiento de siempre).
+   */
+  fuzzy?: boolean;
 }
 
 /** Identificador SQL válido (`col` o `alias.col`). Las columnas vienen de código, no de input. */
@@ -81,7 +88,7 @@ export function applySmartSearch(
             // Fuzzy (trigramas) SOLO para tokens de PALABRA (alfabéticos ≥ 4): los códigos con
             // dígitos (RFC/folio/monto) matchean por substring exacto; el fuzzy sobre ellos trae
             // ruido (p.ej. "herl690" pegaría con medio catálogo por trigramas compartidos).
-            if (tok.length >= 4 && /^[a-z]+$/.test(tok)) {
+            if (opts.fuzzy !== false && tok.length >= 4 && /^[a-z]+$/.test(tok)) {
               one.orWhereRaw(`word_similarity(?, ${hay}) >= ?`, [tok, threshold]);
             }
           });
