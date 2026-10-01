@@ -385,7 +385,7 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
              JOIN kepler_ods.kdm2 l
                ON l.sucursal=m.sucursal AND l.c1=m.c1 AND l.c2=m.c2 AND l.c3=m.c3
               AND l.c4=m.c4 AND l.c5=m.c5 AND l.c6=m.c6
-            WHERE m.sucursal=$1 AND m.c1=$1 AND m.c2='N' AND m.c3='A' AND m.c4='45'
+            WHERE m.sucursal=$1 AND m.c1=$4 AND m.c2='N' AND m.c3='A' AND m.c4='45'
               AND m.c9::date = $3::date)
          SELECT w.sku, round(w.existencia::numeric,2) AS existencia,
                 round(w.valor_inventario::numeric,2) AS valor
@@ -393,7 +393,7 @@ const num = (n) => Number(n || 0).toLocaleString('en-US');
           WHERE w.source_branch=$2 AND w.existencia > 0 AND w.in_kepler_catalog
             AND w.sku NOT IN (SELECT sku FROM carga)
           ORDER BY w.valor_inventario DESC NULLS LAST LIMIT 40`,
-        [KEP_SUC, WIN_BRANCH]);
+        [KEP_SUC, WIN_BRANCH, fechaElegida, almElegido]);
       console.log('\n   SKU      existencia        valor');
       for (const r of det) {
         console.log(`   ${String(r.sku).padEnd(8)} ${String(num(r.existencia)).padStart(10)}  ${String(money(r.valor)).padStart(12)}`);
