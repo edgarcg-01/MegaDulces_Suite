@@ -712,7 +712,11 @@ export class AlmacenExistenciaComponent implements OnInit {
     return `${c.code} · ${c.name}${c.es_hub ? ' (centro de distribución)' : ''}${edad}`;
   }
 
-  /** Kepler alimenta 01-06; Wincaja el CEDIS 00 (BPIRAPUATO) y los dos de Morelia. */
+  /**
+   * Kepler alimenta 01-06. ⚠️ Esto decía que Wincaja alimentaba el CEDIS 00 (BPIRAPUATO) y los dos
+   * de Morelia: **ya no**. Morelia migró (32 el 08-sep, 30 el 19-sep) y el CEDIS cortó a Kepler el
+   * 2026-09-30, así que no queda ninguna rama en `live_on_wincaja` (mig `20260930150000`).
+   */
   private ramaOf(code: string): string {
     return (code === '00' || code.startsWith('MD-')) ? 'wincaja' : 'kepler';
   }

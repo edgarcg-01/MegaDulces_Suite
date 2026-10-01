@@ -97,6 +97,36 @@ sin estar declarado en `CAST_JUSTIFICADO`. Medido en prod: `analytics.expense_en
 con la medición. El candado vuelve a **8 ✓ / 0 ✗ / 1 NO MEDIDO** (los bloques con DB se declaran, no
 se dibujan verdes).
 
+### Fixed — «en /compras/pedido aún se menciona CEDIS BPIRAPUATO»: el rótulo ya estaba, lo que quedaba eran AFIRMACIONES falsas (IC.CEDIS.4, 2026-10-01)
+Reporte de Edgar. **Primero la corrección al reporte, medida:** en `/compras/pedido` el nombre ya
+sale bien. Se replicó contra prod la consulta exacta que alimenta ese selector (`filters`, lee
+`w.name` en vivo, sin caché ni copia denormalizada) y devuelve **`00 · CEDIS Irapuato`**; la única
+fila con «Irapuato» en `commercial.warehouses` —incluidas las borradas— es ésa, renombrada el 30-sep
+18:58. Dev local apunta a **la misma DB de prod** (`192.168.0.222:5434`), así que no es un tema de
+ambiente: si todavía se ve el nombre viejo es una pestaña abierta desde antes de esa hora.
+
+⭐ **Pero el barrido encontró lo que sí importa, y no son rótulos.** `BPIRAPUATO` nombraba el `.mdb`
+de Wincaja, y lo que quedó regado por el repo no es el nombre sino la **afirmación de que el CEDIS se
+alimenta de Wincaja**, que es falsa desde el corte:
+
+- ⛔ **`THOT_BUSINESS_CONTEXT`** — el contexto que se le pasa al LLM del chat de Thot — le decía
+  literalmente *"00 CEDIS BPIRAPUATO … su existencia sale de WINCAJA; la sucursal 00 DE KEPLER es
+  OFICINAS y no vende"*. Las tres partes envejecieron el mismo día. Ahora declara el corte, **y
+  declara el hueco**: que la existencia del CEDIS está congelada en la foto del 28-sep porque Kepler
+  trae el saldo 35.82× inflado, con la instrucción de decirlo en vez de publicar la cifra como si
+  estuviera al día. De paso, los códigos de Morelia estaban **pre-migración** (`MD-30`/`MD-32`): hoy
+  son `08` y `07`, con los viejos como alias — un código stale ahí hace que el chat resuelva el
+  almacén equivocado.
+- ⚠️ **`/compras/red`**, dos textos **visibles** (encabezado y pie) afirmaban *"el CEDIS (Wincaja
+  Irapuato)"*. La cadencia de surtido sigue siendo correcta pero es **historia que deja de crecer**:
+  se midió sobre Wincaja. La pantalla ahora lo dice.
+- Más 5 comentarios en `/compras/pedido`, el contrato de orden de almacenes, Existencia y el sensor
+  retirado. Se **fechan y tachan** en vez de borrarse (patrón de la casa): *"decía X, dejó de ser
+  cierto el 30-sep"*. Un comentario borrado no explica la sonda; uno sin fecha vuelve a engañar.
+
+Sin cambios de datos ni de cálculo. `nx test contracts` **233/233**; el candado `tz-bias` sigue en
+**8 ✓ / 0 ✗ / 1 NO MEDIDO**.
+
 ### Fixed — el tope de la lista de cambios contaba renglones, no etiquetas (ETQ-CAMBIOS.7, 2026-09-30)
 Continuación del audit de `/tienda/etiquetas/cambios`. **Dos correcciones a lo que yo mismo
 reporté**, las dos por medir mal:

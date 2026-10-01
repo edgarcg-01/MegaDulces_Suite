@@ -2858,7 +2858,9 @@ export class CommercialReplenishmentService {
     return this.tk.run(async (trx) => {
       const rows = await trx('commercial.warehouses as w')
         .leftJoin('commercial.warehouses as src', (j) => j.on('src.tenant_id', 'w.tenant_id').andOn('src.id', 'w.source_warehouse_id'))
-        // RA-PRO.25 — cadencia REAL de surtido del CEDIS (Wincaja Irapuato, caja 99) por sucursal.
+        // RA-PRO.25 — cadencia REAL de surtido del CEDIS de Irapuato (caja 99) por sucursal.
+        // ⚠️ Se midió sobre Wincaja, que fue su fuente hasta el corte a Kepler del 2026-09-30:
+        // es HISTORIA y deja de crecer. La pantalla lo declara; no se recalcula desde Kepler aún.
         .leftJoin('analytics.cedis_supply_cadence as cc', (j) =>
           j.on('cc.tenant_id', 'w.tenant_id').andOn('cc.warehouse_id', 'w.id').andOnVal('cc.window_year', new Date().getFullYear()))
         .where('w.tenant_id', tenantId).whereNull('w.deleted_at').andWhere('w.kind', '<>', 'truck')
