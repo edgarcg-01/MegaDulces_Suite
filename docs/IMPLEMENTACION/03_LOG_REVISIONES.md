@@ -90,6 +90,77 @@ Al investigar el cutover del CEDIS (avisado por Edgar: *"cedis ya es ahora 9.95"
   que ya la usa cuesta menos que la retractación.
 
 ---
+## 2026-10-01 — EXP.3: los doctypes que el motor no contaba, arbitrados
+
+Disparador: *"¿en la interfaz ya consideramos todas las variables externas?"*. La respuesta era
+**no**, y medirlo cambió dos veces de forma.
+
+### Lo que resultó ser señuelo
+
+Seis doctypes aparecían con volumen alto y **ninguno mueve mercancía**: `X-A-30` requisición,
+`X-A-35` orden de compra, `X-A-37` vale, `X-A-40` orden de entrada y `U-D-40` **pedido** son
+INTENCIONES — sólo `X-A-20` asienta. `N-A-44` es la pre-captura del propio conteo.
+
+### ⭐ El arbitraje, con el procedimiento de IC.10
+
+Agregar uno por uno y quedarse sólo con los que **suben** el cuadre del roll-forward. Sobre los
+18,310 renglones juzgables:
+
+| doctype | qué es | SKUs que toca | cuadre sin → con |
+|---|---|---:|---|
+| `N-D-5` | Salida de almacén | 589 | **2.04% → 28.01%** |
+| `U-A-21/25` | Devolución de cliente | 970 | **6.49% → 23.51%** |
+| `X-D-40` | Devolución de compra | 25 | **0.00% → 20.00%** |
+| ⛔ `U-D-8/12` | Factura Telemarketing / Contado No Fiscal | 2,951 | **27.25% → 3.15%** |
+
+Global: **46.570% → 48.356%** (8,527 → 8,854 SKUs). Con el rechazado: **44.200%**.
+
+⛔ **`U-D-8/12` se midió y se rechazó.** El catálogo las llama facturas y mi lectura decía que
+eran venta sin contar; restarlas **derrumba el cuadre 9 veces** porque esa mercancía ya está en
+`U-D-10`. Son re-facturación, igual que `U-D-5` y `U-D-6`. Queda en el candado para que nadie
+las agregue leyendo el catálogo.
+
+### ⛔ Y una corrección de lo que yo mismo había dicho
+
+En el análisis previo publiqué que *"182 de 818 SKUs por $119,569 — el 48% del dinero de la
+pila — tienen un movimiento que el motor no mira"*. Eso medía **presencia** del documento, no
+**poder explicativo**. Medido de verdad: de los **402 SKUs** cuyo hueco cierran estos flujos,
+**sólo el 6.7% tiene ajuste de Kepler**.
+
+El motivo es estructural y lo entendí tarde: `N-D-5`, `U-A-21/25` y `X-D-40` son **documentos
+REALES de Kepler**, así que su propio libro ya los movió y nunca emitió un ajuste por ellos. Lo
+que arreglan no es el ajuste: es **nuestra reconstrucción**.
+
+⭐ **Entonces el valor está donde yo lo había descartado:** el roll-forward atribuye mal **402
+SKUs por $216,658**, de los cuales **$157,565 los llama MERMA** teniendo documento que los
+explica — y esa misma cifra viaja a la familia `F9 · Merma` de `v_price_signals`. En la pila de
+ajustes el efecto es de **27 renglones** ($4,278).
+
+### Lo entregado, y lo que falta
+
+✅ `mv_erp_count_line_signals` recreada (batch **649**, 49.9 s) con los tres flujos, su residuo
+y el veredicto por fila. **1,062 renglones** muestran ahora su flujo en el expediente — que es
+exactamente el contexto que el pedido original pedía.
+
+⛔ **El arreglo que vale NO se hizo**, y el motivo es de alcance: de `mv_erp_count_rollforward`
+cuelga una cascada de **cinco objetos** que llega al motor de precios
+(`v_price_signals` → `mv_price_signals`, **223 MB** → `v_price_action`). Recrearla tumba
+`/comercial/rentabilidad` entre 8 y 13 minutos. Es una operación con su propia ventana y su
+propia autorización.
+
+⚠️ **`flujo_explica` es por FILA, no en bloque.** Aplicarlo en bloque gana 402 y **rompe 75**
+(que valen **$0**: son SKUs sin costo). Con la condición por fila gana los 402 y no rompe
+ninguno. Y **645 renglones más acercan** el residuo sin cerrarlo: se publica igual.
+
+⚠️ Dato operativo: el catálogo ofrece **cinco motivos de salida** (`N-D-5-1..5`) y la operación
+**usa sólo el genérico** — 596 documentos desde nov-2025, todos serie 1. El ERP registra que la
+mercancía salió y **no puede decir por qué**.
+
+Candado `test-newdb-variance-senales.js`: **24 ✓ / 0 ✗ / 1 no medido** — re-corre el arbitraje
+completo en vez de mirar su resultado.
+
+---
+
 ## 2026-09-30 — EXP.2: el expediente del renglón (el renglón deja de ser un callejón)
 
 Etapa 2 del plan. `[EXP.1b]` construyó la llave por SKU; esto la usa: al hacer clic en un
