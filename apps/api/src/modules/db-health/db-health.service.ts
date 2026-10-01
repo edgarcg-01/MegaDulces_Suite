@@ -1166,6 +1166,12 @@ const CRON_JOBS: CronCfg[] = [
   // precios con el costo, el inventario y la fuga de hace semanas, con la misma cara de confianza
   // que si fueran de hoy. La fila lleva `calculado_al`, pero nadie lo mira si nada se pone rojo.
   { key: 'analytics_refresh_price_signals',   label: 'Refresh MV señales de precio (PR.S2.4)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [PR.X4] La historia que cuenta el expediente del SKU: los cambios de precio limpios y el
+  // event-study. Sin umbral el sensor cae en `cfg ? classify : 'ok'` y una MV parada se ve VERDE
+  // — y acá eso sería la ventana narrando una historia que se detuvo, sin decirlo. La gráfica
+  // seguiría dibujándose igual de completa con el último cambio de hace tres semanas.
+  { key: 'analytics_refresh_sku_price_events',   label: 'Refresh MV cambios de precio por SKU (PR.X4)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_sku_price_response', label: 'Refresh MV event-study de precio (PR.X4)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },

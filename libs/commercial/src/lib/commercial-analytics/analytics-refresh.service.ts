@@ -327,6 +327,23 @@ export class AnalyticsRefreshService {
        * `cfg ? classify : 'ok'` y una MV parada se ve VERDE (OBS.1). Acá eso sería el motor
        * proponiendo precios con el costo, el inventario y la fuga de hace semanas.
        */
+      /**
+       * `[PR.X4]` La historia de precio del expediente del SKU: los cambios limpios y el
+       * event-study. Se materializan por un costo MEDIDO -- filtradas por un par tardaban
+       * 3,166 ms y 6,925 ms porque el predicado no baja y los CTE barren la bitacora entera
+       * (573,262 filas) y la serie de ventas (836,703). Con la matvista son 3 ms y 1 ms.
+       *
+       * ⭐ Son hechos PASADOS: un cambio de precio de julio no cambia durante el dia. Por eso
+       * el nocturno alcanza y materializarlas no congela nada que importe.
+       *
+       * ⚠️ Sus umbrales viven en `CRON_JOBS` o el sensor cae en `cfg ? classify : 'ok'` y una MV
+       * parada se ve VERDE (OBS.1) -- y aca eso seria la ventana contando una historia que se
+       * detuvo, sin decirlo.
+       */
+      ['analytics.mv_sku_price_events', 'analytics_refresh_sku_price_events',
+        'Refresh MV cambios de precio por SKU (nightly)', []],
+      ['analytics.mv_sku_price_response', 'analytics_refresh_sku_price_response',
+        'Refresh MV event-study de precio (nightly)', ['analytics.mv_sku_price_events']],
       ['analytics.mv_price_signals', 'analytics_refresh_price_signals',
         'Refresh MV señales de precio (nightly)',
         ['analytics.mv_price_waterfall_sku', 'analytics.mv_erp_count_rollforward',

@@ -146,6 +146,143 @@ export class MarginEngineService {
   }
 
   /**
+   * ⭐⭐ **El EXPEDIENTE del SKU** — lo que se abre al dar clic.
+   *
+   * Un solo viaje. Cinco llamadas serían cinco estados de carga en la misma ventana, y el
+   * usuario vería la pantalla armarse a pedazos.
+   */
+  async expediente(sucursal: string, sku: string): Promise<unknown> {
+    return this.tk.run(async (trx) => {
+      const [base, historia, eventos, respuesta, plazas, perdida] = await Promise.all([
+        this.detalle(sucursal, sku),
+
+        // 1 · La serie de costo, precio y volumen. Mensual: el par promedio vende 26.7 días AL AÑO.
+        trx.raw(`
+          SELECT to_char(mes, 'YYYY-MM') AS mes, costo_unitario, precio_unitario, margen_pct,
+                 unidades_total, venta_total, dias_con_venta, cobertura_costo_pct, venta_sin_costo
+            FROM analytics.v_sku_cost_sales_monthly
+           WHERE sucursal = ? AND sku = ? ORDER BY mes`, [sucursal, sku]).then((r) => r.rows),
+
+        /**
+         * 2 · Los cambios de precio, ya limpios de centinelas, netos de ida y vuelta y de
+         * recosteo. ⭐ Se lee la MATVISTA: filtrada por un par, la vista tardaba 3,166 ms
+         * porque el predicado no baja y los CTE barren la bitácora entera.
+         */
+        trx.raw(`
+          SELECT to_char(fecha, 'YYYY-MM-DD') AS fecha, unidad_base, precio_antes, precio_despues,
+                 cambio_pct, es_alza, unidades_en_evento, spread_pct, veredicto_unidad
+            FROM analytics.mv_sku_price_events
+           WHERE sucursal = ? AND sku = ? ORDER BY fecha DESC LIMIT 40`,
+        [sucursal, sku]).then((r) => r.rows),
+
+        /**
+         * 3 · ⭐⭐ Qué pasó las veces anteriores — **con su placebo en la misma fila**.
+         *
+         * ⛔ `lr_pre` NO es un adorno: es el control que decide si `lr_post` se puede leer.
+         * Medido sobre todo el universo, la pre-tendencia media es **+0.26** contra un efecto
+         * de −0.01, y **empeora cuanto mejores son los datos** (+0.36 con 15+ días por ventana).
+         * Peor todavía: una BAJA de precio y un ALZA producen el mismo movimiento negativo
+         * (−0.39 y −0.64) — ninguna curva de demanda hace eso. Es reversión a la media: el
+         * precio se toca justo después de un pico, y el pico revierte solo.
+         */
+        trx.raw(`
+          SELECT to_char(fecha, 'YYYY-MM-DD') AS fecha, unit_kind, precio_antes, precio_despues,
+                 cambio_pct, es_alza, vol_pre, vol_post, dias_pre, dias_post,
+                 lr_post, lr_pre, veredicto, motivo
+            FROM analytics.mv_sku_price_response
+           WHERE sucursal = ? AND sku = ? ORDER BY fecha DESC`,
+        [sucursal, sku]).then((r) => r.rows),
+
+        // 4 · El mismo SKU en las 9 plazas.
+        trx.raw(`
+          SELECT sucursal, precio_actual, a1_costo_hoy, a2_costo_ficha, margen_realizado_pct,
+                 meta_margen_pct, accion, certeza, venta_30d, e3_estado_inventario, g2_clase_abc,
+                 (sucursal = ?) AS es_esta
+            FROM analytics.v_price_action WHERE sku = ? ORDER BY sucursal`,
+        [sucursal, sku]).then((r) => r.rows),
+
+        /**
+         * 5 · La demanda perdida. ⛔ Cada fila trae su atraso porque Wincaja dejó de registrar
+         * el día que la plaza migró a Kepler — hasta 272 días. Publicar el importe sin eso
+         * insinuaría que es de ahora.
+         */
+        trx.raw(`
+          SELECT to_char(mes, 'YYYY-MM') AS mes, sucursal, unidades_perdidas, importe_perdido,
+                 reportes, clientes, dias_de_atraso, motivo_atraso
+            FROM analytics.v_sku_lost_demand
+           WHERE sku = ? AND (sucursal = ? OR ? = 'todas') ORDER BY mes DESC LIMIT 24`,
+        [sku, sucursal, 'esta']).then((r) => r.rows),
+      ]);
+
+      if (!base) return null;
+      return { ...(base as object), historia, eventos, respuesta, plazas, perdida };
+    });
+  }
+
+  /**
+   * ⭐⭐ **El simulador.** Todo aritmética; **no predice nada y no escribe nada.**
+   *
+   * El número que importa es el **umbral de equilibrio**: cuánto volumen habría que perder para
+   * que el cambio deje al negocio peor. Es la respuesta a que no existe elasticidad usable
+   * -región Anderson-Rubin de [−1.415, −0.045], factor 31× de ancho- sin inventar la curva.
+   */
+  async simular(sucursal: string, sku: string, precioNuevo: number): Promise<unknown> {
+    if (!Number.isFinite(precioNuevo) || precioNuevo <= 0) {
+      return { error: 'el precio tiene que ser un número mayor que cero' };
+    }
+    return this.tk.run(async (trx) => {
+      const { rows: [s] } = await trx.raw(`
+        SELECT precio_actual, a1_costo_hoy, a2_costo_ficha, m1_meta_margen,
+               d4_umbral_percepcion, d1_terminacion, a4_margen_realizado_pct
+          FROM analytics.mv_price_signals WHERE sucursal = ? AND sku = ?`, [sucursal, sku]);
+      if (!s) return null;
+
+      // ⭐ El costo de HOY si existe; si no, el de la ficha, y se DECLARA cuál se usó.
+      const costo = s.a1_costo_hoy ?? s.a2_costo_ficha ?? null;
+      const costoFuente = s.a1_costo_hoy ? 'costo_de_reposicion'
+        : (s.a2_costo_ficha ? 'costo_de_la_ficha' : null);
+
+      const { rows: [c] } = await trx.raw(`
+        SELECT analytics.fn_umbral_equilibrio(?::numeric, ?::numeric, ?::numeric) AS umbral,
+               analytics.fn_precio_aterriza(?::numeric, '99') AS aterriza_99,
+               analytics.fn_precio_aterriza(?::numeric, '00') AS aterriza_00,
+               analytics.fn_precio_aterriza(?::numeric, '90') AS aterriza_90,
+               analytics.fn_precio_umbral_percepcion(?::numeric) AS umbral_percepcion`,
+      [s.precio_actual, costo, precioNuevo, precioNuevo, precioNuevo, precioNuevo,
+        s.precio_actual]);
+
+      const actual = Number(s.precio_actual);
+      const cambioPct = actual > 0
+        ? Math.round(((precioNuevo - actual) / actual) * 10000) / 100 : null;
+      const margenNuevo = costo && precioNuevo > 0
+        ? Math.round(((precioNuevo - Number(costo)) / precioNuevo) * 10000) / 100 : null;
+
+      return {
+        precio_actual: s.precio_actual,
+        precio_nuevo: precioNuevo,
+        cambio_pct: cambioPct,
+        costo, costo_fuente: costoFuente,
+        margen_nuevo_pct: margenNuevo,
+        margen_meta_pct: s.m1_meta_margen,
+        margen_realizado_pct: s.a4_margen_realizado_pct,
+        umbral_equilibrio_pct: c.umbral,
+        umbral_percepcion_pct: c.umbral_percepcion,
+        // ⭐ Si el alza NO supera el umbral de percepción, el cliente no la distingue.
+        se_percibe: cambioPct !== null && c.umbral_percepcion !== null
+          ? Math.abs(cambioPct) > Number(c.umbral_percepcion) : null,
+        aterrizajes: { p99: c.aterriza_99, p00: c.aterriza_00, p90: c.aterriza_90 },
+        /**
+         * ⛔ Lo que el simulador NO sabe, dicho en el propio dato. Sin esto, un número solo
+         * se lee como una predicción, y no lo es.
+         */
+        no_sabe: 'cuanto volumen se va a perder de verdad. No existe elasticidad usable por SKU '
+          + '(error estandar 0.94) y la region agregada mide [-1.415, -0.045], un factor 31x de '
+          + 'ancho. El umbral de equilibrio dice cuanto se PODRIA perder, no cuanto se va a perder.',
+      };
+    });
+  }
+
+  /**
    * ⭐⭐ El registro de señales — **lo que el motor NO puede ver, con nombre y motivo**.
    *
    * Es el endpoint que evita la mentira por omisión: una pantalla que sólo muestra las 29
