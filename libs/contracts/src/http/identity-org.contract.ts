@@ -254,13 +254,38 @@ export interface DimensionDeAlcance {
   supportsOwn: boolean;
   /** `[ID.26]` `false` = no se sabe qué ve, que NO es lo mismo que «no ve nada». */
   resolvable: boolean;
+  /** `[ZN.6]` Lo que la persona ALCANZA hoy — un read-model. Para EDITAR, ver `universe`. */
   options: Array<{ value: string; label: string }>;
+  /** `[ZN.6]` Todo lo que se le puede OTORGAR. Es lo que el editor tiene que ofrecer. */
+  universe: Array<{ value: string; label: string }>;
+  /** `[ZN.6]` Lo guardado que ya no está en el universo. Se muestra marcado, no se deja caer. */
+  valuesFueraDelUniverso: string[];
+}
+
+/**
+ * `[ZN.8]` — Una regla que aplica **sólo en un área** (un proyecto de `AUTHZ_TREE`).
+ *
+ * Viaja aparte de `dimensions` porque responde otra pregunta: `dimensions` dice *qué ve en
+ * general*, esto dice *dónde ve distinto*. Mezclarlas obligaría al editor a adivinar cuál de las
+ * dos está mirando.
+ */
+export interface ExcepcionDeAlcance {
+  dimension: string;
+  area: string;
+  /** Resuelto en el servidor desde `AUTHZ_TREE`: el front no tiene su propia tabla de nombres. */
+  area_label: string;
+  mode: ModoDeAlcance;
+  values: string[] | null;
+  mode_write: ModoDeAlcance | null;
+  nota: string | null;
 }
 
 export interface AlcanceDePersona {
   user_id: string;
   role_name: string | null;
   dimensions: Record<string, DimensionDeAlcance>;
+  /** `[ZN.8]` Las reglas por área. Vacío = su alcance es el mismo en toda la app. */
+  excepciones?: ExcepcionDeAlcance[];
 }
 
 /** El sobre paginado de `GET /users` (`[AU.0b]`). */
