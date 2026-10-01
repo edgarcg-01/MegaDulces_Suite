@@ -55,6 +55,28 @@ export interface LedgerDetailFilters {
   min_amount?: string | number;
 }
 
+/**
+ * [DM.15] Un almacén RETIRADO no puede nombrarse como destino de un traspaso.
+ *
+ * Medido en prod el 2026-09-30: `analytics.transfer_dest_map` tenía
+ * `TI009 "SUCURSAL MORELIA MADERO" -> MD-32 "Almacén Morelia Madero (32)"`, el almacén WINCAJA
+ * de esa tienda — con `deleted_at` puesto y **cero recepciones de traspaso en toda su historia**.
+ * Morelia Madero migró a Kepler y quien recibe es `07`; el mapa se quedó en el almacén viejo. En
+ * pantalla, los envíos sin recepción salían con destino a una sucursal que ya no existe, y la
+ * MISMA ruta física aparecía partida en dos filas de la matriz (`00->07` por pareo, `01->MD-32`
+ * por mapa), así que sus totales no cuadraban ni contra sí mismos.
+ *
+ * El nombre no alcanzaba para verlo: con dos almacenes de la misma tienda en dos ERP, "MORELIA
+ * MADERO" y "Almacén Morelia Madero (32)" concuerdan y el detector de `[DM.11e]` daba verde con
+ * razón. La pregunta que faltaba no era cómo se llama, sino si sigue vivo.
+ *
+ * ⚠️ Se FILTRA, no se marca: preferimos que la pantalla diga "(sin destino)", que se investiga,
+ * a que diga un nombre falso, que se cobra. Vive acá arriba y no inline en cada consulta porque
+ * son CINCO los puntos que leen el mapa y una condición de integridad repetida a mano se
+ * desincroniza — ya pasó con este mismo mapa.
+ */
+const DEST_WH_VIVO = (alias = 'w') => `${alias}.deleted_at IS NULL`;
+
 @Injectable()
 export class CommercialMovementsService {
   private readonly logger = new Logger(CommercialMovementsService.name);
@@ -117,7 +139,8 @@ export class CommercialMovementsService {
     const isSuc = `(NOT ${isRoute} AND (
       m.dest_code ILIKE 'TI%'
       OR EXISTS (SELECT 1 FROM analytics.transfer_dest_map dm
-                 WHERE dm.tenant_id = '${tenantId}'::uuid AND dm.dest_code = m.dest_code AND dm.warehouse_id IS NOT NULL)
+                 JOIN commercial.warehouses w ON w.id = dm.warehouse_id AND ${DEST_WH_VIVO()}
+                 WHERE dm.tenant_id = '${tenantId}'::uuid AND dm.dest_code = m.dest_code)
       OR ${resolvesWh}))`;
     const conds: string[] = [];
     if (kinds.includes('sucursal')) conds.push(isSuc);
@@ -173,7 +196,9 @@ export class CommercialMovementsService {
       b.andWhere(function (this: any) {
         this.whereIn('m.warehouse_id', twhs)
           .orWhereRaw(
-            `EXISTS (SELECT 1 FROM analytics.transfer_dest_map dm WHERE dm.tenant_id = ?::uuid AND dm.dest_code = m.dest_code AND dm.warehouse_id IN (${ph}))`,
+            `EXISTS (SELECT 1 FROM analytics.transfer_dest_map dm
+                       JOIN commercial.warehouses w ON w.id = dm.warehouse_id AND ${DEST_WH_VIVO()}
+                      WHERE dm.tenant_id = ?::uuid AND dm.dest_code = m.dest_code AND dm.warehouse_id IN (${ph}))`,
             [tenantId, ...twhs],
           );
       });
@@ -435,10 +460,16 @@ export class CommercialMovementsService {
     const codesAll = rows.filter((r) => r.doc_code === 'TrsfShip' && r.dest_code).map((r) => r.dest_code);
     const codes = codesAll.filter((v, i) => codesAll.indexOf(v) === i);
     if (!codes.length) return;
+    // [DM.15] el join EXIGE almacén vivo: si el mapa apunta a uno retirado, el destino queda
+    // NULL y la fila se lee como "sin destino resuelto", no con el nombre de una sucursal que
+    // no existe. La etiqueta del ERP (dest_label) sobrevive y sigue respondiendo la pregunta.
     const map = await trx('analytics.transfer_dest_map as dm')
       .where('dm.tenant_id', tenantId).whereIn('dm.dest_code', codes)
-      .leftJoin('commercial.warehouses as w', 'w.id', 'dm.warehouse_id')
-      .select('dm.dest_code', 'dm.warehouse_id as dest_warehouse_id', 'dm.dest_label as map_label',
+      .leftJoin('commercial.warehouses as w', function (this: any) {
+        this.on('w.id', 'dm.warehouse_id').andOnNull('w.deleted_at');
+      })
+      .select('dm.dest_code', 'dm.dest_label as map_label',
+        trx.raw(`CASE WHEN w.id IS NULL THEN NULL ELSE dm.warehouse_id END AS dest_warehouse_id`),
         trx.raw(`coalesce(w.name, w.code) AS dest_warehouse_name`));
     const byCode = new Map(map.map((m: any) => [m.dest_code, m]));
     for (const r of rows) {
@@ -511,9 +542,12 @@ export class CommercialMovementsService {
       if (h.doc_code === 'TrsfShip' && h.dest_code) {
         const dm = await trx('analytics.transfer_dest_map as dm')
           .where('dm.tenant_id', tenantId).andWhere('dm.dest_code', h.dest_code)
-          .leftJoin('commercial.warehouses as w', 'w.id', 'dm.warehouse_id')
-          .first('dm.warehouse_id', 'dm.dest_label', trx.raw(`coalesce(w.name, w.code) AS dest_warehouse_name`));
-        destWarehouseId = dm?.warehouse_id ?? null;
+          .leftJoin('commercial.warehouses as w', function (this: any) {  // [DM.15] vivo o nada
+            this.on('w.id', 'dm.warehouse_id').andOnNull('w.deleted_at');
+          })
+          .first('dm.dest_label', trx.raw(`w.id AS dest_warehouse_id`),
+            trx.raw(`coalesce(w.name, w.code) AS dest_warehouse_name`));
+        destWarehouseId = dm?.dest_warehouse_id ?? null;
         destWarehouseName = dm?.dest_warehouse_name ?? null;
         destLabel = destLabel || dm?.dest_label || h.dest_code;
       }
@@ -648,10 +682,10 @@ export class CommercialMovementsService {
           FROM paired
           UNION ALL
           SELECT u.warehouse_id, u.wh_code, u.folio, u.doc_serie, u.doc_date, u.qty, u.amount, u.lineas,
-                 dm.warehouse_id, coalesce(dw.name, dw.code, u.dest_label, u.dest_code), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
+                 dw.id, coalesce(dw.name, dw.code, u.dest_label, u.dest_code), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
           FROM unreceived u
           LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = u.dest_code
-          LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id
+          LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id AND ${DEST_WH_VIVO('dw')}
         ) t
         LIMIT 50000
       `, [tenantId, from, to, tenantId, from, to, tenantId])).rows;
@@ -768,10 +802,10 @@ export class CommercialMovementsService {
           FROM paired
           UNION ALL
           SELECT u.warehouse_id, u.wh_code, u.folio, u.doc_serie, u.doc_date, u.qty, u.amount, u.lineas,
-                 dm.warehouse_id, coalesce(dw.name, dw.code, u.dest_label), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
+                 dw.id, coalesce(dw.name, dw.code, u.dest_label), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
           FROM unreceived u
           LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = u.dest_code
-          LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id
+          LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id AND ${DEST_WH_VIVO('dw')}
         ) t
         WHERE ${originMatch} AND ${destMatch}
         ORDER BY CASE t.status WHEN 'diferencia' THEN 0 WHEN 'sin_recepcion' THEN 1 WHEN 'sin_origen' THEN 2 ELSE 4 END,
