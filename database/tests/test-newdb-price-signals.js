@@ -81,10 +81,20 @@ const EXCEPCIONES_DE_COBERTURA = { E4: 'viene con COALESCE(...,0): nunca es NULL
            count(*) FILTER (WHERE nucleo)::int nucleo,
            round(sum(peso_max), 3) techo
       FROM analytics.price_signal_registry`);
-  ck('las 46 señales están declaradas', r.total === 46, `hay ${r.total}`);
+  /**
+   * ⭐ El numero va CLAVADO a proposito: es lo que atrapa una senal agregada sin que nadie
+   *   lo decida. Y funciono -- el 2026-10-01 este candado estaba en 46 y la base tenia 49,
+   *   porque tres senales (H1, H2, E5) entraron en tres commits sin volver a correrlo.
+   *   Al subirlo hay que decir QUE entro, aca mismo:
+   *     46 → 49  H1 margen por canal (refutada) · H2 prima por plazo (refutada)
+   *              E5 tasa de costo de capital (no_existe, la que faltaba para ordenar saldos)
+   *     49 → 51  H3 participacion de mercado · H4 terreno ganado o perdido (ISCAM)
+   */
+  const DECLARADAS = 51;
+  ck(`las ${DECLARADAS} señales están declaradas`, r.total === DECLARADAS, `hay ${r.total}`);
   ck('en 7 familias', r.familias === 7, `hay ${r.familias}`);
   ck('la suma de estados cuadra',
-    r.cableadas + r.disponibles + r.refutadas + r.inexistentes === 46,
+    r.cableadas + r.disponibles + r.refutadas + r.inexistentes === DECLARADAS,
     `${r.cableadas}+${r.disponibles}+${r.refutadas}+${r.inexistentes}`);
   console.log(`     cableadas ${r.cableadas} · disponibles ${r.disponibles} · refutadas `
     + `${r.refutadas} · no existen ${r.inexistentes} · núcleo ${r.nucleo} · techo ${r.techo}`);

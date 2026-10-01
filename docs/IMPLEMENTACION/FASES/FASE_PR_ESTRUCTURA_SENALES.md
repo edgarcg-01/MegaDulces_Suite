@@ -936,7 +936,78 @@ del texto; no se alinea a la rejilla; y un lector de pantalla lo lee con su nomb
 
 ---
 
-## 25 · Lo que sigue
+## 25 · `[PR.M1]`+`[PR.M2]` · ISCAM: la posición de mercado entra al motor
+
+La entrega mensual de **ISCAM** estaba en el disco y nadie la había mirado desde acá. Trae lo
+que el registro declaraba inexistente, y algo que ni contemplaba.
+
+### ⛔⛔ Primero, dos veces estuve por publicar lo contrario de la verdad
+
+**(1)** Los dos **Cubos** parecen datos de competencia — tienen código de barras, precio y 668
+marcas. No lo son: `Mayorista` tiene **un solo valor** y sus 11 «sucursales» son **las nuestras**.
+Es nuestro propio dato devuelto con la taxonomía de ISCAM. La refutación de **F1 sigue en pie**.
+
+**(2)** El mercado sí está, pero en el **SURF**: 1,500,880 registros con cuatro medidas — lo
+nuestro y lo del mercado, actual y anterior. Y al leerlo, **mi primer parser se quedó con 9,772
+de 1,500,880 registros (el 0.65 %)** porque descartaba el registro entero al ver un `<m/>` (medida
+ausente); hay **1,491,108**. Publiqué un share de **5.79 %** donde el real es **3.80 %**, y un
+mercado de $960.9M donde son **$1,464.8M**.
+
+⭐⭐ **Lo único que lo delató fue contar los registros leídos contra el `recordCount` declarado.**
+El subconjunto sobreviviente daba cifras perfectamente plausibles. Ese conteo es ahora un
+**candado que aborta la carga** si falta un solo registro.
+
+### El grano: dos cifras ciertas, y no son la misma
+
+| universo | share |
+|---|---:|
+| **Mayoreo Puro** — nuestro canal | **5.36 %** |
+| Mayoreo total | **3.80 %** |
+
+La diferencia son **$426.8M de mercado medido en subcanales donde no vendemos nada**
+(Autoservicios Propios del Mayoreo, Cash & Carry). Las dos son ciertas y responden preguntas
+distintas; el candado exige que **sigan siendo distintas**, porque si se igualaran alguien aplanó
+el subcanal.
+
+### ⚠️ Y la advertencia viaja en una columna, no en un correo
+
+A ISCAM se le trasladan **todas las salidas, traspasos entre sucursales incluidos** (deuda técnica
+de Wincaja). Medido: la brecha contra `analytics.sales_daily` es de **$19.5M a $21.6M por mes**,
+estable en cinco meses — el **22-29 %** de los traspasos del período. Si la distorsión fuera sólo
+nuestra el share sería **~3.80 %** y no 5.36 %; si los demás mayoristas del panel cargan la misma
+deuda, está bien. **Cuál de las dos es no se puede saber desde el archivo**, y por eso
+`v_iscam_share` lo publica en `numerador_inflado_por_traspasos` con su motivo al lado.
+
+### Lo que esto le da al motor
+
+- **`C1 · Segmento / grupo par`** es **núcleo** y decía *«no existe segmento formal»*. Eso dejó de
+  ser cierto: la taxonomía de seis niveles existe, se paga todos los meses y **cruza por código
+  de barras** — 3,895 códigos que alcanzan **1,574 SKUs y $42.85M de venta 90 d**. Se corrigió el
+  motivo; sigue en `no_existe` porque **falta cablearla**.
+- **`H3` participación de mercado** y **`H4` terreno ganado o perdido**, que el registro no
+  contemplaba. Lo que agregan: subir el precio con **16.12 %** de una categoría es fijar precio;
+  con **2.04 %** es seguirlo. Y subir en **Frituras** — mercado **+19.1 %**, nosotros **−14.3 %**,
+  **−3.11 pp** de share — es echarle nafta al fuego. Ataca de frente la certeza
+  `efecto_no_medido`: no mide elasticidad, pero dice si ya veníamos perdiendo terreno.
+
+### ⛔ Lo que NO se importó
+
+`PcioDisp`. Parece un precio; su fórmula, leída del propio archivo, es **`Val / Vol / 24`** — un
+divisor **fijo de 24 para todo el catálogo**. Es la trampa de la escalera de unidades otra vez.
+
+### ⚠️ Y un candado que rompí sin notarlo
+
+`test-newdb-price-signals.js` afirma un conteo **clavado** de señales. Estaba en **46** y la base
+tenía **49**: agregué H1, H2 y E5 en tres commits y **nunca volví a correrlo**. Además violaba su
+regla de que *una señal NO cableada no apunte a una columna* — H1 y H2 lo hacían. Las dos cosas
+corregidas, y el conteo ahora lleva **escrito qué entró en cada salto**.
+
+**Aplicado a prod (batches 660 y 661)** · julio-2026 cargado: **13,425 filas de mercado + 3,895
+códigos** · candado `test-newdb-iscam-mercado.js` **14 ✓ / 0 ✗** contra prod.
+
+---
+
+## 26 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
