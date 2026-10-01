@@ -1,0 +1,90 @@
+# ═══ LOS 9 CARRILES AGENDADOS ═══  [K3S.13]
+#
+# ⭐ EL HALLAZGO DE ESTE MANIFIESTO: UN SECRETO NO TIENE UNA FORMA, TIENE DOS.
+#
+# `busybox crond` **no hereda el entorno** del contenedor, así que los carriles cargan sus
+# variables haciendo `source` de un ARCHIVO. En Compose eso es un bind mount del `feeds.env`.
+# El reflejo en K8s sería montar el Secret `feeds-env` que ya existe… y **no funciona**: un
+# Secret creado con `--from-env-file` se monta como **un archivo por clave**
+# (`/secrets/CAOS_USER`, `/secrets/FLEET_DB_URL`, …, 19 archivos sueltos), no como el `.env`
+# que `source` necesita. El `crond` arrancaría con el entorno vacío y los 9 carriles correrían
+# sin credenciales — fallando de a uno, cada uno a su hora, durante días.
+#
+# Por eso hay DOS secretos con el mismo contenido y distinta FORMA, y es deliberado:
+#   · `feeds-env`     (--from-env-file) → para `envFrom`, lo usan store-poller y feeds-livefast
+#   · `feeds-envfile` (--from-file)     → UNA clave `feeds.env` con el archivo entero, para montar
+#
+# ⚠️ Son dos copias de las mismas credenciales. Si alguien rota el archivo hay que rehacer LAS
+# DOS, o la mitad de los carriles sigue con la credencial vieja. Queda anotado acá porque es
+# exactamente la clase de deriva que esta fase viene persiguiendo.
+#
+# ⛔ `ODS_HB_KEY` trae TRES claves separadas por coma: es el modo CANARIO de `health.js` — sano
+# si CUALQUIERA de los tres entrega. Con 9 carriles de cadencias distintas (de 2 min a semanal)
+# exigir que todos laten a la vez sería una alarma que grita siempre. Se conserva igual.
+#
+# ⚠️ ESTO ES UN TRASLADO, NO UNA TRADUCCIÓN. La forma K8s-nativa serían 9 CronJob, que darían
+# `concurrencyPolicy` por carril y conservarían los logs de los que fallan. No se hace acá a
+# propósito: son 9 horarios con su `flock` compartido, y reescribirlos a la vez que se cambia de
+# orquestador es mezclar dos cambios. La agenda sigue siendo `ops/vl/crontab.feeds`, versionada.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feeds-cron
+  namespace: ingesta
+  labels:
+    carril: feeds-cron
+    singleton: "true"
+    migracion: migrado
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate        # ⛔ dos crond a la vez = cada carril dos veces, a la misma hora
+  selector:
+    matchLabels:
+      carril: feeds-cron
+  template:
+    metadata:
+      labels:
+        carril: feeds-cron
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      volumes:
+        - name: secretos
+          secret:
+            secretName: feeds-envfile    # ⛔ el de forma ARCHIVO, no feeds-env
+            items:
+              - key: feeds.env
+                path: feeds.env
+      containers:
+        - name: cron
+          image: trade-ingest:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args: ["crontab /app/ops/vl/crontab.feeds && exec crond -f -d 8"]
+          volumeMounts:
+            - name: secretos
+              mountPath: /secrets
+              readOnly: true
+          env:
+            - name: TZ
+              value: America/Mexico_City   # ⚠️ Alpine ignora TZ sin tzdata ([VL.4], trampa 2).
+                                           # La imagen ya lo trae; si alguien la cambia, los 9
+                                           # carriles se corren 6 h sin avisar.
+            - name: ODS_HB_KEY
+              value: "feed_contpaqi,contpaqi_add_cfdis,health_watchdog"
+            - name: ODS_HB_MAX_MIN
+              value: "10"
+            - name: ODS_HB_IGNORE_ERROR
+              value: "1"
+          livenessProbe:
+            exec:
+              command: ["/app/ops/ingest/health-lane.sh"]
+            initialDelaySeconds: 180
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: { memory: "128Mi", cpu: "100m" }
+            limits:   { memory: "1Gi" }
