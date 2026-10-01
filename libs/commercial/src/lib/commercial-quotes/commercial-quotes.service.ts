@@ -435,7 +435,7 @@ export class CommercialQuotesService {
 
       const res = await knex.raw(
         `
-        WITH hit AS ?
+        WITH hit AS :hit
         SELECT
           v.customer_code,
           max(v.name)                      AS name,
@@ -455,7 +455,7 @@ export class CommercialQuotesService {
               'salesperson_code', v.salesperson_code
             ) ORDER BY v.sucursal
           )                                AS branches,
-          -- ¿Las condiciones son las mismas en todas sus sucursales? Si no, la pantalla tiene
+          -- Las condiciones pueden ser distintas entre sucursales: si lo son, la pantalla tiene
           -- que decirlo: es la diferencia entre "$60,000 con 3%" y "$30,000 sin descuento".
           (count(DISTINCT coalesce(v.discount_1_pct::text, '-')) > 1
            OR count(DISTINCT coalesce(v.credit_limit::text, '-')) > 1
@@ -465,7 +465,7 @@ export class CommercialQuotesService {
         GROUP BY v.customer_code
         ORDER BY v.customer_code
         `,
-        [hit],
+        { hit },
       );
       return res.rows;
     });
