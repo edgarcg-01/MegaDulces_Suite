@@ -507,7 +507,68 @@ las 18:15 por 4 migraciones ajenas sin aplicar, así que el commit roto nunca ll
 
 ---
 
-## 15 · Lo que sigue
+## 15 · `[PR.S3]` · H1 · Margen por canal — aplicarlo lo refutó
+
+Al preguntar *«qué variables no estamos abarcando»*, el canal era la candidata obvia: 6 valores en
+`sales_daily.channel`, costo poblado al **98-100 %** en los seis, y el **84.2 % de la venta** en
+celdas (almacén, SKU) que venden por dos canales o más. Dimensión masiva, dato limpio, cero
+fuentes nuevas. Se midió antes de construirla, y la medición la mató.
+
+### ⛔⛔ El margen por canal no se puede leer — y no por culpa del canal
+
+| canal | celdas con precio distinto entre almacenes | margen **congelado** |
+|---|---:|---:|
+| `tienda` | 1,800 | **100.0 %** |
+| `mayoreo` | 204 | **100.0 %** |
+| `credito` | 1,255 | **100.0 %** |
+| `wincaja_ruta` | 27 | **0.0 %** |
+
+En los tres canales de Kepler —el **84.8 % de la venta**— el **100.0 %** de las celdas donde el
+precio difiere más de 5 % entre almacenes tiene spread de margen **menor a 0.01 pp**. El margen no
+se mueve aunque el precio se mueva: está **congelado por construcción**, porque `sales_daily.cost`
+del lado Kepler sale de `revenue / (1 + markup_pct)`.
+
+⭐⭐ **El control negativo es la mitad que da validez a la medición.** `wincaja_ruta`, cuyo costo es
+el `ValorCosto` real del POS, da **0.0 %** congelado. Sin ese contraste, el 100.0 % de Kepler se
+podía leer como *«los precios están bien alineados»* en vez de *«el número no puede variar»*.
+
+### ⛔ El espejismo que esto desarma
+
+Antes de mirar el control, la dispersión de margen entre canales daba **0.59 pp** contra un placebo
+de partición al azar de **0.15 pp** — 4× el ruido, con pinta de señal — y en dinero **$846,040 en
+90 días** sobre 1,821 celdas: **2.7× la acción más grande que el motor publica hoy**. Ese dinero es
+el **método de costeo**, no el canal. Publicarlo habría repetido lo de MR.5 al pie de la letra.
+
+### Lo que sí quedó en pie, y por qué igual no es una acción
+
+- El spread de **precio** por canal es real y **observado**: **86.2 %** de la venta se cobra distinto
+  según el canal, mediana **8 %** en la banda principal. Pero **es la política del negocio**.
+- La **inversión** (mayoreo más caro que tienda, mismo almacén, SKU y peldaño) es el único defecto
+  inequívoco: **60 celdas, $11,574**. Demasiado chico para una acción propia.
+- ⛔ Deuda de datos encontrada de paso: **158 celdas / $3.47 M** con spread de precio de mediana
+  **847 %** — peldaño mezclado dentro de un mismo `unit_kind` (ADR-057). Se arregla en la unidad.
+
+### ⭐ La lección, que vale más que la señal
+
+**Agregar variables de MARGEN no sirve mientras el costo del 84.8 % de la venta sea algebraico.**
+De las cuatro candidatas que se propusieron (canal, IEPS, canibalización, plazo), **tres dividen
+margen** y las tres medirían la tabla de markup. La excepción es el **plazo**, que no toca el costo.
+
+**Aplicada a prod 2026-10-01 (batch 648)**, identidad verificada, 0.1 s. Registro: **29 cableadas /
+15 no_existe / 3 refutadas** (A5, F1, H1).
+
+### Dos variables medidas que el registro todavía no tiene
+
+- ⭐⭐ **Impuesto.** El **85.7 % de la venta** paga IEPS al 8 %, y **416 SKUs / $33.04 M (29.3 %)**
+  tienen IEPS de compra distinto al de venta — 37 de ellos lo **pagan y no lo cobran**. Cero
+  señales de impuesto en las 46.
+- ⭐⭐ **Plazo y costo del dinero.** Plazo pactado promedio **5.2 días**, cartera **$67.58 M**,
+  **90.7 % de los documentos vencidos**, y **890 clientes marcados «contado» con $37.31 M de
+  saldo**. `dias_pago` viene **null**: nadie mide cuánto tardan de verdad.
+
+---
+
+## 16 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
