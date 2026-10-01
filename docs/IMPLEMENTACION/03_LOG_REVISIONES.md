@@ -5,6 +5,51 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-01 — DM.18: el mapa `TI### → sucursal` lo dice Kepler; dejamos de adivinarlo
+Edgar, sobre el resolvedor que había construido contra Wincaja: *"pero si existen en Kepler, ¿por
+qué tomar las de Wincaja?"*. La pregunta era correcta y llevó a dos respuestas.
+
+**1. Para el ORIGEN, Kepler genuinamente no tiene el dato.** Probado por dos vías:
+- **Diff campo por campo** de los dos documentos control (`0000712` de Abastos y `0000757` del
+  CEDIS, misma sucursal, orígenes distintos): **idénticos** salvo folio, fecha, importe y
+  consecutivos. Ni `c12` (cajero), ni `c67`, ni `c80`–`c86` los distinguen.
+- **El ODS no perdió nada**: `md.kdm1` tiene 200 columnas en el origen (9.95) y el ODS tiene 201
+  (las 200 + `sucursal`, que agrega el shipper). No hay columna escondida.
+Y fallaron otras tres vías internas: *salió sin haber entrado* (el CEDIS sí compró los SKUs),
+*corte por fecha* (**8 documentos de Abastos son posteriores al cutover**, hasta el 28-sep: la
+mezcla no terminó con la migración) y la bitácora `kdlogmov` (es de configuración).
+
+**2. Pero para el DESTINO el catálogo existía, y llevaba ahí todo el tiempo.** `md.pv_suc_ip` —en
+el POS de cada sucursal y ya replicada al ODS por el carril espejo— trae el mapa explícito:
+`00 TI000 Cedis Oficinas · 01 TI001 Hidalgo · 02 TI008 La Piedad · 03 TI002 8 Esquinas ·
+04 TI003 Yurécuaro · 05 TI007 Zamora Centro · 06 TI006 Canindo · 07 TI009 Morelia Madero ·
+08 TI004 Morelia Abastos`.
+
+**Las dos veces que inferimos mal, el catálogo ya decía lo correcto** — `[DM.11e]` (CEDIS→8ESQ con
+13% de evidencia, $123,454) y `[DM.15]` (Morelia Madero→MD-32, el almacén Wincaja borrado). El
+defecto no era el umbral: era adivinar al lado de una fuente autoritativa.
+
+**Entregado:** `analytics.v_erp_branch_catalog` (vista **derive-no-copy** sobre el ODS, mig
+`20261001230000`, prod batch 667) + el paso `[DM.18]` en `import-stock-movements.js` que corrige
+`transfer_dest_map` desde el catálogo **antes** del auto-ligado + bloque 8 del candado con prueba
+negativa. `test-newdb-transfer-dest-evidence.js` **8 OK / 0 FALLAS** contra prod.
+
+**Medido:** los 9 códigos coinciden, **9 copias de acuerdo, 0 divergentes**, y el paso nuevo
+corregiría **0 filas** — es preventivo, y de paso **confirma la corrección de `[DM.15]`**
+(`TI009 → 07`), que hasta hoy se sostenía sobre evidencia de recepción y ahora sobre el ERP.
+
+**Lecciones:**
+- ⭐⭐ *Antes de construir un inferidor, buscar si el ERP ya tiene el catálogo.* Dos incidentes y
+  tres capas de umbral para una tabla de 10 filas que estaba replicada desde siempre. La pregunta
+  "¿y si el dato ya existe?" no se la hizo nadie —yo incluido— hasta que la hizo Edgar.
+- ⭐ *Son 9 copias, no una fuente.* Cada POS guarda su catálogo, así que el consenso se MIDE y se
+  publica por fila (`es_consistente`, `ramas_que_lo_declaran`). Hoy las 9 coinciden, pero eso es
+  una medición con fecha: si alguna diverge, el importer no escribe nada y lo declara. Elegir una
+  copia al azar sería repetir el error con otra cara.
+- ⚠️ *Una pregunta del usuario puede valer más que diez mediciones mías.* Yo tenía el resolvedor
+  contra Wincaja con 3.3% de cobertura y lo daba por terminado.
+
+---
 ## 2026-10-01 — DM.17: el traspaso que decía salir del CEDIS y salió de Morelia Abastos
 Edgar: *"antes al 9.95 se subían CEDIS y Morelia Abastos; hay que diferenciar los históricos"*.
 **Primero dije que no podía validarlo. Me equivoqué, y el error fue de método.**
