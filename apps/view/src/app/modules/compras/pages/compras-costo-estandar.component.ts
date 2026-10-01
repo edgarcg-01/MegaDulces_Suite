@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -12,6 +12,7 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { SkeletonModule } from 'primeng/skeleton';
 import { TagModule } from 'primeng/tag';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { bajarAlPrimerRenglon, volverAlBuscador } from '@megadulces/ui-web';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CONTEXT_HELP } from '../../../shared/context-help/context-help.dictionary';
@@ -195,8 +196,12 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
       <div class="ce-filtros">
         <p-iconfield styleClass="ce-buscar">
           <p-inputicon styleClass="pi pi-search" />
-          <input pInputText type="text" placeholder="SKU o nombre…" [ngModel]="q()" (ngModelChange)="onBuscar($event)"
-                 class="p-inputtext-sm" aria-label="Buscar por SKU o nombre" />
+          <!-- [KBD.1] El salto buscador -> lista. Existia en 1 de 153 pantallas y es el gesto que
+               separa "tiene teclado" de "se siente rapido": escribis, mirás, y con una flecha ya
+               estás en la primera fila. La vuelta es Escape, abajo. -->
+          <input pInputText #buscador type="text" placeholder="SKU o nombre…" [ngModel]="q()" (ngModelChange)="onBuscar($event)"
+                 (keydown.arrowdown)="aLaLista($event)"
+                 class="p-inputtext-sm" aria-label="Buscar por SKU o nombre (flecha abajo entra a la lista)" />
         </p-iconfield>
         <p-select class="ce-sel" [options]="opcionesSucursal" [ngModel]="sucursal()" (onChange)="onSucursal($event.value)"
                   optionLabel="label" optionValue="value" placeholder="Todas las plazas" [showClear]="true"
@@ -232,7 +237,11 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
           <!-- [UIM.1] El .dt-scope va en el CONTENEDOR, no en la tabla: un elemento no puede ser
                su propio container-query. Sin esto dense-table.css queda inerte, y una pantalla
                inerte se ve igual que una rota pero con el build en verde. -->
-          <div class="ce-grid dt-scope">
+          <!-- [KBD.1] NO PONER ACENTOS GRAVES ACA (template literal de TS).
+               El #grid acota a DONDE baja la flecha: esta pantalla tiene una segunda tabla
+               en el panel de detalle, y sin acotar el foco se iria a esa. Escape vuelve al
+               buscador con el texto seleccionado, para que teclear lo reemplace. -->
+          <div class="ce-grid dt-scope" #grid (keydown.escape)="aBuscador(buscador)">
           <p-table [value]="filas()" class="surf-table surf-table--sticky ce-tabla dt-stack"
                    size="small" [rowHover]="true"
                    [scrollable]="true" scrollHeight="calc(100vh - 28rem)"
@@ -680,6 +689,17 @@ export class ComprasCostoEstandarComponent implements OnInit {
   readonly cargandoPlazas = signal(false);
   seleccion: (FilaCostoEstandar & { ce_id: string }) | null = null;
 
+  /**
+   * `[KBD.1]` El contenedor de la tabla, para acotar a dónde baja la flecha.
+   *
+   * ⛔ Va por `viewChild` y no como referencia de plantilla pasada al input: el `#grid` vive
+   * dentro del bloque `@else` del esqueleto de carga, y una referencia declarada dentro de un
+   * `@if` **no se ve desde afuera** — el compilador tira `TS2339: Property 'grid' does not exist`.
+   * Devuelve `undefined` mientras la tabla no está montada, que es exactamente lo correcto:
+   * durante la carga no hay lista a la que bajar.
+   */
+  readonly grid = viewChild<ElementRef<HTMLElement>>('grid');
+
   readonly filasSkel = [1, 2, 3, 4, 5, 6, 7, 8];
   readonly opcionesSucursal = ['00', '01', '02', '03', '04', '05', '06', '07', '08']
     .map((s) => ({ label: `Plaza ${s}`, value: s }));
@@ -751,6 +771,23 @@ export class ComprasCostoEstandarComponent implements OnInit {
   }
 
   onBuscar(v: string): void { this.q.set(v); this.aplicar(280); }
+
+  /**
+   * `[KBD.1]` Flecha abajo desde el buscador: entra a la lista.
+   *
+   * ⛔ No hay navegación propia acá: `pSelectableRow` de PrimeNG ya mueve entre filas con las
+   * flechas, va a los extremos con Home/End y activa con Enter, y su tabindex ya es roving (la
+   * tabla entera es UN stop de tabulador). Lo único que faltaba era el PUENTE desde el buscador.
+   *
+   * El `preventDefault` sólo si de verdad se bajó: si la lista está vacía, la tecla sigue siendo
+   * del input y el cursor se queda donde estaba — mandar el foco a la nada deja sin salida.
+   */
+  aLaLista(ev: Event): void {
+    if (bajarAlPrimerRenglon(this.grid()?.nativeElement)) ev.preventDefault();
+  }
+
+  /** `[KBD.1]` Escape desde la lista: vuelve al buscador con el texto seleccionado. */
+  aBuscador(buscador: HTMLInputElement): void { volverAlBuscador(buscador); }
   onSucursal(v: string | null): void { this.sucursal.set(v ?? ''); this.aplicar(); }
   onVeredicto(v: Veredicto | ''): void { this.veredicto.set(v); this.aplicar(200); }
   onSinOperacion(v: boolean): void { this.incluirSinOperacion.set(v); this.aplicar(); }
