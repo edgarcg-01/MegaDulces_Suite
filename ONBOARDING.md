@@ -65,6 +65,8 @@ npm run seed:testdata     # data de prueba comercial (brands/products/prices/cus
 
 > Atajo: `npm run dev:bootstrap` hace up + ambas migraciones de un jalón.
 
+> ⛔ **`migrate:new` sobre una base vacía NO llega al final** (2026-10-01): se detiene en la migración 88 (necesita el tenant, que crea la semilla `01`) y en la 435 de 975 (necesita `kepler_ods.*`, que crea la ingesta del ERP y no una migración). Hasta que se corrija este paso, la base de desarrollo se arma desde un dump **solo de estructura** de prod. Ver [`docs/GOTCHAS.md` §75](docs/GOTCHAS.md).
+
 > **Alternativa (lo que usa el lead):** en vez del Docker local, apuntar `DATABASE_URL_NEW` a la DB compartida en `192.168.0.245:5432/postgres_platform`. Requiere estar en la red de la oficina. Para empezar, **usá el Docker local** — es autocontenido y no rompes data compartida.
 
 ---
