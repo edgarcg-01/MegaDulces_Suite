@@ -25,6 +25,14 @@ sucursal 01) y verificado después en la pantalla real, sólo teclado:
   PM: manda el orden del servidor.
 - **Known:** la previa de precio tarda ~2.9 s por clic por `analytics.v_label_presentations` (no
   empuja el filtro del SKU). Se arregla reescribiendo la vista, en PR aparte.
+### Added — Desarrolladores › Proyectos: la bitácora del equipo (DEV, 2026-10-01)
+Módulo nuevo `/desarrolladores/proyectos` (espacio «Sistemas, Servicios y Mantenimiento»). Cada
+proyecto se da de alta como una orden `DEV-AAAA-NNNN` con nombre, objetivo escrito o dictado,
+adjuntos de cualquier tipo, foto y video tomados ahí mismo, prioridad, estado, fecha compromiso y
+responsable (uno de los tres del equipo, tabla `devtools.dev_team`). **Seguimiento**: a cualquier
+proyecto —también terminado— se le agregan notas y modificaciones (escritas o dictadas, con
+adjuntos), y cada edición deja un registro automático de qué cambió, de qué a qué. Permisos `DEV_PROJECTS_VER` /
+`DEV_PROJECTS_GESTIONAR` (sin repartir aún). Detalle en el tracker, Fase DEV.
 
 ### Fixed — el CEDIS declara su corte a Kepler, y la contención que lo protegía ya se había evaporado (IC.CEDIS.1, 2026-09-30)
 Pedido: *"ya CEDIS usa el 9.95, hay que integrar la nueva información, borrar las referencias

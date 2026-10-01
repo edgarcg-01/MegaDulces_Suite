@@ -187,6 +187,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.FINANCE_CAOS_VER]: { label: 'Ver Caja Fuerte (CAOS)', description: 'Reporte de movimientos de la caja fuerte de efectivo CAOS: depositos y dispensaciones por denominacion, por usuario, con su referencia. Solo lectura (Fase CS).', category: 'Finanzas' },
   [Permission.PRESUPUESTOS_VER]: { label: 'Ver Presupuestos', description: 'Módulo Presupuestos: capacidad de pago autorizada por fecha (y su historial) + gastos autorizados que alimentan el Calendario de Pagos.', category: 'Finanzas' },
   [Permission.PRESUPUESTOS_GESTIONAR]: { label: 'Gestionar Presupuestos', description: 'Fijar/editar la capacidad de pago por fecha (con motivo, queda en historial) y autorizar gastos.', category: 'Finanzas' },
+  [Permission.DEV_PROJECTS_VER]: { label: 'Ver proyectos de desarrollo', description: 'Desarrolladores › Proyectos: consultar la bitácora de proyectos del equipo de desarrollo (objetivo, adjuntos, responsable y estado). Solo lectura.', category: 'Desarrolladores' },
+  [Permission.DEV_PROJECTS_GESTIONAR]: { label: 'Dar de alta y editar proyectos de desarrollo', description: 'Desarrolladores › Proyectos: dar de alta un proyecto (folio DEV-AAAA-NNNN), escribir o dictar su objetivo, adjuntar documentos, fotos y videos, asignarlo a un desarrollador y cambiar su estado.', category: 'Desarrolladores' },
   [Permission.FINANCE_RECON_ASIGNAR]: { label: 'Asignar tareas de conciliación', description: 'Repartir y reasignar a Finanzas los movimientos sin conciliar en Kepler (reparto automático + asignación manual). Ver/resolver la propia tarea usa los permisos de Bancos.', category: 'Finanzas' },
   [Permission.FINANCE_RECON_RECIBIR]: { label: 'Recibe tareas de conciliación (área Finanzas)', description: 'Marca al rol como parte del equipo de Finanzas al que el motor reparte tareas de conciliación. Quítalo y ese rol deja de recibir tareas.', category: 'Finanzas' },
   [Permission.FINANCE_EXPENSES_VER_ALL]: { label: 'Ver gastos de TODOS los departamentos', description: 'Comprobación de gastos: ve los gastos de todas las áreas. Sin este permiso, el usuario solo ve los gastos de las áreas que se le asignaron.', category: 'Finanzas' },
@@ -320,6 +322,7 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Tienda',
   'Portal B2B',
   'Comunicación',
+  'Desarrolladores',
   'Otros',
 ];
 

@@ -216,18 +216,25 @@ function analizar(src) {
   const porColumnas = !grandes.length;
   const tieneStack = /\bdt-stack\b/.test(src);
   const tieneMatrix = /\bdt-matrix-ok\b/.test(src);
+  // 3a salida, agregada el 2026-10-01: la tabla NO se apila ni es pivote -- en estrecho se
+  // OCULTA y en su lugar se pinta una lista de tarjetas. Es una respuesta real y ya estaba en
+  // el repo (dev-proyectos, guide-cost-panel) cuando la compuerta solo conocia dos salidas, asi
+  // que las marcaba en rojo TENIENDO el problema resuelto, y el unico 'arreglo' que aceptaba era
+  // borrar el mejor diseno. Se DECLARA, igual que dt-matrix-ok: la compuerta no puede probar que
+  // la tarjeta exista, solo que alguien se hizo cargo de decirlo.
+  const tieneCards = /\bdt-cards-ok\b/.test(src);
   const tieneScope = /\bdt-scope\b/.test(src);
 
-  if (!tieneStack && !tieneMatrix) {
+  if (!tieneStack && !tieneMatrix && !tieneCards) {
     return {
       anchos: grandes,
       cols,
       motivo: porColumnas
         ? 'su encabezado más ancho tiene ' + cols + ' columnas y NO declara min-width, así que ' +
           'nada dice qué hace en estrecho: le falta dt-stack (+ dt-scope), o dt-matrix-ok si es ' +
-          'un pivote. (Declarar el min-width real tampoco la salva: la deja del otro lado del umbral.)'
+          'un pivote, o dt-cards-ok si en estrecho la reemplaza una lista de tarjetas. (Declarar el min-width real tampoco la salva: la deja del otro lado del umbral.)'
         : 'declara min-width >= ' + UMBRAL_REM + 'rem y no dice qué hace en estrecho: ' +
-          'le falta dt-stack (+ dt-scope), o dt-matrix-ok si es un pivote.',
+          'le falta dt-stack (+ dt-scope), dt-matrix-ok si es un pivote, o dt-cards-ok si la reemplaza una lista de tarjetas.',
     };
   }
   if (tieneStack && !tieneScope) {
@@ -251,6 +258,10 @@ if (process.argv.includes('--self-test')) {
     ['stack ancho sin scope', "[tableStyle]=\"{ 'min-width': '78rem' }\" styleClass=\"dt-stack\"", true],
     ['stack con scope', "<div class=\"dt-scope\"> [tableStyle]=\"{ 'min-width': '60rem' }\" styleClass=\"dt-stack\"", false],
     ['pivote declarado', "[tableStyle]=\"{ 'min-width': '60rem' }\" styleClass=\"dt-matrix-ok\"", false],
+    ['tarjetas declaradas', "[tableStyle]=\"{ 'min-width': '60rem' }\" class=\"dt-cards-ok\"", false],
+    // Pruebas NEGATIVAS de la salida nueva: PARECERSE no alcanza, hay que declararla.
+    ['tarjetas sin declarar (solo display:none)', "[tableStyle]=\"{ 'min-width': '60rem' }\" .wrap { display: none; } .cards { }", true],
+    ['dt-cards-ok mal escrito', "[tableStyle]=\"{ 'min-width': '60rem' }\" class=\"dt-cards\"", true],
     ['angosta, no aplica', "[tableStyle]=\"{ 'min-width': '32rem' }\"", false],
 
     // ── 2ª aguja: ancho declarado como COLUMNAS, sin min-width ───────────────────────────────

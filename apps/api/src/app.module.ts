@@ -169,6 +169,7 @@ import { KeplerConsolidadoModule } from './modules/kepler-consolidado/kepler-con
 import { StoreModule } from './modules/store/store.module';
 import { KpModule } from './modules/kp/kp.module';
 import { CatalogoInternoModule } from './modules/catalogo-interno/catalogo-interno.module';
+import { DevProjectsModule } from './modules/dev-projects/dev-projects.module';
 
 // Toggle para incluir los módulos multi-tenant sin romper la app legacy.
 // Setear ENABLE_MULTITENANT=true en .env para activarlos.
@@ -198,6 +199,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialReceivingModule,
       CommercialExpiryReviewsModule,
       CommercialStockoutsModule,
+      // [DEV] Desarrolladores › Proyectos (bitácora del equipo, tablas devtools.* con RLS).
+      DevProjectsModule,
       CommercialPosVoidsModule,
       CommercialPromoAgreementsModule,
       CommercialPromoSelloutModule,

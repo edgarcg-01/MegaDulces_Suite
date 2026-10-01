@@ -460,6 +460,19 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'whatsapp-bot', label: 'Bot conversacional', route: '', view: [Permission.WHATSAPP_BOT_VER], manage: [Permission.WHATSAPP_BOT_GESTIONAR] },
         ],
       },
+      {
+        // Fase DEV (2026-10-01) — la bitácora del equipo de desarrollo. Nace porque las ideas de
+        // proyecto «no se escribían»: cada una se da de alta como una orden con folio, objetivo
+        // (escrito o dictado), evidencia adjunta y un responsable. Vive en el espacio 9 del mapa
+        // (Sistemas, Servicios y Mantenimiento), que ya declaraba «proyectos» sin módulo (P-10).
+        id: 'desarrolladores',
+        label: 'Desarrolladores',
+        icon: 'pi pi-code',
+        route: '/desarrolladores',
+        modules: [
+          { id: 'dev-proyectos', label: 'Proyectos', route: '/desarrolladores/proyectos', view: [Permission.DEV_PROJECTS_VER], manage: [Permission.DEV_PROJECTS_GESTIONAR] },
+        ],
+      },
     ],
   },
 

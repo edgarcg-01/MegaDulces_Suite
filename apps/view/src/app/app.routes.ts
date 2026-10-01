@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -661,6 +661,27 @@ export const routes: Routes = [
         path: '',
         canActivate: [permissionGuard(Permission.PRESUPUESTOS_VER)],
         loadComponent: () => import('./modules/finanzas/pages/finanzas-presupuesto.component').then(m => m.FinanzasPresupuestoComponent),
+      },
+    ]
+  },
+  // ── Proyecto Desarrolladores (Fase DEV, 2026-10-01) ─────────────────
+  // Bitácora de proyectos del equipo de desarrollo. Hoy un solo módulo
+  // (Proyectos); el índice resuelve por permiso como el resto (`[SN.4]`).
+  {
+    path: 'desarrolladores',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [desarrolladoresHomeGuard],
+        loadComponent: () => import('./modules/desarrolladores/pages/dev-proyectos.component').then(m => m.DevProyectosComponent),
+      },
+      {
+        path: 'proyectos',
+        canActivate: [anyPermissionGuard(Permission.DEV_PROJECTS_VER, Permission.DEV_PROJECTS_GESTIONAR)],
+        loadComponent: () => import('./modules/desarrolladores/pages/dev-proyectos.component').then(m => m.DevProyectosComponent),
       },
     ]
   },

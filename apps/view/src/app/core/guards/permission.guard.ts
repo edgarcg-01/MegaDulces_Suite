@@ -373,8 +373,13 @@ export const ADMIN_LANDING: LandingCandidate[] = [
 ];
 export const adminHomeGuard: CanActivateFn = landingRedirectGuard(ADMIN_LANDING, '/admin/users');
 
+/** Fase DEV — `/desarrolladores`. Hoy un solo módulo; el relleno del árbol cubre VER y GESTIONAR. */
+export const DESARROLLADORES_LANDING: LandingCandidate[] = withTreeCandidates('desarrolladores', []);
+export const desarrolladoresHomeGuard: CanActivateFn = landingRedirectGuard(DESARROLLADORES_LANDING, '/desarrolladores/proyectos');
+
 /** Todos los landings dinámicos, por id de proyecto del árbol — para el spec de cobertura. */
 export const LANDINGS_BY_PROJECT: Readonly<Record<string, LandingCandidate[]>> = {
+  desarrolladores: DESARROLLADORES_LANDING,
   comercial: COMERCIAL_LANDING,
   mkt: MKT_LANDING,
   almacen: ALMACEN_LANDING,
