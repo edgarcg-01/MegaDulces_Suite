@@ -255,11 +255,24 @@ frescura @10s de venta/stock).
 **Solución recomendada (2026-08-20) — glob en el set del loop caliente, SIN nueva tarea ni full-mirror:** las tablas de
 finanzas son CHICAS (kdco 371 / kdpv_folio_caja 916 / kdc2YYMM ~611 filas) → sumarlas al hot loop es barato. Se agregó
 **soporte de patrón `*`** en `replicate-ods-live` (`KP_ODS_TABLES`/`ODS_HASH_TABLES`): `kdc2*` expande a todas las
-pólizas mensuales por-rama y **auto-cubre la rotación** de `kdc2YYMM`. En `run-ods-live-loop.cmd` (Edgar):
-```bat
-set "KP_ODS_TABLES=kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*"
-set "ODS_HASH_TABLES=kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdm_rutas,kdm_transporte,kdm_chofer,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*"
-```
+pólizas mensuales por-rama y **auto-cubre la rotación** de `kdc2YYMM`.
+
+> ⛔ **NO COPIES UNA LISTA DE ACÁ (corregido 2026-09-30, `[INFRA.3]`/`[INFRA.4]`).** Este bloque
+> traía las dos listas escritas a mano para `run-ods-live-loop.cmd`. **Ese launcher ya no
+> existe**: desde `[VL.4]` (2026-09-11) los 13 carriles corren en Docker Compose sobre `md`.
+> Y la lista que tenía acá ya había envejecido — incluía `kdib`, retirada el 2026-09-24 porque
+> su destino no existe (`to_regclass('kepler_ods.kdib')` da NULL en prod, re-medido 2026-09-30).
+>
+> **Dónde vive hoy, y es el único lugar ejecutable:**
+> [`ops/vl/docker-compose.yml`](../../ops/vl/docker-compose.yml) — `ods-live-hot.KP_ODS_TABLES`
+> (el set caliente @15 s) y `ods-live-mirror.ODS_EXCLUDE_TABLES` (lo que el espejo @300 s NO
+> toca, porque ya lo cubre el caliente). Su coherencia la candadea
+> `database/tests/test-ods-lane-partition.js`.
+>
+> **Para agregar una tabla:** editar las DOS listas del compose (entra al caliente *y* se excluye
+> del espejo, o se deja sólo al espejo sin tocar nada) y correr el candado. Si sólo se toca una,
+> el candado lo dice: o hay doble ship —que se pisa `ods.ctl` y pierde filas sin avisar— o hay un
+> hueco que nadie entrega. Desplegar con `ops/vl/deploy.sh`.
 > ⚠️ **CORRECCIÓN 2026-08-21 — `kdb1` faltaba en `KP_ODS_TABLES`** (estaba solo en `ODS_HASH_TABLES`, que es un
 > SUBSET-filtro de la lista maestra → nunca embarcaba). El launcher real medido 2026-08-21 traía solo 11 tablas
 > (`…,kdib,kdid,kduv`), sin ninguna de finanzas. **Efecto medido en prod:** `kepler_ods` para **sucursal 00** tenía

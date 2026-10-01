@@ -666,7 +666,7 @@ if (require.main === module) {
   // [INFRA.3] El freno del default retirado: sin tablas no hay nada que shipear, y seguir
   // seria entregar el VACIO con cara de exito. ALL_MODE (KP_ODS_TABLES="*") no usa esta lista.
   if (!ALL_MODE && !TABLES.length) {
-    console.error('replicate-ods-live: SIN TABLAS que procesar. Falta KP_ODS_TABLES (o --only).');
+    console.error('replicate-ods-live: SIN TABLAS que procesar. Falta KP_ODS_TABLES (o --tables=).');
     console.error('  NO hay lista por defecto a proposito: la que habia estaba vieja, y shipear');
     console.error('  un conjunto equivocado se ve exactamente igual que shipear bien.');
     console.error('  El conjunto de produccion vive en ops/vl/docker-compose.yml (ods-live-hot).');
@@ -814,4 +814,11 @@ module.exports.__test = {
   DEST_CAMBIO,
   fijarDestIdent: (v) => { DEST_IDENT = v; },
   reiniciarAviso: () => { delete ensureLocalCtl._aviso; },
+  // [INFRA.4] El candado de la particion de carriles (test-ods-lane-partition.js) necesita
+  // decidir si una lista CUBRE un nombre de tabla. Se exporta el matcher de PRODUCCION a
+  // proposito: reimplementar el glob en el test seria la 5a copia a mano de la misma regla,
+  // que es justamente lo que esta fase esta retirando.
+  _globs,
+  _lits,
+  matchesGlob,
 };
