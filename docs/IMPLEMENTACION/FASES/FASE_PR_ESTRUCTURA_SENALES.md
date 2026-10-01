@@ -1007,7 +1007,110 @@ códigos** · candado `test-newdb-iscam-mercado.js` **14 ✓ / 0 ✗** contra pr
 
 ---
 
-## 26 · Lo que sigue
+## 26 · `[PR.M3]` · La competencia deja de ser un total: ISCAM baja a marca
+
+`[PR.M1]` agregó por categoría **y tiró dos dimensiones que el archivo ya traía**: `Fabricante`
+(8,247 en el diccionario) y `SubMarca` (35,164). Con eso "el mercado" era un número y la
+competencia, invisible. El grano fino son **406,799 filas** contra 13,483.
+
+### Lo que se midió antes de tocar nada
+
+| hipótesis | veredicto |
+|---|---|
+| las 116 `ClaveINTEGRADOPadre` del diccionario están en los registros y el importador sumó al panel entero | ⛔ **REFUTADA** — hay **1 sola clave** en los 1,500,880 registros, la nuestra. El diccionario las arrastra del caché maestro del panel |
+| el grano fino suma distinto al que publica prod | ⛔ **REFUTADA** — 13,483 claves, **0 fuera, peor diferencia 0.0000** |
+| el CHECK `mercado >= nuestro` descarta ruido | ⛔ **REFUTADA** — descarta **evidencia**: 285 filas con **$9.51M de venta nuestra** |
+
+⭐ El cruce contra lo publicado en prod: **13,387 idénticas**, 38 que difieren **en un centavo**
+(orden de suma en coma flotante), 0 sólo en prod, y **58 que sólo existen en el grano nuevo** —
+las que el CHECK borraba, todas `volumen` y en categorías que no vendemos.
+
+### La foto, Región III · Mayoreo Puro · DULCES · valor · julio-2026
+
+| veredicto | marcas | nuestro | competencia |
+|---|--:|--:|--:|
+| perdiendo | 440 | $28.79M | $539.35M |
+| ganando | 360 | $17.41M | $277.60M |
+| **ausentes** | **868** | **$0** | **$77.07M** |
+| estable | 141 | $6.91M | $78.20M |
+| sin_comparativo | 371 | $1.67M | $10.98M |
+| sin_respaldo | 56 | $0.84M | **no medible** |
+
+Fabricantes donde la competencia más creció en pesos: **EFFEM LUCAS** +$11.05M (nuestro share
+3.00 %, −0.84 pp) · **MARCAS NESTLÉ** +$7.54M (1.12 %) · **DE LA ROSA** +$5.68M (9.49 %, −0.74 pp) ·
+**BARCEL** +$4.87M (**−2.87 pp**) · **SABRITAS** +$4.24M (**−2.01 pp**) · **FRITOS TOTIS** (−1.11 pp).
+
+⭐ Barcel, Sabritas y Totis son **Frituras** — la categoría que `H4` ya marcaba (mercado +19.1 %,
+nosotros −14.3 %). Ahora se sabe **quién** se lo llevó.
+
+### Los dos defectos que encontró el candado, en mi propio trabajo
+
+1. ⛔ **`competencia` recortada a cero con `GREATEST`** rompía la identidad
+   `nuestro + competencia = mercado` en **21 de 40 categorías** y publicaba "la competencia no
+   vendió nada" sobre **$0.84M de venta nuestra**. Ahora es **NULL** donde los dos insumos se
+   contradicen: lo que no se puede calcular se declara, no se dibuja como cero.
+2. ⛔ **La bandera `mercado_menor_que_nuestro` contradecía a su propia fila** en **4,389 casos**:
+   la calculaba en JS en coma flotante y la columna guarda `numeric(18,4)`; esas 4,389 tenían
+   mercado **exactamente igual** a lo nuestro una vez redondeado. Pasó a **columna GENERADA**.
+   ⚠️ **Mi cifra pública de "4,674 filas" estaba inflada por polvo de suma: son 285.**
+
+---
+
+## 27 · `[PR.M4]` · La competencia con NOMBRE: DENUE deja de servir sólo para prospectar
+
+El módulo de prospección (ADR-025) cosecha INEGI con tres clases de **menudeo** — 461160
+dulcerías, 461110 abarrotes, 462112 minisúper. Esos son **clientes posibles**. Las clases de
+**mayoreo** nunca se pidieron, y ahí está la competencia.
+
+| clase SCIAN | qué es | unidades |
+|---|---|--:|
+| **431180** | Comercio al por mayor de **dulces y materias primas para repostería** | **215** |
+| 431110 | Comercio al por mayor de abarrotes | 842 |
+| 431199 | Comercio al por mayor de otros alimentos | 99 |
+
+Medido en vivo el 2026-10-01 sobre Michoacán + Guanajuato + Jalisco: **1,158 unidades, 2 nuestras
+y 1,156 de competencia**. Por tamaño: **17 con 251+ personas**, 25 de 101-250, 33 de 51-100.
+
+Con nombre: **MAYOREO DULCERO DE OCCIDENTE** (Zapopan) · **GRUPO DULCERO TARAHUMARA** (Guadalajara) ·
+**ALCARUZZ** · **DISTRIBUIDORA REAL ALTEÑO** (Tepatitlán) · **DULCERÍA DE LOS ALTOS** (Ocotlán y
+Tepatitlán) · **DISTRIBUIDORA DE DULCES DEL BAJÍO HERMANOS VÁZQUEZ** (8 sucursales en León e
+Irapuato) · **DULCERÍA EL DESCONTÓN** (Morelia) · **SUCURSAL MADRAZO** (León).
+
+⚠️ La clase 431180 **mezcla mayoristas con centros de distribución de fabricantes**: ahí salen
+también DISTRIBUIDORA DE LA ROSA y FERRERO DE MÉXICO. Se declara, no se filtra a mano.
+
+### Por qué una columna y no una tabla
+
+Una unidad de DENUE es una unidad de DENUE: mismos 22 campos, misma llave, mismo upsert. Lo que
+cambia no es la **forma** sino el **papel**, y eso es `prospect_stores.rol`
+(`prospecto` | `competidor` | `propio`).
+
+⛔ **Y el filtro por `rol` es requisito de corrección, no adorno:** `dedup()` **purga** todo lo
+que caiga fuera de la geocerca de 100 km y corre en cron nocturno. Sin separar el rol, la primera
+pasada habría borrado en silencio a todos los competidores de Guadalajara y León — justo los más
+grandes — y el `whitespace_score` habría tratado a un mayorista rival como una tienda por abrir.
+
+⭐ DENUE **nos ve a nosotros**: MEGA DULCES DE LOS ALTOS, Pino Suárez 259, La Piedad — la misma
+dirección que `commercial.warehouses` guarda para 8ES. Esas unidades se marcan `propio` y no
+cuentan para ninguno de los dos lados.
+
+### Lo que esta fuente NO dice, y no se deduce
+
+⛔ DENUE es un **censo**: qué existe, dónde, de qué tamaño por rango de personal, y cómo
+contactarlo. **No dice cuánto vende, ni a qué precio, ni qué surte.**
+
+⛔⛔ **Las dos fuentes no se pueden empatar.** ISCAM dice *cuánto* vende la competencia pero
+**anonimiza** a sus 116 participantes; DENUE dice *quién* es pero no cuánto vende. No hay llave
+entre ellas y **no se va a inventar una**. El hueco se declara.
+
+⚠️ La cercanía se mide contra **nuestros clientes**, no contra nuestras sucursales:
+`commercial.warehouses` tiene `latitude`/`longitude` **en NULL en las 22 filas**. Se usan los
+**438 de 937 clientes** con coordenadas (46.7 %) más 1,604 PdV auditados — y por eso
+`propios_1km`/`propios_5km` son un **piso**, no un conteo completo.
+
+---
+
+## 28 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado

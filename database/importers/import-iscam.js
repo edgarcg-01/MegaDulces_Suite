@@ -145,7 +145,11 @@ function archivoQueEmpieza(dir, prefijo, ext) {
   for (const n of need) {
     if (S.pos[n] === undefined) throw new Error('el SURF no trae el campo ' + n + ': la entrega cambio de forma');
   }
+  // ⭐ Grano FINO: fabricante x submarca. Sin esas dos dimensiones "el mercado" es un total y
+  //   la competencia es invisible. El archivo las trae desde siempre; [PR.M1] las agregaba y las
+  //   tiraba. `grueso` es una SEGUNDA implementacion, independiente, para cruzar contra el rollup.
   const mkt = new Map();
+  const grueso = new Map();
   let leidos = 0, saltadosPeriodo = 0, sinMercado = 0;
   for (const c of registros(S.xml, S.dims.length)) {
     leidos++;
@@ -154,17 +158,21 @@ function archivoQueEmpieza(dir, prefijo, ext) {
     // Sólo MES: RY (año móvil) y YTD son acumulados y mezclarlos duplicaría el mercado.
     if (tipoPeriodo !== 'MES') { saltadosPeriodo++; continue; }
     const medida = g('TipoMedida') === 'Valor' ? 'valor' : 'volumen';
-    const k = [g('Región'), g('SubCanal'), g('Mercado'), g('Division'), g('Categoria'), medida].join('\u0001');
-    const a = mkt.get(k) || { aMayo: 0, aMdo: 0, pMayo: 0, pMdo: 0 };
+    const kG = [g('Región'), g('SubCanal'), g('Mercado'), g('Division'), g('Categoria'), medida].join('\u0001');
+    const k = kG + '\u0001' + g('Fabricante') + '\u0001' + g('SubMarca');
     // ⛔ Ausente NO es cero cuando es el MERCADO: sin denominador no hay share y la celda
     //    no se carga. Ausente en LO NUESTRO si es cero: significa que no vendimos nada.
     const aMdo = c[S.pos.MedActMdo].valor === null ? null : Number(c[S.pos.MedActMdo].valor);
     if (aMdo === null) { sinMercado++; continue; }
     const pMdo = c[S.pos.MedAntMdo].valor === null ? null : Number(c[S.pos.MedAntMdo].valor);
-    a.aMayo += Number(c[S.pos.MedActMayo].valor) || 0;
-    a.aMdo += aMdo;
-    if (pMdo !== null) { a.pMayo += Number(c[S.pos.MedAntMayo].valor) || 0; a.pMdo += pMdo; }
-    mkt.set(k, a);
+    const aMayo = Number(c[S.pos.MedActMayo].valor) || 0;
+    const pMayo = pMdo === null ? 0 : (Number(c[S.pos.MedAntMayo].valor) || 0);
+    for (const [M, key] of [[mkt, k], [grueso, kG]]) {
+      const a = M.get(key) || { aMayo: 0, aMdo: 0, pMayo: 0, pMdo: 0 };
+      a.aMayo += aMayo; a.aMdo += aMdo;
+      if (pMdo !== null) { a.pMayo += pMayo; a.pMdo += pMdo; }
+      M.set(key, a);
+    }
   }
   // ⭐ Se compara contra el recordCount DECLARADO: es lo unico que delata un parser que se come
   //   registros en silencio. Sin esta linea, el bug de los <m/> no se habria notado nunca.
@@ -177,6 +185,43 @@ function archivoQueEmpieza(dir, prefijo, ext) {
   console.log('  descartados por no ser MES: ' + saltadosPeriodo.toLocaleString('es-MX')
     + ' · sin mercado: ' + sinMercado.toLocaleString('es-MX')
     + ' · filas a cargar: ' + mkt.size.toLocaleString('es-MX'));
+
+  // ⭐⭐ CRUCE DE DOS IMPLEMENTACIONES. El rollup del grano fino tiene que reproducir, al centavo,
+  //    el agregado por categoria calculado por separado. Verificar el grano fino contra si mismo
+  //    pasaria cualquier bug en verde; esto obliga a que dos caminos distintos coincidan.
+  const roll = new Map();
+  for (const [k, v] of mkt) {
+    const kG = k.split('\u0001').slice(0, 6).join('\u0001');
+    const a = roll.get(kG) || { aMayo: 0, aMdo: 0, pMayo: 0, pMdo: 0 };
+    a.aMayo += v.aMayo; a.aMdo += v.aMdo; a.pMayo += v.pMayo; a.pMdo += v.pMdo;
+    roll.set(kG, a);
+  }
+  let fuera = 0, peor = 0;
+  for (const [k, v] of grueso) {
+    const a = roll.get(k);
+    if (!a) { fuera++; continue; }
+    const d = Math.max(Math.abs(a.aMayo - v.aMayo), Math.abs(a.aMdo - v.aMdo),
+      Math.abs(a.pMayo - v.pMayo), Math.abs(a.pMdo - v.pMdo));
+    if (d > 0.01) { fuera++; peor = Math.max(peor, d); }
+  }
+  if (fuera > 0 || roll.size !== grueso.size) {
+    throw new Error('el grano fino NO reproduce el agregado por categoria: ' + fuera
+      + ' claves fuera (peor diferencia ' + peor.toFixed(4) + '), '
+      + roll.size + ' vs ' + grueso.size + ' claves. NO se carga.');
+  }
+  console.log('  ⭐ cruce fino → categoria: ' + grueso.size.toLocaleString('es-MX')
+    + ' claves, 0 fuera, diferencia 0.0000');
+
+  // ⛔ No se descarta: se DECLARA. Son las marcas donde el panel mide MENOS mercado que venta
+  //    nuestra. Un CHECK que las rechazaba borraba la evidencia junto con el problema.
+  // ⚠️ Se compara con la MISMA precision que guarda la columna, numeric(18,4). Comparando en
+  //    coma flotante cruda salian 4,674 filas, de las que 4,389 tenian mercado EXACTAMENTE igual
+  //    a lo nuestro una vez redondeado: polvo de suma, no un hallazgo.
+  const r4 = (x) => Math.round(x * 1e4) / 1e4;
+  const sinRespaldo = [...mkt.values()].filter((v) => r4(v.aMdo) < r4(v.aMayo));
+  console.log('  ⚠ marcas donde el mercado medido < lo nuestro: '
+    + sinRespaldo.length.toLocaleString('es-MX') + ' · $'
+    + (sinRespaldo.reduce((a, v) => a + v.aMayo, 0) / 1e6).toFixed(2) + 'M de venta nuestra');
 
   // ⚠️ El SURF NO trae el mes en el registro: el periodo es el de la ENTREGA. Se toma del nombre
   //    de la carpeta ("… Jul26 …"), que es el unico lugar donde esta escrito.
@@ -216,27 +261,39 @@ function archivoQueEmpieza(dir, prefijo, ext) {
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${TENANT}'`);
 
+    // ⚠️ A grano de marca son ~407 mil filas por entrega. Una sentencia por fila serian ~407 mil
+    //    viajes de ida y vuelta: se carga por lotes, con los mismos parametros enlazados.
+    const COLS = 15;
+    const LOTE = 400;
     let nMkt = 0;
-    for (const [k, v] of mkt) {
-      const [region, subcanal, mercado, division, categoria, medida] = k.split('\u0001');
-      // ⛔ El CHECK exige mercado >= nuestro. Si la entrega viene al reves se sabe acá y no
-      //    tres pantallas despues; se reporta y se salta, nunca se "corrige" el numero.
-      if (v.aMdo < v.aMayo || v.pMdo < v.pMayo) {
-        console.log('  ⚠ saltada (mercado < nuestro): ' + [division, categoria, medida].join(' / '));
-        continue;
-      }
+    const filas = [...mkt.entries()];
+    for (let i = 0; i < filas.length; i += LOTE) {
+      const trozo = filas.slice(i, i + LOTE);
+      const vals = [];
+      const args = [];
+      trozo.forEach(([k, v], j) => {
+        const [region, subcanal, mercado, division, categoria, medida, fabricante, submarca] =
+          k.split('\u0001');
+        const b = j * COLS;
+        vals.push('(' + Array.from({ length: COLS }, (_, x) => '$' + (b + x + 1)).join(',') + ')');
+        // ⛔ `mercado_menor_que_nuestro` NO se envia: es columna GENERADA. Calcularla acá en coma
+        //    flotante marcaba 4,389 filas por una diferencia que la columna numeric(18,4)
+        //    redondea a cero -- la bandera contradecia a los numeros de su propia fila.
+        args.push(TENANT, periodo, region, subcanal, mercado, division, categoria, fabricante,
+          submarca, medida, v.aMayo, v.aMdo, v.pMayo, v.pMdo, entrega);
+      });
       await db.query(`
         INSERT INTO analytics.iscam_market
-          (tenant_id, periodo, region, subcanal, mercado, division, categoria, tipo_medida,
-           med_act_mayo, med_act_mdo, med_ant_mayo, med_ant_mdo, entrega)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-        ON CONFLICT (tenant_id, periodo, region, subcanal, mercado, division, categoria, tipo_medida)
+          (tenant_id, periodo, region, subcanal, mercado, division, categoria, fabricante,
+           submarca, tipo_medida, med_act_mayo, med_act_mdo, med_ant_mayo, med_ant_mdo, entrega)
+        VALUES ${vals.join(',')}
+        ON CONFLICT (tenant_id, periodo, region, subcanal, mercado, division, categoria,
+                     fabricante, submarca, tipo_medida)
         DO UPDATE SET med_act_mayo = EXCLUDED.med_act_mayo, med_act_mdo = EXCLUDED.med_act_mdo,
                       med_ant_mayo = EXCLUDED.med_ant_mayo, med_ant_mdo = EXCLUDED.med_ant_mdo,
-                      entrega = EXCLUDED.entrega, importado_at = now()`,
-        [TENANT, periodo, region, subcanal, mercado, division, categoria, medida,
-          v.aMayo, v.aMdo, v.pMayo, v.pMdo, entrega]);
-      nMkt++;
+                      entrega = EXCLUDED.entrega, importado_at = now()`, args);
+      nMkt += trozo.length;
+      if (nMkt % 40000 < LOTE) console.log('    … ' + nMkt.toLocaleString('es-MX') + ' filas');
     }
 
     let nTax = 0;
