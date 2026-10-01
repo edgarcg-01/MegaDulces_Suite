@@ -702,7 +702,51 @@ templates · `check-dense-tables` y `check-css-tokens` no señalan este archivo.
 
 ---
 
-## 19 · Lo que sigue
+## 19 · `[PR.V4]` · El About — y el defecto que apareció al escribirlo
+
+La pantalla habla con **siete verbos y cinco grados de certeza**, y ninguno es obvio. La leen siete
+roles (compras, finanzas, marketing, dirección, gerente\_compras y dos más) y **ninguno es técnico**,
+así que el tópico entero se redactó en **palabra llana**: nada de «veredicto», «coeficiente» ni
+nombres de columna. Un barrido final sacó las tres «celdas» que se habían colado.
+
+Vive en `context-help.dictionary.ts` — el patrón de la casa, que ya exige *«definiciones ancladas al
+comportamiento real del sistema, no inventadas»*. Cada una salió de leer el `CASE` de
+`analytics.v_price_action`, no de lo que la etiqueta sugiere.
+
+### ⛔⛔ Lo que la pregunta «¿a qué te refieres con corregir escalera?» destapó
+
+La **escalera** son los escalones de venta del mismo producto — pieza, paquete, caja — y la regla
+es que la caja salga **más barata por pieza**. Si no, es un error de catálogo: se le cobra más a
+quien compra más.
+
+Pero la tolerancia es **0.01 %**, y para un producto de $15 eso es **centavo y medio**. Resultado,
+medido sobre los 696 casos incoherentes:
+
+| diferencia por pieza | casos | dinero en la cola |
+|---|---:|---:|
+| **≤ 1 centavo** (la menor: **$0.0006**) | **248** | **$76,610** |
+| 2 a 10 centavos | 72 | — |
+| 11 centavos a $1 | 27 | — |
+| **más de $1** (hasta **$341.86**) | 349 | **$2,138** |
+
+⭐⭐ **El 97 % del dinero que esta acción pone en la cola son diferencias que no se pueden
+corregir**: los precios se guardan al centavo, así que una brecha de seis diezmilésimas de peso no
+tiene arreglo posible. Y las 349 escaleras rotas de verdad quedan sepultadas con $2,138.
+
+Dos causas se suman: la tolerancia es **relativa** donde el error de origen es **absoluto** (redondear
+el precio de la caja al centavo), y `monto_en_juego` para esta acción es la **venta expuesta**, no la
+ganancia — así que un producto que vende mucho con una brecha de un centésimo se ve enorme. Eso
+explica por qué la captura original tenía la cola tomada por `10411` en cinco plazas.
+
+⚠️ **No se corrigió**: el arreglo (exigir que la brecha supere un centavo por pieza) cambia lo que
+la pantalla publica y no estaba autorizado. **El About lo dice tal como es hoy**, con el número
+medido, en vez de definir el término por lo que debería hacer.
+
+**Verificado:** `nx build view` · `nx test view` **1,387** · lint 0 errores · gate de templates.
+
+---
+
+## 20 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
