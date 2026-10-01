@@ -154,8 +154,12 @@ export function getFactor(it: QuoteDeliverableItem): number | null {
 export function isUnidadMayor(it: QuoteDeliverableItem): boolean {
   if (it.rung === 'box' || it.rung === 'pack') return true;
   const u = (it.unit_label || '').toUpperCase();
-  return u.includes('CJA') || u.includes('CAJA') || u.includes('PAQ') || u.includes('PAQUETE')
-    || u === 'BTO' || u.includes('BULTO') || u === 'CUB' || u.includes('CUBETA');
+  if (u.includes('CJA') || u.includes('CAJA') || u.includes('PAQ') || u.includes('PAQUETE')) return true;
+  // ⚠️ `BTO`/`CUB` sólo son unidad mayor si traen factor: medido en prod, 13 SKUs los tienen como
+  // unidad BASE (`15143` nace `BTO` a $89.39 y no tiene caja). Sin esta guarda, un renglón viejo
+  // sin `rung` guardado se exportaría como si fuera un bulto de varias piezas.
+  const esGranel = u === 'BTO' || u.includes('BULTO') || u === 'CUB' || u.includes('CUBETA');
+  return esGranel && (getFactor(it) ?? 0) > 1;
 }
 
 function triggerDownload(blob: Blob, filename: string): void {

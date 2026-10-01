@@ -80,11 +80,6 @@ export interface LadderRung {
   size: number | null;
   /** Precio por volumen del ERP para ESTE peldaño (`kdpv_prod_util`), si existe. */
   volume: { min_qty: number; price: number } | null;
-  /**
-   * Ranura de `kdii` donde vive el peldaño (`unidad2`/`unidad3`), cuando se resolvió leyéndola.
-   * Las reglas de descuento se atan a la ranura; sin este dato se asume la del mapeo fijo.
-   */
-  aplica_a?: string | null;
 }
 
 export interface PriceStep {
@@ -148,10 +143,68 @@ export interface PriceLineInput {
   quantity: number;
   /** Peldaño pedido. Si no viene, se usa la base (la unidad en la que el ERP tiene el precio). */
   rung?: Rung;
+  /**
+   * Rótulo guardado en el renglón (`quote_lines.qty_unit`) cuando no viene `rung` explícito.
+   * Se resuelve CONTRA LA ESCALERA DE ESE SKU, no contra una lista de etiquetas: el mismo
+   * rótulo puede ser la unidad base de un producto y la mayor de otro (medido: 13 SKUs tienen
+   * `BTO`/`CUB` como unidad BASE). Ver `rungDeRotulo`.
+   */
+  rung_label?: string | null;
 }
 
 const RUNG_TO_APLICA_A: Record<Rung, string> = { base: 'base', pack: 'unidad2', box: 'unidad3' };
 const DEFAULT_TAX_RATE = 0.16;
+
+/** Lo mínimo de la escalera que hace falta para resolver un rótulo guardado. */
+export interface LadderParaRotulo {
+  unit_base: string | null;
+  rungs: Record<Rung, LadderRung>;
+}
+
+const norm = (v: string | null | undefined): string => {
+  const l = (v || '').trim().toUpperCase();
+  if (l === 'CAJA') return 'CJA';
+  if (l === 'BULTO') return 'BTO';
+  if (l === 'CUBETA') return 'CUB';
+  if (l === 'PAQUETE') return 'PAQ';
+  return l;
+};
+
+/**
+ * De vuelta del rótulo guardado al peldaño, para no mover la unidad cuando sólo se corrige la
+ * cantidad.
+ *
+ * ⚠️ **El rótulo solo NO alcanza: el mismo rótulo es la unidad BASE de un producto y la MAYOR de
+ * otro.** Medido en prod el 2026-10-01: 13 SKUs tienen `BTO`/`CUB` en `kdii.c11`, o sea que el
+ * bulto es su unidad base — `15143` nace `BTO` a $89.39 y **no tiene** peldaño `box` (106 de sus
+ * 115 filas sucursal×sku no lo tienen). Decidir por una lista global de etiquetas mandaba esos
+ * renglones guardados a un peldaño inexistente al editarles la cantidad, que es justo el "el ERP
+ * no declara esa presentación" que este cambio vino a borrar. Y no es simétrico: `99040` tiene
+ * base `CUB` **y** una caja real de 14 ($756.00), así que tampoco sirve "si la base es CUB, nunca
+ * hay caja".
+ *
+ * Por eso se resuelve CONTRA LA ESCALERA DE ESE SKU, en este orden: box → pack → base. El orden
+ * preserva lo de antes para `CJA`/`PAQ` (si la base fuera CJA y la caja también, gana la caja,
+ * como siempre). Lo que no casa con ningún peldaño cae a `base`, que es donde el ERP siempre
+ * tiene precio: no se adivina un intermedio.
+ *
+ * Es una función pura y exportada a propósito: así se prueba con casos reales en vez de con un
+ * doble (`quote-pricing.spec.ts`).
+ */
+export function rungDeRotulo(label: string | null, led: LadderParaRotulo | null): Rung {
+  const l = norm(label);
+  if (!l) return 'base';
+  if (led) {
+    if (led.rungs.box?.label && l === norm(led.rungs.box.label)) return 'box';
+    if (led.rungs.pack?.label && l === norm(led.rungs.pack.label)) return 'pack';
+    return 'base';
+  }
+  // Sin escalera (no debería pasar: `priceLine` la carga antes) se conserva el mapeo histórico,
+  // que nunca mandó BTO/CUB a `box`.
+  if (l === 'CJA') return 'box';
+  if (l === 'PAQ') return 'pack';
+  return 'base';
+}
 
 @Injectable()
 export class QuotePricingService {
@@ -201,63 +254,58 @@ export class QuotePricingService {
     let boxPrice = num(p.box_price);
     let boxSize = num(p.box_size);
 
-    const cjaRes = await knex.raw(
-      `SELECT precio_lista, mayoreo_precio, mayoreo_desde, factor
+    // ── La unidad mayor NO siempre se llama CJA, y se resuelve en UNA sola lectura ───────────
+    // Medido en prod (2026-09-30): 168 SKUs / 1,510 filas sucursal×sku tienen como unidad mayor
+    // el BULTO (`BTO`) o la CUBETA (`CUB`) y ninguna CJA utilizable. Ej.: 17083 "ALTOS CAM CHICA
+    // 1KG" = KG → BTO de 20 kg a $1,169.91, y Kepler lo VENDE así: `mv_kepler_unit_ladder` da
+    // factor 20.0000, `ambiguo=false`, 223 renglones, 8 sucursales, $410,403.40. Leer sólo 'CJA'
+    // respondía "el ERP no declara esa presentación", que era falso.
+    //
+    // ⚠️ La fuente es `analytics.v_label_presentations` —la MISMA vista que ya resolvía la CJA—,
+    // no una relectura de las ranuras de `kdii`. No es cosmético: medido el 2026-10-01, las
+    // ranuras NO reproducen la vista (37 factores y 28 precios distintos sobre 75,397 comunes, y
+    // 138 CJA que la vista ve y la ranura no), y la vista rellena 182 filas donde `v_label_prices`
+    // no trae `box_*`. Una segunda derivación a mano se habría separado de la primera en silencio.
+    //
+    // Prioridad CJA → BTO/CUB; sólo rótulos conocidos (`500`, `250`, `IND`… son unidad
+    // desconocida, UNIDADES_DE_MEDIDA §7.6). El criterio de la CJA queda EXACTAMENTE como estaba
+    // (precio o factor declarado) para no mover el 99% del catálogo; a BTO/CUB se les exige
+    // además `factor > 1` y precio, porque con factor 1 el rótulo es la unidad BASE del producto
+    // y no una presentación mayor (13 SKUs: `15143` nace `BTO` de 1). Efecto medido:
+    // **1,510 filas ganan peldaño `box`, 0 lo pierden**.
+    //
+    // ⚠️ Costo: la vista no empuja el filtro (seq scan de 84k `kdii` + 379k `kdpv_prod_util`),
+    // ~3.6 s por SKU. Es el costo que `ladder` YA pagaba por la CJA — acá se paga UNA vez en vez
+    // de dos. Queda DECLARADO como deuda, no resuelto: está sobre el gate de 1 s.
+    let boxLabel: string | null = null;
+    const mayorRes = await knex.raw(
+      `SELECT upper(btrim(unidad)) AS unidad, factor, precio_lista, mayoreo_precio, mayoreo_desde
          FROM analytics.v_label_presentations
-        WHERE sucursal = :branch AND sku = :sku AND unidad = 'CJA'
+        WHERE sucursal = :branch AND sku = :sku
+          AND ( (upper(btrim(unidad)) = 'CJA' AND (precio_lista IS NOT NULL OR factor IS NOT NULL))
+             OR (upper(btrim(unidad)) IN ('BTO', 'CUB') AND factor > 1 AND precio_lista IS NOT NULL) )
+        ORDER BY CASE WHEN upper(btrim(unidad)) = 'CJA' THEN 0 ELSE 1 END, factor DESC NULLS LAST
         LIMIT 1`,
       { branch, sku },
     );
-    if (cjaRes.rows.length) {
-      const cjaRow = cjaRes.rows[0];
-      if (boxPrice === null && cjaRow.precio_lista !== null) {
-        boxPrice = num(cjaRow.precio_lista);
-      }
-      if (boxSize === null && cjaRow.factor !== null) {
-        boxSize = num(cjaRow.factor);
-      }
-      if (cjaRow.mayoreo_desde && cjaRow.mayoreo_precio) {
-        boxVolume = volumeOf(cjaRow.mayoreo_desde, cjaRow.mayoreo_precio);
-      }
-    }
-
-    // ── La unidad mayor NO siempre se llama CJA ─────────────────────────────────────────────
-    // Medido en prod (2026-09-30): 170 SKUs (~1,500 filas sucursal×sku) tienen como unidad mayor
-    // el BULTO (`BTO`) o la CUBETA (`CUB`) y ninguna CJA. Ej.: 17083 "ALTOS CAM CHICA 1KG" =
-    // KG → BTO de 20 kg a $1,169.91 en `kdii.c83/c84/c92`, y Kepler lo VENDE así (223 renglones,
-    // factor 20 en el 100%, `mv_kepler_unit_ladder`). Leer sólo 'CJA' respondía "el ERP no
-    // declara esa presentación", que era falso.
-    // CJA sigue ganando cuando existe (sin cambio para el 99% del catálogo). Sólo se aceptan
-    // rótulos conocidos: `500`, `250`, `IND`… son unidad desconocida (UNIDADES_DE_MEDIDA §7.6).
-    // La ranura se conserva porque las reglas de descuento se atan a ella (`unidad2`/`unidad3`).
-    let boxLabel: string | null = boxPrice !== null || boxSize !== null ? 'CJA' : null;
-    let boxAplicaA: string | null = null;
-    if (boxPrice === null && boxSize === null) {
-      const mayorRes = await knex.raw(
-        `SELECT unidad, factor, price, aplica_a
-           FROM kepler_ods.kdii k
-           CROSS JOIN LATERAL (VALUES
-             (upper(btrim(k.c83)), floor(k.c84)::int, NULLIF(k.c92, 0), 'unidad3', 1),
-             (upper(btrim(k.c80)), floor(k.c81)::int, NULLIF(k.c91, 0), 'unidad2', 2)
-           ) AS s(unidad, factor, price, aplica_a, prioridad)
-          WHERE btrim(k.sucursal) = :branch AND btrim(k.c1) = :sku
-            AND s.unidad IN ('BTO', 'CUB') AND s.factor > 1 AND s.price IS NOT NULL
-          ORDER BY s.prioridad
-          LIMIT 1`,
-        { branch, sku },
-      );
-      if (mayorRes.rows.length) {
-        const m = mayorRes.rows[0];
-        boxLabel = m.unidad;
-        boxPrice = num(m.price);
+    if (mayorRes.rows.length) {
+      const m = mayorRes.rows[0];
+      boxLabel = m.unidad;
+      if (m.unidad === 'CJA') {
+        if (boxPrice === null && m.precio_lista !== null) boxPrice = num(m.precio_lista);
+        if (boxSize === null && m.factor !== null) boxSize = num(m.factor);
+      } else {
+        // Otra unidad mayor: el precio y el factor son los SUYOS. No se heredan los de
+        // `v_label_prices`, que son de la caja: pegarle el precio de una presentación al factor
+        // de otra es el error de unidad que este proyecto ya pagó (ADR-055).
+        boxPrice = num(m.precio_lista);
         boxSize = num(m.factor);
-        boxAplicaA = m.aplica_a;
-        // El volumen que se leyó arriba era el de una CJA que no existe como presentación: ese
-        // renglón de `kdpv_prod_util` (p. ej. 17083 CJA $1,072.61 sin precio de lista) es un
-        // residuo y no se mezcla con el precio del bulto.
-        boxVolume = null;
+      }
+      if (m.mayoreo_desde && m.mayoreo_precio) {
+        boxVolume = volumeOf(m.mayoreo_desde, m.mayoreo_precio);
       }
     }
+    if (boxLabel === null && (boxPrice !== null || boxSize !== null)) boxLabel = 'CJA';
 
     if (!boxVolume && boxPrice !== null) {
       const kdpvRes = await knex.raw(
@@ -302,7 +350,6 @@ export class QuotePricingService {
           price: boxPrice,
           size: boxSize,
           volume: boxVolume,
-          aplica_a: boxAplicaA,
         },
       },
     };
@@ -352,7 +399,9 @@ export class QuotePricingService {
       });
     }
 
-    const rung: Rung = input.rung ?? 'base';
+    // El peldaño del renglón guardado se resuelve acá y no antes, porque necesita la escalera de
+    // ESTE sku: el rótulo solo es ambiguo (ver `rungDeRotulo`).
+    const rung: Rung = input.rung ?? this.rungDeRotulo(input.rung_label ?? null, led);
     const step = led.rungs[rung];
     if (!step || step.price === null) {
       return this.unpriced({
@@ -406,6 +455,12 @@ export class QuotePricingService {
     }
 
     // ── Mecanismos 2b–5: las reglas de descuento de producto ────────────────────────────────
+    // El peldaño `box` ya no se llama siempre CJA: la regla se busca por el rótulo REAL. La
+    // ranura (`aplica_a`) sigue saliendo del mapeo fijo y no del peldaño, porque medido el
+    // 2026-10-01 **no existe ninguna regla sobre `BTO`/`CUB` atada a `unidad2`/`unidad3`** (las
+    // de esas ranuras son PAQ 51, CJA 13, KG 1; la única de `CUB` cuelga de `base`), y la
+    // cláusula por rótulo de abajo ya las alcanzaría si aparecieran. Un campo nuevo sin un caso
+    // que lo exija es un primitivo inventado (ADR-056).
     const unitName = rung === 'box' ? (step.label || 'CJA') : (rung === 'pack' ? 'PAQ' : (step.label || 'PZA'));
     const rules = await knex.raw(
       `SELECT mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
@@ -413,7 +468,7 @@ export class QuotePricingService {
          FROM analytics.v_erp_discount_rules
         WHERE tienda = :branch AND sku = :sku
           AND (aplica_a = :aplica_a OR upper(unidad) = upper(:unitName))`,
-      { branch, sku, aplica_a: step.aplica_a ?? RUNG_TO_APLICA_A[rung], unitName },
+      { branch, sku, aplica_a: RUNG_TO_APLICA_A[rung], unitName },
     );
 
     let freeGoods: PricedLine['free_goods'] = null;
@@ -801,8 +856,10 @@ export class QuotePricingService {
           sku,
           quantity: qty,
           // Sin peldaño explícito se conserva el que ya tenía el renglón: una edición de cantidad
-          // no debe mover la unidad en silencio.
-          rung: input.rung ?? this.rungDeRotulo(line.qty_unit),
+          // no debe mover la unidad en silencio. El rótulo se resuelve DENTRO de `priceLine`,
+          // que es donde está la escalera de este sku (el rótulo solo no alcanza para decidir).
+          rung: input.rung,
+          rung_label: line.qty_unit,
         });
       }
 
@@ -909,17 +966,9 @@ export class QuotePricingService {
     return (line.requested_text || '').trim() || null;
   }
 
-  /**
-   * De vuelta del rótulo guardado al peldaño, para no mover la unidad cuando sólo se corrige la
-   * cantidad. ⚠️ Es un mapeo por rótulo y el rótulo lo pone el ERP: lo que no reconoce cae a
-   * `base`, que es el peldaño donde el ERP siempre tiene precio. No se adivina un intermedio.
-   */
-  private rungDeRotulo(label: string | null): Rung {
-    const l = (label || '').trim().toUpperCase();
-    // BTO/CUB: la unidad mayor de granel y cubeta (ver `ladder`) viaja en el mismo peldaño.
-    if (l === 'CJA' || l === 'CAJA' || l === 'BTO' || l === 'BULTO' || l === 'CUB' || l === 'CUBETA') return 'box';
-    if (l === 'PAQ') return 'pack';
-    return 'base';
+  /** Ver la función pura `rungDeRotulo` de este módulo: ahí está el porqué y ahí se prueba. */
+  private rungDeRotulo(label: string | null, led: LadderParaRotulo | null): Rung {
+    return rungDeRotulo(label, led);
   }
 
   async removeLine(quoteId: string, lineId: string): Promise<RemoveLineResult> {

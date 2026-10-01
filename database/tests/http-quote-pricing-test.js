@@ -155,15 +155,17 @@ async function login(username) {
     // ── 5. Peldaño inexistente ─────────────────────────────────────────────────────────────
     console.log('\n5 — el peldaño que el producto no tiene');
     // Sin CJA **y** sin BTO/CUB: un producto a granel sin caja SÍ tiene unidad mayor (el bulto),
-    // así que ya no sirve de ejemplo de "peldaño ausente" (ver 5b).
+    // así que ya no sirve de ejemplo de "peldaño ausente" (ver 5b). El fixture se elige con la
+    // MISMA fuente que usa el motor (`v_label_presentations`); lo que no puede salir de ahí es
+    // la afirmación, que se arbitra aparte.
     const sinCaja = await knex.raw(
       `SELECT v.sku FROM analytics.v_label_prices v
-        WHERE v.sucursal = ? AND v.piece_price > 0 AND v.box_price IS NULL
+        WHERE v.sucursal = ? AND v.piece_price > 0 AND v.box_price IS NULL AND v.box_size IS NULL
           AND NOT EXISTS (
-            SELECT 1 FROM kepler_ods.kdii k
-             WHERE btrim(k.sucursal) = v.sucursal AND btrim(k.c1) = v.sku
-               AND ((upper(btrim(k.c83)) IN ('BTO','CUB') AND floor(k.c84) > 1 AND k.c92 > 0)
-                 OR (upper(btrim(k.c80)) IN ('BTO','CUB') AND floor(k.c81) > 1 AND k.c91 > 0)))
+            SELECT 1 FROM analytics.v_label_presentations p
+             WHERE p.sucursal = v.sucursal AND p.sku = v.sku
+               AND ( (upper(btrim(p.unidad)) = 'CJA' AND (p.precio_lista IS NOT NULL OR p.factor IS NOT NULL))
+                  OR (upper(btrim(p.unidad)) IN ('BTO','CUB') AND p.factor > 1 AND p.precio_lista IS NOT NULL) ))
         LIMIT 1`, [BRANCH],
     );
     if (!sinCaja.rows.length) {
@@ -175,15 +177,23 @@ async function login(username) {
 
     // ── 5b. La unidad mayor que NO se llama CJA (bulto / cubeta) ──────────────────────────────
     // Bug 2026-09-30: 17083 (KG → BTO de 20 kg, $1,169.91) respondía "no tiene el peldaño box"
-    // porque el motor sólo leía 'CJA'. El árbitro es la ranura del propio `kdii` (c83/c84/c92).
+    // porque el motor sólo leía 'CJA'.
+    // ⚠️ El árbitro NO es la ranura de `kdii`: eso es la misma expresión que corre en producción,
+    // y una prueba que se arbitra contra sí misma se pone verde con la derivación equivocada. El
+    // testigo independiente es el DINERO — `analytics.mv_kepler_unit_ladder`, que sale de lo que
+    // Kepler facturó: para el 17083 da BTO, factor 20.0000, `ambiguo = false`, 223 renglones en
+    // 8 sucursales, $410,403.40 (ADR-059: el dinero arbitra la cantidad).
     console.log('\n5b — la unidad mayor que no se llama CJA');
     const bto = await knex.raw(
-      `SELECT btrim(k.c1) AS sku, upper(btrim(k.c83)) AS unidad, floor(k.c84)::int AS factor, k.c92 AS precio
-         FROM kepler_ods.kdii k
-         JOIN analytics.v_label_prices v ON v.sucursal = btrim(k.sucursal) AND v.sku = btrim(k.c1)
-        WHERE btrim(k.sucursal) = ? AND v.box_price IS NULL AND v.box_size IS NULL
-          AND upper(btrim(k.c83)) IN ('BTO','CUB') AND floor(k.c84) > 1 AND k.c92 > 0
-        ORDER BY (btrim(k.c1) = '17083') DESC, btrim(k.c1)
+      `SELECT p.sku, upper(btrim(p.unidad)) AS unidad, p.factor::int AS factor, p.precio_lista AS precio,
+              l.factor::numeric AS factor_vendido, l.ambiguo, l.renglones, l.importe
+         FROM analytics.v_label_presentations p
+         JOIN analytics.v_label_prices v ON v.sucursal = p.sucursal AND v.sku = p.sku
+         LEFT JOIN analytics.mv_kepler_unit_ladder l
+                ON l.sku = p.sku AND upper(btrim(l.unidad_vendida)) = upper(btrim(p.unidad))
+        WHERE p.sucursal = ? AND v.box_price IS NULL AND v.box_size IS NULL
+          AND upper(btrim(p.unidad)) IN ('BTO','CUB') AND p.factor > 1 AND p.precio_lista IS NOT NULL
+        ORDER BY (p.sku = '17083') DESC, (l.renglones IS NULL), l.renglones DESC NULLS LAST, p.sku
         LIMIT 1`, [BRANCH],
     );
     if (!bto.rows.length) {
@@ -192,10 +202,64 @@ async function login(username) {
       const m = bto.rows[0];
       const r = await req('POST', '/commercial/quotes/price-preview', op.token, { branch: BRANCH, sku: m.sku, quantity: 1, rung: 'box' });
       check(`${m.sku} por ${m.unidad} tiene precio (no "sin peldaño")`, r.body?.list_price !== null && r.body?.list_price !== undefined, JSON.stringify(r.body?.unpriced_reason));
-      check(`el precio de lista es el de la ranura del ERP ($${m.precio})`, Math.abs(Number(r.body?.list_price) - Number(m.precio)) < 0.005, `list_price=${r.body?.list_price}`);
+      check(`el precio de lista es el de la presentación del ERP ($${m.precio})`, Math.abs(Number(r.body?.list_price) - Number(m.precio)) < 0.005, `list_price=${r.body?.list_price}`);
       check(`el rótulo dice ${m.unidad}, no CJA`, r.body?.unit_label === m.unidad, `unit_label=${r.body?.unit_label}`);
       check(`el factor es ${m.factor} unidades base`, Number(r.body?.unit_factor) === m.factor, `unit_factor=${r.body?.unit_factor}`);
+      // El árbitro independiente: lo que Kepler COBRÓ con esa unidad.
+      if (m.factor_vendido === null || m.factor_vendido === undefined) {
+        declarar('el factor contra el dinero', `${m.sku} no tiene ventas por ${m.unidad} en mv_kepler_unit_ladder`);
+      } else if (m.ambiguo) {
+        declarar('el factor contra el dinero', `${m.sku} tiene factor ambiguo en las ventas por ${m.unidad}`);
+      } else {
+        check(
+          `el factor coincide con lo que Kepler facturó (${m.renglones} renglones, $${m.importe})`,
+          Math.abs(Number(m.factor_vendido) - Number(m.factor)) < 0.0005,
+          `vendido=${m.factor_vendido} ficha=${m.factor}`,
+        );
+      }
     }
+
+    // ── 5c. El botón y la escalera no pueden decir cosas distintas ─────────────────────────────
+    // El buscador del catálogo rotula el botón con una lectura RÁPIDA de `kdii`; el precio sale de
+    // `v_label_presentations`, que es 70× más lenta y no se puede usar en el buscador. Son dos
+    // caminos: hay que medir que no se separen. La dirección que importa es "botón sin peldaño"
+    // (ofrecer algo que después no tiene precio); la inversa —botón mudo donde sí hay peldaño— se
+    // DECLARA, hoy 182 filas, y son las que `v_label_prices` no trae y la vista sí rellena.
+    console.log('\n5c — el botón del buscador vs la escalera del precio');
+    const acuerdo = await knex.raw(
+      `WITH lp AS (SELECT sucursal, sku, box_size, box_price FROM analytics.v_label_prices),
+       kd AS (
+         SELECT btrim(k.sucursal) sucursal, btrim(k.c1) sku,
+                (array_agg(s.unidad ORDER BY s.prioridad))[1] unidad
+           FROM kepler_ods.kdii k
+           CROSS JOIN LATERAL (VALUES
+             (upper(btrim(k.c83)), floor(k.c84)::int, NULLIF(k.c92,0), 1),
+             (upper(btrim(k.c80)), floor(k.c81)::int, NULLIF(k.c91,0), 2)
+           ) AS s(unidad, factor, price, prioridad)
+          WHERE s.unidad IN ('BTO','CUB') AND s.factor > 1 AND s.price IS NOT NULL
+          GROUP BY 1,2),
+       vista AS (
+         SELECT sucursal, sku,
+                (array_agg(upper(btrim(unidad)) ORDER BY CASE WHEN upper(btrim(unidad))='CJA' THEN 0 ELSE 1 END, factor DESC NULLS LAST))[1] unidad
+           FROM analytics.v_label_presentations
+          WHERE ( (upper(btrim(unidad))='CJA' AND (precio_lista IS NOT NULL OR factor IS NOT NULL))
+               OR (upper(btrim(unidad)) IN ('BTO','CUB') AND factor > 1 AND precio_lista IS NOT NULL) )
+          GROUP BY 1,2)
+       SELECT count(*)::int filas,
+              count(*) FILTER (WHERE boton IS NOT NULL AND escalera IS NULL)::int boton_sin_peldano,
+              count(*) FILTER (WHERE boton IS NULL AND escalera IS NOT NULL)::int boton_mudo
+         FROM (
+           SELECT CASE WHEN lp.box_size IS NOT NULL OR lp.box_price IS NOT NULL THEN 'CJA' ELSE kd.unidad END AS boton,
+                  COALESCE(vista.unidad, CASE WHEN lp.box_size IS NOT NULL OR lp.box_price IS NOT NULL THEN 'CJA' END) AS escalera
+             FROM lp LEFT JOIN kd USING (sucursal, sku) LEFT JOIN vista USING (sucursal, sku)) x`,
+    );
+    const ac = acuerdo.rows[0];
+    check(
+      `ningún botón ofrece una unidad que la escalera no sabe cotizar (sobre ${ac.filas} filas)`,
+      Number(ac.boton_sin_peldano) === 0,
+      `boton_sin_peldano=${ac.boton_sin_peldano}`,
+    );
+    declarar('botón mudo con peldaño', `${ac.boton_mudo} filas — el buscador no ofrece la unidad mayor aunque el precio existe`);
 
     // ── 6. ⭐ Las dos capas: el descuento del cliente NO toca el renglón ────────────────────
     console.log('\n6 — ⭐ el descuento del cliente es capa DOCUMENTO, no capa precio');

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PricedLine } from './quote-pricing.service';
+import { LadderParaRotulo, PricedLine, rungDeRotulo } from './quote-pricing.service';
 
 describe('QuotePricing — Descuentos por Volumen y Peldaño Caja (CJA)', () => {
   it('identifica y expone el volumen tier cuando existe precio de mayoreo por escala', () => {
@@ -83,5 +83,59 @@ describe('QuotePricing — Descuentos por Volumen y Peldaño Caja (CJA)', () => 
     expect(mockPricedLineApplied.price_source).toBe('volume_qty');
     expect(mockPricedLineApplied.applied.some((a) => a.step === 'volumen')).toBe(true);
     expect(mockPricedLineApplied.line_total).toBe(2385.42);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+// `[COT.16]` El rótulo guardado → peldaño. Los tres casos salen de PROD (2026-10-01), no de la
+// imaginación: `17083` (base KG, bulto de 20), `15143` (el bulto ES la base, sin caja) y `99040`
+// (base cubeta Y caja real de 14). La función es pura justamente para poder afirmarlo de verdad.
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+describe('[COT.16] rungDeRotulo — el mismo rótulo es base en un producto y unidad mayor en otro', () => {
+  const esc = (unit_base: string | null, pack: string | null, box: string | null): LadderParaRotulo => ({
+    unit_base,
+    rungs: {
+      base: { rung: 'base', label: unit_base, price: 1, size: 1, volume: null },
+      pack: { rung: 'pack', label: pack, price: pack ? 1 : null, size: pack ? 2 : null, volume: null },
+      box: { rung: 'box', label: box, price: box ? 1 : null, size: box ? 20 : null, volume: null },
+    },
+  });
+
+  // 17083 "ALTOS CAM CHICA 1KG": base KG, bulto de 20 kg a $1,169.91 (y Kepler facturó 223
+  // renglones por BTO con factor 20.0000 — `mv_kepler_unit_ladder`).
+  const granel = esc('KG', null, 'BTO');
+  it('17083: BTO es la unidad MAYOR → box', () => expect(rungDeRotulo('BTO', granel)).toBe('box'));
+  it('17083: su base sigue siendo base', () => expect(rungDeRotulo('KG', granel)).toBe('base'));
+
+  // 15143: el bulto es la unidad BASE y no hay caja. Antes caía en `box` y re-tasaba contra un
+  // peldaño inexistente al editar la cantidad de un renglón ya guardado.
+  const baseBulto = esc('BTO', null, null);
+  it('15143: BTO es la unidad BASE → base, no box', () => expect(rungDeRotulo('BTO', baseBulto)).toBe('base'));
+  it('15143: "BULTO" escrito largo resuelve igual', () => expect(rungDeRotulo('BULTO', baseBulto)).toBe('base'));
+
+  // 99040: base cubeta ($54.00) Y caja real de 14 ($756.00). Refuta "si la base es CUB no hay caja".
+  const cubetaConCaja = esc('CUB', null, 'CJA');
+  it('99040: CUB (su base) → base', () => expect(rungDeRotulo('CUB', cubetaConCaja)).toBe('base'));
+  it('99040: CJA (su caja real) → box', () => expect(rungDeRotulo('CJA', cubetaConCaja)).toBe('box'));
+
+  // Lo de siempre no se movió.
+  const clasico = esc('PZA', 'PAQ', 'CJA');
+  it('CJA sigue siendo box', () => expect(rungDeRotulo('CJA', clasico)).toBe('box'));
+  it('PAQ sigue siendo pack', () => expect(rungDeRotulo('PAQ', clasico)).toBe('pack'));
+  it('PZA sigue siendo base', () => expect(rungDeRotulo('PZA', clasico)).toBe('base'));
+  it('un rótulo que no casa con ningún peldaño cae a base', () => expect(rungDeRotulo('SER', clasico)).toBe('base'));
+  it('sin rótulo, base', () => expect(rungDeRotulo(null, clasico)).toBe('base'));
+
+  // Prueba negativa: si la caja del sku se llama BTO, BTO tiene que ser box — o el arreglo
+  // estaría resolviendo por "BTO siempre es base", que es el error espejo.
+  it('prueba negativa: BTO NO es base cuando sí es la caja del producto', () => {
+    expect(rungDeRotulo('BTO', esc('KG', null, 'BTO'))).toBe('box');
+    expect(rungDeRotulo('BTO', esc('BTO', null, null))).toBe('base');
+  });
+
+  // Sin escalera se conserva el mapeo histórico (nunca mandó BTO a box).
+  it('sin escalera, el mapeo histórico', () => {
+    expect(rungDeRotulo('CJA', null)).toBe('box');
+    expect(rungDeRotulo('BTO', null)).toBe('base');
   });
 });

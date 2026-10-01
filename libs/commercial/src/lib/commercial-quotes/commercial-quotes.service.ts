@@ -517,15 +517,29 @@ export class CommercialQuotesService {
 
     return this.tk.run(async (knex) => {
       const res = await knex.raw(
-        // La unidad mayor se completa con BTO/CUB cuando no hay CJA: mismo criterio que
-        // `QuotePricingService.ladder`, o el botón diría "Caja" y la previa "Bulto".
+        // La unidad mayor se completa con BTO/CUB cuando no hay caja, o el botón diría "Caja" y
+        // la previa "Bulto".
+        //
+        // ⚠️ **Acá NO se lee `analytics.v_label_presentations`, que es la fuente del precio.**
+        // Motivo medido (2026-10-01): esa vista no empuja el filtro y cuesta ~3.6 s por lectura
+        // (seq scan de 84k `kdii` + 379k `kdpv_prod_util`); el buscador del catálogo responde hoy
+        // en ~50 ms y pasaría a segundos. Acá sólo se decide **la etiqueta del botón** — el precio
+        // y el factor que se cobran salen siempre de `QuotePricingService.ladder`, que sí la lee.
+        // La coincidencia entre ambos criterios está MEDIDA y la vigila `http-quote-pricing-test.js`
+        // (bloque 5c). Medido 2026-10-01 sobre las 84,340 filas sucursal×sku: **182 en desacuerdo,
+        // las 182 en la dirección segura** — el botón se queda mudo donde la escalera sí tiene
+        // peldaño (son las filas que `v_label_presentations` rellena y `v_label_prices` no trae) —
+        // y **0 en la peligrosa**, que sería ofrecer un botón sin precio detrás. El candado exige
+        // que ese 0 siga en 0; el 182 se declara, no se esconde.
         `
         SELECT v.sku, v.name, v.content, v.barcode, v.unit_base, v.piece_price, v.pack_size,
                COALESCE(v.box_size, m.factor) AS box_size,
-               CASE WHEN v.box_size IS NOT NULL THEN 'CJA' ELSE m.unidad END AS box_label,
+               CASE WHEN v.box_size IS NOT NULL OR v.box_price IS NOT NULL THEN 'CJA'
+                    ELSE m.unidad END AS box_label,
                v.sold_by_kg
           FROM (
-            SELECT sku, name, content, barcode, unit_base, piece_price, pack_size, box_size, sold_by_kg
+            SELECT sku, name, content, barcode, unit_base, piece_price, pack_size, box_size,
+                   box_price, sold_by_kg
               FROM analytics.v_label_prices
              WHERE sucursal = :branch
                AND (:term = ''
@@ -548,7 +562,7 @@ export class CommercialQuotesService {
                 (upper(btrim(k.c83)), floor(k.c84)::int, NULLIF(k.c92, 0), 1),
                 (upper(btrim(k.c80)), floor(k.c81)::int, NULLIF(k.c91, 0), 2)
               ) AS s(unidad, factor, price, prioridad)
-             WHERE v.box_size IS NULL
+             WHERE v.box_size IS NULL AND v.box_price IS NULL
                AND btrim(k.sucursal) = :branch AND btrim(k.c1) = v.sku
                AND s.unidad IN ('BTO', 'CUB') AND s.factor > 1 AND s.price IS NOT NULL
              ORDER BY s.prioridad

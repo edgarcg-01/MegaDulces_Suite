@@ -124,7 +124,10 @@ export function nombreUnidadMayor(label: string | null | undefined): string {
   const l = (label || '').trim().toUpperCase();
   if (l === 'BTO' || l === 'BULTO') return 'Bulto';
   if (l === 'CUB' || l === 'CUBETA') return 'Cubeta';
-  return 'Caja';
+  if (l === 'CJA' || l === 'CAJA' || l === '') return 'Caja';
+  // Un rótulo que no conocemos se muestra TAL CUAL, con la palabra del ERP: decirle "Caja" a algo
+  // que el ERP llama de otra forma es inventar la unidad (hay `SER` de factor 50 en el catálogo).
+  return l;
 }
 
 export interface PricedLine {
