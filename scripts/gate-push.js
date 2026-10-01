@@ -56,6 +56,7 @@
 
 const { execFileSync, execFile } = require('child_process');
 const path = require('path');
+const { DEL_PUSH } = require('./compuertas');
 
 const RAIZ = path.resolve(__dirname, '..');
 
@@ -63,22 +64,22 @@ const RAIZ = path.resolve(__dirname, '..');
 const RAMAS_PROTEGIDAS = new Set(['main', 'master', 'production']);
 
 /**
- * Gates que corren acá. Criterio de admisión: escaneo estático, sin red, sin DB,
- * y medido por debajo de ~3 s. Los tiempos son de la corrida del 2026-09-30 en
- * la máquina de trabajo — si alguno se pasa de 5 s, sacalo de acá y dejalo en CI.
+ * ⭐ Gates que corren acá: los que `scripts/compuertas.js` marca `push: true`.
+ *
+ * **Estaban declarados DOS veces** —acá y en `check-all.js`, con forma distinta— y las dos
+ * listas ya habían divergido: medido el 2026-10-01, `check-dense-tables` y `check-css-tokens`
+ * corrían en este push y **no** en `npm run check`, cuyo encabezado dice "corre todas las que
+ * existen". Con un solo registro eso no se puede escribir.
+ *
+ * El criterio de admisión no cambia y vive en el registro, junto al campo `push`: escaneo
+ * estático, sin red, sin DB, medido por debajo de ~3 s.
+ *
+ * 🔸 **Cambia una cosa, cosmética y declarada:** el rótulo que se imprime ahora es el corto del
+ * registro (`templates`, `primeng`, `teclado`…) y no el largo que vivía sólo acá (`literales de
+ * template`, `API retirada de PrimeNG`…). Es el mismo que imprime `npm run check`, así que las
+ * dos salidas por fin nombran igual a la misma compuerta.
  */
-const GATES = [
-  { nombre: 'tokens CSS', script: 'check-css-tokens.js', ms: 1318 },
-  { nombre: 'tablas densas', script: 'check-dense-tables.js', ms: 1146 },
-  { nombre: 'colisión de migraciones', script: 'check-migration-collisions.js', ms: 1362 },
-  { nombre: 'API retirada de PrimeNG', script: 'check-primeng-api.js', ms: 2084 },
-  { nombre: 'reactividad de señales', script: 'check-signal-reactivity.js', ms: 1801 },
-  { nombre: 'literales de template', script: 'check-template-literals.js', ms: 2521 },
-  // `[KBD]` Las dos de 2026-10-01. Son las más baratas de la lista (~200 ms cada una):
-  // escaneo por regex sobre .component.ts, sin red y sin DB.
-  { nombre: 'teclado en tablas', script: 'check-keyboard-nav.js', ms: 197 },
-  { nombre: 'búsqueda tokenizada', script: 'check-busqueda.js', ms: 198 },
-];
+const GATES = DEL_PUSH;
 
 /** Un sha de puros ceros = la ref se está borrando. */
 const SHA_CERO = /^0+$/;
