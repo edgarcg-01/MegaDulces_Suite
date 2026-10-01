@@ -240,9 +240,9 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
               }
             </div>
 
-            <div class="card-premium card-flat">
+            <div class="card-premium card-flat dt-scope">
               <p-table [value]="rc.rows" [scrollable]="true" scrollHeight="flex"
-                       styleClass="p-datatable-sm in-table" [rowHover]="true">
+                       styleClass="p-datatable-sm in-table dt-stack" [rowHover]="true">
                 <ng-template #header>
                   <tr>
                     <th style="width:7.5rem">Periodo</th>
@@ -258,17 +258,17 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
                 </ng-template>
                 <ng-template #body let-r>
                   <tr>
-                    <td class="mono">{{ r.periodo }}</td>
-                    <td class="strong">{{ r.warehouse_name }}</td>
-                    <td class="ta-r strong">{{ money(r.vendido_externo) }}</td>
-                    <td class="ta-r" [class.in-interno]="r.vendido_interno > 0">
+                    <td class="mono dt-id" role="cell" data-label="Periodo">{{ r.periodo }}</td>
+                    <td class="strong" role="cell" data-label="Sucursal">{{ r.warehouse_name }}</td>
+                    <td class="ta-r strong dt-num" role="cell" data-label="Vendido a cliente">{{ money(r.vendido_externo) }}</td>
+                    <td class="ta-r dt-num" role="cell" data-label="Traspaso interno" [class.in-interno]="r.vendido_interno > 0">
                       {{ r.vendido_interno > 0 ? money(r.vendido_interno) : '—' }}
                     </td>
-                    <td class="ta-r muted">{{ r.vendido_sin_catalogo > 0 ? money(r.vendido_sin_catalogo) : '—' }}</td>
-                    <td class="ta-r">{{ r.cobrado_efectivo > 0 ? money(r.cobrado_efectivo) : '—' }}</td>
-                    <td class="ta-r">{{ r.cobrado_banco > 0 ? money(r.cobrado_banco) : '—' }}</td>
-                    <td class="ta-r">{{ r.cobros || '—' }}</td>
-                    <td class="ta-r">
+                    <td class="ta-r muted dt-num" role="cell" data-label="Sin catalogo">{{ r.vendido_sin_catalogo > 0 ? money(r.vendido_sin_catalogo) : '—' }}</td>
+                    <td class="ta-r dt-num" role="cell" data-label="Efectivo">{{ r.cobrado_efectivo > 0 ? money(r.cobrado_efectivo) : '—' }}</td>
+                    <td class="ta-r dt-num" role="cell" data-label="Banco">{{ r.cobrado_banco > 0 ? money(r.cobrado_banco) : '—' }}</td>
+                    <td class="ta-r dt-num" role="cell" data-label="Cobros">{{ r.cobros || '—' }}</td>
+                    <td class="ta-r dt-num" role="cell" data-label="Pagos casados">
                       {{ r.pagos_casados ? r.pagos_casados + ' / ' + r.facturas_casadas + ' fac.' : '—' }}
                     </td>
                   </tr>
