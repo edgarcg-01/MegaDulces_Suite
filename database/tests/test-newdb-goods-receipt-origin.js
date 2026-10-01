@@ -228,6 +228,67 @@ const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFract
       }
     }
 
+    // ── 9. La vista QUE LA PANTALLA LEE trae el origen, y no se infló ─────────────────────
+    console.log('\n[9] La vista publicada trae el origen · sin fan-out · dentro del gate');
+    const [pub] = await q(
+      `SELECT count(*)::int filas,
+              count(*) FILTER (WHERE origen_veredicto IS NULL)::int veredicto_nulo,
+              count(DISTINCT origen_veredicto)::int veredictos
+         FROM analytics.erp_goods_receipts`);
+    const [dup] = await q(
+      `SELECT count(*)::int llaves_repetidas FROM (
+         SELECT 1 FROM analytics.erp_goods_receipts
+          GROUP BY tenant_id, sucursal, folio, doc_prefix HAVING count(*) > 1) z`);
+    if (!pub || !pub.filas) {
+      bad('analytics.erp_goods_receipts no devolvió filas.');
+    } else if (pub.veredicto_nulo > 0) {
+      // Un NULL en un LEFT JOIN se lee igual que "no hay problema". La pierna Wincaja tiene
+      // su propio veredicto (`sin_dato_kepler`) justamente para no caer en eso.
+      bad(`${pub.veredicto_nulo} filas publican origen_veredicto NULL: un NULL se lee como "sin problema".`);
+    } else if (dup.llaves_repetidas > 0) {
+      bad(`${dup.llaves_repetidas} llaves repetidas en la vista publicada: el listado se infló`
+        + ' (es el modo de falla de 20260819140000_fix_erp_goods_receipts_fanout).');
+    } else {
+      pass(`${pub.filas} filas, llave única, ${pub.veredictos} veredictos y ninguno NULL.`);
+    }
+
+    // El gate de la pantalla: el conteo que hace la lista, con sus filtros reales.
+    const t0 = Date.now();
+    await q(
+      `SELECT count(*)::int, count(*) FILTER (WHERE origen_veredicto LIKE 'otra_plaza%')::int
+         FROM analytics.erp_goods_receipts
+        WHERE tenant_id = (SELECT tenant_id FROM analytics.erp_goods_receipts LIMIT 1)
+          AND dup_of_folio IS NULL AND receipt_date >= current_date - 90`);
+    const ms = Date.now() - t0;
+    // ⚠️ Esta medición es la razón por la que el origen vive DENTRO de la vista y no en un
+    // LEFT JOIN desde la pantalla: con el join costaba 5.5 s (nested loop re-escaneando el
+    // resolvedor una vez por documento).
+    if (ms < 1000) pass(`el conteo de la pantalla tarda ${ms} ms (gate < 1 s).`);
+    else bad(`el conteo de la pantalla tarda ${ms} ms: por encima del gate de 1 s.`);
+
+    // ── 10. NEGATIVO: la réplica de la 03 NO se publica como suya ─────────────────────────
+    console.log('\n[10] Prueba negativa · la réplica del almacén 02 en la rama 03 queda fuera');
+    // ⚠️ NO se cuenta pareando por FOLIO: el folio se repite entre almacenes, así que un
+    // EXISTS por folio da falsos positivos contra los documentos PROPIOS de la 03 que llevan
+    // el mismo número. Es el mismo error que convertía la réplica en un "hallazgo".
+    const [rep] = await q(
+      `SELECT (SELECT count(*) FROM kepler_ods.kdm1 m
+                WHERE m.sucursal='03' AND m.c2='X' AND m.c3='A' AND btrim(m.c4::text)='20'
+                  AND btrim(m.c1) <> m.sucursal)::int AS replica,
+              (SELECT count(*) FROM kepler_ods.kdm1 m
+                WHERE m.sucursal='03' AND m.c2='X' AND m.c3='A' AND btrim(m.c4::text)='20'
+                  AND btrim(m.c1) = m.sucursal AND btrim(COALESCE(m.c43,'')) <> 'C')::int AS propios,
+              (SELECT count(*) FROM analytics.erp_goods_receipts WHERE sucursal='03')::int AS publicados`);
+    if (!rep || !rep.replica) {
+      skip('la rama 03 ya no arrastra documentos de otro almacén: no hay réplica que comprobar.');
+    } else if (rep.publicados === rep.propios) {
+      pass(`${rep.replica} documentos de otro almacén viven en la rama 03 y la vista publica`
+        + ` exactamente sus ${rep.propios} propios: la réplica queda fuera.`);
+    } else {
+      bad(`la rama 03 publica ${rep.publicados} filas y sus documentos propios son ${rep.propios}`
+        + ` (${rep.replica} son réplica de otro almacén): doble conteo y plaza equivocada.`);
+    }
+
     console.log(`\n=== ${ok} OK · ${fail} FALLAS · ${nomedido} NO MEDIDOS ===`);
     process.exitCode = fail ? 1 : 0;
   } catch (e) {

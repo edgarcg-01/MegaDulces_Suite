@@ -103,6 +103,24 @@ export interface EntradaRow {
   ajuste_comercial?: number;
   ajuste_operativo?: number;
   neto?: number;
+  /**
+   * `[DM.19]` — **de qué PLAZA es la compra.** ⚠️ No confundir con `origen`, que dice en qué
+   * servidor se capturó (`oficinas` | `sucursal`). Son dos preguntas distintas.
+   *
+   * Lo dice el propio Kepler (`kdm1.c12` = centro de compra, catálogo `kdxv`). En la sucursal
+   * `00` sólo 2,267 de 9,326 órdenes son del CEDIS: 5,820 por $219,380,811 son de otras siete
+   * plazas. `plaza_nombre` llega `null` cuando el ERP nombra la plaza pero la evidencia no
+   * alcanza para resolverla — ahí se muestra `plaza_centro`, que es lo que el ERP escribió.
+   */
+  plaza_veredicto?: 'propio' | 'otra_plaza' | 'otra_plaza_sin_nombre' | 'sin_centro'
+    | 'centro_no_dice_plaza' | 'centro_fuera_de_catalogo' | 'sucursal_sin_centro_propio'
+    | 'sin_dato_kepler' | null;
+  plaza_nombre?: string | null;
+  plaza_centro?: string | null;
+  plaza_centro_code?: string | null;
+  /** Segundo testigo: la plaza que declara la referencia del proveedor (`c11`). Coincide 99.7%. */
+  plaza_testigo?: string | null;
+  plaza_concuerdan?: boolean | null;
 }
 
 /** RE.14.3 — un par de la misma recepción capturada dos veces, con los dos lados a la vista. */
@@ -212,6 +230,11 @@ export interface EntradasQuery {
   lente?: 'proceso' | 'dinero';
   ajuste?: 'con' | 'sin' | 'operativo' | 'comercial';
   con_oc?: 'con' | 'sin';
+  /**
+   * `[DM.19]` De qué plaza es la compra. ⛔ `sin_declarar` NO es "del CEDIS": es que el
+   * documento no lo dice (1,239 por $91.5M, casi todos de nov-2025 a ene-2026).
+   */
+  plaza?: 'propia' | 'otra' | 'sin_declarar' | '';
   page?: number;
   pageSize?: number;
 }
@@ -309,6 +332,13 @@ export interface EntradasReport {
     cuadran: number; por_revisar: number; sin_datos: number;
     /** Paquetes sin nuestra hoja interna, de los que se pudo saber. Informativo. */
     sin_hoja_interna: number;
+    /**
+     * `[DM.19]` — lo que NO es de esta sucursal, y lo que el documento no alcanza a decir.
+     * Se cuentan por separado a propósito: `sin_declarar` es un vacío de DATOS, y sumarlo a lo
+     * propio sería justo el error que esta medición existe para no cometer.
+     */
+    plaza_ajena: number; monto_plaza_ajena: number;
+    plaza_sin_declarar: number; monto_plaza_sin_declarar: number;
   };
   frescura: EntradaFrescura[];
   rows: EntradaRow[];
