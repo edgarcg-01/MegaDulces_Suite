@@ -897,7 +897,46 @@ está mal.
 
 ---
 
-## 24 · Lo que sigue
+## 24 · `[PR.V9]` · Emojis en la interfaz, y una tabla sin una sola regla de estilo
+
+Dos reportes sobre el expediente, los dos ciertos.
+
+### 1 · «dices «subir precio» un porcentaje pero no dices si subir ese margen»
+
+La tabla de plazas imprimía **el código interno** (`subir_precio`) pegado al porcentaje, y los
+encabezados decían «MARGEN REAL QUÉ HACER» de corrido. Causa: **`.mx-tab` no tenía NI UNA regla
+de estilo** — sin `padding`, celdas y encabezados se leen como una sola palabra. Es el mismo
+defecto que «Corregir la escaleraARITMÉTICA», otra vez y en otra tabla.
+
+| | antes | ahora |
+|---|---|---|
+| la acción | `subir_precio` | **Subir el precio**, con `etiquetaAccion()` |
+| el encabezado | «Margen real» / «Qué hacer» | **«Margen que se cobró»** / **«Qué propone el motor»** |
+| separación | ninguna | `.mx-tab` con sus reglas |
+
+### 2 · ⛔ Emojis, con la regla escrita y sin nada que la vigilara
+
+**10 emojis** en párrafos de la interfaz del expediente y de experimentos, escritos por quien
+conocía la regla *«iconos, nunca emojis»*. Reemplazados por PrimeIcons con su rótulo.
+
+⭐ **Y la compuerta no existía**, así que se construyó: `scripts/check-no-emoji-ui.js`, registrada
+en `compuertas.js`. Mide **75** en texto visible de toda la app — techo en **75**, la deuda medida,
+congelada para que la 76ª no entre. Prueba negativa: con uno de más marca **76 contra 75** y falla.
+
+Qué mira y qué no: sólo lo que se **renderiza** (adentro de `template:`, salteando comentarios), y
+**deja fuera a propósito** `✓ ✗ ✕`, que son marcas tipográficas y no pictogramas — meterlas
+triplicaría el conteo con casos discutibles y volvería la compuerta ignorable.
+
+Por qué no es estética: un emoji **lo pinta la fuente del sistema operativo**, así que el mismo
+párrafo sale distinto en Windows, en Android y en el navegador del vendedor; no hereda el color
+del texto; no se alinea a la rejilla; y un lector de pantalla lo lee con su nombre Unicode.
+
+**Verificado:** `nx build view` · `nx test view` **1,387** · lint 0 errores · la compuerta nueva en
+`check-all`.
+
+---
+
+## 25 · Lo que sigue
 
 - ⛔⛔ **La ventana no está en producción y no se puede validar todavía.** Prod corre
   `c1a83e8` (15:53): tiene la pantalla, **no** el expediente. El `auto-deploy` está **frenado
