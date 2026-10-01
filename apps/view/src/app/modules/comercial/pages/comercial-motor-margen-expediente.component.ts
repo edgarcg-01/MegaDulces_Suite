@@ -76,7 +76,7 @@ import {
       </div>
       <dl class="mx-cifras">
         <div><dt>Precio hoy</dt><dd class="comm-num">{{ d.accion.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</dd></div>
-        <div><dt>Costo</dt><dd class="comm-num">{{ num(d.accion.a1_costo_hoy, '1.2-2') }}</dd></div>
+        <div><dt>Costo</dt><dd class="comm-num">{{ num(d.accion.a1_costo_hoy) }}</dd></div>
         <div><dt>Margen real</dt><dd class="comm-num">{{ pct(d.accion.margen_realizado_pct) }}</dd></div>
         <div><dt>Meta de ficha</dt><dd class="comm-num">{{ pct(d.accion.meta_margen_pct) }}</dd></div>
         <div><dt>Venta 30 d</dt><dd class="comm-num">{{ d.accion.venta_30d | currency:'MXN':'symbol-narrow':'1.0-0' }}</dd></div>
@@ -172,7 +172,7 @@ import {
             </div>
             <div>
               <dt>Aterriza en</dt>
-              <dd class="comm-num">{{ num(s.aterrizajes.p99, '1.2-2') }}</dd>
+              <dd class="comm-num">{{ num(s.aterrizajes.p99) }}</dd>
             </div>
             <div>
               <dt>¿Se nota?</dt>
@@ -230,8 +230,8 @@ import {
           @for (p of d.plazas; track p.sucursal) {
             <tr [class.is-esta]="p.es_esta">
               <td class="mx-mono">{{ p.sucursal }}</td>
-              <td class="comm-num">{{ num(p.precio_actual, '1.2-2') }}</td>
-              <td class="comm-num">{{ num(p.a1_costo_hoy, '1.2-2') }}</td>
+              <td class="comm-num">{{ num(p.precio_actual) }}</td>
+              <td class="comm-num">{{ num(p.a1_costo_hoy) }}</td>
               <td class="comm-num">{{ pct(p.margen_realizado_pct) }}</td>
               <td class="mx-min">{{ p.accion }}</td>
             </tr>
@@ -599,7 +599,7 @@ export class ComercialMotorMargenExpedienteComponent {
     return m.length >= 2 ? (Math.max(...m) - Math.min(...m)).toFixed(2) : null;
   });
 
-  num(v: string | number | null | undefined, _f = '1.2-2'): string {
+  num(v: string | number | null | undefined): string {
     if (v === null || v === undefined) return '—';
     return `$${Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
