@@ -141,10 +141,12 @@ import {
           }
         </div>
 
-        <!-- ⚠️ `class=` y no `styleClass=`: el gate `check-primeng-api.js` marca styleClass en
-             p-table como retirado en v22. No se puede resolver leyendo el codigo -el propio CSS
-             de styles.css lo documenta al reves- asi que se usa el atributo DOM, que aterriza
-             en el host pase lo que pase. Los selectores son descendentes y funcionan igual. -->
+        <!-- ⚠️ Atributo class y NO styleClass: el gate check-primeng-api.js marca styleClass
+             en p-table como retirado en v22. No se puede resolver leyendo el codigo -el propio
+             CSS de styles.css lo documenta al reves- asi que se usa el atributo DOM, que
+             aterriza en el host pase lo que pase. Los selectores son descendentes e igual
+             funcionan. (Y este comentario NO lleva acentos graves: adentro de un template
+             literal lo TERMINAN. Van nueve veces en este repo.) -->
         <p-table [value]="cola()" class="p-datatable-sm surf-table surf-table--sticky"
                  [rowHover]="true" selectionMode="single"
                  [(selection)]="seleccion" (selectionChange)="abrir($event)" dataKey="sku">
