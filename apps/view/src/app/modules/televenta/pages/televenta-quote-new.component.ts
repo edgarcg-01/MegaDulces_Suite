@@ -405,10 +405,15 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 </div>
               </div>
 
-              <!-- PREGUNTA: ¿El precio es por caja (o bulto/cubeta) o por pieza? -->
+              <!-- PREGUNTA: ¿El precio es por caja (o bulto/cubeta) o por pieza?
+                   Sólo se pintan las unidades que el ERP declara: con una sola, no hay pregunta. -->
               <div class="pregunta-seccion">
-                <span class="pregunta-lbl">¿El precio es por {{ mayor(e).toLowerCase() }} o por {{ e.sold_by_kg ? 'kilo' : 'pieza' }}?</span>
-                <div class="unit-toggle-group" role="group" [attr.aria-label]="'Seleccionar si el precio es por ' + mayor(e).toLowerCase() + ' o por unidad'">
+                @if (unidadesDisponibles(e) > 1) {
+                  <span class="pregunta-lbl">¿El precio es por {{ tieneMayor(e) ? mayor(e).toLowerCase() : 'paquete' }} o por {{ e.sold_by_kg ? 'kilo' : 'pieza' }}?</span>
+                } @else {
+                  <span class="pregunta-lbl">Unidad de venta</span>
+                }
+                <div class="unit-toggle-group" role="group" aria-label="Unidad de venta del artículo">
                   <!-- Opción Pieza (o KG) -->
                   <button
                     type="button"
@@ -422,32 +427,36 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     <span class="unit-sub">Unidad individual</span>
                   </button>
 
-                  <!-- Opción unidad mayor: Caja, o Bulto/Cubeta cuando el ERP así la declara -->
-                  <button
-                    type="button"
-                    class="unit-toggle-btn"
-                    [class.unit-toggle-active]="rung() === 'box'"
-                    (click)="setRung('box')"
-                    [disabled]="guardando()"
-                  >
-                    <i class="pi pi-box" aria-hidden="true"></i>
-                    <span class="unit-title">{{ mayor(e) }}</span>
-                    <span class="unit-sub">
-                      @if (e.box_size) {
-                        {{ e.box_size }} {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pzas') }} / {{ mayor(e).toLowerCase() }}
-                      } @else {
-                        Empaque mayor
-                      }
-                    </span>
-                    @if (rung() === 'box' && previaArticulo()?.volume_tier; as vt) {
-                      <span class="unit-badge-mayoreo">
-                        Mayoreo: {{ dinero(vt.price) }} (desde {{ vt.min_qty }} {{ mayor(e).toLowerCase() }}s)
+                  <!-- Opción unidad mayor: Caja, o Bulto/Cubeta cuando el ERP así la declara.
+                       Si el ERP no declara unidad mayor, el botón NO se pinta: antes salía y al
+                       tocarlo decía "sin precio", que es ofrecer algo que no existe. -->
+                  @if (tieneMayor(e)) {
+                    <button
+                      type="button"
+                      class="unit-toggle-btn"
+                      [class.unit-toggle-active]="rung() === 'box'"
+                      (click)="setRung('box')"
+                      [disabled]="guardando()"
+                    >
+                      <i class="pi pi-box" aria-hidden="true"></i>
+                      <span class="unit-title">{{ mayor(e) }}</span>
+                      <span class="unit-sub">
+                        @if (e.box_size) {
+                          {{ e.box_size }} {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pzas') }} / {{ mayor(e).toLowerCase() }}
+                        } @else {
+                          Empaque mayor
+                        }
                       </span>
-                    }
-                  </button>
+                      @if (rung() === 'box' && previaArticulo()?.volume_tier; as vt) {
+                        <span class="unit-badge-mayoreo">
+                          Mayoreo: {{ dinero(vt.price) }} (desde {{ vt.min_qty }} {{ mayor(e).toLowerCase() }}s)
+                        </span>
+                      }
+                    </button>
+                  }
 
                   <!-- Opción Paquete si aplica -->
-                  @if (e.pack_size && e.pack_size > 1) {
+                  @if (tienePaquete(e)) {
                     <button
                       type="button"
                       class="unit-toggle-btn"
@@ -912,7 +921,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .search-box { position: relative; display: flex; align-items: center; }
       .search-icon { position: absolute; left: 0.65rem; color: var(--text-muted); font-size: 0.8125rem; pointer-events: none; }
       .search-spinner { position: absolute; right: 0.65rem; color: var(--text-muted); font-size: 0.8125rem; }
-      .search-input { padding-left: 2rem; width: 100%; }
+      /* .input. sube la especificidad: la regla .input { padding } va DESPUÉS y le borraba
+         el padding-left, así la lupa quedaba encima del primer carácter. */
+      .input.search-input { padding-left: 2rem; width: 100%; }
 
       .results-dropdown {
         position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 40;
@@ -979,7 +990,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .search-step { position: relative; margin-bottom: 0.5rem; }
       .search-input-wrap { position: relative; display: flex; align-items: center; }
       .search-ico { position: absolute; left: 0.75rem; color: var(--text-muted); font-size: 0.875rem; pointer-events: none; }
-      .search-prod-input { padding-left: 2.25rem; font-size: 0.875rem; min-height: 40px; border-radius: 6px; width: 100%; }
+      .input.search-prod-input { padding-left: 2.25rem; font-size: 0.875rem; min-height: 40px; border-radius: 6px; width: 100%; }
 
       /* Desplegable ordenado alfabéticamente */
       .cat-dropdown {
@@ -1573,6 +1584,20 @@ export class TeleventaQuoteNewComponent implements OnInit {
   /** Nombre de la unidad mayor del artículo: Caja, Bulto o Cubeta, según lo declara el ERP. */
   mayor(e: QuoteCatalogRow | null): string {
     return nombreUnidadMayor(e?.box_label);
+  }
+
+  /** El ERP declara unidad mayor (caja, bulto o cubeta) para este artículo en la sucursal. */
+  tieneMayor(e: QuoteCatalogRow | null): boolean {
+    return !!(e && (e.box_size || e.box_label));
+  }
+
+  tienePaquete(e: QuoteCatalogRow | null): boolean {
+    return !!(e && e.pack_size && e.pack_size > 1);
+  }
+
+  /** Cuántos botones de unidad se pintan: la base siempre, más los peldaños que existan. */
+  unidadesDisponibles(e: QuoteCatalogRow | null): number {
+    return 1 + (this.tieneMayor(e) ? 1 : 0) + (this.tienePaquete(e) ? 1 : 0);
   }
 
   labelUnidadActiva(): string {
