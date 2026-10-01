@@ -1889,3 +1889,60 @@ dar por supuesto.
 publica desde `kdil` sin un segundo testigo que la respalde. No es un problema del CEDIS; es del
 dato de existencia completo. Si `kdil` está mal, está mal para todas — y eso es una fase aparte, no
 un motivo para dejar un almacén en blanco.
+
+### 17.5 ⛔ La cobertura REAL del árbitro: 2.8% nominal, **0% independiente**
+
+Medido el 2026-10-01 sobre `v_erp_stock_on_hand` del almacén `00`:
+
+| | SKUs | unidades | valor |
+|---|---|---|---|
+| con testigo físico (conteo del corte) | 126 · **2.5%** | 340,067 · **2.8%** | $8,651,065 · **2.8%** |
+| **sin testigo** | 4,881 · 97.5% | 11,840,389 · 97.2% | **$298,236,133** · 97.2% |
+
+⚠️ Y ese 2.8% **tampoco es un árbitro: es un espejo**. El conteo dio **1.00× en 127 de 127** y no
+podía dar otra cosa — la entrada `N-A-30` posteó exactamente lo contado. Prueba que *el documento se
+capturó bien*, no que *lo contado sea lo que hay*. **La existencia del CEDIS verificada contra una
+medición independiente es 0%.** (Y el ancla ya decae: 24 h después eran 126 SKUs / 340,067 u.)
+
+**Por qué, y no es técnico:**
+
+| sucursal | conteos físicos en toda su historia Kepler |
+|---|---|
+| **00 CEDIS** | **1** — el del corte, 2026-09-30 |
+| 02 | 217 · 05 | 6 · 03 | 4 · 04 | 3 |
+| 01 · 07 · 08 | 1 |
+
+**El CEDIS nunca se contó.** Es el nodo menos contado de la red, el que surte a todos, y el que
+publica $298M. En nuestro propio módulo de conteo tenía **cero folios**.
+
+### 17.6 ⭐ Y estaba fuera del programa de conteo por la MISMA exclusión
+
+La cadena es `v_erp_stock_on_hand` → `analytics.inventory_health` (nocturno 03:30) → `v_abc_class` →
+`commercial.abc_classification` → `v_count_priority_score` → el plan de olas. Todo cuelga de la
+vista. O sea que **nadie sacó al CEDIS del conteo a propósito**: lo sacó el mismo `<> '00'` de §17.1,
+tres saltos más abajo. Arreglada la raíz, entra solo en la próxima corrida nocturna.
+
+Se verificó eslabón por eslabón, en seco (09:27 de un jueves: ⛔ nada de escrituras pesadas a prod en
+horario hábil):
+
+1. `v_erp_stock_on_hand` → CEDIS con 5,007 SKUs, `qty > 0` ✅
+2. `v_abc_class` **no filtra** por demanda: pasa todo con su `clase_motivo` ✅
+3. `score_salvedad = 'sin_datos'` exige que las **tres** señales sean cero
+   (`annual_value` **y** `avg_daily_units` **y** `on_hand`). El CEDIS tiene `on_hand > 0` → cae en
+   **`sin_historia_de_conteo`**, y el plan filtra `IS DISTINCT FROM 'sin_datos'` → **es contable** ✅
+
+⚠️ **Una hipótesis mía quedó refutada en el camino:** supuse que el CEDIS sería `sin_datos` porque no
+vende (tiene **cero filas** en `sales_daily`, ni siquiera de traspaso — el importer excluye
+`channel='mayoreo'` por ser traspaso interno, no demanda). Falso: la regla pide las tres en cero, no
+una. El comentario de `20260929120000` ya describía este caso exacto —*"no hay con qué juzgarlo, y es
+el único que NUNCA se contó"*— y por eso `sin_historia_de_conteo` existe como estado aparte.
+
+⚠️ **Efecto colateral declarado:** la misma corrida nocturna le va a dar `reorder_policy` al CEDIS
+(hoy tiene 0 filas), así que **el sugerido de compras va a cambiar**. Es el comportamiento que
+RA-PRO.6 diseñó (demanda dependiente, `media_red = Σavg(suc) + propio`), pero nadie lo pidió hoy y se
+anota para que el cambio no sorprenda.
+
+El bloque 7 de `test-newdb-cedis-stock-truth.js` lo vigila, y **distingue dos cosas que se ven igual
+y piden lo contrario**: si el nocturno aún no corrió desde el arreglo reporta **NO MEDIDO**; si corrió
+**después** y el CEDIS igual no está, **FALLA**. Sin esa distinción el candado daría rojo el mismo día
+del arreglo, que es como se enseña a ignorarlo.
