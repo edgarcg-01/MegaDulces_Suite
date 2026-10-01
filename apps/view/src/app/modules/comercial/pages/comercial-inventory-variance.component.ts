@@ -1282,6 +1282,9 @@ export class ComercialInventoryVarianceComponent {
       case 'merma_sostenida': return 'Merma sostenida';
       case 'sobra_sostenida': return 'Sobra sostenida';
       case 'se_compensa': return 'Se compensa';
+      case 'salida_de_almacen': return 'Salió del almacén';
+      case 'devolucion_de_cliente': return 'Devolución de cliente';
+      case 'devolucion_de_compra': return 'Devolución de compra';
       case 'sin_explicacion': return 'Sin explicación';
       case 'no_medido': return 'No se pudo juzgar';
       default: return '—';
@@ -1299,6 +1302,10 @@ export class ComercialInventoryVarianceComponent {
       case 'costo_de_caja': return 'info';
       case 'se_compensa': return 'success';
       case 'movimientos_lo_explican': return 'success';
+      // [EXP.3] Verde: hay un documento que lo explica, igual que el roll-forward.
+      case 'salida_de_almacen': return 'success';
+      case 'devolucion_de_cliente': return 'success';
+      case 'devolucion_de_compra': return 'success';
       default: return 'secondary';
     }
   }
@@ -1324,6 +1331,15 @@ export class ComercialInventoryVarianceComponent {
       case 'sin_explicacion':
         return 'Se consultaron todos los testigos y ninguno lo explica. ESTA es la pila que hay '
           + 'que caminar.';
+      case 'salida_de_almacen':
+        return 'Hubo una salida de almacén documentada en el período que cierra exactamente '
+          + 'la brecha. ⚠️ El ERP ofrece cinco motivos (ajuste, destrucción, muestra) y la '
+          + 'operación sólo usa el genérico, así que el documento no dice POR QUÉ salió.';
+      case 'devolucion_de_cliente':
+        return 'Un cliente devolvió mercancía en el período y eso explica el sobrante: '
+          + 'volvió al almacén.';
+      case 'devolucion_de_compra':
+        return 'Se le devolvió mercancía al proveedor en el período.';
       case 'no_medido':
         return '⛔ NO quiere decir que no haya causa: falta un testigo. Casi siempre no hay '
           + 'conteo anterior con el cual comparar, o es la primera vez que se cuenta el almacén.';

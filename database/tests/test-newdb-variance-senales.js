@@ -46,7 +46,9 @@ const t = (n, c, x) => { if (c) { ok++; console.log(`  ✔ ${n}`); }
 const noMedido = (n, m) => { nm++; console.log(`  ◻ NO MEDIDO: ${n} — ${m}`); };
 
 const VOCABULARIO = ['costo_de_caja', 'movimientos_lo_explican', 'merma_sostenida',
-  'sobra_sostenida', 'se_compensa', 'sin_explicacion', 'no_medido'];
+  'sobra_sostenida', 'se_compensa', 'sin_explicacion', 'no_medido',
+  // [EXP.3] Los tres flujos arbitrados que el roll-forward no cuenta.
+  'salida_de_almacen', 'devolucion_de_cliente', 'devolucion_de_compra'];
 
 (async () => {
   const url = process.env.DATABASE_URL_NEW;
@@ -268,6 +270,72 @@ const VOCABULARIO = ['costo_de_caja', 'movimientos_lo_explican', 'merma_sostenid
       }
     }
 
+    // ── 10. ⭐ [EXP.3] EL ARBITRAJE DE LOS DOCTYPES, RE-MEDIDO ───────────────────────
+    // Los tres flujos nuevos no se eligieron leyendo el catálogo: se arbitraron contra el
+    // cuadre del roll-forward, uno por uno, y uno se RECHAZÓ con el mismo instrumento.
+    // ⛔ Este bloque vuelve a correr la medición en vez de mirar el resultado: si el ERP
+    // cambia de comportamiento, un candado que sólo comprueba la salida no se entera.
+    {
+      const [a] = (await db.raw(`
+        WITH flujo AS (
+          SELECT r.warehouse_id, r.sku, r.desde, r.hasta,
+                 coalesce(sum(l.c9::numeric) FILTER (WHERE m.c2='N' AND m.c3='D' AND m.c4::int=5), 0) AS f_sal,
+                 coalesce(sum(l.c9::numeric) FILTER (WHERE m.c2='U' AND m.c3='A' AND m.c4::int IN (21,25)), 0) AS f_dev,
+                 coalesce(sum(l.c9::numeric) FILTER (WHERE m.c2='U' AND m.c3='D' AND m.c4::int IN (8,12)), 0) AS f_fac,
+                 coalesce(sum(l.c9::numeric) FILTER (WHERE m.c2='X' AND m.c3='D' AND m.c4::int=40), 0) AS f_dvc
+            FROM analytics.mv_erp_count_rollforward r
+            JOIN kepler_ods.kdm1 m
+              ON m.sucursal = r.kepler_sucursal
+             AND (m.c1 = m.sucursal OR m.c1 LIKE m.sucursal || '-%')
+             AND m.c9::date > r.desde AND m.c9::date <= r.hasta
+             AND (   (m.c2='N' AND m.c3='D' AND m.c4::int = 5)
+                  OR (m.c2='U' AND m.c3='A' AND m.c4::int IN (21,25))
+                  OR (m.c2='U' AND m.c3='D' AND m.c4::int IN (8,12))
+                  OR (m.c2='X' AND m.c3='D' AND m.c4::int = 40))
+            JOIN kepler_ods.kdm2 l
+              ON l.sucursal = m.sucursal AND l.c1 = m.c1 AND l.c2 = m.c2 AND l.c3 = m.c3
+             AND l.c4 = m.c4 AND l.c5 = m.c5 AND l.c6 = m.c6 AND btrim(l.c8) = r.sku
+           WHERE r.veredicto <> 'no_recontado'
+           GROUP BY 1,2,3,4
+        ), ev AS (
+          SELECT r.no_explicado AS res, coalesce(f.f_sal,0) f_sal, coalesce(f.f_dev,0) f_dev,
+                 coalesce(f.f_fac,0) f_fac, coalesce(f.f_dvc,0) f_dvc
+            FROM analytics.mv_erp_count_rollforward r
+            LEFT JOIN flujo f ON f.warehouse_id=r.warehouse_id AND f.sku=r.sku
+                             AND f.desde=r.desde AND f.hasta=r.hasta
+           WHERE r.veredicto <> 'no_recontado'
+        )
+        SELECT round(100.0*count(*) FILTER (WHERE abs(res) < 0.01)/count(*), 3) AS base,
+               round(100.0*count(*) FILTER (WHERE abs(res + f_sal - f_dev + f_dvc) < 0.01)/count(*), 3) AS ganadores,
+               round(100.0*count(*) FILTER (WHERE abs(res + f_sal - f_dev + f_dvc + f_fac) < 0.01)/count(*), 3) AS con_rechazado,
+               count(*) FILTER (WHERE abs(res) >= 0.01 AND abs(res + f_sal - f_dev + f_dvc) < 0.01)::int AS gana
+          FROM ev`)).rows;
+      console.log(`      ⓘ cuadre del roll-forward: base ${a.base}% · con los 3 ganadores `
+        + `${a.ganadores}% · sumando el rechazado ${a.con_rechazado}%`);
+      t('⭐ los TRES doctypes arbitrados SIGUEN mejorando el cuadre del roll-forward',
+        Number(a.ganadores) > Number(a.base),
+        `base=${a.base}% ganadores=${a.ganadores}% — dejaron de aportar`);
+      t('⛔ y U-D-8/12 SIGUE empeorándolo — esa mercancía ya está en U-D-10, es re-facturación',
+        Number(a.con_rechazado) < Number(a.base),
+        `con_rechazado=${a.con_rechazado}% vs base=${a.base}%: dejó de ser espejo, re-evaluar`);
+      t(`⛔ y cierran el hueco de ${a.gana} SKUs que el motor llama merma o sobrante`,
+        Number(a.gana) > 0);
+    }
+
+    // ── 11. [EXP.3] DÓNDE CAE EL VALOR, declarado ───────────────────────────────────
+    // ⚠️ Lo que estos flujos arreglan es el ROLL-FORWARD, no la pila de ajustes: son
+    // documentos REALES de Kepler, así que su propio libro ya los movió y nunca emitió un
+    // ajuste por ellos. Medido: de los SKUs cuyo hueco cierran, sólo el 6.7% tiene ajuste.
+    // Mientras el roll-forward no los sume, sigue llamando MERMA a dinero que tiene papel.
+    {
+      const [f] = (await db.raw(`
+        SELECT count(*) FILTER (WHERE flujo_dominante IS NOT NULL)::int AS con_flujo,
+               count(*) FILTER (WHERE flujo_explica)::int AS explican_el_ajuste
+          FROM analytics.mv_erp_count_line_signals`)).rows;
+      t(`${f.con_flujo} renglones muestran su flujo en el expediente`, Number(f.con_flujo) > 0);
+      console.log(`      ⓘ y sólo ${f.explican_el_ajuste} explican el AJUSTE: el valor de estos `
+        + 'doctypes está en el roll-forward, que todavía no los suma');
+    }
     console.log(`\n=== ${ok} ✓ / ${bad} ✗ / ${nm} no medidos ===\n`);
   } catch (e) {
     console.error('ERROR:', e.message); bad++;

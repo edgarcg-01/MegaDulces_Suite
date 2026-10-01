@@ -3122,7 +3122,10 @@ export interface InventoryVarianceLine {
 
 export type InventoryVarianceExplicacion =
   | 'costo_de_caja' | 'movimientos_lo_explican' | 'merma_sostenida' | 'sobra_sostenida'
-  | 'se_compensa' | 'sin_explicacion' | 'no_medido';
+  | 'se_compensa' | 'sin_explicacion' | 'no_medido'
+  // [EXP.3] Documentos de Kepler que el motor de conciliación no sumaba, arbitrados uno
+  // por uno contra el cuadre del roll-forward.
+  | 'salida_de_almacen' | 'devolucion_de_cliente' | 'devolucion_de_compra';
 
 /**
  * [EXP.2] Un bloque que el perfil del usuario NO alcanza.
