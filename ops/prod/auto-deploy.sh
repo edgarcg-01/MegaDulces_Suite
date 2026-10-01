@@ -68,7 +68,7 @@ di() { echo "[$(date '+%F %T %Z')] $*"; }
 # `prod-vendor` (el compose los nombra así; `pg-prod` y `pg-rag` NO siguen el patrón, pero este
 # carril no los toca).
 img_de()  { case "$1" in api) echo trade-prod-api ;; worker) echo trade-prod-worker ;; portal) echo trade-prod-portal ;; vendor) echo trade-prod-vendor ;; *) echo '' ;; esac; }
-cont_de() { case "$1" in api) echo prod-api ;; worker) echo prod-worker ;; portal) echo prod-portal ;; vendor) echo prod-vendor ;; *) echo '' ;; esac; }
+cont_de() { case "$1" in api) echo prod-api ;; api2) echo prod-api-2 ;; worker) echo prod-worker ;; portal) echo prod-portal ;; vendor) echo prod-vendor ;; *) echo '' ;; esac; }
 
 # ── El diario se recorta solo ────────────────────────────────────────────────
 # `md` no tiene `logrotate` a mano para un usuario sin sudo, y una pasada cada 5 minutos escribe
@@ -176,7 +176,7 @@ fi
 # correr acá. Entonces se hace CONSERVADORA — ante cualquier cambio compartido (o ante la duda,
 # o si no se puede comparar) entran las cuatro. Equivocarse de más cuesta minutos de CPU;
 # equivocarse de menos deja producción atrás sin avisar, que es el defecto que esto cierra.
-SERVICIOS="api worker"
+SERVICIOS="api api2 worker"
 _extra=''
 if [ "$VIVO" != desconocido ] && git cat-file -e "$VIVO^{commit}" 2>/dev/null; then
   _cambios=$(git diff --name-only "$VIVO" "$DESEADO" 2>/dev/null)
@@ -463,6 +463,31 @@ if [ -z "$vivo_ahora" ] || { [ "$vivo_ahora" != "$DESEADO" ] && [ "$DESEADO" != 
   di "FALLO: el API sirve '${vivo_ahora:-nada}' y se levantó '$DESEADO'."
   revertir; latir error "commit no coincide tras desplegar $DESEADO — revertido a $ANTERIOR"; exit 1
 fi
+
+# ── `[VL.15.D2]` Y AHORA CADA RÉPLICA, no "una cualquiera por el balanceador" ───────────────
+# El chequeo de arriba hace UN `curl` al 8080, que es Caddy, que balancea entre `api` y `api2`
+# con `lb_policy cookie`: la respuesta viene de UNA de las dos, y cuál es azar.
+#
+# ⛔ MEDIDO EL 2026-10-01, y por eso existe esto: `prod-api` servía `13a2379` y `prod-api-2`
+# servía `477319f`. **Ocho horas sirviendo DOS versiones a la vez**, repartidas por cookie — y
+# este chequeo daba verde todas las veces, porque le tocaba la buena. La causa era que
+# `SERVICIOS` decía `"api worker"` y nunca recreaba la segunda réplica: la que `[INFRA.2]` puso
+# para que el despliegue no cortara servicio era, justamente, la que se quedaba vieja.
+#
+# ⚠️ `api2` NO se reconstruye —comparte `trade-prod-api:latest` con `api`, y el bucle de build
+# recorre una lista fija que no la incluye— pero sí tiene que RECREARSE. Por eso entró a
+# `SERVICIOS`; esto es el candado que comprueba que de verdad entró.
+# ⚠️ Se le pregunta a cada contenedor DIRECTO (`docker exec`), no por el 8080: preguntarle al
+# balanceador es exactamente lo que no distingue una réplica de la otra.
+# ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
+for _c in $(docker ps --format '{{.Names}}' | grep -E '^prod-api(-[0-9]+)?$'); do
+  _k=$(docker exec "$_c" node -e 'fetch("http://127.0.0.1:10000/api/health").then(r=>r.json()).then(j=>console.log(j.commit)).catch(()=>console.log(""))' 2>/dev/null)
+  if [ "$DESEADO" != desconocido ] && [ "$_k" != "$DESEADO" ]; then
+    di "FALLO: la réplica $_c sirve '${_k:-nada}' y se levantó '$DESEADO'."
+    revertir; latir error "réplica $_c desfasada tras desplegar $DESEADO — revertido a $ANTERIOR"; exit 1
+  fi
+  di "réplica $_c sirve $_k"
+done
 
 codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
   -X POST http://127.0.0.1:8080/api/auth-mt/login \
