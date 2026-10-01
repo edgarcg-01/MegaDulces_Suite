@@ -5,6 +5,47 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-30 — IC.CEDIS.2: la compuerta del CEDIS mandaba a corregir un documento que estaba bien
+Al investigar el cutover del CEDIS (avisado por Edgar: *"cedis ya es ahora 9.95"*) se corrió
+`check-cedis-cutover.js`, que dio **4 alarmas**. Una era falsa y ya se había propagado.
+
+- **La alarma 2 decía "la carga se SUMÓ al saldo previo → corregirlo en Kepler".** Su prueba es
+  una razón por orden de magnitud: saldo del almacén (12.18M u) contra lo capturado (340,077 u)
+  = **35.82×**. Medido SKU por SKU, **los 127 SKUs de la carga estaban TODOS en cero antes de la
+  entrada**: la carga no se sumó a nada y el documento está bien.
+- **Esa razón no puede distinguir dos cosas que piden acciones opuestas**: (a) la carga se sumó
+  encima de SKUs que ya tenían saldo → se corrige el documento; (b) el almacén ya traía saldo de
+  OTROS SKUs → se investiga el saldo. Un almacén que ya opera dispara la razón **siempre**: dar
+  de alta 127 SKUs nuevos en uno que arrastra 5,019 no es sumar, es dar de alta.
+- La compuerta ahora emite **las dos por separado**: (a) prueba directa SKU por SKU, (b) la señal
+  por orden de magnitud, con su recomendación propia (no apuntar la existencia del almacén a
+  Kepler mientras no se establezca de dónde sale el arrastre). Alarmas 4 → 3.
+- ⚠️ **El diagnóstico falso ya se había citado**: la migración `[IC.CEDIS.1]` (`a9bbf1e8a`, de
+  otra sesión, aplicada a prod hoy) lo toma como fundamento en su bloque "lo que esta migración
+  no hace". **Su decisión operativa —dejar apagada la existencia del CEDIS— es correcta**, pero
+  por el motivo (b), no por el (a). No se editó esa migración: está commiteada y es de otra
+  sesión; queda corregido acá.
+- `--csv` nuevo: la lista COMPLETA de faltantes (el informe cortaba en 40 y decía "y N más", que
+  sirve para leer en pantalla y no para ir a cargarlos). Hoy: **104 SKUs / $516,534**.
+
+**Lo que quedó medido y NO se pudo cerrar:**
+- La sucursal `00` arrastra **5,019 SKUs / 12.18M u** ajenos a la carga, con movimiento real
+  (3,594 activos en 90 días) y despachos de traspaso desde abril-2026. Valuarlo con `kdik.c16`
+  da **$306.9M**, que sería 5× el inventario de TODA la red ($59.1M, Fase MR) — pero esa cifra
+  **no sirve de árbitro**: la Fase CE ya documentó que `c16` tiene problema de peldaño. Así que
+  el arrastre está **declarado, no explicado**, y la existencia del CEDIS sigue apagada.
+
+**Lecciones:**
+- ⭐⭐ *Una razón entre un agregado y una parte no distingue "se sumó" de "ya había".* Las dos
+  inflan el cociente y piden lo contrario. La prueba que discrimina es por FILA — acá, SKU por
+  SKU, y existía la columna para hacerla.
+- ⭐ *Una heurística que grita en falso no se queda quieta: se cita.* Esta llegó a ser el
+  fundamento escrito de una migración aplicada a producción el mismo día.
+- ⚠️ `kdm2` guarda el SKU en `c8` y `kdil` en `c3`. Adivinarlo dio "1 SKU con 340,077 unidades",
+  un absurdo que obligó a verificar en vez de publicar. Verificar la columna contra el consumidor
+  que ya la usa cuesta menos que la retractación.
+
+---
 ## 2026-09-30 — EXP.1: las señales que explican el descuadre (la llave que faltaba)
 
 Etapa 1 del plan aprobado tras el reproche de Edgar sobre `/almacen/inventory/diferencias`:
