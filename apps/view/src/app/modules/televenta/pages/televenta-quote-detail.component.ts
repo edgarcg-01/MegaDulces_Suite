@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterModule } from '@angular/router';
@@ -219,6 +219,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                   <i class="pi pi-search search-ico" aria-hidden="true"></i>
                   <input
                     id="prodSearchInput"
+                    #buscadorArticulo
                     type="search"
                     class="input search-prod-input"
                     [(ngModel)]="termino"
@@ -949,6 +950,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
 })
 export class TeleventaQuoteDetailComponent implements OnInit {
   private readonly svc = inject(QuotesService);
+  private readonly injector = inject(Injector);
   private readonly toast = inject(MessageService);
   private readonly route = inject(ActivatedRoute);
 
@@ -967,6 +969,9 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly buscando = signal(false);
   readonly catalogoAbierto = signal(false);
   readonly elegido = signal<QuoteCatalogRow | null>(null);
+  /** El buscador de artículo: al agregar un renglón el cursor vuelve acá para el siguiente. */
+  private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
+  private focoSinAbrirCatalogo = false;
 
   termino = '';
   cantidad = 1;
@@ -1080,6 +1085,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   }
 
   onFoco(): void {
+    if (this.focoSinAbrirCatalogo) return;
     this.catalogoAbierto.set(true);
     if (this.resultados().length === 0) this.buscar$.next();
   }
@@ -1171,6 +1177,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
           this.limpiarAlta();
           this.recargar();
           this.guardando.set(false);
+          this.volverAlBuscador();
         },
         error: (err) => this.falla(err, 'No se pudo agregar el renglón'),
       });
@@ -1191,6 +1198,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
           this.limpiarAlta();
           this.recargar();
           this.guardando.set(false);
+          this.volverAlBuscador();
         },
         error: (err) => this.falla(err, 'No se pudo guardar el renglón'),
       });
@@ -1235,6 +1243,23 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       },
       error: (err) => this.falla(err, 'No se pudo quitar el renglón'),
     });
+  }
+
+  /**
+   * El cursor vuelve al buscador para escanear/escribir el siguiente sin tocar el mouse. Sin
+   * abrir la lista: taparía los renglones recién recargados; al teclear se abre sola.
+   * `afterNextRender` porque el input está `[disabled]` mientras se guarda: hay que esperar a que
+   * la pantalla lo vuelva a habilitar, si no el `focus()` cae sobre un control deshabilitado.
+   */
+  private volverAlBuscador(): void {
+    this.focoSinAbrirCatalogo = true;
+    afterNextRender(
+      () => {
+        this.buscadorArticulo()?.nativeElement.focus();
+        this.focoSinAbrirCatalogo = false;
+      },
+      { injector: this.injector },
+    );
   }
 
   private limpiarAlta(): void {

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
@@ -331,6 +331,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               <i class="pi pi-search search-ico" aria-hidden="true"></i>
               <input
                 id="prodSearchInput"
+                #buscadorArticulo
                 type="search"
                 class="input search-prod-input"
                 [(ngModel)]="terminoArticulo"
@@ -1241,6 +1242,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
 })
 export class TeleventaQuoteNewComponent implements OnInit {
   private readonly svc = inject(QuotesService);
+  private readonly injector = inject(Injector);
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
 
@@ -1290,6 +1292,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
   cantidadArticulo = signal<number>(1);
   cotizandoArticulo = signal(false);
   previaArticulo = signal<PricedLine | null>(null);
+  /** El buscador de artículo: al agregar a la bandeja el cursor vuelve acá para el siguiente. */
+  private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
+  private focoSinAbrirCatalogo = false;
 
   // ── La Bandeja de productos de la cotización ───────────────────────────────
   bandeja = signal<ItemBandeja[]>([]);
@@ -1545,6 +1550,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   onFocoArticulo(): void {
+    if (this.focoSinAbrirCatalogo) return;
     this.catalogoAbierto.set(true);
     if (this.resultadosArticulos().length === 0) {
       this.busquedaArticulo$.next();
@@ -1661,6 +1667,18 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.catalogoAbierto.set(false);
     this.cantidadArticulo.set(1);
     this.rung.set('base');
+
+    // El cursor vuelve al buscador para escanear/escribir el siguiente sin tocar el mouse.
+    // Sin abrir la lista: el foco programático no es "quiero ver el catálogo", y la lista
+    // taparía la bandeja recién actualizada. Al teclear se abre sola (búsqueda).
+    this.focoSinAbrirCatalogo = true;
+    afterNextRender(
+      () => {
+        this.buscadorArticulo()?.nativeElement.focus();
+        this.focoSinAbrirCatalogo = false;
+      },
+      { injector: this.injector },
+    );
   }
 
   ajustarCantidadBandeja(item: ItemBandeja, delta: number): void {
