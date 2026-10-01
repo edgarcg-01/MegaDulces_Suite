@@ -97,6 +97,31 @@ sin estar declarado en `CAST_JUSTIFICADO`. Medido en prod: `analytics.expense_en
 con la medición. El candado vuelve a **8 ✓ / 0 ✗ / 1 NO MEDIDO** (los bloques con DB se declaran, no
 se dibujan verdes).
 
+### Changed — el almacén 00 se llama «CEDIS», a secas (IC.CEDIS.5, 2026-10-01)
+Decisión de Edgar: *"antes era CEDIS BIRAPUATO; ahora sólo debe llamarse **CEDIS** para identificar
+el nuevo CEDIS de Kepler"*. Mig `20261001120000`, **prod batch 646**.
+
+La cadena completa, para que nadie la reconstruya mal: `Cedis Oficinas` (nombraba la sucursal
+**Kepler**, que era OFICINAS) → `CEDIS BPIRAPUATO` (nombraba el **archivo `.mdb`** de Wincaja) →
+`CEDIS Irapuato` (nombraba la **plaza**) → **`CEDIS`**. Los tres primeros nombraban la FUENTE o el
+lugar; ninguno nombraba la cosa.
+
+⭐ El criterio: los otros tres hubs de compra llevan el nombre de su plaza (`01 Padre Hidalgo`,
+`08 Morelia Abastos`, `06 Canindo`) porque son **sucursales que además consolidan**. El `00` no es
+una plaza que consolida: **es el CEDIS**, el único corporativo — y `mainCedis()` de `/compras/pedido`
+lo elige justamente por eso. Agregarle la ciudad sugiere que puede haber otro CEDIS en otra ciudad.
+
+**Seguro porque se midió antes:** ningún predicado del repo compara contra el nombre literal (todas
+las coincidencias son rótulos, comentarios o texto de ayuda); la identidad son `code`, `kepler_code`
+y `wincaja_source_branch`, que no se tocan. Y se condicionó a los dos nombres conocidos en vez de
+pisar a ciegas, por si otra sesión lo hubiera renombrado.
+
+⭐ **El rename se propagó solo**, que es la prueba de que el modelo deriva en vez de copiar: un
+barrido de **todas** las columnas de texto de 5 schemas de prod buscando «IRAPUATO» dejó de
+encontrarlo en `analytics.v_branch_zone.branch_name` sin tocar esa vista. Lo único que queda son
+**11 registros de `db_health_alerts` de agosto** con el rótulo viejo de la sonda retirada: son
+historia y **no se reescriben** — una alerta que pasó, pasó con el nombre que tenía ese día.
+
 ### Fixed — «en /compras/pedido aún se menciona CEDIS BPIRAPUATO»: el rótulo ya estaba, lo que quedaba eran AFIRMACIONES falsas (IC.CEDIS.4, 2026-10-01)
 Reporte de Edgar. **Primero la corrección al reporte, medida:** en `/compras/pedido` el nombre ya
 sale bien. Se replicó contra prod la consulta exacta que alimenta ese selector (`filters`, lee

@@ -4,7 +4,8 @@
  *
  * ⚠️ Decía «CEDIS (BPIRAPUATO)». `BPIRAPUATO` nombraba el `.mdb` de Wincaja, no la plaza, y esa
  * fuente se retiró con el corte a Kepler del 2026-09-30. El nombre vive en la TABLA
- * (`commercial.warehouses.name` = «CEDIS Irapuato»); acá sólo va el rótulo corto del grupo.
+ * (`commercial.warehouses.name` = «CEDIS» desde la mig 20261001120000); acá sólo va el rótulo del
+ * grupo, que ya decía «CEDIS» y por eso no cambió.
  *
  * Es orden de PANTALLA, no de datos: no cambia ningún cálculo, sólo en qué secuencia aparecen
  * columnas, filas agrupadas y opciones de filtro. Vive acá (contrato compartido) para que el

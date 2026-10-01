@@ -1434,8 +1434,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.dirty.set(true);
   }
   /**
-   * El CEDIS PRINCIPAL de la empresa (hoy `00`, «CEDIS Irapuato»; decía *Bpirapuato*, que era el
-   * nombre del `.mdb` de Wincaja y se retiró con el corte a Kepler del 2026-09-30): el de compra cuyo código cae en
+   * El CEDIS PRINCIPAL de la empresa (hoy `00`, y se llama **«CEDIS»** a secas desde la mig
+   * 20261001120000 — pasó por *Cedis Oficinas* → *CEDIS BPIRAPUATO* → *CEDIS Irapuato*; los dos del
+   * medio nombraban el `.mdb` de Wincaja y su plaza, y esa fuente se retiró con el corte a Kepler
+   * del 2026-09-30): el de compra cuyo código cae en
    * el grupo 'CEDIS' del orden canónico de `@megadulces/contracts`. No se clava '00' acá: los
    * alias de esa plaza viven en el contrato, y sólo cuenta si además está marcado como CEDIS de
    * compra (`is_purchase_hub`); si no, el atajo no se pinta.
