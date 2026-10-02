@@ -159,3 +159,7 @@ apps/catalogo-kp/public/verificador*.html
 
 # cache local de nx en worktrees (no va al repo)
 .nx-cache/
+
+# Salida generada por la herramienta graphify (AST, chunks, análisis). Se regenera sola;
+# versionarla metía 2.2 MB de artefactos y ruido en cada diff. Retirada 2026-10-02.
+graphify-out/
