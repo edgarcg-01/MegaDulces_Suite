@@ -213,7 +213,7 @@ di "servicios: $SERVICIOS"
 # ⛔ ESTA LISTA Y LA ETIQUETA `migracion:` DE ops/k3s/*.yaml SON DOS DECLARACIONES DEL MISMO
 # HECHO. Si se contradicen, el servicio se despliega en el mundo equivocado o en ninguno.
 # Se mueven juntas, y `npm run check:k3s` compara el lado de `SERVICIOS_DEF`.
-SERVICIOS_K3S="${AUTO_DEPLOY_SERVICIOS_K3S:-portal vendor worker}"
+SERVICIOS_K3S="${AUTO_DEPLOY_SERVICIOS_K3S:-portal vendor worker api}"
 
 SERVICIOS_COMPOSE=''
 _s_k3s_tocados=''
@@ -481,7 +481,15 @@ fi
 
 cd "$HOME/ops/prod" || exit 1
 set -a; . "$HOME/secrets/prod-compose.env"; set +a
-docker compose -p prod up -d $SERVICIOS_COMPOSE >/dev/null 2>&1
+# ⛔ [K3S.29] SÓLO SI HAY ALGO QUE LEVANTAR. `docker compose up -d` SIN argumentos no es un
+# no-op: levanta TODO el perfil por defecto. Desde que `api` se fue a K3s esta lista puede
+# quedar vacía en un despliegue normal, y entonces este comando tocaría `pg-prod`, `pg-rag`,
+# `backup` y el `registry` — servicios que este carril no tiene por qué recrear.
+if [ -n "$SERVICIOS_COMPOSE" ]; then
+  docker compose -p prod up -d $SERVICIOS_COMPOSE >/dev/null 2>&1
+else
+  di "   nada que levantar en Compose (todo lo tocado vive en K3s)"
+fi
 
 # ── Verificar ENTREGA, no el rótulo ─────────────────────────────────────────
 # ⚠️ La ventana era de 60 s y el arranque medido es de ~15 s — parecía de sobra. Pero cuando el
@@ -509,7 +517,7 @@ for i in $(seq 1 24); do
         revertir; latir error "$c no arranca con $DESEADO (bucle de reinicio) — revertido"; exit 1 ;;
     esac
   done
-  r=$(curl -s --max-time 5 http://127.0.0.1:8080/api/health 2>/dev/null)
+  r=$(curl -s --max-time 5 http://127.0.0.1:30080/api/health 2>/dev/null)
   vivo_ahora=$(printf '%s' "$r" | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p')
   [ -n "$vivo_ahora" ] && break
   sleep 5
@@ -534,7 +542,9 @@ revertir() {
       _falta="$_falta $img"
     fi
   done
-  cd "$HOME/ops/prod" && docker compose -p prod up -d --force-recreate $SERVICIOS_COMPOSE >/dev/null 2>&1
+  # ⛔ [K3S.29] Mismo blindaje que arriba: sin argumentos, `--force-recreate` recrearía TODO
+  # el perfil por defecto. En un camino de REVERSIÓN eso es peor todavía.
+  [ -n "$SERVICIOS_COMPOSE" ] && cd "$HOME/ops/prod" && docker compose -p prod up -d --force-recreate $SERVICIOS_COMPOSE >/dev/null 2>&1
   # ⛔ [K3S.27] Y LOS DE K3s TAMBIÉN SE REVIERTEN. Retaguear `:latest` en Docker no mueve un
   # pod: el Deployment pide una imagen por COMMIT. `rollout undo` lo devuelve al ReplicaSet
   # anterior, cuya imagen sigue en containerd. Sin esto, "revertido." sería mentira para la
@@ -585,7 +595,7 @@ for _c in $(docker ps --format '{{.Names}}' | grep -E '^prod-api(-[0-9]+)?$'); d
 done
 
 codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-  -X POST http://127.0.0.1:8080/api/auth-mt/login \
+  -X POST http://127.0.0.1:30080/api/auth-mt/login \
   -H 'Content-Type: application/json' -d '{"username":"zz_humo_auto","password":"zz"}' 2>/dev/null || echo 000)
 case "$codigo" in
   401|403) di "humo del login: $codigo — la puerta contesta." ;;

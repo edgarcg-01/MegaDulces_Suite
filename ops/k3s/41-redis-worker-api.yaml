@@ -57,7 +57,7 @@ kind: Deployment
 metadata:
   name: redis
   namespace: prod
-  labels: { app: redis, singleton: "true", migracion: preparado }
+  labels: { app: redis, singleton: "true", migracion: migrado }
 spec:
   replicas: 1
   strategy:
@@ -123,7 +123,7 @@ kind: Deployment
 metadata:
   name: api
   namespace: prod
-  labels: { app: api, singleton: "false", migracion: preparado }
+  labels: { app: api, singleton: "false", migracion: migrado }
 spec:
   replicas: 2             # lo que en Compose eran `api` + `api2`, copiados a mano
   selector:
