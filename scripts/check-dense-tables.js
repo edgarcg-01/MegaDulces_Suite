@@ -59,17 +59,20 @@ const UMBRAL_REM = 48;
  * En vez de fingir precision, la entrada `parcial` lo DICE: no se poda sola y se imprime como lo
  * que es, media pantalla.
  */
-const DEUDA = new Map([
-  ['apps/view/src/app/modules/compras/pages/compras-pedido-real.component.ts', {
-    parcial: true,
-    motivo:
-      'La rejilla de PEDIDO (78rem) son 15 columnas de captura con teclado estilo Excel y dos ' +
-      'tablas anidadas en la fila expandida. Apilar es TECNICAMENTE correcto (son campos de un ' +
-      'producto) pero da 15 renglones por SKU, y varios son secundarios para quien pide desde un ' +
-      'telefono. Cual de los 15 se queda NO es decision de CSS: la toma quien usa la pantalla. ' +
-      'La otra tabla del archivo (inventario muerto, 60rem) YA quedo apilada.',
-  }],
-]);
+/**
+ * VACIA desde el 2026-10-02, y que lo este es el punto: esta lista mide lo que FALTA.
+ *
+ * Tenia una sola entrada, `compras-pedido-real.component.ts`, con un motivo que ya no describia
+ * al archivo: decia que la rejilla de PEDIDO no podia apilarse sin que alguien decidiera cuales
+ * de sus 15 columnas se quedaban. Esa decision se tomo y la pantalla salio de la deuda sola --
+ * hoy declara sus marcas `dt-*`-- pero **nadie podo la lista**, asi que la compuerta siguio
+ * cobrando una excepcion que ya no hacia falta. Se encontro porque bloqueo un push.
+ *
+ * ⭐ Es la falla simetrica de la que esta compuerta existe para evitar: una lista de excepciones
+ * que no se poda deja de decir cuanto falta, igual que una que no se mira deja de decir que algo
+ * se rompio. Por eso el gate sale en ROJO cuando una entrada sobra, no solo cuando una falta.
+ */
+const DEUDA = new Map([]);
 
 /**
  * DEUDA DECLARADA DE LA 2a AGUJA -- las 79 que la compuerta escondia hasta el 2026-09-29.

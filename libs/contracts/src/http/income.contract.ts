@@ -128,10 +128,19 @@ export interface IncomeTreeNode {
   folio?: string | null;
 }
 
-/** Un renglón del documento, tal como lo escribió el ERP. */
+/**
+ * Un renglón del documento, tal como lo escribió el ERP.
+ *
+ * ⚠️ El decode de `kdm2` que esto usa se corrigió en vivo, con el 500 de por medio: `c7` es el
+ * **número de renglón** (y es `numeric`, así que `btrim` sobre él revienta) y `c8` es el **código
+ * de producto**, no la descripción. El nombre no vive en el documento: sale de `kdii`, y por eso
+ * `descripcion` puede venir en `null` sin que el renglón esté mal.
+ */
 export interface IncomeDocLinea {
+  renglon: number;
   sku: string;
-  descripcion: string;
+  /** El nombre del producto, resuelto contra el catálogo. `null` = el código no resuelve. */
+  descripcion: string | null;
   cantidad: number;
   unidad: string;
   precio: number;

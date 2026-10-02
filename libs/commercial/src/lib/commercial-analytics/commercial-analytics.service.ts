@@ -3143,13 +3143,22 @@ export class CommercialAnalyticsService {
 
       if (!cab) throw new NotFoundException(`no existe el documento U-D-13 folio ${folio} del ${fecha}`);
 
+      // ⛔ El decode de `kdm2` costó un 500 en vivo y estaba mal DOS veces:
+      //   `c7` es el NÚMERO DE RENGLÓN y es `numeric` — `btrim(c7)` revienta con 42883.
+      //   `c8` es el CÓDIGO DE PRODUCTO, no la descripción (verificado: el `17083` de un ticket
+      //   resuelve a «ALTOS CAM CHICA COLOR 1KG CLASICA» en `kdii`).
+      // El nombre NO vive en el documento: se trae del catálogo con un LEFT JOIN, y si no
+      // resuelve se publica NULL en vez de mostrar el código disfrazado de nombre.
       const renglones = (await trx.raw(
-        `SELECT btrim(c7) AS sku, btrim(c8) AS descripcion, c9::numeric AS cantidad,
-                btrim(c11) AS unidad, c12::numeric AS precio, c13::numeric AS importe
-           FROM kepler_ods.kdm2
-          WHERE sucursal = '00' AND c2 = 'U' AND c3 = 'D' AND c4 = '13' AND c5 = '1'
-            AND btrim(c6) = ?
-          ORDER BY c13::numeric DESC`,
+        `SELECT l.c7::int AS renglon, btrim(l.c8) AS sku, i.c2 AS descripcion,
+                l.c9::numeric AS cantidad, btrim(l.c11) AS unidad,
+                l.c12::numeric AS precio, l.c13::numeric AS importe
+           FROM kepler_ods.kdm2 l
+           LEFT JOIN kepler_ods.kdii i
+             ON i.sucursal = l.sucursal AND btrim(i.c1) = btrim(l.c8)
+          WHERE l.sucursal = '00' AND l.c2 = 'U' AND l.c3 = 'D' AND l.c4 = '13' AND l.c5 = '1'
+            AND btrim(l.c6) = ?
+          ORDER BY l.c7::int`,
         [folio])).rows as Array<Record<string, unknown>>;
 
       const pagos = await this.incomeDocPagos(trx, folio, '', null, fecha);
@@ -3178,7 +3187,9 @@ export class CommercialAnalyticsService {
         nota_credito: +notaCredito.toFixed(2),
         pendiente: +(Number(cab['total'] ?? 0) - cobrado - notaCredito).toFixed(2),
         renglones: renglones.map((r) => ({
-          sku: String(r['sku'] ?? ''), descripcion: String(r['descripcion'] ?? ''),
+          renglon: Number(r['renglon'] ?? 0),
+          sku: String(r['sku'] ?? ''),
+          descripcion: (r['descripcion'] as string | null) ?? null,
           cantidad: Number(r['cantidad'] ?? 0), unidad: String(r['unidad'] ?? ''),
           precio: +Number(r['precio'] ?? 0).toFixed(2), importe: +Number(r['importe'] ?? 0).toFixed(2),
         })),
