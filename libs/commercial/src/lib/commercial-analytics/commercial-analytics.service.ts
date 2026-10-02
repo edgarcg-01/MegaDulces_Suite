@@ -2986,6 +2986,8 @@ export class CommercialAnalyticsService {
                 sum(f.importe)                                            AS vendido,
                 count(*)::int                                             AS docs,
                 count(*) FILTER (WHERE f.ligado)::int                     AS docs_ligados,
+                count(*) FILTER (WHERE f.doc_cancelado)::int              AS docs_cancelados,
+                coalesce(sum(f.importe) FILTER (WHERE f.doc_cancelado), 0) AS vendido_cancelado,
                 coalesce(sum(f.cobrado), 0)                               AS cobrado,
                 coalesce(sum(f.pagos), 0)::int                            AS pagos,
                 coalesce(sum(f.nota_credito), 0)                          AS nota_credito,
@@ -3020,6 +3022,8 @@ export class CommercialAnalyticsService {
         vendido: n(r['vendido']),
         docs: Number(r['docs'] ?? 0),
         docs_ligados: Number(r['docs_ligados'] ?? 0),
+        docs_cancelados: Number(r['docs_cancelados'] ?? 0),
+        vendido_cancelado: n(r['vendido_cancelado']),
         cobrado: n(r['cobrado']),
         pagos: Number(r['pagos'] ?? 0),
         nota_credito: n(r['nota_credito']),
@@ -3045,6 +3049,8 @@ export class CommercialAnalyticsService {
           .reduce((s, r) => s + r.vendido, 0)),
         docs: rows.reduce((s, r) => s + r.docs, 0),
         docs_ligados: rows.reduce((s, r) => s + r.docs_ligados, 0),
+        docs_cancelados: rows.reduce((s, r) => s + r.docs_cancelados, 0),
+        vendido_cancelado: sum((r) => r.vendido_cancelado),
         cobrado: sum((r) => r.cobrado),
         pagos: rows.reduce((s, r) => s + r.pagos, 0),
         nota_credito: sum((r) => r.nota_credito),
@@ -3079,10 +3085,24 @@ export class CommercialAnalyticsService {
 
       const sinLigar = totales.docs - totales.docs_ligados;
       const huecos: IncomeBridgeItem[] = [
+        // ⛔ Esto NO es un hueco de medición: es dinero de más en la cifra publicada. Se declara
+        // acá porque es lo que hay que restar para leer el ingreso, y el monto va con nombre.
+        { key: 'cancelado',
+          label: `Documento CANCELADO con su ingreso todavía publicado (${totales.docs_cancelados})`,
+          monto: totales.vendido_cancelado, resta: true,
+          nota: 'El ERP canceló el documento ($0.00) y su póliza de ingreso sigue viva, sin '
+            + 'reversar. No es una falla de medición: cuando Kepler da de baja, escribe un marcador '
+            + 'en $0.00 y borra la póliza — pasa en 154 de 158 cancelados. Estos no. Separar si el '
+            + 'DELETE no se propagó o si la cancelación quedó a medias exige leer el Kepler vivo; '
+            + 'el veredicto no cambia: el documento vale $0.00.' },
         { key: 'sin_documento', label: `Pólizas sin documento — NO MEDIDO (${sinLigar})`,
-          monto: totales.vendido_sin_clasificar, resta: false,
-          nota: 'La póliza existe y su factura no aparece en el ERP. No se les inventa cliente ni '
-            + 'cobro: se cuentan aparte. Medido en 90 días: 4 de 4,110 líneas.' },
+          monto: sinLigar > 0 ? totales.vendido_sin_clasificar : 0, resta: false,
+          nota: sinLigar > 0
+            ? 'La póliza existe y su factura no aparece en el ERP, ni siquiera cancelada. Es una '
+              + 'causa NUEVA: hasta ahora las 4,814 líneas encontraban su documento.'
+            : 'Cero. Las 4,814 pólizas del rango encontraron su documento, su cliente y su '
+              + 'veredicto. Antes decía 5: era un filtro propio que dejaba fuera a los cancelados, '
+              + 'no una ausencia del ERP.' },
         { key: 'ajuste', label: 'Entró por cuenta de devolución o ajuste, no por banco',
           monto: totales.ajuste, resta: false,
           nota: 'Las cuentas DEVOLUCIONES y AJUSTE A SALDO no son un depósito. La versión anterior '

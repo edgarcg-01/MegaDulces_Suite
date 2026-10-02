@@ -205,6 +205,13 @@ export interface IncomeReconRow {
   docs: number;
   /** De esos documentos, cuántos encontraron su factura. `docs - docs_ligados` es el hueco. */
   docs_ligados: number;
+  /**
+   * ⛔ Documentos que el ERP **canceló** y cuyo ingreso sigue publicado en la cuenta 401.
+   * No es un hueco de medición: es dinero de más en la cifra. Medido: 154 de 158 cancelados SÍ
+   * perdieron su póliza; estos no.
+   */
+  docs_cancelados: number;
+  vendido_cancelado: number;
   /** Cobrado A LA FECHA contra esas facturas, venga el pago del período o de después. */
   cobrado: number;
   pagos: number;
@@ -238,6 +245,8 @@ export interface IncomeReconTotals {
   vendido_sin_clasificar: number;
   docs: number;
   docs_ligados: number;
+  docs_cancelados: number;
+  vendido_cancelado: number;
   cobrado: number;
   pagos: number;
   nota_credito: number;

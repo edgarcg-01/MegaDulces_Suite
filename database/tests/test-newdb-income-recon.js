@@ -76,19 +76,57 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX', { minimumFractionDigits:
     if (!lig || lig.filas === 0) {
       nm(`no hay pólizas de ingreso en los últimos ${DIAS} días — nada que ligar`);
     } else {
-      const pct = (lig.ligadas * 100) / lig.filas;
       // Prueba negativa: una liga que no liga NADA no puede pasar. Se vería igual de llena.
       chk(lig.ligadas > 0,
         lig.ligadas > 0
           ? `prueba negativa: la liga SÍ encuentra documentos — ${lig.ligadas} de ${lig.filas}`
           : '⛔ ninguna póliza encontró su documento: la liga por folio es un no-op y la pantalla '
             + 'publicaría plaza y monto sin cliente ni cobro');
-      chk(pct >= 95,
-        `cobertura ${pct.toFixed(1)} % (medido 99.9 %) — las ${lig.filas - lig.ligadas} líneas sin `
-        + `documento ($${n(lig.huerfano)}) se declaran, no se les inventa cliente`);
+      // ⭐ `[IG.8]`: esto es 100 %, no "casi". Las 5 que faltaban eran un filtro propio (cancelados),
+      // no una ausencia del ERP. Si vuelve a bajar, hay una causa NUEVA que investigar.
+      const pctLiga = (lig.ligadas * 100) / lig.filas;
+      chk(pctLiga >= 99.8,
+        lig.ligadas === lig.filas
+          ? `las ${lig.filas} pólizas del rango tienen su documento — ni un ingreso sin casar`
+          : `${lig.filas - lig.ligadas} sin documento ($${n(lig.huerfano)}), ${pctLiga.toFixed(2)} %. `
+            + 'Con la mig 20261002140000 esto es 100 %: las que faltan son documentos CANCELADOS '
+            + 'que el propio CTE filtraba');
       chk(lig.con_kind === lig.ligadas,
-        `las ${lig.ligadas} líneas ligadas traen su kind; las que no ligan quedan en NULL, no en `
-        + '"externo" por default');
+        `las ${lig.ligadas} líneas ligadas traen su kind; una línea sin documento quedaría en NULL, `
+        + 'nunca en "externo" por default');
+    }
+
+    // ── 1b. ⛔ El documento CANCELADO con su ingreso vivo: dinero, no hueco de medición ───────
+    console.log('\n[1b] El documento cancelado se MARCA, y es la excepción, no la regla');
+    // La columna llega con la mig 20261002140000. Si el destino todavia no la tiene, esto se
+    // DECLARA en vez de romperse: un candado que explota por una migracion pendiente se desactiva.
+    const [tieneCol] = await q(
+      `SELECT count(*)::int AS n
+         FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+        WHERE ns.nspname = 'analytics' AND p.proname = 'income_bridge_src'
+          AND 'doc_cancelado' = ANY(p.proargnames)`);
+    const [cv] = (!tieneCol || tieneCol.n === 0) ? [null] : await q(
+      `SELECT count(*) FILTER (WHERE doc_cancelado)::int AS docs,
+              coalesce(sum(importe) FILTER (WHERE doc_cancelado), 0)::numeric AS importe,
+              count(*) FILTER (WHERE doc_cancelado AND es_interno)::int AS internos
+         FROM analytics.income_bridge_src((CURRENT_DATE - $1::int)::date, CURRENT_DATE)`, [DIAS]);
+    if (!tieneCol || tieneCol.n === 0) {
+      nm('este destino todavía no tiene doc_cancelado (mig 20261002140000): sin ella la liga '
+        + 'declara 5 "sin documento" que en realidad son documentos CANCELADOS');
+    } else if (!cv || cv.docs === 0) {
+      nm('ningún documento cancelado conserva su ingreso en la ventana — el ERP los está borrando '
+        + 'todos, que es su comportamiento normal (medido: 154 de 158)');
+    } else {
+      chk(true,
+        `${cv.docs} documentos cancelados conservan su ingreso publicado por $${n(cv.importe)} — `
+        + 'NO es un hueco de medición: el ERP los canceló ($0.00) y su póliza sigue viva sin '
+        + 'reversar. Se marcan con doc_cancelado para que se puedan restar');
+      chk(cv.internos === cv.docs,
+        cv.internos === cv.docs
+          ? `los ${cv.docs} son clientes INTERNOS: viven adentro del traspaso, así que el puente NO `
+            + 'los resta aparte (sería contarlos dos veces)'
+          : `⚠️ ${cv.docs - cv.internos} de los cancelados NO son internos: el puente los estaría `
+            + 'dejando fuera del traspaso y hay que revisar de qué lado se restan');
     }
 
     // ── 2. El puente no pierde ni inventa dinero contra su propia fuente ──────────────────────
