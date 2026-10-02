@@ -298,6 +298,83 @@ Abastos, 17 Canindo) · 62 CEDIS confirmados · **3,538 / $74.5M no verificables
 - ⛔ **Mi primera consulta estuvo 10 minutos corriendo en prod en horario hábil** antes de que la
   cancelara: agregaba las dos tablas enteras en vez de acotar por los 632 folios que necesitaba.
   Desde entonces, `SET statement_timeout` en toda exploración contra prod.
+## 2026-10-01 — Checkpoint: la Mesa de Servicio diseñada por capas, y una base de desarrollo que ya no existe (`[MS.0]`)
+
+**Cómo se llegó:** *"necesitamos un sistema de generación de tickets de servicio para que todos los
+usuarios reporten sus problemas y necesidades, con prioridad, respetando las reglas y la estructura
+de la Suite"*. Se analizó el repo con tres lecturas en paralelo (qué ya existe y es reutilizable, qué
+exige un módulo nuevo, qué hace hoy la Bitácora de Sistemas) y se bajó a un plan por capas.
+
+### Qué quedó (todo documentación, cero código)
+
+- [`FASE_MS_MESA_DE_SERVICIO.md`](FASES/FASE_MS_MESA_DE_SERVICIO.md): plan en tres capas (BD → lógica →
+  visual), 30 items, MVP definido. **ADR-081** (propuesto) y sección en el tracker.
+- [`FASE_MS_SOLICITUD_TABLAS_Y_ACCESOS.md`](FASES/FASE_MS_SOLICITUD_TABLAS_Y_ACCESOS.md): las 11 tablas,
+  2 columnas, 2 claves de responsabilidad y 3 permisos que se piden, con el propósito de cada uno.
+  **Pendiente de aprobación de Edgar.**
+- `CLAUDE.md` corregido: producción corre en el servidor `md` desde el 2026-09-22, y `192.168.0.245`
+  ya no es una base de desarrollo.
+
+### Lo medido (y que cambió el diseño)
+
+1. **No existe nada de tickets de soporte.** Todo lo que dice "ticket" es de venta o de caja; **TK ya
+   estaba ocupada**. De ahí la sigla MS, el schema `servicedesk` y nunca una tabla llamada `tickets`.
+2. **El ticket puede ser la tarea.** `test-newdb-task-contract.js` falla ante toda tabla con
+   `assigned_(to|by|at)` no declarada; declarar `servicedesk.requests` ahí le da "A tu nombre" de Mi
+   trabajo sin copiar nada. El molde (`recon_tasks`) guarda `assigned_by` en TEXT y no se hereda.
+3. **El worker no tiene WebSocket** (ADR-080): los crons corren solo ahí con `ENABLE_WORKER_QUEUE=true`,
+   y `AlertsGateway.emitToTenant` hace `if (!this.server) return`. Un aviso de campana lanzado por el
+   SLA se perdería en silencio → lo que nace en un cron sale por correo/WhatsApp y por un canal `app`
+   que la campana recoge por poll.
+4. **"Todos reportan" rompe la entrada a `/projects`** de los roles con un solo destino (cajeras,
+   almacenistas) si `SERVICIO_REPORTAR` hace visible el espacio 9. Por eso reportar es un botón del
+   header y el permiso vive en un módulo sin ruta del árbol.
+5. **`enum == permission-meta == authz-tree`** es una compuerta: un permiso nuevo arrastra el árbol y
+   el mapa de la suite (espacio 9 a `active`, specs que asumen tres espacios `planned`).
+6. **`identity.users` no tiene email ni teléfono.** Sin eso no hay aviso por persona.
+
+### La base de desarrollo: `.245` ya no existe, y la base vacía no se puede levantar con migraciones
+
+- `DATABASE_URL_NEW` del `.env` apuntaba a `192.168.0.245/platform_test` con el rol de solo lectura
+  `dev_sistemas`. **No conecta** (`3D000: no existe la base de datos`) aunque `pg_database` la lista, y
+  `postgres_platform` ni aparece. Es un espejo viejo que se decidió no revivir (2026-09-12).
+- Se levantó un Postgres **desechable en Docker, en `127.0.0.1:5442`** (el 5432 de esta máquina es un
+  PostgreSQL 18 nativo de otra cosa: no se tocó) con un compose **fuera del repo**.
+- ⛔ **`npm run migrate:new` sobre una base vacía no llega al final.** Se detiene en la **88**
+  (`create_morelia_madero_zone_routes`: necesita el tenant, que crea la semilla `01`) y, ya sembrado, en
+  la **435 de 975** (`erp_goods_receipts_live_view`: necesita `kepler_ods.kdm1`, que **no crea ninguna
+  migración** sino la ingesta del ERP). Ver GOTCHAS §75. Los pasos de `ONBOARDING.md` quedan rotos.
+
+### Decisiones del usuario
+
+Cola de **TI** con modelo multi-cola · prioridades **Baja/Media/Alta/Urgente** · permiso
+`SERVICIO_REPORTAR` para todos · aviso por **WhatsApp y correo** · SLA con los números propuestos
+(primero **mide**, el escalamiento arranca apagado) · Bitácora↔task **se prepara, no se ejecuta** ·
+nombres de sucursal **tal cual el catálogo** · personas: Jorge Rubio (Sistemas), Edgar (Desarrollo),
+Frank (Dirección General) · **P5 "solo construye"**: SMTP, plantilla de Meta y bucket se resuelven al
+unificar con task.
+
+### Lo que se aprendió
+
+- **Un informe de un subagente no es un hecho hasta verificarlo.** Dos afirmaciones que movían el plan
+  ("prod ya no es Railway", "la copia local está 764 commits atrás") se comprobaron contra el log, el
+  runbook y `git` antes de escribirlas. La segunda dependía de la referencia: la rama de trabajo estaba
+  **799** commits atrás de `origin/main` y el `main` local **948**; ninguna de las dos era "764".
+- **Una propuesta con números hay que mostrarla antes de pedir que se apruebe.** Se pidió "usa los
+  números propuestos" sobre unos plazos que el plan nunca había listado. Se listaron después, en §2.3.
+- **Un `.env` no es una fuente de verdad sobre dónde está la base.** Apuntaba a un servidor retirado y
+  no avisaba. Se verificó identidad y alcance antes de migrar nada, y no se editó el `.env`: las
+  variables se pasan por comando.
+
+### Pendiente
+
+- **Aprobación de Edgar** de la solicitud de tablas y accesos (PR de esta rama).
+- **El dump de solo estructura de prod** (`prod_schema.sql` + `knex_migrations`) para levantar una base
+  local idéntica a producción. Sin eso no hay smoke test de la capa 1. El contenedor `ms-postgres` quedó
+  con 435 migraciones y se recrea al restaurar.
+- **MS.1.0 contra prod** (variables de correo y bucket, migraciones aplicadas): sin llave SSH en esta
+  máquina, las corre una persona con acceso.
+- Confirmar el **rol real** de las tres personas contra el padrón.
 
 ---
 ## 2026-10-01 — El hueco más grande de VERDAD_ABSOLUTA.md estaba cerrado y nadie lo sabía

@@ -3906,3 +3906,46 @@ servicio —imagen, puertos, variables—, y un archivo montado distinto no le c
 > efecto" y uno sospecha de la sintaxis. El diagnóstico son dos comandos —
 > `stat -c %i <ruta en el host>` contra `docker exec <c> stat -c %i <ruta adentro>`. Si los inodos
 > difieren, el montaje está roto y **ningún reinicio lo arregla**: hay que recrear el contenedor.
+
+
+## 75. `npm run migrate:new` sobre una base VACÍA no llega al final: se detiene en la migración 88, y otra vez en la primera que necesita `kepler_ods`
+
+**Qué se vivió (2026-10-01, Fase MS).** Se levantó un Postgres 18 limpio y se corrió `npm run migrate:new`
+siguiendo `ONBOARDING.md`. Se detiene **dos veces**, por motivos distintos:
+
+| Migración | Error | Causa |
+|---|---|---|
+| **88** `20260608140000_create_morelia_madero_zone_routes` | `zones_tenant_id_foreign` violada | Inserta con el UUID fijo del tenant `mega_dulces`, que **crea una semilla** (`seeds-newdb/01_first_tenant_mega_dulces.js`), no una migración. Las migraciones posteriores asumen que ya existe porque en prod ya existía. |
+| **435** `20260819120000_erp_goods_receipts_live_view` | `relation "kepler_ods.kdm1" does not exist` | Las tablas de `kepler_ods.*` **no las crea ninguna migración**: las crea la ingesta del ERP al replicar. Cientos de migraciones posteriores les montan índices y vistas. |
+
+**La primera se arregla** sembrando solo la `01` (`npx knex seed:run --knexfile database/knexfile-newdb.js
+--specific=01_first_tenant_mega_dulces.js`). **La segunda no tiene arreglo dentro del repo**: no hay forma de
+reconstruir `kepler_ods` desde las migraciones, y poner tablas de mentira es un pozo (hay vistas que castean
+columnas `c1..cN` con tipos concretos).
+
+> ⚠️ **Por qué es peligroso.** `migrate:new` no falla de entrada: **avanza 435 migraciones y falla a la
+> mitad**, dejando una base a medio hacer que *parece* una base de desarrollo. Quien la use encuentra
+> tablas que faltan sin que nada le diga por qué. Un `knex_migrations` con 435 filas no significa "casi
+> terminó": significa que las ~540 restantes nunca se probaron contra esa estructura.
+> (El denominador envejece solo: ese día había **975** migraciones y crecen cada semana — lo que
+> no cambia es **dónde** se detiene, que es lo útil de este §.)
+
+**Qué hacer.** Para una base de desarrollo con la **estructura real de prod**, un dump **solo de estructura**
+más los datos de `knex_migrations`, desde una persona con acceso a `md`:
+
+```sh
+ssh superoot@192.168.0.222 "docker exec pg-prod pg_dump -U postgres -d railway --schema-only --no-owner" > prod_schema.sql
+ssh superoot@192.168.0.222 "docker exec pg-prod pg_dump -U postgres -d railway --data-only -t '*.knex_migrations' -t '*.knex_migrations_lock' --no-owner" > prod_knex_migrations.sql
+```
+
+Se restaura en una base vacía, se siembran el tenant, los roles y el usuario con las semillas del repo y se
+corre `migrate:new` solo para lo pendiente. **Hay DOS tablas `knex_migrations`** (§29): pedirlas ambas.
+
+⛔ **No** apuntar el `.env` a prod para "tener estructura": es el defecto que dio origen a este §.
+⛔ **No** confiar en `ONBOARDING.md` §5 hasta que se corrija: sus pasos (`dev:up` → `migrate:new` →
+`seed:new`) no funcionan sobre una base vacía. Pendiente.
+
+**Y una trampa del propio `.env`:** `DATABASE_URL_NEW` apuntaba a `192.168.0.245/platform_test` con un rol
+de solo lectura, un servidor que **ya no es una base de desarrollo** y que ni conecta (`3D000`) aunque
+`pg_database` lo lista. El `.env` no avisa. Antes de migrar, verificar **a qué clúster apunta de verdad**
+(`pg_control_system()` y el host), no el nombre de la variable (ver §52).

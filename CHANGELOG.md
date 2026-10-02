@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Internal — Fase MS (Mesa de Servicio): plan por capas y solicitud de tablas y accesos (2026-10-01)
+Solo documentación, sin código ni migraciones. Plan de un sistema de tickets de servicio donde **el
+ticket es la tarea** (contrato de tarea → "A tu nombre" de Mi trabajo), con prioridad Baja/Media/Alta/Urgente
+sugerida y confirmada, SLA que primero mide y aviso por correo y WhatsApp; cola de TI con modelo
+multi-cola. `FASE_MS_MESA_DE_SERVICIO.md`, `FASE_MS_SOLICITUD_TABLAS_Y_ACCESOS.md` (11 tablas, 2 columnas,
+3 permisos, pendiente de aprobación) y ADR-081 propuesto. `CLAUDE.md` corregido: producción corre en `md`
+y `192.168.0.245` ya no es base de desarrollo. Nuevo GOTCHAS §75: `migrate:new` no levanta una base vacía.
+
 ### Fixed — cotización telefónica: el pedido DICTADO se captura sin mouse y sin errores de cantidad (COT.16, 2026-10-01)
 Probado con 3 pedidos dictados de 15 partidas (productos reales del top-45 de mayoreo de la
 sucursal 01) y verificado después en la pantalla real, sólo teclado:

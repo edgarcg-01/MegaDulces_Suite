@@ -1,5 +1,20 @@
 # Orquestador de feeds (pg-boss + PM2)
 
+> ⛔ **SUPERADO — no sigas estas instrucciones (medido 2026-10-01).** Este documento describe un
+> reemplazo del Programador de tareas que **nunca se adoptó**: no lo menciona `package.json` ni
+> [`ops/vl/crontab.feeds`](../../../ops/vl/crontab.feeds). El mismo problema lo resolvió la **Fase
+> VL** por otro camino — los 13 carriles corren como servicios de Docker Compose en el servidor
+> `md` (`192.168.0.222`) con la agenda versionada en el repo, cada uno con latido de ENTREGA en
+> `analytics.cron_runs` y umbral en `CRON_JOBS` (ADR-060).
+>
+> Además, **cada destino que nombra abajo está muerto**: la cola en `192.168.0.245`, el
+> `MEGA_DULCES_URL` del mismo host, el `DATABASE_URL_NEW=<proxy Railway prod>` (Railway es la prod
+> VIEJA, sin escrituras desde el 23-sep) y el `FEEDS_INGEST_URL` de `railway.app`. Copiar este
+> bloque hoy configura un orquestador que apunta a cuatro lugares que ya no son.
+>
+> Se conserva porque el **razonamiento** de abajo sigue siendo válido y es el que justificó la
+> Fase VL: tareas sin reintentos, sin historial, y una que *dice* Running con el proceso zombie.
+
 Reemplazo **gradual** del Task Scheduler de Windows para los feeds Kepler→prod. Un
 solo proceso Node (`feed-worker.js`), siempre-vivo bajo PM2, agenda los modos de
 `run-prod-feeds.js` con **pg-boss** (cola en Postgres, reintentos + historial, sin
