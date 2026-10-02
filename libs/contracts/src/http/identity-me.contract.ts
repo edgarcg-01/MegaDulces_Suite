@@ -337,6 +337,8 @@ export interface MeTarea {
    * quién puede abrir; enlazarla invitaría a un 403 (medido: 2 casos reales en prod).
    */
   ruta: string | null;
+  /** `[MS.3.6]` Parámetros del enlace (`?scope=mine`). Ausente/`null` = la ruta a secas. Sólo con `ruta`. */
+  queryParams?: Record<string, string> | null;
   /** Por qué no hay enlace. `null` cuando sí lo hay. */
   sin_acceso: string | null;
   icono: string;

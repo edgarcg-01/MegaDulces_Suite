@@ -41,8 +41,9 @@ categorías; la escalación sigue apagada). «Reportar un problema» en el heade
 no es destino del mapa de la suite a propósito. El proyecto sale de «Por clasificar» y entra al espacio 9. La campana lee los
 avisos del log por poll y el WebSocket sólo la adelanta. **Revisada en navegador** (3 personas; claro, oscuro y 390 px): salieron y se corrigieron 6 defectos que ninguna prueba veía —íconos
 inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abierta, la ficha bajo los KPIs en móvil, el acceso desde
-«Mi trabajo» y la pantalla que no reaccionaba al pulsar un aviso estando ya en ella. **Declarado, no hecho:** Reportes, la entrada
-«A tu nombre» de Mi trabajo y el botón en los shells de tienda y telemarketing. **Nada aplicado a prod.**
+«Mi trabajo» y la pantalla que no reaccionaba al pulsar un aviso estando ya en ella. **Declarado, no hecho:** Reportes y el botón en los shells de tienda y telemarketing. **Nada aplicado a prod.**
+
+**«A tu nombre» en Mi trabajo (MS.3.6):** los tickets asignados a una persona aparecen en su «Mi trabajo» como «Solicitudes de servicio a tu cargo» y enlazan a la bandeja ya filtrada a «Mías». Un ticket que espera al solicitante cuenta como suyo pero **no como vencido**: su reloj está pausado. Quien sólo reporta no ve nada ahí; quien tiene tickets asignados pero no el permiso de atender ve la fila sin enlace y con el motivo. **Declarado, no hecho:** la cola sin asignar como bandeja de Mi trabajo (necesita un umbral de atraso que nadie ha fijado).
 ### Added — Mesa de Servicio, capa 2: lógica, 27 rutas, SLA, avisos y auto-cierre (Fase MS, 2026-10-02)
 `libs/service-desk` con el ciclo completo del ticket (alta con prioridad **sugerida**, bandeja priorizada, hilo, tomar/asignar,
 prioridad, tiempo trabajado, confirmar/reabrir/cancelar, tablero) sobre una máquina de estados pura y un reloj hábil en hora

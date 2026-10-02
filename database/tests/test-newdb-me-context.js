@@ -223,7 +223,7 @@ const tieneDecoradorPermisos = (tramo) =>
     ruta: m[2],
     anyOf: [...m[3].matchAll(/Permission\.([A-Z0-9_]+)/g)].map((x) => x[1]),
   }));
-  check('se leyeron las 4 fuentes de tarea (si no, este bloque no mide nada)', fuentes.length === 4, fuentes.length);
+  check('se leyeron las 5 fuentes de tarea (si no, este bloque no mide nada)', fuentes.length === 5, fuentes.length);
   for (const f of fuentes) {
     const g = guardDe(f.ruta);
     check(`${f.fuente}: la ruta ${f.ruta} existe en app.routes.ts`, g.encontrada);

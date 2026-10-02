@@ -335,7 +335,7 @@ export class UsersController {
    * `[JZ.5]` — **Sólo el bloque de zona.** Es lo que refresca el WebSocket de tienda.
    *
    * ── Por qué no se reusa `me/work` ───────────────────────────────────────────────────────────
-   * Porque cuesta 14 mediciones (6 bandejas + 4 fuentes de tarea + 4 ciclos) y el ticket que
+   * Porque cuesta 15 mediciones (6 bandejas + 5 fuentes de tarea + 4 ciclos) y el ticket que
    * dispara el refresco sólo puede mover UNA: la venta de la zona. Recalcular las otras trece por
    * cada ticket sería pagar el reporte completo para actualizar un número — y en una zona de tres
    * sucursales llega un ticket cada ~45 s (medido: 18,958 tickets en 30 días sólo en la 01).

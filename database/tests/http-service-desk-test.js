@@ -484,6 +484,54 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     check('⭐ el barrido DEJA LATIDO en analytics.cron_runs (aun el manual)', !!latido && !!latido.last_finish, JSON.stringify(latido));
     check('y el latido no está en error', latido?.status === 'ok', JSON.stringify(latido));
 
+    // ── 15. «A tu nombre» en Mi trabajo ─────────────────────────────────────────────
+    console.log('\n15 — Mi trabajo › «A tu nombre» (GET /users/me/work)');
+    const ABIERTOS = ['nuevo', 'asignado', 'en_proceso', 'en_espera'];
+    const FUENTE = 'servicedesk.requests';
+    const tareaDe = (r) => (r.body?.tareas ?? []).find((t) => t.fuente === FUENTE);
+
+    // Un ticket en ESPERA, vencido: sigue siendo del agente pero su reloj está pausado.
+    const tp = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: en espera, con plazo viejo' });
+    await req('POST', `${SD}/requests/${tp.body?.id}/take`, agente.token);
+    await req('POST', `${SD}/requests/${tp.body?.id}/status`, agente.token, { status: 'en_espera', note: 'Espero al solicitante' });
+    await knex('servicedesk.requests').where({ id: tp.body?.id }).update({ due_at: new Date(Date.now() - 5 * 3600e3) });
+    // Y uno vencido de verdad, con el reloj corriendo.
+    const tv = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: vencido con reloj corriendo' });
+    await req('POST', `${SD}/requests/${tv.body?.id}/take`, agente.token);
+    await knex('servicedesk.requests').where({ id: tv.body?.id }).update({ due_at: new Date(Date.now() - 2 * 3600e3) });
+
+    const wAg = await req('GET', '/users/me/work', agente.token);
+    check('GET /users/me/work → 200', wAg.status === 200, dump(wAg));
+    const tarea = tareaDe(wAg);
+    check('⭐ el agente VE «Solicitudes de servicio a tu cargo» en lo asignado a su nombre', !!tarea, JSON.stringify((wAg.body?.tareas ?? []).map((t) => t.fuente)));
+    const enDb = await knex('servicedesk.requests').where({ tenant_id: T, assigned_to: agente.id }).whereNull('deleted_at').whereIn('status', ABIERTOS)
+      .select(knex.raw('count(*)::int AS n'), knex.raw('count(*) FILTER (WHERE paused_at IS NULL AND due_at < now())::int AS vivas'), knex.raw('count(*) FILTER (WHERE due_at < now())::int AS con_pausadas')).first();
+    check('el total es EXACTAMENTE lo abierto que tiene asignado (medido contra la base)', tarea?.total === enDb.n, `${tarea?.total} vs ${enDb.n}`);
+    check('⭐ el ticket en espera cuenta en el total pero NO como vencido: su reloj está pausado', tarea?.vencidas === enDb.vivas && enDb.con_pausadas > enDb.vivas, `vencidas ${tarea?.vencidas} · vivas ${enDb.vivas} · si contara las pausadas ${enDb.con_pausadas}`);
+    check('⭐ el vencido con reloj corriendo SÍ cuenta (la prueba no es vacua)', enDb.vivas >= 1 && tarea?.vencidas >= 1);
+    check('enlaza a la bandeja, filtrada a «lo mío»', tarea?.ruta === '/servicio/bandeja' && tarea?.queryParams?.scope === 'mine', JSON.stringify([tarea?.ruta, tarea?.queryParams]));
+    check('declara lo que la fuente no puede contestar (en_espera proyectado a pending, sin historial de reasignación)', Array.isArray(tarea?.no_responde) && tarea.no_responde.length >= 2);
+
+    const wSol = await req('GET', '/users/me/work', sol.token);
+    check('⭐ quien sólo REPORTA no tiene nada a su nombre: tickets que abrió no son tareas suyas', !tareaDe(wSol), JSON.stringify((wSol.body?.tareas ?? []).map((t) => t.fuente)));
+
+    // Rol 2 del contrato de tarea: si el dueño no tiene el permiso que abre la ruta, la fila se muestra SIN enlace y dice por qué.
+    const sinPerm = await crearUsuario('sinperm');
+    usuarios.push(sinPerm);
+    const ts = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: asignado a quien no puede abrirla' });
+    await knex('servicedesk.requests').where({ id: ts.body?.id }).update({ assigned_to: sinPerm.id, assigned_by: agente.id, assigned_at: new Date(), status: 'asignado' });
+    const wSin = await req('GET', '/users/me/work', sinPerm.token);
+    const tSin = tareaDe(wSin);
+    check('⭐ asignada a quien NO tiene permiso: la fila se muestra (no se esconde la discrepancia)', !!tSin && tSin.total === 1, JSON.stringify(wSin.body?.tareas));
+    check('…pero SIN enlace y con el motivo (enlazarla invitaría a un 403)', tSin?.ruta === null && tSin?.queryParams === null && /Pídeselo a Sistemas/.test(tSin?.sin_acceso ?? ''), JSON.stringify([tSin?.ruta, tSin?.sin_acceso]));
+    check('un ticket cerrado deja de ser tarea', await (async () => {
+      const antes = tareaDe(await req('GET', '/users/me/work', agente.token))?.total;
+      await req('POST', `${SD}/requests/${tv.body?.id}/status`, agente.token, { status: 'en_proceso' });
+      await req('POST', `${SD}/requests/${tv.body?.id}/status`, agente.token, { status: 'resuelto', note: 'Listo' });
+      const despues = tareaDe(await req('GET', '/users/me/work', agente.token))?.total;
+      return despues === antes - 1;
+    })());
+
     noMedido.push('correo y WhatsApp REALES: el SMTP no está configurado y la plantilla de Meta no está aprobada (P5); lo que se afirma es que el resultado queda DECLARADO por canal');
     noMedido.push('push en vivo por WebSocket (la API de este test corre sin cliente conectado); el poll de la campana sí se midió');
 

@@ -408,7 +408,7 @@
               reparte y quien puede abrir no coinciden; enlazarla llevaría a un 403.
             -->
             @if (t.ruta) {
-              <a class="mt-task is-mine" [routerLink]="t.ruta" [title]="t.detalle" (click)="abrioTarea(t)">
+              <a class="mt-task is-mine" [routerLink]="t.ruta" [queryParams]="t.queryParams" [title]="t.detalle" (click)="abrioTarea(t)">
                 <span class="mt-task-ico"><i [class]="t.icono" aria-hidden="true"></i></span>
                 <span class="mt-task-n">{{ formatoTotal(t.total) }}</span>
                 <span class="mt-task-txt">

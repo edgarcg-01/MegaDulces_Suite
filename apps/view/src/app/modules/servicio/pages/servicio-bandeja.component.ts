@@ -201,6 +201,10 @@ export class ServicioBandejaComponent implements OnInit {
   readonly esCoordinador = computed(() => this.perms.has(Permission.SERVICIO_COORDINAR));
 
   ngOnInit(): void {
+    // El alcance del enlace se fija ANTES de la primera carga: si no, se pedía «Sin asignar» y enseguida «Mías», dos
+    // respuestas en carrera donde la lenta pisa a la rápida.
+    const inicial = this.route.snapshot?.queryParamMap?.get('scope');
+    if (inicial && this.scopes.some((s) => s.value === inicial)) this.scope.set(inicial);
     this.recargar();
     // Deep-link de la campana: `?id=<solicitud>` abre su ficha. Se ESCUCHA, no se lee una vez: si ya estás en la
     // bandeja y pulsas un aviso, Angular reutiliza el componente y sólo cambia el parámetro (medido en vivo: la URL
@@ -208,6 +212,10 @@ export class ServicioBandejaComponent implements OnInit {
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
       const id = q.get('id');
       if (id) this.abrir(id);
+      // `?scope=mine` (el enlace de «A tu nombre» en Mi trabajo). Sólo valores de la lista: uno inventado se ignora y la
+      // bandeja abre como siempre, en vez de pedirle al servidor un alcance que no existe (devolvería 400).
+      const scope = q.get('scope');
+      if (scope && scope !== this.scope() && this.scopes.some((s) => s.value === scope)) this.setScope(scope);
     });
   }
 

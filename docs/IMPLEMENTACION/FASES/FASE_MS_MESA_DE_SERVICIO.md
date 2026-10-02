@@ -337,7 +337,7 @@ manual** (light, dark y móvil) — el único paso que no se automatiza.
 - 🧪 **MS.1.4** Permisos (`REPORTAR/ATENDER/COORDINAR`) en enum, metadata, árbol y mapa de la suite + reparto
   derivado. Mig `20261002130000`. **La clave de responsabilidad se movió a MS.3.6** (ver §11).
 - 🧪 **MS.1.5** Contrato de tarea: `servicedesk.requests` declarada en `FUENTES_TAREA`/`ADAPTADORES`. La entrada
-  visible en `me-tasks.ts` espera a MS.3.6 (necesita su ruta).
+  visible en `me-tasks.ts` se hizo en MS.3.6 (con su ruta).
 - 🧪 **MS.1.6** Smoke DB-direct `test-newdb-service-desk.js`: **130 ✓ / 0 ✗**, registrado en `run-all-tests.js`.
 
 **Capa 2 — Lógica**
@@ -358,7 +358,7 @@ manual** (light, dark y móvil) — el único paso que no se automatiza.
 - ⬜ **MS.3.3** Mis solicitudes + side-peek con hilo.
 - ⬜ **MS.3.4** Bandeja de atención.
 - ⬜ **MS.3.5** Reportes + Configuración.
-- ⬜ **MS.3.6** Integración con Mi trabajo.
+- 🧪 **MS.3.6** Integración con Mi trabajo. «A tu nombre» hecho (5ª fuente de `me-tasks.ts`, enlaza a `/servicio/bandeja?scope=mine`; el ticket `en_espera` cuenta pero no vence). **La clave `servicio.atender` y su bandeja NO se crearon:** exigen un umbral de atraso por bandeja que nadie ha fijado (decisión pendiente).
 - ⬜ **MS.3.7** Botón en los shells de tienda y telemarketing.
 - ⬜ **MS.3.9** Validación visual light/dark/móvil.
 

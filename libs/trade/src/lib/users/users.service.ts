@@ -2923,6 +2923,7 @@ export class UsersService {
           label: f.label,
           detalle: f.detalle,
           ruta: puede ? f.ruta : null,
+          queryParams: puede && f.queryParams ? f.queryParams : null,
           sin_acceso: puede
             ? null
             : `Te la asignaron, pero tu permiso no abre ${f.ruta}. Pídeselo a Sistemas.`,
