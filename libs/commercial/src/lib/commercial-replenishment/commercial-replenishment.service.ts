@@ -159,6 +159,49 @@ export interface CreateRequisitionDto {
   lines: RequisitionLineDto[];
 }
 interface ReceiveLineDto { line_id: string; received_qty: number; }
+
+/**
+ * `[MT.6]` Una fila de la lista de requisiciones, con el origen ya resuelto.
+ *
+ * Los nombres que vienen de los LEFT JOIN son nullable a proposito: una requisicion a proveedor
+ * no tiene almacen de origen, y una de traspaso no tiene proveedor.
+ *
+ * ADVERTENCIA sobre total_units y total_cost: en la base son numeric(14,3) y numeric(14,4), y este
+ * repo NO configura un type parser para el OID 1700, asi que node-pg los entrega como STRING. El
+ * metodo devuelve las filas CRUDAS (solo convierte el total de la paginacion), asi que el valor que
+ * sale por HTTP no esta comprobado que sea numero. El frontend los declara como number
+ * (apps/view/.../compras.service.ts, RequisitionRow). Las dos declaraciones NO pueden ser ciertas a
+ * la vez; mientras no se mida contra la base, se declara la union en vez de elegir una y acertarle
+ * de casualidad.
+ */
+export interface RequisitionListRowDto {
+  id: string;
+  folio: string;
+  estado: string;
+  source_type: 'supplier' | 'branch';
+  source_warehouse_id: string | null;
+  target_basis: string;
+  total_lines: number;
+  total_units: number | string;
+  total_cost: number | string;
+  notes: string | null;
+  created_at: Date | string;
+  approved_at: Date | string | null;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  supplier_name: string | null;
+  source_warehouse_code: string | null;
+  source_warehouse_name: string | null;
+}
+
+/** `[MT.6]` Pagina de requisiciones. */
+export interface RequisitionListDto {
+  total: number;
+  page: number;
+  pageSize: number;
+  rows: RequisitionListRowDto[];
+}
+
 export interface ReceiveRequisitionDto { lines?: ReceiveLineDto[]; }
 
 const BASES: TargetBasis[] = ['min', 'reorder', 'max', 'cadence'];
@@ -2589,7 +2632,9 @@ export class CommercialReplenishmentService {
     });
   }
 
-  async listRequisitions(q: { estado?: string; warehouse_id?: string; page?: number; pageSize?: number }) {
+  async listRequisitions(
+    q: { estado?: string; warehouse_id?: string; source_type?: string; page?: number; pageSize?: number },
+  ): Promise<RequisitionListDto> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(q.pageSize) || 50));
@@ -2597,14 +2642,19 @@ export class CommercialReplenishmentService {
       const base = trx('commercial.purchase_requisitions as r')
         .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'r.tenant_id').andOn('w.id', 'r.warehouse_id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'r.tenant_id').andOn('sup.id', 'r.supplier_id'))
+        .leftJoin('commercial.warehouses as sw', (j) => j.on('sw.tenant_id', 'r.tenant_id').andOn('sw.id', 'r.source_warehouse_id'))
         .where('r.tenant_id', tenantId);
       if (q.estado) base.andWhere('r.estado', q.estado);
       if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) base.andWhere('r.warehouse_id', q.warehouse_id);
+      if (q.source_type && (q.source_type === 'supplier' || q.source_type === 'branch')) {
+        base.andWhere('r.source_type', q.source_type);
+      }
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
       const rows = await base.clone()
-        .select('r.id', 'r.folio', 'r.estado', 'r.target_basis', 'r.total_lines', 'r.total_units', 'r.total_cost',
+        .select('r.id', 'r.folio', 'r.estado', 'r.source_type', 'r.source_warehouse_id', 'r.target_basis', 'r.total_lines', 'r.total_units', 'r.total_cost',
           'r.notes', 'r.created_at', 'r.approved_at', trx.raw('w.code AS warehouse_code'), trx.raw('w.name AS warehouse_name'),
-          trx.raw('sup.name AS supplier_name'))
+          trx.raw('sup.name AS supplier_name'),
+          trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'))
         .orderBy('r.created_at', 'desc').limit(pageSize).offset((page - 1) * pageSize);
       return { total: Number(totalRow?.c || 0), page, pageSize, rows };
     });
@@ -2617,15 +2667,19 @@ export class CommercialReplenishmentService {
       const header: any = await trx('commercial.purchase_requisitions as r')
         .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'r.tenant_id').andOn('w.id', 'r.warehouse_id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'r.tenant_id').andOn('sup.id', 'r.supplier_id'))
+        .leftJoin('commercial.warehouses as sw', (j) => j.on('sw.tenant_id', 'r.tenant_id').andOn('sw.id', 'r.source_warehouse_id'))
         .where({ 'r.tenant_id': tenantId, 'r.id': id })
-        .select('r.*', trx.raw('w.code AS warehouse_code'), trx.raw('w.name AS warehouse_name'), trx.raw('sup.name AS supplier_name'))
+        .select('r.*', trx.raw('w.code AS warehouse_code'), trx.raw('w.name AS warehouse_name'), trx.raw('sup.name AS supplier_name'),
+          trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'))
         .first();
       if (!header) throw new NotFoundException('Requisición no encontrada');
       const lines = await trx('commercial.purchase_requisition_lines as l')
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'l.tenant_id').andOn('pr.id', 'l.product_id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'l.tenant_id').andOn('sup.id', 'l.supplier_id'))
+        .leftJoin('commercial.warehouses as sw', (j) => j.on('sw.tenant_id', 'l.tenant_id').andOn('sw.id', 'l.source_warehouse_id'))
         .where('l.tenant_id', tenantId).andWhere('l.requisition_id', id)
-        .select('l.*', trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'), trx.raw('sup.name AS supplier_name'))
+        .select('l.*', trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'), trx.raw('sup.name AS supplier_name'),
+          trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'))
         .orderBy('pr.nombre');
       // RA.15 — OC generada desde esta requisición (traza RQ→OC), si existe.
       const po: any = await trx('commercial.purchase_orders')

@@ -367,14 +367,15 @@ export class CommercialReplenishmentController {
 
   @Get('requisitions')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_VER)
-  @ApiOperation({ summary: 'Lista de requisiciones. Filtros: estado, warehouse_id.' })
+  @ApiOperation({ summary: 'Lista de requisiciones. Filtros: estado, warehouse_id, source_type.' })
   listRequisitions(
     @Query('estado') estado?: string,
     @Query('warehouse_id') warehouse_id?: string,
+    @Query('source_type') source_type?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.listRequisitions({ estado, warehouse_id, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.listRequisitions({ estado, warehouse_id, source_type, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('requisitions/:id')
