@@ -87,7 +87,7 @@ export const unCodigo = (v: string | string[] | null): string | null =>
     :host { display: inline-flex; align-items: center; min-width: 0; }
     .sp-ctl { min-width: 13rem; }
     .sp-fija {
-      display: inline-flex; align-items: center; gap: var(--space-2);
+      display: inline-flex; align-items: center; gap: var(--sp-2);
       font-size: var(--fs-sm); color: var(--text-muted); white-space: nowrap;
     }
     .sp-sin { color: var(--warn-fg, var(--text-muted)); }

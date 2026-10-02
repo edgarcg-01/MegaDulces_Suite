@@ -883,9 +883,9 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
     .inv-var-chips { display: flex; gap: .375rem; flex-wrap: wrap; }
     .inv-var-chip { display: inline-flex; align-items: baseline; gap: .375rem;
       padding: .3rem .55rem; border-radius: var(--radius-sm, 6px); cursor: pointer;
-      border: 1px solid var(--border-1); background: var(--surface-1);
+      border: 1px solid var(--border-color); background: var(--card-bg);
       font-size: var(--fs-xs); color: var(--fg-2); font-family: inherit; }
-    .inv-var-chip:hover { border-color: var(--border-2); }
+    .inv-var-chip:hover { border-color: var(--action); }
     .inv-var-chip.is-on { border-color: var(--action); background: var(--surface-2);
       color: var(--fg-1); font-weight: 600; }
     .inv-var-chip-n { font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -906,12 +906,12 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
       max-width: 60ch; line-height: 1.45; }
     .inv-var-exp-h { font-size: var(--fs-sm); font-weight: 600; color: var(--fg-1);
       margin: 1.125rem 0 .375rem; padding-bottom: .25rem;
-      border-bottom: 1px solid var(--border-1); }
+      border-bottom: 1px solid var(--border-color); }
     .inv-var-exp-t { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
     .inv-var-exp-t th { text-align: left; color: var(--fg-3); font-weight: 500;
       padding: .25rem .375rem; }
     .inv-var-exp-t th.num { text-align: right; }
-    .inv-var-exp-t td { padding: .25rem .375rem; border-top: 1px solid var(--border-1); }
+    .inv-var-exp-t td { padding: .25rem .375rem; border-top: 1px solid var(--border-color); }
     .inv-var-exp-t tr.is-aqui { background: var(--surface-2); font-weight: 600; }
     .inv-var-exp-dato { font-size: var(--fs-base); margin: .25rem 0; }
     /* ⛔ Lo oculto se VE. Un bloque que desaparece se lee como un bloque vacío. */
