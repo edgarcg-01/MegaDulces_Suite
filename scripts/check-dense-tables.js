@@ -369,7 +369,18 @@ for (const f of archivos) {
 // La lista de deuda se cae sola cuando sobra: un archivo que ya se arregló (o que se renombró)
 // tiene que SALIR de la lista, y eso sólo pasa si la compuerta lo reclama.
 // La cohorte de la 2a aguja se poda con AVISO, no con rojo: ver el comentario de DEUDA_COLUMNAS.
-const podables = [...DEUDA_COLUMNAS].filter((d) => !cohorte.some((e) => e.rel === d));
+// ⛔ `[CD.2.1]` LA RECONCILIACION SOLO VALE EN BARRIDO COMPLETO. La pregunta "¿esta entrada de
+// la lista de deuda sigue haciendo falta?" se contesta mirando TODOS los archivos; con el
+// barrido acotado al diff, todo lo que el cambio no tocó parece sobrante. Medido el 2026-10-02
+// al intentar el primer push: sobre un diff de 6 archivos, la compuerta declaró que **79
+// pantallas ya no necesitaban la deuda** y se puso roja — un falso positivo mío, introducido
+// por la acotación. La deuda se reconcilia con `npm run check:tables -- --todo`.
+const reconciliar = !_alcanceTablas.acotado;
+if (!reconciliar) {
+  console.log('   deuda: NO RECONCILIADA en este modo (acotado al diff) — se mide con --todo.');
+}
+
+const podables = reconciliar ? [...DEUDA_COLUMNAS].filter((d) => !cohorte.some((e) => e.rel === d)) : [];
 if (podables.length) {
   console.log(`\n✅ ${podables.length} pantalla(s) de la deuda por columnas ya NO la necesitan:`);
   for (const s of podables.slice(0, 10)) console.log(`   · ${s}`);
@@ -377,7 +388,7 @@ if (podables.length) {
   console.log('   Sacalas de DEUDA_COLUMNAS en scripts/check-dense-tables.js.\n');
 }
 
-const sobrantes = [...DEUDA.keys()].filter((d) => !enDeuda.some((e) => e.rel === d));
+const sobrantes = reconciliar ? [...DEUDA.keys()].filter((d) => !enDeuda.some((e) => e.rel === d)) : [];
 if (sobrantes.length) {
   console.error('\n❌ Estos archivos están en la lista de deuda y ya no la necesitan:');
   for (const s of sobrantes) console.error(`   · ${s}`);
