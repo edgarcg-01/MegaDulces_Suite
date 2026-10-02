@@ -1,7 +1,7 @@
 # Fase CD — Despliegue desacoplado de migraciones, y un CI que se pueda leer
 
 > **Estado:** 🧪 EN CÓDIGO (2026-10-02). Medido contra el repo y contra las corridas reales de
-> GitHub Actions. Falta: redeploy de `auto-deploy.sh`/`compuerta-migraciones.js` a `md` y una
+> GitHub Actions. Falta: redeploy de `auto-deploy.sh`/`compuerta-migraciones.sh` a `md` y una
 > corrida de CI que confirme en vivo los tiempos.
 
 ---
@@ -82,7 +82,7 @@ Lo que se afloja es el caso en que la migración pendiente y el código a desple
 un hotfix de frontend no tiene por qué esperar a que alguien aplique una matvista de compras que
 ese hotfix ni nombra. Eso es medible.
 
-`ops/prod/compuerta-migraciones.js`:
+`ops/prod/compuerta-migraciones.sh`:
 
 1. De cada migración pendiente extrae los **objetos** que crea o altera (tablas, columnas, vistas).
 2. Del diff `<commit vivo>..<commit objetivo>` lee los archivos de `apps/` y `libs/` que cambian.
@@ -203,10 +203,95 @@ puede leer. Una compuerta que falla sin explicarse se termina ignorando (ADR-056
 
 ## 6. Pendiente
 
-- [ ] Subir `compuerta-migraciones.js` a `md` (`ops/prod/deploy.sh --imagenes` lo sincroniza).
-      **Hasta que esté, `auto-deploy.sh` frena con `falta compuerta-migraciones.js`** — a
+- [ ] Subir `compuerta-migraciones.sh` a `md` (`ops/prod/deploy.sh --verificar` lo sincroniza; `--imagenes` NO sincroniza guiones).
+      **Hasta que esté, `auto-deploy.sh` frena con `falta compuerta-migraciones.sh`** — a
       propósito: no se despliega a ciegas.
 - [ ] Una corrida de CI real que confirme el ahorro del caché de `node_modules` (estimado ~60 s
       × 2 jobs; **no medido en vivo todavía**).
 - [ ] Decidir si `check:teclado` y `check:busqueda` —que no se auditaron acá— tienen el mismo
       barrido repo-wide y merecen el mismo tratamiento.
+
+---
+
+## 7. [CD.5] Lo que el despliegue real a `md` enseñó (2026-10-02)
+
+Tres defectos que **sólo aparecieron al desplegar de verdad**. Ninguno los habría encontrado un
+build verde ni una prueba local.
+
+### 7.1 ⛔ La compuerta estaba en Node, y en `md` NO HAY node
+
+Medido en el host: ni en el `PATH`, ni en `/usr/local/bin`, ni nvm, ni snap. Sólo `awk`. La app
+corre en pods de k3s, pero depender de un pod para una compuerta de despliegue es **circular**:
+es pedirle permiso para desplegar a la cosa que se está desplegando.
+
+Y el modo de falla era feo: `node` ausente devuelve **127**, y el llamador leía ese no-cero como
+"hay acoplamiento" — la feature muerta, pero con cara de estar funcionando.
+
+⭐ **La señal estaba puesta y no la leí**: `clasificar-migraciones.awk` ya era awk por este mismo
+motivo. Reescrita en POSIX sh (`compuerta-migraciones.sh`); la versión `.js` se retiró, porque
+dos implementaciones de lo mismo divergen.
+
+### 7.2 ⛔ `grep -i` + `-f` devuelve CERO en silencio (GNU grep 3.0 / MSYS)
+
+| combinación | resultado sobre un archivo real de 14 KB |
+|---|---|
+| `grep -o -f` | 6 coincidencias ✅ |
+| `grep -i -o` (patrón literal) | 2 ✅ |
+| `grep -i -F` | **aborta**, exit 134 (ruidoso, se ve) |
+| **`grep -i -f`** | **0, exit limpio, sin una línea de error** |
+
+El segundo es el peligroso: cero coincidencias se lee como `DESACOPLADO`, o sea que el modo de
+falla era **desplegar código que necesita esquema inexistente** — justo lo que la compuerta
+existe para impedir.
+
+⭐ **Y la prueba negativa no lo atrapó, porque corría sobre 40 bytes.** El defecto aparece con
+volumen. Ahora el self-test ejerce el cruce sobre un archivo de 51 KB: *una prueba negativa que
+no se parece al caso real puede ponerse verde sobre un gate roto.*
+
+Solución: no depender de `-i`. Se normaliza a minúsculas con `tr` antes de comparar.
+
+### 7.3 ⛔ Falsos positivos que devolvían el freno indiscriminado
+
+Contra el despliegue real de prod (`6cb07c3..11562e4`, 34 archivos), la compuerta marcaba
+archivos sin relación. Dos causas distintas, las dos medidas:
+
+1. **Subcadena**: el objeto `requests` matcheaba dentro de `analytics.expense_requests`.
+2. **Palabra genérica en prosa**: `settings` dentro de un **comentario**.
+
+El verdadero positivo, en cambio, aparece **calificado**: `'servicedesk.requests'`. Esa era la
+señal buena que se estaba tirando al quedarse con el último segmento del nombre.
+
+Arreglo: conservar el nombre **calificado** y cruzar con **límite de palabra** (``). Como `_`
+cuenta como carácter de palabra, `requests` no matchea dentro de `expense_requests`.
+
+**Resultado medido:** el despliegue real de 34 archivos pasó de `FRENA` (falso) a
+`DESACOPLADO`, y el caso realmente acoplado sigue frenando con nombre y apellido
+(`servicedesk.requests`, `servicedesk.request_messages`).
+
+### 7.4 `--imagenes` NO sincroniza guiones
+
+La documentación de esta fase decía que `deploy.sh --imagenes` subía la compuerta. Es falso:
+`--imagenes` hace `verificar_limpio; enviar; construir` (construye imágenes). Los flags que
+llaman a `subir_compose` son `--recrear`, `--verificar`, `--pitr` y `--tunel`. **El liviano es
+`--verificar`**, que además corre la verificación de prod. Corregido también en el mensaje de
+error de `auto-deploy.sh` (donde el mismo texto equivocado ya existía para
+`clasificar-migraciones.awk`).
+
+Y `compuerta-migraciones.sh` **no estaba en `_guiones`**, así que `subir_compose` habría
+sincronizado el `auto-deploy.sh` que la invoca sin el archivo que la provee. Regla nueva
+escrita ahí: *si un guion de esa lista llama a otro archivo, ese archivo va en la lista.*
+
+### 7.5 Estado verificado en `md`
+
+- `compuerta-migraciones.sh` sincronizada · prueba negativa **10/10 corriendo en `md`**
+- `deploy.sh --verificar` → prod **sin fallas** (1 punto NO MEDIDO, declarado)
+- Caso real `6cb07c3..11562e4` con migración ajena pendiente → `DESACOPLADO` ✅
+- Caso acoplado → `FRENA` nombrando archivo y objeto ✅
+- Prod al día: **0 migraciones pendientes** hoy, así que la compuerta no está frenando a nadie
+
+### 7.6 Colisión de timestamps, resuelta
+
+`20261001160000` lo compartían dos migraciones. Verificado contra prod **antes** de tocar nada:
+`price_signal_h1_margen_por_canal.js` **está aplicada** (congelada, no se toca) y
+`obligaciones_gestionar_tres.js` **no**. Se renombró esta última a `20261001160100`. La
+compuerta pasa a 1015 migraciones sin colisiones.

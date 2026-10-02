@@ -280,7 +280,7 @@ fi
 CLASIF="$HOME/ops/prod/clasificar-migraciones.awk"
 if [ ! -f "$CLASIF" ]; then
   di "FALLO: falta $CLASIF — no se puede clasificar y no se despliega a ciegas."
-  di "  Se sube con: ops/prod/deploy.sh --imagenes (subir_compose lo sincroniza)."
+  di "  Se sube con: ops/prod/deploy.sh --verificar (es el flag liviano que llama a subir_compose; --imagenes NO sincroniza guiones, construye imagenes)."
   latir error "falta clasificar-migraciones.awk en md"; exit 1
 fi
 git ls-tree -r HEAD database/migrations-newdb/ \
@@ -305,7 +305,7 @@ if [ -n "$PEND" ]; then
   # era INDISCRIMINADO: un hotfix de frontend no podía salir porque alguien dejó a medio aplicar
   # una matvista de compras que ese hotfix ni nombra.
   #
-  # `compuerta-migraciones.js` contesta la pregunta que de verdad importa: ¿alguno de los
+  # `compuerta-migraciones.sh` contesta la pregunta que de verdad importa: ¿alguno de los
   # archivos que cambian en ESTE despliegue nombra los objetos que las migraciones pendientes
   # crean? Si no los nombra, el código nuevo no puede necesitarlos.
   #   · ACOPLADO / NO_MEDIDO -> frena igual que antes, pero diciendo QUÉ archivo y QUÉ objeto.
@@ -314,11 +314,11 @@ if [ -n "$PEND" ]; then
   #
   # ⛔ El sesgo va del lado seguro a propósito: si no se puede extraer el objeto de una migración
   #    (p.ej. una que sólo hace GRANT), eso es NO_MEDIDO y FRENA. No se adivina (ADR-056).
-  COMPUERTA="$HOME/ops/prod/compuerta-migraciones.js"
+  COMPUERTA="$HOME/ops/prod/compuerta-migraciones.sh"
   if [ ! -f "$COMPUERTA" ]; then
     di "FRENADO: falta $COMPUERTA — no se puede decidir si las $n pendiente(s) bloquean. NO MEDIDO."
-    di "  Se sube con: ops/prod/deploy.sh --imagenes (subir_compose lo sincroniza)."
-    latir error "falta compuerta-migraciones.js en md"
+    di "  Se sube con: ops/prod/deploy.sh --verificar (es el flag liviano que llama a subir_compose; --imagenes NO sincroniza guiones, construye imagenes)."
+    latir error "falta compuerta-migraciones.sh en md"
     exit 1
   fi
 
@@ -340,7 +340,11 @@ if [ -n "$PEND" ]; then
   #    compuerta diría "desacoplado" SIEMPRE. Este repo ya pagó ese error dos veces en `[VL.4]`
   #    (el wrapper que confundía "lock tomado" con "el comando falló"). `/bin/sh` no tiene
   #    `PIPESTATUS`, así que se guarda la salida y recién después se formatea.
-  SALIDA_CG=$(printf '%s\n' "$PEND" | node "$COMPUERTA" \
+  # ⛔ `sh`, NO `node`: en el host de `md` NO HAY node (medido el 2026-10-02). La compuerta
+  # nacio en JS y no podia correr acá; peor, `node` ausente devuelve 127 y la linea de abajo
+  # habria leido ese no-cero como "hay acoplamiento" — o sea la feature muerta, pero con cara
+  # de estar funcionando. `clasificar-migraciones.awk` ya era awk por el mismo motivo.
+  SALIDA_CG=$(printf '%s\n' "$PEND" | sh "$COMPUERTA" \
        --repo "$REPO_DIR" --dir database/migrations-newdb \
        --desplegado "$VIVO" --objetivo "$DESEADO" 2>&1)
   VEREDICTO_CG=$?
@@ -806,5 +810,5 @@ latir ok "desplegado $DESEADO desde $ANTERIOR · servicios: $SERVICIOS$AVISO_CI"
 if [ -x "$HOME/ops/prod/podar-disco.sh" ] || [ -f "$HOME/ops/prod/podar-disco.sh" ]; then
   sh "$HOME/ops/prod/podar-disco.sh" 2>&1 | sed 's/^/      /' || di "aviso: la poda falló (el despliegue NO se toca)"
 else
-  di "aviso: falta ~/ops/prod/podar-disco.sh — no se podó (corré ops/prod/deploy.sh --imagenes para subirlo)"
+  di "aviso: falta ~/ops/prod/podar-disco.sh — no se podó (corré ops/prod/deploy.sh --verificar para subirlo)"
 fi
