@@ -85,6 +85,41 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase RA-DYN — Motor de pedido: unir lo que ya sabíamos · 2026-10-02 · ADR-056 / ADR-059
+
+Pedido de Edgar: *«necesito que empecemos a unir toda nuestra informacion disponible para armar un
+buen pedido»*. Medido: de ~34 variables que deberían pesar en un pedido el motor miraba **8**; otras
+**16 ya estaban medidas y publicadas** en `/comercial/precios/motor` y el comprador no veía ninguna.
+
+- ✅ **[RA-DYN.U1]** `analytics.v_purchase_decision_signals` — las 16 señales huérfanas al lado de las
+  33,173 celdas del pedido. **VISTA**, no tabla ni importer. ⛔ NO trae la existencia de
+  `mv_price_signals`: medido, su foto tiene **13.8 h** y **6,198 de 29,300 celdas (21.2%) difieren
+  del ERP**, asimétricas (5,779 de más contra 419 de menos). El árbitro es `v_erp_stock_on_hand`.
+  **Aplicada a prod (batch 683)**; candado `test-newdb-purchase-decision-signals.js` **15/15**.
+- ✅ **[RA-DYN.U2]** el denominador de la demanda: `inventory_health.avg_daily_units` dividía entre
+  **90 fijo**. Morelia Madero abrió el 08-sep y Morelia Abastos el 19-sep (arbitrado contra
+  `kepler_ods.kdm1`), o sea 24 y 13 días de historia. Con el control de correr las dos fórmulas sobre
+  los mismos datos: **08 ×6.92 · 07 ×3.75 · los otros 19 almacenes exactamente 0 celdas**.
+  **1,940 celdas marcadas `sobrestock` no lo estaban y 464 estaban en crítico sin avisar**;
+  **$11,392,408/mes** de demanda a costo que el motor no veía. Mismo arreglo en
+  `import-demand-clean.js`. Candado `test-newdb-demand-denominator.js`.
+  ⚠️ **En código, NO en el dato**: los importers van horneados en la imagen `trade-ingest` y `md` no
+  tiene el repo → entra con `ops/vl/deploy.sh`, no con un push.
+- 🔨 **[RA-DYN.U3]** el piso del proveedor en `/compras/pedido` (`min_order_boxes`/`min_order_amount`
+  al SELECT que ya hacía el join + chip que agrupa la selección por proveedor). Arbitrado contra la
+  historia: **208 de 271 mínimos (77%) sí se alcanzaron** en 12 meses — el dato es creíble; sólo 11
+  lo contradice y 2 en serio (FEMSA 20.8× · CHARLY 11.6×), anotados como dato sucio.
+  De paso, bug latente cerrado en `minBoxesWarn()` de Existencia Crítica: dividía entre
+  `factor_purchase`, que vale **1 o NULL en los 14,872 productos** — funcionaba por coincidencia.
+  ⛔ **Sin build ni validación visual**: `node_modules/@angular` y `@analogjs` no existen en esta
+  máquina. `check:templates` verde (368 componentes).
+
+**Pendiente:** `git push` · `ops/vl/deploy.sh` (U.2) · redeploy api+view (U.3) · build y validación
+visual · cablear la vista U.1 a la pantalla (ése sí mueve números, va con su antes/después).
+
+**Declarado, no construido:** las 10 variables que faltan (caducidad, fill rate, pronóstico,
+intermitencia, precio pactado, rol del SKU…); 5 de ellas son derivables de datos ya cargados.
+
 ### Fase DEV — Desarrolladores › Proyectos (bitácora del equipo) · 2026-10-01
 
 Pedido de Sistemas: *«cuando se nos ocurre un nuevo proyecto no lo escribimos»*. Cada idea se da de
