@@ -7,7 +7,7 @@ import {
 } from './faltante-express';
 
 /**
- * `[FLT.23]` — El candado del alta automática.
+ * `[FLT.25]` — El candado del alta automática.
  *
  * El riesgo de esta función no es que falle: es que **acierte de más**. Un `anotaSolo` que
  * devuelve `true` siempre se ve idéntico en pantalla al correcto mientras se prueba con un

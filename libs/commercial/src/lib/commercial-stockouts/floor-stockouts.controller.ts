@@ -57,7 +57,7 @@ export class FloorStockoutsController {
   }
 
   @Patch(':id/deshacer')
-  // `[FLT.23]` CAPTURAR y no `COMPRAS_HALLAZGOS_GESTIONAR`: es la contracara de reportar, no una
+  // `[FLT.26]` CAPTURAR y no `COMPRAS_HALLAZGOS_GESTIONAR`: es la contracara de reportar, no una
   // decisión de bandeja. Quien puede anotar tiene que poder desanotar lo que acaba de anotar — si
   // no, el alta automática del verificador es una puerta de un solo sentido desde el mostrador.
   // Los frenos (alcance, sólo `open`, sólo dentro de la ventana) viven en el servicio.
