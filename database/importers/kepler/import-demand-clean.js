@@ -54,7 +54,18 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
         -- demanda = sus últimos $2 días CON datos. Tope 21 días: más viejo = almacén inactivo
         -- (RUTA-322 muerta desde jun) → fuera (demanda 0, la fila se borra por delete-not-seen).
         -- sale_date <= current_date filtra filas basura con fecha futura (hay un 2026-12-05).
-        SELECT warehouse_id, max(sale_date) AS last_d
+        -- [RA-DYN.U2] El anclaje de arriba arregla el FINAL de la ventana (feed atrasado).
+        -- Faltaba el ARRANQUE: un almacen que abrio DENTRO de la ventana tiene menos dias de
+        -- historia que la ventana, y dividir igual entre ella afirma que observamos dias que no
+        -- existieron. Medido contra prod el 2026-10-01: Morelia Madero (07) abrio el 08-sep y
+        -- Morelia Abastos (08) el 19-sep -- confirmado contra kepler_ods.kdm1, sin un solo
+        -- documento anterior -- o sea 24 y 13 dias contra una ventana de 30.
+        -- Los dias previos a la apertura no son demanda cero: son demanda NO MEDIBLE (ADR-056).
+        --
+        -- Mismo criterio y mismo grano que import-inventory-health.js, que es quien alimenta el
+        -- SUGERIDO. Arreglar uno solo dejaria a las dos mitades del motor diciendo cosas
+        -- distintas sobre el mismo almacen.
+        SELECT warehouse_id, max(sale_date) AS last_d, min(sale_date) AS first_d
           FROM analytics.sales_daily
          WHERE tenant_id = $1 AND sale_date <= current_date
          GROUP BY warehouse_id
@@ -62,14 +73,16 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
       ),
       wp AS (
         SELECT sd.product_id, sd.warehouse_id,
-               sum(sd.units)::numeric   AS u,
-               sum(sd.revenue)::numeric AS rev
+               -- [RA-DYN.U2] el denominador de ESTE almacen, hasta la proyeccion.
+               LEAST($2::int, GREATEST(1, wl.last_d - wl.first_d + 1))::numeric AS dias_efectivos,
+               sum(sd.units)::numeric   AS u
+,               sum(sd.revenue)::numeric AS rev
           FROM analytics.sales_daily sd
           JOIN wl ON wl.warehouse_id = sd.warehouse_id
          WHERE sd.tenant_id = $1
            AND sd.sale_date > wl.last_d - $2::int AND sd.sale_date <= wl.last_d
            AND sd.channel NOT IN ('mayoreo')  -- =TI% traspaso interno CEDIS→suc, no es demanda de venta
-         GROUP BY sd.product_id, sd.warehouse_id
+         GROUP BY sd.product_id, sd.warehouse_id, wl.last_d, wl.first_d
       ),
       pf AS (
         SELECT id AS product_id, COALESCE(factor_sale, 1)::numeric AS fs,
@@ -158,7 +171,8 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
       `CREATE TEMP TABLE stg_demand ON COMMIT DROP AS ${CTE}
        SELECT $1::uuid AS tenant_id, wp.warehouse_id, wp.product_id, $2::int AS window_days,
               (wp.rev / pp.piece_price) AS pieces, wp.rev AS revenue,
-              (wp.rev / pp.piece_price) / $2::numeric AS daily_pieces, wp.rev / $2::numeric AS daily_revenue,
+              (wp.rev / pp.piece_price) / wp.dias_efectivos AS daily_pieces,
+              wp.rev / wp.dias_efectivos AS daily_revenue,
               pp.piece_price, now() AS computed_at
          FROM wp JOIN pp USING (product_id) ${WHERE}`, [M, DAYS]);
     const up = await db.query(
