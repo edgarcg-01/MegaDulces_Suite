@@ -1,11 +1,11 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import type { Observable } from 'rxjs';
-import { SD_PRIORITIES, type SdClock, type SdConfigResponse, type SdPriority, type SdSlaScanResult } from '@megadulces/contracts';
+import { SD_PRIORITIES, type SdAgentDto, type SdClock, type SdConfigResponse, type SdPriority, type SdRoutingResponse, type SdRoutingRuleDto, type SdSlaScanResult } from '@megadulces/contracts';
 import { PRIORITY_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
 
 const DIAS = [
@@ -89,6 +89,58 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
           </table>
         </section>
 
+        <section class="sc-card" aria-labelledby="h-rut">
+          <h2 id="h-rut">Asignación automática</h2>
+          <p class="sc-hint">Cuando llega una solicitud, la <b>primera regla que aplica</b> (de arriba abajo) se la asigna a su persona. Una regla se dispara por la <b>categoría</b> que eligió quien reporta o por una <b>palabra clave</b> en lo que escribió: sin acentos ni mayúsculas, y «impresora» también encuentra «impresoras». Si ninguna aplica, queda en «Sin asignar» para quien reparte. Sólo se le asigna a quien <b>puede atender</b>; si la persona de la regla no puede, el ticket queda sin asignar y aquí se marca.</p>
+          <div class="sc-wrap dt-scope">
+            <table class="sc-table dt-stack">
+              <thead><tr><th>Orden</th><th>Regla</th><th>Se dispara por</th><th>Asigna a</th><th>Estado</th><th></th></tr></thead>
+              <tbody>
+                @for (r of reglasRuteo(); track r.id) {
+                  <tr [class.apagada]="!r.active">
+                    <td role="cell" data-label="Orden"><input pInputText type="number" min="0" [ngModel]="r.sort_order" (change)="cambiarOrden(r, $any($event.target).value)" [attr.aria-label]="'Orden de ' + r.name" /></td>
+                    <td class="dt-id" role="cell" data-label="Regla">{{ r.name }}</td>
+                    <td role="cell" data-label="Se dispara por">
+                      @if (r.category_name) { <div>Categoría: <b>{{ r.category_name }}</b></div> }
+                      @if (r.keywords.length) { <div class="sc-mono">{{ r.keywords.join(', ') }}</div> }
+                    </td>
+                    <td role="cell" data-label="Asigna a">
+                      {{ r.assignee_name || r.assignee_username }}
+                      @if (!r.assignee_ok) { <em class="sc-off" title="No tiene el permiso de atender solicitudes: la regla lo salta y el ticket queda sin asignar. Dale el permiso en Roles o Usuarios.">no puede atender</em> }
+                    </td>
+                    <td role="cell" data-label="Estado">{{ r.active ? 'Activa' : 'Apagada' }}</td>
+                    <td role="cell" data-label="Acciones">
+                      <p-button label="Editar" size="small" severity="secondary" [text]="true" (onClick)="editarRegla(r)" />
+                      <p-button [label]="r.active ? 'Apagar' : 'Encender'" size="small" severity="secondary" [text]="true" (onClick)="alternarRegla(r)" />
+                      <p-button label="Retirar" size="small" severity="danger" [text]="true" (onClick)="retirarRegla(r)" />
+                    </td>
+                  </tr>
+                } @empty { <tr><td colspan="6" class="sc-vacio">Sin reglas: toda solicitud nueva queda en «Sin asignar».</td></tr> }
+              </tbody>
+            </table>
+          </div>
+
+          <div class="sc-new">
+            <h3>{{ editandoRegla() ? 'Editar regla' : 'Nueva regla' }}</h3>
+            <div class="sc-grid">
+              <label class="sc-field"><span>Nombre</span><input pInputText [(ngModel)]="formRegla.name" placeholder="Ej. Impresoras y equipo" /></label>
+              <label class="sc-field"><span>Asigna a</span>
+                <p-select [options]="agentes()" optionLabel="label" optionValue="user_id" [(ngModel)]="formRegla.assignee_id" placeholder="Elige" appendTo="body" ariaLabel="Asigna a" /></label>
+              <label class="sc-field"><span>Categoría (opcional)</span>
+                <p-select [options]="categoriasOpc()" optionLabel="name" optionValue="id" [(ngModel)]="formRegla.category_id" [showClear]="true" placeholder="Cualquiera" appendTo="body" ariaLabel="Categoría" /></label>
+              <label class="sc-field"><span>Orden</span><input pInputText type="number" min="0" [(ngModel)]="formRegla.sort_order" /></label>
+            </div>
+            <label class="sc-field"><span>Palabras clave (separadas por coma)</span>
+              <input pInputText [(ngModel)]="formRegla.keywords" placeholder="sistemas, cpu, impresora" />
+              <small>Una palabra del texto que EMPIECE con la clave la dispara. Ojo con las muy cortas o genéricas: «red» también encuentra «redes» y «redacción».</small></label>
+            <p class="sc-hint">En «Asigna a» sólo aparece quien ya <b>puede atender</b>. Si falta alguien, dale primero el permiso de atender solicitudes.</p>
+            <div class="sc-foot">
+              <p-button [label]="editandoRegla() ? 'Guardar regla' : 'Agregar regla'" icon="pi pi-check" [loading]="guardando()" [disabled]="!reglaValida()" (onClick)="guardarRegla()" />
+              @if (editandoRegla()) { <p-button label="Cancelar" severity="secondary" [outlined]="true" (onClick)="cancelarRegla()" /> }
+            </div>
+          </div>
+        </section>
+
         <section class="sc-card" aria-labelledby="h-cat">
           <h2 id="h-cat">Colas y categorías</h2>
           @for (q of c.queues; track q.id) {
@@ -161,6 +213,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
     .sc-esc span { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); color: var(--text-main); }
     .sc-esc small { color: var(--text-muted); font-size: var(--fs-xs); }
     .sc-foot { display: flex; gap: var(--sp-2); }
+    .sc-wrap { overflow-x: auto; }
     .sc-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
     .sc-table th { text-align: left; background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-xs); font-weight: 600; padding: var(--sp-2) var(--sp-3); }
     .sc-table td { padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color); color: var(--text-main); }
@@ -199,6 +252,15 @@ export class ServicioConfiguracionComponent implements OnInit {
   readonly barriendo = signal(false);
   readonly scan = signal<SdSlaScanResult | null>(null);
 
+  // ── `[MS.3.10]` Asignación automática ──
+  readonly reglasRuteo = signal<SdRoutingRuleDto[]>([]);
+  private readonly agentesRaw = signal<SdAgentDto[]>([]);
+  /** Sólo quien PUEDE atender: el selector no ofrece a quien el ruteo tendría que saltar. */
+  readonly agentes = computed(() => this.agentesRaw().map((a) => ({ user_id: a.user_id, label: a.name || a.username })));
+  readonly categoriasOpc = computed(() => (this.cfg()?.categories ?? []).filter((k) => k.active));
+  readonly editandoRegla = signal<string | null>(null);
+  formRegla: { name: string; assignee_id: string | null; category_id: string | null; sort_order: number; keywords: string } = { name: '', assignee_id: null, category_id: null, sort_order: 100, keywords: '' };
+
   reglas = { business_days: [] as number[], business_start: '08:00', business_end: '19:00', tz: 'America/Mexico_City', auto_close_days: 3, escalate_at_pct: 80, escalation_enabled: false, max_attachment_mb: 8, unassigned_alert_minutes: 60 };
   pol: PolForm[] = [];
   nueva: { queue_id: string | null; name: string; code: string; default_priority: SdPriority; requires_branch: boolean } = { queue_id: null, name: '', code: '', default_priority: 'media', requires_branch: false };
@@ -208,7 +270,51 @@ export class ServicioConfiguracionComponent implements OnInit {
       next: (c) => this.aplicar(c),
       error: (e) => this.error.set(sdError(e, 'No se pudo cargar la configuración.')),
     });
+    this.api.routing().subscribe({
+      next: (r) => this.reglasRuteo.set(r.rules),
+      error: (e) => this.error.set(sdError(e, 'No se pudieron cargar las reglas de asignación.')),
+    });
+    this.api.agents().subscribe({ next: (a) => this.agentesRaw.set(a), error: () => this.agentesRaw.set([]) });
   }
+
+  // ── Asignación automática ──
+  private guardarRuteo(op: Observable<SdRoutingResponse>, ok: string): void {
+    this.guardando.set(true);
+    this.error.set(null);
+    this.aviso.set(null);
+    op.subscribe({
+      next: (r) => { this.reglasRuteo.set(r.rules); this.guardando.set(false); this.aviso.set(ok); },
+      error: (e) => { this.guardando.set(false); this.error.set(sdError(e, 'No se pudo guardar la regla.')); },
+    });
+  }
+  private clavesDeTexto(): string[] { return this.formRegla.keywords.split(',').map((x) => x.trim()).filter(Boolean); }
+  reglaValida(): boolean {
+    const f = this.formRegla;
+    return !!f.name.trim() && !!f.assignee_id && (!!f.category_id || this.clavesDeTexto().length > 0);
+  }
+  guardarRegla(): void {
+    const f = this.formRegla;
+    if (!this.reglaValida() || !f.assignee_id) return;
+    const dto = { name: f.name.trim(), assignee_id: f.assignee_id, category_id: f.category_id, sort_order: Number(f.sort_order), keywords: this.clavesDeTexto() };
+    const id = this.editandoRegla();
+    this.guardarRuteo(id ? this.api.updateRouting(id, dto) : this.api.createRouting(dto), id ? 'Regla guardada.' : 'Regla agregada.');
+    this.cancelarRegla();
+  }
+  editarRegla(r: SdRoutingRuleDto): void {
+    this.editandoRegla.set(r.id);
+    this.formRegla = { name: r.name, assignee_id: r.assignee_id, category_id: r.category_id, sort_order: r.sort_order, keywords: r.keywords.join(', ') };
+  }
+  cancelarRegla(): void {
+    this.editandoRegla.set(null);
+    this.formRegla = { name: '', assignee_id: null, category_id: null, sort_order: 100, keywords: '' };
+  }
+  alternarRegla(r: SdRoutingRuleDto): void { this.guardarRuteo(this.api.updateRouting(r.id, { active: !r.active }), r.active ? 'Regla apagada.' : 'Regla encendida.'); }
+  cambiarOrden(r: SdRoutingRuleDto, valor: string): void {
+    const n = Number(valor);
+    if (!Number.isInteger(n) || n < 0 || n === r.sort_order) return;
+    this.guardarRuteo(this.api.updateRouting(r.id, { sort_order: n }), 'Orden guardado.');
+  }
+  retirarRegla(r: SdRoutingRuleDto): void { this.guardarRuteo(this.api.removeRouting(r.id), 'Regla retirada.'); }
 
   private aplicar(c: SdConfigResponse): void {
     this.cfg.set(c);

@@ -50,6 +50,9 @@ describe('armarAviso', () => {
   it('sin actor no inventa uno', () => {
     expect(armarAviso({ ...base, event: 'asignado' }).message).not.toContain('la asignó');
     expect(armarAviso({ ...base, event: 'asignado', actor: 'Ana' }).message).toContain('la asignó Ana');
+    // `[MS.3.10]` Una regla automática no es una persona: el aviso lo dice y no nombra a nadie.
+    expect(armarAviso({ ...base, event: 'asignado', automatico: true }).message).toContain('se te asignó automáticamente');
+    expect(armarAviso({ ...base, event: 'asignado', automatico: true, actor: 'Ana' }).message).not.toContain('la asignó Ana');
   });
 });
 

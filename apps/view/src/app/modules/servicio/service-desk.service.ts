@@ -5,7 +5,7 @@ import type {
   SdAgentDto, SdAssignDto, SdCatalogResponse, SdChangePriorityDto, SdChangeStatusDto, SdConfigResponse,
   SdCreateRequestDto, SdListResponse, SdLogTimeDto, SdNotificationDto, SdPostMessageDto, SdPreferencesDto,
   SdPriority, SdRequestDetail, SdSettingsDto, SdSlaPolicyDto, SdSlaScanResult, SdStatsResponse, SdStatus,
-  SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact,
+  SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact, SdRoutingResponse, SdUpsertRoutingRuleDto,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -87,6 +87,10 @@ export class ServiceDeskService {
   updateQueue(id: string, dto: SdUpsertQueueDto): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/queues/${id}`, dto); }
   createCategory(dto: SdUpsertCategoryDto): Observable<SdConfigResponse> { return this.http.post<SdConfigResponse>(`${this.base}/config/categories`, dto); }
   updateCategory(id: string, dto: SdUpsertCategoryDto): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/categories/${id}`, dto); }
+  routing(): Observable<SdRoutingResponse> { return this.http.get<SdRoutingResponse>(`${this.base}/config/routing`); }
+  createRouting(dto: SdUpsertRoutingRuleDto): Observable<SdRoutingResponse> { return this.http.post<SdRoutingResponse>(`${this.base}/config/routing`, dto); }
+  updateRouting(id: string, dto: SdUpsertRoutingRuleDto): Observable<SdRoutingResponse> { return this.http.put<SdRoutingResponse>(`${this.base}/config/routing/${id}`, dto); }
+  removeRouting(id: string): Observable<SdRoutingResponse> { return this.http.delete<SdRoutingResponse>(`${this.base}/config/routing/${id}`); }
   scanNow(): Observable<SdSlaScanResult> { return this.http.post<SdSlaScanResult>(`${this.base}/sla/scan-now`, {}); }
 
   /** Sólo manda los parámetros con valor: un `?search=` vacío no filtra pero ensucia la URL y el log. */

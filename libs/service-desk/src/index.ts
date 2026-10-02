@@ -5,6 +5,8 @@ export * from './lib/domain/request-state';
 export * from './lib/domain/sla';
 export * from './lib/domain/attachment-signature';
 export * from './lib/domain/folio';
+export * from './lib/domain/routing';
+export * from './lib/routing.service';
 export * from './lib/service-desk.types';
 export * from './lib/service-desk-config.service';
 export * from './lib/attachments.service';

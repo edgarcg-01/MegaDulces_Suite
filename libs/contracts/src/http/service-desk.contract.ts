@@ -268,6 +268,44 @@ export interface SdSettingsDto {
   unassigned_alert_minutes: number;
 }
 
+// ── Asignación automática (coordinación) ───────────────────────────────────────────────────────
+
+/**
+ * `[MS.3.10]` Una regla de asignación automática: una persona + lo que dispara la regla (una categoría exacta o
+ * palabras clave en lo que escribe quien reporta). Gana la primera por `sort_order`.
+ */
+export interface SdRoutingRuleDto {
+  id: string;
+  name: string;
+  /** Normalizadas (sin acentos ni mayúsculas). Una palabra del texto que EMPIEZA con la clave la dispara. */
+  keywords: string[];
+  category_id: string | null;
+  category_name: string | null;
+  assignee_id: string;
+  assignee_name: string | null;
+  assignee_username: string;
+  /**
+   * ¿Esa persona puede atender hoy (tiene `SERVICIO_ATENDER` o `COORDINAR`)? Si no, el ruteo NO le asigna y el
+   * ticket queda sin asignar — nunca se le asigna a quien no puede abrir su propia ficha. La pantalla lo marca.
+   */
+  assignee_ok: boolean;
+  sort_order: number;
+  active: boolean;
+}
+
+export interface SdRoutingResponse {
+  rules: SdRoutingRuleDto[];
+}
+
+export interface SdUpsertRoutingRuleDto {
+  name?: string;
+  keywords?: string[];
+  category_id?: string | null;
+  assignee_id?: string;
+  sort_order?: number;
+  active?: boolean;
+}
+
 export interface SdSlaPolicyDto {
   priority: SdPriority;
   first_response_minutes: number;

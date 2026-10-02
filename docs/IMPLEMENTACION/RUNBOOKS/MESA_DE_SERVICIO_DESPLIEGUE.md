@@ -67,11 +67,14 @@ SELECT name FROM public.knex_migrations WHERE name LIKE '20261002%' ORDER BY nam
 | 2 | `20261002110000_servicedesk_requests.js` | Tickets, hilo, adjuntos, tiempo y folio; RLS forzado; sin `DELETE` para `app_runtime` sobre el registro | depende de la 1 |
 | 3 | `20261002160000_servicedesk_notificaciones.js` | `identity.users.email` y `.phone` + preferencias y log de avisos | ⛔ **toca `identity.users`, tabla caliente** — ver abajo |
 | 4 | `20261002170000_servicedesk_permisos.js` | Reparte `SERVICIO_REPORTAR/ATENDER/COORDINAR` en `role_permissions` | imprime a cuántas personas alcanza; guarda el motivo si falta el rol `sistemas` |
+| 5 | `20261003100000_servicedesk_cola_sin_asignar.js` | Columna `settings.unassigned_alert_minutes` (default 60, CHECK 5–1440) + clave `servicio.atender` en el catálogo de responsabilidades | idempotente; `lock_timeout 3s`; **no reparte la clave** |
+| 6 | `20261003110000_servicedesk_ruteo.js` | Tabla `routing_rules` (RLS forzado), 2 categorías nuevas (Equipo de cómputo e impresoras · Desarrollo) y siembra las 2 reglas del pedido **buscando a las personas por usuario** (`felipe_galvan`, `david_cisneros`) + la responsabilidad `servicio.atender` para ellas | idempotente; **si el usuario no existe en prod, la regla NO se crea y el log lo dice** (se da de alta en `/servicio/configuracion`); **no da el permiso de atender** |
 
 ```sh
-# En tu máquina (rama con los 4 archivos y el aplicador):
+# En tu máquina (rama con los 6 archivos y el aplicador):
 for f in 20261002100000_servicedesk_catalogos 20261002110000_servicedesk_requests \
-         20261002160000_servicedesk_notificaciones 20261002170000_servicedesk_permisos; do
+         20261002160000_servicedesk_notificaciones 20261002170000_servicedesk_permisos \
+         20261003100000_servicedesk_cola_sin_asignar 20261003110000_servicedesk_ruteo; do
   scp database/migrations-newdb/$f.js superoot@192.168.0.222:/tmp/
 done
 scp database/scripts/apply-one-migration-prod.js superoot@192.168.0.222:/tmp/
@@ -80,12 +83,13 @@ scp database/scripts/apply-one-migration-prod.js superoot@192.168.0.222:/tmp/
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 POD=$(k3s kubectl -n prod get pods -l app=api --field-selector=status.phase=Running -o name | head -1)
 for f in 20261002100000_servicedesk_catalogos 20261002110000_servicedesk_requests \
-         20261002160000_servicedesk_notificaciones 20261002170000_servicedesk_permisos; do
+         20261002160000_servicedesk_notificaciones 20261002170000_servicedesk_permisos \
+         20261003100000_servicedesk_cola_sin_asignar 20261003110000_servicedesk_ruteo; do
   k3s kubectl -n prod cp /tmp/$f.js ${POD#pod/}:/app/database/migrations-newdb/$f.js -c api
 done
 k3s kubectl -n prod cp /tmp/apply-one-migration-prod.js ${POD#pod/}:/app/database/scripts/apply-one-migration-prod.js -c api
 
-# Ver qué considera pendiente (debe listar SÓLO estas 4 de la fase; si lista otras, NO son tuyas):
+# Ver qué considera pendiente (debe listar SÓLO estas 6 de la fase; si lista otras, NO son tuyas):
 k3s kubectl -n prod exec ${POD#pod/} -c api -- node /app/database/scripts/apply-one-migration-prod.js --list
 
 # Una por una, y leer la salida de cada una antes de pasar a la siguiente:

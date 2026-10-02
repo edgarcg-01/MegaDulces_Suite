@@ -584,6 +584,120 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     const despues16 = pendDe(await req('GET', '/users/me/work', coord.token))?.total ?? 0;
     check('⭐ tomar el ticket lo saca de la cola sin asignar', despues16 === antes16 - 1, `${antes16} → ${despues16}`);
 
+    {
+    // ── 17. Asignación automática por regla (categoría o palabra clave) ─────────────────
+    console.log('\n17 — asignación automática: una persona + categoría o palabras clave');
+    const felipe = await crearUsuario('felipe', ['SERVICIO_ATENDER']);
+    const david = await crearUsuario('david', ['SERVICIO_ATENDER']);
+    const sinAtender = await crearUsuario('sinatender');
+    usuarios.push(felipe, david, sinAtender);
+    const catDesarrollo = (cat.body?.categories ?? []).find((c) => c.name === 'Desarrollo');
+    check('el catálogo trae la categoría «Desarrollo» (migración 20261003110000)', !!catDesarrollo, JSON.stringify((cat.body?.categories ?? []).map((c) => c.name)));
+    const crear = (title, extra = {}, cid = catSimple.id) => req('POST', `${SD}/requests`, sol.token, { category_id: cid, title, ...extra });
+    const detalle = (id, tok = coord.token) => req('GET', `${SD}/requests/${id}`, tok);
+    const reglas = (r) => r.body?.rules ?? [];
+
+    // Administración: sólo la coordinación, y valida.
+    check('el solicitante NO ve las reglas → 403', (await req('GET', `${SD}/config/routing`, sol.token)).status === 403);
+    check('el agente (sin COORDINAR) NO las crea → 403', (await req('POST', `${SD}/config/routing`, agente.token, { name: 'x', keywords: ['a'], assignee_id: felipe.id })).status === 403);
+    check('regla sin nombre → 400', (await req('POST', `${SD}/config/routing`, coord.token, { keywords: ['a'], assignee_id: felipe.id })).status === 400);
+    check('⭐ regla sin categoría NI palabras → 400 (no se dispararía nunca)', (await req('POST', `${SD}/config/routing`, coord.token, { name: 'SMOKE vacía', assignee_id: felipe.id })).status === 400);
+    check('regla sin persona → 400', (await req('POST', `${SD}/config/routing`, coord.token, { name: 'SMOKE sin persona', keywords: ['a'] })).status === 400);
+    check('persona inexistente → 400', (await req('POST', `${SD}/config/routing`, coord.token, { name: 'SMOKE fantasma', keywords: ['a'], assignee_id: '00000000-0000-4000-8000-000000000000' })).status === 400);
+    check('palabras que no son una lista → 400', (await req('POST', `${SD}/config/routing`, coord.token, { name: 'SMOKE mal', keywords: 'impresora', assignee_id: felipe.id })).status === 400);
+
+    const rA = await req('POST', `${SD}/config/routing`, coord.token, { name: 'SMOKE equipo', keywords: ['Sistemas', 'CPU', ' Impresora ', 'impresora'], assignee_id: felipe.id, sort_order: 10 });
+    check('⭐ alta de la regla de equipo → 200', rA.status < 300, dump(rA));
+    const rAx = reglas(rA).find((r) => r.name === 'SMOKE equipo');
+    check('las palabras se guardan normalizadas y sin repetir', JSON.stringify(rAx?.keywords) === JSON.stringify(['sistemas', 'cpu', 'impresora']), JSON.stringify(rAx?.keywords));
+    check('la persona que puede atender sale «assignee_ok»', rAx?.assignee_ok === true);
+    const rB = await req('POST', `${SD}/config/routing`, coord.token, { name: 'SMOKE desarrollo', keywords: ['desarrollo'], category_id: catDesarrollo?.id, assignee_id: david.id, sort_order: 20 });
+    check('⭐ alta de la regla de desarrollo (categoría + palabra) → 200', rB.status < 300, dump(rB));
+    const rBx = reglas(rB).find((r) => r.name === 'SMOKE desarrollo');
+    const rC = await req('POST', `${SD}/config/routing`, coord.token, { name: 'SMOKE sin permiso', keywords: ['plotter'], assignee_id: sinAtender.id, sort_order: 30 });
+    const rCx = reglas(rC).find((r) => r.name === 'SMOKE sin permiso');
+    check('⭐ la persona SIN permiso de atender se marca «assignee_ok = false»', rCx?.assignee_ok === false, JSON.stringify(rCx));
+
+    // Asignación al crear: por palabra, con acentos, mayúsculas y plural.
+    const t1 = await crear('Falla la IMPRESORA de caja');
+    const d1 = await detalle(t1.body?.id);
+    check('⭐ «impresora» en el título → asignada a Felipe, ya en «asignado»', d1.body?.status === 'asignado' && d1.body?.assigned_to === felipe.id, JSON.stringify([d1.body?.status, d1.body?.assigned_to]));
+    const f1 = await knex('servicedesk.requests').where({ id: t1.body?.id }).first('assigned_by', 'assigned_at', 'first_responded_at', 'status');
+    check('⭐ la asignó el SISTEMA: no hay persona en `assigned_by`', f1.assigned_by === null && !!f1.assigned_at, JSON.stringify(f1));
+    check('⭐ la asignación automática NO cuenta como primera respuesta (el reloj de respuesta sigue corriendo)', f1.first_responded_at === null, JSON.stringify(f1.first_responded_at));
+    const a1 = (d1.body?.messages ?? []).find((m) => m.kind === 'assignment');
+    check('el hilo dice quién, por qué regla y por qué palabra', a1?.meta?.auto === true && a1?.meta?.rule_name === 'SMOKE equipo' && a1?.meta?.keyword === 'impresora' && a1?.author_label === 'Sistema', JSON.stringify(a1));
+    const nF = await req('GET', `${SD}/me/notifications`, felipe.token);
+    check('⭐ Felipe recibe «Te asignaron una solicitud» y el aviso dice que fue AUTOMÁTICA', nF.body?.some((n) => n.event === 'asignado' && n.folio === t1.body?.folio && /autom/i.test(n.message)), JSON.stringify(nF.body?.slice(0, 2)));
+
+    const t2 = await crear('Mis IMPRESORAS no imprimen', { description: 'desde ayer' });
+    check('el plural y las mayúsculas también entran', (await detalle(t2.body?.id)).body?.assigned_to === felipe.id);
+    const t3 = await crear('Se quemó la cpu del mostrador');
+    check('«cpu» → Felipe', (await detalle(t3.body?.id)).body?.assigned_to === felipe.id);
+    const t4 = await crear('Hola', { description: 'Necesito ayuda con SISTEMAS' });
+    check('la palabra puede ir en la DESCRIPCIÓN', (await detalle(t4.body?.id)).body?.assigned_to === felipe.id);
+
+    // Por categoría, sin que el texto diga nada.
+    const t5 = await crear('Quiero algo nuevo', {}, catDesarrollo?.id);
+    check('⭐ la categoría «Desarrollo» → David aunque el texto no diga nada', (await detalle(t5.body?.id)).body?.assigned_to === david.id);
+
+    // El orden desambigua.
+    const t6 = await crear('La impresora y el desarrollo del reporte');
+    check('⭐ si menciona las dos cosas gana la regla que va primero (Felipe, orden 10)', (await detalle(t6.body?.id)).body?.assigned_to === felipe.id);
+
+    // Sin regla: queda para quien reparte.
+    const t7 = await crear('No puedo entrar a mi correo');
+    const d7 = await detalle(t7.body?.id);
+    check('⭐ sin regla que aplique, queda «nuevo» y sin asignar', d7.body?.status === 'nuevo' && d7.body?.assigned_to === null, JSON.stringify([d7.body?.status, d7.body?.assigned_to]));
+    const t8 = await crear('Lo ocurrido en la bodega');
+    check('⛔ una clave NO se encuentra en medio de otra palabra: sin regla → sin asignar', (await detalle(t8.body?.id)).body?.assigned_to === null);
+
+    // Lo asignado automáticamente sale de la cola «sin asignar».
+    const sinAsig = await req('GET', `${SD}/requests/inbox?scope=unassigned&limit=100`, coord.token);
+    const idsSin = (sinAsig.body?.rows ?? []).map((r) => r.id);
+    check('⭐ lo auto-asignado NO aparece en «Sin asignar»; lo que ninguna regla atrapó, sí', !idsSin.includes(t1.body?.id) && idsSin.includes(t7.body?.id));
+    const mias = await req('GET', `${SD}/requests/inbox?scope=mine&limit=100`, felipe.token);
+    check('y sí aparece en «Mías» de Felipe', (mias.body?.rows ?? []).some((r) => r.id === t1.body?.id));
+
+    // Destino que no puede atender: NO se le asigna.
+    const t9 = await crear('Se atoró el plotter de planos');
+    const d9 = await detalle(t9.body?.id);
+    check('⭐ la regla gana pero su persona NO puede atender → el ticket queda SIN asignar', d9.body?.status === 'nuevo' && d9.body?.assigned_to === null, JSON.stringify([d9.body?.status, d9.body?.assigned_to]));
+    check('…y una nota INTERNA dice por qué (quien atiende la ve)', (d9.body?.messages ?? []).some((m) => m.visibility === 'internal' && /Asignación automática omitida/.test(m.body)));
+    const d9sol = await detalle(t9.body?.id, sol.token);
+    check('⛔ quien reportó NO ve esa nota interna', !(d9sol.body?.messages ?? []).some((m) => /Asignación automática omitida/.test(m.body)));
+
+    // Prioridad alta + asignación: el asignado recibe SU aviso y no el genérico.
+    const t10 = await crear('Se cayó la impresora de toda la sucursal', { impact: 'sucursal', blocks_work: true, warehouse_code: '02' });
+    const d10 = await detalle(t10.body?.id);
+    check('un ticket urgente también se auto-asigna', d10.body?.priority === 'urgente' && d10.body?.assigned_to === felipe.id, JSON.stringify([d10.body?.priority, d10.body?.assigned_to]));
+    const nF2 = (await req('GET', `${SD}/me/notifications`, felipe.token)).body ?? [];
+    const nD2 = (await req('GET', `${SD}/me/notifications`, david.token)).body ?? [];
+    check('⭐ el asignado NO recibe además el aviso genérico «sin atender» del mismo ticket', !nF2.some((n) => n.event === 'nuevo_prioritario' && n.folio === t10.body?.folio) && nF2.some((n) => n.event === 'asignado' && n.folio === t10.body?.folio));
+    check('el resto de quienes atienden SÍ recibe el aviso prioritario', nD2.some((n) => n.event === 'nuevo_prioritario' && n.folio === t10.body?.folio));
+
+    // El asignado actúa: ahí sí cuenta la primera respuesta.
+    await req('POST', `${SD}/requests/${t1.body?.id}/status`, felipe.token, { status: 'en_proceso' });
+    const f1b = await knex('servicedesk.requests').where({ id: t1.body?.id }).first('first_responded_at', 'status');
+    check('⭐ cuando Felipe empieza a trabajarlo SÍ se registra la primera respuesta', f1b.status === 'en_proceso' && !!f1b.first_responded_at, JSON.stringify(f1b));
+
+    // Administración: editar, apagar, retirar.
+    const up = await req('PUT', `${SD}/config/routing/${rAx?.id}`, coord.token, { keywords: ['impresora'] });
+    check('editar las palabras de una regla', up.status < 300 && JSON.stringify(reglas(up).find((r) => r.id === rAx?.id)?.keywords) === '["impresora"]', dump(up));
+    check('⭐ con «sistemas» fuera de la regla, ese texto ya no se asigna', (await detalle((await crear('Problema con sistemas')).body?.id)).body?.assigned_to === null);
+    check('apagar la regla', (await req('PUT', `${SD}/config/routing/${rAx?.id}`, coord.token, { active: false })).status < 300);
+    check('⭐ regla apagada no asigna', (await detalle((await crear('Otra impresora rota')).body?.id)).body?.assigned_to === null);
+    check('encenderla', (await req('PUT', `${SD}/config/routing/${rAx?.id}`, coord.token, { active: true })).status < 300);
+    check('editar dejando la regla sin categoría ni palabras → 400', (await req('PUT', `${SD}/config/routing/${rAx?.id}`, coord.token, { keywords: [] })).status === 400);
+    const del = await req('DELETE', `${SD}/config/routing/${rAx?.id}`, coord.token);
+    check('⭐ retirar una regla la saca de la lista', del.status < 300 && !reglas(del).some((r) => r.id === rAx?.id), dump(del));
+    check('⭐ y ya no asigna', (await detalle((await crear('Y otra impresora más')).body?.id)).body?.assigned_to === null);
+    check('retirar dos veces → 404', (await req('DELETE', `${SD}/config/routing/${rAx?.id}`, coord.token)).status === 404);
+    await req('DELETE', `${SD}/config/routing/${rBx?.id}`, coord.token);
+    await req('DELETE', `${SD}/config/routing/${rCx?.id}`, coord.token);
+
+    }
+
     noMedido.push('correo y WhatsApp REALES: el SMTP no está configurado y la plantilla de Meta no está aprobada (P5); lo que se afirma es que el resultado queda DECLARADO por canal');
     noMedido.push('push en vivo por WebSocket (la API de este test corre sin cliente conectado); el poll de la campana sí se midió');
 
@@ -611,6 +725,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
         await knex('servicedesk.request_messages').whereIn('request_id', reqs).del();
         await knex('servicedesk.requests').whereIn('id', reqs).del();
       }
+      await knex('servicedesk.routing_rules').whereIn('assignee_id', ids).del();
       await knex('servicedesk.notification_prefs').whereIn('user_id', ids).del();
       await knex('identity.user_permissions').whereIn('user_id', ids).del();
       await knex('identity.user_roles').whereIn('user_id', ids).del();

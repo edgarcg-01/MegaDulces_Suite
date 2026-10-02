@@ -34,6 +34,7 @@ export interface EntradaAviso {
   extracto?: string | null;
   /** Sólo `autocerrado`: a los cuántos días. */
   dias?: number | null;
+  automatico?: boolean;
 }
 
 export interface Aviso {
@@ -60,7 +61,11 @@ export function armarAviso(e: EntradaAviso): Aviso {
         severity: e.priority === 'urgente' ? 'critical' : 'warn',
       };
     case 'asignado':
-      return { title: 'Te asignaron una solicitud', message: `${ref}${quien ? ` — la asignó ${quien}` : ''}.`, severity: e.priority === 'urgente' ? 'critical' : 'info' };
+      return {
+        title: 'Te asignaron una solicitud',
+        message: `${ref}${e.automatico ? ' — se te asignó automáticamente' : quien ? ` — la asignó ${quien}` : ''}.`,
+        severity: e.priority === 'urgente' ? 'critical' : 'info',
+      };
     case 'comentario':
       return { title: 'Nuevo mensaje en una solicitud', message: `${ref}${quien ? ` — ${quien}` : ''}: «${recortar(e.extracto, 140)}»`, severity: 'info' };
     case 'resuelto':

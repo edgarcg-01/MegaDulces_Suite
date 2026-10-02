@@ -45,6 +45,7 @@ import {
 } from '@megadulces/contracts';
 import { KEPLER_BRANCH_NAMES, TenantContextService, TenantKnexService, applySmartSearch, branchName, toMxDateKey } from '@megadulces/platform-core';
 import { ServiceDeskAgentsService } from './agents.service';
+import { ServiceDeskRoutingService } from './routing.service';
 import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments.service';
 import { efectosDe, motivoDeCierre, puedeTransicionar, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
@@ -157,6 +158,7 @@ export class ServiceDeskRequestsService {
     private readonly cfg: ServiceDeskConfigService,
     private readonly att: ServiceDeskAttachmentsService,
     private readonly agents: ServiceDeskAgentsService,
+    private readonly routing: ServiceDeskRoutingService,
     private readonly notifs: ServiceDeskNotificationsService,
     @Optional() @Inject(BITACORA_PORT) private readonly bitacora?: BitacoraPort,
   ) {}
@@ -242,11 +244,45 @@ export class ServiceDeskRequestsService {
         });
         await this.insertAdjuntos(trx, tenantId, id, msgId, ctx.userId, subidos);
 
-        const efectos: Efectos = { avisos: [], bitacora: [{ tenantId, requestId: id, folio, event: 'created', status: 'nuevo', assignedTo: null }] };
-        // Lo urgente y lo alto no pueden esperar a que alguien abra la bandeja: se avisa a quien atiende.
+        let efectos: Efectos = { avisos: [], bitacora: [{ tenantId, requestId: id, folio, event: 'created', status: 'nuevo', assignedTo: null }] };
+
+        /*
+         * `[MS.3.10]` Asignación AUTOMÁTICA: la primera regla que aplica (por categoría o por una palabra clave de lo
+         * que escribió la persona). Va DENTRO de la misma transacción del alta: el ticket nace ya asignado o no
+         * nace — nunca queda «nuevo» un instante en que otra persona pueda tomarlo y pelearse con la regla.
+         * Si la regla gana pero su destino no puede atender, el ticket queda SIN asignar y una nota interna lo dice.
+         */
+        const destino = await this.routing.resolver(trx, { title, description, categoryId: cat.id });
+        let asignadoA: string | null = null;
+        if (destino?.asignable) {
+          const row = await this.bloquear(trx, id);
+          if (row) {
+            const m = destino.resultado.motivo;
+            efectos = juntar(
+              efectos,
+              await this.asignarA(trx, row, destino.resultado.regla.assignee_id, SISTEMA, now, null, {
+                automatico: true,
+                meta: { auto: true, rule_id: destino.resultado.regla.id, rule_name: destino.resultado.regla.name, reason: m.tipo === 'categoria' ? 'category' : 'keyword', keyword: m.tipo === 'palabra' ? m.palabra : null },
+              }),
+            );
+            asignadoA = destino.resultado.regla.assignee_id;
+          }
+        } else if (destino) {
+          await this.addMessage(trx, tenantId, id, {
+            kind: 'system',
+            visibility: 'internal',
+            authorId: null,
+            authorLabel: 'Sistema',
+            body: `Asignación automática omitida: la regla «${destino.resultado.regla.name}» apunta a ${destino.assigneeName ?? 'una persona que ya no existe'}, que hoy no puede atender solicitudes de la Mesa de Servicio. Queda sin asignar.`,
+            meta: { auto: true, skipped: true, rule_id: destino.resultado.regla.id },
+          });
+        }
+
+        // Lo urgente y lo alto no pueden esperar a que alguien abra la bandeja: se avisa a quien atiende
+        // (menos a quien la regla ya le asignó el ticket, que recibe su propio aviso de asignación).
         if (priority === 'alta' || priority === 'urgente') {
-          const agentes = (await this.agents.listIn(trx)).map((a) => a.user_id);
-          efectos.avisos.push({ event: 'nuevo_prioritario', request_id: id, folio, title, priority, recipients: agentes, actor_id: ctx.userId, actor_name: ctx.nombre });
+          const agentes = (await this.agents.listIn(trx)).map((a) => a.user_id).filter((u) => u !== asignadoA);
+          if (agentes.length) efectos.avisos.push({ event: 'nuevo_prioritario', request_id: id, folio, title, priority, recipients: agentes, actor_id: ctx.userId, actor_name: ctx.nombre });
         }
         return { id: id as string, efectos };
       });
@@ -739,10 +775,20 @@ export class ServiceDeskRequestsService {
   }
 
   /** Fija el asignado y deja el estado en `asignado` si venía de `nuevo`. */
-  private async asignarA(trx: Knex.Transaction, r: RequestRow, userId: string, ctx: ActorCtx, now: Date, anterior: string | null): Promise<Efectos> {
+  private async asignarA(
+    trx: Knex.Transaction,
+    r: RequestRow,
+    userId: string,
+    ctx: Autor,
+    now: Date,
+    anterior: string | null,
+    opc: { automatico?: boolean; meta?: Record<string, unknown> } = {},
+  ): Promise<Efectos> {
     const patch: Patch = { assigned_to: userId, assigned_by: ctx.userId, assigned_at: now, updated_at: now, updated_by: ctx.userId };
     if (r.status === 'nuevo') patch.status = 'asignado';
-    if (!r.first_responded_at) patch.first_responded_at = now;
+    // Que una persona tome o asigne el ticket SÍ es responder. Que lo asigne el SISTEMA por una regla NO: el reloj
+    // de primera respuesta tiene que seguir corriendo hasta que quien lo recibió haga algo, o la métrica mide a la regla.
+    if (!r.first_responded_at && !opc.automatico) patch.first_responded_at = now;
     await trx('servicedesk.requests').where({ id: r.id }).update(patch);
     const destino = await trx('identity.users').where({ id: userId }).first('nombre', 'username');
     await this.addMessage(trx, r.tenant_id, r.id, {
@@ -750,12 +796,12 @@ export class ServiceDeskRequestsService {
       authorId: ctx.userId,
       authorLabel: ctx.nombre,
       body: '',
-      meta: { to: userId, to_name: destino?.nombre || destino?.username || null, from: anterior },
+      meta: { to: userId, to_name: destino?.nombre || destino?.username || null, from: anterior, ...(opc.meta ?? {}) },
     });
     const fx = sinEfectos();
     fx.bitacora.push({ tenantId: r.tenant_id, requestId: r.id, folio: r.folio, event: 'assigned', status: patch.status ? String(patch.status) : r.status, assignedTo: userId });
     // Se le avisa a quien recibe el ticket; quien se lo asignó a sí mismo no necesita aviso (lo filtra `actor_id`).
-    fx.avisos.push(this.evento(r, 'asignado', [userId], ctx, { discriminador: now.getTime() }));
+    fx.avisos.push(this.evento(r, 'asignado', [userId], ctx, { discriminador: now.getTime(), automatico: opc.automatico === true }));
     return fx;
   }
 

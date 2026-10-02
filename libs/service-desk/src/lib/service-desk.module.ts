@@ -11,6 +11,7 @@ import { ServiceDeskNotificationsService } from './notifications.service';
 import { ServiceDeskPreferencesService } from './preferences.service';
 import { ServiceDeskController } from './service-desk.controller';
 import { ServiceDeskRequestsService } from './requests.service';
+import { ServiceDeskRoutingService } from './routing.service';
 import { ServiceDeskSlaService } from './sla.service';
 
 /**
@@ -31,6 +32,7 @@ import { ServiceDeskSlaService } from './sla.service';
     ServiceDeskNotificationsService,
     ServiceDeskPreferencesService,
     ServiceDeskConfigAdminService,
+    ServiceDeskRoutingService,
     ServiceDeskRequestsService,
     ServiceDeskSlaService,
     // Preparado, no ejecutado (P5): hasta unificar con task, el espejo hacia la Bitácora es un no-op.

@@ -8,7 +8,7 @@
  *
  * Orden: las rutas literales (`mine`, `inbox`, `stats`) van ANTES de `:id`, o `:id` se las traga.
  */
-import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   type SdAgentDto,
@@ -30,7 +30,9 @@ import {
   type SdLogTimeDto,
   type SdPostMessageDto,
   type SdRequestDetail,
+  type SdRoutingResponse,
   type SdStatsResponse,
+  type SdUpsertRoutingRuleDto,
 } from '@megadulces/contracts';
 import { Permission, RequireAnyPermission, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
 import { ServiceDeskActorsService } from './actors.service';
@@ -38,6 +40,7 @@ import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskConfigAdminService } from './config-admin.service';
 import { ServiceDeskNotificationsService } from './notifications.service';
 import { ServiceDeskPreferencesService } from './preferences.service';
+import { ServiceDeskRoutingService } from './routing.service';
 import { ServiceDeskSlaService } from './sla.service';
 import { ServiceDeskConfigService } from './service-desk-config.service';
 import { ServiceDeskRequestsService } from './requests.service';
@@ -57,6 +60,7 @@ export class ServiceDeskController {
     private readonly notifs: ServiceDeskNotificationsService,
     private readonly prefs: ServiceDeskPreferencesService,
     private readonly admin: ServiceDeskConfigAdminService,
+    private readonly routing: ServiceDeskRoutingService,
     private readonly sla: ServiceDeskSlaService,
     private readonly actors: ServiceDeskActorsService,
   ) {}
@@ -261,6 +265,36 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'Edita o apaga una categoría. Apagar no borra: los tickets viejos la conservan.' })
   updateCategory(@Param('id') id: string, @Body() dto: SdUpsertCategoryDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
     return this.admin.updateCategory(actorDesdeRequest(req), id, dto);
+  }
+
+  // ── Asignación automática (coordinación) ──
+
+  @Get('config/routing')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Reglas de asignación automática: una persona + categoría o palabras clave. Gana la primera por orden.' })
+  getRouting(): Promise<SdRoutingResponse> {
+    return this.routing.list();
+  }
+
+  @Post('config/routing')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Alta de una regla de asignación automática.' })
+  createRouting(@Body() dto: SdUpsertRoutingRuleDto, @Req() req: AuthedRequest): Promise<SdRoutingResponse> {
+    return this.routing.create(actorDesdeRequest(req), dto);
+  }
+
+  @Put('config/routing/:id')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Edita, reordena o apaga una regla.' })
+  updateRouting(@Param('id') id: string, @Body() dto: SdUpsertRoutingRuleDto, @Req() req: AuthedRequest): Promise<SdRoutingResponse> {
+    return this.routing.update(actorDesdeRequest(req), id, dto);
+  }
+
+  @Delete('config/routing/:id')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Retira una regla (baja lógica: los tickets viejos conservan el motivo en su hilo).' })
+  removeRouting(@Param('id') id: string, @Req() req: AuthedRequest): Promise<SdRoutingResponse> {
+    return this.routing.remove(actorDesdeRequest(req), id);
   }
 
   @Post('sla/scan-now')

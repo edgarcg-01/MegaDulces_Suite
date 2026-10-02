@@ -49,6 +49,8 @@ export interface SdEvento {
   actor_name?: string | null;
   extracto?: string | null;
   dias?: number | null;
+  /** `[MS.3.10]` La asignó una regla automática, no una persona: el aviso lo dice en vez de nombrar a alguien. */
+  automatico?: boolean;
   /** Distingue dos avisos legítimos del mismo tipo sobre el mismo ticket (p. ej. dos comentarios). */
   discriminador?: string | number | null;
 }
@@ -121,7 +123,7 @@ export class ServiceDeskNotificationsService {
   private async entregarEvento(trx: Knex.Transaction, tenantId: string, ev: SdEvento): Promise<void> {
     const ids = [...new Set(ev.recipients)].filter((id) => id && id !== ev.actor_id);
     if (!ids.length) return;
-    const aviso = armarAviso({ event: ev.event, folio: ev.folio, title: ev.title, priority: ev.priority, actor: ev.actor_name, extracto: ev.extracto, dias: ev.dias });
+    const aviso = armarAviso({ event: ev.event, folio: ev.folio, title: ev.title, priority: ev.priority, actor: ev.actor_name, extracto: ev.extracto, dias: ev.dias, automatico: ev.automatico });
 
     const contactos: Contacto[] = await trx('identity.users as u')
       .leftJoin('servicedesk.notification_prefs as p', function () {
