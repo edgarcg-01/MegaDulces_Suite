@@ -119,6 +119,7 @@ const num = (n) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigit
     console.error('ERROR:', e.message);
     process.exitCode = 1;
   } finally {
-    await db.end().catch(() => {});
+    // Cerrar la conexion es higiene: si falla, no cambia el veredicto del candado.
+    await db.end().catch(() => { /* ver comentario */ });
   }
 })();

@@ -591,7 +591,7 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
     .ce-esc th, .ce-plazas th { text-align:left; color:var(--text-faint); font-weight:600; padding:.25rem .3rem;
                                 border-bottom:1px solid var(--border-color); }
     .ce-esc th.num, .ce-plazas th.num, .ce-esc td.num, .ce-plazas td.num { text-align:right; }
-    .ce-esc td, .ce-plazas td { padding:.25rem .3rem; border-bottom:1px solid var(--border-subtle, var(--border-color)); }
+    .ce-esc td, .ce-plazas td { padding:.25rem .3rem; border-bottom:1px solid var(--border-color); }
     .ce-plazas tr.is-actual { background:var(--surface-hover); }
     .ce-formula { font-size:var(--fs-sm); font-family:var(--font-mono); line-height:1.6; margin:.2rem 0; }
     .ce-cuadre { font-size:var(--fs-xs); line-height:1.6; margin:.4rem 0 0; color:var(--text-muted); }
@@ -605,9 +605,9 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
     .ce-origen.is-inv { border-left-color:var(--warn-fg); }
     .ce-origen.is-nd { color:var(--text-muted); font-style:italic; }
     .ce-origen-nota { display:block; margin-top:.35rem; color:var(--text-muted); font-style:normal; }
-    .ce-doc { font-family:var(--font-mono, monospace); font-size:var(--fs-2xs);
-      padding:.05rem .3rem; border-radius:var(--radius-xs); background:var(--surface-3);
-      border:1px solid var(--border-subtle); }
+    .ce-doc { font-family:var(--font-mono, monospace); font-size:var(--fs-micro);
+      padding:.05rem .3rem; border-radius:var(--r-sm); background:var(--layout-bg);
+      border:1px solid var(--border-color); }
     .ce-decision { display:flex; flex-direction:column; gap:.45rem; font-size:var(--fs-xs);
                    line-height:1.6; margin:.2rem 0 0; }
     .ce-decision-a, .ce-decision-b { padding:.5rem .65rem; border-radius:var(--r-sm);

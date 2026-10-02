@@ -1883,11 +1883,17 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     monto: number; minMonto: number | null; faltanCajas: number; faltanMonto: number }[]>(() => {
     const porProv = new Map<string, { nombre: string; cajas: number; monto: number;
       minCajas: number | null; minMonto: number | null }>();
+    // [RA-DYN.U3] Los minimos salen del CATALOGO de proveedores, no de la fila del workbook.
+    // Traerlos en cada renglon los repetiria ~33 mil veces para un dato que es del PROVEEDOR;
+    // el backend los dejo de mandar ahi y los puso en /filters, al lado del que ya viajaba
+    // (RA-PRO.66, el mismo camino que usa supplierMin() mas arriba).
+    const catalogo = this.filters()?.suppliers ?? [];
     for (const r of this.selRows()) {
       const cajas = this.sumCajas(r);
       if (!r.supplier_id || cajas <= 0) continue;
-      const minCajas = Number(r.min_order_boxes) > 0 ? Number(r.min_order_boxes) : null;
-      const minMonto = Number(r.min_order_amount) > 0 ? Number(r.min_order_amount) : null;
+      const s = catalogo.find((x) => x.id === r.supplier_id);
+      const minCajas = Number(s?.min_order_boxes) > 0 ? Number(s?.min_order_boxes) : null;
+      const minMonto = Number(s?.min_order_amount) > 0 ? Number(s?.min_order_amount) : null;
       if (minCajas === null && minMonto === null) continue;   // sin mínimo capturado: no se inventa
       const cur = porProv.get(r.supplier_id)
         ?? { nombre: r.supplier_name || '—', cajas: 0, monto: 0, minCajas, minMonto };
