@@ -53,6 +53,7 @@
     "dev:reset": "docker compose -f docker-compose.dev.yml down -v && docker compose -f docker-compose.dev.yml up -d --wait",
     "dev:logs": "docker compose -f docker-compose.dev.yml logs -f",
     "dev:bootstrap": "npm run dev:up && npm run migrate:latest && npm run migrate:new",
+    "dev:bootstrap-vacia": "node database/scripts/dev-bootstrap-empty-db.js",
     "migrate:latest": "knex migrate:latest --knexfile database/knexfile.js",
     "migrate:rollback": "knex migrate:rollback --knexfile database/knexfile.js",
     "migrate:new": "knex migrate:latest --knexfile database/knexfile-newdb.js",
