@@ -1657,7 +1657,10 @@ export class CommercialReplenishmentService {
       return {
         product: prod,
         warehouse: whCode || null,
-        bf,
+        // Se publica el DIVISOR que de verdad se usó (`suf × bf`), no `bf` a secas: si el campo
+        // dijera 1 mientras la cuenta dividió por 11, serían dos campos del mismo hecho
+        // contradiciéndose, que es como se cuelan los errores de unidad (CE.10).
+        bf: div,
         months: months.map((m) => ({ mes: m.mes, venta: Number(m.venta) || 0, cajas: num(m.cajas), cajas_parcial: !!m.cajas_parcial })),
         window: {
           v30_cajas: v30, v30_parcial: !!w.v30_parcial,

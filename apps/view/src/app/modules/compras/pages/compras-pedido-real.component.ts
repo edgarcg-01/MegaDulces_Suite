@@ -834,7 +834,12 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               </div>
               @if (m.data.window; as w) {
                 <dl class="pr-mo-kv">
-                  <dt>Últimos 30 días</dt><dd>{{ w.v30_cajas | number:'1.0-1' }} cj@if (w.v30_parcial) {*}</dd>
+                  <dt title="La venta REAL de los últimos 30 días, sumada día por día. No es el mismo número que la columna V30d de la tabla, que es la demanda diaria del motor × 30 (suavizada). Son dos medidas distintas a propósito; por eso se muestran las dos.">Últimos 30 días (venta real)</dt>
+                  <dd>{{ w.v30_cajas | number:'1.0-1' }} cj@if (w.v30_parcial) {*}</dd>
+                  @if (m.vta != null) {
+                    <dt title="Lo que muestra la columna V30d: la demanda diaria que calcula el motor, por 30. Suaviza los picos, así que casi nunca es idéntica a la venta real de arriba.">V30d de la tabla (demanda × 30)</dt>
+                    <dd>{{ m.vta | number:'1.0-1' }} cj</dd>
+                  }
                   <dt>Próximos 30 días, año anterior</dt>
                   <dd>@if (w.ly_next30_cajas != null) { {{ w.ly_next30_cajas | number:'1.0-1' }} cj } @else { <span class="pr-muted">{{ lyMotivo(w.ly_motivo) }}</span> }</dd>
                   <dt title="Regla del sistema anterior: 60% de lo vendido en los últimos 30 días + 40% de lo que se vendió los próximos 30 días del año pasado. Es una referencia: el pedido sugerido lo calcula el motor con su estacionalidad.">Prorrateo 60/40 (sistema anterior)</dt>
@@ -1431,7 +1436,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const mx = b.mx == null ? 'sin máximo (no tiene política de reorden)' : `máximo ${b.mx.toFixed(1)} cajas`;
     return `Venta 30 d: ${b.vta.toFixed(1)} cajas · ${mx}. Clic para ver la venta por mes.`;
   }
-  readonly monthly = signal<{ key: string; title: string; mx: number | null; loading: boolean; error: boolean; data: MonthlySalesResponse | null } | null>(null);
+  readonly monthly = signal<{ key: string; title: string; mx: number | null; vta: number | null; loading: boolean; error: boolean; data: MonthlySalesResponse | null } | null>(null);
   private readonly monthlyCache = new Map<string, MonthlySalesResponse>();
   private monthlyKey: string | null = null;
   onMonthlyHide(): void { this.monthlyKey = null; }
@@ -1444,7 +1449,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.monthlyKey = key;
     const title = `${r.sku} · ${code ? `${code} ${this.nameOf(code)}` : 'toda la red'}`;
     const cached = this.monthlyCache.get(key);
-    this.monthly.set({ key, title, mx: b?.mx ?? null, loading: !cached, error: false, data: cached ?? null });
+    // `vta` = lo que muestra la columna V30d (demanda x 30). Viaja al globo para poder mostrar las
+    // DOS medidas: sin eso, el globo decia 1.1 al lado de una celda que decia 0.8 (medido en
+    // pantalla el 2026-10-02 con el 95436 en Canindo) y parecia un error, no dos medidas distintas.
+    this.monthly.set({ key, title, mx: b?.mx ?? null, vta: b?.vta ?? null, loading: !cached, error: false, data: cached ?? null });
     if (op.overlayVisible()) { op.hide(); setTimeout(() => op.show(ev, target)); } else op.show(ev, target);
     if (cached) return;
     this.api.monthlySales(r.product_id, code ?? undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
