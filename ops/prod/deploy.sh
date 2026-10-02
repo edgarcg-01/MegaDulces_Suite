@@ -54,7 +54,7 @@ REMOTO="~/build-prod"
 # Mientras corran en Compose tienen que estar acá, o `--todo` los deja fuera del despliegue.
 # ⚠️ Esta línea y la etiqueta `migracion:` de ops/k3s/*.yaml son DOS declaraciones del mismo
 # hecho — `npm run check:k3s` las compara y se pone rojo si se contradicen. Se mueven juntas.
-SERVICIOS_DEF="registry pg-prod pg-rag redis api backup"
+SERVICIOS_DEF="registry pg-prod pg-rag backup"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
@@ -612,12 +612,12 @@ recrear() {
   # coincide el despliegue FALLA — un despliegue que no cambió nada y dice "listo" es peor
   # que uno que rompe, porque nadie lo va a ir a buscar.
   #
-  # Se pregunta por la LAN (127.0.0.1:8080 desde `md`), no por el dominio: el túnel agrega
+  # Se pregunta por la LAN (127.0.0.1:30080 desde `md` — el NodePort del pod; el 8080 era del contenedor, retirado en [K3S.29]), no por el dominio: el túnel agrega
   # 225 ms y una capa de caché entre la respuesta y la verdad.
   case " $servicios " in *" api "*)
     echo "── Verificación: ¿el API sirve la versión que se levantó? ──"
     vivo=$(ssh_md "for i in 1 2 3 4 5 6 7 8 9 10; do
-              r=\$(curl -s --max-time 5 http://127.0.0.1:8080/api/health 2>/dev/null)
+              r=\$(curl -s --max-time 5 http://127.0.0.1:30080/api/health 2>/dev/null)
               c=\$(printf '%s' \"\$r\" | sed -n 's/.*\"commit\":\"\\([^\"]*\\)\".*/\\1/p')
               [ -n \"\$c\" ] && { printf '%s' \"\$c\"; exit 0; }
               sleep 3
@@ -652,7 +652,7 @@ recrear() {
     # Nunca se usan credenciales reales: un smoke que necesita un secreto no se corre.
     echo "── Humo: ¿la puerta contesta? (login con credenciales inválidas → debe dar 401) ──"
     codigo=$(ssh_md "curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-      -X POST http://127.0.0.1:8080/api/auth-mt/login \
+      -X POST http://127.0.0.1:30080/api/auth-mt/login \
       -H 'Content-Type: application/json' \
       -d '{\"username\":\"zz_humo_deploy\",\"password\":\"zz\"}'" 2>/dev/null || echo 000)
     case "$codigo" in

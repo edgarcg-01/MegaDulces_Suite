@@ -78,7 +78,7 @@
 	#
 	# Se apunta al PUERTO DEL HOST (8080), no al nombre de Docker: la forma de [K3S.14]
 	# sigue siendo la buena -- lo que estaba mal era el numero, no la forma.
-	reverse_proxy 192.168.0.222:8080
+	reverse_proxy 192.168.0.222:30080
 }
 
 # [K3S.22] Acá vivía `(api-balanceado-viejo)`, que repartía entre `api` y `api2` con
