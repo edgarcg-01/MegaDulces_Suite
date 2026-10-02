@@ -21,7 +21,10 @@ import {
   nombreUnidadBase,
   abrevUnidadBase,
   opcionesUnidad,
+  paqueteDeCaja,
+  desglose,
   type OpcionUnidad,
+  type PasoDesglose,
 } from '../quotes.service';
 import {
   exportQuotePdf,
@@ -56,6 +59,8 @@ export interface ItemBandeja {
   free_goods?: { sku: string; quantity: number } | null;
   /** Abreviatura de la unidad base (PAQ, KG, PZA…) para el desglose "12 PAQ $41.82". */
   base_unit: string | null;
+  /** Unidades base del paquete dentro de la caja (sólo renglones de caja): la unidad del medio. */
+  pack_size: number | null;
   /** Lo que el cliente pidió y no se encontró (renglón sin casar, sin SKU ni precio). */
   requested_text?: string | null;
 }
@@ -682,8 +687,10 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                       </td>
                       <td class="num font-num">
                         <span class="p-unit-main">{{ item.unit_price !== null ? (item.unit_price | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</span>
-                        @if (item.factor && item.factor > 1 && item.unit_price !== null) {
-                          <span class="p-unit-sub-breakdown">{{ (item.unit_price / item.factor) | currency:'MXN':'symbol-narrow':'1.2-2' }}/{{ item.base_unit || 'PZA' }}</span>
+                        @if (item.unit_price !== null) {
+                          @for (p of desgloseDe(item); track p.unidad; let ultimo = $last) {
+                            <span class="p-unit-sub-breakdown">{{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}/{{ p.unidad }}@if (!ultimo) { ·}</span>
+                          }
                         }
                       </td>
                       <td>
@@ -1785,6 +1792,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
         rung,
         unit_label: prev!.unit_label || this.labelUnidadActiva(),
         base_unit: abrevUnidadBase(art.unit_base, art.sold_by_kg),
+        // La unidad del MEDIO sólo existe dentro de una unidad mayor (COT.17).
+        pack_size: rung === 'box' ? paqueteDeCaja(factorNum, art.pack_size) : null,
         factor: factorNum,
         quantity: qty,
         unit_price: prev!.unit_price,
@@ -1828,6 +1837,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       rung: 'base',
       unit_label: '',
       base_unit: null,
+      pack_size: null,
       factor: null,
       quantity: 1,
       unit_price: null,
@@ -2046,6 +2056,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
     return n === null ? '—' : n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
   }
 
+  /** Precio de cada unidad menor dentro de la mayor: "$121.86/PAQ · $12.19/PZA" (COT.17). */
+  desgloseDe(item: ItemBandeja): PasoDesglose[] {
+    return item.unit_price === null ? [] : desglose(item.unit_price, item.factor, item.base_unit, item.pack_size);
+  }
+
   fuenteLabel(s: string): string {
     const m: Record<string, string> = {
       list: 'Lista',
@@ -2089,6 +2104,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       rung: it.rung,
       factor: it.factor,
       base_unit: it.base_unit,
+      pack_size: it.pack_size,
       quantity: it.quantity,
       unit_price: it.unit_price,
       line_total: it.line_total,
