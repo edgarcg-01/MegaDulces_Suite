@@ -2261,14 +2261,22 @@ depósitos distintos se casaron contra cada factura — **hasta 36 pagos contra 
 hecho:
 
 ```
-pendiente de la liga ....... $44,206,547
-saldo de la cartera ........ $43,540,116      Δ 1.53 % en el agregado
-filas que difieren ......... 12 de 4,077      99.7 % coinciden AL CENTAVO
+facturas que los DOS lados tienen ... 4,041 de 4,070
+pendiente de la liga ................ $43,611,958
+saldo de la cartera ................. $43,369,882     Δ 0.56 %
+filas que difieren .................. 15 de 4,041     99.6 % coinciden AL CENTAVO
 ```
 
-⚠️ **El número que vale es el de FILAS.** Un delta de 1.53 % sobre el total puede venir de mil filas
-por poco o de una por mucho, y son dos problemas distintos; acá son **12**, y el resto del delta lo
-explican las facturas que el árbitro **no tiene**, no las que tiene.
+⚠️ **El número que vale es el de FILAS.** Un delta sobre el total puede venir de mil filas por poco
+o de una por mucho, y son dos problemas distintos; acá son **15**.
+
+⛔ **Y el agregado estaba mal medido, por mi culpa, hasta el 2026-10-02.** El candado sumaba **mi
+universo completo** contra **el del árbitro recortado a lo que él tiene**, así que el delta crecía
+solo cuando la ventana de 90 días rodaba un día: **1.53 % el 1-oct, 2.00 % el 2-oct**, rozando el
+umbral sin que nada se hubiera roto. Sumando los dos lados sobre las facturas que **ambos** tienen,
+da **0.56 %** y deja de moverse. ⭐ *Un agregado correcto sobre un universo no declarado engaña
+igual que un número mal sumado* — y un candado que deriva hacia el rojo por su propia aritmética se
+desactiva a la semana.
 
 ⚠️ **Sólo cierra si se resta también la nota de crédito**: sin ella difieren **521** filas en vez de
 12. Por eso `nota_credito` es columna propia y no se mezcla con `cobrado` — dinero que entró y

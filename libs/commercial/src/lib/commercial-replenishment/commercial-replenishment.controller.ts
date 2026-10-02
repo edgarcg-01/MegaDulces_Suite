@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Put, Query, Res, UseGuards } from '
 import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
-import { OcDetalleDto, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
+import { MonthlySalesResponse, OcDetalleDto, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
 import { CommercialReplenishmentService, CreateRequisitionDto, ReceiveRequisitionDto } from './commercial-replenishment.service';
 import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
 
@@ -206,6 +206,13 @@ export class CommercialReplenishmentController {
     return this.svc.setPurchaseOrderFollowup(sucursal, folio, body);
   }
 
+  @Get('workbook/:productId/monthly')
+  @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
+  @ApiOperation({ summary: 'RA-PRO.65 — Venta por mes de un SKU (24 meses, en dinero y en cajas donde el peldaño está medido), de una sucursal (code) o de la red. Las rutas cuentan en su sucursal madre. Incluye el prorrateo 60/40 del sistema anterior como referencia.' })
+  monthlySales(@Param('productId') productId: string, @Query('code') code?: string): Promise<MonthlySalesResponse> {
+    return this.svc.monthlySales(productId, code);
+  }
+
   @Get('workbook/:productId')
   @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
   @ApiOperation({ summary: 'RA-PRO.32 — Detalle drill-down de un SKU: economía + desglose por almacén de los 4 puntos de compra. coverage_days(=30).' })
@@ -367,14 +374,15 @@ export class CommercialReplenishmentController {
 
   @Get('requisitions')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_VER)
-  @ApiOperation({ summary: 'Lista de requisiciones. Filtros: estado, warehouse_id.' })
+  @ApiOperation({ summary: 'Lista de requisiciones. Filtros: estado, warehouse_id, source_type.' })
   listRequisitions(
     @Query('estado') estado?: string,
     @Query('warehouse_id') warehouse_id?: string,
+    @Query('source_type') source_type?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.listRequisitions({ estado, warehouse_id, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.listRequisitions({ estado, warehouse_id, source_type, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('requisitions/:id')

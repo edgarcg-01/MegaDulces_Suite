@@ -20,7 +20,10 @@ import {
   nombreUnidadBase,
   abrevUnidadBase,
   opcionesUnidad,
+  paqueteDeCaja,
+  desglose,
   type OpcionUnidad,
+  type PasoDesglose,
 } from '../quotes.service';
 import {
   exportQuotePdf,
@@ -588,8 +591,10 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                     @if (num(l.unit_price) !== null) {
                       <div class="p-unit-cell">
                         <span class="p-unit-main">{{ num(l.unit_price) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                        @if (num(l.qty_factor) && num(l.qty_factor)! > 1) {
-                          <span class="p-unit-sub-breakdown">({{ num(l.qty_factor) }} {{ baseDeLinea(l) }} {{ (num(l.unit_price)! / num(l.qty_factor)!) | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>
+                        @if (desgloseDeLinea(l); as pasos) {
+                          @if (pasos.length) {
+                            <span class="p-unit-sub-breakdown">(@for (p of pasos; track p.unidad; let ultimo = $last) {<span>{{ p.cantidad }} {{ p.unidad }} {{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>@if (!ultimo) { · }})</span>
+                          }
                         }
                       </div>
                     } @else {
@@ -1101,6 +1106,29 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     return abrevUnidadBase(l.product_unit_base, !!l.product_sold_by_kg);
   }
 
+  /**
+   * El peldaño en que quedó guardado el renglón. BTO/CUB son unidad mayor SÓLO con factor > 1:
+   * 13 SKUs los tienen como unidad BASE (15143 nace BTO a $89.39 sin caja) — mismo criterio que
+   * `isUnidadMayor` del entregable.
+   */
+  rungDeLinea(l: QuoteLine): Rung {
+    const u = (l.qty_unit || '').toUpperCase();
+    if (['CJA', 'CAJA'].includes(u)) return 'box';
+    if (['BTO', 'BULTO', 'CUB', 'CUBETA'].includes(u) && (this.num(l.qty_factor) ?? 0) > 1) return 'box';
+    return l.qty_unit === 'PAQ' || l.qty_unit === 'Paquete' ? 'pack' : 'base';
+  }
+
+  /** Paquete dentro de la caja del renglón, si cabe exacto (la unidad del medio, COT.17). */
+  paqueteDeLinea(l: QuoteLine): number | null {
+    return this.rungDeLinea(l) === 'box' ? paqueteDeCaja(this.num(l.qty_factor), this.num(l.product_pack_size)) : null;
+  }
+
+  /** "$121.86/PAQ · $12.19/PZA" de un renglón guardado, con su precio congelado. */
+  desgloseDeLinea(l: QuoteLine): PasoDesglose[] {
+    const precio = this.num(l.unit_price);
+    return precio === null ? [] : desglose(precio, this.num(l.qty_factor), this.baseDeLinea(l), this.paqueteDeLinea(l));
+  }
+
   labelUnidadActiva(): string {
     const e = this.elegido();
     if (!e) return 'Pieza';
@@ -1311,14 +1339,10 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       barcode: l.product_barcode ?? null,
       content: l.product_content ?? null,
       unit_label: l.qty_unit || 'PZA',
-      // BTO/CUB son unidad mayor SÓLO con factor > 1: 13 SKUs los tienen como unidad BASE (15143
-      // nace BTO a $89.39 sin caja) — mismo criterio que `isUnidadMayor` del entregable.
-      rung: ['CJA', 'CAJA'].includes((l.qty_unit || '').toUpperCase())
-        || (['BTO', 'BULTO', 'CUB', 'CUBETA'].includes((l.qty_unit || '').toUpperCase()) && (this.num(l.qty_factor) ?? 0) > 1)
-        ? 'box'
-        : (l.qty_unit === 'PAQ' || l.qty_unit === 'Paquete' ? 'pack' : 'base'),
+      rung: this.rungDeLinea(l),
       factor: this.num(l.qty_factor),
       base_unit: this.baseDeLinea(l),
+      pack_size: this.paqueteDeLinea(l),
       quantity: Number(l.quantity) || 1,
       unit_price: this.num(l.unit_price),
       line_total: Number(l.line_total) || 0,
