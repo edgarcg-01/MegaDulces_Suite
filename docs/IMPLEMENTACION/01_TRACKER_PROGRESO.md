@@ -7395,6 +7395,56 @@ todos **con respaldo** — o sea que pintan, pero son **seis rojos distintos** h
 (`#DC2626`, `#dc2626`, `#c0392b`, `#b91c1c`, `#b42318`) que **no voltean en oscuro**, para un
 semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso) y `--danger-bg` (1).
 
+### Fase MS — Mesa de Servicio (tickets de servicio) · ADR-081 · plan en [`FASE_MS`](FASES/FASE_MS_MESA_DE_SERVICIO.md)
+
+> 📋 **DISEÑADO 2026-10-01 — sin código.** Puerta única para que cualquier persona reporte un
+> problema o necesidad; el ticket ES la tarea de quien lo atiende (contrato de tarea → "A tu
+> nombre"). Prioridad Baja/Media/Alta/Urgente, SLA que primero mide, aviso por correo y WhatsApp.
+> Entra por la cola de **TI** con modelo multi-cola; deja listo el escenario para unificar la
+> Bitácora de Sistemas con la Suite. Por capas: BD → lógica → visual. MVP = MS.1 + MS.2.1–2.7/2.9 +
+> MS.3.1–3.4/3.9.
+
+- [x] **[MS.0]** ✅ 2026-10-01 — Preparación: copia local al día (`main` = `ece8269f1`), `CLAUDE.md` corregido (prod on-prem desde 2026-09-22), `FASE_MS`, ADR-081.
+
+**Capa 1 — Base de datos**
+- [ ] **[MS.1.0]** ⬜ Verificaciones previas (sólo lectura): `user_responsibilities` como membresía · `SMTP_*` en prod · destino del bucket · último timestamp en `knex_migrations` de prod.
+- [ ] **[MS.1.1]** ⬜ Schema `servicedesk` + `queues`/`categories`/`sla_policies`/`settings` + seeds de TI.
+- [ ] **[MS.1.2]** ⬜ `requests`/`request_sequences`/`request_messages`/`request_attachments`/`work_log`.
+- [ ] **[MS.1.3]** ⬜ `notification_prefs`/`notification_log` + `identity.users.email/phone` (con `lock_timeout`).
+- [ ] **[MS.1.4]** ⬜ Permisos `SERVICIO_REPORTAR/ATENDER/COORDINAR` + reparto derivado del estado vivo + responsabilidades.
+- [ ] **[MS.1.5]** ⬜ Contrato de tarea (`FUENTES_TAREA`/`ADAPTADORES`/`me-tasks.ts`).
+- [ ] **[MS.1.6]** ⬜ Smoke `test-newdb-service-desk.js` con negativas + `run-all-tests.js`.
+
+**Capa 2 — Lógica**
+- [ ] **[MS.2.1]** ⬜ Scaffold `libs/service-desk` (eslint, tsconfig base+ts7, vitest, `AppModule`).
+- [ ] **[MS.2.2]** ⬜ Contratos HTTP y puertos en `libs/contracts`.
+- [ ] **[MS.2.3]** ⬜ `RequestsService` + máquina de estados + `MessagesService`.
+- [ ] **[MS.2.4]** ⬜ Adjuntos con validación de servidor + límite de body + URLs firmadas.
+- [ ] **[MS.2.5]** ⬜ SLA (funciones puras + spec) + scanner con latido y `CRON_JOBS` + auto-cierre.
+- [ ] **[MS.2.6]** ⬜ Notificaciones: puerto + binding + room por usuario en `/alerts` + anti-spam + log de entrega.
+- [ ] **[MS.2.7]** ⬜ Asignación, selector de agentes sin `USUARIOS_VER`, endpoints de configuración.
+- [ ] **[MS.2.8]** ⬜ `BITACORA_PORT` + `NullBitacoraAdapter` + `work_log` endpoints.
+- [ ] **[MS.2.9]** ⬜ Verificación HTTP E2E + `build` + `check:boot`.
+
+**Capa 3 — Visual**
+- [ ] **[MS.3.1]** ⬜ Módulo/rutas/guards/nav/`PROJECT_KEY` + espacio 9 activo + specs de suite-map + `DESIGN.md`.
+- [ ] **[MS.3.2]** ⬜ Nueva solicitud + datos de contacto.
+- [ ] **[MS.3.3]** ⬜ Mis solicitudes + side-peek con hilo.
+- [ ] **[MS.3.4]** ⬜ Bandeja de atención.
+- [ ] **[MS.3.5]** ⬜ Reportes + Configuración.
+- [ ] **[MS.3.6]** ⬜ Integración con Mi trabajo.
+- [ ] **[MS.3.7]** ⬜ Botón en los shells de tienda y telemarketing.
+- [ ] **[MS.3.9]** ⬜ Validación visual light/dark/móvil.
+
+**Cierre**
+- [ ] **[MS.4]** ⬜ Docs + despliegue (migraciones una por una, re-login, `SMTP_*`, plantilla de Meta).
+
+**Post-MVP declarado:** MS.5 alcance de campo (vendor / enlace público) · MS.6 auto-asignación · MS.7 más colas · MS.8 puente Bitácora real + unificación · MS.9 vínculo con inventario de equipos.
+
+**Decisiones 2026-10-01:** P1 ✅ nombres tal cual el catálogo · P4 ✅ personas: Jorge Rubio (Sistemas), Edgar (Desarrollo), Frank (Dirección General) — falta el rol de cada uno · P5 ⏸️ "solo construye": SMTP/Meta/bucket y el despliegue se resuelven al unificar con task. **Siguen con default recomendado:** P2 tarea = el propio ticket + puente a la Bitácora después · P3 lib nueva `libs/service-desk` · P6 reloj corrido para `Urgente`.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
