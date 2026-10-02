@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { etiquetaAccion, glosaAccion, textoCerteza } from '../precios-vocabulario';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DialogModule } from 'primeng/dialog';
@@ -74,6 +75,15 @@ import {
           <span class="mx-tag">{{ d.accion.e3_estado_inventario }}</span>
         }
       </div>
+      <!-- [PR.V5] Lo que el motor PROPONE, dicho aqui. La ventana mostraba precio, costo,
+           margen e historia y nunca repetia la accion que hizo a la persona entrar: alguien
+           abria un renglon que decia "Corregir la escalera" y adentro no habia ni una palabra
+           sobre que es una escalera ni que hacer con ella. -->
+      <div class="mx-propuesta">
+        <span class="mx-prop-v">{{ etiqueta(d.accion.accion) }}</span>
+        <span class="mx-prop-g">{{ glosa(d.accion.accion) }}</span>
+        <span class="mx-prop-c" [attr.data-c]="d.accion.certeza">{{ certezaTxt(d.accion.certeza) }}</span>
+      </div>
       <dl class="mx-cifras">
         <div><dt>Precio hoy</dt><dd class="comm-num">{{ d.accion.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</dd></div>
         <div><dt>Costo</dt><dd class="comm-num">{{ num(d.accion.a1_costo_hoy) }}</dd></div>
@@ -94,7 +104,7 @@ import {
         <p class="mx-nota">
           El costo y el precio salen de los <strong>mismos renglones costeados</strong> del ERP.
           @if (mesesParciales() > 0) {
-            ⚠️ {{ mesesParciales() }} de {{ d.historia.length }} meses tienen cobertura de costo
+            <i class="pi pi-exclamation-triangle mx-ico" aria-label="Advertencia"></i> {{ mesesParciales() }} de {{ d.historia.length }} meses tienen cobertura de costo
             parcial &mdash; ahí la línea de costo describe sólo una parte de la venta.
           }
         </p>
@@ -119,7 +129,7 @@ import {
         <!-- ⭐⭐ El veredicto de comparabilidad, ANTES que el número. -->
         <p class="mx-ver" [class.is-no]="comparables() === 0">
           @if (comparables() === 0) {
-            ⛔ <strong>Ninguno de estos {{ medibles().length }} cambios es comparable.</strong>
+            <i class="pi pi-ban mx-ico" aria-label="Bloqueante"></i> <strong>Ninguno de estos {{ medibles().length }} cambios es comparable.</strong>
             En todos, el volumen ya se estaba moviendo <em>antes</em> de tocar el precio
             (la barra clara), así que lo de después no se le puede atribuir al precio.
           } @else {
@@ -128,7 +138,7 @@ import {
           }
         </p>
         <p class="mx-nota">
-          ⛔ <strong>No hay una curva de elasticidad y no se va a dibujar una.</strong> Medida
+          <i class="pi pi-ban mx-ico" aria-label="Bloqueante"></i> <strong>No hay una curva de elasticidad y no se va a dibujar una.</strong> Medida
           sobre todo el catálogo, la región es <span class="mx-mono">[−1.415, −0.045]</span> &mdash;
           un factor 31&times; de ancho. Y una <em>baja</em> de precio produce el mismo movimiento
           negativo que un <em>alza</em>, que es imposible si lo causara el precio: es reversión a
@@ -192,7 +202,7 @@ import {
                 <strong class="comm-num">{{ s.umbral_equilibrio_pct }}%</strong>
                 del volumen para quedar peor que como estás.
               } @else {
-                ⚠️ Es una <strong>baja</strong>: tendrías que <strong>ganar</strong>
+                <i class="pi pi-exclamation-triangle mx-ico" aria-label="Advertencia"></i> Es una <strong>baja</strong>: tendrías que <strong>ganar</strong>
                 <strong class="comm-num">{{ -(+s.umbral_equilibrio_pct) | number:'1.0-2' }}%</strong>
                 de volumen sólo para empatar.
               }
@@ -203,7 +213,7 @@ import {
               Un umbral sin costo sería un invento.
             </p>
           }
-          <p class="mx-nota">⛔ Lo que esto <strong>no</strong> dice: {{ s.no_sabe }}</p>
+          <p class="mx-nota"><i class="pi pi-ban mx-ico" aria-label="Bloqueante"></i> Lo que esto <strong>no</strong> dice: {{ s.no_sabe }}</p>
         }
       } @else {
         <p class="mx-nota">
@@ -222,8 +232,8 @@ import {
             <th scope="col">Plaza</th>
             <th scope="col" class="comm-num">Precio</th>
             <th scope="col" class="comm-num">Costo</th>
-            <th scope="col" class="comm-num">Margen real</th>
-            <th scope="col">Qué hacer</th>
+            <th scope="col" class="comm-num">Margen que se cobró</th>
+            <th scope="col">Qué propone el motor</th>
           </tr>
         </thead>
         <tbody>
@@ -233,7 +243,12 @@ import {
               <td class="comm-num">{{ num(p.precio_actual) }}</td>
               <td class="comm-num">{{ num(p.a1_costo_hoy) }}</td>
               <td class="comm-num">{{ pct(p.margen_realizado_pct) }}</td>
-              <td class="mx-min">{{ p.accion }}</td>
+              <td class="mx-plz-acc">
+                <span class="mx-plz-v">{{ etiqueta(p.accion) }}</span>
+                @if (!p.es_esta && p.accion !== d.accion.accion) {
+                  <span class="mx-plz-dif">distinta de esta plaza</span>
+                }
+              </td>
             </tr>
           }
         </tbody>
@@ -276,7 +291,7 @@ import {
         <!-- ⛔ La fecha de caducidad, antes de que alguien lo lea como actual. -->
         @if (atrasoMax() > 45) {
           <p class="mx-nota mx-warn">
-            ⚠️ El dato más reciente tiene <strong>{{ atrasoMax() }} días</strong>. Lo registraba
+            <i class="pi pi-exclamation-triangle mx-ico" aria-label="Advertencia"></i> El dato más reciente tiene <strong>{{ atrasoMax() }} días</strong>. Lo registraba
             Wincaja y dejó de hacerlo el día que esta plaza pasó a Kepler &mdash; no es que hayan
             dejado de faltar productos.
           </p>
@@ -284,12 +299,12 @@ import {
       } @else {
         <p class="mx-vacio">
           <span class="mx-nd">n/d</span> &mdash; sin registros de faltante para este producto.
-          ⚠️ No significa que no haya faltado: sólo las plazas que todavía corrían Wincaja lo
+          <i class="pi pi-exclamation-triangle mx-ico" aria-label="Advertencia"></i> No significa que no haya faltado: sólo las plazas que todavía corrían Wincaja lo
           registraban.
         </p>
       }
       <p class="mx-nota">
-        ⛔ Esto mide <strong>cuánto se perdió</strong> valuado a nuestro precio, no contra qué
+        <i class="pi pi-ban mx-ico" aria-label="Bloqueante"></i> Esto mide <strong>cuánto se perdió</strong> valuado a nuestro precio, no contra qué
         precio se perdió. <strong>No existe ninguna fuente de precio de competencia.</strong>
       </p>
     </section>
@@ -301,6 +316,21 @@ import {
 </p-dialog>
   `,
   styles: [`
+    /* [PR.V5] La propuesta, arriba de todo: el verbo, lo que significa y que tan en firme esta. */
+    .mx-propuesta {
+      display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem;
+      padding: .55rem .75rem; margin-bottom: .75rem;
+      border: 1px solid var(--border-color); border-left: 3px solid var(--action);
+      border-radius: var(--r-md); background: var(--surface-2);
+    }
+    .mx-prop-v { font-size: var(--fs-sm); font-weight: 700; }
+    .mx-prop-g { font-size: var(--fs-xs); color: var(--fg-2); }
+    .mx-prop-c {
+      margin-left: auto; font-size: var(--fs-nano); font-weight: 700;
+      letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 4px; background: var(--neutral-200); color: var(--neutral-800);
+    }
+    .mx-prop-c[data-c='efecto_no_medido'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     :host ::ng-deep .mx-dlg .p-dialog-content { padding-top: var(--sp-2); }
 
     .mx-skel { display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -389,6 +419,23 @@ import {
     /* La plaza que se está mirando se distingue por PESO, no por color de fondo. */
     .mx-tab tr.is-esta td { font-weight: var(--fw-bold); color: var(--fg-1); }
     .mx-min { font-size: var(--fs-nano); color: var(--fg-3); }
+    /* [PR.V9] .mx-tab no tenia NI UNA regla: sin padding, los encabezados se leian
+       "MARGEN REAL QUE HACER" de corrido y las celdas "11.08%subir_precio". */
+    .mx-tab { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+    .mx-tab th {
+      text-align: left; font-size: var(--fs-micro); font-weight: 700;
+      letter-spacing: .05em; text-transform: uppercase; color: var(--fg-2);
+      padding: .45rem .75rem .45rem 0; border-bottom: 1px solid var(--border-color);
+      white-space: nowrap;
+    }
+    .mx-tab th.comm-num, .mx-tab td.comm-num { text-align: right; padding-right: 1.25rem; }
+    .mx-tab td { padding: .45rem .75rem .45rem 0; border-bottom: 1px solid var(--surface-2); }
+    .mx-tab tr.is-esta td { font-weight: 600; background: var(--surface-2); }
+    .mx-plz-acc { display: flex; flex-direction: column; gap: 2px; }
+    .mx-plz-v { font-size: var(--fs-sm); }
+    .mx-plz-dif { font-size: var(--fs-nano); color: var(--warn-soft-fg); }
+    /* El icono que reemplazo a los emojis: mismo tono que el texto que acompana. */
+    .mx-ico { font-size: .8em; vertical-align: baseline; margin-right: .2em; }
   `],
 })
 export class ComercialMotorMargenExpedienteComponent {
@@ -598,6 +645,14 @@ export class ComercialMotorMargenExpedienteComponent {
     const m = this.margenes();
     return m.length >= 2 ? (Math.max(...m) - Math.min(...m)).toFixed(2) : null;
   });
+
+  etiqueta(a: string): string { return etiquetaAccion(a); }
+
+  /** ⭐ Qué significa el verbo, en una línea. Mismo texto que la cola: una sola voz. */
+  /** Mismo texto que la cola: el vocabulario vive en un solo lugar. */
+  glosa(a: string): string { return glosaAccion(a); }
+
+  certezaTxt(c: string): string { return textoCerteza(c); }
 
   num(v: string | number | null | undefined): string {
     if (v === null || v === undefined) return '—';

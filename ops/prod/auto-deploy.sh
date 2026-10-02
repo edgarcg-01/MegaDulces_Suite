@@ -68,7 +68,10 @@ di() { echo "[$(date '+%F %T %Z')] $*"; }
 # `prod-vendor` (el compose los nombra así; `pg-prod` y `pg-rag` NO siguen el patrón, pero este
 # carril no los toca).
 img_de()  { case "$1" in api) echo trade-prod-api ;; worker) echo trade-prod-worker ;; portal) echo trade-prod-portal ;; vendor) echo trade-prod-vendor ;; *) echo '' ;; esac; }
-cont_de() { case "$1" in api) echo prod-api ;; api2) echo prod-api-2 ;; worker) echo prod-worker ;; portal) echo prod-portal ;; vendor) echo prod-vendor ;; *) echo '' ;; esac; }
+# [K3S.22] `api2` sale del mapa: el servicio se retiró del compose el 2026-10-01. Dejarlo acá
+# no es inocuo — `cont_de api2` devolvería `prod-api-2`, el carril intentaría recrear un
+# servicio que ya no existe, y fallaría cada 5 minutos sobre algo que está bien.
+cont_de() { case "$1" in api) echo prod-api ;; worker) echo prod-worker ;; portal) echo prod-portal ;; vendor) echo prod-vendor ;; *) echo '' ;; esac; }
 
 # ── El diario se recorta solo ────────────────────────────────────────────────
 # `md` no tiene `logrotate` a mano para un usuario sin sudo, y una pasada cada 5 minutos escribe
@@ -176,7 +179,11 @@ fi
 # correr acá. Entonces se hace CONSERVADORA — ante cualquier cambio compartido (o ante la duda,
 # o si no se puede comparar) entran las cuatro. Equivocarse de más cuesta minutos de CPU;
 # equivocarse de menos deja producción atrás sin avisar, que es el defecto que esto cierra.
-SERVICIOS="api api2 worker"
+# [K3S.22] Sin `api2`: el servicio se retiró del compose el 2026-10-01. ⚠️ Ojo con la lección
+# que lo puso acá en primer lugar — `api2` ENTRÓ a esta lista porque NO estar en ella la dejó
+# ocho horas sirviendo otra versión. Sacarla ahora es correcto sólo porque el servicio dejó de
+# existir; si vuelve a haber una segunda réplica en Compose, tiene que volver a esta línea.
+SERVICIOS="api worker"
 _extra=''
 if [ "$VIVO" != desconocido ] && git cat-file -e "$VIVO^{commit}" 2>/dev/null; then
   _cambios=$(git diff --name-only "$VIVO" "$DESEADO" 2>/dev/null)
@@ -195,6 +202,30 @@ fi
 # Se puede forzar la lista completa con AUTO_DEPLOY_SERVICIOS, igual que antes.
 SERVICIOS="${AUTO_DEPLOY_SERVICIOS:-$SERVICIOS}"
 di "servicios: $SERVICIOS"
+
+# ═══ [K3S.27] QUÉ SE CONSTRUYE ≠ QUÉ SE DESPLIEGA DÓNDE ═════════════════════════════════════
+#
+# `$SERVICIOS` es "lo que cambió y hay que construir". Eso NO dice en qué mundo vive cada uno.
+# Hasta el 2026-10-01 daba igual porque todos estaban en Compose; desde que `portal` y `vendor`
+# viven en K3s, pasar la lista entera a `docker compose up -d` RESUCITA sus contenedores —
+# la misma trampa que ya mordió con `depends_on` ([K3S.19], [K3S.23]).
+#
+# ⛔ ESTA LISTA Y LA ETIQUETA `migracion:` DE ops/k3s/*.yaml SON DOS DECLARACIONES DEL MISMO
+# HECHO. Si se contradicen, el servicio se despliega en el mundo equivocado o en ninguno.
+# Se mueven juntas, y `npm run check:k3s` compara el lado de `SERVICIOS_DEF`.
+SERVICIOS_K3S="${AUTO_DEPLOY_SERVICIOS_K3S:-portal vendor worker api}"
+
+SERVICIOS_COMPOSE=''
+_s_k3s_tocados=''
+for s in $SERVICIOS; do
+  case " $SERVICIOS_K3S " in
+    *" $s "*) _s_k3s_tocados="$_s_k3s_tocados $s" ;;
+    *)        SERVICIOS_COMPOSE="$SERVICIOS_COMPOSE $s" ;;
+  esac
+done
+SERVICIOS_COMPOSE=$(echo "$SERVICIOS_COMPOSE" | sed 's/^ *//')
+_s_k3s_tocados=$(echo "$_s_k3s_tocados" | sed 's/^ *//')
+di "   en Compose: ${SERVICIOS_COMPOSE:-(ninguno)}  ·  en K3s: ${_s_k3s_tocados:-(ninguno)}"
 
 if [ "$SECO" = 1 ]; then di "SECO: acá se construiría y recrearía ($SERVICIOS). No se toca nada."; exit 0; fi
 
@@ -400,9 +431,65 @@ for s in api worker portal vendor; do
   fi
 done
 
+# ═══ [K3S.24] AL REGISTRY, EN CADA DESPLIEGUE ══════════════════════════════════════════════
+#
+# Este es el camino que despliega ~7 veces al día; `ops/prod/deploy.sh` casi no se usa. Una
+# política escrita sólo en el carril que nadie corre es una política que no existe — medido con
+# la poda de imágenes, que vivía ahí y dejó 80 GB de caché sin tope ([VL.20.5]).
+#
+# Se publica aunque hoy NINGÚN pod de prod consuma estas imágenes: las cuatro apps siguen en
+# Compose. El camino tiene que existir antes del corte, no inventarse el día del corte.
+#
+# ⚠️ No frena el despliegue si falla: nada en producción depende todavía del registry.
+# ⛔ EL DÍA QUE UNA APP MIGRE A K3s ESTO TIENE QUE FRENAR — si no, el pod se queda con la
+#    imagen vieja y el carril reporta DESPLEGADO igual. Es exactamente el defecto del
+#    2026-10-01, y la única razón de que hoy sea un aviso es que nadie lo consume.
+for s in $SERVICIOS; do
+  img=$(img_de "$s"); [ -n "$img" ] || continue
+  docker image inspect "$img:$DESEADO" >/dev/null 2>&1 || continue
+  docker tag "$img:$DESEADO" "localhost:5000/$img:$DESEADO" 2>/dev/null
+  if docker push "localhost:5000/$img:$DESEADO" >/dev/null 2>&1; then
+    di "publicada localhost:5000/$img:$DESEADO"
+  else
+    di "⚠️ no se pudo publicar $img:$DESEADO (no frena: hoy ningun pod de prod lo consume)"
+  fi
+done
+
+# ═══ [K3S.26] Y LO QUE VIVE EN K3s ═════════════════════════════════════════════════════════
+#
+# HOY ES UN NO-OP, a propósito: los manifiestos de prod están marcados `migracion: preparado`
+# —las cuatro apps corren en Compose— así que el guion no aplica nada y sale 0.
+#
+# ⭐ Se cablea igual, y ANTES de que haga falta. El 2026-10-01 se intentó mover `portal` y
+# `vendor` al clúster y hubo que revertir en el acto, porque este carril actualizaba Compose y
+# no K3s: el primer despliegue compartido los habría dejado viejos EN SILENCIO. Construir el
+# camino el día del corte es cómo el corte termina haciéndose a mano.
+#
+# ⛔ Va ANTES del `up -d` de Compose y ABORTA si falla. Los servicios de los dos mundos son
+# disjuntos (lo candadea `npm run check:k3s`), así que no hay orden "correcto" entre ellos —
+# pero un despliegue a medias que reporta éxito parcial es peor que uno que no ocurrió.
+if [ -f "$HOME/ops/prod/aplicar-k3s-prod.sh" ]; then
+  if _k3s_out=$(sh "$HOME/ops/prod/aplicar-k3s-prod.sh" "$DESEADO" 2>&1); then
+    echo "$_k3s_out" | sed 's/^/      /'
+  else
+    di "FALLO: no se pudo aplicar a K3s"
+    echo "$_k3s_out" | sed 's/^/      /'
+    latir error "apply a K3s falló en $DESEADO"
+    exit 1
+  fi
+fi
+
 cd "$HOME/ops/prod" || exit 1
 set -a; . "$HOME/secrets/prod-compose.env"; set +a
-docker compose -p prod up -d $SERVICIOS >/dev/null 2>&1
+# ⛔ [K3S.29] SÓLO SI HAY ALGO QUE LEVANTAR. `docker compose up -d` SIN argumentos no es un
+# no-op: levanta TODO el perfil por defecto. Desde que `api` se fue a K3s esta lista puede
+# quedar vacía en un despliegue normal, y entonces este comando tocaría `pg-prod`, `pg-rag`,
+# `backup` y el `registry` — servicios que este carril no tiene por qué recrear.
+if [ -n "$SERVICIOS_COMPOSE" ]; then
+  docker compose -p prod up -d $SERVICIOS_COMPOSE >/dev/null 2>&1
+else
+  di "   nada que levantar en Compose (todo lo tocado vive en K3s)"
+fi
 
 # ── Verificar ENTREGA, no el rótulo ─────────────────────────────────────────
 # ⚠️ La ventana era de 60 s y el arranque medido es de ~15 s — parecía de sobra. Pero cuando el
@@ -416,7 +503,11 @@ vivo_ahora=''
 for i in $(seq 1 24); do
   # `[VL.20.4]` Se vigilan los contenedores que ESTE despliegue tocó, no dos fijos: con portal y
   # vendedor en la lista, dejarlos fuera sería desplegarlos sin mirar si arrancan.
-  for s in $SERVICIOS; do
+  # ⚠️ [K3S.27] Sólo los de COMPOSE: un servicio que vive en K3s no tiene contenedor, y
+  # `docker inspect` de uno apagado devolvería "exited" — que no es un bucle de reinicio, así
+  # que este bucle lo daría por bueno sin haber mirado nada. A los pods los verifica
+  # `aplicar-k3s-prod.sh`, que espera el rollout y corta ante ImagePullBackOff.
+  for s in $SERVICIOS_COMPOSE; do
     c=$(cont_de "$s"); [ -n "$c" ] || continue
     _st=$(docker inspect -f '{{.State.Status}} {{.State.Restarting}} {{.RestartCount}}' "$c" 2>/dev/null)
     case "$_st" in
@@ -426,9 +517,28 @@ for i in $(seq 1 24); do
         revertir; latir error "$c no arranca con $DESEADO (bucle de reinicio) — revertido"; exit 1 ;;
     esac
   done
-  r=$(curl -s --max-time 5 http://127.0.0.1:8080/api/health 2>/dev/null)
+  r=$(curl -s --max-time 5 http://127.0.0.1:30080/api/health 2>/dev/null)
   vivo_ahora=$(printf '%s' "$r" | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p')
-  [ -n "$vivo_ahora" ] && break
+  # ⛔ [K3S.30] SE ESPERA EL COMMIT ESPERADO, NO "cualquier respuesta". Esta línea decía
+  # `[ -n "$vivo_ahora" ] && break` y en el mundo de Compose era correcta: `docker compose up`
+  # RECREA el contenedor, así que mientras tanto el puerto está cerrado y la primera respuesta
+  # ya era, por construcción, la del binario nuevo.
+  #
+  # En K8s eso deja de ser cierto y no un poco: el Service CONTESTA SIEMPRE. Durante el rollout
+  # hay pods viejos todavía en los endpoints, así que la primera respuesta puede ser —y fue— la
+  # versión ANTERIOR. Medido el 2026-10-01 19:16: el apply decía «todos los deployments al día
+  # en :843521b», el pod nuevo estaba Ready, y este chequeo leyó `6bb8e4f` y REVIRTIÓ un
+  # despliegue que estaba bien. Un falso rojo que deshace trabajo correcto es peor que no tener
+  # chequeo: enseña a desactivarlo.
+  #
+  # ⚠️ Y hay un agravante propio de este Service: `sessionAffinity: ClientIP`. El curl sale
+  # siempre del mismo origen (127.0.0.1), así que kube-proxy lo pega a UN pod — justamente el
+  # que puede ser el viejo. Reintentar sin exigir el commit esperado no corrige eso.
+  if [ "$DESEADO" = desconocido ]; then
+    [ -n "$vivo_ahora" ] && break
+  elif [ "$vivo_ahora" = "$DESEADO" ]; then
+    break
+  fi
   sleep 5
 done
 
@@ -451,7 +561,21 @@ revertir() {
       _falta="$_falta $img"
     fi
   done
-  cd "$HOME/ops/prod" && docker compose -p prod up -d --force-recreate $SERVICIOS >/dev/null 2>&1
+  # ⛔ [K3S.29] Mismo blindaje que arriba: sin argumentos, `--force-recreate` recrearía TODO
+  # el perfil por defecto. En un camino de REVERSIÓN eso es peor todavía.
+  [ -n "$SERVICIOS_COMPOSE" ] && cd "$HOME/ops/prod" && docker compose -p prod up -d --force-recreate $SERVICIOS_COMPOSE >/dev/null 2>&1
+  # ⛔ [K3S.27] Y LOS DE K3s TAMBIÉN SE REVIERTEN. Retaguear `:latest` en Docker no mueve un
+  # pod: el Deployment pide una imagen por COMMIT. `rollout undo` lo devuelve al ReplicaSet
+  # anterior, cuya imagen sigue en containerd. Sin esto, "revertido." sería mentira para la
+  # mitad del despliegue — y mentir en el camino de reversión es peor que no tenerlo.
+  for s in $_s_k3s_tocados; do
+    if KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl rollout undo "deploy/$s" -n prod >/dev/null 2>&1; then
+      di "  $s (K3s) → rollout undo"
+    else
+      di "  ⛔ $s (K3s): NO se pudo revertir"
+      _falta="$_falta $s(k3s)"
+    fi
+  done
   if [ -n "$_falta" ]; then
     di "revertido PARCIALMENTE — quedó sin revertir:$_falta"
   else
@@ -480,17 +604,52 @@ fi
 # ⚠️ Se le pregunta a cada contenedor DIRECTO (`docker exec`), no por el 8080: preguntarle al
 # balanceador es exactamente lo que no distingue una réplica de la otra.
 # ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
-for _c in $(docker ps --format '{{.Names}}' | grep -E '^prod-api(-[0-9]+)?$'); do
-  _k=$(docker exec "$_c" node -e 'fetch("http://127.0.0.1:10000/api/health").then(r=>r.json()).then(j=>console.log(j.commit)).catch(()=>console.log(""))' 2>/dev/null)
-  if [ "$DESEADO" != desconocido ] && [ "$_k" != "$DESEADO" ]; then
-    di "FALLO: la réplica $_c sirve '${_k:-nada}' y se levantó '$DESEADO'."
-    revertir; latir error "réplica $_c desfasada tras desplegar $DESEADO — revertido a $ANTERIOR"; exit 1
+# ⛔ [K3S.30] AHORA SE LE PREGUNTA A CADA **POD**, no a contenedores que ya no existen.
+#
+# Este bucle iteraba `docker ps | grep '^prod-api'`. Desde que el API vive en K3s esa lista
+# está VACÍA, así que el bucle no fallaba: no hacía NADA. Y lo que dejaba de hacer es
+# justamente la razón por la que existe — `[VL.15.D2]` lo escribió después de medir **ocho
+# horas sirviendo DOS versiones a la vez**, repartidas por cookie, con el chequeo general en
+# verde porque siempre le tocaba la buena.
+#
+# ⭐ Una compuerta que se queda sin sujeto no avisa: simplemente deja de proteger. Y con
+# `sessionAffinity: ClientIP` el chequeo general es todavía MENOS capaz de distinguir una
+# réplica de otra, porque sale siempre del mismo origen y se pega a un solo pod.
+#
+# ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
+_KC=/etc/rancher/k3s/k3s.yaml
+for _p in $(KUBECONFIG=$_KC k3s kubectl get pods -n prod -l app=api \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+  # ⛔ [K3S.31] SE SALTEAN LOS QUE SE ESTÁN MURIENDO. La primera versión de este bucle
+  # preguntaba a TODOS los pods con la etiqueta `app=api`, y durante un rollout esa lista
+  # incluye a los VIEJOS en estado Terminating. `kubectl exec` contra uno que se apaga no
+  # devuelve nada, y "nada" se leía como desfasaje → revirtió un despliegue correcto.
+  # Medido el 2026-10-01 19:21: «el pod api-68bdb57986-2n2r5 sirve 'nada'» — y ese hash era
+  # el del ReplicaSet anterior.
+  # ⭐ `deletionTimestamp` es la pregunta exacta: no "¿está listo?" sino "¿lo están matando?".
+  if [ -n "$(KUBECONFIG=$_KC k3s kubectl get pod -n prod "$_p" -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)" ]; then
+    di "pod $_p: Terminating, no se le pregunta"
+    continue
   fi
-  di "réplica $_c sirve $_k"
+  # Un pod vivo puede tardar un instante en aceptar `exec`. Vacío se REINTENTA; lo que no se
+  # reintenta es un commit DISTINTO, que es el defecto que este candado existe para atrapar
+  # (`[VL.15.D2]`: ocho horas sirviendo dos versiones a la vez).
+  _k=''
+  for _i in 1 2 3 4 5 6; do
+    _k=$(KUBECONFIG=$_KC k3s kubectl exec -n prod "$_p" -c api -- \
+          node -e 'fetch("http://127.0.0.1:10000/api/health").then(r=>r.json()).then(j=>console.log(j.commit)).catch(()=>console.log(""))' 2>/dev/null)
+    [ -n "$_k" ] && break
+    sleep 5
+  done
+  if [ "$DESEADO" != desconocido ] && [ "$_k" != "$DESEADO" ]; then
+    di "FALLO: el pod $_p sirve '${_k:-nada}' y se levantó '$DESEADO'."
+    revertir; latir error "pod $_p desfasado tras desplegar $DESEADO — revertido a $ANTERIOR"; exit 1
+  fi
+  di "pod $_p sirve $_k"
 done
 
 codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-  -X POST http://127.0.0.1:8080/api/auth-mt/login \
+  -X POST http://127.0.0.1:30080/api/auth-mt/login \
   -H 'Content-Type: application/json' -d '{"username":"zz_humo_auto","password":"zz"}' 2>/dev/null || echo 000)
 case "$codigo" in
   401|403) di "humo del login: $codigo — la puerta contesta." ;;

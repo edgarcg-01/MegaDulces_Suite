@@ -6,7 +6,8 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
+import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
 
 /**
  * `[E.12]` — Cotizaciones de mayoreo.
@@ -379,6 +380,14 @@ export class CommercialQuotesService {
           p.sku AS product_sku,
           lp.content  AS product_content,
           lp.barcode  AS product_barcode,
+          -- La unidad BASE del producto: rotula el desglose "(12 PAQ $41.82)". Antes decía
+          -- "12PZS" fijo, también para un bulto de 20 KG o una caja de 12 PAQUETES (COT.16).
+          lp.unit_base  AS product_unit_base,
+          lp.sold_by_kg AS product_sold_by_kg,
+          -- Unidades base del PAQUETE: con él la caja se desglosa también en su unidad del medio
+          -- ("14 PAQ $121.86 · 140 PZA $12.19"), que se perdía (COT.17). Descriptivo, como los
+          -- de arriba: el precio sigue siendo el congelado en el renglón.
+          lp.pack_size  AS product_pack_size,
           -- El descuento se DERIVA, no se guarda: guardado aparte se desincroniza del precio
           -- en cuanto alguien edita uno de los dos.
           CASE
@@ -424,15 +433,18 @@ export class CommercialQuotesService {
     const n = Math.min(Math.max(Number(limit) || 20, 1), 50);
 
     return this.tk.run(async (knex) => {
+      // Búsqueda por PALABRAS (COT.16): cada palabra tiene que aparecer en el código, el nombre
+      // o el RFC, en cualquier orden ("ortiz vera" encuentra "GRUPO ORTIZ VERA"). Estricta, sin
+      // trigramas: el operador escribe lo que ve en el padrón.
+      const hit = knex('analytics.v_erp_wholesale_customers')
+        .distinct('customer_code')
+        .orderBy('customer_code')
+        .limit(n);
+      applySmartSearch(hit, term, { columns: ['customer_code', 'name', 'rfc'], fuzzy: false });
+
       const res = await knex.raw(
         `
-        WITH hit AS (
-          SELECT DISTINCT customer_code
-          FROM analytics.v_erp_wholesale_customers
-          WHERE :term = '' OR customer_code ILIKE :like OR name ILIKE :like
-          ORDER BY customer_code
-          LIMIT :lim
-        )
+        WITH hit AS :hit
         SELECT
           v.customer_code,
           max(v.name)                      AS name,
@@ -452,7 +464,7 @@ export class CommercialQuotesService {
               'salesperson_code', v.salesperson_code
             ) ORDER BY v.sucursal
           )                                AS branches,
-          -- ¿Las condiciones son las mismas en todas sus sucursales? Si no, la pantalla tiene
+          -- Las condiciones pueden ser distintas entre sucursales: si lo son, la pantalla tiene
           -- que decirlo: es la diferencia entre "$60,000 con 3%" y "$30,000 sin descuento".
           (count(DISTINCT coalesce(v.discount_1_pct::text, '-')) > 1
            OR count(DISTINCT coalesce(v.credit_limit::text, '-')) > 1
@@ -462,7 +474,7 @@ export class CommercialQuotesService {
         GROUP BY v.customer_code
         ORDER BY v.customer_code
         `,
-        { term, like: `%${term}%`, lim: n },
+        { hit },
       );
       return res.rows;
     });
@@ -516,6 +528,63 @@ export class CommercialQuotesService {
     const n = Math.min(Math.max(Number(limit) || 30, 1), 50);
 
     return this.tk.run(async (knex) => {
+      // Búsqueda por PALABRAS (COT.16): cada palabra tiene que aparecer en el nombre o el SKU,
+      // en cualquier orden ("altos rollo 25 35" encuentra "ALTOS ROLLO 25X35 ..."). Estricta,
+      // sin trigramas, pero con el vocabulario del dictado: abreviaturas de Kepler ("paleta" →
+      // PAL), singular ("pistaches" → PISTACHOS) y sin palabras de relleno ("25 por 35"). El
+      // código de barras va APARTE y por igualdad exacta: es lo que manda el lector, y meterlo al
+      // substring haría que "25" pegara con medio catálogo de códigos.
+      //
+      // ORDEN: después de los aciertos exactos (SKU / código de barras / prefijo de SKU), lo que
+      // MÁS SE VENDE en esa sucursal — antes era alfabético y el producto buscado salía en el
+      // lugar 4, 6 u 8 ("cimarron": lugar 23 de 50; con este orden, el 1). La venta sale de
+      // `analytics.product_demand` (ventana 30 d, por almacén = sucursal), ya agregada: sumar
+      // `mv_kepler_sales_daily` al vuelo tardaba 3.4 s por búsqueda, esto 110–200 ms.
+      const demanda = knex
+        .select(knex.raw('btrim(p.sku) AS sku'), knex.raw('max(d.revenue) AS revenue'))
+        .from('analytics.product_demand as d')
+        .join('commercial.warehouses as w', function () {
+          this.on('w.id', '=', 'd.warehouse_id').andOn('w.tenant_id', '=', 'd.tenant_id');
+        })
+        .join('catalog.products as p', function () {
+          this.on('p.id', '=', 'd.product_id').andOn('p.tenant_id', '=', 'd.tenant_id');
+        })
+        .whereRaw('d.tenant_id = public.current_tenant_id()')
+        .where('w.code', suc)
+        .whereNull('w.deleted_at')
+        .whereNull('p.deleted_at')
+        .groupByRaw('btrim(p.sku)');
+
+      const inner = knex
+        .select('v.sku', 'v.name', 'v.content', 'v.barcode', 'v.unit_base', 'v.piece_price', 'v.pack_size', 'v.box_size', 'v.box_price', 'v.sold_by_kg', 'dem.revenue')
+        .from('analytics.v_label_prices as v')
+        .leftJoin(demanda.as('dem'), 'dem.sku', 'v.sku')
+        .where('v.sucursal', suc)
+        .orderByRaw(
+          `CASE WHEN upper(v.sku) = upper(?) THEN 0
+                WHEN v.barcode = ?          THEN 1
+                WHEN v.sku ILIKE ?          THEN 2
+                ELSE 3 END,
+           dem.revenue DESC NULLS LAST,
+           v.name NULLS LAST,
+           v.sku`,
+          [term, term, `${term}%`],
+        )
+        .limit(n);
+      if (term) {
+        inner.andWhere((g) => {
+          g.where('v.barcode', term).orWhere((porPalabras) =>
+            applySmartSearch(porPalabras, term, {
+              columns: ['v.name', 'v.sku'],
+              fuzzy: false,
+              stem: true,
+              synonyms: SINONIMOS_CATALOGO,
+              ignore: PALABRAS_RELLENO,
+            }),
+          );
+        });
+      }
+
       const res = await knex.raw(
         // La unidad mayor se completa con BTO/CUB cuando no hay caja, o el botón diría "Caja" y
         // la previa "Bulto".
@@ -537,24 +606,7 @@ export class CommercialQuotesService {
                CASE WHEN v.box_size IS NOT NULL OR v.box_price IS NOT NULL THEN 'CJA'
                     ELSE m.unidad END AS box_label,
                v.sold_by_kg
-          FROM (
-            SELECT sku, name, content, barcode, unit_base, piece_price, pack_size, box_size,
-                   box_price, sold_by_kg
-              FROM analytics.v_label_prices
-             WHERE sucursal = :branch
-               AND (:term = ''
-                    OR sku ILIKE :pre
-                    OR barcode = :term
-                    OR name ILIKE :like)
-             ORDER BY
-               CASE WHEN upper(sku) = upper(:term) THEN 0
-                    WHEN barcode = :term          THEN 1
-                    WHEN sku ILIKE :pre           THEN 2
-                    ELSE 3 END,
-               name NULLS LAST,
-               sku
-             LIMIT :lim
-          ) v
+          FROM :inner v
           LEFT JOIN LATERAL (
             SELECT s.unidad, s.factor
               FROM kepler_ods.kdii k
@@ -573,10 +625,11 @@ export class CommercialQuotesService {
                 WHEN v.barcode = :term          THEN 1
                 WHEN v.sku ILIKE :pre           THEN 2
                 ELSE 3 END,
+           v.revenue DESC NULLS LAST,
            v.name NULLS LAST,
            v.sku
         `,
-        { branch: suc, term, pre: `${term}%`, like: `%${term}%`, lim: n },
+        { inner, branch: suc, term, pre: `${term}%` },
       );
 
       // Los `numeric` de Postgres llegan como STRING por JSON (GOTCHAS §6): el tipo TS miente

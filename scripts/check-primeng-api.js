@@ -120,7 +120,16 @@ function revisar(archivo, src) {
   let b;
   while ((b = btn.exec(src))) {
     const tag = b[0];
-    if (/\bp-button\b/.test(tag)) continue; // <p-button pButton> es otro defecto, no éste
+    // Aca habia un salto que apagaba la regla entera. Dos defectos en una linea:
+    // (1) el regex de arriba solo matchea <button y <a, asi que un <p-button> NUNCA llegaba
+    //     hasta aca y el salto no servia a su proposito; y
+    // (2) ese mismo patron matchea class="p-button-sm", que lleva CASI TODO boton de la app,
+    //     o sea que la regla se saltaba a si misma.
+    // Medido el 2026-10-01: reportaba 2 ocurrencias cuando habia 31 en 16 archivos. Llevaba
+    // asi desde que se escribio, el 2026-09-02, y por eso se acumularon botones sin texto en
+    // produccion -- el reporte que lo destapo fue una captura con dos pildoras naranjas vacias.
+    // Un continue dentro de una compuerta es una excepcion, y una excepcion sin prueba
+    // negativa que la ejercite es un apagado silencioso.
     // ⚠️ El espacio de adelante NO es adorno: sin él, `aria-label=` matchea y salen 40 falsos
     // positivos. `aria-label` es correcto y no se toca — la memoria del proyecto ya lo advierte.
     if (/\s\[?label\]?=/.test(tag)) {
@@ -169,7 +178,12 @@ const TECHO = {
   'pTemplate en p-dialog': 0,
   'pTemplate en p-table': 0,   // 144 pantallas ya usan #body; las 2 que faltaban se arreglan
   'nombre retirado': 0,
-  'pButton con label': 3,
+  // 2026-10-01: era 3, pero el detector se saltaba a si mismo (ver la regla 5) y por eso
+  // reportaba 2 donde habia 32. Con el detector arreglado y 10 convertidos a <p-button> en
+  // Motor de margen y Experimentos, quedan 22 REALES repartidos en el resto de la app.
+  // ⚠️ 22 no es una meta: es deuda MEDIDA, congelada para que la 23a no entre. Cada uno es
+  //    un boton que se pinta SIN TEXTO en produccion.
+  'pButton con label': 22,
   'styleClass p-table': 289,
   'styleClass p-select': 263,
   'styleClass p-multiselect': 41,

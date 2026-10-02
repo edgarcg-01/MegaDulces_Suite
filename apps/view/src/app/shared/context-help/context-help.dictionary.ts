@@ -15,6 +15,74 @@ export interface HelpResolveBlock { heading: string; kind?: 'fix' | 'info'; intr
 export interface HelpTopic { title: string; intro?: string; groups?: HelpGroup[]; resolve?: HelpResolveBlock[]; }
 
 export const CONTEXT_HELP: Record<string, HelpTopic> = {
+  // `[PR.V4]` El motor habla con siete verbos y cinco grados de certeza, y ninguno es obvio.
+  // Siete roles lo leen (compras, finanzas, marketing, direccion, gerente_compras y dos mas) y
+  // ninguno es tecnico, asi que el registro de TODO este topico es palabra llana: nada de
+  // "veredicto", "coeficiente" ni nombres de columna. Cada definicion esta anclada a la regla
+  // real de `analytics.v_price_action`, no a lo que la etiqueta sugiere.
+  'motor-margen': {
+    title: 'Motor de margen — qué significa cada cosa',
+    intro: 'La pantalla mira cada producto en cada plaza y dice UNA cosa que se puede hacer con su precio, cuánto vale y qué tan en firme está. No cambia ningún precio: la captura sigue siendo en Kepler.',
+    groups: [
+      {
+        heading: 'Las siete cosas que puede decir, en el orden en que las decide',
+        entries: [
+          { term: 'Corregir la escalera', def: 'La caja sale MÁS CARA por pieza que comprar sueltas. Es un error de catálogo: le estás cobrando más a quien compra más. ⚠️ Hoy la alarma se dispara también por diferencias de UN CENTAVO, que no se pueden corregir porque los precios se guardan al centavo: 248 de los 696 casos difieren un centavo o menos (la más chica, seis diezmilésimas de peso) y se llevan $76,610 de la cola, contra $2,138 de las 349 que sí están rotas de verdad, algunas por más de $340 por pieza.' },
+          { term: 'Revisar el costo', def: 'El costo de hoy se apartó 5% o más del costo con el que se fijó el precio, y nadie tocó el precio en 90 días. No dice cuánto subir: dice que el número con el que se decidió ya no es el de ahora.' },
+          { term: 'Liberar capital', def: 'El producto está en sobrestock o parado, y hay inventario que se puede mover bajando el precio. Es una regla de almacén, no una medición de precio: el motor no sabe cuánto hay que bajar.' },
+          { term: 'Precio atípico', def: 'Para llegar al siguiente precio redondo habría que subirlo más del 20%. No es mercancía ordinaria: suelen ser recargas, servicios o productos de paso. Se aparta a propósito y no se propone nada, porque falta la marca de PRECIO PACTADO, que no existe en el sistema.' },
+          { term: 'Aterrizar el precio', def: 'El precio está a un pelo de un número redondo y la subida es tan chica que el cliente no la distingue. Por ejemplo, de $6.95 a $6.99. Es la más segura de las siete: la cuenta se cierra sola.' },
+          { term: 'Subir el precio', def: 'Hay espacio hasta el siguiente precio redondo y el producto vende. ⚠️ Es la única donde NO se sabe qué pasa con el volumen: el motor calcula cuánto ganarías si nadie deja de comprar, pero no si alguien deja de comprar.' },
+          { term: 'Sin acción defendible', def: 'Ninguna de las seis anteriores aplica. Es el resultado de la mayoría de los renglones, y está bien que lo sea: el motor prefiere callarse a inventar una recomendación.' },
+        ],
+      },
+      {
+        heading: 'Qué tan en firme está lo que dice',
+        entries: [
+          { term: 'Aritmética', def: 'La cuenta se cierra sola y no depende de adivinar nada. Si el motor dice esto, el número es el número.' },
+          { term: 'Efecto no medido', def: 'La cuenta está bien, pero supone que el cliente compra lo mismo después del cambio. Nadie lo ha comprobado: el experimento que lo mediría existe y no se ha corrido.' },
+          { term: 'Regla de operación', def: 'No sale de medir precios sino de una política de inventario. Vale, pero el motor no puede calcular cuánto conviene mover.' },
+          { term: 'Fuera de alcance', def: 'El motor detecta algo raro y se declara incompetente a propósito, porque le falta un dato que nadie captura.' },
+          { term: 'Sin evidencia', def: 'No hay con qué sostener una recomendación. No significa que el precio esté bien: significa que no se sabe.' },
+        ],
+      },
+      {
+        heading: 'Las palabras de las columnas',
+        entries: [
+          { term: 'En juego 30 días', def: 'La venta de ese producto en esa plaza en los últimos 30 días. ⚠️ Es lo que está EXPUESTO, no lo que vas a ganar: sirve para ordenar la lista por tamaño, no para prometer un resultado.' },
+          { term: 'Margen vs meta', def: 'El margen que de verdad se cobró, contra el que la ficha del producto fija como objetivo. La diferencia va en puntos: +2 pp significa dos puntos de margen arriba de la meta.' },
+          { term: 'Escalera', def: 'Los escalones de venta del mismo producto: pieza, paquete, caja. Cada escalón tiene su precio, y el de arriba debería salir más barato por pieza.' },
+          { term: 'Umbral de percepción', def: 'Por debajo de ese porcentaje el cliente no nota el cambio de precio. Es lo que separa aterrizar de subir: la misma subida es segura o arriesgada según de qué lado caiga.' },
+          { term: 'Capital inmovilizado', def: 'Dinero parado en mercancía. Va aparte de los otros montos y sin barra porque no es lo mismo: los demás son dinero que se mueve en 30 días, éste es un saldo. Para compararlos haría falta saber cuánto cuesta tener el dinero parado, y ese dato no existe todavía.' },
+          { term: 'Con bloqueo', def: 'El renglón tiene una razón para no tocarse ahora: por ejemplo sin existencia, o el precio se movió hace menos de 21 días. Se muestra igual, apagada, porque esconderla haría parecer que el problema no existe.' },
+          { term: 'En N plazas de esta lista', def: 'El mismo producto con la misma decisión y el mismo precio en varias plazas, juntas en un renglón. Dice de esta lista porque agrupa sólo lo que cabe en la página: las plazas que venden poco pueden quedar fuera del corte.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Cómo se corrige cada cosa',
+        kind: 'fix',
+        intro: 'Todo se captura en Kepler. Esta pantalla no escribe nada.',
+        steps: [
+          'Escalera: ajustar el precio de la caja para que, dividido entre las piezas que trae, quede por debajo del precio de la pieza suelta.',
+          'Costo: revisar el costo del producto en la ficha y, si cambió de verdad, volver a decidir el precio con el número nuevo.',
+          'Aterrizar o subir: cambiar el precio en la ficha de esa plaza. El motor propone el número redondo más cercano hacia arriba.',
+          'Liberar capital: es decisión de compras y almacén, no de precio a secas.',
+        ],
+      },
+      {
+        heading: 'Lo que esta pantalla NO puede responder',
+        kind: 'info',
+        steps: [
+          'Qué precio tiene la competencia: no existe ninguna fuente. Se midió y se descartó — el catálogo público de PROFECO cubre el 0% de nuestros productos.',
+          'Cuánto volumen se pierde al subir un precio: el experimento que lo mediría está construido y no se ha corrido.',
+          'Cuánto cuesta tener el dinero parado: nadie ha fijado esa tasa, y por eso el capital no se puede ordenar contra los demás montos.',
+        ],
+      },
+    ],
+  },
+
   // IC.12 — la pantalla acumuló cuatro vistas y cada una trajo su propio vocabulario. Cuatro
   // roles la leen (almacén cuenta, compras concilia, prevención investiga, dirección mira el
   // total) y ninguno usa las mismas palabras para lo mismo.

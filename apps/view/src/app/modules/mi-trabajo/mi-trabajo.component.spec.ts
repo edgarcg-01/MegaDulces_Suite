@@ -304,10 +304,11 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(tarjetas().length).toBe(0);
   });
 
-  it('el admin de plataforma ve los 6 espacios (4 activos + 2 propuestos con su P-xx) y los planned sólo declarados', async () => {
+  it('el admin de plataforma ve los 7 espacios (5 activos + 2 propuestos con su P-xx) y los planned sólo declarados', async () => {
     await montar({ perms: [], role: 'superadmin' });
     expect(navigate).not.toHaveBeenCalled();
-    expect(q('section.mt-space').length).toBe(6);
+    // 7 desde Fase DEV: «Sistemas, Servicios y Mantenimiento» se activó con Desarrolladores.
+    expect(q('section.mt-space').length).toBe(7);
     expect(html()).toContain('P-03');
     expect(html()).toContain('P-06');
     expect(html()).toContain('Configuración de la suite');

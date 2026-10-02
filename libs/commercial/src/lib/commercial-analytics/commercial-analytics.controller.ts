@@ -9,7 +9,7 @@ import { RoutePromoService, PromoQuery } from './route-promo.service';
 import { SelloutChatService } from './sellout-chat.service';
 // [IG.1.1] La forma de los filtros de ingreso vive con la lógica pura, no en el controller.
 import type { IncomeQueryFilters } from './period-coverage';
-import type { IncomeReport, IncomeSources, IncomeTree } from '@megadulces/contracts';
+import type { IncomeRecon, IncomeReport, IncomeSources, IncomeTree } from '@megadulces/contracts';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
@@ -403,6 +403,36 @@ export class CommercialAnalyticsController {
       ...this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte),
       group_by: groupBy,
       compare: compare === 'true',
+    });
+  }
+
+  // `[IG.6]` La conciliación va ANTES de `income/:algo` por el orden de rutas de Nest: una ruta
+  // literal declarada después de una paramétrica del mismo prefijo no se alcanza nunca (ya pasó
+  // en Fase LC con `no-asociados` vs `@Get(':mes')`).
+  @Get('income/conciliacion')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({
+    summary:
+      'IG.6 — Conciliación por sucursal: lo VENDIDO a cliente real contra lo COBRADO, con el puente '
+      + 'declarado renglón por renglón. grain=dia|mes|trimestre. Separa el traspaso interno '
+      + '(el CEDIS facturando a sus propias tiendas: $41.25M de ago-2026) del ingreso real, marca la '
+      + 'factura global U-D-6 que envuelve a los tickets, y trae por cuenta de tesorería si el dinero '
+      + 'entró en efectivo o por qué banco, más cuántos pagos distintos se casaron (kdm5). '
+      + 'El medio de pago del MOSTRADOR se declara como NO MEDIDO: Kepler no lo guarda.',
+  })
+  incomeRecon(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('grain') grain?: string,
+    @Query('canal') canal?: string,
+    @Query('plaza') plaza?: string,
+    @Query('concepto') concepto?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
+  ): Promise<IncomeRecon> {
+    return this.service.incomeRecon({
+      ...this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte),
+      grain: grain === 'dia' || grain === 'trimestre' ? grain : 'mes',
     });
   }
 

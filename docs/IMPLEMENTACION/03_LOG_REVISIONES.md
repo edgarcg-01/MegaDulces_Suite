@@ -5,6 +5,487 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-01 — Operación: prod se mudó a k3s mientras yo buscaba por qué no desplegaba
+
+Edgar preguntó *"¿ya tenemos una verdad absoluta?"*. Al medirlo —en vez de opinarlo— salieron
+tres cosas que no estaban en ningún tablero.
+
+### 1. El despliegue no estaba pendiente: estaba FRENADO
+
+`auto_deploy` en **crítico**, **88 fallos de 1,966 corridas en 7 días**, con un motivo exacto:
+
+```
+2 migración(es) sin aplicar — despliegue frenado
+```
+
+Eran `20261001300000_devtools_projects.js` y `…300100_devtools_project_notes.js` (PR #205,
+*Desarrolladores › Proyectos*), de otra sesión: pusheadas a `origin/main` y nunca aplicadas a
+prod. La compuerta hace lo correcto —no despliega código cuyo esquema no existe— pero **bloquea a
+todos**: 17 commits atorados, incluidos los de `[DM.19]`.
+
+### ⛔ 2. Casi declaro un incidente que no existía
+
+Al ir a aplicarlas, `docker exec prod-api` respondió *"container is not running"*, y el `docker
+ps -a` mostraba **`prod-api`, `prod-worker`, `prod-vendor`, `prod-portal` y `prod-redis` todos
+`Exited`**. Parecía producción caída.
+
+**No lo estaba: prod se mudó a k3s.** Los `Exited (0)` eran paradas limpias, el túnel de
+Cloudflare se **reconfiguró a los NodePorts** `192.168.0.222:30080/30081/30082` a las 18:56, y
+los tres responden `200` con `{"status":"ok","commit":"6bb8e4f"}`. El stack entero está en
+Kubernetes: namespace `ingesta` desde hace 3 h, `prod` (api ×2, portal ×2, redis) desde hace 12
+minutos.
+
+⭐ Es, otra vez, [[feedback_measure_where_it_runs_today_not_where_code_lives]]: *el camino
+documentado para operar prod apuntaba a un sustrato que ya no era prod*, y el síntoma —un
+contenedor apagado— se parece mucho más a una caída que a una migración exitosa.
+
+**El camino nuevo:** `KUBECONFIG=/etc/rancher/k3s/k3s.yaml` (legible por todos) +
+`k3s kubectl -n prod exec <pod api> -- node /app/database/scripts/apply-one-migration-prod.js`.
+
+### 3. La trampa de siempre, con los archivos invertidos
+
+Knex abortó con *«migration directory is corrupt»* nombrando **tres archivos míos**
+(`…270000`, `…280000`, `…290000`): están aplicados en prod pero no en la imagen del pod, porque
+mis commits no están pusheados. Se le copian al pod —ya aplicados, knex sólo necesita verlos— y
+pasa. ⚠️ Ahora la deuda apunta al revés que de costumbre: **no es la imagen la que va atrasada,
+es mi rama la que va adelante**.
+
+### Lo aplicado (autorizado por Edgar)
+
+Las dos migraciones se leyeron antes de correrlas: **puramente aditivas**, schema nuevo
+`devtools`, `CREATE TABLE/INDEX IF NOT EXISTS`, y los únicos `DROP` viven en el `down()`.
+Batches **673** y **674**. Verificado: las 5 tablas con **RLS forzado**, una política cada una y
+grant a `app_runtime`.
+
+⚠️ **`dev_ro` no tiene `USAGE` en `devtools`** — una sesión de diagnóstico no puede leer esas
+tablas. Es de la otra fase; se deja como está y se declara.
+
+### ⚠️ 4. Y el propio `VERDAD_ABSOLUTA.md` caducó en dos renglones
+
+Medido contra prod hoy:
+
+| lo que dice el documento | lo que mide hoy |
+|---|---|
+| *"respaldo de prod sin correr 2.8 d (66.8 h)"* | corrió hace **20.7 h** · 2,330 MB · 685 tablas · `ok` — **cerrado y sin actualizar** |
+| *"536 huecos / 3 d · 14,599 sobrantes"* | **2 huecos** (repuestos) y **67,675 sobrantes** — **4.6× peor** |
+
+Se movió en las **dos** direcciones y nadie lo vio. Es la lección de `[CDRP.2.1]` —*una medición
+con fecha es código que caduca*— aplicada al documento que existe para evitarla. Más **9 alertas
+en warn** marcadas `RECURRENTE` que nadie atiende: `cobranza_gap` falla el **57%** de sus
+corridas, `ui_usage_flush` el **38.8%**.
+
+**Estado real de la pregunta:** 15 de 37 huecos abiertos, todos con nombre y monto — que es
+ADR-059 funcionando, porque la promesa nunca fue "no hay huecos" sino saber cuáles son y cuánto
+pesan. Lo que falla no es el método: es que el documento se lee como estado actual y en parte ya
+es historia.
+## 2026-10-02 — Mesa de Servicio, capa 1 (base de datos): construida y probada, con tres cosas que se apartan de lo aprobado (`[MS.1.0]`–`[MS.1.6]`)
+
+**Qué se hizo.** Con el visto bueno de Edgar al PR #204 (que mergeó él mismo) se construyó la capa de base de
+datos de la Fase MS: 4 migraciones (`servicedesk`: 11 tablas con RLS forzado y grants por tabla), 3 permisos
+(`SERVICIO_REPORTAR/ATENDER/COORDINAR`), `servicedesk.requests` como quinta fuente del contrato de tarea y un
+smoke de **130 aserciones**, cada CHECK con su negativa y su control positivo. Plan y desvíos en
+`FASE_MS_MESA_DE_SERVICIO.md` §11.
+
+**Lo que se apartó de la solicitud aprobada** (se dijo en el documento, no se dejó para la revisión):
+1. **Una clave de responsabilidad, no dos, y en MS.3.6, no en la capa 1.** `test-newdb-me-context.js` exige que
+   toda clave del catálogo tenga una cola declarada en `me-work.ts` con su ruta, y cuenta el catálogo.
+2. **Dos CHECK de formato** en `identity.users` (correo y teléfono canónico `52XXXXXXXXXX`), además de las columnas.
+3. **El proyecto entra al árbol SIN rutas y a `SUITE_UNCLASSIFIED`**, no al espacio 9 (ver abajo).
+
+**El error de diseño que atrapó una prueba.** El primer intento puso `servicio` en el espacio 9 con sus rutas.
+`landing-guards.spec` falló, y al ver por qué había un defecto de fondo: con la entrada en el mapa antes que su
+pantalla, un superadmin vería **una puerta que no lleva a ningún lado**, y el auto-deploy de `main` la mandaría a
+prod. Se reordenó: rutas, entrada y landing llegan juntos en MS.3.1.
+
+**Lo que se aprendió.**
+- **La salida de un reemplazo de texto puede estar rota sin avisar.** Dos veces un `replace` de JavaScript con un
+  `$'` en el texto nuevo duplicó el archivo, y una vez las barras invertidas llegaron a la mitad por la capa de la
+  terminal (dos barras → una, que en una plantilla de texto es «retroceso»). Se detectó con `node --check` y mirando
+  el diff, no con la prueba. Para escribir escapes, `String.fromCharCode(92)`; para insertar, `split/join`.
+- **Una compuerta puede asumir una sola forma de tabla.** `test-newdb-task-contract` tomaba «el primer CHECK que
+  nombra `status`»; una máquina de estados tiene varios. Se mejoró para elegir el que enumera más valores.
+- **Un control que prepara un conflicto debe PERSISTIR.** Mis primeros «primer envío» pasaban por el savepoint y se
+  revertían, así que el «segundo» no tenía con qué chocar: habrían salido verdes sin medir la anti-repetición.
+- **Medido, ya roto en `main` y ajeno a esta fase:** `commercial.picking_waves` tiene `assigned_to` y no está en el
+  contrato de tarea desde el 17-sep; `check-all.js` no menciona `check-etiqueta-gate.js`.
+
+**Sin medir (se declara).** `SMTP_*`, bucket y `knex_migrations` de prod (sin acceso); `permission-delivery` y
+`mig-colisiones` miden contra prod: corrieron en su variante local/`--solo-git`. La base de pruebas **no es prod**
+(GOTCHAS §75): valida estructura, no comportamiento con datos.
+
+---
+## 2026-10-01 — DM.19.1-3: cablear el origen a la pantalla, y una retractación
+
+Edgar: *"arranquemos"*. Al enganchar el resolvedor a `/compras/entradas` aparecieron tres cosas
+que `[DM.19]` no había visto, y una de ellas **tira abajo un hallazgo que publiqué esa misma
+mañana**.
+
+### ⛔ 1. La retractación: el "segundo caso" de la rama 03 no existe
+
+`[DM.19]` declaró que la rama `03` repetía el patrón del CEDIS: *452 documentos por $9.94M en
+2025 bajo "COMPRA MERCANCIAS LA PIEDAD AB"*. **Medido con el almacén a la vista, es falso:**
+
+| de dónde sale la fila | centro | docs | importe |
+|---|---|---|---|
+| almacén **propio** (03) | LA PIEDAD | **1** | **$1** |
+| RÉPLICA del almacén 02 | LA PIEDAD | 467 | $10,332,920 |
+| RÉPLICA del almacén 01 | LA PIEDAD | 2 | $4,800 |
+
+**469 de 470 son filas de réplica** — el caso ya conocido de `VERDAD_ABSOLUTA.md` §9.9 (la `03`
+arrastra el almacén `02`, congelado el 2026-01-07; identidad documental probada: **501 de 501**
+idénticos en folio, serie, fecha e importe). Dicen "LA PIEDAD" **porque son de La Piedad**, y la
+vista publicada ya los filtraba. No hay segundo caso.
+
+⭐ La lección: *agrupar sin la columna de identidad convierte una réplica en un hallazgo.* Misma
+familia que `[IC.0]`, donde la `03` arrastraba 220 cabeceras del `02`.
+
+### ⛔ 2. Mi vista miraba otro universo que la pantalla, y el join inflaba la lista
+
+La vista publicada recorta con dos filtros que yo no había copiado: `btrim(c1)=sucursal` (sólo
+el almacén propio) y `c43 <> 'C'` (sin cancelados). Sin el primero la vista **no era única** por
+`(sucursal, folio, doc_prefix)` —14,059 filas contra 13,554 llaves— y el `LEFT JOIN` llevaba la
+sucursal `03` de **1,007 a 1,510 renglones**.
+
+⚠️ **Y ese 1,510 no era un dato: era la inflación de mi propio join.** Un `count(*)` del lado
+izquierdo de un `LEFT JOIN` cuenta el fan-out, no las filas de la tabla. Es el modo de falla que
+ya tuvo su migración propia (`20260819140000_fix_erp_goods_receipts_fanout`).
+
+Arreglado copiando el criterio del publicador, no inventando uno (`[DM.19.1]`, batch 670).
+
+### 3. El join costaba 5.5 s, y no había índice que lo arreglara
+
+```
+el conteo que hace la pantalla, con LEFT JOIN  →  5.5 s   ⛔ gate < 1 s
+Nested Loop Left Join → Materialize (rows=12,919, loops=3,126)
+```
+
+El planner re-escanea el resolvedor **una vez por documento**, y a una vista no se le puede
+indexar la llave. ⭐ **Pero la vista publicada ya escanea `kdm1`**, así que `ap.c12` sale gratis
+y el catálogo de centros son 138 filas que se hashean: el origen pasa a vivir **dentro** de
+`analytics.erp_goods_receipts` (`[DM.19.3]`, batch 672).
+
+**0.35 s** medido tras el cambio, y los **20+ servicios** que leen esa vista —rentabilidad,
+reabasto, recepción, obligaciones a proveedor, varianza de inventario, comprobantes— ven el
+origen sin tocar una línea. Se rechazó la matvista: pediría refresco agendado para un dato que
+hoy está fresco sin mantenimiento. `v_erp_goods_receipt_origin` queda como **proyección** sobre
+la publicada, así que el veredicto tiene **una sola** definición.
+
+⚠️ `[DM.19.2]` (batch 671) fue el intento intermedio: un `WITH … AS MATERIALIZED` dentro del
+resolvedor. Bajó de 20.5 s a 0.6 s **medido solo**, pero no sobrevivía al join desde la pantalla.
+
+### Lo que ve el usuario
+
+- Filtro **Plaza** (`propia` / `otra` / `sin_declarar`), tercer eje junto a Estado y Cuadre, con
+  su valor en la URL para que *"mandame las 5,820 que no son del CEDIS"* sea un link.
+- Chip en la fila **sólo cuando la compra NO es de esa sucursal** — pintarlo en las 2,267 que sí
+  lo son sería ruido en la columna más leída. El tooltip trae lo que escribió el ERP y, si el
+  segundo testigo discrepa, lo dice.
+- Dos KPIs nuevos que van **siempre**, aunque no se filtre: *De otra plaza* y *Plaza sin
+  declarar*, contados **por separado** — el hueco no se suma a lo propio (ADR-056).
+- ⚠️ En la API se llama `plaza_*` y no `origen_*`: acá `origen` ya significa *en qué servidor se
+  capturó* (`oficinas` | `sucursal`). Son dos preguntas distintas.
+
+### Verificación
+
+`test-newdb-goods-receipt-origin.js` → **12 OK · 0 FALLAS · 0 NO MEDIDOS** contra prod, ahora con
+**cinco pruebas negativas** (la colisión de catálogo entre ramas · el umbral frenando por
+porcentaje *y* por muestra · un centro con evidencia alta que no publica origen · el fan-out de
+la vista publicada · la réplica de la `03` que queda fuera).
+
+⚠️ **El bloque 10 falló primero por MI test, no por el sistema**: pareaba por folio, y el folio
+se repite entre almacenes — exactamente el error que esta entrada documenta, cometido al
+escribir la prueba que lo vigila.
+
+⚠️ **Sexta vez que un acento grave rompe el build acá**: los comentarios que puse dentro del
+`template:` y del bloque de estilos cerraban el template literal.
+
+### Cifras finales (universo alineado al de la pantalla)
+
+```
+otra_plaza              5,414 docs · $217,088,146
+propio (CEDIS)          2,267 docs · $206,907,867
+centro_no_dice_plaza    1,194 docs · $ 88,823,147
+otra_plaza_sin_nombre     406 docs · $  2,292,666
+sin_centro                 45 docs · $  2,670,520
+```
+
+**5,820 documentos por $219,380,811 NO son del CEDIS.** El hueco —**1,239 por $91,493,667**— se
+publica aparte. Bajan los documentos contra `[DM.19]` (salen cancelados y réplica) y **el dinero
+ajeno no se mueve ni un peso**.
+
+**Pendiente:** redeploy de api+view y validación visual. Sin permisos nuevos → sin re-login.
+
+---
+## 2026-10-01 — DM.19: las órdenes de entrada del CEDIS eran de SIETE plazas, y el ERP ya lo decía
+
+Edgar: *"antes Morelia Abastos y CEDIS (no sé si más sucursales) subían sus órdenes de entrada a
+Kepler, y necesitamos tener diferenciadas cuáles eran de cada una, para que no se le cargue
+información a CEDIS que no le corresponde, pero esto en el histórico"*.
+
+**Su duda era la pregunta correcta: no eran dos plazas, eran siete.** De los 9,839 documentos
+`X-A-20` ("Aplica Orden Entrada") que Kepler tiene en la sucursal `00`, sólo **2,311 por
+$206,804,400** son del CEDIS. **6,078 por $219,380,811 son de otras plazas** — más dinero ajeno
+que propio:
+
+| plaza | docs | importe |
+|---|---|---|
+| Morelia Abastos | 2,510 | $95,367,762 |
+| Padre Hidalgo | 1,246 | $57,131,761 |
+| Canindo | 768 | $56,732,747 |
+| Morelia Madero | 644 | $3,585,314 |
+| 8 Esquinas | 474 | $4,270,560 |
+| La Piedad Abastos | 304 | $1,138,505 |
+| Yurécuaro | 84 | $128,376 |
+| Zamora Centro | 48 | $1,025,784 |
+
+### ⭐ El catálogo lo tenía el ERP — segunda vez en dos días
+
+`kdm1.c12` es el **centro de compra** y `kepler_ods.kdxv` es su catálogo (`c2` código, `c3`
+descripción). El ERP escribe la plaza con todas sus letras: `C-010` = *"COMPRA PROVEEDOR MORELIA
+ABAST"*. Igual que `pv_suc_ip` en `[DM.18]`, **no había que inferir nada** — y por segunda vez
+en dos días el reflejo fue construir el inferidor antes de preguntarle al ERP.
+
+⚠️ **La misma columna significa cosas distintas según el doctype.** El log de `[DM.18]` dice *"ni
+`c12` (cajero)"* sobre el traspaso `U-D-41`, y es correcto **ahí**: en `X-A-20` ese mismo `c12`
+es el centro de compra. Leer el decode de un doctype y aplicarlo a otro es cómo se pierde un
+campo que estaba a la vista.
+
+### ⛔ El catálogo colisiona ENTRE RAMAS
+
+`C-010` es *"COMPRA PROVEEDOR MORELIA ABAST"* en la rama `00` y *"COMPRA PROVEEDOR PADRE
+HIDALGO"* en la `01`, que lo reusó para lo suyo. El join va **por sucursal**, nunca por código
+solo — mismo modo de falla que los dos vocabularios de `kepler_doc_tipo`. El bloque 3 del candado
+es exactamente esa prueba negativa.
+
+### Cómo se verificó: dos testigos independientes, con placebo
+
+1. **Dentro del documento.** `c11` trae `<plaza>-<remisión del proveedor>`. No es la serie del
+   proveedor: el prefijo `30` abarca **108 proveedores distintos**. Concuerda con `c12`
+   **99.6% fila por fila**.
+2. **Fuera de Kepler.** Cruce contra `wincaja.movimiento_proveedores` por importe y fecha: la
+   diagonal se enciende sola (`30→30` 62.5% · `50→50` 51.9% · `10→10` 46.9%) con off-diagonal de
+   0.0–3.9%. El placebo contra el CEDIS da **0.9%**, o sea **71× el piso de ruido**.
+   *Sin el placebo, un 62% no significa nada.*
+
+### ⭐ Para saber si es del CEDIS no hace falta nombrar la plaza
+
+Dentro del catálogo de UNA sucursal, dos códigos `COMPRA PROVEEDOR` distintos son dos plazas
+distintas. Así que basta identificar el **centro propio** —el único cuya evidencia apunta a la
+sucursal misma— y todo otro centro de plaza es, por construcción, de otra. Eso cubre a `C-004`,
+`C-005` y `C-021`, que el ERP nombra pero tienen poca evidencia para resolverse solos.
+
+### ⛔ El hueco, declarado: $91.5M que no se pueden atribuir
+
+`c12` se empezó a usar de verdad en **feb-2026** (98–100%). Antes casi nadie lo llenaba:
+**nov-2025 11% · dic-2025 9% · ene-2026 65%**. Son **1,450 documentos por $91,458,017** (17.7%
+del dinero) sin origen declarable.
+
+Se intentó rescatarlos contra `wincaja.maestro_mov_almacen` tipo `C`, el único testigo con
+historia profunda. **Precisión altísima —placebo de 0.3%— pero recall 25%**: recuperó 107
+documentos por $850k. **No se dibuja: se declara `sin_centro`.**
+
+⚠️ Y lo que sobra **no se da por CEDIS**: promedia **$66,760** por documento, entre los **$88,948**
+del CEDIS y los **$36,260** de las otras plazas. Es mezcla, y la lectura cómoda estaba a un paso.
+
+⛔ La serie vieja `001` **se llama "CEDIS"** y no sirve: de los 137 documentos que traen el segundo
+testigo, **72 la contradicen** (pureza 47%). Un rótulo no es una medición.
+
+### Una pureza que era artefacto de mi propio umbral
+
+El primer corte de `c12` contra `c11` lo saqué con `HAVING count(*) >= 25` y leí *"separa 1 a 1,
+cero contaminación"*. Sin el umbral, la serie `C-NNN` da 98.7–99.8% (bien) pero la numérica vieja
+cae a 47–61%. **El filtro que puse para leer la tabla me escondió justo el grupo malo.**
+
+### Hallazgo colateral, declarado sin resolver
+
+La rama `03` (8 Esquinas) repite el patrón: **452 documentos por $9.94M en 2025** bajo el centro
+*"COMPRA MERCANCIAS LA PIEDAD AB"*, que se apagan en 2026 (18 docs) justo después de que La Piedad
+estrena su propio Kepler. **No se afirma la causa**: `wincaja.movimiento_proveedores` no tiene la
+rama 42, así que no hay segundo testigo.
+
+### Entregado
+
+- Mig `20261001260000_erp_goods_receipt_origin.js` → **prod batch 669, 0.1 s**, identidad
+  verificada. Dos vistas **derive-no-copy** sobre `kepler_ods`: `analytics.v_erp_purchase_center`
+  y `analytics.v_erp_goods_receipt_origin`. Ninguna tabla, ningún importer.
+- Candado `test-newdb-goods-receipt-origin.js` — **9 OK · 0 FALLAS · 0 NO MEDIDOS** contra prod,
+  con **tres pruebas negativas** (la colisión entre ramas · el umbral frenando por porcentaje
+  *y* por tamaño de muestra con filas reales de los dos lados · un centro con 99.3% de evidencia
+  que **no** publica origen porque no es de compra).
+- `VERDAD_ABSOLUTA.md` §5 (resolvedor) y §7 (hueco con monto).
+
+⚠️ **Pendiente:** la pantalla `/compras/entradas` y `analytics.erp_goods_receipts` todavía
+publican todo como CEDIS — su columna `concepto` es texto libre (*"CEDIS"*, *"ALMACEN 40"*,
+*"3% PP a 48 hrs"*) y **4,618 filas la traen vacía**. Falta consumir la vista.
+
+---
+## 2026-10-01 — DM.18: el mapa `TI### → sucursal` lo dice Kepler; dejamos de adivinarlo
+Edgar, sobre el resolvedor que había construido contra Wincaja: *"pero si existen en Kepler, ¿por
+qué tomar las de Wincaja?"*. La pregunta era correcta y llevó a dos respuestas.
+
+**1. Para el ORIGEN, Kepler genuinamente no tiene el dato.** Probado por dos vías:
+- **Diff campo por campo** de los dos documentos control (`0000712` de Abastos y `0000757` del
+  CEDIS, misma sucursal, orígenes distintos): **idénticos** salvo folio, fecha, importe y
+  consecutivos. Ni `c12` (cajero), ni `c67`, ni `c80`–`c86` los distinguen.
+- **El ODS no perdió nada**: `md.kdm1` tiene 200 columnas en el origen (9.95) y el ODS tiene 201
+  (las 200 + `sucursal`, que agrega el shipper). No hay columna escondida.
+Y fallaron otras tres vías internas: *salió sin haber entrado* (el CEDIS sí compró los SKUs),
+*corte por fecha* (**8 documentos de Abastos son posteriores al cutover**, hasta el 28-sep: la
+mezcla no terminó con la migración) y la bitácora `kdlogmov` (es de configuración).
+
+**2. Pero para el DESTINO el catálogo existía, y llevaba ahí todo el tiempo.** `md.pv_suc_ip` —en
+el POS de cada sucursal y ya replicada al ODS por el carril espejo— trae el mapa explícito:
+`00 TI000 Cedis Oficinas · 01 TI001 Hidalgo · 02 TI008 La Piedad · 03 TI002 8 Esquinas ·
+04 TI003 Yurécuaro · 05 TI007 Zamora Centro · 06 TI006 Canindo · 07 TI009 Morelia Madero ·
+08 TI004 Morelia Abastos`.
+
+**Las dos veces que inferimos mal, el catálogo ya decía lo correcto** — `[DM.11e]` (CEDIS→8ESQ con
+13% de evidencia, $123,454) y `[DM.15]` (Morelia Madero→MD-32, el almacén Wincaja borrado). El
+defecto no era el umbral: era adivinar al lado de una fuente autoritativa.
+
+**Entregado:** `analytics.v_erp_branch_catalog` (vista **derive-no-copy** sobre el ODS, mig
+`20261001230000`, prod batch 667) + el paso `[DM.18]` en `import-stock-movements.js` que corrige
+`transfer_dest_map` desde el catálogo **antes** del auto-ligado + bloque 8 del candado con prueba
+negativa. `test-newdb-transfer-dest-evidence.js` **8 OK / 0 FALLAS** contra prod.
+
+**Medido:** los 9 códigos coinciden, **9 copias de acuerdo, 0 divergentes**, y el paso nuevo
+corregiría **0 filas** — es preventivo, y de paso **confirma la corrección de `[DM.15]`**
+(`TI009 → 07`), que hasta hoy se sostenía sobre evidencia de recepción y ahora sobre el ERP.
+
+**Lecciones:**
+- ⭐⭐ *Antes de construir un inferidor, buscar si el ERP ya tiene el catálogo.* Dos incidentes y
+  tres capas de umbral para una tabla de 10 filas que estaba replicada desde siempre. La pregunta
+  "¿y si el dato ya existe?" no se la hizo nadie —yo incluido— hasta que la hizo Edgar.
+- ⭐ *Son 9 copias, no una fuente.* Cada POS guarda su catálogo, así que el consenso se MIDE y se
+  publica por fila (`es_consistente`, `ramas_que_lo_declaran`). Hoy las 9 coinciden, pero eso es
+  una medición con fecha: si alguna diverge, el importer no escribe nada y lo declara. Elegir una
+  copia al azar sería repetir el error con otra cara.
+- ⚠️ *Una pregunta del usuario puede valer más que diez mediciones mías.* Yo tenía el resolvedor
+  contra Wincaja con 3.3% de cobertura y lo daba por terminado.
+
+---
+## 2026-10-01 — DM.17: el traspaso que decía salir del CEDIS y salió de Morelia Abastos
+Edgar: *"antes al 9.95 se subían CEDIS y Morelia Abastos; hay que diferenciar los históricos"*.
+**Primero dije que no podía validarlo. Me equivoqué, y el error fue de método.**
+
+- Busqué por **terceros y clientes** —si Abastos vivía ahí, su cartera se notaría— y dio negativo:
+  6 de 804 terceros nombran "Morelia" y resultaron ser **nombres de calle** (`MIRADOR MORELIA 60`).
+  También descarté por volumen con un cruce que mi propio placebo tumbó (la `08` daba 25.7% contra
+  un piso de ruido de 15-22%). Concluí "no pude validarlo" sobre algo que era cierto.
+- **El rastro no estaba en el tercero: estaba en el documento.** `kdm1.c24` guarda el folio del
+  ticket Wincaja de origen. Lo tuve delante al validar el documento 0000317 dos turnos antes y no
+  lo miré. Lo destrabó un ticket impreso que trajo Edgar.
+- `T990008354` (almacén **30 Morelia Abastos**, 90041 ×48 + 90044 ×15 = 63 u / $1,407.66) se pasó
+  a Kepler como cadena `U-D-40` 0000759 → `U-D-41` 0000712 → `U-A-50` 0000317, y los dos primeros
+  quedaron en la **sucursal `00`**. La pantalla publicaba "CEDIS".
+
+**⭐ El caso trae su propio control, y por eso el candado es fuerte:** ese folio existe en DOS ramas
+Wincaja y las dos se cargaron a la `00`, con veredictos opuestos — 0000712 (24-sep, 63 u) es de la
+rama 30, y 0000757 (29-sep, 99218 ×100) es del CEDIS de verdad. Mismo folio, mismo destino, y lo
+único que los separa es el contenido.
+
+**Entregado:** `analytics.v_transfer_true_origin` (mig `20261001220000`, prod batch 662) + índice
+`ix_wcj_maestro_documento` + candado `test-newdb-transfer-true-origin.js` **5/5 contra prod**.
+Medido: **57 documentos / $1,515,473 no salieron de la sucursal que Kepler dice** (40 Morelia
+Abastos, 17 Canindo) · 62 CEDIS confirmados · **3,538 / $74.5M no verificables**.
+
+**Lecciones:**
+- ⭐⭐ *Un placebo que tumba tu señal no prueba que la tesis sea falsa — prueba que tu llave es
+  mala.* El cruce por terceros era ruido, y de ahí salté a "no pude validarlo". La conclusión
+  correcta era "necesito otra llave", y la llave existía en la misma tabla.
+- ⭐ *El desambiguador es el CONTENIDO, no el importe.* Medido: por folio solo, 105 de 122
+  ambiguos (el folio de ticket tampoco es único entre ramas — mismo modo de falla que `[DM.15]`);
+  por importe resuelve 36 y pierde matches reales ($2,668.00 contra $1,533.34 en el mismo envío);
+  por SKU+cantidad, 120 de 121 medibles.
+- ⭐ *Cuando la cobertura es baja, el número que hay que publicar es la cobertura.* 96.7% no es
+  verificable, y el candado lo imprime siempre: sin eso, "3,538 fuera de réplica" se lee igual
+  que "3,538 están bien".
+- ⚠️ **Dos tablas de 2 GB con `last_analyze` VACÍO.** `wincaja.maestro_mov_almacen` (1.5 M) y
+  `detalles_mov_almacen` (10 M) nunca se habían analizado, así que el planner elegía nested-loop
+  —el mismo problema que documenta su propio importer—. `ANALYZE`: 678 ms y 611 ms. Beneficia a
+  todos sus consumidores, no sólo a esta vista.
+- ⛔ **Mi primera consulta estuvo 10 minutos corriendo en prod en horario hábil** antes de que la
+  cancelara: agregaba las dos tablas enteras en vez de acotar por los 632 folios que necesitaba.
+  Desde entonces, `SET statement_timeout` en toda exploración contra prod.
+## 2026-10-01 — Checkpoint: la Mesa de Servicio diseñada por capas, y una base de desarrollo que ya no existe (`[MS.0]`)
+
+**Cómo se llegó:** *"necesitamos un sistema de generación de tickets de servicio para que todos los
+usuarios reporten sus problemas y necesidades, con prioridad, respetando las reglas y la estructura
+de la Suite"*. Se analizó el repo con tres lecturas en paralelo (qué ya existe y es reutilizable, qué
+exige un módulo nuevo, qué hace hoy la Bitácora de Sistemas) y se bajó a un plan por capas.
+
+### Qué quedó (todo documentación, cero código)
+
+- [`FASE_MS_MESA_DE_SERVICIO.md`](FASES/FASE_MS_MESA_DE_SERVICIO.md): plan en tres capas (BD → lógica →
+  visual), 30 items, MVP definido. **ADR-081** (propuesto) y sección en el tracker.
+- [`FASE_MS_SOLICITUD_TABLAS_Y_ACCESOS.md`](FASES/FASE_MS_SOLICITUD_TABLAS_Y_ACCESOS.md): las 11 tablas,
+  2 columnas, 2 claves de responsabilidad y 3 permisos que se piden, con el propósito de cada uno.
+  **Pendiente de aprobación de Edgar.**
+- `CLAUDE.md` corregido: producción corre en el servidor `md` desde el 2026-09-22, y `192.168.0.245`
+  ya no es una base de desarrollo.
+
+### Lo medido (y que cambió el diseño)
+
+1. **No existe nada de tickets de soporte.** Todo lo que dice "ticket" es de venta o de caja; **TK ya
+   estaba ocupada**. De ahí la sigla MS, el schema `servicedesk` y nunca una tabla llamada `tickets`.
+2. **El ticket puede ser la tarea.** `test-newdb-task-contract.js` falla ante toda tabla con
+   `assigned_(to|by|at)` no declarada; declarar `servicedesk.requests` ahí le da "A tu nombre" de Mi
+   trabajo sin copiar nada. El molde (`recon_tasks`) guarda `assigned_by` en TEXT y no se hereda.
+3. **El worker no tiene WebSocket** (ADR-080): los crons corren solo ahí con `ENABLE_WORKER_QUEUE=true`,
+   y `AlertsGateway.emitToTenant` hace `if (!this.server) return`. Un aviso de campana lanzado por el
+   SLA se perdería en silencio → lo que nace en un cron sale por correo/WhatsApp y por un canal `app`
+   que la campana recoge por poll.
+4. **"Todos reportan" rompe la entrada a `/projects`** de los roles con un solo destino (cajeras,
+   almacenistas) si `SERVICIO_REPORTAR` hace visible el espacio 9. Por eso reportar es un botón del
+   header y el permiso vive en un módulo sin ruta del árbol.
+5. **`enum == permission-meta == authz-tree`** es una compuerta: un permiso nuevo arrastra el árbol y
+   el mapa de la suite (espacio 9 a `active`, specs que asumen tres espacios `planned`).
+6. **`identity.users` no tiene email ni teléfono.** Sin eso no hay aviso por persona.
+
+### La base de desarrollo: `.245` ya no existe, y la base vacía no se puede levantar con migraciones
+
+- `DATABASE_URL_NEW` del `.env` apuntaba a `192.168.0.245/platform_test` con el rol de solo lectura
+  `dev_sistemas`. **No conecta** (`3D000: no existe la base de datos`) aunque `pg_database` la lista, y
+  `postgres_platform` ni aparece. Es un espejo viejo que se decidió no revivir (2026-09-12).
+- Se levantó un Postgres **desechable en Docker, en `127.0.0.1:5442`** (el 5432 de esta máquina es un
+  PostgreSQL 18 nativo de otra cosa: no se tocó) con un compose **fuera del repo**.
+- ⛔ **`npm run migrate:new` sobre una base vacía no llega al final.** Se detiene en la **88**
+  (`create_morelia_madero_zone_routes`: necesita el tenant, que crea la semilla `01`) y, ya sembrado, en
+  la **435 de 975** (`erp_goods_receipts_live_view`: necesita `kepler_ods.kdm1`, que **no crea ninguna
+  migración** sino la ingesta del ERP). Ver GOTCHAS §75. Los pasos de `ONBOARDING.md` quedan rotos.
+
+### Decisiones del usuario
+
+Cola de **TI** con modelo multi-cola · prioridades **Baja/Media/Alta/Urgente** · permiso
+`SERVICIO_REPORTAR` para todos · aviso por **WhatsApp y correo** · SLA con los números propuestos
+(primero **mide**, el escalamiento arranca apagado) · Bitácora↔task **se prepara, no se ejecuta** ·
+nombres de sucursal **tal cual el catálogo** · personas: Jorge Rubio (Sistemas), Edgar (Desarrollo),
+Frank (Dirección General) · **P5 "solo construye"**: SMTP, plantilla de Meta y bucket se resuelven al
+unificar con task.
+
+### Lo que se aprendió
+
+- **Un informe de un subagente no es un hecho hasta verificarlo.** Dos afirmaciones que movían el plan
+  ("prod ya no es Railway", "la copia local está 764 commits atrás") se comprobaron contra el log, el
+  runbook y `git` antes de escribirlas. La segunda dependía de la referencia: la rama de trabajo estaba
+  **799** commits atrás de `origin/main` y el `main` local **948**; ninguna de las dos era "764".
+- **Una propuesta con números hay que mostrarla antes de pedir que se apruebe.** Se pidió "usa los
+  números propuestos" sobre unos plazos que el plan nunca había listado. Se listaron después, en §2.3.
+- **Un `.env` no es una fuente de verdad sobre dónde está la base.** Apuntaba a un servidor retirado y
+  no avisaba. Se verificó identidad y alcance antes de migrar nada, y no se editó el `.env`: las
+  variables se pasan por comando.
+
+### Pendiente
+
+- **Aprobación de Edgar** de la solicitud de tablas y accesos (PR de esta rama).
+- **El dump de solo estructura de prod** (`prod_schema.sql` + `knex_migrations`) para levantar una base
+  local idéntica a producción. Sin eso no hay smoke test de la capa 1. El contenedor `ms-postgres` quedó
+  con 435 migraciones y se recrea al restaurar.
+- **MS.1.0 contra prod** (variables de correo y bucket, migraciones aplicadas): sin llave SSH en esta
+  máquina, las corre una persona con acceso.
+- Confirmar el **rol real** de las tres personas contra el padrón.
+
+---
 ## 2026-10-01 — El hueco más grande de VERDAD_ABSOLUTA.md estaba cerrado y nadie lo sabía
 Edgar: *"wincaja ya sólo existe para históricos; el `.9.95` ya tiene Kepler y toda la información
 de Kepler CEDIS ya es la oficial"*. Se midió antes de registrarlo.
@@ -9251,3 +9732,40 @@ una moda de precios sobre **90 días**. Entró el 2026-08-25 (`9e42351a`) y duel
 - ⬜ La poda de índices exige **7 días** de `pg_stat_user_indexes` sin reinicio de `pg-prod`.
 - ⬜ La deuda con nombre del barrido de precio: una consulta sin filtro cada N minutos, en vez de
   ~3,164 búsquedas scoped. Exige primero hacerla terminar en un tiempo razonable.
+
+---
+
+## `[IC.CEDIS.12]` — El CEDIS vuelve a la existencia publicada, arbitrado (2026-10-01)
+
+**Estado: ✅ PROD** (batch 655, 0.2 s) · candado **15 ✓ / 0 ✗ / 2 NO MEDIDO** contra prod ·
+vista medida en **370–440 ms** (gate <1 s) · `nx build api` OK. Detalle en
+[`VERDAD_ABSOLUTA.md` §17.9](../VERDAD_ABSOLUTA.md).
+
+Cierra el reporte *"/compras/existencia no muestra el CEDIS"*, abierto desde el 30-sep y reabierto
+a conciencia el 01-oct al retirar la cifra en disputa (batch 653).
+
+- **El censo ya estaba.** El reporte de 123 páginas del ERP se corrió con *"omitir productos en
+  cero"* **en blanco**: trae el universo completo, 9,496 SKUs. La frase *"precisión no reclamable"*
+  de §17.8 venía de mi transcripción parcial, no del documento. ⭐ *Antes de declarar que falta
+  evidencia, agotar la que ya está sobre la mesa.*
+- **La fórmula nunca estuvo mal:** `c4+c8−c9` reproduce los 148 SKUs con saldo **148 de 148**. Lo
+  sucio era la **tabla** — `md_00` fue la base de PRUEBA del CEDIS hasta el corte del 30-sep.
+- **Regla publicada:** actividad posterior al corte (`v_branch_erp_cutover`), **127/127, precisión
+  100 %**, auto-sanable. Aplicada **sólo a la 00**, la única rama con árbitro.
+- **Cruce de dos implementaciones:** movimientos con `kdmm.c8='S'` desde el corte dan los mismos
+  340,077 u. ⚠️ Primero dieron 9× por unir `kdmm` **sin `sucursal`** — anti-réplica también en los
+  **catálogos**, no sólo en los hechos.
+- **Se retracta:** `kdik.c6` no es existencia (0 de 148); la regla del centinela cae por precisión
+  **8.4 %**; y el «35.82×» que mantenía roja la sonda `cedis_kepler_saldo` era **premisa falsa** —
+  habría quedado roja para siempre pidiendo corregir en Kepler una carga que estaba perfecta.
+
+### Pendientes con nombre
+- ⬜ **`git push` + redeploy** — la corrección de `cedis_kepler_saldo` es **código**: hasta que se
+  despliegue, el tablero muestra esa sonda en rojo sobre una premisa ya refutada. (La vista ya está
+  en prod por migración, así que la pantalla **no** depende del redeploy.)
+- ⬜ **21 SKUs / 17,394 u** confirmados por el ERP y anteriores al corte: vuelven al primer
+  movimiento. **SKU `99225`** (10 u) fuera de `catalog.products`.
+- ⬜ **Residuo latente 4,526 SKUs / 11.84 M u** (2,890 con acumulador sucio). El arreglo de fondo
+  es **purgarlo en Kepler**, no acá (ADR-040). Lo vigila el bloque `[4c]` del candado.
+- ⬜ **Ramas 06/07/08**: 8–14.5 % de sus SKUs no sobreviven la regla de corte. **No se tocaron por
+  falta de árbitro.** Lo destraba el mismo reporte corrido por sucursal.

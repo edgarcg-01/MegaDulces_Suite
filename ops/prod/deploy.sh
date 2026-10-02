@@ -45,7 +45,16 @@ set -eu
 SRV="${DEPLOY_HOST:-superoot@192.168.0.222}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 REMOTO="~/build-prod"
-SERVICIOS_DEF="pg-prod pg-rag api worker portal vendor backup"
+# � [K3S.17] api, worker, portal y vendor SALIERON: viven en K3s desde 2026-10-01.
+# Quedan los que NO migraron: los dos Postgres (16.3 GiB de estado contra 1.06 GiB de
+# proceso -- ver ops/k3s/README.md) y el respaldo, que depende de ellos.
+# [K3S.22 2026-10-01] VUELVEN api/worker/portal/vendor/redis. Se habían sacado al migrarlos a
+# K3s, pero la migración se PAUSÓ el mismo día: los pods quedaron 36 commits atrás porque no
+# existe camino automático de build → containerd, y sirvieron ese build a los usuarios internos.
+# Mientras corran en Compose tienen que estar acá, o `--todo` los deja fuera del despliegue.
+# ⚠️ Esta línea y la etiqueta `migracion:` de ops/k3s/*.yaml son DOS declaraciones del mismo
+# hecho — `npm run check:k3s` las compara y se pone rojo si se contradicen. Se mueven juntas.
+SERVICIOS_DEF="registry pg-prod pg-rag backup"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
@@ -330,10 +339,24 @@ subir_compose() {
   #
   # ⛔ Y el carril sigue corriendo su copia INSTALADA, no la del clon que él mismo mantiene: así
   # un commit malo no puede dejar sin carril al mecanismo que tendría que revertirlo.
-  _guiones="docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
+  _guiones="docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh aplicar-k3s-prod.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
   for a in $_guiones; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
+  # ── [K3S.26] LOS MANIFIESTOS DE K3s TAMBIÉN VIAJAN ─────────────────────────────────────
+  # `aplicar-k3s-prod.sh` lee de `~/ops/k3s/`, la copia INSTALADA — mismo criterio que rige
+  # para `auto-deploy.sh` y `verificar.sh`: el carril corre lo que se instaló a propósito, no
+  # lo que haya en un clon que él mismo mantiene. Así un commit malo no puede dejar sin carril
+  # al mecanismo que tendría que revertirlo.
+  #
+  # ⚠️ El corolario, que hay que saber antes de editar algo por SSH: el repo GANA sobre `md`.
+  # Un ajuste hecho a mano allá se pisa en el próximo despliegue.
+  ssh_md "mkdir -p ~/ops/k3s"
+  for a in "$REPO"/ops/k3s/*.yaml; do
+    [ -f "$a" ] || continue
+    scp -q -o BatchMode=yes "$a" "$SRV:ops/k3s/.$(basename "$a").nuevo"
+  done
+  ssh_md "cd ~/ops/k3s && for a in .*.yaml.nuevo; do [ -f \"\$a\" ] || continue; b=\${a#.}; mv -f \"\$a\" \"\${b%.nuevo}\"; done"
   # ⛔ Se mueve encima, nunca se sobrescribe el inodo en curso: `sh` lee el guion POR POSICIÓN
   # mientras lo ejecuta. `auto-deploy.sh` puede estar corriendo justo ahora (dispara cada 5 min).
   # ⛔ [INFRA.6 2026-09-30] EL `Caddyfile` NO SE MUEVE ENCIMA: SE ESCRIBE EN SU LUGAR.
@@ -453,8 +476,43 @@ construir() {
         echo 'FALLÓ'; tail -25 /tmp/build-\$img.log | sed 's/^/      /'; exit 1
       fi
     done"
+  publicar_prod
   subir_compose
   podar_imagenes
+}
+
+# ═══ [K3S.24] LAS IMÁGENES DE PROD VAN AL REGISTRY, SIEMPRE ═════════════════════════════════
+#
+# Se publican aunque HOY ningún pod las consuma: las cuatro apps siguen en Compose, marcadas
+# `preparado`. Publicar de más cuesta segundos; publicar de menos es exactamente cómo los pods
+# del ODS quedaron 36 commits atrás sirviendo a los usuarios internos (2026-10-01).
+#
+# ⭐ El camino tiene que existir ANTES de que alguien lo necesite, no el día que lo necesita.
+# Si el día del corte hay que inventar el despliegue, el corte se hace a mano — y lo que se
+# hace a mano se olvida.
+#
+# ⭐ El tag es el COMMIT. `latest` con `imagePullPolicy: IfNotPresent` es la combinación que
+# hace que el kubelet no vuelva a jalar NUNCA.
+#
+# ⚠️ Hoy un fallo al publicar AVISA y sigue: nada en producción depende todavía del registry,
+# y abortar un despliegue de Compose porque falló un paso que nadie consume sería frenar el
+# camino feliz por una dependencia futura. ⛔ EL DÍA QUE UNA APP MIGRE A K3s, ESTO TIENE QUE
+# ABORTAR — si no, el pod se queda con la imagen vieja y el despliegue reporta éxito.
+publicar_prod() {
+  echo "── Publicando al registry local (localhost:5000) ──"
+  ssh_md "fallos=0
+    for i in trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor; do
+      if ! docker image inspect \"\$i:$commit\" >/dev/null 2>&1; then
+        printf '   %-22s —  no se construyó en esta corrida, se saltea\n' \"\$i\"; continue
+      fi
+      docker tag \"\$i:$commit\" \"localhost:5000/\$i:$commit\"
+      if docker push \"localhost:5000/\$i:$commit\" >/dev/null 2>&1; then
+        printf '   %-22s ok  →  localhost:5000/%s:%s\n' \"\$i\" \"\$i\" '$commit'
+      else
+        printf '   %-22s ⛔ FALLÓ al publicar\n' \"\$i\"; fallos=\$((fallos+1))
+      fi
+    done
+    [ \"\$fallos\" -eq 0 ] || echo '   ⚠️ el registry no recibió todo. ¿Está arriba?  docker ps | grep prod-registry'"
 }
 
 # ── [VL.20.5] LA PODA VIVE EN UN SCRIPT, NO EN UNA FUNCIÓN DE ACÁ ──────────────────
@@ -554,12 +612,12 @@ recrear() {
   # coincide el despliegue FALLA — un despliegue que no cambió nada y dice "listo" es peor
   # que uno que rompe, porque nadie lo va a ir a buscar.
   #
-  # Se pregunta por la LAN (127.0.0.1:8080 desde `md`), no por el dominio: el túnel agrega
+  # Se pregunta por la LAN (127.0.0.1:30080 desde `md` — el NodePort del pod; el 8080 era del contenedor, retirado en [K3S.29]), no por el dominio: el túnel agrega
   # 225 ms y una capa de caché entre la respuesta y la verdad.
   case " $servicios " in *" api "*)
     echo "── Verificación: ¿el API sirve la versión que se levantó? ──"
     vivo=$(ssh_md "for i in 1 2 3 4 5 6 7 8 9 10; do
-              r=\$(curl -s --max-time 5 http://127.0.0.1:8080/api/health 2>/dev/null)
+              r=\$(curl -s --max-time 5 http://127.0.0.1:30080/api/health 2>/dev/null)
               c=\$(printf '%s' \"\$r\" | sed -n 's/.*\"commit\":\"\\([^\"]*\\)\".*/\\1/p')
               [ -n \"\$c\" ] && { printf '%s' \"\$c\"; exit 0; }
               sleep 3
@@ -594,7 +652,7 @@ recrear() {
     # Nunca se usan credenciales reales: un smoke que necesita un secreto no se corre.
     echo "── Humo: ¿la puerta contesta? (login con credenciales inválidas → debe dar 401) ──"
     codigo=$(ssh_md "curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-      -X POST http://127.0.0.1:8080/api/auth-mt/login \
+      -X POST http://127.0.0.1:30080/api/auth-mt/login \
       -H 'Content-Type: application/json' \
       -d '{\"username\":\"zz_humo_deploy\",\"password\":\"zz\"}'" 2>/dev/null || echo 000)
     case "$codigo" in
@@ -635,7 +693,15 @@ case "${1:---todo}" in
   # --profile` a mano. ⚠️ Y hacerlo a mano es justo lo que vació `/api/health` el 2026-09-22,
   # porque `cloudflared` declara `depends_on: [api, portal, vendor]` y Compose se los lleva
   # puestos. Esta entrada pasa por `recrear()`, que sí exporta el commit.
-  --tunel)     subir_compose; recrear cloudflared ;;
+  # ⭐ [K3S.33] EL TÚNEL VIVE EN K3s. Esto decía `recrear cloudflared`, que recreaba el
+  # contenedor de Compose — y recrearlo hoy levantaría un CUARTO conector del túnel, con los
+  # dos pods ya registrados. No rompe (el borde reparte entre los que haya), pero es
+  # exactamente la ambigüedad que la migración vino a eliminar: dos sitios distintos
+  # declarando quién atiende el ingreso.
+  #
+  # ⚠️ Y sigue sin poder declararse acá a DÓNDE enruta: esa configuración vive en Cloudflare,
+  # no en el repo. Ese es el hueco que costó dos caídas el 2026-10-01.
+  --tunel)     subir_compose; ssh_md "KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl apply -f ~/ops/k3s/43-cloudflared.deployment.yaml && KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl rollout status deploy/cloudflared -n prod --timeout=180s" ;;
   --todo)      verificar_limpio; compuerta_migraciones $SERVICIOS_DEF; enviar; construir; recrear $SERVICIOS_DEF ;;
   -*)          sed -n '2,15p' "$0"; exit 2 ;;
   # Nombres de servicio sueltos: ahora `construir` recibe la lista y construye SÓLO esas

@@ -3906,3 +3906,80 @@ servicio —imagen, puertos, variables—, y un archivo montado distinto no le c
 > efecto" y uno sospecha de la sintaxis. El diagnóstico son dos comandos —
 > `stat -c %i <ruta en el host>` contra `docker exec <c> stat -c %i <ruta adentro>`. Si los inodos
 > difieren, el montaje está roto y **ningún reinicio lo arregla**: hay que recrear el contenedor.
+
+
+## 75. `npm run migrate:new` sobre una base VACÍA no llega al final: se detiene en la migración 88, y otra vez en la primera que necesita `kepler_ods`
+
+**Qué se vivió (2026-10-01, Fase MS).** Se levantó un Postgres 18 limpio y se corrió `npm run migrate:new`
+siguiendo `ONBOARDING.md`. Se detiene **dos veces**, por motivos distintos:
+
+| Migración | Error | Causa |
+|---|---|---|
+| **88** `20260608140000_create_morelia_madero_zone_routes` | `zones_tenant_id_foreign` violada | Inserta con el UUID fijo del tenant `mega_dulces`, que **crea una semilla** (`seeds-newdb/01_first_tenant_mega_dulces.js`), no una migración. Las migraciones posteriores asumen que ya existe porque en prod ya existía. |
+| **435** `20260819120000_erp_goods_receipts_live_view` | `relation "kepler_ods.kdm1" does not exist` | Las tablas de `kepler_ods.*` **no las crea ninguna migración**: las crea la ingesta del ERP al replicar. Cientos de migraciones posteriores les montan índices y vistas. |
+
+**La primera se arregla** sembrando solo la `01` (`npx knex seed:run --knexfile database/knexfile-newdb.js
+--specific=01_first_tenant_mega_dulces.js`). **La segunda no tiene arreglo dentro del repo**: no hay forma de
+reconstruir `kepler_ods` desde las migraciones, y poner tablas de mentira es un pozo (hay vistas que castean
+columnas `c1..cN` con tipos concretos).
+
+> ⚠️ **Por qué es peligroso.** `migrate:new` no falla de entrada: **avanza 435 migraciones y falla a la
+> mitad**, dejando una base a medio hacer que *parece* una base de desarrollo. Quien la use encuentra
+> tablas que faltan sin que nada le diga por qué. Un `knex_migrations` con 435 filas no significa "casi
+> terminó": significa que las ~540 restantes nunca se probaron contra esa estructura.
+> (El denominador envejece solo: ese día había **975** migraciones y crecen cada semana — lo que
+> no cambia es **dónde** se detiene, que es lo útil de este §.)
+
+**Qué hacer.** Para una base de desarrollo con la **estructura real de prod**, un dump **solo de estructura**
+más los datos de `knex_migrations`, desde una persona con acceso a `md`:
+
+```sh
+ssh superoot@192.168.0.222 "docker exec pg-prod pg_dump -U postgres -d railway --schema-only --no-owner" > prod_schema.sql
+ssh superoot@192.168.0.222 "docker exec pg-prod pg_dump -U postgres -d railway --data-only -t '*.knex_migrations' -t '*.knex_migrations_lock' --no-owner" > prod_knex_migrations.sql
+```
+
+Se restaura en una base vacía, se siembran el tenant, los roles y el usuario con las semillas del repo y se
+corre `migrate:new` solo para lo pendiente. **Hay DOS tablas `knex_migrations`** (§29): pedirlas ambas.
+
+**Sin acceso a prod (2026-10-02): `npm run dev:bootstrap-vacia -- --url <postgres local>`.** El script hace, en
+el orden en que fallaron, lo que hubo que improvisar a mano: el tenant, las tablas de `kepler_ods.*` **vacías**
+desde `docs/esquema-bd-prod-columnas.csv`, `catalog.products_top_sellers` (en prod es tabla; la migración la
+crea como vista materializada), las extensiones en `public`, los perfiles `piso_tienda`/`administrativo`, las
+zonas y el usuario superoot; y **marca aplicadas sin ejecutarlas** las migraciones que asertan sobre datos
+reales del ERP (todas posteriores a `20260819120000`; antes de esa frontera todo fallo es estructural y el
+script **se detiene** en vez de saltarlo). Lo que salta queda en `public._dev_bootstrap_log`.
+
+⚠️ **Esa base valida ESTRUCTURA e invariantes, no comportamiento con datos**: las ~70 migraciones saltadas son
+justo las vistas y matvistas analíticas. Y la lección que trae el script: **las migraciones fijan `search_path`
+a nivel de ROL** (`ALTER ROLE postgres SET search_path…`, `20260603140000`), o sea para **todo el clúster**. Una
+segunda base en el mismo servidor hereda el path de la primera y se comporta distinto (se vio: `hasTable`
+resolvió otra tabla y una migración temprana falló), y de paso se lo cambia a la primera. **Un clúster, una
+base de desarrollo** — Docker propio, otro puerto; no el Postgres nativo de tu máquina.
+
+⛔ **No** apuntar el `.env` a prod para "tener estructura": es el defecto que dio origen a este §.
+⛔ **No** confiar en `ONBOARDING.md` §5 hasta que se corrija: sus pasos (`dev:up` → `migrate:new` →
+`seed:new`) no funcionan sobre una base vacía. Pendiente.
+
+**Lo que SÍ funcionó sin acceso a prod (2026-10-02, Fase MS)** — una base desechable en Docker, armada así,
+en el orden en que cada cosa falló:
+
+| Cuándo falla | Por qué | Arreglo |
+|---|---|---|
+| migración **88** | falta el tenant | semilla `01_first_tenant_mega_dulces` |
+| migración **435** | faltan las tablas de `kepler_ods.*` | crearlas **vacías** desde `docs/esquema-bd-prod-columnas.csv` (235 tablas, sólo nombres y tipos) |
+| **455** (`fk_isolated_tables`) | `catalog.products_top_sellers` es **tabla en prod** pero la migración la crea como **vista materializada** | reemplazarla por una tabla vacía con las mismas columnas (y recrear la vista pública que depende de ella) |
+| **502** | `pg_trgm`/`unaccent` quedaron en el schema `identity` (la migración corrió con ese `search_path`) | `ALTER EXTENSION … SET SCHEMA public` |
+| **507** | faltan los perfiles `piso_tienda` y `administrativo` (datos de prod) | crearlos sin permisos |
+| **610** | faltan las zonas `MORELIA ABASTOS` y `LA PIEDAD RD` (datos de prod) | crearlas |
+| **668** | exige una persona activa con god-mode | semilla `03_mega_dulces_superoot_user` |
+| ~80 migraciones | **aserciones sobre datos reales del ERP** («la vista no trae 0 filas», «existe la ficha de fulano») | **marcarlas aplicadas** en `knex_migrations`, **salvo** las que tocan identidad/puestos/responsabilidades/roles/permisos |
+
+⚠️ Lo que eso significa: **una base así valida ESTRUCTURA e invariantes, no comportamiento con datos.** Las `80
+migraciones saltadas son justo las vistas y matvistas analíticas. Sirve para probar un esquema nuevo (la
+Mesa de Servicio: 130 aserciones), **no** para medir nada del ERP. Y el diagnóstico de fondo no cambia: el repo
+**no tiene una forma soportada** de levantar una base de desarrollo; sigue siendo trabajo pendiente.
+
+**Y una trampa del propio `.env`:** `DATABASE_URL_NEW` apuntaba a `192.168.0.245/platform_test` con un rol
+de solo lectura, un servidor que **ya no es una base de desarrollo** y que ni conecta (`3D000`) aunque
+`pg_database` lo lista. El `.env` no avisa. Antes de migrar, verificar **a qué clúster apunta de verdad**
+(`pg_control_system()` y el host), no el nombre de la variable (ver §52).

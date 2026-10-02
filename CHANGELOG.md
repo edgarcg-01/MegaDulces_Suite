@@ -9,6 +9,64 @@
 ---
 
 ## [Unreleased]
+### Added — `/compras/pedido`: agregar sucursal sin historia, V30d/Máx con venta por mes y mínimo del proveedor (RA-PRO.64–66, 2026-10-01)
+Nace de una simulación comprador vs. vendedor GONAC sobre el 83185 con datos de producción (solo lectura).
+Etapa 1 de cinco, sin migraciones ni permisos nuevos:
+- **[RA-PRO.64]** "+ Agregar sucursal" en el desglose y leyendas *sin existencia · sin venta · sin mínimo ·
+  agregada*. El workbook excluía los almacenes sin existencia, venta ni tránsito, así que Zamora Centro no
+  tenía dónde capturarse. El renglón agregado entra a la requisición, PDF y XLSX como cualquier otro.
+- **[RA-PRO.65]** columna **V30d / Máx** (máximo por almacén; ausente = sin política de reorden) y globo con
+  13 meses en $ y cajas medidas contra el año anterior, más el prorrateo 60/40 del sistema anterior como
+  referencia. Endpoint `GET /commercial/replenishment/workbook/:id/monthly` (~40 ms en prod).
+- **[RA-PRO.66]** pedido mínimo del proveedor en la cabecera del desglose (ya viajaba en `/filters`).
+Plan de etapas 2–5 en `docs/IMPLEMENTACION/FASES/FASE_RA_PEDIDO_PERSPECTIVA.md`.
+
+### Fixed — cotización: la caja muestra también su unidad del medio y la vista previa del precio baja de 3 s a 0.15 s (COT.17, 2026-10-02)
+- **Unidad del medio:** en productos de 3 unidades, el precio de la caja se desglosa en paquete y pieza — `(14 PAQ 121.86 · 140 PZA 12.19)` — en la pantalla nueva, el detalle y el Excel/PDF. Antes se perdía el paquete. Sólo cuando el paquete cabe exacto en la caja (383 de 384 SKUs en suc 01).
+- **Velocidad:** migración `20261002120000` recrea `analytics.v_label_presentations` con el mismo SQL y `NOT MATERIALIZED` en sus CTE; el filtro por sucursal+sku vuelve a entrar. Medido en prod: mediana 3,094 → 144 ms por consulta, 96/96 resultados idénticos. Acelera también a la etiquetera.
+### Added — `npm run dev:bootstrap-vacia`: levanta una base de desarrollo desde cero cuando `migrate:new` solo no alcanza (2026-10-02)
+`migrate:new` sobre una base vacía se detiene en la migración 88 y otra vez en la primera que necesita `kepler_ods` (GOTCHAS §75). `database/scripts/dev-bootstrap-empty-db.js` hace, en el orden en que fallaron, lo que hubo que improvisar a mano: el tenant, las 235 tablas de `kepler_ods.*` **vacías** desde `docs/esquema-bd-prod-columnas.csv`, `catalog.products_top_sellers` (tabla en prod, vista materializada en la migración), las extensiones en `public`, perfiles, zonas y el usuario superoot; y **marca aplicadas sin ejecutarlas** las `88 migraciones posteriores a `20260819120000` que asertan sobre datos reales del ERP, dejándolas en `public._dev_bootstrap_log`. **Esa base NO es prod**: valida estructura e invariantes, no comportamiento con datos. Protecciones con prueba negativa (`test-dev-bootstrap-guards.js`, 21 aserciones): sólo corre contra un Postgres **local**, no toma `DATABASE_URL_NEW` por defecto, se niega si el clúster trae bases ajenas al stack o si el `search_path` ya está fijado por rol (**un clúster, una base**: las migraciones lo fijan con `ALTER ROLE`, o sea para todo el servidor), y **nunca salta una migración estructural**.
+### Added — Mesa de Servicio, capa 1: schema `servicedesk`, 3 permisos y el ticket como fuente de tarea (Fase MS, 2026-10-02)
+Cuatro migraciones (11 tablas con RLS forzado, grants por tabla sin `DELETE` en el registro, semillas de la cola
+TI con escalamiento APAGADO), `SERVICIO_REPORTAR/ATENDER/COORDINAR` repartidos, `servicedesk.requests` declarada
+en el contrato de tarea y un smoke de 130 aserciones. **Sin pantalla ni endpoints todavía** (capas 2 y 3): el
+proyecto está en el árbol sin rutas, así que nada aparece en el mapa de la suite. `identity.users` gana `email` y
+`phone` (opcionales, con CHECK de formato). Mejora `test-newdb-task-contract` para tablas con varios CHECK sobre el
+estado. **Nada aplicado a prod.**
+
+### Internal — Fase MS (Mesa de Servicio): plan por capas y solicitud de tablas y accesos (2026-10-01)
+Solo documentación, sin código ni migraciones. Plan de un sistema de tickets de servicio donde **el
+ticket es la tarea** (contrato de tarea → "A tu nombre" de Mi trabajo), con prioridad Baja/Media/Alta/Urgente
+sugerida y confirmada, SLA que primero mide y aviso por correo y WhatsApp; cola de TI con modelo
+multi-cola. `FASE_MS_MESA_DE_SERVICIO.md`, `FASE_MS_SOLICITUD_TABLAS_Y_ACCESOS.md` (11 tablas, 2 columnas,
+3 permisos, pendiente de aprobación) y ADR-081 propuesto. `CLAUDE.md` corregido: producción corre en `md`
+y `192.168.0.245` ya no es base de desarrollo. Nuevo GOTCHAS §75: `migrate:new` no levanta una base vacía.
+
+### Fixed — cotización telefónica: el pedido DICTADO se captura sin mouse y sin errores de cantidad (COT.16, 2026-10-01)
+Probado con 3 pedidos dictados de 15 partidas (productos reales del top-45 de mayoreo de la
+sucursal 01) y verificado después en la pantalla real, sólo teclado:
+- **Tres errores que pasaban sin aviso:** clics rápidos en "+" perdían cantidad (4 clics: 8→9);
+  el mismo producto pedido dos veces quedaba en 2 renglones sin precio de mayoreo; el desglose
+  decía `(20PZS $56.50)` a un bulto de 20 KG, también en el Excel/PDF que recibe el cliente.
+- **Captura:** cantidad tecleable (Enter agrega), ↑↓ + Enter en el buscador, cursor al buscador al
+  elegir cliente, botones de unidad de menor a mayor (Pieza 1 · Paquete 10 · Caja 140) con el
+  nombre real de la base, renglón "no manejado", bandeja de una línea, layout con riel derecho.
+- **Buscador:** entiende el dictado ("paleta"→PAL, "chocolate"→CHOC, "pistaches", "chiquitos"→MINI,
+  "25 por 35", "de kilo"→1KG) y ordena por lo más vendido en la sucursal.
+- **Changed:** `applySmartSearch` (`libs/platform-core`) gana `synonyms`/`stem`/`ignore`, opcionales
+  (los demás buscadores no cambian). Se quitó el re-orden alfabético del front que había pedido el
+  PM: manda el orden del servidor.
+- **Known:** la previa de precio tarda ~2.9 s por clic por `analytics.v_label_presentations` (no
+  empuja el filtro del SKU). Se arregla reescribiendo la vista, en PR aparte.
+### Added — Desarrolladores › Proyectos: la bitácora del equipo (DEV, 2026-10-01)
+Módulo nuevo `/desarrolladores/proyectos` (espacio «Sistemas, Servicios y Mantenimiento»). Cada
+proyecto se da de alta como una orden `DEV-AAAA-NNNN` con nombre, objetivo escrito o dictado,
+adjuntos de cualquier tipo, foto y video tomados ahí mismo, prioridad, estado, fecha compromiso y
+responsable (uno de los tres del equipo, tabla `devtools.dev_team`). **Seguimiento**: a cualquier
+proyecto —también terminado— se le agregan notas y modificaciones (escritas o dictadas, con
+adjuntos), y cada edición deja un registro automático de qué cambió, de qué a qué. Permisos `DEV_PROJECTS_VER` /
+`DEV_PROJECTS_GESTIONAR` (sin repartir aún). Detalle en el tracker, Fase DEV.
+
 ### Fixed — el CEDIS declara su corte a Kepler, y la contención que lo protegía ya se había evaporado (IC.CEDIS.1, 2026-09-30)
 Pedido: *"ya CEDIS usa el 9.95, hay que integrar la nueva información, borrar las referencias
 BIRAPUATO y funcionar históricos"*.

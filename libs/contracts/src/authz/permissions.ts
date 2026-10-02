@@ -573,4 +573,24 @@ export enum Permission {
   // se les asigna cada uno (ver PR).
   CATALOGO_INTERNO_VER = 'CATALOGO_INTERNO_VER',
   CATALOGO_INTERNO_COSTOS_VER = 'CATALOGO_INTERNO_COSTOS_VER',
+
+  // ── Desarrolladores › Proyectos (Fase DEV, 2026-10-01) ────────────────
+  // Bitácora de ideas/proyectos del equipo de desarrollo: cada idea se da de
+  // alta como una orden (folio DEV-AAAA-NNNN) con objetivo, evidencia
+  // (documentos, fotos, video, dictado) y un responsable del equipo.
+  DEV_PROJECTS_VER = 'DEV_PROJECTS_VER',
+  DEV_PROJECTS_GESTIONAR = 'DEV_PROJECTS_GESTIONAR',
+
+  // ── Mesa de Servicio (Fase MS, ADR-081, 2026-10-02) ───────────────────
+  // Tickets de servicio: cualquier persona reporta un problema o necesidad; el ticket es la
+  // tarea de quien lo atiende. TRES claves, y la diferencia importa:
+  //  · REPORTAR  — reportar y ver/comentar LO PROPIO (self-scoped: el id sale del JWT, nunca del
+  //                body). Se reparte a todo rol con personas. NO es un destino del mapa de la
+  //                suite: vive en un módulo sin ruta, y se alcanza con un botón del header, para
+  //                no quitarle la entrada directa a `/projects` a los roles de un solo destino.
+  //  · ATENDER   — bandeja de la cola: tomar, nota interna, cambiar estado, resolver, tiempo.
+  //  · COORDINAR — asignar/reasignar, cambiar prioridad, reportes, catálogos y plazos.
+  SERVICIO_REPORTAR = 'SERVICIO_REPORTAR',
+  SERVICIO_ATENDER = 'SERVICIO_ATENDER',
+  SERVICIO_COORDINAR = 'SERVICIO_COORDINAR',
 }

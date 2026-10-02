@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
@@ -18,7 +18,13 @@ import {
   QuoteCatalogRow,
   PricedLine,
   Rung,
-  nombreUnidadMayor,
+  nombreUnidadBase,
+  abrevUnidadBase,
+  opcionesUnidad,
+  paqueteDeCaja,
+  desglose,
+  type OpcionUnidad,
+  type PasoDesglose,
 } from '../quotes.service';
 import {
   exportQuotePdf,
@@ -51,6 +57,12 @@ export interface ItemBandeja {
   line_total: number;
   price_source: string;
   free_goods?: { sku: string; quantity: number } | null;
+  /** Abreviatura de la unidad base (PAQ, KG, PZA…) para el desglose "12 PAQ $41.82". */
+  base_unit: string | null;
+  /** Unidades base del paquete dentro de la caja (sólo renglones de caja): la unidad del medio. */
+  pack_size: number | null;
+  /** Lo que el cliente pidió y no se encontró (renglón sin casar, sin SKU ni precio). */
+  requested_text?: string | null;
 }
 
 const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
@@ -77,18 +89,19 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
   template: `
     <p-toast position="top-center"></p-toast>
     <section class="section">
-      <div class="top-bar">
+      <!-- Encabezado de UNA línea (COT.16): la pantalla es un rectángulo apaisado y cada línea
+           vertical cuenta. La migaja reemplaza al link "Volver" + el párrafo de ayuda. -->
+      <header class="page-head">
         <a routerLink="/telemarketing/cotizaciones" class="back">
-          <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a cotizaciones
+          <i class="pi pi-arrow-left" aria-hidden="true"></i> Cotizaciones
         </a>
-      </div>
-
-      <header class="section-header">
-        <div class="header-content">
-          <h1>Nueva cotización</h1>
-          <p>Cotizador de mayoreo: seleccioná destinatario, sucursal y agregá artículos a la bandeja con precio en vivo.</p>
-        </div>
+        <span class="crumb-sep" aria-hidden="true">/</span>
+        <h1>Nueva cotización</h1>
       </header>
+
+      <!-- Zona de trabajo (izquierda) + riel fijo (derecha: totales, cierre y asistente IA) -->
+      <div class="layout">
+      <div class="work">
 
       <!-- ── BLOQUE 1: Destinatario & Selector de las 8 Sucursales ────────────────────── -->
       <div class="card card-destinatario">
@@ -140,42 +153,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           </div>
         </div>
 
-        <!-- Condiciones comerciales compactas de la sucursal elegida -->
-        @if (cliente() && sucursalTerms(); as t) {
-          <div class="terms-bar">
-            <div class="term-item">
-              <span class="t-k">Descuento cliente:</span>
-              @if (t.discount_1_pct !== null) {
-                <span class="t-v t-accent">{{ +t.discount_1_pct }}%</span>
-              } @else {
-                <span class="t-v t-muted">sin descuento especial</span>
-              }
-            </div>
-            <div class="term-sep" aria-hidden="true"></div>
-            <div class="term-item">
-              <span class="t-k">Límite crédito:</span>
-              <span class="t-v">
-                {{ t.credit_limit !== null ? (+t.credit_limit | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}
-              </span>
-            </div>
-            <div class="term-sep" aria-hidden="true"></div>
-            <div class="term-item">
-              <span class="t-k">Plazo:</span>
-              <span class="t-v">{{ t.payment_days !== null ? t.payment_days + ' días' : '—' }}</span>
-            </div>
-            @if (cliente()!.terms_vary_by_branch) {
-              <div class="term-warn" title="Las condiciones de este cliente varían entre sucursales">
-                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Condiciones cambian por sucursal
-              </div>
-            }
-          </div>
-        } @else if (cliente()) {
-          <div class="terms-bar terms-bar-generic">
-            <span class="t-muted">Condiciones base del ERP para la sucursal {{ sucursal() }} (sin descuento de mayoreo registrado en esta plaza).</span>
-          </div>
-        }
-
         <div class="card-body">
+          <div class="dest-row">
+          <div class="dest-main">
           @if (modo() === 'mayoreo') {
             @if (!cliente()) {
               <div class="search-container">
@@ -187,7 +167,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     [(ngModel)]="terminoCliente"
                     (ngModelChange)="onBuscarCliente($event)"
                     (keyup.enter)="onEnterCliente()"
-                    placeholder="Buscar código (ej. C1086) o nombre de cliente de mayoreo..."
+                    placeholder="Buscar cliente de mayoreo: código (C1086), nombre o RFC, palabras en cualquier orden..."
                     aria-label="Buscar cliente de mayoreo"
                     autocapitalize="characters"
                     autocorrect="off"
@@ -218,13 +198,13 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 }
               </div>
             } @else {
-              <!-- Cliente seleccionado: tarjeta compacta de 1 sola fila -->
+              <!-- Cliente seleccionado: una sola fila, junto al vendedor -->
               <div class="chosen-row">
                 <div class="chosen-details">
                   <span class="chosen-code">{{ cliente()!.customer_code }}</span>
                   <strong class="chosen-name">{{ cliente()!.name }}</strong>
                   @if (cliente()!.state || cliente()!.phone) {
-                    <span class="chosen-meta">({{ cliente()!.state || '' }} {{ cliente()!.phone || '' }})</span>
+                    <span class="chosen-meta">{{ cliente()!.state || '' }}{{ cliente()!.state && cliente()!.phone ? ' · ' : '' }}{{ cliente()!.phone || '' }}</span>
                   }
                 </div>
                 <button
@@ -234,7 +214,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                   [disabled]="guardando()"
                   aria-label="Cambiar cliente"
                 >
-                  <i class="pi pi-pencil" aria-hidden="true"></i> Cambiar cliente
+                  <i class="pi pi-pencil" aria-hidden="true"></i> Cambiar
                 </button>
               </div>
             }
@@ -275,68 +255,98 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               </label>
             </div>
           }
+          </div>
 
-          <!-- VENDEDOR QUE DA SEGUIMIENTO: Justo debajo del nombre del cliente / datos -->
-          <div class="vendedor-box">
-            <div class="vendedor-inner">
-              <label for="vendedorSelect" class="vendedor-label">
-                <i class="pi pi-user" aria-hidden="true"></i> Vendedor de seguimiento:
-              </label>
-              <div class="vendedor-control">
-                <select
-                  id="vendedorSelect"
-                  class="input-select vendedor-select"
-                  [ngModel]="vendedorSeleccionado() || ''"
-                  (ngModelChange)="onVendedorChange($event)"
-                  [disabled]="guardando() || cargandoVendedores()"
-                >
-                  <option value="">-- Seleccionar vendedor que da seguimiento --</option>
-                  @for (v of vendedores(); track v.code) {
-                    <option [value]="v.code">
-                      {{ v.code }} — {{ v.name }}
-                    </option>
-                  }
-                </select>
-                @if (cargandoVendedores()) {
-                  <i class="pi pi-spin pi-spinner v-spinner" aria-hidden="true"></i>
+          <!-- VENDEDOR QUE DA SEGUIMIENTO: en la misma fila que el cliente -->
+          <div class="vendedor-inner">
+            <label for="vendedorSelect" class="vendedor-label">
+              <i class="pi pi-user" aria-hidden="true"></i> Vendedor
+            </label>
+            <div class="vendedor-control">
+              <select
+                id="vendedorSelect"
+                class="input-select vendedor-select"
+                [ngModel]="vendedorSeleccionado() || ''"
+                (ngModelChange)="onVendedorChange($event)"
+                [disabled]="guardando() || cargandoVendedores()"
+                [attr.title]="vendedorSeleccionadoObj() ? 'Asignado: ' + vendedorSeleccionadoObj()!.name + ' (Sucursal ' + sucursal() + ')' : null"
+              >
+                <option value="">-- Seleccionar vendedor que da seguimiento --</option>
+                @for (v of vendedores(); track v.code) {
+                  <option [value]="v.code">
+                    {{ v.code }} — {{ v.name }}
+                  </option>
                 }
-              </div>
-              @if (vendedorSeleccionadoObj(); as vSel) {
-                <span class="vendedor-hint">
-                  Asignado: <strong>{{ vSel.name }}</strong> (Sucursal {{ sucursal() }})
-                </span>
+              </select>
+              @if (cargandoVendedores()) {
+                <i class="pi pi-spin pi-spinner v-spinner" aria-hidden="true"></i>
               }
             </div>
           </div>
+          </div>
         </div>
+
+        <!-- Condiciones comerciales compactas de la sucursal elegida: franja al pie -->
+        @if (cliente() && sucursalTerms(); as t) {
+          <div class="terms-bar">
+            <div class="term-item">
+              <span class="t-k">Descuento cliente:</span>
+              @if (t.discount_1_pct !== null) {
+                <span class="t-v t-accent">{{ +t.discount_1_pct }}%</span>
+              } @else {
+                <span class="t-v t-muted">sin descuento especial</span>
+              }
+            </div>
+            <div class="term-sep" aria-hidden="true"></div>
+            <div class="term-item">
+              <span class="t-k">Límite crédito:</span>
+              <span class="t-v">
+                {{ t.credit_limit !== null ? (+t.credit_limit | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}
+              </span>
+            </div>
+            <div class="term-sep" aria-hidden="true"></div>
+            <div class="term-item">
+              <span class="t-k">Plazo:</span>
+              <span class="t-v">{{ t.payment_days !== null ? t.payment_days + ' días' : '—' }}</span>
+            </div>
+            @if (cliente()!.terms_vary_by_branch) {
+              <div class="term-warn" title="Las condiciones de este cliente varían entre sucursales">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Condiciones cambian por sucursal
+              </div>
+            }
+          </div>
+        } @else if (cliente()) {
+          <div class="terms-bar terms-bar-generic">
+            <span class="t-muted">Condiciones base del ERP para la sucursal {{ sucursal() }} (sin descuento de mayoreo registrado en esta plaza).</span>
+          </div>
+        }
       </div>
 
       <!-- ── BLOQUE 2: Captura Manual de Artículos (Táctil, 16:9) ─────────────────────── -->
       <div class="card mt-card captura-manual-card">
-        <div class="card-head">
+        <!-- El buscador vive en el encabezado de la tarjeta: ahorra la fila de la etiqueta.
+             La sucursal activa ya se ve en el bloque 1; acá queda en el título del campo. -->
+        <div class="card-head card-head-search">
           <div class="card-head-left">
             <span class="step-num">2</span>
-            <h2>Captura manual de artículos</h2>
-            <span class="captura-sub">Sucursal activa: <b>{{ sucursal() }} — {{ branchName(sucursal()) }}</b></span>
+            <h2>Artículo</h2>
           </div>
-        </div>
-
-        <div class="card-body">
-          <!-- Buscador de artículos por código de barras, código interno (SKU) o nombre -->
           <div class="search-step">
-            <label class="f-lbl" for="prodSearchInput">
-              <span>Buscar artículo (Código de barras, código interno SKU o nombre)</span>
-            </label>
-            <div class="search-input-wrap">
+            <label class="sr-only" for="prodSearchInput">Buscar artículo por código de barras, SKU o nombre</label>
+            <div class="search-input-wrap" [attr.title]="'Sucursal activa: ' + sucursal() + ' — ' + branchName(sucursal())">
               <i class="pi pi-search search-ico" aria-hidden="true"></i>
               <input
                 id="prodSearchInput"
+                #buscadorArticulo
                 type="search"
                 class="input search-prod-input"
                 [(ngModel)]="terminoArticulo"
                 (ngModelChange)="onTerminoArticulo($event)"
                 (focus)="onFocoArticulo()"
-                placeholder="Escaneá código de barras o escribí SKU / nombre del producto..."
+                (keydown.arrowdown)="$event.preventDefault(); moverResaltado(1)"
+                (keydown.arrowup)="$event.preventDefault(); moverResaltado(-1)"
+                (keydown.enter)="$event.preventDefault(); elegirResaltado()"
+                placeholder="Escaneá el código de barras o escribí SKU / nombre (palabras en cualquier orden) · ↑↓ y Enter para elegir"
                 autocorrect="off"
                 spellcheck="false"
                 [disabled]="guardando()"
@@ -346,16 +356,19 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               }
             </div>
 
-            <!-- Desplegable ordenado por orden alfabético del nombre del producto -->
+            <!-- Desplegable: primero los aciertos exactos y después lo MÁS VENDIDO en la sucursal
+                 (el servidor ordena). ↑↓ mueven el resaltado y Enter elige, sin mouse. -->
             @if (catalogoAbierto() && resultadosArticulos().length > 0) {
-              <ul class="cat-dropdown" role="listbox" aria-label="Catálogo ordenado alfabéticamente">
-                @for (p of resultadosArticulos(); track p.sku) {
+              <ul class="cat-dropdown" role="listbox" aria-label="Artículos encontrados, los más vendidos primero">
+                @for (p of resultadosArticulos(); track p.sku; let i = $index) {
                   <li>
                     <button
                       type="button"
                       class="cat-row"
                       role="option"
-                      [class.cat-row-active]="articuloElegido()?.sku === p.sku"
+                      [attr.aria-selected]="i === resaltado()"
+                      [class.cat-row-active]="i === resaltado()"
+                      (mouseenter)="resaltado.set(i)"
                       (click)="elegirArticulo(p)"
                     >
                       <div class="cat-col-nom">
@@ -376,97 +389,59 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 }
               </ul>
             } @else if (catalogoAbierto() && terminoArticulo.trim().length > 0 && !buscandoArticulo()) {
-              <p class="search-hint">
-                Ningún artículo en Sucursal {{ sucursal() }} coincide con <strong>"{{ terminoArticulo }}"</strong>.
-              </p>
+              <!-- Lo que no manejamos NO se pierde: queda en la bandeja como renglón sin casar
+                   (requested_text) y viaja con la cotización como demanda (COT.16). -->
+              <div class="search-hint">
+                <span>Ningún artículo en Sucursal {{ sucursal() }} coincide con <strong>"{{ terminoArticulo }}"</strong>.</span>
+                <button type="button" class="btn-no-casado" (click)="agregarNoManejado()" [disabled]="guardando()">
+                  <i class="pi pi-plus" aria-hidden="true"></i> Anotar como no manejado
+                </button>
+              </div>
             }
           </div>
+        </div>
 
-          <!-- Artículo elegido ("descargado") para configurar precio y cantidad -->
+          <!-- Artículo elegido ("descargado") para configurar precio y cantidad. Sin artículo no
+               se pinta el cuerpo: la tarjeta queda en una sola fila (el buscador). -->
           @if (articuloElegido(); as e) {
-            <div class="descargado-box">
-              <div class="descargado-header">
-                <div class="descargado-tag">
-                  <i class="pi pi-check-circle" aria-hidden="true"></i>
-                  <span>Artículo seleccionado</span>
-                </div>
+            <div class="card-body descargado-box">
+              <!-- Fila 1: nombre + datos + cambiar -->
+              <div class="descargado-info">
+                <strong class="descargado-name">{{ e.name || e.sku }}</strong>
+                <span class="pill-meta">SKU <b>{{ e.sku }}</b></span>
+                @if (e.barcode) { <span class="pill-meta">EAN {{ e.barcode }}</span> }
+                @if (e.content) { <span class="pill-meta">Contenido {{ e.content }}</span> }
+                <span class="pill-meta">Base <b>{{ e.sold_by_kg ? 'Kilogramo' : (e.unit_base || 'Pieza') }}</b></span>
                 <button type="button" class="btn-change-prod" (click)="limpiarArticulo()" [disabled]="guardando()">
                   <i class="pi pi-pencil" aria-hidden="true"></i> Cambiar artículo
                 </button>
               </div>
 
-              <div class="descargado-info">
-                <strong class="descargado-name">{{ e.name || e.sku }}</strong>
-                <div class="descargado-pills">
-                  <span class="pill-meta">SKU: <b>{{ e.sku }}</b></span>
-                  @if (e.barcode) { <span class="pill-meta">EAN: {{ e.barcode }}</span> }
-                  @if (e.content) { <span class="pill-meta">Contenido: {{ e.content }}</span> }
-                  <span class="pill-meta">Unidad base: <b>{{ e.sold_by_kg ? 'Kilogramo' : (e.unit_base || 'Pieza') }}</b></span>
-                </div>
-              </div>
-
-              <!-- PREGUNTA: ¿El precio es por caja (o bulto/cubeta) o por pieza? -->
-              <div class="pregunta-seccion">
-                <span class="pregunta-lbl">¿El precio es por {{ mayor(e).toLowerCase() }} o por {{ e.sold_by_kg ? 'kilo' : 'pieza' }}?</span>
-                <div class="unit-toggle-group" role="group" [attr.aria-label]="'Seleccionar si el precio es por ' + mayor(e).toLowerCase() + ' o por unidad'">
-                  <!-- Opción Pieza (o KG) -->
-                  <button
-                    type="button"
-                    class="unit-toggle-btn"
-                    [class.unit-toggle-active]="rung() === 'base'"
-                    (click)="setRung('base')"
-                    [disabled]="guardando()"
-                  >
-                    <i class="pi pi-tag" aria-hidden="true"></i>
-                    <span class="unit-title">{{ e.sold_by_kg ? 'Kilo (KG)' : 'Pieza' }}</span>
-                    <span class="unit-sub">Unidad individual</span>
-                  </button>
-
-                  <!-- Opción unidad mayor: Caja, o Bulto/Cubeta cuando el ERP así la declara -->
-                  <button
-                    type="button"
-                    class="unit-toggle-btn"
-                    [class.unit-toggle-active]="rung() === 'box'"
-                    (click)="setRung('box')"
-                    [disabled]="guardando()"
-                  >
-                    <i class="pi pi-box" aria-hidden="true"></i>
-                    <span class="unit-title">{{ mayor(e) }}</span>
-                    <span class="unit-sub">
-                      @if (e.box_size) {
-                        {{ e.box_size }} {{ e.sold_by_kg ? 'kg' : (e.unit_base || 'pzas') }} / {{ mayor(e).toLowerCase() }}
-                      } @else {
-                        Empaque mayor
-                      }
-                    </span>
-                    @if (rung() === 'box' && previaArticulo()?.volume_tier; as vt) {
-                      <span class="unit-badge-mayoreo">
-                        Mayoreo: {{ dinero(vt.price) }} (desde {{ vt.min_qty }} {{ mayor(e).toLowerCase() }}s)
-                      </span>
-                    }
-                  </button>
-
-                  <!-- Opción Paquete si aplica -->
-                  @if (e.pack_size && e.pack_size > 1) {
+              <!-- Fila 2: unidad · cantidad · presets · precio · agregar (una sola franja). Sin
+                   rótulo de pregunta: los botones se explican solos y sólo están los que el ERP
+                   declara (COT.16). -->
+              <div class="config-row">
+                <!-- Unidades de MENOR a MAYOR (izq → der): KINDER DELICE = Pieza 1 · Paquete 10 ·
+                     Caja 140. Sólo las que el ERP declara; el nombre de la base es el real
+                     (Paquete, Kilo, Pieza…), no "Pieza" fijo (COT.16). -->
+                <div class="unit-toggle-group" role="group" aria-label="Unidad de venta del artículo">
+                  @for (o of opcionesUnidad(e); track o.rung) {
                     <button
                       type="button"
                       class="unit-toggle-btn"
-                      [class.unit-toggle-active]="rung() === 'pack'"
-                      (click)="setRung('pack')"
+                      [class.unit-toggle-active]="rung() === o.rung"
+                      (click)="setRung(o.rung)"
                       [disabled]="guardando()"
                     >
-                      <i class="pi pi-clone" aria-hidden="true"></i>
-                      <span class="unit-title">Paquete</span>
-                      <span class="unit-sub">{{ e.pack_size }} {{ e.unit_base || 'pzas' }}</span>
+                      <i class="pi {{ o.icono }}" aria-hidden="true"></i>
+                      <span class="unit-title">{{ o.titulo }}</span>
+                      <span class="unit-sub">· {{ o.detalle }}</span>
                     </button>
                   }
                 </div>
-              </div>
 
-              <!-- CONTROL TÁCTIL DE CANTIDAD (MOBILE 16:9 - Sin teclado en pantalla) -->
-              <div class="touch-qty-seccion">
-                <span class="pregunta-lbl">Cantidad de {{ labelUnidadActiva() }}s:</span>
-
+                <!-- CANTIDAD: se TECLEA (dictado: "48 cajas" = 2 teclas, antes 8 clics) y Enter
+                     agrega; los botones + / − / presets siguen para captura táctil (COT.16). -->
                 <div class="touch-stepper">
                   <button
                     type="button"
@@ -478,10 +453,21 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     <i class="pi pi-minus" aria-hidden="true"></i>
                   </button>
 
-                  <div class="touch-qty-readout" aria-live="polite">
-                    <span class="qty-num">{{ cantidadArticulo() }}</span>
-                    <span class="qty-lbl">{{ labelUnidadActiva() }}{{ cantidadArticulo() > 1 ? (rung() === 'box' ? 's' : (rung() === 'base' && e.sold_by_kg ? '' : 's')) : '' }}</span>
-                  </div>
+                  <label class="touch-qty-readout">
+                    <input
+                      #cantidadInput
+                      type="text"
+                      inputmode="numeric"
+                      class="qty-num"
+                      [value]="cantidadArticulo()"
+                      (input)="onCantidadTecleada($any($event.target).value)"
+                      (keydown.enter)="$event.preventDefault(); agregarABandeja()"
+                      (focus)="$any($event.target).select()"
+                      [disabled]="guardando()"
+                      [attr.aria-label]="'Cantidad en ' + labelUnidadActiva()"
+                    />
+                    <span class="qty-lbl">{{ labelUnidadActiva() }}</span>
+                  </label>
 
                   <button
                     type="button"
@@ -503,137 +489,123 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                   <button type="button" class="preset-btn" (click)="ajustarCantidad(50)" [disabled]="guardando()">+50</button>
                   <button type="button" class="preset-btn" (click)="ajustarCantidad(100)" [disabled]="guardando()">+100</button>
                 </div>
-              </div>
 
-              <!-- PREVIA DEL PRECIO Y DESCUENTOS POR VOLUMEN EN VIVO -->
-              @if (cotizandoArticulo()) {
-                <div class="previa-loading">
-                  <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Consultando precios y descuentos en ERP...
-                </div>
-              } @else if (previaArticulo(); as p) {
-                <div class="previa-card" [class.previa-card-bad]="p.unit_price === null">
-                  <div class="previa-top">
+                <!-- PREVIA DEL PRECIO EN VIVO: al final de la franja, junto al botón de agregar -->
+                <div class="previa-top">
+                  @if (cotizandoArticulo()) {
+                    <span class="previa-loading"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Consultando precio en ERP...</span>
+                  } @else if (previaArticulo(); as p) {
                     <div class="previa-unit-box">
-                      <span class="previa-label">Precio unitario calculado</span>
+                      <span class="previa-label">Precio unitario</span>
                       @if (p.unit_price !== null) {
                         <div class="previa-price-row">
                           <span class="previa-amount">{{ p.unit_price | currency:'MXN':'symbol-narrow':'1.2-4' }}</span>
                           <span class="previa-unit-sub">/ {{ p.unit_label || labelUnidadActiva() }}</span>
-                          @if (p.unit_factor && p.unit_factor > 1) {
-                            <span class="previa-menor-sub">({{ p.unit_factor }}PZS {{ (p.unit_price / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>
-                          }
                         </div>
+                        @if (p.unit_factor && p.unit_factor > 1) {
+                          <span class="previa-menor-sub">{{ p.unit_factor }} {{ abrevBase(e) }} {{ (p.unit_price / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                        }
                       } @else {
                         <span class="previa-none">Sin precio en Sucursal {{ sucursal() }}</span>
                       }
                     </div>
 
                     <div class="previa-total-box">
-                      <span class="previa-label">Importe del renglón</span>
+                      <span class="previa-label">Importe</span>
                       @if (p.line_total !== null) {
                         <span class="previa-total-amount">{{ p.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
                       } @else {
                         <span class="previa-none">—</span>
                       }
                     </div>
+                  }
 
-                    <div class="previa-action-box">
+                  <button
+                    pButton
+                    class="btn-agregar-inline"
+                    [disabled]="!puedeAgregarArticulo() || guardando() || cotizandoArticulo()"
+                    (click)="agregarABandeja()"
+                  >
+                    <span class="p-button-icon p-button-icon-left pi pi-plus-circle" aria-hidden="true"></span>
+                    <span class="p-button-label">Agregar</span>
+                  </button>
+                </div>
+              </div>
+
+              @if (!cotizandoArticulo() && previaArticulo(); as p) {
+                <!-- AVISO DE ESCALÓN DE VOLUMEN (ERP kdpv_prod_util): UNA línea -->
+                @if (p.volume_tier; as vt) {
+                  @if (cantidadArticulo() < vt.min_qty) {
+                    <div class="banner-oportunidad-volumen">
+                      <i class="pi pi-sparkles b-vol-icon" aria-hidden="true"></i>
+                      <span class="b-vol-desc">
+                        Desde <b>{{ vt.min_qty }} {{ labelUnidadActiva() }}s</b> baja de
+                        <span class="strikethrough">{{ dinero(p.list_price) }}</span> a <b>{{ dinero(vt.price) }}</b>
+                        (ahorro {{ dinero((p.list_price || 0) - vt.price) }} c/u)
+                      </span>
                       <button
-                        pButton
-                        class="btn-agregar-inline"
-                        [disabled]="!puedeAgregarArticulo() || guardando()"
-                        (click)="agregarABandeja()"
+                        type="button"
+                        class="btn-aplicar-volumen"
+                        (click)="setCantidad(vt.min_qty)"
+                        [disabled]="guardando()"
                       >
-                        <span class="p-button-icon p-button-icon-left pi pi-plus-circle" aria-hidden="true"></span>
-                        <span class="p-button-label">Agregar a la bandeja</span>
+                        <i class="pi pi-check" aria-hidden="true"></i> Aplicar {{ vt.min_qty }}
                       </button>
                     </div>
+                  } @else {
+                    <div class="banner-volumen-exito">
+                      <i class="pi pi-check-circle b-vol-icon-ok" aria-hidden="true"></i>
+                      <span class="b-vol-desc">
+                        <b>Precio de mayoreo aplicado:</b>
+                        <span class="strikethrough">{{ dinero(p.list_price) }}</span> → <b>{{ dinero(p.unit_price) }}</b> / {{ p.unit_label || labelUnidadActiva() }}
+                        · ahorro total <b>{{ dinero(((p.list_price || 0) - (p.unit_price || 0)) * cantidadArticulo()) }}</b>
+                      </span>
+                    </div>
+                  }
+                } @else if (esDescuentoVolumen(p)) {
+                  <div class="banner-volumen">
+                    <i class="pi pi-bolt" aria-hidden="true"></i>
+                    <span><strong>Descuento por volumen activo</strong> para {{ cantidadArticulo() }} {{ labelUnidadActiva() }}s</span>
                   </div>
+                }
 
-                  <!-- AVISO DESTACADO DE ESCALÓN DE VOLUMEN (ERP kdpv_prod_util) -->
-                  @if (p.volume_tier; as vt) {
-                    @if (cantidadArticulo() < vt.min_qty) {
-                      <div class="banner-oportunidad-volumen">
-                        <div class="b-vol-left">
-                          <i class="pi pi-sparkles b-vol-icon" aria-hidden="true"></i>
-                          <div class="b-vol-text">
-                            <strong class="b-vol-title">¡Descuento por volumen disponible en {{ labelUnidadActiva() }}!</strong>
-                            <span class="b-vol-desc">
-                              A partir de <b>{{ vt.min_qty }} {{ labelUnidadActiva() }}s</b> el precio baja de
-                              <span class="strikethrough">{{ dinero(p.list_price) }}</span> a <b>{{ dinero(vt.price) }}</b>
-                              (Ahorro de <b>{{ dinero((p.list_price || 0) - vt.price) }}</b> por {{ labelUnidadActiva() }}).
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          class="btn-aplicar-volumen"
-                          (click)="setCantidad(vt.min_qty)"
-                          [disabled]="guardando()"
-                        >
-                          <i class="pi pi-check" aria-hidden="true"></i>
-                          Aplicar {{ vt.min_qty }} {{ labelUnidadActiva() }}s con mayoreo
-                        </button>
-                      </div>
-                    } @else {
-                      <div class="banner-volumen-exito">
-                        <div class="b-vol-left">
-                          <i class="pi pi-check-circle b-vol-icon-ok" aria-hidden="true"></i>
-                          <div class="b-vol-text">
-                            <strong class="b-vol-title">✅ PRECIO DE MAYOREO POR VOLUMEN APLICADO</strong>
-                            <span class="b-vol-desc">
-                              Precio lista: <span class="strikethrough">{{ dinero(p.list_price) }}</span> →
-                              Con descuento por volumen: <b>{{ dinero(p.unit_price) }}</b> / {{ p.unit_label || labelUnidadActiva() }}
-                              @if (p.unit_factor && p.unit_factor > 1) {
-                                ({{ p.unit_factor }}PZS {{ (p.unit_price! / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})
-                              }
-                              · Ahorro total: <b>{{ dinero(((p.list_price || 0) - (p.unit_price || 0)) * cantidadArticulo()) }}</b>
-                            </span>
-                          </div>
-                        </div>
+                @if (p.free_goods) {
+                  <div class="banner-regalo">
+                    <i class="pi pi-gift" aria-hidden="true"></i>
+                    <span>Regalo del ERP: <strong>{{ p.free_goods.quantity }} de {{ p.free_goods.sku }}</strong></span>
+                  </div>
+                }
+
+                @if (p.unpriced_reason) {
+                  <p class="p-why-bad">{{ p.unpriced_reason }}</p>
+                }
+
+                <!-- El desglose ocupa varias líneas: se pliega. Sigue a un clic, no se quitó. -->
+                @if (p.applied.length > 0 || p.not_applied.length > 0) {
+                  <details class="calc-details">
+                    <summary>¿Cómo se calculó?</summary>
+                    @for (s of p.applied; track s.step) {
+                      <div class="p-step-row">
+                        <span class="step-tag">{{ s.step }}</span>
+                        <span class="step-detail">{{ s.detail }}</span>
+                        @if (s.before !== null && s.after !== null && s.before !== s.after) {
+                          <span class="step-delta">{{ s.before | currency:'MXN':'symbol-narrow':'1.2-2' }} → {{ s.after | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                        }
                       </div>
                     }
-                  } @else if (esDescuentoVolumen(p)) {
-                    <div class="banner-volumen">
-                      <i class="pi pi-bolt" aria-hidden="true"></i>
-                      <span><strong>Descuento por volumen activo</strong> para {{ cantidadArticulo() }} {{ labelUnidadActiva() }}s</span>
-                    </div>
-                  }
-
-                  @for (s of p.applied; track s.step) {
-                    <div class="p-step-row">
-                      <span class="step-tag">{{ s.step }}</span>
-                      <span class="step-detail">{{ s.detail }}</span>
-                      @if (s.before !== null && s.after !== null && s.before !== s.after) {
-                        <span class="step-delta">{{ s.before | currency:'MXN':'symbol-narrow':'1.2-2' }} → {{ s.after | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                    @for (na of p.not_applied; track na.mechanism) {
+                      @if (na.mechanism !== 'volumen' || !p.volume_tier) {
+                        <div class="p-step-row p-step-hint">
+                          <span class="step-tag step-tag-hint">Escalón</span>
+                          <span class="step-detail">{{ na.reason }}</span>
+                        </div>
                       }
-                    </div>
-                  }
-
-                  @if (p.free_goods) {
-                    <div class="banner-regalo">
-                      <i class="pi pi-gift" aria-hidden="true"></i>
-                      <span>Regalo del ERP: <strong>{{ p.free_goods.quantity }} de {{ p.free_goods.sku }}</strong></span>
-                    </div>
-                  }
-
-                  @for (na of p.not_applied; track na.mechanism) {
-                    @if (na.mechanism !== 'volumen' || !p.volume_tier) {
-                      <div class="p-step-row p-step-hint">
-                        <span class="step-tag step-tag-hint">Escalón</span>
-                        <span class="step-detail">{{ na.reason }}</span>
-                      </div>
                     }
-                  }
-
-                  @if (p.unpriced_reason) {
-                    <p class="p-why-bad">{{ p.unpriced_reason }}</p>
-                  }
-                </div>
+                  </details>
+                }
               }
             </div>
           }
-        </div>
       </div>
 
       <!-- ── BLOQUE 3: La Bandeja donde se van agregando los productos ────────────────── -->
@@ -641,7 +613,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         <div class="card-head">
           <div class="card-head-left">
             <span class="step-num">3</span>
-            <h2>Bandeja de cotización</h2>
+            <h2>Bandeja</h2>
             <span class="badge-count">{{ bandeja().length }} artículo(s)</span>
           </div>
         </div>
@@ -651,7 +623,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
             <div class="empty-bandeja">
               <i class="pi pi-shopping-cart empty-icon" aria-hidden="true"></i>
               <p class="empty-title">La bandeja está vacía</p>
-              <p class="empty-hint">Buscá productos en el Paso 2 arriba y agregalos uno a uno a esta cotización.</p>
+              <p class="empty-hint">Buscá productos en el paso 2 y agregalos uno a uno.</p>
             </div>
           } @else {
             <div class="table-wrap">
@@ -669,50 +641,72 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                   </tr>
                 </thead>
                 <tbody>
+                  <!-- UNA línea por renglón (COT.16): con 15 partidas cabían 7 sin scroll porque
+                       cada renglón ocupaba dos (SKU abajo y el desglose abajo del precio). -->
                   @for (item of bandeja(); track item.id; let idx = $index) {
-                    <tr>
+                    <tr [class.row-no-casado]="!item.sku">
                       <td class="num mono">{{ idx + 1 }}</td>
-                      <td>
-                        <strong class="item-name">{{ item.name }}</strong>
-                        <div class="item-sub">
+                      <td class="item-cell" [attr.title]="item.barcode ? 'EAN ' + item.barcode : null">
+                        @if (item.sku) {
+                          <strong class="item-name">{{ item.name }}</strong>
                           <span class="item-sku">{{ item.sku }}</span>
-                          @if (item.barcode) { <span>EAN: {{ item.barcode }}</span> }
-                        </div>
+                        } @else {
+                          <span class="tag-no-casado">No manejado</span>
+                          <strong class="item-name">{{ item.requested_text }}</strong>
+                        }
                         @if (item.free_goods) {
                           <span class="gift-tag"><i class="pi pi-gift"></i> Regalo: {{ item.free_goods.quantity }} de {{ item.free_goods.sku }}</span>
                         }
                       </td>
                       <td>
-                        <span class="pres-badge">{{ item.unit_label }}</span>
-                        @if (item.factor && item.factor > 1) {
-                          <span class="pres-factor">x{{ item.factor }}</span>
+                        @if (item.sku) {
+                          <span class="pres-badge">{{ item.unit_label }}</span>
+                          @if (item.factor && item.factor > 1) {
+                            <span class="pres-factor">x{{ item.factor }}</span>
+                          }
+                        } @else {
+                          <span class="pres-factor">—</span>
                         }
                       </td>
                       <td class="num">
                         <div class="table-qty-control">
-                          <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, -1)" [disabled]="item.quantity <= 1 || guardando()">−</button>
-                          <span class="table-qty-val">{{ item.quantity }}</span>
-                          <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, 1)" [disabled]="guardando()">+</button>
+                          <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, -1)" [disabled]="item.quantity <= 1 || guardando()" aria-label="Restar uno">−</button>
+                          <input
+                            type="text"
+                            inputmode="numeric"
+                            class="table-qty-val"
+                            [value]="item.quantity"
+                            (change)="fijarCantidadBandeja(item, $any($event.target).value)"
+                            (keydown.enter)="$any($event.target).blur()"
+                            (focus)="$any($event.target).select()"
+                            [disabled]="guardando()"
+                            aria-label="Cantidad del renglón"
+                          />
+                          <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, 1)" [disabled]="guardando()" aria-label="Sumar uno">+</button>
                         </div>
                       </td>
                       <td class="num font-num">
-                        <div class="p-unit-cell">
-                          <span class="p-unit-main">{{ item.unit_price !== null ? (item.unit_price | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</span>
-                          @if (item.factor && item.factor > 1 && item.unit_price !== null) {
-                            <span class="p-unit-sub-breakdown">({{ item.factor }}PZS {{ (item.unit_price / item.factor) | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>
+                        <span class="p-unit-main">{{ item.unit_price !== null ? (item.unit_price | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</span>
+                        @if (item.unit_price !== null) {
+                          @for (p of desgloseDe(item); track p.unidad; let ultimo = $last) {
+                            <span class="p-unit-sub-breakdown">{{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}/{{ p.unidad }}@if (!ultimo) { ·}</span>
                           }
-                        </div>
+                        }
                       </td>
                       <td>
-                        <span class="source-tag" [class.source-tag-volumen]="item.price_source === 'volume_qty'">
-                          @if (item.price_source === 'volume_qty') {
-                            <i class="pi pi-bolt" aria-hidden="true"></i>
-                          }
-                          {{ fuenteLabel(item.price_source) }}
-                        </span>
+                        @if (item.sku) {
+                          <span class="source-tag" [class.source-tag-volumen]="item.price_source === 'volume_qty'">
+                            @if (item.price_source === 'volume_qty') {
+                              <i class="pi pi-bolt" aria-hidden="true"></i>
+                            }
+                            {{ fuenteLabel(item.price_source) }}
+                          </span>
+                        } @else {
+                          <span class="source-tag">Sin precio</span>
+                        }
                       </td>
                       <td class="num font-num bold-num">
-                        {{ item.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                        {{ item.sku ? (item.line_total | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}
                       </td>
                       <td class="num">
                         <button
@@ -732,146 +726,169 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               </table>
             </div>
 
-            <!-- Resumen financiero de la cotización -->
-            <div class="bandeja-totales">
-              <div class="tot-row">
-                <span>Subtotal lista</span>
-                <b>{{ subtotalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-              </div>
-              @if (descuentoClienteMonto() > 0) {
-                <div class="tot-row tot-dto">
-                  <span>Descuento del cliente ({{ descuentoClientePct() }}%)</span>
-                  <b>− {{ descuentoClienteMonto() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-                </div>
-              }
-              <div class="tot-row tot-final">
-                <span>Total cotización</span>
-                <b>{{ totalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-              </div>
-            </div>
           }
         </div>
       </div>
-
-      <!-- ── BLOQUE 4: Cierre & Guardar Cotización ────────────────────────────────────── -->
-      <div class="card mt-card">
-        <div class="card-head">
-          <div class="card-head-left">
-            <span class="step-num">4</span>
-            <h2>Datos de cierre</h2>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="detail-row">
-            <label class="field-item">
-              <span>¿De dónde salió la cotización?</span>
-              <select class="input" [(ngModel)]="origen" [disabled]="guardando()">
-                @for (o of origenes; track o.value) {
-                  <option [value]="o.value">{{ o.label }}</option>
-                }
-              </select>
-            </label>
-            <label class="field-item">
-              <span>Vigencia hasta</span>
-              <input type="date" class="input" [(ngModel)]="vigencia" [min]="hoy" [disabled]="guardando()" />
-            </label>
-          </div>
-
-          <label class="field-item full-width mt-field">
-            <span>Mensaje original o lista del cliente <em>(opcional)</em></span>
-            <textarea
-              class="input textarea"
-              rows="2"
-              [(ngModel)]="listaCruda"
-              placeholder="Pegá acá el correo o WhatsApp recibido. Se guarda como evidencia..."
-              [disabled]="guardando()"
-            ></textarea>
-          </label>
-        </div>
-
-        <div class="card-actions">
-          <button pButton severity="secondary" [outlined]="true" routerLink="/telemarketing/cotizaciones" [disabled]="guardando()">
-            <span class="p-button-label">Cancelar</span>
-          </button>
-          <button
-            pButton
-            severity="success"
-            [outlined]="true"
-            type="button"
-            class="btn-export btn-export-xlsx"
-            [disabled]="bandeja().length === 0 || exportando() || guardando()"
-            (click)="descargarXlsx()"
-            title="Crear y descargar entregable en archivo Excel (.xlsx)"
-          >
-            <span
-              class="p-button-icon p-button-icon-left pi"
-              [class.pi-file-excel]="exportandoTipo() !== 'xlsx'"
-              [class.pi-spin]="exportandoTipo() === 'xlsx'"
-              [class.pi-spinner]="exportandoTipo() === 'xlsx'"
-              aria-hidden="true"
-            ></span>
-            <span class="p-button-label">{{ exportandoTipo() === 'xlsx' ? 'Generando Excel...' : 'Descargar Excel (.xlsx)' }}</span>
-          </button>
-          <button
-            pButton
-            severity="danger"
-            [outlined]="true"
-            type="button"
-            class="btn-export btn-export-pdf"
-            [disabled]="bandeja().length === 0 || exportando() || guardando()"
-            (click)="descargarPdf()"
-            title="Crear y descargar entregable formal en archivo PDF"
-          >
-            <span
-              class="p-button-icon p-button-icon-left pi"
-              [class.pi-file-pdf]="exportandoTipo() !== 'pdf'"
-              [class.pi-spin]="exportandoTipo() === 'pdf'"
-              [class.pi-spinner]="exportandoTipo() === 'pdf'"
-              aria-hidden="true"
-            ></span>
-            <span class="p-button-label">{{ exportandoTipo() === 'pdf' ? 'Generando PDF...' : 'Descargar PDF' }}</span>
-          </button>
-          <button pButton [disabled]="!puedeCrear() || guardando()" (click)="crear()">
-            <span
-              class="p-button-icon p-button-icon-left pi"
-              [class.pi-check]="!guardando()"
-              [class.pi-spin]="guardando()"
-              [class.pi-spinner]="guardando()"
-              aria-hidden="true"
-            ></span>
-            <span class="p-button-label">
-              {{ guardando() ? 'Guardando cotización...' : (bandeja().length > 0 ? 'Crear cotización (' + bandeja().length + ' artículos)' : 'Crear cotización en borrador') }}
-            </span>
-          </button>
-        </div>
       </div>
+      <!-- /work -->
+
+      <!-- ── RIEL DERECHO (fijo al hacer scroll): totales + cierre + acciones + asistente IA ──
+           Antes los totales vivían al pie de la bandeja y el cierre al fondo de la página: con
+           una bandeja larga, el total y el botón Crear quedaban fuera de vista (COT.16). -->
+      <aside class="rail" aria-label="Resumen y cierre de la cotización">
+        <div class="card rail-card">
+          <div class="rail-totales">
+            <div class="tot-row">
+              <span>Subtotal lista ({{ bandeja().length }} artículo{{ bandeja().length === 1 ? '' : 's' }})</span>
+              <b>{{ subtotalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+            </div>
+            @if (descuentoClienteMonto() > 0) {
+              <div class="tot-row tot-dto">
+                <span>Descuento del cliente ({{ descuentoClientePct() }}%)</span>
+                <b>− {{ descuentoClienteMonto() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+              </div>
+            }
+            <div class="tot-row tot-final">
+              <span>Total</span>
+              <b>{{ totalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+            </div>
+          </div>
+
+          <div class="rail-cierre">
+            <div class="detail-row">
+              <label class="field-item">
+                <span>Origen</span>
+                <select class="input" [(ngModel)]="origen" [disabled]="guardando()" title="¿De dónde salió la cotización?">
+                  @for (o of origenes; track o.value) {
+                    <option [value]="o.value">{{ o.label }}</option>
+                  }
+                </select>
+              </label>
+              <label class="field-item">
+                <span>Vigencia hasta</span>
+                <input type="date" class="input" [(ngModel)]="vigencia" [min]="hoy" [disabled]="guardando()" />
+              </label>
+            </div>
+
+            <!-- Opcional y de varias líneas: plegado, se abre solo si ya trae texto -->
+            <details class="mensaje-details" [attr.open]="listaCruda ? '' : null">
+              <summary>Mensaje original o lista del cliente <em>(opcional)</em></summary>
+              <textarea
+                class="input textarea"
+                rows="3"
+                [(ngModel)]="listaCruda"
+                placeholder="Pegá acá el correo o WhatsApp recibido. Se guarda como evidencia..."
+                [disabled]="guardando()"
+                aria-label="Mensaje original o lista del cliente"
+              ></textarea>
+            </details>
+          </div>
+
+          <div class="rail-actions">
+            <button pButton class="btn-crear" [disabled]="!puedeCrear() || guardando()" (click)="crear()">
+              <span
+                class="p-button-icon p-button-icon-left pi"
+                [class.pi-check]="!guardando()"
+                [class.pi-spin]="guardando()"
+                [class.pi-spinner]="guardando()"
+                aria-hidden="true"
+              ></span>
+              <span class="p-button-label">
+                {{ guardando() ? 'Guardando cotización...' : (bandeja().length > 0 ? 'Crear cotización (' + bandeja().length + ' artículos)' : 'Crear cotización en borrador') }}
+              </span>
+            </button>
+            <div class="rail-export">
+              <button
+                pButton
+                severity="success"
+                [outlined]="true"
+                type="button"
+                class="btn-export btn-export-xlsx"
+                [disabled]="bandeja().length === 0 || exportando() || guardando()"
+                (click)="descargarXlsx()"
+                title="Crear y descargar entregable en archivo Excel (.xlsx)"
+              >
+                <span
+                  class="p-button-icon p-button-icon-left pi"
+                  [class.pi-file-excel]="exportandoTipo() !== 'xlsx'"
+                  [class.pi-spin]="exportandoTipo() === 'xlsx'"
+                  [class.pi-spinner]="exportandoTipo() === 'xlsx'"
+                  aria-hidden="true"
+                ></span>
+                <span class="p-button-label">{{ exportandoTipo() === 'xlsx' ? 'Generando...' : 'Excel' }}</span>
+              </button>
+              <button
+                pButton
+                severity="danger"
+                [outlined]="true"
+                type="button"
+                class="btn-export btn-export-pdf"
+                [disabled]="bandeja().length === 0 || exportando() || guardando()"
+                (click)="descargarPdf()"
+                title="Crear y descargar entregable formal en archivo PDF"
+              >
+                <span
+                  class="p-button-icon p-button-icon-left pi"
+                  [class.pi-file-pdf]="exportandoTipo() !== 'pdf'"
+                  [class.pi-spin]="exportandoTipo() === 'pdf'"
+                  [class.pi-spinner]="exportandoTipo() === 'pdf'"
+                  aria-hidden="true"
+                ></span>
+                <span class="p-button-label">{{ exportandoTipo() === 'pdf' ? 'Generando...' : 'PDF' }}</span>
+              </button>
+            </div>
+            <a routerLink="/telemarketing/cotizaciones" class="rail-cancel" [class.is-disabled]="guardando()">Cancelar</a>
+          </div>
+        </div>
+
+        <!-- Lugar reservado para el asistente de ventas IA. Declara que todavía no existe: no
+             pinta sugerencias inventadas (ADR-056). -->
+        <div class="ia-placeholder" role="note">
+          <h3><i class="pi pi-sparkles" aria-hidden="true"></i> Asistente de ventas IA</h3>
+          <p>Aquí aparecerán sugerencias para esta cotización: productos que el cliente suele llevar, oportunidades de volumen y qué le falta a su canasta.</p>
+          <span class="ia-tag">Próximamente</span>
+        </div>
+      </aside>
+      </div>
+      <!-- /layout -->
     </section>
   `,
   styles: [
     `
-      .section { padding: 1rem 1.25rem; max-width: 950px; margin: 0 auto; }
-      .top-bar { margin-bottom: 0.5rem; }
-      .back { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.8125rem; color: var(--text-muted); text-decoration: none; }
+      /* COT.16: pantalla apaisada. Zona de trabajo + riel fijo a la derecha; cada línea vertical
+         cuenta (maqueta aprobada 2026-10-01). Bajo 1100px el riel baja debajo de la bandeja. */
+      .section { padding: 0.6rem 1rem 1rem; max-width: 1600px; margin: 0 auto; }
+      .page-head { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.5rem; }
+      .page-head h1 { font-size: 1.05rem; font-weight: 700; margin: 0; }
+      .crumb-sep { color: var(--text-faint); }
+      .back { display: inline-flex; gap: 0.3rem; align-items: center; font-size: 0.75rem; color: var(--text-muted); text-decoration: none; }
       .back:hover { color: var(--text-main); }
-      .section-header h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.15rem; }
-      .section-header p { color: var(--text-muted); font-size: 0.8125rem; margin: 0 0 0.85rem; }
+
+      .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 0.75rem; align-items: start; }
+      .work { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+      .rail { position: sticky; top: 0.6rem; display: flex; flex-direction: column; gap: 0.6rem; }
+      @media (max-width: 1100px) {
+        .layout { grid-template-columns: 1fr; }
+        .rail { position: static; }
+      }
 
       .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow: visible; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
-      .mt-card { margin-top: 1rem; }
       .card-head {
         display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
-        padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border-color); flex-wrap: wrap;
+        padding: 0.4rem 0.65rem; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; min-height: 38px;
         background: var(--surface-ground, #fafafa);
       }
       .card-head-left { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-      .card-head-left h2 { font-size: 0.95rem; font-weight: 700; margin: 0; }
+      .card-head-left h2 { font-size: 0.875rem; font-weight: 700; margin: 0; white-space: nowrap; }
+      /* El buscador de artículo comparte la fila con el título de la tarjeta */
+      .card-head-search { flex-wrap: nowrap; }
+      .card-head-search .search-step { flex: 1; margin: 0; min-width: 0; }
       .step-num {
-        width: 22px; height: 22px; flex: none; border-radius: 50%;
+        width: 20px; height: 20px; flex: none; border-radius: 50%;
         background: var(--primary-color, var(--action)); color: #fff;
         display: inline-flex; align-items: center; justify-content: center;
         font-size: 0.75rem; font-weight: 700;
       }
-      .captura-sub { font-size: 0.75rem; color: var(--text-muted); }
       .badge-count { font-size: 0.75rem; background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 9999px; font-weight: 600; color: var(--text-muted); }
 
       .pills { display: inline-flex; gap: 0.25rem; background: var(--neutral-100, #f1f5f9); padding: 2px; border-radius: 9999px; }
@@ -892,8 +909,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
 
       /* Tira compacta de condiciones comerciales */
       .terms-bar {
-        display: flex; align-items: center; gap: 0.75rem; padding: 0.4rem 0.9rem;
-        background: var(--neutral-50, #f8fafc); border-bottom: 1px solid var(--border-color);
+        display: flex; align-items: center; gap: 0.75rem; padding: 0.3rem 0.65rem;
+        border-top: 1px dashed var(--border-color);
         font-size: 0.75rem; flex-wrap: wrap;
       }
       .terms-bar-generic { color: var(--text-muted); font-style: italic; }
@@ -905,14 +922,18 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .term-sep { width: 1px; height: 12px; background: var(--border-color); }
       .term-warn { margin-left: auto; color: var(--yellow-700, #a16207); font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; }
 
-      .card-body { padding: 0.75rem 0.9rem; }
+      .card-body { padding: 0.5rem 0.65rem; }
+      .dest-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+      .dest-main { flex: 1 1 360px; min-width: 0; }
       .p-0 { padding: 0; }
 
-      .search-container { position: relative; width: 100%; max-width: 600px; }
+      .search-container { position: relative; width: 100%; }
       .search-box { position: relative; display: flex; align-items: center; }
       .search-icon { position: absolute; left: 0.65rem; color: var(--text-muted); font-size: 0.8125rem; pointer-events: none; }
       .search-spinner { position: absolute; right: 0.65rem; color: var(--text-muted); font-size: 0.8125rem; }
-      .search-input { padding-left: 2rem; width: 100%; }
+      /* .input. sube la especificidad: la regla .input { padding } va DESPUÉS y le borraba
+         el padding-left, así la lupa quedaba encima del primer carácter. */
+      .input.search-input { padding-left: 2rem; width: 100%; }
 
       .results-dropdown {
         position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 40;
@@ -933,9 +954,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .search-empty { font-size: 0.75rem; color: var(--text-muted); margin: 0.35rem 0 0; }
 
       .chosen-row {
-        display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
-        background: var(--neutral-50, #f8fafc); border: 1px dashed var(--border-color);
-        border-radius: 6px; padding: 0.45rem 0.75rem;
+        display: flex; align-items: center; gap: 0.75rem;
       }
       .chosen-details { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
       .chosen-code { font-family: var(--font-mono, monospace); font-weight: 700; color: var(--primary-color, var(--action)); }
@@ -955,31 +974,24 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .full-width { width: 100%; }
       .mt-field { margin-top: 0.6rem; }
 
-      .vendedor-box {
-        margin-top: 0.65rem; padding: 0.5rem 0.75rem; background: var(--neutral-50, #f8fafc);
-        border: 1px solid var(--border-color); border-radius: 6px;
-      }
-      .vendedor-inner { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+      .vendedor-inner { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 300px; }
       .vendedor-label {
         font-size: 0.75rem; font-weight: 700; color: var(--text-muted);
         display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
       }
       .vendedor-label i { color: var(--primary-color, var(--action)); }
-      .vendedor-control { position: relative; display: inline-flex; align-items: center; flex: 1 1 240px; max-width: 420px; }
+      .vendedor-control { position: relative; display: inline-flex; align-items: center; flex: 1; min-width: 0; }
       .vendedor-select { width: 100%; cursor: pointer; font-weight: 600; min-height: 32px; }
       .v-spinner { position: absolute; right: 0.65rem; font-size: 0.75rem; color: var(--primary-color, var(--action)); }
-      .vendedor-hint { font-size: 0.75rem; color: var(--text-muted); }
-      .vendedor-hint strong { color: var(--text-main); }
 
       .detail-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
       @media (max-width: 640px) { .detail-row { grid-template-columns: 1fr; } }
 
       /* Captura manual de artículos */
-      .f-lbl { display: block; font-size: 0.8125rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text-main); }
       .search-step { position: relative; margin-bottom: 0.5rem; }
       .search-input-wrap { position: relative; display: flex; align-items: center; }
-      .search-ico { position: absolute; left: 0.75rem; color: var(--text-muted); font-size: 0.875rem; pointer-events: none; }
-      .search-prod-input { padding-left: 2.25rem; font-size: 0.875rem; min-height: 40px; border-radius: 6px; width: 100%; }
+      .search-ico { position: absolute; left: 0.65rem; color: var(--text-muted); font-size: 0.8125rem; pointer-events: none; }
+      .input.search-prod-input { padding-left: 2rem; font-size: 0.8125rem; min-height: 32px; border-radius: 6px; width: 100%; }
 
       /* Desplegable ordenado alfabéticamente */
       .cat-dropdown {
@@ -1005,52 +1017,56 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .cat-col-precio { text-align: right; flex: 0 0 5.5rem; display: flex; flex-direction: column; }
       .cat-precio-val { font-weight: 700; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
       .cat-precio-lbl { font-size: 0.65rem; color: var(--text-muted); }
-      .search-hint { font-size: 0.8125rem; color: var(--text-muted); margin: 0.5rem 0 0; }
+      .search-hint {
+        position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50;
+        display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+        font-size: 0.8125rem; color: var(--text-muted); background: var(--card-bg);
+        border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.75rem;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      }
+      .btn-no-casado {
+        border: 1px dashed var(--border-color); background: var(--card-bg); color: var(--text-main);
+        border-radius: 6px; padding: 0.25rem 0.6rem; font-size: 0.75rem; font-weight: 600; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;
+      }
+      .btn-no-casado:hover { border-color: var(--action); color: var(--action); }
 
       /* Tarjeta de producto descargado */
       .descargado-box {
-        background: var(--neutral-50, #f8fafc); border: 1px solid var(--border-color);
-        border-radius: 8px; padding: 0.85rem; margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;
-      }
-      .descargado-header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
-      .descargado-tag {
-        display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem;
-        font-weight: 700; color: var(--green-700, #15803d); text-transform: uppercase; letter-spacing: 0.03em;
+        display: flex; flex-direction: column; gap: 0.45rem;
       }
       .btn-change-prod {
         background: none; border: 0; color: var(--primary-color, var(--action)); cursor: pointer; font-size: 0.75rem;
-        font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;
+        font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: auto; white-space: nowrap;
       }
       .btn-change-prod:hover { text-decoration: underline; }
 
-      .descargado-info { display: flex; flex-direction: column; gap: 0.35rem; }
-      .descargado-name { font-size: 1rem; font-weight: 700; color: var(--text-main); }
-      .descargado-pills { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .descargado-info { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+      .descargado-name { font-size: 0.9375rem; font-weight: 700; color: var(--text-main); }
       .pill-meta { font-size: 0.75rem; color: var(--text-muted); background: var(--card-bg); padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--border-color); }
       .pill-meta b { color: var(--text-main); }
 
       /* Pregunta: Caja o Pieza */
-      .pregunta-seccion { display: flex; flex-direction: column; gap: 0.35rem; }
-      .pregunta-lbl { font-size: 0.8125rem; font-weight: 700; color: var(--text-main); }
-      .unit-toggle-group { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      /* Fila de configuración: unidad · cantidad · presets · precio + agregar */
+      .config-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+      .unit-toggle-group { display: flex; gap: 0.35rem; }
       .unit-toggle-btn {
-        flex: 1 1 120px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        padding: 0.55rem 0.7rem; border-radius: 8px; border: 2px solid var(--border-color);
-        background: var(--card-bg); cursor: pointer; min-height: 48px; text-align: center; gap: 0.1rem;
+        flex: none; display: inline-flex; align-items: center; gap: 0.35rem;
+        padding: 0 0.65rem; border-radius: 7px; border: 2px solid var(--border-color);
+        background: var(--card-bg); cursor: pointer; height: 40px; white-space: nowrap;
         transition: border-color 0.15s, background-color 0.15s;
       }
       .unit-toggle-btn i { font-size: 0.95rem; color: var(--text-muted); }
       .unit-toggle-btn:hover { border-color: var(--primary-color, var(--action)); }
-      .unit-toggle-active { border-color: var(--primary-color, var(--action)); background: rgba(14, 116, 144, 0.06); }
+      .unit-toggle-active { border-color: var(--primary-color, var(--action)); background: var(--action-soft, rgba(240, 90, 40, 0.06)); }
       .unit-toggle-active i { color: var(--primary-color, var(--action)); }
-      .unit-title { font-weight: 700; font-size: 0.875rem; color: var(--text-main); }
+      .unit-title { font-weight: 700; font-size: 0.8125rem; color: var(--text-main); }
       .unit-sub { font-size: 0.7rem; color: var(--text-muted); }
 
       /* Stepper táctil para móvil 16:9 */
-      .touch-qty-seccion { display: flex; flex-direction: column; gap: 0.35rem; }
-      .touch-stepper { display: flex; align-items: center; gap: 0.5rem; max-width: 300px; }
+      .touch-stepper { display: flex; align-items: center; gap: 0.25rem; }
       .btn-touch-step {
-        width: 44px; height: 44px; flex: none; border-radius: 8px; border: 1px solid var(--border-color);
+        width: 34px; height: 40px; flex: none; border-radius: 6px; border: 1px solid var(--border-color);
         background: var(--card-bg); font-size: 1.15rem; font-weight: 700; color: var(--text-main);
         cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
         user-select: none;
@@ -1058,125 +1074,131 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .btn-touch-step:active { background: var(--neutral-100, #f1f5f9); transform: scale(0.96); }
       .btn-touch-step:disabled { opacity: 0.4; cursor: not-allowed; }
       .touch-qty-readout {
-        flex: 1; height: 44px; border-radius: 8px; border: 1px solid var(--border-color);
+        width: 68px; height: 40px; border-radius: 6px; border: 1px solid var(--border-color);
         background: var(--card-bg); display: flex; flex-direction: column; align-items: center;
         justify-content: center; font-variant-numeric: tabular-nums;
       }
-      .qty-num { font-size: 1.25rem; font-weight: 800; line-height: 1.1; color: var(--text-main); }
+      /* La cantidad es un campo: se teclea (dictado) y Enter agrega */
+      .qty-num {
+        width: 100%; border: 0; background: transparent; text-align: center; padding: 0;
+        font: inherit; font-size: 1.05rem; font-weight: 800; line-height: 1.05; color: var(--text-main);
+        font-variant-numeric: tabular-nums;
+      }
+      .qty-num:focus { outline: none; }
+      .touch-qty-readout:focus-within { border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring, rgba(240, 90, 40, 0.3)); }
       .qty-lbl { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
 
-      .touch-presets { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.2rem; }
+      .touch-presets { display: flex; gap: 0.25rem; }
       .preset-btn {
-        min-height: 34px; padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid var(--border-color);
+        height: 30px; min-width: 34px; padding: 0 0.45rem; border-radius: 5px; border: 1px solid var(--border-color);
         background: var(--card-bg); font-size: 0.8125rem; font-weight: 600; cursor: pointer; color: var(--text-muted);
       }
       .preset-btn:hover, .preset-btn:active { background: var(--neutral-100, #f1f5f9); color: var(--text-main); }
       .preset-active { background: var(--primary-color, var(--action)); color: #fff; border-color: var(--primary-color, var(--action)); }
 
       /* Previa del precio y volumen */
-      .previa-loading { font-size: 0.8125rem; color: var(--text-muted); padding: 0.4rem 0; }
-      .previa-card {
-        border-radius: 8px; padding: 0.75rem 0.9rem; border: 1px solid var(--border-color);
-        border-left: 4px solid var(--green-600, #16a34a); background: var(--card-bg);
-      }
-      .previa-card-bad { border-left-color: var(--red-600, #dc2626); }
-      .previa-top { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.3rem; }
+      .previa-loading { font-size: 0.75rem; color: var(--text-muted); }
+      .previa-top { display: flex; align-items: center; gap: 0.9rem; margin-left: auto; }
       .previa-unit-box { flex: 0 1 auto; }
       .previa-total-box { flex: 0 1 auto; }
-      .previa-action-box { margin-left: auto; display: flex; align-items: center; }
       .btn-agregar-inline {
-        min-height: 38px; font-size: 0.8125rem; font-weight: 700; border-radius: 6px;
+        min-height: 36px; font-size: 0.8125rem; font-weight: 700; border-radius: 6px;
         padding: 0.4rem 1.1rem; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       }
       @media (max-width: 640px) {
-        .previa-action-box { width: 100%; margin-left: 0; margin-top: 0.35rem; }
+        .previa-top { width: 100%; margin-left: 0; }
         .btn-agregar-inline { width: 100%; justify-content: center; }
       }
       .previa-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; display: block; }
       .previa-price-row { display: flex; align-items: baseline; gap: 0.35rem; }
-      .previa-amount { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
+      .previa-amount { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
       .previa-unit-sub { font-size: 0.75rem; color: var(--text-muted); }
-      .previa-menor-sub { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; margin-left: 0.25rem; }
-      .previa-total-amount { font-size: 1.2rem; font-weight: 800; color: var(--primary-color, var(--action)); font-variant-numeric: tabular-nums; }
+      .previa-menor-sub { font-size: 0.6875rem; color: var(--text-muted); font-weight: 600; display: block; }
+      .previa-total-amount { font-size: 1.05rem; font-weight: 800; color: var(--primary-color, var(--action)); font-variant-numeric: tabular-nums; }
       .previa-none { font-size: 0.875rem; font-style: italic; color: var(--red-600, #dc2626); }
 
       .banner-oportunidad-volumen {
-        display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
-        padding: 0.6rem 0.85rem; background: #eff6ff; border: 1.5px dashed #3b82f6;
-        border-radius: 8px; font-size: 0.8125rem; color: #1e40af; margin: 0.5rem 0; flex-wrap: wrap;
+        display: flex; align-items: center; gap: 0.5rem;
+        padding: 0.3rem 0.4rem 0.3rem 0.6rem; background: var(--ember-soft, rgba(248, 180, 0, 0.12));
+        border: 1px solid var(--ember-border, rgba(240, 90, 40, 0.3));
+        border-radius: 6px; font-size: 0.75rem; color: var(--text-main);
       }
       .b-vol-left { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 280px; }
-      .b-vol-icon { font-size: 1.15rem; color: #2563eb; flex-shrink: 0; }
-      .b-vol-icon-ok { font-size: 1.25rem; color: #059669; flex-shrink: 0; }
+      .b-vol-icon { font-size: 0.875rem; color: var(--action); flex-shrink: 0; }
+      .b-vol-icon-ok { font-size: 0.875rem; color: #059669; flex-shrink: 0; }
       .b-vol-text { display: flex; flex-direction: column; gap: 0.15rem; }
       .b-vol-title { font-weight: 700; color: #1e3a8a; }
-      .b-vol-desc { font-size: 0.75rem; color: #1e40af; }
+      .b-vol-desc { font-size: 0.75rem; flex: 1; }
       .strikethrough { text-decoration: line-through; opacity: 0.65; margin: 0 0.2rem; }
       .btn-aplicar-volumen {
-        background: #2563eb; color: #fff; border: 0; border-radius: 6px;
-        padding: 0.4rem 0.85rem; font-size: 0.75rem; font-weight: 700;
+        background: var(--action); color: #fff; border: 0; border-radius: 5px;
+        padding: 0.25rem 0.7rem; font-size: 0.75rem; font-weight: 700;
         cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
         box-shadow: 0 1px 2px rgba(0,0,0,0.08);
       }
-      .btn-aplicar-volumen:hover { background: #1d4ed8; }
+      .btn-aplicar-volumen:hover { background: var(--action-hover); }
 
       .banner-volumen-exito {
-        display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.85rem;
-        background: #ecfdf5; border: 1.5px solid #10b981; border-radius: 8px;
-        font-size: 0.8125rem; color: #065f46; margin: 0.5rem 0;
+        display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.6rem;
+        background: #ecfdf5; border: 1px solid #10b981; border-radius: 6px;
+        font-size: 0.75rem; color: #065f46;
       }
       .banner-volumen-exito .b-vol-title { color: #065f46; }
       .banner-volumen-exito .b-vol-desc { color: #047857; }
 
-      .unit-badge-mayoreo {
-        font-size: 0.6875rem; font-weight: 700; color: #047857; background: #d1fae5;
-        padding: 2px 6px; border-radius: 4px; display: inline-block; margin-top: 0.2rem;
-      }
 
       .banner-volumen {
         display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.6rem;
         background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);
-        border-radius: 6px; font-size: 0.75rem; color: var(--green-700, #15803d); margin: 0.4rem 0;
+        border-radius: 6px; font-size: 0.75rem; color: var(--green-700, #15803d);
       }
       .banner-regalo {
         display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.6rem;
         background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3);
-        border-radius: 6px; font-size: 0.75rem; color: #1d4ed8; margin: 0.4rem 0;
+        border-radius: 6px; font-size: 0.75rem; color: #1d4ed8;
       }
       .p-step-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; margin-top: 0.2rem; flex-wrap: wrap; }
       .step-tag { font-weight: 700; color: var(--text-main); }
       .step-detail { color: var(--text-muted); }
       .step-delta { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--green-700, #15803d); }
-      .p-why-bad { color: var(--red-600, #dc2626); font-size: 0.75rem; margin: 0.3rem 0 0; }
+      .p-why-bad { color: var(--red-600, #dc2626); font-size: 0.75rem; margin: 0; }
+      .calc-details { font-size: 0.75rem; }
+      .calc-details summary { cursor: pointer; color: var(--text-muted); font-weight: 600; width: fit-content; }
+      .calc-details summary:hover { color: var(--text-main); }
 
-      .p-unit-cell { display: flex; flex-direction: column; align-items: flex-end; }
       .p-unit-main { font-weight: 700; }
-      .p-unit-sub-breakdown { font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; }
+      .p-unit-sub-breakdown { font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; margin-left: 0.35rem; }
       .source-tag-volumen { background: #dcfce7 !important; color: #15803d !important; font-weight: 700; }
 
       /* Bandeja de productos agregados */
-      .empty-bandeja { padding: 2rem 1rem; text-align: center; color: var(--text-muted); }
-      .empty-icon { font-size: 2rem; margin-bottom: 0.4rem; opacity: 0.5; }
+      .empty-bandeja { padding: 1rem; text-align: center; color: var(--text-muted); }
+      .empty-icon { font-size: 1.4rem; margin-bottom: 0.25rem; opacity: 0.5; }
       .empty-title { font-weight: 600; font-size: 0.95rem; margin: 0 0 0.2rem; color: var(--text-main); }
       .empty-hint { font-size: 0.8125rem; margin: 0; }
 
       .table-wrap { overflow-x: auto; width: 100%; }
       .bandeja-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
       .bandeja-table th {
-        background: var(--neutral-50, #f8fafc); padding: 0.5rem 0.65rem; text-align: left;
+        background: var(--neutral-50, #f8fafc); padding: 0.35rem 0.6rem; text-align: left;
         border-bottom: 1px solid var(--border-color); font-size: 0.75rem; color: var(--text-muted);
         font-weight: 600; white-space: nowrap;
       }
-      .bandeja-table td { padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+      .bandeja-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
       .num { text-align: right; }
       .mono { font-family: var(--font-mono, monospace); font-size: 0.75rem; color: var(--text-muted); }
       .font-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
       .bold-num { font-weight: 700; color: var(--primary-color, var(--action)); }
 
-      .item-name { font-size: 0.875rem; display: block; }
-      .item-sub { font-size: 0.7rem; color: var(--text-muted); display: flex; gap: 0.4rem; margin-top: 0.1rem; }
-      .item-sku { font-family: var(--font-mono, monospace); font-weight: 600; }
-      .gift-tag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; color: #1d4ed8; margin-top: 0.2rem; font-weight: 600; }
+      /* Bandeja de UNA línea por renglón: nombre y SKU juntos; el EAN va en el title */
+      .item-cell { white-space: nowrap; max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
+      .item-name { font-size: 0.8125rem; }
+      .item-sku { font-family: var(--font-mono, monospace); font-weight: 600; font-size: 0.7rem; color: var(--text-muted); margin-left: 0.4rem; }
+      .tag-no-casado {
+        font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+        color: #a16207; background: #fef3c7; border-radius: 4px; padding: 1px 5px; margin-right: 0.4rem;
+      }
+      .row-no-casado td { background: #fffbeb; }
+      .gift-tag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; color: #1d4ed8; margin-left: 0.4rem; font-weight: 600; }
 
       .pres-badge { font-weight: 700; background: var(--neutral-100, #f1f5f9); padding: 1px 5px; border-radius: 4px; font-size: 0.75rem; }
       .pres-factor { font-size: 0.7rem; color: var(--text-muted); margin-left: 0.25rem; }
@@ -1187,7 +1209,11 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.875rem;
       }
       .btn-table-step:hover { background: var(--neutral-100, #f1f5f9); border-radius: 4px; }
-      .table-qty-val { min-width: 24px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .table-qty-val {
+        width: 3rem; border: 0; background: transparent; text-align: center; padding: 0;
+        font: inherit; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-main);
+      }
+      .table-qty-val:focus { outline: 2px solid var(--action-ring, rgba(240, 90, 40, 0.3)); border-radius: 3px; }
 
       .source-tag { font-size: 0.7rem; background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 4px; color: var(--text-muted); white-space: nowrap; }
       .btn-quitar {
@@ -1197,16 +1223,38 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .btn-quitar:hover { background: rgba(220, 38, 38, 0.1); }
 
       /* Resumen totales bandeja */
-      .bandeja-totales {
-        border-top: 2px solid var(--border-color); padding: 0.75rem 1rem; display: flex;
-        flex-direction: column; gap: 0.25rem; align-items: flex-end; background: var(--neutral-50, #f8fafc);
-      }
-      .tot-row { display: flex; gap: 1.5rem; font-size: 0.8125rem; color: var(--text-muted); }
-      .tot-row b { color: var(--text-main); font-variant-numeric: tabular-nums; min-width: 7rem; text-align: right; }
+      .rail-card { display: flex; flex-direction: column; }
+      .rail-totales { padding: 0.65rem 0.75rem 0.5rem; display: flex; flex-direction: column; gap: 0.15rem; }
+      .tot-row { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.8125rem; color: var(--text-muted); }
+      .tot-row b { color: var(--text-main); font-variant-numeric: tabular-nums; text-align: right; }
       .tot-dto { color: var(--green-700, #15803d); }
       .tot-dto b { color: var(--green-700, #15803d); }
-      .tot-final { font-size: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.35rem; margin-top: 0.15rem; }
-      .tot-final b { font-weight: 800; font-size: 1.15rem; color: var(--primary-color, var(--action)); }
+      .tot-final { font-size: 0.875rem; font-weight: 700; color: var(--text-main); border-top: 1px solid var(--border-color); padding-top: 0.35rem; margin-top: 0.2rem; align-items: baseline; }
+      .tot-final b { font-weight: 800; font-size: 1.3rem; color: var(--primary-color, var(--action)); }
+      .rail-cierre { padding: 0 0.75rem 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; }
+      .mensaje-details { font-size: 0.75rem; }
+      .mensaje-details summary { cursor: pointer; color: var(--text-muted); }
+      .mensaje-details textarea { margin-top: 0.35rem; }
+      .rail-actions { padding: 0.5rem 0.75rem 0.65rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 0.4rem; }
+      .btn-crear { width: 100%; justify-content: center; font-weight: 700; }
+      .rail-export { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+      .rail-export .btn-export { justify-content: center; }
+      .rail-cancel { text-align: center; font-size: 0.75rem; color: var(--text-muted); }
+      .rail-cancel:hover { color: var(--text-main); }
+      .rail-cancel.is-disabled { pointer-events: none; opacity: 0.5; }
+
+      /* Asistente IA: lugar reservado. Ember = IA (DESIGN.md), borde punteado = "todavía no". */
+      .ia-placeholder {
+        border: 1px dashed var(--ember-border, rgba(240, 90, 40, 0.3)); border-radius: 8px; padding: 0.7rem 0.75rem;
+        background: var(--ember-soft, rgba(248, 180, 0, 0.12));
+      }
+      .ia-placeholder h3 { margin: 0 0 0.25rem; font-size: 0.8125rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; }
+      .ia-placeholder h3 i { color: var(--action); }
+      .ia-placeholder p { margin: 0; font-size: 0.75rem; color: var(--text-muted); }
+      .ia-tag {
+        display: inline-block; margin-top: 0.45rem; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.05em;
+        text-transform: uppercase; color: var(--action); background: var(--card-bg); border-radius: 9999px; padding: 1px 8px;
+      }
 
       .input {
         width: 100%; padding: 0.35rem 0.6rem; box-sizing: border-box; border: 1px solid var(--border-color);
@@ -1215,10 +1263,6 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .input:focus-visible { outline: 2px solid var(--primary-color, var(--action)); outline-offset: 1px; }
       .textarea { min-height: 52px; resize: vertical; font-family: inherit; }
 
-      .card-actions {
-        display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 0.6rem; padding: 0.75rem 1rem;
-        border-top: 1px solid var(--border-color);
-      }
       .btn-export { font-weight: 600; }
       .btn-export-xlsx { border-color: #16a34a !important; color: #16a34a !important; }
       .btn-export-xlsx:hover:not(:disabled) { background: rgba(22, 163, 74, 0.08) !important; }
@@ -1230,6 +1274,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
 })
 export class TeleventaQuoteNewComponent implements OnInit {
   private readonly svc = inject(QuotesService);
+  private readonly injector = inject(Injector);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
 
@@ -1279,6 +1325,19 @@ export class TeleventaQuoteNewComponent implements OnInit {
   cantidadArticulo = signal<number>(1);
   cotizandoArticulo = signal(false);
   previaArticulo = signal<PricedLine | null>(null);
+  /** El buscador de artículo: al agregar a la bandeja el cursor vuelve acá para el siguiente. */
+  private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
+  private focoSinAbrirCatalogo = false;
+  /** El campo de cantidad de la franja: recibe el cursor al elegir artículo (dictado sin mouse). */
+  private readonly cantidadInput = viewChild<ElementRef<HTMLInputElement>>('cantidadInput');
+  /** Renglón resaltado de la lista de artículos (↑/↓ + Enter). */
+  readonly resaltado = signal(0);
+  /** Término con el que se pidió la lista que hoy se ve: Enter no elige de una lista vieja. */
+  private terminoDeResultados = '';
+  /** Enter se presionó antes de que llegara la lista del término actual: elegir al llegar. */
+  private elegirAlLlegarResultados = false;
+  /** Agregar se pidió antes de que llegara el precio de la cantidad/unidad actual. */
+  private agregarAlLlegarPrecio = false;
 
   // ── La Bandeja de productos de la cotización ───────────────────────────────
   bandeja = signal<ItemBandeja[]>([]);
@@ -1362,8 +1421,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
         debounceTime(250),
         switchMap(() => {
           const suc = this.sucursal() || '01';
+          const termino = this.terminoArticulo.trim();
           this.buscandoArticulo.set(true);
-          return this.svc.searchCatalog(suc, this.terminoArticulo.trim(), 50).pipe(
+          return this.svc.searchCatalog(suc, termino, 50).pipe(
             catchError((err) => {
               this.toast.add({
                 severity: err?.status === 403 ? 'warn' : 'error',
@@ -1372,24 +1432,35 @@ export class TeleventaQuoteNewComponent implements OnInit {
               });
               return of([] as QuoteCatalogRow[]);
             }),
+            map((rows) => ({ termino, rows })),
           );
         }),
       )
-      .subscribe((rows) => {
-        // Orden alfabético por nombre del producto tal como solicita el PM
-        const ordenados = [...rows].sort((a, b) => {
-          const nomA = (a.name || a.sku).trim();
-          const nomB = (b.name || b.sku).trim();
-          return nomA.localeCompare(nomB, 'es', { sensitivity: 'base' });
-        });
+      .subscribe(({ termino, rows }) => {
+        // El ORDEN lo pone el servidor: aciertos exactos y después lo más vendido en la sucursal
+        // (COT.16, aprobado 2026-10-01). Antes aquí se re-ordenaba alfabético (pedido del PM) y
+        // el producto buscado quedaba en el lugar 4–8, o 23 de 50 con "cimarron".
+        const ordenados = rows;
+        this.terminoDeResultados = termino;
         this.resultadosArticulos.set(ordenados);
+        this.resaltado.set(0);
         this.buscandoArticulo.set(false);
-        this.catalogoAbierto.set(true);
+        // Con un artículo ya elegido la lista NO se reabre: una respuesta que llega tarde la
+        // abría encima de la franja de cantidad y tapaba el campo donde se está tecleando.
+        this.catalogoAbierto.set(!this.articuloElegido());
 
         // Si es escaneo exacto de código de barras o SKU
         const t = this.terminoArticulo.trim();
         if (ordenados.length === 1 && t && (ordenados[0].sku.toUpperCase() === t.toUpperCase() || ordenados[0].barcode === t)) {
+          this.elegirAlLlegarResultados = false;
           this.elegirArticulo(ordenados[0]);
+          return;
+        }
+        // Enter se presionó antes de que llegara esta lista: se elige ahora su primer renglón,
+        // sólo si la lista es la del término que está escrito (si siguió tecleando, se espera).
+        if (this.elegirAlLlegarResultados && termino === t) {
+          this.elegirAlLlegarResultados = false;
+          if (ordenados.length) this.elegirArticulo(ordenados[0]);
         }
       });
 
@@ -1424,6 +1495,18 @@ export class TeleventaQuoteNewComponent implements OnInit {
       .subscribe((p) => {
         this.previaArticulo.set(p);
         this.cotizandoArticulo.set(false);
+        // Se presionó Enter / Agregar antes de que llegara el precio de la cantidad tecleada.
+        // Sólo se agrega cuando llega la previa de lo que HOY está en la franja: si llega una
+        // vieja (la de la cantidad anterior) se sigue esperando — antes se apagaba la espera con
+        // esa previa vieja y el artículo nunca entraba (COT.16, visto en la prueba de dictado).
+        if (this.agregarAlLlegarPrecio) {
+          if (!p) {
+            this.agregarAlLlegarPrecio = false; // el motor no respondió: no se agrega a ciegas
+          } else if (this.previaCorresponde()) {
+            this.agregarAlLlegarPrecio = false;
+            this.agregarABandeja();
+          }
+        }
       });
 
     // 4. Carga reactiva de vendedores de la sucursal activa
@@ -1450,6 +1533,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   elegirCliente(c: WholesaleCustomer): void {
+    // Elegido el cliente, el cursor pasa al buscador de artículo: en los 3 pedidos dictados de
+    // la simulación había que dar un clic extra antes de la primera partida (COT.16).
+    this.volverAlBuscador();
     this.cliente.set(c);
     this.resultadosClientes.set([]);
     this.terminoCliente = '';
@@ -1528,12 +1614,20 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   // ── Acciones de Captura Manual ──────────────────────────────────────────────
   onTerminoArticulo(_v: string): void {
+    // Una búsqueda nueva cancela lo que estaba pendiente del artículo anterior: si quedara
+    // vivo, se aplicaría al SIGUIENTE artículo (se vio: un gansito de 1 que nadie pidió).
+    this.agregarAlLlegarPrecio = false;
+    this.elegirAlLlegarResultados = false;
+    // Lo que se ve ya no es la lista de lo tecleado: Enter espera la nueva. Sin esto, repetir la
+    // MISMA búsqueda ("gansito mini" dos veces) dejaba a Enter frente a una lista vacía.
+    this.terminoDeResultados = '';
     this.articuloElegido.set(null);
     this.previaArticulo.set(null);
     this.busquedaArticulo$.next();
   }
 
   onFocoArticulo(): void {
+    if (this.focoSinAbrirCatalogo) return;
     this.catalogoAbierto.set(true);
     if (this.resultadosArticulos().length === 0) {
       this.busquedaArticulo$.next();
@@ -1541,17 +1635,51 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   elegirArticulo(p: QuoteCatalogRow): void {
+    this.agregarAlLlegarPrecio = false; // lo pendiente era del artículo anterior
     this.articuloElegido.set(p);
     this.catalogoAbierto.set(false);
     this.cantidadArticulo.set(1);
     this.rung.set('base');
     this.previa$.next();
+    // Dictado sin mouse (COT.16): elegido el artículo, el cursor pasa a la CANTIDAD (con el 1
+    // seleccionado para sobrescribirlo). Enter ahí agrega y regresa al buscador.
+    afterNextRender(() => this.cantidadInput()?.nativeElement.focus(), { injector: this.injector });
   }
 
   limpiarArticulo(): void {
+    this.agregarAlLlegarPrecio = false;
     this.articuloElegido.set(null);
     this.previaArticulo.set(null);
     this.catalogoAbierto.set(true);
+  }
+
+  /** ↑/↓ en el buscador: mueve el resaltado de la lista sin soltar el teclado. */
+  moverResaltado(delta: number): void {
+    const n = this.resultadosArticulos().length;
+    if (!n) return;
+    this.catalogoAbierto.set(true);
+    this.resaltado.set(Math.min(n - 1, Math.max(0, this.resaltado() + delta)));
+    afterNextRender(
+      () => this.host.nativeElement.querySelector('.cat-row-active')?.scrollIntoView({ block: 'nearest' }),
+      { injector: this.injector },
+    );
+  }
+
+  /**
+   * Enter en el buscador: elige el resaltado. Si la lista todavía es la de una búsqueda ANTERIOR
+   * (se tecleó y se presionó Enter antes de que respondiera el servidor), espera la nueva y
+   * elige su primer renglón — elegir de la lista vieja metería otro producto en el pedido.
+   */
+  elegirResaltado(): void {
+    const t = this.terminoArticulo.trim();
+    if (!t) return;
+    if (this.buscandoArticulo() || this.terminoDeResultados !== t) {
+      this.elegirAlLlegarResultados = true;
+      return;
+    }
+    const r = this.resultadosArticulos();
+    if (!r.length) return;
+    this.elegirArticulo(r[this.resaltado()] ?? r[0]);
   }
 
   setRung(r: Rung): void {
@@ -1570,17 +1698,29 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.previa$.next();
   }
 
-  /** Nombre de la unidad mayor del artículo: Caja, Bulto o Cubeta, según lo declara el ERP. */
-  mayor(e: QuoteCatalogRow | null): string {
-    return nombreUnidadMayor(e?.box_label);
+  /** Cantidad tecleada en la franja. Vacío o no numérico = se conserva la anterior. */
+  onCantidadTecleada(valor: string): void {
+    const n = parseInt(String(valor).replace(/\D/g, ''), 10);
+    if (!Number.isFinite(n) || n < 1) return;
+    if (n === this.cantidadArticulo()) return;
+    this.cantidadArticulo.set(n);
+    this.previa$.next();
+  }
+
+  /** Unidades del artículo de MENOR a MAYOR (Pieza 1 · Paquete 10 · Caja 140). */
+  opcionesUnidad(e: QuoteCatalogRow): OpcionUnidad[] {
+    return opcionesUnidad(e);
+  }
+
+  /** Abreviatura de la unidad base para el desglose ("12 PAQ $41.82"), nunca "PZS" fijo. */
+  abrevBase(e: QuoteCatalogRow | null): string {
+    return abrevUnidadBase(e?.unit_base, !!e?.sold_by_kg);
   }
 
   labelUnidadActiva(): string {
-    const r = this.rung();
     const e = this.articuloElegido();
-    if (r === 'box') return this.mayor(e);
-    if (r === 'pack') return 'Paquete';
-    return e?.sold_by_kg ? 'KG' : 'Pieza';
+    if (!e) return 'Pieza';
+    return opcionesUnidad(e).find((o) => o.rung === this.rung())?.titulo ?? nombreUnidadBase(e.unit_base, e.sold_by_kg);
   }
 
   esDescuentoVolumen(p: PricedLine): boolean {
@@ -1596,37 +1736,78 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   // ── Bandeja de Cotización ───────────────────────────────────────────────────
-  agregarABandeja(): void {
+  /**
+   * Agrega el artículo con la cantidad y unidad de la franja.
+   *
+   * ⚠️ Sólo con un precio que CORRESPONDA a esa cantidad y unidad: con Enter se puede agregar
+   * antes de que llegue la previa de la cantidad recién tecleada, y entonces se guardaría el
+   * precio (o la cantidad) anterior. En ese caso se espera la previa y se agrega al llegar.
+   *
+   * Si el mismo artículo en la misma unidad YA está en la bandeja, se SUMA a ese renglón en vez
+   * de crear otro: "2 cajas de gansito" + "otras 2" eran dos renglones a $501.80 cuando 4 cajas
+   * ya tienen precio de mayoreo de $494.99 — el cliente pagaba de más sin que nadie lo viera.
+   */
+  /** La previa que se ve corresponde al artículo, la cantidad y la unidad que HOY están en la franja. */
+  private previaCorresponde(): boolean {
     const art = this.articuloElegido();
     const prev = this.previaArticulo();
-    if (!art || !prev || prev.unit_price === null) return;
+    return (
+      !!art && !!prev && !this.cotizandoArticulo() &&
+      prev.sku === art.sku && Number(prev.quantity) === this.cantidadArticulo() && prev.rung === this.rung()
+    );
+  }
 
+  agregarABandeja(): void {
+    const art = this.articuloElegido();
+    if (!art) return;
     const qty = this.cantidadArticulo();
-    const factorNum = this.rung() === 'box' ? (art.box_size || null) : (this.rung() === 'pack' ? (art.pack_size || null) : null);
+    const rung = this.rung();
+    if (!this.previaCorresponde()) {
+      // Se agrega en cuanto llegue la previa de ESTA cantidad/unidad (ver la suscripción).
+      this.agregarAlLlegarPrecio = true;
+      this.previa$.next();
+      return;
+    }
+    const prev = this.previaArticulo();
+    if (prev!.unit_price === null) return;
 
-    const item: ItemBandeja = {
-      id: `${art.sku}_${this.rung()}_${Date.now()}`,
-      sku: art.sku,
-      name: art.name || art.sku,
-      barcode: art.barcode,
-      content: art.content,
-      rung: this.rung(),
-      unit_label: prev.unit_label || this.labelUnidadActiva(),
-      factor: factorNum,
-      quantity: qty,
-      unit_price: prev.unit_price,
-      line_total: prev.line_total ?? (prev.unit_price * qty),
-      price_source: prev.price_source,
-      free_goods: prev.free_goods ? { sku: prev.free_goods.sku, quantity: prev.free_goods.quantity } : null,
-    };
-
-    this.bandeja.update((items) => [...items, item]);
-
-    this.toast.add({
-      severity: 'success',
-      summary: 'Agregado a la bandeja',
-      detail: `${qty} ${item.unit_label}${qty > 1 ? 's' : ''} de ${item.name}`,
-    });
+    const existente = this.bandeja().find((it) => it.sku === art.sku && it.rung === rung);
+    if (existente) {
+      const total = existente.quantity + qty;
+      this.cambiarCantidadBandeja(existente.id, total);
+      const n = this.bandeja().indexOf(existente) + 1;
+      this.toast.add({
+        severity: 'info',
+        summary: 'Sumado a una partida que ya estaba',
+        detail: `${art.name || art.sku}: renglón ${n} ahora con ${total} ${prev!.unit_label || this.labelUnidadActiva()} (se recalcula el precio).`,
+      });
+    } else {
+      const factorNum = rung === 'box' ? (art.box_size || null) : (rung === 'pack' ? (art.pack_size || null) : null);
+      const item: ItemBandeja = {
+        id: `${art.sku}_${rung}_${Date.now()}`,
+        sku: art.sku,
+        name: art.name || art.sku,
+        barcode: art.barcode,
+        content: art.content,
+        rung,
+        unit_label: prev!.unit_label || this.labelUnidadActiva(),
+        base_unit: abrevUnidadBase(art.unit_base, art.sold_by_kg),
+        // La unidad del MEDIO sólo existe dentro de una unidad mayor (COT.17).
+        pack_size: rung === 'box' ? paqueteDeCaja(factorNum, art.pack_size) : null,
+        factor: factorNum,
+        quantity: qty,
+        unit_price: prev!.unit_price,
+        line_total: prev!.line_total ?? (prev!.unit_price! * qty),
+        price_source: prev!.price_source,
+        free_goods: prev!.free_goods ? { sku: prev!.free_goods.sku, quantity: prev!.free_goods.quantity } : null,
+      };
+      this.bandeja.update((items) => [...items, item]);
+      this.toast.add({
+        severity: 'success',
+        summary: 'Agregado a la bandeja',
+        detail: `${qty} ${item.unit_label} de ${item.name}`,
+      });
+    }
 
     // Limpia para agregar el siguiente artículo fluidamente
     this.articuloElegido.set(null);
@@ -1636,23 +1817,103 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.catalogoAbierto.set(false);
     this.cantidadArticulo.set(1);
     this.rung.set('base');
+    this.volverAlBuscador();
+  }
+
+  /**
+   * Lo que el cliente pide y no manejamos (o no se encontró): renglón SIN casar, sin precio. Viaja
+   * con la cotización como demanda (`requested_text`) en vez de perderse (COT.16).
+   */
+  agregarNoManejado(): void {
+    const texto = this.terminoArticulo.trim();
+    if (!texto) return;
+    const item: ItemBandeja = {
+      id: `nc_${Date.now()}`,
+      sku: '',
+      name: texto,
+      requested_text: texto,
+      barcode: null,
+      content: null,
+      rung: 'base',
+      unit_label: '',
+      base_unit: null,
+      pack_size: null,
+      factor: null,
+      quantity: 1,
+      unit_price: null,
+      line_total: 0,
+      price_source: 'unknown',
+      free_goods: null,
+    };
+    this.bandeja.update((items) => [...items, item]);
+    this.toast.add({ severity: 'info', summary: 'Anotado como no manejado', detail: `"${texto}" queda en la cotización sin precio.` });
+    this.terminoArticulo = '';
+    this.resultadosArticulos.set([]);
+    this.catalogoAbierto.set(false);
+    this.volverAlBuscador();
+  }
+
+  /**
+   * El cursor vuelve al buscador para escanear/escribir el siguiente sin tocar el mouse. Sin
+   * abrir la lista: el foco programático no es "quiero ver el catálogo", y la lista taparía la
+   * bandeja recién actualizada. Al teclear se abre sola (búsqueda).
+   */
+  private volverAlBuscador(): void {
+    this.focoSinAbrirCatalogo = true;
+    afterNextRender(
+      () => {
+        this.buscadorArticulo()?.nativeElement.focus();
+        this.focoSinAbrirCatalogo = false;
+      },
+      { injector: this.injector },
+    );
   }
 
   ajustarCantidadBandeja(item: ItemBandeja, delta: number): void {
-    const nuevaQty = Math.max(1, item.quantity + delta);
-    if (nuevaQty === item.quantity) return;
+    // Se parte de la cantidad ACTUAL del renglón, no de la que tenía cuando se pintó el botón:
+    // con clics rápidos, 4 × "+" sobre 8 dejaban 9 (cada clic veía el 8) — COT.16.
+    const actual = this.bandeja().find((it) => it.id === item.id);
+    if (!actual) return;
+    this.cambiarCantidadBandeja(item.id, actual.quantity + delta);
+  }
 
-    // Recalcula precio preview para la nueva cantidad y actualiza la bandeja
+  /** Cantidad tecleada en la bandeja ("mejor que sean 12"). */
+  fijarCantidadBandeja(item: ItemBandeja, valor: string): void {
+    const n = parseInt(String(valor).replace(/\D/g, ''), 10);
+    if (!Number.isFinite(n) || n < 1) {
+      // Vacío o inválido: se vuelve a pintar la cantidad que sí tiene el renglón.
+      this.bandeja.update((items) => items.map((it) => (it.id === item.id ? { ...it } : it)));
+      return;
+    }
+    this.cambiarCantidadBandeja(item.id, n);
+  }
+
+  /**
+   * Cambia la cantidad de un renglón y lo vuelve a preciar (el volumen puede cambiar el precio).
+   * La cantidad se aplica AL MOMENTO; la respuesta del precio sólo se aplica si el renglón
+   * sigue con esa cantidad — si llegan fuera de orden, la de un clic anterior no pisa la última.
+   */
+  private cambiarCantidadBandeja(id: string, cantidad: number): void {
+    const nuevaQty = Math.max(1, Math.floor(cantidad));
+    const actual = this.bandeja().find((it) => it.id === id);
+    if (!actual || nuevaQty === actual.quantity) return;
+
+    this.bandeja.update((items) =>
+      items.map((it) =>
+        it.id === id ? { ...it, quantity: nuevaQty, line_total: it.unit_price !== null ? it.unit_price * nuevaQty : 0 } : it,
+      ),
+    );
+    if (!actual.sku) return; // renglón no manejado: no hay precio que recalcular
+
     this.svc
-      .pricePreview({ branch: this.sucursal() || '01', sku: item.sku, quantity: nuevaQty, rung: item.rung })
+      .pricePreview({ branch: this.sucursal() || '01', sku: actual.sku, quantity: nuevaQty, rung: actual.rung })
       .subscribe({
         next: (p) => {
           this.bandeja.update((items) =>
             items.map((it) => {
-              if (it.id !== item.id) return it;
+              if (it.id !== id || it.quantity !== nuevaQty) return it;
               return {
                 ...it,
-                quantity: nuevaQty,
                 unit_price: p.unit_price,
                 line_total: p.line_total ?? ((p.unit_price || 0) * nuevaQty),
                 price_source: p.price_source,
@@ -1662,10 +1923,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
           );
         },
         error: () => {
-          // Si falla preview de red, al menos ajusta la cantidad con el unit price actual
-          this.bandeja.update((items) =>
-            items.map((it) => (it.id === item.id ? { ...it, quantity: nuevaQty, line_total: (it.unit_price || 0) * nuevaQty } : it)),
-          );
+          // Sin respuesta del motor: la cantidad ya quedó; el precio unitario es el anterior.
         },
       });
   }
@@ -1750,11 +2008,10 @@ export class TeleventaQuoteNewComponent implements OnInit {
           // 2. Agrega secuencialmente los renglones de la bandeja
           return from(items).pipe(
             concatMap((item) =>
-              this.svc.addLine(q.id, {
-                sku: item.sku,
-                quantity: item.quantity,
-                rung: item.rung,
-              }),
+              item.sku
+                ? this.svc.addLine(q.id, { sku: item.sku, quantity: item.quantity, rung: item.rung })
+                : // Renglón NO manejado: viaja como demanda (requested_text), sin SKU ni precio.
+                  this.svc.addLine(q.id, { requested_text: item.requested_text || item.name, quantity: item.quantity }),
             ),
             toArray(),
             map((results) => ({ quote: q, linesAdded: results.length })),
@@ -1799,6 +2056,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
     return n === null ? '—' : n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
   }
 
+  /** Precio de cada unidad menor dentro de la mayor: "$121.86/PAQ · $12.19/PZA" (COT.17). */
+  desgloseDe(item: ItemBandeja): PasoDesglose[] {
+    return item.unit_price === null ? [] : desglose(item.unit_price, item.factor, item.base_unit, item.pack_size);
+  }
+
   fuenteLabel(s: string): string {
     const m: Record<string, string> = {
       list: 'Lista',
@@ -1834,13 +2096,15 @@ export class TeleventaQuoteNewComponent implements OnInit {
     const branchName = sucursalObj?.name || `Sucursal ${sucursalCod}`;
 
     const items = this.bandeja().map((it) => ({
-      sku: it.sku,
-      name: it.name,
+      sku: it.sku || '—',
+      name: it.sku ? it.name : `NO MANEJADO: ${it.requested_text || it.name}`,
       barcode: it.barcode,
       content: it.content,
-      unit_label: it.unit_label,
+      unit_label: it.unit_label || '—',
       rung: it.rung,
       factor: it.factor,
+      base_unit: it.base_unit,
+      pack_size: it.pack_size,
       quantity: it.quantity,
       unit_price: it.unit_price,
       line_total: it.line_total,

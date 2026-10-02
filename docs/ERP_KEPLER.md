@@ -475,6 +475,41 @@ oficinas es afirmar que esa compra no existe. Lo mantiene
 `database/importers/kepler/detect-goods-receipt-duplicates.js`. La práctica arrancó en ene-2026 y
 viene subiendo: **55% de las recepciones de sucursal en ago-2026** ya tienen copia en oficinas.
 
+⭐⭐ **Y en el servidor de oficinas (`'00'`), `c12` dice DE QUÉ PLAZA es la orden de entrada**
+(decodificado 2026-10-01, `[DM.19]`). Es el **centro de compra**, y su catálogo es
+**`kepler_ods.kdxv`** (`c2` = código, `c3` = descripción). El ERP lo escribe con todas sus letras:
+
+| `c12` | `kdxv.c3` | plaza |
+|---|---|---|
+| `C-001` | COMPRA PROVEEDOR CEDIS | CEDIS (**el propio**) |
+| `C-002` | COMPRA PROVEEDOR PADRE HIDALGO | Padre Hidalgo (01) |
+| `C-003` | COMPRA PROVEEDOR 8ESQUINAS | 8 Esquinas (03) |
+| `C-004` | COMPRA PROVEEDOR LA PIEDAD ABS | La Piedad Abastos (02) |
+| `C-005` | COMPRA PROVEEDOR YURECUARO | Yurécuaro (04) |
+| `C-010` | COMPRA PROVEEDOR MORELIA ABAST | Morelia Abastos (08) |
+| `C-011` | COMPRA PROVEEDOR MORELIA MADER | Morelia Madero (07) |
+| `C-020` | COMPRA PROVEEDOR ZAMORA CANIND | Canindo (06) |
+| `C-021` | COMPRA PORVEEDOR ZAMORA CENTRO *(sic)* | Zamora Centro (05) |
+
+⚠️ **La misma columna significa otra cosa en otro doctype**: en el traspaso `U-D-41` y en la venta,
+`c12` es el **vendedor/cajero**. El decode de `kdm1` es **por doctype**, no por columna.
+
+⛔ **`kdxv` colisiona entre ramas**: `C-010` es *"MORELIA ABAST"* en la `00` y *"PADRE HIDALGO"* en
+la `01`, que lo reusó. **El join lleva `sucursal` siempre** — mismo modo de falla que los dos
+vocabularios de `kepler_doc_tipo`.
+
+⛔ **La serie numérica vieja (`001`…`012`) NO sirve para esto.** En la rama `00`, `001` se llama
+"CEDIS", pero de los 137 documentos que traen el segundo testigo **72 la contradicen** (pureza
+47%); y entre ramas tiene dos vocabularios enteros (`001` = "CEDIS" en una, "COMPRA E INSUMOS LA
+PIEDAD ABA" en ocho). La regla que discrimina es `c3 ILIKE 'COMPRA P%VEEDOR%'`, que de paso
+atrapa el typo del ERP.
+
+**Segundo testigo dentro del documento:** `c11` trae `<plaza>-<remisión del proveedor>` y concuerda
+con `c12` en **99.6%**. No es la serie del proveedor — el prefijo `30` abarca **108 proveedores
+distintos**. Cobertura: `c12` al 99.5% de los documentos, `c11` al 82%.
+
+Resolvedor: `analytics.v_erp_goods_receipt_origin` (ver `VERDAD_ABSOLUTA.md` §5).
+
 ---
 
 ### 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17)

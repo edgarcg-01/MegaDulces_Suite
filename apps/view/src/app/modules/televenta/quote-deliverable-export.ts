@@ -8,12 +8,13 @@
  *    "ESTO ES UNA COTIZACION, NO UNA VENTA, EFECTOS INFORMATIVOS PARA EL CLIENTE QUE SOLICITO LA INFORMACION"
  * 3. En productos de unidad mayor (CJA/Caja), cálculo del precio unitario de unidad menor
  *    posterior al precio unitario dentro del mismo cuadro:
- *    Ejemplo: PAL JUMBO CEREZA  CJA  1  $969.84 (12PZS 80.82)  969.84
+ *    Ejemplo: PAL JUMBO CEREZA  CJA  1  $969.84 (12 PAQ 80.82)  969.84
  * 4. Si incluye descuento, columna "Descuento" entre Cantidad y P. Unitario, con encabezados
  *    "P. Unitario Neto" e "Importe Neto" para que el cliente vea claramente el precio neto.
  */
 
 import type jsPDFType from 'jspdf';
+import { desglose } from './quote-units';
 
 export type JsPDFCtor = typeof jsPDFType;
 export type AutoTableFn = (doc: jsPDFType, options: Record<string, unknown>) => void;
@@ -26,6 +27,17 @@ export interface QuoteDeliverableItem {
   unit_label: string;
   rung?: string | null;
   factor?: number | null;
+  /**
+   * Abreviatura de la unidad BASE (PZA, PAQ, KG…) para el desglose "(12 PAQ $41.82)". Sin ella
+   * el papel decía "12PZS" también para un bulto de 20 KG (COT.16). Ausente = PZA, lo de antes.
+   */
+  base_unit?: string | null;
+  /**
+   * Unidades base del PAQUETE que va dentro de la unidad mayor (KINDER: 10 dentro de la caja de
+   * 140). Con él el desglose muestra también la unidad del medio: "(14 PAQ 121.86 · 140 PZA
+   * 12.19)" (COT.17). Sólo en renglones de unidad mayor; ausente = sin paquete, como antes.
+   */
+  pack_size?: number | null;
   quantity: number;
   unit_price: number | null;
   line_total: number;
@@ -136,6 +148,24 @@ export function formatDec(n: number | null | undefined): string {
 export function moneyFormat(n: number | null | undefined): string {
   const val = Number(n) || 0;
   return '$' + val.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Desglose de la unidad menor que acompaña al precio de una unidad mayor: "(12 PAQ 80.82)".
+ * La unidad es la BASE del producto (PAQ, KG, PZA…); antes era "PZS" fijo y un bulto de 20 KG
+ * salía como "(20PZS 56.50)" en el papel del cliente (COT.16). Sin unidad conocida → PZA.
+ *
+ * Con `packSize`, también la unidad del MEDIO, de mayor a menor: la caja de KINDER sale
+ * "(14 PAQ 121.86 · 140 PZA 12.19)" — antes se perdía el paquete (COT.17).
+ */
+export function etiquetaDesglose(
+  factor: number,
+  baseUnit: string | null | undefined,
+  precioMenor: number,
+  packSize?: number | null,
+): string {
+  const pasos = desglose(precioMenor * factor, factor, baseUnit, packSize);
+  return `(${pasos.map((p) => `${p.cantidad} ${p.unidad} ${formatDec(p.precio)}`).join(' · ')})`;
 }
 
 /**
@@ -425,7 +455,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
       if (unitNeto !== null) {
         if (isMayor && factor && factor > 1) {
           const menorNeto = unitNeto / factor;
-          pUnitarioLabel = `${moneyFormat(unitNeto)} (${factor}PZS ${formatDec(menorNeto)})`;
+          pUnitarioLabel = `${moneyFormat(unitNeto)} ${etiquetaDesglose(factor, it.base_unit, menorNeto, it.pack_size)}`;
         } else {
           pUnitarioLabel = moneyFormat(unitNeto);
         }
@@ -452,7 +482,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
       if (it.unit_price !== null) {
         if (isMayor && factor && factor > 1) {
           const menor = it.unit_price / factor;
-          pUnitarioLabel = `${moneyFormat(it.unit_price)} (${factor}PZS ${formatDec(menor)})`;
+          pUnitarioLabel = `${moneyFormat(it.unit_price)} ${etiquetaDesglose(factor, it.base_unit, menor, it.pack_size)}`;
         } else {
           pUnitarioLabel = moneyFormat(it.unit_price);
         }
@@ -790,7 +820,7 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
       if (unitNeto !== null) {
         if (isMayor && factor && factor > 1) {
           const menorNeto = unitNeto / factor;
-          pUnitarioLabel = `$${formatDec(unitNeto)} (${factor}PZS ${formatDec(menorNeto)})`;
+          pUnitarioLabel = `$${formatDec(unitNeto)} ${etiquetaDesglose(factor, it.base_unit, menorNeto, it.pack_size)}`;
         } else {
           pUnitarioLabel = `$${formatDec(unitNeto)}`;
         }
@@ -835,7 +865,7 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
       if (it.unit_price !== null) {
         if (isMayor && factor && factor > 1) {
           const menor = it.unit_price / factor;
-          pUnitarioLabel = `$${formatDec(it.unit_price)} (${factor}PZS ${formatDec(menor)})`;
+          pUnitarioLabel = `$${formatDec(it.unit_price)} ${etiquetaDesglose(factor, it.base_unit, menor, it.pack_size)}`;
         } else {
           pUnitarioLabel = `$${formatDec(it.unit_price)}`;
         }

@@ -2515,3 +2515,27 @@ canal distinto del que vigila).
 segundo sistema a operar a tiempo completo, y la disponibilidad que compraría es cero. El
 movimiento de mayor retorno para HA sigue siendo **VL.8 (UPS, red, respaldo)**: el riesgo medido
 es la corriente, y eso no lo arregla ningún scheduler.
+
+---
+
+## ADR-081 — Mesa de Servicio: el ticket ES la tarea, la prioridad se sugiere y se confirma, y el SLA primero mide
+
+**Estado:** propuesto 2026-10-01 (Fase MS). **Contexto.** Se pidió un sistema de tickets de servicio para que cualquier persona reporte problemas y necesidades, con prioridad (Baja/Media/Alta/Urgente), y que respete la estructura de la Suite. Medido antes de decidir: no existe nada de tickets de soporte (todo lo que dice "ticket" es de venta o caja y **TK ya está ocupada**); el espacio 9 "Sistemas, Servicios y Mantenimiento" está `planned` y sin entradas; el molde más cercano es `finance.recon_tasks` + `recon_task_messages`, con `assigned_by` en TEXT (no se une al padrón); `test-newdb-task-contract.js` **falla** ante toda tabla con `assigned_(to|by|at)` no declarada en el contrato de tarea; `identity.users` **no tiene email ni teléfono**; el worker —donde corren los crons en prod— **no tiene WebSocket**; y la Bitácora de Sistemas (Apps Script + Google Sheet) ya modela folio, etapa, prioridad, solicitante, medio `Ticket`, historial, asignado y tiempo.
+
+**Decisión.**
+
+1. **El ticket ES la tarea.** `servicedesk.requests` lleva `assigned_to/by/at` (con `assigned_by` **uuid**) y se declara en `FUENTES_TAREA`/`ADAPTADORES`: aparece en "A tu nombre" de Mi trabajo sin una segunda fila ni un segundo vocabulario. No se crea una "tarea del ticket" aparte.
+2. **Una cola (TI) hoy, modelo multi-cola desde el día uno.** `queues` + `categories` + membresía por responsabilidad. Sumar Mantenimiento u otra área es una fila, no un rediseño. Schema `servicedesk`, URLs `/service-desk/*`, sigla **MS**; **nunca** una tabla llamada `tickets` (colisiona con `commercial.route_tickets` y los tickets de venta).
+3. **La prioridad se SUGIERE y quien atiende la CONFIRMA.** Cuatro niveles (Baja/Media/Alta/Urgente). El solicitante declara *impacto* y *"me bloquea"*; el sistema sugiere; **sólo agente/coordinador fija Alta y Urgente**. Es lo que permite que **todos** reporten sin que todo llegue urgente.
+4. **El SLA primero MIDE.** Plazos por prioridad en `sla_policies` (tabla, no código), `en_espera` pausa el reloj, horario hábil L–S 8–19 MX. El escalamiento arranca **apagado** (`escalation_enabled=false`) ~30 días: `cash-count-sla` se retiró (SM.34) por estar mal calibrado, y un reloj sin calibrar entrena a ignorar la alarma.
+5. **Aviso por correo y WhatsApp, medido por ENTREGA.** `SERVICE_DESK_NOTIFIER_PORT` con tres adaptadores (campana, correo, WhatsApp-plantilla). Cada aviso queda en `notification_log`; **un aviso fallido no tumba el ticket pero se declara en pantalla**, no se dibuja como entregado. Lo originado en el **worker** (SLA, auto-cierre, resumen) sale por correo/WhatsApp y por un canal `app` que la campana recoge por poll, porque el worker no emite por WebSocket.
+6. **El permiso de reportar es una clave (`SERVICIO_REPORTAR`) repartida a todo rol con personas, pero NO es un destino del mapa.** Vive en un módulo sin `route` del árbol y se alcanza por un botón en el header, de modo que no rompe la auto-entrada de `/projects` de los roles de un solo destino. El espacio 9 sólo aparece para quien tiene `ATENDER`/`COORDINAR`.
+7. **Bitácora ↔ task: se PREPARA, no se ejecuta.** `work_log` (tiempo), `external_refs` y un `BITACORA_PORT` con adaptador no-op por defecto. El puente real al Apps Script (`medioSolicitud:'Ticket'`) y la unificación como sistema de registro son pasos posteriores, **con checkpoint y confirmación de Felipe** (el `Code_FINAL.gs` local no contiene el `doPost` del puente).
+
+**Se rechaza:** una tabla `tickets` o un schema de tickets de venta reutilizado; que el solicitante fije su propia prioridad; hacer visible el espacio 9 a todos (rompe la auto-entrada de un destino); escalar desde el día uno con plazos sin calibrar; copiar el histórico de la Bitácora (~515 filas que mezclan tareas propias con solicitudes) a la tabla nueva; **instalar `@socket.io/redis-emitter` dentro de esta fase** (es una decisión de infraestructura de ADR-080); y tocar el `Código.gs` de producción de la Bitácora sin el checkpoint de Felipe.
+
+**Consecuencias.** El ticket hereda gratis Mi trabajo, el veredicto de cola (`atrasada/se acumula/congelada`) y el reparto de permisos auditado por `test-newdb-permission-delivery`. Cuesta: una lib nueva (o un módulo en una existente — P3), columnas de contacto en `identity.users`, un room por usuario en `/alerts`, validación de adjuntos en el servidor, y activar el espacio 9 con sus specs. **Dependencias externas que bloquean el aviso en prod:** `SMTP_*` configurado (sin confirmar), plantilla de utilidad aprobada por Meta para WhatsApp (mismo bloqueo que OBS.5) y el destino del bucket de adjuntos (el README de prod lo lista "sin portar").
+
+**Hereda:** ADR-016 (el motor decide, el humano confirma; el LLM fuera del camino) · ADR-053 (el latido mide entrega, no intención) · ADR-054 (permiso = clave exacta; declarar no es entregar) · ADR-056 (lo que no se pudo medir se **declara**; un primitivo no cierra la fase hasta vivir en `libs/`) · ADR-061 (la landing se deriva del mapa de la suite) · ADR-080 (el worker no emite por WebSocket).
+
+Plan, capas y sprints en [`FASE_MS_MESA_DE_SERVICIO.md`](FASES/FASE_MS_MESA_DE_SERVICIO.md).

@@ -15,7 +15,8 @@ import { TreeTableModule } from 'primeng/treetable';
 import { ChartModule } from 'primeng/chart';
 import { TreeNode } from 'primeng/api';
 import {
-  ComercialService, IncomeGroupBy, IncomeParams, IncomeReport, IncomeRow, IncomeSources, IncomeTree, IncomeTreeNode,
+  ComercialService, IncomeGrain, IncomeGroupBy, IncomeParams, IncomeRecon, IncomeReport, IncomeRow, IncomeSources,
+  IncomeTree, IncomeTreeNode,
 } from '../../comercial/comercial.service';
 import { SALES_CANAL_ORDER, SALES_CANAL_SHORT, salesCanalLabel, type SalesCanal } from '@megadulces/contracts';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -215,10 +216,123 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
             <div class="in-empty">Cargando el cuadre…</div>
           }
         }
+
+        <!-- [IG.6] CONCILIACION — lo VENDIDO contra lo COBRADO, por sucursal.
+             Las dos columnas NO se obligan a cuadrar: la diferencia es plazo de credito, no
+             faltante. Y el traspaso interno (el CEDIS facturando a sus propias tiendas) se
+             separa en vez de sumarse al ingreso. -->
+        @if (view() === 'conciliacion') {
+          @if (recon(); as rc) {
+            <div class="in-grainbar">
+              <app-segmented [options]="grainOpts" [value]="grain()" (valueChange)="setGrain($event)" ariaLabel="Grano" />
+              @if (rc.totales.tiene_fecha_futura) {
+                <span class="in-warn">Hay documentos con fecha posterior a hoy — Kepler lo permite.</span>
+              }
+            </div>
+
+            <div class="card-premium card-flat in-bridge">
+              @for (b of rc.bridge; track b.key) {
+                <div class="in-bridge-item">
+                  <span class="in-bridge-label">{{ b.label }}</span>
+                  <span class="in-bridge-val">{{ b.monto === null ? 'NO MEDIDO' : money(b.monto) }}</span>
+                  <span class="in-bridge-note">{{ b.nota }}</span>
+                </div>
+              }
+            </div>
+
+            <div class="card-premium card-flat dt-scope">
+              <p-table [value]="rc.rows" [scrollable]="true" scrollHeight="flex"
+                       styleClass="p-datatable-sm in-table dt-stack" [rowHover]="true">
+                <ng-template #header>
+                  <tr>
+                    <th style="width:7.5rem">Periodo</th>
+                    <th>Sucursal</th>
+                    <th class="ta-r">Vendido a cliente</th>
+                    <th class="ta-r">Traspaso interno</th>
+                    <th class="ta-r">Sin catalogo</th>
+                    <th class="ta-r">Efectivo</th>
+                    <th class="ta-r">Banco</th>
+                    <th class="ta-r" style="width:5rem">Cobros</th>
+                    <th class="ta-r" style="width:6rem">Pagos casados</th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-r>
+                  <tr>
+                    <td class="mono dt-id" role="cell" data-label="Periodo">{{ r.periodo }}</td>
+                    <td class="strong" role="cell" data-label="Sucursal">{{ r.warehouse_name }}</td>
+                    <td class="ta-r strong dt-num" role="cell" data-label="Vendido a cliente">{{ money(r.vendido_externo) }}</td>
+                    <td class="ta-r dt-num" role="cell" data-label="Traspaso interno" [class.in-interno]="r.vendido_interno > 0">
+                      {{ r.vendido_interno > 0 ? money(r.vendido_interno) : '—' }}
+                    </td>
+                    <td class="ta-r muted dt-num" role="cell" data-label="Sin catalogo">{{ r.vendido_sin_catalogo > 0 ? money(r.vendido_sin_catalogo) : '—' }}</td>
+                    <td class="ta-r dt-num" role="cell" data-label="Efectivo">{{ r.cobrado_efectivo > 0 ? money(r.cobrado_efectivo) : '—' }}</td>
+                    <td class="ta-r dt-num" role="cell" data-label="Banco">{{ r.cobrado_banco > 0 ? money(r.cobrado_banco) : '—' }}</td>
+                    <td class="ta-r dt-num" role="cell" data-label="Cobros">{{ r.cobros || '—' }}</td>
+                    <td class="ta-r dt-num" role="cell" data-label="Pagos casados">
+                      {{ r.pagos_casados ? r.pagos_casados + ' / ' + r.facturas_casadas + ' fac.' : '—' }}
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template #footer>
+                  <tr class="in-tot">
+                    <td colspan="2" class="strong">Total</td>
+                    <td class="ta-r strong">{{ money(rc.totales.vendido_externo) }}</td>
+                    <td class="ta-r">{{ money(rc.totales.vendido_interno) }}</td>
+                    <td class="ta-r muted">{{ money(rc.totales.vendido_sin_catalogo) }}</td>
+                    <td class="ta-r">{{ money(rc.totales.cobrado_efectivo) }}</td>
+                    <td class="ta-r">{{ money(rc.totales.cobrado_banco) }}</td>
+                    <td class="ta-r">{{ rc.totales.cobros }}</td>
+                    <td class="ta-r">{{ rc.totales.pagos_casados }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </div>
+
+            <!-- Lo que esta pantalla NO puede medir va ABAJO del total que lo contiene, con su
+                 monto. Un hueco sin numero se lee como que no existe. -->
+            <div class="card-premium card-flat in-huecos">
+              <div class="in-huecos-t">Lo que queda fuera del ingreso, y por que</div>
+              @for (h of rc.huecos; track h.key) {
+                <div class="in-hueco">
+                  <span class="in-hueco-val" [class.in-nomedido]="h.monto === null">
+                    {{ h.monto === null ? 'NO MEDIDO' : money(h.monto) }}
+                  </span>
+                  <span class="in-hueco-lbl">{{ h.label }}</span>
+                  <span class="in-hueco-note">{{ h.nota }}</span>
+                </div>
+              }
+            </div>
+          } @else {
+            <div class="in-empty">Cargando la conciliación…</div>
+          }
+        }
       }
     </div>
   `,
   styles: [`
+    /* [IG.6] Conciliacion. Tokens de Operations: densidad alta, cero decoracion. */
+    .in-grainbar { display: flex; align-items: center; gap: 1rem; margin-bottom: .75rem; flex-wrap: wrap; }
+    .in-warn { font-size: .78rem; color: var(--warn-fg, #92400e); }
+    .in-bridge { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 1rem; padding: 0; }
+    .in-bridge-item { flex: 1 1 14rem; min-width: 14rem; padding: .85rem 1rem;
+      border-right: 1px solid var(--surface-border, #e7e5e4); display: flex; flex-direction: column; gap: .15rem; }
+    .in-bridge-item:last-child { border-right: 0; }
+    .in-bridge-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #78716c); }
+    .in-bridge-val { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .in-bridge-note { font-size: .72rem; color: var(--text-muted, #78716c); line-height: 1.3; }
+    .in-interno { color: var(--warn-fg, #92400e); font-variant-numeric: tabular-nums; }
+    .in-tot td { border-top: 2px solid var(--surface-border, #e7e5e4); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .in-huecos { margin-top: 1rem; padding: .9rem 1rem; }
+    .in-huecos-t { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--text-muted, #78716c); margin-bottom: .6rem; }
+    .in-hueco { display: grid; grid-template-columns: 9rem 18rem 1fr; gap: .75rem; align-items: baseline;
+      padding: .35rem 0; border-top: 1px solid var(--surface-border, #e7e5e4); }
+    .in-hueco:first-of-type { border-top: 0; }
+    .in-hueco-val { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .in-nomedido { color: var(--text-muted, #78716c); font-weight: 600; font-size: .8rem; }
+    .in-hueco-lbl { font-weight: 600; }
+    .in-hueco-note { font-size: .76rem; color: var(--text-muted, #78716c); line-height: 1.35; }
+    @media (max-width: 720px) { .in-hueco { grid-template-columns: 1fr; } }
     .in-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
     .in-field { display: flex; flex-direction: column; gap: .3rem; min-width: 11rem; }
     .in-field > label { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #78716c); }
@@ -255,6 +369,7 @@ export class FinanzasIngresosComponent {
   readonly viewOpts = [
     { label: 'Árbol', value: 'arbol' }, { label: 'Tabla', value: 'tabla' },
     { label: 'Tendencia', value: 'tendencia' }, { label: '¿Cuadra?', value: 'cuadre' },
+    { label: 'Conciliación', value: 'conciliacion' },
   ];
   readonly groupByOpts: Array<{ label: string; value: IncomeGroupBy }> = [
     { label: 'Canal', value: 'canal' }, { label: 'Plaza', value: 'plaza' },
@@ -268,7 +383,13 @@ export class FinanzasIngresosComponent {
   readonly sources = signal<IncomeSources | null>(null);
   readonly error = signal<string | null>(null);
   readonly loading = signal(false);
-  readonly view = signal<'arbol' | 'tabla' | 'tendencia' | 'cuadre'>('arbol');
+  readonly view = signal<'arbol' | 'tabla' | 'tendencia' | 'cuadre' | 'conciliacion'>('arbol');
+  // `[IG.6]` Conciliación: lo vendido contra lo cobrado, por sucursal.
+  readonly recon = signal<IncomeRecon | null>(null);
+  readonly grain = signal<IncomeGrain>('mes');
+  readonly grainOpts = [
+    { label: 'Día', value: 'dia' }, { label: 'Mes', value: 'mes' }, { label: 'Trimestre', value: 'trimestre' },
+  ];
   readonly groupBy = signal<IncomeGroupBy>('canal');
   readonly compare = signal(false);
 
@@ -358,7 +479,7 @@ export class FinanzasIngresosComponent {
     };
   }
 
-  private fresh = { report: false, tree: false, sources: false };
+  private fresh = { report: false, tree: false, sources: false, recon: false };
   private filterTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() { this.showView(); }
@@ -381,7 +502,7 @@ export class FinanzasIngresosComponent {
   }
   applyFilters() {
     if (this.filterTimer) { clearTimeout(this.filterTimer); this.filterTimer = null; }
-    this.fresh = { report: false, tree: false, sources: false };
+    this.fresh = { report: false, tree: false, sources: false, recon: false };
     this.showView();
   }
   reload() { this.error.set(null); this.applyFilters(); }
@@ -390,6 +511,7 @@ export class FinanzasIngresosComponent {
     if (!this.fresh.report) this.loadReport();
     if (this.view() === 'arbol' && !this.fresh.tree) this.loadTree();
     if (this.view() === 'cuadre' && !this.fresh.sources) this.loadSources();
+    if (this.view() === 'conciliacion' && !this.fresh.recon) this.loadRecon();
   }
 
   private params(extra: Partial<IncomeParams> = {}): IncomeParams {
@@ -408,6 +530,7 @@ export class FinanzasIngresosComponent {
   private reportSub?: Subscription;
   private treeSub?: Subscription;
   private sourcesSub?: Subscription;
+  private reconSub?: Subscription;
 
   private loadReport() {
     this.loading.set(true);
@@ -437,6 +560,22 @@ export class FinanzasIngresosComponent {
       .subscribe({
         next: (s) => { this.sources.set(s); this.fresh.sources = true; },
         error: () => { this.sources.set(null); this.error.set('No se pudo cargar el cuadre de fuentes.'); },
+      });
+  }
+
+  setGrain(g: string) {
+    this.grain.set(g as IncomeGrain);
+    this.fresh.recon = false;
+    this.loadRecon();
+  }
+
+  private loadRecon() {
+    this.reconSub?.unsubscribe();
+    this.reconSub = this.svc.incomeRecon({ ...this.params(), grain: this.grain() })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.recon.set(r); this.fresh.recon = true; },
+        error: () => { this.recon.set(null); this.error.set('No se pudo cargar la conciliación.'); },
       });
   }
 

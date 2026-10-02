@@ -15,7 +15,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
 
-API=http://127.0.0.1:8080
+API=http://127.0.0.1:30080
 PGH=127.0.0.1; PGP=5434; PGU=postgres; DB=railway
 fallas=0
 nomed=0
@@ -32,7 +32,19 @@ fi
 q() { psql -h $PGH -p $PGP -U $PGU -d $DB -At -q -c "$1" 2>/dev/null; }
 
 titulo "Contenedores"
-for c in pg-prod pg-rag prod-api prod-worker prod-portal prod-vendor prod-backup; do
+# ⛔ [K3S.25][K3S.28] `prod-portal`, `prod-vendor` y `prod-worker` SALIERON de esta lista: viven
+# en K3s desde el 2026-10-01 y sus contenedores están detenidos a propósito. Dejarlos acá
+# reportaba fallas rojas sobre un estado sano, que es cómo se aprende a ignorar el tablero.
+#
+# ⭐ Al worker NO alcanza con verlo "arriba": es el singleton de los 51 @Cron, y lo que importa
+# es que ENTREGUE. Su veredicto está en `analytics.cron_runs` — `ui_usage_flush` es su latido
+# más frecuente y es el único job_key que existe SÓLO en el API, sin ningún carril que lo
+# escriba también (verificado con grep sobre database/importers y ops/).
+#
+# ⚠️ Y el reverso importa igual: si un servicio vuelve a Compose, tiene que VOLVER a esta
+# línea. Un contenedor que nadie vigila es indistinguible de uno que no existe.
+# Los pods se verifican abajo, por su NodePort y pidiendo un recurso real.
+for c in pg-prod pg-rag prod-backup; do
   est=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$c" 2>/dev/null)
   case "$est" in
     healthy|running) ok "$c: $est" ;;
@@ -114,10 +126,21 @@ prod_n=$(grep -o '"total":[0-9]*' "$_tmp" 2>/dev/null | head -1 | cut -d: -f2)
 rm -f "$_tmp"
 prod_n=${prod_n:-0}
 [ "$prod_n" -ge 5000 ] && ok "/api/kp/precios-todos: $prod_n productos" || mal "/api/kp/precios-todos: $prod_n (se esperaban >= 5000)"
-for par in "portal:8081" "vendor:8082"; do
+# ⛔ [K3S.25] LOS PUERTOS CAMBIARON PORQUE CAMBIÓ EL MUNDO. `portal` y `vendor` viven en K3s
+# desde el 2026-10-01: el 8081/8082 de Docker está MUERTO y este bloque habría reportado dos
+# fallas sobre un estado sano — la misma clase de falso rojo que tenía el bloque de la ingesta.
+#
+# ⭐ Y no basta con cambiar el número: se pide además un RECURSO REAL (`ngsw.json`), no sólo
+# la raíz. Un nginx vivo sirviendo su página por defecto devuelve 200 igual.
+for par in "portal:30081" "vendor:30082"; do
   n=${par%%:*}; p=${par#*:}
   c=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "http://127.0.0.1:$p/" 2>/dev/null)
-  [ "$c" = 200 ] && ok "$n (:$p): HTTP 200" || mal "$n (:$p): HTTP $c"
+  g=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "http://127.0.0.1:$p/ngsw.json" 2>/dev/null)
+  if [ "$c" = 200 ] && [ "$g" = 200 ]; then
+    ok "$n (pod :$p): raíz 200 · ngsw.json 200"
+  else
+    mal "$n (pod :$p): raíz $c · ngsw.json $g"
+  fi
 done
 
 titulo "El respaldo"
@@ -131,9 +154,36 @@ fi
 nm "latido backup_prod — vive en prod, se mira con: psql \"\$ODS_HB_URL\" -c \"select * from analytics.cron_runs where job_key='backup_prod'\""
 
 titulo "La ingesta (no se toca desde acá, pero si la rompimos hay que saberlo)"
+# ⛔ [K3S.22] CUENTA LOS DOS MUNDOS, Y ANTES CONTABA UNO SOLO.
+#
+# Este bloque exigía >=9 contenedores con la etiqueta de Compose `vl`. Desde que los 7 carriles
+# se fueron a K3s quedan 3, así que reportaba ROJO sobre un estado perfectamente SANO — medido
+# el 2026-10-01: "sólo 3 de 3 sanos", con los 7 pods corriendo y entregando.
+#
+# ⭐ Eso no es un detalle cosmético: una alarma que grita en falso enseña a ignorar el tablero,
+# y así es como la próxima falla REAL pasa inadvertida. Es la misma lección de [CT.1] (4
+# versiones conviviendo 13 días) y de [CPU.4] (7 carriles marcados viejos con código idéntico).
+#
+# ⚠️ Si no hay k3s en el host, la mitad de K3s se DECLARA no medida — no se da por buena. Lo que
+# no se puede medir nunca cuenta como verde (ADR-056).
 viv=$(docker ps --filter "label=com.docker.compose.project=vl" --format '{{.Names}}' | wc -l)
 san=$(docker ps --filter "label=com.docker.compose.project=vl" --filter "health=healthy" --format '{{.Names}}' | wc -l)
-[ "$viv" -ge 9 ] && [ "$san" -ge 8 ] && ok "$san de $viv contenedores sanos" || mal "sólo $san de $viv sanos"
+if command -v k3s >/dev/null 2>&1; then
+  KC=/etc/rancher/k3s/k3s.yaml
+  pods=$(KUBECONFIG=$KC k3s kubectl get pods -n ingesta --no-headers 2>/dev/null)
+  pviv=$(printf '%s\n' "$pods" | grep -c . )
+  psan=$(printf '%s\n' "$pods" | awk '$2=="1/1" && $3=="Running"' | grep -c . )
+  echo "   ⓘ Compose: $san/$viv sanos  ·  K3s(ingesta): $psan/$pviv listos"
+  tviv=$((viv + pviv)); tsan=$((san + psan))
+  [ "$tviv" -ge 9 ] && [ "$tsan" -ge 8 ] \
+    && ok "$tsan de $tviv carriles sanos (los dos mundos)" \
+    || mal "sólo $tsan de $tviv carriles sanos (los dos mundos)"
+else
+  [ "$viv" -ge 3 ] && [ "$san" -ge "$viv" ] \
+    && ok "$san de $viv contenedores de Compose sanos" \
+    || mal "sólo $san de $viv contenedores de Compose sanos"
+  nm "la mitad de K3s — no hay k3s en este host, así que NO se midió (no se da por buena)"
+fi
 
 printf '\n\033[1m══ Veredicto ══\033[0m\n'
 if [ "$fallas" = 0 ]; then

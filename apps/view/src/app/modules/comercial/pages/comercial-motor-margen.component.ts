@@ -1,6 +1,9 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { etiquetaAccion, glosaAccion, textoCerteza } from '../precios-vocabulario';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { PRECIOS_TABS } from '../precios-tabs';
+import { agruparCola, type FilaCola } from '../agrupar-cola';
 import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
@@ -47,7 +50,7 @@ import {
 @Component({
   selector: 'app-comercial-motor-margen',
   standalone: true,
-  imports: [CommonModule, PageTabsComponent, TableModule, ButtonModule, SkeletonModule,
+  imports: [CommonModule, PageTabsComponent, ContextHelpComponent, TableModule, ButtonModule, SkeletonModule,
     ComercialMotorMargenExpedienteComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -63,16 +66,16 @@ import {
         certeza</strong>. No cambia ningún precio &mdash; la captura sigue siendo en Kepler.
       </p>
     </div>
-    <button type="button" pButton class="p-button-text p-button-sm"
-            icon="pi pi-refresh" label="Actualizar"
-            [loading]="cargando()" (click)="recargar()"></button>
+    <div class="mm-head-acc">
+      <app-context-help topic="motor-margen" />
+      <p-button type="button" icon="pi pi-refresh" label="Actualizar" [loading]="cargando()" (click)="recargar()" styleClass="p-button-text p-button-sm" />
+    </div>
   </header>
 
   @if (error(); as e) {
     <div class="mm-err" role="alert">
       <span>{{ e }}</span>
-      <button type="button" pButton class="p-button-sm p-button-text" label="Reintentar"
-              (click)="recargar()"></button>
+      <p-button type="button" label="Reintentar" (click)="recargar()" styleClass="p-button-sm p-button-text" />
     </div>
   }
 
@@ -80,31 +83,67 @@ import {
     <div class="mm-skel">@for (i of [1,2,3,4,5,6]; track i) { <p-skeleton height="2rem" /> }</div>
   } @else if (resumen(); as r) {
 
-    <!-- ══ ANSWER-FIRST · qué se puede hacer, y con qué certeza ══════════════════════════ -->
-    <section class="mm-acc" aria-label="Acciones disponibles">
-      @for (a of r.acciones; track a.accion) {
-        <button type="button" class="mm-acc-row" [class.is-sel]="filtroAccion() === a.accion"
+    <!-- ══ 1 · DINERO EN JUEGO — sólo FLUJO, y las barras comparten escala ═══════════ -->
+    <div class="mm-sec-h">
+      <span class="mm-sec-t">Dinero en juego</span>
+      <span class="mm-sec-s">flujo de 30 días &middot; las barras comparten escala</span>
+    </div>
+    <section class="mm-flu" aria-label="Acciones con flujo de dinero">
+      @for (a of accionesFlujo(); track a.accion) {
+        <button type="button" class="mm-card" [class.is-sel]="filtroAccion() === a.accion"
                 (click)="filtrarPor(a.accion)">
-          <span class="mm-acc-nom">{{ etiqueta(a.accion) }}</span>
-          <!-- La certeza es la jerarquía: lo aritmético pesa, lo no medido recede. -->
+          <span class="mm-card-t">{{ etiqueta(a.accion) }}</span>
+          <!-- La frase que dice QUE significa el verbo. Va aca y no en la ayuda: quien lee
+               "Corregir la escalera" por primera vez no sabe que es una escalera, y mandarlo
+               a un cajon de ayuda es pedirle un clic para entender la pantalla que esta
+               mirando. -->
+          <span class="mm-card-g">{{ glosa(a.accion) }}</span>
+          <span class="mm-card-m comm-num">{{ dinero(a) }}</span>
+          <span class="mm-card-bar" aria-hidden="true">
+            <span class="mm-card-bar-f" [style.width.%]="parte(a)"></span>
+          </span>
+          <span class="mm-card-n">
+            <strong class="comm-num">{{ a.libres | number }}</strong> listas
+            &middot; {{ (a.celdas - a.libres) | number }} con bloqueo
+          </span>
           <span class="mm-cert" [attr.data-c]="a.certeza">{{ certezaTxt(a.certeza) }}</span>
-          <span class="mm-acc-n comm-num">{{ a.libres | number }}<span class="mm-de"> de {{ a.celdas | number }}</span></span>
-          <span class="mm-acc-m comm-num">{{ dinero(a) }}</span>
-          <!-- ⭐ Micro-viz en SVG crudo: participación en el dinero. 0 KB. -->
-          <svg class="mm-bar" [attr.viewBox]="'0 0 100 4'" preserveAspectRatio="none" aria-hidden="true">
-            <rect x="0" y="1.4" width="100" height="1.2" class="mm-bar-bg"></rect>
-            <rect x="0" y="0" [attr.width]="parte(a)" height="4" class="mm-bar-fg"></rect>
-          </svg>
         </button>
       }
-      <div class="mm-acc-row is-mute">
-        <span class="mm-acc-nom">Sin acción defendible</span>
-        <span class="mm-cert" data-c="sin_evidencia">sin evidencia</span>
-        <span class="mm-acc-n comm-num">{{ r.sin_accion.celdas | number }}</span>
-        <span class="mm-acc-m comm-num">&mdash;</span>
-        <span class="mm-acc-note">el default, y es la mayoría</span>
-      </div>
     </section>
+
+    <!-- ══ 2 · SALDO — deliberadamente APARTE: no es la misma unidad ══════════════════ -->
+    <div class="mm-row2">
+      @if (accionSaldo(); as c) {
+        <button type="button" class="mm-saldo-b" [class.is-sel]="filtroAccion() === c.accion"
+                (click)="filtrarPor(c.accion)">
+          <span class="mm-saldo-l">
+            <span class="mm-sec-t">Capital inmovilizado</span>
+            <span class="mm-card-m comm-num">{{ soloMonto(c) }}</span>
+          </span>
+          <span class="mm-saldo-sep" aria-hidden="true"></span>
+          <span class="mm-saldo-x">
+            <strong>Es un saldo, no un flujo</strong> &mdash; por eso no lleva barra y no se ordena
+            contra los de arriba. Convertirlo exige la tasa de costo de capital, que no existe
+            (señal <strong>E5</strong>, declarada).
+            <span class="comm-num">{{ c.libres | number }}</span> celdas listas de
+            <span class="comm-num">{{ c.celdas | number }}</span>.
+          </span>
+        </button>
+      }
+      <div class="mm-nodec">
+        <span class="mm-sec-t">Sin decisión posible</span>
+        @for (a of accionesSinDecision(); track a.accion) {
+          <span class="mm-nodec-r">
+            <span>{{ etiqueta(a.accion) }} <em>{{ glosa(a.accion) }}</em></span>
+            <span class="comm-num">{{ a.celdas | number }}</span>
+          </span>
+        }
+        <span class="mm-nodec-r">
+          <span>Sin acción defendible <em>el default, y es la mayoría</em></span>
+          <span class="comm-num">{{ r.sin_accion.celdas | number }}</span>
+        </span>
+      </div>
+    </div>
 
     <!-- ══ ⭐⭐ LO QUE EL MOTOR NO PUEDE VER ═══════════════════════════════════════════════ -->
     @if (reg(); as g) {
@@ -151,52 +190,87 @@ import {
              aterriza en el host pase lo que pase. Los selectores son descendentes e igual
              funcionan. (Y este comentario NO lleva acentos graves: adentro de un template
              literal lo TERMINAN. Van nueve veces en este repo.) -->
-        <p-table [value]="cola()" class="p-datatable-sm surf-table surf-table--sticky"
-                 [rowHover]="true" selectionMode="single"
-                 [(selection)]="seleccion" (selectionChange)="abrir($event)" dataKey="sku">
+        <p-table [value]="colaAgrupada()" class="p-datatable-sm surf-table surf-table--sticky"
+                 [rowHover]="true" dataKey="key">
           <ng-template #header>
             <tr>
-              <th scope="col">SKU</th>
               <th scope="col">Producto</th>
               <th scope="col">Qué hacer</th>
               <th scope="col" class="comm-num">Precio</th>
-              <th scope="col" class="comm-num">En juego</th>
-              <th scope="col">Lo que más pesó</th>
+              <th scope="col" class="comm-num">Costo</th>
+              <th scope="col" class="comm-num">Margen vs meta</th>
+              <th scope="col" class="comm-num">En juego 30 d</th>
+              <th scope="col" class="mm-th-go"><span class="sr-only">Abrir</span></th>
             </tr>
           </ng-template>
-          <ng-template #body let-r>
-            <tr [pSelectableRow]="r" [class.is-bloq]="!r.accionable">
-              <td class="mm-sku">{{ r.sucursal }}/{{ r.sku }}</td>
+          <ng-template #body let-f>
+            <tr class="mm-tr" [class.is-bloq]="!f.row.accionable" [class.is-grp]="f.plazas > 1"
+                [class.is-open]="abiertos().has(f.key)"
+                tabindex="0" role="button"
+                [attr.aria-expanded]="f.plazas > 1 ? abiertos().has(f.key) : null"
+                (click)="clic(f)" (keydown.enter)="clic(f)" (keydown.space)="clic(f)">
               <td>
-                <div class="mm-nom">{{ r.nombre }}</div>
-                @if (!r.accionable) {
-                  <div class="mm-bloq">{{ bloqueosTxt(r.bloqueos) }}</div>
-                }
+                <div class="mm-nom-l">
+                  <span class="mm-sku">{{ f.plazas > 1 ? f.row.sku : f.row.sucursal + '/' + f.row.sku }}</span>
+                  <span class="mm-nom">{{ f.row.nombre }}</span>
+                </div>
+                <div class="mm-meta">
+                  @if (f.plazas > 1) {
+                    <span class="mm-grp-n">La misma decisión en {{ f.plazas }} plazas de esta lista</span>
+                  } @else {
+                    <span>{{ f.row.sucursal }}</span>
+                  }
+                  @if (!f.row.accionable) { <span class="mm-bloq">{{ bloqueosTxt(f.row.bloqueos) }}</span> }
+                </div>
               </td>
               <td>
-                <span class="mm-acc-tag">{{ etiqueta(r.accion) }}</span>
-                <span class="mm-cert" [attr.data-c]="r.certeza">{{ certezaTxt(r.certeza) }}</span>
+                <div class="mm-acc-c">
+                  <span class="mm-acc-tag">{{ etiqueta(f.row.accion) }}</span>
+                  <span class="mm-cert" [attr.data-c]="f.row.certeza">{{ certezaTxt(f.row.certeza) }}</span>
+                </div>
               </td>
-              <td class="comm-num">{{ r.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="comm-num">
-                @if (r.monto_en_juego_mxn !== null) {
-                  {{ r.monto_en_juego_mxn | currency:'MXN':'symbol-narrow':'1.0-0' }}
-                } @else if (r.capital_inmovilizado_mxn !== null) {
-                  <span class="mm-saldo">{{ r.capital_inmovilizado_mxn | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                } @else {
-                  <span class="mm-nd" [title]="r.monto_motivo || ''">n/d</span>
-                }
-              </td>
-              <td>
-                @if (r.s1_senal) {
-                  <span class="mm-s1">{{ senalTxt(r.s1_senal) }}</span>
-                  <span class="mm-s1-m comm-num">{{ r.s1_mxn | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              <td class="comm-num">{{ f.row.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="comm-num mm-dim">
+                @if (f.row.a1_costo_hoy !== null) {
+                  {{ f.row.a1_costo_hoy | currency:'MXN':'symbol-narrow':'1.2-2' }}
                 } @else { <span class="mm-nd">&mdash;</span> }
               </td>
+              <td class="comm-num">
+                @if (f.row.margen_realizado_pct !== null) {
+                  <span>{{ f.row.margen_realizado_pct }}%</span>
+                  <div class="mm-delta" [attr.data-d]="signoDelta(f.row)">{{ deltaTxt(f.row) }}</div>
+                } @else { <span class="mm-nd">&mdash;</span> }
+              </td>
+              <td class="comm-num">
+                <div class="mm-monto">{{ montoTxt(f) }}</div>
+                @if (f.row.s1_senal) {
+                  <div class="mm-s1">{{ senalTxt(f.row.s1_senal) }}</div>
+                }
+              </td>
+              <td class="mm-go" aria-hidden="true">{{ f.plazas > 1 ? (abiertos().has(f.key) ? '−' : '+') : '›' }}</td>
             </tr>
+
+            @if (f.plazas > 1 && abiertos().has(f.key)) {
+              @for (h of f.hijos; track h.sucursal) {
+                <tr class="mm-sub" tabindex="0" role="button"
+                    (click)="abrirFila(h)" (keydown.enter)="abrirFila(h)">
+                  <td><span class="mm-sub-p">{{ h.sucursal }}</span></td>
+                  <td class="mm-dim">
+                    @if (!h.accionable) { <span class="mm-bloq">{{ bloqueosTxt(h.bloqueos) }}</span> }
+                  </td>
+                  <td class="comm-num mm-dim">{{ h.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td></td>
+                  <td class="comm-num mm-dim">
+                    @if (h.margen_realizado_pct !== null) { {{ h.margen_realizado_pct }}% }
+                  </td>
+                  <td class="comm-num">{{ h.monto_en_juego_mxn | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="mm-go" aria-hidden="true">&rsaquo;</td>
+                </tr>
+              }
+            }
           </ng-template>
           <ng-template #emptymessage>
-            <tr><td colspan="6">
+            <tr><td colspan="7">
               <div class="comm-empty">
                 <i class="pi pi-check-circle" aria-hidden="true"></i>
                 <h3>Nada que proponer con la evidencia de hoy</h3>
@@ -205,8 +279,7 @@ import {
                   que no haya margen: significa que las señales disponibles no alcanzan para
                   sostener una propuesta.
                 </p>
-                <button type="button" pButton class="p-button-sm p-button-text"
-                        label="Ver todas las acciones" (click)="filtrarPor(null)"></button>
+                <p-button type="button" label="Ver todas las acciones" (click)="filtrarPor(null)" styleClass="p-button-sm p-button-text" />
               </div>
             </td></tr>
           </ng-template>
@@ -235,6 +308,103 @@ import {
       padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); color: var(--bad-soft-fg);
     }
     .mm-skel { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+    /* ══ [PR.V3] Rotulo de seccion ══════════════════════════════════════════════════════ */
+    .mm-head-acc { display: flex; align-items: center; gap: var(--sp-2); }
+    .mm-sec-h { display: flex; align-items: baseline; gap: var(--sp-2); }
+    .mm-sec-t {
+      font-size: var(--fs-micro); letter-spacing: .08em; text-transform: uppercase;
+      font-weight: 700; color: var(--fg-2);
+    }
+    .mm-sec-s { font-size: var(--fs-xs); color: var(--fg-3); }
+
+    /* ══ FLUJO: cuatro tarjetas que COMPARTEN escala de barra ═══════════════════════════ */
+    .mm-flu {
+      display: grid; gap: var(--sp-2); margin-top: var(--sp-2);
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .mm-card {
+      display: flex; flex-direction: column; gap: var(--sp-2); align-items: flex-start;
+      padding: var(--sp-3); text-align: left; cursor: pointer;
+      border: 1px solid var(--border-color); border-radius: var(--r-lg);
+      background: var(--surface-card); color: inherit; font: inherit;
+      transition: border-color 140ms ease, background-color 140ms ease;
+    }
+    .mm-card:hover { background: var(--surface-hover); }
+    .mm-card.is-sel { border-color: var(--action); }
+    .mm-card-t { font-size: var(--fs-sm); font-weight: 600; line-height: 1.25; min-height: 2.2em; }
+    .mm-card-g { font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.35; min-height: 2.5em; }
+    .mm-card-m {
+      font-size: var(--fs-lg); font-weight: 600; letter-spacing: -.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .mm-card-bar {
+      display: block; width: 100%; height: 4px; border-radius: 2px;
+      background: var(--surface-2); overflow: hidden;
+    }
+    .mm-card-bar-f { display: block; height: 100%; background: var(--action); border-radius: 2px; }
+    .mm-card-n { font-size: var(--fs-xs); color: var(--fg-2); font-variant-numeric: tabular-nums; }
+
+    /* ══ SALDO: aparte, con borde punteado, SIN barra ═══════════════════════════════════ */
+    .mm-row2 { display: grid; grid-template-columns: 1fr 21rem; gap: var(--sp-2); }
+    .mm-saldo-b {
+      display: flex; align-items: center; gap: var(--sp-4);
+      padding: var(--sp-3); text-align: left; cursor: pointer;
+      border: 1px dashed var(--neutral-300); border-radius: var(--r-lg);
+      background: var(--surface-card); color: inherit; font: inherit;
+    }
+    .mm-saldo-b:hover { background: var(--surface-hover); }
+    .mm-saldo-b.is-sel { border-color: var(--action); }
+    .mm-saldo-l { display: flex; flex-direction: column; gap: var(--sp-1); flex-shrink: 0; }
+    .mm-saldo-sep { width: 1px; align-self: stretch; background: var(--border-color); }
+    .mm-saldo-x { font-size: var(--fs-xs); color: var(--fg-2); line-height: 1.55; }
+    .mm-saldo-x strong { color: var(--fg-1); font-weight: 600; }
+
+    .mm-nodec {
+      display: flex; flex-direction: column; gap: var(--sp-1);
+      padding: var(--sp-3); border: 1px solid var(--border-color);
+      border-radius: var(--r-lg); background: var(--surface-2);
+    }
+    .mm-nodec-r {
+      display: flex; justify-content: space-between; gap: var(--sp-3);
+      font-size: var(--fs-xs); color: var(--fg-2); font-variant-numeric: tabular-nums;
+    }
+    .mm-nodec-r em { font-style: normal; color: var(--fg-3); }
+
+    /* ══ LA COLA ════════════════════════════════════════════════════════════════════════ */
+    .mm-tr { cursor: pointer; }
+    .mm-tr.is-grp { background: var(--surface-2); }
+    .mm-nom-l { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+    .mm-meta {
+      display: flex; align-items: center; gap: var(--sp-2); margin-top: 2px;
+      font-size: var(--fs-xs); color: var(--fg-2);
+    }
+    .mm-grp-n { color: var(--brand-900); font-weight: 600; }
+    /* Los dos chips en COLUMNA: pegados en una linea fue el defecto que publicaba
+       "Corregir la escaleraARITMETICA" sin un solo espacio entre ellos. */
+    .mm-acc-c { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+    .mm-dim { color: var(--fg-2); }
+    .mm-monto { font-size: var(--fs-sm); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .mm-delta { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; margin-top: 1px; }
+    .mm-delta[data-d='ok']  { color: var(--ok-fg); }
+    .mm-delta[data-d='bad'] { color: var(--bad-fg); }
+    .mm-delta[data-d='eq'], .mm-delta[data-d='nd'] { color: var(--fg-3); }
+    .mm-th-go, .mm-go { width: 1.5rem; text-align: right; }
+    .mm-go { color: var(--fg-3); font-size: var(--fs-body); line-height: 1; }
+    .mm-tr:hover .mm-go { color: var(--action); }
+    .mm-sub { cursor: pointer; background: var(--surface-2); }
+    .mm-sub:hover { background: var(--surface-hover); }
+    .mm-sub-p { padding-left: var(--sp-4); font-size: var(--fs-xs); color: var(--fg-2); }
+
+    @media (max-width: 1100px) {
+      .mm-flu { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .mm-row2 { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      .mm-flu { grid-template-columns: 1fr; }
+      .mm-saldo-b { flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
+      .mm-saldo-sep { display: none; }
+    }
 
     /* ══ Las acciones: una LISTA, no cuatro cards iguales. ═══════════════════════════════ */
     .mm-acc {
@@ -403,7 +573,86 @@ export class ComercialMotorMargenComponent {
   readonly error = signal<string | null>(null);
   readonly filtroAccion = signal<string | null>(null);
   readonly verHuecos = signal(false);
-  seleccion: ColaRow | null = null;
+  /** Grupos desplegados de la cola. */
+  readonly abiertos = signal<Set<string>>(new Set());
+
+  /**
+   * `[PR.V3]` El resumen se parte en TRES porque son tres unidades distintas, y mezclarlas
+   * en una sola lista con una sola columna de barras fue el defecto que la pantalla publicaba:
+   * $60.46M de SALDO compartiendo escala con $105k de FLUJO dejaba la barra mas grande vacia.
+   */
+  readonly accionesFlujo = computed(() =>
+    (this.resumen()?.acciones ?? []).filter((a) => Math.abs(Number(a.flujo_libre ?? 0)) > 0));
+
+  readonly accionSaldo = computed(() =>
+    (this.resumen()?.acciones ?? []).find((a) =>
+      !Number(a.flujo_libre ?? 0) && Math.abs(Number(a.capital ?? 0)) > 0) ?? null);
+
+  readonly accionesSinDecision = computed(() =>
+    (this.resumen()?.acciones ?? []).filter((a) =>
+      !Number(a.flujo_libre ?? 0) && !Number(a.capital ?? 0)));
+
+  /**
+   * ⭐ La cola agrupada por SKU cuando la decision es LA MISMA (misma accion y mismo precio).
+   *
+   * ⚠️ Agrupa SOLO lo que vino en esta pagina, y la etiqueta lo dice: "en N plazas de esta
+   *    lista". El servidor manda el top por dinero (limite 200), asi que las plazas chicas del
+   *    mismo SKU pueden quedar fuera -- prometer "en N plazas" a secas seria un total falso.
+   *    Agrupar del lado del servidor se midio y no se paga: la repeticion en el top 100 real es
+   *    del 19% y el grupo mas grande suma $6,897.
+   */
+  /**
+   * La cola agrupada. La logica vive en `agrupar-cola.ts` y se prueba sola: el conteo de plazas
+   * y la suma con NULLs son justo lo que se rompe en silencio, y un computed dentro de un
+   * componente con servicios inyectados no se puede probar sin montar medio TestBed.
+   */
+  readonly colaAgrupada = computed<FilaCola[]>(() => agruparCola(this.cola()));
+
+  /** Un grupo despliega; una fila sola abre el expediente. */
+  clic(f: FilaCola): void {
+    if (f.plazas > 1) {
+      const s = new Set(this.abiertos());
+      if (s.has(f.key)) s.delete(f.key); else s.add(f.key);
+      this.abiertos.set(s);
+      return;
+    }
+    this.abrirFila(f.row);
+  }
+
+  abrirFila(r: ColaRow): void {
+    this.expSuc.set(r.sucursal);
+    this.expSku.set(r.sku);
+    this.abrir(r);
+  }
+
+  /** El saldo se rotula aparte del flujo; lo que no se pudo medir dice n/d con su motivo. */
+  montoTxt(f: FilaCola): string {
+    if (f.monto !== null) return `$${Math.round(f.monto).toLocaleString('es-MX')}`;
+    const c = f.row.capital_inmovilizado_mxn;
+    if (c !== null) return `$${Math.round(Number(c)).toLocaleString('es-MX')} · saldo`;
+    return 'n/d';
+  }
+
+  signoDelta(r: ColaRow): string {
+    if (r.dif_vs_meta_pp === null) return 'nd';
+    const d = Number(r.dif_vs_meta_pp);
+    return d > 0 ? 'ok' : d < 0 ? 'bad' : 'eq';
+  }
+
+  deltaTxt(r: ColaRow): string {
+    if (r.dif_vs_meta_pp === null) {
+      return r.meta_margen_pct !== null ? `meta ${Number(r.meta_margen_pct).toFixed(2)}%` : '';
+    }
+    const d = Number(r.dif_vs_meta_pp);
+    return `${d > 0 ? '+' : ''}${d.toFixed(2)} pp`;
+  }
+
+  /** El monto del saldo, sin el sufijo que `dinero()` le pega para distinguirlo del flujo. */
+  soloMonto(a: AccionResumen): string {
+    const c = Number(a.capital ?? 0);
+    return c ? `$${Math.round(c).toLocaleString('es-MX')}` : '—';
+  }
+
 
   /** Lo que NO existe, ordenado para que lo primero sea lo del núcleo del v1. */
   readonly huecos = computed(() => (this.reg()?.senales ?? [])
@@ -446,7 +695,7 @@ export class ComercialMotorMargenComponent {
       .subscribe({ next: (d) => this.det.set(d), error: (e) => this.error.set(this.msg(e)) });
   }
 
-  cerrar(): void { this.det.set(null); this.seleccion = null; }
+  cerrar(): void { this.det.set(null); this.expSuc.set(null); this.expSku.set(null); }
 
   /** ⭐ Los tres aportes, ya ordenados por el servidor. Acá sólo se arman para pintarlos. */
   aportes(d: DetalleMotor): { senal: string; mxn: string }[] {
@@ -471,27 +720,23 @@ export class ComercialMotorMargenComponent {
     return '—';
   }
 
-  etiqueta(a: string): string {
-    return ({
-      corregir_escalera: 'Corregir la escalera',
-      revisar_costo: 'Revisar el costo',
-      aterrizar_precio: 'Aterrizar el precio',
-      subir_precio: 'Subir el precio',
-      liberar_capital: 'Liberar capital',
-      precio_atipico: 'Precio atípico',
-      sin_accion_defendible: 'Sin acción defendible',
-    } as Record<string, string>)[a] ?? a;
-  }
+  /**
+   * `[PR.V5]` Qué significa cada verbo, en una línea y sin jerga.
+   *
+   * ⭐ Va EN la tarjeta, no en la ayuda contextual. «Corregir la escalera» no le dice nada a
+   * quien no sabe qué es una escalera, y mandarlo a abrir un cajón es pedirle un clic para
+   * entender la pantalla que ya está mirando. La ayuda explica a fondo; esto evita tener que
+   * abrirla.
+   */
+  /**
+   * `[PR.V5]` Que significa cada verbo, en una linea. Va EN la tarjeta y no en la ayuda:
+   * mandar a abrir un cajon para entender la pantalla que ya se esta mirando es un clic de mas.
+   */
+  glosa(a: string): string { return glosaAccion(a); }
 
-  certezaTxt(c: string): string {
-    return ({
-      aritmetica: 'aritmética',
-      efecto_no_medido: 'efecto no medido',
-      regla_de_operacion: 'regla de operación',
-      fuera_de_alcance: 'fuera de alcance',
-      sin_evidencia: 'sin evidencia',
-    } as Record<string, string>)[c] ?? c;
-  }
+  etiqueta(a: string): string { return etiquetaAccion(a); }
+
+  certezaTxt(c: string): string { return textoCerteza(c); }
 
   senalTxt(s: string): string {
     return ({

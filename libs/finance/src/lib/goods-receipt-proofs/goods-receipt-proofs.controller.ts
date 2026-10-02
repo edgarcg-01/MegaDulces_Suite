@@ -57,6 +57,12 @@ export class GoodsReceiptProofsController {
       lente: query['lente'] === 'dinero' ? 'dinero' : 'proceso',
       ajuste: query['ajuste'] as ListReceiptsQuery['ajuste'],
       con_oc: query['con_oc'] as ListReceiptsQuery['con_oc'],
+      // `[DM.19]` De qué plaza es la compra. Lista blanca por el mismo motivo que `cuadre`:
+      // un valor inventado se convertiría en un `WHERE` que no matchea nada, y una lista vacía
+      // se lee como "no hay nada que revisar" en vez de "preguntaste cualquier cosa".
+      plaza: ['propia', 'otra', 'sin_declarar'].includes(String(query['plaza']))
+        ? (query['plaza'] as ListReceiptsQuery['plaza'])
+        : undefined,
       page: query['page'] ? Number(query['page']) : undefined,
       pageSize: query['pageSize'] ? Number(query['pageSize']) : undefined,
     };

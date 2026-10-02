@@ -312,4 +312,128 @@ export class MarginEngineService {
       };
     });
   }
+
+  /**
+   * `[PR.M3]` — **La competencia, por marca.** Lo que vendió el RESTO del canal bajo cada
+   * fabricante, cuánto vendimos nosotros, y si ganamos o perdimos terreno.
+   *
+   * ⭐ Es la señal que al motor le faltaba del todo: hoy propone subir el precio mirando sólo
+   * números propios. Subir donde tenemos el 16 % de la categoría es fijar precio; subir donde
+   * tenemos el 2 % es seguirlo; y subir donde el mercado creció y nosotros caímos es echarle
+   * nafta al fuego.
+   *
+   * ⛔ Lo que esta cifra **no** es: no es elasticidad, no es el precio de nadie, y su numerador
+   * viene inflado por los traspasos entre sucursales. Las tres cosas viajan en la respuesta.
+   */
+  async competencia(f: {
+    region?: string; subcanal?: string; mercado?: string;
+    division?: string; veredicto?: string; limit?: number;
+  }): Promise<unknown> {
+    const region = f.region || 'Región III';
+    const subcanal = f.subcanal || 'Mayoreo Puro';
+    const mercado = f.mercado || 'DULCES';
+    const limit = Math.min(Number(f.limit) || 60, 300);
+
+    return this.tk.run(async (k) => {
+      const periodo = await k('analytics.iscam_market').max({ p: 'periodo' }).first();
+      if (!periodo?.p) {
+        // ⛔ Sin entrega cargada se DECLARA, no se devuelve una lista vacía que se lee igual
+        //    que "no hay competencia".
+        return { medido: false, motivo: 'no hay ninguna entrega de ISCAM cargada' };
+      }
+
+      const base = `FROM analytics.v_iscam_competencia
+        WHERE periodo = ? AND region = ? AND subcanal = ? AND mercado = ? AND tipo_medida = 'valor'`;
+      const args = [periodo.p, region, subcanal, mercado];
+
+      const { rows: tot } = await k.raw(`
+        SELECT sum(nuestro) AS nuestro, sum(mercado_total) AS mercado,
+               sum(competencia) AS competencia,
+               count(*)::int AS marcas,
+               count(*) FILTER (WHERE competencia IS NULL)::int AS marcas_no_medibles
+        ${base}`, args);
+
+      const { rows: porVeredicto } = await k.raw(`
+        SELECT veredicto, count(*)::int AS marcas,
+               sum(nuestro) AS nuestro, sum(competencia) AS competencia
+        ${base} GROUP BY 1 ORDER BY 4 DESC NULLS LAST`, args);
+
+      // Los fabricantes donde la competencia MÁS creció en pesos. Ordenar por tamaño de mercado
+      // pondría arriba a los gigantes donde no pasó nada este mes.
+      const { rows: fabricantes } = await k.raw(`
+        SELECT fabricante,
+               sum(nuestro) AS nuestro, sum(mercado_total) AS mercado,
+               sum(competencia) AS competencia,
+               sum(competencia) - sum(competencia_anterior) AS competencia_delta,
+               round(100.0 * sum(nuestro) / NULLIF(sum(mercado_total), 0), 2) AS share_pct
+        ${base} GROUP BY 1
+        HAVING sum(mercado_total) > 0
+        ORDER BY (sum(competencia) - sum(competencia_anterior)) DESC NULLS LAST
+        LIMIT ?`, [...args, limit]);
+
+      // Donde vendemos CERO y el mercado sí compra: es surtido, no precio.
+      const { rows: ausentes } = await k.raw(`
+        SELECT fabricante, submarca, division, categoria, competencia
+        ${base} AND veredicto = 'ausentes'
+        ORDER BY competencia DESC LIMIT ?`, [...args, limit]);
+
+      // ⭐ `[PR.M6]` El PRECIO de la competencia. No viene en el archivo: se deriva de
+      //   valor/volumen, y por eso viaja con su banda de confianza y su advertencia de unidad.
+      const basePrecio = `FROM analytics.v_iscam_precio_competencia
+        WHERE periodo = ? AND region = ? AND subcanal = ? AND mercado = ?`;
+      const { rows: precioResumen } = await k.raw(`
+        SELECT veredicto, confianza, count(*)::int AS submarcas,
+               sum(venta_nuestra) AS venta_nuestra
+        ${basePrecio} GROUP BY 1,2 ORDER BY 4 DESC NULLS LAST`, args);
+      const { rows: precioCaras } = await k.raw(`
+        SELECT fabricante, submarca, categoria, precio_nuestro, precio_competencia,
+               dif_pct, share_volumen_pct, confianza, venta_nuestra
+        ${basePrecio} AND veredicto = 'arriba_del_mercado'
+        ORDER BY confianza ASC, venta_nuestra DESC LIMIT ?`, [...args, limit]);
+      const { rows: precioBaratas } = await k.raw(`
+        SELECT fabricante, submarca, categoria, precio_nuestro, precio_competencia,
+               dif_pct, share_volumen_pct, confianza, venta_nuestra
+        ${basePrecio} AND veredicto = 'abajo_del_mercado'
+        ORDER BY confianza ASC, venta_nuestra DESC LIMIT ?`, [...args, limit]);
+
+      const t = tot[0] || {};
+      return {
+        medido: true,
+        periodo: periodo.p,
+        universo: { region, subcanal, mercado, medida: 'valor' },
+        total: t,
+        por_veredicto: porVeredicto,
+        fabricantes,
+        ausentes,
+        precio: {
+          resumen: precioResumen,
+          mas_caras_que_el_mercado: precioCaras,
+          mas_baratas_que_el_mercado: precioBaratas,
+          declara: [
+            'es un precio IMPLICITO (valor/volumen), NO un precio de lista ni de anaquel. ISCAM '
+            + 'no publica precios: este se deriva, y la columna PcioDisp del archivo no sirve '
+            + 'porque su divisor es fijo (Val/Vol/24) -- pero ese divisor se cancela en la razon.',
+            'la unidad de volumen es la del archivo y NO esta verificada: solo tiene sentido '
+            + 'comparar DENTRO de la misma submarca, nunca el precio de dos submarcas entre si.',
+            'la confianza sale de NUESTRO share en volumen, que es donde esta el ruido: medido, '
+            + 'con share >= 10% la desviacion es 0.17 y por debajo sube a 0.71.',
+            'nuestro lado arrastra el residuo de ~10% que la conciliacion contra sales_daily '
+            + 'dejo sin explicar.',
+          ],
+        },
+        declara: [
+          'el numerador viene INFLADO: a ISCAM se le trasladan todas las salidas, traspasos entre '
+          + 'sucursales incluidos. La brecha medida contra sales_daily es de $19.5M a $21.6M por mes.',
+          'el share DEPENDE DEL UNIVERSO y las dos cifras son ciertas: el canal propio (Mayoreo '
+          + 'Puro) y el mayoreo total dan numeros distintos porque hay mercado en subcanales donde '
+          + 'no vendemos nada.',
+          'ISCAM NO identifica a los competidores: su panel los anonimiza. Esto dice CUANTO vende '
+          + 'la competencia por marca, nunca QUIEN. El quien viene de DENUE, y las dos fuentes no '
+          + 'se pueden empatar.',
+          'competencia = NULL (no cero) cuando el panel mide menos mercado que venta nuestra: ahi '
+          + 'los dos insumos se contradicen y la resta no significa nada.',
+        ],
+      };
+    });
+  }
 }

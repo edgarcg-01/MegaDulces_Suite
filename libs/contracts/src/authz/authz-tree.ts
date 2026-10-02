@@ -460,6 +460,43 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'whatsapp-bot', label: 'Bot conversacional', route: '', view: [Permission.WHATSAPP_BOT_VER], manage: [Permission.WHATSAPP_BOT_GESTIONAR] },
         ],
       },
+      {
+        // Fase DEV (2026-10-01) — la bitácora del equipo de desarrollo. Nace porque las ideas de
+        // proyecto «no se escribían»: cada una se da de alta como una orden con folio, objetivo
+        // (escrito o dictado), evidencia adjunta y un responsable. Vive en el espacio 9 del mapa
+        // (Sistemas, Servicios y Mantenimiento), que ya declaraba «proyectos» sin módulo (P-10).
+        id: 'desarrolladores',
+        label: 'Desarrolladores',
+        icon: 'pi pi-code',
+        route: '/desarrolladores',
+        modules: [
+          { id: 'dev-proyectos', label: 'Proyectos', route: '/desarrolladores/proyectos', view: [Permission.DEV_PROJECTS_VER], manage: [Permission.DEV_PROJECTS_GESTIONAR] },
+        ],
+      },
+      {
+        // Fase MS (2026-10-02, ADR-081) — Mesa de Servicio: cualquier persona reporta un problema o
+        // necesidad y el ticket es la tarea de quien lo atiende. Cola de TI primero, modelo multi-cola.
+        // ⚠️ `servicio-reportar` NO tiene ruta A PROPÓSITO (mismo precedente que WhatsApp): la clave se
+        // reparte a todo rol con personas, y si abriera un destino en el mapa de la suite les quitaría
+        // la entrada directa a `/projects` a las cajeras y almacenistas, que hoy tienen un solo destino.
+        // Se alcanza con un botón del header. El espacio 9 sólo aparece para quien atiende o coordina.
+        //
+        // ⚠️ SIN RUTAS TODAVÍA (capa 1, `[MS.1.4]`), con el precedente de WhatsApp: las claves ya existen, se
+        // reparten y se ven en `/admin/roles`, pero NO hay destino en el mapa de la suite. Si el proyecto
+        // apareciera en el mapa antes que su pantalla, un superadmin vería una puerta que no lleva a ningún
+        // lado, y el auto-deploy de `main` la mandaría a prod. Las rutas (`/servicio/atencion`,
+        // `/servicio/reportes`), la entrada del espacio 9 y el landing llegan JUNTOS con las pantallas, en
+        // `[MS.3.1]`.
+        id: 'servicio',
+        label: 'Mesa de Servicio',
+        icon: 'pi pi-ticket',
+        route: '',
+        modules: [
+          { id: 'servicio-reportar', label: 'Reportar un problema', route: '', view: [Permission.SERVICIO_REPORTAR], manage: [] },
+          { id: 'servicio-atencion', label: 'Atención de solicitudes', route: '', view: [Permission.SERVICIO_ATENDER], manage: [] },
+          { id: 'servicio-coordinacion', label: 'Coordinación y reportes', route: '', view: [Permission.SERVICIO_COORDINAR], manage: [] },
+        ],
+      },
     ],
   },
 

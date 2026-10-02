@@ -134,6 +134,34 @@ const GEMELA_NULLS = [
 ];
 const ORIGEN_SELECT = `(CASE WHEN c.sucursal = '00' THEN 'oficinas' ELSE 'sucursal' END) AS origen`;
 
+/**
+ * `[DM.19]` — **de qué PLAZA es la compra.** Viene de `analytics.erp_goods_receipts`, que desde
+ * la mig 20261001290000 trae el centro de compra del propio Kepler (`kdm1.c12` ⋈ `kdxv`).
+ *
+ * ⚠️ Se llama `plaza_*` y no `origen_*` **a propósito**: en esta API `origen` ya significa otra
+ * cosa (de qué servidor salió la fila, `oficinas` | `sucursal`). Son dos preguntas distintas y
+ * mezclar los nombres es cómo se lee mal una pantalla. En la base la columna sí se llama
+ * `origen_*`, donde no hay con qué confundirla.
+ */
+const PLAZA_SELECT = [
+  `c.origen_veredicto AS plaza_veredicto`,
+  `c.origen_warehouse_name AS plaza_nombre`,
+  `c.centro_desc AS plaza_centro`,
+  `c.centro_code AS plaza_centro_code`,
+  // El segundo testigo, aparte: la plaza que declara la referencia del proveedor (`c11`).
+  // Se publica junto al veredicto para que la fila pueda mostrar en qué se apoya.
+  `c.testigo_warehouse_name AS plaza_testigo`,
+  `c.testigos_concuerdan AS plaza_concuerdan`,
+];
+
+/** Los veredictos que significan "esta compra NO es de la sucursal donde Kepler la registró". */
+const PLAZA_AJENA = `c.origen_veredicto LIKE 'otra_plaza%'`;
+/**
+ * Lo que el documento NO dice. ⛔ Nunca se mezcla con "es propia": el hueco es un vacío de
+ * DATOS, y darlo por propio es justo el error que esta fase existe para no cometer (ADR-056).
+ */
+const PLAZA_SIN_DECLARAR = `c.origen_veredicto IN ('sin_centro','centro_no_dice_plaza','centro_fuera_de_catalogo','sucursal_sin_centro_propio','sin_dato_kepler')`;
+
 
 export interface ReceiptFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
@@ -220,6 +248,20 @@ export interface ListReceiptsQuery {
   ajuste?: 'con' | 'sin' | 'operativo' | 'comercial';
   /** Sólo con `lente=dinero`. Entradas que se ligaron (o no) a una orden de compra. */
   con_oc?: 'con' | 'sin';
+  /**
+   * `[DM.19]` — **de qué PLAZA es la compra**, que no es lo mismo que en qué servidor se
+   * capturó (eso es `origen`: `oficinas` | `sucursal`).
+   *
+   * En la sucursal `00` sólo **2,267 de 9,326** órdenes de entrada son del CEDIS; **5,820 por
+   * $219,380,811 son de otras siete plazas**, y lo dice el propio Kepler en `kdm1.c12` ⋈
+   * `kepler_ods.kdxv`. Sin este filtro, el CEDIS carga compras que no le corresponden.
+   *
+   *   `propia`       → el centro de compra es el de esta misma sucursal.
+   *   `otra`         → es de otra plaza (nombrada cuando la evidencia alcanza).
+   *   `sin_declarar` → el documento no dice de quién es. **No es lo mismo que "es del CEDIS"**:
+   *                    son 1,239 por $91.5M, concentrados en nov-2025 → ene-2026.
+   */
+  plaza?: 'propia' | 'otra' | 'sin_declarar';
   page?: number;
   pageSize?: number;
 }
@@ -628,6 +670,11 @@ export class GoodsReceiptProofsService {
         }
         // Alcance: `null` = sin filtro (alcance `all`) · `[]` = no ve ninguna (fail-closed).
         if (alcance) { if (alcance.length) b.whereIn('c.sucursal', alcance); else b.whereRaw('false'); }
+        // `[DM.19]` — de qué plaza es la compra. Entra al `base()` y no sólo al select porque
+        // la pregunta con la que se abre esta vista es "mostrame lo que NO es mío".
+        if (q.plaza === 'otra') b.whereRaw(PLAZA_AJENA);
+        else if (q.plaza === 'propia') b.whereRaw(`c.origen_veredicto = 'propio'`);
+        else if (q.plaza === 'sin_declarar') b.whereRaw(PLAZA_SIN_DECLARAR);
         // Carril: el rezago anterior al arranque se trabaja aparte para que el semáforo del
         // día siga significando algo (ver §7.1 del plan de la fase).
         if (q.carril === 'rezago') b.where('c.receipt_date', '<', cfg.reception_start);
@@ -725,6 +772,8 @@ export class GoodsReceiptProofsService {
           // el folio y el importe de la otra copia. Sin esto el usuario ve un folio que no
           // reconoce y no tiene con qué saber que es la misma orden.
           trx.raw(ORIGEN_SELECT),
+          // `[DM.19]` — de qué PLAZA es la compra (distinto de `origen`, que es el servidor).
+          ...PLAZA_SELECT.map((c) => trx.raw(c)),
           ...(hayPares ? GEMELA_SELECT : GEMELA_NULLS).map((c) => trx.raw(c)),
           // RE.20.3 — por qué se descartó y quién. Sólo viene con `estado=descartada` (en el
           // resto el JOIN filtra por NULL), pero se selecciona siempre para no ramificar el select.
@@ -867,6 +916,15 @@ export class GoodsReceiptProofsService {
              AND (current_date - (d.last_at AT TIME ZONE 'America/Mexico_City')::date) > ?)::int AS por_validar_atrasadas`,
           [cfg.sla_review_days],
         ),
+        // `[DM.19]` El reparto por PLAZA. Va en los KPIs y NO sólo en la tabla porque es una
+        // cifra que hay que ver aunque no se esté filtrando por ella: el CEDIS cargaba
+        // $219,380,811 de otras siete plazas y nada en pantalla lo decía.
+        trx.raw(`COUNT(*) FILTER (WHERE ${PLAZA_AJENA})::int AS plaza_ajena`),
+        trx.raw(`COALESCE(SUM(c.monto::numeric) FILTER (WHERE ${PLAZA_AJENA}), 0)::numeric AS monto_plaza_ajena`),
+        // ⛔ Se cuenta APARTE de lo propio, nunca sumado: es un vacío de datos, no un veredicto
+        // de que la compra sea de esta sucursal (ADR-056).
+        trx.raw(`COUNT(*) FILTER (WHERE ${PLAZA_SIN_DECLARAR})::int AS plaza_sin_declarar`),
+        trx.raw(`COALESCE(SUM(c.monto::numeric) FILTER (WHERE ${PLAZA_SIN_DECLARAR}), 0)::numeric AS monto_plaza_sin_declarar`),
       );
 
       return {
@@ -878,6 +936,11 @@ export class GoodsReceiptProofsService {
           // `[RE.25]` El reparto del cuadre del documento.
           cuadran: Number(k.cuadran), por_revisar: Number(k.por_revisar),
           sin_datos: Number(k.sin_datos), sin_hoja_interna: Number(k.sin_hoja_interna),
+          // `[DM.19]` Lo que NO es de esta sucursal, y lo que el documento no alcanza a decir.
+          plaza_ajena: Number(k.plaza_ajena),
+          monto_plaza_ajena: Number(k.monto_plaza_ajena),
+          plaza_sin_declarar: Number(k.plaza_sin_declarar),
+          monto_plaza_sin_declarar: Number(k.monto_plaza_sin_declarar),
         },
         // El alcance viaja al front para que la vista sepa si mostrar el selector de
         // sucursal (más de una) o el aviso de "no tenés sucursal asignada" (ninguna).

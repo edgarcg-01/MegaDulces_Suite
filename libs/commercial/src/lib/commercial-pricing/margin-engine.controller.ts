@@ -66,6 +66,28 @@ export class MarginEngineController {
   }
 
   /**
+   * `[PR.M3]` — La competencia por marca, desde la medición mensual de ISCAM.
+   *
+   * ⚠️ Ruta FIJA de un segmento: va antes de `:sucursal/:sku`, o "competencia" entraría como
+   *    una sucursal.
+   */
+  @Get('competencia')
+  @RequirePermissions(Permission.COMMERCIAL_MARGIN_ENGINE_VER)
+  @ApiOperation({ summary: 'Cuánto vende la competencia por marca, y dónde ganamos o perdemos terreno' })
+  competencia(
+    @Query('region') region?: string,
+    @Query('subcanal') subcanal?: string,
+    @Query('mercado') mercado?: string,
+    @Query('division') division?: string,
+    @Query('veredicto') veredicto?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.competencia({
+      region, subcanal, mercado, division, veredicto, limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  /**
    * ⭐ El simulador. ⛔ **No escribe nada**: calcula el margen, el aterrizaje y el umbral de
    * equilibrio. Por eso sigue bastando `_VER` y no hace falta un `_GESTIONAR`.
    */
