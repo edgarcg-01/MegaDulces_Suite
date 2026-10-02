@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Put, Query, Res, UseGuards } from '
 import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
-import { OcDetalleDto, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
+import { MonthlySalesResponse, OcDetalleDto, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
 import { CommercialReplenishmentService, CreateRequisitionDto, ReceiveRequisitionDto } from './commercial-replenishment.service';
 import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
 
@@ -209,7 +209,7 @@ export class CommercialReplenishmentController {
   @Get('workbook/:productId/monthly')
   @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
   @ApiOperation({ summary: 'RA-PRO.65 — Venta por mes de un SKU (24 meses, en dinero y en cajas donde el peldaño está medido), de una sucursal (code) o de la red. Las rutas cuentan en su sucursal madre. Incluye el prorrateo 60/40 del sistema anterior como referencia.' })
-  monthlySales(@Param('productId') productId: string, @Query('code') code?: string) {
+  monthlySales(@Param('productId') productId: string, @Query('code') code?: string): Promise<MonthlySalesResponse> {
     return this.svc.monthlySales(productId, code);
   }
 

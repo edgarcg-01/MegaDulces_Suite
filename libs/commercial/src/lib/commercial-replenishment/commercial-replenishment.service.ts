@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import {
-  compareWarehouseCodes, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, validarSeguimiento,
+  compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
+  validarSeguimiento,
 } from '@megadulces/contracts';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 
@@ -1563,7 +1564,11 @@ export class CommercialReplenishmentService {
    * Por mes: la venta en DINERO (siempre medida: es el arbitro del ADR-059 y la misma base con que
    * el motor calcula su estacionalidad, RA-PRO.41) y las CAJAS solo donde el peldano esta medido
    * (`units x rung_factor`, sin mezcla). Lo que no se puede medir se DECLARA (`cajas_parcial`), no
-   * se dibuja como cero: Wincaja deja `rung_factor` en NULL en el 100% de sus filas.
+   * se dibuja como cero. ⚠️ La razón histórica era que Wincaja dejaba `rung_factor` en NULL, pero
+   * eso YA NO ES CIERTO: con el corte a Kepler cerrado (el último, el CEDIS, el 2026-09-30) la
+   * cobertura medida el 2026-10-02 es del **99.9%** (1,954,385 de 1,955,704 filas a 365 d) y las 8
+   * sucursales están casi completas. La declaración se conserva porque sigue siendo la regla, no
+   * porque hoy falte el dato — y así nadie hereda la premisa vieja.
    *
    * La venta de las RUTAS se pliega a su sucursal madre, con el MISMO mapa que usa el fact
    * (`import-replenishment-plan.js`, CTE rmap), para que el globo cuadre con la columna V30d.
@@ -1572,7 +1577,7 @@ export class CommercialReplenishmentService {
    * ano anterior. Es la regla del sistema anterior del comprador; viaja como REFERENCIA, no
    * alimenta el pedido (eso lo hace la estacion del motor).
    */
-  async monthlySales(productId: string, code?: string) {
+  async monthlySales(productId: string, code?: string): Promise<MonthlySalesResponse> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!UUID_RX.test(productId)) throw new BadRequestException('product_id inválido');
     const whCode = (code || '').trim();
@@ -1581,11 +1586,25 @@ export class CommercialReplenishmentService {
       const prod = (await trx('catalog.products').where({ tenant_id: tenantId, id: productId })
         .first('sku', 'nombre')) as { sku: string; nombre: string } | undefined;
       if (!prod) return { product: null, warehouse: whCode || null, bf: null, months: [], window: null };
+      // ⚠️ EL DIVISOR ES EL MISMO QUE EL DE LA COLUMNA "V30d", `suf * bf` — no sólo `bf`.
+      // `SUF` (RA-PRO.28) son las sub-unidades de demanda por unidad de stock: vale 1 en el
+      // catálogo normal y >1 en granel. Dividir sólo por `bf` deja el globo en otra unidad que la
+      // columna de la que se abre. Medido en prod el 2026-10-02 sobre 18,895 celdas con venta:
+      // con `suf` el globo y la columna coinciden (razón mediana 0.99), y sin él los **15 SKUs de
+      // granel** (94 celdas) salían con razón mediana **14.02×** — el 95436 mostraba 11.7 cajas
+      // donde la columna decía 0.8, porque su `suf` es 11.
       const econ = (await trx.raw(
-        `SELECT max(bf) AS bf FROM analytics.replenishment_plan WHERE tenant_id = ? AND product_id = ?`,
-        [tenantId, productId])).rows[0] || {};
+        `SELECT COALESCE(max(bf),1) AS bf, COALESCE(max(suf),1) AS suf
+           FROM analytics.replenishment_plan
+          WHERE tenant_id = ? AND product_id = ?
+            AND (CAST(? AS text) IS NULL
+                 OR warehouse_id IN (SELECT id FROM commercial.warehouses
+                                      WHERE tenant_id = ? AND code = CAST(? AS text)))`,
+        [tenantId, productId, whCode || null, tenantId, whCode || null])).rows[0] || {};
       const bf = Number(econ.bf) || 1;
-      const binds: Record<string, unknown> = { t: tenantId, p: productId, bf, code: whCode || null };
+      const suf = Number(econ.suf) || 1;
+      const div = suf * bf;
+      const binds: Record<string, unknown> = { t: tenantId, p: productId, bf: div, code: whCode || null };
       const base = `
         WITH rmap AS (
           SELECT route_wh, home_wh FROM (

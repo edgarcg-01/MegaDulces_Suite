@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { FlujoComprasDto, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
+import { FlujoComprasDto, MonthlySalesResponse, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
@@ -195,23 +195,10 @@ export interface WorkbookCell {
   mx?: number;
   rop?: number;
 }
-/** [RA-PRO.65] Un mes de la película de venta de un SKU. `cajas` null = el peldaño no se pudo
- *  medir ese mes (Wincaja); `cajas_parcial` = sólo una parte está medida. La venta en $ siempre. */
-export interface MonthlySalesMonth { mes: string; venta: number; cajas: number | null; cajas_parcial: boolean; }
-export interface MonthlySalesResponse {
-  product: { sku: string; nombre: string } | null;
-  warehouse: string | null;          // null = toda la red
-  bf: number | null;
-  months: MonthlySalesMonth[];
-  window: {
-    v30_cajas: number; v30_parcial: boolean;
-    /** Próximos 30 días del año anterior. null = no medible (ver ly_motivo). */
-    ly_next30_cajas: number | null;
-    ly_motivo: 'sin_venta_ano_anterior' | 'peldano_no_medido' | null;
-    /** 0.6 × V30 + 0.4 × LY próximos 30 (regla del sistema anterior). Referencia, no pedido. */
-    prorrateo_60_40: number | null;
-  } | null;
-}
+// [RA-PRO.65] La forma de la respuesta NO se escribe acá: vive en `libs/contracts`
+// (`replenishment-monthly.contract.ts`, ADR-052), que es de donde la lee el backend. Copiarla a
+// mano es como se separan las dos puntas sin que nadie se entere (VP.2.1).
+export type { MonthlySalesMonth, MonthlySalesResponse, MonthlySalesWindow } from '@megadulces/contracts';
 // RA-PRO.44 — qué viene en camino de un SKU (OCs abiertas), para explicar el "Pedido 0".
 export interface InTransitOc {
   folio: string; sucursal: string;
