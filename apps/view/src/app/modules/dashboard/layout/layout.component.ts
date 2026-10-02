@@ -701,6 +701,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // `[GX.33]` El Historial pasa a ser de quien REVISA (ver el comentario de la ruta).
         // ⚠️ Sin `permission:` suelto: con `anyOf` presente el filtro devuelve ahí mismo y
         // esa clave era letra muerta -- se leía como una segunda compuerta que no existía.
+        // `[GX.59]` EXPEDIENTE: el tramite de todas las personas, agrupado por persona.
+        // Va ARRIBA de Historial porque es la pantalla que pidio el usuario para reemplazarlo.
+        // ⚠️ Historial se conserva: con `_COMPROBAR` sola, 14 personas (direccion,
+        // contabilidad, finanzas_operativo, credito_cobranza, gerente_compras, marketing) se
+        // quedaban sin ninguna vista de empresa. Retirarlo es decision del usuario.
+        { label: 'Expediente', icon: 'pi pi-folder-open', route: '/finanzas/expediente',
+          permission: Permission.FINANCE_EXPENSES_COMPROBAR },
         { label: 'Historial', icon: 'pi pi-history', route: '/finanzas/gastos-historial',
           anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR] },
         // `[GX.18]` El «Tablero de gastos» salió del menú por pedido del usuario. ⚠️ La RUTA

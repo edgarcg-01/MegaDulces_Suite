@@ -678,7 +678,13 @@ export class FinanzasSolicitudesComponent {
     const et = qp.get('etapa');
     if (et && this.etapasDef.some((x) => x.value === et)) this.etapa.set(et as Etapa);
     if (qp.get('mias') === '1') this.mias.set(true);
-    if (qp.get('anejas') === '1') this.soloAnejas.set(true);
+    if (qp.get('anejas') === '1') this.soloAnejas.set(true);
+
+    // [GX.59] El Expediente manda acá con el folio puesto: el boton «Comprobacion de
+    // Kepler» tiene que caer SOBRE el vale, no en una lista de 10,082 para buscarlo a mano.
+    // Se mete en la busqueda que ya existe en vez de estrenar un filtro propio.
+    const folio = (qp.get('folio') || '').trim();
+    if (folio) this.search = folio;
 
     this.svc.expensesSucursales().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((rows) => this.sucursales.set(rows.map((s) => ({ code: s.code, label: s.name ? `${s.code} · ${s.name}` : s.code }))));

@@ -31,6 +31,9 @@ import { LARGO_MINIMO_USUARIO, normalizarUsuarioKepler, type ValeAsignado } from
 // `[GX.43]`/`[GX.44]` El documento que respalda la autorizacion y la deuda de comprobante:
 // las dos reglas viven en el contrato compartido, no escritas dos veces.
 import { constanciaDeAutorizacion, documentoKepler, quedaDebiendoComprobante } from '@megadulces/contracts';
+// [GX.59] La regla del protocolo: la MISMA que lee la pantalla del Expediente.
+import { protocoloDelVale } from '@megadulces/contracts';
+import type { PersonaExpediente, RespuestaExpediente, ValeExpediente } from '@megadulces/contracts';
 import type { AutorizacionKepler } from '@megadulces/contracts';
 
 /**
@@ -2204,6 +2207,206 @@ export class ExpenseProofsService {
         })));
 
       return { ...base, filas: detalladas, entrada };
+    });
+  }
+
+  /**
+   * `[GX.59]` — **El EXPEDIENTE: los vales de todos, agrupados por persona.**
+   *
+   * Pedido del usuario (2026-10-01): *«todos aquellos que tengan el poder de autorizar gastos
+   * podrán ver los vales de todos, acomodados por usuarios, con su nombre completo además de
+   * su username»*.
+   *
+   * ## ⚠️ Esto REVIERTE `[GX.26]`, a propósito
+   * El 2026-09-25 el mismo usuario pidió lo contrario: que el historial de toda la empresa
+   * fuera **sólo god-mode**. Acá se abre a quien tiene `FINANCE_EXPENSES_COMPROBAR`.
+   * **Medido antes de hacerlo (local, 2026-10-01): son 2 personas** (rol `tesoreria`) — no es
+   * una puerta ancha, es la gente que ya firma. `GET /` sigue siendo god-mode y no se tocó:
+   * son dos superficies distintas y mezclarlas sería ensanchar la vieja sin que nadie lo pida.
+   * ⛔ La medición es de la base LOCAL; prod no es alcanzable desde esta máquina.
+   *
+   * ## El nombre completo sale de `identity.users.nombre`
+   * No hay `full_name` en esa tabla — se buscó. La columna es `nombre` y está poblada en
+   * **156 de 159** usuarios. Los 3 sin nombre **se declaran** (`nombre: null`), no se rellenan
+   * con el username disfrazado de persona.
+   *
+   * ## La comprobación de Kepler
+   * Sale de `finance.expense_comprobaciones` (módulo GX.8) por `folio_solicitud`. Cuenta la que
+   * existe y **no está rechazada**: una comprobación que se rechazó no comprueba nada.
+   * ⛔ Si la tabla no existe en este entorno, `comprobacion_kepler` viaja en **`null`** y el
+   * veredicto sale `sin_medir` — nunca «no comprobó». Acusar a 155 personas por un `JOIN` que
+   * falta sería peor que no medir.
+   */
+  async expedientePorUsuario(limit = 2000): Promise<RespuestaExpediente> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const lim = Math.min(5000, Math.max(1, Number(limit) || 2000));
+
+    return this.tk.run(async (trx) => {
+      // ⛔ Se pregunta por la tabla ANTES de leerla. Un `catch` que devuelve `[]` convertiría
+      // «no pude medir» en «nadie comprobó», que es la mentira que este módulo evita.
+      const [{ existe }] = await trx.select(
+        trx.raw(`(to_regclass('finance.expense_comprobaciones') IS NOT NULL) AS existe`));
+      const hayTablaComprobaciones = existe === true;
+
+      interface Cruda {
+        id: string; solicitante: string | null; folio_solicitud: string | null;
+        sucursal: string | null; departamento: string | null; proveedor: string | null;
+        clasificacion: string | null; status: string; importe: string | number;
+        provisional: boolean | null; files: string | ProofFile[] | null;
+        fecha_gasto: string | null; created_dia: string;
+        motivo_rechazo: string | null; validated_by: string | null; created_by: string | null;
+        comprobaciones?: number | string | null; comprobacion_folio?: string | null;
+      }
+
+      const q = trx('finance.expense_proofs as p')
+        .where('p.tenant_id', tenantId)
+        .orderBy('p.created_at', 'desc')
+        .limit(lim)
+        .select(
+          'p.id', 'p.solicitante', 'p.folio_solicitud', 'p.sucursal', 'p.departamento',
+          'p.proveedor', 'p.clasificacion', 'p.status', 'p.provisional', 'p.files',
+          'p.motivo_rechazo', 'p.validated_by', 'p.created_by',
+          trx.raw('p.importe::numeric AS importe'),
+          trx.raw(`to_char(p.fecha_gasto, 'YYYY-MM-DD') AS fecha_gasto`),
+          trx.raw(`to_char(p.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS created_dia`));
+
+      if (hayTablaComprobaciones) {
+        q.select(
+          trx.raw(`(SELECT COUNT(*) FROM finance.expense_comprobaciones c
+                     WHERE c.tenant_id = p.tenant_id
+                       AND c.folio_solicitud = p.folio_solicitud
+                       AND COALESCE(c.status, '') <> 'rechazada')::int AS comprobaciones`),
+          trx.raw(`(SELECT c.folio_comprobacion FROM finance.expense_comprobaciones c
+                     WHERE c.tenant_id = p.tenant_id
+                       AND c.folio_solicitud = p.folio_solicitud
+                       AND COALESCE(c.status, '') <> 'rechazada'
+                     ORDER BY c.created_at DESC LIMIT 1) AS comprobacion_folio`));
+      }
+
+      const filas: Cruda[] = await q;
+
+      // El nombre completo, de una sola consulta. Un lookup por fila serían 155 viajes.
+      const usuarios: { username: string; nombre: string | null }[] = await trx('identity.users')
+        .where({ tenant_id: tenantId })
+        .whereNull('deleted_at')
+        .select('username', 'nombre');
+      const usuarioDe = new Map(usuarios.map((u) => [
+        String(u.username || '').trim().toUpperCase(),
+        { username: String(u.username || '').trim(), nombre: (u.nombre || '').trim() || null },
+      ]));
+
+      const porPersona = new Map<string, PersonaExpediente>();
+
+      for (const f of filas) {
+        const archivos: ProofFile[] = typeof f.files === 'string'
+          ? JSON.parse(f.files || '[]') : ((f.files as ProofFile[]) || []);
+
+        const comprobacionKepler = hayTablaComprobaciones
+          ? Number(f.comprobaciones || 0) > 0
+          : null;
+
+        const protocolo = protocoloDelVale({
+          status: f.status,
+          provisional: f.provisional,
+          archivos: archivos.map((a) => ({ role: a?.role })),
+          comprobacion_kepler: comprobacionKepler,
+        });
+
+        const vale: ValeExpediente = {
+          id: f.id,
+          folio_solicitud: f.folio_solicitud,
+          sucursal: f.sucursal,
+          departamento: f.departamento,
+          proveedor: f.proveedor,
+          clasificacion: f.clasificacion,
+          status: f.status,
+          importe: Math.round((Number(f.importe) || 0) * 100) / 100,
+          provisional: f.provisional === true,
+          fecha_gasto: f.fecha_gasto,
+          created_dia: f.created_dia,
+          motivo_rechazo: f.motivo_rechazo,
+          comprobacion_kepler: comprobacionKepler,
+          comprobacion_folio: f.comprobacion_folio || null,
+          // Los roles alcanzan para decidir qué botón ofrecer. Las URL firmadas caducan y
+          // mandarlas para 155 vales de una sería regalar 155 enlaces que nadie va a abrir.
+          roles: archivos.map((a) => String(a?.role || '')).filter(Boolean),
+          protocolo,
+        };
+
+        /**
+         * ⛔ **Se agrupa por `created_by`, NO por `solicitante`** — y es una decisión medida,
+         * no una preferencia. `solicitante` trae el **ÁREA** de Kepler (SISTEMAS, RRHH,
+         * LOGISTICA): de 155 filas, **1** coincide con un username. Agrupar por ahí daba 19
+         * cajones sin una sola persona identificable, y la pantalla se veía perfecta.
+         *
+         * `created_by` es quien capturó acá. Tampoco es siempre un username —**66 de 155**
+         * lo son; el resto trae el nombre tecleado— así que el vínculo con el padrón **se
+         * declara cuando existe** en vez de darse por hecho.
+         */
+        const clave = String(f.created_by || '').trim() || String(f.solicitante || '').trim() || '(sin capturista)';
+        const upper = clave.toUpperCase();
+        let persona = porPersona.get(upper);
+        if (!persona) {
+          const enPadron = usuarioDe.get(upper);
+          persona = {
+            clave,
+            // `null` = la clave no coincide con ningún usuario. No se rellena con la clave:
+            // alguien lo usaría para escribirle a una cuenta que no existe.
+            username: enPadron ? enPadron.username : null,
+            nombre: enPadron ? enPadron.nombre : null,
+            areas: [],
+            total: 0, monto: 0, completos: 0, incompletos: 0, en_captura: 0, sin_medir: 0,
+            vales: [],
+          };
+          porPersona.set(upper, persona);
+        }
+        persona.total += 1;
+        persona.monto = Math.round((persona.monto + vale.importe) * 100) / 100;
+        // El área es de Kepler y es OTRO dato: se muestra al lado de la persona, no en vez de.
+        const area = String(f.solicitante || '').trim();
+        if (area && !persona.areas.includes(area)) persona.areas.push(area);
+
+        if (protocolo.etapa === 'completo') persona.completos += 1;
+        else if (protocolo.etapa === 'sin_medir') persona.sin_medir += 1;
+        else if (protocolo.etapa === 'en_captura') persona.en_captura += 1;
+        // ⚠️ `en_captura` NO suma a `incompletos`: un vale que espera firma todavía no puede
+        // tener comprobación de Kepler. Mezclarlos daba 100 «incompletos» de 155, con 78 que
+        // en realidad sólo esperan que alguien los mire.
+        else if (protocolo.etapa !== 'rechazado') persona.incompletos += 1;
+        persona.vales.push(vale);
+      }
+
+      const personas = [...porPersona.values()]
+        // Arriba quien tiene más pendientes REALES: la pantalla existe para destrabar.
+        .sort((a, b) => (b.incompletos - a.incompletos) || (b.total - a.total)
+          || a.clave.localeCompare(b.clave));
+
+      const tot = personas.reduce((acc, p) => ({
+        vales: acc.vales + p.total,
+        completos: acc.completos + p.completos,
+        incompletos: acc.incompletos + p.incompletos,
+        en_captura: acc.en_captura + p.en_captura,
+        sin_medir: acc.sin_medir + p.sin_medir,
+        monto: acc.monto + p.monto,
+      }), { vales: 0, completos: 0, incompletos: 0, en_captura: 0, sin_medir: 0, monto: 0 });
+
+      return {
+        personas,
+        total: {
+          personas: personas.length,
+          vales: tot.vales,
+          completos: tot.completos,
+          incompletos: tot.incompletos,
+          en_captura: tot.en_captura,
+          sin_medir: tot.sin_medir,
+          monto: Math.round(tot.monto * 100) / 100,
+        },
+        personas_sin_usuario: personas.filter((p) => !p.username).length,
+        // ⛔ Se DECLARA, no se esconde: sin esta tabla ningún vale puede estar completo, y la
+        // pantalla tiene que poder decir por qué en vez de pintar 155 rojos.
+        comprobaciones_medidas: hayTablaComprobaciones,
+        truncado: filas.length >= lim,
+      };
     });
   }
 
