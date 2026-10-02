@@ -55,6 +55,7 @@ import { MotorMargenService, type CompetenciaMotor } from '../motor-margen.servi
       <p class="surf-page-sub">
         Cuánto vendió <strong>el resto del canal</strong> bajo cada marca, y a qué precio contra
         el nuestro. Sale de la medición mensual de ISCAM.
+        <app-context-help topic="control-de-margen" />
         <app-context-help topic="competencia" />
       </p>
     </div>

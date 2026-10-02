@@ -67,6 +67,7 @@ import {
       </p>
     </div>
     <div class="mm-head-acc">
+      <app-context-help topic="control-de-margen" />
       <app-context-help topic="motor-margen" />
       <p-button type="button" icon="pi pi-refresh" label="Actualizar" [loading]="cargando()" (click)="recargar()" styleClass="p-button-text p-button-sm" />
     </div>
