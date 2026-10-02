@@ -693,7 +693,15 @@ case "${1:---todo}" in
   # --profile` a mano. ⚠️ Y hacerlo a mano es justo lo que vació `/api/health` el 2026-09-22,
   # porque `cloudflared` declara `depends_on: [api, portal, vendor]` y Compose se los lleva
   # puestos. Esta entrada pasa por `recrear()`, que sí exporta el commit.
-  --tunel)     subir_compose; recrear cloudflared ;;
+  # ⭐ [K3S.33] EL TÚNEL VIVE EN K3s. Esto decía `recrear cloudflared`, que recreaba el
+  # contenedor de Compose — y recrearlo hoy levantaría un CUARTO conector del túnel, con los
+  # dos pods ya registrados. No rompe (el borde reparte entre los que haya), pero es
+  # exactamente la ambigüedad que la migración vino a eliminar: dos sitios distintos
+  # declarando quién atiende el ingreso.
+  #
+  # ⚠️ Y sigue sin poder declararse acá a DÓNDE enruta: esa configuración vive en Cloudflare,
+  # no en el repo. Ese es el hueco que costó dos caídas el 2026-10-01.
+  --tunel)     subir_compose; ssh_md "KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl apply -f ~/ops/k3s/43-cloudflared.deployment.yaml && KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl rollout status deploy/cloudflared -n prod --timeout=180s" ;;
   --todo)      verificar_limpio; compuerta_migraciones $SERVICIOS_DEF; enviar; construir; recrear $SERVICIOS_DEF ;;
   -*)          sed -n '2,15p' "$0"; exit 2 ;;
   # Nombres de servicio sueltos: ahora `construir` recibe la lista y construye SÓLO esas
