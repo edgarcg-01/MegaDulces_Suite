@@ -72,17 +72,56 @@ SQL
 # La IP se relee en CADA pasada: Docker se la reasigna al recrear el contenedor, y cachearla haría
 # que el vigía midiera una IP muerta y declarara caído un túnel sano — una alarma falsa que
 # enseña a ignorar el tablero.
-ip=$(docker inspect "$CONTENEDOR" -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null)
-corriendo=$(docker inspect "$CONTENEDOR" -f '{{.State.Running}}' 2>/dev/null)
+# ═══ [K3S.44] EL VIGÍA MIRABA AL CONTENEDOR QUE YA NO ES EL TÚNEL ═══════════════════════════
+#
+# ⛔⛔ ESTO RESUCITÓ UN SERVICIO MIGRADO, DOS VECES, Y UNA DE ELLAS QUEDÓ ANOTADA COMO
+# "reinicio inexplicable" EN LA BITÁCORA.
+#
+# `cloudflared` migró a K3s el 2026-10-01 (dos pods). Este guion siguió midiendo el
+# CONTENEDOR de Compose y, al no encontrarlo listo, lo "curó" con `docker restart`. Medido:
+# el 2026-10-01 a las 22:03:35 se detuvo el contenedor a propósito —para dejar sólo los dos
+# pods— y a las 22:06:01 estaba arriba otra vez. 2 minutos 26 segundos: exactamente los tres
+# fallos a uno por minuto que pide FALLOS_PARA_CURAR. No fue un misterio: fue este guion.
+#
+# ⭐ Y lo que "curaba" era el daño: un TERCER conector registrado contra el mismo túnel, que
+# es justo la ambigüedad que la migración vino a eliminar —dos sitios declarando quién
+# atiende el ingreso—. Una compuerta que se queda sin sujeto no avisa: empieza a proteger
+# otra cosa.
+#
+# Ahora mide donde vive el servicio HOY, y sólo cae al contenedor si K3s no lo tiene.
+# ⚠️ El host alcanza las IP de los pods directo (flannel): medido el 2026-10-02, /ready de
+#    los dos pods responde 4 conexiones cada uno desde `md`. No hace falta NodePort.
+KC="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+EN_K3S=0
+if command -v k3s >/dev/null 2>&1 && KUBECONFIG="$KC" k3s kubectl -n prod get deploy cloudflared >/dev/null 2>&1; then
+  EN_K3S=1
+fi
 
-if [ "$corriendo" != "true" ] || [ -z "$ip" ]; then
-  conexiones=-1
-  motivo="el contenedor $CONTENEDOR no está corriendo"
+if [ "$EN_K3S" = 1 ]; then
+  conexiones=0; listos=0
+  for _ip in $(KUBECONFIG="$KC" k3s kubectl -n prod get pods -l app=cloudflared \
+                 -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.status.podIP} {end}' 2>/dev/null); do
+    _r=$(curl -s --max-time 5 "http://$_ip:$PUERTO/ready" 2>/dev/null)
+    _c=$(printf '%s' "$_r" | jq -r '.readyConnections // 0' 2>/dev/null)
+    case "$_c" in ''|*[!0-9]*) _c=0 ;; esac
+    conexiones=$((conexiones + _c))
+    [ "$_c" -gt 0 ] && listos=$((listos + 1))
+  done
+  motivo="K3s: $listos pod(s) con conexiones, $conexiones en total"
+  [ "$conexiones" -gt 0 ] || conexiones=-1
 else
-  r=$(curl -s --max-time 5 "http://$ip:$PUERTO/ready" 2>/dev/null)
-  conexiones=$(printf '%s' "$r" | jq -r '.readyConnections // -1' 2>/dev/null)
-  case "$conexiones" in ''|*[!0-9-]*) conexiones=-1 ;; esac
-  motivo="/ready devolvió '${r:-nada}'"
+  ip=$(docker inspect "$CONTENEDOR" -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null)
+  corriendo=$(docker inspect "$CONTENEDOR" -f '{{.State.Running}}' 2>/dev/null)
+
+  if [ "$corriendo" != "true" ] || [ -z "$ip" ]; then
+    conexiones=-1
+    motivo="el contenedor $CONTENEDOR no está corriendo"
+  else
+    r=$(curl -s --max-time 5 "http://$ip:$PUERTO/ready" 2>/dev/null)
+    conexiones=$(printf '%s' "$r" | jq -r '.readyConnections // -1' 2>/dev/null)
+    case "$conexiones" in ''|*[!0-9-]*) conexiones=-1 ;; esac
+    motivo="/ready devolvió '${r:-nada}'"
+  fi
 fi
 
 fallos=$(cat "$ESTADO" 2>/dev/null | head -1)
@@ -112,6 +151,23 @@ if [ $((ahora - ultima)) -lt "$ESPERA_TRAS_CURAR" ]; then
   di "NO se reinicia: ya se curó hace $((ahora - ultima))s (espera $ESPERA_TRAS_CURAR s)."
   latir error "sin conexiones y en espera tras un reinicio previo — REVISAR A MANO"
   exit 1
+fi
+
+# ⛔ [K3S.44] Y LA CURA TAMBIÉN: reiniciar el contenedor cuando el servicio vive en K3s no
+# arregla nada y SUMA un tercer conector al mismo túnel. La cura va donde está el servicio.
+if [ "$EN_K3S" = 1 ]; then
+  di "CURANDO: rollout restart de deploy/cloudflared en K3s"
+  echo "$ahora" > "$MARCA"
+  if KUBECONFIG="$KC" k3s kubectl -n prod rollout restart deploy/cloudflared >/dev/null 2>&1; then
+    echo 0 > "$ESTADO"
+    di "reiniciado (K3s)."
+    latir error "túnel sin conexiones — REINICIADO por el vigía (K3s)"
+  else
+    di "FALLO: no se pudo reiniciar deploy/cloudflared"
+    latir error "túnel sin conexiones y el rollout restart FALLÓ — intervención manual"
+    exit 1
+  fi
+  exit 0
 fi
 
 di "CURANDO: reiniciando $CONTENEDOR"
