@@ -1474,12 +1474,6 @@ export class CommercialReplenishmentService {
            GROUP BY product_id, sku, nombre, supplier_id
         )
         SELECT p.*, sup.name AS supplier_name,
-               -- `[RA-DYN.U3]` El piso de la orden. El join a proveedores ya estaba acá por el
-               -- nombre: estas dos columnas no agregan ninguna relación nueva.
-               -- Viajan CRUDAS a propósito: un mínimo se cumple con la canasta entera del
-               -- proveedor, no con un renglón, así que resolverlo por fila daría un número que no
-               -- significa nada. Lo agrupa la pantalla, que es quien sabe qué hay seleccionado.
-               sup.min_order_boxes, sup.min_order_amount,
                lp.box_size, lp.pack_size,
                CASE WHEN lp.box_size > 1 AND lp.pack_size > 1 AND lp.box_size % lp.pack_size = 0
                     THEN (lp.box_size / lp.pack_size) ELSE NULL END AS packs_per_box,
@@ -2575,7 +2569,10 @@ export class CommercialReplenishmentService {
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .where('rp.tenant_id', tenantId)
-        .distinct('sup.id as id', 'sup.name as name', 'sup.min_order_boxes as min_order_boxes').orderBy('sup.name');
+        // `[RA-DYN.U3]` El monto minimo viaja al lado del de cajas, que ya estaba aca (RA-PRO.66).
+        // Es dato del PROVEEDOR: ponerlo en cada fila del workbook lo repetiria ~33 mil veces.
+        .distinct('sup.id as id', 'sup.name as name', 'sup.min_order_boxes as min_order_boxes',
+          'sup.min_order_amount as min_order_amount').orderBy('sup.name');
       // Marcas con productos en política (mismo patrón que proveedores) — para el filtro de /compras/pedido.
       // OJO: la columna de catalog.brands es `nombre`, NO `name` (b.name tiraba 42703 → /filters 500,
       // y con él se caían TODOS los selects de la pantalla). La etiqueta usa display_name cuando
