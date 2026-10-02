@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { FlujoComprasDto, MonthlySalesResponse, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
+import { ClaseOc, EstadoCadena, FlujoComprasDto, MonthlySalesResponse, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
@@ -226,6 +226,10 @@ export interface OpenOcRow {
   dias: number; lineas: number; valor: number;
   prob: number | null;                  // % histórico de que una OC de esa edad termine llegando
   seguimiento?: OcSeguimiento | null;   // [RA-PRO.62] registro de Compras; null = Sin revisar
+  /** [RA-PRO.67] Estado demostrado por la cadena de documentos. `null` = la vista aún no lo trae. */
+  estado_cadena?: EstadoCadena | null;
+  /** [RA-PRO.67] La palabra del ERP (`c43 = 'N'`). Testigo distinto del de arriba. */
+  pendiente_en_erp?: boolean | null;
 }
 export interface OpenOcResponse {
   rows: OpenOcRow[];
@@ -239,6 +243,13 @@ export interface OpenOcResponse {
   por_seguimiento?: Record<string, number>;
   /** [RA-PRO.62] `false` mientras la migración del seguimiento no esté aplicada: no se puede editar. */
   seguimiento_habilitado?: boolean;
+  /** [RA-PRO.67] Órdenes y dinero por clase, sobre TODAS. */
+  por_clase?: Record<ClaseOc, number>;
+  valor_por_clase?: Record<ClaseOc, number>;
+  /** [RA-PRO.67] Las que no van a salir solas (`abortada` + `cerrada_sin_rastro`). */
+  muertas?: number; valor_muertas?: number;
+  /** [RA-PRO.67] `false` mientras la vista no traiga `estado_cadena`: la pantalla lo DECLARA. */
+  clasificacion_disponible?: boolean;
   curva: Array<{ edad: number; n: number; pct: number; fallback: boolean }>;
 }
 export interface WorkbookRow {
@@ -247,16 +258,6 @@ export interface WorkbookRow {
    *  requisición, que agrupa por (proveedor × almacén). */
   supplier_id: string | null;
   supplier_name: string | null;
-  /**
-   * `[RA-DYN.U3]` El piso que el proveedor exige por orden. `null` = no capturado, y se declara
-   * como tal: **nunca se lee como "no tiene mínimo"**. Medido el 2026-10-01: 263 de los 321
-   * proveedores del plan tienen mínimo en cajas y 287 en pesos.
-   *
-   * ⚠️ Se cumple con la canasta ENTERA del proveedor, no con un renglón. Agruparlo es trabajo de
-   * la pantalla, que es la única que sabe qué está seleccionado.
-   */
-  min_order_boxes: number | null;
-  min_order_amount: number | null;
   uxc: number; caja_cost: number;
   unidad_base: string | null;      // RA-PRO.46 — rótulo REAL de la unidad, dicho por Kepler
                                    // (kdii.c11): PZA/PAQ, pero también 500/KG/CUB en granel.
@@ -396,7 +397,9 @@ export interface ReplenishmentFilters {
     is_purchase_hub?: boolean;
     display_order?: number | null;
   }[];
-  suppliers: { id: string; name: string; min_order_boxes: number | null }[];
+  suppliers: { id: string; name: string; min_order_boxes: number | null;
+    /** `[RA-DYN.U3]` Piso en pesos por orden. `null` = no capturado, NUNCA "no tiene minimo". */
+    min_order_amount: number | null }[];
   brands?: { id: string; name: string }[];
   categories?: ReplenishmentCategory[]; // RA-PRO.12 — categorías de compra (sourcing)
 }
