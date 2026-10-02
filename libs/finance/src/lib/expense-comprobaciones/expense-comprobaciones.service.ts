@@ -343,16 +343,36 @@ export class ExpenseComprobacionesService {
         .returning('id');
       const areaId = area?.id || null;
 
-      // Validación por vision: cuadra → validada (por Claude Vision); si no → revisión.
-      // La lectura viene del SERVIDOR (srv), no del cliente → no se puede falsear.
+      /**
+       * `[GX.59]` **La lectura COMPRUEBA el monto; no decide ni firma.**
+       *
+       * Antes, si el monto cuadraba, esto cerraba el expediente solo (`validada`) y lo
+       * firmaba `validated_by: 'Claude Vision'`. Pedido del usuario: que al subir la
+       * evidencia sólo se saque el MONTO del vale y se compruebe que coincide — sin
+       * modificar nada.
+       *
+       * ⛔ Y cerrar solo era, además, el mismo agujero que `[GX.32]` ya había tapado en el
+       * módulo hermano: esta evidencia la sube quien gastó, así que auto-validarla deja que
+       * **quien gastó cierre su propio expediente**. Que el monto cuadre no dice que el
+       * gasto proceda; dice que dos números coinciden.
+       *
+       * Lo que sí se conserva: la lectura viene del SERVIDOR (`srv`), no del cliente, así
+       * que el monto comparado no se puede falsear desde el navegador.
+       *
+       * ⚠️ `monto_ocr`/`monto_match` SÍ se siguen guardando: son **lo que se leyó**, un dato
+       * propio y nuevo, no una modificación de lo que capturó la persona. Lo que no se
+       * escribe más es un veredicto.
+       */
       const legible = srv.legible;
       const { match, usado, diff } = this.montoCuadra(importe, srv.total, srv.subtotal);
-      const cuadra = legible && match;
       const fmt = (v: number | null) => (v == null ? '—' : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      const status = cuadra ? 'validada' : 'revision';
-      const revisionNota = cuadra ? null
-        : (!legible ? 'Foto ilegible o sin lectura — validar a mano'
-          : `Monto no cuadra: foto ${fmt(usado)} vs gasto ${fmt(importe)}${diff != null ? ` (Δ ${fmt(diff)})` : ''}`);
+      // ⛔ SIEMPRE 'revision'. La maquina no tiene estado propio con el que cerrar.
+      const status = 'revision';
+      const revisionNota = !legible
+        ? 'No se pudo leer el comprobante — revisar a mano'
+        : match
+          ? `El monto cuadra: comprobante ${fmt(usado)} = gasto ${fmt(importe)}. Falta que alguien lo apruebe.`
+          : `Monto NO cuadra: comprobante ${fmt(usado)} vs gasto ${fmt(importe)}${diff != null ? ` (Δ ${fmt(diff)})` : ''}`;
 
       const [row] = await trx('finance.expense_comprobaciones')
         .insert({
@@ -370,12 +390,13 @@ export class ExpenseComprobacionesService {
           monto_ocr: usado,
           monto_match: legible ? match : null,
           revision_nota: revisionNota,
-          validated_by: cuadra ? 'Claude Vision' : null,
-          validated_at: cuadra ? trx.fn.now() : null,
+          // Nadie lo valido todavia: el expediente espera a una PERSONA.
+          validated_by: null,
+          validated_at: null,
           created_by: actor || null,
         })
         .returning(['id', 'folio_gasto', 'folio_solicitud', 'status']);
-      this.logger.log(`comprobación gasto ${row.folio_gasto} → ${status} [vision:${srv.source}]${cuadra ? '' : ` (${revisionNota})`} · ${files.length} archivos, por ${actor || '?'}`);
+      this.logger.log(`comprobación gasto ${row.folio_gasto} → ${status} [vision:${srv.source}] (${revisionNota}) · ${files.length} archivos, por ${actor || '?'}`);
       this.emit('captured', { sucursal, folio_gasto: folioGasto, status, proveedor, importe }, actor);
       return row;
     });
