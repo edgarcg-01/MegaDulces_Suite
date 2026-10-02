@@ -91,53 +91,19 @@ spec:
         - name: datos
           persistentVolumeClaim: { claimName: redis-data }
 ---
-# ── worker: SINGLETON de verdad (51 @Cron) ───────────────────────────────────
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: worker
-  namespace: prod
-  labels: { app: worker, singleton: "true", migracion: preparado }
-spec:
-  replicas: 1             # ⛔ NUNCA subir: son 51 @Cron, dos pods = cada uno dos veces
-  strategy:
-    type: Recreate        # ⛔ RollingUpdate solaparía dos workers durante el despliegue
-  selector:
-    matchLabels: { app: worker }
-  template:
-    metadata:
-      labels: { app: worker }
-    spec:
-      # ⛔ [K3S.18] ESTO REEMPLAZA AL depends_on: condition: service_healthy DE COMPOSE, y se
-      # agrego DESPUES de que su ausencia mordiera. Sin el, K8s arranca los pods EN PARALELO:
-      # el API gano la carrera, pidio Redis, recibio ECONNREFUSED y el adaptador de socket.io
-      # se quedo "en modo in-memory" PARA SIEMPRE -- no reintenta. Con dos replicas eso
-      # significa que un cliente en la replica A no recibe lo que emite la B, en silencio.
-      # Medido: el redis del cluster tenia 1 canal y 0 patrones, contra 56 y 14 en el de Docker.
-      # ⚠️ Acá la version de Compose era MAS correcta que mi traduccion: expresaba la
-      # dependencia y yo la deje caer. Migrar no es copiar campos, es conservar INVARIANTES.
-      initContainers:
-        - name: esperar-redis
-          image: busybox:1.36
-          imagePullPolicy: IfNotPresent
-          command: ["sh", "-c", "until nc -z redis 6379; do echo esperando-redis; sleep 2; done"]
-      containers:
-        - name: worker
-          image: localhost:5000/trade-prod-worker:__COMMIT__
-          imagePullPolicy: IfNotPresent
-          envFrom:
-            - secretRef: { name: prod-env }
-          env:
-            - { name: TZ,                     value: America/Mexico_City }
-            - { name: NODE_ENV,               value: production }
-            - { name: REDIS_URL,              value: "redis://redis:6379" }
-            - { name: WORKER,                 value: "true" }
-            - { name: ENABLE_WORKER_QUEUE,    value: "true" }
-            - { name: RUN_MIGRATIONS_ON_BOOT, value: "0" }
-          resources:
-            requests: { memory: "256Mi", cpu: "100m" }
-            limits:   { memory: "2Gi" }
----
+# ── el worker SE FUE a 42-worker.deployment.yaml ─────────────────────────────
+#
+# [K3S.28] No es un archivo nuevo por prolijidad: `aplicar-k3s-prod.sh` filtra POR ARCHIVO y
+# `npm run check:k3s` exige que un archivo no mezcle `migrado` con `preparado`. Mientras el
+# worker viviera acá, migrarlo arrastraba a `redis` y al `api`, que siguen en Compose.
+#
+# ⭐ Un archivo = una unidad de migración. La forma del repo tiene que poder expresar que dos
+# servicios que ARRANCAN juntos no necesariamente se MUDAN juntos.
+#
+# ⛔ `redis` y `api` SÍ se mudan juntos, y por eso siguen acá: `redis` no publica puerto en el
+# host, así que no puede quedar partido entre los dos mundos. Si se va solo, el `api` de Compose
+# pierde el adaptador de socket.io y la caché; si se queda solo, el `api` del clúster no lo
+# alcanza. Medido el 2026-10-01: un pod NO llega al redis de Docker (172.19.0.3).
 # ── api: DOS réplicas de UN Deployment (adiós al api2 copiado a mano) ─────────
 apiVersion: v1
 kind: Service
