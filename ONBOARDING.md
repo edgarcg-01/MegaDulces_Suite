@@ -199,13 +199,13 @@ El desarrollo de este proyecto se apoya fuerte en **Claude Code**. Puntos clave 
 npm run hooks:install
 ```
 
-Apunta git a `.githooks/`, que trae **dos** compuertas — y sin este comando **ninguna de las dos
-corre**:
+Apunta git a `.githooks/`, que trae **tres** compuertas — y sin este comando **ninguna corre**:
 
 | Hook | Qué hace |
 | --- | --- |
-| `pre-commit` | Escaneo de secretos con **gitleaks**. Existe desde el 2026-07-24, se escribió *después de una fuga de credenciales de prod al repo* — y nació «opt-in», mencionado sólo en el CHANGELOG. Medido el 2026-09-30: `core.hooksPath` estaba **sin configurar**, o sea que llevaba **dos meses sin correr para nadie**. |
+| `pre-commit` | **(1)** Marcador de conflicto sin resolver → **bloquea** (94 ms sobre lo staged). Ya entró al repo una vez y rompió el build: `fix([RA-PRO.60-62]): resolver marcador de conflicto en compras.service`. **(2)** Escaneo de secretos con **gitleaks**. Existe desde el 2026-07-24, se escribió *después de una fuga de credenciales de prod al repo* — y nació «opt-in», mencionado sólo en el CHANGELOG. Medido el 2026-09-30: `core.hooksPath` estaba **sin configurar**, o sea que llevaba **dos meses sin correr para nadie**. |
 | `pre-push` | Bloquea el push directo a `main` y corre 6 gates estáticos sobre **tus** archivos (~2.5 s, en paralelo). No te frena con la deuda preexistente del repo. |
+| `post-checkout` | Avisa cuando **cambiaste la rama de un árbol compartido** y cuando tu línea lleva >20 commits sin sincronizar. No bloquea: corre después del hecho. Ver §8.1. |
 
 Hoy `main` no tiene protección del lado de GitHub (ver el ⚠️ de abajo), así que esto es lo único
 que separa un commit roto de la rama de la que se deploya.
@@ -221,6 +221,53 @@ que separa un commit roto de la rama de la que se deploya.
 4. **Al menos 1 review** de otro dev antes de mergear.
 5. **Nadie pushea directo a `main`.** La compuerta de §8.0 lo bloquea en tu máquina.
 6. Al mergear: se hace **squash** y la rama se borra sola. Cerrá el item en el tracker.
+   ⚠️ **Mergear a `main` despliega a producción en ≤5 min** — `ops/prod/auto-deploy.sh` mira
+   `origin/main` solo. No es un merge inocuo.
+
+---
+
+### 8.1 Si trabajás con varias sesiones de Claude en la MISMA carpeta
+
+Esto aplica a la máquina de trabajo de Edgar, no a los devs remotos. **Medido el 2026-10-02:
+11 sesiones sobre el mismo árbol, el mismo `.git/index` y la misma rama.**
+
+Git tiene **una sola rama activa por árbol de trabajo**. No es una convención: es físico. Así
+que todo lo de abajo sale de daños reales, no de preferencias.
+
+**1. Nadie hace `git switch`.** Una sesión fija la rama del día; el resto trabaja donde esté.
+Un `switch` arrastra a las otras diez a mitad de su tarea, en silencio.
+*Pasó dos veces el 2026-10-02 en una sola sesión*: la primera la movió de `main` a
+`integra/trabajo-local-2026-10-02`; la segunda, de vuelta a `main` — y **dejó dos commits de
+compuertas en la rama que quedó atrás**, con los archivos desaparecidos del disco. El
+`post-checkout` existe para que eso se vea en el acto en vez de descubrirse comparando SHAs.
+
+**2. Commitear SIEMPRE con pathspec:** `git commit -q -F msg -- ruta1 ruta2`.
+El índice es compartido: un `git commit` sin rutas se lleva lo que otra sesión dejó stageado.
+Antes de cada uno: `git diff --cached --stat`.
+
+**3. Sincronizar a diario, no al final.** Los conflictos no vienen del volumen, vienen de la
+**edad**: los 5 PRs abiertos del mismo día estaban `CLEAN` y el único de 3 días, `DIRTY`.
+El `post-checkout` avisa pasados **20** commits de divergencia — umbral medido, no estimado:
+con **42** costó **9 conflictos** traer **4** commits remotos.
+
+**4. Resolver conflictos por BLOQUE, nunca por archivo.** `git checkout --ours/--theirs` toma
+el archivo **entero** y tira lo que el otro lado cambió en zonas que ni estaban en conflicto.
+*Medido en `ops/prod/deploy.sh`*: `--ours` habría borrado `SERVICIOS_DEF="registry backup"` y
+el cambio a `pgprod.sh`, que no tenían nada que ver con el bloque en disputa.
+
+**5. Antes de descartar un lado, probá que el otro es superconjunto.**
+`git log --oneline <rama-A> -- <archivo>` contra `<rama-B>`. Así se salvaron 300 líneas de
+`commercial-analytics.service.ts`: una rama traía `IG.7→IG.8→IG.9→IG.10` y la otra la foto
+vieja de `IG.7`; «el que tiene más líneas gana» habría acertado por casualidad, y la próxima no.
+
+**6. Un solo nombre para la rama de integración.** Hoy conviven cinco formas
+(`integrate/local-*`, `integrate/local-5-*`, `integra/trabajo-local-*`, `integra/pendientes-*`,
+`integra/todo-*`) porque cada sesión inventa la suya. **La forma es `integra/<tema>-<AAAA-MM-DD>`.**
+
+**7. Lo que NO está versionado puede ser trabajo ajeno en vuelo.** Antes de borrar un `.tmp-*/`
+o un `.txt` suelto de la raíz, mirá `git status`: si no es tuyo y no está en git, es de otra
+sesión. *El 2026-10-02 una sesión borró 4 capturas que `docs/CAOS_CASH_SYSTEM.md` cita por
+nombre; commitear ese borrado habría dejado el doc apuntando a archivos inexistentes.*
 
 **Antes de pedir review, localmente:**
 ```bash
