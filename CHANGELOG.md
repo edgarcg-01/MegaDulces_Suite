@@ -9,6 +9,37 @@
 ---
 
 ## [Unreleased]
+### Fixed — el despliegue deja de frenar por migraciones ajenas, y el CI deja de reventar por deuda ajena (Fase CD, 2026-10-02)
+Nace de "el CI/CD es lento y aborta por migraciones pendientes". **Medido antes de tocar: el build tarda 10 s**
+(`npm ci` 70 s, build 10 s — `nx affected` + caché remoto ya estaban bien). Lo roto era otra cosa: **las 15
+corridas más recientes en rojo, las 15**. El commit `1d3c504dc` toca UN archivo y su CI falló por CINCO, ninguno
+el suyo — `check:tables` y `check:tokens` barrían las 3 apps enteras.
+- **[CD.1]** `ops/prod/compuerta-migraciones.sh`: pendiente ≠ bloqueante. Cruza los objetos que las migraciones
+  pendientes crean contra los archivos que cambian; si no los nombran, **DESACOPLADO** y se despliega. ⛔ La
+  compuerta **no se quitó**: 8 de los últimos 14 commits con migración traen código de `apps/`/`libs/` en el
+  MISMO commit, así que frenar por defecto es correcto. Lo que se afloja es el hotfix que no toca ese esquema.
+- **[CD.2]** `scripts/lib/alcance-diff.js`: las compuertas de diseño cortan por lo que el cambio tocó y
+  **declaran su alcance** (`alcance: 13 de 692`). La deuda del resto se sigue midiendo (`--todo`). De paso
+  bajaron de 1,146/1,318 ms a **200 ms**.
+- **[CD.3]** caché de `node_modules` por hash exacto de lock en los dos jobs, sin `restore-keys` a propósito.
+- **[CD.4]** resumen semántico `if: failure()`: qué compuerta cortó y cómo reproducirla, sin abrir el log.
+- **[CD.5]** tres defectos que **sólo salieron al desplegar a `md`**: la compuerta estaba en Node y **en `md` no
+  hay Node** (reescrita en POSIX sh — `clasificar-migraciones.awk` ya era awk por esto); **`grep -i` con `-f`
+  devuelve cero EN SILENCIO** bajo MSYS (el modo de falla era desplegar código roto, y la prueba negativa no lo
+  vio porque corría sobre 40 bytes); y falsos positivos por subcadena (`requests` dentro de `expense_requests`) y
+  por palabra en comentario — se arregla conservando el nombre **calificado** y cruzando con límite de palabra.
+- **[CD.6]** colisión de timestamps `20261001160000`. Verificado contra prod ANTES de tocar: una está aplicada
+  (congelada), la otra no. Renombrada la segunda.
+Verificado en `md`: prueba negativa **10/10**, `deploy.sh --verificar` sin fallas, caso real DESACOPLADO y caso
+acoplado FRENA. Plan en [`FASE_CD`](docs/IMPLEMENTACION/FASES/FASE_CD_DESPLIEGUE_DESACOPLADO.md).
+
+### Fixed — instalar gitleaks bloqueaba TODOS los commits (SEC.1, 2026-10-02)
+`gitleaks` 8.30.1 (lo que dan winget y choco) retiró el subcomando `protect`; `gitleaks protect --staged` sale
+**255** y el `pre-commit` leía ese no-cero como "hay un secreto" → mensaje falso + `exit 1` + ningún commit
+posible. O sea que **instalar la herramienta rompía el repo**. Ahora detecta si existe `git` (8.19+) o `protect`
+(anterior), y separa con `--exit-code 7` el hallazgo —que frena— de "no pude correr", que se **declara** sin
+trabar el commit. Probado en las dos direcciones: string tipo prod frena, dev local (allowlist) pasa.
+
 ### Changed — cotización: el detalle (editar) usa el mismo esqueleto compacto que el alta (COT.18, 2026-10-02)
 - Cabecera de una línea, condiciones en una tira, buscador en la fila del título, artículo elegido en horizontal, renglones de una línea y riel fijo con totales, Excel/PDF, la lista del cliente y el asistente IA. Medido en COT-2026-00009: renglón 54 → 39 px, los 10 renglones caben sin scroll. Sólo plantilla y estilos.
 ### Added — `/compras/pedido`: agregar sucursal sin historia, V30d/Máx con venta por mes y mínimo del proveedor (RA-PRO.64–66, 2026-10-01)

@@ -345,7 +345,7 @@ subir_compose() {
   # provee — y cada despliegue con una migración pendiente moría con "falta
   # compuerta-migraciones.sh". Regla: si un guion de esta lista llama a otro archivo, ese
   # archivo va en la lista.
-  _guiones="docker-compose.yml Caddyfile pgprod.sh restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh aplicar-k3s-prod.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk compuerta-migraciones.sh dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
+  _guiones="docker-compose.yml Caddyfile pgprod.sh restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh aplicar-k3s-prod.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk compuerta-migraciones.sh node.sh dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
   for a in $_guiones; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
