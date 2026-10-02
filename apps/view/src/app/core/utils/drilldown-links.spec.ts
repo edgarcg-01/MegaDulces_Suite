@@ -44,7 +44,14 @@ const DRILLDOWNS: ReadonlyArray<{ archivo: string; ruta: string; que: string }> 
 /** Los "Volver" de las pantallas de detalle: con clic central abren la lista al lado. */
 const VOLVER: ReadonlyArray<{ archivo: string; ruta: string }> = [
   { archivo: 'compras/pages/compras-orden-detalle.component.ts', ruta: 'routerLink="/compras/ordenes"' },
-  { archivo: 'compras/pages/compras-requisicion-detalle.component.ts', ruta: 'routerLink="/compras/requisiciones"' },
+  // `[MT.6]`: este usa la forma ENLAZADA porque necesita mandar `?tab=` para volver a la pestana
+  // de la que saliste (Proveedor o Traspaso), y `queryParams` no se puede combinar con la forma
+  // estatica. Sigue siendo un ancla con routerLink, que es lo que esta compuerta vigila. El cambio
+  // de forma lo marco este mismo test, y eso es que funcione: obliga a que alguien confirme que lo
+  // nuevo sigue siendo un enlace y no un boton.
+  // (Si algun dia se envuelve en `multitarea.enlaceDetalle()`, el `?tab=` se pierde EN SILENCIO:
+  //  RouterLink ignora queryParams cuando su entrada ya es un UrlTree.)
+  { archivo: 'compras/pages/compras-requisicion-detalle.component.ts', ruta: `[routerLink]="['/compras/requisiciones']"` },
   { archivo: 'comercial/pages/comercial-egreso-detalle.component.ts', ruta: 'routerLink="/finanzas/egresos"' },
   { archivo: 'comercial/pages/comercial-expiry-review-detail.component.ts', ruta: 'routerLink=".."' },
 ];
