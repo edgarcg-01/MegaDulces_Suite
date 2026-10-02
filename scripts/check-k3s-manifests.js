@@ -350,6 +350,60 @@ function revisar(doc, archivo) {
     }
   }
 
+  console.log('\n4bis) ⛔ Un carril MIGRADO no puede quedar en el perfil por default de Compose');
+  // ⛔ `SERVICIOS_DEF` (regla 4) es la lista que el DESPLIEGUE recrea. No es la misma superficie
+  // que el perfil por default de Compose: `docker compose -p prod up -d` SIN argumentos levanta
+  // todo servicio que no esté detrás de un `profiles:`. Son dos puertas distintas y la regla 4
+  // sólo miraba una.
+  //
+  // Medido el 2026-10-01, al migrar `pg-prod`: le puse el perfil, miré qué quedaba por default
+  // y ahí estaba `pg-rag` — migrado desde hacía una hora, con su contenedor detenido, y sin
+  // nada que impidiera levantarlo. Para un Postgres eso no es un conflicto de puerto que avisa:
+  // es un SEGUNDO proceso sobre el MISMO datadir que el pod ya tiene montado. Corrompe.
+  //
+  // ⚠️ Y ya pasó una vez por otra vía: un `depends_on` de caddy auto-habilitó el perfil
+  // `retirado-k3s` y resucitó contenedores migrados.
+  const composeProd = path.join(__dirname, '..', 'ops', 'prod', 'docker-compose.yml');
+  /** ¿El servicio `svc` del compose está detrás de algún `profiles:`? */
+  const tienePerfil = (txt, svc) => {
+    const ls = txt.split(String.fromCharCode(10));
+    const i = ls.findIndex((l) => l === '  ' + svc + ':');
+    if (i < 0) return null;
+    for (let j = i + 1; j < ls.length; j++) {
+      const l = ls[j];
+      if (l.trim() !== '' && /^.{0,2}[^ ]/.test(l)) break;
+      if (/^ {4}profiles:/.test(l)) return true;
+    }
+    return false;
+  };
+  if (!fs.existsSync(composeProd)) {
+    NM('no encontré ops/prod/docker-compose.yml para comprobar los perfiles');
+  } else {
+    const txtC = fs.readFileSync(composeProd, 'utf8');
+    const migradosSinPerfil = [];
+    let mirados = 0;
+    for (const f of archivos) {
+      for (const doc of documentos(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
+        const k = campo(doc, 'kind');
+        if (k !== 'Deployment' && k !== 'CronJob') continue;
+        if (campo(doc, 'migracion') !== 'migrado') continue;
+        const n = campo(doc, 'name');
+        const p = tienePerfil(txtC, n);
+        if (p === null) continue;            // no existe en ESTE compose: no es su mundo
+        mirados++;
+        if (p === false) migradosSinPerfil.push(n);
+      }
+    }
+    if (!mirados) {
+      NM('ningún manifiesto migrado tiene servicio homónimo en ops/prod/docker-compose.yml');
+    } else {
+      A(migradosSinPerfil.length === 0,
+        migradosSinPerfil.length === 0
+          ? `los ${mirados} migrados que viven en el compose de prod están detrás de un perfil`
+          : `MIGRADOS Y SIN PERFIL: ${migradosSinPerfil.join(', ')} — un up -d a secas los levanta sobre el mismo datadir`);
+    }
+  }
+
   console.log('\n5) ⛔ El manifiesto no DERIVA del compose que reemplaza');
   // ⚠️ Migrar duplica el entorno: la lista de tablas del ODS ya vivía copiada a mano en varios
   // lugares (`[INFRA.3]`/`[INFRA.4]`) y un manifiesto de K3s suma UNA MÁS. Si el día de mañana
@@ -638,6 +692,26 @@ function revisar(doc, archivo) {
       'y una clave MENCIONADA EN UN COMENTARIO no cuenta: el comentario no arranca el proceso');
     const manReal = ['            - "shared_buffers=4GB"', '            - "archive_mode=on"'].join(String.fromCharCode(10));
     A(clavesManifiesto(manReal).length === 2, 'y las de renglones de lista reales sí cuentan');
+  }
+
+  // ⛔ [K3S.43] Las negativas de 4bis. La regla nació verde justo después de que yo pusiera
+  // los dos perfiles que faltaban — el caso que no prueba nada.
+  {
+    const c = [
+      'services:',
+      '  pg-desprotegido:',
+      '    container_name: x',
+      '    volumes: ["d:/var/lib/postgresql"]',
+      '  pg-protegido:',
+      '    profiles: ["retirado-k3s"]',
+      '    container_name: y',
+      '  otro:',
+    ].join(String.fromCharCode(10));
+    A(tienePerfil(c, 'pg-desprotegido') === false,
+      'un servicio migrado SIN profiles se detecta (el caso de pg-rag, migrado y levantable)');
+    A(tienePerfil(c, 'pg-protegido') === true, 'y uno con profiles no se marca');
+    A(tienePerfil(c, 'no-existe') === null,
+      'y un servicio que no está en ESE compose devuelve null, no false: ausencia no es defecto');
   }
 
   const bueno = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 1', 'type: Recreate'];

@@ -54,7 +54,7 @@ REMOTO="~/build-prod"
 # Mientras corran en Compose tienen que estar acá, o `--todo` los deja fuera del despliegue.
 # ⚠️ Esta línea y la etiqueta `migracion:` de ops/k3s/*.yaml son DOS declaraciones del mismo
 # hecho — `npm run check:k3s` las compara y se pone rojo si se contradicen. Se mueven juntas.
-SERVICIOS_DEF="registry pg-prod backup"
+SERVICIOS_DEF="registry backup"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
@@ -105,7 +105,7 @@ migraciones_pendientes() {
   cd "$REPO"
   : > "$TMP/mig-prod.txt"
   # El nombre que registra knex es el BASENAME del archivo, no la ruta.
-  ssh_md "docker exec pg-prod psql -U postgres -At -d railway -c \"SELECT name FROM public.knex_migrations\"" \
+  ssh_md "sh ~/ops/prod/pgprod.sh -At -c \"SELECT name FROM public.knex_migrations\"" \
     2>/dev/null | tr -d '\r' | grep -E '\.js$' > "$TMP/mig-prod.txt" || true
   [ -s "$TMP/mig-prod.txt" ] || return 0
   # "<blob-sha> <basename>": git ya es direccionable por contenido, así que dos archivos
@@ -128,7 +128,7 @@ compuerta_migraciones() {
   if [ ! -s "$TMP/mig-prod.txt" ]; then
     echo "⛔ NO SE PUDO LEER \`public.knex_migrations\` en prod — el estado de las migraciones"
     echo "   quedó SIN MEDIR. No se despliega a ciegas."
-    echo "   Comprobá:  ssh $SRV 'docker exec pg-prod psql -U postgres -c \"select 1\"'"
+    echo "   Comprobá:  ssh $SRV 'sh ~/ops/prod/pgprod.sh -c \"select 1\"'"
     exit 1
   fi
 
@@ -199,7 +199,7 @@ bitacora() {
     echo ");"
     echo "INSERT INTO ops.deploys (commit_sha, servicios, resultado, migraciones_pendientes, quien, desde)"
     echo "VALUES ('$(sqlq "$_commit")', '$(sqlq "$_servicios")', '$(sqlq "$_resultado")', $_pend, '$(sqlq "$_quien")', '$(sqlq "$(hostname 2>/dev/null || echo ?)")');"
-  } | ssh_md "docker exec -i pg-prod psql -U postgres -q -d railway -f -" >/dev/null 2>&1 \
+  } | ssh_md "sh ~/ops/prod/pgprod.sh -q -f -" >/dev/null 2>&1 \
     || echo "   ⚠️ bitácora: no se pudo escribir (el despliegue NO falla por esto)"
 }
 
@@ -277,7 +277,7 @@ estado() {
 
   echo
   echo "── Últimos despliegues (ops.deploys) ──"
-  ssh_md "docker exec pg-prod psql -U postgres -d railway -c \
+  ssh_md "sh ~/ops/prod/pgprod.sh -c \
     \"SELECT to_char(desplegado_en AT TIME ZONE 'America/Mexico_City','MM-DD HH24:MI') AS cuando,
              commit_sha AS commit, servicios, resultado, migraciones_pendientes AS mig_pend, quien
         FROM ops.deploys ORDER BY id DESC LIMIT 8\"" 2>/dev/null \
@@ -339,7 +339,7 @@ subir_compose() {
   #
   # ⛔ Y el carril sigue corriendo su copia INSTALADA, no la del clon que él mismo mantiene: así
   # un commit malo no puede dejar sin carril al mecanismo que tendría que revertirlo.
-  _guiones="docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh aplicar-k3s-prod.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
+  _guiones="docker-compose.yml Caddyfile pgprod.sh restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh aplicar-k3s-prod.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
   for a in $_guiones; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
