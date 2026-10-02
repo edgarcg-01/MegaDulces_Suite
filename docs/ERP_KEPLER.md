@@ -970,6 +970,18 @@ familias anuales hasta **`_27`**.
    resultado correcto**. La única que lo delata es la **`03`, que tiene tres almacenes** (`01`=3 filas,
    `02`=3,664, `03`=4,561). Un bug que sólo existe en una sucursal es un bug que se atribuye a "datos
    sucios de esa tienda" durante meses.
+   ⭐ **Y POR QUÉ la `03` tiene almacenes ajenos: arrastra la RÉPLICA de otra rama.** La base
+   `md_03` guarda sus propios documentos **más una réplica de `md_02`** — no es corrupción, es cómo
+   está montada. Por eso el filtro de la nota 7 no es higiene opcional: sin `AND c1 = <nº de la
+   rama>` estás contando documentos de **La Piedad** como si fueran de **8 Esquinas**.
+   Los totales con `kp.*` **cuadran igual** (~3.4M en `kdm2`): no hay inflado, hay mala atribución.
+   ⛔ **Ya cobró, el 2026-10-02:** la vista `v_erp_physical_count_variance` de `[IC.0]` atribuyó
+   **220 cabeceras del almacén `02`** a 8 Esquinas. Había pasado su smoke en verde (10/0) y cuadraba
+   contra el ODS al centavo — porque se verificó **contra sí misma**. Lo encontró el candado que la
+   cruzó con una segunda implementación (`[IC.3]`).
+   ⚠️ Este párrafo estuvo escrito desde el 2026-08-24 en `docs/IMPLEMENTACION/ARQUITECTURA_DATOS.md`,
+   un documento **sin un solo enlace entrante** que nadie leyó — y el bug se cometió igual. Se
+   rescató acá al retirarlo. *Documentar algo donde nadie lo busca no es documentarlo.*
    ⚠️ **La existencia NO es `kdil.c9`** — eso son las SALIDAS. Es `c4`+`c8`−`c9` (alineado con §2.2; la
    contradicción interna que arrastraba esta regla quedó cerrada 2026-09-12).
 8. **La notación `X-A-30` = género(`c2`)·naturaleza(`c3`)·grupo(`c4`) en `kdm1`.** El número (30/35/40…) es el **grupo** (`kdm1.c4` = `kdmm.c3`), no el "tipo". Validado vivo 2026-08-25.
@@ -980,6 +992,14 @@ familias anuales hasta **`_27`**.
 
 Viven en [`database/importers/`](../database/importers/). Los principales de Kepler:
 - `kepler/replicate-ods-live.js` — el normalizer que alimenta `kepler_ods` (dos carriles: ctid + hash-delta).
+  ⚠️ **Dos cosas que el carril de `ctid` NO puede ver, por diseño:**
+  **(1)** un **hard-DELETE** en origen no se propaga (el UPSERT no borra; raro en un ERP, pero pasa);
+  **(2)** un **`VACUUM FULL`** reescribe los `ctid` de la tabla entera, así que el carril pierde su
+  referencia y deja de reconocer lo que ya shipeó. El `autovacuum` normal **no** mueve tuplas vivas y
+  no tiene ese efecto. Las dos se resuelven igual: la pasada **`--full`** del nocturno reconcilia.
+  ⚠️ Rescatado el 2026-10-02 de `docs/IMPLEMENTACION/ARQUITECTURA_DATOS.md` al retirarlo — era el
+  **único** lugar del repo donde estaba escrito lo del `VACUUM FULL`, y ese doc no tenía un solo
+  enlace entrante.
 - `kepler/import-kepler-*.js` — cargas específicas (stock, precios, rotación, proveedores, uom, bank-movements…).
 - `mega_dulces_sync.js` — sync nocturno legacy (en retiro a favor del ODS).
 
