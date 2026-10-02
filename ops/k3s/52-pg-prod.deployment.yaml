@@ -66,6 +66,77 @@ spec:
       containers:
         - name: postgres
           image: localhost:5000/trade-prod-pg:__COMMIT__
+          # ═══ [K3S.42] EL `command` DEL COMPOSE — SIN ESTO EL POD ARRANCA EN DEFAULTS ═══
+          #
+          # ⛔⛔ ESTO FALTABA EN LOS TRES MANIFIESTOS Y DOS YA ESTABAN EN PRODUCCIÓN ASÍ.
+          #
+          # Medido el 2026-10-01: los pods de `pg-rag` y `pgvector-md` corrían con
+          # shared_buffers en 16384 bloques = 128 MB, el default de fábrica. En Compose eran
+          # 512 MB y 4 GB. O sea 32× menos caché en la base que alimenta los 7 carriles.
+          #
+          # ⭐ Por qué se escapó: el manifiesto se escribió mirando `docker inspect` —volúmenes,
+          # entorno, puertos, sondas— y TODO eso estaba bien. La afinación no vive ahí: vive en
+          # el `command`, que es lo único que un vistazo a la configuración del contenedor no
+          # devuelve con el mismo nombre. Lo que se copia por parecido deja afuera lo que no se
+          # parece.
+          #
+          # ⚠️ Y no todo se perdía: `wal_level`, los slots y los workers de replicación SÍ
+          # sobrevivieron, porque viven en el `postgresql.conf` del datadir y el datadir viaja.
+          # La mitad que sobrevive es justamente lo que hace que la otra mitad no se note.
+          args:
+            # Transcrito del compose y CONTRASTADO contra los 21 ajustes que el contenedor vivo
+            # reporta con source='command line' (2026-10-01). Los tres que de verdad muerden:
+            #   · archive_mode=on   -> sin esto pgBackRest deja de recibir WAL y la recuperación
+            #     a un punto en el tiempo se corta EN SILENCIO desde el corte.
+            #   · ssl=on            -> la app exige TLS contra la base: sin esto no conecta.
+            #   · shared_preload_libraries=pg_stat_statements -> sin esto la extensión no carga
+            #     y toda consulta contra ella falla.
+            # ⚠️ En el compose archive_mode sale de PGPROD_ARCHIVE_MODE (default off). Acá va
+            #    fijo en `on` porque es lo que el cluster vivo tiene: el manifiesto no puede
+            #    heredar un default que apaga el archivado.
+            - postgres
+            - "-c"
+            - "shared_buffers=12GB"
+            - "-c"
+            - "effective_cache_size=16GB"
+            - "-c"
+            - "maintenance_work_mem=4GB"
+            - "-c"
+            - "work_mem=64MB"
+            - "-c"
+            - "max_wal_size=8GB"
+            - "-c"
+            - "checkpoint_completion_target=0.9"
+            - "-c"
+            - "random_page_cost=1.1"
+            - "-c"
+            - "effective_io_concurrency=200"
+            - "-c"
+            - "max_connections=200"
+            - "-c"
+            - "shared_preload_libraries=pg_stat_statements"
+            - "-c"
+            - "timezone=America/Mexico_City"
+            - "-c"
+            - "log_min_duration_statement=1000"
+            - "-c"
+            - "track_io_timing=on"
+            - "-c"
+            - "log_temp_files=0"
+            - "-c"
+            - "log_lock_waits=on"
+            - "-c"
+            - "archive_mode=on"
+            - "-c"
+            - "archive_command=pgbackrest --stanza=prod archive-push %p"
+            - "-c"
+            - "archive_timeout=300"
+            - "-c"
+            - "ssl=on"
+            - "-c"
+            - "ssl_cert_file=/var/lib/postgresql/18/docker/server.crt"
+            - "-c"
+            - "ssl_key_file=/var/lib/postgresql/18/docker/server.key"
           imagePullPolicy: IfNotPresent
           ports:
             # hostPort 5434, el MISMO que publicaba Compose: el puente `pg-prod` de los
