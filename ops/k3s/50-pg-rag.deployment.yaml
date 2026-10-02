@@ -1,0 +1,103 @@
+# ═══ pg-rag — el PRIMER Postgres en el clúster, a propósito el más chico ═══  [K3S.37]
+#
+# ⭐ ESTE VA PRIMERO PORQUE NO IMPORTA. Medido antes de tocarlo: dos bases de ~8 MB, 62.7 MB de
+# volumen y CERO clientes conectados. Sirve de canario del patrón completo —hostPath, hostPort,
+# memoria compartida, imagen pública— para que `pgvector-md` (65.8 GB) y `pg-prod` (26.3 GB,
+# con la cadena de pgBackRest colgando) sean un procedimiento conocido y no un primer intento.
+#
+# ── Las tres trampas de correr Postgres en K8s, y cómo se evitan acá ────────
+#
+# ⛔ 1. NADA DE `limits.memory`. El cgroup cuenta el PAGE CACHE como memoria del contenedor, y
+#    Postgres usa el page cache del sistema como su caché de verdad. Un límite lo hace matar
+#    por OOM justo cuando está trabajando bien. Se declara `requests` para que el scheduler lo
+#    tenga en cuenta, y NINGÚN límite.
+#
+# ⛔ 2. `/dev/shm` POR DEFECTO SON 64 MB en un contenedor, y ahí viven los buffers de los
+#    parallel workers. Con 64 MB una consulta paralela falla con "could not resize shared
+#    memory segment". En Compose eso lo resolvía `shm_size: 1gb`; acá, un emptyDir en memoria.
+#    ⚠️ Ese emptyDir CUENTA contra el `requests.memory` del pod — por eso va declarado.
+#
+# ⛔ 3. `strategy: Recreate` y `replicas: 1`, sin excepción. Dos Postgres sobre el MISMO
+#    directorio de datos no es "dos réplicas": es corrupción. RollingUpdate levantaría el
+#    segundo antes de bajar el primero.
+#
+# ── Por qué hostPath y no un PVC ────────────────────────────────────────────
+#
+# El dato se COPIÓ del volumen de Docker a `/home/superoot/pg-k3s/rag`, no se movió: el volumen
+# original queda intacto como camino de vuelta inmediato (`docker start pg-rag`). Con 62 MB la
+# copia es instantánea.
+#
+# ⚠️ Para los dos grandes esto NO se puede repetir igual: copiar 65 GB exige parar la base
+# mientras se copia. Ahí el hostPath apunta al MISMO directorio y el corte dura segundos — a
+# cambio de acoplar K3s al layout de volúmenes de Docker, que hay que decir en voz alta:
+# un `docker volume prune` borraría datos que un pod está usando.
+#
+# ── Lo que este servicio NO gana por estar en K3s, dicho honestamente ───────
+#
+# En un clúster de UN nodo y con el dato clavado por hostPath, el planificador no puede moverlo
+# a ningún lado: la orquestación no compra ni alta disponibilidad ni reprogramación. Lo que sí
+# compra es que su definición viva junto a la de todo lo demás y se despliegue por el mismo
+# camino. Es una ganancia de UNIFORMIDAD, no de resiliencia, y conviene no confundirlas.
+---
+apiVersion: v1
+kind: Service
+metadata: { name: pg-rag, namespace: prod }
+spec:
+  selector: { app: pg-rag }
+  ports: [{ name: postgres, port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-rag
+  namespace: prod
+  labels: { app: pg-rag, singleton: "true", migracion: migrado }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # ⛔ ver arriba: dos Postgres sobre el mismo datadir es corrupción
+  selector:
+    matchLabels: { app: pg-rag }
+  template:
+    metadata:
+      labels: { app: pg-rag }
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg18
+          imagePullPolicy: IfNotPresent
+          ports:
+            # hostPort 5435, el MISMO que publicaba Compose: lo que ya apuntaba acá no se entera.
+            - { name: postgres, containerPort: 5432, hostPort: 5435, protocol: TCP }
+          env:
+            - { name: TZ, value: America/Mexico_City }
+            # ⛔ [K3S.37] ACA HABIA UN `PGDATA: /var/lib/postgresql/data` Y ESTABA MAL.
+            # Lo puse "para ser explicito" y la explicitud fue el error: PostgreSQL 18 cambio
+            # el layout de la imagen oficial a `/var/lib/postgresql/18/docker`. Al forzar la
+            # ruta vieja, Postgres no encontro un cluster ahi y CREO UNO NUEVO Y VACIO: el pod
+            # arranco, la sonda `select 1` dio verde, y la base `railway` no aparecia.
+            # ⭐ Una sonda que pregunta si el motor responde no distingue un motor con TUS datos
+            # de uno recien inicializado. Por eso la verificacion de abajo cuenta BASES.
+            # El dato real nunca se perdio: el volumen de Docker quedo intacto.
+            # Sin PGDATA: la imagen usa su propio default, que es el correcto.
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: pg-rag-env, key: POSTGRES_PASSWORD }
+          volumeMounts:
+            - { name: datos, mountPath: /var/lib/postgresql }
+            - { name: shm,   mountPath: /dev/shm }
+          # ⭐ La sonda pregunta si ACEPTA CONSULTAS, no si el proceso existe. `pg_isready`
+          # contesta bien incluso durante la recuperación, así que se usa una consulta real.
+          readinessProbe:
+            exec: { command: ["sh", "-c", "psql -U postgres -c 'select 1' >/dev/null 2>&1"] }
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+          resources:
+            # ⛔ SIN `limits.memory`, a propósito. Ver la trampa 1 arriba.
+            requests: { memory: "512Mi", cpu: "50m" }
+      volumes:
+        - name: datos
+          hostPath: { path: /home/superoot/pg-k3s/rag, type: Directory }
+        - name: shm
+          emptyDir: { medium: Memory, sizeLimit: 1Gi }
