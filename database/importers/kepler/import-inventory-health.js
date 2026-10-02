@@ -40,8 +40,28 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
 // norm agrega a nivel (producto×almacén×DÍA); luego vel calcula los momentos sobre esos totales
 // diarios. Para la dispersión (σ) sobre la población de 90 días (INCLUYE los días sin venta como
 // cero) usamos los momentos:
-//   μ = Σu / 90     σ = sqrt( Σu² / 90 − μ² )   (varianza poblacional, N=90)
-// dividimos entre 90 (no entre el nº de días con venta). CV = σ/μ → XYZ (X≤0.5 / Y≤1 / Z>1).
+//   μ = Σu / N     σ = sqrt( Σu² / N − μ² )   (varianza poblacional)
+// dividimos entre N (no entre el nº de días con venta). CV = σ/μ → XYZ (X≤0.5 / Y≤1 / Z>1).
+//
+// ⭐ [RA-DYN.U2] N **NO es 90 fijo**: es dias_efectivos, los días de esa ventana en que ESE
+// almacén pudo vender. Medido contra prod el 2026-10-01: Morelia Madero (07) abrió el 08-sep y
+// Morelia Abastos (08) el 19-sep —confirmado contra kepler_ods.kdm1, que no tiene un solo
+// documento anterior— así que tenían 24 y 13 días de historia y se les dividía entre 90.
+// Resultado: su demanda salía 3.75× y 6.9× más baja de lo real, su cobertura en días salía
+// inflada en la misma proporción, y el motor las clasificaba sobrestock mientras se quedaban
+// sin producto. Para el SKU 88022 en 07: publicado 0.622/día contra 2.333 reales, y 133 días de
+// cobertura sobre una existencia que aguanta 3.
+//
+// ⛔ Dividir entre 90 no es "conservador": afirma que observamos 90 días. Observamos 13.
+// Los 77 restantes no son demanda cero, son demanda NO MEDIBLE (ADR-056).
+//
+// ⚠️ El grano es el ALMACÉN, no el producto. Un SKU que entró al catálogo hace 10 días en una
+// plaza vieja SÍ debe dividirse entre 90: ahí los días sin venta son demanda cero observada, no
+// ausencia de medición. Por eso dias_efectivos sale de la historia de la SUCURSAL.
+//
+// ⚠️ Una fecha centinela (02, 05 y 06 traen 2000-01-01) hace ver al almacén más viejo de lo
+// que es → LEAST lo deja en 90 → se comporta igual que antes. El riesgo es que el arreglo NO
+// se aplique donde debería, nunca que rompa algo. Declarado, no resuelto.
 const SELECT_HEALTH = `
   WITH norm AS (
     SELECT sd.product_id, sd.warehouse_id, sd.sale_date::date AS d,
@@ -58,6 +78,15 @@ const SELECT_HEALTH = `
      WHERE sd.tenant_id = $1 AND sd.sale_date >= current_date - 90 AND (sd.units > 0 OR sd.revenue > 0)
        AND sd.channel NOT IN ('mayoreo')  -- =TI% traspaso interno CEDIS→suc, no es demanda de venta
      GROUP BY sd.product_id, sd.warehouse_id, sd.sale_date::date, b.nombre, bp.cja_price, vbf.box_factor
+  ), wh AS (
+    -- [RA-DYN.U2] Días de la ventana en que ESE almacén pudo vender. Un almacén con más de 90
+    -- días de historia cae en 90 y no cambia nada: el arreglo sólo toca a los que abrieron dentro
+    -- de la ventana.
+    SELECT warehouse_id,
+           LEAST(90, GREATEST(1, current_date - min(sale_date) + 1))::numeric AS dias_efectivos
+      FROM analytics.sales_daily
+     WHERE tenant_id = $1 AND sale_date <= current_date
+     GROUP BY warehouse_id
   ), vel AS (
     SELECT product_id, warehouse_id,
            sum(units_day)            AS units_90d,
@@ -65,10 +94,15 @@ const SELECT_HEALTH = `
       FROM norm
      GROUP BY product_id, warehouse_id
   ), stat AS (
-    SELECT product_id, warehouse_id, units_90d,
-           (units_90d / 90.0) AS mu,
-           sqrt(GREATEST(0, sumsq_90d / 90.0 - power(units_90d / 90.0, 2))) AS sigma
-      FROM vel
+    -- El denominador va IGUAL en μ y en σ: si difirieran, el CV —y con él la clase XYZ— saldría
+    -- de dos poblaciones distintas.
+    SELECT v.product_id, v.warehouse_id, v.units_90d,
+           COALESCE(wh.dias_efectivos, 90.0) AS n_dias,
+           (v.units_90d / COALESCE(wh.dias_efectivos, 90.0)) AS mu,
+           sqrt(GREATEST(0, v.sumsq_90d / COALESCE(wh.dias_efectivos, 90.0)
+                            - power(v.units_90d / COALESCE(wh.dias_efectivos, 90.0), 2))) AS sigma
+      FROM vel v
+      LEFT JOIN wh ON wh.warehouse_id = v.warehouse_id
   ), stk AS (
     -- ADR-055 — la existencia se DERIVA del ODS, ya no se lee la copia commercial.stock.
     -- Medido contra el POS en vivo: la vista acierta 100.0% y la copia 91.0%.
@@ -84,7 +118,7 @@ const SELECT_HEALTH = `
   )
   SELECT s.product_id, s.warehouse_id,
          s.quantity AS on_hand,
-         round(COALESCE(v.units_90d,0) / 90.0, 4) AS avg_daily_units,
+         round(COALESCE(v.mu,0), 4) AS avg_daily_units,
          round(COALESCE(v.sigma,0), 4)            AS stddev_daily_units,
          CASE WHEN COALESCE(v.mu,0) > 0 THEN round(v.sigma / v.mu, 4) END AS demand_cv,
          CASE
@@ -93,14 +127,14 @@ const SELECT_HEALTH = `
            WHEN v.sigma / v.mu <= 1.0 THEN 'Y'
            ELSE 'Z'
          END AS xyz_class,
-         CASE WHEN COALESCE(v.units_90d,0) > 0
-              THEN round(s.quantity / (v.units_90d / 90.0), 1) END AS days_cover,
+         CASE WHEN COALESCE(v.mu,0) > 0
+              THEN round(s.quantity / v.mu, 1) END AS days_cover,
          CASE
            WHEN s.quantity <= 0 THEN 'agotado'
            WHEN COALESCE(v.units_90d,0) = 0 THEN
              CASE WHEN p.created_at >= current_date - 30 THEN 'nuevo' ELSE 'muerto' END
-           WHEN s.quantity / (v.units_90d / 90.0) < 7  THEN 'critico'
-           WHEN s.quantity / (v.units_90d / 90.0) <= 60 THEN 'sano'
+           WHEN s.quantity / v.mu < 7  THEN 'critico'
+           WHEN s.quantity / v.mu <= 60 THEN 'sano'
            ELSE 'sobrestock'
          END AS status
     FROM stk s
