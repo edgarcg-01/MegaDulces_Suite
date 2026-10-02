@@ -267,8 +267,25 @@ publicar() {
 aplicar_k3s() {
   commit=$(cd "$REPO" && git rev-parse --short HEAD)
   echo "── Aplicando manifiestos de K3s (sólo los MIGRADO) ──"
+  # ⛔⛔ [K3S.35] SÓLO EL NAMESPACE `ingesta`. Esto NO estaba y costó caro el 2026-10-01.
+  #
+  # Sin el filtro, este bucle aplicaba TAMBIÉN los manifiestos de prod (api, worker, portal,
+  # vendor, caddy) sustituyendo el commit de ESTE carril — que construye `trade-ingest`, no las
+  # imágenes de prod. Resultado: pods pidiendo `localhost:5000/trade-prod-api:<commit-de-ingesta>`,
+  # una etiqueta que no existe → ImagePullBackOff.
+  #
+  # ⭐ api/portal/vendor aguantaron por `maxUnavailable: 0`: los pods viejos siguieron sirviendo
+  # y el rollout quedó trabado sin tirar el servicio. ⛔ EL WORKER NO: usa `Recreate`, así que
+  # mató al viejo antes de que el nuevo bajara, y los 51 @Cron estuvieron CAÍDOS.
+  #
+  # ⚠️ La lección más incómoda: `ops/prod/aplicar-k3s-prod.sh` tiene este mismo filtro, y su
+  # comentario describe EXACTAMENTE este fallo — pero en la otra dirección ("no toca ingesta
+  # porque pediría trade-ingest:<commit-de-prod>"). Escribí el peligro, lo entendí, y guardé
+  # UN SOLO LADO de una simetría. Un riesgo simétrico necesita dos guardas, no una y su
+  # explicación.
   ssh_md "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; cd ~/build-ingest/ops/k3s && for f in *.yaml; do \
-    if grep -q 'migracion: preparado' \$f; then echo \"   — \$f (PREPARADO: corre en Compose, no se aplica)\"; \
+    if ! grep -q 'namespace: ingesta' \$f; then echo \"   — \$f (no es de ingesta: lo despliega ops/prod)\"; \
+    elif grep -q 'migracion: preparado' \$f; then echo \"   — \$f (PREPARADO: corre en Compose, no se aplica)\"; \
     else sed 's/__COMMIT__/$commit/g' \$f | k3s kubectl apply -f - >/dev/null && echo \"   ✓ \$f\"; fi; done" || {
     echo "   ⛔ falló el apply. Si dice ImagePullBackOff, falta /etc/rancher/k3s/registries.yaml"
     echo "      (necesita root una sola vez; el archivo está en ~superoot/registries.yaml)"
