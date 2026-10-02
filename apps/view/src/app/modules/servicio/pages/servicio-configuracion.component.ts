@@ -59,6 +59,8 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
             <label class="sc-field"><span>Cerrar solas las resueltas tras (días)</span><input pInputText type="number" min="1" max="60" [(ngModel)]="reglas.auto_close_days" /></label>
             <label class="sc-field"><span>Avisar al consumir (% del plazo)</span><input pInputText type="number" min="1" max="100" [(ngModel)]="reglas.escalate_at_pct" /></label>
             <label class="sc-field"><span>Máximo por archivo (MB)</span><input pInputText type="number" min="1" max="15" [(ngModel)]="reglas.max_attachment_mb" /></label>
+            <label class="sc-field"><span>Aviso de cola sin asignar (min hábiles)</span><input pInputText type="number" min="5" max="1440" [(ngModel)]="reglas.unassigned_alert_minutes" />
+              <small>«Mi trabajo» marca la cola como atrasada cuando el ticket más viejo sin asignar lleva esperando más que esto, contando sólo el horario hábil. Arranca en 60.</small></label>
           </div>
           <label class="sc-esc">
             <input type="checkbox" [(ngModel)]="reglas.escalation_enabled" />
@@ -151,6 +153,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
     .sc-field { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-sm); }
     .sc-field > span { font-weight: 600; font-size: var(--fs-xs); color: var(--text-main); }
     .sc-field input, .sc-field p-select { width: 100%; }
+    .sc-field > small { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.35; }
     .sc-days { border: 1px solid var(--border-color); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); margin: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); grid-column: 1 / -1; }
     .sc-days legend { font-weight: 600; font-size: var(--fs-xs); color: var(--text-main); padding: 0 var(--sp-1); }
     .sc-chk { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--text-main); }
@@ -196,7 +199,7 @@ export class ServicioConfiguracionComponent implements OnInit {
   readonly barriendo = signal(false);
   readonly scan = signal<SdSlaScanResult | null>(null);
 
-  reglas = { business_days: [] as number[], business_start: '08:00', business_end: '19:00', tz: 'America/Mexico_City', auto_close_days: 3, escalate_at_pct: 80, escalation_enabled: false, max_attachment_mb: 8 };
+  reglas = { business_days: [] as number[], business_start: '08:00', business_end: '19:00', tz: 'America/Mexico_City', auto_close_days: 3, escalate_at_pct: 80, escalation_enabled: false, max_attachment_mb: 8, unassigned_alert_minutes: 60 };
   pol: PolForm[] = [];
   nueva: { queue_id: string | null; name: string; code: string; default_priority: SdPriority; requires_branch: boolean } = { queue_id: null, name: '', code: '', default_priority: 'media', requires_branch: false };
 
@@ -237,6 +240,7 @@ export class ServicioConfiguracionComponent implements OnInit {
       business_days: r.business_days, business_start: r.business_start, business_end: r.business_end, tz: r.tz,
       auto_close_days: Number(r.auto_close_days), escalate_at_pct: Number(r.escalate_at_pct),
       escalation_enabled: r.escalation_enabled, max_attachment_mb: Number(r.max_attachment_mb),
+      unassigned_alert_minutes: Number(r.unassigned_alert_minutes),
     }), r.escalation_enabled ? 'Reglas guardadas. La escalación está ENCENDIDA: el barrido avisará los plazos vencidos.' : 'Reglas guardadas.');
   }
   guardarPolitica(p: PolForm): void {

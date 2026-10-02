@@ -50,6 +50,7 @@ export * from './http/purchase-delivery.contract';
 export * from './work/task.contract';
 export * from './work/caja-window.contract';
 export * from './work/portada-nominal.contract';
+export * from './work/business-clock';
 // [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.
 export * from './http/store.contract';
 // [WMS-REC.15] Menu del Anden: la forma que el backend devuelve y el front consume.

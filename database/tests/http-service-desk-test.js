@@ -532,6 +532,58 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       return despues === antes - 1;
     })());
 
+    // ── 16. La cola sin asignar en Mi trabajo, con plazo ajustable ───────────────────
+    console.log('\n16 — Mi trabajo › cola sin asignar (plazo en minutos HÁBILES, ajustable)');
+    const BANDEJA = 'servicio-sin-asignar';
+    const pendDe = (r) => (r.body?.pendientes ?? []).find((p) => p.id === BANDEJA);
+
+    // `[SN.30]` Una cola se muestra SÓLO a quien responde de ella: el permiso abre la pantalla pero no pone la cola
+    // en la portada. `coord` recibe la responsabilidad (se borra en cascada con el usuario); `agente` no.
+    await knex('identity.user_responsibilities').insert({ tenant_id: T, user_id: coord.id, responsibility_key: 'servicio.atender', accion: 'suma', nota: 'smoke http-service-desk-test' });
+    const cfg16 = await req('GET', `${SD}/config`, coord.token);
+    check('⭐ el plazo nace en 60 minutos (1 hora) de fábrica', cfg16.body?.settings?.unassigned_alert_minutes === 60, JSON.stringify(cfg16.body?.settings));
+    check('un plazo de 4 min (< 5) → 400', (await put('/config/settings', { unassigned_alert_minutes: 4 })).status === 400);
+    check('un plazo de 1441 min (> 24 h) → 400', (await put('/config/settings', { unassigned_alert_minutes: 1441 })).status === 400);
+    check('un plazo que no es entero → 400', (await put('/config/settings', { unassigned_alert_minutes: 'una hora' })).status === 400);
+    check('el agente (sin COORDINAR) NO puede ajustarlo → 403', (await req('PUT', `${SD}/config/settings`, agente.token, { unassigned_alert_minutes: 10 })).status === 403);
+
+    // Calendario de 24 h × 7 días SÓLO durante esta prueba: la espera hábil de un ticket de hace 3 h es entonces 180 min
+    // aunque la corrida sea de noche (se restaura al final, junto con el resto de la configuración).
+    check('calendario corrido para medir sin depender de la hora de la corrida', (await put('/config/settings', { business_days: [0, 1, 2, 3, 4, 5, 6], business_start: '00:00', business_end: '23:59' })).status < 300);
+    const tn = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: nadie lo ha tomado' });
+    await knex('servicedesk.requests').where({ id: tn.body?.id }).update({ created_at: new Date(Date.now() - 3 * 3600e3) });
+    const viejoDb = await knex('servicedesk.requests').where({ tenant_id: T, status: 'nuevo' }).whereNull('assigned_to').whereNull('deleted_at').min({ m: 'created_at' }).count({ n: '*' }).first();
+
+    const w16 = await req('GET', '/users/me/work', coord.token);
+    const b16 = pendDe(w16);
+    check('⭐ quien atiende ve «Solicitudes de servicio sin asignar» en Mi trabajo', !!b16, JSON.stringify((w16.body?.pendientes ?? []).map((p) => p.id)));
+    check('el total es EXACTAMENTE lo que la bandeja del servicio llama «Sin asignar» (medido contra la base)', b16?.total === Number(viejoDb.n), `${b16?.total} vs ${viejoDb.n}`);
+    check('enlaza a la bandeja de atención', b16?.ruta === '/servicio/bandeja', JSON.stringify(b16?.ruta));
+    check('⭐ declara el plazo con el que se juzgó: 60 min hábiles, sin umbral en días', b16?.umbral_minutos_habiles === 60 && b16?.umbral_dias === null, JSON.stringify([b16?.umbral_minutos_habiles, b16?.umbral_dias]));
+    const esperaEsperada = (Date.now() - new Date(viejoDb.m).getTime()) / 60000;
+    check('la espera del más viejo se mide en minutos (≥ 175 con el ticket de hace 3 h)', b16?.espera_minutos_habiles >= 175 && Math.abs(b16.espera_minutos_habiles - esperaEsperada) < 3, `${b16?.espera_minutos_habiles} vs ${esperaEsperada.toFixed(1)}`);
+    check('⭐ con la espera al triple del plazo la cola NUNCA sale «al día» (atrasada, o algo de mayor prioridad)', ['se_acumula', 'atrasada', 'congelada'].includes(b16?.veredicto), b16?.veredicto);
+
+    // La prueba de que es AJUSTABLE sin desplegar: se cambia el plazo y la siguiente lectura ya lo trae.
+    check('el plazo se ajusta desde la configuración', (await put('/config/settings', { unassigned_alert_minutes: 1440 })).status < 300);
+    const b16b = pendDe(await req('GET', '/users/me/work', coord.token));
+    check('⭐ y Mi trabajo lo usa en la SIGUIENTE lectura (1440 min), sin reiniciar nada', b16b?.umbral_minutos_habiles === 1440, JSON.stringify(b16b?.umbral_minutos_habiles));
+    check('con 24 h de plazo, un ticket de hace 3 h ya no es «atrasada» (el plazo es el único camino a ese veredicto)', b16b?.veredicto !== 'atrasada', b16b?.veredicto);
+    await put('/config/settings', { unassigned_alert_minutes: 60 });
+
+    // Tener el PERMISO no basta: el agente atiende pero no responde de repartir, y la cola no es suya.
+    check('⭐ quien tiene el permiso pero NO responde de la cola no la ve (la bandeja no es de todo el que abre la pantalla)', !pendDe(await req('GET', '/users/me/work', agente.token)));
+
+    // Sin permiso, sin bandeja: la cola no se le muestra a quien no atiende (y no se le inventa un cero).
+    const wSol16 = await req('GET', '/users/me/work', sol.token);
+    check('⭐ quien sólo reporta NO ve la cola sin asignar', !pendDe(wSol16), JSON.stringify((wSol16.body?.pendientes ?? []).map((p) => p.id)));
+
+    // Tomarlo la saca de la cola: el total baja en uno.
+    const antes16 = pendDe(await req('GET', '/users/me/work', coord.token))?.total;
+    await req('POST', `${SD}/requests/${tn.body?.id}/take`, agente.token);
+    const despues16 = pendDe(await req('GET', '/users/me/work', coord.token))?.total ?? 0;
+    check('⭐ tomar el ticket lo saca de la cola sin asignar', despues16 === antes16 - 1, `${antes16} → ${despues16}`);
+
     noMedido.push('correo y WhatsApp REALES: el SMTP no está configurado y la plantilla de Meta no está aprobada (P5); lo que se afirma es que el resultado queda DECLARADO por canal');
     noMedido.push('push en vivo por WebSocket (la API de este test corre sin cliente conectado); el poll de la campana sí se midió');
 

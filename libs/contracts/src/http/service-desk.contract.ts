@@ -261,6 +261,11 @@ export interface SdSettingsDto {
   /** Apagado de fábrica: primero se MIDE el SLA, después se escala. */
   escalation_enabled: boolean;
   max_attachment_mb: number;
+  /**
+   * `[MS.3.8]` Minutos HÁBILES que el ticket más viejo SIN ASIGNAR puede esperar antes de que «Mi trabajo» marque la
+   * cola como atrasada (5 a 1440; arranca en 60). Es política, no medición: se ajusta aquí y se lee en cada carga.
+   */
+  unassigned_alert_minutes: number;
 }
 
 export interface SdSlaPolicyDto {

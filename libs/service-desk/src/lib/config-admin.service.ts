@@ -73,6 +73,7 @@ export class ServiceDeskConfigAdminService {
           escalate_at_pct: Number(s.escalate_at_pct),
           escalation_enabled: !!s.escalation_enabled,
           max_attachment_mb: Number(s.max_attachment_mb),
+          unassigned_alert_minutes: Number(s.unassigned_alert_minutes),
         },
         policies: (policies as SdSlaPolicyDto[])
           .map((p) => ({ priority: p.priority, first_response_minutes: Number(p.first_response_minutes), resolution_minutes: Number(p.resolution_minutes), clock: p.clock }))
@@ -111,6 +112,10 @@ export class ServiceDeskConfigAdminService {
     if (dto.max_attachment_mb !== undefined) {
       if (!esEntero(dto.max_attachment_mb, 1, 15)) throw new BadRequestException('max_attachment_mb debe ser un entero de 1 a 15');
       patch['max_attachment_mb'] = dto.max_attachment_mb;
+    }
+    if (dto.unassigned_alert_minutes !== undefined) {
+      if (!esEntero(dto.unassigned_alert_minutes, 5, 1440)) throw new BadRequestException('unassigned_alert_minutes debe ser un entero de 5 a 1440 (minutos hábiles)');
+      patch['unassigned_alert_minutes'] = dto.unassigned_alert_minutes;
     }
     if (!Object.keys(patch).length) throw new BadRequestException('No se indicó ningún campo para cambiar');
 

@@ -358,7 +358,7 @@ manual** (light, dark y móvil) — el único paso que no se automatiza.
 - ⬜ **MS.3.3** Mis solicitudes + side-peek con hilo.
 - ⬜ **MS.3.4** Bandeja de atención.
 - ⬜ **MS.3.5** Reportes + Configuración.
-- 🧪 **MS.3.6** Integración con Mi trabajo. «A tu nombre» hecho (5ª fuente de `me-tasks.ts`, enlaza a `/servicio/bandeja?scope=mine`; el ticket `en_espera` cuenta pero no vence). **La clave `servicio.atender` y su bandeja NO se crearon:** exigen un umbral de atraso por bandeja que nadie ha fijado (decisión pendiente).
+- 🧪 **MS.3.6** Integración con Mi trabajo. «A tu nombre» hecho (5ª fuente de `me-tasks.ts`, enlaza a `/servicio/bandeja?scope=mine`; el ticket `en_espera` cuenta pero no vence). La clave `servicio.atender` y su bandeja se hicieron en **MS.3.8** (plazo de 60 min hábiles, ajustable; la clave no se repartió a nadie).
 - ⬜ **MS.3.7** Botón en los shells de tienda y telemarketing.
 - ⬜ **MS.3.9** Validación visual light/dark/móvil.
 
