@@ -1,4 +1,10 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  Logger,
+} from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ScopeService, todayMx } from '@megadulces/platform-core';
 
@@ -195,6 +201,23 @@ export type ConsultaResultado =
       existencia: number | null;
       veredicto: 'hay_en_tienda' | 'sin_existencia' | 'no_medido';
     };
+
+/**
+ * `[FLT.23]` Cuántos minutos después de anotarlo se puede deshacer desde el mostrador.
+ *
+ * Cinco y no más: el botón existe para el arrepentimiento inmediato de quien vio la ventana
+ * abierta, no para editar el historial de la semana. Pasada la ventana, la corrección es de
+ * Compras (`decidir(..., 'era_error')`), que deja rastro de quién la tomó.
+ */
+export const VENTANA_DESHACER_MIN = 5;
+
+export interface DeshacerResult {
+  id: string;
+  /** `true` = la fila entera se fue (el reporte deshecho era el único de la semana). */
+  eliminado: boolean;
+  /** Cuántos reportes quedan en la semana después de restar. */
+  times_reported: number;
+}
 
 export interface ReportarResult {
   id: string;
@@ -485,6 +508,98 @@ export class FloorStockoutsService {
         // escrita dos veces son dos respuestas el día que una de las dos cambie.
         contradice_al_erp: destinoDe(r.kind, onHandNum) === 'inventario',
       };
+    });
+  }
+
+  /**
+   * `[FLT.23]` — Deshacer lo que se acaba de anotar SOLO.
+   *
+   * ── Por qué hizo falta ───────────────────────────────────────────────────────────────────────
+   * El verificador anota el faltante sin preguntar cuando la existencia es 0. Eso es deliberado
+   * (son cinco segundos en un mostrador, no hay lugar para un formulario), pero crea un caso que
+   * antes no existía: **el reporte se escribe sin que nadie lo haya decidido.** Una consulta de
+   * precio que no venía de un cliente queda anotada igual.
+   *
+   * La salida tenía que ser del lado de la TIENDA. `decidir()` existe y archiva con `era_error`,
+   * pero pide `COMPRAS_HALLAZGOS_GESTIONAR` — un permiso que la cajera no tiene, y que además
+   * convierte un «me equivoqué hace tres segundos» en trabajo de la bandeja de Compras.
+   *
+   * ── Por qué decrementa y no archiva ─────────────────────────────────────────────────────────
+   * El grano es (sucursal, motivo, cosa, SEMANA) con contador: la tercera consulta del mismo
+   * producto no crea una fila, sube el `times_reported` de la que ya estaba. Archivar la fila
+   * borraría también los dos reportes legítimos anteriores. Así que esto **resta uno**, y sólo
+   * elimina la fila cuando el reporte que se deshace era el único que la sostenía.
+   * `est_lost_revenue` se recalcula sobre el contador nuevo por la misma razón que al sumar: si se
+   * dejara el valor viejo, restar un reporte no bajaría el dinero.
+   *
+   * ── Los tres frenos ─────────────────────────────────────────────────────────────────────────
+   *  1. **Alcance** (`assertAlcanza`), igual que todo lo demás acá: el id es adivinable y el
+   *     permiso lo tienen 30 personas repartidas en nueve plazas.
+   *  2. **Sólo `open`.** Si Compras ya lo atendió, el reporte dejó de ser del mostrador.
+   *  3. **Sólo lo RECIÉN anotado** (`VENTANA_DESHACER_MIN`). No se compara contra `reported_by`
+   *     porque el kiosco corre sin cuenta de persona (`[CV.24]`) y el dueño de la fila puede ser
+   *     NULL: con ese criterio nadie podría deshacer en el kiosco, que es justo donde más falta
+   *     hace. La ventana de tiempo acota lo mismo sin romper ese caso.
+   *
+   * ⚠️ No es un borrado administrativo ni pretende serlo: un faltante viejo que no debió existir
+   * se sigue resolviendo con `decidir(..., 'era_error')`, del lado de Compras.
+   */
+  async deshacer(id: string): Promise<DeshacerResult> {
+    if (!id?.trim()) throw new BadRequestException('Falta el reporte a deshacer');
+
+    return this.tk.run(async (trx) => {
+      const fila = await trx('commercial.floor_stockouts as f')
+        .join('commercial.warehouses as w', 'w.id', 'f.warehouse_id')
+        .select(
+          'f.id',
+          'f.times_reported',
+          'f.status',
+          'f.unit_price',
+          'w.code as warehouse_code',
+          trx.raw(
+            `(f.last_reported_at > now() - (? || ' minutes')::interval) AS dentro_de_ventana`,
+            [VENTANA_DESHACER_MIN],
+          ),
+        )
+        .where('f.id', id)
+        .first();
+
+      if (!fila) throw new NotFoundException('No existe ese reporte de faltante');
+
+      await this.assertAlcanza(fila.warehouse_code);
+
+      if (fila.status !== 'open') {
+        throw new ConflictException(
+          'Compras ya atendió este faltante: no se puede deshacer desde la tienda',
+        );
+      }
+      if (!fila.dentro_de_ventana) {
+        throw new ConflictException(
+          `Sólo se puede deshacer lo que se acaba de anotar (${VENTANA_DESHACER_MIN} minutos). ` +
+            'Pedile a Compras que lo marque como "no era faltante".',
+        );
+      }
+
+      const veces = Number(fila.times_reported);
+
+      // Era el único reporte que sostenía la fila: la fila se va con él.
+      if (veces <= 1) {
+        await trx('commercial.floor_stockouts').where({ id }).del();
+        return { id, eliminado: true, times_reported: 0 };
+      }
+
+      const { rows } = await trx.raw(
+        `UPDATE commercial.floor_stockouts
+            SET times_reported   = times_reported - 1,
+                est_lost_revenue = CASE WHEN unit_price IS NOT NULL
+                                        THEN ROUND(unit_price * (times_reported - 1), 2)
+                                        ELSE NULL END,
+                updated_at       = now()
+          WHERE id = ?
+        RETURNING times_reported`,
+        [id],
+      );
+      return { id, eliminado: false, times_reported: Number(rows[0].times_reported) };
     });
   }
 
