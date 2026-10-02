@@ -52,6 +52,56 @@ export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 command -v k3s >/dev/null 2>&1 || { echo "   (no hay k3s en este host: nada que aplicar)"; exit 0; }
 [ -d "$DIR" ] || { echo "   (no existe $DIR: nada que aplicar)"; exit 0; }
 
+# ═══ [K3S.41] EL PREVUELO: LA IMAGEN SE COMPRUEBA ANTES DE MATAR AL POD VIEJO ═══════════════
+#
+# ⛔ ESTO EXISTE POR UNA CAÍDA REAL DE 32 MINUTOS — 2026-10-01, 21:06 a 21:38.
+#
+# `caddy` migró al clúster y su manifiesto pasó a pedir `localhost:5000/trade-prod-caddy:__COMMIT__`.
+# El publicador —acá y en `auto-deploy.sh`— llevaba una lista A MANO de CUATRO imágenes (las
+# apps) y nadie la extendió. Entonces cada despliegue renderizaba un commit nuevo en el
+# manifiesto de `caddy` y pedía una imagen que el registry no tenía.
+#
+# El guardián de abajo SÍ disparó, y su mensaje decía:
+#
+#     "Los pods VIEJOS siguen sirviendo (maxUnavailable=0), así que NO hay caída"
+#
+# ⛔ ERA FALSO, y justo para el único servicio que importaba. Medido: de los 9 deployments de
+# prod, CINCO son `Recreate` —caddy, worker, redis, pg-rag, pgvector-md— y `Recreate` mata al
+# viejo ANTES de crear al nuevo. La frase es cierta para api/portal/vendor y falsa para los
+# otros cinco. Una garantía que vale para la mayoría, impresa como si valiera para todos, es
+# cómo un guardián que funcionó se lee como "no pasó nada".
+#
+# ⭐ El arreglo de fondo no es el mensaje: es NO APLICAR. Una imagen que no está en el registry
+# no va a aparecer por aplicar el manifiesto — pero aplicarlo sí alcanza para matar al pod que
+# estaba sirviendo. Se comprueba ANTES, y si falta una sola, no se toca NADA.
+#
+# ⚠️ Sólo se comprueban las imágenes del registry local. Las de Docker Hub (`redis`,
+# `cloudflared`, `busybox`, `pgvector`) las resuelve el kubelet y no dependen del despliegue.
+_faltan=''
+for f in "$DIR"/*.yaml; do
+  [ -f "$f" ] || continue
+  grep -q 'namespace: prod' "$f" || continue
+  grep -q 'migracion: preparado' "$f" && continue
+  for _img in $(sed -n 's#^[[:space:]]*image:[[:space:]]*localhost:5000/\([A-Za-z0-9._-]*\):__COMMIT__.*#\1#p' "$f" | sort -u); do
+    case " $_faltan " in *" $_img "*) continue ;; esac
+    curl -fsS -o /dev/null \
+      -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+      -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+      -H 'Accept: application/vnd.oci.image.index.v1+json' \
+      "http://127.0.0.1:5000/v2/$_img/manifests/$COMMIT" 2>/dev/null \
+      || _faltan="$_faltan $_img"
+  done
+done
+if [ -n "$_faltan" ]; then
+  echo "   ⛔ NO SE APLICA NADA: el registry no tiene estas imágenes en :$COMMIT —$_faltan"
+  echo "      Aplicar igual mataría a los pods Recreate (caddy, worker, redis, los Postgres)"
+  echo "      ANTES de descubrir que no hay con qué reemplazarlos. Eso es una caída, no un"
+  echo "      despliegue fallido: pasó el 2026-10-01 y costó 32 minutos de sitio abajo."
+  echo "      Quien publica es publicar_prod (deploy.sh) y el bloque [K3S.24] de auto-deploy.sh."
+  echo "      Comprobar:  curl -s http://127.0.0.1:5000/v2/<imagen>/tags/list"
+  exit 1
+fi
+
 aplicados=0
 for f in "$DIR"/*.yaml; do
   [ -f "$f" ] || continue
@@ -101,9 +151,21 @@ while :; do
     -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}' 2>/dev/null \
     | grep -cE 'ImagePullBackOff|ErrImagePull' || true)
   if [ "${_malos:-0}" -gt 0 ]; then
+    # ⛔ ACÁ DECÍA "NO hay caída" Y ERA FALSO PARA CINCO DE NUEVE DEPLOYMENTS.
+    # `maxUnavailable` protege a los que tienen réplicas (api, portal, vendor). Los `Recreate`
+    # —caddy, worker, redis, pg-rag, pgvector-md— matan al viejo ANTES de crear al nuevo, así
+    # que para ellos una imagen que falta ES el servicio abajo. Se mide y se dice cuál.
+    _recrear=$(k3s kubectl get deploy -n prod \
+      -o jsonpath='{range .items[*]}{.metadata.name}:{.spec.strategy.type}:{.status.availableReplicas}{"\n"}{end}' 2>/dev/null \
+      | awk -F: '$2 == "Recreate" && ($3 == "" || $3 == "0") { print $1 }' | tr '\n' ' ')
     echo "   ⛔ $_malos pod(s) no pueden descargar la imagen :$COMMIT"
-    echo "      Los pods VIEJOS siguen sirviendo (maxUnavailable=0), así que NO hay caída —"
-    echo "      pero el despliegue NO ocurrió. Verificá que la imagen esté publicada:"
+    if [ -n "$(echo "$_recrear" | tr -d ' ')" ]; then
+      echo "      ⛔⛔ Y HAY SERVICIO ABAJO: $_recrear"
+      echo "      (son Recreate: el pod viejo ya no existe. NO esperes a que se cure solo.)"
+    else
+      echo "      Los deployments con réplicas siguen sirviendo con los pods viejos."
+    fi
+    echo "      El despliegue NO ocurrió. Verificá que la imagen esté publicada:"
     echo "        curl -s http://127.0.0.1:5000/v2/<imagen>/tags/list"
     exit 1
   fi

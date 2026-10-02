@@ -636,6 +636,15 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <strong>{{ selCount() }}</strong> producto{{ selCount() === 1 ? '' : 's' }} seleccionado{{ selCount() === 1 ? '' : 's' }} · comprar <strong>{{ money(selValor()) }}</strong>
                 <button type="button" class="pr-zlink" (click)="clearSel()">quitar selección</button>
               </span>
+              <!-- [RA-DYN.U3] El piso del proveedor, donde se decide. Antes el comprador armaba la
+                   requisición y se enteraba del mínimo al hablar con el proveedor. -->
+              @if (minimosFaltantes().length; as nMin) {
+                <span class="pr-min-warn" [title]="minimoDetalle()">
+                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                  @if (nMin === 1) { {{ minimoResumen() }} }
+                  @else { <strong>{{ nMin }}</strong> proveedores todavía no llegan a su pedido mínimo }
+                </span>
+              }
             } @else if (totCajas() > 0) {
               <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> } · <em>marcá los productos para armar la requisición</em></span>
             } @else {
@@ -997,6 +1006,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-bulk { position: sticky; bottom: 0; display: flex; align-items: center; gap: .5rem; margin-top: .75rem; padding: .6rem .9rem;
       background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,.08)); }
     .pr-bulk-n { font-size: var(--fs-body); color: var(--text-main); font-variant-numeric: tabular-nums; }
+    /* [RA-DYN.U3] El piso del proveedor. Avisa, no bloquea: juntar la canasta puede ser
+       legitimo, y tambien lo es mandar menos y negociarlo. La decision es del comprador. */
+    .pr-min-warn { display: inline-flex; align-items: center; gap: .375rem; font-size: var(--fs-sm);
+      color: var(--warn-fg, var(--text-muted)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .pr-min-warn i { font-size: .75rem; }
     .pr-bulk-sp { flex: 1; }
     /* RA-PRO.32 — vista Excel (workbook) */
     .pr-seg { display: inline-flex; gap: .15rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .15rem; }
@@ -1847,6 +1861,75 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   /** Sólo cuentan los marcados que HOY tienen pedido (si alguno se editó a 0, se cae solo). */
   readonly selCount = computed(() => this.selRows().filter((r) => this.sumCajas(r) > 0).length);
   readonly selValor = computed(() => this.selRows().reduce((s, r) => s + this.sumValor(r), 0));
+
+  /**
+   * `[RA-DYN.U3]` Los proveedores de la selección que NO llegan a su pedido mínimo.
+   *
+   * Un mínimo es del PROVEEDOR y se cumple con la canasta entera: por eso se agrupa acá y no se
+   * resuelve por renglón en el servidor, donde daría un número sin significado. Mismo criterio y
+   * mismo grano que `minBoxesWarn()` de Existencia Crítica.
+   *
+   * ⛔ **No se divide por `factor_purchase`**, como sí hace la pantalla hermana. `sumCajas()` ya
+   * viene en cajas (el servidor divide por el factor del almacén antes de mandarlo), así que
+   * dividir otra vez sería contar dos veces. Allá funciona porque —medido contra prod el
+   * 2026-10-01— `catalog.products.factor_purchase` vale **1 o NULL en los 14,872 productos**
+   * (min = max = 1): la división es un no-op. El día que alguien cargue el factor real, esa
+   * pantalla empieza a reportar 1/6 de las cajas que hay y a gritar en falso.
+   *
+   * ⚠️ Un mínimo sin capturar es `null` y la fila NO entra: ausencia de dato no es "no hay
+   * mínimo". Hoy 263 de los 321 proveedores del plan tienen mínimo en cajas y 287 en pesos.
+   */
+  readonly minimosFaltantes = computed<{ id: string; nombre: string; cajas: number; minCajas: number | null;
+    monto: number; minMonto: number | null; faltanCajas: number; faltanMonto: number }[]>(() => {
+    const porProv = new Map<string, { nombre: string; cajas: number; monto: number;
+      minCajas: number | null; minMonto: number | null }>();
+    for (const r of this.selRows()) {
+      const cajas = this.sumCajas(r);
+      if (!r.supplier_id || cajas <= 0) continue;
+      const minCajas = Number(r.min_order_boxes) > 0 ? Number(r.min_order_boxes) : null;
+      const minMonto = Number(r.min_order_amount) > 0 ? Number(r.min_order_amount) : null;
+      if (minCajas === null && minMonto === null) continue;   // sin mínimo capturado: no se inventa
+      const cur = porProv.get(r.supplier_id)
+        ?? { nombre: r.supplier_name || '—', cajas: 0, monto: 0, minCajas, minMonto };
+      cur.cajas += cajas;
+      cur.monto += this.sumValor(r);
+      porProv.set(r.supplier_id, cur);
+    }
+    return [...porProv.entries()]
+      .map(([id, v]) => ({
+        id, nombre: v.nombre, cajas: v.cajas, minCajas: v.minCajas, monto: v.monto, minMonto: v.minMonto,
+        faltanCajas: v.minCajas !== null ? Math.max(0, v.minCajas - v.cajas) : 0,
+        faltanMonto: v.minMonto !== null ? Math.max(0, v.minMonto - v.monto) : 0,
+      }))
+      .filter((v) => v.faltanCajas > 0 || v.faltanMonto > 0)
+      .sort((a, b) => b.faltanMonto - a.faltanMonto);
+  });
+
+  /**
+   * Cuando falta UN solo proveedor, la frase completa — armada acá, no en la plantilla.
+   *
+   * ⚠️ Se dice como HECHO, no como alarma. No llegar al mínimo es el estado normal la mayor
+   * parte del tiempo: no se le compra a cada proveedor todos los días, y el pedido se va
+   * acumulando. Gritar ahí enseña a ignorar el aviso justo el día que importa.
+   */
+  minimoResumen(): string {
+    const v = this.minimosFaltantes()[0];
+    if (!v) return '';
+    if (v.faltanCajas > 0) {
+      return `${v.nombre}: ${Math.floor(v.cajas)} de ${Math.round(v.minCajas || 0)} cajas mínimas`;
+    }
+    return `${v.nombre}: ${this.money(v.monto)} de ${this.money(v.minMonto || 0)} mínimos`;
+  }
+
+  /** El detalle de todos, para el tooltip. */
+  minimoDetalle(): string {
+    return this.minimosFaltantes().map((v) => {
+      const partes: string[] = [];
+      if (v.faltanCajas > 0) partes.push(`${Math.floor(v.cajas)} de ${Math.round(v.minCajas || 0)} cajas`);
+      if (v.faltanMonto > 0) partes.push(`${this.money(v.monto)} de ${this.money(v.minMonto || 0)}`);
+      return `${v.nombre}: ${partes.join(' · ')}`;
+    }).join('\n');
+  }
   readonly selState = computed<'none' | 'some' | 'all'>(() => {
     const sel = this.selected();
     if (!sel.size) return 'none';

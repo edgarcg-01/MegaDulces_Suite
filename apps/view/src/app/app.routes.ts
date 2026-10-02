@@ -318,6 +318,18 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_MARGIN_ENGINE_VER)]
       },
       {
+        // `[PR.M3]`+`[PR.M6]` La competencia: cuánto vende por marca y a qué precio, desde la
+        // medición mensual de ISCAM.
+        //
+        // ⛔ Mismo permiso que el motor y SIN uno propio: es la misma lectura del mismo módulo,
+        //    no un dominio aparte. Un permiso nuevo habría que repartirlo, y repartir uno para
+        //    una pestaña de la pantalla que ya se puede abrir es pedir una llave para una
+        //    puerta interior de un cuarto en el que ya estás.
+        path: 'precios/competencia',
+        loadComponent: () => import('./modules/comercial/pages/comercial-competencia.component').then(m => m.ComercialCompetenciaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_MARGIN_ENGINE_VER)]
+      },
+      {
         // [PR.D2] El experimento de aterrizaje psicológico del precio: la lista para capturar
         // en Kepler (que es read-only por decisión, ADR-040) y el veredicto de no-inferioridad.
         //

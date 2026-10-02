@@ -90,7 +90,7 @@ recortar_diario
 # que no tenerla (mismo criterio que `backup-prod.sh`).
 latir() {
   _st="$1"; _nota="$2"
-  docker exec -i pg-prod psql -U postgres -q -d railway >/dev/null 2>&1 <<SQL || di "aviso: el latido no se pudo escribir"
+  sh "$HOME/ops/prod/pgprod.sh" -q >/dev/null 2>&1 <<SQL || di "aviso: el latido no se pudo escribir"
 INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, last_finish, status, note, host, updated_at)
 VALUES ('$TENANT', '$JOB', 'Despliegue automático (origin/$RAMA)', now(), now(), '$(echo "$_st" | sed "s/'/''/g")',
         '$(echo "$_nota" | sed "s/'/''/g")', 'md', now())
@@ -132,7 +132,28 @@ if [ "$ESTADO" = 1 ]; then
 fi
 
 if [ "$VIVO" = "$DESEADO" ]; then
-  latir ok "al día en $DESEADO"
+  # ⛔⛔ ACÁ SE ESCRIBÍA `latir ok` A SECAS, Y ESO DIJO "ok · al día" DURANTE LOS 32 MINUTOS
+  # QUE EL SITIO ESTUVO ABAJO el 2026-10-01.
+  #
+  # "Al día" se mide comparando el commit de origin con el que sirve la API — y la API estaba
+  # perfecta. Lo que estaba muerto era `caddy`, la puerta. Una pasada SIN trabajo no medía
+  # absolutamente nada y escribía verde igual: el latido confirmaba que no había nada que
+  # desplegar, no que producción estuviera sirviendo (ADR-053: el latido mide ENTREGA).
+  #
+  # ⭐ Cuesta una llamada a kubectl. Los `Recreate` —caddy, worker, redis, los Postgres— no
+  # tienen réplica de respaldo: si uno queda en cero, ES servicio abajo, no trabajo pendiente.
+  _sin_vivas=''
+  if command -v k3s >/dev/null 2>&1; then
+    _sin_vivas=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl -n prod get deploy \
+      -o jsonpath='{range .items[*]}{.metadata.name}:{.spec.replicas}:{.status.availableReplicas}{"\n"}{end}' 2>/dev/null \
+      | awk -F: '$2 > 0 && ($3 == "" || $3 == "0") { print $1 }' | tr '\n' ' ')
+  fi
+  if [ -n "$(echo "$_sin_vivas" | tr -d ' ')" ]; then
+    di "⛔ al día en $DESEADO pero SIN RÉPLICAS VIVAS: $_sin_vivas"
+    latir error "prod al día en $DESEADO pero estos no tienen ni una réplica viva: $_sin_vivas"
+  else
+    latir ok "al día en $DESEADO"
+  fi
   exit 0
 fi
 
@@ -238,7 +259,7 @@ if [ "$SECO" = 1 ]; then di "SECO: acá se construiría y recrearía ($SERVICIOS
 # compuerta puede DEJAR PASAR una migración pendiente o inventar una que no existe. Medido el
 # 2026-09-24 en `md`: los tres avisos salieron; esa vez el veredicto coincidió de casualidad
 # (4 pendientes con los dos órdenes), lo cual es justo lo que vuelve invisible al defecto.
-docker exec pg-prod psql -U postgres -At -d railway -c 'SELECT name FROM public.knex_migrations' 2>/dev/null \
+sh "$HOME/ops/prod/pgprod.sh" -At -c 'SELECT name FROM public.knex_migrations' 2>/dev/null \
   | tr -d '\r' | grep -E '\.js$' > /tmp/ad-prod.txt
 if [ ! -s /tmp/ad-prod.txt ]; then
   di "FALLO: no se pudo leer public.knex_migrations — estado de migraciones NO MEDIDO. No se despliega a ciegas."
@@ -431,27 +452,85 @@ for s in api worker portal vendor; do
   fi
 done
 
+# ═══ [K3S.41] LO QUE K3s CONSUME Y ESTE CARRIL NO CONSTRUÍA ════════════════════════════════
+#
+# El bucle de arriba construye las CUATRO apps (salen del Dockerfile unificado por --target).
+# Pero los manifiestos de prod también consumen imágenes que NO son apps de Node —hoy
+# trade-prod-caddy, mañana trade-prod-pg— y este carril nunca las tocaba.
+#
+# ⛔ Eso costó 32 minutos de sitio abajo el 2026-10-01: caddy migró al clúster, su manifiesto
+# empezó a pedir el commit del día, nadie lo construía ni lo publicaba, y como caddy es
+# Recreate el pod viejo muere antes de descubrir que el nuevo no tiene imagen.
+#
+# ⭐ Se construyen SIEMPRE, no "cuando cambian": medido con caché, caddy 2 s y pg 9 s. A ese
+# precio, preguntarse si hace falta cuesta más que hacerlo — y la pregunta es justo donde se
+# cuela el olvido. Además así el tag por commit DICE LA VERDAD: la imagen se construyó con el
+# Dockerfile de ese commit, no se re-etiquetó una vieja.
+_ya_publicadas=''
+K3S_DIR_AD="${K3S_DIR:-$HOME/ops/k3s}"
+_imgs_k3s=$(sed -n 's#^[[:space:]]*image:[[:space:]]*localhost:5000/\([A-Za-z0-9._-]*\):__COMMIT__.*#\1#p' \
+              "$K3S_DIR_AD"/*.yaml 2>/dev/null | sort -u | grep -v '^trade-ingest$' || true)
+
+for img in $_imgs_k3s; do
+  case "$img" in
+    trade-prod-api|trade-prod-worker|trade-prod-portal|trade-prod-vendor) continue ;;  # ya arriba
+    trade-prod-caddy) _df=ops/prod/Dockerfile.caddy ;;
+    trade-prod-pg)    _df=ops/prod/Dockerfile.pg ;;
+    trade-prod-backup) _df=ops/prod/Dockerfile.backup ;;
+    *)
+      # ⛔ Una imagen nueva en los manifiestos que este carril no sabe construir NO se saltea en
+      # silencio: eso es el defecto original repetido. Se declara y se frena (ADR-056).
+      di "FALLO: el manifiesto pide $img y este carril no sabe con qué Dockerfile construirla."
+      di "  Agregá el par imagen|Dockerfile acá y en publicar_prod de deploy.sh."
+      latir error "auto-deploy no sabe construir $img que K3s consume"
+      exit 1 ;;
+  esac
+  [ -f "$_df" ] || { di "FALLO: falta $_df para $img"; latir error "falta $_df"; exit 1; }
+  di "construyendo $img:$DESEADO"
+  if ! docker build -q -f "$_df" \
+        --build-arg GIT_COMMIT_SHA="$DESEADO" --build-arg GIT_COMMIT_ISO="$COMMIT_ISO" \
+        -t "$img:$DESEADO" -t "$img:latest" . >/tmp/auto-build-$img.log 2>&1; then
+    di "FALLO: no compiló $img"
+    tail -15 /tmp/auto-build-$img.log | sed 's/^/      /'
+    latir error "build de $img falló en $DESEADO"; exit 1
+  fi
+done
+
 # ═══ [K3S.24] AL REGISTRY, EN CADA DESPLIEGUE ══════════════════════════════════════════════
 #
 # Este es el camino que despliega ~7 veces al día; `ops/prod/deploy.sh` casi no se usa. Una
 # política escrita sólo en el carril que nadie corre es una política que no existe — medido con
 # la poda de imágenes, que vivía ahí y dejó 80 GB de caché sin tope ([VL.20.5]).
 #
-# Se publica aunque hoy NINGÚN pod de prod consuma estas imágenes: las cuatro apps siguen en
-# Compose. El camino tiene que existir antes del corte, no inventarse el día del corte.
+# Se publica TODO lo que los manifiestos de prod consumen, incluidos los marcados preparado
+# que hoy ningún pod levanta. El camino tiene que existir antes del corte, no inventarse el
+# día del corte.
 #
-# ⚠️ No frena el despliegue si falla: nada en producción depende todavía del registry.
-# ⛔ EL DÍA QUE UNA APP MIGRE A K3s ESTO TIENE QUE FRENAR — si no, el pod se queda con la
-#    imagen vieja y el carril reporta DESPLEGADO igual. Es exactamente el defecto del
-#    2026-10-01, y la única razón de que hoy sea un aviso es que nadie lo consume.
+# ⭐ El día llegó: api, worker, portal, vendor y caddy ya viven en K3s. La advertencia que
+# estaba escrita acá —EL DÍA QUE UNA APP MIGRE ESTO TIENE QUE FRENAR— se cumplió sin que
+# nadie la aplicara, y el freno terminó costando 32 minutos de sitio abajo. Hoy frena el
+# PREVUELO de aplicar-k3s-prod.sh [K3S.41], que comprueba el registry ANTES de aplicar.
+# Las apps que este despliegue tocó, MÁS todo lo que los manifiestos de prod consumen del
+# registry. La lista derivada es la que evita repetir lo de caddy: si mañana migra otro
+# servicio, se publica solo.
+_publicar=''
 for s in $SERVICIOS; do
-  img=$(img_de "$s"); [ -n "$img" ] || continue
+  img=$(img_de "$s"); [ -n "$img" ] && _publicar="$_publicar $img"
+done
+_publicar="$_publicar $_imgs_k3s"
+
+for img in $_publicar; do
+  case " $_ya_publicadas " in *" $img "*) continue ;; esac
+  _ya_publicadas="$_ya_publicadas $img"
   docker image inspect "$img:$DESEADO" >/dev/null 2>&1 || continue
   docker tag "$img:$DESEADO" "localhost:5000/$img:$DESEADO" 2>/dev/null
   if docker push "localhost:5000/$img:$DESEADO" >/dev/null 2>&1; then
     di "publicada localhost:5000/$img:$DESEADO"
   else
-    di "⚠️ no se pudo publicar $img:$DESEADO (no frena: hoy ningun pod de prod lo consume)"
+    # ⛔ Ya NO es sólo un aviso inocuo: hay pods que lo consumen. Quien frena de verdad es el
+    # PREVUELO de aplicar-k3s-prod.sh, que no aplica nada si falta la imagen — pero el
+    # diagnóstico tiene que decirse acá, que es donde se rompió.
+    di "⛔ no se pudo publicar $img:$DESEADO — el prevuelo de K3s va a frenar el despliegue"
   fi
 done
 

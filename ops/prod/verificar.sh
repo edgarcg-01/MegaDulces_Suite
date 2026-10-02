@@ -44,7 +44,26 @@ titulo "Contenedores"
 # ⚠️ Y el reverso importa igual: si un servicio vuelve a Compose, tiene que VOLVER a esta
 # línea. Un contenedor que nadie vigila es indistinguible de uno que no existe.
 # Los pods se verifican abajo, por su NodePort y pidiendo un recurso real.
-for c in pg-prod pg-rag prod-backup; do
+#
+# ⭐ [K3S.43] `pg-prod` y `pg-rag` SALIERON de la lista de contenedores: son pods desde el
+# 2026-10-01/02. Sus contenedores quedan DETENIDOS a propósito —protegen el volumen de
+# `docker volume prune` y son la vuelta atrás—, así que buscarlos como "healthy" daría rojo
+# sobre un estado sano.
+#
+# ⛔ Pero NO se dejan sin vigilar, y acá el riesgo es asimétrico: lo peligroso no es que estén
+# apagados, es que estén PRENDIDOS. Un Postgres de Compose corriendo sobre el mismo datadir que
+# el pod ya tiene montado no da un conflicto de puerto que avise: corrompe.
+# ⚠️ La rama entrante del merge (PR #213) todavía los listaba como contenedores a comprobar.
+# Esa intención —que alguien mire a pg-rag— se conserva acá, con el sentido invertido.
+for _pg in pg-prod pg-rag; do
+  _est=$(docker inspect -f '{{.State.Status}}' "$_pg" 2>/dev/null)
+  case "$_est" in
+    exited|created) ok "$_pg (contenedor): $_est — detenido a propósito, es la vuelta atrás" ;;
+    '')             nm "el contenedor $_pg ya no existe: se perdió la vuelta atrás inmediata" ;;
+    *)              mal "⛔⛔ $_pg CORRIENDO en Docker ($_est) con el pod arriba: DOS Postgres sobre el mismo datadir" ;;
+  esac
+done
+for c in prod-backup; do
   est=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$c" 2>/dev/null)
   case "$est" in
     healthy|running) ok "$c: $est" ;;
@@ -97,7 +116,7 @@ else
   if [ "$sano" = "t" ]; then ok "archivado sano · último hace ${edad:-?} min"
   else mal "el ÚLTIMO intento de archivado FALLÓ — el WAL se acumula en pg_wal hasta llenar el disco"; fi
 fi
-if docker exec -u postgres pg-prod pgbackrest --stanza=prod info 2>/dev/null | grep -q 'status: ok'; then
+if sh "$HOME/ops/prod/pgprod.sh" --dentro pgbackrest --stanza=prod info 2>/dev/null | grep -q 'status: ok'; then
   ok "repositorio pgBackRest: status ok · $(du -sh /home/superoot/pgbackrest 2>/dev/null | cut -f1)"
 else
   mal "pgbackrest info no dice 'status: ok'"
@@ -132,16 +151,118 @@ prod_n=${prod_n:-0}
 #
 # ⭐ Y no basta con cambiar el número: se pide además un RECURSO REAL (`ngsw.json`), no sólo
 # la raíz. Un nginx vivo sirviendo su página por defecto devuelve 200 igual.
+# ⛔⛔ [K3S.36] SE PIDE TAMBIÉN `/api/health`, Y ESO ES LO QUE FALTABA.
+#
+# Este bloque medía `/` y `ngsw.json` — y los dos son ARCHIVOS ESTÁTICOS que el pod sirve POR
+# SU CUENTA. Lo que no medía es lo que DELEGA: cada app lleva su propio nginx que proxea
+# `/api/` al backend.
+#
+# El 2026-10-01 ese proxy quedó roto al migrar a K3s (traía `resolver 127.0.0.11`, el DNS
+# embebido de Docker, que en un pod no existe) y portal y vendedor estuvieron ~1.5 h SIN PODER
+# INICIAR SESIÓN: la app se quedaba cargando para siempre. Este chequeo daba verde todo el
+# tiempo, porque los estáticos nunca dejaron de servirse.
+#
+# ⭐ Verificar lo que un servicio sirve por su cuenta NO verifica lo que delega. Y «no es sólo
+# la raíz, es un recurso real» no alcanza si ese recurso sale del mismo lugar que la raíz.
 for par in "portal:30081" "vendor:30082"; do
   n=${par%%:*}; p=${par#*:}
   c=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "http://127.0.0.1:$p/" 2>/dev/null)
   g=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "http://127.0.0.1:$p/ngsw.json" 2>/dev/null)
-  if [ "$c" = 200 ] && [ "$g" = 200 ]; then
-    ok "$n (pod :$p): raíz 200 · ngsw.json 200"
+  # El proxy: mismo puerto del pod, pero una ruta que NO sirve él. 000 = se cuelga (el fallo
+  # original), 502 = resuelve mal, 200 = llega al backend de verdad.
+  a=$(curl -s -o /dev/null -w '%{http_code}' -m 15 "http://127.0.0.1:$p/api/health" 2>/dev/null)
+  if [ "$c" = 200 ] && [ "$g" = 200 ] && [ "$a" = 200 ]; then
+    ok "$n (pod :$p): raíz 200 · ngsw.json 200 · /api/health 200 (el proxy llega)"
   else
-    mal "$n (pod :$p): raíz $c · ngsw.json $g"
+    mal "$n (pod :$p): raíz $c · ngsw.json $g · /api/health $a"
   fi
 done
+
+titulo "La puerta: por donde entra la gente"
+# ⛔⛔ ESTE BLOQUE FALTABA, Y EL 2026-10-01 ESTE GUION DIJO "Sin fallas" CON EL SITIO ABAJO.
+#
+# Durante 32 minutos (21:06–21:38) megadulcessuite.com no contestó desde internet: Caddy
+# migró a K3s, su imagen no estaba en el registry y —al ser Recreate— el pod viejo ya había
+# muerto. Todo lo de arriba seguía verde: la base, el WAL, la API en su NodePort, portal y
+# vendedor en los suyos. ⭐ Es que nada de eso es la puerta. Verificar los cuartos no es
+# verificar la entrada.
+#
+# Se prueba con el NOMBRE REAL y con validación de cadena completa (sin -k) porque es lo que
+# hace un navegador: las apps mandan HSTS, así que un certificado malo NO es saltable y deja
+# a la oficina afuera sin recurso. `--resolve` fuerza la IP sin tocar DNS; el SNI lo elige la
+# URL, que es justo lo que un `--header Host:` no puede hacer.
+_hosts=$(grep -oE '^[a-z0-9.-]+\.megadulcessuite\.com' /home/superoot/ops/prod/Caddyfile 2>/dev/null | sort -u)
+_hosts="megadulcessuite.com $_hosts"
+_puerta=0
+for h in $_hosts; do
+  c=$(curl -s -o /dev/null -w '%{http_code}' -m 15 --resolve "$h:443:127.0.0.1" "https://$h/" 2>/dev/null)
+  if [ "$c" = 200 ] || [ "$c" = 301 ] || [ "$c" = 302 ]; then
+    ok "$h por Caddy: $c"
+  else
+    mal "$h por Caddy: $c  (000 = nadie escucha o el certificado no valida)"
+    _puerta=$((_puerta+1))
+  fi
+done
+[ -n "$(echo "$_hosts" | tr -d ' ')" ] || nm "no pude leer los nombres del Caddyfile para probar la puerta"
+
+# ⛔ Y el que de verdad trae a la gente de afuera. Si el túnel está abajo, Caddy puede estar
+# perfecto y el sitio seguir sin contestar desde internet.
+if command -v k3s >/dev/null 2>&1; then
+  _cf=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl -n prod get deploy cloudflared \
+          -o jsonpath='{.status.availableReplicas}/{.spec.replicas}' 2>/dev/null)
+  case "$_cf" in
+    ''|0/*) mal "cloudflared: ${_cf:-no se pudo leer} — nadie trae el tráfico de internet" ;;
+    *)      ok  "cloudflared: $_cf réplicas listas (el túnel está arriba)" ;;
+  esac
+
+  # ⭐ El patrón general, no el caso: los deployments `Recreate` no tienen red de seguridad.
+  # Si uno de ellos queda en 0, ES servicio abajo — no un despliegue pendiente.
+  _caidos=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl -n prod get deploy \
+    -o jsonpath='{range .items[*]}{.metadata.name}:{.spec.strategy.type}:{.spec.replicas}:{.status.availableReplicas}{"\n"}{end}' 2>/dev/null \
+    | awk -F: '$3 > 0 && ($4 == "" || $4 == "0") { print $1 "(" $2 ")" }' | tr '\n' ' ')
+  if [ -n "$(echo "$_caidos" | tr -d ' ')" ]; then
+    mal "deployments de prod SIN una sola réplica viva: $_caidos"
+  else
+    ok "todos los deployments de prod tienen réplicas vivas"
+  fi
+else
+  nm "sin k3s en este host no se puede medir el túnel ni los deployments"
+fi
+
+titulo "¿Hay algo vivo en el clúster que NO esté en el repo?"
+# ⛔⛔ ESTE BLOQUE EXISTE POR UN SERVICE FANTASMA QUE COSTÓ ~12 h DE TICKETS EN VIVO.
+#
+# El puente `api` del namespace `ingesta` se creó A MANO durante la migración y nunca se
+# versionó — tanto que un comentario de `24-store-poller.deployment.yaml` ya lo citaba como
+# `11-api-externo.yaml`, un archivo que no existía. Apuntaba a `192.168.0.222:8080`, el
+# `prod-api` de Compose; cuando el API migró a K3s ahí dejó de haber nadie y `store-poller`
+# no pudo ENTREGAR ni un ticket.
+#
+# ⭐ Lo que lo volvió difícil de ver: el error decía "01 Padre Hidalgo: fetch failed · 02 La
+# Piedad Abastos: fetch failed · ..." — se lee como "no alcanza las sucursales". Las alcanzaba
+# perfecto. Un error que nombra el ORIGEN cuando el roto es el DESTINO manda a buscar al lado
+# equivocado. La pista real era que fallaran las OCHO a la vez.
+#
+# El candado del repo (`npm run check:k3s`) no puede ver esto: sólo lee los .yaml. Lo que no
+# está en el repo es invisible para él por definición. Por eso se mide ACÁ, contra el clúster.
+if command -v k3s >/dev/null 2>&1; then
+  _fantasmas=''
+  for _ns in prod ingesta; do
+    for _s in $(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl -n "$_ns" get svc \
+                  -o jsonpath='{range .items[*]}{.metadata.name} {end}' 2>/dev/null); do
+      case "$_s" in kubernetes) continue ;; esac
+      grep -rql "name: $_s$\|name: $_s," /home/superoot/ops/k3s/ 2>/dev/null >/dev/null \
+        || _fantasmas="$_fantasmas $_ns/$_s"
+    done
+  done
+  if [ -n "$(echo "$_fantasmas" | tr -d ' ')" ]; then
+    mal "Services vivos SIN manifiesto en ~/ops/k3s:$_fantasmas — nadie los vuelve a leer"
+  else
+    ok "todos los Services de prod e ingesta tienen manifiesto versionado"
+  fi
+else
+  nm "sin k3s en este host no se puede comparar el clúster contra el repo"
+fi
 
 titulo "El respaldo"
 u=$(ls -t /home/superoot/backups/*.dump 2>/dev/null | head -1)
@@ -166,22 +287,42 @@ titulo "La ingesta (no se toca desde acá, pero si la rompimos hay que saberlo)"
 #
 # ⚠️ Si no hay k3s en el host, la mitad de K3s se DECLARA no medida — no se da por buena. Lo que
 # no se puede medir nunca cuenta como verde (ADR-056).
+# ⛔ [K3S.45] Y EL NÚMERO ESPERADO YA NO ES UN LITERAL. Decía `-ge 9`, y al migrar el último
+# carril a K3s el total pasó a 8: el guion imprimió "sólo 8 de 8 carriles sanos" — rojo, con
+# un mensaje que se contradice a sí mismo, sobre un estado sano. Es la MISMA falla que este
+# bloque ya había corregido una vez (exigía 9 contenedores de Compose cuando quedaban 3).
+#
+# ⭐ Corregir el literal de 9 a 8 habría durado hasta la próxima mudanza. Ahora no hay número:
+# se exige que CADA deployment declarado tenga réplicas vivas y que CADA contenedor de Compose
+# que siga levantado esté sano. La expectativa sale de lo que hay declarado, no de la memoria
+# de quien lo escribió.
 viv=$(docker ps --filter "label=com.docker.compose.project=vl" --format '{{.Names}}' | wc -l)
 san=$(docker ps --filter "label=com.docker.compose.project=vl" --filter "health=healthy" --format '{{.Names}}' | wc -l)
 if command -v k3s >/dev/null 2>&1; then
   KC=/etc/rancher/k3s/k3s.yaml
-  pods=$(KUBECONFIG=$KC k3s kubectl get pods -n ingesta --no-headers 2>/dev/null)
-  pviv=$(printf '%s\n' "$pods" | grep -c . )
-  psan=$(printf '%s\n' "$pods" | awk '$2=="1/1" && $3=="Running"' | grep -c . )
-  echo "   ⓘ Compose: $san/$viv sanos  ·  K3s(ingesta): $psan/$pviv listos"
-  tviv=$((viv + pviv)); tsan=$((san + psan))
-  [ "$tviv" -ge 9 ] && [ "$tsan" -ge 8 ] \
-    && ok "$tsan de $tviv carriles sanos (los dos mundos)" \
-    || mal "sólo $tsan de $tviv carriles sanos (los dos mundos)"
+  _depl=$(KUBECONFIG=$KC k3s kubectl get deploy -n ingesta --no-headers 2>/dev/null | wc -l)
+  _caidos=$(KUBECONFIG=$KC k3s kubectl get deploy -n ingesta \
+    -o jsonpath='{range .items[*]}{.metadata.name}:{.spec.replicas}:{.status.availableReplicas}{"\n"}{end}' 2>/dev/null \
+    | awk -F: '$2 > 0 && ($3 == "" || $3 == "0") { print $1 }' | tr '\n' ' ')
+  _cj=$(KUBECONFIG=$KC k3s kubectl get cronjob -n ingesta --no-headers 2>/dev/null | wc -l)
+  echo "   ⓘ Compose: $san/$viv sanos  ·  K3s(ingesta): $_depl deployment(s) + $_cj agenda(s) nocturna(s)"
+  if [ -n "$(echo "$_caidos" | tr -d ' ')" ]; then
+    mal "deployments de ingesta SIN una réplica viva: $_caidos"
+  elif [ "$viv" -gt 0 ] && [ "$san" -lt "$viv" ]; then
+    mal "$san de $viv contenedores de Compose sanos — alguno quedó enfermo"
+  else
+    ok "los $_depl carriles de K3s con réplicas vivas y los $viv de Compose sanos"
+  fi
 else
-  [ "$viv" -ge 3 ] && [ "$san" -ge "$viv" ] \
-    && ok "$san de $viv contenedores de Compose sanos" \
-    || mal "sólo $san de $viv contenedores de Compose sanos"
+  # Sin k3s en el host solo se puede juzgar lo que quede en Compose, y tampoco con un literal:
+  # el `-ge 3` que habia aca era otro numero clavado que caduca en la proxima mudanza.
+  if [ "$viv" -gt 0 ] && [ "$san" -ge "$viv" ]; then
+    ok "$san de $viv contenedores de Compose sanos"
+  elif [ "$viv" -gt 0 ]; then
+    mal "solo $san de $viv contenedores de Compose sanos"
+  else
+    nm "no hay contenedores de Compose del proyecto vl y tampoco k3s: nada que medir"
+  fi
   nm "la mitad de K3s — no hay k3s en este host, así que NO se midió (no se da por buena)"
 fi
 

@@ -32,7 +32,7 @@ metadata:
   labels:
     carril: ods-reconcile-full
     singleton: "true"
-    migracion: preparado            # migrado = ya NO lo corre Compose · preparado = todavia si
+    migracion: migrado              # [K3S.45] 2026-10-02: era el ULTIMO carril en Compose
 spec:
   schedule: "10 2 * * *"
   timeZone: "America/Mexico_City"   # ⚠️ sin esto corre en UTC = 20:10 MX. En Compose el mismo
@@ -65,6 +65,61 @@ spec:
               env:
                 - name: ODS_RECONCILE_HB_KEY
                   value: cdc_reconcile_full     # ⛔ propia: sin ella pisa el renglón de OTRO carril
+              resources:
+                requests: { memory: "128Mi", cpu: "100m" }
+                limits:   { memory: "1Gi" }
+---
+# ═══ [K3S.45] EL SEGUNDO TRABAJO, QUE CASI SE PIERDE EN LA MUDANZA ═════════════════════════
+#
+# ⛔ El contenedor de Compose corria DOS entradas de cron (ops/vl/crontab.reconcile-full) y
+# este manifiesto habia traido UNA. Migrarlo asi habria dejado de correr `cdc_dedupe_fecha`
+# EN SILENCIO: su renglon de analytics.cron_runs no se pondria en error, simplemente dejaria
+# de avanzar -- y una fila vieja se lee como "todavia no corrio", no como "ya no corre".
+#
+# ⭐ Es el mismo defecto que el `command` perdido de los Postgres ([K3S.42]), una capa mas
+# arriba: el manifiesto reemplazo al contenedor pero no a su AGENDA. Lo que se copia mirando
+# el servicio deja afuera lo que vive en un archivo que el servicio lee.
+#
+# ⚠️ Necesita `sh -c` y no `command:` directo, porque la lista de tablas se calcula en el
+# momento: son los kdc2YYMM de los ultimos cuatro meses, y el nombre cambia cada mes.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ods-dedupe-fecha
+  namespace: ingesta
+  labels:
+    carril: ods-dedupe-fecha
+    singleton: "true"
+    migracion: migrado
+spec:
+  schedule: "25 2 * * *"
+  timeZone: "America/Mexico_City"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: deduplicador
+              image: localhost:5000/trade-ingest:__COMMIT__
+              imagePullPolicy: IfNotPresent
+              command: ["sh", "-c"]
+              args:
+                - >-
+                  node database/importers/kepler/reconcile-ods-window.js
+                  --full --dedupe-fecha --apply
+                  --tables=$(node -e "const d=new Date();console.log([0,1,2,3].map(n=>{const x=new Date(d.getFullYear(),d.getMonth()-n,1);return 'kdc2'+String(x.getFullYear()).slice(2)+String(x.getMonth()+1).padStart(2,'0')}).join(','))")
+              envFrom:
+                - secretRef:
+                    name: ingest-env
+              env:
+                - name: ODS_RECONCILE_HB_KEY
+                  value: cdc_dedupe_fecha
               resources:
                 requests: { memory: "128Mi", cpu: "100m" }
                 limits:   { memory: "1Gi" }

@@ -21,6 +21,7 @@
     "lint:boundary": "node scripts/lint-boundary-gate.js",
     "lint:changed": "node scripts/lint-changed.js",
     "check:templates": "node scripts/check-template-literals.js",
+    "check:sql-backticks": "node scripts/check-sql-backticks.js",
     "check:tables": "node scripts/check-dense-tables.js",
     "check:tokens": "node scripts/check-css-tokens.js",
     "check:tokens:self": "node scripts/check-css-tokens.js --self-test",

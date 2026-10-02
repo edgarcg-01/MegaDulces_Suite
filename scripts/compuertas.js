@@ -48,6 +48,14 @@
 const COMPUERTAS = [
   // Las tres propias primero: son segundos y atrapan lo que ninguna herramienta estándar ve.
   { nombre: 'templates', script: 'check-template-literals.js', que: 'literales de template enteros, CSS que parsea', push: true, ms: 2521 },
+  // [AUD-DAT.23] La hermana de `templates`, para lo que esa NO puede ver: `check-template-literals`
+  // recorre solo `*.component.ts`. El 2026-10-02 un acento grave dentro de un comentario SQL de un
+  // knex.raw en un SERVICIO de NestJS se commiteo, llego a origin/main, tiro el build del PR y
+  // -como ci-green se sella con build- freno el despliegue. La compuerta de componentes escaneo
+  // 368 archivos y dio verde: el roto no era un componente. Septima vez en el proyecto, primera
+  // que para la tuberia. Una compuerta que pasa sobre un archivo que no inspecciona se lee igual
+  // que una que lo aprobo.
+  { nombre: 'sql-backticks', script: 'check-sql-backticks.js', que: 'ningun comentario SQL lleva acentos graves (rompen el template literal)', push: true, ms: 900 },
   { nombre: 'boundary', cmd: 'node scripts/lint-boundary-gate.js', que: 'sin `any` nuevo en el borde HTTP (ADR-052)' },
   { nombre: 'provenance', cmd: 'node scripts/check-provenance.js', que: 'un número publicado declara con qué se calculó (ADR-056)' },
   // `[CG.22]` Las dos que siguen atrapan defectos de UI **mudos**: build verde, typecheck verde,

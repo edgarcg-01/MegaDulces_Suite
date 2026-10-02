@@ -71,7 +71,7 @@ libre_gb() { df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9'; }
 
 latir() { # latir <ok|error> <nota>
   _n=$(printf '%s' "$2" | sed "s/'/''/g")
-  docker exec -i pg-prod psql -U postgres -q -d railway >/dev/null 2>&1 <<SQL || di "aviso: no se pudo escribir el latido"
+  sh "$HOME/ops/prod/pgprod.sh" -q >/dev/null 2>&1 <<SQL || di "aviso: no se pudo escribir el latido"
 INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, last_finish, status, note, host, updated_at)
 VALUES ('$TENANT', 'poda_disco', 'Poda de imágenes y caché de construcción', now(), now(), '$1', '$_n', 'md', now())
 ON CONFLICT (tenant_id, job_key) DO UPDATE

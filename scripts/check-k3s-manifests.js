@@ -216,7 +216,18 @@ function revisar(doc, archivo) {
   for (const f of archivos) {
     for (const doc of documentos(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
       const k = campo(doc, 'kind'); const n = campo(doc, 'name');
-      if (k === 'Service' && !tieneClave(doc, 'selector')) svc.push(n);  // sólo los PUENTES
+      // ⛔ [K3S.40] UN `ExternalName` NO LLEVA Endpoints — ni puede. Esta regla nació cuando
+      // "Service sin selector" sólo podía significar "puente con Endpoints a mano", y al
+      // aparecer el primer ExternalName empezó a exigirle algo imposible: marcaba en rojo un
+      // manifiesto correcto. Es la misma familia que las otras compuertas de hoy, al revés —
+      // no se quedó sin sujeto, se quedó con un modelo del mundo que ya no era el único.
+      // ⭐ Un `type:` que no se mira es un supuesto: "sin selector" ya no implica "puente".
+      const tipo = campo(doc, 'type');
+      if (k === 'Service' && !tieneClave(doc, 'selector') && tipo !== 'ExternalName') svc.push(n);
+      if (k === 'Service' && tipo === 'ExternalName') {
+        A(!!campo(doc, 'externalName'),
+          `Service '${n}' es ExternalName y declara externalName (sin él resuelve a nada)`);
+      }
       if (k === 'Endpoints') eps.push(n);
     }
   }
@@ -339,6 +350,67 @@ function revisar(doc, archivo) {
     }
   }
 
+  console.log('\n4bis) ⛔ Un carril MIGRADO no puede quedar en el perfil por default de Compose');
+  // ⛔ `SERVICIOS_DEF` (regla 4) es la lista que el DESPLIEGUE recrea. No es la misma superficie
+  // que el perfil por default de Compose: `docker compose -p prod up -d` SIN argumentos levanta
+  // todo servicio que no esté detrás de un `profiles:`. Son dos puertas distintas y la regla 4
+  // sólo miraba una.
+  //
+  // Medido el 2026-10-01, al migrar `pg-prod`: le puse el perfil, miré qué quedaba por default
+  // y ahí estaba `pg-rag` — migrado desde hacía una hora, con su contenedor detenido, y sin
+  // nada que impidiera levantarlo. Para un Postgres eso no es un conflicto de puerto que avisa:
+  // es un SEGUNDO proceso sobre el MISMO datadir que el pod ya tiene montado. Corrompe.
+  //
+  // ⚠️ Y ya pasó una vez por otra vía: un `depends_on` de caddy auto-habilitó el perfil
+  // `retirado-k3s` y resucitó contenedores migrados.
+  // ⚠️ LOS DOS composes, no uno. `ods-reconcile-full` vive en ops/vl y mirar solo el de prod
+  // dejaba esta regla pasando EN EL VACIO sobre el ultimo carril de ingesta -- el mismo
+  // defecto que [K3S.22] ya habia corregido en la regla 4 y que aca se repetia.
+  const composesPerfil = [
+    path.join(__dirname, '..', 'ops', 'prod', 'docker-compose.yml'),
+    path.join(__dirname, '..', 'ops', 'vl', 'docker-compose.yml'),
+  ].filter((p) => fs.existsSync(p));
+  /** ¿El servicio `svc` del compose está detrás de algún `profiles:`? */
+  const tienePerfil = (txt, svc) => {
+    const ls = txt.split(String.fromCharCode(10));
+    const i = ls.findIndex((l) => l === '  ' + svc + ':');
+    if (i < 0) return null;
+    for (let j = i + 1; j < ls.length; j++) {
+      const l = ls[j];
+      if (l.trim() !== '' && /^.{0,2}[^ ]/.test(l)) break;
+      if (/^ {4}profiles:/.test(l)) return true;
+    }
+    return false;
+  };
+  if (!composesPerfil.length) {
+    NM('no encontré ningún docker-compose.yml para comprobar los perfiles');
+  } else {
+    const txtsC = composesPerfil.map((p) => fs.readFileSync(p, 'utf8'));
+    const migradosSinPerfil = [];
+    let mirados = 0;
+    for (const f of archivos) {
+      for (const doc of documentos(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
+        const k = campo(doc, 'kind');
+        if (k !== 'Deployment' && k !== 'CronJob') continue;
+        if (campo(doc, 'migracion') !== 'migrado') continue;
+        const n = campo(doc, 'name');
+        let p = null;
+        for (const t of txtsC) { const r = tienePerfil(t, n); if (r !== null) { p = r; break; } }
+        if (p === null) continue;            // no existe en NINGUN compose: no es su mundo
+        mirados++;
+        if (p === false) migradosSinPerfil.push(n);
+      }
+    }
+    if (!mirados) {
+      NM('ningún manifiesto migrado tiene servicio homónimo en ops/prod/docker-compose.yml');
+    } else {
+      A(migradosSinPerfil.length === 0,
+        migradosSinPerfil.length === 0
+          ? `los ${mirados} migrados que viven en algún compose están detrás de un perfil`
+          : `MIGRADOS Y SIN PERFIL: ${migradosSinPerfil.join(', ')} — un up -d a secas los levanta sobre el mismo datadir`);
+    }
+  }
+
   console.log('\n5) ⛔ El manifiesto no DERIVA del compose que reemplaza');
   // ⚠️ Migrar duplica el entorno: la lista de tablas del ODS ya vivía copiada a mano en varios
   // lugares (`[INFRA.3]`/`[INFRA.4]`) y un manifiesto de K3s suma UNA MÁS. Si el día de mañana
@@ -388,6 +460,175 @@ function revisar(doc, archivo) {
     if (!comparadas) console.log('  ⓘ ningún manifiesto declara listas de tablas todavía');
   }
 
+
+  console.log('\n5bis) ⛔ ¿Quién CONSTRUYE y PUBLICA lo que K3s consume?');
+  // ⛔⛔ ESTA SECCIÓN EXISTE POR UNA CAÍDA DE 32 MINUTOS — 2026-10-01, 21:06 a 21:38.
+  //
+  // `caddy` migró al clúster y su manifiesto pasó a pedir `localhost:5000/trade-prod-caddy`
+  // etiquetada por commit. Los DOS publicadores —`publicar_prod` de ops/prod/deploy.sh y el
+  // bloque [K3S.24] de auto-deploy.sh— llevaban una lista A MANO de las cuatro apps, y nadie
+  // la extendió. Cada despliegue le pedía al clúster una imagen que el registry no tenía.
+  //
+  // ⭐ Lo que lo volvió caída y no "despliegue fallido": `caddy` es `Recreate`. El pod viejo
+  // muere ANTES de crear el nuevo. De los 9 deployments de prod, CINCO son `Recreate`.
+  //
+  // La regla: toda imagen propia que un manifiesto de prod consume tiene que tener un
+  // Dockerfile declarado en auto-deploy.sh. Si no, el carril que despliega 7 veces al día no
+  // sabe construirla — y publicar lo que no se construyó es imposible.
+  const imgsProd = new Set();
+  for (const f of archivos) {
+    const txt = fs.readFileSync(path.join(DIR, f), 'utf8');
+    if (!/^\s*namespace:\s*prod\s*$/m.test(txt)) continue;
+    for (const m of txt.matchAll(/image:\s*localhost:5000\/([A-Za-z0-9._-]+):__COMMIT__/g)) {
+      imgsProd.add(m[1]);
+    }
+  }
+  const rutaAuto = path.join(__dirname, '..', 'ops', 'prod', 'auto-deploy.sh');
+  const rutaAplicar = path.join(__dirname, '..', 'ops', 'prod', 'aplicar-k3s-prod.sh');
+  /** ¿auto-deploy sabe construir esta imagen? O es una de las cuatro apps, o tiene Dockerfile. */
+  const APPS = ['trade-prod-api', 'trade-prod-worker', 'trade-prod-portal', 'trade-prod-vendor'];
+  // El mapa imagen -> Dockerfile de auto-deploy.sh tiene la forma  <imagen>) _df=<ruta>.
+  // Se compara por LINEA y sin exigir el espaciado: la primera version pedia un espacio exacto
+  // y dio un falso rojo sobre trade-prod-pg, que SI estaba mapeado pero alineado en columna.
+  const sabeConstruir = (img, txt) => APPS.includes(img)
+    || txt.split(String.fromCharCode(10)).some((l) => {
+      const t = l.trim();
+      return t.startsWith(img + ')') && t.includes('_df=');
+    });
+
+  if (!fs.existsSync(rutaAuto)) {
+    NM('no encontré ops/prod/auto-deploy.sh para comprobar quién construye');
+  } else if (imgsProd.size === 0) {
+    NM('ningún manifiesto de prod consume imágenes del registry local (¿cambió la forma?)');
+  } else {
+    const txtAuto = fs.readFileSync(rutaAuto, 'utf8');
+    const huerfanas = [...imgsProd].filter((i) => !sabeConstruir(i, txtAuto));
+    A(huerfanas.length === 0,
+      huerfanas.length === 0
+        ? `las ${imgsProd.size} imágenes que prod consume tienen quién las construya: ${[...imgsProd].join(', ')}`
+        : `NADIE LAS CONSTRUYE: ${huerfanas.join(', ')} — el pod las va a pedir y el registry no las va a tener`);
+  }
+
+  // ⭐ Y el freno de último recurso: que el prevuelo siga ahí. Un candado que comprueba listas
+  // no sirve si mañana alguien quita la comprobación de registry ANTES del apply: aplicar el
+  // manifiesto ya alcanza para matar al pod que estaba sirviendo.
+  if (!fs.existsSync(rutaAplicar)) {
+    NM('no encontré ops/prod/aplicar-k3s-prod.sh para comprobar el prevuelo');
+  } else {
+    const txtAp = fs.readFileSync(rutaAplicar, 'utf8');
+    const iPrevuelo = txtAp.indexOf('/v2/');
+    // ⚠️ Contra el apply REAL, no contra la mencion en un comentario: la cabecera del guion
+    //    habla de 'kubectl apply -f ops/k3s/' y la primera version de esta regla la tomo por
+    //    el comando, dando un rojo sobre un prevuelo que estaba bien puesto.
+    const iApply = txtAp.indexOf('kubectl apply -f -');
+    A(iPrevuelo > 0 && iApply > 0 && iPrevuelo < iApply,
+      iPrevuelo < 0
+        ? 'aplicar-k3s-prod.sh YA NO consulta el registry: volvió el defecto del 2026-10-01'
+        : iPrevuelo > iApply
+          ? 'el prevuelo quedó DESPUÉS del apply — comprobar después de matar al pod no sirve'
+          : 'el prevuelo consulta el registry ANTES de aplicar nada');
+  }
+
+
+  console.log('\n5ter) ⛔ El manifiesto no puede PERDER el command del compose');
+  // ⛔⛔ ESTA REGLA EXISTE PORQUE DOS BASES YA ESTABAN EN PRODUCCIÓN SIN SU AFINACIÓN.
+  //
+  // Medido el 2026-10-01: los pods de `pg-rag` y `pgvector-md` corrían con shared_buffers en
+  // 128 MB —el default de fábrica— donde Compose les daba 512 MB y 4 GB. Y al manifiesto de
+  // `pg-prod`, escrito y a punto de aplicarse, le faltaban VEINTIÚN ajustes, entre ellos
+  // `archive_mode=on` (sin él pgBackRest deja de recibir WAL y la recuperación a un punto en
+  // el tiempo se corta en silencio) y `ssl=on` (sin él la app no conecta).
+  //
+  // ⭐ Por qué se escapó: el manifiesto se escribió mirando `docker inspect` —volúmenes,
+  // entorno, puertos, sondas— y todo eso estaba bien. La afinación vive en el `command`, que
+  // es lo único que ese vistazo no devuelve con la misma forma. Lo que se copia por parecido
+  // deja afuera lo que no se parece.
+  //
+  // Se comparan sólo las claves `k=v`: los valores pueden diferir con razón (el compose usa
+  // variables de entorno), pero una clave que estaba y ya no está es afinación perdida.
+  const composes = [
+    path.join(__dirname, '..', 'ops', 'prod', 'docker-compose.yml'),
+    path.join(__dirname, '..', 'ops', 'vl', 'docker-compose.yml'),
+  ].filter((p) => fs.existsSync(p));
+
+  /** El servicio del compose puede llamarse distinto que el manifiesto: `pgvector-md` es el
+   *  `container_name` del servicio `pg-ods`. Buscar sólo por la clave del servicio hacía que
+   *  esta regla pasara EN EL VACÍO justo sobre la base que alimenta los 7 carriles. */
+  const servicioDe = (txt, nombre) => {
+    const ls = txt.split(String.fromCharCode(10));
+    if (ls.includes('  ' + nombre + ':')) return nombre;
+    const i = ls.findIndex((l) => new RegExp('^ +container_name: *' + nombre + ' *$').test(l));
+    if (i < 0) return null;
+    for (let j = i; j >= 0; j--) {
+      const m = ls[j].match(/^ {2}([a-z0-9][a-z0-9_-]*): *$/);
+      if (m) return m[1];
+    }
+    return null;
+  };
+  /** Claves `k=v` del bloque `command:` de un servicio del compose. */
+  const clavesCompose = (txt, svc) => {
+    const ls = txt.split(String.fromCharCode(10));
+    const i = ls.findIndex((l) => l === '  ' + svc + ':');
+    if (i < 0) return null;
+    let dentro = false; const ks = [];
+    for (let j = i + 1; j < ls.length; j++) {
+      const l = ls[j];
+      if (l.trim() !== '' && /^.{0,2}[^ ]/.test(l)) break;
+      if (/^ {4}command:/.test(l)) { dentro = true; continue; }
+      if (!dentro) continue;
+      if (/^ {4}[a-z]/.test(l)) break;
+      const m = l.match(/^ *- *"?([^"#]+?)"? *$/);
+      if (m && m[1].includes('=')) ks.push(m[1].split('=')[0].trim());
+    }
+    return ks;
+  };
+  /** Claves `k=v` que el manifiesto declara en renglones de lista (NO en comentarios). */
+  const clavesManifiesto = (txt) => {
+    const ks = [];
+    for (const l of txt.split(String.fromCharCode(10))) {
+      if (/^ *#/.test(l.trim()) || l.trim().startsWith('#')) continue;
+      const m = l.match(/^ *- *"([^"]+)" *$/);
+      if (m && m[1].includes('=')) ks.push(m[1].split('=')[0].trim());
+    }
+    return ks;
+  };
+
+  if (!composes.length) {
+    NM('no encontré ningún docker-compose.yml para comparar el command');
+  } else {
+    const txtComposes = composes.map((p) => fs.readFileSync(p, 'utf8'));
+    let comparados = 0;
+    for (const f of archivos) {
+      const txtMan = fs.readFileSync(path.join(DIR, f), 'utf8');
+      const delMan = clavesManifiesto(txtMan);
+      for (const doc of documentos(txtMan)) {
+        const k = campo(doc, 'kind');
+        if (k !== 'Deployment' && k !== 'CronJob') continue;
+        const n = campo(doc, 'name');
+        let delCompose = null;
+        for (const t of txtComposes) {
+          const svc = servicioDe(t, n);
+          if (!svc) continue;
+          const r = clavesCompose(t, svc);
+          if (r && r.length) { delCompose = r; break; }
+        }
+        if (!delCompose) {
+          // ⚠️ Un manifiesto que YA declara afinación y no tiene con qué compararse se DECLARA.
+          // Saltearlo en silencio es cómo esta misma regla pasó en el vacío sobre pgvector-md.
+          if (delMan.length > 3) NM(`${n}: declara ${delMan.length} ajustes y no encontré su servicio en ningún compose`);
+          continue;
+        }
+        comparados++;
+        const perdidas = delCompose.filter((c) => !delMan.includes(c));
+        A(perdidas.length === 0,
+          perdidas.length === 0
+            ? `${n}: el manifiesto conserva los ${delCompose.length} ajustes del command`
+            : `${n} PERDIÓ del command: ${perdidas.join(', ')} — el pod arrancaría en defaults`);
+      }
+    }
+    if (!comparados) NM('ningún servicio con command tiene manifiesto con el mismo nombre');
+  }
+
   console.log('\n6) Las reglas se rompen a propósito  ← negativas en memoria');
   const malo1 = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 2', 'type: Recreate'];
   A(revisar(malo1, 'test').some(([c, m]) => !c && /replicas=1/.test(m)), 'replicas=2 se detecta');
@@ -416,6 +657,69 @@ function revisar(doc, archivo) {
     'type: Recreate', 'image: busybox:1.36', 'image: redis:7-alpine'];
   A(revisar(publicas, 'test').every(([c]) => c),
     'y NO marca a busybox ni redis: se jalan de Docker Hub y no las construimos nosotros');
+
+  // ⛔ [K3S.41] Las negativas de la regla 5bis. Nacio en VERDE sobre los dos publicadores que
+  // yo mismo acababa de corregir, que es exactamente el caso que no prueba nada — y de hecho
+  // la primera version dio DOS falsos rojos (espaciado del mapa, y la mencion de kubectl apply
+  // dentro de un comentario). Se rompe a proposito para ver el rojo.
+  A(!sabeConstruir('trade-prod-nueva', 'trade-prod-caddy) _df=ops/prod/Dockerfile.caddy'),
+    'una imagen que ningun Dockerfile construye se detecta (el defecto que tiro el sitio 32 min)');
+  A(sabeConstruir('trade-prod-pg', '    trade-prod-pg)    _df=ops/prod/Dockerfile.pg ;;'),
+    'y el mapa se reconoce aunque este alineado en columna — el falso rojo que dio esta regla');
+  A(sabeConstruir('trade-prod-api', 'sin mapa alguno'),
+    'y las cuatro apps no exigen mapa: salen del Dockerfile unificado por --target');
+
+  // ⛔ [K3S.42] Las negativas de 5ter. Nació en verde sobre los tres manifiestos que yo mismo
+  // acababa de corregir — el caso que no prueba nada. Y de hecho la primera versión pasaba EN
+  // EL VACÍO sobre pgvector-md, porque su servicio en el compose se llama `pg-ods` y la regla
+  // buscaba sólo por la clave del servicio.
+  {
+    const composeFalso = [
+      'services:',
+      '  pg-falso:',
+      '    container_name: basecita',
+      '    command:',
+      '      - postgres',
+      '      - "-c"',
+      '      - "shared_buffers=4GB"',
+      '      - "-c"',
+      '      - "archive_mode=on"',
+      '  otro:',
+    ].join(String.fromCharCode(10));
+    A(servicioDe(composeFalso, 'basecita') === 'pg-falso',
+      'el servicio se encuentra por container_name, no sólo por su clave (el vacío de pgvector-md)');
+    const claves = clavesCompose(composeFalso, 'pg-falso');
+    A(claves.length === 2 && claves.includes('archive_mode'),
+      'del command se extraen las claves k=v y se ignoran los tokens sueltos como -c');
+    const manSinAfinar = ['    spec:', '      containers:', '        - image: x'].join(String.fromCharCode(10));
+    A(clavesManifiesto(manSinAfinar).length === 0,
+      'un manifiesto sin args no declara ninguna clave — es el defecto que dejó dos bases en defaults');
+    const manComentado = ['        # - "archive_mode=on"'].join(String.fromCharCode(10));
+    A(clavesManifiesto(manComentado).length === 0,
+      'y una clave MENCIONADA EN UN COMENTARIO no cuenta: el comentario no arranca el proceso');
+    const manReal = ['            - "shared_buffers=4GB"', '            - "archive_mode=on"'].join(String.fromCharCode(10));
+    A(clavesManifiesto(manReal).length === 2, 'y las de renglones de lista reales sí cuentan');
+  }
+
+  // ⛔ [K3S.43] Las negativas de 4bis. La regla nació verde justo después de que yo pusiera
+  // los dos perfiles que faltaban — el caso que no prueba nada.
+  {
+    const c = [
+      'services:',
+      '  pg-desprotegido:',
+      '    container_name: x',
+      '    volumes: ["d:/var/lib/postgresql"]',
+      '  pg-protegido:',
+      '    profiles: ["retirado-k3s"]',
+      '    container_name: y',
+      '  otro:',
+    ].join(String.fromCharCode(10));
+    A(tienePerfil(c, 'pg-desprotegido') === false,
+      'un servicio migrado SIN profiles se detecta (el caso de pg-rag, migrado y levantable)');
+    A(tienePerfil(c, 'pg-protegido') === true, 'y uno con profiles no se marca');
+    A(tienePerfil(c, 'no-existe') === null,
+      'y un servicio que no está en ESE compose devuelve null, no false: ausencia no es defecto');
+  }
 
   const bueno = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 1', 'type: Recreate'];
   A(revisar(bueno, 'test').every(([c]) => c), 'y NO marca de más: un manifiesto correcto pasa limpio');

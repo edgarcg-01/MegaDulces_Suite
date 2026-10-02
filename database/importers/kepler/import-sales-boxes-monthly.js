@@ -15,6 +15,7 @@
  */
 
 const { Client } = require('pg');
+const { guardaFecha } = require('../lib/sales-window.js');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -35,7 +36,14 @@ const SELECT_SQL = `
            GREATEST(COALESCE(max(vbf.box_factor), 1), 1) AS uxc
       FROM analytics.sales_daily sd
       LEFT JOIN analytics.v_product_box_factor vbf ON vbf.product_id = sd.product_id AND vbf.tenant_id = sd.tenant_id
-     WHERE sd.tenant_id = $1
+     -- [AUD-DAT.22] LA VENTANA. Sin esto el rollup hereda cada noche la basura de fechas del
+     -- hecho base y publica buckets 2000-01 ($238,071), 2014-06, 2020-07, 2020-10 y un 2026-12
+     -- que todavia no existe: cualquier grafica de "ultimos 12 meses" pinta una barra de
+     -- diciembre. El hermano import-sales-monthly.js SI filtraba; este no, y son el mismo hecho
+     -- en el mismo carril nocturno -- una simetria guardada de un solo lado.
+     -- No hace falta borrar nada a mano: el DELETE-solo-lo-que-salio-del-origen de mas abajo se
+     -- lleva los buckets viejos en la primera pasada con este filtro puesto.
+     WHERE sd.tenant_id = $1 AND ${guardaFecha('sd.sale_date')}
      GROUP BY sd.product_id, sd.warehouse_id, sd.channel, to_char(sd.sale_date, 'YYYY-MM'))
   SELECT product_id, warehouse_id, channel, ym, kind,
          CASE WHEN kind = 'weight' THEN NULL ELSE round(units, 3) END        AS pieces,
@@ -100,7 +108,9 @@ const SELECT_SQL = `
     await db.query(`ANALYZE analytics.sales_boxes_monthly`);
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas). ANALYZE OK.`);
   } catch (e) {
-    await db.query('ROLLBACK').catch(() => {});
+    // Si el ROLLBACK tambien falla, el error que importa es el de ARRIBA: taparlo con este
+    // seria cambiar la causa por el sintoma. Se traga a proposito.
+    await db.query('ROLLBACK').catch(() => { /* ver comentario */ });
     console.error('\nERROR (rollback):', e.message);
     process.exitCode = 1;
   } finally {

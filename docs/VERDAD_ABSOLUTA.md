@@ -156,6 +156,8 @@ y aun así publicaba el UxC desde otra columna.
 | **COGS de Kepler (documento vs kardex)** | el precio de la **entrada real** (`X-A-40`), testigo de transacción | **empate: 57.55% vs 40.39%**, errores medianos 2.66% y 2.48% | ⛔ **declarada, NO arbitrada** — §16.4 |
 | **Los 1,205 renglones con razón 10.000** | el **mecanismo**, no la estadística: el kardex multiplica el costo del peldaño alto por la cantidad base | **$613,646** sobre $99,394 de venta | ✅ **sí, el kardex está mal** — §16.3 |
 | **Destino de un traspaso** | `dest_label` — la etiqueta que Kepler escribe en el ENVÍO, independiente del pareo **y** del mapa | **1,561 de 1,562** pares de 180 d coinciden con el almacén que recibió ($66.86M) · el único que contradice es una ruta, y **no** se publica como OK | ✅ **sí, desde 2026-09-30** — `[DM.15]`, candado de 7 bloques |
+| **Ingreso · QUÉ es** | el **documento** detrás de la póliza, ligado por **folio**, y su cliente en `kdud` | **84.3 % de lo que `/finanzas/ingresos` publica es traspaso dentro de la casa** ($133.79M de $158.80M en 90 d). Liga **100 %: 4,814 de 4,814** · el `pendiente` cruza contra la cartera (otra implementación) con **12 de 4,077** filas distintas | ✅ **sí, sin huecos de liga** — §18 |
+| **Ingreso · CÓMO entró** | `kdm1.c45` (100 % presente en cobros) contra el catálogo `kdb1` de 26 cuentas | la **ruta cobra en efectivo** (99.7 %), la **tienda por depósito** (96.4 %), con el banco nombrado y hasta **36 pagos** contra una sola factura | ✅ **sí** — §18.4 |
 | **Wincaja (operación viva)** | — | ⭐⭐ **ya no hay**: la venta de Wincaja es **0.0%** de los últimos 30 d ($230 contra $44.5M). Migró entera a Kepler | ✅ **hueco CERRADO** — §8 |
 | **Wincaja (histórico)** | tiene árbitro propio, sin cablear | sigue sin cablear, y es el único acceso al pasado de cada plaza antes de su corte | ⬜ **no empezado** — §8 |
 
@@ -651,7 +653,12 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ⏳ **el colchón que falta comprar** | **7,089 políticas / $1,197,206** | Políticas A/B todavía servidas a 0.90. No es código: se corrige cuando `import-computed-reorder` corra con la vista (nightly). El candado lo reporta `NO MEDIDO`, no verde |
 | ✅ ~~**Wincaja — 37.6% de la venta**~~ | **CERRADO 2026-10-01 · hoy 0.0%** | ⭐⭐ **El hueco más grande de este documento, y no se cerró por arquitectura: la operación migró entera a Kepler.** Medido almacén por almacén (no por prefijo): Kepler $44,552,822 (**100.0%**) · Wincaja **$230 (0.0%)**; los 14 almacenes con venta tienen `kepler_code` o son rutas. Últimas migraciones: `32 → 07` (08-sep), `30 → 08` (19-sep), **CEDIS** (30-sep). ⛔ **No significa que Wincaja se pueda retirar**: es el único acceso al pasado anterior a cada corte. ⚠️ Ni cierra *«el peldaño de Wincaja es un NULL mudo»*, que vale para todo lo ya cargado — §8 |
 | ⛔ **el ORIGEN de un traspaso de la sucursal `00` no siempre es el CEDIS** | **225 docs / $5,144,762 confirmados ajenos** · **155 docs / $5,423,652 sin atribuir (22.5%)** | ⭐⭐ **Reabierto y corregido el 2026-10-01 a pedido de Edgar** (*"necesitamos un 100%... buscá de nuevo en el flujo"*). `[DM.17]` había declarado **96.7% no verificable**, y eran dos errores míos apilados: **(1) el universo** — ese 96.7% promediaba las 9 ramas; para la `00`, que es la pregunta, era **82.3%**; **(2) la llave** — el cruce era por cadena exacta y el folio del ticket lo teclea una persona: `Folio: T900000002` (234) · `T99-3132` (63) · `T990007803 JALH` (21) · `T-99-7885` (14). **Medido: 438 de los 568 "fuera de réplica" SÍ están en Wincaja** leídos normalizados, con **cero regresiones**. Cobertura **17.7% → 77.5%**, y lo ajeno sube de $1.5M a **$5.1M**: Morelia Abastos 139/$2.86M · Canindo 81/$2.29M · Morelia Madero 4 · Padre Hidalgo 1. ⚠️ Wincaja escribe `T` + 2 dígitos de CAJA + 7 de folio, y la caja `99` la comparten **5 ramas**, así que el desambiguador sigue siendo el CONTENIDO (sku+cantidad), nunca el folio solo. ⛔ **Se buscó un segundo testigo y NO existe**, medido con los 535 documentos ya etiquetados como conjunto de control: `kdm1` 200 columnas **máx 67.7%** contra un piso de ruido de **57.9%** (y las mejores son `c10`/`c32`, que son el DESTINO) · `kdm2` 67.0% · `kdpord` presente en el **100%** venga de donde venga · y el `U-A-50` de quien RECIBE dice `c10='TI000'`/`c32='CEDIS'` porque **copia** lo que declaró el que embarca — es un espejo, no un árbitro (R5). O sea: para los traspasos **Kepler genuinamente no guarda el origen físico**, ahora probado sobre 535×200 y no sobre un diff de dos documentos. El hueco restante son **cuatro causas separadas**: `sin_ticket_legible` 123/$3.2M (texto libre — varios **nombran la plaza**, *"TRASPASO CANINDO A ZAMORA CENTRO"*, y 14 de esos no tocan al CEDIS en ninguna punta; no se leen acá porque un texto tecleado es un testigo más débil) · `sin_renglon_que_case` 22 · `ambiguo` 3 · `ticket_fuera_de_replica` **7**. Mig 20261001310000 (batch 675) · candado `test-newdb-transfer-true-origin.js` 5/5, con el bloque de cobertura corregido: contaba UN bucket e ignoraba los otros cuatro, así que iba a publicar *"0.2% no verificable"* con 3,140 documentos sin resolver a la vista |
+| ⛔ **el almacén del CEDIS fue el LIBRO de otras plazas — y el neto NO es separable** | **37,325,071 u / $225,149,163 entraron por cuenta ajena** contra 14,721,323 u propias · **73,015,532 u sin plaza declarada** | ⭐⭐ Edgar: *"¿la carga de productos se le hará a CEDIS o a Morelia?"*. **Al CEDIS, entrada Y salida.** Verificado con el ticket `T990008354`: los SKUs `90041`/`90044` entraron al almacén `00` **sólo** bajo "COMPRA PROVEEDOR MORELIA ABAST" (2,880 y 1,536 u, hasta el 15-sep) y **nunca** bajo el centro del CEDIS — el CEDIS jamás compró esos productos; y Morelia Abastos **además** descontó esa salida en su propia Wincaja el 16-sep: **el mismo físico en dos libros**. Cuatro meses seguidos Morelia Abastos movió más documentos por el almacén del CEDIS que el propio CEDIS, y en jul-ago fueron **9 de cada 10 unidades**. ⛔ **La resta que se pidió no se puede hacer:** las salidas (`U-D-13` 8,867 · `U-D-41` 790) traen `c12` pero son códigos de caja/ruta (`00001`, `30001`, `50PV1`), **no** el centro de compra — medido sobre 9,696 salidas, **ninguna** lo declara. Una vez dentro, el inventario es **fungible** y restar exigiría **suponer** un reparto (FIFO, proporcional). Se declara la exposición, nunca un saldo repartido. ⭐ **Y ya paró:** Canindo cerró en septiembre, Morelia Abastos con su corte del 18-sep, y **octubre va en cero** — el *"el problema no es actual"* de Edgar, medido. Resolvedor `analytics.v_warehouse_foreign_intake` (mig 20261001320000, batch 679) · candado `test-newdb-warehouse-foreign-intake.js` **4/4**, cuyo bloque 3 vigila la PREMISA: si algún día las salidas declararan centro de compra, la resta pasaría a ser posible y nadie se enteraría |
 | ⛔ **las órdenes de entrada de la sucursal `00` NO son todas del CEDIS** | **5,820 docs / $219,380,811 son de otras 7 plazas** · **1,239 docs / $91,493,667 (17.7% del dinero) no se pueden atribuir** | ⭐⭐ Reportado por Edgar el 2026-10-01 (*"antes Morelia Abastos y CEDIS —no sé si más sucursales— subían sus órdenes de entrada a Kepler"*). **Son SIETE plazas, no dos**: de los 9,326 `X-A-20` de la `00` (universo ya alineado al de la pantalla: sin cancelados ni réplica), sólo **2,267 / $206.9M** son del CEDIS; el resto se reparte entre Morelia Abastos (2,510), Padre Hidalgo (1,246), Canindo (768), Morelia Madero (644), 8 Esquinas (474), La Piedad (304), Yurécuaro (84) y Zamora Centro (48). ⭐ **El catálogo lo tiene el ERP, otra vez**: `kdm1.c12` es el centro de compra y `kepler_ods.kdxv` lo nombra con todas sus letras — no se infiere nada. Verificado con **dos testigos independientes**: dentro del documento `c11` trae `<plaza>-<remisión>` y concuerda **99.6% fila por fila** (no es la serie del proveedor: el prefijo `30` abarca **108 proveedores distintos**), y fuera de Kepler el cruce contra `wincaja.movimiento_proveedores` da **62.1% contra un placebo de 0.9% = 71× el piso de ruido**. ⛔ **El hueco es de 3 meses y no se dibuja**: `c12` se empezó a usar de verdad en **feb-2026** (98–100%); antes casi nadie lo llenaba (nov-2025 **11%**, dic-2025 **9%**, ene-2026 65%). El rescate contra `wincaja.maestro_mov_almacen` tipo `C` tiene precisión altísima (placebo **0.3%**) pero recall 25%: recuperó 107 docs / $850k. ⚠️ **Y lo que sobra no se da por CEDIS**: promedia **$66,760** por documento, entre los **$88,948** del CEDIS y los **$36,260** de las otras plazas — es mezcla. ⛔ **Lo que dije de la rama `03` era FALSO y se retira**: parecía repetir el patrón (452 docs / $9.94M bajo "COMPRA MERCANCIAS LA PIEDAD AB"), pero con el almacén a la vista **469 de 470 son filas de RÉPLICA** del almacén `02` (§9.9) — dicen "LA PIEDAD" porque **son** de La Piedad, y la vista publicada ya las filtraba con `btrim(c1)=sucursal`. En el almacén propio de la `03` hay **1 documento, de $1**. *Agrupar sin la columna de identidad convierte una réplica en un hallazgo* — misma familia que `[IC.0]`. ⭐ **El origen viaja DENTRO de `analytics.erp_goods_receipts`**, no en un `LEFT JOIN`: con el join el conteo de la pantalla costaba **5.5 s** (`Nested Loop → Materialize, loops=3,126`) y adentro cuesta **0.35 s**. Con eso los **20+ servicios** que leen esa vista (rentabilidad, reabasto, recepción, obligaciones a proveedor, varianza de inventario) ven el origen sin tocar una línea. Migs 20261001260000 / 270000 / 280000 / 290000 (batches 669-672) · candado `test-newdb-goods-receipt-origin.js` **12/12**, con **cinco pruebas negativas** |
+| ⛔ **el medio de pago del MOSTRADOR AL PÚBLICO no existe en Kepler** | **NO MEDIDO** — 89,675 tickets en 30 d | `kdm1.c45` (la cuenta de tesorería, lo único que separa caja de banco) viene **vacía en el 100 %** de los documentos de venta: sólo los cobros la traen. El ticket apenas dice `c30 = 'Pago de contado'`, sin distinguir efectivo de tarjeta, y el corte de caja `U-D-23` existe **1 de cada 5 días**. **No se dibuja como cero**: va al puente de `/finanzas/ingresos` como tramo sin monto. ⚠️ Ojo con el universo: esas ventas tampoco entran al ingreso publicado, que es la **póliza del CEDIS** — §18.5 |
+| ⛔ **$37.7M sin cobrar en los dos canales que SÍ le venden a alguien de afuera** | mayoreo **9.4 %** cobrado · telemarketing **11.5 %** (90 d) | contra **94.8 %** del traspaso a tienda y **95.6 %** de la ruta. Sale de la liga por folio y está arbitrado contra la cartera (12 de 4,077 filas difieren). **No se investigó**: se publica — §18.7 |
+| ✅ ~~**la póliza de ingreso sin su documento**~~ | **CERRADO 2026-10-02 — el hueco era MÍO** | ⭐ Decía *"existe el asiento y no aparece la factura"* y era falso: las 5 aparecen. `income_bridge_src` las dejaba afuera porque su CTE filtraba cancelados (`c43 <> 'C'`). **Un filtro no es una ausencia**, y declarar como hueco lo que uno mismo recortó es la falla simétrica de dibujar un cero. Con el cancelado adentro la liga pasa a **4,814 de 4,814 (100 %)** y el total no se movió un centavo ($158,795,015), que es la prueba de que no abanicó — la llave `(folio, doctype)` se midió única en la `00` incluyendo cancelados: **13,552 / 0 repetidas**. Mig `20261002140000` — §18.8 |
+| ⛔ **documento CANCELADO con su ingreso todavía publicado** | **$204,986** · 4 docs + 1 nota de crédito (90 d) | ⭐⭐ Lo que apareció al abrir el hueco de arriba, y **no es un defecto de datos: es dinero**. El ERP canceló el documento ($0.00) y su póliza de ingreso sigue viva, completa y **sin reversar** (la `0007474` tiene su cargo a `115` y su abono a `401-002` por $130,151.33; buscado por importe exacto en sep y oct, aparece **una** vez). El mecanismo del ERP está medido y por eso se sabe que es la excepción: al dar de baja, Kepler escribe una póliza **`BAJA - UD13001-<folio>` en $0.00** —marcador, no asiento inverso— y **borra la póliza de ingreso**: 166 bajas en 90 d, **0 con ingreso vivo**; y de **158** documentos UD13 cancelados, **154 (97.5 %) traen su marcador**. Los 4 que faltan llevan más de tres semanas a medias. ⚠️ **Dos causas compiten y el ODS no las separa** — (a) *fantasma*: Kepler ya borró la póliza y el DELETE no se propagó (§15.2, causa raíz documentada), o (b) la cancelación quedó a medias y nadie reversó. Separarlas exige leer el Kepler **vivo**. **El veredicto no depende de cuál sea**: el documento vale $0.00 y el ingreso está publicado de más. ⚠️ Los 5 son clientes **internos** (`10-00`, `54-00`, `RD 505`), así que viven DENTRO del traspaso: restarlos aparte en el puente sería contarlos dos veces — §18.8 |
 | ⛔ **el destino de un traspaso al CEDIS no es verificable por recepción** | **15 envíos / $123,454** (180 d) | `TI000 "CENTRO DE DISTRIBUCIÓN (CEDIS)" → 00`: el almacén **existe y opera**, pero registra sus entradas como **orden de entrada** (`X-A-20`), no como recepción de traspaso (`U-A-50`) — **0 `TrsfRcv` en toda su historia**. El vínculo es plausible y **no comprobable por esa vía**. Se declara en cada corrida del candado `[DM.15]`, con su monto. **No es un dato que falte: es que el CEDIS no recibe por traspaso** |
 | ✅ ~~**el CEDIS arrastra saldo de origen no establecido**~~ | **CERRADO 2026-10-01 · §17.9** | ⭐⭐ **El origen SÍ se estableció, y la fórmula nunca estuvo mal.** El reporte de existencia del propio Kepler, corrido **sin omitir los ceros** (123 págs, **9,496 SKUs = el censo del almacén**), dice que el CEDIS tiene saldo en **148 SKUs / 357,471 u**, y `c4+c8−c9` los reproduce **148 de 148**. Lo que sobraba era **residuo de cuando `md_00` era la base de PRUEBA** (Fase CA): 4,526 SKUs / 11.84 M u. Se publica filtrando por **actividad posterior al corte** (`v_branch_erp_cutover`): **127 marcadas, 127 confirmadas, precisión 100%**, y la regla es **auto-sanable**. `stockMap({ cedis: true })` ya no es el candado: la existencia sale de `v_erp_stock_on_hand` (batch 655). ⚠️ Quedan tres huecos chicos **con número** —21 SKUs pre-corte, el SKU `99225`, y el residuo latente que vigila `[4c]`— enumerados en §17.9 |
 | ⛔ **DEUDA ERP: `ods_repl` no lee las tablas NUEVAS** | toda tabla que Kepler cree nace invisible para la replicación | ⭐ **decisión de Edgar 2026-09-12: NO se cruza la frontera del ERP para arreglarlo.** El `ALTER DEFAULT PRIVILEGES FOR ROLE sa … TO ods_repl` cerraría el goteo de raíz, pero exige `sa`/superusuario en cada POS y se optó por mantener el ERP con acceso de solo-lectura. **Consecuencia aceptada:** cada `kdc2YYMM` nueva (1 de cada mes) no replica hasta que alguien corra un `GRANT` a mano; **vuelve el 2026-10-01** con `kdc22610`. **Mitigado, no resuelto:** los importers leen el POS directo con `platform_ro` (no dependen de la replicación para esto), así que el daño se limita a `kepler_ods.kdc2*`, que **ningún objeto de `analytics.*` consume** (sólo vistas-shim `md.kdc2*`). El candado `test-ods-enrolamiento.js` lo mantiene en rojo. Causa raíz medida en `ERP_KEPLER.md` §4.2b. ✅ **Formalizada como deuda ACEPTADA 2026-09-14:** el impacto es sólo DATO — la tabla vacía SÍ se pre-crea (no hay crash; separado de la bomba de calendario, ya cerrada), sólo no fluye el dato del período nuevo hasta el GRANT. Runbook del fix listo (`ALTER DEFAULT PRIVILEGES FOR ROLE sa … TO ods_repl` por POS) para cuando se autorice tocar el ERP. Reaparece cada 1° de mes; próxima `kdc22610` el 2026-10-01 |
@@ -2189,3 +2196,174 @@ desde el corte. **127 renglones / 340,077 u** — idéntico al snapshot filtrado
   sobraba era el residuo. La sonda habría quedado roja para siempre pidiendo arreglar algo que
   nunca estuvo mal — exactamente el ruido que su predecesora se retiró para no hacer. Ahora mide
   **lo publicado** con el mismo filtro de corte que la vista: **1.00×**.
+
+---
+
+## 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01)
+
+> Esto no corrige a §15. §15 arbitró **la cifra** (el total de `income_entries_src` contra el feed
+> nocturno, y ganó el árbitro). §18 arbitra **qué es esa cifra**. Son dos preguntas distintas y la
+> segunda nunca se había hecho: el número estaba bien sumado y mal entendido.
+
+### 18.1 La liga que faltaba, y por qué la anterior no servía
+
+`/finanzas/ingresos` publica la **póliza contable** de la cuenta 401 (`kdc2YYMM`), con la plaza y el
+canal **parseados del texto del concepto**. El intento anterior (`[IG.6]`) cruzó eso contra el
+cobro **por almacén emisor**: otro eje. El Árbol decía `PADRE HIDALGO PISO`, la conciliación decía
+`01 Padre Hidalgo` y `00 CEDIS`, y las dos tablas no se podían restar.
+
+⭐ **La liga exacta estaba a la vista: el FOLIO.** Medido en prod:
+
+| | |
+|---|---|
+| póliza `UD1301` ↔ documento `U-D-13-1` del CEDIS | **mismo folio y misma fecha** |
+| desfase de fecha | **min 0, max 0 días** — 0 de 4,809 distintas |
+| cobertura | **4,809 de 4,814 líneas (99.9 %)** en 90 días |
+| costo | **40–59 ms un día** · 710 ms noventa (antes: **4.7 s** un día, 43.8 s siete) |
+
+Resolvedor: **`analytics.income_bridge_src(desde, hasta)`** (mig `20261002120000`, prod batch 681).
+Envuelve a `income_entries_src` y le pega el documento, el cliente, el tipo de cliente y los cobros.
+
+### 18.2 ⛔⛔ Lo que la liga destapa
+
+Con el documento en la mano se sabe **quién es el cliente**. De los **$158,795,015** que la pantalla
+publicó en 90 días (3-jul → 1-oct 2026):
+
+| canal que dice la pantalla | qué es de verdad | vendido | cobrado | cómo entró | pendiente |
+|---|---|---:|---:|---|---:|
+| mostrador | **tienda propia** | 95,942,223 | 90,924,661 | banco 96.4 % | 5,019,254 |
+| otro | **cliente de afuera** | 21,693,013 | 2,032,271 | banco 88.0 % | **19,662,198** |
+| telemarketing | **tienda propia** | 20,373,046 | 2,343,269 | banco 100 % | **18,029,777** |
+| ruta | ruta propia | 14,681,128 | 14,041,242 | **EFECTIVO 99.7 %** | 639,886 |
+| reparto_vecinal | ruta propia | 2,584,954 | 2,339,031 | efectivo 95.5 % | 246,136 |
+| reparto_vecinal | cliente de afuera | 1,759,514 | 1,477,703 | efectivo 100 % | 281,811 |
+| ruta | cliente de afuera | 1,495,511 | 1,228,669 | efectivo 100 % | 266,842 |
+
+**$133,846,352 — el 84.0 % — es traspaso dentro de la casa**: el CEDIS facturándole a sus propias
+tiendas (`10-00` → PH, `42-00` → La Piedad…) y a sus propias rutas. El ingreso a cliente de afuera
+es **$24,948,038 (15.7 %)**.
+
+⛔ **Y los rótulos de la pantalla están dados vuelta.** Lo que dice `mostrador` es el traspaso
+interno; la venta de mayoreo a clientes reales —personas con nombre y apellido, vendedor `1M001`—
+cae en `otro`, porque el clasificador de canal lee el concepto de la póliza y ahí va el **nombre del
+cliente**, que no matchea ningún patrón. **No se corrigió el rótulo**: se publica el `kind` al lado,
+para que la contradicción se vea en vez de resolverse a espaldas de nadie — y para que el renglón
+siga cuadrando al centavo con la otra pestaña.
+
+⭐ **La pregunta literal del pedido queda contestada, por renglón**: la **ruta cobra en efectivo**
+(CAJA GENERAL, 99.7 %), la **tienda por depósito** (96.4 %, con el banco nombrado), y se ve cuántos
+depósitos distintos se casaron contra cada factura — **hasta 36 pagos contra una sola**.
+
+### 18.3 El árbitro (R5: dos implementaciones, no una vista contra sí misma)
+
+`pendiente` sale de `kdm1` + `kdm5` (el libro de aplicaciones). Se cruza contra
+`analytics.erp_receivable_documents`, que sale de **`kdue`** (la cartera) — otro camino al mismo
+hecho:
+
+```
+facturas que los DOS lados tienen ... 4,041 de 4,070
+pendiente de la liga ................ $43,611,958
+saldo de la cartera ................. $43,369,882     Δ 0.56 %
+filas que difieren .................. 15 de 4,041     99.6 % coinciden AL CENTAVO
+```
+
+⚠️ **El número que vale es el de FILAS.** Un delta sobre el total puede venir de mil filas por poco
+o de una por mucho, y son dos problemas distintos; acá son **15**.
+
+⛔ **Y el agregado estaba mal medido, por mi culpa, hasta el 2026-10-02.** El candado sumaba **mi
+universo completo** contra **el del árbitro recortado a lo que él tiene**, así que el delta crecía
+solo cuando la ventana de 90 días rodaba un día: **1.53 % el 1-oct, 2.00 % el 2-oct**, rozando el
+umbral sin que nada se hubiera roto. Sumando los dos lados sobre las facturas que **ambos** tienen,
+da **0.56 %** y deja de moverse. ⭐ *Un agregado correcto sobre un universo no declarado engaña
+igual que un número mal sumado* — y un candado que deriva hacia el rojo por su propia aritmética se
+desactiva a la semana.
+
+⚠️ **Sólo cierra si se resta también la nota de crédito**: sin ella difieren **521** filas en vez de
+12. Por eso `nota_credito` es columna propia y no se mezcla con `cobrado` — dinero que entró y
+dinero que ya no va a entrar no son lo mismo.
+
+### 18.4 ⚠️ La regla de formato que se cayó al medir el catálogo entero
+
+El medio de pago sale de `kdm1.c45` (cuenta de tesorería, **100 % presente en los cobros**) contra
+`kepler_ods.kdb1`. Dos reglas fallaron antes de la buena:
+
+1. `[IG.6]` llamaba **banco** a todo lo que no fuera `EFECTIVO` → las cuentas `0001 DEVOLUCIONES` y
+   `0002 AJUSTE A SALDO` se publicaban como depósito (**$260,985** en 90 días).
+2. El arreglo obvio —reconocer al banco por su **CLABE de 18 dígitos**— mandaba **$6,411,551 de
+   depósitos reales** al cajón de ajustes: `BAJIO 4166` guarda `19924166` (**8** dígitos) y
+   `SANTANDER 5565` guarda `65511155565` (**11**).
+
+⭐ *Una regla sobre el FORMATO de un dato se prueba contra el catálogo entero, no contra las filas
+que uno ya vio.* El catálogo son **26 cuentas**: 5 cajas (`c3 = 'EFECTIVO'`), 19 bancos (`c3`
+numérico, de 8 a 18 dígitos) y 2 de ajuste (`c3` de texto). ⚠️ `btrim` obligatorio: la cuenta `1621`
+trae el número con un espacio adelante.
+
+### 18.5 Los huecos, declarados
+
+| hueco | monto | por qué |
+|---|---:|---|
+| póliza sin documento | **$204,983** (5 de 4,814 líneas) | existe el asiento y no aparece su factura. No se le inventa cliente ni cobro |
+| entró por cuenta de devolución/ajuste | **$260,985** | no es un depósito; se publica aparte |
+| **medio de pago del mostrador al público** | **NO MEDIDO** | `kdm1.c45` viene **vacía en el 100 %** de los documentos de venta (89,675 tickets en 30 días) y el corte `U-D-23` existe 1 de cada 5 días. Kepler **no guarda** si el ticket se pagó en efectivo o con tarjeta. Además esas ventas **no entran a este universo**, que es la póliza de ingreso del CEDIS |
+
+⚠️ **`pendiente` NO es `vendido − cobrado` del renglón**: es el saldo de **las facturas** de la
+celda. Una devolución resta en `vendido` pero se aplica contra la factura que le toque, que puede
+ser de otro día — así que en ventanas cortas `pendiente` puede salir **mayor** que `vendido`, y es
+correcto.
+
+### 18.8 ⭐⭐ Ni un ingreso sin casar — y el hueco que se abrió resultó ser dinero (IG.8, 2026-10-02)
+
+Edgar: *"no podemos dejar ni un ingreso sin casar y no dejar una verdad absoluta"*. Al ir a buscar
+las **5 líneas / $204,983** que §18.5 declaraba *"sin documento"*, las 5 aparecieron. El hueco no
+era de la fuente: **era un filtro mío**.
+
+| | antes (IG.7) | ahora (IG.8) |
+|---|---:|---:|
+| pólizas casadas con su documento | 4,809 de 4,814 (99.9 %) | **4,814 de 4,814 (100 %)** |
+| declaradas "sin documento" | 5 · $204,983 | **0** |
+| total publicado | $158,795,015 | **$158,795,015** (sin mover un centavo) |
+
+⭐ *Un filtro no es una ausencia.* Declarar como hueco lo que uno mismo recortó es la falla
+**simétrica** de dibujar un cero — y suena responsable, que es lo que la hace difícil de ver.
+Ya había pasado en esta casa: `[CE.8]` mandó 494 celdas a `no_comparable` por una banda propia.
+
+⚠️ Quitar un filtro de un lado de un JOIN es exactamente cómo se duplica una tabla, así que se
+midió **antes**: la llave `(folio, doctype)` en la sucursal `00` da **13,552 combinaciones y 0
+repetidas** incluyendo cancelados. Y la compuerta 2 de la migración lo vuelve a comprobar contra el
+total del Árbol **al centavo** en cada aplicación, porque un abanico que respeta el conteo de filas
+sólo se ve en el dinero.
+
+**Lo que había debajo del hueco es un hallazgo del negocio, no de datos** — está en la tabla de
+huecos de §7 con su monto, su mecanismo medido (166 bajas, 0 con ingreso vivo; 154 de 158
+cancelados con marcador) y sus dos causas candidatas declaradas sin elegir una.
+
+⛔ **Y el cobro cancelado NO es lo mismo que el documento cancelado: ése sí se excluye.** `kdm5`
+**conserva la aplicación de un cobro cancelado**. Medido: el cobro `0029792` vale $0.00 y su
+aplicación de **$19,810.54** sigue en el libro contra la factura `0008789`. Quien lea `kdm5` sin
+cruzar el estado del cobro sobre-cuenta la cobranza — en esa sola factura, por $19,810. La vista lo
+cruza; el candado lo vigila.
+
+⚠️ **El puente NO resta los cancelados aparte.** Los 5 son clientes internos (`10-00`, `54-00`,
+`RD 505`), así que ya están adentro del traspaso dentro de la casa; restarlos otra vez los contaría
+dos veces. Se publican como *«de los cuales»*. El puente cierra:
+`158,795,015 − 133,786,335 (traspaso) − 60,643 (cliente fuera de catálogo, NO MEDIDO) = 24,948,037`.
+
+### 18.6 La trampa que ya cobró dos veces en este repo, y reincidió
+
+⛔ **El folio NO es único entre doctypes.** Medido acá mismo: el folio `0008866` existe como
+`U-D-13` **y** como `X-A-20`. Toda liga lleva el doctype completo, nunca el folio solo. Es la
+tercera vez (`XA2001`, `kdm5`, y ahora esto).
+
+⛔ **`kdm5` no guarda la naturaleza del documento destino** — sólo grupo/tipo/sub (`c8`/`c9`/`c10`) y
+folio (`c11`). Sin los tres, un `X-A-20` con el mismo folio se cuela en el cobro de una factura.
+
+### 18.7 Lo que esto deja abierto
+
+- ⛔ **Decidir qué publica `/finanzas/ingresos` como «ingreso»** es de Dirección, no de una
+  migración: hoy publica los dos sumados. La medición para tomar la decisión ya está en pantalla.
+- ⛔ **$37.7 M sin cobrar concentrados en los dos canales que de verdad le venden a alguien de
+  afuera** (mayoreo 9.4 % cobrado, telemarketing 11.5 %), contra 94.8 % del traspaso a tienda. No se
+  investigó acá: se publica.
+- ⚠️ `analytics.v_erp_income_daily` y `v_erp_collection_daily` (`[IG.6]`) **quedan sin consumidor**.
+  No se borran —son correctas para su propia pregunta, el ingreso por almacén emisor— pero nadie las
+  lee y arrastran los 4.7 s.

@@ -22,7 +22,7 @@ import { ReplenishmentScannerService } from './replenishment-scanner.service';
 const AREA = 'compras';
 import {
   clasificarRecepciones, filtroSucursalOc, OcAbierta, OcDocRow, OcFollowupRow, OcHistoryRow, OcLineRow, OcReceiptRow,
-  resumenOcAbiertas, TOPE_CONSULTA_OC,
+  resumenOcAbiertas, TOPE_CONSULTA_OC, EstadoCadena,
 } from './oc-abiertas';
 
 /**
@@ -1812,8 +1812,14 @@ export class CommercialReplenishmentService {
         WITH surv AS (SELECT edad, p FROM analytics.oc_survival_curve WHERE tenant_id = :t),
         oc AS MATERIALIZED (
           SELECT sucursal, folio, doc_date AS fecha_oc, proveedor_nombre AS proveedor,
-                 estatus, dias_abierta AS dias
-            FROM analytics.erp_purchase_orders
+                 estatus, dias_abierta AS dias,
+                 -- [RA-PRO.67] Los dos testigos del estado real. Se leen por to_jsonb(o.*)->> y no
+                 -- la columna directa porque la vista puede NO tenerlas todavía (la migración
+                 -- 20261002183000 llega después del código): así la bandeja degrada a "sin
+                 -- clasificar" en vez de romperse con "column does not exist".
+                 to_jsonb(o.*)->>'estado_cadena'    AS estado_cadena,
+                 to_jsonb(o.*)->>'pendiente_en_erp' AS pendiente_en_erp
+            FROM analytics.erp_purchase_orders o
            WHERE tenant_id = :t   -- la vista no tiene RLS: el tenant se filtra explícito
              AND doc_date >= CURRENT_DATE - 120
              AND NOT cerrada
@@ -1826,6 +1832,7 @@ export class CommercialReplenishmentService {
                v.lineas, round(v.valor::numeric, 2) AS valor,
                -- El ERP manda sobre la curva: si él ya la dio por cerrada/cancelada, no llega nada.
                CASE WHEN oc.estatus IN ('F','C','R') THEN 0 ELSE round((sv.p * 100)::numeric, 1) END AS prob,
+               oc.estado_cadena, oc.pendiente_en_erp,
                ${fuCols}
           FROM oc
           ${fuJoin}
@@ -1855,6 +1862,11 @@ export class CommercialReplenishmentService {
         lineas: Number(r.lineas) || 0,
         valor: Number(r.valor) || 0,
         prob: r.prob === null || r.prob === undefined ? null : Number(r.prob),
+        // [RA-PRO.67] `to_jsonb(...)->>` los devuelve como TEXTO: 'true'/'false', o null si la
+        // vista todavía no tiene las columnas. Null se propaga como null — es "no medido", no
+        // "pendiente" (el que traduce eso a una clase es `clasificarOc`, en un solo lugar).
+        estado_cadena: (r.estado_cadena as EstadoCadena) ?? null,
+        pendiente_en_erp: r.pendiente_en_erp == null ? null : String(r.pendiente_en_erp) === 'true',
         seguimiento: r.fu_estatus
           ? { estatus: r.fu_estatus as OcSeguimientoEstatus, nota: (r.fu_nota as string) ?? null,
               actualizado_por: (r.fu_por as string) ?? null, actualizado_en: new Date(r.fu_en as string).toISOString() }
@@ -2569,7 +2581,10 @@ export class CommercialReplenishmentService {
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .where('rp.tenant_id', tenantId)
-        .distinct('sup.id as id', 'sup.name as name', 'sup.min_order_boxes as min_order_boxes').orderBy('sup.name');
+        // `[RA-DYN.U3]` El monto minimo viaja al lado del de cajas, que ya estaba aca (RA-PRO.66).
+        // Es dato del PROVEEDOR: ponerlo en cada fila del workbook lo repetiria ~33 mil veces.
+        .distinct('sup.id as id', 'sup.name as name', 'sup.min_order_boxes as min_order_boxes',
+          'sup.min_order_amount as min_order_amount').orderBy('sup.name');
       // Marcas con productos en política (mismo patrón que proveedores) — para el filtro de /compras/pedido.
       // OJO: la columna de catalog.brands es `nombre`, NO `name` (b.name tiraba 42703 → /filters 500,
       // y con él se caían TODOS los selects de la pantalla). La etiqueta usa display_name cuando

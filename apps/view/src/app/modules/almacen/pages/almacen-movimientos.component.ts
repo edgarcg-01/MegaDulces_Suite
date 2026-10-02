@@ -564,6 +564,20 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                 <span class="dm-rel-none">· sin recepción</span>
               } @else { <span class="dm-rel-none">{{ cp.status === 'sin_recepcion' ? 'sin recepción' : 'sin origen' }}</span> }
             </div>
+            <!--
+              [DM.17.1] DE QUE PLAZA SALIO DE VERDAD. El almacen del documento dice "CEDIS"
+              porque ahi se CAPTURO, no porque de ahi haya salido: antes del corte, Morelia
+              Abastos y Canindo subian sus traspasos al Kepler del CEDIS. Medido: 225 de 535
+              documentos resueltos no son del CEDIS ($5,144,762).
+              Lo que no se pudo arbitrar se DECLARA; NO se da por bueno el almacen (ADR-056).
+            -->
+            @if (origenReal(cp); as or) {
+              <div class="dm-origen" [attr.data-pz]="or.tono" [title]="or.tip">
+                <i class="pi" [ngClass]="or.icon" aria-hidden="true"></i>
+                <strong>{{ or.titulo }}</strong>
+                <span>{{ or.detalle }}</span>
+              </div>
+            }
             <!-- Validación -->
             <div class="dm-cp" [class.cp-ok]="cp.status === 'ok'" [class.cp-warn]="cp.status === 'diferencia'" [class.cp-bad]="cp.status === 'sin_recepcion' || cp.status === 'sin_origen'">
               <i class="pi" [class.pi-check-circle]="cp.status === 'ok'" [class.pi-exclamation-triangle]="cp.status === 'diferencia'" [class.pi-clock]="cp.status === 'sin_recepcion' || cp.status === 'sin_origen'"></i>
@@ -872,6 +886,17 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .dm-rel-doc.rel-out { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .dm-rel-doc.rel-in { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .dm-rel-arrow { color: var(--text-muted); }
+    /* [DM.17.1] El origen fisico arbitrado. El color NUNCA va solo (DESIGN.md 5): cada
+       estado trae icono y palabra, y el gris dice que falta el dato, no que este mal. */
+    .dm-origen { display: flex; align-items: center; gap: .45rem; margin-top: .4rem;
+                 padding: .45rem .6rem; border-radius: var(--radius-sm, 6px);
+                 font-size: var(--fs-sm); border: 1px solid transparent; }
+    .dm-origen .pi { font-size: .85rem; }
+    .dm-origen span { color: var(--text-muted); }
+    .dm-origen[data-pz="ajena"] { color: var(--warn-fg); border-color: var(--warn-fg);
+                                  background: color-mix(in srgb, var(--warn-fg) 8%, transparent); }
+    .dm-origen[data-pz="propia"] { color: var(--ok-fg); }
+    .dm-origen[data-pz="sin"] { color: var(--text-muted); }
     .dm-rel-none { color: var(--bad-fg); font-weight: 600; }
     .dm-cp { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .8rem; padding: .5rem .7rem; border-radius: var(--r-sm); border: 1px solid var(--border-color); margin-bottom: .6rem; }
     .dm-cp.cp-ok { color: var(--ok-soft-fg); background: var(--ok-soft-bg); border-color: var(--ok-border); }
@@ -1532,6 +1557,51 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   }
   cpDestName(cp: NonNullable<DocumentResponse['counterpart']>): string | null {
     return cp.dest_warehouse_name || cp.dest_label || null;
+  }
+
+  /**
+   * `[DM.17.1]` — **de qué plaza salió de verdad la mercancía**, arbitrado contra el ticket
+   * Wincaja del documento (`analytics.v_transfer_true_origin`).
+   *
+   * Devuelve `null` cuando no hay veredicto: mejor no decir nada que inventar un renglón.
+   *
+   * ⛔ Los tres casos NO se mezclan, y el que más importa es el tercero:
+   *   · `otra_plaza`        → salió de otra tienda y el documento dice CEDIS. Ámbar.
+   *   · `origen_confirmado` → el ticket confirma la plaza del documento.
+   *   · lo demás            → **no se pudo arbitrar**. Se DECLARA, y NO se da por bueno el
+   *     almacén del documento: son cuatro causas distintas y ninguna significa "está bien".
+   */
+  origenReal(cp: any): { titulo: string; detalle: string; tono: 'ajena' | 'propia' | 'sin'; icon: string; tip: string } | null {
+    const o = cp?.origen_real;
+    if (!o?.origen_veredicto) return null;
+    const ticket = o.ticket_ref ? ` Ticket ${o.ticket_ref}.` : '';
+    if (o.origen_veredicto === 'otra_plaza') {
+      const plaza = o.origen_warehouse_name || `rama Wincaja ${o.origen_rama_wincaja}`;
+      return {
+        titulo: `Salió de ${plaza}, no del CEDIS`, tono: 'ajena', icon: 'pi-arrow-right-arrow-left',
+        detalle: 'El documento se capturó en el Kepler del CEDIS, pero la mercancía no salió de ahí.',
+        tip: `Arbitrado contra el ticket de Wincaja por SKU y cantidad.${ticket}`,
+      };
+    }
+    if (o.origen_veredicto === 'origen_confirmado') {
+      return {
+        titulo: 'Origen confirmado', tono: 'propia', icon: 'pi-check-circle',
+        detalle: 'El ticket de Wincaja confirma que salió de este almacén.',
+        tip: `Arbitrado por SKU y cantidad.${ticket}`,
+      };
+    }
+    const porque: Record<string, string> = {
+      sin_ticket_legible: 'el documento no trae folio de ticket, sólo texto libre',
+      ticket_fuera_de_replica: 'su ticket no está en la réplica de Wincaja',
+      sin_renglon_que_case: 'ningún renglón del ticket coincide en SKU y cantidad',
+      ambiguo: 'más de una tienda reclama ese ticket',
+    };
+    return {
+      titulo: 'Origen sin verificar', tono: 'sin', icon: 'pi-question-circle',
+      detalle: `No se pudo arbitrar: ${porque[o.origen_veredicto] || o.origen_veredicto}.`,
+      tip: 'No significa que sea del CEDIS: significa que no se pudo comprobar.'
+        + (o.ticket_tecleado ? ` Se tecleó: "${o.ticket_tecleado}".` : ''),
+    };
   }
 
   cpTitle(s: string): string {

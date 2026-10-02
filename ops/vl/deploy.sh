@@ -57,7 +57,7 @@ RUTAS="ops/ingest ops/vl ops/k3s database/importers database/scripts services/fe
 # peleandoselo -- la falla que la guarda de dueno de health.js detecta, causada por nosotros.
 # El servicio sigue declarado en el compose bajo el perfil `retirado-k3s`: no arranca solo.
 # Lo candadea `npm run check:k3s` (bloque "ningun carril en los dos mundos").
-SERVICIOS_DEF="ods-reconcile-full"
+SERVICIOS_DEF=""   # [K3S.45] vacio a proposito: los 8 carriles viven en K3s
 
 ssh_md() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$SRV" "$@"; }
 
@@ -267,8 +267,25 @@ publicar() {
 aplicar_k3s() {
   commit=$(cd "$REPO" && git rev-parse --short HEAD)
   echo "── Aplicando manifiestos de K3s (sólo los MIGRADO) ──"
+  # ⛔⛔ [K3S.35] SÓLO EL NAMESPACE `ingesta`. Esto NO estaba y costó caro el 2026-10-01.
+  #
+  # Sin el filtro, este bucle aplicaba TAMBIÉN los manifiestos de prod (api, worker, portal,
+  # vendor, caddy) sustituyendo el commit de ESTE carril — que construye `trade-ingest`, no las
+  # imágenes de prod. Resultado: pods pidiendo `localhost:5000/trade-prod-api:<commit-de-ingesta>`,
+  # una etiqueta que no existe → ImagePullBackOff.
+  #
+  # ⭐ api/portal/vendor aguantaron por `maxUnavailable: 0`: los pods viejos siguieron sirviendo
+  # y el rollout quedó trabado sin tirar el servicio. ⛔ EL WORKER NO: usa `Recreate`, así que
+  # mató al viejo antes de que el nuevo bajara, y los 51 @Cron estuvieron CAÍDOS.
+  #
+  # ⚠️ La lección más incómoda: `ops/prod/aplicar-k3s-prod.sh` tiene este mismo filtro, y su
+  # comentario describe EXACTAMENTE este fallo — pero en la otra dirección ("no toca ingesta
+  # porque pediría trade-ingest:<commit-de-prod>"). Escribí el peligro, lo entendí, y guardé
+  # UN SOLO LADO de una simetría. Un riesgo simétrico necesita dos guardas, no una y su
+  # explicación.
   ssh_md "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; cd ~/build-ingest/ops/k3s && for f in *.yaml; do \
-    if grep -q 'migracion: preparado' \$f; then echo \"   — \$f (PREPARADO: corre en Compose, no se aplica)\"; \
+    if ! grep -q 'namespace: ingesta' \$f; then echo \"   — \$f (no es de ingesta: lo despliega ops/prod)\"; \
+    elif grep -q 'migracion: preparado' \$f; then echo \"   — \$f (PREPARADO: corre en Compose, no se aplica)\"; \
     else sed 's/__COMMIT__/$commit/g' \$f | k3s kubectl apply -f - >/dev/null && echo \"   ✓ \$f\"; fi; done" || {
     echo "   ⛔ falló el apply. Si dice ImagePullBackOff, falta /etc/rancher/k3s/registries.yaml"
     echo "      (necesita root una sola vez; el archivo está en ~superoot/registries.yaml)"
@@ -287,6 +304,21 @@ aplicar_k3s() {
 
 recrear() {
   servicios="$*"
+  # ⛔ [K3S.45] LA LISTA VACIA NO ES "NADA": ES TODO.
+  #
+  # `docker compose up -d` SIN argumentos levanta el perfil por default ENTERO. Con el ultimo
+  # carril migrado a K3s, SERVICIOS_DEF queda vacio y esta linea se convertia en un `up -d` a
+  # secas: resucitaria de golpe todo lo que la migracion fue apagando, en silencio y con
+  # "Started" como unica senal.
+  #
+  # ⚠️ El guardia equivalente YA existia en ops/prod/auto-deploy.sh desde el 2026-10-01 y
+  # nadie lo trajo a este lado. Es el tercer caso en dos dias de una simetria guardada de un
+  # solo lado; por eso se escribe aca el porque, y no solo el `return`.
+  if [ -z "$(echo "$servicios" | tr -d ' ')" ]; then
+    echo "── Nada que recrear en Compose: todos los carriles viven en K3s ──"
+    echo "   (se omite el 'docker compose up -d' a proposito: sin argumentos levantaria TODO)"
+    return 0
+  fi
   echo "── Recreando: $servicios ──"
   ssh_md "cd ~/ops/vl && docker compose up -d $servicios 2>&1 | grep -E 'Recreated|Started|Created' | sed 's/^/   /'"
   echo

@@ -30,6 +30,7 @@
  * esté en ella y recortarla se llevaría la historia por delante.
  */
 const { Client } = require('pg');
+const { guardaBucket } = require('../lib/sales-window.js');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -161,6 +162,36 @@ const nextMonth = (ym) => { const [y, m] = ym.split('-').map(Number); return m =
     const BLEND = await blendDesdeElResolvedor(db, M);
     const INSERT_MONTH = insertMonthSql(BLEND);
     const DELETE_ORPHAN = deleteOrphanSql(BLEND);
+    // ── `[AUD-DAT.22]` EL BARRIDO DE BUCKETS IMPOSIBLES ────────────────────────────────────
+    // ⛔ Estos NO los limpia el DELETE-huerfanos de abajo, y por una razon que vale decir: ese
+    // borra POR MES, y solo de los meses que el bucle visita. Con la ventana de 8 meses
+    // ([AUD-DAT.16]), los buckets 2000-01, 2014-06, 2020-07 y 2020-10 quedaron CONGELADOS --
+    // nadie los re-deriva ni los barre desde que entraron. Medido en prod el 2026-10-02: 224
+    // filas por $262,950 mas un 2026-12 futuro, publicandose en cualquier listado de meses.
+    //
+    // ⭐ Vienen de tickets REALES de Wincaja con la fecha corrompida en el punto de venta (el
+    // ano 2000 es la firma de un reloj reseteado). El hecho base las CONSERVA a proposito
+    // ([AUD-DAT.2]): borrarlas perderia venta que ocurrio. Lo que no puede pasar es publicarlas
+    // en un mes falso -- por eso se barren del ROLLUP, no del hecho.
+    //
+    // Se hace aca y no a mano para que el arreglo se cure solo: si manana entra otro ticket con
+    // el reloj mal, la proxima pasada lo saca sin que nadie se entere.
+    // ⚠️ SOLO con --apply. Un dry-run que BORRA es la peor clase de sorpresa: el modo que
+    // existe para no tocar nada seria el que toca. En seco se cuenta y se imprime.
+    {
+      const sql = APPLY
+        ? `DELETE FROM analytics.sales_by_vendor_monthly
+            WHERE tenant_id = $1 AND NOT (${guardaBucket('year_month')})
+            RETURNING year_month`
+        : `SELECT year_month FROM analytics.sales_by_vendor_monthly
+            WHERE tenant_id = $1 AND NOT (${guardaBucket('year_month')})`;
+      const fuera = await db.query(sql, [M]);
+
+      if (fuera.rowCount > 0) {
+        const cuales = [...new Set(fuera.rows.map((r) => r.year_month))].sort().join(', ');
+        console.log(`   [AUD-DAT.22] ${APPLY ? 'barridos' : 'SE BARRERIAN (dry-run)'} ${fuera.rowCount} renglon(es) en buckets imposibles: ${cuales}`);
+      }
+    }
     // ⛔ [AUD-DAT.4] DEL MÁS NUEVO AL MÁS VIEJO. Iba ascendente, y con un presupuesto de 10 min
     // (`timeoutMinFor` en run-prod-feeds) eso significa refrescar la historia y morirse antes de
     // llegar al presente. Medido en prod 2026-09-28, 7 noches seguidas con `TIMEOUT 10 min`: el
