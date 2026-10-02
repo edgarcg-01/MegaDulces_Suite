@@ -9,7 +9,7 @@ import { RoutePromoService, PromoQuery } from './route-promo.service';
 import { SelloutChatService } from './sellout-chat.service';
 // [IG.1.1] La forma de los filtros de ingreso vive con la lógica pura, no en el controller.
 import type { IncomeQueryFilters } from './period-coverage';
-import type { IncomeRecon, IncomeReport, IncomeSources, IncomeTree, IncomeTreeChildren } from '@megadulces/contracts';
+import type { IncomeRecon, IncomeReport, IncomeSources, IncomeTree, IncomeTreeChildren, IncomeDocumento } from '@megadulces/contracts';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
@@ -444,13 +444,34 @@ export class CommercialAnalyticsController {
    */
   @Get('income/tree/children')
   @RequirePermissions(Permission.FINANCE_INCOME_VER)
-  @ApiOperation({ summary: 'IG.9 — Hijos del árbol: sin folio da los documentos del día, con folio da cada depósito.' })
+  @ApiOperation({ summary: 'IG.9/IG.10 — Hijos del árbol: sólo plaza da los días, +fecha los documentos, +folio cada depósito.' })
   incomeTreeChildren(
     @Query('canal') canal: string,
-    @Query('fecha') fecha: string,
+    @Query('plaza') plaza?: string,
+    @Query('fecha') fecha?: string,
     @Query('folio') folio?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('grain') grain?: string,
   ): Promise<IncomeTreeChildren> {
-    return this.service.incomeTreeChildren({ canal, fecha, folio });
+    const g = grain === 'mes' || grain === 'trimestre' ? grain : 'dia';
+    return this.service.incomeTreeChildren({ canal, plaza, fecha, folio, from, to, grain: g });
+  }
+
+  /**
+   * `[IG.10]` El documento detrás de un folio del árbol.
+   *
+   * ⚠️ Va ANTES de `income/:param` por la misma razón de siempre: una ruta con segmento fijo
+   * tiene que ganarle a cualquier parámetro que pueda tragarse su primer segmento.
+   */
+  @Get('income/documento')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({ summary: 'IG.10 — El documento de un folio: encabezado, renglón y sus cobros uno por uno.' })
+  incomeDocumento(
+    @Query('folio') folio: string,
+    @Query('fecha') fecha: string,
+  ): Promise<IncomeDocumento> {
+    return this.service.incomeDocumento({ folio, fecha });
   }
 
   @Get('income/tree')
