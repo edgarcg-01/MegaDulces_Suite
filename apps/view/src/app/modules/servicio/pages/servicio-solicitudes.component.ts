@@ -287,7 +287,13 @@ export class ServicioSolicitudesComponent implements OnInit {
     if (!c) return [];
     return c.queues.map((q) => ({ label: q.name, items: c.categories.filter((k) => k.queue_id === q.id) })).filter((g) => g.items.length);
   });
-  readonly requiereSucursal = computed(() => !!this.catalogo()?.categories.find((k) => k.id === this.form.category_id)?.requires_branch);
+  /**
+   * La categoría elegida vive en una SEÑAL aparte del `form` plano a propósito: un `computed()` que lee un campo
+   * plano se evalúa una vez y queda congelado (la compuerta `check:signal-reactivity` lo atrapó), y entonces una
+   * categoría que exige sucursal nunca la pediría. El `form` sigue siendo plano porque `ngModel` escribe ahí.
+   */
+  readonly categoriaId = signal<string | null>(null);
+  readonly requiereSucursal = computed(() => !!this.catalogo()?.categories.find((k) => k.id === this.categoriaId())?.requires_branch);
 
   // ── preferencias ──
   readonly prefsAbierto = signal(false);
@@ -334,6 +340,7 @@ export class ServicioSolicitudesComponent implements OnInit {
   // ── alta ──
   nueva(): void {
     this.form = this.formVacio();
+    this.categoriaId.set(null);
     this.archivos.set([]);
     this.formError.set(null);
     this.mostrarSucursal.set(false);
@@ -341,7 +348,7 @@ export class ServicioSolicitudesComponent implements OnInit {
     this.creando.set(true);
     if (!this.catalogo()) this.api.catalog().subscribe({ next: (c) => this.catalogo.set(c), error: (e) => this.formError.set(sdError(e, 'No se pudo cargar el catálogo.')) });
   }
-  elegirCategoria(id: string): void { this.form.category_id = id; }
+  elegirCategoria(id: string): void { this.form.category_id = id; this.categoriaId.set(id); }
   puedeEnviar(): boolean { return !!this.form.category_id && !!this.form.title.trim() && (!this.requiereSucursal() || !!this.form.warehouse_code); }
 
   elegirArchivos(ev: Event): void {
