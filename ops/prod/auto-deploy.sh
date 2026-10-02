@@ -90,7 +90,7 @@ recortar_diario
 # que no tenerla (mismo criterio que `backup-prod.sh`).
 latir() {
   _st="$1"; _nota="$2"
-  docker exec -i pg-prod psql -U postgres -q -d railway >/dev/null 2>&1 <<SQL || di "aviso: el latido no se pudo escribir"
+  sh "$HOME/ops/prod/pgprod.sh" -q >/dev/null 2>&1 <<SQL || di "aviso: el latido no se pudo escribir"
 INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, last_finish, status, note, host, updated_at)
 VALUES ('$TENANT', '$JOB', 'Despliegue automático (origin/$RAMA)', now(), now(), '$(echo "$_st" | sed "s/'/''/g")',
         '$(echo "$_nota" | sed "s/'/''/g")', 'md', now())
@@ -259,7 +259,7 @@ if [ "$SECO" = 1 ]; then di "SECO: acá se construiría y recrearía ($SERVICIOS
 # compuerta puede DEJAR PASAR una migración pendiente o inventar una que no existe. Medido el
 # 2026-09-24 en `md`: los tres avisos salieron; esa vez el veredicto coincidió de casualidad
 # (4 pendientes con los dos órdenes), lo cual es justo lo que vuelve invisible al defecto.
-docker exec pg-prod psql -U postgres -At -d railway -c 'SELECT name FROM public.knex_migrations' 2>/dev/null \
+sh "$HOME/ops/prod/pgprod.sh" -At -c 'SELECT name FROM public.knex_migrations' 2>/dev/null \
   | tr -d '\r' | grep -E '\.js$' > /tmp/ad-prod.txt
 if [ ! -s /tmp/ad-prod.txt ]; then
   di "FALLO: no se pudo leer public.knex_migrations — estado de migraciones NO MEDIDO. No se despliega a ciegas."

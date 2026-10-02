@@ -47,13 +47,13 @@ conservar() {
   echo "     log del contenedor    : docker logs $CONT"
   echo "     log de pgbackrest     : /home/superoot/pgbackrest-log/"
   echo "     para limpiar a mano   : docker rm -f $CONT && sudo rm -rf $DESTINO"
-  docker exec pg-prod psql -U postgres -d railway -q -c "DROP TABLE IF EXISTS $MARCA" >/dev/null 2>&1
+  sh "$HOME/ops/prod/pgprod.sh" -q -c "DROP TABLE IF EXISTS $MARCA" >/dev/null 2>&1
 }
 
 limpiar() {
   docker rm -f "$CONT" >/dev/null 2>&1
   docker run --rm -v /home/superoot:/h alpine:3 sh -c "rm -rf /h/$(basename $DESTINO)" >/dev/null 2>&1
-  docker exec pg-prod psql -U postgres -d railway -q -c "DROP TABLE IF EXISTS $MARCA" >/dev/null 2>&1
+  sh "$HOME/ops/prod/pgprod.sh" -q -c "DROP TABLE IF EXISTS $MARCA" >/dev/null 2>&1
 }
 trap 'di "interrumpido — limpiando"; limpiar; exit 130' INT TERM
 
@@ -65,18 +65,18 @@ echo "   $libres GB libres"
 limpiar
 
 di "── 1. marca A, instante objetivo, marca B ──"
-docker exec pg-prod psql -U postgres -d railway -q -c \
+sh "$HOME/ops/prod/pgprod.sh" -q -c \
   "CREATE TABLE IF NOT EXISTS $MARCA (marca text primary key, cuando timestamptz default now())" || {
     di "FALLO: no se pudo crear la tabla de marcas"; exit 1; }
-docker exec pg-prod psql -U postgres -d railway -q -c "INSERT INTO $MARCA (marca) VALUES ('A')"
+sh "$HOME/ops/prod/pgprod.sh" -q -c "INSERT INTO $MARCA (marca) VALUES ('A')"
 # El objetivo se toma del RELOJ DE LA BASE, no del host: si difieren, la recuperación
 # apuntaría a un instante que no existe en su línea de tiempo.
-OBJ=$(docker exec pg-prod psql -U postgres -d railway -At -c "SELECT now()")
+OBJ=$(sh "$HOME/ops/prod/pgprod.sh" -At -c "SELECT now()")
 sleep 2
-docker exec pg-prod psql -U postgres -d railway -q -c "INSERT INTO $MARCA (marca) VALUES ('B')"
+sh "$HOME/ops/prod/pgprod.sh" -q -c "INSERT INTO $MARCA (marca) VALUES ('B')"
 # ⚠️ Forzar el cambio de segmento: con `archive_timeout=300` el WAL que contiene estas
 # marcas puede tardar hasta 5 minutos en archivarse, y lo que no se archivó no se recupera.
-docker exec pg-prod psql -U postgres -d railway -q -c "SELECT pg_switch_wal()" >/dev/null
+sh "$HOME/ops/prod/pgprod.sh" -q -c "SELECT pg_switch_wal()" >/dev/null
 echo "   objetivo: $OBJ   (A antes, B después)"
 sleep 3
 
@@ -115,7 +115,7 @@ di "── 3. levantando un Postgres temporal en :$PUERTO ──"
 # se restaura sobre una máquina configurada más chica.
 PARAMS=""
 for p in max_connections max_worker_processes max_wal_senders max_prepared_transactions max_locks_per_transaction; do
-  v=$(docker exec pg-prod psql -U postgres -At -c "SELECT setting FROM pg_settings WHERE name = '$p'" 2>/dev/null)
+  v=$(sh "$HOME/ops/prod/pgprod.sh" -At -c "SELECT setting FROM pg_settings WHERE name = '$p'" 2>/dev/null)
   [ -n "$v" ] && PARAMS="$PARAMS -c $p=$v"
 done
 echo "   parámetros heredados de pg-prod:$PARAMS"
@@ -157,7 +157,7 @@ t=$(docker exec "$CONT" psql -U postgres -d railway -At -c "SELECT count(*) FROM
 
 di "── 5. limpiando ──"
 limpiar
-docker exec pg-prod psql -U postgres -d railway -At -c "SELECT 'pg-prod sigue sirviendo: '||count(*)||' tablas en kepler_ods' FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='kepler_ods' AND c.relkind IN ('r','p')" 2>/dev/null | sed 's/^/   /'
+sh "$HOME/ops/prod/pgprod.sh" -At -c "SELECT 'pg-prod sigue sirviendo: '||count(*)||' tablas en kepler_ods' FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='kepler_ods' AND c.relkind IN ('r','p')" 2>/dev/null | sed 's/^/   /'
 
 echo
 if [ "$fallas" = 0 ]; then

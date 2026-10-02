@@ -23,19 +23,28 @@
 #      a Caddy. Dos APIs atendiendo a la vez es inofensivo —ya corren dos hoy— así que el
 #      cambio de tráfico se hace sobre algo ya probado, no a ciegas.
 ---
-# ── El puente a pg-prod, otra vez: los Service son por NAMESPACE ──────────────
+# ══ El puente a pg-prod, otra vez: los Service son por NAMESPACE ══  [K3S.43]
+#
+# ⛔ ERA un Service sin selector + Endpoints a mano apuntando a 192.168.0.222:5434, y eso
+# DEJA DE FUNCIONAR en el instante en que pg-prod pasa a ser un pod con hostPort.
+#
+# Medido el 2026-10-01 con pg-ods: hostPort NO es un proceso, es una regla de iptables.
+# Mientras Postgres corria en Docker habia un docker-proxy escuchando de verdad en ese
+# puerto; con un pod no hay nadie. kube-proxy hace DNAT del ClusterIP hacia la IP del nodo,
+# ese paquete ya no vuelve a pasar por la cadena del portmap, y da ECONNREFUSED. Doble DNAT
+# en una pasada no ocurre. Los carriles del ODS estuvieron ~15 min sin fuente por esto.
+#
+# ⭐ Con ExternalName el nombre resuelve al Service real del pod y el trafico nunca sale del
+# cluster. El API y el worker siguen diciendo pg-prod:5432 y no se enteran de nada.
+# ⚠️ Medido antes de cambiarlo: la app NO fija sslmode, asi que usa el default de libpq
+#    (prefer) y no valida el nombre del certificado. Si algun dia alguien pone verify-full,
+#    esto hay que volver a medirlo.
 apiVersion: v1
 kind: Service
 metadata: { name: pg-prod, namespace: prod }
 spec:
-  ports: [{ name: postgres, port: 5432, targetPort: 5434 }]
----
-apiVersion: v1
-kind: Endpoints
-metadata: { name: pg-prod, namespace: prod }
-subsets:
-  - addresses: [{ ip: 192.168.0.222 }]
-    ports: [{ name: postgres, port: 5434 }]
+  type: ExternalName
+  externalName: pg-prod-pod.prod.svc.cluster.local
 ---
 # ── redis ────────────────────────────────────────────────────────────────────
 apiVersion: v1

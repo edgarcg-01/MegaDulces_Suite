@@ -51,7 +51,7 @@ kind: Deployment
 metadata:
   name: pg-prod
   namespace: prod
-  labels: { app: pg-prod, singleton: "true", migracion: preparado }
+  labels: { app: pg-prod, singleton: "true", migracion: migrado }
 spec:
   replicas: 1
   strategy:

@@ -44,7 +44,19 @@ titulo "Contenedores"
 # ⚠️ Y el reverso importa igual: si un servicio vuelve a Compose, tiene que VOLVER a esta
 # línea. Un contenedor que nadie vigila es indistinguible de uno que no existe.
 # Los pods se verifican abajo, por su NodePort y pidiendo un recurso real.
-for c in pg-prod prod-backup; do
+#
+# ⭐ [K3S.43] `pg-prod` SALIÓ de esta lista el 2026-10-01: es un pod. Su contenedor queda
+# DETENIDO a propósito —protege el volumen de `docker volume prune` y es la vuelta atrás—,
+# así que buscarlo acá daría rojo sobre un estado sano. Pero no se deja sin vigilar: se
+# comprueba que esté detenido, porque un pg-prod CORRIENDO en Docker sería un SEGUNDO
+# Postgres sobre el mismo datadir. Eso no avisa: corrompe.
+_est_pg=$(docker inspect -f '{{.State.Status}}' pg-prod 2>/dev/null)
+case "$_est_pg" in
+  exited|created) ok "pg-prod (contenedor): $_est_pg — detenido a propósito, es la vuelta atrás" ;;
+  '')             nm "el contenedor pg-prod ya no existe: se perdió la vuelta atrás inmediata" ;;
+  *)              mal "⛔⛔ pg-prod CORRIENDO en Docker ($_est_pg) con el pod arriba: DOS Postgres sobre el mismo datadir" ;;
+esac
+for c in prod-backup; do
   est=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$c" 2>/dev/null)
   case "$est" in
     healthy|running) ok "$c: $est" ;;
@@ -97,7 +109,7 @@ else
   if [ "$sano" = "t" ]; then ok "archivado sano · último hace ${edad:-?} min"
   else mal "el ÚLTIMO intento de archivado FALLÓ — el WAL se acumula en pg_wal hasta llenar el disco"; fi
 fi
-if docker exec -u postgres pg-prod pgbackrest --stanza=prod info 2>/dev/null | grep -q 'status: ok'; then
+if sh "$HOME/ops/prod/pgprod.sh" --dentro pgbackrest --stanza=prod info 2>/dev/null | grep -q 'status: ok'; then
   ok "repositorio pgBackRest: status ok · $(du -sh /home/superoot/pgbackrest 2>/dev/null | cut -f1)"
 else
   mal "pgbackrest info no dice 'status: ok'"

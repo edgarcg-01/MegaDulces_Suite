@@ -30,45 +30,27 @@ kind: Namespace
 metadata:
   name: ingesta
 ---
-# ── pg-prod: el DESTINO (prod, :5434 en el host) ──────────────────────────────
+# ══ pg-prod: el DESTINO de los carriles (prod) ══  [K3S.43]
 #
-# ⛔⛔ [K3S.40] ESTE PUENTE TIENE EL MISMO DEFECTO QUE TENÍA `pg-ods`, Y TODAVÍA NO MORDIÓ
-# SÓLO PORQUE `pg-prod` SIGUE EN DOCKER.
+# ⛔ ERA un puente a la IP del host (192.168.0.222:5434) y se convirtio EN EL MISMO ACTO en
+# que pg-prod paso a ser un pod, no despues.
 #
-# El día que `pg-prod` pase a ser un pod con `hostPort`, este Service va a hacer DNAT hacia
-# `192.168.0.222:5434` donde ya no habrá proceso escuchando —`hostPort` es sólo iptables— y
-# dará ECONNREFUSED. Eso se midió en `pg-ods` el 2026-10-01: los carriles del ODS perdieron su
-# fuente ~15 min.
+# La advertencia que estaba escrita aca se cumplio tal cual en pg-ods el 2026-10-01: hostPort
+# es solo una regla de iptables, no un proceso. Mientras Postgres corria en Docker habia un
+# docker-proxy escuchando de verdad; con un pod no hay nadie, kube-proxy hace DNAT del
+# ClusterIP a la IP del nodo y ese paquete ya no vuelve a pasar por la cadena del portmap.
+# ECONNREFUSED, y los SIETE carriles sin destino a la vez.
 #
-# ⭐ CONVERTIRLO ES PARTE DEL CORTE, no un arreglo posterior. Los dos (éste y su gemelo del
-# namespace `prod`, en 41-redis-worker-api.yaml) pasan a:
-#     type: ExternalName
-#     externalName: pg-prod-pod.prod.svc.cluster.local
-# ⚠️ Si se migra la base sin esto, el API y los SIETE carriles pierden la base a la vez.
+# ⭐ El detalle que delato aquello: un pod alcanzaba 192.168.0.222:5433 DIRECTO y fallaba por
+# el Service. Doble DNAT en una pasada no ocurre.
 apiVersion: v1
 kind: Service
 metadata:
   name: pg-prod
   namespace: ingesta
 spec:
-  # Sin `selector` a propósito: los Endpoints se declaran a mano, abajo.
-  ports:
-    - name: postgres
-      port: 5432          # el puerto que el entorno YA dice (pg-prod:5432)
-      targetPort: 5434    # el puerto REAL en el host
----
-apiVersion: v1
-kind: Endpoints
-metadata:
-  name: pg-prod           # el nombre DEBE coincidir con el Service de arriba
-  namespace: ingesta
-subsets:
-  - addresses:
-      - ip: 192.168.0.222
-    ports:
-      - name: postgres
-        port: 5434
----
+  type: ExternalName
+  externalName: pg-prod-pod.prod.svc.cluster.local
 ---
 # ══ pg-ods: LA FUENTE DE LA INGESTA ══  [K3S.40]
 #
