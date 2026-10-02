@@ -56,13 +56,20 @@ function acotarACambiados(archivos, { raiz = process.cwd(), activar = null } = {
   // Por defecto se acota sólo si hay una base real. `activar` permite forzarlo (--solo-cambiados)
   // o apagarlo (--todo) desde la línea de comandos del script que lo use.
   if (activar === false) {
-    return { archivos, acotado: false, motivo: 'barrido completo pedido explícitamente', base: null };
+    // ⛔ COPIA, no el array de entrada. Los dos consumidores (`check-dense-tables`,
+    // `check-css-tokens`) hacen `archivos.length = 0; archivos.push(...r.archivos)` para
+    // reemplazar su lista en el lugar. Si `r.archivos` ES ese mismo array, el `length = 0` lo
+    // vacía y el push copia una lista vacía: el gate analiza **cero** archivos y sale VERDE.
+    // Medido el 2026-10-02: `check-dense-tables.js --todo` imprimía «BARRIDO COMPLETO (692
+    // archivos)» y acto seguido «0 componente(s)». O sea que el modo que existe para mirar TODO
+    // era el único que no miraba NADA — y no fallaba, que es lo peor que puede hacer un gate.
+    return { archivos: [...archivos], acotado: false, motivo: 'barrido completo pedido explícitamente', base: null };
   }
 
   const { base, origen } = resolverBase(raiz);
   if (!base) {
     return {
-      archivos,
+      archivos: [...archivos],   // copia: ver el motivo en el return de `activar === false`
       acotado: false,
       motivo: 'no hay commit base contra el cual comparar — barrido completo',
       base: null,
@@ -82,7 +89,7 @@ function acotarACambiados(archivos, { raiz = process.cwd(), activar = null } = {
   } catch (e) {
     // ⛔ No se pudo leer el diff: NO se acota. Acotar sin poder medir el diff dejaría pasar todo.
     return {
-      archivos,
+      archivos: [...archivos],   // copia: ver el motivo en el return de `activar === false`
       acotado: false,
       motivo: `no se pudo leer el diff (${e.message.split('\n')[0]}) — barrido completo`,
       base,

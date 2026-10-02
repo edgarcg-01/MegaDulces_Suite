@@ -81,7 +81,10 @@ const STEPS = {
     //
     // 2. LA REGRESIÓN. Cuatro fuentes independientes dicen que el carril `live` debe pasar
     //    `SALES_FACT_DAYS=2`: `install-live-task.ps1` ("el env lo setea run-feeds.cmd cuando el
-    //    modo es live"), `orchestrator/schedules.js:26`, `Jenkinsfile.feeds:88` y el encabezado
+    //    modo es live"), `orchestrator/schedules.js:26`, el `jenkins/Jenkinsfile.feeds` del
+    //    scaffold —retirado en `[CD.14]`; su linea 88 decia textual
+    //    `if (params.MODE == 'live') { env.SALES_FACT_DAYS = params.LIVE_DAYS }`, se transcribe
+    //    acá para que la cuarta fuente no se pierda con el archivo— y el encabezado
     //    del propio importer ("Default = 13 meses (nightly, refresco completo); el feed LIVE pasa
     //    SALES_FACT_DAYS=N"). [VL.4] mudó el carril de `run-feeds.cmd` —que seteaba el env POR
     //    MODO— a `crontab.feeds` + `run-feed.sh`, que carga un `feeds.env` PLANO sin env por
