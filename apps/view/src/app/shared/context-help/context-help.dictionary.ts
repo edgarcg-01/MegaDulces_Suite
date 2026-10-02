@@ -20,6 +20,73 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // ninguno es tecnico, asi que el registro de TODO este topico es palabra llana: nada de
   // "veredicto", "coeficiente" ni nombres de columna. Cada definicion esta anclada a la regla
   // real de `analytics.v_price_action`, no a lo que la etiqueta sugiere.
+  // `[PR.X2]` Para qué sirve el módulo y cómo se encadenan sus tres pantallas. Es un topico
+  // aparte del vocabulario (`motor-margen`) y del de la medición externa (`competencia`): esos
+  // dos explican QUÉ significa cada palabra, y éste explica QUÉ HACÉS, en qué orden y con quién.
+  // Se escribió porque la pregunta llegó tal cual: «¿y para qué sirve este motor?».
+  'control-de-margen': {
+    title: 'Control de margen — para qué sirve y cómo se usa',
+    intro: 'Cada producto tiene su propio precio en cada plaza, y son decenas de miles de combinaciones: nadie puede revisarlas una por una. El módulo las mira todas cada noche y dice UNA sola cosa de cada una — qué se puede hacer con ese precio, cuánto vale hacerlo, y qué tan en firme está esa afirmación. No cambia ningún precio: la captura sigue siendo en Kepler, a mano. Es un triage, no un ejecutor.',
+    groups: [
+      {
+        heading: 'Las tres pantallas, y por qué son tres',
+        entries: [
+          { term: 'Motor', def: 'Dice QUÉ MOVER. Revisa cada producto en cada plaza y propone una acción, con el dinero que mueve y la certeza que tiene. Es por donde se empieza.' },
+          { term: 'Competencia', def: 'Dice SI EL MERCADO TE ACOMPAÑA. El motor mira sólo números propios: puede proponerte subir un precio en una categoría donde ya venías perdiendo terreno. Esta pantalla trae la medición mensual de afuera para que esa decisión no se tome a ciegas.' },
+          { term: 'Experimentos', def: 'Dice SI TE ANIMÁS. Es lo ÚNICO que convierte una acción de "efecto no medido" a medida. Sin esto, subir precio es una apuesta razonada; con esto, es una decisión con evidencia.' },
+        ],
+      },
+      {
+        heading: 'Lo que hay que leer del tablero, y casi nadie lee',
+        entries: [
+          { term: 'Que la mayoría no diga nada está BIEN', def: 'Medido el 2026-10-01: de 86,233 combinaciones, 64,062 — tres de cada cuatro — salen como "sin acción defendible". No es que el motor falle: es que prefiere callarse antes que inventar una recomendación. Un motor que propone algo en todas las filas no sirve para priorizar.' },
+          { term: 'La acción que más dinero mueve es la MENOS segura', def: 'Medido el mismo día: "subir el precio" mueve $333 mil, más que las otras tres juntas — y es la única cuya certeza es "efecto no medido". La cuenta supone que el cliente sigue comprando igual después del alza, y eso nadie lo comprobó. Por eso existe la pestaña de Experimentos.' },
+          { term: 'Las acciones aritméticas son las que se pueden tomar hoy', def: 'Aterrizar precio, revisar costo y corregir escalera suman unos $210 mil y la cuenta se cierra sola: no dependen de adivinar qué hace el cliente. Son menos dinero, pero no hay nada que medir antes.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'El proceso del Motor — de la cola a Kepler',
+        kind: 'fix',
+        intro: 'Todo se captura en Kepler. Esta pantalla no escribe ningún precio.',
+        steps: [
+          'El motor lee cada noche el costo, el precio, la venta de 30 días y la existencia, directo del ERP.',
+          'Para cada producto en cada plaza prueba sus reglas EN ORDEN y se queda con la primera que aplica. Por eso cada renglón dice una sola cosa y no una lista de sugerencias.',
+          'Le pone precio a esa acción: cuántos pesos mueve. Y le pone certeza, que es lo que decide si le creés.',
+          'Ordena la cola por dinero, de mayor a menor.',
+          'Vos abrís el renglón: ahí está la historia del costo contra la venta, y qué pasó las veces anteriores que se tocó ese precio.',
+          'Simulás un precio nuevo. El simulador te dice el margen que quedaría, dónde aterriza el número, y cuánto volumen tendrías que perder para que el cambio te deje peor que como estás.',
+          'Si convence, lo capturás en Kepler. El motor lo ve en la corrida siguiente.',
+        ],
+      },
+      {
+        heading: 'El proceso del Experimento — por qué hace falta y cómo corre',
+        kind: 'info',
+        intro: 'Sirve para una sola pregunta: si subo el precio, ¿deja de comprar? Diseñar NO cambia ningún precio.',
+        steps: [
+          'Elegís la terminación a probar y en qué rangos de precio. El motor parte las celdas elegibles en dos mitades parejas.',
+          'Una mitad es TRATAMIENTO y lleva el precio nuevo. La otra es CONTROL y se queda exactamente igual. El control es lo que compra el calendario: si subís en diciembre y la venta sube, sin control no sabés si fue el precio o fue diciembre.',
+          'El reparto es al azar pero REPRODUCIBLE: la semilla queda guardada, así que cualquiera puede rehacerlo y verificar que no se eligieron a dedo las celdas convenientes.',
+          'Capturás en Kepler SÓLO las del tratamiento, y vas marcando cada una conforme la aplicás.',
+          'Pasada la ventana, el sistema compara el volumen de las dos mitades y da uno de cuatro resultados: no inferior, inferior, no concluyente, o abortado.',
+          'Los rangos marcados NO ALCANZA no se corren a propósito: arriba de $100 el margen que el negocio tolera es tan chico que harían falta más de cien mil celdas por mitad, y hay mil. Correrlo igual daría "no concluyente", que se lee como "no funciona" y no es lo mismo.',
+        ],
+      },
+      {
+        heading: 'El proceso de Competencia — qué preguntarle antes de mover un precio',
+        kind: 'info',
+        intro: 'Sale de la medición mensual de ISCAM, que mide a un panel de mayoristas y nos incluye. Restando lo nuestro queda lo que vendió el resto del canal.',
+        steps: [
+          '¿Cuánto peso tengo en esa categoría? Con una parte grande el precio lo ponés vos; con una chica lo tomás del mercado. No es lo mismo decidir que seguir.',
+          '¿Estoy caro o barato en esa marca? La pantalla compara nuestro precio implícito contra el del resto del canal, y dice con palabras si la comparación se sostiene o si vendemos tan poco de esa marca que el número es ruido.',
+          '¿El terreno se está moviendo? Si el mercado de esa categoría creció y nosotros caímos, subir el precio ahí empuja en la dirección en la que ya venías perdiendo.',
+          '¿Hay marcas que el canal compra y nosotros no vendemos? Ahí no hay nada que corregir de precio: es surtido, y es una conversación con compras.',
+          'Lo que esta pantalla NO puede decirte es QUIÉN vende a ese precio: el panel esconde los nombres. Los competidores con nombre y domicilio salen de otra fuente y esa no dice cuánto vende nadie.',
+        ],
+      },
+    ],
+  },
   competencia: {
     title: 'Competencia — de dónde sale cada número',
     intro: 'Todo lo de esta pantalla viene de ISCAM, la medición de mercado que llega una vez al mes. ISCAM mide a un panel de mayoristas, nos incluye a nosotros, y devuelve cuánto se vendió de cada marca. Restando lo nuestro queda lo que vendió el resto del canal: eso es "la competencia" acá.',

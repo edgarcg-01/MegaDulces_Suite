@@ -4,6 +4,7 @@ import { Subscription } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
+import { DialogModule } from 'primeng/dialog';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
@@ -16,7 +17,7 @@ import { ChartModule } from 'primeng/chart';
 import { TreeNode } from 'primeng/api';
 import {
   ComercialService, IncomeGrain, IncomeGroupBy, IncomeParams, IncomeRecon, IncomeReport, IncomeRow, IncomeSources,
-  IncomeTree, IncomeTreeNode,
+  IncomeTree, IncomeTreeNode, IncomeDocumento as IncomeDocumentoT,
 } from '../../comercial/comercial.service';
 import { SALES_CANAL_ORDER, SALES_CANAL_SHORT, salesCanalLabel, type SalesCanal } from '@megadulces/contracts';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -50,7 +51,7 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
   selector: 'app-finanzas-ingresos',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, ButtonModule, MultiSelectModule, SelectModule,
+    CommonModule, FormsModule, ButtonModule, DialogModule, MultiSelectModule, SelectModule,
     DatePickerModule, InputNumberModule, InputTextModule, ToggleSwitchModule,
     TableModule, TreeTableModule, ChartModule,
     SegmentedComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent,
@@ -130,27 +131,64 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
         <app-load-state [error]="error()" (retry)="reload()"></app-load-state>
       } @else {
         @if (view() === 'arbol') {
-          <!-- ⚠️ Los anchos van en el <th> Y en el <td>. Con [scrollable] PrimeNG renderiza
+          <!-- [IG.9] Canal › período › folio › depósito. Los dos de abajo se piden AL ABRIR: un
+               canal de 90 días son miles de documentos y decenas de miles de depósitos.
+               ⚠️ Los anchos van en el <th> Y en el <td>. Con [scrollable] PrimeNG renderiza
                encabezado y cuerpo como DOS tablas separadas, así que el width del <th> no llega
-               al <td> y las columnas quedan corridas respecto de su título. Se veía en pantalla:
-               "3,487" a la izquierda y "Docs" al extremo derecho. -->
-          <p-treetable [value]="treeNodes()" [scrollable]="true" styleClass="p-treetable-sm in-table">
+               al <td> y las columnas quedan corridas respecto de su título. -->
+          <div class="in-grainbar">
+            <app-segmented [options]="treeGrainOpts" [value]="treeGrain()"
+                           (valueChange)="setTreeGrain($event)" ariaLabel="Grano del árbol" />
+            <span class="in-hint">
+              @if (treeGrain() === 'dia') {
+                El canal abre a su sucursal, ruta o repartidor; ése a sus días; el día a sus folios;
+                y cada folio a los depósitos que se casaron contra él.
+              } @else {
+                Con este grano el árbol llega hasta el período. Para bajar a folio y a depósito, poné Día.
+              }
+            </span>
+          </div>
+          <p-treetable [value]="treeNodes()" [scrollable]="true" styleClass="p-treetable-sm in-table"
+                       (onNodeExpand)="onTreeExpand($event)">
             <ng-template #header>
-              <tr><th>Canal / plaza</th><th class="ta-r" style="width:8rem">Docs</th><th class="ta-r" style="width:12rem">Importe</th><th class="ta-r" style="width:7rem">%</th></tr>
+              <tr>
+                <th>Canal · sucursal, ruta o repartidor · día · folio · depósito</th>
+                <th class="ta-r" style="width:6rem">Docs</th>
+                <th class="ta-r" style="width:10rem">Importe</th>
+                <th class="ta-r" style="width:10rem">Cobrado</th>
+                <th class="ta-r" style="width:10rem">Pendiente</th>
+                <th style="width:15rem">Cómo entró</th>
+                <th class="ta-r" style="width:5rem">%</th>
+              </tr>
             </ng-template>
             <ng-template #body let-rowNode let-rowData="rowData">
-              <tr [ttRow]="rowNode">
+              <tr [ttRow]="rowNode" [class.in-cancel]="rowData.cancelado">
                 <td>
                   <p-treetabletoggler [rowNode]="rowNode" />
                   <span [class.strong]="rowData.level === 'canal'">{{ rowData.label }}</span>
                   @if (rowData.residuo) { <span class="in-tag">residuo</span> }
+                  @if (rowData.kind) {
+                    <span class="in-kind" [class.in-kind-int]="rowData.cancelado">{{ rowData.kind }}</span>
+                  }
+                  @if (rowData.level === 'folio') {
+                    <button type="button" class="in-verdoc" (click)="verDocumento(rowData, $event)"
+                            [attr.aria-label]="'Ver el documento ' + rowData.label">Ver documento</button>
+                  }
+                  @if (rowData.sub) { <span class="in-sub">{{ rowData.sub }}</span> }
                 </td>
-                <td class="ta-r" style="width:8rem">{{ rowData.movs | number }}</td>
-                <td class="ta-r strong" style="width:12rem">{{ money(rowData.total) }}</td>
-                <td class="ta-r muted" style="width:7rem">{{ rowData.share_pct }}%</td>
+                <td class="ta-r" style="width:6rem">{{ rowData.movs | number }}</td>
+                <td class="ta-r strong" style="width:10rem">{{ money(rowData.total) }}</td>
+                <td class="ta-r" style="width:10rem">
+                  {{ rowData.cobrado === null || rowData.cobrado === undefined ? '' : money(rowData.cobrado) }}
+                </td>
+                <td class="ta-r" style="width:10rem" [class.in-deuda]="rowData.pendiente > 0">
+                  {{ rowData.pendiente === null || rowData.pendiente === undefined ? '' : money(rowData.pendiente) }}
+                </td>
+                <td style="width:15rem" class="muted in-como">{{ rowData.como }}</td>
+                <td class="ta-r muted" style="width:5rem">{{ rowData.share_pct }}%</td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="4" class="in-empty">Sin ingresos en el período.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="7" class="in-empty">Sin ingresos en el período.</td></tr></ng-template>
           </p-treetable>
         }
 
@@ -345,6 +383,91 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
         }
       }
     </div>
+
+    <!-- [IG.10] El documento de un folio. Lo primero que dice es lo que NO trae: el U-D-13 no
+         detalla mercancia, y una tabla de productos vacia se leeria como "no compro nada". -->
+    <p-dialog [(visible)]="docAbiertoModel" [modal]="true" [draggable]="false" [dismissableMask]="true"
+              [style]="{ width: '46rem', maxWidth: '94vw' }" header="Documento">
+      @if (docCargando()) {
+        <div class="in-empty">Abriendo el documento…</div>
+      } @else if (doc(); as dc) {
+        <div class="in-doc">
+          <div class="in-doc-head">
+            <div>
+              <div class="in-doc-folio">Folio {{ dc.folio }}</div>
+              <div class="in-doc-meta">
+                {{ dc.doctype }}@if (dc.doctype_label) { · {{ dc.doctype_label }} } · {{ dc.fecha }}
+              </div>
+            </div>
+            <div class="ta-r">
+              <div class="in-doc-total">{{ money(dc.total) }}</div>
+              @if (dc.condicion) { <div class="in-doc-meta">{{ dc.condicion }}</div> }
+            </div>
+          </div>
+
+          @if (dc.cancelado) {
+            <div class="in-doc-alerta">
+              ⛔ El ERP CANCELÓ este documento ($0.00) y su póliza de ingreso sigue viva, sin reversar.
+              No debería estar sumando al ingreso publicado.
+            </div>
+          }
+
+          <div class="in-doc-grid">
+            <div><span>Cliente</span>{{ dc.cliente_nombre || dc.cliente_code }}</div>
+            <div><span>Código</span>{{ dc.cliente_code }}</div>
+            <div><span>Qué es</span>{{ dc.kind || '—' }}</div>
+            <div><span>Cobrado</span>{{ money(dc.cobrado) }}</div>
+            <div><span>Nota de crédito</span>{{ money(dc.nota_credito) }}</div>
+            <div><span>Pendiente</span>{{ money(dc.pendiente) }}</div>
+          </div>
+
+          <!-- La ausencia del detalle se DECLARA. No es que falte en nuestra copia: el ERP no lo
+               escribe, y por eso la Fase AX excluyó este doctype de su visor de documentos. -->
+          @if (dc.solo_servicio) {
+            <div class="in-doc-nota">
+              <strong>Este documento no detalla mercancía, y no es que falte el dato: el ERP no lo
+              escribe.</strong>
+              Medido sobre 30 días, los 1,548 documentos de este tipo traen un renglón o ninguno
+              — nunca dos — y ese renglón es el SKU <code>1</code> con unidad <code>SER</code>
+              (servicio) y el total completo adentro. Se buscó un documento hermano con el detalle,
+              para el mismo cliente y el mismo día: no existe.
+            </div>
+          }
+
+          @if (dc.renglones.length) {
+            <div class="in-doc-t">Como lo escribió el ERP</div>
+            <table class="in-doc-tabla">
+              <tr><th>SKU</th><th>Descripción</th><th class="ta-r">Cant</th><th>Unidad</th><th class="ta-r">Importe</th></tr>
+              @for (l of dc.renglones; track l.sku) {
+                <tr>
+                  <td class="mono">{{ l.sku }}</td><td>{{ l.descripcion }}</td>
+                  <td class="ta-r">{{ l.cantidad }}</td><td>{{ l.unidad }}</td>
+                  <td class="ta-r">{{ money(l.importe) }}</td>
+                </tr>
+              }
+            </table>
+          }
+
+          <div class="in-doc-t">
+            Los cobros que se casaron contra este documento
+            @if (dc.pagos.length) { <span class="muted">— {{ dc.pagos.length }}</span> }
+          </div>
+          @if (dc.pagos.length) {
+            <table class="in-doc-tabla">
+              <tr><th>Documento</th><th>Fecha y cuenta</th><th>Cómo entró</th><th class="ta-r">Importe</th></tr>
+              @for (g of dc.pagos; track g.key) {
+                <tr>
+                  <td>{{ g.label }}</td><td class="muted">{{ g.sub }}</td>
+                  <td class="muted">{{ g.como }}</td><td class="ta-r">{{ money(g.total) }}</td>
+                </tr>
+              }
+            </table>
+          } @else {
+            <div class="in-doc-nota">Todavía no se ha cobrado nada contra este documento.</div>
+          }
+        </div>
+      }
+    </p-dialog>
   `,
   styles: [`
     /* [IG.6] Conciliacion. Tokens de Operations: densidad alta, cero decoracion. */
@@ -361,6 +484,40 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
     /* [IG.7] El canal y el "que es" conviven en el renglon: el canal viene del concepto de la
        poliza y esta dado vuelta; el "que es" sale del cliente del documento. Se muestran juntos
        a proposito, para que la contradiccion se vea en vez de resolverse en silencio. */
+    /* [IG.9] El arbol baja a folio y deposito: el renglon necesita decir QUE es y COMO entro. */
+    .in-sub { display: block; font-size: .72rem; color: var(--text-muted, #78716c); line-height: 1.4;
+      margin-left: 1.9rem; }
+    .in-como { font-size: .76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .in-cancel td { background: color-mix(in srgb, var(--warn-fg, #92400e) 8%, transparent); }
+    .in-cancel .strong, .in-cancel td:first-child { color: var(--warn-fg, #92400e); }
+    .in-hint { font-size: .78rem; color: var(--text-muted, #78716c); }
+    /* [IG.10] Ver el documento. */
+    .in-verdoc { margin-left: .6rem; padding: 0 .4rem; font-size: .7rem; line-height: 1.5;
+      background: none; border: 1px solid var(--surface-border, #e7e5e4);
+      border-radius: var(--radius-sm, 4px); color: var(--text-muted, #78716c); cursor: pointer; }
+    .in-verdoc:hover { color: var(--action, #c2410c); border-color: var(--action, #c2410c); }
+    .in-doc { display: flex; flex-direction: column; gap: .9rem; }
+    .in-doc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+    .in-doc-folio { font-size: 1.05rem; font-weight: 600; }
+    .in-doc-meta { font-size: .76rem; color: var(--text-muted, #78716c); }
+    .in-doc-total { font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .in-doc-alerta { padding: .6rem .8rem; border: 1px solid var(--warn-fg, #92400e);
+      border-radius: var(--radius-sm, 4px); color: var(--warn-fg, #92400e); font-size: .8rem; line-height: 1.5; }
+    .in-doc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem .9rem; }
+    .in-doc-grid > div { font-size: .82rem; }
+    .in-doc-grid span { display: block; font-size: .68rem; text-transform: uppercase;
+      letter-spacing: .05em; color: var(--text-muted, #78716c); }
+    .in-doc-nota { padding: .6rem .8rem; border-left: 2px solid var(--surface-border, #e7e5e4);
+      font-size: .78rem; line-height: 1.6; color: var(--text-muted, #78716c); }
+    .in-doc-nota strong { color: var(--text-color, #1c1917); }
+    .in-doc-t { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--text-muted, #78716c); font-weight: 600; }
+    .in-doc-tabla { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    .in-doc-tabla th { text-align: left; font-size: .68rem; text-transform: uppercase;
+      letter-spacing: .05em; color: var(--text-muted, #78716c); font-weight: 600;
+      border-bottom: 1px solid var(--surface-border, #e7e5e4); padding: .3rem .4rem; }
+    .in-doc-tabla td { padding: .3rem .4rem; border-bottom: 1px solid var(--surface-border, #e7e5e4);
+      font-variant-numeric: tabular-nums; }
     .in-canal { display: block; font-size: .72rem; color: var(--text-muted, #78716c);
       text-transform: lowercase; }
     .in-kind { display: inline-block; font-size: .72rem; line-height: 1.5; padding: .05rem .4rem;
@@ -483,7 +640,16 @@ export class FinanzasIngresosComponent {
     return items;
   });
 
-  readonly treeNodes = computed<TreeNode[]>(() => (this.tree()?.tree || []).map((n) => this.toNode(n, true)));
+  // ⚠️ Deja de ser `computed`: el árbol ahora MUTA (los hijos llegan al abrir) y un computed se
+  // recalcularía desde cero perdiendo todo lo cargado. Lo llena `loadTree`.
+  readonly treeNodes = signal<TreeNode[]>([]);
+  /** Grano del SEGUNDO nivel del árbol. Debajo siempre baja a folio y a depósito. */
+  readonly treeGrain = signal<'dia' | 'mes' | 'trimestre'>('dia');
+  readonly treeGrainOpts = [
+    { label: 'Día', value: 'dia' },
+    { label: 'Mes', value: 'mes' },
+    { label: 'Trimestre', value: 'trimestre' },
+  ];
   readonly groupByLabel = computed(() => this.groupByOpts.find((o) => o.value === this.groupBy())?.label || 'Canal');
 
   readonly chartData = computed(() => {
@@ -555,8 +721,95 @@ export class FinanzasIngresosComponent {
       data: { ...n, residuo: n.key === 'otro' },
       expanded,
       children: (n.children || []).map((c) => this.toNode(c)),
-      leaf: !n.children?.length,
+      // ⚠️ `leaf` lo manda el SERVIDOR, no el hecho de que los hijos todavía no estén cargados.
+      // Derivarlo de `children.length` haría que todo nodo por cargar se dibujara sin flecha: el
+      // árbol se vería completo y terminado justo donde empieza lo que el usuario vino a ver.
+      leaf: n.leaf ?? !n.children?.length,
     };
+  }
+
+  // `[IG.10]` El documento que se esta viendo.
+  readonly doc = signal<IncomeDocumentoT | null>(null);
+  readonly docAbierto = signal(false);
+  readonly docCargando = signal(false);
+  /** p-dialog usa [(visible)] con un setter: un signal no se le puede atar directo. */
+  get docAbiertoModel(): boolean { return this.docAbierto(); }
+  set docAbiertoModel(v: boolean) { this.docAbierto.set(v); }
+
+  /** Fecha LOCAL (no toISOString): con UTC-6 el dia se corre y el rango pide otro mes. */
+  private fmtFecha(d: Date): string {
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + dd;
+  }
+
+  /**
+   * `[IG.10]` Ver el documento de un folio. Edgar: *"al dar clic al folio, dar la opcion
+   * de ver ese doc"*.
+   *
+   * ⛔ Lo que el dialogo NO puede mostrar, y por eso lo DICE en vez de callarlo: el U-D-13 no
+   * detalla mercancia. Medido sobre 30 dias, sus 1,548 documentos traen UN renglon o ninguno,
+   * nunca dos, y ese renglon es el SKU 1 con unidad SER y el total completo adentro. Una tabla de
+   * productos vacia se leeria como «no compro nada», que es falso.
+   */
+  verDocumento(d: IncomeTreeNode, ev?: Event) {
+    ev?.stopPropagation();
+    if (!d.folio || !d.fecha) return;
+    this.doc.set(null);
+    this.docCargando.set(true);
+    this.docAbierto.set(true);
+    this.svc.incomeDocumento(d.folio, d.fecha).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.doc.set(r); this.docCargando.set(false); },
+        error: () => {
+          this.docCargando.set(false);
+          this.docAbierto.set(false);
+          this.error.set('No se pudo abrir ese documento.');
+        },
+      });
+  }
+
+  /**
+   * `[IG.9]` Abrir un nodo pide sus hijos. Sólo la primera vez: después quedan en el nodo.
+   *
+   * Un canal de 90 días son miles de documentos y decenas de miles de depósitos, así que bajar a
+   * folio y a depósito se paga al abrir y no en la carga inicial.
+   */
+  onTreeExpand(ev: { node?: TreeNode }) {
+    const node = ev?.node;
+    const d = node?.data as (IncomeTreeNode & { cargando?: boolean }) | undefined;
+    if (!node || !d || node.children?.length || d.cargando) return;
+    // El canal ya trae sus sucursales/rutas/repartidores en la carga inicial; de ahí para abajo
+    // cada nivel se pide al abrir. `pago` es el fondo del árbol: no tiene hijos.
+    if (d.level !== 'plaza' && d.level !== 'periodo' && d.level !== 'folio') return;
+    if (!d.canal) return;
+    const [ra, rb] = this.rangeDates || [];
+    d.cargando = true;
+    this.svc.incomeTreeChildren({
+      canal: d.canal,
+      plaza: d.plaza,
+      fecha: d.level === 'plaza' ? null : d.fecha,
+      folio: d.level === 'folio' ? d.folio : null,
+      from: ra ? this.fmtFecha(ra) : undefined,
+      to: rb ? this.fmtFecha(rb) : undefined,
+      grain: this.treeGrain(),
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          node.children = r.nodes.map((c) => this.toNode(c));
+          node.leaf = r.nodes.length === 0;
+          d.cargando = false;
+          // El árbol de PrimeNG lee un arreglo por referencia: sin una copia nueva el renglón
+          // abierto queda vacío aunque los hijos ya estén adentro del nodo.
+          this.treeNodes.update((ns) => [...ns]);
+        },
+        error: () => {
+          d.cargando = false;
+          node.leaf = true;
+          this.error.set('No se pudieron cargar los movimientos de ese nivel.');
+        },
+      });
   }
 
   private fresh = { report: false, tree: false, sources: false, recon: false };
@@ -626,12 +879,31 @@ export class FinanzasIngresosComponent {
 
   private loadTree() {
     this.treeSub?.unsubscribe();
-    this.treeSub = this.svc.incomeTree(this.params()).pipe(takeUntilDestroyed(this.destroyRef))
+    this.treeSub = this.svc.incomeTree({ ...this.params(), grain: this.treeGrain() })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (t) => { this.tree.set(t); this.fresh.tree = true; },
+        next: (t) => {
+          this.tree.set(t);
+          // El primer canal nace abierto: un árbol que arranca todo cerrado obliga a adivinar
+          // dónde hay algo. Los de abajo se abren a mano.
+          this.treeNodes.set((t.tree || []).map((n, i) => this.toNode(n, i === 0)));
+          this.fresh.tree = true;
+        },
         // Declara, no se calla: «sin ingresos» y «no se pudo cargar» se leen igual (lección GX.19).
-        error: () => { this.tree.set(null); this.fresh.tree = false; this.error.set('No se pudo cargar el desglose por canal.'); },
+        error: () => {
+          this.tree.set(null); this.treeNodes.set([]); this.fresh.tree = false;
+          this.error.set('No se pudo cargar el desglose por canal.');
+        },
       });
+  }
+
+  /** `[IG.9]` Cambiar el grano del segundo nivel recarga el árbol: los hijos ya no sirven. */
+  setTreeGrain(g: string) {
+    const v = g === 'mes' || g === 'trimestre' ? g : 'dia';
+    if (v === this.treeGrain()) return;
+    this.treeGrain.set(v);
+    this.fresh.tree = false;
+    this.loadTree();
   }
 
   private loadSources() {

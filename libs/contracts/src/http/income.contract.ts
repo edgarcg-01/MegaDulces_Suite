@@ -93,21 +93,95 @@ export interface IncomeReport {
   series: IncomeSeriesPoint[];
 }
 
+/**
+ * `[IG.9]` Un nodo del árbol. Los dos primeros niveles (canal, período) vienen en la carga
+ * inicial; **folio y depósito se piden al abrir**, porque un canal de 90 días son miles de
+ * documentos y decenas de miles de depósitos: traerlos de una haría lo contrario de lo que este
+ * árbol existe para hacer.
+ */
 export interface IncomeTreeNode {
   key: string;
   label: string;
+  /** `canal` · `periodo` · `folio` · `pago` */
   level: string;
   total: number;
   movs: number;
   share_pct: number;
   children?: IncomeTreeNode[];
+  /** `false` cuando el nodo todavía puede abrirse (y sus hijos se piden al servidor). */
+  leaf?: boolean;
+  /** Segunda línea del renglón: la plaza del folio, o el banco y la fecha del depósito. */
+  sub?: string | null;
+  /** Qué es el cliente detrás del documento. Sólo en `folio`. */
+  kind?: string | null;
+  /** ⛔ El ERP canceló el documento y su ingreso sigue publicado. Sólo en `folio`. */
+  cancelado?: boolean;
+  cobrado?: number | null;
+  pendiente?: number | null;
+  /** Cómo entró el dinero, en texto corto: «3 depósitos · BANORTE 7744» o «efectivo». */
+  como?: string | null;
+  /** Las llaves que el cliente devuelve para pedir los hijos de este nodo. */
+  canal?: string | null;
+  /** La sucursal, la ruta o el repartidor. `kind` dice cuál de los tres es. */
+  plaza?: string | null;
+  fecha?: string | null;
+  folio?: string | null;
+}
+
+/** Un renglón del documento, tal como lo escribió el ERP. */
+export interface IncomeDocLinea {
+  sku: string;
+  descripcion: string;
+  cantidad: number;
+  unidad: string;
+  precio: number;
+  importe: number;
+}
+
+/**
+ * `[IG.10]` El documento detrás de un folio del árbol.
+ *
+ * ⛔ `solo_servicio` es la advertencia que da sentido a todo lo demás: medido sobre 30 días, los
+ * 1,548 `U-D-13` del CEDIS traen **un renglón o ninguno, nunca dos**, y ese renglón es el SKU `1`
+ * con unidad `SER` y el total completo adentro. **El ERP no detalla la mercancía de este
+ * doctype** — por eso la Fase AX lo excluyó de su visor. No se dibuja una tabla vacía, que se
+ * leería como «no compró nada»: se declara.
+ */
+export interface IncomeDocumento {
+  folio: string;
+  fecha: string;
+  doctype: string;
+  doctype_label: string | null;
+  cliente_code: string;
+  cliente_nombre: string | null;
+  kind: string | null;
+  sucursal_destino: string | null;
+  condicion: string | null;
+  cancelado: boolean;
+  total: number;
+  cobrado: number;
+  nota_credito: number;
+  pendiente: number;
+  renglones: IncomeDocLinea[];
+  /** `true` = el ERP no detalla mercancía en este documento. Se DECLARA en pantalla. */
+  solo_servicio: boolean;
+  /** Cada cobro y cada nota de crédito aplicados contra el documento. */
+  pagos: IncomeTreeNode[];
 }
 
 export interface IncomeTree {
   from: string;
   to: string;
   total: number;
+  /** Grano del SEGUNDO nivel. El árbol siempre baja a folio y depósito debajo de él. */
+  grain: IncomeGrain;
   tree: IncomeTreeNode[];
+}
+
+/** Respuesta de la carga por demanda de un nivel del árbol. */
+export interface IncomeTreeChildren {
+  level: string;
+  nodes: IncomeTreeNode[];
 }
 
 /**

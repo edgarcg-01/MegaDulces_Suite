@@ -5,7 +5,7 @@ import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
 import type { Freshness, ExpenseFamilia } from '@megadulces/contracts';
 import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
-import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
+import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeTreeChildren as IncomeTreeChildrenT, IncomeDocumento as IncomeDocumentoT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
 export interface AddressJsonb {
@@ -2063,8 +2063,32 @@ export class ComercialService {
   income(p: IncomeParams) {
     return this.http.get<IncomeReportT>(`${this.base}/analytics/income`, { params: this.incomeParams(p) });
   }
-  incomeTree(p: IncomeParams) {
-    return this.http.get<IncomeTreeT>(`${this.base}/analytics/income/tree`, { params: this.incomeParams(p) });
+  incomeTree(p: IncomeParams & { grain?: IncomeGrainT }) {
+    let q = this.incomeParams(p);
+    if (p.grain) q = q.set('grain', p.grain);
+    return this.http.get<IncomeTreeT>(`${this.base}/analytics/income/tree`, { params: q });
+  }
+  /**
+   * `[IG.9]` Los hijos de un nodo del arbol, al abrirlo. Sin `folio` devuelve los documentos de
+   * ese canal en ese dia; con `folio`, cada deposito que se caso contra el.
+   */
+  incomeTreeChildren(a: {
+    canal: string; plaza?: string | null; fecha?: string | null; folio?: string | null;
+    from?: string; to?: string; grain?: IncomeGrainT;
+  }) {
+    let q = new HttpParams().set('canal', a.canal);
+    if (a.plaza) q = q.set('plaza', a.plaza);
+    if (a.fecha) q = q.set('fecha', a.fecha);
+    if (a.folio) q = q.set('folio', a.folio);
+    if (a.from) q = q.set('from', a.from);
+    if (a.to) q = q.set('to', a.to);
+    if (a.grain) q = q.set('grain', a.grain);
+    return this.http.get<IncomeTreeChildrenT>(`${this.base}/analytics/income/tree/children`, { params: q });
+  }
+  /** `[IG.10]` El documento detras de un folio: encabezado, renglon y sus cobros uno por uno. */
+  incomeDocumento(folio: string, fecha: string) {
+    const q = new HttpParams().set('folio', folio).set('fecha', fecha);
+    return this.http.get<IncomeDocumentoT>(`${this.base}/analytics/income/documento`, { params: q });
   }
   incomeSources(p: IncomeParams) {
     return this.http.get<IncomeSourcesT>(`${this.base}/analytics/income/sources`, { params: this.incomeParams(p) });
@@ -3425,7 +3449,7 @@ export interface VendorSaleLine {
  */
 export type {
   IncomeGroupBy, IncomeCanalRow, IncomeRow, IncomeSeriesPoint, IncomeReport,
-  IncomeTreeNode, IncomeTree, IncomeSourceRow, IncomeSources,
+  IncomeTreeNode, IncomeTree, IncomeDocumento, IncomeDocLinea, IncomeSourceRow, IncomeSources,
   IncomeGrain, IncomeKind, IncomeBridgeItem, IncomeReconRow, IncomeRecon,
 } from '@megadulces/contracts';
 
