@@ -519,7 +519,26 @@ for i in $(seq 1 24); do
   done
   r=$(curl -s --max-time 5 http://127.0.0.1:30080/api/health 2>/dev/null)
   vivo_ahora=$(printf '%s' "$r" | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p')
-  [ -n "$vivo_ahora" ] && break
+  # ⛔ [K3S.30] SE ESPERA EL COMMIT ESPERADO, NO "cualquier respuesta". Esta línea decía
+  # `[ -n "$vivo_ahora" ] && break` y en el mundo de Compose era correcta: `docker compose up`
+  # RECREA el contenedor, así que mientras tanto el puerto está cerrado y la primera respuesta
+  # ya era, por construcción, la del binario nuevo.
+  #
+  # En K8s eso deja de ser cierto y no un poco: el Service CONTESTA SIEMPRE. Durante el rollout
+  # hay pods viejos todavía en los endpoints, así que la primera respuesta puede ser —y fue— la
+  # versión ANTERIOR. Medido el 2026-10-01 19:16: el apply decía «todos los deployments al día
+  # en :843521b», el pod nuevo estaba Ready, y este chequeo leyó `6bb8e4f` y REVIRTIÓ un
+  # despliegue que estaba bien. Un falso rojo que deshace trabajo correcto es peor que no tener
+  # chequeo: enseña a desactivarlo.
+  #
+  # ⚠️ Y hay un agravante propio de este Service: `sessionAffinity: ClientIP`. El curl sale
+  # siempre del mismo origen (127.0.0.1), así que kube-proxy lo pega a UN pod — justamente el
+  # que puede ser el viejo. Reintentar sin exigir el commit esperado no corrige eso.
+  if [ "$DESEADO" = desconocido ]; then
+    [ -n "$vivo_ahora" ] && break
+  elif [ "$vivo_ahora" = "$DESEADO" ]; then
+    break
+  fi
   sleep 5
 done
 
@@ -585,13 +604,28 @@ fi
 # ⚠️ Se le pregunta a cada contenedor DIRECTO (`docker exec`), no por el 8080: preguntarle al
 # balanceador es exactamente lo que no distingue una réplica de la otra.
 # ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
-for _c in $(docker ps --format '{{.Names}}' | grep -E '^prod-api(-[0-9]+)?$'); do
-  _k=$(docker exec "$_c" node -e 'fetch("http://127.0.0.1:10000/api/health").then(r=>r.json()).then(j=>console.log(j.commit)).catch(()=>console.log(""))' 2>/dev/null)
+# ⛔ [K3S.30] AHORA SE LE PREGUNTA A CADA **POD**, no a contenedores que ya no existen.
+#
+# Este bucle iteraba `docker ps | grep '^prod-api'`. Desde que el API vive en K3s esa lista
+# está VACÍA, así que el bucle no fallaba: no hacía NADA. Y lo que dejaba de hacer es
+# justamente la razón por la que existe — `[VL.15.D2]` lo escribió después de medir **ocho
+# horas sirviendo DOS versiones a la vez**, repartidas por cookie, con el chequeo general en
+# verde porque siempre le tocaba la buena.
+#
+# ⭐ Una compuerta que se queda sin sujeto no avisa: simplemente deja de proteger. Y con
+# `sessionAffinity: ClientIP` el chequeo general es todavía MENOS capaz de distinguir una
+# réplica de otra, porque sale siempre del mismo origen y se pega a un solo pod.
+#
+# ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
+for _p in $(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl get pods -n prod -l app=api \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+  _k=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl exec -n prod "$_p" -c api -- \
+        node -e 'fetch("http://127.0.0.1:10000/api/health").then(r=>r.json()).then(j=>console.log(j.commit)).catch(()=>console.log(""))' 2>/dev/null)
   if [ "$DESEADO" != desconocido ] && [ "$_k" != "$DESEADO" ]; then
-    di "FALLO: la réplica $_c sirve '${_k:-nada}' y se levantó '$DESEADO'."
-    revertir; latir error "réplica $_c desfasada tras desplegar $DESEADO — revertido a $ANTERIOR"; exit 1
+    di "FALLO: el pod $_p sirve '${_k:-nada}' y se levantó '$DESEADO'."
+    revertir; latir error "pod $_p desfasado tras desplegar $DESEADO — revertido a $ANTERIOR"; exit 1
   fi
-  di "réplica $_c sirve $_k"
+  di "pod $_p sirve $_k"
 done
 
 codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
