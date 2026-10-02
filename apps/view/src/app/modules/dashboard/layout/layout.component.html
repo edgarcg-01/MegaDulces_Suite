@@ -336,6 +336,21 @@
           ></p-menu>
         }
 
+        <!-- `[MS.3.1]` Mesa de Servicio: la puerta de TODA persona. Sin texto en teléfono para no ensanchar la barra. -->
+        @if (!isRestricted() && puedeReportar()) {
+          <a
+            routerLink="/servicio/solicitudes"
+            [queryParams]="{ nueva: 1 }"
+            class="p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted inline-flex items-center gap-2
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+            title="Reportar un problema o una necesidad"
+            aria-label="Reportar un problema"
+          >
+            <i class="pi pi-life-ring text-lg" aria-hidden="true"></i>
+            @if (!isMobile()) { <span class="text-sm">Reportar un problema</span> }
+          </a>
+        }
+
         <!-- Centro de Notificaciones (CxP): hallazgos críticos + acciones HITL + feed WS -->
         @if (!isRestricted()) {
           <app-notifications-bell />

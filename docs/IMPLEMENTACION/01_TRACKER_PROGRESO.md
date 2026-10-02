@@ -7518,14 +7518,14 @@ semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso)
 - [ ] **[MS.2.9]** 🧪 2026-10-02 Verificación HTTP E2E + `build` + `check:boot`. `http-service-desk-test.js` **189/189** con cuatro roles sin admin y su prueba de mutación (el E2E destapó un bug real: la llave de dedup no incluía al destinatario y sólo el primero de varios recibía el aviso). **Pendiente `check:boot`.** Nota: `nx build api` falla en este worktree por `@duckdb/node-api` (falta en el `node_modules` compartido; ajeno a la fase).
 
 **Capa 3 — Visual**
-- [ ] **[MS.3.1]** ⬜ Módulo/rutas/guards/nav/`PROJECT_KEY` + entrada `servicio` en el espacio 9 (ya activo por la Fase DEV) + specs de suite-map + `DESIGN.md`.
-- [ ] **[MS.3.2]** ⬜ Nueva solicitud + datos de contacto.
-- [ ] **[MS.3.3]** ⬜ Mis solicitudes + side-peek con hilo.
-- [ ] **[MS.3.4]** ⬜ Bandeja de atención.
-- [ ] **[MS.3.5]** ⬜ Reportes + Configuración.
-- [ ] **[MS.3.6]** ⬜ Integración con Mi trabajo.
-- [ ] **[MS.3.7]** ⬜ Botón en los shells de tienda y telemarketing.
-- [ ] **[MS.3.9]** ⬜ Validación visual light/dark/móvil.
+- [ ] **[MS.3.1]** 🧪 2026-10-02 Módulo/rutas/guards/nav/`PROJECT_KEY` + entrada `servicio` en el espacio 9. `/servicio` (aterriza en bandeja si atiende, en «Mis solicitudes» si sólo reporta), `servicioHomeGuard` + `SERVICIO_LANDING` con su cobertura en `landing-guards.spec`, nav propio por permiso, botón «Reportar un problema» en el header (`SERVICIO_REPORTAR`, la ÚNICA entrada de quien sólo reporta). Sale de «Por clasificar» y entra al espacio 9; `suite-map.spec` 14→15 puertas primarias. **Pendiente: nota en `DESIGN.md`.**
+- [ ] **[MS.3.2]** 🧪 2026-10-02 Nueva solicitud + datos de contacto. Formulario sin prioridad (la SUGIERE el sistema con «a cuántos afecta» y «me impide trabajar»), adjuntos foto/PDF validados en cliente y por firma en servidor, sucursal sólo si la categoría la exige; diálogo «Mis avisos» (correo, celular, WhatsApp con consentimiento).
+- [ ] **[MS.3.3]** 🧪 2026-10-02 Mis solicitudes + ficha con hilo. Una sola ficha (`sd-request-detail`) para los dos oficios: quien reporta ve cerrar/reabrir/cancelar; quien atiende, tomar/estado/prioridad/asignar/tiempo/nota interna. **18 specs** (incluye que el solicitante NUNCA ve botones de atención y que resolver/reabrir exigen nota). ⚠️ **Deuda declarada:** la oferta de estados del menú del agente (`OFERTA_AGENTE`) es una copia de la máquina de `libs/service-desk`, que una app Angular no puede importar; el servidor decide y devuelve 409 con su razón, así que una copia desfasada se queda corta o larga pero NUNCA permite lo que se niega.
+- [ ] **[MS.3.4]** 🧪 2026-10-02 Bandeja de atención: KPIs del tablero (de `/requests/stats`, no recalculados), seis filtros de alcance, prioridad, búsqueda, tabla densa con `dt-stack` (la compuerta `check:tables` la exigió) y ficha en modo agente. Deep-link `?id=` desde la campana.
+- [ ] **[MS.3.5]** 🔨 2026-10-02 Reportes + Configuración. **Configuración hecha** (horario, reglas, escalación apagada de fábrica con su explicación, plazos por prioridad, colas y categorías, «Barrer el SLA ahora»). **Reportes NO construidos** (tiempo medio de atención, vencidos por sucursal): el tablero de la bandeja cubre el conteo; lo demás espera a tener una semana de datos reales.
+- [ ] **[MS.3.6]** 🔨 2026-10-02 Integración con Mi trabajo. **Campana hecha:** los avisos se LEEN de `notification_log` por poll y el WebSocket sólo adelanta la lectura (el worker no tiene WS, ADR-080; entrar por las dos vías duplicaría cada aviso). **Pendiente: la entrada «A tu nombre» de `me-tasks.ts`** (el contrato de tarea ya declara la tabla; falta la entrada visible).
+- [ ] **[MS.3.7]** 🔨 2026-10-02 Botón en los shells de tienda y telemarketing. **NO hecho:** el botón vive en el header del `LayoutComponent`; tienda y telemarketing tienen shell propio, así que ahí todavía NO existe «Reportar un problema». Quien sólo trabaja en esos shells llega por URL.
+- [ ] **[MS.3.9]** ⬜ 2026-10-02 Validación visual light/dark/móvil. **NO MEDIDA:** no se abrió ninguna pantalla en un navegador. Verificado: `nx build view` (plantillas incluidas), 61 specs, compuertas `check:tables`/`check:tokens`/`check:templates`. Falta ver las 3 pantallas en claro/oscuro y a 390 px.
 
 **Cierre**
 - [ ] **[MS.4]** ⬜ Docs + despliegue (migraciones una por una, re-login, `SMTP_*`, plantilla de Meta).

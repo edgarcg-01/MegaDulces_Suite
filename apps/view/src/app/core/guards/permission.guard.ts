@@ -377,9 +377,21 @@ export const adminHomeGuard: CanActivateFn = landingRedirectGuard(ADMIN_LANDING,
 export const DESARROLLADORES_LANDING: LandingCandidate[] = withTreeCandidates('desarrolladores', []);
 export const desarrolladoresHomeGuard: CanActivateFn = landingRedirectGuard(DESARROLLADORES_LANDING, '/desarrolladores/proyectos');
 
+/**
+ * `[MS.3.1]` Fase MS — `/servicio`. Quien ATIENDE o COORDINA aterriza en la bandeja; quien sólo reporta
+ * (`SERVICIO_REPORTAR`, que no es una entrada del mapa de la suite a propósito) entra por el botón del
+ * header y por la URL, así que su fallback es «Mis solicitudes».
+ */
+export const SERVICIO_LANDING: LandingCandidate[] = withTreeCandidates('servicio', [
+  { perm: Permission.SERVICIO_ATENDER, url: '/servicio/bandeja' },
+  { perm: Permission.SERVICIO_COORDINAR, url: '/servicio/bandeja' },
+]);
+export const servicioHomeGuard: CanActivateFn = landingRedirectGuard(SERVICIO_LANDING, '/servicio/solicitudes');
+
 /** Todos los landings dinámicos, por id de proyecto del árbol — para el spec de cobertura. */
 export const LANDINGS_BY_PROJECT: Readonly<Record<string, LandingCandidate[]>> = {
   desarrolladores: DESARROLLADORES_LANDING,
+  servicio: SERVICIO_LANDING,
   comercial: COMERCIAL_LANDING,
   mkt: MKT_LANDING,
   almacen: ALMACEN_LANDING,
