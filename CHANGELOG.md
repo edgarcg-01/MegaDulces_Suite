@@ -21,6 +21,9 @@ Etapa 1 de cinco, sin migraciones ni permisos nuevos:
 - **[RA-PRO.66]** pedido mínimo del proveedor en la cabecera del desglose (ya viajaba en `/filters`).
 Plan de etapas 2–5 en `docs/IMPLEMENTACION/FASES/FASE_RA_PEDIDO_PERSPECTIVA.md`.
 
+### Fixed — cotización: la caja muestra también su unidad del medio y la vista previa del precio baja de 3 s a 0.15 s (COT.17, 2026-10-02)
+- **Unidad del medio:** en productos de 3 unidades, el precio de la caja se desglosa en paquete y pieza — `(14 PAQ 121.86 · 140 PZA 12.19)` — en la pantalla nueva, el detalle y el Excel/PDF. Antes se perdía el paquete. Sólo cuando el paquete cabe exacto en la caja (383 de 384 SKUs en suc 01).
+- **Velocidad:** migración `20261002120000` recrea `analytics.v_label_presentations` con el mismo SQL y `NOT MATERIALIZED` en sus CTE; el filtro por sucursal+sku vuelve a entrar. Medido en prod: mediana 3,094 → 144 ms por consulta, 96/96 resultados idénticos. Acelera también a la etiquetera.
 ### Internal — Fase MS (Mesa de Servicio): plan por capas y solicitud de tablas y accesos (2026-10-01)
 Solo documentación, sin código ni migraciones. Plan de un sistema de tickets de servicio donde **el
 ticket es la tarea** (contrato de tarea → "A tu nombre" de Mi trabajo), con prioridad Baja/Media/Alta/Urgente

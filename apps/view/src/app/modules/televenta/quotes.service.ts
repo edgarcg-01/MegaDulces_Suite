@@ -169,6 +169,8 @@ export interface QuoteLine {
   /** Unidad BASE del producto en la sucursal de la cotización (rotula el desglose "12 PAQ"). */
   product_unit_base?: string | null;
   product_sold_by_kg?: boolean | null;
+  /** Unidades base del paquete del producto (desglosa la caja en su unidad del medio, COT.17). */
+  product_pack_size?: number | string | null;
   requested_text: string | null;
   quantity: number | string;
   unit_price: number | string | null;
