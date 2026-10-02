@@ -377,6 +377,25 @@ export class MarginEngineService {
         ${base} AND veredicto = 'ausentes'
         ORDER BY competencia DESC LIMIT ?`, [...args, limit]);
 
+      // ⭐ `[PR.M6]` El PRECIO de la competencia. No viene en el archivo: se deriva de
+      //   valor/volumen, y por eso viaja con su banda de confianza y su advertencia de unidad.
+      const basePrecio = `FROM analytics.v_iscam_precio_competencia
+        WHERE periodo = ? AND region = ? AND subcanal = ? AND mercado = ?`;
+      const { rows: precioResumen } = await k.raw(`
+        SELECT veredicto, confianza, count(*)::int AS submarcas,
+               sum(venta_nuestra) AS venta_nuestra
+        ${basePrecio} GROUP BY 1,2 ORDER BY 4 DESC NULLS LAST`, args);
+      const { rows: precioCaras } = await k.raw(`
+        SELECT fabricante, submarca, categoria, precio_nuestro, precio_competencia,
+               dif_pct, share_volumen_pct, confianza, venta_nuestra
+        ${basePrecio} AND veredicto = 'arriba_del_mercado'
+        ORDER BY confianza ASC, venta_nuestra DESC LIMIT ?`, [...args, limit]);
+      const { rows: precioBaratas } = await k.raw(`
+        SELECT fabricante, submarca, categoria, precio_nuestro, precio_competencia,
+               dif_pct, share_volumen_pct, confianza, venta_nuestra
+        ${basePrecio} AND veredicto = 'abajo_del_mercado'
+        ORDER BY confianza ASC, venta_nuestra DESC LIMIT ?`, [...args, limit]);
+
       const t = tot[0] || {};
       return {
         medido: true,
@@ -386,6 +405,22 @@ export class MarginEngineService {
         por_veredicto: porVeredicto,
         fabricantes,
         ausentes,
+        precio: {
+          resumen: precioResumen,
+          mas_caras_que_el_mercado: precioCaras,
+          mas_baratas_que_el_mercado: precioBaratas,
+          declara: [
+            'es un precio IMPLICITO (valor/volumen), NO un precio de lista ni de anaquel. ISCAM '
+            + 'no publica precios: este se deriva, y la columna PcioDisp del archivo no sirve '
+            + 'porque su divisor es fijo (Val/Vol/24) -- pero ese divisor se cancela en la razon.',
+            'la unidad de volumen es la del archivo y NO esta verificada: solo tiene sentido '
+            + 'comparar DENTRO de la misma submarca, nunca el precio de dos submarcas entre si.',
+            'la confianza sale de NUESTRO share en volumen, que es donde esta el ruido: medido, '
+            + 'con share >= 10% la desviacion es 0.17 y por debajo sube a 0.71.',
+            'nuestro lado arrastra el residuo de ~10% que la conciliacion contra sales_daily '
+            + 'dejo sin explicar.',
+          ],
+        },
         declara: [
           'el numerador viene INFLADO: a ISCAM se le trasladan todas las salidas, traspasos entre '
           + 'sucursales incluidos. La brecha medida contra sales_daily es de $19.5M a $21.6M por mes.',
