@@ -1423,6 +1423,12 @@ export class CommercialReplenishmentService {
            GROUP BY product_id, sku, nombre, supplier_id
         )
         SELECT p.*, sup.name AS supplier_name,
+               -- `[RA-DYN.U3]` El piso de la orden. El join a proveedores ya estaba acá por el
+               -- nombre: estas dos columnas no agregan ninguna relación nueva.
+               -- Viajan CRUDAS a propósito: un mínimo se cumple con la canasta entera del
+               -- proveedor, no con un renglón, así que resolverlo por fila daría un número que no
+               -- significa nada. Lo agrupa la pantalla, que es quien sabe qué hay seleccionado.
+               sup.min_order_boxes, sup.min_order_amount,
                lp.box_size, lp.pack_size,
                CASE WHEN lp.box_size > 1 AND lp.pack_size > 1 AND lp.box_size % lp.pack_size = 0
                     THEN (lp.box_size / lp.pack_size) ELSE NULL END AS packs_per_box,

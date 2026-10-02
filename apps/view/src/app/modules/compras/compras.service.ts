@@ -239,6 +239,16 @@ export interface WorkbookRow {
    *  requisición, que agrupa por (proveedor × almacén). */
   supplier_id: string | null;
   supplier_name: string | null;
+  /**
+   * `[RA-DYN.U3]` El piso que el proveedor exige por orden. `null` = no capturado, y se declara
+   * como tal: **nunca se lee como "no tiene mínimo"**. Medido el 2026-10-01: 263 de los 321
+   * proveedores del plan tienen mínimo en cajas y 287 en pesos.
+   *
+   * ⚠️ Se cumple con la canasta ENTERA del proveedor, no con un renglón. Agruparlo es trabajo de
+   * la pantalla, que es la única que sabe qué está seleccionado.
+   */
+  min_order_boxes: number | null;
+  min_order_amount: number | null;
   uxc: number; caja_cost: number;
   unidad_base: string | null;      // RA-PRO.46 — rótulo REAL de la unidad, dicho por Kepler
                                    // (kdii.c11): PZA/PAQ, pero también 500/KG/CUB en granel.
