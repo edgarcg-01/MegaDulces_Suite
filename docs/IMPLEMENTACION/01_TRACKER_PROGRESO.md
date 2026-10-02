@@ -7536,6 +7536,37 @@ semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso)
 
 ---
 
+## 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02)
+
+Plan en [`FASE_CD`](FASES/FASE_CD_DESPLIEGUE_DESACOPLADO.md). Nace de "el CI/CD es lento y aborta por
+migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
+
+**Entregado**
+- [x] **[CD.1]** ✅ `compuerta-migraciones.sh` — pendiente ≠ bloqueante. Cruza objetos de las migraciones
+      pendientes contra los archivos que cambian. (2026-10-02)
+- [x] **[CD.2]** ✅ `scripts/lib/alcance-diff.js` + `check:tables`/`check:tokens` acotadas al diff, declarando
+      alcance. (2026-10-02)
+- [x] **[CD.3]** ✅ Caché de `node_modules` por hash exacto de lock en los dos jobs del CI. (2026-10-02)
+- [x] **[CD.4]** ✅ Resumen semántico `if: failure()` en `verify`. (2026-10-02)
+- [x] **[CD.5]** ✅ Reescritura a POSIX sh + 3 defectos que sólo salieron al desplegar a `md`. (2026-10-02)
+- [x] **[CD.6]** ✅ Colisión de timestamps `20261001160000` resuelta (verificada contra prod antes de tocar).
+      (2026-10-02)
+- [x] **[SEC.1]** ✅ `pre-commit` de gitleaks: `protect` ya no existe en 8.30.1 y bloqueaba todos los commits.
+      (2026-10-02)
+
+**Medido y NO hecho, con motivo**
+- [x] **[CD.7]** ✅ `check:teclado` y `check:busqueda` **NO se acotan**. Tienen el mismo barrido repo-wide, pero
+      no corren en CI y en el push gate `gate-push.js` ya cruza las rutas del gate con *tus* archivos
+      ("Deuda preexistente, NO la trajiste vos (no frena)"). Acotarlas sería resolver un problema inexistente.
+
+**Pendiente**
+- [ ] **[CD.8]** ⬜ Medir en vivo el ahorro del caché de `node_modules` (estimado ~60 s × 2 jobs, **NO MEDIDO**).
+      ⚠️ Exige una corrida real de CI, o sea un push/PR — no se puede medir local sin inventar el número.
+- [ ] **[CD.9]** ⬜ Confirmar en una corrida real que la acotación pone el `verify` en verde. Local ya se
+      verificó sobre el commit que fallaba: `exit=1` → `exit=0`.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

@@ -295,3 +295,48 @@ escrita ahí: *si un guion de esa lista llama a otro archivo, ese archivo va en 
 `price_signal_h1_margen_por_canal.js` **está aplicada** (congelada, no se toca) y
 `obligaciones_gestionar_tres.js` **no**. Se renombró esta última a `20261001160100`. La
 compuerta pasa a 1015 migraciones sin colisiones.
+
+---
+
+## 8. [CD.10] Node en `md` sin instalar Node en `md`
+
+`[CD.5]` dejó la compuerta en POSIX sh porque el host no tiene Node, pero la fricción de fondo
+seguía: `~/auto-deploy/repo` tiene el clon fresco de `origin/main` y para correr cualquier
+herramienta de `database/scripts/*.js` contra ese clon había que entrar a un pod — que tiene una
+versión **ya construida y distinta** del código.
+
+### Por qué NO se instaló por `apt`
+
+Medido el 2026-10-02 en `md` (Ubuntu 26.04.1):
+
+| | |
+|---|---|
+| `apt` ofrece | Node **22.22.1** |
+| el pod de prod corre | Node **20.20.2** |
+| `sudo` | **pide contraseña** (no automatizable) |
+
+Instalar por apt abriría deriva de versiones justo en las herramientas que tocan la base de
+prod. Y ADR-060 ya dice que el sustrato es Docker declarado en el repo; el Dockerfile razona lo
+mismo para la glibc (*el runtime viaja CON la imagen*). Un paquete en el host es lo contrario.
+
+### Lo que se hizo
+
+`ops/prod/node.sh` corre Node **desde la imagen de la propia app**, con el repo del host montado:
+
+```sh
+sh ~/ops/prod/node.sh database/scripts/<lo-que-sea>.js
+```
+
+- **Paridad exacta** con producción (v20.20.2, verificado), y si la app sube a 22 esto sube sola.
+- Sin sudo, sin paquete nuevo, sin nada que mantener al día a mano.
+- `--network host`, así que alcanza la base igual que el host.
+
+**Verificado en `md`:** versión `v20.20.2` · ejecuta código del repo montado (`package.json`, 65
+scripts) · alcanza `pg-prod :5434`.
+
+⚠️ El contenedor ve **sólo** el directorio montado, y escribe como `root` en él. Para lectura y
+para `database/scripts/` alcanza; si algo escribe en el repo, revisar el owner después.
+
+> **Node en el host queda OPCIONAL.** Si se quisiera igual, el comando que respeta la major es
+> NodeSource (`setup_20.x`), **no** `apt install nodejs`.
+
