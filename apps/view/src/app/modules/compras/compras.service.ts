@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { ClaseOc, EstadoCadena, FlujoComprasDto, MonthlySalesResponse, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
+import { ClaseOc, EstadoCadena, FlujoComprasDto, MonthlySalesResponse, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto, WorkbookSkuSignals } from '@megadulces/contracts';
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
@@ -199,6 +199,7 @@ export interface WorkbookCell {
 // (`replenishment-monthly.contract.ts`, ADR-052), que es de donde la lee el backend. Copiarla a
 // mano es como se separan las dos puntas sin que nadie se entere (VP.2.1).
 export type { MonthlySalesMonth, MonthlySalesResponse, MonthlySalesWindow } from '@megadulces/contracts';
+export type { SkuLostBranch, SkuLostDemandSignal, SkuMarginBranch, SkuMarginSignal, WorkbookSkuSignals } from '@megadulces/contracts';
 // RA-PRO.44 — qué viene en camino de un SKU (OCs abiertas), para explicar el "Pedido 0".
 export interface InTransitOc {
   folio: string; sucursal: string;
@@ -261,6 +262,11 @@ export interface WorkbookRow {
   uxc: number; caja_cost: number;
   unidad_base: string | null;      // RA-PRO.46 — rótulo REAL de la unidad, dicho por Kepler
                                    // (kdii.c11): PZA/PAQ, pero también 500/KG/CUB en granel.
+  /** [RA-PRO.68] Rótulos de los peldaños 2 y 3 de Kepler (con 3: u2 = paquete, u3 = mayor). */
+  unidad_u2?: string | null;
+  unidad_u3?: string | null;
+  /** [RA-PRO.67] Margen de hoy y venta perdida (sólo en pantalla; el export no los trae). */
+  signals?: WorkbookSkuSignals | null;
   box_size: number | null;         // Pz/Caja (etiqueta) — normalmente = uxc
   pack_size: number | null;        // Pz/Paquete (solo multipacks)
   packs_per_box: number | null;    // box_size ÷ pack_size (solo si divide exacto)
@@ -397,6 +403,11 @@ export interface ReplenishmentFilters {
     is_purchase_hub?: boolean;
     display_order?: number | null;
   }[];
+  /**
+   * [RA-PRO.69] ⚠️ `min_order_*` lo DERIVA `import-supplier-params.js` (RA-PRO.10) del historial:
+   * es el pedido TÍPICO del almacén principal del proveedor, no un mínimo que el proveedor exija
+   * (no hay columna que separe lo capturado a mano de lo derivado).
+   */
   suppliers: { id: string; name: string; min_order_boxes: number | null;
     /** `[RA-DYN.U3]` Piso en pesos por orden. `null` = no capturado, NUNCA "no tiene minimo". */
     min_order_amount: number | null }[];
