@@ -189,6 +189,9 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.PRESUPUESTOS_GESTIONAR]: { label: 'Gestionar Presupuestos', description: 'Fijar/editar la capacidad de pago por fecha (con motivo, queda en historial) y autorizar gastos.', category: 'Finanzas' },
   [Permission.DEV_PROJECTS_VER]: { label: 'Ver proyectos de desarrollo', description: 'Desarrolladores › Proyectos: consultar la bitácora de proyectos del equipo de desarrollo (objetivo, adjuntos, responsable y estado). Solo lectura.', category: 'Desarrolladores' },
   [Permission.DEV_PROJECTS_GESTIONAR]: { label: 'Dar de alta y editar proyectos de desarrollo', description: 'Desarrolladores › Proyectos: dar de alta un proyecto (folio DEV-AAAA-NNNN), escribir o dictar su objetivo, adjuntar documentos, fotos y videos, asignarlo a un desarrollador y cambiar su estado.', category: 'Desarrolladores' },
+  [Permission.SERVICIO_REPORTAR]: { label: 'Reportar un problema o necesidad', description: 'Mesa de Servicio: reportar un problema o pedir algo (queda con folio SRV-AAAA-NNNNN) y ver, comentar, confirmar o reabrir SOLO lo propio. No da acceso a la bandeja de atención ni a las solicitudes de otras personas.', category: 'Mesa de Servicio' },
+  [Permission.SERVICIO_ATENDER]: { label: 'Atender solicitudes de servicio', description: 'Mesa de Servicio: ver la bandeja de la cola, tomar solicitudes, escribir notas internas (el solicitante no las ve), cambiar el estado, resolver y registrar tiempo trabajado.', category: 'Mesa de Servicio' },
+  [Permission.SERVICIO_COORDINAR]: { label: 'Coordinar la Mesa de Servicio', description: 'Mesa de Servicio: asignar y reasignar solicitudes, confirmar o cambiar la prioridad (solo aquí se fija Alta y Urgente), ver los reportes de cumplimiento y administrar colas, categorías y plazos del SLA.', category: 'Mesa de Servicio' },
   [Permission.FINANCE_RECON_ASIGNAR]: { label: 'Asignar tareas de conciliación', description: 'Repartir y reasignar a Finanzas los movimientos sin conciliar en Kepler (reparto automático + asignación manual). Ver/resolver la propia tarea usa los permisos de Bancos.', category: 'Finanzas' },
   [Permission.FINANCE_RECON_RECIBIR]: { label: 'Recibe tareas de conciliación (área Finanzas)', description: 'Marca al rol como parte del equipo de Finanzas al que el motor reparte tareas de conciliación. Quítalo y ese rol deja de recibir tareas.', category: 'Finanzas' },
   [Permission.FINANCE_EXPENSES_VER_ALL]: { label: 'Ver gastos de TODOS los departamentos', description: 'Comprobación de gastos: ve los gastos de todas las áreas. Sin este permiso, el usuario solo ve los gastos de las áreas que se le asignaron.', category: 'Finanzas' },
@@ -323,6 +326,9 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Portal B2B',
   'Comunicación',
   'Desarrolladores',
+  // `[MS.1.4]` Mesa de Servicio (Fase MS, ADR-081): sin esta línea sus 3 permisos NO se renderizan en
+  // `admin-roles-grid` (arma sus grupos con `PERMISSION_CATEGORY_ORDER.filter()`) — mismo defecto de [AU.6].
+  'Mesa de Servicio',
   'Otros',
 ];
 
