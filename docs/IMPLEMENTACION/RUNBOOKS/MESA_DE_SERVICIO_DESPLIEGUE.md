@@ -255,6 +255,6 @@ rollback automático.
 - **El camino exacto para actualizar `prod-env`** en K3s (§4): no está en el repo.
 - **Si prod tiene `sistemas`, SMTP y bucket**: se miden en §1, no se asumen.
 - **WhatsApp**: sin plantilla de Meta no hay canal; queda declarado por aviso.
-- **Reportes y el botón en tienda/telemarketing** (MS.3.5, MS.3.7): pendientes. «A tu nombre» de Mi trabajo ya está (MS.3.6); la cola SIN asignar como bandeja de Mi trabajo (MS.3.8) también está, con plazo de 60 min hábiles ajustable — pero **no se ve hasta repartir la responsabilidad `servicio.atender`** (a quien reparte los tickets) desde `/admin/personas`, y su migración `20261003100000` va después de las cuatro de la mesa.
+- **Reportes** (MS.3.5): pendientes. *(El botón en tienda/telemarketing, MS.3.7, ya existía: montan el mismo layout.)* «A tu nombre» de Mi trabajo ya está (MS.3.6); la cola SIN asignar como bandeja de Mi trabajo (MS.3.8) también está, con plazo de 60 min hábiles ajustable — pero **no se ve hasta repartir la responsabilidad `servicio.atender`** (a quien reparte los tickets) desde `/admin/personas`, y su migración `20261003100000` va después de las cuatro de la mesa.
 - **Teléfono físico y lector de pantalla**: la revisión visual usó un viewport de 390 px.
 - **El E2E (190 aserciones) corre contra una base local**, nunca contra prod; lo que valida prod es §7.

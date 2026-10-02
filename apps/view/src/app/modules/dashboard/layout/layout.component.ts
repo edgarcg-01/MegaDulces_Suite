@@ -524,7 +524,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * no es `/admin`; un proyecto con `route: ''` nunca casa) y se traduce a la clave interna de este
    * componente, que sigue siendo la misma union: los `*NavGroups` se indexan por ella. Default =
    * trade marketing, como antes — `isRestricted()` depende de ese default para las URLs sin
-   * proyecto (`/sin-acceso`, 404). `/telemarketing` no monta este layout.
+   * proyecto (`/sin-acceso`, 404). (`/telemarketing` SÍ monta este layout: el botón de la Mesa de Servicio lo
+   * hereda; ver `servicio/entradas.spec.ts`.)
    */
   private currentProject = computed<LayoutProject>(() => {
     const id = resolveProjectForUrl(this.currentUrl())?.id;
