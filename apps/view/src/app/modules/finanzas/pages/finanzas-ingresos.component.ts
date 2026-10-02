@@ -437,10 +437,17 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
           @if (dc.renglones.length) {
             <div class="in-doc-t">Como lo escribió el ERP</div>
             <table class="in-doc-tabla">
-              <tr><th>SKU</th><th>Descripción</th><th class="ta-r">Cant</th><th>Unidad</th><th class="ta-r">Importe</th></tr>
-              @for (l of dc.renglones; track l.sku) {
+              <tr>
+                <th class="ta-r">#</th><th>Código</th><th>Producto</th>
+                <th class="ta-r">Cant</th><th>Unidad</th><th class="ta-r">Importe</th>
+              </tr>
+              @for (l of dc.renglones; track l.renglon) {
                 <tr>
-                  <td class="mono">{{ l.sku }}</td><td>{{ l.descripcion }}</td>
+                  <td class="ta-r muted">{{ l.renglon }}</td>
+                  <td class="mono">{{ l.sku }}</td>
+                  <!-- El nombre sale del catálogo, no del documento: si el código no resuelve se
+                       DECLARA, en vez de repetir el código disfrazado de nombre. -->
+                  <td>{{ l.descripcion || '— no está en el catálogo' }}</td>
                   <td class="ta-r">{{ l.cantidad }}</td><td>{{ l.unidad }}</td>
                   <td class="ta-r">{{ money(l.importe) }}</td>
                 </tr>
