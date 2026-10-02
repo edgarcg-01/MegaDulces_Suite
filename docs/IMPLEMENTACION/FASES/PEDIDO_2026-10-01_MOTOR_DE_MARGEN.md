@@ -296,6 +296,44 @@ de 0.107 a 12.172). Si diera 1.000 en todas partes estaría midiendo una tautolo
 ⚠️ La confianza sale de **nuestro** share en volumen, que es donde está el ruido: con share ≥10 %
 la desviación es 0.17 (608 celdas) y por debajo sube a 0.71 (420).
 
+### E.2 · La pantalla
+
+`/comercial/precios/competencia` — tercera pestaña de **Control de margen**, entre el motor y los
+experimentos, porque responde la pregunta que alguien se hace **entre** ver qué mover y decidir
+medirlo.
+
+⭐ **Answer-first:** abre con el dinero —lo que cobramos por encima y por debajo del mercado—, no
+con el tamaño de la tabla. Después vienen tres bloques: el precio contra la competencia (dos
+tablas, cara y barata), dónde más creció la competencia, y las marcas que el canal compra y
+nosotros no vendemos.
+
+⚠️ **El selector de subcanal está en pantalla a propósito.** Cambia la cifra y las dos son
+ciertas; cuál se publica sigue abierto ([H.1](#h--las-decisiones-abiertas-que-son-tuyas)), así que
+la pantalla **expone la decisión en vez de tomarla por su cuenta**.
+
+⛔ **La certeza del precio se dice con palabras, no con un color**: «medida» o «poca venta nuestra
+(3.2 %)». Un color hay que saber interpretarlo; la frase no.
+
+⛔ **NULL se escribe como guion, nunca como $0** — un cero se lee como «la competencia no vendió
+nada».
+
+Y cierra con **«Lo que estas cifras NO son»**, que trae las cuatro declaraciones del dato y las
+cuatro del precio, al mismo peso que las tablas.
+
+**Tres correcciones durante el armado:**
+
+1. Metí `p-selectButton` y **ya existía `shared/components/segmented`**, el control de la casa —
+   que además trae el teclado resuelto (flechas, Home/End, un solo stop de tabulador). Cambiado.
+2. ⛔ **Inventé 23 nombres de token** (`--text-1`, `--space-2`, `--border-1`…). Los reales son
+   `--fg-*`, `--sp-*`, `--border-color`, `--fw-medium`. Una declaración con un token inexistente
+   **se cae en silencio**: la compuerta `check-css-tokens` existe por eso y los cazó todos.
+3. El vocabulario fue al diccionario `CONTEXT_HELP`, **nunca a la plantilla**.
+
+⚠️ `nx build view` está **rojo para todos ahora mismo**, y no por esto: 6 errores en
+`finanzas-ingresos`, `finanzas-bancos` y `dashboard/captures`, de trabajo en vuelo de otra sesión.
+Mi componente compila limpio. **Mientras el build esté rojo, `ci-green` no bendice nada y el
+auto-deploy está frenado.**
+
 ---
 
 ## F · Lo que publiqué MAL y corregí hoy
@@ -336,7 +374,7 @@ historial.
 | 3 | **`git push`** — nunca autorizado | **tuyo** |
 | 4 | **Redeploy** para que respondan `/margin-engine/competencia` y `/prospects/competidores` | sale solo con el push (auto-deploy cada 5 min) |
 | 5 | **Validación visual** del rediseño, el expediente, el selector, el About y el diálogo | **tuya**: es lo único que yo no puedo hacer |
-| 6 | **La pantalla de competencia y precios.** Hoy todo eso sólo se ve por API y por SQL | mío, cuando lo pidas |
+| ~~6~~ | ~~**La pantalla de competencia y precios**~~ ✅ **hecha**: `/comercial/precios/competencia`, tercera pestaña del selector segmentado. Ver [E.2](#e2--la-pantalla) | — |
 | 7 | Cosechar DENUE por el endpoint, en vez del script de carga inicial | mío |
 
 **Compuertas en rojo que NO son de este trabajo** (medidas y atribuidas): `styleClass p-table`

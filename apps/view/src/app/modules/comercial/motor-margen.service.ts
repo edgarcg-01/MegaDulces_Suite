@@ -138,6 +138,58 @@ export interface Simulacion {
   error?: string;
 }
 
+// ── `[PR.M3]`+`[PR.M6]` La competencia ───────────────────────────────────────
+
+/** Una marca contra el resto del canal. `competencia` es NULL cuando no se puede calcular. */
+export interface CompetenciaFabricante {
+  fabricante: string;
+  nuestro: string | null; mercado: string | null;
+  competencia: string | null; competencia_delta: string | null;
+  share_pct: string | null;
+}
+
+export interface CompetenciaAusente {
+  fabricante: string; submarca: string;
+  division: string; categoria: string;
+  competencia: string | null;
+}
+
+/**
+ * El precio IMPLICITO de la competencia.
+ *
+ * ⛔ `confianza` NO es decoración: sale de **nuestro** share en volumen, que es donde está el
+ * ruido. Medido, con share ≥10 % la desviación es 0.17 y por debajo sube a 0.71. Una fila con
+ * `confianza: 'baja'` se lee distinto que una con `'alta'`, y la pantalla tiene que mostrarlo.
+ */
+export interface CompetenciaPrecio {
+  fabricante: string; submarca: string; categoria: string;
+  precio_nuestro: string | null; precio_competencia: string | null;
+  dif_pct: string | null; share_volumen_pct: string | null;
+  confianza: 'alta' | 'baja' | null;
+  venta_nuestra: string | null;
+}
+
+export interface CompetenciaMotor {
+  medido: boolean;
+  motivo?: string;
+  periodo?: string;
+  universo?: { region: string; subcanal: string; mercado: string; medida: string };
+  total?: {
+    nuestro: string | null; mercado: string | null; competencia: string | null;
+    marcas: number; marcas_no_medibles: number;
+  };
+  por_veredicto?: { veredicto: string; marcas: number; nuestro: string | null; competencia: string | null }[];
+  fabricantes?: CompetenciaFabricante[];
+  ausentes?: CompetenciaAusente[];
+  precio?: {
+    resumen: { veredicto: string; confianza: string | null; submarcas: number; venta_nuestra: string | null }[];
+    mas_caras_que_el_mercado: CompetenciaPrecio[];
+    mas_baratas_que_el_mercado: CompetenciaPrecio[];
+    declara: string[];
+  };
+  declara?: string[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class MotorMargenService {
   private readonly http = inject(HttpClient);
@@ -169,6 +221,23 @@ export class MotorMargenService {
   expediente(sucursal: string, sku: string): Observable<Expediente> {
     return this.http.get<Expediente>(
       `${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(sku)}/expediente`);
+  }
+
+  /**
+   * `[PR.M3]`+`[PR.M6]` — La competencia: cuánto vende por marca, y a qué precio.
+   *
+   * ⚠️ `subcanal` no es un filtro cosmético: **cambia la cifra y las dos son ciertas**. En
+   * `Mayoreo Puro` —nuestro canal— el share es 5.36 %; en el mayoreo total, 3.80 %. La
+   * diferencia son $426.8M de mercado en subcanales donde no vendemos nada.
+   */
+  competencia(f: { subcanal?: string; region?: string; mercado?: string; limit?: number } = {}): Observable<CompetenciaMotor> {
+    const p = new URLSearchParams();
+    if (f.subcanal) p.set('subcanal', f.subcanal);
+    if (f.region) p.set('region', f.region);
+    if (f.mercado) p.set('mercado', f.mercado);
+    if (f.limit) p.set('limit', String(f.limit));
+    const qs = p.toString();
+    return this.http.get<CompetenciaMotor>(`${this.base}/competencia${qs ? `?${qs}` : ''}`);
   }
 
   simular(sucursal: string, sku: string, precio: number): Observable<Simulacion> {

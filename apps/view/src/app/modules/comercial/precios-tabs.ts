@@ -29,6 +29,15 @@ export const PRECIOS_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_MARGIN_ENGINE_VER,
   },
   {
+    // `[PR.M3]`+`[PR.M6]` — ⭐ Va en MEDIO, y no al final, porque responde la pregunta que
+    // alguien se hace ENTRE ver qué mover y decidir medirlo: «¿y la competencia qué está
+    // haciendo?». Mismo permiso que el motor: es la misma lectura, no un módulo aparte.
+    label: 'Competencia',
+    icon: 'pi pi-users',
+    route: '/comercial/precios/competencia',
+    permission: Permission.COMMERCIAL_MARGIN_ENGINE_VER,
+  },
+  {
     label: 'Experimentos',
     icon: 'pi pi-chart-scatter',
     route: '/comercial/precios/experimentos',
