@@ -94,7 +94,7 @@ export type OrigenTarea =
  * con su adaptador. No hay una tabla con estas columnas y no debe haberla.
  */
 export interface TareaAsignada {
-  /** `<schema>.<tabla>:<id>` — único entre las cuatro fuentes. */
+  /** `<schema>.<tabla>:<id>` — único entre las fuentes. */
   readonly ref: string;
   readonly fuente: FuenteTarea;
   readonly id: string;
@@ -113,12 +113,14 @@ export interface TareaAsignada {
   readonly nota_cierre: string | null;
 }
 
-/** Las cuatro fuentes registradas. Una quinta tiene que declararse acá o el gate falla. */
+/** Las cinco fuentes registradas. Una sexta tiene que declararse acá o el gate falla. */
 export const FUENTES_TAREA = [
   'finance.recon_tasks',
   'commercial.supervisor_tasks',
   'commercial.inventory_count_assignments',
   'trade.daily_assignments',
+  // `[MS.1.5]` Fase MS (ADR-081): el ticket de la Mesa de Servicio ES la tarea de quien lo atiende.
+  'servicedesk.requests',
 ] as const;
 export type FuenteTarea = (typeof FUENTES_TAREA)[number];
 
@@ -227,6 +229,34 @@ export const ADAPTADORES: readonly AdaptadorTarea[] = [
       'cierre: no hay `done_at` ni quien ni nota',
     ],
   },
+  {
+    fuente: 'servicedesk.requests',
+    col_asignado_a: 'assigned_to',
+    col_asignado_por: 'assigned_by',
+    // A diferencia de `recon_tasks` (TEXT), acá `assigned_by` es uuid y SE UNE al padrón.
+    asignado_por_es_uuid: true,
+    col_asignado_at: 'assigned_at',
+    col_vence: 'due_at',
+    col_estado: 'status',
+    // Los 7 estados del CHECK. `en_espera` NO es `pending` en la vida real —el reloj está pausado y
+    // espera al solicitante—, pero el vocabulario común no tiene un estado para eso (ver no_responde).
+    estados: {
+      nuevo: 'pending',
+      asignado: 'pending',
+      en_proceso: 'in_progress',
+      en_espera: 'pending',
+      resuelto: 'done',
+      cerrado: 'done',
+      cancelado: 'cancelled',
+    },
+    estado_fijo: null,
+    origen: 'manual',
+    no_responde: [
+      '`en_espera` (pausado, espera al solicitante) se proyecta a `pending` y deja de distinguirse de `nuevo`/`asignado`: el contrato no tiene un estado de espera',
+      'a quien se le asigno ANTES de una reasignacion: la fila guarda solo el ultimo asignado; la historia vive en servicedesk.request_messages (kind=assignment)',
+      'no admite `not_applicable`: un ticket que no procede se CANCELA (`cancelled`)',
+    ],
+  },
 ];
 
 /** El adaptador de una fuente. Lanza si la fuente no está registrada — el gate en tiempo de uso. */
@@ -264,7 +294,7 @@ export function estaAbierta(estado: EstadoTarea | null): boolean {
 }
 
 /**
- * Lo que NINGUNA de las cuatro fuentes puede contestar hoy. Se declara junto al contrato para que
+ * Lo que NINGUNA de las fuentes puede contestar hoy. Se declara junto al contrato para que
  * quien lo lea no lo descubra a los tres meses.
  */
 export const LIMITES_DEL_CONTRATO: readonly string[] = [

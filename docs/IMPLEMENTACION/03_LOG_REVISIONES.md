@@ -213,6 +213,40 @@ corridas, `ui_usage_flush` el **38.8%**.
 ADR-059 funcionando, porque la promesa nunca fue "no hay huecos" sino saber cuáles son y cuánto
 pesan. Lo que falla no es el método: es que el documento se lee como estado actual y en parte ya
 es historia.
+## 2026-10-02 — Mesa de Servicio, capa 1 (base de datos): construida y probada, con tres cosas que se apartan de lo aprobado (`[MS.1.0]`–`[MS.1.6]`)
+
+**Qué se hizo.** Con el visto bueno de Edgar al PR #204 (que mergeó él mismo) se construyó la capa de base de
+datos de la Fase MS: 4 migraciones (`servicedesk`: 11 tablas con RLS forzado y grants por tabla), 3 permisos
+(`SERVICIO_REPORTAR/ATENDER/COORDINAR`), `servicedesk.requests` como quinta fuente del contrato de tarea y un
+smoke de **130 aserciones**, cada CHECK con su negativa y su control positivo. Plan y desvíos en
+`FASE_MS_MESA_DE_SERVICIO.md` §11.
+
+**Lo que se apartó de la solicitud aprobada** (se dijo en el documento, no se dejó para la revisión):
+1. **Una clave de responsabilidad, no dos, y en MS.3.6, no en la capa 1.** `test-newdb-me-context.js` exige que
+   toda clave del catálogo tenga una cola declarada en `me-work.ts` con su ruta, y cuenta el catálogo.
+2. **Dos CHECK de formato** en `identity.users` (correo y teléfono canónico `52XXXXXXXXXX`), además de las columnas.
+3. **El proyecto entra al árbol SIN rutas y a `SUITE_UNCLASSIFIED`**, no al espacio 9 (ver abajo).
+
+**El error de diseño que atrapó una prueba.** El primer intento puso `servicio` en el espacio 9 con sus rutas.
+`landing-guards.spec` falló, y al ver por qué había un defecto de fondo: con la entrada en el mapa antes que su
+pantalla, un superadmin vería **una puerta que no lleva a ningún lado**, y el auto-deploy de `main` la mandaría a
+prod. Se reordenó: rutas, entrada y landing llegan juntos en MS.3.1.
+
+**Lo que se aprendió.**
+- **La salida de un reemplazo de texto puede estar rota sin avisar.** Dos veces un `replace` de JavaScript con un
+  `$'` en el texto nuevo duplicó el archivo, y una vez las barras invertidas llegaron a la mitad por la capa de la
+  terminal (dos barras → una, que en una plantilla de texto es «retroceso»). Se detectó con `node --check` y mirando
+  el diff, no con la prueba. Para escribir escapes, `String.fromCharCode(92)`; para insertar, `split/join`.
+- **Una compuerta puede asumir una sola forma de tabla.** `test-newdb-task-contract` tomaba «el primer CHECK que
+  nombra `status`»; una máquina de estados tiene varios. Se mejoró para elegir el que enumera más valores.
+- **Un control que prepara un conflicto debe PERSISTIR.** Mis primeros «primer envío» pasaban por el savepoint y se
+  revertían, así que el «segundo» no tenía con qué chocar: habrían salido verdes sin medir la anti-repetición.
+- **Medido, ya roto en `main` y ajeno a esta fase:** `commercial.picking_waves` tiene `assigned_to` y no está en el
+  contrato de tarea desde el 17-sep; `check-all.js` no menciona `check-etiqueta-gate.js`.
+
+**Sin medir (se declara).** `SMTP_*`, bucket y `knex_migrations` de prod (sin acceso); `permission-delivery` y
+`mig-colisiones` miden contra prod: corrieron en su variante local/`--solo-git`. La base de pruebas **no es prod**
+(GOTCHAS §75): valida estructura, no comportamiento con datos.
 
 ---
 ## 2026-10-01 — DM.19.1-3: cablear el origen a la pantalla, y una retractación

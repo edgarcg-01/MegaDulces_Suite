@@ -7444,13 +7444,13 @@ semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso)
 - [x] **[MS.0]** ✅ 2026-10-01 — Preparación: copia local al día (`main` = `ece8269f1`), `CLAUDE.md` corregido (prod on-prem desde 2026-09-22), `FASE_MS`, ADR-081.
 
 **Capa 1 — Base de datos**
-- [ ] **[MS.1.0]** ⬜ Verificaciones previas (sólo lectura): `user_responsibilities` como membresía · `SMTP_*` en prod · destino del bucket · último timestamp en `knex_migrations` de prod.
-- [ ] **[MS.1.1]** ⬜ Schema `servicedesk` + `queues`/`categories`/`sla_policies`/`settings` + seeds de TI.
-- [ ] **[MS.1.2]** ⬜ `requests`/`request_sequences`/`request_messages`/`request_attachments`/`work_log`.
-- [ ] **[MS.1.3]** ⬜ `notification_prefs`/`notification_log` + `identity.users.email/phone` (con `lock_timeout`).
-- [ ] **[MS.1.4]** ⬜ Permisos `SERVICIO_REPORTAR/ATENDER/COORDINAR` + reparto derivado del estado vivo + responsabilidades.
-- [ ] **[MS.1.5]** ⬜ Contrato de tarea (`FUENTES_TAREA`/`ADAPTADORES`/`me-tasks.ts`).
-- [ ] **[MS.1.6]** ⬜ Smoke `test-newdb-service-desk.js` con negativas + `run-all-tests.js`.
+- [x] **[MS.1.0]** ✅ 2026-10-02 Verificaciones previas: `user_responsibilities` alcanza como membresía · timestamps sin colisión en git. **NO MEDIDO (sin acceso a prod):** `SMTP_*`, destino del bucket, último timestamp de `knex_migrations` de prod.
+- [ ] **[MS.1.1]** 🧪 2026-10-02 Schema `servicedesk` + `queues`/`categories`/`sla_policies`/`settings` + seeds de TI (mig `20261002100000`).
+- [ ] **[MS.1.2]** 🧪 2026-10-02 `requests`/`request_sequences`/`request_messages`/`request_attachments`/`work_log` (mig `20261002110000`).
+- [ ] **[MS.1.3]** 🧪 2026-10-02 `notification_prefs`/`notification_log` + `identity.users.email/phone` con `lock_timeout` + 2 CHECK de formato (mig `20261002120000`).
+- [ ] **[MS.1.4]** 🧪 2026-10-02 Permisos `SERVICIO_REPORTAR/ATENDER/COORDINAR` (enum, meta, árbol SIN rutas, `SUITE_UNCLASSIFIED`) + reparto (mig `20261002130000`). ⚠️ **La clave de responsabilidad pasa a MS.3.6** (1 clave, no 2): el candado de `me-work` exige una cola declarada por cada clave.
+- [ ] **[MS.1.5]** 🧪 2026-10-02 Contrato de tarea: `servicedesk.requests` en `FUENTES_TAREA`/`ADAPTADORES` (la entrada visible de `me-tasks.ts` espera a MS.3.6) + gate mejorado.
+- [ ] **[MS.1.6]** 🧪 2026-10-02 Smoke `test-newdb-service-desk.js`: **130 ✓ / 0 ✗** + registro en `run-all-tests.js`.
 
 **Capa 2 — Lógica**
 - [ ] **[MS.2.1]** ⬜ Scaffold `libs/service-desk` (eslint, tsconfig base+ts7, vitest, `AppModule`).
@@ -7464,7 +7464,7 @@ semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso)
 - [ ] **[MS.2.9]** ⬜ Verificación HTTP E2E + `build` + `check:boot`.
 
 **Capa 3 — Visual**
-- [ ] **[MS.3.1]** ⬜ Módulo/rutas/guards/nav/`PROJECT_KEY` + espacio 9 activo + specs de suite-map + `DESIGN.md`.
+- [ ] **[MS.3.1]** ⬜ Módulo/rutas/guards/nav/`PROJECT_KEY` + entrada `servicio` en el espacio 9 (ya activo por la Fase DEV) + specs de suite-map + `DESIGN.md`.
 - [ ] **[MS.3.2]** ⬜ Nueva solicitud + datos de contacto.
 - [ ] **[MS.3.3]** ⬜ Mis solicitudes + side-peek con hilo.
 - [ ] **[MS.3.4]** ⬜ Bandeja de atención.
