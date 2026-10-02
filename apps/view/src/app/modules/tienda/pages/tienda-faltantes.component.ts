@@ -117,7 +117,7 @@ type Aviso = { tono: 'ok' | 'warn' | 'bad' | 'info'; texto: string; detalle?: st
 
       <!-- ══ 1. REPORTAR ═════════════════════════════════════════════════════════════ -->
       @if (pestana() === 'reportar') {
-        <!-- [FLT.24] UNA caja y nada más. Todo lo que pasa después —el precio, la existencia,
+        <!-- [FLT.25] UNA caja y nada más. Todo lo que pasa después —el precio, la existencia,
              y el alta automática cuando la existencia es cero— vive dentro del componente.
              Acá no quedó nada que configurar porque ya no hay nada que preguntar: el motivo lo
              decide el veredicto, no la persona.
@@ -167,7 +167,7 @@ type Aviso = { tono: 'ok' | 'warn' | 'bad' | 'info'; texto: string; detalle?: st
           </div>
         </section>
 
-        <!-- [FLT.24] La confirmación vive ACÁ, con quien la produce. Estaba dentro de la
+        <!-- [FLT.25] La confirmación vive ACÁ, con quien la produce. Estaba dentro de la
              pestaña «Reportar», que es la única que nunca la dispara: reportarNoCatalogado()
              no cambia de pestaña, así que quien daba de alta un producto se quedaba mirando el
              formulario sin saber si se guardó. Era un hueco anterior a este cambio.
@@ -507,7 +507,7 @@ export class TiendaFaltantesComponent implements OnInit {
   }
 
   /**
-   * `[FLT.24]` Lo que el buscador acaba de escribir (o de deshacer) tiene que verse en la lista.
+   * `[FLT.25]` Lo que el buscador acaba de escribir (o de deshacer) tiene que verse en la lista.
    * Sin esto, el alta automática deja la pestaña «Los que no pasan» mostrando el estado de antes,
    * y la persona cree que su reporte se perdió.
    */
@@ -525,7 +525,7 @@ export class TiendaFaltantesComponent implements OnInit {
   /**
    * `[FLT.20]` El reporte de la pestaña «Producto no catalogado»: sin escaneo previo.
    *
-   * `[FLT.24]` Es el ÚNICO reporte que sigue naciendo de un clic en esta pantalla. Los demás los
+   * `[FLT.25]` Es el ÚNICO reporte que sigue naciendo de un clic en esta pantalla. Los demás los
    * escribe el buscador solo, a partir del veredicto de existencia. Éste no puede: un producto
    * que no vendemos no tiene existencia que consultar ni código que escanear — es exactamente
    * el dato que ninguna fuente puede ver, y por eso lo escribe una persona.

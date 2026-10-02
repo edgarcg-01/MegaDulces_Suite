@@ -1,7 +1,7 @@
 import type { StockoutKind } from './faltantes.service';
 
 /**
- * `[FLT.23]` — Las reglas del buscador que anota solo, en un módulo PURO.
+ * `[FLT.25]` — Las reglas del buscador que anota solo, en un módulo PURO.
  *
  * Viven acá y no dentro del componente por la misma razón que `stockout-destino.ts` del backend:
  * son las dos decisiones que pueden estar mal sin que nada se vea roto en pantalla, y una regla

@@ -203,7 +203,7 @@ export type ConsultaResultado =
     };
 
 /**
- * `[FLT.23]` Cuántos minutos después de anotarlo se puede deshacer desde el mostrador.
+ * `[FLT.26]` Cuántos minutos después de anotarlo se puede deshacer desde el mostrador.
  *
  * Cinco y no más: el botón existe para el arrepentimiento inmediato de quien vio la ventana
  * abierta, no para editar el historial de la semana. Pasada la ventana, la corrección es de
@@ -512,7 +512,7 @@ export class FloorStockoutsService {
   }
 
   /**
-   * `[FLT.23]` — Deshacer lo que se acaba de anotar SOLO.
+   * `[FLT.26]` — Deshacer lo que se acaba de anotar SOLO.
    *
    * ── Por qué hizo falta ───────────────────────────────────────────────────────────────────────
    * El verificador anota el faltante sin preguntar cuando la existencia es 0. Eso es deliberado

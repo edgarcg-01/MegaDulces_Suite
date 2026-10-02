@@ -982,6 +982,58 @@ re-login esta vez: no hay permisos nuevos. ⚠️ **El orden importa**: si se de
 que la migración, reportar "no estaba en el anaquel" revienta con un `23514` que la pantalla muestra
 como un error genérico.
 
+#### FLT.25–FLT.26 — el verificador anota el faltante solo cuando la existencia es 0 · 2026-10-02
+
+Pedido del usuario, en sus palabras: *«reducirlo a un pequeño buscador únicamente, este abrirá una
+ventana que tiene tiempo limitado, la cual mostrará la existencia, si la existencia en cero
+automáticamente se agrega a faltantes sin necesidad de preguntar»*. La pestaña «Reportar» pasa de
+formulario a **una caja**.
+
+| Item | Estado | Qué |
+|---|---|---|
+| `[FLT.25]` | 🔨 | **El buscador express** (`components/faltante-express.component.ts`). Al elegir un producto abre una ventana con precio + existencia que **se cierra sola** (9 s). El reloj **no arranca hasta que llega el veredicto** —si arrancara antes, la ventana podría cerrarse sin contestar la única pregunta que la justifica— y **se pausa con el mouse encima**: si se cierra justo cuando alguien estira la mano para corregir, el botón de deshacer es decorativo, que es peor que no tenerlo. Las dos reglas que pueden pudrirse en silencio viven en un módulo **puro** (`faltante-express.ts`) con spec propio |
+| `[FLT.26]` | 🔨 | **Deshacer** — `PATCH /commercial/floor-stockouts/:id/deshacer`, gateado con `STORE_STOCKOUT_CAPTURAR`. Es la contracara de reportar, **no** una decisión de bandeja: `decidir(..., 'era_error')` ya existía pero pide `COMPRAS_HALLAZGOS_GESTIONAR`, que la cajera no tiene — sin esto el alta automática era una puerta de un solo sentido desde el mostrador. **Resta UN reporte y REVALÚA** sobre el contador nuevo (dejar el monto viejo haría que restar no baje el dinero, y Compras seguiría priorizando por una cifra que ya no corresponde); borra la fila sólo si ese reporte era el único. Tres frenos: alcance · `status='open'` · ventana de 5 min. **Sin migración ni permiso nuevo** |
+
+**El veredicto decide, no la persona** — y las tres respuestas mandan a hacer cosas distintas:
+`sin_existencia` → anota solo (`kind=agotado`, `source=verificador`) · `hay_en_tienda` → **no anota
+nada**, era una consulta de precio · `no_medido` → **NO anota**, y es el **único caso con botón**.
+Cero y «no se pudo leer» no son lo mismo (ADR-056): anotar solo un «no sé» le inventa a Compras una
+venta perdida que quizá está en el anaquel.
+
+**Verificado:** `faltante-express.spec.ts` **10/10** (vitest, funciones puras) **con prueba negativa
+corrida**: reemplazando `anotaSolo` por `veredicto !== 'hay_en_tienda'` —la implementación plausible
+y equivocada— caen **exactamente los dos casos que importan** (`no_medido` y «la respuesta todavía
+viaja»); restaurado, verde. `check:templates` OK · `check:tokens` OK · ninguno de los archivos nuevos
+entra en la deuda de `check:teclado` ni de `check:busqueda`.
+
+⚠️ **DECLARADO, no resuelto — es una pérdida consciente:** los otros tres motivos
+(`no_en_anaquel`, `no_en_sucursal`, `codigo_no_pasa`) **ya no se capturan por este camino**. El que
+más duele es **«no estaba en el anaquel»**, el único que se recupera el mismo día con la venta
+todavía viva, y que `[FLT.21]` había puesto primero justo por eso. Y la pestaña «Los que no pasan»
+pierde su fuente de alimentación. Además, **cada consulta de precio de un producto agotado se vuelve
+un faltante**: el verificador se usa todo el día, no sólo cuando un cliente pide algo, así que
+Compras deja de poder separar «un cliente lo pidió y no había» de «alguien miró el precio» — tres
+amortiguadores puestos (el botón Quitar, el contador semanal en vez de una fila nueva, y
+`source=verificador` en la fila), pero la señal se diluye. **Decisión del usuario, tomada con el
+costo a la vista.**
+
+🔴 **Hallazgo colateral corregido:** `test-newdb-floor-stockouts.js` **INSERTA** y **no llamaba a
+`assertSafeTarget`**, con el `DATABASE_URL_NEW` de esta máquina apuntando a `192.168.0.222:5434`
+(**`pg-prod`, producción**). Es exactamente el accidente del 2026-08-29 —que hizo nacer esa guarda—
+en un test que nunca la usó. Guarda puesta y **verificada**: ahora aborta con *«el destino es
+PRODUCCIÓN»*.
+
+🔸 **Y un hueco anterior a este cambio:** la confirmación de «producto no catalogado» vivía dentro de
+la pestaña «Reportar», que es la única que **nunca** la dispara (`reportarNoCatalogado()` no cambia
+de pestaña) → quien daba de alta un producto se quedaba mirando el formulario sin saber si se
+guardó. Movida a donde se produce.
+
+⛔ **NO verificado, y se declara:** el smoke de base (bloque 9 nuevo, 7 aserciones con su prueba
+negativa de la ventana) **no se pudo correr** — la única base alcanzable en esta sesión es
+producción y la guarda recién puesta lo aborta, que es el comportamiento correcto. La compilación la
+hace **el CI** (regla de CLAUDE.md: nada de `nx build`/`nx serve` en local). **Validación visual
+pendiente.** Sin migración y sin permisos nuevos → **no hace falta re-login**.
+
 #### COT.10–COT.14 — Cotizaciones Telemarketing: Descuento por Volumen CJA, Vendedor por Sucursal y Entregables Formales (PDF/XLSX) · 2026-09-26
 
 | Item | Estado | Qué |

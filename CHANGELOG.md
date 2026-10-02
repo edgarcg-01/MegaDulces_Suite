@@ -9,6 +9,33 @@
 ---
 
 ## [Unreleased]
+### Changed — el verificador de precios anota el faltante solo cuando la existencia es 0 (Fase FLT, 2026-10-02)
+La pestaña «Reportar» de `/tienda/faltantes` se reduce a **una caja de búsqueda**. Al elegir un producto se abre
+una ventana con el precio y la existencia que **se cierra sola** (9 s, pausada mientras el mouse está encima — si
+se cierra justo cuando alguien estira la mano para corregir, el botón de deshacer es decorativo); si la existencia
+es **0**, el faltante **ya quedó anotado**, sin preguntar nada.
+- **[FLT.25]** El veredicto decide, no la persona: `sin_existencia` anota solo (`kind=agotado`,
+  `source=verificador`) · `hay_en_tienda` no anota nada (era una consulta de precio) · `no_medido` **NO anota**, y
+  es el único caso con botón — cero y «no se pudo leer» no son lo mismo (ADR-056), y anotar solo un «no sé» le
+  inventa a Compras una venta perdida que quizá está en el anaquel. Reglas puras en `faltante-express.ts` con su
+  spec (10 aserciones) y **prueba negativa corrida**: con `veredicto !== 'hay_en_tienda'` —la implementación
+  plausible y equivocada— caen exactamente los dos casos que importan.
+- **[FLT.26]** `PATCH /commercial/floor-stockouts/:id/deshacer`, gateado con `STORE_STOCKOUT_CAPTURAR` y **no**
+  con `COMPRAS_HALLAZGOS_GESTIONAR`: es la contracara de reportar, no una decisión de bandeja — sin él, el alta
+  automática era una puerta de un solo sentido desde el mostrador. **Resta un reporte y REVALÚA** (dejar el monto
+  viejo haría que restar no baje el dinero); borra la fila sólo si ese reporte era el único. Tres frenos: alcance,
+  `status='open'` y ventana de 5 min. Sin migración ni permiso nuevo.
+- ⚠️ **Declarado, no resuelto:** los otros tres motivos (`no_en_anaquel`, `no_en_sucursal`, `codigo_no_pasa`) ya
+  no se capturan por este camino. El que más duele es «no estaba en el anaquel», **el único que se recupera el
+  mismo día** con la venta todavía viva. Y cada consulta de precio de un producto agotado se vuelve un faltante:
+  Compras los separa por `source=verificador`, pero la señal se diluye.
+- 🔴 **Hallazgo colateral corregido:** `test-newdb-floor-stockouts.js` **INSERTA** y no llamaba a
+  `assertSafeTarget`, con `DATABASE_URL_NEW` apuntando a `192.168.0.222:5434` (**producción**). Es el accidente del
+  2026-08-29 —que hizo nacer esa guarda— en un test que nunca la usó.
+- 🔸 Y uno anterior a este cambio: la confirmación de «producto no catalogado» vivía dentro de la pestaña
+  «Reportar», que es la única que nunca la dispara (`reportarNoCatalogado()` no cambia de pestaña) → quien daba de
+  alta un producto **no veía nada**. Se movió a donde se produce.
+
 ### Fixed — el despliegue deja de frenar por migraciones ajenas, y el CI deja de reventar por deuda ajena (Fase CD, 2026-10-02)
 Nace de "el CI/CD es lento y aborta por migraciones pendientes". **Medido antes de tocar: el build tarda 10 s**
 (`npm ci` 70 s, build 10 s — `nx affected` + caché remoto ya estaban bien). Lo roto era otra cosa: **las 15

@@ -27,7 +27,7 @@
  */
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
-// `[FLT.24]` La guarda faltaba, y este test INSERTA. Medido el 2026-10-02: el `DATABASE_URL_NEW`
+// `[FLT.26]` La guarda faltaba, y este test INSERTA. Medido el 2026-10-02: el `DATABASE_URL_NEW`
 // del `.env` de esta máquina apunta a `192.168.0.222:5434` —`pg-prod`, producción— así que
 // correrlo tal cual dejaba filas de prueba en el padrón real de faltantes. Es exactamente el
 // accidente del 2026-08-29 que hizo nacer esta guarda, en un test que nunca la llamó.
@@ -172,7 +172,7 @@ async function intentar(fila) {
       'no_en_anaquel guarda la existencia del momento: es lo que lo manda a piso y no a Compras');
 
 
-    // ── 9. `[FLT.24]` Deshacer lo que el verificador anotó SOLO ───────────────────────────
+    // ── 9. `[FLT.26]` Deshacer lo que el verificador anotó SOLO ───────────────────────────
     // El buscador escribe el faltante sin preguntar cuando la existencia es 0. Eso abre un caso
     // nuevo: un reporte que nadie decidió. La salida tiene que ser del lado de la TIENDA, y las
     // dos formas de que se pudra en silencio son el contador y la ventana de tiempo.

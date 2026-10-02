@@ -107,7 +107,7 @@ export const ETIQUETA_DESTINO: Record<StockoutDestino, string> = {
   catalogo: 'Catálogo — código',
 };
 
-/** `[FLT.23]` Lo que contesta el servidor al deshacer un reporte recién anotado. */
+/** `[FLT.26]` Lo que contesta el servidor al deshacer un reporte recién anotado. */
 export interface DeshacerResultado {
   id: string;
   /** `true` = la fila entera se fue (el reporte deshecho era el único de la semana). */
@@ -150,7 +150,7 @@ export class FaltantesService {
   }
 
   /**
-   * `[FLT.23]` Deshacer lo que el verificador acaba de anotar solo.
+   * `[FLT.26]` Deshacer lo que el verificador acaba de anotar solo.
    *
    * Es la contracara del alta automática, no una decisión de Compras: resta UN reporte del
    * contador de la semana (y borra la fila si era el único). El servidor lo acota a lo recién
