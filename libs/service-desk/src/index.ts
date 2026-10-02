@@ -18,3 +18,4 @@ export * from './lib/preferences.service';
 export * from './lib/config-admin.service';
 export * from './lib/sla.service';
 export * from './lib/null-bitacora.adapter';
+export * from './lib/actors.service';

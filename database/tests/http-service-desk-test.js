@@ -230,6 +230,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     check('el solicitante SÍ ve el comentario público', vSol.body?.messages?.some((m) => m.body === 'Estoy revisando tu acceso'));
     check('el agente ve la nota interna', vAg.body?.messages?.some((m) => m.kind === 'internal_note'));
     check('⭐ el solicitante ve MENOS mensajes que el agente (el filtro es del servidor)', vSol.body.messages.length < vAg.body.messages.length);
+    check('⭐ el hilo lleva el NOMBRE de quien escribió, no su usuario (el JWT sólo trae el usuario: lo destapó la revisión visual)', vAg.body.messages.some((m) => m.kind === 'comment' && m.author_label === 'SMOKE agente') && !vAg.body.messages.some((m) => m.author_label === agente.username), JSON.stringify(vAg.body.messages.map((m) => m.author_label)));
 
     // ── 6. Tiempo trabajado ─────────────────────────────────────────────────────
     console.log('\n6 — tiempo trabajado');

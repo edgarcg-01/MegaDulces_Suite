@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
-import { NEVER, of } from 'rxjs';
+import { BehaviorSubject, NEVER, of } from 'rxjs';
 import { vi } from 'vitest';
 import type { SdCatalogResponse } from '@megadulces/contracts';
 import { ServiceDeskService } from '../service-desk.service';
@@ -26,9 +26,11 @@ const CATALOGO: SdCatalogResponse = {
 describe('[MS.3.2] ServicioSolicitudesComponent', () => {
   let fix: ComponentFixture<ServicioSolicitudesComponent>;
   let c: ServicioSolicitudesComponent;
+  let params$: BehaviorSubject<ReturnType<typeof convertToParamMap>>;
   let api: { mine: ReturnType<typeof vi.fn>; catalog: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; detail: ReturnType<typeof vi.fn> };
 
   async function render(query: Record<string, string> = {}) {
+    params$ = new BehaviorSubject(convertToParamMap(query));
     api = {
       mine: vi.fn(() => of({ rows: [], total: 0 })),
       catalog: vi.fn(() => of(CATALOGO)),
@@ -39,7 +41,7 @@ describe('[MS.3.2] ServicioSolicitudesComponent', () => {
       imports: [ServicioSolicitudesComponent],
       providers: [
         { provide: ServiceDeskService, useValue: api },
-        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) } } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) }, queryParamMap: params$.asObservable() } },
         { provide: Router, useValue: { navigate: vi.fn(() => Promise.resolve(true)) } },
       ],
     }).compileComponents();
@@ -116,6 +118,18 @@ describe('[MS.3.2] ServicioSolicitudesComponent', () => {
     await render({ nueva: '1' });
     expect(c.creando()).toBe(true);
     expect(api.catalog).toHaveBeenCalled();
+  });
+
+  it('⭐ con la página YA abierta, un parámetro nuevo también reacciona (Angular reutiliza el componente)', async () => {
+    // Medido en vivo: estando en la bandeja, pulsar un aviso de la campana cambiaba la URL y la pantalla no; y
+    // «Reportar un problema» del header no hacía nada desde «Mis solicitudes». Antes se leía una sola vez al iniciar.
+    await render();
+    expect(c.creando()).toBe(false);
+    params$.next(convertToParamMap({ nueva: '1' }));
+    expect(c.creando()).toBe(true);
+    params$.next(convertToParamMap({ id: 'otra-solicitud' }));
+    expect(c.selId()).toBe('otra-solicitud');
+    expect(c.creando()).toBe(false);
   });
 
   it('?id= (el deep-link de la campana) abre la ficha de esa solicitud', async () => {

@@ -118,7 +118,7 @@ function leerComoDataUri(f: File): Promise<string> {
           <div class="sd-actions" role="group" aria-label="Acciones">
             @if (agent()) {
               @if (t.status === 'nuevo') {
-                <p-button icon="pi pi-hand-pointer" label="Tomar" size="small" [loading]="busy()" (onClick)="tomar()" />
+                <p-button icon="pi pi-user" label="Tomar" size="small" [loading]="busy()" (onClick)="tomar()" />
               }
               @for (s of oferta(); track s) {
                 <p-button [label]="accionLabel(s)" size="small" severity="secondary" [outlined]="true" [loading]="busy()" (onClick)="pedirEstado(s)" />

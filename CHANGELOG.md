@@ -33,8 +33,10 @@ Plan de etapas 2–5 en `docs/IMPLEMENTACION/FASES/FASE_RA_PEDIDO_PERSPECTIVA.md
 `/servicio/bandeja` (KPIs, filtros, tabla densa y ficha de atención) y `/servicio/configuracion` (horario, plazos, colas y
 categorías; la escalación sigue apagada). «Reportar un problema» en el header es la única entrada de quien sólo reporta: la clave
 no es destino del mapa de la suite a propósito. El proyecto sale de «Por clasificar» y entra al espacio 9. La campana lee los
-avisos del log por poll y el WebSocket sólo la adelanta. **Declarado, no hecho:** Reportes, la entrada «A tu nombre» de Mi trabajo,
-el botón en los shells de tienda y telemarketing, y la validación visual en navegador. **Nada aplicado a prod.**
+avisos del log por poll y el WebSocket sólo la adelanta. **Revisada en navegador** (3 personas; claro, oscuro y 390 px): salieron y se corrigieron 6 defectos que ninguna prueba veía —íconos
+inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abierta, la ficha bajo los KPIs en móvil, el acceso desde
+«Mi trabajo» y la pantalla que no reaccionaba al pulsar un aviso estando ya en ella. **Declarado, no hecho:** Reportes, la entrada
+«A tu nombre» de Mi trabajo y el botón en los shells de tienda y telemarketing. **Nada aplicado a prod.**
 ### Added — Mesa de Servicio, capa 2: lógica, 27 rutas, SLA, avisos y auto-cierre (Fase MS, 2026-10-02)
 `libs/service-desk` con el ciclo completo del ticket (alta con prioridad **sugerida**, bandeja priorizada, hilo, tomar/asignar,
 prioridad, tiempo trabajado, confirmar/reabrir/cancelar, tablero) sobre una máquina de estados pura y un reloj hábil en hora

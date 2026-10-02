@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BITACORA_PORT } from '@megadulces/contracts';
 import { CloudinaryModule } from '@megadulces/platform-core';
+import { ServiceDeskActorsService } from './actors.service';
 import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskAttachmentsService } from './attachments.service';
 import { ServiceDeskConfigService } from './service-desk-config.service';
@@ -25,6 +26,7 @@ import { ServiceDeskSlaService } from './sla.service';
   providers: [
     ServiceDeskConfigService,
     ServiceDeskAttachmentsService,
+    ServiceDeskActorsService,
     ServiceDeskAgentsService,
     ServiceDeskNotificationsService,
     ServiceDeskPreferencesService,

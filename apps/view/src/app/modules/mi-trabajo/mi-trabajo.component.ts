@@ -34,6 +34,7 @@ import type {
 } from '@megadulces/contracts';
 import { AuthService } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
+import { Permission } from '../../core/constants/permissions';
 import { MeContextService } from '../../core/services/me-context.service';
 import { StoreSocketService } from '../tienda/store-socket.service';
 import { UsoService } from '../../core/services/uso.service';
@@ -1286,6 +1287,10 @@ export class MiTrabajoComponent {
   }
 
   /** `[SEG.2]` Cierre voluntario = derribo duro: borra el rastro y recarga (ver AuthService). */
+  /** `[MS.3.1]` Mesa de Servicio: `SERVICIO_REPORTAR` no es destino del mapa de la suite a propósito, así que la ÚNICA entrada es este botón. */
+  readonly puedeReportar = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
+  reportar(): void { void this.router.navigate(['/servicio/solicitudes'], { queryParams: { nueva: 1 } }); }
+
   logout(): void {
     this.auth.logout({ derribar: true });
   }

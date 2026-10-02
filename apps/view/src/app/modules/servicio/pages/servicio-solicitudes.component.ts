@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -38,7 +39,7 @@ function dataUri(f: File): Promise<string> {
   imports: [CommonModule, FormsModule, ButtonModule, SelectModule, DialogModule, InputTextModule, TextareaModule, SdRequestDetailComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="ss-page">
+    <div class="ss-page" [class.con-ficha]="panel()">
       <header class="ss-head">
         <div>
           <h1>Mis solicitudes</h1>
@@ -155,6 +156,7 @@ function dataUri(f: File): Promise<string> {
     <p-dialog header="Mis avisos" [(visible)]="prefsAbierto" [modal]="true" [style]="{ width: '30rem', maxWidth: '94vw' }" appendTo="body">
       @if (prefsError(); as e) { <p class="ss-banner bad" role="alert">{{ e }}</p> }
       @if (prefs(); as p) {
+       <div class="ss-dlg">
         <p class="ss-hint">Siempre verás los avisos en la campana. Aquí eliges si además te llegan por correo o WhatsApp.</p>
         <label class="ss-field"><span>Correo</span>
           <input pInputText type="email" [(ngModel)]="pForm.email" placeholder="tu.correo@empresa.mx" /></label>
@@ -164,6 +166,7 @@ function dataUri(f: File): Promise<string> {
         <label class="ss-chk"><input type="checkbox" [(ngModel)]="pForm.whatsapp_enabled" /> Avisarme por WhatsApp
           @if (p.whatsapp_opt_in_at) { <small class="ss-hint">(aceptado el {{ p.whatsapp_opt_in_at | date:'dd/MM/yy' }})</small> }</label>
         @if (pForm.whatsapp_enabled && !p.whatsapp_enabled) { <p class="ss-hint">Al activarlo aceptas recibir mensajes de la Mesa de Servicio por WhatsApp. Puedes apagarlo cuando quieras.</p> }
+       </div>
       }
       <ng-template #footer>
         <p-button label="Guardar" [loading]="prefsGuardando()" (onClick)="guardarPrefs()" />
@@ -233,11 +236,14 @@ function dataUri(f: File): Promise<string> {
     .ss-pend { list-style: none; margin: var(--sp-1) 0 0; padding: 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .ss-pend li { display: flex; align-items: center; gap: var(--sp-1); }
     .ss-ffoot { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+    .ss-dlg { display: flex; flex-direction: column; gap: var(--sp-3); }
     @media (max-width: 1100px) {
       .ss-body.has-detail { grid-template-columns: 1fr; }
       .ss-body.has-detail .ss-list { display: none; }
       .ss-detail { position: static; max-height: none; }
       .ss-back { display: inline-flex; align-self: flex-start; margin: calc(-1 * var(--sp-2)) 0 var(--sp-2) calc(-1 * var(--sp-2)); }
+      /* La ficha reemplaza a la lista, así que también a los filtros que la acompañan. */
+      .ss-page.con-ficha .ss-chips { display: none; }
     }
     @media (max-width: 640px) {
       .ss-page { padding: var(--sp-3); gap: var(--sp-3); }
@@ -255,6 +261,7 @@ export class ServicioSolicitudesComponent implements OnInit {
   private readonly api = inject(ServiceDeskService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly statusLabel = STATUS_LABEL;
   readonly priorityLabel = PRIORITY_LABEL;
@@ -308,13 +315,17 @@ export class ServicioSolicitudesComponent implements OnInit {
 
   ngOnInit(): void {
     this.cargar();
-    const id = this.route.snapshot.queryParamMap.get('id');
-    if (id) this.abrir(id);
-    // «Reportar un problema» del header llega con ?nueva=1; se abre el formulario y se limpia la URL.
-    if (this.route.snapshot.queryParamMap.get('nueva')) {
-      this.nueva();
-      void this.router.navigate([], { queryParams: { nueva: null }, queryParamsHandling: 'merge', replaceUrl: true });
-    }
+    // `?id=` (deep-link de la campana) y `?nueva=1` («Reportar un problema» del header). Se ESCUCHAN, no se leen una
+    // vez: estando ya en esta página, Angular reutiliza el componente y sólo cambia el parámetro — medido en vivo,
+    // el botón del header no hacía nada desde aquí.
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
+      const id = q.get('id');
+      if (id) this.abrir(id);
+      if (q.get('nueva')) {
+        this.nueva();
+        void this.router.navigate([], { queryParams: { nueva: null }, queryParamsHandling: 'merge', replaceUrl: true });
+      }
+    });
   }
 
   cargar(): void {

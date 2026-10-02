@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -25,7 +26,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
   imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, SdRequestDetailComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="sb-page">
+    <div class="sb-page" [class.con-ficha]="!!selId()">
       <header class="sb-head">
         <div>
           <h1>Bandeja de atención</h1>
@@ -62,18 +63,18 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
           <div class="sb-wrap dt-scope">
             <table class="sb-table dt-stack">
               <thead>
-                <tr><th>Folio</th><th>Solicitud</th><th>Reportó</th><th>Sucursal</th><th>Prioridad</th><th>Estado</th><th>Atiende</th><th>Plazo</th></tr>
+                <tr><th>Folio</th><th>Solicitud</th><th class="opc">Reportó</th><th class="opc">Sucursal</th><th>Prioridad</th><th>Estado</th><th class="opc">Atiende</th><th>Plazo</th></tr>
               </thead>
               <tbody>
                 @for (t of rows(); track t.id) {
                   <tr [class.sel]="selId() === t.id" (click)="abrir(t.id)" tabindex="0" (keydown.enter)="abrir(t.id)">
                     <td class="mono" role="cell" data-label="Folio">{{ t.folio }}</td>
                     <td class="tit dt-id" role="cell" data-label="Solicitud">{{ t.title }}<small>{{ t.category_name }}</small></td>
-                    <td role="cell" data-label="Reportó">{{ t.requester_name || '—' }}</td>
-                    <td role="cell" data-label="Sucursal">{{ t.warehouse_name || '—' }}</td>
+                    <td class="opc" role="cell" data-label="Reportó">{{ t.requester_name || '—' }}</td>
+                    <td class="opc" role="cell" data-label="Sucursal">{{ t.warehouse_name || '—' }}</td>
                     <td role="cell" data-label="Prioridad"><span class="pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span></td>
                     <td role="cell" data-label="Estado"><span class="est" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span></td>
-                    <td role="cell" data-label="Atiende">{{ t.assigned_to_name || '—' }}</td>
+                    <td class="opc" role="cell" data-label="Atiende">{{ t.assigned_to_name || '—' }}</td>
                     <td role="cell" data-label="Plazo"><span class="sla" [attr.data-t]="plazo(t).tono">{{ plazo(t).texto }}</span></td>
                   </tr>
                 } @empty {
@@ -145,17 +146,22 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
     .est[data-s='asignado'], .est[data-s='en_proceso'] { background: var(--info-soft-bg); color: var(--info-soft-fg); }
     .est[data-s='en_espera'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .est[data-s='resuelto'] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
-    .sla { color: var(--text-muted); font-family: var(--font-mono); }
+    .sla { color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .sla[data-t='warn'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .sla[data-t='bad'] { background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-weight: 600; }
     .sb-more { margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); border-top: 1px solid var(--border-color); }
     .sb-detail { padding: var(--sp-4); position: sticky; top: var(--sp-4); max-height: calc(100vh - 2 * var(--sp-4)); overflow: auto; }
     .sb-back { display: none; }
+    /* Con la ficha abierta la lista es un ÍNDICE, no la tabla completa: quedan folio, solicitud, prioridad, estado y plazo.
+       (Medido a 1440 px: con las 8 columnas el título se partía en 6 renglones.) La ficha trae el resto. */
+    .sb-body.has-detail .opc { display: none; }
     @media (max-width: 1100px) {
       .sb-body.has-detail { grid-template-columns: 1fr; }
       .sb-body.has-detail .sb-list { display: none; }
       .sb-detail { position: static; max-height: none; }
       .sb-back { display: inline-flex; align-self: flex-start; margin: calc(-1 * var(--sp-2)) 0 var(--sp-2) calc(-1 * var(--sp-2)); }
+      /* La ficha REEMPLAZA a la lista, así que también a lo que la acompaña: KPIs y filtros dejaban la ficha bajo el pliegue. */
+      .sb-page.con-ficha .sb-kpis, .sb-page.con-ficha .sb-chips, .sb-page.con-ficha .sb-head { display: none; }
     }
     @media (max-width: 640px) {
       .sb-page { padding: var(--sp-3); gap: var(--sp-3); }
@@ -172,6 +178,7 @@ export class ServicioBandejaComponent implements OnInit {
   private readonly api = inject(ServiceDeskService);
   private readonly perms = inject(PermissionsService);
   private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly statusLabel = STATUS_LABEL;
   readonly priorityLabel = PRIORITY_LABEL;
@@ -195,9 +202,13 @@ export class ServicioBandejaComponent implements OnInit {
 
   ngOnInit(): void {
     this.recargar();
-    // Deep-link de la campana: `?id=<solicitud>` abre su ficha.
-    const id = this.route.snapshot.queryParamMap.get('id');
-    if (id) this.abrir(id);
+    // Deep-link de la campana: `?id=<solicitud>` abre su ficha. Se ESCUCHA, no se lee una vez: si ya estás en la
+    // bandeja y pulsas un aviso, Angular reutiliza el componente y sólo cambia el parámetro (medido en vivo: la URL
+    // cambiaba y la pantalla no).
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
+      const id = q.get('id');
+      if (id) this.abrir(id);
+    });
   }
 
   recargar(): void {
