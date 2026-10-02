@@ -97,25 +97,33 @@ Los 2 devs en sus máquinas NO necesitan worktrees (cada clon ya está aislado):
 
 Cada dev, el día 1: *"Leé `docs/CLAUDE_ONBOARDING.md` y seguí el protocolo."* Y por tarea, el `task → doc map` de ese protocolo dice qué leer (DB→GOTCHAS, permiso→GOTCHAS §4, feeds→ERP_KEPLER, UI→DESIGN).
 
-## 7. Deploy: `main` NO despliega, `production` sí
+## 7. Deploy: `main` despliega sola, cada 5 minutos
 
-Railway auto-deploya la rama **`production`**, NO `main`. Así, mergear N PRs a `main` NO
-dispara N builds que se pisan (antes cada merge = un deploy, 4 merges seguidos = 4 builds,
-varios quedaban FAILED por superados). `main` es integración; `production` es lo que corre en prod.
+**Producción dejó Railway el 2026-09-22** y vive en el servidor `md` (`192.168.0.222`).
+`ops/prod/auto-deploy.sh` mira **`origin/main`** por cron (`*/5 * * * *`) y despliega solo.
 
-**Ciclo:**
-```
-PRs → main (review + CI, CERO deploys)     ← se acumulan los merges del día
-.\scripts\deploy-prod.ps1                   ← fast-forward production→main = UN solo deploy
-```
+**Mergear a `main` llega a producción en menos de 5 minutos.** No es un merge inocuo.
 
-`deploy-prod.ps1` muestra qué commits entran y hace `git push origin main:production`.
-Railway arranca UN build de `production`. `main` puede tener 5 merges y prod se entera de todos
-en un solo deploy, cuando vos decidís soltar.
+**Lo que frena a un commit roto** no es el PR, son dos compuertas en el servidor que nadie evade:
 
-**Setup en Railway (una vez, en el dashboard):** en cada servicio que sirve código de este repo
-(MegaDulces = api+view, Portal_MegaDulces, Vendor_MegaDulces, y worker/feeds-ingest si aplican) →
-Settings → Source → **Branch = `production`** (hoy están en `main`). Los servicios de DB no se tocan.
+1. **El sello `ci-green`** — `compuerta-ci.sh` exige que el CI haya bendecido el commit
+   (`build` + `secret-scan`). Sin sello no se construye.
+2. **La compuerta de migraciones** — se niega si el código pide esquema que prod no tiene.
+
+Si pusheás algo roto, `main` queda roja y **ese commit no se despliega**: se nota en el tablero,
+no en los clientes.
+
+> ⛔ **Esta sección describía un plan que nunca se ejecutó, y conviene recordarlo porque costó
+> una confusión real.** Decía que Railway desplegaba la rama `production` y que `main` no
+> disparaba nada — pero su propio texto admitía entre paréntesis *"hoy están en `main`"*: el
+> cambio en el dashboard de Railway era un pendiente, no un hecho. **La rama `production` nunca
+> existió en el remoto** (verificado el 2026-10-02: cero refs, en el remoto y en todo el
+> historial), y `scripts/deploy-prod.ps1` se retiró el mismo día por apuntar a infraestructura
+> que ya no está.
+>
+> ⭐ La lección vale más que el dato: **un documento que describe la intención en presente se
+> lee como el estado actual.** Lo que estaba por hacerse tiene que decir que está por hacerse,
+> o alguien va a razonar sobre un sistema que no existe — que es exactamente lo que pasó.
 
 ---
 
