@@ -213,7 +213,7 @@ di "servicios: $SERVICIOS"
 # ⛔ ESTA LISTA Y LA ETIQUETA `migracion:` DE ops/k3s/*.yaml SON DOS DECLARACIONES DEL MISMO
 # HECHO. Si se contradicen, el servicio se despliega en el mundo equivocado o en ninguno.
 # Se mueven juntas, y `npm run check:k3s` compara el lado de `SERVICIOS_DEF`.
-SERVICIOS_K3S="${AUTO_DEPLOY_SERVICIOS_K3S:-portal vendor}"
+SERVICIOS_K3S="${AUTO_DEPLOY_SERVICIOS_K3S:-portal vendor worker}"
 
 SERVICIOS_COMPOSE=''
 _s_k3s_tocados=''
