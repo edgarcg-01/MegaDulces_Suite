@@ -5,7 +5,7 @@ import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
 import type { Freshness, ExpenseFamilia } from '@megadulces/contracts';
 import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
-import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
+import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeTreeChildren as IncomeTreeChildrenT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
 export interface AddressJsonb {
@@ -2063,8 +2063,19 @@ export class ComercialService {
   income(p: IncomeParams) {
     return this.http.get<IncomeReportT>(`${this.base}/analytics/income`, { params: this.incomeParams(p) });
   }
-  incomeTree(p: IncomeParams) {
-    return this.http.get<IncomeTreeT>(`${this.base}/analytics/income/tree`, { params: this.incomeParams(p) });
+  incomeTree(p: IncomeParams & { grain?: IncomeGrainT }) {
+    let q = this.incomeParams(p);
+    if (p.grain) q = q.set('grain', p.grain);
+    return this.http.get<IncomeTreeT>(`${this.base}/analytics/income/tree`, { params: q });
+  }
+  /**
+   * `[IG.9]` Los hijos de un nodo del arbol, al abrirlo. Sin `folio` devuelve los documentos de
+   * ese canal en ese dia; con `folio`, cada deposito que se caso contra el.
+   */
+  incomeTreeChildren(canal: string, fecha: string, folio?: string) {
+    let q = new HttpParams().set('canal', canal).set('fecha', fecha);
+    if (folio) q = q.set('folio', folio);
+    return this.http.get<IncomeTreeChildrenT>(`${this.base}/analytics/income/tree/children`, { params: q });
   }
   incomeSources(p: IncomeParams) {
     return this.http.get<IncomeSourcesT>(`${this.base}/analytics/income/sources`, { params: this.incomeParams(p) });

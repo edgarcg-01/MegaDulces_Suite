@@ -160,7 +160,12 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX', { minimumFractionDigits:
           WHERE sucursal = '00' AND doc_code = 'UD1301'
             AND fecha BETWEEN (CURRENT_DATE - $1::int)::date AND CURRENT_DATE)
        SELECT count(*)::int AS docs, count(c.folio)::int AS con_arbitro,
-              coalesce(sum(m.pendiente), 0)::numeric AS pendiente_mio,
+              -- ⚠️ Los DOS lados se suman sobre las facturas que el arbitro SI tiene. Sumar mi
+              -- universo completo contra el suyo recortado comparaba dos universos distintos, y
+              -- el delta crecia solo cuando la ventana rodaba: 1.53 % un dia, 2.00 % al otro,
+              -- sin que nada se hubiera roto. Un agregado correcto sobre un universo no
+              -- declarado engana igual que un numero mal sumado.
+              coalesce(sum(m.pendiente) FILTER (WHERE c.folio IS NOT NULL), 0)::numeric AS pendiente_mio,
               coalesce(sum(c.saldo_documento), 0)::numeric AS saldo_cxc,
               count(*) FILTER (WHERE c.folio IS NOT NULL
                 AND abs(m.pendiente - c.saldo_documento) > 0.01)::int AS difieren
@@ -173,10 +178,11 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX', { minimumFractionDigits:
       const fpct = (arb.difieren * 100) / arb.con_arbitro;
       chk(dpct <= 2,
         `pendiente $${n(arb.pendiente_mio)} vs saldo de cartera $${n(arb.saldo_cxc)} — Δ `
-        + `${dpct.toFixed(2)} % (medido 1.53 %). Son dos caminos distintos al mismo hecho: éste `
+        + `${dpct.toFixed(2)} % sobre las ${arb.con_arbitro} facturas que los DOS tienen (de `
+        + `${arb.docs}). Son dos caminos distintos al mismo hecho: éste `
         + 'sale de kdm1+kdm5, el árbitro de kdue');
       chk(fpct <= 5,
-        `${arb.difieren} de ${arb.con_arbitro} facturas difieren (${fpct.toFixed(1)} %, medido 0.3 %) `
+        `${arb.difieren} de ${arb.con_arbitro} facturas difieren (${fpct.toFixed(1)} %, medido 0.4 %) `
         + '— y sólo cierra restando la nota de crédito: sin ella difieren 521 en vez de 12');
     }
 

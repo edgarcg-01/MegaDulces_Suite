@@ -93,21 +93,52 @@ export interface IncomeReport {
   series: IncomeSeriesPoint[];
 }
 
+/**
+ * `[IG.9]` Un nodo del árbol. Los dos primeros niveles (canal, período) vienen en la carga
+ * inicial; **folio y depósito se piden al abrir**, porque un canal de 90 días son miles de
+ * documentos y decenas de miles de depósitos: traerlos de una haría lo contrario de lo que este
+ * árbol existe para hacer.
+ */
 export interface IncomeTreeNode {
   key: string;
   label: string;
+  /** `canal` · `periodo` · `folio` · `pago` */
   level: string;
   total: number;
   movs: number;
   share_pct: number;
   children?: IncomeTreeNode[];
+  /** `false` cuando el nodo todavía puede abrirse (y sus hijos se piden al servidor). */
+  leaf?: boolean;
+  /** Segunda línea del renglón: la plaza del folio, o el banco y la fecha del depósito. */
+  sub?: string | null;
+  /** Qué es el cliente detrás del documento. Sólo en `folio`. */
+  kind?: string | null;
+  /** ⛔ El ERP canceló el documento y su ingreso sigue publicado. Sólo en `folio`. */
+  cancelado?: boolean;
+  cobrado?: number | null;
+  pendiente?: number | null;
+  /** Cómo entró el dinero, en texto corto: «3 depósitos · BANORTE 7744» o «efectivo». */
+  como?: string | null;
+  /** Las llaves que el cliente devuelve para pedir los hijos de este nodo. */
+  canal?: string | null;
+  fecha?: string | null;
+  folio?: string | null;
 }
 
 export interface IncomeTree {
   from: string;
   to: string;
   total: number;
+  /** Grano del SEGUNDO nivel. El árbol siempre baja a folio y depósito debajo de él. */
+  grain: IncomeGrain;
   tree: IncomeTreeNode[];
+}
+
+/** Respuesta de la carga por demanda de un nivel del árbol. */
+export interface IncomeTreeChildren {
+  level: string;
+  nodes: IncomeTreeNode[];
 }
 
 /**
