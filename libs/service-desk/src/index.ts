@@ -1,7 +1,14 @@
-// Barrel de la lib de la Mesa de Servicio (Fase MS, ADR-081). El módulo Nest se agrega en MS.2.3.
+// Barrel de la lib de la Mesa de Servicio (Fase MS, ADR-081).
 export * from './lib/domain/business-clock';
 export * from './lib/domain/priority';
 export * from './lib/domain/request-state';
 export * from './lib/domain/sla';
 export * from './lib/domain/attachment-signature';
 export * from './lib/domain/folio';
+export * from './lib/service-desk.types';
+export * from './lib/service-desk-config.service';
+export * from './lib/attachments.service';
+export * from './lib/agents.service';
+export * from './lib/requests.service';
+export * from './lib/service-desk.controller';
+export * from './lib/service-desk.module';

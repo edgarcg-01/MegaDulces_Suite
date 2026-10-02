@@ -7507,15 +7507,15 @@ semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso)
 - [ ] **[MS.1.6]** 🧪 2026-10-02 Smoke `test-newdb-service-desk.js`: **130 ✓ / 0 ✗** + registro en `run-all-tests.js`.
 
 **Capa 2 — Lógica**
-- [ ] **[MS.2.1]** ⬜ Scaffold `libs/service-desk` (eslint, tsconfig base+ts7, vitest, `AppModule`).
-- [ ] **[MS.2.2]** ⬜ Contratos HTTP y puertos en `libs/contracts`.
-- [ ] **[MS.2.3]** ⬜ `RequestsService` + máquina de estados + `MessagesService`.
-- [ ] **[MS.2.4]** ⬜ Adjuntos con validación de servidor + límite de body + URLs firmadas.
-- [ ] **[MS.2.5]** ⬜ SLA (funciones puras + spec) + scanner con latido y `CRON_JOBS` + auto-cierre.
+- [ ] **[MS.2.1]** 🧪 2026-10-02 Scaffold `libs/service-desk` (eslint, tsconfig base+ts7, vitest, `AppModule`). Registrada en `tsconfig.base`/`ts7`, `eslint.config.js`, `check-commit-wiring`; `ServiceDeskModule` en `AppModule`.
+- [ ] **[MS.2.2]** 🔨 2026-10-02 Contratos HTTP y puertos en `libs/contracts`. Contrato HTTP listo (`service-desk.contract.ts`); los PUERTOS (`SERVICE_DESK_NOTIFIER_PORT`, `BITACORA_PORT`) llegan con MS.2.6/2.8.
+- [ ] **[MS.2.3]** 🧪 2026-10-02 `RequestsService` + máquina de estados + `MessagesService`. Máquina pura (111 pruebas) + servicio + 16 rutas. **E2E por HTTP 101/101** con 4 roles sin admin y prueba de mutación (filtro de notas internas roto a propósito → 2 rojos exactos).
+- [ ] **[MS.2.4]** 🔨 2026-10-02 Adjuntos con validación de servidor + límite de body + URLs firmadas. Validación por FIRMA + subida fuera de la transacción + limpieza si falla: probados. **NO MEDIDO: el adjunto válido de punta a punta** (sin bucket S3 en dev; P5). Límite de body `32mb`.
+- [ ] **[MS.2.5]** 🔨 2026-10-02 SLA (funciones puras + spec) + scanner con latido y `CRON_JOBS` + auto-cierre. Reloj hábil + SLA puro con spec; pausa/reanudación probadas por HTTP. **Pendiente: scanner, latido, `CRON_JOBS` y auto-cierre.**
 - [ ] **[MS.2.6]** ⬜ Notificaciones: puerto + binding + room por usuario en `/alerts` + anti-spam + log de entrega.
-- [ ] **[MS.2.7]** ⬜ Asignación, selector de agentes sin `USUARIOS_VER`, endpoints de configuración.
+- [ ] **[MS.2.7]** 🔨 2026-10-02 Asignación, selector de agentes sin `USUARIOS_VER`, endpoints de configuración. Asignación y selector de agentes (override de persona incluido) probados. **Pendiente: endpoints de configuración.**
 - [ ] **[MS.2.8]** ⬜ `BITACORA_PORT` + `NullBitacoraAdapter` + `work_log` endpoints.
-- [ ] **[MS.2.9]** ⬜ Verificación HTTP E2E + `build` + `check:boot`.
+- [ ] **[MS.2.9]** 🔨 2026-10-02 Verificación HTTP E2E + `build` + `check:boot`. `http-service-desk-test.js` en `run-all-tests`. **Pendiente: SLA/notificaciones y `check:boot`.** Nota: `nx build api` falla en este worktree por `@duckdb/node-api` (falta en el `node_modules` compartido, ajeno a la fase); `service-desk` compila limpio.
 
 **Capa 3 — Visual**
 - [ ] **[MS.3.1]** ⬜ Módulo/rutas/guards/nav/`PROJECT_KEY` + entrada `servicio` en el espacio 9 (ya activo por la Fase DEV) + specs de suite-map + `DESIGN.md`.

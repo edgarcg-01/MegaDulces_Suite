@@ -205,3 +205,13 @@ export interface SdAgentDto {
   name: string | null;
   open_count: number;
 }
+
+/** Tablero de la coordinación: qué hay abierto y qué se está pasando del plazo. */
+export interface SdStatsResponse {
+  open_total: number;
+  unassigned: number;
+  first_response_breached: number;
+  resolution_breached: number;
+  by_status: Partial<Record<SdStatus, number>>;
+  by_priority: Partial<Record<SdPriority, number>>;
+}
