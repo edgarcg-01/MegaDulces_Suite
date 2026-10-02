@@ -43,4 +43,17 @@ describe('v_label_presentations NOT MATERIALIZED (COT.17)', () => {
     expect(alterada).not.toBe(sqlNueva());
     expect(alterada.replace(/ AS NOT MATERIALIZED \(/g, ' AS (')).not.toBe(sqlOriginal());
   });
+
+  // GOTCHAS §38. `CREATE OR REPLACE VIEW` toma ACCESS EXCLUSIVE, y esta vista la leen en vivo la
+  // vista previa de la cotización y la etiquetera. Medido: con el candado la migración muere a
+  // los 3.0 s con 55P03; sin él seguía bloqueada a los 8 s, con la pantalla detrás. El criterio
+  // es CALIENTE, no grande. Y tiene que ir ANTES del DDL, o llega tarde.
+  it('frena antes del DDL, y no después', () => {
+    const src = lf(readFileSync(join(DIR, '20261002120000_v_label_presentations_not_materialized.js'), 'utf8'));
+    const cuerpo = src.split('exports.up')[1].split('exports.down')[0];
+    const freno = cuerpo.indexOf('SET LOCAL lock_timeout');
+    const ddl = cuerpo.indexOf('knex.raw(VIEW)');
+    expect(freno).toBeGreaterThan(-1);
+    expect(freno).toBeLessThan(ddl);
+  });
 });

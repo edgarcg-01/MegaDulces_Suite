@@ -130,11 +130,16 @@ FROM todo t
 WHERE t.unidad IS NOT NULL`;
 
 exports.up = async function up(knex) {
+  // GOTCHAS §38: CREATE OR REPLACE VIEW toma ACCESS EXCLUSIVE sobre la vista, y ésta la leen
+  // en vivo la vista previa de la cotización y la etiquetera. El criterio es CALIENTE, no
+  // grande: si el lock no está libre, fallar rápido es barato; bloquear la pantalla no.
+  await knex.raw("SET LOCAL lock_timeout = '3s'");
   await knex.raw(VIEW);
   await knex.raw("GRANT SELECT ON analytics.v_label_presentations TO app_runtime");
 };
 
 exports.down = async function down(knex) {
+  await knex.raw("SET LOCAL lock_timeout = '3s'");
   // La definición anterior es la de su migración original (sin NOT MATERIALIZED).
   await require("./20260924120000_v_label_presentations").up(knex);
 };
