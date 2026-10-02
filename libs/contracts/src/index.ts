@@ -64,6 +64,7 @@ export * from './http/sales-channel.contract';
 export * from './http/income.contract';
 export * from './http/oc-seguimiento.contract';
 export * from './http/flujo-compras.contract';
+export * from './http/replenishment-monthly.contract';
 export * from './http/vendor-route-day-pick.contract';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.
 //   · forma-pago          = catálogo cerrado, atado a los códigos que Kepler ya usa (kdm1.c90).

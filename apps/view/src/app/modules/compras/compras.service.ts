@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { FlujoComprasDto, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
+import { FlujoComprasDto, MonthlySalesResponse, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
@@ -190,7 +190,15 @@ export interface WorkbookCell {
   rung?: 'x1_inflada' | 'x2_deflactada';
   nat?: number;    // existencia en la unidad NATIVA del almacén
   natu?: string;   // rótulo de esa unidad, declarado por el ERP dueño (KG, PAQ, CUB…)
+  /** [RA-PRO.65] Máximo y punto de reorden de ESE almacén, en cajas. Ausentes = el almacén no
+   *  tiene política de reorden ("sin mínimo"); NO es cero. */
+  mx?: number;
+  rop?: number;
 }
+// [RA-PRO.65] La forma de la respuesta NO se escribe acá: vive en `libs/contracts`
+// (`replenishment-monthly.contract.ts`, ADR-052), que es de donde la lee el backend. Copiarla a
+// mano es como se separan las dos puntas sin que nadie se entere (VP.2.1).
+export type { MonthlySalesMonth, MonthlySalesResponse, MonthlySalesWindow } from '@megadulces/contracts';
 // RA-PRO.44 — qué viene en camino de un SKU (OCs abiertas), para explicar el "Pedido 0".
 export interface InTransitOc {
   folio: string; sucursal: string;
@@ -370,6 +378,8 @@ export interface CategoryAdmin extends ReplenishmentCategory { is_duplicate: boo
 export interface ReplenishmentFilters {
   warehouses: {
     id: string; code: string; name: string;
+    /** [RA-PRO.64] central | truck … — las rutas no se ofrecen en "Agregar sucursal". */
+    kind?: string | null;
     /** RA-PRO.48 — zona de COMPRA (agrupa el desglose). NO es `zone_id`, que es territorio de venta. */
     purchase_zone?: string | null;
     /** RA-PRO.48 — CEDIS donde se puede consolidar una compra (00, 01, MD-30, 06). */
@@ -887,6 +897,12 @@ export class ComprasService {
   workbookDetail(productId: string, coverageDays?: number): Observable<WorkbookDetailResponse> {
     const qs = coverageDays ? `?coverage_days=${coverageDays}` : '';
     return this.http.get<WorkbookDetailResponse>(`${this.base}/workbook/${productId}${qs}`);
+  }
+
+  /** [RA-PRO.65] Venta por mes del SKU (24 meses) de una sucursal, o de la red si no hay `code`. */
+  monthlySales(productId: string, code?: string): Observable<MonthlySalesResponse> {
+    const qs = code ? `?code=${encodeURIComponent(code)}` : '';
+    return this.http.get<MonthlySalesResponse>(`${this.base}/workbook/${productId}/monthly${qs}`);
   }
 
   /** RA-PRO.44 — OCs abiertas del SKU: folio, fecha, llegada estimada y qué se pidió. */

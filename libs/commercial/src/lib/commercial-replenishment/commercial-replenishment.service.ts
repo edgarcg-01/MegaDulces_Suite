@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import {
-  compareWarehouseCodes, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, validarSeguimiento,
+  compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
+  validarSeguimiento,
 } from '@megadulces/contracts';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 
@@ -1384,6 +1385,12 @@ export class CommercialReplenishmentService {
                  -- las unidades crudas de varios almacenes y dividir después mezcla las unidades.
                  round((COALESCE(sum(b.rop_reorder),0) / ${DBF})::numeric, 1) AS reorder_cjs,
                  round((COALESCE(sum(b.rop_max),0) / ${DBF})::numeric, 1) AS max_cjs,
+                 -- [RA-PRO.65] El maximo de la CELDA sin COALESCE: NULL = este almacen no tiene
+                 -- politica de reorden (Zamora Centro con el 83185, medido 2026-10-01). Un 0 se
+                 -- leeria "maximo cero", que es otra afirmacion. jsonb_strip_nulls lo quita del
+                 -- payload y el front lo declara "sin minimo".
+                 round((sum(b.rop_max) / ${DBF})::numeric, 1)    AS max_cjs_cell,
+                 round((sum(b.rop_reorder) / ${DBF})::numeric, 1) AS reorder_cjs_cell,
                  -- U.2 — el valuado SÓLO se publica si el peldaño de este almacén está verificado.
                  -- Si no, va NULL: sumar un valuado que el dinero contradice lo esconde. Lo que el
                  -- árbitro sí puede afirmar viaja aparte, en rung_arbitrado.
@@ -1434,6 +1441,7 @@ export class CommercialReplenishmentService {
                  -- contra pedido_valor, que el backend ya calcula celda por celda.
                  jsonb_object_agg(col_code, jsonb_strip_nulls(jsonb_build_object(
                    'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran, 'cc', caja_cost,
+                   'mx', max_cjs_cell, 'rop', reorder_cjs_cell,
                    'rung', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_veredicto END,
                    'nat',  CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN exis_nativa END,
                    'natu', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_base_label END
@@ -1550,6 +1558,120 @@ export class CommercialReplenishmentService {
    * RA-PRO.32 — Detalle (drill-down) de un SKU de la Vista Excel: economía del producto +
    * desglose POR ALMACÉN (con su punto de compra/raíz resuelto por topología, sin hardcodear códigos).
    */
+  /**
+   * [RA-PRO.65] LA PELICULA DE 12 MESES de un SKU, para el globo de "V30d / Max" del desglose.
+   *
+   * Por mes: la venta en DINERO (siempre medida: es el arbitro del ADR-059 y la misma base con que
+   * el motor calcula su estacionalidad, RA-PRO.41) y las CAJAS solo donde el peldano esta medido
+   * (`units x rung_factor`, sin mezcla). Lo que no se puede medir se DECLARA (`cajas_parcial`), no
+   * se dibuja como cero. ⚠️ La razón histórica era que Wincaja dejaba `rung_factor` en NULL, pero
+   * eso YA NO ES CIERTO: con el corte a Kepler cerrado (el último, el CEDIS, el 2026-09-30) la
+   * cobertura medida el 2026-10-02 es del **99.9%** (1,954,385 de 1,955,704 filas a 365 d) y las 8
+   * sucursales están casi completas. La declaración se conserva porque sigue siendo la regla, no
+   * porque hoy falte el dato — y así nadie hereda la premisa vieja.
+   *
+   * La venta de las RUTAS se pliega a su sucursal madre, con el MISMO mapa que usa el fact
+   * (`import-replenishment-plan.js`, CTE rmap), para que el globo cuadre con la columna V30d.
+   *
+   * `prorrateo_60_40` = 0.6 x venta de los ultimos 30 d + 0.4 x venta de los PROXIMOS 30 d del
+   * ano anterior. Es la regla del sistema anterior del comprador; viaja como REFERENCIA, no
+   * alimenta el pedido (eso lo hace la estacion del motor).
+   */
+  async monthlySales(productId: string, code?: string): Promise<MonthlySalesResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(productId)) throw new BadRequestException('product_id inválido');
+    const whCode = (code || '').trim();
+    if (whCode && !/^[A-Za-z0-9-]{1,20}$/.test(whCode)) throw new BadRequestException('código de almacén inválido');
+    return this.tk.run(async (trx) => {
+      const prod = (await trx('catalog.products').where({ tenant_id: tenantId, id: productId })
+        .first('sku', 'nombre')) as { sku: string; nombre: string } | undefined;
+      if (!prod) return { product: null, warehouse: whCode || null, bf: null, months: [], window: null };
+      // ⚠️ EL DIVISOR ES EL MISMO QUE EL DE LA COLUMNA "V30d", `suf * bf` — no sólo `bf`.
+      // `SUF` (RA-PRO.28) son las sub-unidades de demanda por unidad de stock: vale 1 en el
+      // catálogo normal y >1 en granel. Dividir sólo por `bf` deja el globo en otra unidad que la
+      // columna de la que se abre. Medido en prod el 2026-10-02 sobre 18,895 celdas con venta:
+      // con `suf` el globo y la columna coinciden (razón mediana 0.99), y sin él los **15 SKUs de
+      // granel** (94 celdas) salían con razón mediana **14.02×** — el 95436 mostraba 11.7 cajas
+      // donde la columna decía 0.8, porque su `suf` es 11.
+      const econ = (await trx.raw(
+        `SELECT COALESCE(max(bf),1) AS bf, COALESCE(max(suf),1) AS suf
+           FROM analytics.replenishment_plan
+          WHERE tenant_id = ? AND product_id = ?
+            AND (CAST(? AS text) IS NULL
+                 OR warehouse_id IN (SELECT id FROM commercial.warehouses
+                                      WHERE tenant_id = ? AND code = CAST(? AS text)))`,
+        [tenantId, productId, whCode || null, tenantId, whCode || null])).rows[0] || {};
+      const bf = Number(econ.bf) || 1;
+      const suf = Number(econ.suf) || 1;
+      const div = suf * bf;
+      const binds: Record<string, unknown> = { t: tenantId, p: productId, bf: div, code: whCode || null };
+      const base = `
+        WITH rmap AS (
+          SELECT route_wh, home_wh FROM (
+            SELECT rw.id route_wh, m.warehouse_id home_wh,
+                   row_number() OVER (PARTITION BY rw.id ORDER BY sum(m.revenue) DESC NULLS LAST) rn
+              FROM commercial.warehouses rw
+              JOIN analytics.sales_by_route_monthly m
+                ON m.tenant_id = rw.tenant_id AND m.route_code = 'WIN-' || replace(rw.code, 'RUTA-', '')
+             WHERE rw.tenant_id = :t AND rw.code LIKE 'RUTA-%' AND rw.deleted_at IS NULL
+             GROUP BY rw.id, m.warehouse_id) z
+           WHERE rn = 1),
+        ids AS (
+          SELECT CAST(:p AS uuid) AS id
+          UNION
+          SELECT pa.alias_product_id FROM commercial.product_aliases pa
+           WHERE pa.tenant_id = :t AND pa.canonical_product_id = CAST(:p AS uuid) AND pa.deleted_at IS NULL),
+        s AS (
+          SELECT sd.sale_date, sd.revenue, sd.units, sd.rung_factor, sd.rung_mixed,
+                 COALESCE(rm.home_wh, sd.warehouse_id) AS wh
+            FROM analytics.sales_daily sd
+            LEFT JOIN rmap rm ON rm.route_wh = sd.warehouse_id
+           WHERE sd.tenant_id = :t AND sd.product_id IN (SELECT id FROM ids)
+             AND sd.sale_date >= date_trunc('month', CURRENT_DATE) - interval '24 months'),
+        f AS (
+          SELECT s.* FROM s
+           WHERE CAST(:code AS text) IS NULL
+              OR s.wh IN (SELECT id FROM commercial.warehouses WHERE tenant_id = :t AND code = CAST(:code AS text)))`;
+      // medido = la fila trae peldano y no esta mezclada. Cajas = piezas base / factor de caja.
+      const MED = `(f.rung_factor IS NOT NULL AND NOT COALESCE(f.rung_mixed, false))`;
+      const months = (await trx.raw(`${base}
+        SELECT to_char(date_trunc('month', f.sale_date), 'YYYY-MM') AS mes,
+               round(sum(f.revenue)::numeric, 2) AS venta,
+               round((sum(f.units * f.rung_factor) FILTER (WHERE ${MED}) / :bf)::numeric, 1) AS cajas,
+               bool_or(NOT ${MED}) AS cajas_parcial
+          FROM f GROUP BY 1 ORDER BY 1`, binds)).rows as Array<{ mes: string; venta: string; cajas: string | null; cajas_parcial: boolean }>;
+      // Ventanas del prorrateo: ultimos 30 d y los proximos 30 d de hace un ano (mismo calendario).
+      const w = (await trx.raw(`${base}
+        SELECT round((sum(f.units * f.rung_factor) FILTER (WHERE ${MED} AND f.sale_date >= CURRENT_DATE - 30 AND f.sale_date < CURRENT_DATE) / :bf)::numeric, 1) AS v30,
+               bool_or(NOT ${MED}) FILTER (WHERE f.sale_date >= CURRENT_DATE - 30 AND f.sale_date < CURRENT_DATE) AS v30_parcial,
+               round((sum(f.units * f.rung_factor) FILTER (WHERE ${MED} AND f.sale_date >= CURRENT_DATE - 365 AND f.sale_date < CURRENT_DATE - 335) / :bf)::numeric, 1) AS ly_next30,
+               bool_or(NOT ${MED}) FILTER (WHERE f.sale_date >= CURRENT_DATE - 365 AND f.sale_date < CURRENT_DATE - 335) AS ly_parcial,
+               count(*) FILTER (WHERE f.sale_date >= CURRENT_DATE - 365 AND f.sale_date < CURRENT_DATE - 335) AS ly_filas
+          FROM f`, binds)).rows[0] || {};
+      const num = (v: unknown): number | null => (v == null ? null : Number(v));
+      const v30 = num(w.v30) ?? 0;
+      // Sin filas el ano pasado NO es "vendio cero": puede que no existiera el SKU o la plaza. Se
+      // declara y el prorrateo no se publica.
+      const lyMedible = Number(w.ly_filas || 0) > 0 && !w.ly_parcial;
+      const ly = lyMedible ? (num(w.ly_next30) ?? 0) : null;
+      return {
+        product: prod,
+        warehouse: whCode || null,
+        // Se publica el DIVISOR que de verdad se usó (`suf × bf`), no `bf` a secas: si el campo
+        // dijera 1 mientras la cuenta dividió por 11, serían dos campos del mismo hecho
+        // contradiciéndose, que es como se cuelan los errores de unidad (CE.10).
+        bf: div,
+        months: months.map((m) => ({ mes: m.mes, venta: Number(m.venta) || 0, cajas: num(m.cajas), cajas_parcial: !!m.cajas_parcial })),
+        window: {
+          v30_cajas: v30, v30_parcial: !!w.v30_parcial,
+          ly_next30_cajas: ly,
+          ly_motivo: lyMedible ? null : (Number(w.ly_filas || 0) === 0 ? 'sin_venta_ano_anterior' : 'peldano_no_medido'),
+          prorrateo_60_40: ly == null ? null : Math.round((0.6 * v30 + 0.4 * ly) * 10) / 10,
+        },
+      };
+    });
+  }
+
   /**
    * RA-PRO.44 — QUÉ VIENE EN CAMINO de un SKU, con folio y fecha. Es la explicación del "Pedido 0":
    * cuando el motor no pide es casi siempre porque hay OC abierta, y hasta ahora eso era invisible
@@ -2435,7 +2557,7 @@ export class CommercialReplenishmentService {
             .whereRaw('pl.tenant_id = w.tenant_id AND pl.warehouse_id = w.id'))
           .orWhere('w.is_purchase_hub', true))
         .modify((q) => { if (permitidos) q.whereIn('w.id', permitidos); })
-        .select('w.id as id', 'w.code as code', 'w.name as name',
+        .select('w.id as id', 'w.code as code', 'w.name as name', 'w.kind as kind',
           'w.purchase_zone as purchase_zone', 'w.is_purchase_hub as is_purchase_hub',
           'w.display_order as display_order'))
         // Orden canónico de tiendas para el multiselect (mismo que las columnas del workbook).
