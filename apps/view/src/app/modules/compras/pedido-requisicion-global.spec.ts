@@ -56,6 +56,19 @@ describe('[RA-PRO.54] agruparPorProveedor — una hoja por proveedor', () => {
     expect(h.puntos[0].consolidado).toBe(false);
   });
 
+  it('simulación unitaria: SKU 17083, Padre Hidalgo (01), 5 cajas pedido a proveedor', () => {
+    const [h] = agruparPorProveedor([
+      L({ sku: '17083', nombre: 'ALTOS CAM CHICA COLOR 1KG', branchCode: '01', branchName: 'Padre Hidalgo', entregaCode: '01', entregaName: 'Padre Hidalgo', cajas: 5, valor: 5 * 862 }),
+    ]);
+    expect(h.supplierName).toBe('BOLSAS DE LOS ALTOS');
+    expect(h.puntos).toEqual([{ code: '01', name: 'Padre Hidalgo', consolidado: false, cajas: 5, valor: 4310 }]);
+    expect(h.productos[0].sku).toBe('17083');
+    expect(h.productos[0].cajas).toBe(5);
+    expect(h.productos[0].porPunto).toEqual({ '01': 5 });
+    expect(h.nTraspasos).toBe(0);
+    expect(h.repartos).toEqual([]);
+  });
+
   it('ignora renglones en cero o inválidos', () => {
     expect(agruparPorProveedor([L({ cajas: 0 }), L({ cajas: NaN }), L({ cajas: -2 })])).toEqual([]);
   });

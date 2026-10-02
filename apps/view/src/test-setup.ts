@@ -82,4 +82,12 @@ export function nadieIntersecto(): boolean {
   return IntersectionObserverDePrueba.instancias.every((i) => !i.disparado);
 }
 
+class ResizeObserverDePrueba {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+(globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverDePrueba;
+
 beforeEach(() => { IntersectionObserverDePrueba.instancias = []; });
+

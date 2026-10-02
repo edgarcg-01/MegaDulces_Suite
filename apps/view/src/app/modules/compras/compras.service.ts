@@ -402,6 +402,10 @@ export interface RequisitionRow {
   id: string;
   folio: string;
   estado: RequisitionEstado;
+  source_type?: SourceType;
+  source_warehouse_id?: string | null;
+  source_warehouse_code?: string | null;
+  source_warehouse_name?: string | null;
   target_basis: TargetBasis;
   total_lines: number;
   total_units: number;
@@ -421,6 +425,8 @@ export interface RequisitionLine {
   supplier_name: string | null;
   source_type: SourceType;
   source_warehouse_id: string | null;
+  source_warehouse_code?: string | null;
+  source_warehouse_name?: string | null;
   on_hand: number;
   in_transit: number;
   min_stock: number;
@@ -1047,10 +1053,11 @@ export class ComprasService {
     return this.http.post<{ groups: number; merged: number; products_repointed: number }>(`${this.base}/categories/auto-dedup`, {});
   }
 
-  listRequisitions(q?: { estado?: string; warehouse_id?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[] }> {
+  listRequisitions(q?: { estado?: string; warehouse_id?: string; source_type?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[] }> {
     const p = new URLSearchParams();
     if (q?.estado) p.set('estado', q.estado);
     if (q?.warehouse_id) p.set('warehouse_id', q.warehouse_id);
+    if (q?.source_type) p.set('source_type', q.source_type);
     if (q?.page) p.set('page', String(q.page));
     if (q?.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();

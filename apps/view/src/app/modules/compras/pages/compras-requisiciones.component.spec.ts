@@ -179,4 +179,58 @@ describe('[MT] el drill-down renderizado', () => {
 
     expect(filaNavego).toBe(1);
   });
+
+  describe('segmentación en pestañas (Requerimientos a Proveedor vs Traspaso)', () => {
+    it('inicia por defecto en la pestaña supplier y consulta con source_type: supplier', () => {
+      let ultParams: any = null;
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter([]),
+          {
+            provide: ComprasService,
+            useValue: {
+              listRequisitions: (q: any) => {
+                ultParams = q;
+                return of({ rows: [FILA], total: 1 });
+              },
+            },
+          },
+        ],
+        imports: [ComprasRequisicionesComponent],
+      });
+      const fix = TestBed.createComponent(ComprasRequisicionesComponent);
+      fix.detectChanges();
+
+      expect(fix.componentInstance.tab()).toBe('supplier');
+      expect(ultParams?.source_type).toBe('supplier');
+    });
+
+    it('al cambiar a branch consulta con source_type: branch', () => {
+      let ultParams: any = null;
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter([]),
+          {
+            provide: ComprasService,
+            useValue: {
+              listRequisitions: (q: any) => {
+                ultParams = q;
+                return of({ rows: [], total: 0 });
+              },
+            },
+          },
+        ],
+        imports: [ComprasRequisicionesComponent],
+      });
+      const fix = TestBed.createComponent(ComprasRequisicionesComponent);
+      fix.detectChanges();
+
+      fix.componentInstance.onTabChange('branch');
+      fix.detectChanges();
+
+      expect(fix.componentInstance.tab()).toBe('branch');
+      expect(ultParams?.source_type).toBe('branch');
+    });
+  });
 });
+
