@@ -130,27 +130,59 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
         <app-load-state [error]="error()" (retry)="reload()"></app-load-state>
       } @else {
         @if (view() === 'arbol') {
-          <!-- ⚠️ Los anchos van en el <th> Y en el <td>. Con [scrollable] PrimeNG renderiza
+          <!-- [IG.9] Canal › período › folio › depósito. Los dos de abajo se piden AL ABRIR: un
+               canal de 90 días son miles de documentos y decenas de miles de depósitos.
+               ⚠️ Los anchos van en el <th> Y en el <td>. Con [scrollable] PrimeNG renderiza
                encabezado y cuerpo como DOS tablas separadas, así que el width del <th> no llega
-               al <td> y las columnas quedan corridas respecto de su título. Se veía en pantalla:
-               "3,487" a la izquierda y "Docs" al extremo derecho. -->
-          <p-treetable [value]="treeNodes()" [scrollable]="true" styleClass="p-treetable-sm in-table">
+               al <td> y las columnas quedan corridas respecto de su título. -->
+          <div class="in-grainbar">
+            <app-segmented [options]="treeGrainOpts" [value]="treeGrain()"
+                           (valueChange)="setTreeGrain($event)" ariaLabel="Grano del árbol" />
+            <span class="in-hint">
+              @if (treeGrain() === 'dia') {
+                El día abre a sus folios, y cada folio a los depósitos que se casaron contra él.
+              } @else {
+                Con este grano el árbol llega hasta el período. Para bajar a folio y a depósito, poné Día.
+              }
+            </span>
+          </div>
+          <p-treetable [value]="treeNodes()" [scrollable]="true" styleClass="p-treetable-sm in-table"
+                       (onNodeExpand)="onTreeExpand($event)">
             <ng-template #header>
-              <tr><th>Canal / plaza</th><th class="ta-r" style="width:8rem">Docs</th><th class="ta-r" style="width:12rem">Importe</th><th class="ta-r" style="width:7rem">%</th></tr>
+              <tr>
+                <th>Canal · período · folio · depósito</th>
+                <th class="ta-r" style="width:6rem">Docs</th>
+                <th class="ta-r" style="width:10rem">Importe</th>
+                <th class="ta-r" style="width:10rem">Cobrado</th>
+                <th class="ta-r" style="width:10rem">Pendiente</th>
+                <th style="width:15rem">Cómo entró</th>
+                <th class="ta-r" style="width:5rem">%</th>
+              </tr>
             </ng-template>
             <ng-template #body let-rowNode let-rowData="rowData">
-              <tr [ttRow]="rowNode">
+              <tr [ttRow]="rowNode" [class.in-cancel]="rowData.cancelado">
                 <td>
                   <p-treetabletoggler [rowNode]="rowNode" />
                   <span [class.strong]="rowData.level === 'canal'">{{ rowData.label }}</span>
                   @if (rowData.residuo) { <span class="in-tag">residuo</span> }
+                  @if (rowData.kind) {
+                    <span class="in-kind" [class.in-kind-int]="rowData.cancelado">{{ rowData.kind }}</span>
+                  }
+                  @if (rowData.sub) { <span class="in-sub">{{ rowData.sub }}</span> }
                 </td>
-                <td class="ta-r" style="width:8rem">{{ rowData.movs | number }}</td>
-                <td class="ta-r strong" style="width:12rem">{{ money(rowData.total) }}</td>
-                <td class="ta-r muted" style="width:7rem">{{ rowData.share_pct }}%</td>
+                <td class="ta-r" style="width:6rem">{{ rowData.movs | number }}</td>
+                <td class="ta-r strong" style="width:10rem">{{ money(rowData.total) }}</td>
+                <td class="ta-r" style="width:10rem">
+                  {{ rowData.cobrado === null || rowData.cobrado === undefined ? '' : money(rowData.cobrado) }}
+                </td>
+                <td class="ta-r" style="width:10rem" [class.in-deuda]="rowData.pendiente > 0">
+                  {{ rowData.pendiente === null || rowData.pendiente === undefined ? '' : money(rowData.pendiente) }}
+                </td>
+                <td style="width:15rem" class="muted in-como">{{ rowData.como }}</td>
+                <td class="ta-r muted" style="width:5rem">{{ rowData.share_pct }}%</td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="4" class="in-empty">Sin ingresos en el período.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="7" class="in-empty">Sin ingresos en el período.</td></tr></ng-template>
           </p-treetable>
         }
 
@@ -361,6 +393,13 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
     /* [IG.7] El canal y el "que es" conviven en el renglon: el canal viene del concepto de la
        poliza y esta dado vuelta; el "que es" sale del cliente del documento. Se muestran juntos
        a proposito, para que la contradiccion se vea en vez de resolverse en silencio. */
+    /* [IG.9] El arbol baja a folio y deposito: el renglon necesita decir QUE es y COMO entro. */
+    .in-sub { display: block; font-size: .72rem; color: var(--text-muted, #78716c); line-height: 1.4;
+      margin-left: 1.9rem; }
+    .in-como { font-size: .76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .in-cancel td { background: color-mix(in srgb, var(--warn-fg, #92400e) 8%, transparent); }
+    .in-cancel .strong, .in-cancel td:first-child { color: var(--warn-fg, #92400e); }
+    .in-hint { font-size: .78rem; color: var(--text-muted, #78716c); }
     .in-canal { display: block; font-size: .72rem; color: var(--text-muted, #78716c);
       text-transform: lowercase; }
     .in-kind { display: inline-block; font-size: .72rem; line-height: 1.5; padding: .05rem .4rem;
@@ -483,7 +522,16 @@ export class FinanzasIngresosComponent {
     return items;
   });
 
-  readonly treeNodes = computed<TreeNode[]>(() => (this.tree()?.tree || []).map((n) => this.toNode(n, true)));
+  // ⚠️ Deja de ser `computed`: el árbol ahora MUTA (los hijos llegan al abrir) y un computed se
+  // recalcularía desde cero perdiendo todo lo cargado. Lo llena `loadTree`.
+  readonly treeNodes = signal<TreeNode[]>([]);
+  /** Grano del SEGUNDO nivel del árbol. Debajo siempre baja a folio y a depósito. */
+  readonly treeGrain = signal<'dia' | 'mes' | 'trimestre'>('dia');
+  readonly treeGrainOpts = [
+    { label: 'Día', value: 'dia' },
+    { label: 'Mes', value: 'mes' },
+    { label: 'Trimestre', value: 'trimestre' },
+  ];
   readonly groupByLabel = computed(() => this.groupByOpts.find((o) => o.value === this.groupBy())?.label || 'Canal');
 
   readonly chartData = computed(() => {
@@ -555,8 +603,44 @@ export class FinanzasIngresosComponent {
       data: { ...n, residuo: n.key === 'otro' },
       expanded,
       children: (n.children || []).map((c) => this.toNode(c)),
-      leaf: !n.children?.length,
+      // ⚠️ `leaf` lo manda el SERVIDOR, no el hecho de que los hijos todavía no estén cargados.
+      // Derivarlo de `children.length` haría que todo nodo por cargar se dibujara sin flecha: el
+      // árbol se vería completo y terminado justo donde empieza lo que el usuario vino a ver.
+      leaf: n.leaf ?? !n.children?.length,
     };
+  }
+
+  /**
+   * `[IG.9]` Abrir un nodo pide sus hijos. Sólo la primera vez: después quedan en el nodo.
+   *
+   * Un canal de 90 días son miles de documentos y decenas de miles de depósitos, así que bajar a
+   * folio y a depósito se paga al abrir y no en la carga inicial.
+   */
+  onTreeExpand(ev: { node?: TreeNode }) {
+    const node = ev?.node;
+    const d = node?.data as (IncomeTreeNode & { cargando?: boolean }) | undefined;
+    if (!node || !d || node.children?.length || d.cargando) return;
+    if (d.level !== 'canal' && d.level !== 'periodo' && d.level !== 'folio') return;
+    if (d.level === 'canal') return;              // sus períodos ya vinieron en la carga inicial
+    if (!d.canal || !d.fecha) return;
+    d.cargando = true;
+    this.svc.incomeTreeChildren(d.canal, d.fecha, d.level === 'folio' ? (d.folio ?? undefined) : undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          node.children = r.nodes.map((c) => this.toNode(c));
+          node.leaf = r.nodes.length === 0;
+          d.cargando = false;
+          // El árbol de PrimeNG lee un arreglo por referencia: sin una copia nueva el renglón
+          // abierto queda vacío aunque los hijos ya estén adentro del nodo.
+          this.treeNodes.update((ns) => [...ns]);
+        },
+        error: () => {
+          d.cargando = false;
+          node.leaf = true;
+          this.error.set('No se pudieron cargar los movimientos de ese nivel.');
+        },
+      });
   }
 
   private fresh = { report: false, tree: false, sources: false, recon: false };
@@ -626,12 +710,31 @@ export class FinanzasIngresosComponent {
 
   private loadTree() {
     this.treeSub?.unsubscribe();
-    this.treeSub = this.svc.incomeTree(this.params()).pipe(takeUntilDestroyed(this.destroyRef))
+    this.treeSub = this.svc.incomeTree({ ...this.params(), grain: this.treeGrain() })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (t) => { this.tree.set(t); this.fresh.tree = true; },
+        next: (t) => {
+          this.tree.set(t);
+          // El primer canal nace abierto: un árbol que arranca todo cerrado obliga a adivinar
+          // dónde hay algo. Los de abajo se abren a mano.
+          this.treeNodes.set((t.tree || []).map((n, i) => this.toNode(n, i === 0)));
+          this.fresh.tree = true;
+        },
         // Declara, no se calla: «sin ingresos» y «no se pudo cargar» se leen igual (lección GX.19).
-        error: () => { this.tree.set(null); this.fresh.tree = false; this.error.set('No se pudo cargar el desglose por canal.'); },
+        error: () => {
+          this.tree.set(null); this.treeNodes.set([]); this.fresh.tree = false;
+          this.error.set('No se pudo cargar el desglose por canal.');
+        },
       });
+  }
+
+  /** `[IG.9]` Cambiar el grano del segundo nivel recarga el árbol: los hijos ya no sirven. */
+  setTreeGrain(g: string) {
+    const v = g === 'mes' || g === 'trimestre' ? g : 'dia';
+    if (v === this.treeGrain()) return;
+    this.treeGrain.set(v);
+    this.fresh.tree = false;
+    this.loadTree();
   }
 
   private loadSources() {

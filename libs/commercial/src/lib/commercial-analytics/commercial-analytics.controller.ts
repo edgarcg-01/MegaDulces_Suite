@@ -9,7 +9,7 @@ import { RoutePromoService, PromoQuery } from './route-promo.service';
 import { SelloutChatService } from './sellout-chat.service';
 // [IG.1.1] La forma de los filtros de ingreso vive con la lógica pura, no en el controller.
 import type { IncomeQueryFilters } from './period-coverage';
-import type { IncomeRecon, IncomeReport, IncomeSources, IncomeTree } from '@megadulces/contracts';
+import type { IncomeRecon, IncomeReport, IncomeSources, IncomeTree, IncomeTreeChildren } from '@megadulces/contracts';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
@@ -436,9 +436,26 @@ export class CommercialAnalyticsController {
     });
   }
 
+  /**
+   * `[IG.9]` Los hijos de un nodo del árbol, pedidos al abrir.
+   *
+   * ⚠️ Va declarada ANTES que `income/tree`: una ruta con segmento fijo tiene que ganarle a
+   * cualquier `:param` que pueda tragarse su primer segmento.
+   */
+  @Get('income/tree/children')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({ summary: 'IG.9 — Hijos del árbol: sin folio da los documentos del día, con folio da cada depósito.' })
+  incomeTreeChildren(
+    @Query('canal') canal: string,
+    @Query('fecha') fecha: string,
+    @Query('folio') folio?: string,
+  ): Promise<IncomeTreeChildren> {
+    return this.service.incomeTreeChildren({ canal, fecha, folio });
+  }
+
   @Get('income/tree')
   @RequirePermissions(Permission.FINANCE_INCOME_VER)
-  @ApiOperation({ summary: 'IG — Árbol Canal → Plaza. Mismos filtros que /income.' })
+  @ApiOperation({ summary: 'IG — Árbol Canal → día → folio → depósito. Mismos filtros que /income.' })
   incomeTree(
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -447,8 +464,13 @@ export class CommercialAnalyticsController {
     @Query('concepto') concepto?: string,
     @Query('min_importe') minImporte?: string,
     @Query('max_importe') maxImporte?: string,
+    @Query('grain') grain?: string,
   ): Promise<IncomeTree> {
-    return this.service.incomeTree(this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte));
+    const g = grain === 'mes' || grain === 'trimestre' ? grain : 'dia';
+    return this.service.incomeTree({
+      ...this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte),
+      grain: g,
+    });
   }
 
   @Get('income/sources')

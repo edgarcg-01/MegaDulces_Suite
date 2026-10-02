@@ -35,7 +35,8 @@ import { EXPENSE_FAMILIA_SERIES_KEY, expenseFamiliaLabel } from '@megadulces/con
 // [IG.1] Canales de venta: la etiqueta se define UNA vez (el canal vive en c6, no en la cuenta).
 import { SALES_CANAL_RESIDUO, SALES_CANAL_SERIES_KEY, salesCanalLabel } from '@megadulces/contracts';
 import type { IncomeBridgeItem, IncomeCuenta, IncomeGrain, IncomeRecon, IncomeReconRow,
-  IncomeReconTotals, IncomeReport, IncomeSources, IncomeTree } from '@megadulces/contracts';
+  IncomeReconTotals, IncomeReport, IncomeSources, IncomeTree, IncomeTreeChildren,
+  IncomeTreeNode } from '@megadulces/contracts';
 /** Nodos del árbol de ingresos mientras se arma (los hijos viven en un Map por clave). */
 interface TreePlaza { key: string; label: string; level: string; total: number; movs: number }
 /** Un agregado de una sola columna `v`; knex devuelve el numérico de Postgres como texto. */
@@ -2846,48 +2847,187 @@ export class CommercialAnalyticsService {
   }
 
   /** `[IG.1.2]` Árbol Canal → Plaza, con totales y share por nodo. */
-  async incomeTree(q: IncomeQueryFilters): Promise<IncomeTree> {
+  async incomeTree(q: IncomeQueryFilters & { grain?: IncomeGrain }): Promise<IncomeTree> {
     const tenantId = this.tenantCtx.requireTenantId();
     const { from, to } = this.expenseRange(q);
+    const grain: IncomeGrain =
+      q.grain === 'mes' || q.grain === 'trimestre' ? q.grain : 'dia';
+    const per = (col: string) =>
+      grain === 'trimestre'
+        ? `to_char(${col}, 'YYYY') || '-T' || to_char(${col}, 'Q')`
+        : `to_char(${col}, '${grain === 'mes' ? 'YYYY-MM' : 'YYYY-MM-DD'}')`;
+
     return this.tk.run(async (trx) => {
-      const rows: Array<{ canal: string; plaza: string; total: string; movs: number }> =
+      // ⚠️ Los dos primeros niveles siguen saliendo de `income_entries_src` con los MISMOS filtros
+      // que la pestaña Tabla. Cambió por qué se agrupa (período en vez de plaza), no de dónde sale
+      // el número: el total del árbol sigue siendo el mismo peso que ya se publicaba.
+      const rows: Array<{ canal: string; periodo: string; total: string; movs: number }> =
         await this.incomeQuery(trx, tenantId, from, to, q)
-        .groupByRaw('e.canal, e.plaza')
-        .select('e.canal', trx.raw("COALESCE(NULLIF(e.plaza,''),'(sin plaza)') AS plaza"),
-          trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'));
+          .groupByRaw(`e.canal, ${per('e.fecha')}`)
+          .select('e.canal', trx.raw(`${per('e.fecha')} AS periodo`),
+            trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'),
+            trx.raw('COUNT(*)::int AS movs'));
 
       const total = rows.reduce((a, r) => a + Number(r.total), 0);
       const share = (v: number) => (total ? +((v / total) * 100).toFixed(1) : 0);
-      const canales = new Map<string, TreeCanal>();
+
+      const canales = new Map<string, { total: number; movs: number; hijos: IncomeTreeNode[] }>();
       for (const r of rows) {
         const ck = r.canal || 'otro';
-        if (!canales.has(ck)) canales.set(ck, { key: ck, label: salesCanalLabel(ck), level: 'canal', total: 0, movs: 0, children: new Map() });
+        if (!canales.has(ck)) canales.set(ck, { total: 0, movs: 0, hijos: [] });
         const C = canales.get(ck)!;
-        C.total += Number(r.total); C.movs += Number(r.movs);
-        // ⚠️ El residuo NO se desglosa por plaza: sus "plazas" son nombres de cliente sueltos
-        // (233 de 271 en el rango por defecto). Desplegarlas fingiría 233 puntos de venta.
-        if (ck === SALES_CANAL_RESIDUO) continue;
-        const p = r.plaza;
-        if (!C.children.has(p)) C.children.set(p, { key: `${ck}|${p}`, label: p, level: 'plaza', total: 0, movs: 0 });
-        const P = C.children.get(p)!;
-        P.total += Number(r.total); P.movs += Number(r.movs);
+        C.total += Number(r.total);
+        C.movs += Number(r.movs);
+        C.hijos.push({
+          key: `${ck}|${r.periodo}`, label: this.periodoLabel(r.periodo, grain), level: 'periodo',
+          total: +Number(r.total).toFixed(2), movs: Number(r.movs), share_pct: share(Number(r.total)),
+          // ⛔ Sólo el grano DÍA baja a folio: un mes de un canal son cientos de documentos y el
+          // árbol dejaría de servir para lo que sirve. Con mes o trimestre el período es hoja.
+          leaf: grain !== 'dia',
+          canal: ck, fecha: grain === 'dia' ? r.periodo : null,
+        });
       }
-      // ⚠️ El residuo va SIEMPRE al final, no donde lo ponga su monto. Ordenar por importe lo
-      // dejaba ENCABEZANDO la tabla (73.2 % con el clasificador roto, ~12 % con el arreglado), y
-      // un bucket que significa «no pude clasificar esto» liderando el ranking se lee como si
-      // fuera la categoría más grande del negocio. No es una categoría: es lo que falta clasificar.
-      const tree = [...canales.values()]
+
+      const tree: IncomeTreeNode[] = [...canales.entries()]
         .sort((a, b) => {
-          if (a.key === SALES_CANAL_RESIDUO) return 1;
-          if (b.key === SALES_CANAL_RESIDUO) return -1;
-          return b.total - a.total;
+          if (a[0] === SALES_CANAL_RESIDUO) return 1;
+          if (b[0] === SALES_CANAL_RESIDUO) return -1;
+          return b[1].total - a[1].total;
         })
-        .map((c) => ({
-          ...c, share_pct: share(c.total),
-          children: [...c.children.values()].sort((a, b) => b.total - a.total)
-            .map((p) => ({ ...p, share_pct: share(p.total) })),
+        .map(([ck, C]) => ({
+          key: ck, label: salesCanalLabel(ck), level: 'canal',
+          total: +C.total.toFixed(2), movs: C.movs, share_pct: share(C.total), leaf: false,
+          canal: ck,
+          children: C.hijos.sort((a, b) => String(b.key).localeCompare(String(a.key))),
         }));
-      return { from, to, total: +total.toFixed(2), tree };
+
+      return { from, to, total: +total.toFixed(2), grain, tree };
+    });
+  }
+
+  /** La etiqueta del período en palabras: este árbol lo lee una persona, no una máquina. */
+  private periodoLabel(p: string, grain: IncomeGrain): string {
+    if (grain === 'trimestre') return p.replace('-T', ' · trimestre ');
+    const MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+      'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const parte = p.split('-');
+    const mes = MES[Number(parte[1]) - 1] ?? parte[1];
+    return grain === 'mes' ? `${mes} ${parte[0]}` : `${Number(parte[2])} de ${mes} ${parte[0]}`;
+  }
+
+  /**
+   * `[IG.9]` **Los dos niveles de abajo del árbol, pedidos al abrir.**
+   *
+   * Edgar: *"necesitamos mostrar por día, y de ahí mostrar por folio"* · *"luego los movimientos y
+   * sus depósitos o todo lo relacionado"*.
+   *
+   * ⛔ **Por qué por demanda y no en la carga inicial.** Un canal de 90 días son miles de
+   * documentos y decenas de miles de aplicaciones de cobro. Traerlos de una haría exactamente lo
+   * contrario de lo que este árbol existe para hacer, y rompería la compuerta de 1 s que la
+   * conciliación cumple hoy en 35 ms.
+   *
+   * Dos niveles:
+   *  - sin `folio` → **los documentos de ese canal en ese día**, con su plaza, su cliente, su
+   *    veredicto y cuánto se cobró. El documento que el ERP canceló viene marcado.
+   *  - con `folio` → **cada depósito**, con su banco, su fecha y su monto. Es el fondo del árbol.
+   */
+  async incomeTreeChildren(
+    q: { canal: string; fecha: string; folio?: string },
+  ): Promise<IncomeTreeChildren> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const fecha = String(q.fecha || '').slice(0, 10);
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(fecha)) {
+      throw new BadRequestException('fecha invalida: se espera YYYY-MM-DD');
+    }
+
+    return this.tk.run(async (trx) => {
+      if (!q.folio) {
+        const rows = (await trx.raw(
+          `SELECT folio, plaza, cliente_code, cliente_nombre, kind, doc_cancelado, doc_tipo,
+                  importe, lineas, cobrado, pagos, pendiente, cuentas
+             FROM analytics.income_bridge_src(?::date, ?::date)
+            WHERE tenant_id = ? AND canal = ?
+            ORDER BY importe DESC`,
+          [fecha, fecha, tenantId, q.canal])).rows as Array<Record<string, unknown>>;
+
+        const tot = rows.reduce((a, r) => a + Number(r['importe'] ?? 0), 0);
+        const nodes: IncomeTreeNode[] = rows.map((r) => {
+          const ctas = (r['cuentas'] as Array<{ nombre: string | null }> | null) ?? [];
+          const pagos = Number(r['pagos'] ?? 0);
+          const cancelado = Boolean(r['doc_cancelado']);
+          const esNota = String(r['doc_tipo']) !== 'UD1301';
+          const banco = ctas.length === 1 ? ctas[0].nombre : `${ctas.length} bancos`;
+          return {
+            key: `${q.canal}|${fecha}|${r['folio']}`,
+            label: `Folio ${r['folio']}`,
+            level: 'folio',
+            total: +Number(r['importe'] ?? 0).toFixed(2),
+            movs: Number(r['lineas'] ?? 1),
+            share_pct: tot ? +((Number(r['importe'] ?? 0) / tot) * 100).toFixed(1) : 0,
+            leaf: pagos === 0,
+            sub: [r['plaza'], r['cliente_nombre'] ?? r['cliente_code']]
+              .filter(Boolean).join(' · ') || null,
+            kind: cancelado ? 'CANCELADO' : (esNota ? 'Nota de credito' : (r['kind'] as string | null)),
+            cancelado,
+            cobrado: r['cobrado'] === null ? null : +Number(r['cobrado']).toFixed(2),
+            pendiente: r['pendiente'] === null ? null : +Number(r['pendiente']).toFixed(2),
+            como: cancelado
+              ? 'el ERP lo cancelo y su ingreso sigue publicado'
+              : (pagos === 0
+                ? (esNota ? 'se aplica contra una factura' : 'sin cobro todavia')
+                : `${pagos} ${pagos === 1 ? 'deposito' : 'depositos'}`
+                  + (ctas.length ? ` · ${banco}` : '')),
+            canal: q.canal, fecha, folio: String(r['folio']),
+          };
+        });
+        return { level: 'folio', nodes };
+      }
+
+      // ── El fondo del árbol: cada aplicación de cobro contra ese documento ──────────────────
+      // ⛔ El cobro CANCELADO se excluye. `kdm5` conserva su aplicación aunque el cobro valga
+      // $0.00: el 0029792 sigue ahí por $19,810.54 contra la factura 0008789. Quien no cruce el
+      // estado del cobro sobre-cuenta la cobranza.
+      const rows = (await trx.raw(
+        `SELECT co.c9::date AS fecha, btrim(x.c6) AS folio_cobro,
+                (x.c4 IN (5, 7)) AS es_dinero, x.c12::numeric AS monto,
+                btrim(co.c45) AS cuenta, b.c2 AS banco,
+                CASE WHEN btrim(coalesce(b.c3, '')) = 'EFECTIVO' THEN 'efectivo'
+                     WHEN btrim(coalesce(b.c3, '')) ~ '^[0-9]+$' THEN 'banco'
+                     WHEN b.c3 IS NOT NULL THEN 'ajuste'
+                     ELSE 'sin_catalogo' END AS medio
+           FROM kepler_ods.kdm5 x
+           JOIN kepler_ods.kdm1 co
+             ON co.sucursal = x.sucursal AND co.c1 = x.c1 AND co.c2 = x.c2 AND co.c3 = x.c3
+            AND co.c4::numeric = x.c4 AND co.c5::numeric = x.c5 AND btrim(co.c6) = btrim(x.c6)
+           LEFT JOIN kepler_ods.kdb1 b
+             ON b.sucursal = x.sucursal AND btrim(b.c1) = btrim(co.c45)
+          WHERE x.sucursal = '00' AND x.c2 = 'U' AND x.c3 = 'A'
+            AND x.c8 = 'D' AND x.c9 = 13 AND x.c10 = 1 AND btrim(x.c11) = ?
+            AND btrim(coalesce(co.c43::text, '')) <> 'C'
+          ORDER BY (x.c4 IN (5, 7)) DESC, x.c12::numeric DESC`,
+        [q.folio])).rows as Array<Record<string, unknown>>;
+
+      const tot = rows.reduce((a, r) => a + Number(r['monto'] ?? 0), 0);
+      const nodes: IncomeTreeNode[] = rows.map((r, i) => {
+        const dinero = Boolean(r['es_dinero']);
+        const medio = String(r['medio']);
+        return {
+          key: `${q.canal}|${fecha}|${q.folio}|${r['folio_cobro']}|${i}`,
+          label: dinero ? `Cobro ${r['folio_cobro']}` : `Nota de credito ${r['folio_cobro']}`,
+          level: 'pago',
+          total: +Number(r['monto'] ?? 0).toFixed(2),
+          movs: 1,
+          share_pct: tot ? +((Number(r['monto'] ?? 0) / tot) * 100).toFixed(1) : 0,
+          leaf: true,
+          sub: `${String(r['fecha']).slice(0, 10)} · ${r['banco'] ?? r['cuenta'] ?? 'sin catalogo'}`,
+          kind: null, cancelado: false, cobrado: null, pendiente: null,
+          como: medio === 'efectivo' ? 'efectivo'
+            : (medio === 'banco' ? 'deposito'
+              : (dinero ? 'ajuste - no es un deposito' : 'nota de credito')),
+          canal: q.canal, fecha, folio: String(q.folio),
+        };
+      });
+      return { level: 'pago', nodes };
     });
   }
 
