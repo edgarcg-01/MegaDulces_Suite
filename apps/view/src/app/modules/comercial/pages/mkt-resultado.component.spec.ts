@@ -187,6 +187,49 @@ describe('[MKT.6] MktResultadoComponent · un nulo no es un cero', () => {
     expect(comp.visibles().length).toBe(1);
   });
 
+  /**
+   * `[UIM.2]` — **La tabla tiene que decir algo en un teléfono, y el rótulo tiene que viajar.**
+   *
+   * Ocho columnas no entran en 390 px. La salida del repo es `.dt-scope` en el contenedor +
+   * `.dt-stack` en la tabla, y entonces cada celda baja como un renglón propio.
+   *
+   * ⚠️ Por qué esto necesita una prueba y no alcanza con `check:tables`: esa compuerta sólo mira
+   * que las DOS CLASES estén en el archivo. Con las clases puestas y las celdas sin `data-label`,
+   * el gate se pone verde y el teléfono muestra una columna de valores pelados —ocho números sin
+   * decir cuál es la venta y cuál la base—, que es peor que el scroll. El rótulo se pinta con
+   * `::before { content: attr(data-label) }`: si el atributo falta, no hay rótulo y nada falla.
+   *
+   * Y `role="cell"` no es adorno: al dejar de ser `display: table-cell` la celda PIERDE su rol
+   * implícito, y el lector de pantalla encuentra filas sin celdas adentro.
+   */
+  it('⭐ apilada en teléfono: cada celda baja CON su rótulo y con su rol', async () => {
+    const { fixture } = montar([canal()]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    // 1. El contenedor establece la consulta. Sin esto el CSS entero es inerte.
+    expect(host.querySelector('.res-tabla.dt-scope')).toBeTruthy();
+    // 2. La tabla declara que apila.
+    expect(host.querySelector('.dt-stack')).toBeTruthy();
+
+    // 3. Cada celda del cuerpo: rol explícito, y rótulo salvo la que ES la identidad.
+    const celdas = Array.from(host.querySelectorAll('tbody > tr > td'));
+    expect(celdas.length).toBe(8);
+    for (const td of celdas) {
+      expect(td.getAttribute('role')).toBe('cell');
+      // `.dt-id` sube al tope sin rótulo porque se explica solo (el nombre del proveedor).
+      const rotulada = td.classList.contains('dt-id') || !!td.getAttribute('data-label');
+      expect(rotulada).toBe(true);
+    }
+
+    // 4. Los rótulos son los del encabezado, no un invento: si alguien renombra una columna y
+    //    olvida el data-label, el teléfono rotula con el nombre viejo y nadie se entera.
+    const encabezados = Array.from(host.querySelectorAll('thead th')).map((th) => (th.textContent || '').trim());
+    const rotulos = celdas.map((td) => td.getAttribute('data-label')).filter((x): x is string => !!x);
+    for (const r of rotulos) expect(encabezados).toContain(r);
+  });
+
   it('abrir una fila pide su cobertura y su conciliación; cerrarla las limpia', () => {
     const { comp, http } = montar([canal()]);
     comp.abrir(canal());

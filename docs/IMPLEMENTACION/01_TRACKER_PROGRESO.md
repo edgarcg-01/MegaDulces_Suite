@@ -3039,6 +3039,58 @@ gate empieza a marcar como nuevas líneas que nadie tocó.
 
 ---
 
+## GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código)
+
+Pedido del usuario: *«cuando te suban la evidencia de los gastos sólo jala el monto del vale,
+sólo comprueba que sea la información correcta, no la modifiques»*.
+
+**Medido antes de tocar nada: el módulo de gastos (`expense-proofs`) ya lo hacía bien.** `[GX.33]`
+dejó la lectura «sólo para avisar» — lee el comprobante, compara contra el importe, escribe una
+leyenda y **no toca ningún dato**. Ahí no había nada que arreglar.
+
+⛔ **El que decidía era el hermano.** `expense-comprobaciones` (GX.8, otra pantalla) sí leía el
+monto y, **si cuadraba, cerraba el expediente solo** en `validada` firmándolo
+`validated_by: 'Claude Vision'`. Son dos problemas distintos y los dos importan:
+
+1. **Quien gastó cerraba su propio expediente.** Esa evidencia la sube la misma persona que hizo
+   el gasto. Que el monto cuadre dice que **dos números coinciden** — no que el gasto proceda, ni
+   que el comprobante sea de ese gasto, ni que no esté duplicado.
+2. **Firmaba con un nombre que no es de nadie.** `validated_by` es el rastro de QUIÉN autorizó;
+   ponerle el nombre de un modelo deja un expediente sin responsable humano.
+
+⚠️ **Es la misma puerta que `[GX.32]` ya había tapado en `expense-proofs`** («cerrar sola dejaría
+que quien gastó cierre su propio expediente»). Sobrevivió en el módulo hermano porque es otra
+pantalla y el retiro no lo alcanzó.
+
+- [x] **[GX.59.1]** El estado pasa a ser **siempre `revision`**: la máquina no tiene estado propio
+  con el que cerrar. `validated_by`/`validated_at` se escriben en `null`. ✅ 2026-10-02
+- [x] **[GX.59.2]** La lectura **se conserva** — «no decidir» no es «no mirar»: si dejara de leer,
+  quien revisa pierde el único aviso de que el comprobante no cuadra. Sigue viniendo del
+  **servidor** (`srv`), no del cliente, así que el monto comparado no se falsea desde el
+  navegador. ✅ 2026-10-02
+- [x] **[GX.59.3]** ⛔ **Las tres salidas se distinguen**, que antes no: «no se pudo leer» NO es
+  «no cuadra» (la primera la arregla quien suba una foto mejor; la segunda es un problema con el
+  gasto, ADR-056). Y cuando **sí** cuadra la leyenda lo dice **y agrega que falta aprobarlo** —
+  antes `revision_nota` quedaba en `null` y un expediente sin nota se lee como cerrado.
+  ✅ 2026-10-02
+- [x] **[GX.59.4]** ⚠️ `monto_ocr`/`monto_match` **se siguen guardando**: son **lo que se leyó**,
+  un dato propio y nuevo, no una modificación de lo que capturó la persona. Lo que dejó de
+  escribirse es un **veredicto**. ✅ 2026-10-02
+- [x] **[GX.59.5]** Candado `comprobacion-veredicto.spec.ts` (8 pruebas). Comprueba una
+  **ausencia** —que la rama que cierra sola no exista— leyendo el archivo sin sus comentarios: lo
+  que el programa HACE, no lo que cuenta de sí mismo. **Prueba negativa corrida**: al restaurar la
+  auto-firma, 4 se ponen en rojo. ✅ 2026-10-02
+
+**Medido en `platform_local`:** `expense_comprobaciones` tiene **0 filas** con validador, y en
+`expense_proofs` los 16 validadores son **personas** (`demo_gx20` 8, `maria_gutierrez` 3,
+`superoot` 3, `david_cisneros` 2). O sea: el camino existía en código pero no alcanzó a firmar
+nada acá. ⚠️ **En prod hay que mirarlo** — si esa pantalla se usó, puede haber expedientes
+cerrados con `validated_by = 'Claude Vision'`.
+
+`libs/finance` 323/323 · check:templates OK · boundary gate OK.
+
+---
+
 ## Fase PERF — lo que la pantalla paga por consulta (2026-09-24)
 
 > Regla que gobierna esta fase: **un commit que cambia un número no se cierra sin la medición del

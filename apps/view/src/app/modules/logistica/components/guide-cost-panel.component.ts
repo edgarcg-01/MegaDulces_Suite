@@ -153,11 +153,11 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 
     <div class="gc-split">
       <!-- NIVEL 1 — las guías -->
-      <section class="gc-master">
+      <section class="gc-master dt-scope">
         <p-table [value]="guias()" [loading]="cargando()" selectionMode="single"
                  [selection]="sel()" (selectionChange)="abrirGuia($event)"
                  dataKey="guia" [scrollable]="true" scrollHeight="52vh"
-                 styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
+                 styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm" class="dt-stack">
           <ng-template #header>
             <tr>
               <th>Fecha</th><th>Guía</th><th>Canal</th>
@@ -171,20 +171,20 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
           </ng-template>
           <ng-template #body let-g>
             <tr [pSelectableRow]="g" [class.gc-sel]="sel()?.guia === g.guia && sel()?.dia === g.dia">
-              <td>{{ g.dia }}</td>
-              <td class="gc-mono">{{ g.sucursal }} · {{ g.guia }}</td>
-              <td><p-tag [value]="etiquetaCanal(g.canal)" [severity]="sevCanal(g.canal)" /></td>
-              <td class="comm-num">{{ g.paradas }}</td>
-              <td class="comm-num">{{ g.mercancia | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="comm-num">
+              <td role="cell" data-label="Fecha">{{ g.dia }}</td>
+              <td class="gc-mono dt-id" role="cell">{{ g.sucursal }} · {{ g.guia }}</td>
+              <td role="cell" data-label="Canal"><p-tag [value]="etiquetaCanal(g.canal)" [severity]="sevCanal(g.canal)" /></td>
+              <td class="comm-num dt-num" role="cell" data-label="Paradas">{{ g.paradas }}</td>
+              <td class="comm-num dt-num" role="cell" data-label="Mercancía">{{ g.mercancia | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td class="comm-num dt-num" role="cell" data-label="Directo">
                 <span *ngIf="g.costo_directo !== null">{{ g.costo_directo | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                 <span *ngIf="g.costo_directo === null" class="gc-nm">—</span>
               </td>
-              <td class="comm-num gc-pro">
+              <td class="comm-num gc-pro dt-num" role="cell" data-label="Prorrateo">
                 <span *ngIf="g.costo_prorrateado !== null">{{ g.costo_prorrateado | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                 <span *ngIf="g.costo_prorrateado === null" class="gc-nm">—</span>
               </td>
-              <td class="comm-num">
+              <td class="comm-num dt-num" role="cell" data-label="Costo">
                 <!-- null NO es cero: se dice, no se dibuja -->
                 <span *ngIf="g.costo !== null; else sinCosto" class="gc-costo">
                   {{ g.costo | currency:'MXN':'symbol-narrow':'1.0-0' }}
@@ -193,7 +193,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
                   <span class="gc-nm" [title]="g.costo_motivo">sin medir</span>
                 </ng-template>
               </td>
-              <td>
+              <td role="cell" data-label="Cómo se calculó">
                 <span *ngIf="g.costo !== null" class="gc-chip"
                       [class.gc-chip--directo]="g.origen_peor === 'directo'">
                   {{ g.origen_peor === 'directo' ? 'Directo' : 'Atribuido' }}
