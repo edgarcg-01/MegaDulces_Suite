@@ -132,14 +132,30 @@ prod_n=${prod_n:-0}
 #
 # ⭐ Y no basta con cambiar el número: se pide además un RECURSO REAL (`ngsw.json`), no sólo
 # la raíz. Un nginx vivo sirviendo su página por defecto devuelve 200 igual.
+# ⛔⛔ [K3S.36] SE PIDE TAMBIÉN `/api/health`, Y ESO ES LO QUE FALTABA.
+#
+# Este bloque medía `/` y `ngsw.json` — y los dos son ARCHIVOS ESTÁTICOS que el pod sirve POR
+# SU CUENTA. Lo que no medía es lo que DELEGA: cada app lleva su propio nginx que proxea
+# `/api/` al backend.
+#
+# El 2026-10-01 ese proxy quedó roto al migrar a K3s (traía `resolver 127.0.0.11`, el DNS
+# embebido de Docker, que en un pod no existe) y portal y vendedor estuvieron ~1.5 h SIN PODER
+# INICIAR SESIÓN: la app se quedaba cargando para siempre. Este chequeo daba verde todo el
+# tiempo, porque los estáticos nunca dejaron de servirse.
+#
+# ⭐ Verificar lo que un servicio sirve por su cuenta NO verifica lo que delega. Y «no es sólo
+# la raíz, es un recurso real» no alcanza si ese recurso sale del mismo lugar que la raíz.
 for par in "portal:30081" "vendor:30082"; do
   n=${par%%:*}; p=${par#*:}
   c=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "http://127.0.0.1:$p/" 2>/dev/null)
   g=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "http://127.0.0.1:$p/ngsw.json" 2>/dev/null)
-  if [ "$c" = 200 ] && [ "$g" = 200 ]; then
-    ok "$n (pod :$p): raíz 200 · ngsw.json 200"
+  # El proxy: mismo puerto del pod, pero una ruta que NO sirve él. 000 = se cuelga (el fallo
+  # original), 502 = resuelve mal, 200 = llega al backend de verdad.
+  a=$(curl -s -o /dev/null -w '%{http_code}' -m 15 "http://127.0.0.1:$p/api/health" 2>/dev/null)
+  if [ "$c" = 200 ] && [ "$g" = 200 ] && [ "$a" = 200 ]; then
+    ok "$n (pod :$p): raíz 200 · ngsw.json 200 · /api/health 200 (el proxy llega)"
   else
-    mal "$n (pod :$p): raíz $c · ngsw.json $g"
+    mal "$n (pod :$p): raíz $c · ngsw.json $g · /api/health $a"
   fi
 done
 

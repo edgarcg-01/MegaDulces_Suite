@@ -62,6 +62,26 @@ spec:
               value: "10000"
             - name: TLS_TERMINADO
               value: "true"
+            # ⛔⛔ [K3S.36] EL DNS DEL CLUSTER, NO EL DE DOCKER. Sin esto el nginx de estos
+            # pods arranca con `resolver 127.0.0.11` -- el DNS EMBEBIDO DE DOCKER, que dentro
+            # de un pod NO EXISTE. El proxy de /api no resuelve `api` y se CUELGA: el sitio
+            # sirve sus estaticos perfecto y la aplicacion se queda cargando para siempre.
+            #
+            # Medido el 2026-10-01: portal y vendedor estuvieron ~1.5 h sin poder iniciar
+            # sesion. Mi verificacion del corte habia mirado `/` y `/ngsw.json` -- archivos
+            # que el pod sirve EL MISMO. Nunca probe lo que PROXEA.
+            # ⭐ Verificar lo que un servicio sirve por su cuenta no verifica lo que delega.
+            # ⛔ [K3S.36] FQDN COMPLETO, no `api` a secas. nginx NO usa los dominios de
+            # busqueda de /etc/resolv.conf: le pregunta al resolver por el nombre PELADO, y
+            # CoreDNS no contesta `api` sin su sufijo. Medido: dentro del pod `getent hosts
+            # api` SI resuelve (glibc agrega el search) mientras nginx registraba
+            # "api could not be resolved (3: Host not found)" y devolvia 502.
+            # ⭐ Que una herramienta del contenedor resuelva un nombre no significa que nginx
+            # lo resuelva: usan caminos distintos.
+            - name: API_UPSTREAM
+              value: "http://api.prod.svc.cluster.local:10000"
+            - name: NGINX_RESOLVER
+              value: "10.43.0.10"   # kube-dns; `kubectl get svc kube-dns -n kube-system`
           readinessProbe:
             httpGet: { path: /, port: 10000 }
             initialDelaySeconds: 5
@@ -100,6 +120,26 @@ spec:
               value: "10000"
             - name: TLS_TERMINADO
               value: "true"
+            # ⛔⛔ [K3S.36] EL DNS DEL CLUSTER, NO EL DE DOCKER. Sin esto el nginx de estos
+            # pods arranca con `resolver 127.0.0.11` -- el DNS EMBEBIDO DE DOCKER, que dentro
+            # de un pod NO EXISTE. El proxy de /api no resuelve `api` y se CUELGA: el sitio
+            # sirve sus estaticos perfecto y la aplicacion se queda cargando para siempre.
+            #
+            # Medido el 2026-10-01: portal y vendedor estuvieron ~1.5 h sin poder iniciar
+            # sesion. Mi verificacion del corte habia mirado `/` y `/ngsw.json` -- archivos
+            # que el pod sirve EL MISMO. Nunca probe lo que PROXEA.
+            # ⭐ Verificar lo que un servicio sirve por su cuenta no verifica lo que delega.
+            # ⛔ [K3S.36] FQDN COMPLETO, no `api` a secas. nginx NO usa los dominios de
+            # busqueda de /etc/resolv.conf: le pregunta al resolver por el nombre PELADO, y
+            # CoreDNS no contesta `api` sin su sufijo. Medido: dentro del pod `getent hosts
+            # api` SI resuelve (glibc agrega el search) mientras nginx registraba
+            # "api could not be resolved (3: Host not found)" y devolvia 502.
+            # ⭐ Que una herramienta del contenedor resuelva un nombre no significa que nginx
+            # lo resuelva: usan caminos distintos.
+            - name: API_UPSTREAM
+              value: "http://api.prod.svc.cluster.local:10000"
+            - name: NGINX_RESOLVER
+              value: "10.43.0.10"   # kube-dns; `kubectl get svc kube-dns -n kube-system`
           readinessProbe:
             httpGet: { path: /, port: 10000 }
             initialDelaySeconds: 5
