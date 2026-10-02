@@ -537,6 +537,17 @@ export const SUITE_UNCLASSIFIED: readonly SuiteEntry[] = [
     project: 'whatsapp',
     source: { status: 'pendiente', cite: '§19.2 "Por clasificar" + P-05 (canales digitales)' },
   },
+  {
+    // `[MS.1.4]` Mesa de Servicio (Fase MS, ADR-081): el proyecto existe en el árbol y reparte sus 3 permisos,
+    // pero SIN rutas todavía — igual que WhatsApp, no es navegable y no cuenta como destino. Si ocupara una
+    // entrada del espacio 9 antes de que exista su pantalla, un superadmin vería una puerta que no lleva a
+    // ningún lado y el auto-deploy la mandaría a prod. En `[MS.3.1]` se MUEVE al espacio 9, junto con sus
+    // rutas y su landing.
+    id: 'servicio',
+    kind: 'project',
+    project: 'servicio',
+    source: { status: 'pendiente', cite: 'Fase MS (ADR-081): sin pantalla hasta [MS.3.1]; pasa al espacio 9 con sus rutas' },
+  },
 ];
 
 // ── Lecturas del árbol ───────────────────────────────────────────────────────
