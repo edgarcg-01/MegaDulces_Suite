@@ -63,7 +63,7 @@ type Metrica = 'costo' | 'venta';
   <!-- Filtros + conmutador de valuación -->
   <section class="bar">
     <div class="bar-left">
-      <p-datePicker
+      <p-datepicker
         [(ngModel)]="rango"
         selectionMode="range"
         dateFormat="dd/mm/yy"
@@ -123,7 +123,7 @@ type Metrica = 'costo' | 'venta';
     <!-- Las 10 columnas son CAMPOS de una ruta → se apilan en estrecho (DESIGN_TABLES). -->
     <div class="dt-scope">
     <p-table [value]="d.routes" dataKey="route_no" [scrollable]="true" scrollHeight="52vh"
-             styleClass="p-datatable-sm dt-stack" [rowHover]="true"
+             class="dt-stack" size="small" [rowHover]="true"
              [tableStyle]="{ 'min-width': '62rem' }">
       <ng-template #header>
         <tr>
@@ -180,7 +180,7 @@ type Metrica = 'costo' | 'venta';
     @if (detalle(); as filas) {
       <div class="dt-scope">
       <p-table [value]="filas" [scrollable]="true" scrollHeight="60vh"
-               styleClass="p-datatable-sm dt-stack" [rowHover]="true"
+               class="dt-stack" size="small" [rowHover]="true"
                [tableStyle]="{ 'min-width': '44rem' }">
         <ng-template #header>
           <tr>
