@@ -1241,6 +1241,11 @@ const CRON_JOBS: CronCfg[] = [
   // de arriba se refrescan, la pantalla etiqueta renglones nuevos con los testigos de la semana
   // pasada — un veredicto equivocado se lee con la misma confianza que uno correcto.
   { key: 'analytics_refresh_count_signals',     label: 'Refresh MV señales del descuadre (EXP.1b)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [PR.D5] El universo de los experimentos de precio. Sin esta fila el sensor cae en
+  // `cfg ? classify : 'ok'` y la MV parada se ve VERDE. El modo de falla no es una pantalla
+  // vacia: es un experimento disenado sobre el universo de la semana pasada, indistinguible
+  // de uno correcto hasta que alguien va a capturar precios que ya no son esos.
+  { key: 'analytics_refresh_price_experiment_universe', label: 'Refresh MV universo de experimentos (PR.D5)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [CGU.6] La MV del costo por guia. ⚠️ El umbral sigue a la cadencia del LATIDO, no a la del
   // refresco: la MV se refresca cada 30 min, pero ese array escribe un latido AGREGADO y la llave
   // POR MV la escribe el loop NOCTURNO. Umbral de nocturno (26/50), no de 30 min -- con warn a 2 h

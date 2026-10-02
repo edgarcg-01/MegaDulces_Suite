@@ -78,6 +78,43 @@ export class PriceExperimentService {
    *                    experimento que no se puede reproducir no se puede auditar.
    * @param clavesEstrato estratos a incluir; por defecto sólo los viables
    */
+  /**
+   * `[PR.D5]` — Los estratos con sus elegibles **contados ahora**, no leídos de una constante.
+   *
+   * ⛔ `ESTRATOS[].elegibles` se midió una vez y se escribió en el código. Medido el 2026-10-02
+   * contra prod, el diálogo publicaba **6,120** donde hay **6,028** y **3,808** donde hay
+   * **3,750**: un número medido y persistido no avisa cuando deja de ser cierto. Contarlo era
+   * caro —por eso estaba clavado— y con la matvista cuesta 15–48 ms por estrato.
+   *
+   * ⚠️ `viable`, `deltaPct` y `nPorRama` SÍ se quedan en la constante: no son observaciones del
+   * dato sino el dimensionamiento del diseño, que sólo cambia si alguien lo rehace.
+   */
+  async estratosConConteoVivo(): Promise<{ estratos: unknown[] }> {
+    return this.tk.run(async (k) => {
+      const estratos: Array<Record<string, unknown>> = [];
+      for (const e of ESTRATOS) {
+        const { rows } = await k.raw(`
+          SELECT count(*)::int AS n
+            FROM analytics.mv_price_experiment_universe u
+           WHERE u.precio >= ? AND u.precio < ?
+             AND u.terminacion = 'sucio'
+             AND u.veredicto <> 'fuera_de_alcance'
+             AND u.venta_neta_30d > 0
+             AND NOT u.oscila`, [e.min, e.max]);
+        const vivo = Number(rows[0]?.n ?? 0);
+        estratos.push({
+          ...e,
+          elegibles: vivo,
+          // ⭐ El número viejo viaja al lado en vez de desaparecer: así se ve cuánto se movió
+          //   el universo desde que se dimensionó el experimento.
+          elegibles_al_disenar: e.elegibles,
+          deriva: vivo - e.elegibles,
+        });
+      }
+      return { estratos };
+    });
+  }
+
   async disenar(
     nombre: string,
     modo: '00' | '50' | '90' | '99',
@@ -168,38 +205,51 @@ export class PriceExperimentService {
      * `product_id` UUID. El puente es `catalog.products.sku` — el mismo choque de llaves que
      * atraviesa todo este motor, resuelto acá de forma explícita en vez de suponerlo.
      */
+    /**
+     * ⭐ `[PR.D5]` Lee la MATVISTA, no la vista. Medido contra prod, la versión anterior corría
+     * esta misma lectura **una vez por estrato** y tardaba **104,911 ms** en total — y la causa
+     * era contraintuitiva: **filtrar `v_price_psychology` la hace 280× más lenta** (210 ms
+     * entera, 59,149 ms con los filtros puestos), porque el planificador empuja los predicados
+     * dentro de la vista y el plan deja de agregar en bloque.
+     *
+     * ⛔ El candado del precio inestable ya viene resuelto como columna (`oscila`): era un CTE
+     * que agregaba 806,141 filas de historia y costaba 606 ms, recalculado cuatro veces.
+     */
+    const necesarias = e.nPorRama * 2;
+
+    /**
+     * ⛔ `count(*) OVER ()` NO es adorno: con `LIMIT` a secas, `filas.length` nunca puede pasar
+     * de `necesarias`, así que el diálogo diría «hay 582» donde hay 924 — y el renglón que avisa
+     * «NO ALCANZA» dejaría de poder distinguir «faltan pocas» de «faltan miles». La cuenta tiene
+     * que ser del universo, no de lo que se trajo. Sobre la matvista indexada es barato; sobre
+     * la vista viva no lo era, y por eso antes se traía todo y se contaba en JavaScript.
+     */
     const { rows: filas } = (await trx.raw(`
-      WITH oscilan AS (
-        SELECT DISTINCT cp.sku
-          FROM analytics.master_data_history h
-          JOIN commercial.product_prices pp ON pp.id::text = h.pk::text
-          JOIN catalog.products cp ON cp.id = pp.product_id
-         WHERE h.tabla = 'commercial.product_prices'
-           AND h.changed_at >= CURRENT_DATE - 7
-         GROUP BY cp.sku
-        HAVING count(*) >= ?
-      )
-      SELECT p.sucursal, p.sku, p.precio, p.cand_${modo} AS cand, p.venta_neta_30d AS venta
-        FROM analytics.v_price_psychology p
-        LEFT JOIN oscilan o ON o.sku = p.sku
-       WHERE p.precio >= ? AND p.precio < ?
-         AND p.terminacion = 'sucio'
-         AND p.veredicto <> 'fuera_de_alcance'
-         AND p.venta_neta_30d > 0
-         AND p.cand_${modo} IS NOT NULL
-         AND p.cand_${modo} <> p.precio
-         AND o.sku IS NULL
-       ORDER BY p.venta_neta_30d DESC
-    `, [OSCILA_CAMBIOS_7D, e.min, e.max])) as {
-      rows: Array<{ sucursal: string; sku: string; precio: string; cand: string; venta: string }>;
+      SELECT u.sucursal, u.sku, u.precio, u.cand_${modo} AS cand, u.venta_neta_30d AS venta,
+             count(*) OVER () AS elegibles
+        FROM analytics.mv_price_experiment_universe u
+       WHERE u.precio >= ? AND u.precio < ?
+         AND u.terminacion = 'sucio'
+         AND u.veredicto <> 'fuera_de_alcance'
+         AND u.venta_neta_30d > 0
+         AND u.cand_${modo} IS NOT NULL
+         AND u.cand_${modo} <> u.precio
+         AND NOT u.oscila
+       ORDER BY u.venta_neta_30d DESC
+       LIMIT ?
+    `, [e.min, e.max, necesarias])) as {
+      rows: Array<{
+        sucursal: string; sku: string; precio: string; cand: string; venta: string;
+        elegibles: string;
+      }>;
     };
 
-    const necesarias = e.nPorRama * 2;
-    if (filas.length < necesarias) {
+    const elegibles = filas.length ? Number(filas[0].elegibles) : 0;
+    if (elegibles < necesarias) {
       return {
-        clave: e.clave, deltaPct: e.deltaPct, elegibles: filas.length,
+        clave: e.clave, deltaPct: e.deltaPct, elegibles,
         tratamiento: 0, control: 0, suficiente: false,
-        motivo: `el diseño pide ${necesarias} celdas (${e.nPorRama} por rama) y hay ${filas.length}. `
+        motivo: `el diseño pide ${necesarias} celdas (${e.nPorRama} por rama) y hay ${elegibles}. `
           + 'No se asigna: un experimento sin potencia no responde, sólo consume capturas.',
       };
     }
@@ -229,11 +279,11 @@ export class PriceExperimentService {
     }
 
     const mitad = alta.length / 2;
-    this.log.log(`[PR.D2] estrato ${e.clave}: ${filas.length} elegibles → `
+    this.log.log(`[PR.D2] estrato ${e.clave}: ${elegibles} elegibles → `
       + `${mitad} tratamiento + ${mitad} control (δ ${e.deltaPct}%)`);
 
     return {
-      clave: e.clave, deltaPct: e.deltaPct, elegibles: filas.length,
+      clave: e.clave, deltaPct: e.deltaPct, elegibles,
       tratamiento: mitad, control: mitad, suficiente: true, motivo: null,
     };
   }
