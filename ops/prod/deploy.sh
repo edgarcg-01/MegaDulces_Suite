@@ -339,7 +339,13 @@ subir_compose() {
   #
   # ⛔ Y el carril sigue corriendo su copia INSTALADA, no la del clon que él mismo mantiene: así
   # un commit malo no puede dejar sin carril al mecanismo que tendría que revertirlo.
-  _guiones="docker-compose.yml Caddyfile pgprod.sh restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh aplicar-k3s-prod.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
+  # ⛔ `compuerta-migraciones.js` ENTRA ACÁ O `auto-deploy.sh` SE FRENA SOLO. Los dos viajan
+  # juntos desde `[CD.1]`: el nuevo `auto-deploy.sh` la invoca, y como él SÍ estaba en esta
+  # lista y ella no, un `--imagenes` sincronizaba la mitad que la necesita sin la mitad que la
+  # provee — y cada despliegue con una migración pendiente moría con "falta
+  # compuerta-migraciones.js". Regla: si un guion de esta lista llama a otro archivo, ese
+  # archivo va en la lista.
+  _guiones="docker-compose.yml Caddyfile pgprod.sh restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh aplicar-k3s-prod.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk compuerta-migraciones.js dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
   for a in $_guiones; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
