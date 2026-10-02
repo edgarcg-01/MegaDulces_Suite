@@ -34,8 +34,10 @@ en `main`; lo único tocado hoy es documentación (esta fase, ADR-081, tracker, 
 - **No existe nada de tickets de soporte en la Suite.** Todo lo que dice "ticket" es de venta/caja
   (`FASE_TK_TICKETS_VENTA`, `commercial.route_tickets`, `live-tickets`). Por eso: sigla **MS**,
   schema **`servicedesk`**, URLs **`/service-desk/*`**, y **nunca** una tabla llamada `tickets`.
-- **El hueco ya está reservado**: el espacio 9 "Sistemas, Servicios y Mantenimiento" está `planned`
-  y sin entradas (`libs/contracts/src/authz/suite-map.ts:457`, P-10).
+- **El hueco ya está reservado**: el espacio 9 "Sistemas, Servicios y Mantenimiento" (P-10). ⚠️ **Dato
+  al 2026-10-01 de la tarde:** la Fase **DEV** (PR #205, "Desarrolladores › Proyectos") ya lo pasó a
+  `active` con su primer módulo. Esta fase **no lo activa: le suma una entrada** (`servicio`), junto a
+  `desarrolladores`. La descripción del espacio ya declara "solicitudes y continuidad sin módulo".
 - **El molde existe**: `finance.recon_tasks` + `recon_task_messages` (asignación, estados, vence,
   nota de cierre, hilo). Falta prioridad, SLA, categoría y adjuntos. Su defecto, que NO se hereda:
   `assigned_by` y `resolved_by` son TEXT y no se unen al padrón.
@@ -289,8 +291,9 @@ con los hex de la Bitácora. Los nombres de sucursal salen de `branchName()` / e
 **Integración con la Suite:**
 - **Mi trabajo:** tarjeta "Solicitudes a tu nombre" (`FUENTES_VISIBLES`) y bandeja "Sin asignar"
   (`BANDEJAS` con `umbral_dias` y `responsabilidad`, que sólo ve quien responde de la cola).
-- **Mapa de la suite:** espacio 9 pasa a `active`; hay que actualizar `suite-map.spec.ts` (:70-73 y
-  :215) y `suite-map.parity.spec.ts`, que asumen 3 espacios `planned`.
+- **Mapa de la suite:** el espacio 9 **ya está `active`** (Fase DEV); se le agrega la entrada `servicio`
+  junto a `desarrolladores` y se actualiza la descripción ("solicitudes" deja de ser "sin módulo").
+  Los specs de `suite-map` ya asumen 2 espacios `planned`; se revisan los que cuentan entradas del 9.
 - **Layout:** entrada en `PROJECT_KEY`/`LayoutProject` y su grupo de navegación; sin eso el sidebar
   cae al de Trade Marketing. Fila nueva en la tabla de superficies de `DESIGN.md`.
 
@@ -324,17 +327,18 @@ manual** (light, dark y móvil) — el único paso que no se automatiza.
 **MS.0 — Preparación** ✅ 2026-10-01: copia local al día (`main` = `ece8269f1`, rama
 `docs/ms-mesa-de-servicio`), `CLAUDE.md` corregido (prod on-prem), esta fase, ADR-081, tracker.
 
-**Capa 1 — Base de datos**
-- ⬜ **MS.1.0** Verificaciones previas, sólo lectura: ¿alcanza `user_responsibilities` para la
-  membresía?; `MAILER_PORT.isConfigured()` y `SMTP_*` **en prod**; destino real del bucket de
-  adjuntos (el README de prod lo lista "sin portar"); último timestamp en `public.knex_migrations`
-  de prod.
-- ⬜ **MS.1.1** Schema + catálogos (`queues`, `categories`, `sla_policies`, `settings`) + seeds de TI.
-- ⬜ **MS.1.2** `requests`, `request_sequences`, `request_messages`, `request_attachments`, `work_log`.
-- ⬜ **MS.1.3** `notification_prefs`, `notification_log` y `identity.users.email/phone`.
-- ⬜ **MS.1.4** Permisos (`REPORTAR/ATENDER/COORDINAR`) + reparto derivado + responsabilidades.
-- ⬜ **MS.1.5** Contrato de tarea (`FUENTES_TAREA`/`ADAPTADORES`/`me-tasks.ts`).
-- ⬜ **MS.1.6** Smoke DB-direct con negativas + registro en `run-all-tests.js`.
+**Capa 1 — Base de datos** · 🧪 **construida y probada en local 2026-10-02** (ver §11)
+- ✅ **MS.1.0** Verificaciones previas. **Hecho lo que se podía leer desde desarrollo:** `user_responsibilities`
+  alcanza para la membresía, y los timestamps no colisionan en git. **NO MEDIDO (sin acceso a prod):**
+  `SMTP_*` en prod, destino del bucket de adjuntos y último timestamp de `knex_migrations` de prod.
+- 🧪 **MS.1.1** Schema + catálogos (`queues`, `categories`, `sla_policies`, `settings`) + seeds de TI. Mig `20261002100000`.
+- 🧪 **MS.1.2** `requests`, `request_sequences`, `request_messages`, `request_attachments`, `work_log`. Mig `20261002110000`.
+- 🧪 **MS.1.3** `notification_prefs`, `notification_log` y `identity.users.email/phone`. Mig `20261002120000`.
+- 🧪 **MS.1.4** Permisos (`REPORTAR/ATENDER/COORDINAR`) en enum, metadata, árbol y mapa de la suite + reparto
+  derivado. Mig `20261002130000`. **La clave de responsabilidad se movió a MS.3.6** (ver §11).
+- 🧪 **MS.1.5** Contrato de tarea: `servicedesk.requests` declarada en `FUENTES_TAREA`/`ADAPTADORES`. La entrada
+  visible en `me-tasks.ts` espera a MS.3.6 (necesita su ruta).
+- 🧪 **MS.1.6** Smoke DB-direct `test-newdb-service-desk.js`: **130 ✓ / 0 ✗**, registrado en `run-all-tests.js`.
 
 **Capa 2 — Lógica**
 - ⬜ **MS.2.1** Scaffold `libs/service-desk` + registros (eslint, tsconfig×2, vitest, `AppModule`).
@@ -349,7 +353,7 @@ manual** (light, dark y móvil) — el único paso que no se automatiza.
 - ⬜ **MS.2.9** Verificación HTTP end-to-end + `build` + `check:boot`.
 
 **Capa 3 — Visual**
-- ⬜ **MS.3.1** Módulo, rutas, guards, nav, `PROJECT_KEY`, espacio 9 activo, specs, `DESIGN.md`.
+- ⬜ **MS.3.1** Módulo, rutas (`/servicio/atencion`, `/servicio/reportes`), guards, nav, `PROJECT_KEY`, **mover `servicio` de `SUITE_UNCLASSIFIED` al espacio 9 (ya activo por DEV)**, landing, specs (`suite-map` 14→15), `DESIGN.md`. **Todo junto**: nunca una entrada en el mapa sin su pantalla.
 - ⬜ **MS.3.2** Nueva solicitud + datos de contacto (+ campos en Admin usuarios).
 - ⬜ **MS.3.3** Mis solicitudes + side-peek con hilo.
 - ⬜ **MS.3.4** Bandeja de atención.
@@ -405,3 +409,71 @@ MS.6 auto-asignación balanceada (patrón `assignPending` de `recon_tasks`) · M
   filas pero mezcla tareas propias con solicitudes; **no se importa su histórico**.
 - Auto-asignación, enlace público, app de vendedor, más colas y la unificación completa.
 - Los números del SLA son una **propuesta sin calibrar**.
+
+---
+
+## 11. Capa 1 — lo construido, y lo que cambió respecto a lo aprobado en el PR #204
+
+Estado: **🧪 construida y probada en LOCAL (2026-10-02). Nada aplicado a prod.** Cuatro migraciones, tres
+permisos y un smoke de 130 aserciones. La solicitud aprobada decía *qué* se pedía; al construirlo
+hubo que decidir detalles que la solicitud no fijaba y **dos cosas que se apartan de ella**. Se dicen
+aquí, no en la revisión del PR.
+
+### Lo que se apartó de la solicitud (decisión a confirmar por Edgar)
+
+| # | Solicitud (PR #204) | Lo construido | Por qué |
+|---|---|---|---|
+| 1 | **2 claves** de responsabilidad en `identity.responsibilities` (`servicio.atender` y `servicio.coordinar`) | **Ninguna en la capa 1.** Se crea **una** (`servicio.atender`) en **MS.3.6**, con su bandeja. `servicio.coordinar` se retira: coordinar es un *permiso*, no una cola de la que alguien responda | `test-newdb-me-context.js` exige que **toda** clave del catálogo tenga una cola declarada en `me-work.ts` con su ruta (y cuenta el catálogo: `=== 18`). Crearlas ahora, sin la bandeja ni la pantalla, rompe una prueba existente. `queues.responsibility_key` existe y nace NULL |
+| 2 | 2 columnas nuevas en `identity.users` | Esas 2 columnas **más 2 CHECK de formato** (`users_email_fmt_ck`, `users_phone_fmt_ck`) | El teléfono debe ser el canónico `52XXXXXXXXXX` que ya produce `mx_normalize_phone`; sin el CHECK cualquiera guardaría uno sin normalizar y el aviso por WhatsApp fallaría en silencio. Se agregaron **con** `lock_timeout` y guarda de columna |
+
+### Detalles que la solicitud no fijaba (y quedaron así)
+
+- **`ATENDER` y `COORDINAR` se reparten SÓLO a `superadmin` y `sistemas`.** La asignación por persona
+  (Jorge, Edgar, Frank) espera a que Edgar confirme el **rol real** de cada uno (P4); se hará por
+  `identity.user_permissions`, con nota, desde `/admin/usuarios`. En mi base local **no existe** el rol
+  `sistemas` (prod sí), y la migración lo imprime en vez de callarlo.
+- **`SERVICIO_REPORTAR` se reparte a todo rol salvo** `retirado_*`, `customer_b2b`, `servicio` y tres cuentas
+  compartidas de dispositivo (`checador_kiosco`, `verificador_precios`, `etiquetas_tienda`).
+- **`notification_log` es insert-only con tres estados** (`sent`/`failed`/`skipped`), sin `queued`: se inserta
+  una sola vez con el resultado final. La anti-repetición es un índice único **sólo sobre lo `sent`**, para
+  que un intento fallido se pueda reintentar.
+- **Un «día hábil» se siembra como 480 minutos** (8 h de trabajo), no como la ventana entera de 11 h.
+- **Invariantes que la base hace cumplir** y que la solicitud no listaba: la máquina de estados completa
+  (asignado ⇒ asignado, en_espera ⇔ reloj pausado, resuelto ⇒ hora, cerrado/cancelado ⇒ motivo), el formato
+  del folio, y «una nota interna jamás es pública».
+- **`SERVICIO_REPORTAR` vive en un módulo SIN ruta del árbol** (precedente: WhatsApp), y la categoría
+  `Mesa de Servicio` se declaró en `PERMISSION_CATEGORY_ORDER` (sin eso los 3 permisos no se renderizan en
+  `/admin/roles`: el mismo defecto de AU.6).
+- **El proyecto `servicio` entra al árbol SIN RUTAS y a `SUITE_UNCLASSIFIED` (como WhatsApp), no al espacio 9.**
+  Mi primer intento lo puso en el espacio 9 con sus rutas, y las pruebas de la web lo rechazaron
+  (`landing-guards.spec`: «cada proyecto con entrada primaria necesita su landing»). Pensándolo, además era
+  un defecto de fondo: con la entrada en el mapa antes que su pantalla, un superadmin vería una **puerta que
+  no lleva a ningún lado** y el auto-deploy de `main` la mandaría a prod. Las rutas
+  (`/servicio/atencion`, `/servicio/reportes`), el paso al espacio 9 y el landing llegan **juntos con las
+  pantallas, en MS.3.1**. Mientras tanto las 3 claves ya se reparten y se ven en `/admin/roles`.
+
+### Una compuerta existente que hubo que mejorar
+
+`test-newdb-task-contract.js` elegía **el primer CHECK que menciona la columna de estado** como si fuera el
+vocabulario. Una tabla con máquina de estados tiene varios CHECK que nombran `status`, y tomaba uno de 2
+valores. Ahora elige el que **más valores distintos** enumera; con un solo CHECK (las otras cuatro fuentes) el
+resultado es idéntico. No se tocó ninguna otra aserción.
+
+### Lo que NO se pudo medir, y se dice
+
+- **`test-newdb-permission-delivery.js` mide el padrón de PROD** (por SSL). Corrió contra la base local
+  con un precargado temporal: confirma que las 3 claves no aparecen en ningún problema, pero sus otros
+  rojos son artefactos de una base casi vacía. **Sin medir contra prod.**
+- **`check:mig-colisiones`** pide leer el ledger de prod: sólo corrió su variante `--solo-git` (✓ sin colisión).
+- **`SMTP_*`, bucket y `knex_migrations` de prod:** sin acceso desde desarrollo (MS.1.0).
+- **Dos rojos preexistentes en `main`, ajenos a esta fase:** `commercial.picking_waves` (tiene `assigned_to`
+  y nunca se declaró en el contrato de tarea desde el 17-sep) y «0 asignaciones nominales» (exige datos).
+
+### Cómo se probó (y por qué la base local es de mentira)
+
+La base de desarrollo `192.168.0.245` ya no existe, y `migrate:new` **no levanta una base vacía** (GOTCHAS §75).
+Se armó un Postgres desechable en Docker (`127.0.0.1:5442`) completando lo que prod tiene por historia: las
+235 tablas de `kepler_ods` (vacías, desde el snapshot de esquema de prod), una vista materializada que en
+prod es tabla, dos extensiones en el schema equivocado, el tenant, roles, zonas y un usuario. **Se saltaron ~80
+migraciones** que asertan sobre datos reales del ERP o sobre personas concretas de prod. **Esa base NO es
+prod:** valida la estructura y las invariantes de `servicedesk`, no el comportamiento con datos reales.

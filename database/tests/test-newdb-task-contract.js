@@ -187,7 +187,15 @@ const ESPEJOS = { 'public.daily_assignments': 'trade.daily_assignments' };
       const ck = await k.raw(
         `SELECT pg_get_constraintdef(oid) d FROM pg_constraint
           WHERE conrelid = ?::regclass AND contype = 'c'`, [a.fuente]);
-      const def = ck.rows.map((r) => r.d).find((d) => new RegExp(`\\b${a.col_estado}\\b`).test(d));
+      // `[MS.1.5]` Una tabla con máquina de estados (la Mesa de Servicio) tiene VARIOS CHECK que nombran
+      // la columna de estado —las invariantes entre columnas: «asignado ⇒ hay asignado»—, y el primero
+      // que aparecía era uno de ésos, con 2 valores, no el que declara el vocabulario. Se toma el que
+      // más valores distintos enumera: ése es el vocabulario. Con un solo CHECK (las otras 4 fuentes)
+      // el resultado es idéntico al de antes.
+      const literales = (d) => new Set([...d.matchAll(/'([a-z_]+)'::/g)].map((m) => m[1])).size;
+      const def = ck.rows.map((r) => r.d)
+        .filter((d) => new RegExp(`\\b${a.col_estado}\\b`).test(d))
+        .sort((x, y) => literales(y) - literales(x))[0];
 
       if (!def) {
         // Sin CHECK no hay vocabulario declarado: se mide contra los datos, y se

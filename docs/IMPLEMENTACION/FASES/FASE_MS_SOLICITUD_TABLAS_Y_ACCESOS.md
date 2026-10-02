@@ -7,7 +7,13 @@
 > Plan completo en [`FASE_MS_MESA_DE_SERVICIO.md`](FASE_MS_MESA_DE_SERVICIO.md) · decisión en
 > ADR-081. Este documento no cambia el plan: lo baja a tabla, columna y permiso.
 
-Estado: **📋 SOLICITADO 2026-10-01 — pendiente de aprobación de Edgar.** Sin código ni migraciones.
+Estado: **📋 SOLICITADO 2026-10-01 — aprobado por Edgar al mergear el PR #204.** Construido en la capa 1
+(2026-10-02).
+
+> ⚠️ **Actualización 2026-10-02 — dos cosas se apartaron de esta solicitud al construirla:** (1) en vez de **2**
+> claves de responsabilidad se crea **1** (`servicio.atender`), en MS.3.6 y no en la capa 1; y (2) `identity.users`
+> gana, además de las 2 columnas, **2 CHECK de formato**. Detalle y motivos en
+> [`FASE_MS_MESA_DE_SERVICIO.md` §11](FASE_MS_MESA_DE_SERVICIO.md). El resto de la solicitud se construyó tal cual.
 
 ---
 
@@ -66,7 +72,8 @@ sucursal, red} · `visibility` ∈ {public, internal} · `clock` ∈ {business, 
 | `analytics.cron_runs` | Una fila nueva de latido: `job_key='service_desk_sla'` (datos, no estructura) | Que `db-health` vea si el revisor de plazos corre y entrega. | Se registra también en `CRON_JOBS`; sin umbral registrado el tablero lo marca `unknown`. |
 
 **Código (no es base de datos, pero también se toca):** `libs/contracts` (3 permisos en el enum,
-`permission-meta`, `authz-tree`, `suite-map` con el espacio 9 activado y el contrato de tarea) y los
+`permission-meta`, `authz-tree`, `suite-map` con una entrada nueva en el espacio 9, que ya activó la
+Fase DEV, y el contrato de tarea) y los
 tests que dependen de eso.
 
 ---
