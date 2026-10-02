@@ -901,7 +901,11 @@ describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
     // guardián EXISTA y esté enchufado; el contenido lo comprueba él, corriendo.
     const gate = join(__dirname, '..', '..', '..', '..', '..', '..', 'scripts', 'check-etiqueta-gate.js');
     expect(existsSync(gate)).toBe(true);
-    const check = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'scripts', 'check-all.js'), 'utf8');
-    expect(check).toContain('check-etiqueta-gate.js');
+    // [KBD.3] El refactor del 2026-10-01 movio las compuertas a UN registro
+    // (`scripts/compuertas.js`) del que leen los DOS runners. Este caso seguia preguntandole a
+    // `check-all.js`, donde ya no estan: el spec quedo apuntando a donde la cosa VIVIA, y se
+    // puso rojo sin que nadie rompiera nada. Ahora mira el registro, que es la fuente.
+    const registro = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'scripts', 'compuertas.js'), 'utf8');
+    expect(registro).toContain('check-etiqueta-gate.js');
   });
 });

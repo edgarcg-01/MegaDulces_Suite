@@ -104,89 +104,56 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
     <p-toast position="top-center"></p-toast>
 
     <section class="section">
-      <a routerLink="/telemarketing/cotizaciones" class="back">
-        <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a cotizaciones
-      </a>
-
       @if (cargando()) {
+        <a routerLink="/telemarketing/cotizaciones" class="back">
+          <i class="pi pi-arrow-left" aria-hidden="true"></i> Cotizaciones
+        </a>
         <div class="loading" aria-live="polite"><p-progressspinner styleClass="w-12 h-12"></p-progressspinner></div>
       } @else if (error()) {
+        <a routerLink="/telemarketing/cotizaciones" class="back">
+          <i class="pi pi-arrow-left" aria-hidden="true"></i> Cotizaciones
+        </a>
         <div class="aviso aviso-bad" role="alert">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>{{ error() }}</span>
         </div>
       } @else if (cot(); as q) {
-        <header class="section-header">
-          <div class="head-row">
-            <div>
-              <h1>{{ q.code }}</h1>
-              <p class="sub">{{ q.recipient_name }}</p>
-            </div>
-            <div class="head-right-actions">
-              <p-tag [value]="estadoLabel(q.status)" [severity]="estadoTono(q.status)"></p-tag>
-              <button
-                pButton
-                severity="success"
-                [outlined]="true"
-                type="button"
-                class="btn-export-xlsx"
-                [disabled]="!q.lines.length || exportando()"
-                (click)="descargarXlsx()"
-                title="Descargar entregable en Excel (.xlsx)"
-              >
-                <span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span>
-                <span class="p-button-label">Excel (.xlsx)</span>
-              </button>
-              <button
-                pButton
-                severity="danger"
-                [outlined]="true"
-                type="button"
-                class="btn-export-pdf"
-                [disabled]="!q.lines.length || exportando()"
-                (click)="descargarPdf()"
-                title="Descargar entregable formal en PDF"
-              >
-                <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
-                <span class="p-button-label">PDF</span>
-              </button>
-            </div>
-          </div>
+        <!-- COT.18: cabecera de UNA línea, como el alta (COT.16). Excel/PDF viven en el riel. -->
+        <header class="page-head">
+          <a routerLink="/telemarketing/cotizaciones" class="back">
+            <i class="pi pi-arrow-left" aria-hidden="true"></i> Cotizaciones
+          </a>
+          <span class="crumb-sep" aria-hidden="true">/</span>
+          <h1>{{ q.code }}</h1>
+          <span class="head-cliente">{{ q.recipient_name }}</span>
+          <p-tag [value]="estadoLabel(q.status)" [severity]="estadoTono(q.status)"></p-tag>
         </header>
 
-        <!-- Las condiciones CONGELADAS. Un precio tiene que ser explicable, y estas son la
-             mitad de la explicacion: el descuento del cliente entra sobre el subtotal. -->
-        <div class="terms">
-          <div class="t">
-            <span class="t-lbl">Sucursal</span>
-            <span class="t-val">{{ q.source_branch || '—' }}</span>
-          </div>
-          <div class="t">
-            <span class="t-lbl">Descuento del cliente</span>
+        <!-- Zona de trabajo (izquierda) + riel fijo (derecha: totales, entregables, asistente IA) -->
+        <div class="layout">
+        <div class="work">
+
+        <!-- Las condiciones CONGELADAS, en una tira. Un precio tiene que ser explicable, y estas
+             son la mitad de la explicacion: el descuento del cliente entra sobre el subtotal. -->
+        <div class="card terms-line">
+          <span class="tl"><span class="tl-lbl">Sucursal:</span> <b>{{ q.source_branch || '—' }}</b>@if (q.source_branch) { — {{ nombreSucursal(q.source_branch) }} }</span>
+          <span class="tl-sep" aria-hidden="true"></span>
+          <span class="tl"><span class="tl-lbl">Descuento cliente:</span>
             @if (num(q.terms_discount_pct) !== null) {
-              <span class="t-val t-strong">{{ num(q.terms_discount_pct) }}%</span>
+              <b class="t-strong">{{ num(q.terms_discount_pct) }}%</b>
             } @else {
               <!-- NULL no es 0%: el ERP no lo tiene configurado, que no es haber decidido no darlo. -->
-              <span class="t-val t-none">sin configurar</span>
+              <span class="t-none">sin configurar</span>
             }
-          </div>
-          <div class="t">
-            <span class="t-lbl">Plazo</span>
-            <span class="t-val">{{ q.terms_payment_days !== null ? q.terms_payment_days + ' dias' : '—' }}</span>
-          </div>
-          <div class="t">
-            <span class="t-lbl">Vigencia</span>
-            <span class="t-val" [class.vencida]="q.days_to_expiry < 0">{{ q.valid_until }}</span>
-            <span class="t-sub">{{ vigenciaHint(q) }}</span>
-          </div>
-          <div class="t">
-            <span class="t-lbl">Condiciones</span>
-            <span class="t-val t-sm">{{ fuenteTerms(q.terms_source) }}</span>
-          </div>
+          </span>
+          <span class="tl-sep" aria-hidden="true"></span>
+          <span class="tl"><span class="tl-lbl">Plazo:</span> <b>{{ q.terms_payment_days !== null ? q.terms_payment_days + ' días' : '—' }}</b></span>
+          <span class="tl-sep" aria-hidden="true"></span>
+          <span class="tl"><span class="tl-lbl">Vigencia:</span> <b [class.vencida]="q.days_to_expiry < 0">{{ q.valid_until }}</b> <span class="t-sub">{{ vigenciaHint(q) }}</span></span>
+          <span class="tl-sep" aria-hidden="true"></span>
+          <span class="tl"><span class="tl-lbl">Condiciones:</span> {{ fuenteTerms(q.terms_source) }}</span>
           @if (vendedorAsignado(q); as vend) {
-            <div class="t">
-              <span class="t-lbl">Vendedor seguimiento</span>
-              <span class="t-val t-strong">{{ vend }}</span>
-            </div>
+            <span class="tl-sep" aria-hidden="true"></span>
+            <span class="tl"><i class="pi pi-user tl-ico" aria-hidden="true"></i><span class="tl-lbl">Vendedor:</span> <b>{{ vend }}</b></span>
           }
         </div>
 
@@ -202,24 +169,13 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
 
         <!-- ── MÓDULO: Captura manual ─────────────────────────────────────────────── -->
         @if (editable()) {
-          <div class="captura-card">
-            <div class="captura-head">
-              <div class="captura-title-box">
-                <span class="captura-badge"><i class="pi pi-pencil" aria-hidden="true"></i></span>
-                <div>
-                  <h2 class="captura-title">Captura manual</h2>
-                  <p class="captura-sub">
-                    Buscá artículos por código, código de barras o nombre y agregalos uno a uno con precio del ERP.
-                  </p>
-                </div>
-              </div>
-            </div>
-
+          <div class="card captura-card">
             <div class="captura-body">
-              <!-- Buscador de artículos por código, código de barras o nombre -->
+              <!-- COT.18: el título comparte fila con el buscador (antes: encabezado + subtítulo +
+                   etiqueta = 3 renglones antes de poder escribir). -->
               <div class="search-step">
-                <label class="f-lbl" for="prodSearchInput">
-                  <span>Artículo a cotizar (Código, código de barras o nombre)</span>
+                <label class="captura-lbl" for="prodSearchInput">
+                  <i class="pi pi-plus-circle" aria-hidden="true"></i> Agregar artículo
                 </label>
                 <div class="search-input-wrap">
                   <i class="pi pi-search search-ico" aria-hidden="true"></i>
@@ -526,11 +482,15 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
 
         <!-- ── Los renglones agregados ─────────────────────────────────────────────────── -->
         <!-- [UIM.2] Apilado por campos: las 9 columnas son campos de UN renglon. -->
-        <div class="table-card dt-scope">
+        <div class="card table-card dt-scope">
+          <div class="card-head">
+            <h2>Renglones</h2>
+            <span class="badge-count">{{ q.lines.length }}</span>
+          </div>
           @if (!q.lines.length) {
             <div class="empty">
               <p class="empty-title">Esta cotización todavía no tiene renglones.</p>
-              <p class="empty-hint">Usá la Captura manual arriba para buscar artículos y agregarlos uno a uno.</p>
+              <p class="empty-hint">Buscá artículos arriba, en "Agregar artículo", y agregalos uno a uno.</p>
             </div>
           } @else {
             <p-table [value]="q.lines" styleClass="p-datatable-sm dt-stack" [tableStyle]="{ 'min-width': '64rem' }">
@@ -554,7 +514,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                     @if (l.parent_line_number !== null) {
                       <span class="gift"><i class="pi pi-gift" aria-hidden="true"></i> regalo del {{ l.parent_line_number }}</span>
                     }
-                    <span class="p-name">{{ l.product_name || l.requested_text || '—' }}</span>
+                    <span class="p-name" [title]="l.product_name || l.requested_text || ''">{{ l.product_name || l.requested_text || '—' }}</span>
                     @if (!l.product_id) {
                       <span class="sin-casar">sin casar con el catálogo</span>
                     }
@@ -622,12 +582,17 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                 </tr>
               </ng-template>
             </p-table>
+          }
+        </div>
+        </div>
 
-            <!-- Los totales salen del SERVIDOR -->
-            <div class="totales">
-              <div class="tot"><span>Subtotal</span><b>{{ num(q.subtotal) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
-              <div class="tot"><span>Impuestos</span><b>{{ num(q.tax_total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
-              <div class="tot tot-big"><span>Total</span><b>{{ num(q.total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+        <!-- ── Riel fijo: totales del SERVIDOR, entregables y asistente IA ──────────────────── -->
+        <aside class="rail" aria-label="Resumen de la cotización">
+          <div class="card rail-card">
+            <div class="rail-totales">
+              <div class="tot-row"><span>Subtotal ({{ q.lines.length }} renglones)</span><b>{{ num(q.subtotal) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+              <div class="tot-row"><span>Impuestos</span><b>{{ num(q.tax_total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+              <div class="tot-row tot-final"><span>Total</span><b>{{ num(q.total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
               @if (num(q.terms_discount_pct)) {
                 <p class="tot-nota">
                   Incluye el {{ num(q.terms_discount_pct) }}% del cliente, aplicado sobre el subtotal —
@@ -635,80 +600,152 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                 </p>
               }
             </div>
-          }
-        </div>
-
-        @if (q.customer_request) {
-          <div class="cruda">
-            <p class="cruda-lbl">La lista del cliente, como llegó</p>
-            <pre>{{ q.customer_request }}</pre>
+            <div class="rail-actions">
+              <div class="rail-export">
+                <button
+                  pButton
+                  severity="success"
+                  [outlined]="true"
+                  type="button"
+                  class="btn-export-xlsx"
+                  [disabled]="!q.lines.length || exportando()"
+                  (click)="descargarXlsx()"
+                  title="Descargar entregable en Excel (.xlsx)"
+                >
+                  <span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span>
+                  <span class="p-button-label">Excel</span>
+                </button>
+                <button
+                  pButton
+                  severity="danger"
+                  [outlined]="true"
+                  type="button"
+                  class="btn-export-pdf"
+                  [disabled]="!q.lines.length || exportando()"
+                  (click)="descargarPdf()"
+                  title="Descargar entregable formal en PDF"
+                >
+                  <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
+                  <span class="p-button-label">PDF</span>
+                </button>
+              </div>
+            </div>
+            @if (q.customer_request) {
+              <details class="cruda">
+                <summary>La lista del cliente, como llegó</summary>
+                <pre>{{ q.customer_request }}</pre>
+              </details>
+            }
           </div>
-        }
+
+          <div class="ia-placeholder" role="note">
+            <h3><i class="pi pi-sparkles" aria-hidden="true"></i> Asistente de ventas IA</h3>
+            <p>Aquí aparecerán sugerencias para esta cotización: productos que el cliente suele llevar, oportunidades de volumen y qué le falta a su canasta.</p>
+            <span class="ia-tag">Próximamente</span>
+          </div>
+        </aside>
+        </div>
       }
     </section>
   `,
   styles: [
     `
-      .section { padding: 1rem 1.25rem; max-width: 1100px; margin: 0 auto; }
-      .back { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.8125rem; color: var(--text-muted); text-decoration: none; margin-bottom: 0.75rem; }
+      /* COT.18: mismo esqueleto que el alta (COT.16) — pantalla apaisada, zona de trabajo + riel
+         fijo a la derecha, cada línea vertical cuenta. Bajo 1100px el riel baja debajo. */
+      .section { padding: 0.6rem 1rem 1rem; max-width: 1600px; margin: 0 auto; }
+      .page-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+      .page-head h1 { font-size: 1.05rem; font-weight: 700; margin: 0; font-family: var(--font-mono, monospace); }
+      .head-cliente { font-size: 0.875rem; font-weight: 600; color: var(--text-main); }
+      .crumb-sep { color: var(--text-faint); }
+      .back { display: inline-flex; gap: 0.3rem; align-items: center; font-size: 0.75rem; color: var(--text-muted); text-decoration: none; }
       .back:hover { color: var(--text-main); }
       .back:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: 4px; }
-      .head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-      .head-right-actions { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-      .btn-export-xlsx { border-color: #16a34a !important; color: #16a34a !important; font-weight: 600; }
+
+      .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 0.75rem; align-items: start; }
+      .work { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+      .rail { position: sticky; top: 0.6rem; display: flex; flex-direction: column; gap: 0.6rem; }
+      @media (max-width: 1100px) {
+        .layout { grid-template-columns: 1fr; }
+        .rail { position: static; }
+      }
+      .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+      .card-head {
+        display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.65rem; min-height: 38px;
+        border-bottom: 1px solid var(--border-color); background: var(--surface-ground, #fafafa);
+      }
+      .card-head h2 { font-size: 0.875rem; font-weight: 700; margin: 0; }
+      .badge-count { font-size: 0.75rem; background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 9999px; font-weight: 600; color: var(--text-muted); }
+
+      .btn-export-xlsx { border-color: #16a34a !important; color: #16a34a !important; font-weight: 600; justify-content: center; }
       .btn-export-xlsx:hover:not(:disabled) { background: rgba(22, 163, 74, 0.08) !important; }
-      .btn-export-pdf { border-color: #dc2626 !important; color: #dc2626 !important; font-weight: 600; }
+      .btn-export-pdf { border-color: #dc2626 !important; color: #dc2626 !important; font-weight: 600; justify-content: center; }
       .btn-export-pdf:hover:not(:disabled) { background: rgba(220, 38, 38, 0.08) !important; }
-      .section-header h1 { font-size: 1.35rem; font-weight: 700; margin: 0; font-family: var(--font-mono, monospace); }
-      .sub { color: var(--text-muted); font-size: 0.9375rem; margin: 0.15rem 0 0; }
+
+      /* Riel: totales (del servidor), entregables, lista del cliente y asistente IA */
+      .rail-card { display: flex; flex-direction: column; }
+      .rail-totales { padding: 0.65rem 0.75rem 0.5rem; display: flex; flex-direction: column; gap: 0.15rem; }
+      .tot-row { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.8125rem; color: var(--text-muted); }
+      .tot-row b { color: var(--text-main); font-variant-numeric: tabular-nums; text-align: right; }
+      .tot-final { font-size: 0.875rem; font-weight: 700; color: var(--text-main); border-top: 1px solid var(--border-color); padding-top: 0.35rem; margin-top: 0.2rem; align-items: baseline; }
+      .tot-final b { font-weight: 800; font-size: 1.3rem; color: var(--action); }
+      .tot-nota { margin: 0.35rem 0 0; font-size: 0.7rem; color: var(--text-muted); }
+      .rail-actions { padding: 0.5rem 0.75rem 0.65rem; border-top: 1px solid var(--border-color); }
+      .rail-export { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+      .ia-placeholder {
+        border: 1px dashed var(--ember-border, rgba(240, 90, 40, 0.3)); border-radius: 8px; padding: 0.7rem 0.75rem;
+        background: var(--ember-soft, rgba(248, 180, 0, 0.12));
+      }
+      .ia-placeholder h3 { margin: 0 0 0.25rem; font-size: 0.8125rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; }
+      .ia-placeholder h3 i { color: var(--action); }
+      .ia-placeholder p { margin: 0; font-size: 0.75rem; color: var(--text-muted); }
+      .ia-tag {
+        display: inline-block; margin-top: 0.45rem; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.05em;
+        text-transform: uppercase; color: var(--action); background: var(--card-bg); border-radius: 9999px; padding: 1px 8px;
+      }
 
       .loading { display: flex; justify-content: center; padding: 3rem 0; }
-      .aviso { display: flex; gap: 0.5rem; align-items: flex-start; margin: 1rem 0; padding: 0.7rem 0.9rem;
+      .aviso { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0; padding: 0.5rem 0.75rem;
                border: 1px solid var(--border-color); border-left-width: 3px; border-radius: 8px;
                background: var(--card-bg); font-size: 0.8125rem; color: var(--text-muted); }
       .aviso i { color: var(--action); margin-top: 0.1rem; }
       .aviso-bad { border-left-color: var(--bad-fg); }
       .aviso-bad i { color: var(--bad-fg); }
 
-      .terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; margin: 0.85rem 0; }
-      .t { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem 0.75rem;
-           display: flex; flex-direction: column; gap: 0.1rem; }
-      .t-lbl { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
-      .t-val { font-size: 0.875rem; font-variant-numeric: tabular-nums; }
-      .t-val.t-sm { font-size: 0.8125rem; }
+      /* Condiciones congeladas en UNA tira (antes 5–6 tarjetas de ~75 px de alto) */
+      .terms-line {
+        display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.6rem;
+        padding: 0.4rem 0.75rem; font-size: 0.75rem; color: var(--text-main);
+      }
+      .tl { display: inline-flex; align-items: baseline; gap: 0.25rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .tl-lbl { color: var(--text-muted); }
+      .tl-ico { color: var(--text-muted); font-size: 0.7rem; align-self: center; }
+      .tl-sep { width: 1px; height: 0.85rem; background: var(--border-color); }
       .t-strong { font-weight: 700; color: var(--action); }
-      .t-none { font-style: italic; color: var(--text-muted); font-size: 0.8125rem; }
+      .t-none { font-style: italic; color: var(--text-muted); }
       .t-sub { font-size: 0.7rem; color: var(--text-muted); }
       .vencida { color: var(--bad-fg); font-weight: 600; }
 
-      /* ── MÓDULO: Captura manual ─────────────────────────────────────────── */
-      .captura-card {
-        background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px;
-        margin-bottom: 1.25rem; overflow: visible; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      /* ── Agregar artículo: etiqueta y buscador en la misma fila ────────────── */
+      .captura-card { overflow: visible; }
+      .captura-body { padding: 0.5rem 0.65rem; }
+      .search-step {
+        position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr);
+        align-items: center; column-gap: 0.6rem;
       }
-      .captura-head {
-        display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
-        padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color); background: var(--surface-ground);
+      .captura-lbl {
+        font-size: 0.875rem; font-weight: 700; color: var(--text-main); white-space: nowrap;
+        display: inline-flex; align-items: center; gap: 0.35rem;
       }
-      .captura-title-box { display: flex; align-items: center; gap: 0.6rem; }
-      .captura-badge {
-        width: 28px; height: 28px; border-radius: 6px; background: var(--action);
-        color: var(--action-ink, #fff); display: inline-flex; align-items: center; justify-content: center;
-        font-size: 0.875rem;
-      }
-      .captura-title { font-size: 1rem; font-weight: 700; margin: 0; }
-      .captura-sub { font-size: 0.75rem; color: var(--text-muted); margin: 0.1rem 0 0; }
-      .captura-body { padding: 1rem; }
-
-      .f-lbl { display: block; font-size: 0.8125rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text-main); }
-      .search-step { position: relative; margin-bottom: 0.75rem; }
+      .captura-lbl i { color: var(--action); }
       .search-input-wrap { position: relative; display: flex; align-items: center; }
-      .search-ico { position: absolute; left: 0.75rem; color: var(--text-muted); font-size: 0.875rem; pointer-events: none; }
-      .search-spinner { position: absolute; right: 0.75rem; color: var(--action); font-size: 0.875rem; }
-      .input.search-prod-input { padding-left: 2.25rem; font-size: 0.9375rem; min-height: 42px; border-radius: 8px; width: 100%; }
+      .search-ico { position: absolute; left: 0.65rem; color: var(--text-muted); font-size: 0.8125rem; pointer-events: none; }
+      .search-spinner { position: absolute; right: 0.65rem; color: var(--action); font-size: 0.8125rem; }
+      .input.search-prod-input { padding-left: 2rem; font-size: 0.8125rem; min-height: 34px; border-radius: 6px; width: 100%; }
+      .search-hint { grid-column: 2; }
 
-      /* Desplegable ordenado alfabéticamente */
+      /* Desplegable: debajo del buscador (columna 2), no debajo de la etiqueta */
       .cat-dropdown {
+        grid-column: 2; grid-row: 1;
         position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
         list-style: none; margin: 0; padding: 0; max-height: 18rem; overflow-y: auto;
         border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg);
@@ -734,10 +771,18 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .search-hint { font-size: 0.8125rem; color: var(--text-muted); margin: 0.5rem 0 0; }
 
       /* Tarjeta de producto descargado */
+      /* COT.18: la tarjeta pasa de una columna alta a filas que se acomodan (unidad · cantidad ·
+         precio + Agregar en una fila cuando hay ancho). */
       .descargado-box {
         background: var(--surface-ground); border: 1px solid var(--border-color);
-        border-radius: 8px; padding: 1rem; margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.85rem;
+        border-radius: 8px; padding: 0.55rem 0.7rem; margin-top: 0.5rem;
+        display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem 0.9rem;
       }
+      /* Fila 1: nombre + datos + "Cambiar artículo". Fila 2: unidad · cantidad. Fila 3: precio. */
+      .descargado-info { order: 0; flex: 1 1 60%; }
+      .descargado-box > .descargado-header { order: 1; flex: 0 0 auto; margin-left: auto; }
+      .descargado-box > .pregunta-seccion, .descargado-box > .touch-qty-seccion { order: 2; }
+      .descargado-box > .previa-card, .descargado-box > .previa-loading { order: 3; flex: 1 1 100%; }
       .descargado-header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
       .descargado-tag {
         display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem;
@@ -749,34 +794,38 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       }
       .btn-change-prod:hover { text-decoration: underline; }
 
-      .descargado-info { display: flex; flex-direction: column; gap: 0.35rem; }
-      .descargado-name { font-size: 1.05rem; font-weight: 700; color: var(--text-main); }
-      .descargado-pills { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-      .pill-meta { font-size: 0.75rem; color: var(--text-muted); background: var(--card-bg); padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid var(--border-color); }
+      /* Nombre + datos en un renglón: la primera fila de la tarjeta */
+      /* El nombre ya dice cuál está elegido: la etiqueta "Artículo seleccionado" sobra. */
+      .descargado-header .descargado-tag { display: none; }
+      .descargado-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
+      .descargado-name { font-size: 0.875rem; font-weight: 700; color: var(--text-main); }
+      .descargado-pills { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+      .pill-meta { font-size: 0.6875rem; color: var(--text-muted); background: var(--card-bg); padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid var(--border-color); }
       .pill-meta b { color: var(--text-main); }
 
-      /* Pregunta: Caja o Pieza */
-      .pregunta-seccion { display: flex; flex-direction: column; gap: 0.4rem; }
-      .pregunta-lbl { font-size: 0.8125rem; font-weight: 700; color: var(--text-main); }
-      .unit-toggle-group { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+      /* Unidad de venta: botones en línea, de menor a mayor */
+      .pregunta-seccion { display: flex; flex-direction: column; gap: 0.2rem; }
+      .pregunta-lbl { font-size: 0.6875rem; font-weight: 600; color: var(--text-muted); }
+      .unit-toggle-group { display: flex; gap: 0.35rem; flex-wrap: wrap; }
       .unit-toggle-btn {
-        flex: 1 1 130px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        padding: 0.65rem 0.8rem; border-radius: 8px; border: 2px solid var(--border-color);
-        background: var(--card-bg); cursor: pointer; min-height: 52px; text-align: center; gap: 0.15rem;
+        display: inline-flex; align-items: center; gap: 0.3rem;
+        padding: 0.3rem 0.6rem; border-radius: 6px; border: 1.5px solid var(--border-color);
+        background: var(--card-bg); cursor: pointer; min-height: 34px; text-align: left;
         transition: border-color 0.15s, background-color 0.15s;
       }
-      .unit-toggle-btn i { font-size: 1rem; color: var(--text-muted); }
+      .unit-toggle-btn i { font-size: 0.8125rem; color: var(--text-muted); }
       .unit-toggle-btn:hover { border-color: var(--action); }
       .unit-toggle-active { border-color: var(--action); background: rgba(var(--action-rgb, 14, 116, 144), 0.06); }
       .unit-toggle-active i { color: var(--action); }
-      .unit-title { font-weight: 700; font-size: 0.9375rem; color: var(--text-main); }
-      .unit-sub { font-size: 0.7rem; color: var(--text-muted); }
+      .unit-title { font-weight: 700; font-size: 0.8125rem; color: var(--text-main); }
+      .unit-sub { font-size: 0.6875rem; color: var(--text-muted); }
 
-      /* Stepper táctil para móvil 16:9 */
-      .touch-qty-seccion { display: flex; flex-direction: column; gap: 0.4rem; }
-      .touch-stepper { display: flex; align-items: center; gap: 0.5rem; max-width: 320px; }
+      /* Cantidad: stepper + incrementos en una fila */
+      .touch-qty-seccion { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.5rem; }
+      .touch-qty-seccion .pregunta-lbl { flex: 1 1 100%; }
+      .touch-stepper { display: flex; align-items: center; gap: 0.3rem; }
       .btn-touch-step {
-        width: 48px; height: 48px; flex: none; border-radius: 8px; border: 1px solid var(--border-color);
+        width: 34px; height: 34px; flex: none; border-radius: 6px; border: 1px solid var(--border-color);
         background: var(--card-bg); font-size: 1.15rem; font-weight: 700; color: var(--text-main);
         cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
         user-select: none; -webkit-tap-highlight-color: transparent;
@@ -784,16 +833,16 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .btn-touch-step:active { background: var(--hover-bg); transform: scale(0.96); }
       .btn-touch-step:disabled { opacity: 0.4; cursor: not-allowed; }
       .touch-qty-readout {
-        flex: 1; height: 48px; border-radius: 8px; border: 1px solid var(--border-color);
-        background: var(--card-bg); display: flex; flex-direction: column; align-items: center;
-        justify-content: center; font-variant-numeric: tabular-nums;
+        min-width: 5.5rem; height: 34px; padding: 0 0.5rem; border-radius: 6px; border: 1px solid var(--border-color);
+        background: var(--card-bg); display: flex; align-items: baseline; justify-content: center; gap: 0.3rem;
+        font-variant-numeric: tabular-nums; line-height: 32px;
       }
-      .qty-num { font-size: 1.35rem; font-weight: 800; line-height: 1.1; color: var(--text-main); }
-      .qty-lbl { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
+      .qty-num { font-size: 1rem; font-weight: 800; color: var(--text-main); }
+      .qty-lbl { font-size: 0.6875rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
 
-      .touch-presets { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.25rem; }
+      .touch-presets { display: flex; gap: 0.25rem; flex-wrap: wrap; }
       .preset-btn {
-        min-height: 36px; padding: 0.3rem 0.65rem; border-radius: 6px; border: 1px solid var(--border-color);
+        min-height: 30px; padding: 0.2rem 0.5rem; border-radius: 6px; border: 1px solid var(--border-color);
         background: var(--card-bg); font-size: 0.8125rem; font-weight: 600; cursor: pointer; color: var(--text-muted);
       }
       .preset-btn:hover, .preset-btn:active { background: var(--hover-bg); color: var(--text-main); }
@@ -802,17 +851,17 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       /* Previa del precio y volumen */
       .previa-loading { font-size: 0.8125rem; color: var(--text-muted); padding: 0.5rem 0; }
       .previa-card {
-        border-radius: 8px; padding: 0.85rem 1rem; border: 1px solid var(--border-color);
-        border-left: 4px solid var(--ok-fg, #15803d); background: var(--card-bg);
+        border-radius: 6px; padding: 0.45rem 0.7rem; border: 1px solid var(--border-color);
+        border-left: 3px solid var(--ok-fg, #15803d); background: var(--card-bg);
       }
       .previa-card-bad { border-left-color: var(--bad-fg, #dc2626); }
-      .previa-top { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
+      .previa-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem 1.25rem; flex-wrap: wrap; }
       .previa-unit-box { flex: 0 1 auto; }
       .previa-total-box { flex: 0 1 auto; }
       .previa-action-box { margin-left: auto; display: flex; align-items: center; }
       .btn-agregar-inline {
-        min-height: 40px; font-size: 0.875rem; font-weight: 700; border-radius: 6px;
-        padding: 0.45rem 1.15rem; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        min-height: 34px; font-size: 0.8125rem; font-weight: 700; border-radius: 6px;
+        padding: 0.35rem 1rem; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       }
       @media (max-width: 640px) {
         .previa-action-box { width: 100%; margin-left: 0; margin-top: 0.4rem; }
@@ -820,36 +869,37 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       }
       .previa-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; display: block; }
       .previa-price-row { display: flex; align-items: baseline; gap: 0.35rem; }
-      .previa-amount { font-size: 1.2rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
+      .previa-amount { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
       .previa-unit-sub { font-size: 0.75rem; color: var(--text-muted); }
       .previa-menor-sub { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; margin-left: 0.25rem; }
-      .previa-total-amount { font-size: 1.25rem; font-weight: 800; color: var(--action); font-variant-numeric: tabular-nums; }
+      .previa-total-amount { font-size: 1.05rem; font-weight: 800; color: var(--action); font-variant-numeric: tabular-nums; }
       .previa-none { font-size: 0.875rem; font-style: italic; color: var(--bad-fg); }
 
+      /* Oportunidad de volumen. Sin azul (DESIGN.md): tokens de acción, como el alta (COT.16). */
       .banner-oportunidad-volumen {
-        display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
-        padding: 0.6rem 0.85rem; background: #eff6ff; border: 1.5px dashed #3b82f6;
-        border-radius: 8px; font-size: 0.8125rem; color: #1e40af; margin: 0.5rem 0; flex-wrap: wrap;
+        display: flex; justify-content: space-between; align-items: center; gap: 0.5rem 0.75rem;
+        padding: 0.35rem 0.6rem; background: var(--ember-soft, rgba(248, 180, 0, 0.12));
+        border: 1px dashed var(--ember-border, rgba(240, 90, 40, 0.35));
+        border-radius: 6px; font-size: 0.75rem; color: var(--text-main); margin: 0.4rem 0 0; flex-wrap: wrap;
       }
-      .b-vol-left { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 280px; }
-      .b-vol-icon { font-size: 1.15rem; color: #2563eb; flex-shrink: 0; }
-      .b-vol-icon-ok { font-size: 1.25rem; color: #059669; flex-shrink: 0; }
-      .b-vol-text { display: flex; flex-direction: column; gap: 0.15rem; }
-      .b-vol-title { font-weight: 700; color: #1e3a8a; }
-      .b-vol-desc { font-size: 0.75rem; color: #1e40af; }
+      .b-vol-left { display: flex; align-items: center; gap: 0.4rem; flex: 1 1 280px; }
+      .b-vol-icon { font-size: 0.875rem; color: var(--action); flex-shrink: 0; }
+      .b-vol-icon-ok { font-size: 0.875rem; color: var(--ok-fg, #15803d); flex-shrink: 0; }
+      .b-vol-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.4rem; }
+      .b-vol-title { font-weight: 700; color: var(--text-main); }
+      .b-vol-desc { font-size: 0.75rem; color: var(--text-muted); }
       .strikethrough { text-decoration: line-through; opacity: 0.65; margin: 0 0.2rem; }
       .btn-aplicar-volumen {
-        background: #2563eb; color: #fff; border: 0; border-radius: 6px;
-        padding: 0.4rem 0.85rem; font-size: 0.75rem; font-weight: 700;
-        cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+        background: var(--action); color: var(--action-ink, #fff); border: 0; border-radius: 6px;
+        padding: 0.3rem 0.7rem; font-size: 0.75rem; font-weight: 700;
+        cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;
       }
-      .btn-aplicar-volumen:hover { background: #1d4ed8; }
+      .btn-aplicar-volumen:hover { filter: brightness(0.95); }
 
       .banner-volumen-exito {
-        display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.85rem;
-        background: #ecfdf5; border: 1.5px solid #10b981; border-radius: 8px;
-        font-size: 0.8125rem; color: #065f46; margin: 0.5rem 0;
+        display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.6rem;
+        background: #ecfdf5; border: 1px solid #10b981; border-radius: 6px;
+        font-size: 0.75rem; color: #065f46; margin: 0.4rem 0 0;
       }
       .banner-volumen-exito .b-vol-title { color: #065f46; }
       .banner-volumen-exito .b-vol-desc { color: #047857; }
@@ -875,41 +925,43 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .step-delta { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ok-fg, #15803d); }
       .p-why-bad { color: var(--bad-fg, #dc2626); font-size: 0.75rem; margin: 0.3rem 0 0; }
 
-      .p-unit-cell { display: flex; flex-direction: column; align-items: flex-end; }
+      /* Precio + desglose en UNA línea (antes 3: precio, "(12 PAQ", "$78.56)") */
+      .p-unit-cell { display: flex; align-items: baseline; justify-content: flex-end; gap: 0.35rem; white-space: nowrap; }
       .p-unit-main { font-weight: 700; }
       .p-unit-sub-breakdown { font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; }
 
-      .sin-casar-box { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.3rem; }
+      .sin-casar-box { margin-top: 0.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; }
       .sin-casar-hint { font-size: 0.75rem; color: var(--text-muted); }
 
       /* Tabla de renglones */
-      .table-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow-x: auto; }
+      /* Tabla de renglones: una línea por renglón */
+      .table-card { overflow-x: auto; }
+      /* Sin cortes de línea sólo cuando la tabla NO está apilada (dense-table.css: 34rem). */
+      @container densetable (min-width: 34rem) {
+        .table-card :is(th, td) { white-space: nowrap; padding: 0.3rem 0.55rem; font-size: 0.8125rem; }
+        .table-card th { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); }
+      }
       .num { text-align: right; }
       .mono { font-family: var(--font-mono, monospace); }
       .muted { color: var(--text-muted); }
       .row-gift { background: var(--surface-ground); }
-      .gift { display: block; font-size: 0.7rem; color: var(--ok-fg); }
-      .sin-casar { display: block; font-size: 0.7rem; color: var(--warn-fg); }
+      .p-name { display: inline-block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+      .gift { font-size: 0.7rem; color: var(--ok-fg); margin-right: 0.35rem; }
+      .sin-casar { font-size: 0.7rem; color: var(--warn-fg); margin-left: 0.35rem; }
       .factor { margin-left: 0.25rem; font-size: 0.7rem; color: var(--text-muted); }
-      .dto { display: block; font-size: 0.7rem; color: var(--ok-fg); }
+      .dto { font-size: 0.7rem; color: var(--ok-fg); margin-left: 0.3rem; }
       .inline-qty-box { display: flex; justify-content: flex-end; }
-      .qty-inline { width: 5.5rem; min-height: 32px; padding: 0.2rem 0.4rem; }
+      /* .input (más abajo) trae 36px de alto: con dos clases gana el campo compacto del renglón. */
+      .input.qty-inline { width: 4.5rem; min-height: 28px; padding: 0.1rem 0.4rem; font-size: 0.8125rem; }
 
-      .totales { border-top: 1px solid var(--border-color); padding: 0.75rem 1rem; display: flex;
-                 flex-direction: column; gap: 0.2rem; align-items: flex-end; }
-      .tot { display: flex; gap: 1.5rem; font-size: 0.8125rem; color: var(--text-muted); }
-      .tot b { color: var(--text-main); font-variant-numeric: tabular-nums; min-width: 7rem; text-align: right; }
-      .tot-big { font-size: 1rem; }
-      .tot-big b { font-weight: 700; }
-      .tot-nota { margin: 0.4rem 0 0; font-size: 0.7rem; color: var(--text-muted); max-width: 44ch; text-align: right; }
-
-      .empty { padding: 2.5rem 1rem; text-align: center; }
+      .empty { padding: 1.5rem 1rem; text-align: center; }
       .empty-title { margin: 0 0 0.35rem; font-weight: 600; }
       .empty-hint { margin: 0; font-size: 0.8125rem; color: var(--text-muted); }
 
-      .cruda { margin-top: 1rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.8rem 1rem; }
-      .cruda-lbl { margin: 0 0 0.4rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
-      .cruda pre { margin: 0; white-space: pre-wrap; font-family: var(--font-mono, monospace); font-size: 0.75rem; color: var(--text-muted); }
+      /* La lista del cliente, plegada en el riel */
+      .cruda { padding: 0.45rem 0.75rem 0.55rem; border-top: 1px solid var(--border-color); font-size: 0.75rem; }
+      .cruda summary { cursor: pointer; color: var(--text-muted); }
+      .cruda pre { margin: 0.35rem 0 0; max-height: 14rem; overflow: auto; white-space: pre-wrap; font-family: var(--font-mono, monospace); font-size: 0.75rem; color: var(--text-muted); }
 
       .input { width: 100%; padding: 0.45rem 0.7rem; box-sizing: border-box; border: 1px solid var(--border-color);
                border-radius: 6px; font-size: 0.875rem; background: var(--card-bg); color: var(--text-main); min-height: 36px; }
@@ -1099,6 +1151,11 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   /** Abreviatura de la unidad base para el desglose ("12 PAQ $41.82"), nunca "PZS" fijo. */
   abrevBase(e: QuoteCatalogRow | null): string {
     return abrevUnidadBase(e?.unit_base, !!e?.sold_by_kg);
+  }
+
+  /** "Padre Hidalgo" para la tira de condiciones (mismo catálogo que rotula el entregable). */
+  nombreSucursal(code: string | null): string {
+    return branchName(code);
   }
 
   /** Lo mismo, para un renglón ya guardado (la unidad base viene del JOIN del detalle). */

@@ -994,6 +994,7 @@ como un error genérico.
 | `[COT.15]` | 🔨 | **Desbloqueo de botón Crear cotización, asignación de folio y navegación a mesa de cotizaciones abiertas**: `puedeCrear` deja de bloquear silenciosamente el botón mientras se escribe el cliente. Auto-selección con Enter o click. Al generarse la cotización (`COT-YYYY-NNNNN`), navega a `/telemarketing/cotizaciones?created=COT-YYYY-NNNNN` en estatus Borrador (abierta) en lugar de redirigir al detalle interno. Columnas `salesperson_code` y `salesperson_name` mapeadas en `commercial.quotes`. Errores de solo lectura en DB mapeados limpiamente a `ServiceUnavailableException` |
 | `[COT.16]` | 🧪 | **Unidad mayor BTO/CUB + captura de pedido DICTADO por teléfono** (2026-09-30 → 2026-10-01). **(a) Mergeado en #200:** el botón "Caja" daba *"el ERP no declara esa presentación"* para granel; 170 SKUs (~1,500 filas suc×sku) tienen bulto/cubeta como unidad mayor y ninguna CJA (revisión de Edgar `bc2745c82`: unidad mayor de UNA derivación, `v_label_presentations`). **(b) Este PR, medido con 3 pedidos dictados de 15 partidas (top-45 de mayoreo, suc 01) y verificado después en la pantalla real:** 3 errores que pasaban sin aviso — clics rápidos en "+" perdían cantidad (4 clics: 8→9, no 12); el mismo producto pedido dos veces quedaba en 2 renglones sin mayoreo ($27.24 en contra del cliente); el desglose decía `20PZS` a un bulto de 20 KG **también en el Excel/PDF**. Más: cantidad TECLEABLE + Enter agrega (48 cajas = 2 teclas, antes 8 clics), ↑↓/Enter en el buscador, cursor al buscador tras elegir cliente, botones de unidad de menor a mayor con el nombre real de la base, renglón "no manejado" (`requested_text`), bandeja de una línea, layout compacto con riel derecho (total + cierre + lugar del asistente IA). **Buscador del dictado** (`applySmartSearch` gana `synonyms`/`stem`/`ignore`, opcionales): 7 de 45 búsquedas daban cero ("paleta"→PAL, "chocolate"→CHOC, "pistaches", "chiquitos"→MINI, "25 POR 35", "de kilo"→1KG) — ahora las 8 de prueba salen con el producto en 1er lugar, ordenado por la venta 30 d de la sucursal (`product_demand`, 110–200 ms; sumar la MV al vuelo eran 3.4 s). ⚠️ **Se quitó el re-orden alfabético del front que había pedido el PM** (manda el del servidor). ⚠️ **Abierto, NO en este PR: la previa de precio tarda ~2.9 s por clic** — es `v_label_presentations` (no empuja el filtro); quitarla bajaba a 78–230 ms con 25/25 SKUs idénticos, pero la revisión de #200 midió que `kdii` y la vista divergen en 138 CJA/182 filas → se arregla reescribiendo la VISTA (migración), en PR aparte |
 | `[COT.17]` | 🧪 | **Unidad del medio en la cotización + vista previa de precio de 3 s → 0.15 s** (2026-10-02). **(a) Unidad del medio:** en productos con 3 unidades (KINDER DELICE: pieza 1 · paquete 10 · caja 140) el desglose del precio de la caja sólo mostraba la base; el equipo de ventas pidió también el paquete. Ahora pantalla nueva, detalle y Excel/PDF dicen `(14 PAQ 121.86 · 140 PZA 12.19)`, desde UNA función pura (`desglose()` en `quote-units.ts`). Precio PROPORCIONAL al de la caja, no el de lista del paquete suelto. Sólo si el paquete cabe exacto: medido en suc 01, **384 SKUs** con paquete+caja, 383 exactos, 1 no (97134, 11 en 200) → ese no se inventa. El detalle trae `product_pack_size` (descriptivo, del JOIN a `v_label_prices`). **(b) Velocidad:** la previa de precio tardaba ~3 s por clic en prod porque `analytics.v_label_presentations` tiene CTE referenciados varias veces (`esc`, `uni`) → Postgres los MATERIALIZA y el filtro sucursal+sku no entra (recalcula 84k `kdii` + 379k `kdpv_prod_util`). Migración `20261002120000` recrea la vista con **el mismo SQL + `NOT MATERIALIZED`** en sus 6 CTE. **Medido en prod (solo lectura), 96 lecturas: mediana 3,094 → 144 ms, p90 3,738 → 179 ms, 96/96 resultados idénticos.** Candado `v-label-presentations-not-materialized.spec.ts` (cuerpo == original salvo la palabra; prueba negativa). `v_label_prices` ya era 5–20 ms. Declarado: `kdpv_prod_util` sigue en seq scan (~30 ms; su índice es sobre `c1` crudo, la vista filtra `btrim(c1)`). **Pendiente: aplicar la migración en prod (una por una, `apply-one-migration-prod.js`).** |
+| `[COT.18]` | 🧪 | **Detalle de cotización compacto, con el mismo esqueleto que el alta** (2026-10-02). `/telemarketing/cotizaciones/:id` (editar una cotización) tenía un contenedor de 1,100 px, 5–6 tarjetas de condiciones de ~75 px, una tarjeta "Captura manual" con encabezado + subtítulo + etiqueta, renglones de ~70 px (el desglose del precio partido en 3 líneas) y el total al fondo. Ahora: cabecera de UNA línea (`← Cotizaciones / folio · cliente · estado`), condiciones en una tira, "Agregar artículo" en la misma fila del buscador (el desplegable cae bajo el buscador, no bajo la etiqueta), artículo elegido en horizontal (unidad · cantidad · precio + Agregar), renglones de una línea y **riel fijo** con totales del servidor, Excel/PDF, la lista del cliente plegada y el lugar del asistente IA. **Medido en la pantalla real (COT-2026-00009, 10 renglones, 1366+ px): renglón 54 → 39 px y los 10 caben sin scroll; la tarjeta del artículo elegido ~230 px.** Se quitó el azul del aviso de volumen (DESIGN.md: tokens de acción). Sin cambios de lógica ni de datos: sólo plantilla y estilos, más `nombreSucursal()`. El `nowrap` de la tabla vive dentro del mismo `@container densetable` que la apila en angosto. Sin verificar: modo oscuro y < 1100 px. |
 
 **Verificado:** `quote-deliverable-export.spec.ts` 4/4 ok; `quote-pricing.spec.ts` 2/2 ok; suite `commercial` 21/21 suites (231 pruebas) ok; suite `contracts` 10/10 suites (152 pruebas) ok; compuertas `check-template-literals` (344 componentes ok), `lint-changed` (35 archivos limpios); `nx build view` pasa limpio con exit code 0. Redirección y asignación de folio verificada hacia `/telemarketing/cotizaciones`.
 
@@ -3036,6 +3037,58 @@ de línea **mezclados** por un script mío de `[GX.26]`; lo normalicé a LF (que
 git) y el diff volvió de 229 líneas a 37. La lección es la de siempre acá: un script que
 reescribe un archivo tiene que respetar su final de línea, o el diff se vuelve irrevisable y el
 gate empieza a marcar como nuevas líneas que nadie tocó.
+
+---
+
+## GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código)
+
+Pedido del usuario: *«cuando te suban la evidencia de los gastos sólo jala el monto del vale,
+sólo comprueba que sea la información correcta, no la modifiques»*.
+
+**Medido antes de tocar nada: el módulo de gastos (`expense-proofs`) ya lo hacía bien.** `[GX.33]`
+dejó la lectura «sólo para avisar» — lee el comprobante, compara contra el importe, escribe una
+leyenda y **no toca ningún dato**. Ahí no había nada que arreglar.
+
+⛔ **El que decidía era el hermano.** `expense-comprobaciones` (GX.8, otra pantalla) sí leía el
+monto y, **si cuadraba, cerraba el expediente solo** en `validada` firmándolo
+`validated_by: 'Claude Vision'`. Son dos problemas distintos y los dos importan:
+
+1. **Quien gastó cerraba su propio expediente.** Esa evidencia la sube la misma persona que hizo
+   el gasto. Que el monto cuadre dice que **dos números coinciden** — no que el gasto proceda, ni
+   que el comprobante sea de ese gasto, ni que no esté duplicado.
+2. **Firmaba con un nombre que no es de nadie.** `validated_by` es el rastro de QUIÉN autorizó;
+   ponerle el nombre de un modelo deja un expediente sin responsable humano.
+
+⚠️ **Es la misma puerta que `[GX.32]` ya había tapado en `expense-proofs`** («cerrar sola dejaría
+que quien gastó cierre su propio expediente»). Sobrevivió en el módulo hermano porque es otra
+pantalla y el retiro no lo alcanzó.
+
+- [x] **[GX.59.1]** El estado pasa a ser **siempre `revision`**: la máquina no tiene estado propio
+  con el que cerrar. `validated_by`/`validated_at` se escriben en `null`. ✅ 2026-10-02
+- [x] **[GX.59.2]** La lectura **se conserva** — «no decidir» no es «no mirar»: si dejara de leer,
+  quien revisa pierde el único aviso de que el comprobante no cuadra. Sigue viniendo del
+  **servidor** (`srv`), no del cliente, así que el monto comparado no se falsea desde el
+  navegador. ✅ 2026-10-02
+- [x] **[GX.59.3]** ⛔ **Las tres salidas se distinguen**, que antes no: «no se pudo leer» NO es
+  «no cuadra» (la primera la arregla quien suba una foto mejor; la segunda es un problema con el
+  gasto, ADR-056). Y cuando **sí** cuadra la leyenda lo dice **y agrega que falta aprobarlo** —
+  antes `revision_nota` quedaba en `null` y un expediente sin nota se lee como cerrado.
+  ✅ 2026-10-02
+- [x] **[GX.59.4]** ⚠️ `monto_ocr`/`monto_match` **se siguen guardando**: son **lo que se leyó**,
+  un dato propio y nuevo, no una modificación de lo que capturó la persona. Lo que dejó de
+  escribirse es un **veredicto**. ✅ 2026-10-02
+- [x] **[GX.59.5]** Candado `comprobacion-veredicto.spec.ts` (8 pruebas). Comprueba una
+  **ausencia** —que la rama que cierra sola no exista— leyendo el archivo sin sus comentarios: lo
+  que el programa HACE, no lo que cuenta de sí mismo. **Prueba negativa corrida**: al restaurar la
+  auto-firma, 4 se ponen en rojo. ✅ 2026-10-02
+
+**Medido en `platform_local`:** `expense_comprobaciones` tiene **0 filas** con validador, y en
+`expense_proofs` los 16 validadores son **personas** (`demo_gx20` 8, `maria_gutierrez` 3,
+`superoot` 3, `david_cisneros` 2). O sea: el camino existía en código pero no alcanzó a firmar
+nada acá. ⚠️ **En prod hay que mirarlo** — si esa pantalla se usó, puede haber expedientes
+cerrados con `validated_by = 'Claude Vision'`.
+
+`libs/finance` 323/323 · check:templates OK · boundary gate OK.
 
 ---
 

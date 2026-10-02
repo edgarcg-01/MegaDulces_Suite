@@ -103,11 +103,11 @@ import {
       </div>
 
       <div class="res-split">
-        <section class="res-tabla">
+        <section class="res-tabla dt-scope">
           <p-table [value]="visibles()" [loading]="cargando()" dataKey="channel_id"
                    selectionMode="single" [(selection)]="seleccion"
                    (selectionChange)="abrir($event)"
-                   styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
+                   styleClass="p-datatable-sm surf-table" class="dt-stack" [scrollable]="true" scrollHeight="52vh">
             <ng-template #header>
               <tr>
                 <th>Folio</th>
@@ -122,29 +122,29 @@ import {
             </ng-template>
             <ng-template #body let-r>
               <tr [pSelectableRow]="r">
-                <td class="mono">{{ r.folio || '—' }}</td>
-                <td>{{ r.proveedor }}</td>
-                <td>
+                <td class="mono" role="cell" data-label="Folio">{{ r.folio || '—' }}</td>
+                <td class="dt-id" role="cell">{{ r.proveedor }}</td>
+                <td role="cell" data-label="Plaza">
                   {{ r.warehouse_name || r.warehouse_code }}
                   <span class="res-plaza-code mono">{{ r.warehouse_code }}</span>
                 </td>
-                <td class="ta-r mono">
+                <td class="ta-r mono dt-num" role="cell" data-label="Vigencia">
                   {{ r.dias_ventana }} d
                   @if (r.ventana_abierta) {
                     <span class="res-abierta" title="HASTA AGOTAR: la ventana se corta hoy, la cifra es provisional">abierta</span>
                   }
                 </td>
                 <!-- El guion NO es un cero: es que no hay cifra. -->
-                <td class="ta-r mono">{{ dinero(r.monto_ventana) }}</td>
-                <td class="ta-r mono">{{ dinero(r.monto_baseline) }}</td>
-                <td class="ta-r mono" [class.res-sube]="(r.uplift_monto ?? 0) > 0"
+                <td class="ta-r mono dt-num" role="cell" data-label="Venta">{{ dinero(r.monto_ventana) }}</td>
+                <td class="ta-r mono dt-num" role="cell" data-label="Base">{{ dinero(r.monto_baseline) }}</td>
+                <td class="ta-r mono dt-num" role="cell" data-label="Uplift" [class.res-sube]="(r.uplift_monto ?? 0) > 0"
                     [class.res-baja]="(r.uplift_monto ?? 0) < 0">
                   {{ dinero(r.uplift_monto) }}
                   @if (r.uplift_pct !== null) {
                     <span class="res-pct">{{ r.uplift_pct > 0 ? '+' : '' }}{{ r.uplift_pct }}%</span>
                   }
                 </td>
-                <td>
+                <td role="cell" data-label="Estado">
                   <p-tag [value]="etiqueta(r.medicion)" [severity]="tono(r.medicion)" />
                   @if (r.medicion === 'sin_alcance') {
                     <span class="res-cob mono">{{ r.codigos_ligados }}/{{ r.codigos_total }}</span>
