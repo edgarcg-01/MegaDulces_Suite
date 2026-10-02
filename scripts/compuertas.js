@@ -56,6 +56,15 @@ const COMPUERTAS = [
   // que para la tuberia. Una compuerta que pasa sobre un archivo que no inspecciona se lee igual
   // que una que lo aprobo.
   { nombre: 'sql-backticks', script: 'check-sql-backticks.js', que: 'ningun comentario SQL lleva acentos graves (rompen el template literal)', push: true, ms: 900 },
+  // [CD.12] Un marcador de conflicto sin resolver. Ya entro al repo una vez y rompio el build
+  // (2026-09-26, `fix([RA-PRO.60-62]): resolver marcador de conflicto en compras.service`), y
+  // hasta hoy NADA lo miraba: `pre-commit` solo corria gitleaks. Con 11 sesiones sobre el mismo
+  // arbol (medido 2026-10-02) el que lo commitea no es el que ve el build roto.
+  // ⛔ SIN `push: true` a proposito: el barrido completo son 4,216 archivos y 7.6 s, muy por
+  //    encima del criterio de admision (~3 s). Donde si corre es en `.githooks/pre-commit`,
+  //    acotado a lo staged: 94 ms, y ataja ANTES de que el commit exista. Aca queda para el
+  //    barrido entero de `npm run check`.
+  { nombre: 'conflicto', cmd: 'node scripts/check-conflict-markers.js', que: 'ningun marcador de conflicto sin resolver (rompe el build de todas las sesiones)' },
   { nombre: 'boundary', cmd: 'node scripts/lint-boundary-gate.js', que: 'sin `any` nuevo en el borde HTTP (ADR-052)' },
   { nombre: 'provenance', cmd: 'node scripts/check-provenance.js', que: 'un número publicado declara con qué se calculó (ADR-056)' },
   // `[CG.22]` Las dos que siguen atrapan defectos de UI **mudos**: build verde, typecheck verde,
