@@ -9,6 +9,18 @@
 ---
 
 ## [Unreleased]
+### Added — `/compras/pedido`: agregar sucursal sin historia, V30d/Máx con venta por mes y mínimo del proveedor (RA-PRO.64–66, 2026-10-01)
+Nace de una simulación comprador vs. vendedor GONAC sobre el 83185 con datos de producción (solo lectura).
+Etapa 1 de cinco, sin migraciones ni permisos nuevos:
+- **[RA-PRO.64]** "+ Agregar sucursal" en el desglose y leyendas *sin existencia · sin venta · sin mínimo ·
+  agregada*. El workbook excluía los almacenes sin existencia, venta ni tránsito, así que Zamora Centro no
+  tenía dónde capturarse. El renglón agregado entra a la requisición, PDF y XLSX como cualquier otro.
+- **[RA-PRO.65]** columna **V30d / Máx** (máximo por almacén; ausente = sin política de reorden) y globo con
+  13 meses en $ y cajas medidas contra el año anterior, más el prorrateo 60/40 del sistema anterior como
+  referencia. Endpoint `GET /commercial/replenishment/workbook/:id/monthly` (~40 ms en prod).
+- **[RA-PRO.66]** pedido mínimo del proveedor en la cabecera del desglose (ya viajaba en `/filters`).
+Plan de etapas 2–5 en `docs/IMPLEMENTACION/FASES/FASE_RA_PEDIDO_PERSPECTIVA.md`.
+
 ### Internal — Fase MS (Mesa de Servicio): plan por capas y solicitud de tablas y accesos (2026-10-01)
 Solo documentación, sin código ni migraciones. Plan de un sistema de tickets de servicio donde **el
 ticket es la tarea** (contrato de tarea → "A tu nombre" de Mi trabajo), con prioridad Baja/Media/Alta/Urgente
