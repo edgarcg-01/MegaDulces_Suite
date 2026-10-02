@@ -19,6 +19,7 @@ import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
+import { Popover, PopoverModule } from 'primeng/popover';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { generarRequisicionGlobalPdf, generarRequisicionPdf, ReqGlobalPdfData, ReqPdfData, ReqPdfFila, ReqPdfGrupo } from '../pedido-requisicion-pdf';
@@ -27,7 +28,7 @@ import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
-  InTransitOc, InTransitResponse,
+  InTransitOc, InTransitResponse, MonthlySalesResponse,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -77,6 +78,12 @@ interface BranchBuy {
   natu: string;          // rótulo de esa unidad, ya legible (ver natLabel)
   natuRaw: string;       // el rótulo CRUDO del ERP — puede ser el GRAMAJE ('500'), no un nombre
   hub: boolean;          // ¿este almacén ES un CEDIS de consolidación?
+  /** [RA-PRO.65] Máximo / reorden de ESTE almacén, en cajas. null = sin política ("sin mínimo"). */
+  mx: number | null;
+  rop: number | null;
+  /** [RA-PRO.64] Renglón agregado a mano por el comprador: el almacén no traía existencia, venta
+   *  ni nada en camino, así que el workbook no lo mandaba. Arranca en 0 y se captura como otro. */
+  added: boolean;
 }
 
 /** RA-PRO.48 — una zona de compra con sus sucursales y el CEDIS donde consolida. */
@@ -102,7 +109,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
-    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, ComprasFlujoComponent,
+    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, PopoverModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, ComprasFlujoComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -328,6 +335,17 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                           <span class="pr-mono pr-det-sku">{{ r.sku }}</span>
                           <strong class="pr-det-name">{{ r.nombre }}</strong>
                           @if (r.supplier_name) { <span class="pr-supp">{{ r.supplier_name }}</span> }
+                          <!-- [RA-PRO.66] El mínimo es del PEDIDO al proveedor (toda su línea), no de este
+                               producto: se dice así para que nadie lo lea como "pide 908 de este". -->
+                          @if (supplierMin(r); as mn) {
+                            <span class="pr-supp-min" title="Mínimo de pedido configurado para este proveedor en Compras › Proveedores. Aplica a la orden completa (todos sus productos), no a este producto.">
+                              <i class="pi pi-box" aria-hidden="true"></i> pedido mínimo {{ mn | number:'1.0-0' }} cajas (toda la línea)
+                            </span>
+                          }
+                          <button type="button" class="pr-vmx pr-vmx-red" (click)="openMonthly($event, r, null, mop)"
+                                  title="Venta por mes de este producto en toda la red">
+                            <i class="pi pi-chart-bar" aria-hidden="true"></i> venta por mes
+                          </button>
                           <span class="pr-det-uxc">1 caja = {{ r.uxc | number:'1.0-0' }} {{ unidadBase(r) }}</span>
                         </div>
                         <!-- Flechas con activación MANUAL (el patrón ARIA lo permite): ← → mueven el
@@ -352,12 +370,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                         @if (tabOf(r.product_id) === 'buy') {
                           @if (!branchBuys(r).length) {
                             <div class="pr-peek-loading">Este producto no tiene existencia ni venta en ninguna sucursal del filtro.</div>
+                            <ng-container *ngTemplateOutlet="addBranchTpl; context: { $implicit: r }"></ng-container>
                           } @else {
                             <div class="pr-wb-scroll">
                               <table class="pr-peek-tbl pr-det-tbl pr-det-buy">
                                 <thead><tr>
                                   <th>Sucursal</th>
-                                  <th class="pr-r" title="Venta de los últimos 30 días en esa sucursal, en CAJAS. Ordena la lista dentro de cada zona: la que más vende, arriba.">Venta 30d</th>
+                                  <th class="pr-r" title="Venta de los últimos 30 días en esa sucursal ÷ su MÁXIMO (política de reorden), en CAJAS. Clic en la cifra para ver la venta por mes de 12 meses contra el año anterior. Ordena la lista dentro de cada zona: la que más vende, arriba.">V30d / Máx</th>
                                   <th class="pr-r" title="Existencia de esa sucursal, en CAJAS.">Exist.</th>
                                   <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × cobertura − existencia − en camino). Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente (como en Excel) · ← → restan o suman uno (también Alt + ↑ ↓) · escribí para reemplazar. En celular y tableta: botones − y +, mantener presionado repite.">Pedido ✎</th>
                                   <th class="pr-r" title="En qué unidad estás capturando ESTE renglón. Sólo cambia cómo se escribe: el pedido, los días y el valor siempre se calculan en cajas.">Unidad</th>
@@ -388,8 +407,21 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                   }
                                   @for (b of z.rows; track b.code) {
                                     <tr>
-                                      <td><span class="pr-mono">{{ b.code }}</span> <span class="pr-peek-terr">{{ b.name }}</span></td>
-                                      <td class="pr-r pr-muted">{{ b.vta | number:'1.0-1' }}</td>
+                                      <td>
+                                        <span class="pr-mono">{{ b.code }}</span> <span class="pr-peek-terr">{{ b.name }}</span>
+                                        <!-- [RA-PRO.64] Lo que le falta a la sucursal, dicho en palabras. -->
+                                        @for (fl of branchFlags(b); track fl) { <span class="pr-bflag">{{ fl }}</span> }
+                                        @if (b.added) {
+                                          <span class="pr-bflag pr-bflag-add" title="La agregaste a mano: el sistema no la sugería porque no tiene existencia, venta ni nada en camino.">agregada</span>
+                                          <button type="button" class="pr-zlink" (click)="removeBranch(r, b.code)" [attr.aria-label]="'Quitar ' + b.code + ' del desglose'">quitar</button>
+                                        }
+                                      </td>
+                                      <td class="pr-r">
+                                        <button type="button" class="pr-vmx" (click)="openMonthly($event, r, b, mop)" [title]="vtaMaxTitle(b)"
+                                                [attr.aria-label]="'Venta por mes de ' + r.sku + ' en ' + b.code">
+                                          {{ b.vta | number:'1.0-1' }} <span class="pr-vmx-sep">/</span> @if (b.mx != null) { {{ b.mx | number:'1.0-1' }} } @else { — }
+                                        </button>
+                                      </td>
                                       <!-- U.2 — con el peldano contradicho la conversion a cajas no es
                                            confiable: se muestra la cantidad SUELTA con el rotulo que da
                                            el ERP, que si es verdad. -->
@@ -476,6 +508,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                 </tbody>
                               </table>
                             </div>
+                            <ng-container *ngTemplateOutlet="addBranchTpl; context: { $implicit: r }"></ng-container>
                             <!-- ACUSE — la palomita dice qué marcaste; esto dice qué se le va a
                                  pedir al proveedor. Y avisa de los traspasos ANTES del botón:
                                  consolidar no es una etiqueta, son dos movimientos reales. -->
@@ -750,6 +783,75 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         <!-- [RA-PRO.63] FLUJO: requisición → OC Kepler → entrada, y productos negados. Componente propio. -->
         <app-compras-flujo />
       }
+
+      <!-- [RA-PRO.64] Agregar al desglose una sucursal que el workbook no manda (sin existencia,
+           sin venta y sin nada en camino). Una sola definición para las dos salidas: desglose vacío
+           y desglose con renglones. -->
+      <ng-template #addBranchTpl let-r>
+        @if (addableBranches(r).length) {
+          <div class="pr-addb">
+            <p-select class="pr-addb-sel" [options]="addableBranches(r)" optionLabel="label" optionValue="value"
+                      [ngModel]="pickOf(r.product_id)" (ngModelChange)="addBranch(r, $event)" appendTo="body"
+                      [filter]="true" filterBy="label" placeholder="+ Agregar sucursal"
+                      [ariaLabel]="'Agregar una sucursal al pedido de ' + r.sku"></p-select>
+            <span class="pr-addb-hint">para abrir el producto en una sucursal que hoy no tiene existencia, venta ni pedido en camino</span>
+          </div>
+        }
+      </ng-template>
+
+      <!-- [RA-PRO.65] El globo de "V30d / Máx": la película de 12 meses contra el año anterior. -->
+      <p-popover #mop (onHide)="onMonthlyHide()" appendTo="body" ariaLabel="Venta por mes">
+        @if (monthly(); as m) {
+          <div class="pr-mo">
+            <div class="pr-mo-head">
+              <strong>Venta por mes</strong>
+              <span class="pr-muted">{{ m.title }}</span>
+            </div>
+            @if (m.loading) {
+              <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Cargando…</div>
+            } @else if (m.error || !m.data) {
+              <div class="pr-peek-loading">No se pudo leer la venta por mes. Vuelve a intentar.</div>
+            } @else if (!m.data.months.length) {
+              <div class="pr-peek-loading">Sin venta registrada en los últimos 24 meses.</div>
+            } @else {
+              <div class="pr-mo-bars" role="img" [attr.aria-label]="'Venta por mes, 13 meses, de ' + m.title">
+                @for (bar of monthlyBars(); track bar.mes) {
+                  <div class="pr-mo-col" [class.pr-mo-now]="bar.actual"
+                       [title]="bar.label + ': ' + money(bar.venta) + (bar.cajas != null ? ' · ' + (bar.cajas | number:'1.0-1') + ' cj' : ' · cajas sin medir') + (bar.parcial ? ' (parcial)' : '') + ' — año anterior ' + money(bar.ly) + (bar.lyCajas != null ? ' · ' + (bar.lyCajas | number:'1.0-1') + ' cj' : '') + (bar.actual ? ' — mes en curso' : '')">
+                    <div class="pr-mo-track">
+                      <span class="pr-mo-ly" [style.height.%]="barPct(bar.ly)"></span>
+                      <span class="pr-mo-cy" [style.height.%]="barPct(bar.venta)"></span>
+                    </div>
+                    <span class="pr-mo-cj">@if (bar.cajas != null) { {{ bar.cajas | number:'1.0-0' }}@if (bar.parcial) {*} } @else { ? }</span>
+                    <span class="pr-mo-lbl">{{ bar.label }}</span>
+                  </div>
+                }
+              </div>
+              <div class="pr-mo-leg">
+                <span><i class="pr-mo-sw pr-mo-sw-cy"></i>este año</span>
+                <span><i class="pr-mo-sw pr-mo-sw-ly"></i>año anterior</span>
+                <span class="pr-muted">barra = venta en $ · número = cajas</span>
+              </div>
+              @if (m.data.window; as w) {
+                <dl class="pr-mo-kv">
+                  <dt>Últimos 30 días</dt><dd>{{ w.v30_cajas | number:'1.0-1' }} cj@if (w.v30_parcial) {*}</dd>
+                  <dt>Próximos 30 días, año anterior</dt>
+                  <dd>@if (w.ly_next30_cajas != null) { {{ w.ly_next30_cajas | number:'1.0-1' }} cj } @else { <span class="pr-muted">{{ lyMotivo(w.ly_motivo) }}</span> }</dd>
+                  <dt title="Regla del sistema anterior: 60% de lo vendido en los últimos 30 días + 40% de lo que se vendió los próximos 30 días del año pasado. Es una referencia: el pedido sugerido lo calcula el motor con su estacionalidad.">Prorrateo 60/40 (sistema anterior)</dt>
+                  <dd>@if (w.prorrateo_60_40 != null) { <strong>{{ w.prorrateo_60_40 | number:'1.0-1' }} cj</strong> } @else { — }</dd>
+                  @if (m.data.warehouse) {
+                    <dt>Máximo de la sucursal</dt>
+                    <dd>@if (m.mx != null) { {{ m.mx | number:'1.0-1' }} cj } @else { <span class="pr-muted">sin política de reorden</span> }</dd>
+                  }
+                </dl>
+              }
+              @if (hasPartialMonths()) {
+                <p class="pr-mo-note">* parte de la venta de ese mes no trae la unidad medida (Wincaja): las cajas salen cortas; la barra en $ sí está completa.</p>
+              }
+            }
+          </div>
+        }
+      </p-popover>
     </div>
   `,
   styles: [`
@@ -1001,6 +1103,41 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-zname { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-main); }
     .pr-zhub { font-size: var(--fs-micro); color: var(--text-muted); margin-left: .5rem; }
     .pr-zlink { font-size: var(--fs-micro); border: 0; background: transparent; color: var(--action); cursor: pointer; padding: .1rem .3rem; border-radius: var(--r-sm, 8px); }
+    /* [RA-PRO.64] Leyendas de lo que le falta a la sucursal: texto chico neutro, no alarma. */
+    .pr-bflag { display: inline-block; margin-left: .3rem; font-size: var(--fs-nano); color: var(--text-muted);
+      border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: 0 .4rem; vertical-align: middle; white-space: nowrap; }
+    .pr-bflag-add { color: var(--action); border-color: var(--action-ring, var(--border-color)); }
+    .pr-addb { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .5rem; }
+    .pr-addb-hint { font-size: var(--fs-micro); color: var(--text-faint); }
+    .pr-supp-min { font-size: var(--fs-micro); color: var(--text-muted); border: 1px solid var(--border-color);
+      border-radius: var(--r-pill, 999px); padding: 0 .45rem; white-space: nowrap; }
+    .pr-supp-min i { font-size: var(--fs-micro); margin-right: .15rem; }
+    /* [RA-PRO.65] V30d / Máx: la cifra ES el botón del globo. */
+    .pr-vmx { border: 0; background: transparent; color: var(--text-main); cursor: pointer; font: inherit;
+      font-variant-numeric: tabular-nums; padding: .1rem .3rem; border-radius: var(--r-sm, 8px);
+      text-decoration: underline dotted var(--text-faint); text-underline-offset: 3px; }
+    .pr-vmx:hover { background: var(--hover-bg); }
+    .pr-vmx:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+    .pr-vmx-sep { color: var(--text-faint); }
+    .pr-vmx-red { font-size: var(--fs-micro); color: var(--action); text-decoration: none; }
+    .pr-mo { width: min(30rem, 86vw); font-size: var(--fs-sm); }
+    .pr-mo-head { display: flex; flex-direction: column; gap: .1rem; margin-bottom: .6rem; }
+    .pr-mo-bars { display: grid; grid-template-columns: repeat(13, 1fr); gap: .25rem; align-items: end; }
+    .pr-mo-col { display: flex; flex-direction: column; align-items: center; gap: .15rem; min-width: 0; }
+    .pr-mo-track { position: relative; width: 100%; height: 5.5rem; display: flex; align-items: flex-end; justify-content: center; }
+    .pr-mo-ly, .pr-mo-cy { position: absolute; bottom: 0; border-radius: 3px 3px 0 0; }
+    .pr-mo-ly { width: 100%; background: var(--border-color); }
+    .pr-mo-cy { width: 55%; background: var(--action); }
+    .pr-mo-now .pr-mo-cy { opacity: .55; }   /* mes en curso: incompleto, se ve más tenue */
+    .pr-mo-cj { font-size: var(--fs-nano); font-variant-numeric: tabular-nums; color: var(--text-main); }
+    .pr-mo-lbl { font-size: var(--fs-nano); color: var(--text-faint); white-space: nowrap; }
+    .pr-mo-leg { display: flex; gap: .75rem; flex-wrap: wrap; margin: .5rem 0; font-size: var(--fs-micro); }
+    .pr-mo-sw { display: inline-block; width: .6rem; height: .6rem; border-radius: 2px; margin-right: .25rem; vertical-align: -1px; }
+    .pr-mo-sw-cy { background: var(--action); } .pr-mo-sw-ly { background: var(--border-color); }
+    .pr-mo-kv { display: grid; grid-template-columns: 1fr auto; gap: .2rem .75rem; margin: .25rem 0 0;
+      padding-top: .5rem; border-top: 1px solid var(--border-color); }
+    .pr-mo-kv dt { color: var(--text-muted); } .pr-mo-kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+    .pr-mo-note { font-size: var(--fs-micro); color: var(--text-faint); margin: .5rem 0 0; }
     .pr-zlink:hover { background: var(--card-bg); text-decoration: underline; }
     /* control de entrega + selector de CEDIS */
     .pr-ent { white-space: nowrap; }
@@ -1182,6 +1319,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private readonly branchBuyMap = computed(() => {
     const names = this.whName();
     const meta = this.whMeta();
+    const added = this.addedBranches();
     const m = new Map<string, BranchBuy[]>();
     // [RA-PRO.54] Sobre la página abierta Y los productos seleccionados de otras páginas: la
     // requisición y el PDF globales necesitan sus renglones aunque no estén a la vista.
@@ -1204,6 +1342,24 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
           natu: this.natLabel(c.natu),
           natuRaw: (c.natu || '').trim(),
           hub: !!meta.get(code)?.hub,
+          mx: c.mx == null ? null : Number(c.mx),
+          rop: c.rop == null ? null : Number(c.rop),
+          added: false,
+        });
+      }
+      // [RA-PRO.64] Las que el comprador agregó a mano. Si una recarga trae la celda real (ya hay
+      // existencia o venta), manda la real y la agregada se descarta: nunca dos renglones iguales.
+      for (const code of added[r.product_id] ?? []) {
+        if (out.some((b) => b.code === code)) continue;
+        out.push({
+          code, name: names.get(code) || '',
+          vta: 0, exis: 0, seed: 0, seedUnit: 'caja',
+          // Sin celda no hay costo de ESE almacén: se usa el del producto (el max entre almacenes,
+          // mismo respaldo que ya aplica arriba a una celda sin `cc`). No se inventa 0.
+          cc: Number(r.caja_cost) || 0,
+          rung: null, nat: 0, natu: 'u', natuRaw: '',
+          hub: !!meta.get(code)?.hub,
+          mx: null, rop: null, added: true,
         });
       }
       // "Por orden de mayor venta". Con el feed de ventas caído la venta es 0 en todas, así que
@@ -1214,6 +1370,121 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return m;
   });
   branchBuys(r: WorkbookRow): BranchBuy[] { return this.branchBuyMap().get(r.product_id) ?? []; }
+
+  // ── [RA-PRO.64] SUCURSALES SIN HISTORIA ──────────────────────────────
+  // El workbook sólo manda los almacenes con existencia, venta o algo en camino
+  // (`stock_pz > 0 OR daily_pieces > 0 OR transit_cajas > 0`). Eso deja fuera justo el caso de
+  // "abrir" un producto en una plaza que nunca lo tuvo (83185 en Zamora Centro, medido 2026-10-01):
+  // el comprador no tenía dónde capturarlo. Se agrega del lado del cliente, en cero, y entra a la
+  // requisición como cualquier otro renglón. No se cambia el backend para no engordar cada fila con
+  // todos los almacenes en cero de todo el catálogo.
+  private readonly addedBranches = signal<Record<string, string[]>>({});   // product_id → códigos
+  /** Almacenes que se pueden agregar: los del filtro de sucursales (o todos), sin rutas y sin los
+   *  que ya están en el desglose. */
+  addableBranches(r: WorkbookRow): { label: string; value: string }[] {
+    const present = new Set(this.branchBuys(r).map((b) => b.code));
+    const only = this.wbWarehouses.length ? new Set(this.wbWarehouses) : null;
+    return (this.filters()?.warehouses ?? [])
+      .filter((w) => w.kind !== 'truck' && !present.has(w.code) && (!only || only.has(w.id)))
+      .map((w) => ({ label: `${w.code} · ${w.name}`, value: w.code }));
+  }
+  addBranch(r: WorkbookRow, code: string | null): void {
+    if (!code) return;
+    this.addedBranches.update((m) => {
+      const cur = m[r.product_id] ?? [];
+      return cur.includes(code) ? m : { ...m, [r.product_id]: [...cur, code] };
+    });
+    this.addPick.update((m) => ({ ...m, [r.product_id]: null }));
+  }
+  removeBranch(r: WorkbookRow, code: string): void {
+    this.addedBranches.update((m) => ({ ...m, [r.product_id]: (m[r.product_id] ?? []).filter((c) => c !== code) }));
+    // Lo capturado en ese renglón se va con él: si no, sumaría a la requisición sin verse.
+    this.buyQty.update((m) => { const n = { ...m }; delete n[this.bk(r.product_id, code)]; return n; });
+  }
+  /** Valor del selector "Agregar sucursal" por producto (se limpia al agregar). */
+  readonly addPick = signal<Record<string, string | null>>({});
+  pickOf(pid: string): string | null { return this.addPick()[pid] ?? null; }
+
+  /** Leyendas del renglón: lo que FALTA, dicho con palabras (no un cero que se lea "urge"). */
+  branchFlags(b: BranchBuy): string[] {
+    if (b.rung) return [];
+    const out: string[] = [];
+    if (!(b.exis > 0)) out.push('sin existencia');
+    if (!(b.vta > 0)) out.push('sin venta');
+    if (b.mx == null) out.push('sin mínimo');
+    return out;
+  }
+
+  // ── [RA-PRO.66] MÍNIMO DE PEDIDO DEL PROVEEDOR ───────────────────────
+  // Ya viajaba en /filters (`suppliers[].min_order_boxes`) y la pantalla no lo enseñaba. Es la
+  // palanca con la que el vendedor empuja volumen: el comprador tiene que verla al decidir.
+  supplierMin(r: WorkbookRow): number | null {
+    if (!r.supplier_id) return null;
+    const s = (this.filters()?.suppliers ?? []).find((x) => x.id === r.supplier_id);
+    const v = s?.min_order_boxes == null ? null : Number(s.min_order_boxes);
+    return v && v > 0 ? v : null;
+  }
+
+  // ── [RA-PRO.65] V30d / MÁX y la PELÍCULA DE 12 MESES ─────────────────
+  /** Celda "V30d / Máx": cuánto vende en 30 días contra el máximo dinámico de ese almacén. */
+  vtaMaxTitle(b: BranchBuy): string {
+    const mx = b.mx == null ? 'sin máximo (no tiene política de reorden)' : `máximo ${b.mx.toFixed(1)} cajas`;
+    return `Venta 30 d: ${b.vta.toFixed(1)} cajas · ${mx}. Clic para ver la venta por mes.`;
+  }
+  readonly monthly = signal<{ key: string; title: string; mx: number | null; loading: boolean; error: boolean; data: MonthlySalesResponse | null } | null>(null);
+  private readonly monthlyCache = new Map<string, MonthlySalesResponse>();
+  private monthlyKey: string | null = null;
+  onMonthlyHide(): void { this.monthlyKey = null; }
+  openMonthly(ev: Event, r: WorkbookRow, b: BranchBuy | null, op: Popover): void {
+    const code = b?.code ?? null;
+    const key = r.product_id + '|' + (code ?? 'RED');
+    const target = ev.currentTarget as HTMLElement;
+    // Mismo indicador otra vez = cerrar (como un globo normal).
+    if (this.monthlyKey === key && op.overlayVisible()) { op.hide(); this.monthlyKey = null; return; }
+    this.monthlyKey = key;
+    const title = `${r.sku} · ${code ? `${code} ${this.nameOf(code)}` : 'toda la red'}`;
+    const cached = this.monthlyCache.get(key);
+    this.monthly.set({ key, title, mx: b?.mx ?? null, loading: !cached, error: false, data: cached ?? null });
+    if (op.overlayVisible()) { op.hide(); setTimeout(() => op.show(ev, target)); } else op.show(ev, target);
+    if (cached) return;
+    this.api.monthlySales(r.product_id, code ?? undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        this.monthlyCache.set(key, d);
+        if (this.monthly()?.key === key) this.monthly.update((m) => m && ({ ...m, loading: false, data: d }));
+      },
+      error: () => { if (this.monthly()?.key === key) this.monthly.update((m) => m && ({ ...m, loading: false, error: true })); },
+    });
+  }
+  /** Los últimos 13 meses (12 cerrados + el en curso) con su mismo mes del año anterior. */
+  monthlyBars(): { mes: string; label: string; venta: number; cajas: number | null; parcial: boolean; ly: number; lyCajas: number | null; actual: boolean }[] {
+    const d = this.monthly()?.data;
+    if (!d) return [];
+    const by = new Map(d.months.map((m) => [m.mes, m]));
+    const now = new Date();
+    const out = [];
+    const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    for (let i = 12; i >= 0; i--) {
+      const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const k = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+      const kl = `${dt.getFullYear() - 1}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+      const m = by.get(k), l = by.get(kl);
+      out.push({
+        mes: k, label: MESES[dt.getMonth()] + (dt.getMonth() === 0 ? ` ${String(dt.getFullYear()).slice(2)}` : ''),
+        venta: m?.venta ?? 0, cajas: m ? m.cajas : 0, parcial: !!m?.cajas_parcial,
+        ly: l?.venta ?? 0, lyCajas: l ? l.cajas : null, actual: i === 0,
+      });
+    }
+    return out;
+  }
+  /** Altura de barra en % del mes más alto de la ventana (este año o el anterior). */
+  barPct(v: number): number {
+    const max = Math.max(1, ...this.monthlyBars().flatMap((b) => [b.venta, b.ly]));
+    return Math.round((v / max) * 100);
+  }
+  hasPartialMonths(): boolean { return this.monthlyBars().some((b) => b.parcial) || !!this.monthly()?.data?.window?.v30_parcial; }
+  lyMotivo(m: string | null | undefined): string {
+    return m === 'peldano_no_medido' ? 'el año anterior no tiene la unidad medida' : 'sin venta registrada el año anterior';
+  }
 
   // [RA-PRO.51] El redondeo del sugerido vive en `../pedido-redondeo` (probado sin montar Angular,
   // y con guardia contra `uxc = 0` que la versión embebida no tenía). Ver `roundSeed`.

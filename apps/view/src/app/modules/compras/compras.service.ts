@@ -190,6 +190,27 @@ export interface WorkbookCell {
   rung?: 'x1_inflada' | 'x2_deflactada';
   nat?: number;    // existencia en la unidad NATIVA del almacén
   natu?: string;   // rótulo de esa unidad, declarado por el ERP dueño (KG, PAQ, CUB…)
+  /** [RA-PRO.65] Máximo y punto de reorden de ESE almacén, en cajas. Ausentes = el almacén no
+   *  tiene política de reorden ("sin mínimo"); NO es cero. */
+  mx?: number;
+  rop?: number;
+}
+/** [RA-PRO.65] Un mes de la película de venta de un SKU. `cajas` null = el peldaño no se pudo
+ *  medir ese mes (Wincaja); `cajas_parcial` = sólo una parte está medida. La venta en $ siempre. */
+export interface MonthlySalesMonth { mes: string; venta: number; cajas: number | null; cajas_parcial: boolean; }
+export interface MonthlySalesResponse {
+  product: { sku: string; nombre: string } | null;
+  warehouse: string | null;          // null = toda la red
+  bf: number | null;
+  months: MonthlySalesMonth[];
+  window: {
+    v30_cajas: number; v30_parcial: boolean;
+    /** Próximos 30 días del año anterior. null = no medible (ver ly_motivo). */
+    ly_next30_cajas: number | null;
+    ly_motivo: 'sin_venta_ano_anterior' | 'peldano_no_medido' | null;
+    /** 0.6 × V30 + 0.4 × LY próximos 30 (regla del sistema anterior). Referencia, no pedido. */
+    prorrateo_60_40: number | null;
+  } | null;
 }
 // RA-PRO.44 — qué viene en camino de un SKU (OCs abiertas), para explicar el "Pedido 0".
 export interface InTransitOc {
@@ -370,6 +391,8 @@ export interface CategoryAdmin extends ReplenishmentCategory { is_duplicate: boo
 export interface ReplenishmentFilters {
   warehouses: {
     id: string; code: string; name: string;
+    /** [RA-PRO.64] central | truck … — las rutas no se ofrecen en "Agregar sucursal". */
+    kind?: string | null;
     /** RA-PRO.48 — zona de COMPRA (agrupa el desglose). NO es `zone_id`, que es territorio de venta. */
     purchase_zone?: string | null;
     /** RA-PRO.48 — CEDIS donde se puede consolidar una compra (00, 01, MD-30, 06). */
@@ -887,6 +910,12 @@ export class ComprasService {
   workbookDetail(productId: string, coverageDays?: number): Observable<WorkbookDetailResponse> {
     const qs = coverageDays ? `?coverage_days=${coverageDays}` : '';
     return this.http.get<WorkbookDetailResponse>(`${this.base}/workbook/${productId}${qs}`);
+  }
+
+  /** [RA-PRO.65] Venta por mes del SKU (24 meses) de una sucursal, o de la red si no hay `code`. */
+  monthlySales(productId: string, code?: string): Observable<MonthlySalesResponse> {
+    const qs = code ? `?code=${encodeURIComponent(code)}` : '';
+    return this.http.get<MonthlySalesResponse>(`${this.base}/workbook/${productId}/monthly${qs}`);
   }
 
   /** RA-PRO.44 — OCs abiertas del SKU: folio, fecha, llegada estimada y qué se pidió. */
