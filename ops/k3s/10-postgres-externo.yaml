@@ -31,6 +31,20 @@ metadata:
   name: ingesta
 ---
 # ── pg-prod: el DESTINO (prod, :5434 en el host) ──────────────────────────────
+#
+# ⛔⛔ [K3S.40] ESTE PUENTE TIENE EL MISMO DEFECTO QUE TENÍA `pg-ods`, Y TODAVÍA NO MORDIÓ
+# SÓLO PORQUE `pg-prod` SIGUE EN DOCKER.
+#
+# El día que `pg-prod` pase a ser un pod con `hostPort`, este Service va a hacer DNAT hacia
+# `192.168.0.222:5434` donde ya no habrá proceso escuchando —`hostPort` es sólo iptables— y
+# dará ECONNREFUSED. Eso se midió en `pg-ods` el 2026-10-01: los carriles del ODS perdieron su
+# fuente ~15 min.
+#
+# ⭐ CONVERTIRLO ES PARTE DEL CORTE, no un arreglo posterior. Los dos (éste y su gemelo del
+# namespace `prod`, en 41-redis-worker-api.yaml) pasan a:
+#     type: ExternalName
+#     externalName: pg-prod-pod.prod.svc.cluster.local
+# ⚠️ Si se migra la base sin esto, el API y los SIETE carriles pierden la base a la vez.
 apiVersion: v1
 kind: Service
 metadata:
@@ -55,26 +69,29 @@ subsets:
       - name: postgres
         port: 5434
 ---
-# ── pg-ods: la FUENTE (las 8 réplicas lógicas, :5433 en el host) ──────────────
+---
+# ══ pg-ods: LA FUENTE DE LA INGESTA ══  [K3S.40]
+#
+# ⛔ ERA UN PUENTE A LA IP DEL HOST Y ESO DEJÓ DE FUNCIONAR AL MIGRAR LA BASE AL CLÚSTER.
+#
+# Decía: Service sin selector + Endpoints a mano → `192.168.0.222:5433`. Mientras Postgres
+# corría en Docker eso andaba, porque `docker-proxy` es un PROCESO que escucha de verdad en
+# ese puerto. Cuando `pgvector-md` pasó a ser un pod con `hostPort`, dejó de haber proceso:
+# `hostPort` es sólo una regla de iptables.
+#
+# Resultado medido el 2026-10-01: kube-proxy hacía DNAT del ClusterIP a `192.168.0.222:5433`,
+# ese paquete ya NO volvía a pasar por la cadena del portmap, y no había nadie escuchando →
+# ECONNREFUSED. ⭐ El detalle que lo delató: un pod alcanzaba `192.168.0.222:5433` DIRECTO y
+# fallaba por el Service. Doble DNAT en una pasada no ocurre. Los carriles del ODS estuvieron
+# ~15 min sin fuente.
+#
+# Ahora que la base vive adentro, el puente sobra: `ExternalName` manda el nombre al Service
+# real del pod y el tráfico nunca sale del clúster. Los carriles siguen diciendo `pg-ods:5432`.
 apiVersion: v1
 kind: Service
 metadata:
   name: pg-ods
   namespace: ingesta
 spec:
-  ports:
-    - name: postgres
-      port: 5432
-      targetPort: 5433
----
-apiVersion: v1
-kind: Endpoints
-metadata:
-  name: pg-ods
-  namespace: ingesta
-subsets:
-  - addresses:
-      - ip: 192.168.0.222
-    ports:
-      - name: postgres
-        port: 5433
+  type: ExternalName
+  externalName: pgvector-md.prod.svc.cluster.local

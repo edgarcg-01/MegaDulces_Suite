@@ -216,7 +216,18 @@ function revisar(doc, archivo) {
   for (const f of archivos) {
     for (const doc of documentos(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
       const k = campo(doc, 'kind'); const n = campo(doc, 'name');
-      if (k === 'Service' && !tieneClave(doc, 'selector')) svc.push(n);  // sólo los PUENTES
+      // ⛔ [K3S.40] UN `ExternalName` NO LLEVA Endpoints — ni puede. Esta regla nació cuando
+      // "Service sin selector" sólo podía significar "puente con Endpoints a mano", y al
+      // aparecer el primer ExternalName empezó a exigirle algo imposible: marcaba en rojo un
+      // manifiesto correcto. Es la misma familia que las otras compuertas de hoy, al revés —
+      // no se quedó sin sujeto, se quedó con un modelo del mundo que ya no era el único.
+      // ⭐ Un `type:` que no se mira es un supuesto: "sin selector" ya no implica "puente".
+      const tipo = campo(doc, 'type');
+      if (k === 'Service' && !tieneClave(doc, 'selector') && tipo !== 'ExternalName') svc.push(n);
+      if (k === 'Service' && tipo === 'ExternalName') {
+        A(!!campo(doc, 'externalName'),
+          `Service '${n}' es ExternalName y declara externalName (sin él resuelve a nada)`);
+      }
       if (k === 'Endpoints') eps.push(n);
     }
   }

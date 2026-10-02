@@ -44,7 +44,7 @@ titulo "Contenedores"
 # ⚠️ Y el reverso importa igual: si un servicio vuelve a Compose, tiene que VOLVER a esta
 # línea. Un contenedor que nadie vigila es indistinguible de uno que no existe.
 # Los pods se verifican abajo, por su NodePort y pidiendo un recurso real.
-for c in pg-prod pg-rag prod-backup; do
+for c in pg-prod prod-backup; do
   est=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$c" 2>/dev/null)
   case "$est" in
     healthy|running) ok "$c: $est" ;;
