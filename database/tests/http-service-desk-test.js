@@ -92,6 +92,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
 (async () => {
   console.log('\n=== [MS.2.9] Mesa de Servicio por HTTP — roles mínimos y pruebas negativas ===\n');
   const usuarios = [];
+  let restaurar = null;
   try {
     // ── 0. Los cuatro usuarios efímeros ──────────────────────────────────────────
     console.log('0 — usuarios de prueba (se borran al final)');
@@ -304,23 +305,218 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     const wl = await knex('servicedesk.work_log').where({ request_id: T1.id }).sum({ m: 'minutes' }).first();
     check('el tiempo quedó en work_log con fuente «suite»', Number(wl.m) === 30);
 
+    // ════════════════════════════════════════════════════════════════════════════
+    // PARTE C — preferencias, avisos, configuración, SLA y auto-cierre
+    // ════════════════════════════════════════════════════════════════════════════
+
+    // Se guarda el estado de la configuración ANTES de tocarla: se restaura al final (la base dev es compartida).
+    restaurar = {
+      settings: await knex('servicedesk.settings').where({ tenant_id: T }).first(),
+      policies: await knex('servicedesk.sla_policies').where({ tenant_id: T }).select('priority', 'first_response_minutes', 'resolution_minutes', 'clock'),
+    };
+
+    // ── 11. Configuración ───────────────────────────────────────────────────────
+    console.log('\n11 — configuración (sólo coordinación)');
+    for (const [quien, u] of [['el solicitante', sol], ['el agente (sin COORDINAR)', agente]]) {
+      check(`${quien} NO lee la configuración → 403`, (await req('GET', `${SD}/config`, u.token)).status === 403);
+      check(`${quien} NO la modifica → 403`, (await req('PUT', `${SD}/config/settings`, u.token, { auto_close_days: 5 })).status === 403);
+      check(`${quien} NO dispara el barrido del SLA → 403`, (await req('POST', `${SD}/sla/scan-now`, u.token)).status === 403);
+    }
+    const cfg = await req('GET', `${SD}/config`, coord.token);
+    check('la coordinación lee la configuración → 200', cfg.status === 200, dump(cfg));
+    check('⭐ la escalación está APAGADA de fábrica (primero se mide)', cfg.body?.settings?.escalation_enabled === false, JSON.stringify(cfg.body?.settings));
+    check('trae las 4 políticas, urgente primero en el reloj corrido', cfg.body?.policies?.length === 4 && cfg.body.policies.find((p) => p.priority === 'urgente')?.clock === 'calendar');
+    check('el horario hábil de fábrica es Lun–Sáb 08:00–19:00 en hora de México', JSON.stringify(cfg.body?.settings?.business_days) === '[1,2,3,4,5,6]' && cfg.body?.settings?.business_start === '08:00' && cfg.body?.settings?.business_end === '19:00' && cfg.body?.settings?.tz === 'America/Mexico_City');
+
+    console.log('\n   negativas de la configuración');
+    const put = (p, body, tok = coord.token) => req('PUT', `${SD}${p}`, tok, body);
+    check('día 7 no existe → 400', (await put('/config/settings', { business_days: [1, 7] })).status === 400);
+    check('lista de días vacía → 400', (await put('/config/settings', { business_days: [] })).status === 400);
+    check('hora mal escrita → 400', (await put('/config/settings', { business_start: '8am' })).status === 400);
+    check('⭐ el horario no puede terminar antes de empezar (contra lo que quedaría) → 400', (await put('/config/settings', { business_end: '07:00' })).status === 400);
+    check('zona horaria inventada → 400', (await put('/config/settings', { tz: 'Marte/Fobos' })).status === 400);
+    check('auto-cierre de 0 días → 400', (await put('/config/settings', { auto_close_days: 0 })).status === 400);
+    check('umbral de 0 % → 400', (await put('/config/settings', { escalate_at_pct: 0 })).status === 400);
+    check('adjuntos de 16 MB → 400', (await put('/config/settings', { max_attachment_mb: 16 })).status === 400);
+    check('escalation_enabled que no es booleano → 400', (await put('/config/settings', { escalation_enabled: 'si' })).status === 400);
+    check('sin ningún campo → 400', (await put('/config/settings', {})).status === 400);
+    check('⭐ la primera respuesta no puede tardar más que la resolución → 400', (await put('/config/policies/media', { first_response_minutes: 5000, resolution_minutes: 100 })).status === 400);
+    check('prioridad inventada en la política → 400', (await put('/config/policies/critica', { resolution_minutes: 10 })).status === 400);
+    check('reloj inventado → 400', (await put('/config/policies/media', { clock: 'lunar' })).status === 400);
+
+    const okSet = await put('/config/settings', { auto_close_days: 4 });
+    check('un cambio válido aplica y se devuelve la configuración nueva', okSet.status === 200 && okSet.body?.settings?.auto_close_days === 4, dump(okSet));
+    const okPol = await put('/config/policies/baja', { resolution_minutes: 4000 });
+    check('un cambio válido de política aplica', okPol.status === 200 && okPol.body?.policies?.find((p) => p.priority === 'baja')?.resolution_minutes === 4000, dump(okPol));
+
+    const queues = cfg.body?.queues ?? [];
+    const cola = queues[0];
+    const codigo = `smoke_${SUF}`;
+    check('código de categoría con mayúsculas → 400', (await req('POST', `${SD}/config/categories`, coord.token, { queue_id: cola?.id, code: 'MALO', name: 'x' })).status === 400);
+    check('categoría sin nombre → 400', (await req('POST', `${SD}/config/categories`, coord.token, { queue_id: cola?.id, code: codigo, name: ' ' })).status === 400);
+    check('categoría con cola inexistente → 400', (await req('POST', `${SD}/config/categories`, coord.token, { queue_id: '00000000-0000-0000-0000-000000000000', code: codigo, name: 'x' })).status === 400);
+    const catNueva = await req('POST', `${SD}/config/categories`, coord.token, { queue_id: cola?.id, code: codigo, name: 'SMOKE categoría', default_priority: 'alta' });
+    check('la coordinación da de alta una categoría', catNueva.status < 300 && catNueva.body?.categories?.some((c) => c.code === codigo), dump(catNueva));
+    check('⭐ código repetido en la misma cola → 409', (await req('POST', `${SD}/config/categories`, coord.token, { queue_id: cola?.id, code: codigo, name: 'otra' })).status === 409);
+    const nuevaId = catNueva.body?.categories?.find((c) => c.code === codigo)?.id;
+    const visibleAntes = (await req('GET', `${SD}/catalog`, sol.token)).body?.categories?.some((c) => c.id === nuevaId);
+    check('la categoría nueva aparece en el catálogo del solicitante', visibleAntes === true);
+    const tAlta = await req('POST', `${SD}/requests`, sol.token, { category_id: nuevaId, title: 'SMOKE: categoría alta, impacto bajo' });
+    check('una categoría «alta» sube la prioridad aunque el impacto sea «yo» sin bloqueo', tAlta.body?.priority === 'alta', `${tAlta.body?.priority}`);
+    const apaga = await req('PUT', `${SD}/config/categories/${nuevaId}`, coord.token, { active: false });
+    check('apagar una categoría no la borra', apaga.status === 200 && apaga.body?.categories?.find((c) => c.id === nuevaId)?.active === false, dump(apaga));
+    check('⭐ una categoría apagada ya no se ofrece al solicitante', (await req('GET', `${SD}/catalog`, sol.token)).body?.categories?.every((c) => c.id !== nuevaId));
+    check('⭐ y no se puede crear un ticket con ella → 400', (await req('POST', `${SD}/requests`, sol.token, { category_id: nuevaId, title: 'x' })).status === 400);
+    check('los tickets viejos conservan su categoría apagada', (await req('GET', `${SD}/requests/${tAlta.body?.id}`, sol.token)).body?.category_id === nuevaId);
+    check('editar con id que no es uuid → 404', (await req('PUT', `${SD}/config/categories/abc`, coord.token, { active: true })).status === 404);
+    check('cola con código inválido → 400', (await req('POST', `${SD}/config/queues`, coord.token, { code: '1Mal', name: 'x' })).status === 400);
+    check('cola con un departamento que no existe → 400', (await req('POST', `${SD}/config/queues`, coord.token, { code: `smoke_q_${SUF}`, name: 'x', department_code: 'no_existe_zzz' })).status === 400);
+
+    // ── 12. Preferencias y contacto ─────────────────────────────────────────────
+    console.log('\n12 — preferencias y contacto (cada quien sobre sí mismo)');
+    const p0 = await req('GET', `${SD}/me/preferences`, sol.token);
+    check('GET /me/preferences → 200 con el correo encendido por defecto y WhatsApp apagado', p0.status === 200 && p0.body?.email_enabled === true && p0.body?.whatsapp_enabled === false && p0.body?.whatsapp_opt_in_at === null, dump(p0));
+    check('correo mal escrito → 400', (await req('PUT', `${SD}/me/preferences`, sol.token, { email: 'no-es-correo' })).status === 400);
+    check('teléfono que no es de México de 10 dígitos → 400', (await req('PUT', `${SD}/me/preferences`, sol.token, { phone: '123' })).status === 400);
+    check('⭐ activar WhatsApp SIN teléfono registrado → 400', (await req('PUT', `${SD}/me/preferences`, sol.token, { whatsapp_enabled: true })).status === 400);
+    check('un campo que no es booleano → 400', (await req('PUT', `${SD}/me/preferences`, sol.token, { email_enabled: 'si' })).status === 400);
+    const pTel = await req('PUT', `${SD}/me/preferences`, sol.token, { phone: '443 123 4567', email: `smoke_${SUF}@ejemplo.mx` });
+    check('el teléfono se guarda en forma canónica 52XXXXXXXXXX', pTel.status === 200 && pTel.body?.phone === '524431234567', dump(pTel));
+    check('el correo se guarda', pTel.body?.email === `smoke_${SUF}@ejemplo.mx`);
+    const pWa = await req('PUT', `${SD}/me/preferences`, sol.token, { whatsapp_enabled: true });
+    check('⭐ al activar WhatsApp queda escrita la FECHA DE CONSENTIMIENTO', pWa.status === 200 && pWa.body?.whatsapp_enabled === true && !!pWa.body?.whatsapp_opt_in_at, dump(pWa));
+    check('⭐ nadie edita el contacto de OTRA persona: el cuerpo no acepta un user_id', (await req('PUT', `${SD}/me/preferences`, otro.token, { user_id: sol.id, email: 'robo@ejemplo.mx' })).status === 200 && (await knex('identity.users').where({ id: sol.id }).first('email')).email === `smoke_${SUF}@ejemplo.mx`);
+    const pOtro = await req('GET', `${SD}/me/preferences`, otro.token);
+    check('y las preferencias de otra persona no se mezclan con las mías', pOtro.body?.phone === null && pOtro.body?.whatsapp_enabled === false);
+
+    // ── 13. Avisos ──────────────────────────────────────────────────────────────
+    console.log('\n13 — avisos');
+    const nAg = await req('GET', `${SD}/me/notifications`, agente.token);
+    check('GET /me/notifications → 200', nAg.status === 200 && Array.isArray(nAg.body), dump(nAg));
+    check('⭐ quien recibe un ticket asignado por la coordinación RECIBE el aviso «asignado»', nAg.body?.some((n) => n.event === 'asignado' && n.folio === T2.folio), JSON.stringify(nAg.body?.map((n) => n.event)));
+    check('⭐ y quien se lo asigna a sí mismo (take) NO se auto-avisa', !nAg.body?.some((n) => n.event === 'asignado' && n.folio === T1.folio));
+    check('lo urgente le llega a quien atiende como «nuevo_prioritario»', nAg.body?.some((n) => n.event === 'nuevo_prioritario' && n.folio === T2.folio && n.severity === 'critical'));
+    const nSol = await req('GET', `${SD}/me/notifications`, sol.token);
+    check('el solicitante recibió el comentario público del agente', nSol.body?.some((n) => n.event === 'comentario' && n.folio === T1.folio));
+    check('⭐ y que su ticket quedó «resuelto» (dos veces: hubo una reapertura)', nSol.body?.filter((n) => n.event === 'resuelto' && n.folio === T1.folio).length === 2, JSON.stringify(nSol.body?.map((n) => n.event)));
+    check('⭐ NINGÚN aviso del solicitante contiene el texto de la nota interna', !JSON.stringify(nSol.body).includes('usuario bloqueado en Kepler'));
+    check('el agente fue avisado de la reapertura', nAg.body?.some((n) => n.event === 'reabierto' && n.folio === T1.folio));
+    check('cada aviso trae título, mensaje con el folio y severidad', nSol.body?.every((n) => n.title && n.message.includes('SRV-') && ['info', 'warn', 'critical'].includes(n.severity)));
+    check('`since` en el futuro no devuelve nada (la campana no relee lo ya mostrado)', (await req('GET', `${SD}/me/notifications?since=${encodeURIComponent(new Date(Date.now() + 3600e3).toISOString())}`, sol.token)).body?.length === 0);
+    check('cada persona sólo ve SUS avisos', !(await req('GET', `${SD}/me/notifications`, otro.token)).body?.some((n) => n.folio === T1.folio));
+
+    // Un aviso con el correo y el WhatsApp configurados deja el resultado de CADA canal.
+    const t4 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'Aviso por tres canales' });
+    await req('POST', `${SD}/requests/${t4.body?.id}/take`, agente.token);
+    await req('POST', `${SD}/requests/${t4.body?.id}/messages`, agente.token, { body: 'Ya lo estoy viendo' });
+    const log4 = await knex('servicedesk.notification_log').where({ request_id: t4.body?.id, recipient_id: sol.id, event: 'comentario' }).select('channel', 'status', 'error');
+    const porCanal = Object.fromEntries(log4.map((l) => [l.channel, l]));
+    check('⭐ el canal «app» queda ENVIADO (la fila es la entrega)', porCanal.app?.status === 'sent', JSON.stringify(log4));
+    check('⭐ el correo queda registrado con su motivo, no fingido (SMTP sin configurar o enviado)', porCanal.email && ((porCanal.email.status === 'skipped' && porCanal.email.error === 'smtp_no_configurado') || porCanal.email.status === 'sent'), JSON.stringify(porCanal.email));
+    check('⭐ WhatsApp (consentido) queda registrado como «no configurado», no fingido', porCanal.whatsapp?.status === 'skipped' && porCanal.whatsapp?.error === 'whatsapp_no_configurado', JSON.stringify(porCanal.whatsapp));
+    const logOtro = await knex('servicedesk.notification_log').where({ request_id: t4.body?.id, recipient_id: agente.id }).select('channel', 'status', 'error');
+    check('quien NO activó WhatsApp no genera ningún intento de WhatsApp', !logOtro.some((l) => l.channel === 'whatsapp'));
+    check('⭐ sin correo registrado, el aviso por correo se declara «sin_correo_registrado»', (await knex('servicedesk.notification_log').where({ recipient_id: agente.id, channel: 'email', error: 'sin_correo_registrado' }).count({ n: '*' }).first()).n > 0);
+    const apagaCorreo = await req('PUT', `${SD}/me/preferences`, sol.token, { email_enabled: false });
+    check('apagar el correo se guarda', apagaCorreo.body?.email_enabled === false);
+    await req('POST', `${SD}/requests/${t4.body?.id}/messages`, agente.token, { body: 'Segundo mensaje' });
+    const sinCorreo = await knex('servicedesk.notification_log').where({ request_id: t4.body?.id, recipient_id: sol.id, channel: 'email' }).count({ n: '*' }).first();
+    check('⭐ quien apagó el correo no recibe NI SIQUIERA un intento más por ese canal', Number(sinCorreo.n) === 1, `intentos de correo: ${sinCorreo.n}`);
+    const dedup = await knex.raw(
+      `SELECT dedup_key, channel, count(*)::int n FROM servicedesk.notification_log
+        WHERE request_id = ? AND status = 'sent' GROUP BY 1,2 HAVING count(*) > 1`, [t4.body?.id]);
+    check('⭐ ningún aviso ENVIADO se repite (la llave de dedup lo impide)', dedup.rows.length === 0, JSON.stringify(dedup.rows));
+
+    // ── 14. SLA: medir primero, escalar después ─────────────────────────────────
+    console.log('\n14 — barrido del SLA y auto-cierre');
+    const t5 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: se me pasó el plazo' });
+    await knex('servicedesk.requests').where({ id: t5.body?.id }).update({
+      due_at: new Date(Date.now() - 3600e3), first_response_due_at: new Date(Date.now() - 7200e3),
+    });
+    const avisosAntes = Number((await knex('servicedesk.notification_log').where({ request_id: t5.body?.id }).whereIn('event', ['sla_vencido', 'sla_primera_respuesta_vencida', 'sla_por_vencer']).count({ n: '*' }).first()).n);
+    const scan1 = await req('POST', `${SD}/sla/scan-now`, coord.token);
+    check('POST /sla/scan-now → 200', scan1.status < 300, dump(scan1));
+    check('⭐ el barrido MARCA lo que venció (primera respuesta Y resolución)', scan1.body?.marcados >= 2, JSON.stringify(scan1.body));
+    const f5 = await knex('servicedesk.requests').where({ id: t5.body?.id }).first('sla_first_breached_at', 'sla_resolution_breached_at');
+    check('las dos marcas quedaron escritas en el ticket', !!f5.sla_first_breached_at && !!f5.sla_resolution_breached_at);
+    const avisosDespues = Number((await knex('servicedesk.notification_log').where({ request_id: t5.body?.id }).whereIn('event', ['sla_vencido', 'sla_primera_respuesta_vencida', 'sla_por_vencer']).count({ n: '*' }).first()).n);
+    check('⭐ con la escalación APAGADA se mide pero NO se avisa a nadie', avisosDespues === avisosAntes && scan1.body?.avisos === 0, `avisos ${avisosAntes}→${avisosDespues}, resultado ${JSON.stringify(scan1.body)}`);
+    check('el tablero cuenta lo vencido', (await req('GET', `${SD}/requests/stats`, agente.token)).body?.resolution_breached >= 1);
+    const vista5 = await req('GET', `${SD}/requests/${t5.body?.id}`, sol.token);
+    check('la vista del ticket dice que el SLA venció', vista5.body?.sla?.resolution_breached === true && vista5.body?.sla?.first_breached === true);
+    const scan2 = await req('POST', `${SD}/sla/scan-now`, coord.token);
+    check('⭐ IDEMPOTENTE: el segundo barrido no vuelve a marcar nada', scan2.body?.marcados === 0, JSON.stringify(scan2.body));
+
+    // Se enciende la escalación: ahora SÍ se avisa, y una sola vez.
+    check('la coordinación enciende la escalación', (await put('/config/settings', { escalation_enabled: true })).body?.settings?.escalation_enabled === true);
+    const t6 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: vencida con escalación' });
+    await knex('servicedesk.requests').where({ id: t6.body?.id }).update({ due_at: new Date(Date.now() - 3600e3), first_response_due_at: new Date(Date.now() - 7200e3) });
+    const scan3 = await req('POST', `${SD}/sla/scan-now`, coord.token);
+    check('con la escalación encendida el barrido AVISA', scan3.body?.avisos >= 1, JSON.stringify(scan3.body));
+    const av6 = await knex('servicedesk.notification_log').where({ request_id: t6.body?.id, channel: 'app' }).select('event', 'recipient_id');
+    check('⭐ un ticket SIN asignado avisa a quien atiende (agente y coordinación)', [agente.id, coord.id].every((id) => av6.some((a) => a.recipient_id === id && a.event === 'sla_vencido')), JSON.stringify(av6));
+    check('⭐ el solicitante NO recibe los avisos internos del SLA', !av6.some((a) => a.recipient_id === sol.id));
+    const n6 = av6.length;
+    await req('POST', `${SD}/sla/scan-now`, coord.token);
+    const n6b = (await knex('servicedesk.notification_log').where({ request_id: t6.body?.id, channel: 'app' }).count({ n: '*' }).first()).n;
+    check('⭐ IDEMPOTENTE con avisos: un segundo barrido no repite ninguno', Number(n6b) === n6, `${n6} → ${n6b}`);
+    await put('/config/settings', { escalation_enabled: false });
+
+    // Auto-cierre: lo resuelto que nadie objetó se cierra solo.
+    const t7 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: se cierra solo' });
+    await req('POST', `${SD}/requests/${t7.body?.id}/take`, agente.token);
+    await req('POST', `${SD}/requests/${t7.body?.id}/status`, agente.token, { status: 'en_proceso' });
+    await req('POST', `${SD}/requests/${t7.body?.id}/status`, agente.token, { status: 'resuelto', note: 'Listo' });
+    const antesAC = await req('POST', `${SD}/sla/scan-now`, coord.token);
+    check('un resuelto RECIENTE no se cierra solo', (await knex('servicedesk.requests').where({ id: t7.body?.id }).first('status')).status === 'resuelto' && antesAC.body?.autocerrados === 0, JSON.stringify(antesAC.body));
+    await knex('servicedesk.requests').where({ id: t7.body?.id }).update({ resolved_at: new Date(Date.now() - 6 * 86400e3) });
+    const scanAC = await req('POST', `${SD}/sla/scan-now`, coord.token);
+    check('⭐ un resuelto de hace 6 días (con auto_close_days = 4) se cierra SOLO', scanAC.body?.autocerrados >= 1, JSON.stringify(scanAC.body));
+    const f7 = await knex('servicedesk.requests').where({ id: t7.body?.id }).first('status', 'close_reason', 'closed_by', 'closed_at');
+    check('queda «cerrado» por «auto», sin persona que lo cerrara', f7.status === 'cerrado' && f7.close_reason === 'auto' && f7.closed_by === null && !!f7.closed_at, JSON.stringify(f7));
+    const nSol2 = await req('GET', `${SD}/me/notifications`, sol.token);
+    check('⭐ y el solicitante recibe «autocerrado» con cómo reabrir', nSol2.body?.some((n) => n.event === 'autocerrado' && n.folio === t7.body?.folio && n.message.toLowerCase().includes('repórtalo')));
+    const hilo7 = await req('GET', `${SD}/requests/${t7.body?.id}`, sol.token);
+    check('el hilo conserva el cierre automático con autor «Sistema»', hilo7.body?.messages?.some((m) => m.kind === 'status' && m.author_label === 'Sistema' && m.author_id === null));
+    check('⭐ IDEMPOTENTE: el segundo barrido no cierra nada más', (await req('POST', `${SD}/sla/scan-now`, coord.token)).body?.autocerrados === 0);
+    const latido = await knex('analytics.cron_runs').where({ tenant_id: T, job_key: 'service_desk_sla' }).first('status', 'rows_affected', 'last_finish', 'error');
+    check('⭐ el barrido DEJA LATIDO en analytics.cron_runs (aun el manual)', !!latido && !!latido.last_finish, JSON.stringify(latido));
+    check('y el latido no está en error', latido?.status === 'ok', JSON.stringify(latido));
+
+    noMedido.push('correo y WhatsApp REALES: el SMTP no está configurado y la plantilla de Meta no está aprobada (P5); lo que se afirma es que el resultado queda DECLARADO por canal');
+    noMedido.push('push en vivo por WebSocket (la API de este test corre sin cliente conectado); el poll de la campana sí se midió');
+
     noMedido.push('aislamiento entre tenants POR HTTP (lo cubre RLS en test-newdb-service-desk.js)');
-    noMedido.push('barrido del SLA y notificaciones (llegan con MS.2.6 / MS.2.7)');
   } finally {
+    // La base dev es compartida: lo que la prueba cambió de la CONFIGURACIÓN se restaura tal como estaba.
+    if (restaurar) {
+      const { tenant_id, created_at, created_by, ...ajustes } = restaurar.settings;
+      await knex('servicedesk.settings').where({ tenant_id: T }).update(ajustes);
+      for (const p of restaurar.policies) {
+        await knex('servicedesk.sla_policies').where({ tenant_id: T, priority: p.priority }).update({
+          first_response_minutes: p.first_response_minutes, resolution_minutes: p.resolution_minutes, clock: p.clock,
+        });
+      }
+    }
     // Se borra con la conexión PRIVILEGIADA: `app_runtime` no tiene DELETE sobre el registro, y es lo correcto.
     const ids = usuarios.map((u) => u.id);
     if (ids.length) {
       const reqs = (await knex('servicedesk.requests').whereIn('requester_id', ids).select('id')).map((r) => r.id);
+      await knex('servicedesk.notification_log').whereIn('recipient_id', ids).del();
       if (reqs.length) {
+        await knex('servicedesk.notification_log').whereIn('request_id', reqs).del();
         await knex('servicedesk.work_log').whereIn('request_id', reqs).del();
         await knex('servicedesk.request_attachments').whereIn('request_id', reqs).del();
         await knex('servicedesk.request_messages').whereIn('request_id', reqs).del();
         await knex('servicedesk.requests').whereIn('id', reqs).del();
       }
+      await knex('servicedesk.notification_prefs').whereIn('user_id', ids).del();
       await knex('identity.user_permissions').whereIn('user_id', ids).del();
       await knex('identity.user_roles').whereIn('user_id', ids).del();
       await knex('identity.users').whereIn('id', ids).del();
     }
+    await knex('servicedesk.categories').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
+    await knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex.destroy();
   }
 

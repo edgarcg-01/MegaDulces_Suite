@@ -14,6 +14,7 @@ export * from './ports/commerce-conversation.port';
 export * from './ports/bank-capture.port';
 export * from './ports/health-notifier.port';
 export * from './ports/mailer.port';
+export * from './ports/service-desk-channels.port';
 
 // ── http wire contracts (ADR-052): request/response del boundary REST ──
 export * from './http/command-center.contract';

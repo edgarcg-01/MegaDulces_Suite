@@ -8,7 +8,7 @@
  *
  * Orden: las rutas literales (`mine`, `inbox`, `stats`) van ANTES de `:id`, o `:id` se las traga.
  */
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   type SdAgentDto,
@@ -16,8 +16,17 @@ import {
   type SdCatalogResponse,
   type SdChangePriorityDto,
   type SdChangeStatusDto,
+  type SdConfigResponse,
   type SdCreateRequestDto,
   type SdListResponse,
+  type SdNotificationDto,
+  type SdPreferencesDto,
+  type SdSettingsDto,
+  type SdSlaPolicyDto,
+  type SdSlaScanResult,
+  type SdUpdatePreferencesDto,
+  type SdUpsertCategoryDto,
+  type SdUpsertQueueDto,
   type SdLogTimeDto,
   type SdPostMessageDto,
   type SdRequestDetail,
@@ -25,6 +34,10 @@ import {
 } from '@megadulces/contracts';
 import { Permission, RequireAnyPermission, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
 import { ServiceDeskAgentsService } from './agents.service';
+import { ServiceDeskConfigAdminService } from './config-admin.service';
+import { ServiceDeskNotificationsService } from './notifications.service';
+import { ServiceDeskPreferencesService } from './preferences.service';
+import { ServiceDeskSlaService } from './sla.service';
 import { ServiceDeskConfigService } from './service-desk-config.service';
 import { ServiceDeskRequestsService } from './requests.service';
 import { actorDesdeRequest, type AuthedRequest } from './service-desk.types';
@@ -40,6 +53,10 @@ export class ServiceDeskController {
     private readonly requests: ServiceDeskRequestsService,
     private readonly config: ServiceDeskConfigService,
     private readonly agents: ServiceDeskAgentsService,
+    private readonly notifs: ServiceDeskNotificationsService,
+    private readonly prefs: ServiceDeskPreferencesService,
+    private readonly admin: ServiceDeskConfigAdminService,
+    private readonly sla: ServiceDeskSlaService,
   ) {}
 
   @Get('catalog')
@@ -168,5 +185,86 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'Registra tiempo trabajado (paridad con la Bitácora de Sistemas).' })
   time(@Param('id') id: string, @Body() dto: SdLogTimeDto, @Req() req: AuthedRequest): Promise<SdRequestDetail> {
     return this.requests.logTime(actorDesdeRequest(req), id, dto);
+  }
+
+  // ── Avisos y preferencias de cada persona ──
+
+  @Get('me/notifications')
+  @RequirePermissions(Permission.SERVICIO_REPORTAR)
+  @ApiOperation({ summary: 'Mis avisos (la campana los recoge por poll; `since` evita releer lo ya mostrado).' })
+  myNotifications(@Query('since') since: string | undefined, @Query('limit') limit: string | undefined, @Req() req: AuthedRequest): Promise<SdNotificationDto[]> {
+    return this.notifs.listApp(actorDesdeRequest(req).userId, since, num(limit));
+  }
+
+  @Get('me/preferences')
+  @RequirePermissions(Permission.SERVICIO_REPORTAR)
+  @ApiOperation({ summary: 'Mi correo, mi teléfono y por dónde quiero que me avisen.' })
+  myPreferences(@Req() req: AuthedRequest): Promise<SdPreferencesDto> {
+    return this.prefs.get(actorDesdeRequest(req).userId);
+  }
+
+  @Put('me/preferences')
+  @RequirePermissions(Permission.SERVICIO_REPORTAR)
+  @ApiOperation({ summary: 'Actualiza MIS datos de contacto y avisos. WhatsApp exige teléfono y deja fecha de consentimiento.' })
+  updateMyPreferences(@Body() dto: SdUpdatePreferencesDto, @Req() req: AuthedRequest): Promise<SdPreferencesDto> {
+    return this.prefs.update(actorDesdeRequest(req), dto);
+  }
+
+  // ── Configuración y SLA (coordinación) ──
+
+  @Get('config')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Horario hábil, políticas de SLA, colas y categorías (incluye las apagadas).' })
+  getConfig(): Promise<SdConfigResponse> {
+    return this.admin.get();
+  }
+
+  @Put('config/settings')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Cambia el horario hábil, el auto-cierre o enciende la escalación (apagada de fábrica).' })
+  updateSettings(@Body() dto: Partial<SdSettingsDto>, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.admin.updateSettings(actorDesdeRequest(req), dto);
+  }
+
+  @Put('config/policies/:priority')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Cambia los plazos y el reloj (hábil/corrido) de una prioridad.' })
+  updatePolicy(@Param('priority') priority: string, @Body() dto: Partial<Omit<SdSlaPolicyDto, 'priority'>>, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.admin.updatePolicy(actorDesdeRequest(req), priority, dto);
+  }
+
+  @Post('config/queues')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Alta de una cola (departamento que atiende). El modelo es multi-cola; hoy sólo existe TI.' })
+  createQueue(@Body() dto: SdUpsertQueueDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.admin.createQueue(actorDesdeRequest(req), dto);
+  }
+
+  @Put('config/queues/:id')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Renombra, ordena o apaga una cola.' })
+  updateQueue(@Param('id') id: string, @Body() dto: SdUpsertQueueDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.admin.updateQueue(actorDesdeRequest(req), id, dto);
+  }
+
+  @Post('config/categories')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Alta de una categoría con su prioridad por defecto.' })
+  createCategory(@Body() dto: SdUpsertCategoryDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.admin.createCategory(actorDesdeRequest(req), dto);
+  }
+
+  @Put('config/categories/:id')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Edita o apaga una categoría. Apagar no borra: los tickets viejos la conservan.' })
+  updateCategory(@Param('id') id: string, @Body() dto: SdUpsertCategoryDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.admin.updateCategory(actorDesdeRequest(req), id, dto);
+  }
+
+  @Post('sla/scan-now')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Barre el SLA de mi tenant AHORA, por el mismo camino que el cron (deja latido).' })
+  scanNow(): Promise<SdSlaScanResult> {
+    return this.sla.scanNow();
   }
 }

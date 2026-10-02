@@ -12,9 +12,10 @@
  *   · `time_logged_minutes` sólo lo ve quien atiende.
  *   · La prioridad la cambia quien atiende; el solicitante no puede subirla para saltarse la fila.
  */
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
+  BITACORA_PORT,
   SD_IMPACTS,
   SD_PRIORITIES,
   SD_STATUSES,
@@ -39,6 +40,8 @@ import {
   type SdStatsResponse,
   type SdStatus,
   type SdVisibility,
+  type BitacoraPort,
+  type BitacoraTicketEvent,
 } from '@megadulces/contracts';
 import { KEPLER_BRANCH_NAMES, TenantContextService, TenantKnexService, applySmartSearch, branchName, toMxDateKey } from '@megadulces/platform-core';
 import { ServiceDeskAgentsService } from './agents.service';
@@ -47,6 +50,8 @@ import { efectosDe, motivoDeCierre, puedeTransicionar, TRANSICIONES } from './do
 import { formatFolio } from './domain/folio';
 import { puedeCambiarPrioridad, sugerirPrioridad } from './domain/priority';
 import { evaluarSla, plazosIniciales, plazosTrasCambioDePrioridad, reanudarTrasPausa } from './domain/sla';
+import type { SdEventoClave } from './domain/notice';
+import { ServiceDeskNotificationsService, type SdEvento } from './notifications.service';
 import { ServiceDeskConfigService, type SdConfig } from './service-desk-config.service';
 import type { ActorCtx } from './service-desk.types';
 
@@ -117,6 +122,21 @@ interface AttachmentRow {
 
 type Patch = Record<string, unknown>;
 
+/** Quien provoca un cambio. El SISTEMA (auto-cierre) no es una persona: no tiene `userId`. */
+export interface Autor {
+  userId: string | null;
+  nombre: string;
+}
+export const SISTEMA: Autor = { userId: null, nombre: 'Sistema' };
+
+/** Lo que una operación provoca FUERA de su transacción: avisos a personas y el espejo hacia la Bitácora. */
+export interface Efectos {
+  avisos: SdEvento[];
+  bitacora: BitacoraTicketEvent[];
+}
+export const sinEfectos = (): Efectos => ({ avisos: [], bitacora: [] });
+export const juntar = (a: Efectos, b: Efectos): Efectos => ({ avisos: [...a.avisos, ...b.avisos], bitacora: [...a.bitacora, ...b.bitacora] });
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ABIERTOS: SdStatus[] = ['nuevo', 'asignado', 'en_proceso', 'en_espera'];
 const FINALES: SdStatus[] = ['cerrado', 'cancelado'];
@@ -129,12 +149,16 @@ const esUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.tes
 
 @Injectable()
 export class ServiceDeskRequestsService {
+  private readonly logger = new Logger(ServiceDeskRequestsService.name);
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly cfg: ServiceDeskConfigService,
     private readonly att: ServiceDeskAttachmentsService,
     private readonly agents: ServiceDeskAgentsService,
+    private readonly notifs: ServiceDeskNotificationsService,
+    @Optional() @Inject(BITACORA_PORT) private readonly bitacora?: BitacoraPort,
   ) {}
 
   // ───────────────────────────── alta ─────────────────────────────
@@ -159,7 +183,7 @@ export class ServiceDeskRequestsService {
 
     // 2) Un solo bloque transaccional: folio + ticket + hilo + adjuntos. Si algo falla, nada queda a medias.
     try {
-      const id = await this.tk.run(async (trx) => {
+      const { id, efectos } = await this.tk.run(async (trx) => {
         const config = await this.cfg.load(trx);
         const cat = await trx('servicedesk.categories as c')
           .join('servicedesk.queues as q', function () {
@@ -217,8 +241,16 @@ export class ServiceDeskRequestsService {
           meta: { priority, impact, blocks_work: blocksWork },
         });
         await this.insertAdjuntos(trx, tenantId, id, msgId, ctx.userId, subidos);
-        return id as string;
+
+        const efectos: Efectos = { avisos: [], bitacora: [{ tenantId, requestId: id, folio, event: 'created', status: 'nuevo', assignedTo: null }] };
+        // Lo urgente y lo alto no pueden esperar a que alguien abra la bandeja: se avisa a quien atiende.
+        if (priority === 'alta' || priority === 'urgente') {
+          const agentes = (await this.agents.listIn(trx)).map((a) => a.user_id);
+          efectos.avisos.push({ event: 'nuevo_prioritario', request_id: id, folio, title, priority, recipients: agentes, actor_id: ctx.userId, actor_name: ctx.nombre });
+        }
+        return { id: id as string, efectos };
       });
+      await this.despachar(efectos);
       return await this.detail(ctx, id);
     } catch (e) {
       await this.att.descartar(subidos);
@@ -412,8 +444,10 @@ export class ServiceDeskRequestsService {
     if (visibility === 'internal' && preparados.length) throw new BadRequestException('Las notas internas no admiten adjuntos');
     const subidos: AdjuntoSubido[] = preparados.length ? await this.att.subir(preparados, CARPETA) : [];
 
+    let efectos = sinEfectos();
     try {
-      await this.tk.run(async (trx) => {
+      efectos = await this.tk.run(async (trx) => {
+        let fx = sinEfectos();
         const config = await this.cfg.load(trx);
         const r = await this.bloquear(trx, id);
         if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
@@ -438,13 +472,20 @@ export class ServiceDeskRequestsService {
         }
         // El solicitante que contesta reanuda un ticket que estaba esperándolo a él.
         if (comoSolicitante && visibility === 'public' && r.status === 'en_espera') {
-          await this.moverEstado(trx, config, r, 'en_proceso', ['requester'], ctx, now, 'El solicitante respondió');
+          fx = juntar(fx, await this.moverEstado(trx, config, r, 'en_proceso', ['requester'], ctx, now, 'El solicitante respondió'));
         }
+        // Un mensaje PÚBLICO le avisa a la otra parte. Una nota interna no avisa a nadie: no sale del equipo.
+        if (visibility === 'public') {
+          const destino = comoSolicitante ? r.assigned_to : r.requester_id;
+          if (destino) fx.avisos.push(this.evento(r, 'comentario', [destino], ctx, { extracto: body, discriminador: msgId }));
+        }
+        return fx;
       });
     } catch (e) {
       await this.att.descartar(subidos);
       throw e;
     }
+    await this.despachar(efectos);
     return this.detail(ctx, id);
   }
 
@@ -474,12 +515,13 @@ export class ServiceDeskRequestsService {
   async take(ctx: ActorCtx, id: string): Promise<SdRequestDetail> {
     if (!ctx.esAgente) throw new ForbiddenException('Sólo quien atiende puede tomar solicitudes');
     if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
-    await this.tk.run(async (trx) => {
+    const efectos = await this.tk.run(async (trx) => {
       const r = await this.bloquear(trx, id);
       if (!r) throw new NotFoundException('Solicitud no encontrada');
       if (r.status !== 'nuevo' || r.assigned_to) throw new ConflictException('La solicitud ya fue tomada por alguien más');
-      await this.asignarA(trx, r, ctx.userId, ctx, new Date(), null);
+      return this.asignarA(trx, r, ctx.userId, ctx, new Date(), null);
     });
+    await this.despachar(efectos);
     return this.detail(ctx, id);
   }
 
@@ -490,7 +532,7 @@ export class ServiceDeskRequestsService {
     if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
     if (!esUuid(dto.user_id)) throw new BadRequestException('user_id inválido');
     const destino: string = dto.user_id;
-    await this.tk.run(async (trx) => {
+    const efectos = await this.tk.run(async (trx) => {
       const r = await this.bloquear(trx, id);
       if (!r) throw new NotFoundException('Solicitud no encontrada');
       if (FINALES.includes(r.status) || r.status === 'resuelto') throw new ConflictException('La solicitud ya no admite reasignación');
@@ -498,8 +540,9 @@ export class ServiceDeskRequestsService {
       if (destino !== ctx.userId && !(await this.agents.esAsignable(trx, destino))) {
         throw new BadRequestException('Esa persona no atiende solicitudes de la Mesa de Servicio');
       }
-      await this.asignarA(trx, r, destino, ctx, new Date(), r.assigned_to);
+      return this.asignarA(trx, r, destino, ctx, new Date(), r.assigned_to);
     });
+    await this.despachar(efectos);
     return this.detail(ctx, id);
   }
 
@@ -574,7 +617,7 @@ export class ServiceDeskRequestsService {
     if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
     const nota = String(note ?? '').trim();
     if (nota.length > MAX_TEXTO) throw new BadRequestException(`La nota admite hasta ${MAX_TEXTO} caracteres`);
-    await this.tk.run(async (trx) => {
+    const efectos = await this.tk.run(async (trx) => {
       const config = await this.cfg.load(trx);
       const r = await this.bloquear(trx, id);
       if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
@@ -584,8 +627,9 @@ export class ServiceDeskRequestsService {
       }
       if (opc.exigirNota && !nota) throw new BadRequestException(opc.exigirNota);
       if (to === 'resuelto' && !nota) throw new BadRequestException('Describe cómo se resolvió para poder marcarla como resuelta');
-      await this.moverEstado(trx, config, r, to, actores, ctx, new Date(), nota);
+      return this.moverEstado(trx, config, r, to, actores, ctx, new Date(), nota);
     });
+    await this.despachar(efectos);
     return this.detail(ctx, id);
   }
 
@@ -593,7 +637,7 @@ export class ServiceDeskRequestsService {
    * LA función que escribe `status`. Recibe la fila ya bloqueada (`FOR UPDATE`) y la deja coherente con el
    * reloj del SLA. Lanza 403 si ninguno de los roles que `ctx` tiene sobre el ticket puede hacer la transición.
    */
-  private async moverEstado(trx: Knex.Transaction, config: SdConfig, r: RequestRow, to: SdStatus, actores: SdActor[], ctx: ActorCtx, now: Date, nota: string | null): Promise<void> {
+  private async moverEstado(trx: Knex.Transaction, config: SdConfig, r: RequestRow, to: SdStatus, actores: SdActor[], ctx: Autor, now: Date, nota: string | null): Promise<Efectos> {
     const from = r.status as SdStatus;
     const actor = actores.find((a) => puedeTransicionar(from, to, a));
     if (!actor) throw new ForbiddenException('No tienes permiso para hacer ese cambio en esta solicitud');
@@ -639,10 +683,63 @@ export class ServiceDeskRequestsService {
       body: nota ?? '',
       meta: { from, to },
     });
+
+    const fx = sinEfectos();
+    fx.bitacora.push({ tenantId: r.tenant_id, requestId: r.id, folio: r.folio, event: 'status', status: to, assignedTo: ef.desasigna ? null : r.assigned_to });
+    if (to === 'resuelto') fx.avisos.push(this.evento(r, 'resuelto', [r.requester_id], ctx, { discriminador: Number(r.reopened_count) }));
+    if (ef.reabre && r.assigned_to) fx.avisos.push(this.evento(r, 'reabierto', [r.assigned_to], ctx, { discriminador: Number(r.reopened_count) + 1 }));
+    if (to === 'cancelado') {
+      const otra = actor === 'requester' ? r.assigned_to : r.requester_id;
+      if (otra) fx.avisos.push(this.evento(r, 'cancelado', [otra], ctx));
+    }
+    if (to === 'cerrado' && actor === 'system') fx.avisos.push(this.evento(r, 'autocerrado', [r.requester_id], ctx, { dias: config.settings.autoCloseDays }));
+    return fx;
+  }
+
+  /**
+   * Cierra solo lo que quedó RESUELTO y nadie objetó en `auto_close_days`. Lo llama el barrido del SLA dentro
+   * de su transacción (con el candado de cron ya tomado). `FOR UPDATE SKIP LOCKED`: si una persona está
+   * confirmando o reabriendo ese ticket en este instante, se le deja la prioridad y se reintenta en 5 minutos.
+   */
+  async autoCerrarEn(trx: Knex.Transaction, config: SdConfig, now: Date): Promise<{ cerrados: number; efectos: Efectos }> {
+    const dias = config.settings.autoCloseDays;
+    if (!(dias > 0)) return { cerrados: 0, efectos: sinEfectos() };
+    const limite = new Date(now.getTime() - dias * 86_400_000);
+    const rows: RequestRow[] = await trx('servicedesk.requests')
+      .where('status', 'resuelto')
+      .whereNull('deleted_at')
+      .where('resolved_at', '<=', limite)
+      .forUpdate()
+      .skipLocked();
+    let efectos = sinEfectos();
+    for (const r of rows) {
+      efectos = juntar(efectos, await this.moverEstado(trx, config, r, 'cerrado', ['system'], SISTEMA, now, `Cerrada automáticamente: pasaron ${dias} días desde que se resolvió y nadie la objetó.`));
+    }
+    return { cerrados: rows.length, efectos };
+  }
+
+  /** Dispara los avisos y el espejo a la Bitácora. Corre DESPUÉS de confirmar; nunca lanza ni bloquea. */
+  async despachar(fx: Efectos, tenantId?: string): Promise<void> {
+    try {
+      if (fx.avisos.length) await this.notifs.dispatch(tenantId ?? this.tenantCtx.requireTenantId(), fx.avisos);
+    } catch (e) {
+      this.logger.warn(`avisos no despachados: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    for (const b of fx.bitacora) {
+      try {
+        await this.bitacora?.onTicketChanged(b);
+      } catch (e) {
+        this.logger.warn(`Bitácora no notificada (${b.folio}): ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  private evento(r: RequestRow, event: SdEventoClave, recipients: string[], autor: Autor, extra: Partial<SdEvento> = {}): SdEvento {
+    return { event, request_id: r.id, folio: r.folio, title: r.title, priority: r.priority, recipients, actor_id: autor.userId, actor_name: autor.userId ? autor.nombre : null, ...extra };
   }
 
   /** Fija el asignado y deja el estado en `asignado` si venía de `nuevo`. */
-  private async asignarA(trx: Knex.Transaction, r: RequestRow, userId: string, ctx: ActorCtx, now: Date, anterior: string | null): Promise<void> {
+  private async asignarA(trx: Knex.Transaction, r: RequestRow, userId: string, ctx: ActorCtx, now: Date, anterior: string | null): Promise<Efectos> {
     const patch: Patch = { assigned_to: userId, assigned_by: ctx.userId, assigned_at: now, updated_at: now, updated_by: ctx.userId };
     if (r.status === 'nuevo') patch.status = 'asignado';
     if (!r.first_responded_at) patch.first_responded_at = now;
@@ -655,6 +752,11 @@ export class ServiceDeskRequestsService {
       body: '',
       meta: { to: userId, to_name: destino?.nombre || destino?.username || null, from: anterior },
     });
+    const fx = sinEfectos();
+    fx.bitacora.push({ tenantId: r.tenant_id, requestId: r.id, folio: r.folio, event: 'assigned', status: patch.status ? String(patch.status) : r.status, assignedTo: userId });
+    // Se le avisa a quien recibe el ticket; quien se lo asignó a sí mismo no necesita aviso (lo filtra `actor_id`).
+    fx.avisos.push(this.evento(r, 'asignado', [userId], ctx, { discriminador: now.getTime() }));
+    return fx;
   }
 
   /** Los roles que `ctx` tiene SOBRE este ticket, del más fuerte al más débil. */

@@ -215,3 +215,104 @@ export interface SdStatsResponse {
   by_status: Partial<Record<SdStatus, number>>;
   by_priority: Partial<Record<SdPriority, number>>;
 }
+
+// ── Avisos y preferencias ───────────────────────────────────────────────────────────────────────
+
+/** Un aviso de la campana. Sale de `servicedesk.notification_log` (canal `app`): el worker no tiene WebSocket. */
+export interface SdNotificationDto {
+  id: string;
+  event: string;
+  request_id: string | null;
+  folio: string | null;
+  severity: 'info' | 'warn' | 'critical';
+  title: string;
+  message: string;
+  created_at: string;
+}
+
+export interface SdPreferencesDto {
+  email: string | null;
+  /** Canónico `52XXXXXXXXXX`. */
+  phone: string | null;
+  email_enabled: boolean;
+  whatsapp_enabled: boolean;
+  /** Cuándo aceptó recibir WhatsApp. Sin esta fecha el canal no se activa. */
+  whatsapp_opt_in_at: string | null;
+}
+
+export interface SdUpdatePreferencesDto {
+  email?: string | null;
+  phone?: string | null;
+  email_enabled?: boolean;
+  whatsapp_enabled?: boolean;
+}
+
+// ── Configuración (coordinación) ────────────────────────────────────────────────────────────────
+
+export interface SdSettingsDto {
+  /** 0 = domingo … 6 = sábado. */
+  business_days: number[];
+  /** `HH:MM`. */
+  business_start: string;
+  business_end: string;
+  tz: string;
+  auto_close_days: number;
+  escalate_at_pct: number;
+  /** Apagado de fábrica: primero se MIDE el SLA, después se escala. */
+  escalation_enabled: boolean;
+  max_attachment_mb: number;
+}
+
+export interface SdSlaPolicyDto {
+  priority: SdPriority;
+  first_response_minutes: number;
+  resolution_minutes: number;
+  clock: SdClock;
+}
+
+export interface SdQueueAdminDto extends SdQueueDto {
+  department_code: string | null;
+  active: boolean;
+  sort_order: number;
+}
+
+export interface SdCategoryAdminDto extends SdCategoryDto {
+  active: boolean;
+  sort_order: number;
+}
+
+export interface SdConfigResponse {
+  settings: SdSettingsDto;
+  policies: SdSlaPolicyDto[];
+  queues: SdQueueAdminDto[];
+  categories: SdCategoryAdminDto[];
+}
+
+export interface SdUpsertCategoryDto {
+  queue_id?: string;
+  code?: string;
+  name?: string;
+  default_priority?: SdPriority;
+  requires_branch?: boolean;
+  active?: boolean;
+  sort_order?: number;
+}
+
+export interface SdUpsertQueueDto {
+  code?: string;
+  name?: string;
+  department_code?: string | null;
+  active?: boolean;
+  sort_order?: number;
+}
+
+/** Lo que midió un barrido del SLA (también lo devuelve `POST /sla/scan-now`). */
+export interface SdSlaScanResult {
+  tenants: number;
+  /** Tickets que cruzaron por primera vez un plazo y quedaron marcados. */
+  marcados: number;
+  /** Avisos de «por vencer» / «vencido» que salieron (0 mientras la escalación esté apagada). */
+  avisos: number;
+  /** Resueltos que nadie confirmó y se cerraron solos. */
+  autocerrados: number;
+}
