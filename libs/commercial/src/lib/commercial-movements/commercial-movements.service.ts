@@ -592,14 +592,50 @@ export class CommercialMovementsService {
         const cpQty = Number(cp[0].qty || 0);
         return { docs: cp, qty: cpQty, delta: cpQty - sentQty, status: Math.abs(cpQty - sentQty) < 0.01 ? 'ok' : 'diferencia' };
       };
+      /**
+       * `[DM.17.1]` — **de qué plaza SALIÓ de verdad la mercancía.**
+       *
+       * El almacén del documento de salida dice "CEDIS" porque ahí se CAPTURÓ, no porque de ahí
+       * haya salido: antes del corte, Morelia Abastos y Canindo subían sus traspasos al Kepler
+       * del CEDIS. Medido: **225 de 535 documentos resueltos no son del CEDIS** ($5,144,762).
+       *
+       * El árbitro es `analytics.v_transfer_true_origin` — el ticket Wincaja del documento
+       * (`kdm1.c24`), desambiguado por SKU + cantidad porque la caja `99` del folio la comparten
+       * cinco ramas. ⛔ **No se lee el almacén del documento de enfrente**: ése copia lo que
+       * declaró el que embarcó, así que es un espejo y no puede arbitrar (ADR-059 R5).
+       */
+      const origenReal = async (warehouseId: string | null, folio: string | null, serie: string | null) => {
+        if (!warehouseId || !folio) return null;
+        const [r] = await trx('analytics.v_transfer_true_origin as o')
+          .join('commercial.warehouses as w', (j: any) => {
+            j.on('w.kepler_code', 'o.sucursal_kepler').andOnNull('w.deleted_at');
+          })
+          .where('w.id', warehouseId)
+          .andWhere('o.folio', folio)
+          .andWhereRaw(`coalesce(o.doc_serie::text,'') = coalesce(?, '')`, [serie])
+          .leftJoin('analytics.v_branch_erp_cutover as c', 'c.wincaja_source_branch', 'o.origen_rama_wincaja')
+          .leftJoin('commercial.warehouses as wo', (j: any) => {
+            j.on('wo.kepler_code', 'c.kepler_code').andOnNull('wo.deleted_at');
+          })
+          .select('o.origen_veredicto', 'o.origen_rama_wincaja', 'o.ticket_ref', 'o.ticket_tecleado')
+          .select('wo.id as origen_warehouse_id', 'wo.name as origen_warehouse_name')
+          .limit(1);
+        return r || null;
+      };
+
       if (h.doc_code === 'TrsfShip') {
         counterpart = { kind: 'recepcion', ...(await findCp('TrsfRcv', 'parent_folio', h.folio, 'parent_serie', h.doc_serie) || { docs: [], qty: 0, delta: -sentQty, status: 'sin_recepcion' }) };
         // DM.11 — a quién va dirigido (crítico cuando status='sin_recepcion')
         counterpart.dest_label = destLabel;
         counterpart.dest_warehouse_id = destWarehouseId;
         counterpart.dest_warehouse_name = destWarehouseName;
+        // El documento que se está viendo ES la salida: su propio origen es el que se arbitra.
+        counterpart.origen_real = await origenReal(h.warehouse_id ?? p.warehouse_id, h.folio, h.doc_serie);
       } else if (h.doc_code === 'TrsfRcv' && h.parent_group === '41') {
         counterpart = { kind: 'origen', ...(await findCp('TrsfShip', 'folio', h.parent_folio, 'doc_serie', h.parent_serie) || { docs: [], qty: 0, delta: sentQty, status: 'sin_origen' }) };
+        // Acá la salida es la CONTRAPARTE, así que se arbitra ella y no el documento de enfrente.
+        const cpDoc = counterpart.docs?.[0];
+        if (cpDoc) counterpart.origen_real = await origenReal(cpDoc.warehouse_id, cpDoc.folio, cpDoc.doc_serie);
       }
       return { header, lines, totals, counterpart };
     });
