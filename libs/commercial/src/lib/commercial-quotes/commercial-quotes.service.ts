@@ -384,6 +384,10 @@ export class CommercialQuotesService {
           -- "12PZS" fijo, también para un bulto de 20 KG o una caja de 12 PAQUETES (COT.16).
           lp.unit_base  AS product_unit_base,
           lp.sold_by_kg AS product_sold_by_kg,
+          -- Unidades base del PAQUETE: con él la caja se desglosa también en su unidad del medio
+          -- ("14 PAQ $121.86 · 140 PZA $12.19"), que se perdía (COT.17). Descriptivo, como los
+          -- de arriba: el precio sigue siendo el congelado en el renglón.
+          lp.pack_size  AS product_pack_size,
           -- El descuento se DERIVA, no se guarda: guardado aparte se desincroniza del precio
           -- en cuanto alguien edita uno de los dos.
           CASE

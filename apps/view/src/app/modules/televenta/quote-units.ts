@@ -49,6 +49,53 @@ export function abrevUnidadBase(unitBase: string | null | undefined, soldByKg = 
   return u ? 'u.' : 'PZA';
 }
 
+/**
+ * Cuántas unidades base trae el PAQUETE que va dentro de la unidad mayor, o `null` si no aplica
+ * (COT.17). Sólo vale cuando el paquete cabe EXACTO en la caja: KINDER DELICE = paquete 10,
+ * caja 140 → 14 paquetes por caja. Si no divide exacto, decir "13.3 PAQ" sería inventar una
+ * presentación que el ERP no declara, así que no se muestra.
+ */
+export function paqueteDeCaja(boxSize: number | null | undefined, packSize: number | null | undefined): number | null {
+  const caja = Number(boxSize);
+  const paq = Number(packSize);
+  if (!Number.isFinite(caja) || !Number.isFinite(paq)) return null;
+  if (paq <= 1 || paq >= caja) return null;
+  return caja % paq === 0 ? paq : null;
+}
+
+/** Un paso del desglose del precio de la unidad mayor: "14 PAQ $121.86". */
+export interface PasoDesglose {
+  /** Cuántas de esta unidad trae la unidad mayor. */
+  cantidad: number;
+  unidad: string;
+  /** Precio proporcional de UNA de esta unidad dentro del precio de la mayor. */
+  precio: number;
+}
+
+/**
+ * Desglose del precio de una unidad mayor en sus unidades menores, de mayor a menor (COT.17):
+ * caja de KINDER a $1,706.06 → [14 PAQ $121.86, 140 PZA $12.19]. Antes sólo salía la base y el
+ * paquete — la unidad del medio, la que pide el equipo de ventas — se perdía.
+ *
+ * El precio es PROPORCIONAL al de la unidad mayor (lo que le cuesta al cliente cada paquete
+ * comprando la caja), no el precio de lista del paquete suelto. Una sola función para la
+ * pantalla, el detalle y el Excel/PDF: los tres dicen lo mismo.
+ */
+export function desglose(
+  precioMayor: number,
+  factor: number | null | undefined,
+  baseUnit: string | null | undefined,
+  packSize?: number | null,
+): PasoDesglose[] {
+  const f = Number(factor);
+  if (!Number.isFinite(f) || f <= 1 || !Number.isFinite(precioMayor)) return [];
+  const pasos: PasoDesglose[] = [];
+  const paq = paqueteDeCaja(f, packSize);
+  if (paq) pasos.push({ cantidad: f / paq, unidad: 'PAQ', precio: (precioMayor * paq) / f });
+  pasos.push({ cantidad: f, unidad: baseUnit || 'PZA', precio: precioMayor / f });
+  return pasos;
+}
+
 /** Un botón de unidad de venta del artículo. */
 export interface OpcionUnidad {
   rung: Rung;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { abrevUnidadBase, nombreUnidadBase, opcionesUnidad } from './quote-units';
+import { abrevUnidadBase, desglose, nombreUnidadBase, opcionesUnidad, paqueteDeCaja } from './quote-units';
 import { etiquetaDesglose } from './quote-deliverable-export';
 import type { QuoteCatalogRow } from './quotes.service';
 
@@ -62,5 +62,31 @@ describe('etiquetaDesglose — el texto que llega al Excel/PDF del cliente', () 
   });
   it('sin unidad conocida cae a PZA (lo de antes)', () => {
     expect(etiquetaDesglose(12, null, 80.82)).toBe('(12 PZA 80.82)');
+  });
+});
+
+describe('COT.17 — la unidad del MEDIO (el paquete dentro de la caja)', () => {
+  it('KINDER DELICE: caja de 140 a $1,706.06 → 14 PAQ $121.86 · 140 PZA $12.19', () => {
+    const d = desglose(1706.06, 140, 'PZA', 10);
+    expect(d.map((p) => `${p.cantidad} ${p.unidad} ${p.precio.toFixed(2)}`)).toEqual(['14 PAQ 121.86', '140 PZA 12.19']);
+  });
+  it('en el Excel/PDF: "(14 PAQ 121.86 · 140 PZA 12.19)"', () => {
+    expect(etiquetaDesglose(140, 'PZA', 1706.06 / 140, 10)).toBe('(14 PAQ 121.86 · 140 PZA 12.19)');
+  });
+  it('sin paquete queda igual que antes (sólo la base)', () => {
+    expect(etiquetaDesglose(12, 'PAQ', 41.82, null)).toBe('(12 PAQ 41.82)');
+    expect(desglose(501.8, 12, 'PAQ')).toHaveLength(1);
+  });
+  it('un paquete que NO cabe exacto en la caja no se inventa ("13.3 PAQ")', () => {
+    expect(paqueteDeCaja(40, 3)).toBeNull();
+    expect(desglose(100, 40, 'PZA', 3)).toHaveLength(1);
+  });
+  it('paquete igual o mayor que la caja, o de 1, no es unidad del medio', () => {
+    expect(paqueteDeCaja(12, 12)).toBeNull();
+    expect(paqueteDeCaja(12, 1)).toBeNull();
+    expect(paqueteDeCaja(null, 10)).toBeNull();
+  });
+  it('una unidad base (factor 1) no se desglosa', () => {
+    expect(desglose(12.19, 1, 'PZA', 10)).toEqual([]);
   });
 });
