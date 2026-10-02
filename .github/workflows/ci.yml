@@ -3,7 +3,7 @@ name: CI
 # Gate de build/typecheck. Compila las 4 apps deployables (api, view, portal,
 # vendor) con la MISMA config que los Dockerfiles de prod (--configuration=
 # production + --import load-compiler.mjs). Atrapa errores de TS / budgets de
-# Angular ANTES de que Railway deploye un build roto.
+# Angular ANTES de que `ops/prod/auto-deploy.sh` construya esa imagen en `md`.
 #
 # ─── ESTADO REAL, medido el 2026-09-30 ────────────────────────────────────────────────────
 #
@@ -40,9 +40,13 @@ name: CI
 #                   (bloquea el push directo a `main` + 6 gates sobre TUS archivos, ~2.5 s) y
 #                   de paso el `pre-commit` de gitleaks, que llevaba dos meses dormido.
 #                   ⚠️ Es de CLIENTE: se evade con `--no-verify`. Sirve por rapidez, no manda.
-#   2. [LEAD]       Secret `NX_CLOUD_ACCESS_TOKEN` (Settings → Secrets → Actions). Sin él el CI
-#                   corre igual pero sin caché remoto, y el paso "Declarar el caché remoto" lo
-#                   grita como warning en vez de dejarlo pasar callado.
+#   2. [LEAD]       ✅ HECHO. El secret `NX_CLOUD_ACCESS_TOKEN` está dado de alta desde el
+#                   2026-09-19 (verificado con `gh secret list`). El paso "Declarar el caché
+#                   remoto" sigue existiendo porque su trabajo es el caso contrario: avisar si
+#                   algún día se borra o vence, en vez de degradar a caché local en silencio.
+#                   Sin pendientes de secretos: `GITHUB_TOKEN` lo inyecta Actions, y
+#                   `GITLEAKS_LICENSE` sólo haría falta si el repo fuera de una ORG — es de
+#                   cuenta personal, así que gitleaks corre sin licencia.
 #
 # ⛔ LO QUE YA NO ESTÁ EN ESTA LISTA, Y NO VA A VOLVER: "pasar la cuenta a GitHub Pro".
 #    Decisión del 2026-09-30: no se paga. Volver el repo a público también desbloquearía la
@@ -57,8 +61,13 @@ name: CI
 # Flujo de equipo: rama por feature → PR → 1 review (CODEOWNERS) → squash a main (la rama se
 # borra sola). Ver ONBOARDING.md §8.
 #
-# NO publica imágenes: Railway construye desde el repo en cada push. Este job
-# es puramente un gate de calidad.
+# NO publica imágenes, y el motivo CAMBIÓ — la línea anterior decía "Railway construye desde el
+# repo en cada push" y eso dejó de ser cierto el 2026-09-22, cuando prod salió de Railway. Hoy
+# quien construye es `ops/prod/auto-deploy.sh`, EN `md`, con el repo clonado ahí: no hay registro
+# de imágenes de por medio y el CI no tiene nada que publicar. Este workflow aporta dos cosas al
+# despliegue: el veredicto `ci-green` que la compuerta lee (`[CI.SELLO]`, al final), y el gate de
+# calidad. ⚠️ Si algún día se mete un registro en el medio, ESTE es el job que tendría que
+# empujar la imagen — no `auto-deploy.sh`, que está del lado del servidor.
 #
 # PENDIENTE (follow-up): agregar un job que corra la regression suite
 # (database/run-all-tests.js) contra un Postgres de servicio + API en background.
@@ -124,7 +133,27 @@ jobs:
           node-version: 20
           cache: npm
 
+      # ── `[CD.3]` EL CUELLO MEDIDO NO ERA EL BUILD ────────────────────────────────────────
+      # Desglose real de este job en la corrida 37033825652 (2026-10-02):
+      #   checkout 11 s · setup-node 11 s · **npm ci 70 s** · SHAs 4 s · **build 10 s**
+      # O sea: `nx affected` + el caché remoto ya hacen su trabajo (10 s), y el 65% del job se
+      # va instalando dependencias. `setup-node` con `cache: npm` cachea los TARBALLS, pero
+      # `npm ci` igual borra y reescribe ~60k archivos en cada corrida.
+      #
+      # Acá se cachea `node_modules` ARMADO. Con acierto, el paso siguiente se saltea entero.
+      # ⛔ Clave EXACTA y sin `restore-keys` a propósito: un `node_modules` restaurado desde un
+      #    lock PARECIDO es peor que no tener caché — instala una versión que nadie pidió y el
+      #    fallo aparece lejos, en runtime. Si el lock cambió, se paga el `npm ci` y listo.
+      - name: Caché de node_modules (clave exacta por package-lock)
+        id: cache-nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+
       - name: Install dependencies
+        # Sólo si el caché falló. El `if` es lo que convierte el caché en tiempo ahorrado.
+        if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci
         env:
           # El monorepo tiene puppeteer (deps del api). Sin esto npm ci baja
@@ -212,7 +241,18 @@ jobs:
       - name: Derivar SHAs base/head para affected
         uses: nrwl/nx-set-shas@v4
 
+      # `[CD.3]` Mismo caché que el job `build`, y con la MISMA clave a propósito: los dos jobs
+      # corren en paralelo sobre el mismo lock, así que el segundo come de lo que guardó el
+      # primero. Antes los dos pagaban 70 s de `npm ci` cada uno.
+      - name: Caché de node_modules (clave exacta por package-lock)
+        id: cache-nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+
       - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci
         env:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
@@ -232,6 +272,7 @@ jobs:
       # BLOQUEANTE: sólo lo que este cambio escribió. Ratchet por línea — tocar un
       # archivo con deuda vieja no te obliga a pagarla, pero la imprime declarada.
       - name: Lint (líneas nuevas del diff)
+        id: g-lint
         run: node scripts/lint-changed.js
 
       # MEDICIÓN, no compuerta: el barrido por proyecto sigue corriendo para que la
@@ -320,6 +361,7 @@ jobs:
       # Pruebas negativas 2026-09-14, una por caso + la del camino "no medido": los tres rotos a
       # propósito salen 1 apuntando a la línea correcta; el bloque con ${} sale 0 pero declarando.
       - name: Comment gate (comentario que se cierra solo en template/styles)
+        id: g-templates
         if: ${{ !cancelled() }}
         run: npm run check:templates
 
@@ -332,6 +374,7 @@ jobs:
         run: npm run check:tables:self
 
       - name: Dense table gate (ancha sin apilado ni pérdida de eje)
+        id: g-tablas
         if: ${{ !cancelled() }}
         run: npm run check:tables
 
@@ -344,6 +387,7 @@ jobs:
         run: npm run check:tokens:self
 
       - name: CSS token gate (declaración que se cae por un token inexistente)
+        id: g-tokens
         if: ${{ !cancelled() }}
         run: npm run check:tokens
 
@@ -373,6 +417,7 @@ jobs:
       # target es el único que cubre ese hueco, y desde que vive en Nx es cacheable y entra en
       # `affected` (medido: 5.8 s en frío, 89 ms con caché).
       - name: Typecheck (affected)
+        id: g-typecheck
         if: ${{ !cancelled() }}
         run: npx nx affected -t typecheck --parallel=3
         env:
@@ -382,10 +427,68 @@ jobs:
       # `[NX.3]` el target `test` lo INFIERE el plugin `@nx/vitest` de la existencia de ese
       # archivo — un proyecto sin config simplemente no tiene target que correr.
       - name: Test (affected)
+        id: g-test
         if: ${{ !cancelled() }}
         run: npx nx affected -t test --parallel=3
         env:
           NX_DAEMON: 'false'
+
+      # ── `[CD.4]` EL VEREDICTO EN UNA PANTALLA, NO EN UN VOLCADO ──────────────────────────
+      # El log de este job son miles de líneas y el error real queda enterrado. Esto corre SOLO
+      # cuando algo falló y escribe, en el resumen de la corrida, QUÉ compuerta cortó y QUÉ
+      # hacer — sin obligar a abrir el log.
+      #
+      # ⛔ NO es `continue-on-error`: el job sigue en rojo. Lo único que cambia es que el rojo se
+      #    puede leer. Una compuerta que falla sin explicarse se termina ignorando (ADR-056).
+      - name: Resumen semántico de la falla
+        if: ${{ failure() }}
+        env:
+          R_LINT: ${{ steps.g-lint.outcome }}
+          R_TEMPLATES: ${{ steps.g-templates.outcome }}
+          R_TABLAS: ${{ steps.g-tablas.outcome }}
+          R_TOKENS: ${{ steps.g-tokens.outcome }}
+          R_TYPECHECK: ${{ steps.g-typecheck.outcome }}
+          R_TEST: ${{ steps.g-test.outcome }}
+        run: |
+          set -eu
+          S="$GITHUB_STEP_SUMMARY"
+          echo "## Por qué está en rojo" >> "$S"
+          echo "" >> "$S"
+          hubo=0
+          fila() {
+            # $1=resultado  $2=compuerta  $3=qué significa  $4=cómo se arregla
+            if [ "$1" = "failure" ]; then
+              hubo=1
+              echo "### $2" >> "$S"
+              echo "$3" >> "$S"
+              echo "" >> "$S"
+              echo "**Reproducilo local:** \`$4\`" >> "$S"
+              echo "" >> "$S"
+            fi
+          }
+          fila "$R_LINT"      "Lint de líneas nuevas" \
+            "Una línea que ESTE cambio escribió no pasa eslint. La deuda vieja no cuenta." \
+            "node scripts/lint-changed.js"
+          fila "$R_TEMPLATES" "Comentario que cierra su propio bloque" \
+            "Un backtick o un cierre de comentario dentro de template/styles. En dos de los tres casos el build queda verde y algo se rompe igual." \
+            "npm run check:templates"
+          fila "$R_TABLAS"    "Tabla ancha sin salida en estrecho" \
+            "Una tabla que ESTE cambio tocó tiene muchas columnas y no declara qué hace en pantalla angosta." \
+            "npm run check:tables"
+          fila "$R_TOKENS"    "Token de CSS inexistente" \
+            "Un var(--x) sin respaldo tira la declaración entera, en silencio, en el navegador." \
+            "npm run check:tokens"
+          fila "$R_TYPECHECK" "Typecheck" \
+            "apps/api compila con SWC y BORRA los tipos sin comprobarlos: este es el único paso que los mira." \
+            "npx nx affected -t typecheck"
+          fila "$R_TEST"      "Pruebas" \
+            "Una prueba de un proyecto afectado falló." \
+            "npx nx affected -t test"
+          if [ "$hubo" = "0" ]; then
+            echo "Ninguna compuerta con \`id\` reportó falla: el corte vino de un paso sin id (ver el log)." >> "$S"
+          fi
+          echo "---" >> "$S"
+          echo "ℹ️ Las compuertas de diseño cortan **sólo por los archivos que este cambio tocó** (\`[CD.2]\`). La deuda del resto se sigue midiendo e imprimiendo, pero no frena a quien no la escribió." >> "$S"
 
   # ──────────────────────────────────────────────────────────────────────────────────────────
   # `[CI.SELLO]` EL SELLO — mueve la rama marcadora `ci-green` al commit que acaba de pasar.

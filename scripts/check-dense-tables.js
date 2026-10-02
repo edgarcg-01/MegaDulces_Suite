@@ -316,6 +316,20 @@ function recorrer(dir, salida) {
 const archivos = [];
 for (const app of APPS) recorrer(path.join(RAIZ, app), archivos);
 
+// ── `[CD.2]` LA COMPUERTA CORTA POR LO QUE ESTE CAMBIO ESCRIBIO ────────────────────────────
+// Mismo motivo y mismo mecanismo que en `check-css-tokens.js`: barría las 3 apps enteras y una
+// tabla ancha de otra pantalla frenaba el push de cualquiera. La deuda por columnas
+// (DEUDA_COLUMNAS) se sigue midiendo e imprimiendo igual. `--todo` fuerza el barrido completo.
+const { acotarACambiados, declararAlcance } = require('./lib/alcance-diff');
+const _totalTablas = archivos.length;
+const _alcanceTablas = acotarACambiados(archivos, {
+  raiz: RAIZ,
+  activar: process.argv.includes('--todo') ? false : null,
+});
+archivos.length = 0;
+archivos.push(..._alcanceTablas.archivos);
+console.log(declararAlcance(_alcanceTablas, _totalTablas));
+
 const malos = [];
 /** Las de la 2a aguja que ya estaban: se cuentan e imprimen, no rompen. */
 const cohorte = [];
