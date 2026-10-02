@@ -1,4 +1,6 @@
-import { clasificarRecepciones, filtroSucursalOc, OcAbierta, resumenOcAbiertas } from './oc-abiertas';
+import {
+  clasificarOc, clasificarRecepciones, filtroSucursalOc, OcAbierta, resumenOcAbiertas,
+} from './oc-abiertas';
 
 const OC = (o: Partial<OcAbierta>): OcAbierta => ({
   almacen: '00', folio: 'F1', fecha_oc: '2026-09-01', proveedor: 'PROV', estatus: 'N',
@@ -96,5 +98,70 @@ describe('[RA-PRO.61] clasificarRecepciones — qué cuenta como surtido de la O
 
   it('compara el código sin espacios ni mayúsculas', () => {
     expect(clasificarRecepciones(' cp001 ', null, [R('1', 'CP001', null)]).validas).toHaveLength(1);
+  });
+});
+
+describe('[RA-PRO.67] clasificarOc — los dos testigos del estado real', () => {
+  // Las cifras son las medidas contra prod el 2026-10-02 sobre los 292 renglones de la bandeja.
+
+  it('el documento manda cuando dice algo: vale cancelado = compra abortada', () => {
+    // Las 8 filas de c43='A'. Es el caso que resolvió qué hacer con una letra sin documentar.
+    expect(clasificarOc('vale_cancelado', false)).toBe('abortada');
+    // Y las 2 donde el ERP va rezagado y todavía la llama pendiente: manda el documento.
+    expect(clasificarOc('vale_cancelado', true)).toBe('abortada');
+  });
+
+  it('vale vivo sin entrada = mercancía apartada que nadie capturó, diga lo que diga el ERP', () => {
+    expect(clasificarOc('vale_vivo', false)).toBe('falta_entrada');   // las 27 con c43='F'
+    expect(clasificarOc('vale_vivo', true)).toBe('falta_entrada');
+  });
+
+  it('sin vale el único testigo es el ERP: ahí sí decide c43', () => {
+    expect(clasificarOc('sin_vale', true)).toBe('pendiente');            // 252 filas
+    expect(clasificarOc('sin_vale', false)).toBe('cerrada_sin_rastro');  // 2 filas
+  });
+
+  it('⭐ sin columnas (migración sin aplicar) NO inventa: cae a pendiente, como antes de la fase', () => {
+    expect(clasificarOc(null, null)).toBe('pendiente');
+    expect(clasificarOc(undefined, undefined)).toBe('pendiente');
+  });
+
+  it('`clasificacion_disponible` declara si se midió o no, en vez de pintar cuatro clases vacías', () => {
+    const sinColumnas = [OC({}), OC({})];
+    expect(resumenOcAbiertas(sinColumnas).clasificacion_disponible).toBe(false);
+    expect(resumenOcAbiertas(sinColumnas).por_clase.pendiente).toBe(2);
+
+    const conColumnas = [OC({ estado_cadena: 'sin_vale', pendiente_en_erp: true })];
+    expect(resumenOcAbiertas(conColumnas).clasificacion_disponible).toBe(true);
+  });
+
+  it('el resumen reparte dinero y conteo por clase sobre TODAS, no sobre las pintadas', () => {
+    const todas: OcAbierta[] = [
+      ...Array.from({ length: 3 }, () => OC({ estado_cadena: 'sin_vale', pendiente_en_erp: true, valor: 1000 })),
+      OC({ estado_cadena: 'vale_cancelado', pendiente_en_erp: false, valor: 500 }),
+      OC({ estado_cadena: 'vale_vivo', pendiente_en_erp: false, valor: 200 }),
+      OC({ estado_cadena: 'sin_vale', pendiente_en_erp: false, valor: 70 }),
+    ];
+    // limite 2: sólo se pintan 2, pero los indicadores cuentan las 6.
+    const r = resumenOcAbiertas(todas, 2);
+    expect(r.mostradas).toBe(2);
+    expect(r.por_clase).toEqual({ pendiente: 3, falta_entrada: 1, abortada: 1, cerrada_sin_rastro: 1 });
+    expect(r.valor_por_clase.pendiente).toBe(3000);
+    // Las que no salen solas: abortada + cerrada_sin_rastro.
+    expect(r.muertas).toBe(2);
+    expect(r.valor_muertas).toBe(570);
+    // El universo cuadra: ninguna fila se pierde ni se cuenta dos veces.
+    const suma = Object.values(r.por_clase).reduce((a, b) => a + b, 0);
+    expect(suma).toBe(r.total);
+    expect(Object.values(r.valor_por_clase).reduce((a, b) => a + b, 0)).toBe(r.total_valor);
+  });
+
+  it('todas las llaves existen aunque valgan 0: un chip que aparece y desaparece se lee como error', () => {
+    const r = resumenOcAbiertas([]);
+    expect(Object.keys(r.por_clase).sort())
+      .toEqual(['abortada', 'cerrada_sin_rastro', 'falta_entrada', 'pendiente']);
+    expect(r.muertas).toBe(0);
+    // Bandeja vacía = no se midió nada, y así se declara.
+    expect(r.clasificacion_disponible).toBe(false);
   });
 });

@@ -54,7 +54,7 @@ REMOTO="~/build-prod"
 # Mientras corran en Compose tienen que estar acá, o `--todo` los deja fuera del despliegue.
 # ⚠️ Esta línea y la etiqueta `migracion:` de ops/k3s/*.yaml son DOS declaraciones del mismo
 # hecho — `npm run check:k3s` las compara y se pone rojo si se contradicen. Se mueven juntas.
-SERVICIOS_DEF="registry pg-prod pg-rag backup"
+SERVICIOS_DEF="registry backup"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
@@ -105,7 +105,7 @@ migraciones_pendientes() {
   cd "$REPO"
   : > "$TMP/mig-prod.txt"
   # El nombre que registra knex es el BASENAME del archivo, no la ruta.
-  ssh_md "docker exec pg-prod psql -U postgres -At -d railway -c \"SELECT name FROM public.knex_migrations\"" \
+  ssh_md "sh ~/ops/prod/pgprod.sh -At -c \"SELECT name FROM public.knex_migrations\"" \
     2>/dev/null | tr -d '\r' | grep -E '\.js$' > "$TMP/mig-prod.txt" || true
   [ -s "$TMP/mig-prod.txt" ] || return 0
   # "<blob-sha> <basename>": git ya es direccionable por contenido, así que dos archivos
@@ -128,7 +128,7 @@ compuerta_migraciones() {
   if [ ! -s "$TMP/mig-prod.txt" ]; then
     echo "⛔ NO SE PUDO LEER \`public.knex_migrations\` en prod — el estado de las migraciones"
     echo "   quedó SIN MEDIR. No se despliega a ciegas."
-    echo "   Comprobá:  ssh $SRV 'docker exec pg-prod psql -U postgres -c \"select 1\"'"
+    echo "   Comprobá:  ssh $SRV 'sh ~/ops/prod/pgprod.sh -c \"select 1\"'"
     exit 1
   fi
 
@@ -199,7 +199,7 @@ bitacora() {
     echo ");"
     echo "INSERT INTO ops.deploys (commit_sha, servicios, resultado, migraciones_pendientes, quien, desde)"
     echo "VALUES ('$(sqlq "$_commit")', '$(sqlq "$_servicios")', '$(sqlq "$_resultado")', $_pend, '$(sqlq "$_quien")', '$(sqlq "$(hostname 2>/dev/null || echo ?)")');"
-  } | ssh_md "docker exec -i pg-prod psql -U postgres -q -d railway -f -" >/dev/null 2>&1 \
+  } | ssh_md "sh ~/ops/prod/pgprod.sh -q -f -" >/dev/null 2>&1 \
     || echo "   ⚠️ bitácora: no se pudo escribir (el despliegue NO falla por esto)"
 }
 
@@ -277,7 +277,7 @@ estado() {
 
   echo
   echo "── Últimos despliegues (ops.deploys) ──"
-  ssh_md "docker exec pg-prod psql -U postgres -d railway -c \
+  ssh_md "sh ~/ops/prod/pgprod.sh -c \
     \"SELECT to_char(desplegado_en AT TIME ZONE 'America/Mexico_City','MM-DD HH24:MI') AS cuando,
              commit_sha AS commit, servicios, resultado, migraciones_pendientes AS mig_pend, quien
         FROM ops.deploys ORDER BY id DESC LIMIT 8\"" 2>/dev/null \
@@ -339,7 +339,7 @@ subir_compose() {
   #
   # ⛔ Y el carril sigue corriendo su copia INSTALADA, no la del clon que él mismo mantiene: así
   # un commit malo no puede dejar sin carril al mecanismo que tendría que revertirlo.
-  _guiones="docker-compose.yml Caddyfile restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh aplicar-k3s-prod.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
+  _guiones="docker-compose.yml Caddyfile pgprod.sh restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh aplicar-k3s-prod.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
   for a in $_guiones; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
@@ -378,6 +378,28 @@ subir_compose() {
             else mv -f \".\$a.nuevo\" \"\$a\"; fi
           done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh dev-ro-crear.sh dev-ro-verificar.sh"
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
+
+  # ⛔ [K3S.34] EL CADDYFILE NUEVO NO SIRVE DE NADA SI NADIE RELEE EL ARCHIVO.
+  #
+  # Caddy NO vigila el archivo, y con `admin off` tampoco existe `caddy reload`. Mientras vivió
+  # en Compose esto lo resolvía `--recrear caddy`. Ahora vive en K3s, así que un cambio de
+  # Caddyfile se escribiría en el disco y el pod seguiría sirviendo la configuración vieja —
+  # EXACTAMENTE el modo de falla de `[INFRA.6]`, donde seis días de cambios fueron invisibles
+  # y `--recrear caddy` imprimía «Recreando» sin recrear nada.
+  #
+  # ⚠️ Se reinicia SÓLO si el archivo cambió de verdad: un `rollout restart` en cada sincronía
+  # cortaría el ingreso interno por unos segundos cada vez que alguien corre `--verificar`.
+  ssh_md 'KC=/etc/rancher/k3s/k3s.yaml
+    command -v k3s >/dev/null 2>&1 || exit 0
+    KUBECONFIG=$KC k3s kubectl get deploy caddy -n prod >/dev/null 2>&1 || exit 0
+    nuevo=$(md5sum ~/ops/prod/Caddyfile 2>/dev/null | cut -d" " -f1)
+    viejo=$(cat ~/ops/prod/.Caddyfile.md5 2>/dev/null)
+    if [ "$nuevo" != "$viejo" ]; then
+      echo "   Caddyfile cambió → reiniciando el pod de caddy"
+      KUBECONFIG=$KC k3s kubectl rollout restart deploy/caddy -n prod >/dev/null 2>&1
+      KUBECONFIG=$KC k3s kubectl rollout status deploy/caddy -n prod --timeout=120s 2>&1 | tail -1 | sed "s/^/   /"
+      printf "%s" "$nuevo" > ~/ops/prod/.Caddyfile.md5
+    fi'
 }
 
 construir() {
@@ -483,9 +505,9 @@ construir() {
 
 # ═══ [K3S.24] LAS IMÁGENES DE PROD VAN AL REGISTRY, SIEMPRE ═════════════════════════════════
 #
-# Se publican aunque HOY ningún pod las consuma: las cuatro apps siguen en Compose, marcadas
-# `preparado`. Publicar de más cuesta segundos; publicar de menos es exactamente cómo los pods
-# del ODS quedaron 36 commits atrás sirviendo a los usuarios internos (2026-10-01).
+# Se publica TODO lo que un manifiesto de prod consume, incluidos los `preparado` que hoy
+# ningún pod levanta. Publicar de más cuesta segundos; publicar de menos es exactamente cómo
+# los pods del ODS quedaron 36 commits atrás sirviendo a los usuarios internos (2026-10-01).
 #
 # ⭐ El camino tiene que existir ANTES de que alguien lo necesite, no el día que lo necesita.
 # Si el día del corte hay que inventar el despliegue, el corte se hace a mano — y lo que se
@@ -494,14 +516,31 @@ construir() {
 # ⭐ El tag es el COMMIT. `latest` con `imagePullPolicy: IfNotPresent` es la combinación que
 # hace que el kubelet no vuelva a jalar NUNCA.
 #
-# ⚠️ Hoy un fallo al publicar AVISA y sigue: nada en producción depende todavía del registry,
-# y abortar un despliegue de Compose porque falló un paso que nadie consume sería frenar el
-# camino feliz por una dependencia futura. ⛔ EL DÍA QUE UNA APP MIGRE A K3s, ESTO TIENE QUE
-# ABORTAR — si no, el pod se queda con la imagen vieja y el despliegue reporta éxito.
+# ⚠️ Un fallo al publicar acá AVISA y sigue, y eso dejó de ser suficiente el día que las apps
+# migraron. Quien frena ahora es el PREVUELO de `aplicar-k3s-prod.sh` [K3S.41]: comprueba que
+# la imagen esté en el registry ANTES de aplicar el manifiesto, porque aplicarlo ya alcanza
+# para matar al pod que estaba sirviendo. El aviso de acá es el diagnóstico; el freno es allá.
+# ⭐ [K3S.41] LA LISTA YA NO SE MANTIENE A MANO, Y ESO COSTÓ UNA CAÍDA.
+#
+# Acá decía `for i in trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor`:
+# CUATRO imágenes escritas a mano. El 2026-10-01 `caddy` migró a K3s, su manifiesto pasó a
+# pedir `localhost:5000/trade-prod-caddy:__COMMIT__`, nadie extendió esta lista, y cada
+# despliegue le pedía al clúster una imagen que el registry no tenía. `caddy` es `Recreate`:
+# el pod viejo muere primero. 32 minutos de sitio abajo.
+#
+# ⭐ Ahora la lista SALE DE LOS MANIFIESTOS. Si mañana otro servicio migra, se publica solo.
+# El candado `npm run check:k3s` comprueba que las dos listas cubran lo que los manifiestos
+# piden, con prueba negativa — porque una lista derivada que nadie verifica vuelve a ser una
+# lista a mano el día que alguien la simplifique.
 publicar_prod() {
   echo "── Publicando al registry local (localhost:5000) ──"
+  # Las que un manifiesto de prod consume del registry. Incluye los `preparado`: el camino
+  # tiene que existir ANTES del corte, no inventarse el día del corte.
+  _imgs=$(sed -n 's#^[[:space:]]*image:[[:space:]]*localhost:5000/\([A-Za-z0-9._-]*\):__COMMIT__.*#\1#p' \
+            "$REPO"/ops/k3s/*.yaml 2>/dev/null | sort -u | grep -v '^trade-ingest$' | tr '\n' ' ')
+  [ -n "$(echo "$_imgs" | tr -d ' ')" ] || _imgs='trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor'
   ssh_md "fallos=0
-    for i in trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor; do
+    for i in $_imgs; do
       if ! docker image inspect \"\$i:$commit\" >/dev/null 2>&1; then
         printf '   %-22s —  no se construyó en esta corrida, se saltea\n' \"\$i\"; continue
       fi

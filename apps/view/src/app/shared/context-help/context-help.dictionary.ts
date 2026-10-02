@@ -20,6 +20,39 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // ninguno es tecnico, asi que el registro de TODO este topico es palabra llana: nada de
   // "veredicto", "coeficiente" ni nombres de columna. Cada definicion esta anclada a la regla
   // real de `analytics.v_price_action`, no a lo que la etiqueta sugiere.
+  competencia: {
+    title: 'Competencia — de dónde sale cada número',
+    intro: 'Todo lo de esta pantalla viene de ISCAM, la medición de mercado que llega una vez al mes. ISCAM mide a un panel de mayoristas, nos incluye a nosotros, y devuelve cuánto se vendió de cada marca. Restando lo nuestro queda lo que vendió el resto del canal: eso es "la competencia" acá.',
+    groups: [
+      {
+        heading: 'Qué quiere decir cada columna',
+        entries: [
+          { term: 'Competencia', def: 'Lo que vendió TODO EL RESTO del canal bajo esa marca: el mercado medido menos lo nuestro. Cuando el panel mide menos mercado que venta nuestra, los dos números se contradicen y la resta no significa nada: ahí dice un guion, no cero.' },
+          { term: 'Precio nuestro / Precio competencia', def: 'No es un precio de lista ni de etiqueta. Es el precio IMPLÍCITO: el dinero dividido entre las unidades. ISCAM no publica precios, así que éste se deduce. Sirve para comparar nuestra marca contra la misma marca en el resto del canal, y para nada más: dos marcas distintas no se pueden comparar entre sí porque la unidad en que se mide cada una no está verificada.' },
+          { term: 'Dif.', def: 'Cuánto por ciento más caro o más barato vendemos nosotros esa marca, contra lo que cobró el resto del canal.' },
+          { term: 'Share', def: 'Qué parte de esa marca o categoría vendimos nosotros. Con 16% de una categoría el precio lo ponemos; con 2% lo tomamos. Es la diferencia entre fijar precio y seguirlo.' },
+          { term: 'Creció la competencia', def: 'Cuántos pesos MÁS vendió el resto del canal contra el mes anterior. Se ordena por esto y no por tamaño de mercado, porque el tamaño pondría arriba a los gigantes donde este mes no pasó nada.' },
+        ],
+      },
+      {
+        heading: 'Qué tan en firme está el precio',
+        entries: [
+          { term: 'Medida', def: 'Vendemos suficiente de esa marca como para que nuestro precio promedio sea estable. Es el caso en que la comparación se sostiene.' },
+          { term: 'Poca venta nuestra', def: 'Vendemos tan poco de esa marca que nuestro precio promedio salta con cualquier movimiento. El número se publica igual, pero con esta marca al lado: la diferencia contra la competencia puede ser real o puede ser ruido. Medido: con menos del 10% de participación la dispersión se cuadruplica.' },
+          { term: 'No calculable', def: 'Falta uno de los dos lados de la división. Se dice así en vez de mostrar un cero, porque un cero se leería como "vendemos al mismo precio".' },
+        ],
+      },
+      {
+        heading: 'Lo que esta pantalla NO puede decirte',
+        entries: [
+          { term: 'Quién vende a ese precio', def: 'ISCAM esconde los nombres de los mayoristas de su panel. Sabemos cuánto vende la competencia en total, nunca cuál de ellos. Los competidores con nombre y domicilio salen de otra fuente (el censo de INEGI), y esa fuente no dice cuánto vende nadie. No hay manera de cruzarlas, y no se inventó una.' },
+          { term: 'El precio de anaquel', def: 'Nadie publica los precios del mayoreo de dulce. Se buscó: PROFECO no trae código de barras, mide en supermercados y de nuestras plazas sólo cubre Morelia; Mercado Libre bloquea el acceso.' },
+          { term: 'Por qué el share cambia según el filtro', def: 'Porque hay dos universos y los dos son ciertos. En Mayoreo Puro, que es donde vendemos, la participación es más alta; en el mayoreo total es más baja, porque incluye subcanales donde no vendemos nada. Cuál de los dos se publica es una decisión que todavía no se tomó.' },
+          { term: 'Qué tanto confiar en lo nuestro', def: 'A ISCAM se le mandan todas las salidas, traspasos entre sucursales incluidos. Comparado contra nuestros libros, sobre las mismas sucursales, nos sobra alrededor de un 10% que sigue sin explicarse.' },
+        ],
+      },
+    ],
+  },
   'motor-margen': {
     title: 'Motor de margen — qué significa cada cosa',
     intro: 'La pantalla mira cada producto en cada plaza y dice UNA cosa que se puede hacer con su precio, cuánto vale y qué tan en firme está. No cambia ningún precio: la captura sigue siendo en Kepler.',

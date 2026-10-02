@@ -9,6 +9,7 @@ import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { Subscription } from 'rxjs';
 import {
+  CLASES_OC, CLASE_OC_ACCION, CLASE_OC_LABEL, ClaseOc, clasificarOc,
   OC_NOTA_MAX, OC_SEGUIMIENTO_ESTATUS, OC_SEGUIMIENTO_LABEL, OC_SIN_REVISAR, OcSeguimientoEstatus,
   notaObligatoria, validarSeguimiento,
 } from '@megadulces/contracts';
@@ -64,6 +65,19 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <span class="oa-v oa-bad">{{ viejas() | number }}</span>
           <span class="oa-s">{{ money(valorViejas()) }}</span>
         </div>
+        <!-- [RA-PRO.67] Lo que no va a salir solo. Si la vista no trae estado_cadena, el
+             mosaico DECLARA que no se midio, en vez de mostrar un cero que se lee como
+             "no hay ninguna". (Sin acentos graves aca dentro: cierran el template.) -->
+        <div class="oa-kpi">
+          <span class="oa-k">No va a salir sola</span>
+          @if (clasifOk()) {
+            <span class="oa-v oa-bad">{{ muertas() | number }}</span>
+            <span class="oa-s">{{ money(valorMuertas()) }} · el ERP ya las cerró o su vale está cancelado</span>
+          } @else {
+            <span class="oa-v oa-muted" title="La vista analytics.erp_purchase_orders todavía no trae estado_cadena (migración 20261002183000 sin aplicar).">sin medir</span>
+            <span class="oa-s">falta la migración de la cadena</span>
+          }
+        </div>
       </div>
 
       <div class="oa-filters">
@@ -78,6 +92,25 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         </button>
         <span class="oa-count">{{ mostradas() | number }} de {{ total() | number }}@if (totalMinimo()) {+}</span>
       </div>
+
+      <!-- [RA-PRO.67] Por qué sigue abierta. Cada clase la resuelve gente distinta, así que el
+           chip lleva la acción en el title: el nombre solo no dice a quién le toca. -->
+      @if (clasifOk()) {
+        <div class="oa-seg-bar" role="group" aria-label="Filtrar por motivo">
+          <span class="oa-seg-lbl">Por qué sigue abierta</span>
+          <button type="button" class="oa-seg-chip" [class.oa-seg-on]="fClase() === ''"
+                  [attr.aria-pressed]="fClase() === ''" (click)="fClase.set('')">
+            Todas <b>{{ total() | number }}</b>
+          </button>
+          @for (c of claseOpts; track c.value) {
+            <button type="button" class="oa-seg-chip" [class.oa-seg-on]="fClase() === c.value"
+                    [attr.aria-pressed]="fClase() === c.value" (click)="fClase.set(c.value)"
+                    [attr.data-clase]="c.value" [title]="c.accion">
+              {{ c.label }} <b>{{ (porClase()[c.value] ?? 0) | number }}</b>
+            </button>
+          }
+        </div>
+      }
 
       <!-- [RA-PRO.62] Conteo por estatus de seguimiento (sobre TODAS las órdenes) que además filtra la tabla. -->
       <div class="oa-seg-bar" role="group" aria-label="Filtrar por estatus de seguimiento">
@@ -115,6 +148,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <tr>
             <th>Folio</th><th>Suc.</th><th>Proveedor</th><th>Fecha</th>
             <th class="oa-r">Abierta</th><th title="Estatus del documento en Kepler">Kepler</th>
+            <th title="Lo que la cadena de documentos demuestra: si hay vale, y si sigue vivo">Motivo</th>
             <th class="oa-r">Líneas</th><th class="oa-r">Valor</th><th class="oa-r">Prob. de llegar</th>
             <th title="Registro de Compras: por qué sigue abierta. No cambia nada en Kepler.">Seguimiento</th>
             <th title="PDF de la orden: para el proveedor (sin notas internas) o interno (con el seguimiento)">PDF</th>
@@ -128,6 +162,11 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <td class="oa-muted">{{ o.fecha_oc | date:'dd/MM/yy' }}</td>
             <td class="oa-r"><span [class]="edadCls(o)">{{ o.dias }} d</span></td>
             <td><p-tag [value]="estLabel(o.estatus)" [severity]="estSev(o.estatus)" styleClass="oa-tag"></p-tag></td>
+            <td>
+              @if (clasifOk()) {
+                <span class="oa-clase" [attr.data-clase]="clase(o)" [title]="claseAccion(o)">{{ claseLabel(o) }}</span>
+              } @else { <span class="oa-muted">—</span> }
+            </td>
             <td class="oa-r oa-muted">{{ o.lineas | number }}</td>
             <td class="oa-r oa-strong">{{ money(o.valor) }}</td>
             <td class="oa-r">
@@ -166,7 +205,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="11" class="oa-empty">No hay órdenes de compra abiertas con ese filtro.</td></tr>
+          <tr><td colspan="12" class="oa-empty">No hay órdenes de compra abiertas con ese filtro.</td></tr>
         </ng-template>
       </p-table>
 
@@ -261,6 +300,20 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .oa-seg-pill[data-seg='detenida_pago'], .oa-seg-pill[data-seg='detenida_logistica'] { color: var(--warn-fg); border-color: var(--warn-fg); }
     .oa-seg-pill[data-seg='backorder'] { color: var(--action); border-color: var(--action); }
     .oa-seg-pill[data-seg='no_surtida_cancelada'] { color: var(--bad-fg); border-color: var(--bad-fg); }
+
+    /* [RA-PRO.67] El motivo por el que la orden sigue abierta. Tokens semanticos, nunca hex:
+       el color NO es el unico portador -- la etiqueta dice lo mismo en palabras. */
+    .oa-clase { display: inline-flex; align-items: center; white-space: nowrap;
+                padding: .1rem .45rem; border-radius: var(--radius-sm, 4px);
+                border: 1px solid var(--border-color); font-size: .74rem; font-weight: 600;
+                color: var(--text-muted); }
+    .oa-clase[data-clase='pendiente'] { color: var(--text-2, var(--text-muted)); }
+    .oa-clase[data-clase='falta_entrada'] { color: var(--warn-fg); border-color: var(--warn-fg); }
+    .oa-clase[data-clase='abortada'],
+    .oa-clase[data-clase='cerrada_sin_rastro'] { color: var(--bad-fg); border-color: var(--bad-fg); }
+    .oa-seg-chip[data-clase='falta_entrada'] b { color: var(--warn-fg); }
+    .oa-seg-chip[data-clase='abortada'] b,
+    .oa-seg-chip[data-clase='cerrada_sin_rastro'] b { color: var(--bad-fg); }
     .oa-pdf-cell { white-space: nowrap; }
     .oa-pdf { display: inline-flex; align-items: center; gap: .2rem; padding: .15rem .4rem; margin-right: .2rem; min-height: 26px;
       border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: transparent; color: var(--text-main);
@@ -336,6 +389,23 @@ export class ComprasOcAbiertasComponent implements OnInit {
   readonly porSeguimiento = signal<Record<string, number>>({});
   /** Filtro de la tabla por estatus ('' = todas, 'sin_revisar' = sin registro). */
   readonly fSeg = signal<string>('');
+
+  // ── [RA-PRO.67] Por qué sigue abierta ──────────────────────────────────────────────────
+  /** Conteo y dinero por clase sobre TODAS las órdenes (lo calcula el servidor). */
+  readonly porClase = signal<Record<string, number>>({});
+  readonly muertas = signal(0);
+  readonly valorMuertas = signal(0);
+  /** `false` mientras la vista no traiga `estado_cadena`: la pantalla lo DECLARA, no pinta ceros. */
+  readonly clasifOk = signal(false);
+  /** Filtro de la tabla por clase ('' = todas). */
+  readonly fClase = signal<string>('');
+  readonly claseOpts = CLASES_OC.map((c) => ({
+    value: c as string, label: CLASE_OC_LABEL[c], accion: CLASE_OC_ACCION[c],
+  }));
+  /** La clase de un renglón sale de la MISMA función que usa el servidor (de `@megadulces/contracts`). */
+  clase(o: OpenOcRow): ClaseOc { return clasificarOc(o.estado_cadena, o.pendiente_en_erp); }
+  claseLabel(o: OpenOcRow): string { return CLASE_OC_LABEL[this.clase(o)]; }
+  claseAccion(o: OpenOcRow): string { return CLASE_OC_ACCION[this.clase(o)]; }
   readonly segOpts = [
     { value: 'sin_revisar', label: OC_SIN_REVISAR },
     ...OC_SEGUIMIENTO_ESTATUS.map((v) => ({ value: v as string, label: OC_SEGUIMIENTO_LABEL[v] })),
@@ -343,7 +413,13 @@ export class ComprasOcAbiertasComponent implements OnInit {
   readonly segEditOpts = OC_SEGUIMIENTO_ESTATUS.map((v) => ({ value: v, label: OC_SEGUIMIENTO_LABEL[v] }));
   readonly filas = computed(() => {
     const f = this.fSeg();
-    return f ? this.rows().filter((o) => (o.seguimiento?.estatus ?? 'sin_revisar') === f) : this.rows();
+    const c = this.fClase();
+    let r = this.rows();
+    if (f) r = r.filter((o) => (o.seguimiento?.estatus ?? 'sin_revisar') === f);
+    // [RA-PRO.67] Mismo límite que el filtro de seguimiento: recorre sólo lo que la tabla trajo
+    // (el número del chip sí cuenta todas). Ya lo declara el aviso de `truncado`.
+    if (c) r = r.filter((o) => this.clase(o) === c);
+    return r;
   });
 
   // Diálogo de cambio de estatus. Señales (no campos planos): `notaRequerida` es un computed.
@@ -470,6 +546,10 @@ export class ComprasOcAbiertasComponent implements OnInit {
           this.truncado.set(!!r.truncado);
           this.totalMinimo.set(!!r.total_minimo);
           this.porSeguimiento.set(r.por_seguimiento ?? {});
+          this.porClase.set(r.por_clase ?? {});
+          this.muertas.set(r.muertas ?? 0);
+          this.valorMuertas.set(r.valor_muertas ?? 0);
+          this.clasifOk.set(!!r.clasificacion_disponible);
           this.seguimientoHabilitado.set(!!r.seguimiento_habilitado);
           this.curva.set(r.curva ?? []);
           this.loading.set(false);
@@ -482,6 +562,7 @@ export class ComprasOcAbiertasComponent implements OnInit {
           this.rows.set([]); this.total.set(0); this.totalValor.set(0); this.valorEsperado.set(0);
           this.viejas.set(0); this.valorViejas.set(0); this.mostradas.set(0);
           this.truncado.set(false); this.totalMinimo.set(false); this.porSeguimiento.set({});
+          this.porClase.set({}); this.muertas.set(0); this.valorMuertas.set(0); this.clasifOk.set(false);
           // Sin respuesta no se sabe si la tabla de seguimiento existe: no se ofrece editar.
           this.seguimientoHabilitado.set(false); this.curva.set([]);
           this.loading.set(false);

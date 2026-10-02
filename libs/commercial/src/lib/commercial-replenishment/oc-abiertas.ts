@@ -16,7 +16,10 @@
  *     pinta, declarando cuántas quedaron fuera.
  */
 
-import { OC_SEGUIMIENTO_ESTATUS, OcSeguimiento, OcSeguimientoEstatus } from '@megadulces/contracts';
+import {
+  CLASES_MUERTAS, CLASES_OC, ClaseOc, EstadoCadena, clasificarOc,
+  OC_SEGUIMIENTO_ESTATUS, OcSeguimiento, OcSeguimientoEstatus,
+} from '@megadulces/contracts';
 
 /** Una orden abierta, ya en la forma que devuelve la API. */
 export interface OcAbierta {
@@ -32,7 +35,23 @@ export interface OcAbierta {
   prob: number | null;
   /** `[RA-PRO.62]` Estatus de seguimiento de Compras. `null` = Sin revisar. */
   seguimiento?: OcSeguimiento | null;
+  /** `[RA-PRO.67]` Estado DEMOSTRADO por la cadena de documentos (`analytics.erp_purchase_orders`). */
+  estado_cadena?: EstadoCadena | null;
+  /** `[RA-PRO.67]` La palabra del ERP: `c43 = 'N'`. Testigo distinto del de arriba. */
+  pendiente_en_erp?: boolean | null;
 }
+
+/**
+ * `[RA-PRO.67]` El vocabulario del estado de una OC abierta vive en `libs/contracts`
+ * (`oc-cadena.contract.ts`), porque lo leen los DOS lados: este servicio clasifica y la pantalla
+ * pinta el chip con la misma etiqueta y la misma regla. Se re-exporta acá para que los
+ * consumidores de este archivo no tengan que saber dónde vive.
+ */
+export {
+  CLASES_OC, CLASE_OC_LABEL, CLASE_OC_ACCION, CLASES_MUERTAS, ESTADOS_CADENA, clasificarOc,
+} from '@megadulces/contracts';
+export type { ClaseOc, EstadoCadena } from '@megadulces/contracts';
+
 
 /** `[RA-PRO.62]` Llave del conteo para las órdenes sin registro de seguimiento. */
 export const SIN_REVISAR = 'sin_revisar';
@@ -79,6 +98,17 @@ export interface ResumenOcAbiertas {
   valor_viejas: number;
   /** `[RA-PRO.62]` Cuántas órdenes hay en cada estatus de seguimiento (`sin_revisar` incluido), sobre TODAS. */
   por_seguimiento: Record<string, number>;
+  /** `[RA-PRO.67]` Cuántas órdenes y cuánto dinero hay en cada clase, sobre TODAS. */
+  por_clase: Record<ClaseOc, number>;
+  valor_por_clase: Record<ClaseOc, number>;
+  /** `[RA-PRO.67]` Las que no van a salir solas (`abortada` + `cerrada_sin_rastro`). */
+  muertas: number;
+  valor_muertas: number;
+  /**
+   * `[RA-PRO.67]` `false` mientras la vista no traiga `estado_cadena` (migración sin aplicar).
+   * La pantalla lo DECLARA en vez de pintar cuatro clases donde sólo midió una.
+   */
+  clasificacion_disponible: boolean;
 }
 
 const centavos = (n: number) => Math.round(n * 100) / 100;
@@ -93,6 +123,13 @@ export function resumenOcAbiertas(todas: OcAbierta[], limite = LIMITE_RENGLONES)
   // Todas las llaves presentes aunque valgan 0: la pantalla pinta el conteo de cada estatus.
   const porSeguimiento: Record<string, number> = { [SIN_REVISAR]: 0 };
   for (const e of OC_SEGUIMIENTO_ESTATUS) porSeguimiento[e] = 0;
+  // [RA-PRO.67] Igual que arriba: todas las llaves presentes aunque valgan 0, porque la pantalla
+  // pinta un chip por clase y un chip que aparece y desaparece se lee como un error.
+  const porClase = Object.fromEntries(CLASES_OC.map((c) => [c, 0])) as Record<ClaseOc, number>;
+  const valorPorClase = Object.fromEntries(CLASES_OC.map((c) => [c, 0])) as Record<ClaseOc, number>;
+  // Si NINGUNA orden trae `estado_cadena`, la vista no tiene las columnas: se declara, no se
+  // dibuja. Con la bandeja vacía queda `false`, que es correcto — no se midió nada.
+  let conEstado = 0;
   for (const o of todas) {
     const v = Number(o.valor) || 0;
     valor += v;
@@ -100,7 +137,13 @@ export function resumenOcAbiertas(todas: OcAbierta[], limite = LIMITE_RENGLONES)
     if ((Number(o.dias) || 0) > DIAS_PARA_BARRER) { viejas++; valorViejas += v; }
     const k = o.seguimiento?.estatus ?? SIN_REVISAR;
     porSeguimiento[k] = (porSeguimiento[k] ?? 0) + 1;
+    if (o.estado_cadena) conEstado++;
+    const c = clasificarOc(o.estado_cadena, o.pendiente_en_erp);
+    porClase[c]++;
+    valorPorClase[c] = centavos(valorPorClase[c] + v);
   }
+  const muertas = CLASES_MUERTAS.reduce((s, c) => s + porClase[c], 0);
+  const valorMuertas = centavos(CLASES_MUERTAS.reduce((s, c) => s + valorPorClase[c], 0));
   const rows = todas.slice(0, tope);
   return {
     rows,
@@ -112,6 +155,11 @@ export function resumenOcAbiertas(todas: OcAbierta[], limite = LIMITE_RENGLONES)
     viejas,
     valor_viejas: centavos(valorViejas),
     por_seguimiento: porSeguimiento,
+    por_clase: porClase,
+    valor_por_clase: valorPorClase,
+    muertas,
+    valor_muertas: valorMuertas,
+    clasificacion_disponible: conEstado > 0,
   };
 }
 

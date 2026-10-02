@@ -134,14 +134,19 @@ export interface IncomeSources {
   fuentes: IncomeSourceRow[];
 }
 
-// ─────────── `[IG.6]` Conciliación: lo VENDIDO y lo COBRADO, sin obligarlos a ser iguales ──────
+// ─────────── `[IG.7]` Conciliación: el ingreso LIGADO a su documento, su cliente y su cobro ───
 //
-// Pedido de Edgar: *"casar todos los ingresos a cada tienda y saber de dónde viene cada ingreso"*.
+// Pedido de Edgar: *"casar todos los ingresos a cada tienda y saber de dónde viene cada ingreso"*,
+// y después, viendo la pantalla: *"aún no ligas los ingresos"*.
 //
-// ⛔ La razón de que sean DOS columnas y no una: la medición que disparó esto encontró que el
-// ingreso publicado incluye **el CEDIS facturándole a sus propias tiendas** ($41.25 M de ago-2026,
-// 73.8 % del doctype). Obligar a que vendido == cobrado forzaría a elegir una de las dos cifras y
-// esconder la otra; acá las dos se publican y la diferencia se EXPLICA renglón por renglón.
+// ⛔ `[IG.6]` cruzaba por **almacén emisor** mientras la pestaña Árbol agrupa por **plaza**: dos
+// ejes distintos, dos tablas que no se pueden restar. `[IG.7]` liga por **folio** — la póliza
+// contable y su documento comparten folio y fecha (medido: 0 días de desfase en 4,809 de 4,809),
+// así que cada renglón de acá cuadra al centavo con el renglón del Árbol que tiene al lado.
+//
+// ⛔ Y son DOS columnas, no una: el 84 % de lo que esta pantalla publica como ingreso es el CEDIS
+// facturándole a sus propias tiendas y rutas. Obligar a que vendido == cobrado forzaría a elegir
+// una cifra y esconder la otra; acá las dos se publican y la diferencia se EXPLICA.
 
 /** Qué es el cliente de una venta. `sin_catalogo` es NO MEDIDO, no "externo por default". */
 export type IncomeKind =
@@ -156,6 +161,9 @@ export type IncomeKind =
 /** Grano temporal del corte. */
 export type IncomeGrain = 'dia' | 'mes' | 'trimestre';
 
+/** Cómo entró el dinero. `ajuste` NO es un depósito: son las cuentas de devolución y ajuste. */
+export type IncomeMedio = 'efectivo' | 'banco' | 'ajuste' | 'sin_catalogo';
+
 /**
  * Un tramo del puente entre lo vendido y lo cobrado. `monto: null` = NO MEDIDO.
  * `resta` dice si el tramo se descuenta del vendido para llegar al cobrado, o si sólo acompaña.
@@ -168,33 +176,88 @@ export interface IncomeBridgeItem {
   nota: string;
 }
 
+/** Una cuenta de tesorería por la que entró dinero: el "¿fue depósito o fue efectivo?". */
+export interface IncomeCuenta {
+  code: string;
+  nombre: string | null;
+  medio: IncomeMedio;
+  pagos: number;
+  importe: number;
+}
+
+/**
+ * Un renglón de la conciliación: **la misma celda que publica el Árbol**, con todo lo que la liga
+ * por folio le pudo agregar.
+ */
 export interface IncomeReconRow {
   periodo: string;
-  warehouse_code: string;
-  warehouse_name: string;
-  kepler_sucursal: string;
-  /** Venta a cliente REAL, ya sin el envoltorio fiscal. Es el ingreso del negocio. */
-  vendido_externo: number;
-  /** Traspaso dentro de la casa. NO es ingreso: se publica para que se vea, no para sumarlo. */
-  vendido_interno: number;
-  /** Cliente que no está en `kdud`. Declarado aparte: no se cuenta como externo. */
-  vendido_sin_catalogo: number;
-  /** `U-D-6` Factura global: envuelve fiscalmente a los tickets `U-D-10`. Informativo. */
-  envoltorio_fiscal: number;
+  plaza: string;
+  canal: string;
+  /**
+   * Qué es el cliente detrás de esa plaza. `mixto` cuando la plaza agrupa varios tipos;
+   * `sin_documento` cuando la póliza no encontró su factura (NO MEDIDO, no "externo").
+   */
+  kind: IncomeKind | 'mixto' | 'sin_documento';
+  /** `null` cuando no se pudo saber: ninguna de las pólizas de la celda encontró su documento. */
+  es_interno: boolean | null;
+  /** Lo que publica el Árbol para esta misma celda. Cuadra al centavo con esa pestaña. */
+  vendido: number;
   docs: number;
-  cobrado_efectivo: number;
-  cobrado_banco: number;
-  /** Cobro cuya cuenta de tesorería no resuelve contra `kdb1`. NO MEDIDO, no cero. */
-  cobrado_sin_cuenta: number;
-  cobros: number;
-  /** Cuentas distintas por las que entró dinero ese período (el "cuántos depósitos diferentes"). */
-  cuentas: Array<{ code: string; nombre: string | null; medio: 'efectivo' | 'banco' | 'sin_catalogo'; cobros: number; importe: number }>;
-  /** Aplicaciones cobro→factura de `kdm5`: cuántos pagos distintos se casaron, y contra cuántas facturas. */
-  pagos_casados: number;
-  facturas_casadas: number;
-  importe_casado: number;
-  /** `true` cuando el documento trae fecha posterior a hoy (Kepler lo permite). */
-  tiene_fecha_futura: boolean;
+  /** De esos documentos, cuántos encontraron su factura. `docs - docs_ligados` es el hueco. */
+  docs_ligados: number;
+  /**
+   * ⛔ Documentos que el ERP **canceló** y cuyo ingreso sigue publicado en la cuenta 401.
+   * No es un hueco de medición: es dinero de más en la cifra. Medido: 154 de 158 cancelados SÍ
+   * perdieron su póliza; estos no.
+   */
+  docs_cancelados: number;
+  vendido_cancelado: number;
+  /** Cobrado A LA FECHA contra esas facturas, venga el pago del período o de después. */
+  cobrado: number;
+  pagos: number;
+  /** Nota de crédito aplicada: dinero que ya NO va a entrar. No se mezcla con lo cobrado. */
+  nota_credito: number;
+  /**
+   * Saldo de **las facturas de la celda**: por cada una, `facturado − cobrado − nota de crédito`.
+   * ⚠️ NO es `vendido − cobrado` de esta fila: una devolución resta en `vendido` pero se aplica
+   * contra la factura que le toque, que puede ser de otro día — así que en ventanas cortas
+   * `pendiente` puede salir mayor que `vendido`, y es correcto. `null` cuando la celda no tiene
+   * ninguna factura que deba (por ejemplo, una celda que es sólo nota de crédito).
+   */
+  pendiente: number | null;
+  efectivo: number;
+  banco: number;
+  /** Cuentas de devolución/ajuste. NO son un depósito: se publican aparte a propósito. */
+  ajuste: number;
+  /** Lo cobrado cuyo cobro CAE en el período. Es el flujo de caja, no el devengo. */
+  cobrado_en_periodo: number;
+  pagos_en_periodo: number;
+  primer_cobro: string | null;
+  ultimo_cobro: string | null;
+  /** Las cuentas distintas por las que entró el dinero — el "cuántos depósitos diferentes". */
+  cuentas: IncomeCuenta[];
+}
+
+export interface IncomeReconTotals {
+  vendido: number;
+  vendido_externo: number;
+  vendido_interno: number;
+  vendido_sin_clasificar: number;
+  docs: number;
+  docs_ligados: number;
+  docs_cancelados: number;
+  vendido_cancelado: number;
+  cobrado: number;
+  pagos: number;
+  nota_credito: number;
+  pendiente: number;
+  efectivo: number;
+  banco: number;
+  ajuste: number;
+  cobrado_en_periodo: number;
+  pagos_en_periodo: number;
+  /** El máximo de pagos distintos casados contra UNA sola factura del período. */
+  max_pagos_por_factura: number;
 }
 
 export interface IncomeRecon {
@@ -203,7 +266,7 @@ export interface IncomeRecon {
   grain: IncomeGrain;
   freshness: Freshness;
   rows: IncomeReconRow[];
-  totales: Omit<IncomeReconRow, 'periodo' | 'warehouse_code' | 'warehouse_name' | 'kepler_sucursal' | 'cuentas'>;
+  totales: IncomeReconTotals;
   bridge: IncomeBridgeItem[];
   /** Lo que esta pantalla NO puede medir, con su monto. Nunca se dibuja como cero. */
   huecos: IncomeBridgeItem[];

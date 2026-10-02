@@ -217,16 +217,19 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
           }
         }
 
-        <!-- [IG.6] CONCILIACION — lo VENDIDO contra lo COBRADO, por sucursal.
-             Las dos columnas NO se obligan a cuadrar: la diferencia es plazo de credito, no
-             faltante. Y el traspaso interno (el CEDIS facturando a sus propias tiendas) se
-             separa en vez de sumarse al ingreso. -->
+        <!-- [IG.7] CONCILIACION — el ingreso LIGADO a su documento, su cliente y su cobro.
+             Misma plaza y mismo canal que el Arbol: la liga es por FOLIO, asi que el renglon de
+             aca cuadra al centavo con el de alla. Vendido y cobrado NO se obligan a ser iguales:
+             la diferencia es plazo de credito, y se publica como columna propia. -->
         @if (view() === 'conciliacion') {
           @if (recon(); as rc) {
             <div class="in-grainbar">
               <app-segmented [options]="grainOpts" [value]="grain()" (valueChange)="setGrain($event)" ariaLabel="Grano" />
-              @if (rc.totales.tiene_fecha_futura) {
-                <span class="in-warn">Hay documentos con fecha posterior a hoy — Kepler lo permite.</span>
+              @if (rc.totales.docs > rc.totales.docs_ligados) {
+                <span class="in-warn">
+                  {{ rc.totales.docs - rc.totales.docs_ligados }} de {{ rc.totales.docs }} pólizas no
+                  encontraron su factura — van declaradas abajo, sin cliente ni cobro inventado.
+                </span>
               }
             </div>
 
@@ -246,46 +249,80 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
                 <ng-template #header>
                   <tr>
                     <th style="width:7.5rem">Periodo</th>
-                    <th>Sucursal</th>
-                    <th class="ta-r">Vendido a cliente</th>
-                    <th class="ta-r">Traspaso interno</th>
-                    <th class="ta-r">Sin catalogo</th>
-                    <th class="ta-r">Efectivo</th>
-                    <th class="ta-r">Banco</th>
-                    <th class="ta-r" style="width:5rem">Cobros</th>
-                    <th class="ta-r" style="width:6rem">Pagos casados</th>
+                    <th>Plaza</th>
+                    <th style="width:9rem">Qué es</th>
+                    <th class="ta-r">Facturado</th>
+                    <th class="ta-r">Cobrado</th>
+                    <th class="ta-r">Pendiente</th>
+                    <th style="width:16rem">Cómo entró</th>
+                    <th class="ta-r" style="width:5rem">Pagos</th>
                   </tr>
                 </ng-template>
                 <ng-template #body let-r>
                   <tr>
                     <td class="mono dt-id" role="cell" data-label="Periodo">{{ r.periodo }}</td>
-                    <td class="strong" role="cell" data-label="Sucursal">{{ r.warehouse_name }}</td>
-                    <td class="ta-r strong dt-num" role="cell" data-label="Vendido a cliente">{{ money(r.vendido_externo) }}</td>
-                    <td class="ta-r dt-num" role="cell" data-label="Traspaso interno" [class.in-interno]="r.vendido_interno > 0">
-                      {{ r.vendido_interno > 0 ? money(r.vendido_interno) : '—' }}
+                    <td role="cell" data-label="Plaza">
+                      <span class="strong">{{ r.plaza }}</span>
+                      <span class="in-canal">{{ r.canal }}</span>
                     </td>
-                    <td class="ta-r muted dt-num" role="cell" data-label="Sin catalogo">{{ r.vendido_sin_catalogo > 0 ? money(r.vendido_sin_catalogo) : '—' }}</td>
-                    <td class="ta-r dt-num" role="cell" data-label="Efectivo">{{ r.cobrado_efectivo > 0 ? money(r.cobrado_efectivo) : '—' }}</td>
-                    <td class="ta-r dt-num" role="cell" data-label="Banco">{{ r.cobrado_banco > 0 ? money(r.cobrado_banco) : '—' }}</td>
-                    <td class="ta-r dt-num" role="cell" data-label="Cobros">{{ r.cobros || '—' }}</td>
-                    <td class="ta-r dt-num" role="cell" data-label="Pagos casados">
-                      {{ r.pagos_casados ? r.pagos_casados + ' / ' + r.facturas_casadas + ' fac.' : '—' }}
+                    <td role="cell" data-label="Qué es">
+                      <span class="in-kind" [class.in-kind-int]="r.es_interno === true"
+                            [class.in-kind-nm]="r.es_interno === null">{{ kindLabel(r.kind) }}</span>
                     </td>
+                    <td class="ta-r strong dt-num" role="cell" data-label="Facturado">{{ money(r.vendido) }}</td>
+                    <td class="ta-r dt-num" role="cell" data-label="Cobrado">
+                      {{ r.cobrado ? money(r.cobrado) : '—' }}
+                      @if (r.vendido > 0 && r.cobrado > 0) {
+                        <span class="in-pct">{{ pct(r.cobrado, r.vendido) }}%</span>
+                      }
+                    </td>
+                    <td class="ta-r dt-num" role="cell" data-label="Pendiente"
+                        [class.in-deuda]="(r.pendiente ?? 0) > 0">
+                      {{ r.pendiente === null ? 'NO MEDIDO' : (r.pendiente ? money(r.pendiente) : '—') }}
+                    </td>
+                    <td role="cell" data-label="Cómo entró">
+                      @if (r.cuentas.length) {
+                        @for (c of r.cuentas.slice(0, 3); track c.code) {
+                          <span class="in-cta" [class.in-cta-efvo]="c.medio === 'efectivo'"
+                                [class.in-cta-aj]="c.medio === 'ajuste'">
+                            {{ c.nombre || c.code }} · {{ money(c.importe) }}
+                            @if (c.pagos > 1) { <em>×{{ c.pagos }}</em> }
+                          </span>
+                        }
+                        @if (r.cuentas.length > 3) {
+                          <span class="in-cta in-cta-mas">+{{ r.cuentas.length - 3 }} cuentas más</span>
+                        }
+                      } @else { <span class="muted">sin cobro todavía</span> }
+                    </td>
+                    <td class="ta-r dt-num" role="cell" data-label="Pagos">{{ r.pagos || '—' }}</td>
                   </tr>
                 </ng-template>
                 <ng-template #footer>
                   <tr class="in-tot">
-                    <td colspan="2" class="strong">Total</td>
-                    <td class="ta-r strong">{{ money(rc.totales.vendido_externo) }}</td>
-                    <td class="ta-r">{{ money(rc.totales.vendido_interno) }}</td>
-                    <td class="ta-r muted">{{ money(rc.totales.vendido_sin_catalogo) }}</td>
-                    <td class="ta-r">{{ money(rc.totales.cobrado_efectivo) }}</td>
-                    <td class="ta-r">{{ money(rc.totales.cobrado_banco) }}</td>
-                    <td class="ta-r">{{ rc.totales.cobros }}</td>
-                    <td class="ta-r">{{ rc.totales.pagos_casados }}</td>
+                    <td colspan="3" class="strong">Total</td>
+                    <td class="ta-r strong">{{ money(rc.totales.vendido) }}</td>
+                    <td class="ta-r">{{ money(rc.totales.cobrado) }}</td>
+                    <td class="ta-r">{{ money(rc.totales.pendiente) }}</td>
+                    <td class="muted">
+                      efectivo {{ money(rc.totales.efectivo) }} · depósito {{ money(rc.totales.banco) }}
+                    </td>
+                    <td class="ta-r">{{ rc.totales.pagos }}</td>
                   </tr>
                 </ng-template>
               </p-table>
+              <div class="in-foot">
+                Hasta <strong>{{ rc.totales.max_pagos_por_factura }}</strong> pagos distintos casados
+                contra una sola factura. Del total facturado,
+                <strong>{{ money(rc.totales.vendido_interno) }}</strong> es traspaso dentro de la
+                casa (el CEDIS facturándole a sus propias tiendas y rutas) y
+                <strong>{{ money(rc.totales.vendido_externo) }}</strong> es venta a cliente de
+                afuera. En el período entraron <strong>{{ money(rc.totales.cobrado_en_periodo) }}</strong>
+                en {{ rc.totales.pagos_en_periodo }} pagos — eso es la caja; lo de arriba es el devengo.
+                <br />
+                <em>Pendiente</em> es el saldo de las facturas del renglón, no «facturado menos
+                cobrado»: una devolución resta en lo facturado pero se aplica contra la factura que
+                le toque, que puede ser de otro día.
+              </div>
             </div>
 
             <!-- Lo que esta pantalla NO puede medir va ABAJO del total que lo contiene, con su
@@ -321,6 +358,28 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
     .in-bridge-val { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
     .in-bridge-note { font-size: .72rem; color: var(--text-muted, #78716c); line-height: 1.3; }
     .in-interno { color: var(--warn-fg, #92400e); font-variant-numeric: tabular-nums; }
+    /* [IG.7] El canal y el "que es" conviven en el renglon: el canal viene del concepto de la
+       poliza y esta dado vuelta; el "que es" sale del cliente del documento. Se muestran juntos
+       a proposito, para que la contradiccion se vea en vez de resolverse en silencio. */
+    .in-canal { display: block; font-size: .72rem; color: var(--text-muted, #78716c);
+      text-transform: lowercase; }
+    .in-kind { display: inline-block; font-size: .72rem; line-height: 1.5; padding: .05rem .4rem;
+      border-radius: var(--radius-sm, 4px); border: 1px solid var(--surface-border, #e7e5e4);
+      color: var(--text-color, #1c1917); white-space: nowrap; }
+    .in-kind-int { border-color: var(--warn-fg, #92400e); color: var(--warn-fg, #92400e); }
+    .in-kind-nm { border-style: dashed; color: var(--text-muted, #78716c); }
+    .in-pct { display: block; font-size: .7rem; color: var(--text-muted, #78716c); }
+    .in-deuda { color: var(--warn-fg, #92400e); font-weight: 600; }
+    .in-cta { display: block; font-size: .72rem; line-height: 1.45;
+      font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; }
+    .in-cta em { font-style: normal; color: var(--text-muted, #78716c); }
+    .in-cta-efvo { color: var(--action, #c2410c); }
+    .in-cta-aj { color: var(--text-muted, #78716c); font-style: italic; }
+    .in-cta-mas { color: var(--text-muted, #78716c); }
+    .in-foot { padding: .75rem 1rem; border-top: 1px solid var(--surface-border, #e7e5e4);
+      font-size: .78rem; line-height: 1.55; color: var(--text-muted, #78716c); }
+    .in-foot strong { color: var(--text-color, #1c1917); font-variant-numeric: tabular-nums; }
     .in-tot td { border-top: 2px solid var(--surface-border, #e7e5e4); font-weight: 700; font-variant-numeric: tabular-nums; }
     .in-huecos { margin-top: 1rem; padding: .9rem 1rem; }
     .in-huecos-t { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em;
@@ -469,6 +528,27 @@ export class FinanzasIngresosComponent {
   canalShort(c: string | null): string { return c ? (SALES_CANAL_SHORT[c as SalesCanal] ?? '') : ''; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   pct(part: number, total: number): number { return total ? +((part / total) * 100).toFixed(1) : 0; }
+
+  /**
+   * `[IG.7]` El rótulo de QUÉ es el cliente detrás de una plaza. Va al lado del canal y no lo
+   * reemplaza: el canal que publica el Árbol sale del concepto de la póliza y está dado vuelta
+   * (lo que dice "mostrador" es traspaso interno, y la venta de mayoreo real cae en "otro"), pero
+   * corregirlo a espaldas del usuario rompería el cuadre con la otra pestaña. Se muestran los dos.
+   */
+  kindLabel(k: string): string {
+    switch (k) {
+      case 'externo': return 'Cliente de afuera';
+      case 'interno_sucursal': return 'Tienda propia';
+      case 'interno_punto_venta': return 'Punto de venta propio';
+      case 'interno_ruta': return 'Ruta propia';
+      case 'interno_traspaso': return 'Traspaso';
+      case 'interno_telemarketing': return 'Telemarketing propio';
+      case 'sin_catalogo': return 'Fuera del catálogo';
+      case 'sin_documento': return 'Sin documento';
+      case 'mixto': return 'Mezcla';
+      default: return k;
+    }
+  }
 
   private toNode(n: IncomeTreeNode, expanded = false): TreeNode {
     return {

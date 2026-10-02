@@ -68,6 +68,19 @@ services:
   # LA BASE DE PROD
   # ═══════════════════════════════════════════════════════════════════════════
   pg-prod:
+    # ⛔⛔ [K3S.43] MIGRADO A K3s EL 2026-10-01. NO LO LEVANTES.
+    #
+    # El perfil es lo unico que impide que un `docker compose -p prod up -d` a secas arranque
+    # este contenedor. Y arrancarlo seria un SEGUNDO Postgres sobre el MISMO datadir que el
+    # pod ya tiene montado: corrupcion, no un conflicto de puerto que avisa.
+    #
+    # ⚠️ Esto no es hipotetico: el 2026-10-01 un `depends_on` de caddy auto-habilito el perfil
+    # `retirado-k3s` y resucito contenedores ya migrados. Por eso ademas se comprueba que
+    # NADIE declare depends_on sobre este servicio fuera del perfil.
+    #
+    # ⭐ El contenedor se deja DETENIDO y no se borra: protege al volumen de `docker volume
+    # prune` y es la vuelta atras inmediata (`docker start pg-prod`, que el perfil no bloquea).
+    profiles: ["retirado-k3s"]
     <<: *pg
     # [VL.9.6] Imagen propia = la de siempre + pgBackRest. `archive_command` lo ejecuta el
     # propio Postgres, así que la herramienta tiene que vivir ACÁ ADENTRO; no hay forma de
@@ -226,6 +239,11 @@ services:
   # alcanza por `VECTOR_DATABASE_URL`. Es chica y separada a propósito: un `REINDEX` de un
   # índice HNSW no debe pelear con el tráfico transaccional.
   pg-rag:
+    # ⛔ [K3S.43] MIGRADO A K3s EL 2026-10-01, mismo criterio que pg-prod: sin perfil, un
+    # `docker compose -p prod up -d` a secas levantaria un SEGUNDO Postgres sobre el mismo
+    # datadir que el pod ya tiene montado. Se encontro al poner el perfil a pg-prod y mirar
+    # que quedaba en la lista por default: estaba ahi, migrado y desprotegido.
+    profiles: ["retirado-k3s"]
     <<: *pg
     container_name: pg-rag
     volumes: ["pg-rag-data:/var/lib/postgresql"]

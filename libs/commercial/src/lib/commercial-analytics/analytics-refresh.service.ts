@@ -249,6 +249,24 @@ export class AnalyticsRefreshService {
       ['analytics.mv_erp_count_line_signals', 'analytics_refresh_count_signals',
         'Refresh MV señales del descuadre (nightly)',
         ['analytics.mv_erp_physical_count_variance', 'analytics.mv_erp_count_rollforward']],
+      // [PR.D5] El universo elegible para experimentos de precio. `deps` VACIO a proposito:
+      // sale de `analytics.v_price_psychology`, que es una vista sobre el ODS, no de otra MV.
+      //
+      // Se materializa por COSTO, y el costo estaba medido: el disenador tardaba **104,911 ms**
+      // porque corre la misma lectura una vez por estrato, y porque FILTRAR esa vista la vuelve
+      // **280x mas lenta** (210 ms entera, 59,149 ms con los filtros puestos). El poblado cuesta
+      // ~2 s; la lectura indexada, milisegundos.
+      //
+      // ⚠️ Nocturno y no cada 15 min, con razon: lo que esta MV publica es **que celda es
+      // elegible**, y la elegibilidad excluye por construccion las celdas cuyo precio cambia.
+      // Lo que sobrevive es estable, asi que un dia de atraso no mueve `precio_antes`.
+      //
+      // ⚠️ Su umbral esta en `CRON_JOBS` (`analytics_refresh_price_experiment_universe`). Sin esa
+      // fila el sensor cae en `cfg ? classify : 'ok'` y una MV parada se ve VERDE (OBS.1). Y aca
+      // el modo de falla no es una pantalla vacia: es un experimento disenado sobre el universo
+      // de la semana pasada, que se ve exactamente igual de valido que uno correcto.
+      ['analytics.mv_price_experiment_universe', 'analytics_refresh_price_experiment_universe',
+        'Refresh MV universo de experimentos de precio (nightly)', []],
       // [WMS-BI.4.3] Copia cacheada del resolvedor de unidad (`analytics.v_unit_truth`, ADR-057).
       // `deps` vacío a propósito: NO deriva de otra MV, sale de la vista canónica, que a su vez
       // sale del ODS. Se materializa por COSTO: medido con EXPLAIN contra prod, el join vivo

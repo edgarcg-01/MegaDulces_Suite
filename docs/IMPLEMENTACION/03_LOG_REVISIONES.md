@@ -5,6 +5,141 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-01 — `[RA-DYN.U1]` Unir lo que ya sabíamos: las señales del margen, al lado del pedido
+
+Edgar: *"necesito que empecemos a unir toda nuestra informacion disponible para armar un buen
+pedido. busca variables a considerar al armar nuestro pedido. despues de eso vemos si existen o es
+necesario generarlas"*, señalando `/comercial/precios/motor` y `/almacen/inventory/existencia`.
+
+**El inventario de variables, medido contra prod.** De ~34 que deberían pesar en un pedido, el
+motor mira **8**. Otras **16 ya estaban medidas y publicadas** en `analytics.mv_price_signals`
+(51 señales con su cobertura en `analytics.price_signal_registry`), y el comprador no veía
+ninguna. Las **10** restantes hay que generarlas, y cinco son derivables de datos ya cargados.
+
+### Lo entregado y aplicado a prod (batch 683)
+
+`analytics.v_purchase_decision_signals` — **una VISTA**, no una tabla ni un importer: costo de
+reposición, deriva, días sin comprar, dispersión entre plazas, margen contra meta, momentum,
+canasta, promoción, merma, faltantes de mostrador, y las restricciones del proveedor, al lado de
+cada una de las 33,173 celdas del pedido. **No cambia ningún número publicado**: nadie la consume
+todavía. Candado `test-newdb-purchase-decision-signals.js`, **15/15 verde contra prod**.
+
+### ⛔ Lo que la vista se niega a traer, y por qué
+
+La matvista de precios también publica existencia. **No entra.** Medido: su foto se calculó hace
+**13.8 h** y **6,198 de 29,300 celdas comparables (21.2%) difieren del ERP**, con **124,171
+unidades en disputa**. La deriva es **asimétrica** — 5,779 celdas dicen de MÁS contra 419 de
+menos, que es exactamente la forma de una foto vieja mientras el inventario se vende.
+
+No es un error de la otra fase: un rezago nocturno es correcto para preguntar *"¿esto está
+sobrestockeado?"* y es **inservible** para preguntar *"¿cuántos días aguanta?"*. Para el SKU 88022
+en Morelia Madero la matvista dice **83 PAQ** y **133 días de cobertura** donde el ERP dice **36** y
+el pedido **3**. El árbitro es el ERP (ADR-059): la existencia la manda `v_erp_stock_on_hand`.
+
+⚠️ **Para la fase de margen, no para ésta:** el rezago se concentra donde más pesa — **3,061 de
+10,541** celdas marcadas `sobrestock` difieren del ERP, y `sobrestock` es justo lo que habilita
+la acción `liberar_capital`.
+
+### Lo que el candado atrapó de mi propio trabajo
+
+1. **Una aserción que pasaba sin medir nada.** "Las ausencias se enumeran" daba 33,173 de 33,173 —
+   porque `fill_rate` y `dias_de_credito` faltan en el **100%** (0 de 1,318 proveedores). Un
+   arreglo constante habría pasado igual. Se cambió a exigir que **varíe por celda**: 9 tamaños
+   distintos de hueco, de 1 a 9.
+2. **La prueba negativa de la exclusión mira hacia adelante.** Exige que la matvista **siga**
+   difiriendo del ERP: el día que se ponga al día, el test se cae y la decisión se revisa, en vez
+   de arrastrar la exclusión por inercia.
+3. **Una sola plaza no es dispersión 0%.** 903 celdas tienen costo en una sola plaza; publicar
+   "0% de diferencia" diría que el costo está parejo. Se declara `una_sola_plaza`.
+
+### ⚠️ Dos cosas que yo había dicho mal, corregidas con la medición
+
+- **El mínimo de pedido sí se usaba**: `supplier_min_boxes`/`_amount` ya viajan en `workbook()`
+  y `compras-existencia-critica.component.ts:753` agrupa por proveedor y avisa. Lo que no lo mira
+  es `/compras/pedido`. Por eso la vista lo expone **crudo** y no calcula "cuánto le falta a esta
+  fila": un mínimo se cumple con la canasta entera, no con un renglón.
+- **Los universos no son el mismo.** La deriva del costo da **5,039** celdas arriba del 5% sobre la
+  matvista completa (86,177) y **4,370** sobre las 33,173 que el pedido planea. Se publica la del
+  pedido, que es la accionable.
+
+### Límite declarado, no resuelto
+
+`mv_price_signals` **no tiene `tenant_id`** (105 columnas, ninguna). El puente ancla en el lado
+alcanzado por RLS (`replenishment_plan`) y cruza por `(warehouse.code, sku)` en texto. Con un
+segundo inquilino que repita un SKU, ese cruce mezcla. Es de la matvista, no de esta vista.
+
+### Hallazgo operativo durante el apply
+
+`pg-prod` se reinició **a los 2 minutos** de aplicar la migración (pod nuevo, imagen
+`trade-prod-pg:6225b8d`): otra sesión está migrando los Postgres a k3s (`[K3S.37-40]`). La vista
+sobrevivió —mismo volumen— y el candado volvió a dar 15/15. ⚠️ **Aplicar una migración mientras
+otra sesión mueve ese mismo Postgres es una colisión que nadie coordina hoy.**
+
+### Pendiente
+
+Cablear la vista a `/compras/pedido` — **ése sí mueve números** y va con su antes/después: el
+denominador por antigüedad de sucursal (el motor divide la venta entre 30 aunque Morelia Madero
+tenga 24 días de historia; afecta 6,907 celdas) y el aviso de mínimo de pedido.
+
+---
+## 2026-10-01 — `[RA-DYN.P4]` El motor de pedido deja de leer `.env` (y el importer deja de ser necesario)
+
+Edgar pidió rediseñar el "factor de pedido" de estático a dinámico: estacionalidad, cruce
+pedido-vs-comprado, ventanas ajustables, análisis producto por producto.
+
+**Medido contra prod, la premisa no se sostenía.** Lo "estático" ya era dinámico: estacionalidad
+viva (fallback sku→cat→global, 18,306 celdas con ratio ≠ 1), ABC-XYZ, colchón por nivel de
+servicio, y `reorder_policy` recalculada esa misma madrugada para 6,294 SKUs. Lo congelado eran
+1,547 celdas de origen `kepler`. Se replanificó contra los huecos medidos, no contra los supuestos.
+
+### Lo entregado y aplicado a prod (batches 676, 677, 678)
+
+`commercial.replenishment_params` — el vector de parámetros en datos, **append-only** (sólo
+`valid_from`: cerrar un intervalo mutaría una fila que una sugerencia ya referenció). El seed
+**transcribe** los defaults vigentes, no mueve ningún número. Más `analytics.fn_inv_norm` (Acklam
+en SQL, transcripción verificada con delta `0.0` contra el JS en 9 puntos y las 3 ramas) y
+`analytics.v_computed_reorder`, que deriva la política en SQL puro. **Nadie la consume todavía.**
+
+### ⛔ Lo que encontró la medición y la lectura no
+
+1. **El append-only NO estaba en efecto.** El schema `commercial` tiene DEFAULT PRIVILEGES que dan
+   `arwd` a `app_runtime` en toda tabla nueva → el `GRANT SELECT, INSERT` fue un **no-op**. En este
+   schema una tabla no se vuelve append-only otorgando de menos: hay que **REVOCAR** (mig 180000).
+2. **Y casi se escapa en verde.** La verificación preguntó por
+   `information_schema.role_table_grants`, que sólo muestra los grants donde uno es otorgante,
+   beneficiario o miembro: preguntando por un rol ajeno devolvió **lista vacía**, y la aserción
+   *"NO tiene UPDATE ni DELETE"* se puso **verde por ausencia de datos**. Se pregunta con
+   `has_table_privilege`, y el smoke lleva **control positivo** sobre una tabla vecina.
+3. **`invNorm` devuelve 0 si `p >= 1`** → un nivel de servicio de `1.0`, el que se lee como
+   "servicio perfecto", daría **colchón CERO** en silencio. `CHECK rp_service_rango` acota a
+   (0.5, 1) y `fn_inv_norm` **lanza** en vez de devolver 0.
+4. **4,846 políticas ZOMBI (14.5 % de las computadas)** — productos sin demanda actual cuya
+   política sigue viva porque el importer sólo hace UPSERT y **nunca borra**. Las lee
+   `/compras/pedido` en reorden y máximo. Una vista no puede tenerlas: es el precio concreto de la
+   arquitectura de importers.
+
+### La paridad, cruzando DOS implementaciones
+
+Una vista verificada contra sí misma pasa bugs en verde (ya pasó en IC.0), así que se cruzó contra
+la salida del importer: **vista 16,136 · tabla 33,527 · comunes 15,055 · difieren 19 (0.13 %)**.
+Las 19 difieren **todas** por `abc_class` —`v_abc_class` es viva y el importer la leyó a las
+03:02— y el candado afirma lo fuerte: **cero filas difieren en un campo de cálculo sin que la
+clase se haya movido**. Las brechas de población cuadran exacto: 1,081 = 1,061 precedencia kepler
++ 20 nuevas; 18,472 = 13,626 cedidas al DRP + 4,846 zombis.
+
+⚠️ **El primer candado estaba mal especificado**: exigía que la vista igualara TODA la tabla, algo
+que por diseño nunca puede ser cierto (dos importers escriben `source='computed'`). Un rojo que no
+se puede arreglar se aprende a ignorar. El estándar correcto no es *cero diferencias* sino **cero
+diferencias sin explicar**.
+
+### Abierto
+
+La vista **no es reemplazo directo**: cubre sólo la parte de `import-computed-reorder` y no modela
+la precedencia de fuentes (kepler gana). Leer el código no lo revelaba; lo encontró el cruce.
+Falta además el lector en los importers (o su retiro), `git push`, y los smokes de escritura
+siguen **NO MEDIDOS** (no hay destino seguro: `assertSafeTarget` rechaza prod, correctamente).
+
+---
 ## 2026-10-01 — Operación: prod se mudó a k3s mientras yo buscaba por qué no desplegaba
 
 Edgar preguntó *"¿ya tenemos una verdad absoluta?"*. Al medirlo —en vez de opinarlo— salieron

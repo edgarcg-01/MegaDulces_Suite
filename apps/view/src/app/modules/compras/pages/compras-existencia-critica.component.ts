@@ -746,16 +746,27 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
 
   /**
    * RA.13a — proveedores del borrador que NO alcanzan su pedido mínimo en cajas.
-   * cajas = Σ (final_qty / factor_purchase) por proveedor, sólo líneas source_type='supplier'.
+   * cajas = Σ final_qty por proveedor, sólo líneas source_type='supplier'.
    * Método (no computed): final_qty se edita por ngModel sobre objeto plano; el CD del
    * diálogo lo recorre en cada cambio.
+   *
+   * ⛔ `[RA-DYN.U3]` **Ya NO se divide por `factor_purchase`.** `final_qty` arranca en
+   * `suggested_qty`, que el servidor ya devuelve EN CAJAS (lo divide por el factor del almacén
+   * antes de mandarlo), así que dividir otra vez era contar dos veces.
+   *
+   * Hasta hoy no se notaba y el aviso salía bien **por coincidencia**: medido contra prod el
+   * 2026-10-01, `catalog.products.factor_purchase` vale **1 o NULL en los 14,872 productos**
+   * (min = max = 1), o sea que la división era un no-op. El día que alguien cargara el factor
+   * real —6, 12, 24— esta pantalla habría empezado a reportar 1/6 de las cajas que hay y a
+   * avisar en falso, sin que nada cambiara en este archivo. Quitarlo hoy no mueve ningún número
+   * y cierra esa puerta. Ver `reference_box_factor_factor_sale`: el factor que SÍ sirve es
+   * `factor_sale`, y el canónico por almacén es `analytics.v_warehouse_box_factor` (ADR-055).
    */
   minBoxesWarn(): { supplier_id: string; supplier_name: string; need: number; have: number }[] {
     const bySup = new Map<string, { name: string; min: number; boxes: number }>();
     for (const l of this.draft()) {
       if (l.source_type !== 'supplier' || !l.supplier_id || !l.supplier_min_boxes || l.supplier_min_boxes <= 0) continue;
-      const factor = Number(l.factor_purchase) > 0 ? Number(l.factor_purchase) : 1;
-      const boxes = Number(l.final_qty || 0) / factor;
+      const boxes = Number(l.final_qty || 0);
       const cur = bySup.get(l.supplier_id) || { name: l.supplier_name || '—', min: Number(l.supplier_min_boxes), boxes: 0 };
       cur.boxes += boxes;
       bySup.set(l.supplier_id, cur);

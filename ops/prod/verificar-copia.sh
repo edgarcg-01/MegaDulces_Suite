@@ -58,7 +58,7 @@ psql "$ODS_HB_URL" -tAF'|' -c "$CENSO" | sort > "$tmp/prod.txt"
 wc -l < "$tmp/prod.txt" | sed 's/^/   renglones: /'
 
 echo "── censo de la COPIA (pg-prod en md) ──"
-docker exec pg-prod psql -U postgres -d railway -tAF'|' -c "$CENSO" | sort > "$tmp/copia.txt"
+sh "$HOME/ops/prod/pgprod.sh" -tAF'|' -c "$CENSO" | sort > "$tmp/copia.txt"
 wc -l < "$tmp/copia.txt" | sed 's/^/   renglones: /'
 
 echo
@@ -78,11 +78,11 @@ awk -F'|' 'NR==FNR{p[$1"|"$2]=$3; next}
 echo
 echo "── tamaño y versión de cada lado ──"
 printf "   prod   "; psql "$ODS_HB_URL" -tAc "SELECT current_database()||' · '||pg_size_pretty(pg_database_size(current_database()))||' · '||split_part(version(),' on ',1);"
-printf "   copia  "; docker exec pg-prod psql -U postgres -d railway -tAc "SELECT current_database()||' · '||pg_size_pretty(pg_database_size(current_database()))||' · '||split_part(version(),' on ',1);"
+printf "   copia  "; sh "$HOME/ops/prod/pgprod.sh" -tAc "SELECT current_database()||' · '||pg_size_pretty(pg_database_size(current_database()))||' · '||split_part(version(),' on ',1);"
 
 echo
 echo "── roles que la copia necesita (el dump NO los trae) ──"
-docker exec pg-prod psql -U postgres -d railway -tAF'|' -c \
+sh "$HOME/ops/prod/pgprod.sh" -tAF'|' -c \
   "SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname IN ('app_runtime','fdw_verificador_ro') ORDER BY 1;" \
   | sed 's/^/   /'
 

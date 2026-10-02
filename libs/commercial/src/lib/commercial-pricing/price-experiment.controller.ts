@@ -33,7 +33,15 @@ export class PriceExperimentController {
   estratos() {
     // Se devuelven TODOS, viables y no viables, con el número que los descalifica. Ocultar los
     // imposibles haría creer que el experimento cubre el catálogo entero.
-    return { estratos: ESTRATOS };
+    //
+    // ⛔ `elegibles` se CUENTA, ya no se lee de una constante. Los números de `ESTRATOS` se
+    //    midieron una vez y se escribieron en el código: hoy el diálogo mostraba «hay 6,120»
+    //    donde hay **6,028**, y nadie se iba a enterar — un número medido y persistido no avisa
+    //    cuando deja de ser cierto.
+    //
+    // ⭐ Contarlo era caro y por eso estaba clavado; con la matvista de `[PR.D5]` cuesta entre
+    //    15 y 48 ms por estrato. El arreglo de rendimiento es lo que vuelve pagable la verdad.
+    return this.disenador.estratosConConteoVivo();
   }
 
   @Get()

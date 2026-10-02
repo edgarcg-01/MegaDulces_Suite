@@ -63,6 +63,7 @@ export * from './http/expense-family.contract';
 export * from './http/sales-channel.contract';
 export * from './http/income.contract';
 export * from './http/oc-seguimiento.contract';
+export * from './http/oc-cadena.contract';
 export * from './http/flujo-compras.contract';
 export * from './http/replenishment-monthly.contract';
 export * from './http/vendor-route-day-pick.contract';

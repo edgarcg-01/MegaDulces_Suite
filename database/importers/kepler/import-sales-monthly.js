@@ -18,7 +18,10 @@ const { Client } = require('pg');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
-const FLOOR = '2024-01-01'; // piso de fechas válidas (mata basura histórica)
+// [AUD-DAT.22] El piso ya NO se declara aca: vive en un solo lugar, porque este mismo numero
+// tambien esta en el CHECK `sales_daily_sale_date_piso_check` de la tabla y en los otros dos
+// rollups. Cuatro copias del mismo valor son cuatro valores esperando a no coincidir.
+const { PISO: FLOOR } = require('../lib/sales-window.js'); // piso de fechas validas
 
 (async () => {
   const d = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
