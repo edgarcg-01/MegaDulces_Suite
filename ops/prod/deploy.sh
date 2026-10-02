@@ -505,9 +505,9 @@ construir() {
 
 # ═══ [K3S.24] LAS IMÁGENES DE PROD VAN AL REGISTRY, SIEMPRE ═════════════════════════════════
 #
-# Se publican aunque HOY ningún pod las consuma: las cuatro apps siguen en Compose, marcadas
-# `preparado`. Publicar de más cuesta segundos; publicar de menos es exactamente cómo los pods
-# del ODS quedaron 36 commits atrás sirviendo a los usuarios internos (2026-10-01).
+# Se publica TODO lo que un manifiesto de prod consume, incluidos los `preparado` que hoy
+# ningún pod levanta. Publicar de más cuesta segundos; publicar de menos es exactamente cómo
+# los pods del ODS quedaron 36 commits atrás sirviendo a los usuarios internos (2026-10-01).
 #
 # ⭐ El camino tiene que existir ANTES de que alguien lo necesite, no el día que lo necesita.
 # Si el día del corte hay que inventar el despliegue, el corte se hace a mano — y lo que se
@@ -516,14 +516,31 @@ construir() {
 # ⭐ El tag es el COMMIT. `latest` con `imagePullPolicy: IfNotPresent` es la combinación que
 # hace que el kubelet no vuelva a jalar NUNCA.
 #
-# ⚠️ Hoy un fallo al publicar AVISA y sigue: nada en producción depende todavía del registry,
-# y abortar un despliegue de Compose porque falló un paso que nadie consume sería frenar el
-# camino feliz por una dependencia futura. ⛔ EL DÍA QUE UNA APP MIGRE A K3s, ESTO TIENE QUE
-# ABORTAR — si no, el pod se queda con la imagen vieja y el despliegue reporta éxito.
+# ⚠️ Un fallo al publicar acá AVISA y sigue, y eso dejó de ser suficiente el día que las apps
+# migraron. Quien frena ahora es el PREVUELO de `aplicar-k3s-prod.sh` [K3S.41]: comprueba que
+# la imagen esté en el registry ANTES de aplicar el manifiesto, porque aplicarlo ya alcanza
+# para matar al pod que estaba sirviendo. El aviso de acá es el diagnóstico; el freno es allá.
+# ⭐ [K3S.41] LA LISTA YA NO SE MANTIENE A MANO, Y ESO COSTÓ UNA CAÍDA.
+#
+# Acá decía `for i in trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor`:
+# CUATRO imágenes escritas a mano. El 2026-10-01 `caddy` migró a K3s, su manifiesto pasó a
+# pedir `localhost:5000/trade-prod-caddy:__COMMIT__`, nadie extendió esta lista, y cada
+# despliegue le pedía al clúster una imagen que el registry no tenía. `caddy` es `Recreate`:
+# el pod viejo muere primero. 32 minutos de sitio abajo.
+#
+# ⭐ Ahora la lista SALE DE LOS MANIFIESTOS. Si mañana otro servicio migra, se publica solo.
+# El candado `npm run check:k3s` comprueba que las dos listas cubran lo que los manifiestos
+# piden, con prueba negativa — porque una lista derivada que nadie verifica vuelve a ser una
+# lista a mano el día que alguien la simplifique.
 publicar_prod() {
   echo "── Publicando al registry local (localhost:5000) ──"
+  # Las que un manifiesto de prod consume del registry. Incluye los `preparado`: el camino
+  # tiene que existir ANTES del corte, no inventarse el día del corte.
+  _imgs=$(sed -n 's#^[[:space:]]*image:[[:space:]]*localhost:5000/\([A-Za-z0-9._-]*\):__COMMIT__.*#\1#p' \
+            "$REPO"/ops/k3s/*.yaml 2>/dev/null | sort -u | grep -v '^trade-ingest$' | tr '\n' ' ')
+  [ -n "$(echo "$_imgs" | tr -d ' ')" ] || _imgs='trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor'
   ssh_md "fallos=0
-    for i in trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor; do
+    for i in $_imgs; do
       if ! docker image inspect \"\$i:$commit\" >/dev/null 2>&1; then
         printf '   %-22s —  no se construyó en esta corrida, se saltea\n' \"\$i\"; continue
       fi
