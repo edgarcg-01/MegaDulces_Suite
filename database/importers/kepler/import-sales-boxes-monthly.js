@@ -108,7 +108,9 @@ const SELECT_SQL = `
     await db.query(`ANALYZE analytics.sales_boxes_monthly`);
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas). ANALYZE OK.`);
   } catch (e) {
-    await db.query('ROLLBACK').catch(() => {});
+    // Si el ROLLBACK tambien falla, el error que importa es el de ARRIBA: taparlo con este
+    // seria cambiar la causa por el sintoma. Se traga a proposito.
+    await db.query('ROLLBACK').catch(() => { /* ver comentario */ });
     console.error('\nERROR (rollback):', e.message);
     process.exitCode = 1;
   } finally {
