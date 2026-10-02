@@ -6,7 +6,7 @@ import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { compareWarehouseCodes, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
-import { diasInventario, dineroCorto, pasoCantidad, pasoPorTecla, roundSeed, textoCajasPiezas } from '../pedido-redondeo';
+import { diasInventario, dineroCorto, EtiquetaUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, roundSeed, textoUnidades } from '../pedido-redondeo';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { PaginatorModule, PaginatorState } from 'primeng/paginator';
@@ -271,7 +271,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <td><div class="pr-prod"><input type="checkbox" class="pr-chk" [checked]="isSel(r)" [disabled]="!isSel(r) && sumCajas(r) <= 0"
                            (click)="$event.stopPropagation()" (keyup.enter)="$event.stopPropagation()" (change)="toggleSel(r)"
                            [title]="sumCajas(r) > 0 ? 'Incluir en la requisición y el PDF globales' : 'Sin pedido al proveedor: no hay nada que requerir'"
-                           [attr.aria-label]="'Seleccionar ' + r.sku" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }</div></td>
+                           [attr.aria-label]="'Seleccionar ' + r.sku" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }</div></td>
                   <td class="pr-r pr-muted pr-uxc">
                     <div>{{ r.uxc | number:'1.0-0' }} <span class="pr-unit" [title]="unidadTitle(r)">{{ unidadBase(r) }}</span></div>
                     @if (r.packs_per_box) { <div class="pr-unit2" [title]="r.packs_per_box + ' paquetes de ' + r.pack_size + ' por caja'">{{ r.packs_per_box }} paq × {{ r.pack_size }}</div> }
@@ -335,18 +335,34 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                           <span class="pr-mono pr-det-sku">{{ r.sku }}</span>
                           <strong class="pr-det-name">{{ r.nombre }}</strong>
                           @if (r.supplier_name) { <span class="pr-supp">{{ r.supplier_name }}</span> }
-                          <!-- [RA-PRO.66] El mínimo es del PEDIDO al proveedor (toda su línea), no de este
-                               producto: se dice así para que nadie lo lea como "pide 908 de este". -->
-                          @if (supplierMin(r); as mn) {
-                            <span class="pr-supp-min" title="Mínimo de pedido configurado para este proveedor en Compras › Proveedores. Aplica a la orden completa (todos sus productos), no a este producto.">
-                              <i class="pi pi-box" aria-hidden="true"></i> pedido mínimo {{ mn | number:'1.0-0' }} cajas (toda la línea)
+                          <!-- [RA-PRO.69] Pedido TÍPICO (derivado del historial), no mínimo: ver pedidoTipico(). -->
+                          @if (pedidoTipico(r); as pt) {
+                            <span class="pr-supp-min" [title]="pedidoTipicoTitle(pt)">
+                              <i class="pi pi-history" aria-hidden="true"></i> pedido típico: llevas {{ pedidoTipicoTxt(pt) }}
                             </span>
+                          }
+                          <!-- [RA-PRO.67] Margen de hoy (mismo número que Costo estándar) y venta perdida. -->
+                          @if (margenTxt(r); as mt) {
+                            <span class="pr-sig" [class.pr-sig-bad]="bajoCosto(r)" [title]="margenTitle(r)">{{ mt }}@if (bajoCosto(r)) { · bajo costo }</span>
+                            @if (margenCompraTxt(r); as mc) {
+                              <span class="pr-sig" [class.pr-sig-bad]="(r.signals?.margin?.margen_compra_pct ?? 0) < 0" [title]="margenCompraTitle(r)">{{ mc }}</span>
+                            }
+                            @if (precioDesfasado(r)) {
+                              <span class="pr-sig pr-sig-warn" [title]="margenCompraTitle(r)">{{ precioDesfaseTxt(r) }}</span>
+                            }
+                          } @else if (r.signals) {
+                            <span class="pr-sig pr-muted" title="No se pudo medir el margen: falta el costo de reposición o el impuesto de la ficha en Kepler.">margen sin medir</span>
+                          }
+                          @if (perdida(r); as pd) {
+                            <span class="pr-sig pr-sig-warn" [title]="perdidaTitle(r)">venta perdida {{ dineroCorto(pd.total) }}</span>
+                          } @else if (r.signals?.lost?.wincaja?.reportes_sin_verificar) {
+                            <span class="pr-sig pr-muted" [title]="perdidaTitle(r)">venta perdida sin verificar</span>
                           }
                           <button type="button" class="pr-vmx pr-vmx-red" (click)="openMonthly($event, r, null, mop)"
                                   title="Venta por mes de este producto en toda la red">
                             <i class="pi pi-chart-bar" aria-hidden="true"></i> venta por mes
                           </button>
-                          <span class="pr-det-uxc">1 caja = {{ r.uxc | number:'1.0-0' }} {{ unidadBase(r) }}</span>
+                          <span class="pr-det-uxc" [title]="unidadTitle(r)">{{ equivTxt(r) }}</span>
                         </div>
                         <!-- Flechas con activación MANUAL (el patrón ARIA lo permite): ← → mueven el
                              foco, Enter/Espacio conmuta. No se activa al enfocar porque cambiar de
@@ -411,6 +427,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                         <span class="pr-mono">{{ b.code }}</span> <span class="pr-peek-terr">{{ b.name }}</span>
                                         <!-- [RA-PRO.64] Lo que le falta a la sucursal, dicho en palabras. -->
                                         @for (fl of branchFlags(b); track fl) { <span class="pr-bflag">{{ fl }}</span> }
+                                        @for (sf of branchSignalFlags(r, b); track sf.txt) { <span class="pr-bflag" [ngClass]="sf.cls" [title]="sf.title">{{ sf.txt }}</span> }
                                         @if (b.added) {
                                           <span class="pr-bflag pr-bflag-add" title="La agregaste a mano: el sistema no la sugería porque no tiene existencia, venta ni nada en camino.">agregada</span>
                                           <button type="button" class="pr-zlink" (click)="removeBranch(r, b.code)" [attr.aria-label]="'Quitar ' + b.code + ' del desglose'">quitar</button>
@@ -451,7 +468,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                    aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown"
                                                    [ngModel]="dispOf(r, b)" (ngModelChange)="setDispOf(r, b, $event)"
                                                    (keydown)="onQtyKey($event)"
-                                                   [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + b.code + ' en ' + (unitOfBranch(r, b) === 'pieza' ? 'piezas' : 'cajas')" />
+                                                   [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + b.code + ' en ' + (unitOfBranch(r, b) === 'pieza' ? etOf(r).base : etOf(r).mayor)" [title]="qtyTxt(r, b)" />
                                             <button type="button" class="pr-step-b" tabindex="-1" aria-hidden="true"
                                                     (pointerdown)="stepStart(r, b, 1, $event)" (pointerup)="stepStop()" (pointerleave)="stepStop()"
                                                     (pointercancel)="stepStop()" (contextmenu)="$event.preventDefault()">+</button>
@@ -460,9 +477,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                         <td class="pr-r">
                                           <div class="pr-uu" role="group" [attr.aria-label]="'Unidad de captura en ' + b.code">
                                             <button type="button" class="pr-uu-b" [class.pr-uu-on]="unitOfBranch(r, b)==='caja'"
-                                                    [attr.aria-pressed]="unitOfBranch(r, b)==='caja'" (click)="setUnitBranch(r, b, 'caja')" title="Capturar en cajas">cj</button>
+                                                    [attr.aria-pressed]="unitOfBranch(r, b)==='caja'" (click)="setUnitBranch(r, b, 'caja')" [title]="'Capturar en ' + etOf(r).mayor">{{ etOf(r).mayor }}</button>
                                             <button type="button" class="pr-uu-b" [class.pr-uu-on]="unitOfBranch(r, b)==='pieza'"
-                                                    [attr.aria-pressed]="unitOfBranch(r, b)==='pieza'" (click)="setUnitBranch(r, b, 'pieza')" [title]="'Capturar en ' + unidadBase(r)">pz</button>
+                                                    [attr.aria-pressed]="unitOfBranch(r, b)==='pieza'" (click)="setUnitBranch(r, b, 'pieza')" [title]="'Capturar en ' + etOf(r).base">{{ etOf(r).base }}</button>
                                           </div>
                                         </td>
                                         <!-- Sin venta no hay cobertura que calcular: se DECLARA, no se
@@ -546,7 +563,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                               }
                               <button type="button" class="pr-chip" [class.pr-chip-on]="unitOf(r.product_id)==='pieza'" (click)="setUnit(r.product_id, 'pieza')">Pieza</button>
                               @if (packOf(r.product_id); as pk) {
-                                <span class="pr-ordu-hint">1 caja = {{ pk.uxc | number:'1.0-0' }} pz@if (pk.packs) { = {{ pk.packs }} paq × {{ pk.pack }} pz }</span>
+                                <span class="pr-ordu-hint">{{ equivTxt(r) }}</span>
                               }
                             </div>
                             <div class="pr-wb-scroll">
@@ -642,7 +659,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <span class="pr-min-warn" [title]="minimoDetalle()">
                   <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                   @if (nMin === 1) { {{ minimoResumen() }} }
-                  @else { <strong>{{ nMin }}</strong> proveedores todavía no llegan a su pedido mínimo }
+                  @else { <strong>{{ nMin }}</strong> proveedores van por debajo de su pedido típico }
                 </span>
               }
             } @else if (totCajas() > 0) {
@@ -1131,6 +1148,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-supp-min { font-size: var(--fs-micro); color: var(--text-muted); border: 1px solid var(--border-color);
       border-radius: var(--r-pill, 999px); padding: 0 .45rem; white-space: nowrap; }
     .pr-supp-min i { font-size: var(--fs-micro); margin-right: .15rem; }
+    /* [RA-PRO.67] Margen y venta perdida en la cabecera del desglose. */
+    .pr-sig { font-size: var(--fs-micro); color: var(--text-main); border: 1px solid var(--border-color);
+      border-radius: var(--r-pill, 999px); padding: 0 .45rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .pr-sig-bad { color: var(--bad-fg); border-color: var(--bad-border); }
+    .pr-sig-warn { color: var(--warn-fg); border-color: var(--warn-border); }
+    .pr-bflag-bad { color: var(--bad-fg); border-color: var(--bad-border); }
+    .pr-bflag-warn { color: var(--warn-fg); border-color: var(--warn-border); }
     /* [RA-PRO.65] V30d / Máx: la cifra ES el botón del globo. */
     .pr-vmx { border: 0; background: transparent; color: var(--text-main); cursor: pointer; font: inherit;
       font-variant-numeric: tabular-nums; padding: .1rem .3rem; border-radius: var(--r-sm, 8px);
@@ -1434,14 +1458,169 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return out;
   }
 
-  // ── [RA-PRO.66] MÍNIMO DE PEDIDO DEL PROVEEDOR ───────────────────────
-  // Ya viajaba en /filters (`suppliers[].min_order_boxes`) y la pantalla no lo enseñaba. Es la
-  // palanca con la que el vendedor empuja volumen: el comprador tiene que verla al decidir.
-  supplierMin(r: WorkbookRow): number | null {
+  // ── [RA-PRO.69] PEDIDO TÍPICO DEL PROVEEDOR (antes RA-PRO.66 "mínimo") ─────
+  // ⚠️ RA-PRO.66 lo publicó como "pedido mínimo" y NO lo es: `min_order_*` lo DERIVA
+  // `import-supplier-params.js` (RA-PRO.10) del historial — el pedido típico del almacén principal
+  // del proveedor —, y no hay columna que separe lo capturado de lo derivado. Se dice lo que es y se
+  // compara contra lo que llevas de ESE proveedor en las filas cargadas. No se rellena nada.
+  pedidoTipico(r: WorkbookRow): PedidoTipicoEval & { supplierName: string; productos: number } | null {
     if (!r.supplier_id) return null;
     const s = (this.filters()?.suppliers ?? []).find((x) => x.id === r.supplier_id);
-    const v = s?.min_order_boxes == null ? null : Number(s.min_order_boxes);
-    return v && v > 0 ? v : null;
+    if (!s) return null;
+    let cajas = 0, monto = 0, productos = 0;
+    for (const row of this.knownRows().values()) {
+      if (row.supplier_id !== r.supplier_id) continue;
+      const c = this.sumCajas(row);
+      if (c > 0) { cajas += c; monto += this.sumValor(row); productos++; }
+    }
+    const e = evaluarPedidoTipico(cajas, monto, s.min_order_boxes, s.min_order_amount);
+    return e.nivel === 'sin_dato' ? null : { ...e, supplierName: s.name, productos };
+  }
+  pedidoTipicoTxt(e: PedidoTipicoEval): string {
+    const f = (v: number) => (e.criterio === 'monto' ? this.money(v) : `${Math.round(v).toLocaleString('es-MX')} cj`);
+    return `${f(e.llevas)} de ${f(e.tipico ?? 0)}`;
+  }
+  pedidoTipicoTitle(e: PedidoTipicoEval & { supplierName: string; productos: number }): string {
+    return `Pedido típico de ${e.supplierName}: ${this.pedidoTipicoTxt(e).split(' de ')[1]} — es el promedio de sus pedidos `
+      + 'en su almacén principal, calculado del historial de compras (Compras › Proveedores). NO es un mínimo que el '
+      + `proveedor exija. Llevas ${this.pedidoTipicoTxt(e).split(' de ')[0]} en ${e.productos} producto(s) de este `
+      + 'proveedor, contando sólo las filas cargadas en pantalla (la página abierta y las marcadas).';
+  }
+
+  // ── [RA-PRO.68] UNIDADES DE MAYOR A MENOR (regla de Cotización) ──────
+  private readonly etMap = computed(() => {
+    const m = new Map<string, EtiquetaUnidades>();
+    for (const r of this.knownRows().values()) {
+      m.set(r.product_id, etiquetaUnidades({
+        u1: r.unidad_base, u2: r.unidad_u2, u3: r.unidad_u3,
+        uxc: Number(r.uxc), boxSize: r.box_size, packSize: r.pack_size,
+      }));
+    }
+    return m;
+  });
+  etOf(r: WorkbookRow): EtiquetaUnidades {
+    return this.etMap().get(r.product_id)
+      ?? etiquetaUnidades({ u1: r.unidad_base, u2: r.unidad_u2, u3: r.unidad_u3, uxc: Number(r.uxc), boxSize: r.box_size, packSize: r.pack_size });
+  }
+  /** "1 cj = 140 pz · 14 paq × 10 pz" — la equivalencia que se lee en la cabecera del desglose. */
+  equivTxt(r: WorkbookRow): string {
+    const et = this.etOf(r);
+    const u = Number(r.uxc) || 1;
+    const base = `1 ${et.mayor} = ${u.toLocaleString('es-MX')} ${et.base}`;
+    return et.medio ? `${base} · ${u / et.medio} ${et.medioAbr} × ${et.medio} ${et.base}` : base;
+  }
+  /** Cantidad del renglón en texto de mayor a menor, para el tooltip del campo de captura. */
+  qtyTxt(r: WorkbookRow, b: BranchBuy): string { return textoUnidades(this.qtyOf(r, b), Number(r.uxc), this.etOf(r)); }
+
+  // ── [RA-PRO.67] MARGEN DE HOY Y VENTA PERDIDA ────────────────────────
+  margenTxt(r: WorkbookRow): string | null {
+    const m = r.signals?.margin;
+    if (!m || m.margen_pct == null) return null;
+    const rango = m.margen_min != null && m.margen_max != null && m.margen_max - m.margen_min >= 0.5
+      ? ` (${m.margen_min.toFixed(1)}–${m.margen_max.toFixed(1)})` : '';
+    return `margen ${m.margen_pct.toFixed(1)}%${rango}`;
+  }
+  /** "esta compra +17.2%" — sólo cuando el costo de este pedido mueve el margen ≥ 1 punto. */
+  margenCompraTxt(r: WorkbookRow): string | null {
+    const m = r.signals?.margin;
+    if (!m || m.margen_compra_pct == null) return null;
+    if (m.margen_pct != null && Math.abs(m.margen_compra_pct - m.margen_pct) < 1) return null;
+    return `esta compra ${m.margen_compra_pct >= 0 ? '+' : ''}${m.margen_compra_pct.toFixed(1)}%`;
+  }
+  margenCompraTitle(r: WorkbookRow): string {
+    const m = r.signals?.margin;
+    const pag = m?.margen_pagado_pct != null
+      ? ` Con lo que REALMENTE se pagó en las compras recibidas (última el ${(m.ultima_compra || '—').split('-').reverse().join('/')}) el margen sería ${m.margen_pagado_pct.toFixed(1)}%.`
+      : '';
+    return 'Margen sobre costo de LO QUE ESTÁS COMPRANDO: precio de la ficha sin impuesto contra el costo de caja de '
+      + `este pedido (${this.money(Number(r.caja_cost))} la caja: el precio de lista del proveedor en Kepler, el que toma la orden de compra).`
+      + pag
+      + ' El margen de "hoy" usa el costo de reposición de Kepler, que arrastra compras anteriores'
+      + (m?.margen_pct != null ? ` (${m.margen_pct.toFixed(1)}%).` : '.')
+      + ' Para decidir esta compra importa la lista —si el proveedor la respeta—; para saber si lo que ya está en el piso pierde, el de hoy.';
+  }
+  /**
+   * La lista del proveedor y lo pagado difieren ≥ 5 % en COSTO: hay que confirmar el precio.
+   * La razón de costos sale de los dos márgenes: (1 + m_lista) / (1 + m_pagado) = pagado / lista.
+   * Medido 2026-10-02 sobre los 500 SKUs de más venta: mediana 1.0000 (192 cuadran al centavo),
+   * p75 1.04. Con un umbral de 2 puntos de margen salía en la MITAD de las filas —ruido normal entre
+   * lista y factura—; con 5 % de costo, en 116 de 500, que sí son diferencias para negociar.
+   */
+  precioDesfasado(r: WorkbookRow): boolean {
+    const m = r.signals?.margin;
+    if (m?.margen_compra_pct == null || m.margen_pagado_pct == null) return false;
+    const razon = (1 + m.margen_compra_pct / 100) / (1 + m.margen_pagado_pct / 100);
+    return razon >= 1.05 || razon <= 0.95;
+  }
+  precioDesfaseTxt(r: WorkbookRow): string {
+    const m = r.signals?.margin;
+    const p = m?.margen_pagado_pct ?? 0;
+    return `confirmar precio: pagado ${p >= 0 ? '+' : ''}${p.toFixed(1)}%`;
+  }
+  margenTitle(r: WorkbookRow): string {
+    const m = r.signals?.margin;
+    if (!m) return '';
+    const sobreVenta = m.margen_pct != null ? (m.margen_pct / (100 + m.margen_pct)) * 100 : null;
+    return 'Margen de hoy SOBRE EL COSTO, el mismo de Compras › Costo estándar: precio de la ficha sin impuesto ÷ costo de '
+      + 'reposición − 1, ponderado por la venta de 30 días de cada sucursal.'
+      + (m.precio_ficha != null && m.costo_reposicion_base != null
+        ? ` Precio de ficha ${this.money(m.precio_ficha)} · costo de reposición ${this.money(m.costo_reposicion_base)} por ${this.etOfBaseNombre(r)}.` : '')
+      + (sobreVenta != null ? ` Sobre la venta equivale a ${sobreVenta.toFixed(1)}%.` : '')
+      + (m.sucursales_bajo_costo ? ` ⚠️ ${m.sucursales_bajo_costo} sucursal(es) venden BAJO COSTO al precio de hoy.` : '');
+  }
+  private etOfBaseNombre(r: WorkbookRow): string { return this.etOf(r).base; }
+  bajoCosto(r: WorkbookRow): boolean { return (r.signals?.margin?.sucursales_bajo_costo ?? 0) > 0; }
+  /** Insignia de la fila: "bajo costo" sólo si ESTA compra también pierde (o no se puede medir). */
+  costoFlag(r: WorkbookRow): { txt: string; cls: string } | null {
+    const m = r.signals?.margin;
+    if (!m) return null;
+    const compra = m.margen_compra_pct;
+    if (compra != null && compra < 0) return { txt: 'compra bajo costo', cls: 'pr-bflag-bad' };
+    if (!this.bajoCosto(r)) return null;
+    return compra != null ? { txt: 'costo bajó', cls: '' } : { txt: 'bajo costo', cls: 'pr-bflag-bad' };
+  }
+  /** Venta perdida de la ventana (las dos fuentes por separado; no se suman). */
+  perdida(r: WorkbookRow): { wincaja: number; mostrador: number; total: number } | null {
+    const l = r.signals?.lost;
+    if (!l) return null;
+    const w = l.wincaja.importe, f = l.mostrador.importe_estimado;
+    return (w > 0 || l.mostrador.reportes > 0) ? { wincaja: w, mostrador: f, total: w + f } : null;
+  }
+  perdidaTitle(r: WorkbookRow): string {
+    const l = r.signals?.lost;
+    if (!l) return '';
+    const fecha = (s: string | null) => (s ? s.split('-').reverse().join('/') : '—');
+    const partes: string[] = [`Venta perdida desde el ${fecha(l.desde)}.`];
+    if (l.wincaja.reportes) {
+      const ver = l.wincaja.reportes - l.wincaja.reportes_sin_verificar;
+      partes.push(`Faltantes registrados en caja (Wincaja): ${this.money(l.wincaja.importe)} en ${ver} reporte(s) verificados, último el ${fecha(l.wincaja.ultimo_dato)}.`);
+      if (l.wincaja.reportes_sin_verificar) {
+        partes.push(`${l.wincaja.reportes_sin_verificar} reporte(s) más NO se suman: su importe no cuadra con el precio de la ficha (cantidad e importe en unidades distintas, sobre todo en el CEDIS).`);
+      }
+    }
+    if (l.mostrador.reportes) {
+      partes.push(`Reportes de mostrador "agotado" (Tienda › Faltantes): ${l.mostrador.reportes}, ${this.money(l.mostrador.importe_estimado)} estimado, último el ${fecha(l.mostrador.ultimo)}.`);
+    }
+    partes.push('⚠️ Kepler NO registra faltantes: Wincaja dejó de anotarlos en cada plaza al pasar a Kepler (la última, el 30/09/2026). '
+      + 'Que no aparezca venta perdida después de esa fecha no quiere decir que no falte: la única fuente viva es el reporte de mostrador.');
+    return partes.join(' ');
+  }
+  /** Banderas por sucursal que vienen de las señales: bajo costo y venta perdida. */
+  branchSignalFlags(r: WorkbookRow, b: BranchBuy): { txt: string; cls: string; title: string }[] {
+    const out: { txt: string; cls: string; title: string }[] = [];
+    const m = r.signals?.margin?.por_sucursal?.[b.code];
+    if (m?.bc) out.push({ txt: 'bajo costo', cls: 'pr-bflag-bad', title: `En ${b.code} se vende bajo costo al precio de hoy (margen ${m.m?.toFixed(1) ?? '—'}% sobre costo).` });
+    const net = r.signals?.margin?.margen_pct;
+    if (m?.m != null && net != null && !m.bc && Math.abs(m.m - net) >= 2) {
+      out.push({ txt: `margen ${m.m.toFixed(1)}%`, cls: '', title: `El margen de ${b.code} se aparta del de la red (${net.toFixed(1)}%): su precio de ficha o su costo son distintos.` });
+    }
+    const lw = r.signals?.lost?.wincaja.por_sucursal?.[b.code];
+    const lm = r.signals?.lost?.mostrador.por_sucursal?.[b.code];
+    const imp = (lw?.importe ?? 0) + (lm?.importe ?? 0);
+    if (imp > 0 || (lm?.reportes ?? 0) > 0) {
+      out.push({ txt: `perdió ${dineroCorto(imp)}`, cls: 'pr-bflag-warn', title: this.perdidaTitle(r) });
+    }
+    return out;
   }
 
   // ── [RA-PRO.65] V30d / MÁX y la PELÍCULA DE 12 MESES ─────────────────
@@ -1817,7 +1996,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * sueltas ("6 cj 6 pz"), no una fracción de caja ("6.5 cj") que nadie puede surtir.
    * Sin factor de caja válido se muestra como antes, en cajas con decimal.
    */
-  entregaQty(r: WorkbookRow, e: Entrega): string { return textoCajasPiezas(e.cajas, Number(r.uxc)); }
+  entregaQty(r: WorkbookRow, e: Entrega): string { return textoUnidades(e.cajas, Number(r.uxc), this.etOf(r)); }
   // ── [RA-PRO.59] Vista de CELULAR (vertical) ───────────────────────────────────────────────
   // El acomodo (columnas ocultas, desglose en tarjetas) lo hace el CSS con el mismo corte
   // (`@media (max-width: 40rem)`). Esta señal sólo sirve para lo que el CSS no puede cambiar: el
@@ -1922,14 +2101,17 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const v = this.minimosFaltantes()[0];
     if (!v) return '';
     if (v.faltanCajas > 0) {
-      return `${v.nombre}: ${Math.floor(v.cajas)} de ${Math.round(v.minCajas || 0)} cajas mínimas`;
+      return `${v.nombre}: ${Math.floor(v.cajas)} de ${Math.round(v.minCajas || 0)} cajas de su pedido típico`;
     }
-    return `${v.nombre}: ${this.money(v.monto)} de ${this.money(v.minMonto || 0)} mínimos`;
+    return `${v.nombre}: ${this.money(v.monto)} de ${this.money(v.minMonto || 0)} de su pedido típico`;
   }
 
   /** El detalle de todos, para el tooltip. */
   minimoDetalle(): string {
-    return this.minimosFaltantes().map((v) => {
+    // [RA-PRO.69] El valor es el pedido TÍPICO que Compras › Proveedores deriva del historial, no
+    // un mínimo que el proveedor exija: se dice así para que no empuje a comprar de más.
+    return 'Pedido típico = promedio de los pedidos de cada proveedor en su almacén principal, calculado del historial de compras. No es un mínimo exigido.\n'
+      + this.minimosFaltantes().map((v) => {
       const partes: string[] = [];
       if (v.faltanCajas > 0) partes.push(`${Math.floor(v.cajas)} de ${Math.round(v.minCajas || 0)} cajas`);
       if (v.faltanMonto > 0) partes.push(`${this.money(v.monto)} de ${this.money(v.minMonto || 0)}`);
@@ -2031,7 +2213,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   private reqPdfData(r: WorkbookRow): ReqPdfData {
     const uxc = Number(r.uxc);
-    const txt = (cajas: number) => textoCajasPiezas(cajas, uxc);
+    const et = this.etOf(r);
+    const txt = (cajas: number) => textoUnidades(cajas, uxc, et);
     const rows = this.branchBuys(r).filter((b) => this.qtyOf(r, b) > 0);
     const fila = (b: BranchBuy, seQueda = false): ReqPdfFila => ({
       qtyTxt: txt(this.qtyOf(r, b)),
@@ -2099,7 +2282,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       return {
         supplierId: l.r.supplier_id, supplierName: l.r.supplier_name || '',
         productId: l.r.product_id, sku: l.r.sku, nombre: l.r.nombre,
-        uxc: Number(l.r.uxc), unidad: this.unidadBase(l.r),
+        uxc: Number(l.r.uxc), unidad: this.unidadBase(l.r), et: this.etOf(l.r),
         branchCode: l.b.code, branchName: l.b.name,
         entregaCode: to, entregaName: l.toCode ? this.nameOf(to) : l.b.name,
         cajas: l.qty, valor: l.qty * l.b.cc,
@@ -2118,7 +2301,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       elaboro: this.auth.user()?.username || 'Compras',
       coberturaDias: this.coverage,
       alcance: `${n} producto${n === 1 ? '' : 's'} seleccionado${n === 1 ? '' : 's'}`,
-      hojas: agruparPorProveedor(lineas),
+      // [RA-PRO.69] Cada hoja lleva el pedido TÍPICO de su proveedor como referencia (no mínimo).
+      hojas: agruparPorProveedor(lineas).map((h) => {
+        const s = (this.filters()?.suppliers ?? []).find((x) => x.id === h.supplierId);
+        const e = evaluarPedidoTipico(h.cajas, h.valor, s?.min_order_boxes, s?.min_order_amount);
+        return e.nivel === 'sin_dato' ? h : { ...h, tipico: e };
+      }),
       avisos,
     };
   }
