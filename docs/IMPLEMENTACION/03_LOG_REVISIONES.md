@@ -5,6 +5,64 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-01 — `[RA-DYN.P4]` El motor de pedido deja de leer `.env` (y el importer deja de ser necesario)
+
+Edgar pidió rediseñar el "factor de pedido" de estático a dinámico: estacionalidad, cruce
+pedido-vs-comprado, ventanas ajustables, análisis producto por producto.
+
+**Medido contra prod, la premisa no se sostenía.** Lo "estático" ya era dinámico: estacionalidad
+viva (fallback sku→cat→global, 18,306 celdas con ratio ≠ 1), ABC-XYZ, colchón por nivel de
+servicio, y `reorder_policy` recalculada esa misma madrugada para 6,294 SKUs. Lo congelado eran
+1,547 celdas de origen `kepler`. Se replanificó contra los huecos medidos, no contra los supuestos.
+
+### Lo entregado y aplicado a prod (batches 676, 677, 678)
+
+`commercial.replenishment_params` — el vector de parámetros en datos, **append-only** (sólo
+`valid_from`: cerrar un intervalo mutaría una fila que una sugerencia ya referenció). El seed
+**transcribe** los defaults vigentes, no mueve ningún número. Más `analytics.fn_inv_norm` (Acklam
+en SQL, transcripción verificada con delta `0.0` contra el JS en 9 puntos y las 3 ramas) y
+`analytics.v_computed_reorder`, que deriva la política en SQL puro. **Nadie la consume todavía.**
+
+### ⛔ Lo que encontró la medición y la lectura no
+
+1. **El append-only NO estaba en efecto.** El schema `commercial` tiene DEFAULT PRIVILEGES que dan
+   `arwd` a `app_runtime` en toda tabla nueva → el `GRANT SELECT, INSERT` fue un **no-op**. En este
+   schema una tabla no se vuelve append-only otorgando de menos: hay que **REVOCAR** (mig 180000).
+2. **Y casi se escapa en verde.** La verificación preguntó por
+   `information_schema.role_table_grants`, que sólo muestra los grants donde uno es otorgante,
+   beneficiario o miembro: preguntando por un rol ajeno devolvió **lista vacía**, y la aserción
+   *"NO tiene UPDATE ni DELETE"* se puso **verde por ausencia de datos**. Se pregunta con
+   `has_table_privilege`, y el smoke lleva **control positivo** sobre una tabla vecina.
+3. **`invNorm` devuelve 0 si `p >= 1`** → un nivel de servicio de `1.0`, el que se lee como
+   "servicio perfecto", daría **colchón CERO** en silencio. `CHECK rp_service_rango` acota a
+   (0.5, 1) y `fn_inv_norm` **lanza** en vez de devolver 0.
+4. **4,846 políticas ZOMBI (14.5 % de las computadas)** — productos sin demanda actual cuya
+   política sigue viva porque el importer sólo hace UPSERT y **nunca borra**. Las lee
+   `/compras/pedido` en reorden y máximo. Una vista no puede tenerlas: es el precio concreto de la
+   arquitectura de importers.
+
+### La paridad, cruzando DOS implementaciones
+
+Una vista verificada contra sí misma pasa bugs en verde (ya pasó en IC.0), así que se cruzó contra
+la salida del importer: **vista 16,136 · tabla 33,527 · comunes 15,055 · difieren 19 (0.13 %)**.
+Las 19 difieren **todas** por `abc_class` —`v_abc_class` es viva y el importer la leyó a las
+03:02— y el candado afirma lo fuerte: **cero filas difieren en un campo de cálculo sin que la
+clase se haya movido**. Las brechas de población cuadran exacto: 1,081 = 1,061 precedencia kepler
++ 20 nuevas; 18,472 = 13,626 cedidas al DRP + 4,846 zombis.
+
+⚠️ **El primer candado estaba mal especificado**: exigía que la vista igualara TODA la tabla, algo
+que por diseño nunca puede ser cierto (dos importers escriben `source='computed'`). Un rojo que no
+se puede arreglar se aprende a ignorar. El estándar correcto no es *cero diferencias* sino **cero
+diferencias sin explicar**.
+
+### Abierto
+
+La vista **no es reemplazo directo**: cubre sólo la parte de `import-computed-reorder` y no modela
+la precedencia de fuentes (kepler gana). Leer el código no lo revelaba; lo encontró el cruce.
+Falta además el lector en los importers (o su retiro), `git push`, y los smokes de escritura
+siguen **NO MEDIDOS** (no hay destino seguro: `assertSafeTarget` rechaza prod, correctamente).
+
+---
 ## 2026-10-01 — Operación: prod se mudó a k3s mientras yo buscaba por qué no desplegaba
 
 Edgar preguntó *"¿ya tenemos una verdad absoluta?"*. Al medirlo —en vez de opinarlo— salieron
