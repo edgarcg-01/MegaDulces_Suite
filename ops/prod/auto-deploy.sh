@@ -298,13 +298,66 @@ if [ -n "$DUPS" ]; then
 fi
 if [ -n "$PEND" ]; then
   n=$(echo "$PEND" | wc -l | tr -d ' ')
-  di "FRENADO: $n migración(es) de $DESEADO sin aplicar en prod:"
+
+  # ── [CD.1] PENDIENTE NO ES LO MISMO QUE BLOQUEANTE ──────────────────────────
+  # Hasta hoy cualquier migración pendiente frenaba el despliegue entero. El freno es correcto
+  # —el riesgo real es subir código que espera columnas inexistentes, como dice la cabecera— pero
+  # era INDISCRIMINADO: un hotfix de frontend no podía salir porque alguien dejó a medio aplicar
+  # una matvista de compras que ese hotfix ni nombra.
+  #
+  # `compuerta-migraciones.js` contesta la pregunta que de verdad importa: ¿alguno de los
+  # archivos que cambian en ESTE despliegue nombra los objetos que las migraciones pendientes
+  # crean? Si no los nombra, el código nuevo no puede necesitarlos.
+  #   · ACOPLADO / NO_MEDIDO -> frena igual que antes, pero diciendo QUÉ archivo y QUÉ objeto.
+  #   · DESACOPLADO          -> deja pasar el código; las migraciones siguen pendientes y el
+  #                             latido las sigue declarando.
+  #
+  # ⛔ El sesgo va del lado seguro a propósito: si no se puede extraer el objeto de una migración
+  #    (p.ej. una que sólo hace GRANT), eso es NO_MEDIDO y FRENA. No se adivina (ADR-056).
+  COMPUERTA="$HOME/ops/prod/compuerta-migraciones.js"
+  if [ ! -f "$COMPUERTA" ]; then
+    di "FRENADO: falta $COMPUERTA — no se puede decidir si las $n pendiente(s) bloquean. NO MEDIDO."
+    di "  Se sube con: ops/prod/deploy.sh --imagenes (subir_compose lo sincroniza)."
+    latir error "falta compuerta-migraciones.js en md"
+    exit 1
+  fi
+
+  di "$n migración(es) pendiente(s) — midiendo si el código de este despliegue las necesita:"
   echo "$PEND" | sed 's/^/      /'
-  di "Se aplican a mano, una por una, con lock_timeout. NUNCA migrate:latest (hay DOS knex_migrations)."
-  latir error "$n migración(es) sin aplicar — despliegue frenado"
-  exit 1
+
+  # ⛔ `$VIVO` es el commit HORNEADO en la imagen, y vale `desconocido` cuando Docker no reporta
+  # etiqueta. Sin él no hay diff que medir, y medir nada no es lo mismo que medir cero: frena.
+  # Lo mismo si el commit vivo quedó fuera del `--depth 50` del fetch — el diff falla adentro y
+  # la compuerta devuelve NO_MEDIDO, que también frena.
+  if [ "$VIVO" = "desconocido" ]; then
+    di "FRENADO: no se pudo determinar el commit vivo — el acoplamiento es NO MEDIDO."
+    latir error "$n migración(es) pendiente(s) y commit vivo desconocido"
+    exit 1
+  fi
+
+  # ⛔ EL VEREDICTO SE CAPTURA ANTES DE IMPRIMIRLO. Escribir
+  #    `if ... | node ... | sed`  leería el código de salida de **sed**, que siempre sale 0, y la
+  #    compuerta diría "desacoplado" SIEMPRE. Este repo ya pagó ese error dos veces en `[VL.4]`
+  #    (el wrapper que confundía "lock tomado" con "el comando falló"). `/bin/sh` no tiene
+  #    `PIPESTATUS`, así que se guarda la salida y recién después se formatea.
+  SALIDA_CG=$(printf '%s\n' "$PEND" | node "$COMPUERTA" \
+       --repo "$REPO_DIR" --dir database/migrations-newdb \
+       --desplegado "$VIVO" --objetivo "$DESEADO" 2>&1)
+  VEREDICTO_CG=$?
+  printf '%s\n' "$SALIDA_CG" | sed 's/^/      /'
+
+  if [ "$VEREDICTO_CG" -eq 0 ]; then
+    di "migraciones: $n pendiente(s), pero DESACOPLADAS de este cambio — se despliega el código."
+    di "  ⚠️ Siguen pendientes: aplicarlas a mano, una por una, con lock_timeout."
+  else
+    di "FRENADO: el código de $DESEADO necesita esquema que prod no tiene (detalle arriba)."
+    di "Se aplican a mano, una por una, con lock_timeout. NUNCA migrate:latest (hay DOS knex_migrations)."
+    latir error "$n migración(es) sin aplicar y ACOPLADAS al cambio — despliegue frenado"
+    exit 1
+  fi
+else
+  di "migraciones: prod al día"
 fi
-di "migraciones: prod al día"
 
 # ── `[CI.SELLO]` La compuerta de CI, ANTES de construir ─────────────────────
 # Sólo se despliega un commit que el CI haya SELLADO (job `sellar` en ci.yml, que mueve la rama
