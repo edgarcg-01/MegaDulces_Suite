@@ -81,6 +81,46 @@ quién sigue entrando por el reenvío de `.249`:
 | `ruta_504` | Canindo | `192.168.50.27` | ✅ `.222` | — | — | `Ruta504` | 2026-09-09 |
 | `ruta_505` | Canindo | *(por documentar)* | ⛔ `.249` | — | — | `Ruta505` | 2026-09-09 |
 
+⛔⛔ **`.249` YA NO EXISTE — y se llevó a las cuatro que todavía la apuntaban (medido 2026-10-01).**
+
+La columna «Runner» de arriba dejó de ser informativa el día que `192.168.0.249` murió: desde `md`
+**no responde ni a ping ni a ARP**. El reenvío TCP que mantenía vivas a esas vans se terminó, y el
+agente, cuando el runner no contesta, **sale rápido y en silencio** — por eso nadie se enteró.
+
+El cruce es casi perfecto y no deja lugar a interpretación:
+
+| apuntaban a | vans | estado al 2026-10-01 |
+|---|---|---|
+| ⛔ `.249` | `ruta_26` · `ruta_28` · `ruta_501` · `ruta_505` | **las 4 con problema** (10, 10, 9 h y 17 días) |
+| ✅ `.222` | `21` · `22` · `23` · `27` · `502` · `503` | **las 6 al día**, latido < 10 min |
+
+La única que no encaja es **`ruta_504`**: figura acá como ✅ `.222` y aun así lleva **10 días** sin
+empujar. ⚠️ **No se arregla con el CASO 4** — o este dato está mal (ya pasó con la IP de `ruta_27`)
+o tiene otra causa. Hay que abrir su `push_ruta_504.log` y leer su `RUNNER_CONN` real.
+
+⭐ **`ruta_26` repuntada y verificada en vivo el 2026-10-01 18:35** (VNC a `192.168.0.158`): se
+reemplazó la IP, `Length` quedó en 1,857 (≠ 0), `schtasks /Run /TN "Ruta26"` y **latido a los 38
+segundos con 2,534 filas**. Su venta saltó de 2026-09-19 a **2026-10-01**: el merge es idempotente y
+barre hacia atrás, así que recuperó los 12 días de un tirón. **Una IP y vuelven.**
+
+⚠️ **Las IPs de la columna «Host laptop» son del momento en que se midió, no una propiedad de la
+van.** Son laptops que viajan: el 2026-10-01, con las vans en el CEDIS, las que estaban en la red
+respondían en **`192.168.0.x`** (`.55`, `.86`, **`.158` = `ruta_26`**), no en el `192.168.10.x` /
+`192.168.50.x` que lista la tabla. Ninguna acepta ping ni puertos (el firewall sólo permite Postgres
+en `localhost`), así que **la única forma fiable de saber si una está en la red es la tabla ARP**,
+y la única forma de saber QUÉ van es, ya adentro, `findstr /i "TRUCK" C:\KeplerPush\push-ruta.cmd`.
+Esto refuerza lo que ya decía el recuadro de abajo: si estos hosts se van a usar para algo más que
+referencia, hay que fijarlos por **reserva DHCP**.
+
+⚠️ `schtasks /Query /TN "Ruta*"` **no funciona**: `/TN` no acepta comodines y devuelve *"El sistema
+no puede encontrar el archivo especificado"*, que se lee como si la tarea no existiera. Es
+`schtasks /Query /FO LIST | findstr /i "Ruta"`.
+
+⛔ **La contraseña del usuario `ingest` del runner viaja en texto plano dentro de cada
+`push-ruta.cmd`**, en las 11 laptops, y queda a la vista de cualquiera que abra el archivo o mire la
+pantalla. Es la misma clase de deuda que la Fase VL ya tiene anotada («key en texto plano en 4
+launchers»). **Rotarla**, y de paso decidir si el agente debe leerla de un archivo aparte.
+
 ⚠️ **`192.168.10.249` (la van de `ruta_23`) NO es `192.168.0.249` (el servidor viejo).** Subredes
 distintas, el mismo final. El reemplazo del CASO 4 busca `192.168.0.249` completo, así que no toca
 la IP propia de la van — pero al leer el archivo se ven dos "249" que no son lo mismo.
