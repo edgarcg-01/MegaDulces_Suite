@@ -68,7 +68,11 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # `ms-main` es la rama de integración de la Fase MS (Mesa de Servicio): los PR de sus capas van contra
+    # ella y Edgar hace UN solo merge a `main` al final. Sin esta línea esos PR no corren NINGUNA compuerta
+    # (gitleaks, build, lint y pruebas). Sólo `pull_request`: el sello `ci-green` y el auto-deploy leen `push`
+    # a `main`, que no cambia. Se retira cuando `ms-main` se mergee a `main`.
+    branches: [main, ms-main]
 
 concurrency:
   group: ci-${{ github.ref }}
