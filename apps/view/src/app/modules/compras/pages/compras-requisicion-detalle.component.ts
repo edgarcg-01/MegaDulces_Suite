@@ -27,10 +27,22 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <a pButton class="p-button-text p-button-sm rd-back" routerLink="/compras/requisiciones"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Requisiciones</span></a>
+          <a pButton class="p-button-text p-button-sm rd-back" [routerLink]="['/compras/requisiciones']" [queryParams]="{ tab: req()?.source_type === 'branch' ? 'branch' : 'supplier' }"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Requisiciones</span></a>
           @if (req(); as r) {
-            <h1>{{ r.folio }} <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag></h1>
-            <p class="surf-page-sub">{{ r.warehouse_code }} · {{ r.warehouse_name }} · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}</p>
+            <h1>
+              {{ r.folio }}
+              @if (r.source_type === 'branch') {
+                <p-tag value="Traspaso" severity="info"></p-tag>
+              }
+              <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+            </h1>
+            <p class="surf-page-sub">
+              @if (r.source_type === 'branch') {
+                Traspaso: <strong>{{ r.source_warehouse_code || 'CEDIS' }}</strong> ({{ r.source_warehouse_name || 'Origen' }}) → <strong>{{ r.warehouse_code }}</strong> ({{ r.warehouse_name }}) · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}
+              } @else {
+                {{ r.warehouse_code }} · {{ r.warehouse_name }} · Proveedor: {{ r.supplier_name || 'Varios' }} · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}
+              }
+            </p>
           }
         </div>
         @if (req(); as r) {
@@ -41,9 +53,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="reject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
                 <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="approve()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
               } @else if (r.estado === 'approved') {
-                <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="generatePO()"><span class="p-button-icon p-button-icon-left pi pi-shopping-cart" aria-hidden="true"></span><span class="p-button-label">Generar orden de compra</span></button>
+                <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="generatePO()"><span class="p-button-icon p-button-icon-left pi" [ngClass]="r.source_type === 'branch' ? 'pi-send' : 'pi-shopping-cart'" aria-hidden="true"></span><span class="p-button-label">{{ r.source_type === 'branch' ? 'Generar orden de traspaso' : 'Generar orden de compra' }}</span></button>
               } @else if (r.estado === 'ordered' || r.estado === 'received') {
-                <button pButton type="button" class="p-button-sm p-button-outlined" (click)="goToPO()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Ver orden de compra</span></button>
+                <button pButton type="button" class="p-button-sm p-button-outlined" (click)="goToPO()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">{{ r.source_type === 'branch' ? 'Ver orden de traspaso' : 'Ver orden de compra' }}</span></button>
               }
             }
           </div>
@@ -173,7 +185,12 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
   generatePO(): void {
     this.busy.set(true);
     this.api.createPOFromRequisition(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Orden de compra generada', detail: r.folio }); this.router.navigate(['/compras/ordenes', r.id]); },
+      next: (r) => {
+        this.busy.set(false);
+        const summary = this.req()?.source_type === 'branch' ? 'Orden de traspaso generada' : 'Orden de compra generada';
+        this.toast.add({ severity: 'success', summary, detail: r.folio });
+        this.router.navigate(['/compras/ordenes', r.id]);
+      },
       error: (e) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo generar la OC.' }); },
     });
   }
