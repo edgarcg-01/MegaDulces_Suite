@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — `npm run dev:bootstrap-vacia`: levanta una base de desarrollo desde cero cuando `migrate:new` solo no alcanza (2026-10-02)
+`migrate:new` sobre una base vacía se detiene en la migración 88 y otra vez en la primera que necesita `kepler_ods` (GOTCHAS §75). `database/scripts/dev-bootstrap-empty-db.js` hace, en el orden en que fallaron, lo que hubo que improvisar a mano: el tenant, las 235 tablas de `kepler_ods.*` **vacías** desde `docs/esquema-bd-prod-columnas.csv`, `catalog.products_top_sellers` (tabla en prod, vista materializada en la migración), las extensiones en `public`, perfiles, zonas y el usuario superoot; y **marca aplicadas sin ejecutarlas** las `88 migraciones posteriores a `20260819120000` que asertan sobre datos reales del ERP, dejándolas en `public._dev_bootstrap_log`. **Esa base NO es prod**: valida estructura e invariantes, no comportamiento con datos. Protecciones con prueba negativa (`test-dev-bootstrap-guards.js`, 21 aserciones): sólo corre contra un Postgres **local**, no toma `DATABASE_URL_NEW` por defecto, se niega si el clúster trae bases ajenas al stack o si el `search_path` ya está fijado por rol (**un clúster, una base**: las migraciones lo fijan con `ALTER ROLE`, o sea para todo el servidor), y **nunca salta una migración estructural**.
+
 ### Internal — Fase MS (Mesa de Servicio): plan por capas y solicitud de tablas y accesos (2026-10-01)
 Solo documentación, sin código ni migraciones. Plan de un sistema de tickets de servicio donde **el
 ticket es la tarea** (contrato de tarea → "A tu nombre" de Mi trabajo), con prioridad Baja/Media/Alta/Urgente
