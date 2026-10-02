@@ -378,6 +378,28 @@ subir_compose() {
             else mv -f \".\$a.nuevo\" \"\$a\"; fi
           done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh dev-ro-crear.sh dev-ro-verificar.sh"
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
+
+  # ⛔ [K3S.34] EL CADDYFILE NUEVO NO SIRVE DE NADA SI NADIE RELEE EL ARCHIVO.
+  #
+  # Caddy NO vigila el archivo, y con `admin off` tampoco existe `caddy reload`. Mientras vivió
+  # en Compose esto lo resolvía `--recrear caddy`. Ahora vive en K3s, así que un cambio de
+  # Caddyfile se escribiría en el disco y el pod seguiría sirviendo la configuración vieja —
+  # EXACTAMENTE el modo de falla de `[INFRA.6]`, donde seis días de cambios fueron invisibles
+  # y `--recrear caddy` imprimía «Recreando» sin recrear nada.
+  #
+  # ⚠️ Se reinicia SÓLO si el archivo cambió de verdad: un `rollout restart` en cada sincronía
+  # cortaría el ingreso interno por unos segundos cada vez que alguien corre `--verificar`.
+  ssh_md 'KC=/etc/rancher/k3s/k3s.yaml
+    command -v k3s >/dev/null 2>&1 || exit 0
+    KUBECONFIG=$KC k3s kubectl get deploy caddy -n prod >/dev/null 2>&1 || exit 0
+    nuevo=$(md5sum ~/ops/prod/Caddyfile 2>/dev/null | cut -d" " -f1)
+    viejo=$(cat ~/ops/prod/.Caddyfile.md5 2>/dev/null)
+    if [ "$nuevo" != "$viejo" ]; then
+      echo "   Caddyfile cambió → reiniciando el pod de caddy"
+      KUBECONFIG=$KC k3s kubectl rollout restart deploy/caddy -n prod >/dev/null 2>&1
+      KUBECONFIG=$KC k3s kubectl rollout status deploy/caddy -n prod --timeout=120s 2>&1 | tail -1 | sed "s/^/   /"
+      printf "%s" "$nuevo" > ~/ops/prod/.Caddyfile.md5
+    fi'
 }
 
 construir() {
