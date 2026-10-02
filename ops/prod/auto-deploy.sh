@@ -213,7 +213,7 @@ di "servicios: $SERVICIOS"
 # ⛔ ESTA LISTA Y LA ETIQUETA `migracion:` DE ops/k3s/*.yaml SON DOS DECLARACIONES DEL MISMO
 # HECHO. Si se contradicen, el servicio se despliega en el mundo equivocado o en ninguno.
 # Se mueven juntas, y `npm run check:k3s` compara el lado de `SERVICIOS_DEF`.
-SERVICIOS_K3S="${AUTO_DEPLOY_SERVICIOS_K3S:-portal vendor}"
+SERVICIOS_K3S="${AUTO_DEPLOY_SERVICIOS_K3S:-portal vendor worker api}"
 
 SERVICIOS_COMPOSE=''
 _s_k3s_tocados=''
@@ -481,7 +481,15 @@ fi
 
 cd "$HOME/ops/prod" || exit 1
 set -a; . "$HOME/secrets/prod-compose.env"; set +a
-docker compose -p prod up -d $SERVICIOS_COMPOSE >/dev/null 2>&1
+# ⛔ [K3S.29] SÓLO SI HAY ALGO QUE LEVANTAR. `docker compose up -d` SIN argumentos no es un
+# no-op: levanta TODO el perfil por defecto. Desde que `api` se fue a K3s esta lista puede
+# quedar vacía en un despliegue normal, y entonces este comando tocaría `pg-prod`, `pg-rag`,
+# `backup` y el `registry` — servicios que este carril no tiene por qué recrear.
+if [ -n "$SERVICIOS_COMPOSE" ]; then
+  docker compose -p prod up -d $SERVICIOS_COMPOSE >/dev/null 2>&1
+else
+  di "   nada que levantar en Compose (todo lo tocado vive en K3s)"
+fi
 
 # ── Verificar ENTREGA, no el rótulo ─────────────────────────────────────────
 # ⚠️ La ventana era de 60 s y el arranque medido es de ~15 s — parecía de sobra. Pero cuando el
@@ -509,9 +517,28 @@ for i in $(seq 1 24); do
         revertir; latir error "$c no arranca con $DESEADO (bucle de reinicio) — revertido"; exit 1 ;;
     esac
   done
-  r=$(curl -s --max-time 5 http://127.0.0.1:8080/api/health 2>/dev/null)
+  r=$(curl -s --max-time 5 http://127.0.0.1:30080/api/health 2>/dev/null)
   vivo_ahora=$(printf '%s' "$r" | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p')
-  [ -n "$vivo_ahora" ] && break
+  # ⛔ [K3S.30] SE ESPERA EL COMMIT ESPERADO, NO "cualquier respuesta". Esta línea decía
+  # `[ -n "$vivo_ahora" ] && break` y en el mundo de Compose era correcta: `docker compose up`
+  # RECREA el contenedor, así que mientras tanto el puerto está cerrado y la primera respuesta
+  # ya era, por construcción, la del binario nuevo.
+  #
+  # En K8s eso deja de ser cierto y no un poco: el Service CONTESTA SIEMPRE. Durante el rollout
+  # hay pods viejos todavía en los endpoints, así que la primera respuesta puede ser —y fue— la
+  # versión ANTERIOR. Medido el 2026-10-01 19:16: el apply decía «todos los deployments al día
+  # en :843521b», el pod nuevo estaba Ready, y este chequeo leyó `6bb8e4f` y REVIRTIÓ un
+  # despliegue que estaba bien. Un falso rojo que deshace trabajo correcto es peor que no tener
+  # chequeo: enseña a desactivarlo.
+  #
+  # ⚠️ Y hay un agravante propio de este Service: `sessionAffinity: ClientIP`. El curl sale
+  # siempre del mismo origen (127.0.0.1), así que kube-proxy lo pega a UN pod — justamente el
+  # que puede ser el viejo. Reintentar sin exigir el commit esperado no corrige eso.
+  if [ "$DESEADO" = desconocido ]; then
+    [ -n "$vivo_ahora" ] && break
+  elif [ "$vivo_ahora" = "$DESEADO" ]; then
+    break
+  fi
   sleep 5
 done
 
@@ -534,7 +561,9 @@ revertir() {
       _falta="$_falta $img"
     fi
   done
-  cd "$HOME/ops/prod" && docker compose -p prod up -d --force-recreate $SERVICIOS_COMPOSE >/dev/null 2>&1
+  # ⛔ [K3S.29] Mismo blindaje que arriba: sin argumentos, `--force-recreate` recrearía TODO
+  # el perfil por defecto. En un camino de REVERSIÓN eso es peor todavía.
+  [ -n "$SERVICIOS_COMPOSE" ] && cd "$HOME/ops/prod" && docker compose -p prod up -d --force-recreate $SERVICIOS_COMPOSE >/dev/null 2>&1
   # ⛔ [K3S.27] Y LOS DE K3s TAMBIÉN SE REVIERTEN. Retaguear `:latest` en Docker no mueve un
   # pod: el Deployment pide una imagen por COMMIT. `rollout undo` lo devuelve al ReplicaSet
   # anterior, cuya imagen sigue en containerd. Sin esto, "revertido." sería mentira para la
@@ -575,17 +604,52 @@ fi
 # ⚠️ Se le pregunta a cada contenedor DIRECTO (`docker exec`), no por el 8080: preguntarle al
 # balanceador es exactamente lo que no distingue una réplica de la otra.
 # ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
-for _c in $(docker ps --format '{{.Names}}' | grep -E '^prod-api(-[0-9]+)?$'); do
-  _k=$(docker exec "$_c" node -e 'fetch("http://127.0.0.1:10000/api/health").then(r=>r.json()).then(j=>console.log(j.commit)).catch(()=>console.log(""))' 2>/dev/null)
-  if [ "$DESEADO" != desconocido ] && [ "$_k" != "$DESEADO" ]; then
-    di "FALLO: la réplica $_c sirve '${_k:-nada}' y se levantó '$DESEADO'."
-    revertir; latir error "réplica $_c desfasada tras desplegar $DESEADO — revertido a $ANTERIOR"; exit 1
+# ⛔ [K3S.30] AHORA SE LE PREGUNTA A CADA **POD**, no a contenedores que ya no existen.
+#
+# Este bucle iteraba `docker ps | grep '^prod-api'`. Desde que el API vive en K3s esa lista
+# está VACÍA, así que el bucle no fallaba: no hacía NADA. Y lo que dejaba de hacer es
+# justamente la razón por la que existe — `[VL.15.D2]` lo escribió después de medir **ocho
+# horas sirviendo DOS versiones a la vez**, repartidas por cookie, con el chequeo general en
+# verde porque siempre le tocaba la buena.
+#
+# ⭐ Una compuerta que se queda sin sujeto no avisa: simplemente deja de proteger. Y con
+# `sessionAffinity: ClientIP` el chequeo general es todavía MENOS capaz de distinguir una
+# réplica de otra, porque sale siempre del mismo origen y se pega a un solo pod.
+#
+# ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
+_KC=/etc/rancher/k3s/k3s.yaml
+for _p in $(KUBECONFIG=$_KC k3s kubectl get pods -n prod -l app=api \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+  # ⛔ [K3S.31] SE SALTEAN LOS QUE SE ESTÁN MURIENDO. La primera versión de este bucle
+  # preguntaba a TODOS los pods con la etiqueta `app=api`, y durante un rollout esa lista
+  # incluye a los VIEJOS en estado Terminating. `kubectl exec` contra uno que se apaga no
+  # devuelve nada, y "nada" se leía como desfasaje → revirtió un despliegue correcto.
+  # Medido el 2026-10-01 19:21: «el pod api-68bdb57986-2n2r5 sirve 'nada'» — y ese hash era
+  # el del ReplicaSet anterior.
+  # ⭐ `deletionTimestamp` es la pregunta exacta: no "¿está listo?" sino "¿lo están matando?".
+  if [ -n "$(KUBECONFIG=$_KC k3s kubectl get pod -n prod "$_p" -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)" ]; then
+    di "pod $_p: Terminating, no se le pregunta"
+    continue
   fi
-  di "réplica $_c sirve $_k"
+  # Un pod vivo puede tardar un instante en aceptar `exec`. Vacío se REINTENTA; lo que no se
+  # reintenta es un commit DISTINTO, que es el defecto que este candado existe para atrapar
+  # (`[VL.15.D2]`: ocho horas sirviendo dos versiones a la vez).
+  _k=''
+  for _i in 1 2 3 4 5 6; do
+    _k=$(KUBECONFIG=$_KC k3s kubectl exec -n prod "$_p" -c api -- \
+          node -e 'fetch("http://127.0.0.1:10000/api/health").then(r=>r.json()).then(j=>console.log(j.commit)).catch(()=>console.log(""))' 2>/dev/null)
+    [ -n "$_k" ] && break
+    sleep 5
+  done
+  if [ "$DESEADO" != desconocido ] && [ "$_k" != "$DESEADO" ]; then
+    di "FALLO: el pod $_p sirve '${_k:-nada}' y se levantó '$DESEADO'."
+    revertir; latir error "pod $_p desfasado tras desplegar $DESEADO — revertido a $ANTERIOR"; exit 1
+  fi
+  di "pod $_p sirve $_k"
 done
 
 codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-  -X POST http://127.0.0.1:8080/api/auth-mt/login \
+  -X POST http://127.0.0.1:30080/api/auth-mt/login \
   -H 'Content-Type: application/json' -d '{"username":"zz_humo_auto","password":"zz"}' 2>/dev/null || echo 000)
 case "$codigo" in
   401|403) di "humo del login: $codigo — la puerta contesta." ;;

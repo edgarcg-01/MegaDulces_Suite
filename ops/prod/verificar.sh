@@ -15,7 +15,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
 
-API=http://127.0.0.1:8080
+API=http://127.0.0.1:30080
 PGH=127.0.0.1; PGP=5434; PGU=postgres; DB=railway
 fallas=0
 nomed=0
@@ -32,14 +32,19 @@ fi
 q() { psql -h $PGH -p $PGP -U $PGU -d $DB -At -q -c "$1" 2>/dev/null; }
 
 titulo "Contenedores"
-# ⛔ [K3S.25] `prod-portal` y `prod-vendor` SALIERON de esta lista: viven en K3s desde el
-# 2026-10-01 y sus contenedores están detenidos a propósito. Dejarlos acá reportaba dos fallas
-# rojas sobre un estado sano, que es exactamente cómo se aprende a ignorar el tablero.
+# ⛔ [K3S.25][K3S.28] `prod-portal`, `prod-vendor` y `prod-worker` SALIERON de esta lista: viven
+# en K3s desde el 2026-10-01 y sus contenedores están detenidos a propósito. Dejarlos acá
+# reportaba fallas rojas sobre un estado sano, que es cómo se aprende a ignorar el tablero.
+#
+# ⭐ Al worker NO alcanza con verlo "arriba": es el singleton de los 51 @Cron, y lo que importa
+# es que ENTREGUE. Su veredicto está en `analytics.cron_runs` — `ui_usage_flush` es su latido
+# más frecuente y es el único job_key que existe SÓLO en el API, sin ningún carril que lo
+# escriba también (verificado con grep sobre database/importers y ops/).
 #
 # ⚠️ Y el reverso importa igual: si un servicio vuelve a Compose, tiene que VOLVER a esta
 # línea. Un contenedor que nadie vigila es indistinguible de uno que no existe.
 # Los pods se verifican abajo, por su NodePort y pidiendo un recurso real.
-for c in pg-prod pg-rag prod-api prod-worker prod-backup; do
+for c in pg-prod pg-rag prod-backup; do
   est=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$c" 2>/dev/null)
   case "$est" in
     healthy|running) ok "$c: $est" ;;

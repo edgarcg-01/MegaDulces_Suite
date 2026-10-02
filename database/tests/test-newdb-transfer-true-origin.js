@@ -128,17 +128,31 @@ const TICKET = 'T990008354';
     else {
       const tot = cob.reduce((s, r) => s + r.n, 0);
       cob.forEach((r) => console.log(`     ${String(r.origen_veredicto).padEnd(24)} ${String(r.n).padStart(5)}  ${money(r.imp)}`));
-      const fuera = cob.find((r) => r.origen_veredicto === 'ticket_fuera_de_replica');
-      const pct = fuera ? 100 * fuera.n / tot : 0;
+      // ⛔ `[DM.17.1]` Antes acá se reportaba SÓLO `ticket_fuera_de_replica` como "no
+      // verificable", y tras normalizar el folio ese bucket cayó a 7 documentos: el test habría
+      // publicado "0.2% no verificable" con 3,140 documentos sin resolver a la vista.
+      // *Un porcentaje que cuenta un bucket e ignora los otros cuatro miente mejor que un cero.*
+      const SIN_RESOLVER = ['sin_ticket_legible', 'ticket_fuera_de_replica', 'sin_renglon_que_case', 'ambiguo'];
+      const sinRes = cob.filter((r) => SIN_RESOLVER.includes(r.origen_veredicto));
+      const nSin = sinRes.reduce((s, r) => s + r.n, 0);
       const otra = cob.find((r) => r.origen_veredicto === 'otra_plaza');
-      console.log(`     → ${pct.toFixed(1)}% NO es verificable: su ticket no está en la réplica Wincaja.`);
+      console.log(`     → ${(100 * nSin / tot).toFixed(1)}% NO se puede atribuir, por CUATRO causas distintas`);
+      console.log(`       (${sinRes.map((r) => `${r.origen_veredicto}:${r.n}`).join(' · ')}).`);
       console.log('       Eso es un hueco de DATOS, no un veredicto de que estén bien.');
       if (otra) {
         console.log(`     → ${otra.n} documento(s) por ${money(otra.imp)} NO salieron de la sucursal que Kepler dice.`);
       }
+      // ⚠️ Y el titular va por SUCURSAL: la pregunta es sobre el CEDIS, y promediar las 9 ramas
+      // fue justo el error que publicó un 96.7% donde la cifra real de la `00` era 82.3%.
+      const porSuc = await q(
+        `SELECT sucursal_kepler AS suc, count(*)::int n,
+                count(*) FILTER (WHERE origen_veredicto IN ('origen_confirmado','otra_plaza'))::int resueltos
+           FROM analytics.v_transfer_true_origin GROUP BY 1 ORDER BY 2 DESC`);
+      porSuc.forEach((r) => console.log(
+        `       suc ${r.suc}: ${r.resueltos} de ${r.n} resueltos (${(100 * r.resueltos / r.n).toFixed(1)}%)`));
       // No se exige un umbral de cobertura: hoy es baja y bajarla a un número "aceptable"
       // sería inventar. Lo que se exige es que el bucket EXISTA y se reporte.
-      pass(`los ${tot} documentos están clasificados y la cobertura se publica (${pct.toFixed(1)}% no verificable).`);
+      pass(`los ${tot} documentos están clasificados y el hueco se publica por causa (${(100*nSin/tot).toFixed(1)}% sin atribuir).`);
     }
 
     // ── 5. El índice que sostiene el costo ────────────────────────────────────────────────

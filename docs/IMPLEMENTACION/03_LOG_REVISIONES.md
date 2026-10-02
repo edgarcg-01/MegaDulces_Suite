@@ -5,6 +5,81 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-01 — Operación: prod se mudó a k3s mientras yo buscaba por qué no desplegaba
+
+Edgar preguntó *"¿ya tenemos una verdad absoluta?"*. Al medirlo —en vez de opinarlo— salieron
+tres cosas que no estaban en ningún tablero.
+
+### 1. El despliegue no estaba pendiente: estaba FRENADO
+
+`auto_deploy` en **crítico**, **88 fallos de 1,966 corridas en 7 días**, con un motivo exacto:
+
+```
+2 migración(es) sin aplicar — despliegue frenado
+```
+
+Eran `20261001300000_devtools_projects.js` y `…300100_devtools_project_notes.js` (PR #205,
+*Desarrolladores › Proyectos*), de otra sesión: pusheadas a `origin/main` y nunca aplicadas a
+prod. La compuerta hace lo correcto —no despliega código cuyo esquema no existe— pero **bloquea a
+todos**: 17 commits atorados, incluidos los de `[DM.19]`.
+
+### ⛔ 2. Casi declaro un incidente que no existía
+
+Al ir a aplicarlas, `docker exec prod-api` respondió *"container is not running"*, y el `docker
+ps -a` mostraba **`prod-api`, `prod-worker`, `prod-vendor`, `prod-portal` y `prod-redis` todos
+`Exited`**. Parecía producción caída.
+
+**No lo estaba: prod se mudó a k3s.** Los `Exited (0)` eran paradas limpias, el túnel de
+Cloudflare se **reconfiguró a los NodePorts** `192.168.0.222:30080/30081/30082` a las 18:56, y
+los tres responden `200` con `{"status":"ok","commit":"6bb8e4f"}`. El stack entero está en
+Kubernetes: namespace `ingesta` desde hace 3 h, `prod` (api ×2, portal ×2, redis) desde hace 12
+minutos.
+
+⭐ Es, otra vez, [[feedback_measure_where_it_runs_today_not_where_code_lives]]: *el camino
+documentado para operar prod apuntaba a un sustrato que ya no era prod*, y el síntoma —un
+contenedor apagado— se parece mucho más a una caída que a una migración exitosa.
+
+**El camino nuevo:** `KUBECONFIG=/etc/rancher/k3s/k3s.yaml` (legible por todos) +
+`k3s kubectl -n prod exec <pod api> -- node /app/database/scripts/apply-one-migration-prod.js`.
+
+### 3. La trampa de siempre, con los archivos invertidos
+
+Knex abortó con *«migration directory is corrupt»* nombrando **tres archivos míos**
+(`…270000`, `…280000`, `…290000`): están aplicados en prod pero no en la imagen del pod, porque
+mis commits no están pusheados. Se le copian al pod —ya aplicados, knex sólo necesita verlos— y
+pasa. ⚠️ Ahora la deuda apunta al revés que de costumbre: **no es la imagen la que va atrasada,
+es mi rama la que va adelante**.
+
+### Lo aplicado (autorizado por Edgar)
+
+Las dos migraciones se leyeron antes de correrlas: **puramente aditivas**, schema nuevo
+`devtools`, `CREATE TABLE/INDEX IF NOT EXISTS`, y los únicos `DROP` viven en el `down()`.
+Batches **673** y **674**. Verificado: las 5 tablas con **RLS forzado**, una política cada una y
+grant a `app_runtime`.
+
+⚠️ **`dev_ro` no tiene `USAGE` en `devtools`** — una sesión de diagnóstico no puede leer esas
+tablas. Es de la otra fase; se deja como está y se declara.
+
+### ⚠️ 4. Y el propio `VERDAD_ABSOLUTA.md` caducó en dos renglones
+
+Medido contra prod hoy:
+
+| lo que dice el documento | lo que mide hoy |
+|---|---|
+| *"respaldo de prod sin correr 2.8 d (66.8 h)"* | corrió hace **20.7 h** · 2,330 MB · 685 tablas · `ok` — **cerrado y sin actualizar** |
+| *"536 huecos / 3 d · 14,599 sobrantes"* | **2 huecos** (repuestos) y **67,675 sobrantes** — **4.6× peor** |
+
+Se movió en las **dos** direcciones y nadie lo vio. Es la lección de `[CDRP.2.1]` —*una medición
+con fecha es código que caduca*— aplicada al documento que existe para evitarla. Más **9 alertas
+en warn** marcadas `RECURRENTE` que nadie atiende: `cobranza_gap` falla el **57%** de sus
+corridas, `ui_usage_flush` el **38.8%**.
+
+**Estado real de la pregunta:** 15 de 37 huecos abiertos, todos con nombre y monto — que es
+ADR-059 funcionando, porque la promesa nunca fue "no hay huecos" sino saber cuáles son y cuánto
+pesan. Lo que falla no es el método: es que el documento se lee como estado actual y en parte ya
+es historia.
+
+---
 ## 2026-10-01 — DM.19.1-3: cablear el origen a la pantalla, y una retractación
 
 Edgar: *"arranquemos"*. Al enganchar el resolvedor a `/compras/entradas` aparecieron tres cosas
