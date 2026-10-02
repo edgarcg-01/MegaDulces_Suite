@@ -29,8 +29,21 @@ paths = [
 # Connection strings a localhost/LAN con el password de dev conocido: NO son
 # secretos de prod (arrancan la DB local). Prod (proxy.rlwy.net con password real)
 # NO matchea acá → se marca como hallazgo, que es lo que queremos.
+# regexTarget = "line" NO es cosmetico: sin el, estas excepciones NUNCA pudieron aplicar.
+# Por defecto gitleaks compara la lista contra el SECRETO, y el secreto que captura esta regla
+# termina en la arroba (postgresql://usuario:clave@) -- o sea que una excepcion que pide ver el
+# host despues de la arroba esta pidiendo texto que el secreto no contiene, y falla siempre.
+# Nadie lo noto en meses porque gitleaks escanea SOLO las lineas que toca el PR, y estas lineas
+# no se tocaban. Medido el 2026-10-01: con la lista "arreglada" pero sin esta linea, .env.example
+# seguia marcando dos hallazgos.
+regexTarget = "line"
 regexes = [
-  '''(postgres(?:ql)?|redis):\/\/[^:@\/\s]+:(superoot|postgres|kepler123)@(localhost|127\.0\.0\.1|192\.168\.|::1)''',
+  # `app_runtime` se suma el 2026-10-01: es el default de dev que ya vivia en .env.dev.example
+  # y en APP_RUNTIME_PASSWORD, de la misma clase que los otros tres. No afloja la regla: el
+  # host sigue teniendo que ser local/LAN, asi que un string de prod se marca igual.
+  # Salio a la luz porque gitleaks escanea SOLO las lineas del PR -- la linea existia desde
+  # antes y nadie la habia mirado nunca.
+  '''(postgres(?:ql)?|redis):\/\/[^:@\/\s]+:(superoot|postgres|kepler123|app_runtime)@(localhost|127\.0\.0\.1|192\.168\.|::1)''',
   # DSN de Sentry del frontend: PÚBLICO por diseño (va en el bundle del browser).
   '''https:\/\/[a-f0-9]+@o\d+\.ingest\.[a-z0-9.]*sentry\.io\/\d+''',
 ]
