@@ -9,6 +9,35 @@
 ---
 
 ## [Unreleased]
+### Added — el inventario de los camiones de Ruta Directa, como un cuadre que cierra (Fase RD, 2026-10-02)
+Nueva pestaña **`/comercial/inventario-ruta`**: cuánto trae cada camión RD, con **valor a costo y valor a venta**,
+y filtro por rango de fechas. Responde la pregunta como un **cuadre** —`cargado − vendido = inventario`— y la
+identidad **cierra al centavo en las dos columnas** (medido: `delta` = 0.00 en las 22 filas).
+- **[RD.9]** `analytics.v_rd_route_identity` — resolvedor de las 11 rutas con camión y sus **cinco** nombres
+  (`RUTA 23` destino · `01-003` almacén · `23` route_code · `00023` en `kdm1.c12` · `RUTA-23` en
+  `commercial.warehouses`), con la fecha de primera carga **derivada**, no tecleada.
+- **[RD.10]** `analytics.v_rd_route_ledger` + `GET /commercial/analytics/route-inventory` (+ `/detail`).
+  ⛔ **Kepler no publica ningún saldo de ruta**: `kepler_ods.kdil` (existencia) y `kdij` (kardex) tienen **cero
+  filas** de almacén de ruta — todas cumplen `c1 = sucursal`. El saldo se **reconstruye** del embarque `U-D-41`
+  del almacén madre menos la venta del carril push.
+- **[RD.12]** ⚠️ **Hay DOS costos para la misma mercancía.** El embarque y el `c62` que el ERP escribe en la línea
+  de venta difieren **1.1744×** sobre el mismo universo, y la forma **no es un impuesto** (se probó contra 1.08 /
+  1.16 / 1.2528). Se valúa con el **costo del embarque** —es el único con el que el cuadre cierra, y es la cuenta
+  real del camión contra su sucursal—; el `c62` viaja como **línea de contraste rotulada**, jamás sumada.
+  ⭐ Corrige una medición propia anterior que decía «90% coinciden al costo»: contaba pares sin peso y sobre un
+  solo mes. Pesado por dinero son **46%**. *Contar filas ordena al revés que contar pesos.*
+
+**Medido:** los camiones **no acumulan** — el saldo neto es ±1–4% de lo cargado. La venta sale del push porque la
+copia del ODS cubre **41.8%–49.8%** de los días (le faltan días, no dinero). El inventario se publica partido en
+«a favor» y «en contra» y **no se netea en silencio**: sin conteo inicial, el negativo es mercancía que el camión
+ya traía, y se probó que **no** lo fabrica el split de unidad (de 229 SKUs negativos, **1** tiene positivo en otro
+peldaño). Cobertura declarada en pantalla: 633 pares sin costo y 256 sin precio de 8,504.
+
+**Candado** `test-newdb-rd-route-inventory.js` en la regresión — **18 ✓ / 0 ✗ / 1 no medido**, con la carga
+contrastada contra `analytics.stock_movements` (otro camino de código, coincide en las 11 rutas) y **dos pruebas
+negativas**. Sin permisos nuevos (reusa `COMMERCIAL_ROUTE_SALES_VER`) ⇒ **sin re-login**.
+Plan y evidencia en [`FASE_RD_INVENTARIO_RUTA.md`](docs/IMPLEMENTACION/FASES/FASE_RD_INVENTARIO_RUTA.md).
+
 ### Changed — el verificador de precios anota el faltante solo cuando la existencia es 0 (Fase FLT, 2026-10-02)
 La pestaña «Reportar» de `/tienda/faltantes` se reduce a **una caja de búsqueda**. Al elegir un producto se abre
 una ventana con el precio y la existencia que **se cierra sola** (9 s, pausada mientras el mouse está encima — si

@@ -17,6 +17,13 @@ Directa (RD) de Padre Hidalgo, Canindo y Morelia.
 `R.D.` y `R.V.` (Ruta Vecinal) son los dos canales de ruta, clasificados por `kdm1.c6`.
 `docs/GLOSSARY.md` no los definía.
 
+> 📋 **Continuación planeada (2026-10-02): [`FASE_RD_INVENTARIO_RUTA.md`](FASE_RD_INVENTARIO_RUTA.md)**
+> — el **inventario** de los camiones (RD.9–RD.15), que esta fase nunca tuvo. Trae además el árbitro
+> transaccional del costo que §2.3 y §9.3 dejaron declarado como hueco: el embarque `U-D-41` a la
+> ruta está valuado **al costo** (medido: 11,175 de 12,418 pares SKU×unidad con razón 1.000, contra
+> 37 que coinciden con el precio de venta), y la venta de ruta trae su costo por línea en
+> `kdm2.c62`/`c63` — en la copia de la sucursal, no en la que sube el carril push.
+
 ---
 
 ## 1. El workbook

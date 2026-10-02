@@ -221,6 +221,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
       },
       {
+        // RD.13 — el inventario de los camiones. Mismo permiso que Ventas por ruta: es la misma
+        // operacion mirada del otro lado (lo que se le cargo contra lo que vendio), no nomina.
+        path: 'inventario-ruta',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventario-ruta.component').then(m => m.ComercialInventarioRutaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
+      },
+      {
         // RD.6 — comisiones quincenales de Ruta Directa. Permiso PROPIO: es nomina, no el
         // reporte de ventas por ruta.
         path: 'comisiones',

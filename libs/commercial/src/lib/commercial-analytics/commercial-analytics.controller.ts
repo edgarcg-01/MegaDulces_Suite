@@ -1016,6 +1016,37 @@ export class CommercialAnalyticsController {
 
   // ─────────── Fase RR — Ventas por Ruta ───────────
 
+  @Get('route-inventory')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.10 - Inventario de los camiones de Ruta Directa, en las DOS valuaciones (a costo del '
+      + 'embarque y a precio realizado), con el cuadre carga - vendido = inventario cerrando al '
+      + 'centavo en cada columna. Params opcionales: from, to (YYYY-MM-DD); sin ellos devuelve '
+      + 'toda la ventana desde la primera carga documentada de cada ruta. '
+      + 'Kepler NO publica saldo de ruta (kdil y kdij no tienen una sola fila de almacen de ruta): '
+      + 'esto se reconstruye del embarque U-D-41 y de la venta del carril push.',
+  })
+  routeInventory(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.routeInventory(from, to);
+  }
+
+  @Get('route-inventory/detail')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.10 - El detalle por SKU y unidad de una ruta. La unidad es parte de la llave: el mismo '
+      + 'SKU se carga y se vende en PZA y en PAQ, y restar sin fijar el peldano mezcla piezas con '
+      + 'paquetes (ADR-055). Params: route_no, from, to.',
+  })
+  routeInventoryDetail(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.routeInventoryDetail(routeNo, from, to);
+  }
+
   @Get('sales-by-route/routes')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({ summary: 'RR — Opciones del filtro: SOLO las rutas del reporte (value = warehouse_code|route_code).' })
