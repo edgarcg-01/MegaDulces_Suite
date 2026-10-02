@@ -159,6 +159,57 @@ for par in "portal:30081" "vendor:30082"; do
   fi
 done
 
+titulo "La puerta: por donde entra la gente"
+# ⛔⛔ ESTE BLOQUE FALTABA, Y EL 2026-10-01 ESTE GUION DIJO "Sin fallas" CON EL SITIO ABAJO.
+#
+# Durante 32 minutos (21:06–21:38) megadulcessuite.com no contestó desde internet: Caddy
+# migró a K3s, su imagen no estaba en el registry y —al ser Recreate— el pod viejo ya había
+# muerto. Todo lo de arriba seguía verde: la base, el WAL, la API en su NodePort, portal y
+# vendedor en los suyos. ⭐ Es que nada de eso es la puerta. Verificar los cuartos no es
+# verificar la entrada.
+#
+# Se prueba con el NOMBRE REAL y con validación de cadena completa (sin -k) porque es lo que
+# hace un navegador: las apps mandan HSTS, así que un certificado malo NO es saltable y deja
+# a la oficina afuera sin recurso. `--resolve` fuerza la IP sin tocar DNS; el SNI lo elige la
+# URL, que es justo lo que un `--header Host:` no puede hacer.
+_hosts=$(grep -oE '^[a-z0-9.-]+\.megadulcessuite\.com' /home/superoot/ops/prod/Caddyfile 2>/dev/null | sort -u)
+_hosts="megadulcessuite.com $_hosts"
+_puerta=0
+for h in $_hosts; do
+  c=$(curl -s -o /dev/null -w '%{http_code}' -m 15 --resolve "$h:443:127.0.0.1" "https://$h/" 2>/dev/null)
+  if [ "$c" = 200 ] || [ "$c" = 301 ] || [ "$c" = 302 ]; then
+    ok "$h por Caddy: $c"
+  else
+    mal "$h por Caddy: $c  (000 = nadie escucha o el certificado no valida)"
+    _puerta=$((_puerta+1))
+  fi
+done
+[ -n "$(echo "$_hosts" | tr -d ' ')" ] || nm "no pude leer los nombres del Caddyfile para probar la puerta"
+
+# ⛔ Y el que de verdad trae a la gente de afuera. Si el túnel está abajo, Caddy puede estar
+# perfecto y el sitio seguir sin contestar desde internet.
+if command -v k3s >/dev/null 2>&1; then
+  _cf=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl -n prod get deploy cloudflared \
+          -o jsonpath='{.status.availableReplicas}/{.spec.replicas}' 2>/dev/null)
+  case "$_cf" in
+    ''|0/*) mal "cloudflared: ${_cf:-no se pudo leer} — nadie trae el tráfico de internet" ;;
+    *)      ok  "cloudflared: $_cf réplicas listas (el túnel está arriba)" ;;
+  esac
+
+  # ⭐ El patrón general, no el caso: los deployments `Recreate` no tienen red de seguridad.
+  # Si uno de ellos queda en 0, ES servicio abajo — no un despliegue pendiente.
+  _caidos=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl -n prod get deploy \
+    -o jsonpath='{range .items[*]}{.metadata.name}:{.spec.strategy.type}:{.spec.replicas}:{.status.availableReplicas}{"\n"}{end}' 2>/dev/null \
+    | awk -F: '$3 > 0 && ($4 == "" || $4 == "0") { print $1 "(" $2 ")" }' | tr '\n' ' ')
+  if [ -n "$(echo "$_caidos" | tr -d ' ')" ]; then
+    mal "deployments de prod SIN una sola réplica viva: $_caidos"
+  else
+    ok "todos los deployments de prod tienen réplicas vivas"
+  fi
+else
+  nm "sin k3s en este host no se puede medir el túnel ni los deployments"
+fi
+
 titulo "El respaldo"
 u=$(ls -t /home/superoot/backups/*.dump 2>/dev/null | head -1)
 if [ -n "$u" ]; then

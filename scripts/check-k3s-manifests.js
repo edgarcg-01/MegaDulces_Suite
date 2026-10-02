@@ -399,6 +399,75 @@ function revisar(doc, archivo) {
     if (!comparadas) console.log('  ⓘ ningún manifiesto declara listas de tablas todavía');
   }
 
+
+  console.log('\n5bis) ⛔ ¿Quién CONSTRUYE y PUBLICA lo que K3s consume?');
+  // ⛔⛔ ESTA SECCIÓN EXISTE POR UNA CAÍDA DE 32 MINUTOS — 2026-10-01, 21:06 a 21:38.
+  //
+  // `caddy` migró al clúster y su manifiesto pasó a pedir `localhost:5000/trade-prod-caddy`
+  // etiquetada por commit. Los DOS publicadores —`publicar_prod` de ops/prod/deploy.sh y el
+  // bloque [K3S.24] de auto-deploy.sh— llevaban una lista A MANO de las cuatro apps, y nadie
+  // la extendió. Cada despliegue le pedía al clúster una imagen que el registry no tenía.
+  //
+  // ⭐ Lo que lo volvió caída y no "despliegue fallido": `caddy` es `Recreate`. El pod viejo
+  // muere ANTES de crear el nuevo. De los 9 deployments de prod, CINCO son `Recreate`.
+  //
+  // La regla: toda imagen propia que un manifiesto de prod consume tiene que tener un
+  // Dockerfile declarado en auto-deploy.sh. Si no, el carril que despliega 7 veces al día no
+  // sabe construirla — y publicar lo que no se construyó es imposible.
+  const imgsProd = new Set();
+  for (const f of archivos) {
+    const txt = fs.readFileSync(path.join(DIR, f), 'utf8');
+    if (!/^\s*namespace:\s*prod\s*$/m.test(txt)) continue;
+    for (const m of txt.matchAll(/image:\s*localhost:5000\/([A-Za-z0-9._-]+):__COMMIT__/g)) {
+      imgsProd.add(m[1]);
+    }
+  }
+  const rutaAuto = path.join(__dirname, '..', 'ops', 'prod', 'auto-deploy.sh');
+  const rutaAplicar = path.join(__dirname, '..', 'ops', 'prod', 'aplicar-k3s-prod.sh');
+  /** ¿auto-deploy sabe construir esta imagen? O es una de las cuatro apps, o tiene Dockerfile. */
+  const APPS = ['trade-prod-api', 'trade-prod-worker', 'trade-prod-portal', 'trade-prod-vendor'];
+  // El mapa imagen -> Dockerfile de auto-deploy.sh tiene la forma  <imagen>) _df=<ruta>.
+  // Se compara por LINEA y sin exigir el espaciado: la primera version pedia un espacio exacto
+  // y dio un falso rojo sobre trade-prod-pg, que SI estaba mapeado pero alineado en columna.
+  const sabeConstruir = (img, txt) => APPS.includes(img)
+    || txt.split(String.fromCharCode(10)).some((l) => {
+      const t = l.trim();
+      return t.startsWith(img + ')') && t.includes('_df=');
+    });
+
+  if (!fs.existsSync(rutaAuto)) {
+    NM('no encontré ops/prod/auto-deploy.sh para comprobar quién construye');
+  } else if (imgsProd.size === 0) {
+    NM('ningún manifiesto de prod consume imágenes del registry local (¿cambió la forma?)');
+  } else {
+    const txtAuto = fs.readFileSync(rutaAuto, 'utf8');
+    const huerfanas = [...imgsProd].filter((i) => !sabeConstruir(i, txtAuto));
+    A(huerfanas.length === 0,
+      huerfanas.length === 0
+        ? `las ${imgsProd.size} imágenes que prod consume tienen quién las construya: ${[...imgsProd].join(', ')}`
+        : `NADIE LAS CONSTRUYE: ${huerfanas.join(', ')} — el pod las va a pedir y el registry no las va a tener`);
+  }
+
+  // ⭐ Y el freno de último recurso: que el prevuelo siga ahí. Un candado que comprueba listas
+  // no sirve si mañana alguien quita la comprobación de registry ANTES del apply: aplicar el
+  // manifiesto ya alcanza para matar al pod que estaba sirviendo.
+  if (!fs.existsSync(rutaAplicar)) {
+    NM('no encontré ops/prod/aplicar-k3s-prod.sh para comprobar el prevuelo');
+  } else {
+    const txtAp = fs.readFileSync(rutaAplicar, 'utf8');
+    const iPrevuelo = txtAp.indexOf('/v2/');
+    // ⚠️ Contra el apply REAL, no contra la mencion en un comentario: la cabecera del guion
+    //    habla de 'kubectl apply -f ops/k3s/' y la primera version de esta regla la tomo por
+    //    el comando, dando un rojo sobre un prevuelo que estaba bien puesto.
+    const iApply = txtAp.indexOf('kubectl apply -f -');
+    A(iPrevuelo > 0 && iApply > 0 && iPrevuelo < iApply,
+      iPrevuelo < 0
+        ? 'aplicar-k3s-prod.sh YA NO consulta el registry: volvió el defecto del 2026-10-01'
+        : iPrevuelo > iApply
+          ? 'el prevuelo quedó DESPUÉS del apply — comprobar después de matar al pod no sirve'
+          : 'el prevuelo consulta el registry ANTES de aplicar nada');
+  }
+
   console.log('\n6) Las reglas se rompen a propósito  ← negativas en memoria');
   const malo1 = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 2', 'type: Recreate'];
   A(revisar(malo1, 'test').some(([c, m]) => !c && /replicas=1/.test(m)), 'replicas=2 se detecta');
@@ -427,6 +496,17 @@ function revisar(doc, archivo) {
     'type: Recreate', 'image: busybox:1.36', 'image: redis:7-alpine'];
   A(revisar(publicas, 'test').every(([c]) => c),
     'y NO marca a busybox ni redis: se jalan de Docker Hub y no las construimos nosotros');
+
+  // ⛔ [K3S.41] Las negativas de la regla 5bis. Nacio en VERDE sobre los dos publicadores que
+  // yo mismo acababa de corregir, que es exactamente el caso que no prueba nada — y de hecho
+  // la primera version dio DOS falsos rojos (espaciado del mapa, y la mencion de kubectl apply
+  // dentro de un comentario). Se rompe a proposito para ver el rojo.
+  A(!sabeConstruir('trade-prod-nueva', 'trade-prod-caddy) _df=ops/prod/Dockerfile.caddy'),
+    'una imagen que ningun Dockerfile construye se detecta (el defecto que tiro el sitio 32 min)');
+  A(sabeConstruir('trade-prod-pg', '    trade-prod-pg)    _df=ops/prod/Dockerfile.pg ;;'),
+    'y el mapa se reconoce aunque este alineado en columna — el falso rojo que dio esta regla');
+  A(sabeConstruir('trade-prod-api', 'sin mapa alguno'),
+    'y las cuatro apps no exigen mapa: salen del Dockerfile unificado por --target');
 
   const bueno = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 1', 'type: Recreate'];
   A(revisar(bueno, 'test').every(([c]) => c), 'y NO marca de más: un manifiesto correcto pasa limpio');
