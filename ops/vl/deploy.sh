@@ -119,11 +119,17 @@ estado() {
     echo "  digest del codigo   = ${REF:-NO MEDIDO}"
     echo
     viejos=0; cosmeticos=0
-    for c in feeds-cron feeds-livefast store-poller ods-live-hot ods-live-mirror \
-             ods-reconcile ods-reconcile-chicas ods-reconcile-full; do
+    # ⛔ [K3S.32] SÓLO LOS QUE DE VERDAD SIGUEN EN COMPOSE. Esta lista tenía los ocho carriles y
+    # siete viven en K3s desde hoy: imprimía «(no existe)» siete veces y NO lo contaba como
+    # problema, así que cerraba con «✓ los 8 carriles en la misma imagen» sobre siete ausencias.
+    # Los pods se miden en el bloque de abajo, con su propio digest.
+    # ⚠️ Si un carril vuelve a Compose, vuelve a esta línea — y `npm run check:k3s` lo exige
+    # comparando contra la etiqueta `migracion:` de ops/k3s/*.yaml.
+    for c in ods-reconcile-full; do
       ID=$(docker inspect -f "{{.Image}}" "$c" 2>/dev/null | cut -c8-19)
       if [ -z "$ID" ]; then
-        M="(no existe)"
+        # Ahora SÍ cuenta: si este guion lo nombra, es porque debería estar.
+        M="** NO EXISTE ** (deberia estar en Compose)"; viejos=$((viejos + 1))
       elif [ "$ID" = "$ACT" ]; then
         M="al dia"
       else
@@ -142,10 +148,13 @@ estado() {
     if [ "$viejos" -gt 0 ]; then
       echo "  ⛔ $viejos carril(es) con CODIGO viejo — corré: ops/vl/deploy.sh --todo"
     elif [ "$cosmeticos" -gt 0 ]; then
-      echo "  ✓ los 8 corren el MISMO codigo ($cosmeticos con imagen vieja: deriva cosmetica,"
-      echo "    la imagen cambio de ID por archivos ajenos al contexto de build. No urge)."
+      echo "  ✓ los de Compose corren el MISMO codigo ($cosmeticos con imagen vieja: deriva"
+      echo "    cosmetica, la imagen cambio de ID por archivos ajenos al build. No urge)."
     else
-      echo "  ✓ los 8 carriles en la misma imagen"
+      # ⚠️ [K3S.32] Decia «los 8 carriles» con un 8 escrito a mano. Cuando siete se fueron a
+      # K3s siguio diciendo 8 — un numero fijo en un mensaje es una afirmacion que nadie
+      # vuelve a comprobar. Ahora no promete un conteo que no midio.
+      echo "  ✓ los carriles de Compose, en la misma imagen"
     fi'
 
   # ⛔ [K3S.21] Y LOS PODS TAMBIÉN. Todo el bloque de arriba mira SÓLO contenedores de Docker,

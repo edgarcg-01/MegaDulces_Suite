@@ -100,7 +100,47 @@ fi
 # ── Bajar lo que escribe ─────────────────────────────────────────────────────
 # ⛔ No se puede borrar una base con sesiones abiertas, y `api`/`worker` reconectan solos:
 # pararlos es parte del procedimiento, no higiene.
-di "parando api, worker, portal y vendor"
+# ⛔⛔ [K3S.32] ESTO BAJABA CONTENEDORES DE DOCKER Y YA NO EXISTEN.
+#
+# Decía `docker stop prod-api prod-worker prod-portal prod-vendor`. Desde el 2026-10-01 esos
+# cuatro viven en K3s, así que ese comando no paraba NADA — salía 0 porque los contenedores ya
+# estaban detenidos — y el restore seguía adelante **con los pods escribiendo**: se borraba y
+# recreaba la base con la aplicación viva encima. El `pg_terminate_backend` de abajo tampoco
+# alcanza: mata la sesión y el pod reconecta al instante.
+#
+# ⭐ Es el caso más caro de "una compuerta se queda sin sujeto": acá no daba un falso verde en
+# un tablero, daba un restore CORRUPTO con el guion reportando éxito.
+#
+# Se guardan las réplicas ANTES de bajarlas, porque el número vive en el manifiesto y este
+# guion no lo conoce. Restaurar "2" a ojo sería adivinar.
+_KC=/etc/rancher/k3s/k3s.yaml
+_REPLICAS_PREV=''
+if command -v k3s >/dev/null 2>&1; then
+  di "bajando a CERO los pods que escriben (api, worker, portal, vendor)"
+  for _d in api worker portal vendor; do
+    _n=$(KUBECONFIG=$_KC k3s kubectl get deploy "$_d" -n prod -o jsonpath='{.spec.replicas}' 2>/dev/null)
+    [ -n "$_n" ] || continue
+    _REPLICAS_PREV="$_REPLICAS_PREV $_d=$_n"
+    KUBECONFIG=$_KC k3s kubectl scale "deploy/$_d" -n prod --replicas=0 >/dev/null 2>&1
+  done
+  di "   réplicas guardadas para después:${_REPLICAS_PREV:- (ninguna)}"
+  # ⛔ Y SE ESPERA A QUE SE VAYAN. `scale` vuelve enseguida; el pod sigue vivo y escribiendo
+  # durante su terminationGracePeriod. Seguir sin esperar es exactamente el defecto que esto
+  # corrige, con un disfraz nuevo.
+  _i=0
+  while [ "$_i" -lt 60 ]; do
+    _quedan=$(KUBECONFIG=$_KC k3s kubectl get pods -n prod \
+      -l 'app in (api,worker,portal,vendor)' --no-headers 2>/dev/null | grep -c . )
+    [ "${_quedan:-0}" -eq 0 ] && break
+    _i=$((_i + 1)); sleep 2
+  done
+  if [ "${_quedan:-0}" -ne 0 ]; then
+    di "FALLO: quedan $_quedan pod(s) vivos tras 120 s. NO se restaura con escritores encima."
+    exit 1
+  fi
+  di "   los pods se fueron"
+fi
+# Lo que todavía viva en Compose (hoy: nada de estos cuatro) se baja igual. Inofensivo si no hay.
 docker stop prod-api prod-worker prod-portal prod-vendor >/dev/null 2>&1
 
 psql -h $PGH -p $PGP -U $PGU -d postgres -q -c \
@@ -164,17 +204,37 @@ di "levantando la app"
 # puerto mientras el restore tenía la app parada— el error se descartó por el silenciador, y el
 # guion reportó **código 0 con la API caída**. Estuvo abajo 50 minutos y nada lo dijo.
 # No fue «falta un trap en el camino de error»: fue el CAMINO FELIZ reportando éxito.
-docker start prod-api prod-worker prod-portal prod-vendor 2>&1 | sed 's/^/   /'
+# [K3S.32] Se devuelven las réplicas QUE SE GUARDARON, no un número inventado.
 caidos=''
+if [ -n "$_REPLICAS_PREV" ]; then
+  for _par in $_REPLICAS_PREV; do
+    _d=${_par%%=*}; _n=${_par#*=}
+    KUBECONFIG=$_KC k3s kubectl scale "deploy/$_d" -n prod --replicas="$_n" 2>&1 | sed 's/^/   /'
+  done
+  for _par in $_REPLICAS_PREV; do
+    _d=${_par%%=*}; _n=${_par#*=}
+    # ⚠️ El veredicto es `availableReplicas`, no que `scale` haya vuelto sin error: un pod
+    # puede quedar en ImagePullBackOff y el `scale` igual sale 0.
+    if ! KUBECONFIG=$_KC k3s kubectl rollout status "deploy/$_d" -n prod --timeout=180s >/dev/null 2>&1; then
+      caidos="$caidos $_d(k3s)"
+    fi
+  done
+fi
+# Lo que quedara en Compose. Hoy ninguno de los cuatro, pero si alguno volviera, acá está.
+docker start prod-api prod-worker prod-portal prod-vendor 2>&1 | grep -v 'No such container' | sed 's/^/   /'
 for c in prod-api prod-worker prod-portal prod-vendor; do
-  [ "$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null)" = running ] || caidos="$caidos $c"
+  _st=$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null)
+  # Un contenedor que NO EXISTE no es una falla: vive en K3s y ya se verificó arriba.
+  [ -z "$_st" ] && continue
+  [ "$_st" = running ] || caidos="$caidos $c"
 done
 if [ -n "$caidos" ]; then
   di "FALLO: la base se restauró bien, pero NO levantaron:$caidos"
-  di "       revisá si otro proceso tomó su puerto:  ss -ltnp | grep -E ':(8080|8081|8082)'"
+  di "       pods:  k3s kubectl get pods -n prod"
+  di "       o si alguno volvió a Compose, revisá el puerto: ss -ltnp | grep -E ':(8080|8081|8082)'"
   exit 1
 fi
-di "los 4 servicios están arriba"
+di "los servicios que escriben están arriba"
 
 di "⚠️ El veredicto NO es que los contenedores arranquen. Pedile DATOS:"
 di "     sh ~/ops/prod/verificar.sh"
