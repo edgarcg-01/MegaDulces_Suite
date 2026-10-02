@@ -1474,7 +1474,7 @@ export class CommercialReplenishmentService {
            GROUP BY product_id, sku, nombre, supplier_id
         )
         SELECT p.*, sup.name AS supplier_name,
-               -- `[RA-DYN.U3]` El piso de la orden. El join a proveedores ya estaba acá por el
+               -- \`[RA-DYN.U3]\` El piso de la orden. El join a proveedores ya estaba acá por el
                -- nombre: estas dos columnas no agregan ninguna relación nueva.
                -- Viajan CRUDAS a propósito: un mínimo se cumple con la canasta entera del
                -- proveedor, no con un renglón, así que resolverlo por fila daría un número que no
