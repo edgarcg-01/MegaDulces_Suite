@@ -59,11 +59,30 @@ const changedByFile = changedLinesByFile(targets, base, head, opts);
 const res = spawnSync(
   'npx',
   ['eslint', '--no-error-on-unmatched-pattern', '-f', 'json', '--config', 'eslint.gate.config.js', ...targets],
-  { encoding: 'utf8', shell: process.platform === 'win32' },
+  {
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+    // ⛔ `maxBuffer` EXPLICITO. El default de `spawnSync` es 1 MB, y el reporte JSON de eslint
+    // lo supera en cuanto el diff crece: medido el 2026-10-02 en el PR #219 (49 commits), la
+    // compuerta murio con `spawnSync ... ENOBUFS` **en CI y reproducido local**. El fail-closed
+    // de abajo esta bien —no se puede medir, se bloquea— pero la causa era un limite
+    // arreglable, no una imposibilidad real: el resultado neto era una compuerta que se caia
+    // sola en los PR grandes, o sea justo donde mas falta hace.
+    maxBuffer: 64 * 1024 * 1024,
+  },
 );
 if (res.error || !res.stdout || !res.stdout.trim()) {
   // Fail-closed: si eslint no produjo reporte, no podemos verificar → bloquear.
-  console.error('[boundary-gate] eslint no produjo reporte JSON:', res.error?.message || res.stderr || '(vacio)');
+  // ⚠️ Se nombra el caso ENOBUFS aparte: "no pude correr" y "encontre un `any`" son dos cosas
+  // distintas y el mensaje tiene que decir cual, o el proximo busca el defecto donde no esta.
+  const esBuffer = res.error && /ENOBUFS/.test(res.error.message || '');
+  if (esBuffer) {
+    console.error('[boundary-gate] eslint desbordo el buffer de salida (ENOBUFS) — NO MEDIDO.');
+    console.error('   No es un hallazgo: la compuerta no pudo correr. Subi `maxBuffer` si el');
+    console.error('   diff creció mas de lo que este tope aguanta.');
+  } else {
+    console.error('[boundary-gate] eslint no produjo reporte JSON:', res.error?.message || res.stderr || '(vacio)');
+  }
   process.exit(1);
 }
 let report;

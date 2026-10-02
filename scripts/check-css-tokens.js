@@ -210,6 +210,22 @@ const globales = declaradosGlobales();
 const archivos = [];
 for (const app of APPS) recorrer(path.join(RAIZ, app), archivos);
 
+// ── `[CD.2]` LA COMPUERTA CORTA POR LO QUE ESTE CAMBIO ESCRIBIO ────────────────────────────
+// Barría las 3 apps enteras, así que un token roto en una pantalla ajena ponía roja la corrida
+// de cualquiera. Medido el 2026-10-02: el commit `1d3c504dc` tocó UN archivo y su CI se cayó por
+// cinco que no tocó. Mismo ratchet que `lint-changed.js`; la deuda vieja se sigue imprimiendo
+// más abajo (PENDIENTE_DISENO), o sea que no se esconde: cambia quién la paga.
+// `--todo` fuerza el barrido completo, para auditar el repo a propósito.
+const { acotarACambiados, declararAlcance } = require('./lib/alcance-diff');
+const _totalTokens = archivos.length;
+const _alcanceTokens = acotarACambiados(archivos, {
+  raiz: RAIZ,
+  activar: process.argv.includes('--todo') ? false : null,
+});
+archivos.length = 0;
+archivos.push(..._alcanceTokens.archivos);
+console.log(declararAlcance(_alcanceTokens, _totalTokens));
+
 const rojos = new Map(); // token -> [{rel, prop}]
 const deuda = new Map(); // token -> n
 
