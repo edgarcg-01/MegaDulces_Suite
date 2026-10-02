@@ -65,6 +65,51 @@ spec:
       containers:
         - name: postgres
           image: pgvector/pgvector:pg18
+          # ═══ [K3S.42] EL `command` DEL COMPOSE — SIN ESTO EL POD ARRANCA EN DEFAULTS ═══
+          #
+          # ⛔⛔ ESTO FALTABA EN LOS TRES MANIFIESTOS Y DOS YA ESTABAN EN PRODUCCIÓN ASÍ.
+          #
+          # Medido el 2026-10-01: los pods de `pg-rag` y `pgvector-md` corrían con
+          # shared_buffers en 16384 bloques = 128 MB, el default de fábrica. En Compose eran
+          # 512 MB y 4 GB. O sea 32× menos caché en la base que alimenta los 7 carriles.
+          #
+          # ⭐ Por qué se escapó: el manifiesto se escribió mirando `docker inspect` —volúmenes,
+          # entorno, puertos, sondas— y TODO eso estaba bien. La afinación no vive ahí: vive en
+          # el `command`, que es lo único que un vistazo a la configuración del contenedor no
+          # devuelve con el mismo nombre. Lo que se copia por parecido deja afuera lo que no se
+          # parece.
+          #
+          # ⚠️ Y no todo se perdía: `wal_level`, los slots y los workers de replicación SÍ
+          # sobrevivieron, porque viven en el `postgresql.conf` del datadir y el datadir viaja.
+          # La mitad que sobrevive es justamente lo que hace que la otra mitad no se note.
+          args:
+            # ⚠️ Los cinco de replicación tienen que ser >= a los del cluster de ORIGEN o el
+            # datadir copiado no arranca. Medidos en .249 el 2026-09-10. Hoy ya viven también
+            # en el postgresql.conf del datadir, pero se declaran acá igual: depender de que
+            # un archivo adentro del volumen los tenga es depender de algo que nadie versiona.
+            - postgres
+            - "-c"
+            - "shared_buffers=4GB"
+            - "-c"
+            - "effective_cache_size=9GB"
+            - "-c"
+            - "maintenance_work_mem=1GB"
+            - "-c"
+            - "work_mem=32MB"
+            - "-c"
+            - "max_wal_size=4GB"
+            - "-c"
+            - "checkpoint_completion_target=0.9"
+            - "-c"
+            - "wal_level=logical"
+            - "-c"
+            - "max_replication_slots=20"
+            - "-c"
+            - "max_wal_senders=20"
+            - "-c"
+            - "max_logical_replication_workers=16"
+            - "-c"
+            - "max_worker_processes=24"
           imagePullPolicy: IfNotPresent
           ports:
             # hostPort 5433, el MISMO que publicaba Compose: los puentes `pg-ods` de los

@@ -468,6 +468,106 @@ function revisar(doc, archivo) {
           : 'el prevuelo consulta el registry ANTES de aplicar nada');
   }
 
+
+  console.log('\n5ter) ⛔ El manifiesto no puede PERDER el command del compose');
+  // ⛔⛔ ESTA REGLA EXISTE PORQUE DOS BASES YA ESTABAN EN PRODUCCIÓN SIN SU AFINACIÓN.
+  //
+  // Medido el 2026-10-01: los pods de `pg-rag` y `pgvector-md` corrían con shared_buffers en
+  // 128 MB —el default de fábrica— donde Compose les daba 512 MB y 4 GB. Y al manifiesto de
+  // `pg-prod`, escrito y a punto de aplicarse, le faltaban VEINTIÚN ajustes, entre ellos
+  // `archive_mode=on` (sin él pgBackRest deja de recibir WAL y la recuperación a un punto en
+  // el tiempo se corta en silencio) y `ssl=on` (sin él la app no conecta).
+  //
+  // ⭐ Por qué se escapó: el manifiesto se escribió mirando `docker inspect` —volúmenes,
+  // entorno, puertos, sondas— y todo eso estaba bien. La afinación vive en el `command`, que
+  // es lo único que ese vistazo no devuelve con la misma forma. Lo que se copia por parecido
+  // deja afuera lo que no se parece.
+  //
+  // Se comparan sólo las claves `k=v`: los valores pueden diferir con razón (el compose usa
+  // variables de entorno), pero una clave que estaba y ya no está es afinación perdida.
+  const composes = [
+    path.join(__dirname, '..', 'ops', 'prod', 'docker-compose.yml'),
+    path.join(__dirname, '..', 'ops', 'vl', 'docker-compose.yml'),
+  ].filter((p) => fs.existsSync(p));
+
+  /** El servicio del compose puede llamarse distinto que el manifiesto: `pgvector-md` es el
+   *  `container_name` del servicio `pg-ods`. Buscar sólo por la clave del servicio hacía que
+   *  esta regla pasara EN EL VACÍO justo sobre la base que alimenta los 7 carriles. */
+  const servicioDe = (txt, nombre) => {
+    const ls = txt.split(String.fromCharCode(10));
+    if (ls.includes('  ' + nombre + ':')) return nombre;
+    const i = ls.findIndex((l) => new RegExp('^ +container_name: *' + nombre + ' *$').test(l));
+    if (i < 0) return null;
+    for (let j = i; j >= 0; j--) {
+      const m = ls[j].match(/^ {2}([a-z0-9][a-z0-9_-]*): *$/);
+      if (m) return m[1];
+    }
+    return null;
+  };
+  /** Claves `k=v` del bloque `command:` de un servicio del compose. */
+  const clavesCompose = (txt, svc) => {
+    const ls = txt.split(String.fromCharCode(10));
+    const i = ls.findIndex((l) => l === '  ' + svc + ':');
+    if (i < 0) return null;
+    let dentro = false; const ks = [];
+    for (let j = i + 1; j < ls.length; j++) {
+      const l = ls[j];
+      if (l.trim() !== '' && /^.{0,2}[^ ]/.test(l)) break;
+      if (/^ {4}command:/.test(l)) { dentro = true; continue; }
+      if (!dentro) continue;
+      if (/^ {4}[a-z]/.test(l)) break;
+      const m = l.match(/^ *- *"?([^"#]+?)"? *$/);
+      if (m && m[1].includes('=')) ks.push(m[1].split('=')[0].trim());
+    }
+    return ks;
+  };
+  /** Claves `k=v` que el manifiesto declara en renglones de lista (NO en comentarios). */
+  const clavesManifiesto = (txt) => {
+    const ks = [];
+    for (const l of txt.split(String.fromCharCode(10))) {
+      if (/^ *#/.test(l.trim()) || l.trim().startsWith('#')) continue;
+      const m = l.match(/^ *- *"([^"]+)" *$/);
+      if (m && m[1].includes('=')) ks.push(m[1].split('=')[0].trim());
+    }
+    return ks;
+  };
+
+  if (!composes.length) {
+    NM('no encontré ningún docker-compose.yml para comparar el command');
+  } else {
+    const txtComposes = composes.map((p) => fs.readFileSync(p, 'utf8'));
+    let comparados = 0;
+    for (const f of archivos) {
+      const txtMan = fs.readFileSync(path.join(DIR, f), 'utf8');
+      const delMan = clavesManifiesto(txtMan);
+      for (const doc of documentos(txtMan)) {
+        const k = campo(doc, 'kind');
+        if (k !== 'Deployment' && k !== 'CronJob') continue;
+        const n = campo(doc, 'name');
+        let delCompose = null;
+        for (const t of txtComposes) {
+          const svc = servicioDe(t, n);
+          if (!svc) continue;
+          const r = clavesCompose(t, svc);
+          if (r && r.length) { delCompose = r; break; }
+        }
+        if (!delCompose) {
+          // ⚠️ Un manifiesto que YA declara afinación y no tiene con qué compararse se DECLARA.
+          // Saltearlo en silencio es cómo esta misma regla pasó en el vacío sobre pgvector-md.
+          if (delMan.length > 3) NM(`${n}: declara ${delMan.length} ajustes y no encontré su servicio en ningún compose`);
+          continue;
+        }
+        comparados++;
+        const perdidas = delCompose.filter((c) => !delMan.includes(c));
+        A(perdidas.length === 0,
+          perdidas.length === 0
+            ? `${n}: el manifiesto conserva los ${delCompose.length} ajustes del command`
+            : `${n} PERDIÓ del command: ${perdidas.join(', ')} — el pod arrancaría en defaults`);
+      }
+    }
+    if (!comparados) NM('ningún servicio con command tiene manifiesto con el mismo nombre');
+  }
+
   console.log('\n6) Las reglas se rompen a propósito  ← negativas en memoria');
   const malo1 = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 2', 'type: Recreate'];
   A(revisar(malo1, 'test').some(([c, m]) => !c && /replicas=1/.test(m)), 'replicas=2 se detecta');
@@ -507,6 +607,38 @@ function revisar(doc, archivo) {
     'y el mapa se reconoce aunque este alineado en columna — el falso rojo que dio esta regla');
   A(sabeConstruir('trade-prod-api', 'sin mapa alguno'),
     'y las cuatro apps no exigen mapa: salen del Dockerfile unificado por --target');
+
+  // ⛔ [K3S.42] Las negativas de 5ter. Nació en verde sobre los tres manifiestos que yo mismo
+  // acababa de corregir — el caso que no prueba nada. Y de hecho la primera versión pasaba EN
+  // EL VACÍO sobre pgvector-md, porque su servicio en el compose se llama `pg-ods` y la regla
+  // buscaba sólo por la clave del servicio.
+  {
+    const composeFalso = [
+      'services:',
+      '  pg-falso:',
+      '    container_name: basecita',
+      '    command:',
+      '      - postgres',
+      '      - "-c"',
+      '      - "shared_buffers=4GB"',
+      '      - "-c"',
+      '      - "archive_mode=on"',
+      '  otro:',
+    ].join(String.fromCharCode(10));
+    A(servicioDe(composeFalso, 'basecita') === 'pg-falso',
+      'el servicio se encuentra por container_name, no sólo por su clave (el vacío de pgvector-md)');
+    const claves = clavesCompose(composeFalso, 'pg-falso');
+    A(claves.length === 2 && claves.includes('archive_mode'),
+      'del command se extraen las claves k=v y se ignoran los tokens sueltos como -c');
+    const manSinAfinar = ['    spec:', '      containers:', '        - image: x'].join(String.fromCharCode(10));
+    A(clavesManifiesto(manSinAfinar).length === 0,
+      'un manifiesto sin args no declara ninguna clave — es el defecto que dejó dos bases en defaults');
+    const manComentado = ['        # - "archive_mode=on"'].join(String.fromCharCode(10));
+    A(clavesManifiesto(manComentado).length === 0,
+      'y una clave MENCIONADA EN UN COMENTARIO no cuenta: el comentario no arranca el proceso');
+    const manReal = ['            - "shared_buffers=4GB"', '            - "archive_mode=on"'].join(String.fromCharCode(10));
+    A(clavesManifiesto(manReal).length === 2, 'y las de renglones de lista reales sí cuentan');
+  }
 
   const bueno = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 1', 'type: Recreate'];
   A(revisar(bueno, 'test').every(([c]) => c), 'y NO marca de más: un manifiesto correcto pasa limpio');
