@@ -1603,4 +1603,67 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+
+  // `[RD.13]` La pantalla publica un CUADRE, no un dato suelto, y eso no es obvio: quien la abre
+  // espera "cuanto trae el camion" y se encuentra con dos columnas y un saldo partido en dos.
+  // Cada definicion esta anclada a lo MEDIDO contra prod (2026-10-02), no a lo que la etiqueta
+  // sugiere. Registro llano: lo leen rutas, compras y direccion, y ninguno es tecnico.
+  'inventario-de-ruta': {
+    title: 'Inventario de ruta — que es este numero y que no es',
+    intro: 'Kepler no guarda en ningun lado cuanto trae un camion: guarda los papeles. Asi que esta pantalla no consulta una existencia, la RECONSTRUYE — suma lo que la sucursal le cargo y le resta lo que vendio. Por eso se presenta como una cuenta que cierra, y no como una cifra suelta: si las dos columnas no cuadran, el numero no vale.',
+    groups: [
+      {
+        heading: 'Lo primero que hay que entender',
+        entries: [
+          { term: 'Esto es una cuenta, no una existencia', def: 'Lo cargado menos lo vendido es igual al inventario. Esa resta cierra al centavo en las dos columnas, y el tablero lo dice en voz alta. Si algun dia dijera que NO cierra, el resto de la pantalla no se puede usar: significa que algo se valuo con dos varas distintas.' },
+          { term: 'Los camiones no acumulan', def: 'Medido: el saldo que queda es apenas 1 a 4 por ciento de todo lo que se les cargo. Venden practicamente lo que se les sube. Eso es un hallazgo util: dice que no hay mercancia escondida en la flota.' },
+          { term: 'No hay conteo inicial', def: 'A ningun camion se le hizo un inventario fisico de arranque. La cuenta empieza el dia de la primera carga que quedo documentada — 15 de julio en Padre Hidalgo, 14 de agosto en Canindo. Todo lo que el camion ya traia antes de esa fecha no esta contado.' },
+        ],
+      },
+      {
+        heading: 'Por que el inventario viene partido en dos',
+        entries: [
+          { term: 'A favor', def: 'Productos de los que se le cargo mas de lo que vendio. Es lo que, en principio, deberia seguir arriba del camion.' },
+          { term: 'En contra', def: 'Productos de los que vendio mas de lo que se le cargo en la ventana. No es un error de la cuenta: es mercancia que el camion ya traia desde antes de que empezaramos a mirar. Se comprobo que no lo provoca la unidad de medida — de 229 productos en contra de una ruta, solo UNO tenia saldo a favor en otra presentacion.' },
+          { term: 'Por que no se restan entre si', def: 'Porque restarlos da casi cero y tapa las dos cosas. Un camion puede tener mucho a favor y mucho en contra al mismo tiempo, y eso dice algo distinto que un camion con poco de ambos.' },
+        ],
+      },
+      {
+        heading: 'Las dos formas de ver el dinero',
+        entries: [
+          { term: 'A costo', def: 'Lo que la mercancia le costo a la empresa, tomado del propio documento de embarque: lo que la sucursal le cargo al camion. Es la cuenta del camion contra su sucursal.' },
+          { term: 'A venta', def: 'A cuanto se vendio realmente ese mismo producto en esa misma ruta durante el periodo. No es un precio de lista: es el precio al que de verdad salio.' },
+          { term: 'Hay dos costos y se eligio uno', def: 'El ERP guarda ADEMAS su propio costo en cada linea de venta, y no coincide con el del embarque: sobre lo mismo, uno da 17 por ciento mas alto que el otro. No es un impuesto — se comprobo. Se usa el del embarque porque es el unico con el que la cuenta cierra, y porque es lo que la sucursal efectivamente le cobro al camion. El otro se muestra aparte, rotulado, y nunca se suma con este.' },
+        ],
+      },
+      {
+        heading: 'Que NO esta aqui',
+        entries: [
+          { term: 'Morelia 321 y 322', def: 'No aparecen. En Kepler no existe un documento de embarque hacia esas rutas, asi que no hay con que empezar la cuenta. Preferimos que falten a inventarles una entrada.' },
+          { term: 'Las rutas vecinales', def: 'Tampoco. Venden del almacen de su sucursal madre: no son un camion con mercancia propia arriba.' },
+          { term: 'La devolucion del camion', def: 'No existe ningun papel con el que el camion regrese mercancia. Si algo baja sin documento, se queda sumando del lado de "a favor". Es una de las cosas que este numero deja ver.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Si queres que el numero sea una existencia de verdad',
+        kind: 'fix',
+        intro: 'Hoy es un movimiento desde la primera carga. Se vuelve existencia absoluta con un solo paso, una sola vez por camion:',
+        steps: [
+          'Contar fisicamente lo que trae cada camion, un dia, al cierre.',
+          'Capturar ese conteo como inventario de arranque de esa ruta.',
+          'De ahi en adelante la misma cuenta ya da el saldo real, sin volver a contar.',
+        ],
+      },
+      {
+        heading: 'Si una ruta muestra mucho "en contra"',
+        kind: 'info',
+        steps: [
+          'Revisar desde cuando esta documentada su carga: mientras mas tarde empiece, mas mercancia previa queda sin contar.',
+          'Abrir el detalle y mirar los productos uno por uno: si son pocos y grandes, es carga vieja; si son muchos y chicos, puede ser que se este bajando mercancia sin papel.',
+        ],
+      },
+    ],
+  },
 };

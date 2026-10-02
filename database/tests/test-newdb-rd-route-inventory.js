@@ -33,9 +33,13 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
 const knexLib = require('knex');
+const fs = require('node:fs');
 
 const MIG = path.resolve(__dirname, '..', 'migrations-newdb',
   '20261003120000_rd_route_inventory_views.js');
+/** El servicio REAL: el candado ejerce su SQL tal cual, no una copia pegada acá. */
+const SERVICIO = path.resolve(__dirname, '..', '..', 'libs', 'commercial', 'src', 'lib',
+  'commercial-analytics', 'commercial-analytics.service.ts');
 
 let ok = 0, bad = 0, nm = 0;
 const t = (name, cond, extra) => {
@@ -229,6 +233,51 @@ async function cuerposDeLaMigracion() {
     t('la cobertura del costo es la que el diseño promete (el embarque cubre lo que entró)',
       n(cob.sin_costo) / n(cob.total) < 0.15,
       `${cob.sin_costo}/${cob.total} — sólo deberían faltar los SKUs que el camión ya traía`);
+
+    // ── La consulta REAL del servicio, ejercida tal cual está escrita ───────────────────
+    // ⛔ Esto existe porque el candado anterior probaba las VISTAS y daba verde mientras el
+    // servicio referenciaba `catalog.products.name`, una columna que NO existe (es
+    // `description`): el detalle habría tronado en el primer clic. Una vista correcta no
+    // prueba que el consumidor esté bien cableado.
+    const sqlDetalle = (() => {
+      const src = fs.readFileSync(SERVICIO, 'utf8');
+      const i = src.indexOf('async routeInventoryDetail(');
+      if (i < 0) return null;
+      const a = src.indexOf('`', i);
+      const b = src.indexOf('`', a + 1);
+      return a > 0 && b > a ? src.slice(a + 1, b) : null;
+    })();
+    if (!sqlDetalle) {
+      noMedido('la consulta del detalle', 'no se pudo extraer el SQL de routeInventoryDetail');
+    } else {
+      // Se ejerce HOY, con la vista aplicada o sin ella: si no está, se le antepone el mismo
+      // CTE que el resto del candado y se repunta el nombre. Dejarlo NO MEDIDO hasta el
+      // despliegue sería esconder justo la clase de bug que este bloque vino a cazar.
+      // ⛔ Los `?` se dejan COMO ESTÁN: este candado corre por knex, igual que el servicio, y
+      // `knex.raw` sólo entiende `?` — traducirlos a `$n` fue el bug de Fase CV.
+      const cuerpo = aplicada ? sqlDetalle
+        : sqlDetalle.replace(/analytics\.v_rd_route_ledger/g, 'LEDGER')
+          .replace(/^\s*WITH\s+/i, ', ');
+      const pg = aplicada ? cuerpo : PRE + cuerpo;
+      const ruta = cuadre[0] && cuadre[0].route_no;
+      try {
+        const r = await db.raw(pg, [tenant, ruta, '2000-01-01', '2999-12-31', tenant]);
+        const filas = r.rows || r;
+        t('la consulta del DETALLE del servicio corre contra prod', true);
+        t('el detalle trae las columnas que la pantalla pinta',
+          filas.length === 0 || ['sku', 'unidad', 'producto', 'saldo', 'saldo_costo', 'saldo_venta', 'veredicto']
+            .every((c) => c in filas[0]),
+          filas.length ? Object.keys(filas[0]).join(',') : 'sin filas');
+        t('el detalle resuelve el NOMBRE del producto, no repite el SKU',
+          filas.some((f) => f.producto && f.producto !== f.sku),
+          'si ninguno resuelve, el join al catálogo está roto');
+        const malV = filas.filter((f) => !['ok', 'negativo_sin_ancla', 'sin_costo', 'sin_precio'].includes(f.veredicto));
+        t('todo renglón del detalle trae un veredicto conocido', malV.length === 0);
+      } catch (e) {
+        bad++;
+        console.log('  ✘ la consulta del DETALLE del servicio FALLA — ' + e.message);
+      }
+    }
 
     console.log('\n  — el cuadre, ruta por ruta —');
     console.table(cuadre.map((r) => ({

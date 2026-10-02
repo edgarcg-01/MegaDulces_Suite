@@ -7926,7 +7926,7 @@ export class CommercialAnalyticsService {
           GROUP BY 1,2
        )
        SELECT w.sku, w.unidad,
-              coalesce(p.name, w.sku)                            AS producto,
+              coalesce(p.description, w.sku)                     AS producto,
               round(coalesce(w.cq,0),3)::float                   AS qty_carga,
               round(coalesce(w.vq,0),3)::float                   AS qty_venta,
               round(coalesce(w.cq,0)-coalesce(w.vq,0),3)::float  AS saldo,
