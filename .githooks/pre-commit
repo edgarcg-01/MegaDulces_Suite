@@ -10,12 +10,38 @@
 # romper la automatización de commits del entorno.
 
 if command -v gitleaks >/dev/null 2>&1; then
-  if ! gitleaks protect --staged --redact --config .gitleaks.toml; then
+  # ── `protect` YA NO EXISTE, Y ESO BLOQUEABA TODOS LOS COMMITS ──────────────
+  # Medido el 2026-10-02 instalando gitleaks 8.30.1 (lo que dan hoy winget y choco):
+  # los subcomandos son `dir`, `git` y `stdin`. `gitleaks protect --staged` sale **255**
+  # ("unknown command"), y como este hook leía ese no-cero como "hay un secreto", el
+  # resultado era: mensaje FALSO de secreto detectado + `exit 1` + **ningún commit posible**.
+  # O sea que instalar la herramienta rompía el repo, que es lo contrario de lo que hace.
+  # `protect` se renombró a `git` en 8.19; acá se detecta cuál existe para no romperle el
+  # commit a quien todavía tenga una versión vieja.
+  if gitleaks git --help >/dev/null 2>&1; then
+    SUBCMD=git          # 8.19+
+  else
+    SUBCMD=protect      # <8.19
+  fi
+
+  # ⛔ UN NO-CERO SIGNIFICA DOS COSAS DISTINTAS y hay que separarlas: "encontré un secreto"
+  # (que debe frenar) y "no pude correr" (que NO es un hallazgo). Confundirlas es como nació
+  # el bug de arriba. `--exit-code 7` fija un código propio para el hallazgo, así que
+  # cualquier otro no-cero es un fallo de la herramienta.
+  gitleaks "$SUBCMD" --staged --redact --exit-code 7 --config .gitleaks.toml
+  ESTADO=$?
+
+  if [ "$ESTADO" -eq 7 ]; then
     echo ""
     echo "⛔ gitleaks detectó un posible secreto en lo staged."
     echo "   Sacalo del commit (usá env/credenciales). Si es falso positivo,"
     echo "   agregá el patrón al [allowlist] de .gitleaks.toml."
     exit 1
+  elif [ "$ESTADO" -ne 0 ]; then
+    # No se pudo medir. Se DECLARA y se deja pasar (el CI escanea igual): frenar por no haber
+    # podido medir convertiría cualquier problema de la herramienta en un repo trabado.
+    echo "⚠️  gitleaks salió con $ESTADO sin reportar hallazgo — escaneo local NO MEDIDO."
+    echo "   (El job secret-scan del CI escanea igual.)"
   fi
 else
   echo "⚠️  gitleaks no está instalado — se saltea el escaneo local (el CI igual escanea)."
