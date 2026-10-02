@@ -159,6 +159,49 @@ export interface CreateRequisitionDto {
   lines: RequisitionLineDto[];
 }
 interface ReceiveLineDto { line_id: string; received_qty: number; }
+
+/**
+ * `[MT.6]` Una fila de la lista de requisiciones, con el origen ya resuelto.
+ *
+ * Los nombres que vienen de los LEFT JOIN son nullable a proposito: una requisicion a proveedor
+ * no tiene almacen de origen, y una de traspaso no tiene proveedor.
+ *
+ * ADVERTENCIA sobre total_units y total_cost: en la base son numeric(14,3) y numeric(14,4), y este
+ * repo NO configura un type parser para el OID 1700, asi que node-pg los entrega como STRING. El
+ * metodo devuelve las filas CRUDAS (solo convierte el total de la paginacion), asi que el valor que
+ * sale por HTTP no esta comprobado que sea numero. El frontend los declara como number
+ * (apps/view/.../compras.service.ts, RequisitionRow). Las dos declaraciones NO pueden ser ciertas a
+ * la vez; mientras no se mida contra la base, se declara la union en vez de elegir una y acertarle
+ * de casualidad.
+ */
+export interface RequisitionListRowDto {
+  id: string;
+  folio: string;
+  estado: string;
+  source_type: 'supplier' | 'branch';
+  source_warehouse_id: string | null;
+  target_basis: string;
+  total_lines: number;
+  total_units: number | string;
+  total_cost: number | string;
+  notes: string | null;
+  created_at: Date | string;
+  approved_at: Date | string | null;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  supplier_name: string | null;
+  source_warehouse_code: string | null;
+  source_warehouse_name: string | null;
+}
+
+/** `[MT.6]` Pagina de requisiciones. */
+export interface RequisitionListDto {
+  total: number;
+  page: number;
+  pageSize: number;
+  rows: RequisitionListRowDto[];
+}
+
 export interface ReceiveRequisitionDto { lines?: ReceiveLineDto[]; }
 
 const BASES: TargetBasis[] = ['min', 'reorder', 'max', 'cadence'];
@@ -2589,7 +2632,9 @@ export class CommercialReplenishmentService {
     });
   }
 
-  async listRequisitions(q: { estado?: string; warehouse_id?: string; source_type?: string; page?: number; pageSize?: number }) {
+  async listRequisitions(
+    q: { estado?: string; warehouse_id?: string; source_type?: string; page?: number; pageSize?: number },
+  ): Promise<RequisitionListDto> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(q.pageSize) || 50));
