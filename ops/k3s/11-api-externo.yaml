@@ -1,0 +1,30 @@
+# ═══ EL PUENTE AL API, PARA LOS CARRILES ═══  [K3S.46]
+#
+# ⛔⛔ ESTE ARCHIVO NO EXISTIA. El Service vivia SOLO en el cluster, creado a mano durante la
+# migracion, y el comentario de 24-store-poller.deployment.yaml ya lo citaba por este nombre
+# como si estuviera versionado. Un objeto vivo que no esta en el repo es un objeto que el
+# candado no puede mirar y que nadie vuelve a leer: no se degrada, se olvida.
+#
+# ── Lo que costo, medido el 2026-10-02 ──────────────────────────────────────
+#
+# `store-poller` lee los ocho puntos de venta y POSTEA los tickets a `http://api:10000`. El
+# Service decia 10000 -> 8080 con Endpoints a 192.168.0.222:8080, que era el `prod-api` de
+# Compose. Cuando el API migro a K3s, en el 8080 dejo de haber nadie.
+#
+# ⭐ El sintoma enganaba: el latido decia "01 Padre Hidalgo: fetch failed · 02 La Piedad
+# Abastos: fetch failed · ..." y se lee como "no alcanzo las sucursales". Las alcanzaba
+# perfecto: lo que fallaba era la ENTREGA. Un error que nombra el origen cuando el roto es el
+# destino manda a buscar al lado equivocado -- y las ocho sucursales fallando a la vez era la
+# pista de que el problema no estaba en ninguna de ellas.
+#
+# ⚠️ Y el modo de falla es el de los puentes a hostPort (ver 10-postgres-externo.yaml): apuntar
+# un Service a la IP del nodo funciona mientras haya un PROCESO escuchando ahi. Con Compose lo
+# habia; con K3s el puerto lo publica un NodePort y el camino correcto es no salir del cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: ingesta
+spec:
+  type: ExternalName
+  externalName: api.prod.svc.cluster.local

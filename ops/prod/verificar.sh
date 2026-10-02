@@ -222,6 +222,41 @@ else
   nm "sin k3s en este host no se puede medir el túnel ni los deployments"
 fi
 
+titulo "¿Hay algo vivo en el clúster que NO esté en el repo?"
+# ⛔⛔ ESTE BLOQUE EXISTE POR UN SERVICE FANTASMA QUE COSTÓ ~12 h DE TICKETS EN VIVO.
+#
+# El puente `api` del namespace `ingesta` se creó A MANO durante la migración y nunca se
+# versionó — tanto que un comentario de `24-store-poller.deployment.yaml` ya lo citaba como
+# `11-api-externo.yaml`, un archivo que no existía. Apuntaba a `192.168.0.222:8080`, el
+# `prod-api` de Compose; cuando el API migró a K3s ahí dejó de haber nadie y `store-poller`
+# no pudo ENTREGAR ni un ticket.
+#
+# ⭐ Lo que lo volvió difícil de ver: el error decía "01 Padre Hidalgo: fetch failed · 02 La
+# Piedad Abastos: fetch failed · ..." — se lee como "no alcanza las sucursales". Las alcanzaba
+# perfecto. Un error que nombra el ORIGEN cuando el roto es el DESTINO manda a buscar al lado
+# equivocado. La pista real era que fallaran las OCHO a la vez.
+#
+# El candado del repo (`npm run check:k3s`) no puede ver esto: sólo lee los .yaml. Lo que no
+# está en el repo es invisible para él por definición. Por eso se mide ACÁ, contra el clúster.
+if command -v k3s >/dev/null 2>&1; then
+  _fantasmas=''
+  for _ns in prod ingesta; do
+    for _s in $(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl -n "$_ns" get svc \
+                  -o jsonpath='{range .items[*]}{.metadata.name} {end}' 2>/dev/null); do
+      case "$_s" in kubernetes) continue ;; esac
+      grep -rql "name: $_s$\|name: $_s," /home/superoot/ops/k3s/ 2>/dev/null >/dev/null \
+        || _fantasmas="$_fantasmas $_ns/$_s"
+    done
+  done
+  if [ -n "$(echo "$_fantasmas" | tr -d ' ')" ]; then
+    mal "Services vivos SIN manifiesto en ~/ops/k3s:$_fantasmas — nadie los vuelve a leer"
+  else
+    ok "todos los Services de prod e ingesta tienen manifiesto versionado"
+  fi
+else
+  nm "sin k3s en este host no se puede comparar el clúster contra el repo"
+fi
+
 titulo "El respaldo"
 u=$(ls -t /home/superoot/backups/*.dump 2>/dev/null | head -1)
 if [ -n "$u" ]; then
@@ -245,22 +280,42 @@ titulo "La ingesta (no se toca desde acá, pero si la rompimos hay que saberlo)"
 #
 # ⚠️ Si no hay k3s en el host, la mitad de K3s se DECLARA no medida — no se da por buena. Lo que
 # no se puede medir nunca cuenta como verde (ADR-056).
+# ⛔ [K3S.45] Y EL NÚMERO ESPERADO YA NO ES UN LITERAL. Decía `-ge 9`, y al migrar el último
+# carril a K3s el total pasó a 8: el guion imprimió "sólo 8 de 8 carriles sanos" — rojo, con
+# un mensaje que se contradice a sí mismo, sobre un estado sano. Es la MISMA falla que este
+# bloque ya había corregido una vez (exigía 9 contenedores de Compose cuando quedaban 3).
+#
+# ⭐ Corregir el literal de 9 a 8 habría durado hasta la próxima mudanza. Ahora no hay número:
+# se exige que CADA deployment declarado tenga réplicas vivas y que CADA contenedor de Compose
+# que siga levantado esté sano. La expectativa sale de lo que hay declarado, no de la memoria
+# de quien lo escribió.
 viv=$(docker ps --filter "label=com.docker.compose.project=vl" --format '{{.Names}}' | wc -l)
 san=$(docker ps --filter "label=com.docker.compose.project=vl" --filter "health=healthy" --format '{{.Names}}' | wc -l)
 if command -v k3s >/dev/null 2>&1; then
   KC=/etc/rancher/k3s/k3s.yaml
-  pods=$(KUBECONFIG=$KC k3s kubectl get pods -n ingesta --no-headers 2>/dev/null)
-  pviv=$(printf '%s\n' "$pods" | grep -c . )
-  psan=$(printf '%s\n' "$pods" | awk '$2=="1/1" && $3=="Running"' | grep -c . )
-  echo "   ⓘ Compose: $san/$viv sanos  ·  K3s(ingesta): $psan/$pviv listos"
-  tviv=$((viv + pviv)); tsan=$((san + psan))
-  [ "$tviv" -ge 9 ] && [ "$tsan" -ge 8 ] \
-    && ok "$tsan de $tviv carriles sanos (los dos mundos)" \
-    || mal "sólo $tsan de $tviv carriles sanos (los dos mundos)"
+  _depl=$(KUBECONFIG=$KC k3s kubectl get deploy -n ingesta --no-headers 2>/dev/null | wc -l)
+  _caidos=$(KUBECONFIG=$KC k3s kubectl get deploy -n ingesta \
+    -o jsonpath='{range .items[*]}{.metadata.name}:{.spec.replicas}:{.status.availableReplicas}{"\n"}{end}' 2>/dev/null \
+    | awk -F: '$2 > 0 && ($3 == "" || $3 == "0") { print $1 }' | tr '\n' ' ')
+  _cj=$(KUBECONFIG=$KC k3s kubectl get cronjob -n ingesta --no-headers 2>/dev/null | wc -l)
+  echo "   ⓘ Compose: $san/$viv sanos  ·  K3s(ingesta): $_depl deployment(s) + $_cj agenda(s) nocturna(s)"
+  if [ -n "$(echo "$_caidos" | tr -d ' ')" ]; then
+    mal "deployments de ingesta SIN una réplica viva: $_caidos"
+  elif [ "$viv" -gt 0 ] && [ "$san" -lt "$viv" ]; then
+    mal "$san de $viv contenedores de Compose sanos — alguno quedó enfermo"
+  else
+    ok "los $_depl carriles de K3s con réplicas vivas y los $viv de Compose sanos"
+  fi
 else
-  [ "$viv" -ge 3 ] && [ "$san" -ge "$viv" ] \
-    && ok "$san de $viv contenedores de Compose sanos" \
-    || mal "sólo $san de $viv contenedores de Compose sanos"
+  # Sin k3s en el host solo se puede juzgar lo que quede en Compose, y tampoco con un literal:
+  # el `-ge 3` que habia aca era otro numero clavado que caduca en la proxima mudanza.
+  if [ "$viv" -gt 0 ] && [ "$san" -ge "$viv" ]; then
+    ok "$san de $viv contenedores de Compose sanos"
+  elif [ "$viv" -gt 0 ]; then
+    mal "solo $san de $viv contenedores de Compose sanos"
+  else
+    nm "no hay contenedores de Compose del proyecto vl y tampoco k3s: nada que medir"
+  fi
   nm "la mitad de K3s — no hay k3s en este host, así que NO se midió (no se da por buena)"
 fi
 
