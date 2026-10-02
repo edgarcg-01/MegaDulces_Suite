@@ -57,7 +57,7 @@ RUTAS="ops/ingest ops/vl ops/k3s database/importers database/scripts services/fe
 # peleandoselo -- la falla que la guarda de dueno de health.js detecta, causada por nosotros.
 # El servicio sigue declarado en el compose bajo el perfil `retirado-k3s`: no arranca solo.
 # Lo candadea `npm run check:k3s` (bloque "ningun carril en los dos mundos").
-SERVICIOS_DEF="ods-reconcile-full"
+SERVICIOS_DEF=""   # [K3S.45] vacio a proposito: los 8 carriles viven en K3s
 
 ssh_md() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$SRV" "$@"; }
 
@@ -304,6 +304,21 @@ aplicar_k3s() {
 
 recrear() {
   servicios="$*"
+  # ⛔ [K3S.45] LA LISTA VACIA NO ES "NADA": ES TODO.
+  #
+  # `docker compose up -d` SIN argumentos levanta el perfil por default ENTERO. Con el ultimo
+  # carril migrado a K3s, SERVICIOS_DEF queda vacio y esta linea se convertia en un `up -d` a
+  # secas: resucitaria de golpe todo lo que la migracion fue apagando, en silencio y con
+  # "Started" como unica senal.
+  #
+  # ⚠️ El guardia equivalente YA existia en ops/prod/auto-deploy.sh desde el 2026-10-01 y
+  # nadie lo trajo a este lado. Es el tercer caso en dos dias de una simetria guardada de un
+  # solo lado; por eso se escribe aca el porque, y no solo el `return`.
+  if [ -z "$(echo "$servicios" | tr -d ' ')" ]; then
+    echo "── Nada que recrear en Compose: todos los carriles viven en K3s ──"
+    echo "   (se omite el 'docker compose up -d' a proposito: sin argumentos levantaria TODO)"
+    return 0
+  fi
   echo "── Recreando: $servicios ──"
   ssh_md "cd ~/ops/vl && docker compose up -d $servicios 2>&1 | grep -E 'Recreated|Started|Created' | sed 's/^/   /'"
   echo

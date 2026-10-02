@@ -363,7 +363,13 @@ function revisar(doc, archivo) {
   //
   // ⚠️ Y ya pasó una vez por otra vía: un `depends_on` de caddy auto-habilitó el perfil
   // `retirado-k3s` y resucitó contenedores migrados.
-  const composeProd = path.join(__dirname, '..', 'ops', 'prod', 'docker-compose.yml');
+  // ⚠️ LOS DOS composes, no uno. `ods-reconcile-full` vive en ops/vl y mirar solo el de prod
+  // dejaba esta regla pasando EN EL VACIO sobre el ultimo carril de ingesta -- el mismo
+  // defecto que [K3S.22] ya habia corregido en la regla 4 y que aca se repetia.
+  const composesPerfil = [
+    path.join(__dirname, '..', 'ops', 'prod', 'docker-compose.yml'),
+    path.join(__dirname, '..', 'ops', 'vl', 'docker-compose.yml'),
+  ].filter((p) => fs.existsSync(p));
   /** ¿El servicio `svc` del compose está detrás de algún `profiles:`? */
   const tienePerfil = (txt, svc) => {
     const ls = txt.split(String.fromCharCode(10));
@@ -376,10 +382,10 @@ function revisar(doc, archivo) {
     }
     return false;
   };
-  if (!fs.existsSync(composeProd)) {
-    NM('no encontré ops/prod/docker-compose.yml para comprobar los perfiles');
+  if (!composesPerfil.length) {
+    NM('no encontré ningún docker-compose.yml para comprobar los perfiles');
   } else {
-    const txtC = fs.readFileSync(composeProd, 'utf8');
+    const txtsC = composesPerfil.map((p) => fs.readFileSync(p, 'utf8'));
     const migradosSinPerfil = [];
     let mirados = 0;
     for (const f of archivos) {
@@ -388,8 +394,9 @@ function revisar(doc, archivo) {
         if (k !== 'Deployment' && k !== 'CronJob') continue;
         if (campo(doc, 'migracion') !== 'migrado') continue;
         const n = campo(doc, 'name');
-        const p = tienePerfil(txtC, n);
-        if (p === null) continue;            // no existe en ESTE compose: no es su mundo
+        let p = null;
+        for (const t of txtsC) { const r = tienePerfil(t, n); if (r !== null) { p = r; break; } }
+        if (p === null) continue;            // no existe en NINGUN compose: no es su mundo
         mirados++;
         if (p === false) migradosSinPerfil.push(n);
       }
@@ -399,7 +406,7 @@ function revisar(doc, archivo) {
     } else {
       A(migradosSinPerfil.length === 0,
         migradosSinPerfil.length === 0
-          ? `los ${mirados} migrados que viven en el compose de prod están detrás de un perfil`
+          ? `los ${mirados} migrados que viven en algún compose están detrás de un perfil`
           : `MIGRADOS Y SIN PERFIL: ${migradosSinPerfil.join(', ')} — un up -d a secas los levanta sobre el mismo datadir`);
     }
   }

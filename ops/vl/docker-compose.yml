@@ -313,6 +313,10 @@ services:
       retries: 3
 
   ods-reconcile-full:
+    # [K3S.45] MIGRADO A K3s EL 2026-10-02. El perfil impide que un `up -d` a secas lo
+    # levante: en Compose resuelve `pg-prod` por el DNS de la red, y ese alias dejo de
+    # existir cuando la base paso a ser un pod. Volveria a fallar con EAI_AGAIN.
+    profiles: ["retirado-k3s"]
     <<: *lane
     container_name: ods-reconcile-full
     # ⛔ [K3S.23] SIN depends_on, y esto rompia el despliegue ENTERO desde [K3S.13].
