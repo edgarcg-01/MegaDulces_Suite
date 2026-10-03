@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input, model, signal } fr
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { CheckboxModule } from 'primeng/checkbox';
+import { coincideBusqueda } from '@megadulces/ui-web';
 
 import {
   AUTHZ_TREE,
@@ -254,20 +255,22 @@ export class PermissionTreeComponent {
 
   // ── Filtrado ──────────────────────────────────────────────────────────────
 
+  // ⚠️ `coincideBusqueda` y no `.toLowerCase().includes()`: el `.includes()` crudo falla con
+  //    acentos —y acá hay módulos con ellos (`Logística`, `Almacén`, `Última milla`)— porque
+  //    `toLowerCase()` no quita diacríticos: buscar "logistica" no encontraba "Logística".
+  //    Tampoco tolera varias palabras ni el orden ("compras pedido" fallaba contra
+  //    "Pedido de compras"). El helper normaliza, parte en tokens y los exige todos.
+  //    Sin texto devuelve `true`, igual que el `if (!q) return true` que reemplaza.
   private coincide(m: AuthzModule, p: AuthzProject): boolean {
-    const q = this.filtro().trim().toLowerCase();
     const base = this.base();
     if (this.soloBase() && !clavesDeModulo(m).some((k) => base.has(k))) return false;
-    if (!q) return true;
-    const heno = [
+    return coincideBusqueda(
+      this.filtro(),
       m.label,
       m.route ?? '',
       p.label,
       ...clavesDeModulo(m).map((k) => `${k} ${PERMISSION_META[k]?.label ?? ''}`),
-    ]
-      .join(' ')
-      .toLowerCase();
-    return heno.includes(q);
+    );
   }
 
   modulosDe(p: AuthzProject): AuthzModule[] {
@@ -299,9 +302,9 @@ export class PermissionTreeComponent {
     const k = app.accessPermission;
     if (!k) return false;
     if (this.soloBase() && !this.base().has(k)) return false;
-    const q = this.filtro().trim().toLowerCase();
-    if (!q) return true;
-    return `${app.label} ${k} ${PERMISSION_META[k]?.label ?? ''}`.toLowerCase().includes(q);
+    // Mismo helper que `coincide()` arriba: dos buscadores en una pantalla que normalizan
+    // distinto dan resultados incoherentes entre sí ante el mismo texto.
+    return coincideBusqueda(this.filtro(), app.label, k, PERMISSION_META[k]?.label ?? '');
   }
 
   // ── Claves y estados (la lógica vive en el contrato) ──────────────────────
