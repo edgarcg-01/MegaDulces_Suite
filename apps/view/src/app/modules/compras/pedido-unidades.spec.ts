@@ -1,5 +1,5 @@
 import {
-  etiquetaUnidades, evaluarPedidoTipico, textoCajasPiezas, textoSumaUnidades, textoUnidades, UNIDADES_CJ_PZ,
+  escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, textoCajasPiezas, textoSumaUnidades, textoUnidades, UNIDADES_CJ_PZ,
 } from './pedido-redondeo';
 
 // Casos tomados de prod (escalera de Kepler + etiquetera), medidos el 2026-10-02.
@@ -35,8 +35,8 @@ describe('[RA-PRO.68] etiquetaUnidades — los rótulos los dice Kepler', () => 
     expect(etiquetaUnidades({ u1: 'KG', u2: 'BTO', uxc: 20 }).mayor).toBe('bto');
     expect(etiquetaUnidades({ u1: 'KG', u2: 'BTO', uxc: 20 }).base).toBe('kg');
   });
-  it('sin escalera cae a cj/pz (lo de antes)', () => {
-    expect(etiquetaUnidades({})).toEqual({ ...UNIDADES_CJ_PZ, medioAbr: 'paq' });
+  it('sin escalera pero con factor de caja cae a cj/pz (lo de antes)', () => {
+    expect(etiquetaUnidades({ uxc: 12 })).toEqual(UNIDADES_CJ_PZ);
   });
 });
 
@@ -91,5 +91,50 @@ describe('[RA-PRO.69] evaluarPedidoTipico — informa, no rellena', () => {
   });
   it('sin pedido típico → sin_dato, nunca "bajo"', () => {
     expect(evaluarPedidoTipico(10, 1000, null, null)).toEqual({ criterio: null, llevas: 0, tipico: null, pct: null, nivel: 'sin_dato' });
+  });
+});
+
+// [RA-PRO.70] Escalera REAL con los factores de prod (costo por peldaño ÷ costo base), 2026-10-03.
+const esc = (o: Parameters<typeof escaleraUnidades>[0]) => escaleraUnidades(o).map((u) => u.abr + '×' + u.factor).join(' · ');
+
+describe('[RA-PRO.70] escaleraUnidades — 1, 2 o 3 unidades, en su medida de origen', () => {
+  it('42029 KINDER DELICE: 3 unidades (pz · paq ×10 · cj ×140)', () => {
+    expect(esc({ u1: 'PZA', u2: 'PAQ', u3: 'CJA', f2: 9.9961, f3: 139.9504, uxc: 140 })).toBe('pz×1 · paq×10 · cj×140');
+  });
+  it('70001 MAZAPÁN: 2 unidades — Kepler repite PAQ con factor 1', () => {
+    expect(esc({ u1: 'PAQ', u2: 'PAQ', u3: 'CJA', f2: 1, f3: 19.9995, uxc: 20 })).toBe('paq×1 · cj×20');
+  });
+  it('17083 BOLSA CAMISETA: 2 unidades distintas a las del mazapán (kg · bto ×20)', () => {
+    expect(esc({ u1: 'KG', u2: 'KG', u3: 'BTO', f2: 1, f3: 20, uxc: 20 })).toBe('kg×1 · bto×20');
+  });
+  it('57009 COBERTURA LUSSEL: 1 unidad (cub), sin una caja inventada', () => {
+    expect(esc({ u1: 'CUB', u2: null, u3: null, uxc: 1 })).toBe('cub×1');
+  });
+  it('17063 ROLLO ALTA: 1 unidad aunque Kepler repita KG en los tres peldaños', () => {
+    expect(esc({ u1: 'KG', u2: 'KG', u3: 'KG', f2: 1, f3: 1, uxc: 1 })).toBe('kg×1');
+  });
+  it('83185 CHECHI: 2 peldaños de Kepler (paq · cj ×10)', () => {
+    expect(esc({ u1: 'PAQ', u2: 'CJA', u3: null, f2: 10.0008, uxc: 10 })).toBe('paq×1 · cj×10');
+  });
+  it('⭐ NEGATIVA: si el peldaño de Kepler no coincide con el motor, la mayor trae el factor del motor', () => {
+    expect(esc({ u1: 'PZA', u2: 'CJA', f2: 24, uxc: 12 })).toBe('pz×1 · cj×12');
+  });
+  it('⭐ NEGATIVA: un intermedio que no cabe exacto en la caja no se ofrece', () => {
+    expect(esc({ u1: 'PZA', u2: 'PAQ', u3: 'CJA', f2: 12, f3: 140, uxc: 140 })).toBe('pz×1 · cj×140');
+  });
+  it('etiquetas de una sola unidad: mayor = base, el texto no inventa cajas', () => {
+    const et = etiquetaUnidades({ u1: 'KG', u2: 'KG', u3: 'KG', f2: 1, f3: 1, uxc: 1 });
+    expect(et).toEqual({ mayor: 'kg', medio: null, medioAbr: 'paq', base: 'kg' });
+    expect(textoUnidades(67, 1, et)).toBe('67 kg');
+  });
+  it('nombres para los botones de captura', () => {
+    expect(escaleraUnidades({ u1: 'KG', u2: 'KG', u3: 'BTO', f2: 1, f3: 20, uxc: 20 }).map((u) => u.nombre)).toEqual(['Kilo', 'Bulto']);
+  });
+  it('⭐ NEGATIVA: base y mayor con el MISMO rótulo (89106 PAQ ×1 / PAQ ×24) → la mayor lleva su tamaño', () => {
+    expect(esc({ u1: 'PAQ', u2: 'PAQ', f2: 24, uxc: 24 })).toBe('paq×1 · paq×24×24');
+  });
+  it('una sola unidad conserva la fracción: 4.3 cubetas no son 4', () => {
+    const et = etiquetaUnidades({ u1: 'CUB', uxc: 1 });
+    expect(textoUnidades(4.3, 1, et)).toBe('4.3 cub');
   });
 });
