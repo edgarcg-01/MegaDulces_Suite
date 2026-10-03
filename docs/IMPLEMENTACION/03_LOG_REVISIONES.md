@@ -5,6 +5,35 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-03 — Checkpoint: la Mesa de Servicio construida de punta a punta, lo que ya está en `main` y lo que falta (`[MS.2]`–`[MS.3.13]`)
+
+**Estado.** La Mesa de Servicio (ADR-081, **propuesto**) está construida y probada **en local**; **nada aplicado a producción**. Capas 1 (BD), 2 (lógica) y 3 (pantallas) completas, más lo que fue saliendo después: A tu nombre en Mi trabajo (MS.3.6), cola «sin asignar» con plazo ajustable (MS.3.8), asignación automática por regla (MS.3.10), Reportes (MS.3.5), levantar a nombre de otra persona (MS.3.11), cámara/galería (MS.3.12) y adjuntos en notas internas (MS.3.13). Detalle por ítem en el tracker; resumen de la fila en `CLAUDE.md`.
+
+**Dónde está el código.** Edgar integró el grueso en `main` con #219/#228/#232 y **cerró los PRs de la pila** (#218–#234): `main` ya trae hasta MS.3.10 + Reportes + DESIGN (#235). **Faltan por mergear** (apilados sobre `main`, rebasados el 2026-10-03 sin conflictos y re-verificados): #236 prueba de adjuntos contra un S3 real → #238 MS.3.11 → #239 MS.3.12 → #240 MS.3.13. Tras el rebase: `service-desk` 142 · `contracts` 289 · `view` 1625 · E2E por HTTP **320/0** · prueba S3 **42/42** · builds api y view, lint y las 6 compuertas de UI en verde.
+
+**Decisiones de fondo (las que no se deducen del código).**
+1. **El ticket ES la tarea**: no hay un módulo paralelo; `servicedesk.requests` se declara en el contrato de tarea y la cola «sin asignar» es una **bandeja** (la ve quien **responde** de `servicio.atender`, no quien abre la pantalla: `[SN.30]`).
+2. **La prioridad se sugiere y la confirma quien atiende**; el SLA **primero mide, después escala** (escalación apagada de fábrica: `cash-count-sla` se retiró por mal calibrado).
+3. **Una auto-asignación por regla NO es primera respuesta**: si contara, la métrica mediría a la regla.
+4. **Los Reportes no miden personas, no pintan semáforo (no hay meta) y no dibujan ceros** (`null` = no se pudo medir).
+5. **La privacidad de un adjunto está en la LECTURA de la ficha**, no en prohibirlo: por eso las notas internas admiten archivos, y la prueba se rompió a propósito (quitar el filtro filtra el adjunto con su URL).
+
+**Lecciones.**
+- **Un pendiente anotado sin medir cuesta lo mismo que un número dibujado.** MS.3.7 decía «faltan los shells de tienda y telemarketing» y **ya lo tenían** (montan el mismo layout); se midió en navegador y se blindó con una prueba.
+- **Una marca de tiempo de migración también se pelea entre sesiones**: dos migraciones de la mesa nacieron como `…120000`/`…130000` y otra sesión ya había tomado esas marcas; se renumeraron a `…160000`/`…170000` y los documentos seguían citando las viejas (habría aplicado la migración equivocada).
+- **Las compuertas atrapan lo que ninguna otra prueba ve** (`check:signal-reactivity`: una categoría que exige sucursal nunca la habría pedido; `check:tables`; el nombre «Tomar foto» chocando con «Tomar») y **una regla de privacidad sin mutación es una intención**.
+- **Las imágenes de MinIO ya no se pueden bajar** sin credenciales (Docker Hub ni quay.io); la prueba de adjuntos usa Zenko CloudServer y **se salta con exit 0, diciéndolo, si no hay `S3_*`** (por eso no está en `run-all-tests.js`).
+- **Cerrar la pila fue de Edgar, no de este trabajo**: tras una integración grande, lo apilado sobre ramas ya integradas hay que **rebasarlo sobre `main`** antes de pedir revisión (aquí los 4 commits entraron limpios).
+
+**Pendiente — todo depende de personas.**
+- Edgar: revisar/mergear #236 → #238 → #239 → #240.
+- Aplicar las **6 migraciones una por una** (runbook §), redeploy api+view, **re-login** (los permisos viajan en el JWT).
+- **`SERVICIO_ATENDER` para Felipe y David** (sin él las reglas de asignación automática los saltan); decidir quién recibe `servicio.atender` para ver la cola.
+- `SMTP_*` y `S3_*` en prod (sin ellos: sin correo y sin adjuntos); plantilla de WhatsApp aprobada por Meta (P5).
+- Sin medir: el bucket real de prod, una cámara de teléfono físico, el tema claro de Reportes, lector de pantalla.
+- Pasar ADR-081 de «propuesto» a «aceptado» al hacer el merge.
+
+---
 ## 2026-10-02 — `[RA-DYN.U4–U6]` El cumplimiento del proveedor: la herramienta era un índice
 
 Edgar: *"hay que darle esas herramientas faltantes"*, tras preguntar qué tiene el comprador contra
