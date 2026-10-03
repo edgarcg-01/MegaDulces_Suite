@@ -5,7 +5,7 @@ import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
 import type { Freshness, ExpenseFamilia } from '@megadulces/contracts';
 import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
-import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeTreeChildren as IncomeTreeChildrenT, IncomeDocumento as IncomeDocumentoT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
+import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeTreeChildren as IncomeTreeChildrenT, IncomeDocumento as IncomeDocumentoT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeReconDetalle as IncomeReconDetalleT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
 export interface AddressJsonb {
@@ -2142,6 +2142,23 @@ export class ComercialService {
     if (p.grain) q = q.set('grain', p.grain);
     return this.http.get<IncomeReconT>(`${this.base}/analytics/income/conciliacion`, { params: q });
   }
+  /**
+   * `[IG.12]` Los documentos de UNA celda de la conciliación. Se pide al abrir el renglón.
+   *
+   * ⚠️ Van el `from`/`to` de la pantalla: el servidor recorta el período de la celda a ese rango
+   * para que el desglose sume exactamente lo que dice el renglón que se abrió.
+   */
+  incomeReconDetalle(a: {
+    periodo: string; canal: string; plaza?: string;
+    from?: string; to?: string; grain?: IncomeGrainT;
+  }) {
+    let q = new HttpParams().set('periodo', a.periodo).set('canal', a.canal);
+    if (a.plaza) q = q.set('plaza', a.plaza);
+    if (a.from) q = q.set('from', a.from);
+    if (a.to) q = q.set('to', a.to);
+    if (a.grain) q = q.set('grain', a.grain);
+    return this.http.get<IncomeReconDetalleT>(`${this.base}/analytics/income/conciliacion/detalle`, { params: q });
+  }
   private incomeParams(p: IncomeParams): HttpParams {
     let q = new HttpParams();
     if (p.from) q = q.set('from', p.from);
@@ -3580,7 +3597,7 @@ export interface VendorSaleLine {
 export type {
   IncomeGroupBy, IncomeCanalRow, IncomeRow, IncomeSeriesPoint, IncomeReport,
   IncomeTreeNode, IncomeTree, IncomeDocumento, IncomeDocLinea, IncomeSourceRow, IncomeSources,
-  IncomeGrain, IncomeKind, IncomeBridgeItem, IncomeReconRow, IncomeRecon,
+  IncomeGrain, IncomeKind, IncomeBridgeItem, IncomeReconRow, IncomeRecon, IncomeReconDoc, IncomeReconDetalle,
 } from '@megadulces/contracts';
 
 /** Parámetros de consulta (no son wire de respuesta: los arma esta app). */

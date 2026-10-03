@@ -35,6 +35,7 @@ import { EXPENSE_FAMILIA_SERIES_KEY, expenseFamiliaLabel } from '@megadulces/con
 // [IG.1] Canales de venta: la etiqueta se define UNA vez (el canal vive en c6, no en la cuenta).
 import { SALES_CANAL_RESIDUO, SALES_CANAL_SERIES_KEY, salesCanalLabel } from '@megadulces/contracts';
 import type { IncomeBridgeItem, IncomeCuenta, IncomeGrain, IncomeRecon, IncomeReconRow,
+  IncomeReconDetalle, IncomeReconDoc,
   IncomeDocumento, IncomeReconTotals, IncomeReport, IncomeSources, IncomeTree,
   IncomeTreeChildren, IncomeTreeNode } from '@megadulces/contracts';
 /** Nodos del árbol de ingresos mientras se arma (los hijos viven en un Map por clave). */
@@ -3412,8 +3413,11 @@ export class CommercialAnalyticsService {
                 coalesce(sum(f.cobrado_en_periodo), 0)                    AS cobrado_en_periodo,
                 coalesce(sum(f.pagos_en_periodo), 0)::int                 AS pagos_en_periodo,
                 coalesce(max(f.pagos), 0)::int                            AS max_pagos,
-                min(f.primer_cobro)                                       AS primer_cobro,
-                max(f.ultimo_cobro)                                       AS ultimo_cobro
+                -- `[IG.12]` to_char, no la fecha cruda: `pg` entrega un `date` como OBJETO Date y
+                -- el `String(x).slice(0,10)` de más abajo devolvía **"Mon Sep 28"**. Nadie lo vio
+                -- porque hoy la pantalla no dibuja estas dos columnas — pero salen por la API.
+                to_char(min(f.primer_cobro), 'YYYY-MM-DD')                AS primer_cobro,
+                to_char(max(f.ultimo_cobro), 'YYYY-MM-DD')                AS ultimo_cobro
            FROM f GROUP BY 1, 2, 3)
          SELECT ag.*, coalesce(cta.cuentas, '[]'::jsonb) AS cuentas
            FROM ag
@@ -3534,6 +3538,116 @@ export class CommercialAnalyticsService {
   }
 
   /**
+   * `[IG.12]` **El desglose de una celda de la conciliación: sus documentos, uno por uno.**
+   *
+   * Edgar: *"conciliación no me desglosa la información al detalle, como se está pidiendo"*. La
+   * tabla publicaba `(período × plaza × canal)` y ahí se terminaba, cuando el pedido de antes era
+   * explícito: **por día, y de ahí por folio**. El Árbol ya baja a folio; la Conciliación no, y es
+   * la pestaña donde está el cobro — o sea justo donde hace falta ver cuál factura es la que debe.
+   *
+   * ⭐ El dato ya existía: `income_bridge_src` devuelve **una fila por folio** con su cliente, su
+   * cobro, sus cuentas y su saldo. `incomeRecon` lo agregaba y tiraba el detalle. Esto es el mismo
+   * puente leído sin agregar.
+   *
+   * ── Por qué la ventana se RECORTA, y no es un detalle ────────────────────────────────────────
+   * El detalle no pide los 90 días de la pantalla: pide **el período de la celda ∩ el rango**. Las
+   * dos mitades importan.
+   *
+   * · Achicar a su período es lo que lo hace barato (un día cuesta ~0.4 s contra los 0.75 s del
+   *   rango entero) y es **exacto** porque la póliza y su documento comparten folio **y fecha**:
+   *   medido 4,809 de 4,809, cero días de desfase. Si no fuera así, achicar la ventana rompería la
+   *   liga y aparecerían «sin documento» que no existen.
+   * · Recortarlo AL RANGO es lo que lo hace **cuadrar**: con la pantalla puesta en *4-jul → 2-oct*,
+   *   el renglón `2026-07` sólo contiene del 4 al 31. Pedir el mes entero traería los tres primeros
+   *   días de julio y el detalle sumaría más que su propio total — el clásico desglose que no
+   *   suma al encabezado.
+   */
+  async incomeReconDetalle(q: {
+    periodo: string; plaza: string; canal: string;
+    from?: string; to?: string; grain?: IncomeGrain;
+  }): Promise<IncomeReconDetalle> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    const grain: IncomeGrain = q.grain === 'dia' || q.grain === 'trimestre' ? q.grain : 'mes';
+    const periodo = String(q.periodo || '');
+
+    // Sin `Date`: con UTC-6 `new Date('2026-07-01')` cae el 30 de junio por la noche y el período
+    // arranca un día antes. Es aritmética de texto a propósito.
+    let ini: string; let fin: string;
+    if (grain === 'dia') {
+      ini = periodo; fin = periodo;
+    } else if (grain === 'trimestre') {
+      const [y, t] = periodo.split('-T');
+      const m = (Number(t) - 1) * 3 + 1;
+      ini = `${y}-${String(m).padStart(2, '0')}-01`;
+      fin = this.ultimoDiaDelMes(`${y}-${String(m + 2).padStart(2, '0')}-01`);
+    } else {
+      ini = `${periodo}-01`; fin = this.ultimoDiaDelMes(ini);
+    }
+    const desde = ini > from ? ini : from;   // la intersección, en texto ISO: comparar strings
+    const hasta = fin < to ? fin : to;       // `YYYY-MM-DD` ordena igual que las fechas
+    const vacio: IncomeReconDetalle = { periodo, plaza: q.plaza, canal: q.canal, from: desde, to: hasta, docs: [], vendido: 0 };
+    if (!periodo || desde > hasta) return vacio;
+
+    return this.tk.run(async (trx) => {
+      const rowsRaw = (await trx.raw(
+        // MATERIALIZED por la misma razón que en `incomeRecon`: la función es `LANGUAGE sql
+        // STABLE`, o sea inlinable, y sin la palabra el planner aplana sus CTEs, estima rows=1 y
+        // elige un Nested Loop que re-evalúa `pag` por cada fila.
+        `WITH b AS MATERIALIZED (SELECT * FROM analytics.income_bridge_src(?::date, ?::date))
+         -- ⛔ to_char y NO la columna cruda: `pg` devuelve un `date` como OBJETO Date de JS, y
+         -- `String(d).slice(0,10)` da **"Mon Sep 28"**, no "2026-09-28". Es el mismo defecto que
+         -- `[LC.16]` encontró en el libro de compras — ahí además corría el DÍA, porque el objeto
+         -- se construye en UTC y se renderiza en hora de México. En la lista de selección
+         -- `to_char` es gratis; lo que anula un índice es envolver la fecha en el WHERE.
+         SELECT to_char(b.fecha, 'YYYY-MM-DD')         AS fecha,
+                b.folio, b.doc_tipo, b.cliente_code, b.cliente_nombre, b.kind,
+                b.es_interno, b.ligado, b.doc_cancelado, b.importe, b.cobrado, b.pagos,
+                b.nota_credito, b.pendiente,
+                to_char(b.primer_cobro, 'YYYY-MM-DD')  AS primer_cobro,
+                to_char(b.ultimo_cobro, 'YYYY-MM-DD')  AS ultimo_cobro,
+                b.cuentas
+           FROM b
+          WHERE b.tenant_id = ?
+            AND b.canal = ?
+            AND coalesce(nullif(btrim(b.plaza), ''), '(sin plaza)') = ?
+          ORDER BY abs(b.importe) DESC, b.folio`,
+        [desde, hasta, tenantId, q.canal, q.plaza || '(sin plaza)'])).rows as Array<Record<string, unknown>>;
+
+      const n = (x: unknown) => +(Number(x ?? 0).toFixed(2));
+      const nn = (x: unknown) => (x === null || x === undefined ? null : n(x));
+      const d = (x: unknown) => (x ? String(x).slice(0, 10) : null);
+
+      const docs: IncomeReconDoc[] = rowsRaw.map((r) => ({
+        fecha: d(r['fecha']) ?? desde,
+        folio: String(r['folio'] ?? ''),
+        doc_tipo: String(r['doc_tipo'] ?? ''),
+        cliente_code: (r['cliente_code'] as string | null) ?? null,
+        cliente_nombre: (r['cliente_nombre'] as string | null) ?? null,
+        kind: (r['kind'] as IncomeReconDoc['kind']) ?? null,
+        es_interno: r['es_interno'] === null || r['es_interno'] === undefined ? null : Boolean(r['es_interno']),
+        ligado: Boolean(r['ligado']),
+        cancelado: Boolean(r['doc_cancelado']),
+        importe: n(r['importe']),
+        // ⚠️ `nn`, no `n`: en lo que no es factura estos vienen NULL del puente y tienen que
+        // llegar NULL a la pantalla. Un `0` acá se leería como «no se cobró nada».
+        cobrado: nn(r['cobrado']),
+        pagos: r['pagos'] === null || r['pagos'] === undefined ? null : Number(r['pagos']),
+        nota_credito: nn(r['nota_credito']),
+        pendiente: nn(r['pendiente']),
+        primer_cobro: d(r['primer_cobro']),
+        ultimo_cobro: d(r['ultimo_cobro']),
+        cuentas: (r['cuentas'] as IncomeCuenta[] | null) ?? [],
+      }));
+
+      return {
+        periodo, plaza: q.plaza, canal: q.canal, from: desde, to: hasta, docs,
+        vendido: n(docs.reduce((s, x) => s + x.importe, 0)),
+      };
+    });
+  }
+
+  /**
    * `[IG.3]` **Cuadre de fuentes** — el organismo que hoy no existe en ninguna pantalla.
    *
    * Pone lado a lado los cuatro caminos que llevan al mismo peso de venta. No es adorno: es lo que
@@ -3558,17 +3672,20 @@ export class CommercialAnalyticsService {
         try { const r = await fn(); return r == null ? null : Number(r); } catch { return null; }
       };
 
-      const contable = await uno(async () => (await this.incomeQuery(trx, tenantId, from, to, {})
-        .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS v')).first() as Agregado)?.v);
       // `[IG.4.1]` El puente: la venta BRUTA es lo que el feed nocturno puede cuadrar (él es sólo
       // `UD1301`); la devolución es lo que este número resta y aquél no. Sin las dos piernas, el
       // delta del feed se leería como descuadre cuando es justamente la corrección.
-      const bruta = await uno(async () => (await this.incomeQuery(trx, tenantId, from, to, {})
-        .andWhere('e.doc_tipo', 'UD1301')
-        .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS v')).first() as Agregado)?.v);
-      const devoluciones = await uno(async () => (await this.incomeQuery(trx, tenantId, from, to, {})
-        .andWhereRaw("e.doc_tipo LIKE 'UA25%'")
-        .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS v')).first() as Agregado)?.v);
+      //
+      // `[IG.12]` Las tres salen de UNA sola evaluación de `income_entries_src`, con `FILTER`.
+      // Antes eran tres pasadas idénticas sobre la misma función y la misma ventana: 3 × 198 ms
+      // para leer tres veces lo mismo. Medido contra prod, 90 días: **600 ms → 183 ms**.
+      // Y hay un beneficio que no es de velocidad: así `contable = bruta + devoluciones` es cierto
+      // POR CONSTRUCCIÓN. Con tres consultas separadas podían verse filas distintas entre una y
+      // otra y el puente de la pantalla dejaba de cerrar sin que nada fallara.
+      const tri = await this.tri(trx, tenantId, from, to);
+      const contable = tri.contable;
+      const bruta = tri.bruta;
+      const devoluciones = tri.devoluciones;
 
       // El feed nocturno es MENSUAL: sólo se compara si el rango son meses enteros, o el Δ sería
       // un artefacto del recorte. Si no lo son, se DECLARA no comparable en vez de restar peras.
@@ -3658,6 +3775,34 @@ export class CommercialAnalyticsService {
         : vacio;
     } catch {
       return vacio; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
+    }
+  }
+
+  /**
+   * `[IG.12]` Las tres piernas del cuadre contable en **una sola** evaluación del ODS.
+   *
+   * `income_entries_src()` es una derivación viva: cada llamada la vuelve a calcular entera. Pedirle
+   * el total, después sólo `UD1301` y después sólo `UA25xx` eran tres recorridos del mismo rango
+   * para repartir las mismas filas en tres cubetas que `FILTER` resuelve en una pasada.
+   *
+   * ⚠️ Si falla, fallan las tres juntas y se publican como NO MEDIDO. Es a propósito: son la misma
+   * medición: publicar dos de tres dejaría un puente que no cierra, que es peor que no publicarlo.
+   */
+  private async tri(
+    trx: Knex.Transaction, tenantId: string, from: string, to: string,
+  ): Promise<{ contable: number | null; bruta: number | null; devoluciones: number | null }> {
+    try {
+      const { rows: [r] } = await trx.raw(
+        `SELECT COALESCE(SUM(e.importe),0)::numeric                                        AS contable,
+                COALESCE(SUM(e.importe) FILTER (WHERE e.doc_tipo = 'UD1301'),0)::numeric   AS bruta,
+                COALESCE(SUM(e.importe) FILTER (WHERE e.doc_tipo LIKE 'UA25%'),0)::numeric AS devoluciones
+           FROM analytics.income_entries_src(?::date, ?::date) AS e
+          WHERE e.tenant_id = ?`, [from, to, tenantId]);
+      return r
+        ? { contable: Number(r.contable), bruta: Number(r.bruta), devoluciones: Number(r.devoluciones) }
+        : { contable: null, bruta: null, devoluciones: null };
+    } catch {
+      return { contable: null, bruta: null, devoluciones: null }; // NO MEDIDO, nunca cero
     }
   }
 

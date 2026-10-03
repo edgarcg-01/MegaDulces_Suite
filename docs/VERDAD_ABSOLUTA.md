@@ -2367,3 +2367,73 @@ folio (`c11`). Sin los tres, un `X-A-20` con el mismo folio se cuela en el cobro
 - ⚠️ `analytics.v_erp_income_daily` y `v_erp_collection_daily` (`[IG.6]`) **quedan sin consumidor**.
   No se borran —son correctas para su propia pregunta, el ingreso por almacén emisor— pero nadie las
   lee y arrastran los 4.7 s.
+
+### 18.9 ⭐ El desglose que faltaba, y los 93 segundos que nadie había medido (IG.12, 2026-10-02)
+
+Dos pedidos de Edgar el mismo día: *«cuadra ahora tarda demasiado»* y *«conciliación no me desglosa
+la información al detalle, como se está pidiendo»*.
+
+**(a) La pestaña «¿Cuadra?» tardaba 93 segundos, y 93 de los 94 eran UNA consulta.** Medida
+consulta por consulta contra prod, con el rango por defecto de 90 días:
+
+| consulta | antes | después |
+|---|---:|---:|
+| contable + bruta + devoluciones (`income_entries_src`) | 3 × 198 ms | **183 ms** (una pasada, con `FILTER`) |
+| hecho de venta (`mv_sales_blended`) | 145 ms | 145 ms |
+| fuera de alcance (`income_out_of_scope`) | 51 ms | 51 ms |
+| **cobranza (`analytics.erp_collections`)** | **93,348 ms** | **313 ms** |
+
+⭐ **La causa, leída del plan y no supuesta.** `erp_collections` resolvía la fecha real del cobro
+CFDI con `LEFT JOIN analytics.v_kepler_payment_complement`. Al estar del lado **anulable** de un
+LEFT JOIN y a través de una **vista**, las columnas calculadas de esa vista (`btrim(c1)`,
+`btrim(c3)`) se vuelven **PlaceHolderVar** —tienen que poder valer NULL cuando el join no casa— y
+**un PlaceHolderVar no puede ser condición de índice**. El plan lo decía: `Join Filter`, no
+`Index Cond`, y debajo un `Seq Scan on kdfe33pagm1` que se repetía por cada una de las 27,410 filas
+de afuera: **99 millones de comparaciones con `btrim` de los dos lados**.
+
+⛔ **La prueba de que el diagnóstico de «falta un índice» estaba incompleto: se creó el índice y la
+consulta siguió en 90,539 ms.** Recién con el join reescrito como `LEFT JOIN LATERAL` —los
+predicados **dentro** de la subconsulta, donde sí bajan a la tabla— el plan pasó a
+`Index Scan using ix_kdfe33pagm1_cobro` y la consulta a 313 ms.
+
+> ⭐ **Un índice no se usa por existir: se usa si la consulta lo deja alcanzable.** Las dos
+> migraciones (`20261003170000` el índice, `20261003180000` el LATERAL) **sólo sirven juntas**, y
+> por eso el candado vigila las dos por separado.
+
+⚠️ **Y la que de verdad importa, que «anda rápido» no da:** si el LATERAL dejara de casar, el
+`COALESCE` taparía el hueco con la fecha de la póliza y la consulta seguiría siendo rápida, con
+filas y **sin un solo error** — con la fecha equivocada en los cobros CFDI. El candado mide que
+**806 de 2,827** cobros CFDI sigan tomando su fecha del complemento y no de su póliza.
+
+⚠️ **`CREATE INDEX CONCURRENTLY` no se completa en esta base.** El primer intento murió a los 15 s
+con `canceling statement due to lock timeout` y dejó el índice **INVÁLIDO** (`indisvalid = false`),
+que el planificador ignora: lento y en silencio. No fue que la tabla estuviera ocupada —
+`CONCURRENTLY` espera a que terminen **todas las transacciones concurrentes de la base**, dos veces,
+y en prod siempre hay alguna (cuando falló había una consulta viva sobre `kepler_ods.kdm2`, otra
+tabla). Sobre 3,613 filas / 704 kB el `CREATE INDEX` común tarda **0.1 s**. *La herramienta que no
+bloquea no es gratis: paga con no terminar nunca.*
+
+**El candado del reemplazo fue la vista entera, no su total.** `EXCEPT ALL` en las dos direcciones,
+toda la historia, las 14 columnas estables: **27,410 == 27,410, 0 y 0**. Comparar sólo la suma
+habría dejado pasar una compensación entre filas.
+
+**(b) La Conciliación ahora abre a sus documentos.** El renglón `(período × plaza × canal)` se
+despliega a **un renglón por folio**, con cliente, qué es, facturado, cobrado, saldo y por qué
+cuenta entró el dinero — y un botón para abrir el documento. **El dato ya existía**:
+`income_bridge_src` devuelve una fila por folio y `incomeRecon` la agregaba y tiraba el detalle.
+
+⭐ **La ventana del detalle es el período de la celda ∩ el rango de la pantalla**, y las dos mitades
+importan:
+
+- **Achicarla a su período** es lo que lo hace barato (~0.4 s contra los 0.75 s del rango entero) y
+  es **exacto** porque la póliza y su documento comparten folio **y fecha** (medido 4,809 de 4,809,
+  cero días de desfase). Si no fuera así, achicar rompería la liga e inventaría «sin documento».
+- **Recortarla al rango** es lo que lo hace **cuadrar**. Medido: con la pantalla en *4-jul → 2-oct*,
+  el renglón `2026-07 · MORELIA ABASTOS` vale **$10,189,105.13 en 28 documentos**; pedir el mes
+  entero traería **$11,211,645.52 en 31** — **$1,022,540.39 de más**. Un desglose que no suma su
+  propio encabezado es peor que no tenerlo.
+
+⚠️ **Y un defecto que apareció de paso, el mismo de `[LC.16]`:** `pg` devuelve un `date` como
+**objeto `Date` de JS**, así que el `String(x).slice(0,10)` que usaba `incomeRecon` daba
+**`"Mon Sep 28"`**, no `2026-09-28`. Estaba latente —hoy la pantalla no dibuja `primer_cobro` ni
+`ultimo_cobro`— pero salía por la API. Arreglado en el origen con `to_char(...,'YYYY-MM-DD')`.

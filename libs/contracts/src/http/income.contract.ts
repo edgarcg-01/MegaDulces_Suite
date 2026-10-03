@@ -321,6 +321,59 @@ export interface IncomeReconRow {
   cuentas: IncomeCuenta[];
 }
 
+/**
+ * `[IG.12]` **Un documento de la conciliación**, que es el grano al que el renglón abre.
+ *
+ * Edgar: *"conciliación no me desglosa la información al detalle"* y, antes, *"necesitamos mostrar
+ * por día, y de ahí mostrar por folio"*. La tabla publica la celda agregada; esto es lo que hay
+ * adentro, uno por uno, con la misma liga por folio que usa el Árbol.
+ *
+ * ⚠️ Varios campos son `null` **a propósito** y no por falta de dato: una nota de crédito
+ * (`UA25xx`) no tiene cobro ni saldo propio — se aplica contra la factura que le toque, que puede
+ * ser de otro día. Dibujarle un `$0.00` diría «no se ha cobrado», que es falso.
+ */
+export interface IncomeReconDoc {
+  /** `YYYY-MM-DD` de la póliza. Con grano Día es el mismo día del renglón padre. */
+  fecha: string;
+  folio: string;
+  /** `UD1301` factura · `UA25xx` nota de crédito o devolución. */
+  doc_tipo: string;
+  cliente_code: string | null;
+  cliente_nombre: string | null;
+  /** `null` cuando la póliza no encontró su documento: NO MEDIDO, no "externo". */
+  kind: IncomeKind | null;
+  es_interno: boolean | null;
+  ligado: boolean;
+  /** ⛔ El ERP lo canceló ($0.00) y su póliza de ingreso sigue publicada. */
+  cancelado: boolean;
+  importe: number;
+  /** `null` en lo que no es factura: una devolución no se cobra. */
+  cobrado: number | null;
+  pagos: number | null;
+  nota_credito: number | null;
+  pendiente: number | null;
+  primer_cobro: string | null;
+  ultimo_cobro: string | null;
+  /** Por qué cuenta entró el dinero de ESTE documento. Vacío = todavía no se ha cobrado. */
+  cuentas: IncomeCuenta[];
+}
+
+/**
+ * `[IG.12]` Lo que hay dentro de una celda de la conciliación. Se pide al abrir el renglón, no en
+ * la carga: 90 días son miles de documentos y la tabla no los necesita hasta que alguien mira uno.
+ */
+export interface IncomeReconDetalle {
+  periodo: string;
+  plaza: string;
+  canal: string;
+  /** La ventana real que se leyó: el período RECORTADO al rango de la pantalla. */
+  from: string;
+  to: string;
+  docs: IncomeReconDoc[];
+  /** Suma de `importe` de los documentos. Cuadra al centavo con el `vendido` del renglón padre. */
+  vendido: number;
+}
+
 export interface IncomeReconTotals {
   vendido: number;
   vendido_externo: number;

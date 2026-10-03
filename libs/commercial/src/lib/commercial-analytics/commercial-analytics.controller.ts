@@ -13,7 +13,7 @@ import { RoutePromoService, PromoQuery } from './route-promo.service';
 import { SelloutChatService } from './sellout-chat.service';
 // [IG.1.1] La forma de los filtros de ingreso vive con la lógica pura, no en el controller.
 import type { IncomeQueryFilters } from './period-coverage';
-import type { IncomeRecon, IncomeReport, IncomeSources, IncomeTree, IncomeTreeChildren, IncomeDocumento } from '@megadulces/contracts';
+import type { IncomeRecon, IncomeReconDetalle, IncomeReport, IncomeSources, IncomeTree, IncomeTreeChildren, IncomeDocumento } from '@megadulces/contracts';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
@@ -407,6 +407,35 @@ export class CommercialAnalyticsController {
       ...this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte),
       group_by: groupBy,
       compare: compare === 'true',
+    });
+  }
+
+  /**
+   * `[IG.12]` El desglose de una celda de la conciliación: sus documentos uno por uno.
+   *
+   * ⚠️ Va declarada ANTES que `income/conciliacion` por la regla de siempre en Nest: la ruta más
+   * específica primero. Acá no hay `:param` que se la trague, pero la disciplina se sostiene
+   * cuando no cuesta nada — en Fase LC costó un módulo inalcanzable.
+   */
+  @Get('income/conciliacion/detalle')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({
+    summary:
+      'IG.12 — Los documentos de UNA celda de la conciliación: folio, cliente, qué es, facturado, '
+      + 'cobrado, saldo y por qué cuenta entró el dinero. La ventana es el período de la celda '
+      + 'RECORTADO al rango de la pantalla, para que el desglose sume exactamente su renglón.',
+  })
+  incomeReconDetalle(
+    @Query('periodo') periodo: string,
+    @Query('canal') canal: string,
+    @Query('plaza') plaza?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('grain') grain?: string,
+  ): Promise<IncomeReconDetalle> {
+    return this.service.incomeReconDetalle({
+      periodo, canal, plaza: plaza ?? '', from, to,
+      grain: grain === 'dia' || grain === 'trimestre' ? grain : 'mes',
     });
   }
 
