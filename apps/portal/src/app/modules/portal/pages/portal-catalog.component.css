@@ -162,7 +162,7 @@
       /* Botón IA reubicado en el toolbar (acceso a recomendaciones). Icono ember. */
       .cat-toolbar-ai i { color: var(--brand-700); }
       .cat-toolbar-ai-label { margin-left: 0.1rem; }
-      @media (max-width: 480px) {
+      @media (max-width: 30rem) {
         .cat-toolbar-ai-label { display: none; }
       }
       .cat-toolbar-meta {
@@ -372,7 +372,7 @@
       }
 
       /* Mobile: el panel se vuelve bottom-sheet */
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .cat-filters-panel {
           top: auto;
           left: 0;
@@ -797,7 +797,7 @@
         font-size: var(--fs-h3);
         font-weight: 800;
       }
-      @media (min-width: 900px) {
+      @media (min-width: 56.25rem) {
         .cat-fab {
           left: auto;
           margin: 0;

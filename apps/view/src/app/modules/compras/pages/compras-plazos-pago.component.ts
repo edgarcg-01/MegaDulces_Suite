@@ -218,8 +218,8 @@ const STATUS_LABEL: Record<Status, string> = {
     .pp-full { width:100%; }
     .pp-hint { margin: .4rem 0 0; font-size:.78rem; color: var(--text-muted); }
     .pp-hist { margin-top: .8rem; border-top: 1px solid var(--border-color); padding-top: .4rem; max-height: 9rem; overflow-y:auto; }
-    .pp-hist-row { font-size:.75rem; padding: .15rem 0; }
-    .pp-block { font-size:.75rem; color: var(--text-muted); margin-right: auto; }
+    .pp-hist-row { font-size:var(--fs-xs); padding: .15rem 0; }
+    .pp-block { font-size:var(--fs-xs); color: var(--text-muted); margin-right: auto; }
   `],
 })
 export class ComprasPlazosPagoComponent implements OnInit {

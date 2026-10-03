@@ -130,6 +130,67 @@ buen pedido»*. Medido: de ~34 variables que deberían pesar en un pedido el mot
   de comparaciones**). Apilando OC y vale en una relación etiquetada y pivotando con `FILTER`:
   **90 d de 49 s a 0.7 s · 365 d de >50 min sin terminar a 2.7 s**, con **0 filas de cifra distinta**
   entre las dos formas.
+- 🚀 **[VPR.1/VPR.2]** **El precio del vendedor: no era desactualización, era una columna en
+  disputa.** Reporte de campo sobre `/vendor/take-order`. La medición **refutó la premisa**: el feed
+  corre cada 30 min y está verde, y las tablas se habían escrito hacía 6 minutos. Arbitrando contra
+  `kepler_ods.kdii.c90` (el ERP, por plaza) sobre 69,782 pares SKU×plaza: la **etiquetera cuadra
+  100.0%** y la lista que lee el vendedor, **86.8%**. ⭐ Ese 100% es el CONTROL que vuelve publicable
+  al 86.8% — sin él, el hueco se leería como "el ERP está raro" en vez de "la lista de red no puede
+  acertar". Y `master_data_history` destapó lo de fondo: **dos procesos se peleaban la columna,
+  302,273 vaivenes en 3 días (~100,758/día)**, con el escritor anónimo ganando **1,129 a 41** al
+  momento de medir. El precio no estaba viejo: estaba **inestable**, y dependía de quién escribió
+  último. ⭐ **La solución es una VISTA y por eso es definitiva**: el defecto no se arregla
+  escribiendo el valor bueno —ya se escribe 48 veces al día y lo pisan— sino **sacando la columna de
+  la pelea**. `analytics.v_price_truth` (mig `20261003190000`, **batch 705**, 2.9 s) deriva de
+  `kepler_ods.kdii` a grano **(almacén, producto)**: nadie la puede escribir, así que el número deja
+  de depender de quién corrió último. Medido antes de elegir la forma: **99 ms** el universo y
+  **23 ms** una plaza; `warehouses.code` = `kdii.sucursal` en las 9 plazas; y **nadie pone precios a
+  mano** (`updated_by` en 0 de 9,618; de 1,039,304 cambios en 30 días, **cero** del rol de la app).
+  ⛔ `commercial.product_prices` **no se toca** — la leen 14 lugares; la vista se pone al lado y
+  declara. **Cambio de número: 10,422 de 78,898 celdas (1,572 SKUs), 7,824 venían cobrando de
+  MENOS.** El precio viaja con su procedencia (`price_source`) y con el de red al lado. Candado
+  `test-newdb-price-truth.js` **verde · 1 NO MEDIDO**, con la **prueba negativa que define la fase**:
+  se intenta un `UPDATE` contra la vista y se exige que Postgres lo **rechace**. **Falta: cazar al
+  escritor anónimo** (la tabla sigue en disputa y de ella come el portal B2B) **+ redeploy api+view**.
+  Sin permisos nuevos → sin re-login.
+- 🚀 **[RA-DYN.U7]** **El cumplimiento ya NO es sólo para negociar: entra al pedido.** La
+  migración del umbral está **en prod (batch 704, 0.1 s)**. El motor
+  ya tenía el mecanismo (`÷ fill rate`, RA-PRO.27) y **corregía en el papel**: medido contra prod,
+  **0 de 994** proveedores con override, **4** con OC propia recibida y **6** con reclamo del andén,
+  contra **329** medidos en la cadena de Kepler. Todos los demás tomaban `1.0`, que significaba
+  *no sé*, no *me surte completo*. ⚠️ Y el mecanismo vivía sólo en `purchaseSuggestion`, que la
+  pantalla usa para un cruce lateral: **la grilla de `/compras/pedido` sale de `workbook`, que no
+  tenía fill rate** — cablear sólo el otro lado no habría movido un peso.
+  **Antes → después medido en la superficie que publica:** `$7,555,816` → `$7,916,562`
+  (**+$360,746, +4.8%**), sobre **3,168 de 6,411 celdas** con pedido; **63 proveedores** corrigen.
+  ⭐ **El grano es PROVEEDOR porque se midió, y la medición refutó la intuición**: el faltante
+  *está* concentrado (en MONDELEZ el peor 10% de los SKUs carga el **49.5%**, y **80 de sus 174
+  SKUs nunca fallaron**), pero partiendo la historia en dos mitades, **proveedor predice 0.495 y
+  (proveedor, SKU) 0.240** — el amontonamiento es real dentro de un periodo y **cuáles** SKUs
+  fallan cambia entre periodos. ⭐ **El umbral de 25 renglones es el borde medido de la señal**:
+  debajo la correlación es **cero** (−0.026 entre 6 y 14, −0.052 entre 15 y 24), arriba salta a
+  0.607 / 0.341 — y **el dinero no lo decide** (entre umbral 3 y 50 el sugerido se mueve 1.5%).
+  ⛔ **Lo que esta fuente NO puede distinguir**: un renglón que **nosotros** cancelamos se ve igual
+  que uno que el proveedor no surtió — Kepler no lo marca. Por eso el inflado va **topado**
+  (`fill_max_inflate`, 1.30; **373 celdas** lo tocan) y **declarado en pantalla** con una columna
+  propia, en vez de crecer en silencio. Se excluye al proveedor con **nombre homónimo** (202 en el
+  catálogo): cuesta **$2,393** del delta y evita inflarle el pedido a uno por culpa de otro.
+  ⚠️ **`GREATEST` ignora los NULL**: sin el `COALESCE` por dentro, todo proveedor **sin** medición
+  se habría llevado el inflado **máximo**. Me mordió midiendo, antes de escribir el código; el
+  candado reproduce la trampa en vivo. Candado `test-newdb-fill-rate-wiring.js` **verde · 1 NO
+  MEDIDO** contra prod (la atribución cancelación-vs-no-surtido; el segundo era la columna
+  ausente y se fue al aplicar la migración).
+  **Falta: redeploy api+view** — el código que consume el umbral todavía no está servido. Sin
+  permisos nuevos → sin re-login. ⚠️ **Y al aplicarla se descubrió que prod se mudó de docker
+  compose a k3s**: `prod-api`, `pg-prod`, `prod-worker`, `prod-caddy`, `prod-portal`, `prod-vendor`
+  y `prod-redis` llevaban **22–26 h `Exited`**, y el camino documentado (`docker cp` /
+  `docker exec prod-api`) ya no existía. ⭐ **No se nota desde afuera**: `192.168.0.222:5434`
+  responde igual, y el reflejo para comprobarlo miente — `ss -ltn` **no muestra nada** en ese
+  puerto porque k3s publica por DNAT de iptables y no abre un socket en LISTEN. Lo delata
+  `inet_server_addr()`, que devuelve `10.42.0.94`, una IP de pod. ⭐ La **identidad del clúster NO
+  cambió** (`7688376744939610156`), o sea que se migró el mismo dato: el candado de identidad del
+  script siguió valiendo y no hubo que tocar `PROD_CLUSTER_ID`. Procedimiento vigente reescrito en
+  `database/scripts/apply-one-migration-prod.js`, con el de docker marcado HISTÓRICO, no borrado.
   ⚠️ **Publiqué una VISTA sobre una medición equivocada** y tuve que volver a matvista: los "0.2 s
   por proveedor" eran de una consulta que filtraba DENTRO de la CTE; la vista filtra DESPUÉS del
   `GROUP BY`, donde el predicado no baja — ni filtrada terminaba en 60 s.
@@ -1923,6 +1984,34 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       `http-admin-password-test.js` ejerce `PUT /users/:id` de verdad: **8 ok / 0 / 1 declarado**.
       ⭐ El declarado es el hallazgo: `platform_test` **no admite el kind `dispositivo`**, o sea que
       **contra dev este test no habría atrapado el bug**. Commit `67096a81` · 2026-09-17
+- [ ] **[AU.33]** 🔨 **El acceso se marca en el árbol; la diferencia se deriva — y se ve la pantalla
+      que se concede.** Pedido de Edgar: *«al querer quitar o conceder un permiso lo tengo que hacer
+      uno a uno y agregando explicación de cada uno… la interpretación de qué permisos debo dar o
+      quitar es poco comprensible»* + *«que se pueda previsualizar cuál es la pantalla a la que se le
+      está dando acceso»*. **Medido en prod antes de tocar nada:** `ernesto_zarate` tiene **28
+      excepciones, 27 «quita», las 28 sin motivo** — y esas 27 son **dos proyectos enteros**;
+      padrón 144 personas / 52 roles / 48 excepciones con **32 sin motivo (67 %)**; catálogo 223
+      permisos · 131 módulos · **126 con ruta** · **0 huérfanos**. ⭐ **El backend ya aceptaba el lote
+      entero** (`PUT /users/:id/permissions` reemplaza el conjunto): el cuello era la pantalla, no el
+      servidor. Entra `libs/contracts/.../authz-selection.ts` (tri-estado, cascada, diferencia contra
+      el perfil, de claves a **pantallas**) — la lógica estaba como métodos privados del editor de
+      roles y copiarla era el modo de falla de **ADR-056**, así que baja al contrato y **los dos la
+      consumen**; `permission-tree` + `permission-preview` compartidos; `persona-acceso` reconstruido
+      (estado final + motivo **uno por lote** + paso de revisión en pantallas, y **el motivo viejo no
+      se pisa**); `GET /users/permissions/usage` (perfil base + complementos + excepciones, **restando
+      los `allow=false`**; los roles de plataforma van **aparte**, no repartidos). ⛔ **El candado
+      encontró un error mío: son 18 pantallas, no 19** — la lista la había derivado a mano y tres
+      claves caían mal (`FINANCE_PAYMENTS_*` vive en **Calendario de pagos**, `FINANCE_EXPENSES_VER`
+      en **Gastos**, `FINANCE_FINDINGS_GESTIONAR` no tiene módulo propio); *comprobar una derivación
+      contra sí misma la pasa en verde*. ⚠️ **La previa en vivo queda DECLARADA, no encendida**: la app
+      se sirve con `X-Frame-Options: DENY` + `frame-ancestors 'none'` y **no se puede embeber ni a sí
+      misma**, así que el marco sale vacío; el componente lo **mide** (lee la ubicación del iframe,
+      mismo origen) y lo **dice en pantalla** en vez de quedarse mudo. Encenderlo son **2 líneas de
+      `nginx.conf`** que aflojan un header de seguridad → **decisión de una persona, pendiente**.
+      `vitest contracts` **307/307** (18 nuevas, 5 negativas); SQL del endpoint corrido contra prod en
+      **solo lectura con control negativo**. Sin migraciones y sin permisos nuevos → **sin re-login**.
+      **Falta: CI (typecheck/lint), validación visual, push y despliegue.** Commit `04c9d642c` ·
+      2026-10-03
 - [x] **[ZN.0]** 🔨 **Zona, sucursal y ruta dejan de ser la misma columna.** Pedido del lead:
       *«hay que normalizar esto, para que se respete que el usuario solo vea lo de su zona o sus
       sucursales asignadas; eliminar todo lo que esté hardcodeado y separar por sucursal»*.

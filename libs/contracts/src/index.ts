@@ -64,6 +64,9 @@ export * from './http/expense-family.contract';
 // [IG.1] El hermano del lado ingreso: canales de venta (el canal vive en c6, no en la cuenta).
 export * from './http/sales-channel.contract';
 export * from './http/income.contract';
+// [PU.R] El estado de resultados del presupuesto: plan contra real, con el costo de ventas que a
+// la versión anterior le faltaba (y que es el 88 % del egreso).
+export * from './http/budget-result.contract';
 export * from './http/oc-seguimiento.contract';
 export * from './http/oc-cadena.contract';
 export * from './http/flujo-compras.contract';

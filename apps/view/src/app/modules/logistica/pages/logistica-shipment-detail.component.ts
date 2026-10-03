@@ -230,7 +230,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           }
           <div class="sheet cols-12">
             <article class="cell cell-span-12 is-flush">
-              <p-table [value]="guides()" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
+              <p-table [value]="guides()" styleClass="surf-table surf-table--sticky surf-table--frozen-first p-datatable-sm">
                 <ng-template #header>
                   <tr>
                     <th scope="col">Número</th>
@@ -302,7 +302,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 @if (eta(); as e) {
                   <div>
                     @if (e.stops.length) {
-                      <p-table [value]="e.stops" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
+                      <p-table [value]="e.stops" styleClass="surf-table surf-table--sticky p-datatable-sm">
                         <ng-template #header>
                           <tr><th scope="col">#</th><th scope="col">Cliente</th><th scope="col" class="comm-num num">Km acum.</th><th scope="col">ETA</th></tr>
                         </ng-template>
@@ -394,7 +394,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           @if (cpDocs().length) {
             <div class="sheet cols-12">
               <article class="cell cell-span-12 is-flush">
-                <p-table [value]="cpDocs()" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
+                <p-table [value]="cpDocs()" styleClass="surf-table surf-table--sticky p-datatable-sm">
                   <ng-template #header>
                     <tr><th scope="col">Folio fiscal (UUID)</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Timbrado</th></tr>
                   </ng-template>
@@ -523,7 +523,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <span class="cell-label">Destinatarios</span>
               <span class="comm-muted is-small">{{ (g.recipients || []).length }} registrado{{ (g.recipients || []).length === 1 ? '' : 's' }}</span>
             </div>
-            <p-table [value]="g.recipients || []" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
+            <p-table [value]="g.recipients || []" styleClass="surf-table surf-table--sticky surf-table--frozen-first p-datatable-sm">
               <ng-template #header>
                 <tr>
                   <th scope="col">#</th>
@@ -734,12 +734,12 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     /* Barra de % listo (semáforo de preparación) */
     .rd-progress { display:flex; align-items:center; gap:.625rem; margin-bottom:.75rem; }
     .rd-progress-track { flex:1; height:6px; border-radius:999px; background:var(--c-surface-2); overflow:hidden; }
-    .rd-progress-fill { height:100%; border-radius:999px; background:var(--warn-fg); transition:width .4s var(--ease-standard); }
+    .rd-progress-fill { height:100%; border-radius:999px; background:var(--warn-fg); transition:width var(--dur-standard,250ms) var(--ease-standard); }
     .rd-progress-fill.ok { background:var(--ok-fg); }
     .rd-progress-pct { font-variant-numeric:tabular-nums; font-weight:var(--fw-bold); font-size:var(--fs-sm); color:var(--c-text-1); min-width:34px; text-align:right; }
     @media (prefers-reduced-motion: reduce){ .rd-progress-fill { transition:none; } }
     .rd-list { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:.4rem .9rem; }
-    @media (max-width:720px){ .rd-list { grid-template-columns:1fr; } }
+    @media (max-width:45rem){ .rd-list { grid-template-columns:1fr; } }
     .rd-list li { display:flex; align-items:center; gap:.5rem; font-size:var(--fs-sm); padding:.25rem 0; }
     .rd-list li i { font-size:1rem; flex:0 0 auto; }
     .rd-ok i { color:var(--ok-fg); }
@@ -759,7 +759,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       grid-template-columns: repeat(3, 1fr);
       gap: .75rem;
     }
-    @media (max-width: 720px) {
+    @media (max-width: 45rem) {
       .shd-exp-row { grid-template-columns: 1fr; }
     }
     .shd-exp-form label {

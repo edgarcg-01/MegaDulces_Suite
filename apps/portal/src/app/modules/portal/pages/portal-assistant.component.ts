@@ -113,6 +113,7 @@ const SUGGESTIONS = [
     .pa-input { display: flex; gap: .5rem; padding-top: .5rem; border-top: 1px solid var(--c-border, #e6e1d8); }
     .pa-input input { flex: 1; padding: .7rem 1rem; border: 1px solid var(--c-border, #e6e1d8); border-radius: 999px; font-size: .95rem; }
     .pa-input input:focus { outline: none; border-color: var(--action, #d2691e); }
+      .pa-input input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .pa-input button { width: 44px; height: 44px; border: none; border-radius: 50%; background: var(--action, #d2691e); color: #fff; cursor: pointer; }
     .pa-input button:disabled { opacity: .4; cursor: default; }
   `],

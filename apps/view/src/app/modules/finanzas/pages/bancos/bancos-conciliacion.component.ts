@@ -156,7 +156,7 @@ import { BANCOS_STYLES } from './bancos.styles';
       padding: 2px var(--sp-2); cursor: pointer; margin-left: var(--sp-2); vertical-align: middle; }
     .fb-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
     .fb-xls:disabled { opacity: .6; cursor: default; }
-    .fb-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+    .fb-xls:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
     .fb-match { margin-bottom: var(--sp-3); }
     .fb-match-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }

@@ -281,7 +281,7 @@ interface ValePendiente extends ReceivingLine {
   styles: [`
     .rec-head-actions { display: flex; gap: .5rem; align-items: center; }
     .rec-layout { display: grid; grid-template-columns: minmax(340px, 460px) 1fr; gap: 1rem; align-items: start; }
-    @media (max-width: 900px) { .rec-layout { grid-template-columns: 1fr; } }
+    @media (max-width: 56.25rem) { .rec-layout { grid-template-columns: 1fr; } }
     .surf-card { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: var(--radius-lg, 12px); padding: 1rem; }
     .rec-side { display: flex; flex-direction: column; gap: 1rem; }
     .rec-h2 { font-size: .95rem; font-weight: 700; margin: 0 0 .75rem; }

@@ -45,7 +45,7 @@ export const BANCOS_STYLES = `
 
   /* Fila navegable (clic o Enter) — el foco se ve hacia adentro para no cortarse. */
   .fb-row-click { cursor: pointer; }
-  .fb-row-click:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+  .fb-row-click:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
   /* Barra de filtros + contador de truncamiento ("Mostrando X de Y"). */
   .fb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }

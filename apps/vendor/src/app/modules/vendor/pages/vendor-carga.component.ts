@@ -208,7 +208,7 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
       :host { display: block; }
       .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
       .page-title { margin: 0 0 0.2rem; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text-main); }
-      .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: 0.875rem; text-transform: capitalize; }
+      .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: var(--fs-body); text-transform: capitalize; }
       .refresh { flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); display: grid; place-items: center; cursor: pointer; transition: transform 0.08s var(--ease, ease); }
       .refresh:active { transform: scale(0.92); } .refresh:disabled { opacity: 0.6; }
       .refresh i { font-size: 0.9rem; }
@@ -262,7 +262,7 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
       .ohead { display: flex; align-items: center; gap: 0.75rem; padding: 0.8rem 0.9rem; }
       .oinfo { flex: 1; min-width: 0; }
       .oinfo .nm { display: block; font-weight: 700; font-size: 0.95rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .oinfo .sub { font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); }
+      .oinfo .sub { font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); }
       .loadall { flex-shrink: 0; border: 1px solid var(--border-color); background: var(--surface-ground, transparent); color: var(--text-main); border-radius: var(--r-pill, 999px); padding: 0.4rem 0.8rem; font-weight: 700; font-size: 0.78rem; cursor: pointer; }
       .loadall:active { transform: scale(0.96); }
       .olines { list-style: none; margin: 0; padding: 0 0.9rem 0.5rem; }

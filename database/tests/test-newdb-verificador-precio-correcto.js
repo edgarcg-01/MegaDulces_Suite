@@ -51,7 +51,7 @@ const T = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
  * salieron idénticas. Un test que no puede decir contra qué corrió no prueba nada; por
  * eso además imprime el destino.
  */
-const DEST = process.env.TEST_DB_URL || process.env.FLEET_DB_URL || process.env.DATABASE_URL_NEW;
+const DEST = process.env.TEST_DB_URL || process.env.DATABASE_URL_NEW || process.env.FLEET_DB_URL;
 
 let ok = 0; let mal = 0; let base = 0;
 const fallidos = [];

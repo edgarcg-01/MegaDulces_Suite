@@ -70,6 +70,7 @@
   color: var(--text-main);
   min-width: 140px;
 }
+ .cm-search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .cm-search i {
   color: var(--text-muted);
   font-size: 0.8rem;
@@ -116,7 +117,7 @@
   gap: var(--sp-3);
   align-items: start;
 }
-@media (max-width: 900px) {
+@media (max-width: 56.25rem) {
   .cm-main {
     grid-template-columns: 1fr;
   }

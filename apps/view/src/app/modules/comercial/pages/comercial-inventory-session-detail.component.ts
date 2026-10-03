@@ -222,7 +222,7 @@ interface LiveCountEntry {
       @if (sessions().length) {
         <div class="in-sessions">
           <div class="in-sessions-head"><i class="pi pi-users"></i> Jornadas de conteo del personal</div>
-          <p-table [value]="sessions()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
+          <p-table [value]="sessions()" styleClass="p-datatable-sm surf-table surf-table--sticky">
             <ng-template #header>
               <tr>
                 <th scope="col">Contador</th><th scope="col" class="in-num num">Fase</th><th scope="col">Inició</th><th scope="col">Terminó</th><th scope="col">Estado</th>
@@ -251,7 +251,7 @@ interface LiveCountEntry {
       </div>
 
       <!-- Tabla de items -->
-      <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="flex">
+      <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="flex">
         <ng-template #header>
           <tr>
             <th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Ubic.</th>
@@ -351,7 +351,7 @@ interface LiveCountEntry {
     .in-interrupt-chip { display: flex; flex-direction: column; padding: .4rem .7rem; border-radius: 10px; background: var(--surface-100,#f5f5f4); }
     .in-interrupt-chip-warn { background: color-mix(in srgb, var(--orange-500,#f97316) 14%, transparent); }
     .in-interrupt-user { font-weight: 600; font-size: .85rem; }
-    .in-interrupt-stat { font-size: .75rem; color: var(--text-muted,#78716c); font-variant-numeric: tabular-nums; }
+    .in-interrupt-stat { font-size: var(--fs-xs); color: var(--text-muted,#78716c); font-variant-numeric: tabular-nums; }
     .in-interrupt-timeline { display: flex; flex-direction: column; }
     .in-interrupt-row { display: flex; gap: .75rem; padding: .3rem .15rem; border-top: 1px solid var(--surface-100,#f5f5f4); font-size: .8rem; }
     .in-interrupt-when { font-variant-numeric: tabular-nums; color: var(--text-muted,#78716c); min-width: 110px; }
@@ -370,7 +370,7 @@ interface LiveCountEntry {
     /* Feed en vivo (#1) — productos apareciendo uno a uno. Lateral sticky en
        laptop (≥1100px), tarjeta colapsable arriba en móvil/tablet. */
     .in-body { display: grid; grid-template-columns: 1fr; gap: 1.25rem; align-items: start; }
-    @media (min-width: 1100px) {
+    @media (min-width: 68.75rem) {
       .in-body-live { grid-template-columns: 1fr minmax(300px, 360px); }
       .in-body-live .in-main { grid-column: 1; grid-row: 1; }
       .in-body-live .in-live-rail { grid-column: 2; grid-row: 1; position: sticky; top: 1rem; }
@@ -380,10 +380,10 @@ interface LiveCountEntry {
     .in-live-head { display: flex; align-items: center; gap: .5rem; padding: .5rem .4rem .5rem .75rem; border-bottom: 1px solid var(--border-color, #E4E4E7); }
     .in-live-title { display: inline-flex; align-items: center; gap: .4rem; font-weight: 700; font-size: .9rem; color: var(--text-main, #09090B); }
     .in-live-title i { color: var(--action, #f05a28); }
-    .in-live-count { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-size: .75rem; font-weight: 700; color: var(--action, #f05a28); background: color-mix(in srgb, var(--action, #f05a28) 12%, transparent); padding: .05rem .45rem; border-radius: var(--r-pill, 999px); }
+    .in-live-count { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); font-weight: 700; color: var(--action, #f05a28); background: color-mix(in srgb, var(--action, #f05a28) 12%, transparent); padding: .05rem .45rem; border-radius: var(--r-pill, 999px); }
     .in-live-toggle { margin-left: auto; }
     .in-live-body { max-height: 60vh; overflow-y: auto; }
-    @media (max-width: 1099.98px) { .in-live-body { max-height: 38vh; } }
+    @media (max-width: 68.7488rem) { .in-live-body { max-height: 38vh; } }
     .in-live-row { display: flex; align-items: center; gap: .6rem; padding: .55rem .75rem; border-bottom: 1px solid var(--border-color, #E4E4E7); animation: in-live-in .25s var(--ease-out, ease); }
     .in-live-row:last-child { border-bottom: none; }
     .in-live-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }

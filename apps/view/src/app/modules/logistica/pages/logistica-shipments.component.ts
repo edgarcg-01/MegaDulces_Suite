@@ -204,7 +204,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush">
             <p-table [value]="page().items" [loading]="loading()"
-              styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+              styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first"
               [paginator]="true" [rows]="page().pageSize" [totalRecords]="page().total" [lazy]="true"
               [rowsPerPageOptions]="[25, 50, 100, 200]"
               (onLazyLoad)="onPageChange($event)">
@@ -286,7 +286,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush">
             <p-table [value]="pendingOrders()" [loading]="loadingPending()"
-              styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
+              styleClass="p-datatable-sm surf-table surf-table--sticky">
               <ng-template #header>
                 <tr>
                   <th scope="col">Folio</th>

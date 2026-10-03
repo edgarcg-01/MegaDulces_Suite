@@ -32,6 +32,262 @@
 - `SMTP_*` y `S3_*` en prod (sin ellos: sin correo y sin adjuntos); plantilla de WhatsApp aprobada por Meta (P5).
 - Sin medir: el bucket real de prod, una cámara de teléfono físico, el tema claro de Reportes, lector de pantalla.
 - Pasar ADR-081 de «propuesto» a «aceptado» al hacer el merge.
+## 2026-10-03 — `[VPR.1/VPR.2]` El precio del vendedor: no era desactualización, era una columna en disputa
+
+Edgar: *"necesito una verdad absoluta en los precios de `/vendor/take-order`, así como lo tenemos en
+etiquetas y catálogo, ya que mencionan desactualización de precios"*. Después: *"arranquemos por la
+solución definitiva"*.
+
+### La medición refutó la premisa del reporte
+
+El feed de precios corre cada 30 min y está **verde** (`feed_prices`, 3/3 pasos, última corrida a
+los 22 min). Las dos tablas de precio se habían escrito hacía **6 minutos**. No había nada viejo.
+
+Arbitrando las dos superficies contra el ERP (`kepler_ods.kdii.c90`, por plaza), mismos 69,782
+pares SKU × plaza:
+
+| superficie | cuadra con el ERP |
+|---|---|
+| **Etiquetera** (`product_label_prices`, tiene columna `sucursal`) | **100.0%** |
+| **Vendedor** (`product_prices`, un solo número de red) | **86.8%** |
+
+⭐ Que la etiquetera dé 100% es lo que vuelve publicable el 86.8%: **el árbitro discrimina**. Sin
+ese control, el 86.8% se podría leer como *"el ERP está raro"* en vez de *"la lista de red no puede
+acertar"*, que son conclusiones opuestas.
+
+### Y la columna estaba en guerra
+
+`analytics.master_data_history` —lo que VP.3 construyó justo para esto— lo dejó por escrito:
+
+    SKU 83041 -- las NUEVE plazas cotizan 40.49
+      09:32  importer:repoint-catalog-prices   38.94 -> 40.49
+      09:33  (actor NULL)                      40.49 -> 38.94
+      09:02  importer:repoint-catalog-prices   38.94 -> 40.49
+      09:23  (actor NULL)                      40.49 -> 38.94   ...
+
+**1,222 filas en guerra · 302,273 vaivenes en 3 días (~100,758 por día)**, y al medir el escritor
+anónimo iba ganando **1,129 a 41**. El precio no estaba viejo: estaba **inestable**, y lo que veía
+el vendedor dependía de quién escribió último. Baja el precio 10,349 veces contra 2,637 que lo
+sube; mediana **−2.3%**, sobre **1,572 SKUs**.
+
+⚠️ El escritor anónimo **no declara actor** — por eso sale `NULL`. La instrumentación lo delata
+justo por su ausencia. Sigue **sin identificar**: descarté el join por SKU (0 productos casan sólo
+normalizando) y las plazas nuevas 07/08 (ambos grupos dan 86.8%), que eran las dos hipótesis
+obvias. Corre casi cada minuto y toca `product_prices`, `product_label_prices` y `catalog.products`.
+
+### ⭐ Por qué la solución es una VISTA, y por qué eso es "definitivo"
+
+El defecto **no se arregla escribiendo el valor correcto**: ya se escribe, 48 veces al día, y lo
+pisan. Se arregla **sacando la columna de la pelea**.
+
+`analytics.v_price_truth` (mig `20261003190000`, batch **705**, 2.9 s) es una vista derive-no-copy
+sobre `kepler_ods.kdii`, grano **(tenant, almacén, producto)**. Nadie la puede escribir: no hay
+importer que la pise, ni actor anónimo que la revierta, ni carrera que ganar. **El número deja de
+depender de quién corrió último porque ya no hay nadie corriendo.**
+
+Es además la regla principal del repo (cero importers, derivar en vez de copiar) aplicada donde más
+duele — y la etiquetera ya había demostrado que a este grano se llega al 100%.
+
+### Lo que se midió ANTES de elegir la forma
+
+- **Costo**: 78,523 filas en **99 ms**; el caso real (una plaza) en **23 ms**. Gate de 1 s.
+- **Los códigos casan**: `warehouses.code` = `kdii.sucursal` en las 9 plazas (00–08). Las rutas dan
+  0 y es correcto: una camioneta no cotiza, y en take-order el toggle de camioneta mueve badges de
+  existencia, nunca precio.
+- **Nadie pone precios a mano**: `updated_by` y `created_by` en **0 de 9,618**, y de los
+  **1,039,304** cambios de 30 días, **cero** son del rol de la app. La gestión manual existe en el
+  código y jamás se usó — así que la vista no le quita una capacidad a nadie.
+
+⛔ **`commercial.product_prices` NO se toca**: la leen 14 lugares (portal, Thot, recomendaciones,
+búsqueda, pedido AI, pricing). La vista **no la reemplaza**, la pone al lado y declara la
+divergencia. El filtro "con precio" tampoco se movió — medido, `sin_precio_lista = 0`, así que el
+universo de productos es idéntico; sólo cambia **el valor**.
+
+### El cambio de número, medido
+
+**10,422 de 78,898 celdas (1,572 SKUs)** pasan a publicar el precio de su plaza. **7,824 venían
+cobrando de MENOS.** El precio viaja ahora con su procedencia (`price_source`: `erp_plaza` ·
+`lista_red` · `sin_precio`) y con el de la red al lado, para que un cambio de precio se pueda
+discutir en vez de sorprender.
+
+### Verificación
+
+`test-newdb-price-truth.js` — **verde · 1 NO MEDIDO**, en la regresión. Vigila premisas, no el
+precio: el control de la etiquetera (100%), que la plaza se resuelva (9), el piso de promo, y
+⭐ **la prueba negativa que define la fase**: se intenta un `UPDATE` contra la vista y se exige que
+Postgres lo **rechace**. Si algún día deja de fallar, el defecto volvió.
+
+⚠️ Dos trampas propias al escribir el candado: `round(double, int)` no existe en Postgres (el cast
+a `numeric` va **antes** del `round`), y el operador `?` de JSONB **choca con el placeholder de
+binding de knex** — la misma que `CLAUDE.md` ya documenta para `role_permissions`; se usa
+`jsonb_exists()`.
+
+### Pendiente
+
+- **Cazar al escritor anónimo.** La vista protege al vendedor, pero la tabla sigue en disputa y de
+  ella comen 14 consumidores (portal B2B entre ellos). Lo más rápido para nombrarlo: que el trigger
+  guarde también `application_name`/`pid`.
+- **Redeploy api+view** — la vista ya está en prod, pero el código que la lee no está servido.
+- Declarado, no resuelto: un override manual necesita **columna propia**; hoy es indistinguible de
+  un feed.
+- Las 5 listas de precio (Mayoreo, Nivel 1–4) están en **0 precios**: asignarle una a un cliente le
+  deja el catálogo vacío. Hoy los 936 clientes están en la base, así que no duele todavía.
+---
+## 2026-10-02 — `[RA-DYN.U7]` El cumplimiento cableado al pedido: el grano lo decidió la medición
+
+Edgar, sobre la medición que quedó publicada el mismo día: *"cablealo"*.
+
+### Lo que había, medido antes de tocar nada
+
+El motor **ya tenía** el mecanismo — `sugerido ÷ fill rate`, topado, de RA-PRO.27. Lo que no tenía
+era con qué alimentarlo:
+
+| fuente | cobertura real en prod |
+|---|---|
+| `fill_rate_override` (captura manual) | **0** de 994 proveedores |
+| nuestras OCs recibidas | **4** proveedores, 18 renglones |
+| reclamo del andén (WMS-REC.8) | **6** proveedores, 30 renglones |
+| la cadena de Kepler (`[RA-DYN.U5/U6]`) | **329** proveedores, 86,833 renglones |
+
+O sea: el motor corregía por cumplimiento **en el papel**. Todos los demás tomaban `1.0`, que
+significa *no sé*, no *me surte completo*.
+
+⚠️ **Y el mecanismo estaba del lado que no publica.** `purchaseSuggestion` tenía el `÷ fill`; la
+grilla de `/compras/pedido` —y con ella el total, el Excel y los chips— sale de `workbook`, que
+**no tenía ningún fill rate**. Cablear sólo el primero habría sido decorativo.
+
+### ⭐ El grano lo decidió la medición, y refutó la intuición
+
+La intuición decía SKU, y tenía evidencia a favor: el faltante **está** concentrado — en MONDELEZ
+el peor 10% de los SKUs carga el **49.5%** del dinero no surtido, y **80 de sus 174 SKUs nunca
+fallaron**. Inflar los 174 por igual parecía obviamente malo.
+
+Partiendo la historia de cada sujeto en dos mitades cronológicas y preguntando si la primera
+predice la segunda, el orden se invierte:
+
+    grano (proveedor, SKU) ... 3,276 pares ... correlacion 0.240
+    grano proveedor ......... 190 prov.   ... correlacion 0.495   <-- el doble
+
+El faltante se amontona **dentro** de un periodo, pero **cuáles** SKUs fallan cambia entre
+periodos. Lo que se repite es el nivel del proveedor. Cablearlo por SKU habría sido cablear ruido
+con más resolución — y la concentración, que era el argumento, no alcanzaba para decidirlo.
+
+### ⭐ El umbral de 25 es el borde medido de la señal, y el dinero no lo decide
+
+| renglones | proveedores | correlación | error medio |
+|---|---|---|---|
+| 6 a 14 | 40 | **−0.026** | 0.026 |
+| 15 a 24 | 30 | **−0.052** | 0.041 |
+| 25 a 99 | 90 | **0.607** | 0.053 |
+| 100 o más | 100 | **0.341** | 0.038 |
+
+Debajo de 25 el fill rate **no predice nada**. El `fill_min_lines = 3` que ya existía nació para la
+evidencia app-nativa; aplicarlo al ERP habría cableado ruido, así que el ERP estrena umbral propio
+(`fill_min_lines_erp`, mig `20261003120000`) con un CHECK que **sólo deja subirlo**.
+
+⚠️ **Si la decisión se hubiera tomado por el monto, cualquier corte parecía igual de bueno**:
+entre umbral 3 y umbral 50 el sugerido se mueve de $367,126 a $361,726 — **1.5%**. Bajar el umbral
+casi no agrega pedido; sólo agrega ruido.
+
+### El antes/después, sobre la superficie que publica
+
+Reconstruyendo la fórmula de `workbook` (grano celda, cobertura 30, mismo gate de peldaño):
+
+    pedido ......... $7,555,816 -> $7,916,562   (+$360,746, +4.8%)
+    celdas ......... 3,168 de 6,411 con pedido corrigen; 373 tocan el tope
+    proveedores .... 63
+
+Lo mueve sobre todo **MONDELEZ** (fill 68.6%, +$147,614), DE LA ROSA (87.3%, +$75,620) y AZTECA
+(77.8%, +$37,541).
+
+**El invariante que el candado verifica:** una celda **sin** medición publica **exactamente** el
+número de antes. Medido: 3,247 celdas sin fill, **0** se movieron.
+
+### ⛔ Lo que esta fuente no puede decidir, y cómo se acota
+
+Kepler **no marca la cancelación en el renglón**: uno que **nosotros** cancelamos se ve igual que
+uno que el proveedor no surtió. Esa atribución no se cierra con esta fuente, así que se acota en
+tres lugares en vez de taparse: el **tope** (`fill_max_inflate`, 1.30), el **umbral** medido, y una
+**columna propia en pantalla** con el porcentaje y el factor. Un pedido que crece 4.8% sin decir
+por qué no se discute con nadie — ni con el proveedor ni con quien firma la compra.
+
+Se excluye además al proveedor con **nombre homónimo** (202 en el catálogo, 35,005 renglones):
+cuesta **$2,393** del delta y evita inflarle el pedido a un negocio por culpa de otro.
+
+### ⚠️ La trampa que me mordió midiendo, antes de escribir el código
+
+**`GREATEST` ignora los NULL en Postgres.** `GREATEST(NULL, 1/1.30)` devuelve **0.769**, así que un
+proveedor **sin** medición se habría llevado el inflado **máximo, +30%** — justo el que menos lo
+merece. Lo descubrí porque un barrido de umbrales me dio $1.19 M de delta donde la consulta buena
+daba $363 K: 3.5×, y el síntoma era que el número **no se movía** al cambiar el umbral. El
+`COALESCE` va **adentro** del `GREATEST`, y el bloque [3] del candado **reproduce la trampa en
+vivo** antes de verificar que la expresión del motor no cae en ella.
+
+### Verificación
+
+- `test-newdb-fill-rate-wiring.js` — **verde · 2 NO MEDIDO**, vigilando las **cinco premisas** y no
+  el número: el grano, el umbral, la guarda del `GREATEST`, el rango `[0,1]` con su tope, y el
+  homónimo. Registrado en `run-all-tests.js`.
+- El **SQL del servicio se corrió contra prod extrayéndolo del propio fuente** con el parser de
+  TypeScript, no copiándolo a mano: 76 proveedores, fill 0.681 a 1.000, muestra mínima **25 exacta**,
+  **40 ms**. — *una copia a mano se puede desincronizar sin que nadie se entere.*
+- Dos riesgos que sólo aparecen ejecutando, verificados contra prod: que knex **tolera binds con
+  nombre de sobra** (si no, la consulta de territorios, que comparte el objeto de binds, habría
+  dado 500) y que `double precision × numeric` **resuelve** antes del `::numeric`.
+- `fre` va como **CTE `MATERIALIZED`**, no como subconsulta en línea: en esta misma consulta el
+  planificador ya eligió dos veces un nested loop que re-evaluaba una relación por fila
+  (131.9 M de filas descartadas, 4 min 18 s).
+
+### ⚠️ Y la octava vez del acento grave
+
+Escribí cuatro comentarios con acentos graves **dentro de template literals** (tres en el SQL del
+servicio, uno en el template del componente). `npm run check:templates` atrapó el del componente;
+**los tres del servicio no los ve nadie** — ese gate sólo inspecciona `*.component.ts`. Los
+encontré releyéndolos a propósito, y después pareé los cuatro archivos con el parser de TypeScript,
+que es lo que de verdad lo habría atrapado. **El gate que falta es ese**: parsear los `.ts` que
+construyen SQL, no sólo los componentes.
+
+### 🚀 Aplicada a prod — batch 704, y el sustrato había cambiado debajo
+
+Edgar: *"autorizo la migración"*. Pre-vuelo por `pg_locks` ⋈ `pg_stat_activity` **desde dentro**
+(desde `edgar` el `query` y el `usename` de otros roles vienen en blanco y se leen como "no hay
+nada corriendo"), rollout de los tres deployments confirmado, candado libre. **0.1 s.**
+
+Verificado en vivo: `fill_min_lines_erp = 25`, default `25`, `CHECK (fill_min_lines_erp >= 25)`
+adjunto. Candado re-corrido contra prod: **verde · 1 NO MEDIDO** (antes 2 — se fue el de la
+columna ausente; queda el honesto, el de la atribución).
+
+⛔⛔ **Y el camino documentado ya no existía: prod se mudó de docker compose a k3s.** Los
+contenedores `prod-api`, `pg-prod`, `prod-worker`, `prod-caddy`, `prod-portal`, `prod-vendor` y
+`prod-redis` llevaban **22–26 h `Exited`**, y lo que sirve es el namespace `prod` de k3s.
+
+⭐ **Lo grave es que no se nota.** Llevaba toda la sesión leyendo prod por `192.168.0.222:5434` y
+respondía igual. Y el reflejo para comprobarlo **miente**: `ss -ltn` no muestra **nada** en 5434,
+porque k3s publica por DNAT de iptables y no abre un socket en LISTEN — o sea que "¿quién escucha
+el puerto?" contesta *nadie* mientras el puerto funciona. Lo que sí lo delata es
+`inet_server_addr()`: devolvió `10.42.0.94`, la IP del pod de `pg-prod`.
+
+⭐ La **identidad del clúster no cambió** (`7688376744939610156`): el volumen es el mismo, así que
+el candado de identidad del script siguió siendo válido y **no** hubo que tocar `PROD_CLUSTER_ID`.
+Esa invariancia es la prueba de que se migró el mismo dato y no se creó uno nuevo.
+
+⚠️ Dos detalles que sólo aparecen al hacerlo: `sudo k3s kubectl` **falla por SSH** (pide terminal),
+pero `/etc/rancher/k3s/k3s.yaml` es legible sin sudo; y el pod trae un init container, así que
+`-c api` no es opcional. El procedimiento vigente quedó reescrito en la cabecera de
+`apply-one-migration-prod.js`, con el de docker marcado **HISTÓRICO** en vez de borrado.
+
+⚠️ Y un recordatorio de método: mi `comm` para diffear las migraciones contra el directorio del pod
+dio un **falso positivo** — decía que faltaba un archivo que `ls -l` mostraba ahí mismo. Dejé de
+adivinar y le pregunté a knex con `--list`, que es la autoridad: **1,025 aplicadas, 1 pendiente, la
+mía**. *El diff casero no es el árbitro; el que va a correr la migración sí.*
+
+### Pendiente
+
+- ~~Aplicar la migración `20261003120000`~~ — **hecha: batch 704, 2026-10-02**.
+- Redeploy api+view. Sin permisos nuevos → sin re-login.
+- Refresco nocturno con umbral para `mv_supplier_fill_rate` — **sigue abierto**, y ahora pesa más:
+  la matvista ya no sólo informa, **mueve el pedido**.
+- Validación visual de la columna nueva.
 
 ---
 ## 2026-10-02 — `[RA-DYN.U4–U6]` El cumplimiento del proveedor: la herramienta era un índice

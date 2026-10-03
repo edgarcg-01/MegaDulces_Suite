@@ -13,7 +13,18 @@ import { FormsModule } from '@angular/forms';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PERMISSION_META } from '../../../core/constants/permission-meta';
-import { AUTHZ_TREE, AuthzApp, AuthzModule } from '../../../core/constants/authz-tree';
+import {
+  AUTHZ_TREE,
+  AuthzApp,
+  AuthzModule,
+  TriEstado,
+  alternarGrupo,
+  clavesDeApp,
+  clavesDeModulo,
+  clavesDeProyecto,
+  cuantasEncendidas,
+  triEstado,
+} from '../../../core/constants/authz-tree';
 import { AREA_PRESETS, resolveAreaPresetMap } from '../../../core/constants/role-presets';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
@@ -26,7 +37,8 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { TooltipModule } from 'primeng/tooltip';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
-type TriState = 'all' | 'some' | 'none';
+/** `[AU.33]` Alias local: el tipo real es `TriEstado`, del contrato compartido. */
+type TriState = TriEstado;
 
 /**
  * Permisos que dan acceso elevado. El backend también los enforce: solo pueden
@@ -185,7 +197,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
                                           (ngModelChange)="setLeaf(key, $event)"
                                           [disabled]="isLeafDisabled(key)"></p-checkbox>
                               <span class="text-xs text-content-dim" [pTooltip]="metaDescription(key)">
-                                <span class="text-[9px] uppercase tracking-wide" [class.text-brand]="mod.manage.includes(key)" [class.text-content-faint]="!mod.manage.includes(key)">{{ mod.manage.includes(key) ? '' : 'ver ' }}</span>{{ metaLabel(key) }}
+                                <span class="text-[9px] uppercase tracking-wide" [class.text-brand]="isManage(mod, key)" [class.text-content-faint]="!isManage(mod, key)">{{ isManage(mod, key) ? '' : 'ver ' }}</span>{{ metaLabel(key) }}
                               </span>
                               @if (isCritical(key)) { <span class="status-chip status-bad" pTooltip="Permiso de alto impacto">Crítico</span> }
                               @if (isLeafDisabled(key)) { <span class="tag-locked" pTooltip="Tu rol no tiene este permiso, no puedes otorgarlo">Bloqueado</span> }
@@ -209,7 +221,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
     .tri-on { color: var(--action); }
     .tri-partial { color: var(--text-muted); }
     .tri-sm { width:1.25rem; height:1.25rem; }
-    .tri:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .tri:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .tag-locked { font-size:9px; text-transform:uppercase; letter-spacing:.05em; color: var(--text-faint); border:1px solid var(--border-color); border-radius:.25rem; padding:0 .375rem; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -290,32 +302,29 @@ export class AdminRolesPermissionsComponent implements OnInit {
   }
 
   // ── Helpers de árbol ──────────────────────────────────────────────────
-  appPerms(app: AuthzApp): Permission[] {
-    if (app.kind === 'access') return app.accessPermission ? [app.accessPermission] : [];
-    return app.projects.flatMap((pr) => pr.modules.flatMap((m) => [...m.view, ...m.manage]));
-  }
+  // `[AU.33]` La lógica (tri-estado, cascada, conteo) ya NO vive acá: se importa del contrato
+  // compartido, que es el mismo que usa el editor de una PERSONA. Estos métodos quedan como
+  // puente para no tocar el template. ⛔ No volver a escribirlos a mano: duplicar este primitivo
+  // es exactamente el modo de falla que ADR-056 midió ocho veces.
+  appPerms(app: AuthzApp): string[] { return clavesDeApp(app); }
   /** Permiso de acceso de una app 'access' (null si es workspace). Para narrowing en el template. */
   accessPermOf(app: AuthzApp): Permission | null {
     return app.kind === 'access' ? app.accessPermission ?? null : null;
   }
-  projectPerms(project: AuthzApp['projects'][number]): Permission[] {
-    return project.modules.flatMap((m) => [...m.view, ...m.manage]);
+  projectPerms(project: AuthzApp['projects'][number]): string[] { return clavesDeProyecto(project); }
+  modulePerms(mod: AuthzModule): string[] { return clavesDeModulo(mod); }
+  /**
+   * `[AU.33]` ¿La clave es de gestión en ese módulo? Antes el template preguntaba
+   * `mod.manage.includes(key)` directo, y al pasar las claves a `string` eso deja de compilar
+   * (`Permission[].includes(string)`). Un método lo dice una vez y en un solo lugar.
+   */
+  isManage(mod: AuthzModule, key: string): boolean {
+    return (mod.manage as readonly string[]).includes(key);
   }
-  modulePerms(mod: AuthzModule): Permission[] {
-    return [...mod.view, ...mod.manage];
-  }
-  countOn(keys: Permission[]): number {
-    const v = this.values();
-    return keys.filter((k) => v[k] === true).length;
-  }
-  private state(keys: Permission[]): TriState {
-    if (!keys.length) return 'none';
-    const on = this.countOn(keys);
-    return on === 0 ? 'none' : on === keys.length ? 'all' : 'some';
-  }
-  appState(app: AuthzApp): TriState { return this.state(this.appPerms(app)); }
-  projectState(project: AuthzApp['projects'][number]): TriState { return this.state(this.projectPerms(project)); }
-  moduleState(mod: AuthzModule): TriState { return this.state(this.modulePerms(mod)); }
+  countOn(keys: string[]): number { return cuantasEncendidas(this.values(), keys); }
+  appState(app: AuthzApp): TriState { return triEstado(this.values(), clavesDeApp(app)); }
+  projectState(project: AuthzApp['projects'][number]): TriState { return triEstado(this.values(), clavesDeProyecto(project)); }
+  moduleState(mod: AuthzModule): TriState { return triEstado(this.values(), clavesDeModulo(mod)); }
 
   isCollapsed(id: string): boolean { return this.collapsed().has(id); }
   toggleCollapse(id: string): void {
@@ -346,16 +355,8 @@ export class AdminRolesPermissionsComponent implements OnInit {
     this.values.update((v) => ({ ...v, [key]: value }));
   }
   /** Marca/desmarca todas las hojas del grupo (respeta anti-escalation al otorgar). */
-  toggleGroup(keys: Permission[]): void {
-    const target = this.state(keys) !== 'all';
-    this.values.update((v) => {
-      const next = { ...v };
-      for (const k of keys) {
-        if (!target) next[k] = false;
-        else if (this.canGrant(k)) next[k] = true;
-      }
-      return next;
-    });
+  toggleGroup(keys: string[]): void {
+    this.values.update((v) => alternarGrupo(v, keys, (k) => this.canGrant(k)));
   }
 
   goBack(): void {

@@ -444,7 +444,7 @@ interface GastoFile {
     .cb-table .strong { font-weight: 600; color: var(--text-main); }
     .cb-table .muted { color: var(--text-muted); }
     .cb-sub { font-size: .7rem; color: var(--text-muted); }
-    .cb-metodo { display: inline-flex; align-items: center; gap: .3rem; font-size: .75rem; color: var(--text-muted); white-space: nowrap; }
+    .cb-metodo { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
     .cb-metodo i { font-size: .7rem; }
     .cb-metodo.tra { color: var(--action); }
     .cb-metodo.che { color: var(--text-main); }
@@ -508,7 +508,7 @@ interface GastoFile {
     .cb-linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--action);
       cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
     .cb-linkbtn:hover { color: var(--action-hover); }
-    .cb-linkbtn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .cb-linkbtn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .cb-fields-head { font-size: .8rem; font-weight: 600; color: var(--text-main); margin-top: .3rem; }
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
@@ -519,7 +519,7 @@ interface GastoFile {
     .cb-eye { color: var(--text-muted); font-size: .8rem; opacity: 0; transition: opacity .15s; }
     .cb-comp-cell:hover .cb-eye { opacity: .8; }
     .cb-comp-empty { display: inline-flex; align-items: center; gap: .35rem; }
-    .cb-comp-empty i { font-size: .75rem; opacity: .7; }
+    .cb-comp-empty i { font-size: var(--fs-xs); opacity: .7; }
     /* preview antes de subir */
     .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-sunken, var(--card-bg)); }
     .cb-preview img { display: block; width: 100%; max-height: 15rem; object-fit: contain; background: #00000008; }
@@ -591,7 +591,7 @@ interface GastoFile {
     .cb-adj-hit td { background: var(--hover-bg); }
     .cb-adj-mot { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
     .cb-adj-cat { font-size: .72rem; color: var(--text-muted); }
-    .cb-adj-link { color: var(--action); margin-left: .3rem; font-size: .75rem; }
+    .cb-adj-link { color: var(--action); margin-left: .3rem; font-size: var(--fs-xs); }
   `],
 })
 export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {

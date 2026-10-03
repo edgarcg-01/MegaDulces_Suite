@@ -952,7 +952,7 @@ interface Hoja {
       display: inline-flex; align-items: center; gap: var(--sp-1);
       color: var(--text-muted); font-size: var(--fs-xs);
     }
-    .ep-descartada i { font-size: .75rem; }
+    .ep-descartada i { font-size: var(--fs-xs); }
     .ep-wait { color: var(--text-muted); }
     .ep-rowpick { color: var(--text-faint); cursor: pointer; }
     .ep-rowpick b { color: var(--text-muted); font-weight: 600; border-bottom: 1px solid currentColor; }

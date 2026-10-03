@@ -70,7 +70,7 @@ import { CONTEXT_HELP } from './context-help.dictionary';
     .ch-row { display: grid; grid-template-columns: minmax(5.5rem, 8rem) 1fr; gap: .6rem; align-items: baseline; }
     .ch-row dt { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; font-weight: 700; color: var(--text-main); }
     .ch-row dd { margin: 0; font-size: .8rem; color: var(--text-muted); line-height: 1.4; }
-    @media (max-width: 520px) { .ch-row { grid-template-columns: 1fr; gap: .15rem; } }
+    @media (max-width: 32.5rem) { .ch-row { grid-template-columns: 1fr; gap: .15rem; } }
     /* Bloques "cómo se resuelve" */
     .ch-rb { border-left: 2px solid var(--action, #d9772e); padding: 0 0 0 .7rem; margin: 0 0 .9rem; }
     .ch-rb.info { border-left-color: var(--border-color, #e5e1da); }

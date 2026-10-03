@@ -171,7 +171,7 @@ import { OrderLine } from '../../portal/portal.service';
     `
       .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
       .page-title { margin: 0 0 0.25rem; font-size: 1.5rem; color: var(--text-main); }
-      .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: 0.875rem; }
+      .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: var(--fs-body); }
       .refresh { flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); display: grid; place-items: center; cursor: pointer; transition: transform 0.08s var(--ease, ease); }
       .refresh:active { transform: scale(0.92); } .refresh:disabled { opacity: 0.6; }
       .refresh i { font-size: 0.9rem; }
@@ -206,7 +206,7 @@ import { OrderLine } from '../../portal/portal.service';
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      .sub { display: flex; gap: 0.625rem; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
+      .sub { display: flex; gap: 0.625rem; font-size: var(--fs-xs); color: var(--text-muted); margin-top: 0.125rem; }
       .folio { font-weight: 600; }
       .right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; flex-shrink: 0; }
       .total { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-main); }

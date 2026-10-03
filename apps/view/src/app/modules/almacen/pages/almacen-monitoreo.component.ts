@@ -48,7 +48,7 @@ import { MonitoreoService, Monitoring, MonitoringDetail } from '../monitoreo.ser
       <div class="mo-layout">
         <!-- Master -->
         <section class="mo-master surf-card">
-          <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="flex" dataKey="id">
+          <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="flex" dataKey="id">
             <ng-template #header>
               <tr><th scope="col">Producto</th><th scope="col">Almacén</th><th scope="col" class="num">Hoy</th><th scope="col" class="num">Últ. dif.</th><th scope="col">Estado</th></tr>
             </ng-template>
@@ -135,7 +135,7 @@ import { MonitoreoService, Monitoring, MonitoringDetail } from '../monitoreo.ser
     :host ::ng-deep .mo-status { min-width: 150px; }
     :host ::ng-deep .mo-w { width: 100%; }
     .mo-layout { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(360px, 1fr); gap: 1rem; align-items: start; }
-    @media (max-width: 980px) { .mo-layout { grid-template-columns: 1fr; } }
+    @media (max-width: 61.25rem) { .mo-layout { grid-template-columns: 1fr; } }
     .surf-card { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: var(--radius-lg, 12px); padding: 1rem; margin-bottom: 1rem; }
     .mo-detail { display: flex; flex-direction: column; }
     .mo-h2 { font-size: .95rem; font-weight: 700; margin: 0 0 .25rem; }

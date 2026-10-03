@@ -154,7 +154,7 @@ import { Permission } from '../../../core/constants/permissions';
             [rowsPerPageOptions]="[25, 50, 100, 200]"
             (onLazyLoad)="onLazyLoad($event)"
            
-            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first"
             >
             <ng-template #header>
               <tr>

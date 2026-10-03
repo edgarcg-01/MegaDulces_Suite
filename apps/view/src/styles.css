@@ -20,6 +20,14 @@
  */
 @import '../../../libs/ui-web/src/dense-table.css';
 
+/* [DS.2] Alto Contraste de Windows + prefers-contrast. La flota es Windows y el sistema
+   descansa en hairlines y alpha-overlays, que son justo lo que ese modo funde en uno solo. */
+@import '../../../libs/ui-web/src/forced-colors.css';
+
+/* [DS.8] Qué pasa al apretar Ctrl+P: papel claro, sin chrome, tabla que no se parte mal.
+   NO toca los tickets ni los exports: ésos abren ventana propia y no cargan este archivo. */
+@import '../../../libs/ui-web/src/print.css';
+
 /*
  * ⭐ Las tres tipografías de la ETIQUETA DE ANAQUEL (/tienda/etiquetas), acá y no en los estilos
  * del componente que las usa.
@@ -192,7 +200,7 @@ button, [role="button"], [role="tab"] {
  * iOS auto-zoom kill: inputs <16px detonan auto-zoom de Safari mobile que
  * desencaja layout y molesta. Forzamos 16px en mobile para los inputs.
  */
-@media (max-width: 768px) {
+@media (max-width: 48rem) {
   input:not([type='button']):not([type='submit']):not([type='checkbox']):not([type='radio']),
   textarea,
   select {
@@ -291,7 +299,7 @@ body {
   background-color: transparent;
   color: var(--text-muted);
   border: 1px solid transparent;
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   font-weight: 500;
   cursor: pointer;
   transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, transform 100ms ease;
@@ -441,7 +449,10 @@ body {
  * Uso:
  *   <span class="status-chip status-warn">Atención</span>
  *   <div class="status-border-left status-ok">…</div>
- *   <div class="status-fill status-bad" style="--pct:42%"></div>
+ *   <div class="status-fill status-bad"></div>
+ * ⚠️ El ejemplo decia style="--pct:42%" y era falso: `.status-fill` solo pinta
+ *    `background-color` y NUNCA lee `--pct` (verificado 2026-10-03). El ancho lo
+ *    pone quien la usa. Un ejemplo que no funciona se copia igual que uno que si.
  * Las clases base (`status-chip`, `status-border-left`, `status-fill`,
  * `status-text`, `status-dot`) toman el color del modificador
  * (`status-ok` / `status-warn` / `status-bad`).
@@ -456,7 +467,7 @@ body {
   gap: 0.25rem;
   padding: 0.125rem 0.5rem;
   border-radius: 9999px;
-  font-size: 10px;
+  font-size: var(--fs-nano);
   font-weight: 700;
   letter-spacing: 0.02em;
   background-color: var(--status-soft-bg);
@@ -511,14 +522,14 @@ body {
   stroke: var(--status-fg, var(--action));
   stroke-width: 5;
   stroke-linecap: round;
-  transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: stroke-dasharray var(--dur-max, 350ms) var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
 }
 .rk-gauge-pct {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: 0.625rem;
+  font-size: var(--fs-nano);
   font-weight: 700;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
@@ -532,7 +543,7 @@ body {
   margin-bottom: 0.3rem;
 }
 .rk-label {
-  font-size: 0.6875rem;
+  font-size: var(--fs-micro);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -550,7 +561,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 .rk-delta {
-  font-size: 0.6875rem;
+  font-size: var(--fs-micro);
   font-weight: 600;
   margin-top: 0.25rem;
   display: inline-flex;
@@ -562,7 +573,7 @@ body {
 .rk-delta.down { color: var(--bad-fg); }
 .rk-delta.flat { color: var(--text-faint); }
 .rk-metaline {
-  font-size: 0.6875rem;
+  font-size: var(--fs-micro);
   color: var(--text-faint);
   margin-top: 0.15rem;
   font-variant-numeric: tabular-nums;
@@ -595,14 +606,14 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  font-size: 0.625rem;
+  font-size: var(--fs-nano);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--status-soft-fg);
 }
 .health-box-dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; flex-shrink: 0; }
-.health-box-pct { font-size: 0.75rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.health-box-pct { font-size: var(--fs-xs); font-weight: 700; font-variant-numeric: tabular-nums; }
 .health-box-val {
   font-size: 1.625rem;
   font-weight: 800;
@@ -619,7 +630,8 @@ body {
 .health-box-fill {
   height: 100%;
   border-radius: 9999px;
-  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  /* [DS.1] duracion al techo de 350ms de DESIGN.md; la propiedad sigue siendo width. */
+  transition: width var(--dur-standard, 250ms) var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
 }
 @media (prefers-reduced-motion: reduce) {
   .health-box-fill { transition: none; }
@@ -652,7 +664,7 @@ body {
   gap: 0.25rem;
   padding: 0.125rem 0.5rem;
   border-radius: 0.25rem;
-  font-size: 11px;
+  font-size: var(--fs-micro);
   font-weight: 600;
   border-width: 1px;
   border-style: solid;
@@ -857,7 +869,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 /* Mobile table optimizations */
-@media (max-width: 768px) {
+@media (max-width: 48rem) {
   .p-datatable .p-datatable-thead > tr > th,
   .p-datatable .p-datatable-tbody > tr > td {
     padding: 0.5rem 0.75rem !important;
@@ -895,7 +907,7 @@ input:focus, textarea:focus, select:focus {
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 30rem) {
   .p-datatable .p-datatable-thead > tr > th,
   .p-datatable .p-datatable-tbody > tr > td {
     min-width: 100px !important;
@@ -1024,6 +1036,7 @@ input:focus, textarea:focus, select:focus {
   min-height: auto !important;
   line-height: 1.5 !important;
 }
+ .p-tab:focus-visible, .p-tab.p-component:focus-visible, .p-tab.p-ripple:focus-visible, .p-tab[data-pc-name="tab"]:focus-visible, .p-tab[data-pc-section="tab"]:focus-visible { outline: 2px solid var(--focus-ring) !important; outline-offset: -2px !important; }
 
 .p-tab:hover,
 .p-tab.p-component:hover,
@@ -1402,7 +1415,7 @@ input:focus, textarea:focus, select:focus {
   height: 100%;
   background: radial-gradient(circle at center, rgba(0, 0, 0, 0.03) 0%, transparent 70%);
   transform: translate(-50%, -50%) scale(0);
-  transition: transform 0.4s ease;
+  transition: transform var(--dur-max, 350ms) var(--ease-standard, ease);
   pointer-events: none;
 }
 
@@ -1585,13 +1598,13 @@ input:focus, textarea:focus, select:focus {
 }
 
 .text-body {
-  font-size: 0.875rem;   /* 14px */
+  font-size: var(--fs-body);   /* 14px */
   line-height: 1.25rem;  /* 20px */
   font-weight: 400;
 }
 
 .text-label {
-  font-size: 0.75rem;    /* 12px */
+  font-size: var(--fs-xs);    /* 12px */
   line-height: 1rem;     /* 16px */
   font-weight: 500;
   letter-spacing: 0.05em;
@@ -1600,7 +1613,7 @@ input:focus, textarea:focus, select:focus {
 
 /* Tablas - consistencia */
 .table-header {
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1rem;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -1608,19 +1621,19 @@ input:focus, textarea:focus, select:focus {
 }
 
 .table-cell {
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   line-height: 1.25rem;
   font-weight: 400;
 }
 
 .table-cell-strong {
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   line-height: 1.25rem;
   font-weight: 600;
 }
 
 /* Responsive adjustments */
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   .text-display {
     font-size: 1.875rem;
     line-height: 2.25rem;
@@ -1632,7 +1645,7 @@ input:focus, textarea:focus, select:focus {
   }
 
   .text-title {
-    font-size: 1.125rem;
+    font-size: var(--fs-lg);
     line-height: 1.5rem;
   }
 }
@@ -1743,7 +1756,7 @@ input:focus, textarea:focus, select:focus {
 .p-datatable-modern .p-datatable-thead > tr > th {
   background: var(--surface-ground);
   color: var(--text-muted);
-  font-size: 0.625rem;
+  font-size: var(--fs-nano);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1852,8 +1865,8 @@ input:focus, textarea:focus, select:focus {
   background: var(--card-bg);
   border-radius: 9999px;
   transition:
-    transform 520ms cubic-bezier(0.34, 1.4, 0.5, 1),
-    width 520ms cubic-bezier(0.34, 1.4, 0.5, 1),
+    transform var(--dur-max, 350ms) cubic-bezier(0.34, 1.4, 0.5, 1),
+    width var(--dur-max, 350ms) cubic-bezier(0.34, 1.4, 0.5, 1),
     background-color 320ms ease,
     box-shadow 320ms ease;
   box-shadow:
@@ -1891,7 +1904,7 @@ input:focus, textarea:focus, select:focus {
   border: none;
   color: var(--text-muted);
   font-weight: 600;
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   line-height: 1.1;
   white-space: nowrap;
   cursor: pointer;
@@ -1903,7 +1916,7 @@ input:focus, textarea:focus, select:focus {
 
 /* En viewports anchos, repartir el espacio uniformemente. En mobile cada
    tab toma su ancho intrínseco y el container scrollea horizontal. */
-@media (min-width: 768px) {
+@media (min-width: 48rem) {
   .liquid-tab {
     flex: 1 1 0;
   }
@@ -1961,7 +1974,7 @@ input:focus, textarea:focus, select:focus {
    ancho uniforme no cabe → cada tab toma su ancho intrínseco y el container
    scrollea horizontal en todos los anchos (no solo mobile). */
 .liquid-tabs.liquid-tabs--scroll { overflow-x: auto; }
-@media (min-width: 768px) {
+@media (min-width: 48rem) {
   .liquid-tabs.liquid-tabs--scroll { overflow-x: auto; }
   .liquid-tabs--scroll .liquid-tab { flex: 0 0 auto; }
 }
@@ -1988,7 +2001,7 @@ input:focus, textarea:focus, select:focus {
   border-radius: 9999px !important;
   color: var(--text-muted) !important;
   font-weight: 600;
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   padding: 0.4rem 0.9rem !important;
   box-shadow: none !important;
   transition: color 320ms cubic-bezier(0.34, 1.4, 0.5, 1), transform 180ms ease, background-color 320ms ease;
@@ -2034,7 +2047,7 @@ input:focus, textarea:focus, select:focus {
 .p-select.sel-liquid .p-select-label {
   padding: 0.4rem 0.9rem !important;
   font-weight: 600;
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   color: var(--text-main);
 }
 .p-select.sel-liquid .p-select-dropdown { color: var(--text-muted); width: 2rem; }
@@ -2085,7 +2098,7 @@ input:focus, textarea:focus, select:focus {
 }
 .portal-page-head .portal-page-sub {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -2127,7 +2140,7 @@ input:focus, textarea:focus, select:focus {
   padding: 0.625rem 1.125rem;
   font-family: var(--font-body);
   font-weight: 700;
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -2237,7 +2250,7 @@ input:focus, textarea:focus, select:focus {
 }
 .portal-section-head h2 i { color: var(--text-muted); font-size: 0.95rem; }
 .portal-section-link {
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   color: var(--text-main);
   text-decoration: underline;
   text-decoration-color: var(--brand-500);
@@ -2246,7 +2259,7 @@ input:focus, textarea:focus, select:focus {
   text-decoration-thickness: 2px;
 }
 .portal-section-count {
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -2347,7 +2360,7 @@ input:focus, textarea:focus, select:focus {
   background: var(--warn-soft-bg);
   border: 1px solid var(--warn-border, var(--border-color));
   color: var(--warn-soft-fg, var(--warn-fg));
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   line-height: 1.4;
 }
 .portal-banner i { font-size: 1rem; margin-top: 1px; flex-shrink: 0; }
@@ -2413,7 +2426,7 @@ input:focus, textarea:focus, select:focus {
 }
 .comm-page-sub {
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   color: var(--text-color-secondary);
   line-height: 1.45;
 }
@@ -2472,7 +2485,7 @@ input:focus, textarea:focus, select:focus {
 
 .comm-muted {
   color: var(--text-color-secondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   margin: 0;
 }
 .comm-muted.is-small { font-size: 0.7rem; line-height: 1.35; }
@@ -2661,7 +2674,7 @@ code.comm-code,
   padding: 0 1.5rem 2rem;
   width: 100%;
 }
-@media (max-width: 768px) {
+@media (max-width: 48rem) {
   .surf-page { padding: 0 1rem 1.5rem; }
 }
 
@@ -2710,13 +2723,13 @@ code.comm-code,
 .panel-col-6  { grid-column: span 12; }
 .panel-col-8  { grid-column: span 12; }
 .panel-col-12 { grid-column: span 12; }
-@media (min-width: 720px) {
+@media (min-width: 45rem) {
   .panel-col-3 { grid-column: span 6; }
   .panel-col-4 { grid-column: span 6; }
   .panel-col-6 { grid-column: span 12; }
   .panel-col-8 { grid-column: span 12; }
 }
-@media (min-width: 1080px) {
+@media (min-width: 67.5rem) {
   .panel-col-3 { grid-column: span 3; }
   .panel-col-4 { grid-column: span 4; }
   .panel-col-6 { grid-column: span 6; }
@@ -2792,7 +2805,7 @@ code.comm-code,
 .metric-tile.is-info::before  { background: var(--info-fg); }
 
 .metric-label {
-  font-size: 0.625rem;
+  font-size: var(--fs-nano);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -2880,7 +2893,7 @@ code.comm-code,
  * fuera del área scrolleable → no hace falta offset).
  *
  * Uso: styleClass="p-datatable-sm surf-table surf-table--sticky
- *      surf-table--frozen-first surf-table--zebra"
+ *      surf-table--frozen-first"
  * ============================================================ */
 
 /* Header sticky — pega el thead al tope del área scrolleable. */
@@ -2893,8 +2906,12 @@ code.comm-code,
 
 /* Filas estilo Linear/Stripe: divisor fino (1px, de PrimeNG) + hover sutil, SIN zebra.
  * Directiva 2026-06-23 (quiet luxury): el zebra striping se ve anticuado en una
- * herramienta densa. `surf-table--zebra` queda NEUTRALIZADO (no-op) — la separación
- * de filas la dan el borde inferior fino y el hover. No re-introducir zebra. */
+ * herramienta densa. La separación de filas la dan el borde inferior fino y el hover.
+ *
+ * ⛔ La clase que antes se llamaba "surf-table--zebra" YA NO EXISTE, ni como regla ni como
+ * uso (barrido 2026-10-03: 63 ocurrencias en 40 plantillas). Llevaba meses sin regla que la
+ * definiera, así que las 40 pantallas declaraban una intención que el sistema descartaba en
+ * silencio — y leerla en un template hacía pensar que esa tabla tenía zebra. No re-introducir. */
 .surf-table tbody > tr:hover > td {
   background: var(--table-hover);
 }
@@ -2929,7 +2946,7 @@ code.comm-code,
  * en móvil/tablet; acá les damos scroll-X propio dentro de su contenedor. SOLO ≤1024px: en
  * desktop NO se toca porque `overflow-x:auto` arrastra `overflow-y:auto` y rompería el header
  * sticky que depende del scroll del <main>. En móvil el sticky no es prioridad. */
-@media (max-width: 1024px) {
+@media (max-width: 64rem) {
   .surf-table .p-datatable-table-container { overflow-x: auto; }
 }
 
@@ -3050,7 +3067,7 @@ code.comm-code,
 .ta-c > .surf-sort { justify-content: center; }
 .surf-sort i { font-size: .65rem; opacity: .45; }
 .surf-sort:hover i { opacity: .9; }
-.surf-sort:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+.surf-sort:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
 /* La columna activa se marca con el color de acción — es el único estado que tiene que
  * leerse de reojo, porque contesta "¿por qué está en este orden?". */
 th[aria-sort]:not([aria-sort='none']) > .surf-sort { color: var(--action); }
@@ -3167,7 +3184,7 @@ td.num, th.num {
 .cell-span-8  { grid-column: span 12; }
 .cell-span-12 { grid-column: span 12; }
 .cell-row-2   { grid-row: span 1; }
-@media (min-width: 720px) {
+@media (min-width: 45rem) {
   .cell-span-2  { grid-column: span 6; }
   .cell-span-3  { grid-column: span 6; }
   .cell-span-4  { grid-column: span 6; }
@@ -3176,7 +3193,7 @@ td.num, th.num {
   .cell-span-7  { grid-column: span 12; }
   .cell-span-8  { grid-column: span 12; }
 }
-@media (min-width: 1080px) {
+@media (min-width: 67.5rem) {
   .cell-span-2  { grid-column: span 2; }
   .cell-span-3  { grid-column: span 3; }
   .cell-span-4  { grid-column: span 4; }
@@ -3282,7 +3299,7 @@ td.num, th.num {
 .cell-head .cell-label { margin: 0; }
 
 /* Tables dentro de celdas (sin chrome adicional) */
-.cell .data-table { font-size: 0.8125rem; }
+.cell .data-table { font-size: var(--fs-sm); }
 .cell .data-table thead th {
   background: var(--card-bg);
   padding: 0.5rem 1.25rem;

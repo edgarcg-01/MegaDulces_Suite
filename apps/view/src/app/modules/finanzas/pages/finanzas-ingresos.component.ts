@@ -16,8 +16,9 @@ import { TreeTableModule } from 'primeng/treetable';
 import { ChartModule } from 'primeng/chart';
 import { TreeNode } from 'primeng/api';
 import {
-  ComercialService, IncomeGrain, IncomeGroupBy, IncomeParams, IncomeRecon, IncomeReport, IncomeRow, IncomeSources,
+  ComercialService, IncomeGrain, IncomeGroupBy, IncomeParams, IncomeRecon, IncomeReconRow, IncomeReport, IncomeRow, IncomeSources,
   IncomeTree, IncomeTreeNode, IncomeDocumento as IncomeDocumentoT,
+  IncomeReconDetalle as IncomeReconDetalleT,
 } from '../../comercial/comercial.service';
 import { SALES_CANAL_ORDER, SALES_CANAL_SHORT, salesCanalLabel, type SalesCanal } from '@megadulces/contracts';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -282,10 +283,14 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
             </div>
 
             <div class="card-premium card-flat dt-scope">
-              <p-table [value]="rc.rows" [scrollable]="true" scrollHeight="flex"
+              <!-- [IG.12] dataKey + toggler: el renglon abre a SUS documentos. La llave la arma
+                   reconRows() porque la celda es (periodo, plaza, canal) y ninguna columna sola
+                   la identifica; con dataKey repetido PrimeNG abre dos renglones a la vez. -->
+              <p-table [value]="reconRows()" dataKey="key" [scrollable]="true" scrollHeight="flex"
                        styleClass="p-datatable-sm in-table dt-stack" [rowHover]="true">
                 <ng-template #header>
                   <tr>
+                    <th style="width:2.5rem"><span class="sr-only">Desglose</span></th>
                     <th style="width:7.5rem">Periodo</th>
                     <th>Plaza</th>
                     <th style="width:9rem">Qué es</th>
@@ -296,8 +301,14 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
                     <th class="ta-r" style="width:5rem">Pagos</th>
                   </tr>
                 </ng-template>
-                <ng-template #body let-r>
+                <ng-template #body let-r let-expanded="expanded">
                   <tr>
+                    <td role="cell">
+                      <button type="button" class="in-exp" [pRowToggler]="r" (click)="onReconExpand(r)"
+                              [attr.aria-label]="(expanded ? 'Cerrar' : 'Ver') + ' los documentos de ' + r.plaza + ' en ' + r.periodo">
+                        <i [class]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></i>
+                      </button>
+                    </td>
                     <td class="mono dt-id" role="cell" data-label="Periodo">{{ r.periodo }}</td>
                     <td role="cell" data-label="Plaza">
                       <span class="strong">{{ r.plaza }}</span>
@@ -335,9 +346,91 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
                     <td class="ta-r dt-num" role="cell" data-label="Pagos">{{ r.pagos || '—' }}</td>
                   </tr>
                 </ng-template>
+
+                <!-- [IG.12] EL DESGLOSE. Edgar: "conciliacion no me desglosa la informacion al
+                     detalle". Son los documentos de esa celda, uno por uno, con la misma liga por
+                     folio que usa el Arbol. Se piden al abrir, no en la carga. -->
+                <ng-template #expandedrow let-r>
+                  <tr class="in-det-row">
+                    <td colspan="9">
+                      @if (detalle()[r.key]; as d) {
+                        @if (d === 'cargando') {
+                          <div class="in-empty">Buscando los documentos de {{ r.plaza }}…</div>
+                        } @else if (d === 'error') {
+                          <div class="in-empty">No se pudo abrir el desglose de este renglón.</div>
+                        } @else if (!d.docs.length) {
+                          <div class="in-empty">Este renglón no tiene documentos en el rango de la pantalla.</div>
+                        } @else {
+                          <table class="in-doc-tabla in-det">
+                            <tr>
+                              <th>Folio</th><th>Fecha</th><th>Cliente</th><th>Qué es</th>
+                              <th class="ta-r">Facturado</th><th class="ta-r">Cobrado</th>
+                              <th class="ta-r">Saldo</th><th>Cómo entró</th>
+                            </tr>
+                            @for (l of d.docs; track l.folio + l.doc_tipo) {
+                              <tr [class.in-det-cancel]="l.cancelado">
+                                <td class="mono">
+                                  {{ l.folio }}
+                                  <button type="button" class="in-verdoc" (click)="verDoc(l.folio, l.fecha, $event)"
+                                          [attr.aria-label]="'Ver el documento ' + l.folio">Ver</button>
+                                  @if (l.cancelado) { <span class="in-cancel">cancelado</span> }
+                                  @if (!l.ligado) { <span class="in-cancel">sin documento</span> }
+                                </td>
+                                <td class="muted">{{ l.fecha }}</td>
+                                <td>
+                                  {{ l.cliente_nombre || l.cliente_code || '—' }}
+                                  @if (l.cliente_nombre && l.cliente_code) {
+                                    <span class="in-sub">{{ l.cliente_code }}</span>
+                                  }
+                                </td>
+                                <td>
+                                  <span class="in-kind" [class.in-kind-int]="l.es_interno === true"
+                                        [class.in-kind-nm]="l.es_interno === null">
+                                    {{ l.kind ? kindLabel(l.kind) : 'NO MEDIDO' }}
+                                  </span>
+                                </td>
+                                <td class="ta-r strong">{{ money(l.importe) }}</td>
+                                <!-- Una nota de credito no se cobra: viene NULL y se DECLARA con
+                                     una raya, nunca con $0.00 (que se leeria "no se ha cobrado"). -->
+                                <td class="ta-r">
+                                  {{ l.cobrado === null ? '—' : money(l.cobrado) }}
+                                  @if (l.pagos) { <em class="muted">×{{ l.pagos }}</em> }
+                                </td>
+                                <td class="ta-r" [class.in-deuda]="(l.pendiente ?? 0) > 0">
+                                  {{ l.pendiente === null ? '—' : money(l.pendiente) }}
+                                </td>
+                                <td>
+                                  @if (l.cuentas.length) {
+                                    @for (c of l.cuentas; track c.code) {
+                                      <span class="in-cta" [class.in-cta-efvo]="c.medio === 'efectivo'"
+                                            [class.in-cta-aj]="c.medio === 'ajuste'">
+                                        {{ c.nombre || c.code }} · {{ money(c.importe) }}
+                                        @if (c.pagos > 1) { <em>×{{ c.pagos }}</em> }
+                                      </span>
+                                    }
+                                  } @else { <span class="muted">—</span> }
+                                </td>
+                              </tr>
+                            }
+                          </table>
+                          <!-- El desglose declara que SUMA su renglon. Si no cuadrara, lo dice:
+                               un detalle que no suma al encabezado es peor que no tenerlo. -->
+                          <div class="in-det-pie">
+                            {{ d.docs.length }} documento(s) del {{ d.from }} al {{ d.to }} ·
+                            suman <strong>{{ money(d.vendido) }}</strong>
+                            @if (!cuadra(d.vendido, r.vendido)) {
+                              <span class="in-warn">⛔ el renglón dice {{ money(r.vendido) }}</span>
+                            }
+                          </div>
+                        }
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+
                 <ng-template #footer>
                   <tr class="in-tot">
-                    <td colspan="3" class="strong">Total</td>
+                    <td colspan="4" class="strong">Total</td>
                     <td class="ta-r strong">{{ money(rc.totales.vendido) }}</td>
                     <td class="ta-r">{{ money(rc.totales.cobrado) }}</td>
                     <td class="ta-r">{{ money(rc.totales.pendiente) }}</td>
@@ -503,6 +596,17 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
       background: none; border: 1px solid var(--surface-border, #e7e5e4);
       border-radius: var(--radius-sm, 4px); color: var(--text-muted, #78716c); cursor: pointer; }
     .in-verdoc:hover { color: var(--action, #c2410c); border-color: var(--action, #c2410c); }
+    /* [IG.12] El desglose de la conciliacion. */
+    .in-exp { background: none; border: 0; padding: .2rem .3rem; cursor: pointer; line-height: 1;
+      color: var(--text-muted, #78716c); border-radius: var(--radius-sm, 4px); }
+    .in-exp:hover { color: var(--action, #c2410c); background: var(--surface-hover, #f5f5f4); }
+    .in-det-row > td { background: var(--surface-ground, #fafaf9); padding: .6rem .8rem; }
+    .in-det { margin: 0; }
+    .in-det td { vertical-align: top; }
+    /* El cancelado se marca, no se esconde: su ingreso SIGUE sumando en el renglon de arriba. */
+    .in-det-cancel > td { color: var(--warn-fg, #92400e); }
+    .in-det-pie { margin-top: .5rem; font-size: .76rem; color: var(--text-muted, #78716c); }
+    .in-det-pie strong { color: var(--text-color, #1c1917); font-variant-numeric: tabular-nums; }
     .in-doc { display: flex; flex-direction: column; gap: .9rem; }
     .in-doc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
     .in-doc-folio { font-size: 1.05rem; font-weight: 600; }
@@ -555,7 +659,7 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
     .in-nomedido { color: var(--text-muted, #78716c); font-weight: 600; font-size: .8rem; }
     .in-hueco-lbl { font-weight: 600; }
     .in-hueco-note { font-size: .76rem; color: var(--text-muted, #78716c); line-height: 1.35; }
-    @media (max-width: 720px) { .in-hueco { grid-template-columns: 1fr; } }
+    @media (max-width: 45rem) { .in-hueco { grid-template-columns: 1fr; } }
     .in-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
     .in-field { display: flex; flex-direction: column; gap: .3rem; min-width: 11rem; }
     .in-field > label { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #78716c); }
@@ -609,6 +713,15 @@ export class FinanzasIngresosComponent {
   readonly view = signal<'arbol' | 'tabla' | 'tendencia' | 'cuadre' | 'conciliacion'>('arbol');
   // `[IG.6]` Conciliación: lo vendido contra lo cobrado, por sucursal.
   readonly recon = signal<IncomeRecon | null>(null);
+  /**
+   * `[IG.12]` El desglose por celda. La llave es `periodo|plaza|canal` porque ninguna columna
+   * sola identifica el renglón, y PrimeNG exige un `dataKey` único o abre dos renglones de una.
+   */
+  readonly reconRows = computed(() =>
+    (this.recon()?.rows ?? []).map((r) => ({ ...r, key: `${r.periodo}|${r.plaza}|${r.canal}` })));
+  readonly detalle = signal<Record<string, IncomeReconDetalleT | 'cargando' | 'error'>>({});
+  /** Al centavo, con la tolerancia del redondeo a dos decimales de los dos lados. */
+  cuadra(a: number, b: number): boolean { return Math.abs(a - b) < 0.01; }
   readonly grain = signal<IncomeGrain>('mes');
   readonly grainOpts = [
     { label: 'Día', value: 'dia' }, { label: 'Mes', value: 'mes' }, { label: 'Trimestre', value: 'trimestre' },
@@ -759,7 +872,11 @@ export class FinanzasIngresosComponent {
    * nunca dos, y ese renglon es el SKU 1 con unidad SER y el total completo adentro. Una tabla de
    * productos vacia se leeria como «no compro nada», que es falso.
    */
-  verDocumento(d: IncomeTreeNode, ev?: Event) {
+  verDocumento(d: IncomeTreeNode, ev?: Event) { this.verDoc(d.folio, d.fecha, ev); }
+
+  /** `[IG.12]` El mismo diálogo, ahora también desde el desglose de la Conciliación. */
+  verDoc(folio: string | null | undefined, fecha: string | null | undefined, ev?: Event) {
+    const d = { folio: folio ?? null, fecha: fecha ?? null };
     ev?.stopPropagation();
     if (!d.folio || !d.fecha) return;
     this.doc.set(null);
@@ -930,11 +1047,38 @@ export class FinanzasIngresosComponent {
 
   private loadRecon() {
     this.reconSub?.unsubscribe();
+    // El desglose cuelga de (periodo, plaza, canal) y del rango: si cambia cualquiera de los dos,
+    // lo que haya en caché pasa a ser de otra pregunta. Se tira, no se reusa.
+    this.detalle.set({});
     this.reconSub = this.svc.incomeRecon({ ...this.params(), grain: this.grain() })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.recon.set(r); this.fresh.recon = true; },
         error: () => { this.recon.set(null); this.error.set('No se pudo cargar la conciliación.'); },
+      });
+  }
+
+  /**
+   * `[IG.12]` Los documentos de un renglón de la conciliación, al abrirlo.
+   *
+   * Se cachea por celda para que cerrar y volver a abrir no vuelva a pegarle al servidor, y para
+   * que se puedan tener varios renglones abiertos a la vez comparando.
+   */
+  onReconExpand(r: IncomeReconRow & { key: string }) {
+    if (this.detalle()[r.key]) return;              // ya está, o está en camino
+    this.detalle.update((m) => ({ ...m, [r.key]: 'cargando' }));
+    const [ra, rb] = this.rangeDates || [];
+    this.svc.incomeReconDetalle({
+      periodo: r.periodo, canal: r.canal, plaza: r.plaza,
+      from: ra ? this.fmtFecha(ra) : undefined,
+      to: rb ? this.fmtFecha(rb) : undefined,
+      grain: this.grain(),
+    }).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => this.detalle.update((m) => ({ ...m, [r.key]: d })),
+        // Se DECLARA el fallo en el renglón. Dejarlo en «cargando…» para siempre es la forma
+        // más barata de que un error se lea como lentitud.
+        error: () => this.detalle.update((m) => ({ ...m, [r.key]: 'error' })),
       });
   }
 

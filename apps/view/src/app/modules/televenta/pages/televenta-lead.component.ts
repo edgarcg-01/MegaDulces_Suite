@@ -276,7 +276,7 @@ const OUTCOMES: OutcomeOption[] = [
       .lead { display: flex; flex-direction: column; gap: 1rem; }
       .back-link {
         display: inline-flex; align-items: center; gap: 0.4rem;
-        color: var(--text-muted); font-size: 0.875rem;
+        color: var(--text-muted); font-size: var(--fs-body);
         text-decoration: none; min-height: 36px;
       }
       .back-link:hover { color: var(--action); }
@@ -290,9 +290,9 @@ const OUTCOMES: OutcomeOption[] = [
       .count { font-size: 0.8rem; color: var(--text-muted); font-weight: 400; }
       .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
       .head h1 { font-size: 1.5rem; font-weight: 700; margin: 0.25rem 0; color: var(--text-main); }
-      .code { font-size: 0.75rem; color: var(--text-muted); margin: 0; font-weight: 600; letter-spacing: 0.04em; }
+      .code { font-size: var(--fs-xs); color: var(--text-muted); margin: 0; font-weight: 600; letter-spacing: 0.04em; }
       .contact { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem; }
-      .contact a { color: var(--action); text-decoration: none; font-size: 0.875rem; min-height: 28px; display: inline-flex; align-items: center; gap: 0.3rem; }
+      .contact a { color: var(--action); text-decoration: none; font-size: var(--fs-body); min-height: 28px; display: inline-flex; align-items: center; gap: 0.3rem; }
       .contact a:hover { text-decoration: underline; }
       .reservation { background: var(--warn-soft-bg); border: 1px solid var(--warn-border); border-radius: 12px; padding: 0.75rem; text-align: right; }
       .ttl-label { font-size: 0.7rem; color: var(--warn-soft-fg); margin: 0; }
@@ -310,15 +310,15 @@ const OUTCOMES: OutcomeOption[] = [
       .order { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0.75rem; background: var(--neutral-50); border-radius: 10px; flex-wrap: wrap; }
       .o-code { font-weight: 600; font-size: 0.85rem; font-family: ui-monospace, monospace; }
       .o-total { font-weight: 600; margin-left: auto; font-size: 0.95rem; }
-      .o-date { font-size: 0.75rem; color: var(--text-muted); }
+      .o-date { font-size: var(--fs-xs); color: var(--text-muted); }
       .call { padding: 0.75rem; background: var(--neutral-50); border-radius: 10px; }
       .call-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
-      .call-head time { font-size: 0.75rem; color: var(--text-muted); }
+      .call-head time { font-size: var(--fs-xs); color: var(--text-muted); }
       .call-notes { font-size: 0.85rem; margin: 0.5rem 0 0; color: var(--text-main); white-space: pre-wrap; }
       .call-meta { font-size: 0.7rem; color: var(--text-muted); margin: 0.3rem 0 0; }
       .loading { display: flex; justify-content: center; padding: 4rem 0; }
       .log-form { display: flex; flex-direction: column; gap: 1rem; padding-top: 0.5rem; }
-      .log-form label { display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.875rem; }
+      .log-form label { display: flex; flex-direction: column; gap: 0.4rem; font-size: var(--fs-body); }
       .log-form label > span:first-child { font-weight: 500; color: var(--text-main); }
       .checkbox-row { flex-direction: row !important; align-items: center; gap: 0.5rem !important; }
       .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border-color); margin-top: 0.5rem; }

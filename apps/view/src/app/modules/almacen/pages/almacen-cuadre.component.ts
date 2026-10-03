@@ -442,7 +442,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
     .cd-flag { color: #b45309; font-size: .72rem; margin-left: .3rem; }
     .cd-mini { font-size: .7rem; color: var(--bad-fg, #dc2626); }
     .cd-corte-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 1.5rem; }
-    @media (max-width: 800px) { .cd-corte-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 50rem) { .cd-corte-grid { grid-template-columns: 1fr; } }
     .cd-corte-block h4 { margin: 0 0 .5rem; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #78716c); }
     .cd-mini-table { width: 100%; border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; }
     .cd-mini-table th { font-size: .66rem; text-transform: uppercase; color: var(--text-muted, #78716c); font-weight: 600; padding: .2rem .4rem; text-align: left; }
@@ -465,7 +465,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
     .cd-kpi-val { display: block; font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; }
     .cd-kpi-lbl { display: block; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #78716c); }
     .cd-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    @media (max-width: 900px) { .cd-2col { grid-template-columns: 1fr; } }
+    @media (max-width: 56.25rem) { .cd-2col { grid-template-columns: 1fr; } }
     .cd-panel { padding: 1rem; }
     .cd-card-title { margin: 0 0 .7rem; font-size: .85rem; font-weight: 700; }
     .cd-bar-row { display: grid; grid-template-columns: 1fr 5rem auto; align-items: center; gap: .6rem; margin-bottom: .45rem; font-size: .82rem; }

@@ -718,7 +718,7 @@ interface NavItem {
         width: 0;
         background: rgba(253, 231, 7, 0.20);
         z-index: 0;
-        transition: width 420ms var(--ease-spring);
+        transition: width var(--dur-max, 350ms) var(--ease-spring);
       }
       .portal-cartbar > :not(.cb-fill) { position: relative; z-index: 1; }
       .portal-cartbar.show {
@@ -779,7 +779,7 @@ interface NavItem {
       }
 
       /* ── RESPONSIVE BREAKPOINT ────────────────────────────────────── */
-      @media (max-width: 900px) {
+      @media (max-width: 56.25rem) {
         .portal-sidebar { display: none; }
         .portal-header-mobile { display: flex; }
         .portal-tabdock { display: flex; }

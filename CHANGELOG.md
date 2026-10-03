@@ -9,6 +9,129 @@
 ---
 
 ## [Unreleased]
+### Fixed — auditoría del design system: el techo de motion deja de ser una intención, y Alto Contraste deja de ser un hueco (2026-10-03)
+
+Auditoría de [`DESIGN.md`](DESIGN.md) y sus tres satélites. El sistema está bien hecho; lo que falla
+es lo que **nadie mide** — y se degrada rápido: en los 19 días desde la última verificación,
+`!important` **+7.6%**, `::ng-deep` **+18.6%**, breakpoints en px **+22%**, tamaños de letra distintos
+en `apps/view` **97 → 120**.
+
+- **`[DS.1]` Techo de motion: de BINDING sin instrumento a 0 incumplimientos medidos.** El arquetipo
+  canónico (`MetricStrip`, **81 pantallas**) llevaba **tres semanas** con `transition: width 900ms`
+  —2.6× el techo y sobre una propiedad de **layout**— *después* de estar escrito como ⛔ en la tabla
+  de cumplimiento. Ahora el bullet anima `transform: scaleX()`; la barra de composición no se pudo
+  (hermanos flex de una fila) y **queda declarada con su razón** (ADR-056). Más 40 duraciones al
+  techo: el flash de `MetricCard` (1s) y del POS (1.2s), `sparkline` (.8s), `ring-gauge` (.7s), y las
+  **3 pantallas de chat IA**, que compartían el *mismo* tratamiento copiado tres veces.
+- **Nueva compuerta `npm run check:motion`** (15 casos de prueba negativa, en CI). Nace **en verde**,
+  a propósito. ⭐ **Y en su primera corrida encontró 40 declaraciones que tres barridos manuales con
+  `grep` no vieron**, porque en `animation: nombre 0.6s ease` la duración no está donde uno la busca.
+  ⚠️ La cifra que el doc publicaba —*"19 por encima del techo"*— **contaba sólo milisegundos**.
+- **`[DS.2]` `forced-colors` tenía 0 usos en todo el repo** y la flota es Windows. Este sistema es el
+  que peor se lleva con Alto Contraste: hairline + alpha-overlays + semáforo por fondo = los tres
+  estados de fila **colapsan en uno**, y el anillo de foco hecho con `box-shadow` **desaparece**.
+  Nuevo [`libs/ui-web/src/forced-colors.css`](libs/ui-web/src/forced-colors.css) en las 3 apps, con
+  `forced-color-adjust: none` **sólo** donde el color *es* el dato.
+- **`tokens.css`:** `.portal-shell` redeclaraba `--font-body` (copia literal de `:root`, cero efecto)
+  y `--font-mono`, que **ya había divergido** — `:root` caía a `'Courier New'` y el portal a SFMono.
+  El día que Geist Mono no cargue, Operations imprimía los precios en una **Courier con serifas**.
+- **Docs.** [`DESIGN_TENDENCIAS_2026.md`](docs/DESIGN_TENDENCIAS_2026.md) **caducó en verde** —
+  afirmaba ✅ sobre **cinco** decisiones ya revertidas (Fraunces ×7, Stone ×3, espresso ×3, una escala
+  de spacing que nunca existió, un rango de motion que contradecía el techo binding): corregido y
+  revalidado contra el estado del campo (§11). La tabla de **Surfaces** de `DESIGN.md` tenía **5
+  defectos** (4 rutas sin régimen + `/mi-trabajo`, que **no es una ruta**) y su bloque «Superficies —
+  LIGHT» documentaba `var(--stone-*)`, **una rampa que el mismo doc declara retirada**. Las cifras de
+  la tabla de cumplimiento ahora publican **el comando que las produjo**.
+
+### Added — `[DS.3]` las 4 reglas de CSS que nadie medía, en una compuerta (y por qué NO es stylelint)
+
+⛔ **Se descartó stylelint, y lo decidió la medición, no el gusto.** El **89%** de los `font-size` y
+el **95%** de los hex crudos de este repo viven **dentro de template literals de TypeScript** (337
+componentes con `styles:` inline contra **28** `.component.css`). Angular no usa una plantilla
+taggeada de CSS sino un string suelto en el decorador, así que ni `postcss-lit` lo toma limpio:
+stylelint de fábrica habría visto **~1 de cada 10 defectos** y cobrado una dependencia nueva —más su
+sintaxis custom— por esa décima parte. `check-template-literals.js` **ya extraía esos bloques** con
+el compilador de TS; [`check-estilos.js`](scripts/check-estilos.js) reusa ese camino: **100% de
+cobertura, 0 dependencias**, ~2.6 s, en CI con sus 15 casos de prueba negativa.
+
+Las cuatro reglas, congeladas con la deuda de hoy — **frenan cuando CRECE, no por existir**:
+
+| Regla | Deuda congelada |
+|---|---|
+| `font-size` fuera de la escala `--fs-*` (imprime el token equivalente) | **3,161** |
+| hex crudo en una declaración de color | **1,449** |
+| `@media` con breakpoint en px | **205** |
+| `outline:none` sin un `:focus-visible` hermano | **27** |
+
+### Added — el papel y las gráficas: las dos superficies que el design system no nombraba (2026-10-03)
+
+- **`[DS.8]` Ctrl+P tiene régimen.** `@media print` aparecía **7 veces en todo el repo** y
+  `DESIGN.md` —1,242 líneas— no nombraba el papel **ni una vez**, en una app que emite pólizas,
+  libro de compras, anexo de venta con pagaré y acuses de conteo. Nuevo
+  [`print.css`](libs/ui-web/src/print.css): papel **claro siempre** (el oscuro es preferencia de
+  pantalla), chrome fuera, tabla que repite encabezado y no parte renglones, y el **semáforo SÍ se
+  imprime** — si el color es el dato, quitarlo deja una hoja que no dice lo que decía la pantalla.
+  ⚠️ No toca los tickets ni los exports: ésos abren ventana propia.
+- **`[§G]` Contrato de data-viz, nueve reglas.** Sólo existían `--chart-1..8`. Una paleta evita que
+  dos series se parezcan; **no evita que la gráfica diga algo falso**. Eje de barra desde cero ·
+  hueco ≠ cero (ADR-056 sobre una forma) · color de serie determinista y nunca único portador ·
+  truncar se declara ("10 de 428 · 62% del total") · micro-viz SVG 0 KB · frescura también ahí.
+- **`[DS.7]` INP se mide en `apps/view`.** §17 dice "se mide, no se estima" y `web-vitals` estaba
+  cableado **sólo en el portal** — la app de las tablas densas no medía nada. ⭐ No hubo que
+  construir nada: el endpoint (`/telemetry/suite`), el servicio y la librería ya estaban.
+
+### Changed — tres deudas de CSS bajadas con cambio visual CERO (2026-10-03)
+
+| | antes | después |
+|---|---|---|
+| `surf-table--zebra` (clase **sin regla** hace meses) | 63 en 40 plantillas | **0** |
+| breakpoints en px | 206 | **0** |
+| `font-size` con literal | 3,161 | **2,687** |
+
+⛔ **Y lo que NO se bajó así, con su razón:** los `font-size` que quedan están **fuera de la
+escala** (`.8rem` = 12.8px cae entre `--fs-xs` 12 y `--fs-sm` 13) — tokenizarlos **mueve el
+texto**. Y los 144 que caen en un token de **rol** (`1rem`→`--fs-h3`) se saltearon: la muestra
+tiene `h2`/`h3` reales **pero también** `.qty-num`, `.va-input input` y `.kv dd`.
+⭐ **Hallazgo: la escala no tiene un peldaño de 16px con nombre de TAMAÑO.**
+
+⛔ **El barrido rompió 14 sitios y hubo que revertirlos:** metió `var(--fs-*)` dentro de tickets de
+impresión y exports a PDF, que se renderizan **fuera del árbol de la app** — ahí no hay `:root`, la
+propiedad no resuelve y el navegador **tira la declaración entera**. *La pregunta antes de tokenizar
+un `font-size` no es en qué archivo está: es **dónde se renderiza**.*
+
+### Fixed — el anillo de foco: 37 controles que no lo tenían y 103 que no llegaban al piso (2026-10-03)
+
+Salió de encender `check:estilos`, y resultó ser más grande que su hallazgo inicial.
+
+- **Dos tokens porque son dos roles.** `--action-ring` (translúcido 30%) nació como **halo** para
+  `box-shadow` y se estaba usando también como color de **`outline`**. Ahí no funciona: un outline no
+  se difumina, se dibuja encima, y a ese alpha queda en **1.44:1** contra el piso de **3:1** que
+  §datos densos 13 y WCAG 1.4.11 exigen. **103 anillos estaban por debajo.** Ahora
+  `--focus-ring: var(--action)` → **3.08 a 5.87:1** según el fondo, y los **25 halos de `box-shadow`
+  quedaron intactos**, que ahí el translúcido es lo correcto.
+  ⚠️ El mismo **3.39:1** que hace fallar a `--action-ink` acá **pasa**: foco pide 3:1, texto pide
+  4.5:1. *Citar un ratio sin su piso no dice nada.*
+- **37 controles sin ningún anillo, y 24 eran campos de entrada:** los dos de **escaneo** (andén de
+  almacén, etiquetas de tienda), el **login de las dos apps**, los steppers del vendedor, el
+  **verificador de mostrador**, los tabs de PrimeNG en las 3 apps, y **los buscadores que `[D.7]`
+  acaba de volver navegables con teclado** — la ruta existía y era **invisible**. Arreglados los 37;
+  el tope de esa regla queda en **0**.
+
+⛔ **Y la compuerta tenía el defecto que venía a buscar.** Su primera versión preguntaba si el
+**archivo** contenía `:focus-visible` en cualquier parte, así que en cuanto un archivo ganaba un
+anillo, todo `outline:none` agregado después pasaba en silencio — dejando ciegos justo a los 20
+archivos recién arreglados. **Lo encontró su propia prueba negativa, el mismo día.** Reescrita por
+**control**, destapó **10 defectos más**. En el camino se corrigieron dos criterios demasiado
+estrictos, medidos contra los hallazgos reales: un anillo con `box-shadow` vale igual que uno con
+`outline`, y un bloque que ya responde al foco puede apagar el `outline` si pone otra señal — pero
+**`border: none` y `background: none` NO son señal**, y ésa era la firma exacta de los 27 originales.
+Los cinco casos viven en el `--self-test` (20 en total).
+
+**Abierto, con dueño:** `@media print` = **7** en una app que emite pólizas y libro de compras, INP
+sin medición de campo en `apps/view`, `--action-ink` en **3.39:1** (verificado), y la única deuda que
+**no** se arregla con un ratchet: `@layer` = 0 con 1,034 `!important` y 439 `::ng-deep` — eso es una
+migración de cascada, no un número que congelar.
+
 ### Added — el inventario de los camiones de Ruta Directa, como un cuadre que cierra (Fase RD, 2026-10-02)
 Nueva pestaña **`/comercial/inventario-ruta`**: cuánto trae cada camión RD, con **valor a costo y valor a venta**,
 y filtro por rango de fechas. Responde la pregunta como un **cuadre** —`cargado − vendido = inventario`— y la

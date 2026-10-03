@@ -55,7 +55,7 @@ import { ComercialService } from '../../comercial/comercial.service';
       </section>
 
       <h2 class="ap-h2">Promotores actuales</h2>
-      <p-table [value]="promoters()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra">
+      <p-table [value]="promoters()" [loading]="loading()" styleClass="p-datatable-sm surf-table">
         <ng-template #header>
           <tr><th scope="col">Usuario</th><th scope="col">Nombre</th><th scope="col">Marcas</th><th scope="col"><span class="sr-only">Acciones</span></th></tr>
         </ng-template>
@@ -88,7 +88,7 @@ import { ComercialService } from '../../comercial/comercial.service';
     .ap-mono { font-family: var(--font-mono, monospace); }
     .ap-chips { display: flex; flex-wrap: wrap; gap: .3rem; }
     .ap-chip { padding: .1rem .5rem; border-radius: 999px; background: var(--c-bg-2, var(--surface-100)); font-size: var(--fs-xs, .72rem); }
-    @media (max-width: 640px) { .ap-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 40rem) { .ap-grid { grid-template-columns: 1fr; } }
   `],
 })
 export class AdminPromotersComponent {

@@ -48,7 +48,7 @@ export const FINANZAS_SHARED_STYLES = `
     color: var(--action); background: var(--card-bg);
     box-shadow: 0 0 0 1px var(--border-color);
   }
-  .fb-viewseg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+  .fb-viewseg button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
   .fb-seg-config { margin-left: auto; }
   .fb-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
   .fb-skel-row { height: var(--row-h-md); border-radius: var(--r-sm); background: var(--hover-bg); animation: fb-pulse 1.4s ease-in-out infinite; }
@@ -127,7 +127,7 @@ export const FINANZAS_SHARED_STYLES = `
 
   /* Huérfanos: lo que una fuente registra y la otra no movió, enfrentados. */
   .tw-orphans { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-top: var(--sp-3); }
-  @media (max-width: 720px) { .tw-orphans { grid-template-columns: 1fr; } }
+  @media (max-width: 45rem) { .tw-orphans { grid-template-columns: 1fr; } }
   .tw-orphan { border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
   .tw-orphan h4 { font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); margin: 0; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); background: var(--surface-ground); }
   .tw-orphan table td { padding: 3px var(--sp-3); border-bottom: 1px solid var(--border-color); font-size: var(--fs-xs); }
@@ -154,6 +154,6 @@ export const FINANZAS_SHARED_STYLES = `
     padding: 2px var(--sp-2); cursor: pointer; }
   .tw-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
   .tw-xls:disabled { opacity: .6; cursor: default; }
-  .tw-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+  .tw-xls:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
   .tw-xls-head { margin-left: var(--sp-2); vertical-align: middle; }
 `;

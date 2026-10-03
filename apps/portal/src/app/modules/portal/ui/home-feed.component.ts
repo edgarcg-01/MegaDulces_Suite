@@ -215,7 +215,7 @@ interface RailSpec {
         grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
         gap: 0.85rem;
       }
-      @media (min-width: 560px) {
+      @media (min-width: 35rem) {
         .hf-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
       }
 

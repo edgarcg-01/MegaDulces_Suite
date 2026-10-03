@@ -374,7 +374,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
     .erd-line-act { margin-top: .25rem; font-size: var(--fs-sm, .85rem); }
     .erd-line-photo { width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-md, 8px); }
     .erd-submitbar { position: sticky; bottom: 0; margin-top: 1rem; padding: .75rem 0; display: flex; justify-content: flex-end; background: linear-gradient(to top, var(--c-bg-0, var(--surface-ground)) 60%, transparent); }
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .erd-grid, .erd-two { grid-template-columns: 1fr; }
       .erd-submitbar button { width: 100%; }
     }

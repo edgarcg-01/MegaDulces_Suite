@@ -178,7 +178,7 @@ import { SupervisorAiService, RouteOptRow, RouteOptDetail } from './supervisor-a
       .opp__name { font-weight: 600; font-size: .86rem; }
       .opp__meta { font-size: .76rem; color: var(--text-soft, #78716c); }
       .mb-3 { margin-bottom: .75rem; }
-      @media (max-width: 760px) { .kpis { grid-template-columns: repeat(2, 1fr); } .grid2 { grid-template-columns: 1fr; } }
+      @media (max-width: 47.5rem) { .kpis { grid-template-columns: repeat(2, 1fr); } .grid2 { grid-template-columns: 1fr; } }
     `,
   ],
 })

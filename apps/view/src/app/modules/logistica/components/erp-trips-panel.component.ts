@@ -277,7 +277,7 @@ import { environment } from '../../../../environments/environment';
     .et-search input { padding-left:1.7rem; min-width:16rem; }
 
     .et-split { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:1rem; align-items:start; }
-    @media (max-width:1100px) { .et-split { grid-template-columns:1fr; } }
+    @media (max-width:68.75rem) { .et-split { grid-template-columns:1fr; } }
     .et-master, .et-detail { background:var(--card-bg,#fff); border:1px solid var(--border-color); border-radius:10px; padding:.6rem; }
     .et-table .num, th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
     .et-code { font:600 .74rem 'Geist Mono',monospace; }

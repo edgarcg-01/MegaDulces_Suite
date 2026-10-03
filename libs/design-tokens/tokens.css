@@ -22,7 +22,12 @@
      Fraunces quedó RETIRADA (decisión 2026-06-24: identidad Poppins tipo delivery). */
   --font-body:    'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-display: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono:    'Geist Mono', ui-monospace, 'Courier New', monospace;
+  /* ⚠️ El respaldo importa más de lo que parece: si Geist Mono no carga (red del campo, CSP,
+     Google Fonts bloqueado) ESTO es lo que imprime los precios. Decía 'Courier New', que es
+     la peor opción posible para una columna de cifras — trazo fino y con serifas. Consolas va
+     primero porque la flota es Windows. Unificado desde el Storefront el 2026-10-03: antes
+     .portal-shell declaraba su propio respaldo y los dos ya habían divergido. */
+  --font-mono:    'Geist Mono', ui-monospace, SFMono-Regular, Consolas, Menlo, monospace;
 
   /* Display scale (storefront hero + section heads, clamp responsive) */
   --text-display-xl: clamp(2.5rem, 7vw, 3.5rem);     /* hero h1 */
@@ -202,7 +207,20 @@
   /* Form controls — action (sunset) en vez de info (azul). */
   --checkbox-accent:       var(--action);
   --checkbox-accent-hover: var(--action-hover);
-  --focus-ring:            var(--action-ring);
+
+  /* ⚠️ DOS TOKENS PORQUE SON DOS ROLES, y confundirlos costaba 103 anillos (2026-10-03):
+       --action-ring  = HALO translúcido, para `box-shadow: 0 0 0 3px ...`. Ahí el 30% de
+                        alpha es correcto: es un resplandor alrededor del control.
+       --focus-ring   = ANILLO sólido, para `outline: 2px solid ...`. Un outline NO se
+                        suma al fondo como un halo: se dibuja encima, y a 30% de alpha
+                        queda en 1.44:1 sobre tarjeta clara — contra el piso de 3:1 que
+                        §datos densos 13 y WCAG 1.4.11 exigen para un indicador de foco.
+     Medido en los cuatro fondos: el translúcido daba 1.41–1.52:1 (FALLA en los cuatro);
+     el sólido da 3.08 (ground claro) · 3.39 (tarjeta clara) · 5.23 y 5.87 en oscuro.
+     ⚠️ Nota de precisión: 3.39:1 es el MISMO número que hace fallar a --action-ink, y acá
+     PASA. No es contradicción: un indicador de foco pide 3:1 y un texto pide 4.5:1.
+     El mismo contraste, dos pisos distintos, dos veredictos distintos. */
+  --focus-ring:            var(--action);
 
   /* ── ROLES DE COLOR (capa de composición) ────────────────────────────────
      Disciplina 3 capas de texto + 1 acento + semánticos. Reemplazan a las
@@ -400,7 +418,9 @@ body.theme-monochrome {
 
   --checkbox-accent:       var(--action);
   --checkbox-accent-hover: var(--action-hover);
-  --focus-ring:            var(--action-ring);
+  /* Anillo sólido también en oscuro — ahí el sunset da 5.23:1 sobre tarjeta. Ver la nota
+     de los dos roles en el bloque claro: --action-ring sigue siendo el halo de box-shadow. */
+  --focus-ring:            var(--action);
 
   --chart-1: #FBA94E;
   --chart-2: #60A5FA;
@@ -578,9 +598,15 @@ body.theme-monochrome {
    ════════════════════════════════════════════════════════════════════════════ */
 .portal-shell,
 .pl-wrap {
-  --font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-
+  /* ⛔ Acá vivían --font-body y --font-mono, y eran exactamente lo que el comentario de
+     arriba advierte. Medido 2026-10-03:
+       · --font-body era copia LITERAL de :root  → cero efecto, puro ruido.
+       · --font-mono YA HABÍA DIVERGIDO: :root cae a 'Courier New' y esto caía a
+         SFMono-Regular/Menlo. O sea que el día que Geist Mono no cargue (red del campo,
+         bloqueo de Google Fonts, CSP), Operations imprime las cifras en una Courier con
+         serifas y el Storefront en SF Mono. Dos tipografías distintas para el MISMO rol,
+         en la columna que existe para que los números se puedan comparar.
+     El Storefront hereda de :root, como los neutrales desde el 2026-09-14. */
   --ai-accent: #F8B400; /* ember-from: identidad IA en storefront */
 }
 

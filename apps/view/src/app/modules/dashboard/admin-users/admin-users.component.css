@@ -35,7 +35,7 @@ button.au-sum-item {
    arreglar, y lo que hay que poder hacer es verla. */
 .au-sum-info, .au-sum-info b, .au-sum-info i { color: var(--info-fg, var(--action)); }
 button.au-sum-item:hover { background: var(--hover-bg); border-color: var(--border-color); }
-button.au-sum-item:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+button.au-sum-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 /* Filtro activo: el chip se queda encendido y ofrece cómo quitarlo. */
 .au-sum-on {
   border-color: var(--warn-fg);
@@ -93,7 +93,7 @@ button.au-sum-item:focus-visible { outline: 2px solid var(--action-ring); outlin
   box-shadow: inset 2px 0 0 var(--action);
   font-weight: 600;
 }
-.au-dept:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+.au-dept:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .au-dept-ico { color: var(--text-faint); font-size: var(--fs-xs); }
 .au-dept[aria-current='true'] .au-dept-ico { color: var(--action); }
 .au-dept-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -420,7 +420,7 @@ button.au-sum-item:focus-visible { outline: 2px solid var(--action-ring); outlin
 }
 
 /* ── Móvil: el índice se vuelve una tira horizontal sobre la tabla. ─────── */
-@media (max-width: 900px) {
+@media (max-width: 56.25rem) {
   .au-grid { grid-template-columns: minmax(0, 1fr); }
   .au-aside {
     position: static;

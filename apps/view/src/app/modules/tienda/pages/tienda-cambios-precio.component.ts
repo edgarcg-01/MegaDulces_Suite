@@ -76,7 +76,7 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
     .cpr-bar input[type=date]{ padding:.3rem .5rem; border:1px solid var(--border-color);
       border-radius:var(--radius-sm); background:var(--card-bg); color:var(--fg-1);
       font-size:var(--fs-sm); font-variant-numeric:tabular-nums; min-height:var(--row-h-sm); }
-    .cpr-bar input[type=date]:focus-visible{ outline:2px solid var(--action-ring); outline-offset:1px; }
+    .cpr-bar input[type=date]:focus-visible{ outline:2px solid var(--focus-ring); outline-offset:1px; }
 
     /* [ETQ-CAMBIOS.6] El selector de plaza para quien no tiene tienda propia. Sólo tokens que
        este archivo ya usa: la lección de [ETQ-CAMBIOS.5] fue que un token inexistente no "se ve
@@ -88,7 +88,7 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
       background:var(--card-bg); border:1px solid var(--border-color);
       border-radius:var(--radius-sm); color:var(--fg-1); }
     .cpr-plaza:hover{ background:var(--table-hover); }
-    .cpr-plaza:focus-visible{ outline:2px solid var(--action-ring); outline-offset:1px; }
+    .cpr-plaza:focus-visible{ outline:2px solid var(--focus-ring); outline-offset:1px; }
     .cpr-plaza b{ font-size:var(--fs-sm); font-weight:var(--fw-bold); }
     .cpr-plaza span{ font-size:var(--fs-xs); color:var(--fg-2); }
     .cpr-plaza-activa{ font-size:var(--fs-xs); color:var(--fg-2); }

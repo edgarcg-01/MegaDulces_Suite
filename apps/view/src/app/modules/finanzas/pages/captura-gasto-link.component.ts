@@ -305,7 +305,7 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
       border-radius: var(--r-md); background: transparent; color: var(--fg-1);
       font-size: var(--fs-sm); font-weight: var(--fw-medium); cursor: pointer; white-space: nowrap; }
     .cg-shot-b:active { background: var(--overlay-hover); }
-    .cg-shot-b:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cg-shot-b:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
     /* ── Campos ───────────────────────────────────────────────────────────── */
     .cg-f { display: flex; flex-direction: column; gap: var(--sp-1); margin-bottom: var(--sp-3); }
@@ -324,7 +324,7 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
       background: var(--card-bg); color: var(--fg-1); font-family: inherit; }
     .cg-f textarea { min-height: 5rem; resize: vertical; }
     .cg-f input:focus-visible, .cg-f select:focus-visible, .cg-f textarea:focus-visible,
-    .cg-money input:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -1px; }
+    .cg-money input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
     .cg-money { display: flex; align-items: center; gap: var(--sp-2); }
     .cg-money > span { font-size: var(--fs-h3); color: var(--fg-2); }
     .cg-money input { font-size: 20px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -334,7 +334,7 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
       border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg);
       color: var(--fg-2); font-size: var(--fs-xs); font-weight: var(--fw-medium); cursor: pointer; }
     .cg-seg-b.on { border-color: var(--action); background: var(--overlay-selected); color: var(--fg-1); }
-    .cg-seg-b:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cg-seg-b:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
     /* ── Enviar ───────────────────────────────────────────────────────────── */
     .cg-send { position: sticky; bottom: 0; padding: var(--sp-3) 0 calc(var(--sp-2) + env(safe-area-inset-bottom, 0));
@@ -346,7 +346,7 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
     .cg-btn-lg { width: 100%; min-height: 3rem; }
     .cg-btn:disabled { opacity: .45; cursor: default; }
     .cg-btn:active:not(:disabled) { background: var(--action-press); }
-    .cg-btn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cg-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .cg-falta { margin: var(--sp-1) 0 0; text-align: center; font-size: var(--fs-xs); color: var(--fg-2); }
     .cg-err { margin: 0 0 var(--sp-2); padding: var(--sp-2); border-radius: var(--r-md);
       border: 1px solid var(--bad-border, var(--border-color)); color: var(--bad-fg, var(--fg-1));

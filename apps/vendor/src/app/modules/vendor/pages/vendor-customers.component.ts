@@ -219,7 +219,7 @@ import { AuthService } from '../../../core/services/auth.service';
       .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem; }
       .notice { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.85rem; padding: 0.6rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--ok-soft-bg); color: var(--ok-soft-fg); font-size: 0.82rem; font-weight: 600; }
       .page-title { margin: 0 0 0.2rem; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text-main); }
-      .subtitle { margin: 0; color: var(--text-muted); font-size: 0.875rem; }
+      .subtitle { margin: 0; color: var(--text-muted); font-size: var(--fs-body); }
       .new-btn {
         flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.4rem;
         background: var(--action); color: #fff; border: none; border-radius: var(--r-pill, 999px);
@@ -237,6 +237,7 @@ import { AuthService } from '../../../core/services/auth.service';
       .fld > span em { font-style: normal; color: var(--text-faint); font-weight: 500; text-transform: none; letter-spacing: 0; }
       .fld input { width: 100%; height: 2.7rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); background: var(--card-bg); padding: 0 0.85rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
       .fld input:focus { outline: none; border-color: var(--text-muted); }
+      .fld input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .row { display: flex; gap: 0.7rem; }
       .geo-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; height: 2.7rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, 12px); background: var(--card-bg); color: var(--text-muted); font-weight: 600; font-size: 0.85rem; cursor: pointer; }
       .geo-btn.ok { border-style: solid; border-color: var(--ok-fg, #2e7d32); color: var(--ok-fg, #2e7d32); }
@@ -249,6 +250,7 @@ import { AuthService } from '../../../core/services/auth.service';
       .search { display: flex; align-items: center; gap: 0.6rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: 0.1rem 0.95rem; margin-bottom: 1rem; box-shadow: 0 1px 2px rgba(16,13,9,0.05); }
       .search i { color: var(--text-muted); }
       .search input { flex: 1; border: none; background: none; outline: none; height: 2.8rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
+      .search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .empty { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
       .empty i { font-size: 2.25rem; display: block; margin-bottom: 0.5rem; color: var(--text-faint); }
       .err-banner { display: flex; align-items: center; gap: 0.45rem; width: 100%; margin-bottom: 0.6rem; padding: 0.55rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--bad-soft-bg); border: 1px solid var(--bad-soft-bg); color: var(--bad-soft-fg); font-size: 0.78rem; font-weight: 600; text-align: left; cursor: pointer; }
@@ -286,7 +288,7 @@ import { AuthService } from '../../../core/services/auth.service';
       .more { color: var(--text-faint); font-size: 0.85rem; flex-shrink: 0; }
 
       /* Celular en horizontal (16:9) o tablet: dos columnas para aprovechar el ancho. */
-      @media (min-width: 600px) {
+      @media (min-width: 37.5rem) {
         .list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
 
@@ -309,8 +311,8 @@ import { AuthService } from '../../../core/services/auth.service';
       .sheet-head { display: flex; align-items: center; gap: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); }
       .sheet-head .av { width: 2.6rem; height: 2.6rem; border-radius: 16px; background: var(--ember-grad, var(--action)); color: #fff; display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
       .sheet-head .n { display: block; font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--text-main); }
-      .sheet-head .cd { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
-      .sheet-addr { display: flex; align-items: flex-start; gap: 0.45rem; margin: 0.65rem 0 0; font-size: 0.875rem; color: var(--text-muted); line-height: 1.35; }
+      .sheet-head .cd { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
+      .sheet-addr { display: flex; align-items: flex-start; gap: 0.45rem; margin: 0.65rem 0 0; font-size: var(--fs-body); color: var(--text-muted); line-height: 1.35; }
       .sheet-addr i { margin-top: 0.15rem; color: var(--action); flex-shrink: 0; }
       .sheet-primary {
         width: 100%; height: 3.25rem; border: none; border-radius: var(--r-lg, 16px); background: var(--accent-brand, var(--action)); color: #000;
@@ -330,7 +332,7 @@ import { AuthService } from '../../../core/services/auth.service';
       .sheet .action .lbl { font-weight: 600; }
       .sheet .action:active { background: var(--surface-ground); }
       .contact { display: flex; gap: 0.5rem; margin-top: 0.875rem; }
-      .contact-btn { flex: 1; height: 2.9rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: var(--r-md, 12px); text-decoration: none; font-weight: 700; font-size: 0.875rem; border: 1px solid var(--border-color); color: var(--text-main); background: var(--surface-ground); }
+      .contact-btn { flex: 1; height: 2.9rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: var(--r-md, 12px); text-decoration: none; font-weight: 700; font-size: var(--fs-body); border: 1px solid var(--border-color); color: var(--text-main); background: var(--surface-ground); }
       .contact-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
       .loc-msg { margin: 0.5rem 0 0; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-align: center; }
       @media (prefers-reduced-motion: reduce) {

@@ -52,8 +52,8 @@ const PASO_MS = 100;
                [ngModel]="termino()" (ngModelChange)="alEscribir($event)"
                (keydown)="alTeclear($event)"
                [disabled]="!sucursal()"
-               placeholder="Escanea, o escribe la clave o el nombre"
-               aria-describedby="fx-ayuda" />
+               [placeholder]="sucursal() ? 'Escanea, o escribe la clave o el nombre' : 'Elige la sucursal para poder buscar'"
+               [attr.aria-describedby]="sucursal() ? 'fx-ayuda' : null" />
         @if (buscando()) { <i class="pi pi-spin pi-spinner fx-spin" aria-hidden="true"></i> }
 
         <!-- Desplegable: nombre, clave, unidad y PRECIO. El precio en el renglón es lo que
@@ -82,10 +82,23 @@ const PASO_MS = 100;
         }
       </div>
 
-      <p id="fx-ayuda" class="fx-ayuda">
-        La ventana se cierra sola en {{ segundosVentana }} s. Si no hay existencia, el faltante
-        queda anotado sin preguntar nada.
-      </p>
+      <!-- Sin sucursal la caja está deshabilitada, y eso TIENE que decirse. Deshabilitada y muda
+           se lee como "está roto": la persona teclea, no pasa nada, y no hay forma de saber que
+           el problema está en un campo de más arriba. En la pantalla de faltantes no aparece
+           porque ahí la tarjeta ni se dibuja hasta elegir sucursal; acá convive con el arqueo,
+           que se abre con la sucursal todavía en blanco cuando alguien alcanza más de una. -->
+      @if (!sucursal()) {
+        <p class="fx-sin-suc" role="status">
+          <i class="pi pi-arrow-up" aria-hidden="true"></i>
+          <span>Elige primero la <strong>sucursal</strong> de arriba. El mismo código tiene precio
+            y existencia distintos en cada plaza, así que sin ella no hay nada que contestar.</span>
+        </p>
+      } @else {
+        <p id="fx-ayuda" class="fx-ayuda">
+          La ventana se cierra sola en {{ segundosVentana }} s. Si no hay existencia, el faltante
+          queda anotado sin preguntar nada.
+        </p>
+      }
 
       @if (aviso(); as a) {
         <div class="fx-aviso" [class]="'t-' + a.tono" role="status">{{ a.texto }}</div>
@@ -216,6 +229,13 @@ const PASO_MS = 100;
       background: var(--card-bg); color: var(--text-main); font: inherit; font-size: .95rem; }
     .fx-input:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .fx-ayuda { margin: 0; font-size: .72rem; color: var(--text-muted); }
+    /* El aviso de "falta la sucursal" NO es un error: es una instruccion. Por eso usa el tono de
+       aviso y no el rojo -- nadie se equivoco todavia, falta un paso. */
+    .fx-sin-suc { margin: 0; display: flex; align-items: flex-start; gap: .4rem;
+      font-size: .74rem; line-height: 1.35; padding: .45rem .6rem;
+      border-radius: var(--r-sm, 8px); background: var(--warn-soft-bg);
+      color: var(--warn-soft-fg); border: 1px solid var(--warn-border); }
+    .fx-sin-suc i { font-size: .8rem; margin-top: .1rem; flex: 0 0 auto; }
 
     .fx-lista { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50;
       list-style: none; margin: 0; padding: 0; max-height: 17rem; overflow-y: auto;
@@ -224,7 +244,7 @@ const PASO_MS = 100;
     .fx-lista li + li .fx-fila { border-top: 1px solid var(--border-color); }
     .fx-fila { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto auto 5.5rem;
       align-items: center; gap: .6rem; padding: .55rem .75rem; background: none; border: 0;
-      cursor: pointer; text-align: left; color: var(--text-main); font: inherit; font-size: .8125rem; }
+      cursor: pointer; text-align: left; color: var(--text-main); font: inherit; font-size: var(--fs-sm); }
     .fx-fila:hover, .fx-fila.on { background: var(--hover-bg); }
     .fx-fila-n { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fx-fila-sku { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-muted); }
@@ -265,7 +285,7 @@ const PASO_MS = 100;
     .fx-ver i { margin-top: .1rem; }
     .fx-ver div { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
     .fx-ver strong { font-size: .88rem; }
-    .fx-ver span { font-size: .75rem; }
+    .fx-ver span { font-size: var(--fs-xs); }
     .fx-ver.v-hay_en_tienda { background: var(--ok-soft-bg); color: var(--ok-soft-fg); border: 1px solid var(--ok-border); }
     .fx-ver.v-sin_existencia { background: var(--bad-soft-bg); color: var(--bad-soft-fg); border: 1px solid var(--bad-border); }
     .fx-ver.v-no_medido { background: var(--warn-soft-bg); color: var(--warn-soft-fg); border: 1px solid var(--warn-border); }

@@ -102,6 +102,29 @@ if [ -n "$_faltan" ]; then
   exit 1
 fi
 
+# ── `[K3S.43]` FOTO DE LAS REVISIONES **ANTES** DE TOCAR NADA ───────────────────────────────
+# Esto existe para que la REVERSIÓN de `auto-deploy.sh` sepa qué deshacer.
+#
+# ⛔ El defecto que corrige, medido el 2026-10-02: este guion aplica **todos** los manifiestos
+#    de `prod` —los 9— y le pone `:$COMMIT` a cada uno. Pero `revertir()` sólo recorría
+#    `$SERVICIOS`, que es la lista de lo que se CONSTRUYÓ (`api worker portal vendor`). Resultado
+#    real: tras un despliegue fallido, `caddy` y `pg-prod` **quedaron en la versión nueva** y el
+#    log dijo `revertido.`. Si una de esas dos imágenes hubiera estado rota, la reversión habría
+#    dejado producción rota diciendo que la arregló.
+#
+# ⭐ Y NO se arregla agregando "caddy pg-prod" a una lista: volvería a romperse con el próximo
+#    servicio que alguien agregue. Se DERIVA. El archivo dice, por deployment, en qué revisión
+#    estaba antes; quien revierte deshace sólo aquellos cuya revisión SUBIÓ.
+#
+# ⚠️ Por qué la revisión y no "los que aplicamos": `kubectl apply` que no cambia nada **no crea
+#    revisión nueva**. Un `rollout undo` sobre uno de esos lo mandaría a un estado ANTERIOR al
+#    que tenía — una reversión que rompe lo que estaba bien. La revisión distingue las dos cosas.
+_FOTO="$HOME/ops/prod/.k3s-revisiones-previas"
+k3s kubectl get deploy -n prod \
+  -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.annotations.deployment\.kubernetes\.io/revision}{"\n"}{end}' \
+  2>/dev/null | grep -v '=$' > "$_FOTO.tmp" && mv "$_FOTO.tmp" "$_FOTO" \
+  || echo "   ⚠️ no se pudo guardar la foto de revisiones — la reversión caerá a la lista de servicios"
+
 aplicados=0
 for f in "$DIR"/*.yaml; do
   [ -f "$f" ] || continue
@@ -169,8 +192,22 @@ while :; do
     echo "        curl -s http://127.0.0.1:5000/v2/<imagen>/tags/list"
     exit 1
   fi
+  # ⛔ `[K3S.42]` LA CUARTA CIFRA, `status.replicas`, NO ES DECORATIVA — sin ella esta espera
+  #    termina ANTES de que el ReplicaSet viejo se apague, y el candado de más abajo revierte un
+  #    despliegue que estaba bien.
+  #
+  #    Medido el 2026-10-02 (despliegue de `5e392b9`): `updatedReplicas` y `availableReplicas`
+  #    son contadores INDEPENDIENTES. Con `api` en 2 réplicas se llega a `u=2, v=2` donde los 2
+  #    disponibles **no son los 2 actualizados** — uno nuevo listo y uno VIEJO todavía vivo. La
+  #    espera daba por terminado el rollout, y el chequeo por pod encontraba a
+  #    `api-6dd5dc7d7-59br2` sirviendo el commit anterior y revertía. Y el pod viejo ni siquiera
+  #    estaba `Terminating`, así que el salteo de `[K3S.31]` tampoco lo filtraba.
+  #
+  #    `status.replicas` es el TOTAL de pods que el Deployment posee. Mientras sobre uno del
+  #    ReplicaSet anterior, es mayor que `spec.replicas`. Exigir `t == d` es lo que de verdad
+  #    significa "ya no queda nada de la versión vieja" — es lo que mira `kubectl rollout status`.
   _falta=$(k3s kubectl get deploy -n prod \
-    -o jsonpath='{range .items[*]}{.metadata.name}:{.status.updatedReplicas}/{.spec.replicas}/{.status.availableReplicas} {end}' 2>/dev/null \
+    -o jsonpath='{range .items[*]}{.metadata.name}:{.status.updatedReplicas}/{.spec.replicas}/{.status.availableReplicas}/{.status.replicas} {end}' 2>/dev/null \
     | tr ' ' '\n' | awk -F: '
         # ⛔ Un deployment en `replicas: 0` está apagado A PROPÓSITO (es lo que significa
         # `preparado`) y NUNCA converge: sus campos de estado ni siquiera existen, así que
@@ -179,8 +216,10 @@ while :; do
         # levantar. Medido el 2026-10-01: salía 1 sobre un apply perfectamente exitoso.
         NF==2 {
           split($2, a, "/")
-          u = (a[1] == "" ? 0 : a[1]); d = (a[2] == "" ? 0 : a[2]); v = (a[3] == "" ? 0 : a[3])
-          if (d > 0 && (u != d || v != d)) print $1
+          u = (a[1] == "" ? 0 : a[1]); d = (a[2] == "" ? 0 : a[2])
+          v = (a[3] == "" ? 0 : a[3]); t = (a[4] == "" ? 0 : a[4])
+          # u=actualizadas  d=deseadas  v=disponibles  t=TOTAL de pods del deployment
+          if (d > 0 && (u != d || v != d || t != d)) print $1
         }' | tr '\n' ' ')
   [ -z "$(echo "$_falta" | tr -d ' ')" ] && { echo "   ✓ todos los deployments de prod al día en :$COMMIT"; break; }
   if [ "$(date +%s)" -ge "$_fin" ]; then

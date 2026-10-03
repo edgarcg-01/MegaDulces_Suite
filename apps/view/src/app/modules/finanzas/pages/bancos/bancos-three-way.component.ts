@@ -553,7 +553,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-drillmode button { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; padding: .45rem .9rem; font: inherit; font-size: .84rem; color: var(--text-muted); cursor: pointer; }
     .tw-drillmode button:hover { color: var(--text-main); }
     .tw-drillmode button.on { color: var(--text-main); border-bottom-color: var(--action); font-weight: 600; }
-    .tw-drillmode button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; border-radius: var(--r-sm); }
+    .tw-drillmode button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: var(--r-sm); }
     .tw-daily-scroll { overflow-x: auto; }
     .tw-daily-tbl { width: 100%; margin-top: var(--sp-2); min-width: 46rem; }
     .tw-daily-tbl .tw-cum-warn { color: var(--warn-fg); font-weight: 700; }
@@ -575,8 +575,8 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-grp-head { display: flex; align-items: center; gap: var(--sp-2); width: 100%; background: none;
       border: none; padding: 2px 0; cursor: pointer; color: var(--text-main); font: inherit; text-align: left; }
     .tw-grp-head:hover .tw-grp-tit { text-decoration: underline; }
-    .tw-grp-head:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
-    .tw-grp-head i { font-size: .75rem; color: var(--text-faint); }
+    .tw-grp-head:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .tw-grp-head i { font-size: var(--fs-xs); color: var(--text-faint); }
     .tw-grp-tit { font-size: var(--fs-sm); font-weight: 600; }
     .tw-grp-real .tw-grp-tit { color: var(--warn-fg); }
     .tw-grp-n { font-size: var(--fs-xs); color: var(--text-muted); background: var(--hover-bg);
@@ -604,7 +604,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       font: inherit; font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
       color: var(--text-muted); margin-bottom: var(--sp-2); padding: 0; cursor: pointer; text-align: left; }
     .tw-cov-head:hover { color: var(--text-main); }
-    .tw-cov-head:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .tw-cov-head:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     /* Colapsada no lleva margen bajo el encabezado: la card queda de una línea. */
     .tw-cov-shut .tw-cov-head { margin-bottom: 0; }
     .tw-cov-chev { margin-left: auto; font-size: .7rem; opacity: .6; }

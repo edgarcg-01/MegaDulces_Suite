@@ -361,7 +361,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
     .fa-totals { display: flex; gap: 1.4rem; justify-content: flex-end; align-items: baseline; border-top: 1px solid var(--border-color); padding-top: .7rem; font-size: .82rem; color: var(--text-muted); }
     .fa-totals strong { color: var(--text-main); margin-left: .3rem; }
     .fa-grand strong { font-size: 1.05rem; color: var(--action); }
-    .fa-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; align-items: baseline; }
+    .fa-note { font-size: var(--fs-xs); color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; align-items: baseline; }
     .fa-note-ok { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 8%, transparent); }
     .fa-note-warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 10%, transparent); }
     /* FE.13 contingencia */

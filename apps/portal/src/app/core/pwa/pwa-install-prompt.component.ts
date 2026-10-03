@@ -58,7 +58,7 @@ const DISMISS_KEY = 'portal:pwa:install-dismissed';
       box-shadow: 0 12px 32px rgba(0,0,0,.18);
     }
     .pwa-install-ico { width: 40px; height: 40px; border-radius: 10px; flex: none; object-fit: contain; }
-    .pwa-install-body { display: flex; flex-direction: column; gap: .1rem; font-size: .8125rem; line-height: 1.25; }
+    .pwa-install-body { display: flex; flex-direction: column; gap: .1rem; font-size: var(--fs-sm); line-height: 1.25; }
     .pwa-install-body strong { font-size: .9375rem; }
     .pwa-install-body .pi-upload { font-size: .8rem; }
     .pwa-install-btn {

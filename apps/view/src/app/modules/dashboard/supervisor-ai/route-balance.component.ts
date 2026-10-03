@@ -162,7 +162,7 @@ import { SupervisorAiService, RouteBalanceSim } from './supervisor-ai.service';
       .kpi__v--ok { color: var(--ok, #16a34a); }
       .kpi__v--bad { color: var(--bad, #dc2626); }
       .actions { display: flex; align-items: center; gap: .6rem; margin-bottom: 1rem; flex-wrap: wrap; }
-      .hint { font-size: .75rem; color: var(--text-soft, #a8a29e); }
+      .hint { font-size: var(--fs-xs); color: var(--text-soft, #a8a29e); }
       .tbl { width: 100%; border-collapse: collapse; font-size: .86rem; }
       .tbl th { text-align: left; font-weight: 600; color: var(--text-soft, #78716c); padding: .4rem .5rem; border-bottom: 1px solid var(--border-color, #e7e5e4); }
       .tbl td { padding: .45rem .5rem; border-bottom: 1px solid var(--border-color, #f0efed); vertical-align: middle; }
@@ -187,7 +187,7 @@ import { SupervisorAiService, RouteBalanceSim } from './supervisor-ai.service';
       .move__route--to { background: color-mix(in srgb, var(--ok, #16a34a) 14%, transparent); color: var(--ok, #15803d); }
       .move i { color: var(--text-soft, #a8a29e); font-size: .7rem; }
       .mb-3 { margin-bottom: .75rem; }
-      @media (max-width: 760px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+      @media (max-width: 47.5rem) { .kpis { grid-template-columns: repeat(2, 1fr); } }
     `,
   ],
 })

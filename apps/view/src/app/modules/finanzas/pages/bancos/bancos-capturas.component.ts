@@ -123,7 +123,7 @@ import { BANCOS_STYLES } from './bancos.styles';
     .bc-rej { opacity: 0.5; }
     .bc-err > td { background: color-mix(in srgb, var(--warn-fg) 6%, transparent); }
     .bc-err-msg { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; font-size: var(--fs-xs); color: var(--warn-fg); }
-    .bc-err-msg i { font-size: 0.75rem; }
+    .bc-err-msg i { font-size: var(--fs-xs); }
     .bc-badge { display: inline-block; font-size: var(--fs-micro); font-weight: 600; padding: 1px var(--sp-2); border-radius: var(--r-pill); }
     .st-pendiente_confirmacion { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
     .st-confirmado { color: var(--action); background: color-mix(in srgb, var(--action) 12%, transparent); }

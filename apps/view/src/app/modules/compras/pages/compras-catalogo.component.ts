@@ -202,7 +202,7 @@ import { CATALOGO_TABS } from '../catalogo-tabs';
               [rowsPerPageOptions]="[25, 50, 100, 200]"
               (onLazyLoad)="onLazyLoad($event)"
              
-              styleClass="p-datatable-sm pp-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+              styleClass="p-datatable-sm pp-table surf-table surf-table--sticky surf-table--frozen-first"
               [rowHover]="true"
               >
               <ng-template #header>
@@ -433,6 +433,7 @@ import { CATALOGO_TABS } from '../catalogo-tabs';
       font-size: var(--fs-sm); color: var(--c-text-1);
       min-width: 0; padding: 0; height: 28px;
     }
+      .pp-search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .pp-search input::placeholder { color: var(--c-text-3); }
     /* Sin la "x" nativa del type=search (ya hay botón propio de limpiar). */
     .pp-search input::-webkit-search-cancel-button { display: none; }
@@ -537,7 +538,7 @@ import { CATALOGO_TABS } from '../catalogo-tabs';
     }
     .pp-toggle-line > span:first-of-type { font-weight: var(--fw-medium); }
 
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .pp-edit-meta, .pp-form-row { grid-template-columns: 1fr; }
     }
   `],

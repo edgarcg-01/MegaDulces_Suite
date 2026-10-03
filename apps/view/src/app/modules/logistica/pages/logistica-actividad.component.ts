@@ -248,7 +248,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .rk-stop.cust .rk-stop-dot { background:var(--ok-fg); }
     .rk-stop-body { display:flex; flex-direction:column; gap:.05rem; min-width:0; }
     .rk-stop-name { font-size:var(--fs-sm); color:var(--c-text-1); overflow:hidden; text-overflow:ellipsis; }
-    .rk-stop-name .pi { font-size:.75rem; color:var(--c-text-3); }
+    .rk-stop-name .pi { font-size:var(--fs-xs); color:var(--c-text-3); }
     .rk-stop.cust .rk-stop-name .pi { color:var(--ok-fg); }
     .rk-stop-dist { color:var(--c-text-3); font-size:var(--fs-micro); }
     .rk-stop-meta { font-size:var(--fs-micro); color:var(--c-text-3); font-variant-numeric:tabular-nums; }

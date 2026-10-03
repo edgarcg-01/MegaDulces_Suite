@@ -13,7 +13,7 @@ import { RoutePromoService, PromoQuery } from './route-promo.service';
 import { SelloutChatService } from './sellout-chat.service';
 // [IG.1.1] La forma de los filtros de ingreso vive con la lógica pura, no en el controller.
 import type { IncomeQueryFilters } from './period-coverage';
-import type { IncomeRecon, IncomeReport, IncomeSources, IncomeTree, IncomeTreeChildren, IncomeDocumento } from '@megadulces/contracts';
+import type { IncomeRecon, IncomeReconDetalle, IncomeReport, IncomeSources, IncomeTree, IncomeTreeChildren, IncomeDocumento } from '@megadulces/contracts';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
@@ -407,6 +407,35 @@ export class CommercialAnalyticsController {
       ...this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte),
       group_by: groupBy,
       compare: compare === 'true',
+    });
+  }
+
+  /**
+   * `[IG.12]` El desglose de una celda de la conciliación: sus documentos uno por uno.
+   *
+   * ⚠️ Va declarada ANTES que `income/conciliacion` por la regla de siempre en Nest: la ruta más
+   * específica primero. Acá no hay `:param` que se la trague, pero la disciplina se sostiene
+   * cuando no cuesta nada — en Fase LC costó un módulo inalcanzable.
+   */
+  @Get('income/conciliacion/detalle')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({
+    summary:
+      'IG.12 — Los documentos de UNA celda de la conciliación: folio, cliente, qué es, facturado, '
+      + 'cobrado, saldo y por qué cuenta entró el dinero. La ventana es el período de la celda '
+      + 'RECORTADO al rango de la pantalla, para que el desglose sume exactamente su renglón.',
+  })
+  incomeReconDetalle(
+    @Query('periodo') periodo: string,
+    @Query('canal') canal: string,
+    @Query('plaza') plaza?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('grain') grain?: string,
+  ): Promise<IncomeReconDetalle> {
+    return this.service.incomeReconDetalle({
+      periodo, canal, plaza: plaza ?? '', from, to,
+      grain: grain === 'dia' || grain === 'trimestre' ? grain : 'mes',
     });
   }
 
@@ -1049,6 +1078,74 @@ export class CommercialAnalyticsController {
     @Query('to') to?: string,
   ): Promise<RouteInventoryDetail> {
     return this.service.routeInventoryDetail(routeNo, from, to);
+  }
+
+  @Get('route-inventory/series')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.18 - Serie diaria de una ruta: cargado contra vendido, mas el SALDO ACUMULADO del camion '
+      + 'al cierre de cada jornada. El dia en que ese acumulado cruza a negativo es el dia en que '
+      + 'la ruta empezo a vender lo que ya traia. Params: route_no, from, to.',
+  })
+  routeSeries(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.routeSeries(routeNo, from, to);
+  }
+
+  @Get('route-inventory/shipments')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.19 - Los traspasos (embarques U-D-41) a una ruta, documento por documento. El ledger '
+      + 'agrega al grano (ruta, fecha, clase, sku, unidad) y TIRA el folio; el documento es la '
+      + 'unidad de la respuesta porque es lo que se firma y se reclama. Medido: 25-72 por ruta, '
+      + 'se devuelven todos. Params: route_no, from, to.',
+  })
+  routeShipments(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.routeShipments(routeNo, from, to);
+  }
+
+  @Get('route-inventory/shipment-lines')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.19+RD.21 - Las lineas de UN embarque, con el costo unitario al que se le cargo cada '
+      + 'producto al camion. `salto_peldano` marca la linea cuyo costo se despega >=2x del mediano '
+      + 'historico de ese SKU: el umbral 2.00 sale de CE.8 (el factor de caja minimo del catalogo), '
+      + 'no de oido. Params: route_no, folio, serie.',
+  })
+  routeShipmentLines(
+    @Query('route_no') routeNo: string,
+    @Query('folio') folio: string,
+    @Query('serie') serie?: string,
+  ) {
+    return this.service.routeShipmentLines(routeNo, folio, serie);
+  }
+
+  @Get('route-inventory/negatives')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.20 - Los numeros rojos de una ruta, partidos en sus DOS familias y con su antiguedad. '
+      + '`nunca_cargado` = lo vendio sin que nadie se lo cargara en la ventana (mercancia anterior '
+      + 'al primer embarque): NO se puede valuar, se declara. `se_acabo` = se le cargo, lo vendio '
+      + 'todo y siguio vendiendo: es la familia accionable. `desde` es el primer dia en que el '
+      + 'saldo acumulado cruzo a negativo. Params: route_no, from, to.',
+  })
+  routeNegatives(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.routeNegatives(routeNo, from, to);
   }
 
   @Get('sales-by-route/routes')
