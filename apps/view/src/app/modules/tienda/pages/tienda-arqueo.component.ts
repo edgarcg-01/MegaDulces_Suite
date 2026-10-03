@@ -15,6 +15,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
 import { Permission } from '../../../core/constants/permissions';
+import { FaltanteExpressComponent } from '../components/faltante-express.component';
 import { branchName } from '../../../core/constants/store-branches';
 import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, AvisoDobleCaja, RutaArqueo, Turno, TurnoCorte } from '../arqueo.service';
 import { BILLETES_MXN, MONEDAS_MXN, DENOMINACIONES_MXN, Denominacion } from '@megadulces/contracts';
@@ -61,6 +62,7 @@ interface CortesPersona {
     CommonModule, FormsModule, ButtonModule, TableModule, ToastModule,
     SelectModule, SegmentedComponent, InputTextModule, TagModule, DialogModule,
     ContextHelpComponent, FreshnessPillComponent, PageTabsComponent,
+    FaltanteExpressComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -91,6 +93,26 @@ interface CortesPersona {
            mira después, no mientras se cuenta. A lo ancho, el conteo respira y el
            historial queda donde va: abajo. -->
       <div class="arq-stack">
+        <!-- [FLT.27] El buscador de faltantes vive ACÁ, y no sólo en su propia pantalla, por una
+             razón medida: STORE_STOCKOUT_CAPTURAR se repartió como STORE_PRICE_CHECK_VER o
+             STORE_ARQUEO_CAPTURAR (mig 20260919150100), así que todo el que puede arquear puede
+             reportar un faltante POR CONSTRUCCIÓN — esta tarjeta no le puede salir muerta a nadie
+             que esté parado en esta pantalla. Y al revés: el rol cajero NO tiene el permiso del
+             verificador, o sea que el arqueo es la puerta que ella sí tiene.
+
+             Va ARRIBA del conteo y FUERA de la tarjeta de captura a propósito: contar es un flujo
+             de teclado de tres columnas con su propia cadena de saltos (onCellKey), y una caja de
+             búsqueda metida adentro competiría por el foco mientras alguien cuenta billetes. Acá
+             no toca dirty, no roba el foco al cargar y no entra en esa cadena.
+
+             ⚠️ NO PONER ACENTOS GRAVES ACÁ: esto vive dentro de un template literal. -->
+        @if (puedeFaltante()) {
+          <div class="card-premium card-flat arq-faltante">
+            <h3 class="arq-card-title">¿Te pidieron algo que no había?</h3>
+            <app-faltante-express [sucursal]="aSuc || null" />
+          </div>
+        }
+
         <!-- Captura -->
           <!-- SM.38/SM.40 - Dos cajas abiertas con el mismo usuario. Se DICE, y la
                captura queda habilitada abajo: el candado que vivia aca dejaba a la
@@ -261,13 +283,31 @@ interface CortesPersona {
           @if (manual()) {
             <!-- Escape hatch del supervisor: relevo, contingencia, caja sin Kepler. -->
             <div class="arq-head">
-              <label class="arq-lbl">Sucursal
-                <p-select #hcell [options]="sucursalOptions()" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)"
-                          optionLabel="label" optionValue="value" styleClass="arq-fld arq-fld-suc"
-                          appendTo="body" placeholder="Elige…" [filter]="sucursales().length > 8" filterBy="label"
-                          (keydown)="onHeadKey($event, 0)" />
-              </label>
-              <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2" (keydown)="onHeadKey($event, 1)" (focus)="selectAll($event)"></label>
+              <!-- [FLT.29] El selector es SOLO para quien alcanza más de una tienda. Con una
+                   sola no es una opción: es un hecho de la sesión, y el arqueo ya la
+                   autoselecciona al cargar el alcance. Un desplegable de un solo renglón es un
+                   paso que no decide nada y una casilla más que puede quedarse en blanco.
+
+                   El dato NO se esconde: un arqueo es un documento de dinero y tiene que decir
+                   de qué sucursal es. Se muestra fijo, que es exactamente lo que ya hacía
+                   app-sucursal-picker — esta pantalla no lo usa porque su select vive en la
+                   cadena de teclado del encabezado, y por eso la regla estaba duplicada y
+                   divergida. ⚠️ NO PONER ACENTOS GRAVES ACÁ: es un template literal. -->
+              @if (variasSucursales()) {
+                <label class="arq-lbl">Sucursal
+                  <p-select #hcell [options]="sucursalOptions()" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)"
+                            optionLabel="label" optionValue="value" styleClass="arq-fld arq-fld-suc"
+                            appendTo="body" placeholder="Elige…" [filter]="sucursales().length > 8" filterBy="label"
+                            (keydown)="onHeadKey($event, 0)" />
+                </label>
+              } @else {
+                <div class="arq-lbl arq-suc-fija">Sucursal
+                  <span class="arq-suc-val">
+                    <i class="pi pi-building" aria-hidden="true"></i>{{ branchLabel(aSuc) || 'Sin sucursal asignada' }}
+                  </span>
+                </div>
+              }
+              <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2" (keydown)="onHeadKey($event, idxCaja())" (focus)="selectAll($event)"></label>
               <!-- Sin selector de fecha: un arqueo es de HOY. Elegir una fecha
                    pasada permitiría sellar dinero de un día que ya cerró. -->
               <label class="arq-lbl">Fecha <span class="arq-fijo">{{ hoyTxt() }}</span></label>
@@ -275,7 +315,7 @@ interface CortesPersona {
                    no se le deja escribirlo: el backend le impone su usuario igual
                    (atribuir), y un campo editable que el servidor descarta en
                    silencio miente. Solo el supervisor captura a nombre de otra. -->
-              <label class="arq-lbl">Cajero <input #hcell pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" [readonly]="!revela" [attr.aria-readonly]="!revela" (ngModelChange)="dirty.set(true)" placeholder="código" (keydown)="onHeadKey($event, 2)" (focus)="selectAll($event)"></label>
+              <label class="arq-lbl">Cajero <input #hcell pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" [readonly]="!revela" [attr.aria-readonly]="!revela" (ngModelChange)="dirty.set(true)" placeholder="código" (keydown)="onHeadKey($event, idxCajero())" (focus)="selectAll($event)"></label>
               @if (turnos().length) {
                 <p-button type="button" label="Volver a mis turnos" icon="pi pi-arrow-left" styleClass="p-button-sm p-button-text" (click)="manual.set(false)"></p-button>
               }
@@ -765,6 +805,11 @@ interface CortesPersona {
        min-content de la tarjeta. Con auto el historial (tabla de 10 columnas)
        estiraba la columna mas alla del ancho de la pantalla. */
     .arq-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+    /* [FLT.27] Mismo padding que .arq-panel para que lea como parte de la página y no como un
+       injerto. SIN container-type: no tiene nada que reordenar por ancho propio, y poner
+       contención acá recortaría el desplegable del buscador, que es position:absolute.
+       NO PONER ACENTOS GRAVES ACÁ: el bloque de estilos también es un template literal. */
+    .arq-faltante { padding: 1rem; }
     /* SM.31 - El panel es el contenedor de consulta (DESIGN §9: @container para
        componente, @media solo para chrome y densidad por puntero). Ademas de
        habilitar las queries de abajo, container-type: inline-size CORTA la
@@ -857,6 +902,12 @@ interface CortesPersona {
        el conteo, que es justo el dato que no puede quedar a medias. */
     :host ::ng-deep .arq-fld-cajero { width: min(12rem, 100%); }
     .arq-fld-suc { width: min(11rem, 100%); }
+    /* [FLT.29] La sucursal cuando no hay nada que elegir. Mismo tratamiento que .sp-fija del
+       picker compartido: se lee como dato, no como control apagado. */
+    .arq-suc-fija { gap: .3rem; }
+    .arq-suc-val { display: inline-flex; align-items: center; gap: .35rem; padding: .35rem 0;
+      font-size: .82rem; font-weight: 600; color: var(--text-main); white-space: nowrap; }
+    .arq-suc-val i { font-size: var(--fs-xs); color: var(--text-muted); }
     /* width:100% + tope: llena el track que le toque (en touch el tope se
        levanta, abajo) pero puede encogerse - con width:5rem fijo el input era
        un piso de 80px que no cedia en una pantalla angosta. */
@@ -1098,6 +1149,18 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly variasSucursales = computed(() => this.sucursales().length > 1);
 
   /**
+   * `[FLT.29]` La posición de cada casilla del encabezado en la cadena de teclado.
+   *
+   * ⚠️ **Derivadas, no fijas.** `onHeadKey(ev, idx)` indexa `headCells` (un `ViewChildren`), así
+   * que al esconder el selector de sucursal la lista pasa de 3 a 2 y los índices que estaban
+   * escritos a mano (`1` y `2`) quedaban corridos: ArrowLeft desde Caja se enfocaba a sí misma y
+   * ArrowRight hacia Cajero caía fuera de rango y **no hacía nada, en silencio**. Un número
+   * literal que depende de que un `@if` de más arriba sea cierto es una bomba de tiempo.
+   */
+  readonly idxCaja = computed(() => (this.variasSucursales() ? 1 : 0));
+  readonly idxCajero = computed(() => (this.variasSucursales() ? 2 : 1));
+
+  /**
    * SM.38/SM.40 - Dos cajas abiertas con el mismo usuario. Viene resuelto del
    * servidor y es solo un AVISO: la captura sigue habilitada debajo.
    */
@@ -1105,6 +1168,21 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   readonly canCapture = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true);
+
+  /**
+   * `[FLT.27]` ¿Esta persona puede reportar un faltante desde acá?
+   *
+   * Se pide **CAPTURAR y no VER**, aunque la pantalla de faltantes acepte cualquiera de los dos.
+   * El motivo es el alta automática: el buscador escribe el faltante **sin preguntar** cuando la
+   * existencia es 0, así que a alguien con sólo VER le saldría un 403 en cada consulta de un
+   * producto agotado. Un control que falla siempre es peor que un control que no está.
+   *
+   * ⚠️ En la práctica no recorta a nadie de esta pantalla: quien tiene `STORE_ARQUEO_CAPTURAR`
+   * tiene `STORE_STOCKOUT_CAPTURAR` por como se repartió (mig `20260919150100`). Lo que el gate
+   * saca es al supervisor que sólo MIRA arqueos, que es justo quien no atiende al cliente.
+   */
+  readonly puedeFaltante = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_STOCKOUT_CAPTURAR] === true);
 
   /**
    * SM.36 - El arqueo de RUTAS tiene permiso propio. No alcanza con

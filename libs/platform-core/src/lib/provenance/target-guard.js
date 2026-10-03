@@ -306,4 +306,48 @@ function assertProdTarget(nombre, opts = {}) {
   return res;
 }
 
-module.exports = { assertSafeTarget, assertTarget, assertProdTarget, assertDistinct, classify };
+/**
+ * `[VIS.1]` Resolvedor canónico del destino de LECTURA de un candado — y, sobre todo, el que
+ * hace que el candado **diga dónde midió**.
+ *
+ * Existe por lo medido el 2026-10-03: **11 candados preferían `FLEET_DB_URL` por encima de
+ * `DATABASE_URL_NEW`**, y esa variable apunta a la prod VIEJA de Railway, que desde el corte del
+ * 2026-09-22 ya ni acepta conexiones (`ECONNRESET`). O sea: once instrumentos de verdad estaban
+ * **ciegos**, y su rojo era indistinguible del rojo de un defecto real.
+ *
+ * ⭐ El orden NO es cosmético. Las dos variables apuntan a bases distintas y las dos clasifican
+ * como `prod`, así que `classify()` no las distingue: la única defensa es preferir la viva y
+ * **declarar cuál se usó**. Un ✔ que no dice contra qué base se midió no es verificable.
+ *
+ * Orden: `DST_URL` (el que pasa el runner) → `DATABASE_URL_NEW` (prod viva) → `FLEET_DB_URL`
+ * (la vieja, último recurso y con aviso).
+ *
+ * @param {string} nombre quién pregunta, para que la línea impresa diga de quién es.
+ * @param {{silencioso?:boolean}} [opts] `silencioso` sólo para los tests de este helper.
+ * @returns {{url:string, variable:string, donde:string}}
+ */
+function resolveReadTarget(nombre, opts = {}) {
+  const orden = ['DST_URL', 'DATABASE_URL_NEW', 'FLEET_DB_URL'];
+  const variable = orden.find((k) => process.env[k]);
+  if (!variable) {
+    abortar([
+      `ABORT (${nombre}): no hay destino de lectura.`,
+      `  Exportá una de: ${orden.join(' · ')}`,
+    ]);
+  }
+  const url = process.env[variable];
+  const res = classify(url);
+  const donde = `${res.host || '(host desconocido)'}/${res.db || '(base desconocida)'}`;
+  if (!opts.silencioso) {
+    // La línea que vuelve verificable un ✔: sin ella, nadie sabe contra qué se midió.
+    console.log(`  ⓘ destino: ${donde} (${variable})`);
+    if (variable === 'FLEET_DB_URL') {
+      console.log('  ⚠️ FLEET_DB_URL es la prod VIEJA (Railway), congelada desde el 2026-09-22.');
+    }
+  }
+  return { url, variable, donde };
+}
+
+module.exports = {
+  assertSafeTarget, assertTarget, assertProdTarget, assertDistinct, classify, resolveReadTarget,
+};

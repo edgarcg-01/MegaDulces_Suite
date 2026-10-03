@@ -227,7 +227,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
     :host ::ng-deep .td-w-full, :host ::ng-deep .td-w-full input { width:100%; }
     .td-ac-item { display:flex; justify-content:space-between; align-items:center; gap:var(--sp-2); }
     .td-ac-item small { color:var(--c-text-3); }
-    @media (max-width:640px) { .td-row { grid-template-columns:1fr; } }
+    @media (max-width:40rem) { .td-row { grid-template-columns:1fr; } }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

@@ -19,7 +19,12 @@ const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
 const knex = require('knex');
 
-const URL = process.env.FLEET_DB_URL || process.env.DATABASE_URL_NEW;
+const URL = process.env.DATABASE_URL_NEW || process.env.FLEET_DB_URL;
+// ⛔ [VIS.1] Este candado ESCRIBE. La guarda va aca y no es decorativa: hasta el 2026-10-03
+// resolvia su destino con FLEET_DB_URL primero —la Railway que FUE produccion hasta el
+// 2026-09-22— y nadie miraba contra que base escribia. Es el mismo descuido que el
+// 2026-08-29 dejo 5 cuentas y 2 tenants de prueba en el padron real.
+require('./_lib/assert-safe-target').assertSafeTarget(path.basename(__filename), { url: URL });
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const FIXTURE = '00000000-0000-0000-0000-00000000beef';
 

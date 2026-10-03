@@ -356,7 +356,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .ring {
         width: 66px; height: 66px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
         background: conic-gradient(var(--action) calc(var(--pct, 0) * 1%), var(--border-color) 0);
-        transition: --pct 0.8s var(--ease-out, cubic-bezier(0.23,1,0.32,1));
+        transition: --pct var(--dur-max, 350ms) var(--ease-out, cubic-bezier(0.23,1,0.32,1));
       }
       .ring .inner {
         width: 54px; height: 54px; border-radius: 50%; background: var(--card-bg); display: grid; place-items: center;
@@ -371,10 +371,10 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
         display: inline-flex; align-items: center; gap: 0.35rem; margin-top: 0.45rem;
         min-height: 2rem; padding: 0.25rem 0.7rem; border-radius: 999px;
         border: 1px solid var(--border-color); background: var(--card-bg);
-        font-size: 0.75rem; font-weight: 700; color: var(--action); text-decoration: none;
+        font-size: var(--fs-xs); font-weight: 700; color: var(--action); text-decoration: none;
       }
       .change-route:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
-      .change-route i { font-size: 0.75rem; }
+      .change-route i { font-size: var(--fs-xs); }
       .kpis {
         display: flex; margin-top: 1.2rem; padding-top: 0.95rem; position: relative; z-index: 1;
         border-top: 1px solid var(--border-color, rgba(40,30,20,0.1));
@@ -396,8 +396,8 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .smart .spark { width: 34px; height: 34px; border-radius: 12px; background: var(--card-bg); border: 1px solid var(--ember-border); display: grid; place-items: center; color: var(--action); font-size: 0.95rem; flex-shrink: 0; }
       .smart .t { flex: 1; min-width: 0; }
       .smart .t b { display: block; font-size: 0.85rem; color: var(--text-main); }
-      .smart .t span { font-size: 0.75rem; color: var(--text-muted); }
-      .smart .go { font-size: 0.75rem; font-weight: 700; color: var(--action); white-space: nowrap; }
+      .smart .t span { font-size: var(--fs-xs); color: var(--text-muted); }
+      .smart .go { font-size: var(--fs-xs); font-weight: 700; color: var(--action); white-space: nowrap; }
 
       /* Banner de llegada (autodetección GPS) */
       .arrival {
@@ -470,7 +470,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .chip.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
       .chip.due { background: var(--ember-soft); color: var(--brand-900); border: 1px solid var(--ember-border); }
       .more { color: var(--text-faint); flex-shrink: 0; font-size: 1rem; }
-      .filter-empty { text-align: center; color: var(--text-muted); padding: 1.5rem; font-size: 0.875rem; }
+      .filter-empty { text-align: center; color: var(--text-muted); padding: 1.5rem; font-size: var(--fs-body); }
 
       /* FAB — zona del pulgar */
       .fab {
@@ -502,7 +502,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .sheet-head { display: flex; align-items: center; gap: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); }
       .sheet-head .av { width: 2.6rem; height: 2.6rem; border-radius: 16px; background: var(--ember-grad); color: #fff; display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
       .sheet-head .n { display: block; font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--text-main); }
-      .sheet-head .cd { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
+      .sheet-head .cd { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
       .sheet-primary {
         width: 100%; height: 3.25rem; border: none; border-radius: var(--r-lg, 16px); background: var(--accent-brand); color: #000;
         font-family: var(--font-body); font-weight: 700; font-size: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.6rem;
@@ -522,7 +522,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .action .lbl small { font-size: 0.72rem; color: var(--text-muted); font-weight: 400; }
       .action .badge { margin-left: auto; font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--warn-soft-fg); background: var(--warn-soft-bg); padding: 0.1rem 0.5rem; border-radius: var(--r-pill, 999px); }
       .contact { display: flex; gap: 0.5rem; margin-top: 0.875rem; }
-      .contact-btn { flex: 1; height: 2.9rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: var(--r-md, 12px); text-decoration: none; font-weight: 700; font-size: 0.875rem; border: 1px solid var(--border-color); color: var(--text-main); background: var(--surface-ground); }
+      .contact-btn { flex: 1; height: 2.9rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: var(--r-md, 12px); text-decoration: none; font-weight: 700; font-size: var(--fs-body); border: 1px solid var(--border-color); color: var(--text-main); background: var(--surface-ground); }
       .contact-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
 
       /* feedback táctil — todo lo presionable responde al press */

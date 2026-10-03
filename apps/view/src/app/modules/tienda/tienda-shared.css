@@ -24,7 +24,7 @@
 .tda-branch .bk { font-size:.7rem; color:var(--text-muted); }
 
 .tda-grid { display:grid; grid-template-columns:1.6fr 1fr; gap:1rem; align-items:start; }
-@media (max-width:900px){ .tda-grid { grid-template-columns:1fr; } }
+@media (max-width:56.25rem){ .tda-grid { grid-template-columns:1fr; } }
 .tda-card { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); padding:1rem 1.1rem; }
 .tda-card h2 { font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); font-weight:700; margin:0 0 .7rem; }
 .tk-count { color:var(--text-main); font-weight:800; font-variant-numeric:tabular-nums; }
@@ -38,7 +38,7 @@
 .tk-suc { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .tk-items { font-size:.72rem; color:var(--text-muted); }
 .tk-total { font-weight:800; font-variant-numeric:tabular-nums; }
-.tk.flash { animation:flash 1.2s ease-out; }
+.tk.flash { animation:flash var(--dur-max, 350ms) ease-out; }
 @keyframes flash { from{background:color-mix(in srgb, var(--ok-fg) 13%, transparent)} to{background:transparent} }
 @media (prefers-reduced-motion: reduce){ .tk.flash{ animation:none; } }
 .tk-detail { padding:.3rem 0 .35rem 3.8rem; }
@@ -47,7 +47,7 @@
 
 .hrs { display:flex; align-items:flex-end; gap:.2rem; height:120px; }
 .hr { flex:1; display:flex; flex-direction:column; align-items:center; height:100%; justify-content:flex-end; }
-.hr .bar { width:70%; min-height:2px; background:color-mix(in srgb, var(--text-main) 22%, transparent); border-radius:3px 3px 0 0; transition:height .4s; }
+.hr .bar { width:70%; min-height:2px; background:color-mix(in srgb, var(--text-main) 22%, transparent); border-radius:3px 3px 0 0; transition:height var(--dur-standard, 250ms); }
 .hr.peak .bar { background:var(--action); }
 .hr .hl { font-size:.58rem; color:var(--text-muted); margin-top:.15rem; }
 

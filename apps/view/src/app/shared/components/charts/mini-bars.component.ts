@@ -35,7 +35,7 @@ const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
     .mb-bar {
       flex:1; min-width:3px; border-radius: 3px 3px 0 0;
       transform-origin: bottom; transform: scaleY(0);
-      animation: mbGrow .5s var(--ease-out, cubic-bezier(.23,1,.32,1)) both;
+      animation: mbGrow var(--dur-max, 350ms) var(--ease-out, cubic-bezier(.23,1,.32,1)) both;
       transition: filter .12s ease, opacity .12s ease;
     }
     .mb:hover .mb-bar:not(.is-active) { opacity:.5; }
@@ -45,7 +45,7 @@ const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
       position:absolute; top:-4px; transform: translate(-50%, -100%);
       background: var(--c-text-1, var(--text-main)); color: var(--card-bg, #fff);
       font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-size: .6875rem; font-weight:700; padding: .1rem .4rem; border-radius:6px;
+      font-size: var(--fs-micro); font-weight:700; padding: .1rem .4rem; border-radius:6px;
       white-space:nowrap; pointer-events:none; z-index:2; box-shadow:0 2px 8px rgba(0,0,0,.18);
     }
     @media (prefers-reduced-motion: reduce) { .mb-bar { animation:none; transform: scaleY(1); } }

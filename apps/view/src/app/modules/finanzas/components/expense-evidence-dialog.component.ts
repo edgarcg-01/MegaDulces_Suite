@@ -154,7 +154,7 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
       min-height: max(1.75rem, var(--tap-min)); padding: 0; border: 0; background: none; font: inherit;
       font-size: var(--fs-xs); color: var(--action); cursor: pointer; }
     .ev-more:hover { text-decoration: underline; text-underline-offset: 2px; }
-    .ev-more:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .ev-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .ev-confirm { margin-right: auto; font-size: var(--fs-sm); color: var(--fg-2); }
     .ev-txt { width: 100%; font-size: var(--fs-sm); }
     .ev-pick { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--ok-fg); }

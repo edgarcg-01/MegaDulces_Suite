@@ -111,7 +111,7 @@ interface Opt { label: string; value: string; }
     .tm-pool { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; padding: .85rem 1rem; margin-bottom: 1rem;
       background: var(--card-bg, #fff); border: 1px solid var(--border-color, #E4E4E7); border-radius: var(--r-lg, 16px); }
     .tm-pool-col { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: .3rem; }
-    .tm-pool-col label { font-size: .75rem; font-weight: 600; color: var(--text-muted, #52525B); text-transform: uppercase; letter-spacing: .04em; }
+    .tm-pool-col label { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted, #52525B); text-transform: uppercase; letter-spacing: .04em; }
     :host ::ng-deep .tm-ms { width: 100%; }
     :host ::ng-deep .tm-gen-btn { white-space: nowrap; }
     .tm-empty { text-align: center; padding: 3rem 1rem; color: var(--text-muted, #52525B); }
@@ -129,7 +129,7 @@ interface Opt { label: string; value: string; }
     .tm-cell.sel { border-color: var(--action, #f05a28); box-shadow: 0 0 0 2px var(--action-ring, rgba(240,90,40,.3)); }
     .tm-cell.no-sup { border-left: 3px solid var(--warn-fg, #f59e0b); }
     .tm-cell-code { font-weight: 700; font-size: .9rem; color: var(--text-main, #09090B); }
-    .tm-sup { font-size: .75rem; display: inline-flex; align-items: center; gap: .3rem; color: var(--text-main, #09090B); font-weight: 600; }
+    .tm-sup { font-size: var(--fs-xs); display: inline-flex; align-items: center; gap: .3rem; color: var(--text-main, #09090B); font-weight: 600; }
     .tm-sup i { color: var(--action, #f05a28); }
     .tm-sup.none { color: var(--warn-soft-fg, #92400e); font-weight: 500; }
     .tm-sup.none i { color: var(--warn-fg, #f59e0b); }
@@ -141,19 +141,19 @@ interface Opt { label: string; value: string; }
     .tm-panel { width: 300px; flex-shrink: 0; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #E4E4E7); border-radius: var(--r-lg, 16px); padding: 1rem; position: sticky; top: 1rem; }
     .tm-panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; }
     .tm-panel-head h2 { font-size: 1.1rem; font-weight: 700; margin: 0; }
-    .tm-fld { display: block; font-size: .75rem; font-weight: 600; color: var(--text-muted, #52525B); text-transform: uppercase; letter-spacing: .04em; margin: .6rem 0 .25rem; }
+    .tm-fld { display: block; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted, #52525B); text-transform: uppercase; letter-spacing: .04em; margin: .6rem 0 .25rem; }
     :host ::ng-deep .tm-w-full { width: 100%; }
     .tm-apply { width: 100%; margin-top: 1rem; }
 
     /* En tablet/móvil la grilla posicional 2D no sirve: colapsa a auto-flow
        (las posiciones inline grid-col/row se anulan con !important). */
-    @media (max-width: 900px) {
+    @media (max-width: 56.25rem) {
       .tm-body { flex-direction: column; }
       .tm-panel { width: 100%; position: static; }
       .tm-grid { grid-template-columns: repeat(2, 1fr) !important; }
       .tm-cell { grid-column: auto !important; grid-row: auto !important; }
     }
-    @media (max-width: 560px) {
+    @media (max-width: 35rem) {
       .tm-grid { grid-template-columns: 1fr !important; }
     }
   `],

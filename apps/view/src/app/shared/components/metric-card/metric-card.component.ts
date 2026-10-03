@@ -76,7 +76,7 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
         <!-- PROGRESS -->
         @if (effVariant() === 'progress') {
           <div class="mc-progress">
-            <div class="mc-progress-track"><div class="mc-progress-fill" [style.width.%]="goalPct()"></div></div>
+            <div class="mc-progress-track"><div class="mc-progress-fill" [style.--fill]="goalPct() / 100"></div></div>
             <span class="mc-progress-meta">{{ goalText() }} · {{ goalPct() }}%</span>
           </div>
         }
@@ -112,9 +112,9 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
       background: var(--ok-fg); vertical-align:middle;
       box-shadow:0 0 0 0 color-mix(in srgb, var(--ok-fg) 55%, transparent); animation:mc-pulse 1.8s infinite; }
     @keyframes mc-pulse { 0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--ok-fg) 55%, transparent);} 70%{box-shadow:0 0 0 .4rem transparent;} 100%{box-shadow:0 0 0 0 transparent;} }
-    .mc.is-flash { animation: mc-flash 1s var(--ease-standard); }
+    .mc.is-flash { animation: mc-flash var(--dur-max, 350ms) var(--ease-standard); }
     @keyframes mc-flash { from{ background: color-mix(in srgb, var(--mc-accent, var(--action)) 12%, var(--card-bg)); } to{ background: var(--card-bg); } }
-    .mc.has-accent.is-flash { animation: mc-flash-accent 1s var(--ease-standard); }
+    .mc.has-accent.is-flash { animation: mc-flash-accent var(--dur-max, 350ms) var(--ease-standard); }
     @keyframes mc-flash-accent { from{ background: color-mix(in srgb, var(--mc-accent) 16%, var(--card-bg)); } to{ background: color-mix(in srgb, var(--mc-accent) 5%, var(--card-bg)); } }
     @media (prefers-reduced-motion: reduce) { .mc-live{ animation:none; } .mc.is-flash, .mc.has-accent.is-flash{ animation:none; } }
     .mc > * { position: relative; z-index: 1; }
@@ -178,7 +178,10 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
 
     .mc-progress { display:flex; flex-direction:column; gap:.4rem; margin-top:.5rem; }
     .mc-progress-track { height:8px; border-radius:999px; background: var(--c-surface-2, var(--neutral-100)); overflow:hidden; }
-    .mc-progress-fill { height:100%; border-radius:999px; background: var(--action); transition: width .6s var(--ease-out, cubic-bezier(.23,1,.32,1)); }
+    /* scaleX en vez de width: transform no dispara layout y entra en el techo de 350ms.
+       El radio lo pone el track (que ya recorta con overflow:hidden), asi que el casquete
+       no se deforma al escalar -- aca si se puede, a diferencia del bullet de MetricStrip. */
+    .mc-progress-fill { width:100%; height:100%; background: var(--action); transform: scaleX(var(--fill,0)); transform-origin: left center; transition: transform var(--dur-standard,250ms) var(--ease-out, cubic-bezier(.23,1,.32,1)); }
     .mc-progress-meta { font-size: var(--fs-xs, .75rem); color: var(--c-text-2, var(--text-muted)); font-variant-numeric: tabular-nums; }
 
     @media (prefers-reduced-motion: reduce) {

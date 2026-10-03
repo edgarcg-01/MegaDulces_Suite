@@ -178,7 +178,7 @@ import { AppErrorService, AppError } from './app-error.service';
     }
     .ae-toast-x:hover { color: var(--c-text-1); }
 
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .ae-toast { left: var(--sp-2); right: var(--sp-2); bottom: var(--sp-2); max-width: none; }
     }
   `],

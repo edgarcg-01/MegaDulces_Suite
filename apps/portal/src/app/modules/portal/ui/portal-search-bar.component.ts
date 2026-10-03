@@ -138,6 +138,7 @@ import { TypeHintDirective } from './type-hint.directive';
         color: var(--text-main);
         outline: none;
       }
+       .psb-input input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       /* iOS hace zoom al enfocar inputs <16px; en touch subimos a 16px. */
       @media (pointer: coarse) {
         .psb-input input { font-size: 16px; }

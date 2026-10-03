@@ -361,7 +361,7 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
     .an-movers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
     .an-movers li.clickable { cursor: pointer; border-radius: 8px; margin: 0 -.5rem; padding: .15rem .5rem; }
     .an-movers li.clickable:hover { background: var(--surface-hover, #f0ede8); }
-    .an-drill-i { font-size: .75rem; color: var(--text-muted); margin-right: .1rem; }
+    .an-drill-i { font-size: var(--fs-xs); color: var(--text-muted); margin-right: .1rem; }
     .an-movers li { display: grid; grid-template-columns: minmax(140px, 1.4fr) minmax(80px, 2fr) minmax(90px, auto) 62px; align-items: center; gap: .75rem; font-variant-numeric: tabular-nums; }
     .an-m-label { font-size: .9rem; display: flex; align-items: center; gap: .45rem; }
     .an-tag { font-size: .66rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; padding: .1rem .4rem; border-radius: 6px; }

@@ -76,7 +76,7 @@ import { BANCOS_STYLES } from './bancos.styles';
       padding: 2px var(--sp-2); cursor: pointer; margin-left: var(--sp-2); vertical-align: middle; }
     .fb-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
     .fb-xls:disabled { opacity: .6; cursor: default; }
-    .fb-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+    .fb-xls:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
     .fb-acct { font-weight: 500; }
     .fb-sticky-col { position: sticky; left: 0; background: var(--card-bg); z-index: 1; }

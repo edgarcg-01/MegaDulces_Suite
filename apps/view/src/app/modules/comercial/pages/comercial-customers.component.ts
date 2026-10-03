@@ -189,7 +189,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
               [rowsPerPageOptions]="[25, 50, 100, 200]"
               (onLazyLoad)="onLazyLoad($event)"
              
-              styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+              styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first"
               >
               <ng-template #header>
                 <tr>
@@ -408,6 +408,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
       padding: 0;
       height: 28px;
     }
+      .cu-search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .cu-search input::placeholder { color: var(--c-text-3); }
     .cu-search-clear {
       background: transparent;
@@ -496,7 +497,9 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
     }
     .cu-ratio-fill {
       height: 100%; border-radius: 999px; background: var(--action);
-      transition: width 500ms var(--ease-out, cubic-bezier(.23,1,.32,1));
+      /* [DS.1] duracion al techo de DESIGN.md. La propiedad sigue siendo width: convertirla
+         a scaleX pide tocar la plantilla, y queda declarado, no disimulado. */
+      transition: width var(--dur-standard, 250ms) var(--ease-out, cubic-bezier(.23,1,.32,1));
     }
     .cu-ratio-pct {
       font-family: var(--font-mono); font-variant-numeric: tabular-nums;

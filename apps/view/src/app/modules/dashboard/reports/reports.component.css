@@ -168,6 +168,7 @@
   outline: none !important;
   text-decoration: none !important;
 }
+ :host ::ng-deep .p-tab:focus-visible, :host ::ng-deep .p-tab.p-component:focus-visible, :host ::ng-deep .p-tab.p-ripple:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
 :host ::ng-deep .p-tab:hover,
 :host ::ng-deep .p-tab.p-component:hover,
@@ -249,7 +250,7 @@
   right: 0;
   background: linear-gradient(to left, var(--layout-bg) 0%, transparent 100%);
 }
-@media (min-width: 768px) {
+@media (min-width: 48rem) {
   /* En desktop no hace falta el hint visual: tabs caben sin scroll */
   .modern-tabs-wrapper::before,
   .modern-tabs-wrapper::after {

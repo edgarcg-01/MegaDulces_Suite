@@ -36,7 +36,7 @@ import { PwaService } from './pwa.service';
       border-radius: 999px;
       background: #09090B;
       color: #fff;
-      font-size: .875rem;
+      font-size: var(--fs-body);
       box-shadow: 0 8px 28px rgba(0,0,0,.32);
     }
     .pwa-update i.pi-sparkles { color: #FDE707; }
@@ -46,7 +46,7 @@ import { PwaService } from './pwa.service';
       border: 0;
       cursor: pointer;
       font-weight: 700;
-      font-size: .8125rem;
+      font-size: var(--fs-sm);
       color: #09090B;
       background: #FDE707;
       padding: .4rem .85rem;

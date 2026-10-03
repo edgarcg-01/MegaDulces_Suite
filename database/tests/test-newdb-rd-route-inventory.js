@@ -381,6 +381,201 @@ async function cuerposDeLaMigracion() {
         'las migraciones 20261003130000/140000 todavía no se aplicaron');
     }
 
+    // ── [RD.17-21] Los cuatro métodos nuevos, ejercidos CON SU SQL REAL ────────────────
+    // Mismo criterio que el detalle: una vista correcta no prueba que el consumidor esté bien
+    // cableado. Acá ya cazó dos: `round(double, int)` no existe en Postgres (percentile_cont
+    // devuelve double) y la mediana sin acotar costaba 518 ms contra un presupuesto de 500.
+    if (aplicada) {
+      const src = fs.readFileSync(SERVICIO, 'utf8');
+      const sqlDe = (m) => {
+        const i = src.indexOf(`async ${m}(`);
+        if (i < 0) return null;
+        const a = src.indexOf('`', i);
+        const b = src.indexOf('`', a + 1);
+        return a > 0 && b > a ? src.slice(a + 1, b) : null;
+      };
+      const ruta = cuadre[0] && cuadre[0].route_no;
+      const RANGO = ['2000-01-01', '2999-12-31'];
+
+      // (a) La serie: el acumulado tiene que ser el acumulado, no una columna suelta.
+      const serie = (await db.raw(sqlDe('routeSeries'), [tenant, ruta, ...RANGO, tenant, ruta, ...RANGO])).rows;
+      t('la SERIE del servicio corre contra prod', serie.length > 0, `${serie.length} días`);
+      const sumaNeta = serie.reduce((a, p) => a + (Number(p.cargado_qty) - Number(p.vendido_qty)), 0);
+      const ultimo = serie.length ? Number(serie[serie.length - 1].saldo_qty_acum) : 0;
+      t('el saldo acumulado del último día == la suma de todos los días',
+        Math.abs(sumaNeta - ultimo) < 0.01, `${sumaNeta.toFixed(2)} vs ${ultimo.toFixed(2)}`);
+      t('la serie está ordenada por día (el acumulado no significa nada si no lo está)',
+        serie.every((p, i) => i === 0 || p.fecha > serie[i - 1].fecha));
+
+      // ⭐ [RD.24] LA SERIE CONTRA EL RESUMEN — dos implementaciones distintas del mismo saldo.
+      //
+      // Esto no se podía preguntar antes: la serie llevaba el acumulado en UNIDADES y el resumen
+      // en pesos, así que no había con qué compararlos. Y mientras no se podía preguntar, la
+      // serie pintaba «Cargado» al COSTO junto a «Vendido» a PRECIO — la lectura A de
+      // VERDAD_ABSOLUTA §19 adentro de la pantalla que existe para denunciarla. Medido en la
+      // ruta 21: $3,820 cargado contra $17,227 vendido el 26-sep. No era sobreventa: eran dos
+      // monedas.
+      //
+      // El candado compara el ÚLTIMO acumulado de la serie contra el inventario del resumen, en
+      // las DOS valuaciones. Son dos SQL distintos sobre el mismo hecho; si divergen, alguien
+      // volvió a mezclar.
+      const fila = cuadre.find((x) => x.route_no === ruta) || {};
+      const ultSerie = serie[serie.length - 1] || {};
+      for (const [moneda, enSerie, enResumen] of [
+        ['costo', Number(ultSerie.saldo_costo_acum), Number(fila.inv_costo)],
+        ['venta', Number(ultSerie.saldo_venta_acum), Number(fila.inv_venta)],
+      ]) {
+        t(`⭐ el último día de la serie (${moneda}) == el inventario del resumen`,
+          Number.isFinite(enSerie) && Number.isFinite(enResumen)
+            && Math.abs(enSerie - enResumen) < 0.5,
+          `serie ${enSerie} vs resumen ${enResumen} — dos consultas, un solo hecho`);
+      }
+      // PRUEBA NEGATIVA de la mezcla: si las dos monedas dieran lo mismo, el conmutador de
+      // valuación no estaría haciendo nada y la pantalla mentiría en una de las dos.
+      t('PRUEBA NEGATIVA · las dos valuaciones NO dan lo mismo (si no, una de las dos está mal)',
+        Math.abs(Number(ultSerie.saldo_costo_acum) - Number(ultSerie.saldo_venta_acum)) > 1,
+        `costo ${ultSerie.saldo_costo_acum} vs venta ${ultSerie.saldo_venta_acum}`);
+
+      // (b) Los embarques: su suma TIENE que ser la carga que el ledger reporta. Dos caminos.
+      const emb = (await db.raw(sqlDe('routeShipments'), [tenant, ruta, ...RANGO])).rows;
+      t('los EMBARQUES del servicio corren contra prod', emb.length > 0, `${emb.length} documentos`);
+      // ⛔ SEGUNDA vez que caigo en esto en este mismo archivo: comparar la vista VIVA contra la
+      // matvista NO mide paridad, mide el REZAGO DEL REFRESCO. Medido acá: $1,051,575.76 contra
+      // $1,033,144.76, y la diferencia resultó ser exactamente el embarque de hoy ($18,431.00)
+      // que el refresco todavía no tomó. En periodo CERRADO las dos coinciden al centavo.
+      const [{ emb_cerrado, carga_ledger }] = (await db.raw(
+        `SELECT round(sum(l.importe),2)::float AS emb_cerrado,
+                (SELECT round(sum(costo_doc),2)::float FROM analytics.mv_rd_route_ledger
+                  WHERE tenant_id = ? AND route_no = ? AND clase = 'carga'
+                    AND business_date < date_trunc('month',(now() AT TIME ZONE 'America/Mexico_City')::date)
+                ) AS carga_ledger
+           FROM analytics.v_rd_route_shipment_lines l
+          WHERE l.tenant_id = ? AND l.route_no = ?
+            AND l.business_date < date_trunc('month',(now() AT TIME ZONE 'America/Mexico_City')::date)`,
+        [tenant, ruta, tenant, ruta])).rows;
+      t('en periodo CERRADO, Σ de los embarques == la carga del ledger (dos derivaciones)',
+        Math.abs(Number(emb_cerrado) - Number(carga_ledger)) < 0.5,
+        `${emb_cerrado} vs ${carga_ledger}`);
+      t('el periodo cerrado no está vacío (si no, la comparación sería vacua)',
+        Number(emb_cerrado) > 0);
+      const sumaEmb = emb.reduce((a, e) => a + Number(e.importe), 0);
+      t('la vista viva de embarques va por delante o igual que la copia (nunca por detrás)',
+        sumaEmb >= Number(carga_ledger) - 0.5,
+        'si la copia tuviera MÁS que la fuente viva, algo se duplicó');
+
+      // (c) Las líneas de un embarque: su suma == el total de ese documento.
+      const e0 = emb[0];
+      const lin = (await db.raw(sqlDe('routeShipmentLines'),
+        [tenant, ruta, e0.folio, e0.serie, e0.serie, tenant, ruta, tenant])).rows;
+      t('las LÍNEAS del embarque corren contra prod', lin.length > 0, `${lin.length} líneas`);
+      const sumaLin = lin.reduce((a, l) => a + Number(l.importe), 0);
+      t('Σ de las líneas == el importe del embarque',
+        Math.abs(sumaLin - Number(e0.importe)) < 0.5, `${sumaLin.toFixed(2)} vs ${e0.importe}`);
+      t('el detalle del embarque resuelve nombres de producto, no repite el SKU',
+        lin.some((l) => l.producto && l.producto !== l.sku));
+
+      // (d) Los rojos: las dos familias, y que `nunca_cargado` NO traiga cifra inventada.
+      const neg = (await db.raw(sqlDe('routeNegatives'),
+        [tenant, ruta, ...RANGO, tenant, 1000])).rows;
+      t('los ROJOS del servicio corren contra prod', neg.length > 0, `${neg.length} pares`);
+      t('todo rojo tiene saldo negativo (si no, no es un rojo)',
+        neg.every((n) => Number(n.saldo) < 0));
+      const flias = [...new Set(neg.map((n) => n.familia))];
+      t('las dos familias existen y no hay una tercera',
+        flias.every((f) => ['nunca_cargado', 'se_acabo'].includes(f)), flias.join(','));
+      const inventado = neg.filter((n) => n.familia === 'nunca_cargado' && n.valor_costo !== null);
+      t('«nunca se le cargó» NO publica un valor: sin carga no hay costo con qué valuarlo',
+        inventado.length === 0,
+        `${inventado.length} filas se inventaron una cifra — eso es dibujar un número (ADR-056)`);
+      const sinDesde = neg.filter((n) => !n.desde);
+      t('todo rojo dice DESDE CUÁNDO lo es', sinDesde.length === 0, `${sinDesde.length} sin fecha`);
+
+      // (e) El presupuesto, para los cuatro.
+      const presup = [
+        ['serie', sqlDe('routeSeries'), [tenant, ruta, ...RANGO, tenant, ruta, ...RANGO]],
+        ['embarques', sqlDe('routeShipments'), [tenant, ruta, ...RANGO]],
+        ['líneas', sqlDe('routeShipmentLines'),
+          [tenant, ruta, e0.folio, e0.serie, e0.serie, tenant, ruta, tenant]],
+        ['rojos', sqlDe('routeNegatives'), [tenant, ruta, ...RANGO, tenant, 1000]],
+      ];
+      for (const [nombre, sql, binds] of presup) {
+        await db.raw(sql, binds); // calentar: se mide el régimen, no el primer toque
+        const t0 = Date.now();
+        await db.raw(sql, binds);
+        const ms = Date.now() - t0;
+        t(`«${nombre}» cabe en 500 ms (${ms} ms)`, ms < 500,
+          'medido sobre la consulta REAL del servicio');
+      }
+    } else {
+      noMedido('los cuatro métodos nuevos', 'las vistas todavía no están aplicadas');
+    }
+
+    // ── [RD.22] El default de la pantalla: saldo actual, COGS del embarque, carga de ayer ─────
+    //
+    // Se ejerce el SQL REAL de `routeInventory`, no una consulta parecida. Lo que vigila:
+    // (1) «no cargó» viaja como NULL y NUNCA como 0 — colapsarlo diría que le mandamos el
+    // camión vacío; (2) el COGS sale del costo del EMBARQUE y no del contraste del ERP, que
+    // cubre un tercio del dinero y publicaría un margen del 79%; (3) la cobertura de ese
+    // contraste se mide EN DINERO, no en pares, porque por pares da más del doble.
+    if (aplicada) {
+      const src = fs.readFileSync(SERVICIO, 'utf8');
+      const i = src.indexOf('async routeInventory(');
+      const a = src.indexOf('`', i); const b = src.indexOf('`', a + 1);
+      const sqlInv = src.slice(a + 1, b);
+      const ayer = new Date(Date.now() - 6 * 3600 * 1000 - 24 * 3600 * 1000)
+        .toISOString().slice(0, 10);
+      const inv = (await db.raw(sqlInv, [tenant, '2000-01-01', '2999-12-31', ayer, ayer, tenant, tenant])).rows;
+      t('el DEFAULT de la pantalla corre contra prod', inv.length > 0, `${inv.length} rutas`);
+
+      // ⚠️ La comparación va ESTRICTA contra 0, no por `Number(...)`: `Number(null)` es 0, así
+      // que la versión obvia marca en rojo justo las filas que están bien. Es el mismo descuido
+      // que esta pantalla vigila en el dato — un ausente leyéndose como un cero — cometido acá
+      // dentro del test que lo vigila.
+      const ceros = inv.filter((r) => r.cargado_ayer_costo === 0);
+      t('«no cargó» NO se dibuja como $0: viaja NULL', ceros.length === 0,
+        `${ceros.length} rutas con un 0 que se leería como «le cargamos nada»`);
+      const conCarga = inv.filter((r) => r.cargado_ayer_costo !== null);
+      t('la columna distingue las dos cosas (hay rutas con carga y rutas sin ella)',
+        conCarga.length > 0 && conCarga.length < inv.length,
+        `${conCarga.length} de ${inv.length} cargaron el ${ayer}`);
+      t('toda ruta dice cuándo fue su última carga, haya cargado ayer o no',
+        inv.every((r) => r.ultima_carga), 'sin eso, «no cargó» no se puede interpretar');
+
+      // PRUEBA NEGATIVA: con una fecha sin un solo embarque, TODAS tienen que caer en NULL.
+      const vacio = (await db.raw(sqlInv,
+        [tenant, '2000-01-01', '2999-12-31', '1990-01-01', '1990-01-01', tenant, tenant])).rows;
+      t('PRUEBA NEGATIVA · un día sin embarques deja las 11 en NULL, no en 0',
+        vacio.every((r) => r.cargado_ayer_costo === null),
+        `${vacio.filter((r) => r.cargado_ayer_costo !== null).length} filas se inventaron una cifra`);
+
+      // El COGS publicado vs el contraste: tienen que ser distintos y el contraste, menor.
+      const sum = (k) => inv.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+      const cogs = sum('cogs_costo'); const ce = sum('cogs_erp');
+      const venta = sum('venta_cliente'); const sinCe = sum('venta_sin_cogs_erp');
+      t('el COGS publicado sale del EMBARQUE, no del contraste del ERP', cogs > ce * 2,
+        `embarque ${cogs.toFixed(2)} vs contraste ${ce.toFixed(2)}`);
+      const margen = venta > 0 ? (venta - cogs) / venta * 100 : 0;
+      t('el margen de ruta cae en una banda creíble (10% a 40%)', margen > 10 && margen < 40,
+        `${margen.toFixed(2)}% · con el contraste daría ${((venta - ce) / venta * 100).toFixed(2)}%`);
+
+      const cobDinero = venta > 0 ? (1 - sinCe / venta) * 100 : 0;
+      const paresV = inv.reduce((s, r) => s + (Number(r.pares_vendidos) || 0), 0);
+      const paresSin = inv.reduce((s, r) => s + (Number(r.pares_sin_cogs_erp) || 0), 0);
+      const cobPares = paresV > 0 ? (1 - paresSin / paresV) * 100 : 0;
+      t('la cobertura del contraste se declara EN DINERO, y es MENOR que la de pares',
+        cobDinero < cobPares,
+        `dinero ${cobDinero.toFixed(1)}% vs pares ${cobPares.toFixed(1)}% — publicar la de pares infla`);
+      t('la venta sin testigo de costo está declarada, no en cero', sinCe > 0,
+        `${sinCe.toFixed(2)} de ${venta.toFixed(2)}`);
+
+      const t0 = Date.now();
+      await db.raw(sqlInv, [tenant, '2000-01-01', '2999-12-31', ayer, ayer, tenant, tenant]);
+      const ms = Date.now() - t0;
+      t(`el default cabe en 500 ms (${ms} ms)`, ms < 500, 'es la consulta que ve todo el mundo');
+    } else {
+      noMedido('el default de la pantalla', 'las vistas todavía no están aplicadas');
+    }
+
     console.log('\n  — el cuadre, ruta por ruta —');
     console.table(cuadre.map((r) => ({
       ruta: r.route_no,

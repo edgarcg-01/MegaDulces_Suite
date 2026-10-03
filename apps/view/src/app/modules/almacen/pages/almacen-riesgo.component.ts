@@ -50,7 +50,7 @@ import { RiesgoService, RiskRow } from '../riesgo.service';
         </div>
       }
 
-      <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50,100,200]">
+      <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50,100,200]">
         <ng-template #header>
           <tr>
             <th scope="col">Nivel</th><th scope="col" class="num">Score</th><th scope="col">Producto</th><th scope="col">Almacén</th>

@@ -229,7 +229,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
     .sc-off { font-style: normal; font-size: var(--fs-xs); color: var(--warn-fg); }
     .sc-sp { flex: 1; }
     .sc-new { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .sc-page { padding: var(--sp-3); gap: var(--sp-3); }
       .sc-head p-button, .sc-head p-button ::ng-deep button { width: 100%; justify-content: center; }
       .sc-card { padding: var(--sp-3); }

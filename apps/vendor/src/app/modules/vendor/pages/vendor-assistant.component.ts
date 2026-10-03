@@ -97,6 +97,7 @@ const SUGGESTIONS = [
     .va-input { display: flex; gap: .5rem; padding: .6rem; border-top: 1px solid var(--c-border, #e6e1d8); background: var(--c-surface, #fff); align-items: center; }
     .va-input input { flex: 1; padding: .8rem 1rem; border: 1px solid var(--c-border, #e6e1d8); border-radius: 999px; font-size: 1rem; }
     .va-input input:focus { outline: none; border-color: var(--action, #2f6fed); }
+      .va-input input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .va-mic, .va-send { width: 46px; height: 46px; border: none; border-radius: 50%; flex: 0 0 auto; cursor: pointer; }
     .va-mic { background: var(--c-surface-2, #eee); color: #444; }
     .va-mic.on { background: #c0392b; color: #fff; animation: vapulse 1.2s infinite; }

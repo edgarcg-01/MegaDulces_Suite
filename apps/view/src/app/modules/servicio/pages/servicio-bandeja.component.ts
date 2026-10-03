@@ -119,7 +119,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
     .sb-chip { border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-pill);
       padding: 4px var(--sp-3); font-size: var(--fs-sm); cursor: pointer; }
     .sb-chip.on { border-color: var(--action); color: var(--text-main); background: var(--surface-selected-bg); }
-    .sb-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .sb-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .sb-pri { min-width: 180px; }
     .sb-search { position: relative; flex: 1 1 220px; max-width: 360px; margin-left: auto; }
     .sb-search i { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); font-size: var(--fs-xs); }
@@ -137,7 +137,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
     .sb-table tbody tr { cursor: pointer; }
     .sb-table tbody tr:hover { background: var(--surface-hover-bg); }
     .sb-table tbody tr.sel { background: var(--surface-selected-bg); }
-    .sb-table tbody tr:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .sb-table tbody tr:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .mono { font-family: var(--font-mono); font-size: var(--fs-xs); white-space: nowrap; }
     .tit { font-weight: 600; overflow-wrap: anywhere; }
     .tit small { display: block; font-weight: 400; color: var(--text-muted); font-size: var(--fs-xs); }
@@ -159,7 +159,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
     /* Con la ficha abierta la lista es un ÍNDICE, no la tabla completa: quedan folio, solicitud, prioridad, estado y plazo.
        (Medido a 1440 px: con las 8 columnas el título se partía en 6 renglones.) La ficha trae el resto. */
     .sb-body.has-detail .opc { display: none; }
-    @media (max-width: 1100px) {
+    @media (max-width: 68.75rem) {
       .sb-body.has-detail { grid-template-columns: 1fr; }
       .sb-body.has-detail .sb-list { display: none; }
       .sb-detail { position: static; max-height: none; }
@@ -167,7 +167,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
       /* La ficha REEMPLAZA a la lista, así que también a lo que la acompaña: KPIs y filtros dejaban la ficha bajo el pliegue. */
       .sb-page.con-ficha .sb-kpis, .sb-page.con-ficha .sb-chips, .sb-page.con-ficha .sb-head { display: none; }
     }
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .sb-page { padding: var(--sp-3); gap: var(--sp-3); }
       .sb-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .sb-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }

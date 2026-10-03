@@ -159,7 +159,7 @@ import { nextBusinessDay, nextBusinessDayIso, toLocalIso } from '../../../core/d
     `
       .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
       .page-title { margin: 0 0 0.2rem; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text-main); }
-      .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: 0.875rem; }
+      .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: var(--fs-body); }
       .refresh { flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); display: grid; place-items: center; cursor: pointer; transition: transform 0.08s var(--ease, ease); }
       .refresh:active { transform: scale(0.92); } .refresh:disabled { opacity: 0.6; }
       .refresh i { font-size: 0.9rem; }
@@ -183,7 +183,7 @@ import { nextBusinessDay, nextBusinessDayIso, toLocalIso } from '../../../core/d
       .nic.ai { background: var(--ember-grad); }
       .nic.ok { background: var(--ok-fg); }
       .nb { flex: 1; min-width: 0; }
-      .nt { display: block; font-weight: 700; font-size: 0.875rem; color: var(--text-main); }
+      .nt { display: block; font-weight: 700; font-size: var(--fs-body); color: var(--text-main); }
       .nd { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 1px; }
       .go { color: var(--text-faint); font-size: 0.85rem; flex-shrink: 0; }
       .ack { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); flex-shrink: 0; padding: 0.2rem 0.55rem; border: 1px solid var(--border-color); border-radius: 999px; }

@@ -315,7 +315,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
     .cls-off { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted, #78716c); }
     .cls-pin { background: color-mix(in srgb, var(--action, #FB923C) 15%, transparent); color: var(--action, #FB923C); }
     .fh-acts { display: flex; align-items: center; gap: .1rem; }
-    .fh-status { font-size: .75rem; font-weight: 600; }
+    .fh-status { font-size: var(--fs-xs); font-weight: 600; }
     .st-confirmado { color: var(--ok-fg, #16a34a); } .st-descartado { color: var(--text-muted, #a8a29e); } .st-corregido { color: var(--action, #FB923C); }
     .fh-suppressed { opacity: .55; }
     .fh-ev { background: var(--surface-hover-bg, #fafaf9); padding: .8rem 1.2rem; }

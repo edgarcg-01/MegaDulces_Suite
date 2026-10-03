@@ -594,6 +594,7 @@ const STALE_DAYS = 14;
       font-size: var(--fs-sm);
       color: var(--c-text-1);
     }
+      .pl-search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .pl-search input::placeholder { color: var(--c-text-3); }
     .pl-search-x {
       background: transparent;
@@ -674,7 +675,7 @@ const STALE_DAYS = 14;
     .pl-upper { text-transform: uppercase; }
 
     /* ── Móvil: el índice pasa a ser una tira horizontal sobre la tabla. ── */
-    @media (max-width: 900px) {
+    @media (max-width: 56.25rem) {
       .pl-grid { grid-template-columns: minmax(0, 1fr); }
       .pl-aside {
         position: static;

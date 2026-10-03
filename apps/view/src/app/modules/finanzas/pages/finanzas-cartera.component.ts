@@ -558,7 +558,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
     .ct-det-table th, .ct-det-table td { padding: .4rem .6rem; text-align: left; border-bottom: 1px solid var(--surface-border, #eee); white-space: nowrap; }
     .ct-det-table th { color: var(--text-2, #6b6b6b); font-weight: 600; }
     .ct-mono { font-family: ui-monospace, monospace; font-size: .78rem; }
-    .ct-tag-venc { background: rgba(180,35,24,.1); color: #b42318; border-radius: 4px; padding: .1rem .4rem; font-size: .75rem; font-weight: 600; }
+    .ct-tag-venc { background: rgba(180,35,24,.1); color: #b42318; border-radius: 4px; padding: .1rem .4rem; font-size: var(--fs-xs); font-weight: 600; }
     .ct-app td { border-bottom: none; padding-top: .1rem; padding-bottom: .1rem; }
     .ct-app-cell { padding-left: 1.6rem !important; font-size: .78rem; color: #6b8f71; }
     .ct-app-cell i { font-size: .7rem; opacity: .6; }
@@ -573,7 +573,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
     .ct-rs-num { font-size: 1.4rem; font-weight: 700; line-height: 1.1; }
     .ct-rs-lbl { font-size: .76rem; color: var(--text-2, #8a8a8a); }
     .ct-rs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-    @media (max-width: 720px) { .ct-rs-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 45rem) { .ct-rs-grid { grid-template-columns: 1fr; } }
     .ct-rs-h4 { font-size: .82rem; margin: 0 0 .4rem; color: var(--text-2, #6b6b6b); }
     .ct-rs-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
     .ct-rs-table th, .ct-rs-table td { padding: .3rem .5rem; border-bottom: 1px solid var(--surface-border, #eee); text-align: left; }
@@ -613,7 +613,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
     .ct-det-state { display: flex; align-items: center; gap: .6rem; padding: 1.2rem .2rem; font-size: .85rem; color: var(--text-2, #6b6b6b); }
     .ct-det-err { color: var(--danger, #b42318); }
     .ct-row-pagada td { opacity: .6; }
-    .ct-tag-pag { background: rgba(107,143,113,.14); color: #4f6b54; border-radius: 4px; padding: .1rem .4rem; font-size: .75rem; font-weight: 600; white-space: nowrap; }
+    .ct-tag-pag { background: rgba(107,143,113,.14); color: #4f6b54; border-radius: 4px; padding: .1rem .4rem; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
     .ct-link-btn { background: none; border: 0; padding: 0; font: inherit; font-size: .82rem; color: var(--action, #c2410c); cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
     .ct-link-btn:hover { text-decoration: underline; }
     .ct-nodoc { font-size: .7rem; opacity: .45; }

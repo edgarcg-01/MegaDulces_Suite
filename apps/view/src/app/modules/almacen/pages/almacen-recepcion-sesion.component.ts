@@ -144,7 +144,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
         </div>
       }
 
-      <p-table [value]="lines()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="flex">
+      <p-table [value]="lines()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="flex">
         <ng-template #header>
           <tr>
             <th scope="col">SKU</th><th scope="col">Producto</th>
@@ -319,7 +319,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
       gap: .5rem .75rem; align-items: end; }
     .rsd-scan-grid > button { justify-self: start; }
     .rsd-f { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
-    .rsd-f > span { font-size: .75rem; color: var(--text-muted); font-weight: 600; }
+    .rsd-f > span { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 600; }
     .rsd-code { font-size: 1.05rem; }
     .rsd-qty { width: 100%; }
     /* El autocomplete trae min-width propio: acá lo dejamos ceder a la columna. */
@@ -327,9 +327,9 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
     :host ::ng-deep .rsd-f .ps-ac,
     :host ::ng-deep .rsd-f .ps-ac .p-autocomplete-input { min-width: 0; width: 100%; }
     .rsd-add-sep { display: flex; align-items: center; gap: .5rem; margin: .875rem 0 .625rem;
-      font-size: .75rem; color: var(--text-muted); }
+      font-size: var(--fs-xs); color: var(--text-muted); }
     .rsd-add-sep::after { content: ''; flex: 1; height: 1px; background: var(--surface-border); }
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .rsd-scan-grid { grid-template-columns: 1fr 7.5rem; }
       .rsd-scan-grid > button { grid-column: 1 / -1; }
     }
@@ -358,7 +358,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
     .rsd-vale-code { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-muted); margin-left: .3rem; }
     .rsd-vale-serv { display: flex; align-items: center; gap: .4rem; margin: .7rem 0 0; font-size: .76rem; color: var(--text-muted); }
     .rsd-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-    @media (max-width: 900px) { .rsd-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 56.25rem) { .rsd-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     .rsd-hold-banner { display: flex; align-items: center; gap: .55rem; margin: 0 0 1rem; padding: .6rem .8rem;
       border: 1px solid var(--bad-border, #fecaca); border-radius: 10px; background: var(--bad-soft-bg, #fef2f2);
       font-size: .84rem; color: var(--text-main); }

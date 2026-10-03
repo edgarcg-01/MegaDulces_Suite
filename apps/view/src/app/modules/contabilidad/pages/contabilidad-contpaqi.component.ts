@@ -257,7 +257,7 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
     .cp-seg button { display: inline-flex; align-items: center; gap: var(--sp-1); background: none; border: none; border-radius: var(--r-pill); color: var(--text-muted); font: inherit; font-size: var(--fs-sm); font-weight: 500; padding: var(--sp-1) var(--sp-3); cursor: pointer; white-space: nowrap; transition: background-color 200ms ease, color 200ms ease; }
     .cp-seg button:not(.active):hover { color: var(--text-main); }
     .cp-seg button.active { color: var(--action); background: var(--card-bg); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
-    .cp-seg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+    .cp-seg button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
     .cp-verdict { display: flex; align-items: flex-start; gap: var(--sp-3); margin-bottom: var(--sp-3); border-left: 3px solid var(--border-color); }
     .cp-verdict.bad { border-left-color: var(--bad-fg); }
     .cp-verdict > i { font-size: 1.4rem; color: var(--text-faint); margin-top: 2px; }

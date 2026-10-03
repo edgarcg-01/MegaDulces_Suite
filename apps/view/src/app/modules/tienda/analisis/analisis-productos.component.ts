@@ -201,7 +201,7 @@ import { AnalisisCascadaComponent } from './analisis-cascada.component';
       .pr-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .8rem; }
       .pr-head-acciones { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
       .pr-title { margin: 0; font-size: .85rem; font-weight: 700; }
-      .pr-sub { margin: .2rem 0 0; font-size: .75rem; color: var(--text-muted); max-width: 66ch; }
+      .pr-sub { margin: .2rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); max-width: 66ch; }
       .pr-search input { min-width: 15rem; }
       .pr-table { font-variant-numeric: tabular-nums; }
       /* La fila del maestro es un control: tiene que verse que se puede elegir, y la

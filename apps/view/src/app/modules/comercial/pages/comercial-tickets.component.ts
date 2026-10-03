@@ -336,7 +336,7 @@ const MAX_DIAS_BANDEJA = 31;
   `,
   styles: [`
     .surf-page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-    .tk-reporte { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600;
+    .tk-reporte { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-sm); font-weight: 600;
       padding: 9px 14px; border: 1px solid var(--border-color); border-radius: var(--radius-sm);
       background: var(--card-bg); color: var(--text); text-decoration: none; white-space: nowrap; }
     .tk-reporte:hover { background: var(--overlay-hover); }
@@ -368,11 +368,11 @@ const MAX_DIAS_BANDEJA = 31;
     /* La bandeja puede traer cientos: scroll propio, la página no crece sin fin. */
     .tk-cands { max-height:calc(100vh - 20rem); min-height:12rem; overflow-y:auto; padding-right:.15rem }
     .tk-split { display:grid; grid-template-columns:minmax(230px,300px) 1fr; gap:1rem; margin-top:1rem; align-items:start }
-    @media (max-width:900px) { .tk-split { grid-template-columns:1fr } }
+    @media (max-width:56.25rem) { .tk-split { grid-template-columns:1fr } }
     .tk-lista-head { display:flex; justify-content:space-between; gap:.5rem; font-size:.78rem;
       color:var(--text-muted,#78716c); font-weight:600; margin-bottom:.35rem }
     .tk-trunc { color:var(--action,#c2410c) }
-    .tk-aviso { display:flex; gap:.4rem; font-size:.75rem; line-height:1.3; margin:0 0 .5rem;
+    .tk-aviso { display:flex; gap:.4rem; font-size:var(--fs-xs); line-height:1.3; margin:0 0 .5rem;
       padding:.4rem .55rem; border:1px solid #d6b45a; background:#fdf6e3; color:#5c4803; border-radius:var(--radius-sm,4px) }
     .tk-cands { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.35rem }
     .tk-cand { width:100%; display:flex; flex-direction:column; gap:.15rem; text-align:left; cursor:pointer;

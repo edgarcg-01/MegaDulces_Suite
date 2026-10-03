@@ -92,6 +92,7 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
       outline: none; border-color: var(--action);
       box-shadow: 0 0 0 3px var(--action-ring);
     }
+     .sf-in:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .sf-in::placeholder { color: var(--text-faint); font-weight: var(--fw-regular); }
     /* La clase icon-btn va a propósito: es el selector que ya aplica --tap-min
        en styles.css. Renombrarla rompe el tamaño táctil sin que se note. */

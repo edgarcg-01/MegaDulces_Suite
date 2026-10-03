@@ -274,7 +274,7 @@ const BUCKET_LABEL: Record<string, string> = {
     .ab-b-sobrestock { background: var(--blue-100, #e3f0ff); color: var(--blue-700, #0b5fb0); }
 
     .ab-c-acc { white-space: nowrap; }
-    .ab-ac { display: inline-block; padding: .12rem .5rem; border-radius: 6px; font-size: .75rem; font-weight: 600; }
+    .ab-ac { display: inline-block; padding: .12rem .5rem; border-radius: 6px; font-size: var(--fs-xs); font-weight: 600; }
     .ab-ac-traspaso { background: var(--green-100, #e3f7e8); color: var(--green-700, #1d7a3a); }
     .ab-ac-parcial { background: var(--teal-100, #ddf3f1); color: var(--teal-700, #0f6f68); }
     .ab-ac-comprar { background: var(--orange-100, #fef0e0); color: var(--orange-700, #a65300); }
@@ -287,7 +287,7 @@ const BUCKET_LABEL: Record<string, string> = {
        mouse: sin esa pista el tooltip existe y nadie lo encuentra. */
     .ab-c-org { max-width: 13rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ab-c-cua { white-space: nowrap; font-variant-numeric: tabular-nums; }
-    .ab-org { display: inline-block; padding: .12rem .45rem; border-radius: 6px; font-size: .75rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .ab-org { display: inline-block; padding: .12rem .45rem; border-radius: 6px; font-size: var(--fs-xs); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
     .ab-o-transfer { background: var(--green-100, #e3f7e8); color: var(--green-700, #1d7a3a); font-weight: 600; }
     .ab-o-buy { background: var(--surface-100); color: var(--text-main); }
     /* Sin ruta configurada NO es compra: se ve distinto a propósito (ADR-056). */
@@ -296,7 +296,7 @@ const BUCKET_LABEL: Record<string, string> = {
 
     .ab-foot { margin: 0; font-size: .78rem; color: var(--text-muted); }
 
-    @media (max-width: 900px) {
+    @media (max-width: 56.25rem) {
       .ab-filters ::ng-deep .ab-f, .ab-search { min-width: 100%; }
     }
   `],

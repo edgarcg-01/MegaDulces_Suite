@@ -64,7 +64,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       </div>
     
       <p-table [value]="tickets()" [loading]="loading()"
-        styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+        styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first"
         [paginator]="tickets().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
         <ng-template #header>
           <tr>
@@ -114,7 +114,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       .filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
       .filters input[type=date] { padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-main); }
       .rt-bento { margin-bottom: 1rem; }
-      .ticket-link { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; font-size: 0.8125rem; color: var(--action); text-decoration: none; }
+      .ticket-link { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; font-size: var(--fs-sm); color: var(--action); text-decoration: none; }
       .ticket-link:hover { text-decoration: underline; }
       .ticket-link i { font-size: 0.85rem; }
       .ticket-none { color: var(--text-faint); }

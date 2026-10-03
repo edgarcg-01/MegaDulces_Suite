@@ -193,7 +193,7 @@ import { AuthStageComponent } from '../ui/auth-stage.component';
         background: var(--surface-ground);
         color: var(--text-main);
       }
-      @media (min-width: 960px) {
+      @media (min-width: 60rem) {
         .pl-wrap { grid-template-columns: 1.05fr 1fr; }
       }
 
@@ -210,7 +210,7 @@ import { AuthStageComponent } from '../ui/auth-stage.component';
         align-items: center;
         justify-content: center;
       }
-      @media (min-width: 960px) {
+      @media (min-width: 60rem) {
         .pl-hero { display: flex; }
       }
 
@@ -320,7 +320,7 @@ import { AuthStageComponent } from '../ui/auth-stage.component';
           radial-gradient(72% 40% at 100% 0%, rgba(248, 180, 0, 0.10) 0%, transparent 60%),
           var(--surface-ground);
       }
-      @media (min-width: 960px) {
+      @media (min-width: 60rem) {
         /* Desktop: el hero lleva la marca; el form vuelve a card centrada. */
         .pl-form-side {
           justify-content: center;
@@ -347,7 +347,7 @@ import { AuthStageComponent } from '../ui/auth-stage.component';
         padding: 6px;
         margin-bottom: 1rem;
       }
-      @media (min-width: 960px) {
+      @media (min-width: 60rem) {
         /* En desktop, el hero ya muestra el logo grande — el del form es redundante */
         .pl-form-logo { display: none; }
       }
@@ -374,7 +374,7 @@ import { AuthStageComponent } from '../ui/auth-stage.component';
         margin: -2px 0 0;
         overflow: visible;
       }
-      @media (min-width: 960px) {
+      @media (min-width: 60rem) {
         .pl-underline { display: none; }
       }
 
@@ -385,7 +385,7 @@ import { AuthStageComponent } from '../ui/auth-stage.component';
         min-height: 220px;
         margin: -0.5rem 0 0.25rem;
       }
-      @media (min-width: 960px) {
+      @media (min-width: 60rem) {
         .pl-stage { display: none; }
       }
 
@@ -413,7 +413,7 @@ import { AuthStageComponent } from '../ui/auth-stage.component';
         letter-spacing: -0.01em;
         color: var(--text-main);
       }
-      @media (min-width: 960px) {
+      @media (min-width: 60rem) {
         .pl-display { display: none; }
         .pl-form-eyebrow { display: inline-block; }
         .pl-form-title { display: block; }

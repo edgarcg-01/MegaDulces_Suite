@@ -3,7 +3,48 @@
 > **Qué es:** cómo los mejores dashboards hacen las KPI cards **dinámicas, gráficas y con movimiento** sin caer en AI-slop, filtrado a nuestro thesis **Calm UI / "esto es serio"** de Operations.
 > **Para qué:** subir el apartado de cards (Command Center y similares) a nivel clase mundial con movimiento **sobrio y con sentido**.
 > **Relación:** [`DESIGN.md`](../DESIGN.md) manda (las reglas BINDING están allá, sección "Motion de KPI cards"). Este doc = el *por qué* + números + fuentes. Complementa [`DESIGN_BENCHMARK_CRM_INVENTORY.md`](DESIGN_BENCHMARK_CRM_INVENTORY.md) y [`DESIGN_TENDENCIAS_2026.md`](DESIGN_TENDENCIAS_2026.md).
-> **Fecha:** 2026-06-16. Fuentes load-bearing: Emil Kowalski, Smashing (real-time dashboards 2025), Linear, web.dev, CountUp.js.
+> **Fecha:** 2026-06-16. **Auditado y revalidado: 2026-10-03.** Fuentes load-bearing: Emil Kowalski, Smashing (real-time dashboards 2025), Linear, web.dev, CountUp.js.
+
+---
+
+> ## ✅ Revalidación 2026-10-03 — el contenido aguantó; el código no lo estaba cumpliendo
+>
+> **Este documento NO caducó.** A diferencia de [`DESIGN_TENDENCIAS_2026.md`](DESIGN_TENDENCIAS_2026.md),
+> que afirmaba ✅ sobre cinco decisiones ya revertidas, acá todo lo que dice sigue siendo el estándar en
+> octubre: count-up on-view una sola vez, SVG crudo para micro-viz, delta multimodal, techo de motion,
+> la lista anti-slop. No hubo nada que corregir en la teoría.
+>
+> **Lo que sí estaba roto era el cumplimiento, y en el peor lugar posible — el arquetipo canónico:**
+>
+> | Regla | Qué hacía el código | Estado |
+> |---|---|---|
+> | **§7 presupuesto** (`<300ms`, sólo `transform`+`opacity`) | `MetricStrip` animaba **`transition: width 900ms`** ×2 — 3× el presupuesto de este doc y sobre una propiedad de **layout**, en **81 pantallas**. Llevaba **tres semanas** escrito como ⛔ en `DESIGN.md` | ✅ **Arreglado.** El bullet usa `transform: scaleX()`; la barra de composición no se pudo (hermanos flex de una fila) y **queda declarada con su razón** |
+> | **§5 flash-on-change** (*"se desvanece en ~400ms"*) | `MetricCard` lo hacía en **1s** y el POS en **1.2s** — 2.5× y 3× lo que pide este mismo documento | ✅ **Arreglado**, al techo |
+> | **§2 micro-charts** | `sparkline` dibujaba en **800ms**, `ring-gauge` en **700ms** | ✅ **Arreglado**, al techo |
+> | **§8 techo** | Medido antes: **40+ declaraciones** por encima en Operations | ✅ **0**, y ahora lo mide `npm run check:motion` en CI |
+>
+> ⭐ **La lección:** este documento estaba bien escrito, enlazado desde el pre-vuelo y citado como BINDING
+> en `DESIGN.md` — y aun así el componente que más lo cita era el que peor lo cumplía. **Un documento no
+> hace cumplir nada.** Lo que cambió el resultado fue una compuerta de 200 líneas.
+>
+> ### Dos huecos del propio documento (abiertos)
+>
+> - **`aria-live` para dato vivo.** §1 cubre la a11y del count-up (*"el valor final va en el DOM"*) pero
+>   **nada dice del valor que cambia solo** en una card alimentada por WebSocket: un lector de pantalla
+>   no se entera. [`FASE_J17`](IMPLEMENTACION/FASES/FASE_J17_CARD_SYSTEM_2.0.md) lo detectó
+>   (*"`aria-live="polite"` en el nodo del valor que cambia — hoy ausente"*) y sigue sin implementarse.
+> - **El count-up en Alto Contraste.** §1 resuelve `prefers-reduced-motion` y no menciona
+>   `forced-colors`. La base ya está en [`forced-colors.css`](../libs/ui-web/src/forced-colors.css), pero
+>   falta decir acá qué pasa con el flash cuando el SO fuerza los colores: **el flash de color no se ve**,
+>   así que la señal de "esto cambió" tiene que ser otra cosa.
+>
+> ### Estado del plan de evolución
+>
+> ⚠️ **[`FASE_J17` (Card System 2.0) lleva ~3 meses en "🔨 DISEÑADO, sin código"** (2026-07-10), y
+> [`J16`](IMPLEMENTACION/FASES/FASE_J16_CARD_REPERTOIRE.md) especifica **14 arquetipos de los que sólo
+> existe el grupo A** (KPI). Medido hoy: `odometer` aparece en 4 archivos, `bullet` en 2, `heat-strip`
+> en 0. Por ADR-056, **o se ejecuta o se declara deuda con nombre en el tracker** — listarlo como "la
+> evolución que viene" durante tres meses es la tercera opción, que es la que no vale.
 
 ---
 

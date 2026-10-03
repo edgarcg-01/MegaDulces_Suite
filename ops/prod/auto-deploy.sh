@@ -704,7 +704,35 @@ revertir() {
   # pod: el Deployment pide una imagen por COMMIT. `rollout undo` lo devuelve al ReplicaSet
   # anterior, cuya imagen sigue en containerd. Sin esto, "revertido." sería mentira para la
   # mitad del despliegue — y mentir en el camino de reversión es peor que no tenerlo.
-  for s in $_s_k3s_tocados; do
+  # ⛔ [K3S.43] QUÉ SE REVIERTE SE **DERIVA**, NO SE ENUMERA.
+  # `$_s_k3s_tocados` sale de `$SERVICIOS`, que es lo que se CONSTRUYÓ. Pero
+  # `aplicar-k3s-prod.sh` le pone `:$COMMIT` a los NUEVE manifiestos de prod. Medido el
+  # 2026-10-02 tras el despliegue fallido de `5e392b9`: `api worker portal vendor` volvieron a
+  # `11562e4` y **`caddy` y `pg-prod` se quedaron en `5e392b9`** — con el log diciendo
+  # `revertido.`. Una lista a mano se vuelve a desactualizar con el próximo servicio.
+  #
+  # La foto que deja `aplicar-k3s-prod.sh` dice en qué revisión estaba cada deployment ANTES.
+  # Se deshacen los que SUBIERON de revisión: eso es exactamente "los que este despliegue
+  # cambió". Un `apply` que no cambió nada no crea revisión, y revertirlo lo mandaría a un
+  # estado anterior al que tenía — por eso no alcanza con "los que aplicamos".
+  _FOTO="$HOME/ops/prod/.k3s-revisiones-previas"
+  _k3s_revertir=''
+  if [ -s "$_FOTO" ]; then
+    while IFS='=' read -r _d _rev_antes; do
+      [ -n "$_d" ] || continue
+      _rev_ahora=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl get deploy "$_d" -n prod \
+        -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}' 2>/dev/null)
+      [ -n "$_rev_ahora" ] || continue
+      [ "$_rev_ahora" -gt "$_rev_antes" ] 2>/dev/null && _k3s_revertir="$_k3s_revertir $_d"
+    done < "$_FOTO"
+    di "  a revertir en K3s (por revisión):${_k3s_revertir:- ninguno}"
+  else
+    # ⚠️ Se DECLARA la degradación. Sin foto no se puede saber qué cambió, así que se cae a la
+    #    lista vieja —que es incompleta— en vez de no revertir nada.
+    _k3s_revertir="$_s_k3s_tocados"
+    di "  ⚠️ sin foto de revisiones: revierto sólo los construidos (puede quedar algo sin revertir)"
+  fi
+  for s in $_k3s_revertir; do
     if KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl rollout undo "deploy/$s" -n prod >/dev/null 2>&1; then
       di "  $s (K3s) → rollout undo"
     else
@@ -754,7 +782,41 @@ fi
 #
 # ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
 _KC=/etc/rancher/k3s/k3s.yaml
-for _p in $(KUBECONFIG=$_KC k3s kubectl get pods -n prod -l app=api \
+# ⛔ [K3S.47] SE LE PREGUNTA SÓLO A LOS PODS DEL ReplicaSet ACTUAL, no a todo `app=api`.
+#
+# `[K3S.31]` saltea los que están en Terminating. Pero entre "sirviendo" y "Terminating" hay un
+# estado intermedio que no tiene `deletionTimestamp` todavía: el pod viejo que K3s aún no empezó
+# a matar porque el nuevo recién pasó a Ready. Ese pod está VIVO, acepta `exec` y responde — con
+# el commit ANTERIOR.
+#
+# ⭐ MEDIDO el 2026-10-03 desplegando `fdde53f`: `aplicar-k3s-prod.sh` imprimió «✓ todos los
+# deployments al día» a las 10:02:49 y UN SEGUNDO después este bucle dijo «el pod
+# api-6847fccdd5-z9q5d sirve 'cd8ff3d'» y revirtió un despliegue que estaba bien. Confirmado a
+# mano: un `rollout status` sobre el mismo deployment todavía imprimía dos veces «1 old replicas
+# are pending termination» ANTES de dar por terminado el rollout.
+#
+# ⚠️ El arreglo NO es esperar más acá ni cambiar la espera del otro guion por `rollout status`:
+# eso ya se evaluó y se rechazó con medición (ver `aplicar-k3s-prod.sh` §"La espera") porque son
+# hasta 15 min colgado bajo `flock -n` si la imagen no está, y un despliegue trabado deja a
+# producción sin carril. La pregunta estaba mal formulada: no es "¿quién está vivo?" sino
+# "¿quién pertenece a la versión que acabo de desplegar?".
+#
+# `pod-template-hash` lo contesta exacto. Y NO debilita el candado: `[VL.15.D2]` existe porque
+# hubo **ocho horas sirviendo dos versiones a la vez**, y eso era entre réplicas del MISMO
+# ReplicaSet — que es justo lo que este bucle sigue recorriendo una por una.
+#
+# ⚠️ Si no se puede resolver el hash, se cae a la lista completa: perder cobertura en silencio
+# sería peor que un falso positivo (ADR-056). El estado intermedio dura segundos; la ceguera, no.
+_rs_api=$(KUBECONFIG=$_KC k3s kubectl get rs -n prod -l app=api \
+            --sort-by=.metadata.creationTimestamp \
+            -o jsonpath='{.items[-1:].metadata.labels.pod-template-hash}' 2>/dev/null)
+if [ -n "$_rs_api" ]; then
+  _sel="app=api,pod-template-hash=$_rs_api"
+else
+  di "aviso: no se pudo resolver el ReplicaSet actual de api — se pregunta a TODOS los pods"
+  _sel="app=api"
+fi
+for _p in $(KUBECONFIG=$_KC k3s kubectl get pods -n prod -l "$_sel" \
               -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
   # ⛔ [K3S.31] SE SALTEAN LOS QUE SE ESTÁN MURIENDO. La primera versión de este bucle
   # preguntaba a TODOS los pods con la etiqueta `app=api`, y durante un rollout esa lista

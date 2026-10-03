@@ -397,11 +397,11 @@ import {
     .mm-sub:hover { background: var(--surface-hover); }
     .mm-sub-p { padding-left: var(--sp-4); font-size: var(--fs-xs); color: var(--fg-2); }
 
-    @media (max-width: 1100px) {
+    @media (max-width: 68.75rem) {
       .mm-flu { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .mm-row2 { grid-template-columns: 1fr; }
     }
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .mm-flu { grid-template-columns: 1fr; }
       .mm-saldo-b { flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
       .mm-saldo-sep { display: none; }
@@ -427,7 +427,7 @@ import {
     .mm-acc-row.is-sel { background: var(--surface-hover); }
     .mm-acc-row.is-mute { cursor: default; opacity: .74; }
     .mm-acc-row:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
-    @media (max-width: 860px) {
+    @media (max-width: 53.75rem) {
       .mm-acc-row { grid-template-columns: minmax(0, 1fr) 6rem 6rem; }
       .mm-acc-row .mm-bar, .mm-acc-row .mm-acc-note { display: none; }
     }
@@ -474,7 +474,7 @@ import {
       display: flex; flex-direction: column; gap: var(--sp-2);
     }
     .mm-huecos li { display: grid; grid-template-columns: 3rem 12rem minmax(0, 1fr); gap: var(--sp-2); }
-    @media (max-width: 760px) { .mm-huecos li { grid-template-columns: 3rem minmax(0, 1fr); } }
+    @media (max-width: 47.5rem) { .mm-huecos li { grid-template-columns: 3rem minmax(0, 1fr); } }
     .mm-h-k { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-3); }
     .mm-h-n { font-size: var(--fs-xs); color: var(--fg-1); }
     .mm-h-m { font-size: var(--fs-xs); color: var(--fg-3); line-height: 1.5; }
@@ -482,7 +482,7 @@ import {
     /* ══ Maestro-detalle por CSS, sin drawer. ═══════════════════════════════════════════ */
     .mm-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
     .mm-split.has-det { grid-template-columns: minmax(0, 1fr) 27rem; }
-    @media (max-width: 1150px) { .mm-split.has-det { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 71.875rem) { .mm-split.has-det { grid-template-columns: minmax(0, 1fr); } }
     .mm-main { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
 
     .mm-h2-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }

@@ -231,7 +231,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
     .dx-search { min-width: 14rem; }
     .dx-count { color: var(--text-muted); font-size: .82rem; margin-left: auto; }
     .dx-grid { display: grid; grid-template-columns: 1fr 15rem; gap: .9rem; align-items: start; }
-    @media (max-width: 900px) { .dx-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 56.25rem) { .dx-grid { grid-template-columns: 1fr; } }
     .dx-table { font-size: .82rem; }
     .dx-r { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .dx-w-date { width: 5.5rem; } .dx-w-doc { width: 6rem; } .dx-w-cat { width: 9rem; } .dx-w-amt { width: 7rem; } .dx-w-x { width: 4rem; } .dx-w-per { width: 11rem; } .dx-w-canal { width: 6rem; } .dx-w-pct { width: 6rem; }
@@ -266,7 +266,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
     /* filas navegables a su arreglo (Q.4): clic → tab + filtro por proveedor */
     tr.dx-clickable { cursor: pointer; }
     tr.dx-clickable:hover td { background: var(--hover-bg); }
-    tr.dx-clickable:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    tr.dx-clickable:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .dx-drillhint { font-size: .72rem; color: var(--text-faint); margin-left: .35rem; }
   `],
 })
