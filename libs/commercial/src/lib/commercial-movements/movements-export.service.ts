@@ -438,7 +438,7 @@ export class MovementsExportService {
       .cols { display: flex; gap: 14px; } .cols > div { flex: 1; }
       .empty { color: #837A6C; font-style: italic; padding: 10px 6px; }
       .sucband { margin: 16px 0 4px; padding: 6px 9px; background: #1A1611; color: #FFF; border-radius: 4px; display: flex; justify-content: space-between; align-items: baseline; }
-      .sucband h2 { font-size: var(--fs-xs); margin: 0; color: #FFF; } .sucband .n { font-size: 9px; color: #D8CFC0; }`;
+      .sucband h2 { font-size: 12px; margin: 0; color: #FFF; } .sucband .n { font-size: 9px; color: #D8CFC0; }`;
   }
 
   /** Masthead + KPIs globales (compartido). */
@@ -709,7 +709,7 @@ export class MovementsExportService {
         <div class="kpi"><span class="kpi-l">Salidas (pzas)</span><span class="kpi-v">−${num(Math.abs(data.totals.salidas))}</span></div>
         <div class="kpi"><span class="kpi-l">Valor movido</span><span class="kpi-v">${money(data.totals.valor)}</span></div>
         <div class="kpi"><span class="kpi-l">Documentos</span><span class="kpi-v">${num(data.totals.documentos)}</span></div>
-        <div class="kpi"><span class="kpi-l">Auditados</span><span class="kpi-v">${num(audited)} <span style="font-size:var(--fs-nano);color:#837A6C;font-weight:400">de ${num(docs.length)}</span></span></div>
+        <div class="kpi"><span class="kpi-l">Auditados</span><span class="kpi-v">${num(audited)} <span style="font-size:10px;color:#837A6C;font-weight:400">de ${num(docs.length)}</span></span></div>
       </div>
 
       <div class="chips">

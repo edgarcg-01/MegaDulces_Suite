@@ -323,7 +323,7 @@ export function imprimirTicket(a: TicketArqueo, opts: { revela: boolean }): bool
   @page { size: 80mm auto; margin: 0; }
   html, body { margin: 0; padding: 0; background: #fff; }
   body { width: 72mm; padding: 3mm; color: #000;
-         font-family: "Courier New", ui-monospace, monospace; font-size: var(--fs-body); line-height: 1.35; }
+         font-family: "Courier New", ui-monospace, monospace; font-size: 14px; line-height: 1.35; }
   pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
 </style></head><body><pre>${cuerpoTicket(a, opts)}</pre></body></html>`);
   doc.close();

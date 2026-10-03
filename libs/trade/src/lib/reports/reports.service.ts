@@ -1653,7 +1653,7 @@ export class ReportsService {
     const kpi = (label: string, value: string | number, accent = '#0f172a') =>
       `<div style="flex:1;min-width:110px;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px">
          <div style="font-size:8px;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;font-weight:700">${label}</div>
-         <div style="font-size:var(--fs-lg);font-weight:800;color:${accent}">${value}</div>
+         <div style="font-size:18px;font-weight:800;color:${accent}">${value}</div>
        </div>`;
 
     const vendorRows = vendors
@@ -1699,7 +1699,7 @@ export class ReportsService {
         })
         .join('');
       detailSection = `
-        <h2 style="font-size:var(--fs-sm);margin:18px 0 6px;color:#0f172a">Detalle de visitas — ${esc(focus.nombre)}</h2>
+        <h2 style="font-size:13px;margin:18px 0 6px;color:#0f172a">Detalle de visitas — ${esc(focus.nombre)}</h2>
         <table style="width:100%;border-collapse:collapse;font-size:10px">
           <thead><tr style="text-align:left;color:#64748b;border-bottom:1.5px solid #e2e8f0">
             <th style="padding:4px 6px">Folio</th><th style="padding:4px 6px">Fecha</th>
@@ -1742,7 +1742,7 @@ export class ReportsService {
 
     const summaryTable = individual
       ? ''
-      : `<h2 style="font-size:var(--fs-sm);margin:0 0 6px;color:#0f172a">Resumen por vendedor</h2>
+      : `<h2 style="font-size:13px;margin:0 0 6px;color:#0f172a">Resumen por vendedor</h2>
          <table style="width:100%;border-collapse:collapse;font-size:10px">
            <thead><tr style="text-align:left;color:#64748b;border-bottom:1.5px solid #e2e8f0">
              <th style="padding:4px 6px">Vendedor</th>
@@ -1760,7 +1760,7 @@ export class ReportsService {
       </head><body>
       <div style="border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:12px">
         <div style="font-size:16px;font-weight:800">${title}</div>
-        <div style="font-size:var(--fs-nano);color:#64748b;margin-top:2px">
+        <div style="font-size:10px;color:#64748b;margin-top:2px">
           Rango: <b>${esc(meta.rangeLabel || '—')}</b> · Generado: ${esc(now)}${meta.generatedBy ? ' · por ' + esc(meta.generatedBy) : ''}
         </div>
         ${horusNote}
