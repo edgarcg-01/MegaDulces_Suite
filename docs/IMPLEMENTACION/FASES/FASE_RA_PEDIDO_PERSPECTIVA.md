@@ -57,6 +57,26 @@ a su sucursal madre con el mismo `rmap` del fact. El 60/40 **no** alimenta el pe
 
 **Candados:** `pedido-senales.spec.ts` 13 (4 negativas, rotas a propósito y verificadas en rojo) · `pedido-unidades.spec.ts` 20 · arnés DB-direct que ejecuta el `skuSignals` real (500 SKUs en ~0.4 s).
 
+### RA-PRO.70 — la escalera REAL de unidades (🧪 EN CÓDIGO 2026-10-03)
+
+Revisión en pantalla de Francisco sobre la Etapa 2: *"el globo de unidades va a quedar dinámico, representado en su medida de origen; hay artículos con 3 unidades, otros con 2 y otros con 1"*.
+
+**Causa medida:** Kepler **rellena los tres peldaños** aunque el artículo no los tenga, repitiendo el rótulo con factor 1. RA-PRO.68 leía sólo los rótulos, así que el 17063 habría dado botones "kg | kg" y el 57009 una "cj" que no existe.
+
+| SKU | Kepler (rótulo ×factor) | Unidades reales |
+|---|---|---|
+| 42029 KINDER DELICE | PZA ×1 · PAQ ×10 · CJA ×140 | 3 — cj · paq · pz |
+| 70001 MAZAPÁN | PAQ ×1 · PAQ ×1 · CJA ×20 | 2 — cj · paq |
+| 17083 BOLSA CAMISETA | KG ×1 · KG ×1 · BTO ×20 | 2 — bto · kg |
+| 57009 COBERTURA LUSSEL | CUB | 1 — cub |
+| 17063 ROLLO ALTA | KG ×1 · KG ×1 · KG ×1 | 1 — kg |
+
+**Regla (`escaleraUnidades()`):** una unidad por cada peldaño donde el FACTOR crece (≥ 1.5× el anterior), con el factor del costo por peldaño (`v_supplier_cost_ladder`, mismo criterio que `factor_del_costo`). La mayor siempre trae el factor del motor (`uxc`); el del medio sólo si cabe exacto en la caja y no repite el rótulo de la base; si base y mayor se llaman igual (3 artículos, ej. 89106 PAQ ×1 / PAQ ×24) la mayor lleva su tamaño. **Medido sobre 6,325 artículos del plan: 562 con 1 unidad, 5,397 con 2 y 366 con 3**; 0 rótulos repetidos y 0 mayores distintas del factor del motor.
+
+**En pantalla:** botones de captura = las unidades reales de mayor a menor (3, 2 o ninguno: sólo el rótulo); la captura se guarda como el factor de la unidad elegida. Columna "Unidad" de la fila ("140 pz · 14 paq × 10", "20 kg · por bto", "kg · única"); "Σ Ped." con el rótulo de la mayor y "Σ Base" (antes "Σ Piezas") con el de la base. Un artículo de una sola unidad conserva la fracción ("4.3 cub", antes "4 cub"). El workbook manda `unidad_f2`/`unidad_f3`.
+
+**Pendiente:** la pestaña Traspasos todavía usa sus propios botones Caja/Paquete/Pieza.
+
 ### Etapa 3 — bonificación X+Y (⬜, requiere migración)
 
 **[RA-PRO.70]** Capturar "10 + 1" por proveedor/producto con vigencia; el pedido redondea a múltiplos de

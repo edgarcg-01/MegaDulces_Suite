@@ -6,7 +6,7 @@ import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { compareWarehouseCodes, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
-import { diasInventario, dineroCorto, EtiquetaUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, roundSeed, textoUnidades } from '../pedido-redondeo';
+import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, roundSeed, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { PaginatorModule, PaginatorState } from 'primeng/paginator';
@@ -249,7 +249,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                       Producto
                     </span>
                   </th>
-                  <th class="pr-r" title="Piezas por caja · y paquetes por caja si es multipack">Unidad<br/>x caja</th>
+                  <th class="pr-r" title="Unidades del artículo según Kepler (1, 2 o 3): cuánto trae la unidad mayor en la base, y el paquete del medio si existe.">Unidad</th>
                   <th class="pr-r">Costo/Cja</th>
                   <th class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
                   <th class="pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano.">Est.</th>
@@ -260,7 +260,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <th class="pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
                   <th class="pr-r" title="Máximo de red (cajas)">Máx</th>
                   <th class="pr-r" title="Total de lo que se va a pedir, en CAJAS. Es la suma de las sucursales del desglose y SE MUEVE al editarlas.">Σ Ped.<br/>cajas</th>
-                  <th class="pr-r pr-muted-h" title="El mismo total, en piezas (cajas × unidades por caja).">Σ Piezas</th>
+                  <th class="pr-r pr-muted-h" title="El mismo total, en la unidad BASE de cada artículo (pz, paq, kg…): cajas × unidades por caja.">Σ Base</th>
                   <th class="pr-r pr-val" title="Lo que cuesta ese pedido, valuado con el costo de caja de CADA sucursal.">$ Pedido</th>
                   <th class="pr-r">Valor<br/>venta</th>
                   <th class="pr-r">Valor<br/>exist.</th>
@@ -274,8 +274,17 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                            [title]="sumCajas(r) > 0 ? 'Incluir en la requisición y el PDF globales' : 'Sin pedido al proveedor: no hay nada que requerir'"
                            [attr.aria-label]="'Seleccionar ' + r.sku" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }</div></td>
                   <td class="pr-r pr-muted pr-uxc">
-                    <div>{{ r.uxc | number:'1.0-0' }} <span class="pr-unit" [title]="unidadTitle(r)">{{ unidadBase(r) }}</span></div>
-                    @if (r.packs_per_box) { <div class="pr-unit2" [title]="r.packs_per_box + ' paquetes de ' + r.pack_size + ' por caja'">{{ r.packs_per_box }} paq × {{ r.pack_size }}</div> }
+                    <!-- [RA-PRO.70] La escalera real del artículo: 1, 2 o 3 unidades, con sus rótulos de Kepler. -->
+                    <div [title]="unidadFilaTitle(r)">{{ unidadFilaTxt(r) }}</div>
+                    @if (escOf(r); as e) {
+                      @if (e.length === 3) {
+                        <div class="pr-unit2" [title]="unidadFilaTitle(r)">{{ e[2].factor / e[1].factor }} {{ e[1].abr }} × {{ e[1].factor }}</div>
+                      } @else if (e.length === 2) {
+                        <div class="pr-unit2" [title]="unidadFilaTitle(r)">por {{ e[1].abr }}</div>
+                      } @else {
+                        <div class="pr-unit2" [title]="unidadFilaTitle(r)">única</div>
+                      }
+                    }
                   </td>
                   <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
                   <td class="pr-r">
@@ -319,9 +328,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                        se mueven acá. Arrancan en el sugerido del motor, que es lo mismo que
                        publicaba antes la columna por sucursal. -->
                   <td class="pr-r pr-strong" [title]="pedidoTitle(r)">
-                    {{ sumCajas(r) | number:'1.0-1' }}@if (r.almacenes_sin_pedido) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
+                    {{ sumCajas(r) | number:'1.0-1' }} <span class="pr-unit">{{ etOf(r).mayor }}</span>@if (r.almacenes_sin_pedido) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
                   </td>
-                  <td class="pr-r pr-muted-h">{{ sumPiezas(r) | number:'1.0-0' }}</td>
+                  <td class="pr-r pr-muted-h">{{ sumPiezas(r) | number:'1.0-0' }} <span class="pr-unit">{{ escOf(r)[0].abr }}</span></td>
                   <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="sumCajas(r) > 0">{{ money(sumValor(r)) }}</td>
                   <td class="pr-r pr-muted">{{ money(r.valor_venta) }}</td>
                   <!-- U.2 — el valuado no se dibuja si algún almacén tiene el peldaño sin verificar:
@@ -477,19 +486,26 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                    aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown"
                                                    [ngModel]="dispOf(r, b)" (ngModelChange)="setDispOf(r, b, $event)"
                                                    (keydown)="onQtyKey($event)"
-                                                   [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + b.code + ' en ' + (unitOfBranch(r, b) === 'pieza' ? etOf(r).base : etOf(r).mayor)" [title]="qtyTxt(r, b)" />
+                                                   [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + b.code + ' en ' + unitLabelBranch(r, b)" [title]="qtyTxt(r, b)" />
                                             <button type="button" class="pr-step-b" tabindex="-1" aria-hidden="true"
                                                     (pointerdown)="stepStart(r, b, 1, $event)" (pointerup)="stepStop()" (pointerleave)="stepStop()"
                                                     (pointercancel)="stepStop()" (contextmenu)="$event.preventDefault()">+</button>
                                           </span>
                                         </td>
                                         <td class="pr-r">
-                                          <div class="pr-uu" role="group" [attr.aria-label]="'Unidad de captura en ' + b.code">
-                                            <button type="button" class="pr-uu-b" [class.pr-uu-on]="unitOfBranch(r, b)==='caja'"
-                                                    [attr.aria-pressed]="unitOfBranch(r, b)==='caja'" (click)="setUnitBranch(r, b, 'caja')" [title]="'Capturar en ' + etOf(r).mayor">{{ etOf(r).mayor }}</button>
-                                            <button type="button" class="pr-uu-b" [class.pr-uu-on]="unitOfBranch(r, b)==='pieza'"
-                                                    [attr.aria-pressed]="unitOfBranch(r, b)==='pieza'" (click)="setUnitBranch(r, b, 'pieza')" [title]="'Capturar en ' + etOf(r).base">{{ etOf(r).base }}</button>
-                                          </div>
+                                          <!-- [RA-PRO.70] Un botón por cada unidad REAL del artículo, de mayor a menor (3 en
+                                               KINDER, 2 en la bolsa camiseta, 1 en la cubeta: ahí sólo el rótulo). -->
+                                          @if (escOf(r).length > 1) {
+                                            <div class="pr-uu" role="group" [attr.aria-label]="'Unidad de captura en ' + b.code">
+                                              @for (u of escMayorAMenor(r); track u.factor) {
+                                                <button type="button" class="pr-uu-b" [class.pr-uu-on]="unitOfBranch(r, b) === u.factor"
+                                                        [attr.aria-pressed]="unitOfBranch(r, b) === u.factor" (click)="setUnitBranch(r, b, u.factor)"
+                                                        [title]="'Capturar en ' + u.nombre.toLowerCase() + (u.factor > 1 ? ' (' + u.factor + ' ' + escOf(r)[0].abr + ')' : '')">{{ u.abr }}</button>
+                                              }
+                                            </div>
+                                          } @else {
+                                            <span class="pr-muted" [title]="'Artículo de una sola unidad: ' + escOf(r)[0].nombre.toLowerCase()">{{ escOf(r)[0].abr }}</span>
+                                          }
                                         </td>
                                         <!-- Sin venta no hay cobertura que calcular: se DECLARA, no se
                                              dibuja como 0 (que se lee "urge") ni como infinito. -->
@@ -1499,26 +1515,50 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
 
   // ── [RA-PRO.68] UNIDADES DE MAYOR A MENOR (regla de Cotización) ──────
+  // [RA-PRO.70] La escalera REAL de unidades de cada producto (1, 2 o 3), de la que salen las
+  // etiquetas, los botones de captura y la columna "Unidad". Ver escaleraUnidades().
+  private escInput(r: WorkbookRow) {
+    return {
+      u1: r.unidad_base, u2: r.unidad_u2, u3: r.unidad_u3, f2: r.unidad_f2, f3: r.unidad_f3,
+      uxc: Number(r.uxc), boxSize: r.box_size, packSize: r.pack_size,
+    };
+  }
+  private readonly escMap = computed(() => {
+    const m = new Map<string, UnidadEscalera[]>();
+    for (const r of this.knownRows().values()) m.set(r.product_id, escaleraUnidades(this.escInput(r)));
+    return m;
+  });
+  escOf(r: WorkbookRow): UnidadEscalera[] {
+    return this.escMap().get(r.product_id) ?? escaleraUnidades(this.escInput(r));
+  }
+  /** La escalera de MAYOR a menor, que es como se leen los botones (cj · paq · pz). */
+  escMayorAMenor(r: WorkbookRow): UnidadEscalera[] { return [...this.escOf(r)].reverse(); }
+  /** Columna "Unidad" de la fila: lo que trae la unidad mayor, en la base ("20 kg", "14 paq × 10 pz"). */
+  unidadFilaTxt(r: WorkbookRow): string {
+    const e = this.escOf(r);
+    if (e.length === 1) return e[0].abr;
+    return `${e[e.length - 1].factor.toLocaleString('es-MX')} ${e[0].abr}`;
+  }
+  unidadFilaTitle(r: WorkbookRow): string {
+    const e = this.escOf(r);
+    if (e.length === 1) return `Artículo de una sola unidad (${e[0].nombre.toLowerCase()}): el pedido se cuenta en ${e[0].abr}.`;
+    return `Unidades del artículo, de mayor a menor: ${[...e].reverse().map((u) => `${u.nombre} (${u.factor} ${e[0].abr})`).join(' · ')}.`;
+  }
   private readonly etMap = computed(() => {
     const m = new Map<string, EtiquetaUnidades>();
-    for (const r of this.knownRows().values()) {
-      m.set(r.product_id, etiquetaUnidades({
-        u1: r.unidad_base, u2: r.unidad_u2, u3: r.unidad_u3,
-        uxc: Number(r.uxc), boxSize: r.box_size, packSize: r.pack_size,
-      }));
-    }
+    for (const r of this.knownRows().values()) m.set(r.product_id, etiquetaUnidades(this.escInput(r)));
     return m;
   });
   etOf(r: WorkbookRow): EtiquetaUnidades {
-    return this.etMap().get(r.product_id)
-      ?? etiquetaUnidades({ u1: r.unidad_base, u2: r.unidad_u2, u3: r.unidad_u3, uxc: Number(r.uxc), boxSize: r.box_size, packSize: r.pack_size });
+    return this.etMap().get(r.product_id) ?? etiquetaUnidades(this.escInput(r));
   }
-  /** "1 cj = 140 pz · 14 paq × 10 pz" — la equivalencia que se lee en la cabecera del desglose. */
+  /** "1 cj = 140 pz · 14 paq × 10 pz" — "kg (unidad única)" cuando el artículo tiene una sola. */
   equivTxt(r: WorkbookRow): string {
-    const et = this.etOf(r);
-    const u = Number(r.uxc) || 1;
-    const base = `1 ${et.mayor} = ${u.toLocaleString('es-MX')} ${et.base}`;
-    return et.medio ? `${base} · ${u / et.medio} ${et.medioAbr} × ${et.medio} ${et.base}` : base;
+    const e = this.escOf(r);
+    const base = e[0], mayor = e[e.length - 1];
+    if (e.length === 1) return `${base.nombre.toLowerCase()} (unidad única)`;
+    const txt = `1 ${mayor.abr} = ${mayor.factor.toLocaleString('es-MX')} ${base.abr}`;
+    return e.length === 3 ? `${txt} · ${mayor.factor / e[1].factor} ${e[1].abr} × ${e[1].factor} ${base.abr}` : txt;
   }
   /** Cantidad del renglón en texto de mayor a menor, para el tooltip del campo de captura. */
   qtyTxt(r: WorkbookRow, b: BranchBuy): string { return textoUnidades(this.qtyOf(r, b), Number(r.uxc), this.etOf(r)); }
@@ -1742,7 +1782,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   // Canónico = CAJAS, siempre. El selector cj/pz del renglón sólo cambia cómo se escribe: los días
   // de inventario y el valor se calculan con las cajas, así que nunca se mezclan unidades.
   private readonly buyQty = signal<Record<string, number>>({});                  // 'pid|code' → CAJAS
-  private readonly buyUnit = signal<Record<string, 'caja' | 'pieza'>>({});
+  // [RA-PRO.70] La unidad de captura se guarda como su FACTOR en unidades base (1 = la base, uxc =
+  // la mayor, 10 = el paquete de KINDER…): así sirve para artículos de 1, 2 o 3 unidades.
+  private readonly buyUnit = signal<Record<string, number>>({});
   private bk(pid: string, code: string): string { return pid + '|' + code; }
 
   /** Cantidad en CAJAS: lo que el usuario escribió, o el sugerido del motor si no tocó nada. */
@@ -1751,16 +1793,25 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const ov = this.buyQty()[this.bk(r.product_id, b.code)];
     return ov === undefined ? b.seed : ov;
   }
-  unitOfBranch(r: WorkbookRow, b: BranchBuy): 'caja' | 'pieza' {
-    // Sin elección del usuario, se captura en la unidad en que vino propuesto el sugerido.
-    return this.buyUnit()[this.bk(r.product_id, b.code)] ?? b.seedUnit;
+  /** Factor (en unidades base) de la unidad en que se captura el renglón. */
+  unitOfBranch(r: WorkbookRow, b: BranchBuy): number {
+    const elegida = this.buyUnit()[this.bk(r.product_id, b.code)];
+    if (elegida !== undefined && this.escOf(r).some((u) => u.factor === elegida)) return elegida;
+    // Sin elección del usuario, se captura en la unidad en que vino propuesto el sugerido:
+    // cajas cerradas (la mayor) o, si no llega a media caja, la base.
+    return b.seedUnit === 'pieza' ? 1 : (Number(r.uxc) || 1);
   }
-  setUnitBranch(r: WorkbookRow, b: BranchBuy, u: 'caja' | 'pieza'): void {
-    this.buyUnit.update((m) => ({ ...m, [this.bk(r.product_id, b.code)]: u }));
+  setUnitBranch(r: WorkbookRow, b: BranchBuy, factor: number): void {
+    this.buyUnit.update((m) => ({ ...m, [this.bk(r.product_id, b.code)]: factor }));
   }
-  /** Factor cajas → unidad de captura del renglón. */
+  /** La unidad en que se captura el renglón (para rótulos). */
+  unitLabelBranch(r: WorkbookRow, b: BranchBuy): string {
+    const f = this.unitOfBranch(r, b);
+    return this.escOf(r).find((u) => u.factor === f)?.abr ?? this.etOf(r).mayor;
+  }
+  /** Factor cajas → unidad de captura del renglón: cuántas de ESA unidad trae una caja. */
   private bFactor(r: WorkbookRow, b: BranchBuy): number {
-    return this.unitOfBranch(r, b) === 'pieza' ? (Number(r.uxc) || 1) : 1;
+    return (Number(r.uxc) || 1) / (this.unitOfBranch(r, b) || 1);
   }
   dispOf(r: WorkbookRow, b: BranchBuy): number { return this.qtyOf(r, b) * this.bFactor(r, b); }
   setDispOf(r: WorkbookRow, b: BranchBuy, v: number | string): void {
