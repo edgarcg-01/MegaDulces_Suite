@@ -120,7 +120,10 @@ describe('FinanzasAprobacionGastosComponent', () => {
     expect(c.pestana()).toBe('entrada');
     expect(fix.nativeElement.textContent).toContain('Aprobación de gastos');
     const tabs = [...fix.nativeElement.querySelectorAll('.ap-tab-t')].map((e: Element) => e.textContent?.trim());
-    expect(tabs).toEqual(['Bandeja de entrada', 'Aprobados', 'Rechazados']);
+    // `[GX.60]` UNA sola pestana. Pedido del usuario: lo aprobado y lo rechazado DESAPARECEN
+    // para que la seccion quede siempre limpia. Lo decidido no se perdio -- se mudo al
+    // Expediente (`[GX.59]`), que es donde ahora se mira el tramite completo.
+    expect(tabs).toEqual(['Bandeja de entrada']);
   });
 
   describe('las tres pestañas', () => {

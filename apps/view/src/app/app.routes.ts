@@ -479,6 +479,28 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR)]
       },
       {
+        /**
+         * [GX.59] EXPEDIENTE - el tramite de gasto de TODAS las personas, agrupado por persona.
+         *
+         * Pedido del usuario (2026-10-01): «en lugar de historial sera expediente, todos
+         * aquellos que tengan el poder de autorizar gastos podran ver los vales de todos».
+         *
+         * El permiso es el de quien FIRMA (FINANCE_EXPENSES_COMPROBAR), el mismo que guarda la
+         * bandeja de aprobacion. El endpoint esta gateado igual: el recorte vive en el
+         * servidor, y esta linea es la cortesia de no mostrar una puerta que no abre.
+         *
+         * ⚠️ `gastos-historial` NO se retiro, y es una decision MEDIDA. Guardar esta pantalla
+         * con COMPROBAR deja fuera a 14 personas que hoy si ven el historial (direccion,
+         * contabilidad, finanzas_operativo, credito_cobranza, gerente_compras, marketing:
+         * todas con _VER y sin _COMPROBAR). Borrar la ruta vieja las dejaba sin ninguna vista
+         * de empresa y sin aviso. Queda ABIERTO si Historial se retira: es decision del
+         * usuario, no un olvido.
+         */
+        path: 'expediente',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-expediente.component').then(m => m.FinanzasExpedienteComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR)]
+      },
+      {
         // `[GX.33]` Lo que YO levanté y en qué quedó. Mismo alcance que `/mine`, que el
         // servidor acota por token: acá no se filtra del lado del cliente.
         path: 'mis-gastos',

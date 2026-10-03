@@ -8,6 +8,8 @@ import type { FormaPagoId } from '@megadulces/contracts';
 // `[GX.39]` El tipo de la etapa viene del contrato compartido: escribirlo a mano acá es
 // exactamente cómo se desincroniza sin que nadie vea (pasó con `reapertura`, GX.30).
 import type { AutorizacionKepler, EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
+// [GX.59] El Expediente por persona: la forma la define el contrato, no esta clase.
+import type { RespuestaExpediente } from '@megadulces/contracts';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
@@ -589,6 +591,21 @@ export class ComprobacionesService {
   listasParaComprobar(dias = 90, limit = 200): Observable<ListasParaComprobar> {
     return this.http.get<ListasParaComprobar>(`${environment.apiUrl}/finance/expenses/expediente/listas-para-comprobar`,
       { params: new HttpParams().set('dias', String(dias)).set('limit', String(limit)) });
+  }
+
+  /**
+   * `[GX.59]` **El Expediente de TODAS las personas**, agrupado por usuario.
+   *
+   * ⚠️ Ojo con el nombre: `expediente(sucursal, folio)` de más arriba es OTRA cosa — el
+   * expediente de UN vale (GX.15, los cuatro eslabones). Éste es la vista de quien autoriza
+   * sobre el trámite de todos, y por eso se llama distinto en vez de sobrecargar el método.
+   *
+   * El veredicto del protocolo lo calcula el SERVIDOR con la regla de `@megadulces/contracts`:
+   * la pantalla lo muestra, no lo re-deriva. Dos cálculos del mismo hecho se separan.
+   */
+  expedientePorUsuario(limit = 2000): Observable<RespuestaExpediente> {
+    return this.http.get<RespuestaExpediente>(`${this.base}/expediente`,
+      { params: new HttpParams().set('limit', String(limit)) });
   }
 
   statusByFolio(): Observable<Record<string, ProofByFolio>> { return this.http.get<Record<string, ProofByFolio>>(`${this.base}/status-by-folio`); }
