@@ -4015,3 +4015,35 @@ actúa sobre el destino, no sobre el enlace*. Vale para `diff`, `rm -rf`, `git r
 herramienta equivocada.** "Cero diferencias" no significaba "es una copia redundante", significaba
 "estás mirando el mismo archivo dos veces". Antes de borrar algo por duplicado, comprobá que de
 verdad son dos objetos.
+
+---
+
+## 77. `git commit -- <ruta>` DESHACE un `git rm --cached` de esa misma ruta, y sale exit 0
+
+**Vivido el 2026-10-02.** Se quiso sacar `graphify-out/` (54 archivos, 2.2 MB de salida
+generada) del control de versiones sin borrarlo del disco, que es lo que hace `--cached`:
+
+```bash
+git rm -r --cached graphify-out        # saca del índice, DEJA los archivos en disco
+git commit -F msg -- graphify-out …    # ⛔ pathspec
+```
+
+⛔ **El pathspec de `git commit` re-stagea desde el working tree.** Como los archivos siguen
+en disco —eso es exactamente lo que hace `--cached`— git los volvió a agregar y **deshizo el
+`rm` dentro del mismo comando**. El commit salió **exit 0**, con su mensaje describiendo una
+purga que no ocurrió, y los 54 archivos siguieron versionados en `main`.
+
+**Cómo hacerlo bien:** commitear **sin** pathspec sobre esas rutas, después de verificar que el
+índice sólo tiene lo tuyo (obligatorio acá: el índice lo comparten varias sesiones).
+
+```bash
+git rm -r --cached <dir>
+git diff --cached --name-only        # ¿hay algo que no sea mío?
+git commit -F msg                    # sin `-- <dir>`
+git ls-files <dir> | wc -l           # ⭐ 0, o no pasó
+```
+
+⚠️ **La lección de método, que es lo que importa:** el commit salió en verde y su mensaje
+quedó como único testimonio — y el mensaje mentía. Lo delató un barrido posterior que volvió a
+listar los 54 como "versionados sin consumidor". **Después de actuar hay que volver a medir el
+estado, no releer lo que uno escribió que hizo.**
