@@ -130,7 +130,8 @@ buen pedido»*. Medido: de ~34 variables que deberían pesar en un pedido el mot
   de comparaciones**). Apilando OC y vale en una relación etiquetada y pivotando con `FILTER`:
   **90 d de 49 s a 0.7 s · 365 d de >50 min sin terminar a 2.7 s**, con **0 filas de cifra distinta**
   entre las dos formas.
-- 🧪 **[RA-DYN.U7]** **El cumplimiento ya NO es sólo para negociar: entra al pedido.** El motor
+- 🚀 **[RA-DYN.U7]** **El cumplimiento ya NO es sólo para negociar: entra al pedido.** La
+  migración del umbral está **en prod (batch 704, 0.1 s)**. El motor
   ya tenía el mecanismo (`÷ fill rate`, RA-PRO.27) y **corregía en el papel**: medido contra prod,
   **0 de 994** proveedores con override, **4** con OC propia recibida y **6** con reclamo del andén,
   contra **329** medidos en la cadena de Kepler. Todos los demás tomaban `1.0`, que significaba
@@ -153,9 +154,20 @@ buen pedido»*. Medido: de ~34 variables que deberían pesar en un pedido el mot
   catálogo): cuesta **$2,393** del delta y evita inflarle el pedido a uno por culpa de otro.
   ⚠️ **`GREATEST` ignora los NULL**: sin el `COALESCE` por dentro, todo proveedor **sin** medición
   se habría llevado el inflado **máximo**. Me mordió midiendo, antes de escribir el código; el
-  candado reproduce la trampa en vivo. Candado `test-newdb-fill-rate-wiring.js` **verde · 2 NO
-  MEDIDO** (la atribución cancelación-vs-no-surtido, y la migración del umbral pendiente).
-  **Falta: aplicar la mig `20261003120000` + redeploy api+view.** Sin permisos nuevos → sin re-login.
+  candado reproduce la trampa en vivo. Candado `test-newdb-fill-rate-wiring.js` **verde · 1 NO
+  MEDIDO** contra prod (la atribución cancelación-vs-no-surtido; el segundo era la columna
+  ausente y se fue al aplicar la migración).
+  **Falta: redeploy api+view** — el código que consume el umbral todavía no está servido. Sin
+  permisos nuevos → sin re-login. ⚠️ **Y al aplicarla se descubrió que prod se mudó de docker
+  compose a k3s**: `prod-api`, `pg-prod`, `prod-worker`, `prod-caddy`, `prod-portal`, `prod-vendor`
+  y `prod-redis` llevaban **22–26 h `Exited`**, y el camino documentado (`docker cp` /
+  `docker exec prod-api`) ya no existía. ⭐ **No se nota desde afuera**: `192.168.0.222:5434`
+  responde igual, y el reflejo para comprobarlo miente — `ss -ltn` **no muestra nada** en ese
+  puerto porque k3s publica por DNAT de iptables y no abre un socket en LISTEN. Lo delata
+  `inet_server_addr()`, que devuelve `10.42.0.94`, una IP de pod. ⭐ La **identidad del clúster NO
+  cambió** (`7688376744939610156`), o sea que se migró el mismo dato: el candado de identidad del
+  script siguió valiendo y no hubo que tocar `PROD_CLUSTER_ID`. Procedimiento vigente reescrito en
+  `database/scripts/apply-one-migration-prod.js`, con el de docker marcado HISTÓRICO, no borrado.
   ⚠️ **Publiqué una VISTA sobre una medición equivocada** y tuve que volver a matvista: los "0.2 s
   por proveedor" eran de una consulta que filtraba DENTRO de la CTE; la vista filtra DESPUÉS del
   `GROUP BY`, donde el predicado no baja — ni filtrada terminaba en 60 s.

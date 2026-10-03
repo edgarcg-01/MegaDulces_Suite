@@ -26,7 +26,60 @@
  * Define `PROD_DB_URL` en tu `.env` apuntando a `192.168.0.222:5434` (el puerto está abierto en
  * la LAN; la credencial vive en `~/secrets/prod-compose.env` DE `md`, no en este repo).
  *
- * ── O el camino que no mueve ningún secreto, y es el que se usó el 2026-09-24 ───────────────
+ * ── ⛔⛔ PROD YA NO CORRE EN DOCKER COMPOSE: SE MUDÓ A k3s (medido el 2026-10-02) ───────────
+ * El camino de abajo decía `docker cp … prod-api` y `docker exec prod-api`. **Eso ya no existe.**
+ * Verificado en vivo: los contenedores `prod-api`, `prod-worker`, `pg-prod`, `prod-caddy`,
+ * `prod-portal`, `prod-vendor` y `prod-redis` están **`Exited` hace 22–26 h**, y lo que sirve es
+ * el namespace `prod` de **k3s** (`api`, `worker`, `pg-prod`, `caddy`, `portal`, `vendor`…).
+ *
+ * ⚠️ **Y NO se nota desde afuera.** `192.168.0.222:5434` sigue respondiendo igual, así que una
+ * sesión puede leer prod toda la tarde sin enterarse de que el sustrato cambió. Peor: **`ss -ltn`
+ * NO muestra nada en 5434**, porque k3s publica por DNAT de iptables y no abre un socket en
+ * LISTEN — o sea que el chequeo reflejo ("¿quién escucha el puerto?") dice *nadie* y miente.
+ * Lo que sí lo delata es `inet_server_addr()`: devuelve `10.42.0.x`, una IP de pod.
+ *
+ * ⭐ La identidad del clúster (`pg_control_system()`) **no cambió** con la mudanza — el volumen es
+ * el mismo. O sea que el candado de identidad de este script sigue siendo válido y NO hay que
+ * tocar `PROD_CLUSTER_ID`: es la prueba de que se migró el mismo dato, no uno nuevo.
+ *
+ * ── El camino VIGENTE, el que se usó el 2026-10-02 (batch 704) ──────────────────────────────
+ *
+ *     scp database/migrations-newdb/<archivo>.js            superoot@192.168.0.222:/tmp/
+ *     scp database/scripts/apply-one-migration-prod.js      superoot@192.168.0.222:/tmp/
+ *     ssh superoot@192.168.0.222
+ *       export KUBECONFIG=/etc/rancher/k3s/k3s.yaml        # legible sin sudo; `sudo k3s kubectl`
+ *                                                          # pide terminal y falla por SSH
+ *       API=$(kubectl get pods -n prod -l app=api -o jsonpath='{.items[0].metadata.name}')
+ *       kubectl cp /tmp/<archivo>.js  prod/$API:/app/database/migrations-newdb/ -c api
+ *       kubectl cp /tmp/apply-one-migration-prod.js prod/$API:/app/database/scripts/ -c api
+ *       kubectl exec -n prod $API -c api -- sh -c \
+ *         'PROD_DB_URL="$DATABASE_URL_NEW" node /app/database/scripts/apply-one-migration-prod.js <archivo>.js'
+ *
+ * ⚠️ `-c api` no es opcional: el pod trae un init container (`esperar-redis`) y sin `-c` kubectl
+ *    elige por default e imprime un aviso que ensucia cualquier salida que se esté parseando.
+ * ⚠️ `PROD_DB_URL="$DATABASE_URL_NEW"` se evalúa **dentro** del pod: el secreto nunca sale de ahí
+ *    ni aparece en el historial de esta máquina. El pod no trae `NODE_ENV=production`, así que sin
+ *    esa asignación la cadena de `DATABASE_URL_NEW` no se elige y el script aborta pidiendo URL.
+ * ⚠️ Hay **DOS** pods de `api` en el deployment. Da igual cuál, pero hay que copiar los archivos
+ *    al MISMO en el que se va a ejecutar — `{.items[0]}` no garantiza devolver siempre el mismo.
+ *
+ * ── PRE-VUELO, y por qué no alcanza `knex_migrations_lock` ──────────────────────────────────
+ * Antes de aplicar, preguntar por los candados REALES desde dentro del pod de Postgres, donde se
+ * ve el `query` y el `usename` de los demás roles (desde `edgar` vienen en blanco y se lee como
+ * "no hay nada corriendo" — así se mató un proceso ajeno el 2026-10-02):
+ *
+ *     PG=$(kubectl get pods -n prod -l app=pg-prod -o name | head -1)
+ *     kubectl exec -n prod -i $PG -- psql -U postgres -d railway <<'SQL'
+ *     SELECT a.pid, a.usename, a.state, (now()-a.xact_start)::text,
+ *            left(coalesce(a.query, chr(45)), 55)
+ *       FROM pg_stat_activity a
+ *      WHERE a.xact_start IS NOT NULL AND a.datname = 'railway' ORDER BY a.xact_start;
+ *     SQL
+ *
+ * Y comprobar que el rollout terminó (`kubectl rollout status deploy/api -n prod`): aplicar una
+ * migración mientras otra sesión despliega es pedir que el pod desaparezca a media corrida.
+ *
+ * -- HISTORICO: asi se hacia con docker compose, hasta el 2026-10-02. NO funciona hoy -----
  * Correrlo DENTRO del contenedor de prod, que ya tiene knex, las migraciones y la URL buena:
  *
  *     scp database/migrations-newdb/<archivo>.js superoot@192.168.0.222:/tmp/
