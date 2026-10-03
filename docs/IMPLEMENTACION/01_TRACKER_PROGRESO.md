@@ -130,6 +130,32 @@ buen pedido»*. Medido: de ~34 variables que deberían pesar en un pedido el mot
   de comparaciones**). Apilando OC y vale en una relación etiquetada y pivotando con `FILTER`:
   **90 d de 49 s a 0.7 s · 365 d de >50 min sin terminar a 2.7 s**, con **0 filas de cifra distinta**
   entre las dos formas.
+- 🧪 **[RA-DYN.U7]** **El cumplimiento ya NO es sólo para negociar: entra al pedido.** El motor
+  ya tenía el mecanismo (`÷ fill rate`, RA-PRO.27) y **corregía en el papel**: medido contra prod,
+  **0 de 994** proveedores con override, **4** con OC propia recibida y **6** con reclamo del andén,
+  contra **329** medidos en la cadena de Kepler. Todos los demás tomaban `1.0`, que significaba
+  *no sé*, no *me surte completo*. ⚠️ Y el mecanismo vivía sólo en `purchaseSuggestion`, que la
+  pantalla usa para un cruce lateral: **la grilla de `/compras/pedido` sale de `workbook`, que no
+  tenía fill rate** — cablear sólo el otro lado no habría movido un peso.
+  **Antes → después medido en la superficie que publica:** `$7,555,816` → `$7,916,562`
+  (**+$360,746, +4.8%**), sobre **3,168 de 6,411 celdas** con pedido; **63 proveedores** corrigen.
+  ⭐ **El grano es PROVEEDOR porque se midió, y la medición refutó la intuición**: el faltante
+  *está* concentrado (en MONDELEZ el peor 10% de los SKUs carga el **49.5%**, y **80 de sus 174
+  SKUs nunca fallaron**), pero partiendo la historia en dos mitades, **proveedor predice 0.495 y
+  (proveedor, SKU) 0.240** — el amontonamiento es real dentro de un periodo y **cuáles** SKUs
+  fallan cambia entre periodos. ⭐ **El umbral de 25 renglones es el borde medido de la señal**:
+  debajo la correlación es **cero** (−0.026 entre 6 y 14, −0.052 entre 15 y 24), arriba salta a
+  0.607 / 0.341 — y **el dinero no lo decide** (entre umbral 3 y 50 el sugerido se mueve 1.5%).
+  ⛔ **Lo que esta fuente NO puede distinguir**: un renglón que **nosotros** cancelamos se ve igual
+  que uno que el proveedor no surtió — Kepler no lo marca. Por eso el inflado va **topado**
+  (`fill_max_inflate`, 1.30; **373 celdas** lo tocan) y **declarado en pantalla** con una columna
+  propia, en vez de crecer en silencio. Se excluye al proveedor con **nombre homónimo** (202 en el
+  catálogo): cuesta **$2,393** del delta y evita inflarle el pedido a uno por culpa de otro.
+  ⚠️ **`GREATEST` ignora los NULL**: sin el `COALESCE` por dentro, todo proveedor **sin** medición
+  se habría llevado el inflado **máximo**. Me mordió midiendo, antes de escribir el código; el
+  candado reproduce la trampa en vivo. Candado `test-newdb-fill-rate-wiring.js` **verde · 2 NO
+  MEDIDO** (la atribución cancelación-vs-no-surtido, y la migración del umbral pendiente).
+  **Falta: aplicar la mig `20261003120000` + redeploy api+view.** Sin permisos nuevos → sin re-login.
   ⚠️ **Publiqué una VISTA sobre una medición equivocada** y tuve que volver a matvista: los "0.2 s
   por proveedor" eran de una consulta que filtraba DENTRO de la CTE; la vista filtra DESPUÉS del
   `GROUP BY`, donde el predicado no baja — ni filtrada terminaba en 60 s.

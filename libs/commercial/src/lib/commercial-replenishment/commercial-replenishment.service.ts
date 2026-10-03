@@ -236,7 +236,9 @@ export class CommercialReplenishmentService {
     if (!this.raPro27Ready) this.logger.warn('RA-PRO.27: schema de personalización ausente — pedido en modo auto+global (aplica la migración 20260728170000).');
     return this.raPro27Ready;
   }
-  private readonly DEFAULT_SETTINGS = { fill_window_days: 180, fill_min_lines: 3, fill_max_inflate: 1.30, default_coverage_days: 30 };
+  // `fill_min_lines_erp` (25) es el umbral de la cadena de Kepler y NO comparte el 3 de arriba:
+  // ese 3 nació para la evidencia app-nativa. Ver `[RA-DYN.U7]` y la migración 20261003120000.
+  private readonly DEFAULT_SETTINGS = { fill_window_days: 180, fill_min_lines: 3, fill_min_lines_erp: 25, fill_max_inflate: 1.30, default_coverage_days: 30 };
 
   // WMS-REC.8 (ADR-053) — el fill rate suma la EVIDENCIA DE RECEPCIÓN, no sólo las OCs.
   //
@@ -306,6 +308,101 @@ export class CommercialReplenishmentService {
              AND l.expected_qty > 0${extraWhere}
              AND COALESCE(s2.closed_at, s2.created_at) >= now() - make_interval(days => :fwin::int)
            GROUP BY sup2.id${extraGroup}`;
+  }
+
+  // `[RA-DYN.U7]` — EL CUMPLIMIENTO MEDIDO EN KEPLER ENTRA AL MOTOR.
+  //
+  // `[RA-DYN.U5/U6]` dejó `analytics.mv_supplier_fill_rate` en prod (86,833 renglones de la cadena
+  // `X-A-35` → `X-A-37`, 329 proveedores) y servía para negociar. No tocaba el pedido. Mientras
+  // tanto el motor ya tenía el mecanismo (`÷ fill rate`, RA-PRO.27) alimentado por tres fuentes
+  // que, medidas contra prod el 2026-10-02, están prácticamente vacías:
+  //
+  //     fill_rate_override (captura manual) ...   0 de 994 proveedores
+  //     nuestras OCs recibidas ................   4 proveedores,  18 renglones
+  //     reclamo del andén .....................   6 proveedores,  30 renglones
+  //     la cadena de Kepler (esto) ............ 329 proveedores, 86,833 renglones
+  //
+  // O sea: el motor corregía por cumplimiento sólo en el papel. Todos los demás proveedores
+  // tomaban 1.0, que significaba *no sé*, no *me surte completo*.
+  //
+  // ── El grano es PROVEEDOR, y eso se midió, no se supuso ──────────────────────────────────
+  // La intuición decía SKU: el faltante está concentrado (en MONDELEZ el peor 10% de los SKUs
+  // carga el 49.5%, y 80 de sus 174 SKUs nunca fallaron). Pero partiendo la historia de cada
+  // proveedor en dos mitades y preguntando si la primera predice la segunda:
+  //
+  //     grano (proveedor, SKU) ... 3,276 pares ... correlación 0.240
+  //     grano proveedor .........   190 prov. ... correlación 0.495   <-- el doble
+  //
+  // ⭐ El faltante se amontona DENTRO de un periodo, pero **cuáles** SKUs fallan cambia entre
+  // periodos. Lo que se repite es el nivel del proveedor. Cablearlo por SKU habría sido cablear
+  // ruido con más resolución.
+  //
+  // ── ⛔ LO QUE ESTE NÚMERO NO PUEDE DISTINGUIR ────────────────────────────────────────────
+  // Un renglón que **nosotros** cancelamos se ve igual que uno que el proveedor no surtió: Kepler
+  // no lo marca en la línea. Por eso el inflado va **topado** por `fill_max_inflate` (1.30) y por
+  // un umbral de muestra medido, y por eso la pantalla **declara** el fill rate junto al pedido en
+  // vez de inflarlo en silencio. Si el faltante fuera culpa nuestra, inflar el pedido construye
+  // sobrestock — y el sobrestock no grita, a diferencia del agotado.
+  //
+  // ── Se excluye al proveedor con nombre homónimo ──────────────────────────────────────────
+  // `catalog.suppliers` tiene 202 nombres repetidos; su calificación mezcla negocios distintos.
+  // Cuesta poco dejarlos fuera (3 proveedores, $2,393 del delta) y evita acusar a uno por otro.
+  private erpFillOk: boolean | null = null;
+  private async erpFillReady(trx: any): Promise<boolean> {
+    if (this.erpFillOk != null) return this.erpFillOk;
+    try {
+      const r = await trx.raw(`SELECT to_regclass('analytics.mv_supplier_fill_rate') IS NOT NULL AS t`);
+      this.erpFillOk = !!r.rows[0]?.t;
+    } catch { this.erpFillOk = false; }
+    if (!this.erpFillOk)
+      this.logger.warn('[RA-DYN.U7] falta analytics.mv_supplier_fill_rate — el pedido NO corrige por cumplimiento del proveedor (aplicá la migración 20261002190000).');
+    return this.erpFillOk;
+  }
+
+  /**
+   * Fill rate por proveedor desde la cadena de Kepler, a la ventana y al umbral configurados.
+   *
+   * Pondera por DINERO (`importe_no_surtido / importe_pedido`), no por renglones: un faltante de
+   * $5 y uno de $500,000 no pesan igual en lo que hay que volver a pedir. Las cantidades no se
+   * suman entre SKUs — serían unidades distintas; el importe sí es conmensurable.
+   */
+  private erpFillSubquery(): string {
+    return `
+          SELECT supplier_id,
+                 1 - sum(importe_no_surtido) / NULLIF(sum(importe_pedido), 0) AS fr,
+                 count(*)::int AS n
+            FROM analytics.mv_supplier_fill_rate
+           WHERE supplier_id IS NOT NULL
+             AND primera_entrega >= current_date - make_interval(days => :fwin::int)
+           GROUP BY supplier_id
+          HAVING count(*) >= :fminerp::int
+             AND sum(importe_pedido) > 0
+             AND NOT bool_or(supplier_ambiguo)`;
+  }
+
+  /**
+   * El multiplicador del pedido: 1 ÷ fill, topado.
+   *
+   * ⚠️ EL `COALESCE` VA ADENTRO DEL `GREATEST`, Y NO ES ESTILO. En Postgres `GREATEST` **ignora
+   * los NULL**, así que `GREATEST(NULL, 1/1.30)` devuelve 0.769 — o sea que un proveedor SIN
+   * medición se llevaría el inflado máximo, +30%, justo el que menos lo merece. Con el `COALESCE`
+   * primero, ausencia de medición significa factor 1.0 y el pedido no se mueve.
+   * (Me mordió midiendo, antes de escribir esto.)
+   */
+  private erpFillFactor(ready: boolean, col: string): string {
+    return ready ? `(1.0 / GREATEST(COALESCE(${col}, 1.0), 1.0 / :maxinf))` : '1.0';
+  }
+
+  /** Los tres parámetros del fill rate, con degradación a defaults si falta la migración. */
+  private fillBinds(st: any): { fwin: number; fminerp: number; maxinf: number } {
+    return {
+      fwin: Math.max(30, Number(st?.fill_window_days) || this.DEFAULT_SETTINGS.fill_window_days),
+      // ⛔ NO es `fill_min_lines` (3). Ese umbral es para la evidencia app-nativa; medido contra
+      // prod, debajo de 25 renglones el fill rate del ERP tiene correlación CERO con su propio
+      // futuro. Ver la migración 20261003120000.
+      fminerp: Math.max(25, Number(st?.fill_min_lines_erp) || this.DEFAULT_SETTINGS.fill_min_lines_erp),
+      maxinf: Math.min(3, Math.max(1, Number(st?.fill_max_inflate) || this.DEFAULT_SETTINGS.fill_max_inflate)),
+    };
   }
 
   // RA-PRO.28 — verificación de UNIDAD DE VENTA para no inflar pedidos. Un SKU se vende en
@@ -903,6 +1000,8 @@ export class CommercialReplenishmentService {
       const ready = await this.personalizationReady(trx);
       // WMS-REC.8 — evidencia de recepción para el fill rate (degrada si falta la mig).
       const recvReady = await this.receivingClaimsReady(trx);
+      // `[RA-DYN.U7]` — la cadena de Kepler, la única fuente con masa (degrada si falta la mig).
+      const erpReady = await this.erpFillReady(trx);
       const st: any = ready ? await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first() : this.DEFAULT_SETTINGS;
       const colFill = ready ? 'sup.fill_rate_override' : 'NULL::numeric';
       const colSafety = ready ? 'sup.safety_pct' : 'NULL::numeric';
@@ -911,6 +1010,8 @@ export class CommercialReplenishmentService {
       const fwin = Math.max(30, Number(st?.fill_window_days) || 180);   // ventana de historia del fill rate
       const fmin = Math.max(1, Number(st?.fill_min_lines) || 3);        // mínimo de recepciones para confiar
       const maxinf = Math.min(3, Math.max(1, Number(st?.fill_max_inflate) || 1.30)); // tope de inflado
+      // `[RA-DYN.U7]` — umbral PROPIO de la cadena de Kepler (25, medido). No reusa `fmin`.
+      const fminerp = this.fillBinds(st).fminerp;
       // RA-PRO.31 — LEE del fact precomputado (analytics.replenishment_plan) agregado a grano RED
       // (o por sucursal si hay filtro de almacén). suf/bf/caja_cost/price_ratio/unit_source ya vienen
       // resueltos por producto; demanda/existencia/tránsito/revenue se SUMAN sobre los almacenes del scope.
@@ -965,8 +1066,14 @@ export class CommercialReplenishmentService {
                           THEN LEAST(1.0, (COALESCE(frp.recv,0) + ${rRecvP})::numeric / (COALESCE(frp.ord,0) + ${rOrdP})) END`;
       const frSup = `CASE WHEN (COALESCE(frs.n,0) + ${rNS}) >= :fmin AND (COALESCE(frs.ord,0) + ${rOrdS}) > 0
                           THEN LEAST(1.0, (COALESCE(frs.recv,0) + ${rRecvS})::numeric / (COALESCE(frs.ord,0) + ${rOrdS})) END`;
-      const fillRate = `COALESCE(${colFill}, ${frSku}, ${frSup}, 1.0)`;
-      const fillSource = `CASE WHEN ${colFill} IS NOT NULL THEN 'override' WHEN ${frSku} IS NOT NULL THEN 'sku' WHEN ${frSup} IS NOT NULL THEN 'supplier' ELSE 'default' END`;
+      // `[RA-DYN.U7]` — la cadena de Kepler entra ÚLTIMA, antes del 1.0 por defecto. Va debajo de
+      // nuestra propia evidencia a propósito: la OC app-nativa y el reclamo del andén los firmó
+      // alguien de casa contra el camión. ⚠️ Hoy el orden decide para 6 proveedores en total (4 con
+      // OC + 6 con reclamo, todos con menos de 30 renglones), así que la precedencia es una postura,
+      // no un efecto: lo que mueve el número es que antes del 1.0 ahora hay 329 proveedores medidos.
+      const frErp = erpReady ? 'fre.fr' : 'NULL::numeric';
+      const fillRate = `COALESCE(${colFill}, ${frSku}, ${frSup}, ${frErp}, 1.0)`;
+      const fillSource = `CASE WHEN ${colFill} IS NOT NULL THEN 'override' WHEN ${frSku} IS NOT NULL THEN 'sku' WHEN ${frSup} IS NOT NULL THEN 'supplier' WHEN ${frErp} IS NOT NULL THEN 'erp' ELSE 'default' END`;
       // De DÓNDE salió el número: sin esto el comprador no sabe si el fill rate viene de
       // nuestras OCs, del andén, o de las dos — y un número sin procedencia no se discute
       // con un proveedor.
@@ -974,6 +1081,7 @@ export class CommercialReplenishmentService {
                               WHEN (COALESCE(frp.n,0) + COALESCE(frs.n,0)) > 0 AND (${rNP} + ${rNS}) > 0 THEN 'po+recv'
                               WHEN (COALESCE(frp.n,0) + COALESCE(frs.n,0)) > 0 THEN 'po'
                               WHEN (${rNP} + ${rNS}) > 0 THEN 'recv'
+                              WHEN ${erpReady ? 'COALESCE(fre.n,0)' : '0'} > 0 THEN 'erp'
                               ELSE 'none' END`;
       const covSource = `CASE WHEN ${colCov} IS NOT NULL THEN 'manual' WHEN ${autoCovKepler} IS NOT NULL THEN 'kepler' WHEN ${autoCov} IS NOT NULL THEN 'auto' ELSE 'global' END`;
       const safetySource = `CASE WHEN ${colSafety} IS NOT NULL THEN 'manual' WHEN plan.safety_pct_q IS NOT NULL THEN 'quantil' WHEN ${autoSafety} > 0 THEN 'auto' ELSE 'none' END`;
@@ -983,7 +1091,7 @@ export class CommercialReplenishmentService {
       const needBase = `GREATEST(0, ${sellDayPz} * ${seasonR} * ${covEff} / (${SUF} * ${BF}) - ${stockCjs} - ${transitEff})`; // necesidad neta (sin fill)
       const sug = `(${needBase} * ${fillFactor})`;                                                          // sugerido personalizado
       const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL'];
-      const binds: Record<string, unknown> = { t: tenantId, cov, fwin, fmin, maxinf };
+      const binds: Record<string, unknown> = { t: tenantId, cov, fwin, fmin, maxinf, fminerp };
       // Almacén: seleccionar almacén en Comprar = PEDIDO PER-SUCURSAL (demanda + existencia de
       // ESE almacén), NO "productos comprados ahí". Los proveedores DIRECTOS a sucursal (Ferrero)
       // no tienen fila en el ledger de compras del almacén → con el filtro viejo (pl.product_id IS
@@ -1077,6 +1185,8 @@ export class CommercialReplenishmentService {
         ) frr ON frr.supplier_id = pr.supplier_id
         LEFT JOIN (${this.recvFillSubquery('product')}
         ) frrp ON frrp.supplier_id = pr.supplier_id AND frrp.product_id = pr.id` : ''}
+        ${erpReady ? `LEFT JOIN (${this.erpFillSubquery()}
+        ) fre ON fre.supplier_id = pr.supplier_id` : ''}
         LEFT JOIN (
           SELECT p.supplier_id, avg(rp.demand_cv) AS cv
             FROM catalog.products p
@@ -1204,7 +1314,20 @@ export class CommercialReplenishmentService {
     const pageSize = q.export ? 100000 : Math.min(1000, Math.max(1, Number(q.pageSize) || 100));
     const offset = (page - 1) * pageSize;
     return this.tk.run(async (trx) => {
-      const binds: Record<string, unknown> = { t: tenantId, cov };
+      // `[RA-DYN.U7]` — EL CUMPLIMIENTO DEL PROVEEDOR LLEGA A LA SUPERFICIE QUE PUBLICA.
+      //
+      // El mecanismo de RA-PRO.27 vivía sólo en `purchaseSuggestion`, que esta pantalla usa para un
+      // cruce lateral; la grilla —y por lo tanto el total, el Excel y los chips— sale de ACÁ, y acá
+      // no había ningún fill rate. Cablearlo sólo del otro lado habría sido decorativo: el número
+      // que el comprador lee no se habría movido un peso.
+      const erpReady = await this.erpFillReady(trx);
+      const stReady = await this.personalizationReady(trx);
+      const stWb: any = stReady
+        ? await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first()
+        : this.DEFAULT_SETTINGS;
+      const fb = this.fillBinds(stWb);
+      const FILLF = this.erpFillFactor(erpReady, 'max(b.fill_erp)');
+      const binds: Record<string, unknown> = { t: tenantId, cov, ...(erpReady ? fb : {}) };
       const filters = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL',
         'NOT EXISTS (SELECT 1 FROM commercial.product_aliases pa WHERE pa.tenant_id = :t AND pa.alias_product_id = pr.id AND pa.deleted_at IS NULL)'];
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
@@ -1313,7 +1436,8 @@ export class CommercialReplenishmentService {
         WITH lad AS MATERIALIZED (
           SELECT l.sku, l.u1_label FROM analytics.v_supplier_cost_ladder l
            WHERE EXISTS (SELECT 1 FROM catalog.products pr WHERE pr.sku = l.sku AND ${where})
-        ), vbf AS MATERIALIZED (
+        )${erpReady ? `, fre AS MATERIALIZED (${this.erpFillSubquery()}
+        )` : ''}, vbf AS MATERIALIZED (
           SELECT v.tenant_id, v.warehouse_id, v.product_id, v.base_label
             FROM analytics.v_warehouse_box_factor v
            WHERE v.tenant_id = :t
@@ -1352,12 +1476,22 @@ export class CommercialReplenishmentService {
                  -- Rótulo de la unidad NATIVA del almacén: del resolvedor canónico por almacén
                  -- (v_warehouse_box_factor, 545 ms), que es el que fija el divisor.
                  vbf.base_label                      AS rung_base_label,
+                 -- [RA-DYN.U7] Cumplimiento del proveedor (cadena Kepler). NULL = sin medicion
+                 -- suficiente; NO es 1.0 ni 0: la ausencia se declara y el pedido no se mueve.
+                 -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
+                 ${erpReady ? 'fre.fr' : 'NULL::numeric'} AS fill_erp,
                  ${colExpr} AS col_code
             FROM catalog.products pr
             JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
             LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
             LEFT JOIN lad ON lad.sku = pr.sku
+            -- [RA-DYN.U7] fre es un CTE MATERIALIZED, no una subconsulta en linea, por la misma
+            -- razon que lad y vbf de arriba: en esta consulta el planificador ya eligio dos veces
+            -- un nested loop que re-evaluaba la relacion una vez por fila (131.9 M de filas
+            -- descartadas, 4 min 18 s). Materializado se evalua UNA vez: 40 ms medidos en prod.
+            -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
+            ${erpReady ? 'LEFT JOIN fre ON fre.supplier_id = pr.supplier_id' : ''}
             LEFT JOIN vbf
                    ON vbf.tenant_id = rp.tenant_id AND vbf.warehouse_id = rp.warehouse_id
                   AND vbf.product_id = rp.product_id
@@ -1377,9 +1511,18 @@ export class CommercialReplenishmentService {
                  -- (99089 en MD-30) la existencia se lee 1.3 cajas donde hay 12, el máximo es 10.3
                  -- y pide 6.9 cajas que ya están en el piso — $2,308 en un solo renglón.
                  -- Se retiene igual que el valuado: NULL, no un número.
+                 -- [RA-DYN.U7] Y al final se corrige por CUMPLIMIENTO: si el proveedor surte el
+                 -- 86%, pedirle lo que falta entrega el 86% de lo que falta. El factor es 1 / fill,
+                 -- topado en fill_max_inflate (1.30), y vale 1.0 exacto para todo proveedor sin
+                 -- medicion suficiente -- o sea que el 100% de los renglones sin fill rate publican
+                 -- el MISMO numero que antes de esta linea.
+                 -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
                  CASE WHEN ${RUNG_OK} THEN
-                   round(GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - COALESCE(sum(b.transit_eff_cajas),0))::numeric, 1)
+                   round((GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - COALESCE(sum(b.transit_eff_cajas),0)) * ${FILLF})::numeric, 1)
                  END AS ped,
+                 -- El fill rate viaja al front para que el inflado se VEA. Un pedido que crecio 4.8%
+                 -- sin decir por que es justo lo que este repo no publica.
+                 round(max(b.fill_erp)::numeric, 3) AS fill_erp,
                  -- Reorden/máximo YA EN CAJAS de este almacén, y el valuado de su existencia. Se
                  -- convierten ACÁ (por almacén, cada uno con SU factor) y no en el CTE prod: sumar
                  -- las unidades crudas de varios almacenes y dividir después mezcla las unidades.
@@ -1451,6 +1594,10 @@ export class CommercialReplenishmentService {
                  round(sum(reorder_cjs)::numeric, 1) AS reorder_cajas,
                  round(sum(max_cjs)::numeric, 1) AS max_cajas,
                  max(xyz) AS xyz_class,
+                 -- [RA-DYN.U7] El cumplimiento es del PROVEEDOR, asi que es identico en todas las
+                 -- columnas del renglon; max() lo sube sin mezclar nada.
+                 -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
+                 max(fill_erp) AS fill_rate,
                  round(max(season_ratio)::numeric, 3) AS season_ratio, max(season_src) AS season_src,
                  -- U.2 — sum() ignora los NULL: el pedido de red suma SOLO los almacenes cuyo
                  -- peldaño está verificado. almacenes_sin_pedido dice cuántos quedaron fuera,
