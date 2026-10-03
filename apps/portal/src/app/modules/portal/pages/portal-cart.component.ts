@@ -437,6 +437,7 @@ import { CountUpDirective } from '../ui/count-up.directive';
         /* El spinner nativo lo retira libs/ui-web/src/number-input.css para toda la suite (D.5).
            El stepper +/− de al lado es el reemplazo, y por eso acá sigue habiendo uno. */
       }
+       .ca-line-qty input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       /* iOS hace zoom al enfocar inputs <16px; en touch subimos a 16px. */
       @media (pointer: coarse) {
         .ca-line-qty input { font-size: 16px; }

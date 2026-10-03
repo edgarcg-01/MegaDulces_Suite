@@ -237,6 +237,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
     .ca-wh-row .comm-code { flex-shrink:0; min-width:3.2rem; }
     .ca-wh-input { flex:1; padding:.4rem .6rem; border:1px solid var(--c-divider); border-radius:8px; background:var(--c-surface-1); color:var(--c-text-1); font-size:var(--fs-sm); }
     .ca-wh-input:focus { outline:none; border-color:var(--action); }
+      .ca-wh-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

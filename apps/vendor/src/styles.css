@@ -1001,6 +1001,7 @@ input:focus, textarea:focus, select:focus {
   min-height: auto !important;
   line-height: 1.5 !important;
 }
+ .p-tab:focus-visible, .p-tab.p-component:focus-visible, .p-tab.p-ripple:focus-visible, .p-tab[data-pc-name="tab"]:focus-visible, .p-tab[data-pc-section="tab"]:focus-visible { outline: 2px solid var(--focus-ring) !important; outline-offset: -2px !important; }
 
 .p-tab:hover,
 .p-tab.p-component:hover,

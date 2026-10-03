@@ -209,7 +209,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
     .tri-on { color: var(--action); }
     .tri-partial { color: var(--text-muted); }
     .tri-sm { width:1.25rem; height:1.25rem; }
-    .tri:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .tri:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .tag-locked { font-size:9px; text-transform:uppercase; letter-spacing:.05em; color: var(--text-faint); border:1px solid var(--border-color); border-radius:.25rem; padding:0 .375rem; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,

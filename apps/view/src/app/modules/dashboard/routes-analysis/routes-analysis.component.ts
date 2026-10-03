@@ -124,7 +124,7 @@ interface RouteTrack {
     .ru-route-item:hover:not(.is-selected) { background: var(--hover-bg); }
     .ru-route-item.is-selected { background: var(--action); color: #fff; }
     .ru-route-item.is-selected .ru-route-zona { opacity: 0.7; }
-    .ru-route-item:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 0; border-radius: 7px; }
+    .ru-route-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 0; border-radius: 7px; }
     .ru-route-item-main { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
     .ru-route-name { font-size: 0.8125rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ru-route-badge {
@@ -155,7 +155,7 @@ interface RouteTrack {
       background: var(--card-bg); color: var(--text-main);
       font-size: 0.8125rem; font-family: inherit; outline: none;
     }
-    .ru-date-input:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 0; }
+    .ru-date-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 0; }
 
     /* ── empty / placeholder states ──────────────────────────── */
     .ru-empty, .ru-placeholder {

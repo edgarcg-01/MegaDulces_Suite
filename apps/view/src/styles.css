@@ -1032,6 +1032,7 @@ input:focus, textarea:focus, select:focus {
   min-height: auto !important;
   line-height: 1.5 !important;
 }
+ .p-tab:focus-visible, .p-tab.p-component:focus-visible, .p-tab.p-ripple:focus-visible, .p-tab[data-pc-name="tab"]:focus-visible, .p-tab[data-pc-section="tab"]:focus-visible { outline: 2px solid var(--focus-ring) !important; outline-offset: -2px !important; }
 
 .p-tab:hover,
 .p-tab.p-component:hover,
@@ -3058,7 +3059,7 @@ code.comm-code,
 .ta-c > .surf-sort { justify-content: center; }
 .surf-sort i { font-size: .65rem; opacity: .45; }
 .surf-sort:hover i { opacity: .9; }
-.surf-sort:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+.surf-sort:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
 /* La columna activa se marca con el color de acción — es el único estado que tiene que
  * leerse de reojo, porque contesta "¿por qué está en este orden?". */
 th[aria-sort]:not([aria-sort='none']) > .surf-sort { color: var(--action); }

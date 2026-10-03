@@ -433,6 +433,7 @@ import { CATALOGO_TABS } from '../catalogo-tabs';
       font-size: var(--fs-sm); color: var(--c-text-1);
       min-width: 0; padding: 0; height: 28px;
     }
+      .pp-search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .pp-search input::placeholder { color: var(--c-text-3); }
     /* Sin la "x" nativa del type=search (ya hay botón propio de limpiar). */
     .pp-search input::-webkit-search-cancel-button { display: none; }

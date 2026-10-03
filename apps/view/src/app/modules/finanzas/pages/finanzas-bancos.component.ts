@@ -223,7 +223,7 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
        No son nav redundante del segmentado — saltan con el filtro ya puesto (DESIGN §Q.4). */
     button.fb-status-chip::after { content: '→'; opacity: 0; margin-left: 2px; transition: opacity var(--dur-short) var(--ease-standard); }
     button.fb-status-chip:hover::after, button.fb-status-chip:focus-visible::after { opacity: .55; }
-    .fb-status-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+    .fb-status-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
     .fb-status-chip i { font-size: .8rem; color: var(--text-faint); }
     .fb-status-chip b { color: var(--text-main); font-weight: 600; }
     .fb-status-chip.warn { color: var(--warn-fg); }

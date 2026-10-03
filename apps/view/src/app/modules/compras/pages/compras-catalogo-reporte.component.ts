@@ -419,6 +419,7 @@ interface GrupoImpresion {
       border: 0; background: transparent; outline: none; color: var(--c-text-1);
       font: inherit; width: 100%;
     }
+     .rp-search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .rp-search:focus-within { border-color: var(--action); }
 
     .rp-chk { display: inline-flex; align-items: center; gap: .375rem; color: var(--c-text-1); font-size: var(--fs-sm); cursor: pointer; }

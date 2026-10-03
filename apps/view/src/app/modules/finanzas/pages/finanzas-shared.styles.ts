@@ -48,7 +48,7 @@ export const FINANZAS_SHARED_STYLES = `
     color: var(--action); background: var(--card-bg);
     box-shadow: 0 0 0 1px var(--border-color);
   }
-  .fb-viewseg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+  .fb-viewseg button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
   .fb-seg-config { margin-left: auto; }
   .fb-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
   .fb-skel-row { height: var(--row-h-md); border-radius: var(--r-sm); background: var(--hover-bg); animation: fb-pulse 1.4s ease-in-out infinite; }
@@ -154,6 +154,6 @@ export const FINANZAS_SHARED_STYLES = `
     padding: 2px var(--sp-2); cursor: pointer; }
   .tw-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
   .tw-xls:disabled { opacity: .6; cursor: default; }
-  .tw-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+  .tw-xls:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
   .tw-xls-head { margin-left: var(--sp-2); vertical-align: middle; }
 `;

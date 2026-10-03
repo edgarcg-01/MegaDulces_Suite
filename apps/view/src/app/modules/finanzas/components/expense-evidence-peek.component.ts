@@ -262,7 +262,7 @@ const ETIQUETAS: Record<string, string> = {
     .ep-add { border: 0; background: none; padding: 0; font: inherit; font-size: var(--fs-xs);
       color: var(--action); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
     .ep-add:hover { color: var(--action-hover); }
-    .ep-add:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .ep-add:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
     /* Pares en rejilla: la etiqueta pega a SU valor. Con una columna de 9rem y el panel
        ancho, entre dt y dd quedaban cientos de píxeles y la asociación se perdía. El

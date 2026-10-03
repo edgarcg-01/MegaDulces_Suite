@@ -432,6 +432,7 @@ interface OfferCard {
         color: var(--text-main);
         min-width: 0;
       }
+      .pp-search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .pp-search input::placeholder { color: var(--text-faint); }
       .pp-search-clear {
         background: var(--neutral-100);

@@ -1085,6 +1085,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         font-variant-numeric: tabular-nums;
       }
       .qty-num:focus { outline: none; }
+      .qty-num:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .touch-qty-readout:focus-within { border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring, rgba(240, 90, 40, 0.3)); }
       .qty-lbl { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
 

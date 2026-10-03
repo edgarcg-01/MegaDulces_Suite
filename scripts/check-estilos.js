@@ -58,7 +58,7 @@ const TOPE = {
   fontSize:   3161,  // font-size con literal (debería ser var(--fs-*))
   hex:        1449,  // hex crudo en declaración de color
   breakpoint:  205,  // @media (min|max-width: Npx)
-  outline:      27,  // outline:none sin :focus-visible hermano en el mismo bloque
+  outline:       0,  // CERRADA 2026-10-03: eran 37 (27 + 10 que el chequeo por ARCHIVO escondia). Un outline:none nuevo sin anillo es ROJO
 };
 
 /** La escala real, leída de tokens.css — no copiada a mano, que es como se desincronizan. */
@@ -79,6 +79,19 @@ const HEX_NEUTRO = /^#(fff|ffffff|000|000000)$/i;
 
 function sinComentarios(css) {
   return css.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+}
+
+/** Un selector comparable: sin espacios de más, sin mayúsculas. */
+const norm = (s) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * Dado el selector que APAGA el outline, cuál sería el del anillo.
+ * Es el MISMO derivado que usó el arreglo de los 27, a propósito: si la compuerta y el
+ * arreglo no derivan igual, la compuerta se queda roja sobre algo que ya está resuelto.
+ */
+function selectorAnillo(sel) {
+  if (/:focus\b(?!-)/.test(sel)) return sel.replace(/:focus\b(?!-)/g, ':focus-visible');
+  return sel.split(',').map((s) => s.trim() + ':focus-visible').join(', ');
 }
 
 // ── Las cuatro reglas, sobre un bloque de CSS ya extraído ───────────────────────────────────
@@ -119,16 +132,50 @@ function analizar(css, rel, escala) {
     h.breakpoint.push({ rel, px: m[1] });
   }
 
-  // 4 — outline:none sin :focus-visible hermano EN EL MISMO BLOQUE
-  const apagados = [...limpio.matchAll(/outline\s*:\s*(none|0)\b/g)];
-  if (apagados.length && !/:focus-visible/.test(limpio)) {
-    for (const m of apagados) {
-      // El selector del bloque, para que el mensaje diga QUÉ control se quedó sin anillo.
-      const abre = limpio.lastIndexOf('{', m.index);
-      const desde = Math.max(limpio.lastIndexOf('}', abre), limpio.lastIndexOf(';', abre)) + 1;
-      const sel = limpio.slice(desde, abre).trim().replace(/\s+/g, ' ').slice(-60);
-      h.outline.push({ rel, sel });
+  // 4 — outline:none sin un anillo PARA ESE MISMO CONTROL
+  //
+  // ⛔ La primera versión preguntaba si el BLOQUE contenía `:focus-visible` en cualquier parte,
+  // y su prueba negativa la desmintió el mismo día: en cuanto un archivo gana UN anillo, todo
+  // `outline:none` que se agregue después en ese archivo pasa en silencio. Justo los 20 archivos
+  // que acababan de arreglarse quedaban ciegos. Un gate que se vuelve verde por el motivo
+  // equivocado es peor que no tenerlo (ADR-056). Ahora la pregunta es por CONTROL, no por archivo.
+  // Selectores que SÍ dibujan un anillo — con `outline` **o** con `box-shadow`, que es el otro
+  // patrón vivo del repo (`.mt-chain.clickable:focus-visible { box-shadow: 0 0 0 2px ... }`).
+  // ⚠️ Contar sólo `outline` marcaba esos como defecto: el anillo estaba, con otra propiedad.
+  const conAnillo = new Set();
+  for (const m of limpio.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const tiene = /outline(?:-style)?\s*:\s*[^;}]*\b(solid|dotted|dashed|double|auto)\b/.test(m[2])
+      || /box-shadow\s*:\s*(?!none\b)[^;}]+/.test(m[2]);
+    if (tiene) for (const s of m[1].split(',')) conAnillo.add(norm(s));
+  }
+
+  for (const m of limpio.matchAll(/outline\s*:\s*(none|0)\b/g)) {
+    const abre = limpio.lastIndexOf('{', m.index);
+    const desde = Math.max(limpio.lastIndexOf('}', abre), limpio.lastIndexOf(';', abre)) + 1;
+    const sel = limpio.slice(desde, abre).trim().replace(/\s+/g, ' ');
+    const cierra = limpio.indexOf('}', m.index);
+    if (!sel || cierra < 0) continue;
+    const cuerpo = limpio.slice(abre + 1, cierra);
+
+    // CASO A — el bloque YA responde al foco (`:focus`, `:focus-visible`, `:focus-within`).
+    // Apagar el `outline` ahí es legítimo SI pone otra señal visible en el mismo bloque:
+    // un `box-shadow` (el anillo-halo, que es el patrón del repo), un borde de color, un
+    // fondo o una animación. ⚠️ `border: none` y `background: none` NO cuentan: apagar no
+    // es señalar — y eran exactamente los 27 que había que arreglar.
+    if (/:focus(-visible|-within)?\b/.test(sel)) {
+      const señal = /box-shadow\s*:\s*(?!none\b)[^;}]+/.test(cuerpo)
+        || /border(?:-color|-[a-z]+-color)?\s*:\s*(?!none\b|0\b)[^;}]*(?:var\(|#|rgb|hsl|currentcolor)/i.test(cuerpo)
+        || /animation\s*:\s*(?!none\b)[^;}]+/.test(cuerpo)
+        || /background(?:-color)?\s*:\s*(?!none\b|transparent\b)[^;}]+/.test(cuerpo);
+      if (señal) continue;
     }
+
+    // CASO B — el bloque NO responde al foco (`.search input { outline: none }`): entonces
+    // el anillo tiene que existir como regla HERMANA para ese mismo control.
+    const esperados = selectorAnillo(sel).split(',').map(norm);
+    if (esperados.some((e) => conAnillo.has(e))) continue;
+
+    h.outline.push({ rel, sel: sel.length > 64 ? '…' + sel.slice(-62) : sel, espera: esperados[0] });
   }
 
   return h;
@@ -153,6 +200,22 @@ if (process.argv.includes('--self-test')) {
     ['pointer coarse → exento',     '@media (pointer:coarse){.a{color:red}}',  'breakpoint', 0],
     ['outline:none solo → rojo',    '.a:focus{outline:none}',                  'outline',  1],
     ['outline:none + ring → limpio','.a:focus{outline:none}.a:focus-visible{outline:2px solid}', 'outline', 0],
+    // ⛔ Los cuatro de abajo nacieron de que la PRIMERA versión de esta regla se puso verde por
+    // el motivo equivocado. Preguntaba si el ARCHIVO contenía `:focus-visible` en cualquier
+    // parte; en cuanto un archivo ganaba un anillo, todo `outline:none` agregado después pasaba
+    // en silencio — y eso dejaba ciegos justo a los 20 archivos recién arreglados. La encontró
+    // la prueba negativa, el mismo día. Ahora la pregunta es por CONTROL.
+    ['anillo de OTRO control no cubre → rojo',
+     '.a:focus-visible{outline:2px solid red} .b:focus{outline:none}',          'outline', 1],
+    ['anillo del MISMO control → limpio',
+     '.b:focus{outline:none} .b:focus-visible{outline:2px solid red}',          'outline', 0],
+    ['halo box-shadow en el bloque → limpio',
+     '.b:focus-visible{outline:none;box-shadow:0 0 0 2px red}',                 'outline', 0],
+    ['halo box-shadow como HERMANO → limpio',
+     '.b{outline:none} .b:focus-visible{box-shadow:0 0 0 2px red}',             'outline', 0],
+    // La firma exacta de los 27 arreglados: apagar no es señalar.
+    ['border:none + background:none NO son señal → rojo',
+     '.c input{border:none;background:none;outline:none}',                      'outline', 1],
   ];
   let fallos = 0;
   for (const [nombre, css, regla, esperado] of casos) {

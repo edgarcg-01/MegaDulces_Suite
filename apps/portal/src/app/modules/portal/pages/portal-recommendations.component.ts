@@ -700,6 +700,7 @@ const EXAMPLES = [
         color: var(--text-main);
         /* El spinner nativo lo retira libs/ui-web/src/number-input.css para toda la suite (D.5). */
       }
+      .ai-sug-qty input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
       .ai-sug-subtotal {
         font-weight: 800;
@@ -883,6 +884,7 @@ const EXAMPLES = [
         max-height: 140px;
         transition: border-color 150ms var(--ease-standard), box-shadow 150ms var(--ease-standard), background-color 150ms var(--ease-standard);
       }
+       .ai-input-field:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .ai-input-field:focus {
         border-color: var(--action);
         background: var(--card-bg);

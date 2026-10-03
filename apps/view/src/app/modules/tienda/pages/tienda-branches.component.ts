@@ -34,7 +34,7 @@ import { TiendaStateService } from '../tienda-state.service';
     .tda-branch { cursor:pointer; transition:border-color .15s, background-color .15s; }
     .tda-branch:hover { border-color:var(--action); }
     .tda-branch.sel { border-color:var(--action); background:color-mix(in srgb, var(--action) 7%, transparent); box-shadow:inset 0 0 0 1px var(--action); }
-    .tda-branch:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
+    .tda-branch:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
     .tda-branch .bx { display:flex; justify-content:space-between; font-size:.7rem; color:var(--text-muted); margin-top:.15rem; }
     .drill-head { display:flex; align-items:baseline; gap:.6rem; }
     .drill-head .muted { color:var(--text-muted); font-size:.8rem; font-weight:600; }

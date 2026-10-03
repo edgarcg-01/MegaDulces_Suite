@@ -256,4 +256,4 @@ app-metric-strip { display: block; }
   margin-left: auto; background: none; border: 0; padding: 0;
   color: var(--action); cursor: pointer; font: inherit; text-decoration: underline;
 }
-.cc-degraded-btn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+.cc-degraded-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }

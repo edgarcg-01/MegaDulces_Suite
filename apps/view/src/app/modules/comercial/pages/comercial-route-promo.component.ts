@@ -250,6 +250,7 @@ import { ComercialService, RoutePromoResult, RoutePromoBody, PromoClientRow } fr
     .rp-ta { width:100%; resize:vertical; font-size:.85rem; padding:.6rem .7rem; border:1px solid var(--border-color);
       border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-family:inherit; }
     .rp-ta:focus { outline:none; border-color:var(--action); box-shadow:0 0 0 2px var(--action-ring); }
+      .rp-ta:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .rp-controls { display:flex; align-items:flex-end; gap:1rem; }
     .rp-field { display:flex; flex-direction:column; gap:.3rem; }
     .rp-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }

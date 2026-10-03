@@ -1302,7 +1302,7 @@ interface AttachFile {
        suficiente color y esto aparece en muchas celdas a la vez. */
     .cb-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0; font:inherit; text-align:left; }
     .cb-reflink:hover { color:var(--action); text-decoration:underline; }
-    .cb-reflink:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; border-radius:var(--r-sm); }
+    .cb-reflink:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .cb-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
     .cb-field { display: flex; flex-direction: column; gap: .3rem; }
     .cb-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
@@ -1401,7 +1401,7 @@ interface AttachFile {
     .cb-linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--action);
       cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
     .cb-linkbtn:hover { color: var(--action-hover); }
-    .cb-linkbtn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .cb-linkbtn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
     /* RE.28.4 — el lote: qué se va a aprobar, y después qué pasó con cada una. La lista se

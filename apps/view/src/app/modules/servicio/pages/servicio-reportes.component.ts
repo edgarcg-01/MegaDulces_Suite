@@ -165,7 +165,7 @@ function restarDias(fecha: string, n: number): string {
     .sr-chip { border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-pill);
       padding: 4px var(--sp-3); font-size: var(--fs-sm); cursor: pointer; }
     .sr-chip.on { border-color: var(--action); color: var(--text-main); background: var(--surface-selected-bg); }
-    .sr-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .sr-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .sr-fecha { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); }
     .sr-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); }
     .sr-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
