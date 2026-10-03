@@ -76,7 +76,15 @@ const TOPE = {
   // sin `:root`, así que un `var(--fs-*)` ahí NO resuelve y el navegador tira la declaración
   // entera. **No son deuda: son el valor correcto para ese contexto**, y el tope los absorbe.
   // La pregunta antes de tokenizar un font-size no es en qué archivo está: es dónde se RENDERIZA.
-  fontSize:   2687,
+  // ⚠️ 2,688 y no 2,687: `[AU.14]` (04c9d642c) agregó UNO después de que `[DS.6.1]` fijara el
+  // tope — tokenizó casi todo su CSS nuevo y dejó cuatro literales (`1.5rem` en `.pa-rev-num`,
+  // `10px` en `.pv-ic` y `.pt-chev`, `9px` en `.pt-tag-g`), de los que queda **uno** neto.
+  // No se tokeniza acá a propósito: esos tres archivos estaban ABIERTOS en otra sesión al
+  // momento de medir, y editar el archivo vivo de otra sesión es cómo se pierde trabajo en un
+  // árbol compartido (ONBOARDING §8.1). Queda para quien los tiene en la mano, CON la pantalla
+  // a la vista — que es justo lo que pide el comentario de arriba. El ratchet sigue haciendo su
+  // trabajo: un SEGUNDO literal vuelve a dar rojo.
+  fontSize:   2688,
   hex:        1449,  // hex crudo en declaración de color
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,
