@@ -3623,9 +3623,17 @@ de pago · alcance en pirámide de 5 niveles sobre `ScopeService` (ADR-050), no 
   **Medido (local):** el máximo por persona es 22 vales → hoy no le escondía nada a nadie; es un
   riesgo latente que crece con el uso. Prod no medido (sin acceso desde esta máquina).
   finance 332→344 · `nx build api` OK.
-- [ ] **[GX.65.2]** El dueño del vale puede capturar la comprobación de SU gasto (hoy GX.8 exige
-  área asignada → «No tienes acceso»).
-- [ ] **[GX.65.3]** `/mine` publica clave de proveedor, gastos `XA1001` ligados y estado de la comprobación.
+  **Regla de columnas, decidida 2026-10-03 (reemplaza el borrador de «Gastos XA1001»):**
+  1 · **Solicitudes** (evidencia → «Revisado») · 2 · **Pendientes de comprobación**, *sólo* los
+  aprobados como prefactura/cotización (`provisional`, GX.54/55, ya existe) · 3 · **Expedientes**
+  (sin pago arriba / pagados abajo). «Revisado» sin prefactura salta **directo** a Expedientes.
+  ⛔ **La comprobación de Kepler deja de ser forzosa** — revierte lo pedido el 2026-10-02 en GX.59;
+  manda la regla nueva. El `XA1001` **no mueve** el vale: se muestra como dato del expediente.
+  Con esto el ex-GX.65.2 (que el dueño capture la comprobación por GX.8) **ya no hace falta**.
+- [ ] **[GX.65.2]** El protocolo del expediente deja de exigir la comprobación (`protocoloDelVale`,
+  GX.59): «completo» = evidencia + «Revisado»; la prefactura exige además su factura.
+- [ ] **[GX.65.3]** Que Kepler cree el `XA1001` deja de ser «Ejercido = cerrado»: se publica como dato.
+  `/mine` publica además la clave de proveedor (`cuenta_clave` + `acreedor`).
 - [ ] **[GX.65.4]** Alcance por pirámide (`ScopeService`, área `finanzas`) + nadie aprueba su propio vale.
 - [ ] **[GX.65.5]** La pantalla en 3 columnas + filtros.
 
