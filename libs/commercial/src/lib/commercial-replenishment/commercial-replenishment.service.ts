@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
