@@ -181,6 +181,13 @@ periodos que no son el mismo tiempo. Hay tres salidas y **ninguna es gratis**:
 3. **Dos ejes declarados, y el Resultado sólo a nivel mes.** Ventas sigue en 13×4 para lo comercial;
    el P&L y el flujo viven en meses. Es lo único que no inventa nada. **Es la recomendación.**
 
+> ⭐ **Enmienda (2026-10-03): la opción 3 ya estaba construida y yo no la había encontrado.**
+> `BudgetSalesPlanService.projectToSalesTargets()` (Fase PVT) reparte el plan 13×4 a meses
+> **proporcional a los días** del calendario y lo deja en `commercial.sales_targets` como artefacto
+> derivado e idempotente. O sea: la meta mensual sale de la **misma única verdad** que la de 13×4,
+> sin recapturar nada y sin inventar una asignación. El `[PU.R]` usa ese mismo reparto.
+> ⚠️ Está escrita y **nunca se corrió**: `commercial.sales_targets` tiene **0 filas**.
+
 ### ⛔ El canal: dos vocabularios, ninguno derivado del otro
 
 `analytics.v_sales_entity` (el eje del plan de ventas) trae 44 entidades en **6 canales**: `ruta`
@@ -229,14 +236,44 @@ plan, su fuente de real y su estado hoy.**
 | **0** | **Completar el plan de ventas FY2027**: P6 (faltan 12 entidades), P10 (está al 25 %), P11–P13 (vacíos) | ⬜ **captura humana**, cero código | que el cumplimiento deje de ser falso en 3 de 13 periodos |
 | **1** | **Correr la propuesta de gasto** (`POST` de `BudgetExpensePlanService`, familia 6) para FY2027 | ⬜ **un clic**, cero código | el renglón 4 del P&L, con plan **y** real |
 | **2** | **Materializar** los dos planes a `budget_lines` (ADR-074) | ⬜ **un clic**, cero código | el ledger de 5 estados, la ocupación y el control de sobregiro |
-| **3** | Decidir el **eje de tiempo** (§4) y escribirlo en el ADR | ⬜ **decisión** | que ventas y gastos se puedan restar en la misma fila |
-| **4** | Renglón **costo de ventas**: real desde `mv_sales_blended.cost`, plan como % de la venta planeada | 🔨 ~1 día | margen bruto presupuestado |
-| **5** | Renglones **compra de inventario** (511) e **inversión** (150), separados del gasto | 🔨 ~1 día | que el flujo deje de ignorar $453.7 M |
-| **6** | **Estado de resultados presupuestado** (la vista que suma 1→6) | 🔨 ~1 día | la pregunta que nadie puede contestar hoy |
-| **7** | **Cuadre contra la balanza** (`ledger_monthly`) como árbitro, con su hueco declarado | 🔨 ~1 día | ADR-059 sobre esta pantalla |
+| **3** | ~~Decidir el **eje de tiempo**~~ | ✅ **resuelto**: ya estaba construido (`projectToSalesTargets`, reparto por días) | que ventas y gastos se puedan restar en la misma fila |
+| **4** | Renglón **costo de ventas** | ✅ **hecho** — real desde `mv_sales_blended.cost`; el plan se **declara**, no se inventa | margen bruto |
+| **5** | **Compra de inventario** (511) e **inversión** (150), separadas del gasto | ✅ **hecho** — al lado del P&L, nunca sumadas | que el flujo deje de ignorar $457.0 M |
+| **6** | **Estado de resultados** (la cascada 1→6), plan contra real | ✅ **hecho** (`[PU.R]`) | la pregunta que nadie podía contestar |
+| **7** | **Cuadre contra la balanza** como árbitro | ✅ **hecho** — y el árbitro MUERDE (4 meses cuadran, 6 difieren) | ADR-059 sobre esta pantalla |
 
-⭐ **Los pasos 0, 1 y 2 no son código: son tres acciones sobre pantallas que ya existen.** Hasta que
-no se hagan, construir los pasos 4–7 es llenar una pantalla que no tiene con qué comparar.
+⭐ **Los pasos 0, 1 y 2 no son código: son tres acciones sobre pantallas que ya existen.**
+
+### ✅ Pasos 4 a 7 — HECHOS (`[PU.R]`, 2026-10-03)
+
+Se construyeron juntos porque un estado de resultados en pedazos no sirve. Y al construirlos
+apareció un defecto que este mapa no había visto:
+
+> ⛔⛔ **La pantalla ya publicaba un resultado, y era falso.** `GET budgets/:id/resultado` calculaba
+> `plan de ventas − plan de gastos`. Medido contra prod sobre el ejercicio **FY2027 real**:
+>
+>     Resultado  $468,804,497.42      Margen  100.00 %
+>
+> No era un error aritmético: a la fórmula **le faltaba el costo de ventas** —el 88 % del egreso de
+> una distribuidora— y el plan de gastos está vacío, así que el sustraendo valía 0. Los meses sin
+> plan se dibujaban en `$0.00`: el cero de ausencia que ADR-056 prohíbe.
+
+Lo que hay ahora (`BudgetResultService.incomeStatement`), con **plan y real por separado en cada
+celda** y `null` donde no hay con qué medir:
+
+    Venta  −  Costo de ventas  =  Margen bruto  −  Gasto operativo  −  Financieros  =  Resultado
+
+y **al lado, nunca sumados**: compra de inventario (511) e inversión (150), porque son flujo.
+El árbitro del gasto es la balanza familia 6, y **muerde**: medido en 2026, 4 meses cuadran al peso
+y 6 difieren, concentrados en ene–mar. La venta se declara **`no_comparable`** contra la balanza
+familia 4, por el traspaso interno.
+
+Candado `test-newdb-budget-resultado.js`: **9 ✓ / 0 ✗ / 0 no medidos** contra prod, con la fórmula
+vieja reproducida al lado para que se ponga rojo si alguien la vuelve a poner.
+
+⛔ **Lo que esto NO arregla, y es lo que sigue faltando:** con el plan vacío, la pantalla publica el
+real completo y el plan en `—`. Es lo correcto y es lo útil que puede ser hoy — pero el presupuesto
+sigue sin existir hasta que se hagan los pasos 0, 1 y 2.
 
 ---
 
@@ -255,9 +292,9 @@ no se hagan, construir los pasos 4–7 es llenar una pantalla que no tiene con q
 
 ## 8. Las decisiones que no son mías
 
-1. ⛔ **El eje de tiempo** (§4): ¿todo a meses, el gasto rolado a 13×4, o dos ejes declarados con el
-   Resultado sólo a mes? **Recomiendo dos ejes declarados** — es el único que no inventa una
-   asignación.
+1. ✅ ~~**El eje de tiempo**~~ — **resuelto sin decisión nueva**: `projectToSalesTargets` ya reparte
+   el plan 13×4 a meses por días, desde la misma única verdad. El `[PU.R]` usa ese reparto. Lo que
+   falta es **correrlo** (`commercial.sales_targets` tiene 0 filas).
 2. ⛔ **Gasto consolidado o por sucursal.** Con el 89.5 % en el CEDIS, por sucursal deja ocho
    renglones marginales. El interruptor ya existe.
 3. ⛔ **Qué es «ingreso» para el presupuesto**: la venta a cliente de afuera (B/C) o el ingreso
@@ -270,7 +307,21 @@ no se hagan, construir los pasos 4–7 es llenar una pantalla que no tiene con q
 
 ---
 
-## 9. Lo que este mapa NO midió
+## 9. ⚠️ Lo medido tiene fecha, y se mueve
+
+**La balanza familia 4 de ene–sep 2026 valía $660,995,159.46 el 2026-10-02 y $662,570,231.69 el
+2026-10-03** — **$1,575,072.23 más en un día**, sobre meses que este mapa llama «cerrados».
+
+No es un error de medición: septiembre todavía se está contabilizando y el ODS es vivo. Pero
+significa que **cualquier cifra de esta clase es una foto**, y que comparar un reporte de ayer
+contra uno de hoy va a dar diferencias que no son de nadie. Es exactamente el hueco que la Fase VP
+declaró sin construir: **no existe `analytics.period_close`** — ninguna cifra oficial está
+congelada, y por eso nadie puede decir por qué cambió enero.
+
+Las cifras de este documento llevan su fecha de medición arriba. Si una va a sostener una decisión,
+hay que volver a medirla.
+
+## 10. Lo que este mapa NO midió
 
 - **El monto exacto del traspaso interno en ene–sep 2026.** Sólo está medida la proporción en dos
   ventanas (90 días: 84 % · agosto: 84.49 %). Extrapolarlo sería inventarlo.

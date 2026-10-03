@@ -16,7 +16,8 @@ import { MessageService } from 'primeng/api';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
-import type { Freshness, Coverage } from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
+import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResultAnnual }
+  from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
 import { environment } from '../../../../environments/environment';
 
 interface Capacity { capacity_date: string; authorized_amount: number; note: string | null; updated_by: string | null; updated_at: string }
@@ -515,23 +516,89 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       <!-- ══════════ FLUJO / RESULTADO (PU.3 + PR.4) ══════════ -->
       @if (view() === 'flujo') {
         <section class="pres-section">
-          <!-- Resultado presupuestado: ingresos (plan ventas) − egresos (plan gastos) · PR.4 -->
+          <!-- [PU.R] Estado de resultados: PLAN contra REAL, renglon por renglon.
+               Lo anterior era ingresos menos egresos, sin costo de ventas, y publicaba 100% de
+               margen sobre el ejercicio real. Ahora cada celda declara cuando no hay con que. -->
           @if (selected()) {
-            <h2>Resultado presupuestado <span class="pres-muted">— plan de ventas − plan de gastos</span></h2>
+            <h2>Estado de resultados <span class="pres-muted">— plan contra real, renglón por renglón</span></h2>
             @if (resultado(); as res) {
-              <div class="pres-result-kpis">
-                <div class="pres-result-kpi"><span class="pres-result-lbl">Ingresos (plan)</span><span class="pres-result-val pres-mono">{{ money(res.annual.ingresos) }}</span></div>
-                <div class="pres-result-kpi"><span class="pres-result-lbl">Egresos (plan)</span><span class="pres-result-val pres-mono">{{ money(res.annual.egresos) }}</span></div>
-                <div class="pres-result-kpi"><span class="pres-result-lbl">Resultado</span><span class="pres-result-val pres-mono" [class.pres-neg]="res.annual.resultado < 0">{{ money(res.annual.resultado) }}</span></div>
-                <div class="pres-result-kpi"><span class="pres-result-lbl">Margen</span><span class="pres-result-val pres-mono">{{ res.annual.margen_pct == null ? '—' : res.annual.margen_pct + '%' }}</span></div>
-              </div>
-              @if (!res.sources.ingresos.available || !res.sources.egresos.available) {
-                <p class="pres-nodata"><span class="pi pi-info-circle"></span> @if (!res.sources.ingresos.available) { {{ res.sources.ingresos.reason }}. } @if (!res.sources.egresos.available) { {{ res.sources.egresos.reason }}. }</p>
+              <div class="pres-summary-head"><app-freshness-pill measures="data" [freshness]="res.freshness" /></div>
+
+              <!-- La cascada anual. El orden de los renglones ES la lectura del P&L. -->
+              <table class="pres-pnl">
+                <tr><th class="pres-pnl-rgl">Renglón</th><th class="ta-r">Plan</th><th class="ta-r">Real</th><th class="ta-r">Cumplimiento</th></tr>
+                @for (r of pnlRenglones; track r.key) {
+                  <tr [class.pres-pnl-fuerte]="r.fuerte">
+                    <td class="pres-pnl-rgl">{{ r.resta ? '−' : '' }} {{ r.label }}</td>
+                    <td class="ta-r pres-mono">{{ celda(cel(res.annual, r.key), 'plan') }}</td>
+                    <td class="ta-r pres-mono"
+                        [class.pres-neg]="(cel(res.annual, r.key).real ?? 0) < 0">{{ celda(cel(res.annual, r.key), 'real') }}</td>
+                    <td class="ta-r pres-mono pres-muted">
+                      @if (r.key === 'venta' && res.annual.venta.plan && res.annual.venta.real) {
+                        {{ pctOf(res.annual.venta.real, res.annual.venta.plan) }}%
+                      } @else { — }
+                    </td>
+                  </tr>
+                }
+                <tr>
+                  <td class="pres-pnl-rgl pres-muted">Margen bruto %</td>
+                  <td class="ta-r pres-mono pres-muted">{{ res.annual.margen_bruto_pct.plan == null ? '—' : res.annual.margen_bruto_pct.plan + '%' }}</td>
+                  <td class="ta-r pres-mono pres-muted">{{ res.annual.margen_bruto_pct.real == null ? '—' : res.annual.margen_bruto_pct.real + '%' }}</td>
+                  <td></td>
+                </tr>
+              </table>
+
+              <!-- Al lado y NUNCA sumado: sumarlo al gasto lo multiplica por nueve. -->
+              <p class="pres-hint">
+                <span class="pi pi-info-circle"></span>
+                Fuera del resultado, porque es <strong>flujo</strong> y no gasto del periodo:
+                compra de inventario <strong class="pres-mono">{{ dash(res.annual.compra_inventario) }}</strong>
+                · inversión <strong class="pres-mono">{{ dash(res.annual.inversion) }}</strong>.
+              </p>
+
+              <!-- Lo que no se puede medir, con su razon. No es decoracion: hoy es el mensaje. -->
+              @for (s of res.sources; track s.key) {
+                @if (!s.available) {
+                  <p class="pres-nodata"><span class="pi pi-info-circle"></span> <strong>{{ s.label }}:</strong> {{ s.reason }}</p>
+                }
               }
+
+              <!-- El arbitro (ADR-059). Un renglon que nadie contrasta es una afirmacion sola. -->
+              @for (a of res.arbitros; track a.renglon) {
+                <p class="pres-hint">
+                  <span class="pi" [class.pi-check-circle]="a.veredicto === 'cuadra'"
+                        [class.pi-exclamation-triangle]="a.veredicto === 'difiere'"
+                        [class.pi-info-circle]="a.veredicto === 'no_comparable' || a.veredicto === 'no_medido'"></span>
+                  <strong>{{ a.renglon }}</strong> contra {{ a.fuente_arbitro }}:
+                  @if (a.veredicto === 'no_comparable') { <em>no comparable</em>. }
+                  @else if (a.veredicto === 'no_medido') { <em>no medido</em>. }
+                  @else { {{ money(a.mio) }} contra {{ money(a.arbitro) }} — Δ {{ money(a.delta) }} ({{ a.delta_pct }}%). }
+                  {{ a.nota }}
+                </p>
+              }
+
               <p-table [value]="res.months" styleClass="p-datatable-sm surf-table pres-table">
-                <ng-template #header><tr><th>Mes</th><th class="ta-r">Ingresos</th><th class="ta-r">Egresos</th><th class="ta-r">Resultado</th></tr></ng-template>
+                <ng-template #header>
+                  <tr>
+                    <th>Mes</th>
+                    <th class="ta-r">Venta plan</th><th class="ta-r">Venta real</th><th class="ta-r">Cumpl.</th>
+                    <th class="ta-r">Costo</th><th class="ta-r">Margen</th>
+                    <th class="ta-r">Gasto op.</th><th class="ta-r">Resultado</th>
+                    <th class="ta-r">Compra inv.</th>
+                  </tr>
+                </ng-template>
                 <ng-template #body let-m>
-                  <tr><td class="pres-mono">{{ m.year_month }}</td><td class="ta-r pres-mono">{{ dash(m.ingresos) }}</td><td class="ta-r pres-mono">{{ dash(m.egresos) }}</td><td class="ta-r pres-mono" [class.pres-neg]="m.resultado < 0">{{ money(m.resultado) }}</td></tr>
+                  <tr>
+                    <td class="pres-mono">{{ m.year_month }}</td>
+                    <td class="ta-r pres-mono">{{ celda(m.venta, 'plan') }}</td>
+                    <td class="ta-r pres-mono">{{ celda(m.venta, 'real') }}</td>
+                    <td class="ta-r pres-mono pres-muted">{{ m.cumplimiento_venta_pct == null ? '—' : m.cumplimiento_venta_pct + '%' }}</td>
+                    <td class="ta-r pres-mono">{{ celda(m.costo_ventas, 'real') }}</td>
+                    <td class="ta-r pres-mono">{{ celda(m.margen_bruto, 'real') }}</td>
+                    <td class="ta-r pres-mono">{{ celda(m.gasto_operativo, 'real') }}</td>
+                    <td class="ta-r pres-mono" [class.pres-neg]="(m.resultado.real ?? 0) < 0">{{ celda(m.resultado, 'real') }}</td>
+                    <td class="ta-r pres-mono pres-muted">{{ dash(m.fuera_del_resultado.compra_inventario) }}</td>
+                  </tr>
                 </ng-template>
               </p-table>
             } @else if (loadingResultado()) {
@@ -905,10 +972,15 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-assump-col h4 { margin:.2rem 0 .4rem; font-size:.8rem; color:var(--text-muted); }
     .pres-assump-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.25rem 0; font-size:.82rem; text-transform:capitalize; }
     .pres-assump-in { width:8rem; }
-    .pres-result-kpis { display:flex; gap:1rem; flex-wrap:wrap; margin:.5rem 0 .6rem; }
-    .pres-result-kpi { display:flex; flex-direction:column; gap:.1rem; min-width:9rem; padding:.5rem .7rem; border:1px solid var(--border-color); border-radius:var(--r-md); }
-    .pres-result-lbl { font-size:.72rem; color:var(--text-muted); }
-    .pres-result-val { font-size:1.05rem; }
+    /* [PU.R] La cascada del estado de resultados. El renglon de corte va en negritas y con
+       linea arriba: es lo que separa margen bruto de resultado al leerla de corrido. */
+    .pres-pnl { border-collapse:collapse; margin:.4rem 0 .8rem; min-width:min(100%,38rem); }
+    .pres-pnl th { text-align:left; font-size:.68rem; text-transform:uppercase; letter-spacing:.05em;
+      color:var(--text-muted,#78716c); font-weight:600; padding:.3rem .7rem;
+      border-bottom:1px solid var(--surface-border,#e7e5e4); }
+    .pres-pnl td { padding:.32rem .7rem; font-size:.84rem; }
+    .pres-pnl-rgl { white-space:nowrap; }
+    .pres-pnl-fuerte td { font-weight:700; border-top:1px solid var(--surface-border,#e7e5e4); }
     .pres-date { padding:.35rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:.85rem; }
     .pres-amt { width:10rem; } .pres-reason { flex:1; min-width:12rem; }
     .pres-current { font-size:.82rem; color:var(--text-muted); margin-top:.5rem; }
@@ -1636,13 +1708,39 @@ export class FinanzasPresupuestoComponent implements OnInit {
     this.http.put(`${this.base}/budgets/${b.id}/expense-plan/settings`, { default_growth_pct: (Number(this.asGastosDefault) || 0) / 100, proposal_families: families, by_sucursal: this.asGastosBySucursal, control_level: this.asGastosControl }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: finish, error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron guardar los supuestos de gastos.' }); } });
   }
 
-  // ── Resultado (ingresos − egresos) ──
-  resultado = signal<{ months: Array<{ year_month: string; ingresos: number; egresos: number; resultado: number }>; annual: { ingresos: number; egresos: number; resultado: number; margen_pct: number | null }; sources: { ingresos: { available: boolean; reason: string | null }; egresos: { available: boolean; reason: string | null } } } | null>(null);
+  // ── `[PU.R]` Estado de resultados: PLAN contra REAL, renglón por renglón ──
+  //
+  // ⛔ Antes esto era `ingresos − egresos` y sobre el ejercicio FY2027 real publicaba
+  // $468,804,497.42 con 100 % de margen: a la fórmula le faltaba el costo de ventas (el 88 % del
+  // egreso) y el plan de gastos está vacío. Ahora el tipo lo manda el contrato y cada celda puede
+  // venir en `null` — que es lo que hay que poder leer: dónde NO hay con qué medir.
+  resultado = signal<BudgetResult | null>(null);
   loadingResultado = signal(false);
+  /** Los cinco renglones del P&L, en orden de lectura. Se arma acá para no repetir la tabla. */
+  readonly pnlRenglones: Array<{ key: keyof BudgetResultMonth & keyof BudgetResultAnnual; label: string; fuerte?: boolean; resta?: boolean }> = [
+    { key: 'venta', label: 'Venta' },
+    { key: 'costo_ventas', label: 'Costo de ventas', resta: true },
+    { key: 'margen_bruto', label: 'Margen bruto', fuerte: true },
+    { key: 'gasto_operativo', label: 'Gasto operativo', resta: true },
+    { key: 'financieros', label: 'Gastos financieros e impuestos', resta: true },
+    { key: 'resultado', label: 'Resultado', fuerte: true },
+  ];
+  /** `null` se DECLARA, no se dibuja como cero: es la diferencia entre «no hay» y «dio cero». */
+  celda(c: { plan: number | null; real: number | null } | undefined, lado: 'plan' | 'real'): string {
+    const v = c ? c[lado] : null;
+    return v === null || v === undefined ? '—' : this.money(v);
+  }
+  cel(m: BudgetResultMonth | BudgetResultAnnual, k: string): { plan: number | null; real: number | null } {
+    return (m as unknown as Record<string, { plan: number | null; real: number | null }>)[k];
+  }
+  /** Cumplimiento. Sin denominador NO hay porcentaje — ni 0 ni 100. */
+  pctOf(num: number | null, den: number | null): number | null {
+    return num === null || den === null || den === 0 ? null : Math.round((num / den) * 1000) / 10;
+  }
   loadResultado(): void {
     const b = this.selected(); if (!b) { this.resultado.set(null); return; }
     this.loadingResultado.set(true);
-    this.http.get<ReturnType<typeof this.resultado>>(`${this.base}/budgets/${b.id}/resultado`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.http.get<BudgetResult>(`${this.base}/budgets/${b.id}/resultado`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.resultado.set(r); this.loadingResultado.set(false); },
       error: () => this.loadingResultado.set(false),
     });

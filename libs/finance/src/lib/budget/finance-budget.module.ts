@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BudgetLinesService } from './budget-lines.service';
 import { BudgetLinesController } from './budget-lines.controller';
 import { BudgetComparisonService } from './budget-comparison.service';
+import { BudgetResultService } from './budget-result.service';
 import { BudgetComparisonController } from './budget-comparison.controller';
 import { BudgetCashflowService } from './budget-cashflow.service';
 import { BudgetPlanningService } from './budget-planning.service';
@@ -28,7 +29,7 @@ import { SelloutRollupService } from './sellout-rollup.service';
  */
 @Module({
   controllers: [BudgetLinesController, BudgetComparisonController, BudgetPlanningController, BudgetCampaignsController, BudgetSalesController, BudgetExpenseController],
-  providers: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService],
-  exports: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService],
+  providers: [BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService],
+  exports: [BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService],
 })
 export class FinanceBudgetModule {}
