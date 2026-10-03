@@ -3679,7 +3679,21 @@ de pago · alcance en pirámide de 5 niveles sobre `ScopeService` (ADR-050), no 
 - [ ] **[GX.65.4b]** Alcance por pirámide (`ScopeService`, área `finanzas`): quién ve qué en «Todos»
   y en el Expediente (hoy cualquiera con `COMPROBAR` ve toda la empresa). Depende de fichas con
   sucursal y del centro de costo (`c12`, sesión DM.19) para lo anterior al 1-oct.
-- [ ] **[GX.65.5]** La pantalla en 3 columnas + filtros.
+- [x] **[GX.65.5]** 🧪 **«Mis gastos» en 3 columnas** (Solicitudes → Pendientes de comprobación →
+  Expedientes), reemplazando las 4 pestañas de GX.47. Regla pura `mis-gastos-columnas.ts`: la
+  columna sale del ESTADO nuestro (asignado/devuelto → 1 arriba · recibida → 1 abajo · aprobada →
+  2 arriba · revision → 2 abajo · validada → 3), **nunca de Kepler** (el XA1001 se muestra como
+  chip). Pendientes en rojo, del más viejo al más nuevo, con antigüedad (ámbar > 30 días). Abajo,
+  agrupado por **clave de proveedor de Kepler**; sin clave → un solo grupo «Sin clave de proveedor
+  en Kepler» (no se agrupa por el nombre tecleado). «Pagados» siempre vacío y lo explica: el pago
+  XD2601 aún no se liga a su gasto. Un estado desconocido **se avisa**, no cae callado en una
+  columna. Se conservan: `/mine` sin filtrar en el cliente, KPI de validados del servidor, error ≠
+  vacío, aviso de rechazos a las 24 h, buscador al servidor, botón a la captura con folio+sucursal,
+  factura de la prefactura. **Verificado en vivo (4200 + API local, cuenta demo_captura):** 3/1/4
+  vales por columna, 4 te tocan, 17 esperan, sin desborde a 420 px. view 1658→1679 · build view OK ·
+  check:templates/tokens/estilos (estilos atrapó un breakpoint en px → rem).
+- [ ] **[GX.65.6]** Filtros avanzados de la maqueta: accesos rápidos, «Más filtros», periodo de
+  pagados, aviso de pendientes ocultos por un filtro, orden por columna.
 
 ### 🔨 [GX.57] + [GX.58] · el concepto obligatorio y el botón «Revisado» — 2026-10-01
 
