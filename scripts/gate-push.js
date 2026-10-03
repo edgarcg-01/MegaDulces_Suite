@@ -31,15 +31,19 @@
  *
  * O sea: la autoridad que CAPA 1 suplía ya vive del lado del servidor, y para el
  * admin —a quien GitHub ahora SÍ autoriza— bloquear acá es frenar lo que el
- * servidor permite. ⚠️ **PENDIENTE, declarado y no hecho:** CAPA 1 todavía
- * bloquea; debería pasar a AVISAR. Mientras tanto el push directo a `main` sale
- * con `git push --no-verify`, que es el escape documentado abajo. La red de
- * seguridad no depende de esto: `[CI.SELLO]` es la que no se evade.
+ * servidor permite. Por eso CAPA 1 pasó a AVISAR.
+ *
+ * ⛔ Y el motivo de fondo no es la comodidad: la única salida que un bloqueo deja
+ *    es `git push --no-verify`, que apaga **también la CAPA 2** —los gates que sí
+ *    atrapan defectos reales—. Un candado que obliga a desactivarlo entero para
+ *    hacer lo que el servidor autoriza protege MENOS que no estar. La red no se
+ *    perdió, se movió a `[CI.SELLO]`, que no se evade.
  *
  * ─── Las dos capas, y por qué son distintas ───────────────────────────────────
  *
- *   CAPA 1 — `main` no recibe pushes. **Bloquea siempre** (ver el pendiente arriba).
- *     Es instantánea y no puede dar falso positivo: o apuntás a `main` o no.
+ *   CAPA 1 — push directo a `main`. **Avisa y sigue.**
+ *     Sigue existiendo porque empujar a la rama de la que se deploya merece una
+ *     línea en pantalla: eso sale a producción solo, en ~30 s.
  *
  *   CAPA 2 — los gates baratos, acotados a TUS archivos. **Bloquea sólo lo tuyo.**
  *     ⛔ La trampa que esto evita: los gates son de repo completo, y el repo TIENE
@@ -253,28 +257,40 @@ async function main() {
     })();
 
     console.error(`
-⛔ Push DIRECTO a \`${rama}\` — bloqueado.
+⚠️  Push DIRECTO a \`${rama}\` — permitido, y avisado.
 
-   Traés ${n} commit(s). \`${rama}\` es la rama de la que se deploya, y hoy no
-   tiene protección del lado de GitHub (repo privado en plan free → 403), así
-   que esta compuerta es lo único que hay.
+   Traés ${n} commit(s). \`${rama}\` es la rama de la que se deploya: esto sale a
+   producción solo, en ~30 s, sin que nadie más lo mire.
 
    Medido el 2026-09-30: de los últimos 20 pushes directos a \`main\`,
-   **15 quedaron en rojo y 1 en verde**. Por eso esto no es una formalidad.
+   **15 quedaron en rojo y 1 en verde**. Por eso el aviso.
 
-   Mové tu trabajo a una rama (no se pierde nada, sólo mueve el puntero):
+   Lo que te cubre si éste sale rojo: \`sellar\` no mueve \`ci-green\`, y
+   \`auto-deploy.sh\` se niega a desplegar lo que \`ci-green\` no bendijo. O sea
+   \`main\` puede ponerse roja, pero lo rojo NO llega a producción — eso sí, tampoco
+   llega nada más hasta que la arregles.
 
-       git switch -c feat/<descripción-corta>
-       git push -u origin feat/<descripción-corta>
+   Si preferís que lo revise alguien antes:
+
+       git switch -c feat/<descripción-corta> && git push -u origin HEAD
        gh pr create --base main --fill
-
-   Y devolvé tu main local a donde está el remoto:
-
-       git switch main && git fetch origin && git reset --hard origin/main
-
-   Receta completa en ONBOARDING.md §8.
 `);
-    process.exit(1);
+    // ⚠️ AVISA, NO BLOQUEA — y el porqué está medido, no es una concesión:
+    //
+    //   · Hasta el 2026-10-02 esta compuerta era lo ÚNICO que había: GitHub
+    //     contestaba 403 a `branches/main/protection` y a `rulesets`.
+    //   · Hoy la protección está PRENDIDA (checks obligatorios, sin force-push,
+    //     sin borrado, historia lineal) y el 2026-10-03 se apagó `enforce_admins`
+    //     a pedido del dueño: el admin empuja directo, cualquier otra cuenta sigue
+    //     obligada a PR con los dos checks en verde.
+    //
+    // ⛔ Bloquear acá sería frenar a quien el servidor YA autoriza, y la salida que
+    //    eso fuerza es `--no-verify`, que apaga TAMBIÉN la CAPA 2 — los gates que sí
+    //    atrapan defectos. Un candado que empuja a la gente a desactivarlo entero
+    //    protege menos que no estar. Por eso informa y sigue a CAPA 2.
+    //
+    // La autoridad vive en `[CI.SELLO]`, del lado del servidor, que no se evade.
+    break;
   }
 
   // ─── CAPA 2 — los gates, acotados a tus archivos ───────────────────────────
