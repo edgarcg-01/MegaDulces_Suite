@@ -13,6 +13,21 @@
 Kepler repite rótulos con factor 1 para llenar sus tres peldaños (mazapán PAQ/PAQ/CJA, rollo KG/KG/KG). Ahora la
 escalera se arma por factor real: KINDER cj · paq · pz, bolsa camiseta bto · kg, cubeta sólo cub. Botones de captura,
 columna Unidad, Σ Ped. y Σ Base (antes Σ Piezas). Medido: 562 artículos con 1 unidad, 5,397 con 2 y 366 con 3.
+### Changed — «Mis gastos» en 3 columnas, la comprobación deja de ser forzosa y nadie aprueba su propio vale (2026-10-03) `[GX.65]`
+
+- **«Mis gastos» se reorganiza en Solicitudes → Pendientes de comprobación → Expedientes**
+  (reemplaza las 4 pestañas de GX.47). Arriba de cada columna, en rojo, lo que te toca; abajo lo
+  avanzado, agrupado por la **clave de proveedor de Kepler**. La columna sale del estado del
+  expediente, nunca de Kepler. «Pagados» queda vacío y lo dice: el pago XD2601 aún no se liga.
+- **La comprobación de Kepler deja de ser forzosa en el Expediente.** «Revisado» sin prefactura
+  cierra el vale; sólo la prefactura/cotización debe su factura. Medido: 18 expedientes pasan a
+  completos, ninguno empeora. Se retira el botón forzoso, que además apuntaba a la pantalla equivocada.
+- **Nadie aprueba, valida ni rechaza su propio vale** (superadmin incluido). La simulación por
+  niveles encontró que el token no trae el nombre completo: la guarda lo lee del padrón.
+- **Fixed:** un vale abierto podía quedar fuera de «Mis gastos» por el corte de 200.
+- **Internal:** simulación reutilizable `database/scripts/sim-gx65-niveles.js` (37 casos, 7 personas,
+  5 niveles; aborta si la base no es local).
+
 ### Fixed — auditoría del design system: el techo de motion deja de ser una intención, y Alto Contraste deja de ser un hueco (2026-10-03)
 
 Auditoría de [`DESIGN.md`](DESIGN.md) y sus tres satélites. El sistema está bien hecho; lo que falla
