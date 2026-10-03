@@ -1051,6 +1051,74 @@ export class CommercialAnalyticsController {
     return this.service.routeInventoryDetail(routeNo, from, to);
   }
 
+  @Get('route-inventory/series')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.18 - Serie diaria de una ruta: cargado contra vendido, mas el SALDO ACUMULADO del camion '
+      + 'al cierre de cada jornada. El dia en que ese acumulado cruza a negativo es el dia en que '
+      + 'la ruta empezo a vender lo que ya traia. Params: route_no, from, to.',
+  })
+  routeSeries(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.routeSeries(routeNo, from, to);
+  }
+
+  @Get('route-inventory/shipments')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.19 - Los traspasos (embarques U-D-41) a una ruta, documento por documento. El ledger '
+      + 'agrega al grano (ruta, fecha, clase, sku, unidad) y TIRA el folio; el documento es la '
+      + 'unidad de la respuesta porque es lo que se firma y se reclama. Medido: 25-72 por ruta, '
+      + 'se devuelven todos. Params: route_no, from, to.',
+  })
+  routeShipments(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.routeShipments(routeNo, from, to);
+  }
+
+  @Get('route-inventory/shipment-lines')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.19+RD.21 - Las lineas de UN embarque, con el costo unitario al que se le cargo cada '
+      + 'producto al camion. `salto_peldano` marca la linea cuyo costo se despega >=2x del mediano '
+      + 'historico de ese SKU: el umbral 2.00 sale de CE.8 (el factor de caja minimo del catalogo), '
+      + 'no de oido. Params: route_no, folio, serie.',
+  })
+  routeShipmentLines(
+    @Query('route_no') routeNo: string,
+    @Query('folio') folio: string,
+    @Query('serie') serie?: string,
+  ) {
+    return this.service.routeShipmentLines(routeNo, folio, serie);
+  }
+
+  @Get('route-inventory/negatives')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.20 - Los numeros rojos de una ruta, partidos en sus DOS familias y con su antiguedad. '
+      + '`nunca_cargado` = lo vendio sin que nadie se lo cargara en la ventana (mercancia anterior '
+      + 'al primer embarque): NO se puede valuar, se declara. `se_acabo` = se le cargo, lo vendio '
+      + 'todo y siguio vendiendo: es la familia accionable. `desde` es el primer dia en que el '
+      + 'saldo acumulado cruzo a negativo. Params: route_no, from, to.',
+  })
+  routeNegatives(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.routeNegatives(routeNo, from, to);
+  }
+
   @Get('sales-by-route/routes')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({ summary: 'RR — Opciones del filtro: SOLO las rutas del reporte (value = warehouse_code|route_code).' })

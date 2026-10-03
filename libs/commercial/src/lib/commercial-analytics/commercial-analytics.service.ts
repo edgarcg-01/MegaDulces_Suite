@@ -210,6 +210,8 @@ export interface RouteInventoryRow {
   route_no: string;
   plaza: string;
   carga_desde: string | null;
+  /** Último día con carga o venta. Es lo que delata a una ruta parada. */
+  ultimo_movimiento: string | null;
   // Columna COSTO — valuada con el costo del EMBARQUE (lo que la sucursal le cargó al camión).
   carga_costo: number; cogs_costo: number; inventario_costo: number;
   inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
@@ -232,6 +234,39 @@ export interface RouteInventoryDetailRow {
   veredicto: 'ok' | 'sin_costo' | 'sin_precio';
   /** Vendió más de lo que se le cargó en la ventana: mercancía previa al primer embarque. */
   ya_lo_traia: boolean;
+}
+
+/** `[RD.18]` Un día de la serie. Las dos valuaciones viajan juntas; la pantalla elige una. */
+export interface RouteSeriesPoint {
+  fecha: string;
+  cargado: number; vendido: number;
+  cargado_qty: number; vendido_qty: number;
+  /** Saldo del camión al cierre de ese día. Cuando cruza a negativo, ahí empezó el rojo. */
+  saldo_qty_acum: number;
+}
+
+/** `[RD.19]` Un embarque. El documento es la unidad: se firma y se reclama por su folio. */
+export interface RouteShipment {
+  fecha: string; serie: string | null; folio: string;
+  lineas: number; importe: number; unidades: number;
+}
+
+export interface RouteShipmentLine {
+  sku: string; producto: string; unidad: string;
+  qty: number; costo_unitario: number; importe: number;
+  costo_mediano: number | null;
+  /** El costo de esta línea salta >=2x contra el mediano del SKU: huele a cambio de peldaño. */
+  salto_peldano: boolean;
+}
+
+/** `[RD.20]` Un número rojo, con su familia y desde cuándo lo es. */
+export interface RouteNegativeRow {
+  sku: string; producto: string; unidad: string;
+  saldo: number;
+  /** `nunca_cargado` no se puede valuar: sin carga no hay costo. No es cero, es sin medir. */
+  familia: 'nunca_cargado' | 'se_acabo';
+  desde: string | null; dias_en_rojo: number | null;
+  valor_costo: number | null;
 }
 
 /** El detalle **con su total**, para que la pantalla pueda declarar si el tope cortó. */
@@ -7854,7 +7889,8 @@ export class CommercialAnalyticsService {
                   sum(l.costo_doc) FILTER (WHERE l.clase='carga') AS cv,
                   sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
                   sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi,
-                  sum(l.costo_erp) FILTER (WHERE l.clase='venta') AS ce
+                  sum(l.costo_erp) FILTER (WHERE l.clase='venta') AS ce,
+                  max(l.business_date)                            AS ultimo
              FROM analytics.mv_rd_route_ledger l
             WHERE l.tenant_id = ? AND l.business_date >= ? AND l.business_date <= ?
             GROUP BY 1,2,3
@@ -7864,6 +7900,10 @@ export class CommercialAnalyticsService {
              FROM win w
          )
          SELECT i.route_no, i.plaza, to_char(i.carga_desde,'YYYY-MM-DD') AS carga_desde,
+                -- La última actividad de la ruta, del MISMO barrido que todo lo demás. Es lo que
+                -- delata a una ruta parada: medido, la 505 no mueve nada desde el 10-sep y se veía
+                -- igual que las diez vivas.
+                to_char(max(v.ultimo),'YYYY-MM-DD')                           AS ultimo_movimiento,
                 round(sum(v.cq * v.costo_u),2)::float                          AS carga_costo,
                 round(sum(coalesce(v.vq,0) * v.costo_u),2)::float              AS cogs_costo,
                 round(sum(v.saldo * v.costo_u),2)::float                       AS inventario_costo,
@@ -7976,7 +8016,7 @@ export class CommercialAnalyticsService {
    * la ruta más grande con margen) y viaja el `total`, para que la pantalla declare si cortó.
    */
   async routeInventoryDetail(routeNo: string, from?: string, to?: string): Promise<RouteInventoryDetail> {
-    if (!routeNo || !/^[0-9A-Za-z]{1,8}$/.test(routeNo)) throw new BadRequestException('route_no inválido');
+    const ruta = this.routeNoValido(routeNo);
     const { desde, hasta } = this.routeInventoryRange(from, to);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => (await trx.raw(
@@ -8013,7 +8053,7 @@ export class CommercialAnalyticsService {
          LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = w.sku AND p.deleted_at IS NULL
         ORDER BY abs(coalesce((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.cv / nullif(w.cq,0)),0)) DESC
         LIMIT ?`,
-      [tenantId, routeNo, desde, hasta, tenantId, DETALLE_TOPE],
+      [tenantId, ruta, desde, hasta, tenantId, DETALLE_TOPE],
     )).rows).then((filas: (RouteInventoryDetailRow & { _total: number })[]) => {
       const total = filas.length ? Number(filas[0]._total) : 0;
       return {
@@ -8023,6 +8063,169 @@ export class CommercialAnalyticsService {
         truncado: total > DETALLE_TOPE,
       };
     });
+  }
+
+  /**
+   * `[RD.18]` **La serie: cargado contra vendido, día por día, con el saldo acumulado.**
+   *
+   * El acumulado es la columna que contesta "¿desde cuándo?" sin que nadie sume a mano: es
+   * `sum(cargado − vendido) OVER (ORDER BY día)`, el saldo del camión al cierre de cada jornada.
+   * Cuando cruza a negativo, ése es el día en que empezó a vender lo que ya traía.
+   *
+   * ⚠️ Las dos valuaciones viajan juntas y **la pantalla elige una**; no se suman entre sí.
+   */
+  async routeSeries(routeNo: string, from?: string, to?: string): Promise<RouteSeriesPoint[]> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `WITH d AS (
+         SELECT business_date,
+                sum(costo_doc) FILTER (WHERE clase='carga') AS carga_costo,
+                sum(qty)       FILTER (WHERE clase='carga') AS carga_qty,
+                sum(venta_doc) FILTER (WHERE clase='venta') AS venta_cliente,
+                sum(qty)       FILTER (WHERE clase='venta') AS venta_qty
+           FROM analytics.mv_rd_route_ledger
+          WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
+          GROUP BY 1
+       )
+       SELECT to_char(business_date,'YYYY-MM-DD')          AS fecha,
+              round(coalesce(carga_costo,0),2)::float      AS cargado,
+              round(coalesce(venta_cliente,0),2)::float    AS vendido,
+              round(coalesce(carga_qty,0),2)::float        AS cargado_qty,
+              round(coalesce(venta_qty,0),2)::float        AS vendido_qty,
+              round(sum(coalesce(carga_qty,0) - coalesce(venta_qty,0))
+                    OVER (ORDER BY business_date),2)::float AS saldo_qty_acum
+         FROM d ORDER BY business_date`,
+      [tenantId, ruta, desde, hasta],
+    )).rows as RouteSeriesPoint[]);
+  }
+
+  /**
+   * `[RD.19]` **Los traspasos, documento por documento.** Medido: 25-72 embarques por ruta y
+   * ~18 ms la lista, así que se devuelve entera — paginarla sería esconder el histórico que se
+   * pidió ver.
+   */
+  async routeShipments(routeNo: string, from?: string, to?: string): Promise<RouteShipment[]> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `SELECT to_char(business_date,'YYYY-MM-DD') AS fecha, serie, folio,
+              count(*)::int                       AS lineas,
+              round(sum(importe),2)::float        AS importe,
+              round(sum(qty),2)::float            AS unidades
+         FROM analytics.v_rd_route_shipment_lines
+        WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
+        GROUP BY 1,2,3
+        ORDER BY 1 DESC, 3 DESC`,
+      [tenantId, ruta, desde, hasta],
+    )).rows as RouteShipment[]);
+  }
+
+  /**
+   * `[RD.19]`+`[RD.21]` Las líneas de UN embarque, **con el costo al que se cargó cada producto**.
+   *
+   * `salto_peldano` compara el costo de la línea contra el **mediano histórico** del mismo
+   * `(ruta, sku, unidad)`. El umbral es **2.00 y no se eligió de oído**: `[CE.8]` midió que el
+   * factor de caja mínimo del catálogo es 2.00, así que por debajo de eso un salto es precio, no
+   * unidad. Medido: sólo **9 pares** en toda la historia lo cruzan.
+   */
+  async routeShipmentLines(routeNo: string, folio: string, serie?: string): Promise<RouteShipmentLine[]> {
+    const ruta = this.routeNoValido(routeNo);
+    if (!folio || !/^[0-9A-Za-z-]{1,20}$/.test(folio)) throw new BadRequestException('folio inválido');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const ser = serie && /^[0-9A-Za-z]{1,4}$/.test(serie) ? serie : null;
+    return this.tk.run(async (trx) => (await trx.raw(
+      // ⚠️ El documento se resuelve PRIMERO y la mediana se acota a SUS skus. La versión que
+      // calculaba la mediana de toda la ruta y después filtraba el folio tardaba **518 ms** —
+      // por encima del presupuesto de 500. Mismo resultado, un orden de magnitud menos.
+      `WITH doc AS (
+         SELECT * FROM analytics.v_rd_route_shipment_lines
+          WHERE tenant_id = ? AND route_no = ? AND folio = ?
+            AND (?::text IS NULL OR serie = ?::text)
+       ), mediano AS (
+         SELECT l.sku, l.unidad,
+                -- ::numeric obligatorio: percentile_cont devuelve double precision y
+                -- round(double, int) NO existe en Postgres. Lo caza una consulta real, no el build.
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY l.costo_unitario)::numeric AS costo_mediano
+           FROM analytics.v_rd_route_shipment_lines l
+          WHERE l.tenant_id = ? AND l.route_no = ? AND l.qty > 0
+            AND EXISTS (SELECT 1 FROM doc d WHERE d.sku = l.sku AND d.unidad = l.unidad)
+          GROUP BY 1,2
+       )
+       SELECT l.sku, coalesce(p.description, l.producto_erp, l.sku) AS producto, l.unidad,
+              round(l.qty,2)::float            AS qty,
+              round(l.costo_unitario,4)::float AS costo_unitario,
+              round(l.importe,2)::float        AS importe,
+              round(m.costo_mediano,4)::float  AS costo_mediano,
+              (m.costo_mediano > 0 AND (
+                 l.costo_unitario / m.costo_mediano >= 2
+                 OR m.costo_mediano / nullif(l.costo_unitario,0) >= 2)) AS salto_peldano
+         FROM doc l
+         LEFT JOIN mediano m ON m.sku = l.sku AND m.unidad = l.unidad
+         LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = l.sku AND p.deleted_at IS NULL
+        ORDER BY l.importe DESC`,
+      [tenantId, ruta, folio, ser, ser, tenantId, ruta, tenantId],
+    )).rows as RouteShipmentLine[]);
+  }
+
+  /**
+   * `[RD.20]` **Los números rojos, partidos en sus dos familias y con su antigüedad.**
+   *
+   * No son un problema, son dos, y confundirlos es lo que hacía la pantalla:
+   *  - `nunca_cargado` — el camión lo vendió sin que nadie se lo cargara en la ventana: mercancía
+   *    anterior al primer embarque. **No se puede valuar** (sin carga no hay costo) y se declara,
+   *    no se dibuja en $0. Medido: 635 pares.
+   *  - `se_acabo` — sí se le cargó, lo vendió todo y siguió vendiendo. **1,564 pares, −$250,975**,
+   *    y es la familia accionable.
+   *
+   * `desde` es el primer día en que el saldo acumulado cruzó a negativo — la respuesta literal a
+   * "¿desde cuándo?". Medido en la ruta 23: el rojo promedio lleva **~70 días**.
+   */
+  async routeNegatives(routeNo: string, from?: string, to?: string): Promise<RouteNegativeRow[]> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `WITH mov AS (
+         SELECT sku, unidad, business_date,
+                sum(CASE WHEN clase='carga' THEN qty ELSE -qty END) AS neto,
+                sum(qty)       FILTER (WHERE clase='carga') AS cq,
+                sum(costo_doc) FILTER (WHERE clase='carga') AS cv
+           FROM analytics.mv_rd_route_ledger
+          WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
+          GROUP BY 1,2,3
+       ), acum AS (
+         SELECT m.*, sum(neto) OVER (PARTITION BY sku, unidad ORDER BY business_date) AS saldo
+           FROM mov m
+       ), f AS (
+         SELECT sku, unidad,
+                sum(neto)                                   AS saldo_final,
+                sum(coalesce(cq,0))                         AS carga_total,
+                sum(cv) / nullif(sum(cq),0)                 AS costo_u,
+                min(business_date) FILTER (WHERE saldo < 0) AS desde
+           FROM acum GROUP BY 1,2
+       )
+       SELECT f.sku, coalesce(p.description, f.sku) AS producto, f.unidad,
+              round(f.saldo_final,2)::float             AS saldo,
+              CASE WHEN f.carga_total = 0 THEN 'nunca_cargado' ELSE 'se_acabo' END AS familia,
+              to_char(f.desde,'YYYY-MM-DD')             AS desde,
+              (CURRENT_DATE - f.desde)::int             AS dias_en_rojo,
+              round(f.saldo_final * f.costo_u,2)::float AS valor_costo
+         FROM f
+         LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = f.sku AND p.deleted_at IS NULL
+        WHERE f.saldo_final < 0
+        ORDER BY coalesce(f.saldo_final * f.costo_u, 0) ASC, f.saldo_final ASC
+        LIMIT ?`,
+      [tenantId, ruta, desde, hasta, tenantId, DETALLE_TOPE],
+    )).rows as RouteNegativeRow[]);
+  }
+
+  /** `route_no` sale de un código canónico (`RUTA-23` -> `23`): acotado y validado en un solo lugar. */
+  private routeNoValido(routeNo: string): string {
+    if (!routeNo || !/^[0-9A-Za-z]{1,8}$/.test(routeNo)) throw new BadRequestException('route_no inválido');
+    return routeNo;
   }
 
   /**
