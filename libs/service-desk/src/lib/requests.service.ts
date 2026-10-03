@@ -76,6 +76,7 @@ interface RequestRow {
   requester_position_code: string | null;
   warehouse_code: string | null;
   channel: SdChannel;
+  created_by: string | null;
   assigned_to: string | null;
   assigned_by: string | null;
   assigned_at: Date | null;
@@ -178,6 +179,20 @@ export class ServiceDeskRequestsService {
     const blocksWork = dto.blocks_work === true;
     const warehouse = this.normalizarSucursal(dto.warehouse_code);
 
+    /*
+     * `[MS.3.11]` Levantar a nombre de otra persona: sólo quien atiende. Se rechaza ANTES de subir adjuntos al
+     * bucket, no después: un 403 que ya escribió objetos sería basura. Pedir `requester_id` propio equivale a no
+     * pedirlo (lo de siempre); lo que no se permite a nadie más es poner a OTRA persona o cambiar el área.
+     */
+    const pidioOtro = typeof dto?.requester_id === 'string' && dto.requester_id !== '' && dto.requester_id !== ctx.userId;
+    const pidioArea = typeof dto?.department_code === 'string' && dto.department_code.trim() !== '';
+    if ((pidioOtro || pidioArea) && !ctx.esAgente) {
+      throw new ForbiddenException('Sólo quien atiende puede levantar una solicitud a nombre de otra persona o indicar su área');
+    }
+    if (dto?.requester_id !== undefined && dto.requester_id !== null && dto.requester_id !== '' && !esUuid(dto.requester_id)) {
+      throw new BadRequestException('requester_id inválido');
+    }
+
     // 1) Lo que hace falta para validar adjuntos (tope de tamaño) — antes de tocar el bucket.
     const settings = (await this.tk.run((trx) => this.cfg.load(trx))).settings;
     const preparados = this.att.preparar(dto.attachments, settings.maxAttachmentBytes);
@@ -198,7 +213,24 @@ export class ServiceDeskRequestsService {
         if (!cat) throw new BadRequestException('La categoría no existe o no está disponible');
         if (cat.requires_branch && !warehouse) throw new BadRequestException('Esta categoría exige indicar la sucursal');
 
-        const me = await trx('identity.users').where({ id: ctx.userId }).first('nombre', 'username', 'department_code', 'position_code');
+        // El solicitante es quien llama, salvo que quien atiende haya indicado a otra persona.
+        const solicitanteId = pidioOtro ? (dto.requester_id as string) : ctx.userId;
+        const me = await trx('identity.users')
+          .where({ id: solicitanteId })
+          .whereNull('deleted_at')
+          .modify((qb) => {
+            if (pidioOtro) qb.whereRaw(`COALESCE(kind, 'interno') <> 'servicio'`).whereRaw(`role_name NOT LIKE 'retirado%'`);
+          })
+          .first('id', 'nombre', 'username', 'department_code', 'position_code');
+        if (pidioOtro && !me) throw new BadRequestException('La persona indicada no existe o no puede figurar como solicitante');
+        // El área: la que indicó quien atiende (validada contra el catálogo) o, si no, la de la ficha.
+        let departamento: string | null = me?.department_code ?? null;
+        if (pidioArea) {
+          const d = await trx('identity.departments').where({ code: (dto.department_code as string).trim() }).whereNull('deleted_at').first('code');
+          if (!d) throw new BadRequestException('El área indicada no existe');
+          departamento = d.code;
+        }
+        const nombreSolicitante = me?.nombre || me?.username || ctx.nombre;
         const now = new Date();
         const priority = sugerirPrioridad({ defaultPriority: cat.default_priority, impact, blocksWork });
         const politica = config.policies[priority];
@@ -222,9 +254,9 @@ export class ServiceDeskRequestsService {
             impact,
             blocks_work: blocksWork,
             status: 'nuevo',
-            requester_id: ctx.userId,
-            requester_name: me?.nombre || me?.username || ctx.nombre,
-            requester_department_code: me?.department_code ?? null,
+            requester_id: solicitanteId,
+            requester_name: nombreSolicitante,
+            requester_department_code: departamento,
             requester_position_code: me?.position_code ?? null,
             warehouse_code: warehouse,
             channel: 'web',
@@ -239,12 +271,14 @@ export class ServiceDeskRequestsService {
           kind: 'system',
           authorId: ctx.userId,
           authorLabel: ctx.nombre,
-          body: 'Solicitud creada',
-          meta: { priority, impact, blocks_work: blocksWork },
+          body: pidioOtro ? `Solicitud levantada por ${ctx.nombre} a nombre de ${nombreSolicitante}` : 'Solicitud creada',
+          meta: { priority, impact, blocks_work: blocksWork, ...(pidioOtro ? { opened_on_behalf: true, opened_by: ctx.userId, requester_id: solicitanteId } : {}) },
         });
         await this.insertAdjuntos(trx, tenantId, id, msgId, ctx.userId, subidos);
 
         let efectos: Efectos = { avisos: [], bitacora: [{ tenantId, requestId: id, folio, event: 'created', status: 'nuevo', assignedTo: null }] };
+        // A quien no la reportó se le avisa que existe (si no, le llegarían los «resuelto» de algo que no conocía).
+        if (pidioOtro) efectos.avisos.push({ event: 'levantada', request_id: id, folio, title, priority, recipients: [solicitanteId], actor_id: ctx.userId, actor_name: ctx.nombre });
 
         /*
          * `[MS.3.10]` Asignación AUTOMÁTICA: la primera regla que aplica (por categoría o por una palabra clave de lo
@@ -394,6 +428,15 @@ export class ServiceDeskRequestsService {
         logged = Number(t?.m ?? 0);
       }
 
+      // `[MS.3.11]` El nombre del área y, si la abrió otra persona a nombre del solicitante, quién.
+      const dep = r.requester_department_code ? await trx('identity.departments').where({ code: r.requester_department_code }).first('name') : null;
+      const departamentoNombre: string | null = dep?.name ?? null;
+      let abiertaPor: string | null = null;
+      if (r.created_by && r.created_by !== r.requester_id) {
+        const c = await trx('identity.users').where({ id: r.created_by }).first('nombre', 'username');
+        abiertaPor = c ? c.nombre || c.username : null;
+      }
+
       const attachments: SdAttachmentDto[] = await Promise.all(
         (adj as AttachmentRow[]).map(async (a) => ({
           id: a.id,
@@ -410,6 +453,8 @@ export class ServiceDeskRequestsService {
         ...this.mapRow(r, config),
         description: r.description,
         requester_department_code: r.requester_department_code ?? null,
+        requester_department_name: departamentoNombre,
+        opened_by_name: abiertaPor,
         requester_position_code: r.requester_position_code ?? null,
         channel: r.channel,
         resolved_at: iso(r.resolved_at),
@@ -476,8 +521,15 @@ export class ServiceDeskRequestsService {
     if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
 
     const settings = (await this.tk.run((trx) => this.cfg.load(trx))).settings;
+    /*
+     * `[MS.3.13]` Una nota INTERNA admite adjuntos (la evidencia que sube quien atiende no siempre es para quien
+     * reportó: la foto de un equipo ajeno, una captura de un log, un documento del proveedor). Es seguro porque la
+     * privacidad NO descansa en esta línea sino en la LECTURA: `detail` sólo entrega a quien reporta los adjuntos de
+     * mensajes públicos o sin mensaje, así que el adjunto de una nota interna ni se lista ni recibe URL firmada para
+     * él. Antes se rechazaba aquí por prudencia; una regla de «no se puede» que protege algo que otra capa ya protege
+     * sólo le quita al agente su evidencia. Sigue siendo sólo para quien atiende (arriba: 403 al solicitante).
+     */
     const preparados = this.att.preparar(dto.attachments, settings.maxAttachmentBytes);
-    if (visibility === 'internal' && preparados.length) throw new BadRequestException('Las notas internas no admiten adjuntos');
     const subidos: AdjuntoSubido[] = preparados.length ? await this.att.subir(preparados, CARPETA) : [];
 
     let efectos = sinEfectos();

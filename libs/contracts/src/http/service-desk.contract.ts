@@ -86,6 +86,34 @@ export interface SdCreateRequestDto {
   /** Código de sucursal (`'01'`…). Obligatorio si la categoría exige sucursal. */
   warehouse_code?: string | null;
   attachments?: SdAttachmentInput[];
+  /**
+   * `[MS.3.11]` Levantar la solicitud A NOMBRE DE otra persona. **Sólo quien atiende** (`ATENDER`/`COORDINAR`): para
+   * cualquier otro es 403. La persona debe tener usuario; es quien recibe los avisos y quien confirma o reabre.
+   * Ausente = el solicitante es quien llama (lo de siempre).
+   */
+  requester_id?: string | null;
+  /**
+   * `[MS.3.11]` Departamento (área) del solicitante. Ausente = el de la ficha de esa persona. Sólo quien atiende.
+   */
+  department_code?: string | null;
+}
+
+/** `[MS.3.11]` Una persona que puede figurar como solicitante. Sin correo ni teléfono: sólo lo que hace falta para elegir. */
+export interface SdRequesterDto {
+  user_id: string;
+  username: string;
+  name: string | null;
+  department_code: string | null;
+  department_name: string | null;
+  position_code: string | null;
+  /** Sucursal de su ficha, para precargar el formulario (editable). `null` = la ficha no la tiene. */
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+}
+
+export interface SdDepartmentDto {
+  code: string;
+  name: string;
 }
 
 export interface SdSlaView {
@@ -150,6 +178,10 @@ export interface SdAttachmentDto {
 export interface SdRequestDetail extends SdRequestRow {
   description: string;
   requester_department_code: string | null;
+  /** `[MS.3.11]` Nombre del departamento (el código solo no le dice nada a nadie). */
+  requester_department_name: string | null;
+  /** `[MS.3.11]` Quién la levantó, cuando NO es el solicitante (la abrió alguien que atiende a su nombre). `null` = ella misma. */
+  opened_by_name: string | null;
   requester_position_code: string | null;
   channel: SdChannel;
   resolved_at: string | null;

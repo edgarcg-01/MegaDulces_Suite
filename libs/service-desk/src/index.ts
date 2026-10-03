@@ -8,6 +8,7 @@ export * from './lib/domain/folio';
 export * from './lib/domain/routing';
 export * from './lib/routing.service';
 export * from './lib/reports.service';
+export * from './lib/requesters.service';
 export * from './lib/domain/report';
 export * from './lib/domain/report-period';
 export * from './lib/service-desk.types';

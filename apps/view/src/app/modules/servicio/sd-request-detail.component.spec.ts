@@ -11,7 +11,7 @@ import { SdRequestDetailComponent } from './sd-request-detail.component';
  *  · quien REPORTA ve «Cerrar» / «Sigue fallando» sólo cuando está resuelto, y NUNCA los botones de atención;
  *  · quien ATIENDE ve «Tomar» sólo en un ticket nuevo, y el menú de estados que le corresponde;
  *  · resolver y reabrir EXIGEN nota (el botón no se habilita sin ella);
- *  · una nota interna nunca viaja con archivos;
+ *  · una nota interna SÍ admite archivos (`[MS.3.13]`), y la pantalla avisa que tampoco los ve quien reportó;
  *  · lo que el servidor rechaza se muestra con su razón, no como un fallo genérico.
  */
 
@@ -170,10 +170,32 @@ describe('[MS.3.3] SdRequestDetailComponent', () => {
       await render('asignado', true, true);
       expect(api.agents).toHaveBeenCalled();
     });
-    it('⭐ una nota interna con archivos no se puede enviar (el servidor también lo rechaza)', async () => {
+    it('⭐ `[MS.3.13]` una nota interna con archivos SÍ se puede enviar, y la pantalla dice que quien reportó tampoco los ve', async () => {
+      await render('en_proceso', true);
+      const c = fix.componentInstance;
+      c.texto.set('Foto del equipo');
+      c.interna.set(true);
+      c.archivos.set([new File(['x'], 'a.png', { type: 'image/png' })]);
+      fix.detectChanges();
+      const enviar = Array.from(el().querySelectorAll('button')).find((x) => x.textContent?.trim() === 'Guardar nota') as HTMLButtonElement;
+      expect(enviar.disabled).toBe(false);
+      expect(texto()).toContain('tampoco los ve quien reportó');
+    });
+    it('el aviso de privacidad sólo sale con nota interna Y archivos (en un mensaje público no tiene sentido)', async () => {
       await render('en_proceso', true);
       const c = fix.componentInstance;
       c.texto.set('algo');
+      c.archivos.set([new File(['x'], 'a.png', { type: 'image/png' })]);
+      fix.detectChanges();
+      expect(texto()).not.toContain('tampoco los ve quien reportó');
+      c.interna.set(true);
+      c.archivos.set([]);
+      fix.detectChanges();
+      expect(texto()).not.toContain('tampoco los ve quien reportó');
+    });
+    it('⛔ NEGATIVA — sin texto no se envía, con o sin archivos (el cuerpo sigue siendo obligatorio)', async () => {
+      await render('en_proceso', true);
+      const c = fix.componentInstance;
       c.interna.set(true);
       c.archivos.set([new File(['x'], 'a.png', { type: 'image/png' })]);
       fix.detectChanges();
@@ -188,9 +210,34 @@ describe('[MS.3.3] SdRequestDetailComponent', () => {
       const input = el().querySelector('input[type=file]') as HTMLInputElement;
       Object.defineProperty(input, 'files', { value: [new File(['x'], 'virus.exe', { type: 'application/x-msdownload' }), new File(['x'], 'ok.png', { type: 'image/png' })] });
       input.dispatchEvent(new Event('change'));
+      await vi.waitFor(() => expect(fix.componentInstance.optimizando()).toBe(false)); // `[MS.3.12]` las fotos se optimizan antes de quedar listas
       fix.detectChanges();
       expect(texto()).toContain('virus.exe');
       expect(fix.componentInstance.archivos().map((f) => f.name)).toEqual(['ok.png']);
+    });
+    it('⭐ `[MS.3.12]` quien atiende tiene «Cámara» (toma la foto en el momento) además de «Adjuntar» (galería y archivos)', async () => {
+      await render('en_proceso', true);
+      const cam = el().querySelector('input[type=file][capture]') as HTMLInputElement;
+      expect(cam, 'falta la entrada de cámara').toBeTruthy();
+      expect(cam.getAttribute('capture')).toBe('environment'); // cámara trasera: la que apunta al problema
+      expect(cam.accept).toBe('image/*');
+      expect(cam.multiple).toBe(false); // la cámara entrega UNA foto por toma
+      const galeria = Array.from(el().querySelectorAll('input[type=file]')).find((i) => !i.hasAttribute('capture')) as HTMLInputElement;
+      expect(galeria.multiple).toBe(true);
+      expect(galeria.accept).toContain('application/pdf');
+      expect(botones()).toEqual(expect.arrayContaining(['Cámara', 'Adjuntar']));
+    });
+    it('⛔ NEGATIVA — mientras se optimizan las fotos NO se deja enviar (se mandaría sin achicar)', async () => {
+      await render('en_proceso', true);
+      const c = fix.componentInstance;
+      c.texto.set('Evidencia del problema');
+      c.optimizando.set(true);
+      fix.detectChanges();
+      const enviar = Array.from(el().querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Enviar') as HTMLButtonElement;
+      expect(enviar.disabled).toBe(true);
+      c.optimizando.set(false);
+      fix.detectChanges();
+      expect((Array.from(el().querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Enviar') as HTMLButtonElement).disabled).toBe(false);
     });
     it('máximo 5 archivos por envío', async () => {
       await render('en_proceso', true);
@@ -199,6 +246,7 @@ describe('[MS.3.3] SdRequestDetailComponent', () => {
       const input = el().querySelector('input[type=file]') as HTMLInputElement;
       Object.defineProperty(input, 'files', { value: seis });
       input.dispatchEvent(new Event('change'));
+      await vi.waitFor(() => expect(c.optimizando()).toBe(false));
       expect(c.archivos()).toHaveLength(5);
       expect(c.error()).toContain('Máximo 5');
     });
