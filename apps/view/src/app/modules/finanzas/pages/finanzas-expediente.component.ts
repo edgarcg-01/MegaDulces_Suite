@@ -270,7 +270,9 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
     .exp-trunc { font-size: var(--fs-sm); color: var(--warn-soft-fg); margin: 0; }
 
     .exp-split { display: grid; grid-template-columns: 300px 1fr; gap: var(--sp-3); align-items: start; }
-    @media (max-width: 900px) { .exp-split { grid-template-columns: 1fr; } }
+    /* 56.25rem = 900px exactos (root 16px). En px el breakpoint NO acompana el zoom al 200 %
+       (WCAG 1.4.4): la pantalla se queda en dos columnas justo cuando el texto crecio. */
+    @media (max-width: 56.25rem) { .exp-split { grid-template-columns: 1fr; } }
 
     .exp-rail { display: flex; flex-direction: column; gap: 2px; background: var(--surface-card);
       border: 1px solid var(--surface-border); border-radius: var(--radius-md);
@@ -306,12 +308,12 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
     .exp-vale[data-etapa="completo"] { border-left: 3px solid var(--ok-fg); }
     .exp-vale-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-3);
       font-size: var(--fs-body); }
-    .exp-folio { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 1rem; }
+    .exp-folio { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: var(--fs-h3); }
     .exp-folio.gasto { color: var(--ok-fg); }
     .exp-sin-gasto { font-size: var(--fs-xs); color: var(--fg-3); font-style: italic; }
     .exp-suc, .exp-prov { color: var(--fg-2); }
     .exp-prov { flex: 1 1 auto; }
-    .exp-monto { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; font-size: 1rem; }
+    .exp-monto { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; font-size: var(--fs-h3); }
     .exp-etapa { font-size: var(--fs-xs); font-weight: var(--fw-bold); padding: 2px 8px;
       border-radius: 999px; background: var(--surface-200); color: var(--fg-2); white-space: nowrap; }
     .exp-etapa[data-e="completo"] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }

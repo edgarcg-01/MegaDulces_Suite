@@ -84,7 +84,20 @@ const TOPE = {
   // árbol compartido (ONBOARDING §8.1). Queda para quien los tiene en la mano, CON la pantalla
   // a la vista — que es justo lo que pide el comentario de arriba. El ratchet sigue haciendo su
   // trabajo: un SEGUNDO literal vuelve a dar rojo.
-  fontSize:   2688,
+  //
+  // ⚠️ 2,689 y no 2,688: al fusionar la rama con `main` el conteo dio 2,691 (+3), y los TRES
+  //    salían del MISMO archivo nuevo, `finanzas-expediente.component.ts` del PR #242. Dos eran
+  //    `1rem` = 16px, que tiene token EXACTO (`--fs-h3`): tokenizados acá, cambio visual CERO.
+  //    El tercero es `1.5rem` = 24px en `.exp-kpi b`, y NO tiene token: cae entre `--fs-h2` (20)
+  //    y `--fs-h1` (30), así que moverlo cambia el tamaño del número grande de la pantalla. Eso
+  //    se decide CON la pantalla a la vista, no desde un gate. Queda declarado, no disfrazado.
+  //
+  // ⭐ El `+3` no lo trajo ningún push: lo destapó el MERGE. La rama y `main` crecieron sin
+  //    verse —el CI sólo corre contra `main`— así que esta compuerta nunca midió los dos lados
+  //    juntos hasta que se tocaron. El caso gemelo es el breakpoint de abajo, que estaba en
+  //    CERO: la regla la trae la rama y la violación la trajo `main`, y ninguno de los dos CI
+  //    podía verla.
+  fontSize:   2689,
   hex:        1449,  // hex crudo en declaración de color
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,

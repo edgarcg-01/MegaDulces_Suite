@@ -459,7 +459,7 @@ export class UsersController {
   @Get('permissions/usage')
   @RequirePermissions(Permission.USUARIOS_VER)
   @ApiOperation({ summary: 'Cuántas personas y perfiles abren hoy cada permiso (los roles de plataforma van aparte)' })
-  permissionUsage() {
+  permissionUsage(): ReturnType<UsersService['permissionUsage']> {
     return this.usersService.permissionUsage();
   }
 

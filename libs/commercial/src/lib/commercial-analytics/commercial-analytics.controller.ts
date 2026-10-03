@@ -1092,7 +1092,7 @@ export class CommercialAnalyticsController {
     @Query('route_no') routeNo: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
-  ) {
+  ): ReturnType<CommercialAnalyticsService['routeSeries']> {
     return this.service.routeSeries(routeNo, from, to);
   }
 
@@ -1109,7 +1109,7 @@ export class CommercialAnalyticsController {
     @Query('route_no') routeNo: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
-  ) {
+  ): ReturnType<CommercialAnalyticsService['routeShipments']> {
     return this.service.routeShipments(routeNo, from, to);
   }
 
@@ -1126,7 +1126,7 @@ export class CommercialAnalyticsController {
     @Query('route_no') routeNo: string,
     @Query('folio') folio: string,
     @Query('serie') serie?: string,
-  ) {
+  ): ReturnType<CommercialAnalyticsService['routeShipmentLines']> {
     return this.service.routeShipmentLines(routeNo, folio, serie);
   }
 
@@ -1144,7 +1144,7 @@ export class CommercialAnalyticsController {
     @Query('route_no') routeNo: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
-  ) {
+  ): ReturnType<CommercialAnalyticsService['routeNegatives']> {
     return this.service.routeNegatives(routeNo, from, to);
   }
 

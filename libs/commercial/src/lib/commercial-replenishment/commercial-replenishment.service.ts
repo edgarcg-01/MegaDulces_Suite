@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
@@ -209,6 +210,21 @@ const BASES: TargetBasis[] = ['min', 'reorder', 'max', 'cadence'];
 const BUCKETS: Bucket[] = ['agotado', 'bajo_minimo', 'bajo_reorden', 'sano', 'sobrestock'];
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Los ajustes del motor tal como LLEGAN, que es distinto de como se guardan.
+ *
+ * ⚠️ Reemplaza un `any`, y NO se tipa como la fila de `commercial.replenishment_settings` a
+ * propósito: las fuentes son DOS y no coinciden en tipo. Una es esa fila, cuyos `numeric`
+ * llegan desde pg como TEXTO; la otra es `DEFAULT_SETTINGS`, con números de verdad. Declarar
+ * `number` sería mentir sobre la mitad de los casos, y de paso volvería "redundante" el
+ * `Number(...)` que hacen los lectores — que es justo lo que los protege de sumar strings.
+ * El tipo dice lo que se sabe: los campos están, su tipo no se conoce hasta convertirlo.
+ *
+ * `undefined` entra en el alias porque `.first()` no devuelve fila cuando el tenant todavía
+ * no personalizó nada, y ese caso NO es un error: cae a los defaults.
+ */
+type SettingsLike = Record<string, unknown> | undefined;
+
 @Injectable()
 export class CommercialReplenishmentService {
   private readonly logger = new Logger(CommercialReplenishmentService.name);
@@ -239,6 +255,7 @@ export class CommercialReplenishmentService {
   // `fill_min_lines_erp` (25) es el umbral de la cadena de Kepler y NO comparte el 3 de arriba:
   // ese 3 nació para la evidencia app-nativa. Ver `[RA-DYN.U7]` y la migración 20261003120000.
   private readonly DEFAULT_SETTINGS = { fill_window_days: 180, fill_min_lines: 3, fill_min_lines_erp: 25, fill_max_inflate: 1.30, default_coverage_days: 30 };
+
 
   // WMS-REC.8 (ADR-053) — el fill rate suma la EVIDENCIA DE RECEPCIÓN, no sólo las OCs.
   //
@@ -348,7 +365,7 @@ export class CommercialReplenishmentService {
   // `catalog.suppliers` tiene 202 nombres repetidos; su calificación mezcla negocios distintos.
   // Cuesta poco dejarlos fuera (3 proveedores, $2,393 del delta) y evita acusar a uno por otro.
   private erpFillOk: boolean | null = null;
-  private async erpFillReady(trx: any): Promise<boolean> {
+  private async erpFillReady(trx: Knex.Transaction): Promise<boolean> {
     if (this.erpFillOk != null) return this.erpFillOk;
     try {
       const r = await trx.raw(`SELECT to_regclass('analytics.mv_supplier_fill_rate') IS NOT NULL AS t`);
@@ -394,7 +411,7 @@ export class CommercialReplenishmentService {
   }
 
   /** Los tres parámetros del fill rate, con degradación a defaults si falta la migración. */
-  private fillBinds(st: any): { fwin: number; fminerp: number; maxinf: number } {
+  private fillBinds(st: SettingsLike): { fwin: number; fminerp: number; maxinf: number } {
     return {
       fwin: Math.max(30, Number(st?.fill_window_days) || this.DEFAULT_SETTINGS.fill_window_days),
       // ⛔ NO es `fill_min_lines` (3). Ese umbral es para la evidencia app-nativa; medido contra
@@ -1322,7 +1339,7 @@ export class CommercialReplenishmentService {
       // que el comprador lee no se habría movido un peso.
       const erpReady = await this.erpFillReady(trx);
       const stReady = await this.personalizationReady(trx);
-      const stWb: any = stReady
+      const stWb: SettingsLike = stReady
         ? await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first()
         : this.DEFAULT_SETTINGS;
       const fb = this.fillBinds(stWb);

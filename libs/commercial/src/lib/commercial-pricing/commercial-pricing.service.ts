@@ -6,6 +6,7 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 
@@ -116,7 +117,7 @@ export class CommercialPricingService {
    * **declara** en `price_source` en vez de hacerlo en silencio.
    */
   private priceTruthOk: boolean | null = null;
-  private async priceTruthReady(trx: any): Promise<boolean> {
+  private async priceTruthReady(trx: Knex.Transaction): Promise<boolean> {
     if (this.priceTruthOk != null) return this.priceTruthOk;
     try {
       const r = await trx.raw(`SELECT to_regclass('analytics.v_price_truth') IS NOT NULL AS t`);
