@@ -15,6 +15,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
 import { Permission } from '../../../core/constants/permissions';
+import { FaltanteExpressComponent } from '../components/faltante-express.component';
 import { branchName } from '../../../core/constants/store-branches';
 import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, AvisoDobleCaja, RutaArqueo, Turno, TurnoCorte } from '../arqueo.service';
 import { BILLETES_MXN, MONEDAS_MXN, DENOMINACIONES_MXN, Denominacion } from '@megadulces/contracts';
@@ -61,6 +62,7 @@ interface CortesPersona {
     CommonModule, FormsModule, ButtonModule, TableModule, ToastModule,
     SelectModule, SegmentedComponent, InputTextModule, TagModule, DialogModule,
     ContextHelpComponent, FreshnessPillComponent, PageTabsComponent,
+    FaltanteExpressComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -91,6 +93,26 @@ interface CortesPersona {
            mira después, no mientras se cuenta. A lo ancho, el conteo respira y el
            historial queda donde va: abajo. -->
       <div class="arq-stack">
+        <!-- [FLT.27] El buscador de faltantes vive ACÁ, y no sólo en su propia pantalla, por una
+             razón medida: STORE_STOCKOUT_CAPTURAR se repartió como STORE_PRICE_CHECK_VER o
+             STORE_ARQUEO_CAPTURAR (mig 20260919150100), así que todo el que puede arquear puede
+             reportar un faltante POR CONSTRUCCIÓN — esta tarjeta no le puede salir muerta a nadie
+             que esté parado en esta pantalla. Y al revés: el rol cajero NO tiene el permiso del
+             verificador, o sea que el arqueo es la puerta que ella sí tiene.
+
+             Va ARRIBA del conteo y FUERA de la tarjeta de captura a propósito: contar es un flujo
+             de teclado de tres columnas con su propia cadena de saltos (onCellKey), y una caja de
+             búsqueda metida adentro competiría por el foco mientras alguien cuenta billetes. Acá
+             no toca dirty, no roba el foco al cargar y no entra en esa cadena.
+
+             ⚠️ NO PONER ACENTOS GRAVES ACÁ: esto vive dentro de un template literal. -->
+        @if (puedeFaltante()) {
+          <div class="card-premium card-flat arq-faltante">
+            <h3 class="arq-card-title">¿Te pidieron algo que no había?</h3>
+            <app-faltante-express [sucursal]="aSuc || null" />
+          </div>
+        }
+
         <!-- Captura -->
           <!-- SM.38/SM.40 - Dos cajas abiertas con el mismo usuario. Se DICE, y la
                captura queda habilitada abajo: el candado que vivia aca dejaba a la
@@ -765,6 +787,11 @@ interface CortesPersona {
        min-content de la tarjeta. Con auto el historial (tabla de 10 columnas)
        estiraba la columna mas alla del ancho de la pantalla. */
     .arq-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+    /* [FLT.27] Mismo padding que .arq-panel para que lea como parte de la página y no como un
+       injerto. SIN container-type: no tiene nada que reordenar por ancho propio, y poner
+       contención acá recortaría el desplegable del buscador, que es position:absolute.
+       NO PONER ACENTOS GRAVES ACÁ: el bloque de estilos también es un template literal. */
+    .arq-faltante { padding: 1rem; }
     /* SM.31 - El panel es el contenedor de consulta (DESIGN §9: @container para
        componente, @media solo para chrome y densidad por puntero). Ademas de
        habilitar las queries de abajo, container-type: inline-size CORTA la
@@ -1105,6 +1132,21 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   readonly canCapture = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true);
+
+  /**
+   * `[FLT.27]` ¿Esta persona puede reportar un faltante desde acá?
+   *
+   * Se pide **CAPTURAR y no VER**, aunque la pantalla de faltantes acepte cualquiera de los dos.
+   * El motivo es el alta automática: el buscador escribe el faltante **sin preguntar** cuando la
+   * existencia es 0, así que a alguien con sólo VER le saldría un 403 en cada consulta de un
+   * producto agotado. Un control que falla siempre es peor que un control que no está.
+   *
+   * ⚠️ En la práctica no recorta a nadie de esta pantalla: quien tiene `STORE_ARQUEO_CAPTURAR`
+   * tiene `STORE_STOCKOUT_CAPTURAR` por como se repartió (mig `20260919150100`). Lo que el gate
+   * saca es al supervisor que sólo MIRA arqueos, que es justo quien no atiende al cliente.
+   */
+  readonly puedeFaltante = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_STOCKOUT_CAPTURAR] === true);
 
   /**
    * SM.36 - El arqueo de RUTAS tiene permiso propio. No alcanza con
