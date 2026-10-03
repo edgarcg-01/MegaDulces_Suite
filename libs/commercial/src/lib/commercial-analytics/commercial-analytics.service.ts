@@ -255,7 +255,11 @@ export interface RouteInventoryDetailRow {
 /** `[RD.18]` Un día de la serie. Las dos valuaciones viajan juntas; la pantalla elige una. */
 export interface RouteSeriesPoint {
   fecha: string;
-  cargado: number; vendido: number;
+  /** Las DOS valuaciones, cada una consistente consigo misma. La pantalla elige una. */
+  cargado_costo: number; vendido_costo: number;
+  cargado_venta: number; vendido_venta: number;
+  /** El saldo acumulado en la MISMA moneda que las columnas de arriba. */
+  saldo_costo_acum: number; saldo_venta_acum: number;
   cargado_qty: number; vendido_qty: number;
   /** Saldo del camión al cierre de ese día. Cuando cruza a negativo, ahí empezó el rojo. */
   saldo_qty_acum: number;
@@ -8300,31 +8304,72 @@ export class CommercialAnalyticsService {
    * Cuando cruza a negativo, ése es el día en que empezó a vender lo que ya traía.
    *
    * ⚠️ Las dos valuaciones viajan juntas y **la pantalla elige una**; no se suman entre sí.
+   *
+   * ── ⛔ Lo que esto corrige, y es el mismo error que esta pantalla denuncia ────────────────
+   *
+   * La primera versión devolvía `cargado` **al costo** y `vendido` **a precio de cliente**, y la
+   * tabla los pintaba en columnas vecinas. O sea: la **lectura A** de `VERDAD_ABSOLUTA` §19 —
+   * restar precio de costo— metida dentro de la pantalla que existe para denunciarla. Medido en
+   * la ruta 21 el 2026-09-26: `$3,820` cargado contra `$17,227` vendido. El ojo lee «vendió 4.5
+   * veces lo que cargó» y lo que pasó es que son dos monedas.
+   *
+   * Peor todavía era la barra de proporción: normalizaba los dos contra un máximo común, así que
+   * **dibujaba el margen como si fuera sobreventa, todos los días**.
+   *
+   * Y el acumulado iba en **unidades** — una tercera magnitud, en una fila cuyas otras dos
+   * columnas son pesos, avisado sólo con un `(uds)` entre paréntesis.
+   *
+   * ⭐ Ahora el valor unitario de cada par `(sku, unidad)` se resuelve **una vez sobre la
+   * ventana** y se aplica a los dos lados, igual que en el resumen. Así `cargado` y `vendido`
+   * están siempre en la MISMA moneda, y el saldo acumulado también.
    */
   async routeSeries(routeNo: string, from?: string, to?: string): Promise<RouteSeriesPoint[]> {
     const ruta = this.routeNoValido(routeNo);
     const { desde, hasta } = this.routeInventoryRange(from, to);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => (await trx.raw(
-      `WITH d AS (
-         SELECT business_date,
-                sum(costo_doc) FILTER (WHERE clase='carga') AS carga_costo,
-                sum(qty)       FILTER (WHERE clase='carga') AS carga_qty,
-                sum(venta_doc) FILTER (WHERE clase='venta') AS venta_cliente,
-                sum(qty)       FILTER (WHERE clase='venta') AS venta_qty
+      `WITH u AS (
+         -- El valor unitario de cada par, resuelto UNA vez sobre toda la ventana. Es el mismo
+         -- criterio del resumen: si cada dia resolviera el suyo, un dia sin carga dejaria el
+         -- COGS de ese dia en cero y el saldo saltaria sin que nada se haya movido.
+         SELECT sku, unidad,
+                sum(costo_doc) FILTER (WHERE clase='carga')
+                  / nullif(sum(qty) FILTER (WHERE clase='carga'),0) AS costo_u,
+                sum(venta_doc) FILTER (WHERE clase='venta')
+                  / nullif(sum(qty) FILTER (WHERE clase='venta'),0) AS precio_u
            FROM analytics.mv_rd_route_ledger
           WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
+          GROUP BY 1,2
+       ), d AS (
+         SELECT l.business_date,
+                sum(l.qty) FILTER (WHERE l.clase='carga')             AS carga_qty,
+                sum(l.qty) FILTER (WHERE l.clase='venta')             AS venta_qty,
+                -- Columna COSTO: lo cargado y lo vendido, los dos al costo del embarque.
+                sum(l.costo_doc)        FILTER (WHERE l.clase='carga') AS carga_costo,
+                sum(l.qty * u.costo_u)  FILTER (WHERE l.clase='venta') AS cogs_costo,
+                -- Columna VENTA: los dos al precio realizado de esta ruta.
+                sum(l.qty * u.precio_u) FILTER (WHERE l.clase='carga') AS carga_precio,
+                sum(l.venta_doc)        FILTER (WHERE l.clase='venta') AS venta_precio
+           FROM analytics.mv_rd_route_ledger l
+           LEFT JOIN u ON u.sku = l.sku AND u.unidad = l.unidad
+          WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date >= ? AND l.business_date <= ?
           GROUP BY 1
        )
-       SELECT to_char(business_date,'YYYY-MM-DD')          AS fecha,
-              round(coalesce(carga_costo,0),2)::float      AS cargado,
-              round(coalesce(venta_cliente,0),2)::float    AS vendido,
-              round(coalesce(carga_qty,0),2)::float        AS cargado_qty,
-              round(coalesce(venta_qty,0),2)::float        AS vendido_qty,
+       SELECT to_char(business_date,'YYYY-MM-DD')             AS fecha,
+              round(coalesce(carga_costo,0),2)::float         AS cargado_costo,
+              round(coalesce(cogs_costo,0),2)::float          AS vendido_costo,
+              round(coalesce(carga_precio,0),2)::float        AS cargado_venta,
+              round(coalesce(venta_precio,0),2)::float        AS vendido_venta,
+              round(coalesce(carga_qty,0),2)::float           AS cargado_qty,
+              round(coalesce(venta_qty,0),2)::float           AS vendido_qty,
               round(sum(coalesce(carga_qty,0) - coalesce(venta_qty,0))
-                    OVER (ORDER BY business_date),2)::float AS saldo_qty_acum
+                    OVER (ORDER BY business_date),2)::float   AS saldo_qty_acum,
+              round(sum(coalesce(carga_costo,0) - coalesce(cogs_costo,0))
+                    OVER (ORDER BY business_date),2)::float   AS saldo_costo_acum,
+              round(sum(coalesce(carga_precio,0) - coalesce(venta_precio,0))
+                    OVER (ORDER BY business_date),2)::float   AS saldo_venta_acum
          FROM d ORDER BY business_date`,
-      [tenantId, ruta, desde, hasta],
+      [tenantId, ruta, desde, hasta, tenantId, ruta, desde, hasta],
     )).rows as RouteSeriesPoint[]);
   }
 

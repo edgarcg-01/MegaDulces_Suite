@@ -2448,7 +2448,11 @@ export interface RouteInventoryDetailRow {
 /** RD.18 - un dia de la serie. Las dos valuaciones viajan juntas; la pantalla elige una. */
 export interface RouteSeriesPoint {
   fecha: string;
-  cargado: number; vendido: number;
+  /** Las DOS valuaciones, cada una consistente consigo misma. La pantalla elige una. */
+  cargado_costo: number; vendido_costo: number;
+  cargado_venta: number; vendido_venta: number;
+  /** El saldo acumulado en la MISMA moneda que las columnas de arriba. */
+  saldo_costo_acum: number; saldo_venta_acum: number;
   cargado_qty: number; vendido_qty: number;
   /** Saldo del camion al cierre de ese dia. Cuando cruza a negativo, ahi empezo el rojo. */
   saldo_qty_acum: number;
