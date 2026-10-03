@@ -2,7 +2,7 @@ import { SD_PRIORITIES } from '@megadulces/contracts';
 import { armarAviso, llaveDeAviso, type SdEventoClave } from './notice';
 
 const EVENTOS: SdEventoClave[] = [
-  'nuevo_prioritario', 'asignado', 'comentario', 'resuelto', 'reabierto', 'cancelado', 'autocerrado',
+  'nuevo_prioritario', 'levantada', 'asignado', 'comentario', 'resuelto', 'reabierto', 'cancelado', 'autocerrado',
   'sla_por_vencer', 'sla_primera_respuesta_vencida', 'sla_vencido',
 ];
 const base = { folio: 'SRV-2026-00042', title: 'No abre el ERP', priority: 'alta' as const };

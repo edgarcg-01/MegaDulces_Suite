@@ -204,8 +204,8 @@ El latido `service_desk_sla` es el que vale (ADR-053): si falta o está en `erro
 entrar con un usuario que tenga `REPORTAR`, crear **una** solicitud sin adjuntos, verla en «Mis solicitudes», y desde
 una cuenta con `ATENDER` tomarla; luego **cancelarla** (los tickets no se borran).
 
-⛔ **No correr `database/tests/http-service-desk-test.js` contra producción**: crea y borra usuarios y tickets.
-Es una prueba de desarrollo.
+⛔ **No correr `database/tests/http-service-desk-test.js` ni `http-service-desk-attachments-s3-test.js` contra producción**: crean y borran usuarios, tickets y objetos.
+Son pruebas de desarrollo. El de adjuntos se corre contra un bucket **desechable** (`S3_*` de pruebas; p. ej. Zenko CloudServer en Docker) para medir el código; lo que se verifica en prod es la **credencial real** del bucket, creando **un** ticket con **una** foto a mano y cancelándolo.
 
 ---
 

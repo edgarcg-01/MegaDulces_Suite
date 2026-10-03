@@ -5,7 +5,7 @@ import type {
   SdAgentDto, SdAssignDto, SdCatalogResponse, SdChangePriorityDto, SdChangeStatusDto, SdConfigResponse,
   SdCreateRequestDto, SdListResponse, SdLogTimeDto, SdNotificationDto, SdPostMessageDto, SdPreferencesDto,
   SdPriority, SdRequestDetail, SdSettingsDto, SdSlaPolicyDto, SdSlaScanResult, SdStatsResponse, SdStatus,
-  SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact, SdRoutingResponse, SdUpsertRoutingRuleDto, SdReportResponse,
+  SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact, SdRoutingResponse, SdUpsertRoutingRuleDto, SdReportResponse, SdRequesterDto, SdDepartmentDto,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -87,6 +87,11 @@ export class ServiceDeskService {
   updateQueue(id: string, dto: SdUpsertQueueDto): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/queues/${id}`, dto); }
   createCategory(dto: SdUpsertCategoryDto): Observable<SdConfigResponse> { return this.http.post<SdConfigResponse>(`${this.base}/config/categories`, dto); }
   updateCategory(id: string, dto: SdUpsertCategoryDto): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/categories/${id}`, dto); }
+  /** `[MS.3.11]` Personas para levantar una solicitud a su nombre. Sólo quien atiende; mínimo 2 letras. */
+  requesters(search: string): Observable<SdRequesterDto[]> {
+    return this.http.get<SdRequesterDto[]>(`${this.base}/requesters`, { params: this.params({ search }) });
+  }
+  departments(): Observable<SdDepartmentDto[]> { return this.http.get<SdDepartmentDto[]>(`${this.base}/departments`); }
   report(from?: string, to?: string): Observable<SdReportResponse> {
     return this.http.get<SdReportResponse>(`${this.base}/reports`, { params: this.params({ from, to }) });
   }
