@@ -5,6 +5,107 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-03 — `[VPR.1/VPR.2]` El precio del vendedor: no era desactualización, era una columna en disputa
+
+Edgar: *"necesito una verdad absoluta en los precios de `/vendor/take-order`, así como lo tenemos en
+etiquetas y catálogo, ya que mencionan desactualización de precios"*. Después: *"arranquemos por la
+solución definitiva"*.
+
+### La medición refutó la premisa del reporte
+
+El feed de precios corre cada 30 min y está **verde** (`feed_prices`, 3/3 pasos, última corrida a
+los 22 min). Las dos tablas de precio se habían escrito hacía **6 minutos**. No había nada viejo.
+
+Arbitrando las dos superficies contra el ERP (`kepler_ods.kdii.c90`, por plaza), mismos 69,782
+pares SKU × plaza:
+
+| superficie | cuadra con el ERP |
+|---|---|
+| **Etiquetera** (`product_label_prices`, tiene columna `sucursal`) | **100.0%** |
+| **Vendedor** (`product_prices`, un solo número de red) | **86.8%** |
+
+⭐ Que la etiquetera dé 100% es lo que vuelve publicable el 86.8%: **el árbitro discrimina**. Sin
+ese control, el 86.8% se podría leer como *"el ERP está raro"* en vez de *"la lista de red no puede
+acertar"*, que son conclusiones opuestas.
+
+### Y la columna estaba en guerra
+
+`analytics.master_data_history` —lo que VP.3 construyó justo para esto— lo dejó por escrito:
+
+    SKU 83041 -- las NUEVE plazas cotizan 40.49
+      09:32  importer:repoint-catalog-prices   38.94 -> 40.49
+      09:33  (actor NULL)                      40.49 -> 38.94
+      09:02  importer:repoint-catalog-prices   38.94 -> 40.49
+      09:23  (actor NULL)                      40.49 -> 38.94   ...
+
+**1,222 filas en guerra · 302,273 vaivenes en 3 días (~100,758 por día)**, y al medir el escritor
+anónimo iba ganando **1,129 a 41**. El precio no estaba viejo: estaba **inestable**, y lo que veía
+el vendedor dependía de quién escribió último. Baja el precio 10,349 veces contra 2,637 que lo
+sube; mediana **−2.3%**, sobre **1,572 SKUs**.
+
+⚠️ El escritor anónimo **no declara actor** — por eso sale `NULL`. La instrumentación lo delata
+justo por su ausencia. Sigue **sin identificar**: descarté el join por SKU (0 productos casan sólo
+normalizando) y las plazas nuevas 07/08 (ambos grupos dan 86.8%), que eran las dos hipótesis
+obvias. Corre casi cada minuto y toca `product_prices`, `product_label_prices` y `catalog.products`.
+
+### ⭐ Por qué la solución es una VISTA, y por qué eso es "definitivo"
+
+El defecto **no se arregla escribiendo el valor correcto**: ya se escribe, 48 veces al día, y lo
+pisan. Se arregla **sacando la columna de la pelea**.
+
+`analytics.v_price_truth` (mig `20261003190000`, batch **705**, 2.9 s) es una vista derive-no-copy
+sobre `kepler_ods.kdii`, grano **(tenant, almacén, producto)**. Nadie la puede escribir: no hay
+importer que la pise, ni actor anónimo que la revierta, ni carrera que ganar. **El número deja de
+depender de quién corrió último porque ya no hay nadie corriendo.**
+
+Es además la regla principal del repo (cero importers, derivar en vez de copiar) aplicada donde más
+duele — y la etiquetera ya había demostrado que a este grano se llega al 100%.
+
+### Lo que se midió ANTES de elegir la forma
+
+- **Costo**: 78,523 filas en **99 ms**; el caso real (una plaza) en **23 ms**. Gate de 1 s.
+- **Los códigos casan**: `warehouses.code` = `kdii.sucursal` en las 9 plazas (00–08). Las rutas dan
+  0 y es correcto: una camioneta no cotiza, y en take-order el toggle de camioneta mueve badges de
+  existencia, nunca precio.
+- **Nadie pone precios a mano**: `updated_by` y `created_by` en **0 de 9,618**, y de los
+  **1,039,304** cambios de 30 días, **cero** son del rol de la app. La gestión manual existe en el
+  código y jamás se usó — así que la vista no le quita una capacidad a nadie.
+
+⛔ **`commercial.product_prices` NO se toca**: la leen 14 lugares (portal, Thot, recomendaciones,
+búsqueda, pedido AI, pricing). La vista **no la reemplaza**, la pone al lado y declara la
+divergencia. El filtro "con precio" tampoco se movió — medido, `sin_precio_lista = 0`, así que el
+universo de productos es idéntico; sólo cambia **el valor**.
+
+### El cambio de número, medido
+
+**10,422 de 78,898 celdas (1,572 SKUs)** pasan a publicar el precio de su plaza. **7,824 venían
+cobrando de MENOS.** El precio viaja ahora con su procedencia (`price_source`: `erp_plaza` ·
+`lista_red` · `sin_precio`) y con el de la red al lado, para que un cambio de precio se pueda
+discutir en vez de sorprender.
+
+### Verificación
+
+`test-newdb-price-truth.js` — **verde · 1 NO MEDIDO**, en la regresión. Vigila premisas, no el
+precio: el control de la etiquetera (100%), que la plaza se resuelva (9), el piso de promo, y
+⭐ **la prueba negativa que define la fase**: se intenta un `UPDATE` contra la vista y se exige que
+Postgres lo **rechace**. Si algún día deja de fallar, el defecto volvió.
+
+⚠️ Dos trampas propias al escribir el candado: `round(double, int)` no existe en Postgres (el cast
+a `numeric` va **antes** del `round`), y el operador `?` de JSONB **choca con el placeholder de
+binding de knex** — la misma que `CLAUDE.md` ya documenta para `role_permissions`; se usa
+`jsonb_exists()`.
+
+### Pendiente
+
+- **Cazar al escritor anónimo.** La vista protege al vendedor, pero la tabla sigue en disputa y de
+  ella comen 14 consumidores (portal B2B entre ellos). Lo más rápido para nombrarlo: que el trigger
+  guarde también `application_name`/`pid`.
+- **Redeploy api+view** — la vista ya está en prod, pero el código que la lee no está servido.
+- Declarado, no resuelto: un override manual necesita **columna propia**; hoy es indistinguible de
+  un feed.
+- Las 5 listas de precio (Mayoreo, Nivel 1–4) están en **0 precios**: asignarle una a un cliente le
+  deja el catálogo vacío. Hoy los 936 clientes están en la base, así que no duele todavía.
+---
 ## 2026-10-02 — `[RA-DYN.U7]` El cumplimiento cableado al pedido: el grano lo decidió la medición
 
 Edgar, sobre la medición que quedó publicada el mismo día: *"cablealo"*.
