@@ -25,6 +25,7 @@ import {
   desglose,
   type OpcionUnidad,
   type PasoDesglose,
+  type QuoteBranches,
 } from '../quotes.service';
 import {
   exportQuotePdf,
@@ -129,27 +130,44 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
             </div>
           </div>
 
-          <!-- MENÚ DESPLEGABLE CON LAS 8 SUCURSALES (SIEMPRE DISPONIBLES) -->
+          <!-- COT.19: SÓLO las sucursales del usuario (ADR-050). Una → fija; varias → selector;
+               ninguna → se declara, no se abren las 8. -->
           <div class="sucursal-dropdown-box">
-            <label for="sucursalSelect" class="suc-label">
-              <i class="pi pi-building" aria-hidden="true"></i> Sucursal:
-            </label>
-            <select
-              id="sucursalSelect"
-              class="input-select"
-              [ngModel]="sucursal()"
-              (ngModelChange)="onSucursalChange($event)"
-              [disabled]="guardando()"
-            >
-              @for (s of sucursales8; track s.code) {
-                <option [value]="s.code">
-                  Sucursal {{ s.code }} — {{ s.name }}
-                  @if (cliente() && clienteTieneSucursal(s.code)) {
-                    *
-                  }
-                </option>
-              }
-            </select>
+            @if (misRamas() === null) {
+              <span class="suc-label"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Cargando sucursales…</span>
+            } @else if (sucursalesPermitidas().length === 0) {
+              <span class="suc-sin" role="alert">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                Sin sucursal asignada: pedí a un administrador que te asigne tu sucursal para poder cotizar.
+              </span>
+            } @else if (sucursalesPermitidas().length === 1) {
+              <span class="suc-label"><i class="pi pi-building" aria-hidden="true"></i> Sucursal:</span>
+              <span class="suc-fija">Sucursal {{ sucursalesPermitidas()[0].code }} — {{ sucursalesPermitidas()[0].name }}</span>
+            } @else {
+              <label for="sucursalSelect" class="suc-label">
+                <i class="pi pi-building" aria-hidden="true"></i> Sucursal:
+              </label>
+              <select
+                id="sucursalSelect"
+                class="input-select"
+                [class.input-select-falta]="!sucursal()"
+                [ngModel]="sucursal()"
+                (ngModelChange)="onSucursalChange($event)"
+                [disabled]="guardando()"
+              >
+                @if (!sucursal()) {
+                  <option value="" disabled>Elegí la sucursal…</option>
+                }
+                @for (s of sucursalesPermitidas(); track s.code) {
+                  <option [value]="s.code">
+                    Sucursal {{ s.code }} — {{ s.name }}
+                    @if (cliente() && clienteTieneSucursal(s.code)) {
+                      *
+                    }
+                  </option>
+                }
+              </select>
+            }
           </div>
         </div>
 
@@ -346,10 +364,10 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 (keydown.arrowdown)="$event.preventDefault(); moverResaltado(1)"
                 (keydown.arrowup)="$event.preventDefault(); moverResaltado(-1)"
                 (keydown.enter)="$event.preventDefault(); elegirResaltado()"
-                placeholder="Escaneá el código de barras o escribí SKU / nombre (palabras en cualquier orden) · ↑↓ y Enter para elegir"
+                [placeholder]="sucursal() ? 'Escaneá el código de barras o escribí SKU / nombre (palabras en cualquier orden) · ↑↓ y Enter para elegir' : 'Primero elegí la sucursal'"
                 autocorrect="off"
                 spellcheck="false"
-                [disabled]="guardando()"
+                [disabled]="guardando() || !sucursal()"
               />
               @if (buscandoArticulo()) {
                 <i class="pi pi-spin pi-spinner search-spinner" aria-hidden="true"></i>
@@ -901,6 +919,10 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       /* Sucursal desplegable pegada arriba a la derecha */
       .sucursal-dropdown-box { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; }
       .suc-label { font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
+      /* COT.19: una sola sucursal = dato, no control (no se ofrece elegir lo que no se puede). */
+      .suc-fija { font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); white-space: nowrap; }
+      .suc-sin { font-size: var(--fs-xs); font-weight: 600; color: var(--bad-fg); display: inline-flex; align-items: center; gap: 0.3rem; }
+      .input-select-falta { border-color: var(--action) !important; }
       .input-select {
         padding: 0.3rem 0.6rem; font-size: var(--fs-sm); border: 1px solid var(--border-color);
         border-radius: 6px; background: var(--card-bg); color: var(--text-main); font-weight: 700; min-height: 32px;
@@ -1292,8 +1314,18 @@ export class TeleventaQuoteNewComponent implements OnInit {
   resultadosClientes = signal<WholesaleCustomer[]>([]);
   cliente = signal<WholesaleCustomer | null>(null);
 
-  // Sucursal: inicializada por defecto en '01' (Padre Hidalgo)
-  sucursal = signal<string>('01');
+  // COT.19: la sucursal sale del ALCANCE del usuario (ADR-050), no de un '01' fijo. Antes un
+  // vendedor de Morelia Abastos abría el cotizador en Padre Hidalgo. Vacía = todavía no se eligió.
+  sucursal = signal<string>('');
+  /** Respuesta de `GET /commercial/quotes/branches`; `null` = todavía cargando. */
+  readonly misRamas = signal<QuoteBranches | null>(null);
+  /** Las sucursales en las que puede COTIZAR (escribir), con su nombre, en el orden de la red. */
+  readonly sucursalesPermitidas = computed<StoreBranch[]>(() => {
+    const r = this.misRamas();
+    if (!r) return [];
+    const w = r.writable;
+    return SUCURSALES_8.filter((s) => w === null || w.includes(s.code));
+  });
   guardando = signal(false);
   exportando = signal(false);
   exportandoTipo = signal<'xlsx' | 'pdf' | null>(null);
@@ -1421,8 +1453,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
       .pipe(
         debounceTime(250),
         switchMap(() => {
-          const suc = this.sucursal() || '01';
+          const suc = this.sucursal();
           const termino = this.terminoArticulo.trim();
+          if (!suc) return of({ termino, rows: [] as QuoteCatalogRow[] }); // sin sucursal no hay catálogo (COT.19)
           this.buscandoArticulo.set(true);
           return this.svc.searchCatalog(suc, termino, 50).pipe(
             catchError((err) => {
@@ -1470,10 +1503,10 @@ export class TeleventaQuoteNewComponent implements OnInit {
       .pipe(
         debounceTime(250),
         switchMap(() => {
-          const suc = this.sucursal() || '01';
+          const suc = this.sucursal();
           const art = this.articuloElegido();
           const qty = this.cantidadArticulo();
-          if (!art || !Number.isFinite(qty) || qty <= 0) {
+          if (!suc || !art || !Number.isFinite(qty) || qty <= 0) {
             this.cotizandoArticulo.set(false);
             return of(null);
           }
@@ -1510,8 +1543,22 @@ export class TeleventaQuoteNewComponent implements OnInit {
         }
       });
 
-    // 4. Carga reactiva de vendedores de la sucursal activa
-    this.cargarVendedores(this.sucursal());
+    // 4. COT.19: las sucursales del usuario y la de arranque (la de su perfil si le toca).
+    this.svc
+      .branches()
+      .pipe(
+        // Si no contesta se declara «ninguna»: abrir las 8 sería el fail-open que esto cierra.
+        catchError(() => of<QuoteBranches>({ mode: 'none', branches: [], writable: [], default_branch: null, resolvable: false })),
+      )
+      .subscribe((r) => {
+        this.misRamas.set(r);
+        const permitidas = this.sucursalesPermitidas();
+        const inicial = r.default_branch ?? (permitidas.length === 1 ? permitidas[0].code : '');
+        if (inicial) {
+          this.sucursal.set(inicial);
+          this.cargarVendedores(inicial);
+        }
+      });
   }
 
   // ── Acciones de Destinatario ─────────────────────────────────────────────────
@@ -1543,8 +1590,10 @@ export class TeleventaQuoteNewComponent implements OnInit {
     // Si el cliente tiene la sucursal actual en sus ramas, se conserva; si no, si tiene ramas se sugiere la primera
     if (c.branches && c.branches.length > 0) {
       const match = c.branches.find((b) => b.sucursal === this.sucursal());
-      if (!match) {
-        const nuevaSuc = c.branches[0].sucursal;
+      // COT.19: sólo se sugiere una sucursal en la que el usuario pueda cotizar.
+      const sugerida = c.branches.find((b) => this.sucursalesPermitidas().some((s) => s.code === b.sucursal));
+      if (!match && sugerida) {
+        const nuevaSuc = sugerida.sucursal;
         this.sucursal.set(nuevaSuc);
         this.cargarVendedores(nuevaSuc);
         return;
@@ -1564,7 +1613,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   onSucursalChange(val: string): void {
-    const s = val || '01';
+    const s = val || '';
     this.sucursal.set(s);
     this.cargarVendedores(s);
     // Al cambiar de sucursal, refrescar precio previo del artículo si hay uno seleccionado
@@ -1907,7 +1956,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     if (!actual.sku) return; // renglón no manejado: no hay precio que recalcular
 
     this.svc
-      .pricePreview({ branch: this.sucursal() || '01', sku: actual.sku, quantity: nuevaQty, rung: actual.rung })
+      .pricePreview({ branch: this.sucursal(), sku: actual.sku, quantity: nuevaQty, rung: actual.rung })
       .subscribe({
         next: (p) => {
           this.bandeja.update((items) =>
@@ -1985,7 +2034,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       origin: this.origen,
       valid_until: this.vigencia || undefined,
       customer_request: this.listaCruda.trim() || undefined,
-      source_branch: this.sucursal() || '01',
+      source_branch: this.sucursal(),
       salesperson_code: this.vendedorSeleccionado() || undefined,
       salesperson_name: this.vendedorSeleccionadoObj()?.name || undefined,
     };
@@ -2092,7 +2141,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       ? null
       : (this.contactoMail.trim() || null);
 
-    const sucursalCod = this.sucursal() || '01';
+    const sucursalCod = this.sucursal();
     const sucursalObj = this.sucursales8.find((s) => s.code === sucursalCod);
     const branchName = sucursalObj?.name || `Sucursal ${sucursalCod}`;
 

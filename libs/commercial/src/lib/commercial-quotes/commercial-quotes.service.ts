@@ -6,8 +6,9 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService, applySmartSearch } from '@megadulces/platform-core';
 import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
+import { AREA_COTIZACIONES } from './quote-scope';
 
 /**
  * `[E.12]` — Cotizaciones de mayoreo.
@@ -129,6 +130,8 @@ export interface QuoteDetail extends Record<string, unknown> {
   id: string;
   code: string;
   status: QuoteStatus;
+  /** COT.19: el usuario puede escribir en la sucursal de esta cotización (alcance ADR-050). */
+  branch_writable: boolean;
   lines: Array<Record<string, unknown>>;
 }
 
@@ -172,7 +175,73 @@ export class CommercialQuotesService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly scope: ScopeService,
   ) {}
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Alcance por sucursal (COT.19, ADR-050)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Las sucursales que el usuario puede VER en cotizaciones: `null` = todas (no se filtra),
+   * `[]` = ninguna (fail-closed), o la lista. Sale de `ScopeService`, no de una regla local.
+   */
+  private async sucursalesLeibles(): Promise<string[] | null> {
+    return this.scope.intersect(await this.scope.current(AREA_COTIZACIONES), 'warehouse', null);
+  }
+
+  /**
+   * COT.19 — Con qué sucursales puede cotizar el usuario, y en cuál arranca.
+   *
+   * Existe además de `GET /users/me/scope` porque ése resuelve sin área (sólo reglas `'*'`) y
+   * las validaciones de este módulo resuelven con `AREA_COTIZACIONES`: si la pantalla leyera un
+   * alcance y el servidor validara otro, el día que alguien configure una regla de telemarketing
+   * el selector ofrecería sucursales que el servidor rechaza. Mismo resolvedor, misma área.
+   *
+   * `branches` / `writable`: `null` = todas; `[]` = ninguna. `default_branch` = la del perfil
+   * (`users.warehouse_code`) si está permitida; si no, la única que tenga; si no, `null` y la
+   * pantalla obliga a elegir. ⛔ Nunca `'01'` por omisión: es lo que mandó a Morelia a Padre Hidalgo.
+   */
+  async myBranches(): Promise<{
+    mode: string;
+    branches: string[] | null;
+    writable: string[] | null;
+    default_branch: string | null;
+    resolvable: boolean;
+  }> {
+    const scope = await this.scope.current(AREA_COTIZACIONES);
+    const d = scope.dims.warehouse;
+    const branches = this.scope.intersect(scope, 'warehouse', null);
+    const writable = d.modeWrite === 'all' ? null : d.modeWrite === 'none' ? [] : d.valuesWrite;
+
+    const userId = this.tenantCtx.get()?.userId;
+    let perfil: string | null = null;
+    if (userId) {
+      const u = await this.tk.run((knex) =>
+        knex('identity.users').where({ id: userId }).first('warehouse_code'),
+      );
+      perfil = (u?.warehouse_code as string | null | undefined)?.trim() || null;
+    }
+
+    const usable = (code: string) =>
+      (branches === null || branches.includes(code)) && (writable === null || writable.includes(code));
+    let defaultBranch: string | null = null;
+    if (perfil && usable(perfil)) defaultBranch = perfil;
+    else if (writable && writable.length === 1) defaultBranch = writable[0];
+
+    return { mode: d.mode, branches, writable, default_branch: defaultBranch, resolvable: d.resolvable };
+  }
+
+  /** 403 con mensaje si la sucursal pedida no está en su alcance de lectura. */
+  private assertLeeSucursal(branch: string): Promise<void> {
+    return this.scope.assertCanRead('warehouse', branch, AREA_COTIZACIONES);
+  }
+
+  /** 403 con mensaje si no puede ESCRIBIR (crear/editar/cancelar) en esa sucursal. */
+  async assertEscribeSucursal(branch: string | null | undefined): Promise<void> {
+    if (!branch) throw new BadRequestException('La cotización no tiene sucursal: no se puede editar.');
+    await this.scope.assertCanWrite('warehouse', branch, AREA_COTIZACIONES);
+  }
 
   // ───────────────────────────────────────────────────────────────────────────
   // Lectura
@@ -186,10 +255,16 @@ export class CommercialQuotesService {
     const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
     const offset = Math.max(Number(query.offset) || 0, 0);
     const userId = this.tenantCtx.get()?.userId;
+    const sucursales = await this.sucursalesLeibles();
 
     return this.tk.run(async (knex) => {
       const where: string[] = ['q.deleted_at IS NULL'];
       const binds: Record<string, unknown> = { limit, offset };
+      // COT.19: cada quien ve las cotizaciones de SUS sucursales; `null` = todas.
+      if (sucursales !== null) {
+        where.push('q.source_branch = ANY(:scope_branches)');
+        binds['scope_branches'] = sucursales;
+      }
 
       if (query.status) {
         const list = String(query.status)
@@ -285,10 +360,16 @@ export class CommercialQuotesService {
    */
   async summary(mine = false): Promise<QuotesSummary> {
     const userId = this.tenantCtx.get()?.userId;
+    const sucursales = await this.sucursalesLeibles();
     return this.tk.run(async (knex) => {
-      const mineSql = mine && userId ? 'AND q.user_id = :user_id' : '';
+      let mineSql = mine && userId ? 'AND q.user_id = :user_id' : '';
       const binds: Record<string, unknown> = {};
       if (mine && userId) binds['user_id'] = userId;
+      // COT.19: los números de la cabecera cuentan lo mismo que la lista (sus sucursales).
+      if (sucursales !== null) {
+        mineSql += ' AND q.source_branch = ANY(:scope_branches)';
+        binds['scope_branches'] = sucursales;
+      }
 
       const res = await knex.raw(
         `
@@ -367,6 +448,8 @@ export class CommercialQuotesService {
         { id },
       );
       if (!head.rows.length) throw new NotFoundException('Cotización no encontrada');
+      // COT.19: abrir una cotización de otra sucursal por su id es lo mismo que pedir esa sucursal.
+      await this.assertLeeSucursal(String(head.rows[0].source_branch ?? ''));
 
       const lines = await knex.raw(
         `
@@ -410,7 +493,12 @@ export class CommercialQuotesService {
         { id, branch: (head.rows[0].source_branch as string) ?? '01' },
       );
 
-      return { ...head.rows[0], lines: lines.rows };
+      // Leer no es escribir: `mode_write` puede ser más estrecho (ve tres plazas, edita una). La
+      // pantalla lo usa para no ofrecer controles que el servidor va a rechazar.
+      const scope = await this.scope.current(AREA_COTIZACIONES);
+      const branchWritable = this.scope.canWrite(scope, 'warehouse', String(head.rows[0].source_branch ?? ''));
+
+      return { ...head.rows[0], branch_writable: branchWritable, lines: lines.rows };
     });
   }
 
@@ -431,6 +519,7 @@ export class CommercialQuotesService {
   async searchWholesaleCustomers(search: string, limit = 20): Promise<WholesaleCustomerRow[]> {
     const term = (search || '').trim();
     const n = Math.min(Math.max(Number(limit) || 20, 1), 50);
+    const sucursales = await this.sucursalesLeibles();
 
     return this.tk.run(async (knex) => {
       // Búsqueda por PALABRAS (COT.16): cada palabra tiene que aparecer en el código, el nombre
@@ -441,6 +530,12 @@ export class CommercialQuotesService {
         .orderBy('customer_code')
         .limit(n);
       applySmartSearch(hit, term, { columns: ['customer_code', 'name', 'rfc'], fuzzy: false });
+      // COT.19: sólo los clientes —y las condiciones— de las sucursales del usuario. Un cliente
+      // que sólo existe en otra plaza no tiene condiciones aquí, y cotizarlo crearía una
+      // cotización sin términos. El filtro va en `hit` (para que el LIMIT cuente lo permitido)
+      // y en el armado (para no listar las condiciones de las otras plazas).
+      const filtroSuc = sucursales !== null ? 'WHERE v.sucursal = ANY(:scope_branches)' : '';
+      if (sucursales !== null) hit.whereIn('sucursal', sucursales);
 
       const res = await knex.raw(
         `
@@ -471,10 +566,11 @@ export class CommercialQuotesService {
            OR count(DISTINCT coalesce(v.payment_days::text, '-')) > 1) AS terms_vary_by_branch
         FROM analytics.v_erp_wholesale_customers v
         JOIN hit ON hit.customer_code = v.customer_code
+        ${filtroSuc}
         GROUP BY v.customer_code
         ORDER BY v.customer_code
         `,
-        { hit },
+        sucursales !== null ? { hit, scope_branches: sucursales } : { hit },
       );
       return res.rows;
     });
@@ -487,6 +583,7 @@ export class CommercialQuotesService {
   async listSalespersons(branch: string): Promise<Array<{ code: string; name: string }>> {
     const suc = (branch || '').trim();
     if (!suc) return [];
+    await this.assertLeeSucursal(suc);
     return this.tk.run(async (knex) => {
       const res = await knex.raw(
         `SELECT btrim(c2) AS code, btrim(c3) AS name
@@ -523,6 +620,7 @@ export class CommercialQuotesService {
   async searchCatalog(branch: string, search: string, limit = 30): Promise<QuoteCatalogRow[]> {
     const suc = (branch || '').trim();
     if (!suc) throw new BadRequestException('Falta la sucursal: un producto sólo es cotizable en una plaza concreta.');
+    await this.assertLeeSucursal(suc);
 
     const term = (search || '').trim();
     const n = Math.min(Math.max(Number(limit) || 30, 1), 50);
@@ -689,11 +787,15 @@ export class CommercialQuotesService {
         'La cotización necesita destinatario: un cliente de mayoreo del ERP, un cliente registrado, o al menos un nombre de contacto.',
       );
     }
-    if (erpCode && !dto.source_branch) {
+    // COT.19: la sucursal es obligatoria SIEMPRE (no sólo con cliente del ERP): el precio de cada
+    // renglón se resuelve por (sucursal, sku), y sin ella la cotización caía en la 01 en silencio.
+    const sourceBranch = (dto.source_branch || '').trim();
+    if (!sourceBranch) {
       throw new BadRequestException(
-        'Falta la sucursal: las condiciones del cliente (descuento, límite, plazo) DIFIEREN entre sucursales, así que cotizar sin decir cuál es irreproducible.',
+        'Falta la sucursal: las condiciones del cliente (descuento, límite, plazo) y los precios DIFIEREN entre sucursales, así que cotizar sin decir cuál es irreproducible.',
       );
     }
+    await this.assertEscribeSucursal(sourceBranch);
     const origin = dto.origin ?? 'telemarketing';
     if (!['telemarketing', 'route_visit', 'counter', 'portal'].includes(origin)) {
       throw new BadRequestException(`origin inválido: ${origin}`);
@@ -877,8 +979,9 @@ export class CommercialQuotesService {
     const userId = this.tenantCtx.get()?.userId;
 
     return this.tk.run(async (knex) => {
-      const current = await knex('commercial.quotes').where({ id }).first('status', 'code');
+      const current = await knex('commercial.quotes').where({ id }).first('status', 'code', 'source_branch');
       if (!current) throw new NotFoundException('Cotización no encontrada');
+      await this.assertEscribeSucursal(current.source_branch);
       if (current.status === 'accepted') {
         throw new ConflictException(
           'La cotización ya fue aceptada y tiene pedido: cancelá el pedido, no la cotización.',

@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Fixed — cotización: cada usuario cotiza sólo en SUS sucursales (COT.19, 2026-10-03)
+- El cotizador arrancaba en la 01 y ofrecía las 8 sucursales a cualquiera, y el servidor no validaba: un vendedor de Morelia Abastos cotizaba con precios de Padre Hidalgo. Ahora usa el alcance por sucursal de ADR-050 (área `televenta`): una sucursal fija para vendedores, sólo las suyas para quien tiene varias, todas para dirección; 403 en catálogo, precio, vendedores, crear y editar fuera del alcance; la lista muestra sólo las cotizaciones de sus sucursales. Endpoint nuevo `GET /commercial/quotes/branches`. ⚠️ 3 usuarios sin sucursal en su perfil quedan sin poder cotizar hasta que se les asigne.
 ### Fixed — auditoría del design system: el techo de motion deja de ser una intención, y Alto Contraste deja de ser un hueco (2026-10-03)
 
 Auditoría de [`DESIGN.md`](DESIGN.md) y sus tres satélites. El sistema está bien hecho; lo que falla

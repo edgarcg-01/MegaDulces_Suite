@@ -116,6 +116,19 @@ export interface QuoteCatalogRow {
   sold_by_kg: boolean;
 }
 
+/**
+ * COT.19 — Con qué sucursales cotiza el usuario (`GET /commercial/quotes/branches`).
+ * `branches` / `writable`: `null` = todas, `[]` = ninguna. `default_branch` = la de su perfil si
+ * está permitida; `null` = tiene que elegir (nunca se asume la 01).
+ */
+export interface QuoteBranches {
+  mode: string;
+  branches: string[] | null;
+  writable: string[] | null;
+  default_branch: string | null;
+  resolvable: boolean;
+}
+
 // Las funciones de unidades viven en `quote-units.ts` (sin Angular, se prueban solas).
 export * from './quote-units';
 
@@ -209,6 +222,8 @@ export interface QuoteDetail {
   quote_date: string;
   valid_until: string;
   days_to_expiry: number;
+  /** COT.19: el usuario puede escribir en la sucursal de esta cotización (ADR-050). */
+  branch_writable?: boolean;
   subtotal: number | string;
   tax_total: number | string;
   total: number | string;
@@ -333,6 +348,11 @@ export class QuotesService {
   }
 
   /** Lista los vendedores de Kepler asignados a una sucursal (?branch=01). */
+  /** COT.19: sucursales con las que este usuario cotiza (mismo alcance que valida el servidor). */
+  branches(): Observable<QuoteBranches> {
+    return this.http.get<QuoteBranches>(`${this.base}/branches`);
+  }
+
   listSalespersons(branch: string): Observable<Array<{ code: string; name: string }>> {
     const params = new HttpParams().set('branch', branch);
     return this.http.get<Array<{ code: string; name: string }>>(`${this.base}/salespersons`, { params });
