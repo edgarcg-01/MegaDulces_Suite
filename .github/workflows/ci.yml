@@ -406,6 +406,22 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:motion
 
+      # `[DS.3]` Las 4 reglas de CSS que DESIGN.md marca BINDING y nadie medía. ⚠️ NO es stylelint
+      # a propósito, y la medición lo decidió: el 89% de los `font-size` y el 95% de los hex crudos
+      # de este repo viven DENTRO de template literals de TypeScript (337 componentes con `styles:`
+      # inline contra 28 `.component.css`). Stylelint de fábrica vería ~1 de cada 10 defectos y
+      # cobraría una dependencia nueva por esa décima parte. Acá se reusa la extracción con el
+      # compilador de TS que `check:templates` ya tenía: 100% de cobertura, 0 dependencias.
+      # Es un RATCHET: cada regla arranca con la deuda de hoy congelada y frena si CRECE.
+      - name: Estilos gate — prueba negativa
+        if: ${{ !cancelled() }}
+        run: npm run check:estilos:self
+
+      - name: Estilos gate (escala --fs-*, hex crudo, breakpoints px, foco sin anillo)
+        id: g-estilos
+        if: ${{ !cancelled() }}
+        run: npm run check:estilos
+
       # `[NX.3]` Este es el único gate cuyo defecto NO se puede ver en la máquina de quien lo
       # introduce: el contexto de Docker sólo se ejerce al construir la imagen. Nació de un caso
       # real — `vitest.shared.ts` en la raíz, importado por los 7 `vitest.config.ts`, y el
@@ -463,6 +479,7 @@ jobs:
           R_TABLAS: ${{ steps.g-tablas.outcome }}
           R_TOKENS: ${{ steps.g-tokens.outcome }}
           R_MOTION: ${{ steps.g-motion.outcome }}
+          R_ESTILOS: ${{ steps.g-estilos.outcome }}
           R_TYPECHECK: ${{ steps.g-typecheck.outcome }}
           R_TEST: ${{ steps.g-test.outcome }}
         run: |
@@ -497,6 +514,9 @@ jobs:
           fila "$R_MOTION"    "Techo de motion (350ms)" \
             "Una animación de Operations dura más que --dur-max, o crecieron las transiciones sobre propiedades de layout." \
             "npm run check:motion"
+          fila "$R_ESTILOS"   "Reglas de CSS (escala, hex, breakpoints, foco)" \
+            "Creció alguna de las cuatro deudas de CSS: font-size fuera de la escala --fs-*, hex crudo en un color, breakpoint en px, u outline:none sin anillo de foco." \
+            "npm run check:estilos"
           fila "$R_TYPECHECK" "Typecheck" \
             "apps/api compila con SWC y BORRA los tipos sin comprobarlos: este es el único paso que los mira." \
             "npx nx affected -t typecheck"

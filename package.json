@@ -26,6 +26,8 @@
     "check:tokens": "node scripts/check-css-tokens.js",
     "check:motion": "node scripts/check-motion.js",
     "check:motion:self": "node scripts/check-motion.js --self-test",
+    "check:estilos": "node scripts/check-estilos.js",
+    "check:estilos:self": "node scripts/check-estilos.js --self-test",
     "check:tokens:self": "node scripts/check-css-tokens.js --self-test",
     "check:tables:self": "node scripts/check-dense-tables.js --self-test",
     "check:teclado": "node scripts/check-keyboard-nav.js",

@@ -43,9 +43,36 @@ en `apps/view` **97 → 120**.
   LIGHT» documentaba `var(--stone-*)`, **una rampa que el mismo doc declara retirada**. Las cifras de
   la tabla de cumplimiento ahora publican **el comando que las produjo**.
 
-**Abierto, con dueño:** stylelint (4 reglas — frena los tres peores incumplimientos el día que se
-escriben; es dependencia nueva), `@media print` = **7** en una app que emite pólizas y libro de
-compras, INP sin medición de campo en `apps/view`, y `--action-ink` en **3.39:1** (verificado).
+### Added — `[DS.3]` las 4 reglas de CSS que nadie medía, en una compuerta (y por qué NO es stylelint)
+
+⛔ **Se descartó stylelint, y lo decidió la medición, no el gusto.** El **89%** de los `font-size` y
+el **95%** de los hex crudos de este repo viven **dentro de template literals de TypeScript** (337
+componentes con `styles:` inline contra **28** `.component.css`). Angular no usa una plantilla
+taggeada de CSS sino un string suelto en el decorador, así que ni `postcss-lit` lo toma limpio:
+stylelint de fábrica habría visto **~1 de cada 10 defectos** y cobrado una dependencia nueva —más su
+sintaxis custom— por esa décima parte. `check-template-literals.js` **ya extraía esos bloques** con
+el compilador de TS; [`check-estilos.js`](scripts/check-estilos.js) reusa ese camino: **100% de
+cobertura, 0 dependencias**, ~2.6 s, en CI con sus 15 casos de prueba negativa.
+
+Las cuatro reglas, congeladas con la deuda de hoy — **frenan cuando CRECE, no por existir**:
+
+| Regla | Deuda congelada |
+|---|---|
+| `font-size` fuera de la escala `--fs-*` (imprime el token equivalente) | **3,161** |
+| hex crudo en una declaración de color | **1,449** |
+| `@media` con breakpoint en px | **205** |
+| `outline:none` sin un `:focus-visible` hermano | **27** |
+
+⭐ **Hallazgo de encenderla: 27 controles sin anillo de foco, y 24 de los 27 son CAMPOS DE ENTRADA** —
+los dos campos de **escaneo** (andén de almacén, etiquetas de tienda), el **login de las dos apps**,
+los steppers de cantidad del vendedor, y **los buscadores que `[D.7]` acaba de volver navegables con
+teclado**: la ruta existe y es **invisible**. Se listan uno por uno con `npm run check:estilos --lista`
+y **no se arreglaron a ciegas** — el anillo correcto difiere entre Storefront y Operations.
+
+**Abierto, con dueño:** `@media print` = **7** en una app que emite pólizas y libro de compras, INP
+sin medición de campo en `apps/view`, `--action-ink` en **3.39:1** (verificado), y la única deuda que
+**no** se arregla con un ratchet: `@layer` = 0 con 1,034 `!important` y 439 `::ng-deep` — eso es una
+migración de cascada, no un número que congelar.
 
 ### Added — el inventario de los camiones de Ruta Directa, como un cuadre que cierra (Fase RD, 2026-10-02)
 Nueva pestaña **`/comercial/inventario-ruta`**: cuánto trae cada camión RD, con **valor a costo y valor a venta**,
