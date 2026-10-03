@@ -754,7 +754,7 @@ fi
 #
 # ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
 _KC=/etc/rancher/k3s/k3s.yaml
-# ⛔ [K3S.32] SE LE PREGUNTA SÓLO A LOS PODS DEL ReplicaSet ACTUAL, no a todo `app=api`.
+# ⛔ [K3S.47] SE LE PREGUNTA SÓLO A LOS PODS DEL ReplicaSet ACTUAL, no a todo `app=api`.
 #
 # `[K3S.31]` saltea los que están en Terminating. Pero entre "sirviendo" y "Terminating" hay un
 # estado intermedio que no tiene `deletionTimestamp` todavía: el pod viejo que K3s aún no empezó
