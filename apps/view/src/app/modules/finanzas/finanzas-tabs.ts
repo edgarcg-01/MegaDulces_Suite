@@ -130,7 +130,17 @@ export const FINANZAS_TABS: PageTab[] = [
     anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR],
   },
   {
+    // `[GX.59]` El tramite de TODAS las personas, agrupado por persona, con el veredicto del
+    // protocolo. Es la pantalla que el usuario pidio «en lugar de historial».
+    label: 'Expediente',
+    route: '/finanzas/expediente',
+    icon: 'pi pi-folder-open',
+    permission: Permission.FINANCE_EXPENSES_COMPROBAR,
+  },
+  {
     // `[GX.33]` De todas las fechas y de toda la empresa: es para quien REVISA.
+    // ⚠️ `[GX.59]` NO se retiro: 14 personas con `_VER` y sin `_COMPROBAR` se quedarian sin
+    // ninguna vista de empresa. Queda abierto si se retira.
     label: 'Historial',
     route: '/finanzas/gastos-historial',
     icon: 'pi pi-history',

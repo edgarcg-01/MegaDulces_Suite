@@ -282,6 +282,16 @@ interface DocDelExpediente {
   .vp-aut-falta { margin: 0; font-size: var(--fs-xs); color: var(--fg-3);
     display: flex; align-items: flex-start; gap: var(--sp-1); }
   /* ── El vale, completo ──────────────────────────────────────────────────── */
+  /* [GX.61] La MISMA escala que la pantalla de aprobacion: este panel es donde de verdad se
+     lee el vale antes de firmarlo. Dejarlo chico habria agrandado la lista y no lo que se
+     mira para decidir. Alcanza tambien al Expediente y al Historial, que reusan el visor. */
+  .vp {
+    --fs-nano:  0.6875rem;
+    --fs-micro: 0.75rem;
+    --fs-xs:    0.8125rem;
+    --fs-sm:    0.875rem;
+    --fs-body:  0.9375rem;
+  }
   .vp { display: flex; flex-direction: column; gap: var(--sp-3); }
   .vp-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); }
   .vp-imp { font-family: var(--font-mono); font-variant-numeric: tabular-nums;

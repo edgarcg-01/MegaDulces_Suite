@@ -523,6 +523,38 @@ describe('[GX.41] FinanzasCapturarGastoComponent · abrir desde la URL', () => {
     expect(comp.gasto()).toBeNull();
   });
 
+  /**
+   * `[GX.63]` ⭐⭐ **...pero TAMPOCO se queda muda.**
+   *
+   * Acá estaba el defecto que se reportó como «no deja adjuntar los documentos»: con un folio
+   * que no existe en Kepler, la pantalla se quedaba con el folio escrito en el buscador y
+   * **sin un solo mensaje** — ni paso 3, ni botones, ni explicación. Quien llegaba desde un
+   * enlace (el Expediente tiene tres que apuntan acá) veía una pantalla que no hacía nada.
+   *
+   * ⛔ Medido el 2026-10-03: **149 de 155 vales del Expediente** caían en este caso. La
+   * proporción es de la base local —el ODS es semilla— pero el silencio no dependía del
+   * volumen: con UN solo vale así, la pantalla ya mentía.
+   */
+  it('⭐ y lo DICE: qué folio buscó y por qué no hay nada que adjuntar', () => {
+    const { fix, comp } = montar({ folio: '0009946', sucursal: '00' });
+    buscada([]);
+    fix.detectChanges();
+    expect(comp.noHallado()).toEqual({ folio: '0009946', sucursal: '00' });
+    const aviso = fix.nativeElement.querySelector('.cap-nohallado') as HTMLElement;
+    expect(aviso).toBeTruthy();
+    expect(aviso.textContent).toContain('0009946');
+    expect(aviso.textContent).toContain('no hay a qué pegarle los documentos');
+  });
+
+  /** ⛔ Y cuando SÍ aparece, el aviso no se pinta: una alarma que grita siempre se ignora. */
+  it('con el vale encontrado, el aviso no aparece', () => {
+    const { fix, comp } = montar({ folio: '0009946', sucursal: '00' });
+    buscada([SOL()]);
+    fix.detectChanges();
+    expect(comp.noHallado()).toBeNull();
+    expect(fix.nativeElement.querySelector('.cap-nohallado')).toBeNull();
+  });
+
   /** Ni aunque venga otro folio parecido en los resultados. */
   it('no abre un folio distinto al pedido', () => {
     const { comp } = montar({ folio: '0009946' });

@@ -192,6 +192,33 @@ export class ExpenseProofsController {
     return this.svc.sinFolio({ search, limit: limit ? Number(limit) : undefined });
   }
 
+  /**
+   * `[GX.59]` — **El Expediente: los vales de TODOS, agrupados por persona.**
+   *
+   * Pedido del usuario (2026-10-01): *«todos aquellos que tengan el poder de autorizar gastos
+   * podrán ver los vales de todos»*.
+   *
+   * ## ⚠️ Esto ensancha a propósito lo que `[GX.26]` había cerrado
+   * `GET /` (el historial de toda la empresa) quedó en **god-mode** el 2026-09-25, por pedido
+   * del mismo usuario. Esta ruta **no lo toca**: es otra superficie, con otro permiso, y el
+   * permiso elegido es el que ya tiene quien firma — `FINANCE_EXPENSES_COMPROBAR`, el mismo
+   * que guarda `/finanzas/aprobacion-gastos`.
+   *
+   * **Medido antes de abrirla (local, 2026-10-01): 2 personas** (rol `tesoreria`) además de
+   * los 12 de god-mode. ⛔ La medición es de la base LOCAL; prod no se alcanza desde acá, así
+   * que el número de allá **está sin medir** y hay que verlo antes del redeploy.
+   *
+   * ⛔ El recorte vive en el guard, no en la pantalla: esta ruta devuelve el gasto de todas
+   * las personas, y si el candado estuviera sólo en el front cualquiera la pediría a mano.
+   */
+  // Va ANTES de ':id' o la ruta paramétrica se la traga (misma trampa que las de arriba).
+  @Get('expediente')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[GX.59] Expediente: los vales de todas las personas, agrupados por usuario (nombre + username), con el veredicto del protocolo. Para quien autoriza gastos.' })
+  expediente(@Query('limit') limit?: string): ReturnType<ExpenseProofsService['expedientePorUsuario']> {
+    return this.svc.expedientePorUsuario(limit ? Number(limit) : undefined);
+  }
+
   // Va después de las rutas GET estáticas: declarada antes, ':id' se tragaría
   // 'departamentos', 'status-by-folio' y 'proof-by-folio'.
   @Get(':id')
