@@ -119,9 +119,43 @@ encontré releyéndolos a propósito, y después pareé los cuatro archivos con 
 que es lo que de verdad lo habría atrapado. **El gate que falta es ese**: parsear los `.ts` que
 construyen SQL, no sólo los componentes.
 
+### 🚀 Aplicada a prod — batch 704, y el sustrato había cambiado debajo
+
+Edgar: *"autorizo la migración"*. Pre-vuelo por `pg_locks` ⋈ `pg_stat_activity` **desde dentro**
+(desde `edgar` el `query` y el `usename` de otros roles vienen en blanco y se leen como "no hay
+nada corriendo"), rollout de los tres deployments confirmado, candado libre. **0.1 s.**
+
+Verificado en vivo: `fill_min_lines_erp = 25`, default `25`, `CHECK (fill_min_lines_erp >= 25)`
+adjunto. Candado re-corrido contra prod: **verde · 1 NO MEDIDO** (antes 2 — se fue el de la
+columna ausente; queda el honesto, el de la atribución).
+
+⛔⛔ **Y el camino documentado ya no existía: prod se mudó de docker compose a k3s.** Los
+contenedores `prod-api`, `pg-prod`, `prod-worker`, `prod-caddy`, `prod-portal`, `prod-vendor` y
+`prod-redis` llevaban **22–26 h `Exited`**, y lo que sirve es el namespace `prod` de k3s.
+
+⭐ **Lo grave es que no se nota.** Llevaba toda la sesión leyendo prod por `192.168.0.222:5434` y
+respondía igual. Y el reflejo para comprobarlo **miente**: `ss -ltn` no muestra **nada** en 5434,
+porque k3s publica por DNAT de iptables y no abre un socket en LISTEN — o sea que "¿quién escucha
+el puerto?" contesta *nadie* mientras el puerto funciona. Lo que sí lo delata es
+`inet_server_addr()`: devolvió `10.42.0.94`, la IP del pod de `pg-prod`.
+
+⭐ La **identidad del clúster no cambió** (`7688376744939610156`): el volumen es el mismo, así que
+el candado de identidad del script siguió siendo válido y **no** hubo que tocar `PROD_CLUSTER_ID`.
+Esa invariancia es la prueba de que se migró el mismo dato y no se creó uno nuevo.
+
+⚠️ Dos detalles que sólo aparecen al hacerlo: `sudo k3s kubectl` **falla por SSH** (pide terminal),
+pero `/etc/rancher/k3s/k3s.yaml` es legible sin sudo; y el pod trae un init container, así que
+`-c api` no es opcional. El procedimiento vigente quedó reescrito en la cabecera de
+`apply-one-migration-prod.js`, con el de docker marcado **HISTÓRICO** en vez de borrado.
+
+⚠️ Y un recordatorio de método: mi `comm` para diffear las migraciones contra el directorio del pod
+dio un **falso positivo** — decía que faltaba un archivo que `ls -l` mostraba ahí mismo. Dejé de
+adivinar y le pregunté a knex con `--list`, que es la autoridad: **1,025 aplicadas, 1 pendiente, la
+mía**. *El diff casero no es el árbitro; el que va a correr la migración sí.*
+
 ### Pendiente
 
-- Aplicar la migración `20261003120000` (`fill_min_lines_erp`) — **sin autorizar**.
+- ~~Aplicar la migración `20261003120000`~~ — **hecha: batch 704, 2026-10-02**.
 - Redeploy api+view. Sin permisos nuevos → sin re-login.
 - Refresco nocturno con umbral para `mv_supplier_fill_rate` — **sigue abierto**, y ahora pesa más:
   la matvista ya no sólo informa, **mueve el pedido**.
