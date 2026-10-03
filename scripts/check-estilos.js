@@ -64,7 +64,7 @@ const TOPE = {
   // sin `:root`, así que un `var(--fs-*)` ahí NO resuelve y el navegador tira la declaración
   // entera. **No son deuda: son el valor correcto para ese contexto**, y el tope los absorbe.
   // La pregunta antes de tokenizar un font-size no es en qué archivo está: es dónde se RENDERIZA.
-  fontSize:   2698,
+  fontSize:   2687,
   hex:        1449,  // hex crudo en declaración de color
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,

@@ -17,6 +17,7 @@ import { routes } from './app.routes';
 import { GlobalErrorHandler } from './core/errors/global-error-handler';
 import { authInterceptor } from './core/http/auth.interceptor';
 import { AuthService } from './core/services/auth.service';
+import { UsoService } from './core/services/uso.service';
 import { diagnosticsInterceptor } from './core/http/diagnostics.interceptor';
 import { SelectivePreloadStrategy } from './core/strategies/selective-preload.strategy';
 
@@ -40,6 +41,11 @@ export const appConfig: ApplicationConfig = {
     // Siempre resuelve y nunca cuelga el arranque (timeout duro + fallback al
     // snapshot del token) — ver `resolverAccesoInicial`.
     provideAppInitializer(() => inject(AuthService).resolverAccesoInicial()),
+    // `[DS.7]` Core Web Vitals de campo. DESIGN.md §17 declara BINDING que INP < 200ms es
+    // criterio de aceptación y que "se mide, no se estima"; hasta el 2026-10-03 `web-vitals`
+    // estaba cableado SÓLO en el portal, o sea que la app de las tablas densas no medía nada.
+    // No devuelve promesa a propósito: no debe demorar el arranque ni un milisegundo.
+    provideAppInitializer(() => { inject(UsoService).medirWebVitals(); }),
     // Sin esto una excepción no capturada dejaba la pantalla en blanco: nada
     // que ver, nada que reportar, nada registrado.
     { provide: ErrorHandler, useClass: GlobalErrorHandler },

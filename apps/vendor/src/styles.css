@@ -23,6 +23,10 @@
    descansa en hairlines y alpha-overlays, que son justo lo que ese modo funde en uno solo. */
 @import '../../../libs/ui-web/src/forced-colors.css';
 
+/* [DS.8] Qué pasa al apretar Ctrl+P: papel claro, sin chrome, tabla que no se parte mal.
+   NO toca los tickets ni los exports: ésos abren ventana propia y no cargan este archivo. */
+@import '../../../libs/ui-web/src/print.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

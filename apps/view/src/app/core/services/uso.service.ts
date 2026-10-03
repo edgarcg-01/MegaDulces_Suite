@@ -47,6 +47,42 @@ export class UsoService {
     this.enviar({ kind: 'event', name: `abrio_${que}`, props: { id, ...extra } });
   }
 
+  /**
+   * `[DS.7]` — Core Web Vitals de campo, por el mismo canal que el uso.
+   *
+   * ── Por qué ────────────────────────────────────────────────────────────────────────────────
+   * `DESIGN.md` §17 declara BINDING que **INP < 200ms es criterio de aceptación** en vistas
+   * densas, y dice literal *"se mide, no se estima"*. Medido el 2026-10-02: `web-vitals` estaba
+   * instalado y cableado **sólo en `apps/portal`**. O sea que la app con las tablas densas —la
+   * que la regla nombra— era la única que no medía nada, y el presupuesto de interacción se
+   * discutía de memoria. El endpoint (`POST /telemetry/suite`, autenticado) y este servicio ya
+   * existían: lo único que faltaba era llamar a la librería.
+   *
+   * ── Qué se manda ───────────────────────────────────────────────────────────────────────────
+   * El nombre de la métrica, su valor, su calificación (`good`/`needs-improvement`/`poor`) y la
+   * ruta. **Nada del contenido de la pantalla**, igual que el registro de uso.
+   *
+   * ⚠️ **La ruta importa más que el promedio.** Un INP global no dice nada en una suite con
+   * pantallas tan distintas como `/projects` y `/compras/pedido`; lo que se busca es *qué
+   * pantalla* pasa los 200ms. Por eso va `url` en cada muestra y el análisis agrupa por ahí.
+   *
+   * ⚠️ Es `import()` perezoso: la librería no entra al bundle inicial. Y hereda el "dispara y
+   * olvida" de `enviar()` — si la API está caída, no cambia nada de lo que la persona hacía.
+   */
+  medirWebVitals(): void {
+    void import('web-vitals').then(({ onINP, onLCP, onCLS }) => {
+      const reportar = (m: { name: string; value: number; rating: string }) =>
+        this.enviar({
+          kind: 'event',
+          name: 'web_vital',
+          props: { metric: m.name, value: Math.round(m.value), rating: m.rating },
+        });
+      onINP(reportar);
+      onLCP(reportar);
+      onCLS(reportar);
+    });
+  }
+
   private enviar(evento: Record<string, unknown>): void {
     const cuerpo = {
       events: [
