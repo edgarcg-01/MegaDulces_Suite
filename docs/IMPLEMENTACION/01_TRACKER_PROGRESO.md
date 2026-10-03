@@ -130,6 +130,29 @@ buen pedido»*. Medido: de ~34 variables que deberían pesar en un pedido el mot
   de comparaciones**). Apilando OC y vale en una relación etiquetada y pivotando con `FILTER`:
   **90 d de 49 s a 0.7 s · 365 d de >50 min sin terminar a 2.7 s**, con **0 filas de cifra distinta**
   entre las dos formas.
+- 🚀 **[VPR.1/VPR.2]** **El precio del vendedor: no era desactualización, era una columna en
+  disputa.** Reporte de campo sobre `/vendor/take-order`. La medición **refutó la premisa**: el feed
+  corre cada 30 min y está verde, y las tablas se habían escrito hacía 6 minutos. Arbitrando contra
+  `kepler_ods.kdii.c90` (el ERP, por plaza) sobre 69,782 pares SKU×plaza: la **etiquetera cuadra
+  100.0%** y la lista que lee el vendedor, **86.8%**. ⭐ Ese 100% es el CONTROL que vuelve publicable
+  al 86.8% — sin él, el hueco se leería como "el ERP está raro" en vez de "la lista de red no puede
+  acertar". Y `master_data_history` destapó lo de fondo: **dos procesos se peleaban la columna,
+  302,273 vaivenes en 3 días (~100,758/día)**, con el escritor anónimo ganando **1,129 a 41** al
+  momento de medir. El precio no estaba viejo: estaba **inestable**, y dependía de quién escribió
+  último. ⭐ **La solución es una VISTA y por eso es definitiva**: el defecto no se arregla
+  escribiendo el valor bueno —ya se escribe 48 veces al día y lo pisan— sino **sacando la columna de
+  la pelea**. `analytics.v_price_truth` (mig `20261003190000`, **batch 705**, 2.9 s) deriva de
+  `kepler_ods.kdii` a grano **(almacén, producto)**: nadie la puede escribir, así que el número deja
+  de depender de quién corrió último. Medido antes de elegir la forma: **99 ms** el universo y
+  **23 ms** una plaza; `warehouses.code` = `kdii.sucursal` en las 9 plazas; y **nadie pone precios a
+  mano** (`updated_by` en 0 de 9,618; de 1,039,304 cambios en 30 días, **cero** del rol de la app).
+  ⛔ `commercial.product_prices` **no se toca** — la leen 14 lugares; la vista se pone al lado y
+  declara. **Cambio de número: 10,422 de 78,898 celdas (1,572 SKUs), 7,824 venían cobrando de
+  MENOS.** El precio viaja con su procedencia (`price_source`) y con el de red al lado. Candado
+  `test-newdb-price-truth.js` **verde · 1 NO MEDIDO**, con la **prueba negativa que define la fase**:
+  se intenta un `UPDATE` contra la vista y se exige que Postgres lo **rechace**. **Falta: cazar al
+  escritor anónimo** (la tabla sigue en disputa y de ella come el portal B2B) **+ redeploy api+view**.
+  Sin permisos nuevos → sin re-login.
 - 🚀 **[RA-DYN.U7]** **El cumplimiento ya NO es sólo para negociar: entra al pedido.** La
   migración del umbral está **en prod (batch 704, 0.1 s)**. El motor
   ya tenía el mecanismo (`÷ fill rate`, RA-PRO.27) y **corregía en el papel**: medido contra prod,
