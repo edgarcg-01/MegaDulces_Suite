@@ -116,6 +116,31 @@ buen pedido»*. Medido: de ~34 variables que deberían pesar en un pedido el mot
   ⛔ **Sin build ni validación visual**: `node_modules/@angular` y `@analogjs` no existen en esta
   máquina. `check:templates` verde (368 componentes).
 
+- ✅ **[RA-DYN.U4]** `ix_kdm2_compra_doc` **en prod (batch 686, 3.1 s)**. El cumplimiento del
+  proveedor no estaba sin construir: **le faltaba un índice**. `kdm2` tiene el suyo para el lado de
+  VENTA y el encabezado también; al renglón de COMPRA se le olvidó. Una búsqueda de OC pasó de
+  **58,065 páginas / 139 ms a 10 páginas / 0.48 ms**. ⚠️ La verificación pregunta si el índice es
+  **válido**, no si existe: un `CONCURRENTLY` fallido queda inválido y el planificador lo ignora.
+- ✅ **[RA-DYN.U5/U6]** `analytics.mv_supplier_fill_rate` + `v_supplier_fill_rate` **en prod**
+  (batches 692 y 693). Lo pedido en la OC (`X-A-35`) contra lo recibido en el vale (`X-A-37`),
+  365 días: **86,833 renglones · 9,757 órdenes · 329 proveedores**. ⭐ **El costo no estaba en el
+  ODS sino en un `LEFT JOIN`**: dos CTEs materializadas sin estadísticas → el planificador estimaba
+  `rows=1`, elegía Nested Loop y reescaneaba 16,067 filas por cada una de 16,349 (**~263 millones
+  de comparaciones**). Apilando OC y vale en una relación etiquetada y pivotando con `FILTER`:
+  **90 d de 49 s a 0.7 s · 365 d de >50 min sin terminar a 2.7 s**, con **0 filas de cifra distinta**
+  entre las dos formas.
+  ⚠️ **Publiqué una VISTA sobre una medición equivocada** y tuve que volver a matvista: los "0.2 s
+  por proveedor" eran de una consulta que filtraba DENTRO de la CTE; la vista filtra DESPUÉS del
+  `GROUP BY`, donde el predicado no baja — ni filtrada terminaba en 60 s.
+  ⛔ **Hallazgo de datos:** `catalog.suppliers` tiene **202 nombres repetidos** ("SAN SEBASTIAN"
+  ×4). El join por nombre multiplicaba filas y reventó el índice único; se resuelve a uno por código
+  y la ambigüedad se **declara** (`supplier_ambiguo`, **35,005 de 86,833 renglones**).
+  Candado `test-newdb-supplier-fill-rate.js`: **verde con 1 NO MEDIDO** — vigila las TRES premisas
+  (unidad constante dentro de la cadena · el indicador discrimina, 76 al 99%+ contra 3 bajo 70% ·
+  el homónimo se declara) y cruza contra **otra implementación** (0.4% de desvío).
+  ⚠️ **Falta el refresco nocturno con umbral en `CRON_JOBS`** — hoy nadie se entera si la matvista
+  deja de actualizarse, y el candado lo declara en vez de darlo por bueno.
+
 **Pendiente:** `git push` · `ops/vl/deploy.sh` (U.2) · redeploy api+view (U.3) · build y validación
 visual · cablear la vista U.1 a la pantalla (ése sí mueve números, va con su antes/después).
 
