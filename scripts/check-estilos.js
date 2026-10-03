@@ -59,7 +59,12 @@ const TOPE = {
   // a su token (0.75rem→--fs-xs, 13px→--fs-sm…), que es cambio CERO por construcción.
   // ⛔ Los 2,684 que quedan NO son mecánicos: `.8rem` (12.8px) está entre --fs-xs (12) y
   // --fs-sm (13), así que tokenizarlo MUEVE el texto. Eso se hace con la pantalla a la vista.
-  fontSize:   2684,
+  // ⚠️ 2,698 y no 2,684: 14 son `font-size` en px dentro de tickets de impresión y exports
+  // a PDF, revertidos a propósito ([DS.6.1]). Ese HTML se renderiza FUERA del árbol de la app,
+  // sin `:root`, así que un `var(--fs-*)` ahí NO resuelve y el navegador tira la declaración
+  // entera. **No son deuda: son el valor correcto para ese contexto**, y el tope los absorbe.
+  // La pregunta antes de tokenizar un font-size no es en qué archivo está: es dónde se RENDERIZA.
+  fontSize:   2698,
   hex:        1449,  // hex crudo en declaración de color
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,
