@@ -63,6 +63,42 @@ Las cuatro reglas, congeladas con la deuda de hoy — **frenan cuando CRECE, no 
 | `@media` con breakpoint en px | **205** |
 | `outline:none` sin un `:focus-visible` hermano | **27** |
 
+### Added — el papel y las gráficas: las dos superficies que el design system no nombraba (2026-10-03)
+
+- **`[DS.8]` Ctrl+P tiene régimen.** `@media print` aparecía **7 veces en todo el repo** y
+  `DESIGN.md` —1,242 líneas— no nombraba el papel **ni una vez**, en una app que emite pólizas,
+  libro de compras, anexo de venta con pagaré y acuses de conteo. Nuevo
+  [`print.css`](libs/ui-web/src/print.css): papel **claro siempre** (el oscuro es preferencia de
+  pantalla), chrome fuera, tabla que repite encabezado y no parte renglones, y el **semáforo SÍ se
+  imprime** — si el color es el dato, quitarlo deja una hoja que no dice lo que decía la pantalla.
+  ⚠️ No toca los tickets ni los exports: ésos abren ventana propia.
+- **`[§G]` Contrato de data-viz, nueve reglas.** Sólo existían `--chart-1..8`. Una paleta evita que
+  dos series se parezcan; **no evita que la gráfica diga algo falso**. Eje de barra desde cero ·
+  hueco ≠ cero (ADR-056 sobre una forma) · color de serie determinista y nunca único portador ·
+  truncar se declara ("10 de 428 · 62% del total") · micro-viz SVG 0 KB · frescura también ahí.
+- **`[DS.7]` INP se mide en `apps/view`.** §17 dice "se mide, no se estima" y `web-vitals` estaba
+  cableado **sólo en el portal** — la app de las tablas densas no medía nada. ⭐ No hubo que
+  construir nada: el endpoint (`/telemetry/suite`), el servicio y la librería ya estaban.
+
+### Changed — tres deudas de CSS bajadas con cambio visual CERO (2026-10-03)
+
+| | antes | después |
+|---|---|---|
+| `surf-table--zebra` (clase **sin regla** hace meses) | 63 en 40 plantillas | **0** |
+| breakpoints en px | 206 | **0** |
+| `font-size` con literal | 3,161 | **2,687** |
+
+⛔ **Y lo que NO se bajó así, con su razón:** los `font-size` que quedan están **fuera de la
+escala** (`.8rem` = 12.8px cae entre `--fs-xs` 12 y `--fs-sm` 13) — tokenizarlos **mueve el
+texto**. Y los 144 que caen en un token de **rol** (`1rem`→`--fs-h3`) se saltearon: la muestra
+tiene `h2`/`h3` reales **pero también** `.qty-num`, `.va-input input` y `.kv dd`.
+⭐ **Hallazgo: la escala no tiene un peldaño de 16px con nombre de TAMAÑO.**
+
+⛔ **El barrido rompió 14 sitios y hubo que revertirlos:** metió `var(--fs-*)` dentro de tickets de
+impresión y exports a PDF, que se renderizan **fuera del árbol de la app** — ahí no hay `:root`, la
+propiedad no resuelve y el navegador **tira la declaración entera**. *La pregunta antes de tokenizar
+un `font-size` no es en qué archivo está: es **dónde se renderiza**.*
+
 ### Fixed — el anillo de foco: 37 controles que no lo tenían y 103 que no llegaban al piso (2026-10-03)
 
 Salió de encender `check:estilos`, y resultó ser más grande que su hallazgo inicial.
