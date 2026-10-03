@@ -91,6 +91,20 @@
 
 **12b. Modo oscuro — SIEMPRE.** Dark es first-class, no un pase final. En cada componente/estilo: usar solo tokens que flipean por tema (nunca hex crudo — un `#fff`/`#ddd`/`--border` inexistente se ve bien en light y roto en dark); las sombras casi desaparecen en dark → la profundidad la lleva el **borde 1px**; verificar contraste AA en **ambos** temas (no naive-invert). `#fff`/`#000` literales solo si son correctos en los dos (ej. preview de hoja de papel).
 
+**12c. Alto Contraste de Windows — el tercer modo, y el que nadie mira.** Hay un modo más además de
+claro y oscuro: **`forced-colors: active`** (Alto Contraste del SO). **La flota es Windows**, o sea que
+lo prende gente real — típicamente la que más lo necesita. Y este sistema es, por construcción, el que
+peor se lleva con él: la jerarquía in-page descansa en un **hairline de 1px** y en **alpha-overlays**
+sobre `--ink-rgb`, y el navegador **funde los tres estados de fila —normal, hover, seleccionada— en el
+mismo valor**; las pastillas de estado distinguen por **fondo** y todos los fondos se fuerzan; y el
+anillo de foco hecho con `box-shadow` **desaparece** (`box-shadow` se ignora en ese modo). La base vive
+en [`libs/ui-web/src/forced-colors.css`](libs/ui-web/src/forced-colors.css), importada por las 3 apps:
+no hay que repetirla por pantalla. Lo que sí es tuyo: **que ningún estado dependa sólo del color** —
+que es la regla #5 de este mismo checklist, cobrada. `forced-color-adjust: none` **sólo** donde el color
+*es* el dato (data-viz), nunca en el chrome: ahí no es una excepción, es apagar la accesibilidad para
+que la pantalla se vea como vos querías. *(Medido 2026-10-02: `forced-colors` tenía **0 usos** en todo
+el repo, igual que `prefers-contrast` y `prefers-reduced-transparency`.)*
+
 **13. Interacción resiliente** (captura, concurrencia, lote, dinero): estado sucio + `CanDeactivate`/`beforeunload`; frescura ("hace N min") + refresh local + scroll anclado en inserts vivos; fallos parciales tabulares (fallidos siguen seleccionados); todo botón que muta DB se auto-deshabilita **síncrono** al 1er clic; Tesler (no esconder lo vital) · Miller (chunking >6 campos / SKU) · Poka-yoke · keyboard-first. → [Leyes de interacción + arquitectura resiliente](#leyes-de-interacción--arquitectura-de-interacciones-resilientes-binding).
 
 **14. Layout por sector + ayuda contextual.** El layout lo dicta el **sector**, no el componente: Fiscal/Contable → **master-detail permanente** (nunca modal para leer doc extenso); Almacén/Compras → **full-width grid** + totales congelados + sidebar colapsable + offline/frescura prominentes; Mostrador/POS → **keyboard-first**, foco permanente en captura, total/cobro dominan, feed al tope (la bandeja auditable SÍ pagina). Pantalla con reglas de negocio estrictas → **`<app-context-help>`** desde diccionario versionado, no texto inventado. → [Arquitectura de layouts por sector](#arquitectura-de-layouts-por-sector--ayuda-contextual-binding).
@@ -107,8 +121,28 @@
 
 ## Estado de cumplimiento — lo que el doc manda vs. lo que el código hace
 
-> **Última verificación contra el código: 2026-09-14.** Método: `grep` sobre `apps/` + `libs/`, excluyendo `node_modules`. **Toda cifra de este documento lleva la fecha en que se midió** — una cifra sin fecha es una foto vencida, y este doc ya publicó cuatro.
-> **Para qué sirve esta sección:** el doc marca **55 veces BINDING** y dice *"se verifica en review"* 7 veces, pero **el CI no corre ni un check de diseño** (corre gitleaks, build, lint, boundary gate, provenance gate y tests; no hay stylelint). Por ADR-056 del propio repo, *un gate sin prueba negativa es una intención*. Entonces: antes de citar una regla como cumplida, mirá acá.
+> **Última verificación contra el código: 2026-10-03.** Método: `grep` sobre `apps/` + `libs/`, excluyendo `node_modules`. **Toda cifra de este documento lleva la fecha en que se midió** — una cifra sin fecha es una foto vencida, y este doc ya publicó cuatro.
+>
+> ⭐ **Y desde el 2026-10-03 lleva también su COMANDO.** La auditoría del 2026-10-02 intentó
+> reproducir tres cifras de esta tabla —*171 hex*, *76 `<th>` vacíos*, *55 veces BINDING*— y **no
+> pudo**: la tabla publicaba el número sin decir sobre qué conjunto de archivos ni con qué patrón.
+> (Para «BINDING» hoy se mide 26 en mayúsculas sueltas y 81 contando los anclas de los enlaces;
+> ninguno de los dos da 55.) **Una cifra que sólo puede re-medir quien la escribió no es una
+> medición, es una afirmación** — justo lo que ADR-056 existe para evitar. La tabla del
+> [inventario de componentes](#inventario-de-componentes-compartidos) ya publicaba su `grep`: ésa
+> es la práctica; el resto la copia.
+>
+> **Para qué sirve esta sección:** el doc marca BINDING decenas de veces y dice *"se verifica en
+> review"*, y el review no alcanza — el ⛔ más citado de esta tabla (`MetricStrip` animando `width
+> 900ms` en 81 pantallas) vivió **tres semanas** después de quedar escrito acá. Por ADR-056,
+> *un gate sin prueba negativa es una intención*. Antes de citar una regla como cumplida, mirá acá.
+>
+> 🔸 **Corregida una afirmación de esta misma sección (2026-10-03):** decía *"el CI no corre ni un
+> check de diseño"*. **Es falso desde hace semanas.** El job `verify` corre `check:templates`,
+> `check:tables` y `check:tokens`, **cada uno con su prueba negativa en un paso aparte**, y
+> `gate-push` suma `check:teclado` y `check:busqueda`. Hoy son **cuatro** con `check:motion`.
+> Lo que sigue sin existir es **stylelint** — y ahí está el grueso de la deuda de abajo (#5, #6,
+> #6b son los tres defectos que cuatro reglas de stylelint frenarían el día que se escriben).
 
 **Lo que SÍ se cumple** (y no hay que tocar):
 
@@ -119,22 +153,53 @@
 
 **Deuda declarada, medida y abierta** (⛔ = viola una regla marcada BINDING):
 
-| # | Regla | Estado 2026-09-14 | Dónde |
-|---|---|---|---|
-| 1 | ⛔ §S cascada en capas | **`@layer` = 0**. El orden global que §S declara no existe; `!important` 961, `::ng-deep` **370 (+17% vs ago)** | todo el repo |
-| 2 | ⛔ §Motion techo 350ms + sólo `transform`/`opacity` | **19 declaraciones por encima del techo**, hasta 1100ms; varias animan `width` | peor caso: `MetricStrip` (ver #3) |
-| 3 | ⛔ §Motion KPI 1/7 | **`MetricStrip` —el arquetipo canónico de ADR-033, en 64 archivos— hace `transition: width 900ms`**: 2.6× el techo y sobre una propiedad de layout. Su fallback `var(--ease-standard, cubic-bezier(.2,0,0,1))` además cae en la curva de `--ease-emphasized`, la que perdió en la consolidación | [`metric-strip.component.ts:137,143`](apps/view/src/app/shared/components/metric-strip/metric-strip.component.ts#L137) |
-| 4 | ⛔ Anti-slop #1 (morado IA) + §Q.6 (color de grupo = `--chart-*`) | **`#8b5cf6` volvió**, junto a `#3b82f6` y `#16a34a` — la paleta default de Tailwind — como color por tipo de promo. Alimenta 2 pantallas | [`promotions-meta.ts:38`](apps/view/src/app/modules/comercial/promotions-meta.ts#L38) |
-| 5 | ⛔ §R breakpoints en `rem` | **169 en px** vs 26 en rem (+36% vs los 124 de ago) | todo el repo |
-| 6 | ⛔ pre-vuelo 2 "cero hex crudo" + 12b (dark) | **171 declaraciones de color con hex literal en 40 archivos** de `apps/view`. Hay legítimas (`#fff` de hoja de papel, exención propia) y rotas en dark con token existente: `background:#dcfce7;color:#15803d` (= `--ok-soft-*`), `border-color:#fecaca` (= `--bad-border`), `color:#b42318`, `color:#b45309` | `almacen-cuadre`, `finanzas-cartera`, `vendor-history`, `team-day`, … |
-| 6a | ⛔ D.0 alineación de tabla | **52 componentes inventaron su propia clase de celda numérica** (`.pr-r`, `.co-r`…) contra **41** que usan la canónica `td.num, th.num` de `styles.css`. Una clase suelta `(0,1,0)` pierde contra el `th` de PrimeNG → el dato queda a la derecha y su título a la izquierda | todo el repo |
-| 6b | ⛔ Escala tipográfica (`--fs-*`, declarada ESTRICTA en `tokens.css`) | **97 tamaños de letra distintos** en `apps/view`. 1,881 `font-size` con literal contra 1,142 con token = **38% de adopción**. Los 9 literales más usados —`.8` `.72` `.82` `.78` `.85` `.7` `.68` `.74` `.76`— están **todos fuera de la escala**. Es la regla binding con peor cumplimiento del sistema | todo el repo |
-| 7 | §Motion adopción de tokens | **27 de 270 declaraciones** usan `var(--dur-*)` = **10%** (era 9% el 09-sep: sin movimiento) | todo el repo |
-| 8 | `surf-table--zebra` neutralizada | la clase es no-op ✓ pero **35 archivos la siguen aplicando**: declaran una intención que el sistema descarta en silencio. Falta el barrido | 35 plantillas |
-| 9 | Capa atómica (hallazgo #1 de 2026-06-04, sigue ⬜) | **133 selectores de botón** entre las 3 apps (view 83 · portal 31 · vendor 19). Sólo en portal conviven **25 clases bespoke** con los 6 átomos `.portal-btn-*`, incluidas `cat-drawer-btn-primary`/`-secondary`, que redeclaran la jerarquía que el átomo debía poseer. ⚠️ El "✅ Resuelve #3 y #5" del sprint Atomic es **parcial** | `apps/portal`, `apps/vendor` |
-| 10 | `motion@^12.38.0` | dep muerta desde 2026-04-27, **0 imports** (el único hit es un test que la prohíbe). Declarada el 09-sep, sigue | `package.json:136` |
+| # | Regla | 09-14 | **2026-10-03** | Dónde |
+|---|---|---|---|---|
+| 1 | ⛔ §S cascada en capas | `@layer` 0 · `!important` 961 · `::ng-deep` 370 | **`@layer` 0 · `!important` 1,034 (+7.6%) · `::ng-deep` 439 (+18.6%)** | todo el repo |
+| 2 | ✅ §Motion techo 350ms | *"19 por encima"* | **0 en Operations**, en las dos notaciones. ⚠️ Y la cifra vieja estaba **mal medida**: contaba sólo `ms`. Sumando `.5s`/`.7s`/`0.8s` eran 40+, y la compuerta encontró **40 más** que el barrido manual tampoco veía (la duración va **después** del nombre del keyframe). Cerrado con `npm run check:motion` en CI | [`check-motion.js`](scripts/check-motion.js) |
+| 2b | ⚠️ §Motion sólo `transform`/`opacity` | — | **48 `transition` sobre propiedades de layout**, declaradas con tope: la compuerta frena si crecen. Las 48 se revisaron una por una, **cero falsos positivos** | `[DS.1]` |
+| 3 | ✅ §Motion KPI 1/7 | `MetricStrip` `width 900ms` en 64 archivos | **Arreglado.** El bullet anima `transform: scaleX()`; la barra de composición no se pudo (hermanos flex de una fila) y **queda declarada con su razón**, a 250ms. Adopción: **81 archivos** | [`metric-strip.component.ts`](apps/view/src/app/shared/components/metric-strip/metric-strip.component.ts) |
+| 4 | ✅ Anti-slop #1 (morado IA) | `#8b5cf6` vivo en 2 pantallas | **Arreglado** (entre el 09-14 y hoy): `promotions-meta.ts` usa `var(--chart-N)`. El hex sólo sobrevive **dentro del comentario** que explica por qué se fue | [`promotions-meta.ts`](apps/view/src/app/modules/comercial/promotions-meta.ts) |
+| 5 | ⛔ §R breakpoints en `rem` | 169 px / 26 rem | **206 px / 48 rem** — crecen los dos, el px más rápido | todo el repo |
+| 6 | ⛔ pre-vuelo 2 "cero hex crudo" + 12b (dark) | *171 decls / 40 archivos* | **No comparable: la cifra vieja no publicaba su patrón.** Con el de abajo son **1,384 declaraciones en 127 archivos** de `apps/view` — incluye `fill`/`stroke` de SVG y gradientes, que la medición vieja probablemente excluía. **Se deja el número con su comando, no se finge la serie** | todo el repo |
+| 6a | ⛔ D.0 alineación de tabla | 52 clases propias vs 41 con `.num` | **140 archivos usan `.num`** (otro universo: cuenta archivos, no clases inventadas). Pendiente re-medir el lado de las clases propias con un patrón publicado | todo el repo |
+| 6b | ⛔ Escala tipográfica (`--fs-*`, ESTRICTA) | 97 tamaños distintos · 38% adopción | **120 tamaños distintos (+24%)** · 2,591 literales vs 1,867 tokens = **41.9%**. Los 9 literales top son **los mismos** y siguen **todos fuera de la escala** (`.8rem`=12.8px entre `--fs-xs` 12 y `--fs-sm` 13). ⭐ **No falta un peldaño: ninguno de los 9 está a más de 0.5px de un token que ya existe.** Es adopción, no diseño | todo el repo |
+| 7 | §Motion adopción de tokens | 27 de 270 = 10% | **47 `var(--dur-*)`** (+74%) — subió por el barrido `[DS.1]`, no solo | todo el repo |
+| 8 | `surf-table--zebra` neutralizada | 35 plantillas | **39 (+4)** | 39 plantillas |
+| 9 | Capa atómica (hallazgo #1 de 2026-06-04, sigue ⬜) | 133 selectores de botón | sin re-medir | `apps/portal`, `apps/vendor` |
+| 10 | `motion@^12.38.0` | dep muerta, 0 imports | **sigue** (`package.json:165`). Declarada el 09-sep, re-declarada el 09-14. Quitarla toca `package.json` → decisión de Edgar | `package.json` |
+| 11 | ⛔ **`forced-colors` = 0 en todo el repo** *(hallazgo nuevo 2026-10-02)* | — | **Cerrado el 2026-10-03** con [`forced-colors.css`](libs/ui-web/src/forced-colors.css) en las 3 apps. La flota es Windows y este sistema es el que peor se lleva con Alto Contraste: hairline + alpha-overlays + semáforo por fondo = hover/seleccionado/normal **colapsan en lo mismo**, y el anillo de foco hecho con `box-shadow` **desaparece** | `libs/ui-web` |
+| 12 | ⛔ **`@media print` = 7 en todo el repo** *(hallazgo nuevo, ABIERTO)* | — | Esta app emite pólizas, libro de compras, anexo de venta con pagaré, requisiciones y acuses de conteo. **El papel es una superficie de primera clase de este negocio y el design system no la nombra ni una vez** | sin dueño |
+| 13 | ⛔ **INP sin medición de campo donde importa** *(hallazgo nuevo, ABIERTO)* | — | §17 dice *"se mide, no se estima"*. `web-vitals` está instalado y cableado **sólo en `apps/portal`**; `apps/view` —las tablas densas— no mide nada. `content-visibility` 3 · `@defer` 5 | `apps/view` |
+| 14 | ⚠️ **`--action-ink` 3.39:1** — declarado el 09-14, sin dueño ni fecha | — | **Verificado independientemente: 3.39:1 es correcto** (y `#D2451C` da 4.56:1). Lleva **19 días** «declarado». *Declarar no es un estado terminal: sin dueño y sin fecha, un defecto declarado se vuelve mobiliario* | decisión de Edgar |
 
-**La lectura de fondo:** las cifras que empeoraron (#1, #5) son justamente las **mecánicamente medibles** — las que un gate de CI habría frenado el día que se escribieron. Las que se cumplen solas (tipografía, tokens, GSAP lazy) son las que tienen **una sola forma de hacerse bien** y están en un archivo único. Eso es lo que hay que replicar: **regla con un solo lugar donde vive + instrumento que la mida**, no más párrafos.
+**Los comandos** (para que cualquiera pueda contradecir estas cifras, que es el punto):
+
+```bash
+SRC=$(find apps libs -type f \( -name "*.ts" -o -name "*.html" -o -name "*.css" \) ! -path "*/node_modules/*")
+echo "$SRC" | xargs grep -o "!important"  | wc -l            # 1 — !important
+echo "$SRC" | xargs grep -o "::ng-deep"   | wc -l            # 1 — ::ng-deep
+echo "$SRC" | xargs grep -o "@layer "     | wc -l            # 1 — capas de cascada
+npm run check:motion                                          # 2, 2b, 3 — techo y deuda de layout
+echo "$SRC" | xargs grep -oE "@media[^{]*\((max|min)-width:\s*[0-9.]+px" | wc -l   # 5 — breakpoints px
+VIEW=$(find apps/view -type f \( -name "*.ts" -o -name "*.html" -o -name "*.css" \))
+echo "$VIEW" | xargs grep -oiE "(color|background|background-color|border-color|fill|stroke|box-shadow)\s*:\s*[^;]*#[0-9a-f]{3,8}" | wc -l   # 6 — hex crudo
+echo "$VIEW" | xargs grep -ohE "font-size:\s*[0-9.]+(rem|px|em)" | grep -oE "[0-9.]+(rem|px|em)" | sort -u | wc -l   # 6b — tamaños distintos
+echo "$SRC" | xargs grep -o "forced-colors" | wc -l           # 11
+echo "$SRC" | xargs grep -o "@media print" | wc -l            # 12
+```
+
+**La lectura de fondo, confirmada con 19 días más de evidencia:** las que empeoraron (#1, #5, #6b, #8)
+son **todas** mecánicamente medibles y **ninguna** tiene instrumento. Las que se arreglaron
+(#2, #3, #4, #11) se arreglaron cuando alguien las miró a propósito — y #2 sólo se queda arreglada
+porque ahora hay una compuerta. **Regla con un solo lugar donde vive + instrumento que la mida.** El instrumento que
+falta tiene nombre: **stylelint con cuatro reglas** (escala `--fs-*`, hex en declaración de color,
+`outline:none` sin `:focus-visible` hermano, duración). Eso frena #5, #6 y #6b el día que se escriben.
+⚠️ Agregarlo es una dependencia nueva → decisión de Edgar.
+
+⭐ **Y una lección de método que esta ronda dejó clara:** `check:motion` encontró **40 declaraciones
+que tres barridos manuales con `grep` no vieron**, porque en `animation: nombre 0.6s ease` la duración
+no está donde uno la busca. *El instrumento no es sólo para que no vuelva: ve lo que el barrido no ve.*
 
 ---
 
@@ -159,8 +224,29 @@ Implementado 2026-06-24 en [`tokens.css`](libs/design-tokens/tokens.css). Regla:
 | Surface | App | Alcance (raíces de ruta reales) | Mode | Decoración | Display font |
 |---|---|---|---|---|---|
 | **Storefront** | `apps/portal` | todo el portal B2B (se sirve en `/portal/*`) | storefront + tool | intencional (ilustraciones SVG, eyebrows) | Poppins + Hanken Grotesk + Geist Mono |
-| **Operations** | `apps/view` | `/dashboard` · `/comercial` · `/finanzas` · `/contabilidad` · `/compras` · `/almacen` · `/tienda` · `/logistica` · `/admin` · `/telemarketing` (`/televenta` redirige) · `/reparto` · `/projects` · `/mi-trabajo` · `/servicio` | **solo tool** | nula | Hanken Grotesk + Geist Mono (+ Sniglet, **sólo** en la excepción `/tienda/verificador` → §O.3) |
-| **Operations** | `apps/vendor` | app instalable del vendedor en campo (Capacitor) | **solo tool**, mobile-first | nula | Hanken Grotesk + Geist Mono |
+| **Operations** | `apps/view` | `/dashboard` · `/comercial` · `/finanzas` · `/contabilidad` · `/compras` · `/almacen` · `/tienda` · `/logistica` · `/admin` · `/telemarketing` (`/televenta` redirige) · `/reparto` · `/projects` · `/servicio` · **`/mkt`** · **`/presupuesto`** · **`/desarrolladores`** · **`/diagnostico`** | **solo tool** | nula | Hanken Grotesk + Geist Mono (+ Sniglet, **sólo** en la excepción `/tienda/verificador` → §O.3) |
+| **Operations** | `apps/view` | **`/captura/:token`** — captura de gasto por link desde el celular, **sin sesión y sin guard** (GX.9) | **solo tool**, mobile-first | nula | Hanken Grotesk + Geist Mono |
+| **Operations** | `apps/vendor` | app instalable del vendedor en campo (Capacitor) | **solo tool**, mobile-first | nula, **pero con radios propios** (ver abajo) | Hanken Grotesk + Geist Mono |
+
+> 🔸 **Corregida contra `app.routes.ts` el 2026-10-03 — tenía cinco defectos y el doc conocía tres.**
+> Faltaban `/mkt`, `/presupuesto`, `/desarrolladores` y **`/diagnostico`** (ésta no la había visto nadie),
+> y sobraba **`/mi-trabajo`: no es una ruta.** La ruta es `/projects` y `mi-trabajo` es el nombre de la
+> **carpeta del componente** — un renglón fantasma que le daba régimen a algo que no existe. También
+> faltaba **`/captura/:token`**, que es el caso donde más importa: pública, sin sesión, en el celular de
+> quien manda un gasto. *Una tabla que el paso 1 del pre-vuelo vuelve obligatoria no puede estar
+> incompleta: manda la pantalla nueva a ningún régimen.*
+>
+> ⚠️ **Y `apps/vendor` NO es Operations a secas.** [`tokens.css`](libs/design-tokens/tokens.css) tiene un
+> bloque `.vendor-shell` que **redefine los cinco radios** (10/14/18/22/26 contra los 8/12/16/20/24 del
+> sistema) y suma `--v-hero-grad`, un degradado dorado. O sea que hay un **tercer régimen** vivo, con su
+> propia geometría, y esta tabla decía *"Decoración: nula"*. Queda declarado acá hasta que se decida:
+> **o se absorbe en el sistema (radios por densidad, no por app) o se nombra como surface propio.**
+
+**Cómo se re-verifica esta tabla** (porque una tabla sin su comando sólo la puede revisar quien la escribió):
+
+```bash
+grep -nE "^ {0,6}path: '" apps/view/src/app/app.routes.ts | sed "s/.*path: '//;s/'.*//"
+```
 
 **⭐ Los neutrales son UNA SOLA FAMILIA en toda la suite** (decisión Edgar 2026-09-14): **Zinc de PrimeNG Aura**, en las 3 apps y en los dos modos.
 
@@ -350,15 +436,23 @@ Toda superficie de IA (búsqueda semántica, chips "Sugeridos IA", recomendacion
 ```
 
 ### Superficies — LIGHT
+
+> 🔸 **Corregido 2026-10-03.** Este bloque apuntaba a **`var(--stone-*)`**, la rampa que este mismo
+> documento declara retirada el 2026-09-14 — dos párrafos más arriba. Verificado: `--stone-` sobrevive
+> en `tokens.css` sólo dentro de **tres comentarios**, con **cero consumidores**. O sea que quien copiara
+> de acá escribía un `var()` que **no resuelve**, y una propiedad personalizada indefinida sin respaldo
+> **tira la declaración entera** en el navegador, sin que el build diga nada (lo frenaría `check:tokens`,
+> que existe justamente por esto). *Un ejemplo que no funciona se copia igual que uno que sí.*
+
 ```css
---surface-ground: var(--stone-50);
+--surface-ground: var(--neutral-50);
 --card-bg:        #FFFFFF;
---layout-bg:      var(--stone-100);
---hover-bg:       var(--stone-100);
---border-color:   var(--stone-200);
---text-main:  var(--stone-950);
---text-muted: var(--stone-600);
---text-faint: var(--stone-400);
+--layout-bg:      var(--neutral-100);
+--hover-bg:       var(--neutral-100);
+--border-color:   var(--neutral-200);
+--text-main:  var(--neutral-950);
+--text-muted: var(--neutral-600);
+--text-faint: var(--neutral-400);
 ```
 
 ### Dark mode — zinc (una sola definición para las 3 apps)
@@ -397,7 +491,34 @@ Sigue sin ser `#000` puro (`#09090B` es zinc-950), así que la objeción origina
 - **Enfoque:** intencional, rápido. No decorativo.
 - **Duración — techo duro 350ms** (`--dur-max`). Escala: `--dur-micro` 120ms (press, tint de hover) · `--dur-short` 150ms (micro-transiciones) · `--dur-standard` 250ms (drawer, side-peek, bulk-bar) · `--dur-max` 350ms (máximo absoluto, nada lo supera). *(Corrige el rango "250-400ms" que figuraba acá y contradecía el techo binding de §datos densos 11 y §Motion KPI 7.)*
 - **Easing:** `--ease-standard: cubic-bezier(0.4, 0, 0.2, 1)` para movimiento general · `--ease-emphasized: cubic-bezier(0.2, 0, 0, 1)` para acción destacada · `--ease-decelerate` entrada · `--ease-accelerate` salida · `--ease-drawer` bottom-sheets · `--ease-spring` sólo en gestos drag-to-dismiss. *(`--ease-standard` estaba declarado con dos valores distintos en dos archivos; ganaba `0.4,0,0.2,1`. Se conservó el valor efectivo al consolidar — la curva `0.2,0,0,1` que este doc documentaba vive como `--ease-emphasized`.)*
+- **⭐ El techo es POR SURFACE, y eso resuelve una contradicción que el doc arrastraba** (2026-10-03):
+  - **Operations** (`apps/view`, `apps/vendor`) — **350ms, techo duro, sin excepción.** Medido y en **0**.
+  - **Storefront** (`apps/portal`) — el techo guía, pero los **momentos de celebración** (confirmación de
+    pedido, dibujo del check, pop del FAB) pueden pasarlo. Hoy son **4 archivos** entre 420 y 1100ms.
+  > **Por qué se declara en vez de "arreglarse":** §Motion decía *"máximo absoluto, nada lo supera"* y
+  > [`DESIGN_MOTION_KPI_CARDS.md`](docs/DESIGN_MOTION_KPI_CARDS.md) decía, en el mismo repo, que el
+  > Storefront *"puede tomar motion algo más expresivo (count-up hasta ~1.5–2s)"*. **Las dos no pueden ser
+  > ciertas.** El código llevaba meses obedeciendo la segunda. Se resolvió a favor de la realidad y de la
+  > tesis de los dos modes —Operations es tool, el Storefront tiene momentos— en vez de dejar una regla
+  > que todos incumplen. *Una regla que el código contradice hace meses no es una regla: es un deseo.*
 - **Sólo `transform` + `opacity`.** Nunca `width/height/margin/padding/box-shadow`.
+  - **Excepciones con nombre** (no son licencia; son estas tres y nada más):
+    **(a)** `stroke-dashoffset`/`stroke-dasharray` en micro-viz SVG — es la única forma de dibujar un arco
+    progresivo y no dispara layout (J17 ya la bendecía; acá queda unificado). **(b)** `filter: blur()` en
+    la entrada de mensaje de las **superficies de IA** (Thot/Maat/Horus): es paint, no layout, y es
+    one-shot sobre un elemento chico. **(c)** La barra de **composición** de `MetricStrip`, que son
+    hermanos flex de una misma fila y no admite `scaleX` sin rehacer el TS — declarada en el componente.
+  - **Una barra se anima con `transform: scaleX()` sobre un elemento de ancho fijo**, con el radio en el
+    track (que ya recorta con `overflow:hidden`). Referencia: `MetricCard`. **Nunca con `width`.**
+- **✅ Esto se MIDE, no se revisa a ojo** (desde 2026-10-03): `npm run check:motion`, en CI con su prueba
+  negativa aparte. Frena si una animación de Operations pasa el techo —en `ms` **o** en `s`— o si crecen
+  las **48** `transition` sobre propiedades de layout que quedan declaradas como deuda `[DS.1]`.
+  > ⚠️ **Por qué hacía falta, y es la parte que enseña:** esta sección es BINDING desde hace meses y el
+  > arquetipo más copiado del repo (`MetricStrip`, 81 pantallas) animaba `width 900ms` — 2.6× el techo y
+  > sobre layout. La tabla de cumplimiento publicaba *"19 por encima"*, **midiendo sólo milisegundos**;
+  > contando `.5s`/`.7s`/`0.8s` eran el doble. Y cuando la compuerta corrió por primera vez encontró
+  > **40 más** que tres barridos manuales no vieron, porque en `animation: nombre 0.6s ease` la duración
+  > no está donde uno la busca. *El instrumento no es sólo para que no vuelva: ve lo que el barrido no ve.*
 - **Mobile:** usar `HapticService` en acciones (add to cart, confirmar).
 - **Siempre** respetar `@media (prefers-reduced-motion: reduce)`.
 - **Implementación = plataforma primero** (2026-08-25): transiciones de ruta y master→detail con **View Transitions**; progreso/header-condensa/reveals con **scroll-driven animations**; easing tipo resorte con **`linear()`**. Nada de librería de animación para esto. Los números y curvas de arriba **no cambian** — cambia con qué se implementan. → [§U](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding).
@@ -1125,6 +1246,7 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-10-03 | **Auditoría del sistema de diseño y sus tres satélites — lo que se arregló y lo que se decidió.** ⭐ **(1) El techo de motion pasa de intención a medición.** `npm run check:motion` en CI con prueba negativa aparte; Operations queda en **0** incumplimientos en las **dos** notaciones. Disparador: el arquetipo más copiado del repo (`MetricStrip`, 81 pantallas) llevaba **tres semanas** con `transition: width 900ms` **después de estar escrito como ⛔ en la tabla de cumplimiento de este archivo** — o sea que escribirlo acá no alcanzó. ⚠️ **Y la cifra publicada estaba sesgada**: *"19 por encima del techo"* contaba sólo `ms`; sumando segundos eran 40+, y la compuerta encontró **40 más** que tres barridos manuales no vieron (en `animation: nombre 0.6s ease` la duración no está donde uno la busca). **El instrumento no es sólo para que no vuelva: ve lo que el barrido no ve.** **(2) El techo se declara POR SURFACE.** §Motion decía *"nada lo supera"* y el doc de cards decía que el Storefront puede llegar a 2s: las dos no pueden ser ciertas, y el código obedecía la segunda hace meses. Operations 350ms duro; Storefront con momentos de celebración declarados. *Una regla que el código contradice hace meses no es una regla.* **(3) `forced-colors` deja de ser un hueco.** Tenía **0 usos** en todo el repo y la flota es Windows; este sistema —hairline + alpha-overlays + semáforo por fondo— es el que peor se lleva con Alto Contraste: los tres estados de fila colapsan en uno y el anillo de foco hecho con `box-shadow` desaparece. `libs/ui-web/src/forced-colors.css` en las 3 apps. **(4) Las cifras de la tabla de cumplimiento ahora publican su COMANDO.** Se intentó reproducir tres (*171 hex*, *76 `<th>` vacíos*, *55 BINDING*) y no se pudo: el número estaba sin su patrón ni su universo. **Una cifra que sólo puede re-medir quien la escribió no es una medición.** **(5) `DESIGN_TENDENCIAS_2026.md` caducó EN VERDE y se revalidó:** afirmaba ✅ sobre **cinco** decisiones que el sistema revirtió después (Fraunces ×7, Stone ×3, espresso ×3, una escala de spacing que nunca existió, y un rango de motion que contradecía el techo binding). **(6) Dos defectos de este mismo archivo:** la tabla de Surfaces —que el paso 1 del pre-vuelo vuelve obligatoria— tenía **5 defectos** (faltaban `/mkt`, `/presupuesto`, `/desarrolladores`, `/diagnostico` y `/captura/:token`; sobraba `/mi-trabajo`, que **no es una ruta** sino la carpeta del componente de `/projects`), y el bloque «Superficies — LIGHT» documentaba `var(--stone-*)`, la rampa que este mismo doc declara retirada —cero consumidores, sólo vive en 3 comentarios— así que **enseñaba a escribir un `var()` que no resuelve**. **(7) `tokens.css`: `.portal-shell` redeclaraba `--font-body` (copia literal de `:root`) y `--font-mono`, que YA HABÍA DIVERGIDO** — `:root` caía a `'Courier New'` y el portal a SFMono. El día que Geist Mono no cargue, Operations imprimía los precios en una Courier con serifas. Es exactamente lo que advierte el comentario que estaba doce líneas arriba. | Un documento de 1,242 líneas con decenas de BINDING y *"se verifica en review"* se degrada en las reglas que nadie mide, y se degrada **rápido**: 19 días de evidencia dan `!important` +7.6%, `::ng-deep` +18.6%, breakpoints en px +22%, tamaños de letra distintos **97→120**. Las que se cumplen solas (tipografía, tokens, GSAP lazy) tienen **un solo lugar donde vivir**. La conclusión no es más párrafos: **regla con un solo lugar + instrumento que la mida**. El instrumento que falta tiene nombre —**stylelint con 4 reglas**— y es una dependencia nueva: decisión de Edgar. |
 | 2026-10-03 | **Mesa de Servicio (`/servicio`, Fase MS): superficie Operations, y las cuatro reglas de UI que se decidieron al construirla.** (1) **Prioridad con tokens, no con hex:** Baja neutro · Media `--info-*` · Alta `--warn-*` · Urgente `--bad-*` (la Bitácora que sirvió de referencia usaba hex sueltos). (2) **Una sola ficha para los dos oficios** (`sd-request-detail`): quien reporta ve cerrar/reabrir/cancelar; quien atiende, tomar/estado/prioridad/asignar/tiempo/nota interna; lo que el solicitante no debe ver (notas internas, tiempo) **no llega del servidor**, no se esconde con CSS. (3) **Sin semáforo donde no hay meta:** `/servicio/reportes` publica el porcentaje de cumplimiento sin rojo/verde porque nadie ha registrado «90 % es verde»; pintarlo exigiría inventar el umbral en el componente — el color llega cuando haya meta. Y lo que no se midió sale «—», nunca «0». (4) **Tablas con `dt-stack` + `data-label`** desde el primer commit: la bandeja (8 columnas) la rechazó `check:tables` y se arregló apilando, no subiendo el umbral. **El botón «Reportar un problema» vive en el header del layout** y lo comparten todas las áreas; `SERVICIO_REPORTAR` es una clave sin destino en el mapa de la suite a propósito (si abriera un destino, cajeras y almacenistas perderían la auto-entrada a `/projects`). ⚠️ **Hallazgo del doc, no corregido aquí:** la tabla de Surfaces de arriba sigue sin listar `/desarrolladores`, `/mkt` ni `/presupuesto` (medido contra `app.routes.ts` el 2026-10-03); quien sea dueño de esas áreas debe agregarlas. |
 | 2026-09-26 | **`/compras/pedido` en celular vertical (menos de 40rem): la tabla principal oculta 11 de 15 columnas y el desglose por sucursal pasa a TARJETAS (`[RA-PRO.59]`).** Quedan Producto · Exist. red · Suma Ped. · $ Pedido; cada sucursal es una tarjeta (sucursal y valor · venta, existencia, días · − cantidad + y cj/pz · entrega) armada con CSS grid sobre las MISMAS celdas (no hay segunda copia del template). La barra inferior queda en un renglón con resumen corto que se abre al tocarlo. Tableta y escritorio no cambian. | Se aparta a propósito del default de tabla densa (§organismos 3: scroll horizontal con primera columna pegada), en el caso que [`DESIGN_TABLES.md`](docs/DESIGN_TABLES.md) §6 ya preveía: *"vista card/stack por fila solo en pantallas muy chicas si el scroll horizontal se vuelve ilegible"*. Medido en un celular real: la columna pegada de 15rem dejaba ver UNA columna, y al llegar a la cantidad del desglose la sucursal ya se había ido; la leyenda inferior tapaba ~35% de la pantalla. El corte usa `@media` en `rem` (es la página, §R) y una señal `compacto()` con el mismo corte sólo para los textos de los botones, que el CSS no puede cambiar. ⚠️ Las columnas ocultas se eligen por **posición** (`nth-child`): si se agrega o mueve una columna, hay que actualizar la lista (queda escrito junto a la regla). |
 | 2026-09-26 | **D.5 enmendada: en la columna Pedido de `/compras/pedido`, `← →` suman / restan un paso y en táctil hay botones `−` / `+` (`[RA-PRO.57]`).** Los botones sólo se pintan con `@media (pointer: coarse)`, miden 44px y no enfocan el campo (no abren el teclado); mantener presionado repite. `↑ ↓` siguen moviendo de renglón. | Lo pidió Compras: en tableta y celular el teclado virtual tapa media tabla, y en escritorio ajustar de a uno no debería exigir teclear. **Se declara qué se pierde:** mover el cursor dentro de la cifra con `← →` (casi no se usa: al llegar el valor ya está seleccionado; con `Shift` se conserva lo nativo). La propia D.5 ya preveía el stepper `+`/`−` para pantallas que lo quisieran. |

@@ -9,6 +9,44 @@
 ---
 
 ## [Unreleased]
+### Fixed — auditoría del design system: el techo de motion deja de ser una intención, y Alto Contraste deja de ser un hueco (2026-10-03)
+
+Auditoría de [`DESIGN.md`](DESIGN.md) y sus tres satélites. El sistema está bien hecho; lo que falla
+es lo que **nadie mide** — y se degrada rápido: en los 19 días desde la última verificación,
+`!important` **+7.6%**, `::ng-deep` **+18.6%**, breakpoints en px **+22%**, tamaños de letra distintos
+en `apps/view` **97 → 120**.
+
+- **`[DS.1]` Techo de motion: de BINDING sin instrumento a 0 incumplimientos medidos.** El arquetipo
+  canónico (`MetricStrip`, **81 pantallas**) llevaba **tres semanas** con `transition: width 900ms`
+  —2.6× el techo y sobre una propiedad de **layout**— *después* de estar escrito como ⛔ en la tabla
+  de cumplimiento. Ahora el bullet anima `transform: scaleX()`; la barra de composición no se pudo
+  (hermanos flex de una fila) y **queda declarada con su razón** (ADR-056). Más 40 duraciones al
+  techo: el flash de `MetricCard` (1s) y del POS (1.2s), `sparkline` (.8s), `ring-gauge` (.7s), y las
+  **3 pantallas de chat IA**, que compartían el *mismo* tratamiento copiado tres veces.
+- **Nueva compuerta `npm run check:motion`** (15 casos de prueba negativa, en CI). Nace **en verde**,
+  a propósito. ⭐ **Y en su primera corrida encontró 40 declaraciones que tres barridos manuales con
+  `grep` no vieron**, porque en `animation: nombre 0.6s ease` la duración no está donde uno la busca.
+  ⚠️ La cifra que el doc publicaba —*"19 por encima del techo"*— **contaba sólo milisegundos**.
+- **`[DS.2]` `forced-colors` tenía 0 usos en todo el repo** y la flota es Windows. Este sistema es el
+  que peor se lleva con Alto Contraste: hairline + alpha-overlays + semáforo por fondo = los tres
+  estados de fila **colapsan en uno**, y el anillo de foco hecho con `box-shadow` **desaparece**.
+  Nuevo [`libs/ui-web/src/forced-colors.css`](libs/ui-web/src/forced-colors.css) en las 3 apps, con
+  `forced-color-adjust: none` **sólo** donde el color *es* el dato.
+- **`tokens.css`:** `.portal-shell` redeclaraba `--font-body` (copia literal de `:root`, cero efecto)
+  y `--font-mono`, que **ya había divergido** — `:root` caía a `'Courier New'` y el portal a SFMono.
+  El día que Geist Mono no cargue, Operations imprimía los precios en una **Courier con serifas**.
+- **Docs.** [`DESIGN_TENDENCIAS_2026.md`](docs/DESIGN_TENDENCIAS_2026.md) **caducó en verde** —
+  afirmaba ✅ sobre **cinco** decisiones ya revertidas (Fraunces ×7, Stone ×3, espresso ×3, una escala
+  de spacing que nunca existió, un rango de motion que contradecía el techo binding): corregido y
+  revalidado contra el estado del campo (§11). La tabla de **Surfaces** de `DESIGN.md` tenía **5
+  defectos** (4 rutas sin régimen + `/mi-trabajo`, que **no es una ruta**) y su bloque «Superficies —
+  LIGHT» documentaba `var(--stone-*)`, **una rampa que el mismo doc declara retirada**. Las cifras de
+  la tabla de cumplimiento ahora publican **el comando que las produjo**.
+
+**Abierto, con dueño:** stylelint (4 reglas — frena los tres peores incumplimientos el día que se
+escriben; es dependencia nueva), `@media print` = **7** en una app que emite pólizas y libro de
+compras, INP sin medición de campo en `apps/view`, y `--action-ink` en **3.39:1** (verificado).
+
 ### Added — el inventario de los camiones de Ruta Directa, como un cuadre que cierra (Fase RD, 2026-10-02)
 Nueva pestaña **`/comercial/inventario-ruta`**: cuánto trae cada camión RD, con **valor a costo y valor a venta**,
 y filtro por rango de fechas. Responde la pregunta como un **cuadre** —`cargado − vendido = inventario`— y la
