@@ -78,7 +78,16 @@ services:
       # no queda ni el volcado que explique por qué.
       SONAR_WEB_JAVAOPTS: "-Xmx1g"
       SONAR_CE_JAVAOPTS: "-Xmx1g"
-      SONAR_SEARCH_JAVAOPTS: "-Xmx1g"
+      # ⛔ EN EL DE BÚSQUEDA, `-Xms` Y `-Xmx` TIENEN QUE SER IGUALES. Elasticsearch trae un
+      #    *bootstrap check* que lo exige y se NIEGA a arrancar si difieren:
+      #
+      #      initial heap size [67108864] not equal to maximum heap size [1073741824]
+      #
+      #    Acá se puso sólo `-Xmx1g` (2026-10-02) y el `-Xms` quedó en su default de 64 MB →
+      #    ES no levantaba, SonarQube reiniciaba en bucle, **8 veces antes de que alguien
+      #    mirara**. Y el contenedor reportaba `Up`, con `ExitCode 0` y sin OOM: desde afuera
+      #    parecía que estaba arrancando lento. Lo delata el log, no el estado.
+      SONAR_SEARCH_JAVAOPTS: "-Xms1g -Xmx1g"
     volumes:
       - sonar-data:/opt/sonarqube/data          # índices de Elasticsearch
       - sonar-extensions:/opt/sonarqube/extensions
