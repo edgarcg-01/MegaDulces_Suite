@@ -57,7 +57,7 @@ export interface PermisosDePersona {
 }
 
 /**
- * `[AU.14]` Lo que devuelve `GET /users/permissions/usage`.
+ * `[AU.33]` Lo que devuelve `GET /users/permissions/usage`.
  *
  * `platform_admins` va APARTE y no repartido en `uso`: superadmin/admin tienen todo por god-mode
  * y su fila de permisos no lo declara, así que sumarlos a cada clave inflaría los 223 números por
@@ -204,7 +204,7 @@ export class AdminService {
   }
 
   /**
-   * `[AU.14]` Cuánta gente abre hoy cada permiso. Lo pinta el panel de vista previa al lado de la
+   * `[AU.33]` Cuánta gente abre hoy cada permiso. Lo pinta el panel de vista previa al lado de la
    * pantalla que se está concediendo. Si falla, el panel declara «no medido» — nunca dibuja 0.
    */
   usoDePermisos(): Observable<UsoDePermisosResponse> {

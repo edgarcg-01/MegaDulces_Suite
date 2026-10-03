@@ -12,7 +12,7 @@ export type UsoDePermisos = Record<string, { roles: number; personas: number }> 
 type EstadoMarco = 'cargando' | 'ok' | 'no-embebible';
 
 /**
- * `[AU.14]` — **Ver la pantalla que se está concediendo.**
+ * `[AU.33]` — **Ver la pantalla que se está concediendo.**
  *
  * ── Por qué se puede mostrar en vivo sin abrir una puerta trasera ────────────
  * No es una suposición, sale de una regla que ya existe: `setPermissions` frena a todo el que no

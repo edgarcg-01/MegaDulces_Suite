@@ -43,13 +43,13 @@ import {
 } from '../../../shared/components/permission-tree/permission-preview.component';
 
 /**
- * `[AU.10]` / `[AU.14]` — Qué abre una persona: su perfil base, sus complementos y sus
+ * `[AU.10]` / `[AU.33]` — Qué abre una persona: su perfil base, sus complementos y sus
  * diferencias contra el perfil.
  *
  * ⛔ Esto NO es un segundo editor de perfiles. El perfil concede; acá se declaran las
  * **diferencias** contra él, y el lote lleva motivo escrito.
  *
- * ── `[AU.14]` Por qué cambió la forma ───────────────────────────────────────
+ * ── `[AU.33]` Por qué cambió la forma ───────────────────────────────────────
  * Antes se escribían las excepciones DE A UNA: elegir la clave en un desplegable de 223, elegir
  * el signo, y escribirle un motivo a cada una. Medido en prod el 2026-10-03: `ernesto_zarate`
  * tiene **28 excepciones, 27 de ellas «quita», y las 28 sin motivo** — y esas 27 son dos
@@ -395,7 +395,7 @@ export class PersonaAccesoComponent implements OnChanges {
   readonly perfilBase = signal<string | null>(null);
   readonly complementos = signal<string[]>([]);
 
-  // ── `[AU.14]` El estado del árbol ─────────────────────────────────────────
+  // ── `[AU.33]` El estado del árbol ─────────────────────────────────────────
   readonly valores = signal<Record<string, boolean>>({});
   readonly modo = signal<Modo>('editor');
   readonly motivo = signal('');
@@ -415,7 +415,7 @@ export class PersonaAccesoComponent implements OnChanges {
   readonly totalPermisos = TOTAL_PERMISSIONS;
 
   /**
-   * `[AU.14]` Espejo del freno de `setPermissions`. Se pasa como función al árbol y al panel.
+   * `[AU.33]` Espejo del freno de `setPermissions`. Se pasa como función al árbol y al panel.
    * ⚠️ Es una propiedad, no un método: si fuera `(k) => ...` inline en el template, Angular
    * crearía una función nueva en cada ciclo y el `input` se vería siempre como cambiado.
    */
@@ -498,7 +498,7 @@ export class PersonaAccesoComponent implements OnChanges {
     return claves.map((k) => this.etiqueta(k)).join(', ');
   }
 
-  // ── `[AU.14]` La diferencia, derivada ─────────────────────────────────────
+  // ── `[AU.33]` La diferencia, derivada ─────────────────────────────────────
 
   readonly baseSet = computed(() => new Set(this.permisos()?.del_puesto ?? []));
 
@@ -616,7 +616,7 @@ export class PersonaAccesoComponent implements OnChanges {
       });
     }
 
-    // `[AU.14]` Cuánta gente abre cada pantalla. Si falla, queda `null` y el panel DECLARA
+    // `[AU.33]` Cuánta gente abre cada pantalla. Si falla, queda `null` y el panel DECLARA
     // «no medido» — nunca pinta 0, que se leería como «no la usa nadie».
     if (this.uso() === null) {
       this.api.usoDePermisos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -651,7 +651,7 @@ export class PersonaAccesoComponent implements OnChanges {
   }
 
   /**
-   * `[AU.14]` Guarda el lote. `PUT` reemplaza el conjunto entero, así que se manda TODO lo
+   * `[AU.33]` Guarda el lote. `PUT` reemplaza el conjunto entero, así que se manda TODO lo
    * pendiente — incluido lo que no cambió.
    *
    * ⚠️ **El motivo viejo no se pisa.** Una diferencia que ya existía y sigue igual conserva su

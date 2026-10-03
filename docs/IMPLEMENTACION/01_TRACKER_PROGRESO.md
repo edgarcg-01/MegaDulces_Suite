@@ -1984,6 +1984,34 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       `http-admin-password-test.js` ejerce `PUT /users/:id` de verdad: **8 ok / 0 / 1 declarado**.
       ⭐ El declarado es el hallazgo: `platform_test` **no admite el kind `dispositivo`**, o sea que
       **contra dev este test no habría atrapado el bug**. Commit `67096a81` · 2026-09-17
+- [ ] **[AU.33]** 🔨 **El acceso se marca en el árbol; la diferencia se deriva — y se ve la pantalla
+      que se concede.** Pedido de Edgar: *«al querer quitar o conceder un permiso lo tengo que hacer
+      uno a uno y agregando explicación de cada uno… la interpretación de qué permisos debo dar o
+      quitar es poco comprensible»* + *«que se pueda previsualizar cuál es la pantalla a la que se le
+      está dando acceso»*. **Medido en prod antes de tocar nada:** `ernesto_zarate` tiene **28
+      excepciones, 27 «quita», las 28 sin motivo** — y esas 27 son **dos proyectos enteros**;
+      padrón 144 personas / 52 roles / 48 excepciones con **32 sin motivo (67 %)**; catálogo 223
+      permisos · 131 módulos · **126 con ruta** · **0 huérfanos**. ⭐ **El backend ya aceptaba el lote
+      entero** (`PUT /users/:id/permissions` reemplaza el conjunto): el cuello era la pantalla, no el
+      servidor. Entra `libs/contracts/.../authz-selection.ts` (tri-estado, cascada, diferencia contra
+      el perfil, de claves a **pantallas**) — la lógica estaba como métodos privados del editor de
+      roles y copiarla era el modo de falla de **ADR-056**, así que baja al contrato y **los dos la
+      consumen**; `permission-tree` + `permission-preview` compartidos; `persona-acceso` reconstruido
+      (estado final + motivo **uno por lote** + paso de revisión en pantallas, y **el motivo viejo no
+      se pisa**); `GET /users/permissions/usage` (perfil base + complementos + excepciones, **restando
+      los `allow=false`**; los roles de plataforma van **aparte**, no repartidos). ⛔ **El candado
+      encontró un error mío: son 18 pantallas, no 19** — la lista la había derivado a mano y tres
+      claves caían mal (`FINANCE_PAYMENTS_*` vive en **Calendario de pagos**, `FINANCE_EXPENSES_VER`
+      en **Gastos**, `FINANCE_FINDINGS_GESTIONAR` no tiene módulo propio); *comprobar una derivación
+      contra sí misma la pasa en verde*. ⚠️ **La previa en vivo queda DECLARADA, no encendida**: la app
+      se sirve con `X-Frame-Options: DENY` + `frame-ancestors 'none'` y **no se puede embeber ni a sí
+      misma**, así que el marco sale vacío; el componente lo **mide** (lee la ubicación del iframe,
+      mismo origen) y lo **dice en pantalla** en vez de quedarse mudo. Encenderlo son **2 líneas de
+      `nginx.conf`** que aflojan un header de seguridad → **decisión de una persona, pendiente**.
+      `vitest contracts` **307/307** (18 nuevas, 5 negativas); SQL del endpoint corrido contra prod en
+      **solo lectura con control negativo**. Sin migraciones y sin permisos nuevos → **sin re-login**.
+      **Falta: CI (typecheck/lint), validación visual, push y despliegue.** Commit `04c9d642c` ·
+      2026-10-03
 - [x] **[ZN.0]** 🔨 **Zona, sucursal y ruta dejan de ser la misma columna.** Pedido del lead:
       *«hay que normalizar esto, para que se respete que el usuario solo vea lo de su zona o sus
       sucursales asignadas; eliminar todo lo que esté hardcodeado y separar por sucursal»*.

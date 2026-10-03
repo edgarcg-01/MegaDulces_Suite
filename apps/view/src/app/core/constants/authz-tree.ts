@@ -20,7 +20,7 @@ export {
 } from '@megadulces/contracts/authz/authz-tree';
 
 /**
- * `[AU.14]` La lógica de SELECCIÓN sobre el árbol (tri-estado, cascada, diferencia contra el
+ * `[AU.33]` La lógica de SELECCIÓN sobre el árbol (tri-estado, cascada, diferencia contra el
  * perfil, de claves a pantallas). Vive en el contrato y se consume por este mismo puente, para
  * que el editor de perfiles y el de personas usen una sola implementación (ADR-056).
  */
