@@ -18,6 +18,10 @@
  */
 @import '../../../libs/ui-web/src/dense-table.css';
 
+/* [DS.2] Alto Contraste de Windows + prefers-contrast. La flota es Windows y el sistema
+   descansa en hairlines y alpha-overlays, que son justo lo que ese modo funde en uno solo. */
+@import '../../../libs/ui-web/src/forced-colors.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

@@ -173,12 +173,16 @@
   background: var(--c-surface-2);
   overflow: hidden;
 }
+/* scaleX en vez de width: transform no dispara layout y entra en el techo de 350ms de
+   DESIGN.md. El radio lo pone .cc-bar, que ya recorta con overflow:hidden. --pct pasa a
+   ser un numero sin unidad (0..1) en la plantilla, porque scaleX() no acepta porcentajes. */
 .cc-bar-fill {
   height: 100%;
-  width: var(--pct, 0%);
+  width: 100%;
   background: var(--c-text-1);
-  border-radius: 999px;
-  transition: width 400ms var(--ease-standard, cubic-bezier(0.2, 0, 0, 1));
+  transform: scaleX(var(--pct, 0));
+  transform-origin: left center;
+  transition: transform var(--dur-standard, 250ms) var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
 }
 .cc-brand-row:nth-child(n+2) .cc-bar-fill { background: var(--c-text-2); opacity: 0.6; }
 .cc-brand-row:nth-child(n+5) .cc-bar-fill { opacity: 0.35; }

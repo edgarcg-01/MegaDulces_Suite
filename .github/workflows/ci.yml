@@ -391,6 +391,21 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:tokens
 
+      # `[DS.1]` Techo de motion. DESIGN.md lo marca BINDING desde hace meses y su propia tabla
+      # de cumplimiento publicaba "19 declaraciones por encima del techo" — midiendo SÓLO
+      # notación en milisegundos. La auditoría del 2026-10-02 encontró que el número real era
+      # 40+ porque nadie contaba `.5s`, `0.8s`, `.7s`. El arquetipo canónico (`MetricStrip`, 81
+      # pantallas) llevaba tres semanas con `transition: width 900ms`: 2.6× el techo y sobre una
+      # propiedad de layout. Se encendió en VERDE, con el repo ya limpio, a propósito.
+      - name: Motion gate — prueba negativa
+        if: ${{ !cancelled() }}
+        run: npm run check:motion:self
+
+      - name: Motion gate (techo de 350ms + deuda de layout que no crece)
+        id: g-motion
+        if: ${{ !cancelled() }}
+        run: npm run check:motion
+
       # `[NX.3]` Este es el único gate cuyo defecto NO se puede ver en la máquina de quien lo
       # introduce: el contexto de Docker sólo se ejerce al construir la imagen. Nació de un caso
       # real — `vitest.shared.ts` en la raíz, importado por los 7 `vitest.config.ts`, y el
@@ -447,6 +462,7 @@ jobs:
           R_TEMPLATES: ${{ steps.g-templates.outcome }}
           R_TABLAS: ${{ steps.g-tablas.outcome }}
           R_TOKENS: ${{ steps.g-tokens.outcome }}
+          R_MOTION: ${{ steps.g-motion.outcome }}
           R_TYPECHECK: ${{ steps.g-typecheck.outcome }}
           R_TEST: ${{ steps.g-test.outcome }}
         run: |
@@ -478,6 +494,9 @@ jobs:
           fila "$R_TOKENS"    "Token de CSS inexistente" \
             "Un var(--x) sin respaldo tira la declaración entera, en silencio, en el navegador." \
             "npm run check:tokens"
+          fila "$R_MOTION"    "Techo de motion (350ms)" \
+            "Una animación de Operations dura más que --dur-max, o crecieron las transiciones sobre propiedades de layout." \
+            "npm run check:motion"
           fila "$R_TYPECHECK" "Typecheck" \
             "apps/api compila con SWC y BORRA los tipos sin comprobarlos: este es el único paso que los mira." \
             "npx nx affected -t typecheck"

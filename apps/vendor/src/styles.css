@@ -19,6 +19,10 @@
  */
 @import '../../../libs/ui-web/src/dense-table.css';
 
+/* [DS.2] Alto Contraste de Windows + prefers-contrast. La flota es Windows y el sistema
+   descansa en hairlines y alpha-overlays, que son justo lo que ese modo funde en uno solo. */
+@import '../../../libs/ui-web/src/forced-colors.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -482,7 +486,7 @@ body {
   stroke: var(--status-fg, var(--action));
   stroke-width: 5;
   stroke-linecap: round;
-  transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: stroke-dasharray var(--dur-max, 350ms) var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
 }
 .rk-gauge-pct {
   position: absolute;
@@ -590,7 +594,8 @@ body {
 .health-box-fill {
   height: 100%;
   border-radius: 9999px;
-  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  /* [DS.1] duracion al techo de 350ms de DESIGN.md; la propiedad sigue siendo width. */
+  transition: width var(--dur-standard, 250ms) var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
 }
 @media (prefers-reduced-motion: reduce) {
   .health-box-fill { transition: none; }
@@ -1209,7 +1214,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .animate-fade-in-up {
-  animation: fadeInUp 0.4s ease-out forwards;
+  animation: fadeInUp var(--dur-max, 350ms) ease-out forwards;
 }
 
 /* Pulse sutil para indicadores activos */
@@ -1371,7 +1376,7 @@ input:focus, textarea:focus, select:focus {
   height: 100%;
   background: radial-gradient(circle at center, rgba(0, 0, 0, 0.03) 0%, transparent 70%);
   transform: translate(-50%, -50%) scale(0);
-  transition: transform 0.4s ease;
+  transition: transform var(--dur-max, 350ms) var(--ease-standard, ease);
   pointer-events: none;
 }
 
@@ -1421,7 +1426,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .text-reveal > * {
-  animation: textReveal 0.5s ease forwards;
+  animation: textReveal var(--dur-max, 350ms) ease forwards;
   opacity: 0;
 }
 
@@ -1820,8 +1825,8 @@ input:focus, textarea:focus, select:focus {
   background: var(--card-bg);
   border-radius: 9999px;
   transition:
-    transform 520ms cubic-bezier(0.34, 1.4, 0.5, 1),
-    width 520ms cubic-bezier(0.34, 1.4, 0.5, 1),
+    transform var(--dur-max, 350ms) cubic-bezier(0.34, 1.4, 0.5, 1),
+    width var(--dur-max, 350ms) cubic-bezier(0.34, 1.4, 0.5, 1),
     background-color 320ms ease,
     box-shadow 320ms ease;
   box-shadow:

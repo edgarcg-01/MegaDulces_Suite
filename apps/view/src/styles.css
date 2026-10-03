@@ -20,6 +20,10 @@
  */
 @import '../../../libs/ui-web/src/dense-table.css';
 
+/* [DS.2] Alto Contraste de Windows + prefers-contrast. La flota es Windows y el sistema
+   descansa en hairlines y alpha-overlays, que son justo lo que ese modo funde en uno solo. */
+@import '../../../libs/ui-web/src/forced-colors.css';
+
 /*
  * ⭐ Las tres tipografías de la ETIQUETA DE ANAQUEL (/tienda/etiquetas), acá y no en los estilos
  * del componente que las usa.
@@ -441,7 +445,10 @@ body {
  * Uso:
  *   <span class="status-chip status-warn">Atención</span>
  *   <div class="status-border-left status-ok">…</div>
- *   <div class="status-fill status-bad" style="--pct:42%"></div>
+ *   <div class="status-fill status-bad"></div>
+ * ⚠️ El ejemplo decia style="--pct:42%" y era falso: `.status-fill` solo pinta
+ *    `background-color` y NUNCA lee `--pct` (verificado 2026-10-03). El ancho lo
+ *    pone quien la usa. Un ejemplo que no funciona se copia igual que uno que si.
  * Las clases base (`status-chip`, `status-border-left`, `status-fill`,
  * `status-text`, `status-dot`) toman el color del modificador
  * (`status-ok` / `status-warn` / `status-bad`).
@@ -511,7 +518,7 @@ body {
   stroke: var(--status-fg, var(--action));
   stroke-width: 5;
   stroke-linecap: round;
-  transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: stroke-dasharray var(--dur-max, 350ms) var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
 }
 .rk-gauge-pct {
   position: absolute;
@@ -619,7 +626,8 @@ body {
 .health-box-fill {
   height: 100%;
   border-radius: 9999px;
-  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  /* [DS.1] duracion al techo de 350ms de DESIGN.md; la propiedad sigue siendo width. */
+  transition: width var(--dur-standard, 250ms) var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
 }
 @media (prefers-reduced-motion: reduce) {
   .health-box-fill { transition: none; }
@@ -1402,7 +1410,7 @@ input:focus, textarea:focus, select:focus {
   height: 100%;
   background: radial-gradient(circle at center, rgba(0, 0, 0, 0.03) 0%, transparent 70%);
   transform: translate(-50%, -50%) scale(0);
-  transition: transform 0.4s ease;
+  transition: transform var(--dur-max, 350ms) var(--ease-standard, ease);
   pointer-events: none;
 }
 
@@ -1852,8 +1860,8 @@ input:focus, textarea:focus, select:focus {
   background: var(--card-bg);
   border-radius: 9999px;
   transition:
-    transform 520ms cubic-bezier(0.34, 1.4, 0.5, 1),
-    width 520ms cubic-bezier(0.34, 1.4, 0.5, 1),
+    transform var(--dur-max, 350ms) cubic-bezier(0.34, 1.4, 0.5, 1),
+    width var(--dur-max, 350ms) cubic-bezier(0.34, 1.4, 0.5, 1),
     background-color 320ms ease,
     box-shadow 320ms ease;
   box-shadow:

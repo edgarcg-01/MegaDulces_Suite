@@ -31,7 +31,10 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
     .rg { position:relative; }
     .rg-svg { width:100%; height:100%; display:block; }
     .rg-track { stroke: var(--c-divider, var(--border-color)); }
-    .rg-arc { transition: stroke-dashoffset .7s var(--ease-out, cubic-bezier(.23,1,.32,1)); }
+    /* stroke-dashoffset es la excepcion de las micro-viz SVG (J17): no dispara layout y es
+       la unica forma de dibujar un arco progresivo. La DURACION si entra al techo: .7s eran
+       el doble de --dur-max. */
+    .rg-arc { transition: stroke-dashoffset var(--dur-max, 350ms) var(--ease-out, cubic-bezier(.23,1,.32,1)); }
     .rg-pct {
       position:absolute; inset:0; display:grid; place-items:center;
       font-family: var(--font-mono); font-variant-numeric: tabular-nums;

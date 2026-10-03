@@ -33,7 +33,7 @@
   stroke: var(--action);
   stroke-width: 4;
   stroke-linecap: round;
-  transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: stroke-dasharray var(--dur-max, 350ms) var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
 }
 .st-ring-arc.is-ok    { stroke: var(--ok-fg); }
 .st-ring-arc.is-warn  { stroke: var(--warn-fg); }

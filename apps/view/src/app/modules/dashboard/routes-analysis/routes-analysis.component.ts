@@ -293,7 +293,7 @@ interface RouteTrack {
     .ru-donut-track { fill: none; stroke: var(--border-color); stroke-width: 5; }
     .ru-donut-arc {
       fill: none; stroke: var(--action); stroke-width: 5; stroke-linecap: round;
-      transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: stroke-dasharray var(--dur-max, 350ms) var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
     }
     .ru-donut-arc.is-ok   { stroke: var(--ok-fg); }
     .ru-donut-arc.is-warn { stroke: var(--warn-fg); }
@@ -309,7 +309,8 @@ interface RouteTrack {
     .ru-clock-tick { stroke: var(--text-faint); stroke-width: 1.5; }
     .ru-clock-hand {
       stroke: var(--action); stroke-width: 2.5; stroke-linecap: round;
-      transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      /* 'all' es antipatron: transiciona tambien lo que nadie penso. Se acota a lo que cambia. */
+      transition: stroke-dasharray var(--dur-max, 350ms) var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
     }
     .ru-clock-hand.is-ok   { stroke: var(--ok-fg); }
     .ru-clock-hand.is-warn { stroke: var(--warn-fg); }
@@ -318,7 +319,7 @@ interface RouteTrack {
 
     /* Barra split muerto/traslado */
     .ru-split { display: flex; width: 44px; height: 10px; border-radius: 999px; overflow: hidden; background: var(--surface-ground); }
-    .ru-split-seg { display: block; height: 100%; transition: flex 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+    .ru-split-seg { display: block; height: 100%; transition: flex var(--dur-standard, 250ms) var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1)); }
     .ru-split-seg.is-idle   { background: var(--bad-fg); }
     .ru-split-seg.is-travel { background: var(--neutral-400); }
 
