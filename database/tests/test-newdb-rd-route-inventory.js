@@ -261,22 +261,124 @@ async function cuerposDeLaMigracion() {
       const pg = aplicada ? cuerpo : PRE + cuerpo;
       const ruta = cuadre[0] && cuadre[0].route_no;
       try {
-        const r = await db.raw(pg, [tenant, ruta, '2000-01-01', '2999-12-31', tenant]);
+        // El 6º binding es el tope (`LIMIT ?`). Si el servicio cambia de forma, knex lo grita.
+        const r = await db.raw(pg, [tenant, ruta, '2000-01-01', '2999-12-31', tenant, 1000]);
         const filas = r.rows || r;
         t('la consulta del DETALLE del servicio corre contra prod', true);
         t('el detalle trae las columnas que la pantalla pinta',
-          filas.length === 0 || ['sku', 'unidad', 'producto', 'saldo', 'saldo_costo', 'saldo_venta', 'veredicto']
+          filas.length === 0 || ['sku', 'unidad', 'producto', 'saldo', 'saldo_costo', 'saldo_venta',
+            'veredicto', 'ya_lo_traia', '_total']
             .every((c) => c in filas[0]),
           filas.length ? Object.keys(filas[0]).join(',') : 'sin filas');
         t('el detalle resuelve el NOMBRE del producto, no repite el SKU',
           filas.some((f) => f.producto && f.producto !== f.sku),
           'si ninguno resuelve, el join al catálogo está roto');
-        const malV = filas.filter((f) => !['ok', 'negativo_sin_ancla', 'sin_costo', 'sin_precio'].includes(f.veredicto));
+        const malV = filas.filter((f) => !['ok', 'sin_costo', 'sin_precio'].includes(f.veredicto));
         t('todo renglón del detalle trae un veredicto conocido', malV.length === 0);
+        // El veredicto COMPONE: todo `sin_costo` es por construcción negativo (no hubo carga).
+        const sinCostoNoNeg = filas.filter((f) => f.veredicto === 'sin_costo' && f.ya_lo_traia !== true);
+        t('todo renglón sin costo viene marcado como «ya lo traía» (son la misma población)',
+          sinCostoNoNeg.length === 0, `${sinCostoNoNeg.length} filas lo contradicen`);
       } catch (e) {
         bad++;
         console.log('  ✘ la consulta del DETALLE del servicio FALLA — ' + e.message);
       }
+    }
+
+    // ── [RD.14] La identidad sale de la TABLA PRINCIPAL, no de una lista a mano ─────────
+    if (aplicada) {
+      const [{ def }] = (await db.raw(
+        `SELECT pg_get_viewdef('analytics.v_rd_route_identity'::regclass, true) AS def`)).rows;
+      t('la identidad NO lleva una lista de rutas embebida',
+        !/\bVALUES\b/i.test(def), 'un VALUES acá es una constante duplicada a mano (ADR-056)');
+      t('la identidad JOINea contra commercial.warehouses (la tabla con la PK)',
+        /commercial\.warehouses/.test(def));
+      t('la identidad JOINea contra transfer_dest_map (la FK del destino)',
+        /analytics\.transfer_dest_map/.test(def));
+
+      const [fk] = (await db.raw(`
+        SELECT (SELECT count(*)::int FROM commercial.warehouses
+                 WHERE kind='truck' AND deleted_at IS NULL AND source_warehouse_id IS NOT NULL) AS con_origen,
+               (SELECT count(*)::int FROM analytics.transfer_dest_map
+                 WHERE warehouse_id IS NOT NULL AND dest_code ~ '^(RUTA|RD) ') AS dest_con_fk,
+               (SELECT count(*)::int FROM commercial.warehouses
+                 WHERE kind='truck' AND deleted_at IS NULL AND kepler_code IS NOT NULL) AS con_erp`)).rows;
+      t('las 11 rutas tienen su almacén de origen por FK', n(fk.con_origen) === 11, `${fk.con_origen}`);
+      t('los 11 destinos de Kepler apuntan a su almacén por FK', n(fk.dest_con_fk) === 11, `${fk.dest_con_fk}`);
+      t('las 6 rutas de PH tienen su código de almacén del ERP (las de Canindo no lo tienen, y se declara)',
+        n(fk.con_erp) === 6, `${fk.con_erp}`);
+
+      // `route_no` se DERIVA del código canónico. Si esa derivación se rompe, el join con el
+      // carril push se cae en silencio y la pantalla muestra rutas sin venta.
+      const [{ huerfanas }] = (await db.raw(`
+        SELECT count(*)::int AS huerfanas FROM analytics.v_rd_route_identity i
+         WHERE NOT EXISTS (SELECT 1 FROM analytics.route_push_lines p
+                            WHERE p.route_no = i.route_no AND p.tenant_id = i.tenant_id)`)).rows;
+      t('el route_no derivado del código casa con el del carril push', n(huerfanas) === 0,
+        `${huerfanas} rutas sin una sola línea de venta`);
+
+      // ── [RD.15] PARIDAD: la copia por costo contra la definición viva ─────────────────
+      // ⚠️ La paridad toca la VISTA VIVA, que deriva `kdm1 ⋈ kdm2` entero (~4.3 s medidos) y
+      // choca con el `statement_timeout` del rol de lectura: sin esto el candado falla a veces
+      // sin que haya ningún defecto, que es la peor clase de rojo (enseña a ignorarlo).
+      // ⛔ **Comparar la matvista contra su vista VIVA no mide paridad: mide el rezago del
+      // refresco.** Medido acá mismo: 108,081 contra 108,206 — 125 filas que entraron después
+      // del último REFRESH. La aserción sólo podía pasar justo después de refrescar, o sea que
+      // era un rojo programado. Lo que SÍ es invariante es un periodo **cerrado**: los meses
+      // anteriores ya no se mueven, así que ahí la copia tiene que ser idéntica al peso.
+      const CORTE = "date_trunc('month', (now() at time zone 'America/Mexico_City')::date)";
+      const [par] = (await db.transaction(async (trx) => {
+        // La vista viva deriva `kdm1 ⋈ kdm2` entero (~4.3 s) y choca con el `statement_timeout`
+        // del rol de lectura: sin esto el candado falla A VECES sin que haya ningún defecto.
+        await trx.raw("SET LOCAL statement_timeout = '90s'");
+        return trx.raw(`
+        SELECT (SELECT count(*)::int FROM analytics.mv_rd_route_ledger
+                 WHERE business_date < ${CORTE}) AS mv_filas,
+               (SELECT count(*)::int FROM analytics.v_rd_route_ledger
+                 WHERE business_date < ${CORTE}) AS v_filas,
+               (SELECT round(sum(costo_doc),2) FROM analytics.mv_rd_route_ledger
+                 WHERE business_date < ${CORTE}) AS mv_costo,
+               (SELECT round(sum(costo_doc),2) FROM analytics.v_rd_route_ledger
+                 WHERE business_date < ${CORTE}) AS v_costo,
+               (SELECT count(*)::int FROM analytics.mv_rd_route_identity) AS mv_id,
+               (SELECT count(*)::int FROM analytics.v_rd_route_identity)  AS v_id`);
+      })).rows;
+      t('en el periodo CERRADO la matvista tiene las mismas filas que su vista',
+        n(par.mv_filas) === n(par.v_filas), `${par.mv_filas} vs ${par.v_filas}`);
+      t('…y el mismo dinero al centavo',
+        Math.abs(n(par.mv_costo) - n(par.v_costo)) < 0.01, `${par.mv_costo} vs ${par.v_costo}`);
+      t('el periodo cerrado no está vacío (si no, la paridad sería vacua)', n(par.mv_filas) > 0);
+      t('la matvista de la identidad tiene las mismas rutas que su vista',
+        n(par.mv_id) === n(par.v_id), `${par.mv_id} vs ${par.v_id}`);
+
+      // ── PRESUPUESTO: 0.5 s. No es tarea de perf posterior, es criterio de aceptación ──
+      const SERV = `
+        WITH win AS (
+          SELECT l.route_no, l.sku, l.unidad,
+                 sum(l.qty) FILTER (WHERE l.clase='carga') cq,
+                 sum(l.costo_doc) FILTER (WHERE l.clase='carga') cv,
+                 sum(l.qty) FILTER (WHERE l.clase='venta') vq,
+                 sum(l.venta_doc) FILTER (WHERE l.clase='venta') vi
+            FROM analytics.mv_rd_route_ledger l
+           WHERE l.tenant_id = ? AND l.business_date >= '2000-01-01' AND l.business_date <= '2999-12-31'
+           GROUP BY 1,2,3
+        ), val AS (SELECT w.*, w.cv/nullif(w.cq,0) costo_u,
+                          coalesce(w.cq,0)-coalesce(w.vq,0) saldo FROM win w)
+        SELECT i.route_no, round(sum(v.saldo*v.costo_u),2) inv
+          FROM analytics.mv_rd_route_identity i LEFT JOIN val v ON v.route_no = i.route_no
+         WHERE i.tenant_id = ? GROUP BY i.route_no`;
+      await db.raw(SERV, [tenant, tenant]); // calentar: se mide el régimen, no el primer toque
+      let peor = 0;
+      for (let i = 0; i < 3; i++) {
+        const t0 = Date.now();
+        await db.raw(SERV, [tenant, tenant]);
+        peor = Math.max(peor, Date.now() - t0);
+      }
+      t(`la consulta de la pantalla cabe en 500 ms (peor de 3: ${peor} ms)`, peor < 500,
+        'medida sobre la consulta REAL, no una parecida: ese fue el error que costó 1,775 ms');
+    } else {
+      noMedido('la normalización y el presupuesto de 500 ms',
+        'las migraciones 20261003130000/140000 todavía no se aplicaron');
     }
 
     console.log('\n  — el cuadre, ruta por ruta —');

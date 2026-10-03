@@ -195,6 +195,14 @@ export interface SalesByRouteOption {
 }
 
 /**
+ * `[RD.10]` Tope de filas del detalle por SKU. **1,000 y no 500**: medido contra prod, las 11
+ * rutas tienen entre 549 y 938 pares `(sku, unidad)`, así que el tope anterior truncaba TODAS.
+ * Si alguna vez se pasara, el servicio devuelve `truncado: true` y la pantalla lo declara — un
+ * corte mudo es una tabla que no suma su propio total.
+ */
+const DETALLE_TOPE = 1000;
+
+/**
  * `[RD.10]` Una ruta en el cuadre de inventario. **Las dos columnas cierran**:
  * `carga_* − (cogs_costo | venta_cliente) − inventario_* = 0`, y `delta_*` lo lleva a pantalla.
  */
@@ -220,15 +228,34 @@ export interface RouteInventoryDetailRow {
   qty_carga: number; qty_venta: number; saldo: number;
   costo_unitario: number | null; precio_unitario: number | null;
   saldo_costo: number | null; saldo_venta: number | null;
-  veredicto: 'ok' | 'negativo_sin_ancla' | 'sin_costo' | 'sin_precio';
+  /** Por qué no hay cifra, si no la hay. Es ortogonal a `ya_lo_traia`: una fila puede ser las dos. */
+  veredicto: 'ok' | 'sin_costo' | 'sin_precio';
+  /** Vendió más de lo que se le cargó en la ventana: mercancía previa al primer embarque. */
+  ya_lo_traia: boolean;
+}
+
+/** El detalle **con su total**, para que la pantalla pueda declarar si el tope cortó. */
+export interface RouteInventoryDetail {
+  rows: RouteInventoryDetailRow[];
+  total: number;
+  truncado: boolean;
 }
 
 export interface RouteInventoryReport {
-  desde: string; hasta: string; data_as_of: string | null;
+  desde: string; hasta: string;
+  /** Frescura del DATO: hasta qué día hay movimiento. */
+  data_as_of: string | null;
+  /** Frescura de la COPIA: cuándo terminó el último refresco de matvistas. `poblado ≠ fresco`. */
+  copia_al: string | null;
+  copia_status: 'ok' | 'error' | 'sin_medir';
+  copia_edad_min: number | null;
   routes: RouteInventoryRow[];
   totales: Record<string, number>;
-  /** `false` = alguien mezcló valuaciones. Va a pantalla, no es decorativo. */
-  cuadra: boolean;
+  /**
+   * ⛔ Ternario, no booleano: **no cuadrar y no haber podido comprobarlo son cosas distintas**.
+   * `sin_medir` = ninguna ruta tuvo movimiento en la ventana, así que no hay nada que cuadre.
+   */
+  cuadra: 'cierra' | 'no_cierra' | 'sin_medir';
   declara: { sin_ancla: string; costo: string; fuera_de_alcance: string };
 }
 
@@ -7828,7 +7855,7 @@ export class CommercialAnalyticsService {
                   sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
                   sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi,
                   sum(l.costo_erp) FILTER (WHERE l.clase='venta') AS ce
-             FROM analytics.v_rd_route_ledger l
+             FROM analytics.mv_rd_route_ledger l
             WHERE l.tenant_id = ? AND l.business_date >= ? AND l.business_date <= ?
             GROUP BY 1,2,3
          ), val AS (
@@ -7852,14 +7879,14 @@ export class CommercialAnalyticsService {
                 round(sum(coalesce(v.cq,0) * v.precio_u) - sum(v.vi)
                       - sum(v.saldo * v.precio_u),2)::float                    AS delta_venta,
                 round(sum(v.ce),2)::float                                      AS cogs_erp,
-                count(*)::int                                                  AS pares,
+                count(v.sku)::int                                             AS pares,
                 count(*) FILTER (WHERE v.saldo > 0)::int                       AS pares_pos,
                 count(*) FILTER (WHERE v.saldo < 0)::int                       AS pares_neg,
                 count(*) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.costo_u IS NULL)::int AS pares_sin_costo,
                 round(sum(v.vi) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.costo_u IS NULL),2)::float AS venta_sin_costo,
                 count(*) FILTER (WHERE coalesce(v.cq,0) > 0 AND v.precio_u IS NULL)::int AS pares_sin_precio,
                 round(sum(v.cv) FILTER (WHERE coalesce(v.cq,0) > 0 AND v.precio_u IS NULL),2)::float AS carga_sin_precio
-           FROM analytics.v_rd_route_identity i
+           FROM analytics.mv_rd_route_identity i
            LEFT JOIN val v ON v.route_no = i.route_no
           WHERE i.tenant_id = ?
           GROUP BY i.route_no, i.plaza, i.carga_desde
@@ -7869,7 +7896,23 @@ export class CommercialAnalyticsService {
 
       const asOf = (await trx.raw(
         `SELECT to_char(max(business_date),'YYYY-MM-DD') AS data_as_of
-           FROM analytics.v_rd_route_ledger WHERE tenant_id = ?`, [tenantId])).rows[0];
+           FROM analytics.mv_rd_route_ledger WHERE tenant_id = ?`, [tenantId])).rows[0];
+
+      /**
+       * ⛔ **`data_as_of` es la frescura del DATO, no la de la COPIA**, y confundirlas es el
+       * `poblado ≠ fresco` de ADR-056: si el `REFRESH` de 30 min se cae, la matvista sigue
+       * diciendo «hasta el 2-oct» con toda confianza mientras sirve lo de ayer.
+       *
+       * La frescura de la copia sale del latido que el ciclo de matvistas YA escribe
+       * (`analytics.cron_runs`, job `analytics_refresh`) — primitivo existente, no uno nuevo.
+       * Si no hay latido, se declara `sin_medir`; no se dibuja un verde.
+       */
+      const copia = (await trx.raw(
+        `SELECT to_char(last_finish AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI') AS copia_al,
+                status,
+                round(extract(epoch from (now() - last_finish))/60)::int AS copia_edad_min
+           FROM analytics.cron_runs
+          WHERE tenant_id = ? AND job_key = 'analytics_refresh'`, [tenantId])).rows[0];
 
       const num = (k: keyof RouteInventoryRow) =>
         rows.reduce((a: number, r: Record<string, number>) => a + (Number(r[k as string]) || 0), 0);
@@ -7894,9 +7937,23 @@ export class CommercialAnalyticsService {
           venta_sin_costo: r2(num('venta_sin_costo')),
           carga_sin_precio: r2(num('carga_sin_precio')),
         },
-        // ⛔ NO es decorativo: si deja de ser 0 alguien mezcló valuaciones. Va a pantalla.
-        cuadra: rows.every((r: Record<string, number>) =>
-          Math.abs(Number(r.delta_costo) || 0) < 0.01 && Math.abs(Number(r.delta_venta) || 0) < 0.01),
+        copia_al: copia?.copia_al ?? null,
+        copia_status: copia ? (copia.status === 'ok' ? 'ok' : 'error') : 'sin_medir',
+        copia_edad_min: copia?.copia_edad_min ?? null,
+        /**
+         * ⛔ TERNARIO a propósito. Con un booleano, una ventana sin movimiento devuelve 11 filas
+         * de deltas NULL, `Number(null)||0` da 0, y la pantalla pinta **«Cierra» en verde sobre
+         * nada** — el `cfg ? classify : 'ok'` que la Fase VP midió. No cuadrar y no haber podido
+         * comprobarlo son cosas distintas y se dicen distinto.
+         */
+        cuadra: (() => {
+          const conMovimiento = rows.filter((r: Record<string, number>) =>
+            Number(r.pares) > 0 && (r.delta_costo !== null || r.delta_venta !== null));
+          if (!conMovimiento.length) return 'sin_medir' as const;
+          return conMovimiento.every((r: Record<string, number>) =>
+            Math.abs(Number(r.delta_costo) || 0) < 0.01
+            && Math.abs(Number(r.delta_venta) || 0) < 0.01) ? ('cierra' as const) : ('no_cierra' as const);
+        })(),
         // Declaraciones: ADR-056 — lo que no se midió se dice, no se dibuja en cero.
         declara: {
           sin_ancla: 'No hay conteo inicial de los camiones: la ventana arranca en la PRIMERA CARGA '
@@ -7909,8 +7966,16 @@ export class CommercialAnalyticsService {
     });
   }
 
-  /** `[RD.10]` El detalle por SKU de una ruta, para la tabla. Mismo cuadre, grano fino. */
-  async routeInventoryDetail(routeNo: string, from?: string, to?: string): Promise<RouteInventoryDetailRow[]> {
+  /**
+   * `[RD.10]` El detalle por SKU de una ruta. Mismo cuadre, grano fino.
+   *
+   * ⛔ **El tope no puede ser mudo.** La versión anterior cortaba en 500 y **las 11 rutas tienen
+   * entre 549 y 938 pares** `(sku, unidad)` — o sea que truncaba todas, y el `ORDER BY` mandaba al
+   * final justo a los `sin_costo` (633 pares), que es lo que la cabecera declara como hueco: la
+   * tabla nunca sumaba el total de su propia fila y nada lo decía. Ahora el tope es **1,000** (cabe
+   * la ruta más grande con margen) y viaja el `total`, para que la pantalla declare si cortó.
+   */
+  async routeInventoryDetail(routeNo: string, from?: string, to?: string): Promise<RouteInventoryDetail> {
     if (!routeNo || !/^[0-9A-Za-z]{1,8}$/.test(routeNo)) throw new BadRequestException('route_no inválido');
     const { desde, hasta } = this.routeInventoryRange(from, to);
     const tenantId = this.tenantCtx.requireTenantId();
@@ -7921,7 +7986,7 @@ export class CommercialAnalyticsService {
                 sum(l.costo_doc) FILTER (WHERE l.clase='carga') AS cv,
                 sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
                 sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi
-           FROM analytics.v_rd_route_ledger l
+           FROM analytics.mv_rd_route_ledger l
           WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date >= ? AND l.business_date <= ?
           GROUP BY 1,2
        )
@@ -7934,16 +7999,30 @@ export class CommercialAnalyticsService {
               round(w.vi / nullif(w.vq,0),4)::float              AS precio_unitario,
               round((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.cv / nullif(w.cq,0)),2)::float  AS saldo_costo,
               round((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.vi / nullif(w.vq,0)),2)::float  AS saldo_venta,
+              -- ⚠️ El veredicto COMPONE, no elige. Todo "sin costo" es por construcción negativo
+              -- (no hubo carga ⇒ saldo = −vendido), así que un CASE excluyente le quitaba a esas
+              -- filas justo la etiqueta que explica por qué están en rojo.
+              -- ⛔ Sin acentos graves acá adentro: cierran el template literal, y check:templates
+              -- NO mira este archivo (sólo *.component.ts). Lo atrapó el candado, por suerte.
               CASE WHEN w.cv / nullif(w.cq,0) IS NULL THEN 'sin_costo'
                    WHEN w.vi / nullif(w.vq,0) IS NULL THEN 'sin_precio'
-                   WHEN coalesce(w.cq,0)-coalesce(w.vq,0) < 0 THEN 'negativo_sin_ancla'
-                   ELSE 'ok' END                                 AS veredicto
+                   ELSE 'ok' END                                 AS veredicto,
+              (coalesce(w.cq,0)-coalesce(w.vq,0) < 0)                        AS ya_lo_traia,
+              count(*) OVER ()::int                              AS _total
          FROM win w
          LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = w.sku AND p.deleted_at IS NULL
         ORDER BY abs(coalesce((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.cv / nullif(w.cq,0)),0)) DESC
-        LIMIT 500`,
-      [tenantId, routeNo, desde, hasta, tenantId],
-    )).rows as RouteInventoryDetailRow[]);
+        LIMIT ?`,
+      [tenantId, routeNo, desde, hasta, tenantId, DETALLE_TOPE],
+    )).rows).then((filas: (RouteInventoryDetailRow & { _total: number })[]) => {
+      const total = filas.length ? Number(filas[0]._total) : 0;
+      return {
+        rows: filas.map(({ _total, ...f }) => f) as RouteInventoryDetailRow[],
+        total,
+        // Si alguna vez corta, la pantalla lo DICE. Un corte mudo es un total que no suma.
+        truncado: total > DETALLE_TOPE,
+      };
+    });
   }
 
   /**

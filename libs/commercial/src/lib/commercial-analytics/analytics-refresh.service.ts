@@ -59,6 +59,20 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // A 30 min son 48 corridas/día ≈ 13 min de CPU, y el dato de HOY está — que es el punto: una
   // matview nocturna le sacaría el día en curso justo a quien más lo mira.
   { name: 'analytics.mv_rd_route_daily_200d', everyMin: 30 },
+  // `[RD.14]` (mig 20261003130000) El ledger de los camiones de Ruta Directa: carga del embarque
+  // `U-D-41` + venta del carril push, al grano (ruta, fecha, clase, sku, unidad). La vista deriva
+  // `kdm1 ⋈ kdm2` entero en CADA carga — medido con la consulta DEL SERVICIO (no una parecida):
+  // **1,775 ms y 1,109,446 buffers** contra un listón de **500 ms**. 108,081 filas que colapsan a
+  // 8,509 en pantalla.
+  //
+  // `everyMin: 30` para acompañar a su hermana de arriba: las dos leen el mismo carril push y
+  // publicar el inventario de ayer mientras la venta de la otra pantalla va al día sería un
+  // desfase que nadie podría explicar. La matvista es diminuta, así que el REFRESH es barato.
+  // `[RD.15]` (mig 20261003140000) ONCE filas, y aun asi gana 3 s: lo que materializa es
+  // `carga_desde`, un `min(kdm1.c9)` por ruta que la vista re-evaluaba en CADA carga de pantalla
+  // y que es la fecha del PRIMER embarque de la historia — no cambia nunca.
+  { name: 'analytics.mv_rd_route_identity', everyMin: 30 },
+  { name: 'analytics.mv_rd_route_ledger', everyMin: 30 },
   // `[CDRP.4-perf]` (mig 20260922000000) La otra pierna de la misma portada: venta por
   // almacén × canal × día. `sales_daily` está al grano de PRODUCTO y el bloque sumaba 249,389
   // filas por carga; **1,124,926 filas de 200 d colapsan a 4,447** (253×).

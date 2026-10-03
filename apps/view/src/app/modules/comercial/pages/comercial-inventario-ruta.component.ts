@@ -10,6 +10,7 @@ import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import {
   ComercialService,
+  RouteInventoryDetail,
   RouteInventoryDetailRow,
   RouteInventoryReport,
   RouteInventoryRow,
@@ -93,23 +94,14 @@ type Metrica = 'costo' | 'venta';
                   emptyHint="Probá con «Toda la ventana»: la carga documentada arranca el 15-jul en Padre Hidalgo y el 14-ago en Canindo."
                   (retry)="cargar()">
     @if (data(); as d) {
-      <!-- Answer-first: el veredicto en llano ANTES del dinero (DESIGN §15). -->
-      <p class="ir-veredicto" [class.ir-no-cierra]="!d.cuadra">
-        @if (d.cuadra) {
-          <i class="pi pi-check-circle" aria-hidden="true"></i>
-          <span>
-            <strong>Los camiones no acumulan.</strong>
-            Lo que queda arriba es el <strong>{{ pctDeLoCargado() | number:'1.1-1' }}%</strong>
-            de todo lo que se les cargó — unos <strong>{{ diasDeVenta() | number:'1.0-0' }} días</strong>
-            de venta. La cuenta cierra: cargado − vendido = inventario.
-          </span>
-        } @else {
-          <i class="pi pi-times-circle" aria-hidden="true"></i>
-          <span>
-            <strong>La cuenta NO cierra.</strong> Alguna fila se valuó con dos varas distintas:
-            el resto de la pantalla no se puede usar hasta resolverlo. Mirá la columna Δ.
-          </span>
-        }
+      <!-- Answer-first: el veredicto en llano ANTES del dinero (DESIGN §15). El texto SALE DEL
+           NUMERO (ver veredicto() en la clase); no es un rotulo fijo que sobreviva a que el dato
+           lo contradiga. OJO: sin acentos graves aca adentro, cierran el template literal. -->
+      <p class="ir-veredicto" [class]="'ir-v-' + veredicto().tono">
+        <i class="pi" [class]="veredicto().icono" aria-hidden="true"></i>
+        <span>
+          <strong>{{ veredicto().titulo }}</strong> {{ veredicto().cuerpo }}
+        </span>
       </p>
 
       <app-metric-strip [items]="kpis()" [ariaLabel]="'Inventario de ruta ' + etiquetaMetrica()" />
@@ -120,7 +112,12 @@ type Metrica = 'costo' | 'venta';
           {{ d.desde === TODO ? 'desde la primera carga de cada una' : d.desde + ' → ' + d.hasta }} ·
           dato al {{ d.data_as_of ?? 'sin medir' }}
         </span>
-        <span>{{ sinCosto() }} sin costo · {{ sinPrecio() }} sin precio</span>
+        <span>
+          copia {{ d.copia_status === 'sin_medir' ? 'sin medir' : (d.copia_al ?? 'sin medir') }}
+          @if (d.copia_status === 'error') { <strong class="ir-bad">(el refresco falló)</strong> }
+          @else if ((d.copia_edad_min ?? 0) > 90) { <strong class="ir-bad">(hace {{ d.copia_edad_min }} min)</strong> }
+          · {{ sinCosto() }} sin costo · {{ sinPrecio() }} sin precio
+        </span>
       </div>
 
       <!-- Las 10 columnas son CAMPOS de una ruta → se apilan en estrecho (DESIGN_TABLES). -->
@@ -152,7 +149,10 @@ type Metrica = 'costo' | 'venta';
               <td class="ir-r ir-mono ir-fuerte" role="cell" data-label="Inventario">{{ inv(r) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="ir-r ir-mono ir-ok" role="cell" data-label="A favor">{{ invPos(r) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="ir-r ir-mono ir-bad" role="cell" data-label="En contra">{{ invNeg(r) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td class="ir-r ir-mono ir-tenue" role="cell" data-label="Días de venta">{{ dias(r) | number:'1.0-0' }}</td>
+              <td class="ir-r ir-mono ir-tenue" role="cell" data-label="Días de venta">
+                @if (dias(r) === null) { <span title="No vendió nada en el periodo: no hay con qué dividir">—</span> }
+                @else { {{ dias(r) | number:'1.0-0' }} }
+              </td>
               <td class="ir-r ir-mono" role="cell" data-label="Δ del cuadre">
                 @if (cierra(r)) { <span class="ir-tenue">0</span> }
                 @else { <strong class="ir-bad">{{ delta(r) | number:'1.2-2' }}</strong> }
@@ -191,11 +191,21 @@ type Metrica = 'costo' | 'venta';
   <app-side-peek [(open)]="detalleAbierto" [width]="760"
                  [title]="'Ruta ' + (rutaSel()?.route_no ?? '')"
                  [subtitle]="subtituloDetalle()">
-    <app-load-state [loading]="detalle() === null" [isEmpty]="detalle()?.length === 0"
+    <app-load-state [loading]="detalle() === null && !errorDetalle()" [error]="errorDetalle()"
+                    [isEmpty]="detalle()?.rows?.length === 0"
                     [skeletonRows]="8" emptyIcon="pi-box"
-                    emptyTitle="Sin productos en este periodo">
+                    emptyTitle="Sin productos en este periodo"
+                    (retry)="reintentarDetalle()">
+      @if (detalle()?.truncado) {
+        <p class="ir-contraste">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span>Mostrando <strong>{{ detalle()!.rows.length }}</strong> de
+            <strong>{{ detalle()!.total }}</strong> productos — los de menor saldo quedaron fuera,
+            así que esta tabla <strong>no suma</strong> el total de la ruta.</span>
+        </p>
+      }
       <div class="dt-scope">
-        <p-table [value]="detalle() ?? []" [scrollable]="true" scrollHeight="62vh"
+        <p-table [value]="detalle()?.rows ?? []" [scrollable]="true" scrollHeight="62vh"
                  class="dt-stack" size="small" [rowHover]="true"
                  [tableStyle]="{ 'min-width': '46rem' }">
           <ng-template #header>
@@ -221,7 +231,8 @@ type Metrica = 'costo' | 'venta';
                 @else { {{ valorFila(f) | currency:'MXN':'symbol-narrow':'1.0-0' }} }
               </td>
               <td role="cell" data-label="">
-                @if (f.veredicto !== 'ok') { <p-tag [value]="etiqueta(f.veredicto)" severity="warn" /> }
+                @if (f.ya_lo_traia) { <p-tag value="ya lo traía" severity="warn" /> }
+                @if (f.veredicto !== 'ok') { <p-tag [value]="etiqueta(f.veredicto)" severity="secondary" /> }
               </td>
             </tr>
           </ng-template>
@@ -245,8 +256,12 @@ type Metrica = 'costo' | 'venta';
       background: var(--c-surface-1); border: 1px solid var(--border);
       border-left: 3px solid var(--ok); border-radius: var(--radius-md); padding: .7rem .9rem; }
     .ir-veredicto i { color: var(--ok); margin-top: .15rem; }
-    .ir-veredicto.ir-no-cierra { border-left-color: var(--bad); }
-    .ir-veredicto.ir-no-cierra i { color: var(--bad); }
+    .ir-veredicto.ir-v-mal { border-left-color: var(--bad); }
+    .ir-veredicto.ir-v-mal i { color: var(--bad); }
+    .ir-veredicto.ir-v-aviso { border-left-color: var(--warn); }
+    .ir-veredicto.ir-v-aviso i { color: var(--warn); }
+    .ir-veredicto.ir-v-neutro { border-left-color: var(--c-divider); }
+    .ir-veredicto.ir-v-neutro i { color: var(--c-text-3); }
 
     .ir-sub-bar { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
       font-size: .76rem; color: var(--c-text-3); }
@@ -298,7 +313,9 @@ export class ComercialInventarioRutaComponent {
   readonly error = signal<string | null>(null);
   readonly detalleAbierto = signal(false);
   readonly rutaSel = signal<RouteInventoryRow | null>(null);
-  readonly detalle = signal<RouteInventoryDetailRow[] | null>(null);
+  readonly detalle = signal<RouteInventoryDetail | null>(null);
+  /** ⛔ Señal propia: un error de red NO puede pintarse como «no hay productos» (DESIGN §6). */
+  readonly errorDetalle = signal<string | null>(null);
 
   constructor() { this.cargar(); }
 
@@ -325,17 +342,26 @@ export class ComercialInventarioRutaComponent {
 
   abrirDetalle(r: RouteInventoryRow): void {
     this.rutaSel.set(r);
-    this.detalle.set(null);
     this.detalleAbierto.set(true);
+    this.pedirDetalle();
+  }
+
+  reintentarDetalle(): void { this.pedirDetalle(); }
+
+  private pedirDetalle(): void {
+    const r = this.rutaSel();
+    if (!r) return;
+    this.detalle.set(null);
+    this.errorDetalle.set(null);
     const [f, t] = this.rangoIso();
     this.api.routeInventoryDetail(r.route_no, f, t)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (filas) => this.detalle.set(filas),
-        error: () => {
-          this.detalle.set([]);
-          this.toast.add({ severity: 'error', summary: 'No se pudo abrir el detalle' });
-        },
+        next: (d) => this.detalle.set(d),
+        // ⛔ Antes acá iba `detalle.set([])`, y el panel mostraba «Sin productos en este periodo»:
+        // un error de red disfrazado de dato. Empty ≠ error (DESIGN §6).
+        error: (e) => this.errorDetalle.set(
+          e?.error?.message ?? 'No se pudo leer el detalle de la ruta.'),
       });
   }
 
@@ -348,10 +374,15 @@ export class ComercialInventarioRutaComponent {
   delta = (r: RouteInventoryRow) => this.metrica() === 'costo' ? r.delta_costo : r.delta_venta;
   cierra = (r: RouteInventoryRow) => Math.abs(Number(this.delta(r)) || 0) < 0.01;
 
-  /** Lectura en llano de la fila: cuántos días de venta representa lo que trae arriba. */
-  dias(r: RouteInventoryRow): number {
+  /**
+   * Lectura en llano de la fila: cuántos días de venta representa lo que trae arriba.
+   * ⚠️ `null` cuando no vendió nada en el periodo — un `0` dibujado se leería como «no trae
+   * nada», que es lo contrario de «no se puede saber» (ADR-056). Con un rango de un día es
+   * trivial que una ruta no venda.
+   */
+  dias(r: RouteInventoryRow): number | null {
     const porDia = Number(this.vendido(r)) / Math.max(1, this.diasVentana());
-    return porDia > 0 ? Number(this.inv(r)) / porDia : 0;
+    return porDia > 0 ? Number(this.inv(r)) / porDia : null;
   }
 
   /** ⚠️ `null` cuando no hay con qué valuar. Nunca $0: un cero dibujado miente (ADR-056). */
@@ -359,9 +390,7 @@ export class ComercialInventarioRutaComponent {
     this.metrica() === 'costo' ? f.saldo_costo : f.saldo_venta;
 
   etiqueta(v: RouteInventoryDetailRow['veredicto']): string {
-    return v === 'negativo_sin_ancla' ? 'ya lo traía'
-      : v === 'sin_costo' ? 'sin costo'
-      : v === 'sin_precio' ? 'sin precio' : '';
+    return v === 'sin_costo' ? 'sin costo' : v === 'sin_precio' ? 'sin precio' : '';
   }
 
   etiquetaMetrica(): string { return this.metrica() === 'costo' ? 'a costo' : 'a venta'; }
@@ -386,13 +415,75 @@ export class ComercialInventarioRutaComponent {
   readonly sinCosto = computed(() => this.filas().reduce((a, r) => a + (r.pares_sin_costo || 0), 0));
   readonly sinPrecio = computed(() => this.filas().reduce((a, r) => a + (r.pares_sin_precio || 0), 0));
 
-  readonly pctDeLoCargado = computed(() => {
+  /** ⚠️ Con signo: el signo ES la lectura (acumula vs consume lo que ya traía). `null` si no hay base. */
+  readonly pctDeLoCargado = computed<number | null>(() => {
     const c = this.totalCarga();
-    return c > 0 ? Math.abs(this.totalInv()) / c * 100 : 0;
+    return c > 0 ? this.totalInv() / c * 100 : null;
   });
-  readonly diasDeVenta = computed(() => {
+  readonly diasDeVenta = computed<number | null>(() => {
     const porDia = this.totalVendido() / Math.max(1, this.diasVentana());
-    return porDia > 0 ? Math.abs(this.totalInv()) / porDia : 0;
+    return porDia > 0 ? Math.abs(this.totalInv()) / porDia : null;
+  });
+
+  /**
+   * `[F-1]` **El titular sale del número, no de un rótulo escrito a mano.**
+   *
+   * La versión anterior decía «Los camiones no acumulan» siempre, y sólo cambiaba si el cuadre
+   * fallaba: con un 40 % de saldo habría dicho lo mismo, con el porcentaje real al lado
+   * contradiciéndola. Una pantalla no puede afirmar una conclusión que su propio dato niega.
+   *
+   * Umbrales DECLARADOS (no hay un estándar de industria para esto; son el criterio que esta
+   * pantalla publica, y están acá para poder discutirlos):
+   *   |saldo| ≤ 5 % de lo cargado .... rota todo
+   *   saldo entre +5 % y +20 % ....... acumula
+   *   saldo > +20 % .................. acumula fuerte
+   *   saldo < −5 % ................... consume lo que ya traía
+   */
+  readonly veredicto = computed<{ tono: string; icono: string; titulo: string; cuerpo: string }>(() => {
+    const d = this.data();
+    if (d?.cuadra === 'no_cierra') {
+      return {
+        tono: 'mal', icono: 'pi-times-circle', titulo: 'La cuenta NO cierra.',
+        cuerpo: 'Alguna fila se valuó con dos varas distintas: el resto de la pantalla no se '
+          + 'puede usar hasta resolverlo. Mirá la columna Δ.',
+      };
+    }
+    const pct = this.pctDeLoCargado();
+    if (d?.cuadra === 'sin_medir' || pct === null) {
+      return {
+        tono: 'neutro', icono: 'pi-minus-circle', titulo: 'Sin movimiento en este periodo.',
+        cuerpo: 'Ninguna ruta tuvo carga ni venta en la ventana elegida, así que no hay cuenta '
+          + 'que cuadrar. No es que dé cero: es que no hay con qué medir.',
+      };
+    }
+    const dias = this.diasDeVenta();
+    const cola = dias === null ? '' : ` — unos ${Math.round(dias)} días de venta`;
+    const cierre = '. La cuenta cierra: cargado − vendido = inventario.';
+    const p = `${Math.abs(pct).toFixed(1)} %`;
+    if (pct < -5) {
+      return {
+        tono: 'aviso', icono: 'pi-arrow-circle-down',
+        titulo: 'Los camiones están vendiendo lo que ya traían.',
+        cuerpo: `Vendieron ${p} más de lo que se les cargó${cola}. Es mercancía anterior al primer `
+          + `embarque documentado: sin conteo inicial, no se puede saber cuánta queda${cierre}`,
+      };
+    }
+    if (pct > 20) {
+      return {
+        tono: 'mal', icono: 'pi-exclamation-circle', titulo: 'Los camiones están acumulando.',
+        cuerpo: `Lo que queda arriba es el ${p} de todo lo que se les cargó${cola}${cierre}`,
+      };
+    }
+    if (pct > 5) {
+      return {
+        tono: 'aviso', icono: 'pi-info-circle', titulo: 'Los camiones acumulan algo.',
+        cuerpo: `Lo que queda arriba es el ${p} de todo lo que se les cargó${cola}${cierre}`,
+      };
+    }
+    return {
+      tono: 'ok', icono: 'pi-check-circle', titulo: 'Los camiones no acumulan.',
+      cuerpo: `Lo que queda arriba es el ${p} de todo lo que se les cargó${cola}${cierre}`,
+    };
   });
 
   /**
@@ -417,9 +508,12 @@ export class ComercialInventarioRutaComponent {
       { label: 'Cargado', value: this.totalCarga(), format: 'currency-short', tone: 'default',
         sub: `${this.diasVentana()} días` },
       {
-        label: 'Cuadre', value: d?.cuadra === false ? 'NO cierra' : 'Cierra', format: 'text',
-        tone: d?.cuadra === false ? 'bad' : 'ok',
-        sub: 'cargado − vendido = inventario',
+        // Tres estados, no dos: un verde sobre cero filas es un verde vacuo (ADR-056).
+        label: 'Cuadre',
+        value: d?.cuadra === 'no_cierra' ? 'NO cierra' : d?.cuadra === 'cierra' ? 'Cierra' : 'Sin medir',
+        format: 'text',
+        tone: d?.cuadra === 'no_cierra' ? 'bad' : d?.cuadra === 'cierra' ? 'ok' : 'default',
+        sub: d?.cuadra === 'sin_medir' ? 'no hubo movimiento' : 'cargado − vendido = inventario',
       },
     ];
   });
