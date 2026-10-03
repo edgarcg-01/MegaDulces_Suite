@@ -1828,7 +1828,7 @@ export class ComercialService {
     let params = new HttpParams().set('route_no', routeNo);
     if (from) params = params.set('from', from);
     if (to) params = params.set('to', to);
-    return this.http.get<RouteInventoryDetailRow[]>(`${this.base}/analytics/route-inventory/detail`, { params });
+    return this.http.get<RouteInventoryDetail>(`${this.base}/analytics/route-inventory/detail`, { params });
   }
 
   salesByRouteRoutes() {
@@ -2381,15 +2381,31 @@ export interface RouteInventoryDetailRow {
   qty_carga: number; qty_venta: number; saldo: number;
   costo_unitario: number | null; precio_unitario: number | null;
   saldo_costo: number | null; saldo_venta: number | null;
-  veredicto: 'ok' | 'negativo_sin_ancla' | 'sin_costo' | 'sin_precio';
+  /** Por que no hay cifra, si no la hay. Ortogonal a `ya_lo_traia`: una fila puede ser las dos. */
+  veredicto: 'ok' | 'sin_costo' | 'sin_precio';
+  /** Vendio mas de lo que se le cargo en la ventana: mercancia previa al primer embarque. */
+  ya_lo_traia: boolean;
+}
+
+/** El detalle con su TOTAL, para que la pantalla declare si el tope corto. */
+export interface RouteInventoryDetail {
+  rows: RouteInventoryDetailRow[];
+  total: number;
+  truncado: boolean;
 }
 
 export interface RouteInventoryReport {
-  desde: string; hasta: string; data_as_of: string | null;
+  desde: string; hasta: string;
+  /** Frescura del DATO: hasta que dia hay movimiento. */
+  data_as_of: string | null;
+  /** Frescura de la COPIA: cuando termino el ultimo refresco de matvistas. `poblado != fresco`. */
+  copia_al: string | null;
+  copia_status: 'ok' | 'error' | 'sin_medir';
+  copia_edad_min: number | null;
   routes: RouteInventoryRow[];
   totales: Record<string, number>;
-  /** `false` = alguien mezclo valuaciones. Va a pantalla, no es decorativo. */
-  cuadra: boolean;
+  /** Ternario: no cuadrar y no haber podido comprobarlo son cosas distintas. */
+  cuadra: 'cierra' | 'no_cierra' | 'sin_medir';
   declara: { sin_ancla: string; costo: string; fuera_de_alcance: string };
 }
 
