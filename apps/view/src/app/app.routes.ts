@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -694,6 +694,43 @@ export const routes: Routes = [
         path: 'proyectos',
         canActivate: [anyPermissionGuard(Permission.DEV_PROJECTS_VER, Permission.DEV_PROJECTS_GESTIONAR)],
         loadComponent: () => import('./modules/desarrolladores/pages/dev-proyectos.component').then(m => m.DevProyectosComponent),
+      },
+    ]
+  },
+  // ── Proyecto Mesa de Servicio (Fase MS, ADR-081) ────────────────────
+  // Tickets de servicio para toda la suite. `solicitudes` es la puerta de CUALQUIER persona
+  // (`SERVICIO_REPORTAR`, repartido a todo rol con personas pero sin destino en el mapa: se llega
+  // por el botón del header). `bandeja` es de quien atiende; `configuracion`, de la coordinación.
+  {
+    path: 'servicio',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [servicioHomeGuard],
+        loadComponent: () => import('./modules/servicio/pages/servicio-solicitudes.component').then(m => m.ServicioSolicitudesComponent),
+      },
+      {
+        path: 'solicitudes',
+        canActivate: [permissionGuard(Permission.SERVICIO_REPORTAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-solicitudes.component').then(m => m.ServicioSolicitudesComponent),
+      },
+      {
+        path: 'bandeja',
+        canActivate: [anyPermissionGuard(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-bandeja.component').then(m => m.ServicioBandejaComponent),
+      },
+      {
+        path: 'reportes',
+        canActivate: [permissionGuard(Permission.SERVICIO_COORDINAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-reportes.component').then(m => m.ServicioReportesComponent),
+      },
+      {
+        path: 'configuracion',
+        canActivate: [permissionGuard(Permission.SERVICIO_COORDINAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-configuracion.component').then(m => m.ServicioConfiguracionComponent),
       },
     ]
   },

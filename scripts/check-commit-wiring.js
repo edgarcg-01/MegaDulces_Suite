@@ -52,6 +52,7 @@ const BARRILES = {
   '@megadulces/platform-core': 'libs/platform-core/src/index.ts',
   '@megadulces/logistics': 'libs/logistics/src/index.ts',
   '@megadulces/reconciliation': 'libs/reconciliation/src/index.ts',
+  '@megadulces/service-desk': 'libs/service-desk/src/index.ts',
 };
 
 /** Extensiones que TypeScript prueba cuando un import no las trae. */

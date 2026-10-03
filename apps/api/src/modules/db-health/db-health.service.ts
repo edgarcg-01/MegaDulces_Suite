@@ -1016,6 +1016,10 @@ const CRON_JOBS: CronCfg[] = [
   // [CC.10] Sin este renglón el latido de `cobranza_gap` no sirve de nada: el sensor caería en
   // `cfg ? classify : 'ok'` y un cron parado se vería verde. Van juntos, siempre.
   { key: 'cobranza_gap',        label: 'Brecha banco↔cobro (abonos sin ligar)', cadence: 'diario 07:45 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // [MS.2.5] Sin este renglón el latido del barrido del SLA de la Mesa de Servicio no sirve de nada: el sensor
+  // caería en `cfg ? classify : 'ok'` y un cron parado se vería verde. Va junto con `latirCron` en `sla.service.ts`.
+  // Cada 5 min: 0.25 h de aviso (3 corridas perdidas), 1 h de crítico. Entregar CERO es lo normal y lo declara `ceroEsOk`.
+  { key: 'service_desk_sla',   label: 'Mesa de Servicio: barrido del SLA', cadence: 'cada 5 min', warnH: 0.25, critH: 1, maxRunH: 0.25 },
   // [CG.25] Sin este renglón el latido de `caja_fecha_futura` no sirve: el sensor caería en el
   // `cfg ? classify : 'ok'` y un cron parado se vería verde — que es justo el modo de falla que
   // este job existe para no repetir.

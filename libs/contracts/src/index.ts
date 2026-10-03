@@ -14,6 +14,7 @@ export * from './ports/commerce-conversation.port';
 export * from './ports/bank-capture.port';
 export * from './ports/health-notifier.port';
 export * from './ports/mailer.port';
+export * from './ports/service-desk-channels.port';
 
 // ── http wire contracts (ADR-052): request/response del boundary REST ──
 export * from './http/command-center.contract';
@@ -49,6 +50,7 @@ export * from './http/purchase-delivery.contract';
 export * from './work/task.contract';
 export * from './work/caja-window.contract';
 export * from './work/portada-nominal.contract';
+export * from './work/business-clock';
 // [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.
 export * from './http/store.contract';
 // [WMS-REC.15] Menu del Anden: la forma que el backend devuelve y el front consume.
@@ -67,6 +69,7 @@ export * from './http/oc-cadena.contract';
 export * from './http/flujo-compras.contract';
 export * from './http/replenishment-monthly.contract';
 export * from './http/vendor-route-day-pick.contract';
+export * from './http/service-desk.contract';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.
 //   · forma-pago          = catálogo cerrado, atado a los códigos que Kepler ya usa (kdm1.c90).
 //   · aporte-solicitante  = la compuerta (qué falta para mandar), leída por el botón Y por el 400.
