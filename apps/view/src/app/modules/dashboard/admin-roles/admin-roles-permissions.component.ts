@@ -37,7 +37,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { TooltipModule } from 'primeng/tooltip';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
-/** `[AU.14]` Alias local: el tipo real es `TriEstado`, del contrato compartido. */
+/** `[AU.33]` Alias local: el tipo real es `TriEstado`, del contrato compartido. */
 type TriState = TriEstado;
 
 /**
@@ -302,7 +302,7 @@ export class AdminRolesPermissionsComponent implements OnInit {
   }
 
   // ── Helpers de árbol ──────────────────────────────────────────────────
-  // `[AU.14]` La lógica (tri-estado, cascada, conteo) ya NO vive acá: se importa del contrato
+  // `[AU.33]` La lógica (tri-estado, cascada, conteo) ya NO vive acá: se importa del contrato
   // compartido, que es el mismo que usa el editor de una PERSONA. Estos métodos quedan como
   // puente para no tocar el template. ⛔ No volver a escribirlos a mano: duplicar este primitivo
   // es exactamente el modo de falla que ADR-056 midió ocho veces.
@@ -314,7 +314,7 @@ export class AdminRolesPermissionsComponent implements OnInit {
   projectPerms(project: AuthzApp['projects'][number]): string[] { return clavesDeProyecto(project); }
   modulePerms(mod: AuthzModule): string[] { return clavesDeModulo(mod); }
   /**
-   * `[AU.14]` ¿La clave es de gestión en ese módulo? Antes el template preguntaba
+   * `[AU.33]` ¿La clave es de gestión en ese módulo? Antes el template preguntaba
    * `mod.manage.includes(key)` directo, y al pasar las claves a `string` eso deja de compilar
    * (`Permission[].includes(string)`). Un método lo dice una vez y en un solo lugar.
    */

@@ -4,7 +4,7 @@
 import type { AuthzApp, AuthzModule, AuthzProject } from './authz-tree';
 
 /**
- * `[AU.14]` — **Seleccionar permisos sobre el árbol: la lógica, una sola vez.**
+ * `[AU.33]` — **Seleccionar permisos sobre el árbol: la lógica, una sola vez.**
  *
  * ── Por qué existe ──────────────────────────────────────────────────────────
  * El editor de roles (`admin-roles-permissions`) ya resolvía bien el tri-estado y la cascada,
@@ -91,7 +91,7 @@ export function alternarGrupo(
 // ── La diferencia contra el perfil ──────────────────────────────────────────
 
 /**
- * `[AU.14]` Las excepciones que hay que guardar = **la diferencia** entre lo que el perfil base da
+ * `[AU.33]` Las excepciones que hay que guardar = **la diferencia** entre lo que el perfil base da
  * y lo que la pantalla dejó marcado.
  *
  * Es el corazón del cambio de forma: hasta ahora quien administraba escribía las EXCEPCIONES a
@@ -170,7 +170,7 @@ function indiceDeClaves(tree: readonly AuthzApp[]): Map<string, Ubicacion> {
 }
 
 /**
- * `[AU.14]` Traduce un lote de excepciones a **las pantallas que cambian**.
+ * `[AU.33]` Traduce un lote de excepciones a **las pantallas que cambian**.
  *
  * Es lo que vuelve revisable un cambio en bloque: «27 claves» no se puede leer, «19 pantallas, y
  * éstas son» sí. El nombre y la ruta salen del árbol, que ya los tiene — 128 de 131 módulos

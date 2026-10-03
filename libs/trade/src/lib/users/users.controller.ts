@@ -448,7 +448,7 @@ export class UsersController {
    * propios (de más / de menos) y los efectivos.
    */
   /**
-   * `[AU.14]` — Cuánta gente abre hoy cada permiso. Es el contexto que la pantalla pinta al lado
+   * `[AU.33]` — Cuánta gente abre hoy cada permiso. Es el contexto que la pantalla pinta al lado
    * de lo que se está por conceder: «18 personas en 6 perfiles ya la abren» dice más que
    * cualquier descripción sobre si esto es excepcional o rutina.
    *

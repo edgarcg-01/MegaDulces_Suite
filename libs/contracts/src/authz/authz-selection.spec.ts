@@ -12,7 +12,7 @@ import {
 } from './authz-selection';
 
 /**
- * `[AU.14]` — Candado de la lógica de selección.
+ * `[AU.33]` — Candado de la lógica de selección.
  *
  * ⚠️ `globals: true` en `vitest.config.ts` de contracts: estos specs **no importan** `describe`
  * ni `expect` de 'vitest'. Hacerlo rompe la corrida (ya pasó en `scope-areas.spec.ts`).
@@ -46,7 +46,7 @@ const ARBOL_JUGUETE: readonly AuthzApp[] = [
   },
 ];
 
-describe('[AU.14] tri-estado', () => {
+describe('[AU.33] tri-estado', () => {
   it('reporta all / some / none sobre las claves de un módulo', () => {
     const claves = ['A', 'B'];
     expect(triEstado({ A: true, B: true }, claves)).toBe('all');
@@ -67,7 +67,7 @@ describe('[AU.14] tri-estado', () => {
   });
 });
 
-describe('[AU.14] alternarGrupo', () => {
+describe('[AU.33] alternarGrupo', () => {
   it('apaga el grupo entero cuando estaba completo', () => {
     expect(alternarGrupo({ A: true, B: true }, ['A', 'B'])).toEqual({ A: false, B: false });
   });
@@ -95,7 +95,7 @@ describe('[AU.14] alternarGrupo', () => {
   });
 });
 
-describe('[AU.14] la diferencia contra el perfil', () => {
+describe('[AU.33] la diferencia contra el perfil', () => {
   const universo = ['A', 'B', 'C'];
 
   it('no emite nada cuando lo marcado es exactamente lo que da el perfil', () => {
@@ -123,7 +123,7 @@ describe('[AU.14] la diferencia contra el perfil', () => {
   });
 });
 
-describe('[AU.14] de claves a pantallas', () => {
+describe('[AU.33] de claves a pantallas', () => {
   it('agrupa por módulo y separa quita de concede', () => {
     const r = pantallasAfectadas(
       [
@@ -158,7 +158,7 @@ describe('[AU.14] de claves a pantallas', () => {
   });
 });
 
-describe('[AU.14] contra el árbol REAL', () => {
+describe('[AU.33] contra el árbol REAL', () => {
   /**
    * El caso medido en prod el 2026-10-03: a `ernesto_zarate` le quitaron estas 27 claves de a una,
    * cada una su propia fila. Son **dos proyectos enteros**. Este bloque es el candado de que la

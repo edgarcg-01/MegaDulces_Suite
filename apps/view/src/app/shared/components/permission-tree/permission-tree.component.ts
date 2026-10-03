@@ -18,7 +18,7 @@ import {
 import { PERMISSION_META } from '../../../core/constants/permission-meta';
 
 /**
- * `[AU.14]` — **El árbol de permisos, una sola vez.**
+ * `[AU.33]` — **El árbol de permisos, una sola vez.**
  *
  * App -> Proyecto -> Modulo -> Ver/Gestionar, con tri-estado y cascada. Lo usa el editor de
  * permisos de un PERFIL y el de una PERSONA; la logica pura (tri-estado, cascada, diferencia)

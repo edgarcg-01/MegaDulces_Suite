@@ -537,7 +537,7 @@ export function allTreePermissions(): Set<Permission> {
 }
 
 /**
- * `[AU.14]` — La lógica de SELECCIÓN sobre este árbol (tri-estado, cascada, diferencia contra el
+ * `[AU.33]` — La lógica de SELECCIÓN sobre este árbol (tri-estado, cascada, diferencia contra el
  * perfil, de claves a pantallas) vive en `./authz-selection` y se re-exporta desde acá.
  *
  * Por qué por acá y no con alias propio: `tsconfig.base.json` declara una subruta por archivo y la
