@@ -199,7 +199,7 @@ export interface ThotAsk {
       margin: 0 14px 8px;
       padding: 6px 8px 6px 10px;
       background: var(--surface-hover-bg); border-radius: 12px;
-      font-size: 13px; color: var(--text-muted); max-width: calc(100% - 28px);
+      font-size: var(--fs-sm); color: var(--text-muted); max-width: calc(100% - 28px);
     }
     .aci-attach > .pi-image { color: var(--action); }
     .aci-attach-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -293,7 +293,7 @@ export interface ThotAsk {
       color: var(--text-muted);
       border-radius: 9999px;
       font-family: var(--font-body);
-      font-size: 14px; font-weight: 500;
+      font-size: var(--fs-body); font-weight: 500;
       cursor: pointer;
       white-space: nowrap;
       transition: background-color 200ms ease, color 200ms ease, outline-color 200ms ease;

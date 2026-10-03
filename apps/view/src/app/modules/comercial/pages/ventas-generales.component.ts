@@ -125,7 +125,7 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
     .vg-lead { color:var(--text-muted); font-size:.86rem; }
     :host ::ng-deep .vg-sel { min-width:12rem; } :host ::ng-deep .vg-sel-sm { min-width:9rem; }
     .vg-dash { display:grid; grid-template-columns:repeat(12, 1fr); gap:1rem; align-items:stretch; }
-    @media (max-width:900px) { .vg-cell { grid-column:span 12 !important; } }
+    @media (max-width:56.25rem) { .vg-cell { grid-column:span 12 !important; } }
   `],
 })
 export class VentasGeneralesComponent implements OnInit {

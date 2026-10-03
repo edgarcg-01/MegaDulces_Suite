@@ -288,7 +288,7 @@ const EXAMPLES = [
         overflow: hidden;
         box-shadow: var(--shadow-float);
       }
-      @media (max-width: 900px) {
+      @media (max-width: 56.25rem) {
         .ai-chat {
           height: calc(100dvh - 200px);
           border-radius: var(--r-lg);
@@ -369,7 +369,7 @@ const EXAMPLES = [
         transition: background-color 150ms var(--ease-standard);
       }
       .ai-manual:hover { background: var(--neutral-700); }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .ai-manual span { display: none; }
         .ai-head { grid-template-columns: 48px 1fr auto; padding: 0.875rem 1rem; }
         .ai-head-icon { width: 48px; height: 48px; font-size: var(--fs-h2); }
@@ -582,7 +582,7 @@ const EXAMPLES = [
         border-bottom: 1px solid var(--border-color);
       }
       .ai-sug:last-child { border-bottom: none; }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .ai-sug {
           grid-template-columns: 40px 1fr;
           grid-template-areas:
@@ -612,7 +612,7 @@ const EXAMPLES = [
         letter-spacing: 0.01em;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
       }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .ai-sug-avatar { width: 40px; height: 40px; }
       }
 

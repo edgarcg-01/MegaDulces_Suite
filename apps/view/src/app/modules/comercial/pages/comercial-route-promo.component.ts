@@ -244,7 +244,7 @@ import { ComercialService, RoutePromoResult, RoutePromoBody, PromoClientRow } fr
     .rp-title { font-weight:700; font-size:.9rem; display:inline-flex; align-items:center; gap:.5rem; white-space:nowrap; }
     .rp-title .pi-sparkles { color:var(--action); }
     .rp-hint { flex:1; font-size:.78rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .rp-caret { color:var(--text-muted); font-size:.75rem; }
+    .rp-caret { color:var(--text-muted); font-size:var(--fs-xs); }
     .rp-body { padding:0 1.1rem 1.1rem; display:flex; flex-direction:column; gap:1rem; }
     .rp-input { display:flex; flex-direction:column; gap:.6rem; }
     .rp-ta { width:100%; resize:vertical; font-size:.85rem; padding:.6rem .7rem; border:1px solid var(--border-color);

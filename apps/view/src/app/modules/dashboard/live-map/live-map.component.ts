@@ -310,7 +310,7 @@ interface VendorDayKpis {
     .an-u-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-1) var(--sp-3); margin:.25rem 0 0; }
     .an-u-grid dt { font-size:.66rem; color:var(--text-muted); }
     .an-u-grid dd { margin:0 0 .2rem; font:600 .8rem 'Hanken Grotesk',sans-serif; color:var(--text-main); font-variant-numeric:tabular-nums; }
-    @media (max-width: 767px) {
+    @media (max-width: 47.9375rem) {
       .lm-head { padding:var(--sp-2) var(--sp-3); }
       .lm-sub { display:none; }
       .chip-lbl { display:none; }

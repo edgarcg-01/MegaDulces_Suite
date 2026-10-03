@@ -117,7 +117,7 @@
   gap: var(--sp-3);
   align-items: start;
 }
-@media (max-width: 900px) {
+@media (max-width: 56.25rem) {
   .cm-main {
     grid-template-columns: 1fr;
   }

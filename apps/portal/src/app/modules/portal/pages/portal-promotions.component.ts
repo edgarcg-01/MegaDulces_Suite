@@ -521,7 +521,7 @@ interface OfferCard {
         gap: 0.875rem;
         margin-bottom: 2rem;
       }
-      @media (min-width: 768px) {
+      @media (min-width: 48rem) {
         .pp-bento {
           grid-template-columns: 2fr 1fr;
           grid-template-rows: 1fr 1fr;
@@ -728,10 +728,10 @@ interface OfferCard {
         gap: 0.875rem;
         grid-template-columns: repeat(2, 1fr);
       }
-      @media (min-width: 640px) {
+      @media (min-width: 40rem) {
         .pp-offers-grid { grid-template-columns: repeat(3, 1fr); }
       }
-      @media (min-width: 960px) {
+      @media (min-width: 60rem) {
         .pp-offers-grid { grid-template-columns: repeat(4, 1fr); }
       }
 
@@ -892,7 +892,7 @@ interface OfferCard {
         gap: 0.875rem;
         grid-template-columns: 1fr;
       }
-      @media (min-width: 640px) {
+      @media (min-width: 40rem) {
         .pp-basket-grid { grid-template-columns: repeat(2, 1fr); }
       }
 

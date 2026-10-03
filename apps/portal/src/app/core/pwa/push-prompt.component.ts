@@ -49,7 +49,7 @@ const DISMISS_KEY = 'portal:push:dismissed';
       box-shadow: 0 12px 32px rgba(0,0,0,.22);
     }
     .push-prompt > .pi-bell { color: #FDE707; font-size: 1.1rem; }
-    .push-prompt-body { display: flex; flex-direction: column; gap: .1rem; font-size: .8125rem; line-height: 1.25; }
+    .push-prompt-body { display: flex; flex-direction: column; gap: .1rem; font-size: var(--fs-sm); line-height: 1.25; }
     .push-prompt-body strong { font-size: .9375rem; }
     .push-prompt-btn {
       flex: none; margin-left: auto; border: 0; cursor: pointer; font-weight: 700;

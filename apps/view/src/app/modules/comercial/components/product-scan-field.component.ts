@@ -154,7 +154,7 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
       border: 1px solid var(--border-color); border-radius: var(--r-md, 8px);
       font: inherit; font-weight: 700; cursor: pointer;
     }
-    @media (max-width: 640px) { .psf-help { display: none; } }
+    @media (max-width: 40rem) { .psf-help { display: none; } }
   `],
 })
 export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {

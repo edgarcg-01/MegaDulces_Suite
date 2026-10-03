@@ -354,12 +354,12 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
   styles: [
     `
       .crt { max-width: 720px; margin: 0 auto; padding: 1.5rem 1rem calc(2rem + env(safe-area-inset-bottom, 0px)); }
-      @media (min-width: 768px) { .crt { padding: 2rem 1.5rem 2.5rem; } }
+      @media (min-width: 48rem) { .crt { padding: 2rem 1.5rem 2.5rem; } }
 
       /* ── header ── */
       .crt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
       .crt-head-text h1 { margin: 0 0 0.2rem; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text-main); }
-      .crt-head-text p { margin: 0; color: var(--text-muted); font-size: 0.875rem; }
+      .crt-head-text p { margin: 0; color: var(--text-muted); font-size: var(--fs-body); }
       .crt-daycount { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; width: 3.25rem; height: 3.25rem; border-radius: 1rem; background: var(--card-bg); border: 1px solid var(--border-color); }
       .crt-daycount-n { font-size: 1.25rem; font-weight: 800; line-height: 1; color: var(--text-main); font-variant-numeric: tabular-nums; }
       .crt-daycount-l { font-size: 0.5625rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); font-weight: 700; }
@@ -400,18 +400,18 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
 
       .crt-tile-body { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 0.15rem; }
       .crt-tile-label { font-size: 0.9375rem; font-weight: 800; color: var(--text-main); letter-spacing: -0.01em; }
-      .crt-tile-desc { font-size: 0.6875rem; color: var(--text-muted); }
+      .crt-tile-desc { font-size: var(--fs-micro); color: var(--text-muted); }
 
       .crt-tile-cta {
         position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 0.35rem;
-        font-size: 0.6875rem; font-weight: 700; color: var(--text-faint);
+        font-size: var(--fs-micro); font-weight: 700; color: var(--text-faint);
         text-transform: uppercase; letter-spacing: 0.04em; transition: color 0.2s ease;
       }
       .crt-tile:hover .crt-tile-cta { color: var(--text-main); }
       .crt-tile[data-type='venta']:hover .crt-tile-cta { color: var(--ok-fg); }
       .crt-tile[data-type='carga']:hover .crt-tile-cta { color: var(--info-fg); }
       .crt-tile[data-type='combustible']:hover .crt-tile-cta { color: var(--warn-fg); }
-      .crt-tile-arrow { font-size: 0.625rem; opacity: 0; transform: translateX(-4px); transition: opacity 0.2s ease, transform 0.2s ease; }
+      .crt-tile-arrow { font-size: var(--fs-nano); opacity: 0; transform: translateX(-4px); transition: opacity 0.2s ease, transform 0.2s ease; }
       .crt-tile:hover .crt-tile-arrow { opacity: 1; transform: translateX(0); }
       .crt-tile:hover .crt-tile-cta .pi-camera { animation: crt-cam var(--dur-max, 350ms) ease; }
       @keyframes crt-cam { 0%,100% { transform: translateY(0); } 30% { transform: translateY(-2px) rotate(-8deg); } 60% { transform: translateY(0) rotate(4deg); } }
@@ -442,7 +442,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       /* ── tickets pendientes sin conexión ── */
       .crt-offline-pending {
         display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.25rem;
-        padding: 0.7rem 0.9rem; border-radius: 1rem; font-size: 0.8125rem; font-weight: 600;
+        padding: 0.7rem 0.9rem; border-radius: 1rem; font-size: var(--fs-sm); font-weight: 600;
         background: var(--info-soft-bg); color: var(--info-soft-fg); border: 1px solid var(--info-border, var(--info-soft-bg));
       }
       .crt-offline-pending i { font-size: 1.05rem; flex-shrink: 0; }
@@ -464,7 +464,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
 
       /* ── paso 2: review ── */
       .crt-review-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem; }
-      .crt-type-chip { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.7rem; border-radius: 999px; font-size: 0.8125rem; font-weight: 700; }
+      .crt-type-chip { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.7rem; border-radius: 999px; font-size: var(--fs-sm); font-weight: 700; }
       .crt-type-chip[data-type='venta'] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
       .crt-type-chip[data-type='carga'] { background: var(--info-soft-bg); color: var(--info-soft-fg); }
       .crt-type-chip[data-type='combustible'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
@@ -480,7 +480,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         border-radius: 1rem; font-size: 1.6rem; flex-shrink: 0;
       }
       .crt-type-hero .cth-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; flex: 1; }
-      .crt-type-hero .cth-eyebrow { font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.75; }
+      .crt-type-hero .cth-eyebrow { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.75; }
       .crt-type-hero .cth-label { font-size: 1.5rem; font-weight: 900; letter-spacing: -0.02em; line-height: 1; }
       .crt-type-hero .crt-change { flex-shrink: 0; align-self: flex-start; }
       .crt-type-hero[data-type='venta'] { background: var(--ok-soft-bg); border-color: var(--ok-fg); color: var(--ok-soft-fg); }
@@ -490,7 +490,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-type-hero[data-type='combustible'] { background: var(--warn-soft-bg); border-color: var(--warn-fg); color: var(--warn-soft-fg); }
       .crt-type-hero[data-type='combustible'] .cth-icon { background: var(--warn-fg); color: #fff; }
 
-      .crt-change { display: inline-flex; align-items: center; gap: 0.35rem; background: var(--card-bg); border: 1px solid var(--border-color); cursor: pointer; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); padding: 0.4rem 0.75rem; border-radius: 999px; transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s; }
+      .crt-change { display: inline-flex; align-items: center; gap: 0.35rem; background: var(--card-bg); border: 1px solid var(--border-color); cursor: pointer; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); padding: 0.4rem 0.75rem; border-radius: 999px; transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s; }
       .crt-change:hover { background: var(--hover-bg); color: var(--text-main); border-color: var(--text-faint); }
       .crt-change:active { transform: scale(0.95); }
       .crt-change:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
@@ -499,7 +499,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
 
       .crt-fields { display: flex; flex-direction: column; gap: 0.875rem; }
       .crt-field { display: flex; flex-direction: column; gap: 0.35rem; }
-      .crt-field-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
+      .crt-field-label { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
       .crt-input-wrap { position: relative; }
       .crt-field input {
         width: 100%; padding: 0.6875rem 0.875rem; font-size: 0.9375rem;
@@ -509,7 +509,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       }
       .crt-field input:focus { outline: none; border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring, rgba(240,90,40,.25)); }
       .crt-input-wrap input { padding-right: 5.5rem; }
-      .crt-detect { position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.1rem 0.4rem; border-radius: 999px; background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
+      .crt-detect { position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); font-size: var(--fs-nano); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.1rem 0.4rem; border-radius: 999px; background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
       .crt-detect.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
 
       /* Valor read-only (todo el ticket es no editable: lo lee el OCR) */
@@ -517,9 +517,9 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-ro.empty { color: var(--text-faint); font-weight: 500; font-style: italic; }
       .crt-line-ro { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0; border-top: 1px solid var(--border-color); }
       .crt-line-ro:first-of-type { border-top: none; }
-      .crt-line-ro .crt-line-name { flex: 1; font-size: 0.875rem; color: var(--text-main); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .crt-line-ro .crt-line-name { flex: 1; font-size: var(--fs-body); color: var(--text-main); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .crt-line-qty-ro { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--text-muted); flex-shrink: 0; }
-      .crt-note { display: flex; align-items: flex-start; gap: 0.4rem; color: var(--text-muted); font-size: 0.75rem; margin: 1.25rem 0 0; }
+      .crt-note { display: flex; align-items: flex-start; gap: 0.4rem; color: var(--text-muted); font-size: var(--fs-xs); margin: 1.25rem 0 0; }
       .crt-note i { margin-top: 0.1rem; }
 
       /* Ruta read-only (resuelta por backend, no editable) */
@@ -528,19 +528,19 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-route.bad { background: var(--bad-soft-bg); border-color: var(--bad-border, var(--bad-soft-bg)); color: var(--bad-soft-fg); }
       .crt-route-name { flex: 1; font-size: 0.9375rem; }
       .crt-route-tag { font-size: 0.5625rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.1rem 0.45rem; border-radius: 999px; background: color-mix(in srgb, currentColor 16%, transparent); }
-      .crt-route-hint { margin: 0.4rem 0 0; font-size: 0.75rem; color: var(--bad-soft-fg); }
+      .crt-route-hint { margin: 0.4rem 0 0; font-size: var(--fs-xs); color: var(--bad-soft-fg); }
       .crt-route-hint.info { color: var(--text-muted); }
 
       /* ── requisitos del día (venta + carga obligatorios) ── */
       .crt-reqs { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 0.875rem 1rem; }
       .crt-reqs.done { border-color: var(--ok-border, var(--ok-soft-bg)); background: var(--ok-soft-bg); }
       .crt-reqs-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.625rem; }
-      .crt-reqs-title { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.875rem; font-weight: 800; color: var(--text-main); }
+      .crt-reqs-title { display: inline-flex; align-items: center; gap: 0.4rem; font-size: var(--fs-body); font-weight: 800; color: var(--text-main); }
       .crt-reqs.done .crt-reqs-title { color: var(--ok-soft-fg); }
-      .crt-reqs-status { font-size: 0.625rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+      .crt-reqs-status { font-size: var(--fs-nano); font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
       .crt-reqs.done .crt-reqs-status { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
       .crt-reqs-items { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-      .crt-req { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: 999px; padding: 0.3rem 0.6rem; transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease; }
+      .crt-req { display: inline-flex; align-items: center; gap: 0.35rem; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: 999px; padding: 0.3rem 0.6rem; transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease; }
       .crt-req i { font-size: 0.7rem; }
       .crt-req em { font-style: normal; font-size: 0.5625rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; font-weight: 800; }
       .crt-req.done { background: var(--ok-soft-bg); border-color: transparent; color: var(--ok-soft-fg); }
@@ -557,8 +557,8 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-check-mark { stroke: var(--ok-fg); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 48; stroke-dashoffset: 48; animation: crt-draw var(--dur-max, 350ms) 0.2s cubic-bezier(0.65, 0, 0.45, 1) forwards; }
       @keyframes crt-draw { to { stroke-dashoffset: 0; } }
       .crt-success-title { font-size: 1.25rem; font-weight: 800; color: var(--text-main); letter-spacing: -0.02em; }
-      .crt-success-meta { font-size: 0.875rem; color: var(--text-muted); margin: 0; font-variant-numeric: tabular-nums; }
-      .crt-success-next { font-size: 0.8125rem; color: var(--warn-soft-fg); background: var(--warn-soft-bg); padding: 0.5rem 0.875rem; border-radius: 0.75rem; margin: 0.25rem 0 0; }
+      .crt-success-meta { font-size: var(--fs-body); color: var(--text-muted); margin: 0; font-variant-numeric: tabular-nums; }
+      .crt-success-next { font-size: var(--fs-sm); color: var(--warn-soft-fg); background: var(--warn-soft-bg); padding: 0.5rem 0.875rem; border-radius: 0.75rem; margin: 0.25rem 0 0; }
       .crt-success-next.ok { color: var(--ok-soft-fg); background: var(--ok-soft-bg); display: inline-flex; align-items: center; gap: 0.35rem; }
       .crt-success .crt-save { max-width: 280px; }
 
@@ -569,19 +569,19 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
 
       /* ── carga lines ── */
       .crt-lines { margin-top: 1.25rem; border: 1px solid var(--border-color); border-radius: 1rem; padding: 0.875rem 1rem; }
-      .crt-lines-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.8125rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem; }
-      .crt-lines-count { font-weight: 600; font-size: 0.6875rem; color: var(--text-muted); background: var(--surface-ground); padding: 0.1rem 0.5rem; border-radius: 999px; }
-      .crt-lines-empty { font-size: 0.8125rem; color: var(--text-muted); margin: 0.25rem 0; }
+      .crt-lines-head { display: flex; justify-content: space-between; align-items: center; font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem; }
+      .crt-lines-count { font-weight: 600; font-size: var(--fs-micro); color: var(--text-muted); background: var(--surface-ground); padding: 0.1rem 0.5rem; border-radius: 999px; }
+      .crt-lines-empty { font-size: var(--fs-sm); color: var(--text-muted); margin: 0.25rem 0; }
       .crt-line { display: flex; align-items: center; gap: 0.625rem; padding: 0.5rem 0; border-top: 1px solid var(--border-color); cursor: pointer; }
       .crt-line:first-of-type { border-top: none; }
       .crt-line input[type='checkbox'] { width: 1.05rem; height: 1.05rem; accent-color: var(--action); flex-shrink: 0; }
-      .crt-line-name { flex: 1; font-size: 0.875rem; color: var(--text-main); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .crt-line-name { flex: 1; font-size: var(--fs-body); color: var(--text-main); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .crt-line.off .crt-line-name { color: var(--text-faint); text-decoration: line-through; }
       .crt-line-qty { width: 4.25rem; padding: 0.4rem 0.5rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--card-bg); color: var(--text-main); font-variant-numeric: tabular-nums; }
       .crt-line-qty:disabled { opacity: 0.5; }
 
       /* ── warn + save ── */
-      .crt-warn { display: flex; align-items: center; gap: 0.4rem; color: var(--bad-soft-fg); background: var(--bad-soft-bg); font-size: 0.8125rem; margin: 1.25rem 0 0; padding: 0.625rem 0.875rem; border-radius: 0.75rem; }
+      .crt-warn { display: flex; align-items: center; gap: 0.4rem; color: var(--bad-soft-fg); background: var(--bad-soft-bg); font-size: var(--fs-sm); margin: 1.25rem 0 0; padding: 0.625rem 0.875rem; border-radius: 0.75rem; }
       .crt-save {
         position: relative; overflow: hidden;
         display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%;
@@ -608,7 +608,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
 
       /* ── tickets de hoy ── */
       .crt-recent { margin-top: 2rem; }
-      .crt-section { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin: 0 0 0.75rem; }
+      .crt-section { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin: 0 0 0.75rem; }
       .crt-list { display: flex; flex-direction: column; gap: 0.5rem; }
       .crt-ticket { display: flex; align-items: center; gap: 0.875rem; padding: 0.75rem 0.875rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 0.875rem; }
       .crt-ticket-icon { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 0.625rem; font-size: 1rem; flex-shrink: 0; }
@@ -616,12 +616,12 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-ticket[data-type='carga'] .crt-ticket-icon { background: var(--info-soft-bg); color: var(--info-fg); }
       .crt-ticket[data-type='combustible'] .crt-ticket-icon { background: var(--warn-soft-bg); color: var(--warn-fg); }
       .crt-ticket-info { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; flex: 1; }
-      .crt-ticket-type { font-size: 0.875rem; font-weight: 700; color: var(--text-main); }
-      .crt-ticket-meta { font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+      .crt-ticket-type { font-size: var(--fs-body); font-weight: 700; color: var(--text-main); }
+      .crt-ticket-meta { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
       .crt-ticket-total { font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); flex-shrink: 0; }
       .crt-empty { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-align: center; color: var(--text-muted); padding: 2rem 1rem; background: var(--card-bg); border: 1px dashed var(--border-color); border-radius: 1rem; }
       .crt-empty i { font-size: 1.75rem; color: var(--text-faint); }
-      .crt-empty p { margin: 0; font-size: 0.875rem; }
+      .crt-empty p { margin: 0; font-size: var(--fs-body); }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,

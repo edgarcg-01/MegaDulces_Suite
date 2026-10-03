@@ -148,7 +148,7 @@ import {
     .photo-card img { width:100%; height: 180px; object-fit:cover; border-radius:6px; }
     .photo-meta { display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
     .desc { font-size:.85rem; margin:0; }
-    .gps { font-size:.75rem; color: var(--text-muted); margin:0; }
+    .gps { font-size:var(--fs-xs); color: var(--text-muted); margin:0; }
     .empty { grid-column: 1 / -1; text-align:center; padding:2rem; color: var(--text-muted); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,

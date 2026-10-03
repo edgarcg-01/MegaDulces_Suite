@@ -234,7 +234,7 @@ interface RouteEntry {
     .rk-map-grid { display:grid; grid-template-columns:1fr 20rem; gap:.75rem; height:64vh; min-height:420px; }
     .rk-map-main { min-width:0; border-radius:var(--r-lg,12px); overflow:hidden; }
     .rk-map-main ::ng-deep app-map, .rk-map-main ::ng-deep .map-shell { height:100%; }
-    @media (max-width: 900px) { .rk-map-grid { grid-template-columns:1fr; height:auto; } .rk-map-main { height:52vh; } }
+    @media (max-width: 56.25rem) { .rk-map-grid { grid-template-columns:1fr; height:auto; } .rk-map-main { height:52vh; } }
 
     .rk-routes { display:flex; flex-direction:column; border:1px solid var(--border-color); border-radius:var(--r-lg,12px); background:var(--card-bg); overflow:hidden; min-height:0; }
     .rk-routes-head { display:flex; align-items:center; justify-content:space-between; padding:.6rem .75rem; border-bottom:1px solid var(--c-divider); font-size:var(--fs-micro); text-transform:uppercase; letter-spacing:.06em; color:var(--c-text-3); font-weight:var(--fw-bold); }

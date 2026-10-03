@@ -53,7 +53,7 @@ import { MonitoreoService } from '../monitoreo.service';
       <div class="pv-layout">
         <!-- Master -->
         <section class="pv-master surf-card">
-          <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="flex" dataKey="id">
+          <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="flex" dataKey="id">
             <ng-template #header>
               <tr><th scope="col">Folio</th><th scope="col">Producto</th><th scope="col" class="num">Dif.</th><th scope="col" class="num">Valor</th><th scope="col">Estado</th><th scope="col">Causa</th></tr>
             </ng-template>
@@ -155,7 +155,7 @@ import { MonitoreoService } from '../monitoreo.service';
     :host ::ng-deep .pv-status { min-width: 150px; }
     :host ::ng-deep .pv-cause { width: 100%; min-width: 180px; }
     .pv-layout { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr); gap: 1rem; align-items: start; }
-    @media (max-width: 980px) { .pv-layout { grid-template-columns: 1fr; } }
+    @media (max-width: 61.25rem) { .pv-layout { grid-template-columns: 1fr; } }
     .surf-card { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: var(--radius-lg, 12px); padding: 1rem; margin-bottom: 1rem; }
     .pv-detail { display: flex; flex-direction: column; }
     .pv-h2 { font-size: .95rem; font-weight: 700; margin: 0 0 .25rem; }

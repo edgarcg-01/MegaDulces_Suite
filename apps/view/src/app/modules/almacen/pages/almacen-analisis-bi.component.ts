@@ -255,7 +255,7 @@ const DEFAULT_EXPLORE_FIELDS = [
           </div>
           <p-table [value]="movRows()" [loading]="movLoading()" [lazy]="true" (onLazyLoad)="onMovLazyLoad($any($event))"
                     [paginator]="true" [rows]="movPageSize()" [totalRecords]="movTotal()" [rowsPerPageOptions]="[25,50,100,200]"
-                    styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="flex">
+                    styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="flex">
             <ng-template #header>
               <tr>
                 @if (colOn('doc_date')) { <th scope="col" pSortableColumn="doc_date">Fecha <p-sorticon field="doc_date" /></th> }
@@ -385,7 +385,7 @@ const DEFAULT_EXPLORE_FIELDS = [
               </div>
               <p-table [value]="exploreRows()" [loading]="exploreLoading()" [lazy]="true" (onLazyLoad)="onExploreLazyLoad($any($event))"
                         [paginator]="true" [rows]="explorePageSize()" [totalRecords]="exploreTotal()" [rowsPerPageOptions]="[25,50,100]"
-                        styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="flex">
+                        styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="flex">
                 <ng-template #header>
                   <tr>@for (k of selectedFields(); track k) { <th scope="col">{{ fieldLabel(k) }}</th> }</tr>
                 </ng-template>
@@ -448,7 +448,7 @@ const DEFAULT_EXPLORE_FIELDS = [
     .abi-unavailable-note { font-size: .76rem; color: var(--text-muted); margin-top: .5rem; display: flex; gap: .35rem; align-items: flex-start; }
 
     .abi-explore-layout { display: grid; grid-template-columns: 16rem 1fr; gap: 1rem; }
-    @media (max-width: 900px) { .abi-explore-layout { grid-template-columns: 1fr; } }
+    @media (max-width: 56.25rem) { .abi-explore-layout { grid-template-columns: 1fr; } }
     .abi-explore-fields { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: 10px; padding: .75rem; max-height: 32rem; overflow-y: auto; }
     .abi-fg { margin-bottom: .85rem; }
     .abi-fg h4 { margin: 0 0 .35rem; font-size: .74rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }

@@ -244,7 +244,7 @@ const PASO_MS = 100;
     .fx-lista li + li .fx-fila { border-top: 1px solid var(--border-color); }
     .fx-fila { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto auto 5.5rem;
       align-items: center; gap: .6rem; padding: .55rem .75rem; background: none; border: 0;
-      cursor: pointer; text-align: left; color: var(--text-main); font: inherit; font-size: .8125rem; }
+      cursor: pointer; text-align: left; color: var(--text-main); font: inherit; font-size: var(--fs-sm); }
     .fx-fila:hover, .fx-fila.on { background: var(--hover-bg); }
     .fx-fila-n { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fx-fila-sku { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-muted); }
@@ -285,7 +285,7 @@ const PASO_MS = 100;
     .fx-ver i { margin-top: .1rem; }
     .fx-ver div { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
     .fx-ver strong { font-size: .88rem; }
-    .fx-ver span { font-size: .75rem; }
+    .fx-ver span { font-size: var(--fs-xs); }
     .fx-ver.v-hay_en_tienda { background: var(--ok-soft-bg); color: var(--ok-soft-fg); border: 1px solid var(--ok-border); }
     .fx-ver.v-sin_existencia { background: var(--bad-soft-bg); color: var(--bad-soft-fg); border: 1px solid var(--bad-border); }
     .fx-ver.v-no_medido { background: var(--warn-soft-bg); color: var(--warn-soft-fg); border: 1px solid var(--warn-border); }

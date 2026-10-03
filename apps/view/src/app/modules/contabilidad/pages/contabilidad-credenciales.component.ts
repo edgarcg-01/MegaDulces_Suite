@@ -104,7 +104,7 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
     .cr-form { display: flex; flex-direction: column; gap: .7rem; padding-top: .5rem; }
     .cr-f { display: flex; flex-direction: column; gap: .25rem; font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .cr-f input[type=text], .cr-f input[type=password] { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); }
-    .cr-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; }
+    .cr-note { font-size: var(--fs-xs); color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; }
   `],
 })
 export class ContabilidadCredencialesComponent implements OnInit {

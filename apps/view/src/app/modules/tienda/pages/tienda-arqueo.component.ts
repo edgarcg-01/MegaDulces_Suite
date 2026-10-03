@@ -907,7 +907,7 @@ interface CortesPersona {
     .arq-suc-fija { gap: .3rem; }
     .arq-suc-val { display: inline-flex; align-items: center; gap: .35rem; padding: .35rem 0;
       font-size: .82rem; font-weight: 600; color: var(--text-main); white-space: nowrap; }
-    .arq-suc-val i { font-size: .75rem; color: var(--text-muted); }
+    .arq-suc-val i { font-size: var(--fs-xs); color: var(--text-muted); }
     /* width:100% + tope: llena el track que le toque (en touch el tope se
        levanta, abajo) pero puede encogerse - con width:5rem fijo el input era
        un piso de 80px que no cedia en una pantalla angosta. */

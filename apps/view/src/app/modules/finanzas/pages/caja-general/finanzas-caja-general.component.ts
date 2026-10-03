@@ -134,7 +134,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     /* CS.3.7 — Dos columnas para que la captura entre en una pantalla sin scroll. Apila en angosto. */
     .cg-grid { display:grid; grid-template-columns:1fr 1fr; gap:.85rem 1.5rem; align-items:start; }
     .cg-grid > .cg-col { display:flex; flex-direction:column; gap:.7rem; min-width:0; }
-    @media (max-width:760px) { .cg-grid { grid-template-columns:1fr; } }
+    @media (max-width:47.5rem) { .cg-grid { grid-template-columns:1fr; } }
     .fin-row { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
     .fin-row > label { min-width:6.5rem; font-size:var(--fs-sm); color:var(--text-muted); }
     .fin-row-col { flex-direction:column; align-items:stretch; gap:.35rem; }
@@ -277,7 +277,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-conc-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; }
     .cg-conc-fecha { max-width:11rem; }
     .cg-conc-cols { display:grid; grid-template-columns:1fr 1fr; gap:1rem 1.75rem; margin-top:.35rem; }
-    @media (max-width:760px) { .cg-conc-cols { grid-template-columns:1fr; } }
+    @media (max-width:47.5rem) { .cg-conc-cols { grid-template-columns:1fr; } }
     .cg-conc-col { display:flex; flex-direction:column; gap:.3rem; min-width:0; }
     .cg-conc-sub { font-size:var(--fs-sm); }
     .cg-conc-tbl { margin-bottom:.3rem; }

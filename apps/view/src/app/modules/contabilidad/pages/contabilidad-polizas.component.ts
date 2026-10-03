@@ -264,7 +264,7 @@ import { Permission } from '../../../core/constants/permissions';
     .pz-l-cfdi { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-muted); }
     tr.pz-line-bad { background: color-mix(in srgb, var(--warn-fg) 8%, transparent); }
     .pz-noaf { color: var(--warn-fg); cursor: help; }
-    @media (max-width: 1100px) { .pz-split { grid-template-columns: 1fr; } .pz-kpis { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 68.75rem) { .pz-split { grid-template-columns: 1fr; } .pz-kpis { grid-template-columns: repeat(2, 1fr); } }
   `],
 })
 export class ContabilidadPolizasComponent {

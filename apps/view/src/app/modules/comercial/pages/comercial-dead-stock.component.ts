@@ -72,7 +72,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
       }
 
       <!-- Tabla -->
-      <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+      <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table"
                [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="rows()" [rowsPerPageOptions]="[25, 50, 100, 200]">
         <ng-template #header>
           <tr>
@@ -127,7 +127,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
     .ds-null { color: var(--c-text-3, #8a8a8a); font-style: italic; font-size: .8rem; }
     .ds-proc { display:flex; gap:.45rem; align-items:baseline; flex-wrap:wrap; margin:0 0 1rem;
                font-size:.8rem; color: var(--c-text-2, #6b6b6b); }
-    .ds-proc code { font-family: var(--font-mono,monospace); font-size:.75rem; }
+    .ds-proc code { font-family: var(--font-mono,monospace); font-size:var(--fs-xs); }
     .ds-proc--warn { color: var(--warn-fg, #9a6b00); }
   `],
 })

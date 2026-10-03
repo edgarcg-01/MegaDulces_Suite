@@ -42,7 +42,7 @@ import { OutboxService } from '../offline/outbox.service';
       justify-content: center;
       gap: .5rem;
       padding: .6rem 1rem;
-      font-size: .875rem;
+      font-size: var(--fs-body);
       font-weight: 600;
       color: #fff;
       box-shadow: 0 -2px 12px rgba(0, 0, 0, .25);

@@ -170,12 +170,12 @@ const SUGGESTIONS = [
     /* Móvil (<lg): el layout muestra bottom-nav y main ya lo descuenta; restamos
        header + breadcrumb + bottom-nav + safe-areas para que el composer no quede
        tapado ni bajo el fold. */
-    @media (max-width: 1023.98px) {
+    @media (max-width: 63.9988rem) {
       .tc-page {
         height: calc(100dvh - 3.5rem - 2.2rem - 3.6rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
       }
     }
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .tc-thread { gap: var(--sp-3); padding: var(--sp-2) 0 var(--sp-3); }
       .tc-msg { gap: var(--sp-2); max-width: 100%; }
       .tc-avatar { width: 28px; height: 28px; }

@@ -185,7 +185,7 @@ import { RouterModule } from '@angular/router';
         filter: blur(7px);
         pointer-events: none;
       }
-      @media (max-width: 760px) {
+      @media (max-width: 47.5rem) {
         .fp-shadow { width: clamp(70px, 24vw, 120px); height: 18px; filter: blur(5px); }
       }
 
@@ -211,7 +211,7 @@ import { RouterModule } from '@angular/router';
       .fp-dot.is-active { background: var(--action, #F05A28); width: 18px; }
 
       /* Móvil: NO se apila — texto a la izquierda, producto a la derecha. */
-      @media (max-width: 760px) {
+      @media (max-width: 47.5rem) {
         .fp {
           grid-template-columns: 1.25fr 0.85fr;
           padding: 1.4rem 1.15rem 1.7rem;

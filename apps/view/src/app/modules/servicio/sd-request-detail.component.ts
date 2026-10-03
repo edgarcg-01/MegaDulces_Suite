@@ -282,7 +282,7 @@ function leerComoDataUri(f: File): Promise<string> {
     .sd-chk { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     .sd-pend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-xs); color: var(--text-muted); }
     .sd-pend li { display: flex; align-items: center; gap: var(--sp-1); }
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .sd-meta { grid-template-columns: 1fr; }
       .sd-actions p-button ::ng-deep button, .sd-comp-foot p-button ::ng-deep button { min-height: 40px; }
       .sd-actions p-select { flex: 1 1 100%; }

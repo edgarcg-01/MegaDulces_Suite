@@ -584,8 +584,8 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
     .cb-combo { border: 1px solid var(--surface-border); border-radius: .5rem; padding: .5rem .625rem; margin-bottom: .5rem; background: var(--surface-ground); }
     .cb-combo-head { display: flex; align-items: center; gap: .75rem; margin-bottom: .375rem; }
     .cb-combo-head .cb-monto { margin-left: auto; font-weight: 700; }
-    .cb-combo-line { display: grid; grid-template-columns: 1fr auto 8rem; gap: .5rem; font-size: .8125rem; padding: .125rem 0; border-top: 1px dashed var(--surface-border); }
-    .cb-combo-aviso { font-size: .75rem; color: var(--text-muted); display: flex; gap: .375rem; align-items: flex-start; margin: .25rem 0 0; }
+    .cb-combo-line { display: grid; grid-template-columns: 1fr auto 8rem; gap: .5rem; font-size: var(--fs-sm); padding: .125rem 0; border-top: 1px dashed var(--surface-border); }
+    .cb-combo-aviso { font-size: var(--fs-xs); color: var(--text-muted); display: flex; gap: .375rem; align-items: flex-start; margin: .25rem 0 0; }
     .cb-cand { display: flex; align-items: center; justify-content: space-between; gap: .8rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; cursor: pointer; transition: border-color .12s; }
     .cb-cand:hover { border-color: var(--action); }
     .cb-cand-info { display: flex; flex-direction: column; gap: .1rem; }
@@ -641,7 +641,7 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
     .cb-eye { color: var(--text-muted); font-size: .8rem; opacity: 0; transition: opacity .15s; }
     .cb-comp-cell:hover .cb-eye { opacity: .8; }
     .cb-comp-empty { display: inline-flex; align-items: center; gap: .35rem; }
-    .cb-comp-empty i { font-size: .75rem; opacity: .7; }
+    .cb-comp-empty i { font-size: var(--fs-xs); opacity: .7; }
     /* preview antes de subir */
     .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-sunken, var(--card-bg)); }
     .cb-preview img { display: block; width: 100%; max-height: 15rem; object-fit: contain; background: #00000008; }

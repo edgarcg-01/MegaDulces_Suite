@@ -173,7 +173,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
                 [rowsPerPageOptions]="[25, 50, 100, 200]"
                 (onLazyLoad)="onLazyLoad($event)"
                
-                styleClass="p-datatable-sm co-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+                styleClass="p-datatable-sm co-table surf-table surf-table--sticky surf-table--frozen-first"
                 [rowHover]="true"
                 >
                 <ng-template #header>

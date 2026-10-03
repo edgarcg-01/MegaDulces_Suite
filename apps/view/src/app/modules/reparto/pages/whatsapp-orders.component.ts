@@ -178,7 +178,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
     .wo-empty i { font-size:2rem; display:block; margin-bottom:.5rem; }
     .wo-reject-hint { font-size:.85rem; color:var(--text-muted); margin:0 0 .6rem; }
     .wo-reject-in { width:100%; }
-    @media (max-width: 820px) { .wo-grid { grid-template-columns:1fr; } }
+    @media (max-width: 51.25rem) { .wo-grid { grid-template-columns:1fr; } }
   `],
 })
 export class WhatsAppOrdersComponent implements OnInit {

@@ -304,7 +304,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
       :host ::ng-deep .so-refresh { width: var(--tap-min); min-width: var(--tap-min); height: var(--tap-min); }
     }
     /* Cuando el head se apila, el divisor separa de la nada. */
-    @media (max-width: 760px) { .so-freshness { padding-right: 0; border-right: 0; } }
+    @media (max-width: 47.5rem) { .so-freshness { padding-right: 0; border-right: 0; } }
 
     /* ── Nivel 1: la lectura del periodo ────────────────────────────────
        Texto, no caja. La jerarquía la dan el tipo y el contraste, no un panel con
@@ -352,7 +352,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
     .so-fitem.on .so-fl { color: var(--fg-1); font-weight: var(--fw-medium); }
     .so-fm { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
       font-size: var(--fs-xs); color: var(--fg-3); }
-    @media (max-width: 900px) {
+    @media (max-width: 56.25rem) {
       .so-fgroup { flex: 1 1 100%; border-right: 0; border-bottom: 1px solid var(--border-color); }
       .so-fgroup:last-child { border-bottom: 0; }
     }

@@ -303,7 +303,7 @@ import { CountUpDirective } from '../ui/count-up.directive';
         gap: 1.25rem;
         align-items: start;
       }
-      @media (max-width: 900px) {
+      @media (max-width: 56.25rem) {
         .ca-layout { grid-template-columns: 1fr; }
       }
 
@@ -328,7 +328,7 @@ import { CountUpDirective } from '../ui/count-up.directive';
         border-color: var(--neutral-300);
         box-shadow: var(--shadow-float);
       }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .ca-line {
           grid-template-columns: 48px 1fr auto;
           grid-template-areas:
@@ -369,7 +369,7 @@ import { CountUpDirective } from '../ui/count-up.directive';
         letter-spacing: -0.01em;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
       }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .ca-line-avatar { width: 48px; height: 48px; }
       }
 
@@ -511,7 +511,7 @@ import { CountUpDirective } from '../ui/count-up.directive';
         position: sticky;
         top: 1rem;
       }
-      @media (max-width: 900px) {
+      @media (max-width: 56.25rem) {
         .ca-summary {
           position: sticky;
           bottom: calc(72px + env(safe-area-inset-bottom));
@@ -710,7 +710,7 @@ import { CountUpDirective } from '../ui/count-up.directive';
         padding: 1.25rem;
         box-shadow: var(--shadow-float);
       }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .ca-skel-line { grid-template-columns: 56px 1fr; }
         .ca-skel-line > :last-child { display: none; }
       }

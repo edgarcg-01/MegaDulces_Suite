@@ -171,7 +171,7 @@ type Mode = 'deliver' | 'incident';
     .total { font-weight: 600; }
     .total.paid { color: #16a34a; font-weight: 500; }
     .load { font-size: .8rem; color: var(--text-muted, #666); margin-top: .3rem; }
-    .status { font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; }
+    .status { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .03em; }
     .warn { margin-top: .4rem; font-size: .8rem; color: #b45309; background: #fff7ed; border-radius: 8px; padding: .3rem .5rem; }
     .actions { display: flex; gap: .5rem; margin-top: .6rem; }
     button { border: 1px solid var(--border, #ddd); border-radius: 9px; padding: .5rem .8rem; background: #fff; cursor: pointer; font: inherit; }

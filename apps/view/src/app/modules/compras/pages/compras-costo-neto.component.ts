@@ -137,7 +137,7 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
     .cn-strong { font-weight:700; }
     .cn-pos { color:var(--ok-fg); }
     .cn-anom { color:var(--warn-fg); font-weight:700; }
-    .cn-warn { color:var(--warn-fg); margin-left:.3rem; font-size:.75rem; }
+    .cn-warn { color:var(--warn-fg); margin-left:.3rem; font-size:var(--fs-xs); }
     .cn-w-amt { width:9rem; } .cn-w-pct { width:6rem; }
     .cn-prov { max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cn-drillhint { font-size:.72rem; color:var(--text-faint); margin-left:.35rem; }

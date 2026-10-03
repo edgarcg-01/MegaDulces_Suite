@@ -55,9 +55,14 @@ const DIRS = ['apps', 'libs'];
  * porque es la única que se puede volver a correr.
  */
 const TOPE = {
-  fontSize:   3161,  // font-size con literal (debería ser var(--fs-*))
+  // 3,161 el 2026-10-03 → 2,684 el mismo día: se convirtieron los **495 literales EXACTOS**
+  // a su token (0.75rem→--fs-xs, 13px→--fs-sm…), que es cambio CERO por construcción.
+  // ⛔ Los 2,684 que quedan NO son mecánicos: `.8rem` (12.8px) está entre --fs-xs (12) y
+  // --fs-sm (13), así que tokenizarlo MUEVE el texto. Eso se hace con la pantalla a la vista.
+  fontSize:   2684,
   hex:        1449,  // hex crudo en declaración de color
-  breakpoint:  205,  // @media (min|max-width: Npx)
+  // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
+  breakpoint:    0,
   outline:       0,  // CERRADA 2026-10-03: eran 37 (27 + 10 que el chequeo por ARCHIVO escondia). Un outline:none nuevo sin anillo es ROJO
 };
 

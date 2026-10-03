@@ -522,7 +522,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
                      padding-top: .8rem; border-top: 1px solid var(--border-color); }
     @media (max-width: 30rem) { .oa-pk-dl { grid-template-columns: 1fr; } }
 
-    .oa-foot { margin-top: .75rem; font-size: .75rem; color: var(--text-muted); line-height: 1.5; }
+    .oa-foot { margin-top: .75rem; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
 
     /* [RA-PRO.62] Seguimiento: filtro por estatus + pastilla por renglón. Colores por estado con los
        tokens de severidad (warn/bad/ok), no hex sueltos. */
@@ -563,7 +563,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
       border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: transparent; color: var(--text-main);
       font: inherit; font-size: .72rem; cursor: pointer; }
     .oa-pdf:disabled { opacity: .5; cursor: default; }
-    .oa-pdf .pi { font-size: .75rem; }
+    .oa-pdf .pi { font-size: var(--fs-xs); }
 
     .oa-dlg { display: flex; flex-direction: column; gap: .35rem; }
     .oa-dlg-sub { margin: 0 0 .4rem; font-size: .8rem; color: var(--text-muted); }

@@ -222,7 +222,7 @@ import { ComprasService } from '../compras.service';
     .fl-neg { display: flex; flex-direction: column; gap: .35rem; }
     .fl-h2 { margin: .5rem 0 0; font-size: .95rem; font-weight: 700; }
     .fl-sub-txt { margin: 0; font-size: .78rem; color: var(--text-muted); }
-    .fl-foot { margin: .25rem 0 0; padding-left: 1.1rem; font-size: .75rem; color: var(--text-muted); line-height: 1.5; }
+    .fl-foot { margin: .25rem 0 0; padding-left: 1.1rem; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
   `],
 })
 export class ComprasFlujoComponent implements OnInit {

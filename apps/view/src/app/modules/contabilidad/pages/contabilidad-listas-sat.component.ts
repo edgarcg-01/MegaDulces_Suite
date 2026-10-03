@@ -202,7 +202,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
     .ls-name { font-weight: 600; color: var(--text-main); }
     .ls-rfc { color: var(--text-muted); margin-top: .05rem; }
     .ls-acts { display: flex; align-items: center; gap: .1rem; }
-    .ls-status-label { font-size: .75rem; font-weight: 600; }
+    .ls-status-label { font-size: var(--fs-xs); font-weight: 600; }
     .st-confirmado { color: var(--ok-fg); } .st-descartado { color: var(--text-faint); }
     .ls-ev { background: var(--surface-hover-bg); padding: .8rem 1.2rem; }
     .ls-ev-loading, .ls-ev-empty { font-size: .82rem; color: var(--text-muted); padding: .4rem 0; }

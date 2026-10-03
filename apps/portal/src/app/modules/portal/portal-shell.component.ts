@@ -779,7 +779,7 @@ interface NavItem {
       }
 
       /* ── RESPONSIVE BREAKPOINT ────────────────────────────────────── */
-      @media (max-width: 900px) {
+      @media (max-width: 56.25rem) {
         .portal-sidebar { display: none; }
         .portal-header-mobile { display: flex; }
         .portal-tabdock { display: flex; }

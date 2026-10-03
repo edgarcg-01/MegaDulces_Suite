@@ -201,7 +201,7 @@ import { FacturasService } from '../facturas.service';
     /* expansión */
     .di-exp-row td { background: var(--surface-hover-bg); }
     .di-exp { display: grid; grid-template-columns: 1.4fr 1fr; gap: 1.4rem; padding: 1rem 1.2rem; }
-    @media (max-width: 820px) { .di-exp { grid-template-columns: 1fr; } }
+    @media (max-width: 51.25rem) { .di-exp { grid-template-columns: 1fr; } }
     .di-exp-main { display: flex; flex-direction: column; gap: 1rem; }
     .di-exp-block p { margin: .3rem 0 0; font-size: .85rem; color: var(--text-main); line-height: 1.5; }
     .di-exp-lbl { font-size: .66rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
@@ -213,7 +213,7 @@ import { FacturasService } from '../facturas.service';
     .di-tech-grid span { color: var(--text-muted); }
     .di-tech-grid b { color: var(--text-main); font-weight: 600; word-break: break-word; }
     .di-raw { margin: .6rem 0 0; padding: .7rem; background: var(--surface-hover-bg); color: var(--text-muted); border: 1px solid var(--border-color); border-radius: var(--r-sm); font-family: var(--font-mono, monospace); font-size: .72rem; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
-    .di-note { font-size: .75rem; color: var(--text-muted); margin: 1rem 0 0; display: flex; gap: .4rem; align-items: baseline; }
+    .di-note { font-size: var(--fs-xs); color: var(--text-muted); margin: 1rem 0 0; display: flex; gap: .4rem; align-items: baseline; }
   `],
 })
 export class ContabilidadDiagnosticoComponent implements OnInit {

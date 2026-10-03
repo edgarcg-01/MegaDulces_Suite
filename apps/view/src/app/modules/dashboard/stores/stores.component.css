@@ -13,7 +13,7 @@
   top: 50%;
   transform: translateY(-50%);
   color: var(--p-content-dim);
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
 }
 
 .p-input-icon-left input {

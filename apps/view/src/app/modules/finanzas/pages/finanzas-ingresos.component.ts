@@ -659,7 +659,7 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
     .in-nomedido { color: var(--text-muted, #78716c); font-weight: 600; font-size: .8rem; }
     .in-hueco-lbl { font-weight: 600; }
     .in-hueco-note { font-size: .76rem; color: var(--text-muted, #78716c); line-height: 1.35; }
-    @media (max-width: 720px) { .in-hueco { grid-template-columns: 1fr; } }
+    @media (max-width: 45rem) { .in-hueco { grid-template-columns: 1fr; } }
     .in-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
     .in-field { display: flex; flex-direction: column; gap: .3rem; min-width: 11rem; }
     .in-field > label { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #78716c); }

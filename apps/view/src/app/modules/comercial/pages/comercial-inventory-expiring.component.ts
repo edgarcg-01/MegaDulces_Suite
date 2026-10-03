@@ -60,7 +60,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         </div>
       }
     
-      <p-table [value]="filteredLots()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+      <p-table [value]="filteredLots()" [loading]="loading()" styleClass="p-datatable-sm surf-table"
         [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
         <ng-template #header>
           <tr>
