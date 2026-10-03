@@ -37,6 +37,18 @@
  * el día que marcó 7 falsos de 8. La deuda baja cuando alguien la baja; el tope se actualiza en
  * el mismo commit, y bajarlo es la única forma de moverlo.
  *
+ * ── ⚠️ Un efecto del ratchet que conviene saber, con ~10 sesiones en paralelo ───────────────
+ * El tope es un CONTEO GLOBAL. `gate-push` lo intersecta con TUS archivos, así que a vos te dice
+ * *"deuda preexistente, no la trajiste vos — no frena"*; pero **el CI lo corre global**, así que
+ * una violación nueva de otra sesión deja el job rojo para todos hasta que esa sesión la arregle
+ * o suba el tope en su commit. Pasó el mismo día de encenderla: un `font-size` literal apareció
+ * en `persona-acceso.component.css`, de otra sesión, **antes siquiera de llegar a un commit**.
+ *
+ * ⭐ Eso **no es un defecto: es el ratchet funcionando** y atrapando la violación en el momento en
+ * que se escribe, que es lo único que ninguna de las medidas anteriores lograba. Lo que NO hay
+ * que hacer es subir el tope para apagar el rojo de otro: el tope sólo baja, o sube con el
+ * commit de quien trajo la deuda y la explica.
+ *
  * Uso: `node scripts/check-estilos.js` · prueba negativa: `--self-test` · detalle: `--lista`
  */
 'use strict';
