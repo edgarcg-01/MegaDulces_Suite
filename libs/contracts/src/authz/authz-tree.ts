@@ -490,6 +490,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'servicio-reportar', label: 'Reportar un problema', route: '', view: [Permission.SERVICIO_REPORTAR], manage: [] },
           { id: 'servicio-atencion', label: 'Atención de solicitudes', route: '/servicio/bandeja', view: [Permission.SERVICIO_ATENDER], manage: [] },
           { id: 'servicio-coordinacion', label: 'Coordinación y configuración', route: '/servicio/configuracion', view: [Permission.SERVICIO_COORDINAR], manage: [] },
+          { id: 'servicio-reportes', label: 'Reportes de la mesa', route: '/servicio/reportes', view: [Permission.SERVICIO_COORDINAR], manage: [] },
         ],
       },
     ],

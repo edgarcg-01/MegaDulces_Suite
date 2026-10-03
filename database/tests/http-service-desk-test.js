@@ -698,6 +698,67 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
 
     }
 
+    // ── 18. Reportes: cumplimiento, tiempos y recurrentes ─────────────────────────────
+    {
+      console.log('\n18 — reportes de la mesa (sólo coordinación)');
+      const rep = (q = '', tok = coord.token) => req('GET', `${SD}/reports${q}`, tok);
+      check('el solicitante NO ve los reportes → 403', (await rep('', sol.token)).status === 403);
+      check('el agente (sin COORDINAR) NO los ve → 403', (await rep('', agente.token)).status === 403);
+      check('sin token → 401', (await rep('', null)).status === 401);
+      check('fecha imposible (31 de febrero) → 400, no se «corrige»', (await rep('?from=2026-02-31&to=2026-03-05')).status === 400);
+      check('desde posterior a hasta → 400', (await rep('?from=2026-10-07&to=2026-10-06')).status === 400);
+      check('periodo de más de 366 días → 400', (await rep('?from=2024-01-01&to=2026-10-06')).status === 400);
+      check('fecha que no es fecha → 400', (await rep('?from=ayer')).status === 400);
+
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const q = `?from=${hoy}&to=${hoy}`;
+      const antes = await rep(q);
+      check('⭐ coordinación lee el reporte → 200', antes.status === 200, dump(antes));
+      const A = antes.body;
+      check('trae periodo, momento de medición y las cuatro prioridades (urgente primero)', A?.periodo?.desde === hoy && !!A?.medido_at && JSON.stringify(A?.por_prioridad?.map((p) => p.priority)) === '["urgente","alta","media","baja"]', JSON.stringify([A?.periodo, A?.por_prioridad?.map((p) => p.priority)]));
+      check('sin parámetros son los últimos 30 días', (await rep()).body?.periodo?.hasta === hoy);
+
+      // El total cuadra contra la base, medido independientemente.
+      const enBase = await knex('servicedesk.requests').where({ tenant_id: T }).whereNull('deleted_at')
+        .whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City' AND created_at < ((?::date + 1))::timestamp AT TIME ZONE 'America/Mexico_City'`, [hoy, hoy])
+        .count({ n: '*' }).first();
+      check('⭐ «creadas» es EXACTAMENTE lo que hay en la base para ese día (medido aparte)', A?.totales?.creados === Number(enBase.n), `${A?.totales?.creados} vs ${enBase.n}`);
+      check('las tres rebanadas (prioridad, sucursal, estado) suman el mismo total', A.por_prioridad.reduce((s, p) => s + p.creados, 0) === A.totales.creados && A.por_sucursal.reduce((s, x) => s + x.creados, 0) === A.totales.creados && A.totales.resueltos + A.totales.abiertos + A.totales.cancelados === A.totales.creados, JSON.stringify(A.totales));
+      check('⛔ el reporte NO trae nada por persona (ni asignado ni solicitante)', !/"(assign[a-z_]*|requester[a-z_]*|resolved_by|assignee[a-z_]*)":/i.test(JSON.stringify(A)));
+      check('declara lo que no mide', Array.isArray(A.no_medido) && A.no_medido.some((t) => /personas/.test(t)));
+
+      // Un ticket sin responder con el plazo vencido suma UN incumplido en primera respuesta; cancelarlo lo saca.
+      const catX = catSimple.id;
+      const mk = (title, extra = {}) => req('POST', `${SD}/requests`, sol.token, { category_id: catX, title, ...extra });
+      const venc = await mk('SMOKE reporte: vencida sin responder');
+      await knex('servicedesk.requests').where({ id: venc.body?.id }).update({ first_response_due_at: new Date(Date.now() - 3600e3), due_at: new Date(Date.now() - 1800e3) });
+      const r1 = (await rep(q)).body;
+      check('⭐ creadas +1 y un incumplido más de primera respuesta Y de resolución', r1.totales.creados === A.totales.creados + 1 && r1.primera_respuesta.incumplidos === A.primera_respuesta.incumplidos + 1 && r1.resolucion.incumplidos === A.resolucion.incumplidos + 1, JSON.stringify([r1.primera_respuesta, A.primera_respuesta]));
+      await req('POST', `${SD}/requests/${venc.body?.id}/cancel`, sol.token, {});
+      const r2 = (await rep(q)).body;
+      check('⭐ cancelarla NO la cuenta como incumplida (sigue siendo demanda: creadas no baja)', r2.primera_respuesta.incumplidos === A.primera_respuesta.incumplidos && r2.resolucion.incumplidos === A.resolucion.incumplidos && r2.totales.creados === A.totales.creados + 1 && r2.totales.cancelados === A.totales.cancelados + 1, JSON.stringify([r2.totales, A.totales]));
+
+      // Resolver a tiempo suma un cumplido y entra a los tiempos.
+      const ok1 = await mk('SMOKE reporte: se resuelve a tiempo');
+      await req('POST', `${SD}/requests/${ok1.body?.id}/take`, agente.token);
+      await req('POST', `${SD}/requests/${ok1.body?.id}/status`, agente.token, { status: 'en_proceso' });
+      await req('POST', `${SD}/requests/${ok1.body?.id}/status`, agente.token, { status: 'resuelto', note: 'Listo' });
+      const r3 = (await rep(q)).body;
+      check('⭐ resolver a tiempo suma un cumplido en primera respuesta y en resolución', r3.primera_respuesta.cumplidos === r2.primera_respuesta.cumplidos + 1 && r3.resolucion.cumplidos === r2.resolucion.cumplidos + 1 && r3.totales.resueltos === r2.totales.resueltos + 1, JSON.stringify([r3.resolucion, r2.resolucion]));
+      const prio = r3.por_prioridad.find((p) => p.t_resolucion.n > 0);
+      check('hay tiempos de resolución medidos (n > 0) con mediana y P90', !!prio && prio.t_resolucion.p50 !== null && prio.t_resolucion.p90 !== null, JSON.stringify(r3.por_prioridad.map((p) => [p.priority, p.t_resolucion])));
+      check('⛔ una prioridad sin tickets resueltos NO muestra 0 minutos sino null', r3.por_prioridad.filter((p) => p.t_resolucion.n === 0).every((p) => p.t_resolucion.p50 === null && p.t_resolucion.p90 === null));
+
+      // Recurrentes: la misma categoría en la misma sucursal, 3 veces.
+      const antesRec = (r3.recurrentes ?? []).find((x) => x.category_id === catX && x.warehouse_code === '04')?.n ?? 0;
+      for (let i = 0; i < 3; i++) await mk(`SMOKE reporte: se repite ${i}`, { warehouse_code: '04' });
+      const r4 = (await rep(q)).body;
+      const rec = (r4.recurrentes ?? []).find((x) => x.category_id === catX && x.warehouse_code === '04');
+      check('⭐ tres iguales en la misma sucursal aparecen en «lo que se repite»', !!rec && rec.n === antesRec + 3, JSON.stringify(rec));
+      check('el reporte nombra la sucursal', typeof rec?.warehouse_name === 'string' && rec.warehouse_name.length > 0, JSON.stringify(rec));
+      check('el reporte de ayer NO incluye los tickets de hoy (el periodo corta por creación)', (await rep(`?from=2020-01-01&to=2020-01-02`)).body?.totales?.creados === 0);
+    }
+
     noMedido.push('correo y WhatsApp REALES: el SMTP no está configurado y la plantilla de Meta no está aprobada (P5); lo que se afirma es que el resultado queda DECLARADO por canal');
     noMedido.push('push en vivo por WebSocket (la API de este test corre sin cliente conectado); el poll de la campana sí se midió');
 

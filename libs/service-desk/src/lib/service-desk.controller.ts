@@ -30,6 +30,7 @@ import {
   type SdLogTimeDto,
   type SdPostMessageDto,
   type SdRequestDetail,
+  type SdReportResponse,
   type SdRoutingResponse,
   type SdStatsResponse,
   type SdUpsertRoutingRuleDto,
@@ -40,6 +41,7 @@ import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskConfigAdminService } from './config-admin.service';
 import { ServiceDeskNotificationsService } from './notifications.service';
 import { ServiceDeskPreferencesService } from './preferences.service';
+import { ServiceDeskReportsService } from './reports.service';
 import { ServiceDeskRoutingService } from './routing.service';
 import { ServiceDeskSlaService } from './sla.service';
 import { ServiceDeskConfigService } from './service-desk-config.service';
@@ -61,6 +63,7 @@ export class ServiceDeskController {
     private readonly prefs: ServiceDeskPreferencesService,
     private readonly admin: ServiceDeskConfigAdminService,
     private readonly routing: ServiceDeskRoutingService,
+    private readonly reports: ServiceDeskReportsService,
     private readonly sla: ServiceDeskSlaService,
     private readonly actors: ServiceDeskActorsService,
   ) {}
@@ -265,6 +268,15 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'Edita o apaga una categoría. Apagar no borra: los tickets viejos la conservan.' })
   updateCategory(@Param('id') id: string, @Body() dto: SdUpsertCategoryDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
     return this.admin.updateCategory(actorDesdeRequest(req), id, dto);
+  }
+
+  // ── Reportes (coordinación) ──
+
+  @Get('reports')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Cumplimiento de SLA, tiempos, categorías, sucursales y recurrentes de un periodo (por creación).' })
+  report(@Query('from') from: string | undefined, @Query('to') to: string | undefined, @Req() req: AuthedRequest): Promise<SdReportResponse> {
+    return this.actors.resolve(req).then((ctx) => this.reports.report(ctx, { from, to }));
   }
 
   // ── Asignación automática (coordinación) ──

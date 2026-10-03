@@ -216,6 +216,99 @@ export interface SdStatsResponse {
   by_priority: Partial<Record<SdPriority, number>>;
 }
 
+// ── Reportes (coordinación) ────────────────────────────────────────────────────────────────────
+
+/**
+ * `[MS.3.5]` Cumplimiento de un plazo (primera respuesta o resolución) sobre los tickets CREADOS en el periodo.
+ *
+ * ⛔ `cumplimiento_pct` es `cumplidos / (cumplidos + incumplidos)` y es **`null` cuando no hay con qué juzgar**
+ * (ninguno vencido ni resuelto aún): un cero dibujado diría «nadie cumplió». Lo que sigue dentro de plazo y lo que
+ * no tiene plazo se cuentan APARTE, no se mezclan con el cumplimiento.
+ */
+export interface SdSlaCompliance {
+  /** Se resolvió/respondió a tiempo. */
+  cumplidos: number;
+  /** Llegó tarde, o sigue sin respuesta/resolución con el plazo ya vencido. */
+  incumplidos: number;
+  /** Todavía no vence y todavía no se cumple: no se puede juzgar. */
+  en_plazo: number;
+  /** El ticket no trae plazo (no debería pasar; se cuenta para que se vea si pasa). */
+  sin_plazo: number;
+  cumplimiento_pct: number | null;
+}
+
+/** Tiempos en MINUTOS del reloj de la política de cada prioridad (hábil o corrido). `null` = ninguno medible. */
+export interface SdReportTiming {
+  n: number;
+  p50: number | null;
+  p90: number | null;
+}
+
+export interface SdReportPriorityRow {
+  priority: SdPriority;
+  creados: number;
+  resueltos: number;
+  primera_respuesta: SdSlaCompliance;
+  resolucion: SdSlaCompliance;
+  /** Minutos hasta la primera respuesta de quien atiende. */
+  t_primera_respuesta: SdReportTiming;
+  /** Minutos hasta resolver, SIN contar lo que estuvo en espera del solicitante. */
+  t_resolucion: SdReportTiming;
+}
+
+export interface SdReportCategoryRow {
+  category_id: string;
+  name: string;
+  creados: number;
+  resueltos: number;
+  resolucion_incumplidos: number;
+  reabiertos: number;
+  t_resolucion: SdReportTiming;
+}
+
+export interface SdReportBranchRow {
+  /** `null` = el ticket no indicó sucursal. */
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  creados: number;
+  resueltos: number;
+  resolucion_incumplidos: number;
+}
+
+/** Misma categoría en la misma sucursal, repetida: lo que probablemente es un problema de fondo y no un ticket suelto. */
+export interface SdReportRecurringRow {
+  category_id: string;
+  category_name: string;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  n: number;
+}
+
+export interface SdReportResponse {
+  periodo: { desde: string; hasta: string };
+  /** Cuándo se calculó (la fuente es la tabla viva de tickets: no hay copia que pueda estar vieja). */
+  medido_at: string;
+  /** `true` = el periodo trae más tickets de los que el reporte calcula; los números son de los más recientes. */
+  truncado: boolean;
+  totales: {
+    creados: number;
+    resueltos: number;
+    abiertos: number;
+    cancelados: number;
+    /** Tickets que alguna vez se reabrieron: la señal de que «resuelto» no resolvió. */
+    reabiertos: number;
+    reabiertos_pct: number | null;
+  };
+  primera_respuesta: SdSlaCompliance;
+  resolucion: SdSlaCompliance;
+  por_prioridad: SdReportPriorityRow[];
+  por_categoria: SdReportCategoryRow[];
+  por_sucursal: SdReportBranchRow[];
+  recurrentes: SdReportRecurringRow[];
+  /** Lo que este reporte NO puede contestar, dicho en voz alta (no se dibuja como cero). */
+  no_medido: string[];
+}
+
 // ── Avisos y preferencias ───────────────────────────────────────────────────────────────────────
 
 /** Un aviso de la campana. Sale de `servicedesk.notification_log` (canal `app`): el worker no tiene WebSocket. */

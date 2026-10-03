@@ -737,6 +737,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Bandeja', icon: 'pi pi-inbox', route: '/servicio/bandeja', anyOf: [Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR] },
         { label: 'Mis solicitudes', icon: 'pi pi-ticket', route: '/servicio/solicitudes', anyOf: [Permission.SERVICIO_REPORTAR] },
+        { label: 'Reportes', icon: 'pi pi-chart-bar', route: '/servicio/reportes', anyOf: [Permission.SERVICIO_COORDINAR] },
         { label: 'Configuración', icon: 'pi pi-sliders-h', route: '/servicio/configuracion', anyOf: [Permission.SERVICIO_COORDINAR] },
       ],
     },

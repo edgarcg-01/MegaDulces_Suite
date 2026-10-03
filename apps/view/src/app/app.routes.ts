@@ -723,6 +723,11 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/servicio/pages/servicio-bandeja.component').then(m => m.ServicioBandejaComponent),
       },
       {
+        path: 'reportes',
+        canActivate: [permissionGuard(Permission.SERVICIO_COORDINAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-reportes.component').then(m => m.ServicioReportesComponent),
+      },
+      {
         path: 'configuracion',
         canActivate: [permissionGuard(Permission.SERVICIO_COORDINAR)],
         loadComponent: () => import('./modules/servicio/pages/servicio-configuracion.component').then(m => m.ServicioConfiguracionComponent),
