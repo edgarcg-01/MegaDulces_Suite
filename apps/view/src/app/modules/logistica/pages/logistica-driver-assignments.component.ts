@@ -158,7 +158,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <div class="sheet cols-12 da-table-desktop">
           <article class="cell cell-span-12 is-flush">
             <p-table [value]="shipments()" [loading]="loading()"
-              styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+              styleClass="surf-table surf-table--sticky surf-table--frozen-first"
               [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
               <ng-template #header>
                 <tr>
@@ -425,11 +425,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     }
 
     /* ── RESPONSIVE: mobile <=600px cards, >600px tabla ── */
-    @media (max-width: 600px) {
+    @media (max-width: 37.5rem) {
       .da-cards-mobile { display: flex; }
       .da-table-desktop { display: none; }
     }
-    @media (min-width: 601px) {
+    @media (min-width: 37.5625rem) {
       .da-cards-mobile { display: none; }
     }
   `],

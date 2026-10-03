@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -218,6 +218,13 @@ export const routes: Routes = [
       {
         path: 'ventas-por-ruta',
         loadComponent: () => import('./modules/comercial/pages/comercial-ventas-por-ruta.component').then(m => m.ComercialVentasPorRutaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
+      },
+      {
+        // RD.13 — el inventario de los camiones. Mismo permiso que Ventas por ruta: es la misma
+        // operacion mirada del otro lado (lo que se le cargo contra lo que vendio), no nomina.
+        path: 'inventario-ruta',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventario-ruta.component').then(m => m.ComercialInventarioRutaComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
       },
       {
@@ -472,6 +479,28 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR)]
       },
       {
+        /**
+         * [GX.59] EXPEDIENTE - el tramite de gasto de TODAS las personas, agrupado por persona.
+         *
+         * Pedido del usuario (2026-10-01): «en lugar de historial sera expediente, todos
+         * aquellos que tengan el poder de autorizar gastos podran ver los vales de todos».
+         *
+         * El permiso es el de quien FIRMA (FINANCE_EXPENSES_COMPROBAR), el mismo que guarda la
+         * bandeja de aprobacion. El endpoint esta gateado igual: el recorte vive en el
+         * servidor, y esta linea es la cortesia de no mostrar una puerta que no abre.
+         *
+         * ⚠️ `gastos-historial` NO se retiro, y es una decision MEDIDA. Guardar esta pantalla
+         * con COMPROBAR deja fuera a 14 personas que hoy si ven el historial (direccion,
+         * contabilidad, finanzas_operativo, credito_cobranza, gerente_compras, marketing:
+         * todas con _VER y sin _COMPROBAR). Borrar la ruta vieja las dejaba sin ninguna vista
+         * de empresa y sin aviso. Queda ABIERTO si Historial se retira: es decision del
+         * usuario, no un olvido.
+         */
+        path: 'expediente',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-expediente.component').then(m => m.FinanzasExpedienteComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR)]
+      },
+      {
         // `[GX.33]` Lo que YO levanté y en qué quedó. Mismo alcance que `/mine`, que el
         // servidor acota por token: acá no se filtra del lado del cliente.
         path: 'mis-gastos',
@@ -694,6 +723,43 @@ export const routes: Routes = [
         path: 'proyectos',
         canActivate: [anyPermissionGuard(Permission.DEV_PROJECTS_VER, Permission.DEV_PROJECTS_GESTIONAR)],
         loadComponent: () => import('./modules/desarrolladores/pages/dev-proyectos.component').then(m => m.DevProyectosComponent),
+      },
+    ]
+  },
+  // ── Proyecto Mesa de Servicio (Fase MS, ADR-081) ────────────────────
+  // Tickets de servicio para toda la suite. `solicitudes` es la puerta de CUALQUIER persona
+  // (`SERVICIO_REPORTAR`, repartido a todo rol con personas pero sin destino en el mapa: se llega
+  // por el botón del header). `bandeja` es de quien atiende; `configuracion`, de la coordinación.
+  {
+    path: 'servicio',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [servicioHomeGuard],
+        loadComponent: () => import('./modules/servicio/pages/servicio-solicitudes.component').then(m => m.ServicioSolicitudesComponent),
+      },
+      {
+        path: 'solicitudes',
+        canActivate: [permissionGuard(Permission.SERVICIO_REPORTAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-solicitudes.component').then(m => m.ServicioSolicitudesComponent),
+      },
+      {
+        path: 'bandeja',
+        canActivate: [anyPermissionGuard(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-bandeja.component').then(m => m.ServicioBandejaComponent),
+      },
+      {
+        path: 'reportes',
+        canActivate: [permissionGuard(Permission.SERVICIO_COORDINAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-reportes.component').then(m => m.ServicioReportesComponent),
+      },
+      {
+        path: 'configuracion',
+        canActivate: [permissionGuard(Permission.SERVICIO_COORDINAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-configuracion.component').then(m => m.ServicioConfiguracionComponent),
       },
     ]
   },

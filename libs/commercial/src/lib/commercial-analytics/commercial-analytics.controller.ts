@@ -2,14 +2,18 @@ import { Controller, Get, Post, Body, Query, Param, Req, UseGuards, Res } from '
 import type { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { CommercialAnalyticsService } from './commercial-analytics.service';
+import {
+  CommercialAnalyticsService,
+  type RouteInventoryReport,
+  type RouteInventoryDetail,
+} from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
 import { SellOutExportService } from './sell-out-export.service';
 import { RoutePromoService, PromoQuery } from './route-promo.service';
 import { SelloutChatService } from './sellout-chat.service';
 // [IG.1.1] La forma de los filtros de ingreso vive con la lógica pura, no en el controller.
 import type { IncomeQueryFilters } from './period-coverage';
-import type { IncomeRecon, IncomeReport, IncomeSources, IncomeTree } from '@megadulces/contracts';
+import type { IncomeRecon, IncomeReconDetalle, IncomeReport, IncomeSources, IncomeTree, IncomeTreeChildren, IncomeDocumento } from '@megadulces/contracts';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
@@ -406,6 +410,35 @@ export class CommercialAnalyticsController {
     });
   }
 
+  /**
+   * `[IG.12]` El desglose de una celda de la conciliación: sus documentos uno por uno.
+   *
+   * ⚠️ Va declarada ANTES que `income/conciliacion` por la regla de siempre en Nest: la ruta más
+   * específica primero. Acá no hay `:param` que se la trague, pero la disciplina se sostiene
+   * cuando no cuesta nada — en Fase LC costó un módulo inalcanzable.
+   */
+  @Get('income/conciliacion/detalle')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({
+    summary:
+      'IG.12 — Los documentos de UNA celda de la conciliación: folio, cliente, qué es, facturado, '
+      + 'cobrado, saldo y por qué cuenta entró el dinero. La ventana es el período de la celda '
+      + 'RECORTADO al rango de la pantalla, para que el desglose sume exactamente su renglón.',
+  })
+  incomeReconDetalle(
+    @Query('periodo') periodo: string,
+    @Query('canal') canal: string,
+    @Query('plaza') plaza?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('grain') grain?: string,
+  ): Promise<IncomeReconDetalle> {
+    return this.service.incomeReconDetalle({
+      periodo, canal, plaza: plaza ?? '', from, to,
+      grain: grain === 'dia' || grain === 'trimestre' ? grain : 'mes',
+    });
+  }
+
   // `[IG.6]` La conciliación va ANTES de `income/:algo` por el orden de rutas de Nest: una ruta
   // literal declarada después de una paramétrica del mismo prefijo no se alcanza nunca (ya pasó
   // en Fase LC con `no-asociados` vs `@Get(':mes')`).
@@ -436,9 +469,47 @@ export class CommercialAnalyticsController {
     });
   }
 
+  /**
+   * `[IG.9]` Los hijos de un nodo del árbol, pedidos al abrir.
+   *
+   * ⚠️ Va declarada ANTES que `income/tree`: una ruta con segmento fijo tiene que ganarle a
+   * cualquier `:param` que pueda tragarse su primer segmento.
+   */
+  @Get('income/tree/children')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({ summary: 'IG.9/IG.10 — Hijos del árbol: sólo plaza da los días, +fecha los documentos, +folio cada depósito.' })
+  incomeTreeChildren(
+    @Query('canal') canal: string,
+    @Query('plaza') plaza?: string,
+    @Query('fecha') fecha?: string,
+    @Query('folio') folio?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('grain') grain?: string,
+  ): Promise<IncomeTreeChildren> {
+    const g = grain === 'mes' || grain === 'trimestre' ? grain : 'dia';
+    return this.service.incomeTreeChildren({ canal, plaza, fecha, folio, from, to, grain: g });
+  }
+
+  /**
+   * `[IG.10]` El documento detrás de un folio del árbol.
+   *
+   * ⚠️ Va ANTES de `income/:param` por la misma razón de siempre: una ruta con segmento fijo
+   * tiene que ganarle a cualquier parámetro que pueda tragarse su primer segmento.
+   */
+  @Get('income/documento')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({ summary: 'IG.10 — El documento de un folio: encabezado, renglón y sus cobros uno por uno.' })
+  incomeDocumento(
+    @Query('folio') folio: string,
+    @Query('fecha') fecha: string,
+  ): Promise<IncomeDocumento> {
+    return this.service.incomeDocumento({ folio, fecha });
+  }
+
   @Get('income/tree')
   @RequirePermissions(Permission.FINANCE_INCOME_VER)
-  @ApiOperation({ summary: 'IG — Árbol Canal → Plaza. Mismos filtros que /income.' })
+  @ApiOperation({ summary: 'IG — Árbol Canal → día → folio → depósito. Mismos filtros que /income.' })
   incomeTree(
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -447,8 +518,13 @@ export class CommercialAnalyticsController {
     @Query('concepto') concepto?: string,
     @Query('min_importe') minImporte?: string,
     @Query('max_importe') maxImporte?: string,
+    @Query('grain') grain?: string,
   ): Promise<IncomeTree> {
-    return this.service.incomeTree(this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte));
+    const g = grain === 'mes' || grain === 'trimestre' ? grain : 'dia';
+    return this.service.incomeTree({
+      ...this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte),
+      grain: g,
+    });
   }
 
   @Get('income/sources')
@@ -972,6 +1048,105 @@ export class CommercialAnalyticsController {
   }
 
   // ─────────── Fase RR — Ventas por Ruta ───────────
+
+  @Get('route-inventory')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.10 - Inventario de los camiones de Ruta Directa, en las DOS valuaciones (a costo del '
+      + 'embarque y a precio realizado), con el cuadre carga - vendido = inventario cerrando al '
+      + 'centavo en cada columna. Params opcionales: from, to (YYYY-MM-DD); sin ellos devuelve '
+      + 'toda la ventana desde la primera carga documentada de cada ruta. '
+      + 'Kepler NO publica saldo de ruta (kdil y kdij no tienen una sola fila de almacen de ruta): '
+      + 'esto se reconstruye del embarque U-D-41 y de la venta del carril push.',
+  })
+  routeInventory(@Query('from') from?: string, @Query('to') to?: string): Promise<RouteInventoryReport> {
+    return this.service.routeInventory(from, to);
+  }
+
+  @Get('route-inventory/detail')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.10 - El detalle por SKU y unidad de una ruta. La unidad es parte de la llave: el mismo '
+      + 'SKU se carga y se vende en PZA y en PAQ, y restar sin fijar el peldano mezcla piezas con '
+      + 'paquetes (ADR-055). Params: route_no, from, to.',
+  })
+  routeInventoryDetail(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<RouteInventoryDetail> {
+    return this.service.routeInventoryDetail(routeNo, from, to);
+  }
+
+  @Get('route-inventory/series')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.18 - Serie diaria de una ruta: cargado contra vendido, mas el SALDO ACUMULADO del camion '
+      + 'al cierre de cada jornada. El dia en que ese acumulado cruza a negativo es el dia en que '
+      + 'la ruta empezo a vender lo que ya traia. Params: route_no, from, to.',
+  })
+  routeSeries(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): ReturnType<CommercialAnalyticsService['routeSeries']> {
+    return this.service.routeSeries(routeNo, from, to);
+  }
+
+  @Get('route-inventory/shipments')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.19 - Los traspasos (embarques U-D-41) a una ruta, documento por documento. El ledger '
+      + 'agrega al grano (ruta, fecha, clase, sku, unidad) y TIRA el folio; el documento es la '
+      + 'unidad de la respuesta porque es lo que se firma y se reclama. Medido: 25-72 por ruta, '
+      + 'se devuelven todos. Params: route_no, from, to.',
+  })
+  routeShipments(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): ReturnType<CommercialAnalyticsService['routeShipments']> {
+    return this.service.routeShipments(routeNo, from, to);
+  }
+
+  @Get('route-inventory/shipment-lines')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.19+RD.21 - Las lineas de UN embarque, con el costo unitario al que se le cargo cada '
+      + 'producto al camion. `salto_peldano` marca la linea cuyo costo se despega >=2x del mediano '
+      + 'historico de ese SKU: el umbral 2.00 sale de CE.8 (el factor de caja minimo del catalogo), '
+      + 'no de oido. Params: route_no, folio, serie.',
+  })
+  routeShipmentLines(
+    @Query('route_no') routeNo: string,
+    @Query('folio') folio: string,
+    @Query('serie') serie?: string,
+  ): ReturnType<CommercialAnalyticsService['routeShipmentLines']> {
+    return this.service.routeShipmentLines(routeNo, folio, serie);
+  }
+
+  @Get('route-inventory/negatives')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.20 - Los numeros rojos de una ruta, partidos en sus DOS familias y con su antiguedad. '
+      + '`nunca_cargado` = lo vendio sin que nadie se lo cargara en la ventana (mercancia anterior '
+      + 'al primer embarque): NO se puede valuar, se declara. `se_acabo` = se le cargo, lo vendio '
+      + 'todo y siguio vendiendo: es la familia accionable. `desde` es el primer dia en que el '
+      + 'saldo acumulado cruzo a negativo. Params: route_no, from, to.',
+  })
+  routeNegatives(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): ReturnType<CommercialAnalyticsService['routeNegatives']> {
+    return this.service.routeNegatives(routeNo, from, to);
+  }
 
   @Get('sales-by-route/routes')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)

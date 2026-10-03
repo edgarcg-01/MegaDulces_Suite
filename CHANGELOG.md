@@ -9,6 +9,216 @@
 ---
 
 ## [Unreleased]
+### Fixed — auditoría del design system: el techo de motion deja de ser una intención, y Alto Contraste deja de ser un hueco (2026-10-03)
+
+Auditoría de [`DESIGN.md`](DESIGN.md) y sus tres satélites. El sistema está bien hecho; lo que falla
+es lo que **nadie mide** — y se degrada rápido: en los 19 días desde la última verificación,
+`!important` **+7.6%**, `::ng-deep` **+18.6%**, breakpoints en px **+22%**, tamaños de letra distintos
+en `apps/view` **97 → 120**.
+
+- **`[DS.1]` Techo de motion: de BINDING sin instrumento a 0 incumplimientos medidos.** El arquetipo
+  canónico (`MetricStrip`, **81 pantallas**) llevaba **tres semanas** con `transition: width 900ms`
+  —2.6× el techo y sobre una propiedad de **layout**— *después* de estar escrito como ⛔ en la tabla
+  de cumplimiento. Ahora el bullet anima `transform: scaleX()`; la barra de composición no se pudo
+  (hermanos flex de una fila) y **queda declarada con su razón** (ADR-056). Más 40 duraciones al
+  techo: el flash de `MetricCard` (1s) y del POS (1.2s), `sparkline` (.8s), `ring-gauge` (.7s), y las
+  **3 pantallas de chat IA**, que compartían el *mismo* tratamiento copiado tres veces.
+- **Nueva compuerta `npm run check:motion`** (15 casos de prueba negativa, en CI). Nace **en verde**,
+  a propósito. ⭐ **Y en su primera corrida encontró 40 declaraciones que tres barridos manuales con
+  `grep` no vieron**, porque en `animation: nombre 0.6s ease` la duración no está donde uno la busca.
+  ⚠️ La cifra que el doc publicaba —*"19 por encima del techo"*— **contaba sólo milisegundos**.
+- **`[DS.2]` `forced-colors` tenía 0 usos en todo el repo** y la flota es Windows. Este sistema es el
+  que peor se lleva con Alto Contraste: hairline + alpha-overlays + semáforo por fondo = los tres
+  estados de fila **colapsan en uno**, y el anillo de foco hecho con `box-shadow` **desaparece**.
+  Nuevo [`libs/ui-web/src/forced-colors.css`](libs/ui-web/src/forced-colors.css) en las 3 apps, con
+  `forced-color-adjust: none` **sólo** donde el color *es* el dato.
+- **`tokens.css`:** `.portal-shell` redeclaraba `--font-body` (copia literal de `:root`, cero efecto)
+  y `--font-mono`, que **ya había divergido** — `:root` caía a `'Courier New'` y el portal a SFMono.
+  El día que Geist Mono no cargue, Operations imprimía los precios en una **Courier con serifas**.
+- **Docs.** [`DESIGN_TENDENCIAS_2026.md`](docs/DESIGN_TENDENCIAS_2026.md) **caducó en verde** —
+  afirmaba ✅ sobre **cinco** decisiones ya revertidas (Fraunces ×7, Stone ×3, espresso ×3, una escala
+  de spacing que nunca existió, un rango de motion que contradecía el techo binding): corregido y
+  revalidado contra el estado del campo (§11). La tabla de **Surfaces** de `DESIGN.md` tenía **5
+  defectos** (4 rutas sin régimen + `/mi-trabajo`, que **no es una ruta**) y su bloque «Superficies —
+  LIGHT» documentaba `var(--stone-*)`, **una rampa que el mismo doc declara retirada**. Las cifras de
+  la tabla de cumplimiento ahora publican **el comando que las produjo**.
+
+### Added — `[DS.3]` las 4 reglas de CSS que nadie medía, en una compuerta (y por qué NO es stylelint)
+
+⛔ **Se descartó stylelint, y lo decidió la medición, no el gusto.** El **89%** de los `font-size` y
+el **95%** de los hex crudos de este repo viven **dentro de template literals de TypeScript** (337
+componentes con `styles:` inline contra **28** `.component.css`). Angular no usa una plantilla
+taggeada de CSS sino un string suelto en el decorador, así que ni `postcss-lit` lo toma limpio:
+stylelint de fábrica habría visto **~1 de cada 10 defectos** y cobrado una dependencia nueva —más su
+sintaxis custom— por esa décima parte. `check-template-literals.js` **ya extraía esos bloques** con
+el compilador de TS; [`check-estilos.js`](scripts/check-estilos.js) reusa ese camino: **100% de
+cobertura, 0 dependencias**, ~2.6 s, en CI con sus 15 casos de prueba negativa.
+
+Las cuatro reglas, congeladas con la deuda de hoy — **frenan cuando CRECE, no por existir**:
+
+| Regla | Deuda congelada |
+|---|---|
+| `font-size` fuera de la escala `--fs-*` (imprime el token equivalente) | **3,161** |
+| hex crudo en una declaración de color | **1,449** |
+| `@media` con breakpoint en px | **205** |
+| `outline:none` sin un `:focus-visible` hermano | **27** |
+
+### Added — el papel y las gráficas: las dos superficies que el design system no nombraba (2026-10-03)
+
+- **`[DS.8]` Ctrl+P tiene régimen.** `@media print` aparecía **7 veces en todo el repo** y
+  `DESIGN.md` —1,242 líneas— no nombraba el papel **ni una vez**, en una app que emite pólizas,
+  libro de compras, anexo de venta con pagaré y acuses de conteo. Nuevo
+  [`print.css`](libs/ui-web/src/print.css): papel **claro siempre** (el oscuro es preferencia de
+  pantalla), chrome fuera, tabla que repite encabezado y no parte renglones, y el **semáforo SÍ se
+  imprime** — si el color es el dato, quitarlo deja una hoja que no dice lo que decía la pantalla.
+  ⚠️ No toca los tickets ni los exports: ésos abren ventana propia.
+- **`[§G]` Contrato de data-viz, nueve reglas.** Sólo existían `--chart-1..8`. Una paleta evita que
+  dos series se parezcan; **no evita que la gráfica diga algo falso**. Eje de barra desde cero ·
+  hueco ≠ cero (ADR-056 sobre una forma) · color de serie determinista y nunca único portador ·
+  truncar se declara ("10 de 428 · 62% del total") · micro-viz SVG 0 KB · frescura también ahí.
+- **`[DS.7]` INP se mide en `apps/view`.** §17 dice "se mide, no se estima" y `web-vitals` estaba
+  cableado **sólo en el portal** — la app de las tablas densas no medía nada. ⭐ No hubo que
+  construir nada: el endpoint (`/telemetry/suite`), el servicio y la librería ya estaban.
+
+### Changed — tres deudas de CSS bajadas con cambio visual CERO (2026-10-03)
+
+| | antes | después |
+|---|---|---|
+| `surf-table--zebra` (clase **sin regla** hace meses) | 63 en 40 plantillas | **0** |
+| breakpoints en px | 206 | **0** |
+| `font-size` con literal | 3,161 | **2,687** |
+
+⛔ **Y lo que NO se bajó así, con su razón:** los `font-size` que quedan están **fuera de la
+escala** (`.8rem` = 12.8px cae entre `--fs-xs` 12 y `--fs-sm` 13) — tokenizarlos **mueve el
+texto**. Y los 144 que caen en un token de **rol** (`1rem`→`--fs-h3`) se saltearon: la muestra
+tiene `h2`/`h3` reales **pero también** `.qty-num`, `.va-input input` y `.kv dd`.
+⭐ **Hallazgo: la escala no tiene un peldaño de 16px con nombre de TAMAÑO.**
+
+⛔ **El barrido rompió 14 sitios y hubo que revertirlos:** metió `var(--fs-*)` dentro de tickets de
+impresión y exports a PDF, que se renderizan **fuera del árbol de la app** — ahí no hay `:root`, la
+propiedad no resuelve y el navegador **tira la declaración entera**. *La pregunta antes de tokenizar
+un `font-size` no es en qué archivo está: es **dónde se renderiza**.*
+
+### Fixed — el anillo de foco: 37 controles que no lo tenían y 103 que no llegaban al piso (2026-10-03)
+
+Salió de encender `check:estilos`, y resultó ser más grande que su hallazgo inicial.
+
+- **Dos tokens porque son dos roles.** `--action-ring` (translúcido 30%) nació como **halo** para
+  `box-shadow` y se estaba usando también como color de **`outline`**. Ahí no funciona: un outline no
+  se difumina, se dibuja encima, y a ese alpha queda en **1.44:1** contra el piso de **3:1** que
+  §datos densos 13 y WCAG 1.4.11 exigen. **103 anillos estaban por debajo.** Ahora
+  `--focus-ring: var(--action)` → **3.08 a 5.87:1** según el fondo, y los **25 halos de `box-shadow`
+  quedaron intactos**, que ahí el translúcido es lo correcto.
+  ⚠️ El mismo **3.39:1** que hace fallar a `--action-ink` acá **pasa**: foco pide 3:1, texto pide
+  4.5:1. *Citar un ratio sin su piso no dice nada.*
+- **37 controles sin ningún anillo, y 24 eran campos de entrada:** los dos de **escaneo** (andén de
+  almacén, etiquetas de tienda), el **login de las dos apps**, los steppers del vendedor, el
+  **verificador de mostrador**, los tabs de PrimeNG en las 3 apps, y **los buscadores que `[D.7]`
+  acaba de volver navegables con teclado** — la ruta existía y era **invisible**. Arreglados los 37;
+  el tope de esa regla queda en **0**.
+
+⛔ **Y la compuerta tenía el defecto que venía a buscar.** Su primera versión preguntaba si el
+**archivo** contenía `:focus-visible` en cualquier parte, así que en cuanto un archivo ganaba un
+anillo, todo `outline:none` agregado después pasaba en silencio — dejando ciegos justo a los 20
+archivos recién arreglados. **Lo encontró su propia prueba negativa, el mismo día.** Reescrita por
+**control**, destapó **10 defectos más**. En el camino se corrigieron dos criterios demasiado
+estrictos, medidos contra los hallazgos reales: un anillo con `box-shadow` vale igual que uno con
+`outline`, y un bloque que ya responde al foco puede apagar el `outline` si pone otra señal — pero
+**`border: none` y `background: none` NO son señal**, y ésa era la firma exacta de los 27 originales.
+Los cinco casos viven en el `--self-test` (20 en total).
+
+**Abierto, con dueño:** `@media print` = **7** en una app que emite pólizas y libro de compras, INP
+sin medición de campo en `apps/view`, `--action-ink` en **3.39:1** (verificado), y la única deuda que
+**no** se arregla con un ratchet: `@layer` = 0 con 1,034 `!important` y 439 `::ng-deep` — eso es una
+migración de cascada, no un número que congelar.
+
+### Added — el inventario de los camiones de Ruta Directa, como un cuadre que cierra (Fase RD, 2026-10-02)
+Nueva pestaña **`/comercial/inventario-ruta`**: cuánto trae cada camión RD, con **valor a costo y valor a venta**,
+y filtro por rango de fechas. Responde la pregunta como un **cuadre** —`cargado − vendido = inventario`— y la
+identidad **cierra al centavo en las dos columnas** (medido: `delta` = 0.00 en las 22 filas).
+- **[RD.9]** `analytics.v_rd_route_identity` — resolvedor de las 11 rutas con camión y sus **cinco** nombres
+  (`RUTA 23` destino · `01-003` almacén · `23` route_code · `00023` en `kdm1.c12` · `RUTA-23` en
+  `commercial.warehouses`), con la fecha de primera carga **derivada**, no tecleada.
+- **[RD.10]** `analytics.v_rd_route_ledger` + `GET /commercial/analytics/route-inventory` (+ `/detail`).
+  ⛔ **Kepler no publica ningún saldo de ruta**: `kepler_ods.kdil` (existencia) y `kdij` (kardex) tienen **cero
+  filas** de almacén de ruta — todas cumplen `c1 = sucursal`. El saldo se **reconstruye** del embarque `U-D-41`
+  del almacén madre menos la venta del carril push.
+- **[RD.12]** ⚠️ **Hay DOS costos para la misma mercancía.** El embarque y el `c62` que el ERP escribe en la línea
+  de venta difieren **1.1744×** sobre el mismo universo, y la forma **no es un impuesto** (se probó contra 1.08 /
+  1.16 / 1.2528). Se valúa con el **costo del embarque** —es el único con el que el cuadre cierra, y es la cuenta
+  real del camión contra su sucursal—; el `c62` viaja como **línea de contraste rotulada**, jamás sumada.
+  ⭐ Corrige una medición propia anterior que decía «90% coinciden al costo»: contaba pares sin peso y sobre un
+  solo mes. Pesado por dinero son **46%**. *Contar filas ordena al revés que contar pesos.*
+
+**Medido:** los camiones **no acumulan** — el saldo neto es ±1–4% de lo cargado. La venta sale del push porque la
+copia del ODS cubre **41.8%–49.8%** de los días (le faltan días, no dinero). El inventario se publica partido en
+«a favor» y «en contra» y **no se netea en silencio**: sin conteo inicial, el negativo es mercancía que el camión
+ya traía, y se probó que **no** lo fabrica el split de unidad (de 229 SKUs negativos, **1** tiene positivo en otro
+peldaño). Cobertura declarada en pantalla: 633 pares sin costo y 256 sin precio de 8,504.
+
+**Candado** `test-newdb-rd-route-inventory.js` en la regresión — **18 ✓ / 0 ✗ / 1 no medido**, con la carga
+contrastada contra `analytics.stock_movements` (otro camino de código, coincide en las 11 rutas) y **dos pruebas
+negativas**. Sin permisos nuevos (reusa `COMMERCIAL_ROUTE_SALES_VER`) ⇒ **sin re-login**.
+Plan y evidencia en [`FASE_RD_INVENTARIO_RUTA.md`](docs/IMPLEMENTACION/FASES/FASE_RD_INVENTARIO_RUTA.md).
+
+### Changed — el verificador de precios anota el faltante solo cuando la existencia es 0 (Fase FLT, 2026-10-02)
+La pestaña «Reportar» de `/tienda/faltantes` se reduce a **una caja de búsqueda**. Al elegir un producto se abre
+una ventana con el precio y la existencia que **se cierra sola** (9 s, pausada mientras el mouse está encima — si
+se cierra justo cuando alguien estira la mano para corregir, el botón de deshacer es decorativo); si la existencia
+es **0**, el faltante **ya quedó anotado**, sin preguntar nada.
+- **[FLT.25]** El veredicto decide, no la persona: `sin_existencia` anota solo (`kind=agotado`,
+  `source=verificador`) · `hay_en_tienda` no anota nada (era una consulta de precio) · `no_medido` **NO anota**, y
+  es el único caso con botón — cero y «no se pudo leer» no son lo mismo (ADR-056), y anotar solo un «no sé» le
+  inventa a Compras una venta perdida que quizá está en el anaquel. Reglas puras en `faltante-express.ts` con su
+  spec (10 aserciones) y **prueba negativa corrida**: con `veredicto !== 'hay_en_tienda'` —la implementación
+  plausible y equivocada— caen exactamente los dos casos que importan.
+- **[FLT.26]** `PATCH /commercial/floor-stockouts/:id/deshacer`, gateado con `STORE_STOCKOUT_CAPTURAR` y **no**
+  con `COMPRAS_HALLAZGOS_GESTIONAR`: es la contracara de reportar, no una decisión de bandeja — sin él, el alta
+  automática era una puerta de un solo sentido desde el mostrador. **Resta un reporte y REVALÚA** (dejar el monto
+  viejo haría que restar no baje el dinero); borra la fila sólo si ese reporte era el único. Tres frenos: alcance,
+  `status='open'` y ventana de 5 min. Sin migración ni permiso nuevo.
+- ⚠️ **Declarado, no resuelto:** los otros tres motivos (`no_en_anaquel`, `no_en_sucursal`, `codigo_no_pasa`) ya
+  no se capturan por este camino. El que más duele es «no estaba en el anaquel», **el único que se recupera el
+  mismo día** con la venta todavía viva. Y cada consulta de precio de un producto agotado se vuelve un faltante:
+  Compras los separa por `source=verificador`, pero la señal se diluye.
+- 🔴 **Hallazgo colateral corregido:** `test-newdb-floor-stockouts.js` **INSERTA** y no llamaba a
+  `assertSafeTarget`, con `DATABASE_URL_NEW` apuntando a `192.168.0.222:5434` (**producción**). Es el accidente del
+  2026-08-29 —que hizo nacer esa guarda— en un test que nunca la usó.
+- 🔸 Y uno anterior a este cambio: la confirmación de «producto no catalogado» vivía dentro de la pestaña
+  «Reportar», que es la única que nunca la dispara (`reportarNoCatalogado()` no cambia de pestaña) → quien daba de
+  alta un producto **no veía nada**. Se movió a donde se produce.
+
+### Fixed — el despliegue deja de frenar por migraciones ajenas, y el CI deja de reventar por deuda ajena (Fase CD, 2026-10-02)
+Nace de "el CI/CD es lento y aborta por migraciones pendientes". **Medido antes de tocar: el build tarda 10 s**
+(`npm ci` 70 s, build 10 s — `nx affected` + caché remoto ya estaban bien). Lo roto era otra cosa: **las 15
+corridas más recientes en rojo, las 15**. El commit `1d3c504dc` toca UN archivo y su CI falló por CINCO, ninguno
+el suyo — `check:tables` y `check:tokens` barrían las 3 apps enteras.
+- **[CD.1]** `ops/prod/compuerta-migraciones.sh`: pendiente ≠ bloqueante. Cruza los objetos que las migraciones
+  pendientes crean contra los archivos que cambian; si no los nombran, **DESACOPLADO** y se despliega. ⛔ La
+  compuerta **no se quitó**: 8 de los últimos 14 commits con migración traen código de `apps/`/`libs/` en el
+  MISMO commit, así que frenar por defecto es correcto. Lo que se afloja es el hotfix que no toca ese esquema.
+- **[CD.2]** `scripts/lib/alcance-diff.js`: las compuertas de diseño cortan por lo que el cambio tocó y
+  **declaran su alcance** (`alcance: 13 de 692`). La deuda del resto se sigue midiendo (`--todo`). De paso
+  bajaron de 1,146/1,318 ms a **200 ms**.
+- **[CD.3]** caché de `node_modules` por hash exacto de lock en los dos jobs, sin `restore-keys` a propósito.
+- **[CD.4]** resumen semántico `if: failure()`: qué compuerta cortó y cómo reproducirla, sin abrir el log.
+- **[CD.5]** tres defectos que **sólo salieron al desplegar a `md`**: la compuerta estaba en Node y **en `md` no
+  hay Node** (reescrita en POSIX sh — `clasificar-migraciones.awk` ya era awk por esto); **`grep -i` con `-f`
+  devuelve cero EN SILENCIO** bajo MSYS (el modo de falla era desplegar código roto, y la prueba negativa no lo
+  vio porque corría sobre 40 bytes); y falsos positivos por subcadena (`requests` dentro de `expense_requests`) y
+  por palabra en comentario — se arregla conservando el nombre **calificado** y cruzando con límite de palabra.
+- **[CD.6]** colisión de timestamps `20261001160000`. Verificado contra prod ANTES de tocar: una está aplicada
+  (congelada), la otra no. Renombrada la segunda.
+Verificado en `md`: prueba negativa **10/10**, `deploy.sh --verificar` sin fallas, caso real DESACOPLADO y caso
+acoplado FRENA. Plan en [`FASE_CD`](docs/IMPLEMENTACION/FASES/FASE_CD_DESPLIEGUE_DESACOPLADO.md).
+
+### Fixed — instalar gitleaks bloqueaba TODOS los commits (SEC.1, 2026-10-02)
+`gitleaks` 8.30.1 (lo que dan winget y choco) retiró el subcomando `protect`; `gitleaks protect --staged` sale
+**255** y el `pre-commit` leía ese no-cero como "hay un secreto" → mensaje falso + `exit 1` + ningún commit
+posible. O sea que **instalar la herramienta rompía el repo**. Ahora detecta si existe `git` (8.19+) o `protect`
+(anterior), y separa con `--exit-code 7` el hallazgo —que frena— de "no pude correr", que se **declara** sin
+trabar el commit. Probado en las dos direcciones: string tipo prod frena, dev local (allowlist) pasa.
+
 ### Changed — cotización: el detalle (editar) usa el mismo esqueleto compacto que el alta (COT.18, 2026-10-02)
 - Cabecera de una línea, condiciones en una tira, buscador en la fila del título, artículo elegido en horizontal, renglones de una línea y riel fijo con totales, Excel/PDF, la lista del cliente y el asistente IA. Medido en COT-2026-00009: renglón 54 → 39 px, los 10 renglones caben sin scroll. Sólo plantilla y estilos.
 ### Added — `/compras/pedido` Etapa 2: margen, venta perdida verificada, unidades de mayor a menor y pedido típico (RA-PRO.67–69, 2026-10-02)
@@ -41,6 +251,42 @@ Plan de etapas 2–5 en `docs/IMPLEMENTACION/FASES/FASE_RA_PEDIDO_PERSPECTIVA.md
 - **Velocidad:** migración `20261002120000` recrea `analytics.v_label_presentations` con el mismo SQL y `NOT MATERIALIZED` en sus CTE; el filtro por sucursal+sku vuelve a entrar. Medido en prod: mediana 3,094 → 144 ms por consulta, 96/96 resultados idénticos. Acelera también a la etiquetera.
 ### Added — `npm run dev:bootstrap-vacia`: levanta una base de desarrollo desde cero cuando `migrate:new` solo no alcanza (2026-10-02)
 `migrate:new` sobre una base vacía se detiene en la migración 88 y otra vez en la primera que necesita `kepler_ods` (GOTCHAS §75). `database/scripts/dev-bootstrap-empty-db.js` hace, en el orden en que fallaron, lo que hubo que improvisar a mano: el tenant, las 235 tablas de `kepler_ods.*` **vacías** desde `docs/esquema-bd-prod-columnas.csv`, `catalog.products_top_sellers` (tabla en prod, vista materializada en la migración), las extensiones en `public`, perfiles, zonas y el usuario superoot; y **marca aplicadas sin ejecutarlas** las `88 migraciones posteriores a `20260819120000` que asertan sobre datos reales del ERP, dejándolas en `public._dev_bootstrap_log`. **Esa base NO es prod**: valida estructura e invariantes, no comportamiento con datos. Protecciones con prueba negativa (`test-dev-bootstrap-guards.js`, 21 aserciones): sólo corre contra un Postgres **local**, no toma `DATABASE_URL_NEW` por defecto, se niega si el clúster trae bases ajenas al stack o si el `search_path` ya está fijado por rol (**un clúster, una base**: las migraciones lo fijan con `ALTER ROLE`, o sea para todo el servidor), y **nunca salta una migración estructural**.
+### Internal — Mesa de Servicio: runbook de despliegue a producción (Fase MS, 2026-10-02)
+`docs/IMPLEMENTACION/RUNBOOKS/MESA_DE_SERVICIO_DESPLIEGUE.md`: qué medir antes, las 4 migraciones en orden por el camino de K3s
+(el runbook de `ops/prod` quedó viejo: habla de `docker exec prod-api`), cuándo mergear, configuración que la fase no instala
+(bucket, SMTP; WhatsApp no), re-login, verificación, reversa y el criterio para encender la escalación. **Nada aplicado a prod.**
+Declara lo que no se pudo verificar desde desarrollo: el rol `sistemas`, SMTP/bucket en prod, si los `@Cron` corren también en los
+pods `api` y cómo se actualiza el secreto `prod-env`.
+### Added — Mesa de Servicio, capa 3: las pantallas (Fase MS, 2026-10-02)
+`/servicio/solicitudes` (la puerta de toda persona: alta sin prioridad —la sugiere el sistema—, seguimiento y «Mis avisos»),
+`/servicio/bandeja` (KPIs, filtros, tabla densa y ficha de atención) y `/servicio/configuracion` (horario, plazos, colas y
+categorías; la escalación sigue apagada). «Reportar un problema» en el header es la única entrada de quien sólo reporta: la clave
+no es destino del mapa de la suite a propósito. El proyecto sale de «Por clasificar» y entra al espacio 9. La campana lee los
+avisos del log por poll y el WebSocket sólo la adelanta. **Revisada en navegador** (3 personas; claro, oscuro y 390 px): salieron y se corrigieron 6 defectos que ninguna prueba veía —íconos
+inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abierta, la ficha bajo los KPIs en móvil, el acceso desde
+«Mi trabajo» y la pantalla que no reaccionaba al pulsar un aviso estando ya en ella. **Nada aplicado a prod.** *(Los Reportes se construyeron después: ver MS.3.5.)* *(Corregido en MS.3.7: el botón en tienda y telemarketing ya existía —montan el mismo layout—; el pendiente se había anotado sin medirlo.)*
+
+**«A tu nombre» en Mi trabajo (MS.3.6):** los tickets asignados a una persona aparecen en su «Mi trabajo» como «Solicitudes de servicio a tu cargo» y enlazan a la bandeja ya filtrada a «Mías». Un ticket que espera al solicitante cuenta como suyo pero **no como vencido**: su reloj está pausado. Quien sólo reporta no ve nada ahí; quien tiene tickets asignados pero no el permiso de atender ve la fila sin enlace y con el motivo. **La cola sin asignar (MS.3.8):** llega a Mi trabajo con un plazo **de 1 hora hábil que se ajusta** en `/servicio/configuracion` y se lee en cada carga (sin desplegar). Cuenta sólo el horario hábil —un ticket de las 19:30 no amanece atrasado— y, como toda cola, sólo la ve quien **responde** de ella: la clave `servicio.atender` existe pero **no se repartió a nadie**, así que no se verá hasta que alguien la reciba (decisión pendiente).
+
+**Adjuntos en notas internas (MS.3.13):** quien atiende puede subir evidencia en una nota interna (la foto de un equipo ajeno, una captura de un log) y **quien reportó no la ve**: ni la nota, ni el archivo, ni una URL. La privacidad está en la lectura de la ficha, no en prohibir el adjunto; se probó contra un bucket real y quitando el filtro de lectura la prueba se pone en rojo.
+
+**Evidencia con cámara y galería (MS.3.12):** quien atiende (y quien reporta) tiene un botón «Cámara» —la trasera del teléfono— además de «Adjuntar» (galería y archivos), en el hilo y en el formulario. Las fotos se **achican antes de subir** (lado largo 2560 px, JPEG): una foto de teléfono de 15 MB que el servidor habría rechazado después de esperar la subida ahora sube como 2 MB. Si no se puede achicar, sube la original; PDF y GIF no se tocan. (Las notas internas también admiten archivos desde MS.3.13.)
+
+**Levantar a nombre de otra persona (MS.3.11):** quien atiende puede levantar una solicitud a nombre de alguien más, indicando su **área** (departamento, precargado de su ficha y corregible) y la **sucursal**. La persona es la solicitante de verdad: la ve en «Mis solicitudes», recibe los avisos —empezando por uno que dice «se levantó una solicitud a tu nombre»— y **es ella quien confirma o reabre**, no quien la levantó; la ficha dice quién la abrió. Sólo para quien atiende (403 para los demás), sólo a nombre de personas con usuario, y el buscador no entrega correo ni teléfono ni ofrece cuentas de servicio o bajas. Botón «Levantar solicitud» en la bandeja. **No cubre** a quien no tiene usuario.
+
+**Reportes de la mesa (MS.3.5):** `/servicio/reportes` para la coordinación: cumplimiento de la primera respuesta y de la resolución, tiempos (mediana y P90) por prioridad, por categoría, por sucursal y «lo que se repite» (la misma categoría en la misma sucursal, 3 veces o más). Sale en vivo de los tickets, por fecha de creación. **Sin ranking de personas, sin semáforo (no hay meta registrada) y sin ceros dibujados**: lo que no se pudo medir sale «—». Una asignación automática no cuenta como primera respuesta, y los cancelados no incumplen.
+
+**Asignación automática (MS.3.10):** una solicitud nueva se asigna sola a la persona de la primera regla que aplica —por la **categoría** que se eligió o por una **palabra clave** en lo que se escribió («sistemas», «cpu», «impresora» → Felipe; todo lo de desarrollo → David)—. Las reglas se editan en `/servicio/configuracion` (palabras, persona, orden, apagar/retirar). La asigna el sistema: **no cuenta como primera respuesta** y el aviso dice que fue automática. **Nunca se asigna a quien no puede atender**: el ticket queda sin asignar con una nota interna y la regla se marca en pantalla. Les da a Felipe y David la responsabilidad que pone la cola «sin asignar» en su portada. **Falta darles el permiso de atender** (no se otorga por script).
+### Added — Mesa de Servicio, capa 2: lógica, 27 rutas, SLA, avisos y auto-cierre (Fase MS, 2026-10-02)
+`libs/service-desk` con el ciclo completo del ticket (alta con prioridad **sugerida**, bandeja priorizada, hilo, tomar/asignar,
+prioridad, tiempo trabajado, confirmar/reabrir/cancelar, tablero) sobre una máquina de estados pura y un reloj hábil en hora
+de México. **El solicitante no ve lo que no debe:** el ticket ajeno responde 404, las notas internas y el tiempo registrado
+no salen (filtro del servidor), y no puede subir su propia prioridad. Adjuntos validados por firma. **SLA:** primero MIDE
+(la escalación nace apagada), el barrido es idempotente, deja latido (`service_desk_sla` en `CRON_JOBS`) y cierra solo lo
+resuelto que nadie objetó. **Avisos** por tres canales con el RESULTADO de cada uno en `notification_log`: lo que no salió
+(SMTP sin configurar, sin correo registrado, WhatsApp sin plantilla de Meta) queda declarado como `skipped`, no fingido.
+Configuración editable por la coordinación; el espejo hacia la Bitácora queda preparado y apagado (`BITACORA_PORT`).
+Verificado por HTTP con cuatro roles sin admin y una prueba de mutación. **Sin pantalla todavía** (capa 3). **Nada aplicado a prod.**
 ### Added — Mesa de Servicio, capa 1: schema `servicedesk`, 3 permisos y el ticket como fuente de tarea (Fase MS, 2026-10-02)
 Cuatro migraciones (11 tablas con RLS forzado, grants por tabla sin `DELETE` en el registro, semillas de la cola
 TI con escalamiento APAGADO), `SERVICIO_REPORTAR/ATENDER/COORDINAR` repartidos, `servicedesk.requests` declarada

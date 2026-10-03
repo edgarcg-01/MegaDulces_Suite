@@ -55,7 +55,7 @@ import { SalesBlock } from './dashboard-spec';
                 @for (r of b.rows.slice(0, 12); track r.label) {
                   <div class="sb-bar-row">
                     <span class="sb-bar-label" [title]="r.label">{{ r.label }}</span>
-                    <div class="sb-bar-track"><div class="sb-bar-fill" [style.width.%]="r.share || 0"></div></div>
+                    <div class="sb-bar-track"><div class="sb-bar-fill" [style.--fill]="(r.share || 0) / 100"></div></div>
                     <span class="sb-bar-val">{{ fmt(r.value) }}</span>
                   </div>
                 }
@@ -94,12 +94,12 @@ import { SalesBlock } from './dashboard-spec';
     .sb-faint { color:var(--text-faint); }
     .sb-grid { display:grid; grid-template-columns:1fr 1.2fr; gap:1.2rem; align-items:start; }
     .sb-grid-1 { grid-template-columns:1fr; }
-    @media (max-width:900px) { .sb-grid { grid-template-columns:1fr; } }
+    @media (max-width:56.25rem) { .sb-grid { grid-template-columns:1fr; } }
     .sb-bars { display:flex; flex-direction:column; gap:.5rem; }
     .sb-bar-row { display:grid; grid-template-columns:8rem 1fr auto; align-items:center; gap:.6rem; font-size:.8rem; }
     .sb-bar-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-muted); }
     .sb-bar-track { height:.55rem; background:var(--hover-bg); border-radius:var(--r-pill,999px); overflow:hidden; }
-    .sb-bar-fill { height:100%; background:var(--action); border-radius:var(--r-pill,999px); transition:width 600ms cubic-bezier(.2,0,0,1); }
+    .sb-bar-fill { width:100%; height:100%; background:var(--action); transform:scaleX(var(--fill,0)); transform-origin:left center; transition:transform var(--dur-standard,250ms) var(--ease-standard,cubic-bezier(.4,0,.2,1)); }
     @media (prefers-reduced-motion: reduce) { .sb-bar-fill { transition:none; } }
     .sb-bar-val { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .sb-table { font-size:.82rem; } .ta-r { text-align:right; } .sb-w { width:9rem; } .sb-w-sh { width:5rem; }

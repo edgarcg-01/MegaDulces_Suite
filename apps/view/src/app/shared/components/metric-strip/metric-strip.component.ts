@@ -17,7 +17,12 @@ export interface MetricStripItem {
   sub?: string;
   /** delta % vs periodo anterior → ▲/▼ + número (flecha, no solo color). */
   delta?: number | null;
-  /** punto pulsante "en vivo" junto a la etiqueta. */
+  /**
+   * Punto pulsante "en vivo" junto a la etiqueta **y** `aria-live="polite"` en la cifra.
+   * ⚠️ Las dos cosas, no una: el punto avisa a quien MIRA, y sin `aria-live` el valor cambia
+   * solo y un lector de pantalla no se entera. Era el hueco que J17 declaró y nadie cerró
+   * (`MetricCard` sí lo tenía desde el principio). Cerrado 2026-10-03.
+   */
   live?: boolean;
   /** serie para el modo spark (nº con sparkline de fondo) y ring/bullet no la usan. */
   series?: number[];
@@ -72,12 +77,14 @@ export interface MetricStripItem {
             @if (mode() === 'ring') {
               <div class="ms-ring-row">
                 <app-ring-gauge [value]="it.pct ?? num(it)" [max]="100" [size]="46" [color]="toneColor(it)"></app-ring-gauge>
-                <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)"></b>
+                <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)"
+                   [attr.aria-live]="it.live ? 'polite' : null"></b>
               </div>
             } @else {
               <div class="ms-row">
                 @if (isText(it)) { <b class="ms-v is-text">{{ it.value }}</b> }
-                @else { <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)"></b> }
+                @else { <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)"
+                           [attr.aria-live]="it.live ? 'polite' : null"></b> }
                 @if (it.delta !== null && it.delta !== undefined) {
                   <span class="ms-delta" [class.up]="it.delta! > 0" [class.down]="it.delta! < 0">
                     {{ it.delta! > 0 ? '▲' : it.delta! < 0 ? '▼' : '' }} {{ absDelta(it.delta!) }}%
@@ -88,7 +95,7 @@ export interface MetricStripItem {
     
             @if (mode() === 'bullet') {
               <div class="ms-bullet">
-                <span class="ms-bfill" [class]="'tone-' + (it.tone || 'brand')" [style.width.%]="mounted() ? (it.pct ?? 0) : 0"></span>
+                <span class="ms-bfill" [class]="'tone-' + (it.tone || 'brand')" [style.--fill]="mounted() ? ((it.pct ?? 0) / 100) : 0"></span>
                 @if (it.target != null) { <span class="ms-btarget" [style.left.%]="it.target"></span> }
               </div>
             }
@@ -134,13 +141,26 @@ export interface MetricStripItem {
     .ms-spark { display:block; margin-top:.35rem; --spk-h:34px; }
     /* bullet */
     .ms-bullet { position:relative; height:8px; margin-top:.5rem; background:var(--track,color-mix(in srgb,var(--border-color) 60%,transparent)); border-radius:999px; }
-    .ms-bfill { position:absolute; inset:0 auto 0 0; height:100%; border-radius:999px; background:var(--action); transition:width 900ms var(--ease-standard,cubic-bezier(.2,0,0,1)); }
+    /* El relleno ocupa el ancho completo y se recorta con scaleX desde la izquierda: transform
+       es compuesto (no dispara layout) y cae dentro del techo de 350ms de DESIGN.md. Antes
+       animaba width 900ms -- 2.6x el techo y sobre una propiedad de layout, en 81 pantallas.
+       Se CONSERVA el border-radius del propio relleno porque .ms-bullet no puede recortar:
+       .ms-btarget se sale a proposito 3px arriba y abajo, y un overflow:hidden lo decapitaria.
+       Costo declarado: el casquete derecho se achata a elipse al escalar. A 8px de alto es
+       imperceptible, y a porcentajes chicos el relleno es una astilla donde no se ve. */
+    .ms-bfill { position:absolute; inset:0 auto 0 0; width:100%; height:100%; border-radius:999px; background:var(--action); transform:scaleX(var(--fill,0)); transform-origin:left center; transition:transform var(--dur-standard,250ms) var(--ease-standard,cubic-bezier(.4,0,.2,1)); }
     .ms-bfill.tone-ok { background:var(--ok-fg); } .ms-bfill.tone-warn { background:var(--warn-fg); } .ms-bfill.tone-bad { background:var(--bad-fg); }
     .ms-btarget { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--text-main); border-radius:2px; }
     /* ── composición: una barra segmentada + leyenda ── */
     .ms-band { width:100%; }
     .ms-bar { display:flex; height:14px; border-radius:999px; overflow:hidden; background:var(--track,color-mix(in srgb,var(--border-color) 60%,transparent)); }
-    .ms-seg { transition:width 900ms var(--ease-standard,cubic-bezier(.2,0,0,1)); }
+    /* ⚠️ EXCEPCION DECLARADA a "solo transform+opacity" (DESIGN.md §Motion), con su razon:
+       los segmentos son hermanos flex que se reparten UNA fila; escalar uno no mueve a los
+       otros, asi que scaleX no aplica sin pasar a posicion absoluta con desplazamiento
+       acumulado -- un refactor del TS que no se hace a ciegas. El reflow esta acotado: una
+       tira de 14px con 2-5 spans vacios, sin texto adentro. Lo que SI se corrige es la
+       duracion: 900ms -> --dur-standard. Deuda con nombre: [DS.1] segmentos a transform. */
+    .ms-seg { transition:width var(--dur-standard,250ms) var(--ease-standard,cubic-bezier(.4,0,.2,1)); }
     .ms-seg.tone-ok { background:var(--ok-fg); } .ms-seg.tone-warn { background:var(--warn-fg); } .ms-seg.tone-bad { background:var(--bad-fg); } .ms-seg.tone-brand { background:var(--action); } .ms-seg.tone-default { background:var(--text-faint); }
     .ms-leg { display:flex; flex-wrap:wrap; gap:1.3rem; margin-top:.85rem; }
     .ms-leg span { display:inline-flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--text-muted); }
@@ -148,7 +168,7 @@ export interface MetricStripItem {
     .ms-leg i.tone-ok { background:var(--ok-fg); } .ms-leg i.tone-warn { background:var(--warn-fg); } .ms-leg i.tone-bad { background:var(--bad-fg); } .ms-leg i.tone-brand { background:var(--action); } .ms-leg i.tone-default { background:var(--text-faint); }
     .ms-leg b { font-family:var(--font-mono); font-weight:600; color:var(--text-main); font-variant-numeric:tabular-nums; }
     /* móvil: grid 2 columnas con un divisor central por fila */
-    @media (max-width:560px) {
+    @media (max-width:35rem) {
       .ms:not(.ms--composition) { display:grid; grid-template-columns:1fr 1fr; row-gap:.85rem; }
       .ms-item { padding:.1rem 1rem; }
       .ms-item:not(:first-child)::before { display:none; }

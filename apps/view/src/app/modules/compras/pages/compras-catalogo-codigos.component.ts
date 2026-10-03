@@ -177,7 +177,7 @@ type Severidad = '' | 'distinto' | '5' | '25';
       </div>
 
       <p-table [value]="grupos()" [loading]="cargando()" dataKey="barcode"
-               styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra"
+               styleClass="p-datatable-sm surf-table surf-table--sticky"
                [rowHover]="true" [expandedRowKeys]="abiertos">
         <ng-template #header>
           <tr>
@@ -395,7 +395,7 @@ type Severidad = '' | 'distinto' | '5' | '25';
     .cd-nuevo-txt { flex: 1; min-width: 0; }
     .cd-nuevo-txt strong { display: block; color: var(--c-text-1); }
     .cd-nuevo-txt span { color: var(--c-text-2); }
-    @media (max-width: 640px) { .cd-nuevo { flex-wrap: wrap; } }
+    @media (max-width: 40rem) { .cd-nuevo { flex-wrap: wrap; } }
 
     .cd-r { text-align: right; }
     .cd-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -425,7 +425,7 @@ type Severidad = '' | 'distinto' | '5' | '25';
       background: var(--c-surface-2); border: 1px solid var(--c-divider); color: var(--c-text-2);
       white-space: nowrap;
     }
-    .cd-small-inline { font-size: .75rem; }
+    .cd-small-inline { font-size: var(--fs-xs); }
     .cd-pie { margin: .5rem 0 0; font-size: .72rem; color: var(--c-text-2); }
     .cd-pie strong { color: var(--c-text-1); }
 
@@ -493,7 +493,7 @@ type Severidad = '' | 'distinto' | '5' | '25';
       background: var(--c-surface-2); border: 1px solid var(--c-divider); border-radius: 4px;
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 56.25rem) {
       .cd-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .cd-kpi { border-top: 1px solid var(--c-divider); }
       .cd-kpi:nth-child(-n+2) { border-top: 0; }

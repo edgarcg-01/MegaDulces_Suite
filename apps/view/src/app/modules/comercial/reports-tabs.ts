@@ -29,6 +29,14 @@ export const REPORTS_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_ROUTE_SALES_VER,
   },
   {
+    // RD.13 — la misma operacion del otro lado: lo que se le cargo al camion contra lo que
+    // vendio. Mismo permiso que Ventas por ruta; no es nomina.
+    label: 'Inventario de ruta',
+    route: '/comercial/inventario-ruta',
+    icon: 'pi pi-truck',
+    permission: Permission.COMMERCIAL_ROUTE_SALES_VER,
+  },
+  {
     // RD.6 — la comision quincenal de Ruta Directa. Al lado de Ventas por ruta porque es la
     // misma venta, pero con permiso PROPIO: ver cuanto vendio una ruta y ver cuanto cobra su
     // chofer son cosas distintas, y lo segundo es nomina.

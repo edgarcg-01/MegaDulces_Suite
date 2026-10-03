@@ -5,7 +5,7 @@ import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
 import type { Freshness, ExpenseFamilia } from '@megadulces/contracts';
 import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
-import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
+import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeTreeChildren as IncomeTreeChildrenT, IncomeDocumento as IncomeDocumentoT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeReconDetalle as IncomeReconDetalleT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
 export interface AddressJsonb {
@@ -1816,6 +1816,49 @@ export class ComercialService {
     });
   }
 
+  // ── RD.10 — Inventario de los camiones de Ruta Directa ──
+  routeInventory(from?: string, to?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<RouteInventoryReport>(`${this.base}/analytics/route-inventory`, { params });
+  }
+
+  routeInventoryDetail(routeNo: string, from?: string, to?: string) {
+    let params = new HttpParams().set('route_no', routeNo);
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<RouteInventoryDetail>(`${this.base}/analytics/route-inventory/detail`, { params });
+  }
+
+  routeSeries(routeNo: string, from?: string, to?: string) {
+    return this.http.get<RouteSeriesPoint[]>(`${this.base}/analytics/route-inventory/series`,
+      { params: this.routeParams(routeNo, from, to) });
+  }
+
+  routeShipments(routeNo: string, from?: string, to?: string) {
+    return this.http.get<RouteShipment[]>(`${this.base}/analytics/route-inventory/shipments`,
+      { params: this.routeParams(routeNo, from, to) });
+  }
+
+  routeShipmentLines(routeNo: string, folio: string, serie?: string | null) {
+    let params = new HttpParams().set('route_no', routeNo).set('folio', folio);
+    if (serie) params = params.set('serie', serie);
+    return this.http.get<RouteShipmentLine[]>(`${this.base}/analytics/route-inventory/shipment-lines`, { params });
+  }
+
+  routeNegatives(routeNo: string, from?: string, to?: string) {
+    return this.http.get<RouteNegativeRow[]>(`${this.base}/analytics/route-inventory/negatives`,
+      { params: this.routeParams(routeNo, from, to) });
+  }
+
+  private routeParams(routeNo: string, from?: string, to?: string): HttpParams {
+    let p = new HttpParams().set('route_no', routeNo);
+    if (from) p = p.set('from', from);
+    if (to) p = p.set('to', to);
+    return p;
+  }
+
   salesByRouteRoutes() {
     return this.http.get<SalesByRouteOption[]>(`${this.base}/analytics/sales-by-route/routes`);
   }
@@ -2063,8 +2106,32 @@ export class ComercialService {
   income(p: IncomeParams) {
     return this.http.get<IncomeReportT>(`${this.base}/analytics/income`, { params: this.incomeParams(p) });
   }
-  incomeTree(p: IncomeParams) {
-    return this.http.get<IncomeTreeT>(`${this.base}/analytics/income/tree`, { params: this.incomeParams(p) });
+  incomeTree(p: IncomeParams & { grain?: IncomeGrainT }) {
+    let q = this.incomeParams(p);
+    if (p.grain) q = q.set('grain', p.grain);
+    return this.http.get<IncomeTreeT>(`${this.base}/analytics/income/tree`, { params: q });
+  }
+  /**
+   * `[IG.9]` Los hijos de un nodo del arbol, al abrirlo. Sin `folio` devuelve los documentos de
+   * ese canal en ese dia; con `folio`, cada deposito que se caso contra el.
+   */
+  incomeTreeChildren(a: {
+    canal: string; plaza?: string | null; fecha?: string | null; folio?: string | null;
+    from?: string; to?: string; grain?: IncomeGrainT;
+  }) {
+    let q = new HttpParams().set('canal', a.canal);
+    if (a.plaza) q = q.set('plaza', a.plaza);
+    if (a.fecha) q = q.set('fecha', a.fecha);
+    if (a.folio) q = q.set('folio', a.folio);
+    if (a.from) q = q.set('from', a.from);
+    if (a.to) q = q.set('to', a.to);
+    if (a.grain) q = q.set('grain', a.grain);
+    return this.http.get<IncomeTreeChildrenT>(`${this.base}/analytics/income/tree/children`, { params: q });
+  }
+  /** `[IG.10]` El documento detras de un folio: encabezado, renglon y sus cobros uno por uno. */
+  incomeDocumento(folio: string, fecha: string) {
+    const q = new HttpParams().set('folio', folio).set('fecha', fecha);
+    return this.http.get<IncomeDocumentoT>(`${this.base}/analytics/income/documento`, { params: q });
   }
   incomeSources(p: IncomeParams) {
     return this.http.get<IncomeSourcesT>(`${this.base}/analytics/income/sources`, { params: this.incomeParams(p) });
@@ -2074,6 +2141,23 @@ export class ComercialService {
     let q = this.incomeParams(p);
     if (p.grain) q = q.set('grain', p.grain);
     return this.http.get<IncomeReconT>(`${this.base}/analytics/income/conciliacion`, { params: q });
+  }
+  /**
+   * `[IG.12]` Los documentos de UNA celda de la conciliación. Se pide al abrir el renglón.
+   *
+   * ⚠️ Van el `from`/`to` de la pantalla: el servidor recorta el período de la celda a ese rango
+   * para que el desglose sume exactamente lo que dice el renglón que se abrió.
+   */
+  incomeReconDetalle(a: {
+    periodo: string; canal: string; plaza?: string;
+    from?: string; to?: string; grain?: IncomeGrainT;
+  }) {
+    let q = new HttpParams().set('periodo', a.periodo).set('canal', a.canal);
+    if (a.plaza) q = q.set('plaza', a.plaza);
+    if (a.from) q = q.set('from', a.from);
+    if (a.to) q = q.set('to', a.to);
+    if (a.grain) q = q.set('grain', a.grain);
+    return this.http.get<IncomeReconDetalleT>(`${this.base}/analytics/income/conciliacion/detalle`, { params: q });
   }
   private incomeParams(p: IncomeParams): HttpParams {
     let q = new HttpParams();
@@ -2318,6 +2402,113 @@ export interface SalidasReport {
 }
 
 // ── Fase RR — Ventas por Ruta ──
+/**
+ * RD.10 — una ruta en el cuadre de inventario. Las DOS columnas cierran:
+ * `carga_* − (cogs_costo | venta_cliente) − inventario_* = 0`.
+ */
+export interface RouteInventoryRow {
+  route_no: string;
+  plaza: string;
+  carga_desde: string | null;
+  /** Ultimo dia con carga o venta. Es lo que delata a una ruta parada. */
+  ultimo_movimiento: string | null;
+  /**
+   * Lo que se le subio al camion AYER. `null` = NO hubo embarque, que no es lo mismo que
+   * haberle cargado $0: por eso no se colapsa a cero. Cargan 6 de 11 rutas por dia.
+   */
+  cargado_ayer_costo: number | null;
+  cargado_ayer_qty: number | null;
+  /** El ultimo dia que se le cargo algo. Contesta "y si no fue ayer, cuando?". */
+  ultima_carga: string | null;
+  carga_costo: number; cogs_costo: number; inventario_costo: number;
+  inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
+  carga_venta: number; venta_cliente: number; inventario_venta: number;
+  inventario_venta_pos: number; inventario_venta_neg: number; delta_venta: number;
+  /** Linea de CONTRASTE: el `c62` del ERP. Mide otra cosa que `cogs_costo`; no se suman. */
+  cogs_erp: number | null;
+  pares: number; pares_pos: number; pares_neg: number;
+  pares_sin_costo: number; venta_sin_costo: number | null;
+  pares_sin_precio: number; carga_sin_precio: number | null;
+  /** Cobertura del contraste del ERP. Por pares da 77.7% y en dinero 31.6%: manda el dinero. */
+  pares_vendidos: number; pares_sin_cogs_erp: number;
+  venta_sin_cogs_erp: number | null;
+}
+
+export interface RouteInventoryDetailRow {
+  sku: string; unidad: string; producto: string;
+  qty_carga: number; qty_venta: number; saldo: number;
+  costo_unitario: number | null; precio_unitario: number | null;
+  saldo_costo: number | null; saldo_venta: number | null;
+  /** Por que no hay cifra, si no la hay. Ortogonal a `ya_lo_traia`: una fila puede ser las dos. */
+  veredicto: 'ok' | 'sin_costo' | 'sin_precio';
+  /** Vendio mas de lo que se le cargo en la ventana: mercancia previa al primer embarque. */
+  ya_lo_traia: boolean;
+}
+
+/** RD.18 - un dia de la serie. Las dos valuaciones viajan juntas; la pantalla elige una. */
+export interface RouteSeriesPoint {
+  fecha: string;
+  /** Las DOS valuaciones, cada una consistente consigo misma. La pantalla elige una. */
+  cargado_costo: number; vendido_costo: number;
+  cargado_venta: number; vendido_venta: number;
+  /** El saldo acumulado en la MISMA moneda que las columnas de arriba. */
+  saldo_costo_acum: number; saldo_venta_acum: number;
+  cargado_qty: number; vendido_qty: number;
+  /** Saldo del camion al cierre de ese dia. Cuando cruza a negativo, ahi empezo el rojo. */
+  saldo_qty_acum: number;
+}
+
+/** RD.19 - un embarque. El documento es la unidad: se firma y se reclama por su folio. */
+export interface RouteShipment {
+  fecha: string; serie: string | null; folio: string;
+  lineas: number; importe: number; unidades: number;
+}
+
+export interface RouteShipmentLine {
+  sku: string; producto: string; unidad: string;
+  qty: number; costo_unitario: number; importe: number;
+  costo_mediano: number | null;
+  /** El costo de esta linea salta >=2x contra el mediano del SKU: huele a cambio de peldano. */
+  salto_peldano: boolean;
+}
+
+/** RD.20 - un numero rojo, con su familia y desde cuando lo es. */
+export interface RouteNegativeRow {
+  sku: string; producto: string; unidad: string;
+  saldo: number;
+  /** `nunca_cargado` no se puede valuar: sin carga no hay costo. No es cero, es sin medir. */
+  familia: 'nunca_cargado' | 'se_acabo';
+  desde: string | null; dias_en_rojo: number | null;
+  valor_costo: number | null;
+}
+
+/** El detalle con su TOTAL, para que la pantalla declare si el tope corto. */
+export interface RouteInventoryDetail {
+  rows: RouteInventoryDetailRow[];
+  total: number;
+  truncado: boolean;
+}
+
+export interface RouteInventoryReport {
+  desde: string; hasta: string;
+  /** El dia que la pantalla llama "ayer", resuelto en TZ MX por el servidor, no por el navegador. */
+  ayer: string;
+  /** De cuantas rutas se tiene embarque de ayer. Se cuenta sobre el nulo, no sobre la suma. */
+  rutas_cargaron_ayer: number;
+  rutas_totales: number;
+  /** Frescura del DATO: hasta que dia hay movimiento. */
+  data_as_of: string | null;
+  /** Frescura de la COPIA: cuando termino el ultimo refresco de matvistas. `poblado != fresco`. */
+  copia_al: string | null;
+  copia_status: 'ok' | 'error' | 'sin_medir';
+  copia_edad_min: number | null;
+  routes: RouteInventoryRow[];
+  totales: Record<string, number>;
+  /** Ternario: no cuadrar y no haber podido comprobarlo son cosas distintas. */
+  cuadra: 'cierra' | 'no_cierra' | 'sin_medir';
+  declara: { sin_ancla: string; costo: string; faltante: string; fuera_de_alcance: string };
+}
+
 export interface SalesByRouteParams {
   year: number;
   /** Claves compuestas `warehouse_code|route_code` (route_code de Kepler repite entre sucursales). */
@@ -3425,8 +3616,8 @@ export interface VendorSaleLine {
  */
 export type {
   IncomeGroupBy, IncomeCanalRow, IncomeRow, IncomeSeriesPoint, IncomeReport,
-  IncomeTreeNode, IncomeTree, IncomeSourceRow, IncomeSources,
-  IncomeGrain, IncomeKind, IncomeBridgeItem, IncomeReconRow, IncomeRecon,
+  IncomeTreeNode, IncomeTree, IncomeDocumento, IncomeDocLinea, IncomeSourceRow, IncomeSources,
+  IncomeGrain, IncomeKind, IncomeBridgeItem, IncomeReconRow, IncomeRecon, IncomeReconDoc, IncomeReconDetalle,
 } from '@megadulces/contracts';
 
 /** Parámetros de consulta (no son wire de respuesta: los arma esta app). */

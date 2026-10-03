@@ -35,7 +35,9 @@ import { EXPENSE_FAMILIA_SERIES_KEY, expenseFamiliaLabel } from '@megadulces/con
 // [IG.1] Canales de venta: la etiqueta se define UNA vez (el canal vive en c6, no en la cuenta).
 import { SALES_CANAL_RESIDUO, SALES_CANAL_SERIES_KEY, salesCanalLabel } from '@megadulces/contracts';
 import type { IncomeBridgeItem, IncomeCuenta, IncomeGrain, IncomeRecon, IncomeReconRow,
-  IncomeReconTotals, IncomeReport, IncomeSources, IncomeTree } from '@megadulces/contracts';
+  IncomeReconDetalle, IncomeReconDoc,
+  IncomeDocumento, IncomeReconTotals, IncomeReport, IncomeSources, IncomeTree,
+  IncomeTreeChildren, IncomeTreeNode } from '@megadulces/contracts';
 /** Nodos del árbol de ingresos mientras se arma (los hijos viven en un Map por clave). */
 interface TreePlaza { key: string; label: string; level: string; total: number; movs: number }
 /** Un agregado de una sola columna `v`; knex devuelve el numérico de Postgres como texto. */
@@ -191,6 +193,130 @@ export interface SalesByRouteOption {
   warehouse_name: string;
   route_code: string;
   route_no: string;
+}
+
+/**
+ * `[RD.10]` Tope de filas del detalle por SKU. **1,000 y no 500**: medido contra prod, las 11
+ * rutas tienen entre 549 y 938 pares `(sku, unidad)`, así que el tope anterior truncaba TODAS.
+ * Si alguna vez se pasara, el servicio devuelve `truncado: true` y la pantalla lo declara — un
+ * corte mudo es una tabla que no suma su propio total.
+ */
+const DETALLE_TOPE = 1000;
+
+/**
+ * `[RD.10]` Una ruta en el cuadre de inventario. **Las dos columnas cierran**:
+ * `carga_* − (cogs_costo | venta_cliente) − inventario_* = 0`, y `delta_*` lo lleva a pantalla.
+ */
+export interface RouteInventoryRow {
+  route_no: string;
+  plaza: string;
+  carga_desde: string | null;
+  /** Último día con carga o venta. Es lo que delata a una ruta parada. */
+  ultimo_movimiento: string | null;
+  /**
+   * Lo que se le subió al camión AYER. **`null` = no hubo embarque**, que no es lo mismo que
+   * haberle cargado $0 — por eso no se colapsa a cero. Medido: cargan 6 de 11 rutas por día.
+   */
+  cargado_ayer_costo: number | null;
+  cargado_ayer_qty: number | null;
+  /** El último día que se le cargó algo. Contesta «y si no fue ayer, ¿cuándo?». */
+  ultima_carga: string | null;
+  // Columna COSTO — valuada con el costo del EMBARQUE (lo que la sucursal le cargó al camión).
+  carga_costo: number; cogs_costo: number; inventario_costo: number;
+  inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
+  // Columna VENTA — valuada con el precio REALIZADO de esa ruta en la ventana.
+  carga_venta: number; venta_cliente: number; inventario_venta: number;
+  inventario_venta_pos: number; inventario_venta_neg: number; delta_venta: number;
+  /** ⚠️ Línea de CONTRASTE: el `c62` del ERP. Mide otra cosa que `cogs_costo`; no se suman. */
+  cogs_erp: number | null;
+  pares: number; pares_pos: number; pares_neg: number;
+  pares_sin_costo: number; venta_sin_costo: number | null;
+  pares_sin_precio: number; carga_sin_precio: number | null;
+  /**
+   * La cobertura del contraste del ERP. Sin esto, `cogs_erp` se lee como si fuera el COGS y
+   * publica un margen del 79%: le falta el costo al 69.93% de los pares y al 100% de Canindo.
+   */
+  pares_vendidos: number; pares_sin_cogs_erp: number;
+  /** La venta sin testigo de costo del ERP, EN PESOS. Por pares da 77.7%, en dinero 38%. */
+  venta_sin_cogs_erp: number | null;
+}
+
+export interface RouteInventoryDetailRow {
+  sku: string; unidad: string; producto: string;
+  qty_carga: number; qty_venta: number; saldo: number;
+  costo_unitario: number | null; precio_unitario: number | null;
+  saldo_costo: number | null; saldo_venta: number | null;
+  /** Por qué no hay cifra, si no la hay. Es ortogonal a `ya_lo_traia`: una fila puede ser las dos. */
+  veredicto: 'ok' | 'sin_costo' | 'sin_precio';
+  /** Vendió más de lo que se le cargó en la ventana: mercancía previa al primer embarque. */
+  ya_lo_traia: boolean;
+}
+
+/** `[RD.18]` Un día de la serie. Las dos valuaciones viajan juntas; la pantalla elige una. */
+export interface RouteSeriesPoint {
+  fecha: string;
+  /** Las DOS valuaciones, cada una consistente consigo misma. La pantalla elige una. */
+  cargado_costo: number; vendido_costo: number;
+  cargado_venta: number; vendido_venta: number;
+  /** El saldo acumulado en la MISMA moneda que las columnas de arriba. */
+  saldo_costo_acum: number; saldo_venta_acum: number;
+  cargado_qty: number; vendido_qty: number;
+  /** Saldo del camión al cierre de ese día. Cuando cruza a negativo, ahí empezó el rojo. */
+  saldo_qty_acum: number;
+}
+
+/** `[RD.19]` Un embarque. El documento es la unidad: se firma y se reclama por su folio. */
+export interface RouteShipment {
+  fecha: string; serie: string | null; folio: string;
+  lineas: number; importe: number; unidades: number;
+}
+
+export interface RouteShipmentLine {
+  sku: string; producto: string; unidad: string;
+  qty: number; costo_unitario: number; importe: number;
+  costo_mediano: number | null;
+  /** El costo de esta línea salta >=2x contra el mediano del SKU: huele a cambio de peldaño. */
+  salto_peldano: boolean;
+}
+
+/** `[RD.20]` Un número rojo, con su familia y desde cuándo lo es. */
+export interface RouteNegativeRow {
+  sku: string; producto: string; unidad: string;
+  saldo: number;
+  /** `nunca_cargado` no se puede valuar: sin carga no hay costo. No es cero, es sin medir. */
+  familia: 'nunca_cargado' | 'se_acabo';
+  desde: string | null; dias_en_rojo: number | null;
+  valor_costo: number | null;
+}
+
+/** El detalle **con su total**, para que la pantalla pueda declarar si el tope cortó. */
+export interface RouteInventoryDetail {
+  rows: RouteInventoryDetailRow[];
+  total: number;
+  truncado: boolean;
+}
+
+export interface RouteInventoryReport {
+  desde: string; hasta: string;
+  /** El día que la pantalla llama «ayer», resuelto en TZ MX por el servidor, no por el navegador. */
+  ayer: string;
+  /** De cuántas rutas se tiene embarque de ayer. Se cuenta sobre el nulo, no sobre la suma. */
+  rutas_cargaron_ayer: number;
+  rutas_totales: number;
+  /** Frescura del DATO: hasta qué día hay movimiento. */
+  data_as_of: string | null;
+  /** Frescura de la COPIA: cuándo terminó el último refresco de matvistas. `poblado ≠ fresco`. */
+  copia_al: string | null;
+  copia_status: 'ok' | 'error' | 'sin_medir';
+  copia_edad_min: number | null;
+  routes: RouteInventoryRow[];
+  totales: Record<string, number>;
+  /**
+   * ⛔ Ternario, no booleano: **no cuadrar y no haber podido comprobarlo son cosas distintas**.
+   * `sin_medir` = ninguna ruta tuvo movimiento en la ventana, así que no hay nada que cuadre.
+   */
+  cuadra: 'cierra' | 'no_cierra' | 'sin_medir';
+  declara: { sin_ancla: string; costo: string; faltante: string; fuera_de_alcance: string };
 }
 
 export interface SalesByRouteDashboard {
@@ -2846,48 +2972,355 @@ export class CommercialAnalyticsService {
   }
 
   /** `[IG.1.2]` Árbol Canal → Plaza, con totales y share por nodo. */
-  async incomeTree(q: IncomeQueryFilters): Promise<IncomeTree> {
+  async incomeTree(q: IncomeQueryFilters & { grain?: IncomeGrain }): Promise<IncomeTree> {
     const tenantId = this.tenantCtx.requireTenantId();
     const { from, to } = this.expenseRange(q);
+    const grain: IncomeGrain =
+      q.grain === 'mes' || q.grain === 'trimestre' ? q.grain : 'dia';
+
     return this.tk.run(async (trx) => {
+      // ⚠️ Los dos primeros niveles siguen saliendo de `income_entries_src` con los MISMOS filtros
+      // que la pestaña Tabla, y agrupados igual que siempre: canal y plaza. Lo que cambió es que
+      // la plaza ya NO es el final del camino — abajo tiene día, folio y depósito.
       const rows: Array<{ canal: string; plaza: string; total: string; movs: number }> =
         await this.incomeQuery(trx, tenantId, from, to, q)
-        .groupByRaw('e.canal, e.plaza')
-        .select('e.canal', trx.raw("COALESCE(NULLIF(e.plaza,''),'(sin plaza)') AS plaza"),
-          trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'));
+          .groupByRaw('e.canal, e.plaza')
+          .select('e.canal', trx.raw("COALESCE(NULLIF(e.plaza,''),'(sin plaza)') AS plaza"),
+            trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'),
+            trx.raw('COUNT(*)::int AS movs'));
 
       const total = rows.reduce((a, r) => a + Number(r.total), 0);
       const share = (v: number) => (total ? +((v / total) * 100).toFixed(1) : 0);
-      const canales = new Map<string, TreeCanal>();
+
+      const canales = new Map<string, { total: number; movs: number; hijos: IncomeTreeNode[] }>();
       for (const r of rows) {
         const ck = r.canal || 'otro';
-        if (!canales.has(ck)) canales.set(ck, { key: ck, label: salesCanalLabel(ck), level: 'canal', total: 0, movs: 0, children: new Map() });
+        if (!canales.has(ck)) canales.set(ck, { total: 0, movs: 0, hijos: [] });
         const C = canales.get(ck)!;
-        C.total += Number(r.total); C.movs += Number(r.movs);
-        // ⚠️ El residuo NO se desglosa por plaza: sus "plazas" son nombres de cliente sueltos
-        // (233 de 271 en el rango por defecto). Desplegarlas fingiría 233 puntos de venta.
+        C.total += Number(r.total);
+        C.movs += Number(r.movs);
+        // ⚠️ El residuo NO se desglosa: sus "plazas" son nombres de cliente sueltos (233 de 271 en
+        // el rango por defecto). Desplegarlas fingiría 233 puntos de venta.
         if (ck === SALES_CANAL_RESIDUO) continue;
-        const p = r.plaza;
-        if (!C.children.has(p)) C.children.set(p, { key: `${ck}|${p}`, label: p, level: 'plaza', total: 0, movs: 0 });
-        const P = C.children.get(p)!;
-        P.total += Number(r.total); P.movs += Number(r.movs);
+        C.hijos.push({
+          key: `${ck}|${r.plaza}`, label: r.plaza, level: 'plaza',
+          total: +Number(r.total).toFixed(2), movs: Number(r.movs),
+          share_pct: share(Number(r.total)),
+          leaf: false,
+          kind: this.plazaKind(ck),
+          canal: ck, plaza: r.plaza,
+        });
       }
-      // ⚠️ El residuo va SIEMPRE al final, no donde lo ponga su monto. Ordenar por importe lo
-      // dejaba ENCABEZANDO la tabla (73.2 % con el clasificador roto, ~12 % con el arreglado), y
-      // un bucket que significa «no pude clasificar esto» liderando el ranking se lee como si
-      // fuera la categoría más grande del negocio. No es una categoría: es lo que falta clasificar.
-      const tree = [...canales.values()]
+
+      const tree: IncomeTreeNode[] = [...canales.entries()]
         .sort((a, b) => {
-          if (a.key === SALES_CANAL_RESIDUO) return 1;
-          if (b.key === SALES_CANAL_RESIDUO) return -1;
-          return b.total - a.total;
+          if (a[0] === SALES_CANAL_RESIDUO) return 1;
+          if (b[0] === SALES_CANAL_RESIDUO) return -1;
+          return b[1].total - a[1].total;
         })
-        .map((c) => ({
-          ...c, share_pct: share(c.total),
-          children: [...c.children.values()].sort((a, b) => b.total - a.total)
-            .map((p) => ({ ...p, share_pct: share(p.total) })),
+        .map(([ck, C]) => ({
+          key: ck, label: salesCanalLabel(ck), level: 'canal',
+          total: +C.total.toFixed(2), movs: C.movs, share_pct: share(C.total),
+          leaf: ck === SALES_CANAL_RESIDUO,
+          canal: ck,
+          children: C.hijos.sort((a, b) => b.total - a.total),
         }));
-      return { from, to, total: +total.toFixed(2), tree };
+
+      return { from, to, total: +total.toFixed(2), grain, tree };
+    });
+  }
+
+  /**
+   * `[IG.10]` **Qué ES la "plaza" de ese canal.** Edgar: *"mencionar canal, pero también sucursal
+   * o ruta o repartidor"*.
+   *
+   * El segundo nivel del árbol no es lo mismo en todos los canales: en mostrador es una sucursal,
+   * en ruta es una ruta, en reparto vecinal es la persona que reparte. Llamarlos a todos «plaza»
+   * obliga a cada lector a traducir, y el que no sabe traduce mal.
+   */
+  private plazaKind(canal: string): string {
+    switch (canal) {
+      case 'mostrador': return 'Sucursal';
+      case 'telemarketing': return 'Punto de telemarketing';
+      case 'ruta': return 'Ruta';
+      case 'reparto_vecinal': return 'Repartidor';
+      case 'contado': return 'Punto de venta';
+      default: return 'Cliente';
+    }
+  }
+
+  /** La etiqueta del período en palabras: este árbol lo lee una persona, no una máquina. */
+  private periodoLabel(p: string, grain: IncomeGrain): string {
+    if (grain === 'trimestre') return p.replace('-T', ' · trimestre ');
+    const MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+      'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const parte = p.split('-');
+    const mes = MES[Number(parte[1]) - 1] ?? parte[1];
+    return grain === 'mes' ? `${mes} ${parte[0]}` : `${Number(parte[2])} de ${mes} ${parte[0]}`;
+  }
+
+  /**
+   * `[IG.9]`+`[IG.10]` **Los niveles de abajo del árbol, pedidos al abrir.**
+   *
+   * Edgar: *"necesitamos mostrar por día, y de ahí mostrar por folio"* · *"luego los movimientos y
+   * sus depósitos"* · *"mencionar canal, pero también sucursal o ruta o repartidor"*.
+   *
+   * El camino completo es **canal › sucursal|ruta|repartidor › día › folio › depósito**, y de ahí
+   * para abajo todo se pide al abrir:
+   *  - sólo `plaza` → **los días** en que esa sucursal/ruta/repartidor facturó.
+   *  - `+ fecha` → **los documentos** de ese día, con su cliente, su veredicto y lo cobrado.
+   *  - `+ folio` → **cada depósito**, con su banco, su fecha y su monto. El fondo del árbol.
+   *
+   * ⛔ **Por qué por demanda y no en la carga inicial.** Un canal de 90 días son miles de
+   * documentos y decenas de miles de aplicaciones de cobro. Traerlos de una haría exactamente lo
+   * contrario de lo que este árbol existe para hacer.
+   */
+  async incomeTreeChildren(
+    q: { canal: string; plaza?: string; fecha?: string; folio?: string;
+         from?: string; to?: string; grain?: IncomeGrain },
+  ): Promise<IncomeTreeChildren> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const fecha = q.fecha ? String(q.fecha).slice(0, 10) : '';
+    if (fecha && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(fecha)) {
+      throw new BadRequestException('fecha invalida: se espera YYYY-MM-DD');
+    }
+
+    return this.tk.run(async (trx) => {
+      // ── Nivel 3: los días de esa sucursal / ruta / repartidor ────────────────────────────
+      if (!fecha) {
+        const { from, to } = this.expenseRange({ from: q.from, to: q.to } as IncomeQueryFilters);
+        const grain: IncomeGrain =
+          q.grain === 'mes' || q.grain === 'trimestre' ? q.grain : 'dia';
+        const per = grain === 'trimestre'
+          ? "to_char(e.fecha, 'YYYY') || '-T' || to_char(e.fecha, 'Q')"
+          : `to_char(e.fecha, '${grain === 'mes' ? 'YYYY-MM' : 'YYYY-MM-DD'}')`;
+
+        const rows = (await trx.raw(
+          `SELECT ${per} AS periodo,
+                  ROUND(SUM(e.importe)::numeric, 2) AS total, COUNT(*)::int AS movs,
+                  min(e.fecha)::date AS desde, max(e.fecha)::date AS hasta
+             FROM analytics.income_entries_src(?::date, ?::date) e
+            WHERE e.tenant_id = ? AND e.canal = ?
+              AND COALESCE(NULLIF(e.plaza, ''), '(sin plaza)') = ?
+            GROUP BY 1 ORDER BY 1 DESC`,
+          [from, to, tenantId, q.canal, q.plaza ?? '(sin plaza)'])).rows as Array<Record<string, unknown>>;
+
+        const tot = rows.reduce((a, r) => a + Number(r['total'] ?? 0), 0);
+        const nodes: IncomeTreeNode[] = rows.map((r) => ({
+          key: `${q.canal}|${q.plaza}|${r['periodo']}`,
+          label: this.periodoLabel(String(r['periodo']), grain),
+          level: 'periodo',
+          total: +Number(r['total'] ?? 0).toFixed(2),
+          movs: Number(r['movs'] ?? 0),
+          share_pct: tot ? +((Number(r['total'] ?? 0) / tot) * 100).toFixed(1) : 0,
+          // ⛔ Sólo el grano DÍA baja a folio: un mes de una sucursal son decenas de documentos y
+          // el árbol dejaría de ser legible. Con mes o trimestre el período es hoja, y se dice.
+          leaf: grain !== 'dia',
+          canal: q.canal, plaza: q.plaza ?? null,
+          fecha: grain === 'dia' ? String(r['periodo']) : null,
+        }));
+        return { level: 'periodo', nodes };
+      }
+
+      // ── Nivel 4: los documentos de ese día ───────────────────────────────────────────────
+      if (!q.folio) {
+        const rows = (await trx.raw(
+          `SELECT folio, plaza, cliente_code, cliente_nombre, kind, doc_cancelado, doc_tipo,
+                  importe, lineas, cobrado, pagos, pendiente, cuentas
+             FROM analytics.income_bridge_src(?::date, ?::date)
+            WHERE tenant_id = ? AND canal = ?
+              AND (?::text IS NULL OR COALESCE(NULLIF(plaza, ''), '(sin plaza)') = ?)
+            ORDER BY importe DESC`,
+          [fecha, fecha, tenantId, q.canal, q.plaza ?? null, q.plaza ?? ''])).rows as Array<Record<string, unknown>>;
+
+        const tot = rows.reduce((a, r) => a + Number(r['importe'] ?? 0), 0);
+        const nodes: IncomeTreeNode[] = rows.map((r) => {
+          const ctas = (r['cuentas'] as Array<{ nombre: string | null }> | null) ?? [];
+          const pagos = Number(r['pagos'] ?? 0);
+          const cancelado = Boolean(r['doc_cancelado']);
+          const esNota = String(r['doc_tipo']) !== 'UD1301';
+          const banco = ctas.length === 1 ? ctas[0].nombre : `${ctas.length} bancos`;
+          return {
+            key: `${q.canal}|${q.plaza}|${fecha}|${r['folio']}`,
+            label: `Folio ${r['folio']}`,
+            level: 'folio',
+            total: +Number(r['importe'] ?? 0).toFixed(2),
+            movs: Number(r['lineas'] ?? 1),
+            share_pct: tot ? +((Number(r['importe'] ?? 0) / tot) * 100).toFixed(1) : 0,
+            leaf: pagos === 0,
+            sub: String(r['cliente_nombre'] ?? r['cliente_code'] ?? '') || null,
+            kind: cancelado ? 'CANCELADO' : (esNota ? 'Nota de credito' : (r['kind'] as string | null)),
+            cancelado,
+            cobrado: r['cobrado'] === null ? null : +Number(r['cobrado']).toFixed(2),
+            pendiente: r['pendiente'] === null ? null : +Number(r['pendiente']).toFixed(2),
+            como: cancelado
+              ? 'el ERP lo cancelo y su ingreso sigue publicado'
+              : (pagos === 0
+                ? (esNota ? 'se aplica contra una factura' : 'sin cobro todavia')
+                : `${pagos} ${pagos === 1 ? 'deposito' : 'depositos'}`
+                  + (ctas.length ? ` · ${banco}` : '')),
+            canal: q.canal, plaza: q.plaza ?? null, fecha, folio: String(r['folio']),
+          };
+        });
+        return { level: 'folio', nodes };
+      }
+
+      // ── Nivel 5: cada aplicación de cobro contra ese documento ───────────────────────────
+      // ⛔ El cobro CANCELADO se excluye. `kdm5` conserva su aplicación aunque el cobro valga
+      // $0.00: el 0029792 sigue ahí por $19,810.54 contra la factura 0008789.
+      const nodes = await this.incomeDocPagos(trx, String(q.folio), q.canal, q.plaza ?? null, fecha);
+      return { level: 'pago', nodes };
+    });
+  }
+
+  /** Las aplicaciones de cobro de un documento, como nodos del árbol. */
+  private async incomeDocPagos(
+    trx: Knex.Transaction, folio: string, canal: string, plaza: string | null, fecha: string,
+  ): Promise<IncomeTreeNode[]> {
+    const rows = (await trx.raw(
+      `SELECT co.c9::date AS fecha, btrim(x.c6) AS folio_cobro,
+              (x.c4 IN (5, 7)) AS es_dinero, x.c12::numeric AS monto,
+              btrim(co.c45) AS cuenta, b.c2 AS banco,
+              CASE WHEN btrim(coalesce(b.c3, '')) = 'EFECTIVO' THEN 'efectivo'
+                   WHEN btrim(coalesce(b.c3, '')) ~ '^[0-9]+$' THEN 'banco'
+                   WHEN b.c3 IS NOT NULL THEN 'ajuste'
+                   ELSE 'sin_catalogo' END AS medio
+         FROM kepler_ods.kdm5 x
+         JOIN kepler_ods.kdm1 co
+           ON co.sucursal = x.sucursal AND co.c1 = x.c1 AND co.c2 = x.c2 AND co.c3 = x.c3
+          AND co.c4::numeric = x.c4 AND co.c5::numeric = x.c5 AND btrim(co.c6) = btrim(x.c6)
+         LEFT JOIN kepler_ods.kdb1 b
+           ON b.sucursal = x.sucursal AND btrim(b.c1) = btrim(co.c45)
+        WHERE x.sucursal = '00' AND x.c2 = 'U' AND x.c3 = 'A'
+          AND x.c8 = 'D' AND x.c9 = 13 AND x.c10 = 1 AND btrim(x.c11) = ?
+          AND btrim(coalesce(co.c43::text, '')) <> 'C'
+        ORDER BY (x.c4 IN (5, 7)) DESC, x.c12::numeric DESC`,
+      [folio])).rows as Array<Record<string, unknown>>;
+
+    const tot = rows.reduce((a, r) => a + Number(r['monto'] ?? 0), 0);
+    return rows.map((r, i) => {
+      const dinero = Boolean(r['es_dinero']);
+      const medio = String(r['medio']);
+      return {
+        key: `${canal}|${plaza}|${fecha}|${folio}|${r['folio_cobro']}|${i}`,
+        label: dinero ? `Cobro ${r['folio_cobro']}` : `Nota de credito ${r['folio_cobro']}`,
+        level: 'pago',
+        total: +Number(r['monto'] ?? 0).toFixed(2),
+        movs: 1,
+        share_pct: tot ? +((Number(r['monto'] ?? 0) / tot) * 100).toFixed(1) : 0,
+        leaf: true,
+        sub: `${String(r['fecha']).slice(0, 10)} · ${r['banco'] ?? r['cuenta'] ?? 'sin catalogo'}`,
+        kind: null, cancelado: false, cobrado: null, pendiente: null,
+        como: medio === 'efectivo' ? 'efectivo'
+          : (medio === 'banco' ? 'deposito'
+            : (dinero ? 'ajuste - no es un deposito' : 'nota de credito')),
+        canal, plaza, fecha, folio,
+      };
+    });
+  }
+
+  /**
+   * `[IG.10]` **Ver el documento.** Edgar: *"ahora al dar clic al folio, dar la opción de ver ese
+   * doc"*.
+   *
+   * ⛔⛔ **Y lo primero que hay que decir es lo que NO trae, porque es casi todo.** Medido sobre
+   * 30 días: de los 1,548 documentos `U-D-13` del CEDIS, **1,280 tienen UN SOLO renglón y 268 no
+   * tienen ninguno — ninguno tiene dos**. Ese renglón único es el SKU `1`, descripción `00001`,
+   * cantidad 1, **unidad `SER` (servicio)**, y su importe es el total del documento.
+   *
+   * O sea: **la factura de traspaso del CEDIS no detalla mercancía.** No es que falte el dato en
+   * nuestra copia — el ERP no lo escribe. Por eso la Fase AX excluyó este doctype de su visor de
+   * documentos (y por eso el folio de este árbol no aparece allá). Se buscó un documento hermano
+   * que sí lo tuviera, para el mismo cliente y el mismo día: no existe, sólo están la factura y
+   * sus cobros.
+   *
+   * Entonces "ver el documento" es el documento de verdad: su encabezado, su renglón tal como lo
+   * escribió el ERP, y **sus cobros uno por uno**. La ausencia del detalle se DECLARA en la
+   * pantalla, no se tapa con una tabla vacía que se leería como "no compró nada".
+   */
+  async incomeDocumento(q: { folio: string; fecha: string }): Promise<IncomeDocumento> {
+    this.tenantCtx.requireTenantId();
+    const fecha = String(q.fecha || '').slice(0, 10);
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(fecha)) {
+      throw new BadRequestException('fecha invalida: se espera YYYY-MM-DD');
+    }
+    const folio = String(q.folio || '').trim();
+    if (!folio) throw new BadRequestException('falta el folio');
+
+    return this.tk.run(async (trx) => {
+      const [cab] = (await trx.raw(
+        `SELECT m.c2 || '-' || m.c3 || '-' || m.c4 || '-' || m.c5 AS doctype,
+                mm.c5 AS doctype_label, btrim(m.c6) AS folio, m.c9::date AS fecha,
+                btrim(m.c10) AS cliente_code, m.c16::numeric AS total,
+                btrim(coalesce(m.c30, '')) AS condicion,
+                (btrim(coalesce(m.c43::text, '')) = 'C') AS cancelado,
+                d.c3 AS cliente_nombre, k.kind, k.sucursal_destino
+           FROM kepler_ods.kdm1 m
+           LEFT JOIN kepler_ods.kdmm mm
+             ON mm.sucursal = m.sucursal AND mm.c1 = m.c2 AND mm.c2 = m.c3
+            AND mm.c3::numeric = m.c4::numeric AND mm.c4::numeric = m.c5::numeric
+           LEFT JOIN kepler_ods.kdud d ON d.sucursal = m.sucursal AND btrim(d.c2) = btrim(m.c10)
+           LEFT JOIN analytics.v_kepler_customer_kind k
+             ON k.sucursal = '00' AND k.cliente_code = btrim(m.c10)
+          WHERE m.sucursal = '00' AND m.c2 = 'U' AND m.c3 = 'D' AND m.c4 = '13' AND m.c5 = '1'
+            AND btrim(m.c6) = ? AND m.c9::date = ?::date`,
+        [folio, fecha])).rows as Array<Record<string, unknown>>;
+
+      if (!cab) throw new NotFoundException(`no existe el documento U-D-13 folio ${folio} del ${fecha}`);
+
+      // ⛔ El decode de `kdm2` costó un 500 en vivo y estaba mal DOS veces:
+      //   `c7` es el NÚMERO DE RENGLÓN y es `numeric` — `btrim(c7)` revienta con 42883.
+      //   `c8` es el CÓDIGO DE PRODUCTO, no la descripción (verificado: el `17083` de un ticket
+      //   resuelve a «ALTOS CAM CHICA COLOR 1KG CLASICA» en `kdii`).
+      // El nombre NO vive en el documento: se trae del catálogo con un LEFT JOIN, y si no
+      // resuelve se publica NULL en vez de mostrar el código disfrazado de nombre.
+      const renglones = (await trx.raw(
+        `SELECT l.c7::int AS renglon, btrim(l.c8) AS sku, i.c2 AS descripcion,
+                l.c9::numeric AS cantidad, btrim(l.c11) AS unidad,
+                l.c12::numeric AS precio, l.c13::numeric AS importe
+           FROM kepler_ods.kdm2 l
+           LEFT JOIN kepler_ods.kdii i
+             ON i.sucursal = l.sucursal AND btrim(i.c1) = btrim(l.c8)
+          WHERE l.sucursal = '00' AND l.c2 = 'U' AND l.c3 = 'D' AND l.c4 = '13' AND l.c5 = '1'
+            AND btrim(l.c6) = ?
+          ORDER BY l.c7::int`,
+        [folio])).rows as Array<Record<string, unknown>>;
+
+      const pagos = await this.incomeDocPagos(trx, folio, '', null, fecha);
+      const cobrado = pagos.filter((p) => p.como === 'efectivo' || p.como === 'deposito'
+        || p.como === 'ajuste - no es un deposito').reduce((a, p) => a + p.total, 0);
+      const notaCredito = pagos.filter((p) => p.como === 'nota de credito')
+        .reduce((a, p) => a + p.total, 0);
+
+      // ⭐ El renglón de servicio NO es mercancía: es el total del documento disfrazado de línea.
+      // Se marca para que nadie lo lea como "vendió 1 pieza de algo".
+      const soloServicio = renglones.length <= 1
+        && renglones.every((r) => String(r['unidad']).toUpperCase() === 'SER');
+
+      return {
+        folio, fecha,
+        doctype: String(cab['doctype']),
+        doctype_label: (cab['doctype_label'] as string | null) ?? null,
+        cliente_code: String(cab['cliente_code'] ?? ''),
+        cliente_nombre: (cab['cliente_nombre'] as string | null) ?? null,
+        kind: (cab['kind'] as string | null) ?? null,
+        sucursal_destino: (cab['sucursal_destino'] as string | null) ?? null,
+        condicion: (cab['condicion'] as string | null) || null,
+        cancelado: Boolean(cab['cancelado']),
+        total: +Number(cab['total'] ?? 0).toFixed(2),
+        cobrado: +cobrado.toFixed(2),
+        nota_credito: +notaCredito.toFixed(2),
+        pendiente: +(Number(cab['total'] ?? 0) - cobrado - notaCredito).toFixed(2),
+        renglones: renglones.map((r) => ({
+          renglon: Number(r['renglon'] ?? 0),
+          sku: String(r['sku'] ?? ''),
+          descripcion: (r['descripcion'] as string | null) ?? null,
+          cantidad: Number(r['cantidad'] ?? 0), unidad: String(r['unidad'] ?? ''),
+          precio: +Number(r['precio'] ?? 0).toFixed(2), importe: +Number(r['importe'] ?? 0).toFixed(2),
+        })),
+        solo_servicio: soloServicio,
+        pagos,
+      };
     });
   }
 
@@ -2951,7 +3384,13 @@ export class CommercialAnalyticsService {
       if (q.plaza) { cond.push('b.plaza = ?'); args.push(q.plaza); }
 
       const rowsRaw = (await trx.raw(
-        `WITH b AS (SELECT * FROM analytics.income_bridge_src(?::date, ?::date)),
+        // ⛔ MATERIALIZED NO ES ADORNO: sin el, esta pantalla tarda MAS DE 120 SEGUNDOS.
+        // income_bridge_src es LANGUAGE sql STABLE, o sea INLINABLE: el planner mete su
+        // cuerpo entero aca adentro, aplana sus CTEs (ing/doc/pag/agg/cta), estima rows=1 y
+        // elige un Nested Loop que RE-EVALUA pag por cada fila. Medido contra prod el
+        // 2026-10-02: >120 s sin la palabra, 754 ms con ella -- el mismo cuadro que [PERF.1]
+        // y [RA-DYN.U3] ya pagaron en este repo.
+        `WITH b AS MATERIALIZED (SELECT * FROM analytics.income_bridge_src(?::date, ?::date)),
               f AS (SELECT * FROM b WHERE ${cond.join(' AND ')}),
               -- Las cuentas se explotan y se re-agregan POR CELDA: el jsonb que trae la fuente es
               -- por documento, y lo que la pantalla necesita es "por esta plaza, en este período,
@@ -2998,8 +3437,11 @@ export class CommercialAnalyticsService {
                 coalesce(sum(f.cobrado_en_periodo), 0)                    AS cobrado_en_periodo,
                 coalesce(sum(f.pagos_en_periodo), 0)::int                 AS pagos_en_periodo,
                 coalesce(max(f.pagos), 0)::int                            AS max_pagos,
-                min(f.primer_cobro)                                       AS primer_cobro,
-                max(f.ultimo_cobro)                                       AS ultimo_cobro
+                -- [IG.12] to_char, no la fecha cruda: pg entrega un date como OBJETO Date y
+                -- el String(x).slice(0,10) de mas abajo devolvia "Mon Sep 28". Nadie lo vio
+                -- porque hoy la pantalla no dibuja estas dos columnas, pero salen por la API.
+                to_char(min(f.primer_cobro), 'YYYY-MM-DD')                AS primer_cobro,
+                to_char(max(f.ultimo_cobro), 'YYYY-MM-DD')                AS ultimo_cobro
            FROM f GROUP BY 1, 2, 3)
          SELECT ag.*, coalesce(cta.cuentas, '[]'::jsonb) AS cuentas
            FROM ag
@@ -3120,6 +3562,116 @@ export class CommercialAnalyticsService {
   }
 
   /**
+   * `[IG.12]` **El desglose de una celda de la conciliación: sus documentos, uno por uno.**
+   *
+   * Edgar: *"conciliación no me desglosa la información al detalle, como se está pidiendo"*. La
+   * tabla publicaba `(período × plaza × canal)` y ahí se terminaba, cuando el pedido de antes era
+   * explícito: **por día, y de ahí por folio**. El Árbol ya baja a folio; la Conciliación no, y es
+   * la pestaña donde está el cobro — o sea justo donde hace falta ver cuál factura es la que debe.
+   *
+   * ⭐ El dato ya existía: `income_bridge_src` devuelve **una fila por folio** con su cliente, su
+   * cobro, sus cuentas y su saldo. `incomeRecon` lo agregaba y tiraba el detalle. Esto es el mismo
+   * puente leído sin agregar.
+   *
+   * ── Por qué la ventana se RECORTA, y no es un detalle ────────────────────────────────────────
+   * El detalle no pide los 90 días de la pantalla: pide **el período de la celda ∩ el rango**. Las
+   * dos mitades importan.
+   *
+   * · Achicar a su período es lo que lo hace barato (un día cuesta ~0.4 s contra los 0.75 s del
+   *   rango entero) y es **exacto** porque la póliza y su documento comparten folio **y fecha**:
+   *   medido 4,809 de 4,809, cero días de desfase. Si no fuera así, achicar la ventana rompería la
+   *   liga y aparecerían «sin documento» que no existen.
+   * · Recortarlo AL RANGO es lo que lo hace **cuadrar**: con la pantalla puesta en *4-jul → 2-oct*,
+   *   el renglón `2026-07` sólo contiene del 4 al 31. Pedir el mes entero traería los tres primeros
+   *   días de julio y el detalle sumaría más que su propio total — el clásico desglose que no
+   *   suma al encabezado.
+   */
+  async incomeReconDetalle(q: {
+    periodo: string; plaza: string; canal: string;
+    from?: string; to?: string; grain?: IncomeGrain;
+  }): Promise<IncomeReconDetalle> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    const grain: IncomeGrain = q.grain === 'dia' || q.grain === 'trimestre' ? q.grain : 'mes';
+    const periodo = String(q.periodo || '');
+
+    // Sin `Date`: con UTC-6 `new Date('2026-07-01')` cae el 30 de junio por la noche y el período
+    // arranca un día antes. Es aritmética de texto a propósito.
+    let ini: string; let fin: string;
+    if (grain === 'dia') {
+      ini = periodo; fin = periodo;
+    } else if (grain === 'trimestre') {
+      const [y, t] = periodo.split('-T');
+      const m = (Number(t) - 1) * 3 + 1;
+      ini = `${y}-${String(m).padStart(2, '0')}-01`;
+      fin = this.ultimoDiaDelMes(`${y}-${String(m + 2).padStart(2, '0')}-01`);
+    } else {
+      ini = `${periodo}-01`; fin = this.ultimoDiaDelMes(ini);
+    }
+    const desde = ini > from ? ini : from;   // la intersección, en texto ISO: comparar strings
+    const hasta = fin < to ? fin : to;       // `YYYY-MM-DD` ordena igual que las fechas
+    const vacio: IncomeReconDetalle = { periodo, plaza: q.plaza, canal: q.canal, from: desde, to: hasta, docs: [], vendido: 0 };
+    if (!periodo || desde > hasta) return vacio;
+
+    return this.tk.run(async (trx) => {
+      const rowsRaw = (await trx.raw(
+        // MATERIALIZED por la misma razón que en `incomeRecon`: la función es `LANGUAGE sql
+        // STABLE`, o sea inlinable, y sin la palabra el planner aplana sus CTEs, estima rows=1 y
+        // elige un Nested Loop que re-evalúa `pag` por cada fila.
+        `WITH b AS MATERIALIZED (SELECT * FROM analytics.income_bridge_src(?::date, ?::date))
+         -- to_char y NO la columna cruda: pg devuelve un date como OBJETO Date de JS, y
+         -- String(d).slice(0,10) da "Mon Sep 28", no "2026-09-28". Es el mismo defecto que
+         -- [LC.16] encontro en el libro de compras, donde ademas corria el DIA porque el objeto
+         -- se construye en UTC y se renderiza en hora de Mexico. En la lista de seleccion
+         -- to_char es gratis; lo que anula un indice es envolver la fecha en el WHERE.
+         SELECT to_char(b.fecha, 'YYYY-MM-DD')         AS fecha,
+                b.folio, b.doc_tipo, b.cliente_code, b.cliente_nombre, b.kind,
+                b.es_interno, b.ligado, b.doc_cancelado, b.importe, b.cobrado, b.pagos,
+                b.nota_credito, b.pendiente,
+                to_char(b.primer_cobro, 'YYYY-MM-DD')  AS primer_cobro,
+                to_char(b.ultimo_cobro, 'YYYY-MM-DD')  AS ultimo_cobro,
+                b.cuentas
+           FROM b
+          WHERE b.tenant_id = ?
+            AND b.canal = ?
+            AND coalesce(nullif(btrim(b.plaza), ''), '(sin plaza)') = ?
+          ORDER BY abs(b.importe) DESC, b.folio`,
+        [desde, hasta, tenantId, q.canal, q.plaza || '(sin plaza)'])).rows as Array<Record<string, unknown>>;
+
+      const n = (x: unknown) => +(Number(x ?? 0).toFixed(2));
+      const nn = (x: unknown) => (x === null || x === undefined ? null : n(x));
+      const d = (x: unknown) => (x ? String(x).slice(0, 10) : null);
+
+      const docs: IncomeReconDoc[] = rowsRaw.map((r) => ({
+        fecha: d(r['fecha']) ?? desde,
+        folio: String(r['folio'] ?? ''),
+        doc_tipo: String(r['doc_tipo'] ?? ''),
+        cliente_code: (r['cliente_code'] as string | null) ?? null,
+        cliente_nombre: (r['cliente_nombre'] as string | null) ?? null,
+        kind: (r['kind'] as IncomeReconDoc['kind']) ?? null,
+        es_interno: r['es_interno'] === null || r['es_interno'] === undefined ? null : Boolean(r['es_interno']),
+        ligado: Boolean(r['ligado']),
+        cancelado: Boolean(r['doc_cancelado']),
+        importe: n(r['importe']),
+        // ⚠️ `nn`, no `n`: en lo que no es factura estos vienen NULL del puente y tienen que
+        // llegar NULL a la pantalla. Un `0` acá se leería como «no se cobró nada».
+        cobrado: nn(r['cobrado']),
+        pagos: r['pagos'] === null || r['pagos'] === undefined ? null : Number(r['pagos']),
+        nota_credito: nn(r['nota_credito']),
+        pendiente: nn(r['pendiente']),
+        primer_cobro: d(r['primer_cobro']),
+        ultimo_cobro: d(r['ultimo_cobro']),
+        cuentas: (r['cuentas'] as IncomeCuenta[] | null) ?? [],
+      }));
+
+      return {
+        periodo, plaza: q.plaza, canal: q.canal, from: desde, to: hasta, docs,
+        vendido: n(docs.reduce((s, x) => s + x.importe, 0)),
+      };
+    });
+  }
+
+  /**
    * `[IG.3]` **Cuadre de fuentes** — el organismo que hoy no existe en ninguna pantalla.
    *
    * Pone lado a lado los cuatro caminos que llevan al mismo peso de venta. No es adorno: es lo que
@@ -3144,17 +3696,20 @@ export class CommercialAnalyticsService {
         try { const r = await fn(); return r == null ? null : Number(r); } catch { return null; }
       };
 
-      const contable = await uno(async () => (await this.incomeQuery(trx, tenantId, from, to, {})
-        .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS v')).first() as Agregado)?.v);
       // `[IG.4.1]` El puente: la venta BRUTA es lo que el feed nocturno puede cuadrar (él es sólo
       // `UD1301`); la devolución es lo que este número resta y aquél no. Sin las dos piernas, el
       // delta del feed se leería como descuadre cuando es justamente la corrección.
-      const bruta = await uno(async () => (await this.incomeQuery(trx, tenantId, from, to, {})
-        .andWhere('e.doc_tipo', 'UD1301')
-        .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS v')).first() as Agregado)?.v);
-      const devoluciones = await uno(async () => (await this.incomeQuery(trx, tenantId, from, to, {})
-        .andWhereRaw("e.doc_tipo LIKE 'UA25%'")
-        .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS v')).first() as Agregado)?.v);
+      //
+      // `[IG.12]` Las tres salen de UNA sola evaluación de `income_entries_src`, con `FILTER`.
+      // Antes eran tres pasadas idénticas sobre la misma función y la misma ventana: 3 × 198 ms
+      // para leer tres veces lo mismo. Medido contra prod, 90 días: **600 ms → 183 ms**.
+      // Y hay un beneficio que no es de velocidad: así `contable = bruta + devoluciones` es cierto
+      // POR CONSTRUCCIÓN. Con tres consultas separadas podían verse filas distintas entre una y
+      // otra y el puente de la pantalla dejaba de cerrar sin que nada fallara.
+      const tri = await this.tri(trx, tenantId, from, to);
+      const contable = tri.contable;
+      const bruta = tri.bruta;
+      const devoluciones = tri.devoluciones;
 
       // El feed nocturno es MENSUAL: sólo se compara si el rango son meses enteros, o el Δ sería
       // un artefacto del recorte. Si no lo son, se DECLARA no comparable en vez de restar peras.
@@ -3244,6 +3799,34 @@ export class CommercialAnalyticsService {
         : vacio;
     } catch {
       return vacio; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
+    }
+  }
+
+  /**
+   * `[IG.12]` Las tres piernas del cuadre contable en **una sola** evaluación del ODS.
+   *
+   * `income_entries_src()` es una derivación viva: cada llamada la vuelve a calcular entera. Pedirle
+   * el total, después sólo `UD1301` y después sólo `UA25xx` eran tres recorridos del mismo rango
+   * para repartir las mismas filas en tres cubetas que `FILTER` resuelve en una pasada.
+   *
+   * ⚠️ Si falla, fallan las tres juntas y se publican como NO MEDIDO. Es a propósito: son la misma
+   * medición: publicar dos de tres dejaría un puente que no cierra, que es peor que no publicarlo.
+   */
+  private async tri(
+    trx: Knex.Transaction, tenantId: string, from: string, to: string,
+  ): Promise<{ contable: number | null; bruta: number | null; devoluciones: number | null }> {
+    try {
+      const { rows: [r] } = await trx.raw(
+        `SELECT COALESCE(SUM(e.importe),0)::numeric                                        AS contable,
+                COALESCE(SUM(e.importe) FILTER (WHERE e.doc_tipo = 'UD1301'),0)::numeric   AS bruta,
+                COALESCE(SUM(e.importe) FILTER (WHERE e.doc_tipo LIKE 'UA25%'),0)::numeric AS devoluciones
+           FROM analytics.income_entries_src(?::date, ?::date) AS e
+          WHERE e.tenant_id = ?`, [from, to, tenantId]);
+      return r
+        ? { contable: Number(r.contable), bruta: Number(r.bruta), devoluciones: Number(r.devoluciones) }
+        : { contable: null, bruta: null, devoluciones: null };
+    } catch {
+      return { contable: null, bruta: null, devoluciones: null }; // NO MEDIDO, nunca cero
     }
   }
 
@@ -7449,6 +8032,499 @@ export class CommercialAnalyticsService {
    *  parcial (no fronteras de mes) sigue yendo live (el rollup es de grano mensual). */
   private isWincajaRollupOk(from: string, to: string): boolean {
     return this.isFullMonthRange(from, to);
+  }
+
+  // ─────────── Fase RD — Inventario de los camiones de Ruta Directa ───────────
+
+  /**
+   * `[RD.10]` Cuadre de inventario por ruta, en las DOS valuaciones, para un rango.
+   *
+   * ⭐ La identidad `carga − vendido = inventario` **cierra al centavo en las dos columnas**, y
+   * cierra por construcción: las tres líneas de cada columna usan el MISMO valor unitario
+   * (`costo_u` del embarque · `precio_u` realizado). Por eso `delta` viaja en la respuesta: si
+   * algún día deja de ser 0, es que alguien mezcló valuaciones.
+   *
+   * ⚠️ `cogs_erp` es **línea de contraste, no la misma cifra**: es el `c62` que el ERP escribe en
+   * la línea de venta, y mide otra cosa que el costo del embarque (razón medida 1.1744 sobre el
+   * mismo universo). No se suma ni se promedia con la columna de costo.
+   *
+   * ⚠️ El inventario sale partido en `_pos` y `_neg`. El negativo **no es un error**: son SKUs que
+   * el camión ya traía antes de que arranque la ventana (no hay conteo inicial). Se probó que NO
+   * los fabrica el split de unidad: de 229 SKUs negativos en la ruta 23, sólo 1 tiene además
+   * saldo positivo en otro peldaño.
+   */
+  async routeInventory(from?: string, to?: string): Promise<RouteInventoryReport> {
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const ayer = this.ayerMx();
+    return this.tk.run(async (trx) => {
+      const rows = (await trx.raw(
+        `WITH win AS (
+           SELECT l.route_no, l.sku, l.unidad,
+                  sum(l.qty)       FILTER (WHERE l.clase='carga') AS cq,
+                  sum(l.costo_doc) FILTER (WHERE l.clase='carga') AS cv,
+                  sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
+                  sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi,
+                  sum(l.costo_erp) FILTER (WHERE l.clase='venta') AS ce,
+                  -- La venta que el contraste del ERP NO alcanza a explicar, EN DINERO.
+                  --
+                  -- Tiene que medirse acá, a nivel línea, y no contando pares afuera: medido
+                  -- contra prod, por pares el contraste "cubre" el 77.7% y en dinero cubre el
+                  -- 38%. Un par con una sola línea con costo cuenta como cubierto entero. La
+                  -- cobertura se declara en la unidad en la que se publica la cifra.
+                  sum(l.venta_doc) FILTER (WHERE l.clase='venta' AND l.costo_erp IS NULL) AS vi_sin_ce,
+                  max(l.business_date)                            AS ultimo
+             FROM analytics.mv_rd_route_ledger l
+            WHERE l.tenant_id = ? AND l.business_date >= ? AND l.business_date <= ?
+            GROUP BY 1,2,3
+         ), val AS (
+           SELECT w.*, w.cv / nullif(w.cq,0) AS costo_u, w.vi / nullif(w.vq,0) AS precio_u,
+                  coalesce(w.cq,0) - coalesce(w.vq,0) AS saldo
+             FROM win w
+         ), carga_dia AS (
+           -- Lo que se le subio al camion AYER, y cuando fue la ultima vez que se le subio algo.
+           -- Va al margen de la ventana elegida: es senal del dia, no del periodo.
+           --
+           -- Las dos salen de UN solo barrido. La version con un CTE por pregunta recorria la
+           -- matvista dos veces y el presupuesto de esta pantalla es de 500 ms.
+           --
+           -- NULL cuando no hubo embarque, nunca 0: "no le cargamos" y "le cargamos nada" son
+           -- cosas distintas, y un 0 diria que le mandamos el camion vacio (ADR-056). Medido el
+           -- 2026-10-02: cargaron 6 de 11 rutas, asi que cinco filas caen aca todos los dias.
+           SELECT l.route_no,
+                  sum(l.qty)       FILTER (WHERE l.business_date = ?::date) AS ayer_q,
+                  sum(l.costo_doc) FILTER (WHERE l.business_date = ?::date) AS ayer_costo,
+                  max(l.business_date)                                      AS ultima_carga
+             FROM analytics.mv_rd_route_ledger l
+            WHERE l.tenant_id = ? AND l.clase = 'carga'
+            GROUP BY 1
+         )
+         SELECT i.route_no, i.plaza, to_char(i.carga_desde,'YYYY-MM-DD') AS carga_desde,
+                round(max(cd.ayer_costo),2)::float                        AS cargado_ayer_costo,
+                round(max(cd.ayer_q),2)::float                            AS cargado_ayer_qty,
+                to_char(max(cd.ultima_carga),'YYYY-MM-DD')                AS ultima_carga,
+                -- La última actividad de la ruta, del MISMO barrido que todo lo demás. Es lo que
+                -- delata a una ruta parada: medido, la 505 no mueve nada desde el 10-sep y se veía
+                -- igual que las diez vivas.
+                to_char(max(v.ultimo),'YYYY-MM-DD')                           AS ultimo_movimiento,
+                round(sum(v.cq * v.costo_u),2)::float                          AS carga_costo,
+                round(sum(coalesce(v.vq,0) * v.costo_u),2)::float              AS cogs_costo,
+                round(sum(v.saldo * v.costo_u),2)::float                       AS inventario_costo,
+                round(sum(v.saldo * v.costo_u) FILTER (WHERE v.saldo > 0),2)::float AS inventario_costo_pos,
+                round(sum(v.saldo * v.costo_u) FILTER (WHERE v.saldo < 0),2)::float AS inventario_costo_neg,
+                round(sum(v.cq * v.costo_u) - sum(coalesce(v.vq,0) * v.costo_u)
+                      - sum(v.saldo * v.costo_u),2)::float                     AS delta_costo,
+                round(sum(coalesce(v.cq,0) * v.precio_u),2)::float             AS carga_venta,
+                round(sum(v.vi),2)::float                                      AS venta_cliente,
+                round(sum(v.saldo * v.precio_u),2)::float                      AS inventario_venta,
+                round(sum(v.saldo * v.precio_u) FILTER (WHERE v.saldo > 0),2)::float AS inventario_venta_pos,
+                round(sum(v.saldo * v.precio_u) FILTER (WHERE v.saldo < 0),2)::float AS inventario_venta_neg,
+                round(sum(coalesce(v.cq,0) * v.precio_u) - sum(v.vi)
+                      - sum(v.saldo * v.precio_u),2)::float                    AS delta_venta,
+                round(sum(v.ce),2)::float                                      AS cogs_erp,
+                count(v.sku)::int                                             AS pares,
+                count(*) FILTER (WHERE v.saldo > 0)::int                       AS pares_pos,
+                count(*) FILTER (WHERE v.saldo < 0)::int                       AS pares_neg,
+                count(*) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.costo_u IS NULL)::int AS pares_sin_costo,
+                round(sum(v.vi) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.costo_u IS NULL),2)::float AS venta_sin_costo,
+                count(*) FILTER (WHERE coalesce(v.cq,0) > 0 AND v.precio_u IS NULL)::int AS pares_sin_precio,
+                round(sum(v.cv) FILTER (WHERE coalesce(v.cq,0) > 0 AND v.precio_u IS NULL),2)::float AS carga_sin_precio,
+                -- La COBERTURA del contraste, no solo su suma. Medido contra prod el 2026-10-03:
+                -- el c62 que el ERP escribe en la linea de venta falta en el 69.93% de los pares
+                -- y en el 100% de las cinco rutas de Canindo, porque el U-D-10 de la sucursal ve
+                -- menos de la mitad de la venta de ruta. Publicar esa suma sin su cobertura hace
+                -- creer que el margen es del 79%; con la cobertura al lado se lee como lo que es.
+                count(*) FILTER (WHERE coalesce(v.vq,0) > 0)::int                 AS pares_vendidos,
+                count(*) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.ce IS NULL)::int AS pares_sin_cogs_erp,
+                round(sum(v.vi_sin_ce),2)::float                                  AS venta_sin_cogs_erp
+           FROM analytics.mv_rd_route_identity i
+           LEFT JOIN val v ON v.route_no = i.route_no
+           LEFT JOIN carga_dia cd ON cd.route_no = i.route_no
+          WHERE i.tenant_id = ?
+          GROUP BY i.route_no, i.plaza, i.carga_desde
+          ORDER BY i.plaza, i.route_no`,
+        [tenantId, desde, hasta, ayer, ayer, tenantId, tenantId],
+      )).rows;
+
+      const asOf = (await trx.raw(
+        `SELECT to_char(max(business_date),'YYYY-MM-DD') AS data_as_of
+           FROM analytics.mv_rd_route_ledger WHERE tenant_id = ?`, [tenantId])).rows[0];
+
+      /**
+       * ⛔ **`data_as_of` es la frescura del DATO, no la de la COPIA**, y confundirlas es el
+       * `poblado ≠ fresco` de ADR-056: si el `REFRESH` de 30 min se cae, la matvista sigue
+       * diciendo «hasta el 2-oct» con toda confianza mientras sirve lo de ayer.
+       *
+       * La frescura de la copia sale del latido que el ciclo de matvistas YA escribe
+       * (`analytics.cron_runs`, job `analytics_refresh`) — primitivo existente, no uno nuevo.
+       * Si no hay latido, se declara `sin_medir`; no se dibuja un verde.
+       */
+      const copia = (await trx.raw(
+        `SELECT to_char(last_finish AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI') AS copia_al,
+                status,
+                round(extract(epoch from (now() - last_finish))/60)::int AS copia_edad_min
+           FROM analytics.cron_runs
+          WHERE tenant_id = ? AND job_key = 'analytics_refresh'`, [tenantId])).rows[0];
+
+      const num = (k: keyof RouteInventoryRow) =>
+        rows.reduce((a: number, r: Record<string, number>) => a + (Number(r[k as string]) || 0), 0);
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+
+      return {
+        desde, hasta, ayer,
+        data_as_of: asOf?.data_as_of ?? null,
+        routes: rows as RouteInventoryRow[],
+        /**
+         * Cuántas rutas cargaron ayer, de las que existen. Se cuenta sobre `cargado_ayer_costo`
+         * NO NULO, no sobre la suma: con la suma, un día sin un solo embarque y un día en que
+         * todas cargaron $0 dan el mismo total y se leen igual.
+         */
+        rutas_cargaron_ayer: rows.filter(
+          (r: Record<string, unknown>) => r.cargado_ayer_costo !== null).length,
+        rutas_totales: rows.length,
+        totales: {
+          carga_costo: r2(num('carga_costo')),
+          cogs_costo: r2(num('cogs_costo')),
+          cargado_ayer_costo: r2(num('cargado_ayer_costo')),
+          inventario_costo: r2(num('inventario_costo')),
+          inventario_costo_pos: r2(num('inventario_costo_pos')),
+          inventario_costo_neg: r2(num('inventario_costo_neg')),
+          carga_venta: r2(num('carga_venta')),
+          venta_cliente: r2(num('venta_cliente')),
+          inventario_venta: r2(num('inventario_venta')),
+          inventario_venta_pos: r2(num('inventario_venta_pos')),
+          inventario_venta_neg: r2(num('inventario_venta_neg')),
+          cogs_erp: r2(num('cogs_erp')),
+          venta_sin_cogs_erp: r2(num('venta_sin_cogs_erp')),
+          venta_sin_costo: r2(num('venta_sin_costo')),
+          carga_sin_precio: r2(num('carga_sin_precio')),
+        },
+        copia_al: copia?.copia_al ?? null,
+        copia_status: copia ? (copia.status === 'ok' ? 'ok' : 'error') : 'sin_medir',
+        copia_edad_min: copia?.copia_edad_min ?? null,
+        /**
+         * ⛔ TERNARIO a propósito. Con un booleano, una ventana sin movimiento devuelve 11 filas
+         * de deltas NULL, `Number(null)||0` da 0, y la pantalla pinta **«Cierra» en verde sobre
+         * nada** — el `cfg ? classify : 'ok'` que la Fase VP midió. No cuadrar y no haber podido
+         * comprobarlo son cosas distintas y se dicen distinto.
+         */
+        cuadra: (() => {
+          const conMovimiento = rows.filter((r: Record<string, number>) =>
+            Number(r.pares) > 0 && (r.delta_costo !== null || r.delta_venta !== null));
+          if (!conMovimiento.length) return 'sin_medir' as const;
+          return conMovimiento.every((r: Record<string, number>) =>
+            Math.abs(Number(r.delta_costo) || 0) < 0.01
+            && Math.abs(Number(r.delta_venta) || 0) < 0.01) ? ('cierra' as const) : ('no_cierra' as const);
+        })(),
+        // Declaraciones: ADR-056 — lo que no se midió se dice, no se dibuja en cero.
+        declara: {
+          sin_ancla: 'No hay conteo inicial de los camiones: la ventana arranca en la PRIMERA CARGA '
+            + 'documentada de cada ruta. El saldo negativo es mercancía que el camión ya traía.',
+          costo: 'El costo es el del EMBARQUE (lo que la sucursal le cargó al camión), con cobertura '
+            + 'del 100% de las líneas de carga. El contraste del ERP mide otra cosa y no se suma.',
+          /**
+           * ⛔ Lo que esta pantalla NO puede contestar, dicho antes de que alguien lo suponga.
+           * Medido contra prod el 2026-10-03 sobre los 10 doctypes que tocan un almacén de ruta
+           * en 180 días: ticket, recepción de traspaso, corte de caja y cobro. Ninguno es una
+           * devolución, y el conteo físico del camión aparece UNA sola vez (2026-06-26).
+           */
+          faltante: 'Kepler NO tiene documento de retorno de ruta, y el camión se contó una sola vez '
+            + '(2026-06-26). El saldo en contra es un INDICIO (vendió más de lo que se le cargó), '
+            + 'no un faltante medido: para eso hay que contar el camión.',
+          fuera_de_alcance: 'Morelia 321/322 y las rutas vecinales 1V00N no tienen embarque en Kepler.',
+        },
+      };
+    });
+  }
+
+  /**
+   * `[RD.10]` El detalle por SKU de una ruta. Mismo cuadre, grano fino.
+   *
+   * ⛔ **El tope no puede ser mudo.** La versión anterior cortaba en 500 y **las 11 rutas tienen
+   * entre 549 y 938 pares** `(sku, unidad)` — o sea que truncaba todas, y el `ORDER BY` mandaba al
+   * final justo a los `sin_costo` (633 pares), que es lo que la cabecera declara como hueco: la
+   * tabla nunca sumaba el total de su propia fila y nada lo decía. Ahora el tope es **1,000** (cabe
+   * la ruta más grande con margen) y viaja el `total`, para que la pantalla declare si cortó.
+   */
+  async routeInventoryDetail(routeNo: string, from?: string, to?: string): Promise<RouteInventoryDetail> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `WITH win AS (
+         SELECT l.sku, l.unidad,
+                sum(l.qty)       FILTER (WHERE l.clase='carga') AS cq,
+                sum(l.costo_doc) FILTER (WHERE l.clase='carga') AS cv,
+                sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
+                sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi
+           FROM analytics.mv_rd_route_ledger l
+          WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date >= ? AND l.business_date <= ?
+          GROUP BY 1,2
+       )
+       SELECT w.sku, w.unidad,
+              coalesce(p.description, w.sku)                     AS producto,
+              round(coalesce(w.cq,0),3)::float                   AS qty_carga,
+              round(coalesce(w.vq,0),3)::float                   AS qty_venta,
+              round(coalesce(w.cq,0)-coalesce(w.vq,0),3)::float  AS saldo,
+              round(w.cv / nullif(w.cq,0),4)::float              AS costo_unitario,
+              round(w.vi / nullif(w.vq,0),4)::float              AS precio_unitario,
+              round((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.cv / nullif(w.cq,0)),2)::float  AS saldo_costo,
+              round((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.vi / nullif(w.vq,0)),2)::float  AS saldo_venta,
+              -- ⚠️ El veredicto COMPONE, no elige. Todo "sin costo" es por construcción negativo
+              -- (no hubo carga ⇒ saldo = −vendido), así que un CASE excluyente le quitaba a esas
+              -- filas justo la etiqueta que explica por qué están en rojo.
+              -- ⛔ Sin acentos graves acá adentro: cierran el template literal, y check:templates
+              -- NO mira este archivo (sólo *.component.ts). Lo atrapó el candado, por suerte.
+              CASE WHEN w.cv / nullif(w.cq,0) IS NULL THEN 'sin_costo'
+                   WHEN w.vi / nullif(w.vq,0) IS NULL THEN 'sin_precio'
+                   ELSE 'ok' END                                 AS veredicto,
+              (coalesce(w.cq,0)-coalesce(w.vq,0) < 0)                        AS ya_lo_traia,
+              count(*) OVER ()::int                              AS _total
+         FROM win w
+         LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = w.sku AND p.deleted_at IS NULL
+        ORDER BY abs(coalesce((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.cv / nullif(w.cq,0)),0)) DESC
+        LIMIT ?`,
+      [tenantId, ruta, desde, hasta, tenantId, DETALLE_TOPE],
+    )).rows).then((filas: (RouteInventoryDetailRow & { _total: number })[]) => {
+      const total = filas.length ? Number(filas[0]._total) : 0;
+      return {
+        rows: filas.map(({ _total, ...f }) => f) as RouteInventoryDetailRow[],
+        total,
+        // Si alguna vez corta, la pantalla lo DICE. Un corte mudo es un total que no suma.
+        truncado: total > DETALLE_TOPE,
+      };
+    });
+  }
+
+  /**
+   * `[RD.18]` **La serie: cargado contra vendido, día por día, con el saldo acumulado.**
+   *
+   * El acumulado es la columna que contesta "¿desde cuándo?" sin que nadie sume a mano: es
+   * `sum(cargado − vendido) OVER (ORDER BY día)`, el saldo del camión al cierre de cada jornada.
+   * Cuando cruza a negativo, ése es el día en que empezó a vender lo que ya traía.
+   *
+   * ⚠️ Las dos valuaciones viajan juntas y **la pantalla elige una**; no se suman entre sí.
+   *
+   * ── ⛔ Lo que esto corrige, y es el mismo error que esta pantalla denuncia ────────────────
+   *
+   * La primera versión devolvía `cargado` **al costo** y `vendido` **a precio de cliente**, y la
+   * tabla los pintaba en columnas vecinas. O sea: la **lectura A** de `VERDAD_ABSOLUTA` §19 —
+   * restar precio de costo— metida dentro de la pantalla que existe para denunciarla. Medido en
+   * la ruta 21 el 2026-09-26: `$3,820` cargado contra `$17,227` vendido. El ojo lee «vendió 4.5
+   * veces lo que cargó» y lo que pasó es que son dos monedas.
+   *
+   * Peor todavía era la barra de proporción: normalizaba los dos contra un máximo común, así que
+   * **dibujaba el margen como si fuera sobreventa, todos los días**.
+   *
+   * Y el acumulado iba en **unidades** — una tercera magnitud, en una fila cuyas otras dos
+   * columnas son pesos, avisado sólo con un `(uds)` entre paréntesis.
+   *
+   * ⭐ Ahora el valor unitario de cada par `(sku, unidad)` se resuelve **una vez sobre la
+   * ventana** y se aplica a los dos lados, igual que en el resumen. Así `cargado` y `vendido`
+   * están siempre en la MISMA moneda, y el saldo acumulado también.
+   */
+  async routeSeries(routeNo: string, from?: string, to?: string): Promise<RouteSeriesPoint[]> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `WITH u AS (
+         -- El valor unitario de cada par, resuelto UNA vez sobre toda la ventana. Es el mismo
+         -- criterio del resumen: si cada dia resolviera el suyo, un dia sin carga dejaria el
+         -- COGS de ese dia en cero y el saldo saltaria sin que nada se haya movido.
+         SELECT sku, unidad,
+                sum(costo_doc) FILTER (WHERE clase='carga')
+                  / nullif(sum(qty) FILTER (WHERE clase='carga'),0) AS costo_u,
+                sum(venta_doc) FILTER (WHERE clase='venta')
+                  / nullif(sum(qty) FILTER (WHERE clase='venta'),0) AS precio_u
+           FROM analytics.mv_rd_route_ledger
+          WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
+          GROUP BY 1,2
+       ), d AS (
+         SELECT l.business_date,
+                sum(l.qty) FILTER (WHERE l.clase='carga')             AS carga_qty,
+                sum(l.qty) FILTER (WHERE l.clase='venta')             AS venta_qty,
+                -- Columna COSTO: lo cargado y lo vendido, los dos al costo del embarque.
+                sum(l.costo_doc)        FILTER (WHERE l.clase='carga') AS carga_costo,
+                sum(l.qty * u.costo_u)  FILTER (WHERE l.clase='venta') AS cogs_costo,
+                -- Columna VENTA: los dos al precio realizado de esta ruta.
+                sum(l.qty * u.precio_u) FILTER (WHERE l.clase='carga') AS carga_precio,
+                sum(l.venta_doc)        FILTER (WHERE l.clase='venta') AS venta_precio
+           FROM analytics.mv_rd_route_ledger l
+           LEFT JOIN u ON u.sku = l.sku AND u.unidad = l.unidad
+          WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date >= ? AND l.business_date <= ?
+          GROUP BY 1
+       )
+       SELECT to_char(business_date,'YYYY-MM-DD')             AS fecha,
+              round(coalesce(carga_costo,0),2)::float         AS cargado_costo,
+              round(coalesce(cogs_costo,0),2)::float          AS vendido_costo,
+              round(coalesce(carga_precio,0),2)::float        AS cargado_venta,
+              round(coalesce(venta_precio,0),2)::float        AS vendido_venta,
+              round(coalesce(carga_qty,0),2)::float           AS cargado_qty,
+              round(coalesce(venta_qty,0),2)::float           AS vendido_qty,
+              round(sum(coalesce(carga_qty,0) - coalesce(venta_qty,0))
+                    OVER (ORDER BY business_date),2)::float   AS saldo_qty_acum,
+              round(sum(coalesce(carga_costo,0) - coalesce(cogs_costo,0))
+                    OVER (ORDER BY business_date),2)::float   AS saldo_costo_acum,
+              round(sum(coalesce(carga_precio,0) - coalesce(venta_precio,0))
+                    OVER (ORDER BY business_date),2)::float   AS saldo_venta_acum
+         FROM d ORDER BY business_date`,
+      [tenantId, ruta, desde, hasta, tenantId, ruta, desde, hasta],
+    )).rows as RouteSeriesPoint[]);
+  }
+
+  /**
+   * `[RD.19]` **Los traspasos, documento por documento.** Medido: 25-72 embarques por ruta y
+   * ~18 ms la lista, así que se devuelve entera — paginarla sería esconder el histórico que se
+   * pidió ver.
+   */
+  async routeShipments(routeNo: string, from?: string, to?: string): Promise<RouteShipment[]> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `SELECT to_char(business_date,'YYYY-MM-DD') AS fecha, serie, folio,
+              count(*)::int                       AS lineas,
+              round(sum(importe),2)::float        AS importe,
+              round(sum(qty),2)::float            AS unidades
+         FROM analytics.v_rd_route_shipment_lines
+        WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
+        GROUP BY 1,2,3
+        ORDER BY 1 DESC, 3 DESC`,
+      [tenantId, ruta, desde, hasta],
+    )).rows as RouteShipment[]);
+  }
+
+  /**
+   * `[RD.19]`+`[RD.21]` Las líneas de UN embarque, **con el costo al que se cargó cada producto**.
+   *
+   * `salto_peldano` compara el costo de la línea contra el **mediano histórico** del mismo
+   * `(ruta, sku, unidad)`. El umbral es **2.00 y no se eligió de oído**: `[CE.8]` midió que el
+   * factor de caja mínimo del catálogo es 2.00, así que por debajo de eso un salto es precio, no
+   * unidad. Medido: sólo **9 pares** en toda la historia lo cruzan.
+   */
+  async routeShipmentLines(routeNo: string, folio: string, serie?: string): Promise<RouteShipmentLine[]> {
+    const ruta = this.routeNoValido(routeNo);
+    if (!folio || !/^[0-9A-Za-z-]{1,20}$/.test(folio)) throw new BadRequestException('folio inválido');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const ser = serie && /^[0-9A-Za-z]{1,4}$/.test(serie) ? serie : null;
+    return this.tk.run(async (trx) => (await trx.raw(
+      // ⚠️ El documento se resuelve PRIMERO y la mediana se acota a SUS skus. La versión que
+      // calculaba la mediana de toda la ruta y después filtraba el folio tardaba **518 ms** —
+      // por encima del presupuesto de 500. Mismo resultado, un orden de magnitud menos.
+      `WITH doc AS (
+         SELECT * FROM analytics.v_rd_route_shipment_lines
+          WHERE tenant_id = ? AND route_no = ? AND folio = ?
+            AND (?::text IS NULL OR serie = ?::text)
+       ), mediano AS (
+         SELECT l.sku, l.unidad,
+                -- ::numeric obligatorio: percentile_cont devuelve double precision y
+                -- round(double, int) NO existe en Postgres. Lo caza una consulta real, no el build.
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY l.costo_unitario)::numeric AS costo_mediano
+           FROM analytics.v_rd_route_shipment_lines l
+          WHERE l.tenant_id = ? AND l.route_no = ? AND l.qty > 0
+            AND EXISTS (SELECT 1 FROM doc d WHERE d.sku = l.sku AND d.unidad = l.unidad)
+          GROUP BY 1,2
+       )
+       SELECT l.sku, coalesce(p.description, l.producto_erp, l.sku) AS producto, l.unidad,
+              round(l.qty,2)::float            AS qty,
+              round(l.costo_unitario,4)::float AS costo_unitario,
+              round(l.importe,2)::float        AS importe,
+              round(m.costo_mediano,4)::float  AS costo_mediano,
+              (m.costo_mediano > 0 AND (
+                 l.costo_unitario / m.costo_mediano >= 2
+                 OR m.costo_mediano / nullif(l.costo_unitario,0) >= 2)) AS salto_peldano
+         FROM doc l
+         LEFT JOIN mediano m ON m.sku = l.sku AND m.unidad = l.unidad
+         LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = l.sku AND p.deleted_at IS NULL
+        ORDER BY l.importe DESC`,
+      [tenantId, ruta, folio, ser, ser, tenantId, ruta, tenantId],
+    )).rows as RouteShipmentLine[]);
+  }
+
+  /**
+   * `[RD.20]` **Los números rojos, partidos en sus dos familias y con su antigüedad.**
+   *
+   * No son un problema, son dos, y confundirlos es lo que hacía la pantalla:
+   *  - `nunca_cargado` — el camión lo vendió sin que nadie se lo cargara en la ventana: mercancía
+   *    anterior al primer embarque. **No se puede valuar** (sin carga no hay costo) y se declara,
+   *    no se dibuja en $0. Medido: 635 pares.
+   *  - `se_acabo` — sí se le cargó, lo vendió todo y siguió vendiendo. **1,564 pares, −$250,975**,
+   *    y es la familia accionable.
+   *
+   * `desde` es el primer día en que el saldo acumulado cruzó a negativo — la respuesta literal a
+   * "¿desde cuándo?". Medido en la ruta 23: el rojo promedio lleva **~70 días**.
+   */
+  async routeNegatives(routeNo: string, from?: string, to?: string): Promise<RouteNegativeRow[]> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `WITH mov AS (
+         SELECT sku, unidad, business_date,
+                sum(CASE WHEN clase='carga' THEN qty ELSE -qty END) AS neto,
+                sum(qty)       FILTER (WHERE clase='carga') AS cq,
+                sum(costo_doc) FILTER (WHERE clase='carga') AS cv
+           FROM analytics.mv_rd_route_ledger
+          WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
+          GROUP BY 1,2,3
+       ), acum AS (
+         SELECT m.*, sum(neto) OVER (PARTITION BY sku, unidad ORDER BY business_date) AS saldo
+           FROM mov m
+       ), f AS (
+         SELECT sku, unidad,
+                sum(neto)                                   AS saldo_final,
+                sum(coalesce(cq,0))                         AS carga_total,
+                sum(cv) / nullif(sum(cq),0)                 AS costo_u,
+                min(business_date) FILTER (WHERE saldo < 0) AS desde
+           FROM acum GROUP BY 1,2
+       )
+       SELECT f.sku, coalesce(p.description, f.sku) AS producto, f.unidad,
+              round(f.saldo_final,2)::float             AS saldo,
+              CASE WHEN f.carga_total = 0 THEN 'nunca_cargado' ELSE 'se_acabo' END AS familia,
+              to_char(f.desde,'YYYY-MM-DD')             AS desde,
+              (CURRENT_DATE - f.desde)::int             AS dias_en_rojo,
+              round(f.saldo_final * f.costo_u,2)::float AS valor_costo
+         FROM f
+         LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = f.sku AND p.deleted_at IS NULL
+        WHERE f.saldo_final < 0
+        ORDER BY coalesce(f.saldo_final * f.costo_u, 0) ASC, f.saldo_final ASC
+        LIMIT ?`,
+      [tenantId, ruta, desde, hasta, tenantId, DETALLE_TOPE],
+    )).rows as RouteNegativeRow[]);
+  }
+
+  /** `route_no` sale de un código canónico (`RUTA-23` -> `23`): acotado y validado en un solo lugar. */
+  private routeNoValido(routeNo: string): string {
+    if (!routeNo || !/^[0-9A-Za-z]{1,8}$/.test(routeNo)) throw new BadRequestException('route_no inválido');
+    return routeNo;
+  }
+
+  /**
+   * Rango por default = **toda la ventana disponible** (desde la primera carga). Es lo que
+   * contesta "cuánto inventario tienen"; acotar el rango contesta "qué pasó en este periodo".
+   */
+  private routeInventoryRange(from?: string, to?: string): { desde: string; hasta: string } {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const desde = from && dRx.test(from) ? from : '2000-01-01';
+    const hasta = to && dRx.test(to) ? to : this.todayMx();
+    if (from && !dRx.test(from)) throw new BadRequestException('from debe ser YYYY-MM-DD');
+    if (to && !dRx.test(to)) throw new BadRequestException('to debe ser YYYY-MM-DD');
+    if (desde > hasta) throw new BadRequestException('from no puede ser mayor que to');
+    return { desde, hasta };
+  }
+
+  /**
+   * Ayer en TZ MX (UTC-6 fijo). `YYYY-MM-DD`.
+   *
+   * Se resta un día ANTES de recortar a fecha, no después: con `todayMx()` y un `- 1` en SQL
+   * el día lo decidiría el reloj del servidor de base, que corre en UTC — entre las 18:00 y la
+   * medianoche de México ya es "mañana" allá y la pantalla mostraría la carga de hoy rotulada
+   * como la de ayer. Es el mismo descuido que `[LC.16]` pagó con fechas corridas un día.
+   */
+  private ayerMx(): string {
+    const mx = new Date(Date.now() - 6 * 3600 * 1000 - 24 * 3600 * 1000);
+    return mx.toISOString().slice(0, 10);
   }
 
   // Inicio del mes actual en TZ MX (UTC-6 fijo, MX abolió DST en 2023). Formato YYYY-MM-01.

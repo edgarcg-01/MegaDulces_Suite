@@ -1245,7 +1245,7 @@ interface AttachFile {
       display: inline-flex; align-items: center; gap: var(--sp-1);
       color: var(--text-muted); font-size: var(--fs-xs);
     }
-    .cb-descartada i { font-size: .75rem; }
+    .cb-descartada i { font-size: var(--fs-xs); }
     .cb-desc-lead {
       margin: 0; padding: var(--sp-2) var(--sp-3);
       background: var(--surface-ground); border-radius: var(--r-md);
@@ -1302,7 +1302,7 @@ interface AttachFile {
        suficiente color y esto aparece en muchas celdas a la vez. */
     .cb-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0; font:inherit; text-align:left; }
     .cb-reflink:hover { color:var(--action); text-decoration:underline; }
-    .cb-reflink:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; border-radius:var(--r-sm); }
+    .cb-reflink:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .cb-filters { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; margin-bottom: 1rem; padding: 1rem; }
     .cb-field { display: flex; flex-direction: column; gap: .3rem; }
     .cb-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
@@ -1401,7 +1401,7 @@ interface AttachFile {
     .cb-linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--action);
       cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
     .cb-linkbtn:hover { color: var(--action-hover); }
-    .cb-linkbtn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .cb-linkbtn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
     /* RE.28.4 — el lote: qué se va a aprobar, y después qué pasó con cada una. La lista se
@@ -1527,7 +1527,7 @@ interface AttachFile {
     .cb-eye { color: var(--text-muted); font-size: .8rem; opacity: 0; transition: opacity .15s; }
     .cb-comp-cell:hover .cb-eye { opacity: .8; }
     .cb-comp-empty { display: inline-flex; align-items: center; gap: .35rem; }
-    .cb-comp-empty i { font-size: .75rem; opacity: .7; }
+    .cb-comp-empty i { font-size: var(--fs-xs); opacity: .7; }
     /* preview antes de subir */
     .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-2); }
     /* Fondo del papel: token, no un negro con alpha. En tema oscuro un #00000008 no existe y

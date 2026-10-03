@@ -371,7 +371,7 @@ import { CartFxService } from '../cart-fx.service';
       @media (prefers-reduced-motion: reduce) {
         .pom-card:hover { transform: none; }
       }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .pom-card { width: 150px; }
       }
     `,

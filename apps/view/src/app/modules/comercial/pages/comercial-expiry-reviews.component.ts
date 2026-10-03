@@ -45,7 +45,7 @@ import { ComercialService, ExpiryReview } from '../comercial.service';
         </div>
       </header>
 
-      <p-table [value]="reviews()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+      <p-table [value]="reviews()" [loading]="loading()" styleClass="p-datatable-sm surf-table"
         [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
         <ng-template #header>
           <tr>

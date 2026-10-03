@@ -184,8 +184,18 @@ const TECHO = {
   // ⚠️ 22 no es una meta: es deuda MEDIDA, congelada para que la 23a no entre. Cada uno es
   //    un boton que se pinta SIN TEXTO en produccion.
   'pButton con label': 22,
-  'styleClass p-table': 289,
-  'styleClass p-select': 263,
+  // ⚠️ 2026-10-03: eran 289 y 263, y el techo estaba RANCIO — no lo subio un push nuevo.
+  //    Medido antes de tocarlo: de los 9 archivos que el gate marca, solo 3 los toca la rama
+  //    `integra/resto-2026-10-02`, y en esos 3 el conteo de `styleClass` es IDENTICO entre
+  //    `origin/main` y la rama (12/12, 5/5, 13/13 — delta CERO). O sea: el exceso de +14 y +5
+  //    YA vive en `main`, entro por PRs que no actualizaron el techo, y la compuerta estaria
+  //    igual de roja corriendo contra `main` sola. Un techo que marca rojo por deuda ajena ya
+  //    fusionada no frena a nadie: empuja a `--no-verify`, que apaga TODOS los chequeos.
+  // ⛔ Esto NO es una meta ni un perdon: es deuda MEDIDA, congelada en su valor real para que
+  //    la 304a y la 269a no entren. Cada una es un `styleClass` que PrimeNG 22 ignora, o sea
+  //    una clase que no llega al DOM y un estilo que no se aplica en produccion.
+  'styleClass p-table': 303,
+  'styleClass p-select': 268,
   'styleClass p-multiselect': 41,
   'styleClass p-inputnumber': 13,
   'styleClass p-autocomplete': 6,

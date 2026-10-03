@@ -160,7 +160,12 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX', { minimumFractionDigits:
           WHERE sucursal = '00' AND doc_code = 'UD1301'
             AND fecha BETWEEN (CURRENT_DATE - $1::int)::date AND CURRENT_DATE)
        SELECT count(*)::int AS docs, count(c.folio)::int AS con_arbitro,
-              coalesce(sum(m.pendiente), 0)::numeric AS pendiente_mio,
+              -- ⚠️ Los DOS lados se suman sobre las facturas que el arbitro SI tiene. Sumar mi
+              -- universo completo contra el suyo recortado comparaba dos universos distintos, y
+              -- el delta crecia solo cuando la ventana rodaba: 1.53 % un dia, 2.00 % al otro,
+              -- sin que nada se hubiera roto. Un agregado correcto sobre un universo no
+              -- declarado engana igual que un numero mal sumado.
+              coalesce(sum(m.pendiente) FILTER (WHERE c.folio IS NOT NULL), 0)::numeric AS pendiente_mio,
               coalesce(sum(c.saldo_documento), 0)::numeric AS saldo_cxc,
               count(*) FILTER (WHERE c.folio IS NOT NULL
                 AND abs(m.pendiente - c.saldo_documento) > 0.01)::int AS difieren
@@ -173,10 +178,11 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX', { minimumFractionDigits:
       const fpct = (arb.difieren * 100) / arb.con_arbitro;
       chk(dpct <= 2,
         `pendiente $${n(arb.pendiente_mio)} vs saldo de cartera $${n(arb.saldo_cxc)} — Δ `
-        + `${dpct.toFixed(2)} % (medido 1.53 %). Son dos caminos distintos al mismo hecho: éste `
+        + `${dpct.toFixed(2)} % sobre las ${arb.con_arbitro} facturas que los DOS tienen (de `
+        + `${arb.docs}). Son dos caminos distintos al mismo hecho: éste `
         + 'sale de kdm1+kdm5, el árbitro de kdue');
       chk(fpct <= 5,
-        `${arb.difieren} de ${arb.con_arbitro} facturas difieren (${fpct.toFixed(1)} %, medido 0.3 %) `
+        `${arb.difieren} de ${arb.con_arbitro} facturas difieren (${fpct.toFixed(1)} %, medido 0.4 %) `
         + '— y sólo cierra restando la nota de crédito: sin ella difieren 521 en vez de 12');
     }
 
@@ -258,6 +264,118 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX', { minimumFractionDigits:
     } else {
       nm(`el medio de pago del mostrador no existe en Kepler: c45 vacía en los ${c45?.docs ?? 0} `
         + 'tickets de los últimos 30 días. No se dibuja: se declara en el puente');
+    }
+    // ── 8. `[IG.12]` La pestaña «Cuadra»: el árbitro de cobranza bajo la compuerta de 1 s ─────
+    //
+    // Tardaba **93 segundos**. `analytics.erp_collections` recorría `kdfe33pagm1` entero (3,613
+    // filas) por cada uno de los 27,410 cobros, porque el join contra el complemento de pago
+    // colgaba del lado ANULABLE de un LEFT JOIN a través de una vista: ahí las expresiones se
+    // vuelven PlaceHolderVar y **ningún índice las alcanza**. Se arregló con dos piezas que sólo
+    // sirven juntas — el índice (20261003170000) y el LATERAL (20261003180000) — y por eso las
+    // dos se vigilan: cualquiera de las dos sola deja la pantalla otra vez arriba de 90 s.
+    console.log('\n[8] El árbitro de cobranza del cuadre de fuentes');
+    const [ix] = await q(
+      `SELECT i.indisvalid FROM pg_class cl JOIN pg_index i ON i.indexrelid = cl.oid
+        WHERE cl.relname = 'ix_kdfe33pagm1_cobro'`);
+    chk(!!ix && ix.indisvalid === true,
+      ix
+        ? 'ix_kdfe33pagm1_cobro existe y es VÁLIDO (un índice inválido se ve presente y el '
+          + 'planificador lo ignora: lento y en silencio)'
+        : '⛔ falta ix_kdfe33pagm1_cobro: sin él el LATERAL recorre kdfe33pagm1 entero por cobro');
+    const [lat] = await q(
+      `SELECT position('LATERAL' in pg_get_viewdef('analytics.erp_collections'::regclass, true)) > 0 AS si`);
+    chk(!!lat && lat.si === true,
+      lat && lat.si
+        ? 'analytics.erp_collections resuelve el complemento con LEFT JOIN LATERAL'
+        : '⛔ erp_collections volvió al LEFT JOIN plano contra la vista: el índice deja de ser '
+          + 'alcanzable y la pestaña Cuadra vuelve a 93 s');
+    const t8 = Date.now();
+    const [cob] = await q(
+      `SELECT count(*)::int AS filas, coalesce(sum(monto), 0)::numeric AS v
+         FROM analytics.erp_collections
+        WHERE cobro_date BETWEEN (CURRENT_DATE - $1::int) AND CURRENT_DATE`, [DIAS]);
+    const ms8 = Date.now() - t8;
+    chk(ms8 < 1500,
+      `${ms8} ms para los ${DIAS} días (medido 313 ms; antes del arreglo: 93,348 ms)`);
+    // ⭐ La prueba que de verdad importa, y la que un «anda rápido» no da: que el complemento
+    // SIGA llegando. Si el LATERAL dejara de casar, `cobro_date` caería al `m.c9` de la póliza
+    // por el COALESCE y la consulta seguiría siendo rápida y devolviendo filas — con la fecha
+    // equivocada en los cobros CFDI y sin un solo error.
+    const [cfdi] = await q(
+      `SELECT count(*)::int AS cfdi,
+              count(*) FILTER (WHERE e.cobro_date <> m.c9::date)::int AS del_complemento
+         FROM analytics.erp_collections e
+         JOIN kepler_ods.kdm1 m
+           ON btrim(m.sucursal) = e.sucursal AND btrim(m.c6) = e.folio
+          AND m.c2 = 'U' AND m.c3 = 'A' AND m.c4 = 7 AND btrim(m.c1) = btrim(m.sucursal)
+        WHERE e.doc_prefix = 'UA0701'`);
+    if (!cfdi || cfdi.cfdi === 0) {
+      nm('no hay cobros con complemento de pago (UA0701) para comprobar la fecha real');
+    } else {
+      chk(cfdi.del_complemento > 0,
+        cfdi.del_complemento > 0
+          ? `${cfdi.del_complemento} de ${cfdi.cfdi} cobros CFDI toman su fecha del complemento y `
+            + 'no de la póliza (medido 806 de 2,827) — el LATERAL casa de verdad'
+          : '⛔ ningún cobro CFDI difiere de la fecha de su póliza: el LATERAL no está casando y '
+            + 'el COALESCE lo está tapando con m.c9. Rápido y equivocado');
+    }
+
+    // ── 9. `[IG.12]` El desglose de la conciliación SUMA su propio renglón ───────────────────
+    //
+    // La celda es (período × plaza × canal) y el detalle se pide con el período **recortado al
+    // rango de la pantalla**. Si alguien quita ese recorte, el desglose trae días que el renglón
+    // no contiene y suma de más — un detalle que no cuadra con su encabezado.
+    console.log('\n[9] El desglose de una celda suma exactamente lo que dice su renglón');
+    // ⚠️ Se elige a propósito la celda del PRIMER mes del rango, no la más grande: ése es el mes
+    // que la ventana parte por la mitad, o sea el único donde el recorte se puede comprobar. Con
+    // la celda más grande el control salía NO MEDIDO y la aserción no probaba nada.
+    const [celda] = await q(
+      `WITH b AS MATERIALIZED (
+              SELECT * FROM analytics.income_bridge_src((CURRENT_DATE - $1::int)::date, CURRENT_DATE))
+       SELECT to_char(b.fecha, 'YYYY-MM') AS periodo,
+              coalesce(nullif(btrim(b.plaza), ''), '(sin plaza)') AS plaza, b.canal,
+              count(*)::int AS docs, round(sum(b.importe), 2)::numeric AS vendido
+         FROM b
+        WHERE to_char(b.fecha, 'YYYY-MM') = to_char((CURRENT_DATE - $1::int)::date, 'YYYY-MM')
+        GROUP BY 1, 2, 3 ORDER BY 5 DESC LIMIT 1`, [DIAS]);
+    if (!celda) {
+      nm(`no hay ninguna celda de conciliación en los últimos ${DIAS} días`);
+    } else {
+      const [vent] = await q(
+        `SELECT greatest(($1 || '-01')::date, (CURRENT_DATE - $2::int)::date)                 AS desde,
+                least((($1 || '-01')::date + interval '1 month - 1 day')::date, CURRENT_DATE) AS hasta,
+                (($1 || '-01')::date < (CURRENT_DATE - $2::int)::date)                        AS recortado`,
+        [celda.periodo, DIAS]);
+      const [det] = await q(
+        `WITH b AS MATERIALIZED (SELECT * FROM analytics.income_bridge_src($1::date, $2::date))
+         SELECT count(*)::int AS docs, round(sum(b.importe), 2)::numeric AS vendido
+           FROM b
+          WHERE b.canal = $3 AND coalesce(nullif(btrim(b.plaza), ''), '(sin plaza)') = $4`,
+        [vent.desde, vent.hasta, celda.canal, celda.plaza]);
+      chk(Math.abs(Number(det.vendido) - Number(celda.vendido)) < 0.01 && det.docs === celda.docs,
+        `${celda.plaza} · ${celda.periodo}: el renglón dice $${n(celda.vendido)} en ${celda.docs} `
+        + `documentos y el desglose trae $${n(det.vendido)} en ${det.docs} — Δ `
+        + `${n(Number(det.vendido) - Number(celda.vendido))}`);
+      // El control de que el recorte NO es cosmético: con el mes entero el detalle sobra.
+      if (!vent.recortado) {
+        nm(`el período ${celda.periodo} cae entero dentro del rango, así que acá no hay recorte `
+          + 'que comprobar — con la ventana por defecto de 90 días el primer mes sí lo tiene');
+      } else {
+        const [ent] = await q(
+          `WITH b AS MATERIALIZED (
+                  SELECT * FROM analytics.income_bridge_src(($1 || '-01')::date,
+                                                            (($1 || '-01')::date + interval '1 month - 1 day')::date))
+           SELECT count(*)::int AS docs, round(sum(b.importe), 2)::numeric AS vendido
+             FROM b
+            WHERE b.canal = $2 AND coalesce(nullif(btrim(b.plaza), ''), '(sin plaza)') = $3`,
+          [celda.periodo, celda.canal, celda.plaza]);
+        chk(Math.abs(Number(ent.vendido) - Number(celda.vendido)) >= 0.01,
+          Math.abs(Number(ent.vendido) - Number(celda.vendido)) >= 0.01
+            ? `prueba negativa: sin recortar, el mes entero traería $${n(ent.vendido)} en `
+              + `${ent.docs} documentos contra los $${n(celda.vendido)} del renglón — `
+              + `$${n(Number(ent.vendido) - Number(celda.vendido))} de más`
+            : '◻ el mes entero da lo mismo que el recortado: el control no está probando nada');
+      }
     }
   } finally {
     await c.end().catch(() => undefined);

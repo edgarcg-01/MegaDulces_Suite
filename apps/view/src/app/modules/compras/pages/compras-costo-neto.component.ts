@@ -129,7 +129,7 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
     .cn-chk { display:inline-flex; align-items:center; gap:.45rem; font-size:.8rem; color:var(--text-muted); cursor:pointer; }
     .cn-table { margin-top:.6rem; }
     .cn-row { cursor:pointer; }
-    .cn-row:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
+    .cn-row:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; }
     /* fila anómala = señalar la fila exacta (punto 15) */
     .cn-row.is-anom > td:first-child { box-shadow:inset 3px 0 0 var(--warn-fg); }
     .ta-r { text-align:right; }
@@ -137,7 +137,7 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
     .cn-strong { font-weight:700; }
     .cn-pos { color:var(--ok-fg); }
     .cn-anom { color:var(--warn-fg); font-weight:700; }
-    .cn-warn { color:var(--warn-fg); margin-left:.3rem; font-size:.75rem; }
+    .cn-warn { color:var(--warn-fg); margin-left:.3rem; font-size:var(--fs-xs); }
     .cn-w-amt { width:9rem; } .cn-w-pct { width:6rem; }
     .cn-prov { max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cn-drillhint { font-size:.72rem; color:var(--text-faint); margin-left:.35rem; }

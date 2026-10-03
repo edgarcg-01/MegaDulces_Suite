@@ -544,7 +544,7 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
         border-left-width: 4px;
         position: relative;
       }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .od-hero {
           grid-template-columns: 56px 1fr;
           grid-template-areas:
@@ -585,7 +585,7 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
       .od-hero-confirmed .od-hero-icon { color: var(--info-fg); }
       .od-hero-fulfilled .od-hero-icon { color: var(--ok-fg); }
       .od-hero-cancelled .od-hero-icon { color: var(--bad-fg); }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .od-hero-icon { width: 56px; height: 56px; font-size: var(--fs-h2); }
       }
 
@@ -685,7 +685,7 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
       .od-inv-grid {
         display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
       }
-      @media (max-width: 560px) { .od-inv-grid { grid-template-columns: 1fr; } }
+      @media (max-width: 35rem) { .od-inv-grid { grid-template-columns: 1fr; } }
       .od-fld { display: flex; flex-direction: column; gap: 0.3rem; }
       .od-fld-full { grid-column: 1 / -1; }
       .od-fld span {
@@ -700,6 +700,7 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
       .od-fld input:focus, .od-fld select:focus {
         outline: none; border-color: var(--action); box-shadow: 0 0 0 3px var(--ember-soft, rgba(0,0,0,0.05));
       }
+       .od-fld input:focus-visible, .od-fld select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .od-inv-form-actions { display: flex; justify-content: flex-end; gap: 0.6rem; }
       .od-inv-err {
         display: flex; align-items: center; gap: 0.4rem; margin: 0;
@@ -715,7 +716,7 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
         gap: 1.25rem;
         align-items: start;
       }
-      @media (max-width: 900px) {
+      @media (max-width: 56.25rem) {
         .od-layout { grid-template-columns: 1fr; }
       }
 
@@ -1078,7 +1079,7 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
         gap: 1.25rem;
         align-items: start;
       }
-      @media (max-width: 900px) { .od-skel-layout { grid-template-columns: 1fr; } }
+      @media (max-width: 56.25rem) { .od-skel-layout { grid-template-columns: 1fr; } }
       .od-skel-lines { display: flex; flex-direction: column; gap: 0.5rem; }
       .od-skel-line {
         display: grid;

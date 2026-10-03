@@ -350,7 +350,7 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
     .ft-md a { color: var(--action); }
     .ft-prov-btn { background: none; border: none; padding: 0; font: inherit; font-weight: 500; color: var(--text-main); cursor: pointer; display: inline-flex; align-items: center; gap: .2rem; text-align: left; }
     .ft-prov-btn:hover { color: var(--action); }
-    .ft-prov-btn i { font-size: .75rem; color: var(--text-faint); }
+    .ft-prov-btn i { font-size: var(--fs-xs); color: var(--text-faint); }
     .ft-diag-sum { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .6rem; }
     .ft-diag-lead { font-size: var(--fs-sm); color: var(--text-muted); margin: 0 0 .6rem; }
     .ft-diag-list { display: flex; flex-direction: column; gap: .55rem; max-height: 52vh; overflow-y: auto; }

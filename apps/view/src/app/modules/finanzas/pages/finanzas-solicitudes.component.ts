@@ -304,7 +304,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
       :host ::ng-deep .so-refresh { width: var(--tap-min); min-width: var(--tap-min); height: var(--tap-min); }
     }
     /* Cuando el head se apila, el divisor separa de la nada. */
-    @media (max-width: 760px) { .so-freshness { padding-right: 0; border-right: 0; } }
+    @media (max-width: 47.5rem) { .so-freshness { padding-right: 0; border-right: 0; } }
 
     /* ── Nivel 1: la lectura del periodo ────────────────────────────────
        Texto, no caja. La jerarquía la dan el tipo y el contraste, no un panel con
@@ -317,7 +317,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
       color: var(--action); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
     .so-drill:hover { color: var(--action-hover); }
     .so-drill:active { color: var(--action-press); }
-    .so-drill:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .so-drill:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     /* Reserva el alto de lo que viene mientras carga: sin esto la tabla salta (CLS). */
     p-skeleton { display: block; }
     .so-sk-lead { margin: var(--sp-3) 0 var(--sp-2); max-width: 46rem; }
@@ -343,7 +343,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
       transition: background-color var(--dur-short) var(--ease-standard); }
     .so-fitem:hover:not(.on) { background: var(--overlay-hover); }
     .so-fitem.on { background: var(--overlay-selected); border-bottom-color: var(--action); }
-    .so-fitem:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .so-fitem:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .so-fn { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
       font-size: var(--fs-h2); font-weight: var(--fw-bold); color: var(--fg-1); line-height: 1.15; }
     /* Etapa vacía = terciaria: si no hay nada que hacer ahí, no compite (Q.5). */
@@ -352,7 +352,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
     .so-fitem.on .so-fl { color: var(--fg-1); font-weight: var(--fw-medium); }
     .so-fm { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
       font-size: var(--fs-xs); color: var(--fg-3); }
-    @media (max-width: 900px) {
+    @media (max-width: 56.25rem) {
       .so-fgroup { flex: 1 1 100%; border-right: 0; border-bottom: 1px solid var(--border-color); }
       .so-fgroup:last-child { border-bottom: 0; }
     }
@@ -412,7 +412,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
     .so-link { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; color: var(--fg-1);
       font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .so-folio:hover, .so-link:hover { color: var(--action); text-decoration: underline; text-underline-offset: 2px; }
-    .so-folio:focus-visible, .so-link:focus-visible { outline: 2px solid var(--action-ring);
+    .so-folio:focus-visible, .so-link:focus-visible { outline: 2px solid var(--focus-ring);
       outline-offset: 2px; border-radius: var(--r-sm); }
 
     /* Acción de fila: icono fantasma a la derecha (datos densos 5). Atenuada en reposo y
@@ -425,7 +425,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
         background-color var(--dur-short) var(--ease-standard); }
     .so-row:hover .so-act, .so-row:focus-within .so-act { opacity: 1; }
     .so-act:hover { background: var(--overlay-hover); color: var(--fg-1); }
-    .so-act:focus-visible { opacity: 1; outline: 2px solid var(--action-ring); outline-offset: -1px; }
+    .so-act:focus-visible { opacity: 1; outline: 2px solid var(--focus-ring); outline-offset: -1px; }
     @media (pointer: coarse) { .so-act { opacity: 1; } }
     @media (prefers-reduced-motion: reduce) { .so-act { transition: none; } }
 
@@ -435,7 +435,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
       border: 1px solid var(--warn-border); border-radius: var(--r-pill); background: none;
       font: inherit; font-size: var(--fs-xs); color: var(--warn-fg); cursor: pointer; }
     .so-chip:hover { background: var(--overlay-hover); }
-    .so-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .so-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .so-chip-x { font-size: var(--fs-nano); }
 
   `],
@@ -679,6 +679,12 @@ export class FinanzasSolicitudesComponent {
     if (et && this.etapasDef.some((x) => x.value === et)) this.etapa.set(et as Etapa);
     if (qp.get('mias') === '1') this.mias.set(true);
     if (qp.get('anejas') === '1') this.soloAnejas.set(true);
+
+    // [GX.59] El Expediente manda acá con el folio puesto: el boton «Comprobacion de
+    // Kepler» tiene que caer SOBRE el vale, no en una lista de 10,082 para buscarlo a mano.
+    // Se mete en la busqueda que ya existe en vez de estrenar un filtro propio.
+    const folio = (qp.get('folio') || '').trim();
+    if (folio) this.search = folio;
 
     this.svc.expensesSucursales().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((rows) => this.sucursales.set(rows.map((s) => ({ code: s.code, label: s.name ? `${s.code} · ${s.name}` : s.code }))));

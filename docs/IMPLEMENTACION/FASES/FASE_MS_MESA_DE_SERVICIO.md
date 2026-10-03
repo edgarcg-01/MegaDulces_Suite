@@ -278,9 +278,9 @@ deshabilitado al primer clic, `p-tag` mapeado a tokens ok/warn/bad. Componentes 
 
 | Pantalla | Ruta | Para quién | Contenido |
 |---|---|---|---|
-| **Nueva solicitud** | `/servicio/nueva` | todos (`REPORTAR`) | Formulario corto. Precarga solicitante/puesto/departamento/sucursal (`me/context`, sucursal editable). Cola, categoría con búsqueda, título, descripción, **impacto** y **"me bloquea"**, adjuntos y cámara. Al enviar: folio + qué canal recibirá el aviso. |
-| **Mis solicitudes** | `/servicio/mis-solicitudes` | todos | Tabla + side-peek con hilo (sin notas internas), **confirmar resuelto** / **reabrir**, comentar. |
-| **Bandeja de atención** | `/servicio/atencion` | `ATENDER` | `MetricStrip` (abiertas · sin asignar · por vencer · vencidas · mediana de resolución) · pestañas **Sin asignar / Mías / En espera / Todas** · filtros (prioridad, sucursal, categoría) · columna **semáforo SLA** · side-peek 520 px con hilo, **nota interna**, tomar/asignar/prioridad/estado, **registrar tiempo**, adjuntos. |
+| **Nueva solicitud** | `/servicio/solicitudes` (el botón «Reportar un problema» del header abre el formulario) | todos (`REPORTAR`) | Formulario corto. Precarga solicitante/puesto/departamento/sucursal (`me/context`, sucursal editable). Cola, categoría con búsqueda, título, descripción, **impacto** y **"me bloquea"**, adjuntos y cámara. Al enviar: folio + qué canal recibirá el aviso. |
+| **Mis solicitudes** | `/servicio/solicitudes` | todos | Tabla + side-peek con hilo (sin notas internas), **confirmar resuelto** / **reabrir**, comentar. |
+| **Bandeja de atención** | `/servicio/bandeja` | `ATENDER` | `MetricStrip` (abiertas · sin asignar · por vencer · vencidas · mediana de resolución) · pestañas **Sin asignar / Mías / En espera / Todas** · filtros (prioridad, sucursal, categoría) · columna **semáforo SLA** · side-peek 520 px con hilo, **nota interna**, tomar/asignar/prioridad/estado, **registrar tiempo**, adjuntos. |
 | **Reportes** | `/servicio/reportes` | `COORDINAR` | Cumplimiento de SLA y tiempos de 1ª respuesta/resolución por prioridad, por categoría y por sucursal, recurrentes. `FreshnessPill`. |
 | **Configuración** | `/servicio/configuracion` | `COORDINAR` | Categorías, SLA, horario, membresía de cola. |
 | **Mis datos de contacto** | diálogo | todos | Correo, teléfono y **opt-in explícito de WhatsApp**. Se ofrece al primer reporte si faltan. Los mismos campos entran al alta de usuario en Admin. |
@@ -311,7 +311,7 @@ con los hex de la Bitácora. Los nombres de sucursal salen de `branchName()` / e
 | Quién | Entra por | Fase |
 |---|---|---|
 | Usuarios de `apps/view` (oficina, gerencias) | botón del header + Mi trabajo | **MVP** |
-| Cajeras / tienda (`/tienda`), tele-operadores (`/telemarketing`) | botón propio en su shell | MS.3.7 |
+| Cajeras / tienda (`/tienda`), tele-operadores (`/telemarketing`) | el botón del header del layout (ya lo montan; medido en navegador) | MS.3.7 |
 | Vendedores y repartidores (`apps/vendor`, **sin `/projects`**) | pantalla nueva en `apps/vendor` | MS.5 |
 | Sin cuenta | enlace público con token (patrón `captura/:token`) | MS.5, no comprometido |
 
@@ -333,34 +333,38 @@ manual** (light, dark y móvil) — el único paso que no se automatiza.
   `SMTP_*` en prod, destino del bucket de adjuntos y último timestamp de `knex_migrations` de prod.
 - 🧪 **MS.1.1** Schema + catálogos (`queues`, `categories`, `sla_policies`, `settings`) + seeds de TI. Mig `20261002100000`.
 - 🧪 **MS.1.2** `requests`, `request_sequences`, `request_messages`, `request_attachments`, `work_log`. Mig `20261002110000`.
-- 🧪 **MS.1.3** `notification_prefs`, `notification_log` y `identity.users.email/phone`. Mig `20261002120000`.
+- 🧪 **MS.1.3** `notification_prefs`, `notification_log` y `identity.users.email/phone`. Mig `20261002160000` (nació como `…120000`; esa marca la tomó otra sesión y se renumeró).
 - 🧪 **MS.1.4** Permisos (`REPORTAR/ATENDER/COORDINAR`) en enum, metadata, árbol y mapa de la suite + reparto
-  derivado. Mig `20261002130000`. **La clave de responsabilidad se movió a MS.3.6** (ver §11).
+  derivado. Mig `20261002170000` (nació como `…130000`; renumerada). **La clave de responsabilidad se movió a MS.3.6** (ver §11).
 - 🧪 **MS.1.5** Contrato de tarea: `servicedesk.requests` declarada en `FUENTES_TAREA`/`ADAPTADORES`. La entrada
-  visible en `me-tasks.ts` espera a MS.3.6 (necesita su ruta).
+  visible en `me-tasks.ts` se hizo en MS.3.6 (con su ruta).
 - 🧪 **MS.1.6** Smoke DB-direct `test-newdb-service-desk.js`: **130 ✓ / 0 ✗**, registrado en `run-all-tests.js`.
 
 **Capa 2 — Lógica**
-- ⬜ **MS.2.1** Scaffold `libs/service-desk` + registros (eslint, tsconfig×2, vitest, `AppModule`).
-- ⬜ **MS.2.2** Contratos HTTP y puertos en `libs/contracts`.
-- ⬜ **MS.2.3** `RequestsService` + máquina de estados + `MessagesService`.
-- ⬜ **MS.2.4** Adjuntos (validación de servidor, límite en `main.ts`, URLs firmadas).
-- ⬜ **MS.2.5** SLA (funciones puras + spec), scanner con latido y `CRON_JOBS`, auto-cierre.
-- ⬜ **MS.2.6** Notificaciones: puerto, binding, room por usuario en `/alerts`, anti-spam, log, y
+- 🧪 **MS.2.1** Scaffold `libs/service-desk` + registros (eslint, tsconfig×2, vitest, `AppModule`).
+- 🧪 **MS.2.2** Contratos HTTP y puertos en `libs/contracts`.
+- 🧪 **MS.2.3** `RequestsService` + máquina de estados + `MessagesService`.
+- 🧪 **MS.2.4** Adjuntos (validación de servidor por FIRMA, límite en `main.ts`, URLs firmadas). **Medido de punta a punta contra un S3 real** (26/26, `http-service-desk-attachments-s3-test.js`; incluye que no quede objeto huérfano). **No medido contra el bucket de producción.**
+- 🧪 **MS.2.5** SLA (funciones puras + spec), scanner con latido y `CRON_JOBS`, auto-cierre.
+- 🧪 **MS.2.6** Notificaciones: puerto, binding, room por usuario en `/alerts`, anti-spam, log, y
   **canal `app` por poll para lo que nace en el worker** (que no tiene WebSocket).
-- ⬜ **MS.2.7** Asignación, selector de agentes sin `USUARIOS_VER`, endpoints de configuración.
-- ⬜ **MS.2.8** `BITACORA_PORT` + `NullBitacoraAdapter` + `work_log` endpoints.
-- ⬜ **MS.2.9** Verificación HTTP end-to-end + `build` + `check:boot`.
+- 🧪 **MS.2.7** Asignación, selector de agentes sin `USUARIOS_VER`, endpoints de configuración.
+- 🔨 **MS.2.8** `BITACORA_PORT` + `NullBitacoraAdapter` + `work_log` endpoints.
+- 🧪 **MS.2.9** Verificación HTTP end-to-end + `build` + `check:boot`.
 
 **Capa 3 — Visual**
-- ⬜ **MS.3.1** Módulo, rutas (`/servicio/atencion`, `/servicio/reportes`), guards, nav, `PROJECT_KEY`, **mover `servicio` de `SUITE_UNCLASSIFIED` al espacio 9 (ya activo por DEV)**, landing, specs (`suite-map` 14→15), `DESIGN.md`. **Todo junto**: nunca una entrada en el mapa sin su pantalla.
-- ⬜ **MS.3.2** Nueva solicitud + datos de contacto (+ campos en Admin usuarios).
-- ⬜ **MS.3.3** Mis solicitudes + side-peek con hilo.
-- ⬜ **MS.3.4** Bandeja de atención.
-- ⬜ **MS.3.5** Reportes + Configuración.
-- ⬜ **MS.3.6** Integración con Mi trabajo.
-- ⬜ **MS.3.7** Botón en los shells de tienda y telemarketing.
-- ⬜ **MS.3.9** Validación visual light/dark/móvil.
+- 🧪 **MS.3.1** Módulo, rutas (`/servicio/bandeja`, `/servicio/reportes`), guards, nav, `PROJECT_KEY`, **mover `servicio` de `SUITE_UNCLASSIFIED` al espacio 9 (ya activo por DEV)**, landing, specs (`suite-map` 14→15), `DESIGN.md`. **Todo junto**: nunca una entrada en el mapa sin su pantalla.
+- 🧪 **MS.3.2** Nueva solicitud + datos de contacto (+ campos en Admin usuarios).
+- 🧪 **MS.3.3** Mis solicitudes + side-peek con hilo.
+- 🧪 **MS.3.4** Bandeja de atención.
+- 🧪 **MS.3.5** Reportes + Configuración. Ambos hechos: `/servicio/reportes` (en vivo, sin ranking de personas, sin semáforo, sin ceros dibujados). Ver tracker.
+- 🧪 **MS.3.13** Las notas internas admiten adjuntos (sólo los ve quien atiende; la privacidad está en la lectura de la ficha y se probó contra un S3 real). Ver tracker.
+- 🧪 **MS.3.12** Evidencia con cámara/galería: botón «Cámara» y fotos achicadas antes de subir (PDF/GIF intactos, nunca se pierde un archivo). Ver tracker.
+- 🧪 **MS.3.11** Quien atiende levanta una solicitud a nombre de otra persona (con usuario), con su área y sucursal; la persona es la solicitante real (avisos, confirmar/reabrir). Ver tracker.
+- 🧪 **MS.3.10** Asignación automática por persona (categoría o palabra clave; gana la primera por orden; nunca a quien no puede atender; la asigna el sistema y NO cuenta como primera respuesta). Ver tracker.
+- 🧪 **MS.3.6** Integración con Mi trabajo. «A tu nombre» hecho (5ª fuente de `me-tasks.ts`, enlaza a `/servicio/bandeja?scope=mine`; el ticket `en_espera` cuenta pero no vence). La clave `servicio.atender` y su bandeja se hicieron en **MS.3.8** (plazo de 60 min hábiles, ajustable; la clave no se repartió a nadie).
+- ✅ **MS.3.7** Botón en los shells de tienda y telemarketing. **Ya existía** (montan el mismo `LayoutComponent`; verificado en navegador). Candado `servicio/entradas.spec.ts`.
+- 🧪 **MS.3.9** Validación visual: hecha en claro, oscuro y 390 px con tres personas (6 defectos corregidos). MS.3.5 (Reportes) sólo se miró en oscuro.
 
 **MS.4 — Cierre y despliegue:** tracker, CHANGELOG, log de revisiones, ADR-081 → aceptado; en
 prod, **una migración a la vez** (`apply-one-migration-prod.js`), re-login, `SMTP_*`, plantilla de
@@ -449,7 +453,7 @@ aquí, no en la revisión del PR.
   (`landing-guards.spec`: «cada proyecto con entrada primaria necesita su landing»). Pensándolo, además era
   un defecto de fondo: con la entrada en el mapa antes que su pantalla, un superadmin vería una **puerta que
   no lleva a ningún lado** y el auto-deploy de `main` la mandaría a prod. Las rutas
-  (`/servicio/atencion`, `/servicio/reportes`), el paso al espacio 9 y el landing llegan **juntos con las
+  (`/servicio/bandeja`, `/servicio/reportes`), el paso al espacio 9 y el landing llegan **juntos con las
   pantallas, en MS.3.1**. Mientras tanto las 3 claves ya se reparten y se ven en `/admin/roles`.
 
 ### Una compuerta existente que hubo que mejorar

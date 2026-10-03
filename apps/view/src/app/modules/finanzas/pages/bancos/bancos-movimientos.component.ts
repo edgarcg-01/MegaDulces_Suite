@@ -193,7 +193,7 @@ import { BANCOS_STYLES } from './bancos.styles';
       padding: 2px var(--sp-2); cursor: pointer; margin-left: var(--sp-2); vertical-align: middle; }
     .fb-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
     .fb-xls:disabled { opacity: .6; cursor: default; }
-    .fb-xls:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+    .fb-xls:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
     .fb-check { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--text-muted); }
     .fb-cat-chip { display: inline-block; font-size: var(--fs-xs); color: var(--text-muted); }
@@ -207,7 +207,7 @@ import { BANCOS_STYLES } from './bancos.styles';
       padding: 2px var(--sp-2); cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
     .fb-legend-item:hover { background: var(--hover-bg); }
     .fb-legend-item.active { border-color: var(--g); color: var(--text-main); background: color-mix(in srgb, var(--g) 8%, transparent); }
-    .fb-legend-item:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+    .fb-legend-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
     .fb-rec-ok { color: var(--ok-fg); font-size: 0.85rem; }
     .fb-rec-no { color: var(--text-faint); font-size: 0.7rem; }
     .fb-dl { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }

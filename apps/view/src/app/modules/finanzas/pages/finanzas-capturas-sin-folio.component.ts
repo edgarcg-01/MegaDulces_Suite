@@ -308,7 +308,7 @@ interface SolSug { folio: string; fecha: string | null; importe: number; benefic
       width: max(1.9rem, var(--tap-min)); height: max(1.9rem, var(--tap-min));
       border: 0; border-radius: var(--r-sm); background: none; color: var(--fg-3); cursor: pointer; }
     .cf-lk-off:hover { color: var(--warn-fg); background: var(--overlay-hover); }
-    .cf-lk-copy:focus-visible, .cf-lk-off:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cf-lk-copy:focus-visible, .cf-lk-off:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .cf-lk-empty { margin: 0; padding: var(--sp-3) 0; font-size: var(--fs-sm); color: var(--fg-3); }
   `],
 })

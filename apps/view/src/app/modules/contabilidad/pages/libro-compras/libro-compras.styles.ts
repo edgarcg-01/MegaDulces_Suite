@@ -28,7 +28,7 @@ export const LIBRO_COMPRAS_STYLES = `
   transition: background var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out);
 }
 .lc-mes:hover { background: rgba(var(--ink-rgb), .035); }
-.lc-mes:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+.lc-mes:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .lc-mes.sel { border-color: var(--action); background: rgba(var(--ink-rgb), .05); }
 .lc-mes-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 /* Sólo la inicial. 'capitalize' ponía mayúscula en CADA palabra y salía "Septiembre De
@@ -210,7 +210,7 @@ export const NO_ASOCIADOS_STYLES = `
   padding: .45rem .25rem .25rem; border: 0; background: none;
 }
 .na-anio-cab:hover { color: var(--text-main); }
-.na-anio-cab:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+.na-anio-cab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
 .na-anio-cab i { font-size: .65rem; }
 .na-anio-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 /* El pendiente del año va SIEMPRE, abierto o cerrado: un año colapsado con trabajo
@@ -231,7 +231,7 @@ export const NO_ASOCIADOS_STYLES = `
 }
 .na-notas > summary::-webkit-details-marker { display: none; }
 .na-notas > summary:hover { background: var(--surface-hover); }
-.na-notas > summary:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+.na-notas > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .na-notas > summary i { color: var(--action); font-size: .8rem; }
 .na-notas[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .na-notas-cuerpo {
@@ -258,7 +258,7 @@ export const NO_ASOCIADOS_STYLES = `
   transition: background var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out);
 }
 .na-chip:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-main); }
-.na-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+.na-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 /* El seleccionado se marca con TINTA, no con color: el naranja es de la acción primaria
    (Generar TXT) y un chip naranja le competiría. */
 .na-chip.on { border-color: var(--text-main); color: var(--text-main); background: var(--surface-hover); }

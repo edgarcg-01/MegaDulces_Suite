@@ -641,6 +641,7 @@ const foldText = (s: string | null | undefined): string =>
       .search { display: flex; align-items: center; gap: 0.6rem; background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: 0.1rem 0.95rem; margin-bottom: 0.875rem; }
       .search i { color: var(--text-muted); }
       .search input { flex: 1; border: none; background: none; outline: none; height: 2.7rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
+      .search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .search .mic { width: 2.4rem; height: 2.4rem; flex-shrink: 0; border: none; border-radius: 999px; background: var(--action); color: #fff; display: grid; place-items: center; font-size: 1rem; transition: transform 0.07s var(--ease, ease); }
       .search .mic:active { transform: scale(0.92); }
       .search .mic.on { background: var(--bad-fg); animation: micpulse 1.2s ease-in-out infinite; }
@@ -727,6 +728,7 @@ const foldText = (s: string | null | undefined): string =>
       /* Sin appearance ni spin-button acá: los retira libs/ui-web/src/number-input.css para toda
          la suite (D.5). El stepper +/− de esta fila es el reemplazo que esa regla da por supuesto. */
       .prod .row-stepper .qin { width: 2.7rem; height: 2.55rem; border: none; background: transparent; text-align: center; font-family: var(--font-mono); font-weight: 800; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; outline: none; padding: 0; }
+      .prod .row-stepper .qin:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .prod .row-stepper .qin::placeholder { color: var(--text-faint); font-weight: 600; }
       .list-head.sug { margin-top: 1.1rem; }
 
@@ -809,6 +811,7 @@ const foldText = (s: string | null | undefined): string =>
       .voice-sheet .voice-empty .sh-go { max-width: 16rem; margin: 0 auto; }
       /* Input tecleable dentro del stepper (carrito + voz) */
       .stepper .qin { width: 2.1rem; text-align: center; border: none; background: transparent; font-family: var(--font-mono); font-weight: 700; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; outline: none; padding: 0; }
+      .stepper .qin:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
       /* Fila tocable + hint "por qué" */
       .prod .pb.tappable { cursor: pointer; }

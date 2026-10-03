@@ -78,7 +78,7 @@ export interface SegItem {
       box-shadow: 0 1px 3px rgb(0 0 0 / 12%), inset 0 0 0 1px rgba(var(--ink-rgb), .12);
     }
     .seg button:disabled { opacity: .45; cursor: not-allowed; }
-    .seg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+    .seg button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
     .seg-l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .bdg {
       flex: 0 0 auto; min-width: 17px; height: 17px; padding: 0 4px;

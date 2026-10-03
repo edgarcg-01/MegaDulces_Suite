@@ -52,6 +52,19 @@
       }
     </div>
 
+    <!-- `[MS.3.1]` /projects no monta el layout de proyectos, así que el botón de su header no llega acá:
+         sin esto, quien sólo ve «Mi trabajo» no tenía ninguna forma de reportar un problema. -->
+    @if (puedeReportar()) {
+      <p-button
+        label="Reportar un problema"
+        icon="pi pi-headphones"
+        severity="secondary"
+        [outlined]="true"
+        size="small"
+        (click)="reportar()">
+      </p-button>
+    }
+
     <p-button
       label="Cerrar sesión"
       icon="pi pi-sign-out"
@@ -395,7 +408,7 @@
               reparte y quien puede abrir no coinciden; enlazarla llevaría a un 403.
             -->
             @if (t.ruta) {
-              <a class="mt-task is-mine" [routerLink]="t.ruta" [title]="t.detalle" (click)="abrioTarea(t)">
+              <a class="mt-task is-mine" [routerLink]="t.ruta" [queryParams]="t.queryParams" [title]="t.detalle" (click)="abrioTarea(t)">
                 <span class="mt-task-ico"><i [class]="t.icono" aria-hidden="true"></i></span>
                 <span class="mt-task-n">{{ formatoTotal(t.total) }}</span>
                 <span class="mt-task-txt">

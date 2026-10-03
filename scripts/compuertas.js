@@ -56,6 +56,15 @@ const COMPUERTAS = [
   // que para la tuberia. Una compuerta que pasa sobre un archivo que no inspecciona se lee igual
   // que una que lo aprobo.
   { nombre: 'sql-backticks', script: 'check-sql-backticks.js', que: 'ningun comentario SQL lleva acentos graves (rompen el template literal)', push: true, ms: 900 },
+  // [CD.12] Un marcador de conflicto sin resolver. Ya entro al repo una vez y rompio el build
+  // (2026-09-26, `fix([RA-PRO.60-62]): resolver marcador de conflicto en compras.service`), y
+  // hasta hoy NADA lo miraba: `pre-commit` solo corria gitleaks. Con 11 sesiones sobre el mismo
+  // arbol (medido 2026-10-02) el que lo commitea no es el que ve el build roto.
+  // ⛔ SIN `push: true` a proposito: el barrido completo son 4,216 archivos y 7.6 s, muy por
+  //    encima del criterio de admision (~3 s). Donde si corre es en `.githooks/pre-commit`,
+  //    acotado a lo staged: 94 ms, y ataja ANTES de que el commit exista. Aca queda para el
+  //    barrido entero de `npm run check`.
+  { nombre: 'conflicto', cmd: 'node scripts/check-conflict-markers.js', que: 'ningun marcador de conflicto sin resolver (rompe el build de todas las sesiones)' },
   { nombre: 'boundary', cmd: 'node scripts/lint-boundary-gate.js', que: 'sin `any` nuevo en el borde HTTP (ADR-052)' },
   { nombre: 'provenance', cmd: 'node scripts/check-provenance.js', que: 'un número publicado declara con qué se calculó (ADR-056)' },
   // `[CG.22]` Las dos que siguen atrapan defectos de UI **mudos**: build verde, typecheck verde,
@@ -86,6 +95,14 @@ const COMPUERTAS = [
   { nombre: 'sin emojis', script: 'check-no-emoji-ui.js', que: 'el texto que ve el usuario no lleva emojis (iconos, nunca emojis)', push: true, ms: 420 },
   { nombre: 'teclado', script: 'check-keyboard-nav.js', que: 'lo que se hace con el mouse se puede hacer con el teclado (DESIGN D.7)', push: true, ms: 197 },
   { nombre: 'búsqueda', script: 'check-busqueda.js', que: 'ningún buscador con .toLowerCase().includes() (DESIGN D.8)', push: true, ms: 198 },
+  // `[DS.1]` / `[DS.3]` Las dos de la auditoría del design system (2026-10-02/03). ⚠️ Nacieron
+  // cableadas SÓLO en `ci.yml` — o sea que `npm run check` no las corría y el push tampoco, que
+  // es **el mismo defecto que este archivo existe para que no se pueda escribir**, en el otro
+  // sentido (el encabezado cuenta que el 01-oct `tablas densas` y `tokens CSS` estaban sólo en
+  // el push). Lo encontró la pregunta "¿queda algo pendiente?", no una corrida. Registradas acá
+  // el 2026-10-03, que es lo que las mete en los DOS runners de una.
+  { nombre: 'motion', script: 'check-motion.js', que: 'ninguna animación de Operations pasa el techo de 350ms (DESIGN §Motion)', push: true, ms: 376 },
+  { nombre: 'estilos', script: 'check-estilos.js', que: 'escala --fs-*, hex crudo, breakpoints en px y foco sin anillo (DESIGN pre-vuelo 2/6/12c y §R)', push: true, ms: 3106 },
   // `[NX.3]` Es la única de las cuatro que atrapa un defecto INVISIBLE en la máquina de quien lo
   // introduce: el contexto de Docker sólo se ejerce en el contenedor, y ahí el síntoma no
   // menciona ni Docker ni el COPY. Costó un deploy caído antes de existir.

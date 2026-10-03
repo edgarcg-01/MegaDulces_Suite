@@ -230,7 +230,7 @@ import { AnalisisStateService } from './analisis-state.service';
       :host { display: block; }
       .cl-techo, .cl-panel { padding: 1rem; margin-bottom: 1rem; }
       .cl-title { margin: 0; font-size: .85rem; font-weight: 700; }
-      .cl-sub { margin: .2rem 0 0; font-size: .75rem; color: var(--text-muted); max-width: 70ch; }
+      .cl-sub { margin: .2rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); max-width: 70ch; }
       /* La proporción se ve antes de leerse: una sola barra con las tres franjas. */
       .cl-barra { display: flex; height: .9rem; border-radius: var(--r-sm); overflow: hidden; margin: .8rem 0 .6rem;
                   background: var(--surface-2, rgba(0,0,0,.05)); }
@@ -242,7 +242,7 @@ import { AnalisisStateService } from './analisis-state.service';
       .cl-leyenda li { display: flex; align-items: baseline; gap: .45rem; }
       .cl-dot { width: .6rem; height: .6rem; border-radius: 50%; flex: none; }
       .cl-note { font-size: .72rem; margin: .7rem 0 0; }
-      .cl-aviso { display: flex; align-items: flex-start; gap: .4rem; margin: .45rem 0 0; padding: .45rem .65rem; font-size: .75rem;
+      .cl-aviso { display: flex; align-items: flex-start; gap: .4rem; margin: .45rem 0 0; padding: .45rem .65rem; font-size: var(--fs-xs);
                   background: color-mix(in srgb, var(--warn-fg) 8%, transparent);
                   border: 1px solid color-mix(in srgb, var(--warn-fg) 28%, transparent); border-radius: var(--r-md); max-width: 62ch; }
       .cl-muted { color: var(--text-muted); }

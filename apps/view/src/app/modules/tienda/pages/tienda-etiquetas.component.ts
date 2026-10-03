@@ -86,7 +86,7 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
     /* ── Page head ─────────────────────────────────────────── */
     .etqp-head{ display:flex; align-items:center; gap: var(--sp-4); flex-wrap:wrap; }
     .etqp-title{ margin:0; margin-right:auto; }
-    .etqp-title h1{ margin:0; font-size:1.125rem; font-weight:700; letter-spacing:-0.01em; line-height:1.2; }
+    .etqp-title h1{ margin:0; font-size:var(--fs-lg); font-weight:700; letter-spacing:-0.01em; line-height:1.2; }
     .etqp-title p{ margin:.1rem 0 0; font-size: var(--fs-xs,.72rem); color: var(--text-faint); }
     /* Marca de diagnóstico: discreta cuando todo está bien, imposible de ignorar cuando no. */
     .etqp-diag.ok{ color: var(--ok-fg); }
@@ -145,8 +145,9 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
     .etqp-scan-input{ flex:1; min-width:0; border:0; background:transparent; color: var(--text-main);
       font-family: var(--font-mono); font-size: var(--fs-md,.9375rem); padding:.35rem .1rem; }
     .etqp-scan-input:focus{ outline:none; }
+      .etqp-scan-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .etqp-scan-hint{ font-size: var(--fs-xs,.72rem); color: var(--text-faint); white-space:nowrap; }
-    @media (max-width: 640px){ .etqp-scan-hint{ display:none; } }
+    @media (max-width: 40rem){ .etqp-scan-hint{ display:none; } }
 
     /* ── Entrada ────────────────────────────────────────────
        Tres formas de agregar, con el peso que cada una tiene en el mostrador. La pistola manda
@@ -170,6 +171,7 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
       border-radius: var(--r-sm); background: var(--card-bg); color: var(--text-main);
       font-family: var(--font-mono); font-size: var(--fs-sm,.85rem); transition: border-color .12s ease, box-shadow .12s ease; }
     .etqp-ta:focus{ outline:none; border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
+      .etqp-ta:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .etqp-bulk-actions{ margin-top:.6rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
     .etqp-warn{ color: var(--warn-soft-fg); font-size: var(--fs-xs,.72rem); }
 
@@ -179,7 +181,7 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
        (era 115x40) eso dejaba el precio en unos 10 px de alto — ilegible en pantalla. Ahora la
        tabla se queda con lo justo para operar y la hoja con el resto. */
     .etqp-work{ display:grid; grid-template-columns: minmax(420px, 1fr) minmax(0, 1.5fr); gap: var(--sp-5); align-items:start; }
-    @media (max-width: 1100px){ .etqp-work{ grid-template-columns: 1fr; } }
+    @media (max-width: 68.75rem){ .etqp-work{ grid-template-columns: 1fr; } }
 
     .etqp-tablewrap{ min-width:0; }
     .etqp-tcap{ display:flex; align-items:center; gap:.6rem; }

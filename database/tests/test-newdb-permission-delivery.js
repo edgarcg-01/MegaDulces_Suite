@@ -141,7 +141,7 @@ function evaluar(catalogo, vivo, gatean, permitidas, porRol, rolesConGente, sinP
 }
 
 (async () => {
-  const url = process.env.PERM_DELIVERY_URL || process.env.FLEET_DB_URL || process.env.DATABASE_URL_NEW;
+  const url = process.env.PERM_DELIVERY_URL || process.env.DATABASE_URL_NEW || process.env.FLEET_DB_URL;
   if (!url) noMedido('no hay FLEET_DB_URL ni DATABASE_URL_NEW en .env');
 
   const c = new Client({

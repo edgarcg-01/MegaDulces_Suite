@@ -406,7 +406,7 @@ interface DiagProbe {
       .dead-banner button {
         flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.35rem;
         border: 1px solid var(--bad-fg, #dc2626); background: transparent; color: var(--bad-fg, #dc2626);
-        border-radius: var(--r-pill, 999px); padding: 0.35rem 0.7rem; font-weight: 700; font-size: 0.75rem; cursor: pointer;
+        border-radius: var(--r-pill, 999px); padding: 0.35rem 0.7rem; font-weight: 700; font-size: var(--fs-xs); cursor: pointer;
       }
       .dead-banner button:disabled { opacity: 0.6; }
 

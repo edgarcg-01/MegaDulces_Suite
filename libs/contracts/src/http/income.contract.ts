@@ -93,21 +93,104 @@ export interface IncomeReport {
   series: IncomeSeriesPoint[];
 }
 
+/**
+ * `[IG.9]` Un nodo del árbol. Los dos primeros niveles (canal, período) vienen en la carga
+ * inicial; **folio y depósito se piden al abrir**, porque un canal de 90 días son miles de
+ * documentos y decenas de miles de depósitos: traerlos de una haría lo contrario de lo que este
+ * árbol existe para hacer.
+ */
 export interface IncomeTreeNode {
   key: string;
   label: string;
+  /** `canal` · `periodo` · `folio` · `pago` */
   level: string;
   total: number;
   movs: number;
   share_pct: number;
   children?: IncomeTreeNode[];
+  /** `false` cuando el nodo todavía puede abrirse (y sus hijos se piden al servidor). */
+  leaf?: boolean;
+  /** Segunda línea del renglón: la plaza del folio, o el banco y la fecha del depósito. */
+  sub?: string | null;
+  /** Qué es el cliente detrás del documento. Sólo en `folio`. */
+  kind?: string | null;
+  /** ⛔ El ERP canceló el documento y su ingreso sigue publicado. Sólo en `folio`. */
+  cancelado?: boolean;
+  cobrado?: number | null;
+  pendiente?: number | null;
+  /** Cómo entró el dinero, en texto corto: «3 depósitos · BANORTE 7744» o «efectivo». */
+  como?: string | null;
+  /** Las llaves que el cliente devuelve para pedir los hijos de este nodo. */
+  canal?: string | null;
+  /** La sucursal, la ruta o el repartidor. `kind` dice cuál de los tres es. */
+  plaza?: string | null;
+  fecha?: string | null;
+  folio?: string | null;
+}
+
+/**
+ * Un renglón del documento, tal como lo escribió el ERP.
+ *
+ * ⚠️ El decode de `kdm2` que esto usa se corrigió en vivo, con el 500 de por medio: `c7` es el
+ * **número de renglón** (y es `numeric`, así que `btrim` sobre él revienta) y `c8` es el **código
+ * de producto**, no la descripción. El nombre no vive en el documento: sale de `kdii`, y por eso
+ * `descripcion` puede venir en `null` sin que el renglón esté mal.
+ */
+export interface IncomeDocLinea {
+  renglon: number;
+  sku: string;
+  /** El nombre del producto, resuelto contra el catálogo. `null` = el código no resuelve. */
+  descripcion: string | null;
+  cantidad: number;
+  unidad: string;
+  precio: number;
+  importe: number;
+}
+
+/**
+ * `[IG.10]` El documento detrás de un folio del árbol.
+ *
+ * ⛔ `solo_servicio` es la advertencia que da sentido a todo lo demás: medido sobre 30 días, los
+ * 1,548 `U-D-13` del CEDIS traen **un renglón o ninguno, nunca dos**, y ese renglón es el SKU `1`
+ * con unidad `SER` y el total completo adentro. **El ERP no detalla la mercancía de este
+ * doctype** — por eso la Fase AX lo excluyó de su visor. No se dibuja una tabla vacía, que se
+ * leería como «no compró nada»: se declara.
+ */
+export interface IncomeDocumento {
+  folio: string;
+  fecha: string;
+  doctype: string;
+  doctype_label: string | null;
+  cliente_code: string;
+  cliente_nombre: string | null;
+  kind: string | null;
+  sucursal_destino: string | null;
+  condicion: string | null;
+  cancelado: boolean;
+  total: number;
+  cobrado: number;
+  nota_credito: number;
+  pendiente: number;
+  renglones: IncomeDocLinea[];
+  /** `true` = el ERP no detalla mercancía en este documento. Se DECLARA en pantalla. */
+  solo_servicio: boolean;
+  /** Cada cobro y cada nota de crédito aplicados contra el documento. */
+  pagos: IncomeTreeNode[];
 }
 
 export interface IncomeTree {
   from: string;
   to: string;
   total: number;
+  /** Grano del SEGUNDO nivel. El árbol siempre baja a folio y depósito debajo de él. */
+  grain: IncomeGrain;
   tree: IncomeTreeNode[];
+}
+
+/** Respuesta de la carga por demanda de un nivel del árbol. */
+export interface IncomeTreeChildren {
+  level: string;
+  nodes: IncomeTreeNode[];
 }
 
 /**
@@ -236,6 +319,59 @@ export interface IncomeReconRow {
   ultimo_cobro: string | null;
   /** Las cuentas distintas por las que entró el dinero — el "cuántos depósitos diferentes". */
   cuentas: IncomeCuenta[];
+}
+
+/**
+ * `[IG.12]` **Un documento de la conciliación**, que es el grano al que el renglón abre.
+ *
+ * Edgar: *"conciliación no me desglosa la información al detalle"* y, antes, *"necesitamos mostrar
+ * por día, y de ahí mostrar por folio"*. La tabla publica la celda agregada; esto es lo que hay
+ * adentro, uno por uno, con la misma liga por folio que usa el Árbol.
+ *
+ * ⚠️ Varios campos son `null` **a propósito** y no por falta de dato: una nota de crédito
+ * (`UA25xx`) no tiene cobro ni saldo propio — se aplica contra la factura que le toque, que puede
+ * ser de otro día. Dibujarle un `$0.00` diría «no se ha cobrado», que es falso.
+ */
+export interface IncomeReconDoc {
+  /** `YYYY-MM-DD` de la póliza. Con grano Día es el mismo día del renglón padre. */
+  fecha: string;
+  folio: string;
+  /** `UD1301` factura · `UA25xx` nota de crédito o devolución. */
+  doc_tipo: string;
+  cliente_code: string | null;
+  cliente_nombre: string | null;
+  /** `null` cuando la póliza no encontró su documento: NO MEDIDO, no "externo". */
+  kind: IncomeKind | null;
+  es_interno: boolean | null;
+  ligado: boolean;
+  /** ⛔ El ERP lo canceló ($0.00) y su póliza de ingreso sigue publicada. */
+  cancelado: boolean;
+  importe: number;
+  /** `null` en lo que no es factura: una devolución no se cobra. */
+  cobrado: number | null;
+  pagos: number | null;
+  nota_credito: number | null;
+  pendiente: number | null;
+  primer_cobro: string | null;
+  ultimo_cobro: string | null;
+  /** Por qué cuenta entró el dinero de ESTE documento. Vacío = todavía no se ha cobrado. */
+  cuentas: IncomeCuenta[];
+}
+
+/**
+ * `[IG.12]` Lo que hay dentro de una celda de la conciliación. Se pide al abrir el renglón, no en
+ * la carga: 90 días son miles de documentos y la tabla no los necesita hasta que alguien mira uno.
+ */
+export interface IncomeReconDetalle {
+  periodo: string;
+  plaza: string;
+  canal: string;
+  /** La ventana real que se leyó: el período RECORTADO al rango de la pantalla. */
+  from: string;
+  to: string;
+  docs: IncomeReconDoc[];
+  /** Suma de `importe` de los documentos. Cuadra al centavo con el `vendido` del renglón padre. */
+  vendido: number;
 }
 
 export interface IncomeReconTotals {

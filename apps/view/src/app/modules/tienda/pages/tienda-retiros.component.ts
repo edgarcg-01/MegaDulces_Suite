@@ -232,7 +232,7 @@ type Aviso = { tono: 'ok' | 'warn' | 'bad'; texto: string; detalle?: string } | 
     .ojo { color: var(--action, #c2410c); font-weight: 600; }
     .vacio { color: var(--text-3, #78716c); font-size: .86rem; padding: 1.5rem 0; }
     .pie { font-size: .76rem; color: var(--text-3, #78716c); margin-top: .6rem; max-width: 72ch; }
-    @media (max-width: 640px) { .pg { padding: .75rem; } .fila { flex-direction: column; } }
+    @media (max-width: 40rem) { .pg { padding: .75rem; } .fila { flex-direction: column; } }
   `],
 })
 export class TiendaRetirosComponent implements OnInit {

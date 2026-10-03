@@ -431,7 +431,7 @@ import { CartFxService } from '../cart-fx.service';
       @media (prefers-reduced-motion: reduce) {
         .tp-card:hover { transform: none; }
       }
-      @media (max-width: 380px) {
+      @media (max-width: 23.75rem) {
         .tp-card { width: 64vw; }
       }
     `,

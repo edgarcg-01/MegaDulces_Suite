@@ -59,17 +59,20 @@ const UMBRAL_REM = 48;
  * En vez de fingir precision, la entrada `parcial` lo DICE: no se poda sola y se imprime como lo
  * que es, media pantalla.
  */
-const DEUDA = new Map([
-  ['apps/view/src/app/modules/compras/pages/compras-pedido-real.component.ts', {
-    parcial: true,
-    motivo:
-      'La rejilla de PEDIDO (78rem) son 15 columnas de captura con teclado estilo Excel y dos ' +
-      'tablas anidadas en la fila expandida. Apilar es TECNICAMENTE correcto (son campos de un ' +
-      'producto) pero da 15 renglones por SKU, y varios son secundarios para quien pide desde un ' +
-      'telefono. Cual de los 15 se queda NO es decision de CSS: la toma quien usa la pantalla. ' +
-      'La otra tabla del archivo (inventario muerto, 60rem) YA quedo apilada.',
-  }],
-]);
+/**
+ * VACIA desde el 2026-10-02, y que lo este es el punto: esta lista mide lo que FALTA.
+ *
+ * Tenia una sola entrada, `compras-pedido-real.component.ts`, con un motivo que ya no describia
+ * al archivo: decia que la rejilla de PEDIDO no podia apilarse sin que alguien decidiera cuales
+ * de sus 15 columnas se quedaban. Esa decision se tomo y la pantalla salio de la deuda sola --
+ * hoy declara sus marcas `dt-*`-- pero **nadie podo la lista**, asi que la compuerta siguio
+ * cobrando una excepcion que ya no hacia falta. Se encontro porque bloqueo un push.
+ *
+ * ⭐ Es la falla simetrica de la que esta compuerta existe para evitar: una lista de excepciones
+ * que no se poda deja de decir cuanto falta, igual que una que no se mira deja de decir que algo
+ * se rompio. Por eso el gate sale en ROJO cuando una entrada sobra, no solo cuando una falta.
+ */
+const DEUDA = new Map([]);
 
 /**
  * DEUDA DECLARADA DE LA 2a AGUJA -- las 79 que la compuerta escondia hasta el 2026-09-29.
@@ -316,6 +319,20 @@ function recorrer(dir, salida) {
 const archivos = [];
 for (const app of APPS) recorrer(path.join(RAIZ, app), archivos);
 
+// ── `[CD.2]` LA COMPUERTA CORTA POR LO QUE ESTE CAMBIO ESCRIBIO ────────────────────────────
+// Mismo motivo y mismo mecanismo que en `check-css-tokens.js`: barría las 3 apps enteras y una
+// tabla ancha de otra pantalla frenaba el push de cualquiera. La deuda por columnas
+// (DEUDA_COLUMNAS) se sigue midiendo e imprimiendo igual. `--todo` fuerza el barrido completo.
+const { acotarACambiados, declararAlcance } = require('./lib/alcance-diff');
+const _totalTablas = archivos.length;
+const _alcanceTablas = acotarACambiados(archivos, {
+  raiz: RAIZ,
+  activar: process.argv.includes('--todo') ? false : null,
+});
+archivos.length = 0;
+archivos.push(..._alcanceTablas.archivos);
+console.log(declararAlcance(_alcanceTablas, _totalTablas));
+
 const malos = [];
 /** Las de la 2a aguja que ya estaban: se cuentan e imprimen, no rompen. */
 const cohorte = [];
@@ -352,7 +369,18 @@ for (const f of archivos) {
 // La lista de deuda se cae sola cuando sobra: un archivo que ya se arregló (o que se renombró)
 // tiene que SALIR de la lista, y eso sólo pasa si la compuerta lo reclama.
 // La cohorte de la 2a aguja se poda con AVISO, no con rojo: ver el comentario de DEUDA_COLUMNAS.
-const podables = [...DEUDA_COLUMNAS].filter((d) => !cohorte.some((e) => e.rel === d));
+// ⛔ `[CD.2.1]` LA RECONCILIACION SOLO VALE EN BARRIDO COMPLETO. La pregunta "¿esta entrada de
+// la lista de deuda sigue haciendo falta?" se contesta mirando TODOS los archivos; con el
+// barrido acotado al diff, todo lo que el cambio no tocó parece sobrante. Medido el 2026-10-02
+// al intentar el primer push: sobre un diff de 6 archivos, la compuerta declaró que **79
+// pantallas ya no necesitaban la deuda** y se puso roja — un falso positivo mío, introducido
+// por la acotación. La deuda se reconcilia con `npm run check:tables -- --todo`.
+const reconciliar = !_alcanceTablas.acotado;
+if (!reconciliar) {
+  console.log('   deuda: NO RECONCILIADA en este modo (acotado al diff) — se mide con --todo.');
+}
+
+const podables = reconciliar ? [...DEUDA_COLUMNAS].filter((d) => !cohorte.some((e) => e.rel === d)) : [];
 if (podables.length) {
   console.log(`\n✅ ${podables.length} pantalla(s) de la deuda por columnas ya NO la necesitan:`);
   for (const s of podables.slice(0, 10)) console.log(`   · ${s}`);
@@ -360,7 +388,7 @@ if (podables.length) {
   console.log('   Sacalas de DEUDA_COLUMNAS en scripts/check-dense-tables.js.\n');
 }
 
-const sobrantes = [...DEUDA.keys()].filter((d) => !enDeuda.some((e) => e.rel === d));
+const sobrantes = reconciliar ? [...DEUDA.keys()].filter((d) => !enDeuda.some((e) => e.rel === d)) : [];
 if (sobrantes.length) {
   console.error('\n❌ Estos archivos están en la lista de deuda y ya no la necesitan:');
   for (const s of sobrantes) console.error(`   · ${s}`);

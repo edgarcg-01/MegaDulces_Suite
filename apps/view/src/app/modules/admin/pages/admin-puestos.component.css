@@ -52,4 +52,4 @@
   padding-top: var(--sp-3); border-top: 1px solid var(--table-border);
 }
 
-@media (max-width: 720px) { .ax-count { margin-left: 0; } }
+@media (max-width: 45rem) { .ax-count { margin-left: 0; } }

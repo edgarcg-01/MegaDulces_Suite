@@ -194,7 +194,7 @@ import {
     .cm-year select { padding:.3rem .45rem; border:1px solid var(--border-color); border-radius:var(--r-sm,6px); background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); }
 
     .cm-split { display:grid; grid-template-columns:minmax(240px,300px) 1fr; gap:1rem; align-items:start; }
-    @media (max-width:900px) { .cm-split { grid-template-columns:1fr; } }
+    @media (max-width:56.25rem) { .cm-split { grid-template-columns:1fr; } }
 
     .cm-rail { display:flex; flex-direction:column; gap:.25rem; max-height:78vh; overflow-y:auto; }
     .cm-per { display:grid; grid-template-columns:auto 1fr; gap:.15rem .5rem; align-items:center; text-align:left;

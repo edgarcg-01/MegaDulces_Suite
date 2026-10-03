@@ -157,7 +157,7 @@ const ESTADO_LABEL: Record<string, string> = {
           </section>
         }
 
-        <!-- ── Las tres pestañas ────────────────────────────────────────────────── -->
+        <!-- [GX.60] UNA pestana: lo decidido se va al Expediente, no a la de al lado. -->
         <div class="ap-tabs" role="tablist">
           @for (t of tabs; track t.id) {
             <button type="button" role="tab" class="ap-tab" [class.on]="pestana() === t.id"
@@ -293,6 +293,23 @@ const ESTADO_LABEL: Record<string, string> = {
     </div>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
+    /* [GX.61] LETRA MAS GRANDE en comprobacion de gastos (pedido del usuario, 2026-10-01).
+
+       Se sube la ESCALA, no 20 declaraciones sueltas: cada token baja un escalon, asi que
+       toda la pantalla crece junta y la jerarquia se conserva. Editar los tamanos uno por
+       uno habria dejado la mitad chica y la otra grande, y nadie lo habria notado hasta
+       verlo impreso.
+
+       Es una desviacion deliberada de la densidad compact++ de Operations (DESIGN.md), y
+       alcanza SOLO a esta pantalla: aca se decide si sale dinero, y leer mal un importe
+       cuesta mas que un renglon de mas. Revertirlo es borrar este bloque. */
+    .ap {
+      --fs-nano:  0.6875rem;  /* 10 -> 11 */
+      --fs-micro: 0.75rem;    /* 11 -> 12 */
+      --fs-xs:    0.8125rem;  /* 12 -> 13 */
+      --fs-sm:    0.875rem;   /* 13 -> 14 */
+      --fs-body:  0.9375rem;  /* 14 -> 15 */
+    }
     .ap { display: flex; flex-direction: column; gap: var(--sp-3); }
     .ap-muted { font-size: var(--fs-sm); color: var(--fg-2); padding: var(--sp-3); }
     .ap-faint { font-size: var(--fs-xs); color: var(--fg-3); }
@@ -419,10 +436,27 @@ export class FinanzasAprobacionGastosComponent {
    *  (hora de México). Se retiró la barra que dejaba elegir otro — ver el doc de la clase. */
   private readonly fecha = signal<string>('');
 
+  /**
+   * `[GX.60]` **Una sola pestana: la bandeja.**
+   *
+   * Pedido del usuario (2026-10-01): *«los que vayan aprobando con el boton de revisado deben
+   * desaparecer, o si les da rechazar tambien, para que siempre este limpia la seccion de
+   * aprobacion de gastos»*.
+   *
+   * Aca vivian «Aprobados» y «Rechazados». El vale ya salia de la bandeja al decidirlo
+   * —`aprobar()` y `rechazar()` recargan— pero se quedaba a la vista en la pestana de al lado,
+   * y la seccion nunca se veia vacia.
+   *
+   * ⚠️ **Lo decidido no se perdio: se mudo.** Vive en el Expediente (`[GX.59]`), agrupado por
+   * persona y con lo que le falta a cada vale. Si se hubieran borrado las pestanas sin esa
+   * pantalla, el gasto aprobado del dia no existiria en ningun lado.
+   *
+   * ⚠️ `PestanaGasto` conserva los tres valores en el tipo: los usa `particionarDelDia()` del
+   * servidor, que sigue contando las tres particiones. Lo que cambio es que esta pantalla
+   * muestra una.
+   */
   readonly tabs: { id: PestanaGasto; label: string }[] = [
     { id: 'entrada', label: 'Bandeja de entrada' },
-    { id: 'aprobados', label: 'Aprobados' },
-    { id: 'rechazados', label: 'Rechazados' },
   ];
 
   constructor() { this.cargar(); }

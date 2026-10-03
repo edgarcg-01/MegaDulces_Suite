@@ -112,7 +112,7 @@ import { money } from '../../util';
     .ei-back { align-self:flex-start; display:inline-flex; align-items:center; gap:.4rem; background:none; border:0;
       color:var(--action); cursor:pointer; font:inherit; font-size:.82rem; padding:0; }
     .ei-back:hover { text-decoration:underline; }
-    .ei-back:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; border-radius:var(--r-sm); }
+    .ei-back:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .ei-back-trail { color:var(--text-faint); text-decoration:none; }
 
     .ei-badges { display:flex; flex-wrap:wrap; gap:.35rem; }
@@ -139,7 +139,7 @@ import { money } from '../../util';
     .ei-relbtn { width:100%; display:flex; align-items:center; gap:.6rem; text-align:left; background:none; border:0;
       padding:.5rem .65rem; cursor:pointer; color:var(--text-main); font:inherit; }
     .ei-relbtn:hover { background:var(--surface-ground); }
-    .ei-relbtn:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
+    .ei-relbtn:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; }
     .ei-relbtn .pi-angle-right { color:var(--text-faint); flex-shrink:0; }
     .ei-rel-main { min-width:0; flex:1; display:flex; flex-direction:column; }
     .ei-rel-label { font-size:.84rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

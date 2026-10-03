@@ -62,7 +62,7 @@ import { TrackingService } from '../../core/services/tracking.service';
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 0.75rem;
+          font-size: var(--fs-xs);
           flex-shrink: 0;
           margin-top: 2px;
         }

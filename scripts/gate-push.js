@@ -1,26 +1,49 @@
 #!/usr/bin/env node
 /**
- * Compuerta de `git push` — el mecanismo que sustituye a la branch protection
- * mientras GitHub no la deje activar.
+ * Compuerta de `git push` — los escaneos estáticos, ANTES del push.
  *
  * ─── Por qué existe ────────────────────────────────────────────────────────────
  * Medido el 2026-09-30, sobre los 30 días previos:
  *
  *   · ~58 de 60 commits a `main` entraron por **push directo**, no por PR.
  *   · De los últimos 20 pushes a `main`: **15 rojos, 1 verde**, 4 cancelados.
- *   · El repo pasó a privado en plan free → GitHub responde **403** tanto a
- *     `branches/main/protection` como a `rulesets`. O sea: hoy NADA del lado del
- *     servidor puede frenar un merge rojo ni un push directo.
  *
- * El CI no está roto — atrapa defectos reales (dos veces hoy: tokens CSS que no
- * existen). Lo que falla es que corre DESPUÉS, sobre la rama de la que se deploya.
- * Esta compuerta mueve ese veredicto a ANTES del push, que es donde sirve.
+ * El CI no está roto — atrapa defectos reales (dos veces ese día: tokens CSS que
+ * no existen). Lo que falla es que corre DESPUÉS, sobre la rama de la que se
+ * deploya. Esta compuerta mueve ese veredicto a ANTES del push, que es donde sirve.
+ *
+ * ─── ⚠️ Lo que cambió, y por qué CAPA 1 ya no bloquea ──────────────────────────
+ * Este encabezado afirmaba tres cosas que HOY son falsas, y conviene dejar escrito
+ * que caducaron en vez de borrarlas:
+ *
+ *   ✗ «mientras GitHub no la deje activar» · ✗ «el repo pasó a privado en plan
+ *   free → 403» · ✗ «la protección de rama NO es una opción».
+ *
+ * Medido el 2026-10-02: el repo es **PÚBLICO**, y la protección de `main` está
+ * **PRENDIDA** — exige `Build & typecheck (affected)` + `Secret scan (gitleaks)`,
+ * y bloquea force-push, borrado e historia no lineal. El `403` de entonces era
+ * «Upgrade to GitHub Pro»; hoy la API contesta con la protección real.
+ *
+ * El 2026-10-03 se apagó `enforce_admins` a pedido del dueño: **el admin empuja
+ * directo a `main`** (modelo Railway: push → `sellar` mueve `ci-green` → el vigía
+ * de `md` despliega en ~30 s). Cualquier otra cuenta sigue obligada a PR con los
+ * dos checks en verde — eso NO se aflojó.
+ *
+ * O sea: la autoridad que CAPA 1 suplía ya vive del lado del servidor, y para el
+ * admin —a quien GitHub ahora SÍ autoriza— bloquear acá es frenar lo que el
+ * servidor permite. Por eso CAPA 1 pasó a AVISAR.
+ *
+ * ⛔ Y el motivo de fondo no es la comodidad: la única salida que un bloqueo deja
+ *    es `git push --no-verify`, que apaga **también la CAPA 2** —los gates que sí
+ *    atrapan defectos reales—. Un candado que obliga a desactivarlo entero para
+ *    hacer lo que el servidor autoriza protege MENOS que no estar. La red no se
+ *    perdió, se movió a `[CI.SELLO]`, que no se evade.
  *
  * ─── Las dos capas, y por qué son distintas ───────────────────────────────────
  *
- *   CAPA 1 — `main` no recibe pushes. **Bloquea siempre, sin excepción medida.**
- *     Es instantánea y no puede dar falso positivo: o apuntás a `main` o no.
- *     Ésta es la que ataca la causa raíz de los 15 rojos.
+ *   CAPA 1 — push directo a `main`. **Avisa y sigue.**
+ *     Sigue existiendo porque empujar a la rama de la que se deploya merece una
+ *     línea en pantalla: eso sale a producción solo, en ~30 s.
  *
  *   CAPA 2 — los gates baratos, acotados a TUS archivos. **Bloquea sólo lo tuyo.**
  *     ⛔ La trampa que esto evita: los gates son de repo completo, y el repo TIENE
@@ -234,28 +257,40 @@ async function main() {
     })();
 
     console.error(`
-⛔ Push DIRECTO a \`${rama}\` — bloqueado.
+⚠️  Push DIRECTO a \`${rama}\` — permitido, y avisado.
 
-   Traés ${n} commit(s). \`${rama}\` es la rama de la que se deploya, y hoy no
-   tiene protección del lado de GitHub (repo privado en plan free → 403), así
-   que esta compuerta es lo único que hay.
+   Traés ${n} commit(s). \`${rama}\` es la rama de la que se deploya: esto sale a
+   producción solo, en ~30 s, sin que nadie más lo mire.
 
    Medido el 2026-09-30: de los últimos 20 pushes directos a \`main\`,
-   **15 quedaron en rojo y 1 en verde**. Por eso esto no es una formalidad.
+   **15 quedaron en rojo y 1 en verde**. Por eso el aviso.
 
-   Mové tu trabajo a una rama (no se pierde nada, sólo mueve el puntero):
+   Lo que te cubre si éste sale rojo: \`sellar\` no mueve \`ci-green\`, y
+   \`auto-deploy.sh\` se niega a desplegar lo que \`ci-green\` no bendijo. O sea
+   \`main\` puede ponerse roja, pero lo rojo NO llega a producción — eso sí, tampoco
+   llega nada más hasta que la arregles.
 
-       git switch -c feat/<descripción-corta>
-       git push -u origin feat/<descripción-corta>
+   Si preferís que lo revise alguien antes:
+
+       git switch -c feat/<descripción-corta> && git push -u origin HEAD
        gh pr create --base main --fill
-
-   Y devolvé tu main local a donde está el remoto:
-
-       git switch main && git fetch origin && git reset --hard origin/main
-
-   Receta completa en ONBOARDING.md §8.
 `);
-    process.exit(1);
+    // ⚠️ AVISA, NO BLOQUEA — y el porqué está medido, no es una concesión:
+    //
+    //   · Hasta el 2026-10-02 esta compuerta era lo ÚNICO que había: GitHub
+    //     contestaba 403 a `branches/main/protection` y a `rulesets`.
+    //   · Hoy la protección está PRENDIDA (checks obligatorios, sin force-push,
+    //     sin borrado, historia lineal) y el 2026-10-03 se apagó `enforce_admins`
+    //     a pedido del dueño: el admin empuja directo, cualquier otra cuenta sigue
+    //     obligada a PR con los dos checks en verde.
+    //
+    // ⛔ Bloquear acá sería frenar a quien el servidor YA autoriza, y la salida que
+    //    eso fuerza es `--no-verify`, que apaga TAMBIÉN la CAPA 2 — los gates que sí
+    //    atrapan defectos. Un candado que empuja a la gente a desactivarlo entero
+    //    protege menos que no estar. Por eso informa y sigue a CAPA 2.
+    //
+    // La autoridad vive en `[CI.SELLO]`, del lado del servidor, que no se evade.
+    break;
   }
 
   // ─── CAPA 2 — los gates, acotados a tus archivos ───────────────────────────

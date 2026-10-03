@@ -30,8 +30,40 @@
  * NO imprime la URL: lleva credenciales. Sólo host y nombre de base.
  */
 
-/** Hosts/bases que son PRODUCCIÓN. Gana sobre cualquier otra cosa. */
-const PROD_PATTERNS = [/rlwy\.net/i, /railway\.internal/i, /\.railway\.app/i];
+/**
+ * Hosts/bases que son PRODUCCIÓN. Gana sobre cualquier otra cosa.
+ *
+ * ⛔ `[REP.0.7]` `192.168.0.222` ES PRODUCCIÓN DESDE EL 2026-09-22 — y hasta el
+ *    2026-10-02 no estaba acá. Durante once días lo único que separó a los **37
+ *    archivos de `database/tests/` que hacen DELETE/TRUNCATE/DROP** de la base
+ *    real fue que la base de `pg-prod` todavía se llama `railway`, un nombre
+ *    HEREDADO de la migración desde Railway que nadie eligió a propósito. O sea:
+ *    la guarda funcionaba por accidente, no por diseño. Se rompía sola con
+ *    renombrar esa base, o con agregarle una segunda al mismo clúster.
+ *
+ *    ⚠️ Y alcanza al puerto 5433 a propósito (las réplicas Kepler
+ *    `kepler_md_00..07` / `kepler_consolidado` del contenedor `pgvector-md`):
+ *    los devs las LEEN, pero ningún test tiene por qué escribirles. Clasificarlas
+ *    como prod prohíbe la escritura, que es exactamente lo que se quiere. Si
+ *    alguna vez hace falta leerlas declarando el origen, es `assertTarget` con
+ *    `expect:'prod'`, no bajarles el rótulo.
+ *
+ *    ⭐ La regla general: cuando prod se MUDA, el patrón del host se agrega en el
+ *    mismo commit. Un patrón de prod que apunta al host viejo no es una guarda a
+ *    medias — es una guarda que dice "acá se puede escribir" sobre el lugar donde
+ *    no se puede.
+ */
+const PROD_PATTERNS = [
+  /rlwy\.net/i,
+  /railway\.internal/i,
+  /\.railway\.app/i,
+  // ⚠️ SIN clases de caracteres a propósito: la prueba de mutación de
+  // `test-target-guard-negative.js` localiza esta lista con `[^\]]*`, que se corta
+  // en el primer `]`. Un patrón con `[...]` adentro deja la mutación sin aplicar
+  // — y una mutación que no se aplica es una prueba negativa que no corre.
+  // Coincidir de más acá es inofensivo: clasificar como prod sólo PROHÍBE escribir.
+  /192\.168\.0\.222/, // `md` — prod on-prem desde 2026-09-22
+];
 const PROD_DB_NAMES = new Set(['railway']);
 
 /** Hosts que son una DB local y desechable. */
@@ -274,4 +306,48 @@ function assertProdTarget(nombre, opts = {}) {
   return res;
 }
 
-module.exports = { assertSafeTarget, assertTarget, assertProdTarget, assertDistinct, classify };
+/**
+ * `[VIS.1]` Resolvedor canónico del destino de LECTURA de un candado — y, sobre todo, el que
+ * hace que el candado **diga dónde midió**.
+ *
+ * Existe por lo medido el 2026-10-03: **11 candados preferían `FLEET_DB_URL` por encima de
+ * `DATABASE_URL_NEW`**, y esa variable apunta a la prod VIEJA de Railway, que desde el corte del
+ * 2026-09-22 ya ni acepta conexiones (`ECONNRESET`). O sea: once instrumentos de verdad estaban
+ * **ciegos**, y su rojo era indistinguible del rojo de un defecto real.
+ *
+ * ⭐ El orden NO es cosmético. Las dos variables apuntan a bases distintas y las dos clasifican
+ * como `prod`, así que `classify()` no las distingue: la única defensa es preferir la viva y
+ * **declarar cuál se usó**. Un ✔ que no dice contra qué base se midió no es verificable.
+ *
+ * Orden: `DST_URL` (el que pasa el runner) → `DATABASE_URL_NEW` (prod viva) → `FLEET_DB_URL`
+ * (la vieja, último recurso y con aviso).
+ *
+ * @param {string} nombre quién pregunta, para que la línea impresa diga de quién es.
+ * @param {{silencioso?:boolean}} [opts] `silencioso` sólo para los tests de este helper.
+ * @returns {{url:string, variable:string, donde:string}}
+ */
+function resolveReadTarget(nombre, opts = {}) {
+  const orden = ['DST_URL', 'DATABASE_URL_NEW', 'FLEET_DB_URL'];
+  const variable = orden.find((k) => process.env[k]);
+  if (!variable) {
+    abortar([
+      `ABORT (${nombre}): no hay destino de lectura.`,
+      `  Exportá una de: ${orden.join(' · ')}`,
+    ]);
+  }
+  const url = process.env[variable];
+  const res = classify(url);
+  const donde = `${res.host || '(host desconocido)'}/${res.db || '(base desconocida)'}`;
+  if (!opts.silencioso) {
+    // La línea que vuelve verificable un ✔: sin ella, nadie sabe contra qué se midió.
+    console.log(`  ⓘ destino: ${donde} (${variable})`);
+    if (variable === 'FLEET_DB_URL') {
+      console.log('  ⚠️ FLEET_DB_URL es la prod VIEJA (Railway), congelada desde el 2026-09-22.');
+    }
+  }
+  return { url, variable, donde };
+}
+
+module.exports = {
+  assertSafeTarget, assertTarget, assertProdTarget, assertDistinct, classify, resolveReadTarget,
+};

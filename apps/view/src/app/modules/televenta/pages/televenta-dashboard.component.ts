@@ -248,10 +248,10 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .sub-title i { margin-right: .35rem; }
     .section-title .asof { margin-left: .5rem; text-transform: none; letter-spacing: 0; font-weight: 400; opacity: .8; }
     .num.debe { color: var(--bad-fg); font-weight: 600; }
-    .sub { display: inline-block; margin-left: .35rem; font-size: .75rem; color: var(--text-muted); }
+    .sub { display: inline-block; margin-left: .35rem; font-size: var(--fs-xs); color: var(--text-muted); }
     .sub.bad { color: var(--bad-fg); }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); }
-    .nota { display: flex; gap: .4rem; margin: .75rem 0 0; font-size: .75rem; color: var(--text-muted); }
+    .nota { display: flex; gap: .4rem; margin: .75rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
     /* Lo que no se pudo medir se declara, no se dibuja como cero (ADR-056) */
     .sin-captura {
       display: flex; gap: .5rem; align-items: flex-start; margin: 0 0 .75rem;

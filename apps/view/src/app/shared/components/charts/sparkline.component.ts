@@ -55,7 +55,7 @@ const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
     :host { display:block; width:100%; }
     .spk-wrap { position:relative; width:100%; height: var(--spk-h, 40px); }
     .spk { display:block; width:100%; height:100%; overflow:visible; }
-    .spk-line { stroke-dasharray:100; animation: spkDraw .8s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; }
+    .spk-line { stroke-dasharray:100; animation: spkDraw var(--dur-max, 350ms) var(--ease-out, cubic-bezier(.23,1,.32,1)) both; }
     @keyframes spkDraw { from { stroke-dashoffset:100; } to { stroke-dashoffset:0; } }
     .spk-guide { stroke: var(--c-divider, var(--border-color)); stroke-width:1; }
     .spk-dot { stroke: var(--card-bg, #fff); stroke-width:2; }
@@ -63,7 +63,7 @@ const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
       position:absolute; transform: translate(-50%, -130%); transform-origin:center bottom;
       background: var(--c-text-1, var(--text-main)); color: var(--card-bg, #fff);
       font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-size: .6875rem; font-weight: 700; padding: .1rem .4rem; border-radius: 6px;
+      font-size: var(--fs-micro); font-weight: 700; padding: .1rem .4rem; border-radius: 6px;
       white-space:nowrap; pointer-events:none; z-index:2; box-shadow: 0 2px 8px rgba(0,0,0,.18);
     }
     @media (prefers-reduced-motion: reduce) { .spk-line { animation:none; } }

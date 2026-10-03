@@ -253,6 +253,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <th class="pr-r">Costo/Cja</th>
                   <th class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
                   <th class="pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano.">Est.</th>
+                  <th class="pr-r" title="Cumplimiento del proveedor medido en Kepler (orden de compra vs vale de entrada), ponderado por dinero. El Pedido YA viene dividido por él, topado en +30%. — = no se midió (menos de 25 renglones, o nombre repetido en el catálogo): en ese caso el pedido NO se tocó.">Surt.</th>
                   <th class="pr-r" title="Existencia de toda la red, en CAJAS (suma de las sucursales). El desglose por sucursal está al abrir la fila.">Exist.<br/>red</th>
                   <th class="pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
                   <th class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. El Pedido la descuenta PESADA por la probabilidad de que llegue: una orden abierta hace semanas casi no cuenta, porque en Kepler la OC se captura al recibir.">En camino</th>
@@ -286,6 +287,14 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                     @if (seasonOn(r)) {
                       <p-tag [value]="seasonLabel(r)" [severity]="seasonSev(r)" styleClass="pr-cov-tag" [title]="seasonTitle(r)"></p-tag>
                     } @else { <span class="pr-muted" title="Mes plano — la estacionalidad no mueve el pedido">—</span> }
+                  </td>
+                  <!-- [RA-DYN.U7] El inflado por cumplimiento se VE. Sin este chip el pedido
+                       crecia hasta +30% sin que el comprador supiera de donde salio.
+                       SIN ACENTOS GRAVES ACA: el template es un template literal de JS. -->
+                  <td class="pr-r">
+                    @if (fillOn(r)) {
+                      <p-tag [value]="fillLabel(r)" [severity]="fillSev(r)" styleClass="pr-cov-tag" [title]="fillTitle(r)"></p-tag>
+                    } @else { <span class="pr-muted" [title]="fillTitle(r)">—</span> }
                   </td>
                   <!-- U.2 — la existencia de red suma SOLO los almacenes con el peldano verificado.
                        Si alguno quedo fuera se declara con el triangulo y el conteo en el tooltip,
@@ -1027,7 +1036,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
        legitimo, y tambien lo es mandar menos y negociarlo. La decision es del comprador. */
     .pr-min-warn { display: inline-flex; align-items: center; gap: .375rem; font-size: var(--fs-sm);
       color: var(--warn-fg, var(--text-muted)); font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .pr-min-warn i { font-size: .75rem; }
+    .pr-min-warn i { font-size: var(--fs-xs); }
     .pr-bulk-sp { flex: 1; }
     /* RA-PRO.32 — vista Excel (workbook) */
     .pr-seg { display: inline-flex; gap: .15rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .15rem; }
@@ -1348,9 +1357,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   // y la tabla tiene un solo renglón de encabezado.
   // [RA-PRO.59] Ese ancho mínimo (82rem) vive en CSS (.pr-wb-tbl), no en [tableStyle]: un estilo
   // en línea no se puede anular en el celular sin !important.
-  /** Producto · Ud/caja · Costo · Tend. · Est. · Exist. red · XYZ · En camino · Reorden · Máx
-   *  · Σ Ped. · Σ Piezas · $ Pedido · Valor venta · Valor exist. */
-  readonly wbColCount = 15;
+  /** Producto · Ud/caja · Costo · Tend. · Est. · Surt. · Exist. red · XYZ · En camino · Reorden
+   *  · Máx · Σ Ped. · Σ Piezas · $ Pedido · Valor venta · Valor exist.
+   *  ⚠️ Se cuenta a mano y hay que moverlo al agregar una columna: con el número corto, la fila
+   *  del acordeón y el vacío dejan de abarcar la tabla y se ve un corte. */
+  readonly wbColCount = 16;
 
 
   // ── RA-PRO.47 — DESGLOSE POR SUCURSAL (el acordeón) ──────────────────
@@ -2587,6 +2598,26 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const v = Number(r.season_ratio ?? 1);
     const src: Record<string, string> = { sku: 'historia del propio SKU', cat: 'historia de su categoría', global: 'estación de toda la red' };
     return `Los próximos 30 días venden ×${v.toFixed(2)} vs los últimos 30 (${src[r.season_src ?? ''] ?? 'historia'}). El Pedido ya lo incluye.`;
+  }
+  // `[RA-DYN.U7]` — cumplimiento del proveedor. El Pedido ya viene dividido por él; el chip lo
+  // hace visible, que es la mitad del trabajo: un número que crece sin decir por qué no se discute
+  // con nadie, ni con el proveedor ni con quien firma la compra.
+  fillOn(r: WorkbookRow): boolean { const v = Number(r.fill_rate); return r.fill_rate != null && v > 0 && v < 0.9995; }
+  fillLabel(r: WorkbookRow): string { return Math.round(Number(r.fill_rate) * 100) + '%'; }
+  fillSev(r: WorkbookRow): Sev { return Number(r.fill_rate) < 0.85 ? 'danger' : 'warn'; }
+  fillTitle(r: WorkbookRow): string {
+    if (r.fill_rate == null) {
+      return 'Surtido sin medir — este proveedor no llega a 25 renglones de orden-vs-vale en la ventana, '
+        + 'o su nombre está repetido en el catálogo. El Pedido NO se corrigió por cumplimiento.';
+    }
+    const pct = Number(r.fill_rate) * 100;
+    if (pct >= 99.95) return 'Surte completo: la orden y el vale coinciden en el histórico. El Pedido no se infla.';
+    // El tope lo fija `fill_max_inflate` (1.30) en commercial.replenishment_settings.
+    const factor = Math.min(1.30, 1 / Number(r.fill_rate));
+    const topado = 1 / Number(r.fill_rate) > 1.3005;
+    return `Histórico: de cada $100 pedidos a este proveedor entrega $${pct.toFixed(1)}. `
+      + `El Pedido va multiplicado ×${factor.toFixed(2)}${topado ? ' (topado; sin tope sería ×' + (1 / Number(r.fill_rate)).toFixed(2) + ')' : ''}. `
+      + 'Ojo: Kepler no distingue un renglón que NOSOTROS cancelamos de uno que el proveedor no surtió.';
   }
   iadTitle(r: WorkbookRow): string {
     if (r.iad == null) {

@@ -6,6 +6,7 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 
@@ -106,6 +107,26 @@ export class CommercialPricingService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
   ) {}
+
+  /**
+   * `[VPR.2]` ¿Está la verdad del precio por plaza? Degrada al precio de red si falta la migración.
+   *
+   * Sin esta guarda, un entorno sin `20261003190000` haría que el LEFT JOIN apunte a una relación
+   * inexistente y el catálogo del vendedor devolviera **500** — en la ruta del dinero. Se degrada
+   * al comportamiento anterior (`lista_red`), que es peor pero no es una pantalla caída, y lo
+   * **declara** en `price_source` en vez de hacerlo en silencio.
+   */
+  private priceTruthOk: boolean | null = null;
+  private async priceTruthReady(trx: Knex.Transaction): Promise<boolean> {
+    if (this.priceTruthOk != null) return this.priceTruthOk;
+    try {
+      const r = await trx.raw(`SELECT to_regclass('analytics.v_price_truth') IS NOT NULL AS t`);
+      this.priceTruthOk = !!r.rows[0]?.t;
+    } catch { this.priceTruthOk = false; }
+    if (!this.priceTruthOk)
+      this.logger.warn('[VPR.2] falta analytics.v_price_truth — el catálogo publica el precio de RED, no el de la plaza (aplicá la migración 20261003190000).');
+    return this.priceTruthOk;
+  }
 
   /**
    * Para customer_b2b: devuelve el set de price_list_ids permitidos (su
@@ -328,6 +349,8 @@ export class CommercialPricingService {
       if (allowed !== null && !allowed.includes(priceListId)) {
         throw new ForbiddenException('No tenés acceso a esta price list');
       }
+      // `[VPR.2]` El precio por plaza sólo entra si el almacén se conoce Y la vista existe.
+      const porPlaza = !!warehouseId && (await this.priceTruthReady(trx));
 
       // Source of truth: `catalog.products` (catálogo completo).
       // `commercial.product_prices` se une por LEFT JOIN para traer el precio del
@@ -398,6 +421,21 @@ export class CommercialPricingService {
             .andOn('s.tenant_id', '=', 'p.tenant_id')
             .andOnVal('s.warehouse_id', warehouseId);
         });
+        // `[VPR.2]` EL PRECIO DE LA PLAZA, NO EL DE LA RED.
+        //
+        // `commercial.product_prices` guarda UN solo número para toda la red (la moda de `c90`
+        // entre plazas) y por eso no puede acertarle a las 393 SKUs que cotizan distinto por
+        // sucursal. Medido contra el ERP el 2026-10-03: la etiquetera, que sí tiene grano de
+        // sucursal, cuadra **100.0%**; esta lista, **86.8%**.
+        //
+        // Y la columna estaba en disputa: dos procesos la reescribían en bucle —302,273 vaivenes
+        // en 3 días— así que el precio que veía el vendedor dependía de quién escribió último.
+        // `analytics.v_price_truth` es una VISTA: nadie la puede pisar, que es justo el punto.
+        if (porPlaza) q = q.leftJoin('analytics.v_price_truth as pt', function () {
+          this.on('pt.product_id', '=', 'p.id')
+            .andOn('pt.tenant_id', '=', 'p.tenant_id')
+            .andOnVal('pt.warehouse_id', warehouseId);
+        });
       }
       // Ranking de ventas (consolidado de sucursales, catalog.top_sellers_live) para
       // ordenar "más vendido → menos vendido". LEFT JOIN (1:1 por id); fuera del count.
@@ -428,7 +466,12 @@ export class CommercialPricingService {
         'p.location',
         'p.loyalty_points',
         'ipa.image_url as image_url',
-        'pp.price',
+        // `[VPR.2]` El precio publicado: el de ESTA plaza si el ERP lo dice, y si no el de la
+        // lista de red. Nunca 0 — si no hay ninguno de los dos va NULL y el front lo declara
+        // "Sin precio", que es otra afirmación distinta de "vale cero" (ADR-056).
+        porPlaza
+          ? trx.raw('COALESCE(pt.precio_erp, pp.price) AS price')
+          : 'pp.price',
         'pp.tax_rate',
         trx.raw('COALESCE(pp.min_qty, 1) AS min_qty'),
       ];
@@ -437,9 +480,27 @@ export class CommercialPricingService {
           trx.raw(
             'CASE WHEN s.id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
           ),
+          // `[VPR.2]` La PROCEDENCIA viaja con el número (ADR-056). Sin esto nadie puede saber si
+          // el precio que está leyendo es el de su plaza o el promedio de la red — que es
+          // exactamente cómo vivió hasta ahora, y por qué el reporte de campo fue "se
+          // desactualizan" en vez de "el mío no es el de mi sucursal".
+          porPlaza
+            ? trx.raw(`CASE WHEN pt.precio_erp IS NOT NULL THEN 'erp_plaza'
+                           WHEN pp.price IS NOT NULL      THEN 'lista_red'
+                           ELSE 'sin_precio' END AS price_source`)
+            : trx.raw(`CASE WHEN pp.price IS NOT NULL THEN 'lista_red' ELSE 'sin_precio' END AS price_source`),
+          // El de la red, al lado: es lo que esta pantalla mostraba ayer. Que se pueda comparar
+          // es lo que vuelve discutible un cambio de precio, en vez de sorpresivo.
+          trx.raw('pp.price AS price_lista_red'),
         );
       } else {
-        selects.push(trx.raw('NULL::int AS stock_available'));
+        selects.push(
+          trx.raw('NULL::int AS stock_available'),
+          // Sin almacén NO se puede resolver la plaza, y eso se DECLARA en vez de dejar que el
+          // consumidor suponga que el número es el suyo.
+          trx.raw(`CASE WHEN pp.price IS NOT NULL THEN 'lista_red' ELSE 'sin_precio' END AS price_source`),
+          trx.raw('pp.price AS price_lista_red'),
+        );
       }
 
       // Orden: whitelist + NULLS LAST siempre (un producto sin costo no debe

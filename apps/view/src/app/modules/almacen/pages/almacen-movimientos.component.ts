@@ -862,7 +862,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .dm-cmp-dl { display: grid; grid-template-columns: auto 1fr; gap: .25rem .6rem; margin: 0; font-size: .8rem; }
     .dm-cmp-dl dt { color: var(--text-muted); }
     .dm-cmp-dl dd { margin: 0; text-align: right; }
-    @media (max-width: 640px) { .dm-cmp { grid-template-columns: 1fr; } .dm-cmp-arrow { transform: rotate(90deg); justify-self: center; } }
+    @media (max-width: 40rem) { .dm-cmp { grid-template-columns: 1fr; } .dm-cmp-arrow { transform: rotate(90deg); justify-self: center; } }
     /* documentos dentro del día */
     .dm-exp { padding: 0 !important; background: var(--surface-alt-bg, var(--card-bg)); }
     .dm-docs { width: 100%; border-collapse: collapse; font-size: .82rem; }
@@ -871,7 +871,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .dm-docs tbody td { padding: .35rem .75rem; border-top: 1px solid var(--border-color); }
     .dm-row { cursor: pointer; }
     .dm-row:hover td { background: var(--surface-hover-bg); }
-    .dm-row:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .dm-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .dm-audit { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; border: 0; background: none; font-family: inherit; cursor: pointer; padding: .15rem .4rem; border-radius: var(--r-sm); }
     .dm-audit.is-audited { color: var(--ok-fg); font-weight: 600; }
     .dm-audit:disabled { cursor: default; }

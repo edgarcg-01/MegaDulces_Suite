@@ -51,7 +51,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       </div>
     
       <p-table [value]="captures()" [loading]="loading()"
-        styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+        styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first"
         [paginator]="captures().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
         <ng-template #header>
           <tr>
@@ -110,7 +110,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             </div>
             <div class="lines">
               <h3>Productos detectados</h3>
-              <p-table [value]="lines()" [loading]="loadingLines()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="320px">
+              <p-table [value]="lines()" [loading]="loadingLines()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="320px">
                 <ng-template #header>
                   <tr><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col" class="num">Cant.</th></tr>
                 </ng-template>
@@ -144,7 +144,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       .detail-meta .dl { display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
       .detail-meta .dv { display: block; color: var(--text-main); font-weight: 500; }
       .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-      @media (max-width: 640px) { .detail-grid { grid-template-columns: 1fr; } }
+      @media (max-width: 40rem) { .detail-grid { grid-template-columns: 1fr; } }
       .ticket-photo img { width: 100%; border-radius: 8px; border: 1px solid var(--border-color); object-fit: contain; max-height: 420px; background: var(--neutral-900); }
       .no-photo { padding: 2rem; text-align: center; color: var(--text-muted); border: 1px dashed var(--border-color); border-radius: 8px; }
       .lines h3 { margin: 0 0 0.5rem; font-size: 0.95rem; color: var(--text-main); }

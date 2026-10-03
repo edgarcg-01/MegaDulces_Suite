@@ -121,7 +121,7 @@ import { VendorService, CoverageCustomer } from '../vendor.service';
     `
       .page-title { margin: 0 0 0.75rem; font-size: 1.5rem; color: var(--text-main); }
       .progress { margin-bottom: 1rem; }
-      .progress-text { font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.375rem; }
+      .progress-text { font-size: var(--fs-body); color: var(--text-muted); margin-bottom: 0.375rem; }
       .progress-track {
         height: 0.5rem;
         border-radius: 999px;

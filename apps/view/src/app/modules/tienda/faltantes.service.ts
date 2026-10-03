@@ -107,6 +107,14 @@ export const ETIQUETA_DESTINO: Record<StockoutDestino, string> = {
   catalogo: 'Catálogo — código',
 };
 
+/** `[FLT.26]` Lo que contesta el servidor al deshacer un reporte recién anotado. */
+export interface DeshacerResultado {
+  id: string;
+  /** `true` = la fila entera se fue (el reporte deshecho era el único de la semana). */
+  eliminado: boolean;
+  times_reported: number;
+}
+
 /** `[FLT.22]` Lo que contesta «¿lo tenemos?» antes de pedir nada. */
 export interface ConsultaFaltante {
   encontrado: boolean;
@@ -139,6 +147,17 @@ export class FaltantesService {
 
   reportar(payload: ReportarPayload): Observable<ReportarResultado> {
     return this.http.post<ReportarResultado>(this.base, payload);
+  }
+
+  /**
+   * `[FLT.26]` Deshacer lo que el verificador acaba de anotar solo.
+   *
+   * Es la contracara del alta automática, no una decisión de Compras: resta UN reporte del
+   * contador de la semana (y borra la fila si era el único). El servidor lo acota a lo recién
+   * anotado y a lo que sigue abierto; un faltante viejo se corrige desde la bandeja.
+   */
+  deshacer(id: string): Observable<DeshacerResultado> {
+    return this.http.patch<DeshacerResultado>(`${this.base}/${id}/deshacer`, {});
   }
 
   porSucursal(code: string, semanas = 4): Observable<Faltante[]> {

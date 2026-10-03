@@ -1532,4 +1532,61 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     const titulos = Array.from(q<HTMLElement>('.mt-space-title')).map((h) => h.textContent ?? '');
     expect(titulos.some((t) => t.includes('Administración y Finanzas'))).toBe(true);
   });
+
+  /*
+   * `[MS.3.8]` La cola de tickets sin asignar se juzga en MINUTOS HÁBILES, no en días, y el plazo se ajusta en la
+   * configuración. La pantalla tiene que decir contra QUÉ plazo y cuánto lleva esperando — un «atrasada» sin su
+   * vara es una opinión (y «1 día» habría sido mentira: el plazo es de una hora).
+   */
+  describe('[MS.3.8] cola sin asignar — plazo en minutos hábiles', () => {
+    const SIN_ASIGNAR: MeWork = {
+      medido_at: '2026-10-02T18:00:00.000Z',
+      no_medido: [],
+      tareas: [],
+      tiene_responsabilidades: true,
+      delegacion: { activa: false, claves: [], ocultas: 0 },
+      ciclos: [],
+      zonas: [],
+      consolidado: null,
+      pendientes: [
+        bandeja({
+          id: 'servicio-sin-asignar', label: 'Solicitudes de servicio sin asignar', ruta: '/servicio/bandeja', icono: 'pi pi-inbox',
+          total: 3, umbral_dias: null, umbral_minutos_habiles: 60, espera_minutos_habiles: 135, veredicto: 'atrasada',
+        }),
+      ],
+    };
+
+    it('⭐ el motivo del veredicto dice el plazo EN MINUTOS HÁBILES y cuánto lleva esperando', async () => {
+      await montar({ role: 'superadmin', perms: [Permission.SERVICIO_ATENDER], stay: true, work$: of(SIN_ASIGNAR) });
+      const v = q<HTMLElement>('.mt-veredicto')[0];
+      expect(v).toBeTruthy();
+      const motivo = v.getAttribute('title') ?? '';
+      expect(motivo).toContain('2 h 15 min');
+      expect(motivo).toContain('1 hora de horario hábil');
+      expect(motivo).not.toContain('día');
+      expect(motivo).not.toContain('null');
+    });
+
+    it('⛔ NEGATIVA — la misma pantalla con un plazo en días sigue hablando en días', async () => {
+      const enDias: MeWork = {
+        ...SIN_ASIGNAR,
+        pendientes: [bandeja({ id: 'cuadre', label: 'Descuadres por revisar', umbral_dias: 7, veredicto: 'atrasada' })],
+      };
+      await montar({ role: 'superadmin', perms: [Permission.RECONCILIATION_VER], stay: true, work$: of(enDias) });
+      const motivo = q<HTMLElement>('.mt-veredicto')[0]?.getAttribute('title') ?? '';
+      expect(motivo).toContain('7 días');
+      expect(motivo).not.toContain('horario hábil');
+    });
+
+    it('si la espera no se pudo medir lo dice («más de»), no inventa una cifra', async () => {
+      const sinEspera: MeWork = {
+        ...SIN_ASIGNAR,
+        pendientes: [{ ...SIN_ASIGNAR.pendientes[0], espera_minutos_habiles: null }],
+      };
+      await montar({ role: 'superadmin', perms: [Permission.SERVICIO_ATENDER], stay: true, work$: of(sinEspera) });
+      const motivo = q<HTMLElement>('.mt-veredicto')[0]?.getAttribute('title') ?? '';
+      expect(motivo).toContain('más de esperando');
+      expect(motivo).not.toContain('NaN');
+    });
+  });
 });

@@ -121,7 +121,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
              valor, fecha, cadencia, estado), así que apilar es lo correcto: el .dt-scope va en el
              contenedor porque un elemento no puede ser su propio container-query. -->
         <div class="dt-scope">
-        <p-table [value]="dueItems()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra dt-stack"
+        <p-table [value]="dueItems()" [loading]="loading()" styleClass="p-datatable-sm surf-table dt-stack"
                  [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
           <ng-template #header>
             <tr>
@@ -167,7 +167,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
       } @else {
         <!-- CLASIFICACIÓN ABC -->
         <div class="dt-scope">
-        <p-table [value]="classRows()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra dt-stack"
+        <p-table [value]="classRows()" [loading]="loading()" styleClass="p-datatable-sm surf-table dt-stack"
                  [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
           <ng-template #header>
             <tr>
@@ -233,7 +233,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
     }
     .abc-dist-card::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--ok-fg); border-top-left-radius:12px; border-bottom-left-radius:12px; }
     .abc-dist-label { font-size: var(--fs-micro,.6875rem); font-weight: var(--fw-bold,700); text-transform:uppercase; letter-spacing:.08em; color: var(--c-text-2,var(--text-muted)); }
-    .abc-dist-foot { font-size: .75rem; color: var(--c-text-2,var(--text-muted)); display: flex; align-items: center; gap: .35rem; font-variant-numeric: tabular-nums; }
+    .abc-dist-foot { font-size: var(--fs-xs); color: var(--c-text-2,var(--text-muted)); display: flex; align-items: center; gap: .35rem; font-variant-numeric: tabular-nums; }
     .abc-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
     .abc-dot.abc-a, .abc-dist-seg.abc-a { background: var(--ok-fg); }
     .abc-dot.abc-b, .abc-dist-seg.abc-b { background: var(--warn-fg); }
@@ -242,7 +242,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
     .abc-dist-bar { display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: var(--c-surface-2, var(--surface-ground)); }
     .abc-dist-seg { min-width: 2px; transition: flex-basis 250ms var(--ease-standard, ease); }
     :host ::ng-deep .abc-views { margin-bottom: .75rem; }
-    :host ::ng-deep .abc-views .p-button { font-size: .8125rem; padding: .35rem .9rem; }
+    :host ::ng-deep .abc-views .p-button { font-size: var(--fs-sm); padding: .35rem .9rem; }
     .abc-mono { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; }
     .abc-name { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .abc-num { text-align: right; font-variant-numeric: tabular-nums; }

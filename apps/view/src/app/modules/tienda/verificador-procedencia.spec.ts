@@ -424,15 +424,48 @@ describe('verificador · el mayoreo', () => {
       expect(c.max / c.min).toBeLessThanOrEqual(2.5);
     }
 
-    // La condición viaja a un tamaño igual o mayor que la letra chica del monto (`.vf-may-cu`),
+    // La condición viaja a un tamaño igual o mayor que la letra chica del monto (.vf-may-cu),
     // no por debajo: si el monto de mayoreo crece y la condición se susurra, alguien que lleva
-    // UNA pieza lee el precio de tres. [CV.25-look] Ya no hay token `--fs-*` acá (paleta cruda
-    // del clon), así que se compara en px crudo contra su propio vecino.
+    // UNA pieza lee el precio de tres.
+    //
+    // [CV.25-look] decía "ya no hay token --fs-* acá (paleta cruda del clon)" y medía SOLO el
+    // px literal. Eso era cierto cuando se escribió y dejó de serlo: el barrido [DS.6] tokenizó
+    // las 12 reglas de font-size del clon. La sustitución fue EXACTA y verificada contra la
+    // escala (14px -> --fs-body, 13px -> --fs-sm, 18px -> --fs-lg, 11px -> --fs-micro), o sea
+    // que la pantalla NO cambió de tamaño.
+    //
+    // ⛔ Pero el test medía la FORMA, no el VALOR, y eso lo rompía de las dos maneras: se caía
+    //    ante una tokenización que no rompe nada, y —peor— se quedaba MUDO el día que el valor
+    //    sí cambiara, porque pxDe devolvía 0 para los dos y "0 >= 0" pasa en verde. Un test que
+    //    afirma una desigualdad entre dos ceros no está midiendo nada.
+    //
+    // Ahora resuelve el token contra la escala REAL (tokens.css), no contra una copia a mano
+    // acá: dos definiciones de la misma escala divergen, y la que se olvide es la que va a
+    // dejar pasar el error.
+    const ESCALA = readFileSync(
+      join(__dirname, '..', '..', '..', '..', '..', '..', 'libs', 'design-tokens', 'tokens.css'), 'utf8');
+    // La escala se lee ENTERA de una vez, con un literal de regex y no con `new RegExp(...)`:
+    // el patrón armado por concatenación obliga a escribir los escapes a mano ('\\s', '\\d') y
+    // basta que uno se pierda para que el patrón quede válido pero MUDO -- deja de matchear y
+    // devuelve 0, que acá se lee igual que "no hay valor". Ya pasó en esta misma sesión.
+    const ESCALA_PX = new Map<string, number>();
+    for (const m of ESCALA.matchAll(/--([a-z0-9-]+):\s*([\d.]+)(rem|px)\s*;/g)) {
+      ESCALA_PX.set(m[1], m[3] === 'rem' ? parseFloat(m[2]) * 16 : parseFloat(m[2]));
+    }
+    const pxDeToken = (nombre: string): number => ESCALA_PX.get(nombre) ?? 0;
     const bloque = (clase: string) => PAGE.slice(PAGE.indexOf(`.${clase} {`), PAGE.indexOf(`.${clase} {`) + 220);
-    const pxDe = (bloqueCss: string) => parseFloat((bloqueCss.match(/font-size:\s*([\d.]+)px/) || ['', '0'])[1]);
+    const pxDe = (bloqueCss: string): number => {
+      const lit = bloqueCss.match(/font-size:\s*([\d.]+)px/);
+      if (lit) return parseFloat(lit[1]);
+      const tok = bloqueCss.match(/font-size:\s*var\(--([a-z0-9-]+)/);
+      return tok ? pxDeToken(tok[1]) : 0;
+    };
     const condPx = pxDe(bloque('vf-may-cond'));
     const cuPx = pxDe(bloque('vf-may-cu'));
+    // Las dos tienen que RESOLVERSE: un 0 acá significa "no pude medir", y de ese lado la
+    // desigualdad de abajo se vuelve vacua. Es la diferencia entre no-hay-problema y no-medí.
     expect(condPx).toBeGreaterThan(0);
+    expect(cuPx).toBeGreaterThan(0);
     expect(condPx).toBeGreaterThanOrEqual(cuPx);
   });
 

@@ -335,7 +335,7 @@ export class UsersController {
    * `[JZ.5]` — **Sólo el bloque de zona.** Es lo que refresca el WebSocket de tienda.
    *
    * ── Por qué no se reusa `me/work` ───────────────────────────────────────────────────────────
-   * Porque cuesta 14 mediciones (6 bandejas + 4 fuentes de tarea + 4 ciclos) y el ticket que
+   * Porque cuesta 15 mediciones (6 bandejas + 5 fuentes de tarea + 4 ciclos) y el ticket que
    * dispara el refresco sólo puede mover UNA: la venta de la zona. Recalcular las otras trece por
    * cada ticket sería pagar el reporte completo para actualizar un número — y en una zona de tres
    * sucursales llega un ticket cada ~45 s (medido: 18,958 tickets en 30 días sólo en la 01).
@@ -447,6 +447,22 @@ export class UsersController {
    * `[ID.21]` — Permisos de una persona en tres capas: los del puesto, los suyos
    * propios (de más / de menos) y los efectivos.
    */
+  /**
+   * `[AU.33]` — Cuánta gente abre hoy cada permiso. Es el contexto que la pantalla pinta al lado
+   * de lo que se está por conceder: «18 personas en 6 perfiles ya la abren» dice más que
+   * cualquier descripción sobre si esto es excepcional o rutina.
+   *
+   * ⚠️ Va declarado ANTES de `@Get(':id/permissions')` por costumbre, no por necesidad: acá los
+   * dos patrones tienen 3 segmentos y el último difiere, así que no colisionan. La costumbre es
+   * del caso en que sí colisionan, que este proyecto ya pagó una vez.
+   */
+  @Get('permissions/usage')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Cuántas personas y perfiles abren hoy cada permiso (los roles de plataforma van aparte)' })
+  permissionUsage(): ReturnType<UsersService['permissionUsage']> {
+    return this.usersService.permissionUsage();
+  }
+
   @Get(':id/permissions')
   @RequirePermissions(Permission.USUARIOS_VER)
   @ApiOperation({ summary: 'Permisos de un usuario: los que le da su puesto, los propios (de más/de menos) y los efectivos' })

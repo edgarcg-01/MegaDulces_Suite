@@ -174,7 +174,7 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
       @media (prefers-reduced-motion: reduce) { .orow { transition: none; } .hero::before { animation: none; } .hero-refresh.spinning i { animation: none; } }
       .oc { min-width: 0; }
       .code { display: block; font-family: var(--font-mono); font-weight: 700; color: var(--text-main); }
-      .time { font-size: 0.75rem; color: var(--text-muted); }
+      .time { font-size: var(--fs-xs); color: var(--text-muted); }
       .oright { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; flex-shrink: 0; }
       .total { font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-main); }
       .chip { font-size: 0.68rem; font-weight: 600; padding: 0.12rem 0.5rem; border-radius: var(--r-pill, 999px); }

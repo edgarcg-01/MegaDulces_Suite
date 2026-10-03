@@ -88,7 +88,7 @@ import { AnalisisStateService, PRESET_OPTIONS, PresetKey } from './analisis-stat
       .an-ctl-right { margin-left: auto; }
       .an-ctl-lbl { font-size: .7rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
       .an-select { min-width: 12rem; }
-      .an-rangelbl { margin: 0 0 .15rem; font-size: .75rem; font-variant-numeric: tabular-nums; color: var(--text-main); }
+      .an-rangelbl { margin: 0 0 .15rem; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; color: var(--text-main); }
       .an-muted { color: var(--text-muted); }
       @media (max-width: 48rem) {
         .an-ctl-right { margin-left: 0; }

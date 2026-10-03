@@ -280,7 +280,7 @@ fi
 CLASIF="$HOME/ops/prod/clasificar-migraciones.awk"
 if [ ! -f "$CLASIF" ]; then
   di "FALLO: falta $CLASIF — no se puede clasificar y no se despliega a ciegas."
-  di "  Se sube con: ops/prod/deploy.sh --imagenes (subir_compose lo sincroniza)."
+  di "  Se sube con: ops/prod/deploy.sh --verificar (es el flag liviano que llama a subir_compose; --imagenes NO sincroniza guiones, construye imagenes)."
   latir error "falta clasificar-migraciones.awk en md"; exit 1
 fi
 git ls-tree -r HEAD database/migrations-newdb/ \
@@ -298,13 +298,70 @@ if [ -n "$DUPS" ]; then
 fi
 if [ -n "$PEND" ]; then
   n=$(echo "$PEND" | wc -l | tr -d ' ')
-  di "FRENADO: $n migración(es) de $DESEADO sin aplicar en prod:"
+
+  # ── [CD.1] PENDIENTE NO ES LO MISMO QUE BLOQUEANTE ──────────────────────────
+  # Hasta hoy cualquier migración pendiente frenaba el despliegue entero. El freno es correcto
+  # —el riesgo real es subir código que espera columnas inexistentes, como dice la cabecera— pero
+  # era INDISCRIMINADO: un hotfix de frontend no podía salir porque alguien dejó a medio aplicar
+  # una matvista de compras que ese hotfix ni nombra.
+  #
+  # `compuerta-migraciones.sh` contesta la pregunta que de verdad importa: ¿alguno de los
+  # archivos que cambian en ESTE despliegue nombra los objetos que las migraciones pendientes
+  # crean? Si no los nombra, el código nuevo no puede necesitarlos.
+  #   · ACOPLADO / NO_MEDIDO -> frena igual que antes, pero diciendo QUÉ archivo y QUÉ objeto.
+  #   · DESACOPLADO          -> deja pasar el código; las migraciones siguen pendientes y el
+  #                             latido las sigue declarando.
+  #
+  # ⛔ El sesgo va del lado seguro a propósito: si no se puede extraer el objeto de una migración
+  #    (p.ej. una que sólo hace GRANT), eso es NO_MEDIDO y FRENA. No se adivina (ADR-056).
+  COMPUERTA="$HOME/ops/prod/compuerta-migraciones.sh"
+  if [ ! -f "$COMPUERTA" ]; then
+    di "FRENADO: falta $COMPUERTA — no se puede decidir si las $n pendiente(s) bloquean. NO MEDIDO."
+    di "  Se sube con: ops/prod/deploy.sh --verificar (es el flag liviano que llama a subir_compose; --imagenes NO sincroniza guiones, construye imagenes)."
+    latir error "falta compuerta-migraciones.sh en md"
+    exit 1
+  fi
+
+  di "$n migración(es) pendiente(s) — midiendo si el código de este despliegue las necesita:"
   echo "$PEND" | sed 's/^/      /'
-  di "Se aplican a mano, una por una, con lock_timeout. NUNCA migrate:latest (hay DOS knex_migrations)."
-  latir error "$n migración(es) sin aplicar — despliegue frenado"
-  exit 1
+
+  # ⛔ `$VIVO` es el commit HORNEADO en la imagen, y vale `desconocido` cuando Docker no reporta
+  # etiqueta. Sin él no hay diff que medir, y medir nada no es lo mismo que medir cero: frena.
+  # Lo mismo si el commit vivo quedó fuera del `--depth 50` del fetch — el diff falla adentro y
+  # la compuerta devuelve NO_MEDIDO, que también frena.
+  if [ "$VIVO" = "desconocido" ]; then
+    di "FRENADO: no se pudo determinar el commit vivo — el acoplamiento es NO MEDIDO."
+    latir error "$n migración(es) pendiente(s) y commit vivo desconocido"
+    exit 1
+  fi
+
+  # ⛔ EL VEREDICTO SE CAPTURA ANTES DE IMPRIMIRLO. Escribir
+  #    `if ... | node ... | sed`  leería el código de salida de **sed**, que siempre sale 0, y la
+  #    compuerta diría "desacoplado" SIEMPRE. Este repo ya pagó ese error dos veces en `[VL.4]`
+  #    (el wrapper que confundía "lock tomado" con "el comando falló"). `/bin/sh` no tiene
+  #    `PIPESTATUS`, así que se guarda la salida y recién después se formatea.
+  # ⛔ `sh`, NO `node`: en el host de `md` NO HAY node (medido el 2026-10-02). La compuerta
+  # nacio en JS y no podia correr acá; peor, `node` ausente devuelve 127 y la linea de abajo
+  # habria leido ese no-cero como "hay acoplamiento" — o sea la feature muerta, pero con cara
+  # de estar funcionando. `clasificar-migraciones.awk` ya era awk por el mismo motivo.
+  SALIDA_CG=$(printf '%s\n' "$PEND" | sh "$COMPUERTA" \
+       --repo "$REPO_DIR" --dir database/migrations-newdb \
+       --desplegado "$VIVO" --objetivo "$DESEADO" 2>&1)
+  VEREDICTO_CG=$?
+  printf '%s\n' "$SALIDA_CG" | sed 's/^/      /'
+
+  if [ "$VEREDICTO_CG" -eq 0 ]; then
+    di "migraciones: $n pendiente(s), pero DESACOPLADAS de este cambio — se despliega el código."
+    di "  ⚠️ Siguen pendientes: aplicarlas a mano, una por una, con lock_timeout."
+  else
+    di "FRENADO: el código de $DESEADO necesita esquema que prod no tiene (detalle arriba)."
+    di "Se aplican a mano, una por una, con lock_timeout. NUNCA migrate:latest (hay DOS knex_migrations)."
+    latir error "$n migración(es) sin aplicar y ACOPLADAS al cambio — despliegue frenado"
+    exit 1
+  fi
+else
+  di "migraciones: prod al día"
 fi
-di "migraciones: prod al día"
 
 # ── `[CI.SELLO]` La compuerta de CI, ANTES de construir ─────────────────────
 # Sólo se despliega un commit que el CI haya SELLADO (job `sellar` en ci.yml, que mueve la rama
@@ -647,7 +704,35 @@ revertir() {
   # pod: el Deployment pide una imagen por COMMIT. `rollout undo` lo devuelve al ReplicaSet
   # anterior, cuya imagen sigue en containerd. Sin esto, "revertido." sería mentira para la
   # mitad del despliegue — y mentir en el camino de reversión es peor que no tenerlo.
-  for s in $_s_k3s_tocados; do
+  # ⛔ [K3S.43] QUÉ SE REVIERTE SE **DERIVA**, NO SE ENUMERA.
+  # `$_s_k3s_tocados` sale de `$SERVICIOS`, que es lo que se CONSTRUYÓ. Pero
+  # `aplicar-k3s-prod.sh` le pone `:$COMMIT` a los NUEVE manifiestos de prod. Medido el
+  # 2026-10-02 tras el despliegue fallido de `5e392b9`: `api worker portal vendor` volvieron a
+  # `11562e4` y **`caddy` y `pg-prod` se quedaron en `5e392b9`** — con el log diciendo
+  # `revertido.`. Una lista a mano se vuelve a desactualizar con el próximo servicio.
+  #
+  # La foto que deja `aplicar-k3s-prod.sh` dice en qué revisión estaba cada deployment ANTES.
+  # Se deshacen los que SUBIERON de revisión: eso es exactamente "los que este despliegue
+  # cambió". Un `apply` que no cambió nada no crea revisión, y revertirlo lo mandaría a un
+  # estado anterior al que tenía — por eso no alcanza con "los que aplicamos".
+  _FOTO="$HOME/ops/prod/.k3s-revisiones-previas"
+  _k3s_revertir=''
+  if [ -s "$_FOTO" ]; then
+    while IFS='=' read -r _d _rev_antes; do
+      [ -n "$_d" ] || continue
+      _rev_ahora=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl get deploy "$_d" -n prod \
+        -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}' 2>/dev/null)
+      [ -n "$_rev_ahora" ] || continue
+      [ "$_rev_ahora" -gt "$_rev_antes" ] 2>/dev/null && _k3s_revertir="$_k3s_revertir $_d"
+    done < "$_FOTO"
+    di "  a revertir en K3s (por revisión):${_k3s_revertir:- ninguno}"
+  else
+    # ⚠️ Se DECLARA la degradación. Sin foto no se puede saber qué cambió, así que se cae a la
+    #    lista vieja —que es incompleta— en vez de no revertir nada.
+    _k3s_revertir="$_s_k3s_tocados"
+    di "  ⚠️ sin foto de revisiones: revierto sólo los construidos (puede quedar algo sin revertir)"
+  fi
+  for s in $_k3s_revertir; do
     if KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl rollout undo "deploy/$s" -n prod >/dev/null 2>&1; then
       di "  $s (K3s) → rollout undo"
     else
@@ -697,7 +782,41 @@ fi
 #
 # ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
 _KC=/etc/rancher/k3s/k3s.yaml
-for _p in $(KUBECONFIG=$_KC k3s kubectl get pods -n prod -l app=api \
+# ⛔ [K3S.47] SE LE PREGUNTA SÓLO A LOS PODS DEL ReplicaSet ACTUAL, no a todo `app=api`.
+#
+# `[K3S.31]` saltea los que están en Terminating. Pero entre "sirviendo" y "Terminating" hay un
+# estado intermedio que no tiene `deletionTimestamp` todavía: el pod viejo que K3s aún no empezó
+# a matar porque el nuevo recién pasó a Ready. Ese pod está VIVO, acepta `exec` y responde — con
+# el commit ANTERIOR.
+#
+# ⭐ MEDIDO el 2026-10-03 desplegando `fdde53f`: `aplicar-k3s-prod.sh` imprimió «✓ todos los
+# deployments al día» a las 10:02:49 y UN SEGUNDO después este bucle dijo «el pod
+# api-6847fccdd5-z9q5d sirve 'cd8ff3d'» y revirtió un despliegue que estaba bien. Confirmado a
+# mano: un `rollout status` sobre el mismo deployment todavía imprimía dos veces «1 old replicas
+# are pending termination» ANTES de dar por terminado el rollout.
+#
+# ⚠️ El arreglo NO es esperar más acá ni cambiar la espera del otro guion por `rollout status`:
+# eso ya se evaluó y se rechazó con medición (ver `aplicar-k3s-prod.sh` §"La espera") porque son
+# hasta 15 min colgado bajo `flock -n` si la imagen no está, y un despliegue trabado deja a
+# producción sin carril. La pregunta estaba mal formulada: no es "¿quién está vivo?" sino
+# "¿quién pertenece a la versión que acabo de desplegar?".
+#
+# `pod-template-hash` lo contesta exacto. Y NO debilita el candado: `[VL.15.D2]` existe porque
+# hubo **ocho horas sirviendo dos versiones a la vez**, y eso era entre réplicas del MISMO
+# ReplicaSet — que es justo lo que este bucle sigue recorriendo una por una.
+#
+# ⚠️ Si no se puede resolver el hash, se cae a la lista completa: perder cobertura en silencio
+# sería peor que un falso positivo (ADR-056). El estado intermedio dura segundos; la ceguera, no.
+_rs_api=$(KUBECONFIG=$_KC k3s kubectl get rs -n prod -l app=api \
+            --sort-by=.metadata.creationTimestamp \
+            -o jsonpath='{.items[-1:].metadata.labels.pod-template-hash}' 2>/dev/null)
+if [ -n "$_rs_api" ]; then
+  _sel="app=api,pod-template-hash=$_rs_api"
+else
+  di "aviso: no se pudo resolver el ReplicaSet actual de api — se pregunta a TODOS los pods"
+  _sel="app=api"
+fi
+for _p in $(KUBECONFIG=$_KC k3s kubectl get pods -n prod -l "$_sel" \
               -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
   # ⛔ [K3S.31] SE SALTEAN LOS QUE SE ESTÁN MURIENDO. La primera versión de este bucle
   # preguntaba a TODOS los pods con la etiqueta `app=api`, y durante un rollout esa lista
@@ -753,5 +872,5 @@ latir ok "desplegado $DESEADO desde $ANTERIOR · servicios: $SERVICIOS$AVISO_CI"
 if [ -x "$HOME/ops/prod/podar-disco.sh" ] || [ -f "$HOME/ops/prod/podar-disco.sh" ]; then
   sh "$HOME/ops/prod/podar-disco.sh" 2>&1 | sed 's/^/      /' || di "aviso: la poda falló (el despliegue NO se toca)"
 else
-  di "aviso: falta ~/ops/prod/podar-disco.sh — no se podó (corré ops/prod/deploy.sh --imagenes para subirlo)"
+  di "aviso: falta ~/ops/prod/podar-disco.sh — no se podó (corré ops/prod/deploy.sh --verificar para subirlo)"
 fi

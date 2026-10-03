@@ -93,7 +93,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .hz-strong { font-weight: 700; }
     .hz-bad { color: var(--bad-fg); font-weight: 600; }
     .hz-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
-    .hz-trunc { color: var(--text-muted); font-size: .8125rem; font-style: italic; }
+    .hz-trunc { color: var(--text-muted); font-size: var(--fs-sm); font-style: italic; }
   `],
 })
 export class ComprasHallazgosComponent implements OnInit {

@@ -10,7 +10,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { adaptadorDe, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeWorkZona, type MeZonaPeriodo } from '@megadulces/contracts';
+import { adaptadorDe, businessMinutesBetween, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeWorkZona, type MeZonaPeriodo } from '@megadulces/contracts';
 import { BANDEJAS, TOPE_DESGLOSE, puedeVerBandeja, type MedirCtx } from './me-work';
 import { medirZona } from './me-zona';
 import { FUENTES_VISIBLES, puedeAbrirTarea } from './me-tasks';
@@ -2836,6 +2836,16 @@ export class UsersService {
         const { total, mas_viejo_at } = medida;
         // Una bandeja en cero no se pinta: la pantalla no tiene cajas vacías.
         if (total > 0) {
+          /*
+           * `[MS.3.8]` La cola cuyo plazo es de MINUTOS HÁBILES (tickets sin asignar) lo lee de la
+           * configuración del tenant y mide la espera con ESE calendario. Si la configuración no se puede
+           * leer, `plazoHabil` lanza y la bandeja cae en `no_medido` con su motivo — no se inventa un plazo.
+           */
+          const plazo = b.plazoHabil ? await b.plazoHabil(this.knex, ctx.tenantId) : null;
+          const espera =
+            plazo && mas_viejo_at
+              ? businessMinutesBetween(new Date(mas_viejo_at), new Date(), plazo.calendario)
+              : null;
           pendientes.push({
             id: b.id,
             label: b.label,
@@ -2851,8 +2861,15 @@ export class UsersService {
             // `[SN.29]` El umbral viaja para que la pantalla pueda decir contra QUÉ está atrasada
             // («7 d de umbral»), no sólo que lo está. Un veredicto sin su vara es una opinión.
             umbral_dias: b.umbral_dias,
+            umbral_minutos_habiles: plazo ? plazo.minutos : null,
+            espera_minutos_habiles: plazo ? espera : null,
             flujo: medida.flujo,
-            veredicto: veredictoDe(medida, b.umbral_dias),
+            veredicto: veredictoDe(
+              medida,
+              b.umbral_dias,
+              Date.now(),
+              plazo ? { espera, umbral: plazo.minutos } : null,
+            ),
             alcance: b.alcance,
             // El universo del conteo se DECLARA. "Se podría acotar pero tu ficha no tiene
             // sucursal" no es lo mismo que "esta cola no tiene sucursal", y ninguna de las dos
@@ -2923,6 +2940,7 @@ export class UsersService {
           label: f.label,
           detalle: f.detalle,
           ruta: puede ? f.ruta : null,
+          queryParams: puede && f.queryParams ? f.queryParams : null,
           sin_acceso: puede
             ? null
             : `Te la asignaron, pero tu permiso no abre ${f.ruta}. Pídeselo a Sistemas.`,
@@ -3330,6 +3348,97 @@ export class UsersService {
       overrides,
       de_mas: overrides.filter((o) => o.allow).map((o) => o.permission_key),
       de_menos: overrides.filter((o) => !o.allow).map((o) => o.permission_key),
+    };
+  }
+
+  /**
+   * `[AU.33]` — **Cuánta gente abre hoy cada permiso.**
+   *
+   * Es el contexto que faltaba para decidir si conceder algo: «18 personas en 6 perfiles ya la
+   * abren» dice más sobre si este permiso es excepcional que cualquier descripción. La pantalla de
+   * una persona lo pinta al lado de la pantalla que se está concediendo.
+   *
+   * ── Qué cuenta, exactamente ─────────────────────────────────────────────
+   * Una persona «lo tiene» si se lo da su perfil base, o alguno de sus complementos, o una
+   * excepción propia `allow = true` — y NO lo tiene si una excepción propia dice `allow = false`,
+   * aunque su perfil se lo dé. O sea: lo mismo que resuelve el guard, no una aproximación.
+   *
+   * ⚠️ **Los roles de plataforma se cuentan APARTE, no se reparten.** `superadmin`/`admin` pasan
+   * por el god-mode antes de mirar el mapa: tienen TODO, pero su fila de `role_permissions` no lo
+   * declara. Sumarlos a cada clave inflaría los 223 números por igual y sería mentira; no
+   * contarlos haría que «18 personas» se lea como el total cuando no lo es. Van en
+   * `platform_admins`, una sola vez, y la pantalla los declara como lo que son.
+   */
+  async permissionUsage(): Promise<{
+    uso: Record<string, { roles: number; personas: number }>;
+    platform_admins: number;
+    medido_en: string;
+  }> {
+    const elevados = [...ELEVATED_ROLES];
+
+    // ⚠️ Bindings POSICIONALES y `CAST(...)` en vez de `::`. Con bindings nombrados knex lee el
+    // `::int` de un cast como el parámetro `:int` y revienta — es la misma familia del
+    // `permissions ? 'KEY'` que el proyecto ya tiene documentado: knex no escapa todo lo que
+    // Postgres considera sintaxis.
+    const t = this.tenantId;
+    const { rows } = await this.knex.raw(
+      `
+      WITH rc AS (
+        SELECT rp.role_name, e.key AS k
+          FROM identity.role_permissions rp, jsonb_each(rp.permissions) e
+         WHERE rp.tenant_id = ? AND e.value = CAST('true' AS jsonb)
+      ),
+      viva AS (
+        SELECT id, role_name FROM identity.users
+         WHERE tenant_id = ? AND deleted_at IS NULL
+      ),
+      por_rol AS (
+        SELECT rc.k, v.id FROM viva v JOIN rc ON LOWER(rc.role_name) = LOWER(v.role_name)
+        UNION
+        SELECT rc.k, ur.user_id
+          FROM identity.user_roles ur
+          JOIN viva v2 ON v2.id = ur.user_id
+          JOIN rc ON LOWER(rc.role_name) = LOWER(ur.role_name)
+         WHERE ur.tenant_id = ?
+      ),
+      efectivo AS (
+        SELECT pr.k, pr.id
+          FROM por_rol pr
+         WHERE NOT EXISTS (
+                 SELECT 1 FROM identity.user_permissions up
+                  WHERE up.tenant_id = ? AND up.user_id = pr.id
+                    AND up.permission_key = pr.k AND up.allow = false)
+        UNION
+        SELECT up.permission_key, up.user_id
+          FROM identity.user_permissions up
+          JOIN viva v3 ON v3.id = up.user_id
+         WHERE up.tenant_id = ? AND up.allow = true
+      )
+      SELECT e.k AS clave,
+             CAST(count(DISTINCT e.id) AS int) AS personas,
+             (SELECT CAST(count(DISTINCT rc2.role_name) AS int) FROM rc rc2 WHERE rc2.k = e.k) AS roles
+        FROM efectivo e
+       GROUP BY e.k
+      `,
+      [t, t, t, t, t],
+    );
+
+    const { rows: admins } = await this.knex.raw(
+      `SELECT CAST(count(*) AS int) AS n FROM identity.users
+        WHERE tenant_id = ? AND deleted_at IS NULL AND LOWER(role_name) = ANY(?)`,
+      [t, elevados],
+    );
+
+    const uso: Record<string, { roles: number; personas: number }> = {};
+    for (const r of rows as Array<{ clave: string; personas: number; roles: number }>) {
+      uso[r.clave] = { personas: r.personas, roles: r.roles };
+    }
+
+    return {
+      uso,
+      platform_admins: admins[0]?.n ?? 0,
+      // Frescura declarada: el consumidor pinta un número y tiene derecho a saber de cuándo es.
+      medido_en: new Date().toISOString(),
     };
   }
 

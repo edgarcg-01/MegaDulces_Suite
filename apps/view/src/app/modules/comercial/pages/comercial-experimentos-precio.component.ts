@@ -17,6 +17,7 @@ import {
   type CapturaRow, type ResultadoRow,
 } from '../experimentos-precio.service';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
 /**
  * `[PR.D2]` — **Experimentos de precio.** Operations: tabla densa + detalle maestro-detalle.
@@ -41,7 +42,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 @Component({
   selector: 'app-comercial-experimentos-precio',
   standalone: true,
-  imports: [CommonModule, FormsModule, PageTabsComponent, TableModule, ButtonModule, SkeletonModule, ToastModule, DialogModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, PageTabsComponent, TableModule, ButtonModule, SkeletonModule, ToastModule, DialogModule, MetricStripComponent, ContextHelpComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -60,6 +61,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
       </p>
     </div>
     <div class="xp-head-acc">
+      <app-context-help topic="control-de-margen" />
       <p-button type="button" icon="pi pi-refresh" label="Actualizar" [loading]="cargando()" (click)="recargar()" styleClass="p-button-text p-button-sm" />
       @if (puedeDisenar()) {
         <p-button type="button" icon="pi pi-plus" label="Diseñar experimento" (click)="abrirDiseno()" styleClass="p-button-sm" />
@@ -364,7 +366,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
     /* Master-detail por CSS, sin drawer: el panel convive con la tabla. */
     .xp-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
     .xp-split.has-det { grid-template-columns: minmax(0, 1fr) 27rem; }
-    @media (max-width: 1100px) { .xp-split.has-det { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 68.75rem) { .xp-split.has-det { grid-template-columns: minmax(0, 1fr); } }
 
     .xp-main { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 

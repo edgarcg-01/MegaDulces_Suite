@@ -57,6 +57,24 @@ interface SelSolicitud {
       </header>
 
       <div class="card-premium card-flat cap-card">
+        <!--
+          [GX.63] El folio llego por la URL y NO existe en Kepler. Antes esto era silencio:
+          la pantalla se quedaba con el folio en el buscador y sin nada mas, y quien llego
+          desde un enlace lo leia como «el boton no sirve» / «no deja adjuntar».
+          Se DICE que folio se busco, donde no aparecio, y que puede significar.
+        -->
+        @if (noHallado(); as nh) {
+          <div class="cap-nohallado">
+            <strong>No encontré la solicitud {{ nh.folio }}@if (nh.sucursal) { <span> de la sucursal {{ nh.sucursal }}</span> } en Kepler.</strong>
+            <p>
+              Por eso esta pantalla no muestra los pasos para adjuntar: sin la solicitud no hay
+              a qué pegarle los documentos. Puede ser que el vale todavía no llegue por el feed,
+              que el folio sea de otra sucursal, o que se haya cancelado.
+            </p>
+            <p class="cap-nohallado-q">Si el folio es correcto, buscalo acá abajo o avisá a Sistemas.</p>
+          </div>
+        }
+
         <!-- 1) Folio del gasto -->
         @if (!gasto()) {
           <label class="cap-f"><span>1 · Folio de la solicitud (Kepler)</span>
@@ -475,6 +493,15 @@ interface SelSolicitud {
     .cap-f > span { font-size: var(--fs-micro); font-weight: var(--fw-medium); text-transform: uppercase;
       letter-spacing: .06em; color: var(--fg-3); }
     .cap-hint { font-size: var(--fs-xs); color: var(--fg-3); font-style: normal; }
+    /* [GX.63] El aviso de folio inexistente. Va ARRIBA del buscador: si fuera un pie, se
+       leeria despues de que la persona ya se pregunto por que la pantalla no hace nada. */
+    .cap-nohallado { padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3);
+      background: var(--warn-soft-bg); border: 1px solid var(--warn-border);
+      border-left: 3px solid var(--warn-fg); border-radius: var(--radius-sm);
+      color: var(--warn-soft-fg); font-size: var(--fs-body); line-height: 1.45; }
+    .cap-nohallado strong { display: block; margin-bottom: 4px; }
+    .cap-nohallado p { margin: 0; }
+    .cap-nohallado-q { margin-top: 6px; font-size: var(--fs-sm); }
     /* [GX.57] La marca de campo obligatorio. Se lee ANTES de teclear; el botón apagado
        recién lo diría después. */
     .cap-req { color: var(--action); font-weight: var(--fw-bold); letter-spacing: .06em; }
@@ -508,7 +535,7 @@ interface SelSolicitud {
       background: none; font: inherit; font-size: var(--fs-xs); color: var(--action); cursor: pointer;
       text-decoration: underline; text-underline-offset: 2px; }
     .cap-link:hover { color: var(--action-hover); }
-    .cap-link:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .cap-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     /* [GX.17] El desglose de cada coincidencia del buscador. */
     .cap-ac { display: flex; align-items: flex-start; justify-content: space-between;
       gap: var(--sp-3); width: 100%; }
@@ -533,7 +560,7 @@ interface SelSolicitud {
       border: 1px solid var(--border-color); border-radius: var(--r-md);
       background: transparent; font: inherit; text-align: left; cursor: pointer; }
     .cap-fp-b:hover { border-color: var(--action); }
-    .cap-fp-b:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-fp-b:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .cap-fp-b.on { border-color: var(--action); background: var(--overlay-selected); }
     .cap-fp-t { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-1); }
     .cap-fp-b.on .cap-fp-t { color: var(--action); }
@@ -548,7 +575,7 @@ interface SelSolicitud {
       align-items: center; justify-content: center; }
     .cap-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .cap-mini:hover { border-color: var(--action); }
-    .cap-mini:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-mini:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .cap-mini-pdf { cursor: default; color: var(--fg-3); }
     .cap-foto-grande { display: block; width: 100%; height: auto; border-radius: var(--r-sm); }
 
@@ -584,7 +611,7 @@ interface SelSolicitud {
       background: transparent; color: var(--fg-1); font-size: var(--fs-body);
       font-weight: var(--fw-medium); cursor: pointer; }
     .cap-ev-b:hover { border-color: var(--action); color: var(--action); }
-    .cap-ev-b:focus-within { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-ev-b:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .cap-ev-nota { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0;
       font-size: var(--fs-xs); line-height: 1.45; color: var(--fg-3); }
     /* [GX.19] El paso opcional se ve distinto del obligatorio: si los cuatro pesan igual,
@@ -611,7 +638,7 @@ interface SelSolicitud {
       font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-1); cursor: pointer;
       transition: border-color var(--dur-short) var(--ease-standard), color var(--dur-short) var(--ease-standard); }
     .cap-pick:hover { border-color: var(--action); color: var(--action); }
-    .cap-pick:focus-within { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-pick:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
     .cap-done { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
       font-size: var(--fs-sm); border: 1px solid var(--border-color); border-radius: var(--r-md);
@@ -968,11 +995,38 @@ export class FinanzasCapturarGastoComponent {
       // ⛔ Con la sucursal a mano se exige exacta: 373 folios viven en mas de una plaza y
       // tomar la primera abriria el vale de otra tienda con el importe de otra tienda.
       const hit = (rows || []).find((r) => r.folio === folio && (!suc || String(r.sucursal || '') === suc));
-      if (!hit) { this.sel = folio; this.cdr.markForCheck(); return; }
+      /**
+       * `[GX.63]` **Acá se volvía MUDO, y se leía como «el botón no sirve».**
+       *
+       * Antes: `if (!hit) { this.sel = folio; return; }`. La pantalla se quedaba con el
+       * folio escrito en el buscador y **sin un solo mensaje** — ni paso 3, ni botones, ni
+       * explicación. Quien llegó desde un enlace ve una pantalla que no hace nada, y lo
+       * reporta como «no deja adjuntar los documentos». Es exactamente lo que pasó.
+       *
+       * ⛔ **Medido (2026-10-03): 149 de 155 vales del Expediente (96 %) caen acá**, porque
+       * su folio no está en `analytics.expense_requests`. En esta base el ODS es semilla, así
+       * que la proporción real de prod puede ser muy distinta — pero el silencio no depende
+       * del volumen: con UN solo vale así, la pantalla ya mentía.
+       *
+       * Ahora se DECLARA: qué folio se buscó, dónde no apareció, y qué puede significar.
+       */
+      if (!hit) {
+        this.sel = folio;
+        this.noHallado.set({ folio, sucursal: suc || null });
+        this.cdr.markForCheck();
+        return;
+      }
+      this.noHallado.set(null);
       this.pick(hit as never);
       this.cdr.markForCheck();
     });
   }
+
+  /**
+   * `[GX.63]` El folio que vino por la URL y **no existe en Kepler**. `null` = no aplica.
+   * Es una SEÑAL porque la plantilla la lee; como campo plano el aviso no se pintaría.
+   */
+  readonly noHallado = signal<{ folio: string; sucursal: string | null } | null>(null);
 
   /** Último término buscado, para poder explicar un resultado vacío. */
   private readonly ultimo = signal('');

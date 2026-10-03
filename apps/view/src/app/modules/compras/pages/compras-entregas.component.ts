@@ -163,7 +163,7 @@ import { ESTADO_ENTREGA_LABEL, agruparPorSucursal, dia, evidenciaLabel } from '.
     .en-cancel { margin-top: .8rem; }
     .en-lbl { display:block; font-size:.76rem; color: var(--text-muted); margin-bottom:.25rem; }
     .en-full { width:100%; }
-    .en-block { font-size:.75rem; color: var(--text-muted); margin-right:auto; }
+    .en-block { font-size:var(--fs-xs); color: var(--text-muted); margin-right:auto; }
   `],
 })
 export class ComprasEntregasComponent implements OnInit {

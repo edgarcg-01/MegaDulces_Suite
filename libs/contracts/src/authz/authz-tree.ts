@@ -479,22 +479,18 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         // ⚠️ `servicio-reportar` NO tiene ruta A PROPÓSITO (mismo precedente que WhatsApp): la clave se
         // reparte a todo rol con personas, y si abriera un destino en el mapa de la suite les quitaría
         // la entrada directa a `/projects` a las cajeras y almacenistas, que hoy tienen un solo destino.
-        // Se alcanza con un botón del header. El espacio 9 sólo aparece para quien atiende o coordina.
-        //
-        // ⚠️ SIN RUTAS TODAVÍA (capa 1, `[MS.1.4]`), con el precedente de WhatsApp: las claves ya existen, se
-        // reparten y se ven en `/admin/roles`, pero NO hay destino en el mapa de la suite. Si el proyecto
-        // apareciera en el mapa antes que su pantalla, un superadmin vería una puerta que no lleva a ningún
-        // lado, y el auto-deploy de `main` la mandaría a prod. Las rutas (`/servicio/atencion`,
-        // `/servicio/reportes`), la entrada del espacio 9 y el landing llegan JUNTOS con las pantallas, en
-        // `[MS.3.1]`.
+        // Se alcanza con el botón «Reportar un problema» del header (que lleva a `/servicio/solicitudes`).
+        // Atención y Coordinación SÍ tienen ruta: el espacio 9 sólo aparece para quien atiende o coordina.
+        // (`[MS.3.1]` — las rutas llegan JUNTO con las pantallas; antes el proyecto no tenía destinos.)
         id: 'servicio',
         label: 'Mesa de Servicio',
         icon: 'pi pi-ticket',
-        route: '',
+        route: '/servicio',
         modules: [
           { id: 'servicio-reportar', label: 'Reportar un problema', route: '', view: [Permission.SERVICIO_REPORTAR], manage: [] },
-          { id: 'servicio-atencion', label: 'Atención de solicitudes', route: '', view: [Permission.SERVICIO_ATENDER], manage: [] },
-          { id: 'servicio-coordinacion', label: 'Coordinación y reportes', route: '', view: [Permission.SERVICIO_COORDINAR], manage: [] },
+          { id: 'servicio-atencion', label: 'Atención de solicitudes', route: '/servicio/bandeja', view: [Permission.SERVICIO_ATENDER], manage: [] },
+          { id: 'servicio-coordinacion', label: 'Coordinación y configuración', route: '/servicio/configuracion', view: [Permission.SERVICIO_COORDINAR], manage: [] },
+          { id: 'servicio-reportes', label: 'Reportes de la mesa', route: '/servicio/reportes', view: [Permission.SERVICIO_COORDINAR], manage: [] },
         ],
       },
     ],
@@ -539,3 +535,17 @@ export function allTreePermissions(): Set<Permission> {
   }
   return set;
 }
+
+/**
+ * `[AU.33]` — La lógica de SELECCIÓN sobre este árbol (tri-estado, cascada, diferencia contra el
+ * perfil, de claves a pantallas) vive en `./authz-selection` y se re-exporta desde acá.
+ *
+ * Por qué por acá y no con alias propio: `tsconfig.base.json` declara una subruta por archivo y la
+ * config de Nx no se toca sin autorización. Colgarlo de este módulo —que ya tiene alias y que es
+ * justo el dato sobre el que la lógica opera— cuesta cero y no cambia a ningún consumidor.
+ *
+ * ⚠️ `authz-selection.ts` importa de acá **sólo tipos** (`import type`), para que esta pareja no
+ * sea un ciclo en runtime. Si alguna vez necesita un valor de este archivo, NO lo importe: que se
+ * lo pasen por parámetro, que es como ya recibe el árbol.
+ */
+export * from './authz-selection';

@@ -297,6 +297,17 @@ export interface WorkbookRow {
   // (idx próximos 30d ÷ idx últimos 30d, jerárquico sku→categoría→global). 1 = mes plano.
   season_ratio: number | null;
   season_src: string | null;       // sku | cat | global
+  /**
+   * `[RA-DYN.U7]` — cumplimiento histórico del PROVEEDOR (0..1), medido en la cadena de Kepler
+   * (`X-A-35` → `X-A-37`) sobre la ventana configurada y ponderado por dinero.
+   *
+   * El pedido de este renglón YA viene dividido por él (topado en `fill_max_inflate`, 1.30): si
+   * surte el 86%, pedirle lo que falta entrega el 86% de lo que falta.
+   *
+   * `null` = el proveedor no llega al mínimo de renglones medido (25) o su nombre tiene homónimos
+   * en el catálogo. **No es 1.0 ni 0**: es *no se midió*, y en ese caso el pedido no se tocó.
+   */
+  fill_rate: number | null;
 }
 export interface WorkbookResponse {
   total: number; page: number; pageSize: number; coverage_days: number;

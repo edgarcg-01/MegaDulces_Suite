@@ -83,7 +83,7 @@ function severityForDriverStatus(s: string): Severity {
           <p-tabpanel value="vehicles">
             <div class="tab-actions"><button pButton (click)="openVehicleCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva unidad</span></button></div>
             <p-card>
-              <p-table [value]="vehicles()" [loading]="loadingV()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+              <p-table [value]="vehicles()" [loading]="loadingV()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
                 <ng-template #header>
                   <tr>
                     <th scope="col">Placa</th><th scope="col">Marca/Modelo</th><th scope="col">Año</th>
@@ -117,7 +117,7 @@ function severityForDriverStatus(s: string): Severity {
           <p-tabpanel value="drivers">
             <div class="tab-actions"><button pButton (click)="openDriverCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo colaborador</span></button></div>
             <p-card>
-              <p-table [value]="drivers()" [loading]="loadingD()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+              <p-table [value]="drivers()" [loading]="loadingD()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
                 <ng-template #header>
                   <tr>
                     <th scope="col">Nombre</th><th scope="col">Roles</th><th scope="col">Tipo</th>
@@ -162,7 +162,7 @@ function severityForDriverStatus(s: string): Severity {
             <button pButton (click)="openGrant()" [disabled]="!drivers().length || !vehicles().length"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Otorgar derecho</span></button>
           </div>
           <p-table [value]="entitlements()" [loading]="loadingEnt()" dataKey="driver_id"
-            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
+            styleClass="p-datatable-sm surf-table surf-table--sticky">
             <ng-template #header>
               <tr><th scope="col">Colaborador</th><th scope="col">Estado</th><th scope="col">Unidades a las que tiene derecho</th></tr>
             </ng-template>
@@ -203,7 +203,7 @@ function severityForDriverStatus(s: string): Severity {
             <button pButton (click)="openAssignment()" [disabled]="!vehicles().length"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva asignación</span></button>
           </div>
           <p-table [value]="assignments()" [loading]="loadingAsg()"
-            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
             <ng-template #header>
               <tr>
                 <th scope="col">Folio</th><th scope="col">Unidad</th><th scope="col">Responsable</th>
@@ -251,7 +251,7 @@ function severityForDriverStatus(s: string): Severity {
               <button pButton (click)="openCheckIn()"><span class="p-button-icon p-button-icon-left pi pi-sign-out" aria-hidden="true"></span><span class="p-button-label">Nuevo check-in</span></button>
             </div>
             <p-card>
-              <p-table [value]="usageLogs()" [loading]="loadingUsage()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+              <p-table [value]="usageLogs()" [loading]="loadingUsage()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
                 <ng-template #header>
                   <tr>
                     <th scope="col">Vehículo</th>
@@ -313,7 +313,7 @@ function severityForDriverStatus(s: string): Severity {
     
     
           <p-card>
-            <p-table [value]="maintenance()" [loading]="loadingMaint()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+            <p-table [value]="maintenance()" [loading]="loadingMaint()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
               <ng-template #header>
                 <tr>
                   <th scope="col">Vehículo</th>
@@ -415,7 +415,7 @@ function severityForDriverStatus(s: string): Severity {
               <input pInputText formControlName="station" placeholder="Estación" />
               <button pButton size="small" [loading]="savingFuel()" [disabled]="fuelForm.invalid" (click)="registerFuel()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Registrar</span></button>
             </form>
-            <p-table [value]="fuelTx()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra" [paginator]="fuelTx().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
+            <p-table [value]="fuelTx()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first" [paginator]="fuelTx().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
               <ng-template #header>
                 <tr><th scope="col">Fecha</th><th scope="col">Unidad</th><th scope="col" class="num">Litros</th><th scope="col" class="num">Monto</th><th scope="col" class="num">Odómetro</th><th scope="col">Estación</th><th scope="col"><span class="sr-only">Acciones</span></th></tr>
               </ng-template>
