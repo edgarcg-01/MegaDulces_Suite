@@ -103,7 +103,7 @@ import { Permission } from '../../../core/constants/permissions';
               </span>
             </div>
           }
-          <p-table [value]="o.lines" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+          <p-table [value]="o.lines" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
             <ng-template #header>
               <tr>
                 <th scope="col">Producto</th>
@@ -224,7 +224,7 @@ import { Permission } from '../../../core/constants/permissions';
                 }
               </div>
             </ng-template>
-            <p-table [value]="shipments()" [loading]="loadingShipments()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
+            <p-table [value]="shipments()" [loading]="loadingShipments()" styleClass="p-datatable-sm surf-table surf-table--sticky">
               <ng-template #header>
                 <tr>
                   <th scope="col">Folio</th>

@@ -576,7 +576,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       border: none; padding: 2px 0; cursor: pointer; color: var(--text-main); font: inherit; text-align: left; }
     .tw-grp-head:hover .tw-grp-tit { text-decoration: underline; }
     .tw-grp-head:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-    .tw-grp-head i { font-size: .75rem; color: var(--text-faint); }
+    .tw-grp-head i { font-size: var(--fs-xs); color: var(--text-faint); }
     .tw-grp-tit { font-size: var(--fs-sm); font-weight: 600; }
     .tw-grp-real .tw-grp-tit { color: var(--warn-fg); }
     .tw-grp-n { font-size: var(--fs-xs); color: var(--text-muted); background: var(--hover-bg);

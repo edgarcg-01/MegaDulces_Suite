@@ -94,7 +94,7 @@ import { SalesBlock } from './dashboard-spec';
     .sb-faint { color:var(--text-faint); }
     .sb-grid { display:grid; grid-template-columns:1fr 1.2fr; gap:1.2rem; align-items:start; }
     .sb-grid-1 { grid-template-columns:1fr; }
-    @media (max-width:900px) { .sb-grid { grid-template-columns:1fr; } }
+    @media (max-width:56.25rem) { .sb-grid { grid-template-columns:1fr; } }
     .sb-bars { display:flex; flex-direction:column; gap:.5rem; }
     .sb-bar-row { display:grid; grid-template-columns:8rem 1fr auto; align-items:center; gap:.6rem; font-size:.8rem; }
     .sb-bar-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-muted); }

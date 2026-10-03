@@ -96,7 +96,7 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
     .im-resulthead { display: flex; flex-direction: column; gap: .3rem; }
     .im-resulthead app-freshness-pill { align-self: flex-end; margin: -.4rem 0 1rem; }
     .im-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    @media (max-width: 800px) { .im-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 50rem) { .im-grid { grid-template-columns: 1fr; } }
     .im-block { padding: 1rem 1.2rem; }
     .im-block-title { margin: 0 0 .7rem; font-size: .85rem; font-weight: 700; color: var(--text-main); }
     .im-dl { margin: 0; display: flex; flex-direction: column; }
@@ -105,7 +105,7 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
     .im-dl .im-total { border-bottom: none; border-top: 2px solid var(--border-color); margin-top: .2rem; padding-top: .5rem; }
     .im-total dt { color: var(--text-main); font-weight: 700; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; } .strong { font-weight: 700; }
-    .im-note { font-size: .75rem; color: var(--text-muted); font-style: italic; margin-top: 1rem; }
+    .im-note { font-size: var(--fs-xs); color: var(--text-muted); font-style: italic; margin-top: 1rem; }
   `],
 })
 export class ContabilidadImpuestosComponent {

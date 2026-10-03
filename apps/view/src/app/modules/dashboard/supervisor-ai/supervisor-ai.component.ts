@@ -734,7 +734,7 @@ const QUADRANT_LABELS: Record<string, string> = {
       .src--agent { background: color-mix(in srgb, var(--action, #ea580c) 14%, transparent); color: var(--action, #ea580c); }
       .brief__summary { margin: .5rem 0 .75rem; line-height: 1.45; color: var(--text, #44403c); }
       .chips { display: flex; flex-wrap: wrap; gap: .4rem; }
-      .chip { font-size: .75rem; padding: .2rem .55rem; border-radius: 999px; background: var(--layout-bg, #f5f5f4); color: var(--text-soft, #57534e); }
+      .chip { font-size: var(--fs-xs); padding: .2rem .55rem; border-radius: 999px; background: var(--layout-bg, #f5f5f4); color: var(--text-soft, #57534e); }
       .chip--bad { background: color-mix(in srgb, var(--bad, #dc2626) 12%, transparent); color: var(--bad, #dc2626); font-weight: 600; }
       .chip--ok { background: color-mix(in srgb, var(--ok-fg, #16a34a) 12%, transparent); color: var(--ok-fg, #16a34a); font-weight: 600; }
       .attn { list-style: none; margin: .9rem 0 0; padding: .75rem 0 0; border-top: 1px solid var(--border, #e7e5e4); display: flex; flex-direction: column; gap: .5rem; }

@@ -862,7 +862,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .dm-cmp-dl { display: grid; grid-template-columns: auto 1fr; gap: .25rem .6rem; margin: 0; font-size: .8rem; }
     .dm-cmp-dl dt { color: var(--text-muted); }
     .dm-cmp-dl dd { margin: 0; text-align: right; }
-    @media (max-width: 640px) { .dm-cmp { grid-template-columns: 1fr; } .dm-cmp-arrow { transform: rotate(90deg); justify-self: center; } }
+    @media (max-width: 40rem) { .dm-cmp { grid-template-columns: 1fr; } .dm-cmp-arrow { transform: rotate(90deg); justify-self: center; } }
     /* documentos dentro del día */
     .dm-exp { padding: 0 !important; background: var(--surface-alt-bg, var(--card-bg)); }
     .dm-docs { width: 100%; border-collapse: collapse; font-size: .82rem; }

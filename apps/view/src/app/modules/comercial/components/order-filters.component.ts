@@ -316,7 +316,7 @@ interface DatePreset { key: string; label: string; }
     .co-reset:hover { color: var(--c-text-1); border-color: var(--c-text-1); background: var(--c-surface-2); }
     .co-reset i { font-size: var(--fs-xs); }
 
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .co-toolbar { gap: .5rem; }
       .co-toolbar-spacer { display: none; }
       .co-search { width: 100%; }

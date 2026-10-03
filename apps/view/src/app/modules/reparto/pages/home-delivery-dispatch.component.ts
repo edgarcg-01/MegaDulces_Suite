@@ -368,7 +368,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
     .rd-opt { display:flex; align-items:center; gap:.5rem; width:100%; }
     .rd-opt-main { font-weight:600; }
     .rd-opt-sub { color:var(--text-muted); font-size:.85em; }
-    .rd-cap { margin-left:auto; font-size:.75rem; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+    .rd-cap { margin-left:auto; font-size:var(--fs-xs); color:var(--text-muted); font-variant-numeric:tabular-nums; }
     .rd-dot { width:9px; height:9px; border-radius:50%; background:var(--text-faint); flex-shrink:0; }
     .rd-dot.ok { background:var(--ok-fg); }
     .rd-dot.busy { background:var(--warn-fg); }
@@ -395,7 +395,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
     .rd-ok-head { display:flex; align-items:center; gap:.5rem; font-weight:700; font-size:1.05rem; color:var(--ok-fg); }
     .rd-ok-meta { margin-top:.35rem; color:var(--text-muted); font-variant-numeric:tabular-nums; }
 
-    @media (max-width:640px) {
+    @media (max-width:40rem) {
       .rd-grid { grid-template-columns:1fr; }
       .rd-cod-amount { max-width:none; }
     }

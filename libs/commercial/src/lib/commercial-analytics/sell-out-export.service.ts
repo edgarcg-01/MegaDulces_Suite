@@ -405,8 +405,8 @@ export class SellOutExportService {
     }).join('');
     const html = `<!doctype html><html><head><meta charset="utf-8"><style>
       *{box-sizing:border-box} body{font-family:Helvetica,Arial,sans-serif;color:#09090b;margin:0;padding:22px 18px}
-      h1{font-size:15px;margin:0 0 2px} .sub{font-size:10px;color:#52525b;margin:0 0 14px}
-      h2{font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin:16px 0 6px}
+      h1{font-size:15px;margin:0 0 2px} .sub{font-size:var(--fs-nano);color:#52525b;margin:0 0 14px}
+      h2{font-size:var(--fs-micro);text-transform:uppercase;letter-spacing:.04em;margin:16px 0 6px}
       table{border-collapse:collapse;width:100%;font-size:8px;margin-bottom:8px}
       th,td{border:.5px solid #e4e4e7;padding:3px 5px;text-align:left} th{background:#f4f4f5;font-weight:700}
       td.n{text-align:right;font-variant-numeric:tabular-nums} td.b,tr.tot td{font-weight:700} tr.tot td{background:#f4f4f5}
@@ -801,7 +801,7 @@ export class SellOutExportService {
       /* Caja de periodo */
       .period{background:#f4f4f5;border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
       .period .lbl{font-size:8px;font-weight:700;letter-spacing:.06em;color:#52525b}
-      .period .val{font-size:11px;font-weight:700;color:#3f3f46}
+      .period .val{font-size:var(--fs-micro);font-weight:700;color:#3f3f46}
       .period .ch{font-size:8.5px;color:#52525b}
       /* KPIs */
       .kpis{display:flex;gap:10px;margin-bottom:16px}
@@ -809,7 +809,7 @@ export class SellOutExportService {
       .kpi-l{display:block;font-size:8px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#71717a}
       .kpi-v{display:block;font-size:15px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
       /* Sección */
-      .sec{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin:0 0 6px}
+      .sec{font-size:var(--fs-micro);font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin:0 0 6px}
       /* Tabla grid (tema del autoTable de /reports) */
       table{border-collapse:collapse;width:100%;font-size:7px}
       th,td{border:.5px solid #e4e4e7;padding:2.5px 3px;text-align:center}

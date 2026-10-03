@@ -160,7 +160,7 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
     `
       .section { display: flex; flex-direction: column; gap: 1.5rem; }
       .section-header h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 0.25rem; color: var(--text-main); }
-      .section-header p { color: var(--text-muted); font-size: 0.875rem; margin: 0; }
+      .section-header p { color: var(--text-muted); font-size: var(--fs-body); margin: 0; }
       .loading { display: flex; justify-content: center; padding: 4rem 0; }
       .my-card, .queue-card {
         background: var(--card-bg);
@@ -185,9 +185,9 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
       .my-info, .qi-info { flex: 1; min-width: 0; }
       .code { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; margin: 0; letter-spacing: 0.04em; }
       .name { font-size: 0.95rem; font-weight: 500; color: var(--text-main); margin: 0.1rem 0; }
-      .ttl { font-size: 0.75rem; color: var(--brand-700); margin: 0; }
-      .meta { font-size: 0.75rem; color: var(--text-muted); margin: 0.1rem 0 0; display: flex; flex-wrap: wrap; gap: 0.75rem; }
-      .meta i { font-size: 0.75rem; margin-right: 0.1rem; }
+      .ttl { font-size: var(--fs-xs); color: var(--brand-700); margin: 0; }
+      .meta { font-size: var(--fs-xs); color: var(--text-muted); margin: 0.1rem 0 0; display: flex; flex-wrap: wrap; gap: 0.75rem; }
+      .meta i { font-size: var(--fs-xs); margin-right: 0.1rem; }
       .my-actions, .qi-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
       .qi-tag { width: 110px; flex-shrink: 0; }
       .queue-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
@@ -197,7 +197,7 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
       .empty i { font-size: 2.5rem; color: var(--ok-fg); margin-bottom: 0.75rem; display: block; }
       .empty p { font-size: 0.95rem; margin: 0; color: var(--text-main); }
       .empty small { font-size: 0.8rem; }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .queue-item, .my-item { flex-direction: column; align-items: stretch; }
         .qi-tag { width: auto; }
         .qi-actions, .my-actions { justify-content: flex-end; }

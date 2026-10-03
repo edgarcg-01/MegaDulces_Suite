@@ -209,7 +209,7 @@ import { AnalisisStateService, GRAIN_OPTIONS } from './analisis-state.service';
       .cs-title { margin: 0; font-size: .85rem; font-weight: 700; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
       .cs-chip { font-size: .7rem; font-weight: 600; padding: .1rem .5rem; border-radius: var(--r-full, 999px);
                  background: color-mix(in srgb, var(--action) 12%, transparent); color: var(--action); }
-      .cs-sub { margin: .2rem 0 0; font-size: .75rem; color: var(--text-muted); max-width: 46ch; }
+      .cs-sub { margin: .2rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); max-width: 46ch; }
       .cs-warn { display: flex; align-items: center; gap: .45rem; margin: 0 0 .8rem; padding: .5rem .7rem; font-size: .76rem;
                  background: color-mix(in srgb, var(--warn-fg) 8%, transparent);
                  border: 1px solid color-mix(in srgb, var(--warn-fg) 28%, transparent); border-radius: var(--r-md); }

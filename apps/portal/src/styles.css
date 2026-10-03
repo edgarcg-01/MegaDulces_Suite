@@ -164,7 +164,7 @@ button, [role="button"], [role="tab"] {
  * iOS auto-zoom kill: inputs <16px detonan auto-zoom de Safari mobile que
  * desencaja layout y molesta. Forzamos 16px en mobile para los inputs.
  */
-@media (max-width: 768px) {
+@media (max-width: 48rem) {
   input:not([type='button']):not([type='submit']):not([type='checkbox']):not([type='radio']),
   textarea,
   select {
@@ -238,7 +238,7 @@ body {
   background-color: transparent;
   color: var(--text-muted);
   border: 1px solid transparent;
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   font-weight: 500;
   cursor: pointer;
   transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, transform 100ms ease;
@@ -403,7 +403,7 @@ body {
   gap: 0.25rem;
   padding: 0.125rem 0.5rem;
   border-radius: 9999px;
-  font-size: 10px;
+  font-size: var(--fs-nano);
   font-weight: 700;
   letter-spacing: 0.02em;
   background-color: var(--status-soft-bg);
@@ -448,7 +448,7 @@ body {
   gap: 0.25rem;
   padding: 0.125rem 0.5rem;
   border-radius: 0.25rem;
-  font-size: 11px;
+  font-size: var(--fs-micro);
   font-weight: 600;
   border-width: 1px;
   border-style: solid;
@@ -654,7 +654,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 /* Mobile table optimizations */
-@media (max-width: 768px) {
+@media (max-width: 48rem) {
   .p-datatable .p-datatable-thead > tr > th,
   .p-datatable .p-datatable-tbody > tr > td {
     padding: 0.5rem 0.75rem !important;
@@ -692,7 +692,7 @@ input:focus, textarea:focus, select:focus {
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 30rem) {
   .p-datatable .p-datatable-thead > tr > th,
   .p-datatable .p-datatable-tbody > tr > td {
     min-width: 100px !important;
@@ -1431,13 +1431,13 @@ html.low-end .cat-search-mode.active {
 }
 
 .text-body {
-  font-size: 0.875rem;   /* 14px */
+  font-size: var(--fs-body);   /* 14px */
   line-height: 1.25rem;  /* 20px */
   font-weight: 400;
 }
 
 .text-label {
-  font-size: 0.75rem;    /* 12px */
+  font-size: var(--fs-xs);    /* 12px */
   line-height: 1rem;     /* 16px */
   font-weight: 500;
   letter-spacing: 0.05em;
@@ -1446,7 +1446,7 @@ html.low-end .cat-search-mode.active {
 
 /* Tablas - consistencia */
 .table-header {
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1rem;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -1454,19 +1454,19 @@ html.low-end .cat-search-mode.active {
 }
 
 .table-cell {
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   line-height: 1.25rem;
   font-weight: 400;
 }
 
 .table-cell-strong {
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   line-height: 1.25rem;
   font-weight: 600;
 }
 
 /* Responsive adjustments */
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   .text-display {
     font-size: 1.875rem;
     line-height: 2.25rem;
@@ -1478,7 +1478,7 @@ html.low-end .cat-search-mode.active {
   }
 
   .text-title {
-    font-size: 1.125rem;
+    font-size: var(--fs-lg);
     line-height: 1.5rem;
   }
 }
@@ -1589,7 +1589,7 @@ html.low-end .cat-search-mode.active {
 .p-datatable-modern .p-datatable-thead > tr > th {
   background: var(--surface-ground);
   color: var(--text-muted);
-  font-size: 0.625rem;
+  font-size: var(--fs-nano);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1733,7 +1733,7 @@ html.low-end .cat-search-mode.active {
   border: none;
   color: var(--text-muted);
   font-weight: 600;
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   line-height: 1.1;
   white-space: nowrap;
   cursor: pointer;
@@ -1745,7 +1745,7 @@ html.low-end .cat-search-mode.active {
 
 /* En viewports anchos, repartir el espacio uniformemente. En mobile cada
    tab toma su ancho intrínseco y el container scrollea horizontal. */
-@media (min-width: 768px) {
+@media (min-width: 48rem) {
   .liquid-tab {
     flex: 1 1 0;
   }
@@ -1837,7 +1837,7 @@ html.low-end .cat-search-mode.active {
 }
 .portal-page-head .portal-page-sub {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -1884,7 +1884,7 @@ html.low-end .cat-search-mode.active {
   padding: 0.7rem 1.3rem;
   font-family: var(--font-body);
   font-weight: 700;
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   letter-spacing: -0.005em;
   cursor: pointer;
   display: inline-flex;
@@ -2031,7 +2031,7 @@ html.low-end .cat-search-mode.active {
 }
 .portal-section-head h2 i { color: var(--text-muted); font-size: 0.95rem; }
 .portal-section-link {
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   color: var(--text-main);
   text-decoration: underline;
   text-decoration-color: var(--brand-500);
@@ -2040,7 +2040,7 @@ html.low-end .cat-search-mode.active {
   text-decoration-thickness: 2px;
 }
 .portal-section-count {
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -2138,7 +2138,7 @@ html.low-end .cat-search-mode.active {
   background: var(--warn-soft-bg);
   border: 1px solid var(--warn-border, var(--border-color));
   color: var(--warn-soft-fg, var(--warn-fg));
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   line-height: 1.4;
 }
 .portal-banner i { font-size: 1rem; margin-top: 1px; flex-shrink: 0; }
@@ -2204,7 +2204,7 @@ html.low-end .cat-search-mode.active {
 }
 .comm-page-sub {
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   color: var(--text-color-secondary);
   line-height: 1.45;
 }
@@ -2244,7 +2244,7 @@ html.low-end .cat-search-mode.active {
 
 .comm-muted {
   color: var(--text-color-secondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   margin: 0;
 }
 .comm-muted.is-small { font-size: 0.7rem; line-height: 1.35; }
@@ -2431,7 +2431,7 @@ code.comm-code,
   padding: 0 1.5rem 2rem;
   width: 100%;
 }
-@media (max-width: 768px) {
+@media (max-width: 48rem) {
   .surf-page { padding: 0 1rem 1.5rem; }
 }
 
@@ -2480,13 +2480,13 @@ code.comm-code,
 .panel-col-6  { grid-column: span 12; }
 .panel-col-8  { grid-column: span 12; }
 .panel-col-12 { grid-column: span 12; }
-@media (min-width: 720px) {
+@media (min-width: 45rem) {
   .panel-col-3 { grid-column: span 6; }
   .panel-col-4 { grid-column: span 6; }
   .panel-col-6 { grid-column: span 12; }
   .panel-col-8 { grid-column: span 12; }
 }
-@media (min-width: 1080px) {
+@media (min-width: 67.5rem) {
   .panel-col-3 { grid-column: span 3; }
   .panel-col-4 { grid-column: span 4; }
   .panel-col-6 { grid-column: span 6; }
@@ -2562,7 +2562,7 @@ code.comm-code,
 .metric-tile.is-info::before  { background: var(--info-fg); }
 
 .metric-label {
-  font-size: 0.625rem;
+  font-size: var(--fs-nano);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -2673,7 +2673,7 @@ code.comm-code,
 .cell-span-8  { grid-column: span 12; }
 .cell-span-12 { grid-column: span 12; }
 .cell-row-2   { grid-row: span 1; }
-@media (min-width: 720px) {
+@media (min-width: 45rem) {
   .cell-span-2  { grid-column: span 6; }
   .cell-span-3  { grid-column: span 6; }
   .cell-span-4  { grid-column: span 6; }
@@ -2682,7 +2682,7 @@ code.comm-code,
   .cell-span-7  { grid-column: span 12; }
   .cell-span-8  { grid-column: span 12; }
 }
-@media (min-width: 1080px) {
+@media (min-width: 67.5rem) {
   .cell-span-2  { grid-column: span 2; }
   .cell-span-3  { grid-column: span 3; }
   .cell-span-4  { grid-column: span 4; }
@@ -2787,7 +2787,7 @@ code.comm-code,
 .cell-head .cell-label { margin: 0; }
 
 /* Tables dentro de celdas (sin chrome adicional) */
-.cell .data-table { font-size: 0.8125rem; }
+.cell .data-table { font-size: var(--fs-sm); }
 .cell .data-table thead th {
   background: var(--card-bg);
   padding: 0.5rem 1.25rem;

@@ -200,7 +200,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
     .liq-err { color:var(--bad-fg); font-size:.85rem; margin:.75rem 0 0; display:flex; align-items:center; gap:.4rem; }
     .liq-muted { color:var(--text-muted); font-size:.9rem; margin:0; }
 
-    @media (max-width:640px) {
+    @media (max-width:40rem) {
       .liq-form { grid-template-columns:1fr; }
       .liq-action { justify-content:stretch; }
     }

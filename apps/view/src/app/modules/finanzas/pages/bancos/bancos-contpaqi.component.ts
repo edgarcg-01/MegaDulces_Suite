@@ -285,7 +285,7 @@ import { BANCOS_STYLES } from './bancos.styles';
     .dlg-side-sub { font-size: var(--fs-xs); margin: 2px 0 var(--sp-2); }
     .dlg-clean { font-size: var(--fs-sm); margin: var(--sp-2) 0; }
     .dlg-cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
-    @media (max-width: 720px) { .dlg-cols { grid-template-columns: 1fr; } }
+    @media (max-width: 45rem) { .dlg-cols { grid-template-columns: 1fr; } }
     .dlg-col { border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
     .dlg-col-head { font-size: var(--fs-xs); font-weight: 700; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); }
     .dlg-col-head.bank { background: color-mix(in srgb, var(--action) 10%, transparent); color: var(--text-main); }

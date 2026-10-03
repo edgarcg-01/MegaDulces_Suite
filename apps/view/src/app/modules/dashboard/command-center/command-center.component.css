@@ -11,7 +11,7 @@
 
 /* Skeleton de carga: una pieza por sheet para evitar layout shift (CLS). */
 .cc-skeletons { display: flex; flex-direction: column; gap: 1.5rem; }
-@media (min-width: 768px) {
+@media (min-width: 48rem) {
   .cc-skeletons { gap: 2rem; }
 }
 
@@ -20,7 +20,7 @@
 
 /* Más respiración entre sheets (entre tablas) */
 :host ::ng-deep .surf-page.cc { gap: 1.5rem; }
-@media (min-width: 768px) {
+@media (min-width: 48rem) {
   :host ::ng-deep .surf-page.cc { gap: 2rem; }
 }
 

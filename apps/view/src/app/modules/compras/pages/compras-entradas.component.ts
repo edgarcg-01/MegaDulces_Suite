@@ -1245,7 +1245,7 @@ interface AttachFile {
       display: inline-flex; align-items: center; gap: var(--sp-1);
       color: var(--text-muted); font-size: var(--fs-xs);
     }
-    .cb-descartada i { font-size: .75rem; }
+    .cb-descartada i { font-size: var(--fs-xs); }
     .cb-desc-lead {
       margin: 0; padding: var(--sp-2) var(--sp-3);
       background: var(--surface-ground); border-radius: var(--r-md);
@@ -1527,7 +1527,7 @@ interface AttachFile {
     .cb-eye { color: var(--text-muted); font-size: .8rem; opacity: 0; transition: opacity .15s; }
     .cb-comp-cell:hover .cb-eye { opacity: .8; }
     .cb-comp-empty { display: inline-flex; align-items: center; gap: .35rem; }
-    .cb-comp-empty i { font-size: .75rem; opacity: .7; }
+    .cb-comp-empty i { font-size: var(--fs-xs); opacity: .7; }
     /* preview antes de subir */
     .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-2); }
     /* Fondo del papel: token, no un negro con alpha. En tema oscuro un #00000008 no existe y

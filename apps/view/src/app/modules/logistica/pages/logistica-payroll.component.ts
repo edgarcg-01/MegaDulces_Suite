@@ -97,7 +97,7 @@ function severityLiq(s: LiquidationStatus): Severity {
           <div class="surf-panel-head"><h3><i class="pi pi-wallet" aria-hidden="true"></i> {{ liqHeader() }}</h3></div>
           <div class="surf-panel-body is-flush">
             <p-table [value]="liquidations()" [loading]="loadingL()"
-              styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
+              styleClass="surf-table surf-table--sticky surf-table--frozen-first p-datatable-sm">
               <ng-template #header>
                 <tr>
                   <th scope="col">Colaborador</th><th scope="col">Tipo</th>
@@ -151,7 +151,7 @@ function severityLiq(s: LiquidationStatus): Severity {
       }
     
       <p-table [value]="adjustments()" [loading]="loadingAdj()"
-        styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm adj-table">
+        styleClass="surf-table surf-table--sticky p-datatable-sm adj-table">
         <ng-template #header>
           <tr>
             <th scope="col">Fecha</th><th scope="col">Tipo</th><th scope="col" class="num">Monto</th><th scope="col">Notas</th>
@@ -262,7 +262,7 @@ function severityLiq(s: LiquidationStatus): Severity {
     :host { display:block; }
     .muted { color: var(--c-text-2); font-size: var(--fs-sm); margin:0; }
     .grid { display:grid; grid-template-columns: 1fr 2fr; gap:1rem; align-items: flex-start; }
-    @media (max-width: 1024px) { .grid { grid-template-columns: 1fr; } }
+    @media (max-width: 64rem) { .grid { grid-template-columns: 1fr; } }
     .strong { font-weight: var(--fw-medium); }
     .num { font-variant-numeric: tabular-nums; text-align:right; font-family: var(--font-mono); }
     .grand { color: var(--c-text-1); font-weight: var(--fw-bold); }

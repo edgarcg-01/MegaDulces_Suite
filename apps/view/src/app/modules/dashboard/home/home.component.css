@@ -14,7 +14,7 @@
   overflow-x: hidden;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   .dashboard-container { gap: 1rem; }
 }
 
@@ -80,7 +80,7 @@
 }
 
 .stat-label {
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;

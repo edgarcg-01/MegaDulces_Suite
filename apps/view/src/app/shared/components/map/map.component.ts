@@ -294,15 +294,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private iconFor(m: MapMarker): L.DivIcon {
     const color = m.color || 'var(--action, #F05A28)';
     if (m.kind === 'truck') {
-      const html = `<span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:${color};color:#fff;font-size:14px;box-shadow:0 2px 7px rgba(0,0,0,.5);border:2.5px solid #fff"><i class="pi pi-truck"></i></span>`;
+      const html = `<span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:${color};color:#fff;font-size:var(--fs-body);box-shadow:0 2px 7px rgba(0,0,0,.5);border:2.5px solid #fff"><i class="pi pi-truck"></i></span>`;
       return L.divIcon({ html, className: '', iconSize: [30, 30], iconAnchor: [15, 15] });
     }
     if (m.kind === 'user') {
       const ring = m.ring ? `0 0 0 5px ${color}33,` : '';
-      const html = `<span style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:${color};color:#fff;font-size:13px;box-shadow:${ring}0 2px 6px rgba(0,0,0,.45);border:2.5px solid #fff"><i class="pi pi-user"></i></span>`;
+      const html = `<span style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:${color};color:#fff;font-size:var(--fs-sm);box-shadow:${ring}0 2px 6px rgba(0,0,0,.45);border:2.5px solid #fff"><i class="pi pi-user"></i></span>`;
       return L.divIcon({ html, className: '', iconSize: [26, 26], iconAnchor: [13, 13] });
     }
-    const html = `<span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-size:11px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.4);border:2px solid #fff">${m.seq ?? ''}</span>`;
+    const html = `<span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-size:var(--fs-micro);font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.4);border:2px solid #fff">${m.seq ?? ''}</span>`;
     return L.divIcon({ html, className: '', iconSize: [22, 22], iconAnchor: [11, 11] });
   }
 

@@ -101,17 +101,17 @@ interface RouteTrack {
       gap: 1rem;
       align-items: start;
     }
-    @media (min-width: 1024px) {
+    @media (min-width: 64rem) {
       .ru-layout { grid-template-columns: 272px 1fr; }
     }
 
     /* ── sidebar ─────────────────────────────────────────────── */
     .ru-sidebar { overflow: hidden; }
-    @media (min-width: 1024px) {
+    @media (min-width: 64rem) {
       .ru-sidebar { max-height: 75vh; overflow-y: auto; }
     }
     .ru-sidebar--hidden { display: none; }
-    @media (min-width: 1024px) { .ru-sidebar--hidden { display: block; } }
+    @media (min-width: 64rem) { .ru-sidebar--hidden { display: block; } }
 
     /* ── route list ──────────────────────────────────────────── */
     .ru-route-list { list-style: none; margin: 0; padding: 0.25rem; }
@@ -126,34 +126,34 @@ interface RouteTrack {
     .ru-route-item.is-selected .ru-route-zona { opacity: 0.7; }
     .ru-route-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 0; border-radius: 7px; }
     .ru-route-item-main { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
-    .ru-route-name { font-size: 0.8125rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ru-route-name { font-size: var(--fs-sm); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ru-route-badge {
-      font-size: 0.6875rem; font-weight: 600; font-variant-numeric: tabular-nums;
+      font-size: var(--fs-micro); font-weight: 600; font-variant-numeric: tabular-nums;
       background: var(--surface-ground); color: var(--text-muted);
       border-radius: 999px; padding: 0.1rem 0.45rem; flex-shrink: 0; line-height: 1.4;
     }
     .ru-route-badge.ped { background: var(--action-soft-bg, rgba(240,90,40,.12)); color: var(--action); }
     .ru-route-item.is-selected .ru-route-badge { background: rgba(255,255,255,.22); color: #fff; }
-    .ru-route-zona { font-size: 0.6875rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ru-route-zona { font-size: var(--fs-micro); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ru-route-item.is-selected .ru-route-zona { color: inherit; }
 
     /* ── detail pane ─────────────────────────────────────────── */
     .ru-detail { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
     .ru-detail--hidden { display: none; }
-    @media (min-width: 1024px) { .ru-detail--hidden { display: flex; } }
+    @media (min-width: 64rem) { .ru-detail--hidden { display: flex; } }
 
     /* ── filter bar ──────────────────────────────────────────── */
     .ru-filter-bar { display: flex; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap; }
     .ru-date-field { display: flex; flex-direction: column; gap: 0.25rem; }
     .ru-date-label {
-      font-size: 0.6875rem; font-weight: 700;
+      font-size: var(--fs-micro); font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint);
     }
     .ru-date-input {
       height: 32px; padding: 0 0.625rem;
       border: 1px solid var(--border-color); border-radius: 7px;
       background: var(--card-bg); color: var(--text-main);
-      font-size: 0.8125rem; font-family: inherit; outline: none;
+      font-size: var(--fs-sm); font-family: inherit; outline: none;
     }
     .ru-date-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 0; }
 
@@ -163,10 +163,10 @@ interface RouteTrack {
       gap: 0.5rem; padding: 2.5rem 1.5rem; text-align: center;
     }
     .ru-empty-icon { font-size: 1.625rem; color: var(--text-faint); margin-bottom: 0.125rem; }
-    .ru-empty-title { font-size: 0.8125rem; font-weight: 700; color: var(--text-main); margin: 0; }
-    .ru-empty-msg { font-size: 0.75rem; color: var(--text-muted); margin: 0; max-width: 280px; }
+    .ru-empty-title { font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); margin: 0; }
+    .ru-empty-msg { font-size: var(--fs-xs); color: var(--text-muted); margin: 0; max-width: 280px; }
     .ru-link-btn {
-      margin-top: 0.25rem; font-size: 0.75rem; color: var(--action);
+      margin-top: 0.25rem; font-size: var(--fs-xs); color: var(--action);
       background: none; border: none; cursor: pointer; text-decoration: underline; padding: 0;
     }
     .ru-link-btn:hover { opacity: 0.8; }
@@ -178,10 +178,10 @@ interface RouteTrack {
     .ru-legend { display: flex; align-items: center; gap: 0.875rem; }
     .ru-legend-item {
       display: inline-flex; align-items: center; gap: 0.3rem;
-      font-size: 0.6875rem; color: var(--text-faint);
+      font-size: var(--fs-micro); color: var(--text-faint);
     }
     .ru-legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-    .ru-map-empty { padding: 2.5rem; text-align: center; color: var(--text-muted); font-size: 0.8125rem; }
+    .ru-map-empty { padding: 2.5rem; text-align: center; color: var(--text-muted); font-size: var(--fs-sm); }
     .ru-maptools { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border-color); }
     .ru-snap-btn { font: 600 0.74rem 'Hanken Grotesk', sans-serif; padding: 0.3rem 0.65rem; border: 1px solid var(--border-color); border-radius: 999px; background: var(--card-bg, #fff); color: var(--text, #1c1917); cursor: pointer; }
     .ru-snap-btn.act { border-color: var(--action, #F05A28); color: var(--action, #F05A28); background: var(--action-tint, #fff1ec); }
@@ -192,13 +192,13 @@ interface RouteTrack {
        NO empujar el ancho de toda la página (rompía el layout en móvil). */
     .ru-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     :host ::ng-deep .ru-table-wide table { min-width: 660px; }
-    .ru-table-empty { text-align: center; color: var(--text-muted); font-size: 0.8125rem; padding: 1.5rem; }
+    .ru-table-empty { text-align: center; color: var(--text-muted); font-size: var(--fs-sm); padding: 1.5rem; }
     .ru-cell-strong { font-weight: 600; color: var(--text-main); }
     .ru-cell-link { color: inherit; text-decoration: none; }
     .ru-cell-link:hover { color: var(--action); text-decoration: underline; }
     .ru-num { text-align: right; font-variant-numeric: tabular-nums; }
     .ru-idle-tag {
-      font-size: 0.6875rem; font-weight: 600; font-variant-numeric: tabular-nums;
+      font-size: var(--fs-micro); font-weight: 600; font-variant-numeric: tabular-nums;
       background: var(--surface-ground); color: var(--text-muted);
       border-radius: 999px; padding: 0.1rem 0.45rem; line-height: 1.4; white-space: nowrap;
     }
@@ -209,11 +209,11 @@ interface RouteTrack {
     /* ── back button (mobile) ────────────────────────────────── */
     .ru-back-btn {
       display: inline-flex; align-items: center; gap: 0.375rem;
-      font-size: 0.8125rem; color: var(--text-muted);
+      font-size: var(--fs-sm); color: var(--text-muted);
       background: none; border: none; cursor: pointer; padding: 0;
     }
     .ru-back-btn:hover { color: var(--text-main); }
-    @media (min-width: 1024px) { .ru-back-btn { display: none; } }
+    @media (min-width: 64rem) { .ru-back-btn { display: none; } }
 
     /* ── KPI grid: 4 individual cards con icon badge ────────── */
     .ru-kpi-grid {
@@ -221,7 +221,7 @@ interface RouteTrack {
       grid-template-columns: repeat(2, 1fr);
       gap: 0.75rem;
     }
-    @media (min-width: 900px) { .ru-kpi-grid { grid-template-columns: repeat(5, 1fr); } }
+    @media (min-width: 56.25rem) { .ru-kpi-grid { grid-template-columns: repeat(5, 1fr); } }
 
     .ru-kpi {
       background: var(--card-bg);
@@ -259,7 +259,7 @@ interface RouteTrack {
 
     .ru-kpi-body { flex: 1; min-width: 0; }
     .ru-kpi-label {
-      font-size: 0.6875rem; font-weight: 700;
+      font-size: var(--fs-micro); font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.08em;
       color: var(--text-faint); line-height: 1.2; margin: 0 0 0.35rem;
     }
@@ -268,13 +268,13 @@ interface RouteTrack {
       color: var(--text-main); line-height: 1; font-variant-numeric: tabular-nums;
     }
     .ru-kpi-sub {
-      font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;
+      font-size: var(--fs-xs); color: var(--text-muted); margin-top: 0.25rem;
       font-variant-numeric: tabular-nums; line-height: 1.3;
     }
     .ru-kpi-sub.is-ok   { color: var(--ok-fg); }
     .ru-kpi-sub.is-warn { color: var(--warn-fg); }
     .ru-kpi-sub.is-bad  { color: var(--bad-fg); }
-    .ru-kpi-unit { font-size: 0.8125rem; font-weight: 600; color: var(--text-faint); margin-left: 0.2rem; letter-spacing: 0; }
+    .ru-kpi-unit { font-size: var(--fs-sm); font-weight: 600; color: var(--text-faint); margin-left: 0.2rem; letter-spacing: 0; }
 
     /* ── KPI mini-visualizaciones ───────────────────────────── */
     .ru-kpi-viz {
@@ -334,7 +334,7 @@ interface RouteTrack {
       gap: 1rem;
       align-items: start;
     }
-    @media (max-width: 1023px) {
+    @media (max-width: 63.9375rem) {
       .ru-map-row { grid-template-columns: 1fr; }
     }
 

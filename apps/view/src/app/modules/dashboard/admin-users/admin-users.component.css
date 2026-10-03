@@ -420,7 +420,7 @@ button.au-sum-item:focus-visible { outline: 2px solid var(--focus-ring); outline
 }
 
 /* ── Móvil: el índice se vuelve una tira horizontal sobre la tabla. ─────── */
-@media (max-width: 900px) {
+@media (max-width: 56.25rem) {
   .au-grid { grid-template-columns: minmax(0, 1fr); }
   .au-aside {
     position: static;

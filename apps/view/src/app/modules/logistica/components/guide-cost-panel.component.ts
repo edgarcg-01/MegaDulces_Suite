@@ -157,7 +157,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
         <p-table [value]="guias()" [loading]="cargando()" selectionMode="single"
                  [selection]="sel()" (selectionChange)="abrirGuia($event)"
                  dataKey="guia" [scrollable]="true" scrollHeight="52vh"
-                 styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm" class="dt-stack">
+                 styleClass="surf-table surf-table--sticky p-datatable-sm" class="dt-stack">
           <ng-template #header>
             <tr>
               <th>Fecha</th><th>Guía</th><th>Canal</th>
@@ -343,7 +343,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
   styles: [`
     .gc-bar { display:flex; gap:1rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:1rem; }
     .gc-field { display:flex; flex-direction:column; gap:.25rem; }
-    .gc-field label { font-size:.75rem; color:var(--text-muted,#78716c); font-weight:600; }
+    .gc-field label { font-size:var(--fs-xs); color:var(--text-muted,#78716c); font-weight:600; }
     .gc-grow { flex:1; min-width:16rem; }
     .gc-declara { display:flex; gap:.6rem; align-items:flex-start; padding:.7rem .9rem;
       background:var(--surface-soft,#faf9f7); border:1px solid var(--border,#e7e5e4);
@@ -351,7 +351,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
     .gc-declara i { color:var(--action,#c2410c); margin-top:.1rem; }
     .gc-split { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);
       gap:1rem; align-items:start; }
-    @media (max-width:1100px) { .gc-split { grid-template-columns:1fr; } }
+    @media (max-width:68.75rem) { .gc-split { grid-template-columns:1fr; } }
     .gc-master, .gc-detail { border:1px solid var(--border,#e7e5e4);
       border-radius:var(--radius-md,8px); overflow:hidden; background:var(--surface,#fff); }
     .gc-detail { padding:1rem; min-height:18rem; }
@@ -367,7 +367,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
     .gc-cname { font-weight:600; }
     .gc-admin, .gc-share, .gc-cta, .gc-com { display:block; font-size:.7rem;
       color:var(--text-muted,#78716c); }
-    .gc-hint { font-size:.75rem; color:var(--text-muted,#78716c); margin-top:.7rem; }
+    .gc-hint { font-size:var(--fs-xs); color:var(--text-muted,#78716c); margin-top:.7rem; }
     .gc-mono { font-family:var(--font-mono,ui-monospace,monospace); font-size:.8rem; }
     .gc-costo { font-weight:600; font-variant-numeric:tabular-nums; }
     .gc-nm { color:var(--text-muted,#a8a29e); font-style:italic; font-size:.78rem; }
@@ -377,7 +377,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
     .gc-sel { background:var(--surface-soft,#faf9f7); }
     .gc-bucket { padding:.8rem; background:var(--surface-soft,#faf9f7);
       border-radius:var(--radius-sm,6px); margin-bottom:.9rem; }
-    .gc-bnote { margin:0 0 .6rem; font-size:.75rem; color:var(--text-muted,#78716c); }
+    .gc-bnote { margin:0 0 .6rem; font-size:var(--fs-xs); color:var(--text-muted,#78716c); }
     .gc-brow { display:flex; justify-content:space-between; gap:1rem; font-size:.82rem;
       padding:.2rem 0; }
     /* table-layout fijo + colgroup: las columnas no se reacomodan segun el contenido, que es
@@ -389,7 +389,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
     .gc-imp { white-space:nowrap; font-variant-numeric:tabular-nums; font-weight:600; }
     .gc-com { display:-webkit-box; -webkit-line-clamp:2; line-clamp:2; -webkit-box-orient:vertical;
       overflow:hidden; overflow-wrap:anywhere; }
-    .gc-brow em { font-style:normal; color:var(--text-muted,#78716c); font-size:.75rem;
+    .gc-brow em { font-style:normal; color:var(--text-muted,#78716c); font-size:var(--fs-xs);
       display:block; }
     .gc-pick { padding:3rem 1rem; }
     .gc-sk { display:flex; flex-direction:column; gap:.4rem; }

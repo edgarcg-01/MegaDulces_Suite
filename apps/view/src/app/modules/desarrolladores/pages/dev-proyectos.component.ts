@@ -601,7 +601,7 @@ const KIND_ICON: Record<string, string> = {
     .dp-cards, .dp-back { display: none; }
 
     /* Una sola columna: la ficha REEMPLAZA a la lista (abajo de ella, en el teléfono, nadie la ve). */
-    @media (max-width: 1100px) {
+    @media (max-width: 68.75rem) {
       .dp-body.has-detail { grid-template-columns: 1fr; }
       .dp-body.has-detail .dp-list { display: none; }
       .dp-detail { position: static; }
@@ -609,7 +609,7 @@ const KIND_ICON: Record<string, string> = {
     }
 
     /* Teléfono: tarjetas en vez de tabla, campos a una columna, botones de tamaño de dedo. */
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .dp-page { padding: var(--sp-3); gap: var(--sp-3); }
       .dp-head p-button, .dp-head p-button ::ng-deep button { width: 100%; }
       .dp-head > div { width: 100%; }

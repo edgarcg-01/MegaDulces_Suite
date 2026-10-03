@@ -327,7 +327,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
     .ed-narrow { max-width: 10rem; }
     app-metric-strip { display:block; margin-bottom: 1rem; }
     .ed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
-    @media (max-width: 900px) { .ed-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 56.25rem) { .ed-grid { grid-template-columns: 1fr; } }
     .ed-card { padding: 1rem; }
     .ed-card-title { margin: 0 0 .6rem; font-size: .85rem; font-weight: 700; }
     .ed-bk-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .3rem; }

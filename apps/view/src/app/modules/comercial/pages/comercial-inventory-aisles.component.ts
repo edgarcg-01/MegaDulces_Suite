@@ -149,24 +149,24 @@ import { Permission } from '../../../core/constants/permissions';
     .pa-cell:hover { border-color: var(--action); }
     .pa-cell.sel { border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
     .pa-cell-code { font-weight: 700; font-size: .9rem; color: var(--text-main); }
-    .pa-cell-name { font-size: .75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .pa-cell-name { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
     .pa-cell-load { font-size: .7rem; color: var(--text-faint); font-variant-numeric: tabular-nums; font-family: var(--font-mono, monospace); margin-top: auto; }
     .pa-loadbar { width: 100%; height: 4px; border-radius: 999px; background: var(--surface-ground); overflow: hidden; }
     .pa-loadbar-fill { display: block; height: 100%; background: var(--action); }
     .pa-unassigned { display: inline-flex; flex-direction: column; gap: .15rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, 12px); padding: .5rem .8rem; }
     .pa-unassigned.warn { border-color: var(--warn-fg); }
-    .pa-un-l { font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 600; }
+    .pa-un-l { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 600; }
     .pa-un-v { font-variant-numeric: tabular-nums; font-family: var(--font-mono, monospace); font-size: .85rem; }
     .pa-panel { width: 300px; flex-shrink: 0; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: 1rem; position: sticky; top: 1rem; }
     .pa-panel-head { display: flex; justify-content: space-between; align-items: center; }
     .pa-panel-head h2 { font-size: 1.1rem; font-weight: 700; margin: 0; }
     .pa-panel-load { font-size: .8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; margin: .15rem 0 .75rem; }
-    .pa-fld { display: flex; flex-direction: column; gap: .2rem; font-size: .75rem; color: var(--text-muted); margin-bottom: .5rem; }
+    .pa-fld { display: flex; flex-direction: column; gap: .2rem; font-size: var(--fs-xs); color: var(--text-muted); margin-bottom: .5rem; }
     .pa-fld input, :host ::ng-deep .pa-fld .p-inputnumber input { width: 100%; }
     .pa-fld-row { display: flex; gap: .5rem; }
     .pa-panel-actions { display: flex; gap: .5rem; margin-top: .25rem; }
     .pa-sep { border: none; border-top: 1px solid var(--border-color); margin: 1rem 0; }
-    .pa-asg-h { font-size: .8125rem; font-weight: 600; margin: 0 0 .5rem; }
+    .pa-asg-h { font-size: var(--fs-sm); font-weight: 600; margin: 0 0 .5rem; }
     :host ::ng-deep .pa-mode { width: 100%; margin-bottom: .5rem; }
     .pa-chk { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--text-muted); margin: .25rem 0 .6rem; }
     .pa-asg-btn { width: 100%; }

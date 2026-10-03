@@ -47,7 +47,7 @@ import { almacenTabsForUrl } from './almacen-tabs';
       .alm-area-tabs {
         padding: var(--sp-3) 1.5rem 0;
       }
-      @media (max-width: 768px) {
+      @media (max-width: 48rem) {
         .alm-area-tabs {
           padding: var(--sp-2) 1rem 0;
         }

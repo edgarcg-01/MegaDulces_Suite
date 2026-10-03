@@ -231,7 +231,7 @@ interface UbicacionFila extends WarehouseBin {
                   [isEmpty]="!contenido().length" emptyIcon="pi-inbox"
                   emptyTitle="Esta ubicación está vacía"
                   emptyHint="Nada acomodado acá todavía." (retry)="abrir(b)">
-                  <p-table [value]="contenido()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+                  <p-table [value]="contenido()" styleClass="p-datatable-sm surf-table"
                     [scrollable]="true" scrollHeight="420px">
                     <ng-template #header>
                       <tr>
@@ -507,10 +507,10 @@ interface UbicacionFila extends WarehouseBin {
       display: flex; flex-direction: column; gap: 2px;
     }
     .ub-kpi-n { font-size: 1.35rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .ub-kpi-l { font-size: .75rem; color: var(--text-muted); }
+    .ub-kpi-l { font-size: var(--fs-xs); color: var(--text-muted); }
     .ub-kpi-warn .ub-kpi-n { color: var(--bad-fg, #b91c1c); }
     .ub-layout { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 1rem; align-items: start; }
-    @media (max-width: 960px) { .ub-layout { grid-template-columns: 1fr; } }
+    @media (max-width: 60rem) { .ub-layout { grid-template-columns: 1fr; } }
     .surf-card { background: var(--surface-card, var(--surface-0)); border: 1px solid var(--surface-border); border-radius: var(--radius-lg, 12px); padding: 1rem; margin-bottom: 1rem; }
     .ub-left, .ub-right { display: flex; flex-direction: column; }
     .ub-h2 { font-size: .95rem; font-weight: 700; margin: 0; }
@@ -536,10 +536,10 @@ interface UbicacionFila extends WarehouseBin {
     .ub-row-code { font-family: var(--font-mono, monospace); font-weight: 700; font-size: .85rem; }
     .ub-row-lbl { font-size: .78rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ub-row-qty { font-size: .82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .ub-row-vacia { font-weight: 400; font-size: .75rem; color: var(--text-muted); }
+    .ub-row-vacia { font-weight: 400; font-size: var(--fs-xs); color: var(--text-muted); }
     .ub-hint-card { display: flex; align-items: center; gap: .75rem; color: var(--text-muted); font-size: .85rem; }
     .ub-badge {
-      min-width: 22px; padding: 0 6px; border-radius: 999px; font-size: .75rem; font-weight: 700;
+      min-width: 22px; padding: 0 6px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 700;
       background: var(--warn-soft-bg, var(--surface-ground)); color: var(--warn-fg, inherit); text-align: center;
     }
     .ub-field { display: flex; flex-direction: column; gap: .25rem; margin-bottom: .75rem; }

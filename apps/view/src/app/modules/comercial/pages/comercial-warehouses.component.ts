@@ -58,7 +58,7 @@ import { ComercialService, Warehouse } from '../comercial.service';
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
           <p-table [value]="rows()" [loading]="loading()"
-            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
             <ng-template #header>
               <tr>
                 <th scope="col">Código</th>

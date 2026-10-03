@@ -344,7 +344,7 @@ import { Permission } from '../../../core/constants/permissions';
     .mt-v-msg { font-size: .82rem; color: var(--text-muted); margin-top: .2rem; }
     app-metric-strip { display:block; margin-bottom: 1rem; }
     .mt-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 1rem; }
-    @media (max-width: 800px) { .mt-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 50rem) { .mt-grid { grid-template-columns: 1fr; } }
     .mt-block { padding: 1rem; }
     .mt-block-title { margin: 0 0 .7rem; font-size: .85rem; font-weight: 700; color: var(--text-main); }
     .mt-chain { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
@@ -409,9 +409,9 @@ import { Permission } from '../../../core/constants/permissions';
     .mt-tl-ico.on { background: color-mix(in srgb, var(--action) 14%, transparent); color: var(--action); }
     .mt-tl-b { display: flex; flex-direction: column; gap: .05rem; min-width: 0; }
     .mt-tl-lbl { font-size: .66rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); font-weight: 600; }
-    .mt-tl-sep { color: var(--text-faint); font-size: .75rem; align-self: center; }
+    .mt-tl-sep { color: var(--text-faint); font-size: var(--fs-xs); align-self: center; }
     .mt-tl-meta { display: flex; gap: 1.2rem; margin-top: .5rem; font-size: .74rem; color: var(--text-muted); }
-    @media (max-width: 640px) { .mt-tl-sep { display: none; } .mt-tl-step { min-width: 100%; } }
+    @media (max-width: 40rem) { .mt-tl-sep { display: none; } .mt-tl-step { min-width: 100%; } }
     /* MAT — descubrimiento de proveedores */
     .mt-disc { padding: 1rem 1.2rem 0; }
     .mt-disc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .8rem; }

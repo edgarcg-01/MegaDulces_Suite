@@ -589,7 +589,7 @@ const MES: Record<string, string> = {
     .rr-rhythm-head span { display:block; font-size:.78rem; font-weight:700; color:var(--text-main); }
     .rr-rhythm-head p, .rr-rhythm-head small { margin:.1rem 0 0; font-size:.65rem; color:var(--text-muted); }
     .rr-rhythm-head small { max-width:27rem; text-align:right; font-variant-numeric:tabular-nums; }
-    @media (max-width:640px) {
+    @media (max-width:40rem) {
       .rr-rhythm-head { align-items:flex-start; flex-direction:column; }
       .rr-rhythm-head small { text-align:left; }
     }

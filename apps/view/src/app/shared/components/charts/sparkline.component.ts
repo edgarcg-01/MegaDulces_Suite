@@ -63,7 +63,7 @@ const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
       position:absolute; transform: translate(-50%, -130%); transform-origin:center bottom;
       background: var(--c-text-1, var(--text-main)); color: var(--card-bg, #fff);
       font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-size: .6875rem; font-weight: 700; padding: .1rem .4rem; border-radius: 6px;
+      font-size: var(--fs-micro); font-weight: 700; padding: .1rem .4rem; border-radius: 6px;
       white-space:nowrap; pointer-events:none; z-index:2; box-shadow: 0 2px 8px rgba(0,0,0,.18);
     }
     @media (prefers-reduced-motion: reduce) { .spk-line { animation:none; } }

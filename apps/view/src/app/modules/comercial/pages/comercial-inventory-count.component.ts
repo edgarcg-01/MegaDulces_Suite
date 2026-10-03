@@ -247,7 +247,7 @@ interface FeedEntry {
        antes quedaba muerto. La columna ancha solo aplica mientras se cuenta. */
     .ic-page { max-width: 560px; margin: 0 auto; }
     .ic-work { display: flex; flex-direction: column; }
-    @media (min-width: 900px) {
+    @media (min-width: 56.25rem) {
       .ic-page.is-counting { max-width: 1080px; }
       .ic-page.is-counting .ic-work { display: grid; grid-template-columns: minmax(0, 520px) 1fr; gap: 1.5rem; align-items: start; }
       .ic-page.is-counting .ic-capture { position: sticky; top: 1rem; margin-bottom: 0; }
@@ -296,7 +296,7 @@ interface FeedEntry {
 
     /* Captura — tarjeta activa (lo que el contador mira en bucle). */
     .ic-capture { display: flex; flex-direction: column; gap: .35rem; margin-bottom: 1.5rem; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #E4E4E7); border-radius: var(--r-lg, 16px); padding: 1rem 1rem 1.15rem; }
-    .ic-label { font-size: .75rem; font-weight: 600; color: var(--text-muted, #52525B); text-transform: uppercase; letter-spacing: .04em; margin-top: .5rem; }
+    .ic-label { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted, #52525B); text-transform: uppercase; letter-spacing: .04em; margin-top: .5rem; }
     .ic-label:first-child { margin-top: 0; }
     .ic-code-row { display: flex; gap: .5rem; align-items: stretch; }
     .ic-code-row .ic-input-code { flex: 1; }
@@ -340,12 +340,12 @@ interface FeedEntry {
     :host ::ng-deep .ic-submit { padding: .9rem; font-size: 1.05rem; min-height: 48px; }
 
     /* Feed de últimos conteos */
-    .ic-feed h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted, #52525B); margin: 0 0 .5rem; }
+    .ic-feed h3 { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted, #52525B); margin: 0 0 .5rem; }
     .ic-feed-row { display: flex; align-items: center; gap: .75rem; padding: .6rem .25rem; border-bottom: 1px solid var(--border-color, #E4E4E7); }
     .ic-feed-row:last-child { border-bottom: none; }
     .ic-feed-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .ic-feed-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main, #09090B); }
-    .ic-feed-sku { font-size: .75rem; color: var(--text-muted, #52525B); font-family: var(--font-mono, monospace); }
+    .ic-feed-sku { font-size: var(--fs-xs); color: var(--text-muted, #52525B); font-family: var(--font-mono, monospace); }
     .ic-feed-qty { font-size: 1.15rem; font-weight: 700; font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; color: var(--text-main, #09090B); }
 
     @media (prefers-reduced-motion: reduce) {

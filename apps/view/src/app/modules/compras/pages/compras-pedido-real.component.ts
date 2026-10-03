@@ -1019,7 +1019,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
        legitimo, y tambien lo es mandar menos y negociarlo. La decision es del comprador. */
     .pr-min-warn { display: inline-flex; align-items: center; gap: .375rem; font-size: var(--fs-sm);
       color: var(--warn-fg, var(--text-muted)); font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .pr-min-warn i { font-size: .75rem; }
+    .pr-min-warn i { font-size: var(--fs-xs); }
     .pr-bulk-sp { flex: 1; }
     /* RA-PRO.32 — vista Excel (workbook) */
     .pr-seg { display: inline-flex; gap: .15rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .15rem; }

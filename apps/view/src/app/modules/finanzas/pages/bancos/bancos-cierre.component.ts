@@ -107,7 +107,7 @@ import { BANCOS_STYLES } from './bancos.styles';
     .fb-diag-cta { flex: none; }
     .fb-diag-detalle { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2) 0 var(--sp-1); }
     .fb-diag-accion { font-size: var(--fs-sm); color: var(--text-muted); margin: 0; display: flex; align-items: baseline; gap: var(--sp-1); }
-    .fb-diag-accion i { color: var(--action); font-size: 0.75rem; }
+    .fb-diag-accion i { color: var(--action); font-size: var(--fs-xs); }
     .fb-diag-ev { list-style: none; margin: 0 0 var(--sp-2); padding: var(--sp-2) var(--sp-3); display: flex; flex-direction: column; gap: 2px;
       background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-sm); }
     .fb-diag-ev li { display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-xs); }

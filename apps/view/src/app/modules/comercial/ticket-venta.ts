@@ -464,7 +464,7 @@ export function imprimirTicketVenta(t: TicketVenta): boolean {
   @page { size: 80mm auto; margin: 0; }
   html, body { margin: 0; padding: 0; background: #fff; }
   body { width: 72mm; padding: 3mm 4mm; color: #000;
-         font-family: "Courier New", ui-monospace, monospace; font-size: 10px; line-height: 1.25; }
+         font-family: "Courier New", ui-monospace, monospace; font-size: var(--fs-nano); line-height: 1.25; }
   pre { margin: 0; white-space: pre; }
 </style></head><body><pre>${cuerpoTicketVenta(t)}</pre></body></html>`);
   doc.close();

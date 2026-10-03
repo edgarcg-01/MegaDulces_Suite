@@ -155,7 +155,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
     /* Con la ficha abierta la lista es un ÍNDICE, no la tabla completa: quedan folio, solicitud, prioridad, estado y plazo.
        (Medido a 1440 px: con las 8 columnas el título se partía en 6 renglones.) La ficha trae el resto. */
     .sb-body.has-detail .opc { display: none; }
-    @media (max-width: 1100px) {
+    @media (max-width: 68.75rem) {
       .sb-body.has-detail { grid-template-columns: 1fr; }
       .sb-body.has-detail .sb-list { display: none; }
       .sb-detail { position: static; max-height: none; }
@@ -163,7 +163,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
       /* La ficha REEMPLAZA a la lista, así que también a lo que la acompaña: KPIs y filtros dejaban la ficha bajo el pliegue. */
       .sb-page.con-ficha .sb-kpis, .sb-page.con-ficha .sb-chips, .sb-page.con-ficha .sb-head { display: none; }
     }
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .sb-page { padding: var(--sp-3); gap: var(--sp-3); }
       .sb-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .sb-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }

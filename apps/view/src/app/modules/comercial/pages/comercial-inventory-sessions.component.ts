@@ -47,7 +47,7 @@ import { forkJoin } from 'rxjs';
         </div>
       </header>
 
-      <p-table [value]="counts()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true">
+      <p-table [value]="counts()" [loading]="loading()" styleClass="p-datatable-sm surf-table" [scrollable]="true">
         <ng-template #header>
           <tr>
             <th scope="col">Folio</th><th scope="col">Almacén</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Inicio</th><th scope="col"><span class="sr-only">Acciones</span></th>

@@ -156,7 +156,7 @@ import { CredencialesService } from '../credenciales.service';
     .dz-f { display: flex; flex-direction: column; gap: .25rem; font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .dz-f input { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); }
     .dz-row { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
-    .dz-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; }
+    .dz-note { font-size: var(--fs-xs); color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; }
   `],
 })
 export class ContabilidadDescargaComponent implements OnInit {

@@ -17,7 +17,12 @@ export interface MetricStripItem {
   sub?: string;
   /** delta % vs periodo anterior → ▲/▼ + número (flecha, no solo color). */
   delta?: number | null;
-  /** punto pulsante "en vivo" junto a la etiqueta. */
+  /**
+   * Punto pulsante "en vivo" junto a la etiqueta **y** `aria-live="polite"` en la cifra.
+   * ⚠️ Las dos cosas, no una: el punto avisa a quien MIRA, y sin `aria-live` el valor cambia
+   * solo y un lector de pantalla no se entera. Era el hueco que J17 declaró y nadie cerró
+   * (`MetricCard` sí lo tenía desde el principio). Cerrado 2026-10-03.
+   */
   live?: boolean;
   /** serie para el modo spark (nº con sparkline de fondo) y ring/bullet no la usan. */
   series?: number[];
@@ -72,12 +77,14 @@ export interface MetricStripItem {
             @if (mode() === 'ring') {
               <div class="ms-ring-row">
                 <app-ring-gauge [value]="it.pct ?? num(it)" [max]="100" [size]="46" [color]="toneColor(it)"></app-ring-gauge>
-                <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)"></b>
+                <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)"
+                   [attr.aria-live]="it.live ? 'polite' : null"></b>
               </div>
             } @else {
               <div class="ms-row">
                 @if (isText(it)) { <b class="ms-v is-text">{{ it.value }}</b> }
-                @else { <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)"></b> }
+                @else { <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)"
+                           [attr.aria-live]="it.live ? 'polite' : null"></b> }
                 @if (it.delta !== null && it.delta !== undefined) {
                   <span class="ms-delta" [class.up]="it.delta! > 0" [class.down]="it.delta! < 0">
                     {{ it.delta! > 0 ? '▲' : it.delta! < 0 ? '▼' : '' }} {{ absDelta(it.delta!) }}%
@@ -161,7 +168,7 @@ export interface MetricStripItem {
     .ms-leg i.tone-ok { background:var(--ok-fg); } .ms-leg i.tone-warn { background:var(--warn-fg); } .ms-leg i.tone-bad { background:var(--bad-fg); } .ms-leg i.tone-brand { background:var(--action); } .ms-leg i.tone-default { background:var(--text-faint); }
     .ms-leg b { font-family:var(--font-mono); font-weight:600; color:var(--text-main); font-variant-numeric:tabular-nums; }
     /* móvil: grid 2 columnas con un divisor central por fila */
-    @media (max-width:560px) {
+    @media (max-width:35rem) {
       .ms:not(.ms--composition) { display:grid; grid-template-columns:1fr 1fr; row-gap:.85rem; }
       .ms-item { padding:.1rem 1rem; }
       .ms-item:not(:first-child)::before { display:none; }

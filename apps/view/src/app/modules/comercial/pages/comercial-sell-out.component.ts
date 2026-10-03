@@ -848,7 +848,7 @@ const CHANNEL_SEL_OPTS = [
       background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent); animation:so-shim 1.2s infinite; }
     @keyframes so-shim { 100% { transform:translateX(100%); } }
     /* Congelado responsive: en móvil solo Código queda fijo (los px de c1/c2 comen el viewport). */
-    @media (max-width:640px) {
+    @media (max-width:40rem) {
       .so-matrix .c1, .so-matrix .c2 { position:static; }
       .so-matrix .c2 { box-shadow:none; }
       .so-matrix .c0 { box-shadow:6px 0 6px -4px rgba(0,0,0,.16); }

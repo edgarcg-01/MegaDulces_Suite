@@ -24,7 +24,7 @@
 .tda-branch .bk { font-size:.7rem; color:var(--text-muted); }
 
 .tda-grid { display:grid; grid-template-columns:1.6fr 1fr; gap:1rem; align-items:start; }
-@media (max-width:900px){ .tda-grid { grid-template-columns:1fr; } }
+@media (max-width:56.25rem){ .tda-grid { grid-template-columns:1fr; } }
 .tda-card { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); padding:1rem 1.1rem; }
 .tda-card h2 { font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); font-weight:700; margin:0 0 .7rem; }
 .tk-count { color:var(--text-main); font-weight:800; font-variant-numeric:tabular-nums; }

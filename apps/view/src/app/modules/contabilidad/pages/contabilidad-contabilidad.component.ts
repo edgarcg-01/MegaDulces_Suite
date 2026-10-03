@@ -170,7 +170,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
     .cb-card-title { font-size: .9rem; font-weight: 700; color: var(--text-main); }
     .cb-card-desc { font-size: .78rem; color: var(--text-muted); margin-top: .15rem; max-width: 60ch; }
     .cb-card button { align-self: flex-start; }
-    .cb-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .55rem .75rem; margin: 1rem 0 0; display: flex; gap: .4rem; align-items: baseline; }
+    .cb-note { font-size: var(--fs-xs); color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .55rem .75rem; margin: 1rem 0 0; display: flex; gap: .4rem; align-items: baseline; }
     .cb-warn { font-size: .78rem; color: var(--text-main); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warn-fg) 40%, transparent); border-radius: var(--r-sm); padding: .6rem .8rem; margin: 0 0 1rem; display: flex; gap: .5rem; align-items: baseline; }
     .cb-warn .pi { color: var(--warn-fg); }
     .cb-warn code { font-family: var(--font-mono, monospace); }

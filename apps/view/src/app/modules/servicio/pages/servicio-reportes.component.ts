@@ -187,7 +187,7 @@ function restarDias(fecha: string, n: number): string {
     .sr-pri[data-p='alta'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .sr-pri[data-p='media'] { background: var(--info-soft-bg); color: var(--info-soft-fg); }
     .sr-nm ul { margin: 0; padding-left: var(--sp-4); color: var(--text-main); font-size: var(--fs-sm); display: flex; flex-direction: column; gap: var(--sp-1); }
-    @media (max-width: 640px) { .sr-table { display: block; overflow-x: auto; } }
+    @media (max-width: 40rem) { .sr-table { display: block; overflow-x: auto; } }
   `],
 })
 export class ServicioReportesComponent implements OnInit {

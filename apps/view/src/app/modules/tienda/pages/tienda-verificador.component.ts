@@ -361,7 +361,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
        chica y discreta arriba a la derecha para no competirle al logo/escáner. */
     .vf-ctrl { position: relative; z-index: 2; align-self: stretch; display: flex;
       align-items: center; justify-content: flex-end; gap: .5rem; flex-wrap: wrap;
-      padding-top: .6rem; font-size: 12px; color: #64748b; }
+      padding-top: .6rem; font-size: var(--fs-xs); color: #64748b; }
     .vf-fresh-nd { display: inline-flex; align-items: center; gap: .25rem; cursor: help; }
     .vf-suc { font-weight: 700; color: var(--vf-oscuro); }
     .vf-icon-btn { min-width: 32px; min-height: 32px; display: inline-flex; align-items: center;
@@ -371,7 +371,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
 
     .vf-banner { position: relative; z-index: 2; align-self: stretch; display: flex;
       align-items: flex-start; gap: .5rem; padding: .5rem .75rem; margin-top: .35rem;
-      border-radius: 10px; font-size: 13px; border: 1px solid #fde68a; background: #fffbeb; color: #92400e; }
+      border-radius: 10px; font-size: var(--fs-sm); border: 1px solid #fde68a; background: #fffbeb; color: #92400e; }
     .vf-banner.is-ok { border-color: #86efac; background: #f0fdf4; color: #166534; }
     .vf-banner.is-warn { border-color: #fdba74; background: #fff7ed; color: #9a3412; }
     .vf-banner.is-bad { border-color: #fca5a5; background: #fef2f2; color: var(--vf-rojo); }
@@ -407,7 +407,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-input::placeholder { color: #c0c0c0; font-size: 16px; letter-spacing: 1px; }
     .vf-input:disabled { color: #b0b0b0; }
     .vf-busy { color: var(--vf-naranja); font-size: 1.3rem; }
-    .vf-hint { position: relative; z-index: 1; margin-top: 8px; color: #888; font-size: 13px; }
+    .vf-hint { position: relative; z-index: 1; margin-top: 8px; color: #888; font-size: var(--fs-sm); }
 
     .vf-cam-ov { position: fixed; inset: 0; z-index: 1200; display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: .75rem;
@@ -447,12 +447,12 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       display: flex; align-items: flex-start; gap: .5rem; text-align: left;
       padding: .4rem .75rem; border-radius: 10px;
       background: #fff7ed; border: 1px solid #fdba74; color: #9a3412;
-      font-size: 13px; text-wrap: pretty; }
+      font-size: var(--fs-sm); text-wrap: pretty; }
     .vf-cambio > i { color: var(--vf-naranja); font-size: .95em; flex: none; margin-top: .15em; }
     .vf-cambio strong { color: var(--vf-naranja); }
 
     .vf-card-top { display: flex; align-items: center; justify-content: center; gap: .6rem; }
-    .vf-cod { font-family: monospace; font-size: 14px; color: #888; letter-spacing: 1px; }
+    .vf-cod { font-family: monospace; font-size: var(--fs-body); color: #888; letter-spacing: 1px; }
     .vf-tag { display: inline-flex; align-items: center; gap: .3rem; font-size: 11.5px;
       font-weight: 700; padding: .2rem .55rem; border-radius: 999px; text-transform: uppercase;
       letter-spacing: .04em; }
@@ -473,7 +473,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       line-height: 1; margin: 2px 0; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
     .vf-peso { font-size: .5em; vertical-align: baseline; margin-right: .06em; }
 
-    .vf-u-aclara { margin: 2px 0 0; font-size: 13px; color: #64748b; max-width: 46ch; }
+    .vf-u-aclara { margin: 2px 0 0; font-size: var(--fs-sm); color: #64748b; max-width: 46ch; }
     .vf-u-aclara strong { color: var(--vf-oscuro); font-weight: 700; }
 
     /* Mayoreo (TDA.4/7): no existía en el HTML original — paleta nueva, misma jerarquía
@@ -482,13 +482,13 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       border: 2px solid var(--vf-amarillo); background: #fffdf5; display: flex;
       flex-direction: column; align-items: center; gap: .4rem; width: 100%; }
     .vf-may-row { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
-    .vf-may-cond { font-size: 14px; font-weight: 700; text-transform: uppercase;
+    .vf-may-cond { font-size: var(--fs-body); font-weight: 700; text-transform: uppercase;
       letter-spacing: .04em; color: #57534e; }
     .vf-may-n { color: var(--vf-naranja); font-weight: 800; font-size: 1.4em; }
     .vf-may-precio { display: flex; align-items: baseline; justify-content: center; gap: .3rem; }
     .vf-may-monto { font-family: monospace; font-weight: 800;
       font-size: clamp(1.6rem, 4vw, 2.4rem); color: var(--vf-oscuro); }
-    .vf-may-cu { font-size: 13px; color: #78716c; }
+    .vf-may-cu { font-size: var(--fs-sm); color: #78716c; }
     .vf-may-row:not(.is-realza) .vf-may-monto, .vf-may-row:not(.is-foco) .vf-may-monto {
       font-weight: 600; color: #a8a29e; font-size: clamp(1.2rem, 2.6vw, 1.6rem); }
     .vf-may-row:not(.is-foco) .vf-may-cond { opacity: .75; }
@@ -501,12 +501,12 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     /* Otras unidades: píldoras calcadas de .u-item/.u-precio del HTML original. */
     .vf-otras { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 12px;
       margin-top: 14px; padding-top: 14px; border-top: 1px solid #e5e7eb; width: 100%; }
-    .vf-u-item { font-size: 18px; color: #334155; background: #f1f5f9; border-radius: 10px;
+    .vf-u-item { font-size: var(--fs-lg); color: #334155; background: #f1f5f9; border-radius: 10px;
       padding: 6px 14px; display: flex; align-items: baseline; gap: 5px; }
-    .vf-u-item b { color: var(--vf-naranja); text-transform: uppercase; font-size: 13px;
+    .vf-u-item b { color: var(--vf-naranja); text-transform: uppercase; font-size: var(--fs-sm);
       font-weight: 400; letter-spacing: .5px; }
     .vf-u-precio { font-family: monospace; font-size: 22px; color: var(--vf-verde); letter-spacing: .4px; }
-    .vf-u-f { font-size: 11px; color: #94a3b8; }
+    .vf-u-f { font-size: var(--fs-micro); color: #94a3b8; }
 
     .vf-nota { margin: 10px auto 0; font-size: 11.5px; color: #94a3b8; max-width: 60ch; }
 
@@ -525,7 +525,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
 
     .vf-foot { position: relative; z-index: 1; align-self: stretch; margin-top: 12px;
       padding-top: 10px; border-top: 1px solid rgba(0,0,0,.06); display: flex;
-      flex-direction: column; gap: 4px; font-size: 12px; color: #94a3b8; }
+      flex-direction: column; gap: 4px; font-size: var(--fs-xs); color: #94a3b8; }
     .vf-counter b { color: var(--vf-naranja); font-weight: 700; }
     .vf-counter-reset { background: none; border: none; cursor: pointer; opacity: .55;
       padding: 0 4px; font: inherit; color: inherit; }

@@ -553,7 +553,7 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
     .ce-seg { display:block; margin:.2rem 0 .7rem; }
     .ce-split { display:grid; grid-template-columns:minmax(0,1fr); gap:1rem; }
     .ce-split:has(.ce-detalle) { grid-template-columns:minmax(0,1fr) 25rem; }
-    @media (max-width: 1100px) { .ce-split:has(.ce-detalle) { grid-template-columns:minmax(0,1fr); } }
+    @media (max-width: 68.75rem) { .ce-split:has(.ce-detalle) { grid-template-columns:minmax(0,1fr); } }
     .ce-grid { min-width:0; }
     .ce-tabla { margin-top:.2rem; }
     .ce-fila.is-mal > td:first-child { box-shadow:inset 3px 0 0 var(--bad-fg); }

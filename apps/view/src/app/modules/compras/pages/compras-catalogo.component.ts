@@ -202,7 +202,7 @@ import { CATALOGO_TABS } from '../catalogo-tabs';
               [rowsPerPageOptions]="[25, 50, 100, 200]"
               (onLazyLoad)="onLazyLoad($event)"
              
-              styleClass="p-datatable-sm pp-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+              styleClass="p-datatable-sm pp-table surf-table surf-table--sticky surf-table--frozen-first"
               [rowHover]="true"
               >
               <ng-template #header>
@@ -538,7 +538,7 @@ import { CATALOGO_TABS } from '../catalogo-tabs';
     }
     .pp-toggle-line > span:first-of-type { font-weight: var(--fw-medium); }
 
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .pp-edit-meta, .pp-form-row { grid-template-columns: 1fr; }
     }
   `],

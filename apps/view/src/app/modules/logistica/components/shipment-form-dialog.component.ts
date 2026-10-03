@@ -342,7 +342,7 @@ interface RouteOption {
 
     .guide-section { display:flex; flex-direction:column; gap:.75rem; padding:.75rem; background: var(--c-surface-2); border-radius: 8px; }
     .muted { color: var(--c-text-2); }
-    .small { font-size: .75rem; }
+    .small { font-size: var(--fs-xs); }
     .checkbox-label { flex-direction: row; align-items: center; gap: .5rem; padding-top: 1.25rem; }
 
     .margin-summary { background: var(--c-surface-2); padding: 1rem; border-radius: 8px; display:flex; flex-direction:column; gap:.35rem; }
@@ -352,7 +352,7 @@ interface RouteOption {
     .ms-total .ms-value { color: var(--ok-fg); }
     .ms-total.neg .ms-value { color: var(--bad-fg); }
 
-    @media (max-width: 600px) {
+    @media (max-width: 37.5rem) {
       .row.two, .row.three { grid-template-columns: 1fr; }
     }
 

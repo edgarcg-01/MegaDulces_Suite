@@ -295,32 +295,32 @@ import {
     .ac-row-alerta td:first-child { box-shadow: inset 3px 0 0 var(--tone-warn, #b45309); }
 
     .ac-split { display: grid; grid-template-columns: 1fr; gap: 1rem; }
-    @media (min-width: 1100px) { .ac-split:has(.ac-detalle) { grid-template-columns: minmax(0,1fr) 24rem; } }
+    @media (min-width: 68.75rem) { .ac-split:has(.ac-detalle) { grid-template-columns: minmax(0,1fr) 24rem; } }
 
     .ac-detalle { border: 1px solid var(--surf-line, #e7e5e4); border-radius: var(--radius-md, .5rem); padding: 1rem; }
     .ac-det-head { display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; }
     .ac-det-head h2 { font-size: 1rem; margin: 0; }
-    .ac-det-folio { margin: .125rem 0 0; font-family: var(--font-mono, monospace); font-size: .8125rem; color: var(--text-muted, #78716c); }
+    .ac-det-folio { margin: .125rem 0 0; font-family: var(--font-mono, monospace); font-size: var(--fs-sm); color: var(--text-muted, #78716c); }
     .ac-det-datos { margin: 1rem 0; display: grid; gap: .5rem; }
-    .ac-det-datos dt { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #78716c); }
-    .ac-det-datos dd { margin: .125rem 0 0; font-size: .875rem; }
-    .ac-det-sub { font-size: .8125rem; text-transform: uppercase; letter-spacing: .04em; margin: 1rem 0 .5rem;
+    .ac-det-datos dt { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #78716c); }
+    .ac-det-datos dd { margin: .125rem 0 0; font-size: var(--fs-body); }
+    .ac-det-sub { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .04em; margin: 1rem 0 .5rem;
                   display: flex; justify-content: space-between; gap: .5rem; align-items: baseline; }
     .ac-cobertura { text-transform: none; letter-spacing: 0; color: var(--text-muted, #78716c); font-weight: 400; }
-    .ac-codigos { list-style: none; padding: 0; margin: 0; font-size: .8125rem; display: grid; gap: .25rem; }
+    .ac-codigos { list-style: none; padding: 0; margin: 0; font-size: var(--fs-sm); display: grid; gap: .25rem; }
     .ac-canales { list-style: none; padding: 0; margin: 0; display: grid; gap: .25rem; }
     .ac-canales li { display: grid; grid-template-columns: 1fr auto auto auto; gap: .5rem; align-items: center;
-                     font-size: .8125rem; padding: .375rem .5rem; border-radius: var(--radius-sm, .25rem);
+                     font-size: var(--fs-sm); padding: .375rem .5rem; border-radius: var(--radius-sm, .25rem);
                      background: var(--surf-sunken, #fafaf9); }
     .ac-canales li.ok { background: color-mix(in srgb, var(--tone-ok, #15803d) 8%, transparent); }
     .ac-canal-id { display: flex; gap: .375rem; align-items: baseline; min-width: 0; }
     .ac-canal-nom { color: var(--text-muted, #78716c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ac-canal-cajas, .ac-canal-ev { white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-    .ac-plaza-head { margin: 0 0 .75rem; font-size: .875rem; }
+    .ac-plaza-head { margin: 0 0 .75rem; font-size: var(--fs-body); }
     .ac-form { display: grid; gap: .375rem; }
-    .ac-form label { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #78716c); margin-top: .5rem; }
-    .ac-form-ctx { margin: 0 0 .5rem; font-size: .8125rem; color: var(--text-muted, #78716c); }
+    .ac-form label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #78716c); margin-top: .5rem; }
+    .ac-form-ctx { margin: 0 0 .5rem; font-size: var(--fs-sm); color: var(--text-muted, #78716c); }
   `],
 })
 export class MktAcuerdosComponent {

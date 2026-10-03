@@ -127,7 +127,7 @@ export const FINANZAS_SHARED_STYLES = `
 
   /* Huérfanos: lo que una fuente registra y la otra no movió, enfrentados. */
   .tw-orphans { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-top: var(--sp-3); }
-  @media (max-width: 720px) { .tw-orphans { grid-template-columns: 1fr; } }
+  @media (max-width: 45rem) { .tw-orphans { grid-template-columns: 1fr; } }
   .tw-orphan { border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
   .tw-orphan h4 { font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); margin: 0; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); background: var(--surface-ground); }
   .tw-orphan table td { padding: 3px var(--sp-3); border-bottom: 1px solid var(--border-color); font-size: var(--fs-xs); }

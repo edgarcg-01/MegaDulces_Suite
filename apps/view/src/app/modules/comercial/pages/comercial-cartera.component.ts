@@ -176,7 +176,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
           }
     
           @if (selectedRoute() && !loadingCustomers()) {
-            <p-table [value]="customersList" styleClass="p-datatable-sm surf-table surf-table--zebra"
+            <p-table [value]="customersList" styleClass="p-datatable-sm surf-table"
               [scrollable]="true" scrollHeight="60vh">
               <ng-template #header>
                 <tr><th scope="col" style="width:3rem">#</th><th scope="col">Cliente</th><th scope="col">Código</th><th scope="col" style="width:5rem"><span class="sr-only">Reordenar</span></th></tr>
@@ -209,7 +209,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
   styles: [`
     :host { display:block; }
     .ca-grid { display:grid; grid-template-columns: 1fr 1fr; gap:1rem; align-items:start; }
-    @media (max-width: 900px) { .ca-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 56.25rem) { .ca-grid { grid-template-columns: 1fr; } }
     .ca-panel { background:var(--c-surface-1); border:1px solid var(--c-divider); border-radius:12px; overflow:hidden; }
     .ca-panel-head { display:flex; align-items:center; gap:.5rem; padding:.75rem 1rem; font-weight:var(--fw-bold); border-bottom:1px solid var(--c-divider); }
     .ca-panel-head i { color:var(--c-text-3); }

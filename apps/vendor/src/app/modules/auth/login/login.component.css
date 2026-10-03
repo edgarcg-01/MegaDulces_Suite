@@ -31,7 +31,7 @@
 }
 
 /* Responsive Typography */
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   :host ::ng-deep .text-2xl {
     font-size: 1.5rem !important;
   }
@@ -46,7 +46,7 @@
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 30rem) {
   :host ::ng-deep input {
     font-size: 16px !important;
   }
@@ -102,7 +102,7 @@ input:focus {
  input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
 /* Responsive Design */
-@media (max-width: 768px) {
+@media (max-width: 48rem) {
   /* Mobile adjustments */
   .text-4xl {
     font-size: 1.875rem; /* 30px */
@@ -154,7 +154,7 @@ input:focus {
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 30rem) {
   .text-2xl {
     font-size: 1.25rem; /* 20px */
     line-height: 1.75rem; /* 28px */

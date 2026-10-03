@@ -285,7 +285,7 @@ interface FilterChip {
         transform: translateY(-2px);
         box-shadow: 0 12px 22px -10px rgba(0,0,0,0.1);
       }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .po-card {
           grid-template-columns: 1fr;
           row-gap: 0.75rem;

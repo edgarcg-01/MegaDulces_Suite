@@ -239,16 +239,16 @@ import {
   styles: [`
     .res-aviso{display:flex;gap:.5rem;align-items:flex-start;padding:.6rem .75rem;margin:.5rem 0;
       border:1px solid var(--surf-border,#e7e5e4);border-left:3px solid var(--action,#c2410c);
-      border-radius:var(--radius-sm,6px);font-size:.8125rem;line-height:1.35;
+      border-radius:var(--radius-sm,6px);font-size:var(--fs-sm);line-height:1.35;
       background:var(--surf-2,#fafaf9)}
     .surf-filters{display:flex;gap:.375rem;flex-wrap:wrap;margin:.5rem 0}
     .surf-chip{border:1px solid var(--surf-border,#e7e5e4);background:transparent;cursor:pointer;
-      border-radius:999px;padding:.2rem .65rem;font-size:.75rem;line-height:1.6;
+      border-radius:999px;padding:.2rem .65rem;font-size:var(--fs-xs);line-height:1.6;
       color:var(--surf-fg-2,#57534e)}
     .surf-chip.is-on{border-color:var(--action,#c2410c);color:var(--action,#c2410c);font-weight:600}
     .surf-chip-n{opacity:.6;margin-left:.3rem;font-variant-numeric:tabular-nums}
     .res-split{display:grid;grid-template-columns:1fr;gap:.75rem}
-    @media (min-width:1100px){.res-split:has(.res-detalle){grid-template-columns:1fr 340px}}
+    @media (min-width:68.75rem){.res-split:has(.res-detalle){grid-template-columns:1fr 340px}}
     .res-tabla{min-width:0}
     .mono{font-family:var(--font-mono,ui-monospace,monospace);font-variant-numeric:tabular-nums}
     .ta-r{text-align:right}
@@ -263,18 +263,18 @@ import {
       padding:.75rem;background:var(--surf-1,#fff);align-self:start}
     .res-detalle-head{display:flex;justify-content:space-between;align-items:flex-start;gap:.5rem}
     .res-detalle-head h2{font-size:.95rem;margin:0}
-    .res-detalle-head p{margin:.1rem 0 0;font-size:.75rem;opacity:.65}
+    .res-detalle-head p{margin:.1rem 0 0;font-size:var(--fs-xs);opacity:.65}
     .res-dl{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;margin:.75rem 0 0;
-      font-size:.8125rem}
+      font-size:var(--fs-sm)}
     .res-dl dt{opacity:.6}
     .res-dl dd{margin:0;text-align:right}
     .res-bloque{margin-top:.85rem;padding-top:.65rem;border-top:1px solid var(--surf-border,#e7e5e4)}
-    .res-bloque h3{font-size:.8125rem;margin:0 0 .3rem;text-transform:uppercase;
+    .res-bloque h3{font-size:var(--fs-sm);margin:0 0 .3rem;text-transform:uppercase;
       letter-spacing:.04em;opacity:.7}
-    .res-bloque p{margin:.2rem 0;font-size:.8125rem;line-height:1.4}
-    .res-nota{display:block;opacity:.7;font-size:.75rem;font-style:italic}
-    .res-accion{display:block;color:var(--action,#c2410c);font-size:.75rem}
-    .surf-empty{text-align:center;padding:1.5rem;opacity:.6;font-size:.8125rem}
+    .res-bloque p{margin:.2rem 0;font-size:var(--fs-sm);line-height:1.4}
+    .res-nota{display:block;opacity:.7;font-size:var(--fs-xs);font-style:italic}
+    .res-accion{display:block;color:var(--action,#c2410c);font-size:var(--fs-xs)}
+    .surf-empty{text-align:center;padding:1.5rem;opacity:.6;font-size:var(--fs-sm)}
   `],
 })
 export class MktResultadoComponent {

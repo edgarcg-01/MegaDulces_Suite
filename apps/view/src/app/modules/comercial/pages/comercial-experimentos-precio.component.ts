@@ -366,7 +366,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     /* Master-detail por CSS, sin drawer: el panel convive con la tabla. */
     .xp-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
     .xp-split.has-det { grid-template-columns: minmax(0, 1fr) 27rem; }
-    @media (max-width: 1100px) { .xp-split.has-det { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 68.75rem) { .xp-split.has-det { grid-template-columns: minmax(0, 1fr); } }
 
     .xp-main { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 

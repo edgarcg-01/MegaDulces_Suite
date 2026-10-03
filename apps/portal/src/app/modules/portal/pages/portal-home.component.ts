@@ -763,7 +763,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       }
       .ph-hero-illust svg { width: 100%; max-width: 360px; height: auto; }
 
-      @media (max-width: 720px) {
+      @media (max-width: 45rem) {
         .ph-hero {
           grid-template-columns: 1fr;
           padding: 2rem 1.5rem 2.25rem;
@@ -850,7 +850,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         height: 32px;
         background: var(--neutral-200);
       }
-      @media (max-width: 880px) {
+      @media (max-width: 55rem) {
         .ph-trust {
           grid-template-columns: 1fr 1fr;
           gap: 1rem;
@@ -998,7 +998,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         margin-top: 2rem;
         border-top: 1px solid var(--neutral-200);
       }
-      @media (max-width: 720px) {
+      @media (max-width: 45rem) {
         .ph-foot { grid-template-columns: repeat(2, 1fr); }
       }
       .ph-foot-item { display: flex; flex-direction: column; gap: 0.2rem; }
@@ -1132,7 +1132,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-reorder-add:active:not(:disabled) { transform: scale(0.97); }
       .ph-reorder-add:disabled { opacity: 0.6; cursor: default; }
       .ph-reorder-add.is-added { background: var(--ok-fg); }
-      @media (max-width: 640px) {
+      @media (max-width: 40rem) {
         .ph-reorder-card { width: 140px; }
       }
 
@@ -1248,7 +1248,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-totop:hover { background: var(--neutral-800); }
       .ph-totop:active { transform: translateY(0) scale(0.92); }
       .ph-totop i { font-size: var(--fs-h3); }
-      @media (min-width: 900px) {
+      @media (min-width: 56.25rem) {
         .ph-totop { bottom: 2rem; right: 2rem; }
       }
       @media (prefers-reduced-motion: reduce) {

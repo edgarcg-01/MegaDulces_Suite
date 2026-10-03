@@ -231,7 +231,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
     .dx-search { min-width: 14rem; }
     .dx-count { color: var(--text-muted); font-size: .82rem; margin-left: auto; }
     .dx-grid { display: grid; grid-template-columns: 1fr 15rem; gap: .9rem; align-items: start; }
-    @media (max-width: 900px) { .dx-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 56.25rem) { .dx-grid { grid-template-columns: 1fr; } }
     .dx-table { font-size: .82rem; }
     .dx-r { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .dx-w-date { width: 5.5rem; } .dx-w-doc { width: 6rem; } .dx-w-cat { width: 9rem; } .dx-w-amt { width: 7rem; } .dx-w-x { width: 4rem; } .dx-w-per { width: 11rem; } .dx-w-canal { width: 6rem; } .dx-w-pct { width: 6rem; }

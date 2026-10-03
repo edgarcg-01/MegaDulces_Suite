@@ -237,7 +237,7 @@ function dataUri(f: File): Promise<string> {
     .ss-pend li { display: flex; align-items: center; gap: var(--sp-1); }
     .ss-ffoot { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .ss-dlg { display: flex; flex-direction: column; gap: var(--sp-3); }
-    @media (max-width: 1100px) {
+    @media (max-width: 68.75rem) {
       .ss-body.has-detail { grid-template-columns: 1fr; }
       .ss-body.has-detail .ss-list { display: none; }
       .ss-detail { position: static; max-height: none; }
@@ -245,7 +245,7 @@ function dataUri(f: File): Promise<string> {
       /* La ficha reemplaza a la lista, así que también a los filtros que la acompañan. */
       .ss-page.con-ficha .ss-chips { display: none; }
     }
-    @media (max-width: 640px) {
+    @media (max-width: 40rem) {
       .ss-page { padding: var(--sp-3); gap: var(--sp-3); }
       .ss-head-actions, .ss-head-actions p-button, .ss-head-actions p-button ::ng-deep button { width: 100%; }
       .ss-head-actions p-button ::ng-deep button { justify-content: center; min-height: 44px; }
