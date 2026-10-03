@@ -72,6 +72,11 @@ services:
       DO_NOT_TRACK: "1"
     volumes:
       - netdata-config:/etc/netdata
+      # ⛔ `[OBS.7]` VA DESPUÉS del volumen `netdata-config` a propósito: lo monta ENCIMA, así la
+      # config queda declarada en el repo y no escondida dentro de un volumen de la máquina.
+      # Apaga el colector de Docker, que se comía 5.5 de los 8 núcleos. El motivo completo y la
+      # prueba negativa están en el propio archivo — leerlo antes de volver a encenderlo.
+      - ./go.d.conf:/etc/netdata/go.d.conf:ro
       - netdata-lib:/var/lib/netdata
       - netdata-cache:/var/cache/netdata
       - /etc/passwd:/host/etc/passwd:ro

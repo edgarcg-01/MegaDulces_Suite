@@ -16,6 +16,8 @@ import {
   CodigoQueFalla,
   ResumenFaltantes,
   ConsultaResultado,
+  DeshacerResult,
+  VENTANA_DESHACER_MIN,
 } from './floor-stockouts.service';
 
 /**
@@ -52,6 +54,23 @@ export class FloorStockoutsController {
   @ApiOperation({ summary: 'Reportar un faltante de piso (agotado / no se maneja / no está en catálogo / el código no pasó)' })
   reportar(@Body() dto: ReportarDto): Promise<ReportarResult> {
     return this.service.reportar(dto);
+  }
+
+  @Patch(':id/deshacer')
+  // `[FLT.26]` CAPTURAR y no `COMPRAS_HALLAZGOS_GESTIONAR`: es la contracara de reportar, no una
+  // decisión de bandeja. Quien puede anotar tiene que poder desanotar lo que acaba de anotar — si
+  // no, el alta automática del verificador es una puerta de un solo sentido desde el mostrador.
+  // Los frenos (alcance, sólo `open`, sólo dentro de la ventana) viven en el servicio.
+  @RequirePermissions(Permission.STORE_STOCKOUT_CAPTURAR)
+  @ApiOperation({
+    summary: 'Deshacer un faltante recién anotado (resta un reporte de la semana)',
+    description:
+      `Sólo dentro de ${VENTANA_DESHACER_MIN} minutos y sólo si sigue en \`open\`. Resta 1 al ` +
+      'contador de la semana y recalcula la valoración; si era el único reporte, borra la fila. ' +
+      'Un faltante viejo se corrige con `PATCH :id/decision` + `era_error`, del lado de Compras.',
+  })
+  deshacer(@Param('id') id: string): Promise<DeshacerResult> {
+    return this.service.deshacer(id);
   }
 
   @Get('sucursal/:code/consulta')

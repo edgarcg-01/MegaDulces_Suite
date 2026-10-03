@@ -1816,6 +1816,21 @@ export class ComercialService {
     });
   }
 
+  // ── RD.10 — Inventario de los camiones de Ruta Directa ──
+  routeInventory(from?: string, to?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<RouteInventoryReport>(`${this.base}/analytics/route-inventory`, { params });
+  }
+
+  routeInventoryDetail(routeNo: string, from?: string, to?: string) {
+    let params = new HttpParams().set('route_no', routeNo);
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<RouteInventoryDetail>(`${this.base}/analytics/route-inventory/detail`, { params });
+  }
+
   salesByRouteRoutes() {
     return this.http.get<SalesByRouteOption[]>(`${this.base}/analytics/sales-by-route/routes`);
   }
@@ -2342,6 +2357,58 @@ export interface SalidasReport {
 }
 
 // ── Fase RR — Ventas por Ruta ──
+/**
+ * RD.10 — una ruta en el cuadre de inventario. Las DOS columnas cierran:
+ * `carga_* − (cogs_costo | venta_cliente) − inventario_* = 0`.
+ */
+export interface RouteInventoryRow {
+  route_no: string;
+  plaza: string;
+  carga_desde: string | null;
+  carga_costo: number; cogs_costo: number; inventario_costo: number;
+  inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
+  carga_venta: number; venta_cliente: number; inventario_venta: number;
+  inventario_venta_pos: number; inventario_venta_neg: number; delta_venta: number;
+  /** Linea de CONTRASTE: el `c62` del ERP. Mide otra cosa que `cogs_costo`; no se suman. */
+  cogs_erp: number | null;
+  pares: number; pares_pos: number; pares_neg: number;
+  pares_sin_costo: number; venta_sin_costo: number | null;
+  pares_sin_precio: number; carga_sin_precio: number | null;
+}
+
+export interface RouteInventoryDetailRow {
+  sku: string; unidad: string; producto: string;
+  qty_carga: number; qty_venta: number; saldo: number;
+  costo_unitario: number | null; precio_unitario: number | null;
+  saldo_costo: number | null; saldo_venta: number | null;
+  /** Por que no hay cifra, si no la hay. Ortogonal a `ya_lo_traia`: una fila puede ser las dos. */
+  veredicto: 'ok' | 'sin_costo' | 'sin_precio';
+  /** Vendio mas de lo que se le cargo en la ventana: mercancia previa al primer embarque. */
+  ya_lo_traia: boolean;
+}
+
+/** El detalle con su TOTAL, para que la pantalla declare si el tope corto. */
+export interface RouteInventoryDetail {
+  rows: RouteInventoryDetailRow[];
+  total: number;
+  truncado: boolean;
+}
+
+export interface RouteInventoryReport {
+  desde: string; hasta: string;
+  /** Frescura del DATO: hasta que dia hay movimiento. */
+  data_as_of: string | null;
+  /** Frescura de la COPIA: cuando termino el ultimo refresco de matvistas. `poblado != fresco`. */
+  copia_al: string | null;
+  copia_status: 'ok' | 'error' | 'sin_medir';
+  copia_edad_min: number | null;
+  routes: RouteInventoryRow[];
+  totales: Record<string, number>;
+  /** Ternario: no cuadrar y no haber podido comprobarlo son cosas distintas. */
+  cuadra: 'cierra' | 'no_cierra' | 'sin_medir';
+  declara: { sin_ancla: string; costo: string; fuera_de_alcance: string };
+}
+
 export interface SalesByRouteParams {
   year: number;
   /** Claves compuestas `warehouse_code|route_code` (route_code de Kepler repite entre sucursales). */

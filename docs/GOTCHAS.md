@@ -3983,3 +3983,35 @@ Mesa de Servicio: 130 aserciones), **no** para medir nada del ERP. Y el diagnós
 de solo lectura, un servidor que **ya no es una base de desarrollo** y que ni conecta (`3D000`) aunque
 `pg_database` lo lista. El `.env` no avisa. Antes de migrar, verificar **a qué clúster apunta de verdad**
 (`pg_control_system()` y el host), no el nombre de la variable (ver §52).
+
+---
+
+## 76. `diff -rq` SIGUE los symlinks: dos directorios "idénticos" pueden ser uno solo y catorce enlaces
+
+**Vivido el 2026-10-02, limpiando el repo.** `.agents/skills/` y `.claude/skills/` tenían 15
+archivos cada uno y `diff -rq` no reportaba **una sola diferencia**. Conclusión natural: uno es
+copia del otro, se retira la copia. Se borró `.agents/`.
+
+⛔ **No eran dos copias.** `.claude/skills/*` son **14 symlinks** que apuntan a
+`.agents/skills/*`. `diff -rq` los siguió y comparó el contenido **consigo mismo** — por eso
+daba idéntico: era literalmente el mismo archivo leído dos veces. Al borrar el destino, los 14
+enlaces quedaron colgando y **todas las skills dejaron de cargar**. El síntoma no menciona
+symlinks: `git status` empieza a escupir `could not open directory '.claude/skills/<nombre>/'`.
+
+**Cómo verlo ANTES de borrar:**
+
+```bash
+ls -la <dir>                 # un symlink se delata con `l` al inicio y la flecha ->
+find <dir> -type l           # lista sólo los enlaces
+diff -rq --no-dereference A B   # compara los enlaces como enlaces, no lo que apuntan
+```
+
+⭐ **Es la misma familia que el `node_modules` enlazado por junction** que `git worktree remove`
+destruía (ver la memoria del proyecto sobre worktrees): *una herramienta que sigue el enlace
+actúa sobre el destino, no sobre el enlace*. Vale para `diff`, `rm -rf`, `git rm -r`,
+`Remove-Item -Recurse` y `git worktree remove`.
+
+⚠️ Y la lección de método, que es la que duele: **la evidencia que justificaba el borrado era la
+herramienta equivocada.** "Cero diferencias" no significaba "es una copia redundante", significaba
+"estás mirando el mismo archivo dos veces". Antes de borrar algo por duplicado, comprobá que de
+verdad son dos objetos.

@@ -9,6 +9,62 @@
 ---
 
 ## [Unreleased]
+### Added — el inventario de los camiones de Ruta Directa, como un cuadre que cierra (Fase RD, 2026-10-02)
+Nueva pestaña **`/comercial/inventario-ruta`**: cuánto trae cada camión RD, con **valor a costo y valor a venta**,
+y filtro por rango de fechas. Responde la pregunta como un **cuadre** —`cargado − vendido = inventario`— y la
+identidad **cierra al centavo en las dos columnas** (medido: `delta` = 0.00 en las 22 filas).
+- **[RD.9]** `analytics.v_rd_route_identity` — resolvedor de las 11 rutas con camión y sus **cinco** nombres
+  (`RUTA 23` destino · `01-003` almacén · `23` route_code · `00023` en `kdm1.c12` · `RUTA-23` en
+  `commercial.warehouses`), con la fecha de primera carga **derivada**, no tecleada.
+- **[RD.10]** `analytics.v_rd_route_ledger` + `GET /commercial/analytics/route-inventory` (+ `/detail`).
+  ⛔ **Kepler no publica ningún saldo de ruta**: `kepler_ods.kdil` (existencia) y `kdij` (kardex) tienen **cero
+  filas** de almacén de ruta — todas cumplen `c1 = sucursal`. El saldo se **reconstruye** del embarque `U-D-41`
+  del almacén madre menos la venta del carril push.
+- **[RD.12]** ⚠️ **Hay DOS costos para la misma mercancía.** El embarque y el `c62` que el ERP escribe en la línea
+  de venta difieren **1.1744×** sobre el mismo universo, y la forma **no es un impuesto** (se probó contra 1.08 /
+  1.16 / 1.2528). Se valúa con el **costo del embarque** —es el único con el que el cuadre cierra, y es la cuenta
+  real del camión contra su sucursal—; el `c62` viaja como **línea de contraste rotulada**, jamás sumada.
+  ⭐ Corrige una medición propia anterior que decía «90% coinciden al costo»: contaba pares sin peso y sobre un
+  solo mes. Pesado por dinero son **46%**. *Contar filas ordena al revés que contar pesos.*
+
+**Medido:** los camiones **no acumulan** — el saldo neto es ±1–4% de lo cargado. La venta sale del push porque la
+copia del ODS cubre **41.8%–49.8%** de los días (le faltan días, no dinero). El inventario se publica partido en
+«a favor» y «en contra» y **no se netea en silencio**: sin conteo inicial, el negativo es mercancía que el camión
+ya traía, y se probó que **no** lo fabrica el split de unidad (de 229 SKUs negativos, **1** tiene positivo en otro
+peldaño). Cobertura declarada en pantalla: 633 pares sin costo y 256 sin precio de 8,504.
+
+**Candado** `test-newdb-rd-route-inventory.js` en la regresión — **18 ✓ / 0 ✗ / 1 no medido**, con la carga
+contrastada contra `analytics.stock_movements` (otro camino de código, coincide en las 11 rutas) y **dos pruebas
+negativas**. Sin permisos nuevos (reusa `COMMERCIAL_ROUTE_SALES_VER`) ⇒ **sin re-login**.
+Plan y evidencia en [`FASE_RD_INVENTARIO_RUTA.md`](docs/IMPLEMENTACION/FASES/FASE_RD_INVENTARIO_RUTA.md).
+
+### Changed — el verificador de precios anota el faltante solo cuando la existencia es 0 (Fase FLT, 2026-10-02)
+La pestaña «Reportar» de `/tienda/faltantes` se reduce a **una caja de búsqueda**. Al elegir un producto se abre
+una ventana con el precio y la existencia que **se cierra sola** (9 s, pausada mientras el mouse está encima — si
+se cierra justo cuando alguien estira la mano para corregir, el botón de deshacer es decorativo); si la existencia
+es **0**, el faltante **ya quedó anotado**, sin preguntar nada.
+- **[FLT.25]** El veredicto decide, no la persona: `sin_existencia` anota solo (`kind=agotado`,
+  `source=verificador`) · `hay_en_tienda` no anota nada (era una consulta de precio) · `no_medido` **NO anota**, y
+  es el único caso con botón — cero y «no se pudo leer» no son lo mismo (ADR-056), y anotar solo un «no sé» le
+  inventa a Compras una venta perdida que quizá está en el anaquel. Reglas puras en `faltante-express.ts` con su
+  spec (10 aserciones) y **prueba negativa corrida**: con `veredicto !== 'hay_en_tienda'` —la implementación
+  plausible y equivocada— caen exactamente los dos casos que importan.
+- **[FLT.26]** `PATCH /commercial/floor-stockouts/:id/deshacer`, gateado con `STORE_STOCKOUT_CAPTURAR` y **no**
+  con `COMPRAS_HALLAZGOS_GESTIONAR`: es la contracara de reportar, no una decisión de bandeja — sin él, el alta
+  automática era una puerta de un solo sentido desde el mostrador. **Resta un reporte y REVALÚA** (dejar el monto
+  viejo haría que restar no baje el dinero); borra la fila sólo si ese reporte era el único. Tres frenos: alcance,
+  `status='open'` y ventana de 5 min. Sin migración ni permiso nuevo.
+- ⚠️ **Declarado, no resuelto:** los otros tres motivos (`no_en_anaquel`, `no_en_sucursal`, `codigo_no_pasa`) ya
+  no se capturan por este camino. El que más duele es «no estaba en el anaquel», **el único que se recupera el
+  mismo día** con la venta todavía viva. Y cada consulta de precio de un producto agotado se vuelve un faltante:
+  Compras los separa por `source=verificador`, pero la señal se diluye.
+- 🔴 **Hallazgo colateral corregido:** `test-newdb-floor-stockouts.js` **INSERTA** y no llamaba a
+  `assertSafeTarget`, con `DATABASE_URL_NEW` apuntando a `192.168.0.222:5434` (**producción**). Es el accidente del
+  2026-08-29 —que hizo nacer esa guarda— en un test que nunca la usó.
+- 🔸 Y uno anterior a este cambio: la confirmación de «producto no catalogado» vivía dentro de la pestaña
+  «Reportar», que es la única que nunca la dispara (`reportarNoCatalogado()` no cambia de pestaña) → quien daba de
+  alta un producto **no veía nada**. Se movió a donde se produce.
+
 ### Fixed — el despliegue deja de frenar por migraciones ajenas, y el CI deja de reventar por deuda ajena (Fase CD, 2026-10-02)
 Nace de "el CI/CD es lento y aborta por migraciones pendientes". **Medido antes de tocar: el build tarda 10 s**
 (`npm ci` 70 s, build 10 s — `nx affected` + caché remoto ya estaban bien). Lo roto era otra cosa: **las 15

@@ -5,6 +5,94 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-02 — `[RA-DYN.U4–U6]` El cumplimiento del proveedor: la herramienta era un índice
+
+Edgar: *"hay que darle esas herramientas faltantes"*, tras preguntar qué tiene el comprador contra
+lo que tiene el proveedor. La respuesta medida fue que el comprador está bien armado para decidir
+**cuánto pedir** y mal armado para decidir **a qué precio y a quién**.
+
+### El hallazgo: no faltaba modelo, faltaba un índice
+
+`catalog.suppliers.fill_rate_override` llevaba **0 de 1,318**, y la explicación corriente era que
+no estaba construido. La cadena sí estaba completa: **10,240 de 12,713 recepciones (80.6%)** traen
+folio de OC y de vale, y la resta es válida sin resolver unidades porque **2,932 de 2,932 pares**
+(OC, vale) del mismo SKU vienen en la misma unidad.
+
+Lo que lo hacía incalculable: `kdm2` tiene su índice para el lado de **venta** y el encabezado
+también, pero **al renglón de compra se le olvidó**. El join va por `(sucursal, c1, c2, c3, c4, c6)`
+y la PK mete `c5` justo entre `c4` y `c6`, así que el folio no sirve para bajar por el índice.
+**Una búsqueda de OC: 58,065 páginas / 139 ms → 10 páginas / 0.48 ms.**
+
+### ⭐ El segundo cuello estaba en un `LEFT JOIN`, no en el ODS
+
+Con el índice puesto, 12 meses seguían sin terminar. El perfil por nodo lo ubicó: las tres CTEs se
+arman en menos de un segundo cada una y **los 49 s eran del join final**. Una CTE materializada no
+tiene estadísticas → `rows=1` → Nested Loop → reescaneo completo de la relación de recibidos por
+cada fila de pedidos: **16,349 × 16,067 ≈ 263 millones de comparaciones**, y a 365 días **16× peor**.
+
+    con LEFT JOIN     90 d  49 s   ·  365 d  >50 min sin terminar
+    una sola pasada   90 d  0.7 s  ·  365 d       2.7 s
+
+Apilando el folio de la OC y el del vale en **una relación etiquetada**, uniendo una sola vez y
+pivotando con `FILTER`, el join desaparece. Las dos formas **sobre el mismo dato**: 0 filas con
+cifra distinta.
+
+### ⚠️ Publiqué una vista sobre una medición que no correspondía
+
+Con 2.7 s medidos descarté la matvista y dejé una **vista** (mig `20261002180000`), argumentando
+"0.2 s filtrada por proveedor". **Esos 0.2 s eran de otra consulta**: yo filtraba *dentro* de la CTE
+y la vista recibe el filtro *sobre el resultado*, después del `GROUP BY`, donde el predicado no
+puede bajar. Medido sobre la vista ya desplegada: **no termina en 60 s, ni filtrada**. Quitar
+`MATERIALIZED` tampoco destraba el pushdown — se probó. `U6` la vuelve matvista: **101 s de
+construcción, 5 ms de lectura**.
+
+Es la trampa que el repo ya tiene anotada —*medir la consulta real, no una parecida*— y el error no
+estuvo en el diseño sino en **la medición que lo sostuvo**.
+
+### ⛔ Hallazgo de datos: 202 proveedores homónimos
+
+El índice único falló al primer intento. Causa: **`catalog.suppliers` tiene 202 nombres repetidos**
+— "SAN SEBASTIAN" cuatro veces con códigos 524, 113, CS007 y 165; "DISPONIBLE" otras cuatro. El
+join por nombre multiplicaba la fila del renglón por cada homónimo. Se resuelve a uno de forma
+determinista por código y **la ambigüedad se declara**: `supplier_ambiguo` marca **35,005 de 86,833
+renglones (40%)**. Elegir en silencio sería inventar una identidad. **Alguien tiene que depurar esos
+nombres en el origen.**
+
+### Lo que el candado vigila (y no es el número)
+
+`test-newdb-supplier-fill-rate.js` — **verde con 1 NO MEDIDO**. Vigila las tres premisas que pueden
+volver mentira la cifra: que la unidad no cambie dentro de la cadena, que el indicador **discrimine**
+(76 proveedores al 99%+ contra 3 por debajo de 70%, rango 55–100% sobre 193 medidos), y que el
+homónimo se declare. El cruce del bloque 2 va contra **otra implementación** —recuenta desde la
+cadena cruda del ODS— con **0.4% de desvío**. Prueba negativa: menos de 25 renglones no se publica
+como veredicto.
+
+El `NO MEDIDO` es honesto: **la matvista todavía no tiene refresco nocturno ni umbral en `CRON_JOBS`**.
+
+### Lo que esto le da al comprador
+
+    BIMBO      75 renglones   28% completos    $483,585 sin surtir
+    BARCEL     47             55.3%          $1,594,681
+    MONDELEZ  789             82.8%          $9,759,637
+
+Mondelez —el del mínimo de 825 cajas— dejó **$9.76M sin entregar en 12 meses**.
+
+### ⚠️ Lo que costó, y que ahora es regla
+
+Una de mis corridas sostuvo el **candado de migraciones 22 minutos** y terminó revirtiendo entera:
+22 minutos en que ningún despliegue, de nadie, podía entrar. Está recogido en `CLAUDE.md` como
+prohibición de compilar o levantar el backend en local. Causa de fondo: diagnostiqué con
+`pg_stat_activity` siendo `edgar`, que **oculta `state` y `query` de otros roles** — leí "no hay nada
+corriendo" varias veces y maté un proceso que sí estaba construyendo. La lección del repo decía
+*preguntar por `pg_locks`, no por la columna*; le falta el matiz: **`pg_locks` sin privilegio tampoco
+dice quién**.
+
+### Pendiente
+
+Refresco nocturno de la matvista con su umbral · cablear el fill rate al motor (que el colchón crezca
+donde el proveedor falla — ése sí mueve un número publicado) · depurar los 202 homónimos.
+
+---
 ## 2026-10-01 — `[RA-DYN.U1]` Unir lo que ya sabíamos: las señales del margen, al lado del pedido
 
 Edgar: *"necesito que empecemos a unir toda nuestra informacion disponible para armar un buen

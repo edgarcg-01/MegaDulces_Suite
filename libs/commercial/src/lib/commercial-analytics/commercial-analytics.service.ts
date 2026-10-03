@@ -194,6 +194,71 @@ export interface SalesByRouteOption {
   route_no: string;
 }
 
+/**
+ * `[RD.10]` Tope de filas del detalle por SKU. **1,000 y no 500**: medido contra prod, las 11
+ * rutas tienen entre 549 y 938 pares `(sku, unidad)`, así que el tope anterior truncaba TODAS.
+ * Si alguna vez se pasara, el servicio devuelve `truncado: true` y la pantalla lo declara — un
+ * corte mudo es una tabla que no suma su propio total.
+ */
+const DETALLE_TOPE = 1000;
+
+/**
+ * `[RD.10]` Una ruta en el cuadre de inventario. **Las dos columnas cierran**:
+ * `carga_* − (cogs_costo | venta_cliente) − inventario_* = 0`, y `delta_*` lo lleva a pantalla.
+ */
+export interface RouteInventoryRow {
+  route_no: string;
+  plaza: string;
+  carga_desde: string | null;
+  // Columna COSTO — valuada con el costo del EMBARQUE (lo que la sucursal le cargó al camión).
+  carga_costo: number; cogs_costo: number; inventario_costo: number;
+  inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
+  // Columna VENTA — valuada con el precio REALIZADO de esa ruta en la ventana.
+  carga_venta: number; venta_cliente: number; inventario_venta: number;
+  inventario_venta_pos: number; inventario_venta_neg: number; delta_venta: number;
+  /** ⚠️ Línea de CONTRASTE: el `c62` del ERP. Mide otra cosa que `cogs_costo`; no se suman. */
+  cogs_erp: number | null;
+  pares: number; pares_pos: number; pares_neg: number;
+  pares_sin_costo: number; venta_sin_costo: number | null;
+  pares_sin_precio: number; carga_sin_precio: number | null;
+}
+
+export interface RouteInventoryDetailRow {
+  sku: string; unidad: string; producto: string;
+  qty_carga: number; qty_venta: number; saldo: number;
+  costo_unitario: number | null; precio_unitario: number | null;
+  saldo_costo: number | null; saldo_venta: number | null;
+  /** Por qué no hay cifra, si no la hay. Es ortogonal a `ya_lo_traia`: una fila puede ser las dos. */
+  veredicto: 'ok' | 'sin_costo' | 'sin_precio';
+  /** Vendió más de lo que se le cargó en la ventana: mercancía previa al primer embarque. */
+  ya_lo_traia: boolean;
+}
+
+/** El detalle **con su total**, para que la pantalla pueda declarar si el tope cortó. */
+export interface RouteInventoryDetail {
+  rows: RouteInventoryDetailRow[];
+  total: number;
+  truncado: boolean;
+}
+
+export interface RouteInventoryReport {
+  desde: string; hasta: string;
+  /** Frescura del DATO: hasta qué día hay movimiento. */
+  data_as_of: string | null;
+  /** Frescura de la COPIA: cuándo terminó el último refresco de matvistas. `poblado ≠ fresco`. */
+  copia_al: string | null;
+  copia_status: 'ok' | 'error' | 'sin_medir';
+  copia_edad_min: number | null;
+  routes: RouteInventoryRow[];
+  totales: Record<string, number>;
+  /**
+   * ⛔ Ternario, no booleano: **no cuadrar y no haber podido comprobarlo son cosas distintas**.
+   * `sin_medir` = ninguna ruta tuvo movimiento en la ventana, así que no hay nada que cuadre.
+   */
+  cuadra: 'cierra' | 'no_cierra' | 'sin_medir';
+  declara: { sin_ancla: string; costo: string; fuera_de_alcance: string };
+}
+
 export interface SalesByRouteDashboard {
   /**
    * Serie diaria REAL (una fila por dia del periodo), de `analytics.mv_rd_route_daily_200d`.
@@ -7757,6 +7822,221 @@ export class CommercialAnalyticsService {
    *  parcial (no fronteras de mes) sigue yendo live (el rollup es de grano mensual). */
   private isWincajaRollupOk(from: string, to: string): boolean {
     return this.isFullMonthRange(from, to);
+  }
+
+  // ─────────── Fase RD — Inventario de los camiones de Ruta Directa ───────────
+
+  /**
+   * `[RD.10]` Cuadre de inventario por ruta, en las DOS valuaciones, para un rango.
+   *
+   * ⭐ La identidad `carga − vendido = inventario` **cierra al centavo en las dos columnas**, y
+   * cierra por construcción: las tres líneas de cada columna usan el MISMO valor unitario
+   * (`costo_u` del embarque · `precio_u` realizado). Por eso `delta` viaja en la respuesta: si
+   * algún día deja de ser 0, es que alguien mezcló valuaciones.
+   *
+   * ⚠️ `cogs_erp` es **línea de contraste, no la misma cifra**: es el `c62` que el ERP escribe en
+   * la línea de venta, y mide otra cosa que el costo del embarque (razón medida 1.1744 sobre el
+   * mismo universo). No se suma ni se promedia con la columna de costo.
+   *
+   * ⚠️ El inventario sale partido en `_pos` y `_neg`. El negativo **no es un error**: son SKUs que
+   * el camión ya traía antes de que arranque la ventana (no hay conteo inicial). Se probó que NO
+   * los fabrica el split de unidad: de 229 SKUs negativos en la ruta 23, sólo 1 tiene además
+   * saldo positivo en otro peldaño.
+   */
+  async routeInventory(from?: string, to?: string): Promise<RouteInventoryReport> {
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const rows = (await trx.raw(
+        `WITH win AS (
+           SELECT l.route_no, l.sku, l.unidad,
+                  sum(l.qty)       FILTER (WHERE l.clase='carga') AS cq,
+                  sum(l.costo_doc) FILTER (WHERE l.clase='carga') AS cv,
+                  sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
+                  sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi,
+                  sum(l.costo_erp) FILTER (WHERE l.clase='venta') AS ce
+             FROM analytics.mv_rd_route_ledger l
+            WHERE l.tenant_id = ? AND l.business_date >= ? AND l.business_date <= ?
+            GROUP BY 1,2,3
+         ), val AS (
+           SELECT w.*, w.cv / nullif(w.cq,0) AS costo_u, w.vi / nullif(w.vq,0) AS precio_u,
+                  coalesce(w.cq,0) - coalesce(w.vq,0) AS saldo
+             FROM win w
+         )
+         SELECT i.route_no, i.plaza, to_char(i.carga_desde,'YYYY-MM-DD') AS carga_desde,
+                round(sum(v.cq * v.costo_u),2)::float                          AS carga_costo,
+                round(sum(coalesce(v.vq,0) * v.costo_u),2)::float              AS cogs_costo,
+                round(sum(v.saldo * v.costo_u),2)::float                       AS inventario_costo,
+                round(sum(v.saldo * v.costo_u) FILTER (WHERE v.saldo > 0),2)::float AS inventario_costo_pos,
+                round(sum(v.saldo * v.costo_u) FILTER (WHERE v.saldo < 0),2)::float AS inventario_costo_neg,
+                round(sum(v.cq * v.costo_u) - sum(coalesce(v.vq,0) * v.costo_u)
+                      - sum(v.saldo * v.costo_u),2)::float                     AS delta_costo,
+                round(sum(coalesce(v.cq,0) * v.precio_u),2)::float             AS carga_venta,
+                round(sum(v.vi),2)::float                                      AS venta_cliente,
+                round(sum(v.saldo * v.precio_u),2)::float                      AS inventario_venta,
+                round(sum(v.saldo * v.precio_u) FILTER (WHERE v.saldo > 0),2)::float AS inventario_venta_pos,
+                round(sum(v.saldo * v.precio_u) FILTER (WHERE v.saldo < 0),2)::float AS inventario_venta_neg,
+                round(sum(coalesce(v.cq,0) * v.precio_u) - sum(v.vi)
+                      - sum(v.saldo * v.precio_u),2)::float                    AS delta_venta,
+                round(sum(v.ce),2)::float                                      AS cogs_erp,
+                count(v.sku)::int                                             AS pares,
+                count(*) FILTER (WHERE v.saldo > 0)::int                       AS pares_pos,
+                count(*) FILTER (WHERE v.saldo < 0)::int                       AS pares_neg,
+                count(*) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.costo_u IS NULL)::int AS pares_sin_costo,
+                round(sum(v.vi) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.costo_u IS NULL),2)::float AS venta_sin_costo,
+                count(*) FILTER (WHERE coalesce(v.cq,0) > 0 AND v.precio_u IS NULL)::int AS pares_sin_precio,
+                round(sum(v.cv) FILTER (WHERE coalesce(v.cq,0) > 0 AND v.precio_u IS NULL),2)::float AS carga_sin_precio
+           FROM analytics.mv_rd_route_identity i
+           LEFT JOIN val v ON v.route_no = i.route_no
+          WHERE i.tenant_id = ?
+          GROUP BY i.route_no, i.plaza, i.carga_desde
+          ORDER BY i.plaza, i.route_no`,
+        [tenantId, desde, hasta, tenantId],
+      )).rows;
+
+      const asOf = (await trx.raw(
+        `SELECT to_char(max(business_date),'YYYY-MM-DD') AS data_as_of
+           FROM analytics.mv_rd_route_ledger WHERE tenant_id = ?`, [tenantId])).rows[0];
+
+      /**
+       * ⛔ **`data_as_of` es la frescura del DATO, no la de la COPIA**, y confundirlas es el
+       * `poblado ≠ fresco` de ADR-056: si el `REFRESH` de 30 min se cae, la matvista sigue
+       * diciendo «hasta el 2-oct» con toda confianza mientras sirve lo de ayer.
+       *
+       * La frescura de la copia sale del latido que el ciclo de matvistas YA escribe
+       * (`analytics.cron_runs`, job `analytics_refresh`) — primitivo existente, no uno nuevo.
+       * Si no hay latido, se declara `sin_medir`; no se dibuja un verde.
+       */
+      const copia = (await trx.raw(
+        `SELECT to_char(last_finish AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI') AS copia_al,
+                status,
+                round(extract(epoch from (now() - last_finish))/60)::int AS copia_edad_min
+           FROM analytics.cron_runs
+          WHERE tenant_id = ? AND job_key = 'analytics_refresh'`, [tenantId])).rows[0];
+
+      const num = (k: keyof RouteInventoryRow) =>
+        rows.reduce((a: number, r: Record<string, number>) => a + (Number(r[k as string]) || 0), 0);
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+
+      return {
+        desde, hasta,
+        data_as_of: asOf?.data_as_of ?? null,
+        routes: rows as RouteInventoryRow[],
+        totales: {
+          carga_costo: r2(num('carga_costo')),
+          cogs_costo: r2(num('cogs_costo')),
+          inventario_costo: r2(num('inventario_costo')),
+          inventario_costo_pos: r2(num('inventario_costo_pos')),
+          inventario_costo_neg: r2(num('inventario_costo_neg')),
+          carga_venta: r2(num('carga_venta')),
+          venta_cliente: r2(num('venta_cliente')),
+          inventario_venta: r2(num('inventario_venta')),
+          inventario_venta_pos: r2(num('inventario_venta_pos')),
+          inventario_venta_neg: r2(num('inventario_venta_neg')),
+          cogs_erp: r2(num('cogs_erp')),
+          venta_sin_costo: r2(num('venta_sin_costo')),
+          carga_sin_precio: r2(num('carga_sin_precio')),
+        },
+        copia_al: copia?.copia_al ?? null,
+        copia_status: copia ? (copia.status === 'ok' ? 'ok' : 'error') : 'sin_medir',
+        copia_edad_min: copia?.copia_edad_min ?? null,
+        /**
+         * ⛔ TERNARIO a propósito. Con un booleano, una ventana sin movimiento devuelve 11 filas
+         * de deltas NULL, `Number(null)||0` da 0, y la pantalla pinta **«Cierra» en verde sobre
+         * nada** — el `cfg ? classify : 'ok'` que la Fase VP midió. No cuadrar y no haber podido
+         * comprobarlo son cosas distintas y se dicen distinto.
+         */
+        cuadra: (() => {
+          const conMovimiento = rows.filter((r: Record<string, number>) =>
+            Number(r.pares) > 0 && (r.delta_costo !== null || r.delta_venta !== null));
+          if (!conMovimiento.length) return 'sin_medir' as const;
+          return conMovimiento.every((r: Record<string, number>) =>
+            Math.abs(Number(r.delta_costo) || 0) < 0.01
+            && Math.abs(Number(r.delta_venta) || 0) < 0.01) ? ('cierra' as const) : ('no_cierra' as const);
+        })(),
+        // Declaraciones: ADR-056 — lo que no se midió se dice, no se dibuja en cero.
+        declara: {
+          sin_ancla: 'No hay conteo inicial de los camiones: la ventana arranca en la PRIMERA CARGA '
+            + 'documentada de cada ruta. El saldo negativo es mercancía que el camión ya traía.',
+          costo: 'El costo es el del EMBARQUE (lo que la sucursal le cargó al camión). `cogs_erp` es '
+            + 'el costo que el ERP escribe en la línea de venta: mide otra cosa, no se suma.',
+          fuera_de_alcance: 'Morelia 321/322 y las rutas vecinales 1V00N no tienen embarque en Kepler.',
+        },
+      };
+    });
+  }
+
+  /**
+   * `[RD.10]` El detalle por SKU de una ruta. Mismo cuadre, grano fino.
+   *
+   * ⛔ **El tope no puede ser mudo.** La versión anterior cortaba en 500 y **las 11 rutas tienen
+   * entre 549 y 938 pares** `(sku, unidad)` — o sea que truncaba todas, y el `ORDER BY` mandaba al
+   * final justo a los `sin_costo` (633 pares), que es lo que la cabecera declara como hueco: la
+   * tabla nunca sumaba el total de su propia fila y nada lo decía. Ahora el tope es **1,000** (cabe
+   * la ruta más grande con margen) y viaja el `total`, para que la pantalla declare si cortó.
+   */
+  async routeInventoryDetail(routeNo: string, from?: string, to?: string): Promise<RouteInventoryDetail> {
+    if (!routeNo || !/^[0-9A-Za-z]{1,8}$/.test(routeNo)) throw new BadRequestException('route_no inválido');
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `WITH win AS (
+         SELECT l.sku, l.unidad,
+                sum(l.qty)       FILTER (WHERE l.clase='carga') AS cq,
+                sum(l.costo_doc) FILTER (WHERE l.clase='carga') AS cv,
+                sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
+                sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi
+           FROM analytics.mv_rd_route_ledger l
+          WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date >= ? AND l.business_date <= ?
+          GROUP BY 1,2
+       )
+       SELECT w.sku, w.unidad,
+              coalesce(p.description, w.sku)                     AS producto,
+              round(coalesce(w.cq,0),3)::float                   AS qty_carga,
+              round(coalesce(w.vq,0),3)::float                   AS qty_venta,
+              round(coalesce(w.cq,0)-coalesce(w.vq,0),3)::float  AS saldo,
+              round(w.cv / nullif(w.cq,0),4)::float              AS costo_unitario,
+              round(w.vi / nullif(w.vq,0),4)::float              AS precio_unitario,
+              round((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.cv / nullif(w.cq,0)),2)::float  AS saldo_costo,
+              round((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.vi / nullif(w.vq,0)),2)::float  AS saldo_venta,
+              -- ⚠️ El veredicto COMPONE, no elige. Todo "sin costo" es por construcción negativo
+              -- (no hubo carga ⇒ saldo = −vendido), así que un CASE excluyente le quitaba a esas
+              -- filas justo la etiqueta que explica por qué están en rojo.
+              -- ⛔ Sin acentos graves acá adentro: cierran el template literal, y check:templates
+              -- NO mira este archivo (sólo *.component.ts). Lo atrapó el candado, por suerte.
+              CASE WHEN w.cv / nullif(w.cq,0) IS NULL THEN 'sin_costo'
+                   WHEN w.vi / nullif(w.vq,0) IS NULL THEN 'sin_precio'
+                   ELSE 'ok' END                                 AS veredicto,
+              (coalesce(w.cq,0)-coalesce(w.vq,0) < 0)                        AS ya_lo_traia,
+              count(*) OVER ()::int                              AS _total
+         FROM win w
+         LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = w.sku AND p.deleted_at IS NULL
+        ORDER BY abs(coalesce((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.cv / nullif(w.cq,0)),0)) DESC
+        LIMIT ?`,
+      [tenantId, routeNo, desde, hasta, tenantId, DETALLE_TOPE],
+    )).rows).then((filas: (RouteInventoryDetailRow & { _total: number })[]) => {
+      const total = filas.length ? Number(filas[0]._total) : 0;
+      return {
+        rows: filas.map(({ _total, ...f }) => f) as RouteInventoryDetailRow[],
+        total,
+        // Si alguna vez corta, la pantalla lo DICE. Un corte mudo es un total que no suma.
+        truncado: total > DETALLE_TOPE,
+      };
+    });
+  }
+
+  /**
+   * Rango por default = **toda la ventana disponible** (desde la primera carga). Es lo que
+   * contesta "cuánto inventario tienen"; acotar el rango contesta "qué pasó en este periodo".
+   */
+  private routeInventoryRange(from?: string, to?: string): { desde: string; hasta: string } {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const desde = from && dRx.test(from) ? from : '2000-01-01';
+    const hasta = to && dRx.test(to) ? to : this.todayMx();
+    if (from && !dRx.test(from)) throw new BadRequestException('from debe ser YYYY-MM-DD');
+    if (to && !dRx.test(to)) throw new BadRequestException('to debe ser YYYY-MM-DD');
+    if (desde > hasta) throw new BadRequestException('from no puede ser mayor que to');
+    return { desde, hasta };
   }
 
   // Inicio del mes actual en TZ MX (UTC-6 fijo, MX abolió DST en 2023). Formato YYYY-MM-01.
