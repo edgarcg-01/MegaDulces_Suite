@@ -42,7 +42,8 @@
 | 11 | [Layouts por sector §O/§P](#arquitectura-de-layouts-por-sector--ayuda-contextual-binding) | fiscal vs almacén vs mostrador + ayuda contextual | sí |
 | 12 | [Jerarquía del dato §Q](#jerarquía-visual--comprensión-del-dato-interfaces-densas-en-valores--binding) | answer-first en pantallas con muchas cifras | sí |
 | 13 | [PWA](#pwa--app-instalable-binding) | app instalable: SW, manifest, safe-area, offline | sí (`apps/vendor`) |
-| 14 | [Decisions Log](#decisions-log) | por qué cada cosa es como es | — |
+| 14 | [Decisiones abiertas](#decisiones-abiertas--listas-para-firmar-2026-10-03) | las 10 preguntas que quedaron de la auditoría, con sus números. **Se firman, no se trabajan** | — |
+| 15 | [Decisions Log](#decisions-log) | por qué cada cosa es como es | — |
 | 15 | Auditorías 2026-06-04 + planes de migración | 🗄️ histórico | no |
 
 ---
@@ -1363,6 +1364,74 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 - Empty-state mostrado en un fallo de red (sin Reintentar).
 - Modal/sheet sin focus-trap ni Escape en app instalada.
 - Escritura crítica que falla en silencio sin señal de "sin conexión".
+
+---
+
+## Decisiones abiertas — listas para firmar (2026-10-03)
+
+> Salen de la auditoría del 2026-10-02/03. **Ninguna es trabajo pendiente: son preguntas.** Cada
+> una trae lo que se midió, la recomendación y qué cuesta equivocarse. Se firman acá, con fecha.
+
+**D-1 · Orden de capas `@layer`.** `@layer` = **0** · `!important` **1,041** · `::ng-deep` **442**.
+⭐ El dato que cambia el tamaño del problema: **797 (77%) están en CUATRO archivos** — los tres
+`styles.css` y `reports.component.css`. No son mil sitios dispersos: es un bloque de overrides
+globales, que es justo lo que `@layer` resuelve con una línea de orden.
+**Recomendado:** `@layer reset, vendor, tokens, components, utilities;` — PrimeNG en `vendor`, que
+es lo que hace que los 797 `!important` dejen de ser necesarios.
+⚠️ **Primero se firma el orden, después se migra**, y la migración va con build y QA visual: mover
+797 declaraciones a una capa **cambia la cascada de toda la app**. Es la única deuda del sistema
+que un ratchet no puede atajar.
+
+**D-2 · OKLCH + Tailwind v4, en un solo movimiento.** `oklch` = **0** en 621 líneas de
+`tokens.css`, 100% hex. En oct-2026 OKLCH ya es **el formato de autoría** (~90% soporte; Tailwind
+v4 genera su paleta en OKLCH nativo; Linear y los tokens Sail de Stripe ya migraron). Estamos en
+`tailwindcss 3.4.19`.
+**Recomendado:** hacer los dos juntos. TW4 trae su paleta en OKLCH y su `@theme` colapsa la doble
+fuente de tokens que el repo ya arrastra. **Separarlos es migrar la paleta dos veces.**
+
+**D-3 · `--action-ink` a 3.39:1.** Blanco sobre `--action` da **3.39:1**; AA de texto normal pide
+**4.5:1**, y nuestros CTA son de 13–14px. Lleva **19 días declarado sin dueño**. Tres salidas, con
+su número: (a) `--action` → `#D2451C` = **4.56:1** ✓ *(mueve la marca)*; (b) subir el label del CTA
+a ≥16px bold, que lo vuelve "texto grande" y entonces 3.39 alcanza; (c) aceptar el riesgo **por
+escrito, con fecha**. ⚠️ Lo que no vale es seguir sin elegir: *declarar no es un estado terminal.*
+
+**D-4 · El sustrato cálido del Storefront.** El revert a Zinc del 2026-09-14 **es correcto para
+Operations** y el campo lo respalda (en herramientas de datos, zinc/slate siguen dominando). Pero
+se aplicó **también** al Storefront por un argumento de **mantenimiento** ("dos rampas pueden
+divergir"), no de diseño — y ahí el público es un dueño de dulcería, no un desarrollador. Hoy lo
+que distingue al Storefront en `tokens.css` es **una sola custom property**.
+⭐ La salida estaba en la lección de ese mismo día: *"lo que tiñe no es el fondo, es el chrome"* →
+**ground cálido con chrome neutro**. **Pregunta:** ¿el Storefront quiere sustrato propio? Nunca se
+hizo por separado, y hoy la respuesta por omisión es "no".
+
+**D-5 · La IA: superficie o chat.** §X cubre bien la **confianza** (plan · razón · confianza ·
+reversa · escalación). Lo que no cambió es la **entrega**: Thot, Maat y Horus son **tres pantallas
+de conversación**. El estándar se movió a que la salida del motor viva **en la pantalla del
+dominio** — resumen, acción sugerida, consulta generada — y no en un chat aparte.
+*(Dato: las tres compartían el mismo tratamiento de motion copiado y las tres rompían el techo
+igual. Lo que se copia tres veces ya es un componente que nadie extrajo.)*
+
+**D-6 · `apps/vendor` es un tercer régimen y la tabla dice que no.** `.vendor-shell` redefine los
+**cinco radios** (10/14/18/22/26 contra 8/12/16/20/24) y suma un degradado dorado; la tabla de
+Surfaces dice *"Decoración: nula"*. **O se absorbe** (radios por densidad, no por app) **o se
+nombra** como surface propio. Dejarlo sin declarar es lo único que no sirve.
+
+**D-7 · La escala no tiene un peldaño de 16px con nombre de TAMAÑO.** El único 16 es `--fs-h3`,
+que es un nombre de **rol**. Por eso 144 `font-size: 1rem` quedaron sin tokenizar: la muestra tiene
+`h2`/`h3` reales **pero también** `.qty-num`, `.va-input input` y `.kv dd`. **Recomendado:** añadir
+`--fs-md: 1rem` como alias de tamaño y que `--fs-h3` lo referencie. Es aditivo y desbloquea 144.
+
+**D-8 · `TabShell` (0 usos) y `MiniBars` (1).** Siguen listados en el inventario de componentes
+compartidos como caminos canónicos. **Un componente ofrecido y no ejercitado es peor que no
+tenerlo**: nadie sabe si funciona. **Adoptar o retirar** — una por una, no en bloque.
+
+**D-9 · `motion@^12.38.0`, dep muerta con 0 imports.** ⚠️ Está en `package-lock.json` y el CI corre
+`npm ci`: **sacarla sólo de `package.json` rompe el `npm ci` de todos**. Necesita `npm install`
+para regenerar el lock — operación deliberada, con su propio commit y su propia verificación.
+
+**D-10 · `J17 Card System 2.0`: 1 de 14 arquetipos, tres meses sin código.** Por ADR-056, **o se
+ejecuta o se declara deuda con nombre en el tracker**. Listarlo como "la evolución que viene"
+durante tres meses es la tercera opción, que es la que no vale.
 
 ---
 
