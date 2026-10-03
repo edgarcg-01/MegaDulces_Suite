@@ -398,7 +398,7 @@ async function cuerposDeLaMigracion() {
       const RANGO = ['2000-01-01', '2999-12-31'];
 
       // (a) La serie: el acumulado tiene que ser el acumulado, no una columna suelta.
-      const serie = (await db.raw(sqlDe('routeSeries'), [tenant, ruta, ...RANGO])).rows;
+      const serie = (await db.raw(sqlDe('routeSeries'), [tenant, ruta, ...RANGO, tenant, ruta, ...RANGO])).rows;
       t('la SERIE del servicio corre contra prod', serie.length > 0, `${serie.length} días`);
       const sumaNeta = serie.reduce((a, p) => a + (Number(p.cargado_qty) - Number(p.vendido_qty)), 0);
       const ultimo = serie.length ? Number(serie[serie.length - 1].saldo_qty_acum) : 0;
@@ -406,6 +406,35 @@ async function cuerposDeLaMigracion() {
         Math.abs(sumaNeta - ultimo) < 0.01, `${sumaNeta.toFixed(2)} vs ${ultimo.toFixed(2)}`);
       t('la serie está ordenada por día (el acumulado no significa nada si no lo está)',
         serie.every((p, i) => i === 0 || p.fecha > serie[i - 1].fecha));
+
+      // ⭐ [RD.24] LA SERIE CONTRA EL RESUMEN — dos implementaciones distintas del mismo saldo.
+      //
+      // Esto no se podía preguntar antes: la serie llevaba el acumulado en UNIDADES y el resumen
+      // en pesos, así que no había con qué compararlos. Y mientras no se podía preguntar, la
+      // serie pintaba «Cargado» al COSTO junto a «Vendido» a PRECIO — la lectura A de
+      // VERDAD_ABSOLUTA §19 adentro de la pantalla que existe para denunciarla. Medido en la
+      // ruta 21: $3,820 cargado contra $17,227 vendido el 26-sep. No era sobreventa: eran dos
+      // monedas.
+      //
+      // El candado compara el ÚLTIMO acumulado de la serie contra el inventario del resumen, en
+      // las DOS valuaciones. Son dos SQL distintos sobre el mismo hecho; si divergen, alguien
+      // volvió a mezclar.
+      const fila = cuadre.find((x) => x.route_no === ruta) || {};
+      const ultSerie = serie[serie.length - 1] || {};
+      for (const [moneda, enSerie, enResumen] of [
+        ['costo', Number(ultSerie.saldo_costo_acum), Number(fila.inv_costo)],
+        ['venta', Number(ultSerie.saldo_venta_acum), Number(fila.inv_venta)],
+      ]) {
+        t(`⭐ el último día de la serie (${moneda}) == el inventario del resumen`,
+          Number.isFinite(enSerie) && Number.isFinite(enResumen)
+            && Math.abs(enSerie - enResumen) < 0.5,
+          `serie ${enSerie} vs resumen ${enResumen} — dos consultas, un solo hecho`);
+      }
+      // PRUEBA NEGATIVA de la mezcla: si las dos monedas dieran lo mismo, el conmutador de
+      // valuación no estaría haciendo nada y la pantalla mentiría en una de las dos.
+      t('PRUEBA NEGATIVA · las dos valuaciones NO dan lo mismo (si no, una de las dos está mal)',
+        Math.abs(Number(ultSerie.saldo_costo_acum) - Number(ultSerie.saldo_venta_acum)) > 1,
+        `costo ${ultSerie.saldo_costo_acum} vs venta ${ultSerie.saldo_venta_acum}`);
 
       // (b) Los embarques: su suma TIENE que ser la carga que el ledger reporta. Dos caminos.
       const emb = (await db.raw(sqlDe('routeShipments'), [tenant, ruta, ...RANGO])).rows;
@@ -463,7 +492,7 @@ async function cuerposDeLaMigracion() {
 
       // (e) El presupuesto, para los cuatro.
       const presup = [
-        ['serie', sqlDe('routeSeries'), [tenant, ruta, ...RANGO]],
+        ['serie', sqlDe('routeSeries'), [tenant, ruta, ...RANGO, tenant, ruta, ...RANGO]],
         ['embarques', sqlDe('routeShipments'), [tenant, ruta, ...RANGO]],
         ['líneas', sqlDe('routeShipmentLines'),
           [tenant, ruta, e0.folio, e0.serie, e0.serie, tenant, ruta, tenant]],

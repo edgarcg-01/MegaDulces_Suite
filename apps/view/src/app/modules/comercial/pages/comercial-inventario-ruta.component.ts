@@ -296,30 +296,46 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                         emptyIcon="pi-chart-line" emptyTitle="Sin movimiento en este periodo"
                         (retry)="pedirSerie()">
           <p class="ir-nota">
-            Cada día, lo que se le cargó contra lo que vendió, y el <strong>saldo acumulado</strong>
-            al cierre. El día en que ese acumulado cruza a negativo es el día en que la ruta empezó
-            a vender lo que ya traía.
+            Cada día, lo que se le cargó contra lo que vendió, y <strong>lo que queda</strong> al
+            cierre. El día en que eso cruza a negativo es el día en que la ruta empezó a vender lo
+            que ya traía. Las tres cifras en pesos van en la
+            <strong>{{ metrica() === 'costo' ? 'misma valuación: el costo del embarque' : 'misma valuación: el precio al cliente' }}</strong>,
+            para que restarlas signifique algo; las unidades van en su propia columna.
           </p>
           <div class="dt-scope">
             <p-table [value]="serie() ?? []" [scrollable]="true" scrollHeight="52vh"
                      class="dt-stack surf-table surf-table--sticky" size="small" [rowHover]="true"
                      [tableStyle]="{ 'min-width': '42rem' }">
               <ng-template #header>
-                <tr><th>Día</th><th class="num">Cargado</th><th class="num">Vendido</th>
-                  <th>Proporción</th><th class="num">Saldo acum. (uds)</th></tr>
+                <!--
+                  Las tres columnas de dinero van en la MISMA valuación, la que elige el
+                  conmutador. Antes «Cargado» iba al costo y «Vendido» a precio: restarlas con
+                  el ojo daba el margen, no el saldo — la lectura A de VERDAD_ABSOLUTA §19,
+                  dentro de la pantalla que existe para denunciarla.
+                -->
+                <tr><th>Día</th>
+                  <th class="num">Cargado</th>
+                  <th class="num">{{ metrica() === 'costo' ? 'Vendido (al costo)' : 'Vendido' }}</th>
+                  <th>Proporción</th>
+                  <th class="num">Lo que queda</th>
+                  <th class="num">Unidades</th></tr>
               </ng-template>
               <ng-template #body let-p>
                 <tr>
                   <td class="dt-id ir-mono" role="cell">{{ p.fecha }}</td>
-                  <td class="num ir-mono" role="cell" data-label="Cargado">{{ p.cargado | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="num ir-mono" role="cell" data-label="Vendido">{{ p.vendido | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num ir-mono" role="cell" data-label="Cargado">{{ sCarga(p) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num ir-mono" role="cell" data-label="Vendido">{{ sVendido(p) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td role="cell" data-label="Proporción">
-                    <span class="ir-barra" [title]="'Cargado ' + (p.cargado | number:'1.0-0')">
-                      <i class="ir-b-carga" [style.width.%]="pct(p.cargado)"></i>
-                      <i class="ir-b-venta" [style.width.%]="pct(p.vendido)"></i>
+                    <span class="ir-barra"
+                          [title]="'Cargado ' + (sCarga(p) | currency:'MXN':'symbol-narrow':'1.0-0') + ' · vendido ' + (sVendido(p) | currency:'MXN':'symbol-narrow':'1.0-0')">
+                      <i class="ir-b-carga" [style.width.%]="pct(sCarga(p))"></i>
+                      <i class="ir-b-venta" [style.width.%]="pct(sVendido(p))"></i>
                     </span>
                   </td>
-                  <td class="num ir-mono" role="cell" data-label="Saldo acumulado"
+                  <td class="num ir-mono ir-fuerte" role="cell" data-label="Lo que queda"
+                      [class.ir-bad]="sSaldo(p) < 0">{{ sSaldo(p) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <!-- Las unidades van APARTE y rotuladas, no mezcladas en la fila de pesos. -->
+                  <td class="num ir-mono ir-tenue" role="cell" data-label="Unidades"
                       [class.ir-bad]="p.saldo_qty_acum < 0">{{ p.saldo_qty_acum | number:'1.0-0' }}</td>
                 </tr>
               </ng-template>
@@ -493,7 +509,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       letter-spacing: .03em; margin-bottom: .1rem; }
     .ir-hist dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600;
       font-size: .82rem; color: var(--c-text-1); }
-    @media (max-width: 640px) { .ir-hist { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 40rem) { .ir-hist { grid-template-columns: repeat(2, 1fr); } }
     .ir-tabs { display: flex; gap: .2rem; border-bottom: 1px solid var(--border); margin-bottom: .75rem; }
     .ir-tabs button { background: none; border: 0; border-bottom: 2px solid transparent;
       padding: .45rem .8rem; font: inherit; font-size: .85rem; font-weight: 600;
@@ -725,8 +741,19 @@ export class ComercialInventarioRutaComponent {
   }
 
   /** Ancho de la barra de proporción: contra el día más grande de la serie. */
+  // ── La serie, leída en la valuación elegida. Nunca una columna de cada moneda. ──
+  sCarga = (p: RouteSeriesPoint) => this.metrica() === 'costo' ? p.cargado_costo : p.cargado_venta;
+  sVendido = (p: RouteSeriesPoint) => this.metrica() === 'costo' ? p.vendido_costo : p.vendido_venta;
+  sSaldo = (p: RouteSeriesPoint) => this.metrica() === 'costo' ? p.saldo_costo_acum : p.saldo_venta_acum;
+
+  /**
+   * La barra normaliza contra el máximo de la MISMA valuación. Con las dos monedas mezcladas
+   * dibujaba el margen como si fuera sobreventa: todos los días la barra de venta salía ~28%
+   * más larga que la de carga, y eso era el margen, no mercancía de más.
+   */
   pct(v: number): number {
-    const max = Math.max(1, ...(this.serie() ?? []).flatMap((p) => [p.cargado, p.vendido]));
+    const s = this.serie() ?? [];
+    const max = Math.max(1, ...s.flatMap((p) => [this.sCarga(p), this.sVendido(p)]));
     return Math.max(1, Math.round((Number(v) || 0) / max * 100));
   }
 
