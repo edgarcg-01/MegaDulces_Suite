@@ -2301,9 +2301,11 @@ export class ExpenseProofsService {
    * ## La comprobación de Kepler
    * Sale de `finance.expense_comprobaciones` (módulo GX.8) por `folio_solicitud`. Cuenta la que
    * existe y **no está rechazada**: una comprobación que se rechazó no comprueba nada.
-   * ⛔ Si la tabla no existe en este entorno, `comprobacion_kepler` viaja en **`null`** y el
-   * veredicto sale `sin_medir` — nunca «no comprobó». Acusar a 155 personas por un `JOIN` que
-   * falta sería peor que no medir.
+   * ⛔ Si la tabla no existe en este entorno, `comprobacion_kepler` viaja en **`null`**.
+   *
+   * `[GX.65.2]` Desde el 2026-10-03 la comprobación **ya no decide** si el vale cierra: se sigue
+   * mandando como dato informativo, pero `protocoloDelVale` no la lee, así que `null` ya no
+   * produce `sin_medir`.
    */
   async expedientePorUsuario(limit = 2000): Promise<RespuestaExpediente> {
     const tenantId = this.tenantCtx.requireTenantId();

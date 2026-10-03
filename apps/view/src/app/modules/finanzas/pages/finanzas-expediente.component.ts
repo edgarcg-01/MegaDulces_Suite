@@ -27,10 +27,13 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
  * sigue existiendo y es a donde lleva el folio. Son dos cosas con el mismo nombre y conviene
  * saberlo antes de buscar el archivo equivocado.
  *
- * ## El protocolo, y por qué casi todo va a salir incompleto el primer día
- * Un vale cierra el protocolo con tres cosas: la firma, la **comprobación de Kepler** (que el
- * usuario pidió hacer forzosa) y —si se aprobó con una cotización— la **factura del gasto**.
+ * ## El protocolo
+ * `[GX.65.2]` Un vale cierra el protocolo con la **firma** y —si se aprobó como prefactura o
+ * cotización— la **factura del gasto**. La comprobación de Kepler **dejó de ser forzosa**
+ * (decisión del 2026-10-03), y con ella se fueron su botón y su banda de «sin medir».
  * La regla vive en `@megadulces/contracts` y la calcula el SERVIDOR; esta pantalla la muestra.
+ *
+ * ---- Historia (GX.59): por qué casi todo salía incompleto el primer día ----
  *
  * ⛔ **Medido el 2026-10-01: `finance.expense_comprobaciones` está prácticamente vacía.** El
  * módulo que la llena (GX.8) existe desde hace meses y no se usa. O sea que con la comprobación
@@ -64,18 +67,10 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
       } @else if (datos(); as d) {
 
         <!--
-          La banda que declara lo que no se pudo medir. Va ARRIBA del tablero: si fuera un
-          pie, el numero de «incompletos» se leeria como un hecho y seria una medicion que
-          no corrio. Nunca se pinta si la medicion si ocurrio.
+          [GX.65.2] Aca vivia la banda «Sin medir la comprobacion de Kepler: ningun vale puede
+          salir completo». Se retiro con la regla: la comprobacion ya no decide si un vale
+          cierra, asi que esa frase seria FALSA (si pueden salir completos sin la tabla).
         -->
-        @if (!d.comprobaciones_medidas) {
-          <div class="exp-aviso">
-            <strong>Sin medir la comprobación de Kepler.</strong>
-            La tabla de comprobaciones no está disponible en este entorno, así que ningún vale
-            puede salir completo. Lo que ves no dice que nadie comprobó: dice que no se pudo
-            preguntar.
-          </div>
-        }
 
         <div class="exp-kpis">
           <div class="exp-kpi"><span class="k">Personas</span><b>{{ d.total.personas }}</b></div>
@@ -190,18 +185,11 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
                   }
 
                   <!--
-                    Los dos botones del pedido. El de Kepler se ofrece SIEMPRE que falte,
-                    porque es el forzoso; el de la factura solo a quien quedo debiendo, que
-                    es la unica persona a la que se le puede reclamar.
+                    [GX.65.2] Se fue el boton forzoso «Comprobacion de Kepler»: la comprobacion
+                    ya no es obligatoria, y ademas mandaba a la captura de la SOLICITUD, no a la
+                    de la comprobacion. Queda el de la factura, solo para quien quedo debiendo.
                   -->
                   <footer class="exp-acc">
-                    @if (necesitaKepler(v)) {
-                      <a class="exp-btn primary"
-                         [routerLink]="['/finanzas/solicitudes']"
-                         [queryParams]="{ folio: v.folio_solicitud }">
-                        Comprobación de Kepler
-                      </a>
-                    }
                     @if (necesitaFactura(v)) {
                       <a class="exp-btn"
                          [routerLink]="['/finanzas/gastos']"
@@ -253,11 +241,6 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
     .exp { display: flex; flex-direction: column; gap: var(--sp-3); }
     .exp-msg { font-size: var(--fs-body); color: var(--fg-2); padding: var(--sp-4); }
     .exp-msg.bad { color: var(--bad-fg); }
-
-    .exp-aviso { font-size: var(--fs-body); line-height: 1.45; padding: var(--sp-3) var(--sp-4);
-      background: var(--warn-soft-bg); border: 1px solid var(--warn-border);
-      border-left: 3px solid var(--warn-fg); border-radius: var(--radius-sm); color: var(--warn-soft-fg); }
-    .exp-aviso strong { display: block; }
 
     .exp-kpis { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
     .exp-kpi { flex: 1 1 140px; background: var(--surface-card); border: 1px solid var(--surface-border);
@@ -422,11 +405,6 @@ export class FinanzasExpedienteComponent {
             detail: `Solicitud ${v.folio_solicitud}` });
         },
       });
-  }
-
-  /** Falta la comprobacion de Kepler: el boton forzoso. */
-  necesitaKepler(v: ValeExpediente): boolean {
-    return v.protocolo.faltan.some((f) => f.id === 'comprobacion_kepler') && !!v.folio_solicitud;
   }
 
   /** Quedo debiendo la factura por haber subido una cotizacion. */

@@ -3630,8 +3630,17 @@ de pago · alcance en pirámide de 5 niveles sobre `ScopeService` (ADR-050), no 
   ⛔ **La comprobación de Kepler deja de ser forzosa** — revierte lo pedido el 2026-10-02 en GX.59;
   manda la regla nueva. El `XA1001` **no mueve** el vale: se muestra como dato del expediente.
   Con esto el ex-GX.65.2 (que el dueño capture la comprobación por GX.8) **ya no hace falta**.
-- [ ] **[GX.65.2]** El protocolo del expediente deja de exigir la comprobación (`protocoloDelVale`,
-  GX.59): «completo» = evidencia + «Revisado»; la prefactura exige además su factura.
+- [x] **[GX.65.2]** 🧪 **El protocolo del expediente deja de exigir la comprobación de Kepler.**
+  `protocoloDelVale`: completo = firmado + (si fue prefactura, su factura). Revierte GX.59 por
+  decisión del 2026-10-03. **Medido antes (local, 156 expedientes): 18 pasan de incompleto a
+  completo, 4 siguen incompletos (prefacturas sin factura), ninguno empeora.** En el Expediente se
+  retiraron el botón forzoso «Comprobación de Kepler» (además mandaba a la captura de la
+  SOLICITUD, la pantalla equivocada) y la banda «sin la tabla ningún vale puede salir completo»
+  (ya sería falsa). `comprobacion_kepler`/`sin_medir` se conservan en los tipos para no romper
+  lectores; se retiran en GX.65.5. Pruebas negativas: un veredicto viejo con «falta la
+  comprobación» no hace aparecer el botón, y la prefactura sin factura sigue incompleta aunque
+  tenga comprobación. contracts 324→325 · finance 344 · view 1655→1653 (−6 del botón/banda, +4
+  candados) · `nx build api` + `nx build view` OK · check:templates/tokens/estilos verdes.
 - [ ] **[GX.65.3]** Que Kepler cree el `XA1001` deja de ser «Ejercido = cerrado»: se publica como dato.
   `/mine` publica además la clave de proveedor (`cuenta_clave` + `acreedor`).
 - [ ] **[GX.65.4]** Alcance por pirámide (`ScopeService`, área `finanzas`) + nadie aprueba su propio vale.
