@@ -5,6 +5,129 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-02 — `[RA-DYN.U7]` El cumplimiento cableado al pedido: el grano lo decidió la medición
+
+Edgar, sobre la medición que quedó publicada el mismo día: *"cablealo"*.
+
+### Lo que había, medido antes de tocar nada
+
+El motor **ya tenía** el mecanismo — `sugerido ÷ fill rate`, topado, de RA-PRO.27. Lo que no tenía
+era con qué alimentarlo:
+
+| fuente | cobertura real en prod |
+|---|---|
+| `fill_rate_override` (captura manual) | **0** de 994 proveedores |
+| nuestras OCs recibidas | **4** proveedores, 18 renglones |
+| reclamo del andén (WMS-REC.8) | **6** proveedores, 30 renglones |
+| la cadena de Kepler (`[RA-DYN.U5/U6]`) | **329** proveedores, 86,833 renglones |
+
+O sea: el motor corregía por cumplimiento **en el papel**. Todos los demás tomaban `1.0`, que
+significa *no sé*, no *me surte completo*.
+
+⚠️ **Y el mecanismo estaba del lado que no publica.** `purchaseSuggestion` tenía el `÷ fill`; la
+grilla de `/compras/pedido` —y con ella el total, el Excel y los chips— sale de `workbook`, que
+**no tenía ningún fill rate**. Cablear sólo el primero habría sido decorativo.
+
+### ⭐ El grano lo decidió la medición, y refutó la intuición
+
+La intuición decía SKU, y tenía evidencia a favor: el faltante **está** concentrado — en MONDELEZ
+el peor 10% de los SKUs carga el **49.5%** del dinero no surtido, y **80 de sus 174 SKUs nunca
+fallaron**. Inflar los 174 por igual parecía obviamente malo.
+
+Partiendo la historia de cada sujeto en dos mitades cronológicas y preguntando si la primera
+predice la segunda, el orden se invierte:
+
+    grano (proveedor, SKU) ... 3,276 pares ... correlacion 0.240
+    grano proveedor ......... 190 prov.   ... correlacion 0.495   <-- el doble
+
+El faltante se amontona **dentro** de un periodo, pero **cuáles** SKUs fallan cambia entre
+periodos. Lo que se repite es el nivel del proveedor. Cablearlo por SKU habría sido cablear ruido
+con más resolución — y la concentración, que era el argumento, no alcanzaba para decidirlo.
+
+### ⭐ El umbral de 25 es el borde medido de la señal, y el dinero no lo decide
+
+| renglones | proveedores | correlación | error medio |
+|---|---|---|---|
+| 6 a 14 | 40 | **−0.026** | 0.026 |
+| 15 a 24 | 30 | **−0.052** | 0.041 |
+| 25 a 99 | 90 | **0.607** | 0.053 |
+| 100 o más | 100 | **0.341** | 0.038 |
+
+Debajo de 25 el fill rate **no predice nada**. El `fill_min_lines = 3` que ya existía nació para la
+evidencia app-nativa; aplicarlo al ERP habría cableado ruido, así que el ERP estrena umbral propio
+(`fill_min_lines_erp`, mig `20261003120000`) con un CHECK que **sólo deja subirlo**.
+
+⚠️ **Si la decisión se hubiera tomado por el monto, cualquier corte parecía igual de bueno**:
+entre umbral 3 y umbral 50 el sugerido se mueve de $367,126 a $361,726 — **1.5%**. Bajar el umbral
+casi no agrega pedido; sólo agrega ruido.
+
+### El antes/después, sobre la superficie que publica
+
+Reconstruyendo la fórmula de `workbook` (grano celda, cobertura 30, mismo gate de peldaño):
+
+    pedido ......... $7,555,816 -> $7,916,562   (+$360,746, +4.8%)
+    celdas ......... 3,168 de 6,411 con pedido corrigen; 373 tocan el tope
+    proveedores .... 63
+
+Lo mueve sobre todo **MONDELEZ** (fill 68.6%, +$147,614), DE LA ROSA (87.3%, +$75,620) y AZTECA
+(77.8%, +$37,541).
+
+**El invariante que el candado verifica:** una celda **sin** medición publica **exactamente** el
+número de antes. Medido: 3,247 celdas sin fill, **0** se movieron.
+
+### ⛔ Lo que esta fuente no puede decidir, y cómo se acota
+
+Kepler **no marca la cancelación en el renglón**: uno que **nosotros** cancelamos se ve igual que
+uno que el proveedor no surtió. Esa atribución no se cierra con esta fuente, así que se acota en
+tres lugares en vez de taparse: el **tope** (`fill_max_inflate`, 1.30), el **umbral** medido, y una
+**columna propia en pantalla** con el porcentaje y el factor. Un pedido que crece 4.8% sin decir
+por qué no se discute con nadie — ni con el proveedor ni con quien firma la compra.
+
+Se excluye además al proveedor con **nombre homónimo** (202 en el catálogo, 35,005 renglones):
+cuesta **$2,393** del delta y evita inflarle el pedido a un negocio por culpa de otro.
+
+### ⚠️ La trampa que me mordió midiendo, antes de escribir el código
+
+**`GREATEST` ignora los NULL en Postgres.** `GREATEST(NULL, 1/1.30)` devuelve **0.769**, así que un
+proveedor **sin** medición se habría llevado el inflado **máximo, +30%** — justo el que menos lo
+merece. Lo descubrí porque un barrido de umbrales me dio $1.19 M de delta donde la consulta buena
+daba $363 K: 3.5×, y el síntoma era que el número **no se movía** al cambiar el umbral. El
+`COALESCE` va **adentro** del `GREATEST`, y el bloque [3] del candado **reproduce la trampa en
+vivo** antes de verificar que la expresión del motor no cae en ella.
+
+### Verificación
+
+- `test-newdb-fill-rate-wiring.js` — **verde · 2 NO MEDIDO**, vigilando las **cinco premisas** y no
+  el número: el grano, el umbral, la guarda del `GREATEST`, el rango `[0,1]` con su tope, y el
+  homónimo. Registrado en `run-all-tests.js`.
+- El **SQL del servicio se corrió contra prod extrayéndolo del propio fuente** con el parser de
+  TypeScript, no copiándolo a mano: 76 proveedores, fill 0.681 a 1.000, muestra mínima **25 exacta**,
+  **40 ms**. — *una copia a mano se puede desincronizar sin que nadie se entere.*
+- Dos riesgos que sólo aparecen ejecutando, verificados contra prod: que knex **tolera binds con
+  nombre de sobra** (si no, la consulta de territorios, que comparte el objeto de binds, habría
+  dado 500) y que `double precision × numeric` **resuelve** antes del `::numeric`.
+- `fre` va como **CTE `MATERIALIZED`**, no como subconsulta en línea: en esta misma consulta el
+  planificador ya eligió dos veces un nested loop que re-evaluaba una relación por fila
+  (131.9 M de filas descartadas, 4 min 18 s).
+
+### ⚠️ Y la octava vez del acento grave
+
+Escribí cuatro comentarios con acentos graves **dentro de template literals** (tres en el SQL del
+servicio, uno en el template del componente). `npm run check:templates` atrapó el del componente;
+**los tres del servicio no los ve nadie** — ese gate sólo inspecciona `*.component.ts`. Los
+encontré releyéndolos a propósito, y después pareé los cuatro archivos con el parser de TypeScript,
+que es lo que de verdad lo habría atrapado. **El gate que falta es ese**: parsear los `.ts` que
+construyen SQL, no sólo los componentes.
+
+### Pendiente
+
+- Aplicar la migración `20261003120000` (`fill_min_lines_erp`) — **sin autorizar**.
+- Redeploy api+view. Sin permisos nuevos → sin re-login.
+- Refresco nocturno con umbral para `mv_supplier_fill_rate` — **sigue abierto**, y ahora pesa más:
+  la matvista ya no sólo informa, **mueve el pedido**.
+- Validación visual de la columna nueva.
+
+---
 ## 2026-10-02 — `[RA-DYN.U4–U6]` El cumplimiento del proveedor: la herramienta era un índice
 
 Edgar: *"hay que darle esas herramientas faltantes"*, tras preguntar qué tiene el comprador contra
