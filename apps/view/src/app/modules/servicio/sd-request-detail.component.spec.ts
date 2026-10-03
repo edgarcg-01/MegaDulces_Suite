@@ -11,7 +11,7 @@ import { SdRequestDetailComponent } from './sd-request-detail.component';
  *  · quien REPORTA ve «Cerrar» / «Sigue fallando» sólo cuando está resuelto, y NUNCA los botones de atención;
  *  · quien ATIENDE ve «Tomar» sólo en un ticket nuevo, y el menú de estados que le corresponde;
  *  · resolver y reabrir EXIGEN nota (el botón no se habilita sin ella);
- *  · una nota interna nunca viaja con archivos;
+ *  · una nota interna SÍ admite archivos (`[MS.3.13]`), y la pantalla avisa que tampoco los ve quien reportó;
  *  · lo que el servidor rechaza se muestra con su razón, no como un fallo genérico.
  */
 
@@ -170,10 +170,32 @@ describe('[MS.3.3] SdRequestDetailComponent', () => {
       await render('asignado', true, true);
       expect(api.agents).toHaveBeenCalled();
     });
-    it('⭐ una nota interna con archivos no se puede enviar (el servidor también lo rechaza)', async () => {
+    it('⭐ `[MS.3.13]` una nota interna con archivos SÍ se puede enviar, y la pantalla dice que quien reportó tampoco los ve', async () => {
+      await render('en_proceso', true);
+      const c = fix.componentInstance;
+      c.texto.set('Foto del equipo');
+      c.interna.set(true);
+      c.archivos.set([new File(['x'], 'a.png', { type: 'image/png' })]);
+      fix.detectChanges();
+      const enviar = Array.from(el().querySelectorAll('button')).find((x) => x.textContent?.trim() === 'Guardar nota') as HTMLButtonElement;
+      expect(enviar.disabled).toBe(false);
+      expect(texto()).toContain('tampoco los ve quien reportó');
+    });
+    it('el aviso de privacidad sólo sale con nota interna Y archivos (en un mensaje público no tiene sentido)', async () => {
       await render('en_proceso', true);
       const c = fix.componentInstance;
       c.texto.set('algo');
+      c.archivos.set([new File(['x'], 'a.png', { type: 'image/png' })]);
+      fix.detectChanges();
+      expect(texto()).not.toContain('tampoco los ve quien reportó');
+      c.interna.set(true);
+      c.archivos.set([]);
+      fix.detectChanges();
+      expect(texto()).not.toContain('tampoco los ve quien reportó');
+    });
+    it('⛔ NEGATIVA — sin texto no se envía, con o sin archivos (el cuerpo sigue siendo obligatorio)', async () => {
+      await render('en_proceso', true);
+      const c = fix.componentInstance;
       c.interna.set(true);
       c.archivos.set([new File(['x'], 'a.png', { type: 'image/png' })]);
       fix.detectChanges();

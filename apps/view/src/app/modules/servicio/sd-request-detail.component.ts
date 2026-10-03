@@ -211,10 +211,10 @@ function leerComoDataUri(f: File): Promise<string> {
                 }
                 <span class="sd-sp"></span>
                 <p-button [label]="interna() ? 'Guardar nota' : 'Enviar'" size="small" [loading]="busy()"
-                          [disabled]="!texto().trim() || (interna() && archivos().length > 0) || optimizando()" (onClick)="enviar()" />
+                          [disabled]="!texto().trim() || optimizando()" (onClick)="enviar()" />
               </div>
               @if (optimizando()) { <small class="sd-hint" role="status">Optimizando las fotos para subirlas más rápido…</small> }
-              @if (interna() && archivos().length) { <small class="sd-hint">Las notas internas no admiten archivos.</small> }
+              @if (interna() && archivos().length) { <small class="sd-hint">Los archivos de una nota interna tampoco los ve quien reportó.</small> }
             </div>
           }
         </section>

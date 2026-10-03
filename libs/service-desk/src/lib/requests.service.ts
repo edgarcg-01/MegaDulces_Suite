@@ -521,8 +521,15 @@ export class ServiceDeskRequestsService {
     if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
 
     const settings = (await this.tk.run((trx) => this.cfg.load(trx))).settings;
+    /*
+     * `[MS.3.13]` Una nota INTERNA admite adjuntos (la evidencia que sube quien atiende no siempre es para quien
+     * reportó: la foto de un equipo ajeno, una captura de un log, un documento del proveedor). Es seguro porque la
+     * privacidad NO descansa en esta línea sino en la LECTURA: `detail` sólo entrega a quien reporta los adjuntos de
+     * mensajes públicos o sin mensaje, así que el adjunto de una nota interna ni se lista ni recibe URL firmada para
+     * él. Antes se rechazaba aquí por prudencia; una regla de «no se puede» que protege algo que otra capa ya protege
+     * sólo le quita al agente su evidencia. Sigue siendo sólo para quien atiende (arriba: 403 al solicitante).
+     */
     const preparados = this.att.preparar(dto.attachments, settings.maxAttachmentBytes);
-    if (visibility === 'internal' && preparados.length) throw new BadRequestException('Las notas internas no admiten adjuntos');
     const subidos: AdjuntoSubido[] = preparados.length ? await this.att.subir(preparados, CARPETA) : [];
 
     let efectos = sinEfectos();

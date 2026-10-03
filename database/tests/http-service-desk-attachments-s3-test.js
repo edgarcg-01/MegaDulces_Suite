@@ -12,6 +12,8 @@
  *      del bucket lo que ya había subido: ni ticket huérfano ni objeto huérfano.
  *   6. La URL prefirmada es del ticket: quien no tiene acceso al ticket no la recibe, y una URL con la firma
  *      alterada el bucket la rechaza.
+ *   7. `[MS.3.13]` ⭐ El adjunto de una NOTA INTERNA lo ve y lo baja quien atiende, y quien reportó NO lo recibe
+ *      (ni listado ni URL): la privacidad está en la lectura, no en prohibir el adjunto.
  *
  * Pre-requisitos: API en :3334 **arrancada con las mismas variables S3_*** que este script, y un bucket S3
  * (cualquiera: MinIO, Cloudflare R2, Zenko CloudServer). Sin `S3_ENDPOINT` el script SE SALTA con exit 0 y lo dice:
@@ -181,6 +183,45 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     const dAlt = await fetch(alterada);
     check('⭐ una URL con la firma ALTERADA la rechaza el bucket (403)', dAlt.status === 403, `status ${dAlt.status}`);
     check('la URL declara caducidad (no es permanente)', /X-Amz-Expires=\d+/i.test(png.url), png.url.slice(0, 200));
+
+    // ── 7. Adjuntos en notas internas ────────────────────────────────────────────────
+    console.log('\n6 — `[MS.3.13]` un adjunto en una NOTA INTERNA es sólo de quien atiende');
+    const ti = await req('POST', `${SD}/requests`, sol.token, { category_id: catLibre.id, title: 'SMOKE S3: nota interna con foto' });
+    const antesNota = (await llaves()).length;
+    const rSolInterna = await req('POST', `${SD}/requests/${ti.body?.id}/messages`, sol.token, { body: 'intento', visibility: 'internal', attachments: [{ file_base64: dataUri('image/png', PNG_1X1), file_name: 'no.png' }] });
+    check('⛔ el solicitante NO puede dejar una nota interna (con o sin archivo) → 403', rSolInterna.status === 403, dump(rSolInterna));
+    check('⛔ y ese rechazo NO escribió nada al bucket', (await llaves()).length === antesNota);
+
+    const rNota = await req('POST', `${SD}/requests/${ti.body?.id}/messages`, agente.token, { body: 'Así se ve el equipo en sitio', visibility: 'internal', attachments: [{ file_base64: dataUri('image/png', PNG_1X1), file_name: 'equipo.png' }] });
+    check('⭐ quien atiende deja una nota interna CON un archivo → 201', rNota.status < 300, dump(rNota));
+    const aNota = (rNota.body?.attachments ?? []).find((a) => a.file_name === 'equipo.png');
+    check('quien atiende lo ve en la ficha, con su URL', !!aNota?.url, JSON.stringify(rNota.body?.attachments?.map((a) => a.file_name)));
+    const dNota = aNota?.url ? await bajar(aNota.url) : null;
+    check('⭐ y puede descargarlo: los mismos bytes', dNota?.status === 200 && dNota.buf.equals(PNG_1X1), `${dNota?.status}`);
+    const msgNota = (rNota.body?.messages ?? []).find((m) => m.kind === 'internal_note');
+    check('el archivo cuelga de un mensaje INTERNO', !!msgNota && msgNota.visibility === 'internal' && aNota?.message_id === msgNota.id, JSON.stringify([msgNota?.visibility, aNota?.message_id, msgNota?.id]));
+    const enBase = await knex('servicedesk.request_attachments').where({ request_id: ti.body?.id }).select('storage_key');
+    check('existe en el bucket', enBase.length === 1 && !!(await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: enBase[0].storage_key })).catch(() => null)));
+
+    const vSol = await req('GET', `${SD}/requests/${ti.body?.id}`, sol.token);
+    const textoSol = JSON.stringify(vSol.body);
+    check('⭐ quien REPORTÓ no ve el adjunto de la nota interna: ni listado…', (vSol.body?.attachments ?? []).length === 0, JSON.stringify(vSol.body?.attachments));
+    check('⭐ …ni su nombre, ni su llave, ni una URL firmada en NADA de la respuesta', !textoSol.includes('equipo.png') && !textoSol.includes(enBase[0].storage_key) && !textoSol.includes('X-Amz-Signature'), 'la respuesta del solicitante mencionó el adjunto');
+    check('…ni la nota', !(vSol.body?.messages ?? []).some((m) => m.kind === 'internal_note'));
+    const lista = await req('GET', `${SD}/requests/mine?scope=open&limit=100`, sol.token);
+    check('…ni en el listado de «Mis solicitudes»', !JSON.stringify(lista.body).includes('equipo.png') && !JSON.stringify(lista.body).includes('X-Amz-Signature'));
+    const nSol = await req('GET', `${SD}/me/notifications`, sol.token);
+    check('⭐ y ningún aviso al solicitante menciona la nota ni el archivo', !JSON.stringify(nSol.body).includes('Así se ve el equipo') && !JSON.stringify(nSol.body).includes('equipo.png'));
+
+    // Un comentario PÚBLICO con archivo sigue siendo visible para quien reportó (lo que no debe cambiar).
+    const rPub = await req('POST', `${SD}/requests/${ti.body?.id}/messages`, agente.token, { body: 'Te dejo la foto del arreglo', attachments: [{ file_base64: dataUri('image/png', PNG_1X1), file_name: 'arreglo.png' }] });
+    check('un comentario público con archivo → 201', rPub.status < 300, dump(rPub));
+    const vSol2 = await req('GET', `${SD}/requests/${ti.body?.id}`, sol.token);
+    check('⭐ el solicitante ve SÓLO el archivo público (1 de 2 adjuntos del ticket)', (vSol2.body?.attachments ?? []).length === 1 && vSol2.body.attachments[0].file_name === 'arreglo.png', JSON.stringify(vSol2.body?.attachments?.map((a) => a.file_name)));
+    const vAg2 = await req('GET', `${SD}/requests/${ti.body?.id}`, agente.token);
+    check('quien atiende ve los dos', (vAg2.body?.attachments ?? []).length === 2);
+    const vOtro = await req('GET', `${SD}/requests/${ti.body?.id}`, otro.token);
+    check('quien no es del ticket no ve nada → 404', vOtro.status === 404);
   } finally {
     if (ajustes) await knex('servicedesk.settings').where({ tenant_id: T }).update({ max_attachment_mb: Number(ajustes.max_attachment_mb) });
     // Se borra del bucket SÓLO lo que este script creó (lo que no estaba en la lista de antes).
