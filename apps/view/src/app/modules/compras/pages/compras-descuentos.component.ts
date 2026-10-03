@@ -266,7 +266,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
     /* filas navegables a su arreglo (Q.4): clic → tab + filtro por proveedor */
     tr.dx-clickable { cursor: pointer; }
     tr.dx-clickable:hover td { background: var(--hover-bg); }
-    tr.dx-clickable:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    tr.dx-clickable:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .dx-drillhint { font-size: .72rem; color: var(--text-faint); margin-left: .35rem; }
   `],
 })

@@ -237,6 +237,7 @@ import { AuthService } from '../../../core/services/auth.service';
       .fld > span em { font-style: normal; color: var(--text-faint); font-weight: 500; text-transform: none; letter-spacing: 0; }
       .fld input { width: 100%; height: 2.7rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); background: var(--card-bg); padding: 0 0.85rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
       .fld input:focus { outline: none; border-color: var(--text-muted); }
+      .fld input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .row { display: flex; gap: 0.7rem; }
       .geo-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; height: 2.7rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, 12px); background: var(--card-bg); color: var(--text-muted); font-weight: 600; font-size: 0.85rem; cursor: pointer; }
       .geo-btn.ok { border-style: solid; border-color: var(--ok-fg, #2e7d32); color: var(--ok-fg, #2e7d32); }
@@ -249,6 +250,7 @@ import { AuthService } from '../../../core/services/auth.service';
       .search { display: flex; align-items: center; gap: 0.6rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: 0.1rem 0.95rem; margin-bottom: 1rem; box-shadow: 0 1px 2px rgba(16,13,9,0.05); }
       .search i { color: var(--text-muted); }
       .search input { flex: 1; border: none; background: none; outline: none; height: 2.8rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
+      .search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .empty { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
       .empty i { font-size: 2.25rem; display: block; margin-bottom: 0.5rem; color: var(--text-faint); }
       .err-banner { display: flex; align-items: center; gap: 0.45rem; width: 100%; margin-bottom: 0.6rem; padding: 0.55rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--bad-soft-bg); border: 1px solid var(--bad-soft-bg); color: var(--bad-soft-fg); font-size: 0.78rem; font-weight: 600; text-align: left; cursor: pointer; }

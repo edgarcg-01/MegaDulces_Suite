@@ -350,11 +350,11 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
     .cq-mode { appearance:none; background:none; border:0; border-bottom:2px solid transparent; padding:.5rem .9rem; font:inherit; font-size:.86rem; color:var(--text-muted); cursor:pointer; display:inline-flex; align-items:center; }
     .cq-mode:hover { color:var(--text-main); }
     .cq-mode.is-active { color:var(--text-main); border-bottom-color:var(--action); font-weight:600; }
-    .cq-mode:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; border-radius:var(--r-sm); }
+    .cq-mode:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; border-radius:var(--r-sm); }
     .cq-w-mes { width:9rem; }
     .cq-table { margin-top:.6rem; }
     .cq-row { cursor:pointer; }
-    .cq-row:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
+    .cq-row:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; }
     .cq-drillhint { font-size:.72rem; color:var(--text-faint); margin-left:.35rem; }
     .ta-r { text-align:right; }
     .cq-num { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -378,7 +378,7 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
     .cq-dt-tab { appearance:none; background:none; border:0; border-bottom:2px solid transparent; padding:.45rem .8rem; font:inherit; font-size:.82rem; color:var(--text-muted); cursor:pointer; }
     .cq-dt-tab:hover { color:var(--text-main); }
     .cq-dt-tab.is-active { color:var(--text-main); border-bottom-color:var(--action); font-weight:600; }
-    .cq-dt-tab:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; border-radius:var(--r-sm); }
+    .cq-dt-tab:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; border-radius:var(--r-sm); }
     /* Vista por factura (documental, FIFO) */
     .cq-inv-legend { display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; font-size:.78rem; color:var(--text-muted); margin-bottom:.6rem; }
     .cq-inv-legend .cq-lgn { margin-right:.7rem; font-family:var(--font-mono); font-variant-numeric:tabular-nums; }

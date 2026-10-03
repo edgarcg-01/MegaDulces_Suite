@@ -103,7 +103,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, i
       border-radius: var(--r-md); background: var(--card-bg); color: var(--fg-1);
       font-size: var(--fs-sm); font-weight: var(--fw-medium); cursor: pointer; }
     .cs-fb-btn input { display: none; }
-    .cs-fb-btn:focus-within { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cs-fb-btn:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
     .cs-canvas { display: none; }
   `],

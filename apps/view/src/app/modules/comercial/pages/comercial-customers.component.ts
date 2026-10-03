@@ -408,6 +408,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
       padding: 0;
       height: 28px;
     }
+      .cu-search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .cu-search input::placeholder { color: var(--c-text-3); }
     .cu-search-clear {
       background: transparent;

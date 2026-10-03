@@ -63,11 +63,33 @@ Las cuatro reglas, congeladas con la deuda de hoy — **frenan cuando CRECE, no 
 | `@media` con breakpoint en px | **205** |
 | `outline:none` sin un `:focus-visible` hermano | **27** |
 
-⭐ **Hallazgo de encenderla: 27 controles sin anillo de foco, y 24 de los 27 son CAMPOS DE ENTRADA** —
-los dos campos de **escaneo** (andén de almacén, etiquetas de tienda), el **login de las dos apps**,
-los steppers de cantidad del vendedor, y **los buscadores que `[D.7]` acaba de volver navegables con
-teclado**: la ruta existe y es **invisible**. Se listan uno por uno con `npm run check:estilos --lista`
-y **no se arreglaron a ciegas** — el anillo correcto difiere entre Storefront y Operations.
+### Fixed — el anillo de foco: 37 controles que no lo tenían y 103 que no llegaban al piso (2026-10-03)
+
+Salió de encender `check:estilos`, y resultó ser más grande que su hallazgo inicial.
+
+- **Dos tokens porque son dos roles.** `--action-ring` (translúcido 30%) nació como **halo** para
+  `box-shadow` y se estaba usando también como color de **`outline`**. Ahí no funciona: un outline no
+  se difumina, se dibuja encima, y a ese alpha queda en **1.44:1** contra el piso de **3:1** que
+  §datos densos 13 y WCAG 1.4.11 exigen. **103 anillos estaban por debajo.** Ahora
+  `--focus-ring: var(--action)` → **3.08 a 5.87:1** según el fondo, y los **25 halos de `box-shadow`
+  quedaron intactos**, que ahí el translúcido es lo correcto.
+  ⚠️ El mismo **3.39:1** que hace fallar a `--action-ink` acá **pasa**: foco pide 3:1, texto pide
+  4.5:1. *Citar un ratio sin su piso no dice nada.*
+- **37 controles sin ningún anillo, y 24 eran campos de entrada:** los dos de **escaneo** (andén de
+  almacén, etiquetas de tienda), el **login de las dos apps**, los steppers del vendedor, el
+  **verificador de mostrador**, los tabs de PrimeNG en las 3 apps, y **los buscadores que `[D.7]`
+  acaba de volver navegables con teclado** — la ruta existía y era **invisible**. Arreglados los 37;
+  el tope de esa regla queda en **0**.
+
+⛔ **Y la compuerta tenía el defecto que venía a buscar.** Su primera versión preguntaba si el
+**archivo** contenía `:focus-visible` en cualquier parte, así que en cuanto un archivo ganaba un
+anillo, todo `outline:none` agregado después pasaba en silencio — dejando ciegos justo a los 20
+archivos recién arreglados. **Lo encontró su propia prueba negativa, el mismo día.** Reescrita por
+**control**, destapó **10 defectos más**. En el camino se corrigieron dos criterios demasiado
+estrictos, medidos contra los hallazgos reales: un anillo con `box-shadow` vale igual que uno con
+`outline`, y un bloque que ya responde al foco puede apagar el `outline` si pone otra señal — pero
+**`border: none` y `background: none` NO son señal**, y ésa era la firma exacta de los 27 originales.
+Los cinco casos viven en el `--self-test` (20 en total).
 
 **Abierto, con dueño:** `@media print` = **7** en una app que emite pólizas y libro de compras, INP
 sin medición de campo en `apps/view`, `--action-ink` en **3.39:1** (verificado), y la única deuda que

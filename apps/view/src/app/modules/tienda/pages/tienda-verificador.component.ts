@@ -403,6 +403,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       font-family: inherit; padding: 14px; border-radius: 14px; border: 3px solid var(--vf-naranja);
       background: #fff; color: var(--vf-oscuro); letter-spacing: 2px; outline: none;
       box-shadow: 0 4px 16px rgba(0,0,0,.06); }
+      .vf-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .vf-input::placeholder { color: #c0c0c0; font-size: 16px; letter-spacing: 1px; }
     .vf-input:disabled { color: #b0b0b0; }
     .vf-busy { color: var(--vf-naranja); font-size: 1.3rem; }

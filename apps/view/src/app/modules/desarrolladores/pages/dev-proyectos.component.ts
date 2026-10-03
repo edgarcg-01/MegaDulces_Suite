@@ -490,7 +490,7 @@ const KIND_ICON: Record<string, string> = {
       border-radius: var(--r-pill); padding: 4px var(--sp-3); font-size: var(--fs-sm); cursor: pointer; }
     .dp-chip b { color: var(--text-main); margin-left: var(--sp-1); font-family: var(--font-mono); }
     .dp-chip.on { border-color: var(--action); color: var(--text-main); background: var(--surface-selected-bg); }
-    .dp-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .dp-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
     .dp-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); }
     .dp-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
@@ -512,7 +512,7 @@ const KIND_ICON: Record<string, string> = {
     .dp-table tbody tr { cursor: pointer; }
     .dp-table tbody tr:hover { background: var(--surface-hover-bg); }
     .dp-table tbody tr.sel { background: var(--surface-selected-bg); }
-    .dp-table tbody tr:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .dp-table tbody tr:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .dp-table .num { text-align: right; font-family: var(--font-mono); }
     .dp-table .title { font-weight: 600; }
     .mono { font-family: var(--font-mono); font-size: var(--fs-xs); white-space: nowrap; }
@@ -622,7 +622,7 @@ const KIND_ICON: Record<string, string> = {
         border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main);
         font: inherit; cursor: pointer; }
       .dp-card.sel { border-color: var(--action); background: var(--surface-selected-bg); }
-      .dp-card:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+      .dp-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
       .dp-card-top, .dp-card-meta { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); font-size: var(--fs-xs); }
       .dp-card-meta.muted { color: var(--text-muted); justify-content: flex-start; gap: var(--sp-4); }
       .dp-card-meta.muted .mono { margin-left: auto; }

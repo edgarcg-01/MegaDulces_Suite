@@ -700,6 +700,7 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
       .od-fld input:focus, .od-fld select:focus {
         outline: none; border-color: var(--action); box-shadow: 0 0 0 3px var(--ember-soft, rgba(0,0,0,0.05));
       }
+       .od-fld input:focus-visible, .od-fld select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .od-inv-form-actions { display: flex; justify-content: flex-end; gap: 0.6rem; }
       .od-inv-err {
         display: flex; align-items: center; gap: 0.4rem; margin: 0;

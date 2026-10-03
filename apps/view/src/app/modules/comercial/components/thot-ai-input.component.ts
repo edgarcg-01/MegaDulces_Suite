@@ -255,6 +255,7 @@ export interface ThotAsk {
       font-size: 16px;
       padding: 8px 4px;
     }
+      .aci-field input:focus-visible { outline: 2px solid var(--focus-ring) !important; outline-offset: -2px !important; }
     .aci-field input::placeholder { color: var(--text-faint); }
 
     .aci-send {

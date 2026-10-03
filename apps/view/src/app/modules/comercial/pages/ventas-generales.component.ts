@@ -102,6 +102,7 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
     .vg-ask:focus-within { border-color:var(--action); box-shadow:0 0 0 3px var(--action-ring); }
     .vg-ask-ic { color:var(--action); }
     .vg-ask input { flex:1; border:0; background:transparent; outline:none; font-size:.9rem; color:var(--text-main); }
+      .vg-ask input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .vg-ask input::placeholder { color:var(--text-faint); }
     /* el botón vive DENTRO del pill → pill flush, sin borde propio (evita doble borde) */
     :host ::ng-deep .vg-ask button.p-button { border-radius: var(--r-pill, 999px); border: 0; flex: 0 0 auto; }
@@ -116,7 +117,7 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
     .vg-chip { display:inline-flex; align-items:center; gap:.3rem; border:1px solid var(--border-color); background:var(--card-bg); color:var(--text-muted); border-radius:var(--r-pill,999px); padding:.3rem .7rem; font-size:.78rem; cursor:pointer; transition:color 120ms, border-color 120ms, background 120ms; }
     .vg-chip:hover { color:var(--text-main); border-color:var(--action); }
     .vg-chip.on { background:var(--action); border-color:var(--action); color:var(--action-ink,#fff); font-weight:600; }
-    .vg-chip:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
+    .vg-chip:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
     .vg-chip-star { font-weight:600; color:var(--text-main); }
     .vg-builder { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin:.2rem 0 .5rem; }
     .vg-filters { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin:0 0 1rem; padding-top:.5rem; border-top:1px dashed var(--border-color); }

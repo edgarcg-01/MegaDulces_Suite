@@ -185,7 +185,7 @@ function dataUri(f: File): Promise<string> {
     .ss-chip { border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-pill);
       padding: 4px var(--sp-3); font-size: var(--fs-sm); cursor: pointer; }
     .ss-chip.on { border-color: var(--action); color: var(--text-main); background: var(--surface-selected-bg); }
-    .ss-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .ss-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .ss-search { position: relative; flex: 1 1 220px; max-width: 360px; margin-left: auto; }
     .ss-search i { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); font-size: var(--fs-xs); }
     .ss-search input { width: 100%; padding-left: 30px; }
@@ -200,7 +200,7 @@ function dataUri(f: File): Promise<string> {
     .ss-rows li:first-child .ss-row { border-top: 0; }
     .ss-row:hover { background: var(--surface-hover-bg); }
     .ss-row.sel { background: var(--surface-selected-bg); }
-    .ss-row:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .ss-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .ss-r1, .ss-r3 { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); }
     .ss-r1 { justify-content: space-between; }
     .ss-r3 { color: var(--text-muted); }

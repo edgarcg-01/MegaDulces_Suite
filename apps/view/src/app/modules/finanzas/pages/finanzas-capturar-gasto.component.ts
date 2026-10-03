@@ -508,7 +508,7 @@ interface SelSolicitud {
       background: none; font: inherit; font-size: var(--fs-xs); color: var(--action); cursor: pointer;
       text-decoration: underline; text-underline-offset: 2px; }
     .cap-link:hover { color: var(--action-hover); }
-    .cap-link:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .cap-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     /* [GX.17] El desglose de cada coincidencia del buscador. */
     .cap-ac { display: flex; align-items: flex-start; justify-content: space-between;
       gap: var(--sp-3); width: 100%; }
@@ -533,7 +533,7 @@ interface SelSolicitud {
       border: 1px solid var(--border-color); border-radius: var(--r-md);
       background: transparent; font: inherit; text-align: left; cursor: pointer; }
     .cap-fp-b:hover { border-color: var(--action); }
-    .cap-fp-b:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-fp-b:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .cap-fp-b.on { border-color: var(--action); background: var(--overlay-selected); }
     .cap-fp-t { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-1); }
     .cap-fp-b.on .cap-fp-t { color: var(--action); }
@@ -548,7 +548,7 @@ interface SelSolicitud {
       align-items: center; justify-content: center; }
     .cap-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .cap-mini:hover { border-color: var(--action); }
-    .cap-mini:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-mini:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .cap-mini-pdf { cursor: default; color: var(--fg-3); }
     .cap-foto-grande { display: block; width: 100%; height: auto; border-radius: var(--r-sm); }
 
@@ -584,7 +584,7 @@ interface SelSolicitud {
       background: transparent; color: var(--fg-1); font-size: var(--fs-body);
       font-weight: var(--fw-medium); cursor: pointer; }
     .cap-ev-b:hover { border-color: var(--action); color: var(--action); }
-    .cap-ev-b:focus-within { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-ev-b:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .cap-ev-nota { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0;
       font-size: var(--fs-xs); line-height: 1.45; color: var(--fg-3); }
     /* [GX.19] El paso opcional se ve distinto del obligatorio: si los cuatro pesan igual,
@@ -611,7 +611,7 @@ interface SelSolicitud {
       font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-1); cursor: pointer;
       transition: border-color var(--dur-short) var(--ease-standard), color var(--dur-short) var(--ease-standard); }
     .cap-pick:hover { border-color: var(--action); color: var(--action); }
-    .cap-pick:focus-within { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .cap-pick:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
     .cap-done { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
       font-size: var(--fs-sm); border: 1px solid var(--border-color); border-radius: var(--r-md);

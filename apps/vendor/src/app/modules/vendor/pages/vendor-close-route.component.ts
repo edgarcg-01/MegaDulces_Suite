@@ -383,7 +383,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-tile:hover { transform: translateY(-4px); box-shadow: var(--shadow-hover, 0 14px 30px -16px rgba(0,0,0,.28)); }
       .crt-tile:hover .crt-tile-glow { opacity: 1; }
       .crt-tile:active { transform: translateY(-1px) scale(0.99); }
-      .crt-tile:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+      .crt-tile:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
       .crt-tile[data-type='venta']:hover { border-color: var(--ok-fg); }
       .crt-tile[data-type='carga']:hover { border-color: var(--info-fg); }
       .crt-tile[data-type='combustible']:hover { border-color: var(--warn-fg); }
@@ -493,7 +493,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-change { display: inline-flex; align-items: center; gap: 0.35rem; background: var(--card-bg); border: 1px solid var(--border-color); cursor: pointer; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); padding: 0.4rem 0.75rem; border-radius: 999px; transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s; }
       .crt-change:hover { background: var(--hover-bg); color: var(--text-main); border-color: var(--text-faint); }
       .crt-change:active { transform: scale(0.95); }
-      .crt-change:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+      .crt-change:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
       .crt-preview { width: 100%; max-height: 260px; object-fit: contain; border: 1px solid var(--border-color); border-radius: 1rem; margin-bottom: 1.25rem; background: var(--surface-ground); }
 
@@ -602,7 +602,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-save:hover:not(:disabled)::after { animation: crt-shine var(--dur-max, 350ms) ease; }
       .crt-save:active:not(:disabled) { transform: scale(0.975) translateY(1px); box-shadow: inset 0 2px 6px rgba(0,0,0,0.18), 0 4px 10px -6px rgba(240,90,40,0.6); }
       .crt-save:disabled { background: var(--surface-ground); color: var(--text-faint); box-shadow: none; cursor: not-allowed; }
-      .crt-save:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+      .crt-save:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
       .crt-save i { position: relative; z-index: 1; }
       @keyframes crt-shine { to { transform: translateX(130%); } }
 

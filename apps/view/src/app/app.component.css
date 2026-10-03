@@ -21,7 +21,7 @@
   cursor: pointer;
 }
 .app-update:hover { background: var(--hover-bg); }
-.app-update:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+.app-update:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .app-update i { color: var(--action); }
 .app-update b { font-weight: 700; color: var(--action); }
 

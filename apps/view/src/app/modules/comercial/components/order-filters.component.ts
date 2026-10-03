@@ -281,6 +281,7 @@ interface DatePreset { key: string; label: string; }
       padding: 0;
       height: 28px;
     }
+      .co-search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .co-search input::placeholder { color: var(--c-text-3); }
     .co-search-clear {
       background: transparent;

@@ -508,7 +508,7 @@ interface GastoFile {
     .cb-linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--action);
       cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
     .cb-linkbtn:hover { color: var(--action-hover); }
-    .cb-linkbtn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .cb-linkbtn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .cb-fields-head { font-size: .8rem; font-weight: 600; color: var(--text-main); margin-top: .3rem; }
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }

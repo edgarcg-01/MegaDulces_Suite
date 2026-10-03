@@ -115,7 +115,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
     .sb-chip { border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-pill);
       padding: 4px var(--sp-3); font-size: var(--fs-sm); cursor: pointer; }
     .sb-chip.on { border-color: var(--action); color: var(--text-main); background: var(--surface-selected-bg); }
-    .sb-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .sb-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .sb-pri { min-width: 180px; }
     .sb-search { position: relative; flex: 1 1 220px; max-width: 360px; margin-left: auto; }
     .sb-search i { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); font-size: var(--fs-xs); }
@@ -133,7 +133,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
     .sb-table tbody tr { cursor: pointer; }
     .sb-table tbody tr:hover { background: var(--surface-hover-bg); }
     .sb-table tbody tr.sel { background: var(--surface-selected-bg); }
-    .sb-table tbody tr:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .sb-table tbody tr:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .mono { font-family: var(--font-mono); font-size: var(--fs-xs); white-space: nowrap; }
     .tit { font-weight: 600; overflow-wrap: anywhere; }
     .tit small { display: block; font-weight: 400; color: var(--text-muted); font-size: var(--fs-xs); }
