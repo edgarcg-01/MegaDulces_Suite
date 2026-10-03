@@ -160,12 +160,15 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
         </p>
       }
 
-      <!-- [RA-PRO.69] sortField/sortOrder arrancan en el MISMO orden que manda el servidor
-           (dias DESC): la primera pintada no se reordena sola al cargar la pantalla. -->
+      <!-- [RA-PRO.69] DESIGN_TABLES SS6: las columnas son CAMPOS de un registro (no un pivote),
+           asi que en estrecho la tabla APILA. El .dt-scope del contenedor no es decorativo:
+           sin el, el CSS de apilado es inerte y la pantalla se rompe con el build en verde.
+           sortField/sortOrder arrancan en el MISMO orden que manda el servidor (dias DESC). -->
+      <div class="dt-scope">
       <p-table [value]="filas()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
                sortField="dias" [sortOrder]="-1"
                [tableStyle]="{ 'min-width': '68rem' }"
-               styleClass="p-datatable-sm oa-table"
+               styleClass="p-datatable-sm oa-table dt-stack"
                [attr.aria-label]="'Órdenes de compra abiertas en Kepler'">
         <ng-template #header>
           <tr>
@@ -190,24 +193,24 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
               [attr.aria-label]="'Ver el detalle de la orden ' + o.almacen + '-' + o.folio"
               (click)="abrirDetalle(o)"
               (keydown.enter)="abrirDetalle(o)" (keydown.space)="$event.preventDefault(); abrirDetalle(o)">
-            <td pFrozenColumn><span class="comm-code">{{ o.folio }}</span></td>
-            <td class="oa-mono oa-muted">{{ o.almacen }}</td>
-            <td>{{ o.proveedor || '—' }}</td>
-            <td class="oa-muted">{{ o.fecha_oc | date:'dd/MM/yy' }}</td>
-            <td class="comm-num"><span [class]="edadCls(o)">{{ o.dias }} d</span></td>
-            <td><p-tag [value]="estLabel(o.estatus)" [severity]="estSev(o.estatus)" styleClass="oa-tag"></p-tag></td>
-            <td>
+            <td pFrozenColumn class="dt-id" role="cell"><span class="comm-code">{{ o.folio }}</span></td>
+            <td class="oa-mono oa-muted" role="cell" data-label="Sucursal">{{ o.almacen }}</td>
+            <td role="cell" data-label="Proveedor">{{ o.proveedor || '—' }}</td>
+            <td class="oa-muted" role="cell" data-label="Fecha">{{ o.fecha_oc | date:'dd/MM/yy' }}</td>
+            <td class="comm-num dt-num" role="cell" data-label="Abierta"><span [class]="edadCls(o)">{{ o.dias }} d</span></td>
+            <td role="cell" data-label="Kepler"><p-tag [value]="estLabel(o.estatus)" [severity]="estSev(o.estatus)" styleClass="oa-tag"></p-tag></td>
+            <td role="cell" data-label="Motivo">
               @if (clasifOk()) {
                 <span class="oa-clase" [attr.data-clase]="o._clase" [title]="claseAccion(o._clase)">{{ o._claseLabel }}</span>
               } @else { <span class="oa-muted">—</span> }
             </td>
-            <td class="comm-num oa-muted">{{ o.lineas | number }}</td>
-            <td class="comm-num is-strong">{{ money(o.valor) }}</td>
-            <td class="comm-num">
+            <td class="comm-num dt-num oa-muted" role="cell" data-label="Líneas">{{ o.lineas | number }}</td>
+            <td class="comm-num dt-num is-strong" role="cell" data-label="Valor">{{ money(o.valor) }}</td>
+            <td class="comm-num dt-num" role="cell" data-label="Llega">
               @if (o.prob === null) { <span class="oa-muted">—</span> }
               @else { <span [class]="probCls(o)" [title]="probTitle(o)">{{ o.prob }}%</span> }
             </td>
-            <td>
+            <td role="cell" data-label="Seguimiento">
               <!-- Sin permiso (o sin migración) se ve, pero no es botón: un botón deshabilitado no
                    recibe foco y su nota quedaba sólo en el title, invisible para teclado y lector. -->
               @if (puedeEditar()) {
@@ -222,7 +225,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
                 </span>
               }
             </td>
-            <td class="oa-pdf-cell">
+            <td class="oa-pdf-cell dt-actions" role="cell" data-label="PDF">
               <button type="button" class="oa-pdf" [disabled]="pdfFolio() !== null" (click)="$event.stopPropagation(); imprimir(o, false)"
                       title="PDF para enviar al proveedor: la orden, sus renglones y lo que ya llegó (sin notas internas)"
                       [attr.aria-label]="'PDF para el proveedor de la orden ' + o.almacen + '-' + o.folio">
@@ -257,14 +260,23 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
         <ng-template #emptymessage>
           <tr><td colspan="12" class="comm-empty-cell">
             <div class="comm-empty">
-              <i class="pi pi-inbox comm-empty-icon" aria-hidden="true"></i>
-              @if (filtrado()) {
+              @if (cargaError()) {
+                <i class="pi pi-exclamation-triangle comm-empty-icon" aria-hidden="true"></i>
+                <p class="oa-empty-t">No se pudo cargar la bandeja</p>
+                <p class="oa-empty-s">La consulta no respondió. <b>No quiere decir que no haya órdenes abiertas</b>: quiere decir que no se sabe.</p>
+                <button pButton type="button" class="p-button-sm" (click)="reload()">
+                  <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>
+                  <span class="p-button-label">Reintentar</span>
+                </button>
+              } @else if (filtrado()) {
+                <i class="pi pi-filter-slash comm-empty-icon" aria-hidden="true"></i>
                 <p class="oa-empty-t">Sin resultados para este filtro</p>
                 <p class="oa-empty-s">Hay {{ total() | number }} órdenes abiertas en total.</p>
                 <button pButton type="button" class="p-button-sm p-button-text" (click)="limpiarFiltros()">
                   <span class="p-button-label">Quitar los filtros</span>
                 </button>
               } @else {
+                <i class="pi pi-inbox comm-empty-icon" aria-hidden="true"></i>
                 <p class="oa-empty-t">No hay órdenes de compra abiertas</p>
                 <p class="oa-empty-s">Con la sucursal y la antigüedad elegidas, Kepler no tiene ninguna orden sin su entrada.</p>
               }
@@ -272,6 +284,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
           </td></tr>
         </ng-template>
       </p-table>
+      </div>
 
       <!-- ═══ [RA-PRO.69] Detalle de la orden ═══════════════════════════════════════════════
            DESIGN_TABLES SS4.5: el drill-down de una fila es el side-peek, no un modal (se lee
@@ -319,7 +332,11 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
             <div><dt>Vence</dt><dd>{{ d.orden.vence || '—' }}</dd></div>
             <div><dt>Abierta</dt><dd class="comm-num">{{ d.orden.dias | number }} d</dd></div>
             <div><dt>Kepler</dt><dd>{{ estLabel(d.orden.estatus_kepler) }}</dd></div>
-            <div><dt>Motivo</dt><dd>{{ peekOrden()!._claseLabel }}</dd></div>
+            <div class="oa-pk-wide"><dt>Motivo</dt>
+              <dd>{{ peekOrden()!._claseLabel }}
+                <span class="oa-muted">— {{ claseAccion(peekOrden()!._clase) }}</span>
+              </dd>
+            </div>
             <div><dt>Condición de pago</dt><dd>{{ d.orden.condicion_pago || '—' }}</dd></div>
             <div><dt>RFC</dt><dd class="oa-mono">{{ d.orden.proveedor_rfc || '—' }}</dd></div>
             <div><dt>Referencia</dt><dd>{{ d.orden.referencia || '—' }}</dd></div>
@@ -473,7 +490,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
 
     /* ── [RA-PRO.69] Pie de totales y estados vacios ─────────────────────────────────── */
     .oa-tfoot td { border-top: 2px solid var(--border-color); font-weight: 600;
-                   background: var(--surface-50, var(--card-bg)); }
+                   background: var(--surface-100); }
     .oa-empty-t { font-weight: 600; margin: .5rem 0 .25rem; }
     .oa-empty-s { color: var(--text-muted); font-size: .8rem; margin: 0 0 .75rem; }
 
@@ -548,7 +565,6 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
                 padding: .1rem .45rem; border-radius: var(--radius-sm, 4px);
                 border: 1px solid var(--border-color); font-size: .74rem; font-weight: 600;
                 color: var(--text-muted); }
-    .oa-clase[data-clase='pendiente'] { color: var(--text-2, var(--text-muted)); }
     .oa-clase[data-clase='falta_entrada'] { color: var(--warn-fg); border-color: var(--warn-fg); }
     .oa-clase[data-clase='abortada'],
     .oa-clase[data-clase='cerrada_sin_rastro'] { color: var(--bad-fg); border-color: var(--bad-fg); }
@@ -813,6 +829,13 @@ export class ComprasOcAbiertasComponent implements OnInit {
   /** Qué versión se está armando: el spinner sale sólo en el botón que se tocó. */
   readonly pdfInterno = signal(false);
   readonly pdfError = signal<string | null>(null);
+  /**
+   * `[RA-PRO.69]` Si la carga falla, la pantalla ponia TODO en cero y caia al estado vacio:
+   * "No hay órdenes de compra abiertas · Kepler no tiene ninguna orden sin su entrada".
+   * Eso es afirmar un hecho del ERP a partir de una petición que no llegó. Ahora se declara
+   * el error y se ofrece reintentar (DESIGN_TABLES §3: nunca en blanco silencioso).
+   */
+  readonly cargaError = signal(false);
 
   imprimir(o: OpenOcRow, interno: boolean): void {
     if (this.pdfFolio()) return;
@@ -872,6 +895,7 @@ export class ComprasOcAbiertasComponent implements OnInit {
     this.reloadSub = this.api.openPurchaseOrders({ sucursal: this.fSuc || undefined, min_days: this.fMinDays || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
+          this.cargaError.set(false);
           this.rows.set(r.rows ?? []);
           this.total.set(r.total ?? 0);
           this.totalValor.set(r.total_valor ?? 0);
@@ -895,6 +919,7 @@ export class ComprasOcAbiertasComponent implements OnInit {
         // [RA-PRO.60] Y los indicadores también se limpian: antes quedaban con los números de la
         // carga anterior junto a una tabla vacía, que se lee como dato.
         error: () => {
+          this.cargaError.set(true);
           this.rows.set([]); this.total.set(0); this.totalValor.set(0); this.valorEsperado.set(0);
           this.viejas.set(0); this.valorViejas.set(0); this.mostradas.set(0);
           this.truncado.set(false); this.totalMinimo.set(false); this.porSeguimiento.set({});
