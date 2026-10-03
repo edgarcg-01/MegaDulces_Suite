@@ -122,6 +122,14 @@ export interface ExpenseProof {
   etapa_label?: string;
   etapa_explicacion?: string;
   /**
+   * `[GX.65.3]` Sólo en «Mis gastos». El proveedor por su CLAVE de Kepler (`c10`) y su nombre
+   * canónico; `null` = no se pudo leer de Kepler (se declara, no se rellena con lo tecleado).
+   */
+  proveedor_clave?: string | null;
+  proveedor_nombre?: string | null;
+  /** `[GX.65.3]` Gastos `XA1001` que nacieron de la solicitud (pueden ser varios). Dato, no decisión. */
+  gasto_folios?: string[];
+  /**
    * `[GX.54]` Aprobado **debiendo** el comprobante: entró con una cotización o prefactura.
    * Decide qué tarea se le muestra a quien lo levantó — la factura del pago, no «evidencia».
    */

@@ -13,9 +13,8 @@ import { FinanzasExpedienteComponent } from './finanzas-expediente.component';
  * pantalla la muestra. Lo que puede fallar acá es la **lectura**: que el nombre salga, que lo
  * que no se midió se declare, y que cada botón aparezca sólo cuando hay algo que hacer con él.
  *
- * ⛔ Un botón «Comprobación de Kepler» sobre un vale que ya la tiene manda a alguien a
- * capturar dos veces la misma; uno que no aparece cuando falta deja el trámite trabado sin que
- * nadie sepa dónde apretar. Las dos fallas se ven igual de bien en pantalla.
+ * `[GX.65.2]` La comprobación de Kepler dejó de ser forzosa: su botón y su banda se fueron,
+ * y las pruebas de abajo vigilan que no vuelvan.
  */
 const veredicto = (
   etapa: VeredictoProtocolo['etapa'],
@@ -163,20 +162,25 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
     });
   });
 
-  describe('los dos botones', () => {
-    /** ⭐ El forzoso: aparece exactamente cuando falta la comprobación de Kepler. */
-    it('ofrece «Comprobación de Kepler» sólo al vale que la debe', () => {
+  describe('los botones', () => {
+    /**
+     * ⛔ `[GX.65.2]` El botón forzoso «Comprobación de Kepler» se retiró con la regla. Esta es
+     * la prueba negativa: el fixture TODAVÍA trae un vale con «falta la comprobación» (como lo
+     * mandaría un servidor viejo), y aun así el botón no aparece.
+     */
+    it('⛔ ya no ofrece «Comprobación de Kepler», ni con un veredicto viejo que la pida', () => {
       montar();
       c.seleccion.set('david_cisneros');
       fix.detectChanges();
-      const botones = [...fix.nativeElement.querySelectorAll('.exp-acc a')]
+      const botones = [...fix.nativeElement.querySelectorAll('.exp-acc a, .exp-acc button')]
         .map((a: Element) => (a.textContent || '').trim());
-      expect(botones.filter((t) => t.includes('Comprobación de Kepler')).length).toBe(1);
+      expect(botones.some((t) => t.includes('Comprobación de Kepler'))).toBe(false);
+      // Y el resto de la ficha sigue ahí: no se fue el footer entero.
+      expect(botones.some((t) => t.includes('Ver el vale'))).toBe(true);
     });
 
-    it('⛔ NO lo ofrece al vale que ya la tiene: mandaría a capturarla dos veces', () => {
-      expect(c.necesitaKepler(VALE())).toBe(false);
-      expect(c.necesitaKepler(VALE({ protocolo: veredicto('incompleto', [FALTA_KEPLER]) }))).toBe(true);
+    it('el método del botón forzoso ya no existe', () => {
+      expect((c as unknown as Record<string, unknown>)['necesitaKepler']).toBeUndefined();
     });
 
     /** La factura se le pide sólo a quien quedó debiendo: al resto sería inventarle una deuda. */
@@ -188,20 +192,9 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
     });
 
     /** ⛔ Sin folio no hay a dónde ir: un botón que lleva a una pantalla en blanco es peor. */
-    it('sin folio no se ofrece ningún botón', () => {
+    it('sin folio no se ofrece la factura', () => {
       const sinFolio = VALE({ folio_solicitud: null, protocolo: veredicto('incompleto', [FALTA_KEPLER, FALTA_FACTURA]), provisional: true });
-      expect(c.necesitaKepler(sinFolio)).toBe(false);
       expect(c.necesitaFactura(sinFolio)).toBe(false);
-    });
-
-    /** El de Kepler lleva al folio puesto, no a una lista de 10,082 para buscarlo a mano. */
-    it('el botón de Kepler viaja con el folio', () => {
-      montar();
-      c.seleccion.set('david_cisneros');
-      fix.detectChanges();
-      const a = [...fix.nativeElement.querySelectorAll('.exp-acc a')]
-        .find((x: Element) => (x.textContent || '').includes('Comprobación de Kepler')) as HTMLAnchorElement;
-      expect(a.getAttribute('href')).toContain('folio=0009947');
     });
   });
 
@@ -290,28 +283,14 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
 
   describe('lo que no se pudo medir', () => {
     /**
-     * ⭐⭐ **La prueba que sostiene el módulo.** Sin la tabla de comprobaciones ningún vale
-     * puede salir completo. Pintar eso como «nadie comprobó» acusaría a 19 personas por una
-     * consulta que no corrió. La banda lo dice ARRIBA, no en un pie.
+     * ⛔ `[GX.65.2]` La banda «sin la tabla de comprobaciones ningún vale puede salir
+     * completo» se retiró: con la comprobación fuera de la regla, esa frase sería FALSA.
+     * Prueba negativa: aunque el servidor diga que no la midió, la banda no aparece.
      */
-    it('declara que no se midió, y lo dice arriba', () => {
+    it('⛔ sin la tabla de comprobaciones ya NO pinta la banda (sería falsa)', () => {
       montar(REPORTE({ comprobaciones_medidas: false }));
-      const aviso = fix.nativeElement.querySelector('.exp-aviso') as HTMLElement;
-      expect(aviso).toBeTruthy();
-      // Dice la CAUSA, que es lo accionable: falta la tabla, no falta la gente.
-      expect(aviso.textContent).toContain('no se pudo preguntar');
-      expect(aviso.textContent).toContain('tabla de comprobaciones');
-      // ⚠️ Aca habia un `not.toContain('nadie comprobo')` y daba rojo contra el texto
-      // correcto: la banda usa esa frase DENTRO de una negacion («no dice que nadie
-      // comprobo»). Buscar una frase suelta no distingue una afirmacion de su contrario;
-      // lo que de verdad importa es que el titular diga «Sin medir».
-      expect((aviso.querySelector('strong') as HTMLElement).textContent).toContain('Sin medir');
-    });
-
-    /** ⛔ Con la medición hecha, la banda NO se pinta: una alarma que grita siempre se ignora. */
-    it('medida la comprobación, la banda desaparece', () => {
-      montar();
       expect(fix.nativeElement.querySelector('.exp-aviso')).toBeNull();
+      expect(fix.nativeElement.textContent).not.toContain('ningún vale');
     });
 
     /** Un mosaico en cero ensucia el tablero y entrena a ignorarlo: sin casos, no se pinta. */

@@ -3605,6 +3605,97 @@ lo alimente, es lo que dejó el módulo muerto.
 **antes** del redeploy (si el código sale primero, «Mis gastos» consulta una columna que no existe) ·
 redeploy api+view. **Sin permisos nuevos → sin re-login.**
 
+### 🔨 [GX.65] · «Mis gastos» en 3 columnas (Solicitudes → Gastos → Expedientes) — 2026-10-03
+
+Rediseño acordado con maqueta: la solicitud `XA1501`, el gasto `XA1001` y el expediente con su pago
+`XD2601` en una sola pantalla, pendientes arriba en rojo, lo avanzado abajo **agrupado por la clave de
+proveedor de Kepler** (`c10` = `cuenta_clave`, 100% poblada; el nombre libre `c32` tiene 367 variantes
+para 337 claves). Se construye **por fases cortas**, probando que lo que ya funciona no se rompa.
+Decisiones tomadas: proveedor = clave Kepler · Expedientes: sin pago arriba, pagados abajo por fecha
+de pago · alcance en pirámide de 5 niveles sobre `ScopeService` (ADR-050), no un filtro propio.
+
+- [x] **[GX.65.1]** 🧪 **Un vale abierto nunca se queda fuera de «Mis gastos» por el `limit`.**
+  `list()` ordenaba por `created_at desc` y cortaba en 200: un vale devuelto o con la factura
+  pendiente, más viejo que eso, desaparecía sin aviso. Ahora, en «lo mío», los abiertos
+  (`recibida/aprobada/revision/rechazada`) viajan **todos** y el `limit` sólo recorta los
+  `validada`; tope duro de 1000 que, si se alcanza, **se declara** (`abiertos_truncados`). Los
+  demás usos de `list()` no cambian. Función pura `mis-gastos-abiertos.ts` + candado
+  `mis-gastos-abiertos.spec.ts` (12 pruebas, con prueba negativa del corte viejo).
+  **Medido (local):** el máximo por persona es 22 vales → hoy no le escondía nada a nadie; es un
+  riesgo latente que crece con el uso. Prod no medido (sin acceso desde esta máquina).
+  finance 332→344 · `nx build api` OK.
+  **Regla de columnas, decidida 2026-10-03 (reemplaza el borrador de «Gastos XA1001»):**
+  1 · **Solicitudes** (evidencia → «Revisado») · 2 · **Pendientes de comprobación**, *sólo* los
+  aprobados como prefactura/cotización (`provisional`, GX.54/55, ya existe) · 3 · **Expedientes**
+  (sin pago arriba / pagados abajo). «Revisado» sin prefactura salta **directo** a Expedientes.
+  ⛔ **La comprobación de Kepler deja de ser forzosa** — revierte lo pedido el 2026-10-02 en GX.59;
+  manda la regla nueva. El `XA1001` **no mueve** el vale: se muestra como dato del expediente.
+  Con esto el ex-GX.65.2 (que el dueño capture la comprobación por GX.8) **ya no hace falta**.
+- [x] **[GX.65.2]** 🧪 **El protocolo del expediente deja de exigir la comprobación de Kepler.**
+  `protocoloDelVale`: completo = firmado + (si fue prefactura, su factura). Revierte GX.59 por
+  decisión del 2026-10-03. **Medido antes (local, 156 expedientes): 18 pasan de incompleto a
+  completo, 4 siguen incompletos (prefacturas sin factura), ninguno empeora.** En el Expediente se
+  retiraron el botón forzoso «Comprobación de Kepler» (además mandaba a la captura de la
+  SOLICITUD, la pantalla equivocada) y la banda «sin la tabla ningún vale puede salir completo»
+  (ya sería falsa). `comprobacion_kepler`/`sin_medir` se conservan en los tipos para no romper
+  lectores; se retiran en GX.65.5. Pruebas negativas: un veredicto viejo con «falta la
+  comprobación» no hace aparecer el botón, y la prefactura sin factura sigue incompleta aunque
+  tenga comprobación. contracts 324→325 · finance 344 · view 1655→1653 (−6 del botón/banda, +4
+  candados) · `nx build api` + `nx build view` OK · check:templates/tokens/estilos verdes.
+- [x] **[GX.65.3]** 🧪 **«Mis gastos» publica el proveedor por CLAVE y los gastos `XA1001` ligados.**
+  Aditivo, no cambia ninguna decisión: cada fila de `/mine` trae `proveedor_clave` (`c10`),
+  `proveedor_nombre` (catálogo `kdxd`; `null` se declara, no se rellena con lo tecleado) y
+  `gasto_folios[]` (puente `c39`, el mismo del Expediente GX.62; lista porque hay solicitudes con
+  hasta 4 gastos). Las columnas del proveedor se piden **sólo si existen** en el entorno; los gastos
+  **sólo en «lo mío»** (las otras pantallas de `list()` no pagan la consulta).
+  ⚠️ **La etapa «Ejercido» NO se tocó**: las pestañas de hoy la siguen leyendo; el diseño nuevo deja
+  de usarla para ubicar el vale en GX.65.5, y ahí se decide su retiro.
+  **Medido (local):** 17 ms la de Kepler, 4 ms la de gastos. ⚠️ El ODS local es semilla: de 92 folios
+  sólo 7 existen en Kepler, 5 con clave, **0 con nombre** (sin catálogo `kdxd`), 1 gasto ligado →
+  la pantalla debe mostrar la clave sola cuando falte el nombre. Prod (medido en ago): clave 100%,
+  nombre 99.8%. Función pura `mis-gastos-kepler.ts` + candado (11 pruebas, con negativa: el mismo
+  folio en otra sucursal NO se mezcla). finance 344→355 · view 1653 · build api + view OK.
+- [x] **[GX.65.4a]** 🧪 **Nadie aprueba, valida ni rechaza su propio vale.** Segregación de
+  funciones: medido en local, **5 de 18** decisiones las tomó el dueño del vale (cuentas de
+  prueba, pero el hueco era real). Una sola guarda `asegurarQueNoEsSuyo` en `approve`/`validate`/
+  `reject`, aplica a TODOS (god-mode incluido). Compara las **dos identidades** de quien decide
+  (username y nombre completo) contra los **dos dueños** del vale (`created_by` y `evidencia_por`,
+  sin el prefijo `link:`): con un solo texto, quien capturó con su username y aprueba ya con nombre
+  cargado se colaba. Sin identidad → se niega. La regla vive en `libs/contracts`
+  (`dueno-del-vale.contract.ts`) porque la leen servidor y pantalla. En Aprobación de gastos el
+  vale propio **no ofrece** Revisado/Rechazar y dice «Es tuyo: lo revisa otra persona»; si igual
+  llega al servidor, el aviso muestra su motivo. ⚠️ **Para probar en local ahora hacen falta DOS
+  cuentas**: una que levanta y otra que revisa. contracts 325→334 · finance 369→360 (9 pruebas
+  movidas a contracts) · view 1653→1658 · build api + view OK · check:templates/tokens/estilos.
+  **Simulación por niveles (2026-10-03), contra la API local con el código nuevo:** 7 personas
+  reales de los 5 niveles (cajera, encargada, dirección, Maripaz, Jesús, Guillermo, superuser),
+  vales de prueba `SIMGX65-*` que se borran al terminar → **37 de 37 casos como se esperaba**.
+  ⛔ **Encontró un bug ANTES de correrla:** el token de sesión no trae `full_name` y `req.user` ES
+  el token, así que la guarda comparaba sólo el username y el dueño de un vale guardado con su
+  NOMBRE se colaba. Arreglado: la guarda lee el nombre real de `identity.users`. Script
+  reutilizable `database/scripts/sim-gx65-niveles.js` (aborta si la base no es local).
+  Hallazgos de la simulación: el permiso de autorizar lo tienen `tesoreria` por rol, Jesús por
+  persona (GX.17) y los superadmin por god-mode; `direccion` **no** autoriza. El Expediente le
+  muestra a quien autoriza **las 18 personas** del local: es el hueco de GX.65.4b, confirmado.
+- [ ] **[GX.65.4b]** Alcance por pirámide (`ScopeService`, área `finanzas`): quién ve qué en «Todos»
+  y en el Expediente (hoy cualquiera con `COMPROBAR` ve toda la empresa). Depende de fichas con
+  sucursal y del centro de costo (`c12`, sesión DM.19) para lo anterior al 1-oct.
+- [x] **[GX.65.5]** 🧪 **«Mis gastos» en 3 columnas** (Solicitudes → Pendientes de comprobación →
+  Expedientes), reemplazando las 4 pestañas de GX.47. Regla pura `mis-gastos-columnas.ts`: la
+  columna sale del ESTADO nuestro (asignado/devuelto → 1 arriba · recibida → 1 abajo · aprobada →
+  2 arriba · revision → 2 abajo · validada → 3), **nunca de Kepler** (el XA1001 se muestra como
+  chip). Pendientes en rojo, del más viejo al más nuevo, con antigüedad (ámbar > 30 días). Abajo,
+  agrupado por **clave de proveedor de Kepler**; sin clave → un solo grupo «Sin clave de proveedor
+  en Kepler» (no se agrupa por el nombre tecleado). «Pagados» siempre vacío y lo explica: el pago
+  XD2601 aún no se liga a su gasto. Un estado desconocido **se avisa**, no cae callado en una
+  columna. Se conservan: `/mine` sin filtrar en el cliente, KPI de validados del servidor, error ≠
+  vacío, aviso de rechazos a las 24 h, buscador al servidor, botón a la captura con folio+sucursal,
+  factura de la prefactura. **Verificado en vivo (4200 + API local, cuenta demo_captura):** 3/1/4
+  vales por columna, 4 te tocan, 17 esperan, sin desborde a 420 px. view 1658→1679 · build view OK ·
+  check:templates/tokens/estilos (estilos atrapó un breakpoint en px → rem).
+- [ ] **[GX.65.6]** Filtros avanzados de la maqueta: accesos rápidos, «Más filtros», periodo de
+  pagados, aviso de pendientes ocultos por un filtro, orden por columna.
+
 ### 🔨 [GX.57] + [GX.58] · el concepto obligatorio y el botón «Revisado» — 2026-10-01
 
 Dos pedidos del usuario sobre el módulo ya construido, los dos de una línea y ninguno de una línea.

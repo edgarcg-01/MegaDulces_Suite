@@ -155,7 +155,7 @@ describe('FinanzasMisGastosComponent', () => {
    * ⛔ El recorte a lo propio lo sigue haciendo el SERVIDOR. Esta pantalla no filtra por
    * persona: si lo hiciera, un error suyo mostraría el vale de otro y se vería igual de bien.
    */
-  describe('[GX.46/47] la lista y sus cuatro pestañas', () => {
+  describe('[GX.65.5] las tres columnas', () => {
     const ASIG = (over: Record<string, unknown> = {}) => ({
       sucursal: '00', folio: '0009946', fecha: '2026-09-28', importe: 1583.86,
       solicita: 'DEMO_CAPTURA', destinatario: 'ESTACION DE SERVICIO TAVISA',
@@ -177,61 +177,76 @@ describe('FinanzasMisGastosComponent', () => {
       ],
     }) as unknown as ExpenseProofsReport;
 
-    const chips = () => [...fix.nativeElement.querySelectorAll('.mg-etapa')]
-      .map((e) => ((e as HTMLElement).textContent || '').trim().replace(/\s+/g, ' '));
+    /** Los folios que quedaron dentro de una columna, por id de columna. */
+    const folios = (col: string) => [...fix.nativeElement.querySelectorAll('[data-col="' + col + '"] .mg-folio')]
+      .map((e) => ((e as HTMLElement).textContent || '').trim());
 
-    /** ⭐ Cuatro, ni una más: siete pestañas para 26 renglones parten la lista en pedazos. */
-    it('son exactamente las cuatro pestañas pedidas, en orden', () => {
+    /** ⭐ `[GX.65.5]` Tres columnas, en el orden del trámite. Se fueron las cuatro pestañas. */
+    it('son tres columnas, en orden, y ya no hay pestañas', () => {
       montar(CON_ETAPAS());
-      expect(chips().map((s) => s.replace(/ \d+$/, ''))).toEqual(['Todos', 'En trámite', 'Rechazados', 'Por ejercer']);
+      const titulos = [...fix.nativeElement.querySelectorAll('.mg-col h2')].map((e) => (e as HTMLElement).textContent?.trim());
+      expect(titulos).toEqual(['Solicitudes', 'Pendientes de comprobación', 'Expedientes']);
+      expect(fix.nativeElement.querySelectorAll('.mg-etapa').length).toBe(0);
     });
 
     /**
-     * El agrupado es **de qué lado está parado el vale**: lo asignado y lo que sigue de este
-     * lado van juntos; lo firmado que espera a Kepler va junto.
+     * Cada vale en UNA columna: el asignado, el que espera «Revisado» y el devuelto en
+     * Solicitudes; los validados en Expedientes, sin importar qué diga Kepler de ellos.
      */
-    it('cada pestaña cuenta lo que le toca', () => {
+    it('cada vale cae en su columna, y en una sola', () => {
       montar(CON_ETAPAS());
-      const n = (etiqueta: string) => {
-        const c2 = chips().find((s) => s.startsWith(etiqueta)) || '';
-        return c2.slice(etiqueta.length).trim();
-      };
-      expect(n('Todos')).toBe('7');          // 1 asignado + 6 expedientes
-      expect(n('En trámite')).toBe('2');     // el asignado + el que espera firma
-      expect(n('Rechazados')).toBe('1');
-      expect(n('Por ejercer')).toBe('3');    // por_ejercer + autorizado + sin_medir
+      expect(folios('solicitudes').sort()).toEqual(['0001', '0006', '0009946']);
+      expect(folios('comprobacion')).toEqual([]);
+      expect(folios('expedientes').sort()).toEqual(['0002', '0003', '0004', '0005']);
+      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(7);
+    });
+
+    /** ⭐ Lo que te toca va en rojo: el asignado y el devuelto. El que espera, no. */
+    it('lo que te toca va marcado en rojo; lo que espera, no', () => {
+      montar(CON_ETAPAS());
+      const rojos = [...fix.nativeElement.querySelectorAll('.mg-item.rojo .mg-folio')]
+        .map((e) => ((e as HTMLElement).textContent || '').trim()).sort();
+      expect(rojos).toEqual(['0006', '0009946']);
+      expect(c.teTocan()).toBe(2);
+    });
+
+    /** Camino B: el aprobado que debe su factura va a la columna 2, arriba. */
+    it('el aprobado que debe la factura cae en Pendientes de comprobación', () => {
+      montar({ ...REPORTE(), asignados: [],
+        rows: [FILA({ id: 'z', status: 'aprobada', folio_solicitud: '0097020', provisional: true })],
+      } as unknown as ExpenseProofsReport);
+      expect(folios('comprobacion')).toEqual(['0097020']);
     });
 
     /**
-     * ⚠️ **Lo que no entra en ninguna pestaña se puede contar**, para poder decirlo en vez de
-     * esconderlo: `ejercido` y `cancelado_kepler` sólo se ven en «Todos».
+     * ⛔ «Pagados» hoy siempre vacío, y lo DICE: el pago XD2601 no trae a qué gasto paga.
+     * Dibujar un pagado sin esa liga sería inventar el dato.
      */
-    it('lo que queda fuera de las pestañas se sabe cuánto es', () => {
+    it('⛔ «Pagados» vacío explica por qué, no dibuja pagos', () => {
       montar(CON_ETAPAS());
-      expect(c.fueraDePestanas()).toBe(1);   // el ejercido
+      const col = fix.nativeElement.querySelector('[data-col="expedientes"]') as HTMLElement;
+      expect(col.textContent).toContain('XD2601 aún no se puede ligar');
     });
 
-    it('al abrir «Por ejercer» quedan los tres que esperan a Kepler', () => {
-      montar(CON_ETAPAS());
-      c.seccion.set('por_ejercer');
-      fix.detectChanges();
-      const txt = fix.nativeElement.textContent as string;
-      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(3);
-      expect(txt).toContain('0002');
-      expect(txt).toContain('0005');
-      expect(txt).toContain('0004');
-      // ⛔ El ejercido NO: ya salió el dinero, no está «por ejercer».
-      expect(txt).not.toContain('0003');
+    /** Abajo se agrupa por la CLAVE de proveedor de Kepler (decisión del usuario). */
+    it('lo que espera se agrupa por la clave de proveedor de Kepler', () => {
+      montar({ ...REPORTE(), asignados: [], rows: [
+        FILA({ id: 'r1', status: 'recibida', folio_solicitud: '0101', proveedor_clave: 'GS0044', proveedor_nombre: 'ACEROS' }),
+        FILA({ id: 'r2', status: 'recibida', folio_solicitud: '0102', proveedor_clave: 'GS0044', proveedor_nombre: 'ACEROS' }),
+      ] } as unknown as ExpenseProofsReport);
+      const grupos = fix.nativeElement.querySelectorAll('[data-col="solicitudes"] .mg-grupo');
+      expect(grupos.length).toBe(1);
+      expect((grupos[0] as HTMLElement).textContent).toContain('GS0044');
+      expect((grupos[0] as HTMLElement).querySelectorAll('.mg-item').length).toBe(2);
     });
 
-    it('«En trámite» junta el vale asignado con el que espera firma', () => {
-      montar(CON_ETAPAS());
-      c.seccion.set('en_tramite');
-      fix.detectChanges();
-      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(2);
-      const txt = fix.nativeElement.textContent as string;
-      expect(txt).toContain('0009946');
-      expect(txt).toContain('0001');
+    /** `[GX.65.3]` El gasto de Kepler se muestra como DATO, sin mover el vale. */
+    it('el XA1001 ligado se muestra como dato', () => {
+      montar({ ...REPORTE(), asignados: [], rows: [
+        FILA({ id: 'v', status: 'validada', folio_solicitud: '0097012', gasto_folios: ['0097093'] }),
+      ] } as unknown as ExpenseProofsReport);
+      expect(fix.nativeElement.textContent).toContain('Kepler: XA1001-0097093');
+      expect(folios('expedientes')).toEqual(['0097012']);
     });
 
     /** ⭐ El vale de Kepler ya NO vive en un cuadro aparte: es una fila más. */
@@ -334,13 +349,20 @@ describe('FinanzasMisGastosComponent', () => {
     });
 
     /**
-     * ⛔ **La prueba que encontró un defecto en esta misma pantalla.** Con un servidor que no
-     * manda `etapa`, la barra salía con todas las pestañas en 0 — que AFIRMA que medimos y
-     * dio cero, cuando no medimos nada.
+     * `[GX.65.5]` La columna sale del ESTADO, no de la etapa de Kepler: un servidor que no
+     * manda `etapa` igual ubica cada vale.
      */
-    it('sin una sola etapa resuelta, la barra de pestañas NO se pinta', () => {
+    it('sin etapa resuelta, cada vale igual cae en su columna', () => {
       montar(REPORTE());
-      expect(fix.nativeElement.querySelectorAll('.mg-etapa').length).toBe(0);
+      expect(folios('solicitudes')).toEqual(['0049641']);
+      expect(folios('expedientes')).toEqual(['0049651']);
+    });
+
+    /** ⛔ Un estado desconocido se DICE arriba; no se mete callado en una columna. */
+    it('⛔ un estado que no sabe ubicar lo avisa', () => {
+      montar({ ...REPORTE(), asignados: [], rows: [FILA({ id: 'x', status: 'inventado' })] } as unknown as ExpenseProofsReport);
+      expect(c.fueraDeColumnas()).toBe(1);
+      expect(fix.nativeElement.textContent).toContain('no sabe ubicar');
     });
 
     /** Un servidor viejo no manda `asignados`: no puede romper la pantalla. */

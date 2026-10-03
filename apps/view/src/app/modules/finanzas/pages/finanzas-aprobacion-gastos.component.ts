@@ -14,6 +14,9 @@ import {
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { ValeGastoPeekComponent, type AccionVale, type AprobacionVale } from '../components/vale-gasto-peek.component';
 import { parseLocalDate } from '../../../core/utils/mx-date';
+// `[GX.65.4a]` La MISMA regla que aplica el servidor, desde el contrato: dos copias se separan.
+import { esDuenoDelVale } from '@megadulces/contracts';
+import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
 
 const FORMA_PAGO_LABEL: Record<string, string> = {
   efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia',
@@ -264,6 +267,8 @@ const ESTADO_LABEL: Record<string, string> = {
                   @if (p.revision_nota) { <div class="ap-it-nota warn">{{ p.revision_nota }}</div> }
                   @if (p.motivo_rechazo) { <div class="ap-it-nota bad">Rechazado: {{ p.motivo_rechazo }}</div> }
                   @if (p.validated_by) { <div class="ap-it-nota faint">Cerrado por {{ p.validated_by }}</div> }
+                  <!-- [GX.65.4a] Sin esto, el vale propio abriria sin botones y pareceria un fallo. -->
+                  @if (esMio(p)) { <div class="ap-it-nota faint">Es tuyo: lo revisa otra persona.</div> }
 
                   <div class="ap-it-pie">
                     @if (p.files.length) {
@@ -419,6 +424,7 @@ const ESTADO_LABEL: Record<string, string> = {
 })
 export class FinanzasAprobacionGastosComponent {
   private readonly svc = inject(ComprobacionesService);
+  private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -559,9 +565,23 @@ export class FinanzasAprobacionGastosComponent {
    */
   accionesDe(p: ExpedienteDelDia | null): readonly AccionVale[] {
     if (!p) return [];
+    // `[GX.65.4a]` En el vale propio no se ofrece decidir. El servidor lo niega igual: esto sólo
+    // evita el clic que va a fallar.
+    if (this.esMio(p)) return [];
     if (p.status === 'recibida') return ['aprobar', 'rechazar'];
     if (p.status === 'aprobada' || p.status === 'revision') return ['comprobar', 'rechazar'];
     return [];
+  }
+
+  /**
+   * `[GX.65.4a]` ¿Lo levantó quien está mirando? Compara contra su username y, si el token lo
+   * trae, su nombre completo. Es una AYUDA de pantalla: la guarda de verdad vive en el servidor
+   * (que además mira quién subió la evidencia).
+   */
+  esMio(p: ExpedienteDelDia): boolean {
+    const u = this.auth.user() as (JwtPayload & { full_name?: string }) | null;
+    if (!u) return false;
+    return esDuenoDelVale({ created_by: p.created_by }, { username: u.username, full_name: u.full_name });
   }
 
   /**

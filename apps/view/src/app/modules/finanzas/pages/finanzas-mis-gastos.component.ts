@@ -4,64 +4,28 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import {
   CLASIFICACION_LABEL, ComprobacionesService,
   type ExpenseClasificacion, type ExpenseProof, type ValeGasto,
 } from '../comprobaciones.service';
 import { ValeGastoPeekComponent } from '../components/vale-gasto-peek.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
+import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
 import type { EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
+import {
+  DIAS_ATORADO, agruparPorProveedor, diasDesde, textoAntiguedad, ubicacionDe,
+  type ColumnaId, type GrupoProveedor, type ZonaId,
+} from '../mis-gastos-columnas';
 
 /**
  * `[GX.46]` `asignado` es una etapa **de esta pantalla**, no del contrato: el contrato decide
- * el ciclo de un expediente NUESTRO, y un vale asignado todavia no lo es. Meterla alla habria
- * obligado a `etapaDeEjercicio()` a contemplar un caso que nunca va a recibir.
+ * el ciclo de un expediente NUESTRO, y un vale asignado todavia no lo es.
  */
 type EtapaLista = EtapaEjercicio | 'asignado';
 
-/**
- * `[GX.47]` **Cuatro pestañas, no siete.** Pedido del usuario: «solo todos, en tramite,
- * rechazados y por ejercer».
- *
- * Las etapas finas no desaparecen — siguen en el CHIP de cada renglón, que es donde importan
- * («Autorizado en Kepler», «Sin medir», «Ejercido»). Lo que se agrupa es el FILTRO, porque
- * siete pestañas para 26 renglones parten la lista en pedazos de dos y tres.
- *
- * El criterio del agrupado es **de qué lado está parado el vale**:
- *   · `en_tramite` — todavía depende de nosotros (o de que suba la evidencia).
- *   · `por_ejercer` — ya lo firmamos; espera a Kepler.
- *   · `rechazada`  — se lo devolvieron.
- *
- * ⚠️ **Lo que se pierde, dicho:** `ejercido` y `cancelado_kepler` se quedan **sin pestaña
- * propia** — se ven en «Todos», con su chip verde y su frase, pero no se pueden filtrar. Se
- * decidió así porque «por ejercer» conteniendo lo ya ejercido sería un nombre que miente.
- */
-type GrupoSeccion = 'todos' | 'en_tramite' | 'rechazada' | 'por_ejercer';
-
-const GRUPOS: readonly { id: GrupoSeccion; label: string }[] = [
-  { id: 'todos', label: 'Todos' },
-  { id: 'en_tramite', label: 'En trámite' },
-  { id: 'rechazada', label: 'Rechazados' },
-  { id: 'por_ejercer', label: 'Por ejercer' },
-];
-
-/**
- * A qué pestaña cae cada etapa. `null` para las que no tienen pestaña: caen sólo en «Todos».
- *
- * ⛔ Devolver un grupo por defecto sería peor que devolver `null`: una etapa nueva se metería
- * callada en una pestaña que no le corresponde, y el contador diría otra cosa que la lista.
- */
-function grupoDe(e: EtapaLista | null): GrupoSeccion | null {
-  switch (e) {
-    case 'asignado': case 'en_captura': return 'en_tramite';
-    case 'rechazada': return 'rechazada';
-    case 'por_ejercer': case 'autorizado': case 'sin_medir': return 'por_ejercer';
-    default: return null;   // ejercido, cancelado_kepler, o sin etapa
-  }
-}
-
-/** Una fila de la lista, venga de Kepler o de un expediente nuestro. */
+/** Una fila del tablero, venga de Kepler o de un expediente nuestro. */
 interface FilaLista {
   key: string;
   folio: string;
@@ -77,40 +41,52 @@ interface FilaLista {
   motivo_rechazo: string | null;
   /** `[GX.54]` Aprobado pero debiendo el comprobante (entró con cotización o prefactura). */
   debeFactura?: boolean;
-  /**
-   * `[GX.55]` Si esta fila ofrece el camino para subir un archivo. Son DOS casos: el vale que
-   * Kepler asignó y todavía no tiene expediente, y el ya aprobado que debe su comprobante.
-   */
+  /** `[GX.55]` Si esta fila ofrece el camino para subir un archivo. */
   puedeSubir?: boolean;
   /** Sólo los asignados: si Kepler ya genero su gasto. */
   aplicada: boolean | null;
+  /** `[GX.65.3]` El proveedor por su CLAVE de Kepler, y los gastos XA1001 ligados. */
+  proveedor_clave: string | null;
+  proveedor_nombre: string | null;
+  gasto_folios: string[];
   /** `null` = viene de Kepler y no tiene expediente: no se puede abrir. */
   proof: ExpenseProof | null;
 }
-import { RouterLink } from '@angular/router';
-import { parseLocalDate } from '../../../core/utils/mx-date';
+
+interface Columna {
+  id: ColumnaId;
+  n: number;
+  titulo: string;
+  doc: string;
+  ayuda: string;
+  pendLabel: string;
+  esperaLabel: string;
+  esperaAyuda: string;
+  pendientes: FilaLista[];
+  espera: FilaLista[];
+  grupos: GrupoProveedor<FilaLista>[];
+}
 
 /**
  * `[GX.33]` — **Mis gastos.** Lo que YO levanté, en qué quedó cada uno, y su expediente.
  *
- * ## Por qué existe, y qué reemplaza
- * Hasta acá, quien sólo levanta gastos entraba al **Historial** — una pantalla pensada para
- * revisar: calendario por mes, ámbitos «Míos/Todos», buscador de toda la empresa. Funcionaba
- * (el servidor ya le acotaba a lo suyo), pero **decía otra cosa de la que hacía**: se llama
- * «Historial», ofrece un selector de ámbito que él no puede usar, y lo que de verdad quiere
- * saber —«¿ya me lo aprobaron?»— había que deducirlo de un calendario.
- *
- * Acá la pregunta es una sola y la respuesta está arriba: **cuántos esperan firma, cuántos
- * se aprobaron, cuántos te devolvieron**. Y cada renglón abre su expediente completo.
+ * ## `[GX.65.5]` Tres columnas en vez de cuatro pestañas
+ * Rediseño acordado con maqueta y simulación (2026-10-03): **Solicitudes → Pendientes de
+ * comprobación → Expedientes**. En cada columna, arriba en ROJO lo que te toca; abajo lo que ya
+ * pasó esa etapa, agrupado por la clave de proveedor de Kepler. La regla de qué va en cada
+ * columna vive en `mis-gastos-columnas.ts` y se prueba aparte. Un vale vive en UN solo lugar.
  *
  * ## ⛔ No filtra del lado del cliente
  * Pide `GET /mine`, que el servidor acota por el token. Si el recorte viviera acá, un error
  * de esta pantalla mostraría el gasto ajeno — y peor, nadie se enteraría.
  *
  * ## ⚠️ Un rechazo se ve acá, pero no para siempre
- * A las 24 h el servidor deja de devolverlo (`[GX.29]`). No es un bug de esta pantalla: es
- * que un vale rechazado se vuelve a capturar, no se arrastra. Se dice en el vacío, para que
- * nadie crea que se perdió.
+ * A las 24 h el servidor deja de devolverlo (`[GX.29]`). Se dice en el vacío, para que nadie
+ * crea que se perdió.
+ *
+ * ## Lo que esta entrega NO trae todavía
+ * Los filtros avanzados de la maqueta (accesos rápidos, «Más filtros», periodo de pagados) son
+ * `[GX.65.6]`. El selector por niveles de la pirámide es `[GX.65.4b]`.
  */
 @Component({
   selector: 'app-finanzas-mis-gastos',
@@ -122,7 +98,7 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Mis gastos</h1>
-          <p class="surf-page-sub">Los que levantaste vos, y en qué quedó cada uno.</p>
+          <p class="surf-page-sub">Tus vales, desde que los levantas hasta que el expediente queda completo.</p>
         </div>
         <button pButton type="button" class="p-button-text" (click)="cargar()" [loading]="cargando()">
           <i class="pi pi-refresh" aria-hidden="true"></i>&nbsp;Actualizar
@@ -133,49 +109,28 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
       @else if (error()) { <div class="mg-err">{{ error() }}</div> }
       @else {
         <!--
-          [GX.46] Aca vivia el cuadro naranja con los vales asignados, y se retiro por pedido
-          del usuario: «todo el cuadro naranja ya que abajo salen los vales».
-          ⛔ NO se borraron los vales: se MUDARON a la lista de abajo, como una fila mas con
-          su propia etapa. Borrarlos a secas los habria dejado sin ninguna pantalla -- con
-          «Levantamiento de gasto» fuera del menu (GX.42), ese boton es el unico camino para
-          subirle evidencia a un vale.
+          Los totales de arriba. «Te tocan» y «Esperan a otro» cuentan TODOS los abiertos (desde
+          GX.65.1 llegan completos, sin el corte del limit). «Validados» sale del SERVIDOR: la
+          lista de cerrados viene recortada y contarla mentiria.
         -->
-        <!-- La respuesta a «¿en qué quedaron?», arriba y sin tener que contar renglones. -->
         <div class="mg-kpis">
+          <div class="mg-kpi bad">
+            <span class="mg-kpi-t">Sin completar · te tocan</span>
+            <strong class="mg-kpi-v">{{ teTocan() }}</strong>
+          </div>
           <div class="mg-kpi">
-            <span class="mg-kpi-t">Esperan firma</span>
-            <strong class="mg-kpi-v">{{ kpis().recibidas }}</strong>
+            <span class="mg-kpi-t">Esperan a otra persona</span>
+            <strong class="mg-kpi-v">{{ esperanAOtro() }}</strong>
           </div>
           <div class="mg-kpi ok">
-            <span class="mg-kpi-t">Aprobados</span>
+            <span class="mg-kpi-t">Expedientes validados</span>
             <strong class="mg-kpi-v">{{ kpis().validadas }}</strong>
           </div>
-          <div class="mg-kpi" [class.bad]="kpis().rechazadas > 0">
-            <span class="mg-kpi-t">Te los devolvieron</span>
-            <strong class="mg-kpi-v">{{ kpis().rechazadas }}</strong>
+          <div class="mg-kpi">
+            <span class="mg-kpi-t">En juego (abiertos)</span>
+            <strong class="mg-kpi-v mg-kpi-money">{{ money(enJuego()) }}</strong>
           </div>
         </div>
-
-        <!--
-          [GX.39] Las secciones que pidio el usuario: «por ejercer» (firmado, esperando a
-          Kepler) y «ejercido» (el dinero salio). Filtran lo YA CARGADO, sin otro viaje.
-          La cuenta dice «de los N cargados» a proposito: son las filas que vinieron, no el
-          universo -- leerlo como total es la trampa que GX.35 ya cobro una vez aca.
-        -->
-        @if (hayEtapas()) {
-        <div class="mg-etapas" role="tablist" aria-label="Etapa del gasto">
-          @for (s of secciones(); track s.id) {
-            <button type="button" role="tab" class="mg-etapa"
-                    [class.on]="seccion() === s.id" [attr.aria-selected]="seccion() === s.id"
-                    (click)="seccion.set(s.id)">
-              {{ s.label }} <span class="mg-etapa-n">{{ s.n }}</span>
-            </button>
-          }
-        </div>
-        @if (seccion() !== 'todos' && explicacionSeccion()) {
-          <p class="mg-muted mg-etapa-ayuda">{{ explicacionSeccion() }}</p>
-        }
-        }
 
         <div class="mg-barra">
           <span class="p-input-icon-left mg-buscar">
@@ -186,119 +141,134 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
           @if (q) { <button type="button" class="mg-link" (click)="q = ''; cargar()">limpiar</button> }
         </div>
 
-        @if (!visibles().length) {
+        @if (!unificadas().length) {
           <div class="mg-vacio">
             <i class="pi pi-inbox" aria-hidden="true"></i>
             <div>
               @if (q) {
                 <strong>Ninguno de tus gastos coincide con «{{ q }}».</strong>
-              } @else if (seccion() !== 'todos' && filas().length) {
-                <!-- ⚠️ Otra afirmacion: SI levanto gastos, sólo que ninguno esta en esta etapa. -->
-                <strong>Ninguno de tus gastos está en «{{ etiquetaSeccion() }}».</strong>
-                <div class="mg-muted">Tenés {{ filas().length }} en las otras etapas.</div>
               } @else {
                 <strong>Todavía no levantaste ningún gasto.</strong>
-                <!--
-                  [GX.41] ⚠️ «No levantaste nada» y «no tenés expediente todavia» no son lo
-                  mismo cuando arriba hay vales esperando: decirle que no hizo nada a quien
-                  tiene tres pendientes lo manda a buscar donde no es.
-                -->
-                @if (asignados().length) {
-                  <div class="mg-muted">Arriba tenés {{ asignados().length }} que te asignaron en Kepler: subiles la evidencia y aparecen acá.</div>
-                } @else {
-                  <div class="mg-muted">Cuando levantes uno, aparece acá con su estado.</div>
-                }
+                <div class="mg-muted">Cuando levantes uno en Kepler a tu nombre, aparece acá con su estado.</div>
               }
-              <!-- Sin esto, quien busque un rechazo viejo va a creer que se perdió. -->
               <div class="mg-muted">Un gasto que te devolvieron deja de verse a las 24 h: ése se vuelve a capturar.</div>
             </div>
           </div>
         } @else {
-          <section class="mg-lista">
-            @for (p of visibles(); track p.key) {
-              <!--
-                [GX.46] UNA sola lista. El vale que Kepler asigno y el expediente nuestro se
-                pintan igual; lo unico que cambia es que el primero todavia no se puede abrir
-                (no hay expediente que mostrar) y en su lugar ofrece subir la evidencia.
-              -->
-              <article class="mg-item" [class.pend]="p.etapa === 'asignado'"
-                       [attr.role]="p.proof ? 'button' : null" [attr.tabindex]="p.proof ? 0 : null"
-                       [attr.aria-label]="p.proof ? ('Ver el vale ' + p.folio) : null"
-                       (click)="p.proof && abrir(p.proof)"
-                       (keydown.enter)="p.proof && abrir(p.proof)"
-                       (keydown.space)="p.proof && abrir(p.proof); p.proof && $event.preventDefault()">
-                <div class="mg-it-head">
-                  <span class="mg-folio">{{ p.folio || 'sin folio' }}</span>
-                  @if (p.sucursal) { <span class="mg-faint">suc {{ p.sucursal }}</span> }
-                  <span class="mg-grow"></span>
-                  <span class="mg-imp">{{ money(p.importe) }}</span>
-                </div>
-                <div class="mg-it-con">{{ p.titulo || '—' }}</div>
-                <div class="mg-it-meta">
-                  <span>{{ diaLocal(p.fecha) | date: 'dd/MM/yy' }}</span>
-                  @if (p.detalle) { <span>·</span><span>{{ p.detalle }}</span> }
-                </div>
-                <div class="mg-it-chips">
-                  @if (p.etapa === 'asignado') {
-                    <span class="mg-chip warn">{{ p.etapa_label }}</span>
-                    @if (p.aplicada) { <span class="mg-chip ok">Ya ejercido en Kepler</span> }
-                  } @else {
-                    <span class="mg-chip" [class.ok]="p.status === 'validada'"
-                          [class.warn]="p.status === 'revision' || p.status === 'aprobada'"
-                          [class.bad]="p.status === 'rechazada'">{{ estado(p.status) }}</span>
-                    <!--
-                      [GX.54] La tarea dice QUE falta. Un vale aprobado con una cotizacion
-                      espera la FACTURA del pago, no «evidencia» a secas: la persona ya subio
-                      algo y leer «subi la evidencia» se entiende como que no se recibio.
-                    -->
-                    @if (p.status === 'aprobada') {
-                      <span class="mg-chip warn">{{ p.debeFactura ? 'te toca subir la factura del pago' : 'te toca subir la evidencia' }}</span>
-                    }
+          @if (fueraDeColumnas() > 0) {
+            <!-- Un estado que la regla no conoce se DICE, no se mete callado en una columna. -->
+            <div class="mg-err">{{ fueraDeColumnas() }} vale(s) con un estado que esta pantalla no sabe ubicar. Avisa a Sistemas.</div>
+          }
+
+          <div class="mg-board">
+            @for (col of columnas(); track col.id) {
+              <section class="mg-col" [attr.data-col]="col.id" [attr.aria-label]="col.titulo">
+                <header class="mg-col-h">
+                  <div class="mg-col-t">
+                    <span class="mg-col-n">{{ col.n }}</span>
+                    <h2>{{ col.titulo }}</h2>
+                    <span class="mg-col-doc">{{ col.doc }}</span>
+                  </div>
+                  <p>{{ col.ayuda }}</p>
+                </header>
+
+                <div class="mg-zona">
+                  <div class="mg-zona-h rojo">{{ col.pendLabel }} <span class="mg-n">{{ col.pendientes.length }}</span></div>
+                  @for (p of col.pendientes; track p.key) {
+                    <ng-container [ngTemplateOutlet]="tarjeta" [ngTemplateOutletContext]="{ $implicit: p, pendiente: col.id !== 'expedientes' }" />
                   }
-                  <!--
-                    [GX.39] La etapa de EJERCICIO. Sólo tiene algo que decir cuando nuestro
-                    tramite ya cerro: antes de eso el chip de estado ya lo dice todo, y dos
-                    chips diciendo lo mismo con distintas palabras confunden.
-                  -->
-                  @if (p.etapa && p.etapa !== 'en_captura' && p.etapa !== 'rechazada' && p.etapa !== 'asignado') {
-                    <span class="mg-chip" [class.ok]="p.etapa === 'ejercido' || p.etapa === 'autorizado'"
-                          [class.warn]="p.etapa === 'por_ejercer'"
-                          [class.faint]="p.etapa === 'sin_medir'">{{ p.etapa_label }}</span>
+                  @if (!col.pendientes.length) { <div class="mg-zona-vacia">Nada por aquí.</div> }
+                </div>
+
+                <div class="mg-zona">
+                  <div class="mg-zona-h verde">{{ col.esperaLabel }} <span class="mg-n">{{ col.espera.length }}</span></div>
+                  @if (col.esperaAyuda) { <div class="mg-faint mg-zona-ayuda">{{ col.esperaAyuda }}</div> }
+                  @for (g of col.grupos; track g.clave ?? 'sin-clave') {
+                    <details class="mg-grupo" open>
+                      <summary>
+                        @if (g.clave) { <span class="mg-clave">{{ g.clave }}</span> }
+                        <span class="mg-grupo-n">{{ g.etiqueta }}</span>
+                        <span class="mg-n">{{ g.filas.length }}</span>
+                        <span class="mg-grupo-t">{{ money(g.total) }}</span>
+                      </summary>
+                      @for (p of g.filas; track p.key) {
+                        <ng-container [ngTemplateOutlet]="tarjeta" [ngTemplateOutletContext]="{ $implicit: p, pendiente: false }" />
+                      }
+                    </details>
+                  }
+                  @if (!col.espera.length) {
+                    <div class="mg-zona-vacia">
+                      @if (col.id === 'expedientes') {
+                        Todavía ninguno. El pago XD2601 aún no se puede ligar a su gasto en Kepler: hasta entonces nada se marca como pagado.
+                      } @else { Nada por aquí. }
+                    </div>
                   }
                 </div>
-                <!--
-                  [GX.46] El vale que Kepler asigno todavia no tiene expediente: en vez de
-                  abrirse, ofrece el camino para crearlo. Va a /finanzas/gastos (la ruta REAL)
-                  con el folio y la sucursal; el redirect /finanzas/capturar-gasto los perdia.
-                -->
-                <!--
-                  [GX.55] El boton tambien para el vale APROBADO que todavia debe su
-                  comprobante. Sin esto, el chip le decia «te toca subir la factura del pago» y
-                  no habia por donde: el visor decia «ya se resolvio» y la lista no ofrecia nada.
-                -->
-                @if (p.puedeSubir) {
-                  <a class="mg-asig-b" [routerLink]="['/finanzas/gastos']"
-                     [queryParams]="{ folio: p.folio, sucursal: p.sucursal }">
-                    <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;{{ p.debeFactura ? 'Subir la factura' : 'Subir evidencia' }}
-                  </a>
-                }
-                <!-- El motivo del rechazo va COMPLETO: es lo que hay que corregir. -->
-                @if (p.motivo_rechazo) { <div class="mg-it-nota bad">Te lo devolvieron: {{ p.motivo_rechazo }}</div> }
-                <!-- ⭐ La frase textual del pedido: «su gasto se aprobó y se ejerció». -->
-                @if (p.etapa === 'ejercido') { <div class="mg-it-nota ok">{{ p.etapa_explicacion }}</div> }
-              </article>
+              </section>
             }
-          </section>
+          </div>
         }
       }
 
+      <ng-template #tarjeta let-p let-pendiente="pendiente">
+        <article class="mg-item" [class.rojo]="pendiente"
+                 [attr.role]="p.proof ? 'button' : null" [attr.tabindex]="p.proof ? 0 : null"
+                 [attr.aria-label]="p.proof ? ('Ver el vale ' + p.folio) : null"
+                 (click)="p.proof && abrir(p.proof)"
+                 (keydown.enter)="p.proof && abrir(p.proof)"
+                 (keydown.space)="p.proof && abrir(p.proof); p.proof && $event.preventDefault()">
+          <div class="mg-it-head">
+            <span class="mg-folio">{{ p.folio || 'sin folio' }}</span>
+            @if (p.sucursal) { <span class="mg-faint">suc {{ p.sucursal }}</span> }
+            @if (pendiente && antiguedad(p); as a) {
+              <span class="mg-faint" [class.mg-atorado]="atorado(p)">{{ a }}</span>
+            }
+            <span class="mg-grow"></span>
+            <span class="mg-imp">{{ money(p.importe) }}</span>
+          </div>
+          <div class="mg-it-con">{{ p.titulo || '—' }}</div>
+          <!-- Los separadores van como borde CSS: un vale sin fecha no arranca con un «·» suelto. -->
+          <div class="mg-it-meta">
+            @if (diaLocal(p.fecha); as d) { <span>{{ d | date: 'dd/MM/yy' }}</span> }
+            @if (p.detalle) { <span>{{ p.detalle }}</span> }
+            @if (p.proveedor_clave) {
+              <span class="mg-clave">{{ p.proveedor_clave }}</span>
+              @if (p.proveedor_nombre) { <span>{{ p.proveedor_nombre }}</span> }
+            }
+          </div>
+          <div class="mg-it-chips">
+            @if (p.etapa === 'asignado') {
+              <span class="mg-chip bad">{{ p.etapa_label }}</span>
+              @if (p.aplicada) { <span class="mg-chip ok">Ya ejercido en Kepler</span> }
+            } @else {
+              <span class="mg-chip" [class.ok]="p.status === 'validada'"
+                    [class.warn]="p.status === 'revision'"
+                    [class.bad]="p.status === 'rechazada' || p.status === 'aprobada'">{{ estado(p.status) }}</span>
+              @if (p.status === 'aprobada') {
+                <span class="mg-chip bad">{{ p.debeFactura ? 'te toca subir la factura del pago' : 'te toca subir la evidencia' }}</span>
+              }
+            }
+            <!-- [GX.65.3] El gasto de Kepler es DATO: se muestra, no mueve el vale de columna. -->
+            @for (g of p.gasto_folios; track g) { <span class="mg-chip">Kepler: XA1001-{{ g }}</span> }
+          </div>
+          @if (p.puedeSubir) {
+            <a class="mg-asig-b" [routerLink]="['/finanzas/gastos']"
+               [queryParams]="{ folio: p.folio, sucursal: p.sucursal }" (click)="$event.stopPropagation()">
+              <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;{{ p.etapa === 'asignado' ? 'Subir evidencia' : (p.debeFactura ? 'Subir la factura' : 'Subir evidencia') }}
+            </a>
+          }
+          @if (p.motivo_rechazo) { <div class="mg-it-nota bad">Te lo devolvieron: {{ p.motivo_rechazo }}</div> }
+          @if (p.etapa === 'ejercido') { <div class="mg-it-nota ok">{{ p.etapa_explicacion }}</div> }
+        </article>
+      </ng-template>
+
       <!-- El mismo visor que usan Aprobación y el Historial. Acá sin acciones: es lo tuyo,
-           pero quien decide sobre el dinero es otro. -->
+           pero quien decide sobre el dinero es otra persona. -->
       <app-vale-gasto-peek [open]="abierto() !== null" (openChange)="cerrar($event)" [vale]="abierto()" />
     </div>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
-    .mg { display: flex; flex-direction: column; gap: var(--sp-3); max-width: 60rem; }
+    .mg { display: flex; flex-direction: column; gap: var(--sp-3); }
     .mg-muted { font-size: var(--fs-sm); color: var(--fg-2); }
     .mg-faint { font-size: var(--fs-xs); color: var(--fg-3); }
     .mg-grow { flex-grow: 1; }
@@ -308,42 +278,16 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
       font-size: var(--fs-xs); cursor: pointer; }
 
     .mg-kpis { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
-
-    /* [GX.41] «Te tocan a vos»: lo unico accionable de la pantalla, por eso se destaca. */
-    .mg-asig { display: flex; flex-direction: column; gap: var(--sp-2);
-      border: 1px solid var(--action); border-radius: var(--r-md); padding: var(--sp-3);
-      background: var(--surface-card); }
-    .mg-asig-h { display: flex; align-items: center; gap: var(--sp-2); color: var(--fg-1); }
-    .mg-asig-n { font-size: var(--fs-xs); background: var(--action); color: var(--action-fg, #fff);
-      border-radius: var(--r-full, 999px); padding: 0 0.5rem; font-variant-numeric: tabular-nums; }
-    .mg-asig-sub { margin: 0; display: flex; align-items: center; gap: var(--sp-2);
-      font-size: var(--fs-sm); color: var(--fg-2); }
-    .mg-asig-sub strong { color: var(--fg-1); font-variant-numeric: tabular-nums; }
-    .mg-asig-it { display: flex; flex-direction: column; gap: var(--sp-1);
-      border-top: 1px solid var(--border); padding-top: var(--sp-2); }
-    .mg-asig-b { align-self: flex-start; display: inline-flex; align-items: center;
-      border: 1px solid var(--action); border-radius: var(--r-sm); padding: 0.3rem 0.7rem;
-      font-size: var(--fs-xs); color: var(--action); text-decoration: none; margin-top: var(--sp-1); }
-    .mg-asig-b:hover { background: var(--action); color: var(--action-fg, #fff); }
-
-    /* [GX.39] Las secciones de ejercicio. Pildoras, no pestanas con linea: caben en movil. */
-    .mg-etapas { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-    .mg-etapa { display: inline-flex; align-items: center; gap: var(--sp-1);
-      border: 1px solid var(--border); background: var(--surface-card); color: var(--fg-2);
-      border-radius: var(--r-full, 999px); padding: 0.25rem 0.7rem; font: inherit;
-      font-size: var(--fs-xs); cursor: pointer; }
-    .mg-etapa:hover { border-color: var(--action); }
-    .mg-etapa.on { background: var(--action); border-color: var(--action); color: var(--action-fg, #fff); }
-    .mg-etapa-n { font-variant-numeric: tabular-nums; opacity: 0.75; }
-    .mg-etapa-ayuda { margin: 0; }
     .mg-kpi { flex: 1 1 10rem; display: flex; flex-direction: column; gap: 2px;
       background: var(--card-bg); border: 1px solid var(--border-color);
       border-radius: var(--r-md); padding: var(--sp-3); }
     .mg-kpi.ok { border-color: var(--ok-fg); }
     .mg-kpi.bad { border-color: var(--bad-border); }
+    .mg-kpi.bad .mg-kpi-v { color: var(--bad-fg); }
     .mg-kpi-t { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3); }
     .mg-kpi-v { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
       font-size: var(--fs-h1); font-weight: var(--fw-bold); line-height: 1.1; }
+    .mg-kpi-money { font-size: var(--fs-lg); }
 
     .mg-barra { display: flex; align-items: center; gap: var(--sp-2); }
     .mg-buscar input { width: 20rem; max-width: 100%; }
@@ -352,18 +296,53 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
       background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); }
     .mg-vacio .pi { color: var(--fg-3); font-size: 1.4rem; }
 
-    .mg-lista { display: flex; flex-direction: column; gap: var(--sp-2); }
+    /* [GX.65.5] Las tres columnas. En pantalla angosta se apilan, en el mismo orden. */
+    .mg-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); align-items: start; }
+    @media (max-width: 68.75rem) { .mg-board { grid-template-columns: 1fr; } }
+    .mg-col { background: var(--surface-ground); border: 1px solid var(--border-color);
+      border-radius: var(--r-md); display: flex; flex-direction: column; min-width: 0; }
+    .mg-col-h { padding: var(--sp-3); background: var(--card-bg); border-bottom: 1px solid var(--border-color);
+      border-radius: var(--r-md) var(--r-md) 0 0; }
+    .mg-col-h p { margin: 4px 0 0; font-size: var(--fs-xs); color: var(--fg-3); }
+    .mg-col-t { display: flex; align-items: center; gap: var(--sp-2); }
+    .mg-col-t h2 { margin: 0; font-size: var(--fs-body); font-weight: var(--fw-bold); }
+    .mg-col-n { width: 1.4rem; height: 1.4rem; border-radius: 50%; display: grid; place-items: center;
+      background: var(--fg-1); color: var(--card-bg); font-size: var(--fs-xs); font-weight: var(--fw-bold); flex: none; }
+    .mg-col-doc { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--fg-3); }
+    .mg-zona { padding: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); }
+    .mg-zona + .mg-zona { border-top: 1px solid var(--border-color); }
+    .mg-zona-h { font-size: var(--fs-micro); font-weight: var(--fw-bold); text-transform: uppercase;
+      letter-spacing: .05em; padding: 0 var(--sp-1); display: flex; align-items: center; gap: var(--sp-1); }
+    .mg-zona-h.rojo { color: var(--bad-fg); }
+    .mg-zona-h.verde { color: var(--ok-fg); }
+    .mg-zona-ayuda { padding: 0 var(--sp-1); }
+    .mg-zona-vacia { font-size: var(--fs-xs); color: var(--fg-3); padding: var(--sp-2); text-align: center; }
+    .mg-n { font-variant-numeric: tabular-nums; border: 1px solid currentColor; border-radius: 999px;
+      padding: 0 6px; font-size: var(--fs-micro); letter-spacing: 0; }
+
+    .mg-grupo { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-sm); }
+    .mg-grupo > summary { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2);
+      cursor: pointer; font-size: var(--fs-sm); list-style: none; }
+    .mg-grupo > summary::-webkit-details-marker { display: none; }
+    .mg-grupo > summary:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .mg-grupo-n { font-weight: var(--fw-bold); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mg-grupo-t { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
+    .mg-grupo .mg-item { border-width: 0; border-top: 1px solid var(--border-color); border-radius: 0; }
+    .mg-clave { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--fg-3); }
+
     .mg-item { background: var(--card-bg); border: 1px solid var(--border-color);
-      border-radius: var(--r-md); padding: var(--sp-3); display: flex; flex-direction: column;
+      border-radius: var(--r-sm); padding: var(--sp-3); display: flex; flex-direction: column;
       gap: 4px; cursor: pointer; }
+    .mg-item.rojo { border-left: 3px solid var(--bad-fg); }
     .mg-item:hover { border-color: var(--action); }
     .mg-item:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .mg-it-head { display: flex; align-items: baseline; gap: var(--sp-2); }
     .mg-folio { font-family: var(--font-mono); font-weight: var(--fw-bold); }
-    .mg-imp { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-size: var(--fs-lg); font-weight: var(--fw-bold); }
+    .mg-atorado { color: var(--warn-fg); font-weight: var(--fw-bold); }
+    .mg-imp { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
     .mg-it-con { font-size: var(--fs-sm); color: var(--fg-1); }
     .mg-it-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: var(--fs-xs); color: var(--fg-3); }
+    .mg-it-meta > span + span::before { content: '·'; margin-right: 6px; }
     .mg-it-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
     .mg-chip { font-size: var(--fs-nano); border: 1px solid var(--border-color); color: var(--fg-2);
       border-radius: var(--r-sm); padding: 1px 7px; }
@@ -372,6 +351,12 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
     .mg-chip.bad { color: var(--bad-fg); border-color: var(--bad-border); }
     .mg-it-nota { font-size: var(--fs-xs); margin-top: 2px; }
     .mg-it-nota.bad { color: var(--bad-fg); }
+    .mg-it-nota.ok { color: var(--ok-fg); }
+    .mg-asig-b { align-self: flex-start; display: inline-flex; align-items: center;
+      border: 1px solid var(--bad-fg); background: var(--bad-fg); color: var(--action-fg, #fff); border-radius: var(--r-sm);
+      padding: 0.3rem 0.7rem; font-size: var(--fs-xs); text-decoration: none; margin-top: var(--sp-1); }
+    .mg-asig-b:hover { filter: brightness(0.92); }
+    .mg-asig-b:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
   `],
 })
 export class FinanzasMisGastosComponent {
@@ -385,39 +370,22 @@ export class FinanzasMisGastosComponent {
   q = '';
 
   /**
-   * ⚠️ Los KPI salen de `kpis` del SERVIDOR, no de contar `filas()`. La lista viene acotada
-   * a un `limit`, así que contarla diría «tenés 200 gastos» al que tiene 340.
+   * ⚠️ Los KPI del estado salen de `kpis` del SERVIDOR, no de contar `filas()`: la lista de
+   * cerrados viene recortada, así que contarla diría «tenés 200» al que tiene 340.
    */
   private readonly reporte = signal<{ recibidas: number; validadas: number; rechazadas: number } | null>(null);
   readonly kpis = computed(() => this.reporte() ?? { recibidas: 0, validadas: 0, rechazadas: 0 });
 
   /**
-   * `[GX.39]` La seccion abierta. Filtra lo YA CARGADO — no dispara otro viaje: la etapa no
-   * es un filtro del servidor (sale de cruzar con Kepler, no es una columna), asi que pedirla
-   * como parametro obligaria a cruzar el universo entero para devolver 20 filas.
+   * `[GX.41]` Los vales que Kepler le asigno. Salen del SERVIDOR ya recortados por su
+   * username — acá no se filtra nada.
    */
-  readonly seccion = signal<GrupoSeccion>('todos');
+  readonly asignados = signal<ValeAsignado[]>([]);
 
   /**
-   * ⛔ **Sin una sola etapa resuelta, la barra NO se pinta.** Lo encontro su propia prueba:
-   * con un servidor que no manda `etapa` (uno viejo, o un vale que el backend no pudo
-   * resolver) las pestanas salian «En tramite 0 · Por ejercer 0 · Ejercido 0» — que AFIRMA
-   * que medimos y dio cero, cuando no medimos nada. Es el mismo defecto que la fase existe
-   * para arreglar, cometido en la pantalla que lo arregla (ADR-056).
-   */
-  readonly hayEtapas = computed(() => this.unificadas().some((p) => !!p.etapa));
-
-  /**
-   * `[GX.46]` **UNA sola lista.** El vale que Kepler asigno y el expediente nuestro se
-   * muestran juntos, porque para la persona son la misma cosa en momentos distintos: uno
-   * espera que le suba la evidencia, el otro ya la tiene.
-   *
-   * ⛔ Los asignados van PRIMERO y no es un capricho de orden: son los unicos de la pantalla
-   * que piden hacer algo. El resto es consulta.
-   *
-   * ⚠️ `proof` en `null` marca al que **no tiene expediente**: no se puede abrir (no hay nada
-   * que mostrar) y en su lugar ofrece el boton para crearlo. Sin esa distincion, el click
-   * abriria un visor vacio.
+   * `[GX.46]` **UNA sola lista** de entrada: el vale que Kepler asigno y el expediente nuestro.
+   * ⚠️ `proof` en `null` marca al que **no tiene expediente**: no se puede abrir y en su lugar
+   * ofrece el botón para crearlo.
    */
   readonly unificadas = computed<FilaLista[]>(() => [
     ...this.asignados().map((v): FilaLista => ({
@@ -428,50 +396,74 @@ export class FinanzasMisGastosComponent {
       etapa_explicacion: 'Lo levantaron a tu nombre en Kepler. Falta que le subas la evidencia.',
       status: null, motivo_rechazo: null, aplicada: v.aplicada, proof: null,
       debeFactura: false, puedeSubir: true,
+      proveedor_clave: null, proveedor_nombre: null, gasto_folios: [],
     })),
     ...this.filas().map((p): FilaLista => ({
       key: `p:${p.id}`,
       folio: p.folio_solicitud, sucursal: p.sucursal, fecha: p.fecha_gasto, importe: p.importe,
       titulo: p.proveedor, detalle: p.clasificacion ? this.tipoGasto(p.clasificacion) : null,
-      // `[GX.54]` El vale aprobado con cotización debe la factura, no «evidencia» genérica.
       debeFactura: p.provisional === true,
-      // `[GX.55]` Aprobado = le falta algo por subir. Es el estado que la captura abre en
-      // modo evidencia; ofrecer el botón en cualquier otro llevaría a una pantalla cerrada.
+      // `[GX.55]` Aprobado = le falta algo por subir. Es el estado que la captura abre en modo
+      // evidencia; ofrecer el botón en cualquier otro llevaría a una pantalla cerrada.
       puedeSubir: p.status === 'aprobada',
       etapa: p.etapa ?? null, etapa_label: p.etapa_label ?? '',
       etapa_explicacion: p.etapa_explicacion ?? '',
       status: p.status, motivo_rechazo: p.motivo_rechazo, aplicada: null, proof: p,
+      proveedor_clave: p.proveedor_clave ?? null, proveedor_nombre: p.proveedor_nombre ?? null,
+      gasto_folios: p.gasto_folios ?? [],
     })),
   ]);
 
-  /**
-   * `[GX.41]` Los vales que Kepler le asigno. Salen del SERVIDOR ya recortados por su
-   * username — acá no se filtra nada: si el recorte viviera en el cliente, un error suyo le
-   * mostraria a alguien el vale de otro y se veria igual de bien (GX.34).
-   */
-  readonly asignados = signal<ValeAsignado[]>([]);
-
-  /** ⚠️ Las etapas de CIERRE se agrupan bajo «Por ejercer»/«Ejercido»; el resto es «en tramite». */
-  readonly secciones = computed(() => {
-    const f = this.unificadas();
-    if (!this.hayEtapas()) return [];
-    const n = (g: GrupoSeccion) => f.filter((p) => grupoDe(p.etapa) === g).length;
-    return GRUPOS.map((g) => ({ id: g.id, label: g.label, n: g.id === 'todos' ? f.length : n(g.id) }));
+  /** `[GX.65.5]` Las tres columnas, armadas con la regla de `mis-gastos-columnas.ts`. */
+  readonly columnas = computed<Columna[]>(() => {
+    const cajon: Record<ColumnaId, Record<ZonaId, FilaLista[]>> = {
+      solicitudes: { pendiente: [], espera: [] },
+      comprobacion: { pendiente: [], espera: [] },
+      expedientes: { pendiente: [], espera: [] },
+    };
+    for (const f of this.unificadas()) {
+      const u = ubicacionDe(f);
+      if (u) cajon[u.columna][u.zona].push(f);
+    }
+    // Los pendientes, el más viejo primero: lo que más urge arriba.
+    const porAntiguedad = (a: FilaLista, b: FilaLista) => String(a.fecha ?? '').localeCompare(String(b.fecha ?? ''));
+    for (const c of Object.values(cajon)) c.pendiente.sort(porAntiguedad);
+    const armar = (id: ColumnaId, n: number, titulo: string, doc: string, ayuda: string,
+                   pendLabel: string, esperaLabel: string, esperaAyuda: string): Columna => ({
+      id, n, titulo, doc, ayuda, pendLabel, esperaLabel, esperaAyuda,
+      pendientes: cajon[id].pendiente, espera: cajon[id].espera,
+      grupos: agruparPorProveedor(cajon[id].espera),
+    });
+    return [
+      armar('solicitudes', 1, 'Solicitudes', 'XA1501', 'Lo que levantaste en Kepler: le subes la evidencia y la revisan.',
+        'Pendientes', 'Enviadas · esperan «Revisado»', ''),
+      armar('comprobacion', 2, 'Pendientes de comprobación', 'factura', 'Aprobados como prefactura o cotización, o que todavía deben su evidencia.',
+        'Te toca subirla', 'Enviada · en revisión', ''),
+      // ⚠️ En Expedientes la zona de arriba es «sin pago» y NO va en rojo: espera a Finanzas.
+      armar('expedientes', 3, 'Expedientes', 'XD2601', 'Revisados. Se cierran cuando Finanzas registra el pago.',
+        'Sin pago', 'Pagados', 'Por proveedor y fecha de pago.'),
+    ];
   });
 
-  readonly visibles = computed(() => {
-    const s = this.seccion();
-    return s === 'todos' ? this.unificadas() : this.unificadas().filter((p) => grupoDe(p.etapa) === s);
+  /** Lo que la regla no sabe ubicar: se cuenta para DECIRLO. */
+  readonly fueraDeColumnas = computed(() => this.unificadas().filter((f) => ubicacionDe(f) === null).length);
+
+  /** Lo que te pide algo a ti: los rojos de Solicitudes y de Pendientes de comprobación. */
+  readonly teTocan = computed(() => this.columnas()
+    .filter((c) => c.id !== 'expedientes').reduce((n, c) => n + c.pendientes.length, 0));
+
+  /** Lo que espera a otra persona: revisión, o el pago de Finanzas. */
+  readonly esperanAOtro = computed(() => {
+    const col = (id: ColumnaId) => this.columnas().find((c) => c.id === id);
+    return (col('solicitudes')?.espera.length ?? 0)
+      + (col('comprobacion')?.espera.length ?? 0)
+      + (col('expedientes')?.pendientes.length ?? 0);
   });
 
-  readonly etiquetaSeccion = computed(() =>
-    this.secciones().find((s) => s.id === this.seccion())?.label ?? '');
-
-  /** `[GX.47]` Lo que NO entra en ninguna pestaña, para poder decirlo en vez de esconderlo. */
-  readonly fueraDePestanas = computed(() => this.unificadas().filter((p) => grupoDe(p.etapa) === null).length);
-
-  /** La frase larga de la etapa abierta. Sale de la primera fila: el texto es el mismo para todas. */
-  readonly explicacionSeccion = computed(() => this.visibles()[0]?.etapa_explicacion ?? '');
+  /** Dinero de lo que todavía no está cerrado de nuestro lado (todo menos lo validado). */
+  readonly enJuego = computed(() => this.unificadas()
+    .filter((f) => { const u = ubicacionDe(f); return !!u && u.columna !== 'expedientes'; })
+    .reduce((s, f) => s + (Number(f.importe) || 0), 0));
 
   constructor() { this.cargar(); }
 
@@ -500,24 +492,24 @@ export class FinanzasMisGastosComponent {
 
   diaLocal(iso: string | null | undefined): Date | null { return parseLocalDate(iso); }
 
+  antiguedad(p: FilaLista): string { return textoAntiguedad(diasDesde(p.fecha)); }
+  atorado(p: FilaLista): boolean { const d = diasDesde(p.fecha); return d !== null && d > DIAS_ATORADO; }
+
   money(v: number | null | undefined): string {
     return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
   }
 
   /**
-   * Cómo se lee cada estado **desde el lado de quien levantó el gasto**. No son las mismas
-   * palabras que ve quien aprueba: a él «aprobada» le dice que ya firmó; a quien capturó le
-   * dice que todavía le toca hacer algo.
+   * Cómo se lee cada estado **desde el lado de quien levantó el gasto**: a quien aprueba
+   * «aprobada» le dice que ya firmó; a quien capturó, que todavía le toca hacer algo.
    */
-  // `[GX.46]` Acepta `null`: en la lista unificada, el vale que Kepler asigno no tiene
-  // `status` nuestro -- no existe de este lado todavia.
   estado(s: string | null): string {
     if (!s) return '';
     return ({
-      recibida: 'Esperando firma',
+      recibida: 'Esperando «Revisado»',
       aprobada: 'Aprobado',
       revision: 'En revisión',
-      validada: 'Listo',
+      validada: 'Revisado',
       rechazada: 'Te lo devolvieron',
     } as Record<string, string>)[s] ?? s;
   }

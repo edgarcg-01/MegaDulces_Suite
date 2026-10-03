@@ -15,6 +15,12 @@ import type { CalendarioDelMes } from './calendario-gastos';
 interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: string; role_name?: string; permissions?: Record<string, boolean> }; }
 
 /**
+ * `[GX.65.4a]` Las DOS identidades de quien decide (nombre y username), no el texto combinado:
+ * el vale pudo guardarse con cualquiera de las dos, y comparar una sola dejaría pasar al dueño.
+ */
+const quienDecide = (req?: AuthedRequest) => ({ username: req?.user?.username, full_name: req?.user?.full_name });
+
+/**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura + adjuntos
  * (cualquiera con acceso a egresos) y validación/rechazo (gestión de finanzas).
  * No escribe a Kepler.
@@ -100,7 +106,7 @@ export class ExpenseProofsController {
     // empresa a quien solo captura. Se devuelve vacio.
     // `[GX.39]` `etapas_de_la_pagina` vacio, no con ceros por etapa: cero vales no es
     // «cero por ejercer», es que no hay nada que contar.
-    if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, etapas_de_la_pagina: {}, rows: [], asignados: [] };
+    if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, etapas_de_la_pagina: {}, abiertos_truncados: false, rows: [], asignados: [] };
     // [GX.25] `search` para que el historial propio tambien se pueda buscar. NO hay filtro
     // de fecha a proposito: el historial es de TODAS las fechas (pedido del usuario), a
     // diferencia del buscador de folios, que solo muestra las solicitudes de hoy.
@@ -297,7 +303,7 @@ export class ExpenseProofsController {
     @Body() body: { clasificacion?: string; comprobacion_nota?: string;
                     provisional?: boolean; comprobante_esperado_at?: string },
     @Req() req: AuthedRequest): Promise<{ id: string; status: string }> {
-    return this.svc.approve(id, req?.user?.full_name || req?.user?.username, body);
+    return this.svc.approve(id, req?.user?.full_name || req?.user?.username, body, quienDecide(req));
   }
 
   // Validar el gasto lo hace UNA persona (Tesorería). FINANCE_FINDINGS_GESTIONAR lo
@@ -308,7 +314,7 @@ export class ExpenseProofsController {
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: 'Valida el expediente de gasto (con reclasificación opcional). Auditado.' })
   validate(@Param('id') id: string, @Body() body: { clasificacion?: string; comprobacion_nota?: string }, @Req() req: AuthedRequest) {
-    return this.svc.validate(id, req?.user?.full_name || req?.user?.username, body);
+    return this.svc.validate(id, req?.user?.full_name || req?.user?.username, body, quienDecide(req));
   }
 
   // GX.9 — ligar una captura de campo con su solicitud Kepler. Mismo permiso que aprobar:
@@ -324,6 +330,6 @@ export class ExpenseProofsController {
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: 'Rechaza la solicitud (con motivo). Auditado.' })
   reject(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
-    return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo);
+    return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo, quienDecide(req));
   }
 }

@@ -6,6 +6,7 @@ import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { FinanzasAprobacionGastosComponent } from './finanzas-aprobacion-gastos.component';
 import type { ExpedienteDelDia, GastosDelDia } from '../comprobaciones.service';
+import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
 
 /**
  * `[GX.20]` Candado de la pantalla de **Aprobación de gastos**.
@@ -586,6 +587,47 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(c.accionesDe(c.abierto()!)).toEqual([]);
       expect(fix.nativeElement.textContent).toContain('no hay nada que decidir');
       expect(fix.nativeElement.textContent).toContain('Cerrado por maria');
+    });
+  });
+  /**
+   * `[GX.65.4a]` **Nadie decide sobre su propio vale.** El servidor lo niega; la pantalla no
+   * ofrece el botón y dice por qué. Sin la etiqueta, el vale abriría sin botones y parecería roto.
+   */
+  describe('[GX.65.4a] el vale propio', () => {
+    const comoUsuario = (username: string, full_name?: string) =>
+      TestBed.inject(AuthService).user.set({ sub: 'u1', username, full_name, exp: 0, iat: 0 } as JwtPayload & { full_name?: string });
+
+    it('a su dueño no le ofrece Revisado ni Rechazar', () => {
+      comoUsuario('maria.tesoreria');
+      montar();
+      expect(c.esMio(F({ created_by: 'maria.tesoreria' }))).toBe(true);
+      expect(c.accionesDe(F({ status: 'recibida', created_by: 'maria.tesoreria' }))).toEqual([]);
+    });
+
+    /** ⛔ Prueba NEGATIVA: el vale de OTRA persona sigue ofreciendo decidir. */
+    it('⛔ al vale de otra persona sí le ofrece decidir', () => {
+      comoUsuario('jesus.carrillo', 'Jesús Carrillo');
+      montar();
+      expect(c.esMio(F({ created_by: 'maria.tesoreria' }))).toBe(false);
+      expect(c.accionesDe(F({ status: 'recibida', created_by: 'maria.tesoreria' }))).toEqual(['aprobar', 'rechazar']);
+    });
+
+    it('lo reconoce aunque el vale guarde el nombre completo y no el username', () => {
+      comoUsuario('jesus.carrillo', 'Jesús Carrillo');
+      montar();
+      expect(c.esMio(F({ created_by: 'JESÚS  CARRILLO' }))).toBe(true);
+    });
+
+    it('en la lista dice «Es tuyo: lo revisa otra persona»', () => {
+      comoUsuario('maria.tesoreria');
+      montar();
+      // El fixture del día trae vales con created_by 'maria.tesoreria'.
+      expect(fix.nativeElement.textContent).toContain('Es tuyo: lo revisa otra persona.');
+    });
+
+    it('sin sesión no marca nada como propio (lo decide el servidor)', () => {
+      montar();
+      expect(c.esMio(F({ created_by: 'maria.tesoreria' }))).toBe(false);
     });
   });
 });
