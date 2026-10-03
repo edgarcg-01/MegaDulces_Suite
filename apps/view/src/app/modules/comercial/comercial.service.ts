@@ -1831,6 +1831,34 @@ export class ComercialService {
     return this.http.get<RouteInventoryDetail>(`${this.base}/analytics/route-inventory/detail`, { params });
   }
 
+  routeSeries(routeNo: string, from?: string, to?: string) {
+    return this.http.get<RouteSeriesPoint[]>(`${this.base}/analytics/route-inventory/series`,
+      { params: this.routeParams(routeNo, from, to) });
+  }
+
+  routeShipments(routeNo: string, from?: string, to?: string) {
+    return this.http.get<RouteShipment[]>(`${this.base}/analytics/route-inventory/shipments`,
+      { params: this.routeParams(routeNo, from, to) });
+  }
+
+  routeShipmentLines(routeNo: string, folio: string, serie?: string | null) {
+    let params = new HttpParams().set('route_no', routeNo).set('folio', folio);
+    if (serie) params = params.set('serie', serie);
+    return this.http.get<RouteShipmentLine[]>(`${this.base}/analytics/route-inventory/shipment-lines`, { params });
+  }
+
+  routeNegatives(routeNo: string, from?: string, to?: string) {
+    return this.http.get<RouteNegativeRow[]>(`${this.base}/analytics/route-inventory/negatives`,
+      { params: this.routeParams(routeNo, from, to) });
+  }
+
+  private routeParams(routeNo: string, from?: string, to?: string): HttpParams {
+    let p = new HttpParams().set('route_no', routeNo);
+    if (from) p = p.set('from', from);
+    if (to) p = p.set('to', to);
+    return p;
+  }
+
   salesByRouteRoutes() {
     return this.http.get<SalesByRouteOption[]>(`${this.base}/analytics/sales-by-route/routes`);
   }
@@ -2365,6 +2393,8 @@ export interface RouteInventoryRow {
   route_no: string;
   plaza: string;
   carga_desde: string | null;
+  /** Ultimo dia con carga o venta. Es lo que delata a una ruta parada. */
+  ultimo_movimiento: string | null;
   carga_costo: number; cogs_costo: number; inventario_costo: number;
   inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
   carga_venta: number; venta_cliente: number; inventario_venta: number;
@@ -2385,6 +2415,39 @@ export interface RouteInventoryDetailRow {
   veredicto: 'ok' | 'sin_costo' | 'sin_precio';
   /** Vendio mas de lo que se le cargo en la ventana: mercancia previa al primer embarque. */
   ya_lo_traia: boolean;
+}
+
+/** RD.18 - un dia de la serie. Las dos valuaciones viajan juntas; la pantalla elige una. */
+export interface RouteSeriesPoint {
+  fecha: string;
+  cargado: number; vendido: number;
+  cargado_qty: number; vendido_qty: number;
+  /** Saldo del camion al cierre de ese dia. Cuando cruza a negativo, ahi empezo el rojo. */
+  saldo_qty_acum: number;
+}
+
+/** RD.19 - un embarque. El documento es la unidad: se firma y se reclama por su folio. */
+export interface RouteShipment {
+  fecha: string; serie: string | null; folio: string;
+  lineas: number; importe: number; unidades: number;
+}
+
+export interface RouteShipmentLine {
+  sku: string; producto: string; unidad: string;
+  qty: number; costo_unitario: number; importe: number;
+  costo_mediano: number | null;
+  /** El costo de esta linea salta >=2x contra el mediano del SKU: huele a cambio de peldano. */
+  salto_peldano: boolean;
+}
+
+/** RD.20 - un numero rojo, con su familia y desde cuando lo es. */
+export interface RouteNegativeRow {
+  sku: string; producto: string; unidad: string;
+  saldo: number;
+  /** `nunca_cargado` no se puede valuar: sin carga no hay costo. No es cero, es sin medir. */
+  familia: 'nunca_cargado' | 'se_acabo';
+  desde: string | null; dias_en_rojo: number | null;
+  valor_costo: number | null;
 }
 
 /** El detalle con su TOTAL, para que la pantalla declare si el tope corto. */
