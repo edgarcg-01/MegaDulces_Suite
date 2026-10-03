@@ -48,6 +48,10 @@ interface DatosKepler {
   beneficiario?: string | null;
   concepto?: string | null;
   autoriza?: string | null;
+  /** `[GX.65.3]` Clave del proveedor (acreedor) en Kepler, `kdm1.c10`. */
+  cuenta_clave?: string | null;
+  /** `[GX.65.3]` Nombre canónico del proveedor, del catálogo `kdxd`. */
+  acreedor?: string | null;
 }
 import {
   diaValido, etapaDe, hoyMx, particionarDelDia,
@@ -58,6 +62,7 @@ import {
   type CalendarioDelMes, type DiaDelCalendario,
 } from './calendario-gastos';
 import { ESTADOS_ABIERTOS, TOPE_ABIERTOS, unirAbiertosYCerrados } from './mis-gastos-abiertos';
+import { agruparGastosPorSolicitud, datosKeplerDeLaFila } from './mis-gastos-kepler';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -1191,6 +1196,12 @@ export class ExpenseProofsService {
     const reg = await trx.raw(`SELECT to_regclass('analytics.expense_requests') t`);
     if (!reg.rows[0]?.t) return vacio;
 
+    // `[GX.65.3]` El proveedor por su clave. Se pide SÓLO si la columna existe en este entorno
+    // (llegó con la migración 20260821200000): pedirla a ciegas tumbaría la lista entera.
+    const colsProv: string[] = (await trx.raw(`SELECT column_name FROM information_schema.columns
+      WHERE table_schema='analytics' AND table_name='expense_requests'
+        AND column_name IN ('cuenta_clave','acreedor')`)).rows.map((r: { column_name: string }) => r.column_name);
+
     const vistas: (DatosKepler & { folio: string; sucursal: string; estado: string | null })[] =
       await trx('analytics.expense_requests')
         .where('tenant_id', this.tenantCtx.requireTenantId())
@@ -1201,7 +1212,8 @@ export class ExpenseProofsService {
          * DERIVAN cada vez: si en Kepler cancelan el vale, la constancia desaparece sola.
          */
         .select('folio', 'sucursal', 'aplicada', 'estado', 'importe', 'beneficiario',
-          'concepto', 'autoriza', trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`));
+          'concepto', 'autoriza', trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`),
+          ...colsProv);
 
     const porFolio = new Map<string, typeof vistas>();
     for (const v of vistas) {
@@ -1232,9 +1244,33 @@ export class ExpenseProofsService {
         beneficiario: hit.beneficiario ?? null,
         concepto: hit.concepto ?? null,
         autoriza: hit.autoriza ?? null,
+        cuenta_clave: hit.cuenta_clave ?? null,
+        acreedor: hit.acreedor ?? null,
       });
     }
     return out;
+  }
+
+  /**
+   * `[GX.65.3]` Los gastos `XA1001` de estas solicitudes, en UNA consulta por página.
+   *
+   * Mismo puente que el Expediente (`[GX.62]`): `analytics.expense_documents.solicitud_folio`
+   * (= `c39`) + sucursal. Donde la vista no existe devuelve vacío — y cada fila dice «sin gasto
+   * aplicado», que es lo que se puede afirmar sin ODS.
+   */
+  private async gastosPorSolicitud(
+    trx: Knex, filas: { folio_solicitud?: string | null; sucursal?: string | null }[],
+  ): Promise<Map<string, string[]>> {
+    const folios = [...new Set(filas.map((f) => String(f.folio_solicitud || '').trim()).filter(Boolean))];
+    if (!folios.length) return new Map();
+    const reg = await trx.raw(`SELECT to_regclass('analytics.expense_documents') t`);
+    if (!reg.rows[0]?.t) return new Map();
+    const docs = await trx('analytics.expense_documents')
+      .where('tenant_id', this.tenantCtx.requireTenantId())
+      .where('doc_tipo', 'XA1001')
+      .whereIn('solicitud_folio', folios)
+      .select('sucursal', 'solicitud_folio', 'doc_folio');
+    return agruparGastosPorSolicitud(docs);
   }
 
   private claveKepler(folio: string, sucursal?: string | null): string {
@@ -1361,7 +1397,15 @@ export class ExpenseProofsService {
         files: await this.storage.signFiles(archivosDe(r.files)), // URL prefirmada (bucket privado)
       })));
       // `[GX.39]` La etapa de ejercicio, derivada en vivo de la vista. Una consulta por pagina.
-      const rows = this.conEtapa(crudas, await this.keplerPorFolio(trx, crudas));
+      const kep = await this.keplerPorFolio(trx, crudas);
+      // `[GX.65.3]` Proveedor por clave + gastos XA1001: DATO para las 3 columnas, no decisión.
+      // Sólo en «lo mío»: las otras pantallas que usan list() no lo piden y no pagan la consulta.
+      const gastos = q.mine ? await this.gastosPorSolicitud(trx, crudas) : new Map<string, string[]>();
+      const rows = this.conEtapa(crudas, kep).map((r) => ({
+        ...r,
+        ...datosKeplerDeLaFila(kep.get(this.claveKepler(String(r.folio_solicitud || ''), r.sucursal)),
+          gastos, r.folio_solicitud, r.sucursal),
+      }));
 
       const agg = await filtros(trx('finance.expense_proofs'))
         .groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));

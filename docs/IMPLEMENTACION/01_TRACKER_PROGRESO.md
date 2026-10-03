@@ -3641,8 +3641,19 @@ de pago · alcance en pirámide de 5 niveles sobre `ScopeService` (ADR-050), no 
   comprobación» no hace aparecer el botón, y la prefactura sin factura sigue incompleta aunque
   tenga comprobación. contracts 324→325 · finance 344 · view 1655→1653 (−6 del botón/banda, +4
   candados) · `nx build api` + `nx build view` OK · check:templates/tokens/estilos verdes.
-- [ ] **[GX.65.3]** Que Kepler cree el `XA1001` deja de ser «Ejercido = cerrado»: se publica como dato.
-  `/mine` publica además la clave de proveedor (`cuenta_clave` + `acreedor`).
+- [x] **[GX.65.3]** 🧪 **«Mis gastos» publica el proveedor por CLAVE y los gastos `XA1001` ligados.**
+  Aditivo, no cambia ninguna decisión: cada fila de `/mine` trae `proveedor_clave` (`c10`),
+  `proveedor_nombre` (catálogo `kdxd`; `null` se declara, no se rellena con lo tecleado) y
+  `gasto_folios[]` (puente `c39`, el mismo del Expediente GX.62; lista porque hay solicitudes con
+  hasta 4 gastos). Las columnas del proveedor se piden **sólo si existen** en el entorno; los gastos
+  **sólo en «lo mío»** (las otras pantallas de `list()` no pagan la consulta).
+  ⚠️ **La etapa «Ejercido» NO se tocó**: las pestañas de hoy la siguen leyendo; el diseño nuevo deja
+  de usarla para ubicar el vale en GX.65.5, y ahí se decide su retiro.
+  **Medido (local):** 17 ms la de Kepler, 4 ms la de gastos. ⚠️ El ODS local es semilla: de 92 folios
+  sólo 7 existen en Kepler, 5 con clave, **0 con nombre** (sin catálogo `kdxd`), 1 gasto ligado →
+  la pantalla debe mostrar la clave sola cuando falte el nombre. Prod (medido en ago): clave 100%,
+  nombre 99.8%. Función pura `mis-gastos-kepler.ts` + candado (11 pruebas, con negativa: el mismo
+  folio en otra sucursal NO se mezcla). finance 344→355 · view 1653 · build api + view OK.
 - [ ] **[GX.65.4]** Alcance por pirámide (`ScopeService`, área `finanzas`) + nadie aprueba su propio vale.
 - [ ] **[GX.65.5]** La pantalla en 3 columnas + filtros.
 
