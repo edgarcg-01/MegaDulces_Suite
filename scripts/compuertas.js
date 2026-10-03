@@ -95,6 +95,14 @@ const COMPUERTAS = [
   { nombre: 'sin emojis', script: 'check-no-emoji-ui.js', que: 'el texto que ve el usuario no lleva emojis (iconos, nunca emojis)', push: true, ms: 420 },
   { nombre: 'teclado', script: 'check-keyboard-nav.js', que: 'lo que se hace con el mouse se puede hacer con el teclado (DESIGN D.7)', push: true, ms: 197 },
   { nombre: 'búsqueda', script: 'check-busqueda.js', que: 'ningún buscador con .toLowerCase().includes() (DESIGN D.8)', push: true, ms: 198 },
+  // `[DS.1]` / `[DS.3]` Las dos de la auditoría del design system (2026-10-02/03). ⚠️ Nacieron
+  // cableadas SÓLO en `ci.yml` — o sea que `npm run check` no las corría y el push tampoco, que
+  // es **el mismo defecto que este archivo existe para que no se pueda escribir**, en el otro
+  // sentido (el encabezado cuenta que el 01-oct `tablas densas` y `tokens CSS` estaban sólo en
+  // el push). Lo encontró la pregunta "¿queda algo pendiente?", no una corrida. Registradas acá
+  // el 2026-10-03, que es lo que las mete en los DOS runners de una.
+  { nombre: 'motion', script: 'check-motion.js', que: 'ninguna animación de Operations pasa el techo de 350ms (DESIGN §Motion)', push: true, ms: 376 },
+  { nombre: 'estilos', script: 'check-estilos.js', que: 'escala --fs-*, hex crudo, breakpoints en px y foco sin anillo (DESIGN pre-vuelo 2/6/12c y §R)', push: true, ms: 3106 },
   // `[NX.3]` Es la única de las cuatro que atrapa un defecto INVISIBLE en la máquina de quien lo
   // introduce: el contexto de Docker sólo se ejerce en el contenedor, y ahí el síntoma no
   // menciona ni Docker ni el COPY. Costó un deploy caído antes de existir.
