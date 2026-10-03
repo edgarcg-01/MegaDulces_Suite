@@ -704,7 +704,35 @@ revertir() {
   # pod: el Deployment pide una imagen por COMMIT. `rollout undo` lo devuelve al ReplicaSet
   # anterior, cuya imagen sigue en containerd. Sin esto, "revertido." sería mentira para la
   # mitad del despliegue — y mentir en el camino de reversión es peor que no tenerlo.
-  for s in $_s_k3s_tocados; do
+  # ⛔ [K3S.43] QUÉ SE REVIERTE SE **DERIVA**, NO SE ENUMERA.
+  # `$_s_k3s_tocados` sale de `$SERVICIOS`, que es lo que se CONSTRUYÓ. Pero
+  # `aplicar-k3s-prod.sh` le pone `:$COMMIT` a los NUEVE manifiestos de prod. Medido el
+  # 2026-10-02 tras el despliegue fallido de `5e392b9`: `api worker portal vendor` volvieron a
+  # `11562e4` y **`caddy` y `pg-prod` se quedaron en `5e392b9`** — con el log diciendo
+  # `revertido.`. Una lista a mano se vuelve a desactualizar con el próximo servicio.
+  #
+  # La foto que deja `aplicar-k3s-prod.sh` dice en qué revisión estaba cada deployment ANTES.
+  # Se deshacen los que SUBIERON de revisión: eso es exactamente "los que este despliegue
+  # cambió". Un `apply` que no cambió nada no crea revisión, y revertirlo lo mandaría a un
+  # estado anterior al que tenía — por eso no alcanza con "los que aplicamos".
+  _FOTO="$HOME/ops/prod/.k3s-revisiones-previas"
+  _k3s_revertir=''
+  if [ -s "$_FOTO" ]; then
+    while IFS='=' read -r _d _rev_antes; do
+      [ -n "$_d" ] || continue
+      _rev_ahora=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl get deploy "$_d" -n prod \
+        -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}' 2>/dev/null)
+      [ -n "$_rev_ahora" ] || continue
+      [ "$_rev_ahora" -gt "$_rev_antes" ] 2>/dev/null && _k3s_revertir="$_k3s_revertir $_d"
+    done < "$_FOTO"
+    di "  a revertir en K3s (por revisión):${_k3s_revertir:- ninguno}"
+  else
+    # ⚠️ Se DECLARA la degradación. Sin foto no se puede saber qué cambió, así que se cae a la
+    #    lista vieja —que es incompleta— en vez de no revertir nada.
+    _k3s_revertir="$_s_k3s_tocados"
+    di "  ⚠️ sin foto de revisiones: revierto sólo los construidos (puede quedar algo sin revertir)"
+  fi
+  for s in $_k3s_revertir; do
     if KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl rollout undo "deploy/$s" -n prod >/dev/null 2>&1; then
       di "  $s (K3s) → rollout undo"
     else
