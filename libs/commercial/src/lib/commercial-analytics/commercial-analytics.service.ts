@@ -3359,7 +3359,13 @@ export class CommercialAnalyticsService {
       if (q.plaza) { cond.push('b.plaza = ?'); args.push(q.plaza); }
 
       const rowsRaw = (await trx.raw(
-        `WITH b AS (SELECT * FROM analytics.income_bridge_src(?::date, ?::date)),
+        // ⛔ MATERIALIZED NO ES ADORNO: sin el, esta pantalla tarda MAS DE 120 SEGUNDOS.
+        // income_bridge_src es LANGUAGE sql STABLE, o sea INLINABLE: el planner mete su
+        // cuerpo entero aca adentro, aplana sus CTEs (ing/doc/pag/agg/cta), estima rows=1 y
+        // elige un Nested Loop que RE-EVALUA pag por cada fila. Medido contra prod el
+        // 2026-10-02: >120 s sin la palabra, 754 ms con ella -- el mismo cuadro que [PERF.1]
+        // y [RA-DYN.U3] ya pagaron en este repo.
+        `WITH b AS MATERIALIZED (SELECT * FROM analytics.income_bridge_src(?::date, ?::date)),
               f AS (SELECT * FROM b WHERE ${cond.join(' AND ')}),
               -- Las cuentas se explotan y se re-agregan POR CELDA: el jsonb que trae la fuente es
               -- por documento, y lo que la pantalla necesita es "por esta plaza, en este período,
