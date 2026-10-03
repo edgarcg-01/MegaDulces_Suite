@@ -1,26 +1,45 @@
 #!/usr/bin/env node
 /**
- * Compuerta de `git push` — el mecanismo que sustituye a la branch protection
- * mientras GitHub no la deje activar.
+ * Compuerta de `git push` — los escaneos estáticos, ANTES del push.
  *
  * ─── Por qué existe ────────────────────────────────────────────────────────────
  * Medido el 2026-09-30, sobre los 30 días previos:
  *
  *   · ~58 de 60 commits a `main` entraron por **push directo**, no por PR.
  *   · De los últimos 20 pushes a `main`: **15 rojos, 1 verde**, 4 cancelados.
- *   · El repo pasó a privado en plan free → GitHub responde **403** tanto a
- *     `branches/main/protection` como a `rulesets`. O sea: hoy NADA del lado del
- *     servidor puede frenar un merge rojo ni un push directo.
  *
- * El CI no está roto — atrapa defectos reales (dos veces hoy: tokens CSS que no
- * existen). Lo que falla es que corre DESPUÉS, sobre la rama de la que se deploya.
- * Esta compuerta mueve ese veredicto a ANTES del push, que es donde sirve.
+ * El CI no está roto — atrapa defectos reales (dos veces ese día: tokens CSS que
+ * no existen). Lo que falla es que corre DESPUÉS, sobre la rama de la que se
+ * deploya. Esta compuerta mueve ese veredicto a ANTES del push, que es donde sirve.
+ *
+ * ─── ⚠️ Lo que cambió, y por qué CAPA 1 ya no bloquea ──────────────────────────
+ * Este encabezado afirmaba tres cosas que HOY son falsas, y conviene dejar escrito
+ * que caducaron en vez de borrarlas:
+ *
+ *   ✗ «mientras GitHub no la deje activar» · ✗ «el repo pasó a privado en plan
+ *   free → 403» · ✗ «la protección de rama NO es una opción».
+ *
+ * Medido el 2026-10-02: el repo es **PÚBLICO**, y la protección de `main` está
+ * **PRENDIDA** — exige `Build & typecheck (affected)` + `Secret scan (gitleaks)`,
+ * y bloquea force-push, borrado e historia no lineal. El `403` de entonces era
+ * «Upgrade to GitHub Pro»; hoy la API contesta con la protección real.
+ *
+ * El 2026-10-03 se apagó `enforce_admins` a pedido del dueño: **el admin empuja
+ * directo a `main`** (modelo Railway: push → `sellar` mueve `ci-green` → el vigía
+ * de `md` despliega en ~30 s). Cualquier otra cuenta sigue obligada a PR con los
+ * dos checks en verde — eso NO se aflojó.
+ *
+ * O sea: la autoridad que CAPA 1 suplía ya vive del lado del servidor, y para el
+ * admin —a quien GitHub ahora SÍ autoriza— bloquear acá es frenar lo que el
+ * servidor permite. ⚠️ **PENDIENTE, declarado y no hecho:** CAPA 1 todavía
+ * bloquea; debería pasar a AVISAR. Mientras tanto el push directo a `main` sale
+ * con `git push --no-verify`, que es el escape documentado abajo. La red de
+ * seguridad no depende de esto: `[CI.SELLO]` es la que no se evade.
  *
  * ─── Las dos capas, y por qué son distintas ───────────────────────────────────
  *
- *   CAPA 1 — `main` no recibe pushes. **Bloquea siempre, sin excepción medida.**
+ *   CAPA 1 — `main` no recibe pushes. **Bloquea siempre** (ver el pendiente arriba).
  *     Es instantánea y no puede dar falso positivo: o apuntás a `main` o no.
- *     Ésta es la que ataca la causa raíz de los 15 rojos.
  *
  *   CAPA 2 — los gates baratos, acotados a TUS archivos. **Bloquea sólo lo tuyo.**
  *     ⛔ La trampa que esto evita: los gates son de repo completo, y el repo TIENE
