@@ -1,0 +1,114 @@
+/*
+ * [DS.2] — Alto Contraste de Windows (`forced-colors: active`).
+ *
+ * ── Por qué existe ──────────────────────────────────────────────────────────────────────────
+ * Medido el 2026-10-02: **0 usos de `forced-colors` en todo el repo**, y 0 de `prefers-contrast`
+ * y `prefers-reduced-transparency`. La flota es Windows (ver el censo de navegadores), o sea
+ * que el modo existe y lo prende gente real — típicamente la que más lo necesita.
+ *
+ * Y este sistema de diseño es justo el que peor se lleva con ese modo, por construcción:
+ *
+ *   · La jerarquía in-page descansa en un **hairline de 1px** y en **alpha-overlays** sobre
+ *     `--ink-rgb` (hover, activo, seleccionado). El navegador fuerza los colores y **todos los
+ *     overlays colapsan al mismo valor**: la fila con hover, la seleccionada y la normal se
+ *     vuelven indistinguibles. Eso no es "se ve distinto": es perder el estado.
+ *   · Las pastillas de estado (`p-tag`, chips ok/warn/bad) distinguen por **fondo**. Forzados,
+ *     todos los fondos son el mismo → el semáforo entero deja de informar.
+ *   · El anillo de foco hecho con `box-shadow` **desaparece**: `box-shadow` se ignora en este
+ *     modo. Sin foco visible no hay teclado, y D.7 es media sección de `DESIGN.md`.
+ *   · Los gradientes (`--ember-grad`, los thumbnails del portal) se quitan: son
+ *     `background-image`.
+ *
+ * ── La regla de fondo, que es la misma de siempre ───────────────────────────────────────────
+ * `DESIGN.md` ya dice que **el color nunca es el único portador de significado**. Alto Contraste
+ * es esa regla cobrada: lo que sólo se distinguía por color, acá no se distingue. La salida NO
+ * es apagar el modo — es que cada estado tenga una segunda señal (borde, subrayado, icono).
+ *
+ * ⚠️ `forced-color-adjust: none` se usa SÓLO donde el color ES el dato (data-viz), que es la
+ * misma excepción que `DESIGN.md` ya le concede a `--chart-*` y al acento de `MetricCard`.
+ * Usarlo en el chrome sería desactivar la accesibilidad para que la pantalla "se vea bien".
+ */
+
+@media (forced-colors: active) {
+  /* ── 1. Foco: la pieza que no puede faltar ─────────────────────────────────────────────── */
+  /* `box-shadow` se ignora, así que el anillo tokenizado desaparece. `Highlight` es un color
+     del sistema y sobrevive. Va con `!important` a propósito: compite con reglas de componente
+     que ponen su propio `outline: none`, y acá no hay cascada que valga. */
+  :focus-visible {
+    outline: 3px solid Highlight !important;
+    outline-offset: 2px !important;
+  }
+
+  /* ── 2. Estado de fila: hover / activo / seleccionado ──────────────────────────────────── */
+  /* Los tres salen del mismo alpha-overlay y se funden en uno. La selección recupera su señal
+     con un borde izquierdo, que no es color: es forma. */
+  tr[aria-selected='true'],
+  tr.p-highlight,
+  .surf-row--selected {
+    border-left: 3px solid Highlight;
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  /* ── 3. Pastillas de estado: que no colapsen en un rectángulo igual ────────────────────── */
+  /* Distinguen por fondo y el fondo se fuerza. Un borde les devuelve el contorno; el texto
+     que llevan adentro sigue siendo el portador real del significado (que es lo correcto). */
+  .p-tag,
+  .status-chip,
+  .surf-chip {
+    border: 1px solid CanvasText;
+  }
+
+  /* ── 4. Barras, rellenos y medidores ───────────────────────────────────────────────────── */
+  /* Un relleno sin borde sobre un track sin borde es un rectángulo invisible. El contorno es
+     lo que deja leer la proporción, que es el dato. */
+  .mc-progress-track,
+  .sb-bar-track,
+  .cc-bar,
+  .ms-bullet,
+  .ms-bar,
+  .health-box,
+  .status-fill {
+    border: 1px solid CanvasText;
+  }
+
+  /* ── 5. Data-viz: el color ES el dato ──────────────────────────────────────────────────── */
+  /* Única excepción, y es la misma que DESIGN.md ya concede a --chart-*: si el navegador
+     fuerza los colores de una gráfica, las series dejan de ser distinguibles entre sí y el
+     gráfico no dice nada. Se preservan los colores propios SÓLO acá. */
+  .app-chart,
+  app-sparkline svg,
+  app-mini-bars svg,
+  app-ring-gauge svg,
+  .p-chart canvas {
+    forced-color-adjust: none;
+  }
+
+  /* ── 6. Lo decorativo que desaparece y no se extraña ───────────────────────────────────── */
+  /* El spotlight y el gloss son `background-image`: el modo ya los quita. Se apagan explícito
+     para que no quede un borde fantasma donde había un degradado. */
+  .mc::after,
+  .portal-btn-primary::before,
+  .portal-btn-ember::before,
+  .portal-btn-hero::before {
+    display: none;
+  }
+}
+
+/*
+ * `prefers-contrast: more` — el usuario pide más contraste sin forzar la paleta del SO.
+ * Acá sí mandamos nosotros, así que se sube el hairline (que es el portador de la jerarquía
+ * in-page) y el texto terciario, que es el que primero se cae: `--text-faint` da 2.3:1 sobre
+ * la superficie clara y está por debajo de AA incluso en modo normal — acá se lleva a --text-2.
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --border-color: var(--neutral-400);
+    --text-faint: var(--text-muted);
+  }
+  body.theme-monochrome {
+    --border-color: var(--neutral-600);
+    --text-faint: var(--text-muted);
+  }
+}

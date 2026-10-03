@@ -69,10 +69,10 @@ import { VendorService } from '../vendor.service';
       .confetti { position: absolute; top: -40px; width: 9px; height: 14px; border-radius: 2px; opacity: 0.9; animation: fall 2.4s linear infinite; }
       @keyframes fall { 0% { transform: translateY(-40px) rotate(0); } 100% { transform: translateY(105vh) rotate(420deg); } }
 
-      .ok-check { width: 6.5rem; height: 6.5rem; border-radius: 50%; background: rgba(255,255,255,0.16); display: grid; place-items: center; margin-bottom: 1.4rem; animation: pop 0.4s var(--ease-out, cubic-bezier(0.23,1,0.32,1)); }
+      .ok-check { width: 6.5rem; height: 6.5rem; border-radius: 50%; background: rgba(255,255,255,0.16); display: grid; place-items: center; margin-bottom: 1.4rem; animation: pop var(--dur-max, 350ms) var(--ease-out, cubic-bezier(0.23,1,0.32,1)); }
       @keyframes pop { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
       .ok-check svg { width: 3.4rem; height: 3.4rem; }
-      .ok-check path { stroke: #fff; stroke-width: 7; fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 60; stroke-dashoffset: 60; animation: draw 0.5s 0.25s var(--ease, ease) forwards; }
+      .ok-check path { stroke: #fff; stroke-width: 7; fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 60; stroke-dashoffset: 60; animation: draw var(--dur-max, 350ms) 0.25s var(--ease, ease) forwards; }
       @keyframes draw { to { stroke-dashoffset: 0; } }
       .ok-check i { font-size: 3rem; }
 

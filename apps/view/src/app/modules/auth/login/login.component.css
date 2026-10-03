@@ -17,7 +17,7 @@
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.6s ease-in-out;
+  animation: fadeIn var(--dur-max, 350ms) ease-in-out;
 }
 
 /* Centered input text expansion */

@@ -734,7 +734,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     /* Barra de % listo (semáforo de preparación) */
     .rd-progress { display:flex; align-items:center; gap:.625rem; margin-bottom:.75rem; }
     .rd-progress-track { flex:1; height:6px; border-radius:999px; background:var(--c-surface-2); overflow:hidden; }
-    .rd-progress-fill { height:100%; border-radius:999px; background:var(--warn-fg); transition:width .4s var(--ease-standard); }
+    .rd-progress-fill { height:100%; border-radius:999px; background:var(--warn-fg); transition:width var(--dur-standard,250ms) var(--ease-standard); }
     .rd-progress-fill.ok { background:var(--ok-fg); }
     .rd-progress-pct { font-variant-numeric:tabular-nums; font-weight:var(--fw-bold); font-size:var(--fs-sm); color:var(--c-text-1); min-width:34px; text-align:right; }
     @media (prefers-reduced-motion: reduce){ .rd-progress-fill { transition:none; } }

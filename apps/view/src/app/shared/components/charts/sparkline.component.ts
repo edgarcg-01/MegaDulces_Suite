@@ -55,7 +55,7 @@ const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
     :host { display:block; width:100%; }
     .spk-wrap { position:relative; width:100%; height: var(--spk-h, 40px); }
     .spk { display:block; width:100%; height:100%; overflow:visible; }
-    .spk-line { stroke-dasharray:100; animation: spkDraw .8s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; }
+    .spk-line { stroke-dasharray:100; animation: spkDraw var(--dur-max, 350ms) var(--ease-out, cubic-bezier(.23,1,.32,1)) both; }
     @keyframes spkDraw { from { stroke-dashoffset:100; } to { stroke-dashoffset:0; } }
     .spk-guide { stroke: var(--c-divider, var(--border-color)); stroke-width:1; }
     .spk-dot { stroke: var(--card-bg, #fff); stroke-width:2; }

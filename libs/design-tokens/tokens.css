@@ -22,7 +22,12 @@
      Fraunces quedó RETIRADA (decisión 2026-06-24: identidad Poppins tipo delivery). */
   --font-body:    'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-display: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono:    'Geist Mono', ui-monospace, 'Courier New', monospace;
+  /* ⚠️ El respaldo importa más de lo que parece: si Geist Mono no carga (red del campo, CSP,
+     Google Fonts bloqueado) ESTO es lo que imprime los precios. Decía 'Courier New', que es
+     la peor opción posible para una columna de cifras — trazo fino y con serifas. Consolas va
+     primero porque la flota es Windows. Unificado desde el Storefront el 2026-10-03: antes
+     .portal-shell declaraba su propio respaldo y los dos ya habían divergido. */
+  --font-mono:    'Geist Mono', ui-monospace, SFMono-Regular, Consolas, Menlo, monospace;
 
   /* Display scale (storefront hero + section heads, clamp responsive) */
   --text-display-xl: clamp(2.5rem, 7vw, 3.5rem);     /* hero h1 */
@@ -578,9 +583,15 @@ body.theme-monochrome {
    ════════════════════════════════════════════════════════════════════════════ */
 .portal-shell,
 .pl-wrap {
-  --font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-
+  /* ⛔ Acá vivían --font-body y --font-mono, y eran exactamente lo que el comentario de
+     arriba advierte. Medido 2026-10-03:
+       · --font-body era copia LITERAL de :root  → cero efecto, puro ruido.
+       · --font-mono YA HABÍA DIVERGIDO: :root cae a 'Courier New' y esto caía a
+         SFMono-Regular/Menlo. O sea que el día que Geist Mono no cargue (red del campo,
+         bloqueo de Google Fonts, CSP), Operations imprime las cifras en una Courier con
+         serifas y el Storefront en SF Mono. Dos tipografías distintas para el MISMO rol,
+         en la columna que existe para que los números se puedan comparar.
+     El Storefront hereda de :root, como los neutrales desde el 2026-09-14. */
   --ai-accent: #F8B400; /* ember-from: identidad IA en storefront */
 }
 

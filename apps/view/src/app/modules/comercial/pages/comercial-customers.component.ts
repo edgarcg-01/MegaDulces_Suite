@@ -496,7 +496,9 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
     }
     .cu-ratio-fill {
       height: 100%; border-radius: 999px; background: var(--action);
-      transition: width 500ms var(--ease-out, cubic-bezier(.23,1,.32,1));
+      /* [DS.1] duracion al techo de DESIGN.md. La propiedad sigue siendo width: convertirla
+         a scaleX pide tocar la plantilla, y queda declarado, no disimulado. */
+      transition: width var(--dur-standard, 250ms) var(--ease-out, cubic-bezier(.23,1,.32,1));
     }
     .cu-ratio-pct {
       font-family: var(--font-mono); font-variant-numeric: tabular-nums;

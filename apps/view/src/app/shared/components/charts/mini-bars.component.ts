@@ -35,7 +35,7 @@ const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
     .mb-bar {
       flex:1; min-width:3px; border-radius: 3px 3px 0 0;
       transform-origin: bottom; transform: scaleY(0);
-      animation: mbGrow .5s var(--ease-out, cubic-bezier(.23,1,.32,1)) both;
+      animation: mbGrow var(--dur-max, 350ms) var(--ease-out, cubic-bezier(.23,1,.32,1)) both;
       transition: filter .12s ease, opacity .12s ease;
     }
     .mb:hover .mb-bar:not(.is-active) { opacity:.5; }

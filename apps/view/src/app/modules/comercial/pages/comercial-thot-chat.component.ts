@@ -278,14 +278,14 @@ const SUGGESTIONS = [
     /* ── ENTRADA AL MODO "Pregúntale a Thot" — micro-animación escalonada ── */
     @keyframes tc-enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
     @keyframes tc-pop { from { opacity: 0; transform: translateY(8px) scale(.82); } to { opacity: 1; transform: none; } }
-    .tc-page > .surf-page-head { animation: tc-enter .45s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; }
-    .tc-page > .tc-composer { animation: tc-enter .5s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; animation-delay: .08s; }
-    .tc-empty-icon { animation: tc-pop .55s cubic-bezier(.34,1.4,.5,1) both; animation-delay: .06s; }
-    .tc-empty h3 { animation: tc-enter .5s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; animation-delay: .13s; }
-    .tc-empty p  { animation: tc-enter .5s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; animation-delay: .18s; }
+    .tc-page > .surf-page-head { animation: tc-enter var(--dur-max, 350ms) var(--ease-out, cubic-bezier(.23,1,.32,1)) both; }
+    .tc-page > .tc-composer { animation: tc-enter var(--dur-max, 350ms) var(--ease-out, cubic-bezier(.23,1,.32,1)) both; animation-delay: .08s; }
+    .tc-empty-icon { animation: tc-pop var(--dur-max, 350ms) cubic-bezier(.34,1.4,.5,1) both; animation-delay: .06s; }
+    .tc-empty h3 { animation: tc-enter var(--dur-max, 350ms) var(--ease-out, cubic-bezier(.23,1,.32,1)) both; animation-delay: .13s; }
+    .tc-empty p  { animation: tc-enter var(--dur-max, 350ms) var(--ease-out, cubic-bezier(.23,1,.32,1)) both; animation-delay: .18s; }
     /* Chip: entra con la propiedad 'translate' (independiente del 'transform' del hover). */
     @keyframes tc-enter-chip { from { opacity: 0; translate: 0 10px; } to { opacity: 1; translate: 0 0; } }
-    .tc-chip { animation: tc-enter-chip .5s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; }
+    .tc-chip { animation: tc-enter-chip var(--dur-max, 350ms) var(--ease-out, cubic-bezier(.23,1,.32,1)) both; }
     @media (prefers-reduced-motion: reduce) {
       .tc-page > .surf-page-head, .tc-page > .tc-composer,
       .tc-empty-icon, .tc-empty h3, .tc-empty p, .tc-chip { animation: none; }
@@ -298,7 +298,7 @@ const SUGGESTIONS = [
     @keyframes tc-blink { 0%,80%,100% { opacity: .2; } 40% { opacity: 1; } }
 
     /* Reveal del contenido — texto y tablas se materializan con blur-rise. */
-    .tc-reveal { animation: tc-reveal 500ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+    .tc-reveal { animation: tc-reveal var(--dur-max, 350ms) cubic-bezier(0.22, 1, 0.36, 1) both; }
     @keyframes tc-reveal {
       from { opacity: 0; filter: blur(8px); transform: translateY(6px); }
       to   { opacity: 1; filter: blur(0);   transform: translateY(0); }
@@ -311,7 +311,7 @@ const SUGGESTIONS = [
        "materializan" con blur-rise + leve overshoot (estilo Gemini/Claude/ChatGPT). */
     @keyframes tc-msg-enter-kf { from { opacity: 0; transform: translateY(14px) scale(0.985); filter: blur(7px); } to { opacity: 1; transform: none; filter: blur(0); } }
     @keyframes tc-msg-leave-kf { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-8px) scale(0.97); } }
-    .tc-msg-enter { animation: tc-msg-enter-kf 440ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+    .tc-msg-enter { animation: tc-msg-enter-kf var(--dur-max, 350ms) cubic-bezier(0.22, 1, 0.36, 1) both; }
     .tc-msg-leave { animation: tc-msg-leave-kf 220ms ease both; }
     @media (prefers-reduced-motion: reduce) { .tc-msg-enter, .tc-msg-leave { animation: none; } }
 

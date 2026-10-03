@@ -372,7 +372,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
         padding: 1.5rem 0.875rem 1.125rem; cursor: pointer; text-align: center;
         background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1.125rem;
-        animation: crt-tile-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        animation: crt-tile-in var(--dur-max, 350ms) cubic-bezier(0.2, 0.8, 0.2, 1) both;
         transition: transform 0.2s var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)), box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
       }
       /* Halo de color del tipo que aparece en hover */
@@ -413,7 +413,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-tile[data-type='combustible']:hover .crt-tile-cta { color: var(--warn-fg); }
       .crt-tile-arrow { font-size: 0.625rem; opacity: 0; transform: translateX(-4px); transition: opacity 0.2s ease, transform 0.2s ease; }
       .crt-tile:hover .crt-tile-arrow { opacity: 1; transform: translateX(0); }
-      .crt-tile:hover .crt-tile-cta .pi-camera { animation: crt-cam 0.6s ease; }
+      .crt-tile:hover .crt-tile-cta .pi-camera { animation: crt-cam var(--dur-max, 350ms) ease; }
       @keyframes crt-cam { 0%,100% { transform: translateY(0); } 30% { transform: translateY(-2px) rotate(-8deg); } 60% { transform: translateY(0) rotate(4deg); } }
 
       @media (prefers-reduced-motion: reduce) {
@@ -550,11 +550,11 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       /* ── card de éxito (animada) ── */
       .crt-success { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.75rem; padding: 1.5rem 1rem 0.5rem; animation: crt-success-in 0.35s ease both; }
       @keyframes crt-success-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-      .crt-check { width: 84px; height: 84px; border-radius: 50%; background: var(--ok-soft-bg); display: grid; place-items: center; animation: crt-pop 0.4s var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)) both; }
+      .crt-check { width: 84px; height: 84px; border-radius: 50%; background: var(--ok-soft-bg); display: grid; place-items: center; animation: crt-pop var(--dur-max, 350ms) var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)) both; }
       @keyframes crt-pop { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
       .crt-check svg { width: 54px; height: 54px; }
       .crt-check-ring { stroke: var(--ok-fg); stroke-width: 3; opacity: 0.35; }
-      .crt-check-mark { stroke: var(--ok-fg); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 48; stroke-dashoffset: 48; animation: crt-draw 0.4s 0.2s cubic-bezier(0.65, 0, 0.45, 1) forwards; }
+      .crt-check-mark { stroke: var(--ok-fg); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 48; stroke-dashoffset: 48; animation: crt-draw var(--dur-max, 350ms) 0.2s cubic-bezier(0.65, 0, 0.45, 1) forwards; }
       @keyframes crt-draw { to { stroke-dashoffset: 0; } }
       .crt-success-title { font-size: 1.25rem; font-weight: 800; color: var(--text-main); letter-spacing: -0.02em; }
       .crt-success-meta { font-size: 0.875rem; color: var(--text-muted); margin: 0; font-variant-numeric: tabular-nums; }
@@ -599,7 +599,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         transform: translateX(-130%);
       }
       .crt-save:hover:not(:disabled) { filter: brightness(1.05); box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 14px 28px -10px rgba(240,90,40,0.85), 0 2px 6px rgba(0,0,0,0.1); }
-      .crt-save:hover:not(:disabled)::after { animation: crt-shine 0.85s ease; }
+      .crt-save:hover:not(:disabled)::after { animation: crt-shine var(--dur-max, 350ms) ease; }
       .crt-save:active:not(:disabled) { transform: scale(0.975) translateY(1px); box-shadow: inset 0 2px 6px rgba(0,0,0,0.18), 0 4px 10px -6px rgba(240,90,40,0.6); }
       .crt-save:disabled { background: var(--surface-ground); color: var(--text-faint); box-shadow: none; cursor: not-allowed; }
       .crt-save:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }

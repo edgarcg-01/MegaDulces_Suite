@@ -356,7 +356,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .ring {
         width: 66px; height: 66px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
         background: conic-gradient(var(--action) calc(var(--pct, 0) * 1%), var(--border-color) 0);
-        transition: --pct 0.8s var(--ease-out, cubic-bezier(0.23,1,0.32,1));
+        transition: --pct var(--dur-max, 350ms) var(--ease-out, cubic-bezier(0.23,1,0.32,1));
       }
       .ring .inner {
         width: 54px; height: 54px; border-radius: 50%; background: var(--card-bg); display: grid; place-items: center;
