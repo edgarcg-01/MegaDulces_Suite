@@ -118,7 +118,7 @@ export class CommercialQuotesController {
     summary:
       'Sucursales del usuario para cotizar (alcance ADR-050, área televenta): null = todas, [] = ninguna; default_branch = la de su perfil si está permitida.',
   })
-  branches() {
+  branches(): ReturnType<CommercialQuotesService['myBranches']> {
     return this.service.myBranches();
   }
 
