@@ -1,4 +1,4 @@
-import { Inject, Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, BadRequestException, ForbiddenException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
@@ -48,6 +48,10 @@ interface DatosKepler {
   beneficiario?: string | null;
   concepto?: string | null;
   autoriza?: string | null;
+  /** `[GX.65.3]` Clave del proveedor (acreedor) en Kepler, `kdm1.c10`. */
+  cuenta_clave?: string | null;
+  /** `[GX.65.3]` Nombre canónico del proveedor, del catálogo `kdxd`. */
+  acreedor?: string | null;
 }
 import {
   diaValido, etapaDe, hoyMx, particionarDelDia,
@@ -57,6 +61,9 @@ import {
   mesValido, rangoDelMes, totalDelMes,
   type CalendarioDelMes, type DiaDelCalendario,
 } from './calendario-gastos';
+import { ESTADOS_ABIERTOS, TOPE_ABIERTOS, unirAbiertosYCerrados } from './mis-gastos-abiertos';
+import { agruparGastosPorSolicitud, datosKeplerDeLaFila } from './mis-gastos-kepler';
+import { esDuenoDelVale, MENSAJE_PROPIO_VALE, type IdentidadQueDecide } from '@megadulces/contracts';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -931,8 +938,10 @@ export class ExpenseProofsService {
      * desde cuando. Sin la marca, un vale asi era indistinguible de uno cerrado con su
      * factura, y ese numero no se podia contestar.
      */
-    provisional?: boolean; comprobante_esperado_at?: string }): Promise<{ id: string; status: string }> {
+    provisional?: boolean; comprobante_esperado_at?: string }, quien?: IdentidadQueDecide): Promise<{ id: string; status: string }> {
     this.tenantCtx.requireTenantId();
+    // `[GX.65.4a]` Antes que nada: el dueño del vale no lo decide.
+    await this.tk.run((trx) => this.asegurarQueNoEsSuyo(trx, id, quien));
     const clasIn = (dto?.clasificacion || '').trim();
     if (clasIn && !EXPENSE_CLASIFICACIONES.includes(clasIn as ExpenseClasificacion)) {
       throw new BadRequestException('clasificación inválida');
@@ -1190,6 +1199,12 @@ export class ExpenseProofsService {
     const reg = await trx.raw(`SELECT to_regclass('analytics.expense_requests') t`);
     if (!reg.rows[0]?.t) return vacio;
 
+    // `[GX.65.3]` El proveedor por su clave. Se pide SÓLO si la columna existe en este entorno
+    // (llegó con la migración 20260821200000): pedirla a ciegas tumbaría la lista entera.
+    const colsProv: string[] = (await trx.raw(`SELECT column_name FROM information_schema.columns
+      WHERE table_schema='analytics' AND table_name='expense_requests'
+        AND column_name IN ('cuenta_clave','acreedor')`)).rows.map((r: { column_name: string }) => r.column_name);
+
     const vistas: (DatosKepler & { folio: string; sucursal: string; estado: string | null })[] =
       await trx('analytics.expense_requests')
         .where('tenant_id', this.tenantCtx.requireTenantId())
@@ -1200,7 +1215,8 @@ export class ExpenseProofsService {
          * DERIVAN cada vez: si en Kepler cancelan el vale, la constancia desaparece sola.
          */
         .select('folio', 'sucursal', 'aplicada', 'estado', 'importe', 'beneficiario',
-          'concepto', 'autoriza', trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`));
+          'concepto', 'autoriza', trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`),
+          ...colsProv);
 
     const porFolio = new Map<string, typeof vistas>();
     for (const v of vistas) {
@@ -1231,9 +1247,33 @@ export class ExpenseProofsService {
         beneficiario: hit.beneficiario ?? null,
         concepto: hit.concepto ?? null,
         autoriza: hit.autoriza ?? null,
+        cuenta_clave: hit.cuenta_clave ?? null,
+        acreedor: hit.acreedor ?? null,
       });
     }
     return out;
+  }
+
+  /**
+   * `[GX.65.3]` Los gastos `XA1001` de estas solicitudes, en UNA consulta por página.
+   *
+   * Mismo puente que el Expediente (`[GX.62]`): `analytics.expense_documents.solicitud_folio`
+   * (= `c39`) + sucursal. Donde la vista no existe devuelve vacío — y cada fila dice «sin gasto
+   * aplicado», que es lo que se puede afirmar sin ODS.
+   */
+  private async gastosPorSolicitud(
+    trx: Knex, filas: { folio_solicitud?: string | null; sucursal?: string | null }[],
+  ): Promise<Map<string, string[]>> {
+    const folios = [...new Set(filas.map((f) => String(f.folio_solicitud || '').trim()).filter(Boolean))];
+    if (!folios.length) return new Map();
+    const reg = await trx.raw(`SELECT to_regclass('analytics.expense_documents') t`);
+    if (!reg.rows[0]?.t) return new Map();
+    const docs = await trx('analytics.expense_documents')
+      .where('tenant_id', this.tenantCtx.requireTenantId())
+      .where('doc_tipo', 'XA1001')
+      .whereIn('solicitud_folio', folios)
+      .select('sucursal', 'solicitud_folio', 'doc_folio');
+    return agruparGastosPorSolicitud(docs);
   }
 
   private claveKepler(folio: string, sucursal?: string | null): string {
@@ -1339,12 +1379,36 @@ export class ExpenseProofsService {
         return qb;
       };
       filtros(b);
-      const crudas = await Promise.all((await b).map(async (r: FilaDeGasto) => ({
+      // `[GX.65]` En «lo mío» los abiertos viajan TODOS; el `limit` sólo recorta los cerrados.
+      // Sin esto, un vale devuelto o con factura pendiente más viejo que los últimos 200 se
+      // quedaba fuera de la lista sin aviso. Los demás usos de `list()` no cambian.
+      let filasDb: FilaDeGasto[];
+      let abiertos_truncados = false;
+      if (q.mine && !q.status) {
+        const [abiertos, cerrados] = await Promise.all([
+          b.clone().whereIn('status', [...ESTADOS_ABIERTOS]).limit(TOPE_ABIERTOS + 1),
+          b.clone().whereNotIn('status', [...ESTADOS_ABIERTOS]),
+        ]);
+        const unidos = unirAbiertosYCerrados(abiertos as FilaDeGasto[], cerrados as FilaDeGasto[]);
+        filasDb = unidos.filas;
+        abiertos_truncados = unidos.abiertos_truncados;
+      } else {
+        filasDb = await b;
+      }
+      const crudas = await Promise.all(filasDb.map(async (r: FilaDeGasto) => ({
         ...r, importe: Number(r.importe), monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
         files: await this.storage.signFiles(archivosDe(r.files)), // URL prefirmada (bucket privado)
       })));
       // `[GX.39]` La etapa de ejercicio, derivada en vivo de la vista. Una consulta por pagina.
-      const rows = this.conEtapa(crudas, await this.keplerPorFolio(trx, crudas));
+      const kep = await this.keplerPorFolio(trx, crudas);
+      // `[GX.65.3]` Proveedor por clave + gastos XA1001: DATO para las 3 columnas, no decisión.
+      // Sólo en «lo mío»: las otras pantallas que usan list() no lo piden y no pagan la consulta.
+      const gastos = q.mine ? await this.gastosPorSolicitud(trx, crudas) : new Map<string, string[]>();
+      const rows = this.conEtapa(crudas, kep).map((r) => ({
+        ...r,
+        ...datosKeplerDeLaFila(kep.get(this.claveKepler(String(r.folio_solicitud || ''), r.sucursal)),
+          gastos, r.folio_solicitud, r.sucursal),
+      }));
 
       const agg = await filtros(trx('finance.expense_proofs'))
         .groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
@@ -1368,6 +1432,8 @@ export class ExpenseProofsService {
       return {
         kpis: { total, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0, en_revision: by['revision'] || 0 },
         etapas_de_la_pagina: porEtapa,
+        // `[GX.65]` Si se alcanzó el tope de abiertos, se DICE. Siempre `false` fuera de «lo mío».
+        abiertos_truncados,
         rows,
       };
     });
@@ -2282,9 +2348,11 @@ export class ExpenseProofsService {
    * ## La comprobación de Kepler
    * Sale de `finance.expense_comprobaciones` (módulo GX.8) por `folio_solicitud`. Cuenta la que
    * existe y **no está rechazada**: una comprobación que se rechazó no comprueba nada.
-   * ⛔ Si la tabla no existe en este entorno, `comprobacion_kepler` viaja en **`null`** y el
-   * veredicto sale `sin_medir` — nunca «no comprobó». Acusar a 155 personas por un `JOIN` que
-   * falta sería peor que no medir.
+   * ⛔ Si la tabla no existe en este entorno, `comprobacion_kepler` viaja en **`null`**.
+   *
+   * `[GX.65.2]` Desde el 2026-10-03 la comprobación **ya no decide** si el vale cierra: se sigue
+   * mandando como dato informativo, pero `protocoloDelVale` no la lee, así que `null` ya no
+   * produce `sin_medir`.
    */
   async expedientePorUsuario(limit = 2000): Promise<RespuestaExpediente> {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -2596,7 +2664,7 @@ export class ExpenseProofsService {
    * equivocó de naturaleza): al hacerlo se re-aplica la regla de evidencia. No se puede
    * validar un gasto comprobable sin su evidencia, ni cerrar un no_comprobable sin motivo.
    */
-  async validate(id: string, actor?: string, dto?: { clasificacion?: string; comprobacion_nota?: string }) {
+  async validate(id: string, actor?: string, dto?: { clasificacion?: string; comprobacion_nota?: string }, quien?: IdentidadQueDecide): Promise<{ id: string; status: string }> {
     this.tenantCtx.requireTenantId();
     const clasIn = (dto?.clasificacion || '').trim();
     if (clasIn && !EXPENSE_CLASIFICACIONES.includes(clasIn as ExpenseClasificacion)) {
@@ -2604,6 +2672,8 @@ export class ExpenseProofsService {
     }
     const notaIn = (dto?.comprobacion_nota || '').trim();
     return this.tk.run(async (trx) => {
+      // `[GX.65.4a]` El dueño del vale no lo valida.
+      await this.asegurarQueNoEsSuyo(trx, id, quien);
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
       const cur: any = await trx('finance.expense_proofs').where({ id }).whereIn('status', ['aprobada', 'rechazada', 'revision'])
         .first('folio_solicitud', 'files', ...(clasCol ? ['clasificacion', 'comprobacion_nota'] : []));
@@ -2646,9 +2716,45 @@ export class ExpenseProofsService {
   }
 
   /** Rechaza (con motivo). */
-  async reject(id: string, actor?: string, motivo?: string) {
+  /**
+   * `[GX.65.4a]` **Nadie decide sobre su propio vale.** Una sola guarda para aprobar, validar y
+   * rechazar — si viviera copiada en cada uno, la primera en olvidarse abriría el hueco.
+   *
+   * ⛔ Sin identidad NO se deja pasar: es la única forma segura. Los tres métodos sólo los llama
+   * el controller, que siempre manda al usuario del token.
+   * Si el vale no existe, no se dice nada aquí: cada método ya responde «no encontrado» con su
+   * propia frase.
+   */
+  private async asegurarQueNoEsSuyo(trx: Knex, id: string, quien?: IdentidadQueDecide): Promise<void> {
+    if (!quien || (!String(quien.username ?? '').trim() && !String(quien.full_name ?? '').trim())) {
+      throw new ForbiddenException('No se pudo identificar quién decide sobre el vale.');
+    }
+    const vale = await trx('finance.expense_proofs').where({ id }).first('created_by', 'evidencia_por');
+    if (!vale) return;
+    /**
+     * ⛔ El token de sesión NO trae `full_name` (sólo `username`) y `req.user` ES el token: sin
+     * esto, la guarda comparaba sólo el username y dejaba pasar al dueño de un vale guardado con
+     * su NOMBRE. Se lee el nombre real del padrón. Lo encontró la simulación por niveles.
+     */
+    let nombre = String(quien.full_name ?? '').trim();
+    const usuario = String(quien.username ?? '').trim();
+    if (!nombre && usuario) {
+      const u = await trx('users')
+        .where({ tenant_id: this.tenantCtx.requireTenantId() })
+        .whereRaw('lower(username) = lower(?)', [usuario])
+        .first('nombre');
+      nombre = String(u?.nombre ?? '').trim();
+    }
+    if (esDuenoDelVale(vale, { username: usuario, full_name: nombre })) {
+      throw new ForbiddenException(MENSAJE_PROPIO_VALE);
+    }
+  }
+
+  async reject(id: string, actor?: string, motivo?: string, quien?: IdentidadQueDecide): Promise<{ id: string; status: string }> {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      // `[GX.65.4a]` El dueño del vale tampoco se lo rechaza a sí mismo.
+      await this.asegurarQueNoEsSuyo(trx, id, quien);
       const [row] = await trx('finance.expense_proofs').where({ id }).whereIn('status', ['recibida', 'aprobada', 'validada', 'revision'])
         .update({ status: 'rechazada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
         .returning(['id', 'status']);

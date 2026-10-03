@@ -1,6 +1,23 @@
 /**
  * `[GX.59]` — **¿Este vale completó el protocolo?**
  *
+ * ## ⛔ `[GX.65.2]` (2026-10-03) — la comprobación de Kepler DEJÓ de ser forzosa
+ * Decisión del usuario al definir «Mis gastos» en 3 columnas: *«cuando un gasto no ocupa
+ * comprobación, se pasa a gasto aprobado, a expediente sin pago, y cuando se señala esto es una
+ * prefactura o cotización, todavía falta el comprobante, se pasan al cuadro de gastos
+ * pendientes de comprobación»*. Manda sobre lo pedido el 2026-10-02 (abajo).
+ *
+ * La regla vigente: **completo = firmado + (si fue prefactura, su factura)**. La comprobación de
+ * Kepler ya no entra. **Medido antes de cambiarlo (local, 156 expedientes): 18 pasan de
+ * «incompleto» a «completo», 4 siguen incompletos (prefacturas que deben su factura), ninguno
+ * empeora.** Lo de abajo queda como historia de por qué existió.
+ *
+ * ⚠️ `comprobacion_kepler` y `sin_medir` se CONSERVAN en los tipos sólo para no romper a quien
+ * todavía los lee; la regla ya no produce ninguno de los dos. Se retiran al rehacer la pantalla
+ * (`[GX.65.5]`).
+ *
+ * ---- Historia (GX.59, 2026-10-02) ----
+ *
  * Pedido del usuario (2026-10-01): *«agregar forzosamente la comprobación, sólo así se podrá
  * tomar en cuenta que se completó el protocolo»*, con dos caminos: la **comprobación de
  * Kepler**, que es forzosa, y —si el vale se levantó con una cotización— la **factura del
@@ -40,7 +57,10 @@ export type EtapaProtocolo =
   | 'completo'
   | 'sin_medir';
 
-/** Cada cosa que le falta al vale para cerrar el protocolo. */
+/**
+ * Cada cosa que le falta al vale para cerrar el protocolo.
+ * ⚠️ `comprobacion_kepler` está RETIRADO desde `[GX.65.2]`: la regla ya no lo produce.
+ */
 export type FaltaProtocoloId = 'firma' | 'comprobacion_kepler' | 'factura_del_gasto';
 
 export interface FaltaProtocolo {
@@ -102,8 +122,12 @@ function tieneComprobante(e: EstadoProtocolo): boolean {
 /**
  * El veredicto del vale.
  *
- * El orden de las tres preguntas es el del trámite —firma, comprobación, factura— y las tres
- * se evalúan **siempre**: la lista sale completa aunque falten las tres.
+ * Dos preguntas, en el orden del trámite —firma, factura— y las dos se evalúan **siempre**:
+ * la lista sale completa aunque falten ambas.
+ *
+ * `[GX.65.2]` La comprobación de Kepler ya no se pregunta (ver el encabezado). Por eso el
+ * veredicto siempre es `medido: true`: no queda nada que dependa de una consulta que pudo no
+ * correr — firma, prefactura y archivos vienen del propio expediente.
  */
 export function protocoloDelVale(e: EstadoProtocolo): VeredictoProtocolo {
   const status = String(e.status ?? '').trim();
@@ -113,12 +137,6 @@ export function protocoloDelVale(e: EstadoProtocolo): VeredictoProtocolo {
 
   const faltan: FaltaProtocolo[] = [];
   if (!FIRMADOS.has(status)) faltan.push(falta('firma'));
-
-  // ⛔ Primero la medición. Si nadie preguntó por la comprobación, no se puede acusar.
-  const medido = e.comprobacion_kepler === true || e.comprobacion_kepler === false;
-  if (!medido) return { etapa: 'sin_medir', faltan, medido: false };
-
-  if (e.comprobacion_kepler !== true) faltan.push(falta('comprobacion_kepler'));
 
   // La factura sólo se le pide al que quedó debiendo: exigírsela a todos convertiría en
   // deudor a quien subió su ticket el primer día.

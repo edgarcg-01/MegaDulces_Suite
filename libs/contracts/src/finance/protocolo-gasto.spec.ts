@@ -27,38 +27,48 @@ describe('[GX.59] el protocolo del vale', () => {
   });
 
   /**
-   * ⭐ **La prueba que sostiene el pedido.** La comprobación de Kepler es forzosa: un vale
-   * aprobado, con su ticket subido y sin comprobación **no cerró el protocolo**. Hasta hoy
-   * ese vale se veía idéntico a uno cerrado.
+   * ⭐ `[GX.65.2]` **La prueba que sostiene la decisión del 2026-10-03.** La comprobación de
+   * Kepler DEJÓ de ser forzosa: un vale firmado que no fue prefactura cierra sin ella.
+   * (Antes esta misma prueba afirmaba lo contrario — GX.59.)
    */
-  it('sin la comprobación de Kepler NO cierra, aunque todo lo demás esté', () => {
+  it('⭐ sin la comprobación de Kepler SÍ cierra (GX.65.2)', () => {
     const v = { ...completo(), comprobacion_kepler: false };
-    expect(protocoloDelVale(v).etapa).toBe('incompleto');
-    expect(ids(v)).toEqual(['comprobacion_kepler']);
-    expect(protocoloCompleto(v)).toBe(false);
+    expect(protocoloDelVale(v).etapa).toBe('completo');
+    expect(ids(v)).toEqual([]);
+    expect(protocoloCompleto(v)).toBe(true);
   });
 
   /**
-   * ⭐ **Lo que no se midió NO es lo que falta.** Un endpoint que no hace el join devuelve
-   * `null`; pintarlo como «falta» acusaría a todos de no comprobar por una consulta que nadie
-   * escribió. Es la regla de ADR-056, y acá es la diferencia entre un tablero útil y una
-   * pantalla que miente.
+   * `[GX.65.2]` Como ya no se pregunta por la comprobación, no medirla tampoco frena: el
+   * veredicto sale del propio expediente (firma, prefactura, archivos) y siempre es medido.
    */
-  it('⛔ sin medir la comprobación, el veredicto se declara — no acusa', () => {
-    for (const sin of [null, undefined]) {
+  it('sin medir la comprobación ya no frena: cierra igual y queda medido', () => {
+    for (const sin of [null, undefined, true, false]) {
       const v = { ...completo(), comprobacion_kepler: sin } as EstadoProtocolo;
       const r = protocoloDelVale(v);
-      expect(r.etapa).toBe('sin_medir');
-      expect(r.medido).toBe(false);
-      // ⛔ Y NO aparece como si le faltara la comprobación.
-      expect(r.faltan.map((f) => f.id)).not.toContain('comprobacion_kepler');
-      expect(protocoloCompleto(v)).toBe(false);
+      expect(r.etapa).toBe('completo');
+      expect(r.medido).toBe(true);
     }
   });
 
-  it('medido en false SÍ es una acusación, y se distingue del sin medir', () => {
-    const v = { ...completo(), comprobacion_kepler: false };
-    expect(protocoloDelVale(v).medido).toBe(true);
+  /** ⛔ El faltante retirado no reaparece en ningún caso. */
+  it('«falta la comprobación de Kepler» ya no aparece nunca', () => {
+    const casos: EstadoProtocolo[] = [
+      { status: 'recibida', comprobacion_kepler: false },
+      { status: 'validada', provisional: true, archivos: [], comprobacion_kepler: false },
+      { status: 'aprobada', comprobacion_kepler: null },
+    ];
+    for (const v of casos) expect(ids(v)).not.toContain('comprobacion_kepler');
+  });
+
+  /**
+   * ⛔ Prueba NEGATIVA: quitar la comprobación no aflojó la otra regla. La prefactura sin su
+   * factura sigue sin cerrar, aunque traiga comprobación de Kepler.
+   */
+  it('⛔ la prefactura sin factura sigue incompleta, aunque tenga comprobación de Kepler', () => {
+    const v = { ...completo(), provisional: true, archivos: [{ role: 'cotizacion' }], comprobacion_kepler: true };
+    expect(protocoloDelVale(v).etapa).toBe('incompleto');
+    expect(ids(v)).toEqual(['factura_del_gasto']);
   });
 
   describe('la factura del gasto', () => {
@@ -98,7 +108,7 @@ describe('[GX.59] el protocolo del vale', () => {
         status: 'recibida', provisional: true, archivos: [{ role: 'cotizacion' }],
         comprobacion_kepler: false,
       };
-      expect(ids(v)).toEqual(['firma', 'comprobacion_kepler', 'factura_del_gasto']);
+      expect(ids(v)).toEqual(['firma', 'factura_del_gasto']);
       // ⛔ Pero el TITULAR sigue siendo «en captura»: ver la prueba de abajo.
       expect(protocoloDelVale(v).etapa).toBe('en_captura');
     });
@@ -120,7 +130,7 @@ describe('[GX.59] el protocolo del vale', () => {
       };
       expect(protocoloDelVale(v).etapa).toBe('en_captura');
       // Y la lista NO se recorta: el titular cambia, la información no se pierde.
-      expect(protocoloDelVale(v).faltan.length).toBe(3);
+      expect(protocoloDelVale(v).faltan.length).toBe(2);
     });
 
     /** ⛔ La prueba negativa: firmado, lo que falte ya SÍ es «incompleto». */
@@ -130,7 +140,7 @@ describe('[GX.59] el protocolo del vale', () => {
         comprobacion_kepler: false,
       };
       expect(protocoloDelVale(v).etapa).toBe('incompleto');
-      expect(ids(v)).toEqual(['comprobacion_kepler', 'factura_del_gasto']);
+      expect(ids(v)).toEqual(['factura_del_gasto']);
     });
 
     it('los tres estados firmados valen igual para la firma', () => {
@@ -181,17 +191,16 @@ describe('[GX.59] el protocolo del vale', () => {
   });
 
   /**
-   * ⛔ **El retrato del día 1, como prueba.** `finance.expense_comprobaciones` tiene 0 filas:
-   * el módulo GX.8 existe y nunca se usó. Con la comprobación forzosa, un vale que hoy se ve
-   * cerrado («validada», con su ticket) sale **incompleto**. Está bien que así sea — es el
-   * estado real del trámite — pero que no sorprenda a nadie después.
+   * `[GX.65.2]` **El retrato de hoy, como prueba.** Medido en local antes del cambio: 18 vales
+   * «validada» con su ticket salían *incompletos* sólo por la comprobación. Con la regla nueva
+   * cierran. Si esta prueba vuelve a rojo, alguien reinstaló la comprobación forzosa.
    */
-  it('un vale «validada» de hoy, sin comprobación, sale incompleto', () => {
+  it('un vale «validada» de hoy, sin comprobación, ya sale completo', () => {
     const comoEstanHoy: EstadoProtocolo = {
       status: 'validada', provisional: false,
       archivos: [{ role: 'comprobante_1' }], comprobacion_kepler: false,
     };
-    expect(protocoloDelVale(comoEstanHoy).etapa).toBe('incompleto');
-    expect(ids(comoEstanHoy)).toEqual(['comprobacion_kepler']);
+    expect(protocoloDelVale(comoEstanHoy).etapa).toBe('completo');
+    expect(ids(comoEstanHoy)).toEqual([]);
   });
 });
