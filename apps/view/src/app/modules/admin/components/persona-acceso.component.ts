@@ -24,23 +24,44 @@ import { AdminService, PermisosDePersona } from '../admin.service';
 import { PerfilDelCatalogo } from '@megadulces/contracts';
 import {
   PERMISSION_META,
-  PERMISSION_CATEGORY_ORDER,
   TOTAL_PERMISSIONS,
 } from '../../../core/constants/permission-meta';
+import {
+  AUTHZ_TREE,
+  CambioDePantalla,
+  OverrideDePermiso,
+  overridesContra,
+  pantallasAfectadas,
+  ubicacionDeClave,
+  valoresDesdeBase,
+} from '../../../core/constants/authz-tree';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { PermissionTreeComponent } from '../../../shared/components/permission-tree/permission-tree.component';
+import {
+  PermissionPreviewComponent,
+  UsoDePermisos,
+} from '../../../shared/components/permission-tree/permission-preview.component';
 
 /**
- * `[AU.10]` — Qué abre una persona: su perfil base, sus complementos y sus
- * excepciones.
+ * `[AU.10]` / `[AU.14]` — Qué abre una persona: su perfil base, sus complementos y sus
+ * diferencias contra el perfil.
  *
- * ⛔ Esto NO es un segundo `/admin/roles`. El perfil concede; acá sólo se
- * declaran las **diferencias** contra él, y cada una lleva motivo escrito.
- * Medido en prod: hay 32 excepciones vivas y **las 32 sin nota**, así que nadie
- * sabe por qué existe ninguna — que es exactamente el destino de `user_roles`
- * que la nota venía a evitar.
+ * ⛔ Esto NO es un segundo editor de perfiles. El perfil concede; acá se declaran las
+ * **diferencias** contra él, y el lote lleva motivo escrito.
  *
- * ⚠️ Un montón de excepciones sobre una persona no es una excepción: es que el
- * rol no le queda. La pantalla lo dice y manda a arreglar el rol.
+ * ── `[AU.14]` Por qué cambió la forma ───────────────────────────────────────
+ * Antes se escribían las excepciones DE A UNA: elegir la clave en un desplegable de 223, elegir
+ * el signo, y escribirle un motivo a cada una. Medido en prod el 2026-10-03: `ernesto_zarate`
+ * tiene **28 excepciones, 27 de ellas «quita», y las 28 sin motivo** — y esas 27 son dos
+ * proyectos enteros, o sea 27 renglones escritos a mano para expresar dos decisiones.
+ *
+ * Ahora se marca el estado FINAL sobre el árbol y la diferencia se deriva sola. El motivo pasa a
+ * ser **uno por lote**: no es aflojar la auditoría, es hacerla cumplible. La regla vieja se
+ * evadía en 2 de cada 3 casos (32 de 48 excepciones vivas sin nota) — cobraba fricción sin
+ * comprar nada.
+ *
+ * ⚠️ Un montón de diferencias sobre una persona no es una excepción: es que el perfil no le
+ * queda. La pantalla lo sigue diciendo y sigue mandando a arreglar el perfil.
  */
 
 interface Excepcion {
@@ -49,12 +70,17 @@ interface Excepcion {
   nota: string | null;
 }
 
+type Modo = 'editor' | 'revision';
+
+/** El universo contra el que se compara. El catálogo cubre las 223 del enum (medido). */
+const TODAS_LAS_CLAVES = Object.keys(PERMISSION_META);
+
 @Component({
   selector: 'app-persona-acceso',
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterLink, ButtonModule, TagModule, SelectModule,
-    MultiSelectModule, InputTextModule,
+    MultiSelectModule, InputTextModule, PermissionTreeComponent, PermissionPreviewComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -140,99 +166,203 @@ interface Excepcion {
       </section>
 
       <section class="pd-blk">
-        <h3>Excepciones</h3>
+        <h3>Qué abre esta persona</h3>
 
         @if (demasiadas()) {
           <div class="pd-aviso-blk" role="status">
             <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
             <div>
-              <strong>{{ excepciones().length }} excepciones</strong> sobre un mismo perfil no son
-              excepciones: son que el perfil no le queda. Lo que corrige el problema de raíz es
-              arreglar el perfil, no acumular parches acá.
+              <strong>{{ excepcionesOriginal().length }} diferencias</strong> contra un mismo perfil
+              no son excepciones: son que el perfil no le queda.
+              Lo que corrige el problema de raíz es arreglar el perfil, no acumular parches acá.
               <a class="pd-link" routerLink="/admin/roles">Ir a Roles y permisos →</a>
             </div>
           </div>
         }
 
-        @if (!excepciones().length) {
-          <p class="pd-vacio">Sin excepciones: su acceso sale entero de su perfil. Es lo deseable.</p>
-        } @else {
-          <ul class="pd-lista">
-            @for (e of excepciones(); track e.permission_key) {
-              <li class="pa-exc">
-                <!-- [AU.6] La etiqueta primero y la clave debajo. Antes salía sólo
-                     COMMERCIAL_QUOTES_VER: quien administra personas lee lo que el permiso
-                     ABRE, no cómo se declara en el enum. La clave se conserva —es lo que se
-                     guarda y lo que se menciona en un soporte— pero demotada. -->
-                <span class="pa-perm">
-                  <span class="pa-perm-label">{{ etiqueta(e.permission_key) }}</span>
-                  <span class="pa-perm-key">{{ e.permission_key }}</span>
-                </span>
-                <p-tag [value]="e.allow ? 'concede' : 'quita'"
-                       [severity]="e.allow ? 'success' : 'danger'" styleClass="pd-tag"></p-tag>
-                <input pInputText [ngModel]="e.nota ?? ''" (ngModelChange)="setNota(e.permission_key, $event)"
-                       [disabled]="!puedeEscribir" class="pa-nota"
-                       placeholder="Por qué (obligatorio)"
-                       [attr.aria-label]="'Motivo de ' + etiqueta(e.permission_key)" />
-                @if (puedeEscribir) {
-                  <button pButton type="button" class="icon-btn-ghost-bad"
-                          (click)="quitar(e.permission_key)"
-                          [attr.aria-label]="'Quitar la excepción ' + etiqueta(e.permission_key)">
-                    <span class="pi pi-times" aria-hidden="true"></span>
-                  </button>
-                }
-              </li>
-            }
-          </ul>
-        }
+        @if (permisos()?.platform_admin) {
+          <p class="pd-vacio">
+            Su perfil abre todo por rol: marcar o desmarcar acá no cambiaría nada.
+          </p>
+        } @else if (modo() === 'revision') {
+          <!-- Paso de revision: la diferencia dicha en PANTALLAS, que es lo que se puede leer.
+               27 claves no se revisan; 18 pantallas con nombre y ruta si. -->
+          <div class="pa-rev">
+            <div class="pa-rev-kpis">
+              <div>
+                <span class="pa-rev-lab">Pantallas que se cierran</span>
+                <strong class="pa-rev-num pa-rev-bad">{{ pantallasQueCierran().length }}</strong>
+              </div>
+              <div>
+                <span class="pa-rev-lab">Pantallas que se abren</span>
+                <strong class="pa-rev-num pa-rev-ok">{{ pantallasQueAbren().length }}</strong>
+              </div>
+              <div>
+                <span class="pa-rev-lab">Permisos afectados</span>
+                <strong class="pa-rev-num">{{ pendientes().length }}</strong>
+                <span class="pa-rev-sub">{{ cuantosDeLectura() }} de lectura · {{ cuantosDeGestion() }} de gestión</span>
+              </div>
+              <div>
+                <span class="pa-rev-lab">Queda con</span>
+                <strong class="pa-rev-num">{{ efectivosTrasGuardar() }}</strong>
+                <span class="pa-rev-sub">de los {{ permisos()?.del_puesto?.length ?? 0 }} de su perfil</span>
+              </div>
+            </div>
 
-        @if (puedeEscribir && !permisos()?.platform_admin) {
-          <div class="pa-nueva">
-            <!-- [AU.6] Agrupado por categoría y con la etiqueta legible. Eran 201 claves en
-                 SCREAMING_SNAKE ordenadas alfabéticamente: para encontrar "ver cotizaciones"
-                 había que saber de antemano que se llama COMMERCIAL_QUOTES_VER.
-                 filterBy=label,key para que el que sí se sabe la clave la siga tecleando. -->
-            <p-select [options]="claveOpts()" [ngModel]="nuevaClave()"
-                      (ngModelChange)="elegirClave($event)" optionLabel="label" optionValue="value"
-                      [group]="true" optionGroupLabel="label" optionGroupChildren="items"
-                      [filter]="true" filterBy="label,key" appendTo="body"
-                      placeholder="Agregar una excepción" ariaLabel="Permiso"></p-select>
-            <p-select [options]="signoOpts" [ngModel]="nuevoAllow()"
-                      (ngModelChange)="nuevoAllow.set($event)" optionLabel="label" optionValue="value"
-                      appendTo="body" ariaLabel="Concede o quita"></p-select>
-            <button pButton type="button" class="p-button-sm" [disabled]="!nuevaClave()"
-                    (click)="agregar()">
-              <span class="p-button-label">Agregar</span>
+            @if (sinModulo().length) {
+              <div class="pd-aviso-blk" role="status">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                <div>
+                  <strong>{{ sinModulo().length }} permisos no viven en ninguna pantalla del árbol</strong>
+                  y por eso no aparecen abajo: {{ sinModulo().join(', ') }}. Se guardan igual; se
+                  declara para que nadie lea la lista como completa.
+                </div>
+              </div>
+            }
+
+            <ul class="pa-rev-lista">
+              @for (g of pantallasPorProyecto(); track g.projectId) {
+                <li>
+                  <div class="pa-rev-proy">
+                    <span>{{ g.projectLabel }}</span>
+                    <span class="pa-rev-n">{{ g.items.length }} pantallas</span>
+                  </div>
+                  <ul>
+                    @for (p of g.items; track p.moduleId) {
+                      <li class="pa-rev-fila">
+                        <i class="pi" [class.pi-minus]="p.quita.length && !p.concede.length"
+                           [class.pi-plus]="p.concede.length && !p.quita.length"
+                           [class.pi-sort-alt]="p.quita.length && p.concede.length"
+                           [class.pa-rev-bad]="p.quita.length && !p.concede.length"
+                           [class.pa-rev-ok]="p.concede.length && !p.quita.length"
+                           aria-hidden="true"></i>
+                        <span class="pa-rev-nom">
+                          <span>{{ p.label }}</span>
+                          @if (p.route) {
+                            <code class="comm-code">{{ p.route }}</code>
+                          } @else {
+                            <em class="pd-hint">no es una pantalla</em>
+                          }
+                        </span>
+                        @if (p.tocaGestion) {
+                          <p-tag value="incluye gestión" severity="warn" styleClass="pd-tag"></p-tag>
+                        }
+                      </li>
+                    }
+                  </ul>
+                </li>
+              }
+            </ul>
+
+            @if (noPodesOtorgar().length) {
+              <div class="pd-aviso-blk" role="alert">
+                <i class="pi pi-ban" aria-hidden="true"></i>
+                <div>
+                  No podés otorgar {{ noPodesOtorgar().length }} de estos permisos porque vos no los
+                  tenés: <strong>{{ etiquetasDe(noPodesOtorgar()) }}</strong>. El guardado se va a
+                  rechazar hasta que los quites del lote o te los den a vos.
+                </div>
+              </div>
+            }
+
+            <label class="pa-motivo-lab" for="motivo-lote">Motivo del cambio</label>
+            <input pInputText id="motivo-lote" [ngModel]="motivo()"
+                   (ngModelChange)="motivo.set($event)" class="pa-motivo"
+                   placeholder="Por ejemplo: sale del área de Finanzas y Contabilidad." />
+            <p class="pd-hint">
+              Uno para todo el lote. Queda asentado junto con las {{ pendientes().length }} claves.
+            </p>
+
+            <div class="pa-acc">
+              <button pButton type="button" class="p-button-sm p-button-text" (click)="modo.set('editor')">
+                <span class="p-button-label">Volver al árbol</span>
+              </button>
+              <button pButton type="button" class="p-button-sm" severity="contrast"
+                      [disabled]="guardandoPerms() || !motivo().trim()" (click)="guardar()">
+                <span class="p-button-label">Guardar los {{ pendientes().length }} cambios</span>
+              </button>
+            </div>
+            @if (!motivo().trim()) {
+              <p class="pd-hint">
+                Falta el motivo. Sin él, dentro de seis meses nadie va a saber si fue una decisión
+                o un descuido.
+              </p>
+            }
+          </div>
+        } @else {
+          <div class="pa-barra">
+            <input pInputText [ngModel]="filtro()" (ngModelChange)="filtro.set($event)"
+                   class="pa-buscar" placeholder="Buscar por pantalla, módulo o ruta…"
+                   aria-label="Buscar módulo" />
+            <button type="button" class="pa-chip" [class.pa-chip-on]="soloBase()"
+                    [attr.aria-pressed]="soloBase()" (click)="soloBase.set(true)">
+              Sólo lo que abre su perfil
+            </button>
+            <button type="button" class="pa-chip" [class.pa-chip-on]="!soloBase()"
+                    [attr.aria-pressed]="!soloBase()" (click)="soloBase.set(false)">
+              Todo el catálogo ({{ totalPermisos }})
             </button>
           </div>
-          <p class="pd-hint">
-            Se puede elegir cualquiera de los {{ totalPermisos }} permisos del catálogo, tenga o no
-            este perfil. Los que ya abre vienen marcados.
-          </p>
 
-          @if (avisoNoPuedeOtorgar(); as etq) {
-            <p class="pd-hint">
-              <strong>{{ etq }}</strong> no lo tenés vos, y sólo un superadmin puede otorgar un
-              permiso que no tiene. Si lo agregás, el guardado se va a rechazar.
-            </p>
+          <div class="pa-split">
+            <div class="pa-split-arbol">
+              <app-permission-tree
+                [valores]="valores()" (valoresChange)="valores.set($event)"
+                [base]="baseSet()" [puedeOtorgar]="puedeOtorgarFn"
+                [soloBase]="soloBase()" [filtro]="filtro()"
+                [seleccion]="seleccion()" (seleccionChange)="seleccion.set($event)" />
+            </div>
+            <aside class="pa-split-previa">
+              <app-permission-preview
+                [seleccion]="seleccion()" [valores]="valores()"
+                [uso]="uso()" [admins]="admins()" [misPermisos]="puedeOtorgarFn" />
+            </aside>
+          </div>
+
+          @if (excepcionesOriginal().length) {
+            <details class="pa-viejas">
+              <summary>
+                Diferencias ya guardadas ({{ excepcionesOriginal().length }}) y su motivo
+              </summary>
+              <ul class="pd-lista">
+                @for (e of excepcionesOriginal(); track e.permission_key) {
+                  <li class="pa-exc">
+                    <span class="pa-perm">
+                      <span class="pa-perm-label">{{ etiqueta(e.permission_key) }}</span>
+                      <span class="pa-perm-key">{{ e.permission_key }}</span>
+                    </span>
+                    <p-tag [value]="e.allow ? 'concede' : 'quita'"
+                           [severity]="e.allow ? 'success' : 'danger'" styleClass="pd-tag"></p-tag>
+                    <span class="pa-nota-vieja">
+                      @if (e.nota && e.nota.trim()) { {{ e.nota }} }
+                      @else { <em>sin motivo escrito</em> }
+                    </span>
+                  </li>
+                }
+              </ul>
+            </details>
           }
 
-          @if (excepcionesCambiaron()) {
-            <div class="pa-acc">
-              <button pButton type="button" class="p-button-sm p-button-text" (click)="resetExcepciones()">
+          @if (puedeEscribir) {
+            <div class="pa-pie">
+              <span class="pa-pie-dif">
+                @if (pendientes().length) {
+                  <span class="pa-dif-ok">+{{ cuantasConcede() }}</span>
+                  <span class="pa-dif-bad">−{{ cuantasQuita() }}</span>
+                  sobre <strong>{{ pantallas().length }}</strong> pantallas
+                } @else {
+                  Sin diferencias contra su perfil. Es lo deseable.
+                }
+              </span>
+              <button pButton type="button" class="p-button-sm p-button-text"
+                      [disabled]="!cambiado()" (click)="resetArbol()">
                 <span class="p-button-label">Deshacer</span>
               </button>
               <button pButton type="button" class="p-button-sm" severity="contrast"
-                      [disabled]="guardandoPerms() || !!faltaNota()" (click)="guardarExcepciones()">
-                <span class="p-button-label">Guardar excepciones</span>
+                      [disabled]="!cambiado()" (click)="modo.set('revision')">
+                <span class="p-button-label">Revisar y guardar</span>
               </button>
             </div>
-            @if (faltaNota(); as k) {
-              <p class="pd-hint">
-                Falta el motivo de <strong>{{ etiqueta(k) }}</strong>. Sin él, dentro de seis
-                meses nadie va a saber si fue una decisión o un descuido.
-              </p>
-            }
           }
         }
       </section>
@@ -243,7 +373,7 @@ interface Excepcion {
 export class PersonaAccesoComponent implements OnChanges {
   private api = inject(AdminService);
   private destroyRef = inject(DestroyRef);
-  /** `[AU.12]` Los permisos de QUIEN administra, para avisar del freno del backend. */
+  /** `[AU.12]` Los permisos de QUIEN administra, para el espejo del freno del backend. */
   private perms = inject(PermissionsService);
 
   @Input() userId: string | null = null;
@@ -264,20 +394,33 @@ export class PersonaAccesoComponent implements OnChanges {
   readonly permisos = signal<PermisosDePersona | null>(null);
   readonly perfilBase = signal<string | null>(null);
   readonly complementos = signal<string[]>([]);
-  readonly excepciones = signal<Excepcion[]>([]);
-  readonly nuevaClave = signal<string | null>(null);
-  readonly nuevoAllow = signal(true);
 
-  private readonly complementosOriginal = signal<string[]>([]);
-  private readonly excepcionesOriginal = signal<Excepcion[]>([]);
+  // ── `[AU.14]` El estado del árbol ─────────────────────────────────────────
+  readonly valores = signal<Record<string, boolean>>({});
+  readonly modo = signal<Modo>('editor');
+  readonly motivo = signal('');
+  readonly filtro = signal('');
+  readonly soloBase = signal(true);
+  readonly seleccion = signal<string | null>(null);
+  readonly uso = signal<UsoDePermisos>(null);
+  readonly admins = signal(0);
+
+  readonly excepcionesOriginal = signal<Excepcion[]>([]);
+  private readonly valoresOriginal = signal<Record<string, boolean>>({});
   private readonly roles = signal<PerfilDelCatalogo[]>([]);
+  private readonly complementosOriginal = signal<string[]>([]);
   /** `[AU.13]` Los complementos que declara su puesto. Vacio = no propone ninguno. */
   private readonly propuestos = signal<string[]>([]);
 
-  readonly signoOpts = [
-    { label: 'Le concede', value: true },
-    { label: 'Le quita', value: false },
-  ];
+  readonly totalPermisos = TOTAL_PERMISSIONS;
+
+  /**
+   * `[AU.14]` Espejo del freno de `setPermissions`. Se pasa como función al árbol y al panel.
+   * ⚠️ Es una propiedad, no un método: si fuera `(k) => ...` inline en el template, Angular
+   * crearía una función nueva en cada ciclo y el `input` se vería siempre como cambiado.
+   */
+  readonly puedeOtorgarFn = (clave: string): boolean =>
+    this.perms.isAdmin() || this.perms.has(clave);
 
   /**
    * `[AU.13]` ¿Se pudo medir de que departamento es cada perfil? `null` en el backend significa
@@ -340,101 +483,101 @@ export class PersonaAccesoComponent implements OnChanges {
 
   /**
    * `[AU.13]` El codigo, legible. NO inventa un nombre: cambia `_` por espacio y pone mayuscula
-   * inicial, y el codigo sigue a la vista debajo (misma forma que `[AU.6]` para los permisos).
-   * Los perfiles no tienen columna `name`; ponerles uno a mano seria un catalogo nuevo que
-   * mantener y que se desincroniza al primer renombre.
+   * inicial, y el codigo sigue a la vista debajo.
    */
   nombreDePerfil(code: string): string {
     const txt = code.replace(/_/g, ' ').trim();
     return txt ? txt.charAt(0).toUpperCase() + txt.slice(1) : code;
   }
 
-  /** Lo que esta persona YA abre. Decide el signo por default y marca la opción. */
-  readonly yaTiene = computed(() => new Set(this.permisos()?.efectivos ?? []));
-
-  /**
-   * Las claves que todavía no son excepción. Un permiso no se declara dos veces.
-   *
-   * `[AU.6]` Agrupadas por la categoría de `PERMISSION_META` y ordenadas por etiqueta, no por
-   * clave: el orden alfabético del enum mezcla dominios (`COMMERCIAL_*` de ventas, de almacén y
-   * de logística quedan intercalados) y no es el orden en el que nadie busca.
-   *
-   * ⛔ `[AU.12]` **Acá salía sólo lo que la persona YA tenía** (`efectivos ∪ del_puesto`), y eso
-   * volvía imposible la mitad de la función: el selector de signo ofrece «Le concede» y «Le
-   * quita», pero para conceder hay que elegir una clave que NO tiene — y esa clave nunca estaba
-   * en la lista. Medido: a una persona con 17 permisos se le ofrecían 17 de las
-   * **204 del catálogo** (8%). El comentario de `[AU.6]` decía «eran 201 claves», o sea
-   * que la intención siempre fue el catálogo entero; la lista se había recortado sola.
-   *
-   * El backend nunca fue el límite: `setPermissions` valida contra el enum completo y sólo pide
-   * —para quien no es superadmin— que el permiso que se OTORGA lo tenga quien lo otorga.
-   */
-  readonly claveOpts = computed(() => {
-    const ya = new Set(this.excepciones().map((e) => e.permission_key));
-    const tiene = this.yaTiene();
-    const claves = Object.keys(PERMISSION_META).filter((k) => !ya.has(k));
-
-    const porCategoria = new Map<string, Array<{ label: string; key: string; value: string }>>();
-    for (const k of claves) {
-      const meta = PERMISSION_META[k];
-      const cat = meta?.category || 'Otros';
-      if (!porCategoria.has(cat)) porCategoria.set(cat, []);
-      // Se marcan los que YA tiene, que son los pocos: sobre esos la excepción sólo puede
-      // quitar. Sin la marca, «Le concede» sobre algo que ya tiene es una excepción que no
-      // hace nada y que después nadie sabe por qué está.
-      porCategoria.get(cat)!.push({
-        label: (meta?.label || k) + (tiene.has(k) ? ' · ya lo tiene' : ''),
-        key: k,
-        value: k,
-      });
-    }
-
-    // El orden declarado del catálogo manda; lo que no esté en él va al final, por nombre.
-    const orden = (c: string) => {
-      const i = PERMISSION_CATEGORY_ORDER.indexOf(c);
-      return i === -1 ? PERMISSION_CATEGORY_ORDER.length : i;
-    };
-    return [...porCategoria.entries()]
-      .sort((a, b) => orden(a[0]) - orden(b[0]) || a[0].localeCompare(b[0]))
-      .map(([label, items]) => ({
-        label,
-        items: items.sort((a, b) => a.label.localeCompare(b.label)),
-      }));
-  });
-
-  /**
-   * `[AU.6]` La etiqueta legible de una clave. Fallback a la clave cruda —el catálogo cubre
-   * hoy 201 de 201, pero un permiso nuevo sin entrada tiene que salir con algo, no vacío.
-   * Mismo helper que ya usa el editor de roles (`admin-roles-permissions.metaLabel`).
-   */
   etiqueta(key: string): string {
     return PERMISSION_META[key]?.label || key;
   }
 
-  /** `[AU.12]` El tamaño del catálogo, en vivo: un número escrito a mano envejece sin avisar. */
-  readonly totalPermisos = TOTAL_PERMISSIONS;
+  etiquetasDe(claves: string[]): string {
+    return claves.map((k) => this.etiqueta(k)).join(', ');
+  }
 
-  readonly demasiadas = computed(() => this.excepciones().length >= 10);
+  // ── `[AU.14]` La diferencia, derivada ─────────────────────────────────────
+
+  readonly baseSet = computed(() => new Set(this.permisos()?.del_puesto ?? []));
+
+  /** Las excepciones a guardar. NO se escriben a mano: salen de comparar con el perfil. */
+  readonly pendientes = computed<OverrideDePermiso[]>(() =>
+    overridesContra(this.baseSet(), this.valores(), TODAS_LAS_CLAVES),
+  );
+
+  private readonly afectadas = computed(() => pantallasAfectadas(this.pendientes(), AUTHZ_TREE));
+  readonly pantallas = computed(() => this.afectadas().pantallas);
+  readonly sinModulo = computed(() => this.afectadas().sinModulo);
+
+  readonly pantallasQueCierran = computed(() => this.pantallas().filter((p) => p.quita.length));
+  readonly pantallasQueAbren = computed(() => this.pantallas().filter((p) => p.concede.length));
+
+  readonly pantallasPorProyecto = computed(() => {
+    const por = new Map<string, { projectId: string; projectLabel: string; items: CambioDePantalla[] }>();
+    for (const p of this.pantallas()) {
+      const g =
+        por.get(p.projectId) ??
+        { projectId: p.projectId, projectLabel: p.projectLabel, items: [] as CambioDePantalla[] };
+      g.items.push(p);
+      por.set(p.projectId, g);
+    }
+    return [...por.values()]
+      .sort((a, b) => a.projectLabel.localeCompare(b.projectLabel))
+      .map((g) => ({ ...g, items: [...g.items].sort((a, b) => a.label.localeCompare(b.label)) }));
+  });
+
+  readonly cuantasQuita = computed(() => this.pendientes().filter((o) => !o.allow).length);
+  readonly cuantasConcede = computed(() => this.pendientes().filter((o) => o.allow).length);
+
+  /**
+   * ⚠️ Las claves sin módulo en el árbol NO se cuentan como lectura por descarte: se quedan fuera
+   * de los dos números y se declaran aparte en `sinModulo`. Meterlas en «lectura» sería afirmar
+   * algo que no se midió.
+   */
+  readonly cuantosDeGestion = computed(
+    () =>
+      this.pendientes().filter((o) => {
+        const u = ubicacionDeClave(o.permission_key, AUTHZ_TREE);
+        return !!u && (u.module.manage as readonly string[]).includes(o.permission_key);
+      }).length,
+  );
+  readonly cuantosDeLectura = computed(
+    () => this.pendientes().length - this.cuantosDeGestion() - this.sinModulo().length,
+  );
+
+  readonly efectivosTrasGuardar = computed(
+    () => Object.values(this.valores()).filter(Boolean).length,
+  );
+
+  /** Lo que el backend va a rechazar: otorgar lo que quien edita no tiene. Se dice ANTES. */
+  readonly noPodesOtorgar = computed(() =>
+    this.pendientes()
+      .filter((o) => o.allow && !this.puedeOtorgarFn(o.permission_key))
+      .map((o) => o.permission_key),
+  );
+
+  readonly cambiado = computed(
+    () => this.firmaValores(this.valores()) !== this.firmaValores(this.valoresOriginal()),
+  );
+
+  readonly demasiadas = computed(() => this.excepcionesOriginal().length >= 10);
 
   readonly complementosCambiaron = computed(
     () => this.firma(this.complementos()) !== this.firma(this.complementosOriginal()),
   );
 
-  readonly excepcionesCambiaron = computed(
-    () => this.firmaExc(this.excepciones()) !== this.firmaExc(this.excepcionesOriginal()),
-  );
-
-  /** La primera clave sin motivo, o `null`. La nota es lo único que distingue decisión de descuido. */
-  readonly faltaNota = computed(
-    () => this.excepciones().find((e) => !(e.nota ?? '').trim())?.permission_key ?? null,
-  );
+  // ── Carga ─────────────────────────────────────────────────────────────────
 
   ngOnChanges(): void {
     this.error.set(null);
     this.permisos.set(null);
-    this.excepciones.set([]);
     this.complementos.set([]);
-    this.nuevaClave.set(null);
+    this.valores.set({});
+    this.modo.set('editor');
+    this.motivo.set('');
+    this.seleccion.set(null);
     if (!this.userId) return;
 
     this.cargando.set(true);
@@ -442,8 +585,12 @@ export class PersonaAccesoComponent implements OnChanges {
       next: (p) => {
         this.permisos.set(p);
         const exc = (p.overrides ?? []).map((o) => ({ ...o }));
-        this.excepciones.set(exc);
-        this.excepcionesOriginal.set(exc.map((o) => ({ ...o })));
+        this.excepcionesOriginal.set(exc);
+        // El árbol arranca marcando lo EFECTIVO: lo que la persona abre hoy, perfil más
+        // excepciones. La diferencia contra `del_puesto` se deriva de ahí.
+        const v = valoresDesdeBase(p.efectivos ?? []);
+        this.valores.set(v);
+        this.valoresOriginal.set({ ...v });
         this.cargando.set(false);
       },
       error: (e) => {
@@ -469,6 +616,18 @@ export class PersonaAccesoComponent implements OnChanges {
       });
     }
 
+    // `[AU.14]` Cuánta gente abre cada pantalla. Si falla, queda `null` y el panel DECLARA
+    // «no medido» — nunca pinta 0, que se leería como «no la usa nadie».
+    if (this.uso() === null) {
+      this.api.usoDePermisos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.uso.set(r.uso ?? {});
+          this.admins.set(r.platform_admins ?? 0);
+        },
+        error: () => this.uso.set(null),
+      });
+    }
+
     // `[AU.13]` Lo que el PUESTO propone. Sin puesto no hay propuesta, y eso no es un error:
     // las cuentas de dispositivo y de sistema no ocupan un puesto del organigrama.
     this.propuestos.set([]);
@@ -480,74 +639,57 @@ export class PersonaAccesoComponent implements OnChanges {
     }
   }
 
-  setNota(key: string, nota: string): void {
-    this.excepciones.set(
-      this.excepciones().map((e) => (e.permission_key === key ? { ...e, nota } : e)),
-    );
-  }
+  // ── Mutaciones ────────────────────────────────────────────────────────────
 
-  /**
-   * `[AU.12]` El signo lo propone la realidad: sobre un permiso que ya tiene, la única excepción
-   * con sentido es quitárselo; sobre uno que no tiene, concedérselo. Se sigue pudiendo cambiar.
-   */
-  elegirClave(k: string | null): void {
-    this.nuevaClave.set(k);
-    if (k) this.nuevoAllow.set(!this.yaTiene().has(k));
-  }
-
-  /**
-   * `[AU.12]` El freno del backend, dicho ANTES de guardar: quien no es superadmin no puede
-   * otorgar un permiso que no tiene (`setPermissions` responde 403). Se AVISA, no se esconde la
-   * opción: `PermissionsService` lee la foto del JWT, que puede estar vieja — ocultar por un
-   * dato viejo sería negar algo que sí se puede hacer.
-   */
-  readonly avisoNoPuedeOtorgar = computed(() => {
-    const k = this.nuevaClave();
-    if (!k || !this.nuevoAllow() || this.perms.isAdmin()) return null;
-    return this.perms.has(k) ? null : this.etiqueta(k);
-  });
-
-  agregar(): void {
-    const k = this.nuevaClave();
-    if (!k) return;
-    this.excepciones.set([...this.excepciones(), { permission_key: k, allow: this.nuevoAllow(), nota: '' }]);
-    this.nuevaClave.set(null);
-  }
-
-  quitar(key: string): void {
-    this.excepciones.set(this.excepciones().filter((e) => e.permission_key !== key));
-  }
-
-  resetExcepciones(): void {
-    this.excepciones.set(this.excepcionesOriginal().map((o) => ({ ...o })));
+  resetArbol(): void {
+    this.valores.set({ ...this.valoresOriginal() });
+    this.motivo.set('');
   }
 
   resetComplementos(): void {
     this.complementos.set([...this.complementosOriginal()]);
   }
 
-  guardarExcepciones(): void {
-    if (!this.userId || this.faltaNota()) return;
+  /**
+   * `[AU.14]` Guarda el lote. `PUT` reemplaza el conjunto entero, así que se manda TODO lo
+   * pendiente — incluido lo que no cambió.
+   *
+   * ⚠️ **El motivo viejo no se pisa.** Una diferencia que ya existía y sigue igual conserva su
+   * nota original; el motivo del lote va sólo a las que nacen o cambian de signo. Sin esto,
+   * guardar un cambio chico borraría el porqué de todas las demás.
+   */
+  guardar(): void {
+    if (!this.userId || !this.motivo().trim()) return;
+    const previo = new Map(
+      this.excepcionesOriginal().map((e) => [e.permission_key, e]),
+    );
+    const lote = this.pendientes().map((o) => {
+      const antes = previo.get(o.permission_key);
+      const nota =
+        antes && antes.allow === o.allow && (antes.nota ?? '').trim()
+          ? (antes.nota as string).trim()
+          : this.motivo().trim();
+      return { permission_key: o.permission_key, allow: o.allow, nota };
+    });
+
     this.guardandoPerms.set(true);
     this.error.set(null);
     this.api
-      .setPermisos(
-        this.userId,
-        this.excepciones().map((e) => ({
-          permission_key: e.permission_key,
-          allow: e.allow,
-          nota: (e.nota ?? '').trim(),
-        })),
-      )
+      .setPermisos(this.userId, lote)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
           this.guardandoPerms.set(false);
-          this.guardado.emit('Excepciones de permiso actualizadas.');
+          this.guardado.emit(
+            lote.length
+              ? `Acceso actualizado: ${lote.length} diferencias contra su perfil.`
+              : 'Acceso igualado a su perfil: ya no tiene diferencias.',
+          );
           this.ngOnChanges();
         },
         error: (e) => {
           this.guardandoPerms.set(false);
+          this.modo.set('revision');
           this.error.set(this.mensajeDe(e));
         },
       });
@@ -577,9 +719,9 @@ export class PersonaAccesoComponent implements OnChanges {
     return [...xs].sort().join('|');
   }
 
-  private firmaExc(xs: Excepcion[]): string {
-    return [...xs]
-      .map((e) => `${e.permission_key}:${e.allow}:${(e.nota ?? '').trim()}`)
+  private firmaValores(v: Record<string, boolean>): string {
+    return Object.keys(v)
+      .filter((k) => v[k] === true)
       .sort()
       .join('|');
   }

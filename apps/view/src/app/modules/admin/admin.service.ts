@@ -56,6 +56,19 @@ export interface PermisosDePersona {
   platform_admin: boolean;
 }
 
+/**
+ * `[AU.14]` Lo que devuelve `GET /users/permissions/usage`.
+ *
+ * `platform_admins` va APARTE y no repartido en `uso`: superadmin/admin tienen todo por god-mode
+ * y su fila de permisos no lo declara, así que sumarlos a cada clave inflaría los 223 números por
+ * igual. La pantalla los declara como lo que son.
+ */
+export interface UsoDePermisosResponse {
+  uso: Record<string, { roles: number; personas: number }>;
+  platform_admins: number;
+  medido_en: string;
+}
+
 export interface EventoDePersona {
   id: string;
   event: string;
@@ -188,6 +201,14 @@ export class AdminService {
 
   permisosDe(id: string): Observable<PermisosDePersona> {
     return this.http.get<PermisosDePersona>(`${this.users}/${id}/permissions`);
+  }
+
+  /**
+   * `[AU.14]` Cuánta gente abre hoy cada permiso. Lo pinta el panel de vista previa al lado de la
+   * pantalla que se está concediendo. Si falla, el panel declara «no medido» — nunca dibuja 0.
+   */
+  usoDePermisos(): Observable<UsoDePermisosResponse> {
+    return this.http.get<UsoDePermisosResponse>(`${this.users}/permissions/usage`);
   }
 
   setPermisos(

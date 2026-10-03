@@ -535,3 +535,17 @@ export function allTreePermissions(): Set<Permission> {
   }
   return set;
 }
+
+/**
+ * `[AU.14]` — La lógica de SELECCIÓN sobre este árbol (tri-estado, cascada, diferencia contra el
+ * perfil, de claves a pantallas) vive en `./authz-selection` y se re-exporta desde acá.
+ *
+ * Por qué por acá y no con alias propio: `tsconfig.base.json` declara una subruta por archivo y la
+ * config de Nx no se toca sin autorización. Colgarlo de este módulo —que ya tiene alias y que es
+ * justo el dato sobre el que la lógica opera— cuesta cero y no cambia a ningún consumidor.
+ *
+ * ⚠️ `authz-selection.ts` importa de acá **sólo tipos** (`import type`), para que esta pareja no
+ * sea un ciclo en runtime. Si alguna vez necesita un valor de este archivo, NO lo importe: que se
+ * lo pasen por parámetro, que es como ya recibe el árbol.
+ */
+export * from './authz-selection';
