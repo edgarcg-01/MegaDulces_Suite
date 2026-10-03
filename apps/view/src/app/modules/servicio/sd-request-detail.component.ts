@@ -80,6 +80,8 @@ function leerComoDataUri(f: File): Promise<string> {
 
         <dl class="sd-meta">
           <div><dt>Reportó</dt><dd>{{ t.requester_name || '—' }}</dd></div>
+          @if (t.opened_by_name) { <div><dt>Levantada por</dt><dd>{{ t.opened_by_name }} <small class="sd-hint">a nombre de quien reportó</small></dd></div> }
+          @if (t.requester_department_name) { <div><dt>Área</dt><dd>{{ t.requester_department_name }}</dd></div> }
           <div><dt>Atiende</dt><dd>{{ t.assigned_to_name || 'Sin asignar' }}</dd></div>
           <div><dt>Cola</dt><dd>{{ t.queue_name }} · {{ t.category_name }}</dd></div>
           <div><dt>Afecta</dt><dd>{{ impactLabel[t.impact] }}{{ t.blocks_work ? ' · me bloquea el trabajo' : '' }}</dd></div>

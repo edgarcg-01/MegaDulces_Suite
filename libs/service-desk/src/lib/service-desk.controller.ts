@@ -30,7 +30,9 @@ import {
   type SdLogTimeDto,
   type SdPostMessageDto,
   type SdRequestDetail,
+  type SdDepartmentDto,
   type SdReportResponse,
+  type SdRequesterDto,
   type SdRoutingResponse,
   type SdStatsResponse,
   type SdUpsertRoutingRuleDto,
@@ -42,6 +44,7 @@ import { ServiceDeskConfigAdminService } from './config-admin.service';
 import { ServiceDeskNotificationsService } from './notifications.service';
 import { ServiceDeskPreferencesService } from './preferences.service';
 import { ServiceDeskReportsService } from './reports.service';
+import { ServiceDeskRequestersService } from './requesters.service';
 import { ServiceDeskRoutingService } from './routing.service';
 import { ServiceDeskSlaService } from './sla.service';
 import { ServiceDeskConfigService } from './service-desk-config.service';
@@ -64,6 +67,7 @@ export class ServiceDeskController {
     private readonly admin: ServiceDeskConfigAdminService,
     private readonly routing: ServiceDeskRoutingService,
     private readonly reports: ServiceDeskReportsService,
+    private readonly requesters: ServiceDeskRequestersService,
     private readonly sla: ServiceDeskSlaService,
     private readonly actors: ServiceDeskActorsService,
   ) {}
@@ -80,6 +84,20 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'Personas asignables, con su carga abierta.' })
   agentsList(): Promise<SdAgentDto[]> {
     return this.agents.list();
+  }
+
+  @Get('requesters')
+  @RequireAnyPermission(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Busca personas para levantar una solicitud a su nombre (mín. 2 letras, máx. 20; sin correo ni teléfono).' })
+  searchRequesters(@Query('search') search: string | undefined, @Req() req: AuthedRequest): Promise<SdRequesterDto[]> {
+    return this.actors.resolve(req).then((ctx) => this.requesters.search(ctx, search));
+  }
+
+  @Get('departments')
+  @RequireAnyPermission(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Áreas (departamentos) para indicar el área del solicitante al levantar una solicitud.' })
+  departments(@Req() req: AuthedRequest): Promise<SdDepartmentDto[]> {
+    return this.actors.resolve(req).then((ctx) => this.requesters.departments(ctx));
   }
 
   @Post('requests')

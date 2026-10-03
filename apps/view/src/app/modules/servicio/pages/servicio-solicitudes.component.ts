@@ -8,8 +8,10 @@ import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
-import { SD_IMPACTS, type SdAttachmentInput, type SdCatalogResponse, type SdImpact, type SdPreferencesDto, type SdRequestRow } from '@megadulces/contracts';
+import { SD_IMPACTS, type SdAttachmentInput, type SdCatalogResponse, type SdDepartmentDto, type SdImpact, type SdPreferencesDto, type SdRequesterDto, type SdRequestRow } from '@megadulces/contracts';
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
+import { Permission } from '../../../core/constants/permissions';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { IMPACT_LABEL, PRIORITY_LABEL, STATUS_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
 import { SdRequestDetailComponent, MAX_ARCHIVOS } from '../sd-request-detail.component';
 
@@ -98,6 +100,38 @@ function dataUri(f: File): Promise<string> {
                 <div class="ss-fhead"><h2>Nueva solicitud</h2>
                   <p-button icon="pi pi-times" [text]="true" severity="secondary" ariaLabel="Cerrar formulario" (onClick)="cerrar()" /></div>
                 @if (formError(); as e) { <p class="ss-banner bad" role="alert">{{ e }}</p> }
+
+                @if (puedeAtender()) {
+                  <div class="ss-onbehalf">
+                    @if (!solicitante()) {
+                      <label class="ss-chk"><input type="checkbox" [ngModel]="aNombreDe()" (ngModelChange)="alternarANombreDe($event)" /> <b>Levantar a nombre de otra persona</b></label>
+                      @if (aNombreDe()) {
+                        <label class="ss-field"><span>Persona que lo solicita <em>*</em></span>
+                          <input pInputText type="search" [ngModel]="buscaTexto()" (ngModelChange)="buscarPersona($event)" placeholder="Escribe al menos 2 letras de su nombre o usuario" aria-label="Buscar persona" autocomplete="off" /></label>
+                        @if (buscando()) { <p class="ss-hint">Buscando…</p> }
+                        @else if (buscaTexto().trim().length >= 2 && !resultados().length) { <p class="ss-hint">Nadie con ese nombre. Sólo se puede levantar a nombre de quien tiene usuario en la suite.</p> }
+                        @if (resultados().length) {
+                          <ul class="ss-people" role="listbox" aria-label="Personas">
+                            @for (p of resultados(); track p.user_id) {
+                              <li><button type="button" class="ss-person" (click)="elegirPersona(p)">
+                                <b>{{ p.name || p.username }}</b>
+                                <small>{{ p.username }}{{ p.department_name ? ' · ' + p.department_name : '' }}{{ p.warehouse_name ? ' · ' + p.warehouse_name : '' }}</small>
+                              </button></li>
+                            }
+                          </ul>
+                        }
+                      }
+                    } @else {
+                      <div class="ss-picked">
+                        <div><b>{{ solicitante()?.name || solicitante()?.username }}</b> <small class="ss-hint">lo solicita · {{ solicitante()?.username }}</small></div>
+                        <p-button label="Cambiar" [text]="true" size="small" severity="secondary" (onClick)="quitarPersona()" />
+                      </div>
+                      <label class="ss-field"><span>Área</span>
+                        <p-select [options]="departamentos()" optionLabel="name" optionValue="code" [(ngModel)]="areaCode" placeholder="Sin área en su ficha" [showClear]="true" appendTo="body" ariaLabel="Área" /></label>
+                      <p class="ss-hint">La persona recibirá el aviso y será quien confirme o reabra la solicitud. La sucursal se precarga de su ficha: corrígela si hace falta.</p>
+                    }
+                  </div>
+                }
 
                 <label class="ss-field"><span>¿Sobre qué es? <em>*</em></span>
                   <p-select [options]="categorias()" optionLabel="name" optionValue="id" [group]="true" optionGroupLabel="label" optionGroupChildren="items" [ngModel]="form.category_id"
@@ -227,6 +261,15 @@ function dataUri(f: File): Promise<string> {
     .ss-field > span:first-child { font-weight: 600; font-size: var(--fs-xs); color: var(--text-main); }
     .ss-field em { color: var(--bad-fg); font-style: normal; }
     .ss-field input, .ss-field textarea, .ss-field p-select { width: 100%; }
+    .ss-onbehalf { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px dashed var(--border-color); border-radius: var(--r-md); }
+    .ss-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; }
+    .ss-person { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 1px; background: var(--surface-2); border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); padding: var(--sp-2) var(--sp-3); cursor: pointer; color: var(--text-main); font-size: var(--fs-sm); }
+    .ss-person small { color: var(--text-muted); font-size: var(--fs-xs); }
+    .ss-person:hover { background: var(--surface-hover-bg); }
+    .ss-person:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+    .ss-picked { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); }
+    .ss-picked small { margin-left: var(--sp-2); }
     .ss-link { align-self: flex-start; background: none; border: 0; padding: 0; color: var(--action); font-size: var(--fs-sm); cursor: pointer; }
     .ss-impact { border: 1px solid var(--border-color); border-radius: var(--r-md); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); margin: 0; }
     .ss-impact legend { font-weight: 600; font-size: var(--fs-xs); color: var(--text-main); padding: 0 var(--sp-1); }
@@ -351,6 +394,8 @@ export class ServicioSolicitudesComponent implements OnInit {
   // ── alta ──
   nueva(): void {
     this.form = this.formVacio();
+    this.aNombreDe.set(false);
+    this.quitarPersona();
     this.categoriaId.set(null);
     this.archivos.set([]);
     this.formError.set(null);
@@ -360,7 +405,55 @@ export class ServicioSolicitudesComponent implements OnInit {
     if (!this.catalogo()) this.api.catalog().subscribe({ next: (c) => this.catalogo.set(c), error: (e) => this.formError.set(sdError(e, 'No se pudo cargar el catálogo.')) });
   }
   elegirCategoria(id: string): void { this.form.category_id = id; this.categoriaId.set(id); }
-  puedeEnviar(): boolean { return !!this.form.category_id && !!this.form.title.trim() && (!this.requiereSucursal() || !!this.form.warehouse_code); }
+  puedeEnviar(): boolean {
+    // Con «a nombre de otra persona» encendido hay que haber ELEGIDO a la persona: si no, se levantaría a nombre de quien llama sin que lo note.
+    if (this.aNombreDe() && !this.solicitante()) return false;
+    return !!this.form.category_id && !!this.form.title.trim() && (!this.requiereSucursal() || !!this.form.warehouse_code);
+  }
+
+  // ── `[MS.3.11]` levantar a nombre de otra persona (sólo quien atiende) ──
+  private readonly perms = inject(PermissionsService);
+  readonly puedeAtender = computed(() => this.perms.has(Permission.SERVICIO_ATENDER) || this.perms.has(Permission.SERVICIO_COORDINAR));
+  readonly aNombreDe = signal(false);
+  readonly buscaTexto = signal('');
+  readonly buscando = signal(false);
+  readonly resultados = signal<SdRequesterDto[]>([]);
+  readonly solicitante = signal<SdRequesterDto | null>(null);
+  readonly departamentos = signal<SdDepartmentDto[]>([]);
+  /** Área elegida (plano: lo escribe `ngModel`). `null` = la de la ficha de la persona. */
+  areaCode: string | null = null;
+  private personaTimer?: ReturnType<typeof setTimeout>;
+
+  alternarANombreDe(on: boolean): void {
+    this.aNombreDe.set(on);
+    if (!on) this.quitarPersona();
+    if (on && !this.departamentos().length) this.api.departments().subscribe({ next: (d) => this.departamentos.set(d), error: () => this.departamentos.set([]) });
+  }
+  buscarPersona(v: string): void {
+    this.buscaTexto.set(v);
+    clearTimeout(this.personaTimer);
+    if (v.trim().length < 2) { this.resultados.set([]); this.buscando.set(false); return; }
+    this.buscando.set(true);
+    this.personaTimer = setTimeout(() => {
+      this.api.requesters(v.trim()).subscribe({
+        next: (r) => { this.resultados.set(r); this.buscando.set(false); },
+        error: (e) => { this.resultados.set([]); this.buscando.set(false); this.formError.set(sdError(e, 'No se pudo buscar a la persona.')); },
+      });
+    }, 250);
+  }
+  elegirPersona(p: SdRequesterDto): void {
+    this.solicitante.set(p);
+    this.resultados.set([]);
+    this.areaCode = p.department_code;
+    // La sucursal de su ficha se precarga si quien atiende todavía no eligió otra; sigue siendo editable.
+    if (p.warehouse_code && !this.form.warehouse_code) this.form.warehouse_code = p.warehouse_code;
+  }
+  quitarPersona(): void {
+    this.solicitante.set(null);
+    this.resultados.set([]);
+    this.buscaTexto.set('');
+    this.areaCode = null;
+  }
 
   elegirArchivos(ev: Event): void {
     const input = ev.target as HTMLInputElement;
@@ -387,8 +480,19 @@ export class ServicioSolicitudesComponent implements OnInit {
         blocks_work: this.form.blocks_work,
         warehouse_code: this.form.warehouse_code || null,
         attachments: attachments.length ? attachments : undefined,
+        // Sólo viaja si quien atiende ELIGIÓ a la persona: sin ella, la solicitud es de quien la escribe (lo de siempre).
+        requester_id: this.solicitante()?.user_id,
+        department_code: this.solicitante() ? this.areaCode : undefined,
       }).subscribe({
-        next: (t) => { this.enviando.set(false); this.creando.set(false); this.selId.set(t.id); this.scope.set('open'); this.cargar(); },
+        next: (t) => {
+          this.enviando.set(false);
+          this.creando.set(false);
+          // A nombre de otra persona NO es «mía»: no aparece en «Mis solicitudes», así que se abre en la bandeja de quien atiende.
+          if (this.solicitante()) { void this.router.navigate(['/servicio/bandeja'], { queryParams: { id: t.id } }); return; }
+          this.selId.set(t.id);
+          this.scope.set('open');
+          this.cargar();
+        },
         error: (e) => { this.enviando.set(false); this.formError.set(sdError(e, 'No se pudo enviar la solicitud.')); },
       }))
       .catch((e) => { this.enviando.set(false); this.formError.set(sdError(e, 'No se pudo leer un archivo.')); });

@@ -759,6 +759,100 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('el reporte de ayer NO incluye los tickets de hoy (el periodo corta por creación)', (await rep(`?from=2020-01-01&to=2020-01-02`)).body?.totales?.creados === 0);
     }
 
+    // ── 19. Levantar una solicitud A NOMBRE DE otra persona (sólo quien atiende) ──────────
+    {
+      console.log('\n19 — quien atiende levanta una solicitud a nombre de otra persona');
+      const detalle = (id, tok = coord.token) => req('GET', `${SD}/requests/${id}`, tok);
+      const catSucursalPrueba = (cat.body?.categories ?? []).find((c) => c.requires_branch);
+      const deptos = await knex('identity.departments').where({ tenant_id: T }).whereNull('deleted_at').orderBy('orden').limit(2).select('code', 'name');
+      check('hay al menos 2 áreas en el catálogo para probar el cambio de área', deptos.length >= 2, JSON.stringify(deptos));
+      const [depA, depB] = deptos;
+      // La ficha de `sol` trae área y sucursal: es lo que el formulario precarga.
+      await knex('identity.users').where({ id: sol.id }).update({ department_code: depA.code, warehouse_code: '02' });
+      const servicio = await crearUsuario('cuentaservicio');
+      const baja = await crearUsuario('dadadebaja');
+      usuarios.push(servicio, baja);
+      await knex('identity.users').where({ id: servicio.id }).update({ kind: 'servicio' });
+      await knex('identity.users').where({ id: baja.id }).update({ deleted_at: new Date() });
+
+      // Buscador de personas.
+      check('el solicitante NO puede buscar personas → 403', (await req('GET', `${SD}/requesters?search=smoke`, sol.token)).status === 403);
+      check('el solicitante NO ve el catálogo de áreas → 403', (await req('GET', `${SD}/departments`, sol.token)).status === 403);
+      const dp = await req('GET', `${SD}/departments`, agente.token);
+      check('quien atiende ve las áreas (código y nombre)', dp.status === 200 && dp.body?.length >= 2 && dp.body.every((d) => d.code && d.name), dump(dp));
+      check('⛔ una búsqueda de 1 letra devuelve vacío (no es un padrón navegable)', (await req('GET', `${SD}/requesters?search=s`, agente.token)).body?.length === 0);
+      check('sin texto, vacío', (await req('GET', `${SD}/requesters`, agente.token)).body?.length === 0);
+      const b1 = await req('GET', `${SD}/requesters?search=${encodeURIComponent('SMOKE solicitante')}`, agente.token);
+      const esSol = (b1.body ?? []).find((p) => p.user_id === sol.id);
+      check('⭐ quien atiende encuentra a la persona por nombre', b1.status === 200 && !!esSol, dump(b1));
+      check('trae su área (con nombre) y su sucursal para precargar el formulario', esSol?.department_code === depA.code && esSol?.department_name === depA.name && esSol?.warehouse_code === '02' && !!esSol?.warehouse_name, JSON.stringify(esSol));
+      check('⛔ NO trae correo, teléfono ni nada de credenciales', !/email|phone|password|hash|token/i.test(JSON.stringify(b1.body)));
+      const todos = await req('GET', `${SD}/requesters?search=smoke`, agente.token);
+      const ids = (todos.body ?? []).map((p) => p.user_id);
+      check('⭐ no ofrece cuentas de servicio ni personas dadas de baja', !ids.includes(servicio.id) && !ids.includes(baja.id) && ids.includes(sol.id), JSON.stringify(ids));
+      check('tope de 20 resultados', (todos.body ?? []).length <= 20);
+
+      // Levantar a nombre de otra persona.
+      const nombreAg = (await knex('identity.users').where({ id: agente.id }).first('nombre')).nombre;
+      const cT = await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'SMOKE a nombre de: se les cae la caja', description: 'Me lo pidieron por teléfono', requester_id: sol.id, impact: 'varios' });
+      check('⭐ quien atiende levanta la solicitud a nombre de otra persona → 201', cT.status === 201, dump(cT));
+      const dT = await detalle(cT.body?.id, coord.token);
+      check('⭐ el SOLICITANTE es la otra persona, no quien la levantó', dT.body?.requester_id === sol.id && dT.body?.requester_name === 'SMOKE solicitante', JSON.stringify([dT.body?.requester_id, dT.body?.requester_name]));
+      check('⭐ la ficha dice QUIÉN la levantó', dT.body?.opened_by_name === nombreAg, JSON.stringify(dT.body?.opened_by_name));
+      check('toma el ÁREA de la ficha del solicitante (con su nombre)', dT.body?.requester_department_code === depA.code && dT.body?.requester_department_name === depA.name, JSON.stringify([dT.body?.requester_department_code, dT.body?.requester_department_name]));
+      const mA = (dT.body?.messages ?? []).find((m) => m.kind === 'system');
+      check('el hilo lo deja dicho: «levantada por … a nombre de …»', /levantada por .* a nombre de SMOKE solicitante/.test(mA?.body ?? '') && mA?.meta?.opened_on_behalf === true && mA?.meta?.opened_by === agente.id, JSON.stringify(mA));
+      const filaT = await knex('servicedesk.requests').where({ id: cT.body?.id }).first('created_by', 'requester_id');
+      check('la base guarda quién la creó (el agente) aparte del solicitante', filaT.created_by === agente.id && filaT.requester_id === sol.id, JSON.stringify(filaT));
+
+      // La persona la ve, la recibe y la puede cerrar.
+      const mias = await req('GET', `${SD}/requests/mine?scope=open&limit=100`, sol.token);
+      check('⭐ la solicitud aparece en «Mis solicitudes» de la persona', (mias.body?.rows ?? []).some((r) => r.id === cT.body?.id));
+      const dSol = await detalle(cT.body?.id, sol.token);
+      check('la persona abre su ficha y ve quién la levantó', dSol.status === 200 && dSol.body?.opened_by_name === nombreAg, dump(dSol));
+      const nS = await req('GET', `${SD}/me/notifications`, sol.token);
+      check('⭐ a la persona se le AVISA que se levantó una solicitud a su nombre', nS.body?.some((n) => n.event === 'levantada' && n.folio === cT.body?.folio && /la levantó/.test(n.message)), JSON.stringify(nS.body?.slice(0, 2)));
+      const nA = await req('GET', `${SD}/me/notifications`, agente.token);
+      check('quien la levantó no recibe aviso de su propia acción', !nA.body?.some((n) => n.event === 'levantada' && n.folio === cT.body?.folio));
+      check('quien atiende NO queda como solicitante: no la ve en su «Mis solicitudes»', !((await req('GET', `${SD}/requests/mine?scope=open&limit=100`, agente.token)).body?.rows ?? []).some((r) => r.id === cT.body?.id));
+      await req('POST', `${SD}/requests/${cT.body?.id}/take`, agente.token);
+      await req('POST', `${SD}/requests/${cT.body?.id}/status`, agente.token, { status: 'en_proceso' });
+      await req('POST', `${SD}/requests/${cT.body?.id}/status`, agente.token, { status: 'resuelto', note: 'Listo' });
+      const conf = await req('POST', `${SD}/requests/${cT.body?.id}/confirm`, sol.token, {});
+      check('⭐ y es la PERSONA (no quien la levantó) quien la confirma y la cierra', conf.status < 300 && conf.body?.status === 'cerrado', dump(conf));
+      const tOb = await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'SMOKE a nombre de: confirmar', requester_id: sol.id });
+      await req('POST', `${SD}/requests/${tOb.body?.id}/take`, agente.token);
+      await req('POST', `${SD}/requests/${tOb.body?.id}/status`, agente.token, { status: 'en_proceso' });
+      await req('POST', `${SD}/requests/${tOb.body?.id}/status`, agente.token, { status: 'resuelto', note: 'Listo' });
+      check('⛔ quien la levantó NO puede confirmarla en lugar de la persona', (await req('POST', `${SD}/requests/${tOb.body?.id}/confirm`, agente.token, {})).status >= 400);
+
+      // Cambiar el área.
+      const cB = await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'SMOKE a nombre de: otra área', requester_id: sol.id, department_code: depB.code });
+      check('⭐ quien atiende puede indicar OTRA área distinta a la de la ficha', (await detalle(cB.body?.id)).body?.requester_department_code === depB.code && (await detalle(cB.body?.id)).body?.requester_department_name === depB.name);
+      check('un área que no existe → 400', (await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'x', requester_id: sol.id, department_code: 'no_existe_esta_area' })).status === 400);
+      const cC = await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'SMOKE a nombre de: sólo el área', department_code: depB.code });
+      const dC = await detalle(cC.body?.id);
+      check('el área también se puede indicar sin cambiar de persona (la solicitud queda a nombre de quien la levanta)', dC.body?.requester_id === agente.id && dC.body?.requester_department_code === depB.code && dC.body?.opened_by_name === null, JSON.stringify([dC.body?.requester_id, dC.body?.requester_department_code, dC.body?.opened_by_name]));
+
+      // Sucursal.
+      const sRequerida = await req('POST', `${SD}/requests`, agente.token, { category_id: catSucursalPrueba.id, title: 'SMOKE a nombre de: sin sucursal', requester_id: sol.id });
+      check('una categoría que EXIGE sucursal la sigue exigiendo aunque se levante a nombre de otro → 400', sRequerida.status === 400, dump(sRequerida));
+      const sOk = await req('POST', `${SD}/requests`, agente.token, { category_id: catSucursalPrueba.id, title: 'SMOKE a nombre de: con sucursal', requester_id: sol.id, warehouse_code: '03' });
+      check('con la sucursal indicada por quien atiende se acepta y queda esa sucursal', sOk.status === 201 && sOk.body?.warehouse_code === '03', dump(sOk));
+
+      // Quién NO puede.
+      check('⭐ el solicitante NO puede levantarla a nombre de OTRA persona → 403', (await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'x', requester_id: otro.id })).status === 403);
+      check('⭐ ni cambiar el área → 403', (await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'x', department_code: depB.code })).status === 403);
+      const propio = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: a mi propio nombre', requester_id: sol.id });
+      check('mandar su PROPIO id equivale a no mandarlo (sigue siendo suya) → 201', propio.status === 201 && propio.body?.requester_id === sol.id && propio.body?.opened_by_name === null, dump(propio));
+
+      // Personas que no pueden figurar.
+      check('persona inexistente → 400', (await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'x', requester_id: '00000000-0000-4000-8000-000000000000' })).status === 400);
+      check('⛔ una cuenta de servicio no puede ser solicitante → 400', (await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'x', requester_id: servicio.id })).status === 400);
+      check('⛔ una persona dada de baja no puede ser solicitante → 400', (await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'x', requester_id: baja.id })).status === 400);
+      check('requester_id que no es uuid → 400', (await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'x', requester_id: 'no-soy-uuid' })).status === 400);
+    }
+
     noMedido.push('correo y WhatsApp REALES: el SMTP no está configurado y la plantilla de Meta no está aprobada (P5); lo que se afirma es que el resultado queda DECLARADO por canal');
     noMedido.push('push en vivo por WebSocket (la API de este test corre sin cliente conectado); el poll de la campana sí se midió');
 
