@@ -349,23 +349,12 @@ export interface ListExpenseProofsQuery {
  * NO sirve para una credencial mala, y mandar a reintentar algo que no se arregla
  * reintentando es peor que no decir nada (la lección de `[GX.37]`).
  */
-/**
- * La forma MINIMA que este traductor mira de un error de almacenamiento. No pretende
- * describir al SDK de S3 entero: declara las cuatro cosas que se leen y nada mas, que es
- * lo que permite tipar la entrada como `unknown` -- que es lo que de verdad llega de un
- * `catch` -- en vez de rendirse con `any`.
- */
-type FallaAlmacenamiento = {
-  Code?: unknown;
-  code?: unknown;
-  name?: unknown;
-  message?: unknown;
-  statusCode?: unknown;
-  $metadata?: { httpStatusCode?: unknown };
-};
-
 function motivoDeAlmacenamiento(e: unknown): string {
-  const err = (e ?? {}) as FallaAlmacenamiento;
+  // `Object()` en vez de una asercion de tipo, y NO es cosmetico: `subida-declara-el-motivo.spec.ts`
+  // extrae ESTE cuerpo del archivo y lo corre con `new Function`, o sea como JavaScript puro.
+  // Un `as X` o un `const err: X` adentro lo revienta con `Unexpected token ':'`. La firma SI
+  // puede llevar tipo (la prueba la recorta); el cuerpo no.
+  const err = Object(e ?? {});
   const code = String(err.Code || err.code || err.name || '');
   const msg = String(err.message || '');
   const http = Number(err.$metadata?.httpStatusCode || err.statusCode || 0);

@@ -39,7 +39,12 @@ const motivo: (e: any) => string = (() => {
   const i = src.indexOf('function motivoDeAlmacenamiento');
   if (i < 0) throw new Error('motivoDeAlmacenamiento no existe en el servicio');
   const fin = src.indexOf('\n}', i);
-  const cuerpo = src.slice(i, fin + 2).replace(/^function motivoDeAlmacenamiento\(e: any\): string \{/, '');
+  // ⚠️ La firma se recorta con un patron TOLERANTE AL TIPO. Antes exigia literalmente
+  //    `(e: any): string {` y por eso cambiar `any` por `unknown` -- un arreglo correcto, pedido
+  //    por el propio boundary gate -- dejaba la firma adentro del cuerpo y `new Function` moria
+  //    con `Unexpected token ':'`. Una prueba que se rompe cuando el codigo MEJORA esta midiendo
+  //    el texto, no el comportamiento.
+  const cuerpo = src.slice(i, fin + 2).replace(/^function motivoDeAlmacenamiento\([^)]*\)\s*:\s*string\s*\{/, '');
   // eslint-disable-next-line no-new-func
   return new Function('e', cuerpo.replace(/\}\s*$/, '')) as (e: unknown) => string;
 })();
