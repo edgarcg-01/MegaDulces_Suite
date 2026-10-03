@@ -1453,7 +1453,13 @@ export class CommercialReplenishmentService {
         -- ⚠️ SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS y lo
         -- TERMINA. Es la séptima vez que este repo lo paga.
         WITH lad AS MATERIALIZED (
-          SELECT l.sku, l.u1_label, l.u2_label, l.u3_label FROM analytics.v_supplier_cost_ladder l
+          SELECT l.sku, l.u1_label, l.u2_label, l.u3_label,
+                 -- [RA-PRO.70] Factor de cada peldaño contra la base, del COSTO por peldaño
+                 -- (mismo criterio que factor_del_costo de v_kepler_unit_ladder): Kepler rellena
+                 -- los 3 rótulos aunque el artículo tenga 1 o 2 unidades (PAQ/PAQ/CJA con f2 = 1).
+                 CASE WHEN l.u1_cost > 0 AND l.u2_cost > 0 THEN round((l.u2_cost / l.u1_cost)::numeric, 4) END AS u2_factor,
+                 CASE WHEN l.u1_cost > 0 AND l.u3_cost > 0 THEN round((l.u3_cost / l.u1_cost)::numeric, 4) END AS u3_factor
+            FROM analytics.v_supplier_cost_ladder l
            WHERE EXISTS (SELECT 1 FROM catalog.products pr WHERE pr.sku = l.sku AND ${where})
         )${erpReady ? `, fre AS MATERIALIZED (${this.erpFillSubquery()}
         )` : ''}, vbf AS MATERIALIZED (
@@ -1480,7 +1486,7 @@ export class CommercialReplenishmentService {
                  lad.u1_label AS unidad_base,
                  -- [RA-PRO.68] Rotulos de los peldanos 2 y 3 de Kepler (kdii.c80 / c83): con 3 peldanos
                  -- el 2 es el PAQUETE intermedio y el 3 la unidad mayor; con 2, el 2 es la mayor.
-                 lad.u2_label AS unidad_u2, lad.u3_label AS unidad_u3,
+                 lad.u2_label AS unidad_u2, lad.u3_label AS unidad_u3, lad.u2_factor AS unidad_f2, lad.u3_factor AS unidad_f3,
                  -- U.2 — VEREDICTO DEL PELDAÑO por (producto, almacén). Cuando el divisor no
                  -- cuadra con lo que se pagó, la conversion a cajas de ESTE almacen no es
                  -- confiable: ni la cantidad ni su valuado. Se DECLARA, no se dibuja.
@@ -1588,7 +1594,8 @@ export class CommercialReplenishmentService {
                  COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz,
                  max(b.rop_xyz) AS xyz,
                  max(b.season_ratio) AS season_ratio, max(b.season_src) AS season_src,
-                 max(b.unidad_base) AS unidad_base, max(b.unidad_u2) AS unidad_u2, max(b.unidad_u3) AS unidad_u3
+                 max(b.unidad_base) AS unidad_base, max(b.unidad_u2) AS unidad_u2, max(b.unidad_u3) AS unidad_u3,
+                 max(b.unidad_f2) AS unidad_f2, max(b.unidad_f3) AS unidad_f3
             FROM base b
            GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code
         ),
@@ -1596,6 +1603,7 @@ export class CommercialReplenishmentService {
           SELECT product_id, sku, nombre, supplier_id,
                  max(bf) AS uxc, round(max(caja_cost)::numeric, 2) AS caja_cost,
                  max(unidad_base) AS unidad_base, max(unidad_u2) AS unidad_u2, max(unidad_u3) AS unidad_u3,
+                 max(unidad_f2) AS unidad_f2, max(unidad_f3) AS unidad_f3,
                  -- U.2 — cada celda declara su propio veredicto de peldaño. SIN BACKTICKS ACÁ: va
                  -- dentro de un template literal de JS. La clave rung sólo viaja cuando NO es
                  -- confiable, para no engordar el payload del 94% sano; el front la lee como "esta

@@ -265,6 +265,9 @@ export interface WorkbookRow {
   /** [RA-PRO.68] Rótulos de los peldaños 2 y 3 de Kepler (con 3: u2 = paquete, u3 = mayor). */
   unidad_u2?: string | null;
   unidad_u3?: string | null;
+  /** [RA-PRO.70] Factor de los peldaños 2 y 3 contra la base (del costo por peldaño). Kepler repite rótulos con factor 1. */
+  unidad_f2?: number | string | null;
+  unidad_f3?: number | string | null;
   /** [RA-PRO.67] Margen de hoy y venta perdida (sólo en pantalla; el export no los trae). */
   signals?: WorkbookSkuSignals | null;
   box_size: number | null;         // Pz/Caja (etiqueta) — normalmente = uxc
