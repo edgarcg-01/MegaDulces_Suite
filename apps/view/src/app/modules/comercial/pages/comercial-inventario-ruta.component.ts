@@ -494,12 +494,15 @@ export class ComercialInventarioRutaComponent {
   readonly kpis = computed<MetricStripItem[]>(() => {
     const d = this.data();
     const inv = this.totalInv();
+    const pct = this.pctDeLoCargado();
     return [
       {
         label: `Inventario ${this.etiquetaMetrica()}`,
         value: inv, format: 'currency-short',
         tone: inv < 0 ? 'bad' : 'brand',
-        sub: `${this.pctDeLoCargado().toFixed(1)}% de lo cargado`,
+        // ⚠️ `pctDeLoCargado()` es nullable a propósito: sin base contra la cual comparar no hay
+        // porcentaje, y un `0.0%` dibujado diría «no queda nada» cuando lo cierto es «no se sabe».
+        sub: pct === null ? 'sin base para comparar' : `${Math.abs(pct).toFixed(1)}% de lo cargado`,
       },
       { label: 'A favor', value: this.totalPos(), format: 'currency-short', tone: 'ok',
         sub: 'sigue arriba del camión' },
