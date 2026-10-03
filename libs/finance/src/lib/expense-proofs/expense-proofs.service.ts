@@ -2664,7 +2664,7 @@ export class ExpenseProofsService {
    * equivocó de naturaleza): al hacerlo se re-aplica la regla de evidencia. No se puede
    * validar un gasto comprobable sin su evidencia, ni cerrar un no_comprobable sin motivo.
    */
-  async validate(id: string, actor?: string, dto?: { clasificacion?: string; comprobacion_nota?: string }, quien?: IdentidadQueDecide) {
+  async validate(id: string, actor?: string, dto?: { clasificacion?: string; comprobacion_nota?: string }, quien?: IdentidadQueDecide): Promise<{ id: string; status: string }> {
     this.tenantCtx.requireTenantId();
     const clasIn = (dto?.clasificacion || '').trim();
     if (clasIn && !EXPENSE_CLASIFICACIONES.includes(clasIn as ExpenseClasificacion)) {
@@ -2750,7 +2750,7 @@ export class ExpenseProofsService {
     }
   }
 
-  async reject(id: string, actor?: string, motivo?: string, quien?: IdentidadQueDecide) {
+  async reject(id: string, actor?: string, motivo?: string, quien?: IdentidadQueDecide): Promise<{ id: string; status: string }> {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       // `[GX.65.4a]` El dueño del vale tampoco se lo rechaza a sí mismo.
