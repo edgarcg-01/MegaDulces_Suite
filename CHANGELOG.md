@@ -221,6 +221,19 @@ trabar el commit. Probado en las dos direcciones: string tipo prod frena, dev lo
 
 ### Changed — cotización: el detalle (editar) usa el mismo esqueleto compacto que el alta (COT.18, 2026-10-02)
 - Cabecera de una línea, condiciones en una tira, buscador en la fila del título, artículo elegido en horizontal, renglones de una línea y riel fijo con totales, Excel/PDF, la lista del cliente y el asistente IA. Medido en COT-2026-00009: renglón 54 → 39 px, los 10 renglones caben sin scroll. Sólo plantilla y estilos.
+### Added — `/compras/pedido` Etapa 2: margen, venta perdida verificada, unidades de mayor a menor y pedido típico (RA-PRO.67–69, 2026-10-02)
+Sin migraciones ni permisos nuevos. Verificado con un arnés que ejecuta el código real contra prod (solo lectura).
+- **[RA-PRO.67]** Tres márgenes sobre costo por SKU: *hoy* (el mismo de Costo estándar), *esta compra* (lista del
+  proveedor en Kepler, la que toma la OC) y *con lo pagado* (aviso "confirmar precio" con ≥ 5 % de diferencia en
+  costo). Venta perdida en dos fuentes: Wincaja, sumando sólo lo que cuadra con el precio de ficha de algún
+  peldaño, y reportes de mostrador. Insignias en la fila y por sucursal. Contrato `replenishment-signals.contract.ts`.
+- **[RA-PRO.68]** Cantidades de mayor a menor con los rótulos de Kepler ("4 cj 3 paq", "1 cj 2 paq 5 pz") en la
+  pantalla y en los PDF de requisición; la suma por almacén ya no junta sueltas de unidades distintas.
+- **[RA-PRO.69]** El "mínimo" del proveedor (RA-PRO.66) es el pedido **típico** derivado del historial: se rotula así
+  y no rellena el pedido.
+### Fixed — `/compras/pedido`: el pedido decía "pedido mínimo" a un promedio histórico (RA-PRO.69, 2026-10-02)
+`catalog.suppliers.min_order_*` lo deriva `import-supplier-params.js` del historial. Queda abierto que `/compras/proveedores` → "Ver pedido" sí rellena hasta ese valor.
+
 ### Added — `/compras/pedido`: agregar sucursal sin historia, V30d/Máx con venta por mes y mínimo del proveedor (RA-PRO.64–66, 2026-10-01)
 Nace de una simulación comprador vs. vendedor GONAC sobre el 83185 con datos de producción (solo lectura).
 Etapa 1 de cinco, sin migraciones ni permisos nuevos:

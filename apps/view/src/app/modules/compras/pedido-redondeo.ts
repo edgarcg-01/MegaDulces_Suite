@@ -90,6 +90,126 @@ export function textoSumaCajasPiezas(items: { cajas: number; uxc: number }[]): s
 }
 
 /**
+ * `[RA-PRO.68]` Rótulos de unidad de un producto, de MAYOR a MENOR, con la misma regla que la
+ * cotización (COT.16/17, `televenta/quote-units.ts`): la unidad mayor, el paquete del medio si
+ * existe, y la unidad base — con los nombres que declara Kepler, no "cj"/"pz" fijos.
+ *
+ * Antes el pedido escribía "4 cj 3 pz" a un producto que se cuenta en PAQUETES (83185: caja de
+ * 10 PAQ), y "pz" a un bulto que se cuenta en kilos.
+ */
+export interface EtiquetaUnidades {
+  /** Abreviatura de la unidad mayor: cj, bto, cub… */
+  mayor: string;
+  /** Unidades base que trae el paquete del medio. `null` = no hay unidad intermedia confiable. */
+  medio: number | null;
+  /** Abreviatura del paquete del medio (paq). */
+  medioAbr: string;
+  /** Abreviatura de la unidad base: pz, paq, kg, u. */
+  base: string;
+}
+
+const MAYOR_ABR: Record<string, string> = { CJA: 'cj', CAJA: 'cj', BTO: 'bto', BULTO: 'bto', CUB: 'cub', CUBETA: 'cub' };
+const BASE_ABR: Record<string, string> = { PZA: 'pz', PAQ: 'paq', KG: 'kg', CJA: 'cj', BTO: 'bto', CUB: 'cub' };
+
+/** Etiquetas por defecto (lo que la pantalla decía antes): cajas y piezas, sin intermedio. */
+export const UNIDADES_CJ_PZ: EtiquetaUnidades = { mayor: 'cj', medio: null, medioAbr: 'paq', base: 'pz' };
+
+/**
+ * Arma las etiquetas desde la escalera de Kepler (`u1` base, `u2`, `u3`) y la etiquetera.
+ *
+ * Reglas, todas medidas en prod el 2026-10-02 (6,316 productos del plan):
+ *  - Con 3 peldaños el `u3` es la mayor y el `u2` el paquete; con 2, el `u2` es la mayor.
+ *  - El paquete del medio sólo se usa si: cabe EXACTO en la caja (`uxc % pack === 0`), la caja de
+ *    la etiquetera coincide con el factor del motor (los 326 con paquete coinciden, 0 en
+ *    desacuerdo) y su rótulo es distinto al de la base — el 20323 trae `PAQ`/`PAQ` y "1 paq 3 paq"
+ *    no se lee como nada.
+ *  - Un rótulo que es un GRAMAJE (`500`, `250`) es "u." (UNIDADES_DE_MEDIDA §7.6), no una unidad.
+ */
+export function etiquetaUnidades(o: {
+  u1?: string | null; u2?: string | null; u3?: string | null;
+  uxc?: number | null; boxSize?: number | null; packSize?: number | null;
+}): EtiquetaUnidades {
+  const up = (s: string | null | undefined) => (s || '').trim().toUpperCase();
+  const u1 = up(o.u1), u2 = up(o.u2), u3 = up(o.u3);
+  const mayorRaw = u3 || u2 || 'CJA';
+  const mayor = MAYOR_ABR[mayorRaw] ?? mayorRaw.toLowerCase();
+  const base = !u1 ? 'pz' : /^[\d.]+$/.test(u1) ? 'u.' : (BASE_ABR[u1] ?? 'u.');
+  const uxc = Number(o.uxc), pack = Number(o.packSize), box = Number(o.boxSize);
+  const midRaw = u3 ? u2 : '';
+  const medioOk = Number.isFinite(uxc) && Number.isFinite(pack) && pack > 1 && pack < uxc && uxc % pack === 0
+    && Number.isFinite(box) && box === uxc && !!midRaw && midRaw !== u1;
+  return { mayor, medio: medioOk ? pack : null, medioAbr: BASE_ABR[midRaw] ?? 'paq', base };
+}
+
+/**
+ * Una cantidad en cajas (el canónico) escrita de mayor a menor: "4 cj 3 paq", "1 cj 2 paq 5 pz",
+ * "8 pz". Se redondea UNA vez, sobre el total en unidades base, como `cajasYPiezas`.
+ */
+export function textoUnidades(cajas: number, uxc: number, et: EtiquetaUnidades = UNIDADES_CJ_PZ): string {
+  const p = cajasYPiezas(cajas, uxc);
+  if (!p) return `${(Math.round((Number(cajas) || 0) * 10) / 10).toLocaleString('es-MX')} ${et.mayor}`;
+  const partes: string[] = [];
+  if (p.cj) partes.push(`${p.cj.toLocaleString('es-MX')} ${et.mayor}`);
+  let resto = p.pz;
+  if (et.medio && resto >= et.medio) { partes.push(`${Math.floor(resto / et.medio)} ${et.medioAbr}`); resto %= et.medio; }
+  if (resto) partes.push(`${resto} ${et.base}`);
+  return partes.length ? partes.join(' ') : `0 ${et.mayor}`;
+}
+
+/**
+ * Suma de varios productos de mayor a menor. Las unidades MAYORES se suman entre sí (son la unidad
+ * en que se le pide al proveedor); las sueltas sólo se suman con las de su MISMA unidad: "3 paq"
+ * de un producto y "5 pz" de otro no son "8" de nada. (Antes las sumaba todas como piezas.)
+ */
+export function textoSumaUnidades(items: { cajas: number; uxc: number; et?: EtiquetaUnidades }[]): string {
+  const mayores = new Map<string, number>();
+  const sueltas = new Map<string, number>();
+  const add = (m: Map<string, number>, k: string, v: number) => m.set(k, (m.get(k) ?? 0) + v);
+  for (const it of items) {
+    const et = it.et ?? UNIDADES_CJ_PZ;
+    const p = cajasYPiezas(it.cajas, it.uxc);
+    if (!p) { add(mayores, et.mayor, Math.max(0, Number(it.cajas) || 0)); continue; }
+    if (p.cj) add(mayores, et.mayor, p.cj);
+    let resto = p.pz;
+    if (et.medio && resto >= et.medio) { add(sueltas, et.medioAbr, Math.floor(resto / et.medio)); resto %= et.medio; }
+    if (resto) add(sueltas, et.base, resto);
+  }
+  const fmt = (m: Map<string, number>) => [...m].filter(([, v]) => v > 0)
+    .map(([k, v]) => `${(Math.round(v * 10) / 10).toLocaleString('es-MX')} ${k}`);
+  const partes = [...fmt(mayores), ...fmt(sueltas)];
+  return partes.length ? partes.join(' ') : '0 cj';
+}
+
+/**
+ * `[RA-PRO.69]` ¿Este pedido se parece al pedido TÍPICO del proveedor?
+ *
+ * ⚠️ Lo que guarda `catalog.suppliers.min_order_amount` / `min_order_boxes` NO es un mínimo que
+ * el proveedor imponga: `import-supplier-params.js` (RA-PRO.10) lo DERIVA del historial como el
+ * pedido típico de su almacén principal, y no hay columna que distinga un valor capturado a mano de
+ * uno derivado. Por eso esto INFORMA (cuánto llevas contra lo que normalmente se le compra) y NO
+ * rellena el pedido: subir una compra hasta un promedio histórico es comprar de más.
+ *
+ * Precedencia igual que `/compras/proveedores`: el MONTO manda; las cajas, si no hay monto.
+ */
+export interface PedidoTipicoEval {
+  criterio: 'monto' | 'cajas' | null;
+  llevas: number;
+  tipico: number | null;
+  /** llevas ÷ típico, 0..∞. `null` = el proveedor no tiene pedido típico. */
+  pct: number | null;
+  nivel: 'sin_dato' | 'bajo' | 'cerca' | 'alcanza';
+}
+export function evaluarPedidoTipico(cajas: number, monto: number, tipicoCajas: number | null | undefined, tipicoMonto: number | null | undefined): PedidoTipicoEval {
+  const tm = Number(tipicoMonto), tc = Number(tipicoCajas);
+  const criterio = tm > 0 ? 'monto' : tc > 0 ? 'cajas' : null;
+  if (!criterio) return { criterio: null, llevas: 0, tipico: null, pct: null, nivel: 'sin_dato' };
+  const llevas = criterio === 'monto' ? Math.max(0, Number(monto) || 0) : Math.max(0, Number(cajas) || 0);
+  const tipico = criterio === 'monto' ? tm : tc;
+  const pct = llevas / tipico;
+  return { criterio, llevas, tipico, pct, nivel: pct >= 0.9 ? 'alcanza' : pct >= 0.5 ? 'cerca' : 'bajo' };
+}
+
+/**
  * `[RA-PRO.53]` Días de inventario: (existencia + pedido) ÷ (venta 30 d ÷ 30.4). 30.4 es el
  * convenio de días del mes que ya usa el comprador en su Excel. Con `pedido = 0` son los días que
  * aguanta la sucursal HOY; con el pedido, los que aguantará al recibirlo.

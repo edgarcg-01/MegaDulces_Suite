@@ -12,12 +12,16 @@
  * el papel y el sistema cuentan las mismas requisiciones.
  */
 
+import type { EtiquetaUnidades, PedidoTipicoEval } from './pedido-redondeo';
+
 export interface LineaCompra {
   supplierId: string | null;
   supplierName: string;
   productId: string;
   sku: string; nombre: string;
   uxc: number; unidad: string;
+  /** [RA-PRO.68] Rótulos de mayor a menor (cj · paq · pz). Opcional: sin ellos el PDF dice cj/pz como antes. */
+  et?: EtiquetaUnidades;
   branchCode: string; branchName: string;   // la sucursal que NECESITA la mercancía
   entregaCode: string; entregaName: string; // dónde la entrega el proveedor (= branch si es directo)
   cajas: number;
@@ -30,14 +34,14 @@ export interface PuntoEntrega {
   cajas: number; valor: number;
 }
 export interface ProductoProveedor {
-  productId: string; sku: string; nombre: string; uxc: number; unidad: string;
+  productId: string; sku: string; nombre: string; uxc: number; unidad: string; et?: EtiquetaUnidades;
   porPunto: Record<string, number>;   // entregaCode → cajas
   cajas: number; valor: number;
 }
 export interface RepartoPunto {
   code: string; name: string;
   destinos: { code: string; name: string }[];              // columnas, en orden de aparición
-  filas: { productId: string; sku: string; nombre: string; uxc: number; porDestino: Record<string, number> }[];
+  filas: { productId: string; sku: string; nombre: string; uxc: number; et?: EtiquetaUnidades; porDestino: Record<string, number> }[];
 }
 export interface HojaProveedor {
   supplierId: string | null; supplierName: string;
@@ -46,6 +50,8 @@ export interface HojaProveedor {
   repartos: RepartoPunto[];
   cajas: number; valor: number;
   nTraspasos: number;
+  /** [RA-PRO.69] Pedido típico del proveedor (derivado del historial; referencia, NO mínimo). */
+  tipico?: PedidoTipicoEval;
 }
 
 /**
@@ -79,7 +85,7 @@ export function agruparPorProveedor(lineas: LineaCompra[]): HojaProveedor[] {
 
     let pr = h.productos.find((x) => x.productId === l.productId);
     if (!pr) {
-      pr = { productId: l.productId, sku: l.sku, nombre: l.nombre, uxc: l.uxc, unidad: l.unidad, porPunto: {}, cajas: 0, valor: 0 };
+      pr = { productId: l.productId, sku: l.sku, nombre: l.nombre, uxc: l.uxc, unidad: l.unidad, et: l.et, porPunto: {}, cajas: 0, valor: 0 };
       h.productos.push(pr);
     }
     pr.porPunto[l.entregaCode] = (pr.porPunto[l.entregaCode] ?? 0) + l.cajas;
@@ -95,7 +101,7 @@ export function agruparPorProveedor(lineas: LineaCompra[]): HojaProveedor[] {
         if (!(l.cajas > 0) || l.entregaCode !== p.code || orden(l.supplierId, l.supplierName) !== orden(h.supplierId, h.supplierName)) continue;
         if (!rp.destinos.some((d) => d.code === l.branchCode)) rp.destinos.push({ code: l.branchCode, name: l.branchName });
         let f = rp.filas.find((x) => x.productId === l.productId);
-        if (!f) { f = { productId: l.productId, sku: l.sku, nombre: l.nombre, uxc: l.uxc, porDestino: {} }; rp.filas.push(f); }
+        if (!f) { f = { productId: l.productId, sku: l.sku, nombre: l.nombre, uxc: l.uxc, et: l.et, porDestino: {} }; rp.filas.push(f); }
         f.porDestino[l.branchCode] = (f.porDestino[l.branchCode] ?? 0) + l.cajas;
       }
       // El propio CEDIS ("se queda") primero; el resto en el orden en que aparecen.
