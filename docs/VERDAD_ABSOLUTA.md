@@ -2569,3 +2569,69 @@ universos distintos no es medir una diferencia*:
 **Candado:** [`test-newdb-route-truth.js`](../database/tests/test-newdb-route-truth.js) — **13 ✓ /
 0 ✗** contra prod, con dos pruebas negativas y placebo. El bloque del testigo externo depende de la
 unidad `Z:`; si no está montada reporta **NO MEDIDO**, nunca verde.
+
+### 18.10 ⭐⭐ El testigo FISCAL del ingreso, y el puente que explica la brecha (IG.13, 2026-10-03)
+
+Edgar: *«casemos con ContPAQi para tener doble validez y tener una verdad sobre lo fiscal»*. Los
+tres testigos que el cuadre ya tenía salen **todos de Kepler**. ContPAQi es el primero que no: lo
+escribe el contador y es lo que ve el SAT.
+
+**Medido ene–sep 2026, meses cerrados:**
+
+| testigo | monto | qué mide |
+|---|---:|---|
+| Contable neto — lo que publica la pantalla | **$491,661,211.88** | póliza 401 del CEDIS |
+| Hecho de venta (`mv_sales_blended`) | $471,964,959.04 | venta a terceros, todas las plazas |
+| **Libros fiscales (ContPAQi, familia 4)** | **$394,671,796.39** | **−16.4 %** vs el hecho de venta |
+| *(fuera)* Embarque a sucursal `UD4102` | $24,323,717.28 | traspaso interno |
+| *(fuera)* Contado no fiscal `UD1201` | $4,031,698.40 | dictamen pendiente |
+
+### ⛔ La brecha crecía y parecía sub-declaración. No lo era.
+
+Contra la balanza **consolidada de todas las sucursales**, ContPAQi salía −28.9 % en enero y
+**−61.2 % en septiembre**. Esa curva asusta y está mal planteada dos veces:
+
+1. **Sumar la familia 4 de todas las sucursales duplica**, y el repo ya lo sabía (`maat_pnl` dice
+   textual *«NO sumes sucursales: replican la venta»*). Contra el **CEDIS solo**, el hueco es
+   **estable en ~21 % de enero a julio** — que es exactamente el *«~$12 M/mes estructural»* que la
+   Fase CP ya había declarado.
+2. **Y lo que se dispara en ago–sep tiene nombre**: `UD4102` **Embarque Sucursal**. Medido en
+   septiembre, la cuenta 401 del CEDIS son **$70,541,611.39**, de los cuales **$18,002,004.78 en
+   140 movimientos son embarques** — mercancía que el CEDIS manda a sus propias tiendas. Creció de
+   golpe porque las sucursales **06, 07 y 08 migraron a Kepler** en agosto y septiembre.
+
+> ⓘ **Mi primera hipótesis era la correcta por el canal equivocado.** Supuse que crecía el
+> *traspaso facturado* (`UD1301` a tienda propia) y **se refutó midiéndolo**: el traspaso interno
+> **baja** de $52.8 M (jun) a $40.8 M (sep) mientras la venta externa sube de $2.0 M a $10.9 M. Lo
+> que creció fue el **embarque**, que ya estaba declarado fuera del alcance.
+
+**El puente de septiembre, al centavo:**
+
+    balanza fam. 4 del CEDIS ................. $70,541,611.39
+      − UD4102 Embarque Sucursal ............. −$18,002,004.78
+      − otras cuentas 4xx (402/403) ..........     −$903,162.71
+      = lo que publica el Árbol ............... $51,636,443.90
+          de eso, traspaso interno ............ $40,768,128.21  (78.95 %)
+          venta a cliente de afuera ........... $10,868,315.69
+    libros fiscales ContPAQi ................. $43,793,871.18
+
+⚠️ **Por eso ContPAQi NO se compara contra esta pantalla, sino contra el hecho de venta.** El
+ingreso contable del CEDIS es entre **79 % y 96 % la casa facturándose a sí misma**; los libros
+fiscales no tienen traspasos porque venderse a uno mismo no es una venta. Restarlos sería inventar
+una sub-declaración que no existe.
+
+### ⛔ El límite duro: **no hay CFDI emitido**
+
+`fiscal.cfdis` tiene **168,701 comprobantes y los 168,701 son RECIBIDOS** (`rol = 'recibidas'`): el
+ADD de ContPAQi que alimenta la Fase LC es el de **compras**. Sin CFDI emitido, el ingreso sólo se
+puede contrastar contra el **total mensual** de la balanza fiscal — **nunca factura por factura**.
+Es un límite de la fuente, no una falla, y el candado lo vigila: si algún día entran emitidos, se
+pone rojo para que se cablee en vez de quedarse en el total.
+
+⭐ **Y una corrección a la Fase CP:** su conclusión fue *«contabilidad casi no segmenta por
+sucursal (~2 %)»*, medida sobre una columna `sucursal`. **La segmentación existe, pero en el nombre
+de la cuenta**: `VENTAS 0% SUC MORELIA`, `VENTAS C/IVA ZAMORA`, `VENTAS 0% TLMKT CANINDO`… 47
+cuentas de familia 4, cada una con su `agrupador_sat` (`401.04` tasa 0 % · `401.01` tasa general).
+O sea que el cruce **por plaza y por tasa fiscal sí es posible**, y el detector
+`kepler_vs_contpaqi_descuadre` —hoy desactivado por «no reconciliables»— tiene un eje que nadie
+había mirado. **No se construyó acá: se declara.**
