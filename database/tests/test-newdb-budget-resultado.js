@@ -20,6 +20,15 @@
  *   [4] la compra de inventario NO está adentro del gasto operativo
  *   [5] el fact de venta cubre el ejercicio
  *
+ * ⚠️ **LO QUE ESTE CANDADO NO CUBRE, y hay que decirlo.** El invariante que de verdad mata el
+ * defecto vive en una función pura del servicio —la **resta estricta**: si cualquiera de los dos
+ * lados es NO MEDIDO, el resultado es NO MEDIDO— y desde SQL no se puede observar. Importa porque
+ * la primera versión de esta misma corrección trataba el `null` como 0, y con eso el «100 % de
+ * margen» **reaparecía una fila más arriba**: sin plan de costo de ventas,
+ * `margen_bruto.plan = venta.plan − 0 = venta.plan`. Se corrigió antes de entrar, pero **no hay
+ * compuerta automática**: `libs/finance` tiene `.spec.ts` y **no tiene corredor de pruebas**
+ * (son parte de las 21 pruebas huérfanas que la Fase VP ya midió). Queda declarado, no fingido.
+ *
  * Es de SOLO LECTURA. No escribe una sola fila.
  */
 'use strict';
