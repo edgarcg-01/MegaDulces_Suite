@@ -344,7 +344,7 @@ manual** (light, dark y móvil) — el único paso que no se automatiza.
 - 🧪 **MS.2.1** Scaffold `libs/service-desk` + registros (eslint, tsconfig×2, vitest, `AppModule`).
 - 🧪 **MS.2.2** Contratos HTTP y puertos en `libs/contracts`.
 - 🧪 **MS.2.3** `RequestsService` + máquina de estados + `MessagesService`.
-- 🔨 **MS.2.4** Adjuntos (validación de servidor por FIRMA, límite en `main.ts`, URLs firmadas). **NO MEDIDO: el adjunto válido de punta a punta** (sin bucket S3 en dev).
+- 🧪 **MS.2.4** Adjuntos (validación de servidor por FIRMA, límite en `main.ts`, URLs firmadas). **Medido de punta a punta contra un S3 real** (26/26, `http-service-desk-attachments-s3-test.js`; incluye que no quede objeto huérfano). **No medido contra el bucket de producción.**
 - 🧪 **MS.2.5** SLA (funciones puras + spec), scanner con latido y `CRON_JOBS`, auto-cierre.
 - 🧪 **MS.2.6** Notificaciones: puerto, binding, room por usuario en `/alerts`, anti-spam, log, y
   **canal `app` por poll para lo que nace en el worker** (que no tiene WebSocket).
