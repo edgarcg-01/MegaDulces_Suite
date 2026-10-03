@@ -1,0 +1,7 @@
+{
+  "name": "service-desk",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/service-desk/src",
+  "projectType": "library",
+  "tags": ["scope:service-desk", "type:feature"]
+}

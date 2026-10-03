@@ -2,6 +2,8 @@ import type { Knex } from 'knex';
 import { Permission } from '@megadulces/contracts/authz/permissions';
 import {
   CAJA_VENTANA_DIAS,
+  parseHHMM,
+  type BusinessCalendar,
   type MeDesgloseItem,
   type MeFlujo,
   type MeVeredicto,
@@ -74,7 +76,8 @@ export type ResponsabilidadKey =
   | 'finanzas.conciliacion_egresos'
   | 'sistemas.salud_datos'
   | 'finanzas.cartera'
-  | 'compras.entradas';
+  | 'compras.entradas'
+  | 'servicio.atender';
 
 /**
  * `[SN.15]` Lo que cada conteo necesita saber de quién pregunta.
@@ -214,8 +217,21 @@ export interface BandejaDef {
    * y la cola se pinta `al_dia` para siempre: el `cfg ? classify : 'ok'` que la Fase VP encontró
    * dando verde incondicional a las matvistas del sell-out. El bloque 4g del smoke lo vigila, con
    * su prueba negativa.
+   *
+   * `[MS.3.8]` `null` SÓLO si la bandeja declara `plazoHabil` (su plazo no es de días sino de minutos
+   * hábiles y vive en la configuración del tenant). El bloque 4g exige una de las dos cosas: nunca ninguna.
    */
-  umbral_dias: number;
+  umbral_dias: number | null;
+  /**
+   * `[MS.3.8]` **Plazo en MINUTOS HÁBILES leído de la configuración del tenant.** Es la forma de la cola de
+   * tickets sin asignar: su plazo es de una hora, no de días (`diasDesde` trunca a días y jamás vería la
+   * diferencia entre 5 min y 23 h), y tiene que ajustarse sin desplegar. Devuelve el plazo Y el calendario
+   * con el que se mide la espera: una hora de las 19:30 a las 20:30 no cuenta, nadie estaba trabajando.
+   *
+   * ⛔ Si no se puede leer la configuración, **lanza**: `workFor` lo declara en `no_medido`. Inventar un
+   * plazo por defecto aquí sería el `cfg ? classify : 'ok'` al revés — un veredicto sin sustento.
+   */
+  plazoHabil?: (knex: Knex, tenantId: string) => Promise<{ minutos: number; calendario: BusinessCalendar }>;
   medir: (knex: Knex, ctx: MedirCtx) => Promise<MedidaCola>;
   /**
    * `[SN.33]` **Opcional: nombrar las filas que forman el total.**
@@ -1048,6 +1064,67 @@ export const BANDEJAS: readonly BandejaDef[] = [
         };
       });
     },
+  },
+
+  // ── `[MS.3.8]` Mesa de Servicio: lo que nadie ha tomado ────────────────────────────────────
+  {
+    id: 'servicio-sin-asignar',
+    label: 'Solicitudes de servicio sin asignar',
+    detalle: 'tickets de la Mesa de Servicio que nadie ha tomado · el plazo cuenta sólo el horario hábil',
+    ruta: '/servicio/bandeja',
+    icono: 'pi pi-inbox',
+    alcance: 'bandeja',
+    responsabilidad: 'servicio.atender',
+    // La cola es la misma para todo el que atiende: no hay eje de sucursal que acotar.
+    acotablePorSucursal: false,
+    /*
+     * ⛔ **Sin `umbral_dias` a propósito**: el plazo es de MINUTOS HÁBILES y se lee de
+     * `servicedesk.settings.unassigned_alert_minutes` (arranca en 60; ajustable en
+     * `/servicio/configuracion`). Es política, no medición: nadie había fijado cuánto es demasiado esperar
+     * un ticket sin dueño, y 1 hora fue la decisión de Sistemas del 2026-10-02 para empezar a medir.
+     * Cuando haya una semana de datos se recalibra con el tablero de la bandeja, no a ojo.
+     */
+    umbral_dias: null,
+    plazoHabil: async (knex, tenantId) => {
+      const s = await knex('servicedesk.settings')
+        .where({ tenant_id: tenantId })
+        .first('business_days', 'business_start', 'business_end', 'tz', 'unassigned_alert_minutes');
+      if (!s) throw new Error('la Mesa de Servicio no está configurada para este tenant');
+      const hhmm = (v: unknown): string => String(v).slice(0, 5);
+      return {
+        minutos: Number(s.unassigned_alert_minutes),
+        calendario: {
+          tz: String(s.tz),
+          days: (s.business_days as number[]).map(Number),
+          startMin: parseHHMM(hhmm(s.business_start)),
+          endMin: parseHHMM(hhmm(s.business_end)),
+        },
+      };
+    },
+    // Misma clave que la ruta: `anyPermissionGuard(SERVICIO_ATENDER, SERVICIO_COORDINAR)`.
+    anyOf: [Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR],
+    /*
+     * La cola es lo MISMO que el alcance «Sin asignar» de la bandeja del servicio: `status = 'nuevo'` y
+     * `assigned_to IS NULL`. Es la única definición — si la bandeja cuenta una cosa y Mi trabajo otra, la
+     * persona hace clic y no encuentra lo que le dijeron.
+     *
+     * ⚠️ `cierre: 'assigned_at'`: lo que SALE de «sin asignar» es que alguien lo toma o se lo asignan.
+     * `updated_at` no sirve (lo mueve cada nota y cada cambio de estado, y contaría como «salida» un ticket
+     * que lleva semanas en proceso). Un ticket cancelado sin haberse asignado nunca no cuenta como salida:
+     * es raro y sub-cuenta (nunca sobre-cuenta), que es el lado seguro para `se_acumula`.
+     */
+    medir: (knex, { tenantId }) =>
+      medirCola(
+        knex,
+        knex('servicedesk.requests').where({ tenant_id: tenantId }).whereNull('deleted_at'),
+        {
+          estadoCol: 'status',
+          estadoAbierto: 'nuevo',
+          fecha: 'created_at',
+          cierre: 'assigned_at',
+          abiertaExtra: { sql: 'assigned_to is null', args: [] },
+        },
+      ),
   },
 ];
 

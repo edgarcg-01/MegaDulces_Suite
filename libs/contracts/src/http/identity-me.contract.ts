@@ -181,6 +181,13 @@ export function veredictoDe(
   m: ColaMedida,
   umbralDias: number | null,
   ahora: number = Date.now(),
+  /**
+   * `[MS.3.8]` Una cola cuyo plazo se mide en MINUTOS HÁBILES (la de tickets sin asignar: un ticket de las 19:30
+   * no está «atrasado» a las 20:30, nadie ha trabajado). **Quien llama ya midió la espera** con el reloj que
+   * corresponde y la pasa junto al umbral: esta función sigue sin saber de calendarios. Si viene, reemplaza al
+   * umbral en días. `espera: null` = no se pudo medir, y entonces no se puede afirmar `atrasada`.
+   */
+  plazoMinutos: { espera: number | null; umbral: number } | null = null,
 ): MeVeredicto {
   const { entradas_30d, cerradas_30d } = m.flujo;
   const dias = diasDesde(m.mas_viejo_at, ahora);
@@ -205,7 +212,11 @@ export function veredictoDe(
     return 'se_acumula';
   }
 
-  if (umbralDias !== null && dias !== null && dias > umbralDias) return 'atrasada';
+  if (plazoMinutos) {
+    if (plazoMinutos.espera !== null && plazoMinutos.espera > plazoMinutos.umbral) return 'atrasada';
+  } else if (umbralDias !== null && dias !== null && dias > umbralDias) {
+    return 'atrasada';
+  }
 
   // Si el flujo no se pudo medir y el umbral no alcanzó para condenarla, NO se declara sana.
   if (cerradas_30d === null && entradas_30d === null) return 'sin_medir';
@@ -248,6 +259,13 @@ export interface MePendiente {
    * candado exige que toda bandeja viva lo traiga.
    */
   umbral_dias: number | null;
+  /**
+   * `[MS.3.8]` Para la cola que se juzga en minutos HÁBILES (tickets sin asignar): el plazo declarado y lo que
+   * lleva esperando el más viejo, en el mismo reloj. Ausente/`null` en las demás, que usan `umbral_dias`.
+   * `espera_minutos_habiles: null` con umbral presente = la espera no se pudo medir (se declara, no es 0).
+   */
+  umbral_minutos_habiles?: number | null;
+  espera_minutos_habiles?: number | null;
   /** `[SN.29]` Entradas contra salidas. Lo que distingue un flujo de trabajo de un vertedero. */
   flujo: MeFlujo;
   /** `[SN.29]` El veredicto derivado de `flujo` + `mas_viejo_at` + `umbral_dias`. Ordena la lista. */
@@ -337,6 +355,8 @@ export interface MeTarea {
    * quién puede abrir; enlazarla invitaría a un 403 (medido: 2 casos reales en prod).
    */
   ruta: string | null;
+  /** `[MS.3.6]` Parámetros del enlace (`?scope=mine`). Ausente/`null` = la ruta a secas. Sólo con `ruta`. */
+  queryParams?: Record<string, string> | null;
   /** Por qué no hay enlace. `null` cuando sí lo hay. */
   sin_acceso: string | null;
   icono: string;

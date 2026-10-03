@@ -10,6 +10,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { DataScopeService } from '../../../core/services/data-scope.service';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
+import { ServiceDeskService } from '../../servicio/service-desk.service';
 
 interface FeedItem { type: string; severity: 'info' | 'warn' | 'critical'; title: string; message: string; at: number; route?: string }
 
@@ -139,6 +140,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   private readonly perms = inject(PermissionsService);
   private readonly router = inject(Router);
   private readonly dataScope = inject(DataScopeService);
+  private readonly serviceDesk = inject(ServiceDeskService);
 
   readonly open = signal(false);
   readonly criticos = signal(0);
@@ -199,6 +201,18 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   readonly attentionCount = computed(() => this.criticos() + this.accionesPend());
   readonly hasNew = computed(() => this.newSince());
 
+  /**
+   * `[MS.3.6]` Mesa de Servicio. Los avisos se LEEN de `servicedesk.notification_log` (canal `app`) por
+   * poll, y el WebSocket sólo sirve para adelantar esa lectura. No es redundancia: lo que nace en el
+   * barrido del SLA o en el auto-cierre sale del worker, que no tiene WebSocket (ADR-080), así que un
+   * aviso que dependiera del push se perdería justo cuando nadie lo provocó con las manos. El log
+   * es la fuente de verdad; el push, una mejora de latencia.
+   */
+  private readonly sdActivo = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
+  private readonly sdPuedeAtender = computed(() => this.perms.hasAny(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR));
+  private sdVisto = new Set<string>();
+  private sdDesde: string | undefined;
+
   private sub?: Subscription;
   private readonly destroyRef = inject(DestroyRef);
   private readonly zone = inject(NgZone);
@@ -213,6 +227,10 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
       // peticiones por minuto aunque nadie la estuviera mirando. Ver
       // 'core/utils/poll-visible'.
       encuestarVisible(60_000, () => this.refresh(), { destroyRef: this.destroyRef, zone: this.zone });
+    }
+    if (this.sdActivo()) {
+      this.pollServicio();
+      encuestarVisible(60_000, () => this.pollServicio(), { destroyRef: this.destroyRef, zone: this.zone });
     }
     // `[RE.27.C]` Alcance de sucursales para filtrar los avisos de entradas. Va
     // cacheado en el servicio (una llamada por sesión) y es best-effort: si no
@@ -233,7 +251,39 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
     // el socket lo administra HealthAlertToast (hermano de layout) — no desconectar aquí.
   }
 
+  /** Trae los avisos nuevos de la mesa y los suma al feed. Best-effort: un fallo no calla la campana. */
+  private pollServicio(): void {
+    this.serviceDesk.notifications(this.sdDesde).subscribe({
+      next: (rows) => {
+        const nuevos = rows.filter((n) => !this.sdVisto.has(n.id));
+        if (!nuevos.length) return;
+        for (const n of nuevos) this.sdVisto.add(n.id);
+        // `since` avanza al más reciente que ya se vio; el servidor devuelve estrictamente posteriores.
+        this.sdDesde = rows.reduce((m, n) => (n.created_at > m ? n.created_at : m), this.sdDesde ?? '');
+        const items: FeedItem[] = nuevos.map((n) => ({
+          type: 'service_desk', severity: n.severity, title: n.title, message: n.message,
+          at: Date.parse(n.created_at) || Date.now(), route: this.rutaServicio(n.event, n.request_id),
+        }));
+        this.feed.update((f) => [...items, ...f].sort((a, b) => b.at - a.at).slice(0, 20));
+        // Sólo pulsa por lo posterior a la última vez que abrieron la campana (no por el histórico al cargar).
+        if (items.some((i) => i.at > this.lastReadAt())) this.newSince.set(true);
+      },
+      // Best-effort: un fallo de red no calla la campana, vuelve a intentar en el siguiente ciclo.
+      error: () => undefined,
+    });
+  }
+
+  /** A dónde lleva un aviso: lo que es de quien atiende, a la bandeja; lo demás, a sus solicitudes. */
+  private rutaServicio(event: string, requestId: string | null): string {
+    const deAtencion = event === 'nuevo_prioritario' || event === 'asignado' || event === 'reabierto' || event.startsWith('sla_');
+    const base = deAtencion && this.sdPuedeAtender() ? '/servicio/bandeja' : '/servicio/solicitudes';
+    return requestId ? `${base}?id=${requestId}` : base;
+  }
+
   private onAlert(a: CommercialAlert): void {
+    // `[MS.3.6]` El push de la mesa NO entra al feed: sólo adelanta la lectura del log (ver arriba).
+    // Entrar por las dos vías duplicaría cada aviso.
+    if (a.type === ('service_desk' as any)) { if (this.sdActivo()) this.pollServicio(); return; }
     // Finanzas (hallazgos Maat) desactivado: no dejamos pasar sus alertas al feed en vivo.
     if (!FINANCE_NOTIF_ENABLED && a.type === ('finance_finding' as any)) return;
     // Aviso de FEED nuevo (Kepler/ContPAQi): solo a quien tiene el módulo de Finanzas.
@@ -318,6 +368,8 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
       case 'polizas_tipo': return 'pi-tags';
       // `[GX.26]` La decisión sobre TU vale: llegó una respuesta, no una tarea.
       case 'vale_resuelto': return 'pi-verified';
+      // `[MS.3.6]` Mesa de Servicio: una solicitud que se movió o que espera a alguien.
+      case 'service_desk': return 'pi-ticket';
       default: return 'pi-bell';
     }
   }
