@@ -213,6 +213,14 @@ export interface RouteInventoryRow {
   carga_desde: string | null;
   /** Último día con carga o venta. Es lo que delata a una ruta parada. */
   ultimo_movimiento: string | null;
+  /**
+   * Lo que se le subió al camión AYER. **`null` = no hubo embarque**, que no es lo mismo que
+   * haberle cargado $0 — por eso no se colapsa a cero. Medido: cargan 6 de 11 rutas por día.
+   */
+  cargado_ayer_costo: number | null;
+  cargado_ayer_qty: number | null;
+  /** El último día que se le cargó algo. Contesta «y si no fue ayer, ¿cuándo?». */
+  ultima_carga: string | null;
   // Columna COSTO — valuada con el costo del EMBARQUE (lo que la sucursal le cargó al camión).
   carga_costo: number; cogs_costo: number; inventario_costo: number;
   inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
@@ -224,6 +232,13 @@ export interface RouteInventoryRow {
   pares: number; pares_pos: number; pares_neg: number;
   pares_sin_costo: number; venta_sin_costo: number | null;
   pares_sin_precio: number; carga_sin_precio: number | null;
+  /**
+   * La cobertura del contraste del ERP. Sin esto, `cogs_erp` se lee como si fuera el COGS y
+   * publica un margen del 79%: le falta el costo al 69.93% de los pares y al 100% de Canindo.
+   */
+  pares_vendidos: number; pares_sin_cogs_erp: number;
+  /** La venta sin testigo de costo del ERP, EN PESOS. Por pares da 77.7%, en dinero 38%. */
+  venta_sin_cogs_erp: number | null;
 }
 
 export interface RouteInventoryDetailRow {
@@ -279,6 +294,11 @@ export interface RouteInventoryDetail {
 
 export interface RouteInventoryReport {
   desde: string; hasta: string;
+  /** El día que la pantalla llama «ayer», resuelto en TZ MX por el servidor, no por el navegador. */
+  ayer: string;
+  /** De cuántas rutas se tiene embarque de ayer. Se cuenta sobre el nulo, no sobre la suma. */
+  rutas_cargaron_ayer: number;
+  rutas_totales: number;
   /** Frescura del DATO: hasta qué día hay movimiento. */
   data_as_of: string | null;
   /** Frescura de la COPIA: cuándo terminó el último refresco de matvistas. `poblado ≠ fresco`. */
@@ -292,7 +312,7 @@ export interface RouteInventoryReport {
    * `sin_medir` = ninguna ruta tuvo movimiento en la ventana, así que no hay nada que cuadre.
    */
   cuadra: 'cierra' | 'no_cierra' | 'sin_medir';
-  declara: { sin_ancla: string; costo: string; fuera_de_alcance: string };
+  declara: { sin_ancla: string; costo: string; faltante: string; fuera_de_alcance: string };
 }
 
 export interface SalesByRouteDashboard {
@@ -3413,9 +3433,9 @@ export class CommercialAnalyticsService {
                 coalesce(sum(f.cobrado_en_periodo), 0)                    AS cobrado_en_periodo,
                 coalesce(sum(f.pagos_en_periodo), 0)::int                 AS pagos_en_periodo,
                 coalesce(max(f.pagos), 0)::int                            AS max_pagos,
-                -- `[IG.12]` to_char, no la fecha cruda: `pg` entrega un `date` como OBJETO Date y
-                -- el `String(x).slice(0,10)` de más abajo devolvía **"Mon Sep 28"**. Nadie lo vio
-                -- porque hoy la pantalla no dibuja estas dos columnas — pero salen por la API.
+                -- [IG.12] to_char, no la fecha cruda: pg entrega un date como OBJETO Date y
+                -- el String(x).slice(0,10) de mas abajo devolvia "Mon Sep 28". Nadie lo vio
+                -- porque hoy la pantalla no dibuja estas dos columnas, pero salen por la API.
                 to_char(min(f.primer_cobro), 'YYYY-MM-DD')                AS primer_cobro,
                 to_char(max(f.ultimo_cobro), 'YYYY-MM-DD')                AS ultimo_cobro
            FROM f GROUP BY 1, 2, 3)
@@ -3595,11 +3615,11 @@ export class CommercialAnalyticsService {
         // STABLE`, o sea inlinable, y sin la palabra el planner aplana sus CTEs, estima rows=1 y
         // elige un Nested Loop que re-evalúa `pag` por cada fila.
         `WITH b AS MATERIALIZED (SELECT * FROM analytics.income_bridge_src(?::date, ?::date))
-         -- ⛔ to_char y NO la columna cruda: `pg` devuelve un `date` como OBJETO Date de JS, y
-         -- `String(d).slice(0,10)` da **"Mon Sep 28"**, no "2026-09-28". Es el mismo defecto que
-         -- `[LC.16]` encontró en el libro de compras — ahí además corría el DÍA, porque el objeto
-         -- se construye en UTC y se renderiza en hora de México. En la lista de selección
-         -- `to_char` es gratis; lo que anula un índice es envolver la fecha en el WHERE.
+         -- to_char y NO la columna cruda: pg devuelve un date como OBJETO Date de JS, y
+         -- String(d).slice(0,10) da "Mon Sep 28", no "2026-09-28". Es el mismo defecto que
+         -- [LC.16] encontro en el libro de compras, donde ademas corria el DIA porque el objeto
+         -- se construye en UTC y se renderiza en hora de Mexico. En la lista de seleccion
+         -- to_char es gratis; lo que anula un indice es envolver la fecha en el WHERE.
          SELECT to_char(b.fecha, 'YYYY-MM-DD')         AS fecha,
                 b.folio, b.doc_tipo, b.cliente_code, b.cliente_nombre, b.kind,
                 b.es_interno, b.ligado, b.doc_cancelado, b.importe, b.cobrado, b.pagos,
@@ -8032,6 +8052,7 @@ export class CommercialAnalyticsService {
   async routeInventory(from?: string, to?: string): Promise<RouteInventoryReport> {
     const { desde, hasta } = this.routeInventoryRange(from, to);
     const tenantId = this.tenantCtx.requireTenantId();
+    const ayer = this.ayerMx();
     return this.tk.run(async (trx) => {
       const rows = (await trx.raw(
         `WITH win AS (
@@ -8041,6 +8062,13 @@ export class CommercialAnalyticsService {
                   sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
                   sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi,
                   sum(l.costo_erp) FILTER (WHERE l.clase='venta') AS ce,
+                  -- La venta que el contraste del ERP NO alcanza a explicar, EN DINERO.
+                  --
+                  -- Tiene que medirse acá, a nivel línea, y no contando pares afuera: medido
+                  -- contra prod, por pares el contraste "cubre" el 77.7% y en dinero cubre el
+                  -- 38%. Un par con una sola línea con costo cuenta como cubierto entero. La
+                  -- cobertura se declara en la unidad en la que se publica la cifra.
+                  sum(l.venta_doc) FILTER (WHERE l.clase='venta' AND l.costo_erp IS NULL) AS vi_sin_ce,
                   max(l.business_date)                            AS ultimo
              FROM analytics.mv_rd_route_ledger l
             WHERE l.tenant_id = ? AND l.business_date >= ? AND l.business_date <= ?
@@ -8049,8 +8077,28 @@ export class CommercialAnalyticsService {
            SELECT w.*, w.cv / nullif(w.cq,0) AS costo_u, w.vi / nullif(w.vq,0) AS precio_u,
                   coalesce(w.cq,0) - coalesce(w.vq,0) AS saldo
              FROM win w
+         ), carga_dia AS (
+           -- Lo que se le subio al camion AYER, y cuando fue la ultima vez que se le subio algo.
+           -- Va al margen de la ventana elegida: es senal del dia, no del periodo.
+           --
+           -- Las dos salen de UN solo barrido. La version con un CTE por pregunta recorria la
+           -- matvista dos veces y el presupuesto de esta pantalla es de 500 ms.
+           --
+           -- NULL cuando no hubo embarque, nunca 0: "no le cargamos" y "le cargamos nada" son
+           -- cosas distintas, y un 0 diria que le mandamos el camion vacio (ADR-056). Medido el
+           -- 2026-10-02: cargaron 6 de 11 rutas, asi que cinco filas caen aca todos los dias.
+           SELECT l.route_no,
+                  sum(l.qty)       FILTER (WHERE l.business_date = ?::date) AS ayer_q,
+                  sum(l.costo_doc) FILTER (WHERE l.business_date = ?::date) AS ayer_costo,
+                  max(l.business_date)                                      AS ultima_carga
+             FROM analytics.mv_rd_route_ledger l
+            WHERE l.tenant_id = ? AND l.clase = 'carga'
+            GROUP BY 1
          )
          SELECT i.route_no, i.plaza, to_char(i.carga_desde,'YYYY-MM-DD') AS carga_desde,
+                round(max(cd.ayer_costo),2)::float                        AS cargado_ayer_costo,
+                round(max(cd.ayer_q),2)::float                            AS cargado_ayer_qty,
+                to_char(max(cd.ultima_carga),'YYYY-MM-DD')                AS ultima_carga,
                 -- La última actividad de la ruta, del MISMO barrido que todo lo demás. Es lo que
                 -- delata a una ruta parada: medido, la 505 no mueve nada desde el 10-sep y se veía
                 -- igual que las diez vivas.
@@ -8076,13 +8124,22 @@ export class CommercialAnalyticsService {
                 count(*) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.costo_u IS NULL)::int AS pares_sin_costo,
                 round(sum(v.vi) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.costo_u IS NULL),2)::float AS venta_sin_costo,
                 count(*) FILTER (WHERE coalesce(v.cq,0) > 0 AND v.precio_u IS NULL)::int AS pares_sin_precio,
-                round(sum(v.cv) FILTER (WHERE coalesce(v.cq,0) > 0 AND v.precio_u IS NULL),2)::float AS carga_sin_precio
+                round(sum(v.cv) FILTER (WHERE coalesce(v.cq,0) > 0 AND v.precio_u IS NULL),2)::float AS carga_sin_precio,
+                -- La COBERTURA del contraste, no solo su suma. Medido contra prod el 2026-10-03:
+                -- el c62 que el ERP escribe en la linea de venta falta en el 69.93% de los pares
+                -- y en el 100% de las cinco rutas de Canindo, porque el U-D-10 de la sucursal ve
+                -- menos de la mitad de la venta de ruta. Publicar esa suma sin su cobertura hace
+                -- creer que el margen es del 79%; con la cobertura al lado se lee como lo que es.
+                count(*) FILTER (WHERE coalesce(v.vq,0) > 0)::int                 AS pares_vendidos,
+                count(*) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.ce IS NULL)::int AS pares_sin_cogs_erp,
+                round(sum(v.vi_sin_ce),2)::float                                  AS venta_sin_cogs_erp
            FROM analytics.mv_rd_route_identity i
            LEFT JOIN val v ON v.route_no = i.route_no
+           LEFT JOIN carga_dia cd ON cd.route_no = i.route_no
           WHERE i.tenant_id = ?
           GROUP BY i.route_no, i.plaza, i.carga_desde
           ORDER BY i.plaza, i.route_no`,
-        [tenantId, desde, hasta, tenantId],
+        [tenantId, desde, hasta, ayer, ayer, tenantId, tenantId],
       )).rows;
 
       const asOf = (await trx.raw(
@@ -8110,12 +8167,21 @@ export class CommercialAnalyticsService {
       const r2 = (n: number) => Math.round(n * 100) / 100;
 
       return {
-        desde, hasta,
+        desde, hasta, ayer,
         data_as_of: asOf?.data_as_of ?? null,
         routes: rows as RouteInventoryRow[],
+        /**
+         * Cuántas rutas cargaron ayer, de las que existen. Se cuenta sobre `cargado_ayer_costo`
+         * NO NULO, no sobre la suma: con la suma, un día sin un solo embarque y un día en que
+         * todas cargaron $0 dan el mismo total y se leen igual.
+         */
+        rutas_cargaron_ayer: rows.filter(
+          (r: Record<string, unknown>) => r.cargado_ayer_costo !== null).length,
+        rutas_totales: rows.length,
         totales: {
           carga_costo: r2(num('carga_costo')),
           cogs_costo: r2(num('cogs_costo')),
+          cargado_ayer_costo: r2(num('cargado_ayer_costo')),
           inventario_costo: r2(num('inventario_costo')),
           inventario_costo_pos: r2(num('inventario_costo_pos')),
           inventario_costo_neg: r2(num('inventario_costo_neg')),
@@ -8125,6 +8191,7 @@ export class CommercialAnalyticsService {
           inventario_venta_pos: r2(num('inventario_venta_pos')),
           inventario_venta_neg: r2(num('inventario_venta_neg')),
           cogs_erp: r2(num('cogs_erp')),
+          venta_sin_cogs_erp: r2(num('venta_sin_cogs_erp')),
           venta_sin_costo: r2(num('venta_sin_costo')),
           carga_sin_precio: r2(num('carga_sin_precio')),
         },
@@ -8149,8 +8216,17 @@ export class CommercialAnalyticsService {
         declara: {
           sin_ancla: 'No hay conteo inicial de los camiones: la ventana arranca en la PRIMERA CARGA '
             + 'documentada de cada ruta. El saldo negativo es mercancía que el camión ya traía.',
-          costo: 'El costo es el del EMBARQUE (lo que la sucursal le cargó al camión). `cogs_erp` es '
-            + 'el costo que el ERP escribe en la línea de venta: mide otra cosa, no se suma.',
+          costo: 'El costo es el del EMBARQUE (lo que la sucursal le cargó al camión), con cobertura '
+            + 'del 100% de las líneas de carga. El contraste del ERP mide otra cosa y no se suma.',
+          /**
+           * ⛔ Lo que esta pantalla NO puede contestar, dicho antes de que alguien lo suponga.
+           * Medido contra prod el 2026-10-03 sobre los 10 doctypes que tocan un almacén de ruta
+           * en 180 días: ticket, recepción de traspaso, corte de caja y cobro. Ninguno es una
+           * devolución, y el conteo físico del camión aparece UNA sola vez (2026-06-26).
+           */
+          faltante: 'Kepler NO tiene documento de retorno de ruta, y el camión se contó una sola vez '
+            + '(2026-06-26). El saldo en contra es un INDICIO (vendió más de lo que se le cargó), '
+            + 'no un faltante medido: para eso hay que contar el camión.',
           fuera_de_alcance: 'Morelia 321/322 y las rutas vecinales 1V00N no tienen embarque en Kepler.',
         },
       };
@@ -8391,6 +8467,19 @@ export class CommercialAnalyticsService {
     if (to && !dRx.test(to)) throw new BadRequestException('to debe ser YYYY-MM-DD');
     if (desde > hasta) throw new BadRequestException('from no puede ser mayor que to');
     return { desde, hasta };
+  }
+
+  /**
+   * Ayer en TZ MX (UTC-6 fijo). `YYYY-MM-DD`.
+   *
+   * Se resta un día ANTES de recortar a fecha, no después: con `todayMx()` y un `- 1` en SQL
+   * el día lo decidiría el reloj del servidor de base, que corre en UTC — entre las 18:00 y la
+   * medianoche de México ya es "mañana" allá y la pantalla mostraría la carga de hoy rotulada
+   * como la de ayer. Es el mismo descuido que `[LC.16]` pagó con fechas corridas un día.
+   */
+  private ayerMx(): string {
+    const mx = new Date(Date.now() - 6 * 3600 * 1000 - 24 * 3600 * 1000);
+    return mx.toISOString().slice(0, 10);
   }
 
   // Inicio del mes actual en TZ MX (UTC-6 fijo, MX abolió DST en 2023). Formato YYYY-MM-01.

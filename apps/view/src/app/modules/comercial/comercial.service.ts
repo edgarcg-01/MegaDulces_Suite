@@ -2412,6 +2412,14 @@ export interface RouteInventoryRow {
   carga_desde: string | null;
   /** Ultimo dia con carga o venta. Es lo que delata a una ruta parada. */
   ultimo_movimiento: string | null;
+  /**
+   * Lo que se le subio al camion AYER. `null` = NO hubo embarque, que no es lo mismo que
+   * haberle cargado $0: por eso no se colapsa a cero. Cargan 6 de 11 rutas por dia.
+   */
+  cargado_ayer_costo: number | null;
+  cargado_ayer_qty: number | null;
+  /** El ultimo dia que se le cargo algo. Contesta "y si no fue ayer, cuando?". */
+  ultima_carga: string | null;
   carga_costo: number; cogs_costo: number; inventario_costo: number;
   inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
   carga_venta: number; venta_cliente: number; inventario_venta: number;
@@ -2421,6 +2429,9 @@ export interface RouteInventoryRow {
   pares: number; pares_pos: number; pares_neg: number;
   pares_sin_costo: number; venta_sin_costo: number | null;
   pares_sin_precio: number; carga_sin_precio: number | null;
+  /** Cobertura del contraste del ERP. Por pares da 77.7% y en dinero 31.6%: manda el dinero. */
+  pares_vendidos: number; pares_sin_cogs_erp: number;
+  venta_sin_cogs_erp: number | null;
 }
 
 export interface RouteInventoryDetailRow {
@@ -2476,6 +2487,11 @@ export interface RouteInventoryDetail {
 
 export interface RouteInventoryReport {
   desde: string; hasta: string;
+  /** El dia que la pantalla llama "ayer", resuelto en TZ MX por el servidor, no por el navegador. */
+  ayer: string;
+  /** De cuantas rutas se tiene embarque de ayer. Se cuenta sobre el nulo, no sobre la suma. */
+  rutas_cargaron_ayer: number;
+  rutas_totales: number;
   /** Frescura del DATO: hasta que dia hay movimiento. */
   data_as_of: string | null;
   /** Frescura de la COPIA: cuando termino el ultimo refresco de matvistas. `poblado != fresco`. */
@@ -2486,7 +2502,7 @@ export interface RouteInventoryReport {
   totales: Record<string, number>;
   /** Ternario: no cuadrar y no haber podido comprobarlo son cosas distintas. */
   cuadra: 'cierra' | 'no_cierra' | 'sin_medir';
-  declara: { sin_ancla: string; costo: string; fuera_de_alcance: string };
+  declara: { sin_ancla: string; costo: string; faltante: string; fuera_de_alcance: string };
 }
 
 export interface SalesByRouteParams {
