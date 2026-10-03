@@ -108,6 +108,20 @@ export class CommercialQuotesController {
     return this.service.listSalespersons(branch);
   }
 
+  /**
+   * `[COT.19]` Las sucursales con las que este usuario puede cotizar y en cuál arranca. ⚠️ Antes
+   * de `@Get(':id')`, por la misma razón que `summary`.
+   */
+  @Get('branches')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
+  @ApiOperation({
+    summary:
+      'Sucursales del usuario para cotizar (alcance ADR-050, área televenta): null = todas, [] = ninguna; default_branch = la de su perfil si está permitida.',
+  })
+  branches(): ReturnType<CommercialQuotesService['myBranches']> {
+    return this.service.myBranches();
+  }
+
   @Get('summary')
   @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
   @ApiOperation({

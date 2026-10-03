@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
+import { AREA_COTIZACIONES } from './quote-scope';
 import type { Knex } from 'knex';
 
 /**
@@ -213,7 +214,14 @@ export class QuotePricingService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly scope: ScopeService,
   ) {}
+
+  /** COT.19: 403 si la sucursal de la cotización no está en el alcance de ESCRITURA del usuario. */
+  private async assertEscribe(branch: string | null | undefined): Promise<void> {
+    if (!branch) throw new BadRequestException('La cotización no tiene sucursal: no se puede editar.');
+    await this.scope.assertCanWrite('warehouse', branch, AREA_COTIZACIONES);
+  }
 
   // ───────────────────────────────────────────────────────────────────────────────────────────
   // Escalera de precios del producto en esa tienda
@@ -360,6 +368,11 @@ export class QuotePricingService {
   // ───────────────────────────────────────────────────────────────────────────────────────────
 
   async previewLine(input: PriceLineInput): Promise<PricedLine> {
+    // COT.19: el precio de una sucursal que no te toca es la puerta por la que se cotizaba
+    // Padre Hidalgo desde Morelia. `priceLine` NO valida: la usan addLine/updateLine, que ya
+    // validaron la escritura sobre la sucursal de la cotización.
+    const branch = (input.branch || '').trim();
+    if (branch) await this.scope.assertCanRead('warehouse', branch, AREA_COTIZACIONES);
     return this.tk.run((knex) => this.priceLine(knex, input));
   }
 
@@ -626,6 +639,7 @@ export class QuotePricingService {
         );
         if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
         const quote = q.rows[0];
+        await this.assertEscribe(quote.source_branch);
         if (quote.status !== 'draft') {
           throw new BadRequestException(
             `Sólo se le agregan renglones a una cotización en borrador (ésta está "${quote.status}"). Una cotización enviada que cambia es otra versión, no la misma.`,
@@ -814,6 +828,7 @@ export class QuotePricingService {
       );
       if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
       const quote = q.rows[0];
+      await this.assertEscribe(quote.source_branch);
       if (quote.status !== 'draft') {
         throw new BadRequestException(
           `Sólo se editan renglones de una cotización en borrador (ésta está "${quote.status}").`,
@@ -973,10 +988,11 @@ export class QuotePricingService {
 
   async removeLine(quoteId: string, lineId: string): Promise<RemoveLineResult> {
     return this.tk.run(async (trx) => {
-      const q = await trx.raw(`SELECT status FROM commercial.quotes WHERE id = :id AND deleted_at IS NULL`, {
+      const q = await trx.raw(`SELECT status, source_branch FROM commercial.quotes WHERE id = :id AND deleted_at IS NULL`, {
         id: quoteId,
       });
       if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
+      await this.assertEscribe(q.rows[0].source_branch);
       if (q.rows[0].status !== 'draft') {
         throw new BadRequestException('Sólo se editan renglones de una cotización en borrador.');
       }

@@ -157,12 +157,21 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
           }
         </div>
 
-        @if (!editable()) {
+        @if (q.status !== 'draft') {
           <div class="aviso" role="note">
             <i class="pi pi-lock" aria-hidden="true"></i>
             <span>
               Esta cotizacion esta <strong>{{ estadoLabel(q.status).toLowerCase() }}</strong>, asi que
               sus renglones ya no se tocan. Una cotizacion enviada que cambia es otra version, no la misma.
+            </span>
+          </div>
+        } @else if (!editable()) {
+          <!-- COT.19: borrador, pero de una sucursal en la que este usuario no puede escribir. -->
+          <div class="aviso" role="note">
+            <i class="pi pi-lock" aria-hidden="true"></i>
+            <span>
+              Podés ver esta cotización, pero es de la sucursal <strong>{{ q.source_branch }}</strong> y tu
+              alcance no incluye editar ahí.
             </span>
           </div>
         }
@@ -1005,7 +1014,9 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   private readonly previa$ = new Subject<void>();
   private readonly buscar$ = new Subject<void>();
 
-  readonly editable = computed(() => this.cot()?.status === 'draft');
+  // COT.19: editable = borrador Y el usuario puede escribir en su sucursal. `branch_writable`
+  // ausente (API vieja) se trata como `true`: el servidor valida igual y responde 403.
+  readonly editable = computed(() => this.cot()?.status === 'draft' && this.cot()?.branch_writable !== false);
   readonly puedeAgregar = computed(() => !!this.previa() && this.previa()!.unit_price !== null);
 
   ngOnInit(): void {
@@ -1387,7 +1398,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   exportandoTipo = signal<'xlsx' | 'pdf' | null>(null);
 
   obtenerDatosEntregable(q: QuoteDetail): QuoteDeliverableData {
-    const sucursalCod = q.source_branch || '01';
+    const sucursalCod = q.source_branch || ''; // COT.19: sin sucursal no se inventa la 01
     const items = q.lines.map((l) => ({
       // El SKU real primero; `requested_text` sólo cuando el renglón NO casó con el catálogo
       // (que es el único caso en que esa columna tiene algo).
