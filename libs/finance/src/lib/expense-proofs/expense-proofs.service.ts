@@ -349,10 +349,26 @@ export interface ListExpenseProofsQuery {
  * NO sirve para una credencial mala, y mandar a reintentar algo que no se arregla
  * reintentando es peor que no decir nada (la lección de `[GX.37]`).
  */
-function motivoDeAlmacenamiento(e: any): string {
-  const code = String(e?.Code || e?.code || e?.name || '');
-  const msg = String(e?.message || '');
-  const http = Number(e?.$metadata?.httpStatusCode || e?.statusCode || 0);
+/**
+ * La forma MINIMA que este traductor mira de un error de almacenamiento. No pretende
+ * describir al SDK de S3 entero: declara las cuatro cosas que se leen y nada mas, que es
+ * lo que permite tipar la entrada como `unknown` -- que es lo que de verdad llega de un
+ * `catch` -- en vez de rendirse con `any`.
+ */
+type FallaAlmacenamiento = {
+  Code?: unknown;
+  code?: unknown;
+  name?: unknown;
+  message?: unknown;
+  statusCode?: unknown;
+  $metadata?: { httpStatusCode?: unknown };
+};
+
+function motivoDeAlmacenamiento(e: unknown): string {
+  const err = (e ?? {}) as FallaAlmacenamiento;
+  const code = String(err.Code || err.code || err.name || '');
+  const msg = String(err.message || '');
+  const http = Number(err.$metadata?.httpStatusCode || err.statusCode || 0);
 
   if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|socket hang up|fetch failed/i.test(code + ' ' + msg)) {
     return 'no se pudo conectar con el almacenamiento. Avisá a Sistemas: no se arregla reintentando.';
