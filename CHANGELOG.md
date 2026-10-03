@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Fixed — cotización: cada usuario cotiza sólo en SUS sucursales (COT.19, 2026-10-03)
+- El cotizador arrancaba en la 01 y ofrecía las 8 sucursales a cualquiera, y el servidor no validaba: un vendedor de Morelia Abastos cotizaba con precios de Padre Hidalgo. Ahora usa el alcance por sucursal de ADR-050 (área `televenta`): una sucursal fija para vendedores, sólo las suyas para quien tiene varias, todas para dirección; 403 en catálogo, precio, vendedores, crear y editar fuera del alcance; la lista muestra sólo las cotizaciones de sus sucursales. Endpoint nuevo `GET /commercial/quotes/branches`. ⚠️ 3 usuarios sin sucursal en su perfil quedan sin poder cotizar hasta que se les asigne.
 ### Changed — `/compras/pedido`: cada artículo con SUS unidades, 1, 2 o 3 (RA-PRO.70, 2026-10-03)
 Kepler repite rótulos con factor 1 para llenar sus tres peldaños (mazapán PAQ/PAQ/CJA, rollo KG/KG/KG). Ahora la
 escalera se arma por factor real: KINDER cj · paq · pz, bolsa camiseta bto · kg, cubeta sólo cub. Botones de captura,
