@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — `/compras/pedido`: cada artículo con SUS unidades, 1, 2 o 3 (RA-PRO.70, 2026-10-03)
+Kepler repite rótulos con factor 1 para llenar sus tres peldaños (mazapán PAQ/PAQ/CJA, rollo KG/KG/KG). Ahora la
+escalera se arma por factor real: KINDER cj · paq · pz, bolsa camiseta bto · kg, cubeta sólo cub. Botones de captura,
+columna Unidad, Σ Ped. y Σ Base (antes Σ Piezas). Medido: 562 artículos con 1 unidad, 5,397 con 2 y 366 con 3.
 ### Fixed — auditoría del design system: el techo de motion deja de ser una intención, y Alto Contraste deja de ser un hueco (2026-10-03)
 
 Auditoría de [`DESIGN.md`](DESIGN.md) y sus tres satélites. El sistema está bien hecho; lo que falla
