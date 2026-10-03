@@ -25,7 +25,7 @@ const fs = require('fs');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
 const knex = require('knex');
 
-const URL = process.env.FLEET_DB_URL || process.env.DATABASE_URL_NEW;
+const URL = process.env.DATABASE_URL_NEW || process.env.FLEET_DB_URL;
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const REPO = path.resolve(__dirname, '..', '..');
 

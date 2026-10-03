@@ -40,7 +40,7 @@ require(path.join(REPO, 'node_modules', 'ts-node')).register({
   },
 });
 
-const URL = process.env.FLEET_DB_URL || process.env.DATABASE_URL_NEW;
+const URL = process.env.DATABASE_URL_NEW || process.env.FLEET_DB_URL;
 
 let ok = 0;
 let fail = 0;
