@@ -3604,6 +3604,31 @@ lo alimente, es lo que dejó el módulo muerto.
 **antes** del redeploy (si el código sale primero, «Mis gastos» consulta una columna que no existe) ·
 redeploy api+view. **Sin permisos nuevos → sin re-login.**
 
+### 🔨 [GX.65] · «Mis gastos» en 3 columnas (Solicitudes → Gastos → Expedientes) — 2026-10-03
+
+Rediseño acordado con maqueta: la solicitud `XA1501`, el gasto `XA1001` y el expediente con su pago
+`XD2601` en una sola pantalla, pendientes arriba en rojo, lo avanzado abajo **agrupado por la clave de
+proveedor de Kepler** (`c10` = `cuenta_clave`, 100% poblada; el nombre libre `c32` tiene 367 variantes
+para 337 claves). Se construye **por fases cortas**, probando que lo que ya funciona no se rompa.
+Decisiones tomadas: proveedor = clave Kepler · Expedientes: sin pago arriba, pagados abajo por fecha
+de pago · alcance en pirámide de 5 niveles sobre `ScopeService` (ADR-050), no un filtro propio.
+
+- [x] **[GX.65.1]** 🧪 **Un vale abierto nunca se queda fuera de «Mis gastos» por el `limit`.**
+  `list()` ordenaba por `created_at desc` y cortaba en 200: un vale devuelto o con la factura
+  pendiente, más viejo que eso, desaparecía sin aviso. Ahora, en «lo mío», los abiertos
+  (`recibida/aprobada/revision/rechazada`) viajan **todos** y el `limit` sólo recorta los
+  `validada`; tope duro de 1000 que, si se alcanza, **se declara** (`abiertos_truncados`). Los
+  demás usos de `list()` no cambian. Función pura `mis-gastos-abiertos.ts` + candado
+  `mis-gastos-abiertos.spec.ts` (12 pruebas, con prueba negativa del corte viejo).
+  **Medido (local):** el máximo por persona es 22 vales → hoy no le escondía nada a nadie; es un
+  riesgo latente que crece con el uso. Prod no medido (sin acceso desde esta máquina).
+  finance 332→344 · `nx build api` OK.
+- [ ] **[GX.65.2]** El dueño del vale puede capturar la comprobación de SU gasto (hoy GX.8 exige
+  área asignada → «No tienes acceso»).
+- [ ] **[GX.65.3]** `/mine` publica clave de proveedor, gastos `XA1001` ligados y estado de la comprobación.
+- [ ] **[GX.65.4]** Alcance por pirámide (`ScopeService`, área `finanzas`) + nadie aprueba su propio vale.
+- [ ] **[GX.65.5]** La pantalla en 3 columnas + filtros.
+
 ### 🔨 [GX.57] + [GX.58] · el concepto obligatorio y el botón «Revisado» — 2026-10-01
 
 Dos pedidos del usuario sobre el módulo ya construido, los dos de una línea y ninguno de una línea.

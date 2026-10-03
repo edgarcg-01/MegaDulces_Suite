@@ -100,7 +100,7 @@ export class ExpenseProofsController {
     // empresa a quien solo captura. Se devuelve vacio.
     // `[GX.39]` `etapas_de_la_pagina` vacio, no con ceros por etapa: cero vales no es
     // «cero por ejercer», es que no hay nada que contar.
-    if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, etapas_de_la_pagina: {}, rows: [], asignados: [] };
+    if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, etapas_de_la_pagina: {}, abiertos_truncados: false, rows: [], asignados: [] };
     // [GX.25] `search` para que el historial propio tambien se pueda buscar. NO hay filtro
     // de fecha a proposito: el historial es de TODAS las fechas (pedido del usuario), a
     // diferencia del buscador de folios, que solo muestra las solicitudes de hoy.

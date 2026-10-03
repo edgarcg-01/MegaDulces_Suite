@@ -57,6 +57,7 @@ import {
   mesValido, rangoDelMes, totalDelMes,
   type CalendarioDelMes, type DiaDelCalendario,
 } from './calendario-gastos';
+import { ESTADOS_ABIERTOS, TOPE_ABIERTOS, unirAbiertosYCerrados } from './mis-gastos-abiertos';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -1339,7 +1340,23 @@ export class ExpenseProofsService {
         return qb;
       };
       filtros(b);
-      const crudas = await Promise.all((await b).map(async (r: FilaDeGasto) => ({
+      // `[GX.65]` En «lo mío» los abiertos viajan TODOS; el `limit` sólo recorta los cerrados.
+      // Sin esto, un vale devuelto o con factura pendiente más viejo que los últimos 200 se
+      // quedaba fuera de la lista sin aviso. Los demás usos de `list()` no cambian.
+      let filasDb: FilaDeGasto[];
+      let abiertos_truncados = false;
+      if (q.mine && !q.status) {
+        const [abiertos, cerrados] = await Promise.all([
+          b.clone().whereIn('status', [...ESTADOS_ABIERTOS]).limit(TOPE_ABIERTOS + 1),
+          b.clone().whereNotIn('status', [...ESTADOS_ABIERTOS]),
+        ]);
+        const unidos = unirAbiertosYCerrados(abiertos as FilaDeGasto[], cerrados as FilaDeGasto[]);
+        filasDb = unidos.filas;
+        abiertos_truncados = unidos.abiertos_truncados;
+      } else {
+        filasDb = await b;
+      }
+      const crudas = await Promise.all(filasDb.map(async (r: FilaDeGasto) => ({
         ...r, importe: Number(r.importe), monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
         files: await this.storage.signFiles(archivosDe(r.files)), // URL prefirmada (bucket privado)
       })));
@@ -1368,6 +1385,8 @@ export class ExpenseProofsService {
       return {
         kpis: { total, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0, en_revision: by['revision'] || 0 },
         etapas_de_la_pagina: porEtapa,
+        // `[GX.65]` Si se alcanzó el tope de abiertos, se DICE. Siempre `false` fuera de «lo mío».
+        abiertos_truncados,
         rows,
       };
     });
