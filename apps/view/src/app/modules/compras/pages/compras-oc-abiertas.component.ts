@@ -198,7 +198,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
             <td><p-tag [value]="estLabel(o.estatus)" [severity]="estSev(o.estatus)" styleClass="oa-tag"></p-tag></td>
             <td>
               @if (clasifOk()) {
-                <span class="oa-clase" [attr.data-clase]="o._clase" [title]="CLASE_ACCION[o._clase]">{{ o._claseLabel }}</span>
+                <span class="oa-clase" [attr.data-clase]="o._clase" [title]="claseAccion(o._clase)">{{ o._claseLabel }}</span>
               } @else { <span class="oa-muted">—</span> }
             </td>
             <td class="comm-num oa-muted">{{ o.lineas | number }}</td>
@@ -645,9 +645,17 @@ export class ComprasOcAbiertasComponent implements OnInit {
   readonly claseOpts = CLASES_OC.map((c) => ({
     value: c as string, label: CLASE_OC_LABEL[c], accion: CLASE_OC_ACCION[c],
   }));
-  /** Qué hacer con cada clase, para el `title` de la pastilla. Mapa, no función: el template
-   *  la lee una vez por fila y no necesita una llamada por celda. */
-  readonly CLASE_ACCION = CLASE_OC_ACCION;
+  /**
+   * Qué hacer con esta clase, para el `title` de la pastilla.
+   *
+   * ⚠️ Es un MÉTODO y no el mapa expuesto al template a propósito: `let-o` de `p-table` llega
+   * como `any`, y con `strictTemplates` indexar un `Record<ClaseOc, string>` con `any` es
+   * TS7053. Acá el tipo se conoce, y el `?? ''` cubre una clase que el servidor mande y el
+   * front todavía no tenga — sin reventar la fila.
+   */
+  claseAccion(c: ClaseOc | string | null | undefined): string {
+    return CLASE_OC_ACCION[c as ClaseOc] ?? '';
+  }
 
   /** Quita los dos filtros de cliente (chips). La sucursal y la antigüedad son del servidor. */
   limpiarFiltros(): void { this.fSeg.set(''); this.fClase.set(''); this.syncUrl(); }
