@@ -66,7 +66,8 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
     <div>
       <h1>Inventario de ruta</h1>
       <p class="ir-sub">
-        Lo que trae cada camión, reconstruido del embarque de su sucursal menos lo que vendió.
+        Lo que trae cada camión <strong>hoy</strong>, reconstruido del embarque de su sucursal
+        menos lo que vendió. El acumulado de cada ruta está en su desglose.
         Kepler no guarda el saldo de una ruta: guarda los papeles.
       </p>
     </div>
@@ -127,18 +128,21 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       <div class="dt-scope">
         <p-table [value]="filas()" dataKey="route_no" [scrollable]="true" scrollHeight="46vh"
                  class="dt-stack surf-table surf-table--sticky surf-table--frozen-first"
-                 size="small" [rowHover]="true" [tableStyle]="{ 'min-width': '78rem' }">
+                 size="small" [rowHover]="true" [tableStyle]="{ 'min-width': '64rem' }">
           <ng-template #header>
             <tr>
+              <!--
+                La portada es el ESTADO DE HOY, no la historia. Las columnas de acumulado
+                (todo lo cargado y todo lo vendido desde la primera carga de cada ruta) se
+                mudaron al desglose: sumaban la vida entera del camión y al lado del saldo
+                actual se leían como si fueran lo que trae encima.
+              -->
               <th>Ruta</th>
               <th>Plaza</th>
-              <th class="num">Cargado ayer</th>
-              <th class="num">Cargado</th>
-              <th class="num">{{ metrica() === 'costo' ? 'Costo vendido' : 'Venta a cliente' }}</th>
-              <th class="num">Inventario</th>
+              <th class="num">Trae hoy</th>
               <th class="num">A favor</th>
               <th class="num" title="Vendió más de lo que se le cargó. Es un INDICIO: Kepler no tiene documento de retorno de ruta, así que no es un faltante medido">En contra</th>
-              <th class="num">Días</th>
+              <th class="num">Cargado ayer</th>
               <th class="num">Sin mover</th>
               <th class="num">Δ</th>
               <th class="num"><span class="ir-sr">Detalle</span></th>
@@ -148,6 +152,9 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
             <tr [class.ir-fila-mal]="!cierra(r)" [class.ir-fila-parada]="parada(r)">
               <td class="dt-id ir-mono" role="cell"><strong>{{ r.route_no }}</strong></td>
               <td class="ir-tenue" role="cell" data-label="Plaza">{{ r.plaza }}</td>
+              <td class="num ir-mono ir-fuerte" role="cell" data-label="Trae hoy">{{ inv(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="num ir-mono ir-ok" role="cell" data-label="A favor">{{ invPos(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="num ir-mono ir-bad" role="cell" data-label="En contra">{{ invNeg(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <!--
                 NO cargó y cargó $0 no son lo mismo. Un 0 acá diría que le mandamos el camión
                 vacío; lo que pasó es que no hubo embarque. Se declara con guion y se dice
@@ -161,16 +168,6 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                 } @else {
                   {{ r.cargado_ayer_costo | currency:'MXN':'symbol-narrow':'1.2-2' }}
                 }
-              </td>
-              <td class="num ir-mono" role="cell" data-label="Cargado">{{ carga(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num ir-mono" role="cell"
-                  [attr.data-label]="metrica() === 'costo' ? 'Costo vendido' : 'Venta a cliente'">{{ vendido(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num ir-mono ir-fuerte" role="cell" data-label="Inventario">{{ inv(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num ir-mono ir-ok" role="cell" data-label="A favor">{{ invPos(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num ir-mono ir-bad" role="cell" data-label="En contra">{{ invNeg(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num ir-mono ir-tenue" role="cell" data-label="Días de venta">
-                @if (dias(r) === null) { <span title="No vendió nada en el periodo: no hay con qué dividir">—</span> }
-                @else { {{ dias(r) | number:'1.0-0' }} }
               </td>
               <td class="num ir-mono" role="cell" data-label="Días sin mover"
                   [class.ir-bad]="parada(r)">
@@ -220,6 +217,24 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
   <app-side-peek [(open)]="detalleAbierto" [width]="860"
                  [title]="'Ruta ' + (rutaSel()?.route_no ?? '')"
                  [subtitle]="subtituloDetalle()">
+    <!--
+      El ACUMULADO vive acá, no en la portada. Son las cifras de toda la vida de la ruta
+      (desde su primera carga documentada): al lado del saldo actual se leían como si fueran
+      lo que el camión trae encima, y son dos órdenes de magnitud distintos.
+    -->
+    @if (rutaSel(); as rs) {
+      <dl class="ir-hist">
+        <div><dt>Cargado</dt><dd>{{ carga(rs) | currency:'MXN':'symbol-narrow':'1.2-2' }}</dd></div>
+        <div><dt>{{ metrica() === 'costo' ? 'Costo vendido' : 'Venta a cliente' }}</dt>
+             <dd>{{ vendido(rs) | currency:'MXN':'symbol-narrow':'1.2-2' }}</dd></div>
+        <div><dt>Trae hoy</dt>
+             <dd [class.ir-bad]="inv(rs) < 0">{{ inv(rs) | currency:'MXN':'symbol-narrow':'1.2-2' }}</dd></div>
+        <div><dt>Días de venta</dt>
+             <dd>@if (dias(rs) === null) { <span class="ir-tenue" title="No vendió nada: no hay con qué dividir">—</span> }
+                 @else { {{ dias(rs) | number:'1.0-0' }} }</dd></div>
+      </dl>
+    }
+
     <div class="ir-tabs" role="tablist" aria-label="Detalle de la ruta">
       @for (t of PESTANAS; track t.value) {
         <button type="button" role="tab" [attr.aria-selected]="pestana() === t.value"
@@ -471,6 +486,14 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
     .ir-fila-mal { background: var(--bad-soft-bg); }
     .ir-fila-parada td { opacity: .72; }
 
+    .ir-hist { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem;
+      margin: 0 0 .75rem; padding: .5rem .6rem; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); background: var(--c-surface-2); }
+    .ir-hist dt { font-size: .68rem; color: var(--c-text-3); text-transform: uppercase;
+      letter-spacing: .03em; margin-bottom: .1rem; }
+    .ir-hist dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600;
+      font-size: .82rem; color: var(--c-text-1); }
+    @media (max-width: 640px) { .ir-hist { grid-template-columns: repeat(2, 1fr); } }
     .ir-tabs { display: flex; gap: .2rem; border-bottom: 1px solid var(--border); margin-bottom: .75rem; }
     .ir-tabs button { background: none; border: 0; border-bottom: 2px solid transparent;
       padding: .45rem .8rem; font: inherit; font-size: .85rem; font-weight: 600;
@@ -879,13 +902,15 @@ export class ComercialInventarioRutaComponent {
        * esconde — `money.util` ya advierte que no va en una celda que alguien vaya a cuadrar.
        */
       {
-        label: `Inventario ${this.etiquetaMetrica()}`,
+        label: `Traen hoy ${this.etiquetaMetrica()}`,
         value: inv, format: 'currency2',
         tone: inv < 0 ? 'bad' : 'brand',
         sub: pct === null ? 'sin base para comparar' : `${Math.abs(pct).toFixed(1)}% de lo cargado`,
       },
+      // Es la única cifra ACUMULADA que queda arriba, y lo dice: el resto de la portada es el
+      // estado de hoy. El acumulado completo vive en el desglose de cada ruta.
       { label: 'Costo de lo vendido', value: this.totalCogs(), format: 'currency2', tone: 'default',
-        sub: 'al costo del embarque' },
+        sub: 'acumulado, al costo del embarque' },
       {
         label: 'Cargado ayer',
         value: this.totalAyer(), format: 'currency2',
