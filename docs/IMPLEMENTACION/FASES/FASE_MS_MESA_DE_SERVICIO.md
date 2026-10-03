@@ -358,6 +358,7 @@ manual** (light, dark y móvil) — el único paso que no se automatiza.
 - 🧪 **MS.3.3** Mis solicitudes + side-peek con hilo.
 - 🧪 **MS.3.4** Bandeja de atención.
 - 🧪 **MS.3.5** Reportes + Configuración. Ambos hechos: `/servicio/reportes` (en vivo, sin ranking de personas, sin semáforo, sin ceros dibujados). Ver tracker.
+- 🧪 **MS.3.12** Evidencia con cámara/galería: botón «Cámara» y fotos achicadas antes de subir (PDF/GIF intactos, nunca se pierde un archivo). Las notas internas siguen sin adjuntos. Ver tracker.
 - 🧪 **MS.3.11** Quien atiende levanta una solicitud a nombre de otra persona (con usuario), con su área y sucursal; la persona es la solicitante real (avisos, confirmar/reabrir). Ver tracker.
 - 🧪 **MS.3.10** Asignación automática por persona (categoría o palabra clave; gana la primera por orden; nunca a quien no puede atender; la asigna el sistema y NO cuenta como primera respuesta). Ver tracker.
 - 🧪 **MS.3.6** Integración con Mi trabajo. «A tu nombre» hecho (5ª fuente de `me-tasks.ts`, enlaza a `/servicio/bandeja?scope=mine`; el ticket `en_espera` cuenta pero no vence). La clave `servicio.atender` y su bandeja se hicieron en **MS.3.8** (plazo de 60 min hábiles, ajustable; la clave no se repartió a nadie).

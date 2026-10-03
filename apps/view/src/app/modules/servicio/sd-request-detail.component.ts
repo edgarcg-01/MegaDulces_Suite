@@ -14,6 +14,8 @@ import { PRIORITY_LABEL, STATUS_LABEL, IMPACT_LABEL, ServiceDeskService, sdError
 
 /** Máximo de archivos por envío: el mismo tope que el servidor (`MAX_ADJUNTOS_POR_ENVIO`). */
 export const MAX_ARCHIVOS = 5;
+import { optimizarImagenes } from './image-compress';
+
 const TIPOS_OK = /^(image\/(jpeg|png|webp|gif|heic|heif)|application\/pdf)$/i;
 
 /**
@@ -200,6 +202,8 @@ function leerComoDataUri(f: File): Promise<string> {
                 </ul>
               }
               <div class="sd-comp-foot">
+                <p-button icon="pi pi-camera" label="Cámara" size="small" severity="secondary" [outlined]="true" (onClick)="camara.click()" />
+                <input #camara type="file" hidden accept="image/*" capture="environment" (change)="elegir($event)" />
                 <p-button icon="pi pi-paperclip" label="Adjuntar" size="small" severity="secondary" [outlined]="true" (onClick)="selector.click()" />
                 <input #selector type="file" hidden multiple accept="image/*,application/pdf" (change)="elegir($event)" />
                 @if (agent()) {
@@ -207,8 +211,9 @@ function leerComoDataUri(f: File): Promise<string> {
                 }
                 <span class="sd-sp"></span>
                 <p-button [label]="interna() ? 'Guardar nota' : 'Enviar'" size="small" [loading]="busy()"
-                          [disabled]="!texto().trim() || (interna() && archivos().length > 0)" (onClick)="enviar()" />
+                          [disabled]="!texto().trim() || (interna() && archivos().length > 0) || optimizando()" (onClick)="enviar()" />
               </div>
+              @if (optimizando()) { <small class="sd-hint" role="status">Optimizando las fotos para subirlas más rápido…</small> }
               @if (interna() && archivos().length) { <small class="sd-hint">Las notas internas no admiten archivos.</small> }
             </div>
           }
@@ -448,6 +453,9 @@ export class SdRequestDetailComponent {
       .catch((e) => { this.busy.set(false); this.error.set(sdError(e, 'No se pudo leer un archivo.')); });
   }
 
+  /** `[MS.3.12]` Mientras se achican las fotos de la cámara no se deja enviar (se mandaría el archivo sin achicar). */
+  readonly optimizando = signal(false);
+
   elegir(ev: Event): void {
     const input = ev.target as HTMLInputElement;
     const nuevos = Array.from(input.files ?? []);
@@ -455,9 +463,14 @@ export class SdRequestDetailComponent {
     const malos = nuevos.filter((f) => !TIPOS_OK.test(f.type));
     if (malos.length) { this.error.set(`Sólo se aceptan fotos y PDF: ${malos.map((f) => f.name).join(', ')}.`); }
     const buenos = nuevos.filter((f) => TIPOS_OK.test(f.type));
-    const todos = [...this.archivos(), ...buenos];
-    if (todos.length > MAX_ARCHIVOS) this.error.set(`Máximo ${MAX_ARCHIVOS} archivos por envío.`);
-    this.archivos.set(todos.slice(0, MAX_ARCHIVOS));
+    this.optimizando.set(true);
+    // Las fotos de teléfono (3–15 MB) se achican ANTES de subir: ver `image-compress.ts`. Lo que no se pueda, sube original.
+    void optimizarImagenes(buenos).then((listos) => {
+      const todos = [...this.archivos(), ...listos];
+      if (todos.length > MAX_ARCHIVOS) this.error.set(`Máximo ${MAX_ARCHIVOS} archivos por envío.`);
+      this.archivos.set(todos.slice(0, MAX_ARCHIVOS));
+      this.optimizando.set(false);
+    });
   }
   quitarArchivo(f: File): void { this.archivos.update((a) => a.filter((x) => x !== f)); }
 

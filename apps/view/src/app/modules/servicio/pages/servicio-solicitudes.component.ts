@@ -10,6 +10,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
 import { SD_IMPACTS, type SdAttachmentInput, type SdCatalogResponse, type SdDepartmentDto, type SdImpact, type SdPreferencesDto, type SdRequesterDto, type SdRequestRow } from '@megadulces/contracts';
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
+import { optimizarImagenes } from '../image-compress';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { IMPACT_LABEL, PRIORITY_LABEL, STATUS_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
@@ -161,9 +162,12 @@ function dataUri(f: File): Promise<string> {
                 <div class="ss-field">
                   <span>Fotos o PDF (opcional)</span>
                   <div class="ss-att">
+                    <p-button icon="pi pi-camera" label="Cámara" severity="secondary" [outlined]="true" size="small" (onClick)="cam.click()" />
+                    <input #cam type="file" hidden accept="image/*" capture="environment" (change)="elegirArchivos($event)" />
                     <p-button icon="pi pi-paperclip" label="Adjuntar" severity="secondary" [outlined]="true" size="small" (onClick)="fi.click()" />
                     <input #fi type="file" hidden multiple accept="image/*,application/pdf" (change)="elegirArchivos($event)" />
                     <span class="ss-hint">Hasta {{ maxArchivos }}. Una captura de pantalla ayuda mucho.</span>
+                    @if (optimizando()) { <span class="ss-hint" role="status">Optimizando las fotos…</span> }
                   </div>
                   @if (archivos().length) {
                     <ul class="ss-pend">@for (f of archivos(); track f.name + f.size) {
@@ -405,7 +409,11 @@ export class ServicioSolicitudesComponent implements OnInit {
     if (!this.catalogo()) this.api.catalog().subscribe({ next: (c) => this.catalogo.set(c), error: (e) => this.formError.set(sdError(e, 'No se pudo cargar el catálogo.')) });
   }
   elegirCategoria(id: string): void { this.form.category_id = id; this.categoriaId.set(id); }
+  /** `[MS.3.12]` Mientras se achican las fotos de la cámara no se deja enviar. */
+  readonly optimizando = signal(false);
+
   puedeEnviar(): boolean {
+    if (this.optimizando()) return false;
     // Con «a nombre de otra persona» encendido hay que haber ELEGIDO a la persona: si no, se levantaría a nombre de quien llama sin que lo note.
     if (this.aNombreDe() && !this.solicitante()) return false;
     return !!this.form.category_id && !!this.form.title.trim() && (!this.requiereSucursal() || !!this.form.warehouse_code);
@@ -461,9 +469,14 @@ export class ServicioSolicitudesComponent implements OnInit {
     input.value = '';
     const malos = nuevos.filter((f) => !TIPOS_OK.test(f.type));
     if (malos.length) this.formError.set(`Sólo se aceptan fotos y PDF: ${malos.map((f) => f.name).join(', ')}.`);
-    const todos = [...this.archivos(), ...nuevos.filter((f) => TIPOS_OK.test(f.type))];
-    if (todos.length > MAX_ARCHIVOS) this.formError.set(`Máximo ${MAX_ARCHIVOS} archivos por envío.`);
-    this.archivos.set(todos.slice(0, MAX_ARCHIVOS));
+    this.optimizando.set(true);
+    // Las fotos de teléfono (3–15 MB) se achican ANTES de subir: ver `image-compress.ts`. Lo que no se pueda, sube original.
+    void optimizarImagenes(nuevos.filter((f) => TIPOS_OK.test(f.type))).then((listos) => {
+      const todos = [...this.archivos(), ...listos];
+      if (todos.length > MAX_ARCHIVOS) this.formError.set(`Máximo ${MAX_ARCHIVOS} archivos por envío.`);
+      this.archivos.set(todos.slice(0, MAX_ARCHIVOS));
+      this.optimizando.set(false);
+    });
   }
   quitar(f: File): void { this.archivos.update((a) => a.filter((x) => x !== f)); }
 

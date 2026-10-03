@@ -188,9 +188,34 @@ describe('[MS.3.3] SdRequestDetailComponent', () => {
       const input = el().querySelector('input[type=file]') as HTMLInputElement;
       Object.defineProperty(input, 'files', { value: [new File(['x'], 'virus.exe', { type: 'application/x-msdownload' }), new File(['x'], 'ok.png', { type: 'image/png' })] });
       input.dispatchEvent(new Event('change'));
+      await vi.waitFor(() => expect(fix.componentInstance.optimizando()).toBe(false)); // `[MS.3.12]` las fotos se optimizan antes de quedar listas
       fix.detectChanges();
       expect(texto()).toContain('virus.exe');
       expect(fix.componentInstance.archivos().map((f) => f.name)).toEqual(['ok.png']);
+    });
+    it('⭐ `[MS.3.12]` quien atiende tiene «Cámara» (toma la foto en el momento) además de «Adjuntar» (galería y archivos)', async () => {
+      await render('en_proceso', true);
+      const cam = el().querySelector('input[type=file][capture]') as HTMLInputElement;
+      expect(cam, 'falta la entrada de cámara').toBeTruthy();
+      expect(cam.getAttribute('capture')).toBe('environment'); // cámara trasera: la que apunta al problema
+      expect(cam.accept).toBe('image/*');
+      expect(cam.multiple).toBe(false); // la cámara entrega UNA foto por toma
+      const galeria = Array.from(el().querySelectorAll('input[type=file]')).find((i) => !i.hasAttribute('capture')) as HTMLInputElement;
+      expect(galeria.multiple).toBe(true);
+      expect(galeria.accept).toContain('application/pdf');
+      expect(botones()).toEqual(expect.arrayContaining(['Cámara', 'Adjuntar']));
+    });
+    it('⛔ NEGATIVA — mientras se optimizan las fotos NO se deja enviar (se mandaría sin achicar)', async () => {
+      await render('en_proceso', true);
+      const c = fix.componentInstance;
+      c.texto.set('Evidencia del problema');
+      c.optimizando.set(true);
+      fix.detectChanges();
+      const enviar = Array.from(el().querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Enviar') as HTMLButtonElement;
+      expect(enviar.disabled).toBe(true);
+      c.optimizando.set(false);
+      fix.detectChanges();
+      expect((Array.from(el().querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Enviar') as HTMLButtonElement).disabled).toBe(false);
     });
     it('máximo 5 archivos por envío', async () => {
       await render('en_proceso', true);
@@ -199,6 +224,7 @@ describe('[MS.3.3] SdRequestDetailComponent', () => {
       const input = el().querySelector('input[type=file]') as HTMLInputElement;
       Object.defineProperty(input, 'files', { value: seis });
       input.dispatchEvent(new Event('change'));
+      await vi.waitFor(() => expect(c.optimizando()).toBe(false));
       expect(c.archivos()).toHaveLength(5);
       expect(c.error()).toContain('Máximo 5');
     });
