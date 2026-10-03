@@ -6,6 +6,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
+import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import {
   ETAPA_PROTOCOLO_LABEL, ORDEN_ETAPA_PROTOCOLO,
   type EtapaProtocolo, type PersonaExpediente, type RespuestaExpediente, type ValeExpediente,
@@ -361,12 +362,13 @@ export class FinanzasExpedienteComponent {
   readonly personasFiltradas = computed<PersonaExpediente[]>(() => {
     const d = this.datos();
     if (!d) return [];
-    const q = this.filtro().trim().toLowerCase();
-    if (!q) return d.personas;
-    return d.personas.filter((p) =>
-      p.clave.toLowerCase().includes(q)
-      || (p.username || '').toLowerCase().includes(q)
-      || (p.nombre || '').toLowerCase().includes(q));
+    // `filtrarPorBusqueda` y no `.toLowerCase().includes()`: acá se busca por NOMBRE DE PERSONA,
+    // que es justo donde el `includes` crudo falla más seguido — `toLowerCase()` no quita
+    // diacríticos, así que escribir "martinez" no encontraba a "MARTÍNEZ" ni "nunez" a "NÚÑEZ".
+    // Tampoco toleraba dos palabras ni el orden ("juan perez" contra "PEREZ JUAN"). El helper
+    // normaliza, parte en tokens y los exige todos; con texto vacío devuelve la lista entera,
+    // igual que el `if (!q) return d.personas` que reemplaza.
+    return filtrarPorBusqueda(d.personas, this.filtro(), (p) => [p.clave, p.username, p.nombre]);
   });
 
   readonly persona = computed<PersonaExpediente | null>(() => {
