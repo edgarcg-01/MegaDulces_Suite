@@ -64,11 +64,12 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
 <div class="ir-page">
   <header class="ir-head">
     <div>
-      <h1>Inventario de ruta</h1>
+      <h1>Qué trae cada camión</h1>
       <p class="ir-sub">
-        Lo que trae cada camión <strong>hoy</strong>, reconstruido del embarque de su sucursal
-        menos lo que vendió. El acumulado de cada ruta está en su desglose.
-        Kepler no guarda el saldo de una ruta: guarda los papeles.
+        Lo que cada ruta tiene arriba <strong>hoy</strong>: lo que su sucursal le cargó, menos lo
+        que ya vendió. Para ver todo su historial, abrí la ruta.
+        <strong>Kepler no guarda el saldo de un camión</strong> — guarda los embarques y los
+        tickets, y esta pantalla los resta.
       </p>
     </div>
     <app-context-help topic="inventario-de-ruta" />
@@ -98,8 +99,8 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
 
   <app-load-state [loading]="cargando()" [error]="error()" [isEmpty]="!filas().length"
                   [skeletonRows]="11" emptyIcon="pi-truck"
-                  emptyTitle="Ninguna ruta con movimiento en este periodo"
-                  emptyHint="Probá con «Toda la ventana»: la carga documentada arranca el 15-jul en Padre Hidalgo y el 14-ago en Canindo."
+                  emptyTitle="Ningún camión cargó ni vendió en estas fechas"
+                  emptyHint="Quitá el filtro de fechas: el primer embarque documentado es del 15-jul en Padre Hidalgo y del 14-ago en Canindo."
                   (retry)="cargar()">
     @if (data(); as d) {
       <p class="ir-veredicto" [class]="'ir-v-' + veredicto().tono">
@@ -140,11 +141,11 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
               <th>Ruta</th>
               <th>Plaza</th>
               <th class="num">Trae hoy</th>
-              <th class="num">A favor</th>
-              <th class="num" title="Vendió más de lo que se le cargó. Es un INDICIO: Kepler no tiene documento de retorno de ruta, así que no es un faltante medido">En contra</th>
-              <th class="num">Cargado ayer</th>
-              <th class="num">Sin mover</th>
-              <th class="num">Δ</th>
+              <th class="num" title="Productos que se le cargaron y todavía no vende">Le sobra</th>
+              <th class="num" title="Productos que vendió sin que se los hayamos cargado. Es un INDICIO: Kepler no tiene documento de retorno de ruta, así que no es un faltante medido">Vendió de más</th>
+              <th class="num">Se le cargó ayer</th>
+              <th class="num" title="Días desde su último movimiento: ni carga ni venta">Días parada</th>
+              <th class="num" title="Diferencia del cuadre: cargado − vendido − lo que trae. Tiene que ser 0">Descuadre</th>
               <th class="num"><span class="ir-sr">Detalle</span></th>
             </tr>
           </ng-template>
@@ -153,14 +154,14 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
               <td class="dt-id ir-mono" role="cell"><strong>{{ r.route_no }}</strong></td>
               <td class="ir-tenue" role="cell" data-label="Plaza">{{ r.plaza }}</td>
               <td class="num ir-mono ir-fuerte" role="cell" data-label="Trae hoy">{{ inv(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num ir-mono ir-ok" role="cell" data-label="A favor">{{ invPos(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num ir-mono ir-bad" role="cell" data-label="En contra">{{ invNeg(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="num ir-mono ir-ok" role="cell" data-label="Le sobra">{{ invPos(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="num ir-mono ir-bad" role="cell" data-label="Vendió de más">{{ invNeg(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <!--
                 NO cargó y cargó $0 no son lo mismo. Un 0 acá diría que le mandamos el camión
                 vacío; lo que pasó es que no hubo embarque. Se declara con guion y se dice
                 cuándo fue la última vez (ADR-056).
               -->
-              <td class="num ir-mono" role="cell" data-label="Cargado ayer">
+              <td class="num ir-mono" role="cell" data-label="Se le cargó ayer">
                 @if (r.cargado_ayer_costo === null) {
                   <span class="ir-tenue"
                         [title]="r.ultima_carga ? 'No hubo embarque ayer. Su última carga fue el ' + r.ultima_carga : 'Sin embarques registrados'">
@@ -169,12 +170,12 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                   {{ r.cargado_ayer_costo | currency:'MXN':'symbol-narrow':'1.2-2' }}
                 }
               </td>
-              <td class="num ir-mono" role="cell" data-label="Días sin mover"
+              <td class="num ir-mono" role="cell" data-label="Días parada"
                   [class.ir-bad]="parada(r)">
                 @if (sinMover(r) === null) { <span class="ir-tenue">—</span> }
                 @else { {{ sinMover(r) }} }
               </td>
-              <td class="num ir-mono" role="cell" data-label="Δ del cuadre">
+              <td class="num ir-mono" role="cell" data-label="Descuadre">
                 @if (cierra(r)) { <span class="ir-tenue">0</span> }
                 @else { <strong class="ir-bad">{{ delta(r) | number:'1.2-2' }}</strong> }
               </td>
@@ -246,7 +247,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       @case ('productos') {
         <app-load-state [loading]="detalle() === null && !errorDetalle()" [error]="errorDetalle()"
                         [isEmpty]="detalle()?.rows?.length === 0" [skeletonRows]="8"
-                        emptyIcon="pi-box" emptyTitle="Sin productos en este periodo"
+                        emptyIcon="pi-box" emptyTitle="Este camión no movió ningún producto en estas fechas"
                         (retry)="pedirDetalle()">
           @if (detalle()?.truncado) {
             <p class="ir-contraste">
@@ -261,8 +262,9 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                      class="dt-stack surf-table" size="small" [rowHover]="true"
                      [tableStyle]="{ 'min-width': '46rem' }">
               <ng-template #header>
-                <tr><th>SKU</th><th>Producto</th><th>Un.</th><th class="num">Cargado</th>
-                  <th class="num">Vendido</th><th class="num">Saldo</th>
+                <tr><th>SKU</th><th>Producto</th><th title="Unidad en que se movió">Unidad</th>
+                  <th class="num">Se le cargó</th>
+                  <th class="num">Vendió</th><th class="num">Trae</th>
                   <th class="num">{{ etiquetaMetrica() }}</th><th></th></tr>
               </ng-template>
               <ng-template #body let-f>
@@ -270,9 +272,9 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                   <td class="dt-id ir-mono" role="cell">{{ f.sku }}</td>
                   <td role="cell" data-label="Producto">{{ f.producto }}</td>
                   <td class="ir-mono ir-tenue" role="cell" data-label="Unidad">{{ f.unidad }}</td>
-                  <td class="num ir-mono" role="cell" data-label="Cargado">{{ f.qty_carga | number:'1.0-2' }}</td>
-                  <td class="num ir-mono" role="cell" data-label="Vendido">{{ f.qty_venta | number:'1.0-2' }}</td>
-                  <td class="num ir-mono" role="cell" data-label="Saldo" [class.ir-bad]="f.saldo < 0">
+                  <td class="num ir-mono" role="cell" data-label="Se le cargó">{{ f.qty_carga | number:'1.0-2' }}</td>
+                  <td class="num ir-mono" role="cell" data-label="Vendió">{{ f.qty_venta | number:'1.0-2' }}</td>
+                  <td class="num ir-mono" role="cell" data-label="Trae" [class.ir-bad]="f.saldo < 0">
                     <strong>{{ f.saldo | number:'1.0-2' }}</strong>
                   </td>
                   <td class="num ir-mono" role="cell" [attr.data-label]="etiquetaMetrica()">
@@ -293,7 +295,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       @case ('movimiento') {
         <app-load-state [loading]="serie() === null && !errorTab()" [error]="errorTab()"
                         [isEmpty]="serie()?.length === 0" [skeletonRows]="8"
-                        emptyIcon="pi-chart-line" emptyTitle="Sin movimiento en este periodo"
+                        emptyIcon="pi-chart-line" emptyTitle="Este camión no tuvo ni carga ni venta en estas fechas"
                         (retry)="pedirSerie()">
           <p class="ir-nota">
             Cada día, lo que se le cargó contra lo que vendió, y <strong>lo que queda</strong> al
@@ -314,28 +316,28 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                   dentro de la pantalla que existe para denunciarla.
                 -->
                 <tr><th>Día</th>
-                  <th class="num">Cargado</th>
-                  <th class="num">{{ metrica() === 'costo' ? 'Vendido (al costo)' : 'Vendido' }}</th>
-                  <th>Proporción</th>
-                  <th class="num">Lo que queda</th>
-                  <th class="num">Unidades</th></tr>
+                  <th class="num">Se le cargó</th>
+                  <th class="num" title="Lo que vendió ese día, valuado en la misma moneda que la carga">Vendió</th>
+                  <th title="Carga contra venta del día, a la misma escala">Carga vs venta</th>
+                  <th class="num" title="Lo que le queda arriba al cierre de ese día">Trae al cierre</th>
+                  <th class="num" title="El mismo saldo, en piezas">Piezas</th></tr>
               </ng-template>
               <ng-template #body let-p>
                 <tr>
                   <td class="dt-id ir-mono" role="cell">{{ p.fecha }}</td>
-                  <td class="num ir-mono" role="cell" data-label="Cargado">{{ sCarga(p) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="num ir-mono" role="cell" data-label="Vendido">{{ sVendido(p) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td role="cell" data-label="Proporción">
+                  <td class="num ir-mono" role="cell" data-label="Se le cargó">{{ sCarga(p) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num ir-mono" role="cell" data-label="Vendió">{{ sVendido(p) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td role="cell" data-label="Carga vs venta">
                     <span class="ir-barra"
                           [title]="'Cargado ' + (sCarga(p) | currency:'MXN':'symbol-narrow':'1.0-0') + ' · vendido ' + (sVendido(p) | currency:'MXN':'symbol-narrow':'1.0-0')">
                       <i class="ir-b-carga" [style.width.%]="pct(sCarga(p))"></i>
                       <i class="ir-b-venta" [style.width.%]="pct(sVendido(p))"></i>
                     </span>
                   </td>
-                  <td class="num ir-mono ir-fuerte" role="cell" data-label="Lo que queda"
+                  <td class="num ir-mono ir-fuerte" role="cell" data-label="Trae al cierre"
                       [class.ir-bad]="sSaldo(p) < 0">{{ sSaldo(p) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <!-- Las unidades van APARTE y rotuladas, no mezcladas en la fila de pesos. -->
-                  <td class="num ir-mono ir-tenue" role="cell" data-label="Unidades"
+                  <td class="num ir-mono ir-tenue" role="cell" data-label="Piezas"
                       [class.ir-bad]="p.saldo_qty_acum < 0">{{ p.saldo_qty_acum | number:'1.0-0' }}</td>
                 </tr>
               </ng-template>
@@ -347,7 +349,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       @case ('traspasos') {
         <app-load-state [loading]="embarques() === null && !errorTab()" [error]="errorTab()"
                         [isEmpty]="embarques()?.length === 0" [skeletonRows]="8"
-                        emptyIcon="pi-truck" emptyTitle="Sin embarques en este periodo"
+                        emptyIcon="pi-truck" emptyTitle="A este camión no se le cargó nada en estas fechas"
                         (retry)="pedirEmbarques()">
           @if (embarqueSel(); as e) {
             <div class="ir-sub-head">
@@ -358,14 +360,15 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                 · {{ e.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
             </div>
             <app-load-state [loading]="lineas() === null" [isEmpty]="lineas()?.length === 0"
-                            [skeletonRows]="6" emptyIcon="pi-box" emptyTitle="Embarque sin líneas">
+                            [skeletonRows]="6" emptyIcon="pi-box" emptyTitle="Este embarque no trae productos">
               <div class="dt-scope">
                 <p-table [value]="lineas() ?? []" [scrollable]="true" scrollHeight="48vh"
                          class="dt-stack surf-table" size="small" [rowHover]="true"
                          [tableStyle]="{ 'min-width': '44rem' }">
                   <ng-template #header>
-                    <tr><th>SKU</th><th>Producto</th><th>Un.</th><th class="num">Cantidad</th>
-                      <th class="num">Costo unitario</th><th class="num">Importe</th><th></th></tr>
+                    <tr><th>SKU</th><th>Producto</th><th>Unidad</th><th class="num">Cantidad</th>
+                      <th class="num" title="A cuánto se le cobró cada una">Costo por unidad</th>
+                      <th class="num">Le costó</th><th></th></tr>
                   </ng-template>
                   <ng-template #body let-l>
                     <tr>
@@ -373,8 +376,8 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                       <td role="cell" data-label="Producto">{{ l.producto }}</td>
                       <td class="ir-mono ir-tenue" role="cell" data-label="Unidad">{{ l.unidad }}</td>
                       <td class="num ir-mono" role="cell" data-label="Cantidad">{{ l.qty | number:'1.0-2' }}</td>
-                      <td class="num ir-mono" role="cell" data-label="Costo unitario">{{ l.costo_unitario | currency:'MXN':'symbol-narrow':'1.2-4' }}</td>
-                      <td class="num ir-mono" role="cell" data-label="Importe">{{ l.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                      <td class="num ir-mono" role="cell" data-label="Costo por unidad">{{ l.costo_unitario | currency:'MXN':'symbol-narrow':'1.2-4' }}</td>
+                      <td class="num ir-mono" role="cell" data-label="Le costó">{{ l.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                       <td role="cell" data-label="">
                         @if (l.salto_peldano) {
                           <span [title]="'Se cargó a ' + (l.costo_unitario | number:'1.2-2') + ' contra un histórico de ' + (l.costo_mediano | number:'1.2-2') + ': el salto es >= 2x, y el factor de caja mínimo del catálogo es 2.00'">
@@ -397,16 +400,16 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                        class="dt-stack surf-table surf-table--sticky" size="small" [rowHover]="true"
                        [tableStyle]="{ 'min-width': '40rem' }">
                 <ng-template #header>
-                  <tr><th>Fecha</th><th>Folio</th><th class="num">Líneas</th>
-                    <th class="num">Unidades</th><th class="num">Importe</th><th class="num"></th></tr>
+                  <tr><th>Fecha</th><th>Folio</th><th class="num" title="Renglones del documento">Productos</th>
+                    <th class="num">Piezas</th><th class="num" title="Lo que el embarque le cobró al camión">Le costó</th><th class="num"></th></tr>
                 </ng-template>
                 <ng-template #body let-e>
                   <tr>
                     <td class="dt-id ir-mono" role="cell">{{ e.fecha }}</td>
                     <td class="ir-mono" role="cell" data-label="Folio">{{ e.folio }}</td>
-                    <td class="num ir-mono ir-tenue" role="cell" data-label="Líneas">{{ e.lineas }}</td>
-                    <td class="num ir-mono ir-tenue" role="cell" data-label="Unidades">{{ e.unidades | number:'1.0-0' }}</td>
-                    <td class="num ir-mono ir-fuerte" role="cell" data-label="Importe">{{ e.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    <td class="num ir-mono ir-tenue" role="cell" data-label="Productos">{{ e.lineas }}</td>
+                    <td class="num ir-mono ir-tenue" role="cell" data-label="Piezas">{{ e.unidades | number:'1.0-0' }}</td>
+                    <td class="num ir-mono ir-fuerte" role="cell" data-label="Le costó">{{ e.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                     <td class="num" role="cell" data-label="">
                       <p-button icon="pi pi-angle-right" severity="secondary" [text]="true" size="small"
                                 [ariaLabel]="'Ver las líneas del embarque ' + e.folio"
@@ -423,7 +426,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       @case ('rojos') {
         <app-load-state [loading]="rojos() === null && !errorTab()" [error]="errorTab()"
                         [isEmpty]="rojos()?.length === 0" [skeletonRows]="8"
-                        emptyIcon="pi-check-circle" emptyTitle="Esta ruta no tiene números rojos"
+                        emptyIcon="pi-check-circle" emptyTitle="Este camión no vendió nada que no se le haya cargado"
                         (retry)="pedirRojos()">
           <p class="ir-nota">
             Son <strong>dos problemas distintos</strong>.
@@ -441,22 +444,25 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                      class="dt-stack surf-table surf-table--sticky" size="small" [rowHover]="true"
                      [tableStyle]="{ 'min-width': '48rem' }">
               <ng-template #header>
-                <tr><th>SKU</th><th>Producto</th><th>Un.</th><th class="num">Saldo</th>
-                  <th>Familia</th><th>Desde</th><th class="num">Días</th><th class="num">A costo</th></tr>
+                <tr><th>SKU</th><th>Producto</th><th>Unidad</th>
+                  <th class="num" title="Lo que vendió de más">De más</th>
+                  <th title="Si nunca se le cargó, o si se le cargó y se le acabó">Por qué</th>
+                  <th>Desde</th><th class="num">Días así</th>
+                  <th class="num" title="Valuado al costo del embarque. Si nunca se le cargó, no hay con qué valuarlo">Cuánto costó</th></tr>
               </ng-template>
               <ng-template #body let-n>
                 <tr>
                   <td class="dt-id ir-mono" role="cell">{{ n.sku }}</td>
                   <td role="cell" data-label="Producto">{{ n.producto }}</td>
                   <td class="ir-mono ir-tenue" role="cell" data-label="Unidad">{{ n.unidad }}</td>
-                  <td class="num ir-mono ir-bad" role="cell" data-label="Saldo"><strong>{{ n.saldo | number:'1.0-2' }}</strong></td>
-                  <td role="cell" data-label="Familia">
+                  <td class="num ir-mono ir-bad" role="cell" data-label="Trae"><strong>{{ n.saldo | number:'1.0-2' }}</strong></td>
+                  <td role="cell" data-label="Por qué">
                     <p-tag [value]="n.familia === 'se_acabo' ? 'se le acabó' : 'ya lo traía'"
                            [severity]="n.familia === 'se_acabo' ? 'danger' : 'secondary'" />
                   </td>
                   <td class="ir-mono ir-tenue" role="cell" data-label="Desde">{{ n.desde ?? '—' }}</td>
-                  <td class="num ir-mono ir-tenue" role="cell" data-label="Días en rojo">{{ n.dias_en_rojo ?? '—' }}</td>
-                  <td class="num ir-mono" role="cell" data-label="A costo">
+                  <td class="num ir-mono ir-tenue" role="cell" data-label="Días así">{{ n.dias_en_rojo ?? '—' }}</td>
+                  <td class="num ir-mono" role="cell" data-label="Cuánto costó">
                     @if (n.valor_costo === null) {
                       <span class="ir-tenue" title="Sin carga no hay costo con qué valuarlo">—</span>
                     } @else { {{ n.valor_costo | currency:'MXN':'symbol-narrow':'1.2-2' }} }
@@ -559,14 +565,16 @@ export class ComercialInventarioRutaComponent {
   /** Centinela que el backend devuelve cuando no se acotó el rango. */
   readonly TODO = '2000-01-01';
   readonly VALUACIONES = [
-    { label: 'A costo', value: 'costo' },
-    { label: 'A venta', value: 'venta' },
+    // Medido: el embarque se valua al costo estandar de la ficha (razon 1.0000 sobre 1,095
+    // pares) y queda 23.5% debajo de lo que la ruta cobra. Los rotulos nombran ese hecho.
+    { label: 'Lo que costó', value: 'costo' },
+    { label: 'Lo que vale al cliente', value: 'venta' },
   ];
   readonly PESTANAS: { label: string; value: Pestana }[] = [
-    { label: 'Productos', value: 'productos' },
-    { label: 'Movimiento', value: 'movimiento' },
-    { label: 'Traspasos', value: 'traspasos' },
-    { label: 'En contra', value: 'rojos' },
+    { label: 'Qué trae', value: 'productos' },
+    { label: 'Día por día', value: 'movimiento' },
+    { label: 'Embarques', value: 'traspasos' },
+    { label: 'Vendió de más', value: 'rojos' },
   ];
   /** Días sin un solo movimiento a partir de los cuales la ruta se marca como parada. */
   private readonly PARADA_DIAS = 7;
@@ -798,7 +806,9 @@ export class ComercialInventarioRutaComponent {
     return v === 'sin_costo' ? 'sin costo' : v === 'sin_precio' ? 'sin precio' : '';
   }
 
-  etiquetaMetrica(): string { return this.metrica() === 'costo' ? 'a costo' : 'a venta'; }
+  etiquetaMetrica(): string {
+    return this.metrica() === 'costo' ? 'a lo que costó' : 'a lo que vale al cliente';
+  }
 
   subtituloDetalle(): string {
     return this.metrica() === 'costo'
@@ -872,7 +882,7 @@ export class ComercialInventarioRutaComponent {
     const d = this.data();
     if (d?.cuadra === 'no_cierra') {
       return {
-        tono: 'mal', icono: 'pi-times-circle', titulo: 'La cuenta NO cierra.',
+        tono: 'mal', icono: 'pi-times-circle', titulo: 'La cuenta no cierra: no te fíes de estas cifras.',
         cuerpo: 'Alguna fila se valuó con dos varas distintas: el resto de la pantalla no se '
           + 'puede usar hasta resolverlo. Mirá la columna Δ.',
       };
@@ -880,38 +890,39 @@ export class ComercialInventarioRutaComponent {
     const pct = this.pctDeLoCargado();
     if (d?.cuadra === 'sin_medir' || pct === null) {
       return {
-        tono: 'neutro', icono: 'pi-minus-circle', titulo: 'Sin movimiento en este periodo.',
+        tono: 'neutro', icono: 'pi-minus-circle', titulo: 'Ningún camión se movió en estas fechas.',
         cuerpo: 'Ninguna ruta tuvo carga ni venta en la ventana elegida, así que no hay cuenta '
           + 'que cuadrar. No es que dé cero: es que no hay con qué medir.',
       };
     }
     const dias = this.diasDeVenta();
     const cola = dias === null ? '' : ` — unos ${Math.round(dias)} días de venta`;
-    const cierre = '. La cuenta cierra: cargado − vendido = inventario.';
+    const cierre = '. La cuenta cierra al centavo: lo cargado − lo vendido = lo que traen.';
     const p = `${Math.abs(pct).toFixed(1)} %`;
     if (pct < -5) {
       return {
         tono: 'aviso', icono: 'pi-arrow-circle-down',
-        titulo: 'Los camiones están vendiendo lo que ya traían.',
-        cuerpo: `Vendieron ${p} más de lo que se les cargó${cola}. Es mercancía anterior al primer `
-          + `embarque documentado: sin conteo inicial, no se puede saber cuánta queda${cierre}`,
+        titulo: 'Están vendiendo mercancía que no les cargamos.',
+        cuerpo: `Vendieron ${p} más de lo que se les subió${cola}. Es mercancía que ya traían `
+          + 'antes del primer embarque documentado. Nadie cuenta los camiones, así que no se '
+          + `puede saber cuánta les queda${cierre}`,
       };
     }
     if (pct > 20) {
       return {
-        tono: 'mal', icono: 'pi-exclamation-circle', titulo: 'Los camiones están acumulando.',
-        cuerpo: `Lo que queda arriba es el ${p} de todo lo que se les cargó${cola}${cierre}`,
+        tono: 'mal', icono: 'pi-exclamation-circle', titulo: 'Se les está quedando mercancía arriba.',
+        cuerpo: `Al cierre traen el ${p} de todo lo que se les cargó${cola}${cierre}`,
       };
     }
     if (pct > 5) {
       return {
-        tono: 'aviso', icono: 'pi-info-circle', titulo: 'Los camiones acumulan algo.',
-        cuerpo: `Lo que queda arriba es el ${p} de todo lo que se les cargó${cola}${cierre}`,
+        tono: 'aviso', icono: 'pi-info-circle', titulo: 'Se les queda algo arriba.',
+        cuerpo: `Al cierre traen el ${p} de todo lo que se les cargó${cola}${cierre}`,
       };
     }
     return {
-      tono: 'ok', icono: 'pi-check-circle', titulo: 'Los camiones no acumulan.',
-      cuerpo: `Lo que queda arriba es el ${p} de todo lo que se les cargó${cola}${cierre}`,
+      tono: 'ok', icono: 'pi-check-circle', titulo: 'Venden casi todo lo que se les carga.',
+      cuerpo: `Al cierre traen apenas el ${p} de todo lo que se les cargó${cola}${cierre}`,
     };
   });
 
@@ -932,27 +943,31 @@ export class ComercialInventarioRutaComponent {
         label: `Traen hoy ${this.etiquetaMetrica()}`,
         value: inv, format: 'currency2',
         tone: inv < 0 ? 'bad' : 'brand',
-        sub: pct === null ? 'sin base para comparar' : `${Math.abs(pct).toFixed(1)}% de lo cargado`,
+        sub: pct === null
+          ? 'sin carga con que compararlo'
+          : `${Math.abs(pct).toFixed(1)}% de todo lo que se les cargó`,
       },
       // Es la única cifra ACUMULADA que queda arriba, y lo dice: el resto de la portada es el
       // estado de hoy. El acumulado completo vive en el desglose de cada ruta.
-      { label: 'Costo de lo vendido', value: this.totalCogs(), format: 'currency2', tone: 'default',
-        sub: 'acumulado, al costo del embarque' },
+      { label: 'Lo vendido les costó', value: this.totalCogs(), format: 'currency2', tone: 'default',
+        sub: 'desde su primera carga, al precio del embarque' },
       {
-        label: 'Cargado ayer',
+        label: 'Se les cargó ayer',
         value: this.totalAyer(), format: 'currency2',
         tone: conCarga === 0 ? 'bad' : 'default',
         // Las rutas que NO cargaron son el dato, no el relleno: medido, cargan 6 de 11 por dia.
-        sub: rutas ? `${conCarga} de ${rutas} rutas` : 'sin rutas',
+        sub: rutas ? `salieron ${conCarga} de ${rutas} camiones` : 'sin rutas',
       },
-      { label: 'En contra', value: this.totalNeg(), format: 'currency2', tone: 'bad',
-        sub: 'indicio, no faltante medido' },
+      { label: 'Vendieron de más', value: this.totalNeg(), format: 'currency2', tone: 'bad',
+        sub: 'sin que se los cargáramos — indicio, no faltante contado' },
       {
-        label: 'Cuadre',
+        label: 'La cuenta',
         value: d?.cuadra === 'no_cierra' ? 'NO cierra' : d?.cuadra === 'cierra' ? 'Cierra' : 'Sin medir',
         format: 'text',
         tone: d?.cuadra === 'no_cierra' ? 'bad' : d?.cuadra === 'cierra' ? 'ok' : 'default',
-        sub: d?.cuadra === 'sin_medir' ? 'no hubo movimiento' : 'cargado − vendido = inventario',
+        sub: d?.cuadra === 'sin_medir'
+          ? 'ninguna ruta se movió: no hay qué cuadrar'
+          : 'lo cargado − lo vendido = lo que traen',
       },
     ];
   });
