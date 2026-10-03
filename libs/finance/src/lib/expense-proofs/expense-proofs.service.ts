@@ -2730,7 +2730,24 @@ export class ExpenseProofsService {
       throw new ForbiddenException('No se pudo identificar quién decide sobre el vale.');
     }
     const vale = await trx('finance.expense_proofs').where({ id }).first('created_by', 'evidencia_por');
-    if (vale && esDuenoDelVale(vale, quien)) throw new ForbiddenException(MENSAJE_PROPIO_VALE);
+    if (!vale) return;
+    /**
+     * ⛔ El token de sesión NO trae `full_name` (sólo `username`) y `req.user` ES el token: sin
+     * esto, la guarda comparaba sólo el username y dejaba pasar al dueño de un vale guardado con
+     * su NOMBRE. Se lee el nombre real del padrón. Lo encontró la simulación por niveles.
+     */
+    let nombre = String(quien.full_name ?? '').trim();
+    const usuario = String(quien.username ?? '').trim();
+    if (!nombre && usuario) {
+      const u = await trx('users')
+        .where({ tenant_id: this.tenantCtx.requireTenantId() })
+        .whereRaw('lower(username) = lower(?)', [usuario])
+        .first('nombre');
+      nombre = String(u?.nombre ?? '').trim();
+    }
+    if (esDuenoDelVale(vale, { username: usuario, full_name: nombre })) {
+      throw new ForbiddenException(MENSAJE_PROPIO_VALE);
+    }
   }
 
   async reject(id: string, actor?: string, motivo?: string, quien?: IdentidadQueDecide) {

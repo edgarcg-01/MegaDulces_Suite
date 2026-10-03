@@ -3666,6 +3666,16 @@ de pago · alcance en pirámide de 5 niveles sobre `ScopeService` (ADR-050), no 
   llega al servidor, el aviso muestra su motivo. ⚠️ **Para probar en local ahora hacen falta DOS
   cuentas**: una que levanta y otra que revisa. contracts 325→334 · finance 369→360 (9 pruebas
   movidas a contracts) · view 1653→1658 · build api + view OK · check:templates/tokens/estilos.
+  **Simulación por niveles (2026-10-03), contra la API local con el código nuevo:** 7 personas
+  reales de los 5 niveles (cajera, encargada, dirección, Maripaz, Jesús, Guillermo, superuser),
+  vales de prueba `SIMGX65-*` que se borran al terminar → **37 de 37 casos como se esperaba**.
+  ⛔ **Encontró un bug ANTES de correrla:** el token de sesión no trae `full_name` y `req.user` ES
+  el token, así que la guarda comparaba sólo el username y el dueño de un vale guardado con su
+  NOMBRE se colaba. Arreglado: la guarda lee el nombre real de `identity.users`. Script
+  reutilizable `database/scripts/sim-gx65-niveles.js` (aborta si la base no es local).
+  Hallazgos de la simulación: el permiso de autorizar lo tienen `tesoreria` por rol, Jesús por
+  persona (GX.17) y los superadmin por god-mode; `direccion` **no** autoriza. El Expediente le
+  muestra a quien autoriza **las 18 personas** del local: es el hueco de GX.65.4b, confirmado.
 - [ ] **[GX.65.4b]** Alcance por pirámide (`ScopeService`, área `finanzas`): quién ve qué en «Todos»
   y en el Expediente (hoy cualquiera con `COMPROBAR` ve toda la empresa). Depende de fichas con
   sucursal y del centro de costo (`c12`, sesión DM.19) para lo anterior al 1-oct.

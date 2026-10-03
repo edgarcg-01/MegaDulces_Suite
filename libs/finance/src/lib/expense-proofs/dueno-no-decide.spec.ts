@@ -33,3 +33,25 @@ describe('[GX.65.4a] la guarda está en aprobar, validar y rechazar', () => {
     expect((CONTROLLER.match(/quienDecide\(req\)/g) || []).length).toBe(3);
   });
 });
+
+/**
+ * ⛔ `[GX.65.4a]` **El bug que encontró la simulación por niveles.** El token de sesión NO trae
+ * `full_name` y `req.user` ES el token: comparando sólo lo que llega, el dueño de un vale
+ * guardado con su NOMBRE se colaba. La guarda tiene que leer el nombre real del padrón.
+ */
+describe('[GX.65.4a] la guarda lee el nombre del padrón', () => {
+  const soloCodigo = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const SERVICIO = soloCodigo(readFileSync(join(__dirname, 'expense-proofs.service.ts'), 'utf8'));
+  const guarda = SERVICIO.slice(SERVICIO.indexOf('private async asegurarQueNoEsSuyo('),
+    SERVICIO.indexOf('async reject(id: string'));
+
+  it('si el token no trae nombre, lo busca en identity.users por username', () => {
+    expect(guarda).toContain("trx('users')");
+    expect(guarda).toContain(".whereRaw('lower(username) = lower(?)', [usuario])");
+    expect(guarda).toContain(".first('nombre')");
+  });
+
+  it('compara con el nombre resuelto, no con el que vino en el token', () => {
+    expect(guarda).toContain('esDuenoDelVale(vale, { username: usuario, full_name: nombre })');
+  });
+});
