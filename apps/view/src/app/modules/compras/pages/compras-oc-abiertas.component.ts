@@ -56,40 +56,33 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
         </div>
       </header>
 
-      <!-- Resumen: cuánto papel hay y cuánto de eso sigue realmente en juego. -->
-      <div class="oa-kpis">
-        <div class="oa-kpi">
-          <span class="oa-k">Órdenes abiertas</span>
-          <span class="oa-v">{{ total() | number }}@if (totalMinimo()) {<span class="oa-min" title="La consulta llegó a su tope: hay por lo menos estas órdenes, pueden ser más.">+</span>}</span>
-        </div>
-        <div class="oa-kpi">
-          <span class="oa-k">Valor en papel</span>
-          <span class="oa-v">{{ money(totalValor()) }}</span>
-        </div>
-        <div class="oa-kpi">
-          <span class="oa-k">Se espera que llegue</span>
-          <span class="oa-v oa-ok">{{ money(valorEsperado()) }}</span>
-          <span class="oa-s">{{ pctEsperado() }}% del papel</span>
-        </div>
-        <div class="oa-kpi">
-          <span class="oa-k">Para barrer (+30 d)</span>
-          <span class="oa-v oa-bad">{{ viejas() | number }}</span>
-          <span class="oa-s">{{ money(valorViejas()) }}</span>
-        </div>
-        <!-- [RA-PRO.67] Lo que no va a salir solo. Si la vista no trae estado_cadena, el
-             mosaico DECLARA que no se midio, en vez de mostrar un cero que se lee como
-             "no hay ninguna". (Sin acentos graves aca dentro: cierran el template.) -->
-        <div class="oa-kpi">
-          <span class="oa-k">No va a salir sola</span>
-          @if (clasifOk()) {
-            <span class="oa-v oa-bad">{{ muertas() | number }}</span>
-            <span class="oa-s">{{ money(valorMuertas()) }} · el ERP ya las cerró o su vale está cancelado</span>
+      <!-- [RA-PRO.70] Aca habia una tira de CINCO mosaicos. Medido sobre esta misma pantalla:
+             · "Ordenes abiertas" repetia un numero que ya estaba en otros CINCO lugares
+               (el contador, los dos chips "Todas", el aviso de truncado y el estado vacio).
+             · "Valor en papel" y "Se espera que llegue" los da ahora el pie de la tabla, que
+               ademas sigue al filtro y queda fijo al hacer scroll: el mosaico decia otra cosa.
+             · "Para barrer (+30 d)" publicaba un umbral REFUTADO: la mediana real de entrega
+               es 0 dias y el p90 son 4 (5,784 ordenes ya recibidas). Marcar a los 30 avisa
+               cuando ya solo llega el 19.7%. No se reemplaza por un numero nuevo hasta tener
+               el ritmo por proveedor (bloqueado por mv_supplier_fill_rate).
+           Queda lo unico que no vive en ningun otro lado y es la razon de la pantalla, en una
+           linea sobria: DESIGN.md SS518 pide cards solo para KPIs minimal, y un mosaico que
+           repite no es minimal, es ruido con borde. -->
+      <p class="oa-lede">
+        @if (clasifOk()) {
+          @if (muertas()) {
+            De las {{ total() | number }} abiertas,
+            <b class="oa-bad">{{ muertas() | number }} por {{ money(valorMuertas()) }} no van a salir solas</b>
+            <span class="oa-muted">— el ERP ya las cerró o su vale está cancelado. Hay que ir a Kepler.</span>
           } @else {
-            <span class="oa-v oa-muted" title="La vista analytics.erp_purchase_orders todavía no trae estado_cadena (migración 20261002183000 sin aplicar).">sin medir</span>
-            <span class="oa-s">falta la migración de la cadena</span>
+            Las {{ total() | number }} órdenes abiertas siguen vivas:
+            <span class="oa-muted">ninguna quedó de papel.</span>
           }
-        </div>
-      </div>
+        } @else {
+          {{ total() | number }} órdenes abiertas.
+          <span class="oa-muted" title="La vista analytics.erp_purchase_orders todavía no trae estado_cadena.">Cuáles ya no van a moverse: <b>sin medir</b> (falta la migración de la cadena).</span>
+        }
+      </p>
 
       <div class="oa-filters">
         <p-select [options]="edadOpts" [(ngModel)]="fMinDays" (onChange)="reload(); syncUrl()"
@@ -455,27 +448,21 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
   `,
   styles: [`
     :host { display: block; }
-    .oa-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .5rem; margin-bottom: .85rem; }
-    .oa-kpi { display: flex; flex-direction: column; gap: .1rem; padding: .6rem .75rem;
-      border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); background: var(--surface-1, transparent); }
-    .oa-k { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); font-weight: 600; }
-    .oa-v { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .oa-s { font-size: .72rem; color: var(--text-muted); }
-    .oa-ok { color: var(--ok-fg); }
+    /* [RA-PRO.70] Una LINEA, no un objeto: sin borde ni fondo ni radio. Lo que marca
+       jerarquia es el peso del dato, no una caja alrededor. */
+    .oa-lede { margin: 0 0 .85rem; font-size: .9rem; line-height: 1.5; }
+    .oa-lede b { font-weight: 700; }
     .oa-bad { color: var(--bad-fg); }
     .oa-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
     .oa-sel { min-width: 12rem; }
     .oa-count { color: var(--text-muted); font-size: .82rem; margin-left: auto; }
     .oa-table { font-size: .82rem; }
-    .oa-r { text-align: right; font-variant-numeric: tabular-nums; }
     .oa-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; }
     .oa-muted { color: var(--text-muted); }
-    .oa-strong { font-weight: 700; }
     .oa-edad-warn { color: var(--warn-fg); font-weight: 600; }
     .oa-edad-bad { color: var(--bad-fg); font-weight: 700; }
     .oa-prob-bad { color: var(--bad-fg); font-weight: 700; }
     .oa-prob-warn { color: var(--warn-fg); font-weight: 600; }
-    .oa-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
     .oa-min { font-size: .9rem; margin-left: .1rem; color: var(--warn-fg); }
     .oa-aviso { display: flex; align-items: flex-start; gap: .45rem; margin: 0 0 .75rem; padding: .5rem .7rem;
       font-size: .8rem; line-height: 1.45; color: var(--text-main);
@@ -598,8 +585,6 @@ export class ComprasOcAbiertasComponent implements OnInit {
 
   readonly rows = signal<OpenOcRow[]>([]);
   readonly total = signal(0);
-  readonly totalValor = signal(0);
-  readonly valorEsperado = signal(0);
   readonly curva = signal<OpenOcResponse['curva']>([]);
   readonly loading = signal(false);
 
@@ -621,16 +606,9 @@ export class ComprasOcAbiertasComponent implements OnInit {
 
   // [RA-PRO.60] Del servidor, sobre TODAS las órdenes: antes se contaban sobre la tabla, que
   // corta en 500.
-  readonly viejas = signal(0);
-  readonly valorViejas = signal(0);
   readonly mostradas = signal(0);
   readonly truncado = signal(false);
   readonly totalMinimo = signal(false);
-
-  pctEsperado = computed(() => {
-    const t = this.totalValor();
-    return t > 0 ? Math.round((this.valorEsperado() / t) * 100) : 0;
-  });
 
   // ── [RA-PRO.62] Seguimiento de Compras ───────────────────────────────────────────────────
   // Registro propio (no toca Kepler). Se ve con COMPRAS_PEDIDO_VER; se cambia con _GESTIONAR.
@@ -898,10 +876,6 @@ export class ComprasOcAbiertasComponent implements OnInit {
           this.cargaError.set(false);
           this.rows.set(r.rows ?? []);
           this.total.set(r.total ?? 0);
-          this.totalValor.set(r.total_valor ?? 0);
-          this.valorEsperado.set(r.valor_esperado ?? 0);
-          this.viejas.set(r.viejas ?? 0);
-          this.valorViejas.set(r.valor_viejas ?? 0);
           this.mostradas.set(r.mostradas ?? (r.rows ?? []).length);
           this.truncado.set(!!r.truncado);
           this.totalMinimo.set(!!r.total_minimo);
@@ -920,8 +894,7 @@ export class ComprasOcAbiertasComponent implements OnInit {
         // carga anterior junto a una tabla vacía, que se lee como dato.
         error: () => {
           this.cargaError.set(true);
-          this.rows.set([]); this.total.set(0); this.totalValor.set(0); this.valorEsperado.set(0);
-          this.viejas.set(0); this.valorViejas.set(0); this.mostradas.set(0);
+          this.rows.set([]); this.total.set(0); this.mostradas.set(0);
           this.truncado.set(false); this.totalMinimo.set(false); this.porSeguimiento.set({});
           this.porClase.set({}); this.muertas.set(0); this.valorMuertas.set(0); this.clasifOk.set(false);
           // Sin respuesta no se sabe si la tabla de seguimiento existe: no se ofrece editar.
