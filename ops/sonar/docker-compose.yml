@@ -1,0 +1,106 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# `[SQ.0]` SONARQUBE EN `md` — auditoría de código, no compuerta.
+#
+# Qué mira y qué deja fuera: `sonar-project.properties`, en la raíz del repo.
+#
+# ── Por qué un stack APARTE y no dentro de `ops/obs` ────────────────────────
+# `obs` vigila la máquina en vivo y tiene que estar siempre arriba. Esto es una
+# herramienta de análisis: pesada, episódica, y **prescindible**. Separarla
+# permite `docker compose -p sonar stop` sin tocar el monitoreo — que importa
+# hoy en particular, con `md` cayéndose seis veces el 2026-10-02 por una causa
+# física todavía sin resolver (UPS = deuda `VL.8`, abierta).
+#
+# ⚠️ ESTO CONTRADICE EL PRINCIPIO DECLARADO EN `ops/obs/docker-compose.yml`
+#    ("se elige liviano a propósito... el monitoreo se comería lo que vino a
+#    vigilar"), y conviene decirlo en vez de disimularlo. Lo que cambió es el
+#    número: aquel stack se montó con **8.4 GB disponibles de 28.8**; al montar
+#    éste hay **13 GB** libres, porque el 2026-10-02 se le sacaron 5.5 núcleos y
+#    su RAM al colector de Docker de netdata (ver `[OBS.7]`). El tope de 4 GB de
+#    abajo es la mitad de ese margen, y el contenedor se para en un comando.
+#
+# ⛔ SOLO LAN. Ni ruta en Caddy ni túnel de Cloudflare, igual que dozzle/netdata
+#    — y acá pesa más: un servidor de análisis guarda **el código fuente entero**
+#    indexado y buscable. Publicarlo es publicar el repo.
+#
+# ⚠️ La primera vez entra con `admin`/`admin` y OBLIGA a cambiarla. Hacerlo en el
+#    acto: hasta entonces cualquiera en la LAN que sepa el puerto es admin.
+#
+# ✔ `vm.max_map_count` lo exige Elasticsearch en >= 262144. En `md` ya está en
+#   **1048576** (medido 2026-10-02) — no hace falta tocar ningún sysctl. Si
+#   alguna vez arranca y muere citando `max_map_count`, es esto.
+#
+#   despliegue:  scp -r ops/sonar superoot@192.168.0.222:~/ops/
+#                ssh superoot@192.168.0.222 'cd ~/ops/sonar && docker compose -p sonar up -d'
+#   tablero:     http://192.168.0.222:9000
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── LA BASE ─────────────────────────────────────────────────────────────────
+  # ⛔ SIN `mem_limit`, a propósito y por la misma razón que el resto de los
+  #    Postgres de esta casa: el cgroup contabiliza el page cache como memoria
+  #    del contenedor, así que un tope lo mata justo cuando está haciendo bien su
+  #    trabajo. Se controla por `shared_buffers`, no por cgroup.
+  #
+  # ⛔ SIN puerto publicado: sólo la alcanza el servidor por la red del stack. No
+  #    tiene nada que ofrecerle a la LAN.
+  db:
+    image: postgres:16-alpine
+    container_name: sonar-db
+    restart: unless-stopped
+    environment:
+      TZ: America/Mexico_City
+      POSTGRES_USER: sonar
+      POSTGRES_DB: sonar
+      POSTGRES_PASSWORD: ${SONAR_DB_PASSWORD:?falta SONAR_DB_PASSWORD - copiá sonar.env.example a .env}
+    volumes:
+      - sonar-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "2" } }
+
+  # ── EL SERVIDOR ─────────────────────────────────────────────────────────────
+  server:
+    image: sonarqube:community
+    container_name: sonar-server
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      TZ: America/Mexico_City
+      SONAR_JDBC_URL: jdbc:postgresql://db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: ${SONAR_DB_PASSWORD:?falta SONAR_DB_PASSWORD}
+      # Techo de la JVM por debajo del `mem_limit`: si el cgroup mata al proceso,
+      # no queda ni el volcado que explique por qué.
+      SONAR_WEB_JAVAOPTS: "-Xmx1g"
+      SONAR_CE_JAVAOPTS: "-Xmx1g"
+      SONAR_SEARCH_JAVAOPTS: "-Xmx1g"
+    volumes:
+      - sonar-data:/opt/sonarqube/data          # índices de Elasticsearch
+      - sonar-extensions:/opt/sonarqube/extensions
+      - sonar-logs:/opt/sonarqube/logs
+    ports:
+      - "9000:9000"
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }      # Elasticsearch no arranca con menos
+    healthcheck:
+      # ⚠️ `/api/system/status` devuelve 200 con `"status":"STARTING"` mientras
+      #    todavía no sirve. Se exige el literal `UP` o esto da sano demasiado
+      #    pronto — el mismo defecto que ADR-053 persigue en los latidos.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/api/system/status | grep -q '\"status\":\"UP\"'"]
+      interval: 20s
+      timeout: 10s
+      retries: 30
+      start_period: 180s
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+    mem_limit: 4g
+
+volumes:
+  sonar-db:
+  sonar-data:
+  sonar-extensions:
+  sonar-logs:

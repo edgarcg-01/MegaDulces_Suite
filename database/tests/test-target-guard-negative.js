@@ -76,6 +76,19 @@ const U = {
   compartida:    'postgresql://u:p@192.168.0.245:5432/platform_test',
   desconocido:   'postgresql://u:p@10.9.9.9:5432/x',
   localOtroNombre:'postgresql://otro:distinta@localhost:5433/postgres_platform',
+
+  // ── `[REP.0.7]` prod on-prem (`md`, desde 2026-09-22) ──────────────────────
+  // El primero ya abortaba ANTES del arreglo, pero por el NOMBRE de la base, no
+  // por el host: `railway` es un resto de la migración. Los otros dos son los que
+  // pasaban en verde — y son los que de verdad miden si el host está declarado.
+  // ⚠️ SIN la parte `usuario:clave@`, a diferencia de los de arriba: `classify()`
+  // sólo mira host y nombre de base, así que la credencial no aporta nada al caso
+  // — y una cadena de conexión con contraseña, aunque sea inventada, la marca
+  // `gitleaks` en el pre-commit (regla `db-connection-string-with-password`). La
+  // salida correcta es no escribirla, no ensanchar el allowlist.
+  mdRailway:     'postgresql://192.168.0.222:5434/railway',
+  mdOtroNombre:  'postgresql://192.168.0.222:5434/postgres_platform',
+  mdReplicas:    'postgresql://192.168.0.222:5433/kepler_md_03',
 };
 
 const CASOS = [
@@ -90,6 +103,31 @@ const CASOS = [
 
   { n: 'escribir en prod detectado SOLO por el nombre de base aborta',
     llamada: `g.assertSafeTarget('caso', { url: ${JSON.stringify(U.prodSoloNombre)} });`,
+    code: 2, dice: 'PRODUCCIÓN' },
+
+  // ── `[REP.0.7]` prod on-prem: el host tiene que delatarlo SOLO ──────────────
+  { n: 'escribir en prod on-prem (.222 + base railway) aborta',
+    llamada: `g.assertSafeTarget('caso', { url: ${JSON.stringify(U.mdRailway)} });`,
+    code: 2, dice: 'PRODUCCIÓN' },
+
+  // ⭐ ESTE es el que importa: hasta el 2026-10-02 pasaba en VERDE. Si alguien
+  //    renombra la base de `pg-prod`, o le agrega una segunda al clúster, el
+  //    único freno que había (el nombre `railway`) desaparece. Acá se mide que el
+  //    freno sea el HOST, que es lo que no cambia.
+  { n: 'escribir en prod on-prem con OTRO nombre de base tambien aborta',
+    llamada: `g.assertSafeTarget('caso', { url: ${JSON.stringify(U.mdOtroNombre)} });`,
+    code: 2, dice: 'PRODUCCIÓN' },
+
+  // Las réplicas Kepler del mismo servidor (puerto 5433): se leen, no se escriben.
+  { n: 'escribir en las replicas de md (.222:5433) aborta',
+    llamada: `g.assertSafeTarget('caso', { url: ${JSON.stringify(U.mdReplicas)} });`,
+    code: 2, dice: 'PRODUCCIÓN' },
+
+  // Y que TEST_TARGET_ALLOW no sea una puerta trasera a prod on-prem: el chequeo
+  // de prod corre ANTES de mirar la lista de hosts declarados.
+  { n: 'TEST_TARGET_ALLOW con .222 NO abre la puerta a prod on-prem',
+    llamada: `g.assertSafeTarget('caso', { url: ${JSON.stringify(U.mdOtroNombre)} });`,
+    env: { TEST_TARGET_ALLOW: '192.168.0.222' },
     code: 2, dice: 'PRODUCCIÓN' },
 
   { n: 'un destino que ES FLEET_DB_URL aborta aunque el host no lo delate',
@@ -170,8 +208,15 @@ const MUTACIONES = [
   {
     nombre: 'PROD_PATTERNS vacío',
     // La mutación que un humano haría sin querer: tocar la lista de patrones.
+    //
+    // ⚠️ `[^\]]*` NO SIRVE ACÁ y costó descubrirlo (2026-10-02, al sumar el host
+    // de prod on-prem): se corta en el primer `]`, así que en cuanto la lista
+    // ocupa varias líneas —o trae un patrón con una clase de caracteres— el
+    // reemplazo no encuentra nada y la mutación **no se aplica**. El guardián de
+    // abajo lo atrapa y pone esto en rojo, en vez de dar verde sin haber mutado
+    // nada; pero la forma correcta de buscar un bloque multilínea es ésta.
     transformar: (s) => s.replace(
-      /const PROD_PATTERNS = \[[^\]]*\];/,
+      /const PROD_PATTERNS = \[[\s\S]*?\n\];/,
       'const PROD_PATTERNS = [];',
     ),
   },

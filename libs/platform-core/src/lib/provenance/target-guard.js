@@ -30,8 +30,40 @@
  * NO imprime la URL: lleva credenciales. Sólo host y nombre de base.
  */
 
-/** Hosts/bases que son PRODUCCIÓN. Gana sobre cualquier otra cosa. */
-const PROD_PATTERNS = [/rlwy\.net/i, /railway\.internal/i, /\.railway\.app/i];
+/**
+ * Hosts/bases que son PRODUCCIÓN. Gana sobre cualquier otra cosa.
+ *
+ * ⛔ `[REP.0.7]` `192.168.0.222` ES PRODUCCIÓN DESDE EL 2026-09-22 — y hasta el
+ *    2026-10-02 no estaba acá. Durante once días lo único que separó a los **37
+ *    archivos de `database/tests/` que hacen DELETE/TRUNCATE/DROP** de la base
+ *    real fue que la base de `pg-prod` todavía se llama `railway`, un nombre
+ *    HEREDADO de la migración desde Railway que nadie eligió a propósito. O sea:
+ *    la guarda funcionaba por accidente, no por diseño. Se rompía sola con
+ *    renombrar esa base, o con agregarle una segunda al mismo clúster.
+ *
+ *    ⚠️ Y alcanza al puerto 5433 a propósito (las réplicas Kepler
+ *    `kepler_md_00..07` / `kepler_consolidado` del contenedor `pgvector-md`):
+ *    los devs las LEEN, pero ningún test tiene por qué escribirles. Clasificarlas
+ *    como prod prohíbe la escritura, que es exactamente lo que se quiere. Si
+ *    alguna vez hace falta leerlas declarando el origen, es `assertTarget` con
+ *    `expect:'prod'`, no bajarles el rótulo.
+ *
+ *    ⭐ La regla general: cuando prod se MUDA, el patrón del host se agrega en el
+ *    mismo commit. Un patrón de prod que apunta al host viejo no es una guarda a
+ *    medias — es una guarda que dice "acá se puede escribir" sobre el lugar donde
+ *    no se puede.
+ */
+const PROD_PATTERNS = [
+  /rlwy\.net/i,
+  /railway\.internal/i,
+  /\.railway\.app/i,
+  // ⚠️ SIN clases de caracteres a propósito: la prueba de mutación de
+  // `test-target-guard-negative.js` localiza esta lista con `[^\]]*`, que se corta
+  // en el primer `]`. Un patrón con `[...]` adentro deja la mutación sin aplicar
+  // — y una mutación que no se aplica es una prueba negativa que no corre.
+  // Coincidir de más acá es inofensivo: clasificar como prod sólo PROHÍBE escribir.
+  /192\.168\.0\.222/, // `md` — prod on-prem desde 2026-09-22
+];
 const PROD_DB_NAMES = new Set(['railway']);
 
 /** Hosts que son una DB local y desechable. */

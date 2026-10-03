@@ -1,13 +1,36 @@
 #!/bin/sh
-# Pre-commit opt-in: escanea lo staged con gitleaks ANTES de commitear, para
-# atrapar secretos antes de que salgan del disco (el CI los atrapa después del
-# push; esto es la primera línea).
+# Pre-commit opt-in: escanea lo staged ANTES de commitear.
+#
+#   1. MARCADOR DE CONFLICTO — bloquea siempre. Determinista, 94 ms sobre lo staged.
+#   2. gitleaks (secretos)   — bloquea si hay hallazgo; si no está instalado, avisa.
 #
 # Activar (una vez):   git config core.hooksPath .githooks
 # Requiere gitleaks instalado:  https://github.com/gitleaks/gitleaks/releases
 #
 # Si gitleaks no está instalado, NO bloquea el commit (solo avisa) — para no
 # romper la automatización de commits del entorno.
+
+# ── 1. Marcador de conflicto ────────────────────────────────────────────────
+# Va PRIMERO y es el único que bloquea sin excepción: es texto literal, no hay
+# heurística que pueda dar un falso positivo (la prueba negativa del script cubre
+# los tres casos de prosa que lo mencionan).
+#
+# ⭐ Por qué en `pre-commit` y no en `pre-push`: medido el 2026-10-02, hay **11
+#    sesiones** sobre el MISMO árbol de trabajo. Un marcador commiteado rompe el
+#    build de las otras diez en el acto, mucho antes de que nadie empuje nada.
+#    Atajarlo al push sería atajarlo tarde. Ya pasó una vez (2026-09-26,
+#    `compras.service`) y costó un commit de reparación.
+if command -v node >/dev/null 2>&1; then
+  RAIZ=$(git rev-parse --show-toplevel)
+  STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+  if [ -n "$STAGED" ]; then
+    # shellcheck disable=SC2086
+    echo "$STAGED" | tr '\n' '\0' | xargs -0 node "$RAIZ/scripts/check-conflict-markers.js" >/dev/null 2>&1 || {
+      echo "$STAGED" | tr '\n' '\0' | xargs -0 node "$RAIZ/scripts/check-conflict-markers.js"
+      exit 1
+    }
+  fi
+fi
 
 if command -v gitleaks >/dev/null 2>&1; then
   # ── `protect` YA NO EXISTE, Y ESO BLOQUEABA TODOS LOS COMMITS ──────────────
