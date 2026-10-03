@@ -59,6 +59,36 @@ Plan de etapas 2–5 en `docs/IMPLEMENTACION/FASES/FASE_RA_PEDIDO_PERSPECTIVA.md
 - **Velocidad:** migración `20261002120000` recrea `analytics.v_label_presentations` con el mismo SQL y `NOT MATERIALIZED` en sus CTE; el filtro por sucursal+sku vuelve a entrar. Medido en prod: mediana 3,094 → 144 ms por consulta, 96/96 resultados idénticos. Acelera también a la etiquetera.
 ### Added — `npm run dev:bootstrap-vacia`: levanta una base de desarrollo desde cero cuando `migrate:new` solo no alcanza (2026-10-02)
 `migrate:new` sobre una base vacía se detiene en la migración 88 y otra vez en la primera que necesita `kepler_ods` (GOTCHAS §75). `database/scripts/dev-bootstrap-empty-db.js` hace, en el orden en que fallaron, lo que hubo que improvisar a mano: el tenant, las 235 tablas de `kepler_ods.*` **vacías** desde `docs/esquema-bd-prod-columnas.csv`, `catalog.products_top_sellers` (tabla en prod, vista materializada en la migración), las extensiones en `public`, perfiles, zonas y el usuario superoot; y **marca aplicadas sin ejecutarlas** las `88 migraciones posteriores a `20260819120000` que asertan sobre datos reales del ERP, dejándolas en `public._dev_bootstrap_log`. **Esa base NO es prod**: valida estructura e invariantes, no comportamiento con datos. Protecciones con prueba negativa (`test-dev-bootstrap-guards.js`, 21 aserciones): sólo corre contra un Postgres **local**, no toma `DATABASE_URL_NEW` por defecto, se niega si el clúster trae bases ajenas al stack o si el `search_path` ya está fijado por rol (**un clúster, una base**: las migraciones lo fijan con `ALTER ROLE`, o sea para todo el servidor), y **nunca salta una migración estructural**.
+### Internal — Mesa de Servicio: runbook de despliegue a producción (Fase MS, 2026-10-02)
+`docs/IMPLEMENTACION/RUNBOOKS/MESA_DE_SERVICIO_DESPLIEGUE.md`: qué medir antes, las 4 migraciones en orden por el camino de K3s
+(el runbook de `ops/prod` quedó viejo: habla de `docker exec prod-api`), cuándo mergear, configuración que la fase no instala
+(bucket, SMTP; WhatsApp no), re-login, verificación, reversa y el criterio para encender la escalación. **Nada aplicado a prod.**
+Declara lo que no se pudo verificar desde desarrollo: el rol `sistemas`, SMTP/bucket en prod, si los `@Cron` corren también en los
+pods `api` y cómo se actualiza el secreto `prod-env`.
+### Added — Mesa de Servicio, capa 3: las pantallas (Fase MS, 2026-10-02)
+`/servicio/solicitudes` (la puerta de toda persona: alta sin prioridad —la sugiere el sistema—, seguimiento y «Mis avisos»),
+`/servicio/bandeja` (KPIs, filtros, tabla densa y ficha de atención) y `/servicio/configuracion` (horario, plazos, colas y
+categorías; la escalación sigue apagada). «Reportar un problema» en el header es la única entrada de quien sólo reporta: la clave
+no es destino del mapa de la suite a propósito. El proyecto sale de «Por clasificar» y entra al espacio 9. La campana lee los
+avisos del log por poll y el WebSocket sólo la adelanta. **Revisada en navegador** (3 personas; claro, oscuro y 390 px): salieron y se corrigieron 6 defectos que ninguna prueba veía —íconos
+inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abierta, la ficha bajo los KPIs en móvil, el acceso desde
+«Mi trabajo» y la pantalla que no reaccionaba al pulsar un aviso estando ya en ella. **Nada aplicado a prod.** *(Los Reportes se construyeron después: ver MS.3.5.)* *(Corregido en MS.3.7: el botón en tienda y telemarketing ya existía —montan el mismo layout—; el pendiente se había anotado sin medirlo.)*
+
+**«A tu nombre» en Mi trabajo (MS.3.6):** los tickets asignados a una persona aparecen en su «Mi trabajo» como «Solicitudes de servicio a tu cargo» y enlazan a la bandeja ya filtrada a «Mías». Un ticket que espera al solicitante cuenta como suyo pero **no como vencido**: su reloj está pausado. Quien sólo reporta no ve nada ahí; quien tiene tickets asignados pero no el permiso de atender ve la fila sin enlace y con el motivo. **La cola sin asignar (MS.3.8):** llega a Mi trabajo con un plazo **de 1 hora hábil que se ajusta** en `/servicio/configuracion` y se lee en cada carga (sin desplegar). Cuenta sólo el horario hábil —un ticket de las 19:30 no amanece atrasado— y, como toda cola, sólo la ve quien **responde** de ella: la clave `servicio.atender` existe pero **no se repartió a nadie**, así que no se verá hasta que alguien la reciba (decisión pendiente).
+
+**Reportes de la mesa (MS.3.5):** `/servicio/reportes` para la coordinación: cumplimiento de la primera respuesta y de la resolución, tiempos (mediana y P90) por prioridad, por categoría, por sucursal y «lo que se repite» (la misma categoría en la misma sucursal, 3 veces o más). Sale en vivo de los tickets, por fecha de creación. **Sin ranking de personas, sin semáforo (no hay meta registrada) y sin ceros dibujados**: lo que no se pudo medir sale «—». Una asignación automática no cuenta como primera respuesta, y los cancelados no incumplen.
+
+**Asignación automática (MS.3.10):** una solicitud nueva se asigna sola a la persona de la primera regla que aplica —por la **categoría** que se eligió o por una **palabra clave** en lo que se escribió («sistemas», «cpu», «impresora» → Felipe; todo lo de desarrollo → David)—. Las reglas se editan en `/servicio/configuracion` (palabras, persona, orden, apagar/retirar). La asigna el sistema: **no cuenta como primera respuesta** y el aviso dice que fue automática. **Nunca se asigna a quien no puede atender**: el ticket queda sin asignar con una nota interna y la regla se marca en pantalla. Les da a Felipe y David la responsabilidad que pone la cola «sin asignar» en su portada. **Falta darles el permiso de atender** (no se otorga por script).
+### Added — Mesa de Servicio, capa 2: lógica, 27 rutas, SLA, avisos y auto-cierre (Fase MS, 2026-10-02)
+`libs/service-desk` con el ciclo completo del ticket (alta con prioridad **sugerida**, bandeja priorizada, hilo, tomar/asignar,
+prioridad, tiempo trabajado, confirmar/reabrir/cancelar, tablero) sobre una máquina de estados pura y un reloj hábil en hora
+de México. **El solicitante no ve lo que no debe:** el ticket ajeno responde 404, las notas internas y el tiempo registrado
+no salen (filtro del servidor), y no puede subir su propia prioridad. Adjuntos validados por firma. **SLA:** primero MIDE
+(la escalación nace apagada), el barrido es idempotente, deja latido (`service_desk_sla` en `CRON_JOBS`) y cierra solo lo
+resuelto que nadie objetó. **Avisos** por tres canales con el RESULTADO de cada uno en `notification_log`: lo que no salió
+(SMTP sin configurar, sin correo registrado, WhatsApp sin plantilla de Meta) queda declarado como `skipped`, no fingido.
+Configuración editable por la coordinación; el espejo hacia la Bitácora queda preparado y apagado (`BITACORA_PORT`).
+Verificado por HTTP con cuatro roles sin admin y una prueba de mutación. **Sin pantalla todavía** (capa 3). **Nada aplicado a prod.**
 ### Added — Mesa de Servicio, capa 1: schema `servicedesk`, 3 permisos y el ticket como fuente de tarea (Fase MS, 2026-10-02)
 Cuatro migraciones (11 tablas con RLS forzado, grants por tabla sin `DELETE` en el registro, semillas de la cola
 TI con escalamiento APAGADO), `SERVICIO_REPORTAR/ATENDER/COORDINAR` repartidos, `servicedesk.requests` declarada

@@ -102,6 +102,39 @@ describe('SN.29 · veredictoDe — qué hacer con una cola, no cuánto tiene', (
     });
   });
 
+  describe('[MS.3.8] atrasada por minutos HÁBILES (tickets sin asignar)', () => {
+    // Una cola sana en flujo: lo único que puede condenarla es el plazo.
+    const c = cola({ mas_viejo_at: haceDias(0), flujo: { entradas_30d: 10, cerradas_30d: 10 } });
+    const m = (espera: number | null, umbral = 60) =>
+      veredictoDe(c, null, AHORA, { espera, umbral });
+
+    it('pasado el plazo en minutos hábiles es atrasada', () => {
+      expect(m(61)).toBe('atrasada');
+    });
+    it('justo en el plazo todavía no (es `>`, no `>=`)', () => {
+      expect(m(60)).toBe('al_dia');
+    });
+    it('⭐ el umbral en días se IGNORA cuando hay plazo en minutos: una espera de 90 min es atrasada aunque `dias` valga 0', () => {
+      // Sin esto, `diasDesde` (que trunca a días) jamás vería la diferencia entre 5 min y 23 h.
+      expect(veredictoDe(c, 7, AHORA, { espera: 90, umbral: 60 })).toBe('atrasada');
+      expect(veredictoDe(c, 7, AHORA, { espera: 10, umbral: 60 })).toBe('al_dia');
+    });
+    it('⛔ NEGATIVA — espera no medida NO se afirma atrasada ni se asume sana por eso: queda en lo que diga el flujo', () => {
+      expect(m(null)).toBe('al_dia');
+      // Y con el flujo también sin medir sí es `sin_medir`, no `al_dia`.
+      const ciega = cola({ mas_viejo_at: null, flujo: { entradas_7d: null, entradas_30d: null, cerradas_30d: null } });
+      expect(veredictoDe(ciega, null, AHORA, { espera: null, umbral: 60 })).toBe('sin_medir');
+    });
+    it('el flujo sigue mandando: una cola que se acumula es se_acumula aunque esté dentro del plazo', () => {
+      const crece = cola({ mas_viejo_at: haceDias(0), flujo: { entradas_30d: 10, cerradas_30d: 2 } });
+      expect(veredictoDe(crece, null, AHORA, { espera: 5, umbral: 60 })).toBe('se_acumula');
+    });
+    it('sin plazo en minutos las demás colas se juzgan igual que antes (días)', () => {
+      expect(v(cola({ mas_viejo_at: haceDias(8) }), 7)).toBe('atrasada');
+      expect(veredictoDe(cola({ mas_viejo_at: haceDias(1) }), 7, AHORA, null)).toBe('al_dia');
+    });
+  });
+
   describe('atrasada: el umbral declarado', () => {
     it('pasa el umbral y lo dice', () => {
       expect(v(cola({ mas_viejo_at: haceDias(8) }), 7)).toBe('atrasada');

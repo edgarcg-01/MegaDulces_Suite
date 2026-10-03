@@ -447,7 +447,7 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
     order: 9,
     label: 'Sistemas, Servicios y Mantenimiento',
     icon: 'pi pi-wrench',
-    description: 'Proyectos del equipo de desarrollo. Solicitudes y continuidad siguen sin módulo (P-10).',
+    description: 'Proyectos del equipo de desarrollo y la Mesa de Servicio. Continuidad y mantenimiento siguen sin módulo (P-10).',
     // Fase DEV (2026-10-01): deja de ser `planned` con su primer módulo real. Lo demás que este
     // espacio promete (solicitudes, continuidad, mantenimiento) se DECLARA en la descripción en
     // vez de pintarse como tarjeta vacía — §22 de la spec veta los «Próximamente».
@@ -458,6 +458,15 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
         kind: 'project',
         project: 'desarrolladores',
         source: { status: 'propuesta', cite: 'pedido de Sistemas 2026-10-01 — la parte «proyectos» de P-10' },
+      },
+      {
+        // `[MS.3.1]` Mesa de Servicio (Fase MS, ADR-081). Entra al espacio 9 con sus pantallas. Sólo aparece
+        // para quien ATIENDE o COORDINA: `SERVICIO_REPORTAR` no tiene destino a propósito (ver authz-tree) y
+        // quien sólo reporta llega por el botón del header, sin perder su entrada directa a `/projects`.
+        id: 'servicio',
+        kind: 'project',
+        project: 'servicio',
+        source: { status: 'propuesta', cite: 'Fase MS (ADR-081): tickets de servicio; es la parte «solicitudes» de P-10' },
       },
     ],
   },
@@ -536,17 +545,6 @@ export const SUITE_UNCLASSIFIED: readonly SuiteEntry[] = [
     kind: 'project',
     project: 'whatsapp',
     source: { status: 'pendiente', cite: '§19.2 "Por clasificar" + P-05 (canales digitales)' },
-  },
-  {
-    // `[MS.1.4]` Mesa de Servicio (Fase MS, ADR-081): el proyecto existe en el árbol y reparte sus 3 permisos,
-    // pero SIN rutas todavía — igual que WhatsApp, no es navegable y no cuenta como destino. Si ocupara una
-    // entrada del espacio 9 antes de que exista su pantalla, un superadmin vería una puerta que no lleva a
-    // ningún lado y el auto-deploy la mandaría a prod. En `[MS.3.1]` se MUEVE al espacio 9, junto con sus
-    // rutas y su landing.
-    id: 'servicio',
-    kind: 'project',
-    project: 'servicio',
-    source: { status: 'pendiente', cite: 'Fase MS (ADR-081): sin pantalla hasta [MS.3.1]; pasa al espacio 9 con sus rutas' },
   },
 ];
 

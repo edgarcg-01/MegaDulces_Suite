@@ -223,7 +223,7 @@ const tieneDecoradorPermisos = (tramo) =>
     ruta: m[2],
     anyOf: [...m[3].matchAll(/Permission\.([A-Z0-9_]+)/g)].map((x) => x[1]),
   }));
-  check('se leyeron las 4 fuentes de tarea (si no, este bloque no mide nada)', fuentes.length === 4, fuentes.length);
+  check('se leyeron las 5 fuentes de tarea (si no, este bloque no mide nada)', fuentes.length === 5, fuentes.length);
   for (const f of fuentes) {
     const g = guardDe(f.ruta);
     check(`${f.fuente}: la ruta ${f.ruta} existe en app.routes.ts`, g.encontrada);
@@ -295,8 +295,9 @@ const tieneDecoradorPermisos = (tramo) =>
   // `[SN.32]` +1: entró «Salud de las bases de datos» con su clave `sistemas.salud_datos`.
   // `[SN.36]` +1: entró «Cartera de clientes» con su clave `finanzas.cartera`.
   // `[SN.39]` +1: entró «Comprobantes de entrada de mercancía» con su clave `compras.entradas`.
+  // `[MS.3.8]` +1: entró «Solicitudes de servicio por asignar» con su clave `servicio.atender`.
   check('se leyó el catálogo de las migraciones (si no, este bloque no mide nada)',
-    catalogo.length === 18, catalogo);
+    catalogo.length === 19, catalogo);
 
   /*
    * `[SN.17]` Las colas viven en TRES registros y las tres cuentan: bandejas, tareas y ciclos.
@@ -340,8 +341,10 @@ const tieneDecoradorPermisos = (tramo) =>
   // responsabilidad (`finanzas.cartera`), así que `declaradas` sube 2 y `catalogo` sólo 1. Es el
   // caso que la aserción de conjunto de abajo cubre y la de unicidad (retirada) habría roto.
   // `[SN.39]` +1 bandeja y +1 clave: «Entradas de mercancía sin comprobante».
-  check('cada cola declara su responsabilidad (12 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
-    declaradas.length === 21, declaradas);
+  // `[MS.3.8]` +1 bandeja y +1 clave: «Solicitudes de servicio sin asignar». ⚠️ El esperado venía en 21 con 22
+  // declaradas desde antes de este cambio (una bandeja anterior no actualizó la cuenta): 22 + la de la Mesa = 23.
+  check('cada cola declara su responsabilidad (14 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
+    declaradas.length === 23, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
@@ -539,7 +542,14 @@ const tieneDecoradorPermisos = (tramo) =>
 
   for (const b of vivas) {
     const umbral = b.cuerpo.match(/umbral_dias: (\d+)/);
-    check(`${b.id} declara umbral_dias`, !!umbral, umbral ? `${umbral[1]} d` : 'AUSENTE');
+    /*
+     * `[MS.3.8]` Una bandeja puede declarar su plazo en MINUTOS HÁBILES leídos de la configuración
+     * (`umbral_dias: null` + `plazoHabil`). Lo que NO puede es no declarar ninguno: sería el verde
+     * incondicional de siempre. `null` sin `plazoHabil` es el caso que se vigila acá.
+     */
+    const dinamico = /umbral_dias: null/.test(b.cuerpo) && /plazoHabil: async/.test(b.cuerpo);
+    check(`${b.id} declara su plazo (umbral_dias, o plazoHabil leído de la configuración)`,
+      !!umbral || dinamico, umbral ? `${umbral[1]} d` : dinamico ? 'minutos hábiles (configuración)' : 'AUSENTE');
     if (umbral) {
       check(`${b.id}: el umbral es un plazo real (1..90 días)`,
         Number(umbral[1]) >= 1 && Number(umbral[1]) <= 90, umbral[1]);

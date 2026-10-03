@@ -10,7 +10,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { adaptadorDe, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeWorkZona, type MeZonaPeriodo } from '@megadulces/contracts';
+import { adaptadorDe, businessMinutesBetween, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeWorkZona, type MeZonaPeriodo } from '@megadulces/contracts';
 import { BANDEJAS, TOPE_DESGLOSE, puedeVerBandeja, type MedirCtx } from './me-work';
 import { medirZona } from './me-zona';
 import { FUENTES_VISIBLES, puedeAbrirTarea } from './me-tasks';
@@ -2836,6 +2836,16 @@ export class UsersService {
         const { total, mas_viejo_at } = medida;
         // Una bandeja en cero no se pinta: la pantalla no tiene cajas vacías.
         if (total > 0) {
+          /*
+           * `[MS.3.8]` La cola cuyo plazo es de MINUTOS HÁBILES (tickets sin asignar) lo lee de la
+           * configuración del tenant y mide la espera con ESE calendario. Si la configuración no se puede
+           * leer, `plazoHabil` lanza y la bandeja cae en `no_medido` con su motivo — no se inventa un plazo.
+           */
+          const plazo = b.plazoHabil ? await b.plazoHabil(this.knex, ctx.tenantId) : null;
+          const espera =
+            plazo && mas_viejo_at
+              ? businessMinutesBetween(new Date(mas_viejo_at), new Date(), plazo.calendario)
+              : null;
           pendientes.push({
             id: b.id,
             label: b.label,
@@ -2851,8 +2861,15 @@ export class UsersService {
             // `[SN.29]` El umbral viaja para que la pantalla pueda decir contra QUÉ está atrasada
             // («7 d de umbral»), no sólo que lo está. Un veredicto sin su vara es una opinión.
             umbral_dias: b.umbral_dias,
+            umbral_minutos_habiles: plazo ? plazo.minutos : null,
+            espera_minutos_habiles: plazo ? espera : null,
             flujo: medida.flujo,
-            veredicto: veredictoDe(medida, b.umbral_dias),
+            veredicto: veredictoDe(
+              medida,
+              b.umbral_dias,
+              Date.now(),
+              plazo ? { espera, umbral: plazo.minutos } : null,
+            ),
             alcance: b.alcance,
             // El universo del conteo se DECLARA. "Se podría acotar pero tu ficha no tiene
             // sucursal" no es lo mismo que "esta cola no tiene sucursal", y ninguna de las dos
@@ -2923,6 +2940,7 @@ export class UsersService {
           label: f.label,
           detalle: f.detalle,
           ruta: puede ? f.ruta : null,
+          queryParams: puede && f.queryParams ? f.queryParams : null,
           sin_acceso: puede
             ? null
             : `Te la asignaron, pero tu permiso no abre ${f.ruta}. Pídeselo a Sistemas.`,
