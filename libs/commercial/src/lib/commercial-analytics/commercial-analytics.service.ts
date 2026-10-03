@@ -3737,6 +3737,8 @@ export class CommercialAnalyticsService {
       //   · `UD4102` «Embarque Sucursal» con concepto «TRASPASO A SUCURSAL…» — traspaso interno,
       //     bien excluido, pero nadie lo decía y quien cuadre contra la balanza lo va a buscar.
       const fueraDeAlcance = await this.incomeOutOfScope(trx, from, to);
+      const contpaqi = mesesEnteros ? await this.contpaqiIngreso(trx, mesIni, mesFin) : null;
+      const edadContpaqi = await stepAt(trx, 'feed_contpaqi-slow', tenantId);
 
       const edadFeed = await stepAt(trx, 'feed_nightly/import-sales-by-channel.js', tenantId);
       const pct = (v: number | null) => (v == null || !contable ? null : +(((v - contable) / contable) * 100).toFixed(1));
@@ -3767,7 +3769,27 @@ export class CommercialAnalyticsService {
             nota: 'UD1201, fuera del alcance por decode heredado («notas»). Sus conceptos recientes son rutas (R.D. 21, R.D. 22), así que podrían ser venta real. Necesita que contabilidad lo dictamine.' },
           { key: 'traspasos', label: 'Traspasos a sucursal (excluidos a propósito)', monto: fueraDeAlcance.traspasos,
             delta_pct: null, comparable: false,
-            nota: 'UD4102 «Embarque Sucursal» con concepto de traspaso: mercancía que se mueve dentro de la empresa, no venta externa. Se declara para que cuadre contra la balanza, que sí los tiene.' },
+            nota: 'UD4102 «Embarque Sucursal»: mercancía que se mueve dentro de la empresa, no venta externa. '
+              + '⭐ Es lo que explica por qué la balanza del CEDIS se separó de los libros fiscales en ago–sep 2026: '
+              + 'creció de golpe con la migración de las sucursales 06, 07 y 08 a Kepler (el CEDIS les empezó a '
+              + 'embarcar). Medido en septiembre, la cuenta 401 del CEDIS son $70.5M, de los cuales $18.0M son '
+              + 'este documento — y por eso nunca llegan a ContPAQi.' },
+          // `[IG.13]` El TERCER testigo, y el único fiscal. Edgar: *"casemos con ContPAQi para tener
+          // doble validez y tener una verdad sobre lo fiscal"*.
+          { key: 'contpaqi', label: 'Libros fiscales (ContPAQi, familia 4)', monto: contpaqi,
+            delta_pct: contpaqi == null || !hechoVenta ? null
+              : +(((contpaqi - hechoVenta) / hechoVenta) * 100).toFixed(1),
+            comparable: true, medido_al: edadContpaqi,
+            nota: mesesEnteros
+              ? '⭐ El único testigo FISCAL: la balanza del contador, consolidada por RFC. Se compara contra el '
+                + 'HECHO DE VENTA y no contra esta pantalla, porque los dos miden lo mismo —venta a terceros de '
+                + 'toda la entidad— mientras que el ingreso contable del CEDIS es en un 79–96 % la casa '
+                + 'facturándose a sí misma. ⚠️ Un delta negativo NO es sub-declaración por sí solo: medido '
+                + 'ene–jul 2026 el hueco es ESTRUCTURAL y estable (~21 % contra la balanza del CEDIS) y lo '
+                + 'mueven el IVA, el alcance de la entidad fiscal (un RFC contra la operación completa) y el '
+                + 'cierre contable del mes en curso, que todavía se está posteando.'
+              : 'NO MEDIDO: los libros son mensuales y el rango no son meses enteros. Compararlo restaría peras '
+                + 'con manzanas.' },
         ],
       };
     });
@@ -3827,6 +3849,37 @@ export class CommercialAnalyticsService {
         : { contable: null, bruta: null, devoluciones: null };
     } catch {
       return { contable: null, bruta: null, devoluciones: null }; // NO MEDIDO, nunca cero
+    }
+  }
+
+  /**
+   * `[IG.13]` **El ingreso según los libros fiscales de ContPAQi** — el tercer testigo.
+   *
+   * Es el único de los cuatro que no sale de Kepler: lo escribe el contador y es lo que ve el SAT.
+   * Familia 4 de `analytics.contpaqi_ledger_monthly`, consolidada por RFC.
+   *
+   * ⚠️ **Y por eso no se compara contra esta pantalla.** El ingreso contable del CEDIS es, medido
+   * mes a mes en 2026, entre **79 % y 96 % traspaso interno**; los libros fiscales no tienen
+   * traspasos porque venderse a uno mismo no es una venta. El contraste honesto es contra el hecho
+   * de venta, que mide lo mismo: lo que la entidad le vendió a terceros.
+   *
+   * ⛔ **Lo que este testigo NO puede dar**: el CFDI emitido. `fiscal.cfdis` trae **168,701
+   * comprobantes y los 168,701 son RECIBIDOS** (`rol = 'recibidas'`) — el ADD de ContPAQi que
+   * alimenta la Fase LC es el de compras. Sin CFDI emitido no hay forma de casar factura por
+   * factura contra el ingreso: lo máximo que se puede hoy es el total mensual de la balanza.
+   */
+  private async contpaqiIngreso(
+    trx: Knex.Transaction, mesIni: string, mesFin: string,
+  ): Promise<number | null> {
+    try {
+      const { rows } = await trx.raw(
+        `SELECT sum(abonos - cargos)::numeric AS v
+           FROM analytics.contpaqi_ledger_monthly
+          WHERE familia = '4' AND anio_mes BETWEEN ? AND ?`, [mesIni, mesFin]);
+      const v = (rows as Array<{ v: string | null }>)[0]?.v;
+      return v === null || v === undefined ? null : +Number(v).toFixed(2);
+    } catch {
+      return null; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
     }
   }
 

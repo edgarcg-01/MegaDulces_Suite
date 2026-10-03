@@ -377,6 +377,54 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX', { minimumFractionDigits:
             : '◻ el mes entero da lo mismo que el recortado: el control no está probando nada');
       }
     }
+    // ── 10. `[IG.13]` El TERCER testigo, y el único fiscal ──────────────────────────────────
+    //
+    // Edgar: *"casemos con ContPAQi para tener doble validez y tener una verdad sobre lo fiscal"*.
+    // Los otros tres testigos del cuadre salen todos de Kepler; éste lo escribe el contador.
+    console.log('\n[10] Los libros fiscales de ContPAQi como testigo del ingreso');
+    const [cp] = await q(
+      `SELECT count(*)::int AS filas, max(anio_mes) AS ultimo,
+              coalesce(sum(abonos - cargos) FILTER (WHERE anio_mes BETWEEN $1 AND $2), 0)::numeric AS v
+         FROM analytics.contpaqi_ledger_monthly WHERE familia = '4'`,
+      [`${new Date().getFullYear()}-01`, `${new Date().getFullYear()}-12`]);
+    if (!cp || cp.filas === 0) {
+      nm('analytics.contpaqi_ledger_monthly no tiene familia 4 en este destino');
+    } else {
+      chk(Number(cp.v) > 0,
+        Number(cp.v) > 0
+          ? `los libros fiscales declaran $${n(cp.v)} de ingreso en el ejercicio (último mes cargado: ${cp.ultimo})`
+          : '⛔ la familia 4 de ContPAQi viene en cero: el testigo fiscal no está midiendo nada');
+      // El feed tiene umbral registrado en CRON_JOBS (warnH 5 / critH 12). Sin latido, el número
+      // puede ser viejo y verse igual de confiable.
+      const [lat] = await q(
+        `SELECT status, extract(epoch FROM (now() - last_finish)) / 3600 AS horas
+           FROM analytics.cron_runs WHERE job_key = 'feed_contpaqi-slow' ORDER BY last_finish DESC LIMIT 1`);
+      if (!lat) {
+        nm('el carril feed_contpaqi-slow no tiene latido: la edad de los libros no se puede declarar');
+      } else {
+        chk(lat.status === 'ok' && Number(lat.horas) < 12,
+          `el carril que carga la balanza fiscal late ${Number(lat.horas).toFixed(1)} h atrás (${lat.status}); `
+          + 'umbral registrado 5 h warn / 12 h crítico');
+      }
+    }
+    // ⛔ EL LÍMITE, declarado y vigilado: no hay CFDI emitido, así que el casado factura por
+    // factura del ingreso contra lo fiscal NO se puede hacer hoy. Si algún día entran emitidos,
+    // esta aserción se pone roja para que se cablee en vez de quedarse en el total mensual.
+    const [emi] = await q(
+      `SELECT count(*)::int AS total, count(*) FILTER (WHERE rol <> 'recibidas')::int AS emitidos
+         FROM fiscal.cfdis`);
+    if (!emi || emi.total === 0) {
+      nm('fiscal.cfdis está vacía: no se puede decir si hay CFDI emitido');
+    } else if (emi.emitidos === 0) {
+      nm(`los ${emi.total.toLocaleString('es-MX')} CFDI de fiscal.cfdis son TODOS recibidos (compras). `
+        + 'Sin CFDI emitido, el ingreso sólo se puede contrastar contra el TOTAL MENSUAL de la '
+        + 'balanza fiscal, nunca factura por factura. Es un límite de la fuente, no una falla');
+    } else {
+      chk(false,
+        `⛔ aparecieron ${emi.emitidos} CFDI EMITIDOS en fiscal.cfdis: el casado factura por factura `
+        + 'del ingreso contra lo fiscal ya es posible y hay que cablearlo — hoy el cuadre sólo compara '
+        + 'totales mensuales');
+    }
   } finally {
     await c.end().catch(() => undefined);
   }
