@@ -86,3 +86,130 @@
   font-style: normal;
   color: var(--ok-fg);
 }
+
+/* ── [AU.14] El árbol, su vista previa y el paso de revisión ──────────────── */
+
+.pa-barra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
+  margin-bottom: var(--sp-3);
+}
+.pa-buscar { flex: 1 1 280px; min-width: 0; }
+
+.pa-chip {
+  appearance: none;
+  border: 1px solid var(--border-color);
+  background: var(--surface-card);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 6px 13px;
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  min-height: 34px;
+}
+.pa-chip-on {
+  background: var(--text-main);
+  border-color: var(--text-main);
+  color: var(--surface-card);
+  font-weight: 500;
+}
+
+/* El árbol manda y la previa acompaña: a ancho de teléfono se apilan, la previa abajo. */
+.pa-split { display: flex; flex-wrap: wrap; gap: var(--sp-4); align-items: flex-start; }
+.pa-split-arbol { flex: 999 1 420px; min-width: 0; }
+.pa-split-previa {
+  flex: 1 1 340px;
+  min-width: 0;
+  position: sticky;
+  top: var(--sp-4);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  padding: var(--sp-4);
+}
+
+.pa-viejas { margin-top: var(--sp-4); }
+.pa-viejas > summary {
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+}
+.pa-nota-vieja { font-size: var(--fs-xs); color: var(--text-muted); min-width: 0; }
+
+.pa-pie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-color);
+}
+.pa-pie-dif { margin-right: auto; font-size: var(--fs-sm); color: var(--text-muted); }
+.pa-dif-ok,
+.pa-dif-bad {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+.pa-dif-ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+.pa-dif-bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
+
+.pa-rev { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+.pa-rev-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-6);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3) var(--sp-4);
+}
+.pa-rev-lab {
+  display: block;
+  font-size: var(--fs-nano, 0.6875rem);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.pa-rev-num { display: block; font-family: var(--font-mono); font-size: 1.5rem; font-weight: 600; }
+.pa-rev-sub { display: block; font-size: var(--fs-nano, 0.6875rem); color: var(--text-muted); }
+.pa-rev-bad { color: var(--bad-fg); }
+.pa-rev-ok { color: var(--ok-fg); }
+
+.pa-rev-lista { list-style: none; margin: 0; padding: 0; }
+.pa-rev-lista ul { list-style: none; margin: 0; padding: 0; }
+.pa-rev-proy {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.pa-rev-n { font-family: var(--font-mono); font-weight: 400; }
+.pa-rev-fila {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  font-size: var(--fs-sm);
+}
+.pa-rev-fila:first-child { border-radius: var(--radius-md) var(--radius-md) 0 0; }
+.pa-rev-fila:last-child { border-bottom: 1px solid var(--border-color); border-radius: 0 0 var(--radius-md) var(--radius-md); }
+.pa-rev-nom { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); min-width: 0; }
+
+.pa-motivo-lab { display: block; font-size: var(--fs-xs); font-weight: 600; margin-bottom: 4px; }
+.pa-motivo { width: 100%; }
