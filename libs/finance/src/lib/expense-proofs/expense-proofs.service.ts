@@ -342,6 +342,30 @@ export interface ListExpenseProofsQuery {
   limit?: number;
 }
 
+/**
+ * `[GX.64]` Traduce la falla del bucket a algo que una persona pueda accionar.
+ *
+ * Cada rama dice **qué hacer**, no sólo qué pasó: reintentar sirve para una caída de red y
+ * NO sirve para una credencial mala, y mandar a reintentar algo que no se arregla
+ * reintentando es peor que no decir nada (la lección de `[GX.37]`).
+ */
+function motivoDeAlmacenamiento(e: any): string {
+  const code = String(e?.Code || e?.code || e?.name || '');
+  const msg = String(e?.message || '');
+  const http = Number(e?.$metadata?.httpStatusCode || e?.statusCode || 0);
+
+  if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|socket hang up|fetch failed/i.test(code + ' ' + msg)) {
+    return 'no se pudo conectar con el almacenamiento. Avisá a Sistemas: no se arregla reintentando.';
+  }
+  if (/NoSuchBucket/i.test(code)) return 'el bucket de archivos no existe. Es configuración: avisá a Sistemas.';
+  if (/InvalidAccessKeyId|SignatureDoesNotMatch|AccessDenied/i.test(code) || http === 403) {
+    return 'el almacenamiento rechazó las credenciales. Es configuración: avisá a Sistemas.';
+  }
+  if (/EntityTooLarge/i.test(code) || http === 413) return 'el archivo es demasiado grande para el almacenamiento.';
+  // Lo que no se reconoce se DECLARA con su nombre tecnico, que es mas que nada (ADR-056).
+  return code ? `falló el almacenamiento (${code}).` : 'falló el almacenamiento, sin causa declarada.';
+}
+
 @Injectable()
 export class ExpenseProofsService {
   private readonly logger = new Logger(ExpenseProofsService.name);
@@ -626,8 +650,28 @@ export class ExpenseProofsService {
       return out;
     } catch (e: any) {
       if (e?.status === 400) throw e; // "no configurado"
-      this.logger.error(`fallo subiendo ${role}: ${e?.message || e}`);
-      throw new BadRequestException('no se pudo subir el archivo');
+      this.logger.error(`fallo subiendo ${role}: ${e?.name || ''} ${e?.message || e}`);
+      /**
+       * `[GX.64]` **El motivo real viaja. Antes se tragaba.**
+       *
+       * Acá se devolvía `'no se pudo subir el archivo'` para CUALQUIER falla del bucket, y
+       * el cliente le antepone su propio «No se pudo subir el archivo (…)». Resultado en
+       * pantalla, reportado por el usuario:
+       *
+       *     No se pudo subir el archivo («WhatsApp Image … .jpeg»): no se pudo subir el archivo
+       *
+       * La misma frase dos veces y cero información. `[GX.37]` ya había hecho que el motivo
+       * del servidor VIAJE hasta la pantalla — pero el servidor no estaba poniendo ninguno,
+       * así que el canal existía y llegaba vacío.
+       *
+       * ⛔ No se reproduce reiniciando: el log guarda la causa y la pantalla no, así que
+       * diagnosticarlo exige acceso al servidor. Con el motivo a la vista, una captura
+       * alcanza.
+       *
+       * ⚠️ Se nombra la CLASE de falla, no se vuelca el error crudo: un mensaje de S3 trae
+       * el endpoint y el bucket, y eso no tiene por qué llegar a la pantalla de nadie.
+       */
+      throw new BadRequestException(`no se pudo subir el archivo — ${motivoDeAlmacenamiento(e)}`);
     }
   }
 
