@@ -150,6 +150,8 @@ y aun así publicaba el UxC desde otra columna.
 | **Ventas · dinero** | `c62 = u1_cost × c58` + paridad contra el renglón crudo | cobertura **98.20%** del dinero de Kepler | ✅ **sí** |
 | **Unidades · ticket** | el renglón declara y el costo confirma | **95.75%** confirmado | ✅ **sí** |
 | **Unidades · `U-D-8`** | — | **no arbitrable** (límite de la fuente) | ⛔ **declarada, no arbitrada** |
+| **Venta de RUTA** | el **control manual** de la operación (`RD <PLAZA> 2026.xlsx`), testigo humano y externo, cruzado día a día | **93.5%** casa al peso · placebo **0.0%** · y arbitra las tres cifras en disputa: el **push** empata con lo cargado (0.998), `sales_daily` da **1.55×** | ✅ **sí** — §19.3/19.4 |
+| **Inventario de RUTA** | la identidad `carga − venta` **en UNA sola moneda** | el camión **no acumula**: 1.4% al costo, 0.1% a precio. La lectura mezclada (−$2.33M) es el **margen**, no un faltante | ⚠️ **sí, pero es RECONSTRUCCIÓN: sin conteo ni documento de retorno** (§19.1) |
 | **Venta de ruta de una sucursal que cambió de ERP** | la **frontera medida** entre los dos POS (último día del viejo + 1), no el máximo entre ellos | Canindo: +$728,711 en 2026 · agosto **+$808,409** que el `GREATEST` tapaba (§4.6) | ✅ **sí, con las 3 líneas de $6 del arranque declaradas** |
 | **Costo con el que se PUSO EL PRECIO** | la propia ficha de Kepler: `PV = c77 × (1+margen) × (1+impuesto)` | cuadra **99.24%** de lo evaluado; el tercer factor vale **81.6 pp** (prueba negativa) | ✅ **sí** — §16.1/16.2 |
 | **La META de margen** | `kdii.c87/c88/c89` ponderado por el **peldaño vendido**, contra el margen que el negocio reporta | **11.55%** · el testigo independiente dice **~11.5%** | ✅ **sí** — §16.8 |
@@ -671,7 +673,9 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ✅ **cobertura del ODS clasificada (censo 100%)** | **236 de 371** replicadas · **138 fuera clasificadas** | ⭐ **CERRADO 2026-09-14:** las 138 fuera del ODS NO son hueco de datos — **76 vacías** (0 filas en las 8 ramas: features Kepler sin usar — CRM `kdcrm*`, cotizaciones `kdv*`, promos, variantes `kdm3/4/7/9`, `kdpord2/3/4/8`, `webuser`) + **55 módulos no consumidos** (43 fiscal-CFDI `kdfe*` · 8 RH `kdrh*` · 4 POS `pos95*`) + **7 de período**. El ODS espeja las 236 que cargan dato comercial/inventario/movimientos. ⚠️ **Caducó en parte (medido 2026-09-22): la rama 01 estrenó el CRM** — `kdudp` (prospectos), el doctype `U-D-35` (cotización) y sus catálogos `kdv*` **ya tienen dato**, y `kdvcontactos` sigue **fuera** del ODS. Decode en `ERP_KEPLER.md` §3.c. *«0 filas» es una medición con fecha, no una propiedad de la tabla* |
 | ✅ **bomba de calendario — margen verificado** | **~3 meses** de holgura | ⭐ **CERRADO 2026-09-14:** `kdc22610/2611/2612` ya están **pre-creadas** en los suscriptores (medido md_02/06). `ensure-monthly-tables` (vía `cdc_reconcile`) pre-crea con ~3 meses de margen, NO just-in-time → el apply-worker no se cae; `kdc22701` (2027-01) se pre-creará ~oct. Defusada mientras `cdc_reconcile` corra — `ERP_KEPLER.md` §4.2 |
 | ✅ **auditoría de las bases PROPIAS — estructuralmente sana** | 617 tablas · 0 `_bak` vivos · 0 bloat | ⭐ **CERRADA 2026-09-14 (Fase BD):** censo read-only de prod `railway`. Los 6 `_bak` de F1 **ya dropeados** (purga SD, batches 394-410); `master_data_history`/`cron_run_log`/`period_close` **vivos en prod** (202,750 filas, 202,748 en 7 d — NO "solo `platform_test`"); **0 migs aplicadas-sin-archivo** (0 riesgo directory-corrupt); dedup+resolve de `db_health_alerts` **funcionan**; 0 tablas con bloat. Deuda = **operativa**, no integridad. Detalle y ruteo en [`FASE_BD`](IMPLEMENTACION/FASES/FASE_BD_AUDITORIA_BASES_PROPIAS.md) |
-| ⛔ **doble linaje del hecho de venta** | `sales_daily` (3.76 GB, importer) vs `mv_kepler_sales_daily` (ODS) · ~30% de la DB en 16 objetos | el mismo hecho por dos caminos; desync ~17% (Ago tabla $21.30M vs mv $25.74M). Confirmado **vivo** 2026-09-14 (ambos con dato reciente). Lo arbitra y retira la **Fase SD** — no se re-deriva acá para no producir un número apples-to-oranges por definición de canal |
+| ⛔ **doble linaje del hecho de venta** | `sales_daily` (3.76 GB, importer) vs `mv_kepler_sales_daily` (ODS) · ~30% de la DB en 16 objetos | el mismo hecho por dos caminos; desync ~17% (Ago tabla $21.30M vs mv $25.74M). Confirmado **vivo** 2026-09-14 (ambos con dato reciente). Lo arbitra y retira la **Fase SD** — no se re-deriva acá para no producir un número apples-to-oranges por definición de canal. ⭐ **Arbitrado en RUTA el 2026-10-03 (§19.4): `sales_daily` publica 1.55× lo que se subió al camión**, el push empata con lo cargado (0.998) y un testigo externo y humano —el control manual de la operación— le da la razón al push. Primera vez que este hueco se arbitra desde FUERA del sistema |
+| ⛔ **el inventario de ruta no tiene ancla** | 1 conteo en 180 días · **«ÚLTIMO INVENTARIO» en $0 en las 11 rutas** | Kepler **no tiene documento de retorno** de ruta y el camión se contó una sola vez (`N-A-45`, 2026-06-26). La casilla del ancla existe en el control manual de la propia operación y nadie la llena. El saldo se publica como **reconstrucción**, y el saldo en contra como **INDICIO**, nunca como faltante medido — §19.1/19.6 |
+| ⚠️ **el margen de ruta de Canindo no coincide con el control manual** | Excel **21–24%** vs nuestro **27–32%** | Padre Hidalgo cuadra a dos decimales (30.88 vs 30.87) y Canindo no. **Sin investigar.** Más **37 de 566 cortes (6.5%)** del libro sin contraparte — §19.6 |
 | ⛔ **respaldo de prod sin correr 2.8 d** | último `backup_prod` hace **66.8h** (critH 50h) | medido 2026-09-14: el `pg_dump` diario (host `.249`) lleva ~3 días sin correr — mismo síntoma que Wincaja (`.249` se reinicia por Windows Update). El monitor lo tiene **crítico y abierto**, pero sin canal externo nadie se entera (fila "la alarma no sale del edificio"). Ruteo **VL/OBS** |
 | ✅ ~~`db_health_alerts` tiene 648 abiertas y el resolve está roto~~ **FALSO (2026-09-14)** | 648 filas, **sólo 10 abiertas** | ⛔ lo medí por `status IN ('critical','warn')` como si fuera el flag de abierto. El scanner marca resuelto con **`resolved_at`**, NO con `status` (`db-health-scanner.ts:96,149`). Correcto (`resolved_at IS NULL`): **10 abiertas, 1 por fuente, 0 fantasmas** — dedup y resolve **funcionan**. 4º rojo falso que la disciplina cazó (2 de la auditoría Kepler + éste, míos). Testigo: leer qué SIGNIFICA la columna antes de contarla |
 
@@ -1550,6 +1554,7 @@ el lado que está ganando.
 | `verify-no-transfer-leak.js` | que el traspaso no se cuele a la venta | verde |
 | `test-newdb-transfer-dest-evidence.js` | el DESTINO de un traspaso: que no se le acredite a quien no es, que el almacén exista y reciba, y la identidad del pareo contra la etiqueta del ERP | **6/6 · 2 NO MEDIDOS** (`[DM.15]`) |
 | `test-newdb-branch-cutover.js` | el corte Wincaja→Kepler, y que **la venta viva siga siendo 100% Kepler** — vigila la afirmación de §8 para que no caduque en silencio como caducó el 37.6% | **25/25 · 1 NO MEDIDO** (`[SB.2]`) |
+| `test-newdb-route-truth.js` | **§19**: que el saldo de un camión se valúe en UNA moneda (la identidad `A = −margen` se prueba sin umbral), y el cruce contra el **control manual** de la operación con su placebo. El bloque del testigo depende de `Z:`; sin la unidad montada reporta **NO MEDIDO**, nunca verde | **13/13** |
 
 Todos registrados en `database/run-all-tests.js`. **Se corren contra `FLEET_DB_URL`**, no contra el
 `DATABASE_URL_NEW` del `.env`.
@@ -2437,3 +2442,130 @@ importan:
 **objeto `Date` de JS**, así que el `String(x).slice(0,10)` que usaba `incomeRecon` daba
 **`"Mon Sep 28"`**, no `2026-09-28`. Estaba latente —hoy la pantalla no dibuja `primer_cobro` ni
 `ultimo_cobro`— pero salía por la API. Arreglado en el origen con `to_char(...,'YYYY-MM-DD')`.
+
+---
+
+## 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026-10-03)
+
+> Esto no corrige a §4. §4 arbitró **la venta** del ticket de mostrador. §19 arbitra **la venta de
+> ruta**, que es otro universo y otra fuente, y además contesta una pregunta que nunca se había
+> planteado: **qué significa el saldo de un camión**. El número estaba bien sumado en dos de las
+> tres lecturas posibles — y el negocio usa la tercera.
+
+### 19.1 Kepler no publica el saldo de una ruta: publica los papeles
+
+Un camión de Ruta Directa **no tiene existencia en el ERP**. Lo que hay son documentos:
+
+| | doctype | qué es |
+|---|---|---|
+| carga | **`U-D-41-2`** | Embarque. La sucursal le sube mercancía, valuada **al COSTO** |
+| venta | **`U-D-10-1`** | Ticket de contado, a **PRECIO** de cliente |
+| ⛔ retorno | **no existe** | — |
+
+⛔ **No hay documento de devolución de ruta.** Medidos los **10 doctypes** que tocan un almacén
+`01-00N` en 180 días: ticket, recepción de traspaso, corte de caja, cobro y seis residuales.
+Ninguno es un retorno. Y el conteo físico del camión (`N-A-45`) aparece **una sola vez: 2026-06-26**.
+
+⇒ Cualquier saldo de ruta es una **reconstrucción**, no una medición, y así se declara.
+
+### 19.2 ⛔⛔ Las TRES lecturas del saldo — y la que usa el negocio es la única incoherente
+
+Medido en prod, 11 rutas, 2026-07-01 → 2026-09-30:
+
+| | qué resta | qué pregunta contesta | total |
+|---|---|---|---:|
+| **A** | `carga_costo − venta_precio` | **nada coherente** — mezcla dos monedas | **−$2,334,038** |
+| **B** | `carga_costo − COGS` | ¿cuánta **mercancía** trae el camión? | **+$110,990** |
+| **C** | `carga_precio − venta_precio` | ¿cuánto **debe** el chofer? | **+$10,742** |
+
+Sobre lo cargado: **|A| = 28.7%**, **|B| = 1.4%**, **|C| = 0.1%**.
+
+⭐ **A no es «un saldo malo»: es el margen bruto con el signo cambiado, por identidad.** El candado
+lo prueba sin umbral — `A + (venta − carga_costo) = 0.00`. Como la ruta vende con ~28% de margen,
+cada peso que sube al camión al costo genera ~1.28 de venta, así que A **drena el saldo para
+siempre a razón del margen**, sin fondo y sin que nada lo delate.
+
+⇒ **La verdad: el camión no acumula.** Carga y vende casi lo mismo, lo mires al costo (1.4%) o a
+precio (0.1%).
+
+### 19.3 El testigo externo: el control manual de la operación
+
+La operación lleva a mano **`Z:\RD CANINDO 2026 .xlsx`** y **`Z:\RD PADRE HIDALGO 2026 .xlsx`**: una
+hoja por mes, **6 bloques horizontales** (uno por chofer) y una fila por día, con `FOLIO · NUM DE
+CORTE · CORTE/VENTA · DEP EN SUCURSAL · DIFERENCIAS · FECHA DE DEPÓSITO · DEPÓSITO BANCO · BANCO ·
+CUENTA · POR DEPOSITAR · NVA CARGA · TOTAL CARGA`.
+
+Es una fuente **independiente y humana**: alguien escribió ese corte mirando el efectivo. Cruzado
+**día a día** contra lo que publicamos, acotado al primer embarque de cada plaza:
+
+| | |
+|---|---|
+| cortes diarios que casan **al peso** | **529 de 566 = 93.5%** |
+| **placebo** (mismo cruce con el día corrido 10) | **0.0%** |
+| `NVA CARGA` del libro ÷ nuestra carga al costo | **0.9813** |
+
+Partido por plaza, el acuerdo sube con el corte a Kepler y eso lo explica entero:
+
+| mes | Padre Hidalgo | Canindo |
+|---|---|---|
+| 2026-07 | 88.1% | **0.0%** *(entró el 15-ago)* |
+| 2026-08 | 92.7% | 62.3% *(mes partido)* |
+| 2026-09 | **96.0%** | **90.7%** |
+
+⇒ **`NVA CARGA` ES nuestro embarque al costo**, y el corte diario ES nuestra venta de ruta.
+
+### 19.4 ⭐ Y con eso se arbitra cuál de las TRES ventas de ruta es la buena
+
+Para las 6 rutas de Padre Hidalgo, 90 días, hay **tres cifras distintas** de venta según a quién se
+le pregunte — y un árbitro físico: **lo que se subió al camión** (313,281 u).
+
+| fuente | unidades | contra lo cargado |
+|---|---:|---:|
+| `kepler_ods.kdm2` en el almacén de ruta | 141,091 | 0.45 |
+| ⭐ **`analytics.route_push_lines`** (push de las camionetas) | **312,777** | **0.998** |
+| `analytics.sales_daily` | 486,813 | **1.55** |
+
+**Un camión no puede vender 1.55× lo que se le subió.** El push es el bueno, el Kepler de la
+sucursal ve menos de la mitad de la venta de ruta, y `sales_daily` sobrepublica. El control manual
+—testigo externo— le da la razón al push.
+
+⛔ Esto es una instancia concreta del hueco **«doble linaje del hecho de venta»** de §7, y es la
+primera vez que se arbitra con un testigo de fuera del sistema.
+
+### 19.5 Lo que el libro revela que NO estábamos preguntando
+
+El libro **no mide inventario: mide la cuenta del chofer** — cuánto se le cargó contra cuánto
+entregó. Es una pregunta legítima, **distinta**, y la respuesta correcta es **C**, no A.
+
+| | ruta 21, jul–sep |
+|---|---:|
+| lo que el libro le cobra | **−$295,223** |
+| lo que realmente debe (C) | **−$13,856** |
+
+⭐ **Por eso la pantalla lleva dos valuaciones: no son dos formas de ver lo mismo, son dos preguntas
+de negocio distintas.** El libro las colapsó en una columna y lleva años acusando faltantes de seis
+cifras que no existen.
+
+### 19.6 Huecos declarados de esta sección
+
+| hueco | tamaño | por qué |
+|---|---|---|
+| ⛔ **sin ancla: nadie cuenta el camión** | 1 conteo en 180 días | `N-A-45` el 2026-06-26 y nada más. La casilla **«ÚLTIMO INVENTARIO»** existe en el propio libro de la operación y está en **$0 en las 11 rutas**. Mientras siga vacía, B y C son reconstrucciones |
+| ⛔ **no hay documento de retorno** | — | Kepler no lo tiene. El saldo en contra es un **INDICIO**, nunca un faltante medido |
+| ⚠️ **el margen de Canindo no coincide** | Excel 21–24% vs nuestro 27–32% | PH cuadra a dos decimales (30.88 vs 30.87); Canindo no. **Sin investigar** |
+| ⚠️ **cortes del libro sin contraparte** | **37 de 566 (6.5%)** | **Sin investigar** |
+| ⚠️ **el contraste de costo del ERP cubre un tercio** | **31.6% del dinero** | El `c62` del `U-D-10` de la sucursal. Por **pares** parece 77.7%: la cobertura se declara en la unidad en que se publica la cifra |
+
+⚠️ **Dos trampas de método que esta sección pagó**, las dos de la misma familia —*comparar
+universos distintos no es medir una diferencia*:
+
+1. **Agregar por nombre de chofer sobre varios meses.** Los choferes **rotan de ruta** y el nombre
+   se escribe distinto cada mes (`ENRIQUE FUENTES` / `FUENTES MONTES ENRIQUE`). Daba «el Excel
+   vende 1.38× lo nuestro», que es falso. El cruce válido es **día a día**.
+2. **Recortar por el corte de plaza en vez del primer embarque.** PH cambió de ERP el **2026-06-27**
+   pero su primer embarque a ruta está el **2026-07-15**. Sin recorte la carga del libro salía
+   **1.52×**; recortando por el corte, **1.11×**; recortando por el primer embarque, **0.98×**.
+
+**Candado:** [`test-newdb-route-truth.js`](../database/tests/test-newdb-route-truth.js) — **13 ✓ /
+0 ✗** contra prod, con dos pruebas negativas y placebo. El bloque del testigo externo depende de la
+unidad `Z:`; si no está montada reporta **NO MEDIDO**, nunca verde.
