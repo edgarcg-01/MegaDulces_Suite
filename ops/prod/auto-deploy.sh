@@ -754,7 +754,41 @@ fi
 #
 # ⚠️ `node`, no `curl`/`wget`: la imagen del API no los trae (verificado).
 _KC=/etc/rancher/k3s/k3s.yaml
-for _p in $(KUBECONFIG=$_KC k3s kubectl get pods -n prod -l app=api \
+# ⛔ [K3S.32] SE LE PREGUNTA SÓLO A LOS PODS DEL ReplicaSet ACTUAL, no a todo `app=api`.
+#
+# `[K3S.31]` saltea los que están en Terminating. Pero entre "sirviendo" y "Terminating" hay un
+# estado intermedio que no tiene `deletionTimestamp` todavía: el pod viejo que K3s aún no empezó
+# a matar porque el nuevo recién pasó a Ready. Ese pod está VIVO, acepta `exec` y responde — con
+# el commit ANTERIOR.
+#
+# ⭐ MEDIDO el 2026-10-03 desplegando `fdde53f`: `aplicar-k3s-prod.sh` imprimió «✓ todos los
+# deployments al día» a las 10:02:49 y UN SEGUNDO después este bucle dijo «el pod
+# api-6847fccdd5-z9q5d sirve 'cd8ff3d'» y revirtió un despliegue que estaba bien. Confirmado a
+# mano: un `rollout status` sobre el mismo deployment todavía imprimía dos veces «1 old replicas
+# are pending termination» ANTES de dar por terminado el rollout.
+#
+# ⚠️ El arreglo NO es esperar más acá ni cambiar la espera del otro guion por `rollout status`:
+# eso ya se evaluó y se rechazó con medición (ver `aplicar-k3s-prod.sh` §"La espera") porque son
+# hasta 15 min colgado bajo `flock -n` si la imagen no está, y un despliegue trabado deja a
+# producción sin carril. La pregunta estaba mal formulada: no es "¿quién está vivo?" sino
+# "¿quién pertenece a la versión que acabo de desplegar?".
+#
+# `pod-template-hash` lo contesta exacto. Y NO debilita el candado: `[VL.15.D2]` existe porque
+# hubo **ocho horas sirviendo dos versiones a la vez**, y eso era entre réplicas del MISMO
+# ReplicaSet — que es justo lo que este bucle sigue recorriendo una por una.
+#
+# ⚠️ Si no se puede resolver el hash, se cae a la lista completa: perder cobertura en silencio
+# sería peor que un falso positivo (ADR-056). El estado intermedio dura segundos; la ceguera, no.
+_rs_api=$(KUBECONFIG=$_KC k3s kubectl get rs -n prod -l app=api \
+            --sort-by=.metadata.creationTimestamp \
+            -o jsonpath='{.items[-1:].metadata.labels.pod-template-hash}' 2>/dev/null)
+if [ -n "$_rs_api" ]; then
+  _sel="app=api,pod-template-hash=$_rs_api"
+else
+  di "aviso: no se pudo resolver el ReplicaSet actual de api — se pregunta a TODOS los pods"
+  _sel="app=api"
+fi
+for _p in $(KUBECONFIG=$_KC k3s kubectl get pods -n prod -l "$_sel" \
               -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
   # ⛔ [K3S.31] SE SALTEAN LOS QUE SE ESTÁN MURIENDO. La primera versión de este bucle
   # preguntaba a TODOS los pods con la etiqueta `app=api`, y durante un rollout esa lista
