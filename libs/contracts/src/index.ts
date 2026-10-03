@@ -71,6 +71,7 @@ export * from './http/oc-seguimiento.contract';
 export * from './http/oc-cadena.contract';
 export * from './http/flujo-compras.contract';
 export * from './http/replenishment-monthly.contract';
+export * from './http/replenishment-signals.contract';
 export * from './http/vendor-route-day-pick.contract';
 export * from './http/service-desk.contract';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.

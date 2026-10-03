@@ -26,7 +26,7 @@
  * Los modelos los arma el componente; este archivo sólo dibuja.
  */
 import type { HojaProveedor } from './pedido-requisicion-global';
-import { textoCajasPiezas, textoSumaCajasPiezas } from './pedido-redondeo';
+import { textoSumaUnidades, textoUnidades } from './pedido-redondeo';
 
 import {
   INK, M, MUTED, RULE, altoPuntos, alinearTitulos, dias, dibujarEncabezado, encabezadoRequisicion,
@@ -255,8 +255,8 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
     // [RA-PRO.55] Dos renglones de total: lo pedido por almacén (cajas cerradas + piezas sueltas,
     // sin convertir piezas de productos distintos) y el importe por almacén, con el importe del
     // pedido completo en la última columna. El rótulo va en la columna de precio.
-    const piezasDe = (code: string) => textoSumaCajasPiezas(
-      h.productos.filter((pr) => pr.porPunto[code]).map((pr) => ({ cajas: pr.porPunto[code], uxc: pr.uxc })));
+    const piezasDe = (code: string) => textoSumaUnidades(
+      h.productos.filter((pr) => pr.porPunto[code]).map((pr) => ({ cajas: pr.porPunto[code], uxc: pr.uxc, et: pr.et })));
     const vacio = { content: '', colSpan: 3 };
     autoTable(doc, {
       ...tablaBase, startY: y + 6,
@@ -264,12 +264,12 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
       body: h.productos.map((pr) => [
         pr.sku, pr.nombre, `${pr.uxc.toLocaleString('es-MX')} ${pr.unidad}`,
         money(pr.cajas > 0 ? pr.valor / pr.cajas : 0),
-        ...pts.map((p) => (pr.porPunto[p.code] ? textoCajasPiezas(pr.porPunto[p.code], pr.uxc) : '-')),
-        textoCajasPiezas(pr.cajas, pr.uxc), money(pr.valor),
+        ...pts.map((p) => (pr.porPunto[p.code] ? textoUnidades(pr.porPunto[p.code], pr.uxc, pr.et) : '-')),
+        textoUnidades(pr.cajas, pr.uxc, pr.et), money(pr.valor),
       ]),
       foot: [
         [vacio, 'Pedido por almacén', ...pts.map((p) => piezasDe(p.code)),
-          textoSumaCajasPiezas(h.productos.map((pr) => ({ cajas: pr.cajas, uxc: pr.uxc }))), ''],
+          textoSumaUnidades(h.productos.map((pr) => ({ cajas: pr.cajas, uxc: pr.uxc, et: pr.et }))), ''],
         [vacio, 'Importe por almacén', ...pts.map((p) => money(p.valor)), '', money(h.valor)],
       ],
       footStyles: { fillColor: RULE, textColor: INK, fontStyle: 'bold', halign: 'right' },
@@ -303,7 +303,7 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
         head: [dh],
         body: rp.filas.map((f) => [
           `${f.sku} · ${f.nombre}`,
-          ...rp.destinos.map((d) => (f.porDestino[d.code] ? textoCajasPiezas(f.porDestino[d.code], f.uxc) : '-')),
+          ...rp.destinos.map((d) => (f.porDestino[d.code] ? textoUnidades(f.porDestino[d.code], f.uxc, f.et) : '-')),
         ]),
         columnStyles: Object.fromEntries(rp.destinos.map((_, i) => [i + 1, { halign: 'right' }])),
         didParseCell: alinearTitulos(rp.destinos.map((_, i) => i + 1)),
@@ -315,6 +315,13 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
       'Precio cj = importe / cajas del producto (promedio si el costo de caja cambia entre sucursales).',
     ];
     if (h.nTraspasos) notas.push(`Esta requisición genera ${h.nTraspasos} traspaso${h.nTraspasos === 1 ? '' : 's'} CEDIS a sucursal.`);
+    // [RA-PRO.69] Referencia, no condición: el "mínimo" del proveedor en el sistema es su pedido
+    // típico calculado del historial de compras.
+    if (h.tipico?.tipico != null && h.tipico.pct != null) {
+      const v = (x: number) => (h.tipico?.criterio === 'monto' ? money(x) : `${Math.round(x).toLocaleString('es-MX')} cj`);
+      notas.push(`Pedido típico de este proveedor (promedio de su historial, no es un mínimo exigido): ${v(h.tipico.tipico)}. `
+        + `Esta requisición: ${v(h.tipico.llevas)} (${Math.round(h.tipico.pct * 100)}%).`);
+    }
     y = dibujarNotas(doc, y - 6, notas);
     dibujarFirmas(doc, y, data.elaboro);
   });

@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
+  WorkbookSkuSignals,
   validarSeguimiento,
 } from '@megadulces/contracts';
+import { Knex } from 'knex';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
+import { armarSenales } from './pedido-senales';
 
 /**
  * `[ZN.8]` — **El proyecto desde el que este servicio pregunta por el alcance.**
@@ -1451,7 +1453,7 @@ export class CommercialReplenishmentService {
         -- ⚠️ SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS y lo
         -- TERMINA. Es la séptima vez que este repo lo paga.
         WITH lad AS MATERIALIZED (
-          SELECT l.sku, l.u1_label FROM analytics.v_supplier_cost_ladder l
+          SELECT l.sku, l.u1_label, l.u2_label, l.u3_label FROM analytics.v_supplier_cost_ladder l
            WHERE EXISTS (SELECT 1 FROM catalog.products pr WHERE pr.sku = l.sku AND ${where})
         )${erpReady ? `, fre AS MATERIALIZED (${this.erpFillSubquery()}
         )` : ''}, vbf AS MATERIALIZED (
@@ -1476,6 +1478,9 @@ export class CommercialReplenishmentService {
                  -- derivada del ODS); antes la pantalla escribía "pz" a mano y mentía en los
                  -- productos a granel (el azúcar 99029 se mide en 500 g, no en piezas).
                  lad.u1_label AS unidad_base,
+                 -- [RA-PRO.68] Rotulos de los peldanos 2 y 3 de Kepler (kdii.c80 / c83): con 3 peldanos
+                 -- el 2 es el PAQUETE intermedio y el 3 la unidad mayor; con 2, el 2 es la mayor.
+                 lad.u2_label AS unidad_u2, lad.u3_label AS unidad_u3,
                  -- U.2 — VEREDICTO DEL PELDAÑO por (producto, almacén). Cuando el divisor no
                  -- cuadra con lo que se pagó, la conversion a cajas de ESTE almacen no es
                  -- confiable: ni la cantidad ni su valuado. Se DECLARA, no se dibuja.
@@ -1583,14 +1588,14 @@ export class CommercialReplenishmentService {
                  COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz,
                  max(b.rop_xyz) AS xyz,
                  max(b.season_ratio) AS season_ratio, max(b.season_src) AS season_src,
-                 max(b.unidad_base) AS unidad_base
+                 max(b.unidad_base) AS unidad_base, max(b.unidad_u2) AS unidad_u2, max(b.unidad_u3) AS unidad_u3
             FROM base b
            GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code
         ),
         prod AS (
           SELECT product_id, sku, nombre, supplier_id,
                  max(bf) AS uxc, round(max(caja_cost)::numeric, 2) AS caja_cost,
-                 max(unidad_base) AS unidad_base,
+                 max(unidad_base) AS unidad_base, max(unidad_u2) AS unidad_u2, max(unidad_u3) AS unidad_u3,
                  -- U.2 — cada celda declara su propio veredicto de peldaño. SIN BACKTICKS ACÁ: va
                  -- dentro de un template literal de JS. La clave rung sólo viaja cuando NO es
                  -- confiable, para no engordar el payload del 94% sano; el front la lee como "esta
@@ -1658,6 +1663,13 @@ export class CommercialReplenishmentService {
          ${wbWhere}`;
 
       const rows = (await trx.raw(`${inner} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
+      // [RA-PRO.67] Margen y venta perdida, SOLO sobre la página que se muestra (≤1000 SKUs; medido
+      // 2026-10-02 con los 76 de GONAC: 225 ms el margen, 13 ms la venta perdida). El export a XLSX
+      // no las necesita y pagaría el costo sobre el catálogo entero, así que se salta.
+      if (!q.export && rows.length) {
+        const sig = await this.skuSignals(trx, tenantId, rows as Array<{ product_id: string; sku: string; uxc?: number | string | null; pack_size?: number | string | null; caja_cost?: number | string | null }>);
+        for (const r of rows as Array<{ product_id: string; signals?: WorkbookSkuSignals | null }>) r.signals = sig.get(r.product_id) ?? null;
+      }
       // U.2 — el total del inventario declara su propio hueco: `total_exis` es Σ de lo VERIFICADO, y
       // `exis_sin_valuar_*` dice cuántos SKUs y cuánto valor (según el árbitro) quedaron fuera. Sin
       // esto el total bajaría en silencio y se leería como "hay menos inventario", que es otra
@@ -1728,6 +1740,62 @@ export class CommercialReplenishmentService {
    * RA-PRO.32 — Detalle (drill-down) de un SKU de la Vista Excel: economía del producto +
    * desglose POR ALMACÉN (con su punto de compra/raíz resuelto por topología, sin hardcodear códigos).
    */
+  /**
+   * [RA-PRO.67] Margen de hoy y venta perdida por SKU, para las filas de una página del workbook.
+   * La forma y el porqué de cada fuente están en `replenishment-signals.contract.ts`.
+   *
+   * Margen: se LEE `margen_real_pct` / `vende_bajo_costo` de `analytics.v_kepler_standard_cost`
+   * (el mismo número de /compras/costo-estandar), sin recalcularlo. La plaza 00 (oficinas, sin
+   * venta) queda fuera con `es_plaza_operativa`, igual que en esa pantalla.
+   */
+  private async skuSignals(
+    trx: Knex.Transaction,
+    tenantId: string,
+    rows: Array<{ product_id: string; sku: string; uxc?: number | string | null; pack_size?: number | string | null; caja_cost?: number | string | null }>,
+  ): Promise<Map<string, WorkbookSkuSignals>> {
+    const skus = [...new Set(rows.map((r) => r.sku).filter((s): s is string => !!s))];
+    if (!skus.length) return new Map();
+
+    const mRows = (await trx.raw(
+      `SELECT sucursal, sku, margen_real_pct, vende_bajo_costo, precio_ficha, impuesto_pct, costo_reposicion_base, venta_neta_30d, es_plaza_operativa
+         FROM analytics.v_kepler_standard_cost
+        WHERE sku = ANY(?)`, [skus])).rows as Array<{
+      sucursal: string; sku: string; margen_real_pct: string | null; vende_bajo_costo: boolean | null;
+      precio_ficha: string | null; impuesto_pct: string | null; costo_reposicion_base: string | null; venta_neta_30d: string | null; es_plaza_operativa: boolean;
+    }>;
+    // Lo que se pagó de verdad (testigo de la lista del proveedor), del plan nocturno: barato, y la
+    // consulta en vivo contra las OCs de Kepler excede el statement_timeout (medido 2026-10-02).
+    const pRows = (await trx.raw(
+      `SELECT product_id, max(real_buy_cost) AS real_buy_cost, to_char(max(last_purchase), 'YYYY-MM-DD') AS last_purchase
+         FROM analytics.replenishment_plan
+        WHERE tenant_id = ? AND product_id = ANY(?) GROUP BY product_id`, [tenantId, rows.map((r) => r.product_id)])).rows as Array<{
+      product_id: string; real_buy_cost: string | null; last_purchase: string | null;
+    }>;
+    // Ventana de la venta perdida: los últimos 3 meses calendario + el en curso.
+    const desde = (await trx.raw(`SELECT to_char(date_trunc('month', CURRENT_DATE) - interval '3 months', 'YYYY-MM-DD') AS d`)).rows[0].d as string;
+    // Un renglón por (sucursal, sku, MES): el árbitro de precio se aplica a ese grano, no a la suma
+    // de la ventana (un mes inflado no debe contaminar a los demás).
+    const lRows = (await trx.raw(
+      `SELECT sucursal, sku, importe_perdido AS importe, unidades_perdidas AS unidades,
+              reportes, to_char(ultimo_dato, 'YYYY-MM-DD') AS ultimo
+         FROM analytics.v_sku_lost_demand
+        WHERE tenant_id = ? AND sku = ANY(?) AND mes >= CAST(? AS date)`, [tenantId, skus, desde])).rows as Array<{
+      sucursal: string; sku: string; importe: string; unidades: string; reportes: string; ultimo: string | null;
+    }>;
+    const fRows = (await trx.raw(
+      `SELECT fs.product_id, w.code, sum(fs.times_reported) AS reportes,
+              sum(COALESCE(fs.est_lost_revenue, 0)) AS importe, to_char(max(fs.last_reported_at), 'YYYY-MM-DD') AS ultimo
+         FROM commercial.floor_stockouts fs
+         JOIN commercial.warehouses w ON w.tenant_id = fs.tenant_id AND w.id = fs.warehouse_id
+        WHERE fs.tenant_id = ? AND fs.kind = 'agotado' AND fs.product_id = ANY(?)
+          AND fs.last_reported_at >= CAST(? AS date)
+        GROUP BY fs.product_id, w.code`, [tenantId, rows.map((r) => r.product_id), desde])).rows as Array<{
+      product_id: string; code: string; reportes: string; importe: string; ultimo: string | null;
+    }>;
+
+    return armarSenales({ rows, mRows, pRows, lRows, fRows, desde });
+  }
+
   /**
    * [RA-PRO.65] LA PELICULA DE 12 MESES de un SKU, para el globo de "V30d / Max" del desglose.
    *
