@@ -2256,6 +2256,7 @@ export class ExpenseProofsService {
         fecha_gasto: string | null; created_dia: string;
         motivo_rechazo: string | null; validated_by: string | null; created_by: string | null;
         comprobaciones?: number | string | null; comprobacion_folio?: string | null;
+        gasto_folios?: string[] | null;
       }
 
       const q = trx('finance.expense_proofs as p')
@@ -2282,6 +2283,25 @@ export class ExpenseProofsService {
                        AND COALESCE(c.status, '') <> 'rechazada'
                      ORDER BY c.created_at DESC LIMIT 1) AS comprobacion_folio`));
       }
+
+      /**
+       * `[GX.62]` **El gasto `XA1001` entra al expediente.** Es el segundo de los tres
+       * numeros que el usuario pidio que el expediente contenga (solicitud -> gasto -> pago).
+       *
+       * ⚠️ Es una LISTA, no un folio. Medido en `[GX.15]`: 8,705 solicitudes tienen 1 gasto,
+       * **165 tienen 2, 10 tienen 3 y 2 tienen 4**. Modelarlo 1:1 mostraria un gasto
+       * arbitrario -el que devuelva el motor primero- y escondería el resto sin un error.
+       *
+       * El puente es `c39` y es limpio: `analytics.expense_documents` lo deriva, y GX.15
+       * lo midio en el **100%** de los 9,073 gastos aplicados.
+       */
+      q.select(
+        trx.raw(`(SELECT array_agg(d.doc_folio ORDER BY d.doc_folio)
+                    FROM analytics.expense_documents d
+                   WHERE d.tenant_id = p.tenant_id
+                     AND d.sucursal = p.sucursal
+                     AND d.solicitud_folio = p.folio_solicitud
+                     AND d.doc_tipo = 'XA1001') AS gasto_folios`));
 
       const filas: Cruda[] = await q;
 
@@ -2327,6 +2347,8 @@ export class ExpenseProofsService {
           motivo_rechazo: f.motivo_rechazo,
           comprobacion_kepler: comprobacionKepler,
           comprobacion_folio: f.comprobacion_folio || null,
+          // `[GX.62]` Los folios del gasto aplicado. Vacio = Kepler todavia no lo ejercio.
+          gasto_folios: Array.isArray(f.gasto_folios) ? f.gasto_folios.filter(Boolean) : [],
           // Los roles alcanzan para decidir qué botón ofrecer. Las URL firmadas caducan y
           // mandarlas para 155 vales de una sería regalar 155 enlaces que nadie va a abrir.
           roles: archivos.map((a) => String(a?.role || '')).filter(Boolean),

@@ -196,6 +196,16 @@ export interface ValeExpediente {
   /** ⛔ `null` = NO se midió (la tabla de comprobaciones no existe en este entorno). */
   comprobacion_kepler: boolean | null;
   comprobacion_folio: string | null;
+  /**
+   * `[GX.62]` Los folios del **gasto `XA1001`** que nació de esta solicitud, por `c39`.
+   *
+   * ⚠️ Es una LISTA a propósito. Medido en `[GX.15]`: 8,705 solicitudes tienen 1 gasto, pero
+   * **165 tienen 2, 10 tienen 3 y 2 tienen 4**. Un campo singular mostraría uno arbitrario y
+   * escondería el resto sin un solo error.
+   *
+   * Vacío = Kepler todavía no lo ejerció (la solicitud está autorizada pero sin gasto).
+   */
+  gasto_folios: string[];
   /** Los roles de los adjuntos. Alcanza para decidir qué botón ofrecer, sin mandar URLs. */
   roles: string[];
   protocolo: VeredictoProtocolo;

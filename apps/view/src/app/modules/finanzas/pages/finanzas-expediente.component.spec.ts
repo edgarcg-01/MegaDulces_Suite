@@ -37,6 +37,7 @@ const VALE = (over: Partial<ValeExpediente> = {}): ValeExpediente => ({
   importe: 1583.86, provisional: false, fecha_gasto: '2026-09-28', created_dia: '2026-09-28',
   motivo_rechazo: null, comprobacion_kepler: true, comprobacion_folio: 'XA1001-0001',
   roles: ['comprobante_1'], protocolo: veredicto('completo'),
+  gasto_folios: ['0097092'],
   ...over,
 });
 
@@ -201,6 +202,89 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
       const a = [...fix.nativeElement.querySelectorAll('.exp-acc a')]
         .find((x: Element) => (x.textContent || '').includes('Comprobación de Kepler')) as HTMLAnchorElement;
       expect(a.getAttribute('href')).toContain('folio=0009947');
+    });
+  });
+
+  /**
+   * `[GX.62]` — **Los tres números del soporte documental.**
+   *
+   * El usuario lo pidió así: el expediente debe CONTENER la solicitud `XA1501`, el gasto
+   * `XA1001` y el pago `XD2601`. Los dos primeros ya se pueden mostrar; el tercero todavía no
+   * (el pago no dice qué gasto paga — `c37='0'` en el 100%, `c39` vacío).
+   */
+  describe('[GX.62] los números del expediente', () => {
+    it('muestra la solicitud y el gasto, con su prefijo', () => {
+      montar();
+      // ⚠️ Sobre TODAS las cabeceras, no la primera: el orden pone arriba lo que falta
+      // cerrar, asi que el primer vale no es el primero de la lista que trae el servidor.
+      const cab = [...fix.nativeElement.querySelectorAll('.exp-vale-h')]
+        .map((e: Element) => e.textContent || '').join(' ');
+      expect(cab).toContain('XA1501-0009946');
+      expect(cab).toContain('XA1501-0009947');
+      expect(cab).toContain('XA1001-0097092');
+    });
+
+    /**
+     * ⭐ **El gasto es una LISTA, no un folio.** Medido en GX.15: 165 solicitudes tienen 2
+     * gastos, 10 tienen 3 y 2 tienen 4. Un campo singular mostraría uno arbitrario y
+     * escondería el resto sin un solo error.
+     */
+    it('⭐ si la solicitud tiene varios gastos, salen TODOS', () => {
+      montar(REPORTE({
+        personas: [{
+          clave: 'x', username: 'x', nombre: 'X', areas: [],
+          total: 1, monto: 1, completos: 1, incompletos: 0, en_captura: 0, sin_medir: 0,
+          vales: [VALE({ gasto_folios: ['0097092', '0097093', '0097094'] })],
+        }],
+      }));
+      const h = fix.nativeElement.querySelector('.exp-vale-h') as HTMLElement;
+      for (const g of ['0097092', '0097093', '0097094']) expect(h.textContent).toContain(g);
+    });
+
+    /** ⛔ Sin gasto se DECLARA: un hueco mudo se lee como que el trámite terminó. */
+    it('sin gasto aplicado lo dice, no deja el hueco', () => {
+      montar(REPORTE({
+        personas: [{
+          clave: 'x', username: 'x', nombre: 'X', areas: [],
+          total: 1, monto: 1, completos: 0, incompletos: 0, en_captura: 1, sin_medir: 0,
+          vales: [VALE({ gasto_folios: [], protocolo: veredicto('en_captura', [{ id: 'firma', label: 'Falta la firma', detalle: 'Espera en la bandeja.' }]) })],
+        }],
+      }));
+      expect(txt()).toContain('sin gasto aplicado');
+    });
+
+    /**
+     * ⭐⭐ **El expediente imprimible de GX.15 estaba construido y era INALCANZABLE.**
+     * Endpoint, servicio con Chromium, método en el cliente — y cero botones en todo el
+     * repo que lo llamaran. Esta prueba existe para que no vuelva a quedarse sin puerta.
+     */
+    it('⭐ el botón del PDF existe y pide el expediente', () => {
+      montar();
+      const btn = [...fix.nativeElement.querySelectorAll('.exp-acc button')]
+        .find((b: Element) => (b.textContent || '').includes('Expediente en PDF')) as HTMLButtonElement;
+      expect(btn).toBeTruthy();
+      btn.click();
+      const req = http.expectOne((q) => q.url.includes('/expediente/') && q.url.includes('/pdf'));
+      expect(req.request.responseType).toBe('blob');
+      req.flush(new Blob(['%PDF-1.4']));
+    });
+
+    /** Mientras arma el PDF lo dice y no se encola otro: armarlo tarda. */
+    it('no se encolan dos PDF del mismo vale', () => {
+      montar();
+      const vale = c.persona()!.vales[0];
+      c.verExpediente(vale);
+      expect(c.pdfCargando()).toBe(vale.id);
+      c.verExpediente(vale);   // segundo clic: no debe salir otra petición
+      http.expectOne((q) => q.url.includes('/pdf')).flush(new Blob(['%PDF']));
+    });
+
+    /** ⛔ Sin folio o sin sucursal no hay expediente que armar. */
+    it('sin folio no pide nada', () => {
+      montar();
+      c.verExpediente(VALE({ folio_solicitud: null }));
+      expect(c.pdfCargando()).toBeNull();
+      http.expectNone((q) => q.url.includes('/pdf'));
     });
   });
 

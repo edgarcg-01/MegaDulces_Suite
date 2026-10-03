@@ -150,8 +150,20 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 
               @for (v of valesOrdenados(); track v.id) {
                 <article class="exp-vale" [attr.data-etapa]="v.protocolo.etapa">
+                  <!--
+                    [GX.62] Los numeros del soporte documental, en el orden del tramite:
+                    solicitud XA1501 -> gasto XA1001 -> (pago XD2601, todavia no).
+                    Se escriben con su prefijo porque es lo que alguien teclea en Kepler, y
+                    porque el folio pelado NO identifica nada: vive por sucursal y colisiona
+                    entre doctypes.
+                  -->
                   <header class="exp-vale-h">
-                    <span class="exp-folio">{{ v.folio_solicitud || 'sin folio' }}</span>
+                    <span class="exp-folio">XA1501-{{ v.folio_solicitud || '?' }}</span>
+                    @for (g of v.gasto_folios; track g) {
+                      <span class="exp-folio gasto">XA1001-{{ g }}</span>
+                    } @empty {
+                      <span class="exp-sin-gasto">sin gasto aplicado</span>
+                    }
                     <span class="exp-suc">{{ v.sucursal || '—' }}</span>
                     <span class="exp-prov">{{ v.proveedor || 'sin proveedor' }}</span>
                     <span class="exp-monto">{{ money(v.importe) }}</span>
@@ -197,6 +209,22 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
                       </a>
                     }
                     @if (v.folio_solicitud && v.sucursal) {
+                      <!--
+                        [GX.62] El expediente imprimible de GX.15: solicitud + lo que aporto
+                        quien gasto + el gasto aplicado + la comprobacion, en un PDF.
+                        Estaba construido desde septiembre -endpoint, servicio y metodo en el
+                        cliente- y NINGUNA pantalla lo llamaba. Este es su primer boton.
+                      -->
+                      <!--
+                        Deliberadamente NO es primary: con dos botones naranjas compiten la
+                        accion que URGE (la comprobacion que falta) y la de leer. En una
+                        pantalla cuyo proposito es decir que falta, eso diluye el mensaje.
+                      -->
+                      <button type="button" class="exp-btn"
+                              [disabled]="pdfCargando() === v.id"
+                              (click)="verExpediente(v)">
+                        {{ pdfCargando() === v.id ? 'Armando el PDF…' : 'Expediente en PDF' }}
+                      </button>
                       <a class="exp-btn ghost"
                          [routerLink]="['/finanzas/gastos']"
                          [queryParams]="{ folio: v.folio_solicitud, sucursal: v.sucursal }">
@@ -279,6 +307,8 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
     .exp-vale-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-3);
       font-size: var(--fs-body); }
     .exp-folio { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: 1rem; }
+    .exp-folio.gasto { color: var(--ok-fg); }
+    .exp-sin-gasto { font-size: var(--fs-xs); color: var(--fg-3); font-style: italic; }
     .exp-suc, .exp-prov { color: var(--fg-2); }
     .exp-prov { flex: 1 1 auto; }
     .exp-monto { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; font-size: 1rem; }
@@ -312,6 +342,7 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 export class FinanzasExpedienteComponent {
   private readonly svc = inject(ComprobacionesService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly toast = inject(MessageService);
 
   readonly datos = signal<RespuestaExpediente | null>(null);
   readonly cargando = signal(true);
@@ -358,6 +389,36 @@ export class FinanzasExpedienteComponent {
       (peso(a.protocolo.etapa) - peso(b.protocolo.etapa))
       || String(b.created_dia).localeCompare(String(a.created_dia)));
   });
+
+  /** Qué vale está armando su PDF. Señal: la lee la plantilla para apagar el botón. */
+  readonly pdfCargando = signal<string | null>(null);
+
+  /**
+   * `[GX.62]` Abre el expediente imprimible de `[GX.15]`.
+   *
+   * ⚠️ Se baja como **blob**, no con un enlace directo: la ruta exige el token y un `href`
+   * lo manda sin cabecera de autorización — el navegador abriría un 401 en una pestaña en
+   * blanco, que se ve igual que un PDF roto.
+   */
+  verExpediente(v: ValeExpediente): void {
+    if (!v.folio_solicitud || !v.sucursal || this.pdfCargando()) return;
+    this.pdfCargando.set(v.id);
+    this.svc.expedientePdf(v.sucursal, v.folio_solicitud)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          globalThis.open?.(url, '_blank');
+          // Se revoca después: revocarla de inmediato deja la pestaña sin nada que mostrar.
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          this.pdfCargando.set(null);
+        },
+        error: () => {
+          this.pdfCargando.set(null);
+          this.toast.add({ severity: 'error', summary: 'No se pudo armar el expediente',
+            detail: `Solicitud ${v.folio_solicitud}` });
+        },
+      });
+  }
 
   /** Falta la comprobacion de Kepler: el boton forzoso. */
   necesitaKepler(v: ValeExpediente): boolean {
