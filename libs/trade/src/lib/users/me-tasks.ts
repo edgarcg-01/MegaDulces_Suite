@@ -65,6 +65,12 @@ export interface FuenteTareaDef {
   label: string;
   detalle: string;
   ruta: string;
+  /**
+   * Parámetros de consulta del enlace (`?scope=mine`). Van APARTE de `ruta` a propósito: la pantalla enlaza con
+   * `[routerLink]` y `[queryParams]` por separado, y una `ruta` con `?` adentro se codificaría mal. Además el candado
+   * de `test-newdb-me-context.js` busca la ruta en `app.routes.ts` por su `path`.
+   */
+  queryParams?: Record<string, string>;
   icono: string;
   /** Cualquiera de estas claves abre `ruta`. Verificado contra `app.routes.ts` por el candado. */
   anyOf: readonly Permission[];
@@ -97,9 +103,19 @@ async function medirTareas(
   q: Knex.QueryBuilder,
   colFecha: string,
   colVence: string | null,
+  /**
+   * Columna que dice «el reloj de esta tarea está PAUSADO». Una tarea pausada sigue siendo de la persona
+   * (cuenta en `total`) pero su vencimiento NO corre, así que no puede contar como vencida ni fijar «vence antes»:
+   * su `due_at` es de cuando se pausó. Sin esto un ticket que espera al solicitante se pintaba como atrasado por
+   * algo que no depende de quien lo atiende. `null` = la fuente no pausa (las otras cuatro).
+   */
+  colPausa: string | null = null,
 ): Promise<MedidaTarea> {
   const columnas = [knex.raw('count(*) as n'), knex.raw('min(??) as viejo', [colFecha])];
-  if (colVence) {
+  if (colVence && colPausa) {
+    columnas.push(knex.raw('min(??) filter (where ?? is null) as vence', [colVence, colPausa]));
+    columnas.push(knex.raw('count(*) filter (where ?? is null and ?? < now()) as vencidas', [colPausa, colVence]));
+  } else if (colVence) {
     columnas.push(knex.raw('min(??) as vence', [colVence]));
     columnas.push(knex.raw('count(*) filter (where ?? < now()) as vencidas', [colVence]));
   }
@@ -125,6 +141,41 @@ async function medirTareas(
 const CONTEO_ACTIVO = ['open', 'counting', 'review', 'ready_to_reconcile'];
 
 export const FUENTES_VISIBLES: readonly FuenteTareaDef[] = [
+  {
+    /*
+     * `[MS.3.6]` Mesa de Servicio (Fase MS, ADR-081): el ticket ES la tarea de quien lo atiende. Es la ÚNICA
+     * fuente que enlaza a «lo mío» (`?scope=mine`) en vez de a la pantalla a secas: la bandeja abre en «Sin
+     * asignar», que es lo que quiere ver quien reparte, no quien viene a trabajar lo que ya le dieron.
+     *
+     * ⚠️ `en_espera` cuenta en el total (sigue siendo suyo: el contrato lo proyecta a `pending`) pero NO en
+     * `vencidas` ni en `vence_at`: el reloj del SLA está pausado esperando al solicitante.
+     *
+     * Declarado, no hecho: la cola de tickets SIN asignar como «bandeja» (`servicio.atender` en
+     * `identity.responsibilities`). Exige un umbral de atraso por bandeja (política de negocio, bloque 4g del
+     * smoke) que nadie ha fijado; inventarlo daría un veredicto `atrasada` sin sustento.
+     */
+    fuente: 'servicedesk.requests',
+    label: 'Solicitudes de servicio a tu cargo',
+    detalle: 'tickets de la Mesa de Servicio que te asignaron · el plazo no corre mientras esperan al solicitante',
+    ruta: '/servicio/bandeja',
+    queryParams: { scope: 'mine' },
+    icono: 'pi pi-ticket',
+    anyOf: [Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR],
+    medir: (knex, tenantId, userId) => {
+      const a = adaptadorDe('servicedesk.requests');
+      return medirTareas(
+        knex,
+        knex('servicedesk.requests')
+          .where({ tenant_id: tenantId })
+          .where(a.col_asignado_a, userId)
+          .whereNull('deleted_at')
+          .whereIn(a.col_estado as string, dialectosAbiertos(a)),
+        a.col_asignado_at,
+        a.col_vence,
+        'paused_at',
+      );
+    },
+  },
   {
     fuente: 'finance.recon_tasks',
     label: 'Conciliaciones a tu nombre',

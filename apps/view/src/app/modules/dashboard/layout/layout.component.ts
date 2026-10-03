@@ -38,7 +38,7 @@ import { HealthAlertToastComponent } from './health-alert-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
 
 /** Clave interna de proyecto de este layout: indexa los `*NavGroups` escritos a mano (deuda SN). */
-type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores';
+type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores' | 'servicio';
 
 /** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp) cae al default. */
 const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
@@ -57,6 +57,7 @@ const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
   // al default `trademk` y el sidebar le habría mostrado el nav de Trade Marketing.
   televenta: 'telemarketing',
   desarrolladores: 'desarrolladores',
+  servicio: 'servicio',
 };
 
 interface NavItem {
@@ -523,7 +524,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * no es `/admin`; un proyecto con `route: ''` nunca casa) y se traduce a la clave interna de este
    * componente, que sigue siendo la misma union: los `*NavGroups` se indexan por ella. Default =
    * trade marketing, como antes — `isRestricted()` depende de ese default para las URLs sin
-   * proyecto (`/sin-acceso`, 404). `/telemarketing` no monta este layout.
+   * proyecto (`/sin-acceso`, 404). (`/telemarketing` SÍ monta este layout: el botón de la Mesa de Servicio lo
+   * hereda; ver `servicio/entradas.spec.ts`.)
    */
   private currentProject = computed<LayoutProject>(() => {
     const id = resolveProjectForUrl(this.currentUrl())?.id;
@@ -723,6 +725,20 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Desarrolladores',
       items: [
         { label: 'Proyectos', icon: 'pi pi-code', route: '/desarrolladores/proyectos', anyOf: [Permission.DEV_PROJECTS_VER, Permission.DEV_PROJECTS_GESTIONAR] },
+      ],
+    },
+  ];
+
+  // Fase MS — Mesa de Servicio. «Mis solicitudes» sólo exige REPORTAR (todo rol con personas lo tiene);
+  // Bandeja y Configuración, ATENDER/COORDINAR. Cada item por su permiso, igual que la ruta.
+  private servicioNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Mesa de Servicio',
+      items: [
+        { label: 'Bandeja', icon: 'pi pi-inbox', route: '/servicio/bandeja', anyOf: [Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR] },
+        { label: 'Mis solicitudes', icon: 'pi pi-ticket', route: '/servicio/solicitudes', anyOf: [Permission.SERVICIO_REPORTAR] },
+        { label: 'Reportes', icon: 'pi pi-chart-bar', route: '/servicio/reportes', anyOf: [Permission.SERVICIO_COORDINAR] },
+        { label: 'Configuración', icon: 'pi pi-sliders-h', route: '/servicio/configuracion', anyOf: [Permission.SERVICIO_COORDINAR] },
       ],
     },
   ];
@@ -969,6 +985,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (this.currentProject() === 'desarrolladores') {
       return this.dedupeByRoute(this.flatOf(this.desarrolladoresNavGroups).filter((i) => this.hasPermFor(i)));
     }
+    if (this.currentProject() === 'servicio') {
+      return this.dedupeByRoute(this.flatOf(this.servicioNavGroups).filter((i) => this.hasPermFor(i)));
+    }
     if (this.currentProject() === 'contabilidad') {
       return this.dedupeByRoute(this.flatOf(this.contabilidadNavGroups).filter((i) => this.hasPermFor(i)));
     }
@@ -1047,6 +1066,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     if (this.currentProject() === 'desarrolladores') {
       return this.mapGroups(this.desarrolladoresNavGroups, true);
+    }
+    if (this.currentProject() === 'servicio') {
+      return this.mapGroups(this.servicioNavGroups, true);
     }
     if (this.currentProject() === 'contabilidad') {
       return this.mapGroups(this.contabilidadNavGroups, true);
@@ -1260,6 +1282,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * Antes esto se basaba en `reports_team`, lo que dejaba sin sidebar a
    * usuarios con permisos válidos (p.ej. VER_SEGUIMIENTO).
    */
+  /**
+   * `[MS.3.1]` ¿Se ofrece «Reportar un problema» en el header? Quien tiene `SERVICIO_REPORTAR`. Es la
+   * ÚNICA entrada para quien sólo reporta: la clave no es destino del mapa de la suite a propósito
+   * (le quitaría a cajeras y almacenistas su entrada directa a `/projects`).
+   */
+  puedeReportar = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
+
   isRestricted = computed(() => {
     // Modo "kiosco" (oculta el chrome) SOLO para el colaborador de Trade con acceso
     // a una sola pantalla (Captura). Las superficies dedicadas (finanzas, reparto,

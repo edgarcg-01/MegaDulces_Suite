@@ -34,6 +34,7 @@ import type {
 } from '@megadulces/contracts';
 import { AuthService } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
+import { Permission } from '../../core/constants/permissions';
 import { MeContextService } from '../../core/services/me-context.service';
 import { StoreSocketService } from '../tienda/store-socket.service';
 import { UsoService } from '../../core/services/uso.service';
@@ -1075,6 +1076,25 @@ export class MiTrabajoComponent {
     return 'Esta fuente no declaró gravedad. No se asume que sea leve.';
   }
 
+  /**
+   * `[MS.3.8]` El plazo con que se juzgó la cola, en su propia unidad: la de tickets sin asignar se mide en
+   * minutos HÁBILES (se ajusta en la configuración de la mesa); las demás, en días.
+   */
+  plazoTexto(p: MePendiente): string {
+    const m = p.umbral_minutos_habiles;
+    if (m !== null && m !== undefined) return `${this.duracionHabil(m)} de horario hábil`;
+    return `${p.umbral_dias} ${p.umbral_dias === 1 ? 'día' : 'días'}`;
+  }
+
+  /** `60` → «1 hora», `90` → «1 h 30 min», `45` → «45 min». */
+  duracionHabil(min: number): string {
+    if (min < 60) return `${min} min`;
+    const h = Math.floor(min / 60);
+    const r = min % 60;
+    if (r === 0) return `${h} ${h === 1 ? 'hora' : 'horas'}`;
+    return `${h} h ${r} min`;
+  }
+
   /** El motivo largo del veredicto, para el `title`. Dice contra QUÉ vara se juzgó. */
   veredictoMotivo(p: MePendiente): string {
     const f = p.flujo;
@@ -1082,13 +1102,17 @@ export class MiTrabajoComponent {
       case 'se_acumula':
         return `Entraron ${f.entradas_30d} en 30 días y salieron ${f.cerradas_30d}: la cola crece.`;
       case 'atrasada':
-        return `El más viejo lleva más de ${p.umbral_dias} ${p.umbral_dias === 1 ? 'día' : 'días'}, que es el umbral declarado para esta cola.`;
+        if (p.umbral_minutos_habiles !== null && p.umbral_minutos_habiles !== undefined) {
+          const e = p.espera_minutos_habiles;
+          return `El más viejo lleva ${e === null || e === undefined ? 'más de' : this.duracionHabil(e)} esperando (sólo horario hábil) y el plazo es ${this.plazoTexto(p)}. Se ajusta en la configuración de la mesa.`;
+        }
+        return `El más viejo lleva más de ${this.plazoTexto(p)}, que es el umbral declarado para esta cola.`;
       case 'congelada':
         return 'Cero filas resueltas en 30 días, medido. No es trabajo pendiente hasta que tenga dueño.';
       case 'sin_medir':
         return 'Esta cola no pudo reportar su flujo. No se asume que esté al día.';
       default:
-        return `Sale al menos tanto como entra y nada pasó el umbral de ${p.umbral_dias} ${p.umbral_dias === 1 ? 'día' : 'días'}.`;
+        return `Sale al menos tanto como entra y nada pasó el umbral de ${this.plazoTexto(p)}.`;
     }
   }
 
@@ -1286,6 +1310,10 @@ export class MiTrabajoComponent {
   }
 
   /** `[SEG.2]` Cierre voluntario = derribo duro: borra el rastro y recarga (ver AuthService). */
+  /** `[MS.3.1]` Mesa de Servicio: `SERVICIO_REPORTAR` no es destino del mapa de la suite a propósito, así que la ÚNICA entrada es este botón. */
+  readonly puedeReportar = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
+  reportar(): void { void this.router.navigate(['/servicio/solicitudes'], { queryParams: { nueva: 1 } }); }
+
   logout(): void {
     this.auth.logout({ derribar: true });
   }
