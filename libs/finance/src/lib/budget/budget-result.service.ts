@@ -65,8 +65,18 @@ const add = (...xs: Array<number | null>): number | null => {
   const hay = xs.filter((x): x is number => x !== null);
   return hay.length ? round2(hay.reduce((s, x) => s + x, 0)) : null;
 };
+/**
+ * ⛔ Resta ESTRICTA: si **cualquiera** de los dos lados es NO MEDIDO, el resultado es NO MEDIDO.
+ *
+ * La primera versión de esto trataba el `null` como 0, y con eso el defecto que esta clase existe
+ * para matar reaparecía **una fila más arriba**: sin plan de costo de ventas,
+ * `margen_bruto.plan = venta.plan − 0 = venta.plan`, o sea otra vez **100 % de margen**, ahora en
+ * el renglón del margen en lugar del del resultado.
+ *
+ * Una resta no es una medición de lo que no se midió. Si falta un sumando, falta el total.
+ */
 const sub = (a: number | null, b: number | null): number | null =>
-  a === null && b === null ? null : round2((a ?? 0) - (b ?? 0));
+  a === null || b === null ? null : round2(a - b);
 const pct = (num: number | null, den: number | null): number | null =>
   num === null || den === null || den === 0 ? null : round2((num / den) * 100);
 const cell = (plan: number | null, real: number | null): BudgetResultCell => ({ plan, real });
@@ -108,8 +118,13 @@ export class BudgetResultService {
         // presupuestar con el resultado, y además lo volvería imposible de incumplir.
         const costo = cell(null, r ? round2(r.costo) : null);
         const margen = cell(sub(venta.plan, costo.plan), sub(venta.real, costo.real));
-        const gastoOp = cell(pg?.gasto ?? null, g?.gasto_op ?? null);
-        const fin = cell(pg?.financieros ?? null, g?.fin_imp ?? null);
+        // ⚠️ Del lado REAL, un bucket vacío dentro de un mes QUE SÍ TIENE egresos es un cero de
+        // negocio, no una ausencia: `sum() FILTER` devuelve NULL cuando ninguna póliza cayó en esa
+        // familia, y eso significa «ese mes no hubo gasto financiero», no «no se sabe». En cambio
+        // un mes sin NINGÚN egreso (`g` undefined) sí es NO MEDIDO. Del lado PLAN nunca se rellena:
+        // ahí la ausencia siempre es «no hay presupuesto».
+        const gastoOp = cell(pg?.gasto ?? null, g ? (g.gasto_op ?? 0) : null);
+        const fin = cell(pg?.financieros ?? null, g ? (g.fin_imp ?? 0) : null);
 
         months.push({
           year_month: ym,
@@ -118,10 +133,11 @@ export class BudgetResultService {
           margen_bruto: margen,
           gasto_operativo: gastoOp,
           financieros: fin,
-          // Sin plan de costo de ventas el resultado planeado NO existe. Publicarlo sin ese
-          // renglón es exactamente lo que daba «100 % de margen».
+          // Sin plan de costo de ventas el resultado planeado NO existe. El guardia no va acá: lo
+          // hace la resta estricta, para que el invariante viva en UN solo lugar y no en cada
+          // renglón que alguien agregue después.
           resultado: cell(
-            costo.plan === null ? null : sub(sub(margen.plan, gastoOp.plan), fin.plan),
+            sub(sub(margen.plan, gastoOp.plan), fin.plan),
             sub(sub(margen.real, gastoOp.real), fin.real),
           ),
           margen_bruto_pct: cell(pct(margen.plan, venta.plan), pct(margen.real, venta.real)),
@@ -149,7 +165,7 @@ export class BudgetResultService {
         gasto_operativo: aGasto,
         financieros: aFin,
         resultado: cell(
-          aCosto.plan === null ? null : sub(sub(aMargen.plan, aGasto.plan), aFin.plan),
+          sub(sub(aMargen.plan, aGasto.plan), aFin.plan),
           sub(sub(aMargen.real, aGasto.real), aFin.real),
         ),
         margen_bruto_pct: cell(pct(aMargen.plan, aVenta.plan), pct(aMargen.real, aVenta.real)),
