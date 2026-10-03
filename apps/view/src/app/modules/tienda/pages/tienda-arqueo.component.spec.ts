@@ -192,4 +192,41 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     expect(campo!.readOnly).toBe(true);
     expect(cmp.aCajero).toBe('10C02');
   });
+
+  // ── `[FLT.29]` El selector de sucursal y la cadena de teclado del encabezado ──────────────
+  //
+  // El selector sólo se dibuja con MÁS DE UNA tienda alcanzable: con una sola no es una opción,
+  // es un hecho de la sesión. Lo que esta prueba protege de verdad es el efecto colateral:
+  // `onHeadKey(ev, idx)` indexa un `ViewChildren`, así que esconder el selector corre las
+  // posiciones de Caja y Cajero. Estaban escritas a mano (1 y 2) y con una sola sucursal
+  // quedaban corridas — ArrowLeft desde Caja se enfocaba a sí misma y ArrowRight hacia Cajero
+  // caía fuera de rango y **no hacía nada, en silencio**. Si alguien las vuelve a fijar, esto
+  // se pone rojo antes de que las flechas dejen de servirle a la cajera.
+  it('⭐ con UNA sola tienda no hay selector, y los índices del encabezado se corren', async () => {
+    cmp.manual.set(true);
+    await tick();
+
+    const root = fix.nativeElement as HTMLElement;
+    // El stub de alcance devuelve una sola sucursal: es el caso de la cajera.
+    expect(cmp.variasSucursales()).toBe(false);
+    expect(root.querySelector('.arq-fld-suc')).toBeNull();
+    expect(root.querySelector('.arq-suc-val')?.textContent).toContain('PADRE HIDALGO');
+    expect(cmp.idxCaja()).toBe(0);
+    expect(cmp.idxCajero()).toBe(1);
+  });
+
+  it('⭐ con varias tiendas vuelve el selector, y los índices vuelven a su lugar', async () => {
+    cmp.manual.set(true);
+    cmp.sucursales.set([
+      { value: '01', label: 'PADRE HIDALGO' },
+      { value: '03', label: '8 ESQUINAS' },
+    ]);
+    await tick();
+
+    const root = fix.nativeElement as HTMLElement;
+    expect(cmp.variasSucursales()).toBe(true);
+    expect(root.querySelector('.arq-suc-val')).toBeNull();
+    expect(cmp.idxCaja()).toBe(1);
+    expect(cmp.idxCajero()).toBe(2);
+  });
 });

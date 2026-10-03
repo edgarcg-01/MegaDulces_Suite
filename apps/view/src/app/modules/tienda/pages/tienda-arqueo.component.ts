@@ -283,13 +283,31 @@ interface CortesPersona {
           @if (manual()) {
             <!-- Escape hatch del supervisor: relevo, contingencia, caja sin Kepler. -->
             <div class="arq-head">
-              <label class="arq-lbl">Sucursal
-                <p-select #hcell [options]="sucursalOptions()" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)"
-                          optionLabel="label" optionValue="value" styleClass="arq-fld arq-fld-suc"
-                          appendTo="body" placeholder="Elige…" [filter]="sucursales().length > 8" filterBy="label"
-                          (keydown)="onHeadKey($event, 0)" />
-              </label>
-              <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2" (keydown)="onHeadKey($event, 1)" (focus)="selectAll($event)"></label>
+              <!-- [FLT.29] El selector es SOLO para quien alcanza más de una tienda. Con una
+                   sola no es una opción: es un hecho de la sesión, y el arqueo ya la
+                   autoselecciona al cargar el alcance. Un desplegable de un solo renglón es un
+                   paso que no decide nada y una casilla más que puede quedarse en blanco.
+
+                   El dato NO se esconde: un arqueo es un documento de dinero y tiene que decir
+                   de qué sucursal es. Se muestra fijo, que es exactamente lo que ya hacía
+                   app-sucursal-picker — esta pantalla no lo usa porque su select vive en la
+                   cadena de teclado del encabezado, y por eso la regla estaba duplicada y
+                   divergida. ⚠️ NO PONER ACENTOS GRAVES ACÁ: es un template literal. -->
+              @if (variasSucursales()) {
+                <label class="arq-lbl">Sucursal
+                  <p-select #hcell [options]="sucursalOptions()" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)"
+                            optionLabel="label" optionValue="value" styleClass="arq-fld arq-fld-suc"
+                            appendTo="body" placeholder="Elige…" [filter]="sucursales().length > 8" filterBy="label"
+                            (keydown)="onHeadKey($event, 0)" />
+                </label>
+              } @else {
+                <div class="arq-lbl arq-suc-fija">Sucursal
+                  <span class="arq-suc-val">
+                    <i class="pi pi-building" aria-hidden="true"></i>{{ branchLabel(aSuc) || 'Sin sucursal asignada' }}
+                  </span>
+                </div>
+              }
+              <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2" (keydown)="onHeadKey($event, idxCaja())" (focus)="selectAll($event)"></label>
               <!-- Sin selector de fecha: un arqueo es de HOY. Elegir una fecha
                    pasada permitiría sellar dinero de un día que ya cerró. -->
               <label class="arq-lbl">Fecha <span class="arq-fijo">{{ hoyTxt() }}</span></label>
@@ -297,7 +315,7 @@ interface CortesPersona {
                    no se le deja escribirlo: el backend le impone su usuario igual
                    (atribuir), y un campo editable que el servidor descarta en
                    silencio miente. Solo el supervisor captura a nombre de otra. -->
-              <label class="arq-lbl">Cajero <input #hcell pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" [readonly]="!revela" [attr.aria-readonly]="!revela" (ngModelChange)="dirty.set(true)" placeholder="código" (keydown)="onHeadKey($event, 2)" (focus)="selectAll($event)"></label>
+              <label class="arq-lbl">Cajero <input #hcell pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" [readonly]="!revela" [attr.aria-readonly]="!revela" (ngModelChange)="dirty.set(true)" placeholder="código" (keydown)="onHeadKey($event, idxCajero())" (focus)="selectAll($event)"></label>
               @if (turnos().length) {
                 <p-button type="button" label="Volver a mis turnos" icon="pi pi-arrow-left" styleClass="p-button-sm p-button-text" (click)="manual.set(false)"></p-button>
               }
@@ -884,6 +902,12 @@ interface CortesPersona {
        el conteo, que es justo el dato que no puede quedar a medias. */
     :host ::ng-deep .arq-fld-cajero { width: min(12rem, 100%); }
     .arq-fld-suc { width: min(11rem, 100%); }
+    /* [FLT.29] La sucursal cuando no hay nada que elegir. Mismo tratamiento que .sp-fija del
+       picker compartido: se lee como dato, no como control apagado. */
+    .arq-suc-fija { gap: .3rem; }
+    .arq-suc-val { display: inline-flex; align-items: center; gap: .35rem; padding: .35rem 0;
+      font-size: .82rem; font-weight: 600; color: var(--text-main); white-space: nowrap; }
+    .arq-suc-val i { font-size: .75rem; color: var(--text-muted); }
     /* width:100% + tope: llena el track que le toque (en touch el tope se
        levanta, abajo) pero puede encogerse - con width:5rem fijo el input era
        un piso de 80px que no cedia en una pantalla angosta. */
@@ -1123,6 +1147,18 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly sucursalOptions = computed(() =>
     this.sucursales().map((w) => ({ value: w.value, label: `${w.value} — ${w.label}` })));
   readonly variasSucursales = computed(() => this.sucursales().length > 1);
+
+  /**
+   * `[FLT.29]` La posición de cada casilla del encabezado en la cadena de teclado.
+   *
+   * ⚠️ **Derivadas, no fijas.** `onHeadKey(ev, idx)` indexa `headCells` (un `ViewChildren`), así
+   * que al esconder el selector de sucursal la lista pasa de 3 a 2 y los índices que estaban
+   * escritos a mano (`1` y `2`) quedaban corridos: ArrowLeft desde Caja se enfocaba a sí misma y
+   * ArrowRight hacia Cajero caía fuera de rango y **no hacía nada, en silencio**. Un número
+   * literal que depende de que un `@if` de más arriba sea cierto es una bomba de tiempo.
+   */
+  readonly idxCaja = computed(() => (this.variasSucursales() ? 1 : 0));
+  readonly idxCajero = computed(() => (this.variasSucursales() ? 2 : 1));
 
   /**
    * SM.38/SM.40 - Dos cajas abiertas con el mismo usuario. Viene resuelto del
