@@ -111,7 +111,9 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       <div class="ir-sub-bar">
         <span>
           {{ filas().length }}@if (filas().length !== d.routes.length) { de {{ d.routes.length }}} rutas ·
-          {{ d.desde === TODO ? 'desde la primera carga de cada una' : d.desde + ' → ' + d.hasta }} ·
+          {{ d.desde === TODO ? 'saldo actual, desde la primera carga de cada una' : d.desde + ' → ' + d.hasta }} ·
+          <!-- Qué día es "ayer" lo decide el servidor en hora de México, no el navegador. -->
+          ayer = {{ d.ayer }} ({{ d.rutas_cargaron_ayer }} de {{ d.rutas_totales }} cargaron) ·
           dato al {{ d.data_as_of ?? 'sin medir' }}
         </span>
         <span>
@@ -125,16 +127,17 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       <div class="dt-scope">
         <p-table [value]="filas()" dataKey="route_no" [scrollable]="true" scrollHeight="46vh"
                  class="dt-stack surf-table surf-table--sticky surf-table--frozen-first"
-                 size="small" [rowHover]="true" [tableStyle]="{ 'min-width': '70rem' }">
+                 size="small" [rowHover]="true" [tableStyle]="{ 'min-width': '78rem' }">
           <ng-template #header>
             <tr>
               <th>Ruta</th>
               <th>Plaza</th>
+              <th class="num">Cargado ayer</th>
               <th class="num">Cargado</th>
               <th class="num">{{ metrica() === 'costo' ? 'Costo vendido' : 'Venta a cliente' }}</th>
               <th class="num">Inventario</th>
               <th class="num">A favor</th>
-              <th class="num">En contra</th>
+              <th class="num" title="Vendió más de lo que se le cargó. Es un INDICIO: Kepler no tiene documento de retorno de ruta, así que no es un faltante medido">En contra</th>
               <th class="num">Días</th>
               <th class="num">Sin mover</th>
               <th class="num">Δ</th>
@@ -145,6 +148,20 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
             <tr [class.ir-fila-mal]="!cierra(r)" [class.ir-fila-parada]="parada(r)">
               <td class="dt-id ir-mono" role="cell"><strong>{{ r.route_no }}</strong></td>
               <td class="ir-tenue" role="cell" data-label="Plaza">{{ r.plaza }}</td>
+              <!--
+                NO cargó y cargó $0 no son lo mismo. Un 0 acá diría que le mandamos el camión
+                vacío; lo que pasó es que no hubo embarque. Se declara con guion y se dice
+                cuándo fue la última vez (ADR-056).
+              -->
+              <td class="num ir-mono" role="cell" data-label="Cargado ayer">
+                @if (r.cargado_ayer_costo === null) {
+                  <span class="ir-tenue"
+                        [title]="r.ultima_carga ? 'No hubo embarque ayer. Su última carga fue el ' + r.ultima_carga : 'Sin embarques registrados'">
+                    no cargó</span>
+                } @else {
+                  {{ r.cargado_ayer_costo | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                }
+              </td>
               <td class="num ir-mono" role="cell" data-label="Cargado">{{ carga(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="num ir-mono" role="cell"
                   [attr.data-label]="metrica() === 'costo' ? 'Costo vendido' : 'Venta a cliente'">{{ vendido(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
@@ -178,17 +195,23 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
         <p class="ir-contraste">
           <i class="pi pi-flag" aria-hidden="true"></i>
           <span>
-            <strong>El ERP tiene su propio costo, y no es éste.</strong>
-            Para las rutas de Padre Hidalgo, Kepler guarda además un costo en cada línea de venta:
-            <strong>{{ totalCogsErp() | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong> contra los
-            {{ totalVendido() | currency:'MXN':'symbol-narrow':'1.2-2' }} del embarque.
-            <strong>No se suman</strong> — miden cosas distintas.
+            <strong>El ERP tiene su propio costo, y sólo alcanza para una parte.</strong>
+            Kepler guarda además un costo en cada línea de venta, pero el ticket de la sucursal
+            no ve toda la venta de ruta: ese costo cubre
+            <strong>{{ coberturaContraste() === null ? 'una parte sin medir' : (coberturaContraste()! | number:'1.1-1') + '% del dinero vendido' }}</strong>,
+            y en Canindo no cubre nada.
+            Suma {{ totalCogsErp() | currency:'MXN':'symbol-narrow':'1.2-2' }} contra los
+            {{ totalCogs() | currency:'MXN':'symbol-narrow':'1.2-2' }} del embarque.
+            <strong>No se suman ni se sustituyen</strong>: tomarlo como el costo de lo vendido
+            publicaría un margen del 79% en vez del real.
           </span>
         </p>
       }
 
       <section class="ir-declara">
         <p><i class="pi pi-info-circle" aria-hidden="true"></i> {{ d.declara.sin_ancla }}</p>
+        <!-- Lo que la pantalla NO puede contestar, dicho antes de que alguien lo suponga. -->
+        <p><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ d.declara.faltante }}</p>
         <p><i class="pi pi-info-circle" aria-hidden="true"></i> {{ d.declara.fuera_de_alcance }}</p>
       </section>
     }
@@ -756,6 +779,29 @@ export class ComercialInventarioRutaComponent {
   readonly totalPos = computed(() => this.suma((r) => this.invPos(r)));
   readonly totalNeg = computed(() => this.suma((r) => this.invNeg(r)));
   readonly totalCogsErp = computed(() => this.suma((r) => Number(r.cogs_erp) || 0));
+  /** El COGS que SÍ se publica: valuado al costo del embarque, cobertura 100% de las cargas. */
+  readonly totalCogs = computed(() => this.suma((r) => Number(r.cogs_costo) || 0));
+  /**
+   * Lo cargado ayer. Suma sólo las rutas que tuvieron embarque; las que no, no entran.
+   * Sumar un null como 0 no cambia el total pero sí cambia el denominador de la lectura,
+   * y la sub-leyenda dice "N de M rutas", no "$X repartidos entre todas".
+   */
+  readonly totalAyer = computed(() =>
+    this.filas().reduce((a, r) => a + (r.cargado_ayer_costo ?? 0), 0));
+  readonly rutasConCargaAyer = computed(() =>
+    this.filas().filter((r) => r.cargado_ayer_costo !== null).length);
+  /** La venta que el contraste del ERP no alcanza a explicar, en pesos. */
+  readonly ventaSinContraste = computed(() =>
+    this.filas().reduce((a, r) => a + (r.venta_sin_cogs_erp ?? 0), 0));
+  /**
+   * Cobertura del contraste EN DINERO. Se publica ésta y no la de pares: medido contra prod,
+   * por pares el contraste "cubre" el 77.7% y en dinero el 31.6%. Un par con una sola línea
+   * con costo contaba como cubierto entero.
+   */
+  readonly coberturaContraste = computed<number | null>(() => {
+    const v = this.suma((r) => Number(r.venta_cliente) || 0);
+    return v > 0 ? (1 - this.ventaSinContraste() / v) * 100 : null;
+  });
   readonly sinCosto = computed(() => this.filas().reduce((a, r) => a + (r.pares_sin_costo || 0), 0));
   readonly sinPrecio = computed(() => this.filas().reduce((a, r) => a + (r.pares_sin_precio || 0), 0));
 
@@ -823,19 +869,32 @@ export class ComercialInventarioRutaComponent {
     const d = this.data();
     const inv = this.totalInv();
     const pct = this.pctDeLoCargado();
+    const rutas = this.filas().length;
+    const conCarga = this.rutasConCargaAyer();
     return [
+      /**
+       * El orden es el de las preguntas que se hacen en la mañana: qué traen, a qué costo
+       * vendieron, qué se les subió ayer y a quién le falta. `currency2` y no `currency-short`:
+       * esta pantalla se para en que la cuenta cierra AL CENTAVO, y el formato corto los
+       * esconde — `money.util` ya advierte que no va en una celda que alguien vaya a cuadrar.
+       */
       {
         label: `Inventario ${this.etiquetaMetrica()}`,
-        value: inv, format: 'currency-short',
+        value: inv, format: 'currency2',
         tone: inv < 0 ? 'bad' : 'brand',
         sub: pct === null ? 'sin base para comparar' : `${Math.abs(pct).toFixed(1)}% de lo cargado`,
       },
-      { label: 'A favor', value: this.totalPos(), format: 'currency-short', tone: 'ok',
-        sub: 'sigue arriba del camión' },
-      { label: 'En contra', value: this.totalNeg(), format: 'currency-short', tone: 'bad',
-        sub: 'ya lo traía de antes' },
-      { label: 'Cargado', value: this.totalCarga(), format: 'currency-short', tone: 'default',
-        sub: `${this.diasVentana()} días` },
+      { label: 'Costo de lo vendido', value: this.totalCogs(), format: 'currency2', tone: 'default',
+        sub: 'al costo del embarque' },
+      {
+        label: 'Cargado ayer',
+        value: this.totalAyer(), format: 'currency2',
+        tone: conCarga === 0 ? 'bad' : 'default',
+        // Las rutas que NO cargaron son el dato, no el relleno: medido, cargan 6 de 11 por dia.
+        sub: rutas ? `${conCarga} de ${rutas} rutas` : 'sin rutas',
+      },
+      { label: 'En contra', value: this.totalNeg(), format: 'currency2', tone: 'bad',
+        sub: 'indicio, no faltante medido' },
       {
         label: 'Cuadre',
         value: d?.cuadra === 'no_cierra' ? 'NO cierra' : d?.cuadra === 'cierra' ? 'Cierra' : 'Sin medir',

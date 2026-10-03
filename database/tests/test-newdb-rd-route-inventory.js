@@ -481,6 +481,72 @@ async function cuerposDeLaMigracion() {
       noMedido('los cuatro métodos nuevos', 'las vistas todavía no están aplicadas');
     }
 
+    // ── [RD.22] El default de la pantalla: saldo actual, COGS del embarque, carga de ayer ─────
+    //
+    // Se ejerce el SQL REAL de `routeInventory`, no una consulta parecida. Lo que vigila:
+    // (1) «no cargó» viaja como NULL y NUNCA como 0 — colapsarlo diría que le mandamos el
+    // camión vacío; (2) el COGS sale del costo del EMBARQUE y no del contraste del ERP, que
+    // cubre un tercio del dinero y publicaría un margen del 79%; (3) la cobertura de ese
+    // contraste se mide EN DINERO, no en pares, porque por pares da más del doble.
+    if (aplicada) {
+      const src = fs.readFileSync(SERVICIO, 'utf8');
+      const i = src.indexOf('async routeInventory(');
+      const a = src.indexOf('`', i); const b = src.indexOf('`', a + 1);
+      const sqlInv = src.slice(a + 1, b);
+      const ayer = new Date(Date.now() - 6 * 3600 * 1000 - 24 * 3600 * 1000)
+        .toISOString().slice(0, 10);
+      const inv = (await db.raw(sqlInv, [tenant, '2000-01-01', '2999-12-31', ayer, ayer, tenant, tenant])).rows;
+      t('el DEFAULT de la pantalla corre contra prod', inv.length > 0, `${inv.length} rutas`);
+
+      // ⚠️ La comparación va ESTRICTA contra 0, no por `Number(...)`: `Number(null)` es 0, así
+      // que la versión obvia marca en rojo justo las filas que están bien. Es el mismo descuido
+      // que esta pantalla vigila en el dato — un ausente leyéndose como un cero — cometido acá
+      // dentro del test que lo vigila.
+      const ceros = inv.filter((r) => r.cargado_ayer_costo === 0);
+      t('«no cargó» NO se dibuja como $0: viaja NULL', ceros.length === 0,
+        `${ceros.length} rutas con un 0 que se leería como «le cargamos nada»`);
+      const conCarga = inv.filter((r) => r.cargado_ayer_costo !== null);
+      t('la columna distingue las dos cosas (hay rutas con carga y rutas sin ella)',
+        conCarga.length > 0 && conCarga.length < inv.length,
+        `${conCarga.length} de ${inv.length} cargaron el ${ayer}`);
+      t('toda ruta dice cuándo fue su última carga, haya cargado ayer o no',
+        inv.every((r) => r.ultima_carga), 'sin eso, «no cargó» no se puede interpretar');
+
+      // PRUEBA NEGATIVA: con una fecha sin un solo embarque, TODAS tienen que caer en NULL.
+      const vacio = (await db.raw(sqlInv,
+        [tenant, '2000-01-01', '2999-12-31', '1990-01-01', '1990-01-01', tenant, tenant])).rows;
+      t('PRUEBA NEGATIVA · un día sin embarques deja las 11 en NULL, no en 0',
+        vacio.every((r) => r.cargado_ayer_costo === null),
+        `${vacio.filter((r) => r.cargado_ayer_costo !== null).length} filas se inventaron una cifra`);
+
+      // El COGS publicado vs el contraste: tienen que ser distintos y el contraste, menor.
+      const sum = (k) => inv.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+      const cogs = sum('cogs_costo'); const ce = sum('cogs_erp');
+      const venta = sum('venta_cliente'); const sinCe = sum('venta_sin_cogs_erp');
+      t('el COGS publicado sale del EMBARQUE, no del contraste del ERP', cogs > ce * 2,
+        `embarque ${cogs.toFixed(2)} vs contraste ${ce.toFixed(2)}`);
+      const margen = venta > 0 ? (venta - cogs) / venta * 100 : 0;
+      t('el margen de ruta cae en una banda creíble (10% a 40%)', margen > 10 && margen < 40,
+        `${margen.toFixed(2)}% · con el contraste daría ${((venta - ce) / venta * 100).toFixed(2)}%`);
+
+      const cobDinero = venta > 0 ? (1 - sinCe / venta) * 100 : 0;
+      const paresV = inv.reduce((s, r) => s + (Number(r.pares_vendidos) || 0), 0);
+      const paresSin = inv.reduce((s, r) => s + (Number(r.pares_sin_cogs_erp) || 0), 0);
+      const cobPares = paresV > 0 ? (1 - paresSin / paresV) * 100 : 0;
+      t('la cobertura del contraste se declara EN DINERO, y es MENOR que la de pares',
+        cobDinero < cobPares,
+        `dinero ${cobDinero.toFixed(1)}% vs pares ${cobPares.toFixed(1)}% — publicar la de pares infla`);
+      t('la venta sin testigo de costo está declarada, no en cero', sinCe > 0,
+        `${sinCe.toFixed(2)} de ${venta.toFixed(2)}`);
+
+      const t0 = Date.now();
+      await db.raw(sqlInv, [tenant, '2000-01-01', '2999-12-31', ayer, ayer, tenant, tenant]);
+      const ms = Date.now() - t0;
+      t(`el default cabe en 500 ms (${ms} ms)`, ms < 500, 'es la consulta que ve todo el mundo');
+    } else {
+      noMedido('el default de la pantalla', 'las vistas todavía no están aplicadas');
+    }
+
     console.log('\n  — el cuadre, ruta por ruta —');
     console.table(cuadre.map((r) => ({
       ruta: r.route_no,
