@@ -3654,7 +3654,21 @@ de pago · alcance en pirámide de 5 niveles sobre `ScopeService` (ADR-050), no 
   la pantalla debe mostrar la clave sola cuando falte el nombre. Prod (medido en ago): clave 100%,
   nombre 99.8%. Función pura `mis-gastos-kepler.ts` + candado (11 pruebas, con negativa: el mismo
   folio en otra sucursal NO se mezcla). finance 344→355 · view 1653 · build api + view OK.
-- [ ] **[GX.65.4]** Alcance por pirámide (`ScopeService`, área `finanzas`) + nadie aprueba su propio vale.
+- [x] **[GX.65.4a]** 🧪 **Nadie aprueba, valida ni rechaza su propio vale.** Segregación de
+  funciones: medido en local, **5 de 18** decisiones las tomó el dueño del vale (cuentas de
+  prueba, pero el hueco era real). Una sola guarda `asegurarQueNoEsSuyo` en `approve`/`validate`/
+  `reject`, aplica a TODOS (god-mode incluido). Compara las **dos identidades** de quien decide
+  (username y nombre completo) contra los **dos dueños** del vale (`created_by` y `evidencia_por`,
+  sin el prefijo `link:`): con un solo texto, quien capturó con su username y aprueba ya con nombre
+  cargado se colaba. Sin identidad → se niega. La regla vive en `libs/contracts`
+  (`dueno-del-vale.contract.ts`) porque la leen servidor y pantalla. En Aprobación de gastos el
+  vale propio **no ofrece** Revisado/Rechazar y dice «Es tuyo: lo revisa otra persona»; si igual
+  llega al servidor, el aviso muestra su motivo. ⚠️ **Para probar en local ahora hacen falta DOS
+  cuentas**: una que levanta y otra que revisa. contracts 325→334 · finance 369→360 (9 pruebas
+  movidas a contracts) · view 1653→1658 · build api + view OK · check:templates/tokens/estilos.
+- [ ] **[GX.65.4b]** Alcance por pirámide (`ScopeService`, área `finanzas`): quién ve qué en «Todos»
+  y en el Expediente (hoy cualquiera con `COMPROBAR` ve toda la empresa). Depende de fichas con
+  sucursal y del centro de costo (`c12`, sesión DM.19) para lo anterior al 1-oct.
 - [ ] **[GX.65.5]** La pantalla en 3 columnas + filtros.
 
 ### 🔨 [GX.57] + [GX.58] · el concepto obligatorio y el botón «Revisado» — 2026-10-01

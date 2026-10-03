@@ -1,4 +1,4 @@
-import { Inject, Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, BadRequestException, ForbiddenException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
@@ -63,6 +63,7 @@ import {
 } from './calendario-gastos';
 import { ESTADOS_ABIERTOS, TOPE_ABIERTOS, unirAbiertosYCerrados } from './mis-gastos-abiertos';
 import { agruparGastosPorSolicitud, datosKeplerDeLaFila } from './mis-gastos-kepler';
+import { esDuenoDelVale, MENSAJE_PROPIO_VALE, type IdentidadQueDecide } from '@megadulces/contracts';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -937,8 +938,10 @@ export class ExpenseProofsService {
      * desde cuando. Sin la marca, un vale asi era indistinguible de uno cerrado con su
      * factura, y ese numero no se podia contestar.
      */
-    provisional?: boolean; comprobante_esperado_at?: string }): Promise<{ id: string; status: string }> {
+    provisional?: boolean; comprobante_esperado_at?: string }, quien?: IdentidadQueDecide): Promise<{ id: string; status: string }> {
     this.tenantCtx.requireTenantId();
+    // `[GX.65.4a]` Antes que nada: el dueño del vale no lo decide.
+    await this.tk.run((trx) => this.asegurarQueNoEsSuyo(trx, id, quien));
     const clasIn = (dto?.clasificacion || '').trim();
     if (clasIn && !EXPENSE_CLASIFICACIONES.includes(clasIn as ExpenseClasificacion)) {
       throw new BadRequestException('clasificación inválida');
@@ -2661,7 +2664,7 @@ export class ExpenseProofsService {
    * equivocó de naturaleza): al hacerlo se re-aplica la regla de evidencia. No se puede
    * validar un gasto comprobable sin su evidencia, ni cerrar un no_comprobable sin motivo.
    */
-  async validate(id: string, actor?: string, dto?: { clasificacion?: string; comprobacion_nota?: string }) {
+  async validate(id: string, actor?: string, dto?: { clasificacion?: string; comprobacion_nota?: string }, quien?: IdentidadQueDecide) {
     this.tenantCtx.requireTenantId();
     const clasIn = (dto?.clasificacion || '').trim();
     if (clasIn && !EXPENSE_CLASIFICACIONES.includes(clasIn as ExpenseClasificacion)) {
@@ -2669,6 +2672,8 @@ export class ExpenseProofsService {
     }
     const notaIn = (dto?.comprobacion_nota || '').trim();
     return this.tk.run(async (trx) => {
+      // `[GX.65.4a]` El dueño del vale no lo valida.
+      await this.asegurarQueNoEsSuyo(trx, id, quien);
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
       const cur: any = await trx('finance.expense_proofs').where({ id }).whereIn('status', ['aprobada', 'rechazada', 'revision'])
         .first('folio_solicitud', 'files', ...(clasCol ? ['clasificacion', 'comprobacion_nota'] : []));
@@ -2711,9 +2716,28 @@ export class ExpenseProofsService {
   }
 
   /** Rechaza (con motivo). */
-  async reject(id: string, actor?: string, motivo?: string) {
+  /**
+   * `[GX.65.4a]` **Nadie decide sobre su propio vale.** Una sola guarda para aprobar, validar y
+   * rechazar — si viviera copiada en cada uno, la primera en olvidarse abriría el hueco.
+   *
+   * ⛔ Sin identidad NO se deja pasar: es la única forma segura. Los tres métodos sólo los llama
+   * el controller, que siempre manda al usuario del token.
+   * Si el vale no existe, no se dice nada aquí: cada método ya responde «no encontrado» con su
+   * propia frase.
+   */
+  private async asegurarQueNoEsSuyo(trx: Knex, id: string, quien?: IdentidadQueDecide): Promise<void> {
+    if (!quien || (!String(quien.username ?? '').trim() && !String(quien.full_name ?? '').trim())) {
+      throw new ForbiddenException('No se pudo identificar quién decide sobre el vale.');
+    }
+    const vale = await trx('finance.expense_proofs').where({ id }).first('created_by', 'evidencia_por');
+    if (vale && esDuenoDelVale(vale, quien)) throw new ForbiddenException(MENSAJE_PROPIO_VALE);
+  }
+
+  async reject(id: string, actor?: string, motivo?: string, quien?: IdentidadQueDecide) {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      // `[GX.65.4a]` El dueño del vale tampoco se lo rechaza a sí mismo.
+      await this.asegurarQueNoEsSuyo(trx, id, quien);
       const [row] = await trx('finance.expense_proofs').where({ id }).whereIn('status', ['recibida', 'aprobada', 'validada', 'revision'])
         .update({ status: 'rechazada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
         .returning(['id', 'status']);
