@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
@@ -32,7 +32,10 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
           <h1>Bandeja de atención</h1>
           <p>Lo más urgente y lo que más tiempo lleva esperando va arriba. Toma una solicitud para empezar.</p>
         </div>
-        <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="recargar()" />
+        <div class="sb-head-actions">
+          <p-button icon="pi pi-plus" label="Levantar solicitud" (onClick)="levantar()" />
+          <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="recargar()" />
+        </div>
       </header>
 
       @if (st(); as s) {
@@ -105,6 +108,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
     .sb-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; }
     .sb-head h1 { margin: 0; font: 700 var(--fs-h2)/1.2 var(--font-body); color: var(--text-main); }
     .sb-head p { margin: var(--sp-1) 0 0; color: var(--text-muted); font-size: var(--fs-sm); }
+    .sb-head-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .sb-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-3); }
     .sb-kpi { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); }
     .sb-kpi b { font: 700 var(--fs-h2)/1 var(--font-mono); color: var(--text-main); }
@@ -179,6 +183,10 @@ export class ServicioBandejaComponent implements OnInit {
   private readonly perms = inject(PermissionsService);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+
+  /** `[MS.3.11]` Quien atiende también levanta solicitudes (a su nombre o a nombre de otra persona): el formulario es el mismo. */
+  levantar(): void { void this.router.navigate(['/servicio/solicitudes'], { queryParams: { nueva: 1 } }); }
 
   readonly statusLabel = STATUS_LABEL;
   readonly priorityLabel = PRIORITY_LABEL;

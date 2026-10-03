@@ -11,6 +11,7 @@ import type { SdPriority } from '@megadulces/contracts';
 
 export type SdEventoClave =
   | 'nuevo_prioritario'
+  | 'levantada'
   | 'asignado'
   | 'comentario'
   | 'resuelto'
@@ -60,6 +61,9 @@ export function armarAviso(e: EntradaAviso): Aviso {
         message: `${ref}${quien ? ` — la reportó ${quien}` : ''}.`,
         severity: e.priority === 'urgente' ? 'critical' : 'warn',
       };
+    case 'levantada':
+      // `[MS.3.11]` A quien NO la reportó se le avisa: de otro modo le llegarían los «resuelto» de algo que no sabía que existía.
+      return { title: 'Se levantó una solicitud a tu nombre', message: `${ref}${quien ? ` — la levantó ${quien}` : ''}.`, severity: 'info' };
     case 'asignado':
       return {
         title: 'Te asignaron una solicitud',
