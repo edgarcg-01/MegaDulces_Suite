@@ -40,6 +40,8 @@ export interface PagoKepler {
   clave_banco?: string | null;
   /** La misma cuenta como la conoce Bancos (`finance.bank_accounts.account_label`). */
   account_label?: string | null;
+  /** Nombre del banco según Kepler (`kdb1.c2`, p. ej. `BAJIO 6506`): decide cómo se lee la cuenta. */
+  banco_nombre?: string | null;
 }
 
 /** El día `YYYY-MM-DD` de una fecha en texto. `null` si no empieza así. */
@@ -64,21 +66,60 @@ export function chequeoFecha(ocr: string | null | undefined, pago: string | null
   return a === b ? 'ok' : 'difiere';
 }
 
+/** `[PC.7]` ¿El banco es BanBajío? Kepler lo nombra `BAJIO 6506`; Bancos, `BBAJIO`. */
+export function esBancoBajio(banco: string | null | undefined): boolean {
+  return /BAJ[IÍ]O/i.test(String(banco ?? ''));
+}
+
 /**
- * ¿La cuenta de origen del comprobante es la del pago? Kepler identifica la cuenta por sus últimos
- * dígitos (`1463`); el comprobante trae el número de cuenta, la CLABE o una versión enmascarada.
+ * Las formas de un número de cuenta cuyo FINAL es la clave de la cuenta (la que usa Kepler, `1463`).
  *
- * ⚠️ **La CLABE (18 dígitos) termina en un dígito verificador**: la cuenta `1463` aparece como
- * `…01463` + `6`. Si son 18 dígitos, también se compara sin el último.
+ *  · El número tal cual (cuenta, o enmascarado `****1463`).
+ *  · ⚠️ **CLABE (18 dígitos)**: termina en un dígito verificador; la cuenta `1463` aparece como
+ *    `…01463` + `6`. Se agrega sin el último dígito.
+ *  · ⚠️ **`[PC.7]` BanBajío (12 dígitos)**: la clave está en el CENTRO, no al final —
+ *    `2457` + **`6506`** + `0201`. Medido en los comprobantes de BajioNet (2026-10-04): las
+ *    cuentas `245765060201`, `245758540201` y `199241660201` son las claves Kepler `6506`,
+ *    `5854` y `4166`; los cuatro últimos dígitos (`0201`) se repiten en TODAS, por eso parecía
+ *    que todo salía de la misma cuenta. Se lee SÓLO el número sin esos 4 últimos dígitos: leerlo
+ *    también por el final dejaría pasar `0201` como si fuera una clave (lo encontró la prueba
+ *    negativa). Sólo si el banco es BanBajío: en otro banco, 12 dígitos se leen por el final.
+ *
+ * ⛔ No es «relajar» la regla: cada forma sigue exigiendo la clave EXACTA de la cuenta.
  */
-export function chequeoBanco(cuentaOrigen: string | null | undefined, pago: Pick<PagoKepler, 'clave_banco' | 'account_label'>): Chequeo {
+export function formasDeCuenta(cuenta: string | null | undefined, banco?: string | null): string[] {
+  const d = String(cuenta ?? '').replace(/\D/g, '');
+  if (!d) return [];
+  if (d.length === 12 && esBancoBajio(banco)) return [d.slice(0, 8)];
+  const f = [d];
+  if (d.length === 18) f.push(d.slice(0, 17));
+  return f;
+}
+
+/** ¿El número de cuenta corresponde a la cuenta con esa clave (`1463`, `6506`)? */
+export function cuentaEsClave(cuenta: string | null | undefined, clave: string | null | undefined, banco?: string | null): boolean {
+  const t = String(clave ?? '').replace(/\D/g, '');
+  if (t.length < 3) return false;
+  return formasDeCuenta(cuenta, banco).some((f) => f.endsWith(t));
+}
+
+/**
+ * ¿La cuenta de origen del comprobante es la del pago? Kepler identifica la cuenta por su clave
+ * (`1463`, `6506`); el comprobante trae el número de cuenta, la CLABE o una versión enmascarada.
+ * Cómo se lee cada formato: `formasDeCuenta`.
+ *
+ * ⚠️ `[PC.7]` Si Kepler trae la clave (`kdm1.c45`) se compara SÓLO contra ella. La etiqueta de
+ * Bancos puede ser más corta (BanBajío: `854`, `506` contra las claves `5854`, `6506`) y
+ * comparar contra la corta aceptaría otra cuenta que termine igual. La etiqueta queda de respaldo
+ * para cuando Kepler no trae clave.
+ */
+export function chequeoBanco(cuentaOrigen: string | null | undefined, pago: Pick<PagoKepler, 'clave_banco' | 'account_label' | 'banco_nombre'>): Chequeo {
   const digitos = String(cuentaOrigen ?? '').replace(/\D/g, '');
-  const colas = [pago.account_label, pago.clave_banco]
-    .map((t) => String(t ?? '').replace(/\D/g, ''))
-    .filter((t) => t.length >= 3);
-  if (!digitos || !colas.length) return 'sin_dato';
-  const formas = digitos.length === 18 ? [digitos, digitos.slice(0, 17)] : [digitos];
-  return colas.some((t) => formas.some((f) => f.endsWith(t))) ? 'ok' : 'difiere';
+  const clave = String(pago.clave_banco ?? '').replace(/\D/g, '');
+  const etiqueta = String(pago.account_label ?? '').replace(/\D/g, '');
+  const contra = clave.length >= 3 ? clave : etiqueta.length >= 3 ? etiqueta : '';
+  if (!digitos || !contra) return 'sin_dato';
+  return cuentaEsClave(digitos, contra, pago.banco_nombre) ? 'ok' : 'difiere';
 }
 
 /** Sufijos societarios y artículos que no distinguen a un proveedor de otro. */

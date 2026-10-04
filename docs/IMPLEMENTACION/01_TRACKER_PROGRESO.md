@@ -3605,7 +3605,7 @@ lo alimente, es lo que dejó el módulo muerto.
 **antes** del redeploy (si el código sale primero, «Mis gastos» consulta una columna que no existe) ·
 redeploy api+view. **Sin permisos nuevos → sin re-login.**
 
-### 🔨 [PC.3]–[PC.6] · Pagos a proveedor: captura por lote con IA, cuatro coincidencias exactas que validan solas, y nadie valida su propio comprobante — 2026-10-03
+### 🔨 [PC.3]–[PC.7] · Pagos a proveedor: captura por lote con IA, cuatro coincidencias exactas que validan solas, y nadie valida su propio comprobante — 2026-10-03
 
 En `/finanzas/pagos-comprobantes`, el botón «Capturar comprobante» (un diálogo por PDF) se reemplaza
 por una **zona de carga en la página que acepta varios PDFs a la vez**. Acordado con el usuario:
@@ -3671,6 +3671,23 @@ la IA propone, **nada se guarda sin el clic de «Guardar»**.
   `test-newdb-pc6-banco-del-pago.js` **10/10** en local con rollback (registrado en `run-all-tests.js`) (con prueba negativa: sin el
   filtro de doctype el pago toma el banco del cheque → rojo). Validación visual con OCR/búsqueda
   simulados.
+
+- [x] **[PC.7]** 🧪 **BanBajío pone la clave de la cuenta en el CENTRO del número, no al final** (encontrado en
+  las primeras pruebas en producción, 2026-10-04). El usuario reportó que «todos los pagos del Bajío marcan la
+  misma cuenta de salida». **No es la misma**: `2457 6506 0201` (SPEI a Embotelladora AGA) es la cuenta Kepler
+  **BAJIO 6506**; `2457 5854 0201` → **5854**; `1992 4166 0201` → **4166** (claves Kepler: 3660, 4166, 5854,
+  6506). Lo que se repite es el sufijo `0201`. La regla comparaba por el FINAL → `banco` salía `difiere` en
+  todo pago del Bajío (nunca se validaba solo) y la alerta vieja `cuenta_propia` (SP.1) marcaba **todo
+  pago del Bajío como «cuenta ajena»**. ⛔ **No se relajó la regla** (aceptar cualquier cuenta Bajío validaría
+  pagos que salieron de OTRA cuenta): se lee bien el formato. `formasDeCuenta()` en `libs/contracts`: 12
+  dígitos + banco BanBajío → se lee SÓLO `d.slice(0,8)` (leer también por el final dejaba pasar `0201`
+  como clave — lo encontró la prueba negativa). Además, con la clave de Kepler presente se compara SÓLO
+  contra ella: la etiqueta de Bancos del Bajío es de 3 dígitos (`854`, `506`) y aceptaría otra cuenta que
+  termine igual. El servidor usa la misma regla en `isOwnAccount`, `findOwnAccountId` y la decisión de
+  PC.6. Migración **`20261004130000`**: corrige a `cuenta_propia = true` los comprobantes del Bajío ya
+  guardados (sólo `false → true`, sólo 12 dígitos que calzan con una cuenta Bajío propia; idempotente).
+  Pruebas: contrato **27** (con los números reales y 6 negativos), `cuenta-bajio.spec.ts` **4** (con
+  prueba negativa), smoke `test-newdb-pc7-cuenta-propia-bajio.js` **7/7** con rollback.
 
 **Pendiente:** ⚠️ **medir en prod si la vista `analytics.erp_supplier_payments` ve los pagos
 posteriores al 1-oct** — sigue anclada al `00` (Fase PO). Si no los ve, la captura por lote dirá

@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, ForbiddenException, Logger, Optional }
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
 import { LlmExtractorService, OcrReadingsService, SupplierPaymentFields } from '@megadulces/platform-core';
 import { Knex } from 'knex';
-import { esDuenoDelVale, coincidenciasPago, coincidenTodas, diferenciasPago, type IdentidadQueDecide, type CoincidenciasPago } from '@megadulces/contracts';
+import { esDuenoDelVale, coincidenciasPago, coincidenTodas, diferenciasPago, cuentaEsClave, type IdentidadQueDecide, type CoincidenciasPago } from '@megadulces/contracts';
 import { PagosComprobantesGateway } from './pagos-comprobantes.gateway';
 
 /**
@@ -402,13 +402,13 @@ export class SupplierPaymentProofsService {
 
   /** `[PC.6]` Lo que las cuatro coincidencias necesitan del pago: monto, día, proveedor y banco. */
   private async pagoParaCoincidir(trx: Knex, sucursal: string, docPrefix: string, folio: string): Promise<{
-    monto: string | null; pago_dia: string | null; proveedor_nombre: string | null; clave_banco: string | null; account_label: string | null;
+    monto: string | null; pago_dia: string | null; proveedor_nombre: string | null; clave_banco: string | null; account_label: string | null; banco_nombre: string | null;
   } | null> {
     const r = await trx('analytics.erp_supplier_payments as c')
       .joinRaw(LATERAL_BANCO_DEL_PAGO)
       .where({ 'c.tenant_id': this.tenantCtx.requireTenantId(), 'c.sucursal': sucursal, 'c.doc_prefix': docPrefix, 'c.folio': folio })
       .first(trx.raw('c.monto::numeric AS monto'), trx.raw(`to_char(c.pago_date, 'YYYY-MM-DD') AS pago_dia`),
-        'c.proveedor_nombre', 'kb.clave_banco', 'kb.account_label');
+        'c.proveedor_nombre', 'kb.clave_banco', 'kb.account_label', 'kb.banco_nombre');
     return r ?? null;
   }
 
@@ -784,29 +784,37 @@ export class SupplierPaymentProofsService {
     return out;
   }
 
-  /** ID de la cuenta de banco propia cuyo `account_label` es sufijo de la cuenta de origen. */
-  private async findOwnAccountId(trx: any, cuenta?: string | null): Promise<string | null> {
-    const digits = String(cuenta ?? '').replace(/\D/g, '');
-    if (!digits) return null;
-    const accts = await trx('finance.bank_accounts')
+  /**
+   * ID de la cuenta de banco propia que corresponde a la cuenta de origen.
+   * `[PC.7]` Se lee con `cuentaEsClave` (libs/contracts): en BanBajío la clave va en el CENTRO del
+   * número (`2457` + `6506` + `0201`); comparar por el final no reconocía ninguna cuenta Bajío.
+   */
+  private async findOwnAccountId(trx: Knex, cuenta?: string | null): Promise<string | null> {
+    if (!String(cuenta ?? '').replace(/\D/g, '')) return null;
+    const accts: { id: string; bank: string; account_label: string }[] = await trx('finance.bank_accounts')
       .where({ tenant_id: this.tenantCtx.requireTenantId(), kind: 'bank', active: true })
-      .whereRaw(`account_label ~ '^[0-9]{3,}$'`).select('id', 'account_label');
-    const hit = accts.find((a: any) => digits.endsWith(a.account_label));
+      .whereRaw(`account_label ~ '^[0-9]{3,}$'`).select('id', 'bank', 'account_label');
+    // La etiqueta más larga primero: `4166` antes que un `166` que también calzaría.
+    const hit = accts.sort((a, b) => b.account_label.length - a.account_label.length)
+      .find((a) => cuentaEsClave(cuenta, a.account_label, a.bank));
     return hit ? hit.id : null;
   }
 
-  /** Etiquetas de cuenta (dígitos finales) de las cuentas de banco propias. */
-  private async ownBankTails(trx: any): Promise<string[]> {
+  /** Cuentas de banco propias (banco + etiqueta: el banco decide cómo se lee el número). */
+  private async ownBankTails(trx: Knex): Promise<{ bank: string; account_label: string }[]> {
     return trx('finance.bank_accounts')
       .where({ tenant_id: this.tenantCtx.requireTenantId(), kind: 'bank', active: true })
-      .whereRaw(`account_label ~ '^[0-9]{3,}$'`).pluck('account_label');
+      .whereRaw(`account_label ~ '^[0-9]{3,}$'`).select('bank', 'account_label');
   }
 
-  /** ¿La cuenta de origen del pago termina en una cuenta propia? null = no verificable. */
-  private isOwnAccount(cuenta: unknown, tails: string[]): boolean | null {
-    const digits = String(cuenta ?? '').replace(/\D/g, '');
-    if (!digits || !tails.length) return null;
-    return tails.some((t) => t.length >= 3 && digits.endsWith(t));
+  /**
+   * ¿La cuenta de origen del pago es una cuenta propia? null = no verificable.
+   * `[PC.7]` Antes comparaba por el final y TODA cuenta BanBajío (`…0201`) salía «cuenta ajena».
+   */
+  private isOwnAccount(cuenta: unknown, tails: { bank: string; account_label: string }[]): boolean | null {
+    const c = String(cuenta ?? '');
+    if (!c.replace(/\D/g, '') || !tails.length) return null;
+    return tails.some((t) => cuentaEsClave(c, t.account_label, t.bank));
   }
 
   private parseDataUri(dataUri: string): { mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf'; base64: string } {

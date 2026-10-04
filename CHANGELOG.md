@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos a proveedor: las cuentas BanBajío se reconocen (PC.7, 2026-10-04)
+- BanBajío pone la clave de la cuenta en el **centro** del número (`2457` + `6506` + `0201`), no al final. La coincidencia de **banco** salía en rojo en todo pago del Bajío (nunca se validaba solo) y la alerta «cuenta de origen NO reconocida» los marcaba a todos. Se lee bien el formato, sin relajar la regla: otra cuenta del Bajío sigue sin coincidir. La migración `20261004130000` corrige la alerta en los comprobantes ya guardados.
 ### Changed — Tesorería entra a Obligaciones a proveedor, y la pirámide de accesos queda propuesta (TP.13/TP.14, 2026-10-03)
 - **María de la Paz** (Jefe de Tesorería) ve las obligaciones y ajusta el plazo pactado; **Julio Torres** (arma el expediente
   de pagos y hace el programa cuando ella no está) sólo ve. Por persona, con motivo, y asentado en la Historia de cada uno.
