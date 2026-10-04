@@ -4,6 +4,7 @@ import {
   DestroyRef,
   HostListener,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -41,7 +42,7 @@ import { AuthService } from '../../../core/services/auth.service';
     <div class="head">
       <div>
         <h1 class="page-title">Buscar cliente</h1>
-        <p class="subtitle">Cualquier cliente del catálogo, esté o no en tu cartera</p>
+        <p class="subtitle">Primero los de tu ruta; los demás, en la otra pestaña</p>
       </div>
       <button type="button" class="new-btn" [class.active]="showForm()" (click)="toggleForm()">
         <i class="pi" [ngClass]="showForm() ? 'pi-times' : 'pi-plus'"></i>
@@ -110,6 +111,19 @@ import { AuthService } from '../../../core/services/auth.service';
                   spellcheck="false"
                   />
                 </div>
+                <!-- [VS.1] Tu ruta / otras rutas -->
+                <div class="tabs" role="tablist" aria-label="Qué clientes ver">
+                  <button type="button" role="tab" class="tab" [class.on]="tab() === 'mine'"
+                    [attr.aria-selected]="tab() === 'mine'" (click)="setTab('mine')">
+                    {{ mineLabel() }}
+                    @if (tab() === 'mine' && !loading()) { <span class="cnt">{{ total() }}</span> }
+                  </button>
+                  <button type="button" role="tab" class="tab" [class.on]="tab() === 'others'"
+                    [attr.aria-selected]="tab() === 'others'" (click)="setTab('others')">
+                    Clientes otras rutas
+                    @if (tab() === 'others' && !loading()) { <span class="cnt">{{ total() }}</span> }
+                  </button>
+                </div>
                 @if (loading()) {
                   <p-skeleton height="500px"></p-skeleton>
                 }
@@ -127,7 +141,10 @@ import { AuthService } from '../../../core/services/auth.service';
                     @if (search) {
                       <p>Sin resultados para "{{ search }}".</p>
                     }
-                    @if (!search) {
+                    @if (!search && tab() === 'mine') {
+                      <p>No tienes clientes en tu ruta de hoy.</p>
+                    }
+                    @if (!search && tab() === 'others') {
                       <p>Escribí para buscar un cliente.</p>
                     }
                     @if (search) {
@@ -251,6 +268,11 @@ import { AuthService } from '../../../core/services/auth.service';
       .search i { color: var(--text-muted); }
       .search input { flex: 1; border: none; background: none; outline: none; height: 2.8rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
       .search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+      .tabs { display: flex; gap: 0.25rem; margin: -0.25rem 0 1rem; padding: 0.2rem; border-radius: var(--r-pill, 999px); background: var(--neutral-100); }
+      .tab { flex: 1; min-width: 0; min-height: 2.5rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; border: none; border-radius: var(--r-pill, 999px); background: none; color: var(--text-muted); font-family: var(--font-body); font-weight: 700; font-size: 0.82rem; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .tab.on { background: var(--card-bg); color: var(--text-main); box-shadow: 0 1px 2px rgba(16,13,9,0.1); }
+      .tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+      .tab .cnt { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
       .empty { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
       .empty i { font-size: 2.25rem; display: block; margin-bottom: 0.5rem; color: var(--text-faint); }
       .err-banner { display: flex; align-items: center; gap: 0.45rem; width: 100%; margin-bottom: 0.6rem; padding: 0.55rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--bad-soft-bg); border: 1px solid var(--bad-soft-bg); color: var(--bad-soft-fg); font-size: 0.78rem; font-weight: 600; text-align: left; cursor: pointer; }
@@ -356,6 +378,18 @@ export class VendorCustomersComponent implements OnInit {
   /** Falló la búsqueda (red) — distinto de "sin resultados" (estándar PWA §5). */
   readonly loadError = signal(false);
   readonly customers = signal<VendorCustomer[]>([]);
+  /** [VS.1] Pestaña activa: la cartera de hoy o el resto del catálogo. */
+  readonly tab = signal<'mine' | 'others'>('mine');
+  /** Total que devolvió el servidor para la pestaña activa (puede ser más que lo mostrado). */
+  readonly total = signal(0);
+  /** Rutas de hoy del vendedor; null = aún no cargan o fallaron. */
+  readonly routes = signal<string[] | null>(null);
+  readonly mineLabel = computed(() => {
+    const r = this.routes();
+    if (r && r.length === 1) return `Tu ruta · ${r[0]}`;
+    if (r && r.length > 1) return `Tus rutas (${r.length})`;
+    return 'Tu ruta';
+  });
 
   // ─── Menú de opciones (bottom-sheet) ───
   readonly sheet = signal<VendorCustomer | null>(null);
@@ -385,8 +419,18 @@ export class VendorCustomersComponent implements OnInit {
         // catchError DENTRO del switchMap: un error de red NO mata el stream
         // (sin esto, tras un fallo la búsqueda quedaba muerta hasta recargar).
         switchMap((s) =>
-          this.api.listCustomers({ search: s.trim() || undefined, pageSize: 100 }).pipe(
-            map((r) => r.data),
+          this.api
+            .listCustomers({
+              search: s.trim() || undefined,
+              // La cartera de un día cabe entera (la más grande medida: 158); el resto, paginado.
+              pageSize: this.tab() === 'mine' ? 300 : 100,
+              scope: this.tab(),
+            })
+            .pipe(
+            map((r) => {
+              this.total.set(r.total);
+              return r.data;
+            }),
             catchError(() => {
               this.loadError.set(true);
               return of<VendorCustomer[] | null>(null);
@@ -406,11 +450,23 @@ export class VendorCustomersComponent implements OnInit {
       });
 
     this.runSearch(''); // carga inicial
+    this.api
+      .myRoutes()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => this.routes.set(r), error: () => this.routes.set(null) });
 
     // Llegada desde "Agregar cliente" del home (ronda vacía): abre el form directo.
     if (this.route.snapshot.queryParamMap.get('new') === '1') {
       this.toggleForm();
     }
+  }
+
+  setTab(t: 'mine' | 'others'): void {
+    if (this.tab() === t) return;
+    this.tab.set(t);
+    this.customers.set([]);
+    this.first = true; // skeleton: la lista de la otra pestaña no es la misma
+    this.runSearch(this.search);
   }
 
   onSearch(v: string): void {
