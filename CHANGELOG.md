@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — Tesorería entra a Obligaciones a proveedor, y la pirámide de accesos queda propuesta (TP.13/TP.14, 2026-10-03)
+- **María de la Paz** (Jefe de Tesorería) ve las obligaciones y ajusta el plazo pactado; **Julio Torres** (arma el expediente
+  de pagos y hace el programa cuando ella no está) sólo ve. Por persona, con motivo, y asentado en la Historia de cada uno.
+  Nadie de Tesorería captura obligaciones ni autoriza el calendario. Requiere volver a entrar.
+- **Pirámide de accesos (propuesta, sin construir):** revisión de 143 personas en 41 puestos; quién ve toda la red, su zona,
+  el CEDIS o su sucursal, y 101 sin acceso. Hallazgo: la pantalla hoy no filtra por lugar. Maqueta en `docs/.../prototipos/`.
 ### Fixed — cotización: cada usuario cotiza sólo en SUS sucursales (COT.19, 2026-10-03)
 - El cotizador arrancaba en la 01 y ofrecía las 8 sucursales a cualquiera, y el servidor no validaba: un vendedor de Morelia Abastos cotizaba con precios de Padre Hidalgo. Ahora usa el alcance por sucursal de ADR-050 (área `televenta`): una sucursal fija para vendedores, sólo las suyas para quien tiene varias, todas para dirección; 403 en catálogo, precio, vendedores, crear y editar fuera del alcance; la lista muestra sólo las cotizaciones de sus sucursales. Endpoint nuevo `GET /commercial/quotes/branches`. ⚠️ 3 usuarios sin sucursal en su perfil quedan sin poder cotizar hasta que se les asigne.
 ### Changed — `/compras/pedido`: cada artículo con SUS unidades, 1, 2 o 3 (RA-PRO.70, 2026-10-03)
