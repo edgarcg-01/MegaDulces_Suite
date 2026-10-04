@@ -6,7 +6,6 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
-import { InputNumberModule } from 'primeng/inputnumber';
 import { SelectModule } from 'primeng/select';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
@@ -18,7 +17,9 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, PagoDetail, PagoCandidate } from '../pagos-comprobantes.service';
+import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, PagoDetail } from '../pagos-comprobantes.service';
+import { PagosCapturaLoteComponent, type LoteGuardado } from '../components/pagos-captura-lote.component';
+import { CRITERIOS_PAGO, ETIQUETA_CRITERIO_PAGO, type Chequeo } from '@megadulces/contracts';
 import { PagosComprobantesSocketService, PaymentProofEvent } from '../pagos-comprobantes-socket.service';
 
 /** PC.2 — una foto del gasto (factura/ticket/mercancía). Se lee su total para validar Σ gastos ≈ pago. */
@@ -30,15 +31,16 @@ interface GastoFile {
 
 /**
  * CC (extensión) — "Comprobantes de Pago a Proveedor". Lista los pagos de Kepler
- * (documento XD2501) y le adjunta a cada uno el COMPROBANTE DE TRANSFERENCIA
- * (imagen/PDF): el capturista elige el pago, sube el comprobante, corre OCR (Claude
- * vision), el sistema compara el monto OCR vs el del pago (chip de cuadre) y guarda
- * la evidencia. Validación/rechazo a nivel gestión. No escribe a Kepler.
+ * (transferencia XD2601, cheque XD2501, anticipo XD6001) y le adjunta a cada uno su
+ * comprobante (PDF). Dos caminos: la zona de carga por lote ([PC.3], la IA busca el pago
+ * de cada PDF y la persona confirma) o el renglón del pago (diálogo, con fotos del gasto).
+ * El sistema compara el monto OCR vs el del pago (chip de cuadre) y guarda la evidencia.
+ * Validación/rechazo a nivel gestión. No escribe a Kepler.
  */
 @Component({
   selector: 'app-finanzas-pagos-comprobantes',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, TableModule, TagModule, InputTextModule, InputNumberModule, SelectModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent],
+  imports: [RouterLink, CommonModule, FormsModule, TableModule, TagModule, InputTextModule, SelectModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, PagosCapturaLoteComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -51,11 +53,8 @@ interface GastoFile {
         </div>
       </header>
 
-      <div class="cb-cap-bar">
-        <button pButton type="button" (click)="openCapture()" title="Sube el comprobante y buscamos el pago solo"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Capturar comprobante</span></button>
-        <span class="cb-cap-hint">Sube el comprobante primero — el sistema busca el pago por ti.</span>
-        @if (live()) { <span class="cb-live" title="Cambios de otros usuarios se reflejan al momento"><span class="cb-live-dot"></span> En vivo</span> }
-      </div>
+      <!-- [PC.3] captura por lote: se sueltan varios PDFs, la IA propone el pago, la persona confirma -->
+      <app-pagos-captura-lote [live]="live()" (guardados)="onLoteGuardado($event)" />
       <div class="cb-filters card-premium card-flat">
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
@@ -69,6 +68,8 @@ interface GastoFile {
           <input pInputText [(ngModel)]="search" placeholder="Folio, proveedor, RFC, monto…" (keyup.enter)="load()" (blur)="queue()" /></div>
         <div class="cb-field"><label>&nbsp;</label>
           <button pButton type="button" size="small" [outlined]="!soloAlertas()" severity="danger" (click)="toggleAlertas()" [attr.aria-pressed]="soloAlertas()" title="Solo pagos con alerta de control (cuenta ajena / clave repetida)"><span class="p-button-icon p-button-icon-left pi pi-flag" aria-hidden="true"></span><span class="p-button-label">Solo alertas</span></button></div>
+        <div class="cb-field"><label>&nbsp;</label>
+          <button pButton type="button" size="small" outlined (click)="doRecheck()" [loading]="rechecking()" title="Compara otra vez con Kepler los comprobantes con diferencias: los que ya coinciden en banco, fecha, monto y proveedor se validan solos"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Volver a comparar</span></button></div>
       </div>
 
       @if (report(); as r) { <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen" /> }
@@ -102,10 +103,19 @@ interface GastoFile {
               <td class="cb-comp-cell" (click)="openView(c)" [title]="c.deposits > 0 ? 'Ver comprobante adjunto' : 'Adjuntar comprobante'">
                 @if (c.deposits > 0) {
                   <div class="cb-comp">
-                    <p-tag [value]="depLabel(c.deposit_status)" [severity]="depSev(c.deposit_status)" />
-                    <span class="cb-match" [class.ok]="c.monto_match" [class.bad]="!c.monto_match" [title]="c.monto_match ? 'El monto del comprobante cuadra con el pago' : 'El monto del comprobante NO cuadra'">
-                      <i class="pi" [ngClass]="c.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
-                    </span>
+                    <p-tag [value]="estadoLabel(c)" [severity]="depSev(c.deposit_status)" [title]="c.auto_validado ? 'Lo validó el sistema: coinciden banco, fecha, monto y proveedor' : ''" />
+                    @if (c.deposit_status === 'recibido' && c.coincidencias; as k) {
+                      <!-- [PC.6] qué coincide y qué no: lo que hay que arreglar para que pase solo -->
+                      <span class="cb-k4">
+                        @for (x of criterios; track x) {
+                          <span class="cb-k" [attr.data-v]="k[x]" [title]="etiqueta[x] + ': ' + textoChequeo(k[x])">{{ etiqueta[x].charAt(0) }}<span class="sr-only"> {{ etiqueta[x] }}: {{ textoChequeo(k[x]) }}</span></span>
+                        }
+                      </span>
+                    } @else {
+                      <span class="cb-match" [class.ok]="c.monto_match" [class.bad]="!c.monto_match" [title]="c.monto_match ? 'El monto del comprobante cuadra con el pago' : 'El monto del comprobante NO cuadra'">
+                        <i class="pi" [ngClass]="c.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
+                      </span>
+                    }
                     @if (c.alerta) { <span class="cb-alert" [title]="alertTitle(c)"><i class="pi pi-flag-fill" aria-hidden="true"></i></span> }
                     <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
@@ -126,20 +136,17 @@ interface GastoFile {
       }
     </div>
 
-    <!-- Diálogo: adjuntar comprobante + OCR (soporta ficha-first sin pago preseleccionado) -->
-    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '38rem' }" [draggable]="false" [header]="attachTarget() ? 'Adjuntar comprobante de pago' : 'Capturar comprobante de pago'">
-      @if (attachTarget() || captureMode()) {
+    <!-- Diálogo: adjuntar comprobante + OCR a UN pago elegido desde su renglón
+         (la captura sin pago elegido vive en la zona de carga por lote, [PC.3]) -->
+    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '38rem' }" [draggable]="false" header="Adjuntar comprobante de pago">
+      @if (attachTarget(); as t) {
         <div class="cb-form">
-          @if (attachTarget(); as t) {
           <div class="cb-cobro">
             <div><span class="cb-lbl">Pago</span><strong class="mono">{{ t.sucursal }}/{{ t.folio }}</strong></div>
             <div><span class="cb-lbl">Método</span><strong>{{ metodoLabel(t.metodo_pago) }}</strong></div>
             <div><span class="cb-lbl">Proveedor</span><strong>{{ t.proveedor_nombre || t.proveedor_code }}</strong></div>
             <div class="ta-r"><span class="cb-lbl">Monto del pago</span><strong class="cb-monto">{{ money(t.monto) }}</strong></div>
           </div>
-          } @else {
-          <div class="cb-cap-banner"><i class="pi pi-bolt"></i> Sube el comprobante — buscamos el pago por ti (monto + factura).</div>
-          }
 
           <div class="cb-f cb-file">
             <span>Comprobante de pago (PDF) * <em class="cb-auto">SPEI/cheque — se lee y liga el pago solo</em></span>
@@ -175,54 +182,6 @@ interface GastoFile {
                   @else if (ocrForm.ocr_status === 'ilegible') { <span class="cb-hint">No se pudo leer — captura a mano.</span> }
                 }
                 <button pButton type="button" size="small" text (click)="runOcr()" title="Volver a leer con OCR"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Releer</span></button>
-              }
-            </div>
-          }
-
-          <!-- ficha-first: buscar el pago por el OCR -->
-          @if (captureMode() && !attachTarget() && ocrRun()) {
-            <div class="cb-match">
-              <div class="cb-match-row2">
-                <!-- Buscar es BUSCAR: acá sí se puede tantear otro importe para dar con el
-                     pago si el OCR leyó mal. Lo que cambia es que ya no escribe sobre la
-                     lectura del modelo — antes eran los mismos ocrForm.*, o sea que tantear
-                     terminaba guardado como "lo que leyó Claude Vision". -->
-                <label class="cb-f cb-grow"><span>Buscar por monto <em class="cb-auto">tanteá otro importe si el OCR leyó mal</em></span>
-                  <p-inputnumber [(ngModel)]="buscarMonto" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
-                <label class="cb-f cb-grow"><span>Concepto / factura</span>
-                  <input pInputText [(ngModel)]="buscarConcepto" placeholder="F 451" /></label>
-                <button pButton type="button" size="small" (click)="runCapMatch()" [loading]="capMatching()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Buscar pago</span></button>
-              </div>
-              @if (capMatching()) {
-                <div class="cb-view-loading"><i class="pi pi-spin pi-spinner"></i> Buscando el pago…</div>
-              } @else if (capMatches().length) {
-                <div class="cb-fields-head">Pagos con ese monto <em class="cb-auto">elige el que corresponde</em></div>
-                @for (c of capMatches(); track c.doc_prefix + c.sucursal + c.folio) {
-                  <div class="cb-cand" (click)="pickPago(c)">
-                    <div class="cb-cand-info">
-                      <strong class="mono">{{ c.doc_prefix }} {{ c.sucursal }}/{{ c.folio }}</strong>
-                      <span>{{ c.proveedor_nombre || c.proveedor_code || '—' }}</span>
-                      <span class="cb-sub">{{ c.pago_date | date:'dd/MM/yy' }} · {{ money(c.monto) }} · {{ c.concepto || '—' }}@if (c.concepto_match) { · <em class="cb-has-ok">factura coincide</em> }@if (c.deposits > 0) { · <em class="cb-has">ya tiene comprobante</em> }</span>
-                    </div>
-                    <button pButton type="button" size="small"><span class="p-button-label">Es este</span></button>
-                  </div>
-                }
-              } @else {
-                <p class="muted">No encontramos un pago con ese monto. Búscalo a mano:</p>
-                <div class="cb-match-row2">
-                  <input pInputText class="cb-grow" [(ngModel)]="capManualSearch" placeholder="Folio, proveedor, RFC, monto…" (keyup.enter)="capManualSearchRun()" />
-                  <button pButton type="button" size="small" text (click)="capManualSearchRun()"><span class="p-button-icon pi pi-search" aria-hidden="true"></span></button>
-                </div>
-                @for (c of capManualResults(); track c.doc_prefix + c.sucursal + c.folio) {
-                  <div class="cb-cand" (click)="pickPago(c)">
-                    <div class="cb-cand-info">
-                      <strong class="mono">{{ c.doc_prefix }} {{ c.sucursal }}/{{ c.folio }}</strong>
-                      <span>{{ c.proveedor_nombre || c.proveedor_code || '—' }}</span>
-                      <span class="cb-sub">{{ c.pago_date | date:'dd/MM/yy' }} · {{ metodoLabel(c.metodo_pago) }} · {{ money(c.monto) }}</span>
-                    </div>
-                    <button pButton type="button" size="small"><span class="p-button-label">Es este</span></button>
-                  </div>
-                }
               }
             </div>
           }
@@ -323,7 +282,12 @@ interface GastoFile {
           @for (d of v.deposits; track d.id) {
             <div class="cb-view-dep">
               <div class="cb-view-head">
-                <p-tag [value]="depLabel(d.status)" [severity]="depSev(d.status)" />
+                <p-tag [value]="d.status === 'validado' && d.auto_validado ? 'Validado · automático' : d.status === 'recibido' && d.coincidencias ? 'Con diferencias' : depLabel(d.status)" [severity]="depSev(d.status)" />
+                @if (d.coincidencias; as k) {
+                  @for (x of criterios; track x) {
+                    <span class="cb-kc" [attr.data-v]="k[x]"><i class="pi" [ngClass]="k[x] === 'ok' ? 'pi-check' : k[x] === 'difiere' ? 'pi-times' : 'pi-question'" aria-hidden="true"></i> {{ etiqueta[x] }}<span class="sr-only">: {{ textoChequeo(k[x]) }}</span></span>
+                  }
+                }
                 @if (d.monto_match === true) { <p-tag value="Cuadra" severity="success" /> }
                 @else if (d.monto_match === false) { <p-tag value="No cuadra" severity="danger" /> }
                 @if (d.cuenta_propia === true) { <p-tag value="Cuenta propia" severity="success" /> }
@@ -452,6 +416,20 @@ interface GastoFile {
     .cb-concepto { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mono { font-family: var(--font-mono); font-size: .85em; }
     .cb-comp { display: inline-flex; align-items: center; gap: .45rem; }
+    /* [PC.6] las cuatro coincidencias en la tabla (B F M P) y en el detalle */
+    .cb-k4 { display: inline-flex; gap: 2px; }
+    .cb-k { display: inline-flex; align-items: center; justify-content: center; width: 1.05rem; height: 1.05rem; border-radius: 3px;
+      font-size: var(--fs-nano); font-weight: 700; font-family: var(--font-mono); border: 1px solid currentColor; }
+    .cb-k[data-v="ok"] { color: var(--ok-fg); }
+    .cb-k[data-v="difiere"] { color: var(--bad-fg); background: var(--bad-soft-bg); }
+    .cb-k[data-v="sin_dato"] { color: var(--warn-fg); border-style: dashed; }
+    .cb-kc { display: inline-flex; align-items: center; gap: .2rem; font-size: var(--fs-micro); font-weight: 600; padding: .05rem .4rem;
+      border-radius: var(--r-sm, .4rem); border: 1px solid currentColor; }
+    .cb-kc .pi { font-size: var(--fs-nano); }
+    .cb-kc[data-v="ok"] { color: var(--ok-fg); }
+    .cb-kc[data-v="difiere"] { color: var(--bad-fg); }
+    .cb-kc[data-v="sin_dato"] { color: var(--warn-fg); border-style: dashed; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .cb-match.ok { color: var(--ok-fg); }
     .cb-match.bad { color: var(--bad-fg); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
@@ -548,22 +526,7 @@ interface GastoFile {
     .cb-alert-note { font-size: .78rem; color: var(--warn-fg); display: flex; align-items: baseline; gap: .4rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .45rem .6rem; }
     .cb-alert-note.bad { color: var(--bad-fg); }
     .cb-alert-note i { font-size: .8rem; }
-    .cb-cap-bar { display: flex; align-items: center; gap: .8rem; margin-bottom: 1rem; flex-wrap: wrap; }
-    .cb-cap-hint { font-size: .8rem; color: var(--text-muted); }
-    .cb-live { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; font-size: .74rem; color: var(--ok-fg); font-weight: 600; }
-    .cb-live-dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--ok-fg); animation: cb-pulse 1.8s ease-in-out infinite; }
-    @keyframes cb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
-    @media (prefers-reduced-motion: reduce) { .cb-live-dot { animation: none; } }
-    .cb-cap-banner { display: flex; align-items: center; gap: .5rem; font-size: .84rem; color: var(--action); background: color-mix(in srgb, var(--action) 8%, transparent); border: 1px solid color-mix(in srgb, var(--action) 25%, transparent); border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; }
-    .cb-match { display: flex; flex-direction: column; gap: .6rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
-    .cb-match-row2 { display: flex; gap: .5rem; align-items: flex-end; flex-wrap: wrap; }
     .cb-grow { flex: 1 1 8rem; }
-    .cb-cand { display: flex; align-items: center; justify-content: space-between; gap: .8rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; cursor: pointer; transition: border-color .12s; }
-    .cb-cand:hover { border-color: var(--action); }
-    .cb-cand-info { display: flex; flex-direction: column; gap: .1rem; }
-    .cb-cand-info > span { font-size: .82rem; color: var(--text-main); }
-    .cb-has { font-style: normal; color: var(--warn-fg); }
-    .cb-has-ok { font-style: normal; color: var(--ok-fg); }
     .cb-bank { border: 1px solid var(--border-color); border-left-width: 3px; border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; display: flex; flex-direction: column; gap: .35rem; font-size: .78rem; }
     .cb-bank.ok { border-left-color: var(--ok-fg); }
     .cb-bank.warn { border-left-color: var(--warn-fg); }
@@ -621,7 +584,11 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   readonly estadoSel = signal<string>('pendiente');
   readonly canManage = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_PAYMENTS_GESTIONAR] === true);
 
-  readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con comprobante', value: 'con_comprobante' }, { label: 'Validados', value: 'validado' }, { label: 'Todos', value: '' }];
+  /** `[PC.6]` «Con diferencias» = lo único que espera a una persona; lo que coincide en las cuatro se valida solo. */
+  readonly estadoOpts = [{ label: 'Sin comprobante', value: 'pendiente' }, { label: 'Con diferencias', value: 'con_diferencias' }, { label: 'Validados', value: 'validado' }, { label: 'Todos', value: '' }];
+  readonly criterios = CRITERIOS_PAGO;
+  readonly etiqueta = ETIQUETA_CRITERIO_PAGO;
+  readonly rechecking = signal(false);
   search = '';
   // filtros: año (2025→hoy), mes, método de pago, solo alertas
   anio = '';
@@ -646,16 +613,6 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   readonly attachError = signal<string>('');
   fileData: string | null = null;
   ocrForm: Partial<DepositOcr> = {};
-  /** Con qué se BUSCA el pago. Arranca en lo que leyó el modelo, pero es propio:
-   *  tantear acá no puede cambiar la evidencia que se guarda. */
-  buscarMonto: number | null = null;
-  buscarConcepto = '';
-  // ficha-first (captura sin elegir pago)
-  readonly captureMode = signal(false);
-  readonly capMatching = signal(false);
-  readonly capMatches = signal<PagoCandidate[]>([]);
-  capManualSearch = '';
-  readonly capManualResults = signal<PagoCandidate[]>([]);
   // PC.2 — foto(s) del gasto (evidencia de lo comprado); se valida Σ gastos ≈ monto del pago.
   readonly gastoFiles = signal<GastoFile[]>([]);
   private gastoSeq = 0;
@@ -703,13 +660,41 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   kpiItems(r: PagosReport): MetricStripItem[] {
     const items: MetricStripItem[] = [
       { label: 'Pagos', value: r.kpis.pagos },
-      { label: 'Con comprobante', value: r.kpis.con_comprobante, tone: 'ok' },
+      { label: 'Con diferencias', value: r.kpis.con_diferencias ?? 0, tone: (r.kpis.con_diferencias ?? 0) > 0 ? 'warn' : 'ok' },
       { label: 'Validados', value: r.kpis.validados, tone: 'ok' },
+      { label: 'Validados solos', value: r.kpis.auto_validados ?? 0, tone: 'ok' },
       { label: '$ por comprobar', value: Number(r.kpis.monto_pendiente) || 0, format: 'currency-short', tone: 'warn' },
     ];
     const alertas = (r.kpis.cuentas_ajenas || 0) + (r.kpis.refs_duplicadas || 0);
     if (alertas > 0) items.push({ label: 'Alertas de control', value: alertas, tone: 'bad' });
     return items;
+  }
+
+  /** [PC.6] El estado del comprobante en la tabla: distingue lo que validó el sistema y lo que tiene diferencias. */
+  estadoLabel(c: PagoRow): string {
+    if (c.deposit_status === 'validado' && c.auto_validado) return 'Validado · auto';
+    if (c.deposit_status === 'recibido' && c.coincidencias) return 'Diferencias';
+    return this.depLabel(c.deposit_status);
+  }
+  textoChequeo(v: Chequeo | undefined): string {
+    return v === 'ok' ? 'coincide' : v === 'difiere' ? 'no coincide' : 'no se pudo leer';
+  }
+
+  /** [PC.6] Compara otra vez con Kepler lo que tiene diferencias (p. ej. si ya se corrigió el pago allá). */
+  doRecheck() {
+    if (this.rechecking()) return;
+    this.rechecking.set(true);
+    this.svc.recheck().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.rechecking.set(false);
+        this.toast.add({
+          severity: r.validados ? 'success' : 'info', summary: 'Comparado con Kepler',
+          detail: r.revisados ? `${r.validados} de ${r.revisados} ya coinciden y quedaron validados; ${r.con_diferencias} siguen con diferencias.` : 'No hay comprobantes con diferencias.',
+        });
+        this.load();
+      },
+      error: (e) => { this.rechecking.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo comparar', detail: e?.error?.message }); },
+    });
   }
 
   alertTitle(c: PagoRow): string {
@@ -769,58 +754,29 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   openAttach(c: PagoRow) {
     this.resetAttach();
     this.attachTarget.set(c);
-    this.captureMode.set(false);
     this.showAttach.set(true);
   }
 
-  /** Ficha-first: captura SIN pago preseleccionado (lo busca el OCR). */
-  openCapture() {
-    this.resetAttach();
-    this.attachTarget.set(null);
-    this.captureMode.set(true);
-    this.showAttach.set(true);
+  /** [PC.3] La zona de carga guardó comprobantes: recarga la tabla y lo dice. */
+  onLoteGuardado(r: LoteGuardado) {
+    const dif = r.guardados - r.validados;
+    this.toast.add({
+      severity: 'success', summary: r.guardados === 1 ? 'Comprobante guardado' : `${r.guardados} comprobantes guardados`,
+      detail: `${r.validados} validados solos (coinciden las cuatro)` + (dif ? ` · ${dif} quedan en «Con diferencias»` : ''),
+    });
+    this.load();
   }
 
   private resetAttach() {
     this.fileData = null;
     this.fileName.set('');
     this.gastoFiles.set([]);
-    this.ocrForm = {}; this.buscarMonto = null; this.buscarConcepto = '';
+    this.ocrForm = {};
     this.ocrRun.set(false);
     this.uploadedFile.set(null);
     this.uploading.set(false);
     this.attachError.set('');
-    this.capMatches.set([]);
-    this.capManualResults.set([]);
-    this.capManualSearch = '';
-    this.capMatching.set(false);
   }
-
-  /** Con el comprobante leído, busca el pago por monto + fecha + concepto (factura).
-   *  OCR-primero SIN fricción: si hay UNA sola candidata, la enlaza sola (no buscar folio). */
-  runCapMatch() {
-    if (this.buscarMonto == null) { this.capMatches.set([]); return; }
-    this.capMatching.set(true);
-    this.svc.matchPago(this.buscarMonto, this.ocrForm.fecha, this.buscarConcepto || undefined).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r) => {
-          this.capMatching.set(false);
-          if ((r.pagos?.length || 0) === 1) { this.capMatches.set([]); this.pickPago(r.pagos[0]); this.toast.add({ severity: 'success', summary: 'Pago encontrado', detail: `${r.pagos[0].doc_prefix} ${r.pagos[0].sucursal}/${r.pagos[0].folio}` }); }
-          else this.capMatches.set(r.pagos);
-        },
-        error: () => { this.capMatching.set(false); this.capMatches.set([]); },
-      });
-  }
-
-  capManualSearchRun() {
-    const s = this.capManualSearch.trim();
-    if (!s) { this.capManualResults.set([]); return; }
-    this.svc.list({ search: s }).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (r) => this.capManualResults.set(r.rows.slice(0, 15) as any), error: () => this.capManualResults.set([]) });
-  }
-
-  /** Elige el pago (sugerido o manual) → aparecen los campos + Guardar. */
-  pickPago(c: PagoCandidate | PagoRow) { this.attachTarget.set(c as PagoRow); }
 
   onFile(ev: Event) {
     const input = ev.target as HTMLInputElement;
@@ -845,7 +801,7 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
     if (!(file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) { this.attachError.set('El comprobante de pago debe ser PDF — la foto del gasto va abajo.'); return; }
     this.attachError.set('');
     this.ocrRun.set(false);
-    this.ocrForm = {}; this.buscarMonto = null; this.buscarConcepto = '';
+    this.ocrForm = {};
     this.uploadedFile.set(null);
     let dataUri: string;
     try { dataUri = await this.fileToDataUri(file); }
@@ -901,9 +857,6 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (f) => {
           this.ocrForm = { ...f }; this.ocrRun.set(true); this.ocrLoading.set(false);
-          // El buscador arranca donde quedó la lectura.
-          this.buscarMonto = f.monto ?? null; this.buscarConcepto = f.concepto || '';
-          if (this.captureMode() && !this.attachTarget()) this.runCapMatch();
         },
         error: () => { this.ocrLoading.set(false); this.toast.add({ severity: 'error', summary: 'OCR falló', detail: 'Captura los datos a mano.' }); this.ocrForm = { ocr_status: 'ilegible' }; this.ocrRun.set(true); },
       });
@@ -1005,7 +958,7 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
     const c = this.viewTarget();
     if (!c) return;
     this.svc.detail(c.sucursal, c.folio, c.doc_prefix).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (d) => this.viewData.set(d), error: () => {} });
+      .subscribe({ next: (d) => this.viewData.set(d), error: () => { /* se queda el detalle anterior; la acción ya avisó con su toast */ } });
   }
 
   doValidate(c: PagoRow) {
@@ -1014,7 +967,7 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
     this.svc.validate(c.deposit_id).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => { this.actingId.set(null); this.toast.add({ severity: 'success', summary: 'Validado', detail: `Pago ${c.folio}` }); this.load(); },
-        error: () => { this.actingId.set(null); this.toast.add({ severity: 'error', summary: 'Error al validar' }); },
+        error: (e) => { this.actingId.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo validar', detail: e?.error?.message }); },
       });
   }
 
@@ -1024,7 +977,7 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
     if (!c?.deposit_id) return;
     this.saving.set(true);
     this.svc.reject(c.deposit_id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazado', detail: `Pago ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+      .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazado', detail: `Pago ${c.folio}` }); this.load(); }, error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo rechazar', detail: e?.error?.message }); } });
   }
 
   openView(c: PagoRow) {
