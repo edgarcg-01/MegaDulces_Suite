@@ -1940,6 +1940,11 @@ export class UsersService {
    * Devuelve también `tiendas`: una ruta con 0 tiendas no puede derivar zona, y
    * la pantalla tiene que poder decirlo en vez de dejar la zona en blanco sin
    * explicación. Hoy son 8 de 23.
+   *
+   * `[VK.8]` Trae además el vendedor de Kepler al que está ligada la ruta (VK: Kepler
+   * gobierna su cartera), para que el selector diga "RVMAB01 · GLORIA CALDERON (Kepler
+   * 08:20005)" y el admin reconozca la ruta como la conoce el ERP. El nombre se lee del
+   * catálogo de vendedores (`kduv`) de LA MISMA sucursal: el código se reusa entre plazas.
    */
   async getRoutes() {
     const filas = await this.knex.raw(
@@ -1947,14 +1952,19 @@ export class UsersService {
               c.value AS name,
               count(s.id)::int AS tiendas,
               (array_agg(z.id::text ORDER BY z.name) FILTER (WHERE z.id IS NOT NULL))[1] AS zone_id,
-              (array_agg(z.name  ORDER BY z.name) FILTER (WHERE z.id IS NOT NULL))[1] AS zone_name
+              (array_agg(z.name  ORDER BY z.name) FILTER (WHERE z.id IS NOT NULL))[1] AS zone_name,
+              c.erp_source_branch,
+              c.erp_vendor_code,
+              (SELECT NULLIF(regexp_replace(btrim(v.c3), '\\s+', ' ', 'g'), '') FROM kepler_ods.kduv v
+                WHERE v.sucursal = c.erp_source_branch AND btrim(v.c2) = c.erp_vendor_code
+                LIMIT 1) AS erp_vendor_name
          FROM trade.catalogs c
          LEFT JOIN trade.stores s
            ON s.tenant_id = c.tenant_id AND s.ruta_id = c.id AND s.deleted_at IS NULL
          LEFT JOIN trade.zones z
            ON z.tenant_id = s.tenant_id AND z.id = s.zona_id
         WHERE c.tenant_id = ? AND c.catalog_id = 'rutas' AND c.deleted_at IS NULL
-        GROUP BY c.id, c.value, c.orden
+        GROUP BY c.id, c.value, c.orden, c.erp_source_branch, c.erp_vendor_code
         ORDER BY c.orden, c.value`,
       [this.tenantId],
     );

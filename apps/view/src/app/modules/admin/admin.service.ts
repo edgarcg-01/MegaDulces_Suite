@@ -37,6 +37,18 @@ export interface PadronQuery {
   zona?: string;
 }
 
+/** Ruta del catálogo para el selector de Personas. `[VK.8]` + su vendedor de Kepler, si está ligada. */
+export interface RutaCatalogo {
+  id: string;
+  name: string;
+  tiendas: number;
+  zone_id: string | null;
+  zone_name: string | null;
+  erp_source_branch: string | null;
+  erp_vendor_code: string | null;
+  erp_vendor_name: string | null;
+}
+
 export interface OpcionCatalogo {
   code: string;
   name: string;
@@ -136,8 +148,8 @@ export class AdminService {
     );
   }
 
-  rutas(): Observable<Array<{ id: string; name: string; tiendas: number; zone_id: string | null; zone_name: string | null }>> {
-    return this.http.get<Array<{ id: string; name: string; tiendas: number; zone_id: string | null; zone_name: string | null }>>(
+  rutas(): Observable<Array<RutaCatalogo>> {
+    return this.http.get<Array<RutaCatalogo>>(
       `${this.users}/routes`,
     );
   }
