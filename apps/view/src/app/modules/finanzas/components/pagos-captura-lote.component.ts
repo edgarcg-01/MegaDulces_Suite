@@ -232,30 +232,30 @@ export interface FilaLote {
       border-radius: var(--r-md, .5rem); background: var(--surface-card); transition: border-color .15s, background .15s, padding .15s; }
     .pl-drop.compact { padding: .8rem 1.1rem; }
     .pl-drop.drag { border-color: var(--action); background: color-mix(in srgb, var(--action) 6%, var(--surface-card)); }
-    .pl-drop-ico { font-size: 1.6rem; color: var(--action); flex: 0 0 auto; }
+    .pl-drop-ico { font-size: var(--fs-h1); color: var(--action); flex: 0 0 auto; }
     .pl-drop-txt { display: flex; flex-direction: column; gap: .15rem; flex: 1 1 auto; min-width: 0; }
-    .pl-drop-txt strong { font-size: .92rem; color: var(--fg-1); }
-    .pl-drop-txt span { font-size: .8rem; color: var(--fg-2); }
+    .pl-drop-txt strong { font-size: var(--fs-body); color: var(--fg-1); }
+    .pl-drop-txt span { font-size: var(--fs-sm); color: var(--fg-2); }
     .pl-pick { display: inline-flex; align-items: center; gap: .45rem; padding: .55rem 1rem; border-radius: var(--r-sm, .4rem);
-      background: var(--action); color: var(--action-ink, #fff); font-size: .86rem; font-weight: 600; cursor: pointer; flex: 0 0 auto; }
+      background: var(--action); color: var(--action-ink, #fff); font-size: var(--fs-body); font-weight: 600; cursor: pointer; flex: 0 0 auto; }
     .pl-pick:hover { background: var(--action-hover); }
     .pl-pick:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-    .pl-live { display: inline-flex; align-items: center; gap: .4rem; font-size: .74rem; color: var(--ok-fg); font-weight: 600; flex: 0 0 auto; }
+    .pl-live { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--fs-xs); color: var(--ok-fg); font-weight: 600; flex: 0 0 auto; }
     .pl-live-dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--ok-fg); animation: pl-pulse 1.8s ease-in-out infinite; }
     @keyframes pl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
     @media (prefers-reduced-motion: reduce) { .pl-live-dot { animation: none; } .pl-drop { transition: none; } }
-    .pl-aviso { margin-top: .5rem; font-size: .8rem; color: var(--warn-fg); }
+    .pl-aviso { margin-top: .5rem; font-size: var(--fs-sm); color: var(--warn-fg); }
 
     .pl-tray { margin-top: .75rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-card); overflow: hidden; }
     .pl-head { display: flex; align-items: center; justify-content: space-between; gap: .8rem; flex-wrap: wrap; padding: .6rem .9rem;
       border-bottom: 1px solid var(--border-color); }
-    .pl-head-t { display: flex; align-items: baseline; gap: .9rem; flex-wrap: wrap; font-size: .86rem; color: var(--fg-1); }
-    .pl-counts { display: inline-flex; gap: .8rem; font-size: .78rem; color: var(--fg-2); }
+    .pl-head-t { display: flex; align-items: baseline; gap: .9rem; flex-wrap: wrap; font-size: var(--fs-body); color: var(--fg-1); }
+    .pl-counts { display: inline-flex; gap: .8rem; font-size: var(--fs-xs); color: var(--fg-2); }
     .pl-head-a { display: flex; align-items: center; gap: .4rem; }
     .ok { color: var(--ok-fg); } .warn { color: var(--warn-fg); } .bad { color: var(--bad-fg); }
 
     .pl-cols, .pl-row { display: grid; grid-template-columns: 2rem minmax(10rem, 1.1fr) minmax(9rem, .9fr) minmax(16rem, 2fr) 2rem; gap: .8rem; align-items: start; }
-    .pl-cols { padding: .4rem .9rem; font-size: var(--fs-micro, .7rem); text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3);
+    .pl-cols { padding: .4rem .9rem; font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3);
       border-bottom: 1px solid var(--border-color); }
     .pl-row { padding: .6rem .9rem; border-bottom: 1px solid var(--border-color); border-left: 3px solid transparent; }
     .pl-row:last-child { border-bottom: 0; }
@@ -269,35 +269,35 @@ export interface FilaLote {
     .pl-chk input { width: 1.05rem; height: 1.05rem; accent-color: var(--action); cursor: pointer; }
     .pl-ok { color: var(--ok-fg); }
     .pl-file, .pl-ocr, .pl-elegido { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
-    .pl-name { font-size: .84rem; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .pl-sub { font-size: .74rem; color: var(--fg-2); }
-    .pl-sub .pi { font-size: .72rem; }
-    .pl-monto { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: .88rem; font-weight: 600; color: var(--fg-1); }
+    .pl-name { font-size: var(--fs-body); color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pl-sub { font-size: var(--fs-xs); color: var(--fg-2); }
+    .pl-sub .pi { font-size: var(--fs-xs); }
+    .pl-monto { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-body); font-weight: 600; color: var(--fg-1); }
     .pl-pago { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
-    .pl-pk { font-size: .84rem; color: var(--fg-1); }
-    .mono { font-family: var(--font-mono); font-size: .82em; }
-    .pl-motivo { font-size: .74rem; font-weight: 600; }
+    .pl-pk { font-size: var(--fs-body); color: var(--fg-1); }
+    .mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+    .pl-motivo { font-size: var(--fs-xs); font-weight: 600; }
     .pl-motivo[data-conf="listo"] { color: var(--ok-fg); }
     .pl-motivo[data-conf="revisar"], .pl-motivo[data-conf="elegir"] { color: var(--warn-fg); }
     .pl-motivo[data-conf="sin_pago"] { color: var(--bad-fg); }
-    .pl-link { align-self: flex-start; padding: 0; border: 0; background: none; font: inherit; font-size: .74rem; color: var(--action); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .pl-link { align-self: flex-start; padding: 0; border: 0; background: none; font: inherit; font-size: var(--fs-xs); color: var(--action); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
     .pl-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .pl-cands { display: flex; flex-direction: column; gap: .3rem; }
     .pl-cand { display: grid; grid-template-columns: auto 1fr; gap: .1rem .6rem; text-align: left; padding: .4rem .6rem; border: 1px solid var(--border-color);
-      border-radius: var(--r-sm, .4rem); background: var(--surface-ground); color: var(--fg-1); font: inherit; font-size: .8rem; cursor: pointer; }
+      border-radius: var(--r-sm, .4rem); background: var(--surface-ground); color: var(--fg-1); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
     .pl-cand:hover { border-color: var(--action); }
     .pl-cand:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .pl-cand .pl-sub { grid-column: 1 / -1; }
     .pl-cand-p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pl-cand em { font-style: normal; }
     .pl-search { display: flex; gap: .3rem; }
-    .pl-search input { flex: 1 1 auto; font-size: .82rem; }
+    .pl-search input { flex: 1 1 auto; font-size: var(--fs-sm); }
     .pl-tags { display: flex; gap: .35rem; flex-wrap: wrap; }
-    .pl-tag { font-size: .72rem; padding: .1rem .45rem; border-radius: var(--r-sm, .4rem); border: 1px solid currentColor; }
+    .pl-tag { font-size: var(--fs-xs); padding: .1rem .45rem; border-radius: var(--r-sm, .4rem); border: 1px solid currentColor; }
     .pl-c4 { display: flex; gap: .3rem; flex-wrap: wrap; }
-    .pl-c { display: inline-flex; align-items: center; gap: .25rem; font-size: .7rem; font-weight: 600; padding: .05rem .4rem;
+    .pl-c { display: inline-flex; align-items: center; gap: .25rem; font-size: var(--fs-micro); font-weight: 600; padding: .05rem .4rem;
       border-radius: var(--r-sm, .4rem); border: 1px solid currentColor; }
-    .pl-c .pi { font-size: .6rem; }
+    .pl-c .pi { font-size: var(--fs-nano); }
     .pl-c[data-v="ok"] { color: var(--ok-fg); }
     .pl-c[data-v="difiere"] { color: var(--bad-fg); }
     .pl-c[data-v="sin_dato"] { color: var(--warn-fg); border-style: dashed; }
@@ -306,7 +306,7 @@ export interface FilaLote {
     .pl-xbtn { border: 0; background: none; color: var(--fg-3); cursor: pointer; padding: .2rem .3rem; border-radius: var(--r-sm, .4rem); }
     .pl-xbtn:hover { color: var(--bad-fg); background: var(--hover-bg); }
     .pl-xbtn:focus-visible { outline: 2px solid var(--focus-ring); }
-    @media (max-width: 760px) {
+    @media (max-width: 47.5rem) {
       .pl-drop { flex-wrap: wrap; }
       .pl-cols { display: none; }
       .pl-row { grid-template-columns: 2rem 1fr 2rem; }

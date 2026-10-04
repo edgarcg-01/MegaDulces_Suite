@@ -419,13 +419,13 @@ interface GastoFile {
     /* [PC.6] las cuatro coincidencias en la tabla (B F M P) y en el detalle */
     .cb-k4 { display: inline-flex; gap: 2px; }
     .cb-k { display: inline-flex; align-items: center; justify-content: center; width: 1.05rem; height: 1.05rem; border-radius: 3px;
-      font-size: .62rem; font-weight: 700; font-family: var(--font-mono); border: 1px solid currentColor; }
+      font-size: var(--fs-nano); font-weight: 700; font-family: var(--font-mono); border: 1px solid currentColor; }
     .cb-k[data-v="ok"] { color: var(--ok-fg); }
     .cb-k[data-v="difiere"] { color: var(--bad-fg); background: var(--bad-soft-bg); }
     .cb-k[data-v="sin_dato"] { color: var(--warn-fg); border-style: dashed; }
-    .cb-kc { display: inline-flex; align-items: center; gap: .2rem; font-size: .7rem; font-weight: 600; padding: .05rem .4rem;
+    .cb-kc { display: inline-flex; align-items: center; gap: .2rem; font-size: var(--fs-micro); font-weight: 600; padding: .05rem .4rem;
       border-radius: var(--r-sm, .4rem); border: 1px solid currentColor; }
-    .cb-kc .pi { font-size: .6rem; }
+    .cb-kc .pi { font-size: var(--fs-nano); }
     .cb-kc[data-v="ok"] { color: var(--ok-fg); }
     .cb-kc[data-v="difiere"] { color: var(--bad-fg); }
     .cb-kc[data-v="sin_dato"] { color: var(--warn-fg); border-style: dashed; }
