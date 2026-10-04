@@ -7160,8 +7160,10 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
   se deshace el choque `VECINAL1` (Madero vs Abastos).
 - [ ] 🔨 `[VK.8]` Personas: el selector de ruta muestra el vendedor Kepler (`GET /users/routes` +
   `erp_vendor_name` de `kduv` de la misma sucursal).
-- ⚠️ Pendiente: Humberto trae "Ruta mayoreo 01" Ma–S (sólo gana el lunes) · Benjamín sigue los martes en
-  Zamora · personas en `/admin/users` (baja `mauricio_ibarra`, jefe de `francisco_vecinal`, puesto
+- Decisiones 2026-10-03: Gloria y Humberto con su nombre de Kepler ya corregido (`GLORIA ORTEGA CALDERON`,
+  `HUMBERTO PLACENCIA BRAVO`); Humberto es vecinal → sus días de "Ruta mayoreo 01" pasan a su ruta; Benjamín
+  fue sustituido por Diana → baja lógica de su agenda en Zamora.
+- ⚠️ Pendiente: personas en `/admin/users` (baja `mauricio_ibarra`, jefe de `francisco_vecinal`, puesto
   `vendedor_vecinal`). **NO compilado en local** (regla del 2-oct); migraciones probadas en seco contra prod.
 
 ## VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código)

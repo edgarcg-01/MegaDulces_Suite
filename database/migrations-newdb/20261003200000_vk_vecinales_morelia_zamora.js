@@ -32,7 +32,8 @@
  *    sincronización ya no crea un duplicado. Los que no casan se quedan como manuales y se
  *    DECLARAN en el log.
  * 5. AGENDA lunes–sábado del vendedor titular. Si un día ya tiene OTRA ruta, NO se pisa: se
- *    declara (p. ej. Humberto trae "Ruta mayoreo 01").
+ *    declara — salvo las CORRECTIONS decididas (Humberto: "Ruta mayoreo 01" → su vecinal).
+ * 6. BAJA de agenda del vendedor sustituido (Benjamín → Diana en Zamora): baja lógica, no borrado.
  *
  * NO toca personas (puesto, jefe, bajas): eso se administra en /admin/users.
  * NO cambia la sucursal de surtido de una ruta que ya tiene una (Madero surte hoy de
@@ -59,11 +60,20 @@ const ROUTES = [
   // Morelia y Zamora: se nombran y se ligan.
   ['Ruta Vecinal #1', '2V003 GUILLERMO HERNANDEZ ALMANZA', 'MORELIA MADERO', '07', '2V003', 'guillermo_hernandez'],
   ['Ruta Vecinal #2', '2V001 JOSEPH AGUSTIN GUERRERO PEREZ', 'MORELIA MADERO', '07', '2V001', 'joseph_guerrero'],
-  ['Ruta vecinal 1', '20005 GLORIA ORTEGA', 'MORELIA ABASTOS', '08', '20005', 'gloria_ortega'],
-  [null, '2V005 HUMBERTO PLACENCIA', 'MORELIA ABASTOS', '08', '2V005', 'humberto_placencia'],
+  // Nombres tal como quedaron en Kepler (kduv suc 08) tras el ajuste de Francisco, 2026-10-03.
+  ['Ruta vecinal 1', '20005 GLORIA ORTEGA CALDERON', 'MORELIA ABASTOS', '08', '20005', 'gloria_ortega'],
+  [null, '2V005 HUMBERTO PLACENCIA BRAVO', 'MORELIA ABASTOS', '08', '2V005', 'humberto_placencia'],
   ['RVDAM01', '3V001 DIANA ROCIO CORTES MOLINA', 'ZAMORA VECINAL', '05', '3V001', 'diana_molina'],
 ];
 const DAYS = [1, 2, 3, 4, 5, 6]; // ISODOW: lunes..sábado
+
+// [vendedor, ruta equivocada] — días que se REASIGNAN a su ruta vecinal (decisión explícita de
+// Francisco, 2026-10-03: "Humberto es vendedor vecinal"). Sólo los días que apunten EXACTO a esa ruta.
+const CORRECTIONS = [['humberto_placencia', 'Ruta mayoreo 01']];
+
+// [vendedor, ruta final] — sale de esa ruta (baja lógica de su agenda ahí). Decisión de Francisco,
+// 2026-10-03: "Benjamín fue sustituido por Diana" en la vecinal de Zamora.
+const REMOVALS = [['benjamin_alonso', '3V001 DIANA ROCIO CORTES MOLINA']];
 
 /** Nombre normalizado: mayúsculas, sin acentos, sólo letras y números. */
 const NORM = (col) =>
@@ -190,11 +200,23 @@ exports.up = async function up(knex) {
     const byDay = new Map(existing.map((e) => [Number(e.day_of_week), e]));
     const toInsert = [];
     const busy = [];
+    const fixed = [];
     for (const dow of DAYS) {
       const e = byDay.get(dow);
       if (!e) toInsert.push(dow);
-      else if (e.deleted_at || e.route_id !== route.id) busy.push(`${dow}="${e.value}"${e.deleted_at ? ' (baja)' : ''}`);
+      else if (e.deleted_at) busy.push(`${dow}="${e.value}" (baja)`);
+      else if (e.route_id !== route.id) {
+        if (CORRECTIONS.some(([u, wrong]) => u === username && e.value === wrong)) {
+          await knex('trade.daily_assignments')
+            .where({ tenant_id: T, user_id: user.id, day_of_week: dow, route_id: e.route_id })
+            .update({ route_id: route.id, updated_at: knex.fn.now() });
+          fixed.push(`${dow}`);
+        } else {
+          busy.push(`${dow}="${e.value}"`);
+        }
+      }
     }
+    if (fixed.length) console.log(`    ✓ ${username}: días ${fixed.join(',')} reasignados a ${code} (corrección explícita)`);
     if (toInsert.length) {
       await knex('trade.daily_assignments')
         .insert(
@@ -216,6 +238,24 @@ exports.up = async function up(knex) {
       await knex('identity.users').where({ id: user.id }).update({ route_id: route.id });
       console.log(`    ✓ ${username}: ruta base = ${code}`);
     }
+  }
+
+  // ── Bajas de agenda (vendedor sustituido) ──
+  for (const [username, code] of REMOVALS) {
+    const user = await knex('identity.users').where({ tenant_id: T, username }).whereNull('deleted_at').first('id', 'route_id');
+    const route = await routeQ(knex, code);
+    if (!user || !route) {
+      console.log(`  ! baja ${username} de ${code}: ${!user ? 'usuario' : 'ruta'} no existe.`);
+      continue;
+    }
+    const n = await knex('trade.daily_assignments')
+      .where({ tenant_id: T, user_id: user.id, route_id: route.id })
+      .whereNull('deleted_at')
+      .update({ deleted_at: knex.fn.now(), updated_at: knex.fn.now() });
+    if (user.route_id === route.id) {
+      await knex('identity.users').where({ id: user.id }).update({ route_id: null });
+    }
+    console.log(`  ✓ ${username}: sale de ${code} (${n} días de agenda dados de baja)`);
   }
 };
 
