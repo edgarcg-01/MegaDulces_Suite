@@ -52,6 +52,8 @@ export interface CandidatoLote {
   clave_banco?: string | null;
   /** La misma cuenta como la conoce Bancos (`finance.bank_accounts.account_label`). */
   account_label?: string | null;
+  /** `[PC.7]` Nombre del banco en Kepler (`BAJIO 6506`): decide cómo se lee el número de cuenta. */
+  banco_nombre?: string | null;
   concepto_match?: boolean;
 }
 

@@ -1,6 +1,6 @@
 import {
   chequeoBanco, chequeoFecha, chequeoMonto, chequeoProveedor, coincidenciasPago, coincidenTodas,
-  diferenciasPago, normalizarProveedor,
+  diferenciasPago, normalizarProveedor, cuentaEsClave, esBancoBajio, formasDeCuenta,
 } from './coincidencia-pago.contract';
 
 /**
@@ -80,5 +80,67 @@ describe('[PC.6] coincidenciasPago / coincidenTodas / diferenciasPago', () => {
 
   it('la fecha del pago como Date serializado: manda pago_dia', () => {
     expect(coincidenciasPago(ocr, { ...pago, pago_date: '2026-09-28T06:00:00.000Z' }).fecha).toBe('ok');
+  });
+});
+
+/**
+ * `[PC.7]` BanBajío: la clave de la cuenta va en el CENTRO del número, no al final. Números REALES
+ * de los comprobantes de BajioNet del 2026-10-04 (primeras pruebas en producción): todos terminan en
+ * `0201`, por eso parecía que todo salía de la misma cuenta.
+ */
+describe('[PC.7] cuentas BanBajío', () => {
+  const pagoBajio = (clave: string) => ({ clave_banco: clave, account_label: clave.slice(-3), banco_nombre: `BAJIO ${clave}` });
+
+  it.each([
+    ['245765060201', '6506'], // SPEI a EMBOTELLADORA AGA DEL CENTRO
+    ['245758540201', '5854'], // traspaso entre cuentas propias, origen
+    ['199241660201', '4166'], // traspaso entre cuentas propias, destino
+  ])('%s es la cuenta Kepler BAJIO %s', (cuenta, clave) => {
+    expect(chequeoBanco(cuenta, pagoBajio(clave))).toBe('ok');
+    expect(cuentaEsClave(cuenta, clave, 'BBAJIO')).toBe(true);
+  });
+
+  /** ⛔ No es relajar: otra cuenta del MISMO banco sigue sin coincidir. */
+  it.each([
+    ['245765060201', '5854'],
+    ['245765060201', '3660'],
+    ['245758540201', '6506'],
+    ['199241660201', '4166'.replace('4166', '3660')],
+  ])('⛔ %s NO es la cuenta BAJIO %s', (cuenta, clave) => {
+    expect(chequeoBanco(cuenta, pagoBajio(clave))).toBe('difiere');
+  });
+
+  it('⛔ el sufijo común 0201 NO identifica una cuenta', () => {
+    expect(chequeoBanco('245765060201', pagoBajio('0201'))).toBe('difiere');
+  });
+
+  it('⛔ con la clave de Kepler, la etiqueta corta de Bancos no basta (506 vs 6506)', () => {
+    // una cuenta hipotética 2457 1506 0201: termina en «506» pero su clave sería 1506
+    expect(chequeoBanco('245715060201', { clave_banco: '6506', account_label: '506', banco_nombre: 'BAJIO 6506' })).toBe('difiere');
+  });
+
+  it('sin clave de Kepler se usa la etiqueta de Bancos de respaldo', () => {
+    expect(chequeoBanco('245765060201', { clave_banco: null, account_label: '506', banco_nombre: 'BAJIO' })).toBe('ok');
+  });
+
+  it('⛔ en OTRO banco, un número de 12 dígitos se lee por el final (no por el centro)', () => {
+    expect(chequeoBanco('245765060201', { clave_banco: '6506', banco_nombre: 'BBVA 6506' })).toBe('difiere');
+    expect(formasDeCuenta('245765060201', 'BBVA')).toEqual(['245765060201']);
+  });
+
+  it('formasDeCuenta: Bajío se lee SÓLO sin los 4 últimos; CLABE también sin el verificador', () => {
+    expect(formasDeCuenta('245765060201', 'BAJIO 6506')).toEqual(['24576506']);
+    expect(formasDeCuenta('002496700783014636')).toEqual(['002496700783014636', '00249670078301463']);
+    expect(esBancoBajio('BBAJIO')).toBe(true);
+    expect(esBancoBajio('BanBajío')).toBe(true);
+    expect(esBancoBajio('BANAMEX')).toBe(false);
+  });
+
+  it('las cuatro coincidencias con el SPEI real de BajioNet', () => {
+    const k = coincidenciasPago(
+      { monto: 9970.01, fecha: '2026-09-01', cuenta_origen: '245765060201', beneficiario: 'EMBOTELLADORA AGA DEL CENTRO' },
+      { monto: '9970.01', pago_dia: '2026-09-01', proveedor_nombre: 'EMBOTELLADORA AGA DEL CENTRO SA DE CV', clave_banco: '6506', account_label: '506', banco_nombre: 'BAJIO 6506' },
+    );
+    expect(k).toEqual({ banco: 'ok', fecha: 'ok', monto: 'ok', proveedor: 'ok' });
   });
 });

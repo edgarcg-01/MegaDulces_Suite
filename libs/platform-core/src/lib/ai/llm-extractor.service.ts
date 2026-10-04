@@ -118,8 +118,8 @@ export interface SupplierPaymentFields {
   monto: number | null;
   fecha: string | null; // ISO YYYY-MM-DD
   concepto: string | null; // "Concepto de pago" — folio(s) de factura ("F 451", "F 906 907 908")
-  cuenta_origen: string | null; // cuenta de RETIRO (nuestra), últimos 4
-  cuenta_destino: string | null; // cuenta del proveedor, últimos 4
+  cuenta_origen: string | null; // cuenta de RETIRO (nuestra), número COMPLETO ([PC.7]: en BanBajío la cuenta vive en el centro)
+  cuenta_destino: string | null; // cuenta/CLABE del proveedor, número COMPLETO
   beneficiario: string | null; // razón social del proveedor que recibe
   clave_rastreo: string | null; // clave de rastreo SPEI / folio de internet / autorización
   banco_destino: string | null; // banco receptor
@@ -511,7 +511,7 @@ export class LlmExtractorService implements OnModuleInit {
     text: string,
   ): { raw: string; normalized: string; quantity: number }[] {
     return text
-      .split(/[\n,;\/|]+|\s+y\s+/i)
+      .split(/[\n,;/|]+|\s+y\s+/i)
       .map((s) => s.trim())
       .filter((s) => s.length > 0)
       .map((s) => {
@@ -1202,8 +1202,8 @@ export class LlmExtractorService implements OnModuleInit {
                 monto: { type: ['number', 'null'], description: 'Importe pagado en pesos (sin símbolo ni comas).' },
                 fecha: { type: ['string', 'null'], description: 'Fecha de la operación en ISO YYYY-MM-DD. Convierte cualquier formato. null si no se ve.' },
                 concepto: { type: ['string', 'null'], description: 'El campo "Concepto de pago" TAL CUAL. Suele ser el/los folio(s) de factura pagados (ej. "F 451", "F 906 907 908"). Copiar literal.' },
-                cuenta_origen: { type: ['string', 'null'], description: 'Cuenta de RETIRO / cargo (la nuestra, de donde SALE el dinero). Si es larga, los últimos 4 dígitos. null si no se ve.' },
-                cuenta_destino: { type: ['string', 'null'], description: 'Cuenta de depósito del proveedor (destino). Últimos 4 si es larga. null si no se ve.' },
+                cuenta_origen: { type: ['string', 'null'], description: 'Cuenta de RETIRO / cargo (la nuestra, de donde SALE el dinero; campo "Cuenta Origen" o "Cuenta de cargo"). Copia el número COMPLETO tal como aparece, todos los dígitos y sin espacios; si viene enmascarado, cópialo con sus asteriscos (ej. "****1463"). NUNCA lo recortes a los últimos dígitos: en Banco del Bajío la cuenta se identifica por los dígitos del CENTRO ("245765060201" es la cuenta 6506) y los últimos 4 ("0201") se repiten en todas. null si no se ve.' },
+                cuenta_destino: { type: ['string', 'null'], description: 'Cuenta o CLABE de depósito del proveedor (destino). Copia el número COMPLETO tal como aparece, sin espacios (con asteriscos si viene enmascarado); no lo recortes. null si no se ve.' },
                 beneficiario: { type: ['string', 'null'], description: 'Razón social del PROVEEDOR que recibe el pago (campo "Beneficiario" o "Nombre corto"). null si no se ve.' },
                 clave_rastreo: { type: ['string', 'null'], description: 'Clave de rastreo SPEI, folio de internet o número de autorización. Copiar tal cual.' },
                 banco_destino: { type: ['string', 'null'], description: 'Banco receptor del proveedor (ej. "CITI MEXICO", "BBVA"). null si no se ve.' },
@@ -1541,7 +1541,7 @@ export class LlmExtractorService implements OnModuleInit {
     if (m) return iso(+m[1], +m[2], +m[3]);
 
     // 2) Numérico DD/MM/YYYY (o - . como separador).
-    m = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    m = raw.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
     if (m) return iso(+m[3], +m[2], +m[1]);
 
     // 3) Con mes en español (abreviado o completo): "23/jun/2026", "23 de junio de 2026".
