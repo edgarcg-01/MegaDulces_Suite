@@ -6456,6 +6456,20 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
   `GESTIONAR` sin `VER` declarado en `DEUDA` de `landing-guards.spec.ts`. Vitest core+dashboard
   **120/120**, `tsc --noEmit` 0 errores; **`nx build view` NO corrido** (OOM en la máquina).
   ⚠️ **El permiso sigue sin repartir a ningún rol**: sólo lo ven `superadmin`/`admin` por nombre.
+- [ ] 🧪 **TP.13** — 2026-10-03: **Tesorería entra a Obligaciones, por persona y con constancia.**
+  Mig `20261003200000_tp13_obligaciones_tesoreria.js`: `maria_gutierrez` (Jefe de Tesorería) recibe
+  `COMPRAS_OBLIGACIONES_VER` + `COMPRAS_PLAZOS_AUTORIZAR`; `julio_torres` (arma el expediente de pagos
+  y hace el programa cuando ella no está) recibe sólo `VER`. Ninguno recibe `GESTIONAR` ni autoriza el
+  calendario. Asienta `permissions_changed` en `identity.user_events` (pestaña Historia) y 4 candados
+  sobre el EFECTO. Consultas de los candados probadas contra prod en `READ ONLY` (casos conocidos:
+  Gerardo por rol, Guillermo por excepción); **los INSERT no se ejecutaron** (usuario sólo lectura).
+  Falta: aplicar en prod + re-login de los dos. Pregunta abierta: ¿Julio también plazos?
+- [ ] ⬜ **TP.14** — **Pirámide de accesos: cada quien ve sólo su lugar.** Medido: Obligaciones hoy
+  **no filtra por lugar** (sin `ScopeService`). Propuesta y revisión de 143 personas / 41 puestos en
+  [`FASE_TP` §TP.13+TP.14](FASES/FASE_TP_CALENDARIO_PAGOS.md) + maqueta
+  [`prototipos/piramide-accesos-obligaciones.html`](FASES/prototipos/piramide-accesos-obligaciones.html).
+  Antes de construir: quitar `superadmin` a los 3 Gerentes de Zona, corregir el rol de Facturación,
+  asignar lugar a 13 personas y responder 4 preguntas abiertas.
 
 **Declarado (decisión explícita del usuario):** catálogo tipado de cajas de Caja General;
 cobertura de inventario por proveedor y programa de ingresos — fuera de alcance, la reunión
@@ -7165,6 +7179,16 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
   fue sustituido por Diana → baja lógica de su agenda en Zamora.
 - ⚠️ Pendiente: personas en `/admin/users` (baja `mauricio_ibarra`, jefe de `francisco_vecinal`, puesto
   `vendedor_vecinal`). **NO compilado en local** (regla del 2-oct); migraciones probadas en seco contra prod.
+## VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código)
+
+- [ ] 🔨 `[VS.1]` `/vendor/search` abre en **los clientes de su ruta de hoy** (misma regla que "Mi ruta":
+  la escogida por el supervisor o su agenda, `vendorTodayRouteExistsSql`), y bajo la barra de búsqueda dos
+  pestañas: **"Tu ruta · RVLPA01"** (o "Tus rutas (n)") y **"Clientes otras rutas"**. Backend:
+  `GET /commercial/customers?exclude_mine=true` = el catálogo **menos** esa cartera, para que nadie salga en
+  las dos pestañas; `mine`/`exclude_mine` sincronizan antes la cartera de Kepler ([VK.4]) por si el
+  vendedor abre el buscador antes que su home. Rótulo de la ruta = `GET /vendor-routes/my`.
+  ⚠️ "Tu ruta" es la cartera **de hoy**: un cliente de su ruta con `visit_days` de otro día cae en "otras rutas".
+  ⚠️ **NO compilado en local** (regla del 2-oct): lo confirma el CI.
 
 ## VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código)
 

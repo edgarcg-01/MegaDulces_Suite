@@ -97,7 +97,25 @@ const TOPE = {
   //    juntos hasta que se tocaron. El caso gemelo es el breakpoint de abajo, que estaba en
   //    CERO: la regla la trae la rama y la violación la trajo `main`, y ninguno de los dos CI
   //    podía verla.
-  fontSize:   2689,
+  //
+  // ⚠️ 2,691 y no 2,689: `[VS.1]` (#248) agregó DOS en
+  //    `apps/vendor/.../vendor-customers.component.ts` — `.tab` con `0.82rem` y `.tab .cnt` con
+  //    `0.72rem`. **No se tokenizan, y el motivo no es pereza:**
+  //
+  //    1. Los dos valores YA ESTABAN en ese archivo (líneas 237, 253, 302). El autor usó la
+  //       convención que el componente ya tenía; tokenizar sólo los nuevos dejaría el MISMO
+  //       tamaño escrito de dos formas distintas en el mismo bloque de estilos.
+  //    2. El archivo lleva **25 literales contra 4 tokens**, con 13 tamaños distintos y varios
+  //       fuera de la escala (`0.95`, `0.78`, `0.7`, `1.05`, `2.25`). Es un archivo sin barrer,
+  //       y barrerlo es una tarea propia CON la pantalla a la vista — no el flanco de este PR.
+  //    3. ⛔ Y uno de los dos tiene riesgo medible: `0.72rem` = 11.52px → `--fs-xs` = 12px lo
+  //       AGRANDA 0.48px, dentro de una pestaña con `overflow:hidden; text-overflow:ellipsis`
+  //       que comparte ancho y cuya etiqueta es «Clientes otras rutas». Agrandar el contador
+  //       puede truncar la etiqueta antes. Eso no se decide sin abrir la pantalla.
+  //
+  //    Queda DECLARADO, no disfrazado, y el ratchet sigue exacto: un tercero vuelve a dar rojo.
+  //    Deuda con nombre: `vendor-customers.component.ts` necesita su propio barrido.
+  fontSize:   2691,
   hex:        1449,  // hex crudo en declaración de color
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,
