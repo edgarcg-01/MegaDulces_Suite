@@ -7,9 +7,11 @@ import { CommercialPricingModule } from '../commercial-pricing/commercial-pricin
 import { CommercialInventoryModule } from '../commercial-inventory/commercial-inventory.module';
 import { CommercialAlertsModule } from '../commercial-alerts/commercial-alerts.module';
 import { CommercialPushModule } from '../commercial-push/commercial-push.module';
+// [VTK.2] El pedido se cobra con el motor de precios de cotizaciones (QuotePricingService).
+import { CommercialQuotesModule } from '../commercial-quotes/commercial-quotes.module';
 
 @Module({
-  imports: [CommercialPricingModule, CommercialInventoryModule, CommercialAlertsModule, CommercialPushModule],
+  imports: [CommercialPricingModule, CommercialInventoryModule, CommercialAlertsModule, CommercialPushModule, CommercialQuotesModule],
   controllers: [CommercialOrdersController],
   providers: [CommercialOrdersService, OrderStockService, InvoiceRetryCronService],
   exports: [CommercialOrdersService],

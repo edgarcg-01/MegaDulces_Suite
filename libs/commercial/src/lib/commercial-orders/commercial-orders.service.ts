@@ -17,6 +17,8 @@ import { CommercialInventoryService } from '../commercial-inventory/commercial-i
 import { AlertsService } from '../commercial-alerts/alerts.service';
 import { CommercialPushService } from '../commercial-push/commercial-push.service';
 import { OrderStockService } from './order-stock.service';
+import { QuotePricingService, rungDeRotulo, type Rung } from '../commercial-quotes/quote-pricing.service';
+import type { Knex } from 'knex';
 import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
 
 // ─────────── tipos ───────────
@@ -170,10 +172,96 @@ export class CommercialOrdersService {
     private readonly alerts: AlertsService,
     private readonly push: CommercialPushService,
     private readonly stock: OrderStockService,
+    // [VTK.2] El precio del renglón sale del MISMO motor que cotizaciones (Kepler por sucursal y
+    // peldaño + volumen + promociones), no de una lista propia.
+    private readonly quotePricing: QuotePricingService,
     @Optional() @Inject(INVOICE_ISSUER_PORT) private readonly invoiceIssuer?: InvoiceIssuerPort,
   ) {}
 
   private readonly logger = new Logger(CommercialOrdersService.name);
+
+  /**
+   * `[VTK.2]` Precio de un renglón con el motor de cotizaciones: la escalera de Kepler de la
+   * SUCURSAL del pedido (precio por peldaño PZA/PAQ/CJA) + precio por volumen + promociones por
+   * cantidad. Es el mismo cálculo que ya usa Telemarketing; acá la venta va en firme.
+   *
+   * ── Las dos diferencias que esta función absorbe ─────────────────────────────────────────────
+   *   · IVA: el precio del ERP YA TRAE impuestos (Σ kdm2.c13 = kdm1.c16, 99.84%). El pedido, en
+   *     cambio, guarda `unit_price` SIN impuesto y suma `line_tax`. Por eso el TOTAL del renglón
+   *     es el del motor y el subtotal se calcula HACIA ATRÁS con la tasa del producto. Sumarle el
+   *     IVA encima cobraría el impuesto dos veces.
+   *   · Unidad: el motor tarifica "N cajas a precio de caja"; el pedido guarda la cantidad en la
+   *     unidad BASE. El peldaño se resuelve contra la escalera de ESE SKU (`rungDeRotulo`) y, si la
+   *     cantidad base no es múltiplo exacto del peldaño (un renglón que suma cajas y piezas), se
+   *     tarifica en la base: no se inventa un peldaño que la cantidad no tiene.
+   *
+   * Devuelve `null` cuando el motor no puede tarificar (almacén sin sucursal Kepler, SKU sin
+   * escalera, peldaño sin precio): el caller cae al cálculo anterior (`resolvePriceForQty`) en vez
+   * de dejar el renglón sin precio. Lo que se DECLARA y no se aplica: el regalo por cantidad
+   * (`free_goods`) — el pedido no tiene todavía renglones hijos de regalo — y el descuento del
+   * cliente (capa de documento, no de renglón).
+   */
+  private async tarificarConMotor(
+    trx: Knex | Knex.Transaction,
+    warehouseId: string | null | undefined,
+    productId: string,
+    qtyBase: number,
+    qtyUnit: string | null | undefined,
+    discount: number,
+  ): Promise<{
+    unit_price: number;
+    tax_rate: number;
+    line_subtotal: number;
+    line_tax: number;
+    line_total: number;
+    /** Total de Kepler con impuestos, antes del descuento manual → `order_lines.erp_gross_total`. */
+    erp_gross_total: number;
+    rung: Rung;
+  } | null> {
+    if (!warehouseId || !(qtyBase > 0)) return null;
+    const wh = await trx('commercial.warehouses').where({ id: warehouseId }).first('kepler_code');
+    const branch = String(wh?.kepler_code ?? '').trim();
+    if (!branch) return null;
+    const prod = await trx('catalog.products').where({ id: productId }).first('sku');
+    const sku = String(prod?.sku ?? '').trim();
+    if (!sku) return null;
+
+    const led = (await this.quotePricing.ladders(trx, branch, [sku])).get(sku);
+    if (!led) return null;
+
+    let rung: Rung = rungDeRotulo(qtyUnit ?? null, led);
+    let size = rung === 'base' ? 1 : Number(led.rungs[rung]?.size ?? 0);
+    let qtyRung = size > 0 ? qtyBase / size : 0;
+    if (!(size > 0) || Math.abs(qtyRung - Math.round(qtyRung)) > 1e-6) {
+      rung = 'base';
+      size = 1;
+      qtyRung = qtyBase;
+    }
+
+    const priced = await this.quotePricing.priceLine(trx, { branch, sku, quantity: qtyRung, rung });
+    if (priced.line_total === null || priced.unit_price === null) return null;
+
+    // Tasa del PRODUCTO (la misma que usaba el cálculo anterior); el motor asume 16% para todo.
+    const tp = await trx('commercial.product_prices as pp')
+      .join('commercial.price_lists as pl', function (this: Knex.JoinClause) {
+        this.on('pl.id', '=', 'pp.price_list_id').andOn('pl.tenant_id', '=', 'pp.tenant_id');
+      })
+      .where('pp.product_id', productId)
+      .whereNull('pp.deleted_at')
+      .orderByRaw("CASE WHEN pl.code = 'BASE-MXN' THEN 0 ELSE 1 END")
+      .first('pp.tax_rate');
+    const taxRate = tp?.tax_rate !== undefined && tp?.tax_rate !== null ? Number(tp.tax_rate) : Number(priced.tax_rate);
+
+    const grossTotal = Number(priced.line_total);
+    const lineTotal = +(grossTotal * (1 - discount)).toFixed(2);
+    const lineSubtotal = +(lineTotal / (1 + taxRate)).toFixed(2);
+    const lineTax = +(lineTotal - lineSubtotal).toFixed(2);
+    const unitPrice = +(grossTotal / (1 + taxRate) / qtyBase).toFixed(4);
+    return {
+      unit_price: unitPrice, tax_rate: taxRate, line_subtotal: lineSubtotal, line_tax: lineTax,
+      line_total: lineTotal, erp_gross_total: +grossTotal.toFixed(2), rung,
+    };
+  }
 
   /**
    * Push fire-and-forget al cliente del pedido (Fase 3). Nunca lanza ni bloquea
@@ -533,15 +621,21 @@ export class CommercialOrdersService {
         .first();
       if (existing) {
         const newQty = Number(existing.quantity) + qtyBase;
+        const exDiscount = Number(existing.discount_percent) || 0;
+        const mismaUnidad = String(existing.qty_unit ?? '') === String(conv.sello.qty_unit ?? '');
+        // [VTK.2] Motor de cotizaciones primero (Kepler por sucursal y peldaño); si no puede,
+        // el cálculo anterior. Con unidades distintas se tarifica en la base.
+        const motor = await this.tarificarConMotor(
+          trx, order.warehouse_id, dto.product_id, newQty,
+          mismaUnidad ? conv.sello.qty_unit : null, exDiscount);
         // FIQ.3: re-tarificar por el NUEVO total — el tier de volumen puede bajar
         // el precio/pza al acumular (pieza→caja). Fallback al snapshot si no resuelve.
-        const pi = await this.pricing.resolvePriceForQty(dto.product_id, newQty);
-        const exUnit = pi.price != null ? Number(pi.price) : Number(existing.unit_price);
-        const exTax = pi.price != null ? Number(pi.tax_rate) : Number(existing.tax_rate);
-        const exDiscount = Number(existing.discount_percent) || 0;
-        const exSubtotal = +(newQty * exUnit * (1 - exDiscount)).toFixed(2);
-        const exLineTax = +(exSubtotal * exTax).toFixed(2);
-        const exTotal = +(exSubtotal + exLineTax).toFixed(2);
+        const pi = motor ? null : await this.pricing.resolvePriceForQty(dto.product_id, newQty);
+        const exUnit = motor ? motor.unit_price : (pi!.price != null ? Number(pi!.price) : Number(existing.unit_price));
+        const exTax = motor ? motor.tax_rate : (pi!.price != null ? Number(pi!.tax_rate) : Number(existing.tax_rate));
+        const exSubtotal = motor ? motor.line_subtotal : +(newQty * exUnit * (1 - exDiscount)).toFixed(2);
+        const exLineTax = motor ? motor.line_tax : +(exSubtotal * exTax).toFixed(2);
+        const exTotal = motor ? motor.line_total : +(exSubtotal + exLineTax).toFixed(2);
         const [merged] = await trx('commercial.order_lines')
           .where({ id: existing.id })
           .update({
@@ -553,6 +647,7 @@ export class CommercialOrdersService {
             line_subtotal: exSubtotal,
             line_tax: exLineTax,
             line_total: exTotal,
+            erp_gross_total: motor ? motor.erp_gross_total : null,
             // [VU.2] Al FUSIONAR, el sello de la línea vieja ya no describe el total. Si las dos
             // capturas fueron en la misma unidad, el sello sigue siendo cierto; si no, se pone en
             // null: una línea que suma 2 cajas + 5 piezas no está "en cajas" ni "en piezas", y
@@ -566,26 +661,39 @@ export class CommercialOrdersService {
         return merged;
       }
 
-      // Línea nueva: precio por CANTIDAD (tier de volumen, FIQ.3) + validar MOQ.
-      // El precio/pza depende de la cantidad pedida (pieza suelta vs caja).
-      const priceInfo = await this.pricing.resolvePriceForQty(dto.product_id, qtyBase);
-      if (priceInfo.price === null) {
-        if (priceInfo.source === 'below_min') {
+      const discount = dto.discount_percent ?? 0;
+      // [VTK.2] Línea nueva: el motor de cotizaciones (Kepler por sucursal y peldaño + volumen +
+      // promos). Kepler vende desde 1 unidad: con el motor no hay mínimo de compra.
+      const motor = await this.tarificarConMotor(
+        trx, order.warehouse_id, dto.product_id, qtyBase, conv.sello.qty_unit, discount);
+
+      let unitPrice: number;
+      let taxRate: number;
+      let lineSubtotal: number;
+      let lineTax: number;
+      let lineTotal: number;
+      if (motor) {
+        ({ unit_price: unitPrice, tax_rate: taxRate, line_subtotal: lineSubtotal, line_tax: lineTax, line_total: lineTotal } = motor);
+      } else {
+        // Cálculo anterior: precio por CANTIDAD (tier de volumen, FIQ.3) + validar MOQ.
+        // El precio/pza depende de la cantidad pedida (pieza suelta vs caja).
+        const priceInfo = await this.pricing.resolvePriceForQty(dto.product_id, qtyBase);
+        if (priceInfo.price === null) {
+          if (priceInfo.source === 'below_min') {
+            throw new ConflictException(
+              `Cantidad mínima ${priceInfo.min_purchase} para este producto`,
+            );
+          }
           throw new ConflictException(
-            `Cantidad mínima ${priceInfo.min_purchase} para este producto`,
+            `Producto ${dto.product_id} sin precio configurado`,
           );
         }
-        throw new ConflictException(
-          `Producto ${dto.product_id} sin precio configurado`,
-        );
+        unitPrice = Number(priceInfo.price);
+        taxRate = Number(priceInfo.tax_rate);
+        lineSubtotal = +(qtyBase * unitPrice * (1 - discount)).toFixed(2);
+        lineTax = +(lineSubtotal * taxRate).toFixed(2);
+        lineTotal = +(lineSubtotal + lineTax).toFixed(2);
       }
-
-      const discount = dto.discount_percent ?? 0;
-      const unitPrice = Number(priceInfo.price);
-      const taxRate = Number(priceInfo.tax_rate);
-      const lineSubtotal = +(qtyBase * unitPrice * (1 - discount)).toFixed(2);
-      const lineTax = +(lineSubtotal * taxRate).toFixed(2);
-      const lineTotal = +(lineSubtotal + lineTax).toFixed(2);
 
       // line_number consecutivo (safe ahora gracias al FOR UPDATE arriba).
       const [{ next_line }] = await trx('commercial.order_lines')
@@ -608,6 +716,7 @@ export class CommercialOrdersService {
           line_subtotal: lineSubtotal,
           line_tax: lineTax,
           line_total: lineTotal,
+          erp_gross_total: motor ? motor.erp_gross_total : null,
           notes: dto.notes || null,
         })
         .returning('*');
@@ -679,6 +788,36 @@ export class CommercialOrdersService {
           continue;
         }
         info.quantity = conv.quantity;
+        const discountMotor = info.discount_percent ?? 0;
+        if (discountMotor < 0 || discountMotor > 1) {
+          skipped.push({ product_id: productId, reason: 'descuento inválido' });
+          continue;
+        }
+        // [VTK.2] Motor de cotizaciones (Kepler por sucursal y peldaño + volumen + promos). Sin
+        // mínimo de compra: Kepler vende desde 1. Si no puede tarificar, el cálculo anterior.
+        const motor = await this.tarificarConMotor(
+          trx, order.warehouse_id, productId, info.quantity, conv.sello.qty_unit, discountMotor);
+        if (motor) {
+          lineNumber += 1;
+          await trx('commercial.order_lines').insert({
+            tenant_id: trx.raw('public.current_tenant_id()'),
+            order_id: orderId,
+            product_id: productId,
+            line_number: lineNumber,
+            quantity: info.quantity,
+            requested_quantity: info.quantity,
+            unit_price: motor.unit_price,
+            tax_rate: motor.tax_rate,
+            discount_percent: discountMotor,
+            line_subtotal: motor.line_subtotal,
+            line_tax: motor.line_tax,
+            line_total: motor.line_total,
+            erp_gross_total: motor.erp_gross_total,
+            notes: info.notes || null,
+            ...conv.sello,
+          });
+          continue;
+        }
         // FIQ.3: precio por CANTIDAD (tier de volumen). Resolver mínimo, bumpear qty
         // al mínimo si hace falta, y tarificar al qty efectivo (el tier puede cambiar).
         const first = await this.pricing.resolvePriceForQty(productId, info.quantity);
@@ -839,11 +978,21 @@ export class CommercialOrdersService {
         }
       }
 
-      const unitPrice = Number(line.unit_price);
-      const taxRate = Number(line.tax_rate);
-      const lineSubtotal = +(quantity * unitPrice * (1 - discount)).toFixed(2);
-      const lineTax = +(lineSubtotal * taxRate).toFixed(2);
-      const lineTotal = +(lineSubtotal + lineTax).toFixed(2);
+      // [VTK.2] Si cambió la cantidad (o el descuento), se vuelve a tarificar con el motor de
+      // cotizaciones: el precio de Kepler depende de la cantidad (volumen, promos). Antes la
+      // edición conservaba el precio viejo, que con el motor quedaría mal. Si el motor no puede,
+      // se conserva el precio del renglón como siempre y se suelta el total de Kepler (ya no
+      // describe la nueva cantidad).
+      const unidadTrasEdicion = 'qty_unit' in selloTrasEdicion ? selloTrasEdicion.qty_unit : line.qty_unit;
+      const motor = (quantity !== prevQty || discount !== Number(line.discount_percent))
+        ? await this.tarificarConMotor(trx, order.warehouse_id, line.product_id, quantity, unidadTrasEdicion, discount)
+        : null;
+      const unitPrice = motor ? motor.unit_price : Number(line.unit_price);
+      const taxRate = motor ? motor.tax_rate : Number(line.tax_rate);
+      const lineSubtotal = motor ? motor.line_subtotal : +(quantity * unitPrice * (1 - discount)).toFixed(2);
+      const lineTax = motor ? motor.line_tax : +(lineSubtotal * taxRate).toFixed(2);
+      const lineTotal = motor ? motor.line_total : +(lineSubtotal + lineTax).toFixed(2);
+      const sinCambioDePrecio = quantity === prevQty && discount === Number(line.discount_percent);
 
       // En draft el cliente sigue armando — `requested_quantity` se sincroniza
       // con `quantity` porque NO existe todavía una "cantidad pedida congelada".
@@ -851,9 +1000,12 @@ export class CommercialOrdersService {
       const updatePatch: Record<string, any> = {
         quantity,
         discount_percent: discount,
+        unit_price: unitPrice,
+        tax_rate: taxRate,
         line_subtotal: lineSubtotal,
         line_tax: lineTax,
         line_total: lineTotal,
+        erp_gross_total: motor ? motor.erp_gross_total : (sinCambioDePrecio ? line.erp_gross_total : null),
         notes: dto.notes !== undefined ? dto.notes : line.notes,
         ...selloTrasEdicion,
       };
@@ -2427,9 +2579,21 @@ export class CommercialOrdersService {
       }
 
       lineSubtotal = Math.max(0, +lineSubtotal.toFixed(2));
-      const lineTax = +(lineSubtotal * taxRate).toFixed(2);
-      const lineTotal = +(lineSubtotal + lineTax).toFixed(2);
-      const discountAmount = +Math.max(0, baseSubtotal - lineSubtotal).toFixed(2);
+      let lineTax = +(lineSubtotal * taxRate).toFixed(2);
+      let lineTotal = +(lineSubtotal + lineTax).toFixed(2);
+      // [VTK.2] Renglón tarificado con el motor de cotizaciones: el total es el de Kepler (con
+      // impuestos) al centavo y el subtotal se calcula hacia atrás. Rehacerlo desde `unit_price`
+      // (4 decimales, sin impuesto, por pieza) perdía centavos. Si además aplicó una promoción
+      // propia de la Suite, manda el cálculo de arriba, como siempre.
+      const precioMotor = line.erp_gross_total !== null && line.erp_gross_total !== undefined && !appliedPromoCode;
+      if (precioMotor) {
+        lineTotal = +(Number(line.erp_gross_total) * (1 - manualDiscount)).toFixed(2);
+        lineSubtotal = +(lineTotal / (1 + taxRate)).toFixed(2);
+        lineTax = +(lineTotal - lineSubtotal).toFixed(2);
+      }
+      // Con el precio del motor no hubo promoción de la Suite: el centavo de diferencia entre
+      // `unit_price` redondeado y el subtotal real no es un descuento y no se publica como tal.
+      const discountAmount = precioMotor ? 0 : +Math.max(0, baseSubtotal - lineSubtotal).toFixed(2);
 
       const cleanedNotes = typeof line.notes === 'string' && line.notes.startsWith('Promo aplicada:')
         ? null

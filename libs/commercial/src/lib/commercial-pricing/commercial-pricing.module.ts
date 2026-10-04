@@ -5,8 +5,12 @@ import { PriceExperimentService, PriceExperimentReadService } from './price-expe
 import { PriceExperimentController } from './price-experiment.controller';
 import { MarginEngineService } from './margin-engine.service';
 import { MarginEngineController } from './margin-engine.controller';
+// [VTK.3] La lista del vendedor saca unidades y precios por unidad de la escalera del motor de
+// cotizaciones (la misma con la que después se cobra el pedido).
+import { CommercialQuotesModule } from '../commercial-quotes/commercial-quotes.module';
 
 @Module({
+  imports: [CommercialQuotesModule],
   controllers: [CommercialPricingController, PriceExperimentController, MarginEngineController],
   providers: [CommercialPricingService, PriceExperimentService, PriceExperimentReadService,
     MarginEngineService],

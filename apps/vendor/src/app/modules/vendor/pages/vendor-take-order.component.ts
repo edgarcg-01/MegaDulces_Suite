@@ -119,38 +119,58 @@ const foldText = (s: string | null | undefined): string =>
             </div>
           </div>
         }
-        <!-- Aviso: el cliente ya tiene un pedido pendiente (preventa/portal o de campo) -->
-        @if (!pendingDismissed() && pendingOrders().length > 0) {
-          <div class="pending-warn">
-            <i class="pi pi-exclamation-triangle"></i>
-            <div class="pw-body">
-              <b>
-                Ya tiene
-                {{ pendingOrders().length === 1 ? (hasPreventa() ? 'una preventa' : 'un pedido') : pendingOrders().length + ' pedidos' }}
-                pendiente{{ pendingOrders().length === 1 ? '' : 's' }}
-              </b>
-              <span>{{ fmtMoney(pendingTotal()) }}{{ hasPreventa() ? ' · del portal' : '' }} — revisá antes de duplicar</span>
-            </div>
-            <div class="pw-actions">
-              <button class="pw-see" (click)="goPending()">Ver</button>
-              <button class="pw-x" (click)="pendingDismissed.set(true)">Continuar</button>
-            </div>
-          </div>
-        }
-        <!-- Oferta de pedido sugerido (opt-in: no se arma solo) -->
-        @if (showPrefillOffer()) {
-          <div class="prefill-note offer">
-            <i class="pi pi-bolt"></i>
-            <div class="pn-body">
-              <b>¿Cargar pedido sugerido?</b>
-              <span>{{ predictedLines().length }} productos según lo que suele pedir.</span>
-            </div>
-            <div class="pn-actions">
-              <button class="pn-yes" (click)="usePrefill()">Cargar</button>
-              <button (click)="prefillDismissed.set(true)">No</button>
-            </div>
-          </div>
-        }
+        <!-- [VTK.6] Diseño A: avisos y ajustes del pedido en UNA tira de una línea (antes eran 4
+             bloques y en un celular chico el primer producto quedaba a media pantalla). -->
+        <div class="chipbar" role="toolbar" aria-label="Avisos y ajustes del pedido">
+          <!-- El cliente ya tiene un pedido pendiente (preventa/portal o de campo) -->
+          @if (!pendingDismissed() && pendingOrders().length > 0) {
+            <span class="chip warn">
+              <button type="button" class="chip-main" (click)="goPending()"
+                [attr.aria-label]="'Ver ' + pendingOrders().length + ' pendiente' + (pendingOrders().length === 1 ? '' : 's')">
+                <i class="pi pi-exclamation-triangle"></i>
+                {{ pendingOrders().length === 1 ? (hasPreventa() ? 'Preventa' : 'Pendiente') : pendingOrders().length + ' pendientes' }}
+                {{ fmtMoney(pendingTotal()) }} · Ver
+              </button>
+              <button type="button" class="chip-x" (click)="pendingDismissed.set(true)" aria-label="Ocultar aviso de pendiente">
+                <i class="pi pi-times"></i>
+              </button>
+            </span>
+          }
+          <!-- Oferta de pedido sugerido (opt-in: no se arma solo) -->
+          @if (showPrefillOffer()) {
+            <span class="chip sug">
+              <button type="button" class="chip-main" (click)="usePrefill()">
+                <i class="pi pi-bolt"></i> Sugerido ({{ predictedLines().length }}) · Cargar
+              </button>
+              <button type="button" class="chip-x" (click)="prefillDismissed.set(true)" aria-label="No cargar el sugerido">
+                <i class="pi pi-times"></i>
+              </button>
+            </span>
+          }
+          <!-- Fecha de entrega (preventa) -->
+          <label class="chip date">
+            <i class="pi pi-calendar"></i> Entrega
+            <input type="date" [(ngModel)]="requestedDate" [min]="minDate" class="chip-date" aria-label="Fecha de entrega" />
+          </label>
+          <!-- Fuente de existencia: ver sucursal / ver camioneta -->
+          @if (stockSources().sucursal && !offlineMode()) {
+            <button type="button" class="chip" [class.on]="stockView() === 'sucursal'"
+              [class.unassigned]="stockSources().sucursal?.assigned === false"
+              (click)="switchStockView('sucursal')">
+              @if (stockSources().sucursal?.assigned === false) {
+                <i class="pi pi-exclamation-triangle"></i> Sin sucursal
+              } @else {
+                <i class="pi pi-box"></i> {{ stockSources().sucursal?.name }}
+              }
+            </button>
+            @if (stockSources().camioneta; as cam) {
+              <button type="button" class="chip" [class.on]="stockView() === 'camioneta'" (click)="switchStockView('camioneta')">
+                <i class="pi pi-truck"></i> {{ cam.name }}
+              </button>
+            }
+            @if (stockLoading()) { <i class="pi pi-spin pi-spinner ss-spin"></i> }
+          }
+        </div>
         <!-- Pedido sugerido pre-cargado -->
         @if (prefilling()) {
           <div class="prefill-note loading">
@@ -175,13 +195,8 @@ const foldText = (s: string | null | undefined): string =>
             <span>Estás corrigiendo <b>{{ editingCode() || 'un pedido agendado' }}</b>. Guardá al terminar para volver a agendarlo.</span>
           </div>
         }
-        <!-- Fecha de entrega (preventa) -->
-        <div class="date-row">
-          <label><i class="pi pi-calendar"></i> Fecha de entrega</label>
-          <input type="date" [(ngModel)]="requestedDate" [min]="minDate" class="date-input" />
-        </div>
-        <!-- Search + dictar pedido -->
-        <div class="search">
+        <!-- Search + dictar pedido. [VTK.6] Fijo arriba al desplazarse. -->
+        <div class="search sticky">
           <i class="pi pi-search"></i>
           <input pInputText type="search" placeholder="Buscar producto o código"
             [ngModel]="searchTerm()" (ngModelChange)="searchTerm.set($event)"
@@ -195,29 +210,8 @@ const foldText = (s: string | null | undefined): string =>
               </button>
             }
           </div>
-          <!-- Fuente de existencia: ver sucursal / ver camioneta -->
+          <!-- Avisos de la fuente de existencia (el selector vive en la tira de arriba, [VTK.6]) -->
           @if (stockSources().sucursal && !offlineMode()) {
-            <div class="stock-src">
-              <span class="ss-lbl"><i class="pi pi-box"></i> Existencia</span>
-              <div class="ss-seg">
-                <button type="button" class="ss-b" [class.on]="stockView() === 'sucursal'"
-                  [class.unassigned]="stockSources().sucursal?.assigned === false"
-                  (click)="switchStockView('sucursal')">
-                  @if (stockSources().sucursal?.assigned === false) {
-                    <i class="pi pi-exclamation-triangle"></i> Sin asignar
-                  } @else {
-                    <i class="pi pi-building"></i> {{ stockSources().sucursal?.name }}
-                  }
-                </button>
-                @if (stockSources().camioneta; as cam) {
-                  <button type="button" class="ss-b" [class.on]="stockView() === 'camioneta'"
-                    (click)="switchStockView('camioneta')">
-                    <i class="pi pi-truck"></i> {{ cam.name }}
-                  </button>
-                }
-              </div>
-              @if (stockLoading()) { <i class="pi pi-spin pi-spinner ss-spin"></i> }
-            </div>
             @if (stockSources().sucursal?.assigned === false) {
               <p class="ss-warn"><i class="pi pi-info-circle"></i> No tenés sucursal de surtido asignada — se muestra el almacén general. Pedile a tu supervisor que te asigne tu ruta.</p>
             }
@@ -305,8 +299,9 @@ const foldText = (s: string | null | undefined): string =>
           }
           <!-- Fila de producto (reusada en búsqueda / habituales / sugeridos) -->
           <ng-template #prodRow let-p>
+            <!-- [VTK.6] Fila compacta: sin el ícono de caja (le gana ancho al nombre) y las
+                 unidades en el mismo renglón que el precio. -->
             <div class="prod" [class.in]="cartQty(p.product_id) > 0">
-              <div class="ph"><i class="pi pi-box"></i></div>
               <div
                 class="pb"
                 [class.tappable]="hasPitch(p)"
@@ -322,6 +317,16 @@ const foldText = (s: string | null | undefined): string =>
                     <span class="rsn"><i class="pi pi-sparkles"></i> {{ rsn }}</span>
                   }
                   <span class="pr">{{ fmtMoney(unitPriceDisplay(p)) }}@if (selectedUnit(p); as su) {<span class="pr-u">/{{ su.unit }}</span>}</span>
+                  <!-- Selector de medida (de menor a mayor): solo si el SKU ofrece más de una. -->
+                  @if (hasUnitChoice(p)) {
+                    <span class="unit-sel" role="group" aria-label="Unidad">
+                      @for (u of unitsOf(p); track u.unit) {
+                        <button type="button" class="us-chip" [class.on]="selectedUnit(p)?.unit === u.unit"
+                          [attr.aria-pressed]="selectedUnit(p)?.unit === u.unit"
+                          (click)="setUnit(p, u.unit); $event.stopPropagation()">{{ u.unit }}</button>
+                      }
+                    </span>
+                  }
                   @if (p.min_qty > 1) {
                     <span>· min {{ p.min_qty }}</span>
                   }
@@ -335,15 +340,6 @@ const foldText = (s: string | null | undefined): string =>
                     <span class="why"><i class="pi pi-comment"></i> por qué</span>
                   }
                 </div>
-                <!-- Selector de medida (PZA/PAQ/CJA): solo si el SKU ofrece más de una. -->
-                @if (hasUnitChoice(p)) {
-                  <div class="unit-sel">
-                    @for (u of unitsOf(p); track u.unit) {
-                      <button type="button" class="us-chip" [class.on]="selectedUnit(p)?.unit === u.unit"
-                        (click)="setUnit(p, u.unit); $event.stopPropagation()">{{ u.unit }}</button>
-                    }
-                  </div>
-                }
                 <!-- Incitar mayoreo: el quiebre por cantidad, en la unidad activa. -->
                 @if (mayoreoHint(p); as mh) {
                   <div class="may-hint" [class.reached]="mh.reached">
@@ -367,7 +363,8 @@ const foldText = (s: string | null | undefined): string =>
                     (keydown.enter)="$any($event.target).blur()"
                     (focus)="$any($event.target).select()"
                     placeholder="0" [attr.aria-label]="'Cantidad en ' + (rowUnitLabel(p) || 'unidades')" />
-                  <button (click)="incProduct(p)" [disabled]="!!adding()[p.product_id]" aria-label="Más">+</button>
+                  <!-- [VTK.5] No se bloquea mientras se crea el renglón: los toques se acumulan. -->
+                  <button (click)="incProduct(p)" aria-label="Más">+</button>
                 </div>
                 <!-- En qué se está contando esta fila. Fuera de rejilla cae a unidad base
                      y se dice, en vez de redondear a una presentación que no es. -->
@@ -639,6 +636,27 @@ const foldText = (s: string | null | undefined): string =>
       .date-input { width: 100%; height: 2.9rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: 0 0.875rem; font-family: var(--font-body); font-size: 0.95rem; background: var(--card-bg); color: var(--text-main); }
 
       .search { display: flex; align-items: center; gap: 0.6rem; background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: 0.1rem 0.95rem; margin-bottom: 0.875rem; }
+      /* [VTK.6] Buscador fijo al desplazarse: con la lista larga se busca sin volver arriba. */
+      .search.sticky { position: sticky; top: 0; z-index: 5; background: var(--card-bg); box-shadow: 0 2px 6px rgba(16,13,9,0.06); }
+
+      /* [VTK.6] Tira de avisos y ajustes: una sola línea con desplazamiento horizontal. */
+      .chipbar { display: flex; align-items: center; gap: 0.4rem; overflow-x: auto; margin: 0 -1rem 0.75rem; padding: 0 1rem 0.15rem; scrollbar-width: none; }
+      .chipbar::-webkit-scrollbar { display: none; }
+      .chipbar .chip { flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.3rem; min-height: 2.1rem; padding: 0 0.7rem; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); background: var(--card-bg); color: var(--text-main); font-family: var(--font-body); font-size: 0.76rem; font-weight: 700; white-space: nowrap; cursor: pointer; }
+      .chipbar .chip i { font-size: 0.72rem; }
+      .chipbar .chip.on { border-color: var(--action); background: var(--ember-soft); color: var(--brand-900); }
+      .chipbar .chip.unassigned { color: var(--warn-fg); border-color: var(--warn-fg); }
+      .chipbar .chip.warn, .chipbar .chip.sug { padding: 0; gap: 0; overflow: hidden; }
+      .chipbar .chip.warn { background: var(--warn-soft-bg); border-color: var(--warn-fg); }
+      .chipbar .chip.sug { background: var(--ember-soft); border-color: var(--ember-border); }
+      .chipbar .chip-main { display: inline-flex; align-items: center; gap: 0.3rem; min-height: 2.1rem; padding: 0 0.6rem 0 0.7rem; border: none; background: none; color: inherit; font: inherit; cursor: pointer; }
+      .chipbar .chip.warn .chip-main i { color: var(--warn-fg); }
+      .chipbar .chip.sug .chip-main { color: var(--brand-900); }
+      .chipbar .chip.sug .chip-main i { color: var(--action); }
+      .chipbar .chip-x { width: 2rem; min-height: 2.1rem; border: none; border-left: 1px solid var(--border-color); background: none; color: var(--text-muted); cursor: pointer; display: grid; place-items: center; }
+      .chipbar .chip.date { cursor: default; }
+      .chipbar .chip-date { border: none; background: none; color: var(--text-main); font-family: var(--font-mono); font-size: 0.76rem; font-weight: 700; padding: 0; min-height: 2rem; }
+      .chipbar .chip:focus-visible, .chipbar .chip-main:focus-visible, .chipbar .chip-x:focus-visible, .chipbar .chip-date:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
       .search i { color: var(--text-muted); }
       .search input { flex: 1; border: none; background: none; outline: none; height: 2.7rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
       .search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
@@ -672,8 +690,9 @@ const foldText = (s: string | null | undefined): string =>
       .unpriced-note { display: flex; align-items: center; gap: 0.45rem; margin: 0.9rem 0 0.2rem; padding: 0.55rem 0.7rem; border-radius: var(--r-md, 10px); background: var(--surface-ground, transparent); color: var(--text-muted); font-size: 0.78rem; line-height: 1.35; }
       .unpriced-note i { color: var(--text-faint); flex-shrink: 0; }
 
-      .catalog { display: flex; flex-direction: column; gap: 0.5rem; }
-      .prod { display: flex; align-items: center; gap: 0.75rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: 0.55rem 0.7rem; }
+      /* [VTK.6] Fila compacta: menos aire entre filas y por dentro. */
+      .catalog { display: flex; flex-direction: column; gap: 0.35rem; }
+      .prod { display: flex; align-items: center; gap: 0.6rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: 0.45rem 0.6rem; }
       .prod .ph { width: 2.5rem; height: 2.5rem; border-radius: 14px; background: var(--neutral-100); display: grid; place-items: center; color: var(--neutral-400); font-size: 1.05rem; flex-shrink: 0; }
       .prod .pb { flex: 1; min-width: 0; }
       .prod .pn { font-weight: 600; font-size: 0.9rem; color: var(--text-main); line-height: 1.2; }
@@ -691,7 +710,7 @@ const foldText = (s: string | null | undefined): string =>
       .prod .may-hint.reached i, .prod .may-hint.reached b { color: var(--ok-fg); }
       /* Selector de medida (PZA/PAQ/CJA) por línea. */
       .prod .pr .pr-u { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-left: 0.1rem; }
-      .prod .unit-sel { display: inline-flex; gap: 0.25rem; margin-top: 0.25rem; }
+      .prod .unit-sel { display: inline-flex; gap: 0.25rem; }
       .prod .unit-sel .us-chip { font-size: 0.72rem; font-weight: 700; line-height: 1; padding: 0.22rem 0.5rem; border-radius: var(--r-pill, 999px); border: 1px solid var(--border-color); background: var(--surface-ground); color: var(--text-muted); cursor: pointer; }
       .prod .unit-sel .us-chip.on { border-color: var(--action); background: var(--ember-soft); color: var(--brand-900); }
       /* Unidad junto a la cantidad en el carrito. */
@@ -1744,6 +1763,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       return;
     }
     this.adding.update((m) => ({ ...m, [p.product_id]: true }));
+    // [VTK.5] Optimista, como en cotizaciones: la fila muestra la cantidad en cuanto se toca, sin
+    // esperar a que el servidor cree el pedido y el renglón. Los toques que lleguen mientras
+    // tanto se acumulan en `pendingQty` (el "+" ya no se bloquea) y se mandan en el flush que
+    // corre al confirmar la creación.
+    this.pendingQty.update((m) => new Map(m).set(p.product_id, q));
+    this.haptic.selection();
     // [VU.4] Con sello, la cantidad viaja EN LA UNIDAD CAPTURADA (`q` está en base, así que
     // se divide por el factor) y el servidor la convierte de vuelta. Sin sello va en base.
     // Mandar `q` en base junto con el sello la multiplicaría otra vez.
@@ -1765,12 +1790,18 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       .subscribe({
         next: () => {
           this.adding.update((m) => ({ ...m, [p.product_id]: false }));
-          this.haptic.selection();
-          // reload primero, luego re-rankear cart-aware (debounced — fuera del tap).
-          this.reloadCart(() => this.loadSuggestionsDebounced());
+          // reload primero; con el renglón ya en el carrito, el flush manda lo que el vendedor
+          // haya tocado mientras se creaba (si quedó igual, no manda nada). Después, re-rankear
+          // cart-aware (debounced — fuera del tap).
+          this.reloadCart(() => {
+            this.scheduleQtyFlush();
+            this.loadSuggestionsDebounced();
+          });
         },
         error: (err) => {
           this.adding.update((m) => ({ ...m, [p.product_id]: false }));
+          // Se deshace lo optimista: el renglón no existe.
+          this.pendingQty.update((m) => { const n = new Map(m); n.delete(p.product_id); return n; });
           this.haptic.notification('error');
           this.toast.add({ severity: 'error', summary: 'Error', detail: err.error?.message || err.message });
         },
@@ -1833,8 +1864,14 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     }
     const lines = this.cartLines();
     const ops: Observable<unknown>[] = [];
+    // [VTK.5] Un producto cuyo renglón todavía se está creando no tiene línea a la cual mandarle
+    // el cambio: su cantidad pendiente se CONSERVA (no se tira) y se manda en el flush que corre
+    // cuando la creación termina.
+    const conservar = new Map<string, number>();
+    const enCreacion = this.adding();
     for (const [productId, qty] of pend) {
       const line = lines.find((l) => l.product_id === productId);
+      if (!line && enCreacion[productId]) { conservar.set(productId, qty); continue; }
       if (!line || Number(line.quantity) === qty) continue;
       if (qty <= 0) {
         ops.push(this.api.removeLine(orderId, line.id));
@@ -1852,7 +1889,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           : this.api.updateLine(orderId, line.id, qty),
       );
     }
-    this.pendingQty.set(new Map());
+    this.pendingQty.set(conservar);
     return ops.length ? forkJoin(ops).pipe(map(() => void 0)) : of(void 0);
   }
 
@@ -2394,6 +2431,29 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   mayoreoInfo(
     l: OrderLine,
   ): { unit: number; base: number; savedUnit: number; pct: number; savedTotal: number } | null {
+    // [VTK.3] Renglón cobrado con el motor de cotizaciones: se compara contra el precio de LISTA
+    // de su misma unidad en Kepler (no contra la pieza: un paquete a precio de lista ya es más
+    // barato por pieza y eso no es mayoreo), con el total de Kepler (con impuestos). Comparar
+    // `unit_price` (sin impuesto) contra el precio con impuesto marcaba mayoreo en TODO renglón.
+    const p = this.byIdMap().get(l.product_id);
+    if (l.erp_gross_total != null && p?.rungs?.length) {
+      const qtyBase = Number(l.quantity) || 0;
+      const f = Number(l.qty_factor) > 0 ? Number(l.qty_factor) : 1;
+      const rung = p.rungs.find((r) => r.factor === f) ?? p.rungs.find((r) => r.factor === 1);
+      if (!rung || !(qtyBase > 0)) return null;
+      const qtyRung = qtyBase / rung.factor;
+      const lista = rung.price * qtyRung;
+      const real = Number(l.erp_gross_total);
+      if (!(lista > 0) || !Number.isFinite(real) || real >= lista * 0.999) return null;
+      const unitReal = real / qtyRung;
+      return {
+        unit: unitReal,
+        base: rung.price,
+        savedUnit: rung.price - unitReal,
+        pct: Math.round(((rung.price - unitReal) / rung.price) * 100),
+        savedTotal: +(lista - real).toFixed(2),
+      };
+    }
     const base = this.basePriceById(l.product_id);
     const unit = Number(l.unit_price);
     if (base == null || !Number.isFinite(unit) || unit <= 0) return null;
@@ -2421,6 +2481,24 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   mayoreoHint(
     p: PriceRow,
   ): { from: number; unit: number; pct: number; need: number; reached: boolean; unitLabel: string } | null {
+    // [VTK.3] Con escalera de la sucursal, el mayoreo es el de ESA unidad en Kepler (3 paquetes
+    // de 42029 a $123.19 c/u), no un quiebre por piezas de otra fuente: es el que el pedido cobra.
+    const rung = this.rungOf(p);
+    if (rung) {
+      if (rung.volume_min_qty == null || rung.volume_price == null) return null;
+      if (!(rung.volume_price > 0) || rung.volume_price >= rung.price * 0.999) return null;
+      const f = this.unitFactor(p);
+      const enUnidad = Math.floor((this.cartQty(p.product_id) || 0) / f);
+      const from = Math.max(1, rung.volume_min_qty);
+      return {
+        from,
+        unit: rung.volume_price,
+        pct: Math.round(((rung.price - rung.volume_price) / rung.price) * 100),
+        need: Math.max(0, from - enUnidad),
+        reached: enUnidad >= from,
+        unitLabel: this.selectedUnit(p)?.unit ?? '',
+      };
+    }
     const tiers = p.tiers;
     const base = Number(p.price);
     if (!tiers?.length || !Number.isFinite(base) || base <= 0) return null;
@@ -2444,7 +2522,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
   // ───── Medidas de venta (PZA/PAQ/CJA) ─────
   // La línea SIEMPRE se guarda en unidad base; la medida es capa de entrada/display.
-  // Default = PAQ si el SKU lo tiene; si no, su unidad base (units[0]).
+  // Default = la unidad más chica (units[0]); [VTK.4]. Antes era PAQ si el SKU lo tenía.
   //
   // La aritmética vive en libs/ui-web (order/qty-units.ts), con sus candados y sus pruebas
   // negativas. La invariante que sostiene todo: lo que la fila MUESTRA, por el
@@ -2469,10 +2547,26 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     return this.unitsById().get(p.product_id) ?? escalera(p.units);
   }
 
+  /**
+   * [VTK.4] Por defecto, la unidad MÁS CHICA (decisión de Francisco, 2026-10-04: el cliente de
+   * ruta compra poco y la sugerencia va de menor a mayor). La escalera ya viene ordenada de menor
+   * a mayor, así que es la primera. Antes era PAQ si existía.
+   */
   private defaultUnit(p: PriceRow): Presentacion | null {
     const us = this.unitsOf(p);
     if (!us.length) return null;
-    return us.find((u) => u.unit === 'PAQ') ?? us[0];
+    return us[0];
+  }
+
+  /**
+   * [VTK.3] El peldaño de Kepler de la unidad activa (precio de lista + mayoreo en ESA unidad).
+   * Null si el catálogo no trajo escalera de la sucursal: entonces se usa `price × factor`.
+   */
+  private rungOf(p: PriceRow): NonNullable<PriceRow['rungs']>[number] | null {
+    const sel = this.selectedUnit(p);
+    if (!sel || !p.rungs?.length) return null;
+    const f = factorDe(sel);
+    return p.rungs.find((r) => r.factor === f) ?? null;
   }
   /** Presentación activa del producto (default PAQ). Null si el SKU no tiene medidas. */
   selectedUnit(p: PriceRow): Presentacion | null {
@@ -2566,9 +2660,14 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   rowUnitLabel(p: PriceRow): string {
     return this.offGrid(p) ? this.baseUnitLabel(p) : this.selectedUnit(p)?.unit || '';
   }
-  /** Precio unitario mostrado en la unidad activa (base × factor). */
+  /**
+   * Precio mostrado en la unidad activa. [VTK.3] Con escalera de la sucursal es el precio que
+   * Kepler tiene para ESA unidad (un paquete de 42029: $131.99), que es lo que cobra el pedido;
+   * sin escalera, el de siempre: precio base × factor.
+   */
   unitPriceDisplay(p: PriceRow): number {
-    return Number(p.price) * this.unitFactor(p);
+    const rung = this.rungOf(p);
+    return rung ? rung.price : Number(p.price) * this.unitFactor(p);
   }
 
   initials(name: string): string {
