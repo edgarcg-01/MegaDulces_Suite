@@ -61,6 +61,22 @@ export interface PriceRow {
    * selector PZA/PAQ/CJA — viaja en el catálogo offline. Vacío si el SKU no tiene medidas.
    */
   units?: { unit: string; factor: number }[];
+  /**
+   * [VTK.3] Escalera de Kepler de la SUCURSAL del pedido (la misma con la que el servidor cobra
+   * el renglón, motor de cotizaciones): cada unidad con su precio de lista y su precio de mayoreo
+   * (en ESA unidad, desde `volume_min_qty` unidades). De menor a mayor. Sólo viene cuando se pidió
+   * el catálogo con almacén; si falta, la pantalla usa `units` + `price` como antes.
+   */
+  rungs?: {
+    rung: string;
+    unit: string;
+    factor: number;
+    price: number;
+    volume_min_qty: number | null;
+    volume_price: number | null;
+  }[];
+  /** [VTK.3] 'kepler_ladder' cuando `units` salió de la escalera de la sucursal. */
+  units_source?: string;
 }
 
 /**
@@ -147,6 +163,11 @@ export interface OrderLine {
   applied_promo_type?: string | null;
   discount_amount?: number | string | null;
   notes?: string;
+  /** [VU.4] En qué unidad se capturó la línea y con qué factor a la base. */
+  qty_unit?: string | null;
+  qty_factor?: number | string | null;
+  /** [VTK.2] Total de Kepler con impuestos (motor de cotizaciones). Null = cálculo anterior. */
+  erp_gross_total?: number | string | null;
 }
 
 export interface Order {
