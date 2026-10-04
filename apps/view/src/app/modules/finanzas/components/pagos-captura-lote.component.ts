@@ -229,7 +229,7 @@ export interface FilaLote {
   styles: [`
     :host { display: block; margin-bottom: 1rem; }
     .pl-drop { display: flex; align-items: center; gap: 1rem; padding: 1.4rem 1.2rem; border: 2px dashed var(--border-color);
-      border-radius: var(--r-md, .5rem); background: var(--surface-card); transition: border-color .15s, background .15s, padding .15s; }
+      border-radius: var(--r-md, .5rem); background: var(--surface-card); transition: border-color .15s, background .15s; }
     .pl-drop.compact { padding: .8rem 1.1rem; }
     .pl-drop.drag { border-color: var(--action); background: color-mix(in srgb, var(--action) 6%, var(--surface-card)); }
     .pl-drop-ico { font-size: var(--fs-h1); color: var(--action); flex: 0 0 auto; }
