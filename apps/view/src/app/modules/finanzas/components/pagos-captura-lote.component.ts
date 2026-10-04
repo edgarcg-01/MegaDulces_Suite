@@ -16,7 +16,14 @@ const MAX_BYTES = 10 * 1024 * 1024;
 type Fase = 'en_cola' | 'leyendo' | 'buscando' | 'listo' | 'guardando' | 'guardado' | 'duplicado' | 'error';
 
 /** Lo que devolvió el servidor al adjuntar (los controles de cuenta propia y clave repetida). */
-interface ResultadoGuardado { monto_match: boolean | null; cuenta_propia?: boolean | null; ref_duplicada?: boolean; ref_otros?: string[] }
+interface ResultadoGuardado {
+  status: string; monto_match: boolean | null; cuenta_propia?: boolean | null; ref_duplicada?: boolean; ref_otros?: string[];
+  /** `[PC.6]` lo validó el servidor solo (cuatro coincidencias + lectura verificada) */
+  auto_validado?: boolean; diferencias?: string[]; motivo_no_automatico?: string | null;
+}
+
+/** `[PC.6]` Lo que la página necesita saber al terminar un guardado por lote. */
+export interface LoteGuardado { guardados: number; validados: number }
 
 export interface FilaLote {
   id: number;
@@ -99,14 +106,14 @@ export interface FilaLote {
         </div>
 
         @for (f of filas(); track f.id) {
-          <div class="pl-row" [attr.data-fase]="f.fase" [attr.data-conf]="f.clasif?.confianza">
+          <div class="pl-row" [attr.data-fase]="f.fase" [attr.data-conf]="f.clasif?.confianza" [attr.data-res]="f.resultado ? (f.resultado.status === 'validado' ? 'validado' : 'diferencias') : null">
             <!-- confirmación -->
             <div class="pl-chk">
               @if (f.fase === 'listo' && f.elegido) {
                 <input type="checkbox" [checked]="f.confirmado" (change)="toggle(f.id)" [disabled]="guardando()"
                        [attr.aria-label]="'Confirmo que ' + f.nombre + ' es el comprobante de ' + llave(f.elegido)" />
               } @else if (f.fase === 'guardado') {
-                <i class="pi pi-check-circle pl-ok" aria-label="Guardado"></i>
+                @if (f.resultado?.status === 'validado') { <i class="pi pi-check-circle pl-ok" aria-label="Guardado y validado"></i> } @else { <i class="pi pi-exclamation-circle warn" aria-label="Guardado con diferencias"></i> }
               }
             </div>
 
@@ -142,6 +149,9 @@ export interface FilaLote {
               @if (f.fase === 'guardado') {
                 <span class="pl-pk mono">{{ llave(f.elegido!) }}</span>
                 <span class="pl-tags">
+                  <!-- [PC.6] la decisión la toma el SERVIDOR: puede no validar algo que aquí se veía «listo» -->
+                  @if (f.resultado?.status === 'validado') { <span class="pl-tag ok" title="Coinciden banco, fecha, monto y proveedor">Validado automático</span> }
+                  @else { <span class="pl-tag warn" [title]="f.resultado?.motivo_no_automatico || ''">Con diferencias{{ f.resultado?.motivo_no_automatico ? ': ' + f.resultado?.motivo_no_automatico : '' }}</span> }
                   @if (f.resultado?.monto_match === true) { <span class="pl-tag ok">Cuadra</span> }
                   @else if (f.resultado?.monto_match === false) { <span class="pl-tag bad">Monto no cuadra</span> }
                   @if (f.resultado?.cuenta_propia === false) { <span class="pl-tag bad">Cuenta origen NO reconocida</span> }
@@ -253,6 +263,8 @@ export interface FilaLote {
     .pl-row[data-conf="revisar"], .pl-row[data-conf="elegir"] { border-left-color: var(--warn-fg); }
     .pl-row[data-conf="sin_pago"], .pl-row[data-fase="error"], .pl-row[data-fase="duplicado"] { border-left-color: var(--bad-fg); }
     .pl-row[data-fase="guardado"] { background: var(--ok-soft-bg); border-left-color: var(--ok-fg); }
+    /* [PC.6] guardado pero NO validado solo: queda en «Con diferencias» y se ve distinto */
+    .pl-row[data-fase="guardado"][data-res="diferencias"] { background: var(--warn-soft-bg); border-left-color: var(--warn-fg); }
     .pl-chk { padding-top: .15rem; display: flex; justify-content: center; }
     .pl-chk input { width: 1.05rem; height: 1.05rem; accent-color: var(--action); cursor: pointer; }
     .pl-ok { color: var(--ok-fg); }
@@ -310,7 +322,7 @@ export class PagosCapturaLoteComponent {
   /** El indicador «En vivo» de la página vive en la zona de carga. */
   readonly live = input(false);
   /** Se guardaron comprobantes: la página recarga su tabla. */
-  readonly guardados = output<number>();
+  readonly guardados = output<LoteGuardado>();
 
   readonly filas = signal<FilaLote[]>([]);
   readonly arrastrando = signal(false);
@@ -489,6 +501,7 @@ export class PagosCapturaLoteComponent {
     if (!lote.length || this.guardando()) return;
     this.guardando.set(true);
     let ok = 0;
+    let validados = 0;
     for (const f of lote) {
       const p = f.elegido!;
       this.patch(f.id, { fase: 'guardando' });
@@ -500,6 +513,7 @@ export class PagosCapturaLoteComponent {
         }));
         this.patch(f.id, { fase: 'guardado', subido, resultado: res });
         ok++;
+        if (res.status === 'validado') validados++;
       } catch (e: unknown) {
         const msg = (e as { error?: { message?: string } })?.error?.message;
         this.patch(f.id, { fase: 'listo', error: null });
@@ -507,7 +521,7 @@ export class PagosCapturaLoteComponent {
       }
     }
     this.guardando.set(false);
-    if (ok) this.guardados.emit(ok);
+    if (ok) this.guardados.emit({ guardados: ok, validados });
   }
 
   private fila(id: number): FilaLote | undefined { return this.filas().find((f) => f.id === id); }

@@ -1,7 +1,5 @@
-import {
-  CandidatoLote, LecturaOcr, chequeoBanco, chequeoFecha, chequeoMonto, chequeoProveedor, clasificar,
-  coincidencias, diasEntre, llavePago, normalizarProveedor, pagosRepetidos, textoMotivo,
-} from './pagos-captura-lote';
+import { chequeoFecha } from '@megadulces/contracts';
+import { CandidatoLote, LecturaOcr, clasificar, coincidencias, diasEntre, llavePago, pagosRepetidos, textoMotivo } from './pagos-captura-lote';
 
 /**
  * `[PC.3]`/`[PC.5]` — La regla que decide si un comprobante del lote viene pre-marcado («listo»):
@@ -12,50 +10,6 @@ const pago = (p: Partial<CandidatoLote> = {}): CandidatoLote => ({
   pago_dia: '2026-09-29', proveedor_nombre: 'CONVERMEX SA DE CV', deposits: 0, clave_banco: '1463', account_label: '1463', ...p,
 });
 const OCR: LecturaOcr = { monto: 150621.5, fecha: '2026-09-29', cuenta_origen: '002496700783014636', beneficiario: 'CONVERMEX S.A. DE C.V.' };
-
-describe('[PC.5] las cuatro comparaciones', () => {
-  it('monto: al centavo, sin pelear con el punto flotante', () => {
-    expect(chequeoMonto(0.1 + 0.2, 0.3)).toBe('ok');
-    expect(chequeoMonto(150621.5, 150621.49)).toBe('difiere');
-    expect(chequeoMonto(null, 10)).toBe('sin_dato');
-  });
-
-  it('fecha: el mismo día; un día de diferencia ya difiere', () => {
-    expect(chequeoFecha('2026-09-29', '2026-09-29T06:00:00.000Z')).toBe('ok');
-    expect(chequeoFecha('2026-09-30', '2026-09-29')).toBe('difiere');
-    expect(chequeoFecha(null, '2026-09-29')).toBe('sin_dato');
-  });
-
-  /** ⚠️ La CLABE termina en dígito verificador: `…01463` + `6`. */
-  it('banco: reconoce la cuenta dentro de la CLABE pese al dígito verificador', () => {
-    expect(chequeoBanco('002496700783014636', { clave_banco: '1463', account_label: '1463' })).toBe('ok');
-  });
-  it('banco: número de cuenta o enmascarado', () => {
-    expect(chequeoBanco('****1463', { clave_banco: '1463' })).toBe('ok');
-    expect(chequeoBanco('0123451463', { account_label: '1463' })).toBe('ok');
-  });
-  it('banco: otra cuenta propia → difiere', () => {
-    expect(chequeoBanco('****4885', { clave_banco: '1463', account_label: '1463' })).toBe('difiere');
-  });
-  it('⛔ banco: sin cuenta leída, o sin banco en Kepler → sin_dato (nunca ok)', () => {
-    expect(chequeoBanco(null, { clave_banco: '1463' })).toBe('sin_dato');
-    expect(chequeoBanco('****1463', { clave_banco: null, account_label: null })).toBe('sin_dato');
-  });
-
-  it('proveedor: ignora puntuación, acentos y sufijo societario', () => {
-    expect(normalizarProveedor('Convermex, S.A. de C.V.')).toBe('CONVERMEX');
-    expect(chequeoProveedor('CONVERMEX S.A. DE C.V.', 'CONVERMEX SA DE CV')).toBe('ok');
-    expect(chequeoProveedor('DULCERÍA ÁLAMO', 'DULCERIA ALAMO SA DE CV')).toBe('ok');
-  });
-  it('proveedor: el SPEI trunca el nombre → el truncado cuenta', () => {
-    expect(chequeoProveedor('DISTRIBUIDORA DE DULCES Y CHOCOLA', 'DISTRIBUIDORA DE DULCES Y CHOCOLATES DEL BAJIO SA DE CV')).toBe('ok');
-  });
-  it('⛔ proveedor: nada de parecidos difusos, y un prefijo muy corto no basta', () => {
-    expect(chequeoProveedor('DULCES LA ROSITA', 'DULCES DE LA ROSA SA')).toBe('difiere');
-    expect(chequeoProveedor('ABC', 'ABC COMERCIAL')).toBe('difiere');
-    expect(chequeoProveedor('', 'ABC')).toBe('sin_dato');
-  });
-});
 
 describe('[PC.5] clasificar', () => {
   it('un pago libre con las cuatro exactas → listo', () => {

@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, ForbiddenException, Logger, Optional }
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
 import { LlmExtractorService, OcrReadingsService, SupplierPaymentFields } from '@megadulces/platform-core';
 import { Knex } from 'knex';
-import { esDuenoDelVale, type IdentidadQueDecide } from '@megadulces/contracts';
+import { esDuenoDelVale, coincidenciasPago, coincidenTodas, diferenciasPago, type IdentidadQueDecide, type CoincidenciasPago } from '@megadulces/contracts';
 import { PagosComprobantesGateway } from './pagos-comprobantes.gateway';
 
 /**
@@ -27,6 +27,23 @@ const BANK_DAYS_AFTER = 6;  // …o unos días después
 /** `[PC.4]` Lo que lee quien intenta validar o rechazar el comprobante que él mismo adjuntó. */
 export const MENSAJE_PROPIO_COMPROBANTE =
   'Este comprobante lo adjuntaste tú: lo tiene que validar otra persona con permiso de gestionar pagos.';
+
+/**
+ * `[PC.5]` El BANCO de un pago: de qué cuenta propia salió, según Kepler (`kdm1.c45` ⋈ `kdb1`). Se
+ * lee de la vista canónica de tesorería, no de `kdm1` a mano. El doc_tipo de la vista es `X-D-26`;
+ * el `doc_prefix` del pago es `XD2601` → letra-letra-número. LATERAL + LIMIT 1: la vista sólo se
+ * consulta para los pagos que ya pasaron su filtro, nunca entera. Se usa con el alias `c` del pago.
+ */
+const LATERAL_BANCO_DEL_PAGO = `LEFT JOIN LATERAL (
+    SELECT m.clave_banco, m.banco_nombre, m.account_label
+      FROM analytics.kepler_bank_movements m
+     WHERE m.tenant_id = c.tenant_id AND m.sucursal = c.sucursal AND m.folio = c.folio
+       AND m.doc_tipo = substr(c.doc_prefix, 1, 1) || '-' || substr(c.doc_prefix, 2, 1) || '-' || substr(c.doc_prefix, 3, 2)
+       AND m.flujo = 'salida'
+     LIMIT 1) kb ON true`;
+
+/** `[PC.6]` Quién firma una validación automática. */
+export const VALIDADOR_AUTOMATICO = 'Sistema · 4 coincidencias';
 
 /** Clave de rastreo → alfanumérico (llave determinista de dedup). null si no hay. */
 const normRef = (s: unknown): string | null => {
@@ -106,6 +123,9 @@ export class SupplierPaymentProofsService {
         .count('* as n')
         .select(trx.raw(`(array_agg(id ORDER BY created_at DESC))[1] AS last_id`))
         .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
+        // [PC.6] Las marcas y el «lo validó el sistema» del comprobante más reciente.
+        .select(trx.raw(`(array_agg(coincidencias ORDER BY created_at DESC))[1] AS last_coincidencias`))
+        .select(trx.raw(`(array_agg(auto_validado ORDER BY created_at DESC))[1] AS last_auto`))
         .select(trx.raw(`bool_or(monto_match) AS any_match`))
         .select(trx.raw(`bool_or(cuenta_propia = false) AS cuenta_ajena`))
         .select(trx.raw(`array_remove(array_agg(DISTINCT ref_norm) FILTER (WHERE status <> 'rechazado'), NULL) AS refs`))
@@ -136,6 +156,8 @@ export class SupplierPaymentProofsService {
           // efectivo: ajena SOLO si el OCR no reconoce la cuenta Y no hay cargo bancario confirmado
           trx.raw('(COALESCE(d.cuenta_ajena, false) AND bk.kepler_doc_folio IS NULL) AS cuenta_ajena'),
           trx.raw('d.refs AS refs'),
+          trx.raw('d.last_coincidencias AS coincidencias'),
+          trx.raw('COALESCE(d.last_auto, false) AS auto_validado'),
         )
         .orderBy('c.pago_date', 'desc')
         .orderBy('c.folio', 'desc')
@@ -147,6 +169,9 @@ export class SupplierPaymentProofsService {
       if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
       if (q.estado === 'con_comprobante') b.whereRaw('d.n > 0');
       if (q.estado === 'validado') b.whereRaw(`d.last_status = 'validado'`);
+      // [PC.6] Lo único que espera a una persona: el comprobante más reciente sigue `recibido`
+      // (las cuatro coincidencias validan solo lo demás).
+      if (q.estado === 'con_diferencias') b.whereRaw(`d.last_status = 'recibido'`);
       // solo alertas de control: cuenta de origen ajena O clave de rastreo repetida
       if (q.alertas === true || q.alertas === 'true') {
         b.whereRaw('((COALESCE(d.cuenta_ajena, false) AND bk.kepler_doc_folio IS NULL) OR d.refs && ?::text[])', [dupRefs]);
@@ -175,6 +200,8 @@ export class SupplierPaymentProofsService {
         trx.raw('COUNT(*)::int AS pagos'),
         trx.raw('COUNT(d.n)::int AS con_comprobante'),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validado')::int AS validados`),
+        trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validado' AND d.last_auto)::int AS auto_validados`),
+        trx.raw(`COUNT(*) FILTER (WHERE d.last_status='recibido')::int AS con_diferencias`),
         trx.raw('COALESCE(SUM(c.monto::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente'),
         trx.raw('COUNT(*) FILTER (WHERE d.cuenta_ajena AND bk.kepler_doc_folio IS NULL)::int AS cuentas_ajenas'),
       );
@@ -183,6 +210,7 @@ export class SupplierPaymentProofsService {
         kpis: {
           pagos: Number(k.pagos), con_comprobante: Number(k.con_comprobante),
           validados: Number(k.validados), monto_pendiente: Number(k.monto_pendiente),
+          auto_validados: Number(k.auto_validados), con_diferencias: Number(k.con_diferencias),
           cuentas_ajenas: Number(k.cuentas_ajenas), refs_duplicadas: dupSet.size,
         },
         rows,
@@ -287,6 +315,13 @@ export class SupplierPaymentProofsService {
             .then((rs: any[]) => rs.map((r) => `${r.doc_prefix} ${r.sucursal}/${r.folio}`))
         : [];
 
+      // [PC.6] Las cuatro coincidencias y, si pasan todas con una lectura verificada, validado solo.
+      const auto = await this.decidirAutomatico(trx, {
+        sucursal, docPrefix: pago.doc_prefix || docPrefix, folio,
+        lectura: { monto: ocrMonto, fecha: o.fecha, cuenta_origen: o.cuenta_origen, beneficiario: o.beneficiario },
+        verificada: !!verificada, ocrStatus: (o.ocr_status as string) || 'manual', refDuplicada: refOtros.length > 0,
+      });
+
       const [row] = await trx('finance.supplier_payment_proofs')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
@@ -313,13 +348,113 @@ export class SupplierPaymentProofsService {
           cuenta_propia: cuentaPropia,
           comentarios: (dto.comentarios || '').trim() || null,
           created_by: actor || null,
+          coincidencias: JSON.stringify(auto.coincidencias),
+          lectura_verificada: !!verificada,
+          auto_validado: auto.validar,
+          ...(auto.validar ? { status: 'validado', validated_by: VALIDADOR_AUTOMATICO, validated_at: trx.fn.now() } : {}),
         })
         .returning(['id', 'sucursal', 'folio', 'status', 'monto_match']);
-      this.logger.log(`comprobante adjunto a pago ${sucursal}/${folio} (match=${montoMatch}, cuenta_propia=${cuentaPropia}, ref_dup=${refOtros.length}) por ${actor || '?'}`);
-      ev = { sucursal, doc_prefix: pago.doc_prefix || docPrefix || null, folio, status: 'recibido', proveedor: pago.proveedor_nombre || null, monto: pagoMonto, actor: actor || null };
-      return { ...row, cuenta_propia: cuentaPropia, ref_duplicada: refOtros.length > 0, ref_otros: refOtros };
+      this.logger.log(`comprobante adjunto a pago ${sucursal}/${folio} (match=${montoMatch}, cuenta_propia=${cuentaPropia}, ref_dup=${refOtros.length}, auto=${auto.validar}${auto.validar ? '' : ` · ${auto.motivo}`}) por ${actor || '?'}`);
+      ev = { sucursal, doc_prefix: pago.doc_prefix || docPrefix || null, folio, status: row.status, proveedor: pago.proveedor_nombre || null, monto: pagoMonto, actor: auto.validar ? VALIDADOR_AUTOMATICO : (actor || null) };
+      return {
+        ...row, cuenta_propia: cuentaPropia, ref_duplicada: refOtros.length > 0, ref_otros: refOtros,
+        coincidencias: auto.coincidencias, auto_validado: auto.validar, diferencias: diferenciasPago(auto.coincidencias),
+        motivo_no_automatico: auto.validar ? null : auto.motivo,
+      };
     });
-    if (ev) this.emit('attached', ev);
+    // `ev` se asigna dentro del callback: TS lo estrecha a `null` acá, por eso el cast.
+    const evt = ev as { sucursal: string; doc_prefix: string | null; folio: string; status: string; proveedor: string | null; monto: number; actor: string | null } | null;
+    if (evt) this.emit(evt.status === 'validado' ? 'validated' : 'attached', evt);
+    return out;
+  }
+
+  /**
+   * `[PC.6]` **¿Este comprobante se valida solo?** Sí, únicamente si TODO esto se cumple:
+   *  1. Las **cuatro coincidencias** exactas con el pago de Kepler (banco · fecha · monto ·
+   *     proveedor), con la regla de `libs/contracts`.
+   *  2. La lectura es **verificada**: el servidor la recuperó por el hash del archivo. Una lectura
+   *     que vino en el request se puede alterar → nunca se valida sola.
+   *  3. El OCR terminó `ok` (no `manual`, `ilegible` ni `sin_key`).
+   *  4. La **clave de rastreo no está en otro pago** vivo (transferencia repetida).
+   *  5. El pago **no tiene ya otro comprobante validado** (sería validar dos veces el mismo pago).
+   * Si falla algo, el comprobante queda `recibido` y `motivo` dice qué, para la pantalla y el log.
+   */
+  private async decidirAutomatico(trx: Knex, a: {
+    sucursal: string; docPrefix: string; folio: string;
+    lectura: { monto: number | null; fecha: string | null | undefined; cuenta_origen: string | null | undefined; beneficiario: string | null | undefined };
+    verificada: boolean; ocrStatus: string; refDuplicada: boolean; excluirProofId?: string;
+  }): Promise<{ coincidencias: CoincidenciasPago; validar: boolean; motivo: string }> {
+    const pagoK = await this.pagoParaCoincidir(trx, a.sucursal, a.docPrefix, a.folio);
+    const k = coincidenciasPago(a.lectura, pagoK ?? { monto: null });
+    const faltan = diferenciasPago(k);
+    if (!pagoK) return { coincidencias: k, validar: false, motivo: 'el pago no está en Kepler' };
+    if (faltan.length) return { coincidencias: k, validar: false, motivo: `no coincide: ${faltan.join(', ')}` };
+    if (!a.verificada) return { coincidencias: k, validar: false, motivo: 'la lectura no es verificada' };
+    if (a.ocrStatus !== 'ok') return { coincidencias: k, validar: false, motivo: `OCR ${a.ocrStatus}` };
+    if (a.refDuplicada) return { coincidencias: k, validar: false, motivo: 'clave de rastreo en otro pago' };
+    const yaValidado = await trx('finance.supplier_payment_proofs')
+      .where({ sucursal: a.sucursal, doc_prefix: a.docPrefix, folio: a.folio, status: 'validado' })
+      .modify((qb: Knex.QueryBuilder) => { if (a.excluirProofId) qb.whereNot('id', a.excluirProofId); })
+      .first('id');
+    if (yaValidado) return { coincidencias: k, validar: false, motivo: 'el pago ya tiene un comprobante validado' };
+    return { coincidencias: k, validar: coincidenTodas(k), motivo: '' };
+  }
+
+  /** `[PC.6]` Lo que las cuatro coincidencias necesitan del pago: monto, día, proveedor y banco. */
+  private async pagoParaCoincidir(trx: Knex, sucursal: string, docPrefix: string, folio: string): Promise<{
+    monto: string | null; pago_dia: string | null; proveedor_nombre: string | null; clave_banco: string | null; account_label: string | null;
+  } | null> {
+    const r = await trx('analytics.erp_supplier_payments as c')
+      .joinRaw(LATERAL_BANCO_DEL_PAGO)
+      .where({ 'c.tenant_id': this.tenantCtx.requireTenantId(), 'c.sucursal': sucursal, 'c.doc_prefix': docPrefix, 'c.folio': folio })
+      .first(trx.raw('c.monto::numeric AS monto'), trx.raw(`to_char(c.pago_date, 'YYYY-MM-DD') AS pago_dia`),
+        'c.proveedor_nombre', 'kb.clave_banco', 'kb.account_label');
+    return r ?? null;
+  }
+
+  /**
+   * `[PC.6]` **Vuelve a comparar con Kepler los comprobantes con diferencias.** «Arreglar» una
+   * diferencia muchas veces es corregir el pago en Kepler (la fecha, el banco): esto recalcula las
+   * cuatro coincidencias de cada comprobante `recibido` contra lo que Kepler dice HOY, y valida solo
+   * el que ya cumple. Los anteriores a PC.6 (`lectura_verificada` NULL) ganan sus marcas, pero nunca
+   * se validan solos.
+   */
+  async recheck(): Promise<{ revisados: number; validados: number; con_diferencias: number }> {
+    this.tenantCtx.requireTenantId();
+    const validadosEv: { sucursal: string; doc_prefix: string | null; folio: string; proveedor: string | null; monto: number | null }[] = [];
+    const out = await this.tk.run(async (trx) => {
+      const pendientes = await trx('finance.supplier_payment_proofs')
+        .where('status', 'recibido')
+        .orderBy('created_at', 'desc')
+        .limit(500)
+        .select('id', 'sucursal', 'doc_prefix', 'folio', 'proveedor_nombre', 'ocr_status', 'ref_norm', 'lectura_verificada',
+          trx.raw('ocr_monto::numeric AS ocr_monto'), trx.raw(`to_char(ocr_fecha, 'YYYY-MM-DD') AS ocr_fecha`),
+          'ocr_cuenta_origen', 'ocr_ordenante', trx.raw('pago_monto::numeric AS pago_monto'));
+      let validados = 0;
+      for (const p of pendientes) {
+        const refDuplicada = p.ref_norm
+          ? !!(await trx('finance.supplier_payment_proofs').where('ref_norm', p.ref_norm).whereNot('status', 'rechazado')
+              .whereNot((qb: Knex.QueryBuilder) => { qb.where('sucursal', p.sucursal).andWhere('doc_prefix', p.doc_prefix).andWhere('folio', p.folio); })
+              .first('id'))
+          : false;
+        const auto = await this.decidirAutomatico(trx, {
+          sucursal: p.sucursal, docPrefix: p.doc_prefix, folio: p.folio,
+          lectura: { monto: p.ocr_monto != null ? Number(p.ocr_monto) : null, fecha: p.ocr_fecha, cuenta_origen: p.ocr_cuenta_origen, beneficiario: p.ocr_ordenante },
+          verificada: p.lectura_verificada === true, ocrStatus: p.ocr_status, refDuplicada, excluirProofId: p.id,
+        });
+        await trx('finance.supplier_payment_proofs').where({ id: p.id, status: 'recibido' }).update({
+          coincidencias: JSON.stringify(auto.coincidencias), updated_at: trx.fn.now(),
+          ...(auto.validar ? { status: 'validado', auto_validado: true, validated_by: VALIDADOR_AUTOMATICO, validated_at: trx.fn.now() } : {}),
+        });
+        if (auto.validar) {
+          validados++;
+          validadosEv.push({ sucursal: p.sucursal, doc_prefix: p.doc_prefix, folio: p.folio, proveedor: p.proveedor_nombre, monto: Number(p.pago_monto) || null });
+        }
+      }
+      this.logger.log(`recheck: ${pendientes.length} revisados, ${validados} validados solos`);
+      return { revisados: pendientes.length, validados, con_diferencias: pendientes.length - validados };
+    });
+    for (const ev of validadosEv) this.emit('validated', { ...ev, status: 'validado', actor: VALIDADOR_AUTOMATICO });
     return out;
   }
 
@@ -340,7 +475,7 @@ export class SupplierPaymentProofsService {
         .orderBy('created_at', 'desc')
         .select('id', 'files', trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_fecha', 'ocr_banco', 'ocr_cuenta_dest',
           'ocr_cuenta_origen', 'ocr_concepto', 'ocr_referencia', 'ocr_ordenante', 'ocr_metodo', 'ocr_status',
-          'monto_match', 'cuenta_propia', 'ref_norm', 'status',
+          'monto_match', 'cuenta_propia', 'ref_norm', 'status', 'coincidencias', 'auto_validado', 'lectura_verificada',
           'comentarios', 'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
       // URL de lectura prefirmada (bucket privado); legacy Cloudinary (url http) queda igual.
       for (const d of deposits) d.files = await this.storage.signFiles(typeof d.files === 'string' ? JSON.parse(d.files || '[]') : (d.files || []));
@@ -454,17 +589,7 @@ export class SupplierPaymentProofsService {
         .groupBy('sucursal', 'doc_prefix', 'folio').as('d');
       const b = trx('analytics.erp_supplier_payments as c')
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.doc_prefix', 'd.doc_prefix').andOn('c.folio', 'd.folio'); })
-        // [PC.5] El BANCO del pago: de qué cuenta propia salió, según Kepler (`kdm1.c45` ⋈ `kdb1`).
-        // Se lee de la vista canónica de tesorería, no de `kdm1` a mano. El doc_tipo de la vista es
-        // `X-D-26`; el `doc_prefix` del pago es `XD2601` → letra-letra-número. LATERAL + LIMIT 1:
-        // la vista sólo se consulta para los pagos que ya pasaron el filtro de monto, nunca entera.
-        .joinRaw(`LEFT JOIN LATERAL (
-            SELECT m.clave_banco, m.banco_nombre, m.account_label
-              FROM analytics.kepler_bank_movements m
-             WHERE m.tenant_id = c.tenant_id AND m.sucursal = c.sucursal AND m.folio = c.folio
-               AND m.doc_tipo = substr(c.doc_prefix, 1, 1) || '-' || substr(c.doc_prefix, 2, 1) || '-' || substr(c.doc_prefix, 3, 2)
-               AND m.flujo = 'salida'
-             LIMIT 1) kb ON true`)
+        .joinRaw(LATERAL_BANCO_DEL_PAGO) // [PC.5] el banco del pago, para las cuatro coincidencias
         .where('c.tenant_id', tenantId)
         .whereRaw('c.monto BETWEEN ? AND ?', [target - BANK_TOL, target + BANK_TOL])
         .select('c.sucursal', 'c.folio', 'c.doc_prefix', 'c.metodo_pago', 'c.pago_date', 'c.proveedor_code',

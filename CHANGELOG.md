@@ -17,9 +17,11 @@
   el CEDIS o su sucursal, y 101 sin acceso. Hallazgo: la pantalla hoy no filtra por lugar. Maqueta en `docs/.../prototipos/`.
 ### Changed — Pagos a proveedor: captura por lote con IA, y nadie valida su propio comprobante (PC.3/PC.4, 2026-10-03)
 ### Changed — Pagos a proveedor: captura por lote con IA, cuatro coincidencias exactas, y nadie valida su propio comprobante (PC.3/PC.4/PC.5, 2026-10-03)
+### Changed — Pagos a proveedor: captura por lote con IA, cuatro coincidencias exactas, y nadie valida su propio comprobante (PC.3–PC.6, 2026-10-03)
 - En `/finanzas/pagos-comprobantes` se sueltan **varios PDFs a la vez**: la IA lee cada uno, busca su pago en Kepler y lo clasifica (listo · revisar · elegir · sin pago). Nada se guarda sin el clic de «Guardar»; un pago que ya tiene comprobante nunca sale pre-marcado y el mismo PDF dos veces se marca repetido.
 - **Nadie valida ni rechaza el comprobante que él mismo adjuntó** (superadmin incluido), con la misma regla de GX.65.4a.
 - Un comprobante sólo sale **listo** si coinciden exactamente **banco, fecha, monto y proveedor** (el banco del pago sale de la tesorería de Kepler, `c45`); si falla cualquiera, la fila marca cuál y pide confirmar.
+- **Con las cuatro coincidencias el comprobante se valida solo** (lo decide el servidor, con lectura verificada y sin clave de rastreo repetida). Nueva pestaña **«Con diferencias»** con las marcas B·F·M·P y botón **«Volver a comparar»** contra Kepler. Requiere la migración `20261004120000`.
 ### Fixed — cotización: cada usuario cotiza sólo en SUS sucursales (COT.19, 2026-10-03)
 - El cotizador arrancaba en la 01 y ofrecía las 8 sucursales a cualquiera, y el servidor no validaba: un vendedor de Morelia Abastos cotizaba con precios de Padre Hidalgo. Ahora usa el alcance por sucursal de ADR-050 (área `televenta`): una sucursal fija para vendedores, sólo las suyas para quien tiene varias, todas para dirección; 403 en catálogo, precio, vendedores, crear y editar fuera del alcance; la lista muestra sólo las cotizaciones de sus sucursales. Endpoint nuevo `GET /commercial/quotes/branches`. ⚠️ 3 usuarios sin sucursal en su perfil quedan sin poder cotizar hasta que se les asigne.
 ### Changed — `/compras/pedido`: cada artículo con SUS unidades, 1, 2 o 3 (RA-PRO.70, 2026-10-03)

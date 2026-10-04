@@ -18,7 +18,8 @@ import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, PagoDetail } from '../pagos-comprobantes.service';
-import { PagosCapturaLoteComponent } from '../components/pagos-captura-lote.component';
+import { PagosCapturaLoteComponent, type LoteGuardado } from '../components/pagos-captura-lote.component';
+import { CRITERIOS_PAGO, ETIQUETA_CRITERIO_PAGO, type Chequeo } from '@megadulces/contracts';
 import { PagosComprobantesSocketService, PaymentProofEvent } from '../pagos-comprobantes-socket.service';
 
 /** PC.2 — una foto del gasto (factura/ticket/mercancía). Se lee su total para validar Σ gastos ≈ pago. */
@@ -67,6 +68,8 @@ interface GastoFile {
           <input pInputText [(ngModel)]="search" placeholder="Folio, proveedor, RFC, monto…" (keyup.enter)="load()" (blur)="queue()" /></div>
         <div class="cb-field"><label>&nbsp;</label>
           <button pButton type="button" size="small" [outlined]="!soloAlertas()" severity="danger" (click)="toggleAlertas()" [attr.aria-pressed]="soloAlertas()" title="Solo pagos con alerta de control (cuenta ajena / clave repetida)"><span class="p-button-icon p-button-icon-left pi pi-flag" aria-hidden="true"></span><span class="p-button-label">Solo alertas</span></button></div>
+        <div class="cb-field"><label>&nbsp;</label>
+          <button pButton type="button" size="small" outlined (click)="doRecheck()" [loading]="rechecking()" title="Compara otra vez con Kepler los comprobantes con diferencias: los que ya coinciden en banco, fecha, monto y proveedor se validan solos"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Volver a comparar</span></button></div>
       </div>
 
       @if (report(); as r) { <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen" /> }
@@ -100,10 +103,19 @@ interface GastoFile {
               <td class="cb-comp-cell" (click)="openView(c)" [title]="c.deposits > 0 ? 'Ver comprobante adjunto' : 'Adjuntar comprobante'">
                 @if (c.deposits > 0) {
                   <div class="cb-comp">
-                    <p-tag [value]="depLabel(c.deposit_status)" [severity]="depSev(c.deposit_status)" />
-                    <span class="cb-match" [class.ok]="c.monto_match" [class.bad]="!c.monto_match" [title]="c.monto_match ? 'El monto del comprobante cuadra con el pago' : 'El monto del comprobante NO cuadra'">
-                      <i class="pi" [ngClass]="c.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
-                    </span>
+                    <p-tag [value]="estadoLabel(c)" [severity]="depSev(c.deposit_status)" [title]="c.auto_validado ? 'Lo validó el sistema: coinciden banco, fecha, monto y proveedor' : ''" />
+                    @if (c.deposit_status === 'recibido' && c.coincidencias; as k) {
+                      <!-- [PC.6] qué coincide y qué no: lo que hay que arreglar para que pase solo -->
+                      <span class="cb-k4">
+                        @for (x of criterios; track x) {
+                          <span class="cb-k" [attr.data-v]="k[x]" [title]="etiqueta[x] + ': ' + textoChequeo(k[x])">{{ etiqueta[x].charAt(0) }}<span class="sr-only"> {{ etiqueta[x] }}: {{ textoChequeo(k[x]) }}</span></span>
+                        }
+                      </span>
+                    } @else {
+                      <span class="cb-match" [class.ok]="c.monto_match" [class.bad]="!c.monto_match" [title]="c.monto_match ? 'El monto del comprobante cuadra con el pago' : 'El monto del comprobante NO cuadra'">
+                        <i class="pi" [ngClass]="c.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
+                      </span>
+                    }
                     @if (c.alerta) { <span class="cb-alert" [title]="alertTitle(c)"><i class="pi pi-flag-fill" aria-hidden="true"></i></span> }
                     <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
@@ -270,7 +282,12 @@ interface GastoFile {
           @for (d of v.deposits; track d.id) {
             <div class="cb-view-dep">
               <div class="cb-view-head">
-                <p-tag [value]="depLabel(d.status)" [severity]="depSev(d.status)" />
+                <p-tag [value]="d.status === 'validado' && d.auto_validado ? 'Validado · automático' : d.status === 'recibido' && d.coincidencias ? 'Con diferencias' : depLabel(d.status)" [severity]="depSev(d.status)" />
+                @if (d.coincidencias; as k) {
+                  @for (x of criterios; track x) {
+                    <span class="cb-kc" [attr.data-v]="k[x]"><i class="pi" [ngClass]="k[x] === 'ok' ? 'pi-check' : k[x] === 'difiere' ? 'pi-times' : 'pi-question'" aria-hidden="true"></i> {{ etiqueta[x] }}<span class="sr-only">: {{ textoChequeo(k[x]) }}</span></span>
+                  }
+                }
                 @if (d.monto_match === true) { <p-tag value="Cuadra" severity="success" /> }
                 @else if (d.monto_match === false) { <p-tag value="No cuadra" severity="danger" /> }
                 @if (d.cuenta_propia === true) { <p-tag value="Cuenta propia" severity="success" /> }
@@ -399,6 +416,20 @@ interface GastoFile {
     .cb-concepto { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mono { font-family: var(--font-mono); font-size: .85em; }
     .cb-comp { display: inline-flex; align-items: center; gap: .45rem; }
+    /* [PC.6] las cuatro coincidencias en la tabla (B F M P) y en el detalle */
+    .cb-k4 { display: inline-flex; gap: 2px; }
+    .cb-k { display: inline-flex; align-items: center; justify-content: center; width: 1.05rem; height: 1.05rem; border-radius: 3px;
+      font-size: .62rem; font-weight: 700; font-family: var(--font-mono); border: 1px solid currentColor; }
+    .cb-k[data-v="ok"] { color: var(--ok-fg); }
+    .cb-k[data-v="difiere"] { color: var(--bad-fg); background: var(--bad-soft-bg); }
+    .cb-k[data-v="sin_dato"] { color: var(--warn-fg); border-style: dashed; }
+    .cb-kc { display: inline-flex; align-items: center; gap: .2rem; font-size: .7rem; font-weight: 600; padding: .05rem .4rem;
+      border-radius: var(--r-sm, .4rem); border: 1px solid currentColor; }
+    .cb-kc .pi { font-size: .6rem; }
+    .cb-kc[data-v="ok"] { color: var(--ok-fg); }
+    .cb-kc[data-v="difiere"] { color: var(--bad-fg); }
+    .cb-kc[data-v="sin_dato"] { color: var(--warn-fg); border-style: dashed; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .cb-match.ok { color: var(--ok-fg); }
     .cb-match.bad { color: var(--bad-fg); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
@@ -553,7 +584,11 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   readonly estadoSel = signal<string>('pendiente');
   readonly canManage = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_PAYMENTS_GESTIONAR] === true);
 
-  readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con comprobante', value: 'con_comprobante' }, { label: 'Validados', value: 'validado' }, { label: 'Todos', value: '' }];
+  /** `[PC.6]` «Con diferencias» = lo único que espera a una persona; lo que coincide en las cuatro se valida solo. */
+  readonly estadoOpts = [{ label: 'Sin comprobante', value: 'pendiente' }, { label: 'Con diferencias', value: 'con_diferencias' }, { label: 'Validados', value: 'validado' }, { label: 'Todos', value: '' }];
+  readonly criterios = CRITERIOS_PAGO;
+  readonly etiqueta = ETIQUETA_CRITERIO_PAGO;
+  readonly rechecking = signal(false);
   search = '';
   // filtros: año (2025→hoy), mes, método de pago, solo alertas
   anio = '';
@@ -625,13 +660,41 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   kpiItems(r: PagosReport): MetricStripItem[] {
     const items: MetricStripItem[] = [
       { label: 'Pagos', value: r.kpis.pagos },
-      { label: 'Con comprobante', value: r.kpis.con_comprobante, tone: 'ok' },
+      { label: 'Con diferencias', value: r.kpis.con_diferencias ?? 0, tone: (r.kpis.con_diferencias ?? 0) > 0 ? 'warn' : 'ok' },
       { label: 'Validados', value: r.kpis.validados, tone: 'ok' },
+      { label: 'Validados solos', value: r.kpis.auto_validados ?? 0, tone: 'ok' },
       { label: '$ por comprobar', value: Number(r.kpis.monto_pendiente) || 0, format: 'currency-short', tone: 'warn' },
     ];
     const alertas = (r.kpis.cuentas_ajenas || 0) + (r.kpis.refs_duplicadas || 0);
     if (alertas > 0) items.push({ label: 'Alertas de control', value: alertas, tone: 'bad' });
     return items;
+  }
+
+  /** [PC.6] El estado del comprobante en la tabla: distingue lo que validó el sistema y lo que tiene diferencias. */
+  estadoLabel(c: PagoRow): string {
+    if (c.deposit_status === 'validado' && c.auto_validado) return 'Validado · auto';
+    if (c.deposit_status === 'recibido' && c.coincidencias) return 'Diferencias';
+    return this.depLabel(c.deposit_status);
+  }
+  textoChequeo(v: Chequeo | undefined): string {
+    return v === 'ok' ? 'coincide' : v === 'difiere' ? 'no coincide' : 'no se pudo leer';
+  }
+
+  /** [PC.6] Compara otra vez con Kepler lo que tiene diferencias (p. ej. si ya se corrigió el pago allá). */
+  doRecheck() {
+    if (this.rechecking()) return;
+    this.rechecking.set(true);
+    this.svc.recheck().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.rechecking.set(false);
+        this.toast.add({
+          severity: r.validados ? 'success' : 'info', summary: 'Comparado con Kepler',
+          detail: r.revisados ? `${r.validados} de ${r.revisados} ya coinciden y quedaron validados; ${r.con_diferencias} siguen con diferencias.` : 'No hay comprobantes con diferencias.',
+        });
+        this.load();
+      },
+      error: (e) => { this.rechecking.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo comparar', detail: e?.error?.message }); },
+    });
   }
 
   alertTitle(c: PagoRow): string {
@@ -695,8 +758,12 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   }
 
   /** [PC.3] La zona de carga guardó comprobantes: recarga la tabla y lo dice. */
-  onLoteGuardado(n: number) {
-    this.toast.add({ severity: 'success', summary: n === 1 ? 'Comprobante guardado' : `${n} comprobantes guardados`, detail: 'Quedan como Recibido; los valida otra persona.' });
+  onLoteGuardado(r: LoteGuardado) {
+    const dif = r.guardados - r.validados;
+    this.toast.add({
+      severity: 'success', summary: r.guardados === 1 ? 'Comprobante guardado' : `${r.guardados} comprobantes guardados`,
+      detail: `${r.validados} validados solos (coinciden las cuatro)` + (dif ? ` · ${dif} quedan en «Con diferencias»` : ''),
+    });
     this.load();
   }
 

@@ -58,6 +58,18 @@ export class SupplierPaymentProofsController {
     return this.svc.matchPaymentsByOcr({ monto: body?.monto, fecha: body?.fecha, concepto: body?.concepto, limit: body?.limit });
   }
 
+  /**
+   * `[PC.6]` Re-compara con Kepler los comprobantes con diferencias y valida solo los que ya cumplen
+   * las cuatro coincidencias. Basta VER: no es una decisión de nadie, es la regla determinista que
+   * ya corre al adjuntar, aplicada otra vez contra lo que Kepler dice hoy.
+   */
+  @Post('recheck')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Vuelve a comparar con Kepler los comprobantes con diferencias; valida solo los que ya coinciden en banco, fecha, monto y proveedor.' })
+  recheck(): Promise<{ revisados: number; validados: number; con_diferencias: number }> {
+    return this.svc.recheck();
+  }
+
   @Post(':id/bank-match')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Confirma que un cargo del estado de cuenta corresponde al pago (persiste en bank_recon_matches).' })

@@ -3605,7 +3605,7 @@ lo alimente, es lo que dejó el módulo muerto.
 **antes** del redeploy (si el código sale primero, «Mis gastos» consulta una columna que no existe) ·
 redeploy api+view. **Sin permisos nuevos → sin re-login.**
 
-### 🔨 [PC.3] + [PC.4] + [PC.5] · Pagos a proveedor: captura por lote con IA, cuatro coincidencias exactas, y nadie valida su propio comprobante — 2026-10-03
+### 🔨 [PC.3]–[PC.6] · Pagos a proveedor: captura por lote con IA, cuatro coincidencias exactas que validan solas, y nadie valida su propio comprobante — 2026-10-03
 
 En `/finanzas/pagos-comprobantes`, el botón «Capturar comprobante» (un diálogo por PDF) se reemplaza
 por una **zona de carga en la página que acepta varios PDFs a la vez**. Acordado con el usuario:
@@ -3649,11 +3649,36 @@ la IA propone, **nada se guarda sin el clic de «Guardar»**.
   si Kepler fecha el pago (`c9`) un día distinto al del SPEI, casi nada saldrá «listo» — medirlo en
   prod antes de dar el criterio por bueno.
 
+- [x] **[PC.6]** 🧪 **Con las cuatro coincidencias, el comprobante se valida SOLO** (decisión del usuario:
+  «lo que ya esté validado con estos 4 semáforos pase directamente a validados»; en «con comprobante»
+  quedan sólo los que tienen diferencias, hasta que se arreglen). La regla sube a
+  `libs/contracts/src/finance/coincidencia-pago.contract.ts` (la leen pantalla y servidor; si viviera
+  copiada, la pantalla podría decir «coincide» de algo que el servidor no valida). **Lo decide el
+  SERVIDOR** al adjuntar, con cinco guardas: (1) las cuatro coincidencias contra el pago y su banco
+  leídos de Kepler en ese momento; (2) ⛔ lectura **verificada** (recuperada por el hash del archivo —
+  una lectura del request se puede alterar); (3) OCR `ok`; (4) clave de rastreo no usada en otro pago;
+  (5) el pago no tiene ya otro comprobante validado. Firma `Sistema · 4 coincidencias` y
+  `auto_validado = true`. **Nueva pestaña «Con diferencias»** (último comprobante `recibido`) con las
+  4 marcas B·F·M·P en la tabla y en el detalle; KPIs «Con diferencias» y «Validados solos». **«Volver
+  a comparar»** (`POST /finance/supplier-payments/recheck`, permiso VER): recalcula contra lo que
+  Kepler dice HOY y valida solo lo que ya cumple — «arreglar» muchas veces es corregir el pago en
+  Kepler. Una persona con GESTIONAR sigue pudiendo validar a mano lo que tiene diferencias.
+  Migración **`20261004120000`** (aditiva, idempotente): `coincidencias jsonb`, `auto_validado`,
+  `lectura_verificada`. ⛔ **Sin backfill a propósito**: los comprobantes anteriores no tienen lectura
+  verificada; «Volver a comparar» les pone las marcas pero **nunca los valida solos**.
+  Pruebas: contrato **14** · pantalla **25** · `validacion-automatica.spec.ts` **9** (con prueba
+  negativa: sin la guarda de lectura verificada → rojo) · smoke DB-direct
+  `test-newdb-pc6-banco-del-pago.js` **10/10** en local con rollback (con prueba negativa: sin el
+  filtro de doctype el pago toma el banco del cheque → rojo). Validación visual con OCR/búsqueda
+  simulados.
+
 **Pendiente:** ⚠️ **medir en prod si la vista `analytics.erp_supplier_payments` ve los pagos
 posteriores al 1-oct** — sigue anclada al `00` (Fase PO). Si no los ve, la captura por lote dirá
 «Ningún pago de Kepler con ese monto» en comprobantes legítimos. · Revisar en el servidor si el PDF ya
-se subió antes de leerlo (hoy sólo se detecta dentro del lote). · Redeploy api+view. **Sin permisos
-nuevos ni migraciones → sin re-login.**
+se subió antes de leerlo (hoy sólo se detecta dentro del lote). · ⚠️ **Aplicar `20261004120000` a
+prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columnas que no existen y
+falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
+«Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
 ### 🔨 [GX.65] · «Mis gastos» en 3 columnas (Solicitudes → Gastos → Expedientes) — 2026-10-03
 
