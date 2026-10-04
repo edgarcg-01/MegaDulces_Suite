@@ -3605,7 +3605,7 @@ lo alimente, es lo que dejó el módulo muerto.
 **antes** del redeploy (si el código sale primero, «Mis gastos» consulta una columna que no existe) ·
 redeploy api+view. **Sin permisos nuevos → sin re-login.**
 
-### 🔨 [PC.3]–[PC.7] · Pagos a proveedor: captura por lote con IA, cuatro coincidencias exactas que validan solas, y nadie valida su propio comprobante — 2026-10-03
+### 🔨 [PC.3]–[PC.8] · Pagos a proveedor: captura por lote con IA, cuatro coincidencias exactas que validan solas, y nadie valida su propio comprobante — 2026-10-03
 
 En `/finanzas/pagos-comprobantes`, el botón «Capturar comprobante» (un diálogo por PDF) se reemplaza
 por una **zona de carga en la página que acepta varios PDFs a la vez**. Acordado con el usuario:
@@ -3695,6 +3695,28 @@ la IA propone, **nada se guarda sin el clic de «Guardar»**.
   que ponían rojo su lint (preexistentes; el CI los iba a ver al tocar el archivo).
   Pruebas: contrato **27** (con los números reales y 6 negativos), `cuenta-bajio.spec.ts` **8** (incluye
   que la instrucción del OCR no vuelva a pedir «últimos 4»; dos pruebas negativas).
+
+- [x] **[PC.8]** 🧪 **Reportes de producción (2026-10-04): la lista del lote no se limpiaba al guardar, y la
+  página tarda 5–6 s en cargar.**
+  **(a) Lista que no se limpiaba — RESUELTO.** Reproducido con una simulación de 25 PDFs (OCR, búsqueda y
+  guardado simulados): después de guardar quedaban las **25** filas (20 guardadas + 5 sin pago) y había que
+  salir y entrar para limpiar. Ahora lo guardado **sale de la lista** (lo validado no pide nada; lo que tiene
+  diferencias vive en la pestaña «Con diferencias»), queda un **resumen** («20 guardados · 15 validados solos
+  · 5 con diferencias») con **Ver con diferencias** que cambia la tabla a esa pestaña, y se quedan sólo las
+  filas que aún piden algo (**25 → 5**). La lista tiene **scroll propio** (`max-height: min(60vh, 40rem)`):
+  un lote grande no alarga la página y «Guardar» queda siempre a la vista. Se retira «Quitar guardados» y el
+  toast que duplicaba el resumen. Pruebas: `pagos-captura-lote.component.spec.ts` **5** (dos negativas: no
+  se pierde una fila sin guardar ni una que el servidor rechazó; sin la limpieza → 3 rojas).
+  **(b) Carga de 5–6 s — NO REPRODUCIDO; se instrumentó.** Hipótesis inicial (la vista lee toda `kdm1`, sin
+  índice para `X-D`, dos veces por carga) **refutada por medición**: con **600k documentos sintéticos** en
+  `kdm1` (≈ prod: 603k filas / 516 MB) la consulta tarda **~110 ms** — usa el PK (`sucursal`,…,`c2`,`c3`)
+  como índice de mapa de bits; un índice parcial nuevo **no cambia nada** (108 ms) y unificar filas+KPIs en una
+  sola consulta con CTE materializada la vuelve **22 s** (descartado). La pantalla con la API simulada pinta en
+  **~1.2 s** (servidor de desarrollo). Lo que falta es un dato de prod: la lista ahora devuelve `tiempos_ms`
+  (duplicados · filas · KPIs · total) y el encabezado **`Server-Timing`** (DevTools → Network → Timing), y deja
+  `warn` en el log cuando pasa de 1 s. Pruebas: `tiempos-lista.spec.ts` **3**. ⚠️ Diferencia sospechosa
+  entre la simulación y prod que el dato va a confirmar o descartar: filas anchas de prod (~860 B/fila) leídas
+  en frío, y RLS como `app_runtime` (la simulación corrió como superusuario).
 
 **Pendiente:** ⚠️ **medir en prod si la vista `analytics.erp_supplier_payments` ve los pagos
 posteriores al 1-oct** — sigue anclada al `00` (Fase PO). Si no los ve, la captura por lote dirá

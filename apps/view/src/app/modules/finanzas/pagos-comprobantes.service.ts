@@ -40,6 +40,8 @@ export interface PagosReport {
   kpis: { pagos: number; con_comprobante: number; validados: number; monto_pendiente: number; cuentas_ajenas?: number; refs_duplicadas?: number;
     /** `[PC.6]` */ auto_validados?: number; con_diferencias?: number };
   rows: PagoRow[];
+  /** `[PC.8]` Cuánto tardó cada consulta del servidor (también en el encabezado Server-Timing). */
+  tiempos_ms?: { duplicados: number; filas: number; kpis: number; total: number };
 }
 
 /** Campos del OCR de un comprobante de PAGO A PROVEEDOR (transferencia saliente). */

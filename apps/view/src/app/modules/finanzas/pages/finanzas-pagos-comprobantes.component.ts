@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, OnDestroy, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, OnDestroy, computed, inject, signal, viewChild } from '@angular/core';
 import { MultitareaService } from '../../../core/services/multitarea.service';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -54,8 +54,8 @@ interface GastoFile {
       </header>
 
       <!-- [PC.3] captura por lote: se sueltan varios PDFs, la IA propone el pago, la persona confirma -->
-      <app-pagos-captura-lote [live]="live()" (guardados)="onLoteGuardado($event)" />
-      <div class="cb-filters card-premium card-flat">
+      <app-pagos-captura-lote [live]="live()" (guardados)="onLoteGuardado($event)" (verDiferencias)="verDiferencias()" />
+      <div class="cb-filters card-premium card-flat" #filtros>
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
         <div class="cb-field"><label>Año</label>
@@ -758,13 +758,17 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   }
 
   /** [PC.3] La zona de carga guardó comprobantes: recarga la tabla y lo dice. */
-  onLoteGuardado(r: LoteGuardado) {
-    const dif = r.guardados - r.validados;
-    this.toast.add({
-      severity: 'success', summary: r.guardados === 1 ? 'Comprobante guardado' : `${r.guardados} comprobantes guardados`,
-      detail: `${r.validados} validados solos (coinciden las cuatro)` + (dif ? ` · ${dif} quedan en «Con diferencias»` : ''),
-    });
+  /** [PC.8] El lote ya muestra su propio resumen (y limpió sus filas): aquí sólo se recarga la tabla. */
+  onLoteGuardado(_r: LoteGuardado) {
     this.load();
+  }
+
+  /** [PC.8] «Ver con diferencias» del resumen del lote: la tabla pasa a esa pestaña y queda a la vista. */
+  private readonly filtros = viewChild<ElementRef<HTMLElement>>('filtros');
+  verDiferencias() {
+    this.setEstado('con_diferencias');
+    const quieto = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.filtros()?.nativeElement.scrollIntoView({ behavior: quieto ? 'auto' : 'smooth', block: 'start' });
   }
 
   private resetAttach() {

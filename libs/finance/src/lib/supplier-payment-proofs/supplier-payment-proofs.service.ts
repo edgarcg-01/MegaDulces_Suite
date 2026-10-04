@@ -108,14 +108,26 @@ export class SupplierPaymentProofsService {
   async listPayments(q: ListPaymentsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 500));
+    /**
+     * `[PC.8]` Cuánto tarda CADA consulta. En prod la carga de la página tarda 5–6 s y no se pudo
+     * reproducir: con 600k documentos sintéticos en kdm1 la consulta tarda ~110 ms (usa el PK por
+     * sucursal + c2/c3) y la pantalla pinta en ~1.2 s con la API simulada. El dato que falta es de
+     * prod, y viaja en la respuesta (`tiempos_ms` + encabezado `Server-Timing`, visible en DevTools)
+     * y en el log cuando la carga pasa de 1 s (el umbral de «no funciona» del proyecto).
+     */
+    const reloj = Date.now();
+    const tiempos: { duplicados: number; filas: number; kpis: number; total: number } = { duplicados: 0, filas: 0, kpis: 0, total: 0 };
+    const medir = async <T>(k: 'duplicados' | 'filas' | 'kpis', p: PromiseLike<T>): Promise<T> => {
+      const t0 = Date.now(); const r = await p; tiempos[k] = Date.now() - t0; return r;
+    };
 
-    return this.tk.run(async (trx) => {
+    const out = await this.tk.run(async (trx) => {
       // Claves de rastreo que aparecen en MÁS DE UN pago vivo → transferencia repetida.
-      const dupRefs: string[] = await trx('finance.supplier_payment_proofs')
+      const dupRefs: string[] = await medir('duplicados', trx('finance.supplier_payment_proofs')
         .where('tenant_id', tenantId).whereNot('status', 'rechazado').whereNotNull('ref_norm')
         .groupBy('ref_norm')
         .havingRaw(`count(distinct doc_prefix || ' ' || sucursal || '/' || folio) > 1`)
-        .pluck('ref_norm');
+        .pluck('ref_norm'));
       const dupSet = new Set(dupRefs);
 
       const dep = trx('finance.supplier_payment_proofs')
@@ -181,7 +193,7 @@ export class SupplierPaymentProofsService {
         numeric: ['c.monto'],
       });
 
-      const rows = (await b).map((r: any) => {
+      const rows = (await medir('filas', b)).map((r: Record<string, unknown>) => {
         const refs: string[] = Array.isArray(r.refs) ? r.refs : [];
         const refDup = refs.some((x) => dupSet.has(x));
         const cuentaAjena = r.cuenta_ajena === true;
@@ -196,7 +208,7 @@ export class SupplierPaymentProofsService {
       if (q.from) kpiBase.where('c.pago_date', '>=', q.from);
       if (q.to) kpiBase.where('c.pago_date', '<=', q.to);
       if (q.metodo) kpiBase.where('c.metodo_pago', q.metodo);
-      const [k] = await kpiBase.select(
+      const [k] = await medir('kpis', kpiBase.select(
         trx.raw('COUNT(*)::int AS pagos'),
         trx.raw('COUNT(d.n)::int AS con_comprobante'),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validado')::int AS validados`),
@@ -204,7 +216,7 @@ export class SupplierPaymentProofsService {
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='recibido')::int AS con_diferencias`),
         trx.raw('COALESCE(SUM(c.monto::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente'),
         trx.raw('COUNT(*) FILTER (WHERE d.cuenta_ajena AND bk.kepler_doc_folio IS NULL)::int AS cuentas_ajenas'),
-      );
+      ));
 
       return {
         kpis: {
@@ -216,6 +228,11 @@ export class SupplierPaymentProofsService {
         rows,
       };
     });
+    tiempos.total = Date.now() - reloj;
+    if (tiempos.total > 1000) {
+      this.logger.warn(`lista de pagos lenta: ${tiempos.total} ms (duplicados ${tiempos.duplicados} · filas ${tiempos.filas} · kpis ${tiempos.kpis}) estado=${q.estado || '-'} desde=${q.from || '-'} buscar=${q.search ? 'sí' : 'no'}`);
+    }
+    return { ...out, tiempos_ms: tiempos };
   }
 
   /** Sube UN archivo al bucket. El `comprobante` de pago es **PDF** (SPEI/cheque);
