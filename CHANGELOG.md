@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Catálogo de Compras: pestaña Costos con el costo estándar entre sucursales y su historial (CAT-COSTO.0–5, 2026-10-04)
+- «Costos y precios» se separa en dos pestañas. **Costos** deja de ser «contenido por desarrollar» y sólo la ve quien tiene el permiso de costo estándar.
+- **Entre sucursales:** los productos cuyo costo estándar (la negociación con el proveedor) no es el mismo en todas las plazas, contra el de la mayoría, con tolerancia de 0.5 %. Lo que no se puede comparar se dice: sin mayoría, unidad distinta, una sola plaza.
+- **Historial por producto:** cuándo cambió el costo estándar y cuándo el costo de entrada, sucursal por sucursal, con su documento y contra el estándar de ese día. El estándar se reconstruye de la venta porque Kepler no guarda su historia.
+- Script de verificación de solo lectura listo para correr contra prod. **Las cifras aún no se midieron contra prod.**
 ### Fixed — Pagos a proveedor: las cuentas BanBajío se reconocen (PC.7, 2026-10-04)
 - BanBajío pone la clave de la cuenta en el **centro** del número (`2457` + `6506` + `0201`), no al final. La coincidencia de **banco** salía en rojo en todo pago del Bajío (nunca se validaba solo) y la alerta «cuenta de origen NO reconocida» los marcaba a todos. Además el OCR **recortaba la cuenta a los últimos 4 dígitos** (`0201` en todas las del Bajío): ahora lee el número completo. Se lee bien el formato, sin relajar la regla: otra cuenta del Bajío sigue sin coincidir. Los comprobantes del Bajío ya guardados conservan `0201` hasta que se relean.
 ### Changed — Tesorería entra a Obligaciones a proveedor, y la pirámide de accesos queda propuesta (TP.13/TP.14, 2026-10-03)

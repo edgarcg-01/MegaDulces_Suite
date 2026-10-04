@@ -6,7 +6,10 @@ import {
   FilaCostoEstandar,
   ResumenCostoEstandar,
   VeredictoCostoEstandar,
+  RespuestaEntreSucursales,
+  RespuestaHistorial,
 } from './standard-cost.service';
+import { VeredictoEntreSucursales } from './entre-sucursales';
 
 /**
  * `[CE.3]` — Costo estándar por producto.
@@ -74,6 +77,54 @@ export class StandardCostController {
       limite: Number(limite) || undefined,
       desplazamiento: Number(desplazamiento) || undefined,
     });
+  }
+
+  /** ⚠️ Va ANTES de `:sku`: si no, `entre-sucursales` se leería como un SKU. */
+  @Get('entre-sucursales')
+  @RequirePermissions(Permission.COMPRAS_COSTO_ESTANDAR_VER)
+  @ApiOperation({
+    summary: 'Productos con costo estándar distinto según la sucursal',
+    description:
+      'Se compara contra el costo de la mayoría de las plazas, con tolerancia de 0.5 %. ' +
+      '`sin_mayoria` y `unidad_distinta` se declaran en vez de compararse. La plaza 00 no entra.',
+  })
+  entreSucursales(
+    @Query('q') q?: string,
+    @Query('proveedor_id') proveedorId?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('veredicto') veredicto?: VeredictoEntreSucursales,
+    @Query('solo_diferencias') soloDiferencias?: string,
+    @Query('solo_con_venta') soloConVenta?: string,
+    @Query('limite') limite?: string,
+    @Query('desplazamiento') desplazamiento?: string,
+  ): Promise<RespuestaEntreSucursales> {
+    return this.service.entreSucursales({
+      q,
+      proveedor_id: proveedorId?.trim() || undefined,
+      sucursal: sucursal?.trim() || undefined,
+      veredicto: veredicto?.trim() as VeredictoEntreSucursales | undefined,
+      solo_diferencias: soloDiferencias === undefined ? true : soloDiferencias !== 'false',
+      solo_con_venta: soloConVenta === 'true',
+      limite: Number(limite) || undefined,
+      desplazamiento: Number(desplazamiento) || undefined,
+    });
+  }
+
+  @Get('historial/:sku')
+  @RequirePermissions(Permission.COMPRAS_COSTO_ESTANDAR_VER)
+  @ApiOperation({
+    summary: 'Trazabilidad de un producto: cambios de costo estándar y de costo de entrada por sucursal',
+    description:
+      'El estándar se reconstruye de la venta (c62/c58): la fecha es la de la primera venta con el ' +
+      'costo nuevo. Las entradas XA2001 se convierten a pieza y se comparan contra el estándar que ' +
+      'tenía la plaza ese día. Por defecto, los últimos 365 días.',
+  })
+  historial(
+    @Param('sku') sku: string,
+    @Query('desde') desde?: string,
+    @Query('hasta') hasta?: string,
+  ): Promise<RespuestaHistorial> {
+    return this.service.historial(sku, { desde, hasta });
   }
 
   @Get(':sku')

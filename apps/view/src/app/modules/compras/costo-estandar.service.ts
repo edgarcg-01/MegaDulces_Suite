@@ -164,4 +164,124 @@ export class CostoEstandarService {
   porSku(sku: string): Observable<FilaCostoEstandar[]> {
     return this.http.get<FilaCostoEstandar[]>(`${this.base}/${encodeURIComponent(sku)}`);
   }
+
+  /**
+   * `[CAT-COSTO.4]` Productos con costo estándar distinto según la sucursal. Quién se sale y
+   * contra qué lo decide el servidor; la pantalla sólo pinta.
+   */
+  entreSucursales(q: ConsultaEntreSucursales = {}): Observable<RespuestaEntreSucursales> {
+    let p = new HttpParams();
+    if (q.q?.trim()) p = p.set('q', q.q.trim());
+    if (q.proveedor_id) p = p.set('proveedor_id', q.proveedor_id);
+    if (q.sucursal) p = p.set('sucursal', q.sucursal);
+    if (q.veredicto) p = p.set('veredicto', q.veredicto);
+    if (q.solo_diferencias === false) p = p.set('solo_diferencias', 'false');
+    if (q.solo_con_venta) p = p.set('solo_con_venta', 'true');
+    if (q.limite) p = p.set('limite', String(q.limite));
+    if (q.desplazamiento) p = p.set('desplazamiento', String(q.desplazamiento));
+    return this.http.get<RespuestaEntreSucursales>(`${this.base}/entre-sucursales`, { params: p });
+  }
+
+  /**
+   * `[CAT-COSTO.5]` Trazabilidad de un producto. El servidor sólo acota el periodo; sucursal,
+   * proveedor y tipo de cambio se filtran en la pantalla (son pocas filas).
+   */
+  historial(sku: string, desde?: string, hasta?: string): Observable<RespuestaHistorial> {
+    let p = new HttpParams();
+    if (desde) p = p.set('desde', desde);
+    if (hasta) p = p.set('hasta', hasta);
+    return this.http.get<RespuestaHistorial>(`${this.base}/historial/${encodeURIComponent(sku)}`, { params: p });
+  }
+}
+
+export type VeredictoEntrada = 'apegada' | 'arriba' | 'abajo' | 'sin_cargo' | 'no_comparable';
+
+export interface CambioEstandar {
+  sucursal: string;
+  fecha: string;
+  antes: number;
+  despues: number;
+  cambio_pct: number;
+}
+
+export interface EntradaTrazada {
+  fecha: string;
+  sucursal_registro: string;
+  plaza: string | null;
+  folio: string;
+  proveedor: string | null;
+  unidad: string | null;
+  cantidad: number;
+  costo: number;
+  factor: number | null;
+  costo_base: number | null;
+  /** Costo base de la entrada anterior de la misma plaza; ausente = primera. */
+  antes?: number | null;
+  cambio: boolean;
+  cambio_pct: number | null;
+  estandar_vigente: number | null;
+  vs_estandar_pct: number | null;
+  veredicto: VeredictoEntrada;
+  motivo: 'sin_plaza' | 'unidad_sin_resolver' | 'sin_estandar_previo' | null;
+  plaza_sin_kepler: string | null;
+}
+
+export interface RespuestaHistorial {
+  sku: string;
+  nombre: string | null;
+  proveedor: string | null;
+  desde: string;
+  hasta: string;
+  sucursales: { codigo: string; nombre: string | null }[];
+  estandar_hoy: { sucursal: string; costo: number; unidad: string | null }[];
+  estandar_al_inicio: Record<string, number | null>;
+  cambios_estandar: CambioEstandar[];
+  entradas: EntradaTrazada[];
+}
+
+export type VeredictoEntreSucursales = 'distinto' | 'sin_mayoria' | 'unidad_distinta' | 'igual' | 'una_plaza';
+
+export interface CeldaEntreSucursales {
+  sucursal: string;
+  costo: number;
+  unidad: string | null;
+  vende: boolean;
+  comparada: boolean;
+  /** `null` cuando no hay mayoría contra qué medir. */
+  fuera: boolean | null;
+  desviacion_pct: number | null;
+}
+
+export interface FilaEntreSucursales {
+  sku: string;
+  nombre: string | null;
+  proveedor_id: string | null;
+  proveedor: string | null;
+  venta_30d: number;
+  veredicto: VeredictoEntreSucursales;
+  mayoria: number | null;
+  diferencia_pct: number | null;
+  sucursales_fuera: string[];
+  celdas: CeldaEntreSucursales[];
+}
+
+export interface RespuestaEntreSucursales {
+  sucursales: { codigo: string; nombre: string | null }[];
+  resumen: Record<VeredictoEntreSucursales, number>;
+  proveedores: { id: string; nombre: string; productos: number }[];
+  tolerancia_pct: number;
+  actividad_al: string | null;
+  total: number;
+  filas: FilaEntreSucursales[];
+}
+
+export interface ConsultaEntreSucursales {
+  q?: string;
+  proveedor_id?: string;
+  sucursal?: string;
+  veredicto?: VeredictoEntreSucursales | '';
+  solo_diferencias?: boolean;
+  solo_con_venta?: boolean;
+  limite?: number;
+  desplazamiento?: number;
 }

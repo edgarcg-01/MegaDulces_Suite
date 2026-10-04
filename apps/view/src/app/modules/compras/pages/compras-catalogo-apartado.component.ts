@@ -8,8 +8,8 @@ type CatalogoApartado =
   | 'resumen'
   | 'solicitudes'
   | 'incidencias'
-  | 'costos'
   | 'listas-precios';
+// [CAT-COSTO.4] `costos` salió de aquí: ya tiene pantalla propia (compras-catalogo-costos).
 
 interface ApartadoConfig {
   title: string;
@@ -56,21 +56,6 @@ const APARTADOS: Record<CatalogoApartado, ApartadoConfig> = {
     link: {
       label: 'Revisar códigos repetidos',
       route: '/compras/catalogo/codigos',
-    },
-  },
-  costos: {
-    title: 'Costos y precios',
-    description:
-      'Este espacio reunirá solicitudes, vigencias e historial sin reemplazar a Kepler como fuente de verdad.',
-    icon: 'pi pi-dollar',
-    next: [
-      'Costo anterior, costo propuesto y variación',
-      'Impacto en margen y fecha de vigencia',
-      'Validación del cambio observado en el ERP',
-    ],
-    link: {
-      label: 'Ver precios distintos',
-      route: '/compras/catalogo/precios',
     },
   },
   'listas-precios': {
