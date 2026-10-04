@@ -83,6 +83,24 @@ export interface LadderRung {
   volume: { min_qty: number; price: number } | null;
 }
 
+/** `[VTK.1]` Fila de `analytics.v_label_presentations` con la unidad mayor (CJA/BTO/CUB) de un SKU. */
+interface MayorRow {
+  sku: string;
+  unidad: string;
+  factor: string | number | null;
+  precio_lista: string | number | null;
+  mayoreo_precio: string | number | null;
+  mayoreo_desde: string | number | null;
+}
+
+/** `[VTK.1]` Escalón de volumen de la unidad mayor leído directo de `kepler_ods.kdpv_prod_util`. */
+interface KdpvVolumeRow {
+  sku: string;
+  unidad: string;
+  price: string | number;
+  min_qty: number;
+}
+
 /** `[VTK.1]` La escalera de un SKU en una sucursal: base / paquete / caja, con su precio de lista y su volumen. */
 export interface Ladder {
   name: string | null;
@@ -309,7 +327,8 @@ export class QuotePricingService {
         + " ORDER BY sku, CASE WHEN upper(btrim(unidad)) = 'CJA' THEN 0 ELSE 1 END, factor DESC NULLS LAST",
       [branch, ...args],
     );
-    const mayorBySku = new Map<string, any>(mayores.rows.map((r: any) => [String(r.sku).trim(), r]));
+    const mayorRows = mayores.rows as MayorRow[];
+    const mayorBySku = new Map<string, MayorRow>(mayorRows.map((r) => [String(r.sku).trim(), r]));
 
     // Volumen de la caja directo de kdpv_prod_util cuando la vista no lo trae: el escalón más
     // chico (> 1) y, a igual escalón, el más barato, por SKU y rótulo.
@@ -324,7 +343,8 @@ export class QuotePricingService {
         + ' ORDER BY btrim(u.c1), upper(btrim(u.c2::text)), floor(u.c4::numeric)::int ASC, u.c7::numeric ASC',
       [branch, ...args],
     );
-    const kdpvByKey = new Map<string, any>(kdpv.rows.map((r: any) => [r.sku + '|' + r.unidad, r]));
+    const kdpvRows = kdpv.rows as KdpvVolumeRow[];
+    const kdpvByKey = new Map<string, KdpvVolumeRow>(kdpvRows.map((r) => [r.sku + '|' + r.unidad, r]));
 
     const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
     const volumeOf = (minQty: unknown, price: unknown) =>

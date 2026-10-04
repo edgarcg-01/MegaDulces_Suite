@@ -13,6 +13,27 @@ import { QuotePricingService } from '../commercial-quotes/quote-pricing.service'
 
 // ─────────── DTOs ───────────
 
+/**
+ * `[VTK.3]` Un peldaño de la escalera de Kepler de la sucursal, tal como viaja en el catálogo del
+ * vendedor: unidad, cuántas unidades base trae, precio de lista y precio de mayoreo de ESA unidad.
+ */
+export interface PeldanoCatalogo {
+  rung: string;
+  unit: string;
+  factor: number;
+  price: number;
+  volume_min_qty: number | null;
+  volume_price: number | null;
+}
+
+/** `[VTK.3]` Lo que la escalera le agrega a una fila del catálogo con almacén. */
+interface FilaCatalogoConEscalera {
+  sku?: string | null;
+  rungs?: PeldanoCatalogo[];
+  units?: Array<{ unit: string; factor: number }>;
+  units_source?: string;
+}
+
 export interface CreatePriceListDto {
   code: string;
   name: string;
@@ -590,16 +611,14 @@ export class CommercialPricingService {
             const wh = await trx('commercial.warehouses').where({ id: warehouseId }).first('kepler_code');
             const branch = String(wh?.kepler_code ?? '').trim();
             if (branch) {
-              const skus = (rows as any[]).map((r) => String(r.sku ?? '').trim()).filter(Boolean);
+              const filas = rows as FilaCatalogoConEscalera[];
+              const skus = filas.map((r) => String(r.sku ?? '').trim()).filter(Boolean);
               // Con muchas filas se lee la sucursal completa (~0.3 s) en vez de una lista enorme de IN.
               const leds = await this.quotePricing.ladders(trx, branch, skus.length > 500 ? null : skus);
-              for (const r of rows as any[]) {
+              for (const r of filas) {
                 const led = leds.get(String(r.sku ?? '').trim());
                 if (!led) continue;
-                const rungs: Array<{
-                  rung: string; unit: string; factor: number; price: number;
-                  volume_min_qty: number | null; volume_price: number | null;
-                }> = [];
+                const rungs: PeldanoCatalogo[] = [];
                 const factores = new Set<number>();
                 const ordenados = (['base', 'pack', 'box'] as const)
                   .map((k) => led.rungs[k])

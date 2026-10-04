@@ -18,6 +18,7 @@ import { AlertsService } from '../commercial-alerts/alerts.service';
 import { CommercialPushService } from '../commercial-push/commercial-push.service';
 import { OrderStockService } from './order-stock.service';
 import { QuotePricingService, rungDeRotulo, type Rung } from '../commercial-quotes/quote-pricing.service';
+import type { Knex } from 'knex';
 import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
 
 // ─────────── tipos ───────────
@@ -201,7 +202,7 @@ export class CommercialOrdersService {
    * cliente (capa de documento, no de renglón).
    */
   private async tarificarConMotor(
-    trx: any,
+    trx: Knex | Knex.Transaction,
     warehouseId: string | null | undefined,
     productId: string,
     qtyBase: number,
@@ -242,7 +243,7 @@ export class CommercialOrdersService {
 
     // Tasa del PRODUCTO (la misma que usaba el cálculo anterior); el motor asume 16% para todo.
     const tp = await trx('commercial.product_prices as pp')
-      .join('commercial.price_lists as pl', function (this: any) {
+      .join('commercial.price_lists as pl', function (this: Knex.JoinClause) {
         this.on('pl.id', '=', 'pp.price_list_id').andOn('pl.tenant_id', '=', 'pp.tenant_id');
       })
       .where('pp.product_id', productId)
