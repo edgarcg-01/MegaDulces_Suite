@@ -1,6 +1,8 @@
-import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, Logger, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
 import { LlmExtractorService, OcrReadingsService, SupplierPaymentFields } from '@megadulces/platform-core';
+import { Knex } from 'knex';
+import { esDuenoDelVale, type IdentidadQueDecide } from '@megadulces/contracts';
 import { PagosComprobantesGateway } from './pagos-comprobantes.gateway';
 
 /**
@@ -21,6 +23,10 @@ const TOLERANCIA = 1.0; // pesos: |ocr_monto - pago_monto| <= 1 → cuadra (redo
 const BANK_TOL = 1.0;   // pesos: |monto comprobante - cargo banco| para casar el movimiento
 const BANK_DAYS_BEFORE = 1; // el cargo puede postearse el día del pago o 1 antes
 const BANK_DAYS_AFTER = 6;  // …o unos días después
+
+/** `[PC.4]` Lo que lee quien intenta validar o rechazar el comprobante que él mismo adjuntó. */
+export const MENSAJE_PROPIO_COMPROBANTE =
+  'Este comprobante lo adjuntaste tú: lo tiene que validar otra persona con permiso de gestionar pagos.';
 
 /** Clave de rastreo → alfanumérico (llave determinista de dedup). null si no hay. */
 const normRef = (s: unknown): string | null => {
@@ -466,10 +472,45 @@ export class SupplierPaymentProofsService {
     });
   }
 
+  /**
+   * `[PC.4]` **Nadie valida ni rechaza el comprobante que él mismo adjuntó.** Misma regla que
+   * GX.65.4a en gastos (`esDuenoDelVale`, en `libs/contracts`), una sola guarda para las dos
+   * decisiones. Con la captura por lote ([PC.3]) entran más comprobantes más rápido, y sin esto
+   * quien captura con permiso de gestionar se los valida solo.
+   *
+   * ⛔ También el RECHAZO: un comprobante rechazado sale de los controles (la clave de rastreo
+   * repetida ignora los rechazados), así que rechazarse el propio sería una forma de esconder
+   * una alerta.
+   *
+   * ⛔ Sin identidad NO pasa. El token no trae `full_name`: el nombre se lee del padrón, porque
+   * `created_by` se guarda como `full_name || username` (el bug que encontró GX.65.4a).
+   * Si el comprobante no existe no se dice nada aquí: cada método responde «no encontrado».
+   */
+  private async asegurarQueNoEsSuyo(trx: Knex, id: string, quien?: IdentidadQueDecide): Promise<void> {
+    if (!quien || (!String(quien.username ?? '').trim() && !String(quien.full_name ?? '').trim())) {
+      throw new ForbiddenException('No se pudo identificar quién decide sobre el comprobante.');
+    }
+    const proof = await trx('finance.supplier_payment_proofs').where({ id }).first('created_by');
+    if (!proof) return;
+    let nombre = String(quien.full_name ?? '').trim();
+    const usuario = String(quien.username ?? '').trim();
+    if (!nombre && usuario) {
+      const u = await trx('users')
+        .where({ tenant_id: this.tenantCtx.requireTenantId() })
+        .whereRaw('lower(username) = lower(?)', [usuario])
+        .first('nombre');
+      nombre = String(u?.nombre ?? '').trim();
+    }
+    if (esDuenoDelVale({ created_by: proof.created_by }, { username: usuario, full_name: nombre })) {
+      throw new ForbiddenException(MENSAJE_PROPIO_COMPROBANTE);
+    }
+  }
+
   /** El revisor valida la evidencia. Auditado. */
-  async validate(id: string, actor?: string) {
+  async validate(id: string, actor?: string, quien?: IdentidadQueDecide): Promise<{ id: string; status: string }> {
     this.tenantCtx.requireTenantId();
     const row = await this.tk.run(async (trx) => {
+      await this.asegurarQueNoEsSuyo(trx, id, quien);
       const [r] = await trx('finance.supplier_payment_proofs').where({ id }).whereIn('status', ['recibido', 'rechazado'])
         .update({ status: 'validado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, updated_at: trx.fn.now() })
         .returning(['id', 'status', 'sucursal', 'doc_prefix', 'folio', 'proveedor_nombre', 'pago_monto']);
@@ -481,9 +522,10 @@ export class SupplierPaymentProofsService {
   }
 
   /** Rechaza (con motivo). Auditado. */
-  async reject(id: string, actor?: string, motivo?: string) {
+  async reject(id: string, actor?: string, motivo?: string, quien?: IdentidadQueDecide): Promise<{ id: string; status: string }> {
     this.tenantCtx.requireTenantId();
     const row = await this.tk.run(async (trx) => {
+      await this.asegurarQueNoEsSuyo(trx, id, quien);
       const [r] = await trx('finance.supplier_payment_proofs').where({ id }).whereIn('status', ['recibido', 'validado'])
         .update({ status: 'rechazado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
         .returning(['id', 'status', 'sucursal', 'doc_prefix', 'folio', 'proveedor_nombre', 'pago_monto']);

@@ -3605,6 +3605,40 @@ lo alimente, es lo que dejó el módulo muerto.
 **antes** del redeploy (si el código sale primero, «Mis gastos» consulta una columna que no existe) ·
 redeploy api+view. **Sin permisos nuevos → sin re-login.**
 
+### 🔨 [PC.3] + [PC.4] · Pagos a proveedor: captura por lote con IA, y nadie valida su propio comprobante — 2026-10-03
+
+En `/finanzas/pagos-comprobantes`, el botón «Capturar comprobante» (un diálogo por PDF) se reemplaza
+por una **zona de carga en la página que acepta varios PDFs a la vez**. Acordado con el usuario:
+la IA propone, **nada se guarda sin el clic de «Guardar»**.
+
+- [x] **[PC.3]** 🧪 **Captura por lote.** Cada PDF se sube y se lee con OCR (de 3 en 3), se buscan los
+  pagos de Kepler con ese monto (`match-pago`, ya existía) y la regla pura `clasificar`
+  (`pagos-captura-lote.ts`) decide la fila: **listo** (un solo pago libre + factura del concepto o
+  fecha a ±3 días; viene pre-marcado) · **revisar** (sólo el monto, o el pago ya tiene comprobante;
+  un clic) · **elegir** (varios pagos con ese monto) · **sin pago** (búsqueda a mano en la fila).
+  ⛔ Un pago que ya tiene comprobante **nunca** sale pre-marcado; dos filas del lote que apuntan al
+  mismo pago **no se pueden guardar**; el mismo PDF dos veces se marca repetido sin gastar OCR.
+  El guardado reusa `/attach` con el `sha256` de la lectura (el servidor recupera la lectura del
+  modelo, no le cree al request). La captura sin pago del diálogo viejo se retira; el diálogo queda
+  para adjuntar desde el renglón (con fotos del gasto). De paso: se borró la regla `.cb-match` del
+  diálogo, que también pegaba en el ícono de cuadre de la tabla.
+  Pruebas: `pagos-captura-lote.spec.ts` **21**. **Validación visual** contra los dev servers ya
+  levantados, con OCR y búsqueda **simulados en el navegador** (la base local tiene **0** pagos de
+  Kepler): los 4 estados + repetido, guardado de 4, tema claro y oscuro, móvil 420 px sin scroll
+  horizontal.
+- [x] **[PC.4]** 🧪 **Nadie valida ni rechaza el comprobante que él mismo adjuntó** (superadmin
+  incluido). Misma regla de GX.65.4a (`esDuenoDelVale`, `libs/contracts`) contra `created_by`; el
+  nombre se lee del padrón porque el token no lo trae. El **rechazo** también: un comprobante
+  rechazado sale del control de clave de rastreo repetida, así que rechazarse el propio escondería
+  la alerta. La pantalla ahora muestra el motivo del servidor en vez de «Error al validar».
+  Pruebas: `dueno-no-valida.spec.ts` **9**, con prueba negativa (sin la guarda en `validate()` → rojo).
+
+**Pendiente:** ⚠️ **medir en prod si la vista `analytics.erp_supplier_payments` ve los pagos
+posteriores al 1-oct** — sigue anclada al `00` (Fase PO). Si no los ve, la captura por lote dirá
+«Ningún pago de Kepler con ese monto» en comprobantes legítimos. · Revisar en el servidor si el PDF ya
+se subió antes de leerlo (hoy sólo se detecta dentro del lote). · Redeploy api+view. **Sin permisos
+nuevos ni migraciones → sin re-login.**
+
 ### 🔨 [GX.65] · «Mis gastos» en 3 columnas (Solicitudes → Gastos → Expedientes) — 2026-10-03
 
 Rediseño acordado con maqueta: la solicitud `XA1501`, el gasto `XA1001` y el expediente con su pago

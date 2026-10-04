@@ -5,6 +5,9 @@ import { SupplierPaymentProofsService, ListPaymentsQuery, AttachPaymentDto } fro
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 
+/** `[PC.4]` Las dos identidades de quien decide: la guarda compara contra ambas. */
+const quienDecide = (req?: AuthedRequest) => ({ username: req?.user?.username, full_name: req?.user?.full_name });
+
 /**
  * Fase CC (extensión) — Comprobantes de Pago a Proveedor. Lista los pagos de
  * Kepler (transferencia XD2601 + cheque XD2501) y les adjunta el comprobante
@@ -87,13 +90,13 @@ export class SupplierPaymentProofsController {
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Valida la evidencia del pago. Auditado.' })
   validate(@Param('id') id: string, @Req() req: AuthedRequest) {
-    return this.svc.validate(id, req?.user?.full_name || req?.user?.username);
+    return this.svc.validate(id, req?.user?.full_name || req?.user?.username, quienDecide(req));
   }
 
   @Post(':id/reject')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Rechaza la evidencia (con motivo). Auditado.' })
   reject(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
-    return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo);
+    return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo, quienDecide(req));
   }
 }
