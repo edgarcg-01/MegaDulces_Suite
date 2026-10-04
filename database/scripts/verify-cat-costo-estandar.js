@@ -227,5 +227,42 @@ const LINEAS = `
        AND ap.c68::date >= current_date - 365
      ORDER BY fecha DESC`, [SKU]);
 
+  // ── D · la negociación: lista del proveedor → descuentos en cascada → costo estándar ──
+  // Contexto de Compras (2026-10-04): el estándar ES la negociación. Se parte de la lista del
+  // proveedor y caen descuentos (volumen, tipo de negocio, logística/recolección, pronto pago).
+  // Kepler lo guarda en kdpv_prov_prod: c4 lista por unidad mayor, c5/c6/c7 % de descuento,
+  // c8/c9/c10 neto por peldaño. Se prueba la aritmética y la liga con c77, no se supone.
+  const NUM = (col) => `nullif(regexp_replace(p.${col}::text,'[^0-9.-]','','g'),'')::numeric`;
+  await medir(c, 'D1 · ¿lista × (1−d1)(1−d2)(1−d3) = neto de la unidad mayor (c10)?', `
+    WITH p AS (
+      SELECT ${NUM('c4')} AS lista, coalesce(${NUM('c5')},0) AS d1, coalesce(${NUM('c6')},0) AS d2,
+             coalesce(${NUM('c7')},0) AS d3, ${NUM('c8')} AS u1, ${NUM('c10')} AS u3
+        FROM kepler_ods.kdpv_prov_prod p)
+    SELECT count(*) AS filas,
+           count(*) FILTER (WHERE d1>0 OR d2>0 OR d3>0) AS con_descuento,
+           count(*) FILTER (WHERE abs(lista*(1-d1/100)*(1-d2/100)*(1-d3/100) - u3) <= 0.01*u3) AS cascada_cuadra_u3,
+           count(*) FILTER (WHERE abs(lista*(1-d1/100)*(1-d2/100)*(1-d3/100) - u3) >  0.01*u3) AS no_cuadra
+      FROM p WHERE lista > 0 AND u3 > 0`);
+
+  await medir(c, 'D2 · ¿el neto por pieza del proveedor (c8) es el costo estándar de la ficha (c77)?', `
+    WITH p AS (
+      SELECT p.sucursal::text AS sucursal, btrim(p.c2::text) AS sku, btrim(p.c1::text) AS proveedor,
+             ${NUM('c8')} AS u1
+        FROM kepler_ods.kdpv_prov_prod p)
+    SELECT count(*) AS pares,
+           count(*) FILTER (WHERE abs(p.u1 - sc.costo_estandar) <= 0.005*sc.costo_estandar) AS igual_estandar,
+           count(*) FILTER (WHERE abs(p.u1 - sc.costo_estandar) >  0.005*sc.costo_estandar) AS distinto,
+           count(DISTINCT (p.sucursal, p.sku)) FILTER (WHERE true) AS fichas,
+           count(*) - count(DISTINCT (p.sucursal, p.sku)) AS filas_de_2do_proveedor
+      FROM p JOIN analytics.v_kepler_standard_cost sc ON sc.sucursal = p.sucursal AND sc.sku = p.sku
+     WHERE p.u1 > 0 AND sc.costo_estandar > 0`);
+
+  await medir(c, 'D3 · la cifra de Compras: ¿el 95 % de las líneas de entrada llega al estándar? y mercancía sin cargo', `${LINEAS}
+    SELECT count(*) AS lineas,
+           count(*) FILTER (WHERE costo = 0 OR costo IS NULL) AS sin_cargo_o_sin_costo,
+           round(100.0 * count(*) FILTER (WHERE costo = 0 OR costo IS NULL) / nullif(count(*),0), 2) AS pct_sin_cargo
+      FROM l`);
+  console.log('D3: el % "apegado al estándar" sale de B5 (igual / comparables). Se contrasta contra el 95 % que reporta Compras.');
+
   await c.end();
 })().catch((e) => { console.error(e); process.exit(1); });
