@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- [TP.14] Maqueta de la pirámide de accesos a Obligaciones a proveedor. Padrón leído de prod el 2026-10-03. -->
+<title>Pirámide de accesos de Compras</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0}
+/* Layout: encabezado → hallazgos de hoy → pirámide + simulador → revisión puesto por puesto → matriz → correcciones previas → preguntas */
+:root{
+  --bg:#FAFAF9; --surface:#FFFFFF; --sunken:#F5F5F4; --line:#E7E5E4; --line-strong:#D6D3D1;
+  --fg:#1C1917; --muted:#57534E; --faint:#A8A29E;
+  --action:#EA580C; --action-soft:#FFEDD5; --action-fg:#9A3412;
+  --ok:#15803D; --ok-soft:#DCFCE7; --no:#B91C1C; --no-soft:#FEE2E2; --warn:#A16207; --warn-soft:#FEF9C3; --info:#1D4ED8; --info-soft:#DBEAFE;
+  --l1:#1C1917; --l2:#44403C; --l3:#78716C; --l4:#A8A29E; --l5:#D6D3D1; --l-fg-dark:#FAFAF9; --l-fg-light:#1C1917;
+  --f-ui:"Hanken Grotesk", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --f-mono:"Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111111; --surface:#18181B; --sunken:#1F1F23; --line:#2A2A2E; --line-strong:#3F3F46;
+  --fg:#F4F4F5; --muted:#A1A1AA; --faint:#71717A;
+  --action:#FB923C; --action-soft:#3B1D0B; --action-fg:#FDBA74;
+  --ok:#4ADE80; --ok-soft:#0F2A1A; --no:#F87171; --no-soft:#2E1212; --warn:#FACC15; --warn-soft:#2A2408; --info:#93C5FD; --info-soft:#13213D;
+  --l1:#F4F4F5; --l2:#D4D4D8; --l3:#A1A1AA; --l4:#71717A; --l5:#3F3F46; --l-fg-dark:#111111; --l-fg-light:#F4F4F5;
+  color-scheme: dark; } }
+:root[data-theme="dark"]{
+  --bg:#111111; --surface:#18181B; --sunken:#1F1F23; --line:#2A2A2E; --line-strong:#3F3F46;
+  --fg:#F4F4F5; --muted:#A1A1AA; --faint:#71717A;
+  --action:#FB923C; --action-soft:#3B1D0B; --action-fg:#FDBA74;
+  --ok:#4ADE80; --ok-soft:#0F2A1A; --no:#F87171; --no-soft:#2E1212; --warn:#FACC15; --warn-soft:#2A2408; --info:#93C5FD; --info-soft:#13213D;
+  --l1:#F4F4F5; --l2:#D4D4D8; --l3:#A1A1AA; --l4:#71717A; --l5:#3F3F46; --l-fg-dark:#111111; --l-fg-light:#F4F4F5;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:20px;padding-block:28px 56px;display:flex;flex-direction:column;gap:28px}
+.crumb{font-size:12px;color:var(--muted)}
+h1{font-size:28px;font-weight:800;letter-spacing:-.01em;margin:4px 0 6px;text-wrap:balance}
+h2{font-size:17px;font-weight:700;margin:0;text-wrap:balance}
+.lead{color:var(--muted);max-width:76ch;margin:0}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;min-width:0}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:20px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr}}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:14px}
+.kpi{border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:var(--sunken)}
+.kpi .v{font-family:var(--f-mono);font-size:24px;font-weight:500;font-variant-numeric:tabular-nums}
+.kpi .l{font-size:12.5px;color:var(--muted)}
+.kpi.bad .v{color:var(--no)} .kpi.warn .v{color:var(--warn)} .kpi.ok .v{color:var(--ok)}
+
+.pyr{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:14px}
+.tier{border:0;cursor:pointer;font:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+  padding:10px 14px;min-height:64px;clip-path:polygon(7% 0,93% 0,100% 100%,0 100%);transition:transform .15s;outline:3px solid transparent;outline-offset:2px}
+.tier:focus-visible{outline-color:var(--action)}
+.tier .t{font-weight:700;font-size:13px}
+.tier .s{font-size:11.5px;opacity:.85}
+.tier[aria-pressed="true"]{transform:scale(1.03);box-shadow:inset 0 -4px 0 var(--action)}
+.tier.t1{width:34%;background:var(--l1);color:var(--l-fg-dark);clip-path:polygon(20% 0,80% 0,100% 100%,0 100%)}
+.tier.t2{width:50%;background:var(--l2);color:var(--l-fg-dark)}
+.tier.t3{width:66%;background:var(--l3);color:var(--l-fg-dark)}
+.tier.t4{width:82%;background:var(--l4);color:var(--l-fg-light)}
+.tier.t5{width:100%;background:var(--l5);color:var(--l-fg-light)}
+.pyr-legend{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-top:8px}
+
+.sim-head{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-top:12px}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+select{font:inherit;color:var(--fg);background:var(--sunken);border:1px solid var(--line-strong);border-radius:6px;padding:7px 10px;max-width:100%}
+select:focus-visible{outline:2px solid var(--action);outline-offset:1px}
+.verdict{margin-top:14px;padding:12px 14px;border-radius:8px;background:var(--action-soft);color:var(--action-fg)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.chip{font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid var(--line-strong);color:var(--muted)}
+.chip.on{background:var(--ok-soft);border-color:transparent;color:var(--ok);font-weight:600}
+.chip.off{text-decoration:line-through;opacity:.6}
+.tbl-wrap{overflow-x:auto;margin-top:14px;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px 10px;background:var(--sunken);border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right}
+.nowrap{white-space:nowrap}
+tr.hide td{color:var(--faint)}
+tr.hide td.prov{filter:blur(3.5px);user-select:none}
+.pill{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.no{background:var(--no-soft);color:var(--no)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.info{background:var(--info-soft);color:var(--info)}
+.pill.mute{background:var(--sunken);color:var(--muted);border:1px solid var(--line)}
+.foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:12.5px;color:var(--muted)}
+.note{color:var(--muted);font-size:12.5px}
+.grp td{background:var(--sunken);font-weight:700;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+
+.matrix td.c{text-align:center}
+.yes{color:var(--ok);font-weight:700}
+.nop{color:var(--faint)}
+.part{color:var(--warn);font-weight:700}
+.matrix td:first-child{position:sticky;left:0;background:var(--surface);font-weight:600;white-space:nowrap}
+.matrix th:first-child{position:sticky;left:0;z-index:1}
+.lvl{font-family:var(--f-mono);font-size:11px;color:var(--muted);margin-right:6px}
+
+.fixes{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:12px}
+.fix{border:1px solid var(--line);border-left:4px solid var(--no);border-radius:8px;padding:12px 14px;background:var(--surface)}
+.fix.w{border-left-color:var(--warn)}
+.fix h3{font-size:14px;margin:0 0 4px}
+.fix p{margin:0;color:var(--muted);font-size:13px}
+.fix .who{margin-top:6px;font-family:var(--f-mono);font-size:12px;color:var(--fg)}
+.qs{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:12px}
+.q{border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:var(--sunken)}
+.q h3{font-size:14px;margin:0 0 4px}
+.q p{margin:0;color:var(--muted);font-size:13px}
+.q .rec{margin-top:8px;font-size:12.5px;color:var(--fg)}
+@media (prefers-reduced-motion:reduce){.tier{transition:none}}
+</style>
+
+</head><body>
+<div class="wrap">
+  <header>
+    <div class="crumb">Compras / Abastecimiento › Obligaciones a proveedor · <b>propuesta</b> · padrón leído de producción el 3-oct-2026</div>
+    <h1>¿Quién ve las obligaciones con proveedores?</h1>
+    <p class="lead">Revisión de los 41 puestos y las 143 personas activas. Cada persona ve sólo lo de su lugar (su sucursal, su zona de compras o el CEDIS) y Dirección ve todo. Las zonas son las que ya están capturadas en el sistema: <b>La Piedad</b> (01, 02, 03, 04), <b>Zamora</b> (05, 06) y <b>Morelia</b> (07, 08), más el <b>CEDIS 00</b>.</p>
+  </header>
+
+  <section class="panel">
+    <div class="eyebrow">Resultado de la revisión</div>
+    <h2>Cómo queda el padrón</h2>
+    <div class="kpis">
+      <div class="kpi ok"><div class="v">39</div><div class="l">personas con acceso propuesto, en 16 puestos más una excepción (y 3 de Finanzas sólo en Entregas)</div></div>
+      <div class="kpi"><div class="v">101</div><div class="l">personas que se quedan sin acceso (24 puestos y 13 cuentas sin puesto)</div></div>
+      <div class="kpi bad"><div class="v">7</div><div class="l">personas de sucursal que hoy ven las 9 sucursales y sólo deberían ver la suya</div></div>
+      <div class="kpi warn"><div class="v">13</div><div class="l">personas que necesitan acceso y les falta capturar su sucursal o zona</div></div>
+    </div>
+    <p class="note" style="margin-top:12px">Hoy la pantalla de Obligaciones <b>no filtra por lugar</b>: quien tiene el permiso ve todo. La propuesta todavía no está construida.</p>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <div class="eyebrow">La pirámide</div>
+      <h2>Mientras más arriba, más ves</h2>
+      <div class="pyr" id="pyr" role="group" aria-label="Niveles de acceso"></div>
+      <div class="pyr-legend"><span>▲ toda la red</span><span>▼ sólo su sucursal</span></div>
+    </div>
+    <div class="panel">
+      <div class="eyebrow">Simulador</div>
+      <h2>¿Qué ve esta persona?</h2>
+      <div class="sim-head">
+        <div class="field"><label for="rol">Puesto</label><select id="rol"></select></div>
+        <div class="field"><label for="lugar">Asignado a</label><select id="lugar"></select></div>
+      </div>
+      <div class="verdict" id="verdict"></div>
+      <div class="chips" id="chips"></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Ve</th><th>Proveedor</th><th>Sucursal</th><th>Entrada</th><th class="num">Importe</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="foot"><span id="count"></span><span>Renglones tomados de «Qué vence» del 1-oct.</span></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="eyebrow">Revisión puesto por puesto</div>
+    <h2>Quién tiene acceso y hasta dónde</h2>
+    <div class="tbl-wrap">
+      <table id="review">
+        <thead><tr><th>Puesto</th><th class="num">Personas</th><th>Hoy</th><th>Propuesta</th><th>Puede ajustar</th><th>Por qué</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="eyebrow">Matriz</div>
+    <h2>Puesto × sucursal (sólo los puestos con acceso)</h2>
+    <div class="tbl-wrap"><table class="matrix" id="matrix"></table></div>
+    <div class="foot"><span><span class="yes">●</span> ve &nbsp; <span class="part">◐</span> sólo si es SU sucursal o SU zona &nbsp; <span class="nop">—</span> no ve</span><span>Zonas de compras tal como están en el catálogo de almacenes.</span></div>
+  </section>
+
+  <section class="panel">
+    <div class="eyebrow">Hay que corregir antes de activar el filtro</div>
+    <h2>Lo que encontré en el padrón</h2>
+    <div class="fixes">
+      <div class="fix"><h3>Los 3 gerentes de zona tienen perfil superadmin</h3><p>Con ese perfil el sistema les abre todo, en todos los módulos, y ningún filtro por zona los alcanza. Para que vean sólo su zona hay que darles un perfil de gerente de zona.</p><div class="who">aaron_alejo (Morelia) · ivette_cruz (La Piedad) · ramon_rodriguez (Zamora)</div></div>
+      <div class="fix"><h3>7 personas de sucursal ven hoy toda la red</h3><p>Los encargados tienen el permiso de ver Obligaciones, pero la pantalla no filtra. En cuanto se active el filtro, cada uno verá sólo su sucursal; ya tienen la sucursal capturada.</p><div class="who">6 encargados de sucursal · monica_mejia (auxiliar con perfil de encargado)</div></div>
+      <div class="fix"><h3>Facturación tiene perfil de compras</h3><p>Una persona de Facturación (mayoreo) puede ver y capturar obligaciones porque su perfil es de auxiliar de compras. Su trabajo es facturar ventas, no pagar proveedores.</p><div class="who">estefania_mendez</div></div>
+      <div class="fix w"><h3>Perfiles superadmin de más</h3><p>Además de su perfil, estas personas tienen superadmin como perfil adicional. Hay que confirmar si es intencional, porque les abre todo.</p><div class="who">luis_hernandez (almacenista) · claudia_mata (supervisora de inventarios) · jesus_carrillo (35 perfiles adicionales)</div></div>
+      <div class="fix w"><h3>Les falta su lugar</h3><p>Necesitan acceso, pero no tienen capturada su sucursal o zona de compras. Con el filtro activo verían la lista vacía, con un aviso.</p><div class="who">Compras: gerardo_ramirez · rafael_quirino · mario_ventura · juan_elizarraras (sin zona)<br>CEDIS: alberto_moreno · don_antonio · leonardo_cazares · brian_zavala · luis_navarro · luis_hernandez (asignar 00)<br>Sucursal: yadira_campero (sin sucursal)<br>Zona: aaron_alejo · ramon_rodriguez (tienen zona de ventas, falta la de compras)</div></div>
+      <div class="fix w"><h3>Puestos que pediste y no existen</h3><p>No hay puesto de <b>Dirección Comercial</b> (hoy la cubre guillermo_lopez desde Dirección General) ni de <b>Recepción de mercancía</b> (la hacen los almacenistas). El «staff de compras de zona» corresponde hoy a los Analistas de Órdenes de Entrada.</p></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="eyebrow">Para decidir</div>
+    <h2>Preguntas abiertas</h2>
+    <div class="qs">
+      <div class="q"><h3>Coordinación de Compras</h3><p>Fernanda y Arizbeth coordinan las compras de todas las zonas.</p><div class="rec"><b>Propuesta:</b> toda la red. Si se prefiere repartir una zona a cada una, quedan en «su zona + CEDIS».</div></div>
+      <div class="q"><h3>Analistas de Órdenes de Entrada</h3><p>¿Cada uno captura las entradas de una zona, o todos capturan de todas?</p><div class="rec"><b>Propuesta:</b> una zona cada uno. Hoy sólo Janette tiene zona (Morelia).</div></div>
+      <div class="q"><h3>Prevención y Auditoría</h3><p>Auditar pagos a proveedores requiere ver todo.</p><div class="rec"><b>Propuesta:</b> la coordinación ve toda la red, sólo lectura. Los auxiliares no.</div></div>
+      <div class="q"><h3>Almacenistas de oficinas</h3><p>3 almacenistas tienen zona «Oficinas» y ninguna sucursal.</p><div class="rec"><b>Propuesta:</b> si trabajan en el CEDIS, se les asigna el 00 y ven sólo CEDIS.</div></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const SUC = [
+  {code:'00', name:'CEDIS', zone:'CEDIS'},
+  {code:'01', name:'Padre Hidalgo', zone:'La Piedad'},
+  {code:'02', name:'La Piedad Abastos', zone:'La Piedad'},
+  {code:'03', name:'8 Esquinas', zone:'La Piedad'},
+  {code:'04', name:'Yurécuaro', zone:'La Piedad'},
+  {code:'05', name:'Zamora Centro', zone:'Zamora'},
+  {code:'06', name:'Canindo', zone:'Zamora'},
+  {code:'07', name:'Morelia Madero', zone:'Morelia'},
+  {code:'08', name:'Morelia Abastos', zone:'Morelia'},
+];
+const ZONES = ['La Piedad','Zamora','Morelia'];
+const sucBy = Object.fromEntries(SUC.map(s=>[s.code,s]));
+
+/* scope: all | zone+00 | zone | cedis | branch | entregas | none
+   today: all (ve todo) | entregas | none | admin (superadmin) */
+const PUESTOS = [
+  {g:'Con acceso', tier:1, name:'Dirección General', n:2, today:'admin', scope:'all', adj:'Plazos', why:'Decide y negocia. Incluye a quien hoy cubre Dirección Comercial.'},
+  {tier:1, name:'Coordinación de Compras', n:2, today:'all', scope:'all', adj:'Captura y plazos', why:'Coordina las compras de todas las zonas y del CEDIS.'},
+  {tier:1, name:'Comprador', n:1, today:'all', scope:'all', adj:'Captura y plazos', why:'Negocia con los proveedores de toda la red. Es el único comprador.'},
+  {tier:1, name:'Jefe de Tesorería', n:1, today:'entregas', scope:'all', adj:'Plazos (por excepción)', why:'Paga a proveedores de toda la red. Caso María de la Paz.'},
+  {tier:1, name:'Gerencia Administrativa y Financiera', n:2, today:'all', scope:'all', adj:'Sólo ver', why:'Autoriza el calendario de pagos; necesita la deuda completa.'},
+  {tier:1, name:'Presupuestos y Compras Corporativas', n:1, today:'none', scope:'all', adj:'Sólo ver', why:'El presupuesto y el flujo de efectivo usan esta deuda.'},
+  {tier:1, name:'Auxiliar de Finanzas · Julio Torres', n:1, today:'entregas', scope:'all', adj:'Sólo ver', why:'Arma, a pedido de Tesorería, el expediente de lo que se va a pagar y entrega los físicos a Caja General, que hace la dispersión. Cuando no está la Jefa de Tesorería, él hace el programa de pagos: por eso ve toda la red. Excepción personal, con motivo.'},
+  {tier:1, name:'Coordinación de Auditoría y Prevención', n:1, today:'none', scope:'all', adj:'Sólo ver', why:'Auditar los pagos exige ver todo.'},
+  {tier:2, name:'Analista de Abastecimiento Comercial', n:1, today:'all', scope:'zone+00', adj:'Captura', why:'Planea el surtido de su zona, que sale del CEDIS.'},
+  {tier:3, name:'Analista de Órdenes de Entrada', n:4, today:'all', scope:'zone', adj:'Captura', why:'Es el staff de compras de zona: captura las entradas de su zona.'},
+  {tier:3, name:'Gerencia de Zona', n:3, today:'admin', scope:'zone', adj:'Sólo ver', why:'Responde de su zona. Hoy es superadmin: hay que cambiarle el perfil.'},
+  {tier:3, name:'Coordinador de Operaciones de Zona', n:1, today:'all', scope:'zone', adj:'Captura', why:'Opera la zona de Morelia.'},
+  {tier:3, name:'Jefatura de CEDIS y Operaciones Logísticas', n:1, today:'none', scope:'cedis', adj:'Sólo ver', why:'Responde de lo que entra al CEDIS.'},
+  {tier:3, name:'Auxiliar Administrativo de Logística', n:2, today:'none', scope:'cedis', adj:'Sólo ver', why:'Da seguimiento a las recepciones del CEDIS.'},
+  {tier:4, name:'Encargado(a) de Sucursal', n:6, today:'all', scope:'branch', adj:'Sólo ver', why:'Responde de lo que recibe su sucursal.'},
+  {tier:4, name:'Auxiliar de Encargado', n:5, today:'none', scope:'branch', adj:'Sólo ver', why:'Cubre al encargado. Hoy sólo 1 de 5 tiene acceso, y ve todo.'},
+  {tier:5, name:'Almacenista (incluye recepción)', n:5, today:'none', scope:'branch', adj:'Sólo ver', why:'Recibe la mercancía. Los de oficinas, si son de CEDIS, ven el 00.'},
+  {g:'Sólo la pestaña Entregas (sin cambio)', tier:0, name:'Auxiliar de Finanzas (los otros 3)', n:3, today:'entregas', scope:'entregas', adj:'Confirmar entregas', why:'Confirman lo que Compras les entrega; no necesitan la lista de obligaciones.'},
+  {g:'Sin acceso', tier:0, name:'Facturación (mayoreo)', n:3, today:'all', scope:'none', adj:'—', why:'Facturan ventas. Hoy una persona ve y captura obligaciones por error de perfil.'},
+  {tier:0, name:'Analista Contable', n:3, today:'none', scope:'none', adj:'—', why:'Trabajan con el CFDI desde el Libro de Compras.'},
+  {tier:0, name:'Supervisor de inventarios', n:1, today:'admin', scope:'none', adj:'—', why:'Cuenta existencias; no maneja deuda. Hoy tiene superadmin adicional.'},
+  {tier:0, name:'Caja General · Auxiliar de Caja General de Zona', n:2, today:'none', scope:'none', adj:'—', why:'Hacen la dispersión con el expediente físico que les entrega Finanzas y la instrucción autorizada del calendario; no necesitan la lista.'},
+  {tier:0, name:'Crédito y Cobranza', n:3, today:'none', scope:'none', adj:'—', why:'Cobran a clientes, no pagan a proveedores.'},
+  {tier:0, name:'Auxiliar de Auditoría y Prevención', n:2, today:'none', scope:'none', adj:'—', why:'Si una auditoría lo requiere, se da por persona y con motivo.'},
+  {tier:0, name:'Cajeras, cajero vecinal, anaquelista, vendedora de piso, promotoras', n:21, today:'none', scope:'none', adj:'—', why:'Atienden mostrador; no reciben ni pagan mercancía.'},
+  {tier:0, name:'Ventas: ruta directa, vecinal, suplentes y supervisores', n:38, today:'none', scope:'none', adj:'—', why:'Venden; no tocan la compra.'},
+  {tier:0, name:'Telemarketing', n:5, today:'none', scope:'none', adj:'—', why:'Venden por teléfono.'},
+  {tier:0, name:'Mercadotecnia', n:5, today:'none', scope:'none', adj:'—', why:'No manejan proveedores de mercancía.'},
+  {tier:0, name:'Servicios al Personal (RH)', n:1, today:'none', scope:'none', adj:'—', why:'Sin relación.'},
+  {tier:0, name:'Sistemas', n:4, today:'admin', scope:'none', adj:'—', why:'Ven todo por soporte técnico, no por negocio.'},
+  {tier:0, name:'Cuentas sin puesto (kioscos, verificadores, servicio)', n:13, today:'none', scope:'none', adj:'—', why:'Cuentas de equipo, no de personas.'},
+];
+const ACCESS = PUESTOS.filter(p=>p.tier>0);
+
+const TIERS = [
+  {n:1, t:'Dirección y áreas corporativas', s:'Toda la red'},
+  {n:2, t:'Abastecimiento comercial', s:'Su zona + CEDIS 00'},
+  {n:3, t:'Compras de zona · Gerencia de zona · Logística', s:'Su zona, o sólo el CEDIS'},
+  {n:4, t:'Encargado y auxiliar de sucursal', s:'Sólo su sucursal'},
+  {n:5, t:'Almacenista y recepción', s:'Sólo su sucursal'},
+];
+
+const ROWS = [
+  ['CANEL’S S.A. DE C.V.','00','0009538',257841.77],
+  ['DISTRIBUIDORA DE LA ROSA SA DE CV','01','0000528',216511.77],
+  ['DULMAR DISTRIBUCIONES SA DE CV','06','0000103',152112.00],
+  ['DISTRIBUIDORA DE LA ROSA SA DE CV','03','0000969',72153.43],
+  ['PRODUCTORA Y COMERC. DE PRODUCTOS S.A. DE C.V','00','0009382',58217.48],
+  ['AZTECA CONFITERIA S.A DE CV','00','0009433',47304.00],
+  ['FABRICACION Y DISTRIBUCION DE PALILLO','08','0000082',27800.00],
+  ['OBLEAS DE LA PIEDAD','01','0000625',10800.00],
+  ['BOTANAS Y FRITURAS PEREZ','03','0000994',10052.89],
+  ['ANTONIO FARFAN MARTINEZ','06','0000131',6296.04],
+  ['J. ROBERTO CASTILLO MENDOZA','00','0009602',5832.00],
+];
+const money = n => n.toLocaleString('es-MX',{style:'currency',currency:'MXN'});
+
+function canSee(p, lugar, code){
+  const s = sucBy[code];
+  switch(p.scope){
+    case 'all': return true;
+    case 'cedis': return code==='00';
+    case 'zone+00': return code==='00' || s.zone===lugar;
+    case 'zone': return s.zone===lugar;
+    case 'branch': return code===lugar;
+    default: return false;
+  }
+}
+function lugarOptions(p){
+  if(p.scope==='all') return [{v:'', l:'Toda la red'}];
+  if(p.scope==='cedis') return [{v:'00', l:'00 · CEDIS'}];
+  if(p.scope.startsWith('zone')) return ZONES.map(z=>({v:z, l:'Zona '+z}));
+  return SUC.map(s=>({v:s.code, l:`${s.code} · ${s.name}`}));
+}
+function describe(p, lugar){
+  switch(p.scope){
+    case 'all': return `<b>${p.name}</b> ve <b>todo</b>: las 8 sucursales y el CEDIS 00.`;
+    case 'cedis': return `<b>${p.name}</b> ve <b>sólo el CEDIS 00</b>.`;
+    case 'zone+00': return `<b>${p.name}</b> ve la <b>zona ${lugar}</b> y además el <b>CEDIS 00</b>, porque el CEDIS surte a todas las zonas.`;
+    case 'zone': return `<b>${p.name}</b> ve sólo la <b>zona ${lugar}</b>. No ve el CEDIS ni otras zonas.`;
+    case 'branch': return `<b>${p.name}</b> ve sólo <b>${sucBy[lugar].name}</b>.`;
+  }
+}
+const scopeLabel = {all:['ok','Toda la red'], 'zone+00':['ok','Su zona + CEDIS'], zone:['ok','Su zona'], cedis:['ok','Sólo CEDIS 00'], branch:['ok','Su sucursal'], entregas:['info','Sólo Entregas'], none:['mute','Sin acceso']};
+const todayLabel = {all:['no','Ve toda la red'], admin:['no','Todo (superadmin)'], entregas:['info','Sólo Entregas'], none:['mute','Sin acceso']};
+function pill([k,t]){return `<span class="pill ${k}">${t}</span>`}
+
+// Simulador
+const $rol=document.getElementById('rol'), $lugar=document.getElementById('lugar');
+$rol.innerHTML = ACCESS.map((p,i)=>`<option value="${i}">${p.name}</option>`).join('');
+function fillLugar(){
+  const opts = lugarOptions(ACCESS[$rol.value]);
+  $lugar.innerHTML = opts.map(o=>`<option value="${o.v}">${o.l}</option>`).join('');
+  $lugar.disabled = opts.length===1;
+}
+function render(){
+  const p = ACCESS[$rol.value], lugar = $lugar.value;
+  document.getElementById('verdict').innerHTML = describe(p, lugar) + ` <span style="opacity:.8">Puede: ${p.adj.toLowerCase()}.</span>`;
+  document.getElementById('chips').innerHTML = SUC.map(s=>`<span class="chip ${canSee(p,lugar,s.code)?'on':'off'}">${s.code} ${s.name}</span>`).join('');
+  let seen=0,total=0;
+  document.getElementById('rows').innerHTML = ROWS.map(([pr,c,f,m])=>{
+    const on=canSee(p,lugar,c); if(on){seen++;total+=m;}
+    return `<tr class="${on?'':'hide'}"><td>${on?'<span class="pill ok">Sí</span>':'<span class="pill no">No</span>'}</td><td class="prov nowrap">${on?pr:'Oculto'}</td><td class="nowrap">${sucBy[c].name}</td><td class="mono">${on?f:'·······'}</td><td class="num mono">${on?money(m):'—'}</td></tr>`;
+  }).join('');
+  document.getElementById('count').textContent = `Ve ${seen} de ${ROWS.length} renglones · ${money(total)}`;
+  document.querySelectorAll('.tier').forEach(t=>t.setAttribute('aria-pressed', String(+t.dataset.tier===p.tier)));
+}
+document.getElementById('pyr').innerHTML = TIERS.map(t=>`<button type="button" class="tier t${t.n}" data-tier="${t.n}" aria-pressed="false"><span class="t">${t.t}</span><span class="s">${t.s}</span></button>`).join('');
+document.querySelectorAll('.tier').forEach(b=>b.addEventListener('click',()=>{
+  $rol.value = ACCESS.findIndex(x=>x.tier===+b.dataset.tier); fillLugar(); render();
+}));
+$rol.addEventListener('change',()=>{fillLugar();render();});
+$lugar.addEventListener('change',render);
+
+// Revisión
+document.querySelector('#review tbody').innerHTML = PUESTOS.map(p=>
+  (p.g?`<tr class="grp"><td colspan="6">${p.g}</td></tr>`:'') +
+  `<tr><td>${p.tier?`<span class="lvl">N${p.tier}</span>`:''}${p.name}</td><td class="num mono">${p.n}</td><td>${pill(todayLabel[p.today])}</td><td>${pill(scopeLabel[p.scope])}</td><td class="nowrap">${p.adj}</td><td class="note">${p.why}</td></tr>`
+).join('');
+
+// Matriz
+(function(){
+  const head = `<thead><tr><th>Puesto</th>${SUC.map(s=>`<th class="c">${s.code}<br><span style="text-transform:none;letter-spacing:0;font-weight:500">${s.name}</span></th>`).join('')}</tr></thead>`;
+  const body = ACCESS.map(p=>{
+    const cells = SUC.map(s=>{
+      let m;
+      if(p.scope==='all') m='yes';
+      else if(p.scope==='cedis') m = s.code==='00'?'yes':'nop';
+      else if(p.scope==='zone+00') m = s.code==='00'?'yes':'part';
+      else m = s.code==='00' && p.scope!=='branch' ? 'nop' : 'part';
+      return `<td class="c"><span class="${m}">${{yes:'●',part:'◐',nop:'—'}[m]}</span></td>`;
+    }).join('');
+    return `<tr><td><span class="lvl">N${p.tier}</span>${p.name}</td>${cells}</tr>`;
+  }).join('');
+  document.getElementById('matrix').innerHTML = head + `<tbody>${body}</tbody>`;
+})();
+
+$rol.value = ACCESS.findIndex(p=>p.name==='Analista de Órdenes de Entrada'); fillLugar(); render();
+</script>
+
+</html>
