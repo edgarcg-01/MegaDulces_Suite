@@ -3649,7 +3649,7 @@ la IA propone, **nada se guarda sin el clic de «Guardar»**.
   si Kepler fecha el pago (`c9`) un día distinto al del SPEI, casi nada saldrá «listo» — medirlo en
   prod antes de dar el criterio por bueno.
 
-- [x] **[PC.6]** 🧪 **Con las cuatro coincidencias, el comprobante se valida SOLO** (decisión del usuario:
+- [x] **[PC.6]** 🧪 **Con las cuatro coincidencias, el comprobante se valida SOLO** — **ADR-082** (decisión del usuario:
   «lo que ya esté validado con estos 4 semáforos pase directamente a validados»; en «con comprobante»
   quedan sólo los que tienen diferencias, hasta que se arreglen). La regla sube a
   `libs/contracts/src/finance/coincidencia-pago.contract.ts` (la leen pantalla y servidor; si viviera
@@ -3668,7 +3668,7 @@ la IA propone, **nada se guarda sin el clic de «Guardar»**.
   verificada; «Volver a comparar» les pone las marcas pero **nunca los valida solos**.
   Pruebas: contrato **14** · pantalla **25** · `validacion-automatica.spec.ts` **9** (con prueba
   negativa: sin la guarda de lectura verificada → rojo) · smoke DB-direct
-  `test-newdb-pc6-banco-del-pago.js` **10/10** en local con rollback (con prueba negativa: sin el
+  `test-newdb-pc6-banco-del-pago.js` **10/10** en local con rollback (registrado en `run-all-tests.js`) (con prueba negativa: sin el
   filtro de doctype el pago toma el banco del cheque → rojo). Validación visual con OCR/búsqueda
   simulados.
 
