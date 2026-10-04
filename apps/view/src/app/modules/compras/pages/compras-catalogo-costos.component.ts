@@ -310,7 +310,8 @@ export class ComprasCatalogoCostosComponent {
     this.sucursales().map((s) => ({ label: s.nombre ? `${s.codigo} · ${s.nombre}` : s.codigo, value: s.codigo })),
   );
 
-  readonly onPagina = makeLazyLoad(this.pagina, this.tamano, () => {});
+  // El rxResource reacciona solo al cambiar página/tamaño: no hay nada más que recargar.
+  readonly onPagina = makeLazyLoad(this.pagina, this.tamano, () => undefined);
   private readonly buscarDebounced = makeDebouncedSearch((v) => {
     this.q.set(v.trim());
     this.pagina.set(1);

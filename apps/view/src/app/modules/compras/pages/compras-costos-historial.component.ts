@@ -130,7 +130,7 @@ const TIPO: Record<string, string> = {
         }
       </section>
 
-      <section class="ch-tabla" aria-label="Trazabilidad de cambios">
+      <section class="ch-tabla dt-scope" aria-label="Trazabilidad de cambios">
         <div class="ch-tabla-cab">
           <div>
             <h2>Trazabilidad de cambios</h2>
@@ -141,7 +141,7 @@ const TIPO: Record<string, string> = {
             <span>Incluir entradas sin cambio de costo</span>
           </label>
         </div>
-        <p-table [value]="eventos()" size="small" class="surf-table">
+        <p-table [value]="eventos()" size="small" class="surf-table dt-stack">
           <ng-template #header>
             <tr>
               <th scope="col">Fecha</th>
@@ -157,15 +157,15 @@ const TIPO: Record<string, string> = {
           </ng-template>
           <ng-template #body let-e>
             <tr [class.is-tenue]="e.tipo === 'entrada_igual'">
-              <td class="ch-nowrap">{{ e.fecha }}</td>
-              <td>{{ e.sucursal || 'sin plaza' }}</td>
-              <td><span class="ch-tipo" [class]="'ch-tipo ch-tipo-' + e.tipo">{{ tipoTxt(e.tipo) }}</span></td>
-              <td class="ch-num ch-mono">{{ e.antes === null ? '—' : dinero(e.antes) }}</td>
-              <td class="ch-num ch-mono ch-fuerte">{{ e.despues === null ? '—' : dinero(e.despues) }}</td>
-              <td class="ch-num ch-mono">{{ e.cambio_pct === null ? '—' : pct(e.cambio_pct) }}</td>
-              <td><div class="ch-mono">{{ e.documento }}</div><div class="ch-sub">{{ e.nota }}</div></td>
-              <td>{{ e.proveedor || '—' }}</td>
-              <td class="ch-num">
+              <td role="cell" data-label="Fecha" class="ch-nowrap">{{ e.fecha }}</td>
+              <td role="cell" data-label="Sucursal">{{ e.sucursal || 'sin plaza' }}</td>
+              <td role="cell" data-label="Qué cambió"><span class="ch-tipo" [class]="'ch-tipo ch-tipo-' + e.tipo">{{ tipoTxt(e.tipo) }}</span></td>
+              <td role="cell" data-label="Antes" class="ch-num ch-mono">{{ e.antes === null ? '—' : dinero(e.antes) }}</td>
+              <td role="cell" data-label="Después" class="ch-num ch-mono ch-fuerte">{{ e.despues === null ? '—' : dinero(e.despues) }}</td>
+              <td role="cell" data-label="Cambio" class="ch-num ch-mono">{{ e.cambio_pct === null ? '—' : pct(e.cambio_pct) }}</td>
+              <td role="cell" data-label="Documento"><div class="ch-mono">{{ e.documento }}</div><div class="ch-sub">{{ e.nota }}</div></td>
+              <td role="cell" data-label="Proveedor">{{ e.proveedor || '—' }}</td>
+              <td role="cell" data-label="Contra estándar vigente" class="ch-num">
                 @if (e.veredicto) {
                   <span class="ch-ver" [class]="'ch-ver ch-ver-' + e.veredicto">
                     {{ verTxt(e.veredicto) }}{{ e.vs_estandar_pct !== null && e.veredicto !== 'apegada' ? ' ' + pct(e.vs_estandar_pct) : '' }}

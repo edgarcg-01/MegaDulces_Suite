@@ -701,7 +701,7 @@ export class ComprasCatalogoComponent {
   }
 
   // El evento lazy solo actualiza page/pageSize (señales); el rxResource reacciona → no-op.
-  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => {});
+  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => undefined);
 
   openEdit(p: Product): void {
     // Buscar el detalle completo para traer prices_count, total_available.

@@ -685,8 +685,8 @@ export class StandardCostService {
   async historial(skuCrudo: string, f: { desde?: string; hasta?: string } = {}): Promise<RespuestaHistorial> {
     const sku = skuCrudo.trim();
     const hoy = new Date().toISOString().slice(0, 10);
-    const hasta = esFecha(f.hasta) ? f.hasta! : hoy;
-    const desde = esFecha(f.desde) ? f.desde! : restarDias(hasta, 365);
+    const hasta = f.hasta && esFecha(f.hasta) ? f.hasta : hoy;
+    const desde = f.desde && esFecha(f.desde) ? f.desde : restarDias(hasta, 365);
     // Un año antes del periodo para saber qué estándar había al empezar.
     const desdeMuestras = restarDias(desde, 365);
     const NUM = (col: string) => `nullif(regexp_replace(${col}::text, '[^0-9.-]', '', 'g'), '')::numeric`;
