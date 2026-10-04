@@ -2539,3 +2539,21 @@ es la corriente, y eso no lo arregla ningún scheduler.
 **Hereda:** ADR-016 (el motor decide, el humano confirma; el LLM fuera del camino) · ADR-053 (el latido mide entrega, no intención) · ADR-054 (permiso = clave exacta; declarar no es entregar) · ADR-056 (lo que no se pudo medir se **declara**; un primitivo no cierra la fase hasta vivir en `libs/`) · ADR-061 (la landing se deriva del mapa de la suite) · ADR-080 (el worker no emite por WebSocket).
 
 Plan, capas y sprints en [`FASE_MS_MESA_DE_SERVICIO.md`](FASES/FASE_MS_MESA_DE_SERVICIO.md).
+
+## ADR-082 — Un comprobante de pago a proveedor se valida SOLO cuando coinciden banco, fecha, monto y proveedor, y lo decide el servidor
+
+**Estado:** propuesto 2026-10-03 (Fase CC ext, items `[PC.3]`–`[PC.6]`). **Contexto.** En `/finanzas/pagos-comprobantes` cada comprobante (SPEI/cheque) lo valida una persona. Con la captura por lote (`[PC.3]`) entran muchos a la vez, y el usuario pidió: *«lo que ya esté validado con estos 4 semáforos pase directamente a validados, y la persona sólo tendrá que purgar de con comprobante los que tienen diferencias»*. Medido antes de decidir: el banco del pago **sí** existe en Kepler (`kdm1.c45` ⋈ `kdb1`, expuesto por la vista canónica `analytics.kepler_bank_movements`, que además no está anclada al `00`); la lectura de la IA ya se guarda en el servidor por hash del archivo (`OcrReadingsService`, d78eb9135) y `attach` la recupera; y cruzar sólo por importe da **23–34 % de aciertos por densidad** (control placebo en `ERP_KEPLER.md`), así que un monto que cuadra no prueba nada.
+
+**Decisión.**
+
+1. **Cuatro coincidencias EXACTAS**, en `libs/contracts/src/finance/coincidencia-pago.contract.ts` — una sola regla que leen la pantalla (para pre-marcar y mostrar las marcas B·F·M·P) y el servidor (para validar). Banco = la cuenta de origen del comprobante termina en la cuenta de la que Kepler dice que salió el pago (la CLABE también sin su dígito verificador). Fecha = el mismo día. Monto = al centavo. Proveedor = nombre normalizado igual, con la única tolerancia del truncado del SPEI.
+2. **Lo que no se pudo leer NO cuenta como coincidencia** (`sin_dato` ≠ `ok`).
+3. **Lo decide el SERVIDOR, con cinco guardas**: las cuatro coincidencias contra el pago y su banco leídos de Kepler en ese momento; **lectura verificada** (recuperada por hash; una lectura que vino en el request se puede alterar); OCR `ok`; clave de rastreo no usada en otro pago; el pago sin otro comprobante validado. Firma `Sistema · 4 coincidencias` y `auto_validado = true`.
+4. **Lo que difiere espera a una persona** en la pestaña «Con diferencias», con sus marcas. «Volver a comparar» recalcula contra lo que Kepler dice HOY (arreglar muchas veces es corregir el pago en Kepler).
+5. **Nada anterior se valida solo**: sin `lectura_verificada`, «Volver a comparar» les pone las marcas pero nunca los valida.
+
+**Se rechaza:** validar solo con el monto (es la señal que el placebo desacredita); tolerancias difusas en el nombre del proveedor (cada falso «ok» es un comprobante validado sin que nadie lo vea); decidir en la pantalla (se puede alterar); y backfill de comprobantes viejos (no se sabe si su lectura es la del modelo).
+
+**Riesgo declarado, no medido:** si Kepler fecha el pago (`c9`) un día distinto al del SPEI, casi nada pasará solo — no es un error (cae a «Con diferencias»), pero se pierde el beneficio. Medirlo en prod es el primer paso después del despliegue.
+
+**Hereda:** ADR-016 (el motor decide de forma determinista; el LLM sólo lee el papel, nunca decide) · ADR-040 (read-only sobre el ERP) · ADR-056 (lo no medido se declara) · ADR-059 (cada número se arbitra con evidencia del mismo ERP).

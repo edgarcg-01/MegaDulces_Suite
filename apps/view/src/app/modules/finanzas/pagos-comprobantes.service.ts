@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import type { CoincidenciasPago } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 /**
@@ -29,10 +30,15 @@ export interface PagoRow {
   cuenta_ajena?: boolean; // el pago salió de una cuenta NO propia
   ref_dup?: boolean;      // la clave de rastreo aparece en otro pago
   alerta?: boolean;
+  /** `[PC.6]` Banco/fecha/monto/proveedor del comprobante más reciente vs el pago. NULL = sin evaluar. */
+  coincidencias?: CoincidenciasPago | null;
+  /** `[PC.6]` El comprobante más reciente lo validó el sistema (cuatro coincidencias), no una persona. */
+  auto_validado?: boolean;
 }
 
 export interface PagosReport {
-  kpis: { pagos: number; con_comprobante: number; validados: number; monto_pendiente: number; cuentas_ajenas?: number; refs_duplicadas?: number };
+  kpis: { pagos: number; con_comprobante: number; validados: number; monto_pendiente: number; cuentas_ajenas?: number; refs_duplicadas?: number;
+    /** `[PC.6]` */ auto_validados?: number; con_diferencias?: number };
   rows: PagoRow[];
 }
 
@@ -94,6 +100,10 @@ export interface ProofDeposit {
   motivo_rechazo: string | null;
   created_by: string | null;
   created_at: string;
+  /** `[PC.6]` */
+  coincidencias?: CoincidenciasPago | null;
+  auto_validado?: boolean;
+  lectura_verificada?: boolean | null;
 }
 
 /** Un pago candidato para ligar (ficha-first). */
@@ -102,6 +112,10 @@ export interface PagoCandidate {
   pago_date: string | null; proveedor_code: string | null; proveedor_nombre: string | null;
   proveedor_rfc: string | null; concepto: string | null; monto: number;
   deposits: number; concepto_match?: boolean;
+  /** `[PC.5]` El día del pago como texto `YYYY-MM-DD` (no se corre por zona horaria). */
+  pago_dia?: string | null;
+  /** `[PC.5]` Cuenta propia de la que salió el pago según Kepler (`kdm1.c45` ⋈ `kdb1`). */
+  clave_banco?: string | null; banco_nombre?: string | null; account_label?: string | null;
 }
 
 /** Nota de crédito / devolución de compra (X-D-55/X-D-40) que explica el delta factura vs pago. */
@@ -140,6 +154,13 @@ export interface AttachPayment {
   comentarios?: string;
 }
 
+/** Lo que responde `/attach`. Con `[PC.6]`, `status` puede volver ya `validado` (lo validó el sistema). */
+export interface AttachResult {
+  id: string; sucursal: string; folio: string; status: string; monto_match: boolean;
+  cuenta_propia?: boolean | null; ref_duplicada?: boolean; ref_otros?: string[];
+  coincidencias?: CoincidenciasPago; auto_validado?: boolean; diferencias?: string[]; motivo_no_automatico?: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class PagosComprobantesService {
   private readonly http = inject(HttpClient);
@@ -169,8 +190,12 @@ export class PagosComprobantesService {
     return this.http.post<ProofFile>(`${this.base}/upload`, { file_base64, role });
   }
   /** Adjunta la evidencia al pago (archivos ya subidos + OCR). */
-  attach(body: AttachPayment): Observable<{ id: string; sucursal: string; folio: string; status: string; monto_match: boolean; cuenta_propia?: boolean | null; ref_duplicada?: boolean; ref_otros?: string[] }> {
-    return this.http.post<{ id: string; sucursal: string; folio: string; status: string; monto_match: boolean; cuenta_propia?: boolean | null; ref_duplicada?: boolean; ref_otros?: string[] }>(`${this.base}/attach`, body);
+  attach(body: AttachPayment): Observable<AttachResult> {
+    return this.http.post<AttachResult>(`${this.base}/attach`, body);
+  }
+  /** `[PC.6]` Vuelve a comparar con Kepler los comprobantes con diferencias; valida solo los que ya cumplen. */
+  recheck(): Observable<{ revisados: number; validados: number; con_diferencias: number }> {
+    return this.http.post<{ revisados: number; validados: number; con_diferencias: number }>(`${this.base}/recheck`, {});
   }
   validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }

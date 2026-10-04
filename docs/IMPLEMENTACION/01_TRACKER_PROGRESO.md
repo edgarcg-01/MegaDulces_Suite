@@ -3605,6 +3605,81 @@ lo alimente, es lo que dejó el módulo muerto.
 **antes** del redeploy (si el código sale primero, «Mis gastos» consulta una columna que no existe) ·
 redeploy api+view. **Sin permisos nuevos → sin re-login.**
 
+### 🔨 [PC.3]–[PC.6] · Pagos a proveedor: captura por lote con IA, cuatro coincidencias exactas que validan solas, y nadie valida su propio comprobante — 2026-10-03
+
+En `/finanzas/pagos-comprobantes`, el botón «Capturar comprobante» (un diálogo por PDF) se reemplaza
+por una **zona de carga en la página que acepta varios PDFs a la vez**. Acordado con el usuario:
+la IA propone, **nada se guarda sin el clic de «Guardar»**.
+
+- [x] **[PC.3]** 🧪 **Captura por lote.** Cada PDF se sube y se lee con OCR (de 3 en 3), se buscan los
+  pagos de Kepler con ese monto (`match-pago`, ya existía) y la regla pura `clasificar`
+  (`pagos-captura-lote.ts`) decide la fila: **listo** (un solo pago libre + factura del concepto o
+  fecha a ±3 días; viene pre-marcado) · **revisar** (sólo el monto, o el pago ya tiene comprobante;
+  un clic) · **elegir** (varios pagos con ese monto) · **sin pago** (búsqueda a mano en la fila).
+  ⛔ Un pago que ya tiene comprobante **nunca** sale pre-marcado; dos filas del lote que apuntan al
+  mismo pago **no se pueden guardar**; el mismo PDF dos veces se marca repetido sin gastar OCR.
+  El guardado reusa `/attach` con el `sha256` de la lectura (el servidor recupera la lectura del
+  modelo, no le cree al request). La captura sin pago del diálogo viejo se retira; el diálogo queda
+  para adjuntar desde el renglón (con fotos del gasto). De paso: se borró la regla `.cb-match` del
+  diálogo, que también pegaba en el ícono de cuadre de la tabla.
+  Pruebas: `pagos-captura-lote.spec.ts` **21**. **Validación visual** contra los dev servers ya
+  levantados, con OCR y búsqueda **simulados en el navegador** (la base local tiene **0** pagos de
+  Kepler): los 4 estados + repetido, guardado de 4, tema claro y oscuro, móvil 420 px sin scroll
+  horizontal.
+- [x] **[PC.4]** 🧪 **Nadie valida ni rechaza el comprobante que él mismo adjuntó** (superadmin
+  incluido). Misma regla de GX.65.4a (`esDuenoDelVale`, `libs/contracts`) contra `created_by`; el
+  nombre se lee del padrón porque el token no lo trae. El **rechazo** también: un comprobante
+  rechazado sale del control de clave de rastreo repetida, así que rechazarse el propio escondería
+  la alerta. La pantalla ahora muestra el motivo del servidor en vez de «Error al validar».
+  Pruebas: `dueno-no-valida.spec.ts` **9**, con prueba negativa (sin la guarda en `validate()` → rojo).
+
+- [x] **[PC.5]** 🧪 **«Listo» sólo con las cuatro coincidencias exactas: banco, fecha, monto y
+  proveedor** (pedido del usuario; reemplaza el criterio de PC.3 «factura del concepto o fecha a ±3
+  días»). **Banco** = la cuenta de origen del comprobante es la cuenta de la que Kepler dice que salió
+  el pago — `match-pago` ahora trae `clave_banco`/`banco_nombre`/`account_label` por candidato con un
+  `LEFT JOIN LATERAL` a `analytics.kepler_bank_movements` (`kdm1.c45` ⋈ `kdb1`, la vista canónica de
+  tesorería); la CLABE se compara también sin su dígito verificador. **Fecha** = el mismo día
+  (`pago_dia` como texto, para que no se corra por UTC). **Monto** = al centavo (el servidor sigue
+  buscando con ±$1: encontrar no es dar por bueno). **Proveedor** = nombre normalizado (sin acentos,
+  puntuación ni sufijo societario) igual, con la única tolerancia del truncado del SPEI (≥ 8 letras).
+  ⛔ Lo que la IA no leyó **no cuenta** como coincidencia. Si falla cualquiera → «revisar», y la fila
+  marca cuál. Dos pagos del mismo monto donde sólo uno salió de ese banco → «listo» ese. La pantalla
+  muestra las 4 marcas con lo que dice cada lado. Pruebas: `pagos-captura-lote.spec.ts` **34**. SQL
+  validado contra el esquema local (0 filas: local no tiene pagos). ⚠️ **No medido con datos reales:**
+  si Kepler fecha el pago (`c9`) un día distinto al del SPEI, casi nada saldrá «listo» — medirlo en
+  prod antes de dar el criterio por bueno.
+
+- [x] **[PC.6]** 🧪 **Con las cuatro coincidencias, el comprobante se valida SOLO** — **ADR-082** (decisión del usuario:
+  «lo que ya esté validado con estos 4 semáforos pase directamente a validados»; en «con comprobante»
+  quedan sólo los que tienen diferencias, hasta que se arreglen). La regla sube a
+  `libs/contracts/src/finance/coincidencia-pago.contract.ts` (la leen pantalla y servidor; si viviera
+  copiada, la pantalla podría decir «coincide» de algo que el servidor no valida). **Lo decide el
+  SERVIDOR** al adjuntar, con cinco guardas: (1) las cuatro coincidencias contra el pago y su banco
+  leídos de Kepler en ese momento; (2) ⛔ lectura **verificada** (recuperada por el hash del archivo —
+  una lectura del request se puede alterar); (3) OCR `ok`; (4) clave de rastreo no usada en otro pago;
+  (5) el pago no tiene ya otro comprobante validado. Firma `Sistema · 4 coincidencias` y
+  `auto_validado = true`. **Nueva pestaña «Con diferencias»** (último comprobante `recibido`) con las
+  4 marcas B·F·M·P en la tabla y en el detalle; KPIs «Con diferencias» y «Validados solos». **«Volver
+  a comparar»** (`POST /finance/supplier-payments/recheck`, permiso VER): recalcula contra lo que
+  Kepler dice HOY y valida solo lo que ya cumple — «arreglar» muchas veces es corregir el pago en
+  Kepler. Una persona con GESTIONAR sigue pudiendo validar a mano lo que tiene diferencias.
+  Migración **`20261004120000`** (aditiva, idempotente): `coincidencias jsonb`, `auto_validado`,
+  `lectura_verificada`. ⛔ **Sin backfill a propósito**: los comprobantes anteriores no tienen lectura
+  verificada; «Volver a comparar» les pone las marcas pero **nunca los valida solos**.
+  Pruebas: contrato **14** · pantalla **25** · `validacion-automatica.spec.ts` **9** (con prueba
+  negativa: sin la guarda de lectura verificada → rojo) · smoke DB-direct
+  `test-newdb-pc6-banco-del-pago.js` **10/10** en local con rollback (registrado en `run-all-tests.js`) (con prueba negativa: sin el
+  filtro de doctype el pago toma el banco del cheque → rojo). Validación visual con OCR/búsqueda
+  simulados.
+
+**Pendiente:** ⚠️ **medir en prod si la vista `analytics.erp_supplier_payments` ve los pagos
+posteriores al 1-oct** — sigue anclada al `00` (Fase PO). Si no los ve, la captura por lote dirá
+«Ningún pago de Kepler con ese monto» en comprobantes legítimos. · Revisar en el servidor si el PDF ya
+se subió antes de leerlo (hoy sólo se detecta dentro del lote). · ⚠️ **Aplicar `20261004120000` a
+prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columnas que no existen y
+falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
+«Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
+
 ### 🔨 [GX.65] · «Mis gastos» en 3 columnas (Solicitudes → Gastos → Expedientes) — 2026-10-03
 
 Rediseño acordado con maqueta: la solicitud `XA1501`, el gasto `XA1001` y el expediente con su pago

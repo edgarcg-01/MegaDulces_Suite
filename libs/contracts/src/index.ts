@@ -88,6 +88,8 @@ export * from './finance/vale-asignado.contract';
 export * from './finance/protocolo-gasto.contract';
 // `[GX.65.4a]` Nadie decide sobre su propio vale: la regla la leen servidor y pantalla.
 export * from './finance/dueno-del-vale.contract';
+// [PC.5]/[PC.6] las cuatro coincidencias comprobante↔pago (banco, fecha, monto, proveedor)
+export * from './finance/coincidencia-pago.contract';
 
 // ── [ID.28] authz — NO se re-exporta desde acá, a propósito ───────────────────
 // El catálogo de permisos vive en `./authz` y se importa por SUBRUTA:
