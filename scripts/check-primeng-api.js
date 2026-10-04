@@ -197,7 +197,7 @@ const TECHO = {
   'styleClass p-table': 303,
   'styleClass p-select': 268,
   'styleClass p-multiselect': 41,
-  'styleClass p-inputnumber': 13,
+  'styleClass p-inputnumber': 12,
   'styleClass p-autocomplete': 6,
   'styleClass p-message': 1,
   'severity retirado': 1,
