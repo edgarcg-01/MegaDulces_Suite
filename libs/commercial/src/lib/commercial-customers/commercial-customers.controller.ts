@@ -72,6 +72,8 @@ export class CommercialCustomersController {
     @Query('search') search?: string,
     @Query('active') active?: string,
     @Query('mine') mine?: string,
+    // [VS.1] Pestaña "Clientes otras rutas" del buscador del vendedor.
+    @Query('exclude_mine') excludeMine?: string,
   ) {
     return this.service.list({
       page: page ? Number(page) : undefined,
@@ -79,6 +81,7 @@ export class CommercialCustomersController {
       search,
       active: active === undefined ? undefined : active === 'true',
       mine: mine === 'true',
+      excludeMine: excludeMine === 'true',
     });
   }
 

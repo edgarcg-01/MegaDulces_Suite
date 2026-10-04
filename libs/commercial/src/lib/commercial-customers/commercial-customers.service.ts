@@ -10,6 +10,7 @@ import { randomBytes } from 'crypto';
 import { TenantKnexService, applySmartSearch } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { vendorTodayRouteExistsSql } from '../shared/vendor-cartera.sql';
+import { syncErpCarteraForToday } from '../shared/vendor-cartera-erp';
 import {
   AddressJsonbSchema,
   AddressJsonb,
@@ -50,6 +51,12 @@ export interface ListCustomersQuery {
   active?: boolean;
   /** Restringe a la cartera del vendedor del JWT (vendor_sales_routes) y ordena por visit_sequence. */
   mine?: boolean;
+  /**
+   * `[VS.1]` Lo contrario de `mine`: todo el catálogo MENOS la cartera de hoy del vendedor.
+   * Es la pestaña "Clientes otras rutas" del buscador: sin esto, un cliente de su ruta
+   * aparecería en las dos pestañas. Si llegan los dos, gana `mine`.
+   */
+  excludeMine?: boolean;
 }
 
 const CODE_REGEX = /^[A-Z0-9_-]{2,50}$/;
@@ -202,9 +209,15 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       });
       // Cartera del vendedor: clientes en las sales_route asignadas al user del
       // JWT. No aplica a customer_b2b (ya quedó forzado a su propio customer).
-      if (query.mine && !forceCustomerId) {
+      if ((query.mine || query.excludeMine) && !forceCustomerId) {
         const meId = ctx?.userId || null;
-        q = q.whereRaw(vendorTodayRouteExistsSql('c'), [meId]);
+        // [VS.1] Rutas gobernadas por Kepler: su cartera se sincroniza antes de leer,
+        // igual que "Mi ruta". Sin esto, si el vendedor abre el buscador antes que su
+        // home, los clientes de Kepler todavía no tendrían ancla y no saldrían.
+        if (meId) await syncErpCarteraForToday(trx, meId);
+        q = query.mine
+          ? q.whereRaw(vendorTodayRouteExistsSql('c'), [meId])
+          : q.whereRaw(`NOT ${vendorTodayRouteExistsSql('c')}`, [meId]);
       }
 
       const [{ count }] = await q.clone().count<{ count: string }[]>('c.id as count');

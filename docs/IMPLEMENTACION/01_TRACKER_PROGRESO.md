@@ -7158,6 +7158,17 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
     api+view. Sin migraciones ni permisos nuevos → **sin re-login**.
 
 ---
+## VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código)
+
+- [ ] 🔨 `[VS.1]` `/vendor/search` abre en **los clientes de su ruta de hoy** (misma regla que "Mi ruta":
+  la escogida por el supervisor o su agenda, `vendorTodayRouteExistsSql`), y bajo la barra de búsqueda dos
+  pestañas: **"Tu ruta · RVLPA01"** (o "Tus rutas (n)") y **"Clientes otras rutas"**. Backend:
+  `GET /commercial/customers?exclude_mine=true` = el catálogo **menos** esa cartera, para que nadie salga en
+  las dos pestañas; `mine`/`exclude_mine` sincronizan antes la cartera de Kepler ([VK.4]) por si el
+  vendedor abre el buscador antes que su home. Rótulo de la ruta = `GET /vendor-routes/my`.
+  ⚠️ "Tu ruta" es la cartera **de hoy**: un cliente de su ruta con `visit_days` de otro día cae en "otras rutas".
+  ⚠️ **NO compilado en local** (regla del 2-oct): lo confirma el CI.
+
 ## VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código)
 
 - [ ] 🔨 `[VR.SUP.1]` Pantalla `/vendor/route-pick` ("¿Qué ruta vas a trabajar hoy?") + guard que la abre

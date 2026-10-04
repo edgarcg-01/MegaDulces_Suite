@@ -300,16 +300,29 @@ export class VendorService {
 
   // ─── Customers ───
 
-  listCustomers(opts: { search?: string; pageSize?: number } = {}): Observable<{
+  /**
+   * `scope` [VS.1]: 'mine' = la cartera de hoy (misma regla que "Mi ruta"),
+   * 'others' = todo el catálogo menos esa cartera, sin scope = todo el catálogo.
+   */
+  listCustomers(
+    opts: { search?: string; pageSize?: number; scope?: 'mine' | 'others' } = {},
+  ): Observable<{
     data: VendorCustomer[];
     total: number;
   }> {
     let p = new HttpParams().set('pageSize', String(opts.pageSize ?? 50));
     if (opts.search) p = p.set('search', opts.search);
+    if (opts.scope === 'mine') p = p.set('mine', 'true');
+    if (opts.scope === 'others') p = p.set('exclude_mine', 'true');
     return this.http.get<{ data: VendorCustomer[]; total: number }>(
       `${this.base}/customers`,
       { params: p },
     );
+  }
+
+  /** [VS.1] Nombres de las rutas que el vendedor trabaja HOY (la escogida o su agenda). */
+  myRoutes(): Observable<string[]> {
+    return this.http.get<string[]>(`${this.base}/vendor-routes/my`);
   }
 
   getCustomer(id: string): Observable<VendorCustomer> {
