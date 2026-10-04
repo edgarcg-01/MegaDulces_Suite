@@ -801,11 +801,32 @@ export class CatalogsService {
     updateData.updated_by = requesterId;
     updateData.updated_at = this.knex.fn.now();
 
+    // [VK.8] El cliente se liga a su ruta POR TEXTO (`commercial.customers.sales_route` =
+    // nombre de la ruta), así que renombrar una ruta sin arrastrar a sus clientes la deja vacía
+    // en "Mi ruta" — sin un solo error. Las vecinales se nombran "<código Kepler> <EJECUTIVO>":
+    // cuando cambia el ejecutivo se edita el nombre acá y los clientes tienen que seguirlo.
+    const routeBefore =
+      type === 'rutas' && data.value !== undefined
+        ? await this.knex('catalogs').where({ catalog_id: type, id }).first('value', 'tenant_id')
+        : null;
+
     try {
-      const [item] = await this.knex('catalogs')
-        .where({ catalog_id: type, id })
-        .update(updateData)
-        .returning('*');
+      const item = await this.knex.transaction(async (trx) => {
+        const [row] = await trx('catalogs')
+          .where({ catalog_id: type, id })
+          .update(updateData)
+          .returning('*');
+        if (row && routeBefore && routeBefore.value !== row.value) {
+          // tenant_id EXPLÍCITO: esta conexión no es RLS-scoped (ver roles arriba).
+          const moved = await trx('commercial.customers')
+            .where({ tenant_id: routeBefore.tenant_id, sales_route: routeBefore.value })
+            .update({ sales_route: row.value, updated_at: trx.fn.now() });
+          this.logger.log(
+            `Route rename "${routeBefore.value}" → "${row.value}" moved ${moved} customers.`,
+          );
+        }
+        return row;
+      });
 
       if (!item)
         throw new NotFoundException(
