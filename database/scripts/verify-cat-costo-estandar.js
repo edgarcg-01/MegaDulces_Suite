@@ -178,5 +178,54 @@ const LINEAS = `
       FROM b
      GROUP BY 1 ORDER BY 2 DESC`, [TOL]);
 
+  // ── C · historial del costo estándar derivado de la venta ─────────────────────────────
+  // Kepler no guarda historia de kdii.c77; cada renglón de venta congela el costo de la ficha
+  // en kdm2.c62, por el peldaño vendido (c58 = piezas por ese peldaño). costo base = c62 / c58.
+  // Sólo U-D-10 y U-D-6: en U-D-8 c62 viene vacío (VERDAD_ABSOLUTA §5).
+  const VENTA = (filtroSku) => `
+    SELECT l.sucursal::text AS sucursal, btrim(l.c8::text) AS sku, ap.c68::date AS fecha,
+           nullif(regexp_replace(l.c62::text,'[^0-9.-]','','g'),'')::numeric
+             / nullif(nullif(regexp_replace(l.c58::text,'[^0-9.-]','','g'),'')::numeric, 0) AS costo_base
+      FROM kepler_ods.kdm1 ap
+      JOIN kepler_ods.kdm2 l
+        ON l.sucursal=ap.sucursal AND l.c1=ap.c1 AND l.c2=ap.c2 AND l.c3=ap.c3 AND l.c4=ap.c4 AND l.c6=ap.c6
+     WHERE ap.c2='U' AND ap.c3='D' AND btrim(ap.c4::text) IN ('10','6')
+       AND btrim(ap.c1::text)=ap.sucursal::text
+       AND btrim(coalesce(ap.c43::text,'')) <> 'C'
+       ${filtroSku}`;
+
+  const SKU = process.env.SKU || '70001';
+
+  await medir(c, `C1 · historial de UN producto (${SKU}, 365 d): escalones por plaza — gate < 1 s`, `
+    WITH v AS (${VENTA(`AND btrim(l.c8) = $1 AND ap.c68::date >= current_date - 365`)}),
+    d AS (SELECT sucursal, fecha, round(percentile_cont(0.5) WITHIN GROUP (ORDER BY costo_base)::numeric, 4) AS costo
+            FROM v WHERE costo_base > 0 GROUP BY 1, 2),
+    s AS (SELECT d.*, lag(costo) OVER (PARTITION BY sucursal ORDER BY fecha) AS antes FROM d)
+    SELECT sucursal, fecha AS visto_desde, antes, costo AS despues
+      FROM s WHERE antes IS DISTINCT FROM costo ORDER BY sucursal, fecha`, [SKU]);
+
+  await medir(c, 'C2 · ¿el último costo congelado en la venta coincide con el c77 de hoy? (valida el método, 30 d)', `
+    WITH v AS (${VENTA(`AND ap.c68::date >= current_date - 30`)}),
+    u AS (SELECT DISTINCT ON (sucursal, sku) sucursal, sku, costo_base
+            FROM v WHERE costo_base > 0 ORDER BY sucursal, sku, fecha DESC)
+    SELECT count(*) AS pares,
+           count(*) FILTER (WHERE abs(u.costo_base - sc.costo_estandar) <= 0.005 * sc.costo_estandar) AS coincide,
+           count(*) FILTER (WHERE abs(u.costo_base - sc.costo_estandar) >  0.005 * sc.costo_estandar) AS no_coincide,
+           count(*) FILTER (WHERE sc.costo_estandar IS NULL) AS sin_ficha
+      FROM u LEFT JOIN analytics.v_kepler_standard_cost sc ON sc.sucursal = u.sucursal AND sc.sku = u.sku`);
+
+  await medir(c, `C3 · compras del mismo producto (${SKU}, 365 d) — gate < 1 s`, `
+    SELECT ap.sucursal, btrim(ap.c6::text) AS folio, ap.c68::date AS fecha,
+           NULLIF(upper(btrim(l.c11::text)),'') AS unidad, l.c9 AS cantidad, l.c12 AS costo
+      FROM kepler_ods.kdm2 l
+      JOIN kepler_ods.kdm1 ap
+        ON l.sucursal=ap.sucursal AND l.c1=ap.c1 AND l.c2=ap.c2 AND l.c3=ap.c3 AND l.c4=ap.c4 AND l.c6=ap.c6
+     WHERE btrim(l.c8) = $1
+       AND ap.c2='X' AND ap.c3='A' AND btrim(ap.c4::text)='20'
+       AND btrim(ap.c1::text)=ap.sucursal::text
+       AND btrim(coalesce(ap.c43::text,'')) <> 'C'
+       AND ap.c68::date >= current_date - 365
+     ORDER BY fecha DESC`, [SKU]);
+
   await c.end();
 })().catch((e) => { console.error(e); process.exit(1); });
