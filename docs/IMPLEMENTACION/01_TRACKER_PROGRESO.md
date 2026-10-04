@@ -6456,6 +6456,20 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
   `GESTIONAR` sin `VER` declarado en `DEUDA` de `landing-guards.spec.ts`. Vitest core+dashboard
   **120/120**, `tsc --noEmit` 0 errores; **`nx build view` NO corrido** (OOM en la máquina).
   ⚠️ **El permiso sigue sin repartir a ningún rol**: sólo lo ven `superadmin`/`admin` por nombre.
+- [ ] 🧪 **TP.13** — 2026-10-03: **Tesorería entra a Obligaciones, por persona y con constancia.**
+  Mig `20261003200000_tp13_obligaciones_tesoreria.js`: `maria_gutierrez` (Jefe de Tesorería) recibe
+  `COMPRAS_OBLIGACIONES_VER` + `COMPRAS_PLAZOS_AUTORIZAR`; `julio_torres` (arma el expediente de pagos
+  y hace el programa cuando ella no está) recibe sólo `VER`. Ninguno recibe `GESTIONAR` ni autoriza el
+  calendario. Asienta `permissions_changed` en `identity.user_events` (pestaña Historia) y 4 candados
+  sobre el EFECTO. Consultas de los candados probadas contra prod en `READ ONLY` (casos conocidos:
+  Gerardo por rol, Guillermo por excepción); **los INSERT no se ejecutaron** (usuario sólo lectura).
+  Falta: aplicar en prod + re-login de los dos. Pregunta abierta: ¿Julio también plazos?
+- [ ] ⬜ **TP.14** — **Pirámide de accesos: cada quien ve sólo su lugar.** Medido: Obligaciones hoy
+  **no filtra por lugar** (sin `ScopeService`). Propuesta y revisión de 143 personas / 41 puestos en
+  [`FASE_TP` §TP.13+TP.14](FASES/FASE_TP_CALENDARIO_PAGOS.md) + maqueta
+  [`prototipos/piramide-accesos-obligaciones.html`](FASES/prototipos/piramide-accesos-obligaciones.html).
+  Antes de construir: quitar `superadmin` a los 3 Gerentes de Zona, corregir el rol de Facturación,
+  asignar lugar a 13 personas y responder 4 preguntas abiertas.
 
 **Declarado (decisión explícita del usuario):** catálogo tipado de cajas de Caja General;
 cobertura de inventario por proveedor y programa de ingresos — fuera de alcance, la reunión
