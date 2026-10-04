@@ -35,7 +35,7 @@ import {
   SESSION_PRESETS,
   generateDevicePassword,
 } from '../../dashboard/admin-users/device-session';
-import { AdminService, EventoDePersona, OpcionCatalogo } from '../admin.service';
+import { AdminService, EventoDePersona, OpcionCatalogo, RutaCatalogo } from '../admin.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 // `[ZN.6]` La regla de qué zonas se pueden ofrecer vive aparte para poder probarla sin TestBed.
@@ -584,7 +584,7 @@ export class PersonaDetalleComponent implements OnChanges {
     Array<{ id: string; username: string; nombre: string | null; position_code: string | null; position_name: string | null; puestos_a_cargo: number }>
   >([]);
   private readonly branches = signal<Array<{ code: string; name: string }>>([]);
-  private readonly routes = signal<Array<{ id: string; name: string }>>([]);
+  private readonly routes = signal<RutaCatalogo[]>([]);
   private readonly zones = signal<Array<{ id: string; value: string; kind?: string | null; kind_motivo?: string | null }>>([]);
   /**
    * `[ZN.6]` Qué catálogos no se pudieron cargar. Los cinco `subscribe` de abajo se tragaban el
@@ -675,7 +675,13 @@ export class PersonaDetalleComponent implements OnChanges {
 
   readonly rutaOpts = computed(() => [
     { label: 'Ninguna', value: null as string | null },
-    ...this.routes().map((r) => ({ label: r.name, value: r.id as string | null })),
+    // [VK.8] Si la ruta está ligada a Kepler se nombra como la conoce el ERP: "RVMAB01 · GLORIA CALDERON (Kepler 08:20005)".
+    ...this.routes().map((r) => ({
+      label: r.erp_vendor_code
+        ? `${r.name} · ${r.erp_vendor_name ?? 'vendedor Kepler'} (Kepler ${r.erp_source_branch}:${r.erp_vendor_code})`
+        : r.name,
+      value: r.id as string | null,
+    })),
   ]);
 
   /**

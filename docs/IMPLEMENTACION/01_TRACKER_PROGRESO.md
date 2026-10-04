@@ -7158,6 +7158,27 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
     api+view. Sin migraciones ni permisos nuevos → **sin re-login**.
 
 ---
+## VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03 (en código)
+
+- [ ] 🔨 `[VK.8]` Mig `20261003200000`: las **9 vecinales** se nombran `<código Kepler> <EJECUTIVO>`
+  (decisión de Francisco: el código es fijo, el nombre cambia con el ejecutivo). Liga a Kepler las de
+  Morelia Madero (`07:2V003` Guillermo, `07:2V001` Joseph), Morelia Abastos (`08:20005` Gloria — es
+  Gloria Calderón en Kepler —, `08:2V005` Humberto, ruta NUEVA) y Zamora Centro (`05:3V001` Diana).
+  Medido: ficha correcta 90–100 % contra quién les vende. Cartera: 118 manuales → **836** clientes de
+  Kepler; **60** manuales se concilian con su par por nombre único (conservan id/GPS/historial), **58**
+  siguen manuales y se declaran en el log. Agenda L–S del titular sin pisar días ocupados.
+- [ ] 🔨 `[VK.8]` **El catálogo arrastra a los clientes al renombrar una ruta** (`catalogs.service`, misma
+  trx): el cliente se liga por TEXTO y renombrar sin esto vaciaba "Mi ruta" sin error.
+- [ ] 🔨 `[VK.8]` Mig `20261003200100`: `v_route_warehouse.route_key` sale del **código Kepler** si la
+  ruta está ligada → el arqueo RD/RV no parte su historia al cambiar el ejecutivo (0 arqueos rd/rv hoy) y
+  se deshace el choque `VECINAL1` (Madero vs Abastos).
+- [ ] 🔨 `[VK.8]` Personas: el selector de ruta muestra el vendedor Kepler (`GET /users/routes` +
+  `erp_vendor_name` de `kduv` de la misma sucursal).
+- Decisiones 2026-10-03: Gloria y Humberto con su nombre de Kepler ya corregido (`GLORIA ORTEGA CALDERON`,
+  `HUMBERTO PLACENCIA BRAVO`); Humberto es vecinal → sus días de "Ruta mayoreo 01" pasan a su ruta; Benjamín
+  fue sustituido por Diana → baja lógica de su agenda en Zamora.
+- ⚠️ Pendiente: personas en `/admin/users` (baja `mauricio_ibarra`, jefe de `francisco_vecinal`, puesto
+  `vendedor_vecinal`). **NO compilado en local** (regla del 2-oct); migraciones probadas en seco contra prod.
 ## VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código)
 
 - [ ] 🔨 `[VS.1]` `/vendor/search` abre en **los clientes de su ruta de hoy** (misma regla que "Mi ruta":
