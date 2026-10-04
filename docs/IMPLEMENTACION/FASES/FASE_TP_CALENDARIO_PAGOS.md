@@ -207,6 +207,99 @@ Compras/Presupuestos/Tesorería los sigue manejando fuera del sistema.
 **Pendiente**: aplicar migraciones a Railway + redeploy api+view + re-login de los roles con el
 permiso nuevo. Validación visual (no se pudo levantar `nx serve view` esta sesión).
 
+## TP.13 + TP.14 — Quién ve Obligaciones a proveedor (2026-10-01 → 2026-10-03)
+
+### Historia del pedido
+
+1. **2026-10-01.** Francisco pide que **María de la Paz Gutiérrez** (Jefe de Tesorería) tenga acceso
+   a las obligaciones con proveedores «que se tienen que ajustar». Se le pregunta qué es ajustar:
+   **cambiar el plazo pactado**. Alcance: **sólo a ella**, no a todo el perfil `tesoreria`.
+2. **2026-10-03.** Pide una **maqueta de pirámide de accesos**: cada quien ve sólo su lugar
+   (sucursal, zona o CEDIS), el CEDIS 00 lo ven quienes coordinan compras de las zonas, y Dirección
+   General y Comercial ven todo.
+3. Pide **revisar todos los puestos contra las personas y la necesidad real** de entrar al módulo.
+4. Agrega a **Julio César Torres** (Auxiliar de finanzas): arma, a pedido de Tesorería, el expediente
+   físico de lo que se va a pagar y lo entrega a **Caja General, que hace la dispersión**; y **cuando
+   no está su jefa, él hace el programa de pagos** → ve toda la red.
+5. Pide **dejarlo por migración y con constancia**, no a mano desde `/admin/personas`.
+
+### Lo medido en prod antes de decidir (2026-10-03, sólo lectura)
+
+- **Hoy Obligaciones NO filtra por lugar.** `SupplierPaymentObligationsController` y
+  `SupplierCreditTermsController` no usan `ScopeService`: quien tiene `COMPRAS_OBLIGACIONES_VER` ve
+  las 8 sucursales y el CEDIS. La pirámide es una propuesta, no el estado actual.
+- **María de la Paz y Julio no tenían ninguna excepción** y sólo entraban por
+  `FINANCE_PAYMENTS_GESTIONAR` (`anyPermissionGuard` de RE.32) → veían únicamente «Entregas».
+- **Las zonas de compras ya existen**: `commercial.warehouses.purchase_zone`
+  (mig `20260910120000`). **La Piedad** = 01 (hub), 02, 03, 04 · **Zamora** = 05, 06 (hub) ·
+  **Morelia** = 07, 08 (hub) · **Corporativo** = 00 CEDIS (hub). ⚠️ Canindo es de Zamora, no de Morelia.
+- Padrón: **143 personas activas en 41 puestos** (+13 cuentas sin puesto: kioscos, verificadores).
+
+### TP.13 — lo que hace la migración `20261003200000_tp13_obligaciones_tesoreria.js`
+
+| Persona | Puesto | Recibe | No recibe, a propósito |
+|---|---|---|---|
+| `maria_gutierrez` | Jefe de Tesorería | `COMPRAS_OBLIGACIONES_VER` + `COMPRAS_PLAZOS_AUTORIZAR` | `GESTIONAR` (capturar/cancelar: eso es de Compras) |
+| `julio_torres` | Auxiliar de finanzas | `COMPRAS_OBLIGACIONES_VER` | `PLAZOS` (pregunta abierta) y `GESTIONAR` |
+
+- **Por persona, no por rol:** `finanzas_operativo` lo comparten 6 personas y sólo Julio suple a
+  Tesorería; el plazo es negociación (RE.30) y no se le da al puesto de Tesorería para siempre.
+- **Constancia:** cada excepción lleva su motivo en `nota` y se asienta `permissions_changed` en
+  `identity.user_events` → aparece en la pestaña **Historia** de cada persona.
+- **4 candados:** las claves existen · la persona existe, está activa y no es de plataforma · el
+  **efecto** (rol + adicionales + excepción) es exactamente el pedido, incluidos los tres «no» ·
+  los roles `tesoreria`/`finanzas_operativo` no ganaron nada.
+- Separación de funciones intacta: quien arma el programa **no lo autoriza**
+  (`FINANCE_PAYMENT_CALENDAR_AUTORIZAR` sigue en Gerencia Adm. y Financiera / Dirección), y
+  Tesorería **no registra** la deuda.
+
+### TP.14 — La pirámide propuesta (⬜ sin construir)
+
+| Nivel | Ve | Puestos (personas) |
+|---|---|---|
+| N1 | **Toda la red** | Dirección General (2) · Coordinación de Compras (2) · Comprador (1) · Jefe de Tesorería (1) · Gerencia Adm. y Financiera (2) · Presupuestos y Compras Corporativas (1, lectura) · Coordinación de Auditoría y Prevención (1, lectura) · **Julio Torres** (excepción, lectura) |
+| N2 | **Su zona + CEDIS 00** | Analista de Abastecimiento Comercial (1) |
+| N3 | **Su zona** | Analistas de Órdenes de Entrada = staff de compras de zona (4) · Gerencia de Zona (3, lectura) · Coordinador de Operaciones de Zona (1) |
+| N3 | **Sólo CEDIS 00** | Jefatura de CEDIS (1) · Auxiliar Administrativo de Logística (2) |
+| N4 | **Su sucursal** | Encargado(a) de Sucursal (6) · Auxiliar de Encargado (5) |
+| N5 | **Su sucursal** | Almacenista, que hoy hace la recepción (5) |
+| — | **Sólo pestaña Entregas** | Los otros 3 auxiliares de Finanzas |
+| — | **Sin acceso (101)** | Facturación · Contabilidad · Crédito y Cobranza · Caja General (dispersa con el expediente físico y la instrucción autorizada, no necesita la lista) · Supervisor de inventarios · Auxiliares de Prevención · mostrador · ventas · telemarketing · mercadotecnia · RH · Sistemas · cuentas de equipo |
+
+Reglas: **sin lugar asignado no se ve nada** (fail-closed, ADR-050); **ver ≠ ajustar** (el lugar
+decide qué renglones, el permiso qué acción); las excepciones van **por persona y con motivo**.
+Mecanismo: `ScopeService` + `identity.role_scopes`/`user_scopes` ya existen (`encargado_tienda`,
+`auxiliar_tienda` y `almacenista` ya traen `warehouse:own`); lo nuevo es la regla «zona + 00»,
+que se resuelve con `purchase_zone`/`is_purchase_hub`.
+
+### Hallazgos del padrón que hay que corregir ANTES de activar TP.14
+
+1. **Los 3 Gerentes de Zona tienen rol principal `superadmin`** (`aaron_alejo`, `ivette_cruz`,
+   `ramon_rodriguez`): `ScopeService` los resuelve `all` en todo y ningún filtro los alcanza.
+2. **7 personas de sucursal ven hoy toda la red**: los 6 encargados (`encargado_tienda` ya trae
+   `COMPRAS_OBLIGACIONES_VER`) y `monica_mejia` (auxiliar con rol de encargado).
+3. **`estefania_mendez` (Facturación, mayoreo) tiene rol `auxiliar_compras`** → ve y captura
+   obligaciones sin necesitarlo.
+4. **`superadmin` como rol adicional** en `luis_hernandez` (almacenista), `claudia_mata`
+   (supervisora de inventarios) y `jesus_carrillo` (35 roles adicionales). Confirmar si es intencional.
+5. **13 personas que necesitan acceso no tienen lugar**: 4 de Compras sin zona (`gerardo_ramirez`,
+   `rafael_quirino`, `mario_ventura`, `juan_elizarraras`), 6 que parecen de CEDIS sin el 00
+   (`alberto_moreno`, `don_antonio`, `leonardo_cazares`, `brian_zavala`, `luis_navarro`,
+   `luis_hernandez`), `yadira_campero` sin sucursal, y 2 gerentes de zona con zona de ventas pero no
+   de compras.
+6. **Puestos pedidos que no existen**: «Dirección Comercial» (la cubre `guillermo_lopez` desde
+   Dirección General) y «Recepción de mercancía» (la hacen los almacenistas).
+
+### Preguntas abiertas
+
+- ¿Julio también cambia **plazos** cuando suple a Tesorería? Si sí, una línea más en TP.13.
+- Coordinación de Compras: ¿toda la red (propuesta) o una zona cada una + CEDIS?
+- Analistas de Órdenes de Entrada: ¿una zona cada uno (propuesta) o todas?
+- Almacenistas «de oficinas»: ¿son de CEDIS? Si sí, se les asigna el 00.
+
+Maqueta navegable (simulador por puesto y lugar + matriz):
+[`prototipos/piramide-accesos-obligaciones.html`](prototipos/piramide-accesos-obligaciones.html).
+
 ## Deferred / declarado (no inventado)
 
 - **Ejecución real vs Caja General**: `cash_register_text` es texto libre hoy, no una cuenta de caja
