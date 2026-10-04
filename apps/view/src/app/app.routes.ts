@@ -964,10 +964,11 @@ export const routes: Routes = [
         data: { catalogoApartado: 'incidencias' }
       },
       {
+        // [CAT-COSTO.4] Costos deja de ser cascarón: Etapa 1, costo estándar entre sucursales.
+        // Permiso del costo estándar, no el del catálogo: el costo es dato sensible (decisión de Compras).
         path: 'catalogo/costos',
-        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
-        data: { catalogoApartado: 'costos' }
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-costos.component').then(m => m.ComprasCatalogoCostosComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_COSTO_ESTANDAR_VER)]
       },
       {
         // Las listas recibidas de proveedores viven separadas del flujo que aplica cambios al ERP.

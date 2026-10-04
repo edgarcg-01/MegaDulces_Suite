@@ -6,7 +6,9 @@ import {
   FilaCostoEstandar,
   ResumenCostoEstandar,
   VeredictoCostoEstandar,
+  RespuestaEntreSucursales,
 } from './standard-cost.service';
+import { VeredictoEntreSucursales } from './entre-sucursales';
 
 /**
  * `[CE.3]` — Costo estándar por producto.
@@ -71,6 +73,37 @@ export class StandardCostController {
       incluir_sin_operacion: incluirSinOperacion === 'true',
       incluir_oficinas: incluirOficinas === 'true',
       solo_bajo_costo: soloBajoCosto === 'true',
+      limite: Number(limite) || undefined,
+      desplazamiento: Number(desplazamiento) || undefined,
+    });
+  }
+
+  /** ⚠️ Va ANTES de `:sku`: si no, `entre-sucursales` se leería como un SKU. */
+  @Get('entre-sucursales')
+  @RequirePermissions(Permission.COMPRAS_COSTO_ESTANDAR_VER)
+  @ApiOperation({
+    summary: 'Productos con costo estándar distinto según la sucursal',
+    description:
+      'Se compara contra el costo de la mayoría de las plazas, con tolerancia de 0.5 %. ' +
+      '`sin_mayoria` y `unidad_distinta` se declaran en vez de compararse. La plaza 00 no entra.',
+  })
+  entreSucursales(
+    @Query('q') q?: string,
+    @Query('proveedor_id') proveedorId?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('veredicto') veredicto?: VeredictoEntreSucursales,
+    @Query('solo_diferencias') soloDiferencias?: string,
+    @Query('solo_con_venta') soloConVenta?: string,
+    @Query('limite') limite?: string,
+    @Query('desplazamiento') desplazamiento?: string,
+  ): Promise<RespuestaEntreSucursales> {
+    return this.service.entreSucursales({
+      q,
+      proveedor_id: proveedorId?.trim() || undefined,
+      sucursal: sucursal?.trim() || undefined,
+      veredicto: veredicto?.trim() as VeredictoEntreSucursales | undefined,
+      solo_diferencias: soloDiferencias === undefined ? true : soloDiferencias !== 'false',
+      solo_con_venta: soloConVenta === 'true',
       limite: Number(limite) || undefined,
       desplazamiento: Number(desplazamiento) || undefined,
     });

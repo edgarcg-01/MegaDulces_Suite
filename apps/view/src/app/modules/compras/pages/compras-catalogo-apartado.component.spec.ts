@@ -19,15 +19,18 @@ function montar(apartado: string) {
 describe('ComprasCatalogoApartadoComponent', () => {
   afterEach(() => TestBed.resetTestingModule());
 
+  it('pinta el apartado que le pide la ruta', () => {
+    const el = montar('listas-precios');
+    expect(el.querySelector('h1')?.textContent?.trim()).toBe('Listas de precios de proveedores');
+  });
+
   /**
-   * `[CAT-COSTO.0]` Costos ya es su propio tab: su cascarón se titula «Costos», no
-   * «Costos y precios», y no manda a la pantalla de Precios (que ahora es el tab vecino).
+   * `[CAT-COSTO.4]` Costos ya NO es un cascarón: tiene pantalla propia. Si alguna ruta volviera
+   * a mandar `costos` aquí, caería al resumen en vez de pintar un «contenido por desarrollar».
    */
-  it('el apartado de costos se titula Costos y no enlaza a Precios', () => {
+  it('costos ya no es un apartado: el discriminador cae al resumen', () => {
     const el = montar('costos');
-    expect(el.querySelector('h1')?.textContent?.trim()).toBe('Costos');
-    expect(el.textContent).not.toContain('Costos y precios');
-    expect(el.querySelector('a[href*="/compras/catalogo/precios"]')).toBeNull();
+    expect(el.querySelector('h1')?.textContent?.trim()).toBe('Centro de control del catálogo');
   });
 
   it('un discriminador desconocido cae al resumen en vez de reventar', () => {

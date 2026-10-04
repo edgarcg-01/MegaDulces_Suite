@@ -164,4 +164,68 @@ export class CostoEstandarService {
   porSku(sku: string): Observable<FilaCostoEstandar[]> {
     return this.http.get<FilaCostoEstandar[]>(`${this.base}/${encodeURIComponent(sku)}`);
   }
+
+  /**
+   * `[CAT-COSTO.4]` Productos con costo estándar distinto según la sucursal. Quién se sale y
+   * contra qué lo decide el servidor; la pantalla sólo pinta.
+   */
+  entreSucursales(q: ConsultaEntreSucursales = {}): Observable<RespuestaEntreSucursales> {
+    let p = new HttpParams();
+    if (q.q?.trim()) p = p.set('q', q.q.trim());
+    if (q.proveedor_id) p = p.set('proveedor_id', q.proveedor_id);
+    if (q.sucursal) p = p.set('sucursal', q.sucursal);
+    if (q.veredicto) p = p.set('veredicto', q.veredicto);
+    if (q.solo_diferencias === false) p = p.set('solo_diferencias', 'false');
+    if (q.solo_con_venta) p = p.set('solo_con_venta', 'true');
+    if (q.limite) p = p.set('limite', String(q.limite));
+    if (q.desplazamiento) p = p.set('desplazamiento', String(q.desplazamiento));
+    return this.http.get<RespuestaEntreSucursales>(`${this.base}/entre-sucursales`, { params: p });
+  }
+}
+
+export type VeredictoEntreSucursales = 'distinto' | 'sin_mayoria' | 'unidad_distinta' | 'igual' | 'una_plaza';
+
+export interface CeldaEntreSucursales {
+  sucursal: string;
+  costo: number;
+  unidad: string | null;
+  vende: boolean;
+  comparada: boolean;
+  /** `null` cuando no hay mayoría contra qué medir. */
+  fuera: boolean | null;
+  desviacion_pct: number | null;
+}
+
+export interface FilaEntreSucursales {
+  sku: string;
+  nombre: string | null;
+  proveedor_id: string | null;
+  proveedor: string | null;
+  venta_30d: number;
+  veredicto: VeredictoEntreSucursales;
+  mayoria: number | null;
+  diferencia_pct: number | null;
+  sucursales_fuera: string[];
+  celdas: CeldaEntreSucursales[];
+}
+
+export interface RespuestaEntreSucursales {
+  sucursales: { codigo: string; nombre: string | null }[];
+  resumen: Record<VeredictoEntreSucursales, number>;
+  proveedores: { id: string; nombre: string; productos: number }[];
+  tolerancia_pct: number;
+  actividad_al: string | null;
+  total: number;
+  filas: FilaEntreSucursales[];
+}
+
+export interface ConsultaEntreSucursales {
+  q?: string;
+  proveedor_id?: string;
+  sucursal?: string;
+  veredicto?: VeredictoEntreSucursales | '';
+  solo_diferencias?: boolean;
+  solo_con_venta?: boolean;
+  limite?: number;
+  desplazamiento?: number;
 }

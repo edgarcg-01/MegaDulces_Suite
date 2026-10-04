@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Route } from '@angular/router';
 import { CATALOGO_TABS } from './catalogo-tabs';
+import { Permission } from '../../core/constants/permissions';
 import { routes } from '../../app.routes';
 
 /**
@@ -17,7 +18,7 @@ const TODAS: Route[] = (function aplanar(rs: Route[] = []): Route[] {
   return rs.flatMap((r) => [r, ...aplanar(r.children)]);
 })(routes);
 
-const APARTADOS = ['resumen', 'solicitudes', 'incidencias', 'costos', 'listas-precios'] as const;
+const APARTADOS = ['resumen', 'solicitudes', 'incidencias', 'listas-precios'] as const;
 
 describe('CATALOGO_TABS', () => {
   it('expone todos los apartados del centro de catálogo en orden operativo', () => {
@@ -49,6 +50,25 @@ describe('CATALOGO_TABS', () => {
     expect(costos?.alsoActiveOn ?? []).not.toContain('/compras/catalogo/precios');
     expect(precios?.alsoActiveOn ?? []).not.toContain('/compras/catalogo/costos');
     expect(CATALOGO_TABS.some((tab) => tab.label === 'Costos y precios')).toBe(false);
+  });
+
+  /**
+   * `[CAT-COSTO.4]` Costos es una pantalla real y su tab pide el MISMO permiso que su ruta: el
+   * del costo estándar. `[negativa]` Si el tab pidiera el del catálogo, quien no ve costos vería
+   * un tab que rebota al abrirlo.
+   */
+  it('Costos: tab y ruta piden COMPRAS_COSTO_ESTANDAR_VER y la ruta ya no es cascarón', () => {
+    const tab = CATALOGO_TABS.find((t) => t.label === 'Costos');
+    expect(tab?.permission).toBe(Permission.COMPRAS_COSTO_ESTANDAR_VER);
+
+    const ruta = TODAS.find((r) => r.path === 'catalogo/costos');
+    expect(ruta?.data?.['catalogoApartado']).toBeUndefined();
+
+    const fuente = readFileSync(join(__dirname, '../../app.routes.ts'), 'utf8');
+    const i = fuente.indexOf(`path: 'catalogo/costos'`);
+    const bloque = fuente.slice(i, fuente.indexOf('}', i));
+    expect(bloque).toContain('ComprasCatalogoCostosComponent');
+    expect(bloque).toContain('permissionGuard(Permission.COMPRAS_COSTO_ESTANDAR_VER)');
   });
 
   it('cada tab apunta a una ruta que existe en el árbol real', () => {

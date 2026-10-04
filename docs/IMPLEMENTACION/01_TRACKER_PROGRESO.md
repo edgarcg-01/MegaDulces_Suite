@@ -7233,6 +7233,32 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
   `compras-catalogo-apartado.component.spec.ts`; suite de Compras 227 verdes. Pendiente: el contenido
   real de Costos y la validación visual.
 
+- [x] **[CAT-COSTO.1–3]** 🧪 **Verificación previa contra prod, lista para correr** (2026-10-04) —
+  `database/scripts/verify-cat-costo-estandar.js`, sólo lectura (`PROD_RO_URL`, transacción
+  read-only). Mide lo que el código no puede contestar: costo estándar distinto entre plazas y con
+  unidad base distinta (A); si `kdm2.c12` de `XA2001` es unitario, si trae IVA/descuento, si su unidad
+  se resuelve en la escalera, a qué plaza se atribuye y si esa plaza tiene ficha estándar (B); el
+  historial del estándar derivado de la venta (`c62/c58`) y su validación contra el `c77` de hoy (C);
+  la negociación lista → descuentos → neto de `kdpv_prov_prod` y el «95 % apegado» que reporta
+  Compras (D). **Sin correr: falta la credencial de lectura a `pg-prod`.**
+
+- [x] **[CAT-COSTO.4]** 🧪 **Costos · Etapa 1: costo estándar entre sucursales** (2026-10-04) —
+  `/compras/catalogo/costos` deja de ser cascarón. Contexto de Compras: el costo estándar es la
+  negociación con el proveedor (lista − descuentos) y de él sale el precio; tiene que ser el mismo en
+  todas las plazas, meta cero. Endpoint `GET commercial/standard-cost/entre-sucursales` (declarado
+  antes de `:sku`) lee la ficha pura (`v_kepler_unit_ladder.costo1` = `kdii.c77`, el mismo valor que
+  `v_kepler_standard_cost.costo_estandar` sin arrastrar origen/actividad) + venta 30 d de
+  `mv_kepler_standard_cost_activity`; la REGLA vive en `entre-sucursales.ts` (función pura): referencia
+  = la **mayoría** (Kepler no guarda cuándo se editó la ficha; un promedio inventaría un costo que nadie
+  tiene), tolerancia 0.5 %, y se **declara** en vez de comparar `sin_mayoria` (empate), `unidad_distinta`
+  (daría ×20 falso) y `una_plaza`. Plaza 00 fuera. Pestaña y ruta piden `COMPRAS_COSTO_ESTANDAR_VER`
+  (decisión de Compras: el costo es sensible). Specs: regla 9/9 (con 2 negativas) + pantalla 5/5 (con
+  negativa de error) + tabs; suite de Compras+guards 267 verdes; compuertas tokens/motion/primeng/
+  plantillas/tablas/estilos/teclado/búsqueda/procedencia en verde. ⚠️ La compuerta de PrimeNG atrapó 3
+  `styleClass` (retirados en v22) que yo había metido. **NO MEDIDO: el tiempo de carga (gate < 1 s) ni
+  las cifras reales** — sin lectura a prod. «Último cambio» por sucursal llega con la Etapa 2 (historial
+  derivado de la venta). Maqueta de las 4 etapas aprobada en el lienzo de diseño.
+
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
   llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran

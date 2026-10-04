@@ -39,7 +39,9 @@ export const CATALOGO_TABS: PageTab[] = [
     label: 'Costos',
     route: '/compras/catalogo/costos',
     icon: 'pi pi-wallet',
-    permission: Permission.COMMERCIAL_PRODUCTS_VER,
+    // [CAT-COSTO.4] El costo es dato sensible: el tab sólo lo ve quien tiene el permiso del
+    // costo estándar, el mismo que guarda la ruta. Un tab visible que rebota es peor que ninguno.
+    permission: Permission.COMPRAS_COSTO_ESTANDAR_VER,
   },
   {
     label: 'Precios',

@@ -8,8 +8,8 @@ type CatalogoApartado =
   | 'resumen'
   | 'solicitudes'
   | 'incidencias'
-  | 'costos'
   | 'listas-precios';
+// [CAT-COSTO.4] `costos` salió de aquí: ya tiene pantalla propia (compras-catalogo-costos).
 
 interface ApartadoConfig {
   title: string;
@@ -57,20 +57,6 @@ const APARTADOS: Record<CatalogoApartado, ApartadoConfig> = {
       label: 'Revisar códigos repetidos',
       route: '/compras/catalogo/codigos',
     },
-  },
-  costos: {
-    title: 'Costos',
-    description:
-      'Este espacio reunirá el costo de cada producto, sus cambios y su historial sin reemplazar a Kepler como fuente de verdad.',
-    icon: 'pi pi-wallet',
-    next: [
-      'Costo anterior, costo propuesto y variación',
-      'Impacto en margen y fecha de vigencia',
-      'Validación del cambio observado en el ERP',
-    ],
-    // Sin enlace: Precios ya es su propio tab, y la pantalla de costo estándar
-    // (/compras/costo-estandar) pide otro permiso, así que un enlace ahí rebotaría a quien sólo
-    // tiene el del catálogo.
   },
   'listas-precios': {
     title: 'Listas de precios de proveedores',

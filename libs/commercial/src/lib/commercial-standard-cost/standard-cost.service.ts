@@ -1,6 +1,60 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, applySmartSearch } from '@megadulces/platform-core';
+import {
+  CeldaSucursal,
+  ORDEN_VEREDICTO_SUCURSALES,
+  ResultadoEntreSucursales,
+  TOLERANCIA_ENTRE_SUCURSALES,
+  VeredictoEntreSucursales,
+  clasificarEntreSucursales,
+} from './entre-sucursales';
+
+export interface FiltrosEntreSucursales {
+  /** SKU o nombre. */
+  q?: string;
+  proveedor_id?: string;
+  /** Sólo los productos donde ESTA sucursal se sale de la mayoría. */
+  sucursal?: string;
+  veredicto?: VeredictoEntreSucursales;
+  /** Por defecto `true`: esconde los productos que ya están iguales en todas las plazas. */
+  solo_diferencias?: boolean;
+  /** Comparar sólo las plazas que vendieron en 30 días (la ficha existe en plazas que no lo manejan). */
+  solo_con_venta?: boolean;
+  limite?: number;
+  desplazamiento?: number;
+}
+
+interface FilaCrudaEntreSucursales {
+  sku: string;
+  nombre: string | null;
+  proveedor_id: string | null;
+  proveedor: string | null;
+  venta_30d: string | number;
+  celdas: CeldaSucursal[] | string;
+}
+
+export interface FilaEntreSucursales extends ResultadoEntreSucursales {
+  sku: string;
+  nombre: string | null;
+  proveedor_id: string | null;
+  proveedor: string | null;
+  /** Venta bruta 30 d en todas las plazas: sirve para ordenar lo que más pesa primero. */
+  venta_30d: number;
+}
+
+export interface RespuestaEntreSucursales {
+  /** Plazas operativas con su nombre (00 = Oficinas queda fuera). */
+  sucursales: { codigo: string; nombre: string | null }[];
+  /** Reparto del universo (texto + proveedor), sin veredicto ni sucursal: los chips lo usan. */
+  resumen: Record<VeredictoEntreSucursales, number>;
+  proveedores: { id: string; nombre: string; productos: number }[];
+  tolerancia_pct: number;
+  /** Hasta qué día llega la venta de 30 d. NULL = la matvista nunca se refrescó. */
+  actividad_al: string | null;
+  total: number;
+  filas: FilaEntreSucursales[];
+}
 
 /**
  * `[CE.2]` — **El costo estándar de Kepler, producto por producto.**
@@ -440,6 +494,137 @@ export class StandardCostService {
         .select(trx.raw(COLUMNAS))
         .orderBy('sucursal');
       return filas as unknown as FilaCostoEstandar[];
+    });
+  }
+
+  /**
+   * `[CAT-COSTO.4]` **El mismo producto con costo estándar distinto según la sucursal.**
+   *
+   * ── Por qué lee la escalera y no `v_kepler_standard_cost` ────────────────────────────────────
+   * El valor es el mismo (`costo_estandar` de esa vista ES `costo1` de la escalera, `kdii.c77`),
+   * pero aquella arrastra el origen del costo, la actividad y el cuadre del precio para cada fila:
+   * trabajo que esta pregunta no usa. Se lee la ficha pura y se le pega sólo la venta de 30 días.
+   *
+   * ── Qué se decide aquí y qué no ──────────────────────────────────────────────────────────────
+   * La consulta sólo junta las fichas de cada SKU; **quién se sale lo decide
+   * `clasificarEntreSucursales()`**, que se prueba sin base. El tablero (`resumen`) mira el mismo
+   * universo que la tabla salvo el veredicto y la sucursal, igual que el tablero de `[CE.9]`: los
+   * chips SON el selector y tienen que seguir mostrando el reparto completo.
+   *
+   * ⚠️ La plaza **00 es OFICINAS** y no entra: su ficha no pone precio a nadie.
+   */
+  async entreSucursales(f: FiltrosEntreSucursales = {}): Promise<RespuestaEntreSucursales> {
+    const limite = Math.min(Math.max(Number(f.limite) || 100, 1), 500);
+    const desplazamiento = Math.max(Number(f.desplazamiento) || 0, 0);
+    const soloDiferencias = f.solo_diferencias ?? true;
+
+    return this.tk.run(async (trx) => {
+      const qb = trx
+        .from(
+          trx.raw(`(
+            SELECT f.sku,
+                   max(cp.nombre)                AS nombre,
+                   max(cp.supplier_id::text)     AS proveedor_id,
+                   max(sup.name)                 AS proveedor,
+                   COALESCE(sum(a.venta_bruta), 0)::numeric AS venta_30d,
+                   jsonb_agg(jsonb_build_object(
+                     'sucursal', f.sucursal,
+                     'costo',    f.costo,
+                     'unidad',   f.unidad,
+                     'vende',    COALESCE(a.unidades_base, 0) > 0
+                   ) ORDER BY f.sucursal)        AS celdas
+              FROM (
+                SELECT DISTINCT ON (l.sucursal, l.sku)
+                       l.sucursal, l.sku, l.u1_label AS unidad, NULLIF(l.costo1, 0) AS costo
+                  FROM analytics.v_kepler_unit_ladder l
+                 WHERE l.sucursal <> '00'
+                 ORDER BY l.sucursal, l.sku
+              ) f
+              LEFT JOIN analytics.mv_kepler_standard_cost_activity a
+                     ON btrim(a.sucursal::text) = f.sucursal AND a.sku = f.sku
+              LEFT JOIN catalog.products cp
+                     ON cp.sku = f.sku AND cp.deleted_at IS NULL AND cp.tenant_id = current_tenant_id()
+              LEFT JOIN catalog.suppliers sup
+                     ON sup.id = cp.supplier_id AND sup.tenant_id = cp.tenant_id
+             WHERE f.costo IS NOT NULL
+             GROUP BY f.sku
+            HAVING count(*) >= 2
+          ) AS x`),
+        )
+        .select('x.sku', 'x.nombre', 'x.proveedor_id', 'x.proveedor', 'x.venta_30d', 'x.celdas');
+      applySmartSearch(qb, f.q, { columns: ['x.sku', 'x.nombre'] });
+      if (f.proveedor_id) qb.where('x.proveedor_id', f.proveedor_id);
+
+      const [crudo, actividad, sucs] = await Promise.all([
+        qb as unknown as Promise<FilaCrudaEntreSucursales[]>,
+        trx.from('analytics.mv_kepler_standard_cost_activity').max({ al: 'ventana_hasta' }).first(),
+        trx
+          .from('commercial.warehouses')
+          .whereRaw('tenant_id = current_tenant_id()')
+          .whereNotNull('kepler_code')
+          .whereNot('kepler_code', '00')
+          .whereNull('deleted_at')
+          .select('kepler_code')
+          .min({ nombre: 'name' })
+          .groupBy('kepler_code')
+          .orderBy('kepler_code'),
+      ]);
+
+      const filas: FilaEntreSucursales[] = crudo.map((r) => {
+        const celdas = (typeof r.celdas === 'string' ? JSON.parse(r.celdas) : r.celdas) as CeldaSucursal[];
+        const c = clasificarEntreSucursales(
+          celdas.map((x) => ({ ...x, costo: Number(x.costo) })),
+          { soloConVenta: f.solo_con_venta },
+        );
+        return {
+          sku: r.sku,
+          nombre: r.nombre,
+          proveedor_id: r.proveedor_id,
+          proveedor: r.proveedor,
+          venta_30d: Number(r.venta_30d) || 0,
+          ...c,
+        };
+      });
+
+      // El tablero: mismo universo (texto + proveedor), sin veredicto ni sucursal.
+      const resumen = Object.fromEntries(ORDEN_VEREDICTO_SUCURSALES.map((v) => [v, 0])) as Record<
+        VeredictoEntreSucursales,
+        number
+      >;
+      for (const x of filas) resumen[x.veredicto]++;
+
+      const proveedores = new Map<string, { id: string; nombre: string; productos: number }>();
+      for (const x of filas) {
+        if (!x.proveedor_id) continue;
+        const p = proveedores.get(x.proveedor_id) ?? { id: x.proveedor_id, nombre: x.proveedor ?? x.proveedor_id, productos: 0 };
+        p.productos++;
+        proveedores.set(x.proveedor_id, p);
+      }
+
+      const DIFERENCIAS: VeredictoEntreSucursales[] = ['distinto', 'sin_mayoria', 'unidad_distinta'];
+      const visibles = filas
+        .filter((x) => (f.veredicto ? x.veredicto === f.veredicto : !soloDiferencias || DIFERENCIAS.includes(x.veredicto)))
+        .filter((x) => !f.sucursal || x.sucursales_fuera.includes(f.sucursal))
+        .sort(
+          (a, b) =>
+            ORDEN_VEREDICTO_SUCURSALES.indexOf(a.veredicto) - ORDEN_VEREDICTO_SUCURSALES.indexOf(b.veredicto) ||
+            b.venta_30d - a.venta_30d ||
+            (b.diferencia_pct ?? 0) - (a.diferencia_pct ?? 0) ||
+            a.sku.localeCompare(b.sku),
+        );
+
+      return {
+        sucursales: (sucs as { kepler_code: string; nombre: string | null }[]).map((s) => ({
+          codigo: s.kepler_code,
+          nombre: s.nombre,
+        })),
+        resumen,
+        proveedores: [...proveedores.values()].sort((a, b) => a.nombre.localeCompare(b.nombre)),
+        tolerancia_pct: TOLERANCIA_ENTRE_SUCURSALES * 100,
+        actividad_al: (actividad as { al: string | null } | undefined)?.al ?? null,
+        total: visibles.length,
+        filas: visibles.slice(desplazamiento, desplazamiento + limite),
+      };
     });
   }
 
