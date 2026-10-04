@@ -7233,6 +7233,17 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
     api+view. Sin migraciones ni permisos nuevos → **sin re-login**.
 
 ---
+## VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083
+
+- [ ] 🔨 `[VTK.1]` `QuotePricingService.ladders()`: escalera de Kepler en bloque (misma lógica que `ladder`, que ahora la llama). Equivalencia contra la lógica vieja en prod: suc 04 400/400 (23.3 s → 0.22 s), suc 07 300/300.
+- [ ] 🔨 `[VTK.2]` El pedido se cobra con el motor de cotizaciones (`addLine` nueva y fusión, `replaceLines`, `updateLine` ahora re-tarifica). Total = Kepler (con IVA), subtotal hacia atrás. Mig `20261004120000` `order_lines.erp_gross_total` (recalcOrderTotals lo respeta: sin perder centavos). Sin mínimo de compra con el motor; si no puede, cálculo anterior.
+- [ ] 🔨 `[VTK.3]` Catálogo con almacén: `rungs` (unidad, factor, precio de lista y mayoreo por unidad) de la escalera de la sucursal, de menor a mayor; la pantalla muestra el precio de Kepler por unidad (PAQ de 42029 $131.99, antes $170.10) y el mayoreo de esa unidad. Aviso de mayoreo del carrito contra la lista de la MISMA unidad.
+- [ ] 🔨 `[VTK.4]` Unidad por defecto = la más chica.
+- [ ] 🔨 `[VTK.5]` +/− instantáneo: el primer toque ya no espera al servidor ni bloquea el botón; los toques durante la creación se acumulan y se mandan al confirmarla.
+- [ ] 🔨 `[VTK.6]` Diseño A (maquetas aprobadas): avisos en una tira de una línea (pendiente, sugerido, fecha de entrega, existencia), buscador fijo, fila compacta con las unidades junto al precio.
+- Verificado con los SKUs de prueba (suc 04): 42029 PZA→PAQ(10)→CJA(140) · 70001 PAQ→CJA(20) · 17083 KG→BTO(20) · 57009 CUB · 17063 KG; sin promociones de Kepler vigentes para ellos.
+- ⚠️ **NO compilado en local** (regla del 2-oct); sin validación visual. Deploy: **migración antes que el código**. Pendiente declarado en ADR-083: free_goods, descuento de cliente, reserva de inventario y bot de WhatsApp con el precio viejo, `tax_rate = 0` en varios productos.
+
 ## VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03 (en código)
 
 - [ ] 🔨 `[VK.8]` Mig `20261003200000`: las **9 vecinales** se nombran `<código Kepler> <EJECUTIVO>`

@@ -2557,3 +2557,23 @@ Plan, capas y sprints en [`FASE_MS_MESA_DE_SERVICIO.md`](FASES/FASE_MS_MESA_DE_S
 **Riesgo declarado, no medido:** si Kepler fecha el pago (`c9`) un día distinto al del SPEI, casi nada pasará solo — no es un error (cae a «Con diferencias»), pero se pierde el beneficio. Medirlo en prod es el primer paso después del despliegue.
 
 **Hereda:** ADR-016 (el motor decide de forma determinista; el LLM sólo lee el papel, nunca decide) · ADR-040 (read-only sobre el ERP) · ADR-056 (lo no medido se declara) · ADR-059 (cada número se arbitra con evidencia del mismo ERP).
+
+---
+
+## ADR-083 — La venta en firme del vendedor se cobra con el MISMO motor de precios que las cotizaciones
+
+**Fecha:** 2026-10-04 · **Estado:** ⏳ propuesto · **Fase:** VTK (`/vendor/take-order`)
+
+**Contexto.** Medido en prod (solo lectura, sucursal 04): la toma de pedido calculaba el precio de una unidad mayor como *precio de la pieza × factor* y sólo bajaba por los escalones de volumen de `product_volume_tiers`. Kepler tiene un precio PROPIO por peldaño: 1 paquete de 42029 (KINDER DELICE) cuesta **$131.99** en Kepler y la app cobraba **$170.10** (+29%); 1 caja de 70001, $1,586.23 contra $1,720.00. Telemarketing ya cotizaba con el precio correcto (`QuotePricingService`: escalera de Kepler por sucursal y peldaño + volumen + promociones por cantidad), probado en producción.
+
+**Decisión (Francisco, 2026-10-04).** *"El origen de los precios es Kepler, utilizando los motores de descuento de volumen, de cliente y promociones; ya lo tocamos en cotizaciones, es sólo traernos el sistema que ya está probado."* El pedido del vendedor se tarifica con `QuotePricingService`; la operación es la misma, para clientes de menor volumen y con la venta en firme.
+
+1. **Una sola escalera.** `QuotePricingService.ladders(knex, branch, skus|null)` arma la escalera de muchos SKUs con la misma lógica que `ladder()` de un SKU (que ahora la llama). La usan el cobro del renglón y la lista del vendedor (`rungs` en el catálogo con almacén), así lo que se ve es lo que se cobra. Equivalencia verificada contra la lógica vieja: suc 04 400/400, suc 07 300/300.
+2. **IVA hacia atrás.** El precio del ERP ya trae impuestos; el pedido guarda `unit_price` sin impuesto. El **total** del renglón es el de Kepler y el subtotal se calcula hacia atrás con la tasa del producto. Sumarle el IVA encima lo cobraría dos veces.
+3. **El total no se re-deriva.** `order_lines.erp_gross_total` guarda el total de Kepler y `recalcOrderTotals` lo respeta: rehacerlo desde `unit_price` (4 decimales, por pieza) perdía centavos ($131.99 → $131.98).
+4. **Sin mínimo de compra** con el motor: Kepler vende desde 1.
+5. **Si el motor no puede** (almacén sin sucursal Kepler, SKU sin escalera, peldaño sin precio) se cae al cálculo anterior, no se deja el renglón sin precio.
+
+**Lo que se DECLARA y no se hace (ADR-056).** El regalo por cantidad (`free_goods`) no genera renglón hijo; el descuento del cliente (capa de documento, `kdud`) no se aplica todavía al pedido; la reserva de inventario y el bot de WhatsApp siguen con `resolvePriceForQty` y van a mostrar otro precio hasta migrarlos; varios productos traen `tax_rate = 0` en la lista de precios (42029, 70001, 57009), lo que no cambia el total cobrado pero sí el reparto subtotal/impuesto.
+
+**Hereda:** ADR-016 (el motor pone el número; el vendedor no inventa descuentos) · ADR-040 (read-only sobre el ERP) · ADR-055/057 (la unidad se resuelve contra la escalera de ese SKU, no por rótulo) · ADR-056 · ADR-059 (el precio se arbitra con evidencia del mismo ERP y la misma sucursal).
