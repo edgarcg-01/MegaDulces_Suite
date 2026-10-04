@@ -569,7 +569,7 @@ export class ComprasCatalogoComponent {
     const dias = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
     const fecha = new Date(iso).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
     const base = 'Precio de mostrador (lista BASE-MXN), uno solo para toda la red: no distingue sucursal. '
-      + 'El precio por sucursal vive en la pestana Precios distintos.';
+      + 'El precio por sucursal vive en la pestana Precios.';
     return dias > 7
       ? { viejo: true, titulo: 'Estos precios llevan ' + dias + ' dias sin actualizarse (ultimo: ' + fecha + ').', detalle: base }
       : { viejo: false, titulo: 'Precios actualizados el ' + fecha + '.', detalle: base };

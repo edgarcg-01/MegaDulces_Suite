@@ -27,21 +27,25 @@ export const CATALOGO_TABS: PageTab[] = [
     icon: 'pi pi-exclamation-triangle',
     permission: Permission.COMMERCIAL_PRODUCTS_VER,
   },
+  /**
+   * `[CAT-COSTO.0]` Costos y Precios son dos tabs, no uno.
+   *
+   * Eran un solo tab que abría Precios (la pantalla que ya funcionaba) y dejaba Costos
+   * detrás del mismo botón. Se separan porque el costo es el tema que se va a profundizar:
+   * lo negocia el comprador con el proveedor, mientras que el precio se fija en Kepler a
+   * partir de él. Cada uno abre SU pantalla, así que Precios no pierde nada al separarse.
+   */
   {
-    label: 'Costos y precios',
-    /**
-     * El tab abre la pantalla que YA FUNCIONA (diferencias de precio), no el cascarón.
-     *
-     * `Precios distintos` era un tab propio y el comprador lo usa hoy. Si el tab apuntara
-     * a `/catalogo/costos`, esa pantalla quedaría detrás de un «contenido por desarrollar»
-     * y de un clic extra: una función que sirve no se degrada para hacerle lugar a una que
-     * todavía no existe. Cuando `/catalogo/costos` tenga contenido se invierten `route` y
-     * `alsoActiveOn`, y nadie pierde nada en el camino.
-     */
+    label: 'Costos',
+    route: '/compras/catalogo/costos',
+    icon: 'pi pi-wallet',
+    permission: Permission.COMMERCIAL_PRODUCTS_VER,
+  },
+  {
+    label: 'Precios',
     route: '/compras/catalogo/precios',
     icon: 'pi pi-dollar',
     permission: Permission.COMMERCIAL_PRODUCTS_VER,
-    alsoActiveOn: ['/compras/catalogo/costos'],
   },
   {
     label: 'Listas de precios',

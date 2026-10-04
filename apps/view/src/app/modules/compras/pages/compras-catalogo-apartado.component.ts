@@ -59,19 +59,18 @@ const APARTADOS: Record<CatalogoApartado, ApartadoConfig> = {
     },
   },
   costos: {
-    title: 'Costos y precios',
+    title: 'Costos',
     description:
-      'Este espacio reunirá solicitudes, vigencias e historial sin reemplazar a Kepler como fuente de verdad.',
-    icon: 'pi pi-dollar',
+      'Este espacio reunirá el costo de cada producto, sus cambios y su historial sin reemplazar a Kepler como fuente de verdad.',
+    icon: 'pi pi-wallet',
     next: [
       'Costo anterior, costo propuesto y variación',
       'Impacto en margen y fecha de vigencia',
       'Validación del cambio observado en el ERP',
     ],
-    link: {
-      label: 'Ver precios distintos',
-      route: '/compras/catalogo/precios',
-    },
+    // Sin enlace: Precios ya es su propio tab, y la pantalla de costo estándar
+    // (/compras/costo-estandar) pide otro permiso, así que un enlace ahí rebotaría a quien sólo
+    // tiene el del catálogo.
   },
   'listas-precios': {
     title: 'Listas de precios de proveedores',

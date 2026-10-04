@@ -7222,6 +7222,17 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
   `view` (1,240 aprobadas; 3 pendientes), build de producción de las cuatro apps y los tres gates locales. Pendiente:
   validación visual light, dark y móvil antes de merge.
 
+- [x] **[CAT-COSTO.0]** 🧪 **Costos y Precios pasan a ser dos tabs** (2026-10-04) — el tab «Costos y
+  precios» abría Precios y escondía Costos detrás del mismo botón. Se separa porque el costo es el
+  tema que se va a profundizar: `Costos` → `/compras/catalogo/costos` (por ahora el cascarón, retitulado
+  «Costos») y `Precios` → `/compras/catalogo/precios` (sin cambios, la pantalla que ya se usa). Se
+  quita la liga `alsoActiveOn`, el cascarón deja de enlazar a Precios (ya es el tab vecino) y no enlaza
+  a `/compras/costo-estandar` porque esa pide otro permiso y rebotaría. El aviso de Productos que decía
+  «pestaña Precios distintos» ahora dice «pestaña Precios». Sin migraciones ni permisos. Specs:
+  `catalogo-tabs.spec.ts` (con prueba negativa: reintroducir la liga la pone en rojo) + nuevo
+  `compras-catalogo-apartado.component.spec.ts`; suite de Compras 227 verdes. Pendiente: el contenido
+  real de Costos y la validación visual.
+
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
   llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran

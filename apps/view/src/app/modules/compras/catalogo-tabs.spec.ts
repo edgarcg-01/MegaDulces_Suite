@@ -26,7 +26,8 @@ describe('CATALOGO_TABS', () => {
       ['Productos', '/compras/catalogo'],
       ['Solicitudes', '/compras/catalogo/solicitudes'],
       ['Incidencias', '/compras/catalogo/incidencias'],
-      ['Costos y precios', '/compras/catalogo/precios'],
+      ['Costos', '/compras/catalogo/costos'],
+      ['Precios', '/compras/catalogo/precios'],
       ['Listas de precios', '/compras/catalogo/listas-precios'],
       ['Códigos', '/compras/catalogo/codigos'],
       ['Reportes', '/compras/catalogo/reporte'],
@@ -34,17 +35,20 @@ describe('CATALOGO_TABS', () => {
   });
 
   /**
-   * `[negativa]` El tab NO puede abrir el cascarón.
+   * `[CAT-COSTO.0]` Costos y Precios son tabs separados, y ninguno se enciende en la
+   * pantalla del otro.
    *
-   * `Precios distintos` era un tab propio y el comprador lo usa hoy. Apuntar el tab a
-   * `/catalogo/costos` dejaría esa pantalla detrás de un «contenido por desarrollar» y de
-   * un clic extra. El cascarón sólo mantiene el tab encendido mientras no tenga contenido.
+   * `[negativa]` Antes Costos vivía como `alsoActiveOn` del tab de Precios. Si esa liga
+   * sobreviviera a la separación, entrar a Costos encendería dos tabs a la vez.
    */
-  it('Costos y precios abre la pantalla que YA funciona, no el cascarón', () => {
-    const costos = CATALOGO_TABS.find((tab) => tab.label === 'Costos y precios');
-    expect(costos?.route).toBe('/compras/catalogo/precios');
-    expect(costos?.route).not.toBe('/compras/catalogo/costos');
-    expect(costos?.alsoActiveOn).toContain('/compras/catalogo/costos');
+  it('Costos y Precios abren cada uno su pantalla, sin encenderse en la del otro', () => {
+    const costos = CATALOGO_TABS.find((tab) => tab.label === 'Costos');
+    const precios = CATALOGO_TABS.find((tab) => tab.label === 'Precios');
+    expect(costos?.route).toBe('/compras/catalogo/costos');
+    expect(precios?.route).toBe('/compras/catalogo/precios');
+    expect(costos?.alsoActiveOn ?? []).not.toContain('/compras/catalogo/precios');
+    expect(precios?.alsoActiveOn ?? []).not.toContain('/compras/catalogo/costos');
+    expect(CATALOGO_TABS.some((tab) => tab.label === 'Costos y precios')).toBe(false);
   });
 
   it('cada tab apunta a una ruta que existe en el árbol real', () => {
