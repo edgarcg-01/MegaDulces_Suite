@@ -181,6 +181,62 @@ export class CostoEstandarService {
     if (q.desplazamiento) p = p.set('desplazamiento', String(q.desplazamiento));
     return this.http.get<RespuestaEntreSucursales>(`${this.base}/entre-sucursales`, { params: p });
   }
+
+  /**
+   * `[CAT-COSTO.5]` Trazabilidad de un producto. El servidor sólo acota el periodo; sucursal,
+   * proveedor y tipo de cambio se filtran en la pantalla (son pocas filas).
+   */
+  historial(sku: string, desde?: string, hasta?: string): Observable<RespuestaHistorial> {
+    let p = new HttpParams();
+    if (desde) p = p.set('desde', desde);
+    if (hasta) p = p.set('hasta', hasta);
+    return this.http.get<RespuestaHistorial>(`${this.base}/historial/${encodeURIComponent(sku)}`, { params: p });
+  }
+}
+
+export type VeredictoEntrada = 'apegada' | 'arriba' | 'abajo' | 'sin_cargo' | 'no_comparable';
+
+export interface CambioEstandar {
+  sucursal: string;
+  fecha: string;
+  antes: number;
+  despues: number;
+  cambio_pct: number;
+}
+
+export interface EntradaTrazada {
+  fecha: string;
+  sucursal_registro: string;
+  plaza: string | null;
+  folio: string;
+  proveedor: string | null;
+  unidad: string | null;
+  cantidad: number;
+  costo: number;
+  factor: number | null;
+  costo_base: number | null;
+  /** Costo base de la entrada anterior de la misma plaza; ausente = primera. */
+  antes?: number | null;
+  cambio: boolean;
+  cambio_pct: number | null;
+  estandar_vigente: number | null;
+  vs_estandar_pct: number | null;
+  veredicto: VeredictoEntrada;
+  motivo: 'sin_plaza' | 'unidad_sin_resolver' | 'sin_estandar_previo' | null;
+  plaza_sin_kepler: string | null;
+}
+
+export interface RespuestaHistorial {
+  sku: string;
+  nombre: string | null;
+  proveedor: string | null;
+  desde: string;
+  hasta: string;
+  sucursales: { codigo: string; nombre: string | null }[];
+  estandar_hoy: { sucursal: string; costo: number; unidad: string | null }[];
+  estandar_al_inicio: Record<string, number | null>;
+  cambios_estandar: CambioEstandar[];
+  entradas: EntradaTrazada[];
 }
 
 export type VeredictoEntreSucursales = 'distinto' | 'sin_mayoria' | 'unidad_distinta' | 'igual' | 'una_plaza';

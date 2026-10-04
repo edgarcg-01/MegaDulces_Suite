@@ -10,6 +10,48 @@ import {
   clasificarEntreSucursales,
 } from './entre-sucursales';
 
+import {
+  CambioEstandar,
+  EntradaCruda,
+  EntradaTrazada,
+  MuestraEstandar,
+  cambiosEstandar,
+  estandarEn,
+  trazarEntradas,
+} from './historial-costos';
+
+interface EscaleraFila {
+  sucursal: string;
+  u1_label: string | null;
+  u2_label: string | null;
+  u3_label: string | null;
+  f2_cap: string | number | null;
+  f3_cap: string | number | null;
+  costo1: string | number | null;
+}
+
+export interface RespuestaHistorial {
+  sku: string;
+  nombre: string | null;
+  proveedor: string | null;
+  desde: string;
+  hasta: string;
+  sucursales: { codigo: string; nombre: string | null }[];
+  /** `kdii.c77` de hoy por plaza, con su unidad base. */
+  estandar_hoy: { sucursal: string; costo: number; unidad: string | null }[];
+  /** El estándar que tenía cada plaza al empezar el periodo (de la última venta previa). */
+  estandar_al_inicio: Record<string, number | null>;
+  cambios_estandar: CambioEstandar[];
+  entradas: (EntradaTrazada & { plaza_sin_kepler: string | null })[];
+}
+
+const esFecha = (s?: string): boolean => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+const restarDias = (iso: string, dias: number): string => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - dias);
+  return d.toISOString().slice(0, 10);
+};
+
 export interface FiltrosEntreSucursales {
   /** SKU o nombre. */
   q?: string;
@@ -624,6 +666,176 @@ export class StandardCostService {
         actividad_al: (actividad as { al: string | null } | undefined)?.al ?? null,
         total: visibles.length,
         filas: visibles.slice(desplazamiento, desplazamiento + limite),
+      };
+    });
+  }
+
+  /**
+   * `[CAT-COSTO.5]` **Trazabilidad de UN producto**: cambios de costo estándar y de costo de entrada,
+   * sucursal por sucursal. Todo es de un solo SKU, así que va por el índice `kdm2 (btrim(c8))` y no
+   * recorre el ODS.
+   *
+   * Los filtros de sucursal, proveedor y tipo los aplica la pantalla: son pocas filas y así filtrar
+   * es instantáneo. El servidor sólo acota el periodo.
+   *
+   * ⚠️ Supuestos que verifica `verify-cat-costo-estandar.js` (B3b, C2) y que se DECLARAN aquí:
+   *  · `f3_cap` es piezas por unidad 3 contadas desde la BASE (no desde la unidad 2).
+   *  · el último `c62 / c58` de la venta coincide con el `c77` de hoy (si no, el método no sirve).
+   */
+  async historial(skuCrudo: string, f: { desde?: string; hasta?: string } = {}): Promise<RespuestaHistorial> {
+    const sku = skuCrudo.trim();
+    const hoy = new Date().toISOString().slice(0, 10);
+    const hasta = esFecha(f.hasta) ? f.hasta! : hoy;
+    const desde = esFecha(f.desde) ? f.desde! : restarDias(hasta, 365);
+    // Un año antes del periodo para saber qué estándar había al empezar.
+    const desdeMuestras = restarDias(desde, 365);
+    const NUM = (col: string) => `nullif(regexp_replace(${col}::text, '[^0-9.-]', '', 'g'), '')::numeric`;
+
+    return this.tk.run(async (trx) => {
+      const [escalera, muestrasCrudas, entradasCrudas, producto, sucs] = await Promise.all([
+        trx
+          .from('analytics.v_kepler_unit_ladder')
+          .where('sku', sku)
+          .whereNot('sucursal', '00')
+          .select('sucursal', 'u1_label', 'u2_label', 'u3_label', 'f2_cap', 'f3_cap', 'costo1') as unknown as Promise<
+          EscaleraFila[]
+        >,
+        trx.raw(
+          `SELECT btrim(l.sucursal::text) AS sucursal,
+                  l.c32::date::text       AS fecha,
+                  percentile_cont(0.5) WITHIN GROUP (ORDER BY ${NUM('l.c62')} / ${NUM('l.c58')}) AS costo
+             FROM kepler_ods.kdm2 l
+            WHERE btrim(l.c8) = ?
+              AND l.c2 = 'U' AND l.c3 = 'D' AND l.c4 IN (6, 10)
+              AND l.c32::date BETWEEN ?::date AND ?::date
+              AND btrim(l.sucursal::text) <> '00'
+              -- el almacen del renglon es de esta sucursal (01, 01-006…): una fila replicada de otra
+              -- plaza traeria el costo de SU ficha y contaminaria la historia de esta.
+              AND split_part(btrim(l.c1::text), '-', 1) = btrim(l.sucursal::text)
+              AND ${NUM('l.c62')} > 0 AND ${NUM('l.c58')} > 0
+            GROUP BY 1, 2`,
+          [sku, desdeMuestras, hasta],
+        ),
+        trx.raw(
+          `SELECT btrim(ap.sucursal::text)               AS sucursal_registro,
+                  btrim(ap.c6::text)                     AS folio,
+                  ap.c68::date::text                     AS fecha,
+                  NULLIF(btrim(ap.c32::text), '')        AS proveedor,
+                  NULLIF(upper(btrim(l.c11::text)), '')  AS unidad,
+                  ${NUM('l.c9')}                         AS cantidad,
+                  ${NUM('l.c12')}                        AS costo,
+                  og.origen_veredicto,
+                  og.origen_warehouse_name               AS origen_nombre,
+                  wo.kepler_code                         AS origen_kepler
+             FROM kepler_ods.kdm2 l
+             JOIN kepler_ods.kdm1 ap
+               ON ap.sucursal = l.sucursal AND ap.c1 = l.c1 AND ap.c2 = l.c2 AND ap.c3 = l.c3
+              AND ap.c4 = l.c4 AND ap.c6 = l.c6
+             LEFT JOIN analytics.v_erp_goods_receipt_origin og
+               ON og.sucursal = ap.sucursal AND og.folio = btrim(ap.c6::text)
+             LEFT JOIN commercial.warehouses wo ON wo.id = og.origen_warehouse_id
+            WHERE btrim(l.c8) = ?
+              AND l.c2 = 'X' AND l.c3 = 'A' AND btrim(l.c4::text) = '20'
+              AND btrim(ap.c1::text) = ap.sucursal::text
+              AND btrim(coalesce(ap.c43::text, '')) <> 'C'
+              AND ap.c68::date BETWEEN ?::date AND ?::date`,
+          [sku, desde, hasta],
+        ),
+        trx
+          .from('catalog.products as cp')
+          .leftJoin('catalog.suppliers as sup', function () {
+            this.on('sup.id', '=', 'cp.supplier_id').andOn('sup.tenant_id', '=', 'cp.tenant_id');
+          })
+          .whereRaw('cp.tenant_id = current_tenant_id()')
+          .where('cp.sku', sku)
+          .whereNull('cp.deleted_at')
+          .first('cp.nombre', 'sup.name as proveedor'),
+        trx
+          .from('commercial.warehouses')
+          .whereRaw('tenant_id = current_tenant_id()')
+          .whereNotNull('kepler_code')
+          .whereNot('kepler_code', '00')
+          .whereNull('deleted_at')
+          .select('kepler_code')
+          .min({ nombre: 'name' })
+          .groupBy('kepler_code')
+          .orderBy('kepler_code'),
+      ]);
+
+      const porSucursal = new Map(escalera.map((x) => [String(x.sucursal), x]));
+      const factor = (sucursal: string, unidad: string | null): number | null => {
+        const lad = porSucursal.get(sucursal);
+        if (!lad || !unidad) return null;
+        if (unidad === lad.u1_label) return 1;
+        if (unidad === lad.u2_label && Number(lad.f2_cap) > 0) return Number(lad.f2_cap);
+        if (unidad === lad.u3_label && Number(lad.f3_cap) > 0) return Number(lad.f3_cap);
+        return null;
+      };
+
+      const muestras: MuestraEstandar[] = (muestrasCrudas.rows as { sucursal: string; fecha: string; costo: string }[]).map(
+        (r) => ({ sucursal: r.sucursal, fecha: r.fecha, costo: Number(r.costo) }),
+      );
+
+      type FilaEntrada = {
+        sucursal_registro: string;
+        folio: string;
+        fecha: string;
+        proveedor: string | null;
+        unidad: string | null;
+        cantidad: string | null;
+        costo: string | null;
+        origen_veredicto: string | null;
+        origen_nombre: string | null;
+        origen_kepler: string | null;
+      };
+      const nombrePlaza = new Map<string, string>();
+      const entradas: EntradaCruda[] = (entradasCrudas.rows as FilaEntrada[]).map((r) => {
+        // De qué plaza es: la que recibió, aunque se haya registrado en el CEDIS (DM.19).
+        const plaza =
+          r.origen_veredicto === 'otra_plaza'
+            ? r.origen_kepler
+            : r.sucursal_registro !== '00' || r.origen_veredicto === 'propio'
+              ? r.sucursal_registro
+              : null;
+        if (!plaza && r.origen_nombre) nombrePlaza.set(r.folio, r.origen_nombre);
+        return {
+          fecha: r.fecha,
+          sucursal_registro: r.sucursal_registro,
+          plaza,
+          folio: r.folio,
+          proveedor: r.proveedor,
+          unidad: r.unidad,
+          cantidad: Number(r.cantidad) || 0,
+          costo: Number(r.costo) || 0,
+          // La unidad se busca en la escalera de la sucursal que REGISTRÓ: el rótulo es de su ficha.
+          factor: factor(r.sucursal_registro, r.unidad),
+        };
+      });
+
+      const sucursales = (sucs as { kepler_code: string; nombre: string | null }[]).map((s) => ({
+        codigo: s.kepler_code,
+        nombre: s.nombre,
+      }));
+      const trazadas = trazarEntradas(entradas, muestras).map((x) => ({
+        ...x,
+        // Plaza que no es de Kepler (era Wincaja): se nombra para que se vea POR QUÉ no se compara.
+        plaza_sin_kepler: x.plaza ? null : (nombrePlaza.get(x.folio) ?? null),
+      }));
+
+      return {
+        sku,
+        nombre: (producto as { nombre?: string } | undefined)?.nombre ?? null,
+        proveedor: (producto as { proveedor?: string } | undefined)?.proveedor ?? null,
+        desde,
+        hasta,
+        sucursales,
+        estandar_hoy: escalera
+          .filter((x) => Number(x.costo1) > 0)
+          .map((x) => ({ sucursal: String(x.sucursal), costo: Number(x.costo1), unidad: x.u1_label }))
+          .sort((a, b) => a.sucursal.localeCompare(b.sucursal)),
+        estandar_al_inicio: Object.fromEntries(sucursales.map((s) => [s.codigo, estandarEn(muestras, s.codigo, desde)])),
+        cambios_estandar: cambiosEstandar(muestras).filter((c) => c.fecha >= desde && c.fecha <= hasta),
+        entradas: trazadas,
       };
     });
   }

@@ -7259,6 +7259,24 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
   las cifras reales** — sin lectura a prod. «Último cambio» por sucursal llega con la Etapa 2 (historial
   derivado de la venta). Maqueta de las 4 etapas aprobada en el lienzo de diseño.
 
+- [x] **[CAT-COSTO.5]** 🧪 **Costos · Etapa 2a: trazabilidad de un producto** (2026-10-04) — segunda
+  vista de `/compras/catalogo/costos` (`?vista=historial&sku=`; clic en un producto de «Entre
+  sucursales» la abre). Pedido de Compras: ver, por sucursal y con fecha, cuándo cambió el **costo
+  estándar negociado** y cuándo cambió el **costo de entrada**. Endpoint
+  `GET commercial/standard-cost/historial/:sku?desde&hasta` (3 consultas de UN SKU por el índice
+  `kdm2 (btrim(c8))`, sin recorrer el ODS). El estándar se reconstruye de la venta (`c62/c58`, U-D 10 y 6,
+  almacén de la propia sucursal para no tragar réplicas) porque **Kepler no guarda la historia de la
+  ficha**: la fecha es la de la primera venta con el costo nuevo, y se declara. Las entradas `XA2001`
+  se atribuyen a la plaza que recibió (`v_erp_goods_receipt_origin`), se convierten a pieza con la
+  escalera de la ficha que registró y se comparan contra el estándar **de ese día**; el cambio de
+  entrada se mide contra la entrada anterior de la **misma** plaza. Reglas en funciones puras
+  (`historial-costos.ts` 10/10 con 2 negativas: picos A-B-A no son cambio; lo no comparable lleva motivo —
+  sin plaza / unidad sin resolver / sin estándar previo) y en la pantalla (`costos-historial.util.ts`
+  9/9); componente 5/5 + clic→historial. Filtros de sucursal, proveedor y tipo en la pantalla (instantáneos),
+  rango de fechas en el servidor. **Etapa 2b (lista global «contra orden de entrada») espera la medición**:
+  sin ver datos no se sabe si `c12` trae IVA/descuento ni si `f3` cuenta desde la base. **NO MEDIDO contra
+  prod** (cifras ni tiempo).
+
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
   llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran

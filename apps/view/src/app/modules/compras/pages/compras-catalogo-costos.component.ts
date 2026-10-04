@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { rxResource } from '@angular/core/rxjs-interop';
+import { rxResource, toSignal } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { CheckboxModule } from 'primeng/checkbox';
@@ -15,6 +16,7 @@ import {
   FilaEntreSucursales,
   VeredictoEntreSucursales,
 } from '../costo-estandar.service';
+import { ComprasCostosHistorialComponent } from './compras-costos-historial.component';
 
 /** Los chips, en el orden en que hay que atenderlos. `igual` al final: es la meta, no la tarea. */
 const CHIPS: { id: VeredictoEntreSucursales | ''; label: string; tono: 'bad' | 'warn' | 'info' | 'ok' | 'base' }[] = [
@@ -53,7 +55,7 @@ interface FilaVista extends FilaEntreSucursales {
 @Component({
   selector: 'app-compras-catalogo-costos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, TooltipModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, TooltipModule, PageTabsComponent, ComprasCostosHistorialComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page cc">
@@ -61,13 +63,28 @@ interface FilaVista extends FilaEntreSucursales {
         <div class="surf-page-head-text">
           <h1>Costos</h1>
           <p class="surf-page-sub">
-            Costo estándar entre sucursales: el costo de la ficha de Kepler tiene que ser el mismo en todas las plazas.
-            Se corrige en Kepler.
+            @if (vista() === 'historial') {
+              Cómo fue cambiando el costo estándar negociado y el costo de entrada de un producto, sucursal por sucursal.
+            } @else {
+              Costo estándar entre sucursales: el costo de la ficha de Kepler tiene que ser el mismo en todas las plazas.
+              Se corrige en Kepler.
+            }
           </p>
         </div>
       </header>
 
       <app-page-tabs [tabs]="tabs" />
+
+      <div class="cc-vistas" role="tablist" aria-label="Vistas de costo estándar">
+        <button type="button" role="tab" class="cc-vista" [class.is-sel]="vista() === 'sucursales'"
+                [attr.aria-selected]="vista() === 'sucursales'" (click)="irA('sucursales')">Entre sucursales</button>
+        <button type="button" role="tab" class="cc-vista" [class.is-sel]="vista() === 'historial'"
+                [attr.aria-selected]="vista() === 'historial'" (click)="irA('historial')">Historial por producto</button>
+      </div>
+
+      @if (vista() === 'historial') {
+        <app-compras-costos-historial [sku]="skuHistorial()" (skuElegido)="abrirHistorial($event)" />
+      } @else {
 
       @if (datos(); as d) {
         <section class="cc-respuesta" aria-live="polite">
@@ -140,7 +157,8 @@ interface FilaVista extends FilaEntreSucursales {
           <ng-template #body let-f>
             <tr>
               <td>
-                <div class="cc-prod">{{ f.nombre || 'Sin nombre en catálogo' }}</div>
+                <button type="button" class="cc-prod" (click)="abrirHistorial(f.sku)"
+                        [attr.aria-label]="'Ver historial de costos de ' + (f.nombre || f.sku)">{{ f.nombre || 'Sin nombre en catálogo' }}</button>
                 <div class="cc-meta"><span class="cc-mono">{{ f.sku }}</span> · {{ f.proveedor || 'sin proveedor' }}</div>
               </td>
               <td class="cc-unidad">{{ unidades(f) }}</td>
@@ -179,6 +197,7 @@ interface FilaVista extends FilaEntreSucursales {
           <p class="cc-error" role="alert">No se pudo cargar la comparación. Intenta de nuevo en un momento.</p>
         }
       </footer>
+      }
     </div>
   `,
   styles: [`
@@ -209,7 +228,15 @@ interface FilaVista extends FilaEntreSucursales {
     .cc-num { text-align: right; white-space: nowrap; }
     .cc-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .cc-fuerte { font-weight: var(--fw-bold); }
-    .cc-prod { font-weight: var(--fw-bold); color: var(--c-text-1); }
+    .cc-prod { font-weight: var(--fw-bold); color: var(--c-text-1); background: none; border: none; padding: 0; font: inherit;
+      text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: var(--c-divider); text-underline-offset: 3px; }
+    .cc-prod:hover { text-decoration-color: var(--c-text-2); }
+    .cc-prod:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .cc-vistas { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .cc-vista { min-height: 2.25rem; padding: 0 .9rem; border-radius: 999px; border: 1px solid var(--c-divider);
+      background: var(--c-surface-1); color: var(--c-text-1); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+    .cc-vista.is-sel { background: var(--c-text-1); color: var(--c-surface-1); border-color: var(--c-text-1); font-weight: var(--fw-bold); }
+    .cc-vista:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .cc-meta { font-size: var(--fs-xs); color: var(--c-text-3); }
     .cc-unidad { font-size: var(--fs-xs); color: var(--c-text-2); }
     .cc-celda.is-fuera { background: var(--warn-soft-bg); color: var(--c-text-1); font-weight: var(--fw-bold); }
@@ -230,6 +257,15 @@ export class ComprasCatalogoCostosComponent {
   readonly tabs = CATALOGO_TABS;
   readonly chips = CHIPS;
   private readonly api = inject(CostoEstandarService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
+  /** La vista y el producto viven en la URL: se pueden compartir y el botón Atrás funciona. */
+  private readonly query = toSignal(this.route.queryParamMap);
+  readonly vista = computed<'sucursales' | 'historial'>(() =>
+    this.query()?.get('vista') === 'historial' ? 'historial' : 'sucursales',
+  );
+  readonly skuHistorial = computed(() => this.query()?.get('sku') || null);
 
   readonly pagina = signal(1);
   readonly tamano = signal(100);
@@ -241,7 +277,8 @@ export class ComprasCatalogoCostosComponent {
   readonly soloConVenta = signal(false);
 
   private readonly res = rxResource({
-    params: () => ({
+    // En el historial esta consulta no corre: params undefined deja el recurso en reposo.
+    params: () => this.vista() !== 'sucursales' ? undefined : ({
       q: this.q() || undefined,
       proveedor_id: this.proveedor() || undefined,
       sucursal: this.sucursal() || undefined,
@@ -278,6 +315,14 @@ export class ComprasCatalogoCostosComponent {
     this.q.set(v.trim());
     this.pagina.set(1);
   });
+
+  irA(vista: 'sucursales' | 'historial'): void {
+    this.router.navigate([], { relativeTo: this.route, queryParams: { vista: vista === 'historial' ? 'historial' : null }, queryParamsHandling: 'merge' });
+  }
+
+  abrirHistorial(sku: string): void {
+    this.router.navigate([], { relativeTo: this.route, queryParams: { vista: 'historial', sku }, queryParamsHandling: 'merge' });
+  }
 
   onBuscar(v: string): void {
     this.busqueda = v;

@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { of, throwError } from 'rxjs';
@@ -104,6 +104,14 @@ describe('[CAT-COSTO.4] ComprasCatalogoCostosComponent', () => {
     const ultima = api.entreSucursales.mock.calls.at(-1)?.[0] as ConsultaEntreSucursales;
     expect(ultima.veredicto).toBe('igual');
     expect(ultima.desplazamiento).toBe(0);
+  });
+
+  it('[CAT-COSTO.5] clic en un producto abre su historial en la URL', async () => {
+    const el = await montar(of(RESPUESTA));
+    const router = TestBed.inject(Router);
+    const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    el.querySelector<HTMLButtonElement>('button.cc-prod')?.click();
+    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { vista: 'historial', sku: '70001' } }));
   });
 
   it('[negativa] si el servidor falla NO pinta ceros: no hay titular y sí un aviso', async () => {

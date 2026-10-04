@@ -7,6 +7,7 @@ import {
   ResumenCostoEstandar,
   VeredictoCostoEstandar,
   RespuestaEntreSucursales,
+  RespuestaHistorial,
 } from './standard-cost.service';
 import { VeredictoEntreSucursales } from './entre-sucursales';
 
@@ -107,6 +108,23 @@ export class StandardCostController {
       limite: Number(limite) || undefined,
       desplazamiento: Number(desplazamiento) || undefined,
     });
+  }
+
+  @Get('historial/:sku')
+  @RequirePermissions(Permission.COMPRAS_COSTO_ESTANDAR_VER)
+  @ApiOperation({
+    summary: 'Trazabilidad de un producto: cambios de costo estándar y de costo de entrada por sucursal',
+    description:
+      'El estándar se reconstruye de la venta (c62/c58): la fecha es la de la primera venta con el ' +
+      'costo nuevo. Las entradas XA2001 se convierten a pieza y se comparan contra el estándar que ' +
+      'tenía la plaza ese día. Por defecto, los últimos 365 días.',
+  })
+  historial(
+    @Param('sku') sku: string,
+    @Query('desde') desde?: string,
+    @Query('hasta') hasta?: string,
+  ): Promise<RespuestaHistorial> {
+    return this.service.historial(sku, { desde, hasta });
   }
 
   @Get(':sku')
