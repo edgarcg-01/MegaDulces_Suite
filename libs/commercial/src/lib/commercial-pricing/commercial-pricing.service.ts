@@ -9,6 +9,7 @@ import {
 import type { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import { QuotePricingService } from '../commercial-quotes/quote-pricing.service';
 
 // ─────────── DTOs ───────────
 
@@ -106,6 +107,8 @@ export class CommercialPricingService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    // [VTK.3] Escalera de unidades y precios por sucursal = la del motor de cotizaciones.
+    private readonly quotePricing: QuotePricingService,
   ) {}
 
   /**
@@ -574,6 +577,58 @@ export class CommercialPricingService {
           this.logger.warn(
             `product_units no disponible para el catálogo; filas sin selector de medida. ${String((err as Error)?.message ?? err)}`,
           );
+        }
+
+        // [VTK.3] Con almacén (la toma de pedido del vendedor): unidades y precio por unidad desde
+        // la escalera de Kepler de ESA sucursal — la misma que el motor de cotizaciones usa para
+        // cobrar el renglón ([VTK.2]). Así lo que el vendedor ve es lo que el pedido cobra.
+        // Reemplaza `units` (red) cuando hay escalera; si no, se queda la de red, como antes.
+        // Orden de menor a mayor; un peldaño repetido con el mismo factor (70001: "PAQ" base y
+        // "PAQ" de 1) se muestra una sola vez.
+        if (warehouseId) {
+          try {
+            const wh = await trx('commercial.warehouses').where({ id: warehouseId }).first('kepler_code');
+            const branch = String(wh?.kepler_code ?? '').trim();
+            if (branch) {
+              const skus = (rows as any[]).map((r) => String(r.sku ?? '').trim()).filter(Boolean);
+              // Con muchas filas se lee la sucursal completa (~0.3 s) en vez de una lista enorme de IN.
+              const leds = await this.quotePricing.ladders(trx, branch, skus.length > 500 ? null : skus);
+              for (const r of rows as any[]) {
+                const led = leds.get(String(r.sku ?? '').trim());
+                if (!led) continue;
+                const rungs: Array<{
+                  rung: string; unit: string; factor: number; price: number;
+                  volume_min_qty: number | null; volume_price: number | null;
+                }> = [];
+                const factores = new Set<number>();
+                const ordenados = (['base', 'pack', 'box'] as const)
+                  .map((k) => led.rungs[k])
+                  .filter((s) => !!s && !!s.label && s.price !== null && Number(s.size) > 0)
+                  .sort((a, b) => Number(a.size) - Number(b.size));
+                for (const s of ordenados) {
+                  const factor = Number(s.size);
+                  if (factores.has(factor)) continue;
+                  factores.add(factor);
+                  rungs.push({
+                    rung: s.rung,
+                    unit: String(s.label),
+                    factor,
+                    price: Number(s.price),
+                    volume_min_qty: s.volume ? Number(s.volume.min_qty) : null,
+                    volume_price: s.volume ? Number(s.volume.price) : null,
+                  });
+                }
+                if (!rungs.length) continue;
+                r.rungs = rungs;
+                r.units = rungs.map((x) => ({ unit: x.unit, factor: x.factor }));
+                r.units_source = 'kepler_ladder';
+              }
+            }
+          } catch (err) {
+            this.logger.warn(
+              `Escalera de Kepler no disponible para el catálogo; se usan las unidades de red. ${String((err as Error)?.message ?? err)}`,
+            );
+          }
         }
       }
 

@@ -2394,6 +2394,29 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   mayoreoInfo(
     l: OrderLine,
   ): { unit: number; base: number; savedUnit: number; pct: number; savedTotal: number } | null {
+    // [VTK.3] Renglón cobrado con el motor de cotizaciones: se compara contra el precio de LISTA
+    // de su misma unidad en Kepler (no contra la pieza: un paquete a precio de lista ya es más
+    // barato por pieza y eso no es mayoreo), con el total de Kepler (con impuestos). Comparar
+    // `unit_price` (sin impuesto) contra el precio con impuesto marcaba mayoreo en TODO renglón.
+    const p = this.byIdMap().get(l.product_id);
+    if (l.erp_gross_total != null && p?.rungs?.length) {
+      const qtyBase = Number(l.quantity) || 0;
+      const f = Number(l.qty_factor) > 0 ? Number(l.qty_factor) : 1;
+      const rung = p.rungs.find((r) => r.factor === f) ?? p.rungs.find((r) => r.factor === 1);
+      if (!rung || !(qtyBase > 0)) return null;
+      const qtyRung = qtyBase / rung.factor;
+      const lista = rung.price * qtyRung;
+      const real = Number(l.erp_gross_total);
+      if (!(lista > 0) || !Number.isFinite(real) || real >= lista * 0.999) return null;
+      const unitReal = real / qtyRung;
+      return {
+        unit: unitReal,
+        base: rung.price,
+        savedUnit: rung.price - unitReal,
+        pct: Math.round(((rung.price - unitReal) / rung.price) * 100),
+        savedTotal: +(lista - real).toFixed(2),
+      };
+    }
     const base = this.basePriceById(l.product_id);
     const unit = Number(l.unit_price);
     if (base == null || !Number.isFinite(unit) || unit <= 0) return null;
@@ -2421,6 +2444,24 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   mayoreoHint(
     p: PriceRow,
   ): { from: number; unit: number; pct: number; need: number; reached: boolean; unitLabel: string } | null {
+    // [VTK.3] Con escalera de la sucursal, el mayoreo es el de ESA unidad en Kepler (3 paquetes
+    // de 42029 a $123.19 c/u), no un quiebre por piezas de otra fuente: es el que el pedido cobra.
+    const rung = this.rungOf(p);
+    if (rung) {
+      if (rung.volume_min_qty == null || rung.volume_price == null) return null;
+      if (!(rung.volume_price > 0) || rung.volume_price >= rung.price * 0.999) return null;
+      const f = this.unitFactor(p);
+      const enUnidad = Math.floor((this.cartQty(p.product_id) || 0) / f);
+      const from = Math.max(1, rung.volume_min_qty);
+      return {
+        from,
+        unit: rung.volume_price,
+        pct: Math.round(((rung.price - rung.volume_price) / rung.price) * 100),
+        need: Math.max(0, from - enUnidad),
+        reached: enUnidad >= from,
+        unitLabel: this.selectedUnit(p)?.unit ?? '',
+      };
+    }
     const tiers = p.tiers;
     const base = Number(p.price);
     if (!tiers?.length || !Number.isFinite(base) || base <= 0) return null;
@@ -2444,7 +2485,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
   // ───── Medidas de venta (PZA/PAQ/CJA) ─────
   // La línea SIEMPRE se guarda en unidad base; la medida es capa de entrada/display.
-  // Default = PAQ si el SKU lo tiene; si no, su unidad base (units[0]).
+  // Default = la unidad más chica (units[0]); [VTK.4]. Antes era PAQ si el SKU lo tenía.
   //
   // La aritmética vive en libs/ui-web (order/qty-units.ts), con sus candados y sus pruebas
   // negativas. La invariante que sostiene todo: lo que la fila MUESTRA, por el
@@ -2469,10 +2510,26 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     return this.unitsById().get(p.product_id) ?? escalera(p.units);
   }
 
+  /**
+   * [VTK.4] Por defecto, la unidad MÁS CHICA (decisión de Francisco, 2026-10-04: el cliente de
+   * ruta compra poco y la sugerencia va de menor a mayor). La escalera ya viene ordenada de menor
+   * a mayor, así que es la primera. Antes era PAQ si existía.
+   */
   private defaultUnit(p: PriceRow): Presentacion | null {
     const us = this.unitsOf(p);
     if (!us.length) return null;
-    return us.find((u) => u.unit === 'PAQ') ?? us[0];
+    return us[0];
+  }
+
+  /**
+   * [VTK.3] El peldaño de Kepler de la unidad activa (precio de lista + mayoreo en ESA unidad).
+   * Null si el catálogo no trajo escalera de la sucursal: entonces se usa `price × factor`.
+   */
+  private rungOf(p: PriceRow): NonNullable<PriceRow['rungs']>[number] | null {
+    const sel = this.selectedUnit(p);
+    if (!sel || !p.rungs?.length) return null;
+    const f = factorDe(sel);
+    return p.rungs.find((r) => r.factor === f) ?? null;
   }
   /** Presentación activa del producto (default PAQ). Null si el SKU no tiene medidas. */
   selectedUnit(p: PriceRow): Presentacion | null {
@@ -2566,9 +2623,14 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   rowUnitLabel(p: PriceRow): string {
     return this.offGrid(p) ? this.baseUnitLabel(p) : this.selectedUnit(p)?.unit || '';
   }
-  /** Precio unitario mostrado en la unidad activa (base × factor). */
+  /**
+   * Precio mostrado en la unidad activa. [VTK.3] Con escalera de la sucursal es el precio que
+   * Kepler tiene para ESA unidad (un paquete de 42029: $131.99), que es lo que cobra el pedido;
+   * sin escalera, el de siempre: precio base × factor.
+   */
   unitPriceDisplay(p: PriceRow): number {
-    return Number(p.price) * this.unitFactor(p);
+    const rung = this.rungOf(p);
+    return rung ? rung.price : Number(p.price) * this.unitFactor(p);
   }
 
   initials(name: string): string {
