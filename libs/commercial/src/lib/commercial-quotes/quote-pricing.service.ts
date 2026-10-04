@@ -83,6 +83,13 @@ export interface LadderRung {
   volume: { min_qty: number; price: number } | null;
 }
 
+/** `[VTK.1]` La escalera de un SKU en una sucursal: base / paquete / caja, con su precio de lista y su volumen. */
+export interface Ladder {
+  name: string | null;
+  unit_base: string | null;
+  rungs: Record<Rung, LadderRung>;
+}
+
 export interface PriceStep {
   step: string;
   source: string;
@@ -237,130 +244,160 @@ export class QuotePricingService {
     knex: Knex,
     branch: string,
     sku: string,
-  ): Promise<{ name: string | null; unit_base: string | null; rungs: Record<Rung, LadderRung> } | null> {
-    const r = await knex.raw(
-      `SELECT name, piece_price, wholesale_piece_min_qty, wholesale_piece_price,
-              pack_size, pack_price, wholesale_pack_price, wholesale_pack_min_qty,
-              box_size, box_price, unit_base
-         FROM analytics.v_label_prices
-        WHERE sucursal = :branch AND sku = :sku`,
-      { branch, sku },
-    );
-    if (!r.rows.length) return null;
-    const p = r.rows[0];
-    const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
-    const base = (p.unit_base || '').toUpperCase();
-    const baseIsGrouped = base === 'PAQ' || base === 'CJA';
+  ): Promise<Ladder | null> {
+    const m = await this.ladders(knex, branch, [sku]);
+    return m.get(sku) ?? null;
+  }
 
+  /**
+   * `[VTK.1]` La escalera de MUCHOS productos de una sucursal en tres lecturas, con la MISMA
+   * lógica que tenía `ladder` para un solo SKU (que ahora la llama). Existe para que la toma de
+   * pedido del vendedor muestre las mismas unidades y precios que después cobra: una segunda
+   * derivación a mano se separaría de ésta en silencio (es lo que se midió entre las ranuras de
+   * `kdii` y `v_label_presentations`, ver abajo).
+   *
+   * `skus = null` = toda la sucursal (medido 2026-10-04: ~0.3 s para los ~9,400 SKUs de la 04).
+   * Público a propósito y SIN validar alcance, igual que `priceLine`: el caller ya validó la
+   * sucursal (la cotización, o el pedido con su almacén).
+   */
+  async ladders(knex: Knex, branch: string, skus: string[] | null): Promise<Map<string, Ladder>> {
+    const out = new Map<string, Ladder>();
+    const list = skus === null ? null : [...new Set(skus.map((x) => String(x).trim()).filter(Boolean))];
+    if (list !== null && list.length === 0) return out;
+    // knex.raw expande un arreglo en "?, ?, ...": los marcadores se arman a mano.
+    const inSkus = (col: string) => (list === null ? '' : ' AND ' + col + ' IN (' + list.map(() => '?').join(', ') + ')');
+    const args = list ?? [];
+
+    const prices = await knex.raw(
+      'SELECT sku, name, piece_price, wholesale_piece_min_qty, wholesale_piece_price,'
+        + ' pack_size, pack_price, wholesale_pack_price, wholesale_pack_min_qty,'
+        + ' box_size, box_price, unit_base'
+        + ' FROM analytics.v_label_prices'
+        + ' WHERE sucursal = ?' + inSkus('sku'),
+      [branch, ...args],
+    );
+    if (!prices.rows.length) return out;
+
+    // ── La unidad mayor NO siempre se llama CJA, y se resuelve en UNA sola lectura ───────────
+    // Medido en prod (2026-09-30): 168 SKUs / 1,510 filas sucursal×sku tienen como unidad mayor
+    // el BULTO (BTO) o la CUBETA (CUB) y ninguna CJA utilizable. Ej.: 17083 "ALTOS CAM CHICA
+    // 1KG" = KG -> BTO de 20 kg a $1,169.91, y Kepler lo VENDE así: mv_kepler_unit_ladder da
+    // factor 20.0000, ambiguo=false, 223 renglones, 8 sucursales, $410,403.40. Leer sólo 'CJA'
+    // respondía "el ERP no declara esa presentación", que era falso.
+    //
+    // ⚠️ La fuente es analytics.v_label_presentations —la MISMA vista que ya resolvía la CJA—,
+    // no una relectura de las ranuras de kdii. No es cosmético: medido el 2026-10-01, las
+    // ranuras NO reproducen la vista (37 factores y 28 precios distintos sobre 75,397 comunes, y
+    // 138 CJA que la vista ve y la ranura no), y la vista rellena 182 filas donde v_label_prices
+    // no trae box_*. Una segunda derivación a mano se habría separado de la primera en silencio.
+    //
+    // Prioridad CJA -> BTO/CUB; sólo rótulos conocidos (500, 250, IND... son unidad desconocida,
+    // UNIDADES_DE_MEDIDA §7.6). El criterio de la CJA queda EXACTAMENTE como estaba (precio o
+    // factor declarado) para no mover el 99% del catálogo; a BTO/CUB se les exige además
+    // factor > 1 y precio, porque con factor 1 el rótulo es la unidad BASE del producto y no una
+    // presentación mayor (13 SKUs: 15143 nace BTO de 1). Efecto medido: **1,510 filas ganan
+    // peldaño box, 0 lo pierden**.
+    //
+    // Costo (re-medido 2026-10-04): ~0.15–0.2 s por SKU y ~0.3 s la sucursal completa. El
+    // "~3.6 s por SKU" que decía este comentario ya no se reproduce.
+    const mayores = await knex.raw(
+      'SELECT DISTINCT ON (sku) sku, upper(btrim(unidad)) AS unidad, factor, precio_lista, mayoreo_precio, mayoreo_desde'
+        + ' FROM analytics.v_label_presentations'
+        + ' WHERE sucursal = ?' + inSkus('sku')
+        + " AND ( (upper(btrim(unidad)) = 'CJA' AND (precio_lista IS NOT NULL OR factor IS NOT NULL))"
+        + "    OR (upper(btrim(unidad)) IN ('BTO', 'CUB') AND factor > 1 AND precio_lista IS NOT NULL) )"
+        + " ORDER BY sku, CASE WHEN upper(btrim(unidad)) = 'CJA' THEN 0 ELSE 1 END, factor DESC NULLS LAST",
+      [branch, ...args],
+    );
+    const mayorBySku = new Map<string, any>(mayores.rows.map((r: any) => [String(r.sku).trim(), r]));
+
+    // Volumen de la caja directo de kdpv_prod_util cuando la vista no lo trae: el escalón más
+    // chico (> 1) y, a igual escalón, el más barato, por SKU y rótulo.
+    const kdpv = await knex.raw(
+      'SELECT DISTINCT ON (btrim(u.c1), upper(btrim(u.c2::text)))'
+        + ' btrim(u.c1) AS sku, upper(btrim(u.c2::text)) AS unidad,'
+        + ' u.c7::numeric AS price, floor(u.c4::numeric)::int AS min_qty'
+        + ' FROM kepler_ods.kdpv_prod_util u'
+        + ' WHERE u.sucursal = ?' + inSkus('btrim(u.c1)')
+        + " AND upper(btrim(u.c2::text)) IN ('CJA', 'BTO', 'CUB')"
+        + ' AND u.c7::numeric > 0 AND floor(u.c4::numeric)::int > 1'
+        + ' ORDER BY btrim(u.c1), upper(btrim(u.c2::text)), floor(u.c4::numeric)::int ASC, u.c7::numeric ASC',
+      [branch, ...args],
+    );
+    const kdpvByKey = new Map<string, any>(kdpv.rows.map((r: any) => [r.sku + '|' + r.unidad, r]));
+
+    const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
     const volumeOf = (minQty: unknown, price: unknown) =>
       minQty !== null && minQty !== undefined && price !== null && price !== undefined
         ? { min_qty: Number(minQty), price: Number(price) }
         : null;
 
-    // Mayoreo para caja: analytics.v_label_presentations (o kdpv_prod_util directo)
-    let boxVolume: { min_qty: number; price: number } | null = null;
-    let boxPrice = num(p.box_price);
-    let boxSize = num(p.box_size);
+    for (const p of prices.rows) {
+      const sku = String(p.sku).trim();
+      const base = (p.unit_base || '').toUpperCase();
+      const baseIsGrouped = base === 'PAQ' || base === 'CJA';
 
-    // ── La unidad mayor NO siempre se llama CJA, y se resuelve en UNA sola lectura ───────────
-    // Medido en prod (2026-09-30): 168 SKUs / 1,510 filas sucursal×sku tienen como unidad mayor
-    // el BULTO (`BTO`) o la CUBETA (`CUB`) y ninguna CJA utilizable. Ej.: 17083 "ALTOS CAM CHICA
-    // 1KG" = KG → BTO de 20 kg a $1,169.91, y Kepler lo VENDE así: `mv_kepler_unit_ladder` da
-    // factor 20.0000, `ambiguo=false`, 223 renglones, 8 sucursales, $410,403.40. Leer sólo 'CJA'
-    // respondía "el ERP no declara esa presentación", que era falso.
-    //
-    // ⚠️ La fuente es `analytics.v_label_presentations` —la MISMA vista que ya resolvía la CJA—,
-    // no una relectura de las ranuras de `kdii`. No es cosmético: medido el 2026-10-01, las
-    // ranuras NO reproducen la vista (37 factores y 28 precios distintos sobre 75,397 comunes, y
-    // 138 CJA que la vista ve y la ranura no), y la vista rellena 182 filas donde `v_label_prices`
-    // no trae `box_*`. Una segunda derivación a mano se habría separado de la primera en silencio.
-    //
-    // Prioridad CJA → BTO/CUB; sólo rótulos conocidos (`500`, `250`, `IND`… son unidad
-    // desconocida, UNIDADES_DE_MEDIDA §7.6). El criterio de la CJA queda EXACTAMENTE como estaba
-    // (precio o factor declarado) para no mover el 99% del catálogo; a BTO/CUB se les exige
-    // además `factor > 1` y precio, porque con factor 1 el rótulo es la unidad BASE del producto
-    // y no una presentación mayor (13 SKUs: `15143` nace `BTO` de 1). Efecto medido:
-    // **1,510 filas ganan peldaño `box`, 0 lo pierden**.
-    //
-    // ⚠️ Costo: la vista no empuja el filtro (seq scan de 84k `kdii` + 379k `kdpv_prod_util`),
-    // ~3.6 s por SKU. Es el costo que `ladder` YA pagaba por la CJA — acá se paga UNA vez en vez
-    // de dos. Queda DECLARADO como deuda, no resuelto: está sobre el gate de 1 s.
-    let boxLabel: string | null = null;
-    const mayorRes = await knex.raw(
-      `SELECT upper(btrim(unidad)) AS unidad, factor, precio_lista, mayoreo_precio, mayoreo_desde
-         FROM analytics.v_label_presentations
-        WHERE sucursal = :branch AND sku = :sku
-          AND ( (upper(btrim(unidad)) = 'CJA' AND (precio_lista IS NOT NULL OR factor IS NOT NULL))
-             OR (upper(btrim(unidad)) IN ('BTO', 'CUB') AND factor > 1 AND precio_lista IS NOT NULL) )
-        ORDER BY CASE WHEN upper(btrim(unidad)) = 'CJA' THEN 0 ELSE 1 END, factor DESC NULLS LAST
-        LIMIT 1`,
-      { branch, sku },
-    );
-    if (mayorRes.rows.length) {
-      const m = mayorRes.rows[0];
-      boxLabel = m.unidad;
-      if (m.unidad === 'CJA') {
-        if (boxPrice === null && m.precio_lista !== null) boxPrice = num(m.precio_lista);
-        if (boxSize === null && m.factor !== null) boxSize = num(m.factor);
-      } else {
-        // Otra unidad mayor: el precio y el factor son los SUYOS. No se heredan los de
-        // `v_label_prices`, que son de la caja: pegarle el precio de una presentación al factor
-        // de otra es el error de unidad que este proyecto ya pagó (ADR-055).
-        boxPrice = num(m.precio_lista);
-        boxSize = num(m.factor);
+      let boxVolume: { min_qty: number; price: number } | null = null;
+      let boxPrice = num(p.box_price);
+      let boxSize = num(p.box_size);
+      let boxLabel: string | null = null;
+
+      const m = mayorBySku.get(sku);
+      if (m) {
+        boxLabel = m.unidad;
+        if (m.unidad === 'CJA') {
+          if (boxPrice === null && m.precio_lista !== null) boxPrice = num(m.precio_lista);
+          if (boxSize === null && m.factor !== null) boxSize = num(m.factor);
+        } else {
+          // Otra unidad mayor: el precio y el factor son los SUYOS. No se heredan los de
+          // v_label_prices, que son de la caja: pegarle el precio de una presentación al factor
+          // de otra es el error de unidad que este proyecto ya pagó (ADR-055).
+          boxPrice = num(m.precio_lista);
+          boxSize = num(m.factor);
+        }
+        if (m.mayoreo_desde && m.mayoreo_precio) {
+          boxVolume = volumeOf(m.mayoreo_desde, m.mayoreo_precio);
+        }
       }
-      if (m.mayoreo_desde && m.mayoreo_precio) {
-        boxVolume = volumeOf(m.mayoreo_desde, m.mayoreo_precio);
+      if (boxLabel === null && (boxPrice !== null || boxSize !== null)) boxLabel = 'CJA';
+
+      if (!boxVolume && boxPrice !== null) {
+        const k = kdpvByKey.get(sku + '|' + (boxLabel ?? 'CJA'));
+        if (k) boxVolume = volumeOf(k.min_qty, k.price);
       }
+
+      out.set(sku, {
+        name: p.name ?? null,
+        unit_base: p.unit_base ?? null,
+        rungs: {
+          base: {
+            rung: 'base',
+            label: p.unit_base ?? null,
+            price: num(p.piece_price),
+            size: 1,
+            volume: baseIsGrouped
+              ? volumeOf(p.wholesale_pack_min_qty, p.wholesale_pack_price)
+              : volumeOf(p.wholesale_piece_min_qty, p.wholesale_piece_price),
+          },
+          pack: {
+            rung: 'pack',
+            label: p.pack_size ? 'PAQ' : null,
+            price: num(p.pack_price),
+            size: num(p.pack_size),
+            // El volumen de PAQ sólo está publicado aparte cuando la base es PZA.
+            volume: base === 'PZA' ? volumeOf(p.wholesale_pack_min_qty, p.wholesale_pack_price) : null,
+          },
+          box: {
+            rung: 'box',
+            label: boxLabel ?? ((boxSize || p.box_size) ? 'CJA' : null),
+            price: boxPrice,
+            size: boxSize,
+            volume: boxVolume,
+          },
+        },
+      });
     }
-    if (boxLabel === null && (boxPrice !== null || boxSize !== null)) boxLabel = 'CJA';
-
-    if (!boxVolume && boxPrice !== null) {
-      const kdpvRes = await knex.raw(
-        `SELECT u.c7::numeric AS price, floor(u.c4::numeric)::int AS min_qty
-           FROM kepler_ods.kdpv_prod_util u
-          WHERE u.sucursal = :branch AND u.c1 = :sku
-            AND upper(btrim(u.c2::text)) = :unidad
-            AND u.c7::numeric > 0 AND floor(u.c4::numeric)::int > 1
-          ORDER BY floor(u.c4::numeric)::int ASC, u.c7::numeric ASC
-          LIMIT 1`,
-        { branch, sku, unidad: boxLabel ?? 'CJA' },
-      );
-      if (kdpvRes.rows.length) {
-        boxVolume = volumeOf(kdpvRes.rows[0].min_qty, kdpvRes.rows[0].price);
-      }
-    }
-
-    return {
-      name: p.name ?? null,
-      unit_base: p.unit_base ?? null,
-      rungs: {
-        base: {
-          rung: 'base',
-          label: p.unit_base ?? null,
-          price: num(p.piece_price),
-          size: 1,
-          volume: baseIsGrouped
-            ? volumeOf(p.wholesale_pack_min_qty, p.wholesale_pack_price)
-            : volumeOf(p.wholesale_piece_min_qty, p.wholesale_piece_price),
-        },
-        pack: {
-          rung: 'pack',
-          label: p.pack_size ? 'PAQ' : null,
-          price: num(p.pack_price),
-          size: num(p.pack_size),
-          // El volumen de PAQ sólo está publicado aparte cuando la base es PZA.
-          volume: base === 'PZA' ? volumeOf(p.wholesale_pack_min_qty, p.wholesale_pack_price) : null,
-        },
-        box: {
-          rung: 'box',
-          label: boxLabel ?? ((boxSize || p.box_size) ? 'CJA' : null),
-          price: boxPrice,
-          size: boxSize,
-          volume: boxVolume,
-        },
-      },
-    };
+    return out;
   }
 
   // ───────────────────────────────────────────────────────────────────────────────────────────
