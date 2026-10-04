@@ -431,6 +431,10 @@ export class SupplierPaymentProofsService {
           trx.raw('ocr_monto::numeric AS ocr_monto'), trx.raw(`to_char(ocr_fecha, 'YYYY-MM-DD') AS ocr_fecha`),
           'ocr_cuenta_origen', 'ocr_ordenante', trx.raw('pago_monto::numeric AS pago_monto'));
       let validados = 0;
+      // [PC.7] La alerta «cuenta ajena» también se recalcula con la regla vigente (BanBajío lee la
+      // cuenta en el CENTRO). Sin migración: con la lectura vieja (sólo «0201») no hay cuenta que
+      // reconocer, y eso sigue saliendo como no verificable/ajena hasta que se relea el comprobante.
+      const tails = await this.ownBankTails(trx);
       for (const p of pendientes) {
         const refDuplicada = p.ref_norm
           ? !!(await trx('finance.supplier_payment_proofs').where('ref_norm', p.ref_norm).whereNot('status', 'rechazado')
@@ -444,6 +448,7 @@ export class SupplierPaymentProofsService {
         });
         await trx('finance.supplier_payment_proofs').where({ id: p.id, status: 'recibido' }).update({
           coincidencias: JSON.stringify(auto.coincidencias), updated_at: trx.fn.now(),
+          cuenta_propia: this.isOwnAccount(p.ocr_cuenta_origen, tails),
           ...(auto.validar ? { status: 'validado', auto_validado: true, validated_by: VALIDADOR_AUTOMATICO, validated_at: trx.fn.now() } : {}),
         });
         if (auto.validar) {

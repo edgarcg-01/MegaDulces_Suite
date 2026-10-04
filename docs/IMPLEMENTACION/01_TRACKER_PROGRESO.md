@@ -3684,10 +3684,17 @@ la IA propone, **nada se guarda sin el clic de «Guardar»**.
   como clave — lo encontró la prueba negativa). Además, con la clave de Kepler presente se compara SÓLO
   contra ella: la etiqueta de Bancos del Bajío es de 3 dígitos (`854`, `506`) y aceptaría otra cuenta que
   termine igual. El servidor usa la misma regla en `isOwnAccount`, `findOwnAccountId` y la decisión de
-  PC.6. Migración **`20261004130000`**: corrige a `cuenta_propia = true` los comprobantes del Bajío ya
-  guardados (sólo `false → true`, sólo 12 dígitos que calzan con una cuenta Bajío propia; idempotente).
-  Pruebas: contrato **27** (con los números reales y 6 negativos), `cuenta-bajio.spec.ts` **4** (con
-  prueba negativa), smoke `test-newdb-pc7-cuenta-propia-bajio.js` **7/7** con rollback.
+  PC.6. ⛔ **La causa raíz estaba en el OCR**: la instrucción a la IA (`extract_supplier_payment`, en
+  `platform-core/.../llm-extractor.service.ts`) pedía *«si es larga, los últimos 4 dígitos»* — en el Bajío
+  eso es `0201` en TODAS las cuentas, o sea que la lectura guardaba `0201` y ninguna regla podía saber de
+  qué cuenta salió el pago. Ahora pide el número **COMPLETO** (origen y destino), con el Bajío como ejemplo
+  y prohibido recortar. **Sin migración**: lo ya guardado en prod casi seguramente es `0201` y no hay cuenta
+  que reconocer; «Volver a comparar» recalcula `cuenta_propia` con la regla vigente para lo que sí traiga
+  el número completo. **Pendiente:** releer en el servidor los comprobantes viejos del Bajío (el PDF está en
+  el bucket) para recuperar el número completo. De paso: 3 escapes inútiles en `llm-extractor.service.ts`
+  que ponían rojo su lint (preexistentes; el CI los iba a ver al tocar el archivo).
+  Pruebas: contrato **27** (con los números reales y 6 negativos), `cuenta-bajio.spec.ts` **8** (incluye
+  que la instrucción del OCR no vuelva a pedir «últimos 4»; dos pruebas negativas).
 
 **Pendiente:** ⚠️ **medir en prod si la vista `analytics.erp_supplier_payments` ve los pagos
 posteriores al 1-oct** — sigue anclada al `00` (Fase PO). Si no los ve, la captura por lote dirá
