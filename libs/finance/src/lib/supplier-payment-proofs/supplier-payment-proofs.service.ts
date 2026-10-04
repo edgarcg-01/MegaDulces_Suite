@@ -435,6 +435,12 @@ export class SupplierPaymentProofsService {
    * pago de Kepler que le corresponde. El `concepto` (folio de factura "F 451") casa
    * contra el `concepto` del pago; el monto es la señal fuerte. Prioriza sin comprobante.
    */
+  /**
+   * `[PC.5]` Cada candidato trae también su BANCO (`clave_banco`, `banco_nombre`, `account_label`)
+   * para que la pantalla compare banco · fecha · monto · proveedor contra lo que leyó la IA. La
+   * búsqueda sigue siendo amplia (±$1, ±7 días): encontrar candidatos no es lo mismo que darlos
+   * por buenos — eso lo decide la regla `clasificar` de la pantalla, con coincidencia exacta.
+   */
   async matchPaymentsByOcr(q: { monto?: number; fecha?: string; concepto?: string; limit?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const target = q.monto != null ? Number(q.monto) : NaN;
@@ -448,11 +454,25 @@ export class SupplierPaymentProofsService {
         .groupBy('sucursal', 'doc_prefix', 'folio').as('d');
       const b = trx('analytics.erp_supplier_payments as c')
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.doc_prefix', 'd.doc_prefix').andOn('c.folio', 'd.folio'); })
+        // [PC.5] El BANCO del pago: de qué cuenta propia salió, según Kepler (`kdm1.c45` ⋈ `kdb1`).
+        // Se lee de la vista canónica de tesorería, no de `kdm1` a mano. El doc_tipo de la vista es
+        // `X-D-26`; el `doc_prefix` del pago es `XD2601` → letra-letra-número. LATERAL + LIMIT 1:
+        // la vista sólo se consulta para los pagos que ya pasaron el filtro de monto, nunca entera.
+        .joinRaw(`LEFT JOIN LATERAL (
+            SELECT m.clave_banco, m.banco_nombre, m.account_label
+              FROM analytics.kepler_bank_movements m
+             WHERE m.tenant_id = c.tenant_id AND m.sucursal = c.sucursal AND m.folio = c.folio
+               AND m.doc_tipo = substr(c.doc_prefix, 1, 1) || '-' || substr(c.doc_prefix, 2, 1) || '-' || substr(c.doc_prefix, 3, 2)
+               AND m.flujo = 'salida'
+             LIMIT 1) kb ON true`)
         .where('c.tenant_id', tenantId)
         .whereRaw('c.monto BETWEEN ? AND ?', [target - BANK_TOL, target + BANK_TOL])
         .select('c.sucursal', 'c.folio', 'c.doc_prefix', 'c.metodo_pago', 'c.pago_date', 'c.proveedor_code',
           'c.proveedor_nombre', 'c.proveedor_rfc', 'c.concepto', trx.raw('c.monto::numeric AS monto'),
-          trx.raw('COALESCE(d.n,0)::int AS deposits'))
+          trx.raw('COALESCE(d.n,0)::int AS deposits'),
+          // El día como texto: un `date` de pg llega como Date en UTC y se corre un día (LC.16).
+          trx.raw(`to_char(c.pago_date, 'YYYY-MM-DD') AS pago_dia`),
+          'kb.clave_banco', 'kb.banco_nombre', 'kb.account_label')
         .orderByRaw('COALESCE(d.n,0) ASC')
         .orderBy('c.pago_date', 'desc')
         .limit(limit);

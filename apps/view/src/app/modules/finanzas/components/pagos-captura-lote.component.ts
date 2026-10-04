@@ -5,7 +5,9 @@ import { firstValueFrom } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { PagosComprobantesService, DepositOcr, PagoCandidate, ProofFile } from '../pagos-comprobantes.service';
-import { Clasificacion, clasificar, llavePago, pagosRepetidos, textoMotivo } from '../pagos-captura-lote';
+import { CRITERIOS, Clasificacion, Chequeo, ETIQUETA_CRITERIO, clasificar, coincidencias, llavePago, pagosRepetidos, textoMotivo } from '../pagos-captura-lote';
+
+type Criterio = (typeof CRITERIOS)[number];
 
 /** Cuántos comprobantes se leen a la vez (OCR + búsqueda). Más satura el modelo sin acelerar. */
 const EN_PARALELO = 3;
@@ -129,6 +131,8 @@ export interface FilaLote {
               @if (f.ocr; as o) {
                 <span class="pl-monto">{{ o.monto != null ? money(o.monto) : 'sin monto' }}</span>
                 <span class="pl-sub">{{ o.fecha || 'sin fecha' }}@if (o.concepto) { · {{ o.concepto }} }</span>
+                <span class="pl-sub">{{ o.beneficiario || 'sin beneficiario' }}</span>
+                <span class="pl-sub mono">Cta. origen {{ o.cuenta_origen || '—' }}</span>
                 @if (o.ocr_status === 'sin_key') { <span class="pl-sub bad">OCR no disponible</span> }
               } @else if (f.fase !== 'duplicado' && f.fase !== 'error') { <span class="pl-sub">—</span> }
             </div>
@@ -147,7 +151,8 @@ export interface FilaLote {
                 @if (f.elegido; as p) {
                   <div class="pl-elegido">
                     <span class="pl-pk"><span class="mono">{{ llave(p) }}</span> · {{ p.proveedor_nombre || p.proveedor_code || '—' }}</span>
-                    <span class="pl-sub">{{ p.pago_date | date:'dd/MM/yy' }} · {{ money(p.monto) }}@if (p.concepto) { · {{ p.concepto }} }</span>
+                    <span class="pl-sub">{{ p.pago_date | date:'dd/MM/yy' }} · {{ money(p.monto) }}@if (p.banco_nombre) { · {{ p.banco_nombre }} }@if (p.concepto) { · {{ p.concepto }} }</span>
+                    <ng-container *ngTemplateOutlet="chips; context: { $implicit: f, p: p }" />
                     <span class="pl-motivo" [attr.data-conf]="f.clasif?.confianza">
                       @if (f.clasif?.propuesto === p) { {{ motivo(f) }} } @else { Elegido por ti }
                       @if (repetidos().has(llave(p))) { · <strong class="bad">otro comprobante del lote va a este mismo pago</strong> }
@@ -161,7 +166,8 @@ export interface FilaLote {
                       <button type="button" class="pl-cand" role="listitem" (click)="elegir(f.id, c)">
                         <span class="mono">{{ llave(c) }}</span>
                         <span class="pl-cand-p">{{ c.proveedor_nombre || c.proveedor_code || '—' }}</span>
-                        <span class="pl-sub">{{ c.pago_date | date:'dd/MM/yy' }} · {{ money(c.monto) }}@if (c.concepto_match) { · <em class="ok">factura coincide</em> }@if (c.deposits > 0) { · <em class="warn">ya tiene comprobante</em> }</span>
+                        <span class="pl-sub">{{ c.pago_date | date:'dd/MM/yy' }} · {{ money(c.monto) }}@if (c.banco_nombre) { · {{ c.banco_nombre }} }@if (c.concepto_match) { · <em class="ok">factura coincide</em> }@if (c.deposits > 0) { · <em class="warn">ya tiene comprobante</em> }</span>
+                        <ng-container *ngTemplateOutlet="chips; context: { $implicit: f, p: c }" />
                       </button>
                     }
                   </div>
@@ -196,6 +202,19 @@ export interface FilaLote {
         }
       </section>
     }
+
+    <!-- [PC.5] Las cuatro coincidencias exactas: banco · fecha · monto · proveedor -->
+    <ng-template #chips let-f let-p="p">
+      <span class="pl-c4">
+        @for (k of criterios; track k) {
+          @let v = chequeo(f, p, k);
+          <span class="pl-c" [attr.data-v]="v" [title]="detalle(f, p, k)">
+            <i class="pi" [ngClass]="v === 'ok' ? 'pi-check' : v === 'difiere' ? 'pi-times' : 'pi-question'" aria-hidden="true"></i>
+            {{ etiqueta[k] }}<span class="sr-only">: {{ v === 'ok' ? 'coincide' : v === 'difiere' ? 'no coincide' : 'no se pudo leer' }}</span>
+          </span>
+        }
+      </span>
+    </ng-template>
   `,
   styles: [`
     :host { display: block; margin-bottom: 1rem; }
@@ -263,6 +282,14 @@ export interface FilaLote {
     .pl-search input { flex: 1 1 auto; font-size: .82rem; }
     .pl-tags { display: flex; gap: .35rem; flex-wrap: wrap; }
     .pl-tag { font-size: .72rem; padding: .1rem .45rem; border-radius: var(--r-sm, .4rem); border: 1px solid currentColor; }
+    .pl-c4 { display: flex; gap: .3rem; flex-wrap: wrap; }
+    .pl-c { display: inline-flex; align-items: center; gap: .25rem; font-size: .7rem; font-weight: 600; padding: .05rem .4rem;
+      border-radius: var(--r-sm, .4rem); border: 1px solid currentColor; }
+    .pl-c .pi { font-size: .6rem; }
+    .pl-c[data-v="ok"] { color: var(--ok-fg); }
+    .pl-c[data-v="difiere"] { color: var(--bad-fg); }
+    .pl-c[data-v="sin_dato"] { color: var(--warn-fg); border-style: dashed; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .pl-x { display: flex; justify-content: center; }
     .pl-xbtn { border: 0; background: none; color: var(--fg-3); cursor: pointer; padding: .2rem .3rem; border-radius: var(--r-sm, .4rem); }
     .pl-xbtn:hover { color: var(--bad-fg); background: var(--hover-bg); }
@@ -314,6 +341,23 @@ export class PagosCapturaLoteComponent {
   });
 
   llave(c: PagoCandidate): string { return llavePago(c); }
+
+  readonly criterios = CRITERIOS;
+  readonly etiqueta = ETIQUETA_CRITERIO;
+  chequeo(f: FilaLote, p: PagoCandidate, k: Criterio): Chequeo {
+    return f.ocr ? coincidencias(f.ocr, p)[k] : 'sin_dato';
+  }
+  /** Qué dice cada lado, para el tooltip de la marca. */
+  detalle(f: FilaLote, p: PagoCandidate, k: Criterio): string {
+    const o = f.ocr;
+    const lado = (a: string | null | undefined, b: string | null | undefined) => `Comprobante: ${a || 'no se leyó'} · Kepler: ${b || 'sin dato'}`;
+    switch (k) {
+      case 'banco': return lado(o?.cuenta_origen, p.banco_nombre || p.clave_banco);
+      case 'fecha': return lado(o?.fecha, p.pago_dia || (p.pago_date || '').slice(0, 10));
+      case 'monto': return lado(o?.monto != null ? this.money(o.monto) : null, this.money(p.monto));
+      case 'proveedor': return lado(o?.beneficiario, p.proveedor_nombre);
+    }
+  }
   motivo(f: FilaLote): string { return f.clasif ? textoMotivo(f.clasif.motivo) : ''; }
   money(v: number | string | null | undefined): string {
     return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });

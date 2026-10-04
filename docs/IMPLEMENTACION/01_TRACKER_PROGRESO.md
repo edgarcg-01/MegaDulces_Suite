@@ -3605,7 +3605,7 @@ lo alimente, es lo que dejó el módulo muerto.
 **antes** del redeploy (si el código sale primero, «Mis gastos» consulta una columna que no existe) ·
 redeploy api+view. **Sin permisos nuevos → sin re-login.**
 
-### 🔨 [PC.3] + [PC.4] · Pagos a proveedor: captura por lote con IA, y nadie valida su propio comprobante — 2026-10-03
+### 🔨 [PC.3] + [PC.4] + [PC.5] · Pagos a proveedor: captura por lote con IA, cuatro coincidencias exactas, y nadie valida su propio comprobante — 2026-10-03
 
 En `/finanzas/pagos-comprobantes`, el botón «Capturar comprobante» (un diálogo por PDF) se reemplaza
 por una **zona de carga en la página que acepta varios PDFs a la vez**. Acordado con el usuario:
@@ -3632,6 +3632,22 @@ la IA propone, **nada se guarda sin el clic de «Guardar»**.
   rechazado sale del control de clave de rastreo repetida, así que rechazarse el propio escondería
   la alerta. La pantalla ahora muestra el motivo del servidor en vez de «Error al validar».
   Pruebas: `dueno-no-valida.spec.ts` **9**, con prueba negativa (sin la guarda en `validate()` → rojo).
+
+- [x] **[PC.5]** 🧪 **«Listo» sólo con las cuatro coincidencias exactas: banco, fecha, monto y
+  proveedor** (pedido del usuario; reemplaza el criterio de PC.3 «factura del concepto o fecha a ±3
+  días»). **Banco** = la cuenta de origen del comprobante es la cuenta de la que Kepler dice que salió
+  el pago — `match-pago` ahora trae `clave_banco`/`banco_nombre`/`account_label` por candidato con un
+  `LEFT JOIN LATERAL` a `analytics.kepler_bank_movements` (`kdm1.c45` ⋈ `kdb1`, la vista canónica de
+  tesorería); la CLABE se compara también sin su dígito verificador. **Fecha** = el mismo día
+  (`pago_dia` como texto, para que no se corra por UTC). **Monto** = al centavo (el servidor sigue
+  buscando con ±$1: encontrar no es dar por bueno). **Proveedor** = nombre normalizado (sin acentos,
+  puntuación ni sufijo societario) igual, con la única tolerancia del truncado del SPEI (≥ 8 letras).
+  ⛔ Lo que la IA no leyó **no cuenta** como coincidencia. Si falla cualquiera → «revisar», y la fila
+  marca cuál. Dos pagos del mismo monto donde sólo uno salió de ese banco → «listo» ese. La pantalla
+  muestra las 4 marcas con lo que dice cada lado. Pruebas: `pagos-captura-lote.spec.ts` **34**. SQL
+  validado contra el esquema local (0 filas: local no tiene pagos). ⚠️ **No medido con datos reales:**
+  si Kepler fecha el pago (`c9`) un día distinto al del SPEI, casi nada saldrá «listo» — medirlo en
+  prod antes de dar el criterio por bueno.
 
 **Pendiente:** ⚠️ **medir en prod si la vista `analytics.erp_supplier_payments` ve los pagos
 posteriores al 1-oct** — sigue anclada al `00` (Fase PO). Si no los ve, la captura por lote dirá

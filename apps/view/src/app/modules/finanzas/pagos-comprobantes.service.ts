@@ -102,6 +102,10 @@ export interface PagoCandidate {
   pago_date: string | null; proveedor_code: string | null; proveedor_nombre: string | null;
   proveedor_rfc: string | null; concepto: string | null; monto: number;
   deposits: number; concepto_match?: boolean;
+  /** `[PC.5]` El día del pago como texto `YYYY-MM-DD` (no se corre por zona horaria). */
+  pago_dia?: string | null;
+  /** `[PC.5]` Cuenta propia de la que salió el pago según Kepler (`kdm1.c45` ⋈ `kdb1`). */
+  clave_banco?: string | null; banco_nombre?: string | null; account_label?: string | null;
 }
 
 /** Nota de crédito / devolución de compra (X-D-55/X-D-40) que explica el delta factura vs pago. */
