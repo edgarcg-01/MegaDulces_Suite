@@ -65,10 +65,10 @@ const ESTADO_LABEL: Record<string, string> = {
 
       <div class="hist-barra">
         @if (puedeVerTodos()) {
-          <div class="hist-seg" role="tablist" aria-label="Qué historial">
-            <button type="button" role="tab" [attr.aria-selected]="ambito() === 'mios'"
+          <div class="hist-seg" role="radiogroup" aria-label="Qué historial">
+            <button type="button" role="radio" [attr.aria-checked]="ambito() === 'mios'"
                     [class.on]="ambito() === 'mios'" (click)="cambiar('mios')">Míos</button>
-            <button type="button" role="tab" [attr.aria-selected]="ambito() === 'todos'"
+            <button type="button" role="radio" [attr.aria-checked]="ambito() === 'todos'"
                     [class.on]="ambito() === 'todos'" (click)="cambiar('todos')">Todos</button>
           </div>
         }

@@ -163,10 +163,10 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
           universo -- leerlo como total es la trampa que GX.35 ya cobro una vez aca.
         -->
         @if (hayEtapas()) {
-        <div class="mg-etapas" role="tablist" aria-label="Etapa del gasto">
+        <div class="mg-etapas" role="radiogroup" aria-label="Etapa del gasto">
           @for (s of secciones(); track s.id) {
-            <button type="button" role="tab" class="mg-etapa"
-                    [class.on]="seccion() === s.id" [attr.aria-selected]="seccion() === s.id"
+            <button type="button" role="radio" class="mg-etapa"
+                    [class.on]="seccion() === s.id" [attr.aria-checked]="seccion() === s.id"
                     (click)="seccion.set(s.id)">
               {{ s.label }} <span class="mg-etapa-n">{{ s.n }}</span>
             </button>

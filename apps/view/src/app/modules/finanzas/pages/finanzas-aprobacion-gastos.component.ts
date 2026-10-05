@@ -158,10 +158,10 @@ const ESTADO_LABEL: Record<string, string> = {
         }
 
         <!-- ── Las tres pestañas ────────────────────────────────────────────────── -->
-        <div class="ap-tabs" role="tablist">
+        <div class="ap-tabs" role="radiogroup">
           @for (t of tabs; track t.id) {
-            <button type="button" role="tab" class="ap-tab" [class.on]="pestana() === t.id"
-                    [attr.aria-selected]="pestana() === t.id" (click)="verPestana(t.id)">
+            <button type="button" role="radio" class="ap-tab" [class.on]="pestana() === t.id"
+                    [attr.aria-checked]="pestana() === t.id" (click)="verPestana(t.id)">
               <span class="ap-tab-t">{{ t.label }}</span>
               <span class="ap-tab-n">{{ conteo(t.id).n }}</span>
               <span class="ap-tab-m">{{ money(conteo(t.id).monto) }}</span>

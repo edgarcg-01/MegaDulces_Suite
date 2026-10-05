@@ -146,10 +146,10 @@ type Vista = '' | 'pieza' | 'mayoreo' | 'unidad';
       </div>
 
       <!-- Las vistas a la vista, con su conteo: se elige sabiendo cuánto hay detrás. -->
-      <div class="pg-seg" role="tablist" aria-label="Qué mirar">
+      <div class="pg-seg" role="radiogroup" aria-label="Qué mirar">
         @for (v of vistas; track v.value) {
-          <button type="button" role="tab" class="pg-seg-btn" [class.pg-seg-on]="vista() === v.value"
-                  [attr.aria-selected]="vista() === v.value" (click)="vista.set(v.value)">
+          <button type="button" role="radio" class="pg-seg-btn" [class.pg-seg-on]="vista() === v.value"
+                  [attr.aria-checked]="vista() === v.value" (click)="vista.set(v.value)">
             <span>{{ v.label }}</span>
             <span class="pg-seg-n">{{ conteo(v.value) | number }}</span>
           </button>

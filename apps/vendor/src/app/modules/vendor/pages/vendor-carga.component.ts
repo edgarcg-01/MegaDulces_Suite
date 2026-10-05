@@ -94,9 +94,9 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
       @if (orders().length > 0) {
         <!-- Chips por día de entrega: el vendedor navega "qué lleva" por fecha -->
         @if (dayGroups().length > 1) {
-          <div class="days" role="tablist" aria-label="Día de entrega">
+          <div class="days" role="radiogroup" aria-label="Día de entrega">
             @for (g of dayGroups(); track g.iso) {
-              <button type="button" role="tab" [attr.aria-selected]="selectedIso() === g.iso" class="daychip" [class.on]="selectedIso() === g.iso" (click)="selectDay(g.iso)">
+              <button type="button" role="radio" [attr.aria-checked]="selectedIso() === g.iso" class="daychip" [class.on]="selectedIso() === g.iso" (click)="selectDay(g.iso)">
                 {{ g.label }} <span class="cnt">{{ g.count }}</span>
               </button>
             }
@@ -129,11 +129,11 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
           </div>
         </div>
         <!-- Toggle de vista -->
-        <div class="seg" role="tablist" aria-label="Vista de carga">
-          <button type="button" role="tab" [attr.aria-selected]="view() === 'orders'" [class.on]="view() === 'orders'" (click)="view.set('orders')">
+        <div class="seg" role="radiogroup" aria-label="Vista de carga">
+          <button type="button" role="radio" [attr.aria-checked]="view() === 'orders'" [class.on]="view() === 'orders'" (click)="view.set('orders')">
             <i class="pi pi-list"></i> Por pedido
           </button>
-          <button type="button" role="tab" [attr.aria-selected]="view() === 'products'" [class.on]="view() === 'products'" (click)="view.set('products')">
+          <button type="button" role="radio" [attr.aria-checked]="view() === 'products'" [class.on]="view() === 'products'" (click)="view.set('products')">
             <i class="pi pi-box"></i> Productos
           </button>
         </div>

@@ -148,7 +148,7 @@ interface OfferCard {
           <nav
             class="pp-chip-rail"
             aria-label="Filtrar por tipo de promoción"
-            role="tablist"
+            role="radiogroup"
             >
             @for (f of filters; track trackByFilter($index, f)) {
               <button
@@ -156,8 +156,8 @@ interface OfferCard {
                 class="pp-chip"
                 [class.active]="filter() === f.key"
                 (click)="setFilter(f.key)"
-                role="tab"
-                [attr.aria-selected]="filter() === f.key"
+                role="radio"
+                [attr.aria-checked]="filter() === f.key"
                 >
                 {{ f.label }}
                 @if (f.count > 0) {
