@@ -88,6 +88,7 @@ export * from './finance/vale-asignado.contract';
 export * from './finance/protocolo-gasto.contract';
 // `[GX.65.4a]` Nadie decide sobre su propio vale: la regla la leen servidor y pantalla.
 export * from './finance/dueno-del-vale.contract';
+export * from './finance/ver-expediente.contract';
 // [PC.5]/[PC.6] las cuatro coincidencias comprobante↔pago (banco, fecha, monto, proveedor)
 export * from './finance/coincidencia-pago.contract';
 

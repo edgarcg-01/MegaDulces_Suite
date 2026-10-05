@@ -1,3 +1,4 @@
+import type { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, model, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -342,8 +343,25 @@ export class ExpenseEvidencePeekComponent {
     this.errorMsg.set(null);
     this.svc.detail(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.proof.set(d); this.buildDocs(d.files || []); this.loading.set(false); },
-      error: () => {
+      /**
+       * `[GX.68]` **Un permiso denegado NO es un problema de conexión.**
+       *
+       * Acá había UN mensaje para todo: «Puede ser la conexión — reintentá». Sobre un 403 eso
+       * es falso dos veces: dice una causa que no es, y manda a repetir algo que no se arregla
+       * repitiéndolo. Es la lección de `[GX.37]`, que el repo ya aplica del lado del
+       * almacenamiento (`motivoDeAlmacenamiento`) y que acá faltaba.
+       *
+       * El 403 lo trae el servidor con su motivo (`[GX.68]`: el vale es ajeno); se muestra ESE,
+       * no uno inventado en la pantalla, para que no se separen.
+       */
+      error: (e: HttpErrorResponse) => {
         this.loading.set(false);
+        if (e?.status === 403) {
+          this.errorMsg.set(String(e.error?.message || 'No tenés permiso para abrir este expediente.'));
+          return;
+        }
+        // 404 tampoco es la conexión: el expediente no está, y reintentar no lo va a traer.
+        if (e?.status === 404) { this.errorMsg.set('Este expediente ya no está.'); return; }
         this.errorMsg.set('No se pudo traer el expediente. Puede ser la conexión — reintentá.');
       },
     });
