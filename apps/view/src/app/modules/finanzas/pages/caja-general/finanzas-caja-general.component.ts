@@ -195,6 +195,9 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
        texto de .78rem al 62% no pasa AA. Se atenua la fila y se EXCLUYE el motivo. */
     .cg-trabada { opacity:.78; }
     .cg-trabada .fin-hint-warn { opacity:1; }
+    /* [CG.33] Misma exclusion para la marca nueva: con el .78 de la fila, --text-muted cae a
+       4.10 y deja de pasar AA. Medido en vivo, no estimado. */
+    .cg-trabada .cg-motivo { opacity:1; }
     .cg-contado { width:7.5rem; text-align:right; font-variant-numeric:tabular-nums; }
     .cg-rezago { margin:.5rem 0 0; font-size:var(--fs-xs); }
     /* El control principal de la bandeja es marcar fila por fila: un checkbox de 13px es el
@@ -266,20 +269,35 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-rec .cg-tbl td { vertical-align:top; }
     .cg-cv { font-size:var(--fs-xs); color:var(--text-soft); }
     .cg-cv-fijo { color:var(--ok-fg, var(--action)); font-weight:600; }
-    .cg-sub-dim { opacity:.62; font-size:var(--fs-xs); margin-top:.15rem; }
-    /* [CG.33] EL RESUMEN agrupado: el porque, UNA vez, con su conteo.
-       La fila conserva la clase fin-hint-warn -- probe cambiarla a gris atenuado y rompia AA:
-       dos lineas mas abajo esta la nota de que cg-trabada atenua al 78% y EXCLUYE al motivo a
-       proposito, "que es justo lo que hay que poder leer". Lo que hacia el muro no era el color:
-       era repetir 85 veces una frase de 80 caracteres. Se acorta el texto, no se apaga la senal.
-       El texto largo NO vive en un title: un tooltip no se alcanza por teclado (checklist 11),
+    /* ⛔ [CG.34] LOS DOS SUBTITULOS SALIAN PEGADOS: "...de esta jornada2,777 conceptos de 2,954".
+       La causa NO estaba en el HTML -- son dos <p> hermanos, correctos-- ni en esta clase:
+       .surf-page-sub (styles.css) declara display:inline-flex, pensada para UN subtitulo que
+       lleva chips en linea (de ahi su gap y su flex-wrap). Apilar DOS cae en el mismo renglon.
+       Medido: de todo apps/view, esta es la UNICA pantalla que apila dos. No es un bug del
+       sistema, es un mal uso local -- asi que se corrige aca y NO se toca la clase compartida.
+       ⚠️ La primera busqueda concluyo "no tiene display" habiendo leido 5 lineas de una regla
+       de 9. Leer media regla y concluir sobre el todo. */
+    .cg-sub-dim { display:block; opacity:.62; font-size:var(--fs-xs); margin-top:.15rem; }
+    /* [CG.33] EL RESUMEN agrupado + la marca del motivo. MEDIDO EN EL DOM VIVO de prod, no
+       razonado: el contraste de cada candidato sobre el fondo real (rgb 244,244,245), a 12px,
+       contra el piso AA de 4.5 --
+         --warn-fg    1.95  FALLA   (y al 78% de cg-trabada: 1.70)
+         --text-muted 7.03  pasa    (al 78%: 4.10, FALLA)
+         --text-main 18.10  pasa    (al 78%: 9.87, pasa)
+       ⛔ O sea que el naranja que la fila usaba NUNCA paso AA: el comentario de abajo ataco la
+       OPACIDAD (sintoma) y no el COLOR (causa), y yo lo di por bueno sin medirlo. Por eso el
+       motivo va en --text-muted Y excluido de la atenuacion: 7.03, legible, sin muro naranja.
+       La cifra del resumen va en --text-main (18.10) porque es el dato que hay que leer.
+       Lo que hacia el muro tampoco era el color: era repetir 85 veces una frase de 80
+       caracteres. El texto largo NO vive en un title -- no se alcanza por teclado (checklist 11)
        y DESIGN.md lo lista como antipatron explicito de Operations. */
+    .cg-motivo { font-size:var(--fs-xs); color:var(--text-muted); }
     .cg-motivos-res { list-style:none; margin:.1rem 0 .6rem; padding:0;
       display:flex; flex-direction:column; gap:.15rem; font-size:var(--fs-xs); }
     .cg-motivos-res li { display:flex; align-items:baseline; gap:.4rem; flex-wrap:wrap; }
     /* Cifra = Geist mono tabular (checklist 4: toda cifra, sin excepcion). */
     .cg-motivos-n { font-family:var(--font-mono); font-variant-numeric:tabular-nums;
-      color:var(--warn-fg); min-width:2.5ch; text-align:right; }
+      color:var(--text-main); min-width:2.5ch; text-align:right; }
     .cg-motivos-k { color:var(--text-main); }
     .cg-motivos-txt { color:var(--text-muted); }
     /* [CG.32] El renglon que queda cuando el cuadre esta plegado. */
@@ -691,7 +709,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                          aviso pesaba mas que el monto. El porque completo esta arriba (agrupado,
                          con su conteo) y aca en el title de la marca. -->
                     @if (!p.confirmable) {
-                      <small class="fin-hint-warn d-block">{{ motivoCorto(p.motivo) }}</small>
+                      <small class="cg-motivo d-block">{{ motivoCorto(p.motivo) }}</small>
                     }
                     @if (p.caos_match; as cm) {
                       <small class="cg-caos-attach d-block" [class.cg-caos-alta]="cm.confianza === 'alta'">

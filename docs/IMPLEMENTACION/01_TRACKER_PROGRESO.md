@@ -7417,11 +7417,46 @@ componente canónico que reusar. Las cifras del resumen pasaron a **Geist mono t
 **Pruebas:** componente **164** (+4, con **2 negativas**: lo confirmable no entra al resumen · una
 clave desconocida no se disfraza). Gates: templates ✅ · estilos **2698/2699** ✅ · motion ✅ ·
 tokens ✅.
-⬜ **Falta la verificación visual en los tres modos** que pide el checklist §12: **light + dark +
-móvil**. No se hizo, y se declara.
+#### ✅ `[CG.34]` · Los tres modos, verificados en el DOM vivo — y el contraste que nunca pasó AA
 
-⬜ **Sigue sin tocar, declarado:** los dos subtítulos **pegados** (*«esta jornada2,777 conceptos»*).
-En el HTML son dos `<p>` separados y ninguna de sus clases los hace inline — necesita DevTools.
+Checklist §12 (light + dark + móvil) hecho **contra prod con el navegador**, no estimado. Y la
+medición tumbó dos cosas que yo había dado por buenas.
+
+⛔ **`--warn-fg` como color de texto NO pasa AA, y el defecto es viejo.** Medido sobre el elemento
+real (`.fin-hint-warn`, 12 px, fondo `rgb(244,244,245)`):
+
+| token | light | AA | dark | al 78 % de `.cg-trabada` |
+|---|---:|:--:|---:|---:|
+| **`--warn-fg`** (el que estaba) | **1.95** | ❌ | 11.92 ✅ | 1.70 ❌ |
+| `--text-muted` (el que queda) | **7.03** | ✅ | 7.76 ✅ | 4.10 ❌ |
+| `--text-main` (la cifra) | **18.10** | ✅ | 19.06 ✅ | 9.87 ✅ |
+
+⭐ **Sólo falla en light — por eso nadie lo vio.** Y mi propio razonamiento de `[CG.33.1]` partía de
+una premisa falsa: dije *«volví a `.fin-hint-warn` para no romper AA»* cuando **esa clase ya no
+pasaba AA**. El comentario viejo del código atacó la **opacidad** (síntoma) y no el **color**
+(causa), y yo lo di por bueno sin medirlo. El motivo queda en `--text-muted` **y excluido de la
+atenuación** (`.cg-trabada .cg-motivo { opacity:1 }`), porque al 78 % cae a 4.10 y deja de pasar.
+⚠️ **Hallazgo del SISTEMA, fuera de alcance:** `--warn-fg` se usa como color de texto en
+**247 declaraciones** de `apps/view`. No se tocan desde acá —cambiar el token afecta todo y es
+decisión de diseño— pero queda medido y escrito.
+
+✅ **`[CG.34]` Los subtítulos pegados: causa encontrada y fix confirmado en vivo.** La causa **no**
+estaba en el HTML (son dos `<p>` hermanos, correctos) sino en que **`.surf-page-sub` declara
+`display: inline-flex`** (`styles.css:2725`) — está pensada para **un** subtítulo con chips en
+línea, de ahí su `gap` y su `flex-wrap`. Medido en el DOM vivo: los dos en `top 144` y `145`; con
+`display:block` en el segundo, baja a `165`. ⭐ **Medido también el alcance: de todo `apps/view`,
+ésta es la ÚNICA pantalla que apila dos** — no es bug del sistema, es mal uso local, así que se
+corrige acá y **no se toca la clase compartida**.
+⚠️ Y mi primera búsqueda concluyó *«no tiene display»* habiendo leído **5 líneas de una regla de
+9**: *leer media regla y concluir sobre el todo.*
+
+✅ **Móvil (390×844):** sin scroll horizontal, y el botón «Ver el cuadre» pasa de **24 px a 44 px**
+con el `pointer: coarse` de `[CG.33.1]` — el fix que lo hacía alcanzable en el teléfono, confirmado.
+
+⚠️ **Lo que esta verificación NO cubre:** se midieron **tokens y reglas** contra el DOM real, pero la
+pantalla desplegada **todavía no tiene estos commits** (prod servía el texto viejo, *«20 de 100»*).
+Falta mirarla con los cambios puestos.
+
 ⚠️ **Observado, sin causa establecida:** el selector de caja mostraba `CAJA GENERAL (1896)` y ahora
 sale sin el número. Su `label` sólo pone el conteo si `c.documentos` viene con valor, y existe un
 fallback sin número para cuando el catálogo no responde — **no se afirma cuál de los dos es**.
