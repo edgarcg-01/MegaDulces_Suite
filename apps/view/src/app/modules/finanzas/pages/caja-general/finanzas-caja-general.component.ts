@@ -267,20 +267,33 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-cv { font-size:var(--fs-xs); color:var(--text-soft); }
     .cg-cv-fijo { color:var(--ok-fg, var(--action)); font-weight:600; }
     .cg-sub-dim { opacity:.62; font-size:var(--fs-xs); margin-top:.15rem; }
-    /* [CG.33] La marca del motivo en la fila: gris, NO naranja. El naranja de antes se repetia en
-       cada renglon y le ganaba el peso visual al monto, que es el dato. El porque entero vive en
-       el title y, contado, en el resumen de arriba. */
-    .cg-motivo { font-size:var(--fs-xs); color:var(--text-muted); font-style:italic; }
-    /* El resumen agrupado: una sola linea, chips contados. */
-    .cg-motivos-res { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
-      margin:.1rem 0 .5rem; font-size:var(--fs-xs); color:var(--text-muted); }
-    .cg-motivos-lbl { color:var(--text-soft); }
-    .cg-motivos-chip { border:1px solid var(--border-color); border-radius:999px;
-      padding:.1rem .5rem; white-space:nowrap; }
-    .cg-motivos-chip strong { color:var(--text-main); }
+    /* [CG.33] EL RESUMEN agrupado: el porque, UNA vez, con su conteo.
+       La fila conserva la clase fin-hint-warn -- probe cambiarla a gris atenuado y rompia AA:
+       dos lineas mas abajo esta la nota de que cg-trabada atenua al 78% y EXCLUYE al motivo a
+       proposito, "que es justo lo que hay que poder leer". Lo que hacia el muro no era el color:
+       era repetir 85 veces una frase de 80 caracteres. Se acorta el texto, no se apaga la senal.
+       El texto largo NO vive en un title: un tooltip no se alcanza por teclado (checklist 11),
+       y DESIGN.md lo lista como antipatron explicito de Operations. */
+    .cg-motivos-res { list-style:none; margin:.1rem 0 .6rem; padding:0;
+      display:flex; flex-direction:column; gap:.15rem; font-size:var(--fs-xs); }
+    .cg-motivos-res li { display:flex; align-items:baseline; gap:.4rem; flex-wrap:wrap; }
+    /* Cifra = Geist mono tabular (checklist 4: toda cifra, sin excepcion). */
+    .cg-motivos-n { font-family:var(--font-mono); font-variant-numeric:tabular-nums;
+      color:var(--warn-fg); min-width:2.5ch; text-align:right; }
+    .cg-motivos-k { color:var(--text-main); }
+    .cg-motivos-txt { color:var(--text-muted); }
     /* [CG.32] El renglon que queda cuando el cuadre esta plegado. */
     .cg-conc-plegado { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
       font-size:var(--fs-sm); color:var(--text-muted); padding:.2rem 0 .1rem; }
+    /* ⚠️ Checklist 11: en touch, >=44px. La clase cg-lim-tog mide ~20px de alto (padding .25rem)
+       y le alcanzaba para ser un "ver mas" opcional -- pero aca es la UNICA forma de abrir el
+       cuadre, asi que un target de 20px lo deja inalcanzable en el telefono. Se agranda SOLO en
+       este uso: tocar la clase compartida cambiaria tambien el boton de los limites.
+       2.75rem = 44px. La regla global de pointer:coarse de styles.css cubre celdas de tabla,
+       no botones. */
+    @media (pointer: coarse) {
+      .cg-conc-plegado .cg-lim-tog { min-height:2.75rem; display:inline-flex; align-items:center; }
+    }
     .cg-kpi-h { margin-top:1.25rem; }
     .cg-lim-tog { background:none; border:0; padding:.25rem 0; cursor:pointer; text-align:left;
       color:var(--text-soft); font-size:var(--fs-xs); text-decoration:underline; }
@@ -618,12 +631,15 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                Repetir la misma frase en 85 filas no decia lo unico accionable: cuantas rutas hay
                que dar de alta. Aca se dice una vez y con su numero. -->
           @if (motivosAgrupados().length) {
-            <p class="cg-motivos-res">
-              <span class="cg-motivos-lbl">De las {{ pendientes().length }} que se ven, esperan:</span>
+            <ul class="cg-motivos-res">
               @for (g of motivosAgrupados(); track g.motivo) {
-                <span class="cg-motivos-chip">{{ g.motivo }} <strong>{{ g.n }}</strong></span>
+                <li>
+                  <strong class="cg-motivos-n">{{ g.n }}</strong>
+                  <span class="cg-motivos-k">{{ g.motivo }}</span>
+                  @if (g.texto) { <span class="cg-motivos-txt">{{ g.texto }}</span> }
+                </li>
               }
-            </p>
+            </ul>
           }
           <table class="cg-tbl">
             <caption class="sr-only">Movimientos de Kepler pendientes de confirmar en el libro de caja</caption>
@@ -675,7 +691,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                          aviso pesaba mas que el monto. El porque completo esta arriba (agrupado,
                          con su conteo) y aca en el title de la marca. -->
                     @if (!p.confirmable) {
-                      <small class="cg-motivo d-block" [attr.title]="p.motivo_texto">{{ motivoCorto(p.motivo) }}</small>
+                      <small class="fin-hint-warn d-block">{{ motivoCorto(p.motivo) }}</small>
                     }
                     @if (p.caos_match; as cm) {
                       <small class="cg-caos-attach d-block" [class.cg-caos-alta]="cm.confianza === 'alta'">
@@ -2001,14 +2017,18 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * Es sobre las filas que se VEN, igual que `confirmables`, y el texto lo dice.
    */
   motivosAgrupados = computed(() => {
-    const cuenta = new Map<string, number>();
+    const cuenta = new Map<string, { n: number; texto: string }>();
     for (const p of this.pendientes()) {
       if (p.confirmable) continue;
       const k = this.motivoCorto(p.motivo);
-      cuenta.set(k, (cuenta.get(k) ?? 0) + 1);
+      const prev = cuenta.get(k);
+      // El texto LARGO viaja con el grupo: así el porqué completo queda en el DOM, legible y una
+      // sola vez. ⛔ No puede vivir sólo en un `title`: un tooltip no es alcanzable por teclado
+      // ni lo anuncian los lectores de pantalla de forma confiable (checklist §11).
+      cuenta.set(k, { n: (prev?.n ?? 0) + 1, texto: prev?.texto || p.motivo_texto || '' });
     }
     return [...cuenta.entries()]
-      .map(([motivo, n]) => ({ motivo, n }))
+      .map(([motivo, v]) => ({ motivo, n: v.n, texto: v.texto }))
       .sort((a, b) => b.n - a.n);
   });
 
