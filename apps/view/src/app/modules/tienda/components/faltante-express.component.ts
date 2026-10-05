@@ -43,9 +43,9 @@ const PASO_MS = 100;
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="fx">
+    <div class="fx" [class.fx-compacto]="compacto()">
       <!-- ── La caja. Es lo único que hay cuando no pasa nada. ──────────────────────────── -->
-      <label class="fx-lbl" for="fx-q">¿Qué te pidieron?</label>
+      @if (!compacto()) { <label class="fx-lbl" for="fx-q">¿Qué te pidieron?</label> }
       <div class="fx-wrap">
         <i class="pi pi-search fx-ico" aria-hidden="true"></i>
         <input #caja id="fx-q" type="search" class="fx-input" autocomplete="off" spellcheck="false"
@@ -89,11 +89,18 @@ const PASO_MS = 100;
            que se abre con la sucursal todavía en blanco cuando alguien alcanza más de una. -->
       @if (!sucursal()) {
         <p class="fx-sin-suc" role="status">
-          <i class="pi pi-arrow-up" aria-hidden="true"></i>
-          <span>Elige primero la <strong>sucursal</strong> de arriba. El mismo código tiene precio
-            y existencia distintos en cada plaza, así que sin ella no hay nada que contestar.</span>
+          @if (compacto()) {
+            <!-- En compacto NO dice "de arriba": en el arqueo el selector esta ABAJO, y
+                 mandar a mirar donde no esta es peor que no decir nada. -->
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            <span>Elige la <strong>sucursal</strong> del arqueo para poder buscar: el precio y la existencia cambian por plaza.</span>
+          } @else {
+            <i class="pi pi-arrow-up" aria-hidden="true"></i>
+            <span>Elige primero la <strong>sucursal</strong> de arriba. El mismo código tiene precio
+              y existencia distintos en cada plaza, así que sin ella no hay nada que contestar.</span>
+          }
         </p>
-      } @else {
+      } @else if (!compacto()) {
         <p id="fx-ayuda" class="fx-ayuda">
           La ventana se cierra sola en {{ segundosVentana }} s. Si no hay existencia, el faltante
           queda anotado sin preguntar nada.
@@ -218,6 +225,11 @@ const PASO_MS = 100;
     </div>
   `,
   styles: [`
+    /* Modo tira: el buscador como accesorio, no como seccion. */
+    .fx-compacto { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem; }
+    .fx-compacto .fx-wrap { flex: 1 1 22rem; min-width: 0; }
+    .fx-compacto .fx-sin-suc { flex: 1 1 18rem; min-width: 0; margin: 0; padding: 0; border: 0; background: none; font-size: .74rem; }
+
     /* Operations (DESIGN §O). Todo por token: dark funciona solo. */
     .fx { display: flex; flex-direction: column; gap: .5rem; }
     .fx-lbl { font-size: var(--fs-sm, .82rem); font-weight: 700; color: var(--text-main); }
@@ -332,6 +344,14 @@ export class FaltanteExpressComponent {
 
   /** Sucursal sobre la que se consulta y se anota. Explícita SIEMPRE: el kiosco no tiene sesión. */
   readonly sucursal = input.required<string | null>();
+  /**
+   * Modo tira: una sola linea, sin rotulo propio ni renglon de ayuda.
+   *
+   * Lo pide el arqueo, donde esta caja es un ACCESORIO — la pantalla existe para
+   * contar efectivo y el buscador no puede comerse un cuarto del alto. En su
+   * propia pantalla sigue completo, que es donde el rotulo y la ayuda valen.
+   */
+  readonly compacto = input(false);
 
   /**
    * `[FLT.16]` El código con el que llega quien viene del verificador. Se resuelve una sola vez,
