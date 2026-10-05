@@ -469,7 +469,7 @@ export class CommercialPricingService {
         // lista de red. Nunca 0 — si no hay ninguno de los dos va NULL y el front lo declara
         // "Sin precio", que es otra afirmación distinta de "vale cero" (ADR-056).
         porPlaza
-          ? trx.raw('COALESCE(pt.precio_erp, pp.price) AS price')
+          ? trx.raw('COALESCE(pt.precio, pp.price) AS price')
           : 'pp.price',
         'pp.tax_rate',
         trx.raw('COALESCE(pp.min_qty, 1) AS min_qty'),
@@ -483,9 +483,13 @@ export class CommercialPricingService {
           // el precio que está leyendo es el de su plaza o el promedio de la red — que es
           // exactamente cómo vivió hasta ahora, y por qué el reporte de campo fue "se
           // desactualizan" en vez de "el mío no es el de mi sucursal".
+          // `[VPR.4]` La procedencia distingue las DOS maneras de resolver la plaza, porque no
+          // valen lo mismo: `pos` es lo que la caja de ESA sucursal cobró (el árbitro), `config`
+          // es el precio configurado ahí, validado, usado sólo donde no hubo ventas suficientes.
           porPlaza
-            ? trx.raw(`CASE WHEN pt.precio_erp IS NOT NULL THEN 'erp_plaza'
-                           WHEN pp.price IS NOT NULL      THEN 'lista_red'
+            ? trx.raw(`CASE WHEN pt.fuente = 'pos'    THEN 'plaza_cobrado'
+                           WHEN pt.fuente = 'config' THEN 'plaza_configurado'
+                           WHEN pp.price IS NOT NULL THEN 'lista_red'
                            ELSE 'sin_precio' END AS price_source`)
             : trx.raw(`CASE WHEN pp.price IS NOT NULL THEN 'lista_red' ELSE 'sin_precio' END AS price_source`),
           // El de la red, al lado: es lo que esta pantalla mostraba ayer. Que se pueda comparar
