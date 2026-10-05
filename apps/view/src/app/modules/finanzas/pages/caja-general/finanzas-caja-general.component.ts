@@ -267,6 +267,9 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-cv { font-size:var(--fs-xs); color:var(--text-soft); }
     .cg-cv-fijo { color:var(--ok-fg, var(--action)); font-weight:600; }
     .cg-sub-dim { opacity:.62; font-size:var(--fs-xs); margin-top:.15rem; }
+    /* [CG.32] El renglon que queda cuando el cuadre esta plegado. */
+    .cg-conc-plegado { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
+      font-size:var(--fs-sm); color:var(--text-muted); padding:.2rem 0 .1rem; }
     .cg-kpi-h { margin-top:1.25rem; }
     .cg-lim-tog { background:none; border:0; padding:.25rem 0; cursor:pointer; text-align:left;
       color:var(--text-soft); font-size:var(--fs-xs); text-decoration:underline; }
@@ -277,6 +280,10 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-conc-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; }
     .cg-conc-fecha { max-width:11rem; }
     .cg-conc-cols { display:grid; grid-template-columns:1fr 1fr; gap:1rem 1.75rem; margin-top:.35rem; }
+    /* [CG.32] SIN esta linea el [hidden] no oculta NADA: el display:grid de arriba le gana al
+       display:none que el navegador le da a [hidden], y el bloque se seguiria viendo plegado.
+       Es el mismo descuido que hace creer que un toggle no funciona. */
+    .cg-conc-cols[hidden] { display:none; }
     @media (max-width:47.5rem) { .cg-conc-cols { grid-template-columns:1fr; } }
     .cg-conc-col { display:flex; flex-direction:column; gap:.3rem; min-width:0; }
     .cg-conc-sub { font-size:var(--fs-sm); }
@@ -411,7 +418,21 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         @if (cargandoArqueo()) {
           <small class="fin-dim">Midiendo la jornada...</small>
         } @else if (arqueo(); as a) {
-          <div class="cg-conc-cols">
+
+          <!-- ⭐ [CG.32] Cuando el libro esta EN CERO y hay cola, este bloque se pliega.
+               Medido: ocupaba la mitad de la pantalla para publicar cuatro ceros, y lo unico que
+               habia para hacer -1,887 movimientos- empezaba al 70% del alto, debajo del pliegue.
+               Lo que vale $0 no puede tapar lo que si hay que hacer.
+               Se PLIEGA, no se esconde: queda su renglon, su boton, y los avisos de abajo
+               -incluida la contradiccion libro-vs-boveda- siguen a la vista siempre. -->
+          @if (!verDetalleCierre()) {
+            <div class="cg-conc-plegado">
+              <span>El libro no registro movimiento en esta jornada.</span>
+              <button type="button" class="cg-lim-tog" (click)="cuadreAbierto.set(true)">Ver el cuadre</button>
+            </div>
+          }
+
+          <div class="cg-conc-cols" [hidden]="!verDetalleCierre()">
 
             <!-- IZQUIERDA: nuestro libro -->
             <div class="cg-conc-col">
@@ -1597,6 +1618,37 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // ── CG.20/CG.21 — la bandeja de movimientos y los frecuentes del gasto sin documento ─────────
   pendientes = signal<MovimientoPendiente[]>([]);
   confirmables = signal(0);
+  /**
+   * `[CG.30]` El universo de la bandeja dentro de la ventana, medido por el servidor.
+   * `null` = el servidor no lo mandó (API vieja) → el subtítulo cae a un texto que **no afirma**
+   * un total, en vez de volver a publicar el tamaño de la página como si fuera el trabajo.
+   */
+  totalPend = signal<number | null>(null);
+  /**
+   * `[CG.32]` Si el usuario abrió el cuadre a mano. `null` = decide la pantalla.
+   * Una vez abierto NO se vuelve a plegar solo: plegarle algo que acaba de abrir sería pelearle.
+   *
+   * ⚠️ **Se llama `cuadreAbierto`, NO `cierreAbierto`, y la distinción no es estética:**
+   * `cierreAbierto` ya existe más abajo y es el **diálogo de cerrar la jornada** — el acto que
+   * sella el día. La primera versión de esto reusó ese nombre, lo PISÓ (en una clase gana la
+   * última declaración) y el botón «Ver el cuadre» quedó abriendo el diálogo que rinde cuentas.
+   * ⛔ Ni `tsc` ni los diagnósticos del editor lo marcaron: lo cazó una prueba negativa que
+   * esperaba `null` y recibió `false`.
+   */
+  cuadreAbierto = signal<boolean | null>(null);
+  /**
+   * `[CG.32]` El cuadre se pliega SÓLO si no hay nada que mostrar **y** hay trabajo que sí.
+   * Con el libro en cero y la bandeja vacía queda abierto: ahí los ceros son la respuesta.
+   * Si la bandeja todavía no se midió (`null`), tampoco se pliega — no se esconde nada por una
+   * medición que falta.
+   */
+  verDetalleCierre = computed(() => {
+    const manual = this.cuadreAbierto();
+    if (manual !== null) return manual;
+    const a = this.arqueo();
+    const total = this.totalPend();
+    return !(a && a.caja_general.movimientos === 0 && total !== null && total > 0);
+  });
   cargandoPend = signal(false);
   /** Lo que la ventana deja fuera. `null` = no hay corte que declarar. */
   rezago = signal<{ movimientos: number; monto: number } | null>(null);
@@ -2145,12 +2197,29 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   subtituloJornada = computed(() => {
     const pend = this.confirmables();
-    const total = this.pendientes().length;
+    const enPagina = this.pendientes().length;
+    const total = this.totalPend();
+    const n = (v: number) => v.toLocaleString('es-MX');
+    /**
+     * ⛔ `[CG.30]` Acá decía `${pend} de ${total}` donde `total` era `pendientes().length` — o sea
+     * **el tamaño de la página, no el trabajo**. Medido: la pantalla publicaba «31 de 100»
+     * teniendo **1,887** en esa caja y **12,793** en total. Dos centímetros a la derecha, su propio
+     * selector decía `CAJA GENERAL (1887)`.
+     *
+     * Ahora manda el universo. El «de un clic» se conserva pero **declarando su alcance**: es sobre
+     * las filas que se ven, porque saberlo del total exigiría resolver la cuenta de las 12,793 y
+     * extrapolar el porcentaje de la página sería inventar (ADR-056).
+     */
     const trabajo = this.cargandoPend()
       ? 'Midiendo lo que falta confirmar…'
-      : total === 0
+      : total === 0 || (total === null && enPagina === 0)
         ? 'Nada por confirmar en la ventana'
-        : `${pend} de ${total} se confirman de un clic`;
+        : total === null
+          // Sin total medido NO se afirma un universo: se dice lo que sí se sabe.
+          ? `${n(pend)} de las ${n(enPagina)} que se ven se confirman de un clic`
+          : total > enPagina
+            ? `${n(total)} por confirmar · ${n(pend)} de las ${n(enPagina)} que se ven son de un clic`
+            : `${n(pend)} de ${n(total)} se confirman de un clic`;
     if (this.saldoSinMedir()) return `${trabajo} · no se pudo medir si hay corte abierto`;
     const c = this.corteAbierto();
     return c
@@ -2827,6 +2896,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         // término la lista llega vacía y la sección no se pinta, que es lo correcto.
         this.pagables.set(r.pagables ?? []);
         this.confirmables.set(r.confirmables ?? 0);
+        // `[CG.30]` Cuántos hay DE VERDAD en la ventana. `rows.length` es cuánto cupo en la página
+        // (tope 100), y el subtítulo lo estaba publicando como si fuera el trabajo pendiente.
+        // `null` cuando el servidor no lo manda: el subtítulo entonces NO inventa un universo.
+        this.totalPend.set(typeof r.total === 'number' ? r.total : null);
         // Lo que el servidor dice que acotó, y si la lista viene topada. Los tres campos venían
         // en la respuesta desde el primer día y no se leía ninguno.
         this.ventanaSrv.set({ desde: r.desde, dias: r.ventana_dias ?? null });

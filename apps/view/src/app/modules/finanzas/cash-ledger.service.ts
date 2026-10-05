@@ -435,8 +435,16 @@ export interface PendientesResponse {
    */
   datos_al?: string | null;
   /** Cuántas de las visibles se pueden confirmar de un clic. Una lista llena de filas trabadas
-   *  no puede leerse igual que una lista lista (ADR-056). */
+   *  no puede leerse igual que una lista lista (ADR-056).
+   *  ⚠️ Es sobre las filas DEVUELTAS, no sobre `total`: quien lo muestre tiene que decirlo así. */
   confirmables: number;
+  /**
+   * `[CG.30]` **Cuántos hay de verdad** en la ventana, con los mismos filtros — no cuántos cupieron
+   * en la página. El subtítulo publicaba `rows.length` (tope 100) como si fuera el trabajo
+   * pendiente: decía *«31 de 100»* teniendo **1,887** en esa caja y **12,793** en total.
+   * Opcional porque una API anterior no lo manda; sin él la pantalla NO afirma un universo.
+   */
+  total?: number;
 }
 
 /** CS.3 — Un movimiento de CAOS capturable, con sus denominaciones para el arqueo. */

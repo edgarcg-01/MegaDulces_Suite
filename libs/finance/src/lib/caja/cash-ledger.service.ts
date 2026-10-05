@@ -900,6 +900,24 @@ export class CashLedgerService {
           .orWhereRaw(`origen_ref ILIKE ? ESCAPE '\\'`, [s])
           .orWhereRaw(`doc_tipo ILIKE ? ESCAPE '\\'`, [s]));
       }
+      /**
+       * ⛔ `[CG.30]` **CUÁNTOS HAY DE VERDAD dentro de la ventana.**
+       *
+       * El subtítulo decía *«31 de 100 se confirman de un clic»* y ese **100 era el `limit` de
+       * esta consulta**, no el trabajo pendiente. Medido en prod el 2026-10-05: en la caja
+       * general hay **1,887** y en total **12,793**. La persona leía *«llevo 31 de 100»* —31 %—
+       * cuando el avance real es **0.24 %**.
+       *
+       * Y el dato correcto ya estaba en la misma pantalla, dos centímetros a la derecha: el
+       * selector dice `CAJA GENERAL (1887)`. La pantalla se contradecía a sí misma a simple vista.
+       *
+       * Se clona el query ANTES de `orderBy`/`limit` para que el conteo respete **los mismos
+       * filtros y el mismo `search`**: un total que no corresponde a lo filtrado es otra forma de
+       * mentir, más difícil de ver.
+       */
+      const totalRow: any = await qb.clone().clearOrder().count({ n: '*' }).first();
+      const total = Number(totalRow?.n ?? 0);
+
       const rows = await qb
         // ⛔ CG.23.1 — El orden salía INVERSO para lo que la bandeja es: una cola de trabajo.
         //
@@ -946,7 +964,16 @@ export class CashLedgerService {
         datos_al: await this.frescuraCaja(trx),
         // Cuántas de las que se ven se pueden confirmar sin tocar nada. Sin este número, una lista
         // llena de filas no confirmables se lee igual que una lista lista para un clic (ADR-056).
+        //
+        // ⚠️ `confirmables` es sobre las filas DEVUELTAS, no sobre `total`, y la pantalla tiene que
+        // decirlo así. Saberlo del universo exigiría correr `resolverCuentas` sobre las 12,793
+        // (mapa de rutas + reglas + contra-cuenta + conceptos, varias consultas por página):
+        // extrapolar el porcentaje de la página sería inventar un número — justo lo que ADR-056
+        // prohíbe. Se publica lo medido y se declara su alcance.
         confirmables: conCuenta.filter((r: any) => r.confirmable).length,
+        // `[CG.30]` El universo dentro de la ventana, con los mismos filtros. Es el número que el
+        // subtítulo tiene que decir; `rows.length` es cuánto cupo en la página.
+        total,
         desde,
         ventana_dias: q.from ? null : CAJA_VENTANA_DIAS,
         // El rezago histórico, DECLARADO. No es trabajo del día: es una decisión de hasta dónde

@@ -3,7 +3,7 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
-  proyectarCiego, puedeRecontar, TEXTO_NO_RECUENTA,
+  proyectarCiego, puedeRecontar, TEXTO_NO_RECUENTA, avisoLibroVacio,
   type ConteoDenominacion, type MovimientoDelCorte,
 } from './cash-cut.engine';
 
@@ -543,6 +543,26 @@ export class CashCutService {
       } else {
         limites.push('Del cajero se cuadra el FLUJO del día, no su contenido: CAOS no publica cuánto efectivo tiene adentro.');
       }
+      /**
+       * ⛔⛔ `[CG.31]` **El libro en cero mientras la bóveda se movió.** Va PRIMERO porque es más
+       * grave que todo lo demás de esta lista.
+       *
+       * La pantalla ponía las dos columnas lado a lado —«Caja general $0.00 · 0 movimientos» y
+       * «Cajero (CAOS) 6 movimientos, entra $71,150 / sale $95,500»— y el único aviso decía
+       * *«todavía no rendiste cuentas»*. **Eso no es falta de rendición: son dos afirmaciones
+       * incompatibles sobre el mismo día**, presentadas como dos columnas de un informe normal.
+       *
+       * Una contradicción que no se nombra se lee como una tabla más. Si la máquina contó dinero
+       * y el libro no tiene nada, lo que falta no es una firma: falta capturar.
+       *
+       * ⚠️ Sólo cuando el libro está EN CERO. Si tiene movimientos y no cuadran contra el cajero,
+       * ésa es otra pregunta (un descuadre, no un vacío) y la contesta el cuadre, no un aviso.
+       */
+      const avisoVacio = avisoLibroVacio(
+        Number(libro?.movimientos ?? 0),
+        Number((cajero?.['movimientos'] as number) ?? 0),
+        Number(cajero?.['entra'] ?? 0) + Number(cajero?.['sale'] ?? 0));
+      if (avisoVacio) no_medido.push(avisoVacio);
       if (!corte) {
         // ⭐ Éste es el único que la persona puede resolver, y es justamente el que separa
         // «el movimiento registrado» de «un arqueo firmado». Va arriba y solo.
