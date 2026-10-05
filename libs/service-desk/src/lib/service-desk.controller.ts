@@ -122,19 +122,27 @@ export class ServiceDeskController {
 
   @Get('requests/inbox')
   @RequireAnyPermission(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR)
-  @ApiOperation({ summary: 'Bandeja de quien atiende: prioridad → vencimiento → antigüedad.' })
+  @ApiOperation({ summary: 'Bandeja de quien atiende: prioridad → vencimiento → antigüedad, o la columna que se elija (sort/dir).' })
   inbox(
     @Query('scope') scope: string | undefined,
     @Query('queue_id') queue_id: string | undefined,
     @Query('priority') priority: string | undefined,
     @Query('status') status: string | undefined,
     @Query('warehouse_code') warehouse_code: string | undefined,
+    @Query('category_id') category_id: string | undefined,
+    @Query('assigned_to') assigned_to: string | undefined,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Query('sort') sort: string | undefined,
+    @Query('dir') dir: string | undefined,
     @Query('search') search: string | undefined,
     @Query('limit') limit: string | undefined,
     @Query('offset') offset: string | undefined,
     @Req() req: AuthedRequest,
   ): Promise<SdListResponse> {
-    return this.actors.resolve(req).then((ctx) => this.requests.inbox(ctx, { scope, queue_id, priority, status, warehouse_code, search, limit: num(limit), offset: num(offset) }));
+    return this.actors.resolve(req).then((ctx) =>
+      this.requests.inbox(ctx, { scope, queue_id, priority, status, warehouse_code, category_id, assigned_to, from, to, sort, dir, search, limit: num(limit), offset: num(offset) }),
+    );
   }
 
   @Get('requests/stats')

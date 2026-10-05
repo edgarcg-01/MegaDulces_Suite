@@ -29,7 +29,8 @@ import { Permission } from '../../../core/constants/permissions';
 // `[SN.4]` El proyecto y el espacio activos salen del mapa de la suite (ADR-061), no de una
 // union hardcodeada + cadena de `startsWith`. Es lo que permite la migaja Espacio › Proyecto ›
 // Página con las etiquetas de negocio de la spec ("Configuración de la suite", "Punto de Venta").
-import { LANDING_ROUTE, entryLabel, resolveProjectForUrl, resolveSpaceForUrl } from '../../../core/constants/suite-map';
+import { LANDING_ROUTE, resolveProjectForUrl } from '../../../core/constants/suite-map';
+import { construirMigas, type Miga } from './layout-crumbs';
 import { ModoDetalle, MultitareaService } from '../../../core/services/multitarea.service';
 // WMS.1 — fuente única de áreas/tabs del proyecto Almacén: el sidebar deriva
 // sus items de acá para que nunca se desincronice de la barra de tabs.
@@ -533,33 +534,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * Etiqueta del proyecto para la migaja. `[SN.4]` La del mapa de la suite (la que ve la persona
-   * en "Mi trabajo": "Ventas", "Punto de Venta", "Configuración de la suite") y, si la URL no cae
-   * en ningún proyecto, la de siempre.
-   */
-  projectLabel = computed(() => {
-    const url = this.currentUrl();
-    const enMapa = resolveSpaceForUrl(url);
-    if (enMapa) return entryLabel(enMapa.entry);
-    return resolveProjectForUrl(url)?.label ?? 'Trade Marketing';
-  });
-
-  /** `[SN.4]` Espacio de responsabilidad al que pertenece el proyecto (primer eslabón de la migaja). */
-  spaceLabel = computed(() => resolveSpaceForUrl(this.currentUrl())?.space.label ?? null);
-
-  /**
    * Migaja sin la página: Espacio › Proyecto, deduplicando cuando coinciden (Configuración de la
    * suite es espacio y proyecto a la vez; repetirlo sería ruido).
    */
-  crumbs = computed<string[]>(() => {
-    const out: string[] = [];
-    for (const c of [this.spaceLabel(), this.projectLabel()]) {
-      if (c && out[out.length - 1] !== c) out.push(c);
-    }
-    return out;
-  });
-
-  readonly landingRoute = LANDING_ROUTE;
+  crumbs = computed<Miga[]>(() => construirMigas(this.currentUrl()));
 
   private tiendaNavGroups: { title: string; items: NavItem[] }[] = [
     {
