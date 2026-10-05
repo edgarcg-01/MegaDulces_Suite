@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { SupplierPaymentProofsService, ListPaymentsQuery, AttachPaymentDto } from './supplier-payment-proofs.service';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
+/** Lo único que se usa de la respuesta HTTP: poner un encabezado. */
+interface ConEncabezados { setHeader(nombre: string, valor: string): void }
 
 /** `[PC.4]` Las dos identidades de quien decide: la guarda compara contra ambas. */
 const quienDecide = (req?: AuthedRequest) => ({ username: req?.user?.username, full_name: req?.user?.full_name });
@@ -24,7 +26,7 @@ export class SupplierPaymentProofsController {
   @Get()
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'Lista pagos a proveedor de Kepler + estado de su comprobante + KPIs.' })
-  list(
+  async list(
     @Query('estado') estado?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -32,9 +34,14 @@ export class SupplierPaymentProofsController {
     @Query('metodo') metodo?: string,
     @Query('alertas') alertas?: string,
     @Query('limit') limit?: string,
-  ) {
+    @Res({ passthrough: true }) res?: ConEncabezados,
+  ): ReturnType<SupplierPaymentProofsService['listPayments']> {
     const q: ListPaymentsQuery = { estado, from, to, search, metodo, alertas, limit: limit ? Number(limit) : undefined };
-    return this.svc.listPayments(q);
+    const out = await this.svc.listPayments(q);
+    // [PC.8] El desglose de tiempos, visible en DevTools → Network → Timing (sin abrir logs de prod).
+    const t = out.tiempos_ms;
+    res?.setHeader('Server-Timing', `duplicados;dur=${t.duplicados}, filas;dur=${t.filas}, kpis;dur=${t.kpis}, total;dur=${t.total}`);
+    return out;
   }
 
   @Get(':sucursal/:folio')
