@@ -183,10 +183,31 @@
  * sola línea a ningún ancho probado) y los 64 px que suelta hacen crecer cada tarjeta de 249 a 262,
  * lo que baja de 3 a 2 las segundas líneas que piden un tercer renglón. De 30 a 28 ya no gana nada.
  */
+/*
+  [SN.28] El cuerpo deja de estirarse hasta el borde del monitor.
+
+  Medido sobre la captura a 2533 px: la columna de trabajo queda clavada en 30rem y TODO el
+  sobrante se lo lleva el catalogo -- ~1950 px para 24 destinos. Ningun acomodo llena eso: a ese
+  ancho entran 5 columnas para 7 grupos, o sea casi una por grupo, y equilibrar deja de tener
+  sentido (ver `.mt-espacios`). El vacio no era del algoritmo, era del contenedor.
+
+  El tope sale de la suma de las dos columnas con sus topes propios --30rem + 2rem de hueco +
+  66rem del catalogo + los dos paddings-- no de un numero elegido. Arriba de eso la pagina se
+  centra, que es lo que hace cualquier app en un monitor ancho: un margen simetrico se lee como
+  decision, un agujero irregular se lee como error.
+
+  ⚠️ La barra de arriba (`.mt-top`) NO se acota: es una barra con fondo y borde de lado a lado, y
+  recortarla la partiria. Es el patron de siempre -- barra a sangre, contenido centrado.
+  ⚠️ Queda ABIERTO si 102rem es el numero: la alternativa real es darle a «Tu trabajo» el ancho
+  que hoy le sobra al catalogo, porque esa columna SI se queda sin lugar (tiene scroll).
+*/
 .mt-body {
   display: grid;
   grid-template-columns: minmax(0, 30rem) minmax(0, 1fr);
   gap: var(--sp-8);
+  max-width: 102rem;
+  margin-inline: auto;
+  width: 100%;
   min-height: 0;
   padding: var(--sp-5) calc(var(--sp-6) + env(safe-area-inset-right))
            calc(var(--sp-4) + env(safe-area-inset-bottom)) calc(var(--sp-6) + env(safe-area-inset-left));
@@ -642,35 +663,46 @@
   columna en las tres pantallas medidas (1366, 1440, 1920).
 */
 /*
-  [SN.28] REJILLA DE GRUPOS, no multi-columna.
+  [SN.28] MULTI-COLUMNA, Y ACOTADA A 3 COLUMNAS. Las dos cosas importan.
 
-  ── Lo que estaba mal, medido ──────────────────────────────────────────────────────────────────
-  Aca vivia `columns: 21rem` + `break-inside: avoid`, y esa pareja convierte a cada GRUPO en un
-  atomo indivisible. El navegador equilibra multi-columna por ALTURA, asi que con los 7 grupos de
-  tamanos 1-6-3-3-5-2-4 (alturas 112-256-184-184-256-112-184 px, suman 1288) no hay reparto
-  posible en 4 columnas: el minimo que alcanza es 368 px y la cuarta se queda en 184. La mitad de
-  una columna vacia, y mover el `21rem` solo cambia el hueco de lugar.
+  ── El error que esto corrige, medido en pantalla ──────────────────────────────────────────────
+  Un primer intento reemplazo `columns` por una REJILLA de grupos (`grid` + `align-items: start`),
+  razonando que multi-columna equilibra por altura y deja la ultima columna corta: con los 7 grupos
+  de 1-6-3-3-5-2-4 el reparto da 368/368/368/184 px y sobran 184 en la cuarta.
 
-  Y un costo que no se ve: multi-columna impone orden de lectura POR COLUMNAS. Bajas por Direccion
-  General y Comercial, y despues tenes que volver arriba. Para prosa esta bien; para una rejilla de
-  destinos el ojo espera filas.
+  El razonamiento era correcto y la conclusion no. En una rejilla, el alto de cada FILA lo fija el
+  grupo mas alto de esa fila, y los cortos dejan el hueco debajo. Medido sobre la captura a 2533 px:
+  Comercial (6) estira la fila 1, y debajo de Direccion General (1) quedaron ~5 celdas de vacio, mas
+  ~3 bajo Almacenes y ~3 bajo Administracion; en la fila 2, ~3 bajo Sistemas y una cuarta ranura
+  entera sin usar. Son ~15 celdas de hueco donde `columns` dejaba ~3.
 
-  ── Por que grid y no otra cosa ────────────────────────────────────────────────────────────────
-  Con grid la unidad que fluye vuelve a ser el grupo pero SIN equilibrado por altura: se acomodan
-  en filas, se leen de izquierda a derecha, y el hueco -- cuando lo hay -- cae en el ultimo renglon
-  en vez de en media columna. `align-items: start` evita que un grupo corto se estire hasta el alto
-  del mas largo de su fila.
+  ⭐ La leccion: multi-columna EMPAQUETA (los grupos cortos comparten columna) y la rejilla ALINEA
+  (cada fila paga por su grupo mas alto). Con bloques de altura dispareja, empaquetar gana.
 
-  ⚠️ El `21rem` se conserva TAL CUAL y por la misma razon de antes: a 1366 el catalogo tiene 755 px
-  utiles y con 23rem pedia 776 -- caia a una sola columna justo en la pantalla mas apretada.
-  `auto-fill` reparte igual que `columns` lo hacia, sin el equilibrado.
+  ── Por que ADEMAS hay que acotar el ancho ─────────────────────────────────────────────────────
+  `columns` tampoco salva sola: lo que la rompe es tener MAS columnas que grupos por columna. A
+  2533 px entraban 5 columnas para 7 grupos, o sea casi una columna por grupo -- y ahi equilibrar
+  no tiene con que. Medido sobre las alturas reales (suman 1816 px con la celda a 3.5rem):
+    · 2 columnas -> 928 / 888, hueco 40 px
+    · 3 columnas -> hueco ~150 px
+    · 5 columnas -> cada columna un grupo, hueco de cientos
+  El tope de 66rem deja 3 columnas de 21rem como maximo. El numero sale del contenido, no de una
+  convencion: `DESIGN.md:544` habla de 1180-1280 px pero es la seccion del CATALOGO del Storefront,
+  no de Operations, asi que no aplica aca. Si algun dia hay 12 espacios, este tope se revisa.
 */
 .mt-espacios {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
-  gap: var(--sp-5);
-  align-items: start;
+  columns: 21rem;
+  column-gap: var(--sp-5);
+  max-width: 66rem;
 }
+/*
+  Un grupo partido a la mitad entre dos columnas seria peor que el hueco que vino a resolver.
+
+  ⚠️ La separacion va ABAJO, no arriba entre hermanos: el primer grupo de la segunda columna sigue
+  siendo el hermano adyacente del ultimo de la primera, asi que un margin-top le habria hundido el
+  arranque respecto de la columna de al lado.
+*/
+.mt-space { break-inside: avoid; margin-bottom: var(--sp-5); }
 /*
   [SN.28] El encabezado del grupo SUBE de peso, no baja.
 
@@ -975,9 +1007,7 @@
     padding: var(--sp-3) var(--sp-3) var(--sp-3);
     background: var(--layout-bg);
   }
-  /* [SN.28] Con la isla puesta, los grupos ya se separan solos: el `gap` de la rejilla se achica
-     para no sumar aire al que ya aporta el padding de cada caja. */
-  .mt-espacios { gap: var(--sp-3); }
+  .mt-space { margin-bottom: var(--sp-3); }
   .mt-space-title { margin-bottom: var(--sp-2); }
 }
 
@@ -1036,9 +1066,7 @@
   esta pantalla existe para no hacer.
 */
 @media (max-height: 56rem) {
-  /* [SN.28] Era `.mt-space { margin-bottom }`: con la rejilla de grupos la separacion la pone el
-     `gap` del contenedor, no el margen de cada hermano. Mismo efecto, y simetrico. */
-  .mt-espacios { gap: var(--sp-4); }
+  .mt-space { margin-bottom: var(--sp-4); }
 }
 
 /*
