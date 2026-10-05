@@ -7305,6 +7305,64 @@ del contenedor, el freno habría dejado pasar un movimiento fechado mañana.
 ejercer la exclusión de congelados — se declara, no se pone ✔).
 
 
+#### 🧪 `[CG.30-32]` · La pantalla no decía la verdad sobre su propio estado — 2026-10-05
+
+Salió de una revisión visual pedida por Edgar sobre la captura real de `/finanzas/caja-general`.
+Tres defectos, los tres medidos contra prod antes de tocar nada.
+
+**`[CG.30]` ⛔ El número principal era el `limit`, no el trabajo.** El subtítulo decía *«31 de 100
+se confirman de un clic»* y ese **100 era el tope de la consulta** (`limit: 100`). Medido: hay
+**1,887** en la caja seleccionada y **12,793** en total. La persona leía *«llevo 31 de 100»* —31 %—
+cuando el avance real es **0.24 %**. ⭐ Y el dato correcto ya estaba en la misma pantalla, dos
+centímetros a la derecha: su propio selector dice `CAJA GENERAL (1887)`. *La pantalla se
+contradecía a sí misma a simple vista.* El servicio ahora devuelve `total` (clonando el query
+**antes** de `orderBy`/`limit`, para que respete los mismos filtros y el mismo `search`: un total
+que no corresponde a lo filtrado es otra forma de mentir, más difícil de ver). ⚠️ El «de un clic»
+**declara su alcance** —es sobre las filas que se ven— porque saberlo del universo exigiría
+resolver la cuenta de las 12,793; extrapolar el porcentaje de la página sería inventar (ADR-056).
+Sin `total` del servidor, el subtítulo **no afirma un universo**.
+
+**`[CG.31]` ⛔⛔ El libro en cero mientras la bóveda se movió, y nada lo nombraba.** La pantalla
+ponía lado a lado «Caja general $0.00 · 0 movimientos» y «Cajero (CAOS) 6 movimientos, entra
+$71,150 / sale $95,500», y el único aviso decía *«todavía no rendiste cuentas»*. **Eso no es falta
+de rendición: son dos afirmaciones incompatibles sobre el mismo día**, presentadas como dos
+columnas de un informe normal. Ahora lo dice con sus números. ⚠️ Dispara **sólo** con el libro en
+cero: si tiene movimientos y no cuadran, eso es un descuadre y lo contesta el cuadre, no un aviso
+— un aviso que aparece de más se deja de leer y se lleva puesto al que sí importaba. Usa el
+**bruto** (entra + sale), no el neto: un día que deposita y dispensa lo mismo tiene neto 0 y movió
+dinero igual.
+
+**`[CG.32]` El cuadre ocupaba media pantalla para publicar ceros.** La cola —lo único que hay para
+hacer— empezaba al 70 % del alto. Ahora se **pliega** cuando el libro está en cero **y** hay cola;
+con la bandeja vacía queda abierto (ahí los ceros son la respuesta) y si la bandeja no se midió
+tampoco se pliega. Se pliega el detalle, **nunca los avisos**: la contradicción de `[CG.31]` queda
+a la vista siempre.
+
+⛔⛔ **El bug que casi entra, y lo cazó una prueba negativa.** El signal del plegado se llamó
+`cierreAbierto` — nombre que **ya existía** en la misma clase y es el **diálogo de cerrar la
+jornada**, el acto que sella el día. En una clase gana la última declaración, así que el botón
+«Ver el cuadre» habría **abierto el diálogo que rinde cuentas**. ⚠️ Ni `tsc` ni los diagnósticos
+del editor lo marcaron; lo encontró el test negativo *«con movimientos en el libro NO se pliega»*,
+que esperaba `null` y recibió `false`. Renombrado a `cuadreAbierto`, con el motivo escrito al lado.
+*Reusar un nombre en una clase larga no da error: da otro comportamiento.*
+
+⚠️ Y una trampa de CSS: `[hidden]` **no oculta** un `display:grid` —el grid le gana al `display:none`
+del navegador—, así que el bloque se habría seguido viendo plegado. Lleva su `.cg-conc-cols[hidden]`
+explícito.
+
+**Pruebas:** `cash-cut.engine.spec.ts` **46** (+5, con **3 negativas** y el caso del bruto) ·
+componente **160** (+7, con **3 negativas**) · suite `finance` **421/421** · gates templates ✅ ·
+estilos **2698/2699** (bajó uno) ✅.
+
+⬜ **Falta: validación visual + redeploy.** Sin migraciones ni permisos → sin re-login.
+⬜ **Declarado, NO arreglado:** los dos subtítulos salen **pegados** en pantalla (*«esta
+jornada2,769 conceptos»*). En el HTML son **dos `<p>` separados** y ninguna de sus dos clases los
+hace inline — la causa no está donde se esperaría y necesita DevTools; no se toca a ciegas.
+⬜ También queda: el aviso *«Esta ruta todavía no está declarada»* se repite fila por fila (es
+**una** configuración faltante, no cuatro problemas) y la columna «Contado» no se explica sola.
+
+---
+
 #### ✅ `[CG.26]` · Arqueo de fin de jornada, y el cuadre del cajero que miraba 2 de 6 tipos — 2026-09-29
 
 Pedido: *"un arqueo diario al finalizar la jornada para ver que todo cuadró en caja general y CAOS"*.

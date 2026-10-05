@@ -168,6 +168,33 @@ export const TEXTO_NO_AUTORIZA: Record<MotivoNoAutoriza, string> = {
 };
 
 /**
+ * ⛔⛔ `[CG.31]` **El libro en cero mientras la bóveda se movió.**
+ *
+ * La pantalla ponía las dos columnas lado a lado —«Caja general $0.00 · 0 movimientos» y
+ * «Cajero (CAOS) 6 movimientos, entra $71,150 / sale $95,500»— y el único aviso decía *«todavía
+ * no rendiste cuentas»*. **Eso no es falta de rendición: son dos afirmaciones incompatibles sobre
+ * el mismo día**, presentadas como dos columnas de un informe normal. Una contradicción que no se
+ * nombra se lee como una tabla más.
+ *
+ * ⚠️ Dispara SÓLO con el libro en cero. Si el libro tiene movimientos y no cuadran contra el
+ * cajero, ésa es otra pregunta —un descuadre, no un vacío— y la contesta el cuadre, no un aviso.
+ *
+ * @param movsLibro   movimientos registrados en `cash_ledger` ese día
+ * @param movsCajero  movimientos que reportó CAOS
+ * @param brutoCajero lo que entró **más** lo que salió (el flujo movido, no el neto: un día que
+ *                    deposita y dispensa lo mismo tiene neto 0 y movió dinero igual)
+ * @returns el aviso, o `null` si no hay contradicción que nombrar
+ */
+export function avisoLibroVacio(
+  movsLibro: number, movsCajero: number, brutoCajero: number,
+): string | null {
+  if (!(movsLibro === 0 && movsCajero > 0)) return null;
+  const mx = brutoCajero.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  return `El cajero registró ${movsCajero} movimiento(s) por ${mx} y el libro de caja no tiene ninguno: `
+    + 'el efectivo se movió y nadie lo capturó. No es que falte rendir cuentas — es que el libro está vacío.';
+}
+
+/**
  * ⛔ LA DOBLE LLAVE, del lado del código. La DB ya lo impide con un CHECK; esto existe para
  * que el botón se apague con su motivo en vez de que el usuario descubra el candado con un
  * error de Postgres.

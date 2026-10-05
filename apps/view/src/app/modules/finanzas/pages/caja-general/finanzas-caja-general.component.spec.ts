@@ -326,7 +326,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       ingresos: 0, gastos: 0, depositos: 0, contado: 900, movimientos: 3, cancelados: 0,
       ingresos_anclados: 0, ingresos_capturados: 0, cobertura_ingreso: null, oculto: true,
     });
-    comp.cierreAbierto.set(true);
+    comp.cuadreAbierto.set(true);
     fixture.detectChanges();
 
     const html: string = document.body.innerHTML + fixture.nativeElement.innerHTML;
@@ -1517,6 +1517,74 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     montar({ saldo: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
     expect(comp.subtituloJornada()).toContain('no se pudo medir');
     expect(comp.subtituloJornada()).not.toContain('no rendiste cuentas');
+  });
+
+  /**
+   * `[CG.30]` El subtitulo publicaba el TAMANO DE LA PAGINA como si fuera el trabajo pendiente.
+   * Medido en prod: decia "31 de 100" teniendo 1,887 en esa caja y 12,793 en total.
+   */
+  it('el subtitulo dice el UNIVERSO, no el tamano de la pagina', () => {
+    montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...VACIA, rows: [GASTO_TRABADO], limit: 100, has_more: true, confirmables: 0, total: 1887,
+      })),
+    });
+    expect(comp.subtituloJornada()).toContain('1,887 por confirmar');
+    // Y el "de un clic" declara su alcance: es sobre lo que se ve, no sobre las 1,887.
+    expect(comp.subtituloJornada()).toContain('que se ven');
+  });
+
+  it('⛔ [negativa] sin total medido NO inventa un universo', () => {
+    // API vieja: `total` ausente. Antes publicaba rows.length como si fuera el pendiente.
+    montar({
+      movimientosPendientes: vi.fn(() => of({ ...VACIA, rows: [GASTO_TRABADO], confirmables: 0 })),
+    });
+    const t = comp.subtituloJornada();
+    expect(t).toContain('que se ven');
+    expect(t).not.toContain('por confirmar');
+  });
+
+  it('cuando el total CABE en la pagina se dice simple, sin el rodeo', () => {
+    montar({
+      movimientosPendientes: vi.fn(() => of({ ...VACIA, rows: [GASTO_TRABADO], confirmables: 1, total: 1 })),
+    });
+    expect(comp.subtituloJornada()).toContain('1 de 1 se confirman de un clic');
+  });
+
+  /**
+   * `[CG.32]` El cuadre ocupaba la mitad de la pantalla para publicar ceros, y la cola de trabajo
+   * empezaba debajo del pliegue.
+   */
+  it('con el libro en CERO y cola pendiente, el cuadre se pliega', () => {
+    montar({
+      arqueoDia: vi.fn(() => of({ ...ARQUEO, caja_general: { ...ARQUEO.caja_general, movimientos: 0 } })),
+      movimientosPendientes: vi.fn(() => of({ ...VACIA, rows: [GASTO_TRABADO], total: 1887 })),
+    });
+    expect(comp.verDetalleCierre()).toBe(false);
+  });
+
+  it('⛔ [negativa] con el libro en cero y SIN cola NO se pliega: ahi los ceros son la respuesta', () => {
+    montar({
+      arqueoDia: vi.fn(() => of({ ...ARQUEO, caja_general: { ...ARQUEO.caja_general, movimientos: 0 } })),
+      movimientosPendientes: vi.fn(() => of({ ...VACIA, total: 0 })),
+    });
+    expect(comp.verDetalleCierre()).toBe(true);
+  });
+
+  it('⛔ [negativa] con movimientos en el libro NO se pliega, aunque haya cola', () => {
+    montar({ movimientosPendientes: vi.fn(() => of({ ...VACIA, rows: [GASTO_TRABADO], total: 1887 })) });
+    expect(comp.verDetalleCierre()).toBe(true);   // ARQUEO trae 3 movimientos
+  });
+
+  it('abrirlo a mano GANA sobre el plegado automatico', () => {
+    // Plegarle algo que acaba de abrir seria pelearle.
+    montar({
+      arqueoDia: vi.fn(() => of({ ...ARQUEO, caja_general: { ...ARQUEO.caja_general, movimientos: 0 } })),
+      movimientosPendientes: vi.fn(() => of({ ...VACIA, rows: [GASTO_TRABADO], total: 1887 })),
+    });
+    expect(comp.verDetalleCierre()).toBe(false);
+    comp.cuadreAbierto.set(true);
+    expect(comp.verDetalleCierre()).toBe(true);
   });
 
   it('los limites estructurales arrancan plegados y los accionables no', () => {

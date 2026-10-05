@@ -7,7 +7,8 @@
  */
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
-  buildFolioCorte, redondea, CORTE_EPSILON, proyectarCiego, puedeRecontar, type MovimientoDelCorte,
+  buildFolioCorte, redondea, CORTE_EPSILON, proyectarCiego, puedeRecontar, avisoLibroVacio,
+  type MovimientoDelCorte,
 } from './cash-cut.engine';
 
 const m = (tipo: MovimientoDelCorte['tipo'], monto: number, estado?: string): MovimientoDelCorte =>
@@ -345,5 +346,43 @@ describe('puedeRecontar — una vez, con motivo, sin borrar el primero', () => {
 
   it('un corte cerrado no se recuenta: se corrige con un movimiento nuevo', () => {
     expect(puedeRecontar({ estado: 'cerrado' }, conDif, 'Se conto mal la caja').motivo).toBe('no_es_borrador');
+  });
+});
+
+
+/**
+ * `[CG.31]` El aviso que faltaba: el libro en cero mientras la bóveda se movió.
+ *
+ * La pantalla ponía «Caja general $0.00 · 0 movimientos» al lado de «Cajero 6 movimientos» y sólo
+ * decía *«todavía no rendiste cuentas»*. Son dos afirmaciones incompatibles sobre el mismo día.
+ */
+describe('avisoLibroVacio', () => {
+  it('el caso REAL de la pantalla: 6 movimientos del cajero, 0 en el libro', () => {
+    const m = avisoLibroVacio(0, 6, 71150 + 95500);
+    expect(m).toContain('6 movimiento(s)');
+    expect(m).toContain('166,650');
+    expect(m).toContain('el libro está vacío');
+  });
+
+  // ── NEGATIVAS: que NO grite donde no corresponde ───────────────────────────────────────────
+  // Un aviso que aparece de más se deja de leer, y se lleva puesto al que sí importaba.
+
+  it('⛔ [negativa] con el libro CON movimientos no dispara, aunque no cuadre', () => {
+    // Eso es un descuadre, no un vacío: lo contesta el cuadre, no un aviso.
+    expect(avisoLibroVacio(3, 6, 166650)).toBeNull();
+  });
+
+  it('⛔ [negativa] un día sin cajero NO es una contradicción', () => {
+    expect(avisoLibroVacio(0, 0, 0)).toBeNull();
+  });
+
+  it('⛔ [negativa] ni un solo movimiento de ninguno de los dos lados: nada que nombrar', () => {
+    expect(avisoLibroVacio(0, 0, 999999)).toBeNull();
+  });
+
+  it('usa el BRUTO, no el neto: depositar y dispensar lo mismo mueve dinero igual', () => {
+    // neto 0 y aun así se movieron $100,000: el aviso tiene que salir y decir el bruto.
+    const m = avisoLibroVacio(0, 2, 50000 + 50000);
+    expect(m).toContain('100,000');
   });
 });
