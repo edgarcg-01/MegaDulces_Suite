@@ -190,6 +190,42 @@ describe('MS.3.5 · categorías, sucursales y recurrentes', () => {
   });
 });
 
+describe('MS.3.15 · horas registradas por categoría', () => {
+  it('⭐ suma el tiempo registrado por categoría y dice en cuántos tickets hay registro', () => {
+    const r = reporte([
+      fila({ category_id: 'a', category_name: 'A', minutos_registrados: 30 }),
+      fila({ category_id: 'a', category_name: 'A', minutos_registrados: 45 }),
+      fila({ category_id: 'a', category_name: 'A', minutos_registrados: 0 }),
+    ]);
+    expect(r.por_categoria[0]).toMatchObject({ name: 'A', creados: 3, minutos_trabajados: 75, con_tiempo: 2 });
+    expect(r.totales).toMatchObject({ minutos_trabajados: 75, con_tiempo: 2 });
+  });
+  it('⛔ NEGATIVA — una categoría donde NADIE registró tiempo es `null`, NUNCA «0 minutos»', () => {
+    const r = reporte([fila({ category_id: 'a', category_name: 'A', minutos_registrados: 0 }), fila({ category_id: 'b', category_name: 'B' })]);
+    for (const c of r.por_categoria) expect(c.minutos_trabajados, c.name).toBeNull();
+    expect(r.por_categoria.every((c) => c.con_tiempo === 0)).toBe(true);
+    expect(r.totales.minutos_trabajados).toBeNull();
+    expect(r.totales.con_tiempo).toBe(0);
+  });
+  it('un campo ausente (filas viejas) se trata como «nadie registró», sin romper', () => {
+    const r = reporte([fila({})]);
+    expect(r.totales.minutos_trabajados).toBeNull();
+  });
+  it('el tiempo de un ticket CANCELADO también cuenta: se trabajó aunque no se resolviera', () => {
+    const r = reporte([fila({ status: 'cancelado', category_id: 'a', category_name: 'A', minutos_registrados: 20 })]);
+    expect(r.por_categoria[0]).toMatchObject({ minutos_trabajados: 20, con_tiempo: 1 });
+  });
+  it('el número llega como texto desde Postgres y se suma igual', () => {
+    const r = reporte([fila({ category_id: 'a', category_name: 'A', minutos_registrados: '40' }), fila({ category_id: 'a', category_name: 'A', minutos_registrados: '5' })]);
+    expect(r.por_categoria[0].minutos_trabajados).toBe(45);
+  });
+  it('⛔ sigue sin haber nada por persona, y el reporte declara que el tiempo es sólo el registrado a mano', () => {
+    const r = reporte([fila({ minutos_registrados: 30 })]);
+    expect(JSON.stringify(r)).not.toMatch(/"(assign[a-z_]*|requester[a-z_]*|resolved_by|asignado[a-z_]*|user[a-z_]*|persona[a-z_]*)":/i);
+    expect(r.no_medido.join(' ')).toContain('sólo el que se registra a mano');
+  });
+});
+
 describe('MS.3.5 · lo que el reporte declara', () => {
   it('⛔ NO mide personas: el reporte no trae nada por asignado', () => {
     const r = reporte([fila({})]);

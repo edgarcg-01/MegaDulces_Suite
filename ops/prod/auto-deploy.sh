@@ -357,7 +357,22 @@ if [ -n "$PEND" ]; then
     di "FRENADO: el código de $DESEADO necesita esquema que prod no tiene (detalle arriba)."
     di "Se aplican a mano, una por una, con lock_timeout. NUNCA migrate:latest (hay DOS knex_migrations)."
     latir error "$n migración(es) sin aplicar y ACOPLADAS al cambio — despliegue frenado"
-    exit 1
+    # ⛔ `[CD.21]` SALE 3, NO 1. FRENADO NO ES FALLADO, y confundirlos cuesta un paso a mano.
+    #
+    # Medido el 2026-10-05: el vigía frenó acá por la columna `reconciliation.blind_counts.secuencia`,
+    # alguien aplicó la migración treinta segundos después… y el despliegue **no se relanzó solo**.
+    # El vigía ya había guardado el SHA como visto —a propósito, para que un despliegue FALLIDO no
+    # reintente en bucle cada 30 s— y se quedó esperando un movimiento de `ci-green` que no iba a
+    # llegar. Hubo que empujarlo a mano.
+    #
+    # ⭐ La diferencia es real y vale separarla: cuando esto FRENA **no se rompió nada**. El código
+    #    es bueno, la base está sana, y la condición que bloquea es REVERSIBLE — se levanta sola en
+    #    cuanto alguien aplica la migración. Un build roto, en cambio, no se arregla esperando.
+    #
+    # Los otros 24 caminos de este guion siguen saliendo 1. Sólo este dice "bloqueado, reintentá".
+    # Mismo patrón que `gitleaks --exit-code 7` en el pre-commit: un código propio para separar
+    # "encontré algo" de "no pude correr".
+    exit 3
   fi
 else
   di "migraciones: prod al día"
@@ -496,9 +511,41 @@ if ! grep -q 'AS runner-api' Dockerfile 2>/dev/null; then
   exit 1
 fi
 
+# ⛔ [K3S.42] LO QUE K3s FIJA SE CONSTRUYE SIEMPRE, CAMBIE O NO.
+#
+# `$SERVICIOS` responde "qué cambió". Los manifiestos responden otra cosa: fijan TODAS sus
+# imágenes al commit del día (`__COMMIT__`). Son dos reglas incompatibles, y cuando el diff es
+# angosto —uno que no toca `libs/`, `apps/portal/` ni `apps/vendor/`— la heurística saltea
+# portal y vendedor, el manifiesto igual los pide en el commit nuevo, y el despliegue entero
+# se cae en la compuerta de [K3S.24].
+#
+# Medido el 2026-10-05: un commit que sólo tocaba `apps/view/` y `ops/prod/` dio
+# `servicios: api worker`, y el despliegue murió con "el registry no tiene estas imágenes en
+# :d76937fe — trade-prod-portal trade-prod-vendor". Prod quedó clavado tres commits atrás,
+# con la pantalla del arqueo rota a la vista de las cajeras.
+#
+# ⭐ Es EL MISMO defecto que [K3S.41] ya cerró para caddy y pg, con el mismo argumento escrito
+# ahí abajo: a este precio, preguntarse si hace falta cuesta más que hacerlo, y la pregunta es
+# justo donde se cuela el olvido. Lo que aquel bloque no vio es que su propio `continue` sobre
+# portal/vendor —"ya arriba"— sólo es cierto cuando la heurística los dejó entrar.
+#
+# ⚠️ El criterio NO es "las cuatro siempre": es "lo que K3s fija". Si mañana una app vuelve a
+# vivir sólo en Compose, su manifiesto deja de fijarla y la heurística vuelve a mandar sobre
+# ella sola. La lista sale de los manifiestos, que son la fuente de la verdad de qué se pide.
+_k3s_fija=$(sed -n 's#^[[:space:]]*image:[[:space:]]*localhost:5000/\([A-Za-z0-9._-]*\):__COMMIT__.*#\1#p' \
+              "${K3S_DIR:-$HOME/ops/k3s}"/*.yaml 2>/dev/null | sort -u || true)
 for s in api worker portal vendor; do
-  case " $SERVICIOS " in *" $s "*) ;; *) continue ;; esac
   img=$(img_de "$s"); [ -n "$img" ] || continue
+  # Entra si cambió, O si un manifiesto de K3s la va a pedir en este commit.
+  _cambio=no
+  case " $SERVICIOS " in *" $s "*) _cambio=si ;; esac
+  if [ "$_cambio" = no ]; then
+    if echo "$_k3s_fija" | grep -qx "$img"; then
+      di "  $img no cambió, pero K3s la fija en :$DESEADO ⇒ se construye igual"
+    else
+      continue
+    fi
+  fi
   di "construyendo $img:$DESEADO"
   if ! docker build -q -f Dockerfile --target "runner-$s" \
         --build-arg GIT_COMMIT_SHA="$DESEADO" --build-arg GIT_COMMIT_ISO="$COMMIT_ISO" \
@@ -511,7 +558,10 @@ done
 
 # ═══ [K3S.41] LO QUE K3s CONSUME Y ESTE CARRIL NO CONSTRUÍA ════════════════════════════════
 #
-# El bucle de arriba construye las CUATRO apps (salen del Dockerfile unificado por --target).
+# El bucle de arriba construye las apps (salen del Dockerfile unificado por --target): las que
+# cambiaron, mas las que K3s fija en este commit ([K3S.42]). Decia "las CUATRO" y no era
+# cierto cuando el diff era angosto -- de ahi salia el `continue` de abajo apoyado en una
+# premisa falsa.
 # Pero los manifiestos de prod también consumen imágenes que NO son apps de Node —hoy
 # trade-prod-caddy, mañana trade-prod-pg— y este carril nunca las tocaba.
 #

@@ -33,6 +33,7 @@ export interface RutasResp { warehouse_code: string; rd: RutaArqueo[]; rv: RutaA
 /** Lo que devuelve el arqueo de ruta. Sin diferencia, y lo dice.  */
 export interface ArqueoRutaResult {
   tipo: ArqueoTipo; total_contado: number;
+  secuencia?: number;
   route_code: string; route_label: string;
   medible: false; motivo_no_medible: string;
 }
@@ -109,6 +110,18 @@ export interface AvisoDobleCaja {
 export interface TurnosResp {
   turnos: Turno[];
   aviso: AvisoDobleCaja | null;
+  /**
+   * `[SM.41]` Cuando llego el ultimo dato de Kepler — el latido del carril
+   * `ods_live_hot`, que es el que trae `kdpv_folio_caja`. NO es la hora del
+   * fetch: es la del DATO.
+   *
+   * Sin esto, con la ingesta caida la pantalla decia «No tienes cortes por
+   * arquear», que se lee igual que «ya contaste todo». Paso seis dias en
+   * septiembre de 2026 con 25 cajeras y el turno congelado.
+   */
+  datos_al?: string | null;
+  /** `desconocido` = no hay latido que leer. NO es lo mismo que fresco. */
+  status?: 'ok' | 'error' | 'desconocido';
 }
 
 export interface ArqueoDto {
@@ -135,6 +148,13 @@ export interface ArqueoDto {
 
 export interface ArqueoResult {
   tipo: ArqueoTipo;
+  /**
+   * `[SM.41]` Que numero de sangria es, dentro del turno. Siempre 1 en los otros
+   * cuatro tipos. Viaja tambien a la cajera: decirle «sangria 3 sellada» no
+   * revela nada del esperado, y es lo que le confirma que NO piso la anterior
+   * — que es exactamente lo que pasaba antes, en silencio.
+   */
+  secuencia?: number;
   total_contado: number;
   /** ¿El backend reveló la comparación? false para la cajera. */
   reveal: boolean;
@@ -152,6 +172,15 @@ export interface ArqueoResult {
 
 export interface ArqueoRow {
   id: string; tipo: ArqueoTipo; warehouse_code: string; caja: string; business_date: string; turno: string | null;
+  /** `[SM.41]` Numero de la sangria dentro del turno (1,2,3...). 1 en los demas tipos. */
+  secuencia?: number;
+  /**
+   * `[SM.41]` Mas de un corte de Kepler casa con este conteo y no se puede saber
+   * cual es. Antes la fila salia DUPLICADA, cada copia con su propio esperado;
+   * ahora se declara y no se publica diferencia. `compare()` ya hacia esto al
+   * capturar — era la lectura la que elegia a dedo.
+   */
+  ambiguous?: boolean;
   cajero_code: string | null; cajero_entrante: string | null; cajero_nombre: string | null; total_contado: number;
   captured_by: string | null; captured_at: string; nota: string | null; incidencia_tipo: string | null;
   cash_cut_folio?: string | null; caja_kepler?: string | null; turno_abierto_at?: string | null;

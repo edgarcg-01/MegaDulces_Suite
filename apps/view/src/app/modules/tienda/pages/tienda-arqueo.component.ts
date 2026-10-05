@@ -70,18 +70,44 @@ interface CortesPersona {
     <div class="surf-page in arq-page">
       <p-toast></p-toast>
       <app-page-tabs [tabs]="arqueoTabs" />
-      <header class="surf-page-head">
-        <div class="surf-page-head-text">
-          <h1>Arqueo de caja</h1>
-          <p class="surf-page-sub">
-            Cuenta el efectivo físico de <strong>hoy</strong> por denominación y guárdalo.
-            @if (revela) { Al guardar, el sistema te muestra la diferencia real. }
-            @else { El cuadre lo revisa tu encargada. }
-          </p>
-        </div>
+      <!-- Encabezado casi inexistente, a proposito.
+           "Arqueo de caja" ya se lee DOS veces arriba: en la migaja y en la pestaña
+           activa. Un h1 grande era la TERCERA, y entre el y su subtitulo se comian
+           ~90px del alto que esta pantalla necesita para contar billetes.
+           El h1 se queda para el lector de pantalla y el esquema del documento; lo
+           que se VE es solo la frescura y la ayuda.
+           El subtitulo no se pierde: la ayuda (?) de este mismo renglon ya decia
+           textualmente "al guardar, el sistema revela tu diferencia real". -->
+      <header class="surf-page-head arq-head-min">
+        <h1 class="sr-only">Arqueo de caja</h1>
+        <!-- El buscador comparte renglon con la frescura y la ayuda: asi cuesta CERO
+             alto. Es un accesorio para cuando alguien llega al mostrador a media
+             cuenta, no una seccion. Si se abre la ventana con el precio y la
+             existencia, esa SI baja a su propio renglon (flex: 1 1 100%) y el
+             encabezado crece mientras dura -- la respuesta merece espacio, y se
+             cierra sola. -->
+        @if (puedeFaltante()) {
+          <div class="arq-faltante">
+            <app-faltante-express [sucursal]="sucursalActiva()" [compacto]="true" />
+          </div>
+        }
         <div class="arq-head-right">
           <!-- [VP.0.2] Decía label="Kepler" sobre un new Date() del navegador: se leía como "los datos
                de Kepler tienen 3 minutos" y era la hora en que cargó esta pantalla. -->
+          <!-- [SM.41] DOS pildoras, porque son dos cosas distintas y la que
+               faltaba es la que importa. fetch dice cuando pidio el navegador;
+               data dice cuando llego el ultimo dato de Kepler. Con la ingesta
+               caida la lista se vacia y la pantalla decia "No tienes cortes por
+               arquear", indistinguible de "ya contaste todo" — seis dias asi en
+               septiembre de 2026, con 25 cajeras y el turno congelado.
+               Sin latido NO se dibuja fresca: se declara sin medir (ADR-056). -->
+          @if (datosAl()) {
+            <app-freshness-pill measures="data" label="Kepler" [since]="datosAl()" [staleAfterSec]="900" />
+          } @else {
+            <span class="arq-sin-frescura" title="No hay latido del carril que trae los turnos">
+              <i class="pi pi-question-circle" aria-hidden="true"></i> Frescura sin medir
+            </span>
+          }
           <app-freshness-pill measures="fetch" [since]="turnosAl()" [staleAfterSec]="180" />
           <app-context-help topic="arqueo" />
         </div>
@@ -106,18 +132,24 @@ interface CortesPersona {
              no toca dirty, no roba el foco al cargar y no entra en esa cadena.
 
              ⚠️ NO PONER ACENTOS GRAVES ACÁ: esto vive dentro de un template literal. -->
-        @if (puedeFaltante()) {
-          <div class="card-premium card-flat arq-faltante">
-            <h3 class="arq-card-title">¿Te pidieron algo que no había?</h3>
-            <app-faltante-express [sucursal]="aSuc || null" />
-          </div>
-        }
-
         <!-- Captura -->
           <!-- SM.38/SM.40 - Dos cajas abiertas con el mismo usuario. Se DICE, y la
                captura queda habilitada abajo: el candado que vivia aca dejaba a la
                persona sin salida cuando el cierre no llegaba del ODS (medido el
                2026-09-29 con la ingesta caida 6 dias). -->
+          <!-- [SM.41] El dato esta viejo: se DICE, y la captura sigue abierta
+               abajo. Es el aviso que convierte "no tenes cortes" en "no sabemos
+               si tenes cortes" — y la diferencia es todo. -->
+          @if (odsViejo(); as v) {
+            <div class="arq-aviso-caja arq-ods-viejo">
+              <i class="pi pi-exclamation-triangle"></i>
+              <div>
+                <strong>{{ v.titulo }}</strong>
+                <p class="muted">{{ v.detalle }}</p>
+                <p class="muted">Contá igual: tu conteo queda guardado con la hora y a tu nombre, y se compara contra el corte cuando el dato llegue. Avisale a sistemas.</p>
+              </div>
+            </div>
+          }
           @if (aviso(); as b) {
             <div class="arq-aviso-caja">
               <i class="pi pi-info-circle"></i>
@@ -142,8 +174,6 @@ interface CortesPersona {
           }
           @if (canCapture()) {
         <div class="card-premium card-flat arq-panel">
-          <h3 class="arq-card-title">Nuevo arqueo</h3>
-
           @if (cargandoTurnos()) {
             <p class="muted arq-msg">Buscando tus turnos en Kepler…</p>
           } @else if (!turnos().length && !manual()) {
@@ -191,92 +221,58 @@ interface CortesPersona {
             }
 
             @if (turnoSel(); as t) {
-              @if (t.abierto && avisoCorte(t); as a) {
-                <!-- Su caja tiene un horario propio y es predecible: se avisa antes
-                     de que Kepler cierre, para que cuente con calma en vez de a las
-                     apuradas. Solo cuando el histórico es consistente. -->
-                <div class="arq-prox" [class.ya]="a.pronto">
-                  <i class="pi pi-clock"></i>
+              <!-- UNA sola pregunta.
+                   Aca se apilaban hasta CUATRO cajas de aviso (proximo corte, caja
+                   abierta/cerrada, pide retiro, retiros sin contar, pide cierre) y
+                   todas antes de la primera casilla: la grilla de conteo empezaba al
+                   60% del alto. Esta pantalla existe para contar efectivo, asi que la
+                   prioridad se resuelve en loQueToca() y lo demas baja al renglon del
+                   turno, que no ocupa alto. Nada se pierde: cambia quien decide. -->
+              @if (loQueToca(); as q) {
+                <div class="arq-pide-box" [class.urge]="q.urge">
+                  <i [class]="q.icono"></i>
                   <div>
-                    <strong>{{ a.titulo }}</strong>
-                    <p class="muted">{{ a.detalle }}</p>
+                    <strong>{{ q.titulo }}</strong>
+                    <p class="muted">{{ q.detalle }}</p>
+                    @if (q.cta) {
+                      <p-button type="button" [label]="q.cta" icon="pi pi-arrow-right"
+                                styleClass="p-button-sm" (click)="pasarATipo(q.tipo)"></p-button>
+                    }
                   </div>
                 </div>
               }
-              @if (t.abierto) {
-                <!-- SM.34 — Tu caja sigue abierta y eso NO es un impedimento: se
-                     cuenta ahora. El backend siempre lo aceptó; lo que faltaba era
-                     que la pantalla lo dijera en vez de sugerir la espera. -->
-                <div class="arq-pide-box">
-                  <i class="pi pi-inbox"></i>
-                  <div>
-                    <strong>Tu caja sigue abierta{{ t.hora_apertura ? ' desde las ' + t.hora_apertura : '' }} — podés contar ahora.</strong>
-                    <p class="muted">No hace falta esperar el corte. Lo que cuentes queda a tu nombre.</p>
-                  </div>
-                </div>
-              } @else {
-                <!-- Kepler cerró la caja: el arqueo sigue siendo lo que toca. Se
-                     quitó el "hace N minutos" — era el cronómetro, y medía el
-                     momento equivocado: para cuando cierra, el efectivo de las
-                     sangrías ya salió del cajón. -->
-                <div class="arq-pide-box">
-                  <i class="pi pi-bell"></i>
-                  <div>
-                    <strong>Kepler cerró tu caja{{ t.hora_cierre ? ' a las ' + t.hora_cierre : '' }}. Te toca arquear.</strong>
-                  </div>
-                </div>
-              }
-              <!-- SM.35 — La sangría, PEDIDA. El límite de la caja (Kepler c46) es
-                   un umbral medido: por debajo hay retiro en 2.4-14.1% de los turnos
-                   y al cruzarlo salta a 70.8% → 99.1%. Antes el tipo "Retiro" era una
-                   pestaña que había que descubrir; ahora la pantalla lo pide sola.
-                   No se muestra el monto del cajón: el arqueo es ciego. -->
-              @if (t.pide_retiro && aTipo() !== 'retiro') {
-                <div class="arq-pide-box urge">
-                  <i class="pi pi-arrow-circle-up"></i>
-                  <div>
-                    <strong>Tu caja llegó a su límite{{ t.cash_limit ? ' de ' + money(t.cash_limit) : '' }} — toca hacer un retiro.</strong>
-                    <p class="muted">Contá lo que sacás del cajón y guardalo como retiro. Sin eso, al cerrar el turno ese dinero aparece como faltante tuyo.</p>
-                    <p-button type="button" label="Contar el retiro" icon="pi pi-arrow-right"
-                              styleClass="p-button-sm" (click)="pasarATipo('retiro')"></p-button>
-                  </div>
+
+              <!-- El turno, en un renglon. Eran seis campos en grilla; ninguno se
+                   perdio y el estado de la caja (abierta/cerrada y su hora tipica de
+                   corte) se gano, que antes costaba dos cajas de aviso. -->
+              <p class="arq-turno-linea">
+                <strong>Caja {{ t.caja }}</strong>
+                <span class="sep">·</span>{{ branchLabel(t.warehouse_code) }}
+                <span class="sep">·</span><span class="arq-mono">{{ t.cajero_code || '—' }}</span>
+                <span class="sep">·</span><span class="arq-mono">{{ t.business_date | date:'dd/MM/yy' }}</span>
+                <span class="sep">·</span><span class="arq-mono">turno #{{ t.folio }}</span>
+                <span class="sep">·</span>{{ t.abierto ? 'abierta desde ' + (t.hora_apertura || '—') : 'cerró ' + (t.hora_cierre || '—') }}
+                @if (t.abierto && avisoCorte(t); as a) {
+                  <span class="sep">·</span><span [class.arq-urge-txt]="a.pronto">{{ a.titulo }}</span>
+                }
+              </p>
+
+              <!-- [SM.41] Las sangrias YA contadas de este turno.
+                   Hasta esta entrega sobraba una sola linea, porque la clave unica no
+                   excluia retiro y la segunda del dia pisaba a la primera en silencio.
+                   Ahora conviven, y verlas es lo que impide contarlas dos veces — y lo
+                   que explica por que el aviso de "retiros sin contar" sigue encendido. -->
+              @if (sangriasDelTurno(); as sg) {
+                <div class="arq-sangrias">
+                  <span class="arq-sangrias-t">Sangrías de este turno</span>
+                  @for (x of sg.hechas; track x.id) {
+                    <span class="arq-sg"><i class="pi pi-check" aria-hidden="true"></i>{{ x.hora }} · {{ money(x.monto) }}</span>
+                  }
+                  @if (sg.faltaTxt) { <span class="arq-sg falta">{{ sg.faltaTxt }}</span> }
+                  <span class="arq-sangrias-n">{{ sg.nota }}</span>
                 </div>
               }
-              <!-- Kepler ya registró sangrías que nadie contó. Esto NO es un
-                   pronóstico: es el hueco exacto que producía el faltante falso. -->
-              @if (t.retiro_sin_contar && !t.pide_retiro && aTipo() !== 'retiro') {
-                <div class="arq-pide-box urge">
-                  <i class="pi pi-exclamation-circle"></i>
-                  <div>
-                    <strong>Hay retiros de este turno sin contar.</strong>
-                    <p class="muted">Kepler los registró pero nadie los contó. Contalos antes del cierre: es lo que permite que el turno cuadre.</p>
-                    <p-button type="button" label="Contar el retiro" icon="pi pi-arrow-right"
-                              styleClass="p-button-sm" (click)="pasarATipo('retiro')"></p-button>
-                  </div>
-                </div>
-              }
-              <!-- El corte del turno. Es PARCIAL por naturaleza —el resto del dinero
-                   ya salió en sangrías— y a la vez el que cierra. -->
-              @if (t.pide_cierre && aTipo() !== 'cierre') {
-                <div class="arq-pide-box">
-                  <i class="pi pi-flag"></i>
-                  <div>
-                    <strong>Toca el corte de tu turno.</strong>
-                    <p class="muted">Contá lo que queda en el cajón. Con eso y tus retiros, el turno cierra completo.</p>
-                    <p-button type="button" label="Hacer el corte" icon="pi pi-arrow-right"
-                              styleClass="p-button-sm" (click)="pasarATipo('cierre')"></p-button>
-                  </div>
-                </div>
-              }
-              <!-- Encabezado NO editable: cada dato viene del turno de Kepler. -->
-              <div class="arq-datos">
-                <div><span class="arq-ev-k">Sucursal</span><span class="arq-ev-v">{{ branchLabel(t.warehouse_code) }}</span></div>
-                <div><span class="arq-ev-k">Caja</span><span class="arq-ev-v strong">{{ t.caja }}</span></div>
-                <div><span class="arq-ev-k">Fecha</span><span class="arq-ev-v">{{ t.business_date | date:'dd/MM/yy' }}</span></div>
-                <div><span class="arq-ev-k">Cajero</span><span class="arq-ev-v">{{ t.cajero_code || '—' }}</span></div>
-                <div><span class="arq-ev-k">{{ t.abierto ? 'Abrió' : 'Cerró' }}</span><span class="arq-ev-v">{{ (t.abierto ? t.hora_apertura : t.hora_cierre) || '—' }}</span></div>
-                <div><span class="arq-ev-k">Turno Kepler</span><span class="arq-ev-v">#{{ t.folio }}</span></div>
-              </div>
+
             }
           }
 
@@ -295,7 +291,7 @@ interface CortesPersona {
                    divergida. ⚠️ NO PONER ACENTOS GRAVES ACÁ: es un template literal. -->
               @if (variasSucursales()) {
                 <label class="arq-lbl">Sucursal
-                  <p-select #hcell [options]="sucursalOptions()" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)"
+                  <p-select #hcell [options]="sucursalOptions()" [ngModel]="aSuc()" (ngModelChange)="aSuc.set($event); dirty.set(true)"
                             optionLabel="label" optionValue="value" styleClass="arq-fld arq-fld-suc"
                             appendTo="body" placeholder="Elige…" [filter]="sucursales().length > 8" filterBy="label"
                             (keydown)="onHeadKey($event, 0)" />
@@ -303,7 +299,7 @@ interface CortesPersona {
               } @else {
                 <div class="arq-lbl arq-suc-fija">Sucursal
                   <span class="arq-suc-val">
-                    <i class="pi pi-building" aria-hidden="true"></i>{{ branchLabel(aSuc) || 'Sin sucursal asignada' }}
+                    <i class="pi pi-building" aria-hidden="true"></i>{{ branchLabel(aSuc()) || 'Sin sucursal asignada' }}
                   </span>
                 </div>
               }
@@ -470,16 +466,41 @@ interface CortesPersona {
               <!-- El botón es el último eslabón de la cadena: ↓ en la última casilla de
                    cualquier columna cae acá, y ↑ vuelve a esa misma casilla. Así el
                    arqueo entero se captura y se sella sin soltar el teclado. -->
+              <!-- [SM.41] Declarar el cero. Con las sangrias llevandose el 63-81%
+                   del efectivo, un cajon vacio al cierre es un desenlace normal y no
+                   se podia sellar: el boton quedaba apagado para siempre. "Conte y
+                   habia $0" es un hecho distinto de "no conte". -->
+              @if (arqTotal() <= 0 && !esRuta()) {
+                <p-button type="button" [label]="vacio() ? 'Cajón vacío declarado' : 'El cajón quedó vacío'"
+                          [icon]="vacio() ? 'pi pi-check' : 'pi pi-inbox'"
+                          [styleClass]="vacio() ? 'p-button-sm' : 'p-button-sm p-button-outlined'"
+                          severity="secondary" (click)="declararVacio()"></p-button>
+              }
               <p-button #btnGuardar type="button" [label]="submitLabel()" icon="pi pi-lock"
                       [disabled]="!canSubmit() || saving()" [loading]="saving()"
                       (keydown)="onBotonKey($event)" (click)="confirmar()"></p-button>
             </div>
           }
 
+          @if (vacio()) {
+            <p class="arq-vacio-aviso">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              Vas a declarar que contaste el cajón y había <strong>{{ money(0) }}</strong>.
+              Es distinto de no contar, y se guarda como tal.
+            </p>
+          }
+
           @if (result(); as r) {
             <div class="arq-result" [class.bad]="revela && (r.diff_real || 0) > 0" [class.ok]="revela && (r.diff_real || 0) < 0">
               @if (r.tipo === 'relevo') {
                 <p class="muted">Relevo sellado: {{ money(r.total_contado) }} entregados a {{ aEntrante || '—' }}.</p>
+              } @else if (r.tipo === 'rd' || r.tipo === 'rv') {
+                <!-- [SM.41] Sin esperado y se DICE, igual que lo declara el backend
+                     (medible: false, motivo: 'sin_esperado'). Lo que vale acá es el papel. -->
+                <div class="arq-cmp">
+                  <div><span class="arq-ev-k">Entrega sellada — total contado</span><span class="arq-ev-v strong">{{ money(r.total_contado) }}</span></div>
+                </div>
+                <p class="muted arq-mt">No se compara contra un esperado: Kepler no publica cuánto debía entregar una ruta. El ticket es la constancia.</p>
               } @else if (!r.reveal) {
                 <!-- Cajera: se confirma el hecho, no el cuadre. -->
                 <div class="arq-cmp">
@@ -526,20 +547,20 @@ interface CortesPersona {
             <ng-template #header>
               <tr>
                 <th class="arq-ex-th" scope="col"><span class="sr-only">Detalle</span></th>
-                <th>Fecha</th>
-                @if (variasSucursales()) { <th>Sucursal</th> }
-                <th>Caja</th><th>Cajero</th>
+                <th scope="col">Fecha</th>
+                @if (variasSucursales()) { <th scope="col">Sucursal</th> }
+                <th scope="col">Caja</th><th scope="col">Cajero</th>
                 @if (revela) {
                   <!-- Los tres números de la validación, en el orden en que se leen:
                        lo que debería haber · lo que Kepler declara · lo que contamos. -->
-                  <th class="ta-r">Esperado</th>
-                  <th class="ta-r">Arqueo Kepler</th>
-                  <th class="ta-r">Nuestro arqueo</th>
-                  <th class="ta-r">Diferencia</th>
+                  <th scope="col" class="ta-r">Esperado</th>
+                  <th scope="col" class="ta-r">Arqueo Kepler</th>
+                  <th scope="col" class="ta-r">Nuestro arqueo</th>
+                  <th scope="col" class="ta-r">Diferencia</th>
                 } @else {
-                  <th class="ta-r">Contado</th>
+                  <th scope="col" class="ta-r">Contado</th>
                 }
-                <th>Validado</th>
+                <th scope="col">Validado</th>
               </tr>
             </ng-template>
             <ng-template #body let-b let-expanded="expanded">
@@ -552,10 +573,21 @@ interface CortesPersona {
                 </td>
                 <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
                 @if (variasSucursales()) { <td>{{ branchLabel(b.warehouse_code) }}</td> }
-                <td>{{ b.caja }}@if (b.tipo === 'relevo') { <p-tag value="Relevo" severity="info" styleClass="arq-tag-mini" /> }</td>
+                <td>{{ b.caja }}@if (b.tipo === 'relevo') { <p-tag value="Relevo" severity="info" styleClass="arq-tag-mini" /> }
+                  <!-- [SM.41] Que numero de sangria es. Sin esto, tres retiros del
+                       mismo turno se leian como la misma fila repetida — y hasta esta
+                       entrega eran, literalmente, una sola: la segunda pisaba a la primera. -->
+                  @if (b.tipo === 'retiro') { <p-tag [value]="'Retiro ' + (b.secuencia ?? 1)" severity="warn" styleClass="arq-tag-mini" /> }
+                  @if (b.tipo === 'rd' || b.tipo === 'rv') { <p-tag [value]="b.tipo.toUpperCase()" severity="secondary" styleClass="arq-tag-mini" /> }
+                </td>
                 <td>{{ b.cajero_nombre || b.cajero_code || '—' }}@if (b.tipo === 'relevo' && b.cajero_entrante) { <span class="muted"> → {{ b.cajero_entrante }}</span> }</td>
                 @if (revela) {
-                  <td class="ta-r muted">{{ b.esperado != null ? money(b.esperado) : '—' }}</td>
+                  <!-- ambiguous = hay mas de un corte que podria ser el suyo. Antes la
+                       fila salia DUPLICADA con dos esperados distintos; ahora se declara. -->
+                  <td class="ta-r muted">
+                    @if (b.ambiguous) { <span class="arq-ambiguo" title="Hay varios cortes en esta caja y este dia: no se puede saber cual es el suyo">varios cortes</span> }
+                    @else { {{ b.esperado != null ? money(b.esperado) : '—' }} }
+                  </td>
                   <td class="ta-r">
                     {{ b.kepler_contado != null ? money(b.kepler_contado) : '—' }}
                     @if (b.kepler_enmascaro) {
@@ -642,8 +674,18 @@ interface CortesPersona {
                           </tfoot>
                         </table>
                         @if (b.kepler_desglose_cuadra === false) {
+                          <!-- [SM.41] Esto decía «sin explicar (suele ser un retiro que
+                               nadie registró)», que se lee como «falta dinero». Medido en
+                               prod sobre 3,230 cortes: el desglose de Kepler cuadra entre
+                               el 45.8% y el 72.7% SEGÚN LA SUCURSAL — 27 puntos de rango.
+                               La caja 4 de Morelia Madero publica cortes de $30-55 mil con
+                               billetes y monedas en CERO (23 de sus 83), y hay cortes donde
+                               las monedas declaradas superan al contado. Es captura del ERP
+                               en esa plaza, no dinero faltante, y la encargada tiene que
+                               poder distinguirlo. -->
                           <p class="arq-exp-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                            Billetes + monedas + retirado no dan el contado: {{ money(b.kepler_desglose_faltante || 0) }} sin explicar (suele ser un retiro que nadie registró).</p>
+                            El desglose que publica Kepler no suma su propio contado: {{ money(b.kepler_desglose_faltante || 0) }} sin cuadrar.
+                            <span class="muted">Puede ser un retiro que el ERP no registró, o que esta sucursal no publique bien el desglose — pasa en varias. No es, por sí solo, dinero faltante.</span></p>
                         }
                         @if (b.kepler_enmascaro) {
                           <p class="arq-exp-warn"><i class="pi pi-eye-slash" aria-hidden="true"></i>
@@ -744,7 +786,7 @@ interface CortesPersona {
             <span>{{ branchLabel(t.warehouse_code) }} · Caja {{ t.caja }}</span>
             <span class="muted">{{ t.cajero_code || '—' }} · {{ t.business_date | date:'dd/MM/yy' }}</span>
           } @else {
-            <span>{{ branchLabel(aSuc) || '—' }} · Caja {{ aCaja || '—' }}</span>
+            <span>{{ branchLabel(aSuc()) || '—' }} · Caja {{ aCaja || '—' }}</span>
             <span class="muted">{{ aCajero || '—' }} · {{ hoyTxt() }}</span>
           }
         </div>
@@ -801,6 +843,13 @@ interface CortesPersona {
   styles: [`
     :host { display: block; }
     .arq-head-right { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; }
+    /* El encabezado deja de ocupar alto: un renglon con la frescura, nada mas.
+       Va con las dos clases para ganarle a .surf-page-head global sin depender
+       del orden en que se carguen las hojas. */
+    .surf-page-head.arq-head-min { display: flex; flex-wrap: wrap; align-items: center;
+                                   min-height: 0; margin: 0 0 .45rem; padding: 0; border: 0; gap: .35rem .6rem; }
+    /* Sin justify-content: a la derecha la lleva el margin-left:auto de
+       .arq-head-right, que funciona igual con o sin buscador al lado. */
     /* minmax(0,1fr), no 1fr: 1fr es minmax(auto,1fr) y no baja del
        min-content de la tarjeta. Con auto el historial (tabla de 10 columnas)
        estiraba la columna mas alla del ancho de la pantalla. */
@@ -809,7 +858,25 @@ interface CortesPersona {
        injerto. SIN container-type: no tiene nada que reordenar por ancho propio, y poner
        contención acá recortaría el desplegable del buscador, que es position:absolute.
        NO PONER ACENTOS GRAVES ACÁ: el bloque de estilos también es un template literal. */
-    .arq-faltante { padding: 1rem; }
+    /* El buscador es un ACCESORIO: una tira de ~40px, no una tarjeta. La pantalla
+       es para contar efectivo y esto no puede comerse un cuarto del alto. */
+    /* El buscador es un ACCESORIO: una tira, no una tarjeta. Caja SIMPLE a
+       proposito -- un bloque con borde. La version anterior era flex con
+       flex-basis sobre el componente hijo, que a su vez es flex: dos capas de
+       flex anidadas para alinear dos cosas, y bastaba que una regla del hijo
+       ganara por orden para que todo se desarmara (paso: salio una tarjeta de
+       800px con los elementos dispersos). El renglon lo arma el hijo, que es
+       quien conoce sus propias partes. */
+    /* Sin caja propia: el unico borde que queda es el del campo. Un recuadro
+       alrededor lo haria leer como una seccion, y es un accesorio. */
+    .arq-faltante { flex: 1 1 18rem; min-width: 0; max-width: 44rem; }
+    :host ::ng-deep .arq-faltante app-faltante-express { display: block; }
+    /* El turno, en un renglon. Reemplaza una grilla de seis campos Y dos cajas de aviso. */
+    .arq-turno-linea { margin: 0 0 .7rem; font-size: .78rem; color: var(--text-muted);
+                       display: flex; flex-wrap: wrap; gap: .15rem .4rem; align-items: baseline; }
+    .arq-turno-linea strong { color: var(--text-main); font-size: .85rem; }
+    .arq-turno-linea .sep { color: var(--border-color); }
+    .arq-urge-txt { color: var(--warn-fg); font-weight: 600; }
     /* SM.31 - El panel es el contenedor de consulta (DESIGN §9: @container para
        componente, @media solo para chrome y densidad por puntero). Ademas de
        habilitar las queries de abajo, container-type: inline-size CORTA la
@@ -885,6 +952,34 @@ interface CortesPersona {
                       border: 1px solid color-mix(in srgb, var(--warn-fg) 45%, transparent);
                       background: color-mix(in srgb, var(--warn-fg) 10%, transparent); }
     .arq-aviso-caja i { color: var(--warn-fg); font-size: 1.1rem; margin-top: .1rem; }
+    /* [SM.41] El dato viejo es mas grave que el aviso de doble caja: usa el tono
+       de error, no el de alerta. Lo que esta en juego es que la pantalla parezca
+       vacia cuando en realidad esta ciega. */
+    .arq-ods-viejo { border-color: color-mix(in srgb, var(--bad-fg) 45%, transparent);
+                     background: color-mix(in srgb, var(--bad-fg) 9%, transparent); }
+    .arq-ods-viejo i { color: var(--bad-fg); }
+    /* Frescura que no se pudo medir. NO se pinta verde ni se omite: se declara. */
+    .arq-sin-frescura { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .45rem;
+                        border: 1px dashed var(--border-color); border-radius: 99px;
+                        font-size: var(--fs-micro); color: var(--text-muted); white-space: nowrap; }
+    .arq-vacio-aviso { display: flex; align-items: flex-start; gap: .45rem; margin: .7rem 0 0;
+                       padding: .55rem .75rem; font-size: .78rem; color: var(--text-main);
+                       border: 1px solid color-mix(in srgb, var(--warn-fg) 45%, transparent);
+                       background: color-mix(in srgb, var(--warn-fg) 8%, transparent); border-radius: var(--r-md); }
+    .arq-vacio-aviso i { color: var(--warn-fg); margin-top: .1rem; }
+    .arq-ambiguo { font-size: .68rem; font-style: italic; color: var(--warn-fg); }
+    /* La tira de sangrias del turno: una linea, no una tarjeta. */
+    .arq-sangrias { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .7rem;
+                    margin-bottom: .9rem; padding: .55rem .8rem; border: 1px solid var(--border-color);
+                    background: var(--card-bg); border-radius: var(--r-md); }
+    .arq-sangrias-t { font-size: .78rem; font-weight: 700; }
+    .arq-sg { display: inline-flex; align-items: center; gap: .25rem; padding: .1rem .5rem; border-radius: 99px;
+              font-size: .72rem; font-variant-numeric: tabular-nums; font-family: var(--font-mono, monospace);
+              color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 10%, transparent);
+              border: 1px solid color-mix(in srgb, var(--ok-fg) 35%, transparent); }
+    .arq-sg.falta { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 10%, transparent);
+                    border-color: color-mix(in srgb, var(--warn-fg) 40%, transparent); font-weight: 700; }
+    .arq-sangrias-n { font-size: .74rem; color: var(--text-muted); flex: 1 1 14rem; min-width: 0; }
     .arq-aviso-caja p { margin: .4rem 0 0; font-size: .8rem; }
     .arq-aviso-lista { margin: .5rem 0 0; padding-left: 1.1rem; font-size: .82rem; }
     .arq-aviso-extra { padding-top: .4rem; border-top: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent); }
@@ -1118,6 +1213,57 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly cargandoTurnos = signal(true);
   /** Última lectura de Kepler — alimenta la píldora de frescura. */
   readonly turnosAl = signal<string | null>(null);
+  /**
+   * `[SM.41]` Cuándo llegó el último DATO (latido del carril `ods_live_hot`, que
+   * es el que trae `kdpv_folio_caja`). `null` = no hay latido que leer, y eso se
+   * declara «sin medir» — nunca se dibuja fresco.
+   */
+  readonly datosAl = signal<string | null>(null);
+  readonly datosStatus = signal<'ok' | 'error' | 'desconocido' | null>(null);
+  /** Minutos a partir de los cuales el dato de Kepler ya no describe el turno de hoy. */
+  private readonly ODS_VIEJO_MIN = 20;
+  /**
+   * ¿El dato está viejo? Lee TAMBIÉN turnosAl() a propósito: con la ingesta
+   * parada datosAl deja de cambiar y un computed que sólo dependiera de él no
+   * se volvería a evaluar nunca — justo cuando más hace falta. turnosAl cambia
+   * en cada vuelta del poll, así que esto se re-mide cada 45 s.
+   *
+   * ⚠️ Lo que enciende el aviso es que EL DATO ESTÉ VIEJO, no el estado del
+   * carril. Acá había un corto que devolvía el aviso en cuanto el estado era
+   * de falla, sin mirar la fecha: como el backend mandaba a falla todo lo que
+   * no fuera ok —incluido running, donde el carril pasa el 56.9 % del tiempo—
+   * la franja roja vivía encendida más de media jornada. La cajera no puede
+   * hacer nada con "el carril tropezó hace 20 s y ya se levantó"; lo que sí le
+   * cambia el trabajo es que la lista no describa su turno. Que la ingesta
+   * venga fallando sólo cambia la REDACCIÓN, para que sepa por qué está vieja.
+   */
+  readonly odsViejo = computed<{ titulo: string; detalle: string } | null>(() => {
+    const ahora = this.turnosAl();
+    const dato = this.datosAl();
+    const fallando = this.datosStatus() === 'error';
+    // Sin una sola corrida buena de la cual medir no se puede decir de cuándo es
+    // esta lista. Sólo se grita si ADEMÁS la ingesta viene fallando: un null a
+    // secas puede ser una consulta que no respondió, y para eso ya está la
+    // pildora chica que declara "frescura sin medir" sin ocupar media pantalla.
+    if (!dato) {
+      return fallando
+        ? {
+          titulo: 'No sabemos de cuándo es esta lista.',
+          detalle: 'La ingesta de Kepler viene fallando y no hay ninguna corrida buena contra la cual medirla.',
+        }
+        : null;
+    }
+    if (!ahora) return null;
+    const min = Math.floor((new Date(ahora).getTime() - new Date(dato).getTime()) / 60000);
+    if (min < this.ODS_VIEJO_MIN) return null;
+    const cuanto = min >= 1440 ? `${Math.floor(min / 1440)} día(s)` : (min >= 60 ? `${Math.floor(min / 60)} h` : `${min} min`);
+    return {
+      titulo: `No estamos recibiendo turnos de Kepler desde hace ${cuanto}.`,
+      detalle: fallando
+        ? 'La ingesta viene fallando y esta lista está vieja: que esté vacía NO significa que ya contaste todo.'
+        : 'Esta lista está vieja: que esté vacía NO significa que ya contaste todo.',
+    };
+  });
   /** Fecha de negocio en hora de México (§10: no re-convertir con `new Date()` suelto). */
   readonly hoyTxt = computed(() => new Date().toLocaleDateString('es-MX', {
     timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit',
@@ -1140,6 +1286,43 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   /** Captura a mano (solo supervisor): relevo, contingencia, caja sin Kepler. */
   readonly manual = signal(false);
   readonly puedeContar = computed(() => !!this.turnoSel() || this.manual());
+
+  /**
+   * `[SM.41]` Las sangrías ya contadas del turno elegido, y lo que falta.
+   *
+   * Sale de `rows()` —el historial del día que la pantalla ya trae— filtrado por
+   * el folio del turno: cero llamadas nuevas. Antes esto no se podía ni dibujar,
+   * porque la clave única sólo admitía UNA sangría por caja/día/cajera: la
+   * segunda reemplazaba a la primera y la lista habría tenido siempre un renglón.
+   *
+   * `faltaTxt` sale de `retiro_sin_contar_monto`, que **sólo llega al supervisor**
+   * (es un monto, y el arqueo es ciego). A la cajera se le dice que falta, sin
+   * cuánto. Y se dice «por contar», no «una sangría»: Kepler publica el acumulado
+   * `c48`, no los retiros uno por uno, así que **no sabemos si lo que falta es una
+   * sangría o tres** — medido, `kdc2YYMM` resultó ser la póliza contable, no el
+   * corte movimiento a movimiento.
+   */
+  readonly sangriasDelTurno = computed(() => {
+    const t = this.turnoSel();
+    if (!t) return null;
+    const hechas = this.rows()
+      .filter((r) => r.tipo === 'retiro' && r.cash_cut_folio === t.folio && r.caja === t.caja)
+      .sort((a, b) => (a.secuencia ?? 1) - (b.secuencia ?? 1))
+      .map((r) => ({
+        id: r.id,
+        hora: r.captured_at ? new Date(r.captured_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '—',
+        monto: Number(r.total_contado) || 0,
+      }));
+    if (!hechas.length && !t.retiro_sin_contar) return null;
+    const monto = t.retiro_sin_contar_monto;
+    const faltaTxt = t.retiro_sin_contar
+      ? (monto != null ? `falta contar ${this.money(monto)}` : 'falta contar lo que salió del cajón')
+      : null;
+    const nota = hechas.length
+      ? 'Cada una queda sellada aparte: contar la siguiente no reemplaza a las anteriores.'
+      : 'Kepler registró retiros de este turno y todavía nadie los contó.';
+    return { hechas, faltaTxt, nota };
+  });
 
   /** Sucursales del ALCANCE del usuario — solo se usan en la captura manual. */
   readonly sucursales = signal<ScopeOption[]>([]);
@@ -1183,6 +1366,19 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    */
   readonly puedeFaltante = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_STOCKOUT_CAPTURAR] === true);
+
+  /**
+   * `[SM.41]` La sucursal con la que trabaja el buscador de precios y faltantes.
+   *
+   * Decia `aSuc || null`, y `aSuc` SOLO se llena cuando el alcance trae
+   * exactamente una sucursal. Para una encargada multi-tienda el buscador nacia
+   * deshabilitado diciendo «Elige primero la sucursal de arriba» — y arriba no
+   * hay ningun selector, porque ese solo se dibuja en modo manual. Un control que
+   * manda a usar otro que no existe es peor que no estar.
+   *
+   * El turno elegido YA dice de que sucursal es la pantalla. Esa manda.
+   */
+  readonly sucursalActiva = computed(() => this.turnoSel()?.warehouse_code ?? (this.aSuc() || null));
 
   /**
    * SM.36 - El arqueo de RUTAS tiene permiso propio. No alcanza con
@@ -1282,7 +1478,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   /** La llave es la del catalogo (`20` billete, `20m` moneda), no el valor. */
   denomCount: Record<string, number> = {};
   readonly aTipo = signal<ArqueoTipo>('cierre');
-  aSuc = ''; aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = ''; aIncidencia = '';
+  aSuc = signal(''); aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = ''; aIncidencia = '';
   readonly arqTotal = signal(0);
   /** Totales por fajo — los pide el formato y delatan un conteo mal capturado. */
   readonly totBilletes = signal(0);
@@ -1340,8 +1536,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     this.confirmando.set(true);
   }
 
-  /** §13 estado sucio — hay conteo capturado sin guardar. */
-  hasUnsavedChanges(): boolean { return this.dirty(); }
+  /** §13 estado sucio — hay conteo capturado sin guardar. De verdad, no «tocó una pestaña». */
+  hasUnsavedChanges(): boolean { return this.hayConteo(); }
 
   @HostListener('window:beforeunload', ['$event'])
   onBeforeUnload(e: BeforeUnloadEvent) { if (this.hasUnsavedChanges()) e.preventDefault(); }
@@ -1352,7 +1548,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     const u = this.auth.user()?.username;
     if (u) this.aCajero = u.toUpperCase();
     this.dataScope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (w) => { this.sucursales.set(w); if (w.length === 1) this.aSuc = w[0].value; },
+      next: (w) => { this.sucursales.set(w); if (w.length === 1) this.aSuc.set(w[0].value); },
       error: () => { /* el backend recorta igual */ },
     });
     this.cargarTurnos();
@@ -1378,6 +1574,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
           const t = r.turnos || [];
           this.turnos.set(t);
           this.turnosAl.set(new Date().toISOString());
+          // `[SM.41]` La frescura del DATO viaja con la lista. `?? null` y no `||`:
+          // un backend viejo que no mande el campo tiene que caer en «sin medir».
+          this.datosAl.set(r.datos_al ?? null);
+          this.datosStatus.set(r.status ?? null);
           if (t.length && !this.turnoSel()) this.turnoFolio.set(this.turnoQueToca()?.folio ?? t[0].folio);
           this.cargandoTurnos.set(false);
         },
@@ -1398,7 +1598,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   /** No se refresca mientras hay un conteo a medio capturar: pisaría el trabajo. */
   private tick() {
-    if (document.visibilityState !== 'visible' || this.dirty() || this.saving()) return;
+    if (document.visibilityState !== 'visible' || this.hayConteo() || this.saving()) return;
     this.cargarTurnos(true);
   }
 
@@ -1436,7 +1636,28 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     this.dirty.set(true);
   }
 
-  elegirTipo(v: string) { this.aTipo.set(v as ArqueoTipo); this.dirty.set(true); }
+  /**
+   * `[SM.41]` Cambiar de pestaña NO es tener dinero sin guardar.
+   *
+   * Esto hacía `dirty.set(true)`, y `dirty` apagaba TRES cosas: el guard de
+   * cambios sin guardar (que saltaba sin haber tecleado un peso), el refresco de
+   * 45 s —la promesa de «ir a la par de Kepler», muerta de por vida tras un
+   * clic— y `sugerirTipo()`. Ahora el dinero lo mide `hayConteo()`.
+   *
+   * Y limpia el resultado: dejarlo pegado mostraba el sello de un conteo anterior
+   * con un botón que reimprimía ESE ticket.
+   */
+  elegirTipo(v: string) { this.aTipo.set(v as ArqueoTipo); this.result.set(null); }
+
+  /**
+   * ¿Hay dinero capturado sin guardar? Es la pregunta que `dirty` confundía con
+   * «tocó un control». Mira el conteo real, no el estado de la pantalla.
+   */
+  private hayConteo(): boolean {
+    return Object.values(this.denomCount).some((n) => Number(n) > 0)
+      || Object.values(this.medios).some((n) => Number(n) > 0)
+      || this.aNota.trim().length > 0;
+  }
 
   elegirTurno(folio: string) {
     this.turnoFolio.set(folio);
@@ -1456,12 +1677,56 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * arqueo con denominaciones capturadas sería perderle el trabajo.
    */
   private sugerirTipo() {
-    if (this.dirty()) return;
+    if (this.hayConteo()) return;
     const t = this.turnoSel();
     if (!t) return;
     if (t.pide_retiro || t.retiro_sin_contar) this.aTipo.set('retiro');
     else if (t.pide_cierre) this.aTipo.set('cierre');
   }
+
+  /**
+   * Lo UNICO que la pantalla pide ahora. Devuelve una peticion o nada.
+   *
+   * Aca se apilaban hasta cuatro cajas de aviso antes de la primera casilla, y la
+   * grilla de conteo arrancaba al 60% del alto. La pantalla existe para contar
+   * efectivo: la prioridad se resuelve una vez, en un lugar, y lo demas baja al
+   * renglon del turno (que no ocupa alto).
+   *
+   * El orden no es estetico. **La sangria va primero** porque es lo que hay que
+   * contar ANTES de cerrar: contarla tarde es exactamente lo que hacia que ese
+   * dinero apareciera como faltante de la cajera. Despues el corte.
+   *
+   * Cuando no hay nada urgente devuelve `null` y no se dibuja NADA: el estado de
+   * la caja ya lo dice el renglon del turno.
+   */
+  readonly loQueToca = computed<{ icono: string; urge: boolean; titulo: string; detalle: string; cta: string | null; tipo: ArqueoTipo } | null>(() => {
+    const t = this.turnoSel();
+    if (!t) return null;
+    const actual = this.aTipo();
+
+    if (t.pide_retiro && actual !== 'retiro') {
+      return {
+        icono: 'pi pi-arrow-circle-up', urge: true, tipo: 'retiro', cta: 'Contar el retiro',
+        titulo: `Tu caja llegó a su límite${t.cash_limit ? ' de ' + this.money(t.cash_limit) : ''} — toca hacer un retiro.`,
+        detalle: 'Contá lo que sacás del cajón y guardalo como retiro. Sin eso, al cerrar el turno ese dinero aparece como faltante tuyo.',
+      };
+    }
+    if (t.retiro_sin_contar && actual !== 'retiro') {
+      return {
+        icono: 'pi pi-exclamation-circle', urge: true, tipo: 'retiro', cta: 'Contar el retiro',
+        titulo: 'Hay retiros de este turno sin contar.',
+        detalle: 'Kepler los registró pero nadie los contó. Contalos antes del cierre: es lo que permite que el turno cuadre.',
+      };
+    }
+    if (t.pide_cierre && actual !== 'cierre') {
+      return {
+        icono: 'pi pi-flag', urge: false, tipo: 'cierre', cta: 'Hacer el corte',
+        titulo: t.abierto ? 'Se acerca el corte de tu turno.' : 'Kepler cerró tu caja. Te toca el corte.',
+        detalle: 'Contá lo que queda en el cajón. Con eso y tus retiros, el turno cierra completo.',
+      };
+    }
+    return null;
+  });
 
   /** Salta al tipo que la pantalla está pidiendo, desde el aviso. */
   pasarATipo(tipo: ArqueoTipo) {
@@ -1490,7 +1755,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       }))
       .filter((x) => x.cantidad > 0);
     const ok = imprimirTicket({
-      sucursal: this.branchLabel(t?.warehouse_code ?? this.aSuc),
+      sucursal: this.branchLabel(t?.warehouse_code ?? this.aSuc()),
       caja: t?.caja ?? this.aCaja,
       fecha: t?.business_date ?? this.fmtDate(this.aDate),
       folio: t?.folio ?? null,
@@ -1511,10 +1776,21 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       capturado_at: new Date().toISOString(),
       capturado_por: this.auth.user()?.username || null,
       validado_por: null, validado_at: null,
-    }, { revela: this.revela });
-    if (!ok) {
-      this.toast.add({ severity: 'warn', summary: 'No se pudo abrir la impresión', detail: 'Usa el botón Imprimir ticket para reintentar.' });
-    }
+    }, { revela: this.revela }, () => this.avisarImpresion());
+    if (!ok) this.avisarImpresion();
+  }
+
+  /**
+   * `[SM.41]` El papel es la prueba física del conteo: si no salió, hay que
+   * decirlo. El aviso existía pero era inalcanzable — `imprimirTicket` devolvía
+   * `true` siempre y se tragaba el error de `print()` en un `catch` vacío.
+   */
+  private avisarImpresion() {
+    this.toast.add({
+      severity: 'warn', summary: 'No se pudo imprimir el ticket',
+      detail: 'El conteo YA quedó guardado. Usá el botón Imprimir ticket para reintentar.',
+      life: 8000,
+    });
   }
 
   branchLabel(code?: string | null): string {
@@ -1523,10 +1799,29 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     return o?.label || branchName(code);
   }
 
+  /**
+   * `[SM.41]` «Conté y había $0» es un hecho, y distinto de «no conté».
+   *
+   * `canSubmit()` exigía `arqTotal() > 0` y `arqTotal` es SÓLO efectivo, así que
+   * un cajón vacío al cierre no se podía sellar — y con las sangrías llevándose
+   * el 63-81% del efectivo, un cajón vacío es un desenlace normal. Tampoco se
+   * podía sellar un turno cobrado 100% con tarjeta.
+   *
+   * No hace falta columna nueva: la EXISTENCIA de la fila ya es la declaración.
+   * Lo que faltaba era dejar guardarla, y que el diálogo lo diga con todas las
+   * letras antes de sellar.
+   */
+  readonly vacio = signal(false);
+
+  declararVacio() {
+    this.vacio.update((v) => !v);
+    if (this.vacio()) { this.denomCount = {}; this.medios = {}; this.recalcTotales(); }
+  }
+
   canSubmit(): boolean {
-    if (this.arqTotal() <= 0) return false;
+    if (this.arqTotal() <= 0 && !this.vacio()) return false;
     if (this.turnoSel()) return true;
-    return this.manual() && !!(this.aSuc.trim()) && !!this.aCaja.trim() && !!this.aDate;
+    return this.manual() && !!(this.aSuc().trim()) && !!this.aCaja.trim() && !!this.aDate;
   }
 
   // ─────────────────── pad de denominaciones ───────────────────
@@ -1721,6 +2016,9 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   selectAll(ev: Event) { (ev.target as HTMLInputElement).select(); }
 
   recalc() {
+    // Si estaba declarado vacio y ahora hay un billete tecleado, deja de estarlo:
+    // el aviso de "contaste cero" no puede quedar colgado sobre un conteo real.
+    if (this.vacio()) this.vacio.set(false);
     this.recalcTotales();
     this.dirty.set(true); // §13: cualquier edición ensucia; se limpia solo al guardar OK
   }
@@ -1757,7 +2055,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     // por folio, así que esto es solo lo que se muestra.
     const cabecera = t
       ? { cash_cut_folio: t.folio, warehouse_code: t.warehouse_code, caja: t.caja, business_date: t.business_date, cajero_code: t.cajero_code || undefined }
-      : { warehouse_code: this.aSuc.trim() || undefined, caja: this.aCaja.trim(), business_date: this.fmtDate(this.aDate), cajero_code: this.aCajero.trim() || undefined };
+      : { warehouse_code: this.aSuc().trim() || undefined, caja: this.aCaja.trim(), business_date: this.fmtDate(this.aDate), cajero_code: this.aCajero.trim() || undefined };
     /**
      * SM.36 - El arqueo de ruta sale por SU endpoint. No es cosmetico: el de
      * caja esta gateado con el permiso viejo, que tienen tambien cajero y
@@ -1771,19 +2069,31 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       }
       this.svc.submitRuta({
         tipo: this.aTipo(), route_code: this.aRuta,
-        warehouse_code: this.aSuc.trim() || undefined,
+        warehouse_code: this.aSuc().trim() || undefined,
         business_date: this.fmtDate(this.aDate),
         cajero_code: this.aCajero.trim() || undefined,
         denominations, medios, nota: this.aNota.trim() || undefined,
         incidencia_tipo: this.aIncidencia || undefined,
       }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
-          this.saving.set(false); this.dirty.set(false);
+          this.saving.set(false); this.dirty.set(false); this.vacio.set(false);
           this.toast.add({
             severity: 'success', summary: `Entrega de ${r.route_label} sellada`,
             // Se dice lo contado y NADA de diferencia: no hay contra que comparar.
             detail: `Contado ${this.money(r.total_contado)}. Queda como constancia de la entrega.`,
           });
+          /**
+           * `[SM.41]` El PAPEL, que acá no salía nunca.
+           *
+           * `result` no se seteaba en esta rama, así que el único mecanismo de
+           * prueba física del módulo no se ofrecía justo donde el servidor
+           * responde `medible: false, motivo: 'sin_esperado'` — o sea donde el
+           * ticket firmado es la ÚNICA evidencia que va a existir de lo que
+           * entregó el vendedor. Se setea ANTES de limpiar el formulario, porque
+           * las denominaciones del ticket salen de ahí.
+           */
+          this.result.set({ tipo: r.tipo, secuencia: r.secuencia, total_contado: r.total_contado, reveal: false });
+          this.imprimir(this.result()!);
           this.denomCount = {}; this.medios = {}; this.aRuta = ''; this.recalcTotales();
           this.load();   // la entrega de ruta no tiene turno: solo se recarga el historial
         },
@@ -1815,7 +2125,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
         // además se acuerde de darle a un botón es perder el papel la mitad de las
         // veces — y el papel es la prueba física del conteo.
         this.imprimir(r);
-        this.denomCount = {}; this.medios = {}; this.recalcTotales();
+        this.denomCount = {}; this.medios = {}; this.vacio.set(false); this.recalcTotales();
         this.cargarTurnos();  // el turno arqueado sale de la lista
         this.load();
       },

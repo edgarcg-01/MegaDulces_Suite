@@ -422,6 +422,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_INCOME_VER)]
       },
       {
+        // [CSU.2] Corte de caja POS (cliente CONTADO) → cobro aplicado → arqueo del turno.
+        path: 'cortes-sucursales',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cortes-sucursales.component').then(m => m.FinanzasCortesSucursalesComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_CORTES_VER)]
+      },
+      {
         path: 'egresos/detalle',
         loadComponent: () => import('./modules/comercial/pages/comercial-egreso-detalle.component').then(m => m.ComercialEgresoDetalleComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]

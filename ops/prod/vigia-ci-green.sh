@@ -42,6 +42,12 @@ set -u
 REMOTO="git@github.com:edgarcg-01/MegaDulces_Suite.git"
 REF="refs/heads/ci-green"
 INTERVALO="${VIGIA_INTERVALO:-30}"
+# `[CD.21]` Cuando el despliegue queda FRENADO por migraciones se sigue reintentando, pero más
+# espaciado: la condición la levanta una persona aplicando la migración, no pasa sola en 30 s.
+ESPERA_BLOQUEADO="${VIGIA_ESPERA_BLOQUEADO:-120}"
+# El commit sobre el que ya avisamos que estamos frenados, para no repetir el aviso cada ciclo.
+# ⛔ Tiene que estar declarado acá: el guion corre con `set -u` y una variable sin definir aborta.
+BLOQUEADO_EN=''
 LLAVE="$HOME/.ssh/deploy_md"
 LOG="$HOME/ops/prod/auto-deploy.log"
 ESTADO="$HOME/ops/prod/.vigia-ci-green.sha"
@@ -79,13 +85,48 @@ while :; do
 
   ANTERIOR=$(cat "$ESTADO" 2>/dev/null)
   if [ "$NUEVO" != "$ANTERIOR" ]; then
-    di "ci-green se movió → desplegando"
-    # El candado hace que, si ya hay un despliegue corriendo, éste no entre. El estado se
-    # actualiza IGUAL para no reintentar en bucle los 30 s siguientes: si el que corre falla,
-    # su propia reversión se encarga, y el próximo movimiento de `ci-green` vuelve a disparar.
+    [ "$NUEVO" = "$BLOQUEADO_EN" ] || di "ci-green se movió → desplegando"
+
+    # ⛔ `[CD.21]` TRES DESENLACES DISTINTOS, Y ANTES ERAN UNO SOLO.
+    #
+    # `-E 9` hace que "no pude tomar el candado" salga **9** en vez de 1. Sin eso, un despliegue
+    # ajeno en curso y un despliegue que FALLÓ devuelven lo mismo, y el vigía los trata igual:
+    # guardaba el SHA y se perdía el disparo. (El `flock` de `md` es util-linux 2.41.3 — soporta
+    # `-E`; el de busybox NO, y ahí esta forma no sirve.)
+    flock -n -E 9 "$LOCK" /bin/sh "$HOME/ops/prod/auto-deploy.sh" >> "$LOG" 2>&1
+    CODIGO=$?
+
+    case "$CODIGO" in
+      3)
+        # FRENADO por migraciones: el código está bien, la base está sana, y la condición que
+        # bloquea **se levanta sola** en cuanto alguien aplica la migración. Por eso NO se guarda
+        # el SHA: hay que seguir reintentando. Medido el 2026-10-05: sin esto, aplicar la
+        # migración no relanzaba nada y había que empujar el despliegue a mano.
+        #
+        # ⚠️ Se avisa UNA sola vez por commit. El detalle del freno son ~20 renglones; repetirlos
+        #    cada 30 s vuelve el log ilegible, que es otra forma de que nadie lo mire.
+        [ "$NUEVO" = "$BLOQUEADO_EN" ] || di "frenado por migraciones — reintento cada ${ESPERA_BLOQUEADO}s hasta que se apliquen"
+        BLOQUEADO_EN="$NUEVO"
+        sleep "$ESPERA_BLOQUEADO"
+        continue
+        ;;
+      9)
+        # Ya hay un despliegue corriendo. Tampoco se guarda el SHA: cuando termine, este disparo
+        # sigue siendo válido. Callado a propósito — es una condición normal, no un problema.
+        sleep "$INTERVALO"
+        continue
+        ;;
+      0)
+        di "desplegado"
+        ;;
+      *)
+        # Falló de verdad (build roto, compuerta de humo, reversión). Acá SÍ se guarda el SHA:
+        # reintentar no lo arregla, y un bucle cada 30 s sobre un build roto llena el disco.
+        di "el despliegue salió con $CODIGO — no reintento; mirá el detalle arriba"
+        ;;
+    esac
     printf '%s\n' "$NUEVO" > "$ESTADO"
-    flock -n "$LOCK" /bin/sh "$HOME/ops/prod/auto-deploy.sh" >> "$LOG" 2>&1 \
-      || di "no corrió (candado tomado por otro despliegue, o salió con error — mirá arriba)"
+    BLOQUEADO_EN=''
   fi
 
   sleep "$INTERVALO"

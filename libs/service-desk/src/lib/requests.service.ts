@@ -38,6 +38,7 @@ import {
   type SdRequestRow,
   type SdSlaView,
   type SdStatsResponse,
+  type SdWorkLogEntryDto,
   type SdStatus,
   type SdVisibility,
   type BitacoraPort,
@@ -466,10 +467,29 @@ export class ServiceDeskRequestsService {
         .orderBy('a.created_at', 'asc')
         .select('a.id', 'a.message_id', 'a.file_name', 'a.content_type', 'a.size_bytes', 'a.storage_key', 'a.created_at');
 
+      // `[MS.3.15]` El tiempo: la lista (quién, cuándo, cuánto, qué hizo) y su suma. Sólo quien atiende; para quien reportó
+      // es `null` (no «vacío»: no tiene acceso).
       let logged: number | null = null;
+      let entradasTiempo: SdWorkLogEntryDto[] | null = null;
       if (ctx.esAgente) {
-        const t = await trx('servicedesk.work_log').where({ request_id: id }).sum({ m: 'minutes' }).first();
-        logged = Number(t?.m ?? 0);
+        const filas = await trx('servicedesk.work_log as w')
+          .leftJoin('identity.users as uw', function () {
+            this.on('uw.tenant_id', 'w.tenant_id').andOn('uw.id', 'w.user_id');
+          })
+          .where('w.request_id', id)
+          .orderBy('w.created_at', 'asc')
+          .select('w.id', 'w.minutes', 'w.note', 'w.started_at', 'w.ended_at', 'w.source', 'w.created_at', 'uw.nombre as user_nombre', 'uw.username as user_username');
+        entradasTiempo = (filas as Array<Record<string, unknown>>).map((w) => ({
+          id: String(w['id']),
+          user_name: ((w['user_nombre'] as string | null) || (w['user_username'] as string | null)) ?? null,
+          minutes: Number(w['minutes']),
+          note: (w['note'] as string | null) ?? null,
+          started_at: iso(w['started_at'] as Date | null),
+          ended_at: iso(w['ended_at'] as Date | null),
+          source: w['source'] as 'suite' | 'bitacora',
+          created_at: iso(w['created_at'] as Date) as string,
+        }));
+        logged = entradasTiempo.reduce((s, e) => s + e.minutes, 0);
       }
 
       // `[MS.3.11]` El nombre del área y, si la abrió otra persona a nombre del solicitante, quién.
@@ -509,6 +529,7 @@ export class ServiceDeskRequestsService {
         messages: (msgs as MessageRow[]).map((m): SdMessageDto => ({ id: m.id, kind: m.kind, visibility: m.visibility, author_id: m.author_id ?? null, author_label: m.author_label ?? null, body: m.body, meta: m.meta ?? {}, created_at: iso(m.created_at) as string })),
         attachments,
         time_logged_minutes: logged,
+        time_entries: entradasTiempo,
       };
     });
   }
