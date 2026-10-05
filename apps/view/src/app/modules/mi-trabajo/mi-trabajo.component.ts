@@ -521,6 +521,59 @@ export class MiTrabajoComponent {
     if (!this.buscando()) return todos;
     return todos.filter((p) => this.casa(normalizar(`${p.label} ${p.detalle}`)));
   });
+
+  /**
+   * `[SN.28]` **El número que convierte la puerta en tarjeta VIVA.**
+   *
+   * Es el patrón del *dynamic tile* de SAP Fiori —título, icono y un contador que sale del
+   * backend— y acá no cuesta una consulta nueva: las colas ya vienen en `me/trabajo` para pintar
+   * la columna de la izquierda, y cada una trae `ruta` y `total`. Lo único que faltaba era
+   * cruzarlas con las puertas.
+   *
+   * Hasta ahora las dos columnas de esta pantalla no se hablaban: a la izquierda decía «11 fuentes
+   * de datos con falla» y a la derecha «Sistemas» era una tarjeta muda. Ahora la puerta dice
+   * cuánto hay detrás.
+   *
+   * ⚠️ **Cada cola cuenta UNA sola vez, en la puerta MÁS específica.** Con prefijo a secas,
+   * `/finanzas/hallazgos` sumaría en «Hallazgos» y otra vez en «Finanzas», y el total de la
+   * pantalla no cuadraría con el de la izquierda. Por eso las puertas se ordenan por largo de ruta
+   * y gana la primera que casa.
+   *
+   * ⚠️ Se alimenta de `espaciosTodos()`, no de `espacios()`: el contador NO debe moverse mientras
+   * escribís en el buscador.
+   */
+  readonly pendPorEntrada = computed<Record<string, number>>(() => {
+    const t = this.trabajo();
+    const colas = t.status === 'ok' ? t.data.pendientes : [];
+    if (!colas.length) return {};
+    const puertas = this.espaciosTodos()
+      .flatMap((s) => s.entradas)
+      .filter((e) => !!e.route)
+      .sort((a, b) => b.route.length - a.route.length);
+    const out: Record<string, number> = {};
+    for (const p of colas) {
+      const r = p.ruta;
+      if (!r) continue;
+      const puerta = puertas.find((e) => r === e.route || r.startsWith(`${e.route}/`));
+      if (puerta) out[puerta.id] = (out[puerta.id] ?? 0) + p.total;
+    }
+    return out;
+  });
+
+  /**
+   * `[SN.28]` Nombre accesible del enlace de una puerta, o `null` para dejar el texto tal cual.
+   *
+   * Existe porque las dos señales que la tarjeta da en silencio —la flecha de atajo y el contador—
+   * son `aria-hidden` o números sueltos: sin esto, un lector de pantalla oiría «Hallazgos, 11» sin
+   * saber de qué proyecto es ni qué cuenta ese 11.
+   */
+  etiquetaPuerta(e: EntradaVisible): string | null {
+    const n = this.pendPorEntrada()[e.id];
+    const partes = [e.label];
+    if (e.esAlias && e.sub) partes.push(`atajo a ${e.sub}`);
+    if (n) partes.push(`${n} ${n === 1 ? 'pendiente' : 'pendientes'}`);
+    return partes.length > 1 ? partes.join(', ') : null;
+  }
   /**
    * `[SN.35]` **¿A este departamento se le apagó el bloque «A tu nombre»?**
    *

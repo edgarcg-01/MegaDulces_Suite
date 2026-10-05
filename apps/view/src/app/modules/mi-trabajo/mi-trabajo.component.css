@@ -837,14 +837,76 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: 1.875rem;
-  padding: var(--sp-1) var(--sp-2);
-  border-radius: var(--r-sm);
+  min-height: 2.5rem;
+  padding: 0 var(--sp-2);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
   color: inherit;
   text-decoration: none;
   min-width: 0;
   /* Brief: 200 ms maximo. En un sistema transaccional una animacion larga se lee como lentitud. */
-  transition: background-color 120ms ease-in-out, color 120ms ease-in-out;
+  transition: border-color 120ms ease-in-out, color 120ms ease-in-out;
+}
+
+/*
+  [SN.28] EL COLOR POR AREA, que es lo que hace que esto se lea como un lanzador y no como un
+  indice. Es el gesto de Odoo (el icono distintivo es el ancla visual) y de Fiori.
+
+  ⚠️ `[SN.25]` ya habia retirado un mapa de colores de aca, y con razon: pintaba 22 ids con
+  `--chart-*` ARBITRARIAMENTE, el color no codificaba nada y encima se rellenaba saturado al hover.
+  La diferencia es que este color SI codifica un dato -- el ESPACIO, que son 7 y estan en el mapa
+  -- y nunca va solo: el encabezado del grupo dice lo mismo en palabras. Es exactamente lo que pide
+  `DESIGN.md` Q.6: determinista, tinte y no fill saturado, jamas unico portador.
+
+  Cero hex nuevos: `--chart-1..8` ya existen y estan definidos para los DOS temas, asi que el modo
+  oscuro viene resuelto. `color-mix` hace el tinte sin tener que declarar 7 variantes a mano.
+*/
+.mt-space[data-espacio='direccion-general']                { --mt-tint: var(--chart-1); }
+.mt-space[data-espacio='comercial']                        { --mt-tint: var(--chart-2); }
+.mt-space[data-espacio='almacenes-y-logistica']            { --mt-tint: var(--chart-6); }
+.mt-space[data-espacio='administracion-y-finanzas']        { --mt-tint: var(--chart-3); }
+.mt-space[data-espacio='auditoria-prevencion-control']     { --mt-tint: var(--chart-7); }
+.mt-space[data-espacio='sistemas-servicios-mantenimiento'] { --mt-tint: var(--chart-4); }
+.mt-space[data-espacio='configuracion-de-la-suite']        { --mt-tint: var(--chart-8); }
+
+.mt-cell-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /*
+    20 px y no 24: a 1366 la columna mide 245 px y cada pixel de cromo se lo quita al NOMBRE.
+    Con chip 20 + hueco 8 + padding 16 quedan 201 px, que es lo que necesita el nombre mas largo
+    que no envuelve ("Compras / Reabastecimiento", ~160 px a 12 px).
+  */
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--mt-tint, var(--text-faint)) 14%, var(--card-bg));
+  transition: background-color 120ms ease-in-out;
+}
+
+/*
+  [SN.28] El contador, patron `dynamic tile` de Fiori: la puerta deja de ser muda y dice cuanto hay
+  detras. Sale de las MISMAS colas que pinta la columna de la izquierda (ver `pendPorEntrada`).
+
+  ⚠️ Neutro y no `--action`: sobre naranja, `--action-ink` da 3.39:1, que no pasa AA para texto
+  chico -- y es deuda ya declarada en `DESIGN.md`. Un contador que no se puede leer no es un
+  contador. La urgencia la sigue diciendo la columna de trabajo, que tiene sitio para el motivo.
+*/
+.mt-cell-n {
+  flex: none;
+  min-width: 1.25rem;
+  padding: 0 var(--sp-1);
+  border-radius: 999px;
+  background: var(--hover-bg);
+  color: var(--text-main);
+  font-size: var(--fs-nano);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25rem;
+  text-align: center;
 }
 /*
   [SN.26] midio que el hover NO SE VEIA: Edgar lo reporto como "no existe un cambio de color al
@@ -861,10 +923,14 @@
   La transicion baja de 180 a 120 ms: a esta densidad el puntero cruza varias filas por segundo y
   180 ms deja una estela de renglones todavia apagandose.
 */
-.mt-cell:hover { background: var(--hover-bg); color: var(--action); }
-.mt-cell:hover .mt-cell-ico { color: var(--action); }
+.mt-cell:hover { border-color: var(--action); }
+.mt-cell:hover .mt-cell-nm { color: var(--action); }
+/* El tinte del area sube de 14% a 24%: el aviso se ve, y sigue siendo SU color, no uno prestado. */
+.mt-cell:hover .mt-cell-chip {
+  background: color-mix(in srgb, var(--mt-tint, var(--action)) 24%, var(--card-bg));
+}
 .mt-cell:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.mt-cell-ico { font-size: var(--fs-xs); color: var(--text-faint); flex: none; }
+.mt-cell-ico { font-size: var(--fs-xs); color: var(--mt-tint, var(--text-muted)); flex: none; }
 /*
   [SN.28] El texto en LINEA, no apilado. El nombre y el origen comparten renglon y el origen
   envuelve solo si no entra -- es lo que permite la fila de 30 px. Con `baseline` las dos letras de
