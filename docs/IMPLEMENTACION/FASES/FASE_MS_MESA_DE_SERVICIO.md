@@ -358,6 +358,7 @@ manual** (light, dark y móvil) — el único paso que no se automatiza.
 - 🧪 **MS.3.3** Mis solicitudes + side-peek con hilo.
 - 🧪 **MS.3.4** Bandeja de atención.
 - 🧪 **MS.3.5** Reportes + Configuración. Ambos hechos: `/servicio/reportes` (en vivo, sin ranking de personas, sin semáforo, sin ceros dibujados). Ver tracker.
+- 🧪 **MS.3.17** La ubicación del formulario «Nueva solicitud» se ve siempre (antes, tras un enlace). Ver tracker.
 - 🧪 **MS.3.16** La bandeja filtra (estado, categoría, atiende, ubicación, fechas) y ordena por columna **en el servidor** (lista cerrada, vacíos al final, desempate fijo, ubicación por nombre); la migaja «Mesa de Servicio» es enlace. Ver tracker.
 - 🧪 **MS.3.14** «Oficinas Corporativas» (`OF`) en la lista de sucursales de la solicitud: ubicación que no es sucursal Kepler, sin migración y sin tocar los códigos de la red. Ver tracker.
 - 🧪 **MS.3.15** El tiempo registrado se ve: lista de registros en la ficha (sólo quien atiende) y horas por categoría en Reportes, con su cobertura y sin ceros dibujados ni desglose por persona. Ver tracker.
