@@ -152,10 +152,18 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
               <td class="num ir-mono ir-fuerte" role="cell" data-label="Trae hoy"
                   [class.ir-bad]="excede(r)"
                   [title]="excede(r) ? 'Pasa su tope por ' + money(inv(r) - (r.tope_inventario ?? 0)) : ''">{{ inv(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <!-- Sin tope declarado se dice, no se asume un default escondido (ADR-056). -->
-              <td class="num ir-mono ir-tenue" role="cell" data-label="Tope">
-                @if (r.tope_inventario === null) { <span title="Sin tope declarado">sin tope</span> }
-                @else { {{ r.tope_inventario | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+              <!--
+                Se muestra QUE TAN CERCA esta del tope, no solo si lo paso. Medido: con 80,000
+                ninguna de las 11 lo pasa, asi que un semaforo binario estaria siempre verde y
+                no diria nada. El porcentaje si: la 504 va al 75% y la 505 al 25%.
+                Sin tope declarado se dice, no se asume un default escondido (ADR-056).
+              -->
+              <td class="num ir-mono" role="cell" data-label="Tope">
+                @if (r.tope_inventario === null) { <span class="ir-tenue" title="Sin tope declarado">sin tope</span> }
+                @else {
+                  <span [class.ir-bad]="excede(r)" [class.ir-aviso]="!excede(r) && pctTope(r) >= 80"
+                        [title]="'Tope ' + (r.tope_inventario | currency:'MXN':'symbol-narrow':'1.0-0')">{{ pctTope(r) | number:'1.0-0' }}%</span>
+                }
               </td>
               <td class="num ir-mono" role="cell" data-label="Última carga">
                 @if (r.ultima_carga) {
@@ -505,6 +513,8 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
     .ir-tenue { color: var(--c-text-3); }
     .ir-ok { color: var(--ok-fg); }
     .ir-bad { color: var(--bad-fg); }
+    /* El escalon que falta: 80% del tope no es un error todavia, pero conviene mirarlo. */
+    .ir-aviso { color: var(--warn-fg); }
     .ir-fila-mal { background: var(--bad-soft-bg); }
     .ir-fila-parada td { opacity: .72; }
 
@@ -830,6 +840,10 @@ export class ComercialInventarioRutaComponent {
     return v === 'sin_costo' ? 'sin costo' : v === 'sin_precio' ? 'sin precio' : '';
   }
 
+  /** Qué tanto de su tope lleva ocupado. NULL sin tope: no se inventa un 0 ni un 100. */
+  pctTope = (r: RouteInventoryRow) =>
+    r.tope_inventario ? this.inv(r) / Number(r.tope_inventario) * 100 : 0;
+
   /** ¿Este camión pasa su tope? Sin tope declarado la respuesta es NO, nunca "sí por las dudas". */
   excede = (r: RouteInventoryRow) =>
     r.tope_inventario !== null && this.inv(r) > Number(r.tope_inventario);
@@ -878,6 +892,9 @@ export class ComercialInventarioRutaComponent {
   readonly excedidos = computed(() => this.filas().filter((r) => this.excede(r)).length);
   readonly sobreTope = computed(() => this.filas().reduce(
     (a, r) => a + (this.excede(r) ? this.inv(r) - Number(r.tope_inventario) : 0), 0));
+  /** El camión que va más cerca de su tope, en porcentaje. Es lo que importa cuando nadie lo pasa. */
+  readonly masCargado = computed(() =>
+    this.filas().reduce((mx, r) => Math.max(mx, this.pctTope(r)), 0));
   readonly sinTope = computed(() => this.filas().filter((r) => r.tope_inventario === null).length);
 
   readonly totalCogs = computed(() => this.suma((r) => Number(r.cogs_costo) || 0));
@@ -998,10 +1015,11 @@ export class ComercialInventarioRutaComponent {
         label: 'Pasan su tope',
         value: `${this.excedidos()} de ${rutas}`,
         format: 'text',
-        tone: this.excedidos() > 0 ? 'bad' : 'ok',
-        sub: this.sobreTope() > 0
+        tone: this.excedidos() > 0 ? 'bad' : this.masCargado() >= 80 ? 'warn' : 'ok',
+        // Cuando nadie lo pasa, el dato util es cuanto le falta al que va adelante.
+        sub: this.excedidos() > 0
           ? `${this.money(this.sobreTope())} arriba del tope`
-          : 'ninguno acumula de más',
+          : `el más cargado va al ${this.masCargado().toFixed(0)}%`,
       },
       // Tono neutro a proposito: NO es un faltante ni un error. Es mercancia real, vendida y
       // cobrada, de antes del primer embarque. Se declara para que no desaparezca, pero pintarla
