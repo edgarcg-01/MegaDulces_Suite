@@ -358,6 +358,7 @@ manual** (light, dark y móvil) — el único paso que no se automatiza.
 - 🧪 **MS.3.3** Mis solicitudes + side-peek con hilo.
 - 🧪 **MS.3.4** Bandeja de atención.
 - 🧪 **MS.3.5** Reportes + Configuración. Ambos hechos: `/servicio/reportes` (en vivo, sin ranking de personas, sin semáforo, sin ceros dibujados). Ver tracker.
+- 🧪 **MS.3.15** El tiempo registrado se ve: lista de registros en la ficha (sólo quien atiende) y horas por categoría en Reportes, con su cobertura y sin ceros dibujados ni desglose por persona. Ver tracker.
 - 🧪 **MS.3.13** Las notas internas admiten adjuntos (sólo los ve quien atiende; la privacidad está en la lectura de la ficha y se probó contra un S3 real). Ver tracker.
 - 🧪 **MS.3.12** Evidencia con cámara/galería: botón «Cámara» y fotos achicadas antes de subir (PDF/GIF intactos, nunca se pierde un archivo). Ver tracker.
 - 🧪 **MS.3.11** Quien atiende levanta una solicitud a nombre de otra persona (con usuario), con su área y sucursal; la persona es la solicitante real (avisos, confirmar/reabrir). Ver tracker.

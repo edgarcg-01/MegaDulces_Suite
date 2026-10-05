@@ -38,7 +38,9 @@ export class ServiceDeskReportsService {
       const { rows } = await trx.raw(
         `SELECT r.priority, r.category_id, c.name AS category_name, r.warehouse_code, r.status,
                 r.created_at, r.first_responded_at, r.first_response_due_at, r.resolved_at, r.due_at,
-                r.paused_minutes, r.reopened_count
+                r.paused_minutes, r.reopened_count,
+                (SELECT COALESCE(SUM(w.minutes), 0)::int FROM servicedesk.work_log w
+                  WHERE w.tenant_id = r.tenant_id AND w.request_id = r.id) AS minutos_registrados
            FROM servicedesk.requests r
            JOIN servicedesk.categories c ON c.tenant_id = r.tenant_id AND c.id = r.category_id
           WHERE r.deleted_at IS NULL

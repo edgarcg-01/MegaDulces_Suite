@@ -853,6 +853,53 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('requester_id que no es uuid → 400', (await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'x', requester_id: 'no-soy-uuid' })).status === 400);
     }
 
+    // ── 21. El tiempo registrado: la lista en la ficha y las horas en Reportes ───────────
+    {
+      console.log('\n21 — tiempo registrado: lista en la ficha (sólo quien atiende) y horas por categoría');
+      const detalle = (id, tok = coord.token) => req('GET', `${SD}/requests/${id}`, tok);
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const reporte = () => req('GET', `${SD}/reports?from=${hoy}&to=${hoy}`, coord.token);
+      const nombreAg = (await knex('identity.users').where({ id: agente.id }).first('nombre')).nombre;
+      const catOtra = (cat.body?.categories ?? []).find((c) => c.id !== catSimple.id && !c.requires_branch && c.name !== 'Desarrollo');
+
+      const antes = (await reporte()).body;
+      const filaAntes = antes.por_categoria.find((c) => c.category_id === catSimple.id);
+      const tt = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE tiempo: se registra el trabajo' });
+      await req('POST', `${SD}/requests/${tt.body?.id}/take`, agente.token);
+      const l1 = await req('POST', `${SD}/requests/${tt.body?.id}/time`, agente.token, { minutes: 30, note: 'Cambié el cable de red del mostrador' });
+      const l2 = await req('POST', `${SD}/requests/${tt.body?.id}/time`, agente.token, { minutes: 45 });
+      check('quien atiende registra tiempo (con y sin nota) → 2xx', l1.status < 300 && l2.status < 300, dump(l1) + ' ' + dump(l2));
+
+      const dAg = await detalle(tt.body?.id, agente.token);
+      const ent = dAg.body?.time_entries;
+      check('⭐ la ficha de quien atiende trae la LISTA de registros', Array.isArray(ent) && ent.length === 2, JSON.stringify(ent));
+      check('⭐ cada registro dice cuánto, quién, cuándo y qué hizo', ent?.[0]?.minutes === 30 && ent[0].user_name === nombreAg && ent[0].note === 'Cambié el cable de red del mostrador' && !!ent[0].created_at && ent[0].source === 'suite', JSON.stringify(ent?.[0]));
+      check('el segundo, sin nota, trae `note: null` (no una cadena vacía)', ent?.[1]?.minutes === 45 && ent[1].note === null, JSON.stringify(ent?.[1]));
+      check('van del más viejo al más nuevo', new Date(ent?.[0]?.created_at).getTime() <= new Date(ent?.[1]?.created_at).getTime());
+      check('⭐ el total es la suma de la lista (75), no un número aparte', dAg.body?.time_logged_minutes === 75 && ent.reduce((s, e) => s + e.minutes, 0) === 75, String(dAg.body?.time_logged_minutes));
+
+      const dSol = await detalle(tt.body?.id, sol.token);
+      check('⛔ quien REPORTÓ recibe `time_entries: null` (no «lista vacía»: no tiene acceso)', dSol.status === 200 && dSol.body?.time_entries === null && dSol.body?.time_logged_minutes === null, JSON.stringify([dSol.body?.time_entries, dSol.body?.time_logged_minutes]));
+      check('⛔ y en NADA de su respuesta aparece la nota del trabajo', !JSON.stringify(dSol.body).includes('Cambié el cable'));
+      check('⛔ el solicitante NO puede registrar tiempo → 403', (await req('POST', `${SD}/requests/${tt.body?.id}/time`, sol.token, { minutes: 10 })).status === 403);
+      check('⛔ minutos fuera de rango → 400', (await req('POST', `${SD}/requests/${tt.body?.id}/time`, agente.token, { minutes: 0 })).status === 400 && (await req('POST', `${SD}/requests/${tt.body?.id}/time`, agente.token, { minutes: 1441 })).status === 400);
+
+      // Reportes: horas por categoría, con su cobertura.
+      const despues = (await reporte()).body;
+      const filaDesp = despues.por_categoria.find((c) => c.category_id === catSimple.id);
+      check('⭐ el reporte suma +75 minutos a la categoría y +1 solicitud con tiempo', (filaDesp.minutos_trabajados ?? 0) === (filaAntes?.minutos_trabajados ?? 0) + 75 && filaDesp.con_tiempo === (filaAntes?.con_tiempo ?? 0) + 1, JSON.stringify([filaAntes, filaDesp]));
+      check('el total del periodo también', (despues.totales.minutos_trabajados ?? 0) === (antes.totales.minutos_trabajados ?? 0) + 75 && despues.totales.con_tiempo === antes.totales.con_tiempo + 1);
+      if (catOtra) {
+        await req('POST', `${SD}/requests`, sol.token, { category_id: catOtra.id, title: 'SMOKE tiempo: nadie registra aquí' });
+        const filaOtra = (await reporte()).body.por_categoria.find((c) => c.category_id === catOtra.id);
+        check('⛔ una categoría donde NADIE registró tiempo sale `null` y `con_tiempo: 0`, NUNCA «0 minutos»', filaOtra?.minutos_trabajados === null && filaOtra?.con_tiempo === 0, JSON.stringify(filaOtra));
+      } else {
+        noMedido.push('ninguna otra categoría libre para probar el «null, no 0» de las horas por categoría');
+      }
+      check('⛔ el reporte sigue sin traer nada por persona', !/"(assign[a-z_]*|requester[a-z_]*|resolved_by|assignee[a-z_]*|user[a-z_]*)":/i.test(JSON.stringify(despues)));
+      check('y declara que el tiempo es sólo el que se registra a mano', despues.no_medido.some((t) => /sólo el que se registra a mano/.test(t)));
+    }
+
     noMedido.push('correo y WhatsApp REALES: el SMTP no está configurado y la plantilla de Meta no está aprobada (P5); lo que se afirma es que el resultado queda DECLARADO por canal');
     noMedido.push('push en vivo por WebSocket (la API de este test corre sin cliente conectado); el poll de la campana sí se midió');
 

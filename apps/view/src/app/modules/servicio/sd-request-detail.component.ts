@@ -161,12 +161,23 @@ function leerComoDataUri(f: File): Promise<string> {
 
           @if (agent()) {
             <details class="sd-tiempo">
-              <summary>Registrar tiempo trabajado</summary>
+              <summary>Registrar tiempo trabajado@if (t.time_entries?.length) { · {{ t.time_entries!.length }} {{ t.time_entries!.length === 1 ? 'registro' : 'registros' }} ({{ horas(t.time_logged_minutes ?? 0) }}) }</summary>
               <div class="sd-tiempo-body">
                 <input pInputText type="number" min="1" max="1440" [ngModel]="minutos()" (ngModelChange)="minutos.set($event)" placeholder="Minutos" aria-label="Minutos trabajados" />
                 <input pInputText [ngModel]="notaTiempo()" (ngModelChange)="notaTiempo.set($event)" placeholder="Qué hiciste (opcional)" aria-label="Nota del tiempo" />
                 <p-button label="Registrar" size="small" severity="secondary" [outlined]="true" [loading]="busy()" [disabled]="!minutos()" (onClick)="registrarTiempo()" />
               </div>
+              @if (t.time_entries?.length) {
+                <ul class="sd-tiempo-lista" aria-label="Tiempo registrado">
+                  @for (e of t.time_entries; track e.id) {
+                    <li>
+                      <span class="sd-tiempo-min">{{ horas(e.minutes) }}</span>
+                      <span class="sd-tiempo-quien">{{ e.user_name || 'Persona sin ficha' }} · {{ e.created_at | date:'dd/MM/yy HH:mm' }}@if (e.source === 'bitacora') { · <em>importado de la Bitácora</em> }</span>
+                      @if (e.note) { <span class="sd-tiempo-nota">{{ e.note }}</span> }
+                    </li>
+                  }
+                </ul>
+              }
             </details>
           }
         }
@@ -267,6 +278,11 @@ function leerComoDataUri(f: File): Promise<string> {
     .sd-tiempo summary { cursor: pointer; font-weight: 600; font-size: var(--fs-xs); }
     .sd-tiempo-body { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); }
     .sd-tiempo-body input[type='number'] { width: 110px; }
+    .sd-tiempo-lista { list-style: none; margin: var(--sp-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+    .sd-tiempo-lista li { display: grid; grid-template-columns: 6.5rem 1fr; gap: 2px var(--sp-3); padding-top: var(--sp-2); border-top: 1px solid var(--border-color); }
+    .sd-tiempo-min { font-family: var(--font-mono); font-weight: 600; color: var(--text-main); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .sd-tiempo-quien { font-size: var(--fs-xs); color: var(--text-muted); }
+    .sd-tiempo-nota { grid-column: 2; color: var(--text-main); font-size: var(--fs-sm); overflow-wrap: anywhere; }
     .sd-tiempo-body input:not([type='number']) { flex: 1 1 200px; }
     .sd-hilo { display: flex; flex-direction: column; gap: var(--sp-3); border-top: 1px solid var(--border-color); padding-top: var(--sp-3); }
     .sd-hilo h3 { margin: 0; font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }

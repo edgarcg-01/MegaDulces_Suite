@@ -28,7 +28,7 @@ const t = (status: SdStatus, over: Partial<SdRequestDetail> = {}): SdRequestDeta
     { id: 'm1', kind: 'system', visibility: 'public', author_id: 'u1', author_label: 'Ana', body: 'Solicitud creada', meta: {}, created_at: '2026-10-02T15:00:00.000Z' },
     { id: 'm2', kind: 'internal_note', visibility: 'internal', author_id: 'u2', author_label: 'Jorge', body: 'Parece el usuario bloqueado', meta: {}, created_at: '2026-10-02T15:05:00.000Z' },
   ],
-  attachments: [], time_logged_minutes: 0, ...over,
+  attachments: [], time_logged_minutes: 0, time_entries: [], ...over,
 });
 
 function makeApi(initial: SdRequestDetail) {
@@ -68,6 +68,46 @@ describe('[MS.3.3] SdRequestDetailComponent', () => {
   }
 
   afterEach(() => TestBed.resetTestingModule());
+
+  describe('`[MS.3.15]` el tiempo registrado', () => {
+    const ENTRADAS = [
+      { id: 'w1', user_name: 'Felipe Galván', minutes: 30, note: 'Cambié el cable de red', started_at: null, ended_at: null, source: 'suite' as const, created_at: '2026-10-05T16:00:00.000Z' },
+      { id: 'w2', user_name: 'David Cisneros', minutes: 75, note: null, started_at: null, ended_at: null, source: 'bitacora' as const, created_at: '2026-10-05T18:30:00.000Z' },
+    ];
+    it('⭐ quien atiende ve CADA registro: cuánto, quién, cuándo y qué hizo', async () => {
+      await render('en_proceso', true, false, { time_logged_minutes: 105, time_entries: ENTRADAS });
+      const lista = el().querySelector('.sd-tiempo-lista') as HTMLElement;
+      expect(lista).toBeTruthy();
+      const filas = lista.querySelectorAll('li');
+      expect(filas.length).toBe(2);
+      expect(filas[0].textContent).toContain('30 min');
+      expect(filas[0].textContent).toContain('Felipe Galván');
+      expect(filas[0].textContent).toContain('Cambié el cable de red');
+      expect(filas[1].textContent).toContain('1 h 15 min');
+      expect(filas[1].textContent).toContain('David Cisneros');
+    });
+    it('el resumen dice cuántos registros hay y el total', async () => {
+      await render('en_proceso', true, false, { time_logged_minutes: 105, time_entries: ENTRADAS });
+      expect(texto()).toContain('2 registros (1 h 45 min)');
+    });
+    it('un registro importado de la Bitácora lo dice (no parece captura de la Suite)', async () => {
+      await render('en_proceso', true, false, { time_logged_minutes: 105, time_entries: ENTRADAS });
+      const filas = el().querySelectorAll('.sd-tiempo-lista li');
+      expect(filas[1].textContent).toContain('importado de la Bitácora');
+      expect(filas[0].textContent).not.toContain('importado');
+    });
+    it('un registro sin nota no pinta una nota vacía', async () => {
+      await render('en_proceso', true, false, { time_logged_minutes: 75, time_entries: [ENTRADAS[1]] });
+      expect(el().querySelector('.sd-tiempo-nota')).toBeNull();
+      expect(texto()).toContain('1 registro (1 h 15 min)');
+    });
+    it('⛔ NEGATIVA — sin registros no hay lista ni «0 registros»: sólo el formulario', async () => {
+      await render('en_proceso', true, false, { time_logged_minutes: 0, time_entries: [] });
+      expect(el().querySelector('.sd-tiempo-lista')).toBeNull();
+      expect(texto()).not.toContain('0 registros');
+      expect(texto()).toContain('Registrar tiempo trabajado');
+    });
+  });
 
   it('carga el ticket por su id y pinta folio, título y estado', async () => {
     await render('nuevo', false);
@@ -119,8 +159,13 @@ describe('[MS.3.3] SdRequestDetailComponent', () => {
       await render('nuevo', false);
       expect(botones().join('|')).toContain('Cancelar solicitud');
     });
+    it('⛔ `[MS.3.15]` sin acceso al tiempo NO ve ni la lista ni los nombres de quien lo registró', async () => {
+      await render('en_proceso', false, false, { time_logged_minutes: null, time_entries: null });
+      expect(el().querySelector('.sd-tiempo-lista')).toBeNull();
+      expect(texto()).not.toContain('Registrar tiempo');
+    });
     it('no ve «Registrar tiempo» ni el tiempo registrado', async () => {
-      await render('en_proceso', false, false, { time_logged_minutes: null });
+      await render('en_proceso', false, false, { time_logged_minutes: null, time_entries: null });
       expect(texto()).not.toContain('Registrar tiempo');
       expect(texto()).not.toContain('Tiempo');
     });
