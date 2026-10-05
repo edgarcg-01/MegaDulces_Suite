@@ -7358,8 +7358,41 @@ estilos **2698/2699** (bajó uno) ✅.
 ⬜ **Declarado, NO arreglado:** los dos subtítulos salen **pegados** en pantalla (*«esta
 jornada2,769 conceptos»*). En el HTML son **dos `<p>` separados** y ninguna de sus dos clases los
 hace inline — la causa no está donde se esperaría y necesita DevTools; no se toca a ciegas.
-⬜ También queda: el aviso *«Esta ruta todavía no está declarada»* se repite fila por fila (es
-**una** configuración faltante, no cuatro problemas) y la columna «Contado» no se explica sola.
+⬜ Queda: la columna «Contado» no se explica sola.
+
+#### 🧪 `[CG.30.1]` + `[CG.33]` · Lo que la primera pasada dejó a medias — 2026-10-05
+
+Salió de ver la pantalla **ya corriendo con `[CG.30-32]`**: los tres arreglos funcionan (el
+subtítulo dice *«1,875 por confirmar»*, el aviso del libro vacío sale con sus $203,040 y 8
+movimientos, y el cuadre plegado subió la cola de **4 filas visibles a 9**). Y con el ruido de
+arriba quitado se vieron dos cosas que antes tapaba.
+
+**`[CG.30.1]` ⛔ El mismo defecto de `[CG.30]`, en el renglón de al lado — y se me pasó.**
+`textoBandeja` seguía calculando `${ok} de ${total}` con `total = pendientes().length`: publicaba
+*«22 de 100»* mientras el subtítulo de arriba, ya corregido, decía **1,875**. **La misma pantalla
+afirmando dos universos distintos a cinco centímetros de distancia.** Ahora dice *«22 de las 100
+que se ven»* y **no repite el total** (eso ya lo dice el subtítulo; repetirlo sería ruido). El
+aviso de lista topada pasa de *«hay más»* —que no dice si son 3 o 12,000— a *«las primeras 100 de
+1,875»*. ⭐ *Corregir un primitivo en un lugar y no en su vecino es cómo se vuelven a separar las
+copias* — es el patrón que ADR-056 persigue, y acá lo cometí yo en el mismo commit.
+
+**`[CG.33]` El muro naranja.** Con 9 filas a la vista, la tabla era **nueve veces la misma frase**
+en naranja: *«Esta ruta todavía no está declarada…»*. El aviso le ganaba el peso visual al monto,
+que es el dato, y repetir 85 veces la misma frase tampoco decía lo único accionable — **cuántas**
+rutas hay que dar de alta. Ahora: un **resumen agrupado y contado** arriba de la tabla
+(*«De las 100 que se ven, esperan: ruta sin declarar 85 · sin importe 2»*) y en la fila una **marca
+corta en gris**, con el texto entero en el `title`. ⚠️ Una clave de motivo que el mapa no conozca
+**se muestra tal cual**, no cae a un genérico: una etiqueta nueva del servidor tiene que verse, no
+disfrazarse de «sin declarar».
+
+**Pruebas:** componente **164** (+4, con **2 negativas**: lo confirmable no entra al resumen · una
+clave desconocida no se disfraza). Gates: templates ✅ · tokens ✅ · estilos **2698/2699** ✅.
+
+⬜ **Sigue sin tocar, declarado:** los dos subtítulos **pegados** (*«esta jornada2,777 conceptos»*).
+En el HTML son dos `<p>` separados y ninguna de sus clases los hace inline — necesita DevTools.
+⚠️ **Observado, sin causa establecida:** el selector de caja mostraba `CAJA GENERAL (1896)` y ahora
+sale sin el número. Su `label` sólo pone el conteo si `c.documentos` viene con valor, y existe un
+fallback sin número para cuando el catálogo no responde — **no se afirma cuál de los dos es**.
 
 ---
 
