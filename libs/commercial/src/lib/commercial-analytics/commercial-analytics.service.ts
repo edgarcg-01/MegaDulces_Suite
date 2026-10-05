@@ -221,6 +221,14 @@ export interface RouteInventoryRow {
   cargado_ayer_qty: number | null;
   /** El último día que se le cargó algo. Contesta «y si no fue ayer, ¿cuándo?». */
   ultima_carga: string | null;
+  /** El ultimo dia que vendio algo, y cuanto. El domingo es inhabil: "ayer" no sirve de pregunta. */
+  ultima_venta: string | null;
+  ultima_carga_imp: number | null;
+  ultima_venta_imp: number | null;
+  /** Tope de inventario del camion, en pesos al costo. NULL = sin tope declarado. */
+  tope_inventario: number | null;
+  /** Lo que el cliente pago DE VERDAD. Viaja aparte del vendido que cierra la identidad. */
+  cobrado_real: number | null;
   // Columna COSTO — valuada con el costo del EMBARQUE (lo que la sucursal le cargó al camión).
   carga_costo: number; cogs_costo: number; inventario_costo: number;
   inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
@@ -8159,15 +8167,37 @@ export class CommercialAnalyticsService {
            SELECT l.route_no,
                   sum(l.qty)       FILTER (WHERE l.business_date = ?::date) AS ayer_q,
                   sum(l.costo_doc) FILTER (WHERE l.business_date = ?::date) AS ayer_costo,
-                  max(l.business_date)                                      AS ultima_carga
+                  max(l.business_date) FILTER (WHERE l.clase='carga')        AS ultima_carga,
+                  max(l.business_date) FILTER (WHERE l.clase='venta')        AS ultima_venta
              FROM analytics.mv_rd_route_ledger l
-            WHERE l.tenant_id = ? AND l.clase = 'carga'
+            WHERE l.tenant_id = ?
             GROUP BY 1
+         ), ultimo_dia AS (
+           /**
+            * Lo que movio la ULTIMA VEZ, no "ayer". El domingo es inhabil y el sabado tampoco
+            * cargan: medido el 2026-10-05, "ayer" daba 0 de 11 camiones y la columna no decia
+            * nada util. La pregunta del negocio no es que paso ayer sino **cuando fue la ultima
+            * vez y cuanto**, que ademas funciona igual en lunes que en domingo.
+            */
+           SELECT l.route_no, l.clase,
+                  sum(l.qty)                                     AS qty,
+                  sum(coalesce(l.costo_doc, l.venta_doc))        AS imp
+             FROM analytics.mv_rd_route_ledger l
+             JOIN carga_dia cd ON cd.route_no = l.route_no
+            WHERE l.tenant_id = ?
+              AND l.business_date = CASE WHEN l.clase='carga' THEN cd.ultima_carga
+                                         ELSE cd.ultima_venta END
+            GROUP BY 1,2
          )
          SELECT i.route_no, i.plaza, to_char(i.carga_desde,'YYYY-MM-DD') AS carga_desde,
                 round(max(cd.ayer_costo),2)::float                        AS cargado_ayer_costo,
                 round(max(cd.ayer_q),2)::float                            AS cargado_ayer_qty,
                 to_char(max(cd.ultima_carga),'YYYY-MM-DD')                AS ultima_carga,
+                to_char(max(cd.ultima_venta),'YYYY-MM-DD')                AS ultima_venta,
+                round(max(uc.imp),2)::float                               AS ultima_carga_imp,
+                round(max(uv.imp),2)::float                               AS ultima_venta_imp,
+                -- El tope lo lleva el camion (commercial.warehouses). NULL = sin tope declarado.
+                round(max(w.inventory_max_mxn),2)::float                  AS tope_inventario,
                 -- La última actividad de la ruta, del MISMO barrido que todo lo demás. Es lo que
                 -- delata a una ruta parada: medido, la 505 no mueve nada desde el 10-sep y se veía
                 -- igual que las diez vivas.
@@ -8180,7 +8210,21 @@ export class CommercialAnalyticsService {
                 round(sum(v.cq * v.costo_u) - sum(coalesce(v.vq,0) * v.costo_u)
                       - sum(v.saldo * v.costo_u),2)::float                     AS delta_costo,
                 round(sum(coalesce(v.cq,0) * v.precio_u),2)::float             AS carga_venta,
-                round(sum(v.vi),2)::float                                      AS venta_cliente,
+                /**
+                 * ⛔ El vendido de la columna VENTA se valua con el precio RESUELTO, no con el
+                 * dinero crudo del periodo. Medido el 2026-10-05: con el dinero crudo la
+                 * identidad se rompia en cuanto la ventana era corta -- en un solo dia daba
+                 * -$1,636 en 9 de 11 rutas y la pantalla gritaba "la cuenta no cierra" mientras
+                 * la columna de descuadre mostraba 0, porque esa columna solo mira el costo.
+                 * Sobre toda la historia cerraba, asi que el defecto solo salia al filtrar.
+                 *
+                 * La causa: precio_u sale del resolvedor (toda la historia) y vi es el
+                 * dinero de la ventana; cuando el precio del periodo difiere del historico,
+                 * qty x precio_u deja de ser vi y la resta no cuadra.
+                 */
+                round(sum(coalesce(v.vq,0) * v.precio_u),2)::float             AS venta_cliente,
+                /** Lo que el cliente pago DE VERDAD en la ventana. Es un hecho y viaja aparte. */
+                round(sum(v.vi),2)::float                                      AS cobrado_real,
                 round(sum(v.saldo * v.precio_u),2)::float                      AS inventario_venta,
                 round(sum(v.saldo * v.precio_u) FILTER (WHERE v.saldo > 0),2)::float AS inventario_venta_pos,
                 round(sum(v.saldo * v.precio_u) FILTER (WHERE v.saldo < 0),2)::float AS inventario_venta_neg,
@@ -8211,10 +8255,14 @@ export class CommercialAnalyticsService {
            FROM analytics.mv_rd_route_identity i
            LEFT JOIN val v ON v.route_no = i.route_no
            LEFT JOIN carga_dia cd ON cd.route_no = i.route_no
+           LEFT JOIN ultimo_dia uc ON uc.route_no = i.route_no AND uc.clase = 'carga'
+           LEFT JOIN ultimo_dia uv ON uv.route_no = i.route_no AND uv.clase = 'venta'
+           LEFT JOIN commercial.warehouses w
+             ON w.id = i.warehouse_id AND w.deleted_at IS NULL
           WHERE i.tenant_id = ?
           GROUP BY i.route_no, i.plaza, i.carga_desde
           ORDER BY i.plaza, i.route_no`,
-        [tenantId, desde, hasta, tenantId, ayer, ayer, tenantId, tenantId],
+        [tenantId, desde, hasta, tenantId, ayer, ayer, tenantId, tenantId, tenantId],
       )).rows;
 
       const asOf = (await trx.raw(

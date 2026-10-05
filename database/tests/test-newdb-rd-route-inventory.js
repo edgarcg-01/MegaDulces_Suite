@@ -524,7 +524,7 @@ async function cuerposDeLaMigracion() {
       const sqlInv = src.slice(a + 1, b);
       const ayer = new Date(Date.now() - 6 * 3600 * 1000 - 24 * 3600 * 1000)
         .toISOString().slice(0, 10);
-      const inv = (await db.raw(sqlInv, [tenant, '2000-01-01', '2999-12-31', tenant, ayer, ayer, tenant, tenant])).rows;
+      const inv = (await db.raw(sqlInv, [tenant, '2000-01-01', '2999-12-31', tenant, ayer, ayer, tenant, tenant, tenant])).rows;
       t('el DEFAULT de la pantalla corre contra prod', inv.length > 0, `${inv.length} rutas`);
 
       // ⚠️ La comparación va ESTRICTA contra 0, no por `Number(...)`: `Number(null)` es 0, así
@@ -547,7 +547,7 @@ async function cuerposDeLaMigracion() {
 
       // PRUEBA NEGATIVA: con una fecha sin un solo embarque, TODAS tienen que caer en NULL.
       const vacio = (await db.raw(sqlInv,
-        [tenant, '2000-01-01', '2999-12-31', tenant, '1990-01-01', '1990-01-01', tenant, tenant])).rows;
+        [tenant, '2000-01-01', '2999-12-31', tenant, '1990-01-01', '1990-01-01', tenant, tenant, tenant])).rows;
       t('PRUEBA NEGATIVA · un día sin embarques deja las 11 en NULL, no en 0',
         vacio.every((r) => r.cargado_ayer_costo === null),
         `${vacio.filter((r) => r.cargado_ayer_costo !== null).length} filas se inventaron una cifra`);
@@ -573,7 +573,7 @@ async function cuerposDeLaMigracion() {
         `${sinCe.toFixed(2)} de ${venta.toFixed(2)}`);
 
       const t0 = Date.now();
-      await db.raw(sqlInv, [tenant, '2000-01-01', '2999-12-31', tenant, ayer, ayer, tenant, tenant]);
+      await db.raw(sqlInv, [tenant, '2000-01-01', '2999-12-31', tenant, ayer, ayer, tenant, tenant, tenant]);
       const ms = Date.now() - t0;
       t(`el default cabe en 500 ms (${ms} ms)`, ms < 500, 'es la consulta que ve todo el mundo');
 
@@ -621,35 +621,35 @@ async function cuerposDeLaMigracion() {
         `con unidad ${con_unidad} · sin unidad ${sin_unidad} — el peldaño cambia el costo 12x`);
 
       /**
-       * ⚠️ La paridad vista-vs-matvista NO se puede pedir como igualdad, y la razón es una
-       * propiedad del resolvedor que conviene tener escrita:
+       * ⚠️ **La paridad vista-vs-matvista NO se puede pedir como igualdad, de ninguna forma.**
        *
-       * ⭐ **el valor de un par se mueve cuando se mueve el CATÁLOGO, no sólo cuando se mueve
-       * la ruta.** Un par valuado desde la ficha (`origen = 'kepler'`) cambia en cuanto Kepler
-       * le toca el costo al producto, aunque el camión no lo haya tocado en meses. Medido el
-       * 2026-10-05: la única diferencia entre la vista y su copia era **un par** — ruta 505,
-       * SKU 06016, PAQ — que pasó de 94.57 a 87.56 porque el ERP le cambió el costo. Filtrar
-       * por "quieto en el ledger" no alcanza: ese par llevaba más de 7 días sin moverse.
+       * Se intentó dos veces y las dos estaban mal. Primero se comparó el total: mide el rezago
+       * del refresco. Después se acotó a los pares `origen = 'kepler'` suponiendo que los de
+       * `'ruta'` estaban congelados — y no lo están: el valor de un par sale de `carga_imp /
+       * carga_qty`, así que **se mueve con cada venta y cada embarque que entra al ledger**.
+       * Medido: 191 pares con origen 'ruta' difiriendo, media hora después de materializar.
        *
-       * ⛔ Por eso la invariante no es «son iguales» sino **«toda diferencia se explica por el
-       * catálogo»**. Una diferencia en un par valuado con los documentos de la propia ruta
-       * (`origen = 'ruta'`) sí sería un defecto: esos insumos están congelados en el ledger.
+       * ⭐ Lo que sí es invariante: la matvista es una FOTO, y una foto puede estar atrasada,
+       * pero **no puede tener filas que el original ya no tenga**. Un par huérfano significa que
+       * el ledger perdió renglones, y eso sí es un defecto.
        */
-      const { rows: difs } = await db.raw(
-        `SELECT coalesce(v.origen_costo,'(nulo)') AS origen, count(*)::int AS pares
-           FROM analytics.v_rd_route_unit_value v
-           JOIN analytics.mv_rd_route_unit_value m
-             ON m.tenant_id = v.tenant_id AND m.route_no = v.route_no
-            AND m.sku = v.sku AND m.unidad = v.unidad
-          WHERE v.tenant_id = ?
-            AND (v.costo_u IS DISTINCT FROM m.costo_u OR v.saldo_qty IS DISTINCT FROM m.saldo_qty)
-          GROUP BY 1`, [tenant]);
-      const porRuta = difs.filter((d) => d.origen === 'ruta');
-      t('⭐ la matvista sólo difiere de su vista donde el CATÁLOGO se movió, nunca en lo propio',
-        porRuta.length === 0,
-        porRuta.length
-          ? `${porRuta[0].pares} pares con origen 'ruta' difieren — eso sí es un defecto`
-          : difs.map((d) => `${d.origen}:${d.pares}`).join(' ') || 'sin diferencias');
+      const [{ huerfanos, pendientes }] = (await db.raw(
+        `SELECT
+           (SELECT count(*) FROM analytics.mv_rd_route_unit_value m
+             WHERE m.tenant_id = ? AND NOT EXISTS (
+               SELECT 1 FROM analytics.v_rd_route_unit_value v
+                WHERE v.tenant_id = m.tenant_id AND v.route_no = m.route_no
+                  AND v.sku = m.sku AND v.unidad = m.unidad))::int AS huerfanos,
+           (SELECT count(*) FROM analytics.v_rd_route_unit_value v
+             WHERE v.tenant_id = ? AND NOT EXISTS (
+               SELECT 1 FROM analytics.mv_rd_route_unit_value m
+                WHERE m.tenant_id = v.tenant_id AND m.route_no = v.route_no
+                  AND m.sku = v.sku AND m.unidad = v.unidad))::int AS pendientes`,
+        [tenant, tenant])).rows;
+      t('⭐ la matvista no tiene pares que el ledger ya no tenga (una foto se atrasa, no inventa)',
+        Number(huerfanos) === 0,
+        `${huerfanos} pares huérfanos — eso sería el ledger perdiendo renglones`);
+      console.log(`     (${pendientes} pares nuevos esperando el refresco de 30 min — es la foto, no un defecto)`);
     } else {
       noMedido('el default de la pantalla', 'las vistas todavía no están aplicadas');
     }

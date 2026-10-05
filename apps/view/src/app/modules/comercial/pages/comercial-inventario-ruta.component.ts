@@ -79,9 +79,6 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
 
   <section class="ir-bar">
     <div class="ir-bar-l">
-      <p-datepicker [(ngModel)]="rango" selectionMode="range" dateFormat="dd/mm/yy"
-                    placeholder="Toda la ventana" [readonlyInput]="true" [showClear]="true"
-                    [showIcon]="true" appendTo="body" />
       <p-multiselect [options]="plazaOpts()" [ngModel]="plazasSel()"
                      (ngModelChange)="setPlazas($event)" placeholder="Todas las plazas"
                      [showClear]="true" appendTo="body" [maxSelectedLabels]="2"
@@ -113,9 +110,8 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       <div class="ir-sub-bar">
         <span>
           {{ filas().length }}@if (filas().length !== d.routes.length) { de {{ d.routes.length }}} rutas ·
-          {{ d.desde === TODO ? 'saldo actual, desde la primera carga de cada una' : d.desde + ' → ' + d.hasta }} ·
-          <!-- Qué día es "ayer" lo decide el servidor en hora de México, no el navegador. -->
-          ayer = {{ d.ayer }} ({{ d.rutas_cargaron_ayer }} de {{ d.rutas_totales }} cargaron) ·
+          al día de hoy, desde la primera carga de cada una ·
+          @if (sinTope()) { <strong>{{ sinTope() }} sin tope declarado</strong> · }
           dato al {{ d.data_as_of ?? 'sin medir' }}
         </span>
         <span>
@@ -140,10 +136,11 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
               -->
               <th>Ruta</th>
               <th>Plaza</th>
-              <th class="num" title="Lo que el camión tiene arriba hoy. NO se le resta la mercancía previa: eso se declara en la columna de al lado">Trae hoy</th>
-              <th class="num" title="Mercancía que el camión ya traía antes de su primer embarque documentado y que fue vendiendo. Existió, se vendió y se cobró, pero nadie la contó: por eso se declara y NO se resta de lo que trae">Traía sin contar</th>
-              <th class="num">Se le cargó ayer</th>
-              <th class="num" title="Días desde su último movimiento: ni carga ni venta">Días parada</th>
+              <th class="num" title="Lo que el camión tiene arriba hoy. NO se le resta la mercancía previa: eso se declara aparte">Trae hoy</th>
+              <th class="num" title="El tope que tiene declarado. Si lo pasa, está acumulando capital arriba de la camioneta">Tope</th>
+              <th class="num" title="La última vez que se le cargó, y cuánto. No se pregunta por «ayer»: el domingo es inhábil y la respuesta sería siempre cero">Última carga</th>
+              <th class="num" title="La última vez que vendió, y cuánto">Última venta</th>
+              <th class="num" title="Mercancía que ya traía antes de su primer embarque y fue vendiendo. Se declara, no se resta">Traía sin contar</th>
               <th class="num" title="Diferencia del cuadre: cargado − vendido − lo que trae. Tiene que ser 0">Descuadre</th>
               <th class="num"><span class="ir-sr">Detalle</span></th>
             </tr>
@@ -152,32 +149,32 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
             <tr [class.ir-fila-mal]="!cierra(r)" [class.ir-fila-parada]="parada(r)">
               <td class="dt-id ir-mono" role="cell"><strong>{{ r.route_no }}</strong></td>
               <td class="ir-tenue" role="cell" data-label="Plaza">{{ r.plaza }}</td>
-              <td class="num ir-mono ir-fuerte" role="cell" data-label="Trae hoy">{{ inv(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="num ir-mono ir-fuerte" role="cell" data-label="Trae hoy"
+                  [class.ir-bad]="excede(r)"
+                  [title]="excede(r) ? 'Pasa su tope por ' + money(inv(r) - (r.tope_inventario ?? 0)) : ''">{{ inv(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <!-- Sin tope declarado se dice, no se asume un default escondido (ADR-056). -->
+              <td class="num ir-mono ir-tenue" role="cell" data-label="Tope">
+                @if (r.tope_inventario === null) { <span title="Sin tope declarado">sin tope</span> }
+                @else { {{ r.tope_inventario | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+              </td>
+              <td class="num ir-mono" role="cell" data-label="Última carga">
+                @if (r.ultima_carga) {
+                  <span [title]="'El ' + r.ultima_carga">{{ r.ultima_carga_imp | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                  <small class="ir-tenue"> · {{ r.ultima_carga }}</small>
+                } @else { <span class="ir-tenue">nunca</span> }
+              </td>
+              <td class="num ir-mono" role="cell" data-label="Última venta">
+                @if (r.ultima_venta) {
+                  <span [title]="'El ' + r.ultima_venta">{{ r.ultima_venta_imp | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                  <small class="ir-tenue"> · {{ r.ultima_venta }}</small>
+                } @else { <span class="ir-tenue">nunca</span> }
+              </td>
               <!--
                 Se declara, no se resta. Va en tono tenue y no en rojo: no es un faltante ni un
                 error -- es mercancia real que se vendio y se cobro, de antes del primer embarque.
               -->
               <td class="num ir-mono ir-tenue" role="cell" data-label="Traía sin contar"
                   [title]="'Neto si se restara: ' + (invNeto(r) | currency:'MXN':'symbol-narrow':'1.2-2')">{{ invNeg(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <!--
-                NO cargó y cargó $0 no son lo mismo. Un 0 acá diría que le mandamos el camión
-                vacío; lo que pasó es que no hubo embarque. Se declara con guion y se dice
-                cuándo fue la última vez (ADR-056).
-              -->
-              <td class="num ir-mono" role="cell" data-label="Se le cargó ayer">
-                @if (r.cargado_ayer_costo === null) {
-                  <span class="ir-tenue"
-                        [title]="r.ultima_carga ? 'No hubo embarque ayer. Su última carga fue el ' + r.ultima_carga : 'Sin embarques registrados'">
-                    no cargó</span>
-                } @else {
-                  {{ r.cargado_ayer_costo | currency:'MXN':'symbol-narrow':'1.2-2' }}
-                }
-              </td>
-              <td class="num ir-mono" role="cell" data-label="Días parada"
-                  [class.ir-bad]="parada(r)">
-                @if (sinMover(r) === null) { <span class="ir-tenue">—</span> }
-                @else { {{ sinMover(r) }} }
-              </td>
               <td class="num ir-mono" role="cell" data-label="Descuadre">
                 @if (cierra(r)) { <span class="ir-tenue">0</span> }
                 @else { <strong class="ir-bad">{{ delta(r) | number:'1.2-2' }}</strong> }
@@ -613,7 +610,11 @@ export class ComercialInventarioRutaComponent {
     if (rt) this.rutasSel.set(rt.split(',').filter(Boolean));
     const f = q.get('from');
     const t = q.get('to');
-    if (f && t) this.rango = [new Date(f + 'T12:00:00'), new Date(t + 'T12:00:00')];
+    // ⛔ La PORTADA no toma ventana: muestra lo que los camiones traen HOY. Un rango de
+    // fechas en la portada contestaba "cuanto movio en esos dias", que es otra pregunta --
+    // y con una ventana corta la cifra de inventario deja de significar nada.
+    // El rango sigue vivo en el desglose de cada ruta, que es donde vive el historial.
+    this.rango = null;
     this.cargar();
   }
 
@@ -829,6 +830,10 @@ export class ComercialInventarioRutaComponent {
     return v === 'sin_costo' ? 'sin costo' : v === 'sin_precio' ? 'sin precio' : '';
   }
 
+  /** ¿Este camión pasa su tope? Sin tope declarado la respuesta es NO, nunca "sí por las dudas". */
+  excede = (r: RouteInventoryRow) =>
+    r.tope_inventario !== null && this.inv(r) > Number(r.tope_inventario);
+
   /** Pesos para los textos que se arman en TS, donde el pipe de Angular no llega. */
   money(v: number): string {
     return Number(v || 0).toLocaleString('es-MX',
@@ -869,6 +874,12 @@ export class ComercialInventarioRutaComponent {
   readonly totalNeg = computed(() => this.suma((r) => this.invNeg(r)));
   readonly totalCogsErp = computed(() => this.suma((r) => Number(r.cogs_erp) || 0));
   /** El COGS que SÍ se publica: valuado al costo del embarque, cobertura 100% de las cargas. */
+  /** Camiones que pasan su tope, y por cuánto. Es la pregunta del negocio, no un adorno. */
+  readonly excedidos = computed(() => this.filas().filter((r) => this.excede(r)).length);
+  readonly sobreTope = computed(() => this.filas().reduce(
+    (a, r) => a + (this.excede(r) ? this.inv(r) - Number(r.tope_inventario) : 0), 0));
+  readonly sinTope = computed(() => this.filas().filter((r) => r.tope_inventario === null).length);
+
   readonly totalCogs = computed(() => this.suma((r) => Number(r.cogs_costo) || 0));
   /**
    * Lo cargado ayer. Suma sólo las rutas que tuvieron embarque; las que no, no entran.
@@ -979,11 +990,18 @@ export class ComercialInventarioRutaComponent {
       { label: 'Lo vendido les costó', value: this.totalCogs(), format: 'currency2', tone: 'default',
         sub: 'desde su primera carga, al precio del embarque' },
       {
-        label: 'Se les cargó ayer',
-        value: this.totalAyer(), format: 'currency2',
-        tone: conCarga === 0 ? 'bad' : 'default',
-        // Las rutas que NO cargaron son el dato, no el relleno: medido, cargan 6 de 11 por dia.
-        sub: rutas ? `salieron ${conCarga} de ${rutas} camiones` : 'sin rutas',
+        /**
+         * El KPI que pidió el negocio: cuántos camiones pasan su tope. Reemplaza al de «cargado
+         * ayer», que no era la pregunta — el domingo es inhábil y el sábado tampoco cargan, así
+         * que daba 0 de 11 y no decía nada.
+         */
+        label: 'Pasan su tope',
+        value: `${this.excedidos()} de ${rutas}`,
+        format: 'text',
+        tone: this.excedidos() > 0 ? 'bad' : 'ok',
+        sub: this.sobreTope() > 0
+          ? `${this.money(this.sobreTope())} arriba del tope`
+          : 'ninguno acumula de más',
       },
       // Tono neutro a proposito: NO es un faltante ni un error. Es mercancia real, vendida y
       // cobrada, de antes del primer embarque. Se declara para que no desaparezca, pero pintarla
