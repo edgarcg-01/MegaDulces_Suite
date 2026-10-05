@@ -32,6 +32,12 @@ const ACTOR = arg('actor') || process.env.USERNAME || 'script';
 const CSV = arg('csv');
 if (!URL) { console.error('Falta PROD_DB_URL (o --url=).'); process.exit(2); }
 
+/** Nombre de cada plaza (tabla de sucursales Kepler md_00..md_08). */
+const SUCURSALES = {
+  '00': 'CEDIS', '01': 'Padre Hidalgo', '02': 'La Piedad Abastos', '03': '8 Esquinas',
+  '04': 'Yurécuaro', '05': 'Zamora Centro', '06': 'Canindo', '07': 'Morelia Madero', '08': 'Morelia Abastos',
+};
+const plaza = (c) => { const k = String(c ?? '').trim(); return k ? `${k} ${SUCURSALES[k] || '(sin nombre)'}` : '(sin sucursal)'; };
 const money = (n) => (n == null ? '' : Number(n).toFixed(2));
 
 (async () => {
@@ -73,15 +79,16 @@ const money = (n) => (n == null ? '' : Number(n).toFixed(2));
     + ` · sin su solicitud en Kepler: ${sinKepler.length} · folio ambiguo sin sucursal: ${ambiguos.length}`);
   console.log(`Δ neto a corregir: $${money(corregir.reduce((s, r) => s + r.diferencia, 0))}`);
   console.table(corregir.map((r) => ({
-    sucursal: r.sucursal_kepler, folio: r.folio, creado: r.creado, status: r.status, origen: r.origen,
+    sucursal: plaza(r.sucursal_kepler), folio: r.folio, creado: r.creado, status: r.status, origen: r.origen,
     vale: money(r.importe_vale), kepler: money(r.importe_kepler), dif: money(r.diferencia),
     folio_en_plazas: r.plazas_folio,
   })));
-  if (sinKepler.length) console.table(sinKepler.map((r) => ({ sucursal: r.sucursal, folio: r.folio, importe: money(r.importe_vale), motivo: 'no está en Kepler' })));
+  if (sinKepler.length) console.table(sinKepler.map((r) => ({ sucursal: plaza(r.sucursal), folio: r.folio, importe: money(r.importe_vale), motivo: 'no está en Kepler' })));
   if (ambiguos.length) console.table(ambiguos.map((r) => ({ folio: r.folio, importe: money(r.importe_vale), motivo: `folio en ${r.plazas_folio} plazas y el vale no trae sucursal` })));
 
   if (CSV) {
-    const cols = ['id', 'sucursal_kepler', 'folio', 'creado', 'status', 'origen', 'importe_vale', 'importe_kepler', 'diferencia', 'plazas_folio'];
+    for (const r of corregir) r.sucursal_nombre = plaza(r.sucursal_kepler);
+    const cols = ['id', 'sucursal_nombre', 'folio', 'creado', 'status', 'origen', 'importe_vale', 'importe_kepler', 'diferencia', 'plazas_folio'];
     const esc = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
     fs.writeFileSync(CSV, [cols.join(','), ...corregir.map((r) => cols.map((k) => esc(r[k])).join(','))].join('\n'));
     console.log(`CSV: ${CSV}`);
