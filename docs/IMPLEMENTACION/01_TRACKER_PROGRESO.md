@@ -7379,14 +7379,46 @@ copias* — es el patrón que ADR-056 persigue, y acá lo cometí yo en el mismo
 **`[CG.33]` El muro naranja.** Con 9 filas a la vista, la tabla era **nueve veces la misma frase**
 en naranja: *«Esta ruta todavía no está declarada…»*. El aviso le ganaba el peso visual al monto,
 que es el dato, y repetir 85 veces la misma frase tampoco decía lo único accionable — **cuántas**
-rutas hay que dar de alta. Ahora: un **resumen agrupado y contado** arriba de la tabla
-(*«De las 100 que se ven, esperan: ruta sin declarar 85 · sin importe 2»*) y en la fila una **marca
-corta en gris**, con el texto entero en el `title`. ⚠️ Una clave de motivo que el mapa no conozca
-**se muestra tal cual**, no cae a un genérico: una etiqueta nueva del servidor tiene que verse, no
-disfrazarse de «sin declarar».
+rutas hay que dar de alta. Ahora: un **resumen agrupado y contado** arriba de la tabla, con el
+**texto largo una sola vez**, y en la fila sólo la **marca corta**. ⚠️ Una clave de motivo que el
+mapa no conozca **se muestra tal cual**, no cae a un genérico: una etiqueta nueva del servidor tiene
+que verse, no disfrazarse de «sin declarar».
+
+#### ⛔ `[CG.33.1]` · La auditoría contra `DESIGN.md` — tres defectos MÍOS, encontrados leyéndolo
+
+A pedido de Edgar se revisó `DESIGN.md` **completo** contra lo que esta tanda había escrito. Salieron
+tres cosas, las tres propias:
+
+1. ⛔ **Rompí una regla de accesibilidad que el código advertía dos líneas más arriba.** La marca del
+   motivo se cambió de `.fin-hint-warn` a un gris atenuado — y justo encima vive la nota de que
+   `.cg-trabada` atenúa la fila al 78 % **y excluye al motivo a propósito**, *«que es justo lo que hay
+   que poder leer»*, porque *«texto de .78rem al 62 % no pasa AA»*. Mi clase perdía esa excepción y
+   quedaba **peor** que el caso ya declarado como fallo. ⭐ **Lo que hacía el muro no era el color: era
+   repetir 85 veces una frase de 80 caracteres.** Se acorta el texto, **no se apaga la señal**.
+2. ⛔ **Antipatrón de Operations, textual en el doc:** *«explicación que sólo vive en un `title`»*.
+   Mi primera versión mandaba el texto largo al tooltip — que no se alcanza por teclado ni lo anuncian
+   los lectores de pantalla. Ahora vive en el resumen, en el DOM, una vez.
+3. ⚠️ **Target táctil.** El botón «Ver el cuadre» reusa `.cg-lim-tog`, que mide **~20 px** de alto. Le
+   alcanzaba para ser un «ver más» opcional, pero acá es la **única forma de abrir el cuadre**: en el
+   teléfono quedaba inalcanzable. Se agranda a **2.75 rem bajo `pointer: coarse`**, y **sólo en este
+   uso** — tocar la clase compartida cambiaría también el otro botón. La regla global de `coarse` en
+   `styles.css` cubre **celdas de tabla, no botones**.
+
+Y lo de siempre: ⚠️ **el acento grave en un comentario CSS** partió el `styles:` — **novena vez en el
+repo**. Los diagnósticos del editor salieron **limpios**; lo cazó `check:templates`, que es
+exactamente para lo que existe. *Correr las tres compuertas no es opcional, y los diagnósticos del
+editor no las reemplazan.*
+
+✅ **Lo que sí cumplía desde el principio:** cero hex crudo (todo token), `measures="data"` en la
+píldora de frescura (no el reloj del navegador), ghost neutro para la acción secundaria, y el
+`badge/pill` hecho a mano es correcto — `DESIGN.md` lo lista como **hueco** del inventario, no hay
+componente canónico que reusar. Las cifras del resumen pasaron a **Geist mono tabular** (checklist §4).
 
 **Pruebas:** componente **164** (+4, con **2 negativas**: lo confirmable no entra al resumen · una
-clave desconocida no se disfraza). Gates: templates ✅ · tokens ✅ · estilos **2698/2699** ✅.
+clave desconocida no se disfraza). Gates: templates ✅ · estilos **2698/2699** ✅ · motion ✅ ·
+tokens ✅.
+⬜ **Falta la verificación visual en los tres modos** que pide el checklist §12: **light + dark +
+móvil**. No se hizo, y se declara.
 
 ⬜ **Sigue sin tocar, declarado:** los dos subtítulos **pegados** (*«esta jornada2,777 conceptos»*).
 En el HTML son dos `<p>` separados y ninguna de sus clases los hace inline — necesita DevTools.
