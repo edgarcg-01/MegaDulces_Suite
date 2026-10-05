@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos a proveedor: la lista del lote se limpia al guardar, y la carga se mide (PC.8, 2026-10-04)
+- Después de guardar un lote, lo guardado **sale de la lista** y queda un resumen («20 guardados · 15 validados solos · 5 con diferencias», con **Ver con diferencias**); sólo se quedan las filas que aún piden algo. La lista tiene scroll propio y «Guardar» queda siempre a la vista.
+- La carga lenta de la página (5–6 s en prod) no se reprodujo con 600k documentos sintéticos (~110 ms): la lista ahora publica cuánto tarda cada consulta (`Server-Timing` + `tiempos_ms`) y avisa en el log arriba de 1 s.
 ### Added — Catálogo de Compras: pestaña Costos con el costo estándar entre sucursales y su historial (CAT-COSTO.0–5, 2026-10-04)
 - «Costos y precios» se separa en dos pestañas. **Costos** deja de ser «contenido por desarrollar» y sólo la ve quien tiene el permiso de costo estándar.
 - **Entre sucursales:** los productos cuyo costo estándar (la negociación con el proveedor) no es el mismo en todas las plazas, contra el de la mayoría, con tolerancia de 0.5 %. Lo que no se puede comparar se dice: sin mayoría, unidad distinta, una sola plaza.

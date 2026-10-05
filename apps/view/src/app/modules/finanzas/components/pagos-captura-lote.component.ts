@@ -77,6 +77,19 @@ export interface FilaLote {
       @if (live()) { <span class="pl-live" title="Cambios de otros usuarios se reflejan al momento"><span class="pl-live-dot"></span> En vivo</span> }
     </section>
     @if (aviso()) { <div class="pl-aviso" role="status">{{ aviso() }}</div> }
+    <!-- [PC.8] Lo guardado SALE de la lista y queda este resumen: la pantalla vuelve a estar limpia. -->
+    @if (resumen(); as r) {
+      <div class="pl-resumen" role="status">
+        <i class="pi pi-check-circle ok" aria-hidden="true"></i>
+        <span><strong>{{ r.guardados }} {{ r.guardados === 1 ? 'guardado' : 'guardados' }}</strong>
+          · <span class="ok">{{ r.validados }} {{ r.validados === 1 ? 'validado solo' : 'validados solos' }}</span>
+          @if (r.diferencias) { · <span class="warn">{{ r.diferencias }} con diferencias</span> }</span>
+        @if (r.diferencias) {
+          <button type="button" class="pl-link" (click)="verDiferencias.emit()">Ver con diferencias</button>
+        }
+        <button type="button" class="pl-xbtn pl-resumen-x" (click)="resumen.set(null)" aria-label="Cerrar resumen"><i class="pi pi-times" aria-hidden="true"></i></button>
+      </div>
+    }
 
     @if (filas().length) {
       <section class="pl-tray" aria-label="Comprobantes en captura">
@@ -88,11 +101,10 @@ export interface FilaLote {
               @if (cuenta().listos) { <span class="ok">{{ cuenta().listos }} listos</span> }
               @if (cuenta().porConfirmar) { <span class="warn">{{ cuenta().porConfirmar }} por confirmar</span> }
               @if (cuenta().sinPago) { <span class="bad">{{ cuenta().sinPago }} sin pago</span> }
-              @if (cuenta().guardados) { <span class="ok"><i class="pi pi-check" aria-hidden="true"></i> {{ cuenta().guardados }} guardados</span> }
+              @if (cuenta().guardados) { <span><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> {{ cuenta().guardados }} guardando</span> }
             </span>
           </div>
           <div class="pl-head-a">
-            @if (cuenta().guardados) { <button pButton type="button" size="small" text (click)="quitarGuardados()" [disabled]="guardando()"><span class="p-button-label">Quitar guardados</span></button> }
             <button pButton type="button" size="small" text severity="secondary" (click)="descartarTodo()" [disabled]="guardando()"><span class="p-button-label">Descartar todo</span></button>
             <button pButton type="button" size="small" (click)="guardar()" [loading]="guardando()" [disabled]="!guardables().length || guardando()">
               <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
@@ -101,6 +113,7 @@ export interface FilaLote {
           </div>
         </header>
 
+        <div class="pl-body">
         <div class="pl-cols" aria-hidden="true">
           <span></span><span>Comprobante</span><span>Lo que leyó la IA</span><span>Pago de Kepler</span><span></span>
         </div>
@@ -210,6 +223,7 @@ export interface FilaLote {
             </div>
           </div>
         }
+        </div>
       </section>
     }
 
@@ -247,6 +261,13 @@ export interface FilaLote {
     .pl-aviso { margin-top: .5rem; font-size: var(--fs-sm); color: var(--warn-fg); }
 
     .pl-tray { margin-top: .75rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-card); overflow: hidden; }
+    /* [PC.8] un lote grande no alarga la página: scroll propio, el encabezado (con «Guardar») no se va */
+    .pl-body { max-height: min(60vh, 40rem); overflow-y: auto; overscroll-behavior: contain; }
+    .pl-cols { position: sticky; top: 0; z-index: 1; background: var(--surface-card); }
+    .pl-resumen { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-top: .75rem; padding: .55rem .9rem;
+      border: 1px solid var(--ok-border, var(--border-color)); border-radius: var(--r-md, .5rem); background: var(--ok-soft-bg);
+      font-size: var(--fs-sm); color: var(--fg-1); }
+    .pl-resumen-x { margin-left: auto; }
     .pl-head { display: flex; align-items: center; justify-content: space-between; gap: .8rem; flex-wrap: wrap; padding: .6rem .9rem;
       border-bottom: 1px solid var(--border-color); }
     .pl-head-t { display: flex; align-items: baseline; gap: .9rem; flex-wrap: wrap; font-size: var(--fs-body); color: var(--fg-1); }
@@ -323,6 +344,10 @@ export class PagosCapturaLoteComponent {
   readonly live = input(false);
   /** Se guardaron comprobantes: la página recarga su tabla. */
   readonly guardados = output<LoteGuardado>();
+  /** `[PC.8]` La persona quiere ver en la tabla los que quedaron con diferencias. */
+  readonly verDiferencias = output<void>();
+  /** `[PC.8]` El resumen del último guardado; ocupa el lugar de las filas que salieron de la lista. */
+  readonly resumen = signal<{ guardados: number; validados: number; diferencias: number } | null>(null);
 
   readonly filas = signal<FilaLote[]>([]);
   readonly arrastrando = signal(false);
@@ -392,6 +417,7 @@ export class PagosCapturaLoteComponent {
   }
 
   private async agregar(files: File[]) {
+    this.resumen.set(null);
     const omitidos: string[] = [];
     for (const file of files) {
       const esPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
@@ -492,7 +518,6 @@ export class PagosCapturaLoteComponent {
     }
   }
   quitar(id: number) { this.filas.update((l) => l.filter((f) => f.id !== id)); }
-  quitarGuardados() { this.filas.update((l) => l.filter((f) => f.fase !== 'guardado')); }
   descartarTodo() { this.filas.update((l) => l.filter((f) => f.fase === 'guardando')); this.aviso.set(''); }
 
   /** El clic de confirmación: guarda, uno por uno, lo que la persona dejó marcado. */
@@ -521,7 +546,13 @@ export class PagosCapturaLoteComponent {
       }
     }
     this.guardando.set(false);
-    if (ok) this.guardados.emit({ guardados: ok, validados });
+    // [PC.8] Lo guardado sale de la lista: lo validado ya no pide nada y lo que tiene diferencias
+    // vive en la pestaña «Con diferencias» de la tabla. Se quedan sólo las filas que aún piden algo.
+    if (ok) {
+      this.filas.update((l) => l.filter((f) => f.fase !== 'guardado'));
+      this.resumen.set({ guardados: ok, validados, diferencias: ok - validados });
+      this.guardados.emit({ guardados: ok, validados });
+    }
   }
 
   private fila(id: number): FilaLote | undefined { return this.filas().find((f) => f.id === id); }
