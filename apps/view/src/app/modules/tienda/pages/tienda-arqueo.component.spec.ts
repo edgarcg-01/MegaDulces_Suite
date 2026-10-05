@@ -244,6 +244,41 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     expect(html()).toContain('Es distinto de no contar');
   });
 
+  // ── [SM.41] El buscador tiene que DESPERTAR cuando se elige la sucursal ────────────────
+  //
+  // `sucursalActiva` nacio como un `computed()` sobre `aSuc`, que entonces era un campo
+  // plano con ngModel. Un computed solo se recalcula cuando cambia una dependencia
+  // REACTIVA, asi que para un supervisor con varias sucursales y sin turno el valor se
+  // quedaba congelado en null y la tarjeta de precios y faltantes no despertaba nunca --
+  // visto en una captura de la pantalla corriendo, deshabilitada de por vida.
+  //
+  // Se arreglo pasando `aSuc` a signal. Esta prueba fija el COMPORTAMIENTO, no esa
+  // implementacion: si alguien vuelve a desreactivar el campo, o cambia el computed por
+  // algo que no observe la sucursal, se pone roja igual.
+  it('⭐ el buscador toma la sucursal del turno, y sin turno la que se elige a mano', async () => {
+    svc.resp = { turnos: [turno()], aviso: null };
+    cmp.ngOnInit();
+    await tick();
+
+    // Con turno: manda el turno, sin tocar nada.
+    expect(cmp.sucursalActiva()).toBe('01');
+
+    // Sin turno y con varias sucursales alcanzables: arranca en null — es el caso que
+    // dejaba el buscador muerto — y DESPIERTA al elegir una a mano.
+    cmp.turnos.set([]);
+    cmp.sucursales.set([
+      { value: '01', label: 'PADRE HIDALGO' },
+      { value: '03', label: '8 ESQUINAS' },
+    ]);
+    cmp.aSuc.set('');
+    await tick();
+    expect(cmp.sucursalActiva()).toBeNull();
+
+    cmp.aSuc.set('03');
+    await tick();
+    expect(cmp.sucursalActiva()).toBe('03');
+  });
+
   it('el código de cajera no se puede escribir a nombre de otra persona', async () => {
     svc.resp = { turnos: [], aviso: null };
     cmp.ngOnInit();
