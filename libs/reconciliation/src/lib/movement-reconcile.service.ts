@@ -571,8 +571,8 @@ export class MovementReconcileService {
     // Un conteo que casa con DOS cortes no se puede atribuir: se salta, no se
     // elige. Elegir a dedo le colgaría a esta cajera el faltante de otra — es la
     // misma regla que `compare()` aplica devolviendo `ambiguous`.
-    const porConteo = new Map<string, any[]>();
-    for (const r of rows as any[]) {
+    const porConteo = new Map<string, Record<string, unknown>[]>();
+    for (const r of rows as Record<string, unknown>[]) {
       const k = String(r.blind_id);
       const previos = porConteo.get(k);
       if (previos) previos.push(r); else porConteo.set(k, [r]);
