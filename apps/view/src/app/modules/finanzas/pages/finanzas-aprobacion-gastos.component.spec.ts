@@ -78,7 +78,8 @@ const DIA = (over: Partial<GastosDelDia> = {}): GastosDelDia => ({
       { clave: 'SISTEMAS', etiqueta: 'SISTEMAS', origen: 'capturado', n: 1, monto: 50, ids: ['a2'] },
     ],
   },
-  pendientes_fuera_del_dia: { n: 0, monto: 0 },
+  entrada_de_otros_dias: { n: 0, monto: 0 },
+  entrada_truncada: false,
   ...over,
 });
 
@@ -233,7 +234,12 @@ describe('FinanzasAprobacionGastosComponent', () => {
    * queda es el candado de que la pantalla **sigue diciendo qué día muestra** y de que no
    * se calla lo que quedó afuera: sin barra, ese aviso es lo único que revela ese trabajo.
    */
-  describe('la pantalla muestra HOY, y lo dice', () => {
+  describe('la pantalla no ofrece controles de día', () => {
+    /**
+     * ⚠️ Sigue sin haber barra de días, y `[GX.67]` lo refuerza en vez de contradecirlo: con
+     * pendientes repartidos en ~25 días, una barra obliga a adivinar en cuál hay trabajo. La
+     * bandeja los trae todos, así que no hay nada que elegir.
+     */
     it('no hay controles para cambiar de día', () => {
       montar();
       const html = fix.nativeElement.innerHTML as string;
@@ -242,10 +248,16 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(fix.nativeElement.querySelectorAll('input[type=date]').length).toBe(0);
     });
 
-    /** Una pantalla que dice «del día» sin decir cuál no se puede auditar. */
-    it('nombra el día que está mostrando', () => {
+    /**
+     * ⛔ NEGATIVA de `[GX.67]`: el encabezado **no puede volver a anunciar un día**. Decía
+     * «Los levantamientos del viernes 25 de septiembre» sobre una lista que ahora trae julio
+     * — sería la misma mentira al revés, y es la frase que describía el defecto.
+     */
+    it('⛔ el encabezado ya NO nombra un día: la lista no es de un día', () => {
       montar();
-      expect(fix.nativeElement.textContent).toContain('viernes 25 de septiembre');
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).not.toContain('viernes 25 de septiembre');
+      expect(txt).not.toContain('Los levantamientos del');
     });
 
     it('sólo pide hoy: nunca manda fecha', () => {
@@ -254,25 +266,120 @@ describe('FinanzasAprobacionGastosComponent', () => {
     });
   });
 
+  /**
+   * `[GX.67]` **La bandeja no se acota por día.**
+   *
+   * Pedido del usuario (2026-10-05): *«sólo se pueden autorizar los que se levanten del día,
+   * cambialo a que también se puedan pasado»*.
+   *
+   * ⛔ Lo que había antes era peor que un filtro: la pantalla **sabía** que había trabajo de
+   * otros días —lo avisaba con su monto— y no daba ninguna forma de llegar a él, porque la
+   * barra de días se había retirado el 2026-09-25. Medido en la base local el 2026-10-05:
+   * **78 esperando firma en ~25 días y cero levantados hoy**, o sea la bandeja salía vacía.
+   */
+  describe('[GX.67] se autoriza lo de días pasados, no sólo lo de hoy', () => {
+    /** Un vale viejo y uno de hoy, en la misma lista. */
+    const CON_VIEJOS = () => DIA({
+      hoy: '2026-09-25',
+      etapas: { entrada: { n: 2, monto: 150 }, aprobados: { n: 0, monto: 0 },
+        rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } },
+      filas: [
+        F({ id: 'hoy1', importe: 100, created_at: '2026-09-25', folio_solicitud: 'DEHOY' }),
+        F({ id: 'viejo1', importe: 50, created_at: '2026-07-01', folio_solicitud: 'DEJULIO' }),
+      ],
+      entrada: { total: 2, monto_total: 150, por_fecha: [], por_departamento: [] },
+      entrada_de_otros_dias: { n: 1, monto: 50 },
+    });
+
+    /** ⭐ El candado central: el vale de julio se VE y se puede abrir para decidirlo. */
+    it('un vale levantado hace meses aparece en la bandeja', () => {
+      montar(CON_VIEJOS());
+      expect(c.visibles().map((f) => f.id)).toEqual(['hoy1', 'viejo1']);
+      expect(fix.nativeElement.textContent).toContain('DEJULIO');
+    });
+
+    it('⭐ y se puede ABRIR para firmarlo, igual que el de hoy', () => {
+      montar(CON_VIEJOS());
+      const viejo = c.visibles().find((f) => f.id === 'viejo1')!;
+      c.abrir(viejo);
+      fix.detectChanges();
+      // Que se abra es lo que habilita autorizarlo: no se firma desde la lista.
+      expect(c.abierto()?.id).toBe('viejo1');
+    });
+
+    /**
+     * ⚠️ En una lista mezclada, un vale de julio y uno de hace diez minutos se ven igual si
+     * sólo se muestra la hora. El día aparece **sólo cuando no es hoy**, para no repetir en
+     * cada renglón lo que ya dice el encabezado.
+     */
+    it('el renglón viejo muestra su día de captura; el de hoy no', () => {
+      montar(CON_VIEJOS());
+      const chips = Array.from(fix.nativeElement.querySelectorAll('.ap-dia-chip')) as HTMLElement[];
+      expect(chips.length).toBe(1);
+      expect(chips[0].textContent!.trim()).toBe('01/07/26');
+    });
+
+    /** ⛔ `hoy` sale del SERVIDOR. Con el reloj del navegador, otra zona marca mal los días. */
+    it('«hoy» lo decide el servidor, no el navegador', () => {
+      montar(CON_VIEJOS());
+      expect(c.hoy()).toBe('2026-09-25');
+      montar(DIA({ hoy: '2026-01-02', filas: [], etapas: { entrada: { n: 0, monto: 0 },
+        aprobados: { n: 0, monto: 0 }, rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } } }));
+      expect(c.hoy()).toBe('2026-01-02');
+    });
+
+    /** El encabezado ya no puede prometer un día: la lista trae cualquiera. */
+    it('el subtítulo declara el alcance, no una fecha', () => {
+      montar(CON_VIEJOS());
+      const sub = fix.nativeElement.querySelector('.surf-page-sub')!.textContent as string;
+      expect(sub).toContain('cualquier fecha');
+      expect(sub).not.toContain('Los levantamientos del');
+    });
+  });
+
   describe('lo que la pantalla no puede callar', () => {
     /**
-     * ⭐ Acotar por día no puede esconder trabajo: si quedaron firmas pendientes de otros
-     * días, la pestaña que firma lo dice con su monto.
+     * ⭐ El aviso cambió de significado con `[GX.67]`: antes decía «hay trabajo que NO ves»,
+     * ahora es contexto de lo que SÍ estás viendo. Lo que no puede volver a decir es que la
+     * pantalla muestra sólo hoy — sería falso, y es la frase que describía el defecto.
      */
-    it('avisa cuando otros días esperan firma', () => {
-      montar(DIA({ pendientes_fuera_del_dia: { n: 7, monto: 12_345.67 } }));
+    it('dice cuántos vienen de días anteriores, y que se pueden autorizar', () => {
+      montar(DIA({ entrada_de_otros_dias: { n: 7, monto: 12_345.67 } }));
       const txt = fix.nativeElement.textContent as string;
       expect(txt).toContain('7');
       expect(txt).toContain('$12,345.67');
-      // Ya no hay rail al que mandar a nadie: el aviso no puede prometer un control que no existe.
-      expect(txt).not.toContain('rail');
+      expect(txt).toContain('se pueden autorizar igual');
+      // ⛔ NEGATIVA: la frase del defecto no puede volver.
+      expect(txt).not.toContain('sólo hoy');
     });
 
-    it('ese aviso es de la pestaña que firma, no de las otras', () => {
-      montar(DIA({ pendientes_fuera_del_dia: { n: 7, monto: 12_345.67 } }));
-      c.verPestana('aprobados');
-      fix.detectChanges();
-      expect(fix.nativeElement.textContent).not.toContain('esperando firma');
+    /**
+     * ⛔ Una lista cortada en silencio se lee igual que una lista completa — y acá «completa»
+     * significa «ya no hay nada que firmar», que es la conclusión contraria a la verdadera.
+     */
+    it('declara que la lista llegó al tope y hay más', () => {
+      montar(DIA({ entrada_truncada: true }));
+      expect(fix.nativeElement.textContent).toContain('hay más esperando firma');
+    });
+
+    it('y NO lo dice cuando la lista vino completa', () => {
+      montar(DIA({ entrada_truncada: false }));
+      expect(fix.nativeElement.textContent).not.toContain('hay más esperando firma');
+    });
+
+    /**
+     * ⛔ El vacío se mide con la BANDEJA, no con `total`. Con `total` —que incluye lo ya
+     * decidido del día— la pantalla diría «hay gastos» sobre una bandeja vacía.
+     */
+    it('dice que no hay nada que firmar aunque el día tenga gastos ya decididos', () => {
+      montar(DIA({
+        total: 3, monto_total: 300,
+        etapas: { entrada: { n: 0, monto: 0 }, aprobados: { n: 3, monto: 300 },
+          rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } },
+        filas: [F({ id: 'ya1', status: 'validada', etapa: 'aprobados', importe: 300 })],
+        entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
+      }));
+      expect(fix.nativeElement.textContent).toContain('No hay nada esperando tu firma');
     });
 
     /** Un parámetro roto no puede verse igual que un día sin movimiento. */
@@ -294,15 +401,24 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(txt).not.toContain('Nada de este día espera');
     });
 
-    it('un día sin movimiento lo dice con todas las letras', () => {
+    /**
+     * `[GX.67]` La bandeja vacía ya no significa «hoy no se levantó nada» —significa **no hay
+     * nada esperando firma, de ninguna fecha**, que es una afirmación mucho más fuerte y la
+     * única que la pantalla puede sostener ahora.
+     */
+    it('una bandeja vacía lo dice con todas las letras', () => {
       montar(DIA({
         total: 0, monto_total: 0, filas: [],
         etapas: { entrada: { n: 0, monto: 0 }, aprobados: { n: 0, monto: 0 }, rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } },
         entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
+        entrada_de_otros_dias: { n: 0, monto: 0 },
       }));
-      expect(fix.nativeElement.textContent).toContain('no se levantó ningún gasto');
-      // Y no manda a «probar otro día»: ya no hay cómo.
-      expect(fix.nativeElement.textContent).not.toContain('otro día');
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).toContain('No hay nada esperando tu firma');
+      // Y no manda a «probar otro día»: ya no hay cómo, y tampoco haría falta.
+      expect(txt).not.toContain('otro día');
+      // ⛔ NEGATIVA: no puede volver a decir que el problema es el DÍA.
+      expect(txt).not.toContain('no se levantó ningún gasto');
     });
 
     /** Las dos fechas son cosas distintas: cuándo se levantó y cuándo ocurrió el gasto. */

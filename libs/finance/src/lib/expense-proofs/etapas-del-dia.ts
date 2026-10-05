@@ -72,6 +72,30 @@ export function etapaDe(status: string | null | undefined): EtapaGasto {
 }
 
 /**
+ * `[GX.67]` Los estados que **ya tienen una decisión** tomada.
+ *
+ * ⚠️ Se DERIVA del mapa de arriba, no se escribe a mano. El consumidor es un `WHERE ... NOT
+ * IN` del servicio: con la lista copiada, agregar un estado al mapa y olvidarse del SQL
+ * dejaría un expediente decidido colándose en la bandeja de entrada —o peor, uno pendiente
+ * desapareciendo de ella— sin que nada se queje. Es el defecto que ADR-056 llama «un
+ * primitivo duplicado a mano»; acá hay UNA fuente y las dos lecturas salen de ella.
+ */
+export const ESTADOS_DECIDIDOS: readonly string[] = Object.freeze(
+  Object.keys(ETAPA_POR_ESTADO).filter((e) => ETAPA_POR_ESTADO[e] !== 'entrada'),
+);
+
+/**
+ * ¿Este expediente todavía **espera una decisión**?
+ *
+ * Es el complemento exacto de `ESTADOS_DECIDIDOS`, y por eso `sin_etapa` cuenta como que SÍ
+ * espera: un estado que el servidor no reconoce es trabajo que alguien tiene que mirar, no
+ * trabajo terminado. Misma red que `visibleEn()`, misma razón.
+ */
+export function esperaDecision(status: string | null | undefined): boolean {
+  return etapaDe(status) !== 'aprobados' && etapaDe(status) !== 'rechazados';
+}
+
+/**
  * Las pestañas, en el orden en que se leen. **Particionan el día**: cada expediente se ve en
  * una y sólo una.
  */
