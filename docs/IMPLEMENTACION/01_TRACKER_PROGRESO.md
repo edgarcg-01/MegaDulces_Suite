@@ -6644,11 +6644,37 @@ pregunta que abrió esta investigación.
 **Gates:** templates ✅ · tokens ✅ (4 archivos) · estilos 2688/2688 · migrations ✅ · colisiones ✅
 · vitest finance **332/332** · vitest view finanzas **394/394**. Diagnósticos limpios.
 
-🚀 **Pendiente prod, EN ESTE ORDEN:** aplicar la migración **antes** del redeploy — el servicio
-selecciona `c.medio_pago` y sin la columna la pantalla de pagos falla. La compuerta del
-`auto-deploy` ya cubre este caso (se niega a desplegar con migraciones de `origin/main` sin
-aplicar), pero el orden se declara igual. Sin permisos nuevos → **sin re-login**.
-⬜ Falta validación visual.
+🚀 **APLICADA A PROD 2026-10-05 13:07 — batch 720, 0.1 s.** Autorizada por Edgar.
+
+**Pre-vuelo, y encontró algo:** se miraron los locks por `pg_locks ⋈ pg_stat_activity` (0 locks, 0
+dependientes de la vista) y **NO** por `knex_migrations_lock.is_locked`, que ya mintió en `[CE.8]`.
+⛔ Y el conteo de migraciones dio **0 aplicadas** — es la trampa de
+[[reference_prod_knex_migrations_table]]: hay **dos** `knex_migrations` y el `search_path`
+(`identity, catalog, …`) resuelve a la de `identity`, que está **vacía**. La real es
+`public.knex_migrations`: **1,041 aplicadas, batch 719**. *Leer la equivocada haría creer que faltan
+mil migraciones.*
+
+⚠️ **El primer intento FALLÓ** con *«migration directory is corrupt: 8 archivos faltantes»* — las 8
+son de **otras sesiones**, aplicadas hoy a prod y **sin pushear**, así que no están en la imagen del
+pod. Se le copiaron al pod y el segundo intento entró limpio. El candado de identidad del script
+verificó `7688376744939610156` antes de tocar nada.
+
+**Verificado en vivo contra prod, después de aplicar:**
+- Columnas `medio_pago` + `cuenta_tesoreria` presentes · `GRANT` conservado (`app_runtime`, `dev_ro`)
+  · `COMMENT` puesto.
+- ⭐ **PARIDAD EXACTA: 4,675 filas y $431,471,620.34** — idénticos a la medición previa. Sólo
+  aparecieron columnas; no se movió una fila ni un peso.
+- El dato, ya en producción: **`transferencia` + `caja` = 2,684 pagos · $52,268,125.26**; efectivo
+  total **2,715 · $56,243,749.78**; `sin_declarar` **5 · $1,106,886.13** (declarados, no colgados de
+  banco).
+- API sana: `/api/health` **HTTP 200 en 2.6 ms**, los 2 pods `Running` sin reinicios. La pantalla
+  desplegada sigue leyendo las columnas viejas, que no cambiaron de orden ni de tipo.
+
+⬜ **Falta: `git push` + redeploy api+view** (sin eso la pantalla sigue mostrando el rótulo viejo —
+la migración sola no cambia lo que se ve) **+ validación visual**. Sin permisos nuevos → sin re-login.
+⚠️ **Efecto colateral declarado:** prod queda con una fila más de `knex_migrations` cuyo archivo no
+está en `origin/main` — la próxima sesión que migre desde el contenedor verá *«directory corrupt»* y
+tendrá que copiarse este archivo, igual que pasó acá con las 8 ajenas.
 
 ---
 
