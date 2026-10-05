@@ -61,8 +61,15 @@ export interface CorteKepler {
   cash_limit?: unknown;          // c46 — umbral que dispara la sangria
 }
 
-/** Por que una diferencia no se puede afirmar. null = si se puede. */
-export type MotivoNoMedible = 'sin_esperado' | 'sin_desglose' | 'sin_conteo' | null;
+/**
+ * Por que una diferencia no se puede afirmar. null = si se puede.
+ *
+ * `ambiguo` no lo emite `cuadreTurno` (que ya recibe UN corte): lo usa quien
+ * resuelve el corte, cuando mas de uno casa con el mismo conteo y elegir seria
+ * colgarle a esta cajera el faltante de otra. Vive aca para que las dos puntas
+ * hablen el mismo vocabulario.
+ */
+export type MotivoNoMedible = 'sin_esperado' | 'sin_desglose' | 'sin_conteo' | 'ambiguo' | null;
 
 export interface CuadreTurno {
   esperado: number | null;

@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — Cortes/Sucursales: corte de caja POS → cobro → arqueo del turno (CSU.0–CSU.2, 2026-10-05)
+- `/finanzas/cortes-sucursales`, en la sección nueva **Ingresos** del menú de Finanzas. Por sucursal: lo vendido en cortes (cliente `CONTADO`), lo cobrado en Kepler, el saldo pendiente y el cuadre de cada corte contra el arqueo de su turno. Mes en curso por defecto o rango específico.
+- `GET /finance/cortes-sucursales`, permiso `FINANCE_CORTES_VER` (mig `20261005200000`, 11 roles). Sólo lectura sobre el ODS, sin importer.
 ### Fixed — Pagos a proveedor: la lista del lote se limpia al guardar, y la carga se mide (PC.8, 2026-10-04)
 - Después de guardar un lote, lo guardado **sale de la lista** y queda un resumen («20 guardados · 15 validados solos · 5 con diferencias», con **Ver con diferencias**); sólo se quedan las filas que aún piden algo. La lista tiene scroll propio y «Guardar» queda siempre a la vista.
 - La carga lenta de la página (5–6 s en prod) no se reprodujo con 600k documentos sintéticos (~110 ms): la lista ahora publica cuánto tarda cada consulta (`Server-Timing` + `tiempos_ms`) y avisa en el log arriba de 1 s.
@@ -315,6 +318,7 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 **Filtrar y ordenar la bandeja + migaja que vuelve (MS.3.16):** la bandeja de atención filtra por estado, categoría, quién atiende («Sin asignar» incluido), ubicación y fechas de alta, y ordena por cualquier columna (clic, segundo clic invierte, tercero quita el orden). Todo se hace en el servidor —la bandeja trae 100 de N—, los vacíos van siempre al final y la ubicación se ordena por el nombre que se ve. En teléfono los filtros van tras un botón. En la migaja, «Mesa de Servicio» (y el proyecto de cualquier espacio) ahora es un enlace a su inicio.
 
 **Oficinas Corporativas (MS.3.14):** al levantar una solicitud, la lista de ubicaciones (antes «Sucursal»; el campo ahora se llama «Ubicación» en toda la mesa) ofrece «Oficinas Corporativas» (al final). No es una sucursal de la red: se guarda con su propio código (`OF`) sin tocar los de Kepler, y funciona en toda la mesa (categorías que exigen sucursal, filtro de la bandeja, ficha y reporte por sucursal).
+**Tiempo registrado visible (MS.3.15):** en la ficha, quien atiende ve cada registro de tiempo —cuánto, quién, cuándo y qué hizo— además del total; antes la nota «Qué hiciste» se guardaba pero no se mostraba en ningún lado. Reportes suma las horas registradas por categoría y dice en cuántas solicitudes hay registro (sin registro sale «—», no «0»). Quien reportó no ve nada de esto, y no hay desglose por persona.
 
 **Adjuntos en notas internas (MS.3.13):** quien atiende puede subir evidencia en una nota interna (la foto de un equipo ajeno, una captura de un log) y **quien reportó no la ve**: ni la nota, ni el archivo, ni una URL. La privacidad está en la lectura de la ficha, no en prohibir el adjunto; se probó contra un bucket real y quitando el filtro de lectura la prueba se pone en rojo.
 

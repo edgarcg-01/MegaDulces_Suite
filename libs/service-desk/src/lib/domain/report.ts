@@ -52,6 +52,8 @@ export interface FilaReporte {
   due_at: Date | string | null;
   paused_minutes: number | string;
   reopened_count: number | string;
+  /** `[MS.3.15]` Suma de `work_log.minutes` de este ticket (0 o ausente = nadie registró tiempo). */
+  minutos_registrados?: number | string | null;
 }
 
 export interface ConfigReporte {
@@ -123,7 +125,7 @@ export function armarReporte(filas: readonly FilaReporte[], cfg: ConfigReporte, 
   const totalCuenta = { primera: new Cuenta(), resolucion: new Cuenta() };
   const porPrioridad = new Map<SdPriority, { creados: number; resueltos: number; p: Cuenta; r: Cuenta; tp: number[]; tr: number[] }>();
   for (const pr of SD_PRIORITIES) porPrioridad.set(pr, { creados: 0, resueltos: 0, p: new Cuenta(), r: new Cuenta(), tp: [], tr: [] });
-  const porCategoria = new Map<string, { name: string; creados: number; resueltos: number; incumplidos: number; reabiertos: number; tr: number[] }>();
+  const porCategoria = new Map<string, { name: string; creados: number; resueltos: number; incumplidos: number; reabiertos: number; tr: number[]; min: number; conTiempo: number }>();
   const porSucursal = new Map<string, { code: string | null; creados: number; resueltos: number; incumplidos: number }>();
   const repetidas = new Map<string, { category_id: string; category_name: string; code: string | null; n: number }>();
 
@@ -132,6 +134,8 @@ export function armarReporte(filas: readonly FilaReporte[], cfg: ConfigReporte, 
   let cancelados = 0;
   let reabiertos = 0;
   let sinPoliticaDePrioridad = 0;
+  let minutosTotal = 0;
+  let conTiempoTotal = 0;
 
   for (const f of filas) {
     const creado = ms(f.created_at) as number;
@@ -153,8 +157,16 @@ export function armarReporte(filas: readonly FilaReporte[], cfg: ConfigReporte, 
     if (esResuelto && !esCancelado) pr.resueltos++;
 
     // Categoría, sucursal y recurrentes cuentan TODOS los creados (también los cancelados: son demanda).
-    const cat = porCategoria.get(f.category_id) ?? { name: f.category_name, creados: 0, resueltos: 0, incumplidos: 0, reabiertos: 0, tr: [] };
+    const cat = porCategoria.get(f.category_id) ?? { name: f.category_name, creados: 0, resueltos: 0, incumplidos: 0, reabiertos: 0, tr: [], min: 0, conTiempo: 0 };
     cat.creados++;
+    // `[MS.3.15]` Tiempo REGISTRADO: también el de un ticket cancelado (se trabajó aunque no se resolviera).
+    const reg = Number(f.minutos_registrados ?? 0);
+    if (reg > 0) {
+      cat.min += reg;
+      cat.conTiempo++;
+      minutosTotal += reg;
+      conTiempoTotal++;
+    }
     if (reab) cat.reabiertos++;
     porCategoria.set(f.category_id, cat);
     const claveSuc = f.warehouse_code ?? '';
@@ -199,7 +211,7 @@ export function armarReporte(filas: readonly FilaReporte[], cfg: ConfigReporte, 
   }).reverse(); // urgente primero: es lo que más importa mirar
 
   const por_categoria: SdReportCategoryRow[] = [...porCategoria.entries()]
-    .map(([category_id, c]) => ({ category_id, name: c.name, creados: c.creados, resueltos: c.resueltos, resolucion_incumplidos: c.incumplidos, reabiertos: c.reabiertos, t_resolucion: tiempos(c.tr) }))
+    .map(([category_id, c]) => ({ category_id, name: c.name, creados: c.creados, resueltos: c.resueltos, resolucion_incumplidos: c.incumplidos, reabiertos: c.reabiertos, t_resolucion: tiempos(c.tr), minutos_trabajados: c.conTiempo > 0 ? c.min : null, con_tiempo: c.conTiempo }))
     .sort((a, b) => b.creados - a.creados || a.name.localeCompare(b.name))
     .slice(0, TOPE_CATEGORIAS);
 
@@ -216,6 +228,7 @@ export function armarReporte(filas: readonly FilaReporte[], cfg: ConfigReporte, 
   const no_medido: string[] = [
     'Quién resolvió más o menos: el reporte mide el servicio, no a las personas.',
     'Satisfacción de quien reportó: la mesa no la pregunta todavía.',
+    'El tiempo trabajado es sólo el que se registra a mano: un ticket sin registro no es un ticket sin trabajo (por eso se muestra en cuántos tickets hay registro).',
   ];
   if (sinPoliticaDePrioridad > 0) no_medido.push(`${sinPoliticaDePrioridad} ticket(s) con una prioridad sin política de SLA configurada: quedan fuera de los plazos y de los tiempos.`);
   if (o.truncado) no_medido.push('El periodo trae más tickets de los que el reporte calcula: los números son de los más recientes. Acorta el periodo para verlos completos.');
@@ -224,7 +237,7 @@ export function armarReporte(filas: readonly FilaReporte[], cfg: ConfigReporte, 
     periodo: { desde: o.desde, hasta: o.hasta },
     medido_at: new Date(o.ahora).toISOString(),
     truncado: o.truncado,
-    totales: { creados: filas.length, resueltos, abiertos, cancelados, reabiertos, reabiertos_pct: pct(reabiertos, filas.length) },
+    totales: { creados: filas.length, resueltos, abiertos, cancelados, reabiertos, reabiertos_pct: pct(reabiertos, filas.length), minutos_trabajados: conTiempoTotal > 0 ? minutosTotal : null, con_tiempo: conTiempoTotal },
     primera_respuesta: totalCuenta.primera.dto(),
     resolucion: totalCuenta.resolucion.dto(),
     por_prioridad,

@@ -812,7 +812,9 @@
                 @for (x of submodulos(); track x.id) {
                   <a class="mt-cell is-sub" [routerLink]="x.route" [title]="x.label + ' · de ' + x.modulo"
                      (click)="abrioSubmodulo(x)">
-                    <i class="mt-cell-ico pi pi-angle-right" aria-hidden="true"></i>
+                    <span class="mt-cell-chip" aria-hidden="true">
+                      <i class="mt-cell-ico pi pi-angle-right"></i>
+                    </span>
                     <span class="mt-cell-tx">
                       <span class="mt-cell-nm">{{ x.label }}</span>
                       <span class="mt-cell-sb"><span>de {{ x.modulo }}</span></span>
@@ -835,7 +837,8 @@
           -->
           <div class="mt-espacios">
           @for (s of espacios(); track s.id) {
-            <section class="mt-space" [id]="'espacio-' + s.id" [attr.aria-labelledby]="'h-' + s.id">
+            <section class="mt-space" [id]="'espacio-' + s.id" [attr.data-espacio]="s.id"
+                     [attr.aria-labelledby]="'h-' + s.id">
               <h3 class="mt-space-title" [id]="'h-' + s.id">
                 <i class="mt-space-ico" [class]="s.icon" aria-hidden="true"></i>
                 <span>{{ s.label }}</span>
@@ -867,9 +870,11 @@
                     <a class="mt-cell" [class.is-alias]="e.esAlias"
                        [routerLink]="e.route"
                        [title]="e.esAlias ? 'Atajo a ' + e.sub : (e.groupLabel || e.detalle || e.label)"
-                       [attr.aria-label]="e.esAlias ? e.label + ', atajo a ' + e.sub : null"
+                       [attr.aria-label]="etiquetaPuerta(e)"
                        (click)="abrioPuerta(e, s)">
-                      <i class="mt-cell-ico" [class]="e.icon" aria-hidden="true"></i>
+                      <span class="mt-cell-chip" aria-hidden="true">
+                        <i class="mt-cell-ico" [class]="e.icon"></i>
+                      </span>
                       <span class="mt-cell-tx">
                         <span class="mt-cell-nm">{{ e.label }}</span>
                         @if (e.sub) {
@@ -879,6 +884,14 @@
                           </span>
                         }
                       </span>
+                      <!--
+                        [SN.28] El contador del `dynamic tile` de Fiori. `aria-hidden` porque el
+                        nombre accesible del enlace ya lo dice con sus palabras (`etiquetaPuerta`);
+                        si no, se oiria "Finanzas 11" sin saber que cuenta ese 11.
+                      -->
+                      @if (pendPorEntrada()[e.id]; as n) {
+                        <span class="mt-cell-n" aria-hidden="true">{{ n }}</span>
+                      }
                     </a>
                   </li>
                 }

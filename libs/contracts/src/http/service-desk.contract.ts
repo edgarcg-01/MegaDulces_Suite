@@ -208,6 +208,25 @@ export interface SdRequestDetail extends SdRequestRow {
   attachments: SdAttachmentDto[];
   /** Minutos registrados en `work_log`. Sólo lo ve quien atiende. */
   time_logged_minutes: number | null;
+  /**
+   * `[MS.3.15]` Cada registro de tiempo (quién, cuándo, cuánto y qué hizo), del más viejo al más nuevo. Sólo quien
+   * atiende; **`null` para quien reportó** (no es «lista vacía»: no tiene acceso). `time_logged_minutes` es la suma.
+   */
+  time_entries: SdWorkLogEntryDto[] | null;
+}
+
+/** `[MS.3.15]` Un registro de tiempo de un ticket. */
+export interface SdWorkLogEntryDto {
+  id: string;
+  /** Quien lo registró. `null` si la ficha ya no existe. */
+  user_name: string | null;
+  minutes: number;
+  /** Lo que se hizo («Qué hiciste»). `null` si no se escribió. */
+  note: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  source: 'suite' | 'bitacora';
+  created_at: string;
 }
 
 export interface SdListResponse {
@@ -310,6 +329,13 @@ export interface SdReportCategoryRow {
   resolucion_incumplidos: number;
   reabiertos: number;
   t_resolucion: SdReportTiming;
+  /**
+   * `[MS.3.15]` Minutos que quien atiende REGISTRÓ en los tickets de esta categoría creados en el periodo. ⛔ `null` =
+   * nadie registró tiempo (no «0 minutos»): un ticket sin registro no es un ticket sin trabajo.
+   */
+  minutos_trabajados: number | null;
+  /** Cuántos de esos tickets tienen al menos un registro de tiempo (la cobertura de la cifra de arriba). */
+  con_tiempo: number;
 }
 
 export interface SdReportBranchRow {
@@ -344,6 +370,9 @@ export interface SdReportResponse {
     /** Tickets que alguna vez se reabrieron: la señal de que «resuelto» no resolvió. */
     reabiertos: number;
     reabiertos_pct: number | null;
+    /** `[MS.3.15]` Total de minutos registrados (`null` = nadie registró) y en cuántos tickets. Ver `SdReportCategoryRow`. */
+    minutos_trabajados: number | null;
+    con_tiempo: number;
   };
   primera_respuesta: SdSlaCompliance;
   resolucion: SdSlaCompliance;

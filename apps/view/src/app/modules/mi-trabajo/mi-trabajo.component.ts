@@ -392,14 +392,37 @@ export class MiTrabajoComponent {
   private readonly recientes = signal<string[]>(leerRecientes());
 
   /** Hasta 6, y sólo las que esta persona TODAVÍA puede abrir: un permiso revocado no deja rastro. */
+  /**
+   * `[SN.28]` **La recencia elige QUIÉNES, el mapa decide EN QUÉ ORDEN.**
+   *
+   * Antes la fila salía en orden de recencia pura, así que **se reacomodaba cada vez que abrías
+   * algo**. Medido entre dos capturas del mismo día: `Logística · Presupuestos · Finanzas · Punto
+   * de Venta…` y, un rato después, `Punto de Venta · Ventas · Almacén · Logística…`. Los mismos
+   * seis destinos, otro orden.
+   *
+   * ⛔ Es exactamente lo que NN/g mide que rompe la memoria espacial, y es el argumento con el que
+   * esta misma fase justificó que la rejilla de abajo NO se reordene por persona. Estaba aplicando
+   * la regla de un lado de la pantalla y no del otro: lo que se aprende de memoria no se mueve.
+   *
+   * ⚠️ El `slice` va ANTES del `sort` a propósito: la pertenencia (cuáles seis) sí es por
+   * recencia — si no, la fila mostraría siempre los primeros del mapa y dejaría de ser tuya.
+   */
   readonly accesos = computed<EntradaVisible[]>(() => {
     if (this.buscando()) return [];
     const porId = new Map<string, EntradaVisible>();
-    for (const s of this.espaciosTodos()) for (const e of s.entradas) porId.set(e.id, e);
+    const pos = new Map<string, number>();
+    let i = 0;
+    for (const s of this.espaciosTodos()) {
+      for (const e of s.entradas) {
+        porId.set(e.id, e);
+        pos.set(e.id, i++);
+      }
+    }
     return this.recientes()
       .map((id) => porId.get(id))
       .filter((e): e is EntradaVisible => !!e)
-      .slice(0, MAX_ACCESOS);
+      .slice(0, MAX_ACCESOS)
+      .sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
   });
 
   /**
@@ -521,6 +544,59 @@ export class MiTrabajoComponent {
     if (!this.buscando()) return todos;
     return todos.filter((p) => this.casa(normalizar(`${p.label} ${p.detalle}`)));
   });
+
+  /**
+   * `[SN.28]` **El número que convierte la puerta en tarjeta VIVA.**
+   *
+   * Es el patrón del *dynamic tile* de SAP Fiori —título, icono y un contador que sale del
+   * backend— y acá no cuesta una consulta nueva: las colas ya vienen en `me/trabajo` para pintar
+   * la columna de la izquierda, y cada una trae `ruta` y `total`. Lo único que faltaba era
+   * cruzarlas con las puertas.
+   *
+   * Hasta ahora las dos columnas de esta pantalla no se hablaban: a la izquierda decía «11 fuentes
+   * de datos con falla» y a la derecha «Sistemas» era una tarjeta muda. Ahora la puerta dice
+   * cuánto hay detrás.
+   *
+   * ⚠️ **Cada cola cuenta UNA sola vez, en la puerta MÁS específica.** Con prefijo a secas,
+   * `/finanzas/hallazgos` sumaría en «Hallazgos» y otra vez en «Finanzas», y el total de la
+   * pantalla no cuadraría con el de la izquierda. Por eso las puertas se ordenan por largo de ruta
+   * y gana la primera que casa.
+   *
+   * ⚠️ Se alimenta de `espaciosTodos()`, no de `espacios()`: el contador NO debe moverse mientras
+   * escribís en el buscador.
+   */
+  readonly pendPorEntrada = computed<Record<string, number>>(() => {
+    const t = this.trabajo();
+    const colas = t.status === 'ok' ? t.data.pendientes : [];
+    if (!colas.length) return {};
+    const puertas = this.espaciosTodos()
+      .flatMap((s) => s.entradas)
+      .filter((e) => !!e.route)
+      .sort((a, b) => b.route.length - a.route.length);
+    const out: Record<string, number> = {};
+    for (const p of colas) {
+      const r = p.ruta;
+      if (!r) continue;
+      const puerta = puertas.find((e) => r === e.route || r.startsWith(`${e.route}/`));
+      if (puerta) out[puerta.id] = (out[puerta.id] ?? 0) + p.total;
+    }
+    return out;
+  });
+
+  /**
+   * `[SN.28]` Nombre accesible del enlace de una puerta, o `null` para dejar el texto tal cual.
+   *
+   * Existe porque las dos señales que la tarjeta da en silencio —la flecha de atajo y el contador—
+   * son `aria-hidden` o números sueltos: sin esto, un lector de pantalla oiría «Hallazgos, 11» sin
+   * saber de qué proyecto es ni qué cuenta ese 11.
+   */
+  etiquetaPuerta(e: EntradaVisible): string | null {
+    const n = this.pendPorEntrada()[e.id];
+    const partes = [e.label];
+    if (e.esAlias && e.sub) partes.push(`atajo a ${e.sub}`);
+    if (n) partes.push(`${n} ${n === 1 ? 'pendiente' : 'pendientes'}`);
+    return partes.length > 1 ? partes.join(', ') : null;
+  }
   /**
    * `[SN.35]` **¿A este departamento se le apagó el bloque «A tu nombre»?**
    *

@@ -43,9 +43,13 @@ const PASO_MS = 100;
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="fx">
+    <div class="fx" [class.fx-compacto]="compacto()">
       <!-- ── La caja. Es lo único que hay cuando no pasa nada. ──────────────────────────── -->
-      <label class="fx-lbl" for="fx-q">¿Qué te pidieron?</label>
+      @if (compacto()) {
+        <label class="fx-lbl-min" for="fx-q"><i class="pi pi-search" aria-hidden="true"></i> ¿Te pidieron algo?</label>
+      } @else {
+        <label class="fx-lbl" for="fx-q">¿Qué te pidieron?</label>
+      }
       <div class="fx-wrap">
         <i class="pi pi-search fx-ico" aria-hidden="true"></i>
         <input #caja id="fx-q" type="search" class="fx-input" autocomplete="off" spellcheck="false"
@@ -89,11 +93,18 @@ const PASO_MS = 100;
            que se abre con la sucursal todavía en blanco cuando alguien alcanza más de una. -->
       @if (!sucursal()) {
         <p class="fx-sin-suc" role="status">
-          <i class="pi pi-arrow-up" aria-hidden="true"></i>
-          <span>Elige primero la <strong>sucursal</strong> de arriba. El mismo código tiene precio
-            y existencia distintos en cada plaza, así que sin ella no hay nada que contestar.</span>
+          @if (compacto()) {
+            <!-- En compacto NO dice "de arriba": en el arqueo el selector esta ABAJO, y
+                 mandar a mirar donde no esta es peor que no decir nada. -->
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            <span>Elige la <strong>sucursal</strong> del arqueo para poder buscar: el precio y la existencia cambian por plaza.</span>
+          } @else {
+            <i class="pi pi-arrow-up" aria-hidden="true"></i>
+            <span>Elige primero la <strong>sucursal</strong> de arriba. El mismo código tiene precio
+              y existencia distintos en cada plaza, así que sin ella no hay nada que contestar.</span>
+          }
         </p>
-      } @else {
+      } @else if (!compacto()) {
         <p id="fx-ayuda" class="fx-ayuda">
           La ventana se cierra sola en {{ segundosVentana }} s. Si no hay existencia, el faltante
           queda anotado sin preguntar nada.
@@ -218,6 +229,35 @@ const PASO_MS = 100;
     </div>
   `,
   styles: [`
+    /* ── Modo tira: el buscador como ACCESORIO, no como seccion ──────────────────
+       El arqueo existe para contar efectivo; esta caja no puede comerse el alto.
+       ⚠️ .fx.fx-compacto y no .fx-compacto a secas: .fx se declara MAS ABAJO
+       con flex-direction: column y la misma especificidad (0,1,0), asi que la
+       regla de una sola clase perdia por orden y la tira salia apilada. Con las
+       dos clases (0,2,0) gana sin importar el orden. */
+    .fx.fx-compacto { flex-direction: row; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; }
+    .fx.fx-compacto .fx-lbl-min { display: inline-flex; align-items: center; gap: .25rem; flex: 0 0 auto;
+                                  font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); white-space: nowrap; }
+    .fx.fx-compacto .fx-wrap { flex: 1 1 14rem; min-width: 0; max-width: 28rem; }
+    /* A la altura del boton de ayuda del mismo renglon, no mas. */
+    .fx.fx-compacto .fx-input { min-height: 1.85rem; font-size: var(--fs-sm); padding-left: 1.85rem; }
+    .fx.fx-compacto .fx-ico { font-size: var(--fs-xs); left: .55rem; }
+    .fx.fx-compacto .fx-sin-suc { flex: 1 1 14rem; min-width: 0; margin: 0; padding: 0;
+                                  border: 0; background: none; font-size: var(--fs-micro); }
+    /* La ventana con el precio y la existencia NO entra en el renglon: baja a su
+       propia linea y ocupa todo el ancho. Es la respuesta, y dura unos segundos. */
+    .fx.fx-compacto .fx-ventana { flex: 1 1 100%; }
+    /* ⚠️ Lo compacto es para el MOUSE. Con el dedo vuelve el minimo de 44px
+       (DESIGN §11, Ley de Fitts): un campo de 30px en una tablet es un objetivo
+       que se falla, y esta caja la usa alguien con un cliente enfrente. El
+       font-size de 1rem no es estetica: por debajo de 16px Safari en iOS hace
+       zoom al enfocar y descuadra la pantalla a media captura. */
+    @media (pointer: coarse) {
+      .fx.fx-compacto .fx-input { min-height: var(--tap-min, 44px); font-size: 1rem; padding-left: 2.1rem; }
+      .fx.fx-compacto .fx-ico { left: .75rem; }
+      .fx.fx-compacto .fx-lbl-min { font-size: var(--fs-sm); }
+    }
+
     /* Operations (DESIGN §O). Todo por token: dark funciona solo. */
     .fx { display: flex; flex-direction: column; gap: .5rem; }
     .fx-lbl { font-size: var(--fs-sm, .82rem); font-weight: 700; color: var(--text-main); }
@@ -332,6 +372,14 @@ export class FaltanteExpressComponent {
 
   /** Sucursal sobre la que se consulta y se anota. Explícita SIEMPRE: el kiosco no tiene sesión. */
   readonly sucursal = input.required<string | null>();
+  /**
+   * Modo tira: una sola linea, sin rotulo propio ni renglon de ayuda.
+   *
+   * Lo pide el arqueo, donde esta caja es un ACCESORIO — la pantalla existe para
+   * contar efectivo y el buscador no puede comerse un cuarto del alto. En su
+   * propia pantalla sigue completo, que es donde el rotulo y la ayuda valen.
+   */
+  readonly compacto = input(false);
 
   /**
    * `[FLT.16]` El código con el que llega quien viene del verificador. Se resuelve una sola vez,
@@ -347,8 +395,18 @@ export class FaltanteExpressComponent {
 
   private readonly caja = viewChild<ElementRef<HTMLInputElement>>('caja');
 
-  /** Cuánto dura la ventana. Declarado acá y no suelto en el template para que se lea una vez. */
-  readonly segundosVentana = 9;
+  /**
+   * Cuánto dura la ventana. Declarado acá y no suelto en el template para que se lea una vez.
+   *
+   * Pedido de Edgar: a la mitad. Eran 9 y la mitad exacta es 4.5, que no sirve — este número
+   * se IMPRIME en la ayuda ("se cierra sola en N s") y "4.5 s" se lee como un error. Va 5,
+   * el entero más cercano a la mitad.
+   *
+   * Acortar no deja a nadie sin leer: la ventana se PAUSA al pasar el mouse por encima o al
+   * entrar con el teclado (mouseenter/focusin más arriba), así que quien necesite más tiempo
+   * lo retiene sin tocar nada. Si no fuera por esa pausa, bajar de 9 a 5 sí habría que medirlo.
+   */
+  readonly segundosVentana = 5;
   private get totalMs(): number { return this.segundosVentana * 1000; }
 
   readonly termino = signal('');

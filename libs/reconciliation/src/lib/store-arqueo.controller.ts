@@ -150,7 +150,14 @@ export class StoreArqueoController {
       dias: dias ? Number(dias) : undefined,
       revela: this.revela(user),
     });
-    return { turnos, aviso };
+    /**
+     * La FRESCURA del dato, no la del fetch. Viaja con la lista por el mismo
+     * motivo que el aviso: una lista vacía y una lista vieja se ven igual en
+     * pantalla, y la diferencia entre «ya contaste todo» y «la ingesta está
+     * caída» es el incidente del 2026-09-29.
+     */
+    const frescura = await this.blind.frescuraOds();
+    return { turnos, aviso, ...frescura };
   }
 
   /**
@@ -283,6 +290,13 @@ export class StoreArqueoController {
         route_code,
         // Una ruta no es una caja: `caja` lleva la estacion, la ruta va aparte.
         caja: tipo.toUpperCase(),
+        // ⚠️ La IDENTIDAD se impone acá tambien. Este endpoint pasaba `...body` sin
+        // llamar a `atribuir()`, asi que `cajero_code` llegaba del cliente tal cual
+        // y se podia sellar la entrega de una ruta a nombre de cualquiera. En
+        // `POST /` la regla es explicita —"firmar un conteo de efectivo a nombre de
+        // otra persona no es un campo de formulario"— y vale igual acá: lo que
+        // identifica a la ruta es `route_code`, no quien dice haber recibido.
+        cajero_code: this.atribuir(body, user, this.revela(user)),
         cash_cut_folio: undefined,
         caja_kepler: undefined,
         turno_abierto_at: null,
@@ -317,7 +331,9 @@ export class StoreArqueoController {
     // un corte en su caja. Respuesta mínima: se guardó y cuánto contó.
     return revela
       ? { ...this.proyectar(res, true), reveal: true }
-      : { tipo: res.tipo, total_contado: res.total_contado, reveal: false };
+      // `secuencia` sí viaja a la cajera: decirle «sangría 3 sellada» no revela
+      // nada del esperado, y es lo que le confirma que no pisó la anterior.
+      : { tipo: res.tipo, secuencia: res.secuencia, total_contado: res.total_contado, reveal: false };
   }
 
   @Get()
@@ -484,6 +500,11 @@ export class StoreArqueoController {
   @RequirePermissions(Permission.RECONCILIATION_VER)
   @ApiOperation({ summary: 'Tienda — la encargada valida presencialmente el arqueo de la cajera (queda firmado con su usuario y la hora).' })
   async validar(@Param('id', new ParseUUIDPipe()) id: string, @ReqUser() user: AuthUser, @Body() body?: { nota?: string }) {
-    return this.blind.validar(id, user?.username, body?.nota);
+    // El alcance de ESCRITURA, igual que `submit` y `rutas`: la firma es un acto
+    // sobre dinero de una tienda concreta, y el permiso dice QUÉ se puede hacer,
+    // no SOBRE CUÁL. Sin esto, con el id a mano se firmaba el arqueo de otra plaza.
+    const dim = (await this.scope.current()).dims.warehouse;
+    return this.blind.validar(id, user?.username, body?.nota,
+      dim.modeWrite === 'all' ? null : dim.valuesWrite);
   }
 }

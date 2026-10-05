@@ -410,6 +410,9 @@ export enum Permission {
   // [IG.1.4] El otro lado del libro: ingresos contables (pólizas 401). Permiso PROPIO y no un
   // alias de egresos — hay roles que deben ver la venta sin ver el gasto, y al revés.
   FINANCE_INCOME_VER = 'FINANCE_INCOME_VER',
+  // [CSU.1] Cortes/Sucursales: corte de caja POS → cobro → arqueo del turno, por sucursal.
+  // Sólo lectura; se reparte a quien ya ve los ingresos contables.
+  FINANCE_CORTES_VER = 'FINANCE_CORTES_VER',
   // MAAT (ADR-028) — chat AI de finanzas + gestión de hallazgos/conocimiento
   FINANCE_AI_CHAT = 'FINANCE_AI_CHAT',
   FINANCE_FINDINGS_GESTIONAR = 'FINANCE_FINDINGS_GESTIONAR',

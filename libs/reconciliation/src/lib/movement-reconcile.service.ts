@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { cuadreTurno } from './cash-cut-identity';
 
 /**
  * SM.1 — Motor de reconciliación del Supervisor de Movimientos (ADR-029).
@@ -502,7 +503,32 @@ export class MovementReconcileService {
     return out;
   }
 
-  /** Arqueo ciego vs esperado de Kepler: el descuadre REAL. Crítico si Kepler lo reportó cuadrado. */
+  /**
+   * Arqueo ciego vs esperado de Kepler: el descuadre REAL. Crítico si Kepler lo reportó cuadrado.
+   *
+   * ⚠️ Acá vivía la CUARTA copia de la identidad del turno, y era la que estaba mal:
+   * `esperado − contado`, sin restar las sangrías. SM.35 arregló las otras tres
+   * (`armarComparacion`, `list`, `porCajera`) y a este detector nadie lo contó —
+   * el label de su propio smoke dice "vivía escrita TRES veces". Son cuatro.
+   *
+   * El costo no era de centavos: el retiro promedio son $26,307, y
+   * `upsertDiscrepancy` pisa `importe` por `dedup_key` — que tiene la MISMA forma
+   * que el de la captura. O sea que el cron de las 03:15 reescribía todas las
+   * noches el faltante correcto con el inflado, y donde la captura no había
+   * levantado nada (porque cuadraba) inventaba un hallazgo crítico con nombre y
+   * apellido de la cajera. Medido en SM.35 sobre 11 cierres: $387,085.43 de
+   * faltante publicado contra −$13,564.57 real, 11 de 11 filas en rojo.
+   *
+   * Ahora lee `cuadreTurno()`, el mismo resolvedor que los otros tres. Dos cambios
+   * más que vienen con eso:
+   *
+   *  - **el filtro por umbral se aplica DESPUÉS**, sobre `diff_real`. Estaba en el
+   *    `WHERE` con la fórmula vieja, así que pre-seleccionaba justo los cortes con
+   *    sangría — todos.
+   *  - **el folio entra al join y el cajero se compara en MAYÚSCULAS.** Sin folio,
+   *    un caja-día con dos cortes casa dos veces; el arqueo ambiguo se SALTA en vez
+   *    de elegir uno, que es lo que ya hace `compare()` al capturar.
+   */
   private async detArqueoCiegoDivergente(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
     const umbral = Number(params.umbral) || 50;
     const critico = Number(params.critico) || 1000;
@@ -510,28 +536,81 @@ export class MovementReconcileService {
       .join('analytics.cash_cuts as cc', function (this: any) {
         this.on('cc.tenant_id', '=', 'bc.tenant_id').andOn('cc.warehouse_code', '=', 'bc.warehouse_code')
           .andOn('cc.caja', '=', 'bc.caja').andOn('cc.business_date', '=', 'bc.business_date')
-          .andOn(trx.raw('cc.cajero_cierre IS NOT DISTINCT FROM bc.cajero_code'));
+          // `upper()` en los dos lados: `cash_cuts.cajero_cierre` se guarda CRUDO
+          // (`btrim(k.c8)`) y `blind_counts.cajero_code` lo fuerza a mayúsculas
+          // `atribuir()`. Las tres consultas del ODS ya comparaban con upper().
+          .andOn(trx.raw('upper(cc.cajero_cierre) IS NOT DISTINCT FROM upper(bc.cajero_code)'))
+          // El folio cuando el conteo lo tiene (SM.40 permite capturar sin turno).
+          .andOn(trx.raw('(bc.cash_cut_folio IS NULL OR bc.cash_cut_folio = cc.folio)'));
       })
       .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
         this.on('pc.tenant_id', '=', 'bc.tenant_id').andOn('pc.warehouse_code', '=', 'bc.warehouse_code').andOn('pc.cajero_code', '=', 'bc.cajero_code');
       })
       .where('bc.tipo', 'cierre')
-      .whereRaw('abs(cc.efectivo_esperado - bc.total_contado) >= ?', [umbral])
-      .select('bc.warehouse_code', 'cc.warehouse_name', 'bc.caja', 'cc.folio', 'bc.business_date', 'bc.cajero_code',
+      .select('bc.id AS blind_id', 'bc.warehouse_code', 'cc.warehouse_name', 'bc.caja', 'cc.folio', 'bc.business_date', 'bc.cajero_code',
         trx.raw('pc.nombre AS cajero_nombre'), trx.raw('bc.total_contado::numeric AS contado_ciego'),
-        trx.raw('cc.efectivo_esperado::numeric AS esperado'), trx.raw('cc.efectivo_diff::numeric AS kepler_diff'))
+        trx.raw('cc.efectivo_esperado::numeric AS esperado'), trx.raw('cc.efectivo_contado::numeric AS kepler_contado'),
+        trx.raw('cc.efectivo_diff::numeric AS kepler_diff'),
+        trx.raw('cc.arqueo_billetes::numeric AS arqueo_billetes'),
+        trx.raw('cc.arqueo_monedas::numeric AS arqueo_monedas'),
+        trx.raw('cc.efectivo_retirado::numeric AS efectivo_retirado'),
+        trx.raw('cc.cash_limit::numeric AS cash_limit'),
+        // La mitad que faltaba: lo ya contado de las sangrías de ESE turno, al
+        // mismo grano que el join (suc/caja/fecha/cajero). Gemelo del de `list()`.
+        trx.raw(`(SELECT COALESCE(SUM(r.total_contado), 0)
+                    FROM reconciliation.blind_counts r
+                   WHERE r.tenant_id = bc.tenant_id
+                     AND r.warehouse_code = bc.warehouse_code
+                     AND r.caja = bc.caja
+                     AND r.business_date = bc.business_date
+                     AND r.tipo = 'retiro'
+                     AND r.cajero_code IS NOT DISTINCT FROM bc.cajero_code)::numeric
+                 AS retiros_contados`))
       .limit(1000);
-    return rows.map((r: any) => {
-      const esperado = Number(r.esperado);
-      const contadoCiego = Number(r.contado_ciego);
-      const diffReal = Math.round((esperado - contadoCiego) * 100) / 100;
+
+    // Un conteo que casa con DOS cortes no se puede atribuir: se salta, no se
+    // elige. Elegir a dedo le colgaría a esta cajera el faltante de otra — es la
+    // misma regla que `compare()` aplica devolviendo `ambiguous`.
+    const porConteo = new Map<string, Record<string, unknown>[]>();
+    for (const r of rows as Record<string, unknown>[]) {
+      const k = String(r.blind_id);
+      const previos = porConteo.get(k);
+      if (previos) previos.push(r); else porConteo.set(k, [r]);
+    }
+
+    const salida: RawDiscrepancy[] = [];
+    for (const [, candidatos] of porConteo) {
+      if (candidatos.length !== 1) continue;
+      const r = candidatos[0];
+      // ⚠️ El corte se arma EXPLÍCITO: los alias del SELECT (`esperado`,
+      // `kepler_contado`…) no son los nombres que lee `CorteKepler`, y pasar la
+      // fila cruda daría `undefined` en silencio — o sea `esperado: null`, o sea
+      // `medible: false` y el detector mudo. Misma nota que en `list()`.
+      const c = cuadreTurno({
+        efectivo_esperado: r.esperado,
+        efectivo_contado: r.kepler_contado,
+        efectivo_diff: r.kepler_diff,
+        arqueo_billetes: r.arqueo_billetes,
+        arqueo_monedas: r.arqueo_monedas,
+        efectivo_retirado: r.efectivo_retirado,
+        cash_limit: r.cash_limit,
+      }, {
+        cajonContado: Number(r.contado_ciego),
+        retirosContados: Number(r.retiros_contados || 0),
+      });
+      // Sin esperado no hay diferencia que afirmar: se declara, no se dibuja.
+      if (!c.medible || c.diff_real == null) continue;
+      const diffReal = c.diff_real;
       const abs = Math.abs(diffReal);
+      if (abs < umbral) continue;
+      const esperado = Number(c.esperado);
+      const contadoCiego = Number(r.contado_ciego);
       const keplerDiff = Number(r.kepler_diff);
-      const enmascaro = Math.abs(keplerDiff) < umbral;   // Kepler dijo cuadrado
+      const enmascaro = c.kepler_enmascaro;
       const faltante = diffReal > 0;
       const cajero = r.cajero_nombre || r.cajero_code || '?';
       const fecha = r.business_date instanceof Date ? r.business_date.toISOString().slice(0, 10) : String(r.business_date).slice(0, 10);
-      return {
+      salida.push({
         rule_key: 'arqueo_ciego_divergente', plano: 'caja' as const,
         severity: (enmascaro || abs >= critico) ? 'critical' as const : 'warn' as const,
         score: Math.min(1, abs / (critico * 2)),
@@ -542,10 +621,20 @@ export class MovementReconcileService {
         esperado, observado: contadoCiego, diferencia: diffReal,
         importe: abs,
         causa_probable: enmascaro ? 'arqueo_no_ciego' : (faltante ? 'faltante_caja' : 'sobrante_caja'),
-        evidencia: { params: { umbral, critico }, contado_ciego: contadoCiego, esperado, kepler_diff: keplerDiff, kepler_enmascaro: enmascaro },
+        // El cuadre completo, para que el número de la bandeja se pueda leer de
+        // dónde sale — y para que se note si el faltante es nuestro o es lo que
+        // el ERP dejó sin verificar.
+        evidencia: {
+          params: { umbral, critico },
+          contado_ciego: contadoCiego, esperado, kepler_diff: keplerDiff, kepler_enmascaro: enmascaro,
+          cajon_contado: c.cajon_contado, retiros_contados: c.retiros_contados,
+          retiros_sin_verificar: c.retiros_sin_verificar, contado_total: c.contado_total,
+          cobertura: c.cobertura, diff_kepler: c.diff_kepler, origen: 'detector_nocturno',
+        },
         dedup_key: `arqueo_ciego_divergente:${r.warehouse_code}:${r.caja}:${fecha}:${r.folio}`,
-      };
-    });
+      });
+    }
+    return salida;
   }
 
   /** P6 — Venta del corte (agregado) vs suma de tickets POS (atómico), por cajero×día. */
