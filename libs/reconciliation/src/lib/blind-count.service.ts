@@ -1,6 +1,7 @@
+import type { Knex } from 'knex';
 import { Injectable, Logger, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { DENOMINACIONES_MXN, valorDe, totalDenominaciones, RECON_NOTIFIER_PORT, ReconNotifierPort } from '@megadulces/contracts';
+import { DENOMINACIONES_MXN, valorDe, totalDenominaciones, RECON_NOTIFIER_PORT, ReconNotifierPort, ReconBadCutItem } from '@megadulces/contracts';
 import { MovementReconcileService, RawDiscrepancy } from './movement-reconcile.service';
 import { cuadreTurno, pideRetiro, CUADRE_UMBRAL } from './cash-cut-identity';
 
@@ -671,7 +672,7 @@ export class BlindCountService {
    * sobre el turno en cada sangría es caro para una colisión que no se ha visto.
    * Queda dicho, no escondido.
    */
-  private async secuenciaDe(trx: any, tenantId: string, dto: BlindCountDto, tipo: TipoArqueo): Promise<number> {
+  private async secuenciaDe(trx: Knex.Transaction, tenantId: string, dto: BlindCountDto, tipo: TipoArqueo): Promise<number> {
     if (tipo !== 'retiro') return 1;
     const pedida = Number(dto.secuencia);
     if (Number.isInteger(pedida) && pedida >= 1) return pedida;
@@ -681,7 +682,7 @@ export class BlindCountService {
         caja: dto.caja, business_date: dto.business_date, tipo: 'retiro',
       })
       // Mismo grano que la clave única, que compara con COALESCE(cajero_code,'').
-      .modify((q: any) => {
+      .modify((q: Knex.QueryBuilder) => {
         if (dto.cajero_code) q.whereRaw('upper(cajero_code) = ?', [String(dto.cajero_code).toUpperCase()]);
         else q.whereRaw("COALESCE(cajero_code,'') = ''");
       })
@@ -751,7 +752,7 @@ export class BlindCountService {
       // cuando la identidad `Σ retiros + cajón = contado` ya se puede evaluar.
       if (TIPOS_SIN_CORTE.includes(tipo)) {
         this.logger.log(`arqueo relevo suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: ${dto.cajero_code || '?'}→${dto.cajero_entrante || '?'} entregó ${total}`);
-        return { result: { tipo, secuencia, total_contado: total, matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false }, badCut: null as any };
+        return { result: { tipo, secuencia, total_contado: total, matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false }, badCut: null as ReconBadCutItem | null };
       }
       const cmp = await this.compare(trx, tenantId, dto, total, medios);
       this.logger.log(`arqueo cierre suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: contado ${total} vs esperado ${cmp.esperado ?? '?'}`);
@@ -966,11 +967,15 @@ export class BlindCountService {
    * "por validar". No se puede validar en nombre de otro: el username lo pone el
    * controller desde el JWT, igual que la captura.
    */
-  async validar(id: string, username?: string, nota?: string, warehouseCodes?: string[] | null) {
+  async validar(id: string, username?: string, nota?: string, warehouseCodes?: string[] | null): Promise<Record<string, unknown>> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const [row] = await trx('reconciliation.blind_counts')
-        .where({ tenant_id: trx.raw('current_tenant_id()') as any, id })
+        // `whereRaw` y no un cast: `where({ tenant_id: trx.raw(...) })` obliga a un `as any`
+        // para que knex acepte un Raw donde espera un valor, y ese `as any` apaga el tipado de
+        // TODA la clausula -- un nombre de columna mal escrito pasaria sin un aviso.
+        .whereRaw('tenant_id = current_tenant_id()')
+        .where({ id })
         /**
          * ⚠️ El ALCANCE, que faltaba. Era la unica escritura del controlador que
          * no lo verificaba: todo lo demas pasa por `ScopeService` (`readParam` en
@@ -979,7 +984,7 @@ export class BlindCountService {
          * firmarte a vos mismo"— y con el id a mano se podia firmar el de otra
          * tienda. `null` = alcance total; `[]` = ninguna sucursal, falla cerrado.
          */
-        .modify((q: any) => {
+        .modify((q: Knex.QueryBuilder) => {
           if (warehouseCodes === undefined) return;          // llamador sin alcance resuelto
           if (warehouseCodes === null) return;               // alcance 'all'
           if (!warehouseCodes.length) q.whereRaw('false');
