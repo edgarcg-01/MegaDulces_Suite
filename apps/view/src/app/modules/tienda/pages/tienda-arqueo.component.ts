@@ -82,6 +82,20 @@ interface CortesPersona {
         <div class="arq-head-right">
           <!-- [VP.0.2] Decía label="Kepler" sobre un new Date() del navegador: se leía como "los datos
                de Kepler tienen 3 minutos" y era la hora en que cargó esta pantalla. -->
+          <!-- [SM.41] DOS pildoras, porque son dos cosas distintas y la que
+               faltaba es la que importa. fetch dice cuando pidio el navegador;
+               data dice cuando llego el ultimo dato de Kepler. Con la ingesta
+               caida la lista se vacia y la pantalla decia "No tienes cortes por
+               arquear", indistinguible de "ya contaste todo" — seis dias asi en
+               septiembre de 2026, con 25 cajeras y el turno congelado.
+               Sin latido NO se dibuja fresca: se declara sin medir (ADR-056). -->
+          @if (datosAl()) {
+            <app-freshness-pill measures="data" label="Kepler" [since]="datosAl()" [staleAfterSec]="900" />
+          } @else {
+            <span class="arq-sin-frescura" title="No hay latido del carril que trae los turnos">
+              <i class="pi pi-question-circle" aria-hidden="true"></i> Frescura sin medir
+            </span>
+          }
           <app-freshness-pill measures="fetch" [since]="turnosAl()" [staleAfterSec]="180" />
           <app-context-help topic="arqueo" />
         </div>
@@ -109,7 +123,7 @@ interface CortesPersona {
         @if (puedeFaltante()) {
           <div class="card-premium card-flat arq-faltante">
             <h3 class="arq-card-title">¿Te pidieron algo que no había?</h3>
-            <app-faltante-express [sucursal]="aSuc || null" />
+            <app-faltante-express [sucursal]="sucursalActiva()" />
           </div>
         }
 
@@ -118,6 +132,19 @@ interface CortesPersona {
                captura queda habilitada abajo: el candado que vivia aca dejaba a la
                persona sin salida cuando el cierre no llegaba del ODS (medido el
                2026-09-29 con la ingesta caida 6 dias). -->
+          <!-- [SM.41] El dato esta viejo: se DICE, y la captura sigue abierta
+               abajo. Es el aviso que convierte "no tenes cortes" en "no sabemos
+               si tenes cortes" — y la diferencia es todo. -->
+          @if (odsViejo(); as v) {
+            <div class="arq-aviso-caja arq-ods-viejo">
+              <i class="pi pi-exclamation-triangle"></i>
+              <div>
+                <strong>{{ v.titulo }}</strong>
+                <p class="muted">{{ v.detalle }}</p>
+                <p class="muted">Contá igual: tu conteo queda guardado con la hora y a tu nombre, y se compara contra el corte cuando el dato llegue. Avisale a sistemas.</p>
+              </div>
+            </div>
+          }
           @if (aviso(); as b) {
             <div class="arq-aviso-caja">
               <i class="pi pi-info-circle"></i>
@@ -268,6 +295,22 @@ interface CortesPersona {
                   </div>
                 </div>
               }
+              <!-- [SM.41] Las sangrias YA contadas de este turno.
+                   Hasta esta entrega sobraba una sola linea, porque la clave unica no
+                   excluia retiro y la segunda del dia pisaba a la primera en silencio.
+                   Ahora conviven, y verlas es lo que impide contarlas dos veces — y lo
+                   que explica por que el aviso de "retiros sin contar" sigue encendido. -->
+              @if (sangriasDelTurno(); as sg) {
+                <div class="arq-sangrias">
+                  <span class="arq-sangrias-t">Sangrías de este turno</span>
+                  @for (x of sg.hechas; track x.id) {
+                    <span class="arq-sg"><i class="pi pi-check" aria-hidden="true"></i>{{ x.hora }} · {{ money(x.monto) }}</span>
+                  }
+                  @if (sg.faltaTxt) { <span class="arq-sg falta">{{ sg.faltaTxt }}</span> }
+                  <span class="arq-sangrias-n">{{ sg.nota }}</span>
+                </div>
+              }
+
               <!-- Encabezado NO editable: cada dato viene del turno de Kepler. -->
               <div class="arq-datos">
                 <div><span class="arq-ev-k">Sucursal</span><span class="arq-ev-v">{{ branchLabel(t.warehouse_code) }}</span></div>
@@ -470,16 +513,41 @@ interface CortesPersona {
               <!-- El botón es el último eslabón de la cadena: ↓ en la última casilla de
                    cualquier columna cae acá, y ↑ vuelve a esa misma casilla. Así el
                    arqueo entero se captura y se sella sin soltar el teclado. -->
+              <!-- [SM.41] Declarar el cero. Con las sangrias llevandose el 63-81%
+                   del efectivo, un cajon vacio al cierre es un desenlace normal y no
+                   se podia sellar: el boton quedaba apagado para siempre. "Conte y
+                   habia $0" es un hecho distinto de "no conte". -->
+              @if (arqTotal() <= 0 && !esRuta()) {
+                <p-button type="button" [label]="vacio() ? 'Cajón vacío declarado' : 'El cajón quedó vacío'"
+                          [icon]="vacio() ? 'pi pi-check' : 'pi pi-inbox'"
+                          [styleClass]="vacio() ? 'p-button-sm' : 'p-button-sm p-button-outlined'"
+                          severity="secondary" (click)="declararVacio()"></p-button>
+              }
               <p-button #btnGuardar type="button" [label]="submitLabel()" icon="pi pi-lock"
                       [disabled]="!canSubmit() || saving()" [loading]="saving()"
                       (keydown)="onBotonKey($event)" (click)="confirmar()"></p-button>
             </div>
           }
 
+          @if (vacio()) {
+            <p class="arq-vacio-aviso">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              Vas a declarar que contaste el cajón y había <strong>{{ money(0) }}</strong>.
+              Es distinto de no contar, y se guarda como tal.
+            </p>
+          }
+
           @if (result(); as r) {
             <div class="arq-result" [class.bad]="revela && (r.diff_real || 0) > 0" [class.ok]="revela && (r.diff_real || 0) < 0">
               @if (r.tipo === 'relevo') {
                 <p class="muted">Relevo sellado: {{ money(r.total_contado) }} entregados a {{ aEntrante || '—' }}.</p>
+              } @else if (r.tipo === 'rd' || r.tipo === 'rv') {
+                <!-- [SM.41] Sin esperado y se DICE, igual que lo declara el backend
+                     (medible: false, motivo: 'sin_esperado'). Lo que vale acá es el papel. -->
+                <div class="arq-cmp">
+                  <div><span class="arq-ev-k">Entrega sellada — total contado</span><span class="arq-ev-v strong">{{ money(r.total_contado) }}</span></div>
+                </div>
+                <p class="muted arq-mt">No se compara contra un esperado: Kepler no publica cuánto debía entregar una ruta. El ticket es la constancia.</p>
               } @else if (!r.reveal) {
                 <!-- Cajera: se confirma el hecho, no el cuadre. -->
                 <div class="arq-cmp">
@@ -526,20 +594,20 @@ interface CortesPersona {
             <ng-template #header>
               <tr>
                 <th class="arq-ex-th" scope="col"><span class="sr-only">Detalle</span></th>
-                <th>Fecha</th>
-                @if (variasSucursales()) { <th>Sucursal</th> }
-                <th>Caja</th><th>Cajero</th>
+                <th scope="col">Fecha</th>
+                @if (variasSucursales()) { <th scope="col">Sucursal</th> }
+                <th scope="col">Caja</th><th scope="col">Cajero</th>
                 @if (revela) {
                   <!-- Los tres números de la validación, en el orden en que se leen:
                        lo que debería haber · lo que Kepler declara · lo que contamos. -->
-                  <th class="ta-r">Esperado</th>
-                  <th class="ta-r">Arqueo Kepler</th>
-                  <th class="ta-r">Nuestro arqueo</th>
-                  <th class="ta-r">Diferencia</th>
+                  <th scope="col" class="ta-r">Esperado</th>
+                  <th scope="col" class="ta-r">Arqueo Kepler</th>
+                  <th scope="col" class="ta-r">Nuestro arqueo</th>
+                  <th scope="col" class="ta-r">Diferencia</th>
                 } @else {
-                  <th class="ta-r">Contado</th>
+                  <th scope="col" class="ta-r">Contado</th>
                 }
-                <th>Validado</th>
+                <th scope="col">Validado</th>
               </tr>
             </ng-template>
             <ng-template #body let-b let-expanded="expanded">
@@ -552,10 +620,21 @@ interface CortesPersona {
                 </td>
                 <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
                 @if (variasSucursales()) { <td>{{ branchLabel(b.warehouse_code) }}</td> }
-                <td>{{ b.caja }}@if (b.tipo === 'relevo') { <p-tag value="Relevo" severity="info" styleClass="arq-tag-mini" /> }</td>
+                <td>{{ b.caja }}@if (b.tipo === 'relevo') { <p-tag value="Relevo" severity="info" styleClass="arq-tag-mini" /> }
+                  <!-- [SM.41] Que numero de sangria es. Sin esto, tres retiros del
+                       mismo turno se leian como la misma fila repetida — y hasta esta
+                       entrega eran, literalmente, una sola: la segunda pisaba a la primera. -->
+                  @if (b.tipo === 'retiro') { <p-tag [value]="'Retiro ' + (b.secuencia ?? 1)" severity="warn" styleClass="arq-tag-mini" /> }
+                  @if (b.tipo === 'rd' || b.tipo === 'rv') { <p-tag [value]="b.tipo.toUpperCase()" severity="secondary" styleClass="arq-tag-mini" /> }
+                </td>
                 <td>{{ b.cajero_nombre || b.cajero_code || '—' }}@if (b.tipo === 'relevo' && b.cajero_entrante) { <span class="muted"> → {{ b.cajero_entrante }}</span> }</td>
                 @if (revela) {
-                  <td class="ta-r muted">{{ b.esperado != null ? money(b.esperado) : '—' }}</td>
+                  <!-- ambiguous = hay mas de un corte que podria ser el suyo. Antes la
+                       fila salia DUPLICADA con dos esperados distintos; ahora se declara. -->
+                  <td class="ta-r muted">
+                    @if (b.ambiguous) { <span class="arq-ambiguo" title="Hay varios cortes en esta caja y este dia: no se puede saber cual es el suyo">varios cortes</span> }
+                    @else { {{ b.esperado != null ? money(b.esperado) : '—' }} }
+                  </td>
                   <td class="ta-r">
                     {{ b.kepler_contado != null ? money(b.kepler_contado) : '—' }}
                     @if (b.kepler_enmascaro) {
@@ -642,8 +721,18 @@ interface CortesPersona {
                           </tfoot>
                         </table>
                         @if (b.kepler_desglose_cuadra === false) {
+                          <!-- [SM.41] Esto decía «sin explicar (suele ser un retiro que
+                               nadie registró)», que se lee como «falta dinero». Medido en
+                               prod sobre 3,230 cortes: el desglose de Kepler cuadra entre
+                               el 45.8% y el 72.7% SEGÚN LA SUCURSAL — 27 puntos de rango.
+                               La caja 4 de Morelia Madero publica cortes de $30-55 mil con
+                               billetes y monedas en CERO (23 de sus 83), y hay cortes donde
+                               las monedas declaradas superan al contado. Es captura del ERP
+                               en esa plaza, no dinero faltante, y la encargada tiene que
+                               poder distinguirlo. -->
                           <p class="arq-exp-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                            Billetes + monedas + retirado no dan el contado: {{ money(b.kepler_desglose_faltante || 0) }} sin explicar (suele ser un retiro que nadie registró).</p>
+                            El desglose que publica Kepler no suma su propio contado: {{ money(b.kepler_desglose_faltante || 0) }} sin cuadrar.
+                            <span class="muted">Puede ser un retiro que el ERP no registró, o que esta sucursal no publique bien el desglose — pasa en varias. No es, por sí solo, dinero faltante.</span></p>
                         }
                         @if (b.kepler_enmascaro) {
                           <p class="arq-exp-warn"><i class="pi pi-eye-slash" aria-hidden="true"></i>
@@ -885,6 +974,34 @@ interface CortesPersona {
                       border: 1px solid color-mix(in srgb, var(--warn-fg) 45%, transparent);
                       background: color-mix(in srgb, var(--warn-fg) 10%, transparent); }
     .arq-aviso-caja i { color: var(--warn-fg); font-size: 1.1rem; margin-top: .1rem; }
+    /* [SM.41] El dato viejo es mas grave que el aviso de doble caja: usa el tono
+       de error, no el de alerta. Lo que esta en juego es que la pantalla parezca
+       vacia cuando en realidad esta ciega. */
+    .arq-ods-viejo { border-color: color-mix(in srgb, var(--bad-fg) 45%, transparent);
+                     background: color-mix(in srgb, var(--bad-fg) 9%, transparent); }
+    .arq-ods-viejo i { color: var(--bad-fg); }
+    /* Frescura que no se pudo medir. NO se pinta verde ni se omite: se declara. */
+    .arq-sin-frescura { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .45rem;
+                        border: 1px dashed var(--border-color); border-radius: 99px;
+                        font-size: var(--fs-micro); color: var(--text-muted); white-space: nowrap; }
+    .arq-vacio-aviso { display: flex; align-items: flex-start; gap: .45rem; margin: .7rem 0 0;
+                       padding: .55rem .75rem; font-size: .78rem; color: var(--text-main);
+                       border: 1px solid color-mix(in srgb, var(--warn-fg) 45%, transparent);
+                       background: color-mix(in srgb, var(--warn-fg) 8%, transparent); border-radius: var(--r-md); }
+    .arq-vacio-aviso i { color: var(--warn-fg); margin-top: .1rem; }
+    .arq-ambiguo { font-size: .68rem; font-style: italic; color: var(--warn-fg); }
+    /* La tira de sangrias del turno: una linea, no una tarjeta. */
+    .arq-sangrias { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .7rem;
+                    margin-bottom: .9rem; padding: .55rem .8rem; border: 1px solid var(--border-color);
+                    background: var(--card-bg); border-radius: var(--r-md); }
+    .arq-sangrias-t { font-size: .78rem; font-weight: 700; }
+    .arq-sg { display: inline-flex; align-items: center; gap: .25rem; padding: .1rem .5rem; border-radius: 99px;
+              font-size: .72rem; font-variant-numeric: tabular-nums; font-family: var(--font-mono, monospace);
+              color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 10%, transparent);
+              border: 1px solid color-mix(in srgb, var(--ok-fg) 35%, transparent); }
+    .arq-sg.falta { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 10%, transparent);
+                    border-color: color-mix(in srgb, var(--warn-fg) 40%, transparent); font-weight: 700; }
+    .arq-sangrias-n { font-size: .74rem; color: var(--text-muted); flex: 1 1 14rem; min-width: 0; }
     .arq-aviso-caja p { margin: .4rem 0 0; font-size: .8rem; }
     .arq-aviso-lista { margin: .5rem 0 0; padding-left: 1.1rem; font-size: .82rem; }
     .arq-aviso-extra { padding-top: .4rem; border-top: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent); }
@@ -1118,6 +1235,39 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly cargandoTurnos = signal(true);
   /** Última lectura de Kepler — alimenta la píldora de frescura. */
   readonly turnosAl = signal<string | null>(null);
+  /**
+   * `[SM.41]` Cuándo llegó el último DATO (latido del carril `ods_live_hot`, que
+   * es el que trae `kdpv_folio_caja`). `null` = no hay latido que leer, y eso se
+   * declara «sin medir» — nunca se dibuja fresco.
+   */
+  readonly datosAl = signal<string | null>(null);
+  readonly datosStatus = signal<'ok' | 'error' | 'desconocido' | null>(null);
+  /** Minutos a partir de los cuales el dato de Kepler ya no describe el turno de hoy. */
+  private readonly ODS_VIEJO_MIN = 20;
+  /**
+   * ¿El dato está viejo? Lee TAMBIÉN `turnosAl()` a propósito: con la ingesta
+   * parada `datosAl` deja de cambiar y un `computed` que sólo dependiera de él no
+   * se volvería a evaluar nunca — justo cuando más hace falta. `turnosAl` cambia
+   * en cada vuelta del poll, así que esto se re-mide cada 45 s.
+   */
+  readonly odsViejo = computed<{ titulo: string; detalle: string } | null>(() => {
+    const ahora = this.turnosAl();
+    if (this.datosStatus() === 'error') {
+      return {
+        titulo: 'La ingesta de Kepler está fallando.',
+        detalle: 'El último intento de traer datos terminó en error, así que esta lista puede estar incompleta.',
+      };
+    }
+    const dato = this.datosAl();
+    if (!dato || !ahora) return null;
+    const min = Math.floor((new Date(ahora).getTime() - new Date(dato).getTime()) / 60000);
+    if (min < this.ODS_VIEJO_MIN) return null;
+    const cuanto = min >= 1440 ? `${Math.floor(min / 1440)} día(s)` : (min >= 60 ? `${Math.floor(min / 60)} h` : `${min} min`);
+    return {
+      titulo: `No estamos recibiendo turnos de Kepler desde hace ${cuanto}.`,
+      detalle: 'Esta lista está vieja: que esté vacía NO significa que ya contaste todo.',
+    };
+  });
   /** Fecha de negocio en hora de México (§10: no re-convertir con `new Date()` suelto). */
   readonly hoyTxt = computed(() => new Date().toLocaleDateString('es-MX', {
     timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit',
@@ -1140,6 +1290,43 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   /** Captura a mano (solo supervisor): relevo, contingencia, caja sin Kepler. */
   readonly manual = signal(false);
   readonly puedeContar = computed(() => !!this.turnoSel() || this.manual());
+
+  /**
+   * `[SM.41]` Las sangrías ya contadas del turno elegido, y lo que falta.
+   *
+   * Sale de `rows()` —el historial del día que la pantalla ya trae— filtrado por
+   * el folio del turno: cero llamadas nuevas. Antes esto no se podía ni dibujar,
+   * porque la clave única sólo admitía UNA sangría por caja/día/cajera: la
+   * segunda reemplazaba a la primera y la lista habría tenido siempre un renglón.
+   *
+   * `faltaTxt` sale de `retiro_sin_contar_monto`, que **sólo llega al supervisor**
+   * (es un monto, y el arqueo es ciego). A la cajera se le dice que falta, sin
+   * cuánto. Y se dice «por contar», no «una sangría»: Kepler publica el acumulado
+   * `c48`, no los retiros uno por uno, así que **no sabemos si lo que falta es una
+   * sangría o tres** — medido, `kdc2YYMM` resultó ser la póliza contable, no el
+   * corte movimiento a movimiento.
+   */
+  readonly sangriasDelTurno = computed(() => {
+    const t = this.turnoSel();
+    if (!t) return null;
+    const hechas = this.rows()
+      .filter((r) => r.tipo === 'retiro' && r.cash_cut_folio === t.folio && r.caja === t.caja)
+      .sort((a, b) => (a.secuencia ?? 1) - (b.secuencia ?? 1))
+      .map((r) => ({
+        id: r.id,
+        hora: r.captured_at ? new Date(r.captured_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '—',
+        monto: Number(r.total_contado) || 0,
+      }));
+    if (!hechas.length && !t.retiro_sin_contar) return null;
+    const monto = t.retiro_sin_contar_monto;
+    const faltaTxt = t.retiro_sin_contar
+      ? (monto != null ? `falta contar ${this.money(monto)}` : 'falta contar lo que salió del cajón')
+      : null;
+    const nota = hechas.length
+      ? 'Cada una queda sellada aparte: contar la siguiente no reemplaza a las anteriores.'
+      : 'Kepler registró retiros de este turno y todavía nadie los contó.';
+    return { hechas, faltaTxt, nota };
+  });
 
   /** Sucursales del ALCANCE del usuario — solo se usan en la captura manual. */
   readonly sucursales = signal<ScopeOption[]>([]);
@@ -1183,6 +1370,19 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    */
   readonly puedeFaltante = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_STOCKOUT_CAPTURAR] === true);
+
+  /**
+   * `[SM.41]` La sucursal con la que trabaja el buscador de precios y faltantes.
+   *
+   * Decia `aSuc || null`, y `aSuc` SOLO se llena cuando el alcance trae
+   * exactamente una sucursal. Para una encargada multi-tienda el buscador nacia
+   * deshabilitado diciendo «Elige primero la sucursal de arriba» — y arriba no
+   * hay ningun selector, porque ese solo se dibuja en modo manual. Un control que
+   * manda a usar otro que no existe es peor que no estar.
+   *
+   * El turno elegido YA dice de que sucursal es la pantalla. Esa manda.
+   */
+  readonly sucursalActiva = computed(() => this.turnoSel()?.warehouse_code ?? (this.aSuc || null));
 
   /**
    * SM.36 - El arqueo de RUTAS tiene permiso propio. No alcanza con
@@ -1340,8 +1540,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     this.confirmando.set(true);
   }
 
-  /** §13 estado sucio — hay conteo capturado sin guardar. */
-  hasUnsavedChanges(): boolean { return this.dirty(); }
+  /** §13 estado sucio — hay conteo capturado sin guardar. De verdad, no «tocó una pestaña». */
+  hasUnsavedChanges(): boolean { return this.hayConteo(); }
 
   @HostListener('window:beforeunload', ['$event'])
   onBeforeUnload(e: BeforeUnloadEvent) { if (this.hasUnsavedChanges()) e.preventDefault(); }
@@ -1378,6 +1578,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
           const t = r.turnos || [];
           this.turnos.set(t);
           this.turnosAl.set(new Date().toISOString());
+          // `[SM.41]` La frescura del DATO viaja con la lista. `?? null` y no `||`:
+          // un backend viejo que no mande el campo tiene que caer en «sin medir».
+          this.datosAl.set(r.datos_al ?? null);
+          this.datosStatus.set(r.status ?? null);
           if (t.length && !this.turnoSel()) this.turnoFolio.set(this.turnoQueToca()?.folio ?? t[0].folio);
           this.cargandoTurnos.set(false);
         },
@@ -1398,7 +1602,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   /** No se refresca mientras hay un conteo a medio capturar: pisaría el trabajo. */
   private tick() {
-    if (document.visibilityState !== 'visible' || this.dirty() || this.saving()) return;
+    if (document.visibilityState !== 'visible' || this.hayConteo() || this.saving()) return;
     this.cargarTurnos(true);
   }
 
@@ -1436,7 +1640,28 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     this.dirty.set(true);
   }
 
-  elegirTipo(v: string) { this.aTipo.set(v as ArqueoTipo); this.dirty.set(true); }
+  /**
+   * `[SM.41]` Cambiar de pestaña NO es tener dinero sin guardar.
+   *
+   * Esto hacía `dirty.set(true)`, y `dirty` apagaba TRES cosas: el guard de
+   * cambios sin guardar (que saltaba sin haber tecleado un peso), el refresco de
+   * 45 s —la promesa de «ir a la par de Kepler», muerta de por vida tras un
+   * clic— y `sugerirTipo()`. Ahora el dinero lo mide `hayConteo()`.
+   *
+   * Y limpia el resultado: dejarlo pegado mostraba el sello de un conteo anterior
+   * con un botón que reimprimía ESE ticket.
+   */
+  elegirTipo(v: string) { this.aTipo.set(v as ArqueoTipo); this.result.set(null); }
+
+  /**
+   * ¿Hay dinero capturado sin guardar? Es la pregunta que `dirty` confundía con
+   * «tocó un control». Mira el conteo real, no el estado de la pantalla.
+   */
+  private hayConteo(): boolean {
+    return Object.values(this.denomCount).some((n) => Number(n) > 0)
+      || Object.values(this.medios).some((n) => Number(n) > 0)
+      || this.aNota.trim().length > 0;
+  }
 
   elegirTurno(folio: string) {
     this.turnoFolio.set(folio);
@@ -1456,7 +1681,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * arqueo con denominaciones capturadas sería perderle el trabajo.
    */
   private sugerirTipo() {
-    if (this.dirty()) return;
+    if (this.hayConteo()) return;
     const t = this.turnoSel();
     if (!t) return;
     if (t.pide_retiro || t.retiro_sin_contar) this.aTipo.set('retiro');
@@ -1511,10 +1736,21 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       capturado_at: new Date().toISOString(),
       capturado_por: this.auth.user()?.username || null,
       validado_por: null, validado_at: null,
-    }, { revela: this.revela });
-    if (!ok) {
-      this.toast.add({ severity: 'warn', summary: 'No se pudo abrir la impresión', detail: 'Usa el botón Imprimir ticket para reintentar.' });
-    }
+    }, { revela: this.revela }, () => this.avisarImpresion());
+    if (!ok) this.avisarImpresion();
+  }
+
+  /**
+   * `[SM.41]` El papel es la prueba física del conteo: si no salió, hay que
+   * decirlo. El aviso existía pero era inalcanzable — `imprimirTicket` devolvía
+   * `true` siempre y se tragaba el error de `print()` en un `catch` vacío.
+   */
+  private avisarImpresion() {
+    this.toast.add({
+      severity: 'warn', summary: 'No se pudo imprimir el ticket',
+      detail: 'El conteo YA quedó guardado. Usá el botón Imprimir ticket para reintentar.',
+      life: 8000,
+    });
   }
 
   branchLabel(code?: string | null): string {
@@ -1523,8 +1759,27 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     return o?.label || branchName(code);
   }
 
+  /**
+   * `[SM.41]` «Conté y había $0» es un hecho, y distinto de «no conté».
+   *
+   * `canSubmit()` exigía `arqTotal() > 0` y `arqTotal` es SÓLO efectivo, así que
+   * un cajón vacío al cierre no se podía sellar — y con las sangrías llevándose
+   * el 63-81% del efectivo, un cajón vacío es un desenlace normal. Tampoco se
+   * podía sellar un turno cobrado 100% con tarjeta.
+   *
+   * No hace falta columna nueva: la EXISTENCIA de la fila ya es la declaración.
+   * Lo que faltaba era dejar guardarla, y que el diálogo lo diga con todas las
+   * letras antes de sellar.
+   */
+  readonly vacio = signal(false);
+
+  declararVacio() {
+    this.vacio.update((v) => !v);
+    if (this.vacio()) { this.denomCount = {}; this.medios = {}; this.recalcTotales(); }
+  }
+
   canSubmit(): boolean {
-    if (this.arqTotal() <= 0) return false;
+    if (this.arqTotal() <= 0 && !this.vacio()) return false;
     if (this.turnoSel()) return true;
     return this.manual() && !!(this.aSuc.trim()) && !!this.aCaja.trim() && !!this.aDate;
   }
@@ -1721,6 +1976,9 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   selectAll(ev: Event) { (ev.target as HTMLInputElement).select(); }
 
   recalc() {
+    // Si estaba declarado vacio y ahora hay un billete tecleado, deja de estarlo:
+    // el aviso de "contaste cero" no puede quedar colgado sobre un conteo real.
+    if (this.vacio()) this.vacio.set(false);
     this.recalcTotales();
     this.dirty.set(true); // §13: cualquier edición ensucia; se limpia solo al guardar OK
   }
@@ -1778,12 +2036,24 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
         incidencia_tipo: this.aIncidencia || undefined,
       }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
-          this.saving.set(false); this.dirty.set(false);
+          this.saving.set(false); this.dirty.set(false); this.vacio.set(false);
           this.toast.add({
             severity: 'success', summary: `Entrega de ${r.route_label} sellada`,
             // Se dice lo contado y NADA de diferencia: no hay contra que comparar.
             detail: `Contado ${this.money(r.total_contado)}. Queda como constancia de la entrega.`,
           });
+          /**
+           * `[SM.41]` El PAPEL, que acá no salía nunca.
+           *
+           * `result` no se seteaba en esta rama, así que el único mecanismo de
+           * prueba física del módulo no se ofrecía justo donde el servidor
+           * responde `medible: false, motivo: 'sin_esperado'` — o sea donde el
+           * ticket firmado es la ÚNICA evidencia que va a existir de lo que
+           * entregó el vendedor. Se setea ANTES de limpiar el formulario, porque
+           * las denominaciones del ticket salen de ahí.
+           */
+          this.result.set({ tipo: r.tipo, secuencia: r.secuencia, total_contado: r.total_contado, reveal: false });
+          this.imprimir(this.result()!);
           this.denomCount = {}; this.medios = {}; this.aRuta = ''; this.recalcTotales();
           this.load();   // la entrega de ruta no tiene turno: solo se recarga el historial
         },
@@ -1815,7 +2085,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
         // además se acuerde de darle a un botón es perder el papel la mitad de las
         // veces — y el papel es la prueba física del conteo.
         this.imprimir(r);
-        this.denomCount = {}; this.medios = {}; this.recalcTotales();
+        this.denomCount = {}; this.medios = {}; this.vacio.set(false); this.recalcTotales();
         this.cargarTurnos();  // el turno arqueado sale de la lista
         this.load();
       },

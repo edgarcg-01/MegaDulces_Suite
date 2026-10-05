@@ -299,11 +299,22 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
 }
 
 /**
- * Abre la ventana de impresión. Devuelve `false` si el navegador la bloqueó —
- * el llamador debe avisarlo en vez de dejar al usuario esperando un diálogo que
- * nunca aparece.
+ * Abre la ventana de impresión.
+ *
+ * Devuelve `false` cuando ni siquiera se pudo montar el marco. El otro modo de
+ * fallo —que el navegador niegue `print()`— ocurre DESPUÉS de que esta función
+ * volvió, así que no cabe en el valor de retorno: se avisa por `onFallo`.
+ *
+ * `[SM.41]` Antes el JSDoc prometía `false` «si el navegador la bloqueó» y el
+ * código retornaba `true` apenas insertaba el iframe, con el `print()` dentro de
+ * un `catch {}` vacío. O sea: el aviso «No se pudo abrir la impresión» del
+ * llamador era código muerto, y si la térmica no sacaba el papel nadie se
+ * enteraba — en un módulo donde el papel ES la prueba física del conteo.
+ *
+ * ⚠️ `ticket-venta.ts` y `ticket-comprobante.ts` tienen el mismo hueco. No se
+ * tocan acá: son de otros módulos y merecen su propia medición.
  */
-export function imprimirTicket(a: TicketArqueo, opts: { revela: boolean }): boolean {
+export function imprimirTicket(a: TicketArqueo, opts: { revela: boolean }, onFallo?: () => void): boolean {
   // IFRAME oculto, no `window.open`: la ventana emergente la bloquea el navegador
   // por default y obligaba a la cajera a autorizarla con las manos en el efectivo.
   // El iframe no pide permiso, no roba el foco y no deja una pestaña abierta.
@@ -329,7 +340,7 @@ export function imprimirTicket(a: TicketArqueo, opts: { revela: boolean }): bool
   doc.close();
 
   const lanzar = () => {
-    try { win.focus(); win.print(); } catch { /* si el navegador lo niega, queda el botón manual */ }
+    try { win.focus(); win.print(); } catch { onFallo?.(); }
     // El iframe se retira DESPUÉS de imprimir. Quitarlo antes cancela el trabajo en
     // algunos navegadores; 1.5 s alcanza incluso si el diálogo sigue abierto, porque
     // para entonces el documento ya se mandó a la cola.

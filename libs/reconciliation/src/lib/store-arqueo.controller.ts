@@ -150,7 +150,14 @@ export class StoreArqueoController {
       dias: dias ? Number(dias) : undefined,
       revela: this.revela(user),
     });
-    return { turnos, aviso };
+    /**
+     * La FRESCURA del dato, no la del fetch. Viaja con la lista por el mismo
+     * motivo que el aviso: una lista vacía y una lista vieja se ven igual en
+     * pantalla, y la diferencia entre «ya contaste todo» y «la ingesta está
+     * caída» es el incidente del 2026-09-29.
+     */
+    const frescura = await this.blind.frescuraOds();
+    return { turnos, aviso, ...frescura };
   }
 
   /**
