@@ -227,11 +227,42 @@ export class ExpenseProofsController {
 
   // Va después de las rutas GET estáticas: declarada antes, ':id' se tragaría
   // 'departamentos', 'status-by-folio' y 'proof-by-folio'.
+  /**
+   * `[GX.68]` **El expediente con sus archivos — y con el ALCANCE de quien lo abre.**
+   *
+   * Hasta acá exigía `FINANCE_EXPENSES_VER` y nada más: era el **único read del módulo** que
+   * no aceptaba `CAPTURAR` ni `COMPROBAR`. Medido en la base local: **11 roles tienen
+   * `CAPTURAR` sin `VER` = 76 usuarios**, o sea que justo quien levanta el vale recibía 403
+   * al abrir su propia evidencia (y el visor se lo mostraba como «puede ser la conexión»).
+   *
+   * ⛔ Abrirlo a `CAPTURAR` **a secas** le daría los comprobantes de toda la empresa a esas
+   * 76 personas. Por eso el permiso abre la puerta y el SERVICIO pone el alcance: sin `VER`
+   * ni `COMPROBAR`, el vale tiene que ser suyo. Es el mismo criterio que `GET /mine`.
+   *
+   * ⚠️ El alcance va en el servicio y no acá porque depende de la FILA (de quién es el vale),
+   * y un guard sólo sabe si la puerta se abre, no qué hay del otro lado.
+   *
+   * ⚠️ NO es el mismo alcance que `alcanceDelUsuario()` (`FINANCE_EXPENSES_VER_ALL` + áreas):
+   * ése recorta qué SOLICITUDES de Kepler se pueden buscar. Acá la pregunta es de quién es
+   * este vale. Dos preguntas distintas, dos reglas.
+   */
   @Get(':id')
-  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
-  @ApiOperation({ summary: 'Detalle de una solicitud con los adjuntos re-firmados (para el visor de quien revisa).' })
-  detail(@Param('id') id: string) {
-    return this.svc.detail(id);
+  @RequireAnyPermission(
+    Permission.FINANCE_EXPENSES_VER,
+    Permission.FINANCE_EXPENSES_CAPTURAR,
+    Permission.FINANCE_EXPENSES_COMPROBAR,
+  )
+  @ApiOperation({
+    summary: 'Detalle de una solicitud con los adjuntos re-firmados (el visor de la evidencia).',
+    description: 'Con FINANCE_EXPENSES_VER o _COMPROBAR abre cualquiera; con sólo _CAPTURAR, '
+      + 'únicamente los que esa persona levantó o comprobó. Un vale ajeno da 403 con su motivo.',
+  })
+  detail(@Param('id') id: string, @Req() req?: AuthedRequest): ReturnType<ExpenseProofsService['detail']> {
+    return this.svc.detail(id, {
+      ...quienDecide(req),
+      role_name: req?.user?.role_name,
+      permissions: req?.user?.permissions,
+    });
   }
 
   /**
