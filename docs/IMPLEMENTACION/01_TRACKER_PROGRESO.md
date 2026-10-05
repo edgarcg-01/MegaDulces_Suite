@@ -130,6 +130,25 @@ buen pedido»*. Medido: de ~34 variables que deberían pesar en un pedido el mot
   de comparaciones**). Apilando OC y vale en una relación etiquetada y pivotando con `FILTER`:
   **90 d de 49 s a 0.7 s · 365 d de >50 min sin terminar a 2.7 s**, con **0 filas de cifra distinta**
   entre las dos formas.
+- 🚀 **[VPR.4]** **El precio por PLAZA, con el árbitro correcto: lo que la caja cobra.** Reemplaza
+  a `[VPR.1]`, que estaba sobre `kdii.c90` (el precio *configurado*) y validado con un **espejo**.
+  `analytics.mv_price_truth` (mig `20261005140000`, **batch 714**, 5.5 s) usa **las mismas reglas de
+  `ods-derived`** —doctypes de venta, `qty<3`, unidad base, documento vigente, 90 d, ≥5 líneas— pero
+  a grano **(plaza, producto)**: moda de `kdm2.c12` de ESA sucursal, y el PV configurado de ESA
+  plaza como respaldo con las **4 validaciones** del mismo origen. ⭐ **El grano por plaza importa 5×
+  más de lo que el árbitro viejo dejaba ver**: sobre el precio configurado difieren el 7.8% de los
+  SKUs entre plazas; sobre **lo que la caja cobra, 1,261 de 3,214 (39.2%)**. Medido en prod: 78,760
+  filas · 9 plazas · **15,768 celdas resuelven por lo cobrado**, 61,507 por el configurado validado
+  y **1,485 rechazadas que publican NULL, nunca 0** (4 motivos declarados). Contradice a la lista de
+  red en **7,650 celdas** — o sea que mide, no refleja. ⚠️ **Materializada por COSTO**: la consulta
+  viva cuesta **8.5 s** y `take-order` baja el catálogo entero de una plaza para el modo sin
+  conexión; materializada, **4 ms**. El refresco se cuelga del carril `existencia-aux` que ya existe
+  (cada 5 min, con latido por entrega) en vez de inventar uno. ⚠️ **El candado se atrapó a sí mismo
+  dos veces**: primero validaba con la etiquetera (espejo), y después daba por refrescada la
+  matvista mirando el latido del carril — que late verde aunque el refrescador desplegado **todavía
+  no la tenga en su lista**; ahora mide **escritura real** y detecta que la creación ya deja tantas
+  escrituras como filas. **Falta: `ops/vl/deploy.sh` + redeploy de la API** (sin eso take-order
+  sigue leyendo la lista de red). Candado **verde · 2 NO MEDIDO**.
 - 🔨 **[VPR.3]** **Apagado el segundo escritor del precio: una sola fuente.** ⚠️ **Y corrige a
   `[VPR.1/VPR.2]` de abajo**: el "escritor anónimo" NO era un intruso — es
   `services/feeds-ingest/ods-derived.js`, que aplica una **decisión documentada de Edgar
