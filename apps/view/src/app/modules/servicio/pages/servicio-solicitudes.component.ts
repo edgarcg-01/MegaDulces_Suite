@@ -143,13 +143,11 @@ function dataUri(f: File): Promise<string> {
                 <label class="ss-field"><span>Cuéntanos qué pasa</span>
                   <textarea pTextarea rows="5" [(ngModel)]="form.description" placeholder="Qué intentabas hacer, qué mensaje te salió, desde cuándo."></textarea></label>
 
-                @if (requiereSucursal() || mostrarSucursal() || form.warehouse_code) {
-                  <label class="ss-field"><span>Ubicación {{ requiereSucursal() ? '*' : '' }}</span>
-                    <p-select [options]="sucursales" optionLabel="name" optionValue="code" [(ngModel)]="form.warehouse_code" placeholder="Elige la ubicación"
-                              [showClear]="!requiereSucursal()" appendTo="body" ariaLabel="Ubicación" /></label>
-                } @else {
-                  <button type="button" class="ss-link" (click)="mostrarSucursal.set(true)">Indicar ubicación (opcional)</button>
-                }
+                <!-- [MS.3.17] Siempre visible: detrás de un enlace («Indicar ubicación (opcional)») quien levantaba la solicitud no la veía,
+                     y «A toda mi sucursal» no tiene sentido sin saber cuál es. -->
+                <label class="ss-field"><span>Ubicación {{ requiereSucursal() ? '*' : '(opcional)' }}</span>
+                  <p-select [options]="sucursales" optionLabel="name" optionValue="code" [(ngModel)]="form.warehouse_code" placeholder="Elige la ubicación"
+                            [showClear]="!requiereSucursal()" appendTo="body" ariaLabel="Ubicación" /></label>
 
                 <fieldset class="ss-impact">
                   <legend>¿A cuántas personas afecta?</legend>
@@ -274,7 +272,6 @@ function dataUri(f: File): Promise<string> {
     .ss-person:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
     .ss-picked { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); }
     .ss-picked small { margin-left: var(--sp-2); }
-    .ss-link { align-self: flex-start; background: none; border: 0; padding: 0; color: var(--action); font-size: var(--fs-sm); cursor: pointer; }
     .ss-impact { border: 1px solid var(--border-color); border-radius: var(--r-md); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); margin: 0; }
     .ss-impact legend { font-weight: 600; font-size: var(--fs-xs); color: var(--text-main); padding: 0 var(--sp-1); }
     .ss-radio, .ss-chk { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
@@ -330,7 +327,6 @@ export class ServicioSolicitudesComponent implements OnInit {
 
   // ── alta ──
   readonly catalogo = signal<SdCatalogResponse | null>(null);
-  readonly mostrarSucursal = signal(false);
   readonly archivos = signal<File[]>([]);
   readonly enviando = signal(false);
   readonly formError = signal<string | null>(null);
@@ -404,7 +400,6 @@ export class ServicioSolicitudesComponent implements OnInit {
     this.categoriaId.set(null);
     this.archivos.set([]);
     this.formError.set(null);
-    this.mostrarSucursal.set(false);
     this.selId.set(null);
     this.creando.set(true);
     if (!this.catalogo()) this.api.catalog().subscribe({ next: (c) => this.catalogo.set(c), error: (e) => this.formError.set(sdError(e, 'No se pudo cargar el catálogo.')) });
