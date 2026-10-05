@@ -130,7 +130,15 @@ const TOPE = {
   //    mover pixeles en la pantalla del ARQUEO (la que usa la cajera para contar dinero) no
   //    se decide desde un gate: se decide abriendola. Deuda CON NOMBRE:
   //    `tienda-arqueo.component.ts` necesita su propio barrido.
-  fontSize:   2695,
+  //
+  // ⚠️ 2,699 y no 2,695: los cuatro commits de `[VPR.5]`/`[SM.41]`/`[SN.28]` suman CUATRO --
+  //    tres en `tienda-arqueo.component.ts` y uno en `faltante-express.component.ts`.
+  //    Mismo motivo medido que en `[VS.1]` y en el aterrizaje: `tienda-arqueo` lleva 56+
+  //    literales contra 2 tokens (nunca se barrio), y los valores no caen EXACTOS en la
+  //    escala -- convertirlos MUEVE el texto de la pantalla con la que la cajera cuenta
+  //    dinero. Eso se decide abriendola, no desde un gate. Deuda CON NOMBRE: ese archivo
+  //    necesita su propio barrido, y es el tercer push seguido que lo nombra.
+  fontSize:   2699,
   hex:        1449,  // hex crudo en declaración de color
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,
