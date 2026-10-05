@@ -52,7 +52,32 @@ const hb = require('../lib/cron-heartbeat');
 // latía por él). Mismo patrón que `ODS_HB_KEY` en `ops/vl/docker-compose.yml`: la clave la
 // decide quien arranca el proceso, no el script. El default conserva la clave histórica para que
 // el carril incremental siga cayendo en su umbral ya declarado en `CRON_JOBS`.
-const FEED_KEY = process.env.CONTPAQI_HB_KEY || 'contpaqi_add_cfdis';
+/**
+ * `[IG.14]` EL ROL: recibidas (compras) o emitidas (VENTA). Default `recibidas`, que es lo que el
+ * carril en vivo venia haciendo desde siempre -- este flag NO cambia su comportamiento.
+ *
+ * ⛔ POR QUE EXISTE: este importer filtraba `WHERE c.RFCReceptor = RFC` y nadie habia preguntado
+ * por el otro lado. Medido contra el ADD vivo el 2026-10-05: ahi mismo hay **213,520 CFDI
+ * EMITIDOS de tipo I (ingreso) por $4,680,922,702.35**, de 2018-01-02 a hoy. O sea que la factura
+ * de VENTA -la que respalda fiscalmente el ingreso- siempre estuvo en la base que ya leemos, y
+ * nunca se pidio. Sin ella, el ingreso solo se podia contrastar contra el total mensual de la
+ * balanza; con ella se puede casar factura por factura.
+ *
+ * ⚠️ El watermark y el latido van por SEPARADO (`feed_key` distinto): si los dos roles compartieran
+ * llave, cada corrida pisaria el avance del otro y el incremental se saltaria documentos en
+ * silencio.
+ */
+const ROL = (() => {
+  const i = process.argv.indexOf('--rol');
+  const v = (i !== -1 ? process.argv[i + 1] : 'recibidas').toLowerCase();
+  if (v !== 'recibidas' && v !== 'emitidas') throw new Error(`--rol invalido: ${v} (recibidas|emitidas)`);
+  return v;
+})();
+/** La columna del ADD que define el rol. Es el unico cambio real en las consultas. */
+const RFC_COL = ROL === 'emitidas' ? 'RFCEmisor' : 'RFCReceptor';
+const ETIQUETA_ROL = ROL === 'emitidas' ? 'CFDIs EMITIDOS (venta) del ADD de ContPAQi' : ETIQUETA_ROL;
+const FEED_KEY = process.env.CONTPAQI_HB_KEY
+  || (ROL === 'emitidas' ? 'contpaqi_add_cfdis_emitidas' : 'contpaqi_add_cfdis');
 
 const TENANT = process.env.CONTPAQI_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -111,7 +136,7 @@ async function guardarWatermark(pg, ts, rows) {
            rows_last = EXCLUDED.rows_last,
            rows_total = analytics.feed_watermarks.rows_total + EXCLUDED.rows_last,
            last_run = now(), updated_at = now()`,
-    [TENANT, FEED_KEY, 'CFDIs recibidos del ADD de ContPAQi', ts, rows, rows]);
+    [TENANT, FEED_KEY, ETIQUETA_ROL, ts, rows, rows]);
 }
 
 /** Una pasada completa. Devuelve cuántos CFDIs se escribieron. */
@@ -149,7 +174,7 @@ async function pasada(mss, pg, tipoList) {
 async function maxTimeStamp(mss, tipoList) {
   const r = (await mss.request().query(`
     SELECT MAX(d.TimeStamp) AS mx FROM Comprobante c JOIN Documento d ON d.GuidDocument = c.GuidDocument
-     WHERE c.RFCReceptor = '${RFC}' AND c.TipoComprobante IN (${tipoList})`)).recordset[0];
+     WHERE c.${RFC_COL} = '${RFC}' AND c.TipoComprobante IN (${tipoList})`)).recordset[0];
   return r?.mx || null;
 }
 
@@ -173,7 +198,7 @@ async function maxTimeStamp(mss, tipoList) {
   if (APPLY) await pg.connect();
 
   const correr = async () => {
-    if (APPLY) await hb.begin(FEED_KEY, 'CFDIs recibidos del ADD de ContPAQi');
+    if (APPLY) await hb.begin(FEED_KEY, ETIQUETA_ROL);
     try {
       const n = await pasada(mss, pg, tipoList);
       if (APPLY) await hb.end(FEED_KEY, { status: 'ok', rows: n, note: modo.toLowerCase() });
@@ -223,7 +248,7 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
       FROM Comprobante c
       LEFT JOIN ImpuestosTotalizados it ON it.GuidDocument = c.GuidDocument
       LEFT JOIN Documento d ON d.GuidDocument = c.GuidDocument
-     WHERE c.RFCReceptor = '${RFC}' AND c.TipoComprobante IN (${tipoList}) ${corte}`)).recordset;
+     WHERE c.${RFC_COL} = '${RFC}' AND c.TipoComprobante IN (${tipoList}) ${corte}`)).recordset;
   if (!heads.length) { if (!desdeTs) console.log(`  ${etiquetaCorte}: sin CFDIs`); return 0; }
 
   // ── 3) Bases gravables por impuesto y tasa (agregadas por documento) ─────────────────
@@ -239,7 +264,7 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
       FROM Comprobante cm
       JOIN Conceptos c ON c.GuidDocument = cm.GuidDocument
       JOIN Impuesto_Traslado_Concepto itc ON itc.IdConcepto = c.IdConcepto
-     WHERE cm.RFCReceptor = '${RFC}' AND cm.TipoComprobante IN (${tipoList}) ${corteBases}
+     WHERE cm.${RFC_COL} = '${RFC}' AND cm.TipoComprobante IN (${tipoList}) ${corteBases}
      GROUP BY c.GuidDocument, itc.Impuesto, itc.ImpuestoDesc, itc.TipoFactor, itc.TasaOCuota`)).recordset;
 
   // Subtotal NETO (importe del concepto menos su descuento, sin impuestos) de lo gravado a
@@ -256,7 +281,7 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
       FROM Comprobante cm
       JOIN Conceptos c ON c.GuidDocument = cm.GuidDocument
       JOIN Impuesto_Traslado_Concepto itc ON itc.IdConcepto = c.IdConcepto
-     WHERE cm.RFCReceptor = '${RFC}' AND cm.TipoComprobante IN (${tipoList}) ${corteBases}
+     WHERE cm.${RFC_COL} = '${RFC}' AND cm.TipoComprobante IN (${tipoList}) ${corteBases}
        AND itc.Impuesto = '002'
        AND TRY_CONVERT(decimal(18,6), itc.TasaOCuota) = 0.160000
      GROUP BY c.GuidDocument`)).recordset;
@@ -295,7 +320,7 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
       round2(h.Subtotal), round2(h.Descuento), round2(h.Total), h.Moneda || 'MXN', Number(h.TipoCambio) || 1,
       h.MetodoPago || null, h.FormaPago || null, h.LugarExp || null, h.NumeroCertificado || null,
       round2(h.TotImpTraslado), round2(h.TotImpRetenidos),
-      JSON.stringify(impuestos), 'recibidas', 'contpaqi_add',
+      JSON.stringify(impuestos), ROL, 'contpaqi_add',
       estatusSat(h.CancelStatus),
       String(h.CancelStatus || '').trim() || null,   // cancel_reason = el crudo del ADD
       h.GuidDocument || null,
