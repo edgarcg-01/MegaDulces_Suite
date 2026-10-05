@@ -129,7 +129,7 @@ function dataUri(f: File): Promise<string> {
                       </div>
                       <label class="ss-field"><span>Área</span>
                         <p-select [options]="departamentos()" optionLabel="name" optionValue="code" [(ngModel)]="areaCode" placeholder="Sin área en su ficha" [showClear]="true" appendTo="body" ariaLabel="Área" /></label>
-                      <p class="ss-hint">La persona recibirá el aviso y será quien confirme o reabra la solicitud. La sucursal se precarga de su ficha: corrígela si hace falta.</p>
+                      <p class="ss-hint">La persona recibirá el aviso y será quien confirme o reabra la solicitud. La ubicación se precarga de su ficha: corrígela si hace falta.</p>
                     }
                   </div>
                 }
@@ -144,11 +144,11 @@ function dataUri(f: File): Promise<string> {
                   <textarea pTextarea rows="5" [(ngModel)]="form.description" placeholder="Qué intentabas hacer, qué mensaje te salió, desde cuándo."></textarea></label>
 
                 @if (requiereSucursal() || mostrarSucursal() || form.warehouse_code) {
-                  <label class="ss-field"><span>Sucursal {{ requiereSucursal() ? '*' : '' }}</span>
-                    <p-select [options]="sucursales" optionLabel="name" optionValue="code" [(ngModel)]="form.warehouse_code" placeholder="Elige la sucursal"
-                              [showClear]="!requiereSucursal()" appendTo="body" ariaLabel="Sucursal" /></label>
+                  <label class="ss-field"><span>Ubicación {{ requiereSucursal() ? '*' : '' }}</span>
+                    <p-select [options]="sucursales" optionLabel="name" optionValue="code" [(ngModel)]="form.warehouse_code" placeholder="Elige la ubicación"
+                              [showClear]="!requiereSucursal()" appendTo="body" ariaLabel="Ubicación" /></label>
                 } @else {
-                  <button type="button" class="ss-link" (click)="mostrarSucursal.set(true)">Indicar sucursal (opcional)</button>
+                  <button type="button" class="ss-link" (click)="mostrarSucursal.set(true)">Indicar ubicación (opcional)</button>
                 }
 
                 <fieldset class="ss-impact">

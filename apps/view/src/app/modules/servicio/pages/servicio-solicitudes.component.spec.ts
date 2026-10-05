@@ -137,6 +137,28 @@ describe('[MS.3.2] ServicioSolicitudesComponent', () => {
     expect(c.selId()).toBe('abc-123');
     expect(c.creando()).toBe(false);
   });
+  describe('[MS.3.14] el campo se llama «Ubicación», no «Sucursal»', () => {
+    it('⭐ con una categoría que exige ubicación el campo dice «Ubicación *» y su selector también', async () => {
+      await render();
+      c.nueva();
+      c.elegirCategoria('c-suc');
+      fix.detectChanges();
+      const texto = (fix.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain('Ubicación *');
+      expect(texto).not.toMatch(/Sucursal \*/);
+      expect((fix.nativeElement as HTMLElement).querySelector('p-select[arialabel="Ubicación"], p-select[ariaLabel="Ubicación"]')).toBeTruthy();
+    });
+    it('el enlace de la ubicación opcional también', async () => {
+      await render();
+      c.nueva();
+      c.elegirCategoria('c-libre');
+      fix.detectChanges();
+      const texto = (fix.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain('Indicar ubicación (opcional)');
+      expect(texto).not.toContain('Indicar sucursal');
+    });
+  });
+
   describe('[MS.3.14] la lista de sucursales', () => {
     it('⭐ ofrece «Oficinas Corporativas» (que no es una sucursal Kepler) AL FINAL de la red', async () => {
       await render();
