@@ -123,7 +123,6 @@ interface CortesPersona {
              ⚠️ NO PONER ACENTOS GRAVES ACÁ: esto vive dentro de un template literal. -->
         @if (puedeFaltante()) {
           <div class="arq-faltante">
-            <span class="arq-faltante-t"><i class="pi pi-search" aria-hidden="true"></i> ¿Te pidieron algo?</span>
             <app-faltante-express [sucursal]="sucursalActiva()" [compacto]="true" />
           </div>
         }
@@ -849,12 +848,16 @@ interface CortesPersona {
        NO PONER ACENTOS GRAVES ACÁ: el bloque de estilos también es un template literal. */
     /* El buscador es un ACCESORIO: una tira de ~40px, no una tarjeta. La pantalla
        es para contar efectivo y esto no puede comerse un cuarto del alto. */
-    .arq-faltante { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .7rem;
-                    padding: .45rem .7rem; border: 1px solid var(--border-color);
+    /* El buscador es un ACCESORIO: una tira, no una tarjeta. Caja SIMPLE a
+       proposito -- un bloque con borde. La version anterior era flex con
+       flex-basis sobre el componente hijo, que a su vez es flex: dos capas de
+       flex anidadas para alinear dos cosas, y bastaba que una regla del hijo
+       ganara por orden para que todo se desarmara (paso: salio una tarjeta de
+       800px con los elementos dispersos). El renglon lo arma el hijo, que es
+       quien conoce sus propias partes. */
+    .arq-faltante { padding: .4rem .7rem; border: 1px solid var(--border-color);
                     background: var(--card-bg); border-radius: var(--r-md); }
-    .arq-faltante-t { display: inline-flex; align-items: center; gap: .35rem; flex: none;
-                      font-size: .76rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
-    :host ::ng-deep .arq-faltante app-faltante-express { flex: 1 1 24rem; min-width: 0; }
+    :host ::ng-deep .arq-faltante app-faltante-express { display: block; }
     /* El turno, en un renglon. Reemplaza una grilla de seis campos Y dos cajas de aviso. */
     .arq-turno-linea { margin: 0 0 .7rem; font-size: .78rem; color: var(--text-muted);
                        display: flex; flex-wrap: wrap; gap: .15rem .4rem; align-items: baseline; }
