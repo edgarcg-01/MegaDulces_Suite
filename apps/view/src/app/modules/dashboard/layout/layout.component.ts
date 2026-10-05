@@ -903,7 +903,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   /**
    * Almacén (WMS) — **Fase WMS.1**: un área = **un** item de sidebar; los
-   * subtemas son **tabs** (`app-page-tabs variant="liquid"`).
+   * subtemas son **tabs** (`app-page-tabs`).
    *
    * Antes eran 3 grupos con **19 items planos**, y tres de ellos —*Caducidades*,
    * *Recepción*, *Vales de entrada*— no eran tres áreas: eran tres estados del

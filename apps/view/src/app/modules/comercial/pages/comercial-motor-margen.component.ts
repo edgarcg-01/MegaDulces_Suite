@@ -56,7 +56,7 @@ import {
   template: `
 <div class="surf-page mm">
 
-  <div class="pr-tabs"><app-page-tabs [tabs]="tabs" variant="liquid" /></div>
+  <div class="pr-tabs"><app-page-tabs [tabs]="tabs" /></div>
 
   <header class="surf-page-head">
     <div class="surf-page-head-text">

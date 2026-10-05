@@ -60,34 +60,37 @@ export interface PageTab {
   template: `
     @if (visibleTabs().length > 1) {
       @if (variant() === 'liquid') {
-        <div class="modern-tabs-wrapper liquid-tabs-host pt-liquid-wrap">
-          <div class="liquid-tabs liquid-tabs--scroll" role="tablist" #lqContainer>
+        <nav class="modern-tabs-wrapper liquid-tabs-host pt-liquid-wrap" [attr.aria-label]="ariaLabel()">
+          <div class="liquid-tabs liquid-tabs--scroll" #lqContainer>
             <span class="liquid-tabs-indicator" aria-hidden="true" #lqIndicator></span>
             @for (t of visibleTabs(); track t.route) {
               <a
                 class="liquid-tab"
-                role="tab"
                 #lqTab
                 [routerLink]="t.route"
                 routerLinkActive="is-active"
+                #rla="routerLinkActive"
                 [routerLinkActiveOptions]="{ exact: t.exact ?? true }"
                 [class.is-active]="activoPorAlias(t)"
+                [attr.aria-current]="rla.isActive || activoPorAlias(t) ? 'page' : null"
               >
                 @if (t.icon) { <i [class]="t.icon" aria-hidden="true"></i> }
                 <span>{{ t.label }}</span>
               </a>
             }
           </div>
-        </div>
+        </nav>
       } @else {
-        <nav class="ptabs" role="tablist">
+        <nav class="ptabs" [attr.aria-label]="ariaLabel()">
           @for (t of visibleTabs(); track t.route) {
             <a
               class="ptab"
               [routerLink]="t.route"
               routerLinkActive="is-active"
+              #rla="routerLinkActive"
               [routerLinkActiveOptions]="{ exact: t.exact ?? true }"
               [class.is-active]="activoPorAlias(t)"
+              [attr.aria-current]="rla.isActive || activoPorAlias(t) ? 'page' : null"
             >
               @if (t.icon) {
                 <i [class]="t.icon" aria-hidden="true"></i>
@@ -164,7 +167,34 @@ export class PageTabsComponent implements AfterViewInit {
   }
 
   readonly tabs = input.required<PageTab[]>();
-  readonly variant = input<'underline' | 'liquid'>('underline');
+  /**
+   * `[TAB.1]` — **El default es `liquid` desde el 2026-10-05** (decisión de Edgar: *"cambiemos
+   * todo este tipo de pestañas al selector tipo iOS"*).
+   *
+   * No se construyó nada: la variante existía desde antes y ya estaba probada en los dos casos
+   * extremos del repo — **almacén con 23 pestañas** y **contabilidad con 15** — así que el
+   * desbordamiento con scroll ya estaba resuelto cuando se tomó la decisión. Lo que cambió es
+   * cuál de las dos se sirve sin pedirla: 29 pantallas la heredan, 8 ya la pedían a mano.
+   *
+   * `underline` se CONSERVA, no se retira: es una línea de escape por pantalla si alguna queda
+   * mal con el riel. Retirarla el mismo día que se cambia el default deja sin salida al primero
+   * que encuentre un caso raro.
+   */
+  readonly variant = input<'underline' | 'liquid'>('liquid');
+
+  /**
+   * `[TAB.2]` — Nombre de la barra para el lector de pantalla.
+   *
+   * ⛔ Antes decía `role="tablist"` con `role="tab"` en cada enlace **y ningún `tabpanel` en toda
+   * la pantalla**, que es justo lo que la regla **D.4(c)** de `DESIGN.md` prohíbe: el lector
+   * anuncia *"pestaña 1 de 7"* y no hay panel al que ir, porque **no son pestañas: son enlaces
+   * a rutas hermanas**. Cada una es una PÁGINA con su propio permiso y su propia URL.
+   *
+   * La semántica correcta de eso es `nav` + `aria-current="page"`, que además le dice al lector
+   * cuál está abierta — información que el `role="tab"` no daba. Como hay varias barras de
+   * navegación en la pantalla (el sidebar, ésta), la barra lleva nombre o se anuncian iguales.
+   */
+  readonly ariaLabel = input<string>('Secciones de esta pantalla');
 
   readonly lqContainer = viewChild<ElementRef<HTMLElement>>('lqContainer');
   readonly lqIndicator = viewChild<ElementRef<HTMLSpanElement>>('lqIndicator');
@@ -189,8 +219,21 @@ export class PageTabsComponent implements AfterViewInit {
 
   ngAfterViewInit(): void {
     if (this.variant() !== 'liquid') return;
-    // `routerLinkActive` marca .is-active tras el primer ciclo → reintentos escalonados.
-    [0, 120, 350].forEach((d) => setTimeout(() => this.syncIndicator(), d));
+    // `routerLinkActive` marca .is-active tras el primer ciclo → un reintento corto alcanza.
+    [0, 120].forEach((d) => setTimeout(() => this.syncIndicator(), d));
+
+    /**
+     * ⛔ **La tipografía movía la píldora y nadie volvía a medir.** Acá había un tercer
+     * `setTimeout(350)` y un `ResizeObserver` sobre el CONTENEDOR. Con el riel a ancho fijo,
+     * cuando Hanken Grotesk termina de cargar cambian los anchos de las PESTAÑAS, no el del
+     * contenedor: el observer no dispara, y la píldora se queda del ancho que midió con la
+     * fuente de respaldo. El timer de 350 ms lo tapaba cuando la fuente venía de caché —
+     * o sea, siempre en la máquina de quien lo escribió, y no en la red del campo.
+     * El arreglo es esperar la SEÑAL, no adivinar el tiempo.
+     */
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      void document.fonts.ready.then(() => this.syncIndicator());
+    }
     // Re-sync en cada navegación: cuando la barra vive en un shell de área
     // (Fase WMS.1) la instancia NO se recrea al cambiar de tab, así que sin
     // esto el blob se quedaba clavado en el tab inicial. En las páginas que la
@@ -198,10 +241,13 @@ export class PageTabsComponent implements AfterViewInit {
     this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => [0, 120].forEach((d) => setTimeout(() => this.syncIndicator(), d)));
-    const container = this.lqContainer()?.nativeElement;
-    if (container && typeof ResizeObserver !== 'undefined') {
+    // El observer mira el contenedor Y cada pestaña: lo que mueve la píldora es el ancho de
+    // la pestaña activa, y ése cambia sin que el contenedor se entere (fuente, zoom, idioma).
+    if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => this.syncIndicator());
-      ro.observe(container);
+      const container = this.lqContainer()?.nativeElement;
+      if (container) ro.observe(container);
+      for (const t of this.lqTabs()) ro.observe(t.nativeElement);
       this.destroyRef.onDestroy(() => ro.disconnect());
     }
   }
