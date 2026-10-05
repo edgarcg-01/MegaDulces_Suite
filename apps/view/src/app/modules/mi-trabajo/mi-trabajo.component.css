@@ -713,9 +713,27 @@
     1366x768                   panel 806 px -> 3 col | 612 px de 632
     1986x996 (sin tope)        panel 1426   -> 3 col de 451 px | 742 px de 814
 
-  ⚠️ Tres columnas y no cuatro arriba de 1900: medido, 4 columnas bajan el alto a 436 px y dejan
-  **378 px muertos abajo** contra 183 con tres. Mas columnas llenan a lo ancho y vacian a lo alto.
-  La cuarta recien entra cuando el panel pasa de 110rem, donde tres columnas serian de 640 px.
+  ── ⚠️ La cuarta columna entra a 88rem, y mi razon anterior para dejarla en 110 estaba MAL ──────
+  Aquel comentario decia: "tres y no cuatro, porque 4 columnas dejan 378 px muertos abajo contra
+  183 con tres". Medido el alto TOTAL contra el disponible -- que es la pregunta equivocada. Lo que
+  se ve en pantalla no es el sobrante global sino el DESNIVEL entre columnas, y ahi tres es el peor
+  reparto posible de estos 7 grupos.
+
+  Alturas reales de los grupos: 106 · 386 · 218 · 218 · 330 · 162 · 274 (Comercial es 3.6x
+  Direccion General). El equilibrado llena en orden de DOM, asi que:
+
+      2 columnas -> desnivel 146 px   pero no entra sin scroll abajo de 1900
+      3 columnas -> desnivel 436 px   (reparte 3+3+1: 710 | 710 | 274)
+      4 columnas -> desnivel 218 px   (reparte 2+2+2+1: 492 | 436 | 492 | 274)
+
+  Y la cuarta columna arregla de paso el otro defecto: a 2049 px de ventana la tarjeta pasa de
+  472 px a 349, y una tarjeta de 472 px con la palabra "Ventas" adentro esta 79% vacia -- la
+  canaleta de pagina que se quito en el commit anterior se habia mudado adentro de la tarjeta.
+
+  ⛔ El desnivel NO se puede llevar a cero mientras los grupos sean indivisibles: siete bloques tan
+  dispares no reparten parejo en ninguna cantidad de columnas. Llevarlo a cero exige dejarlos
+  partirse entre columnas (`break-inside: auto`), y eso deja un fragmento SIN encabezado. Es una
+  decision de producto, no de CSS, y queda abierta.
 */
 .mt-espacios {
   column-count: 1;
@@ -723,7 +741,7 @@
 }
 @container espacios (min-width: 34rem) { .mt-espacios { column-count: 2; } }
 @container espacios (min-width: 46rem) { .mt-espacios { column-count: 3; } }
-@container espacios (min-width: 110rem) { .mt-espacios { column-count: 4; } }
+@container espacios (min-width: 88rem) { .mt-espacios { column-count: 4; } }
 /*
   Un grupo partido a la mitad entre dos columnas seria peor que el hueco que vino a resolver.
 
@@ -870,7 +888,13 @@
   width: 1.25rem;
   height: 1.25rem;
   border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--mt-tint, var(--text-faint)) 14%, var(--card-bg));
+  /*
+    22% y no 14%. Al 14% sobre blanco el azul de Comercial daba #DFE9F2 -- existe, pero en 20 px de
+    chip no hay superficie para que se lea, y la senal que vino a dar identidad al area terminaba
+    siendo invisible. Al 22% da #CCDCEB. Sigue siendo TINTE y no relleno saturado, que es lo que
+    `DESIGN.md` Q.6 pide, y sigue sin ser el unico portador: el encabezado lo dice en palabras.
+  */
+  background: color-mix(in srgb, var(--mt-tint, var(--text-faint)) 22%, var(--card-bg));
   transition: background-color 120ms ease-in-out;
 }
 
@@ -929,9 +953,9 @@
 */
 .mt-cell:hover { border-color: var(--action); }
 .mt-cell:hover .mt-cell-nm { color: var(--action); }
-/* El tinte del area sube de 14% a 24%: el aviso se ve, y sigue siendo SU color, no uno prestado. */
+/* El tinte del area sube de 22% a 38%: el aviso se ve, y sigue siendo SU color, no uno prestado. */
 .mt-cell:hover .mt-cell-chip {
-  background: color-mix(in srgb, var(--mt-tint, var(--action)) 24%, var(--card-bg));
+  background: color-mix(in srgb, var(--mt-tint, var(--action)) 38%, var(--card-bg));
 }
 .mt-cell:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .mt-cell-ico { font-size: var(--fs-xs); color: var(--mt-tint, var(--text-muted)); flex: none; }
