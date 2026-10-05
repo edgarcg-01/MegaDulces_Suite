@@ -616,19 +616,55 @@ export class BlindCountService {
    * `status: 'desconocido'` y `datos_al: null`: **no se puede medir** no es lo
    * mismo que **está fresco**, y un booleano no sabe decir «no sé».
    *
+   * ⚠️ Y `running` NO es una falla. Acá vivía un ternario —`status === 'ok' ? ok
+   * : error`— que leía los tres estados del CHECK de la tabla y los aplastaba en
+   * dos, mandando a `'error'` todo lo que no fuera `'ok'`. El carril arranca cada
+   * 35 s y tarda ~20, o sea que pasa el **56.9 % del tiempo** en `running`
+   * (medido en prod el 2026-10-05: **2,690 corridas ok contra 2 con error** en
+   * 24 h). Resultado: la pantalla encendía «la ingesta de Kepler está fallando»
+   * **más de media jornada** sobre un carril que acierta el 99.93 %, y las dos
+   * fallas de verdad quedaban indistinguibles del ruido. Una alarma que grita en
+   * falso enseña a ignorar el tablero.
+   *
+   * ⚠️ `datos_al` sale del último `ok`, no de `cron_runs.last_finish`: esa
+   * columna se pisa en CADA corrida, también cuando falla, así que leerla de ahí
+   * pinta de **fresco el instante exacto en que se cayó la ingesta**.
+   *
    * Best-effort: si la consulta falla, la captura sigue. Una pantalla sin píldora
    * es mucho menos grave que una pantalla que no deja contar.
    */
   async frescuraOds(): Promise<{ datos_al: string | null; status: 'ok' | 'error' | 'desconocido' }> {
     try {
+      const tenantId = this.tenantCtx.requireTenantId();
       return await this.tk.run(async (trx) => {
-        const row = await trx('analytics.cron_runs')
-          .where({ job_key: CARRIL_ODS })
-          .first('last_finish', 'status');
-        if (!row?.last_finish) return { datos_al: null, status: 'desconocido' as const };
+        // El tenant va EXPLÍCITO por dos razones medidas en prod el 2026-10-05:
+        // `analytics.cron_run_log` NO tiene RLS (`relrowsecurity = false`), así que
+        // sin él se leen latidos de cualquier tenant; y su índice `ix_crl_job`
+        // arranca por `tenant_id`, o sea que sin el predicado no puede entregar el
+        // orden y Postgres termina ordenando las 67,847 filas a mano:
+        // **1,030 ms contra 0.155 ms**, sobre una consulta que corre en cada poll.
+        const [ok, ult] = await Promise.all([
+          // El último dato que de verdad ENTRÓ. `cron_run_log` sólo guarda estados
+          // terminales (lo exige su CHECK `crl_status_terminal`), así que su
+          // último `ok` es el dato bueno. Sin ventana a propósito: si la ingesta
+          // lleva seis días caída, ese timestamp viejo es justo lo que hay que
+          // poder decir.
+          trx('analytics.cron_run_log')
+            .where({ tenant_id: tenantId, job_key: CARRIL_ODS, status: 'ok' })
+            .orderBy('finished_at', 'desc')
+            .first('finished_at'),
+          // El veredicto es el del último intento TERMINADO, no el del instante.
+          trx('analytics.cron_run_log')
+            .where({ tenant_id: tenantId, job_key: CARRIL_ODS })
+            .orderBy('finished_at', 'desc')
+            .first('status'),
+        ]);
+        if (!ok?.finished_at && !ult?.status) return { datos_al: null, status: 'desconocido' as const };
         return {
-          datos_al: new Date(row.last_finish).toISOString(),
-          status: row.status === 'ok' ? ('ok' as const) : ('error' as const),
+          datos_al: ok?.finished_at ? new Date(ok.finished_at).toISOString() : null,
+          status: ult?.status === 'error' ? ('error' as const)
+            : ult?.status === 'ok' ? ('ok' as const)
+            : ('desconocido' as const),
         };
       });
     } catch {

@@ -123,7 +123,14 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     expect(html()).not.toContain('bloqueado');
     // Lo que importa: el formulario de captura sigue en pantalla —antes el
     // bloqueo lo reemplazaba entero— con el turno ya elegido.
-    expect(html()).toContain('Nuevo arqueo');
+    //
+    // Se afirma sobre la REJILLA, no sobre el encabezado «Nuevo arqueo»: ese
+    // rótulo lo retiró `cb635e5ed` al darle el alto al conteo, y la prueba se
+    // quedó clavada en él. Llegó roja a `main` porque `Lint & test` es
+    // informativo, no compuerta. La rejilla es lo que de verdad hay que ver:
+    // si el bloqueo volviera a reemplazar la captura, desaparecería.
+    expect(html()).toContain('Registro detallado de billetes');
+    expect(html()).toContain('Registro detallado de monedas');
     expect(cmp.turnoSel()?.folio).toBe('87');
     await contar();
     expect(cmp.canSubmit()).toBe(true);
@@ -210,6 +217,56 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     await tick();
     expect(cmp.odsViejo()).toBeNull();
     expect(html()).not.toContain('No estamos recibiendo turnos de Kepler');
+  });
+
+  // ── `[SM.41]` Una alarma que grita en falso enseña a ignorar el tablero ──────────────────
+  //
+  // El backend aplastaba los TRES estados del carril (`running`/`ok`/`error`) en dos y
+  // mandaba a «error» todo lo que no fuera «ok». Medido en prod el 2026-10-05: el carril
+  // arranca cada 35 s y tarda ~20, o sea que vive el **56.9 % del tiempo** en `running`,
+  // con **2,690 corridas buenas contra 2 fallidas** en 24 h. La franja roja «la ingesta de
+  // Kepler está fallando» quedaba encendida más de media jornada sobre un carril que
+  // acierta el 99.93 %, y las dos fallas reales eran indistinguibles del ruido.
+  it('⭐ el carril tropezando NO enciende la alarma si el dato está fresco', async () => {
+    svc.resp = { turnos: [], aviso: null, datos_al: new Date().toISOString(), status: 'error' };
+    cmp.ngOnInit();
+    await tick();
+
+    // El dato es de hace un instante: la cajera no puede hacer nada con el tropiezo,
+    // y su conteo se compara igual. No se le ocupa media pantalla con una alarma.
+    expect(cmp.odsViejo()).toBeNull();
+    expect(html()).not.toContain('ingesta');
+
+    // PRUEBA NEGATIVA: el mismo estado de falla CON el dato viejo sí tiene que gritar,
+    // y además explicar por qué está viejo. Si esto pasara en verde, el arreglo habría
+    // apagado la alarma de verdad en vez de apagar el ruido.
+    svc.resp = {
+      turnos: [], aviso: null,
+      datos_al: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(), status: 'error',
+    };
+    cmp.ngOnInit();
+    await tick();
+    expect(cmp.odsViejo()).toBeTruthy();
+    expect(html()).toContain('No estamos recibiendo turnos de Kepler');
+    expect(html()).toContain('La ingesta viene fallando');
+  });
+
+  it('⭐ sin una sola corrida buena lo dice, en vez de callarse', async () => {
+    // `datos_al` nulo CON la ingesta fallando no es «no medí»: es «no hay de dónde
+    // medir». Eso sí se declara, porque la lista puede estar vacía por esa razón.
+    svc.resp = { turnos: [], aviso: null, datos_al: null, status: 'error' };
+    cmp.ngOnInit();
+    await tick();
+
+    expect(cmp.odsViejo()).toBeTruthy();
+    expect(html()).toContain('No sabemos de cuándo es esta lista');
+
+    // CONTROL: el mismo nulo SIN falla declarada se queda en la píldora chica.
+    svc.resp = { turnos: [], aviso: null, datos_al: null, status: 'desconocido' };
+    cmp.ngOnInit();
+    await tick();
+    expect(cmp.odsViejo()).toBeNull();
+    expect(html()).toContain('Frescura sin medir');
   });
 
   // ── `[SM.41]` `dirty` significaba dos cosas y apagaba tres ──────────────────────────────
