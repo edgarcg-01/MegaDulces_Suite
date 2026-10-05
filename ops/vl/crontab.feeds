@@ -117,6 +117,12 @@
 # funciona en `md` sin que `/secrets/feeds.env` tenga una sola clave `CONTPAQI_SQL_*`.
 # Funciona, y es una credencial de producción versionada en el repo. Va al secreto.
 3-58/5 * * * * /app/ops/vl/run-feed.sh contpaqi-cfdis "node /app/database/importers/contpaqi/import-contpaqi-cfdis.js --apply"
+# `[IG.14]` El mismo importer, el otro lado: la factura de VENTA (`--rol emitidas`). Siempre
+# estuvo en el ADD -213,520 facturas por $4,680 M- y nadie la habia pedido: el filtro decia
+# `RFCReceptor`. Desfasado 2 minutos del carril de recibidas para que no compitan por el ADD,
+# y con `flock` propio (la etiqueta es distinta). Watermark y latido por separado, o cada
+# corrida pisaria el avance de la otra.
+1-56/5 * * * * /app/ops/vl/run-feed.sh contpaqi-cfdis-emit "node /app/database/importers/contpaqi/import-contpaqi-cfdis.js --rol emitidas --apply"
 
 # ── horario / cada 2 h ───────────────────────────────────────────────────────
 15 * * * *  /app/ops/vl/run-feed.sh intraday      "node /app/database/importers/kepler/run-prod-feeds.js intraday --apply"
