@@ -1587,6 +1587,57 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.verDetalleCierre()).toBe(true);
   });
 
+  /**
+   * `[CG.30.1]` El MISMO defecto de CG.30 vivia en el renglon de al lado y se paso por alto: la
+   * pantalla afirmaba dos universos distintos a cinco centimetros de distancia.
+   */
+  it('el renglon de la bandeja NO repite el total: declara que es sobre lo que se ve', () => {
+    montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...VACIA, rows: [GASTO_TRABADO], confirmables: 0, total: 1875,
+      })),
+    });
+    expect(comp.textoBandeja()).toContain('de las 1 que se ven');
+    // El total lo dice el subtitulo de la pagina; repetirlo aca seria ruido.
+    expect(comp.textoBandeja()).not.toContain('1,875');
+  });
+
+  /**
+   * `[CG.33]` El motivo se pintaba ENTERO en cada fila: con 9 a la vista la tabla era un muro
+   * naranja donde el aviso pesaba mas que el monto, y repetir 85 veces la misma frase tampoco
+   * decia lo unico accionable: CUANTAS.
+   */
+  it('los motivos se agrupan y se cuentan, ordenados por cantidad', () => {
+    const otro = { ...GASTO_TRABADO, folio: '0000002', motivo: 'sin_monto' as const, motivo_texto: 'x' };
+    montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...VACIA,
+        rows: [GASTO_TRABADO, { ...GASTO_TRABADO, folio: '0000003' }, otro],
+        confirmables: 0, total: 3,
+      })),
+    });
+    const g = comp.motivosAgrupados();
+    expect(g[0].n).toBe(2);              // el mas repetido primero
+    expect(g.map((x) => x.n)).toEqual([2, 1]);
+  });
+
+  it('⛔ [negativa] lo CONFIRMABLE no entra al resumen de motivos', () => {
+    montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...VACIA, rows: [{ ...GASTO_TRABADO, confirmable: true }], confirmables: 1, total: 1,
+      })),
+    });
+    expect(comp.motivosAgrupados()).toEqual([]);
+  });
+
+  it('⛔ [negativa] una clave de motivo DESCONOCIDA se muestra tal cual, no se disfraza', () => {
+    // Una clave nueva del servidor tiene que VERSE, no caer a un generico.
+    montar();
+    expect(comp.motivoCorto('motivo_nuevo_del_server')).toBe('motivo_nuevo_del_server');
+    expect(comp.motivoCorto('sin_mapa')).toBe('ruta sin declarar');
+    expect(comp.motivoCorto(null)).toBe('no confirmable');
+  });
+
   it('los limites estructurales arrancan plegados y los accionables no', () => {
     // Antes eran tres avisos naranjas iguales y dos salian todos los dias. Un aviso inmutable que
     // grita se deja de leer, y se lleva puesto al que si importaba.

@@ -267,6 +267,17 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-cv { font-size:var(--fs-xs); color:var(--text-soft); }
     .cg-cv-fijo { color:var(--ok-fg, var(--action)); font-weight:600; }
     .cg-sub-dim { opacity:.62; font-size:var(--fs-xs); margin-top:.15rem; }
+    /* [CG.33] La marca del motivo en la fila: gris, NO naranja. El naranja de antes se repetia en
+       cada renglon y le ganaba el peso visual al monto, que es el dato. El porque entero vive en
+       el title y, contado, en el resumen de arriba. */
+    .cg-motivo { font-size:var(--fs-xs); color:var(--text-muted); font-style:italic; }
+    /* El resumen agrupado: una sola linea, chips contados. */
+    .cg-motivos-res { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
+      margin:.1rem 0 .5rem; font-size:var(--fs-xs); color:var(--text-muted); }
+    .cg-motivos-lbl { color:var(--text-soft); }
+    .cg-motivos-chip { border:1px solid var(--border-color); border-radius:999px;
+      padding:.1rem .5rem; white-space:nowrap; }
+    .cg-motivos-chip strong { color:var(--text-main); }
     /* [CG.32] El renglon que queda cuando el cuadre esta plegado. */
     .cg-conc-plegado { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
       font-size:var(--fs-sm); color:var(--text-muted); padding:.2rem 0 .1rem; }
@@ -603,6 +614,17 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                         emptyTitle="Nada por confirmar con este filtro"
                         [emptyHint]="pistaVacio()"
                         (retry)="cargarPendientes()">
+          <!-- [CG.33] POR QUE no se pueden confirmar, agrupado y CONTADO, una sola vez.
+               Repetir la misma frase en 85 filas no decia lo unico accionable: cuantas rutas hay
+               que dar de alta. Aca se dice una vez y con su numero. -->
+          @if (motivosAgrupados().length) {
+            <p class="cg-motivos-res">
+              <span class="cg-motivos-lbl">De las {{ pendientes().length }} que se ven, esperan:</span>
+              @for (g of motivosAgrupados(); track g.motivo) {
+                <span class="cg-motivos-chip">{{ g.motivo }} <strong>{{ g.n }}</strong></span>
+              }
+            </p>
+          }
           <table class="cg-tbl">
             <caption class="sr-only">Movimientos de Kepler pendientes de confirmar en el libro de caja</caption>
             <thead>
@@ -648,7 +670,13 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                   </td>
                   <td>
                     {{ p.beneficiario || p.entidad_code || '—' }}
-                    @if (!p.confirmable) { <small class="fin-hint-warn d-block">{{ p.motivo_texto }}</small> }
+                    <!-- [CG.33] La fila lleva una MARCA, no el parrafo. El texto entero se repetia
+                         identico en cada renglon y convertia la tabla en un muro naranja donde el
+                         aviso pesaba mas que el monto. El porque completo esta arriba (agrupado,
+                         con su conteo) y aca en el title de la marca. -->
+                    @if (!p.confirmable) {
+                      <small class="cg-motivo d-block" [attr.title]="p.motivo_texto">{{ motivoCorto(p.motivo) }}</small>
+                    }
                     @if (p.caos_match; as cm) {
                       <small class="cg-caos-attach d-block" [class.cg-caos-alta]="cm.confianza === 'alta'">
                         ⇄ del cajero {{ cm.ref || 's/ref' }} {{ money(cm.monto) }}@if (p.monto - cm.monto > 0.5) { · retiene {{ money(p.monto - cm.monto) }} } · {{ cm.confianza }}
@@ -701,10 +729,13 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           <!-- La lista viene TOPADA. Sin esto, un movimiento más allá del tope era invisible y
                nadie lo iba a confirmar nunca: el contador de arriba mentía sobre un conjunto
                recortado y el bloque de «fuera de ventana» sólo cubre lo anterior por FECHA. -->
+          <!-- [CG.30.1] Con el total medido se dice CUANTAS faltan, no un "hay mas" sin tamano:
+               "las primeras 100 de 1,875" ubica el esfuerzo; "hay mas" no dice si son 3 o 12,000. -->
           @if (truncada()) {
             <p class="fin-dim cg-rezago">
-              Se muestran las primeras <strong>{{ pendientes().length }}</strong> de esta ventana —
-              hay más. Acotá por signo o por caja, o achicá la ventana, para verlas todas.
+              Se muestran las primeras <strong>{{ pendientes().length }}</strong>
+              @if (totalPend(); as t) { de <strong>{{ t.toLocaleString('es-MX') }}</strong> }
+              de esta ventana. Acotá por signo o por caja, o achicá la ventana, para verlas todas.
             </p>
           }
         </app-load-state>
@@ -1927,14 +1958,67 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       }));
   });
 
-  /** El renglón de contexto de la bandeja. Dice el corte REAL, el del servidor. */
+  /**
+   * El renglón de contexto de la bandeja. Dice el corte REAL, el del servidor.
+   *
+   * ⛔ `[CG.30.1]` **El mismo defecto que `[CG.30]`, en el renglón de al lado — y se me pasó.**
+   * Acá decía `${ok} de ${total}` con `total = pendientes().length`, o sea el tamaño de la página:
+   * publicaba *«22 de 100»* mientras el subtítulo de arriba, ya corregido, decía **1,875**. La
+   * misma pantalla afirmando dos universos distintos a cinco centímetros de distancia.
+   *
+   * ⚠️ Acá NO se repite el total: eso ya lo dice el subtítulo de la página. Este renglón dice lo
+   * suyo —cuántas de las que se VEN salen de un clic— y lo dice declarando su alcance.
+   * *Corregir un primitivo en un lugar y no en su vecino es cómo se vuelven a separar las copias.*
+   */
+  /**
+   * `[CG.33]` La etiqueta CORTA del motivo, para la fila. El texto largo sigue existiendo entero
+   * en el `title` y, agrupado, en el resumen de arriba.
+   *
+   * ⚠️ Lo que no está mapeado se muestra tal cual en vez de caer a un genérico: una clave nueva
+   * del servidor tiene que **verse**, no disfrazarse de «sin declarar».
+   */
+  private readonly MOTIVO_CORTO: Record<string, string> = {
+    sin_mapa: 'ruta sin declarar',
+    sin_confirmar: 'identidad sin firmar',
+    sin_cuenta: 'sin cuenta contable',
+    sin_monto: 'sin importe en el ERP',
+    sin_regla: 'beneficiario sin regla',
+    elegir_concepto: 'falta elegir concepto',
+    fecha_futura: 'fecha posterior a hoy',
+  };
+  motivoCorto(m: string | null | undefined): string {
+    if (!m) return 'no confirmable';
+    return this.MOTIVO_CORTO[m] ?? m;
+  }
+
+  /**
+   * `[CG.33]` Por qué NO se puede confirmar lo que se ve, **agrupado y contado**.
+   *
+   * ⛔ El motivo se pintaba entero en cada fila y era el mismo texto en casi todas: con 9 filas a
+   * la vista la tabla era un muro naranja donde el aviso pesaba más que el monto. Y repetir 85
+   * veces la misma frase tampoco decía lo único accionable — **cuántas** rutas hay que dar de alta.
+   *
+   * Es sobre las filas que se VEN, igual que `confirmables`, y el texto lo dice.
+   */
+  motivosAgrupados = computed(() => {
+    const cuenta = new Map<string, number>();
+    for (const p of this.pendientes()) {
+      if (p.confirmable) continue;
+      const k = this.motivoCorto(p.motivo);
+      cuenta.set(k, (cuenta.get(k) ?? 0) + 1);
+    }
+    return [...cuenta.entries()]
+      .map(([motivo, n]) => ({ motivo, n }))
+      .sort((a, b) => b.n - a.n);
+  });
+
   textoBandeja = computed(() => {
-    const total = this.pendientes().length;
+    const enPagina = this.pendientes().length;
     const ok = this.confirmables();
     const srv = this.ventanaSrv();
     const dias = srv?.dias ?? this.ventanaDias();
-    const partes = [`${ok} de ${total} se confirman sin elegir nada`];
-    if (ok < total) partes.push('el resto necesita que su cuenta esté declarada');
+    const partes = [`${ok} de las ${enPagina.toLocaleString('es-MX')} que se ven se confirman sin elegir nada`];
+    if (ok < enPagina) partes.push('el resto necesita que su cuenta esté declarada');
     if (dias) partes.push(`últimos ${dias} día${dias === 1 ? '' : 's'}`);
     else if (srv?.desde) partes.push(`desde ${dmy(srv.desde)}`);
     // La EDAD del dato, siempre. La lista sale de una foto que refresca un carril cada minuto;
