@@ -27,10 +27,12 @@ export class SupplierPaymentProofsController {
     @Query('to') to?: string,
     @Query('search') search?: string,
     @Query('metodo') metodo?: string,
+    // [PP.9] El MEDIO real (caja|banco|puente|sin_declarar), distinto del tipo de documento.
+    @Query('medio') medio?: string,
     @Query('alertas') alertas?: string,
     @Query('limit') limit?: string,
   ) {
-    const q: ListPaymentsQuery = { estado, from, to, search, metodo, alertas, limit: limit ? Number(limit) : undefined };
+    const q: ListPaymentsQuery = { estado, from, to, search, metodo, medio, alertas, limit: limit ? Number(limit) : undefined };
     return this.svc.listPayments(q);
   }
 

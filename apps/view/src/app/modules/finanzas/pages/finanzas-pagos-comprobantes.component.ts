@@ -63,8 +63,13 @@ interface GastoFile {
           <p-select [options]="anioOpts" [(ngModel)]="anio" (onChange)="onAnio()" optionLabel="label" optionValue="value" styleClass="cb-sel" ariaLabel="Filtrar por año" /></div>
         <div class="cb-field"><label>Mes</label>
           <p-select [options]="mesOpts" [(ngModel)]="mes" (onChange)="load()" optionLabel="label" optionValue="value" [disabled]="!anio" styleClass="cb-sel" ariaLabel="Filtrar por mes" /></div>
+        <!-- [PP.9] Dos filtros, porque son dos preguntas: "Origen" es de dónde SALIÓ el dinero
+             (caja/banco), "Método" es qué documento usó Kepler. Filtrar por "Transferencia"
+             devolvía pagos en efectivo, y no había forma de pedir lo que salió de la caja. -->
+        <div class="cb-field"><label>Origen</label>
+          <p-select [options]="medioOpts" [(ngModel)]="medio" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="cb-sel" ariaLabel="Filtrar por origen del dinero" /></div>
         <div class="cb-field"><label>Método</label>
-          <p-select [options]="metodoOpts" [(ngModel)]="metodo" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="cb-sel" ariaLabel="Filtrar por método de pago" /></div>
+          <p-select [options]="metodoOpts" [(ngModel)]="metodo" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="cb-sel" ariaLabel="Filtrar por tipo de documento de Kepler" /></div>
         <div class="cb-field cb-grow"><label>Buscar</label>
           <input pInputText [(ngModel)]="search" placeholder="Folio, proveedor, RFC, monto…" (keyup.enter)="load()" (blur)="queue()" /></div>
         <div class="cb-field"><label>&nbsp;</label>
@@ -95,7 +100,10 @@ interface GastoFile {
             <tr>
               <td>{{ c.pago_date | date:'dd/MM/yy' }}</td>
               <td class="mono">{{ c.folio }}</td>
-              <td><span class="cb-metodo" [class.tra]="c.metodo_pago === 'transferencia'" [class.che]="c.metodo_pago === 'cheque'" [class.ant]="c.metodo_pago === 'anticipo'"><i class="pi" [ngClass]="c.metodo_pago === 'cheque' ? 'pi-book' : c.metodo_pago === 'anticipo' ? 'pi-wallet' : 'pi-send'"></i> {{ metodoLabel(c.metodo_pago) }}</span></td>
+              <!-- [PP.9] Manda el MEDIO real, no el tipo de documento: "Transferencia" sobre un
+                   pago hecho en efectivo era la mentira más cara de esta pantalla. El documento
+                   de Kepler no se pierde, va en el tooltip. -->
+              <td><span class="cb-metodo" [class.tra]="c.medio_pago === 'banco'" [class.efe]="c.medio_pago === 'caja'" [class.che]="!c.medio_pago && c.metodo_pago === 'cheque'" [class.ant]="c.medio_pago === 'sin_declarar' || c.medio_pago === 'no_resuelve'" [title]="medioTitle(c)"><i class="pi" [ngClass]="medioIcon(c)"></i> {{ medioLabel(c) }}</span></td>
               <td>{{ c.proveedor_nombre || c.proveedor_code || '—' }}<div class="cb-sub">{{ c.proveedor_rfc || c.proveedor_code }}</div></td>
               <td class="muted cb-concepto" [title]="c.concepto">{{ c.concepto || '—' }}</td>
               <td class="ta-r strong">{{ money(c.monto) }}</td>
@@ -448,7 +456,12 @@ interface GastoFile {
     .cb-metodo i { font-size: .7rem; }
     .cb-metodo.tra { color: var(--action); }
     .cb-metodo.che { color: var(--text-main); }
+    /* [PP.9] 'ant' pasa a marcar lo SIN DECLARAR (el origen que no se pudo medir), que es lo que
+       de verdad hay que mirar; el anticipo ya se distingue por su icono y su tooltip. */
     .cb-metodo.ant { color: var(--warn-fg, #b45309); }
+    /* [PP.9] Efectivo: el caso que la pantalla llamaba "Transferencia". Va en el color de texto
+       principal y en negrita — no es un error (no lleva --bad-fg), pero no puede pasar inadvertido. */
+    .cb-metodo.efe { color: var(--text-main); font-weight: 600; }
     .cb-concepto { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mono { font-family: var(--font-mono); font-size: .85em; }
     .cb-comp { display: inline-flex; align-items: center; gap: .45rem; }
@@ -627,12 +640,16 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   anio = '';
   mes = '';
   metodo = '';
+  /** [PP.9] Filtro por el ORIGEN real del dinero (caja/banco/puente). */
+  medio = '';
   readonly soloAlertas = signal(false);
   readonly anioOpts = [{ label: 'Todos los años', value: '' },
     ...Array.from({ length: (new Date().getFullYear() - 2025) + 1 }, (_, i) => { const y = new Date().getFullYear() - i; return { label: String(y), value: String(y) }; })];
   readonly mesOpts = [{ label: 'Todos los meses', value: '' },
     ...['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((n, i) => ({ label: n, value: String(i + 1) }))];
   readonly metodoOpts = [{ label: 'Todos los métodos', value: '' }, { label: 'Transferencia', value: 'transferencia' }, { label: 'Cheque', value: 'cheque' }, { label: 'Anticipo', value: 'anticipo' }];
+  /** [PP.9] El origen REAL del dinero. 'Sin declarar' se ofrece como filtro: lo que no se pudo medir se mira, no se esconde. */
+  readonly medioOpts = [{ label: 'Todos los orígenes', value: '' }, { label: 'Efectivo (caja)', value: 'caja' }, { label: 'Banco', value: 'banco' }, { label: 'Factoraje', value: 'puente' }, { label: 'Sin declarar', value: 'sin_declarar' }];
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   // attach dialog
@@ -757,7 +774,7 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
     const { from, to } = this.dateRange();
     this.svc.list({
       estado: this.estadoSel() || undefined, search: this.search || undefined,
-      from, to, metodo: this.metodo || undefined, alertas: this.soloAlertas() ? 'true' : undefined,
+      from, to, metodo: this.metodo || undefined, medio: this.medio || undefined, alertas: this.soloAlertas() ? 'true' : undefined,
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -1052,6 +1069,43 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   }
 
   metodoLabel(m: string | null): string { return ({ transferencia: 'Transferencia', cheque: 'Cheque', anticipo: 'Anticipo' } as Record<string, string>)[m || ''] || '—'; }
+
+  /**
+   * [PP.9] Lo que de verdad se muestra en la columna Método: el MEDIO por el que salió el dinero.
+   *
+   * `metodo_pago` sale de `c31` y es el TIPO DE DOCUMENTO de Kepler — por eso rotulaba
+   * "Transferencia" a 2,684 pagos ($52.27M) que salieron en EFECTIVO de la caja general. El medio
+   * manda sobre el documento: es la pregunta que el usuario de esta pantalla está haciendo.
+   *
+   * Si la fila no trae `medio_pago` (migración aún no aplicada) cae al método de siempre, en vez
+   * de pintar un guion: una pantalla a medio desplegar debe degradar, no vaciarse.
+   */
+  medioLabel(r: PagoRow): string {
+    switch (r.medio_pago) {
+      case 'caja': return 'Efectivo';
+      case 'puente': return 'Factoraje';
+      case 'sin_declarar':
+      case 'no_resuelve': return 'Sin declarar';
+      case 'banco': return this.metodoLabel(r.metodo_pago);
+      default: return this.metodoLabel(r.metodo_pago);
+    }
+  }
+
+  /** Icono por medio real; cae al del documento mientras la columna no exista. */
+  medioIcon(r: PagoRow): string {
+    if (r.medio_pago === 'caja') return 'pi-money-bill';
+    if (r.medio_pago === 'puente') return 'pi-briefcase';
+    if (r.medio_pago === 'sin_declarar' || r.medio_pago === 'no_resuelve') return 'pi-question-circle';
+    return r.metodo_pago === 'cheque' ? 'pi-book' : r.metodo_pago === 'anticipo' ? 'pi-wallet' : 'pi-send';
+  }
+
+  /** El detalle completo va al tooltip: medio, cuenta de tesorería y el documento que lo respalda. */
+  medioTitle(r: PagoRow): string {
+    const cta = r.cuenta_tesoreria ? ` · ${r.cuenta_tesoreria}` : '';
+    const doc = r.metodo_pago ? `${this.metodoLabel(r.metodo_pago)} (${r.doc_prefix})` : r.doc_prefix;
+    if (!r.medio_pago) return `Documento Kepler: ${doc}`;
+    return `Salió de: ${this.medioLabel(r)}${cta} — documento Kepler: ${doc}`;
+  }
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
