@@ -114,11 +114,11 @@ const CHANNEL_SEL_OPTS = [
       }
 
       <!-- B — Entrada por pregunta: qué quieres ver (fija el encuadre, no esconde filtros) -->
-      <div class="so-jobs card-premium card-flat" role="tablist" aria-label="¿Qué quieres ver?">
+      <div class="so-jobs card-premium card-flat" role="radiogroup" aria-label="¿Qué quieres ver?">
         <span class="so-jobs-lead">¿Qué quieres ver?</span>
         @for (j of jobOpts; track j.value) {
           <button type="button" class="so-job" [class.is-active]="job() === j.value"
-                  role="tab" [attr.aria-selected]="job() === j.value" (click)="setJob(j.value)">
+                  role="radio" [attr.aria-checked]="job() === j.value" (click)="setJob(j.value)">
             <span class="so-job-t">{{ j.label }}</span>
             <span class="so-job-d">{{ j.desc }}</span>
           </button>

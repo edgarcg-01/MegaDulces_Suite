@@ -76,15 +76,15 @@ interface FilterChip {
     
     <!-- Filters + list -->
     @if (!loading() && orders().length > 0) {
-      <div class="po-filters" role="tablist" aria-label="Filtrar por estado">
+      <div class="po-filters" role="radiogroup" aria-label="Filtrar por estado">
         @for (f of filters; track f) {
           <button
             type="button"
             class="po-filter"
             [class.active]="statusFilter() === f.key"
             (click)="setFilter(f.key)"
-            role="tab"
-            [attr.aria-selected]="statusFilter() === f.key"
+            role="radio"
+            [attr.aria-checked]="statusFilter() === f.key"
             >
             {{ f.label }}
             <span class="po-filter-count">{{ countByStatus(f.key) }}</span>

@@ -63,15 +63,15 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
            MIDEN por JS (no se derivan de 1/N) porque las dos pestañas tienen anchos distintos
            — "Diario" contra "Cuadre de traspasos". Mismo cableado que /dashboard/reports. -->
       <div class="modern-tabs-wrapper liquid-tabs-host">
-        <div class="liquid-tabs" role="tablist" #lqContainer>
+        <div class="liquid-tabs" role="radiogroup" #lqContainer>
           <span class="liquid-tabs-indicator" aria-hidden="true" #lqIndicator></span>
-          <button #lqTab type="button" role="tab" class="liquid-tab"
+          <button #lqTab type="button" role="radio" class="liquid-tab"
                   [class.is-active]="activeTab() === 'diario'"
-                  [attr.aria-selected]="activeTab() === 'diario'"
+                  [attr.aria-checked]="activeTab() === 'diario'"
                   (click)="onTab('diario')"><i class="pi pi-book" aria-hidden="true"></i> Diario</button>
-          <button #lqTab type="button" role="tab" class="liquid-tab"
+          <button #lqTab type="button" role="radio" class="liquid-tab"
                   [class.is-active]="activeTab() === 'cuadre'"
-                  [attr.aria-selected]="activeTab() === 'cuadre'"
+                  [attr.aria-checked]="activeTab() === 'cuadre'"
                   (click)="onTab('cuadre')"><i class="pi pi-sitemap" aria-hidden="true"></i> Cuadre de traspasos</button>
         </div>
 

@@ -20,14 +20,14 @@
   </header>
 
   <!-- ── 2. Pestañas de Navegación (estilo Piso de Venta) ───────────── -->
-  <nav class="an-tabs-nav" role="tablist">
+  <nav class="an-tabs-nav" role="radiogroup">
     @for (tab of tabs; track tab.id) {
       <button
         type="button"
-        role="tab"
+        role="radio"
         class="an-tab-btn"
         [class.is-active]="activeTab() === tab.id"
-        [attr.aria-selected]="activeTab() === tab.id"
+        [attr.aria-checked]="activeTab() === tab.id"
         (click)="setTab(tab.id)"
       >
         <i [class]="tab.icon"></i>

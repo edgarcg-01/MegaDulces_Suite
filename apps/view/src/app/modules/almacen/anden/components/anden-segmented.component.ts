@@ -30,13 +30,13 @@ export interface SegItem {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="seg" role="tablist" aria-label="Secciones del andén">
+    <div class="seg" role="radiogroup" aria-label="Secciones del andén">
       @for (t of items(); track t.key; let i = $index) {
         <button
           #btn
           type="button"
-          role="tab"
-          [attr.aria-selected]="activa() === t.key"
+          role="radio"
+          [attr.aria-checked]="activa() === t.key"
           [attr.tabindex]="activa() === t.key ? 0 : -1"
           [disabled]="!t.on"
           [class.is-on]="activa() === t.key"

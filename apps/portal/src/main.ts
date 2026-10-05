@@ -1,5 +1,5 @@
 import { bootstrapApplication } from '@angular/platform-browser';
-import { installNumberWheelGuard, installRowNavGuard } from '@megadulces/ui-web';
+import { installNumberWheelGuard, installRadioGroupNav, installRowNavGuard } from '@megadulces/ui-web';
 import { appConfig } from './app/app.config';
 import { AppComponent } from './app/app.component';
 
@@ -14,6 +14,12 @@ installNumberWheelGuard(document);
 // listener en fase de CAPTURA, por la misma razon que el de la rueda: una directiva hay que
 // acordarse de importarla, y son 153 tablas.
 installRowNavGuard(document);
+
+// `[TAB.3]` Teclado de los selectores de una opcion. 35 de 37 no tenian roving tabindex:
+// el tabulador paraba en CADA opcion (D.4a) y las flechas no hacian nada. Global por la
+// misma razon que los dos de arriba: una directiva se olvida y el que la olvida no rompe
+// nada -- simplemente vuelve a quedar sin teclado. Deja en paz a los que ya se administran.
+installRadioGroupNav(document);
 
 bootstrapApplication(AppComponent, appConfig).catch((err) =>
   console.error(err),

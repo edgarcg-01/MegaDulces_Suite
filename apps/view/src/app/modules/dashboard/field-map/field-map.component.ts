@@ -25,17 +25,17 @@ type FieldView = 'live' | 'equipo' | 'ruta' | 'vendedor';
   imports: [LiveMapComponent, RoutesAnalysisComponent, VendorHistoryComponent, TeamDayComponent],
   template: `
     <div class="fm-wrap">
-      <nav class="fm-tabs" role="tablist">
-        <button role="tab" [class.act]="view() === 'live'" [attr.aria-selected]="view() === 'live'" (click)="setView('live')">
+      <nav class="fm-tabs" role="radiogroup">
+        <button role="radio" [class.act]="view() === 'live'" [attr.aria-checked]="view() === 'live'" (click)="setView('live')">
           <i class="pi pi-compass" aria-hidden="true"></i>&nbsp;En vivo
         </button>
-        <button role="tab" [class.act]="view() === 'equipo'" [attr.aria-selected]="view() === 'equipo'" (click)="setView('equipo')">
+        <button role="radio" [class.act]="view() === 'equipo'" [attr.aria-checked]="view() === 'equipo'" (click)="setView('equipo')">
           <i class="pi pi-users" aria-hidden="true"></i>&nbsp;Equipo
         </button>
-        <button role="tab" [class.act]="view() === 'ruta'" [attr.aria-selected]="view() === 'ruta'" (click)="setView('ruta')">
+        <button role="radio" [class.act]="view() === 'ruta'" [attr.aria-checked]="view() === 'ruta'" (click)="setView('ruta')">
           <i class="pi pi-map" aria-hidden="true"></i>&nbsp;Por ruta
         </button>
-        <button role="tab" [class.act]="view() === 'vendedor'" [attr.aria-selected]="view() === 'vendedor'" (click)="setView('vendedor')">
+        <button role="radio" [class.act]="view() === 'vendedor'" [attr.aria-checked]="view() === 'vendedor'" (click)="setView('vendedor')">
           <i class="pi pi-history" aria-hidden="true"></i>&nbsp;Por vendedor
         </button>
       </nav>

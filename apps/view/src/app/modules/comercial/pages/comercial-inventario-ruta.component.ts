@@ -236,9 +236,9 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       </dl>
     }
 
-    <div class="ir-tabs" role="tablist" aria-label="Detalle de la ruta">
+    <div class="ir-tabs" role="radiogroup" aria-label="Detalle de la ruta">
       @for (t of PESTANAS; track t.value) {
-        <button type="button" role="tab" [attr.aria-selected]="pestana() === t.value"
+        <button type="button" role="radio" [attr.aria-checked]="pestana() === t.value"
                 [class.on]="pestana() === t.value" (click)="setPestana(t.value)">{{ t.label }}</button>
       }
     </div>

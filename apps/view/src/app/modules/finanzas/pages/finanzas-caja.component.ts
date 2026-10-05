@@ -154,9 +154,9 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
 
       <!-- Mismo segmentado que Bancos (fb-viewseg): la misma app no puede navegar de dos
            formas distintas según la pantalla. Lo propio de Caja es el badge "histórico". -->
-      <div class="fb-viewseg" role="tablist" aria-label="Vistas de caja">
+      <div class="fb-viewseg" role="radiogroup" aria-label="Vistas de caja">
         @for (v of VIEWS; track v.key) {
-          <button role="tab" [attr.aria-selected]="view()===v.key" [class.active]="view()===v.key" [class.legacy]="v.legacy" (click)="setView(v.key)">
+          <button role="radio" [attr.aria-checked]="view()===v.key" [class.active]="view()===v.key" [class.legacy]="v.legacy" (click)="setView(v.key)">
             <span class="pi {{v.icon}}" aria-hidden="true"></span> {{ v.label }}@if (v.legacy) { <span class="cg-hist" title="Fuente histórica (Base Movimientos, ≤ ene-2026)">histórico</span> }
           </button>
         }

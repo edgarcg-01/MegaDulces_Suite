@@ -23,9 +23,9 @@ import { BANCOS_STYLES } from './bancos.styles';
   imports: [FormsModule, ButtonModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="fb-adminseg" role="tablist">
-      <button role="tab" [class.active]="tab()==='catalogo'" (click)="tab.set('catalogo')">Catálogo Kepler</button>
-      <button role="tab" [class.active]="tab()==='cuentas'" (click)="tab.set('cuentas')">Cuentas de banco</button>
+    <div class="fb-adminseg" role="radiogroup">
+      <button role="radio" [attr.aria-checked]="tab()==='catalogo'" [class.active]="tab()==='catalogo'" (click)="tab.set('catalogo')">Catálogo Kepler</button>
+      <button role="radio" [attr.aria-checked]="tab()==='cuentas'" [class.active]="tab()==='cuentas'" (click)="tab.set('cuentas')">Cuentas de banco</button>
     </div>
 
     @if (tab() === 'catalogo') {

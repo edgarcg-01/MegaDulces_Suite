@@ -44,9 +44,9 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
         </div>
       </header>
 
-      <div class="cq-modebar" role="tablist" aria-label="Vista de entrada">
-        <button type="button" role="tab" class="cq-mode" [class.is-active]="entryMode()==='debe'" [attr.aria-selected]="entryMode()==='debe'" (click)="setMode('debe')"><span class="pi pi-wallet" aria-hidden="true"></span>&nbsp;Lo que se debe (ContPAQi)</button>
-        <button type="button" role="tab" class="cq-mode" [class.is-active]="entryMode()==='kepler'" [attr.aria-selected]="entryMode()==='kepler'" (click)="setMode('kepler')"><span class="pi pi-book" aria-hidden="true"></span>&nbsp;Movimiento (Kepler 201)</button>
+      <div class="cq-modebar" role="radiogroup" aria-label="Vista de entrada">
+        <button type="button" role="radio" class="cq-mode" [class.is-active]="entryMode()==='debe'" [attr.aria-checked]="entryMode()==='debe'" (click)="setMode('debe')"><span class="pi pi-wallet" aria-hidden="true"></span>&nbsp;Lo que se debe (ContPAQi)</button>
+        <button type="button" role="radio" class="cq-mode" [class.is-active]="entryMode()==='kepler'" [attr.aria-checked]="entryMode()==='kepler'" (click)="setMode('kepler')"><span class="pi pi-book" aria-hidden="true"></span>&nbsp;Movimiento (Kepler 201)</button>
       </div>
 
       <div class="cq-filters">
@@ -166,10 +166,10 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
 
     <p-dialog [visible]="!!detail()" (visibleChange)="!$event && closeDetail()" [modal]="true" [dismissableMask]="true" [style]="{ width: '1040px', maxWidth: '96vw' }" [header]="detail()?.proveedor || 'Desglose'">
       @if (detail(); as d) {
-        <div class="cq-dt-tabs" role="tablist" aria-label="Lente del desglose">
-          <button type="button" role="tab" class="cq-dt-tab" [class.is-active]="dtTab()==='contable'" [attr.aria-selected]="dtTab()==='contable'" (click)="setTab('contable')">Contable (201)</button>
-          <button type="button" role="tab" class="cq-dt-tab" [class.is-active]="dtTab()==='factura'" [attr.aria-selected]="dtTab()==='factura'" (click)="setTab('factura')">Por factura</button>
-          <button type="button" role="tab" class="cq-dt-tab" [class.is-active]="dtTab()==='fiscal'" [attr.aria-selected]="dtTab()==='fiscal'" (click)="setTab('fiscal')">Fiscal (ContPAQi)</button>
+        <div class="cq-dt-tabs" role="radiogroup" aria-label="Lente del desglose">
+          <button type="button" role="radio" class="cq-dt-tab" [class.is-active]="dtTab()==='contable'" [attr.aria-checked]="dtTab()==='contable'" (click)="setTab('contable')">Contable (201)</button>
+          <button type="button" role="radio" class="cq-dt-tab" [class.is-active]="dtTab()==='factura'" [attr.aria-checked]="dtTab()==='factura'" (click)="setTab('factura')">Por factura</button>
+          <button type="button" role="radio" class="cq-dt-tab" [class.is-active]="dtTab()==='fiscal'" [attr.aria-checked]="dtTab()==='fiscal'" (click)="setTab('fiscal')">Fiscal (ContPAQi)</button>
         </div>
         @if (dtTab() === 'contable') {
         @if (movesLoading()) {

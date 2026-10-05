@@ -133,13 +133,13 @@ function severityForStatus(s: ShipmentStatus): Severity {
       <!-- MODE TABS sheet propio -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush sh-tabs-cell">
-          <nav class="sh-mode-tabs" role="tablist" aria-label="Vista de embarques">
+          <nav class="sh-mode-tabs" role="radiogroup" aria-label="Vista de embarques">
             <button
               type="button"
               class="sh-mode-tab"
               [class.active]="mode() === 'erp'"
-              role="tab"
-              [attr.aria-selected]="mode() === 'erp'"
+              role="radio"
+              [attr.aria-checked]="mode() === 'erp'"
               (click)="setMode('erp')"
               >
               <i class="pi pi-send" aria-hidden="true"></i>
@@ -149,8 +149,8 @@ function severityForStatus(s: ShipmentStatus): Severity {
               type="button"
               class="sh-mode-tab"
               [class.active]="mode() === 'shipments'"
-              role="tab"
-              [attr.aria-selected]="mode() === 'shipments'"
+              role="radio"
+              [attr.aria-checked]="mode() === 'shipments'"
               (click)="setMode('shipments')"
               >
               <i class="pi pi-truck" aria-hidden="true"></i>
@@ -161,8 +161,8 @@ function severityForStatus(s: ShipmentStatus): Severity {
               type="button"
               class="sh-mode-tab"
               [class.active]="mode() === 'pending'"
-              role="tab"
-              [attr.aria-selected]="mode() === 'pending'"
+              role="radio"
+              [attr.aria-checked]="mode() === 'pending'"
               (click)="setMode('pending')"
               >
               <i class="pi pi-inbox" aria-hidden="true"></i>
@@ -185,13 +185,13 @@ function severityForStatus(s: ShipmentStatus): Severity {
       <!-- ── MODE: SHIPMENTS ── -->
       @if (mode() === 'shipments') {
         <!-- Status-chip strip (filtro 1-click + conteo por estado) -->
-        <div class="sh-chipbar" role="tablist" aria-label="Filtrar por estado">
+        <div class="sh-chipbar" role="radiogroup" aria-label="Filtrar por estado">
           @for (c of statusChips(); track c) {
             <button
               type="button"
               [class]="'sh-chip ' + c.pillClass + (statusFilter() === c.value ? ' active' : '')"
-              role="tab"
-              [attr.aria-selected]="statusFilter() === c.value"
+              role="radio"
+              [attr.aria-checked]="statusFilter() === c.value"
               (click)="setStatusFilter(c.value)"
               >
               <span class="sh-chip-dot" aria-hidden="true"></span>

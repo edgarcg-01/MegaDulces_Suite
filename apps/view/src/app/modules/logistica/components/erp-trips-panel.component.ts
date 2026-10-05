@@ -115,9 +115,9 @@ import { environment } from '../../../../environments/environment';
 
     <!-- FILTROS -->
     <div class="et-filters">
-      <div class="et-segment" role="tablist" aria-label="Rango">
-        <button type="button" role="tab" [attr.aria-selected]="soloHoy()" [class.act]="soloHoy()" (click)="setSoloHoy(true)">Hoy</button>
-        <button type="button" role="tab" [attr.aria-selected]="!soloHoy()" [class.act]="!soloHoy()" (click)="setSoloHoy(false)">Últimos 30 días</button>
+      <div class="et-segment" role="radiogroup" aria-label="Rango">
+        <button type="button" role="radio" [attr.aria-checked]="soloHoy()" [class.act]="soloHoy()" (click)="setSoloHoy(true)">Hoy</button>
+        <button type="button" role="radio" [attr.aria-checked]="!soloHoy()" [class.act]="!soloHoy()" (click)="setSoloHoy(false)">Últimos 30 días</button>
       </div>
       <p-select [options]="sucursales" [(ngModel)]="sucursal" optionLabel="label" optionValue="value"
                 (onChange)="reload()" placeholder="Sucursal" [showClear]="true" styleClass="et-select"></p-select>

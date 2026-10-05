@@ -57,10 +57,10 @@ const ZOOMS = [50, 75, 100, 125, 150, 200, 300, 400] as const;
         @if (files().length > 1) {
           <!-- Las hojas son pestañas de verdad: el expediente de una factura son 2–4 hojas y
                elegir cuál se mira ES parte del trabajo. -->
-          <div class="dv-tabs" role="tablist" aria-label="Hojas del expediente">
+          <div class="dv-tabs" role="radiogroup" aria-label="Hojas del expediente">
             @for (f of files(); track f.url; let i = $index) {
-              <button type="button" role="tab" class="dv-tab" [class.on]="i === idx()"
-                      [attr.aria-selected]="i === idx()" [attr.tabindex]="i === idx() ? 0 : -1"
+              <button type="button" role="radio" class="dv-tab" [class.on]="i === idx()"
+                      [attr.aria-checked]="i === idx()" [attr.tabindex]="i === idx() ? 0 : -1"
                       (click)="ver(i)" [pTooltip]="f.name || ''" tooltipPosition="bottom">
                 <i class="pi" [ngClass]="esImagenDe(f) ? 'pi-image' : 'pi-file-pdf'" aria-hidden="true"></i>
                 <span class="dv-tab-t">{{ etiqueta(f, i) }}</span>
