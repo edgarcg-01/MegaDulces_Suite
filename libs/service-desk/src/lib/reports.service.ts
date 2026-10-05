@@ -12,6 +12,7 @@ import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/com
 import type { SdReportResponse } from '@megadulces/contracts';
 import { TenantKnexService, branchName, toMxDateKey } from '@megadulces/platform-core';
 import { armarReporte, type FilaReporte } from './domain/report';
+import { nombreUbicacionExtra } from './domain/ubicaciones';
 import { resolverPeriodo } from './domain/report-period';
 import { ServiceDeskConfigService } from './service-desk-config.service';
 import type { ActorCtx } from './service-desk.types';
@@ -57,7 +58,7 @@ export class ServiceDeskReportsService {
         hasta,
         ahora: Date.now(),
         truncado,
-        nombreSucursal: (code) => branchName(code),
+        nombreSucursal: (code) => nombreUbicacionExtra(code) ?? branchName(code),
       });
     });
   }

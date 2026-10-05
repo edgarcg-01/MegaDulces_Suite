@@ -30,6 +30,20 @@ export type SdStatus = (typeof SD_STATUSES)[number];
 export const SD_OPEN_STATUSES: readonly SdStatus[] = ['nuevo', 'asignado', 'en_proceso', 'en_espera', 'resuelto'];
 
 export const SD_IMPACTS = ['yo', 'varios', 'sucursal', 'red'] as const;
+
+/**
+ * `[MS.3.14]` Ubicaciones donde se reporta un problema y que **no son una sucursal Kepler** (`00`–`08`).
+ *
+ * El «lugar» de una solicitud no siempre es una tienda: las oficinas corporativas también reportan. Se guardan en la
+ * MISMA columna (`warehouse_code`, varchar(20) sin CHECK) con un código que no puede chocar con los de Kepler (los de
+ * Kepler son dos dígitos; éstos, letras). Una sola lista para el servidor (valida y nombra) y para el formulario (ofrece):
+ * si vivieran en dos sitios, uno aceptaría lo que el otro no ofrece.
+ *
+ * ⚠️ NO es una sucursal de la red: no tiene almacén, ni venta, ni inventario. Sólo existe dentro de la Mesa de Servicio.
+ */
+export const SD_UBICACIONES_EXTRA: Readonly<Record<string, string>> = Object.freeze({
+  OF: 'Oficinas Corporativas',
+});
 export type SdImpact = (typeof SD_IMPACTS)[number];
 
 export const SD_CHANNELS = ['web', 'vendor', 'public_link', 'whatsapp', 'bitacora'] as const;

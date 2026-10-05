@@ -6,20 +6,27 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
-import { SD_PRIORITIES, type SdRequestRow, type SdStatsResponse } from '@megadulces/contracts';
+import { SD_PRIORITIES, SD_STATUSES, SD_UBICACIONES_EXTRA, type SdAgentDto, type SdCategoryDto, type SdRequestRow, type SdStatsResponse } from '@megadulces/contracts';
+import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PRIORITY_LABEL, STATUS_LABEL, ServiceDeskService, sdError, slaTexto } from '../service-desk.service';
+import { PRIORITY_LABEL, STATUS_LABEL, ServiceDeskService, sdError, slaTexto, type SdInboxQuery } from '../service-desk.service';
 import { SdRequestDetailComponent } from '../sd-request-detail.component';
 
 /**
  * `[MS.3.4]` Mesa de Servicio › Bandeja (`/servicio/bandeja`) — el trabajo de quien atiende.
  *
- * Orden del servidor: prioridad → vencimiento → antigüedad; acá sólo se filtra. Los KPI de arriba
+ * Orden del servidor: prioridad → vencimiento → antigüedad por omisión, o la columna que se pulse (`[MS.3.16]`, también en el
+ * servidor: la bandeja trae 100 de N y ordenar sólo esas 100 en la pantalla mentiría); acá se filtra. Los KPI de arriba
  * salen de `GET /requests/stats` (marcas idempotentes del barrido del SLA), no se recalculan en el
  * navegador. Operations (DESIGN.md): tabla densa a la izquierda, ficha a la derecha; abajo de
  * 1100 px la ficha reemplaza a la lista, y en teléfono se esconden las columnas secundarias.
  */
+/** Las columnas que el servidor sabe ordenar (`libs/service-desk/.../inbox-sort.ts`); el E2E comprueba que cada una se acepta. */
+type ColumnaOrden = 'folio' | 'solicitud' | 'reporto' | 'ubicacion' | 'prioridad' | 'estado' | 'atiende' | 'plazo' | 'alta';
+/** Lo que casi siempre se quiere ver primero al pulsar una columna: lo más urgente / más reciente, o de la A a la Z. */
+const direccionInicial = (c: ColumnaOrden): 'asc' | 'desc' => (c === 'prioridad' || c === 'alta' ? 'desc' : 'asc');
+
 @Component({
   selector: 'app-servicio-bandeja',
   standalone: true,
@@ -59,6 +66,34 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
         </span>
       </section>
 
+      <button type="button" class="sb-filtros-toggle" [attr.aria-expanded]="filtrosAbiertos()" (click)="filtrosAbiertos.set(!filtrosAbiertos())">
+        <i class="pi pi-filter" aria-hidden="true"></i> Más filtros y orden@if (nFiltros() > 0) { <b>{{ nFiltros() }}</b> }
+        <i class="pi" [ngClass]="filtrosAbiertos() ? 'pi-chevron-up' : 'pi-chevron-down'" aria-hidden="true"></i>
+      </button>
+      <section class="sb-filtros" [class.abierto]="filtrosAbiertos()" aria-label="Más filtros">
+        <p-select class="sb-f" [options]="estados" optionLabel="label" optionValue="value" [ngModel]="estado()" (ngModelChange)="setFiltro('estado', $event)"
+                  placeholder="Cualquier estado" [showClear]="true" appendTo="body" ariaLabel="Filtrar por estado" />
+        <p-select class="sb-f" [options]="categorias()" optionLabel="name" optionValue="id" [ngModel]="categoria()" (ngModelChange)="setFiltro('categoria', $event)"
+                  placeholder="Cualquier categoría" [showClear]="true" [filter]="true" filterBy="name" appendTo="body" ariaLabel="Filtrar por categoría" />
+        <p-select class="sb-f" [options]="atienden()" optionLabel="label" optionValue="value" [ngModel]="atiende()" (ngModelChange)="setFiltro('atiende', $event)"
+                  placeholder="Quien atiende" [showClear]="true" [filter]="true" filterBy="label" appendTo="body" ariaLabel="Filtrar por quien atiende" />
+        <p-select class="sb-f" [options]="ubicaciones" optionLabel="name" optionValue="code" [ngModel]="ubic()" (ngModelChange)="setFiltro('ubic', $event)"
+                  placeholder="Cualquier ubicación" [showClear]="true" appendTo="body" ariaLabel="Filtrar por ubicación" />
+        <label class="sb-fecha">Alta desde
+          <input type="date" pInputText [ngModel]="desde()" [max]="hasta() || null" (ngModelChange)="setDesde($event)" aria-label="Alta desde" />
+        </label>
+        <label class="sb-fecha">hasta
+          <input type="date" pInputText [ngModel]="hasta()" [min]="desde() || null" (ngModelChange)="setHasta($event)" aria-label="Alta hasta" />
+        </label>
+        @if (hayFiltros()) {
+          <p-button class="sb-limpiar" icon="pi pi-filter-slash" label="Limpiar filtros" [text]="true" size="small" (onClick)="limpiar()" />
+        }
+        @if (sortCol(); as col) {
+          <span class="sb-orden" role="status">Ordenado por {{ etiquetaColumna(col) }} {{ sortDir() === 'asc' ? '↑' : '↓' }}
+            <button type="button" class="sb-quitar" (click)="quitarOrden()">Quitar orden</button></span>
+        }
+      </section>
+
       @if (loadError(); as e) { <p class="sb-banner bad" role="alert">{{ e }}</p> }
 
       <div class="sb-body" [class.has-detail]="!!selId()">
@@ -66,7 +101,15 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
           <div class="sb-wrap dt-scope">
             <table class="sb-table dt-stack">
               <thead>
-                <tr><th>Folio</th><th>Solicitud</th><th class="opc">Reportó</th><th class="opc">Sucursal</th><th>Prioridad</th><th>Estado</th><th class="opc">Atiende</th><th>Plazo</th></tr>
+                <tr>
+                  @for (h of columnas; track h.col) {
+                    <th [class.opc]="h.opc" [attr.aria-sort]="ariaSort(h.col)">
+                      <button type="button" class="sb-th" [class.on]="sortCol() === h.col" (click)="ordenar(h.col)" [attr.aria-label]="'Ordenar por ' + h.label">
+                        {{ h.label }}<i class="pi" [ngClass]="iconoOrden(h.col)" aria-hidden="true"></i>
+                      </button>
+                    </th>
+                  }
+                </tr>
               </thead>
               <tbody>
                 @for (t of rows(); track t.id) {
@@ -74,7 +117,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
                     <td class="mono" role="cell" data-label="Folio">{{ t.folio }}</td>
                     <td class="tit dt-id" role="cell" data-label="Solicitud">{{ t.title }}<small>{{ t.category_name }}</small></td>
                     <td class="opc" role="cell" data-label="Reportó">{{ t.requester_name || '—' }}</td>
-                    <td class="opc" role="cell" data-label="Sucursal">{{ t.warehouse_name || '—' }}</td>
+                    <td class="opc" role="cell" data-label="Ubicación">{{ t.warehouse_name || '—' }}</td>
                     <td role="cell" data-label="Prioridad"><span class="pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span></td>
                     <td role="cell" data-label="Estado"><span class="est" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span></td>
                     <td class="opc" role="cell" data-label="Atiende">{{ t.assigned_to_name || '—' }}</td>
@@ -83,7 +126,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
                 } @empty {
                   <tr><td colspan="8" class="vacio">
                     @if (loading()) { Cargando… }
-                    @else if (search() || prio() || scope() !== 'open') { Ninguna solicitud con estos filtros. }
+                    @else if (search() || hayFiltros() || scope() !== 'open') { Ninguna solicitud con estos filtros. }
                     @else { No hay solicitudes abiertas. }
                   </td></tr>
                 }
@@ -121,6 +164,22 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
     .sb-chip.on { border-color: var(--action); color: var(--text-main); background: var(--surface-selected-bg); }
     .sb-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .sb-pri { min-width: 180px; }
+    .sb-filtros-toggle { display: none; align-items: center; gap: var(--sp-2); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main);
+      border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); cursor: pointer; min-height: 40px; }
+    .sb-filtros-toggle b { background: var(--action); color: var(--action-fg, #fff); border-radius: var(--r-pill); padding: 0 var(--sp-2); font-size: var(--fs-xs); }
+    .sb-filtros-toggle .pi:last-child { margin-left: auto; }
+    .sb-filtros-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .sb-filtros { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
+    .sb-f { min-width: 170px; }
+    .sb-fecha { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
+    .sb-fecha input { width: 9.5rem; }
+    .sb-orden { font-size: var(--fs-xs); color: var(--text-muted); margin-left: auto; display: inline-flex; gap: var(--sp-2); align-items: center; }
+    .sb-quitar { border: 0; background: none; color: var(--action); cursor: pointer; font-size: var(--fs-xs); padding: 2px 4px; text-decoration: underline; }
+    .sb-quitar:focus-visible, .sb-th:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .sb-th { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+    .sb-th .pi { font-size: 0.65rem; color: var(--text-faint); }
+    .sb-th.on, .sb-th.on .pi { color: var(--text-main); }
+    .sb-th:hover { color: var(--text-main); }
     .sb-search { position: relative; flex: 1 1 220px; max-width: 360px; margin-left: auto; }
     .sb-search i { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); font-size: var(--fs-xs); }
     .sb-search input { width: 100%; padding-left: 30px; }
@@ -165,7 +224,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
       .sb-detail { position: static; max-height: none; }
       .sb-back { display: inline-flex; align-self: flex-start; margin: calc(-1 * var(--sp-2)) 0 var(--sp-2) calc(-1 * var(--sp-2)); }
       /* La ficha REEMPLAZA a la lista, así que también a lo que la acompaña: KPIs y filtros dejaban la ficha bajo el pliegue. */
-      .sb-page.con-ficha .sb-kpis, .sb-page.con-ficha .sb-chips, .sb-page.con-ficha .sb-head { display: none; }
+      .sb-page.con-ficha .sb-kpis, .sb-page.con-ficha .sb-chips, .sb-page.con-ficha .sb-filtros, .sb-page.con-ficha .sb-head { display: none; }
     }
     @media (max-width: 40rem) {
       .sb-page { padding: var(--sp-3); gap: var(--sp-3); }
@@ -173,6 +232,13 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
       .sb-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
       .sb-chip { flex: none; min-height: 36px; }
       .sb-search { flex: 0 0 220px; margin-left: 0; }
+      /* En teléfono los seis filtros apilados empujaban la lista fuera de la pantalla: quedan tras un botón. */
+      .sb-filtros-toggle { display: flex; }
+      .sb-filtros:not(.abierto) { display: none; }
+      .sb-page.con-ficha .sb-filtros-toggle { display: none; }
+      .sb-f { flex: 1 1 100%; }
+      .sb-fecha { flex: 1 1 100%; justify-content: space-between; }
+      .sb-orden { margin-left: 0; }
       .sb-wrap { max-height: none; }
       .sb-head p-button, .sb-head p-button ::ng-deep button { width: 100%; justify-content: center; }
     }
@@ -196,6 +262,15 @@ export class ServicioBandejaComponent implements OnInit {
     { value: 'open', label: 'Abiertas' }, { value: 'resolved', label: 'Resueltas' }, { value: 'all', label: 'Todas' },
   ];
 
+  readonly estados = SD_STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }));
+  readonly ubicaciones: { code: string; name: string }[] = [...STORE_BRANCHES, ...Object.entries(SD_UBICACIONES_EXTRA).map(([code, name]) => ({ code, name }))];
+  /** Las columnas ordenables, con la clave que entiende el servidor (`sort=`). */
+  readonly columnas: { col: ColumnaOrden; label: string; opc: boolean }[] = [
+    { col: 'folio', label: 'Folio', opc: false }, { col: 'solicitud', label: 'Solicitud', opc: false }, { col: 'reporto', label: 'Reportó', opc: true },
+    { col: 'ubicacion', label: 'Ubicación', opc: true }, { col: 'prioridad', label: 'Prioridad', opc: false }, { col: 'estado', label: 'Estado', opc: false },
+    { col: 'atiende', label: 'Atiende', opc: true }, { col: 'plazo', label: 'Plazo', opc: false },
+  ];
+
   readonly rows = signal<SdRequestRow[]>([]);
   readonly total = signal(0);
   readonly st = signal<SdStatsResponse | null>(null);
@@ -204,6 +279,27 @@ export class ServicioBandejaComponent implements OnInit {
   readonly scope = signal('unassigned');
   readonly prio = signal<string | null>(null);
   readonly search = signal('');
+  readonly estado = signal<string | null>(null);
+  readonly categoria = signal<string | null>(null);
+  readonly atiende = signal<string | null>(null);
+  readonly ubic = signal<string | null>(null);
+  readonly desde = signal('');
+  readonly hasta = signal('');
+  readonly sortCol = signal<ColumnaOrden | null>(null);
+  readonly sortDir = signal<'asc' | 'desc'>('asc');
+  readonly categorias = signal<SdCategoryDto[]>([]);
+  readonly agentes = signal<SdAgentDto[]>([]);
+  /** «Sin asignar» primero (es lo que más se busca), luego las personas por nombre. */
+  readonly atienden = computed(() => [
+    { value: 'none', label: 'Sin asignar' },
+    ...this.agentes().map((a) => ({ value: a.user_id, label: a.name || a.username })).sort((x, y) => x.label.localeCompare(y.label, 'es')),
+  ]);
+  /** Hay algún filtro puesto además del alcance (los chips) — decide el botón «Limpiar» y el texto del vacío. */
+  /** Sólo teléfono: los filtros extra van tras un botón. En escritorio siempre se ven. */
+  readonly filtrosAbiertos = signal(false);
+  /** Cuántos filtros hay puestos (se muestra en el botón del teléfono, para no esconder que hay uno activo). */
+  readonly nFiltros = computed(() => [this.prio(), this.estado(), this.categoria(), this.atiende(), this.ubic(), this.desde(), this.hasta(), this.sortCol()].filter(Boolean).length);
+  readonly hayFiltros = computed(() => !!(this.prio() || this.estado() || this.categoria() || this.atiende() || this.ubic() || this.desde() || this.hasta() || this.sortCol()));
   readonly selId = signal<string | null>(null);
   /** Reasigna quien coordina; el servidor lo vuelve a exigir (`SERVICIO_COORDINAR` o god-mode). */
   readonly esCoordinador = computed(() => this.perms.has(Permission.SERVICIO_COORDINAR));
@@ -213,6 +309,8 @@ export class ServicioBandejaComponent implements OnInit {
     // respuestas en carrera donde la lenta pisa a la rápida.
     const inicial = this.route.snapshot?.queryParamMap?.get('scope');
     if (inicial && this.scopes.some((s) => s.value === inicial)) this.scope.set(inicial);
+    this.api.catalog().subscribe({ next: (c) => this.categorias.set(c.categories), error: () => this.categorias.set([]) });
+    this.api.agents().subscribe({ next: (a) => this.agentes.set(a), error: () => this.agentes.set([]) });
     this.recargar();
     // Deep-link de la campana: `?id=<solicitud>` abre su ficha. Se ESCUCHA, no se lee una vez: si ya estás en la
     // bandeja y pulsas un aviso, Angular reutiliza el componente y sólo cambia el parámetro (medido en vivo: la URL
@@ -232,17 +330,79 @@ export class ServicioBandejaComponent implements OnInit {
     this.api.stats().subscribe({ next: (s) => this.st.set(s), error: () => this.st.set(null) });
   }
 
+  /** La consulta que se manda al servidor. Pública para que la prueba verifique QUÉ se pide, no sólo que se pide. */
+  consulta(): SdInboxQuery {
+    return {
+      scope: this.scope(),
+      priority: this.prio() ?? undefined,
+      status: this.estado() ?? undefined,
+      category_id: this.categoria() ?? undefined,
+      assigned_to: this.atiende() ?? undefined,
+      warehouse_code: this.ubic() ?? undefined,
+      from: this.desde() || undefined,
+      to: this.hasta() || undefined,
+      sort: this.sortCol() ?? undefined,
+      dir: this.sortCol() ? this.sortDir() : undefined,
+      search: this.search().trim() || undefined,
+      limit: 100,
+    };
+  }
+
+  /** Número de la última consulta: si una respuesta vieja llega después de una nueva (clics seguidos en una columna), se descarta. */
+  private seq = 0;
   private cargarLista(): void {
+    const mi = ++this.seq;
     this.loading.set(true);
     this.loadError.set(null);
-    this.api.inbox({ scope: this.scope(), priority: this.prio() ?? undefined, search: this.search().trim() || undefined, limit: 100 }).subscribe({
-      next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); },
-      error: (e) => { this.loadError.set(sdError(e, 'No se pudo cargar la bandeja.')); this.loading.set(false); },
+    this.api.inbox(this.consulta()).subscribe({
+      next: (r) => { if (mi !== this.seq) return; this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); },
+      error: (e) => { if (mi !== this.seq) return; this.loadError.set(sdError(e, 'No se pudo cargar la bandeja.')); this.loading.set(false); },
     });
   }
 
   setScope(s: string): void { this.scope.set(s); this.cargarLista(); }
   setPrio(p: string | null): void { this.prio.set(p); this.cargarLista(); }
+  setFiltro(cual: 'estado' | 'categoria' | 'atiende' | 'ubic', v: string | null): void {
+    const s = { estado: this.estado, categoria: this.categoria, atiende: this.atiende, ubic: this.ubic }[cual];
+    s.set(v || null);
+    this.cargarLista();
+  }
+  /** Un rango al revés ('desde' después de 'hasta') no se manda: se arrastra el otro extremo, y no se llega al 400 del servidor. */
+  setDesde(v: string | null): void {
+    this.desde.set(v || '');
+    if (v && this.hasta() && v > this.hasta()) this.hasta.set(v);
+    this.cargarLista();
+  }
+  setHasta(v: string | null): void {
+    this.hasta.set(v || '');
+    if (v && this.desde() && v < this.desde()) this.desde.set(v);
+    this.cargarLista();
+  }
+  /** Quita los filtros y el orden elegido; el alcance (los chips) se queda donde está. */
+  limpiar(): void {
+    this.prio.set(null); this.estado.set(null); this.categoria.set(null); this.atiende.set(null); this.ubic.set(null);
+    this.desde.set(''); this.hasta.set('');
+    this.sortCol.set(null); this.sortDir.set('asc');
+    this.cargarLista();
+  }
+
+  /** Clic en una columna: primero su dirección natural, luego la contraria, y un tercer clic vuelve al orden por urgencia. */
+  ordenar(col: ColumnaOrden): void {
+    if (this.sortCol() !== col) { this.sortCol.set(col); this.sortDir.set(direccionInicial(col)); }
+    else if (this.sortDir() === direccionInicial(col)) this.sortDir.set(direccionInicial(col) === 'asc' ? 'desc' : 'asc');
+    else { this.sortCol.set(null); this.sortDir.set('asc'); }
+    this.cargarLista();
+  }
+  quitarOrden(): void { this.sortCol.set(null); this.sortDir.set('asc'); this.cargarLista(); }
+  ariaSort(col: ColumnaOrden): 'ascending' | 'descending' | 'none' {
+    if (this.sortCol() !== col) return 'none';
+    return this.sortDir() === 'asc' ? 'ascending' : 'descending';
+  }
+  iconoOrden(col: ColumnaOrden): string {
+    if (this.sortCol() !== col) return 'pi-sort-alt';
+    return this.sortDir() === 'asc' ? 'pi-arrow-up' : 'pi-arrow-down';
+  }
+  etiquetaColumna(col: ColumnaOrden): string { return this.columnas.find((c) => c.col === col)?.label ?? col; }
   private timer?: ReturnType<typeof setTimeout>;
   setSearch(v: string): void {
     this.search.set(v);

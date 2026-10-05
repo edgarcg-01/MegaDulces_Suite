@@ -152,7 +152,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                 <p-button [label]="q.active ? 'Apagar cola' : 'Encender cola'" size="small" severity="secondary" [text]="true" (onClick)="alternarCola(q.id, q.active)" />
               </div>
               <table class="sc-table">
-                <thead><tr><th>Categoría</th><th>Prioridad por defecto</th><th>Exige sucursal</th><th>Estado</th><th></th></tr></thead>
+                <thead><tr><th>Categoría</th><th>Prioridad por defecto</th><th>Exige ubicación</th><th>Estado</th><th></th></tr></thead>
                 <tbody>
                   @for (k of categoriasDe(q.id); track k.id) {
                     <tr [class.apagada]="!k.active">
@@ -178,7 +178,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
               <label class="sc-field"><span>Prioridad por defecto</span>
                 <p-select [options]="prioridades" optionLabel="label" optionValue="value" [(ngModel)]="nueva.default_priority" appendTo="body" ariaLabel="Prioridad por defecto" /></label>
             </div>
-            <label class="sc-chk"><input type="checkbox" [(ngModel)]="nueva.requires_branch" /> Exigir sucursal al reportar</label>
+            <label class="sc-chk"><input type="checkbox" [(ngModel)]="nueva.requires_branch" /> Exigir ubicación al reportar</label>
             <div class="sc-foot"><p-button label="Agregar categoría" icon="pi pi-plus" [loading]="guardando()" [disabled]="!nuevaValida()" (onClick)="agregarCategoria()" /></div>
           </div>
         </section>

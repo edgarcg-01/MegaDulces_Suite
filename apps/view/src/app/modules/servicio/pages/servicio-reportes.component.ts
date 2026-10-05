@@ -113,14 +113,14 @@ function restarDias(fecha: string, n: number): string {
         </section>
 
         <section class="sr-card" aria-labelledby="h-suc">
-          <h2 id="h-suc">Por sucursal</h2>
+          <h2 id="h-suc">Por ubicación</h2>
           <div class="sr-wrap dt-scope">
             <table class="sr-table dt-stack">
-              <thead><tr><th>Sucursal</th><th>Creadas</th><th>Resueltas</th><th>Resolución fuera de plazo</th></tr></thead>
+              <thead><tr><th>Ubicación</th><th>Creadas</th><th>Resueltas</th><th>Resolución fuera de plazo</th></tr></thead>
               <tbody>
                 @for (s of d.por_sucursal; track s.warehouse_code ?? 'sin') {
                   <tr>
-                    <td class="dt-id" role="cell" data-label="Sucursal">{{ s.warehouse_name || s.warehouse_code || 'Sin sucursal indicada' }}</td>
+                    <td class="dt-id" role="cell" data-label="Ubicación">{{ s.warehouse_name || s.warehouse_code || 'Sin ubicación indicada' }}</td>
                     <td role="cell" data-label="Creadas">{{ s.creados }}</td>
                     <td role="cell" data-label="Resueltas">{{ s.resueltos }}</td>
                     <td role="cell" data-label="Fuera de plazo">{{ s.resolucion_incumplidos }}</td>
@@ -133,15 +133,15 @@ function restarDias(fecha: string, n: number): string {
 
         <section class="sr-card" aria-labelledby="h-rec">
           <h2 id="h-rec">Lo que se repite</h2>
-          <p class="sr-hint">La misma categoría en la misma sucursal, al menos 3 veces en el periodo: probablemente es un problema de fondo y no solicitudes sueltas.</p>
+          <p class="sr-hint">La misma categoría en la misma ubicación, al menos 3 veces en el periodo: probablemente es un problema de fondo y no solicitudes sueltas.</p>
           <div class="sr-wrap dt-scope">
             <table class="sr-table dt-stack">
-              <thead><tr><th>Categoría</th><th>Sucursal</th><th>Veces</th></tr></thead>
+              <thead><tr><th>Categoría</th><th>Ubicación</th><th>Veces</th></tr></thead>
               <tbody>
                 @for (x of d.recurrentes; track x.category_id + (x.warehouse_code ?? '')) {
                   <tr>
                     <td class="dt-id" role="cell" data-label="Categoría">{{ x.category_name }}</td>
-                    <td role="cell" data-label="Sucursal">{{ x.warehouse_name || x.warehouse_code || 'Sin sucursal indicada' }}</td>
+                    <td role="cell" data-label="Ubicación">{{ x.warehouse_name || x.warehouse_code || 'Sin ubicación indicada' }}</td>
                     <td role="cell" data-label="Veces">{{ x.n }}</td>
                   </tr>
                 } @empty { <tr><td colspan="3" class="sr-vacio">Nada se repitió 3 veces o más en el periodo.</td></tr> }
