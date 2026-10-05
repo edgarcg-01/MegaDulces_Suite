@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import type { CortesSucursalesResponse } from '@megadulces/contracts';
+import { TenantKnexService, TenantContextService, ScopeService, branchName } from '@megadulces/platform-core';
+import type { CortesAlcance, CortesSucursalesResponse } from '@megadulces/contracts';
 import { armarRespuesta, type CorteCrudo } from './cortes-sucursales.engine';
 
 /**
@@ -19,6 +19,12 @@ import { armarRespuesta, type CorteCrudo } from './cortes-sucursales.engine';
  * Replica cruzada (un corte de otra plaza en la replica de esta): medido 0 en las 8 sucursales;
  * igual se filtra c1 = sucursal para que el dia que aparezca no fabrique un corte fantasma.
  * `kepler_ods.*` no tiene tenant ni RLS; `analytics.*` sin RLS → filtro tenant explícito.
+ *
+ * `[CSU.6]` ALCANCE POR SUCURSAL (decisión de Francisco, 2026-10-05): Finanzas ve todas;
+ * encargados y auxiliares de tienda, sólo la suya. Lo resuelve `ScopeService` (ADR-050) con
+ * `role_scopes`/`user_scopes` — el mismo mecanismo del arqueo de tienda —, no un `if` por rol.
+ * Medido en prod con el servicio real: 31 de las 32 personas de Finanzas resuelven `all`, los
+ * encargados/auxiliares `own` = su `warehouse_code`, y quien no tiene sucursal asignada, ninguna.
  */
 const SQL = `
 WITH co AS (
@@ -35,6 +41,7 @@ WITH co AS (
    WHERE btrim(e.c2) = 'CONTADO' AND e.c29 = 'C' AND e.c4 = 23 AND e.c5 = 1
      AND btrim(e.c1) = e.sucursal                 -- el documento es de SU plaza (filtro canonico, Fase PO)
      AND e.c7 >= ?::date AND e.c7 < (?::date + 1)
+     AND (?::boolean OR e.sucursal = ANY(?::text[]))   -- alcance: todas, o sólo las permitidas
    ORDER BY e.sucursal, btrim(e.c6)
 ),
 ap AS (
@@ -85,6 +92,7 @@ export class CortesSucursalesService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly scope: ScopeService,
   ) {}
 
   /** `from`+`to` mandan sobre `month`; sin nada, el mes en curso (hora de México). */
@@ -103,12 +111,30 @@ export class CortesSucursalesService {
     return { from: `${m}-01`, to: `${m}-${String(ultimo).padStart(2, '0')}` };
   }
 
+  /**
+   * Sucursales que puede ver quien consulta. Se resuelve FUERA de `tk.run` (ScopeService usa su
+   * propia conexión), igual que en goods-receipt-proofs.
+   */
+  private async alcance(): Promise<CortesAlcance> {
+    const s = await this.scope.current('finanzas');
+    const visibles = this.scope.intersect(s, 'warehouse', null);
+    if (visibles === null) return { todas: true, sucursales: [] };
+    return {
+      todas: false,
+      sucursales: [...visibles].sort().map((codigo) => ({ codigo, nombre: branchName(codigo) })),
+    };
+  }
+
   async list(q: CortesQuery): Promise<CortesSucursalesResponse> {
     const tenantId = this.tenantCtx.requireTenantId();
     const periodo = this.periodo(q);
+    const alcance = await this.alcance();
+    // Sin sucursal asignada: no hay nada que consultar. Se declara en `alcance`, no se pinta vacío a secas.
+    if (!alcance.todas && alcance.sucursales.length === 0) return armarRespuesta([], {}, periodo, alcance);
+    const codigos = alcance.sucursales.map((x) => x.codigo);
     const t0 = Date.now();
     return this.tk.run(async (trx) => {
-      const r = await trx.raw(SQL, [periodo.from, periodo.to, tenantId, tenantId]);
+      const r = await trx.raw(SQL, [periodo.from, periodo.to, alcance.todas, codigos, tenantId, tenantId]);
       const nom = await trx.raw(
         `SELECT warehouse_code, max(warehouse_name) AS nombre FROM analytics.cash_cuts WHERE tenant_id = ?::uuid GROUP BY 1`,
         [tenantId],
@@ -117,7 +143,7 @@ export class CortesSucursalesService {
       for (const x of nom.rows as Array<{ warehouse_code: string; nombre: string | null }>) {
         if (x.nombre) nombres[x.warehouse_code] = x.nombre;
       }
-      const resp = armarRespuesta(r.rows as CorteCrudo[], nombres, periodo);
+      const resp = armarRespuesta(r.rows as CorteCrudo[], nombres, periodo, alcance);
       this.logger.debug(`cortes ${periodo.from}..${periodo.to}: ${resp.totales.cortes} en ${Date.now() - t0} ms`);
       return resp;
     });

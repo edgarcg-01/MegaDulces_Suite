@@ -13,7 +13,7 @@
  */
 import type {
   CorteArqueo, CorteCobro, CorteCuadre, CorteEstadoCobro, CorteRow, CorteSucursalResumen,
-  CortesSucursalesResponse,
+  CortesAlcance, CortesSucursalesResponse,
 } from '@megadulces/contracts';
 
 /** Tolerancia del cuadre corte↔arqueo: redondeos de centavos del POS. */
@@ -117,6 +117,7 @@ const conDiferencia = (c: CorteRow): boolean => c.cuadre !== 'cuadra' && c.cuadr
 /** Arma la respuesta completa: separa los cortes en blanco y resume por sucursal. */
 export function armarRespuesta(
   crudos: CorteCrudo[], nombres: Record<string, string>, periodo: { from: string; to: string },
+  alcance: CortesAlcance = { todas: true, sucursales: [] },
 ): CortesSucursalesResponse {
   const todos = crudos.map((c) => construirCorte(c, nombres));
   const cortes = todos.filter((c) => c.monto >= MONTO_MINIMO_CORTE);
@@ -140,6 +141,7 @@ export function armarRespuesta(
   const suma = (k: 'vendido' | 'cobrado' | 'pendiente'): number => r2(sucursales.reduce((t, s) => t + s[k], 0));
   return {
     periodo,
+    alcance,
     totales: {
       cortes: cortes.length,
       vendido: suma('vendido'),
