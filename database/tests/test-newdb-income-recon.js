@@ -377,6 +377,115 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX', { minimumFractionDigits:
             : '◻ el mes entero da lo mismo que el recortado: el control no está probando nada');
       }
     }
+    // ── 10. `[IG.13]` El TERCER testigo, y el único fiscal ──────────────────────────────────
+    //
+    // Edgar: *"casemos con ContPAQi para tener doble validez y tener una verdad sobre lo fiscal"*.
+    // Los otros tres testigos del cuadre salen todos de Kepler; éste lo escribe el contador.
+    console.log('\n[10] Los libros fiscales de ContPAQi como testigo del ingreso');
+    const [cp] = await q(
+      `SELECT count(*)::int AS filas, max(anio_mes) AS ultimo,
+              coalesce(sum(abonos - cargos) FILTER (WHERE anio_mes BETWEEN $1 AND $2), 0)::numeric AS v
+         FROM analytics.contpaqi_ledger_monthly WHERE familia = '4'`,
+      [`${new Date().getFullYear()}-01`, `${new Date().getFullYear()}-12`]);
+    if (!cp || cp.filas === 0) {
+      nm('analytics.contpaqi_ledger_monthly no tiene familia 4 en este destino');
+    } else {
+      chk(Number(cp.v) > 0,
+        Number(cp.v) > 0
+          ? `los libros fiscales declaran $${n(cp.v)} de ingreso en el ejercicio (último mes cargado: ${cp.ultimo})`
+          : '⛔ la familia 4 de ContPAQi viene en cero: el testigo fiscal no está midiendo nada');
+      // El feed tiene umbral registrado en CRON_JOBS (warnH 5 / critH 12). Sin latido, el número
+      // puede ser viejo y verse igual de confiable.
+      const [lat] = await q(
+        `SELECT status, extract(epoch FROM (now() - last_finish)) / 3600 AS horas
+           FROM analytics.cron_runs WHERE job_key = 'feed_contpaqi-slow' ORDER BY last_finish DESC LIMIT 1`);
+      if (!lat) {
+        nm('el carril feed_contpaqi-slow no tiene latido: la edad de los libros no se puede declarar');
+      } else {
+        chk(lat.status === 'ok' && Number(lat.horas) < 12,
+          `el carril que carga la balanza fiscal late ${Number(lat.horas).toFixed(1)} h atrás (${lat.status}); `
+          + 'umbral registrado 5 h warn / 12 h crítico');
+      }
+    }
+    // ⛔ EL LÍMITE, declarado y vigilado: no hay CFDI emitido, así que el casado factura por
+    // factura del ingreso contra lo fiscal NO se puede hacer hoy. Si algún día entran emitidos,
+    // esta aserción se pone roja para que se cablee en vez de quedarse en el total mensual.
+    const [emi] = await q(
+      `SELECT count(*)::int AS total, count(*) FILTER (WHERE rol <> 'recibidas')::int AS emitidos
+         FROM fiscal.cfdis`);
+    if (!emi || emi.total === 0) {
+      nm('fiscal.cfdis está vacía: no se puede decir si hay CFDI emitido');
+    } else if (emi.emitidos === 0) {
+      nm(`los ${emi.total.toLocaleString('es-MX')} CFDI de fiscal.cfdis son TODOS recibidos (compras). `
+        + 'Sin CFDI emitido, el ingreso sólo se puede contrastar contra el TOTAL MENSUAL de la '
+        + 'balanza fiscal, nunca factura por factura. Es un límite de la fuente, no una falla');
+    } else {
+      // ⭐ Esta aserción decía «hay que cablearlo» y se puso ROJA en cuanto los emitidos entraron
+      // (`[IG.14.1]`). Hizo exactamente su trabajo: forzar que el cruce se construyera en vez de
+      // quedarse en el total mensual. Ahora mide lo que viene después — que el resolvedor EXISTA.
+      // El veredicto fila por fila lo comprueba el bloque [11].
+      const [vfm] = await q(
+        `SELECT count(*)::int AS n FROM pg_views
+          WHERE schemaname = 'analytics' AND viewname = 'v_cfdi_emitido_match'`);
+      chk(!!vfm && vfm.n > 0,
+        vfm && vfm.n > 0
+          ? `${emi.emitidos.toLocaleString('es-MX')} CFDI emitidos cargados y con resolvedor: el `
+            + 'ingreso se contrasta contra lo fiscal FACTURA POR FACTURA, no sólo por total mensual'
+          : `⛔ hay ${emi.emitidos} CFDI emitidos y NO existe analytics.v_cfdi_emitido_match: el `
+            + 'cruce por factura es posible y no está construido');
+    }
+    // ── 11. `[IG.15]` El cruce FISCAL, factura por factura ──────────────────────────────────
+    console.log('\n[11] El CFDI emitido encuentra su documento de Kepler');
+    const [vw] = await q(
+      `SELECT count(*)::int AS n FROM pg_views
+        WHERE schemaname = 'analytics' AND viewname = 'v_cfdi_emitido_match'`);
+    if (!vw || vw.n === 0) {
+      nm('analytics.v_cfdi_emitido_match no existe todavía — falta aplicar la migración');
+    } else {
+      const t11 = Date.now();
+      const ver = await q(
+        `SELECT veredicto, count(*)::int AS n, round(sum(total), 2)::numeric AS monto
+           FROM analytics.v_cfdi_emitido_match
+          WHERE fecha >= (CURRENT_DATE - $1::int) AND fecha <= CURRENT_DATE
+          GROUP BY 1`, [DIAS]);
+      const ms11 = Date.now() - t11;
+      if (!ver.length) {
+        nm(`no hay CFDI emitidos en los últimos ${DIAS} días`);
+      } else {
+        const m = Object.fromEntries(ver.map((r) => [r.veredicto, { n: r.n, monto: Number(r.monto) }]));
+        const total = ver.reduce((s2, r) => s2 + Number(r.monto), 0);
+        // ⭐ La compuerta que esta vista NO pasaba: con un solo LATERAL un mes tardaba 113,778 ms,
+        // porque los índices de kdm1 son PARCIALES y el planner sólo usa uno si puede PROBAR su
+        // condición. Separado en dos laterales, cada uno con su literal de grupo: 111 ms.
+        chk(ms11 < 5000,
+          `${ms11} ms para ${DIAS} días (medido 1,416 ms el año entero; con un solo LATERAL UN MES `
+          + 'tardaba 113,778 ms)');
+        chk((m['cuadra']?.n ?? 0) > 0,
+          m['cuadra']
+            ? `${m['cuadra'].n} comprobantes encuentran su documento con el importe al centavo `
+              + `($${n(m['cuadra'].monto)})`
+            : '⛔ ningún CFDI emitido casa con un documento de Kepler: la llave por serie dejó de '
+              + 'funcionar, o se cargaron CFDIs sin su serie estructurada');
+        // ⚠️ `fuera_de_kepler` NO es falla: son plazas que vendían en Wincaja. Se DECLARA.
+        const fuera = m['fuera_de_kepler'];
+        if (fuera) {
+          nm(`${fuera.n} comprobantes ($${n(fuera.monto)}, ${((fuera.monto / total) * 100).toFixed(1)} % `
+            + 'del facturado) están FUERA del alcance de Kepler: la plaza vendía en Wincaja en esa '
+            + 'fecha. No es un hueco de medición — cada serie muere en la fecha de corte que '
+            + 'v_branch_erp_cutover tiene registrada, y converge sola con la migración');
+        }
+        // Prueba negativa del abanico: una fila de la vista = un CFDI, o cualquier suma se infla.
+        const [fan] = await q(
+          `SELECT count(*)::int AS filas, count(DISTINCT uuid)::int AS cfdis
+             FROM analytics.v_cfdi_emitido_match
+            WHERE fecha >= (CURRENT_DATE - $1::int) AND fecha <= CURRENT_DATE`, [DIAS]);
+        chk(fan.filas === fan.cfdis,
+          fan.filas === fan.cfdis
+            ? `una fila por CFDI (${fan.cfdis}): el LATERAL cuenta y no abanica`
+            : `⛔ la vista ABANICA: ${fan.filas} filas para ${fan.cfdis} CFDIs — cualquier suma que `
+              + 'se publique sale inflada. Es la trampa del folio no único, quinta vez');
+      }
+    }
   } finally {
     await c.end().catch(() => undefined);
   }

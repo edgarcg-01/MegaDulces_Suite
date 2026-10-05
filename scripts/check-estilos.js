@@ -115,7 +115,12 @@ const TOPE = {
   //
   //    Queda DECLARADO, no disfrazado, y el ratchet sigue exacto: un tercero vuelve a dar rojo.
   //    Deuda con nombre: `vendor-customers.component.ts` necesita su propio barrido.
-  fontSize:   2691,
+  //
+  // 2,690 y no 2,691: medido sobre el arbol YA FUSIONADO con `integra` (152 commits de ~11
+  //    sesiones). La fusion BAJO la deuda en uno, asi que el tope baja con ella -- es lo que
+  //    este mismo gate pide cuando la deuda baja de verdad, y es la unica forma de que el
+  //    ratchet siga siendo exacto en vez de arrastrar un colchon que nadie declaro.
+  fontSize:   2690,
   hex:        1449,  // hex crudo en declaración de color
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,

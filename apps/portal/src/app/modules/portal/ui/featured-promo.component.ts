@@ -46,7 +46,7 @@ import { RouterModule } from '@angular/router';
           <img class="fp-jar" alt="" decoding="async" />
         </div>
         @if (images.length > 1) {
-          <div class="fp-dots" role="tablist" aria-label="Productos de la promo">
+          <div class="fp-dots" role="radiogroup" aria-label="Productos de la promo">
             @for (im of images; track im; let i = $index) {
               <button
                 type="button"

@@ -101,14 +101,14 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
         }
       </div>
 
-      <div class="fb-viewseg" role="tablist">
+      <div class="fb-viewseg" role="radiogroup">
         @for (v of WORK_VIEWS; track v.key) {
-          <button role="tab" [attr.aria-selected]="view()===v.key" [class.active]="view()===v.key" (click)="goView(v.key)">
+          <button role="radio" [attr.aria-checked]="view()===v.key" [class.active]="view()===v.key" (click)="goView(v.key)">
             <i [class]="v.icon"></i> {{ v.label }}
             @if (v.key === 'cierre' && diagnostico() && !diagnostico()!.cuadra) { <span class="fb-seg-count">{{ diagnostico()!.items.length }}</span> }
           </button>
         }
-        <button role="tab" class="fb-seg-config" [attr.aria-selected]="view()==='admin'" [class.active]="view()==='admin'"
+        <button role="radio" class="fb-seg-config" [attr.aria-checked]="view()==='admin'" [class.active]="view()==='admin'"
                 (click)="openAdmin()" aria-label="Configuración" title="Configuración: reglas, categorías y cuentas"><i class="pi pi-cog"></i></button>
       </div>
 

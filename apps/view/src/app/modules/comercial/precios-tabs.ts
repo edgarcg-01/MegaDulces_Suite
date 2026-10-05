@@ -9,7 +9,7 @@ import { Permission } from '../../core/constants/permissions';
  * esa acción de «efecto no medido» a medida**. Separados, quien abría el motor no se enteraba
  * de que el experimento existía.
  *
- * ⭐ `PageTabsComponent` con `variant="liquid"` ya ES el selector segmentado estilo iOS, ya
+ * ⭐ `PageTabsComponent` ya ES el selector segmentado estilo iOS, ya
  * navega por ruta y ya **filtra las pestañas por permiso**. No se construyó uno nuevo. Y como
  * se esconde solo cuando queda una sola pestaña visible, los roles que ven una sola pantalla
  * no reciben un selector de un botón que no selecciona nada.

@@ -174,8 +174,8 @@ const ESTADO_LABEL: Record<string, string> = {
         <!-- [GX.60] UNA pestana: lo decidido se va al Expediente, no a la de al lado. -->
         <div class="ap-tabs" role="tablist">
           @for (t of tabs; track t.id) {
-            <button type="button" role="tab" class="ap-tab" [class.on]="pestana() === t.id"
-                    [attr.aria-selected]="pestana() === t.id" (click)="verPestana(t.id)">
+            <button type="button" role="radio" class="ap-tab" [class.on]="pestana() === t.id"
+                    [attr.aria-checked]="pestana() === t.id" (click)="verPestana(t.id)">
               <span class="ap-tab-t">{{ t.label }}</span>
               <span class="ap-tab-n">{{ conteo(t.id).n }}</span>
               <span class="ap-tab-m">{{ money(conteo(t.id).monto) }}</span>

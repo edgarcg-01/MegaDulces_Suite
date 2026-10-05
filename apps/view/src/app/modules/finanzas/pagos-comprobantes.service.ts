@@ -16,7 +16,15 @@ export interface PagoRow {
   sucursal: string;
   folio: string;
   doc_prefix: string;            // XD2601 (transferencia) | XD2501 (cheque)
-  metodo_pago: string | null;    // 'transferencia' | 'cheque'
+  metodo_pago: string | null;    // el TIPO DE DOCUMENTO de Kepler (c31), NO el medio real
+  /**
+   * [PP.9] De dónde SALIÓ el dinero: 'caja' | 'banco' | 'puente' | 'sin_declarar' | 'no_resuelve'.
+   * No es lo mismo que `metodo_pago`: 2,684 pagos por $52.27M tienen método "transferencia" y
+   * salieron en efectivo de la caja general. Opcional porque la columna la agrega una migración.
+   */
+  medio_pago?: string | null;
+  /** Nombre de la cuenta de tesorería (ej. "CAJA GENERAL", "BBVA 5712"). */
+  cuenta_tesoreria?: string | null;
   pago_date: string | null;
   proveedor_code: string | null;
   proveedor_nombre: string | null;
@@ -168,7 +176,7 @@ export class PagosComprobantesService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/finance/supplier-payments`;
 
-  list(q: { estado?: string; from?: string; to?: string; search?: string; metodo?: string; alertas?: string } = {}): Observable<PagosReport> {
+  list(q: { estado?: string; from?: string; to?: string; search?: string; metodo?: string; medio?: string; alertas?: string } = {}): Observable<PagosReport> {
     let params = new HttpParams();
     for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
     return this.http.get<PagosReport>(this.base, { params });

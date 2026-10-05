@@ -84,13 +84,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <!-- MODE TABS -->
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush shd-tabs-cell">
-            <nav class="shd-mode-tabs" role="tablist" aria-label="Secciones del embarque">
+            <nav class="shd-mode-tabs" role="radiogroup" aria-label="Secciones del embarque">
               <button
                 type="button"
                 class="shd-mode-tab"
                 [class.active]="tab() === 'info'"
-                role="tab"
-                [attr.aria-selected]="tab() === 'info'"
+                role="radio"
+                [attr.aria-checked]="tab() === 'info'"
                 (click)="setTab('info')"
                 >
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
@@ -100,8 +100,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 type="button"
                 class="shd-mode-tab"
                 [class.active]="tab() === 'guides'"
-                role="tab"
-                [attr.aria-selected]="tab() === 'guides'"
+                role="radio"
+                [attr.aria-checked]="tab() === 'guides'"
                 (click)="setTab('guides')"
                 >
                 <i class="pi pi-file-edit" aria-hidden="true"></i>
@@ -112,8 +112,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 type="button"
                 class="shd-mode-tab"
                 [class.active]="tab() === 'expenses'"
-                role="tab"
-                [attr.aria-selected]="tab() === 'expenses'"
+                role="radio"
+                [attr.aria-checked]="tab() === 'expenses'"
                 (click)="setTab('expenses')"
                 >
                 <i class="pi pi-money-bill" aria-hidden="true"></i>
@@ -123,8 +123,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 type="button"
                 class="shd-mode-tab"
                 [class.active]="tab() === 'cartaporte'"
-                role="tab"
-                [attr.aria-selected]="tab() === 'cartaporte'"
+                role="radio"
+                [attr.aria-checked]="tab() === 'cartaporte'"
                 (click)="setTab('cartaporte')"
                 >
                 <i class="pi pi-file-check" aria-hidden="true"></i>

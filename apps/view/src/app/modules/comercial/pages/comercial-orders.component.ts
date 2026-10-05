@@ -90,13 +90,13 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
         </div>
     
         <!-- Tab nav: separa la cola de aprobación del archivo histórico. -->
-        <nav class="co-mode-tabs" role="tablist" aria-label="Vista de pedidos">
+        <nav class="co-mode-tabs" role="radiogroup" aria-label="Vista de pedidos">
           <button
             type="button"
             class="co-mode-tab"
             [class.active]="mode === 'pending'"
-            role="tab"
-            [attr.aria-selected]="mode === 'pending'"
+            role="radio"
+            [attr.aria-checked]="mode === 'pending'"
             (click)="switchMode('pending')"
             >
             <i class="pi pi-hourglass" aria-hidden="true"></i>
@@ -106,8 +106,8 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
             type="button"
             class="co-mode-tab"
             [class.active]="mode === 'history'"
-            role="tab"
-            [attr.aria-selected]="mode === 'history'"
+            role="radio"
+            [attr.aria-checked]="mode === 'history'"
             (click)="switchMode('history')"
             >
             <i class="pi pi-history" aria-hidden="true"></i>

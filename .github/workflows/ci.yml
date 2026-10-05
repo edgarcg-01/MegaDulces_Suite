@@ -365,6 +365,25 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:templates
 
+      # [IG.14.3] EL HERMANO QUE FALTABA, Y POR QUE ESTE PASO EXISTE.
+      #
+      # `check:templates` recorre SOLO `*.component.ts` (su walk filtra por ese sufijo). El
+      # 2026-10-05 un comentario SQL con acentos graves dentro de un template literal rompio el
+      # build en un *.service.ts: `check:templates` escaneo 375 componentes y dio VERDE, porque el
+      # archivo roto no era un componente. Es la octava vez que un acento grave en un comentario
+      # tumba la compilacion de este repo.
+      #
+      # `check:sql-backticks` SI cubre apps/libs/database/scripts/ops y habria atrapado ese caso
+      # exacto... pero no estaba cableado en ningun lado: ni pre-commit, ni pre-push, ni aca. Era
+      # un script huerfano, escrito despues de la vez anterior y nunca enchufado -- el mismo patron
+      # que la Fase VP ya midio con las 21 pruebas fuera del runner.
+      #
+      # Un candado que nadie corre no es un candado: es un archivo.
+      - name: Comment gate (acentos graves en comentarios SQL, todo el repo)
+        id: g-sqlticks
+        if: ${{ !cancelled() }}
+        run: npm run check:sql-backticks
+
       # `[UIM.1]` Tabla ancha sin salida en estrecho. Su prueba negativa corre PRIMERO y en su
       # propio paso, a propósito: si la compuerta dejó de detectar lo que dice detectar, el verde
       # del barrido no significa nada — y ese orden es lo que distingue una compuerta de una

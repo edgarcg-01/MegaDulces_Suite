@@ -78,7 +78,29 @@
 	#
 	# Se apunta al PUERTO DEL HOST (8080), no al nombre de Docker: la forma de [K3S.14]
 	# sigue siendo la buena -- lo que estaba mal era el numero, no la forma.
-	reverse_proxy 192.168.0.222:30080
+	reverse_proxy 192.168.0.222:30080 {
+		# ── [K3S.22] PUENTE: sumarle el bucket propio a la lista de la CSP ──────────
+		# El 2026-10-05 los comprobantes pasaron de Tigris a Garage (`archivos.megadulcessuite.com`).
+		# Abrian solos, pero NO se incrustaban: pantalla gris con el icono de documento roto. La
+		# causa no era el bucket -- el archivo se sirve `200` con `content-disposition: inline`
+		# incluso con cabeceras de `<embed>`. Lo rechazaba el NAVEGADOR: la CSP de la pagina
+		# nombraba a `t3.storageapi.dev` y no al host nuevo, en `img-src` y en `frame-src`.
+		#
+		# ⛔ Esa CSP vive en `nginx.conf`, HORNEADO en la imagen del api (sin volumenes), asi que
+		# arreglarla ahi exige reconstruir y desplegar -- y el despliegue esta trabado por 139
+		# commits sin integrar y 13 migraciones sin aplicar. Esto lo corrige en el borde, hoy.
+		#
+		# ⭐ Es una SUSTITUCION, no una copia de la politica entera: agrega el host nuevo justo
+		# donde ya aparece el comodin de Tigris -- una vez en `img-src` y otra en `frame-src`.
+		# Copiar la CSP completa aca la duplicaria en dos lugares y empezaria a derivar el dia
+		# que alguien toque uno solo.
+		#
+		# ⚠️ ES TEMPORAL Y SE RETIRA SOLO EN CUANTO LA IMAGEN TRAIGA LA CSP CORREGIDA (ya esta
+		# en `nginx.conf` del repo). Dejarlo despues no rompe nada -- la sustitucion no
+		# encontraria nada que reemplazar y seria un no-op-- pero es codigo que miente sobre
+		# por que las cosas funcionan.
+		header_down Content-Security-Policy "https://\*\.t3\.storageapi\.dev" "https://*.t3.storageapi.dev https://archivos.megadulcessuite.com"
+	}
 }
 
 # [K3S.22] Acá vivía `(api-balanceado-viejo)`, que repartía entre `api` y `api2` con
