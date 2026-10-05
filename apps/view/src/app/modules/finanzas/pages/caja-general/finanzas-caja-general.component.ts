@@ -291,14 +291,15 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
        Lo que hacia el muro tampoco era el color: era repetir 85 veces una frase de 80
        caracteres. El texto largo NO vive en un title -- no se alcanza por teclado (checklist 11)
        y DESIGN.md lo lista como antipatron explicito de Operations. */
-    .cg-motivo { font-size:var(--fs-xs); color:var(--text-muted); }
+    /* El p-tag del motivo: su color y su forma son del tema. Lo unico propio es que ocupe su
+       renglon y no compita de tamano con el beneficiario, que es el dato de la celda. */
+    .cg-motivo-tag { display:inline-flex; margin-top:.15rem; font-size:var(--fs-xs); }
     .cg-motivos-res { list-style:none; margin:.1rem 0 .6rem; padding:0;
-      display:flex; flex-direction:column; gap:.15rem; font-size:var(--fs-xs); }
-    .cg-motivos-res li { display:flex; align-items:baseline; gap:.4rem; flex-wrap:wrap; }
-    /* Cifra = Geist mono tabular (checklist 4: toda cifra, sin excepcion). */
-    .cg-motivos-n { font-family:var(--font-mono); font-variant-numeric:tabular-nums;
-      color:var(--text-main); min-width:2.5ch; text-align:right; }
-    .cg-motivos-k { color:var(--text-main); }
+      display:flex; flex-direction:column; gap:.2rem; font-size:var(--fs-xs); }
+    .cg-motivos-res li { display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; }
+    /* El p-tag trae su color y su forma del tema; lo unico propio es la CIFRA en mono tabular
+       (checklist 4: toda cifra, sin excepcion). Sin ::ng-deep: va proyectada adentro. */
+    .cg-motivos-n { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-weight:600; }
     .cg-motivos-txt { color:var(--text-muted); }
     /* [CG.32] El renglon que queda cuando el cuadre esta plegado. */
     .cg-conc-plegado { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
@@ -470,7 +471,11 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           @if (!verDetalleCierre()) {
             <div class="cg-conc-plegado">
               <span>El libro no registro movimiento en esta jornada.</span>
-              <button type="button" class="cg-lim-tog" (click)="cuadreAbierto.set(true)">Ver el cuadre</button>
+              <!-- PrimeNG-first (checklist 3): p-button, no un <button> con clase propia. Ghost
+                   NEUTRO -- la accion en --action de esta cabecera es "Cerrar jornada", y dos
+                   acciones de marca en la misma fila dejan de distinguir cual escribe en la DB. -->
+              <p-button label="Ver el cuadre" size="small" severity="secondary" [text]="true"
+                        icon="pi pi-chevron-down" (onClick)="cuadreAbierto.set(true)"></p-button>
             </div>
           }
 
@@ -652,8 +657,15 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             <ul class="cg-motivos-res">
               @for (g of motivosAgrupados(); track g.motivo) {
                 <li>
-                  <strong class="cg-motivos-n">{{ g.n }}</strong>
-                  <span class="cg-motivos-k">{{ g.motivo }}</span>
+                  <!-- PrimeNG-first (checklist 3): el conteo va en p-tag, no en un span con clase
+                       propia. severity="warn" trae el color por TOKEN del tema (flipea solo en
+                       dark) en vez de que lo declare esta pantalla.
+                       Se PROYECTA el contenido en vez de usar [value] para poder marcar la cifra
+                       como mono tabular (checklist 4) sin un ::ng-deep sobre el componente: el
+                       doc permite ::ng-deep solo para vendor y como ultimo recurso. -->
+                  <p-tag severity="warn">
+                    <span class="cg-motivos-n">{{ g.n }}</span>&nbsp;{{ g.motivo }}
+                  </p-tag>
                   @if (g.texto) { <span class="cg-motivos-txt">{{ g.texto }}</span> }
                 </li>
               }
@@ -709,7 +721,11 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                          aviso pesaba mas que el monto. El porque completo esta arriba (agrupado,
                          con su conteo) y aca en el title de la marca. -->
                     @if (!p.confirmable) {
-                      <small class="cg-motivo d-block">{{ motivoCorto(p.motivo) }}</small>
+                      <!-- PrimeNG-first (checklist 3): p-tag, no un <small> con clase propia.
+                           Trae su color del TEMA (par fondo/texto ya calibrado, y flipea en dark),
+                           que es justo lo que esta pantalla venia declarando a mano con --warn-fg
+                           -- y ese, medido en vivo, daba 1.95 de contraste en light. -->
+                      <p-tag [value]="motivoCorto(p.motivo)" severity="warn" styleClass="cg-motivo-tag"></p-tag>
                     }
                     @if (p.caos_match; as cm) {
                       <small class="cg-caos-attach d-block" [class.cg-caos-alta]="cm.confianza === 'alta'">
