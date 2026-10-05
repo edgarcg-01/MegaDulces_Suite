@@ -66,7 +66,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
           <div class="sb-wrap dt-scope">
             <table class="sb-table dt-stack">
               <thead>
-                <tr><th>Folio</th><th>Solicitud</th><th class="opc">Reportó</th><th class="opc">Sucursal</th><th>Prioridad</th><th>Estado</th><th class="opc">Atiende</th><th>Plazo</th></tr>
+                <tr><th>Folio</th><th>Solicitud</th><th class="opc">Reportó</th><th class="opc">Ubicación</th><th>Prioridad</th><th>Estado</th><th class="opc">Atiende</th><th>Plazo</th></tr>
               </thead>
               <tbody>
                 @for (t of rows(); track t.id) {
@@ -74,7 +74,7 @@ import { SdRequestDetailComponent } from '../sd-request-detail.component';
                     <td class="mono" role="cell" data-label="Folio">{{ t.folio }}</td>
                     <td class="tit dt-id" role="cell" data-label="Solicitud">{{ t.title }}<small>{{ t.category_name }}</small></td>
                     <td class="opc" role="cell" data-label="Reportó">{{ t.requester_name || '—' }}</td>
-                    <td class="opc" role="cell" data-label="Sucursal">{{ t.warehouse_name || '—' }}</td>
+                    <td class="opc" role="cell" data-label="Ubicación">{{ t.warehouse_name || '—' }}</td>
                     <td role="cell" data-label="Prioridad"><span class="pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span></td>
                     <td role="cell" data-label="Estado"><span class="est" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span></td>
                     <td class="opc" role="cell" data-label="Atiende">{{ t.assigned_to_name || '—' }}</td>

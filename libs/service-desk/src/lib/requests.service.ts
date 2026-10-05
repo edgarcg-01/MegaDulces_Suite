@@ -212,7 +212,7 @@ export class ServiceDeskRequestsService {
           .whereNull('c.deleted_at')
           .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch');
         if (!cat) throw new BadRequestException('La categoría no existe o no está disponible');
-        if (cat.requires_branch && !warehouse) throw new BadRequestException('Esta categoría exige indicar la sucursal');
+        if (cat.requires_branch && !warehouse) throw new BadRequestException('Esta categoría exige indicar la ubicación');
 
         // El solicitante es quien llama, salvo que quien atiende haya indicado a otra persona.
         const solicitanteId = pidioOtro ? (dto.requester_id as string) : ctx.userId;
@@ -930,7 +930,7 @@ export class ServiceDeskRequestsService {
     const extra = ubicacionExtra(c);
     if (extra) return extra;
     // Sólo el espacio de códigos vigente de Kepler (00–08): '30','32','50' son eras de Wincaja ya cerradas.
-    if (!/^0[0-8]$/.test(c) || !(c in KEPLER_BRANCH_NAMES)) throw new BadRequestException('Sucursal desconocida');
+    if (!/^0[0-8]$/.test(c) || !(c in KEPLER_BRANCH_NAMES)) throw new BadRequestException('Ubicación desconocida');
     return c;
   }
 
