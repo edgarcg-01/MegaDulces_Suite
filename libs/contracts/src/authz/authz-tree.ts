@@ -390,6 +390,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'egresos', label: 'Egresos contables', route: '/finanzas/egresos', view: [Permission.FINANCE_EXPENSES_VER], manage: [] },
           // [IG.1.4] El otro lado del libro. Permiso propio: hay roles que ven la venta y no el gasto.
           { id: 'ingresos', label: 'Ingresos contables', route: '/finanzas/ingresos', view: [Permission.FINANCE_INCOME_VER], manage: [] },
+          // [CSU.1] Corte de caja POS → cobro → arqueo del turno. Sólo lectura (el cobro se captura en Kepler).
+          { id: 'cortes-sucursales', label: 'Cortes / Sucursales', route: '/finanzas/cortes-sucursales', view: [Permission.FINANCE_CORTES_VER], manage: [] },
           // GX.10 — una sola pantalla para el ciclo del gasto: el tablero para quien puede
           // ver, la captura mínima para quien sólo captura. Antes eran dos nodos porque
           // eran dos rutas.

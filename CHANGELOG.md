@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — Cortes/Sucursales: corte de caja POS → cobro → arqueo del turno (CSU.0–CSU.2, 2026-10-05)
+- `/finanzas/cortes-sucursales`, en la sección nueva **Ingresos** del menú de Finanzas. Por sucursal: lo vendido en cortes (cliente `CONTADO`), lo cobrado en Kepler, el saldo pendiente y el cuadre de cada corte contra el arqueo de su turno. Mes en curso por defecto o rango específico.
+- `GET /finance/cortes-sucursales`, permiso `FINANCE_CORTES_VER` (mig `20261005200000`, 11 roles). Sólo lectura sobre el ODS, sin importer.
 ### Fixed — Pagos a proveedor: la lista del lote se limpia al guardar, y la carga se mide (PC.8, 2026-10-04)
 - Después de guardar un lote, lo guardado **sale de la lista** y queda un resumen («20 guardados · 15 validados solos · 5 con diferencias», con **Ver con diferencias**); sólo se quedan las filas que aún piden algo. La lista tiene scroll propio y «Guardar» queda siempre a la vista.
 - La carga lenta de la página (5–6 s en prod) no se reprodujo con 600k documentos sintéticos (~110 ms): la lista ahora publica cuánto tarda cada consulta (`Server-Timing` + `tiempos_ms`) y avisa en el log arriba de 1 s.

@@ -5,6 +5,29 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-05 — `[CSU.0–CSU.2]` Cortes/Sucursales: el corte es lo contado, y el cuadre va por turno
+
+**Qué se entregó:** `/finanzas/cortes-sucursales` sigue cada corte de caja POS (`U-D-23`, cliente
+`CONTADO`) hasta sus cobros aplicados (`kdm5`) y lo cuadra contra el arqueo del turno
+(`analytics.cash_cuts`). Lectura pura del ODS, sin importer. Plan en
+[`FASE_CSU`](FASES/FASE_CSU_CORTES_SUCURSALES.md).
+
+**Verificado:** reproduce al centavo las dos pantallas de Kepler que trajo Francisco (Alta de cobro
+de Zamora Centro: 10 documentos, saldo $194,188.12; y el cobro `UA0501-0000003`). Servicio
+ejecutado contra prod en solo lectura: oct-2026, 106 cortes en 630–750 ms en caliente. Motor con 10 pruebas, y la
+negativa ("sin arqueo nunca cuadra") rompe al mutar la regla. Compuertas estáticas en verde.
+**No verificado:** la pantalla en el navegador (no se levanta la app en local, regla 2026-10-02).
+
+**Lecciones:**
+1. **El monto del corte es lo que contó el cajero, no lo que vendió.** Por eso los $9,000 de la
+   caja 5-151 son un faltante del arqueo, no un error del corte.
+2. **Comparar contra los tickets del día da diferencias falsas de ±$90 mil** cuando el turno cruza
+   la medianoche. El testigo correcto es el arqueo del turno, que ya existía en `cash_cuts`.
+3. **Una llave que parece única se repite**: el folio de arqueo vuelve a aparecer entre fechas. Se
+   casa por fecha más cercana (±3 días).
+4. **Solo 1.5% de lo vendido del 1 al 5 de octubre tiene cobro aplicado** — es justo lo que la
+   pantalla existe para hacer visible.
+
 ## 2026-10-03 — Checkpoint: la Mesa de Servicio construida de punta a punta, lo que ya está en `main` y lo que falta (`[MS.2]`–`[MS.3.13]`)
 
 **Estado.** La Mesa de Servicio (ADR-081, **propuesto**) está construida y probada **en local**; **nada aplicado a producción**. Capas 1 (BD), 2 (lógica) y 3 (pantallas) completas, más lo que fue saliendo después: A tu nombre en Mi trabajo (MS.3.6), cola «sin asignar» con plazo ajustable (MS.3.8), asignación automática por regla (MS.3.10), Reportes (MS.3.5), levantar a nombre de otra persona (MS.3.11), cámara/galería (MS.3.12) y adjuntos en notas internas (MS.3.13). Detalle por ítem en el tracker; resumen de la fila en `CLAUDE.md`.
