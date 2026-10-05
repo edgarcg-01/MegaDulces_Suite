@@ -6695,8 +6695,30 @@ verificó `7688376744939610156` antes de tocar nada.
 - API sana: `/api/health` **HTTP 200 en 2.6 ms**, los 2 pods `Running` sin reinicios. La pantalla
   desplegada sigue leyendo las columnas viejas, que no cambiaron de orden ni de tipo.
 
-⬜ **Falta: `git push` + redeploy api+view** (sin eso la pantalla sigue mostrando el rótulo viejo —
-la migración sola no cambia lo que se ve) **+ validación visual**. Sin permisos nuevos → sin re-login.
+✅ **DESPLEGADO Y VERIFICADO EN VIVO 2026-10-05.** Prod sirve `bf71f43cd`, que trae el código de
+`PP.9` y de `PP.7`. La prueba no es que el pod arrancó: es la **consulta real del servicio corrida
+como `app_runtime`** (el rol del API, no `postgres`) contra prod —
+
+```
+folio 0000444 · XD2601 · metodo_pago=transferencia · medio_pago=caja · CAJA GENERAL · $4,450.00
+```
+
+— que es exactamente el defecto corregido: Kepler dice «transferencia», el dinero salió de la caja,
+y la pantalla ahora dice **Efectivo**. Sep-2026 por medio: caja 174 / $3,571,717.80 · banco 156 /
+$32,998,986.60 · puente 7 / $3,408,889.69. **Cero errores** de `medio_pago`/`42703` en los logs de
+los dos pods.
+⬜ Queda la validación visual en el navegador.
+
+⚠️ **Cómo llegó el código a `main`, porque la lección sirve:** se aplicó la migración desde la rama
+`integra/resto-2026-10-02`, que **no tenía CI** y se retiró ese mismo día — el caso exacto que la
+regla nueva prohíbe (*base y código separados es cómo se rompe producción en silencio*). Al ir a
+rescatar los commits se midió primero, y **ya habían aterrizado** vía `1b16ad0e8`. ⛔ El cherry-pick
+igual se descartó: lo único que aportaba eran **5 líneas que re-insertaban el bloque «Pendiente
+prod» que el commit siguiente ya había reemplazado por «APLICADA, batch 720»** — habría dejado el
+documento afirmando las dos cosas. *Antes de rescatar un commit a `main`, verificar si su CONTENIDO
+ya llegó: un cherry-pick cuyo sucesor ya está presente no suma, RETROCEDE.* Todo se hizo en un
+worktree aislado; el checkout principal nunca se movió por esta sesión.
+
 ⚠️ **Efecto colateral declarado:** prod queda con una fila más de `knex_migrations` cuyo archivo no
 está en `origin/main` — la próxima sesión que migre desde el contenedor verá *«directory corrupt»* y
 tendrá que copiarse este archivo, igual que pasó acá con las 8 ajenas.
