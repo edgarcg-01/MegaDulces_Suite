@@ -87,7 +87,7 @@ function leerComoDataUri(f: File): Promise<string> {
           <div><dt>Atiende</dt><dd>{{ t.assigned_to_name || 'Sin asignar' }}</dd></div>
           <div><dt>Cola</dt><dd>{{ t.queue_name }} · {{ t.category_name }}</dd></div>
           <div><dt>Afecta</dt><dd>{{ impactLabel[t.impact] }}{{ t.blocks_work ? ' · me bloquea el trabajo' : '' }}</dd></div>
-          @if (t.warehouse_name) { <div><dt>Sucursal</dt><dd>{{ t.warehouse_name }}</dd></div> }
+          @if (t.warehouse_name) { <div><dt>Ubicación</dt><dd>{{ t.warehouse_name }}</dd></div> }
           <div><dt>Alta</dt><dd>{{ t.created_at | date:'dd/MM/yy HH:mm' }}</dd></div>
           @if (agent() && t.priority_suggested && t.priority_suggested !== t.priority) {
             <div><dt>Sugerida</dt><dd>{{ priorityLabel[t.priority_suggested] }}</dd></div>

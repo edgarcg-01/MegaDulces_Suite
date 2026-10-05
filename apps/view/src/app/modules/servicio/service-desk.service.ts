@@ -10,6 +10,24 @@ import type {
 import { environment } from '../../../environments/environment';
 
 export const PRIORITY_LABEL: Readonly<Record<SdPriority, string>> = { baja: 'Baja', media: 'Media', alta: 'Alta', urgente: 'Urgente' };
+/** `[MS.3.16]` Lo que admite la bandeja. `assigned_to: 'none'` = sin asignar; `from`/`to` son la fecha de alta (AAAA-MM-DD). */
+export interface SdInboxQuery {
+  scope?: string;
+  queue_id?: string;
+  priority?: string;
+  status?: string;
+  warehouse_code?: string;
+  category_id?: string;
+  assigned_to?: string;
+  from?: string;
+  to?: string;
+  sort?: string;
+  dir?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
 export const STATUS_LABEL: Readonly<Record<SdStatus, string>> = {
   nuevo: 'Nuevo', asignado: 'Asignado', en_proceso: 'En proceso', en_espera: 'En espera',
   resuelto: 'Resuelto', cerrado: 'Cerrado', cancelado: 'Cancelado',
@@ -56,7 +74,7 @@ export class ServiceDeskService {
   mine(q: { scope?: string; search?: string; limit?: number; offset?: number } = {}): Observable<SdListResponse> {
     return this.http.get<SdListResponse>(`${this.base}/requests/mine`, { params: this.params(q) });
   }
-  inbox(q: { scope?: string; queue_id?: string; priority?: string; status?: string; warehouse_code?: string; search?: string; limit?: number; offset?: number } = {}): Observable<SdListResponse> {
+  inbox(q: SdInboxQuery = {}): Observable<SdListResponse> {
     return this.http.get<SdListResponse>(`${this.base}/requests/inbox`, { params: this.params(q) });
   }
   stats(): Observable<SdStatsResponse> { return this.http.get<SdStatsResponse>(`${this.base}/requests/stats`); }
@@ -102,7 +120,7 @@ export class ServiceDeskService {
   scanNow(): Observable<SdSlaScanResult> { return this.http.post<SdSlaScanResult>(`${this.base}/sla/scan-now`, {}); }
 
   /** Sólo manda los parámetros con valor: un `?search=` vacío no filtra pero ensucia la URL y el log. */
-  private params(q: Record<string, string | number | undefined>): HttpParams {
+  private params(q: object): HttpParams {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
     return p;

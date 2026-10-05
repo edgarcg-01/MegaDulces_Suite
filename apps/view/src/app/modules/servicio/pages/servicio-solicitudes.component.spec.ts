@@ -137,4 +137,44 @@ describe('[MS.3.2] ServicioSolicitudesComponent', () => {
     expect(c.selId()).toBe('abc-123');
     expect(c.creando()).toBe(false);
   });
+  describe('[MS.3.14] el campo se llama «Ubicación», no «Sucursal»', () => {
+    it('⭐ con una categoría que exige ubicación el campo dice «Ubicación *» y su selector también', async () => {
+      await render();
+      c.nueva();
+      c.elegirCategoria('c-suc');
+      fix.detectChanges();
+      const texto = (fix.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain('Ubicación *');
+      expect(texto).not.toMatch(/Sucursal \*/);
+      expect((fix.nativeElement as HTMLElement).querySelector('p-select[arialabel="Ubicación"], p-select[ariaLabel="Ubicación"]')).toBeTruthy();
+    });
+    it('el enlace de la ubicación opcional también', async () => {
+      await render();
+      c.nueva();
+      c.elegirCategoria('c-libre');
+      fix.detectChanges();
+      const texto = (fix.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain('Indicar ubicación (opcional)');
+      expect(texto).not.toContain('Indicar sucursal');
+    });
+  });
+
+  describe('[MS.3.14] la lista de sucursales', () => {
+    it('⭐ ofrece «Oficinas Corporativas» (que no es una sucursal Kepler) AL FINAL de la red', async () => {
+      await render();
+      const nombres = c.sucursales.map((x) => x.name);
+      expect(nombres[nombres.length - 1]).toBe('Oficinas Corporativas');
+      expect(c.sucursales[c.sucursales.length - 1].code).toBe('OF');
+    });
+    it('⛔ NEGATIVA — NO quita ni cambia ninguna de las sucursales de la red (siguen las 9, en su orden)', async () => {
+      await render();
+      expect(c.sucursales.slice(0, 9).map((x) => x.code)).toEqual(['00', '01', '02', '03', '04', '05', '06', '07', '08']);
+      expect(c.sucursales).toHaveLength(10);
+    });
+    it('el código de las oficinas no choca con ningún código de sucursal', async () => {
+      await render();
+      const codigos = c.sucursales.map((x) => x.code);
+      expect(new Set(codigos).size).toBe(codigos.length);
+    });
+  });
 });

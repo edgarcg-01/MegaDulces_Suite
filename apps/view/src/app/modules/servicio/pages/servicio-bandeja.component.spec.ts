@@ -19,13 +19,15 @@ describe('[MS.3.6] ServicioBandejaComponent — ?scope= e ?id=', () => {
   let fix: ComponentFixture<ServicioBandejaComponent>;
   let c: ServicioBandejaComponent;
   let params$: BehaviorSubject<ReturnType<typeof convertToParamMap>>;
-  let api: { inbox: ReturnType<typeof vi.fn>; stats: ReturnType<typeof vi.fn>; detail: ReturnType<typeof vi.fn> };
+  let api: { inbox: ReturnType<typeof vi.fn>; stats: ReturnType<typeof vi.fn>; catalog: ReturnType<typeof vi.fn>; agents: ReturnType<typeof vi.fn>; detail: ReturnType<typeof vi.fn> };
 
   async function render(query: Record<string, string> = {}) {
     params$ = new BehaviorSubject(convertToParamMap(query));
     api = {
       inbox: vi.fn(() => of({ rows: [], total: 0 })),
       stats: vi.fn(() => NEVER),
+      catalog: vi.fn(() => NEVER),
+      agents: vi.fn(() => NEVER),
       detail: vi.fn(() => NEVER), // la ficha embebida pide su ticket; aquí no importa qué responda
     };
     await TestBed.configureTestingModule({

@@ -6,6 +6,7 @@ export * from './lib/domain/sla';
 export * from './lib/domain/attachment-signature';
 export * from './lib/domain/folio';
 export * from './lib/domain/routing';
+export * from './lib/domain/ubicaciones';
 export * from './lib/routing.service';
 export * from './lib/reports.service';
 export * from './lib/requesters.service';

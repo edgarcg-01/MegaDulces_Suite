@@ -853,6 +853,107 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('requester_id que no es uuid → 400', (await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'x', requester_id: 'no-soy-uuid' })).status === 400);
     }
 
+    // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
+    {
+      console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
+      const tag = `SMOKE orden ${Date.now().toString(36)}`;
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const mk = (title, extra = {}) => req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: `${tag} ${title}`, ...extra });
+      const tZeta = await mk('zeta', { warehouse_code: '03' });
+      const tAlfa = await mk('alfa');
+      const tMike = await mk('mike', { warehouse_code: 'OF' });
+      await req('POST', `${SD}/requests/${tAlfa.body?.id}/take`, agente.token);
+      check('las 3 solicitudes de prueba se crean', [tZeta, tAlfa, tMike].every((t) => t.status === 201 || t.status === 200), dump(tZeta));
+
+      const lista = (qs = '') => req('GET', `${SD}/requests/inbox?scope=all${qs.includes('limit=') ? '' : '&limit=100'}&search=${encodeURIComponent(tag)}${qs}`, coord.token);
+      const titulos = (r) => (r.body?.rows ?? []).map((x) => x.title.replace(`${tag} `, ''));
+      const folios = (r) => (r.body?.rows ?? []).map((x) => x.folio);
+
+      check('sin sort sigue el orden de siempre y trae las 3', (await lista()).body?.total === 3);
+      check('⭐ sort=solicitud asc → alfa, mike, zeta', titulos(await lista('&sort=solicitud&dir=asc')).join() === 'alfa,mike,zeta');
+      check('⭐ sort=solicitud desc → zeta, mike, alfa', titulos(await lista('&sort=solicitud&dir=desc')).join() === 'zeta,mike,alfa');
+      const fAsc = folios(await lista('&sort=folio&dir=asc'));
+      const fDesc = folios(await lista('&sort=folio&dir=desc'));
+      check('sort=folio asc/desc se invierten entre sí', fAsc.length === 3 && fAsc.join() === [...fDesc].reverse().join() && fAsc.join() === [...fAsc].sort().join(), JSON.stringify([fAsc, fDesc]));
+      check('sin dir, el orden es ascendente', titulos(await lista('&sort=solicitud')).join() === 'alfa,mike,zeta');
+
+      // Los vacíos van SIEMPRE al final, sin importar la dirección.
+      const ubAsc = titulos(await lista('&sort=ubicacion&dir=asc'));
+      const ubDesc = titulos(await lista('&sort=ubicacion&dir=desc'));
+      check('⭐ sort=ubicacion ordena por el NOMBRE que se ve (8 Esquinas → Oficinas Corporativas), no por el código', ubAsc.slice(0, 2).join() === 'zeta,mike', ubAsc.join());
+      check('⭐ sort=ubicacion: «sin ubicación» (alfa) queda al FINAL en asc', ubAsc[2] === 'alfa', ubAsc.join());
+      check('⭐ y TAMBIÉN al final en desc (un vacío no es «lo más grande»)', ubDesc[2] === 'alfa', ubDesc.join());
+      const atAsc = titulos(await lista('&sort=atiende&dir=asc'));
+      const atDesc = titulos(await lista('&sort=atiende&dir=desc'));
+      check('⭐ sort=atiende: quien tiene responsable va primero en asc y en desc; los sin asignar al final', atAsc[0] === 'alfa' && atDesc[0] === 'alfa', JSON.stringify([atAsc, atDesc]));
+
+      // Paginar con orden: cada página continúa a la anterior, sin repetir ni saltarse.
+      const p1 = titulos(await lista('&sort=solicitud&dir=asc&limit=2&offset=0'));
+      const p2 = titulos(await lista('&sort=solicitud&dir=asc&limit=2&offset=2'));
+      check('⭐ el orden vale a través de las páginas (el servidor ordena ANTES de cortar)', [...p1, ...p2].join() === 'alfa,mike,zeta', JSON.stringify([p1, p2]));
+      const r3 = await lista('&sort=solicitud&limit=2');
+      check('y el total no cambia por ordenar', r3.body?.total === 3 && r3.body?.rows?.length === 2, dump(r3));
+
+      // Filtros nuevos.
+      const aAgente = await lista(`&assigned_to=${agente.id}`);
+      check('⭐ assigned_to=<usuario> trae sólo lo suyo', titulos(aAgente).join() === 'alfa', titulos(aAgente).join());
+      const aNone = await lista('&assigned_to=none');
+      check('⭐ assigned_to=none trae lo SIN asignar', titulos(aNone).sort().join() === 'mike,zeta', titulos(aNone).join());
+      check('⛔ assigned_to con basura → 400', (await lista('&assigned_to=no-es-un-usuario')).status === 400);
+
+      check('⭐ category_id filtra por categoría', (await lista(`&category_id=${catSimple.id}`)).body?.total === 3);
+      check('una categoría que existe pero sin solicitudes → 0 (no error)', (await lista('&category_id=00000000-0000-0000-0000-000000000000')).body?.total === 0);
+      check('⛔ category_id con basura → 400', (await lista('&category_id=xx')).status === 400);
+
+      check('⭐ from/to del día traen las 3 (el día se mide en la zona de la mesa)', (await lista(`&from=${hoy}&to=${hoy}`)).body?.total === 3);
+      check('⭐ un rango del pasado trae 0', (await lista('&from=2000-01-01&to=2000-01-02')).body?.total === 0);
+      check('sólo from (abierto por el final) trae las 3', (await lista(`&from=${hoy}`)).body?.total === 3);
+      check('⛔ from posterior a to → 400', (await lista('&from=2026-10-05&to=2026-10-01')).status === 400);
+      check('⛔ una fecha imposible (2026-13-45) → 400', (await lista('&from=2026-13-45')).status === 400);
+      check('⛔ una fecha en otro formato (05/10/2026) → 400', (await lista('&to=05/10/2026')).status === 400);
+
+      check('⭐ status=asignado trae sólo la que se tomó', titulos(await lista('&status=asignado')).join() === 'alfa');
+      const combo = await lista(`&assigned_to=none&warehouse_code=OF&from=${hoy}&to=${hoy}&sort=folio&dir=desc`);
+      check('⭐ los filtros se COMBINAN (sin asignar + oficinas + hoy) → sólo «mike»', titulos(combo).join() === 'mike', titulos(combo).join());
+
+      // Lista cerrada: la columna llega por la URL y va a un ORDER BY en crudo.
+      check('⛔ sort desconocido → 400', (await lista('&sort=password')).status === 400);
+      check('⛔ sort con inyección → 400 (y nada se concatena)', (await lista(`&sort=${encodeURIComponent('r.id; DROP TABLE servicedesk.requests; --')}`)).status === 400);
+      check('⛔ dir desconocida → 400', (await lista('&sort=folio&dir=sideways')).status === 400);
+      const sigue = await knex('servicedesk.requests').where('title', 'like', `${tag}%`).count({ n: '*' }).first();
+      check('la tabla sigue ahí tras el intento de inyección', Number(sigue.n) === 3, JSON.stringify(sigue));
+      const columnas = ['folio', 'solicitud', 'reporto', 'ubicacion', 'prioridad', 'estado', 'atiende', 'plazo', 'alta'];
+      const resultados = [];
+      for (const col of columnas) for (const dir of ['asc', 'desc']) resultados.push([col, dir, (await lista(`&sort=${col}&dir=${dir}`)).status]);
+      check('⭐ las 9 columnas que ofrece la pantalla, en las dos direcciones, las acepta el servidor (18/18)', resultados.every(([, , s]) => s === 200), JSON.stringify(resultados.filter(([, , s]) => s !== 200)));
+      check('⛔ quien no atiende NO accede a la bandeja ni con filtros → 403', (await req('GET', `${SD}/requests/inbox?scope=all&sort=folio`, sol.token)).status === 403);
+    }
+
+    // ── 20. Oficinas Corporativas como ubicación (no es una sucursal Kepler) ───────────
+    {
+      console.log('\n20 — «Oficinas Corporativas» como ubicación de una solicitud');
+      const catSuc = (cat.body?.categories ?? []).find((c) => c.requires_branch);
+      const mk = (title, extra = {}, cid = catSimple.id) => req('POST', `${SD}/requests`, sol.token, { category_id: cid, title, ...extra });
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const tOf = await mk('SMOKE oficinas: no imprime el área de compras', { warehouse_code: 'OF' });
+      check('⭐ una solicitud con ubicación «OF» se acepta → 201', tOf.status === 201, dump(tOf));
+      check('⭐ y se nombra «Oficinas Corporativas» (no «OF»)', tOf.body?.warehouse_code === 'OF' && tOf.body?.warehouse_name === 'Oficinas Corporativas', JSON.stringify([tOf.body?.warehouse_code, tOf.body?.warehouse_name]));
+      const tMin = await mk('SMOKE oficinas: minúsculas', { warehouse_code: 'of' });
+      check('sin distinguir mayúsculas, y se guarda en el código canónico «OF»', tMin.status === 201 && tMin.body?.warehouse_code === 'OF', dump(tMin));
+      check('⭐ una categoría que EXIGE sucursal acepta las oficinas como ubicación', !!catSuc && (await mk('SMOKE oficinas: categoría con sucursal', { warehouse_code: 'OF' }, catSuc.id)).status === 201);
+      check('⛔ NEGATIVA — un código desconocido sigue rechazándose → 400', (await mk('x', { warehouse_code: 'XX' })).status === 400);
+      check('⛔ NEGATIVA — y las eras cerradas de Wincaja («30») también → 400', (await mk('x', { warehouse_code: '30' })).status === 400);
+      check('⛔ NEGATIVA — «09» (fuera del espacio de Kepler) también → 400', (await mk('x', { warehouse_code: '09' })).status === 400);
+      check('las sucursales de siempre siguen valiendo («03»)', (await mk('SMOKE oficinas: sucursal normal', { warehouse_code: '03' })).body?.warehouse_name === '8 Esquinas');
+      const filtro = await req('GET', `${SD}/requests/inbox?scope=all&warehouse_code=OF&limit=100`, coord.token);
+      check('⭐ la bandeja filtra por las oficinas', (filtro.body?.rows ?? []).some((r) => r.id === tOf.body?.id) && (filtro.body?.rows ?? []).every((r) => r.warehouse_code === 'OF' || r.warehouse_name === 'Oficinas Corporativas'), dump(filtro));
+      const rep = await req('GET', `${SD}/reports?from=${hoy}&to=${hoy}`, coord.token);
+      const fila = (rep.body?.por_sucursal ?? []).find((x) => x.warehouse_code === 'OF');
+      check('⭐ el reporte por sucursal trae a las oficinas, con su nombre', !!fila && fila.warehouse_name === 'Oficinas Corporativas' && fila.creados >= 3, JSON.stringify(fila));
+      const enBase = await knex('servicedesk.requests').where({ id: tOf.body?.id }).first('warehouse_code');
+      check('la base guarda «OF» (varchar(20), sin chocar con ningún código de Kepler)', enBase.warehouse_code === 'OF');
+    }
+
     // ── 21. El tiempo registrado: la lista en la ficha y las horas en Reportes ───────────
     {
       console.log('\n21 — tiempo registrado: lista en la ficha (sólo quien atiende) y horas por categoría');

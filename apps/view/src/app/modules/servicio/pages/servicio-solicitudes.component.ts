@@ -8,7 +8,7 @@ import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
-import { SD_IMPACTS, type SdAttachmentInput, type SdCatalogResponse, type SdDepartmentDto, type SdImpact, type SdPreferencesDto, type SdRequesterDto, type SdRequestRow } from '@megadulces/contracts';
+import { SD_IMPACTS, SD_UBICACIONES_EXTRA, type SdAttachmentInput, type SdCatalogResponse, type SdDepartmentDto, type SdImpact, type SdPreferencesDto, type SdRequesterDto, type SdRequestRow } from '@megadulces/contracts';
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { optimizarImagenes } from '../image-compress';
 import { Permission } from '../../../core/constants/permissions';
@@ -129,7 +129,7 @@ function dataUri(f: File): Promise<string> {
                       </div>
                       <label class="ss-field"><span>Área</span>
                         <p-select [options]="departamentos()" optionLabel="name" optionValue="code" [(ngModel)]="areaCode" placeholder="Sin área en su ficha" [showClear]="true" appendTo="body" ariaLabel="Área" /></label>
-                      <p class="ss-hint">La persona recibirá el aviso y será quien confirme o reabra la solicitud. La sucursal se precarga de su ficha: corrígela si hace falta.</p>
+                      <p class="ss-hint">La persona recibirá el aviso y será quien confirme o reabra la solicitud. La ubicación se precarga de su ficha: corrígela si hace falta.</p>
                     }
                   </div>
                 }
@@ -144,11 +144,11 @@ function dataUri(f: File): Promise<string> {
                   <textarea pTextarea rows="5" [(ngModel)]="form.description" placeholder="Qué intentabas hacer, qué mensaje te salió, desde cuándo."></textarea></label>
 
                 @if (requiereSucursal() || mostrarSucursal() || form.warehouse_code) {
-                  <label class="ss-field"><span>Sucursal {{ requiereSucursal() ? '*' : '' }}</span>
-                    <p-select [options]="sucursales" optionLabel="name" optionValue="code" [(ngModel)]="form.warehouse_code" placeholder="Elige la sucursal"
-                              [showClear]="!requiereSucursal()" appendTo="body" ariaLabel="Sucursal" /></label>
+                  <label class="ss-field"><span>Ubicación {{ requiereSucursal() ? '*' : '' }}</span>
+                    <p-select [options]="sucursales" optionLabel="name" optionValue="code" [(ngModel)]="form.warehouse_code" placeholder="Elige la ubicación"
+                              [showClear]="!requiereSucursal()" appendTo="body" ariaLabel="Ubicación" /></label>
                 } @else {
-                  <button type="button" class="ss-link" (click)="mostrarSucursal.set(true)">Indicar sucursal (opcional)</button>
+                  <button type="button" class="ss-link" (click)="mostrarSucursal.set(true)">Indicar ubicación (opcional)</button>
                 }
 
                 <fieldset class="ss-impact">
@@ -313,7 +313,8 @@ export class ServicioSolicitudesComponent implements OnInit {
   readonly statusLabel = STATUS_LABEL;
   readonly priorityLabel = PRIORITY_LABEL;
   readonly maxArchivos = MAX_ARCHIVOS;
-  readonly sucursales = STORE_BRANCHES;
+  /** Las sucursales de la red y, al final, las ubicaciones que no son sucursal (oficinas corporativas; `[MS.3.14]`). */
+  readonly sucursales: { code: string; name: string }[] = [...STORE_BRANCHES, ...Object.entries(SD_UBICACIONES_EXTRA).map(([code, name]) => ({ code, name }))];
   readonly impactos = SD_IMPACTS.map((v) => ({ value: v, label: IMPACT_LABEL[v] }));
   readonly scopes = [{ value: 'open', label: 'Abiertas' }, { value: 'closed', label: 'Cerradas' }, { value: 'all', label: 'Todas' }];
 
