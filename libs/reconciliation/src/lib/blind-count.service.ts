@@ -93,6 +93,17 @@ export interface AvisoDobleCaja {
 /** Motivos tipificados de incidencia (opcional, alineado al CHECK de la migración SM.9). */
 const INCIDENCIAS = ['faltante_justificado', 'billete_falso', 'robo', 'error_cobro', 'otro'];
 /** Umbrales del descuadre autolineado (espejan la regla `arqueo_ciego_divergente`). */
+/**
+ * El carril del ODS que trae `kdpv_folio_caja` (está en su `KP_ODS_TABLES` y en
+ * su `ODS_HASH_TABLES`, ver `ops/k3s/20-ods-live-hot.deployment.yaml`). Su latido
+ * en `analytics.cron_runs` es la frescura REAL de esta pantalla.
+ *
+ * ⚠️ NO es `kdm1`: eso es la venta y viaja en el carril incremental por
+ * watermark. Los sensores de sucursal congelada miran ése, así que su verde no
+ * dice nada de esta tabla — son dos mecanismos con fallas distintas.
+ */
+const CARRIL_ODS = 'ods_live_hot';
+
 const ARQ_UMBRAL = 50;
 const ARQ_CRITICO = 1000;
 /**
@@ -588,6 +599,40 @@ export class BlindCountService {
         .first('id');
       return !!row;
     });
+  }
+
+  /**
+   * Cuándo llegó el último dato de Kepler, para que la pantalla lo DECLARE.
+   *
+   * `turnosPendientes` lee `kepler_ods.kdpv_folio_caja` en vivo, y esa tabla la
+   * trae el carril `ods_live_hot` (está en su `KP_ODS_TABLES` y en su
+   * `ODS_HASH_TABLES`). Si el carril se para, la lista se vacía y la pantalla
+   * decía **«No tienes cortes por arquear»** — indistinguible de «ya contaste
+   * todo». Es exactamente el incidente del 2026-09-29: seis días sin ingesta y
+   * 25 cajeras con el turno congelado.
+   *
+   * ⚠️ Tres estados, no dos (ADR-056). Sin fila de latido devuelve
+   * `status: 'desconocido'` y `datos_al: null`: **no se puede medir** no es lo
+   * mismo que **está fresco**, y un booleano no sabe decir «no sé».
+   *
+   * Best-effort: si la consulta falla, la captura sigue. Una pantalla sin píldora
+   * es mucho menos grave que una pantalla que no deja contar.
+   */
+  async frescuraOds(): Promise<{ datos_al: string | null; status: 'ok' | 'error' | 'desconocido' }> {
+    try {
+      return await this.tk.run(async (trx) => {
+        const row = await trx('analytics.cron_runs')
+          .where({ job_key: CARRIL_ODS })
+          .first('last_finish', 'status');
+        if (!row?.last_finish) return { datos_al: null, status: 'desconocido' as const };
+        return {
+          datos_al: new Date(row.last_finish).toISOString(),
+          status: row.status === 'ok' ? ('ok' as const) : ('error' as const),
+        };
+      });
+    } catch {
+      return { datos_al: null, status: 'desconocido' };
+    }
   }
 
   /** Un turno concreto de Kepler, para validar que existe y es de quien dice ser. */
