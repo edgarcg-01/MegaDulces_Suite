@@ -8131,9 +8131,21 @@ export class CommercialAnalyticsService {
             WHERE l.tenant_id = ? AND l.business_date >= ? AND l.business_date <= ?
             GROUP BY 1,2,3
          ), val AS (
-           SELECT w.*, w.cv / nullif(w.cq,0) AS costo_u, w.vi / nullif(w.vq,0) AS precio_u,
+           /**
+            * ⛔ El unitario NO se calcula acá. Se LEE del resolvedor, y la diferencia no es de
+            * estilo: calcularlo por columna hacia que las dos sumaran UNIVERSOS DISTINTOS.
+            * Un par con carga y sin venta tenia costo y no precio, asi que entraba al COSTO y
+            * se caia del PRECIO; con los negativos pasaba al reves. Resultado medido el
+            * 2026-10-05: 10 de 11 rutas publicaban un inventario que costaba MAS de lo que
+            * vale al cliente. Con el resolvedor quedan 5, y son exactamente las de saldo
+            * negativo -- donde invertirse es lo correcto.
+            */
+           SELECT w.*, u.costo_u, u.precio_u, u.origen_costo, u.origen_precio,
                   coalesce(w.cq,0) - coalesce(w.vq,0) AS saldo
              FROM win w
+             LEFT JOIN analytics.mv_rd_route_unit_value u
+               ON u.tenant_id = ? AND u.route_no = w.route_no
+              AND u.sku = w.sku AND u.unidad = w.unidad
          ), carga_dia AS (
            -- Lo que se le subio al camion AYER, y cuando fue la ultima vez que se le subio algo.
            -- Va al margen de la ventana elegida: es senal del dia, no del periodo.
@@ -8189,14 +8201,20 @@ export class CommercialAnalyticsService {
                 -- creer que el margen es del 79%; con la cobertura al lado se lee como lo que es.
                 count(*) FILTER (WHERE coalesce(v.vq,0) > 0)::int                 AS pares_vendidos,
                 count(*) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.ce IS NULL)::int AS pares_sin_cogs_erp,
-                round(sum(v.vi_sin_ce),2)::float                                  AS venta_sin_cogs_erp
+                round(sum(v.vi_sin_ce),2)::float                                  AS venta_sin_cogs_erp,
+                -- De donde salio el unitario. Un valor tomado de la ficha es un hecho de Kepler,
+                -- no un relleno -- pero el que lo lee tiene derecho a saber cual uso (ADR-056).
+                count(*) FILTER (WHERE v.origen_costo  = 'kepler')::int             AS costo_de_ficha,
+                count(*) FILTER (WHERE v.origen_precio = 'kepler')::int             AS precio_de_ficha,
+                count(*) FILTER (WHERE v.costo_u  IS NULL AND v.sku IS NOT NULL)::int AS sin_costo_resuelto,
+                count(*) FILTER (WHERE v.precio_u IS NULL AND v.sku IS NOT NULL)::int AS sin_precio_resuelto
            FROM analytics.mv_rd_route_identity i
            LEFT JOIN val v ON v.route_no = i.route_no
            LEFT JOIN carga_dia cd ON cd.route_no = i.route_no
           WHERE i.tenant_id = ?
           GROUP BY i.route_no, i.plaza, i.carga_desde
           ORDER BY i.plaza, i.route_no`,
-        [tenantId, desde, hasta, ayer, ayer, tenantId, tenantId],
+        [tenantId, desde, hasta, tenantId, ayer, ayer, tenantId, tenantId],
       )).rows;
 
       const asOf = (await trx.raw(
