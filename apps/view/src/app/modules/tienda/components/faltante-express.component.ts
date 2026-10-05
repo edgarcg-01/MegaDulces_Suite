@@ -45,7 +45,11 @@ const PASO_MS = 100;
   template: `
     <div class="fx" [class.fx-compacto]="compacto()">
       <!-- ── La caja. Es lo único que hay cuando no pasa nada. ──────────────────────────── -->
-      @if (!compacto()) { <label class="fx-lbl" for="fx-q">¿Qué te pidieron?</label> }
+      @if (compacto()) {
+        <label class="fx-lbl-min" for="fx-q"><i class="pi pi-search" aria-hidden="true"></i> ¿Te pidieron algo?</label>
+      } @else {
+        <label class="fx-lbl" for="fx-q">¿Qué te pidieron?</label>
+      }
       <div class="fx-wrap">
         <i class="pi pi-search fx-ico" aria-hidden="true"></i>
         <input #caja id="fx-q" type="search" class="fx-input" autocomplete="off" spellcheck="false"
@@ -225,10 +229,19 @@ const PASO_MS = 100;
     </div>
   `,
   styles: [`
-    /* Modo tira: el buscador como accesorio, no como seccion. */
-    .fx-compacto { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem; }
-    .fx-compacto .fx-wrap { flex: 1 1 22rem; min-width: 0; }
-    .fx-compacto .fx-sin-suc { flex: 1 1 18rem; min-width: 0; margin: 0; padding: 0; border: 0; background: none; font-size: .74rem; }
+    /* ── Modo tira: el buscador como ACCESORIO, no como seccion ──────────────────
+       El arqueo existe para contar efectivo; esta caja no puede comerse el alto.
+       ⚠️ .fx.fx-compacto y no .fx-compacto a secas: .fx se declara MAS ABAJO
+       con flex-direction: column y la misma especificidad (0,1,0), asi que la
+       regla de una sola clase perdia por orden y la tira salia apilada. Con las
+       dos clases (0,2,0) gana sin importar el orden. */
+    .fx.fx-compacto { flex-direction: row; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; }
+    .fx.fx-compacto .fx-lbl-min { display: inline-flex; align-items: center; gap: .3rem; flex: 0 0 auto;
+                                  font-size: .76rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+    .fx.fx-compacto .fx-wrap { flex: 1 1 18rem; min-width: 0; max-width: 34rem; }
+    .fx.fx-compacto .fx-input { min-height: 2.25rem; }
+    .fx.fx-compacto .fx-sin-suc { flex: 1 1 16rem; min-width: 0; margin: 0; padding: 0;
+                                  border: 0; background: none; font-size: .73rem; }
 
     /* Operations (DESIGN §O). Todo por token: dark funciona solo. */
     .fx { display: flex; flex-direction: column; gap: .5rem; }
