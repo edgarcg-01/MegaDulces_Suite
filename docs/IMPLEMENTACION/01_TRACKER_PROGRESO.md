@@ -3804,7 +3804,7 @@ falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Consi
   importe de Kepler por (sucursal, folio); sólo lectura por default, `--apply` en una transacción con
   candado optimista y el valor viejo en `capture_meta.importe_anterior`. Folio ambiguo sin sucursal → se
   lista, no se toca. Probado en local (plantado +$123.45 → corregido, 2ª corrida 0).
-- [ ] **[GX.68.p]** ⚠️ Correr contra **prod**: falta credencial (`PROD_DB_URL`) y autorización.
+- [x] **[GX.68.p]** 🧪 Migración `20261005220000_expense_proofs_importe_de_kepler` repara los vales pasados (mismas reglas que el script; valor previo en `capture_meta`, `down()` lo devuelve). Probada en local: corrige, 2ª corrida 0, `down` revierte. **Falta aplicarla a prod** (una por una, `apply-one-migration-prod.js`).
 - [ ] **[GX.68.s]** Abierto (lo vio `c0`): en `create()` el `dto.solicitante` le gana al de Kepler.
 
 ### 🔨 [GX.65] · «Mis gastos» en 3 columnas (Solicitudes → Gastos → Expedientes) — 2026-10-03
