@@ -6328,6 +6328,74 @@ pantalla responsive; no los toqué fuera de estas dos tablas):
 
 ---
 
+## Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md)
+
+### `[PP.7]` ✅ La pantalla publicaba un libro cerrado en agosto y no lo decía — 2026-10-05
+
+Salió de investigar el proceso de **pago de órdenes de entrada** (el que hoy pasa por el Access
+`Control`). Buscando de dónde salen "las hojas que van a pagar" apareció que el eslabón es
+`PROGRAMA PAGOS 2026.xlsx` — y que su espejo lleva **dos meses muerto**.
+
+**Medido contra prod** (`system_identifier 7688376744939610156`, read-only):
+
+| | |
+|---|---|
+| Último mes cargado | **2026-08** (ene–ago, sin huecos) |
+| Último write del importer | **2026-08-08** → 58 días |
+| Fin del mes cubierto | 2026-08-31 → 36 días |
+| Menciones de frescura en la pantalla y el service | **0** |
+
+⭐ **Por qué importa más que un dato viejo:** este libro es **el único lugar de toda la plataforma
+donde existen la forma de pago real** (`CH-5237` / `TRANSF` / `AUTO`) **y los folios de factura que
+cubrió cada pago** (`f-852-853-854`). Ni Kepler ni el Access `Control` los guardan. O sea que lo que
+se está perdiendo cada mes no es "una fila más": es el único registro de con qué se pagó y qué se
+pagó.
+
+⛔ **Y no es descuido del operador:** `import-payment-program.js` lee un `.xlsx` desde una ruta
+local (`C:/Users/Sistemas/Downloads/…`), a mano, **sin agenda y sin latido**. El estado NORMAL de
+este espejo es congelado; la pantalla sólo no tenía cómo decirlo.
+
+**Entregado:**
+- `frescuraTx(trx)` + `frescura()` con **dos eslabones** y gana el peor (`composeFreshness`):
+  `pp_cobertura` (hasta qué mes de NEGOCIO llega el libro — el que de verdad manda: aunque el
+  importer corriera hoy, si el Excel llega a agosto el dato es de agosto) y `pp_import` (cuándo
+  ESCRIBIÓ, entrega y no "corrió"). Tolerancia **30 días** medida desde el último día del mes
+  cubierto: es un libro MENSUAL, y una tolerancia en horas daría rojo permanente — que es cómo se
+  enseña a ignorar un tablero. Medición fallida ⇒ `FRESHNESS_UNKNOWN`, nunca silencio.
+- `GET /finance/payment-program/cobertura` + aviso en pantalla con **los meses faltantes
+  enumerados**. Va aparte de la frescura a propósito: la píldora dice *"esto está viejo"*, esto dice
+  *qué no está*. ⛔ Sin el aviso, un mes ausente es invisible por partida doble — el filtro de Mes se
+  arma desde lo cargado (así que ni se ofrece) y en los totales llega como cero, indistinguible de
+  "ese mes no se pagó nada".
+- La píldora va `measures="data"` con el veredicto del **servidor**, no `measures="fetch"` sobre el
+  reloj del navegador — que es el defecto que VP.0 midió en 21 de 24 píldoras y que el vecino
+  `compras-entradas-control` todavía tiene.
+- `payment-program.engine.ts` — `coberturaLibro()` **pura** + spec **9/9**, con **4 pruebas
+  negativas** (el mes en curso no se exige · sin nada cargado NO dice "falta todo" · no inventa
+  meses anteriores al primero · basura y duplicados) y el **borde de año** (enero mira a diciembre
+  del año anterior, que es donde un `mes − 1` escrito a mano se equivoca en silencio hasta enero).
+
+⚠️ **Detalle de implementación que NO se copió del hermano:** `CajaGeneralService` (CG.8) llama a su
+`frescura()` **desde dentro** de su propio `tk.run`, y como `run()` abre transacción nueva cada vez,
+gasta dos conexiones y dos transacciones por request. Acá es lectura pura, así que no dispara el bug
+de escritura invisible de `feedback_no_nested_tenant_knex_run` — pero la regla de esa lección es
+justamente ésta: dentro de un `tk.run` se pasa el `trx`, no se abre otro. Por eso va partido en
+`frescuraTx(trx)` + `frescura()`. **CG.8 queda con esa deuda, declarada, no arreglada acá.**
+
+**Gates:** `check:templates` 377 ✅ · `check:tokens` ✅ · `check:estilos` **2688/2688** (los +3
+literales que este cambio introdujo se bajaron a `--fs-xs`/`--fs-body`/`--fs-sm` en el mismo commit)
+· `check:provenance` 0 deuda · `check:wiring` ✅ · `check:sql-backticks` ✅ · vitest finance
+**332/332**. Diagnósticos del editor limpios en los 3 archivos tocados (no se compiló: regla dura
+del proyecto — eso lo hace el CI).
+
+⬜ **Pendiente, y es lo que de verdad cierra el hueco:** nadie carga el libro. El arreglo de fondo es
+`[PP.8]` — que el `.xlsx` deje de leerse de `Downloads/` a mano y entre por un carril con agenda y
+latido (`cron-heartbeat` + umbral en `CRON_JOBS`), o que Tesorería lo suba por la web como ya se hace
+con la ficha de depósito en CBW.8. **Mientras tanto la pantalla al menos ya no miente.**
+⬜ **Falta:** validación visual + redeploy api+view. Sin migraciones ni permisos nuevos → **sin re-login**.
+
+---
+
 ## Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14
 
 **Tesis:** el Calendario de Pagos es un CONSUMIDOR — cada obligación nace precargada y autorizada

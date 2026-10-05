@@ -14,6 +14,8 @@ import { SkeletonModule } from 'primeng/skeleton';
 import { TagModule } from 'primeng/tag';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import type { Freshness } from '@megadulces/contracts';
 
 interface PPRow {
   id: string; source_month: string; pay_date: string | null; clearing_date: string | null;
@@ -24,11 +26,15 @@ interface PPRow {
 }
 interface PPResponse {
   rows: PPRow[];
+  /** [PP.7] De cuándo son estos datos. El servidor lo mide; acá sólo se pinta. */
+  freshness?: Freshness | null;
   totals: { n: number; monto: number; kep_si: number; kep_no: number; sin_resolver: number };
   by_bank: { bank: string; n: number; monto: number }[];
   by_method: { method: string; n: number; monto: number }[];
 }
 interface PPFacets { months: string[]; banks: string[]; methods: string[]; tipos: string[] }
+/** [PP.7] Qué meses están y cuáles faltan. `faltantes` vacío NO significa "al día": significa que no falta ninguno hasta el mes pasado. */
+interface PPCobertura { cargados: string[]; faltantes: string[]; desde: string | null; hasta_esperado: string | null }
 interface PPReconMonth { month: string; program: number; program_n: number; flag_si: number; flag_no: number; flag_na: number; monto_no: number; kepler201: number; bank_cb: number | null }
 interface PPRecon { months: PPReconMonth[] }
 
@@ -44,6 +50,7 @@ interface PPRecon { months: PPReconMonth[] }
   imports: [
     CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
     TableModule, SelectModule, SkeletonModule, TagModule, MetricStripComponent,
+    FreshnessPillComponent,
   ],
   template: `
     <div class="surf-page in">
@@ -53,10 +60,35 @@ interface PPRecon { months: PPReconMonth[] }
           <p class="surf-page-sub">Ejecución de pagos de Tesorería <b>vs</b> el ERP: qué ya se pagó (banco, método, cuándo) y qué <b>aún no está asentado en Kepler</b> (columna KEPLER). Útil sobre todo para el mes en curso —lo ya posteado se ve al detalle en <b>Pagos a proveedor</b>. Espejo read-only del programa.</p>
         </div>
         <div class="pp-head-actions">
+          <!-- [PP.7] De cuándo son estos datos. measures="data" porque el veredicto lo emite el
+               SERVIDOR (el eslabon mas viejo de la cadena), no el reloj del navegador: medir
+               cuando respondio el fetch diria "hace 2 segundos" sobre un libro cerrado en agosto.
+               Sin medicion no se pinta una pildora: un hueco rotulado es honesto, un verde sobre
+               una medicion que fallo no lo es. -->
+          @if (data()?.freshness; as fr) {
+            <app-freshness-pill measures="data" [freshness]="fr" label="Libro de Tesorería" [staleAfterSec]="30 * 24 * 3600" />
+          } @else if (data()) {
+            <span class="pp-fresh-unknown" title="No se pudo medir de cuándo son los datos del libro. No es lo mismo que estar al día.">frescura sin medir</span>
+          }
           <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!showRecon()" (click)="toggleRecon()"><span class="pi pi-check-square" aria-hidden="true"></span>&nbsp;Conciliación</button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      <!-- [PP.7] Los meses que FALTAN, enumerados. La pildora dice "esto esta viejo"; esto dice
+           que no esta. Sin este aviso, un mes ausente se ve igual que un mes sin pagos: los dos
+           llegan como cero, y el filtro de Mes ni siquiera lo ofrece porque sale de lo cargado. -->
+      @if (cob()?.faltantes?.length) {
+        <div class="pp-gap" role="status">
+          <span class="pi pi-exclamation-triangle" aria-hidden="true"></span>
+          <span>
+            <b>Faltan {{ cob()!.faltantes.length }} mes(es) en el libro:</b>
+            {{ cob()!.faltantes.join(' · ') }}.
+            Lo de abajo NO los incluye — no es que no se haya pagado, es que el Excel de Tesorería
+            no se ha cargado. Se sube corriendo <code>import-payment-program.js</code> con el libro del mes.
+          </span>
+        </div>
+      }
 
       @if (showRecon()) {
         <section class="pp-recon">
@@ -187,6 +219,12 @@ interface PPRecon { months: PPReconMonth[] }
     .pp-w-bank { width:6rem; } .pp-w-fol { width:9rem; } .pp-w-amt { width:8rem; } .pp-w-kep { width:4rem; }
     :host ::ng-deep .pp-tag { font-size:.64rem; }
     .pp-foot { margin-top:1rem; font-size:.74rem; color:var(--text-faint); line-height:1.5; }
+    /* [PP.7] Frescura sin medir: borde punteado, sin color de estado. No se puede ver como un verde. */
+    .pp-fresh-unknown { font-size:var(--fs-xs); color:var(--text-muted); border:1px dashed var(--border-color); border-radius:999px; padding:.15rem .55rem; align-self:center; }
+    /* [PP.7] El aviso de meses faltantes. Usa warn, no bad: no es un error del sistema, es dato que no se ha cargado. */
+    .pp-gap { display:flex; align-items:flex-start; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .8rem; border:1px solid var(--border-color); border-left:3px solid var(--warn-fg); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-body); line-height:1.45; }
+    .pp-gap .pi { color:var(--warn-fg); margin-top:.15rem; }
+    .pp-gap code { font-family:var(--font-mono, monospace); font-size:var(--fs-sm); background:var(--surface-2, transparent); padding:.05rem .3rem; border-radius:var(--r-sm); }
     .pp-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .pp-errbox .pi { color:var(--bad-fg); } .pp-errbox-txt { flex:1; font-size:.84rem; }
     .pp-empty-op { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:2.4rem 1rem; text-align:center; }
@@ -225,6 +263,8 @@ export class FinanzasProgramaPagosComponent implements OnInit {
   readonly keplerOpts = [{ label: 'En Kepler', value: 'si' }, { label: 'No en Kepler', value: 'no' }, { label: 'Sin dato', value: 'na' }];
   readonly showRecon = signal(false);
   readonly recon = signal<PPRecon | null>(null);
+  /** [PP.7] Meses cargados vs faltantes. Arranca en null = "todavía no sé", que no es lo mismo que "no falta ninguno". */
+  readonly cob = signal<PPCobertura | null>(null);
   private searchTimer: any;
 
   toggleRecon(): void {
@@ -240,6 +280,11 @@ export class FinanzasProgramaPagosComponent implements OnInit {
       next: (f) => { this.f.set(f); if (f.months?.length) this.month.set(f.months[0]); this.reload(); },
       error: () => { this.err.set('No se pudieron cargar los filtros.'); this.reload(); },
     });
+    // [PP.7] La cobertura va en su propia llamada y su error NO rompe la pantalla: si no se
+    // puede medir qué falta, el signal queda en null y el aviso simplemente no se pinta —
+    // nunca se pinta "no falta ninguno", que sería afirmar algo que no se midió.
+    this.http.get<PPCobertura>(`${this.base}/cobertura`).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (c) => this.cob.set(c), error: () => this.cob.set(null) });
   }
 
   private query(): Observable<PPResponse> {

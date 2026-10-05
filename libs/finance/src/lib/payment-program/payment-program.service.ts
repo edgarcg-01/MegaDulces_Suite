@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
+import {
+  TenantKnexService, TenantContextService, applySmartSearch,
+  evalInput, composeFreshness, FRESHNESS_UNKNOWN,
+} from '@megadulces/platform-core';
+import type { Freshness } from '@megadulces/contracts';
+import { coberturaLibro, type CoberturaLibro } from './payment-program.engine';
 
 export interface PaymentProgramQuery {
   month?: string;      // '2026-08'
@@ -22,6 +27,79 @@ export class PaymentProgramService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
   ) {}
+
+  /**
+   * [PP.7] La frescura del espejo. Esta pantalla publica la ejecución de pagos de Tesorería y
+   * hasta hoy NO decía de cuándo son — medido el 2026-10-05: el último mes cargado era
+   * **2026-08** y el último write del importer el **2026-08-08**, o sea dos meses de silencio
+   * publicados con total aplomo.
+   *
+   * No es un descuido del operador: `import-payment-program.js` lee un `.xlsx` desde una ruta
+   * local (`C:/Users/Sistemas/Downloads/…`), a mano, sin agenda y sin latido. O sea que el
+   * estado normal de este espejo es "congelado", y la pantalla no tenía forma de decirlo.
+   *
+   * Dos eslabones, y gana el PEOR (`composeFreshness`) — son preguntas distintas y las dos
+   * pueden fallar solas:
+   *   · `pp_cobertura` — hasta qué mes de NEGOCIO llega el Excel. Es el que de verdad importa:
+   *     aunque el importer corriera hoy, si el libro llega a agosto el dato es de agosto.
+   *   · `pp_import`    — cuándo ESCRIBIÓ el importer (entrega, no "corrió").
+   *
+   * Tolerancia 30 días: es un libro MENSUAL. Se mide desde el último día del mes cubierto, así
+   * que "tengo agosto completo" aguanta hasta el 30-sep y recién ahí pide septiembre. Una
+   * tolerancia en horas (la de un feed diario) marcaría rojo permanente y enseñaría a ignorarla.
+   *
+   * Si la medición falla devuelve `unknown` con `stale: true` — nunca silencio (ADR-056: lo que
+   * no se pudo medir se DECLARA, y un booleano no puede expresar "no sé").
+   *
+   * ⚠️ Va partido en `frescuraTx(trx)` + `frescura()` a propósito. El hermano `CajaGeneralService`
+   * (CG.8) llama a su `frescura()` DESDE DENTRO de su propio `tk.run`, y como `run()` abre una
+   * transacción nueva cada vez, eso gasta dos conexiones del pool y dos transacciones por request.
+   * Acá es lectura pura, así que no dispara el bug de escritura invisible de
+   * [[feedback_no_nested_tenant_knex_run]] — pero la regla de esa lección es justamente ésta:
+   * dentro de un `tk.run`, para reusar lógica se pasa el `trx`, no se abre otro.
+   */
+  private async frescuraTx(trx: any): Promise<Freshness> {
+    const [r] = await trx('finance.payment_program').select(trx.raw(`
+      max(updated_at) AS escrito_at,
+      CASE WHEN max(source_month) IS NULL THEN NULL
+           ELSE ((max(source_month) || '-01')::date + interval '1 month' - interval '1 day')
+      END AS cubierto_at`));
+    return composeFreshness([
+      evalInput('pp_cobertura', 'Mes cubierto por el libro de Tesorería', r?.cubierto_at ?? null, 24 * 30),
+      evalInput('pp_import', 'Carga del Excel (importer manual)', r?.escrito_at ?? null, 24 * 30),
+    ]);
+  }
+
+  async frescura(): Promise<Freshness> {
+    this.tenantCtx.requireTenantId();
+    try {
+      return await this.tk.run((trx) => this.frescuraTx(trx));
+    } catch {
+      // Una medición que falla NO puede verse como un dato al día.
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  /**
+   * [PP.7] Qué meses FALTAN, enumerados. La frescura dice "esto está viejo"; esto dice
+   * exactamente qué no está — que es lo accionable (ADR-056: lo que falta se enumera, porque un
+   * mes ausente llega como cero y un cero se lee como "no se pagó nada").
+   *
+   * El universo va del primer mes cargado al mes ANTERIOR al corriente: el mes en curso todavía
+   * se está ejecutando y marcarlo como faltante sería un rojo permanente y falso.
+   */
+  async cobertura(): Promise<CoberturaLibro> {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const cargados: string[] = (await trx('finance.payment_program')
+        .distinct('source_month').orderBy('source_month'))
+        .map((r: any) => r.source_month).filter(Boolean);
+      // El cálculo vive en una función pura y probada (`payment-program.engine.ts`): es
+      // aritmética de calendario, que es donde los bordes (el mes -1 de enero) se equivocan en
+      // silencio y nadie lo nota hasta enero.
+      return coberturaLibro(cargados);
+    });
+  }
 
   private applyFilters(b: any, q: PaymentProgramQuery) {
     if (q.month) b.where('pp.source_month', q.month);
@@ -66,6 +144,9 @@ export class PaymentProgramService {
 
       return {
         rows,
+        // [PP.7] De cuándo son estos números. Un `generated_at` diría cuándo respondió el
+        // servidor, que es otra cosa: contesta en 200 ms sobre un libro cerrado en agosto.
+        freshness: await this.frescuraTx(trx),
         totals: {
           n: Number(tot.n), monto: Number(tot.monto),
           kep_si: Number(tot.kep_si), kep_no: Number(tot.kep_no), sin_resolver: Number(tot.sin_resolver),
