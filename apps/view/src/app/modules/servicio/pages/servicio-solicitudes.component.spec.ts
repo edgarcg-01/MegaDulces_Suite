@@ -137,4 +137,22 @@ describe('[MS.3.2] ServicioSolicitudesComponent', () => {
     expect(c.selId()).toBe('abc-123');
     expect(c.creando()).toBe(false);
   });
+  describe('[MS.3.14] la lista de sucursales', () => {
+    it('⭐ ofrece «Oficinas Corporativas» (que no es una sucursal Kepler) AL FINAL de la red', async () => {
+      await render();
+      const nombres = c.sucursales.map((x) => x.name);
+      expect(nombres[nombres.length - 1]).toBe('Oficinas Corporativas');
+      expect(c.sucursales[c.sucursales.length - 1].code).toBe('OF');
+    });
+    it('⛔ NEGATIVA — NO quita ni cambia ninguna de las sucursales de la red (siguen las 9, en su orden)', async () => {
+      await render();
+      expect(c.sucursales.slice(0, 9).map((x) => x.code)).toEqual(['00', '01', '02', '03', '04', '05', '06', '07', '08']);
+      expect(c.sucursales).toHaveLength(10);
+    });
+    it('el código de las oficinas no choca con ningún código de sucursal', async () => {
+      await render();
+      const codigos = c.sucursales.map((x) => x.code);
+      expect(new Set(codigos).size).toBe(codigos.length);
+    });
+  });
 });

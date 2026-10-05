@@ -46,6 +46,7 @@ import {
 import { KEPLER_BRANCH_NAMES, TenantContextService, TenantKnexService, applySmartSearch, branchName, toMxDateKey } from '@megadulces/platform-core';
 import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskRoutingService } from './routing.service';
+import { nombreUbicacionExtra, ubicacionExtra } from './domain/ubicaciones';
 import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments.service';
 import { efectosDe, motivoDeCierre, puedeTransicionar, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
@@ -925,6 +926,9 @@ export class ServiceDeskRequestsService {
   private normalizarSucursal(code: string | null | undefined): string | null {
     const c = String(code ?? '').trim();
     if (!c) return null;
+    // `[MS.3.14]` Una ubicación que no es sucursal (oficinas corporativas) es válida y se guarda en su código canónico.
+    const extra = ubicacionExtra(c);
+    if (extra) return extra;
     // Sólo el espacio de códigos vigente de Kepler (00–08): '30','32','50' son eras de Wincaja ya cerradas.
     if (!/^0[0-8]$/.test(c) || !(c in KEPLER_BRANCH_NAMES)) throw new BadRequestException('Sucursal desconocida');
     return c;
@@ -976,7 +980,7 @@ export class ServiceDeskRequestsService {
       requester_id: r.requester_id,
       requester_name: r.requester_name ?? null,
       warehouse_code: r.warehouse_code ?? null,
-      warehouse_name: r.warehouse_code ? branchName(r.warehouse_code) : null,
+      warehouse_name: r.warehouse_code ? nombreUbicacionExtra(r.warehouse_code) ?? branchName(r.warehouse_code) : null,
       assigned_to: r.assigned_to ?? null,
       assigned_to_name: r.assigned_to ? r.assigned_nombre || r.assigned_username || null : null,
       assigned_at: iso(r.assigned_at),

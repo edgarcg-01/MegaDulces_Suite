@@ -8,7 +8,7 @@ import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
-import { SD_IMPACTS, type SdAttachmentInput, type SdCatalogResponse, type SdDepartmentDto, type SdImpact, type SdPreferencesDto, type SdRequesterDto, type SdRequestRow } from '@megadulces/contracts';
+import { SD_IMPACTS, SD_UBICACIONES_EXTRA, type SdAttachmentInput, type SdCatalogResponse, type SdDepartmentDto, type SdImpact, type SdPreferencesDto, type SdRequesterDto, type SdRequestRow } from '@megadulces/contracts';
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { optimizarImagenes } from '../image-compress';
 import { Permission } from '../../../core/constants/permissions';
@@ -313,7 +313,8 @@ export class ServicioSolicitudesComponent implements OnInit {
   readonly statusLabel = STATUS_LABEL;
   readonly priorityLabel = PRIORITY_LABEL;
   readonly maxArchivos = MAX_ARCHIVOS;
-  readonly sucursales = STORE_BRANCHES;
+  /** Las sucursales de la red y, al final, las ubicaciones que no son sucursal (oficinas corporativas; `[MS.3.14]`). */
+  readonly sucursales: { code: string; name: string }[] = [...STORE_BRANCHES, ...Object.entries(SD_UBICACIONES_EXTRA).map(([code, name]) => ({ code, name }))];
   readonly impactos = SD_IMPACTS.map((v) => ({ value: v, label: IMPACT_LABEL[v] }));
   readonly scopes = [{ value: 'open', label: 'Abiertas' }, { value: 'closed', label: 'Cerradas' }, { value: 'all', label: 'Todas' }];
 
