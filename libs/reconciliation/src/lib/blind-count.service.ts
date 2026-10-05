@@ -186,6 +186,16 @@ export interface BlindCountDto {
   cash_cut_folio?: string;        // SM.12: folio del turno de Kepler que se está arqueando
   caja_kepler?: string;           // SM.12: la caja tal como la reporta Kepler en ese turno
   turno_abierto_at?: string | Date | null; // SM.12: cuándo abrió el turno (c5 + c6)
+  /**
+   * Qué número de sangría es, dentro del turno. **Solo `retiro`**: los otros
+   * cuatro tipos son únicos por definición y van siempre en 1 (lo exige el CHECK).
+   *
+   * Sin este campo el segundo retiro del día PISABA al primero: la clave única no
+   * excluía `tipo='retiro'` y el `onConflict().merge()` reemplazaba la fila sin
+   * decir nada. Se manda solo para CORREGIR una sangría concreta; capturando una
+   * nueva se omite y el servicio toma la siguiente.
+   */
+  secuencia?: number;
 }
 
 @Injectable()
@@ -599,6 +609,42 @@ export class BlindCountService {
     });
   }
 
+  /**
+   * Qué número de sangría es ésta dentro del turno.
+   *
+   * `cierre`, `relevo`, `rd` y `rv` son únicos por definición y van siempre en 1:
+   * su clave no cambia y siguen comportándose como hasta ahora (re-capturar
+   * reemplaza, que es lo que se quiere). `retiro` es el único que se repite — tres
+   * o cuatro veces por turno — y por eso se numera.
+   *
+   * Con `dto.secuencia` se corrige una sangría concreta (su UPSERT cae sobre su
+   * propia fila). Sin él, se toma la siguiente del turno.
+   *
+   * ⚠️ Hay una carrera teórica: dos capturas simultáneas del mismo turno podrían
+   * leer el mismo máximo y la segunda pisaría a la primera. No se cierra con un
+   * lock porque el caso real es UNA persona en SU caja, y pagar un `FOR UPDATE`
+   * sobre el turno en cada sangría es caro para una colisión que no se ha visto.
+   * Queda dicho, no escondido.
+   */
+  private async secuenciaDe(trx: any, tenantId: string, dto: BlindCountDto, tipo: TipoArqueo): Promise<number> {
+    if (tipo !== 'retiro') return 1;
+    const pedida = Number(dto.secuencia);
+    if (Number.isInteger(pedida) && pedida >= 1) return pedida;
+    const row = await trx('reconciliation.blind_counts')
+      .where({
+        tenant_id: tenantId, warehouse_code: dto.warehouse_code,
+        caja: dto.caja, business_date: dto.business_date, tipo: 'retiro',
+      })
+      // Mismo grano que la clave única, que compara con COALESCE(cajero_code,'').
+      .modify((q: any) => {
+        if (dto.cajero_code) q.whereRaw('upper(cajero_code) = ?', [String(dto.cajero_code).toUpperCase()]);
+        else q.whereRaw("COALESCE(cajero_code,'') = ''");
+      })
+      .max({ n: 'secuencia' })
+      .first();
+    return Number(row?.n || 0) + 1;
+  }
+
   /** Captura (o re-captura) un arqueo ciego y devuelve la comparación contra el corte de Kepler. */
   async submit(dto: BlindCountDto, username?: string) {
     if (!dto?.warehouse_code || !dto?.caja || !dto?.business_date) {
@@ -623,8 +669,9 @@ export class BlindCountService {
     const medios = this.saneaMedios(dto.medios);
 
     const { result, badCut } = await this.tk.run(async (trx) => {
+      const secuencia = await this.secuenciaDe(trx, tenantId, dto, tipo);
       const row = {
-        tenant_id: tenantId, tipo,
+        tenant_id: tenantId, tipo, secuencia,
         warehouse_code: dto.warehouse_code, caja: dto.caja, business_date: dto.business_date,
         turno: dto.turno || null, cajero_code: dto.cajero_code || null, cajero_entrante: dto.cajero_entrante || null,
         denominations: JSON.stringify(dto.denominations || {}), total_contado: total,
@@ -639,7 +686,9 @@ export class BlindCountService {
       };
       await trx('reconciliation.blind_counts')
         .insert(row)
-        .onConflict(trx.raw("(tenant_id, warehouse_code, caja, business_date, COALESCE(cajero_code,''), tipo, COALESCE(route_code,''))"))
+        // `secuencia` entra a la clave: sin ella, la segunda sangría del día
+        // caía en este mismo `merge()` y reemplazaba a la primera en silencio.
+        .onConflict(trx.raw("(tenant_id, warehouse_code, caja, business_date, COALESCE(cajero_code,''), tipo, COALESCE(route_code,''), secuencia)"))
         // Re-capturar NO borra la validación por accidente: si la encargada ya firmó
         // y el conteo cambia, se limpia la firma a propósito — un arqueo distinto es
         // un arqueo sin validar.
@@ -657,13 +706,13 @@ export class BlindCountService {
       // cuando la identidad `Σ retiros + cajón = contado` ya se puede evaluar.
       if (TIPOS_SIN_CORTE.includes(tipo)) {
         this.logger.log(`arqueo relevo suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: ${dto.cajero_code || '?'}→${dto.cajero_entrante || '?'} entregó ${total}`);
-        return { result: { tipo, total_contado: total, matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false }, badCut: null as any };
+        return { result: { tipo, secuencia, total_contado: total, matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false }, badCut: null as any };
       }
       const cmp = await this.compare(trx, tenantId, dto, total, medios);
       this.logger.log(`arqueo cierre suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: contado ${total} vs esperado ${cmp.esperado ?? '?'}`);
       // SM.9 — Autolineado: cierre divergente → descuadre al instante en la bandeja del supervisor.
       const badCut = await this.raiseIfDivergent(trx, tenantId, dto, total, cmp, incidencia, username);
-      return { result: { tipo, total_contado: total, ...cmp }, badCut };
+      return { result: { tipo, secuencia, total_contado: total, ...cmp }, badCut };
     });
 
     // WS best-effort FUERA de la transacción (no bloquea ni revierte la captura).
@@ -736,7 +785,12 @@ export class BlindCountService {
         caja: dto.caja, business_date: dto.business_date,
         folio: String(dto.cash_cut_folio),
       });
-      if (dto.cajero_code) q.where('cajero_cierre', dto.cajero_code);
+      // `upper()` en los dos lados: `cash_cuts.cajero_cierre` se guarda CRUDO
+      // (`btrim(k.c8)`) y `atribuir()` fuerza `cajero_code` a mayusculas. Con la
+      // comparacion exacta, un codigo que el ERP no guarde en mayusculas NO casa
+      // nunca: `matched:false` y la pantalla dice "el turno todavia no cerro en
+      // Kepler", que es falso. Las tres consultas del ODS ya usaban upper().
+      if (dto.cajero_code) q.whereRaw('upper(cajero_cierre) = ?', [dto.cajero_code.toUpperCase()]);
       const candidatos: any[] = await q;
       // Si sigue habiendo más de uno, se DECLARA ambiguo en vez de elegir: un
       // corte elegido a dedo le revelaría a esta cajera el faltante de otra.
@@ -750,7 +804,7 @@ export class BlindCountService {
       return { matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
     }
     const q = trx('analytics.cash_cuts').where({ tenant_id: tenantId, warehouse_code: dto.warehouse_code, caja: dto.caja, business_date: dto.business_date });
-    if (dto.cajero_code) q.where('cajero_cierre', dto.cajero_code);
+    if (dto.cajero_code) q.whereRaw('upper(cajero_cierre) = ?', [dto.cajero_code.toUpperCase()]);  // ver nota de arriba
     const cuts: any[] = await q.orderBy('efectivo_esperado', 'desc');
     if (!cuts.length) return { matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
     // Varios cortes en la caja/día y no se especificó cajero: NO elegir el mayor
@@ -867,11 +921,25 @@ export class BlindCountService {
    * "por validar". No se puede validar en nombre de otro: el username lo pone el
    * controller desde el JWT, igual que la captura.
    */
-  async validar(id: string, username?: string, nota?: string) {
+  async validar(id: string, username?: string, nota?: string, warehouseCodes?: string[] | null) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const [row] = await trx('reconciliation.blind_counts')
         .where({ tenant_id: trx.raw('current_tenant_id()') as any, id })
+        /**
+         * ⚠️ El ALCANCE, que faltaba. Era la unica escritura del controlador que
+         * no lo verificaba: todo lo demas pasa por `ScopeService` (`readParam` en
+         * las lecturas, `assertCanWrite` en `submit` y `rutas`). Firmar es el acto
+         * que convierte el conteo en documento —"validar tu propio arqueo seria
+         * firmarte a vos mismo"— y con el id a mano se podia firmar el de otra
+         * tienda. `null` = alcance total; `[]` = ninguna sucursal, falla cerrado.
+         */
+        .modify((q: any) => {
+          if (warehouseCodes === undefined) return;          // llamador sin alcance resuelto
+          if (warehouseCodes === null) return;               // alcance 'all'
+          if (!warehouseCodes.length) q.whereRaw('false');
+          else q.whereIn('warehouse_code', warehouseCodes);
+        })
         .update({ validado_por: username || null, validado_at: trx.fn.now(), validado_nota: nota || null })
         .returning(['id', 'warehouse_code', 'caja', 'business_date', 'cajero_code', 'total_contado', 'validado_por', 'validado_at']);
       if (!row) throw new BadRequestException('Arqueo no encontrado');
@@ -930,6 +998,15 @@ export class BlindCountService {
          * distinto; el caso verificado es suc01 caja1 03/09 folio 68, que son dos
          * cajeros). Ligando solo por folio, el arqueo de una cajera se le colgaba
          * a la otra. Van también caja y fecha.
+         *
+         * ⚠️ …y el CAJERO, que es el que faltaba. El caso que este comentario cita
+         * —suc01 caja1 03/09 folio 68— son dos personas: sucursal, caja, fecha y
+         * folio son IDÉNTICOS en las dos filas y la única columna que las separa es
+         * justo la que no estaba en el join. Con 2 cortes y 2 conteos el producto
+         * cartesiano da 4 filas: a cada cajera se le colgaba el conteo de la otra y
+         * el rollup le contaba sus cortes dos veces. `cash_cuts.cajero_cierre` se
+         * guarda crudo y `blind_counts.cajero_code` en mayúsculas, así que la
+         * comparación va con `upper()` en los dos lados.
          */
         .leftJoin('reconciliation.blind_counts as bc', function (this: any) {
           this.on('bc.tenant_id', '=', 'cc.tenant_id')
@@ -937,6 +1014,7 @@ export class BlindCountService {
             .andOn('bc.caja', '=', 'cc.caja')
             .andOn('bc.business_date', '=', 'cc.business_date')
             .andOn('bc.cash_cut_folio', '=', 'cc.folio')
+            .andOn(trx.raw('upper(bc.cajero_code) IS NOT DISTINCT FROM upper(cc.cajero_cierre)'))
             .andOn(trx.raw("bc.tipo = 'cierre'"));
         })
         .select(
@@ -1148,15 +1226,37 @@ export class BlindCountService {
     return this.tk.run(async (trx) => {
       const b = trx('reconciliation.blind_counts as bc')
         .where('bc.tenant_id', trx.raw('current_tenant_id()'))
-        .leftJoin('analytics.cash_cuts as cc', function (this: any) {
-          this.on('cc.tenant_id', '=', 'bc.tenant_id').andOn('cc.warehouse_code', '=', 'bc.warehouse_code')
-            .andOn('cc.caja', '=', 'bc.caja').andOn('cc.business_date', '=', 'bc.business_date')
-            .andOn(trx.raw('cc.cajero_cierre IS NOT DISTINCT FROM bc.cajero_code'));
-        })
+        /**
+         * ⚠️ El FOLIO entra al join, y el cajero se compara en MAYÚSCULAS.
+         *
+         * Sin folio, un caja-día con dos cortes de la misma persona (~4.5% de los
+         * caja-días, medido en `compare()`) casaba DOS veces: la misma fila de
+         * arqueo salía duplicada en el historial, cada copia con su propio
+         * `esperado` y su propia diferencia, y `dataKey="id"` de la tabla recibía
+         * ids repetidos. `compare()` ante esa misma ambigüedad se NIEGA a elegir;
+         * esta lectura la resolvía a dedo.
+         *
+         * Lo de las mayúsculas es la otra mitad: `cash_cuts.cajero_cierre` se
+         * guarda crudo (`btrim(k.c8)`) y `atribuir()` fuerza `cajero_code` a
+         * mayúsculas, así que una comparación exacta no casa nunca y el arqueo
+         * queda diciendo "el turno todavía no cerró en Kepler", que es falso.
+         */
+        .joinRaw(`LEFT JOIN LATERAL (
+            SELECT c.*, count(*) OVER () AS cc_matches
+              FROM analytics.cash_cuts c
+             WHERE c.tenant_id      = bc.tenant_id
+               AND c.warehouse_code = bc.warehouse_code
+               AND c.caja           = bc.caja
+               AND c.business_date  = bc.business_date
+               AND upper(c.cajero_cierre) IS NOT DISTINCT FROM upper(bc.cajero_code)
+               AND (bc.cash_cut_folio IS NULL OR c.folio = bc.cash_cut_folio)
+             ORDER BY c.folio
+             LIMIT 1
+          ) cc ON true`)
         .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
           this.on('pc.tenant_id', '=', 'bc.tenant_id').andOn('pc.warehouse_code', '=', 'bc.warehouse_code').andOn('pc.cajero_code', '=', 'bc.cajero_code');
         })
-        .select('bc.id', 'bc.tipo', 'bc.warehouse_code', 'bc.caja', 'bc.business_date', 'bc.turno', 'bc.cajero_code', 'bc.cajero_entrante',
+        .select('bc.id', 'bc.tipo', 'bc.secuencia', 'bc.warehouse_code', 'bc.caja', 'bc.business_date', 'bc.turno', 'bc.cajero_code', 'bc.cajero_entrante',
           // Se necesita el JSONB crudo para partir NUESTRO conteo en billetes y
           // monedas y poder compararlo contra el desglose de Kepler.
           'bc.denominations',
@@ -1173,6 +1273,8 @@ export class BlindCountService {
           trx.raw('cc.arqueo_monedas::numeric AS kepler_monedas'),
           trx.raw('cc.efectivo_retirado::numeric AS kepler_retirado'),
           trx.raw('cc.cash_limit::numeric AS cash_limit'),
+          // Cuántos cortes casaron con este conteo. >1 = no se puede atribuir.
+          trx.raw('COALESCE(cc.cc_matches, 0)::int AS cc_matches'),
           /**
            * SM.35 — La mitad que faltaba de la ecuación. `list()` no traía los
            * retiros, así que restaba el cajón contra un esperado que incluye
@@ -1232,9 +1334,16 @@ export class BlindCountService {
          * exactamente lo que tenía que salir del cajón.
          */
         const intraTurno = TIPOS_SIN_CORTE.includes(r.tipo);
+        /**
+         * Varios cortes casan con este conteo y no se puede saber cuál es.
+         * `compare()` ante lo mismo devuelve `ambiguous` y se niega a elegir; acá
+         * se hacía lo contrario —se publicaba uno— y encima la fila salía
+         * duplicada. Se DECLARA: sin esperado y sin diferencia, con el motivo.
+         */
+        const ambiguo = Number(r.cc_matches || 0) > 1;
         // Los alias del SELECT no son los nombres de la tabla, así que el corte
         // se arma explícito: pasar la fila cruda leería `undefined` en silencio.
-        const c = intraTurno ? null : cuadreTurno({
+        const c = (intraTurno || ambiguo) ? null : cuadreTurno({
           efectivo_esperado: r.esperado,
           efectivo_contado: r.kepler_contado,
           efectivo_diff: r.kepler_diff,
@@ -1269,11 +1378,11 @@ export class BlindCountService {
          * total: sin él, "conté $17,190.50" es una afirmación sin respaldo.
          */
         const denominaciones = this.desglosar(den);
-        const keplerBilletes = intraTurno ? null : (r.kepler_billetes != null ? Number(r.kepler_billetes) : null);
-        const keplerMonedas = intraTurno ? null : (r.kepler_monedas != null ? Number(r.kepler_monedas) : null);
+        const keplerBilletes = (intraTurno || ambiguo) ? null : (r.kepler_billetes != null ? Number(r.kepler_billetes) : null);
+        const keplerMonedas = (intraTurno || ambiguo) ? null : (r.kepler_monedas != null ? Number(r.kepler_monedas) : null);
         const keplerRetirado = c?.retirado_kepler ?? null;
         return {
-          id: r.id, tipo: r.tipo, warehouse_code: r.warehouse_code, caja: r.caja, business_date: r.business_date, turno: r.turno,
+          id: r.id, tipo: r.tipo, secuencia: Number(r.secuencia ?? 1), warehouse_code: r.warehouse_code, caja: r.caja, business_date: r.business_date, turno: r.turno,
           cajero_code: r.cajero_code, cajero_entrante: r.cajero_entrante || null, cajero_nombre: r.cajero_nombre || null, total_contado: total,
           cash_cut_folio: r.cash_cut_folio || null, caja_kepler: r.caja_kepler || null, turno_abierto_at: r.turno_abierto_at || null,
           validado_por: r.validado_por || null, validado_at: r.validado_at || null, validado_nota: r.validado_nota || null,
@@ -1297,7 +1406,10 @@ export class BlindCountService {
           cobertura: c?.cobertura ?? null,
           diff_kepler: c?.diff_kepler ?? null,
           medible: c?.medible ?? false,
-          motivo_no_medible: c?.motivo ?? (intraTurno ? 'sin_esperado' : null),
+          motivo_no_medible: c?.motivo ?? (intraTurno ? 'sin_esperado' : (ambiguo ? 'ambiguo' : null)),
+          // Hay más de un corte en esta caja/día que podría ser el suyo. La
+          // pantalla lo dice en vez de publicar el esperado de uno elegido a dedo.
+          ambiguous: ambiguo,
           cash_limit: r.cash_limit != null ? Number(r.cash_limit) : null,
           kepler_enmascaro: c?.kepler_enmascaro ?? false,
         };
