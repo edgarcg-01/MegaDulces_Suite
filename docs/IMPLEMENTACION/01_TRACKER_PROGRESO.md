@@ -6388,6 +6388,53 @@ literales que este cambio introdujo se bajaron a `--fs-xs`/`--fs-body`/`--fs-sm`
 **332/332**. Diagnósticos del editor limpios en los 3 archivos tocados (no se compiló: regla dura
 del proyecto — eso lo hace el CI).
 
+### `[PP.9]` 🧪 La pantalla de pagos llamaba "Transferencia" a $52.27M pagados en EFECTIVO — 2026-10-05
+
+`analytics.erp_supplier_payments.metodo_pago` sale de `kdm1.c31`, que es el **tipo de documento**
+de Kepler, no el medio por el que salió el dinero. Resultado, medido contra prod:
+
+| Lo que la pantalla dice | De dónde salió | Pagos | Monto 2026 |
+|---|---|---:|---:|
+| **Transferencia** | **CAJA GENERAL (efectivo)** | **2,684** | **$52,268,125.26** |
+| Anticipo | CAJA GENERAL (efectivo) | 31 | $3,975,624.52 |
+| Transferencia | banco | 1,537 | $288,155,080.45 |
+| Cheque | banco | 225 | $49,490,291.05 |
+
+`/finanzas/pagos-comprobantes` no sólo lo **mostraba**: dejaba **filtrar por** «Transferencia» y
+devolvía pagos en efectivo. Nadie podía sacar de ahí cuánto se paga en efectivo — que es justo la
+pregunta que abrió esta investigación.
+
+**Entregado** (mig `20261005180000_erp_supplier_payments_medio_pago.js`):
+- ⛔ **`metodo_pago` NO se toca.** No está mal: dice fielmente qué doctype usó Kepler y tiene
+  consumidores. Se **agrega** `medio_pago` (`caja|banco|puente|sin_declarar|no_resuelve`) +
+  `cuenta_tesoreria`. Dos preguntas, dos columnas (ADR-056).
+- ⭐ **La lógica no se reinventa:** sale de `kdm1.c45` ⋈ `kdb1` igual que
+  `kepler_bank_movements.tipo_cuenta`, y **conserva su vocabulario** para que las dos pantallas sean
+  comparables en vez de inventar un tercer juego de nombres. El discriminante es `kdb1.c3`
+  (`EFECTIVO` contra una CLABE), **no `c5`**, que tiene `102` pelado en 3 de las 5 cajas.
+- **Cobertura medida:** `c45` poblado en **4,655 de 4,660** (99.9 %); los 5 restantes quedan
+  `sin_declarar`, **nunca** colgados del lado banco por default. Y `sin_declarar` se ofrece como
+  **filtro**: lo que no se pudo medir se mira, no se esconde.
+- **UI:** la columna Método ahora muestra el **medio real** (Efectivo / Banco / Factoraje) con el
+  documento de Kepler en el tooltip, y hay un filtro **Origen** separado del de Método. Si la fila
+  no trae `medio_pago` (migración aún sin aplicar) **degrada al método de siempre**, no se vacía.
+- **Paridad verificada contra prod, read-only**, creando la vista nueva en `TEMP` sin tocar la viva:
+  **4,675 filas = 4,675** y **$431,471,620.34 = $431,471,620.34**, idéntico al centavo. Sólo
+  aparecen columnas; no se mueve ni una fila ni un peso.
+- El `down()` se escribe **literal**, no derivado con un regex del `up()`: un rollback que depende
+  de una expresión regular falla el día que se necesita, y encima produce una vista *parecida*.
+
+**Gates:** templates ✅ · tokens ✅ (4 archivos) · estilos 2688/2688 · migrations ✅ · colisiones ✅
+· vitest finance **332/332** · vitest view finanzas **394/394**. Diagnósticos limpios.
+
+🚀 **Pendiente prod, EN ESTE ORDEN:** aplicar la migración **antes** del redeploy — el servicio
+selecciona `c.medio_pago` y sin la columna la pantalla de pagos falla. La compuerta del
+`auto-deploy` ya cubre este caso (se niega a desplegar con migraciones de `origin/main` sin
+aplicar), pero el orden se declara igual. Sin permisos nuevos → **sin re-login**.
+⬜ Falta validación visual.
+
+---
+
 ⬜ **Pendiente, y es lo que de verdad cierra el hueco:** nadie carga el libro. El arreglo de fondo es
 `[PP.8]` — que el `.xlsx` deje de leerse de `Downloads/` a mano y entre por un carril con agenda y
 latido (`cron-heartbeat` + umbral en `CRON_JOBS`), o que Tesorería lo suba por la web como ya se hace
