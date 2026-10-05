@@ -70,16 +70,16 @@ interface CortesPersona {
     <div class="surf-page in arq-page">
       <p-toast></p-toast>
       <app-page-tabs [tabs]="arqueoTabs" />
-      <header class="surf-page-head">
-        <div class="surf-page-head-text">
-          <h1>Arqueo de caja</h1>
-          <!-- Una linea. La instruccion larga vive en la ayuda (?), que esta al lado:
-               se lee UNA vez y despues solo estorba al que viene a contar billetes. -->
-          <p class="surf-page-sub">
-            @if (revela) { Al guardar se te muestra la diferencia real. }
-            @else { Contá el efectivo y guardalo. El cuadre lo revisa tu encargada. }
-          </p>
-        </div>
+      <!-- Encabezado casi inexistente, a proposito.
+           "Arqueo de caja" ya se lee DOS veces arriba: en la migaja y en la pestaña
+           activa. Un h1 grande era la TERCERA, y entre el y su subtitulo se comian
+           ~90px del alto que esta pantalla necesita para contar billetes.
+           El h1 se queda para el lector de pantalla y el esquema del documento; lo
+           que se VE es solo la frescura y la ayuda.
+           El subtitulo no se pierde: la ayuda (?) de este mismo renglon ya decia
+           textualmente "al guardar, el sistema revela tu diferencia real". -->
+      <header class="surf-page-head arq-head-min">
+        <h1 class="sr-only">Arqueo de caja</h1>
         <div class="arq-head-right">
           <!-- [VP.0.2] Decía label="Kepler" sobre un new Date() del navegador: se leía como "los datos
                de Kepler tienen 3 minutos" y era la hora en que cargó esta pantalla. -->
@@ -838,6 +838,11 @@ interface CortesPersona {
   styles: [`
     :host { display: block; }
     .arq-head-right { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; }
+    /* El encabezado deja de ocupar alto: un renglon con la frescura, nada mas.
+       Va con las dos clases para ganarle a .surf-page-head global sin depender
+       del orden en que se carguen las hojas. */
+    .surf-page-head.arq-head-min { display: flex; align-items: center; justify-content: flex-end;
+                                   min-height: 0; margin: 0 0 .45rem; padding: 0; border: 0; gap: .4rem; }
     /* minmax(0,1fr), no 1fr: 1fr es minmax(auto,1fr) y no baja del
        min-content de la tarjeta. Con auto el historial (tabla de 10 columnas)
        estiraba la columna mas alla del ancho de la pantalla. */
