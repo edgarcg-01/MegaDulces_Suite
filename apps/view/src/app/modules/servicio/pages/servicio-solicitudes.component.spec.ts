@@ -148,14 +148,25 @@ describe('[MS.3.2] ServicioSolicitudesComponent', () => {
       expect(texto).not.toMatch(/Sucursal \*/);
       expect((fix.nativeElement as HTMLElement).querySelector('p-select[arialabel="Ubicación"], p-select[ariaLabel="Ubicación"]')).toBeTruthy();
     });
-    it('el enlace de la ubicación opcional también', async () => {
+    it('⭐ `[MS.3.17]` la ubicación OPCIONAL se ve siempre, sin tener que pulsar un enlace', async () => {
       await render();
       c.nueva();
       c.elegirCategoria('c-libre');
       fix.detectChanges();
-      const texto = (fix.nativeElement as HTMLElement).textContent ?? '';
-      expect(texto).toContain('Indicar ubicación (opcional)');
+      const el = fix.nativeElement as HTMLElement;
+      const texto = el.textContent ?? '';
+      expect(texto).toContain('Ubicación (opcional)');
+      expect(el.querySelector('p-select[arialabel="Ubicación"], p-select[ariaLabel="Ubicación"]')).toBeTruthy();
+      expect(texto).not.toContain('Indicar ubicación');
       expect(texto).not.toContain('Indicar sucursal');
+    });
+    it('⛔ NEGATIVA — antes de elegir categoría el formulario también la muestra, y no la marca obligatoria', async () => {
+      await render();
+      c.nueva();
+      fix.detectChanges();
+      const texto = (fix.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain('Ubicación (opcional)');
+      expect(texto).not.toContain('Ubicación *');
     });
   });
 
