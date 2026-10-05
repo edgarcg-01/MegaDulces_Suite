@@ -1,6 +1,34 @@
 # Runbook — bucket propio y arreglos del despliegue
 
-> **Estado al 2026-10-03: TODO ESCRITO Y PROBADO, NADA APLICADO A `md`.**
+> ## ✅ EL CORTE SE HIZO EL 2026-10-05. La aplicación lee y escribe en Garage, en `md`.
+>
+> Decisión de Edgar, con el riesgo de durabilidad planteado dos veces y asumido.
+> Secuencia real: sincronizar → verificar por ETag → cambiar 5 claves de `prod-env` →
+> reiniciar `api` y `worker` → verificar.
+>
+> **Verificado después del corte:**
+> - **5 de 5 documentos VIEJOS abiertos** por URL prefirmada: HTTP 200 y **tamaño exacto**.
+>   Es la prueba que importa: que sirva la COPIA, no sólo la escritura nueva.
+> - Subida nueva + lectura: contenido idéntico · sin firmar: **403**.
+> - Railway **1,171 / 866.8 MB** y Garage **1,171 / 866.8 MB** — nada quedó huérfano en la
+>   ventana entre la última sincronización y el corte.
+> - Prod: portada 200 en 29 ms, **cero** errores de almacenamiento en 15 min, 15/15 pods.
+>
+> ⚠️ **Lo que el corte NO cambió, y ahora pesa más:** la evidencia fiscal es ahora PRIMARIA en
+> un solo NVMe. Lo único que hoy hace de respaldo externo es que **el bucket de Railway quedó
+> intacto** — con los 1,171 objetos de hoy, congelado. **Todo lo que se escriba desde ahora
+> existe sólo en `md`.** El paso 2 dejó de ser preparación y pasó a ser deuda viva.
+>
+> ⭐ **Y hay una salida barata que el corte habilitó:** Tigris ya no es el primario, así que
+> sirve de destino de respaldo. `sincronizar-buckets.js` lo hace invirtiendo ORIGEN y DESTINO —
+> mismo costo que ya se paga, separación real de proveedor, sin cuenta nueva.
+>
+> **Rollback** (Railway sigue intacto): `k3s kubectl -n prod apply -f ~/secrets/prod-env.respaldo-20261005-0927.yaml`
+> y reiniciar `api` y `worker`.
+>
+> ---
+>
+> **Estado al 2026-10-03 (histórico): TODO ESCRITO Y PROBADO, NADA APLICADO A `md`.**
 > Los guiones de `md` **no** se actualizan solos (verificado: `auto-deploy.sh` no se
 > auto-sincroniza; sólo cambian con un `ops/prod/deploy.sh --verificar` deliberado).
 > O sea que lo que está commiteado queda **inerte** hasta que alguien corra el paso 1.
