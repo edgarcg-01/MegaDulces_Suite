@@ -130,8 +130,27 @@ buen pedido»*. Medido: de ~34 variables que deberían pesar en un pedido el mot
   de comparaciones**). Apilando OC y vale en una relación etiquetada y pivotando con `FILTER`:
   **90 d de 49 s a 0.7 s · 365 d de >50 min sin terminar a 2.7 s**, con **0 filas de cifra distinta**
   entre las dos formas.
+- 🔨 **[VPR.3]** **Apagado el segundo escritor del precio: una sola fuente.** ⚠️ **Y corrige a
+  `[VPR.1/VPR.2]` de abajo**: el "escritor anónimo" NO era un intruso — es
+  `services/feeds-ingest/ods-derived.js`, que aplica una **decisión documentada de Edgar
+  (2026-08-25)**: *manda lo que el PdV COBRA (`kdm2.c12`), no lo que Kepler configura (`kdii.c90`)*.
+  Los dos escritores eran **dos políticas contradictorias**, ambas en el repo, ambas corriendo.
+  ⛔ **Mi árbitro era un espejo**: construí `v_price_truth` sobre `c90` y validé con la etiquetera,
+  que **también** sale de `c90` — dos derivados de la misma fuente coincidiendo entre sí. Es
+  textualmente lo que ADR-059 regla 5 advierte. Verificado en el SKU 83041: las nueve plazas
+  **configuran $40.49** y la caja **cobra $38.94 en 264,028 líneas** contra 5,227 — o sea que la
+  vista, tal como la dejé, publicaría el precio que la caja NO cobra. **No alcanzó a hacer daño:
+  está en prod pero sin redeploy, así que nadie la lee.** Edgar, 2026-10-05: *"apagalo, todo se
+  debe tomar desde la misma fuente"*. `repoint-catalog-prices` estrena `--solo-promo` y el carril
+  `prices` lo usa: **cero precios escritos**, conserva `is_promo` (lo recalcula sólo él;
+  `ods-derived` únicamente lo lee). ⛔ `--gap-fill-only` NO servía de apagado: hay **1,508
+  productos activos sin precio en ninguna lista** y seguiría inyectándoles el configurado,
+  incluidos los que `ods-derived` **rechaza a propósito**. La guerra, dos días después y todavía
+  viva: **50,679 contra 50,270 cambios en 24 h**. **Falta: `ops/vl/deploy.sh` (el cambio viaja por
+  imagen, no por ruta compartida) + reescribir `v_price_truth` sobre `kdm2.c12` por plaza.**
 - 🚀 **[VPR.1/VPR.2]** **El precio del vendedor: no era desactualización, era una columna en
-  disputa.** Reporte de campo sobre `/vendor/take-order`. La medición **refutó la premisa**: el feed
+  disputa.** ⚠️ **Leer `[VPR.3]` arriba antes que esto: el árbitro de esta entrada está mal
+  elegido.** Reporte de campo sobre `/vendor/take-order`. La medición **refutó la premisa**: el feed
   corre cada 30 min y está verde, y las tablas se habían escrito hacía 6 minutos. Arbitrando contra
   `kepler_ods.kdii.c90` (el ERP, por plaza) sobre 69,782 pares SKU×plaza: la **etiquetera cuadra
   100.0%** y la lista que lee el vendedor, **86.8%**. ⭐ Ese 100% es el CONTROL que vuelve publicable

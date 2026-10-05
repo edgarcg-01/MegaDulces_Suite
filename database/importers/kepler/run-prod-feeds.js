@@ -370,7 +370,17 @@ const STEPS = {
     // Sin `--apply` explícito: el runner ya lo agrega en modo aplicar (línea ~313); ponerlo acá
     // lo haría escribir también en un dry-run, que es justo lo que el dry-run evita.
     path.join(K, 'import-product-barcodes.js'),                  // → catalog.product_barcodes (1 SKU → N, Kepler ∪ Wincaja)
-    [path.join(K, 'repoint-catalog-prices.js'), '--sync'],       // → commercial.product_prices BASE-MXN (precio de venta)
+    // `[VPR.3]` 2026-10-05 — ESTE PASO YA NO ESCRIBE EL PRECIO. Pasaba `--sync` y competia con
+    // `services/feeds-ingest/ods-derived.js`, que escribe la MISMA columna con la politica
+    // contraria: este ponia lo que Kepler CONFIGURA (`kdii.c90`) y aquel lo que el PdV COBRA
+    // (moda de `kdm2.c12`). Medido en prod: **50,679 contra 50,270 cambios en 24 h** sobre
+    // ~1,070 filas -- el precio publicado dependia de quien escribio ultimo, y eso es lo que
+    // el campo reportaba como "desactualizacion".
+    //
+    // La politica ya estaba decidida (Edgar 2026-08-25): manda lo que el PdV cobra. Asi que
+    // el dueno del precio es `ods-derived` y este paso queda SOLO con `is_promo`, que es lo
+    // unico que nadie mas recalcula. Ver la cabecera de repoint-catalog-prices.js.
+    [path.join(K, 'repoint-catalog-prices.js'), '--solo-promo'],  // → catalog.products.is_promo (el precio lo escribe ods-derived)
   ],
   // KV.8 — logística sola (on-demand): dims. (import-erp-shipments RETIRADO 2026-08-20:
   // analytics.erp_shipments es VISTA derive-no-copy sobre kepler_ods.kdpord, mig 20260820170000

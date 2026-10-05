@@ -39,6 +39,28 @@ const APPLY = process.argv.includes('--apply');
 // rellena faltantes). Los c90 de $0.01/$0.05 son marcadores de PROMO (solo rutas, no público)
 // → se excluyen del precio base con el piso `c90 > 0.05` (abajo).
 const SYNC = !process.argv.includes('--gap-fill-only');
+// `[VPR.3]` APAGADO DEL PRECIO. Este script dejo de ser dueno del precio de venta el 2026-10-05.
+//
+// Habia DOS escritores con politicas contradictorias sobre que es "el precio":
+//   . este          -> lo que Kepler CONFIGURA (`kdii.c90`)
+//   . ods-derived   -> lo que el punto de venta COBRA (moda de `kdm2.c12`)
+// y se pisaban en bucle: medido en prod, 50,679 contra 50,270 cambios en 24 h sobre ~1,070 filas.
+// El precio publicado dependia de quien escribio ultimo.
+//
+// La decision ya estaba tomada y documentada (Edgar, 2026-08-25, cabecera de
+// `services/feeds-ingest/ods-derived.js`): **manda lo que el PdV cobra, no la configuracion** --
+// la configuracion solo coincide con lo cobrado en ~58% de los casos. Verificado en el SKU 83041:
+// las nueve plazas CONFIGURAN $40.49 y la caja COBRA $38.94 en 264,028 lineas contra 5,227.
+// Edgar, 2026-10-05: "apagalo, todo se debe tomar desde la misma fuente".
+//
+// NO alcanzaba `--gap-fill-only` como apagado: hay **1,508 productos activos sin precio en
+// ninguna lista**, asi que seguiria inyectandoles el precio configurado -- incluidos los que
+// `ods-derived` RECHAZA a proposito (<=$0.05, >3x costo, bajo costo), deshaciendo su rechazo.
+// Por eso el apagado es total y explicito.
+//
+// Lo que este script CONSERVA es `is_promo`: lo recalcula solo el (`ods-derived` unicamente lo
+// lee), asi que borrar el paso del carril habria apagado tambien esa marca sin que nadie lo note.
+const SOLO_PROMO = process.argv.includes('--solo-promo');
 
 (async () => {
   const dst = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
@@ -50,7 +72,12 @@ const SYNC = !process.argv.includes('--gap-fill-only');
   const src = useOds ? null : new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
   const readSrc = useOds ? dst : src;
   try {
-    console.log(`\n=== Precio base ${useOds ? 'kepler_ods' : 'KP_CONCENTRADA'} c90 (excl CEDIS + moda retail) → BASE-MXN (${SYNC ? 'SYNC: actualiza todos' : 'solo faltantes'}) (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+    // `[VPR.3]` El encabezado dice lo que el modo HACE. Antes anunciaba "SYNC: actualiza todos"
+    // incluso con el precio apagado, y contradecía al renglón siguiente: un log que miente sobre
+    // lo que escribe es justo lo que hizo invisible la guerra de precios durante semanas.
+    console.log(SOLO_PROMO
+      ? `\n=== SOLO is_promo desde ${useOds ? 'kepler_ods' : 'KP_CONCENTRADA'} — el PRECIO lo escribe ods-derived (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`
+      : `\n=== Precio base ${useOds ? 'kepler_ods' : 'KP_CONCENTRADA'} c90 (excl CEDIS + moda retail) → BASE-MXN (${SYNC ? 'SYNC: actualiza todos' : 'solo faltantes'}) (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
     if (!useOds) {
       try { await src.connect(); }
       catch (e) { console.error(`❌ sin conexión a KP_CONCENTRADA (${e.message}) — abortando`); process.exitCode = 1; return; }
@@ -59,7 +86,9 @@ const SYNC = !process.argv.includes('--gap-fill-only');
     // Precio retail robusto (regla Edgar 2026-08-20): EXCLUIR CEDIS (sucursal '00' = mayoreo, cotiza
     // más alto) + MODA de c90 entre retail (01-06); fallback a CEDIS solo si el SKU NO tiene retail.
     // Piso c90 > 0.05: los $0.01/$0.05 son marcadores de PROMO (solo rutas) → nunca entran al base.
-    const rows = (await readSrc.query(`
+    // `[VPR.3]` En `--solo-promo` ni se lee la fuente de precios: nadie va a usar esas filas, y el
+    // renglón de log que imprimía ("N SKUs con precio retail") hacía creer que todavía escribe precio.
+    const rows = SOLO_PROMO ? [] : (await readSrc.query(`
       WITH retail AS (
         SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric DESC) AS precio
           FROM ${KSCHEMA}.kdii
@@ -73,19 +102,25 @@ const SYNC = !process.argv.includes('--gap-fill-only');
       SELECT sku, precio FROM retail
       UNION ALL
       SELECT c.sku, c.precio FROM cedis c WHERE NOT EXISTS (SELECT 1 FROM retail r WHERE r.sku=c.sku)`)).rows;
-    console.log(`  ${KSCHEMA}.kdii: ${rows.length} SKUs con precio retail (excl CEDIS, promos excluidas)`);
-    if (!rows.length) { console.log('  nada que hacer.'); return; }
+    if (!SOLO_PROMO) {
+      console.log(`  ${KSCHEMA}.kdii: ${rows.length} SKUs con precio retail (excl CEDIS, promos excluidas)`);
+      if (!rows.length) { console.log('  nada que hacer.'); return; }
+    }
 
     await dst.query('BEGIN');
     await dst.query(`SET LOCAL app.tenant_id = '${M}'`);
-    await dst.query(`CREATE TEMP TABLE stg_price (sku text, precio numeric) ON COMMIT DROP`);
-    const BATCH = 1000;
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const chunk = rows.slice(i, i + BATCH);
-      const vals = chunk.map((_, ri) => `($${ri * 2 + 1},$${ri * 2 + 2})`);
-      const params = [];
-      for (const r of chunk) params.push(r.sku, r.precio);
-      await dst.query(`INSERT INTO stg_price (sku, precio) VALUES ${vals.join(',')}`, params);
+    // `[VPR.3]` En `--solo-promo` el staging NO se arma: son 9,420 filas empujadas por la red para
+    // alimentar un INSERT que ya no corre. `is_promo` sale de `catalog.products` directo.
+    if (!SOLO_PROMO) {
+      await dst.query(`CREATE TEMP TABLE stg_price (sku text, precio numeric) ON COMMIT DROP`);
+      const BATCH = 1000;
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const chunk = rows.slice(i, i + BATCH);
+        const vals = chunk.map((_, ri) => `($${ri * 2 + 1},$${ri * 2 + 2})`);
+        const params = [];
+        for (const r of chunk) params.push(r.sku, r.precio);
+        await dst.query(`INSERT INTO stg_price (sku, precio) VALUES ${vals.join(',')}`, params);
+      }
     }
 
     // candidatos: producto activo con sku en KP. Gap-fill (default): SOLO sin precio en ninguna
@@ -96,7 +131,10 @@ const SYNC = !process.argv.includes('--gap-fill-only');
       JOIN stg_price s ON s.sku = p.sku
       WHERE p.tenant_id=$1 AND p.deleted_at IS NULL ${gapOnly}`;
 
-    if (SYNC) {
+    if (SOLO_PROMO) {
+      // `[VPR.3]` Ni se cuenta: no hay precio que escribir. El dueño es `ods-derived`.
+      console.log('  precio: APAGADO — lo escribe services/feeds-ingest/ods-derived.js (VPR.3)');
+    } else if (SYNC) {
       const chg = Number((await dst.query(`
         SELECT count(*)::int n
           FROM catalog.products p JOIN stg_price s ON s.sku=p.sku
@@ -117,7 +155,9 @@ const SYNC = !process.argv.includes('--gap-fill-only');
       ? `ON CONFLICT (tenant_id, price_list_id, product_id) DO UPDATE SET price=EXCLUDED.price, updated_at=now()
          WHERE commercial.product_prices.price IS DISTINCT FROM EXCLUDED.price`
       : `ON CONFLICT (tenant_id, price_list_id, product_id) DO NOTHING`;
-    const res = await dst.query(`
+    // `[VPR.3]` En `--solo-promo` NO se escribe un solo precio: el dueno del precio de venta es
+    // `ods-derived` (lo que el PdV cobra). Aca queda unicamente el recalculo de `is_promo`.
+    const res = SOLO_PROMO ? { rowCount: 0 } : await dst.query(`
       INSERT INTO commercial.product_prices (id, tenant_id, price_list_id, product_id, price, tax_rate, min_qty, created_at, updated_at)
       SELECT gen_random_uuid(), $1, '${BASE_LIST}', p.id, s.precio, COALESCE(p.iva_rate, 0), 1, now(), now()
       ${FROM}
@@ -171,7 +211,7 @@ const SYNC = !process.argv.includes('--gap-fill-only');
     }
 
     await dst.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${res.rowCount} precios base ${SYNC ? 'sincronizados (insert+update churn-free)' : 'insertados (sin pisar)'} · ${promoMsg}.`);
+    console.log(`\n[APPLY] COMMIT - ${SOLO_PROMO ? 'PRECIO APAGADO (lo escribe ods-derived, VPR.3)' : `${res.rowCount} precios base ${SYNC ? 'sincronizados (insert+update churn-free)' : 'insertados (sin pisar)'}`} - ${promoMsg}.`);
   } catch (e) {
     await dst.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
