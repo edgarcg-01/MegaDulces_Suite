@@ -51,6 +51,9 @@ export * from './lib/caja/cash-cut.service';
 export * from './lib/caja/cash-cut.engine';
 export * from './lib/cancelled-docs/finance-cancelled-docs.module';
 export * from './lib/cancelled-docs/cancelled-docs.service';
+// [CSU.1] Cortes/Sucursales. El motor NO se reexporta: sus nombres cortos (r2, estadoCobro) chocarían en el barril.
+export * from './lib/cortes-sucursales/finance-cortes-sucursales.module';
+export * from './lib/cortes-sucursales/cortes-sucursales.service';
 export * from './lib/feed-notify/finance-feed-notify.module';
 export * from './lib/feed-notify/finance-feed-scanner.service';
 export * from './lib/budget/finance-budget.module';
