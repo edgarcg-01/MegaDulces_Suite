@@ -9,7 +9,7 @@
 
 **Estado.** La Mesa de Servicio (ADR-081, **propuesto**) está construida y probada **en local**; **nada aplicado a producción**. Capas 1 (BD), 2 (lógica) y 3 (pantallas) completas, más lo que fue saliendo después: A tu nombre en Mi trabajo (MS.3.6), cola «sin asignar» con plazo ajustable (MS.3.8), asignación automática por regla (MS.3.10), Reportes (MS.3.5), levantar a nombre de otra persona (MS.3.11), cámara/galería (MS.3.12) y adjuntos en notas internas (MS.3.13). Detalle por ítem en el tracker; resumen de la fila en `CLAUDE.md`.
 
-**Dónde está el código.** Edgar integró el grueso en `main` con #219/#228/#232 y **cerró los PRs de la pila** (#218–#234): `main` ya trae hasta MS.3.10 + Reportes + DESIGN (#235). **Faltan por mergear** (apilados sobre `main`, rebasados el 2026-10-03 sin conflictos y re-verificados): #241 prueba de adjuntos contra un S3 real (reemplaza al #236, cerrado) → #238 MS.3.11 → #239 MS.3.12 → #240 MS.3.13. Tras el rebase: `service-desk` 142 · `contracts` 289 · `view` 1625 · E2E por HTTP **320/0** · prueba S3 **42/42** · builds api y view, lint y las 6 compuertas de UI en verde.
+**Dónde está el código.** Edgar integró el grueso en `main` con #219/#228/#232 y **cerró los PRs de la pila** (#218–#234): `main` ya trae hasta MS.3.10 + Reportes + DESIGN (#235). **Y lo que faltaba (#241 prueba de adjuntos contra un S3 real, #238 MS.3.11, #239 MS.3.12, #240 MS.3.13) ya entró a `main` en #240 (squash `cd8ff3d86`, 2026-10-03, CI verde: build, lint+test y gitleaks):** estaba apilado y rebasado sobre `main` sin conflictos, y #241/#238/#239 se cerraron porque #240 los contenía. **No queda nada por mergear de la mesa.** Tras el rebase: `service-desk` 142 · `contracts` 289 · `view` 1625 · E2E por HTTP **320/0** · prueba S3 **42/42** · builds api y view, lint y las 6 compuertas de UI en verde.
 
 **Decisiones de fondo (las que no se deducen del código).**
 1. **El ticket ES la tarea**: no hay un módulo paralelo; `servicedesk.requests` se declara en el contrato de tarea y la cola «sin asignar» es una **bandeja** (la ve quien **responde** de `servicio.atender`, no quien abre la pantalla: `[SN.30]`).
@@ -26,7 +26,7 @@
 - **Cerrar la pila fue de Edgar, no de este trabajo**: tras una integración grande, lo apilado sobre ramas ya integradas hay que **rebasarlo sobre `main`** antes de pedir revisión (aquí los 4 commits entraron limpios).
 
 **Pendiente — todo depende de personas.**
-- Edgar: revisar/mergear #241 → #238 → #239 → #240.
+- ~~Edgar: revisar/mergear la cadena #241 → #240~~ — hecho el 2026-10-03.
 - Aplicar las **6 migraciones una por una** (runbook §), redeploy api+view, **re-login** (los permisos viajan en el JWT).
 - **`SERVICIO_ATENDER` para Felipe y David** (sin él las reglas de asignación automática los saltan); decidir quién recibe `servicio.atender` para ver la cola.
 - `SMTP_*` y `S3_*` en prod (sin ellos: sin correo y sin adjuntos); plantilla de WhatsApp aprobada por Meta (P5).
