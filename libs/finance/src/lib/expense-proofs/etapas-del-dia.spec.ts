@@ -1,7 +1,4 @@
-import {
-  diaValido, etapaDe, hoyMx, particionarDelDia, visibleEn, PESTANAS,
-  type EtapaGasto, type ExpedienteDelDia,
-} from './etapas-del-dia';
+import { ESTADOS_DECIDIDOS, PESTANAS, diaValido, esperaDecision, etapaDe, hoyMx, particionarDelDia, type EtapaGasto, type ExpedienteDelDia, visibleEn } from './etapas-del-dia';
 
 /**
  * `[GX.20]` Esta partición decide **qué trabajo se ve y cuál no**. Un expediente que cae en
@@ -189,5 +186,57 @@ describe('[GX.20] el día que se mira', () => {
     expect(hoyMx(new Date('2026-09-26T02:30:00.000Z'))).toBe('2026-09-25');
     expect(hoyMx(new Date('2026-09-25T18:00:00.000Z'))).toBe('2026-09-25');
     expect(hoyMx()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+/**
+ * `[GX.67]` **La lista de estados ya decididos se DERIVA del mapa, no se copia.**
+ *
+ * La consume un `WHERE status NOT IN (...)` del servicio, que es el que arma la bandeja de
+ * entrada sin acotarla por día. Con la lista escrita a mano en el SQL, agregar un estado al
+ * mapa y olvidarse de esa línea tendría una de dos consecuencias, las dos silenciosas:
+ * un expediente ya decidido colándose en la bandeja, o —peor— uno pendiente desapareciendo
+ * de ella. Es el «primitivo duplicado a mano» de ADR-056.
+ */
+describe('[GX.67] ESTADOS_DECIDIDOS y esperaDecision', () => {
+  it('son exactamente los estados que NO caen en la bandeja de entrada', () => {
+    expect([...ESTADOS_DECIDIDOS].sort()).toEqual(['aprobada', 'rechazada', 'revision', 'validada']);
+  });
+
+  /**
+   * ⭐ El candado que importa: la lista y el repartidor no pueden separarse. Si alguien
+   * agrega un estado al mapa, esta prueba lo obliga a decidir de qué lado cae.
+   */
+  it('⭐ ningún estado decidido cae en la bandeja, y ninguno de la bandeja está en la lista', () => {
+    for (const e of ESTADOS_DECIDIDOS) {
+      expect(visibleEn('entrada', e)).toBe(false);
+      expect(esperaDecision(e)).toBe(false);
+    }
+    expect(ESTADOS_DECIDIDOS).not.toContain('recibida');
+  });
+
+  it('`recibida` espera decisión', () => {
+    expect(esperaDecision('recibida')).toBe(true);
+  });
+
+  /**
+   * ⛔ Un estado que el repartidor no conoce espera decisión. Es la misma red que
+   * `visibleEn()`: trabajo que nadie reconoce es trabajo que alguien tiene que mirar, no
+   * trabajo terminado. Si cayera del otro lado, el `NOT IN` lo sacaría de la bandeja y el
+   * expediente no existiría en ninguna pantalla.
+   */
+  it('⛔ NEGATIVA: un estado desconocido espera decisión, no se da por cerrado', () => {
+    expect(esperaDecision('inventado_manana')).toBe(true);
+    expect(esperaDecision(null)).toBe(true);
+    expect(esperaDecision(undefined)).toBe(true);
+    expect(esperaDecision('')).toBe(true);
+    expect(visibleEn('entrada', 'inventado_manana')).toBe(true);
+  });
+
+  /** Las dos lecturas tienen que ser complementarias para TODO estado conocido. */
+  it('esperaDecision es el complemento exacto de la lista', () => {
+    for (const e of ['recibida', 'aprobada', 'revision', 'validada', 'rechazada', 'raro']) {
+      expect(esperaDecision(e)).toBe(!ESTADOS_DECIDIDOS.includes(e));
+    }
   });
 });

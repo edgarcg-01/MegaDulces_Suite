@@ -33,10 +33,10 @@ const ESTADO_LABEL: Record<string, string> = {
 };
 
 /**
- * `[GX.20]` — **Aprobación de gastos.** El día del gasto, en tres pestañas.
+ * `[GX.20]` — **Aprobación de gastos.** La cola de lo que espera firma.
  *
- * La pantalla de GX.17 era una bandeja: «todo lo que espera firma, de cualquier fecha».
- * Ahora es **el día**: lo que se levantó ese día, partido por lo que hay que hacer con ello.
+ * `[GX.67]` La pantalla de GX.17 era una bandeja: «todo lo que espera firma, de cualquier
+ * fecha». GX.20 la acotó **al día**, y eso resultó ser el defecto: volvió a ser la cola.
  *
  * El corte es **la decisión**, no el avance del trámite:
  *
@@ -58,16 +58,27 @@ const ESTADO_LABEL: Record<string, string> = {
  * que es la que significa «alguien tiene que mirar esto», y sale marcado. Sin eso no saldría
  * en ninguna de las tres, o sea que el expediente no existiría en la aplicación.
  *
- * ## ⛔ Acotar por día NO esconde lo que espera firma
- * Un expediente que nadie aprobó anteayer no puede dejar de existir porque hoy miramos hoy.
- * Por eso, cuando queda algo afuera del día, la pestaña *Aprobar* **lo dice con su monto**.
- * El día filtra lo que se LEE, nunca lo que existe.
+ * ## ⛔ `[GX.67]` LA BANDEJA NO SE ACOTA POR DÍA
+ * Pedido del usuario (2026-10-05): *«sólo se pueden autorizar los que se levanten del día,
+ * cambialo a que también se puedan pasado»*.
  *
- * ⚠️ La barra de navegación de días **se retiró por pedido del usuario** (2026-09-25). La
- * pantalla muestra siempre HOY. El aviso de lo que quedó afuera se conserva justamente
- * porque ya no hay cómo ir a buscarlo: si además se callara, ese trabajo no existiría en
- * ninguna pantalla. `delDia()` sigue aceptando `fecha` — lo que se fue es el control, no la
- * capacidad.
+ * Hasta acá la pantalla mostraba **sólo hoy** y se limitaba a *avisar* cuántos expedientes
+ * habían quedado afuera — sin ninguna forma de llegar a ellos, porque la barra de días se
+ * había retirado el 2026-09-25 (a pedido del mismo usuario). **Medido en la base local el
+ * 2026-10-05: 78 expedientes esperando firma repartidos en ~25 días, el más viejo del 1-jul,
+ * y CERO levantados hoy** — o sea la bandeja salía vacía mientras esos 78 esperaban.
+ *
+ * ⛔ El arreglo **no es devolver la barra que el usuario quitó**. Con pendientes en ~25 días
+ * distintos, una barra obliga a adivinar en cuál hay trabajo, que es justo lo que la hacía
+ * molesta. Lo correcto es que la bandeja **deje de ser un reporte del día y vuelva a ser una
+ * cola**: se ve todo lo que espera decisión, de cualquier fecha, y cada renglón trae su día
+ * de captura.
+ *
+ * ⚠️ El día **no desapareció del endpoint**: `delDia(fecha)` sigue acotando lo ya decidido,
+ * que es un registro y no una cola. Lo que dejó de acotar es la bandeja.
+ *
+ * ⚠️ Autorizar un vale viejo **nunca estuvo prohibido en el servidor**: `approve()` y
+ * `reject()` no tienen ninguna guarda de fecha. El candado era de pantalla, y era el único.
  *
  * ## ⚠️ El día es el de CAPTURA
  * «Los levantamientos que se hicieron al día» es cuándo se **levantó** el expediente. El
@@ -101,12 +112,12 @@ const ESTADO_LABEL: Record<string, string> = {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Aprobación de gastos</h1>
-          <!-- Sin barra de días, el subtítulo es lo único que ancla la cifra a una fecha.
-               Una pantalla que dice «del día» sin decir cuál no se puede auditar. -->
+          <!-- [GX.67] El subtítulo dice el ALCANCE, no una fecha: la bandeja ya no es
+               de un día. Decir «del viernes 3» sobre una lista que trae julio sería la
+               misma mentira al revés. -->
           <p class="surf-page-sub">
-            Los levantamientos del
-            <strong class="ap-dia-txt">{{ diaLocal(fechaActiva()) | date: "EEEE d 'de' MMMM" }}</strong>,
-            partidos por lo que falta hacer con ellos.
+            Todo lo que espera tu firma, <strong class="ap-dia-txt">de cualquier fecha</strong>.
+            Cada vale muestra cuándo se levantó.
           </p>
         </div>
         <button pButton type="button" class="p-button-text" (click)="cargar()" [loading]="cargando()">
@@ -172,22 +183,36 @@ const ESTADO_LABEL: Record<string, string> = {
           }
         </div>
 
-        <!-- Lo que espera firma y NO es de este día. Sin esto, el día escondería trabajo. -->
-        @if (pestana() === 'entrada' && d.pendientes_fuera_del_dia.n) {
+        <!-- [GX.67] Ya NO es «lo que no ves»: es contexto de lo que SÍ estás viendo.
+             Se conserva porque un vale de hace dos meses en la misma lista que el de hoy
+             se lee distinto si se sabe cuántos vienen de atrás. -->
+        @if (pestana() === 'entrada' && d.entrada_de_otros_dias.n) {
           <div class="ap-aviso">
             <i class="pi pi-info-circle" aria-hidden="true"></i>
             <span>
-              Otros días tienen <strong>{{ d.pendientes_fuera_del_dia.n }}</strong> esperando firma
-              ({{ money(d.pendientes_fuera_del_dia.monto) }}). Esta pantalla muestra sólo hoy.
+              <strong>{{ d.entrada_de_otros_dias.n }}</strong> de estos vienen de días anteriores
+              ({{ money(d.entrada_de_otros_dias.monto) }}) y se pueden autorizar igual.
             </span>
           </div>
         }
 
-        @if (!d.total) {
+        <!-- ⛔ Una lista cortada en silencio se lee igual que una lista completa. -->
+        @if (pestana() === 'entrada' && d.entrada_truncada) {
+          <div class="ap-aviso warn">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <span>La lista llegó al tope y <strong>hay más esperando firma</strong>. Firmá los de
+              acá y volvé a actualizar.</span>
+          </div>
+        }
+
+        <!-- [GX.67] El vacío se mide con la BANDEJA, no con «total» — que incluye lo
+             ya decidido del día y haría decir «no hay nada» con la lista llena, o al revés:
+             «hay gastos» sobre una bandeja vacía. -->
+        @if (!conteo(pestana()).n) {
           <div class="ap-vacio">
-            <i class="pi pi-calendar" aria-hidden="true"></i>
-            <div><strong>Hoy todavía no se levantó ningún gasto.</strong>
-              <div class="ap-muted">En cuanto alguien capture uno, aparece acá.</div>
+            <i class="pi pi-check-circle" aria-hidden="true"></i>
+            <div><strong>No hay nada esperando tu firma.</strong>
+              <div class="ap-muted">En cuanto alguien levante un gasto, aparece acá.</div>
             </div>
           </div>
         } @else {
@@ -223,6 +248,13 @@ const ESTADO_LABEL: Record<string, string> = {
                   <div class="ap-it-head">
                     <span class="ap-folio">{{ p.folio_solicitud || 'sin folio' }}</span>
                     @if (p.sucursal) { <span class="ap-suc">suc {{ p.sucursal }}</span> }
+                    <!-- [GX.67] El DÍA de captura cuando no es hoy. Sin esto, un vale de
+                         julio y uno de hace diez minutos se ven igual en la misma lista. -->
+                    @if (p.created_at && p.created_at !== hoy()) {
+                      <span class="ap-dia-chip" [title]="'Se levantó el ' + p.created_at">
+                        {{ diaLocal(p.created_at) | date: 'dd/MM/yy' }}
+                      </span>
+                    }
                     <span class="ap-hora">{{ p.created_hora }}</span>
                     <span class="ap-grow"></span>
                     <span class="ap-imp">{{ money(p.importe) }}</span>
@@ -388,6 +420,13 @@ const ESTADO_LABEL: Record<string, string> = {
     .ap-it-head { display: flex; align-items: baseline; gap: var(--sp-2); }
     .ap-folio { font-family: var(--font-mono); font-weight: var(--fw-bold); }
     .ap-suc, .ap-hora { font-size: var(--fs-xs); color: var(--fg-3); }
+    /* [GX.67] El dia de captura cuando NO es hoy. Lleva fondo porque aparece salteado
+       —solo en los vales viejos— y sin el se lee como parte de la hora de al lado. */
+    .ap-dia-chip {
+      font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-2);
+      background: var(--layout-bg); border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); padding: 0 .3rem;
+    }
     .ap-hora { font-family: var(--font-mono); }
     .ap-imp { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
       font-size: var(--fs-lg); font-weight: var(--fw-bold); }
@@ -438,8 +477,13 @@ export class FinanzasAprobacionGastosComponent {
   readonly abierto = signal<ExpedienteDelDia | null>(null);
   /** `[GX.29]` Lo que ESTA persona tiene que decidir. El servidor sólo manda lo suyo. */
   readonly reaperturas = signal<ReaperturaPendiente[]>([]);
-  /** El día que muestra la pantalla: siempre hoy, y quién es hoy lo decide el SERVIDOR
-   *  (hora de México). Se retiró la barra que dejaba elegir otro — ver el doc de la clase. */
+  /**
+   * El día que acota **lo ya decidido**. Vacío = hoy, y quién es hoy lo decide el SERVIDOR
+   * (hora de México).
+   *
+   * ⚠️ `[GX.67]` **No acota la bandeja**: lo que espera firma viene completo, de cualquier
+   * fecha. Ver el doc de la clase.
+   */
   private readonly fecha = signal<string>('');
 
   /**
@@ -469,6 +513,16 @@ export class FinanzasAprobacionGastosComponent {
 
   /** El día que se está mirando. Mientras no haya respuesta, lo que se pidió. */
   readonly fechaActiva = computed(() => this.datos()?.fecha || this.fecha());
+
+  /**
+   * `[GX.67]` Hoy, **según el servidor** (hora de México). Lo usa el renglón para decidir si
+   * muestra su día de captura.
+   *
+   * ⚠️ NO se calcula con `new Date()`: el navegador puede estar en otra zona —o con el reloj
+   * corrido— y entonces los vales de hoy se marcarían como viejos, o los de ayer no. Es la
+   * misma trampa que la Fase VP midió en 21 de 24 píldoras de frescura.
+   */
+  readonly hoy = computed(() => this.datos()?.hoy ?? '');
 
   cargar(): void {
     this.cargando.set(true);
@@ -538,7 +592,7 @@ export class FinanzasAprobacionGastosComponent {
   }
 
   vacioDe(p: PestanaGasto): string {
-    if (p === 'entrada') return this.grupo() ? 'Ese departamento ya no tiene nada esperando firma.' : 'Nada de este día espera tu visto bueno.';
+    if (p === 'entrada') return this.grupo() ? 'Ese departamento ya no tiene nada esperando firma.' : 'Nada espera tu visto bueno.';
     if (p === 'aprobados') return 'Todavía no se aprobó nada de este día.';
     return 'No se rechazó nada de este día.';
   }

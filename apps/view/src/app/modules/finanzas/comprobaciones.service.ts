@@ -389,8 +389,10 @@ export interface GastosDelDia {
   filas: ExpedienteDelDia[];
   /** Los grupos por departamento de la bandeja de entrada de ESE dia. */
   entrada: { total: number; monto_total: number; por_fecha: GrupoAprobacion[]; por_departamento: GrupoAprobacion[] };
-  /** Lo que espera firma y NO es de este dia. Sin esto, acotar por dia esconderia trabajo. */
-  pendientes_fuera_del_dia: { n: number; monto: number };
+  /** `[GX.67]` De la bandeja, cuánto NO es del día que se mira. Se MUESTRA igual. */
+  entrada_de_otros_dias: { n: number; monto: number };
+  /** `[GX.67]` La bandeja tocó el tope y hay más esperando firma. Nunca se lee como «no hay». */
+  entrada_truncada: boolean;
 }
 
 /**
