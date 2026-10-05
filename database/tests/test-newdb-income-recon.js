@@ -420,10 +420,71 @@ const n = (x) => Number(x ?? 0).toLocaleString('es-MX', { minimumFractionDigits:
         + 'Sin CFDI emitido, el ingreso sólo se puede contrastar contra el TOTAL MENSUAL de la '
         + 'balanza fiscal, nunca factura por factura. Es un límite de la fuente, no una falla');
     } else {
-      chk(false,
-        `⛔ aparecieron ${emi.emitidos} CFDI EMITIDOS en fiscal.cfdis: el casado factura por factura `
-        + 'del ingreso contra lo fiscal ya es posible y hay que cablearlo — hoy el cuadre sólo compara '
-        + 'totales mensuales');
+      // ⭐ Esta aserción decía «hay que cablearlo» y se puso ROJA en cuanto los emitidos entraron
+      // (`[IG.14.1]`). Hizo exactamente su trabajo: forzar que el cruce se construyera en vez de
+      // quedarse en el total mensual. Ahora mide lo que viene después — que el resolvedor EXISTA.
+      // El veredicto fila por fila lo comprueba el bloque [11].
+      const [vfm] = await q(
+        `SELECT count(*)::int AS n FROM pg_views
+          WHERE schemaname = 'analytics' AND viewname = 'v_cfdi_emitido_match'`);
+      chk(!!vfm && vfm.n > 0,
+        vfm && vfm.n > 0
+          ? `${emi.emitidos.toLocaleString('es-MX')} CFDI emitidos cargados y con resolvedor: el `
+            + 'ingreso se contrasta contra lo fiscal FACTURA POR FACTURA, no sólo por total mensual'
+          : `⛔ hay ${emi.emitidos} CFDI emitidos y NO existe analytics.v_cfdi_emitido_match: el `
+            + 'cruce por factura es posible y no está construido');
+    }
+    // ── 11. `[IG.15]` El cruce FISCAL, factura por factura ──────────────────────────────────
+    console.log('\n[11] El CFDI emitido encuentra su documento de Kepler');
+    const [vw] = await q(
+      `SELECT count(*)::int AS n FROM pg_views
+        WHERE schemaname = 'analytics' AND viewname = 'v_cfdi_emitido_match'`);
+    if (!vw || vw.n === 0) {
+      nm('analytics.v_cfdi_emitido_match no existe todavía — falta aplicar la migración');
+    } else {
+      const t11 = Date.now();
+      const ver = await q(
+        `SELECT veredicto, count(*)::int AS n, round(sum(total), 2)::numeric AS monto
+           FROM analytics.v_cfdi_emitido_match
+          WHERE fecha >= (CURRENT_DATE - $1::int) AND fecha <= CURRENT_DATE
+          GROUP BY 1`, [DIAS]);
+      const ms11 = Date.now() - t11;
+      if (!ver.length) {
+        nm(`no hay CFDI emitidos en los últimos ${DIAS} días`);
+      } else {
+        const m = Object.fromEntries(ver.map((r) => [r.veredicto, { n: r.n, monto: Number(r.monto) }]));
+        const total = ver.reduce((s2, r) => s2 + Number(r.monto), 0);
+        // ⭐ La compuerta que esta vista NO pasaba: con un solo LATERAL un mes tardaba 113,778 ms,
+        // porque los índices de kdm1 son PARCIALES y el planner sólo usa uno si puede PROBAR su
+        // condición. Separado en dos laterales, cada uno con su literal de grupo: 111 ms.
+        chk(ms11 < 5000,
+          `${ms11} ms para ${DIAS} días (medido 1,416 ms el año entero; con un solo LATERAL UN MES `
+          + 'tardaba 113,778 ms)');
+        chk((m['cuadra']?.n ?? 0) > 0,
+          m['cuadra']
+            ? `${m['cuadra'].n} comprobantes encuentran su documento con el importe al centavo `
+              + `($${n(m['cuadra'].monto)})`
+            : '⛔ ningún CFDI emitido casa con un documento de Kepler: la llave por serie dejó de '
+              + 'funcionar, o se cargaron CFDIs sin su serie estructurada');
+        // ⚠️ `fuera_de_kepler` NO es falla: son plazas que vendían en Wincaja. Se DECLARA.
+        const fuera = m['fuera_de_kepler'];
+        if (fuera) {
+          nm(`${fuera.n} comprobantes ($${n(fuera.monto)}, ${((fuera.monto / total) * 100).toFixed(1)} % `
+            + 'del facturado) están FUERA del alcance de Kepler: la plaza vendía en Wincaja en esa '
+            + 'fecha. No es un hueco de medición — cada serie muere en la fecha de corte que '
+            + 'v_branch_erp_cutover tiene registrada, y converge sola con la migración');
+        }
+        // Prueba negativa del abanico: una fila de la vista = un CFDI, o cualquier suma se infla.
+        const [fan] = await q(
+          `SELECT count(*)::int AS filas, count(DISTINCT uuid)::int AS cfdis
+             FROM analytics.v_cfdi_emitido_match
+            WHERE fecha >= (CURRENT_DATE - $1::int) AND fecha <= CURRENT_DATE`, [DIAS]);
+        chk(fan.filas === fan.cfdis,
+          fan.filas === fan.cfdis
+            ? `una fila por CFDI (${fan.cfdis}): el LATERAL cuenta y no abanica`
+            : `⛔ la vista ABANICA: ${fan.filas} filas para ${fan.cfdis} CFDIs — cualquier suma que `
+              + 'se publique sale inflada. Es la trampa del folio no único, quinta vez');
+      }
     }
   } finally {
     await c.end().catch(() => undefined);

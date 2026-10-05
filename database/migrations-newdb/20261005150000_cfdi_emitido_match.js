@@ -119,6 +119,11 @@ SELECT c.tenant_id, c.uuid, c.serie, c.folio, c.fecha, c.tipo_comprobante,
             AND k.c4::int = c.k_tipo AND k.c5::int = c.k_sub AND btrim(k.c6) = c.folio
        ) da ON true`;
 
+// Se exporta para poder aplicar SOLO el DDL, en su propia transaccion corta y con
+// lock_timeout. La verificacion de up() es una consulta larga sobre la misma vista: correrla
+// en la misma transaccion que el CREATE OR REPLACE es lo que armo la cola de candados.
+exports.VISTA = VISTA;
+
 exports.up = async function up(knex) {
   await knex.raw(VISTA);
   // ⛔ ADR-057: CREATE OR REPLACE VIEW no hereda security_invoker ni los GRANT. Ya costo una vez.

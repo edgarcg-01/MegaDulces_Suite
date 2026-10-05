@@ -3746,6 +3746,7 @@ export class CommercialAnalyticsService {
       //     bien excluido, pero nadie lo decía y quien cuadre contra la balanza lo va a buscar.
       const fueraDeAlcance = await this.incomeOutOfScope(trx, from, to);
       const contpaqi = mesesEnteros ? await this.contpaqiIngreso(trx, mesIni, mesFin) : null;
+      const cfdi = await this.cfdiEmitido(trx, from, to);
       const edadContpaqi = await stepAt(trx, 'feed_contpaqi-slow', tenantId);
 
       const edadFeed = await stepAt(trx, 'feed_nightly/import-sales-by-channel.js', tenantId);
@@ -3782,6 +3783,23 @@ export class CommercialAnalyticsService {
               + 'creció de golpe con la migración de las sucursales 06, 07 y 08 a Kepler (el CEDIS les empezó a '
               + 'embarcar). Medido en septiembre, la cuenta 401 del CEDIS son $70.5M, de los cuales $18.0M son '
               + 'este documento — y por eso nunca llegan a ContPAQi.' },
+          // `[IG.15]` El cuarto testigo, y el único que baja a la FACTURA. Va antes del de la
+          // balanza porque es más fino: aquél compara totales del mes, éste compara documentos.
+          { key: 'cfdi_emitido', label: 'CFDI emitidos (factura por factura)',
+            monto: cfdi ? cfdi.total : null,
+            delta_pct: cfdi == null || !hechoVenta ? null
+              : +(((cfdi.total - hechoVenta) / hechoVenta) * 100).toFixed(1),
+            comparable: true,
+            nota: cfdi
+              ? `${cfdi.filas} comprobantes timbrados en el rango. De ese dinero, `
+                + `${this.pctCfdi(cfdi, 'cuadra')} encuentra su documento en Kepler con el importe al `
+                + `centavo, ${this.pctCfdi(cfdi, 'difiere_importe')} lo encuentra con otro importe y `
+                + `${this.pctCfdi(cfdi, 'ambiguo')} casa con más de un documento. `
+                + `⚠️ ${this.pctCfdi(cfdi, 'fuera_de_kepler')} está FUERA del alcance de Kepler y no es `
+                + 'un hueco: son las plazas que en esa fecha todavía vendían en Wincaja — cada serie '
+                + 'muere en la fecha de corte que v_branch_erp_cutover tiene registrada, y con el CEDIS '
+                + 'ya cortado la cobertura converge sola.'
+              : 'NO MEDIDO: no hay CFDI emitidos cargados para el rango.' },
           // `[IG.13]` El TERCER testigo, y el único fiscal. Edgar: *"casemos con ContPAQi para tener
           // doble validez y tener una verdad sobre lo fiscal"*.
           { key: 'contpaqi', label: 'Libros fiscales (ContPAQi, familia 4)', monto: contpaqi,
@@ -3889,6 +3907,52 @@ export class CommercialAnalyticsService {
     } catch {
       return null; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
     }
+  }
+
+  /**
+   * `[IG.15]` **El cruce FISCAL del ingreso, factura por factura.**
+   *
+   * `analytics.v_cfdi_emitido_match` da una fila por CFDI emitido con su documento de Kepler y su
+   * veredicto. Acá se resume para la pestaña de cuadre: cuánto se facturó, y de eso cuánto
+   * encuentra su documento, cuánto difiere y cuánto está fuera del alcance de Kepler.
+   *
+   * ⚠️ `fuera_de_kepler` NO es una falla: son las plazas que en esa fecha todavía vendían en
+   * Wincaja, y cada serie muere en la fecha de corte que `v_branch_erp_cutover` tiene registrada.
+   * Contarlo como hueco diría que falta algo que nunca existió de ese lado.
+   */
+  private async cfdiEmitido(
+    trx: Knex.Transaction, from: string, to: string,
+  ): Promise<{ total: number; filas: number; detalle: Record<string, { n: number; monto: number }> } | null> {
+    try {
+      const { rows } = await trx.raw(
+        `SELECT veredicto, count(*)::int AS n, round(sum(total), 2)::numeric AS monto
+           FROM analytics.v_cfdi_emitido_match
+          WHERE fecha >= ?::date AND fecha <= ?::date
+          GROUP BY 1`, [from, to]);
+      const r = rows as Array<{ veredicto: string; n: number; monto: string }>;
+      if (!r.length) return null;
+      const detalle: Record<string, { n: number; monto: number }> = {};
+      let total = 0; let filas = 0;
+      for (const x of r) {
+        const monto = +Number(x.monto).toFixed(2);
+        detalle[x.veredicto] = { n: x.n, monto };
+        total += monto; filas += x.n;
+      }
+      return { total: +total.toFixed(2), filas, detalle };
+    } catch {
+      return null; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
+    }
+  }
+
+  /**
+   * El peso de un veredicto dentro del total facturado, en texto listo para la nota.
+   * Devuelve «0 %» explícito cuando el veredicto no aparece: en este resumen la ausencia de un
+   * veredicto SÍ es un cero de negocio (ninguna factura cayó ahí), no un dato que falte.
+   */
+  private pctCfdi(c: { total: number; detalle: Record<string, { n: number; monto: number }> }, k: string): string {
+    const m = c.detalle[k]?.monto ?? 0;
+    const pct = c.total ? (m / c.total) * 100 : 0;
+    return `${pct.toFixed(1)} % ($${m.toLocaleString('es-MX')})`;
   }
 
   /** Último día del mes de una fecha `YYYY-MM-DD`, sin `Date` (UTC-6 corre el día). */
