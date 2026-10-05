@@ -8289,8 +8289,16 @@ export class CommercialAnalyticsService {
         })(),
         // Declaraciones: ADR-056 — lo que no se midió se dice, no se dibuja en cero.
         declara: {
-          sin_ancla: 'No hay conteo inicial de los camiones: la ventana arranca en la PRIMERA CARGA '
-            + 'documentada de cada ruta. El saldo negativo es mercancía que el camión ya traía.',
+          /**
+           * ⭐ Reescrito el 2026-10-05 tras auditar la ruta 21 de punta a punta contra Kepler.
+           * Antes decía que el saldo negativo «es mercancía que el camión ya traía» — cierto,
+           * pero igual se la restaba al inventario, y eso publicaba cinco rutas en negativo y
+           * el total 4.6 veces por debajo de lo real ($84,389 contra $389,165).
+           */
+          sin_ancla: 'Nadie cuenta los camiones: la cuenta arranca en el PRIMER EMBARQUE '
+            + 'documentado de cada ruta. Lo que vendieron de antes existió y se cobró, pero no '
+            + 'está contado — así que se DECLARA aparte y NO se resta de lo que traen. Medido en '
+            + 'la ruta 21: vendió $179,044 entre el 6 y el 14 de julio, antes de su primera carga.',
           costo: 'El costo es el del EMBARQUE (lo que la sucursal le cargó al camión), con cobertura '
             + 'del 100% de las líneas de carga. El contraste del ERP mide otra cosa y no se suma.',
           /**
