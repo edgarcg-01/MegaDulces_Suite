@@ -1,4 +1,5 @@
 import type { HttpErrorResponse } from '@angular/common/http';
+import { branchLabel } from '../../../core/constants/store-branches';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, model, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -157,7 +158,7 @@ const ETIQUETAS: Record<string, string> = {
           @if (s.forma_pago) { <div><dt>Forma de pago</dt><dd>{{ formaPago(s.forma_pago) }}</dd></div> }
           @if (s.autoriza) { <div><dt>Autoriza</dt><dd>{{ s.autoriza }}</dd></div> }
           @if (s.referencia) { <div><dt>Referencia</dt><dd>{{ s.referencia }}</dd></div> }
-          <div><dt>Sucursal</dt><dd>{{ s.sucursal_nombre || s.sucursal || '—' }}</dd></div>
+          <div><dt>Sucursal</dt><dd>{{ branchLabel(s.sucursal) || s.sucursal_nombre || '—' }}</dd></div>
           <div><dt>Aplicación</dt><dd>{{ s.aplicada ? ('Gasto ' + (s.gasto_folio || '')) : 'Sin aplicar' }}</dd></div>
           <div class="ep-dl-wide"><dt>Concepto</dt><dd>{{ s.concepto || '—' }}</dd></div>
         </dl>
@@ -296,6 +297,8 @@ const ETIQUETAS: Record<string, string> = {
   `],
 })
 export class ExpenseEvidencePeekComponent {
+  /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
+  readonly branchLabel = branchLabel;
   private readonly svc = inject(ComprobacionesService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly destroyRef = inject(DestroyRef);

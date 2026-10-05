@@ -3791,6 +3791,23 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.68] · el importe del vale lo dicta Kepler — 2026-10-05
+
+- [x] **[GX.68]** 🧪 Reporte: *«Claude Vision sigue cambiando el monto total de los vales»*. Medido en el
+  código: la visión **no** escribe `importe` (sólo leyenda, `vision-avisa.spec.ts`). Lo que grababa otro
+  total era `ExpenseProofsService.create()`: releía `analytics.expense_requests` **sólo por folio** y con
+  373 folios repetidos entre plazas `.first()` tomaba la solicitud de **otra tienda**. Ahora usa `sol`
+  (`lookupSolicitud(folio, sucursal)`, ya resuelto arriba). De paso `fecha_gasto` deja de quedar vacía
+  (leía `solRow.fecha`, que la consulta vieja nunca traía). Candado `importe-de-kepler.spec.ts` 7/7 con
+  prueba negativa (rojo contra el código de main).
+- [x] **[GX.68.d]** 🧪 `database/scripts/fix-expense-proof-importe.js`: repara los vales ya grabados al
+  importe de Kepler por (sucursal, folio); sólo lectura por default, `--apply` en una transacción con
+  candado optimista y el valor viejo en `capture_meta.importe_anterior`. Folio ambiguo sin sucursal → se
+  lista, no se toca. Probado en local (plantado +$123.45 → corregido, 2ª corrida 0).
+- [x] **[GX.68.p]** 🧪 Migración `20261005220000_expense_proofs_importe_de_kepler` repara los vales pasados (mismas reglas que el script; valor previo en `capture_meta`, `down()` lo devuelve). Probada en local: corrige, 2ª corrida 0, `down` revierte. **Falta aplicarla a prod** (una por una, `apply-one-migration-prod.js`).
+- [x] **[GX.68.n]** 🧪 La sucursal del vale se muestra con **clave + nombre** (`02 La Piedad Abastos`): `branchLabel()` en `core/constants/store-branches.ts` (mismo mapa 00–08 que `branchName`) usado en Mis gastos, Aprobación, Expediente, Capturar gasto, visor del vale, visor/diálogo de evidencia, Solicitudes y Capturas sin folio; el script de corrección nombra igual. `store-branches.spec.ts` +6.
+- [ ] **[GX.68.s]** Abierto (lo vio `c0`): en `create()` el `dto.solicitante` le gana al de Kepler.
+
 ### 🔨 [GX.65] · «Mis gastos» en 3 columnas (Solicitudes → Gastos → Expedientes) — 2026-10-03
 
 Rediseño acordado con maqueta: la solicitud `XA1501`, el gasto `XA1001` y el expediente con su pago
