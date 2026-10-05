@@ -32,11 +32,11 @@
   </div>
 
   <!-- Toggle de vista de nivel superior: Scoring vs Reporte por vendedor (Horus). -->
-  <div class="inline-flex rounded-lg border border-divider bg-surface-card p-0.5" role="tablist" aria-label="Vista">
+  <div class="inline-flex rounded-lg border border-divider bg-surface-card p-0.5" role="radiogroup" aria-label="Vista">
     <button
       type="button"
-      role="tab"
-      [attr.aria-selected]="viewMode() === 'scoring'"
+      role="radio"
+      [attr.aria-checked]="viewMode() === 'scoring'"
       (click)="setViewMode('scoring')"
       class="px-4 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
       [class.bg-surface-active]="viewMode() === 'scoring'"
@@ -47,8 +47,8 @@
     </button>
     <button
       type="button"
-      role="tab"
-      [attr.aria-selected]="viewMode() === 'reporte'"
+      role="radio"
+      [attr.aria-checked]="viewMode() === 'reporte'"
       (click)="setViewMode('reporte')"
       class="px-4 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
       [class.bg-surface-active]="viewMode() === 'reporte'"
@@ -73,11 +73,11 @@
     </div>
 
     <!-- Toggle: 4 modos ortogonales. role=tablist para a11y. -->
-    <div class="inline-flex rounded-lg border border-divider bg-surface-card p-0.5 flex-wrap" role="tablist" aria-label="Tipo de gráfica">
+    <div class="inline-flex rounded-lg border border-divider bg-surface-card p-0.5 flex-wrap" role="radiogroup" aria-label="Tipo de gráfica">
       <button
         type="button"
-        role="tab"
-        [attr.aria-selected]="chartMode() === 'avg'"
+        role="radio"
+        [attr.aria-checked]="chartMode() === 'avg'"
         (click)="setChartMode('avg')"
         class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
         [class.bg-surface-active]="chartMode() === 'avg'"
@@ -89,8 +89,8 @@
       </button>
       <button
         type="button"
-        role="tab"
-        [attr.aria-selected]="chartMode() === 'adherence'"
+        role="radio"
+        [attr.aria-checked]="chartMode() === 'adherence'"
         (click)="setChartMode('adherence')"
         class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
         [class.bg-surface-active]="chartMode() === 'adherence'"
@@ -102,8 +102,8 @@
       </button>
       <button
         type="button"
-        role="tab"
-        [attr.aria-selected]="chartMode() === 'volume'"
+        role="radio"
+        [attr.aria-checked]="chartMode() === 'volume'"
         (click)="setChartMode('volume')"
         class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
         [class.bg-surface-active]="chartMode() === 'volume'"
@@ -115,8 +115,8 @@
       </button>
       <button
         type="button"
-        role="tab"
-        [attr.aria-selected]="chartMode() === 'efficiency'"
+        role="radio"
+        [attr.aria-checked]="chartMode() === 'efficiency'"
         (click)="setChartMode('efficiency')"
         class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
         [class.bg-surface-active]="chartMode() === 'efficiency'"

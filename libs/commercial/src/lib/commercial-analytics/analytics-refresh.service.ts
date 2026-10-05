@@ -73,6 +73,10 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // y que es la fecha del PRIMER embarque de la historia — no cambia nunca.
   { name: 'analytics.mv_rd_route_identity', everyMin: 30 },
   { name: 'analytics.mv_rd_route_ledger', everyMin: 30 },
+  // ⚠️ Va DESPUES del ledger a proposito: el resolvedor de costo/precio se deriva de el, y
+  // refrescarlo antes lo dejaria resolviendo contra la foto anterior. Ordenar no es depender
+  // (ADR-056), pero cuando el orden es gratis se respeta.
+  { name: 'analytics.mv_rd_route_unit_value', everyMin: 30 },
   // `[CDRP.4-perf]` (mig 20260922000000) La otra pierna de la misma portada: venta por
   // almacén × canal × día. `sales_daily` está al grano de PRODUCTO y el bloque sumaba 249,389
   // filas por carga; **1,124,926 filas de 200 d colapsan a 4,447** (253×).

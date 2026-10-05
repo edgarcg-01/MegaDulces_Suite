@@ -56,13 +56,13 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
       }
 
       <!-- Vistas -->
-      <div class="ft-viewseg" role="tablist">
-        <button role="tab" [attr.aria-selected]="view()==='me'" [class.active]="view()==='me'" (click)="setView('me')"><i class="pi pi-user"></i> Mis tareas</button>
-        <button role="tab" [attr.aria-selected]="view()==='all'" [class.active]="view()==='all'" (click)="setView('all')"><i class="pi pi-list"></i> Todas</button>
-        <button role="tab" [attr.aria-selected]="view()==='pool'" [class.active]="view()==='pool'" (click)="setView('pool')"><i class="pi pi-inbox"></i> Sin repartir</button>
+      <div class="ft-viewseg" role="radiogroup">
+        <button role="radio" [attr.aria-checked]="view()==='me'" [class.active]="view()==='me'" (click)="setView('me')"><i class="pi pi-user"></i> Mis tareas</button>
+        <button role="radio" [attr.aria-checked]="view()==='all'" [class.active]="view()==='all'" (click)="setView('all')"><i class="pi pi-list"></i> Todas</button>
+        <button role="radio" [attr.aria-checked]="view()==='pool'" [class.active]="view()==='pool'" (click)="setView('pool')"><i class="pi pi-inbox"></i> Sin repartir</button>
         <div class="ft-seg-spacer"></div>
-        <button role="tab" [attr.aria-selected]="statusFilter()==='abiertas'" [class.active]="statusFilter()==='abiertas'" (click)="setStatusFilter('abiertas')">Abiertas</button>
-        <button role="tab" [attr.aria-selected]="statusFilter()==='resuelto'" [class.active]="statusFilter()==='resuelto'" (click)="setStatusFilter('resuelto')">Resueltas</button>
+        <button role="radio" [attr.aria-checked]="statusFilter()==='abiertas'" [class.active]="statusFilter()==='abiertas'" (click)="setStatusFilter('abiertas')">Abiertas</button>
+        <button role="radio" [attr.aria-checked]="statusFilter()==='resuelto'" [class.active]="statusFilter()==='resuelto'" (click)="setStatusFilter('resuelto')">Resueltas</button>
       </div>
 
       <!-- Carga por usuario (líder) -->

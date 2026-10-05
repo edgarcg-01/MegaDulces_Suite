@@ -44,12 +44,12 @@ import { ActionsService, ProposedAction } from '../actions.service';
       </header>
 
       <!-- Switcher de vistas (MAAT-IQ) -->
-      <div class="fh-viewseg" role="tablist">
-        <button role="tab" [attr.aria-selected]="view()==='hallazgos'" [class.active]="view()==='hallazgos'" (click)="setView('hallazgos')"><i class="pi pi-flag"></i> Hallazgos</button>
-        <button role="tab" [attr.aria-selected]="view()==='cobertura'" [class.active]="view()==='cobertura'" (click)="setView('cobertura')"><i class="pi pi-shield"></i> Cobertura</button>
-        <button role="tab" [attr.aria-selected]="view()==='calidad'" [class.active]="view()==='calidad'" (click)="setView('calidad')"><i class="pi pi-database"></i> Calidad de datos</button>
-        <button role="tab" [attr.aria-selected]="view()==='descubrimiento'" [class.active]="view()==='descubrimiento'" (click)="setView('descubrimiento')"><i class="pi pi-compass"></i> Descubrimiento</button>
-        <button role="tab" [attr.aria-selected]="view()==='modelo'" [class.active]="view()==='modelo'" (click)="setView('modelo')"><i class="pi pi-sparkles"></i> Modelo</button>
+      <div class="fh-viewseg" role="radiogroup">
+        <button role="radio" [attr.aria-checked]="view()==='hallazgos'" [class.active]="view()==='hallazgos'" (click)="setView('hallazgos')"><i class="pi pi-flag"></i> Hallazgos</button>
+        <button role="radio" [attr.aria-checked]="view()==='cobertura'" [class.active]="view()==='cobertura'" (click)="setView('cobertura')"><i class="pi pi-shield"></i> Cobertura</button>
+        <button role="radio" [attr.aria-checked]="view()==='calidad'" [class.active]="view()==='calidad'" (click)="setView('calidad')"><i class="pi pi-database"></i> Calidad de datos</button>
+        <button role="radio" [attr.aria-checked]="view()==='descubrimiento'" [class.active]="view()==='descubrimiento'" (click)="setView('descubrimiento')"><i class="pi pi-compass"></i> Descubrimiento</button>
+        <button role="radio" [attr.aria-checked]="view()==='modelo'" [class.active]="view()==='modelo'" (click)="setView('modelo')"><i class="pi pi-sparkles"></i> Modelo</button>
       </div>
 
       @if (view() === 'hallazgos') {

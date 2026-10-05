@@ -20,9 +20,9 @@ export interface ShellTab {
   imports: [RouterModule],
   template: `
     <div class="ts-wrap">
-      <nav class="ts-tabs" role="tablist">
+      <nav class="ts-tabs" role="radiogroup">
         @for (t of tabs(); track t.path) {
-          <a role="tab" [routerLink]="[t.path]" routerLinkActive="act" #rla="routerLinkActive" [attr.aria-selected]="rla.isActive">
+          <a role="radio" [routerLink]="[t.path]" routerLinkActive="act" #rla="routerLinkActive" [attr.aria-checked]="rla.isActive">
             @if (t.icon) { <i class="pi {{ t.icon }}" aria-hidden="true"></i>&nbsp; }{{ t.label }}
           </a>
         }

@@ -311,12 +311,12 @@ const MES: Record<string, string> = {
             }
           </div>
 
-          <div class="rr-tabs" role="tablist">
-            <button type="button" role="tab" [class.on]="tab()==='productos'" [attr.aria-selected]="tab()==='productos'" (click)="setTab('productos')">Productos</button>
-            <button type="button" role="tab" [class.on]="tab()==='unidades'" [attr.aria-selected]="tab()==='unidades'" (click)="setTab('unidades')">Unidades</button>
-            <button type="button" role="tab" [class.on]="tab()==='dias'" [attr.aria-selected]="tab()==='dias'" (click)="setTab('dias')">Por día</button>
-            <button type="button" role="tab" [class.on]="tab()==='clientes'" [attr.aria-selected]="tab()==='clientes'" (click)="setTab('clientes')">Clientes</button>
-            <button type="button" role="tab" [class.on]="tab()==='tickets'" [attr.aria-selected]="tab()==='tickets'" (click)="setTab('tickets')">Tickets</button>
+          <div class="rr-tabs" role="radiogroup">
+            <button type="button" role="radio" [class.on]="tab()==='productos'" [attr.aria-checked]="tab()==='productos'" (click)="setTab('productos')">Productos</button>
+            <button type="button" role="radio" [class.on]="tab()==='unidades'" [attr.aria-checked]="tab()==='unidades'" (click)="setTab('unidades')">Unidades</button>
+            <button type="button" role="radio" [class.on]="tab()==='dias'" [attr.aria-checked]="tab()==='dias'" (click)="setTab('dias')">Por día</button>
+            <button type="button" role="radio" [class.on]="tab()==='clientes'" [attr.aria-checked]="tab()==='clientes'" (click)="setTab('clientes')">Clientes</button>
+            <button type="button" role="radio" [class.on]="tab()==='tickets'" [attr.aria-checked]="tab()==='tickets'" (click)="setTab('tickets')">Tickets</button>
           </div>
 
           @switch (tab()) {

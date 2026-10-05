@@ -221,6 +221,14 @@ export interface RouteInventoryRow {
   cargado_ayer_qty: number | null;
   /** El último día que se le cargó algo. Contesta «y si no fue ayer, ¿cuándo?». */
   ultima_carga: string | null;
+  /** El ultimo dia que vendio algo, y cuanto. El domingo es inhabil: "ayer" no sirve de pregunta. */
+  ultima_venta: string | null;
+  ultima_carga_imp: number | null;
+  ultima_venta_imp: number | null;
+  /** Tope de inventario del camion, en pesos al costo. NULL = sin tope declarado. */
+  tope_inventario: number | null;
+  /** Lo que el cliente pago DE VERDAD. Viaja aparte del vendido que cierra la identidad. */
+  cobrado_real: number | null;
   // Columna COSTO — valuada con el costo del EMBARQUE (lo que la sucursal le cargó al camión).
   carga_costo: number; cogs_costo: number; inventario_costo: number;
   inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
@@ -3737,6 +3745,9 @@ export class CommercialAnalyticsService {
       //   · `UD4102` «Embarque Sucursal» con concepto «TRASPASO A SUCURSAL…» — traspaso interno,
       //     bien excluido, pero nadie lo decía y quien cuadre contra la balanza lo va a buscar.
       const fueraDeAlcance = await this.incomeOutOfScope(trx, from, to);
+      const contpaqi = mesesEnteros ? await this.contpaqiIngreso(trx, mesIni, mesFin) : null;
+      const cfdi = await this.cfdiEmitido(trx, from, to);
+      const edadContpaqi = await stepAt(trx, 'feed_contpaqi-slow', tenantId);
 
       const edadFeed = await stepAt(trx, 'feed_nightly/import-sales-by-channel.js', tenantId);
       const pct = (v: number | null) => (v == null || !contable ? null : +(((v - contable) / contable) * 100).toFixed(1));
@@ -3767,7 +3778,44 @@ export class CommercialAnalyticsService {
             nota: 'UD1201, fuera del alcance por decode heredado («notas»). Sus conceptos recientes son rutas (R.D. 21, R.D. 22), así que podrían ser venta real. Necesita que contabilidad lo dictamine.' },
           { key: 'traspasos', label: 'Traspasos a sucursal (excluidos a propósito)', monto: fueraDeAlcance.traspasos,
             delta_pct: null, comparable: false,
-            nota: 'UD4102 «Embarque Sucursal» con concepto de traspaso: mercancía que se mueve dentro de la empresa, no venta externa. Se declara para que cuadre contra la balanza, que sí los tiene.' },
+            nota: 'UD4102 «Embarque Sucursal»: mercancía que se mueve dentro de la empresa, no venta externa. '
+              + '⭐ Es lo que explica por qué la balanza del CEDIS se separó de los libros fiscales en ago–sep 2026: '
+              + 'creció de golpe con la migración de las sucursales 06, 07 y 08 a Kepler (el CEDIS les empezó a '
+              + 'embarcar). Medido en septiembre, la cuenta 401 del CEDIS son $70.5M, de los cuales $18.0M son '
+              + 'este documento — y por eso nunca llegan a ContPAQi.' },
+          // `[IG.15]` El cuarto testigo, y el único que baja a la FACTURA. Va antes del de la
+          // balanza porque es más fino: aquél compara totales del mes, éste compara documentos.
+          { key: 'cfdi_emitido', label: 'CFDI emitidos (factura por factura)',
+            monto: cfdi ? cfdi.total : null,
+            delta_pct: cfdi == null || !hechoVenta ? null
+              : +(((cfdi.total - hechoVenta) / hechoVenta) * 100).toFixed(1),
+            comparable: true,
+            nota: cfdi
+              ? `${cfdi.filas} comprobantes timbrados en el rango. De ese dinero, `
+                + `${this.pctCfdi(cfdi, 'cuadra')} encuentra su documento en Kepler con el importe al `
+                + `centavo, ${this.pctCfdi(cfdi, 'difiere_importe')} lo encuentra con otro importe y `
+                + `${this.pctCfdi(cfdi, 'ambiguo')} casa con más de un documento. `
+                + `⚠️ ${this.pctCfdi(cfdi, 'fuera_de_kepler')} está FUERA del alcance de Kepler y no es `
+                + 'un hueco: son las plazas que en esa fecha todavía vendían en Wincaja — cada serie '
+                + 'muere en la fecha de corte que v_branch_erp_cutover tiene registrada, y con el CEDIS '
+                + 'ya cortado la cobertura converge sola.'
+              : 'NO MEDIDO: no hay CFDI emitidos cargados para el rango.' },
+          // `[IG.13]` El TERCER testigo, y el único fiscal. Edgar: *"casemos con ContPAQi para tener
+          // doble validez y tener una verdad sobre lo fiscal"*.
+          { key: 'contpaqi', label: 'Libros fiscales (ContPAQi, familia 4)', monto: contpaqi,
+            delta_pct: contpaqi == null || !hechoVenta ? null
+              : +(((contpaqi - hechoVenta) / hechoVenta) * 100).toFixed(1),
+            comparable: true, medido_al: edadContpaqi,
+            nota: mesesEnteros
+              ? '⭐ El único testigo FISCAL: la balanza del contador, consolidada por RFC. Se compara contra el '
+                + 'HECHO DE VENTA y no contra esta pantalla, porque los dos miden lo mismo —venta a terceros de '
+                + 'toda la entidad— mientras que el ingreso contable del CEDIS es en un 79–96 % la casa '
+                + 'facturándose a sí misma. ⚠️ Un delta negativo NO es sub-declaración por sí solo: medido '
+                + 'ene–jul 2026 el hueco es ESTRUCTURAL y estable (~21 % contra la balanza del CEDIS) y lo '
+                + 'mueven el IVA, el alcance de la entidad fiscal (un RFC contra la operación completa) y el '
+                + 'cierre contable del mes en curso, que todavía se está posteando.'
+              : 'NO MEDIDO: los libros son mensuales y el rango no son meses enteros. Compararlo restaría peras '
+                + 'con manzanas.' },
         ],
       };
     });
@@ -3828,6 +3876,83 @@ export class CommercialAnalyticsService {
     } catch {
       return { contable: null, bruta: null, devoluciones: null }; // NO MEDIDO, nunca cero
     }
+  }
+
+  /**
+   * `[IG.13]` **El ingreso según los libros fiscales de ContPAQi** — el tercer testigo.
+   *
+   * Es el único de los cuatro que no sale de Kepler: lo escribe el contador y es lo que ve el SAT.
+   * Familia 4 de `analytics.contpaqi_ledger_monthly`, consolidada por RFC.
+   *
+   * ⚠️ **Y por eso no se compara contra esta pantalla.** El ingreso contable del CEDIS es, medido
+   * mes a mes en 2026, entre **79 % y 96 % traspaso interno**; los libros fiscales no tienen
+   * traspasos porque venderse a uno mismo no es una venta. El contraste honesto es contra el hecho
+   * de venta, que mide lo mismo: lo que la entidad le vendió a terceros.
+   *
+   * ⛔ **Lo que este testigo NO puede dar**: el CFDI emitido. `fiscal.cfdis` trae **168,701
+   * comprobantes y los 168,701 son RECIBIDOS** (`rol = 'recibidas'`) — el ADD de ContPAQi que
+   * alimenta la Fase LC es el de compras. Sin CFDI emitido no hay forma de casar factura por
+   * factura contra el ingreso: lo máximo que se puede hoy es el total mensual de la balanza.
+   */
+  private async contpaqiIngreso(
+    trx: Knex.Transaction, mesIni: string, mesFin: string,
+  ): Promise<number | null> {
+    try {
+      const { rows } = await trx.raw(
+        `SELECT sum(abonos - cargos)::numeric AS v
+           FROM analytics.contpaqi_ledger_monthly
+          WHERE familia = '4' AND anio_mes BETWEEN ? AND ?`, [mesIni, mesFin]);
+      const v = (rows as Array<{ v: string | null }>)[0]?.v;
+      return v === null || v === undefined ? null : +Number(v).toFixed(2);
+    } catch {
+      return null; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
+    }
+  }
+
+  /**
+   * `[IG.15]` **El cruce FISCAL del ingreso, factura por factura.**
+   *
+   * `analytics.v_cfdi_emitido_match` da una fila por CFDI emitido con su documento de Kepler y su
+   * veredicto. Acá se resume para la pestaña de cuadre: cuánto se facturó, y de eso cuánto
+   * encuentra su documento, cuánto difiere y cuánto está fuera del alcance de Kepler.
+   *
+   * ⚠️ `fuera_de_kepler` NO es una falla: son las plazas que en esa fecha todavía vendían en
+   * Wincaja, y cada serie muere en la fecha de corte que `v_branch_erp_cutover` tiene registrada.
+   * Contarlo como hueco diría que falta algo que nunca existió de ese lado.
+   */
+  private async cfdiEmitido(
+    trx: Knex.Transaction, from: string, to: string,
+  ): Promise<{ total: number; filas: number; detalle: Record<string, { n: number; monto: number }> } | null> {
+    try {
+      const { rows } = await trx.raw(
+        `SELECT veredicto, count(*)::int AS n, round(sum(total), 2)::numeric AS monto
+           FROM analytics.v_cfdi_emitido_match
+          WHERE fecha >= ?::date AND fecha <= ?::date
+          GROUP BY 1`, [from, to]);
+      const r = rows as Array<{ veredicto: string; n: number; monto: string }>;
+      if (!r.length) return null;
+      const detalle: Record<string, { n: number; monto: number }> = {};
+      let total = 0; let filas = 0;
+      for (const x of r) {
+        const monto = +Number(x.monto).toFixed(2);
+        detalle[x.veredicto] = { n: x.n, monto };
+        total += monto; filas += x.n;
+      }
+      return { total: +total.toFixed(2), filas, detalle };
+    } catch {
+      return null; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
+    }
+  }
+
+  /**
+   * El peso de un veredicto dentro del total facturado, en texto listo para la nota.
+   * Devuelve «0 %» explícito cuando el veredicto no aparece: en este resumen la ausencia de un
+   * veredicto SÍ es un cero de negocio (ninguna factura cayó ahí), no un dato que falte.
+   */
+  private pctCfdi(c: { total: number; detalle: Record<string, { n: number; monto: number }> }, k: string): string {
+    const m = c.detalle[k]?.monto ?? 0;
+    const pct = c.total ? (m / c.total) * 100 : 0;
+    return `${pct.toFixed(1)} % ($${m.toLocaleString('es-MX')})`;
   }
 
   /** Último día del mes de una fecha `YYYY-MM-DD`, sin `Date` (UTC-6 corre el día). */
@@ -8078,9 +8203,21 @@ export class CommercialAnalyticsService {
             WHERE l.tenant_id = ? AND l.business_date >= ? AND l.business_date <= ?
             GROUP BY 1,2,3
          ), val AS (
-           SELECT w.*, w.cv / nullif(w.cq,0) AS costo_u, w.vi / nullif(w.vq,0) AS precio_u,
+           /**
+            * ⛔ El unitario NO se calcula acá. Se LEE del resolvedor, y la diferencia no es de
+            * estilo: calcularlo por columna hacia que las dos sumaran UNIVERSOS DISTINTOS.
+            * Un par con carga y sin venta tenia costo y no precio, asi que entraba al COSTO y
+            * se caia del PRECIO; con los negativos pasaba al reves. Resultado medido el
+            * 2026-10-05: 10 de 11 rutas publicaban un inventario que costaba MAS de lo que
+            * vale al cliente. Con el resolvedor quedan 5, y son exactamente las de saldo
+            * negativo -- donde invertirse es lo correcto.
+            */
+           SELECT w.*, u.costo_u, u.precio_u, u.origen_costo, u.origen_precio,
                   coalesce(w.cq,0) - coalesce(w.vq,0) AS saldo
              FROM win w
+             LEFT JOIN analytics.mv_rd_route_unit_value u
+               ON u.tenant_id = ? AND u.route_no = w.route_no
+              AND u.sku = w.sku AND u.unidad = w.unidad
          ), carga_dia AS (
            -- Lo que se le subio al camion AYER, y cuando fue la ultima vez que se le subio algo.
            -- Va al margen de la ventana elegida: es senal del dia, no del periodo.
@@ -8094,15 +8231,37 @@ export class CommercialAnalyticsService {
            SELECT l.route_no,
                   sum(l.qty)       FILTER (WHERE l.business_date = ?::date) AS ayer_q,
                   sum(l.costo_doc) FILTER (WHERE l.business_date = ?::date) AS ayer_costo,
-                  max(l.business_date)                                      AS ultima_carga
+                  max(l.business_date) FILTER (WHERE l.clase='carga')        AS ultima_carga,
+                  max(l.business_date) FILTER (WHERE l.clase='venta')        AS ultima_venta
              FROM analytics.mv_rd_route_ledger l
-            WHERE l.tenant_id = ? AND l.clase = 'carga'
+            WHERE l.tenant_id = ?
             GROUP BY 1
+         ), ultimo_dia AS (
+           /**
+            * Lo que movio la ULTIMA VEZ, no "ayer". El domingo es inhabil y el sabado tampoco
+            * cargan: medido el 2026-10-05, "ayer" daba 0 de 11 camiones y la columna no decia
+            * nada util. La pregunta del negocio no es que paso ayer sino **cuando fue la ultima
+            * vez y cuanto**, que ademas funciona igual en lunes que en domingo.
+            */
+           SELECT l.route_no, l.clase,
+                  sum(l.qty)                                     AS qty,
+                  sum(coalesce(l.costo_doc, l.venta_doc))        AS imp
+             FROM analytics.mv_rd_route_ledger l
+             JOIN carga_dia cd ON cd.route_no = l.route_no
+            WHERE l.tenant_id = ?
+              AND l.business_date = CASE WHEN l.clase='carga' THEN cd.ultima_carga
+                                         ELSE cd.ultima_venta END
+            GROUP BY 1,2
          )
          SELECT i.route_no, i.plaza, to_char(i.carga_desde,'YYYY-MM-DD') AS carga_desde,
                 round(max(cd.ayer_costo),2)::float                        AS cargado_ayer_costo,
                 round(max(cd.ayer_q),2)::float                            AS cargado_ayer_qty,
                 to_char(max(cd.ultima_carga),'YYYY-MM-DD')                AS ultima_carga,
+                to_char(max(cd.ultima_venta),'YYYY-MM-DD')                AS ultima_venta,
+                round(max(uc.imp),2)::float                               AS ultima_carga_imp,
+                round(max(uv.imp),2)::float                               AS ultima_venta_imp,
+                -- El tope lo lleva el camion (commercial.warehouses). NULL = sin tope declarado.
+                round(max(w.inventory_max_mxn),2)::float                  AS tope_inventario,
                 -- La última actividad de la ruta, del MISMO barrido que todo lo demás. Es lo que
                 -- delata a una ruta parada: medido, la 505 no mueve nada desde el 10-sep y se veía
                 -- igual que las diez vivas.
@@ -8115,7 +8274,21 @@ export class CommercialAnalyticsService {
                 round(sum(v.cq * v.costo_u) - sum(coalesce(v.vq,0) * v.costo_u)
                       - sum(v.saldo * v.costo_u),2)::float                     AS delta_costo,
                 round(sum(coalesce(v.cq,0) * v.precio_u),2)::float             AS carga_venta,
-                round(sum(v.vi),2)::float                                      AS venta_cliente,
+                /**
+                 * ⛔ El vendido de la columna VENTA se valua con el precio RESUELTO, no con el
+                 * dinero crudo del periodo. Medido el 2026-10-05: con el dinero crudo la
+                 * identidad se rompia en cuanto la ventana era corta -- en un solo dia daba
+                 * -$1,636 en 9 de 11 rutas y la pantalla gritaba "la cuenta no cierra" mientras
+                 * la columna de descuadre mostraba 0, porque esa columna solo mira el costo.
+                 * Sobre toda la historia cerraba, asi que el defecto solo salia al filtrar.
+                 *
+                 * La causa: precio_u sale del resolvedor (toda la historia) y vi es el
+                 * dinero de la ventana; cuando el precio del periodo difiere del historico,
+                 * qty x precio_u deja de ser vi y la resta no cuadra.
+                 */
+                round(sum(coalesce(v.vq,0) * v.precio_u),2)::float             AS venta_cliente,
+                /** Lo que el cliente pago DE VERDAD en la ventana. Es un hecho y viaja aparte. */
+                round(sum(v.vi),2)::float                                      AS cobrado_real,
                 round(sum(v.saldo * v.precio_u),2)::float                      AS inventario_venta,
                 round(sum(v.saldo * v.precio_u) FILTER (WHERE v.saldo > 0),2)::float AS inventario_venta_pos,
                 round(sum(v.saldo * v.precio_u) FILTER (WHERE v.saldo < 0),2)::float AS inventario_venta_neg,
@@ -8136,14 +8309,24 @@ export class CommercialAnalyticsService {
                 -- creer que el margen es del 79%; con la cobertura al lado se lee como lo que es.
                 count(*) FILTER (WHERE coalesce(v.vq,0) > 0)::int                 AS pares_vendidos,
                 count(*) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.ce IS NULL)::int AS pares_sin_cogs_erp,
-                round(sum(v.vi_sin_ce),2)::float                                  AS venta_sin_cogs_erp
+                round(sum(v.vi_sin_ce),2)::float                                  AS venta_sin_cogs_erp,
+                -- De donde salio el unitario. Un valor tomado de la ficha es un hecho de Kepler,
+                -- no un relleno -- pero el que lo lee tiene derecho a saber cual uso (ADR-056).
+                count(*) FILTER (WHERE v.origen_costo  = 'kepler')::int             AS costo_de_ficha,
+                count(*) FILTER (WHERE v.origen_precio = 'kepler')::int             AS precio_de_ficha,
+                count(*) FILTER (WHERE v.costo_u  IS NULL AND v.sku IS NOT NULL)::int AS sin_costo_resuelto,
+                count(*) FILTER (WHERE v.precio_u IS NULL AND v.sku IS NOT NULL)::int AS sin_precio_resuelto
            FROM analytics.mv_rd_route_identity i
            LEFT JOIN val v ON v.route_no = i.route_no
            LEFT JOIN carga_dia cd ON cd.route_no = i.route_no
+           LEFT JOIN ultimo_dia uc ON uc.route_no = i.route_no AND uc.clase = 'carga'
+           LEFT JOIN ultimo_dia uv ON uv.route_no = i.route_no AND uv.clase = 'venta'
+           LEFT JOIN commercial.warehouses w
+             ON w.id = i.warehouse_id AND w.deleted_at IS NULL
           WHERE i.tenant_id = ?
           GROUP BY i.route_no, i.plaza, i.carga_desde
           ORDER BY i.plaza, i.route_no`,
-        [tenantId, desde, hasta, ayer, ayer, tenantId, tenantId],
+        [tenantId, desde, hasta, tenantId, ayer, ayer, tenantId, tenantId, tenantId],
       )).rows;
 
       const asOf = (await trx.raw(
@@ -8218,8 +8401,16 @@ export class CommercialAnalyticsService {
         })(),
         // Declaraciones: ADR-056 — lo que no se midió se dice, no se dibuja en cero.
         declara: {
-          sin_ancla: 'No hay conteo inicial de los camiones: la ventana arranca en la PRIMERA CARGA '
-            + 'documentada de cada ruta. El saldo negativo es mercancía que el camión ya traía.',
+          /**
+           * ⭐ Reescrito el 2026-10-05 tras auditar la ruta 21 de punta a punta contra Kepler.
+           * Antes decía que el saldo negativo «es mercancía que el camión ya traía» — cierto,
+           * pero igual se la restaba al inventario, y eso publicaba cinco rutas en negativo y
+           * el total 4.6 veces por debajo de lo real ($84,389 contra $389,165).
+           */
+          sin_ancla: 'Nadie cuenta los camiones: la cuenta arranca en el PRIMER EMBARQUE '
+            + 'documentado de cada ruta. Lo que vendieron de antes existió y se cobró, pero no '
+            + 'está contado — así que se DECLARA aparte y NO se resta de lo que traen. Medido en '
+            + 'la ruta 21: vendió $179,044 entre el 6 y el 14 de julio, antes de su primera carga.',
           costo: 'El costo es el del EMBARQUE (lo que la sucursal le cargó al camión), con cobertura '
             + 'del 100% de las líneas de carga. El contraste del ERP mide otra cosa y no se suma.',
           /**

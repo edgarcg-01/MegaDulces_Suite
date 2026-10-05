@@ -2420,6 +2420,14 @@ export interface RouteInventoryRow {
   cargado_ayer_qty: number | null;
   /** El ultimo dia que se le cargo algo. Contesta "y si no fue ayer, cuando?". */
   ultima_carga: string | null;
+  /** El ultimo dia que vendio algo, y cuanto. El domingo es inhabil: "ayer" no sirve de pregunta. */
+  ultima_venta: string | null;
+  ultima_carga_imp: number | null;
+  ultima_venta_imp: number | null;
+  /** Tope de inventario del camion, en pesos al costo. NULL = sin tope declarado. */
+  tope_inventario: number | null;
+  /** Lo que el cliente pago DE VERDAD. Viaja aparte del vendido que cierra la identidad. */
+  cobrado_real: number | null;
   carga_costo: number; cogs_costo: number; inventario_costo: number;
   inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
   carga_venta: number; venta_cliente: number; inventario_venta: number;

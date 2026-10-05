@@ -62,7 +62,8 @@ export interface ListPaymentsQuery {
   from?: string;
   to?: string;
   search?: string;
-  metodo?: string;            // 'transferencia' | 'cheque' | 'anticipo'
+  metodo?: string;            // 'transferencia' | 'cheque' | 'anticipo' — el TIPO DE DOCUMENTO (c31)
+  medio?: string;             // [PP.9] 'caja' | 'banco' | 'puente' | 'sin_declarar' — de dónde SALIÓ el dinero
   alertas?: string | boolean; // 'true' → solo pagos con alerta de control (cuenta ajena / clave repetida)
   limit?: number;
 }
@@ -161,6 +162,11 @@ export class SupplierPaymentProofsService {
         .select(
           'c.sucursal', 'c.folio', 'c.doc_prefix', 'c.metodo_pago', 'c.pago_date', 'c.proveedor_code', 'c.proveedor_nombre',
           'c.proveedor_rfc', 'c.concepto', trx.raw('c.monto::numeric AS monto'),
+          // [PP.9] El MEDIO real por el que salió el dinero (caja|banco|puente|sin_declarar).
+          // `metodo_pago` es el TIPO DE DOCUMENTO de Kepler (c31) y rotula "transferencia" a
+          // 2,684 pagos / $52.27M que salieron en EFECTIVO de la caja general: la pantalla no
+          // podía responder "¿cuánto se pagó en efectivo?", que es la pregunta del negocio.
+          'c.medio_pago', 'c.cuenta_tesoreria',
           trx.raw('COALESCE(d.n, 0)::int AS deposits'),
           trx.raw('d.last_id AS deposit_id'),
           trx.raw('d.last_status AS deposit_status'),
@@ -178,6 +184,10 @@ export class SupplierPaymentProofsService {
       if (q.from) b.where('c.pago_date', '>=', q.from);
       if (q.to) b.where('c.pago_date', '<=', q.to);
       if (q.metodo) b.where('c.metodo_pago', q.metodo);
+      // [PP.9] Filtro por el MEDIO real. Va aparte del de método a propósito: filtrar
+      // "transferencia" seguía devolviendo pagos en efectivo, y no había forma de pedir
+      // "mostrame lo que salió de la caja".
+      if (q.medio) b.where('c.medio_pago', q.medio);
       if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
       if (q.estado === 'con_comprobante') b.whereRaw('d.n > 0');
       if (q.estado === 'validado') b.whereRaw(`d.last_status = 'validado'`);

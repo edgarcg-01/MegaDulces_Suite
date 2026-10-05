@@ -134,6 +134,46 @@ buen pedido»*. Medido: de ~34 variables que deberían pesar en un pedido el mot
   entre las dos formas.
 - 🚀 **[VPR.1/VPR.2]** **El precio del vendedor: no era desactualización, era una columna en
   disputa.** Reporte de campo sobre `/vendor/take-order`. La medición **refutó la premisa**: el feed
+- 🚀 **[VPR.4]** **El precio por PLAZA, con el árbitro correcto: lo que la caja cobra.** Reemplaza
+  a `[VPR.1]`, que estaba sobre `kdii.c90` (el precio *configurado*) y validado con un **espejo**.
+  `analytics.mv_price_truth` (mig `20261005140000`, **batch 714**, 5.5 s) usa **las mismas reglas de
+  `ods-derived`** —doctypes de venta, `qty<3`, unidad base, documento vigente, 90 d, ≥5 líneas— pero
+  a grano **(plaza, producto)**: moda de `kdm2.c12` de ESA sucursal, y el PV configurado de ESA
+  plaza como respaldo con las **4 validaciones** del mismo origen. ⭐ **El grano por plaza importa 5×
+  más de lo que el árbitro viejo dejaba ver**: sobre el precio configurado difieren el 7.8% de los
+  SKUs entre plazas; sobre **lo que la caja cobra, 1,261 de 3,214 (39.2%)**. Medido en prod: 78,760
+  filas · 9 plazas · **15,768 celdas resuelven por lo cobrado**, 61,507 por el configurado validado
+  y **1,485 rechazadas que publican NULL, nunca 0** (4 motivos declarados). Contradice a la lista de
+  red en **7,650 celdas** — o sea que mide, no refleja. ⚠️ **Materializada por COSTO**: la consulta
+  viva cuesta **8.5 s** y `take-order` baja el catálogo entero de una plaza para el modo sin
+  conexión; materializada, **4 ms**. El refresco se cuelga del carril `existencia-aux` que ya existe
+  (cada 5 min, con latido por entrega) en vez de inventar uno. ⚠️ **El candado se atrapó a sí mismo
+  dos veces**: primero validaba con la etiquetera (espejo), y después daba por refrescada la
+  matvista mirando el latido del carril — que late verde aunque el refrescador desplegado **todavía
+  no la tenga en su lista**; ahora mide **escritura real** y detecta que la creación ya deja tantas
+  escrituras como filas. **Falta: `ops/vl/deploy.sh` + redeploy de la API** (sin eso take-order
+  sigue leyendo la lista de red). Candado **verde · 2 NO MEDIDO**.
+- 🔨 **[VPR.3]** **Apagado el segundo escritor del precio: una sola fuente.** ⚠️ **Y corrige a
+  `[VPR.1/VPR.2]` de abajo**: el "escritor anónimo" NO era un intruso — es
+  `services/feeds-ingest/ods-derived.js`, que aplica una **decisión documentada de Edgar
+  (2026-08-25)**: *manda lo que el PdV COBRA (`kdm2.c12`), no lo que Kepler configura (`kdii.c90`)*.
+  Los dos escritores eran **dos políticas contradictorias**, ambas en el repo, ambas corriendo.
+  ⛔ **Mi árbitro era un espejo**: construí `v_price_truth` sobre `c90` y validé con la etiquetera,
+  que **también** sale de `c90` — dos derivados de la misma fuente coincidiendo entre sí. Es
+  textualmente lo que ADR-059 regla 5 advierte. Verificado en el SKU 83041: las nueve plazas
+  **configuran $40.49** y la caja **cobra $38.94 en 264,028 líneas** contra 5,227 — o sea que la
+  vista, tal como la dejé, publicaría el precio que la caja NO cobra. **No alcanzó a hacer daño:
+  está en prod pero sin redeploy, así que nadie la lee.** Edgar, 2026-10-05: *"apagalo, todo se
+  debe tomar desde la misma fuente"*. `repoint-catalog-prices` estrena `--solo-promo` y el carril
+  `prices` lo usa: **cero precios escritos**, conserva `is_promo` (lo recalcula sólo él;
+  `ods-derived` únicamente lo lee). ⛔ `--gap-fill-only` NO servía de apagado: hay **1,508
+  productos activos sin precio en ninguna lista** y seguiría inyectándoles el configurado,
+  incluidos los que `ods-derived` **rechaza a propósito**. La guerra, dos días después y todavía
+  viva: **50,679 contra 50,270 cambios en 24 h**. **Falta: `ops/vl/deploy.sh` (el cambio viaja por
+  imagen, no por ruta compartida) + reescribir `v_price_truth` sobre `kdm2.c12` por plaza.**
+- 🚀 **[VPR.1/VPR.2]** **El precio del vendedor: no era desactualización, era una columna en
+  disputa.** ⚠️ **Leer `[VPR.3]` arriba antes que esto: el árbitro de esta entrada está mal
+  elegido.** Reporte de campo sobre `/vendor/take-order`. La medición **refutó la premisa**: el feed
   corre cada 30 min y está verde, y las tablas se habían escrito hacía 6 minutos. Arbitrando contra
   `kepler_ods.kdii.c90` (el ERP, por plaza) sobre 69,782 pares SKU×plaza: la **etiquetera cuadra
   100.0%** y la lista que lee el vendedor, **86.8%**. ⭐ Ese 100% es el CONTROL que vuelve publicable
@@ -6502,6 +6542,121 @@ pantalla responsive; no los toqué fuera de estas dos tablas):
 - ⚠️ **Cajero — investigado y NO implementado, declarado abierto.** Se buscó (a pedido del usuario) "quién firma cada documento": Kepler no tiene un campo de cajero en `kdm1`; el candidato más cercano es `kdpv_folio_caja` (cortes de caja, con login tipo "10C01"/cajero real) cruzado por sucursal+caja+ventana de horario — pero **las sesiones de una misma caja se traslapan en el tiempo** (medido: caja "03" de la sucursal 01 el 2026-09-01 tuvo 2-3 cajeros con ventanas de horario que se pisan), así que un documento no se puede asignar a UN cajero sin adivinar cuál de las sesiones traslapadas lo procesó. Se paró en vez de improvisar (regla del proyecto). Necesita a Edgar o al dueño de Kepler para entender el modelo real de sesiones de caja antes de intentarlo de nuevo.
 - **Verificado**: build `nx build api`/`nx build view` limpios. Con `analytics.stock_movements` vacía localmente, se insertó una fila sintética con datos 100% reales (folio `0000830`, SKU `88124`, sucursal 01, tomados de `kepler_ods.kdm1`/`kdm2` reales) y se reprodujo la query completa de `movements()`+`enrichFromKdm()` directo contra Postgres (sin poder levantar el server de desarrollo esta sesión — ver nota abajo): Hora `09:18` (ya no medianoche), Vendedor `"SUCURSAL PADRE HIDALGO PISO"`, Canal `"Punto de Venta"` (correcto: PISO→mostrador), Tipo de operación `"Comercial"` — los 4 campos nuevos/corregidos resuelven como se espera. Fila borrada al terminar.
 - ⚠️ **No se pudo levantar el server de desarrollo esta sesión** (`nx serve api` falló 2 veces con `spawn ENAMETOOLONG` de Windows tras ~20 reinicios del watcher en 5 min — no relacionado con este cambio, ambiente/infra). La verificación de arriba se hizo con la query reconstruida directo contra Postgres, no con Playwright/HTTP real. **Pendiente: repetir la verificación visual cuando el dev server levante.**
+
+---
+
+## Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md)
+
+### `[PP.7]` ✅ La pantalla publicaba un libro cerrado en agosto y no lo decía — 2026-10-05
+
+Salió de investigar el proceso de **pago de órdenes de entrada** (el que hoy pasa por el Access
+`Control`). Buscando de dónde salen "las hojas que van a pagar" apareció que el eslabón es
+`PROGRAMA PAGOS 2026.xlsx` — y que su espejo lleva **dos meses muerto**.
+
+**Medido contra prod** (`system_identifier 7688376744939610156`, read-only):
+
+| | |
+|---|---|
+| Último mes cargado | **2026-08** (ene–ago, sin huecos) |
+| Último write del importer | **2026-08-08** → 58 días |
+| Fin del mes cubierto | 2026-08-31 → 36 días |
+| Menciones de frescura en la pantalla y el service | **0** |
+
+⭐ **Por qué importa más que un dato viejo:** este libro es **el único lugar de toda la plataforma
+donde existen la forma de pago real** (`CH-5237` / `TRANSF` / `AUTO`) **y los folios de factura que
+cubrió cada pago** (`f-852-853-854`). Ni Kepler ni el Access `Control` los guardan. O sea que lo que
+se está perdiendo cada mes no es "una fila más": es el único registro de con qué se pagó y qué se
+pagó.
+
+⛔ **Y no es descuido del operador:** `import-payment-program.js` lee un `.xlsx` desde una ruta
+local (`C:/Users/Sistemas/Downloads/…`), a mano, **sin agenda y sin latido**. El estado NORMAL de
+este espejo es congelado; la pantalla sólo no tenía cómo decirlo.
+
+**Entregado:**
+- `frescuraTx(trx)` + `frescura()` con **dos eslabones** y gana el peor (`composeFreshness`):
+  `pp_cobertura` (hasta qué mes de NEGOCIO llega el libro — el que de verdad manda: aunque el
+  importer corriera hoy, si el Excel llega a agosto el dato es de agosto) y `pp_import` (cuándo
+  ESCRIBIÓ, entrega y no "corrió"). Tolerancia **30 días** medida desde el último día del mes
+  cubierto: es un libro MENSUAL, y una tolerancia en horas daría rojo permanente — que es cómo se
+  enseña a ignorar un tablero. Medición fallida ⇒ `FRESHNESS_UNKNOWN`, nunca silencio.
+- `GET /finance/payment-program/cobertura` + aviso en pantalla con **los meses faltantes
+  enumerados**. Va aparte de la frescura a propósito: la píldora dice *"esto está viejo"*, esto dice
+  *qué no está*. ⛔ Sin el aviso, un mes ausente es invisible por partida doble — el filtro de Mes se
+  arma desde lo cargado (así que ni se ofrece) y en los totales llega como cero, indistinguible de
+  "ese mes no se pagó nada".
+- La píldora va `measures="data"` con el veredicto del **servidor**, no `measures="fetch"` sobre el
+  reloj del navegador — que es el defecto que VP.0 midió en 21 de 24 píldoras y que el vecino
+  `compras-entradas-control` todavía tiene.
+- `payment-program.engine.ts` — `coberturaLibro()` **pura** + spec **9/9**, con **4 pruebas
+  negativas** (el mes en curso no se exige · sin nada cargado NO dice "falta todo" · no inventa
+  meses anteriores al primero · basura y duplicados) y el **borde de año** (enero mira a diciembre
+  del año anterior, que es donde un `mes − 1` escrito a mano se equivoca en silencio hasta enero).
+
+⚠️ **Detalle de implementación que NO se copió del hermano:** `CajaGeneralService` (CG.8) llama a su
+`frescura()` **desde dentro** de su propio `tk.run`, y como `run()` abre transacción nueva cada vez,
+gasta dos conexiones y dos transacciones por request. Acá es lectura pura, así que no dispara el bug
+de escritura invisible de `feedback_no_nested_tenant_knex_run` — pero la regla de esa lección es
+justamente ésta: dentro de un `tk.run` se pasa el `trx`, no se abre otro. Por eso va partido en
+`frescuraTx(trx)` + `frescura()`. **CG.8 queda con esa deuda, declarada, no arreglada acá.**
+
+**Gates:** `check:templates` 377 ✅ · `check:tokens` ✅ · `check:estilos` **2688/2688** (los +3
+literales que este cambio introdujo se bajaron a `--fs-xs`/`--fs-body`/`--fs-sm` en el mismo commit)
+· `check:provenance` 0 deuda · `check:wiring` ✅ · `check:sql-backticks` ✅ · vitest finance
+**332/332**. Diagnósticos del editor limpios en los 3 archivos tocados (no se compiló: regla dura
+del proyecto — eso lo hace el CI).
+
+### `[PP.9]` 🧪 La pantalla de pagos llamaba "Transferencia" a $52.27M pagados en EFECTIVO — 2026-10-05
+
+`analytics.erp_supplier_payments.metodo_pago` sale de `kdm1.c31`, que es el **tipo de documento**
+de Kepler, no el medio por el que salió el dinero. Resultado, medido contra prod:
+
+| Lo que la pantalla dice | De dónde salió | Pagos | Monto 2026 |
+|---|---|---:|---:|
+| **Transferencia** | **CAJA GENERAL (efectivo)** | **2,684** | **$52,268,125.26** |
+| Anticipo | CAJA GENERAL (efectivo) | 31 | $3,975,624.52 |
+| Transferencia | banco | 1,537 | $288,155,080.45 |
+| Cheque | banco | 225 | $49,490,291.05 |
+
+`/finanzas/pagos-comprobantes` no sólo lo **mostraba**: dejaba **filtrar por** «Transferencia» y
+devolvía pagos en efectivo. Nadie podía sacar de ahí cuánto se paga en efectivo — que es justo la
+pregunta que abrió esta investigación.
+
+**Entregado** (mig `20261005180000_erp_supplier_payments_medio_pago.js`):
+- ⛔ **`metodo_pago` NO se toca.** No está mal: dice fielmente qué doctype usó Kepler y tiene
+  consumidores. Se **agrega** `medio_pago` (`caja|banco|puente|sin_declarar|no_resuelve`) +
+  `cuenta_tesoreria`. Dos preguntas, dos columnas (ADR-056).
+- ⭐ **La lógica no se reinventa:** sale de `kdm1.c45` ⋈ `kdb1` igual que
+  `kepler_bank_movements.tipo_cuenta`, y **conserva su vocabulario** para que las dos pantallas sean
+  comparables en vez de inventar un tercer juego de nombres. El discriminante es `kdb1.c3`
+  (`EFECTIVO` contra una CLABE), **no `c5`**, que tiene `102` pelado en 3 de las 5 cajas.
+- **Cobertura medida:** `c45` poblado en **4,655 de 4,660** (99.9 %); los 5 restantes quedan
+  `sin_declarar`, **nunca** colgados del lado banco por default. Y `sin_declarar` se ofrece como
+  **filtro**: lo que no se pudo medir se mira, no se esconde.
+- **UI:** la columna Método ahora muestra el **medio real** (Efectivo / Banco / Factoraje) con el
+  documento de Kepler en el tooltip, y hay un filtro **Origen** separado del de Método. Si la fila
+  no trae `medio_pago` (migración aún sin aplicar) **degrada al método de siempre**, no se vacía.
+- **Paridad verificada contra prod, read-only**, creando la vista nueva en `TEMP` sin tocar la viva:
+  **4,675 filas = 4,675** y **$431,471,620.34 = $431,471,620.34**, idéntico al centavo. Sólo
+  aparecen columnas; no se mueve ni una fila ni un peso.
+- El `down()` se escribe **literal**, no derivado con un regex del `up()`: un rollback que depende
+  de una expresión regular falla el día que se necesita, y encima produce una vista *parecida*.
+
+**Gates:** templates ✅ · tokens ✅ (4 archivos) · estilos 2688/2688 · migrations ✅ · colisiones ✅
+· vitest finance **332/332** · vitest view finanzas **394/394**. Diagnósticos limpios.
+
+🚀 **Pendiente prod, EN ESTE ORDEN:** aplicar la migración **antes** del redeploy — el servicio
+selecciona `c.medio_pago` y sin la columna la pantalla de pagos falla. La compuerta del
+`auto-deploy` ya cubre este caso (se niega a desplegar con migraciones de `origin/main` sin
+aplicar), pero el orden se declara igual. Sin permisos nuevos → **sin re-login**.
+⬜ Falta validación visual.
+
+---
+
+⬜ **Pendiente, y es lo que de verdad cierra el hueco:** nadie carga el libro. El arreglo de fondo es
+`[PP.8]` — que el `.xlsx` deje de leerse de `Downloads/` a mano y entre por un carril con agenda y
+latido (`cron-heartbeat` + umbral en `CRON_JOBS`), o que Tesorería lo suba por la web como ya se hace
+con la ficha de depósito en CBW.8. **Mientras tanto la pantalla al menos ya no miente.**
+⬜ **Falta:** validación visual + redeploy api+view. Sin migraciones ni permisos nuevos → **sin re-login**.
 
 ---
 

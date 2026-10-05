@@ -22,14 +22,14 @@ interface DatePreset { key: string; label: string; }
     <div class="sheet cols-12">
       <article class="cell cell-span-12 is-flush co-filters-cell">
         <!-- Row 1: status chips -->
-        <nav class="co-chips" role="tablist" aria-label="Filtrar por estado">
+        <nav class="co-chips" role="radiogroup" aria-label="Filtrar por estado">
           @for (f of filters; track f) {
             <button
               type="button"
               class="co-chip"
               [class.active]="statusFilter === f.key"
-              role="tab"
-              [attr.aria-selected]="statusFilter === f.key"
+              role="radio"
+              [attr.aria-checked]="statusFilter === f.key"
               (click)="statusChange.emit(f.key)"
               >
               <span>{{ f.label }}</span>

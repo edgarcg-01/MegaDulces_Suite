@@ -56,8 +56,56 @@
   no reutiliza `finance.payment_program` porque ese es un espejo de EJECUCIÓN histórica, no un registro
   de obligaciones autorizadas con saldo pendiente.
 - **PP.6** Maat: tool `maat_programa_pagos` + detectores (duplicado, EFOS pagado, concentración banco, PP desaprovechado).
+- **PP.7 ✅ 2026-10-05** — *la pantalla declara de cuándo son sus datos.* Medido en prod: último mes
+  cargado **2026-08**, último write del importer **2026-08-08** (58 días), y **cero** menciones de
+  frescura en el componente y el service. Dos eslabones con `composeFreshness` (`pp_cobertura` = hasta
+  qué mes de negocio llega el libro, que es el que manda; `pp_import` = cuándo entregó), tolerancia 30
+  días por ser libro mensual, `FRESHNESS_UNKNOWN` si la medición falla. Más `GET /cobertura` con los
+  **meses faltantes enumerados** — sin eso un mes ausente es invisible dos veces: el filtro de Mes se
+  arma desde lo cargado y en los totales llega como cero. `coberturaLibro()` pura + spec 9/9 con 4
+  pruebas negativas y el borde de año. Detalle en el tracker.
+- **PP.8 ⬜ RUTA CRÍTICA** — *que alguien cargue el libro.* PP.7 hace visible el problema; no lo
+  resuelve. Hoy `import-payment-program.js` lee un `.xlsx` desde `C:/Users/Sistemas/Downloads/` a
+  mano, **sin agenda y sin latido**, así que su estado normal es congelado. Dos salidas, ninguna
+  inventada: (1) subida web del libro, calcando `POST /finance/bank-captures/upload` de CBW.8 — es el
+  mismo gesto que Tesorería ya hace con la ficha de depósito; o (2) carril agendado con
+  `cron-heartbeat` + umbral en `CRON_JOBS`, si el archivo vive en una ruta estable de `Z:`.
+  ⚠️ Lo que NO se puede dejar como está: el libro es **el único lugar de la plataforma** donde existen
+  la forma de pago real y los folios de factura cubiertos por cada pago.
 
 MVP = PP.0 + PP.2 + PP.3.
+
+---
+
+## Lo que esta fase descubrió sobre el proceso de pago (2026-10-05)
+
+Investigando el circuito de **pago de órdenes de entrada** (el que hoy pasa por el Access `Control`),
+el Excel de Tesorería resultó ser el eslabón que faltaba. Lo medido, para que no se vuelva a
+descubrir:
+
+- **Un pago cubre VARIAS facturas.** `F. FACTURA = f-852-853-854`. De 1,677 pagos: 583 cubren una
+  factura y **296 cubren de 2 a 6+**. Es la razón estructural de que los conteos de Kepler y Control
+  no cuadren nunca: cada sistema desagrupa a su criterio.
+- **La columna `KEPLER` (True/False) es Tesorería llevando a mano el control de la doble captura.**
+  Ya saben que el problema existe.
+- ⛔ **El folio `f-###` NO se puede ligar al folio de la orden de entrada.** Probado con placebo:
+  match real **86.7 %** contra **83.7 %** de números aleatorios — 3 puntos, o sea ruido. El folio de
+  entrada es de 3-4 dígitos y se reusa por sucursal. Además sólo 267 de 952 casan con UNA sola
+  entrada. *No volver a intentarlo por número.*
+- **CFDI ↔ entrada por RFC + monto exacto ± 15 d:** señal 16.3 % contra placebo 4.9 % (3.3×) — real,
+  pero cubre apenas el **7.8 %** de las entradas, porque **5,987 de 11,480 entradas (52 %, $189.2M)
+  no tienen RFC**.
+- ⭐ **El criterio de "a quién se le paga en efectivo", que nadie tenía escrito:** es si el proveedor
+  **factura o no**. De los 109 proveedores que siempre cobran en efectivo, **uno solo emite CFDI**
+  (contra 39 de 126 en banco). Encaja con los conceptos que se teclean en `Control`: `"rem cueritos"`,
+  `"rem palomitas"` — **"rem" es REMISIÓN**. Es la misma distinción FISCAL/REMISIÓN que el catálogo
+  del propio Excel ya trae, en una columna que nunca se conectó a nada.
+- ⚠️ **Para contabilidad, no para sistemas:** $53,782,608 pagados en efectivo a proveedor en 2026, de
+  los cuales **$53.16M (98.8 %) en pagos individuales mayores a $2,000** (89 de ellos arriba de
+  $100,000, por $23.89M), a proveedores que mayormente no emiten CFDI. El art. 27 fr. III de la LISR
+  condiciona la deducibilidad de pagos > $2,000 a que sean por medio bancario. **No es un dictamen —
+  es un dato que debe revisar contabilidad antes de rediseñar el proceso**, porque puede cambiar el
+  diseño entero.
 
 ## Aporta a
 

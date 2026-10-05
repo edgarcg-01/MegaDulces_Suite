@@ -18,7 +18,7 @@ import { Permission } from '../../core/constants/permissions';
  * no en una isla temática. Lo mismo *Ubicaciones*: ubicar es el último paso de
  * recibir.
  *
- * El control es `app-page-tabs` con `variant="liquid"` (segmentado iOS,
+ * El control es `app-page-tabs`, que desde el 2026-10-05 sirve el segmentado iOS por default (antes habia que pedirlo con `variant`,
  * **route-based**): cada tab es un `routerLink` a una ruta hermana, así que los
  * deep-links y el lazy-loading siguen intactos. Se descartó `.fb-viewseg` de
  * Finanzas por ser state-based (un `signal` + un componente gigante).

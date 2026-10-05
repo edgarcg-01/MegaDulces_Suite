@@ -43,10 +43,25 @@ import type {
  * gasto operativo — meterlos en el mismo renglón multiplica el gasto por nueve.
  *
  * ── EL ÁRBITRO (ADR-059), Y UNO QUE SE DECLARA NO COMPARABLE ────────────────────────────────
- * · **Gasto operativo** contra `analytics.ledger_monthly` familia 6 — otra implementación del
- *   mismo hecho. Medido ene-sep 2026: **de abril en adelante cuadra al centavo** (0.00, −0.19,
- *   −502.11, −3,883.08, −9,586.22) y ene-mar difiere (+$175k, +$18k, −$1.0M). O sea que el
- *   árbitro SÍ muerde, que es lo que lo vuelve un árbitro y no un espejo.
+ * · **Gasto operativo** contra `analytics.ledger_monthly` familia 6. Medido ene-sep 2026: **de
+ *   abril en adelante cuadra al centavo** (0.00, −0.19, −502.11, −3,883.08, −9,586.22) y ene-mar
+ *   difiere (+$175k, +$18k, −$1.0M). O sea que SÍ muerde, que es lo que lo vuelve un árbitro y no
+ *   un espejo.
+ *
+ *   ⚠️ **PERO NO ES INDEPENDIENTE, y la primera versión de este comentario lo vendía como si lo
+ *   fuera** («otra implementación del mismo hecho»). Verificado: `analytics.expense_entries`
+ *   (`import-expenses-polizas.js`) y `analytics.ledger_monthly` (`import-ledger-chain.js`) leen
+ *   **la misma tabla primaria**, `kepler_ods.kdc2YYMM`. Son dos implementaciones de **una sola
+ *   fuente**: atrapan un error de filtro o de agregación —por eso ene-mar salta— y **no pueden
+ *   atrapar un error de la fuente**. *Otra implementación no es otro testigo.*
+ *
+ *   ⛔ El árbitro **independiente** del gasto existe, está poblado y está fresco, y **no está
+ *   cableado a ninguna pantalla**: `analytics.contpaqi_ledger_monthly`, los libros del contador.
+ *   Medido ene-sep 2026 por `agrupador_sat`: `601` gastos **$39,984,066.74** + `602` IMSS
+ *   **$4,056,129.98** = **$44,040,196.72**, contra los **$55,951,943.94** de Kepler familia 6 —
+ *   **−21.3 %**, el mismo orden de magnitud que la brecha del ingreso (−16.4 %, `[IG.13]`).
+ *   Esa coincidencia es una pista de que el hueco es el alcance de la entidad fiscal, **no una
+ *   conclusión**: nadie lo ha verificado.
  * · **Venta** contra `ledger_monthly` familia 4: **`no_comparable`, a propósito**. La balanza
  *   familia 4 trae el traspaso interno del CEDIS a sus propias tiendas —el 84.49 % de la póliza
  *   de ingreso en agosto-2026— y el fact de venta no. Restarlas daría una brecha que no es un
@@ -378,7 +393,9 @@ export class BudgetResultService {
     const base = {
       renglon: 'Gasto operativo',
       mio, arbitro,
-      fuente_arbitro: 'analytics.ledger_monthly familia 6',
+      // Se nombra lo que es: misma fuente primaria, otra derivación. Llamarlo «otra
+      // implementación» a secas le prestaba una independencia que no tiene.
+      fuente_arbitro: 'analytics.ledger_monthly familia 6 (misma fuente: kdc2YYMM)',
     };
     if (mio === null || arbitro === null) {
       return {

@@ -32,11 +32,13 @@ export class SupplierPaymentProofsController {
     @Query('to') to?: string,
     @Query('search') search?: string,
     @Query('metodo') metodo?: string,
+    // [PP.9] El MEDIO real (caja|banco|puente|sin_declarar), distinto del tipo de documento.
+    @Query('medio') medio?: string,
     @Query('alertas') alertas?: string,
     @Query('limit') limit?: string,
     @Res({ passthrough: true }) res?: ConEncabezados,
   ): ReturnType<SupplierPaymentProofsService['listPayments']> {
-    const q: ListPaymentsQuery = { estado, from, to, search, metodo, alertas, limit: limit ? Number(limit) : undefined };
+    const q: ListPaymentsQuery = { estado, from, to, search, metodo, medio, alertas, limit: limit ? Number(limit) : undefined };
     const out = await this.svc.listPayments(q);
     // [PC.8] El desglose de tiempos, visible en DevTools → Network → Timing (sin abrir logs de prod).
     const t = out.tiempos_ms;

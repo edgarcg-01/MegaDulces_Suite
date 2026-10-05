@@ -1172,6 +1172,10 @@ const CRON_JOBS: CronCfg[] = [
   // si se apaga, se entrega papel al cliente con un factor viejo.
   { key: 'mv_existencia_aux_refresh', label: 'Factor de caja y costo Kepler (existencia + anexo del CFDI)', cadence: 'cada 5 min', warnH: 0.5, critH: 2 },
   { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD, incremental)', cadence: 'cada 5 min',   warnH: 2,   critH: 8 },
+  // `[IG.14]` El hermano EMITIDO: la factura de VENTA. Mismo ADD, mismo importer, otra columna
+  // de filtro (`RFCEmisor`). Va registrado aunque sea nuevo: sin entrada acá el sensor cae en
+  // `cfg ? classify : 'ok'` = verde incondicional, y un carril parado se vería sano.
+  { key: 'contpaqi_add_cfdis_emitidas', label: 'ContPAQi CFDIs EMITIDOS (venta, ADD)', cadence: 'cada 5 min', warnH: 2, critH: 8 },
   // El carril `full` es el RECONCILIADOR (recorrido por año, 1×día): si un cambio del ADD no tocara
   // el sello, esta pasada lo levanta igual. Latido propio (`CONTPAQI_HB_KEY`) para que no le preste
   // el pulso al incremental — ver la nota en `import-contpaqi-cfdis.js`.
