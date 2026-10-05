@@ -222,7 +222,7 @@ export class PurchaseBookService {
              FROM fiscal.cfdis
             WHERE tenant_id = current_tenant_id()
               AND source = 'contpaqi_add' AND tipo_comprobante = 'I'
-              -- ⛔ `[IG.14]` `rol` EXPLICITO. `fiscal.cfdis` fue, hasta 2026-10-05, solo CFDI
+              -- (IG.14) FILTRO DE ROL EXPLICITO. La tabla fiscal.cfdis fue, hasta 2026-10-05, solo CFDI
               -- RECIBIDO, asi que este filtro era implicito y nadie lo escribio. Ahora el ADD
               -- tambien puede traer los EMITIDOS (213,520 facturas de VENTA por $4,680 M, que
               -- siempre estuvieron ahi y nunca se pidieron). Sin esta linea, el LIBRO DE COMPRAS
@@ -334,7 +334,7 @@ export class PurchaseBookService {
              LEFT JOIN ctas c ON c.rfc = f.emisor_rfc
             WHERE f.tenant_id = current_tenant_id()
               AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
-              -- ⛔ `[IG.14]` `rol` EXPLICITO. `fiscal.cfdis` fue, hasta 2026-10-05, solo CFDI
+              -- (IG.14) FILTRO DE ROL EXPLICITO. La tabla fiscal.cfdis fue, hasta 2026-10-05, solo CFDI
               -- RECIBIDO, asi que este filtro era implicito y nadie lo escribio. Ahora el ADD
               -- tambien puede traer los EMITIDOS (213,520 facturas de VENTA por $4,680 M, que
               -- siempre estuvieron ahi y nunca se pidieron). Sin esta linea, el LIBRO DE COMPRAS
@@ -548,7 +548,7 @@ export class PurchaseBookService {
                  - coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0), 2)
           WHERE f.tenant_id = current_tenant_id()
             AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
-            AND f.rol = 'recibidas'   -- ⛔ [IG.14] ver la nota de arriba: sin esto el TXT lleva nuestras ventas
+            AND f.rol = 'recibidas'   -- (IG.14) ver la nota de arriba: sin esto el TXT lleva nuestras ventas
             -- Rango sobre la columna, NO to_char(fecha, 'YYYY-MM'): envolver la columna en
             -- una función anula el índice (tenant_id, fecha) y obliga a un seq scan de los
             -- 167k CFDIs — 4.6 s de los 11.8 s que tardaba abrir agosto. Equivalencia
