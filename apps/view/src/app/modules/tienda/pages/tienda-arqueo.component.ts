@@ -338,7 +338,7 @@ interface CortesPersona {
                    divergida. ⚠️ NO PONER ACENTOS GRAVES ACÁ: es un template literal. -->
               @if (variasSucursales()) {
                 <label class="arq-lbl">Sucursal
-                  <p-select #hcell [options]="sucursalOptions()" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)"
+                  <p-select #hcell [options]="sucursalOptions()" [ngModel]="aSuc()" (ngModelChange)="aSuc.set($event); dirty.set(true)"
                             optionLabel="label" optionValue="value" styleClass="arq-fld arq-fld-suc"
                             appendTo="body" placeholder="Elige…" [filter]="sucursales().length > 8" filterBy="label"
                             (keydown)="onHeadKey($event, 0)" />
@@ -346,7 +346,7 @@ interface CortesPersona {
               } @else {
                 <div class="arq-lbl arq-suc-fija">Sucursal
                   <span class="arq-suc-val">
-                    <i class="pi pi-building" aria-hidden="true"></i>{{ branchLabel(aSuc) || 'Sin sucursal asignada' }}
+                    <i class="pi pi-building" aria-hidden="true"></i>{{ branchLabel(aSuc()) || 'Sin sucursal asignada' }}
                   </span>
                 </div>
               }
@@ -833,7 +833,7 @@ interface CortesPersona {
             <span>{{ branchLabel(t.warehouse_code) }} · Caja {{ t.caja }}</span>
             <span class="muted">{{ t.cajero_code || '—' }} · {{ t.business_date | date:'dd/MM/yy' }}</span>
           } @else {
-            <span>{{ branchLabel(aSuc) || '—' }} · Caja {{ aCaja || '—' }}</span>
+            <span>{{ branchLabel(aSuc()) || '—' }} · Caja {{ aCaja || '—' }}</span>
             <span class="muted">{{ aCajero || '—' }} · {{ hoyTxt() }}</span>
           }
         </div>
@@ -1382,7 +1382,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    *
    * El turno elegido YA dice de que sucursal es la pantalla. Esa manda.
    */
-  readonly sucursalActiva = computed(() => this.turnoSel()?.warehouse_code ?? (this.aSuc || null));
+  readonly sucursalActiva = computed(() => this.turnoSel()?.warehouse_code ?? (this.aSuc() || null));
 
   /**
    * SM.36 - El arqueo de RUTAS tiene permiso propio. No alcanza con
@@ -1482,7 +1482,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   /** La llave es la del catalogo (`20` billete, `20m` moneda), no el valor. */
   denomCount: Record<string, number> = {};
   readonly aTipo = signal<ArqueoTipo>('cierre');
-  aSuc = ''; aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = ''; aIncidencia = '';
+  aSuc = signal(''); aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = ''; aIncidencia = '';
   readonly arqTotal = signal(0);
   /** Totales por fajo — los pide el formato y delatan un conteo mal capturado. */
   readonly totBilletes = signal(0);
@@ -1552,7 +1552,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     const u = this.auth.user()?.username;
     if (u) this.aCajero = u.toUpperCase();
     this.dataScope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (w) => { this.sucursales.set(w); if (w.length === 1) this.aSuc = w[0].value; },
+      next: (w) => { this.sucursales.set(w); if (w.length === 1) this.aSuc.set(w[0].value); },
       error: () => { /* el backend recorta igual */ },
     });
     this.cargarTurnos();
@@ -1715,7 +1715,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       }))
       .filter((x) => x.cantidad > 0);
     const ok = imprimirTicket({
-      sucursal: this.branchLabel(t?.warehouse_code ?? this.aSuc),
+      sucursal: this.branchLabel(t?.warehouse_code ?? this.aSuc()),
       caja: t?.caja ?? this.aCaja,
       fecha: t?.business_date ?? this.fmtDate(this.aDate),
       folio: t?.folio ?? null,
@@ -1781,7 +1781,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   canSubmit(): boolean {
     if (this.arqTotal() <= 0 && !this.vacio()) return false;
     if (this.turnoSel()) return true;
-    return this.manual() && !!(this.aSuc.trim()) && !!this.aCaja.trim() && !!this.aDate;
+    return this.manual() && !!(this.aSuc().trim()) && !!this.aCaja.trim() && !!this.aDate;
   }
 
   // ─────────────────── pad de denominaciones ───────────────────
@@ -2015,7 +2015,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     // por folio, así que esto es solo lo que se muestra.
     const cabecera = t
       ? { cash_cut_folio: t.folio, warehouse_code: t.warehouse_code, caja: t.caja, business_date: t.business_date, cajero_code: t.cajero_code || undefined }
-      : { warehouse_code: this.aSuc.trim() || undefined, caja: this.aCaja.trim(), business_date: this.fmtDate(this.aDate), cajero_code: this.aCajero.trim() || undefined };
+      : { warehouse_code: this.aSuc().trim() || undefined, caja: this.aCaja.trim(), business_date: this.fmtDate(this.aDate), cajero_code: this.aCajero.trim() || undefined };
     /**
      * SM.36 - El arqueo de ruta sale por SU endpoint. No es cosmetico: el de
      * caja esta gateado con el permiso viejo, que tienen tambien cajero y
@@ -2029,7 +2029,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       }
       this.svc.submitRuta({
         tipo: this.aTipo(), route_code: this.aRuta,
-        warehouse_code: this.aSuc.trim() || undefined,
+        warehouse_code: this.aSuc().trim() || undefined,
         business_date: this.fmtDate(this.aDate),
         cajero_code: this.aCajero.trim() || undefined,
         denominations, medios, nota: this.aNota.trim() || undefined,
