@@ -89,8 +89,23 @@ export interface CorteSucursalResumen {
   sin_arqueo: number;
 }
 
+/**
+ * `[CSU.6]` Qué sucursales puede ver quien consulta. Lo decide `ScopeService` (ADR-050), no la
+ * pantalla: Finanzas tiene alcance `all`; encargados y auxiliares de tienda, `own` (su
+ * `warehouse_code`).
+ *  · `todas: true`                       → ve las 8 sucursales.
+ *  · `todas: false` + `sucursales` llena → sólo ésas.
+ *  · `todas: false` + `sucursales` vacía → NO tiene sucursal asignada en su ficha: no ve nada, y
+ *    se le DICE (no es lo mismo que "no hubo cortes").
+ */
+export interface CortesAlcance {
+  todas: boolean;
+  sucursales: Array<{ codigo: string; nombre: string }>;
+}
+
 export interface CortesSucursalesResponse {
   periodo: { from: string; to: string };
+  alcance: CortesAlcance;
   totales: {
     cortes: number;
     vendido: number;

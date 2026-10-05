@@ -79,6 +79,13 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
       @if (loading() && !data()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
       @else if (data(); as d) {
         <p class="cs-periodo">Periodo {{ dmy(d.periodo.from) }} – {{ dmy(d.periodo.to) }}@if (d.ultimo_corte) { · último corte {{ dmy(d.ultimo_corte) }} }@if (d.cortes_en_blanco) { · {{ d.cortes_en_blanco }} corte(s) en blanco (menos de $1) no se listan }</p>
+        @if (!d.alcance.todas) {
+          @if (d.alcance.sucursales.length) {
+            <div class="cs-note" role="note"><i class="pi pi-shop" aria-hidden="true"></i><span>Viendo sólo {{ d.alcance.sucursales.length === 1 ? 'tu sucursal' : 'tus sucursales' }}: <b>{{ sucursalesTexto(d) }}</b>.</span></div>
+          } @else {
+            <div class="cs-note cs-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene una sucursal asignada, así que no hay cortes que mostrarte. Pide que te la asignen en <b>Administración › Personas</b>.</span></div>
+          }
+        }
         @if (antesDeCortes(d)) {
           <div class="cs-note" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i><span>El corte de caja POS en Kepler arrancó el <b>01/10/2026</b>. Antes de esa fecha casi no hay cortes; un periodo anterior se ve vacío por eso, no porque no haya habido venta.</span></div>
         }
@@ -190,6 +197,8 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-periodo { margin:.2rem 0 .4rem; font-size:var(--fs-xs); color:var(--text-muted); }
     .cs-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
     .cs-note .pi { color:var(--text-muted); margin-top:.15rem; }
+    .cs-note-bad { border-left:3px solid var(--bad-fg); }
+    .cs-note-bad .pi { color:var(--bad-fg); }
     app-metric-strip { display:block; margin:.6rem 0; }
     .cs-block { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; margin-bottom:1rem; }
     .cs-bh { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem; padding:.6rem .85rem; border-bottom:1px solid var(--border-color); }
@@ -295,6 +304,8 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
         this.data.set(d);
         const s = this.selSuc();
         this.selSuc.set(s ? d.sucursales.find((x) => x.sucursal === s.sucursal) ?? null : null);
+        // Quien sólo ve UNA sucursal (encargado/auxiliar) la tiene seleccionada de entrada.
+        if (!this.selSuc() && !d.alcance.todas && d.sucursales.length === 1) this.selSuc.set(d.sucursales[0]);
         const c = this.selCorte();
         this.selCorte.set(c ? d.cortes.find((x) => x.clave === c.clave) ?? null : null);
         this.loading.set(false);
@@ -315,6 +326,7 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
 
   /** El periodo empieza antes de que existieran los cortes POS en Kepler. */
   antesDeCortes(d: CortesSucursalesResponse): boolean { return d.periodo.from < INICIO_CORTES; }
+  sucursalesTexto(d: CortesSucursalesResponse): string { return d.alcance.sucursales.map((x) => x.codigo + ' ' + x.nombre).join(', '); }
   pct(a: number, b: number): string { return b > 0 ? `${((a / b) * 100).toFixed(1)}%` : '—'; }
   dias(desde: string): number {
     const hoy = new Date();
