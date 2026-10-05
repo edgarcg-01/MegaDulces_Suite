@@ -853,6 +853,82 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('requester_id que no es uuid → 400', (await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'x', requester_id: 'no-soy-uuid' })).status === 400);
     }
 
+    // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
+    {
+      console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
+      const tag = `SMOKE orden ${Date.now().toString(36)}`;
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const mk = (title, extra = {}) => req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: `${tag} ${title}`, ...extra });
+      const tZeta = await mk('zeta', { warehouse_code: '03' });
+      const tAlfa = await mk('alfa');
+      const tMike = await mk('mike', { warehouse_code: 'OF' });
+      await req('POST', `${SD}/requests/${tAlfa.body?.id}/take`, agente.token);
+      check('las 3 solicitudes de prueba se crean', [tZeta, tAlfa, tMike].every((t) => t.status === 201 || t.status === 200), dump(tZeta));
+
+      const lista = (qs = '') => req('GET', `${SD}/requests/inbox?scope=all${qs.includes('limit=') ? '' : '&limit=100'}&search=${encodeURIComponent(tag)}${qs}`, coord.token);
+      const titulos = (r) => (r.body?.rows ?? []).map((x) => x.title.replace(`${tag} `, ''));
+      const folios = (r) => (r.body?.rows ?? []).map((x) => x.folio);
+
+      check('sin sort sigue el orden de siempre y trae las 3', (await lista()).body?.total === 3);
+      check('⭐ sort=solicitud asc → alfa, mike, zeta', titulos(await lista('&sort=solicitud&dir=asc')).join() === 'alfa,mike,zeta');
+      check('⭐ sort=solicitud desc → zeta, mike, alfa', titulos(await lista('&sort=solicitud&dir=desc')).join() === 'zeta,mike,alfa');
+      const fAsc = folios(await lista('&sort=folio&dir=asc'));
+      const fDesc = folios(await lista('&sort=folio&dir=desc'));
+      check('sort=folio asc/desc se invierten entre sí', fAsc.length === 3 && fAsc.join() === [...fDesc].reverse().join() && fAsc.join() === [...fAsc].sort().join(), JSON.stringify([fAsc, fDesc]));
+      check('sin dir, el orden es ascendente', titulos(await lista('&sort=solicitud')).join() === 'alfa,mike,zeta');
+
+      // Los vacíos van SIEMPRE al final, sin importar la dirección.
+      const ubAsc = titulos(await lista('&sort=ubicacion&dir=asc'));
+      const ubDesc = titulos(await lista('&sort=ubicacion&dir=desc'));
+      check('⭐ sort=ubicacion ordena por el NOMBRE que se ve (8 Esquinas → Oficinas Corporativas), no por el código', ubAsc.slice(0, 2).join() === 'zeta,mike', ubAsc.join());
+      check('⭐ sort=ubicacion: «sin ubicación» (alfa) queda al FINAL en asc', ubAsc[2] === 'alfa', ubAsc.join());
+      check('⭐ y TAMBIÉN al final en desc (un vacío no es «lo más grande»)', ubDesc[2] === 'alfa', ubDesc.join());
+      const atAsc = titulos(await lista('&sort=atiende&dir=asc'));
+      const atDesc = titulos(await lista('&sort=atiende&dir=desc'));
+      check('⭐ sort=atiende: quien tiene responsable va primero en asc y en desc; los sin asignar al final', atAsc[0] === 'alfa' && atDesc[0] === 'alfa', JSON.stringify([atAsc, atDesc]));
+
+      // Paginar con orden: cada página continúa a la anterior, sin repetir ni saltarse.
+      const p1 = titulos(await lista('&sort=solicitud&dir=asc&limit=2&offset=0'));
+      const p2 = titulos(await lista('&sort=solicitud&dir=asc&limit=2&offset=2'));
+      check('⭐ el orden vale a través de las páginas (el servidor ordena ANTES de cortar)', [...p1, ...p2].join() === 'alfa,mike,zeta', JSON.stringify([p1, p2]));
+      const r3 = await lista('&sort=solicitud&limit=2');
+      check('y el total no cambia por ordenar', r3.body?.total === 3 && r3.body?.rows?.length === 2, dump(r3));
+
+      // Filtros nuevos.
+      const aAgente = await lista(`&assigned_to=${agente.id}`);
+      check('⭐ assigned_to=<usuario> trae sólo lo suyo', titulos(aAgente).join() === 'alfa', titulos(aAgente).join());
+      const aNone = await lista('&assigned_to=none');
+      check('⭐ assigned_to=none trae lo SIN asignar', titulos(aNone).sort().join() === 'mike,zeta', titulos(aNone).join());
+      check('⛔ assigned_to con basura → 400', (await lista('&assigned_to=no-es-un-usuario')).status === 400);
+
+      check('⭐ category_id filtra por categoría', (await lista(`&category_id=${catSimple.id}`)).body?.total === 3);
+      check('una categoría que existe pero sin solicitudes → 0 (no error)', (await lista('&category_id=00000000-0000-0000-0000-000000000000')).body?.total === 0);
+      check('⛔ category_id con basura → 400', (await lista('&category_id=xx')).status === 400);
+
+      check('⭐ from/to del día traen las 3 (el día se mide en la zona de la mesa)', (await lista(`&from=${hoy}&to=${hoy}`)).body?.total === 3);
+      check('⭐ un rango del pasado trae 0', (await lista('&from=2000-01-01&to=2000-01-02')).body?.total === 0);
+      check('sólo from (abierto por el final) trae las 3', (await lista(`&from=${hoy}`)).body?.total === 3);
+      check('⛔ from posterior a to → 400', (await lista('&from=2026-10-05&to=2026-10-01')).status === 400);
+      check('⛔ una fecha imposible (2026-13-45) → 400', (await lista('&from=2026-13-45')).status === 400);
+      check('⛔ una fecha en otro formato (05/10/2026) → 400', (await lista('&to=05/10/2026')).status === 400);
+
+      check('⭐ status=asignado trae sólo la que se tomó', titulos(await lista('&status=asignado')).join() === 'alfa');
+      const combo = await lista(`&assigned_to=none&warehouse_code=OF&from=${hoy}&to=${hoy}&sort=folio&dir=desc`);
+      check('⭐ los filtros se COMBINAN (sin asignar + oficinas + hoy) → sólo «mike»', titulos(combo).join() === 'mike', titulos(combo).join());
+
+      // Lista cerrada: la columna llega por la URL y va a un ORDER BY en crudo.
+      check('⛔ sort desconocido → 400', (await lista('&sort=password')).status === 400);
+      check('⛔ sort con inyección → 400 (y nada se concatena)', (await lista(`&sort=${encodeURIComponent('r.id; DROP TABLE servicedesk.requests; --')}`)).status === 400);
+      check('⛔ dir desconocida → 400', (await lista('&sort=folio&dir=sideways')).status === 400);
+      const sigue = await knex('servicedesk.requests').where('title', 'like', `${tag}%`).count({ n: '*' }).first();
+      check('la tabla sigue ahí tras el intento de inyección', Number(sigue.n) === 3, JSON.stringify(sigue));
+      const columnas = ['folio', 'solicitud', 'reporto', 'ubicacion', 'prioridad', 'estado', 'atiende', 'plazo', 'alta'];
+      const resultados = [];
+      for (const col of columnas) for (const dir of ['asc', 'desc']) resultados.push([col, dir, (await lista(`&sort=${col}&dir=${dir}`)).status]);
+      check('⭐ las 9 columnas que ofrece la pantalla, en las dos direcciones, las acepta el servidor (18/18)', resultados.every(([, , s]) => s === 200), JSON.stringify(resultados.filter(([, , s]) => s !== 200)));
+      check('⛔ quien no atiende NO accede a la bandeja ni con filtros → 403', (await req('GET', `${SD}/requests/inbox?scope=all&sort=folio`, sol.token)).status === 403);
+    }
+
     // ── 20. Oficinas Corporativas como ubicación (no es una sucursal Kepler) ───────────
     {
       console.log('\n20 — «Oficinas Corporativas» como ubicación de una solicitud');
@@ -876,6 +952,53 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('⭐ el reporte por sucursal trae a las oficinas, con su nombre', !!fila && fila.warehouse_name === 'Oficinas Corporativas' && fila.creados >= 3, JSON.stringify(fila));
       const enBase = await knex('servicedesk.requests').where({ id: tOf.body?.id }).first('warehouse_code');
       check('la base guarda «OF» (varchar(20), sin chocar con ningún código de Kepler)', enBase.warehouse_code === 'OF');
+    }
+
+    // ── 21. El tiempo registrado: la lista en la ficha y las horas en Reportes ───────────
+    {
+      console.log('\n21 — tiempo registrado: lista en la ficha (sólo quien atiende) y horas por categoría');
+      const detalle = (id, tok = coord.token) => req('GET', `${SD}/requests/${id}`, tok);
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const reporte = () => req('GET', `${SD}/reports?from=${hoy}&to=${hoy}`, coord.token);
+      const nombreAg = (await knex('identity.users').where({ id: agente.id }).first('nombre')).nombre;
+      const catOtra = (cat.body?.categories ?? []).find((c) => c.id !== catSimple.id && !c.requires_branch && c.name !== 'Desarrollo');
+
+      const antes = (await reporte()).body;
+      const filaAntes = antes.por_categoria.find((c) => c.category_id === catSimple.id);
+      const tt = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE tiempo: se registra el trabajo' });
+      await req('POST', `${SD}/requests/${tt.body?.id}/take`, agente.token);
+      const l1 = await req('POST', `${SD}/requests/${tt.body?.id}/time`, agente.token, { minutes: 30, note: 'Cambié el cable de red del mostrador' });
+      const l2 = await req('POST', `${SD}/requests/${tt.body?.id}/time`, agente.token, { minutes: 45 });
+      check('quien atiende registra tiempo (con y sin nota) → 2xx', l1.status < 300 && l2.status < 300, dump(l1) + ' ' + dump(l2));
+
+      const dAg = await detalle(tt.body?.id, agente.token);
+      const ent = dAg.body?.time_entries;
+      check('⭐ la ficha de quien atiende trae la LISTA de registros', Array.isArray(ent) && ent.length === 2, JSON.stringify(ent));
+      check('⭐ cada registro dice cuánto, quién, cuándo y qué hizo', ent?.[0]?.minutes === 30 && ent[0].user_name === nombreAg && ent[0].note === 'Cambié el cable de red del mostrador' && !!ent[0].created_at && ent[0].source === 'suite', JSON.stringify(ent?.[0]));
+      check('el segundo, sin nota, trae `note: null` (no una cadena vacía)', ent?.[1]?.minutes === 45 && ent[1].note === null, JSON.stringify(ent?.[1]));
+      check('van del más viejo al más nuevo', new Date(ent?.[0]?.created_at).getTime() <= new Date(ent?.[1]?.created_at).getTime());
+      check('⭐ el total es la suma de la lista (75), no un número aparte', dAg.body?.time_logged_minutes === 75 && ent.reduce((s, e) => s + e.minutes, 0) === 75, String(dAg.body?.time_logged_minutes));
+
+      const dSol = await detalle(tt.body?.id, sol.token);
+      check('⛔ quien REPORTÓ recibe `time_entries: null` (no «lista vacía»: no tiene acceso)', dSol.status === 200 && dSol.body?.time_entries === null && dSol.body?.time_logged_minutes === null, JSON.stringify([dSol.body?.time_entries, dSol.body?.time_logged_minutes]));
+      check('⛔ y en NADA de su respuesta aparece la nota del trabajo', !JSON.stringify(dSol.body).includes('Cambié el cable'));
+      check('⛔ el solicitante NO puede registrar tiempo → 403', (await req('POST', `${SD}/requests/${tt.body?.id}/time`, sol.token, { minutes: 10 })).status === 403);
+      check('⛔ minutos fuera de rango → 400', (await req('POST', `${SD}/requests/${tt.body?.id}/time`, agente.token, { minutes: 0 })).status === 400 && (await req('POST', `${SD}/requests/${tt.body?.id}/time`, agente.token, { minutes: 1441 })).status === 400);
+
+      // Reportes: horas por categoría, con su cobertura.
+      const despues = (await reporte()).body;
+      const filaDesp = despues.por_categoria.find((c) => c.category_id === catSimple.id);
+      check('⭐ el reporte suma +75 minutos a la categoría y +1 solicitud con tiempo', (filaDesp.minutos_trabajados ?? 0) === (filaAntes?.minutos_trabajados ?? 0) + 75 && filaDesp.con_tiempo === (filaAntes?.con_tiempo ?? 0) + 1, JSON.stringify([filaAntes, filaDesp]));
+      check('el total del periodo también', (despues.totales.minutos_trabajados ?? 0) === (antes.totales.minutos_trabajados ?? 0) + 75 && despues.totales.con_tiempo === antes.totales.con_tiempo + 1);
+      if (catOtra) {
+        await req('POST', `${SD}/requests`, sol.token, { category_id: catOtra.id, title: 'SMOKE tiempo: nadie registra aquí' });
+        const filaOtra = (await reporte()).body.por_categoria.find((c) => c.category_id === catOtra.id);
+        check('⛔ una categoría donde NADIE registró tiempo sale `null` y `con_tiempo: 0`, NUNCA «0 minutos»', filaOtra?.minutos_trabajados === null && filaOtra?.con_tiempo === 0, JSON.stringify(filaOtra));
+      } else {
+        noMedido.push('ninguna otra categoría libre para probar el «null, no 0» de las horas por categoría');
+      }
+      check('⛔ el reporte sigue sin traer nada por persona', !/"(assign[a-z_]*|requester[a-z_]*|resolved_by|assignee[a-z_]*|user[a-z_]*)":/i.test(JSON.stringify(despues)));
+      check('y declara que el tiempo es sólo el que se registra a mano', despues.no_medido.some((t) => /sólo el que se registra a mano/.test(t)));
     }
 
     noMedido.push('correo y WhatsApp REALES: el SMTP no está configurado y la plantilla de Meta no está aprobada (P5); lo que se afirma es que el resultado queda DECLARADO por canal');

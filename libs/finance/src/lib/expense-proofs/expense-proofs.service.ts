@@ -63,7 +63,7 @@ import {
 } from './calendario-gastos';
 import { ESTADOS_ABIERTOS, TOPE_ABIERTOS, unirAbiertosYCerrados } from './mis-gastos-abiertos';
 import { agruparGastosPorSolicitud, datosKeplerDeLaFila } from './mis-gastos-kepler';
-import { esDuenoDelVale, MENSAJE_PROPIO_VALE, type IdentidadQueDecide } from '@megadulces/contracts';
+import { esDuenoDelVale, puedeVerCualquierExpediente, MENSAJE_EXPEDIENTE_AJENO, MENSAJE_PROPIO_VALE, type IdentidadQueDecide, type QuienAbreExpediente } from '@megadulces/contracts';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -223,6 +223,33 @@ export interface ExpedienteDelDiaDetallado extends ExpedienteParaAprobar {
   requiere_evidencia: boolean;
   /** Ya la subieron? Es lo que separa "falta ejercer" de "falta firmar el cierre". */
   tiene_evidencia: boolean;
+}
+
+/**
+ * `[GX.68]` Lo que devuelve `detail()`: el expediente con sus archivos ya firmados.
+ *
+ * Son los campos que el metodo fija de forma explicita, mas los que agrega `conEtapa()`.
+ *
+ * ⚠️ **La firma del indice es DEUDA DECLARADA, no pereza.** La fila sale de un `first()`
+ * tipado `any` y el metodo la derrama con spread; enumerar las ~24 columnas restantes acá
+ * seria *afirmar* una forma que el codigo no comprueba — y una forma afirmada de mas miente
+ * igual que un `any`. Lo verificable se declara; lo demas se marca como lo que es. El
+ * espejo de esta forma en el frontend (`ExpenseProofDetail`) tendria que converger a
+ * `libs/contracts`: queda como deuda con nombre (ADR-052/056).
+ */
+export interface ExpedienteDetalle {
+  id: string;
+  status: string;
+  importe: number;
+  monto_ocr: number | null;
+  requiere_evidencia: boolean;
+  files: ProofFile[];
+  /** `false` = hay archivos pero no se pueden servir. NO es «no adjuntaron nada». */
+  storage_ok: boolean;
+  created_by?: string | null;
+  evidencia_por?: string | null;
+  /** Lo que agrega `conEtapa()` y las columnas de la fila. Ver la nota de arriba. */
+  [extra: string]: unknown;
 }
 
 /** `[GX.20]` Lo que devuelve `delDia()`. Cruza el boundary REST (ADR-052), asi que se declara. */
@@ -857,11 +884,12 @@ export class ExpenseProofsService {
     if (faltan.length) throw new BadRequestException(faltan.map((f) => f.motivo).join('; '));
 
     return this.tk.run(async (trx) => {
-      // Importe esperado = el de la solicitud Kepler (XA1501, fuente de verdad); si no se
-      // encuentra, cae al del DTO (auto-rellenado por el front desde la misma solicitud).
-      const solRow = await trx('analytics.expense_requests')
-        .where({ tenant_id: this.tenantCtx.requireTenantId(), folio: folioSolicitud })
-        .first(trx.raw('importe::numeric AS importe'));
+      // `[GX.68]` Importe = el de la solicitud Kepler (XA1501, fuente de verdad), tomado de
+      // `sol`, que ya se buscó arriba por (sucursal, folio). ⛔ Acá se volvía a consultar
+      // SÓLO por folio: con 373 folios repetidos entre plazas, `.first()` grababa el
+      // importe de la solicitud de OTRA tienda. Si la solicitud aún no llegó por el feed,
+      // cae al del DTO (el front lo rellena desde la misma solicitud).
+      const solRow = sol;
       const importe = Number(solRow?.importe) || Number(dto.importe) || 0;
 
       // Dos momentos: la captura SIEMPRE entra como 'recibida' (esperando aprobación). El
@@ -1510,7 +1538,14 @@ export class ExpenseProofsService {
    * error de firma — se veía como "no existe la imagen". Acá se firma de nuevo, y con
    * más aire (30 min) porque el visor queda abierto mientras se decide.
    */
-  async detail(id: string) {
+  /**
+   * `[GX.68]` **El expediente, con el alcance de quien lo abre.**
+   *
+   * `quien` es opcional para no romper a los llamadores internos, pero el controller SIEMPRE
+   * lo pasa. ⚠️ Sin `quien` no se acota: eso es correcto acá porque el único borde HTTP que
+   * llega hasta este metodo ya pasó por el guard — si mañana entra otro, que lo pase.
+   */
+  async detail(id: string, quien?: QuienAbreExpediente): Promise<ExpedienteDetalle> {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const tieneCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'tiene_comprobacion');
@@ -1523,8 +1558,23 @@ export class ExpenseProofsService {
           'fecha_gasto', 'folio_solicitud', 'proveedor',
           trx.raw('importe::numeric AS importe'), trx.raw('monto_ocr::numeric AS monto_ocr'), 'monto_match', 'revision_nota',
           'files', 'comentarios', 'status',
-          'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
+          // `[GX.68]` `evidencia_por` NO es decorativo: con `[GX.34]` quien sube la evidencia
+          // tambien es dueño del vale, y sin esta columna `esDuenoDelVale` le diria que no.
+          'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'evidencia_por', 'created_at');
       if (!r) throw new NotFoundException('solicitud de reembolso no encontrada');
+
+      /**
+       * `[GX.68]` **El alcance.** Quien tiene `VER`/`COMPROBAR` (o es admin de plataforma)
+       * abre cualquiera; el resto —quien sólo captura— abre **el suyo**.
+       *
+       * ⛔ El orden importa: primero se comprueba que el vale EXISTA (arriba) y recién
+       * después de quién es. Al revés, un id inexistente y uno ajeno darían la misma
+       * respuesta y no habría forma de distinguir «no está» de «no te toca».
+       */
+      if (quien && !puedeVerCualquierExpediente(quien, isPlatformAdminRole)) {
+        const yo = await this.identidadConNombre(trx, quien);
+        if (!esDuenoDelVale(r, yo)) throw new ForbiddenException(MENSAJE_EXPEDIENTE_AJENO);
+      }
       const files = typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || []);
       // `[GX.39]` La etapa de ejercicio + el documento que Kepler genera al aplicar el gasto.
       const [conEtapa] = this.conEtapa([r], await this.keplerPorFolio(trx, [r]));
@@ -2776,6 +2826,30 @@ export class ExpenseProofsService {
    * Si el vale no existe, no se dice nada aquí: cada método ya responde «no encontrado» con su
    * propia frase.
    */
+  /**
+   * `[GX.68]` La identidad de quien pide, **con el nombre real del padrón**.
+   *
+   * ⛔ El token NO trae `full_name` (sólo `username`), y los vales se guardan con
+   * `full_name || username`. Comparar sólo el username le negaría su propio vale a quien lo
+   * capturó cuando ya tenía nombre cargado — el mismo defecto que `[GX.65.4a]` encontró del
+   * otro lado (ahí dejaba pasar al dueño; acá dejaría afuera al dueño).
+   *
+   * Vive una sola vez: `asegurarQueNoEsSuyo` lo usa también. Dos copias de esta resolución
+   * se desincronizan a la primera (ADR-056).
+   */
+  private async identidadConNombre(trx: Knex, quien: IdentidadQueDecide): Promise<IdentidadQueDecide> {
+    const usuario = String(quien.username ?? '').trim();
+    let nombre = String(quien.full_name ?? '').trim();
+    if (!nombre && usuario) {
+      const u = await trx('users')
+        .where({ tenant_id: this.tenantCtx.requireTenantId() })
+        .whereRaw('lower(username) = lower(?)', [usuario])
+        .first('nombre');
+      nombre = String(u?.nombre ?? '').trim();
+    }
+    return { username: usuario, full_name: nombre };
+  }
+
   private async asegurarQueNoEsSuyo(trx: Knex, id: string, quien?: IdentidadQueDecide): Promise<void> {
     if (!quien || (!String(quien.username ?? '').trim() && !String(quien.full_name ?? '').trim())) {
       throw new ForbiddenException('No se pudo identificar quién decide sobre el vale.');
@@ -2787,16 +2861,8 @@ export class ExpenseProofsService {
      * esto, la guarda comparaba sólo el username y dejaba pasar al dueño de un vale guardado con
      * su NOMBRE. Se lee el nombre real del padrón. Lo encontró la simulación por niveles.
      */
-    let nombre = String(quien.full_name ?? '').trim();
-    const usuario = String(quien.username ?? '').trim();
-    if (!nombre && usuario) {
-      const u = await trx('users')
-        .where({ tenant_id: this.tenantCtx.requireTenantId() })
-        .whereRaw('lower(username) = lower(?)', [usuario])
-        .first('nombre');
-      nombre = String(u?.nombre ?? '').trim();
-    }
-    if (esDuenoDelVale(vale, { username: usuario, full_name: nombre })) {
+    const yo = await this.identidadConNombre(trx, quien);
+    if (esDuenoDelVale(vale, yo)) {
       throw new ForbiddenException(MENSAJE_PROPIO_VALE);
     }
   }

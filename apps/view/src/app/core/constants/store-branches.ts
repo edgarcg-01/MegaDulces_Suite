@@ -96,3 +96,15 @@ export function branchName(code?: string | null): string {
   if (!code) return '';
   return NETWORK_BRANCHES.find((b) => b.code === code)?.name ?? code;
 }
+
+/**
+ * `[GX.68]` Clave + nombre: `'02'` → `'02 La Piedad Abastos'`. Así se nombra la sucursal en el
+ * vale de gasto: la clave sola obliga a saberse la tabla, y el nombre solo esconde que el folio de
+ * Kepler es único por CLAVE. Código desconocido → sólo la clave; vacío → `''`.
+ */
+export function branchLabel(code?: string | null): string {
+  const c = String(code ?? '').trim();
+  if (!c) return '';
+  const name = NETWORK_BRANCHES.find((b) => b.code === c)?.name;
+  return name ? `${c} ${name}` : c;
+}

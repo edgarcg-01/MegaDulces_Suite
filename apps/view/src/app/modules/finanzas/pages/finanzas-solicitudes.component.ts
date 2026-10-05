@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { branchLabel } from '../../../core/constants/store-branches';
 import { MultitareaService } from '../../../core/services/multitarea.service';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -220,7 +221,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
                 <td>
                   <button type="button" class="so-folio num strong" (click)="$event.stopPropagation(); verExpediente(r)"
                           [attr.aria-label]="'Abrir el expediente de la solicitud ' + r.folio">{{ r.folio }}</button>
-                  <span class="so-cell-meta">{{ r.sucursal_nombre || r.sucursal }}</span>
+                  <span class="so-cell-meta">{{ branchLabel(r.sucursal) || r.sucursal_nombre }}</span>
                 </td>
                 <td class="num muted">{{ dmy(r.fecha) }}</td>
                 <td>{{ r.solicitante || '—' }}</td>
@@ -441,6 +442,8 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
   `],
 })
 export class FinanzasSolicitudesComponent {
+  /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
+  readonly branchLabel = branchLabel;
   /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
   readonly multitarea = inject(MultitareaService);
   private readonly svc = inject(ComercialService);

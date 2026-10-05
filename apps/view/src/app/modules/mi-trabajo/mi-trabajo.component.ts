@@ -392,14 +392,37 @@ export class MiTrabajoComponent {
   private readonly recientes = signal<string[]>(leerRecientes());
 
   /** Hasta 6, y sólo las que esta persona TODAVÍA puede abrir: un permiso revocado no deja rastro. */
+  /**
+   * `[SN.28]` **La recencia elige QUIÉNES, el mapa decide EN QUÉ ORDEN.**
+   *
+   * Antes la fila salía en orden de recencia pura, así que **se reacomodaba cada vez que abrías
+   * algo**. Medido entre dos capturas del mismo día: `Logística · Presupuestos · Finanzas · Punto
+   * de Venta…` y, un rato después, `Punto de Venta · Ventas · Almacén · Logística…`. Los mismos
+   * seis destinos, otro orden.
+   *
+   * ⛔ Es exactamente lo que NN/g mide que rompe la memoria espacial, y es el argumento con el que
+   * esta misma fase justificó que la rejilla de abajo NO se reordene por persona. Estaba aplicando
+   * la regla de un lado de la pantalla y no del otro: lo que se aprende de memoria no se mueve.
+   *
+   * ⚠️ El `slice` va ANTES del `sort` a propósito: la pertenencia (cuáles seis) sí es por
+   * recencia — si no, la fila mostraría siempre los primeros del mapa y dejaría de ser tuya.
+   */
   readonly accesos = computed<EntradaVisible[]>(() => {
     if (this.buscando()) return [];
     const porId = new Map<string, EntradaVisible>();
-    for (const s of this.espaciosTodos()) for (const e of s.entradas) porId.set(e.id, e);
+    const pos = new Map<string, number>();
+    let i = 0;
+    for (const s of this.espaciosTodos()) {
+      for (const e of s.entradas) {
+        porId.set(e.id, e);
+        pos.set(e.id, i++);
+      }
+    }
     return this.recientes()
       .map((id) => porId.get(id))
       .filter((e): e is EntradaVisible => !!e)
-      .slice(0, MAX_ACCESOS);
+      .slice(0, MAX_ACCESOS)
+      .sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
   });
 
   /**

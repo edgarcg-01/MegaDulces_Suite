@@ -422,12 +422,12 @@
         puerta también pueda volver). En pantallas angostas el espacio se oculta: la página manda.
       -->
       <ol class="flex items-center gap-2 m-0 p-0 list-none">
-        @for (c of crumbs(); track c; let first = $first) {
+        @for (c of crumbs(); track c.label; let first = $first) {
           <li [class.hidden]="first && crumbs().length > 1" [class.sm:block]="first && crumbs().length > 1">
-            @if (first && spaceLabel()) {
-              <a [routerLink]="landingRoute" [state]="{ stay: true }" class="hover:text-content-main hover:underline underline-offset-2">{{ c }}</a>
+            @if (c.link) {
+              <a [routerLink]="c.link" [state]="c.stay ? { stay: true } : undefined" class="hover:text-content-main hover:underline underline-offset-2">{{ c.label }}</a>
             } @else {
-              {{ c }}
+              {{ c.label }}
             }
           </li>
           <li aria-hidden="true" class="text-content-faint" [class.hidden]="first && crumbs().length > 1" [class.sm:block]="first && crumbs().length > 1">/</li>

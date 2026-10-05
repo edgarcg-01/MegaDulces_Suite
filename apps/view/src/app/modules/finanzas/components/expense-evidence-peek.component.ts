@@ -1,3 +1,5 @@
+import type { HttpErrorResponse } from '@angular/common/http';
+import { branchLabel } from '../../../core/constants/store-branches';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, model, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -156,7 +158,7 @@ const ETIQUETAS: Record<string, string> = {
           @if (s.forma_pago) { <div><dt>Forma de pago</dt><dd>{{ formaPago(s.forma_pago) }}</dd></div> }
           @if (s.autoriza) { <div><dt>Autoriza</dt><dd>{{ s.autoriza }}</dd></div> }
           @if (s.referencia) { <div><dt>Referencia</dt><dd>{{ s.referencia }}</dd></div> }
-          <div><dt>Sucursal</dt><dd>{{ s.sucursal_nombre || s.sucursal || '—' }}</dd></div>
+          <div><dt>Sucursal</dt><dd>{{ branchLabel(s.sucursal) || s.sucursal_nombre || '—' }}</dd></div>
           <div><dt>Aplicación</dt><dd>{{ s.aplicada ? ('Gasto ' + (s.gasto_folio || '')) : 'Sin aplicar' }}</dd></div>
           <div class="ep-dl-wide"><dt>Concepto</dt><dd>{{ s.concepto || '—' }}</dd></div>
         </dl>
@@ -295,6 +297,8 @@ const ETIQUETAS: Record<string, string> = {
   `],
 })
 export class ExpenseEvidencePeekComponent {
+  /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
+  readonly branchLabel = branchLabel;
   private readonly svc = inject(ComprobacionesService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly destroyRef = inject(DestroyRef);
@@ -342,8 +346,25 @@ export class ExpenseEvidencePeekComponent {
     this.errorMsg.set(null);
     this.svc.detail(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.proof.set(d); this.buildDocs(d.files || []); this.loading.set(false); },
-      error: () => {
+      /**
+       * `[GX.68]` **Un permiso denegado NO es un problema de conexión.**
+       *
+       * Acá había UN mensaje para todo: «Puede ser la conexión — reintentá». Sobre un 403 eso
+       * es falso dos veces: dice una causa que no es, y manda a repetir algo que no se arregla
+       * repitiéndolo. Es la lección de `[GX.37]`, que el repo ya aplica del lado del
+       * almacenamiento (`motivoDeAlmacenamiento`) y que acá faltaba.
+       *
+       * El 403 lo trae el servidor con su motivo (`[GX.68]`: el vale es ajeno); se muestra ESE,
+       * no uno inventado en la pantalla, para que no se separen.
+       */
+      error: (e: HttpErrorResponse) => {
         this.loading.set(false);
+        if (e?.status === 403) {
+          this.errorMsg.set(String(e.error?.message || 'No tenés permiso para abrir este expediente.'));
+          return;
+        }
+        // 404 tampoco es la conexión: el expediente no está, y reintentar no lo va a traer.
+        if (e?.status === 404) { this.errorMsg.set('Este expediente ya no está.'); return; }
         this.errorMsg.set('No se pudo traer el expediente. Puede ser la conexión — reintentá.');
       },
     });

@@ -5,6 +5,29 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-05 — `[CSU.0–CSU.2]` Cortes/Sucursales: el corte es lo contado, y el cuadre va por turno
+
+**Qué se entregó:** `/finanzas/cortes-sucursales` sigue cada corte de caja POS (`U-D-23`, cliente
+`CONTADO`) hasta sus cobros aplicados (`kdm5`) y lo cuadra contra el arqueo del turno
+(`analytics.cash_cuts`). Lectura pura del ODS, sin importer. Plan en
+[`FASE_CSU`](FASES/FASE_CSU_CORTES_SUCURSALES.md).
+
+**Verificado:** reproduce al centavo las dos pantallas de Kepler que trajo Francisco (Alta de cobro
+de Zamora Centro: 10 documentos, saldo $194,188.12; y el cobro `UA0501-0000003`). Servicio
+ejecutado contra prod en solo lectura: oct-2026, 106 cortes en 630–750 ms en caliente. Motor con 10 pruebas, y la
+negativa ("sin arqueo nunca cuadra") rompe al mutar la regla. Compuertas estáticas en verde.
+**No verificado:** la pantalla en el navegador (no se levanta la app en local, regla 2026-10-02).
+
+**Lecciones:**
+1. **El monto del corte es lo que contó el cajero, no lo que vendió.** Por eso los $9,000 de la
+   caja 5-151 son un faltante del arqueo, no un error del corte.
+2. **Comparar contra los tickets del día da diferencias falsas de ±$90 mil** cuando el turno cruza
+   la medianoche. El testigo correcto es el arqueo del turno, que ya existía en `cash_cuts`.
+3. **Una llave que parece única se repite**: el folio de arqueo vuelve a aparecer entre fechas. Se
+   casa por fecha más cercana (±3 días).
+4. **Solo 1.5% de lo vendido del 1 al 5 de octubre tiene cobro aplicado** — es justo lo que la
+   pantalla existe para hacer visible.
+
 ## 2026-10-03 — Checkpoint: la Mesa de Servicio construida de punta a punta, lo que ya está en `main` y lo que falta (`[MS.2]`–`[MS.3.13]`)
 
 **Estado.** La Mesa de Servicio (ADR-081, **propuesto**) está construida y probada **en local**; **nada aplicado a producción**. Capas 1 (BD), 2 (lógica) y 3 (pantallas) completas, más lo que fue saliendo después: A tu nombre en Mi trabajo (MS.3.6), cola «sin asignar» con plazo ajustable (MS.3.8), asignación automática por regla (MS.3.10), Reportes (MS.3.5), levantar a nombre de otra persona (MS.3.11), cámara/galería (MS.3.12) y adjuntos en notas internas (MS.3.13). Detalle por ítem en el tracker; resumen de la fila en `CLAUDE.md`.
@@ -26,6 +49,8 @@
 - **Cerrar la pila fue de Edgar, no de este trabajo**: tras una integración grande, lo apilado sobre ramas ya integradas hay que **rebasarlo sobre `main`** antes de pedir revisión (aquí los 4 commits entraron limpios).
 
 **Actualización 2026-10-05 — MS.3.14 «Ubicación» y «Oficinas Corporativas» (PR #259, por mergear).** Sistemas pidió agregar las oficinas a la lista de sucursales de la solicitud y, ya con ellas, que el campo se llame **«Ubicación»**. Decisión de fondo: las oficinas **no son una sucursal Kepler** (`00`–`08`: sin almacén, venta ni inventario), así que **no se agregaron a `STORE_BRANCHES` ni a `KEPLER_BRANCH_NAMES`** (las metería a los alcances y al monitor de Tienda); viven en `SD_UBICACIONES_EXTRA` (contrato; una sola lista para el servidor y el formulario), se guardan en la misma columna con el código `OF` (varchar(20) sin CHECK: **sin migración**) y **no relajan ninguna validación** (`30`, `09`, `XX` siguen en 400). El renombre cubre formulario, ficha, bandeja, reportes, configuración y mensajes del servidor; **no** toca «A toda mi sucursal» (alcance del problema), la categoría «Soporte a sucursal» (dato) ni los identificadores de API. Tras rebasar sobre el `main` nuevo (152 commits integrados): `service-desk` 148 · `contracts` 361 · E2E 331/0 · build de view y api, lint y las 6 compuertas de UI en verde.
+
+**Actualización 2026-10-05 — MS.3.15 y MS.3.16 (PR #260 ya en `main`; #263 por mergear).** **MS.3.15:** el tiempo registrado se ve (lista de registros en la ficha, sólo para quien atiende; horas por categoría en Reportes con su cobertura, sin ceros dibujados ni desglose por persona). **MS.3.16:** la bandeja **filtra** (estado, categoría, quién atiende con «Sin asignar», ubicación, fechas de alta) y **ordena por columna en el servidor** (`sort`/`dir`, lista cerrada → 400 fuera de ella, vacíos siempre al final, desempate fijo, ubicación por el nombre visible), y la migaja «Mesa de Servicio» pasa a ser enlace al inicio del proyecto (`construirMigas`). Lección: **ordenar por lo que se ve, no por lo que se guarda** — verlo en pantalla destapó que el orden por código ponía «La Piedad» antes que «8 Esquinas»; y un `ORDER BY` armado desde la URL sólo admite una lista cerrada. E2E 378/0 con #260 incluido; mutaciones atrapadas. #263 está **apilado sobre #259** (su diff incluye MS.3.14 hasta que entre). Sin migraciones ni permisos nuevos.
 
 ⚠️ **Rojo heredado, medido y NO de este trabajo:** `mi-trabajo.component.spec.ts` tiene **5 pruebas en rojo en `origin/main` puro** (las de «cuántos submódulos abre», «QUEDARSE» y los homónimos de Mi trabajo); se verificó sacando la rama del camino y corriéndolas sobre `origin/main`. Vienen de la integración de 152 commits (#259 no toca ese componente). Aviso al dueño de esa integración.
 

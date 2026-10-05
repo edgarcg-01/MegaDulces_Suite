@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal } from '@angular/core';
+import { branchLabel } from '../../../core/constants/store-branches';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -104,7 +105,7 @@ interface SolSug { folio: string; fecha: string | null; importe: number; benefic
               <tr>
                 <td>
                   {{ r.solicitante }}
-                  <span class="cf-meta">{{ r.sucursal_nombre || r.sucursal || '—' }} · {{ dmy(r.fecha_gasto) }}</span>
+                  <span class="cf-meta">{{ branchLabel(r.sucursal) || r.sucursal_nombre || '—' }} · {{ dmy(r.fecha_gasto) }}</span>
                   <!-- GX.13 — el trabajador pudo escribir una sucursal que no está en el
                        catálogo (plaza nueva). Sin este aviso entra como una más y nadie la
                        da de alta: sucursal_nombre viene del join con warehouses. -->
@@ -313,6 +314,8 @@ interface SolSug { folio: string; fecha: string | null; importe: number; benefic
   `],
 })
 export class FinanzasCapturasSinFolioComponent {
+  /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
+  readonly branchLabel = branchLabel;
   private readonly svc = inject(CapturasSinFolioService);
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);

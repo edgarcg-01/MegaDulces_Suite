@@ -29,7 +29,8 @@ import { Permission } from '../../../core/constants/permissions';
 // `[SN.4]` El proyecto y el espacio activos salen del mapa de la suite (ADR-061), no de una
 // union hardcodeada + cadena de `startsWith`. Es lo que permite la migaja Espacio › Proyecto ›
 // Página con las etiquetas de negocio de la spec ("Configuración de la suite", "Punto de Venta").
-import { LANDING_ROUTE, entryLabel, resolveProjectForUrl, resolveSpaceForUrl } from '../../../core/constants/suite-map';
+import { LANDING_ROUTE, resolveProjectForUrl } from '../../../core/constants/suite-map';
+import { construirMigas, type Miga } from './layout-crumbs';
 import { ModoDetalle, MultitareaService } from '../../../core/services/multitarea.service';
 // WMS.1 — fuente única de áreas/tabs del proyecto Almacén: el sidebar deriva
 // sus items de acá para que nunca se desincronice de la barra de tabs.
@@ -533,33 +534,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * Etiqueta del proyecto para la migaja. `[SN.4]` La del mapa de la suite (la que ve la persona
-   * en "Mi trabajo": "Ventas", "Punto de Venta", "Configuración de la suite") y, si la URL no cae
-   * en ningún proyecto, la de siempre.
-   */
-  projectLabel = computed(() => {
-    const url = this.currentUrl();
-    const enMapa = resolveSpaceForUrl(url);
-    if (enMapa) return entryLabel(enMapa.entry);
-    return resolveProjectForUrl(url)?.label ?? 'Trade Marketing';
-  });
-
-  /** `[SN.4]` Espacio de responsabilidad al que pertenece el proyecto (primer eslabón de la migaja). */
-  spaceLabel = computed(() => resolveSpaceForUrl(this.currentUrl())?.space.label ?? null);
-
-  /**
    * Migaja sin la página: Espacio › Proyecto, deduplicando cuando coinciden (Configuración de la
    * suite es espacio y proyecto a la vez; repetirlo sería ruido).
    */
-  crumbs = computed<string[]>(() => {
-    const out: string[] = [];
-    for (const c of [this.spaceLabel(), this.projectLabel()]) {
-      if (c && out[out.length - 1] !== c) out.push(c);
-    }
-    return out;
-  });
-
-  readonly landingRoute = LANDING_ROUTE;
+  crumbs = computed<Miga[]>(() => construirMigas(this.currentUrl()));
 
   private tiendaNavGroups: { title: string; items: NavItem[] }[] = [
     {
@@ -627,9 +605,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Egresos y bancos',
       items: [
         { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
-        // [IG.2] El otro lado del libro, pegado a su hermano. Permiso PROPIO: hay roles que ven
-        // la venta y no el gasto, así que no se cuelga de FINANCE_EXPENSES_VER.
-        { label: 'Ingresos contables', icon: 'pi pi-arrow-down-left', route: '/finanzas/ingresos', permission: Permission.FINANCE_INCOME_VER },
         { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
         { label: 'Caja General', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
         { label: 'Caja (captura)', icon: 'pi pi-pencil', route: '/finanzas/caja-general', permission: Permission.FINANCE_CAJA_VER },
@@ -638,6 +613,24 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // que ahora recorre TODAS las pestañas en vez de nombrar tres rutas a mano.
         { label: 'Caja Fuerte', icon: 'pi pi-lock', route: '/finanzas/caos', permission: Permission.FINANCE_CAOS_VER },
         { label: 'Cancelados', icon: 'pi pi-ban', route: '/finanzas/cancelados', permission: Permission.FINANCE_BANK_VER },
+        { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
+        /**
+         * `[SM.9]` Llegó de Almacén. Cuadra el arqueo ciego contra el corte de caja
+         * (ADR-029) — dinero con una pata en inventario, no al revés. Su permiso
+         * `RECONCILIATION_*` es de dominio propio y no cambió al mudarse.
+         */
+        { label: 'Cuadre de movimientos', icon: 'pi pi-sliders-h', route: '/finanzas/cuadre', permission: Permission.RECONCILIATION_VER },
+      ],
+    },
+    {
+      // [CSU.2] Sección propia para el lado ingreso (decisión de Francisco, 2026-10-05): lo que
+      // vendieron las cajas, el libro de ingresos y lo que deben/pagaron los clientes.
+      title: 'Ingresos',
+      items: [
+        { label: 'Cortes / Sucursales', icon: 'pi pi-shop', route: '/finanzas/cortes-sucursales', permission: Permission.FINANCE_CORTES_VER },
+        // [IG.2] Permiso PROPIO: hay roles que ven la venta y no el gasto, así que no se cuelga
+        // de FINANCE_EXPENSES_VER.
+        { label: 'Ingresos contables', icon: 'pi pi-arrow-down-left', route: '/finanzas/ingresos', permission: Permission.FINANCE_INCOME_VER },
         /**
          * UNA entrada para Cartera y Cobranza: son las dos mitades del mismo oficio (lo
          * que te deben / lo que te pagaron) y adentro se cambia con el selector. `anyOf`
@@ -647,13 +640,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Crédito', icon: 'pi pi-address-book', route: '/finanzas/cartera',
           permission: Permission.FINANCE_RECEIVABLES_VER,
           anyOf: [Permission.FINANCE_RECEIVABLES_VER, Permission.FINANCE_COLLECTIONS_VER] },
-        { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
-        /**
-         * `[SM.9]` Llegó de Almacén. Cuadra el arqueo ciego contra el corte de caja
-         * (ADR-029) — dinero con una pata en inventario, no al revés. Su permiso
-         * `RECONCILIATION_*` es de dominio propio y no cambió al mudarse.
-         */
-        { label: 'Cuadre de movimientos', icon: 'pi pi-sliders-h', route: '/finanzas/cuadre', permission: Permission.RECONCILIATION_VER },
       ],
     },
     {
