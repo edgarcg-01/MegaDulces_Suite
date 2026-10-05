@@ -57,6 +57,7 @@ function restarDias(fecha: string, n: number): string {
           <div class="sr-kpi"><b>{{ d.totales.creados }}</b><span>Creadas</span></div>
           <div class="sr-kpi"><b>{{ d.totales.resueltos }}</b><span>Resueltas</span></div>
           <div class="sr-kpi"><b>{{ d.totales.abiertos }}</b><span>Abiertas</span></div>
+          <div class="sr-kpi" [title]="'Sólo el tiempo que se registró a mano, en ' + d.totales.con_tiempo + ' de ' + d.totales.creados + ' solicitudes. Un ticket sin registro no es un ticket sin trabajo.'"><b>{{ fmtMin(d.totales.minutos_trabajados) }}</b><span>Tiempo registrado</span></div>
           <div class="sr-kpi" [title]="nota(d.primera_respuesta)"><b>{{ fmtPct(d.primera_respuesta.cumplimiento_pct) }}</b><span>Primera respuesta a tiempo</span></div>
           <div class="sr-kpi" [title]="nota(d.resolucion)"><b>{{ fmtPct(d.resolucion.cumplimiento_pct) }}</b><span>Resolución a tiempo</span></div>
           <div class="sr-kpi" title="Solicitudes que alguna vez se reabrieron: «resuelto» no resolvió."><b>{{ fmtPct(d.totales.reabiertos_pct) }}</b><span>Reabiertas</span></div>
@@ -91,7 +92,7 @@ function restarDias(fecha: string, n: number): string {
           <h2 id="h-cat">Por categoría</h2>
           <div class="sr-wrap dt-scope">
             <table class="sr-table dt-stack">
-              <thead><tr><th>Categoría</th><th>Creadas</th><th>Resueltas</th><th>Resolución fuera de plazo</th><th>Reabiertas</th><th>Mediana resolución</th></tr></thead>
+              <thead><tr><th>Categoría</th><th>Creadas</th><th>Resueltas</th><th>Resolución fuera de plazo</th><th>Reabiertas</th><th>Mediana resolución</th><th>Tiempo registrado</th><th>Con tiempo</th></tr></thead>
               <tbody>
                 @for (c of d.por_categoria; track c.category_id) {
                   <tr>
@@ -101,11 +102,14 @@ function restarDias(fecha: string, n: number): string {
                     <td role="cell" data-label="Fuera de plazo">{{ c.resolucion_incumplidos }}</td>
                     <td role="cell" data-label="Reabiertas">{{ c.reabiertos }}</td>
                     <td role="cell" data-label="Mediana resolución">{{ tiempo(c.t_resolucion) }}</td>
+                    <td role="cell" data-label="Tiempo registrado">{{ fmtMin(c.minutos_trabajados) }}</td>
+                    <td role="cell" data-label="Con tiempo" [title]="'Solicitudes de esta categoría con al menos un registro de tiempo'">{{ c.con_tiempo }} de {{ c.creados }}</td>
                   </tr>
-                } @empty { <tr><td colspan="6" class="sr-vacio">Sin solicitudes en el periodo.</td></tr> }
+                } @empty { <tr><td colspan="8" class="sr-vacio">Sin solicitudes en el periodo.</td></tr> }
               </tbody>
             </table>
           </div>
+          <p class="sr-hint">«Tiempo registrado» es sólo lo que quien atiende anotó a mano en la ficha: «—» significa que <b>nadie lo registró</b>, no que no se trabajó; «Con tiempo» dice en cuántas solicitudes hay registro. No se desglosa por persona.</p>
         </section>
 
         <section class="sr-card" aria-labelledby="h-suc">
