@@ -952,6 +952,8 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('⭐ el reporte por sucursal trae a las oficinas, con su nombre', !!fila && fila.warehouse_name === 'Oficinas Corporativas' && fila.creados >= 3, JSON.stringify(fila));
       const enBase = await knex('servicedesk.requests').where({ id: tOf.body?.id }).first('warehouse_code');
       check('la base guarda «OF» (varchar(20), sin chocar con ningún código de Kepler)', enBase.warehouse_code === 'OF');
+    }
+
     // ── 21. El tiempo registrado: la lista en la ficha y las horas en Reportes ───────────
     {
       console.log('\n21 — tiempo registrado: lista en la ficha (sólo quien atiende) y horas por categoría');
