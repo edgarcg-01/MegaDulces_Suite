@@ -200,8 +200,8 @@
 */
 .mt-body {
   display: grid;
-  grid-template-columns: minmax(0, 30rem) minmax(0, 1fr);
-  gap: var(--sp-8);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--sp-6);
   min-height: 0;
   padding: var(--sp-5) calc(var(--sp-6) + env(safe-area-inset-right))
            calc(var(--sp-4) + env(safe-area-inset-bottom)) calc(var(--sp-6) + env(safe-area-inset-left));
@@ -212,7 +212,16 @@
  * máximo son 8 bandejas (~420px) contra ~900 disponibles. Si algún día no cupiera, rueda — antes
  * que cortar, que es el daño que esta fase vino a arreglar.
  */
-.mt-work { overflow: auto; }
+/*
+  [SN.28] Las dos columnas dejan de ser «una fija y el resto»: son TRAMOS de la rejilla de 12.
+
+  Antes la de trabajo estaba clavada en 30rem y el catalogo se quedaba con todo el sobrante -- a
+  1986 px de pantalla eso eran ~1950 px para 24 destinos, y a 2533 la mitad del monitor en huecos.
+  Con 4 y 8 doceavos las dos crecen juntas: la de trabajo pasa de 480 px fijos a ~630 a 1986 (mas
+  ancho, menos renglones cortados) y el catalogo baja de 1426 a ~1270, que es justo lo que necesita
+  para tres celdas por fila.
+*/
+.mt-work { grid-column: span 4; overflow: auto; }
 /*
  * `[SN.12]` El delimitante. Antes las dos columnas sólo estaban separadas por un `gap`, y sin una
  * línea no se leían como dos cosas distintas — parecía una sola superficie con un hueco. Hairline,
@@ -232,9 +241,10 @@
   absolute` del componente viven en la cabecera y en la columna de trabajo -- ninguno aca adentro.
 */
 .mt-spaces {
+  grid-column: span 8;
   overflow: hidden;
   border-left: 1px solid var(--border-color);
-  padding-left: var(--sp-8);
+  padding-left: var(--sp-6);
   container-type: inline-size;
   container-name: espacios;
 }
@@ -672,76 +682,39 @@
   columna en las tres pantallas medidas (1366, 1440, 1920).
 */
 /*
-  [SN.28] MULTI-COLUMNA, Y ACOTADA A 3 COLUMNAS. Las dos cosas importan.
+  [SN.28] CELDAS EN UNA REJILLA DE 12, con el tramo calculado para que la ultima fila CIERRE.
 
-  ── El error que esto corrige, medido en pantalla ──────────────────────────────────────────────
-  Un primer intento reemplazo `columns` por una REJILLA de grupos (`grid` + `align-items: start`),
-  razonando que multi-columna equilibra por altura y deja la ultima columna corta: con los 7 grupos
-  de 1-6-3-3-5-2-4 el reparto da 368/368/368/184 px y sobran 184 en la cuarta.
+  ── La historia corta, porque costo seis rondas ────────────────────────────────────────────────
+  Aca vivieron, en orden: `columns: 21rem` (multi-columna, equilibra por ALTURA y dejaba la cuarta
+  columna a 184 de 368), una rejilla de grupos (ALINEA por fila, y los grupos cortos dejaban ~15
+  celdas de hueco), `columns: 14rem` con tope (434 px de canaleta muerta a 1986 px de pantalla) y
+  `column-count` (sin canaleta, pero con 7 grupos en 3 columnas el reparto da 3+3+1 y la tercera
+  queda **436 px mas corta**).
 
-  El razonamiento era correcto y la conclusion no. En una rejilla, el alto de cada FILA lo fija el
-  grupo mas alto de esa fila, y los cortos dejan el hueco debajo. Medido sobre la captura a 2533 px:
-  Comercial (6) estira la fila 1, y debajo de Direccion General (1) quedaron ~5 celdas de vacio, mas
-  ~3 bajo Almacenes y ~3 bajo Administracion; en la fila 2, ~3 bajo Sistemas y una cuarta ranura
-  entera sin usar. Son ~15 celdas de hueco donde `columns` dejaba ~3.
+  ⭐ Todas fallaron por lo mismo: los 7 grupos son bloques indivisibles de altura muy dispareja
+  --alturas 106 · 386 · 218 · 218 · 330 · 162 · 274, Comercial es 3.6x Direccion General-- y
+  ninguna cantidad de columnas los reparte parejo. El error de metodo fue medir el alto TOTAL
+  contra el disponible y darlo por bueno; lo que se ve en pantalla es el DESNIVEL entre columnas.
 
-  ⭐ La leccion: multi-columna EMPAQUETA (los grupos cortos comparten columna) y la rejilla ALINEA
-  (cada fila paga por su grupo mas alto). Con bloques de altura dispareja, empaquetar gana.
+  ── Lo que cambia de raiz ──────────────────────────────────────────────────────────────────────
+  Ya no se reparte nada: cada espacio es una CELDA con su tramo, y el tramo se calcula sobre
+  cuantos espacios ve esa persona (`tramoEspacio()` en el .ts). De a 3 por fila; si sobra uno toma
+  la fila entera, si sobran dos se parten la fila. **La ultima fila siempre cierra**, con 2
+  espacios o con 7.
 
-  ── Por que ADEMAS hay que acotar el ancho ─────────────────────────────────────────────────────
-  `columns` tampoco salva sola: lo que la rompe es tener MAS columnas que grupos por columna. A
-  2533 px entraban 5 columnas para 7 grupos, o sea casi una columna por grupo -- y ahi equilibrar
-  no tiene con que. Medido sobre las alturas reales (suman 1816 px con la celda a 3.5rem):
-    · 2 columnas -> 928 / 888, hueco 40 px
-    · 3 columnas -> hueco ~150 px
-    · 5 columnas -> cada columna un grupo, hueco de cientos
-  ── ⚠️ Se CUENTAN las columnas, no se declara su ancho ─────────────────────────────────────────
-  Aca vivio `columns: <ancho>`, o sea `column-width`, y con eso el navegador decide CUANTAS entran.
-  Dos veces mordio: primero `21rem` que pedia 1048 px de los 1040 que habia --faltaron OCHO, caia a
-  2 columnas y aparecia scroll--, y despues `14rem` con un tope de 60rem que dejaba **434 px de
-  ancho sin usar** a 1986 px de pantalla, porque las columnas no se estiran: el sobrante queda como
-  canaleta muerta a la derecha.
+  La celda ancha no queda vacia porque `.mt-grid` fluye con `auto-fill`: mas ancho, mas columnas
+  internas. El tamano se ajusta al contenido -- que es lo que la guia de bento pide, y lo contrario
+  de lo que yo hacia al dimensionar por cantidad de puertas.
 
-  `column-count` invierte la pregunta: fijamos CUANTAS y las columnas se estiran hasta llenar el
-  panel. Se acabo la canaleta y se acabo el cliff de un pixel -- el numero de columnas ya no
-  depende de una division que hay que acertar.
-
-  ── La restriccion dura: CERO scroll en laptop ─────────────────────────────────────────────────
-  Los cortes salen de que todo entre sin rodar, con el equilibrado real de los 7 grupos:
-
-    1280x720 (regla angosta)   panel 792 px -> 3 col | 612 px de 584+ disponibles
-    1366x768                   panel 806 px -> 3 col | 612 px de 632
-    1986x996 (sin tope)        panel 1426   -> 3 col de 451 px | 742 px de 814
-
-  ── ⚠️ La cuarta columna entra a 88rem, y mi razon anterior para dejarla en 110 estaba MAL ──────
-  Aquel comentario decia: "tres y no cuatro, porque 4 columnas dejan 378 px muertos abajo contra
-  183 con tres". Medido el alto TOTAL contra el disponible -- que es la pregunta equivocada. Lo que
-  se ve en pantalla no es el sobrante global sino el DESNIVEL entre columnas, y ahi tres es el peor
-  reparto posible de estos 7 grupos.
-
-  Alturas reales de los grupos: 106 · 386 · 218 · 218 · 330 · 162 · 274 (Comercial es 3.6x
-  Direccion General). El equilibrado llena en orden de DOM, asi que:
-
-      2 columnas -> desnivel 146 px   pero no entra sin scroll abajo de 1900
-      3 columnas -> desnivel 436 px   (reparte 3+3+1: 710 | 710 | 274)
-      4 columnas -> desnivel 218 px   (reparte 2+2+2+1: 492 | 436 | 492 | 274)
-
-  Y la cuarta columna arregla de paso el otro defecto: a 2049 px de ventana la tarjeta pasa de
-  472 px a 349, y una tarjeta de 472 px con la palabra "Ventas" adentro esta 79% vacia -- la
-  canaleta de pagina que se quito en el commit anterior se habia mudado adentro de la tarjeta.
-
-  ⛔ El desnivel NO se puede llevar a cero mientras los grupos sean indivisibles: siete bloques tan
-  dispares no reparten parejo en ninguna cantidad de columnas. Llevarlo a cero exige dejarlos
-  partirse entre columnas (`break-inside: auto`), y eso deja un fragmento SIN encabezado. Es una
-  decision de producto, no de CSS, y queda abierta.
+  ⛔ Nada de `grid-auto-flow: dense`: tapa huecos reordenando, y el salto de foco que deja es el
+  riesgo de accesibilidad numero uno del patron ("source order mismatch").
 */
 .mt-espacios {
-  column-count: 1;
-  column-gap: var(--sp-5);
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--sp-4);
+  align-items: start;
 }
-@container espacios (min-width: 34rem) { .mt-espacios { column-count: 2; } }
-@container espacios (min-width: 46rem) { .mt-espacios { column-count: 3; } }
-@container espacios (min-width: 88rem) { .mt-espacios { column-count: 4; } }
 /*
   Un grupo partido a la mitad entre dos columnas seria peor que el hueco que vino a resolver.
 
@@ -749,7 +722,26 @@
   siendo el hermano adyacente del ultimo de la primera, asi que un margin-top le habria hundido el
   arranque respecto de la columna de al lado.
 */
-.mt-space { break-inside: avoid; margin-bottom: var(--sp-5); }
+/*
+  [SN.28] LA CELDA. Deja de ser un bloque que fluye y pasa a ser una caja de la rejilla, con su
+  borde siempre puesto.
+
+  El borde estaba atado a `@container (min-width: 56rem)` porque antes era decoracion opcional: con
+  los grupos fluyendo en columnas, encajonarlos en pantallas chicas costaba alto sin aportar. Ahora
+  es lo que hace que la celda se LEA como celda -- sin el, una rejilla de 12 con tramos distintos
+  se ve como texto suelto desalineado. Y ya no cuesta: el tramo lo decide `tramoEspacio()`, no el
+  ancho de la ventana.
+
+  Se van `break-inside: avoid` (no hay columnas que partir) y el `margin-bottom` (la separacion la
+  pone el `gap` de la rejilla, y es simetrica).
+*/
+.mt-space {
+  box-sizing: border-box;
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-lg);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  background: var(--card-bg);
+}
 /*
   [SN.28] El encabezado del grupo SUBE de peso, no baja.
 
@@ -802,10 +794,17 @@
 
   Es `ul` en el HTML, asi que hay que apagar las vinetas y el relleno del user-agent.
 */
+/*
+  [SN.28] Los destinos FLUYEN segun el ancho que le toco a su celda.
+
+  Es la pieza que hace que la celda ancha no quede vacia: el espacio que cae al final de la fila
+  toma `span 12` y, con `auto-fill`, sus puertas se reparten en cuatro o cinco columnas internas en
+  vez de quedar en una tira con 80% de aire al lado. El tamano se ajusta al contenido, no al reves.
+*/
 .mt-grid {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--sp-1) var(--sp-3);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -838,20 +837,37 @@
   Entra holgado: nombre (12 px x 1.2) + origen (10 px x 1.25) = 27 px de texto en 48 px de caja. Y
   sigue muy por encima del piso de 24x24 px que pide WCAG 2.2 / 2.5.8 (Target Size).
 */
+/*
+  [SN.28] ⚠️ La puerta deja de ser TARJETA, porque la celda ya lo es.
+
+  Con `.mt-space` convertida en caja blanca con borde, dejar la puerta tambien con fondo blanco y
+  borde pone una caja adentro de otra del mismo color: dos bordes a 1 px separados por 12, y el de
+  adentro no delimita nada que el de afuera no delimite ya. DESIGN.md:540 lo dice directo -- «el
+  borde es el ultimo recurso, no el primero».
+
+  Queda como renglon: el aviso lo da el FONDO al pasar el mouse, que ademas es mas visible que el
+  cambio de borde de 1 px que `[SN.26]` midio como invisible.
+*/
 .mt-cell {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   min-height: 2.5rem;
   padding: 0 var(--sp-2);
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
   border-radius: var(--r-md);
   color: inherit;
   text-decoration: none;
   min-width: 0;
   /* Brief: 200 ms maximo. En un sistema transaccional una animacion larga se lee como lentitud. */
-  transition: border-color 120ms ease-in-out, color 120ms ease-in-out;
+  transition: background-color 120ms ease-in-out, color 120ms ease-in-out;
+}
+/*
+  Los resultados del buscador NO viven adentro de una celda: flotan sobre el fondo de la pagina, asi
+  que ahi la tarjeta sigue haciendo falta para que se lean como objetos y no como texto suelto.
+*/
+.mt-subs-grid .mt-cell {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
 }
 
 /*
@@ -951,8 +967,9 @@
   La transicion baja de 180 a 120 ms: a esta densidad el puntero cruza varias filas por segundo y
   180 ms deja una estela de renglones todavia apagandose.
 */
-.mt-cell:hover { border-color: var(--action); }
+.mt-cell:hover { background: var(--hover-bg); }
 .mt-cell:hover .mt-cell-nm { color: var(--action); }
+.mt-subs-grid .mt-cell:hover { border-color: var(--action); }
 /* El tinte del area sube de 22% a 38%: el aviso se ve, y sigue siendo SU color, no uno prestado. */
 .mt-cell:hover .mt-cell-chip {
   background: color-mix(in srgb, var(--mt-tint, var(--action)) 38%, var(--card-bg));
@@ -1132,21 +1149,16 @@
 .mt-subs { margin-bottom: var(--sp-4); }
 
 /*
-  [SN.25] Las «islas» de Fiori, SOLO donde el alto sobra. Medido: seis superficies con borde,
-  padding y encabezado cuestan 384 px -- el 41% del presupuesto a 1920 y el 61% a 1366. Por debajo
-  de 100rem el grupo se forma con espaciado y rotulo, que ademas es lo que pide DESIGN.md:540
-  ("el borde es el ultimo recurso, no el primero").
+  [SN.25] midio que las «islas» de Fiori sólo se pagaban donde el alto sobraba: seis superficies
+  con borde, padding y encabezado costaban 384 px, el 41% del presupuesto a 1920 y el 61% a 1366.
+  Por eso el borde vivia detras de un umbral de ancho.
+
+  [SN.28] El umbral se retira y la caja pasa a `.mt-space` sin condicion. La premisa cambio: ya no
+  es decoracion sobre un grupo que fluye, es lo que delimita una CELDA de la rejilla de 12 -- sin
+  ella, tramos de 4 y de 12 mezclados se leen como texto desalineado. Y el costo de 384 px se
+  recupero por otro lado: la puerta de adentro perdio su propio borde y su fondo (ver `.mt-cell`),
+  asi que donde habia dos bordes ahora hay uno.
 */
-@container espacios (min-width: 56rem) {
-  .mt-space {
-    border: 1px solid var(--border-color);
-    border-radius: var(--r-md);
-    padding: var(--sp-3);
-    background: var(--layout-bg);
-    margin-bottom: var(--sp-3);
-  }
-  .mt-space-title { margin-bottom: var(--sp-2); }
-}
 
 /*
  * `[SN.25]` Acá vivía `.mt-card`: la tarjeta apaisada de tres líneas con el chip de color.
@@ -1203,7 +1215,10 @@
   esta pantalla existe para no hacer.
 */
 @media (max-height: 56rem) {
-  .mt-space { margin-bottom: var(--sp-4); }
+  /* [SN.28] Era `.mt-space { margin-bottom }`. Con la rejilla la separacion la pone el `gap`, y
+     achicarlo ahi la achica en los DOS ejes, que es lo que esta pantalla necesita cuando el alto
+     aprieta. */
+  .mt-espacios { gap: var(--sp-3); }
 }
 
 /*
@@ -1245,15 +1260,30 @@
   forma, en todos lados.
 */
 
-/* ── Angosto: la izquierda se achica antes de romper la rejilla de puertas ─ */
+/*
+  ── Angosto: la de trabajo cede un doceavo antes de romper la rejilla de puertas ─
+  [SN.28] Era un tope en rem; ahora son tramos. A 1280 px, 4/12 le dejarian ~390 px a la columna de
+  trabajo y sus renglones empezarian a cortarse, asi que toma 5 y el catalogo baja a 7 -- que sigue
+  alcanzando para dos celdas por fila.
+*/
 @media (max-width: 80rem) {
-  .mt-body { grid-template-columns: minmax(0, 26rem) minmax(0, 1fr); gap: var(--sp-6); }
+  .mt-body { gap: var(--sp-5); }
+  .mt-work { grid-column: span 5; }
+  .mt-spaces { grid-column: span 7; }
 }
 
 /* ── Pantallas chicas: la altura fija deja de valer y se vuelve documento ─ */
 @media (max-width: 62rem), (max-height: 39rem) {
   .mt-page { height: auto; min-height: 100dvh; overflow: visible; }
   .mt-body { grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); }
+  /*
+    [SN.28] ⚠️ Los tramos SE RESETEAN acá, y no es cosmético: con una sola columna declarada, un
+    `grid-column: span 4` no se recorta -- crea tres columnas implícitas y el layout se desarma.
+    Mismo motivo para los espacios: apiladas, cada celda ocupa el ancho entero.
+  */
+  .mt-work, .mt-spaces { grid-column: auto; }
+  .mt-espacios { grid-template-columns: minmax(0, 1fr); }
+  .mt-space { grid-column: auto !important; }
   .mt-work, .mt-spaces, .mt-scroll { overflow: visible; }
   /* Apiladas, el delimitante deja de ir al costado y pasa a separar arriba. */
   .mt-spaces { border-left: 0; border-top: 1px solid var(--border-color); padding-left: 0; padding-top: var(--sp-5); }

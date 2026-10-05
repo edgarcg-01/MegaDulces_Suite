@@ -838,6 +838,7 @@
           <div class="mt-espacios">
           @for (s of espacios(); track s.id) {
             <section class="mt-space" [id]="'espacio-' + s.id" [attr.data-espacio]="s.id"
+                     [style.gridColumn]="tramoEspacio($index, espacios().length)"
                      [attr.aria-labelledby]="'h-' + s.id">
               <h3 class="mt-space-title" [id]="'h-' + s.id">
                 <i class="mt-space-ico" [class]="s.icon" aria-hidden="true"></i>
