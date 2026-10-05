@@ -1223,27 +1223,45 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   /** Minutos a partir de los cuales el dato de Kepler ya no describe el turno de hoy. */
   private readonly ODS_VIEJO_MIN = 20;
   /**
-   * ¿El dato está viejo? Lee TAMBIÉN `turnosAl()` a propósito: con la ingesta
-   * parada `datosAl` deja de cambiar y un `computed` que sólo dependiera de él no
-   * se volvería a evaluar nunca — justo cuando más hace falta. `turnosAl` cambia
+   * ¿El dato está viejo? Lee TAMBIÉN turnosAl() a propósito: con la ingesta
+   * parada datosAl deja de cambiar y un computed que sólo dependiera de él no
+   * se volvería a evaluar nunca — justo cuando más hace falta. turnosAl cambia
    * en cada vuelta del poll, así que esto se re-mide cada 45 s.
+   *
+   * ⚠️ Lo que enciende el aviso es que EL DATO ESTÉ VIEJO, no el estado del
+   * carril. Acá había un corto que devolvía el aviso en cuanto el estado era
+   * de falla, sin mirar la fecha: como el backend mandaba a falla todo lo que
+   * no fuera ok —incluido running, donde el carril pasa el 56.9 % del tiempo—
+   * la franja roja vivía encendida más de media jornada. La cajera no puede
+   * hacer nada con "el carril tropezó hace 20 s y ya se levantó"; lo que sí le
+   * cambia el trabajo es que la lista no describa su turno. Que la ingesta
+   * venga fallando sólo cambia la REDACCIÓN, para que sepa por qué está vieja.
    */
   readonly odsViejo = computed<{ titulo: string; detalle: string } | null>(() => {
     const ahora = this.turnosAl();
-    if (this.datosStatus() === 'error') {
-      return {
-        titulo: 'La ingesta de Kepler está fallando.',
-        detalle: 'El último intento de traer datos terminó en error, así que esta lista puede estar incompleta.',
-      };
-    }
     const dato = this.datosAl();
-    if (!dato || !ahora) return null;
+    const fallando = this.datosStatus() === 'error';
+    // Sin una sola corrida buena de la cual medir no se puede decir de cuándo es
+    // esta lista. Sólo se grita si ADEMÁS la ingesta viene fallando: un null a
+    // secas puede ser una consulta que no respondió, y para eso ya está la
+    // pildora chica que declara "frescura sin medir" sin ocupar media pantalla.
+    if (!dato) {
+      return fallando
+        ? {
+          titulo: 'No sabemos de cuándo es esta lista.',
+          detalle: 'La ingesta de Kepler viene fallando y no hay ninguna corrida buena contra la cual medirla.',
+        }
+        : null;
+    }
+    if (!ahora) return null;
     const min = Math.floor((new Date(ahora).getTime() - new Date(dato).getTime()) / 60000);
     if (min < this.ODS_VIEJO_MIN) return null;
     const cuanto = min >= 1440 ? `${Math.floor(min / 1440)} día(s)` : (min >= 60 ? `${Math.floor(min / 60)} h` : `${min} min`);
     return {
       titulo: `No estamos recibiendo turnos de Kepler desde hace ${cuanto}.`,
-      detalle: 'Esta lista está vieja: que esté vacía NO significa que ya contaste todo.',
+      detalle: fallando
+        ? 'La ingesta viene fallando y esta lista está vieja: que esté vacía NO significa que ya contaste todo.'
+        : 'Esta lista está vieja: que esté vacía NO significa que ya contaste todo.',
     };
   });
   /** Fecha de negocio en hora de México (§10: no re-convertir con `new Date()` suelto). */
