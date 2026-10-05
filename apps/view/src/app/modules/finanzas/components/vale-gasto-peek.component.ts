@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, model, output, signal } from '@angular/core';
+import { branchLabel } from '../../../core/constants/store-branches';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
@@ -112,7 +113,7 @@ interface DocDelExpediente {
 
         <dl class="vp-datos">
           <div><dt>Folio</dt><dd class="vp-mono">{{ p.folio_solicitud || 'sin folio' }}</dd></div>
-          <div><dt>Sucursal</dt><dd>{{ p.sucursal || '—' }}</dd></div>
+          <div><dt>Sucursal</dt><dd>{{ branchLabel(p.sucursal) || '—' }}</dd></div>
           <div><dt>Departamento</dt><dd>{{ p.departamento || p.solicitante || 'sin departamento' }}</dd></div>
           <div><dt>Levantado</dt><dd>{{ diaLocal(p.created_at) | date: 'dd/MM/yy' }}@if (p.created_hora) { {{ p.created_hora }} } · {{ p.created_by || '—' }}</dd></div>
           <!-- Las dos fechas, siempre: el gasto puede ser de otro día que el levantamiento. -->
@@ -342,6 +343,8 @@ interface DocDelExpediente {
   `],
 })
 export class ValeGastoPeekComponent {
+  /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
+  readonly branchLabel = branchLabel;
   private readonly sanitizer = inject(DomSanitizer);
 
   readonly open = model(false);

@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { branchLabel } from '../../../core/constants/store-branches';
 import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
@@ -247,7 +248,7 @@ const ESTADO_LABEL: Record<string, string> = {
                          (click)="abrir(p)" (keydown.enter)="abrir(p)" (keydown.space)="abrir(p); $event.preventDefault()">
                   <div class="ap-it-head">
                     <span class="ap-folio">{{ p.folio_solicitud || 'sin folio' }}</span>
-                    @if (p.sucursal) { <span class="ap-suc">suc {{ p.sucursal }}</span> }
+                    @if (p.sucursal) { <span class="ap-suc">{{ branchLabel(p.sucursal) }}</span> }
                     <!-- [GX.67] El DÍA de captura cuando no es hoy. Sin esto, un vale de
                          julio y uno de hace diez minutos se ven igual en la misma lista. -->
                     @if (p.created_at && p.created_at !== hoy()) {
@@ -462,6 +463,8 @@ const ESTADO_LABEL: Record<string, string> = {
   `],
 })
 export class FinanzasAprobacionGastosComponent {
+  /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
+  readonly branchLabel = branchLabel;
   private readonly svc = inject(ComprobacionesService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);

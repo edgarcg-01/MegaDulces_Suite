@@ -884,11 +884,12 @@ export class ExpenseProofsService {
     if (faltan.length) throw new BadRequestException(faltan.map((f) => f.motivo).join('; '));
 
     return this.tk.run(async (trx) => {
-      // Importe esperado = el de la solicitud Kepler (XA1501, fuente de verdad); si no se
-      // encuentra, cae al del DTO (auto-rellenado por el front desde la misma solicitud).
-      const solRow = await trx('analytics.expense_requests')
-        .where({ tenant_id: this.tenantCtx.requireTenantId(), folio: folioSolicitud })
-        .first(trx.raw('importe::numeric AS importe'));
+      // `[GX.68]` Importe = el de la solicitud Kepler (XA1501, fuente de verdad), tomado de
+      // `sol`, que ya se buscó arriba por (sucursal, folio). ⛔ Acá se volvía a consultar
+      // SÓLO por folio: con 373 folios repetidos entre plazas, `.first()` grababa el
+      // importe de la solicitud de OTRA tienda. Si la solicitud aún no llegó por el feed,
+      // cae al del DTO (el front lo rellena desde la misma solicitud).
+      const solRow = sol;
       const importe = Number(solRow?.importe) || Number(dto.importe) || 0;
 
       // Dos momentos: la captura SIEMPRE entra como 'recibida' (esperando aprobación). El

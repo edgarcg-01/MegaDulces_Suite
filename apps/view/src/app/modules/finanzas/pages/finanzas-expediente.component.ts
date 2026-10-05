@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { branchLabel } from '../../../core/constants/store-branches';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -160,7 +161,7 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
                     } @empty {
                       <span class="exp-sin-gasto">sin gasto aplicado</span>
                     }
-                    <span class="exp-suc">{{ v.sucursal || '—' }}</span>
+                    <span class="exp-suc">{{ branchLabel(v.sucursal) || '—' }}</span>
                     <span class="exp-prov">{{ v.proveedor || 'sin proveedor' }}</span>
                     <span class="exp-monto">{{ money(v.importe) }}</span>
                     <span class="exp-etapa" [attr.data-e]="v.protocolo.etapa">{{ etapaLabel(v.protocolo.etapa) }}</span>
@@ -326,6 +327,8 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
   `],
 })
 export class FinanzasExpedienteComponent {
+  /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
+  readonly branchLabel = branchLabel;
   private readonly svc = inject(ComprobacionesService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly toast = inject(MessageService);

@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, model, output, signal } from '@angular/core';
+import { branchLabel } from '../../../core/constants/store-branches';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -47,7 +48,7 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
             <dl class="ev-sol-g">
               @if (s.solicitante) { <div><dt>Solicitante</dt><dd>{{ s.solicitante }}</dd></div> }
               @if (s.acreedor || s.beneficiario) { <div><dt>Beneficiario</dt><dd>{{ s.acreedor || s.beneficiario }}</dd></div> }
-              @if (s.sucursal) { <div><dt>Sucursal</dt><dd>{{ s.sucursal_nombre || s.sucursal }}</dd></div> }
+              @if (s.sucursal) { <div><dt>Sucursal</dt><dd>{{ branchLabel(s.sucursal) || s.sucursal_nombre }}</dd></div> }
               @if (s.fecha) { <div><dt>Fecha</dt><dd>{{ dmy(s.fecha) }}</dd></div> }
               <div><dt>Importe</dt><dd class="ev-num">{{ money(s.importe) }}</dd></div>
               @if (s.concepto) { <div class="ev-wide"><dt>Concepto</dt><dd>{{ s.concepto }}</dd></div> }
@@ -166,6 +167,8 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
   `],
 })
 export class ExpenseEvidenceDialogComponent {
+  /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
+  readonly branchLabel = branchLabel;
   private readonly svc = inject(ComprobacionesService);
   private readonly destroyRef = inject(DestroyRef);
 
