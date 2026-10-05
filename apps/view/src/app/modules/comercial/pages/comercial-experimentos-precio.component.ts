@@ -49,7 +49,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 <div class="surf-page xp">
   <p-toast />
 
-  <div class="pr-tabs"><app-page-tabs [tabs]="tabs" variant="liquid" /></div>
+  <div class="pr-tabs"><app-page-tabs [tabs]="tabs" /></div>
 
   <header class="surf-page-head">
     <div class="surf-page-head-text">

@@ -10,7 +10,7 @@ import { almacenTabsForUrl } from './almacen-tabs';
  *
  * Monta la barra de tabs **una sola vez** para todas las páginas del área, en
  * vez de repetir `<app-page-tabs>` en los ~19 componentes. El orden visual es
- * el mismo que ya usa Contabilidad con `variant="liquid"`: la barra va ARRIBA
+ * el mismo que ya usa Contabilidad (segmentado iOS, el DEFAULT desde el 2026-10-05): la barra va ARRIBA
  * del `surf-page-head` de la página.
  *
  * Las rutas hijas conservan sus paths — este shell es un padre con `path: ''`,
@@ -29,7 +29,7 @@ import { almacenTabsForUrl } from './almacen-tabs';
   template: `
     @if (tabs().length > 1) {
       <div class="alm-area-tabs">
-        <app-page-tabs [tabs]="tabs()" variant="liquid" />
+        <app-page-tabs [tabs]="tabs()" />
       </div>
     }
     <router-outlet />

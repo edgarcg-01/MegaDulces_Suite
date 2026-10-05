@@ -1830,11 +1830,16 @@ input:focus, textarea:focus, select:focus {
   background: var(--surface-ground);
   border: 1px solid var(--border-color);
   border-radius: 9999px;
-  backdrop-filter: blur(14px) saturate(180%);
-  -webkit-backdrop-filter: blur(14px) saturate(180%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    0 1px 2px rgba(0, 0, 0, 0.04);
+  /* ⛔ Acá había `backdrop-filter: blur(14px) saturate(180%)` y un `inset` de blanco al 60%.
+     Los dos se retiraron el 2026-10-05, al volver esta variante el DEFAULT de las 37 pantallas:
+       · El blur no se veía: el riel tiene `background: var(--surface-ground)` OPACO, así que no
+         hay nada detrás que desenfocar. Lo único que hacía era forzar una capa de composición
+         en cada repintado. Y el glassmorphism está en la lista anti-slop del doc de cards.
+       · El `inset` de blanco al 60% es un brillo superior que en CLARO casi no se nota y en
+         OSCURO sale como una línea brillante sobre un riel casi negro — el caso exacto que la
+         regla 12b describe: lo que no voltea por tema se ve bien en uno y roto en el otro.
+         La regla dice además que en oscuro la profundidad la lleva el BORDE, que ya está. */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   /* Scroll horizontal en mobile cuando los tabs no caben. */
   overflow-x: auto;
   overflow-y: hidden;
@@ -1859,7 +1864,17 @@ input:focus, textarea:focus, select:focus {
   left: 0;
   height: calc(100% - 8px);
   /* width y transform los setea el componente vía JS (syncLiquidIndicator).
-     Fallback inicial mientras AfterViewInit no ha corrido: 0 width. */
+     Fallback inicial mientras AfterViewInit no ha corrido: 0 width.
+
+     ⚠️ Sí, acá se anima `width`, que §Motion prohíbe — y acá es correcto, por dos razones que
+     conviene no olvidar al copiar este patrón:
+       1. El elemento es `position: absolute`, así que cambiar su ancho **no reacomoda a ningún
+          hermano**: el costo de layout queda contenido en él solo. No es el caso de una barra
+          en flujo, que empuja a todo lo que tiene al lado.
+       2. `scaleX()` no sirve ACÁ: la píldora tiene radio 9999px sobre 36px de alto, y escalarla
+          en X achata los casquetes a elipses de forma visible — que es justo lo contrario de
+          un selector iOS. (En `MetricCard` sí se pudo porque el radio lo pone el track.)
+     Queda contado en la deuda [DS.1] y declarado acá para que nadie lo "arregle" a ciegas. */
   width: 0;
   transform: translate3d(0, 0, 0);
   background: var(--card-bg);
@@ -1869,10 +1884,11 @@ input:focus, textarea:focus, select:focus {
     width var(--dur-max, 350ms) cubic-bezier(0.34, 1.4, 0.5, 1),
     background-color 320ms ease,
     box-shadow 320ms ease;
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.06),
-    0 4px 16px rgba(0, 0, 0, 0.10),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  /* §datos densos 1: una superficie IN-PAGE lleva borde hairline O sombra, nunca ambas, y la
+     sombra difusa adentro de la página está prohibida. Acá había `0 4px 16px` — una mancha de
+     16px bajo una píldora de 36px de alto— más otro `inset` de blanco que no voltea en oscuro.
+     Queda la sombra de contacto, que es lo que separa la píldora del riel. */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.07), 0 1px 1px rgba(0, 0, 0, 0.04);
   pointer-events: none;
   z-index: 0;
   will-change: transform, width;
@@ -1884,10 +1900,11 @@ input:focus, textarea:focus, select:focus {
      marrón sobre el dark neutro. Con la rampa en zinc el token ya es neutro
      (#3F3F46), así que el workaround se retira. */
   background: var(--neutral-700);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.4),
-    0 4px 16px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  /* En oscuro la elevación la lleva el FONDO MÁS CLARO de la píldora, no la sombra: negro sobre
+     casi-negro no se ve (regla 12b). Se retiró el `0 4px 16px` por eso. El `inset` de blanco al
+     8% sí se queda: es el brillo superior, que es la técnica correcta de elevación en oscuro —
+     y al 8% no es la línea brillante que había en el riel al 60%. */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .liquid-tab {

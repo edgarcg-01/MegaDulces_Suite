@@ -79,9 +79,6 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
 
   <section class="ir-bar">
     <div class="ir-bar-l">
-      <p-datepicker [(ngModel)]="rango" selectionMode="range" dateFormat="dd/mm/yy"
-                    placeholder="Toda la ventana" [readonlyInput]="true" [showClear]="true"
-                    [showIcon]="true" appendTo="body" />
       <p-multiselect [options]="plazaOpts()" [ngModel]="plazasSel()"
                      (ngModelChange)="setPlazas($event)" placeholder="Todas las plazas"
                      [showClear]="true" appendTo="body" [maxSelectedLabels]="2"
@@ -113,9 +110,8 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       <div class="ir-sub-bar">
         <span>
           {{ filas().length }}@if (filas().length !== d.routes.length) { de {{ d.routes.length }}} rutas ·
-          {{ d.desde === TODO ? 'saldo actual, desde la primera carga de cada una' : d.desde + ' → ' + d.hasta }} ·
-          <!-- Qué día es "ayer" lo decide el servidor en hora de México, no el navegador. -->
-          ayer = {{ d.ayer }} ({{ d.rutas_cargaron_ayer }} de {{ d.rutas_totales }} cargaron) ·
+          al día de hoy, desde la primera carga de cada una ·
+          @if (sinTope()) { <strong>{{ sinTope() }} sin tope declarado</strong> · }
           dato al {{ d.data_as_of ?? 'sin medir' }}
         </span>
         <span>
@@ -140,11 +136,11 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
               -->
               <th>Ruta</th>
               <th>Plaza</th>
-              <th class="num">Trae hoy</th>
-              <th class="num" title="Productos que se le cargaron y todavía no vende">Le sobra</th>
-              <th class="num" title="Productos que vendió sin que se los hayamos cargado. Es un INDICIO: Kepler no tiene documento de retorno de ruta, así que no es un faltante medido">Vendió de más</th>
-              <th class="num">Se le cargó ayer</th>
-              <th class="num" title="Días desde su último movimiento: ni carga ni venta">Días parada</th>
+              <th class="num" title="Lo que el camión tiene arriba hoy. NO se le resta la mercancía previa: eso se declara aparte">Trae hoy</th>
+              <th class="num" title="El tope que tiene declarado. Si lo pasa, está acumulando capital arriba de la camioneta">Tope</th>
+              <th class="num" title="La última vez que se le cargó, y cuánto. No se pregunta por «ayer»: el domingo es inhábil y la respuesta sería siempre cero">Última carga</th>
+              <th class="num" title="La última vez que vendió, y cuánto">Última venta</th>
+              <th class="num" title="Mercancía que ya traía antes de su primer embarque y fue vendiendo. Se declara, no se resta">Traía sin contar</th>
               <th class="num" title="Diferencia del cuadre: cargado − vendido − lo que trae. Tiene que ser 0">Descuadre</th>
               <th class="num"><span class="ir-sr">Detalle</span></th>
             </tr>
@@ -153,28 +149,40 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
             <tr [class.ir-fila-mal]="!cierra(r)" [class.ir-fila-parada]="parada(r)">
               <td class="dt-id ir-mono" role="cell"><strong>{{ r.route_no }}</strong></td>
               <td class="ir-tenue" role="cell" data-label="Plaza">{{ r.plaza }}</td>
-              <td class="num ir-mono ir-fuerte" role="cell" data-label="Trae hoy">{{ inv(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num ir-mono ir-ok" role="cell" data-label="Le sobra">{{ invPos(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num ir-mono ir-bad" role="cell" data-label="Vendió de más">{{ invNeg(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="num ir-mono ir-fuerte" role="cell" data-label="Trae hoy"
+                  [class.ir-bad]="excede(r)"
+                  [title]="excede(r) ? 'Pasa su tope por ' + money(inv(r) - (r.tope_inventario ?? 0)) : ''">{{ inv(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <!--
-                NO cargó y cargó $0 no son lo mismo. Un 0 acá diría que le mandamos el camión
-                vacío; lo que pasó es que no hubo embarque. Se declara con guion y se dice
-                cuándo fue la última vez (ADR-056).
+                Se muestra QUE TAN CERCA esta del tope, no solo si lo paso. Medido: con 80,000
+                ninguna de las 11 lo pasa, asi que un semaforo binario estaria siempre verde y
+                no diria nada. El porcentaje si: la 504 va al 75% y la 505 al 25%.
+                Sin tope declarado se dice, no se asume un default escondido (ADR-056).
               -->
-              <td class="num ir-mono" role="cell" data-label="Se le cargó ayer">
-                @if (r.cargado_ayer_costo === null) {
-                  <span class="ir-tenue"
-                        [title]="r.ultima_carga ? 'No hubo embarque ayer. Su última carga fue el ' + r.ultima_carga : 'Sin embarques registrados'">
-                    no cargó</span>
-                } @else {
-                  {{ r.cargado_ayer_costo | currency:'MXN':'symbol-narrow':'1.2-2' }}
+              <td class="num ir-mono" role="cell" data-label="Tope">
+                @if (r.tope_inventario === null) { <span class="ir-tenue" title="Sin tope declarado">sin tope</span> }
+                @else {
+                  <span [class.ir-bad]="excede(r)" [class.ir-aviso]="!excede(r) && pctTope(r) >= 80"
+                        [title]="'Tope ' + (r.tope_inventario | currency:'MXN':'symbol-narrow':'1.0-0')">{{ pctTope(r) | number:'1.0-0' }}%</span>
                 }
               </td>
-              <td class="num ir-mono" role="cell" data-label="Días parada"
-                  [class.ir-bad]="parada(r)">
-                @if (sinMover(r) === null) { <span class="ir-tenue">—</span> }
-                @else { {{ sinMover(r) }} }
+              <td class="num ir-mono" role="cell" data-label="Última carga">
+                @if (r.ultima_carga) {
+                  <span [title]="'El ' + r.ultima_carga">{{ r.ultima_carga_imp | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                  <small class="ir-tenue"> · {{ r.ultima_carga }}</small>
+                } @else { <span class="ir-tenue">nunca</span> }
               </td>
+              <td class="num ir-mono" role="cell" data-label="Última venta">
+                @if (r.ultima_venta) {
+                  <span [title]="'El ' + r.ultima_venta">{{ r.ultima_venta_imp | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                  <small class="ir-tenue"> · {{ r.ultima_venta }}</small>
+                } @else { <span class="ir-tenue">nunca</span> }
+              </td>
+              <!--
+                Se declara, no se resta. Va en tono tenue y no en rojo: no es un faltante ni un
+                error -- es mercancia real que se vendio y se cobro, de antes del primer embarque.
+              -->
+              <td class="num ir-mono ir-tenue" role="cell" data-label="Traía sin contar"
+                  [title]="'Neto si se restara: ' + (invNeto(r) | currency:'MXN':'symbol-narrow':'1.2-2')">{{ invNeg(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="num ir-mono" role="cell" data-label="Descuadre">
                 @if (cierra(r)) { <span class="ir-tenue">0</span> }
                 @else { <strong class="ir-bad">{{ delta(r) | number:'1.2-2' }}</strong> }
@@ -236,9 +244,9 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
       </dl>
     }
 
-    <div class="ir-tabs" role="tablist" aria-label="Detalle de la ruta">
+    <div class="ir-tabs" role="radiogroup" aria-label="Detalle de la ruta">
       @for (t of PESTANAS; track t.value) {
-        <button type="button" role="tab" [attr.aria-selected]="pestana() === t.value"
+        <button type="button" role="radio" [attr.aria-checked]="pestana() === t.value"
                 [class.on]="pestana() === t.value" (click)="setPestana(t.value)">{{ t.label }}</button>
       }
     </div>
@@ -505,6 +513,8 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
     .ir-tenue { color: var(--c-text-3); }
     .ir-ok { color: var(--ok-fg); }
     .ir-bad { color: var(--bad-fg); }
+    /* El escalon que falta: 80% del tope no es un error todavia, pero conviene mirarlo. */
+    .ir-aviso { color: var(--warn-fg); }
     .ir-fila-mal { background: var(--bad-soft-bg); }
     .ir-fila-parada td { opacity: .72; }
 
@@ -610,7 +620,11 @@ export class ComercialInventarioRutaComponent {
     if (rt) this.rutasSel.set(rt.split(',').filter(Boolean));
     const f = q.get('from');
     const t = q.get('to');
-    if (f && t) this.rango = [new Date(f + 'T12:00:00'), new Date(t + 'T12:00:00')];
+    // ⛔ La PORTADA no toma ventana: muestra lo que los camiones traen HOY. Un rango de
+    // fechas en la portada contestaba "cuanto movio en esos dias", que es otra pregunta --
+    // y con una ventana corta la cifra de inventario deja de significar nada.
+    // El rango sigue vivo en el desglose de cada ruta, que es donde vive el historial.
+    this.rango = null;
     this.cargar();
   }
 
@@ -768,7 +782,27 @@ export class ComercialInventarioRutaComponent {
   // ── Lecturas por valuación. Las dos columnas NUNCA se mezclan. ──
   carga = (r: RouteInventoryRow) => this.metrica() === 'costo' ? r.carga_costo : r.carga_venta;
   vendido = (r: RouteInventoryRow) => this.metrica() === 'costo' ? r.cogs_costo : r.venta_cliente;
-  inv = (r: RouteInventoryRow) => this.metrica() === 'costo' ? r.inventario_costo : r.inventario_venta;
+  /**
+   * ⭐ **Lo que el camión TRAE es sólo el lado positivo, y el negativo NO se le resta.**
+   *
+   * Auditada la ruta 21 de punta a punta contra Kepler: vendió **$179,044 entre el 6 y el 14 de
+   * julio, antes de su primer embarque documentado**. Esa mercancía existió, se vendió y cobró,
+   * pero nadie la contó — y al restarla el camión aparecía con **−$11,693** cuando de verdad
+   * tiene **$20,981** arriba.
+   *
+   * No es un faltante: es un arranque sin contar. Restarlo mezcla dos cosas distintas —lo que
+   * hay y lo que hubo— y publica la segunda como si fuera la primera.
+   *
+   * Medido sobre las 11 rutas: el neto decía **$84,389** y lo que de verdad traen arriba son
+   * **$389,165**, con **$304,776** de mercancía previa que se estaba restando. Cinco rutas se
+   * publicaban en negativo y **ninguna de las once está vacía**.
+   *
+   * ⚠️ El neto NO desaparece: sigue viajando y es el que cierra el cuadre
+   * (`cargado − vendido = positivo + negativo`). Lo que cambia es cuál es el titular.
+   */
+  inv = (r: RouteInventoryRow) => this.metrica() === 'costo' ? r.inventario_costo_pos : r.inventario_venta_pos;
+  /** El neto, el que cuadra contra `cargado − vendido`. Vive en el desglose, no en la portada. */
+  invNeto = (r: RouteInventoryRow) => this.metrica() === 'costo' ? r.inventario_costo : r.inventario_venta;
   invPos = (r: RouteInventoryRow) => this.metrica() === 'costo' ? r.inventario_costo_pos : r.inventario_venta_pos;
   invNeg = (r: RouteInventoryRow) => this.metrica() === 'costo' ? r.inventario_costo_neg : r.inventario_venta_neg;
   delta = (r: RouteInventoryRow) => this.metrica() === 'costo' ? r.delta_costo : r.delta_venta;
@@ -806,6 +840,20 @@ export class ComercialInventarioRutaComponent {
     return v === 'sin_costo' ? 'sin costo' : v === 'sin_precio' ? 'sin precio' : '';
   }
 
+  /** Qué tanto de su tope lleva ocupado. NULL sin tope: no se inventa un 0 ni un 100. */
+  pctTope = (r: RouteInventoryRow) =>
+    r.tope_inventario ? this.inv(r) / Number(r.tope_inventario) * 100 : 0;
+
+  /** ¿Este camión pasa su tope? Sin tope declarado la respuesta es NO, nunca "sí por las dudas". */
+  excede = (r: RouteInventoryRow) =>
+    r.tope_inventario !== null && this.inv(r) > Number(r.tope_inventario);
+
+  /** Pesos para los textos que se arman en TS, donde el pipe de Angular no llega. */
+  money(v: number): string {
+    return Number(v || 0).toLocaleString('es-MX',
+      { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+  }
+
   etiquetaMetrica(): string {
     return this.metrica() === 'costo' ? 'a lo que costó' : 'a lo que vale al cliente';
   }
@@ -840,6 +888,15 @@ export class ComercialInventarioRutaComponent {
   readonly totalNeg = computed(() => this.suma((r) => this.invNeg(r)));
   readonly totalCogsErp = computed(() => this.suma((r) => Number(r.cogs_erp) || 0));
   /** El COGS que SÍ se publica: valuado al costo del embarque, cobertura 100% de las cargas. */
+  /** Camiones que pasan su tope, y por cuánto. Es la pregunta del negocio, no un adorno. */
+  readonly excedidos = computed(() => this.filas().filter((r) => this.excede(r)).length);
+  readonly sobreTope = computed(() => this.filas().reduce(
+    (a, r) => a + (this.excede(r) ? this.inv(r) - Number(r.tope_inventario) : 0), 0));
+  /** El camión que va más cerca de su tope, en porcentaje. Es lo que importa cuando nadie lo pasa. */
+  readonly masCargado = computed(() =>
+    this.filas().reduce((mx, r) => Math.max(mx, this.pctTope(r)), 0));
+  readonly sinTope = computed(() => this.filas().filter((r) => r.tope_inventario === null).length);
+
   readonly totalCogs = computed(() => this.suma((r) => Number(r.cogs_costo) || 0));
   /**
    * Lo cargado ayer. Suma sólo las rutas que tuvieron embarque; las que no, no entran.
@@ -897,32 +954,30 @@ export class ComercialInventarioRutaComponent {
     }
     const dias = this.diasDeVenta();
     const cola = dias === null ? '' : ` — unos ${Math.round(dias)} días de venta`;
-    const cierre = '. La cuenta cierra al centavo: lo cargado − lo vendido = lo que traen.';
+    const cierre = '. La cuenta cierra al centavo contra lo cargado y lo vendido.';
     const p = `${Math.abs(pct).toFixed(1)} %`;
-    if (pct < -5) {
-      return {
-        tono: 'aviso', icono: 'pi-arrow-circle-down',
-        titulo: 'Están vendiendo mercancía que no les cargamos.',
-        cuerpo: `Vendieron ${p} más de lo que se les subió${cola}. Es mercancía que ya traían `
-          + 'antes del primer embarque documentado. Nadie cuenta los camiones, así que no se '
-          + `puede saber cuánta les queda${cierre}`,
-      };
-    }
+    const previa = Math.abs(this.totalNeg());
+    // Lo que el camion ya traia, dicho SIEMPRE: es la cifra que antes se restaba en silencio.
+    const nota = previa > 0
+      ? ` Aparte, vendieron ${this.money(previa)} de mercancía que ya traían antes de su primer `
+        + 'embarque: existió y se cobró, pero nadie la contó, así que se declara y no se resta.'
+      : '';
     if (pct > 20) {
       return {
-        tono: 'mal', icono: 'pi-exclamation-circle', titulo: 'Se les está quedando mercancía arriba.',
-        cuerpo: `Al cierre traen el ${p} de todo lo que se les cargó${cola}${cierre}`,
+        tono: 'mal', icono: 'pi-exclamation-circle',
+        titulo: 'Se les está quedando mercancía arriba.',
+        cuerpo: `Traen el ${p} de todo lo que se les cargó${cola}${cierre}${nota}`,
       };
     }
     if (pct > 5) {
       return {
         tono: 'aviso', icono: 'pi-info-circle', titulo: 'Se les queda algo arriba.',
-        cuerpo: `Al cierre traen el ${p} de todo lo que se les cargó${cola}${cierre}`,
+        cuerpo: `Traen el ${p} de todo lo que se les cargó${cola}${cierre}${nota}`,
       };
     }
     return {
       tono: 'ok', icono: 'pi-check-circle', titulo: 'Venden casi todo lo que se les carga.',
-      cuerpo: `Al cierre traen apenas el ${p} de todo lo que se les cargó${cola}${cierre}`,
+      cuerpo: `Traen apenas el ${p} de todo lo que se les cargó${cola}${cierre}${nota}`,
     };
   });
 
@@ -945,21 +1000,32 @@ export class ComercialInventarioRutaComponent {
         tone: inv < 0 ? 'bad' : 'brand',
         sub: pct === null
           ? 'sin carga con que compararlo'
-          : `${Math.abs(pct).toFixed(1)}% de todo lo que se les cargó`,
+          : `${Math.abs(pct).toFixed(1)}% de lo cargado · sin restar lo previo`,
       },
       // Es la única cifra ACUMULADA que queda arriba, y lo dice: el resto de la portada es el
       // estado de hoy. El acumulado completo vive en el desglose de cada ruta.
       { label: 'Lo vendido les costó', value: this.totalCogs(), format: 'currency2', tone: 'default',
         sub: 'desde su primera carga, al precio del embarque' },
       {
-        label: 'Se les cargó ayer',
-        value: this.totalAyer(), format: 'currency2',
-        tone: conCarga === 0 ? 'bad' : 'default',
-        // Las rutas que NO cargaron son el dato, no el relleno: medido, cargan 6 de 11 por dia.
-        sub: rutas ? `salieron ${conCarga} de ${rutas} camiones` : 'sin rutas',
+        /**
+         * El KPI que pidió el negocio: cuántos camiones pasan su tope. Reemplaza al de «cargado
+         * ayer», que no era la pregunta — el domingo es inhábil y el sábado tampoco cargan, así
+         * que daba 0 de 11 y no decía nada.
+         */
+        label: 'Pasan su tope',
+        value: `${this.excedidos()} de ${rutas}`,
+        format: 'text',
+        tone: this.excedidos() > 0 ? 'bad' : this.masCargado() >= 80 ? 'warn' : 'ok',
+        // Cuando nadie lo pasa, el dato util es cuanto le falta al que va adelante.
+        sub: this.excedidos() > 0
+          ? `${this.money(this.sobreTope())} arriba del tope`
+          : `el más cargado va al ${this.masCargado().toFixed(0)}%`,
       },
-      { label: 'Vendieron de más', value: this.totalNeg(), format: 'currency2', tone: 'bad',
-        sub: 'sin que se los cargáramos — indicio, no faltante contado' },
+      // Tono neutro a proposito: NO es un faltante ni un error. Es mercancia real, vendida y
+      // cobrada, de antes del primer embarque. Se declara para que no desaparezca, pero pintarla
+      // en rojo la convertiria en una alarma que nadie puede accionar.
+      { label: 'Traían sin contar', value: this.totalNeg(), format: 'currency2', tone: 'default',
+        sub: 'vendido de antes del primer embarque — no se resta' },
       {
         label: 'La cuenta',
         value: d?.cuadra === 'no_cierra' ? 'NO cierra' : d?.cuadra === 'cierra' ? 'Cierra' : 'Sin medir',
@@ -967,7 +1033,7 @@ export class ComercialInventarioRutaComponent {
         tone: d?.cuadra === 'no_cierra' ? 'bad' : d?.cuadra === 'cierra' ? 'ok' : 'default',
         sub: d?.cuadra === 'sin_medir'
           ? 'ninguna ruta se movió: no hay qué cuadrar'
-          : 'lo cargado − lo vendido = lo que traen',
+          : 'lo cargado − lo vendido = lo que traen + lo que traían',
       },
     ];
   });

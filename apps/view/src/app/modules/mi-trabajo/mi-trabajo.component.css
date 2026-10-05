@@ -183,6 +183,21 @@
  * sola línea a ningún ancho probado) y los 64 px que suelta hacen crecer cada tarjeta de 249 a 262,
  * lo que baja de 3 a 2 las segundas líneas que piden un tercer renglón. De 30 a 28 ya no gana nada.
  */
+/*
+  [SN.28] SIN tope de ancho: la pagina usa el monitor entero.
+
+  Aca hubo un `max-width: 97rem` con centrado, y nacio para tapar un problema de otro lado: cuando
+  el catalogo se repartia por `column-width`, a 1950 px de panel se abria en 5 columnas finas para
+  7 grupos y el equilibrado dejaba de tener con que. El tope lo evitaba, pero el precio, medido a
+  1986 px de pantalla, eran **434 px de margen muerto** a los lados.
+
+  Se retira porque la causa se arreglo de raiz: `.mt-espacios` ahora CUENTA sus columnas en vez de
+  declarar su ancho, asi que se estiran hasta llenar el panel y nunca se multiplican solas. El
+  sobrante va a las columnas, no a un margen.
+
+  ⚠️ La columna de trabajo sigue clavada en 30rem a proposito: es una lista de texto, y estirarla
+  solo alarga el renglon. Todo el ancho extra es del catalogo, que si lo aprovecha.
+*/
 .mt-body {
   display: grid;
   grid-template-columns: minmax(0, 30rem) minmax(0, 1fr);
@@ -203,10 +218,25 @@
  * línea no se leían como dos cosas distintas — parecía una sola superficie con un hueco. Hairline,
  * como todo separador del sistema (DESIGN.md: la profundidad la lleva el borde de 1 px, no sombra).
  */
+/*
+  [SN.28] `container-type` para que el catalogo mida SU panel, no la ventana.
+
+  La isla de cada grupo se encendia con `@media (min-width: 100rem)`, y eso es medir la cosa
+  equivocada: lo que decide si la isla cabe no es el ancho del monitor sino el del panel derecho, y
+  entre los dos hay una columna fija de 30rem, dos paddings y un hueco. Con el cuerpo acotado a
+  97rem el panel se queda en 62rem aunque la ventana tenga 158. La consulta de contenedor pregunta
+  por el ancho real (Baseline desde agosto 2025, ~93% de soporte).
+
+  ⚠️ `container-type: inline-size` aplica `contain: layout`, que convierte al elemento en bloque
+  contenedor de sus descendientes absolutos. Verificado antes de ponerlo: los cinco `position:
+  absolute` del componente viven en la cabecera y en la columna de trabajo -- ninguno aca adentro.
+*/
 .mt-spaces {
   overflow: hidden;
   border-left: 1px solid var(--border-color);
   padding-left: var(--sp-8);
+  container-type: inline-size;
+  container-name: espacios;
 }
 
 .mt-col-head {
@@ -641,36 +671,95 @@
   escritorio en 3 sin una sola consulta de medios. 23rem es el ancho que hace entrar DOS celdas por
   columna en las tres pantallas medidas (1366, 1440, 1920).
 */
+/*
+  [SN.28] MULTI-COLUMNA, Y ACOTADA A 3 COLUMNAS. Las dos cosas importan.
+
+  ── El error que esto corrige, medido en pantalla ──────────────────────────────────────────────
+  Un primer intento reemplazo `columns` por una REJILLA de grupos (`grid` + `align-items: start`),
+  razonando que multi-columna equilibra por altura y deja la ultima columna corta: con los 7 grupos
+  de 1-6-3-3-5-2-4 el reparto da 368/368/368/184 px y sobran 184 en la cuarta.
+
+  El razonamiento era correcto y la conclusion no. En una rejilla, el alto de cada FILA lo fija el
+  grupo mas alto de esa fila, y los cortos dejan el hueco debajo. Medido sobre la captura a 2533 px:
+  Comercial (6) estira la fila 1, y debajo de Direccion General (1) quedaron ~5 celdas de vacio, mas
+  ~3 bajo Almacenes y ~3 bajo Administracion; en la fila 2, ~3 bajo Sistemas y una cuarta ranura
+  entera sin usar. Son ~15 celdas de hueco donde `columns` dejaba ~3.
+
+  ⭐ La leccion: multi-columna EMPAQUETA (los grupos cortos comparten columna) y la rejilla ALINEA
+  (cada fila paga por su grupo mas alto). Con bloques de altura dispareja, empaquetar gana.
+
+  ── Por que ADEMAS hay que acotar el ancho ─────────────────────────────────────────────────────
+  `columns` tampoco salva sola: lo que la rompe es tener MAS columnas que grupos por columna. A
+  2533 px entraban 5 columnas para 7 grupos, o sea casi una columna por grupo -- y ahi equilibrar
+  no tiene con que. Medido sobre las alturas reales (suman 1816 px con la celda a 3.5rem):
+    · 2 columnas -> 928 / 888, hueco 40 px
+    · 3 columnas -> hueco ~150 px
+    · 5 columnas -> cada columna un grupo, hueco de cientos
+  ── ⚠️ Se CUENTAN las columnas, no se declara su ancho ─────────────────────────────────────────
+  Aca vivio `columns: <ancho>`, o sea `column-width`, y con eso el navegador decide CUANTAS entran.
+  Dos veces mordio: primero `21rem` que pedia 1048 px de los 1040 que habia --faltaron OCHO, caia a
+  2 columnas y aparecia scroll--, y despues `14rem` con un tope de 60rem que dejaba **434 px de
+  ancho sin usar** a 1986 px de pantalla, porque las columnas no se estiran: el sobrante queda como
+  canaleta muerta a la derecha.
+
+  `column-count` invierte la pregunta: fijamos CUANTAS y las columnas se estiran hasta llenar el
+  panel. Se acabo la canaleta y se acabo el cliff de un pixel -- el numero de columnas ya no
+  depende de una division que hay que acertar.
+
+  ── La restriccion dura: CERO scroll en laptop ─────────────────────────────────────────────────
+  Los cortes salen de que todo entre sin rodar, con el equilibrado real de los 7 grupos:
+
+    1280x720 (regla angosta)   panel 792 px -> 3 col | 612 px de 584+ disponibles
+    1366x768                   panel 806 px -> 3 col | 612 px de 632
+    1986x996 (sin tope)        panel 1426   -> 3 col de 451 px | 742 px de 814
+
+  ⚠️ Tres columnas y no cuatro arriba de 1900: medido, 4 columnas bajan el alto a 436 px y dejan
+  **378 px muertos abajo** contra 183 con tres. Mas columnas llenan a lo ancho y vacian a lo alto.
+  La cuarta recien entra cuando el panel pasa de 110rem, donde tres columnas serian de 640 px.
+*/
 .mt-espacios {
-  /*
-    ⚠️ 21rem y no 23rem, y la diferencia la decidio UN pixel. El navegador parte en
-    floor((disponible + hueco) / (ancho + hueco)): a 1366 el catalogo tiene 755 px utiles y con
-    23rem pedia 388x2 = 776 > 775, asi que caia a UNA columna -- justo la pantalla mas apretada se
-    quedaba sin el arreglo. Medido con 21rem: 2 columnas a 1366 y a 1440, 3 a 1920.
-  */
-  columns: 21rem;
+  column-count: 1;
   column-gap: var(--sp-5);
 }
+@container espacios (min-width: 34rem) { .mt-espacios { column-count: 2; } }
+@container espacios (min-width: 46rem) { .mt-espacios { column-count: 3; } }
+@container espacios (min-width: 110rem) { .mt-espacios { column-count: 4; } }
 /*
   Un grupo partido a la mitad entre dos columnas seria peor que el hueco que vino a resolver.
 
-  ⚠️ Y la separacion va ABAJO, no arriba entre hermanos: el primer grupo de la segunda columna
-  sigue siendo el hermano adyacente del ultimo de la primera, asi que un margin-top le habria
-  hundido el arranque respecto de la columna de al lado. Al pie de cada grupo el reparto es parejo.
+  ⚠️ La separacion va ABAJO, no arriba entre hermanos: el primer grupo de la segunda columna sigue
+  siendo el hermano adyacente del ultimo de la primera, asi que un margin-top le habria hundido el
+  arranque respecto de la columna de al lado.
 */
 .mt-space { break-inside: avoid; margin-bottom: var(--sp-5); }
+/*
+  [SN.28] El encabezado del grupo SUBE de peso, no baja.
+
+  La tentacion era retirarlo: 7 encabezados para 24 destinos es uno cada 3.4, y cada uno costaba
+  linea + regla + margen. Pero el encabezado es la via de navegacion PRINCIPAL de quien usa lector
+  de pantalla -- WebAIM, encuesta #11 (jul-ago 2026, 1,780 respuestas): 67.8% navega por
+  encabezados contra 3.4% por landmarks. Quitar los 7 `h3` le sacaba a dos de cada tres su forma
+  de recorrer la pagina.
+
+  Y para quien ve, agrupar tampoco sobra: arriba de ~7 items, dos niveles le ganan a una lista
+  plana porque encoge el numero de opciones PERCIBIDAS (Hick, chunking).
+
+  Lo que se abarata es su cromo -- el grupo ya no paga el margen de multi-columna -- y lo que
+  SUBE es su legibilidad: de 11 px `--text-muted` (que se leia como decoracion) a 12 px
+  `--text-main`. Si el encabezado sostiene la navegacion, tiene que verse.
+*/
 .mt-space-title {
   margin: 0 0 var(--sp-2);
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: .07em;
   font-weight: var(--fw-bold);
-  color: var(--text-muted);
+  color: var(--text-main);
 }
-.mt-space-ico { font-size: var(--fs-xs); color: var(--text-faint); }
+.mt-space-ico { font-size: var(--fs-xs); color: var(--text-muted); }
 .mt-space-n {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
@@ -682,33 +771,61 @@
 .mt-badge-prop { font-size: var(--fs-nano); text-transform: none; letter-spacing: 0; }
 
 /*
-  [SN.25] LA GRILLA RIGIDA (brief de Edgar, patron Odoo / SAP Fiori).
+  [SN.28] Dentro del grupo, UNA columna: la celda toma el ancho completo.
 
-  `auto-fill` + `minmax` fuerza que todas las celdas midan exactamente lo mismo y que no queden
-  huecos asimetricos al final de la fila. El minimo baja de 15.5rem a 9.5rem porque el presupuesto
-  vertical lo exige: medido sobre el layout vigente, la columna derecha tiene 944 px de alto a
-  1920x1080 y 632 px a 1366x768, y la tarjeta 1:1 de 240 px que pedia el brief necesita 2,245 px.
-  No hay tamano de cuadrado que entre con 22 modulos -- ni 120 px. Lo que entra es esta celda.
+  Aca vivia `repeat(auto-fill, minmax(9.5rem, 1fr))`, que partia cada grupo en dos celdas de
+  ~154 px. Ese ancho es el que obligaba a truncar el segundo renglon, y el truncado se comia justo
+  el texto que no podia perderse: "de Compras / Reabastecimi...", que es LO UNICO que distingue las
+  dos tarjetas «Hallazgos» de Auditoria.
+
+  Con el grupo ya repartido en la rejilla de arriba, la celda hereda los ~21rem de su columna: el
+  doble de ancho, el nombre entra en una linea y el origen entra entero. La celda se achica de alto
+  (4rem -> 3.5rem) porque ya no necesita dos renglones para el nombre.
+
+  Es `ul` en el HTML, asi que hay que apagar las vinetas y el relleno del user-agent.
 */
 .mt-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+  [SN.28] La rejilla del BUSCADOR, que es otro problema.
+
+  Los resultados de submodulos pueden ser hasta 101 y ocupan el ancho entero del panel, no la
+  columna de un grupo: en una sola fila vertical serian una tira interminable. Conservan varias
+  columnas -- pero con el minimo subido de 9.5rem a 16rem, porque acá la segunda linea SIEMPRE
+  dice de donde sale ("de Compras / Reabastecimiento") y a 154 px eso se cortaba igual que en los
+  grupos.
+*/
+.mt-subs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
   gap: var(--sp-2);
 }
 
 /*
-  La celda compacta: icono + nombre + UNA linea truncada. Altura fija, sin excepciones.
+  La celda: icono + nombre + (solo si es atajo) de donde sale.
 
-  [SN.27] La altura sube de 3.25rem a 4rem, y el alto salio de una medicion, no del gusto: al
-  repartir los espacios en columnas la columna derecha paso a pedir 624 px de los 732 que tiene
-  -- 108 px sin usar debajo del catalogo. Se gastan en que el NOMBRE entre (ver .mt-cell-nm).
+  [SN.27] La altura habia subido de 3.25rem a 4rem para que el nombre entrara en DOS renglones,
+  porque a 154 px de ancho 8 de 22 nombres se cortaban.
+  [SN.28] Con la celda a ancho de columna el nombre entra en uno, asi que el alto baja a 3rem y ese
+  presupuesto se devuelve al catalogo: 24 celdas x 16 px son 384 px menos de alto total, o sea
+  ~128 px menos por columna -- la diferencia entre entrar en pantalla y pedir scroll.
+
+  Entra holgado: nombre (12 px x 1.2) + origen (10 px x 1.25) = 27 px de texto en 48 px de caja. Y
+  sigue muy por encima del piso de 24x24 px que pide WCAG 2.2 / 2.5.8 (Target Size).
 */
 .mt-cell {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: 4rem;
-  padding: 0 var(--sp-3);
+  min-height: 2.5rem;
+  padding: 0 var(--sp-2);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--r-md);
@@ -716,39 +833,120 @@
   text-decoration: none;
   min-width: 0;
   /* Brief: 200 ms maximo. En un sistema transaccional una animacion larga se lee como lentitud. */
-  transition:
-    transform 180ms ease-in-out,
-    box-shadow 180ms ease-in-out,
-    border-color 180ms ease-in-out;
+  transition: border-color 120ms ease-in-out, color 120ms ease-in-out;
+}
+
+/*
+  [SN.28] EL COLOR POR AREA, que es lo que hace que esto se lea como un lanzador y no como un
+  indice. Es el gesto de Odoo (el icono distintivo es el ancla visual) y de Fiori.
+
+  ⚠️ `[SN.25]` ya habia retirado un mapa de colores de aca, y con razon: pintaba 22 ids con
+  `--chart-*` ARBITRARIAMENTE, el color no codificaba nada y encima se rellenaba saturado al hover.
+  La diferencia es que este color SI codifica un dato -- el ESPACIO, que son 7 y estan en el mapa
+  -- y nunca va solo: el encabezado del grupo dice lo mismo en palabras. Es exactamente lo que pide
+  `DESIGN.md` Q.6: determinista, tinte y no fill saturado, jamas unico portador.
+
+  Cero hex nuevos: `--chart-1..8` ya existen y estan definidos para los DOS temas, asi que el modo
+  oscuro viene resuelto. `color-mix` hace el tinte sin tener que declarar 7 variantes a mano.
+*/
+.mt-space[data-espacio='direccion-general']                { --mt-tint: var(--chart-1); }
+.mt-space[data-espacio='comercial']                        { --mt-tint: var(--chart-2); }
+.mt-space[data-espacio='almacenes-y-logistica']            { --mt-tint: var(--chart-6); }
+.mt-space[data-espacio='administracion-y-finanzas']        { --mt-tint: var(--chart-3); }
+.mt-space[data-espacio='auditoria-prevencion-control']     { --mt-tint: var(--chart-7); }
+.mt-space[data-espacio='sistemas-servicios-mantenimiento'] { --mt-tint: var(--chart-4); }
+.mt-space[data-espacio='configuracion-de-la-suite']        { --mt-tint: var(--chart-8); }
+
+.mt-cell-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /*
+    20 px y no 24: a 1366 la columna mide 245 px y cada pixel de cromo se lo quita al NOMBRE.
+    Con chip 20 + hueco 8 + padding 16 quedan 201 px, que es lo que necesita el nombre mas largo
+    que no envuelve ("Compras / Reabastecimiento", ~160 px a 12 px).
+  */
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--mt-tint, var(--text-faint)) 14%, var(--card-bg));
+  transition: background-color 120ms ease-in-out;
+}
+
+/*
+  [SN.28] El contador, patron `dynamic tile` de Fiori: la puerta deja de ser muda y dice cuanto hay
+  detras. Sale de las MISMAS colas que pinta la columna de la izquierda (ver `pendPorEntrada`).
+
+  ⚠️ Neutro y no `--action`: sobre naranja, `--action-ink` da 3.39:1, que no pasa AA para texto
+  chico -- y es deuda ya declarada en `DESIGN.md`. Un contador que no se puede leer no es un
+  contador. La urgencia la sigue diciendo la columna de trabajo, que tiene sitio para el motivo.
+*/
+.mt-cell-n {
+  flex: none;
+  min-width: 1.25rem;
+  padding: 0 var(--sp-1);
+  border-radius: 999px;
+  background: var(--hover-bg);
+  color: var(--text-main);
+  font-size: var(--fs-nano);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25rem;
+  text-align: center;
+}
+
+/*
+  [SN.28] La fila RESPIRA donde hay alto, y sólo donde lo hay.
+
+  40 px es el techo que impone la laptop: a 1366x768 son 612 px de 632 disponibles y a 44 ya hay
+  scroll. Pero en un monitor de 1986x996 el catalogo ocupa 631 px de 814 y deja **183 px muertos
+  abajo** -- apretar ahi no lo pide nadie. A 48 px pasa a 742 de 814: el fondo queda parejo y la
+  fila deja de verse espartana.
+
+  Va por CONTENEDOR y no por ventana, que es la leccion de esta fase: lo que decide si la fila
+  puede crecer es el ancho del PANEL (y con el, cuantas columnas hay para repartir el alto), no el
+  del monitor. Entre los dos hay una columna fija de 30rem, dos paddings y un hueco.
+*/
+@container espacios (min-width: 80rem) {
+  .mt-cell { min-height: 3rem; }
+  .mt-cell-chip { width: 1.5rem; height: 1.5rem; }
 }
 /*
-  Elevacion reactiva (patron Linear). ⚠️ DESIGN.md:448 prohibe la sombra difusa en una card in-page
-  y pide "borde O sombra, nunca ambas" -- pero exceptua el lift TRANSITORIO de hover, que no es
-  elevacion en reposo. Esto entra por esa puerta y queda declarado como excepcion, no como regla.
+  [SN.26] midio que el hover NO SE VEIA: Edgar lo reporto como "no existe un cambio de color al
+  hacer hover a un modulo". La causa era que la sombra se dibujaba con `--overlay-hover`, que no es
+  un color de sombra sino el TINTE DE SUPERFICIE del sistema (4.5% de tinta); repartido en 10 px de
+  blur es invisible, y el fondo no cambiaba nunca. La respuesta de entonces fue subir cuatro cosas
+  a la vez: superficie, borde, icono y `--shadow-float`.
 
-  [SN.26] ⚠️ Y NO SE VEIA. Edgar lo reporto asi: "no existe un cambio de color al hacer hover a un
-  modulo". La causa, medida: la sombra se dibujaba con var(--overlay-hover), que NO es un color de
-  sombra -- es el TINTE DE SUPERFICIE de hover del sistema, 4.5% de tinta (rgba(16,13,9,0.045)), el
-  mismo que alimentan --surface-hover-bg y --table-row-hover-bg. Una sombra al 4.5% repartida en
-  10 px de blur es invisible, y el fondo no cambiaba nunca: el unico aviso era el borde subiendo a
-  --text-muted, 1 px. Ademas el fallback que tenia escrito al lado (rgba(0,0,0,.10)) NUNCA se
-  aplicaba, porque el token SI esta definido -- el segundo argumento de var() es para la ausencia.
+  [SN.28] De esas cuatro queda la que resolvia el problema: **el cambio de fondo**. El lift de
+  -2px y la sombra se retiran con la tarjeta -- en una fila de 30 px levantar el renglon lo
+  despega de sus vecinos y el movimiento se lee como un salto, no como respuesta. Ademas
+  `transform` es propiedad de layout y estaba contada en la deuda de `[DS.1]`; esto la devuelve.
 
-  Ahora cambian cuatro cosas a la vez: la superficie sube a --card-bg (y eso ademas rescata al
-  acceso directo, que en reposo va mas apagado), el borde toma el color de accion, el icono con el,
-  y la sombra usa --shadow-float, el token de elevacion del sistema, definido para los DOS temas
-  (el que yo habia escrito a mano se volvia un halo claro en oscuro).
+  La transicion baja de 180 a 120 ms: a esta densidad el puntero cruza varias filas por segundo y
+  180 ms deja una estela de renglones todavia apagandose.
 */
-.mt-cell:hover {
-  transform: translateY(-2px);
-  background: var(--card-bg);
-  border-color: var(--action);
-  box-shadow: var(--shadow-float);
+.mt-cell:hover { border-color: var(--action); }
+.mt-cell:hover .mt-cell-nm { color: var(--action); }
+/* El tinte del area sube de 14% a 24%: el aviso se ve, y sigue siendo SU color, no uno prestado. */
+.mt-cell:hover .mt-cell-chip {
+  background: color-mix(in srgb, var(--mt-tint, var(--action)) 24%, var(--card-bg));
 }
-.mt-cell:hover .mt-cell-ico { color: var(--action); }
 .mt-cell:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.mt-cell-ico { font-size: var(--fs-sm); color: var(--text-faint); flex: none; }
-.mt-cell-tx { display: flex; flex-direction: column; min-width: 0; }
+.mt-cell-ico { font-size: var(--fs-xs); color: var(--mt-tint, var(--text-muted)); flex: none; }
+/*
+  [SN.28] El texto en LINEA, no apilado. El nombre y el origen comparten renglon y el origen
+  envuelve solo si no entra -- es lo que permite la fila de 30 px. Con `baseline` las dos letras de
+  distinto tamano se apoyan en la misma linea en vez de centrarse cada una por su cuenta.
+*/
+.mt-cell-tx {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--sp-2);
+  min-width: 0;
+}
 /*
   Jerarquia estricta (patron Attio): peso SOLO en el titulo.
 
@@ -769,15 +967,39 @@
   line-clamp: 2;
   overflow: hidden;
 }
-/* Una linea, truncada. Nunca dos: una descripcion larga deformaba la retícula. */
+/*
+  [SN.28] SE RETIRA EL TRUNCADO, y es el arreglo de fondo de esta celda.
+
+  Esta regla decia `white-space: nowrap` + `text-overflow: ellipsis`, o sea UNA linea cortada. A
+  154 px de ancho eso imprimia "de Compras / Reabastecimi..." -- y ese renglon es el UNICO dato que
+  separa las dos tarjetas «Hallazgos» de Auditoria, una de Finanzas y otra de Compras. El texto que
+  no se podia perder era exactamente el que se perdia. (`entryOrigin()` existe por eso: `[SN.10]`.)
+
+  Ahora el renglon aparece SOLO en los atajos (ver `sub` en el .ts), asi que son pocos y pueden
+  ocupar dos lineas sin deformar nada. El tope de 2 queda de red por si algun origen crece.
+
+  El color sube de `--text-faint` a `--text-muted`: a 10 px, 2.3:1 no se lee -- y esto no es
+  decoracion, es el desempate.
+*/
 .mt-cell-sb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
   font-size: var(--fs-nano);
-  color: var(--text-faint);
+  color: var(--text-muted);
   line-height: 1.25;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
 }
+/*
+  ⚠️ SIN `white-space: nowrap`. Casi se vuelve a colar al pasar el origen a la misma linea que el
+  nombre: con `flex-wrap` en `.mt-cell-tx`, si no entra al lado baja a su propio renglon y ahi
+  tiene la columna entera (~225-313 px) para 130 px de texto. Truncarlo seria repetir el defecto
+  que esta fase vino a arreglar.
+*/
+.mt-cell-sb > span { min-width: 0; }
+/* La flecha dice «vive en otro proyecto» sin gastar palabras. Decorativa: el nombre accesible
+   del enlace ya trae «atajo a X» (ver `aria-label` en el HTML). */
+.mt-cell-atajo { font-size: var(--fs-nano); color: var(--text-faint); flex: none; }
 /*
   [SN.25] La celda que NO es un modulo: es un submodulo de otro modulo, sacado a la portada.
   Medido: 11 de las 22.
@@ -793,8 +1015,19 @@
   color ni mas cajas: el titulo en peso regular contra el medium del modulo, el icono mas apagado,
   y la segunda linea diciendo literalmente de donde sale ("de Comercial / Ventas").
 */
-.mt-cell.is-alias .mt-cell-nm { font-weight: var(--fw-regular); color: var(--text-muted); }
-.mt-cell.is-alias .mt-cell-ico { opacity: .7; }
+/*
+  [SN.28] El NOMBRE del atajo deja de apagarse, y el icono tambien.
+
+  El peso regular + `--text-muted` sobre el titulo eran la unica senal de «esto vive en otro lado»
+  cuando no habia ninguna otra. Pero apagar el nombre de un destino REAL lo hace parecer
+  deshabilitado -- el mismo defecto que `[SN.26]` midio con el relleno, una capa mas arriba. Y
+  pegaba fuerte: en Auditoria y en Configuracion son grupos ENTEROS de atajos, o sea bloques que se
+  leian apagados.
+
+  Ahora la relacion la dicen dos cosas explicitas y legibles -- la flecha y el renglon con el
+  proyecto de origen -- asi que la tipografia puede volver a su trabajo, que es ser leida.
+*/
+.mt-cell.is-alias .mt-cell-ico { opacity: .85; }
 
 /* [SN.25] Submodulos hallados por el buscador: los 101 tienen ruta propia. */
 .mt-cell.is-sub .mt-cell-ico { color: var(--action); }
@@ -880,14 +1113,14 @@
   de 100rem el grupo se forma con espaciado y rotulo, que ademas es lo que pide DESIGN.md:540
   ("el borde es el ultimo recurso, no el primero").
 */
-@media (min-width: 100rem) {
+@container espacios (min-width: 56rem) {
   .mt-space {
     border: 1px solid var(--border-color);
     border-radius: var(--r-md);
-    padding: var(--sp-3) var(--sp-3) var(--sp-3);
+    padding: var(--sp-3);
     background: var(--layout-bg);
+    margin-bottom: var(--sp-3);
   }
-  .mt-space { margin-bottom: var(--sp-3); }
   .mt-space-title { margin-bottom: var(--sp-2); }
 }
 
@@ -960,34 +1193,33 @@
 */
 @media (max-height: 48rem) {
   .mt-freq { display: none; }
-  .mt-cell { min-height: 3.75rem; }
+  /*
+    [SN.28] La fila cede 4 px mas, y acá sí hace falta la cuenta: a 1280x720 el catalogo pedia
+    582 px de 584 disponibles -- DOS de holgura, que es el margen con el que ya se rompió dos
+    veces esta fase. Con la fila en 36 px baja a ~550 y sobran ~50.
+
+    ⚠️ Va DESPUES de `@container espacios (min-width: 80rem)` a proposito: en una pantalla ancha
+    pero baja (1920x768) las dos reglas aplican, y tienen la misma especificidad, asi que gana la
+    ultima del archivo. Tiene que ganar esta -- la que achica.
+  */
+  .mt-cell { min-height: 2.25rem; }
 }
 
 /*
-  [SN.27] El monitor grande. Con los espacios en columnas el catalogo pasa a pedir 442 px de los
-  801 que tiene a 1920x1080: sobran 359. Ahi la tarjeta con cuerpo que pedia el brief (Vercel,
-  proporcion cercana a 4:3, icono protagonista) por fin se puede pagar -- no cabia porque el
-  catalogo ocupaba una franja por grupo, no porque la tarjeta fuera mala idea.
+  [SN.28] ACA VIVIA la tarjeta alta del monitor grande: a partir de 60rem de alto la celda pasaba a
+  7rem, en columna, con el icono arriba solo como ancla visual y el texto al pie.
 
-  ⚠️ Solo por ALTO, nunca por ancho: lo que decide si una tarjeta alta cabe es el alto disponible.
-  La laptop conserva la celda de 4rem, que es la que la hace entrar sin scroll.
+  Se retira, y el motivo es que su premisa cambio. Esa forma existia porque la celda era ANGOSTA
+  (~154 px) y sobraba ALTO: apilar era la unica manera de darle cuerpo. Ahora la celda toma el
+  ancho entero de su columna (~21rem), asi que el icono arriba dejaria un renglon de texto corto
+  flotando sobre 300 px de blanco -- seria mover el aire de la pantalla a adentro de la tarjeta,
+  que es justo lo que aquel comentario queria evitar.
+
+  ⚠️ Y hay una razon que pesa mas que la estetica: una tarjeta que cambia de FORMA segun el alto de
+  la pantalla le da a la misma persona dos layouts distintos entre su laptop y su monitor. Eso es
+  lo que rompe la memoria espacial (NN/g): lo que se aprende de memoria no se mueve. Una sola
+  forma, en todos lados.
 */
-@media (min-height: 60rem) {
-  /*
-    Y con el alto pagado, la tarjeta toma la FORMA del brief (Vercel): el icono arriba, solo, como
-    ancla visual, y el texto al pie. Una tarjeta alta con el icono chico al lado del titulo deja el
-    50% inferior en blanco -- seria mover el aire de abajo de la pantalla a adentro de la tarjeta.
-  */
-  .mt-cell {
-    min-height: 7rem;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: space-between;
-    padding: var(--sp-3);
-  }
-  .mt-cell-ico { font-size: var(--fs-h3, 1.5rem); }
-  .mt-cell-tx { width: 100%; }
-}
 
 /* ── Angosto: la izquierda se achica antes de romper la rejilla de puertas ─ */
 @media (max-width: 80rem) {
@@ -1010,10 +1242,12 @@
   /* `[SN.25]` El brief pide 180 ms; quien pidió menos movimiento no recibe ninguno. */
   .mt-cell, .mt-chip, .mt-task, .mt-canal, .mt-periodo { transition: none; }
   /*
-    `[SN.26]` El movimiento se va, el AVISO se queda: sin `transform` ni sombra sigue habiendo
-    cambio de borde, de fondo y de icono. Antes esta regla apagaba las dos únicas señales que había.
+    `[SN.26]` El movimiento se va, el AVISO se queda. Antes esta regla apagaba las dos únicas
+    señales que había, y por eso quedó anotado.
+    `[SN.28]` Para `.mt-cell` ya no hace falta: su hover es sólo fondo e icono, que no son
+    movimiento. Se conserva para `.mt-chip`, que sí levanta.
   */
-  .mt-cell:hover, .mt-chip:hover { transform: none; box-shadow: none; }
+  .mt-chip:hover { transform: none; box-shadow: none; }
 }
 
 /* ═══ [JZ.3] Cómo va tu zona ═══════════════════════════════════════════════════════════════

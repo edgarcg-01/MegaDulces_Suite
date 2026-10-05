@@ -115,7 +115,22 @@ const TOPE = {
   //
   //    Queda DECLARADO, no disfrazado, y el ratchet sigue exacto: un tercero vuelve a dar rojo.
   //    Deuda con nombre: `vendor-customers.component.ts` necesita su propio barrido.
-  fontSize:   2691,
+  //
+  // 2,690 y no 2,691: medido sobre el arbol YA FUSIONADO con `integra` (152 commits de ~11
+  //    sesiones). La fusion BAJO la deuda en uno, asi que el tope baja con ella -- es lo que
+  //    este mismo gate pide cuando la deuda baja de verdad, y es la unica forma de que el
+  //    ratchet siga siendo exacto en vez de arrastrar un colchon que nadie declaro.
+  //
+  // ⚠️ 2,695 y no 2,690: `[SM.41]`/`[SN.28]` agregan CINCO en
+  //    `apps/view/.../tienda-arqueo.component.ts` -- .68rem, .72rem, .74rem y .78rem x2.
+  //    No se tokenizan, por lo mismo que `[VS.1]`: ninguno cae EXACTO en la escala (quedan a
+  //    0.12-0.52 px del token mas cercano, o sea que convertirlos MUEVE el texto), y el
+  //    archivo lleva 56 literales contra 2 tokens -- nunca se barrio. Tokenizar solo los
+  //    nuevos dejaria el mismo tamaño escrito de dos formas en la misma hoja de estilos, y
+  //    mover pixeles en la pantalla del ARQUEO (la que usa la cajera para contar dinero) no
+  //    se decide desde un gate: se decide abriendola. Deuda CON NOMBRE:
+  //    `tienda-arqueo.component.ts` necesita su propio barrido.
+  fontSize:   2695,
   hex:        1449,  // hex crudo en declaración de color
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,

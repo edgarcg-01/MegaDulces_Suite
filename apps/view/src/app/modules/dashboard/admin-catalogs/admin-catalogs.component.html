@@ -39,15 +39,15 @@
     </div>
 
     <!-- Selector de catálogo: liquid tabs estilo iOS 26 (blob deslizante). -->
-    <div class="liquid-tabs" role="tablist" #liquidTabsContainer>
+    <div class="liquid-tabs" role="radiogroup" #liquidTabsContainer>
       <span class="liquid-tabs-indicator" aria-hidden="true" #liquidIndicator></span>
       @for (cat of availableCatalogTypes(); track cat.type) {
         <button #liquidTab
           type="button"
-          role="tab"
+          role="radio"
           class="liquid-tab"
           [class.is-active]="selectedType() === cat.type"
-          [attr.aria-selected]="selectedType() === cat.type"
+          [attr.aria-checked]="selectedType() === cat.type"
           (click)="selectCatalogType(cat.type)">
           <i [class]="cat.icon" class="text-xs" aria-hidden="true"></i>
           {{ cat.label }}

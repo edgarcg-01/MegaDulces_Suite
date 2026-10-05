@@ -355,9 +355,9 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       @if (drillLoading()) { <div class="surf-empty"><i class="pi pi-spin pi-spinner"></i><p>Cargando movimientos…</p></div> }
       @else if (drillErr()) { <div class="surf-empty"><i class="pi pi-exclamation-triangle bad"></i><p>{{ drillErr() }}</p></div> }
       @else if (drill(); as dd) {
-        <div class="tw-drillmode" role="tablist" aria-label="Modo del detalle">
-          <button type="button" role="tab" [attr.aria-selected]="drillMode()==='movimientos'" [class.on]="drillMode()==='movimientos'" (click)="setDrillMode('movimientos')">Movimientos (1:1)</button>
-          <button type="button" role="tab" [attr.aria-selected]="drillMode()==='dia'" [class.on]="drillMode()==='dia'" (click)="setDrillMode('dia')">Por día</button>
+        <div class="tw-drillmode" role="radiogroup" aria-label="Modo del detalle">
+          <button type="button" role="radio" [attr.aria-checked]="drillMode()==='movimientos'" [class.on]="drillMode()==='movimientos'" (click)="setDrillMode('movimientos')">Movimientos (1:1)</button>
+          <button type="button" role="radio" [attr.aria-checked]="drillMode()==='dia'" [class.on]="drillMode()==='dia'" (click)="setDrillMode('dia')">Por día</button>
         </div>
         @if (drillMode() === 'movimientos') {
         <p class="dlg-lead">Cada movimiento del <b>banco</b> (Excel) marca si <b>Kepler</b> (tesorería) y <b>ContPAQi</b> (libros) lo tienen, por monto+dirección. Abajo, lo que Kepler o ContPAQi registran y el banco no movió (huérfanos).@if (dfDay(); as dy) { <span class="tw-dayfilter">· filtrado al día <b>{{ dy }}</b> <button type="button" class="tw-daychip" (click)="dfDay.set('')">quitar ✕</button></span> }</p>

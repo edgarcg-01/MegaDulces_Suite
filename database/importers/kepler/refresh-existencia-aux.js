@@ -54,6 +54,12 @@ const MVS = [
   // Sin esta copia, ese resolvedor se reejecutaba UNA VEZ POR RENGLÓN del documento: medido en
   // prod, 108 llamadas reales con promedio 13,776 ms y máximo 65,716 ms; con la copia, 5.7 ms.
   'analytics.mv_product_box_factor',
+  // `[VPR.4]` El precio de venta POR PLAZA, arbitrado por lo que la caja cobra. La consulta viva
+  // cuesta 8.5 s sobre el catálogo completo y `take-order` baja el catálogo entero de una plaza
+  // para el modo sin conexión, así que se materializa por COSTO. Va acá y no en un refrescador
+  // nuevo a propósito: éste ya declara ENTREGA (filas, no "el proceso corrió") y ya tiene latido;
+  // inventarle uno propio sería el primitivo duplicado que ADR-056 nombra como deuda.
+  'analytics.mv_price_truth',
 ];
 
 function conexion() {

@@ -306,22 +306,29 @@ export class MiTrabajoComponent {
         const modulos = this.lineaModulos(e.modules.map((m) => m.label));
         // Un módulo enlazado no tiene submódulos que listar; lo útil es de dónde sale.
         const detalle = modulos || (e.origin ? `de ${e.origin}` : '');
-        /*
-         * `[SN.25]` **Una sola línea, y la que distingue.**
-         *
-         * Antes iban tres módulos y un «+N» — y el corte era POR POSICIÓN, los tres primeros tal
-         * como fueron declarados. Medido: «Ventas» tiene 21 submódulos y nombraba tres; el «+18»
-         * escondía el 70% del catálogo y no se podía tocar. A 52 px de alto no entra una lista, así
-         * que la tarjeta deja de fingir que es un índice: dice **de dónde sale** si es un acceso
-         * directo, y **cuántos submódulos abre** si es un módulo. Lo demás lo resuelve `Ctrl K`,
-         * que ahora sí llega a los 101.
-         */
         const esAlias = !!e.entry.crossLink;
-        const sub = esAlias
-          ? (e.origin ? `de ${e.origin}` : 'acceso directo')
-          : e.modules.length
-            ? `${e.modules.length} ${e.modules.length === 1 ? 'submódulo' : 'submódulos'}`
-            : '';
+        /*
+         * `[SN.28]` **Un renglón, UN significado: de dónde sale.**
+         *
+         * ── Qué estaba mal ──────────────────────────────────────────────────────────────────
+         * Este mismo renglón decía dos cosas opuestas según la fila: `de Finanzas` para un acceso
+         * directo y `21 submódulos` para un módulo. Mismo gris, mismo tamaño, misma posición,
+         * sentido contrario — uno dice DE DÓNDE VIENE y el otro QUÉ TAN GRANDE ES. Y el conteo no
+         * ayudaba a decidir: entre «22 submódulos» y «1 submódulo» no cambia a dónde hacés clic.
+         * (El `+N` que vivió acá antes está contado en `[SN.25]`; esto retira a su reemplazo.)
+         *
+         * ── La regla ahora ──────────────────────────────────────────────────────────────────
+         * El renglón aparece **sólo cuando la pregunta sigue abierta**, o sea en un ATAJO: el
+         * encabezado de arriba nombra el espacio donde lo estás VIENDO, no el proyecto donde VIVE.
+         * En un módulo propio el encabezado ya contestó, así que repetirlo sería ruido — y el
+         * encabezado se queda justamente porque es por donde navega el 67.8% de quienes usan
+         * lector de pantalla (WebAIM, encuesta #11, jul–ago 2026, 1,780 respuestas).
+         *
+         * ⚠️ Este renglón es el ÚNICO que distingue las dos tarjetas «Hallazgos» de Auditoría
+         * —una de Finanzas y otra de Compras, `entryOrigin()` en `[SN.10]`— así que **no puede
+         * truncarse**: ver `.mt-cell-sb` en el CSS, que perdió el `nowrap` por esto.
+         */
+        const sub = esAlias ? (e.origin ?? 'acceso directo') : '';
         return {
           id: e.entry.id,
           label: e.label,
@@ -514,6 +521,59 @@ export class MiTrabajoComponent {
     if (!this.buscando()) return todos;
     return todos.filter((p) => this.casa(normalizar(`${p.label} ${p.detalle}`)));
   });
+
+  /**
+   * `[SN.28]` **El número que convierte la puerta en tarjeta VIVA.**
+   *
+   * Es el patrón del *dynamic tile* de SAP Fiori —título, icono y un contador que sale del
+   * backend— y acá no cuesta una consulta nueva: las colas ya vienen en `me/trabajo` para pintar
+   * la columna de la izquierda, y cada una trae `ruta` y `total`. Lo único que faltaba era
+   * cruzarlas con las puertas.
+   *
+   * Hasta ahora las dos columnas de esta pantalla no se hablaban: a la izquierda decía «11 fuentes
+   * de datos con falla» y a la derecha «Sistemas» era una tarjeta muda. Ahora la puerta dice
+   * cuánto hay detrás.
+   *
+   * ⚠️ **Cada cola cuenta UNA sola vez, en la puerta MÁS específica.** Con prefijo a secas,
+   * `/finanzas/hallazgos` sumaría en «Hallazgos» y otra vez en «Finanzas», y el total de la
+   * pantalla no cuadraría con el de la izquierda. Por eso las puertas se ordenan por largo de ruta
+   * y gana la primera que casa.
+   *
+   * ⚠️ Se alimenta de `espaciosTodos()`, no de `espacios()`: el contador NO debe moverse mientras
+   * escribís en el buscador.
+   */
+  readonly pendPorEntrada = computed<Record<string, number>>(() => {
+    const t = this.trabajo();
+    const colas = t.status === 'ok' ? t.data.pendientes : [];
+    if (!colas.length) return {};
+    const puertas = this.espaciosTodos()
+      .flatMap((s) => s.entradas)
+      .filter((e) => !!e.route)
+      .sort((a, b) => b.route.length - a.route.length);
+    const out: Record<string, number> = {};
+    for (const p of colas) {
+      const r = p.ruta;
+      if (!r) continue;
+      const puerta = puertas.find((e) => r === e.route || r.startsWith(`${e.route}/`));
+      if (puerta) out[puerta.id] = (out[puerta.id] ?? 0) + p.total;
+    }
+    return out;
+  });
+
+  /**
+   * `[SN.28]` Nombre accesible del enlace de una puerta, o `null` para dejar el texto tal cual.
+   *
+   * Existe porque las dos señales que la tarjeta da en silencio —la flecha de atajo y el contador—
+   * son `aria-hidden` o números sueltos: sin esto, un lector de pantalla oiría «Hallazgos, 11» sin
+   * saber de qué proyecto es ni qué cuenta ese 11.
+   */
+  etiquetaPuerta(e: EntradaVisible): string | null {
+    const n = this.pendPorEntrada()[e.id];
+    const partes = [e.label];
+    if (e.esAlias && e.sub) partes.push(`atajo a ${e.sub}`);
+    if (n) partes.push(`${n} ${n === 1 ? 'pendiente' : 'pendientes'}`);
+    return partes.length > 1 ? partes.join(', ') : null;
+  }
   /**
    * `[SN.35]` **¿A este departamento se le apagó el bloque «A tu nombre»?**
    *

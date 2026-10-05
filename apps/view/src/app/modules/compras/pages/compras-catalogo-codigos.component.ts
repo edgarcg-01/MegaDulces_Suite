@@ -159,11 +159,11 @@ type Severidad = '' | 'distinto' | '5' | '25';
         pantalla, y con su conteo al lado se elige sabiendo cuánto hay detrás. Cambiar de vista NO
         vuelve a pedir al servidor — filtra lo que ya está cargado, así que es instantáneo.
       -->
-      <div class="cd-seg" role="tablist" aria-label="Qué tan grave">
+      <div class="cd-seg" role="radiogroup" aria-label="Qué tan grave">
         @for (o of severidades; track o.value) {
-          <button type="button" role="tab" class="cd-seg-btn"
+          <button type="button" role="radio" class="cd-seg-btn"
                   [class.cd-seg-on]="severidad() === o.value"
-                  [attr.aria-selected]="severidad() === o.value"
+                  [attr.aria-checked]="severidad() === o.value"
                   [disabled]="o.value !== '' && sinPrecios()"
                   [pTooltip]="o.value !== '' && sinPrecios()
                     ? 'Necesita precios, y esta base no los tiene cargados'

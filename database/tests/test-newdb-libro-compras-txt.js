@@ -268,6 +268,46 @@ const MOVS = [
     }
     ok(sospechosos.length === 0, `ningún ? ni ¿ suelto dentro del SQL del servicio${sospechosos.length ? ` — ${sospechosos.join(' · ')}` : ''}`);
 
+    // ── `[IG.14]` EL LIBRO DE COMPRAS NO PUEDE CONTENER NUESTRAS PROPIAS VENTAS ────────────
+    //
+    // Hasta 2026-10-05 `fiscal.cfdis` tenia SOLO comprobantes recibidos, asi que el filtro por
+    // `rol` era implicito y SEIS consultas de este servicio no lo escribian. El ADD de ContPAQi
+    // tiene ademas 213,520 CFDI EMITIDOS de venta por $4,680 M que nunca se habian pedido; en
+    // cuanto entren, una consulta sin `rol` mete nuestras facturas de VENTA al libro de COMPRAS
+    // -- un documento fiscal corrompido, y en silencio.
+    //
+    // Este candado es de DATOS, no de texto: no revisa como esta escrita la consulta (eso se
+    // puede reescribir de mil formas), revisa que el resultado no contenga un CFDI cuyo emisor
+    // seamos nosotros. Sobrevive a cualquier refactor.
+    const [emisor] = (await knex.raw(
+      "SELECT rfc FROM fiscal.issuer_config WHERE is_default AND active LIMIT 1")).rows;
+    if (!emisor) {
+      console.log('  NO MEDIDO: fiscal.issuer_config no tiene emisor por default');
+    } else {
+      // El predicado es "emisor nosotros Y receptor OTRO" = venta a un tercero. La AUTO-FACTURA
+      // (emisor = receptor = nosotros) se excluye a proposito: entra legitimamente por el lado
+      // recibido y medirla aca daria un falso positivo permanente. Medido 2026-10-05: de los
+      // CFDI con emisor nuestro que ya estaban cargados, el 100% son auto-factura.
+      const { rows: [mias] } = await knex.raw(
+        `SELECT count(*)::int AS n,
+                count(*) FILTER (WHERE rol = 'emitidas')::int AS marcadas,
+                count(*) FILTER (WHERE receptor_rfc = ?)::int AS autofactura
+           FROM fiscal.cfdis
+          WHERE emisor_rfc = ? AND tipo_comprobante IN ('I', 'E')`, [emisor.rfc, emisor.rfc]);
+      const { rows: [enLibro] } = await knex.raw(
+        `SELECT count(*)::int AS n, coalesce(sum(f.total), 0)::numeric AS monto
+           FROM finance.purchase_book_run_items i
+           JOIN fiscal.cfdis f ON upper(f.uuid) = i.cfdi_uuid
+          WHERE f.emisor_rfc = ? AND f.receptor_rfc <> ?`, [emisor.rfc, emisor.rfc]);
+      ok(enLibro.n === 0,
+        enLibro.n === 0
+          ? `ninguna venta nuestra a un tercero esta dentro de una corrida del libro de compras (hay ${mias.n} CFDI con emisor ${emisor.rfc}, de los cuales ${mias.autofactura} son auto-factura y ${mias.marcadas} estan marcados emitidas)`
+          : `${enLibro.n} CFDI EMITIDOS POR NOSOTROS ($${Number(enLibro.monto).toLocaleString('es-MX')}) estan dentro de corridas del libro de COMPRAS: alguna consulta perdio el filtro de rol`);
+      if (mias.n - mias.autofactura === 0) {
+        console.log('  (los CFDI emitidos todavia no se cargan: el candado esta puesto pero aun no tiene con que morder)');
+      }
+    }
+
     console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} ok · ${fail} fallidas`);
   } catch (e) {
     console.error('ERROR:', e.message);

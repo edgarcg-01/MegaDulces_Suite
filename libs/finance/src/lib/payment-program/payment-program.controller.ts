@@ -43,4 +43,16 @@ export class PaymentProgramController {
   facets() {
     return this.svc.facets();
   }
+
+  /**
+   * [PP.7] Qué meses FALTAN. Va aparte de la frescura a propósito: la frescura dice "esto está
+   * viejo" (un veredicto), esto dice EXACTAMENTE qué no está (la lista accionable). Un mes
+   * ausente no se distingue solo de un mes sin pagos — los dos llegan como cero.
+   */
+  @Get('cobertura')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'PP.7 — meses cargados vs meses faltantes del libro de Tesorería (el mes en curso no se exige).' })
+  cobertura() {
+    return this.svc.cobertura();
+  }
 }

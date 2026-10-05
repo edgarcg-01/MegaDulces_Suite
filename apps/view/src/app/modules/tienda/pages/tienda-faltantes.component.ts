@@ -96,10 +96,10 @@ type Aviso = { tono: 'ok' | 'warn' | 'bad' | 'info'; texto: string; detalle?: st
         </div>
       </header>
 
-      <nav class="fl-tabs" role="tablist" aria-label="Secciones de faltantes">
+      <nav class="fl-tabs" role="radiogroup" aria-label="Secciones de faltantes">
         @for (t of TABS; track t.id) {
-          <button type="button" role="tab" class="fl-tab" [class.on]="pestana() === t.id"
-                  [attr.aria-selected]="pestana() === t.id" (click)="irA(t.id)">
+          <button type="button" role="radio" class="fl-tab" [class.on]="pestana() === t.id"
+                  [attr.aria-checked]="pestana() === t.id" (click)="irA(t.id)">
             <i [class]="t.icon" aria-hidden="true"></i><span>{{ t.label }}</span>
           </button>
         }

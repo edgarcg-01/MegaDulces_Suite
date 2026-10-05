@@ -803,14 +803,21 @@
                 <span class="mt-freq-rule" aria-hidden="true"></span>
                 <span class="mt-freq-why">{{ submodulos().length }} coinciden</span>
               </p>
-              <div class="mt-grid">
+              <!--
+                [SN.28] Rejilla PROPIA, y no la de los grupos. `.mt-grid` paso a ser una columna
+                unica (la celda toma el ancho del grupo); acá eso seria una tira vertical de hasta
+                101 resultados a lo ancho del panel. El buscador conserva varias columnas.
+              -->
+              <div class="mt-subs-grid">
                 @for (x of submodulos(); track x.id) {
                   <a class="mt-cell is-sub" [routerLink]="x.route" [title]="x.label + ' · de ' + x.modulo"
                      (click)="abrioSubmodulo(x)">
-                    <i class="mt-cell-ico pi pi-angle-right" aria-hidden="true"></i>
+                    <span class="mt-cell-chip" aria-hidden="true">
+                      <i class="mt-cell-ico pi pi-angle-right"></i>
+                    </span>
                     <span class="mt-cell-tx">
                       <span class="mt-cell-nm">{{ x.label }}</span>
-                      <span class="mt-cell-sb">de {{ x.modulo }}</span>
+                      <span class="mt-cell-sb"><span>de {{ x.modulo }}</span></span>
                     </span>
                   </a>
                 }
@@ -819,14 +826,19 @@
           }
 
           <!--
-            [SN.27] Los espacios fluyen en COLUMNAS. Cada grupo era una franja de ancho completo, así
-            que uno de 2 tarjetas dejaba 3 o 5 huecos a su derecha: medido, 52% de ocupación a 1920 y
-            63% a 1440. Con columnas los grupos chicos comparten fila y la retícula se llena.
-            El ancho de columna manda (no un número fijo): 2 columnas en laptop, 3 en escritorio.
+            [SN.27] Cada grupo era una franja de ancho completo, así que uno de 2 tarjetas dejaba 3 o
+            5 huecos a su derecha: medido, 52% de ocupación a 1920 y 63% a 1440. La solución fue
+            repartirlos en columnas, y el ancho de columna manda (no un número fijo).
+
+            [SN.28] Pero eran columnas de verdad (`columns: 21rem`), que equilibran por ALTURA con
+            cada grupo como átomo indivisible — y con 7 grupos de 1·6·3·3·5·2·4 eso dejaba la cuarta
+            columna a la mitad, 184 px de 368. Ahora es una REJILLA de grupos: se acomodan en filas,
+            se leen de izquierda a derecha y el hueco cae en el último renglón. Detalle en el CSS.
           -->
           <div class="mt-espacios">
           @for (s of espacios(); track s.id) {
-            <section class="mt-space" [id]="'espacio-' + s.id" [attr.aria-labelledby]="'h-' + s.id">
+            <section class="mt-space" [id]="'espacio-' + s.id" [attr.data-espacio]="s.id"
+                     [attr.aria-labelledby]="'h-' + s.id">
               <h3 class="mt-space-title" [id]="'h-' + s.id">
                 <i class="mt-space-ico" [class]="s.icon" aria-hidden="true"></i>
                 <span>{{ s.label }}</span>
@@ -841,25 +853,49 @@
               </h3>
 
               <!--
-                [SN.25] Grilla RIGIDA: todas las celdas del mismo ancho, sin huecos al final de fila.
-                Una celda compacta (52 px) en vez de la tarjeta apaisada de 3 lineas.
-                Medido: la tarjeta 1:1 que pedia el brief necesita 2,245 px de alto a 1920 y hay 944.
-                `is-alias` es la celda que NO es un modulo sino un submodulo de otro, sacado a la
-                portada: 10 de las 22. Antes llevaba el mismo cuerpo que un modulo de 21 submodulos.
+                [SN.28] LISTA, no rejilla de celdas angostas.
+
+                Es `ul`/`li` a proposito: para una coleccion de ENLACES, la lista nativa le anuncia
+                al lector de pantalla cuantos son y en cual va, con el mismo esfuerzo de teclado.
+                Lo que NO se hace es convertirla en `role="grid"` con un solo tab stop y flechas
+                (Roselli, "ARIA Grid As an Anti-Pattern"): quien usa teclado espera Tab y se pasaria
+                de largo las puertas. Ese patron queda para los selectores, donde si corresponde.
+
+                `is-alias` = la celda que no es un modulo propio sino uno de otro proyecto traido
+                aca. Antes la unica senal era tipografica; ahora lo dice la flecha Y el renglon.
               -->
-              <div class="mt-grid">
+              <ul class="mt-grid">
                 @for (e of s.entradas; track e.id) {
-                  <a class="mt-cell" [class.is-alias]="e.esAlias"
-                     [routerLink]="e.route" [title]="e.groupLabel || e.detalle || e.label"
-                     (click)="abrioPuerta(e, s)">
-                    <i class="mt-cell-ico" [class]="e.icon" aria-hidden="true"></i>
-                    <span class="mt-cell-tx">
-                      <span class="mt-cell-nm">{{ e.label }}</span>
-                      @if (e.sub) { <span class="mt-cell-sb">{{ e.sub }}</span> }
-                    </span>
-                  </a>
+                  <li>
+                    <a class="mt-cell" [class.is-alias]="e.esAlias"
+                       [routerLink]="e.route"
+                       [title]="e.esAlias ? 'Atajo a ' + e.sub : (e.groupLabel || e.detalle || e.label)"
+                       [attr.aria-label]="etiquetaPuerta(e)"
+                       (click)="abrioPuerta(e, s)">
+                      <span class="mt-cell-chip" aria-hidden="true">
+                        <i class="mt-cell-ico" [class]="e.icon"></i>
+                      </span>
+                      <span class="mt-cell-tx">
+                        <span class="mt-cell-nm">{{ e.label }}</span>
+                        @if (e.sub) {
+                          <span class="mt-cell-sb">
+                            <i class="pi pi-arrow-up-right mt-cell-atajo" aria-hidden="true"></i>
+                            <span>{{ e.sub }}</span>
+                          </span>
+                        }
+                      </span>
+                      <!--
+                        [SN.28] El contador del `dynamic tile` de Fiori. `aria-hidden` porque el
+                        nombre accesible del enlace ya lo dice con sus palabras (`etiquetaPuerta`);
+                        si no, se oiria "Finanzas 11" sin saber que cuenta ese 11.
+                      -->
+                      @if (pendPorEntrada()[e.id]; as n) {
+                        <span class="mt-cell-n" aria-hidden="true">{{ n }}</span>
+                      }
+                    </a>
+                  </li>
                 }
-              </div>
+              </ul>
             </section>
           }
           </div>

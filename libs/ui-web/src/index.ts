@@ -37,6 +37,7 @@ export type { Presentacion } from './order/qty-units';
  * dentro de una fila pierde sus teclas) y el salto buscador→lista.
  */
 export { installRowNavGuard, bajarAlPrimerRenglon, volverAlBuscador } from './keyboard/row-nav';
+export { installRadioGroupNav } from './keyboard/radio-group-nav';
 
 /**
  * `[KBD.2]` Búsqueda tokenizada en el CLIENTE, con la misma semántica que `applySmartSearch` del

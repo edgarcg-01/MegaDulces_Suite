@@ -47,7 +47,7 @@ import { MotorMargenService, type CompetenciaMotor } from '../motor-margen.servi
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
 <div class="surf-page cmp">
-  <div class="pr-tabs"><app-page-tabs [tabs]="tabs" variant="liquid" /></div>
+  <div class="pr-tabs"><app-page-tabs [tabs]="tabs" /></div>
 
   <header class="surf-page-head">
     <div class="surf-page-head-text">

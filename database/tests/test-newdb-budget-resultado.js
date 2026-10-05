@@ -17,6 +17,11 @@
  *   [2] «sin plan» llega como NULL y no como 0 — con la fórmula vieja reproducida al lado, para
  *       que el candado falle si alguien la vuelve a poner
  *   [3] el ÁRBITRO del gasto (la balanza) MUERDE: si nunca contradice, es un espejo (ADR-059 R5)
+ *       ⚠️ y se declara su LÍMITE: `expense_entries` y `ledger_monthly` leen la MISMA tabla
+ *       primaria (`kepler_ods.kdc2YYMM`) por dos importers distintos, así que atrapan un error de
+ *       filtro o de agregación y **no** uno de la fuente. El árbitro independiente —los libros de
+ *       ContPAQi— existe, está fresco y NO está cableado: medido ene–sep 2026, `agrupador_sat`
+ *       601+602 = $44,040,196.72 contra $55,951,943.94 de Kepler familia 6, −21.3 %.
  *   [4] la compra de inventario NO está adentro del gasto operativo
  *   [5] el fact de venta cubre el ejercicio
  *

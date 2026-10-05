@@ -31,9 +31,9 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
         </div>
       </header>
 
-      <div class="cp-seg" role="tablist">
+      <div class="cp-seg" role="radiogroup">
         @for (v of VIEWS; track v.key) {
-          <button role="tab" [attr.aria-selected]="view()===v.key" [class.active]="view()===v.key" (click)="go(v.key)">
+          <button role="radio" [attr.aria-checked]="view()===v.key" [class.active]="view()===v.key" (click)="go(v.key)">
             <i [class]="v.icon"></i> {{ v.label }}
           </button>
         }

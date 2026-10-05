@@ -237,13 +237,13 @@ const QUARTERS: Quarter[] = [
           <article class="cell cell-span-6 is-flush">
             <div class="cell-head ha-top-head">
               <span class="cell-label">Top productos · revenue</span>
-              <div class="ha-source-toggle" role="tablist" aria-label="Fuente del ranking">
+              <div class="ha-source-toggle" role="radiogroup" aria-label="Fuente del ranking">
                 <button
                   type="button"
                   class="ha-toggle-btn"
                   [class.active]="topSource() === 'period'"
-                  role="tab"
-                  [attr.aria-selected]="topSource() === 'period'"
+                  role="radio"
+                  [attr.aria-checked]="topSource() === 'period'"
                   (click)="topSource.set('period')"
                   pTooltip="Ventas calculadas en el rango seleccionado"
                   tooltipPosition="top"
@@ -252,8 +252,8 @@ const QUARTERS: Quarter[] = [
                   type="button"
                   class="ha-toggle-btn"
                   [class.active]="topSource() === 'erp'"
-                  role="tab"
-                  [attr.aria-selected]="topSource() === 'erp'"
+                  role="radio"
+                  [attr.aria-checked]="topSource() === 'erp'"
                   (click)="topSource.set('erp')"
                   pTooltip="Ranking pre-calculado por el ERP (ventana propia)"
                   tooltipPosition="top"
