@@ -584,6 +584,33 @@ export class MiTrabajoComponent {
   });
 
   /**
+   * `[SN.28]` **El tramo de cada espacio en la rejilla de 12, para que la última fila CIERRE.**
+   *
+   * ── Por qué esto se calcula y no se declara en CSS ─────────────────────────────────────────
+   * La cantidad de espacios visibles cambia por persona: Sistemas ve 7, Cajas ve 2. Con un tramo
+   * fijo en CSS, el resto de la división deja huecos al final — es la misma raíz del problema que
+   * esta fase viene arrastrando, sólo que rotado. Acá se calcula sobre lo que CADA persona ve:
+   *
+   *   · de a 3 por fila (tramo 4 de 12);
+   *   · si sobra UNO, ese toma la fila entera (12);
+   *   · si sobran DOS, se reparten la fila a la mitad (6 y 6).
+   *
+   * La celda ancha no queda vacía porque los destinos de adentro fluyen con `auto-fill`: más
+   * ancho, más columnas internas. El tamaño se ajusta al contenido, que es justo lo que la guía de
+   * bento pide y lo que el intento anterior hacía al revés.
+   *
+   * ⚠️ El tramo sale de la POSICIÓN, nunca de cuántas puertas tiene el espacio ni de cuánto se
+   * usa: dimensionar por volumen fue el error que hizo que el bento anterior se leyera como una
+   * grilla con un bug, y dimensionar por uso movería las celdas entre visitas.
+   */
+  tramoEspacio(indice: number, total: number): string {
+    const resto = total % 3;
+    const primeroDelResto = total - resto;
+    if (resto === 0 || indice < primeroDelResto) return 'span 4';
+    return resto === 1 ? 'span 12' : 'span 6';
+  }
+
+  /**
    * `[SN.28]` Nombre accesible del enlace de una puerta, o `null` para dejar el texto tal cual.
    *
    * Existe porque las dos señales que la tarjeta da en silencio —la flecha de atajo y el contador—
