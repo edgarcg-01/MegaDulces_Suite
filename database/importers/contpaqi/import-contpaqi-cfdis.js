@@ -90,7 +90,15 @@ const ROL = (() => {
 const RFC_PRED = (a) => (ROL === 'emitidas'
   ? `${a}.RFCEmisor = '${RFC}' AND ${a}.RFCReceptor <> '${RFC}'`
   : `${a}.RFCReceptor = '${RFC}'`);
-const ETIQUETA_ROL = ROL === 'emitidas' ? 'CFDIs EMITIDOS (venta) del ADD de ContPAQi' : ETIQUETA_ROL;
+// ⛔ El literal del lado `recibidas` va ENTERO y a proposito. Lo que habia aca era
+// `: ETIQUETA_ROL` -- una auto-referencia que el reemplazo masivo de esta misma cadena se
+// comio al parametrizar la etiqueta. En `emitidas` el ternario nunca evalua esa rama, asi que
+// la carga completa de 261,420 CFDIs paso sin un error; el que reventaba era el carril EN
+// VIVO (`recibidas`), con `ReferenceError: Cannot access 'ETIQUETA_ROL' before initialization`,
+// y habria muerto al arrancar en el proximo despliegue de la imagen de feeds.
+const ETIQUETA_ROL = ROL === 'emitidas'
+  ? 'CFDIs EMITIDOS (venta) del ADD de ContPAQi'
+  : 'CFDIs recibidos del ADD de ContPAQi';
 const FEED_KEY = process.env.CONTPAQI_HB_KEY
   || (ROL === 'emitidas' ? 'contpaqi_add_cfdis_emitidas' : 'contpaqi_add_cfdis');
 
