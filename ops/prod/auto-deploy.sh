@@ -357,7 +357,22 @@ if [ -n "$PEND" ]; then
     di "FRENADO: el código de $DESEADO necesita esquema que prod no tiene (detalle arriba)."
     di "Se aplican a mano, una por una, con lock_timeout. NUNCA migrate:latest (hay DOS knex_migrations)."
     latir error "$n migración(es) sin aplicar y ACOPLADAS al cambio — despliegue frenado"
-    exit 1
+    # ⛔ `[CD.21]` SALE 3, NO 1. FRENADO NO ES FALLADO, y confundirlos cuesta un paso a mano.
+    #
+    # Medido el 2026-10-05: el vigía frenó acá por la columna `reconciliation.blind_counts.secuencia`,
+    # alguien aplicó la migración treinta segundos después… y el despliegue **no se relanzó solo**.
+    # El vigía ya había guardado el SHA como visto —a propósito, para que un despliegue FALLIDO no
+    # reintente en bucle cada 30 s— y se quedó esperando un movimiento de `ci-green` que no iba a
+    # llegar. Hubo que empujarlo a mano.
+    #
+    # ⭐ La diferencia es real y vale separarla: cuando esto FRENA **no se rompió nada**. El código
+    #    es bueno, la base está sana, y la condición que bloquea es REVERSIBLE — se levanta sola en
+    #    cuanto alguien aplica la migración. Un build roto, en cambio, no se arregla esperando.
+    #
+    # Los otros 24 caminos de este guion siguen saliendo 1. Sólo este dice "bloqueado, reintentá".
+    # Mismo patrón que `gitleaks --exit-code 7` en el pre-commit: un código propio para separar
+    # "encontré algo" de "no pude correr".
+    exit 3
   fi
 else
   di "migraciones: prod al día"
