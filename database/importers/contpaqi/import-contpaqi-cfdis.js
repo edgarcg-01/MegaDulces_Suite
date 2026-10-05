@@ -73,8 +73,23 @@ const ROL = (() => {
   if (v !== 'recibidas' && v !== 'emitidas') throw new Error(`--rol invalido: ${v} (recibidas|emitidas)`);
   return v;
 })();
-/** La columna del ADD que define el rol. Es el unico cambio real en las consultas. */
-const RFC_COL = ROL === 'emitidas' ? 'RFCEmisor' : 'RFCReceptor';
+/**
+ * El predicado de rol, por alias de tabla.
+ *
+ * ⛔ EN `emitidas` SE EXCLUYE LA AUTO-FACTURA (emisor = receptor = nosotros), y no es un detalle:
+ * medido el 2026-10-05, hay **2,465 CFDI donde somos las dos puntas** ($323.8 M, casi todos de
+ * 2018-2022). Esos entran legitimamente por el lado RECIBIDO y ya estaban cargados asi. Como el
+ * UPSERT va por `uuid`, la pasada de emitidas les PISABA el `rol` a 'emitidas' -- y entonces el
+ * filtro `rol = 'recibidas'` del libro de compras los sacaba de su universo, cambiando en silencio
+ * lo que un documento fiscal propone. Medido el impacto en 2026: 31 CFDIs / $11,276.15. Chico,
+ * pero un cambio silencioso en un documento fiscal no se mide por su tamano.
+ *
+ * Que el rol de un CFDI dependa de cual importer corrio ultimo es una no-determinacion; acotando
+ * `emitidas` a lo que de verdad le vendimos a un TERCERO, los dos universos dejan de pisarse.
+ */
+const RFC_PRED = (a) => (ROL === 'emitidas'
+  ? `${a}.RFCEmisor = '${RFC}' AND ${a}.RFCReceptor <> '${RFC}'`
+  : `${a}.RFCReceptor = '${RFC}'`);
 const ETIQUETA_ROL = ROL === 'emitidas' ? 'CFDIs EMITIDOS (venta) del ADD de ContPAQi' : ETIQUETA_ROL;
 const FEED_KEY = process.env.CONTPAQI_HB_KEY
   || (ROL === 'emitidas' ? 'contpaqi_add_cfdis_emitidas' : 'contpaqi_add_cfdis');
@@ -174,7 +189,7 @@ async function pasada(mss, pg, tipoList) {
 async function maxTimeStamp(mss, tipoList) {
   const r = (await mss.request().query(`
     SELECT MAX(d.TimeStamp) AS mx FROM Comprobante c JOIN Documento d ON d.GuidDocument = c.GuidDocument
-     WHERE c.${RFC_COL} = '${RFC}' AND c.TipoComprobante IN (${tipoList})`)).recordset[0];
+     WHERE ${RFC_PRED('c')} AND c.TipoComprobante IN (${tipoList})`)).recordset[0];
   return r?.mx || null;
 }
 
@@ -248,7 +263,7 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
       FROM Comprobante c
       LEFT JOIN ImpuestosTotalizados it ON it.GuidDocument = c.GuidDocument
       LEFT JOIN Documento d ON d.GuidDocument = c.GuidDocument
-     WHERE c.${RFC_COL} = '${RFC}' AND c.TipoComprobante IN (${tipoList}) ${corte}`)).recordset;
+     WHERE ${RFC_PRED('c')} AND c.TipoComprobante IN (${tipoList}) ${corte}`)).recordset;
   if (!heads.length) { if (!desdeTs) console.log(`  ${etiquetaCorte}: sin CFDIs`); return 0; }
 
   // ── 3) Bases gravables por impuesto y tasa (agregadas por documento) ─────────────────
@@ -264,7 +279,7 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
       FROM Comprobante cm
       JOIN Conceptos c ON c.GuidDocument = cm.GuidDocument
       JOIN Impuesto_Traslado_Concepto itc ON itc.IdConcepto = c.IdConcepto
-     WHERE cm.${RFC_COL} = '${RFC}' AND cm.TipoComprobante IN (${tipoList}) ${corteBases}
+     WHERE ${RFC_PRED('cm')} AND cm.TipoComprobante IN (${tipoList}) ${corteBases}
      GROUP BY c.GuidDocument, itc.Impuesto, itc.ImpuestoDesc, itc.TipoFactor, itc.TasaOCuota`)).recordset;
 
   // Subtotal NETO (importe del concepto menos su descuento, sin impuestos) de lo gravado a
@@ -281,7 +296,7 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
       FROM Comprobante cm
       JOIN Conceptos c ON c.GuidDocument = cm.GuidDocument
       JOIN Impuesto_Traslado_Concepto itc ON itc.IdConcepto = c.IdConcepto
-     WHERE cm.${RFC_COL} = '${RFC}' AND cm.TipoComprobante IN (${tipoList}) ${corteBases}
+     WHERE ${RFC_PRED('cm')} AND cm.TipoComprobante IN (${tipoList}) ${corteBases}
        AND itc.Impuesto = '002'
        AND TRY_CONVERT(decimal(18,6), itc.TasaOCuota) = 0.160000
      GROUP BY c.GuidDocument`)).recordset;
