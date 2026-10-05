@@ -134,6 +134,21 @@ buen pedido»*. Medido: de ~34 variables que deberían pesar en un pedido el mot
   entre las dos formas.
 - 🚀 **[VPR.1/VPR.2]** **El precio del vendedor: no era desactualización, era una columna en
   disputa.** Reporte de campo sobre `/vendor/take-order`. La medición **refutó la premisa**: el feed
+- 🚀 **[VPR.5]** **INCIDENTE: producción rota por separar la base del código, y el alias que la
+  cerró.** `[VPR.4]` renombró `precio_erp` → `precio` **y arregló el servicio en el mismo commit**,
+  pero la migración se aplicó a **prod** mientras el código seguía en `integra/resto-2026-10-02`,
+  una rama **sin CI**. Medido: el pod servía `f42dfad8e`, que pregunta por `pt.precio_erp`; la vista
+  expone `precio` → **toda carga de catálogo con sucursal, o sea `/vendor/take-order`, en 500**.
+  ⛔ **Y no se curaba sola**: `origin/ci-green` estaba clavado en ese mismo `f42dfad8e`, así que
+  `auto-deploy` se negaba —correctamente— a avanzar a un commit que el CI no bendijo. El arreglo no
+  podía ser esperar el deploy. **Mig `20261005150000`, batch 721, 0.1 s**: `precio_erp` vuelve como
+  **alias** de `precio`, así funcionan las dos versiones a la vez (expand/contract). ⭐ Y de paso
+  **activó `[VPR.4]` sobre el binario que ya corría**: medido, 9,619 productos con precio y **8,610
+  resolviendo al de su plaza, en 45 ms**. ⚠️ `CREATE OR REPLACE VIEW` sólo deja AGREGAR columnas al
+  final, y **hay que re-aplicar `security_invoker` y el `GRANT`** (lección U.7/ADR-057).
+  ⚠️ **Novena vez que un acento grave en un comentario dentro de un template literal rompe el
+  build** — escrito por mí, minutos después de documentar la trampa. **Deuda con condición de
+  retiro:** el alias se quita cuando prod sirva un commit que use `precio`, **no antes**.
 - 🚀 **[VPR.4]** **El precio por PLAZA, con el árbitro correcto: lo que la caja cobra.** Reemplaza
   a `[VPR.1]`, que estaba sobre `kdii.c90` (el precio *configurado*) y validado con un **espejo**.
   `analytics.mv_price_truth` (mig `20261005140000`, **batch 714**, 5.5 s) usa **las mismas reglas de
