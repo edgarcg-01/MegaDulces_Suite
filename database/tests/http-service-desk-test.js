@@ -853,6 +853,31 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('requester_id que no es uuid → 400', (await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'x', requester_id: 'no-soy-uuid' })).status === 400);
     }
 
+    // ── 20. Oficinas Corporativas como ubicación (no es una sucursal Kepler) ───────────
+    {
+      console.log('\n20 — «Oficinas Corporativas» como ubicación de una solicitud');
+      const catSuc = (cat.body?.categories ?? []).find((c) => c.requires_branch);
+      const mk = (title, extra = {}, cid = catSimple.id) => req('POST', `${SD}/requests`, sol.token, { category_id: cid, title, ...extra });
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const tOf = await mk('SMOKE oficinas: no imprime el área de compras', { warehouse_code: 'OF' });
+      check('⭐ una solicitud con ubicación «OF» se acepta → 201', tOf.status === 201, dump(tOf));
+      check('⭐ y se nombra «Oficinas Corporativas» (no «OF»)', tOf.body?.warehouse_code === 'OF' && tOf.body?.warehouse_name === 'Oficinas Corporativas', JSON.stringify([tOf.body?.warehouse_code, tOf.body?.warehouse_name]));
+      const tMin = await mk('SMOKE oficinas: minúsculas', { warehouse_code: 'of' });
+      check('sin distinguir mayúsculas, y se guarda en el código canónico «OF»', tMin.status === 201 && tMin.body?.warehouse_code === 'OF', dump(tMin));
+      check('⭐ una categoría que EXIGE sucursal acepta las oficinas como ubicación', !!catSuc && (await mk('SMOKE oficinas: categoría con sucursal', { warehouse_code: 'OF' }, catSuc.id)).status === 201);
+      check('⛔ NEGATIVA — un código desconocido sigue rechazándose → 400', (await mk('x', { warehouse_code: 'XX' })).status === 400);
+      check('⛔ NEGATIVA — y las eras cerradas de Wincaja («30») también → 400', (await mk('x', { warehouse_code: '30' })).status === 400);
+      check('⛔ NEGATIVA — «09» (fuera del espacio de Kepler) también → 400', (await mk('x', { warehouse_code: '09' })).status === 400);
+      check('las sucursales de siempre siguen valiendo («03»)', (await mk('SMOKE oficinas: sucursal normal', { warehouse_code: '03' })).body?.warehouse_name === '8 Esquinas');
+      const filtro = await req('GET', `${SD}/requests/inbox?scope=all&warehouse_code=OF&limit=100`, coord.token);
+      check('⭐ la bandeja filtra por las oficinas', (filtro.body?.rows ?? []).some((r) => r.id === tOf.body?.id) && (filtro.body?.rows ?? []).every((r) => r.warehouse_code === 'OF' || r.warehouse_name === 'Oficinas Corporativas'), dump(filtro));
+      const rep = await req('GET', `${SD}/reports?from=${hoy}&to=${hoy}`, coord.token);
+      const fila = (rep.body?.por_sucursal ?? []).find((x) => x.warehouse_code === 'OF');
+      check('⭐ el reporte por sucursal trae a las oficinas, con su nombre', !!fila && fila.warehouse_name === 'Oficinas Corporativas' && fila.creados >= 3, JSON.stringify(fila));
+      const enBase = await knex('servicedesk.requests').where({ id: tOf.body?.id }).first('warehouse_code');
+      check('la base guarda «OF» (varchar(20), sin chocar con ningún código de Kepler)', enBase.warehouse_code === 'OF');
+    }
+
     noMedido.push('correo y WhatsApp REALES: el SMTP no está configurado y la plantilla de Meta no está aprobada (P5); lo que se afirma es que el resultado queda DECLARADO por canal');
     noMedido.push('push en vivo por WebSocket (la API de este test corre sin cliente conectado); el poll de la campana sí se midió');
 
