@@ -7473,6 +7473,43 @@ con el `pointer: coarse` de `[CG.33.1]` — el fix que lo hacía alcanzable en e
 pantalla desplegada **todavía no tiene estos commits** (prod servía el texto viejo, *«20 de 100»*).
 Falta mirarla con los cambios puestos.
 
+#### ✅ `[CG.35]` · PrimeNG-first: lo que yo había puesto en HTML crudo — 2026-10-05
+
+Edgar: *«hay componentes que no son de PrimeNG. todos deben ser de PrimeNG»*. Es el **checklist §3**
+de `DESIGN.md` (*«Lo que PrimeNG cubra, con PrimeNG… no HTML crudo»*), y lo había incumplido en las
+cinco piezas que agregué:
+
+| lo que puse | pasa a ser |
+|---|---|
+| `<button class="cg-lim-tog">` «Ver el cuadre» | **`p-button`** ghost neutro |
+| `<span>` con conteo en el resumen de motivos | **`p-tag severity="warn"`** |
+| `<small>` con el motivo en cada fila | **`p-tag`** |
+| `<span class="pp-fresh-unknown">` | **`p-tag severity="secondary"`** + `pTooltip` |
+| `<div class="pp-gap">` con icono y borde propios | **`p-message severity="warn"`** |
+
+⭐ **No crece la dependencia** (la advertencia de licencia del §3): `TagModule`, `ButtonModule` y
+`MessageModule` ya estaban importados. Y lo que se gana no es estético — **el color deja de
+declararlo esta pantalla y lo pone el tema**, que es justo lo que `[CG.34]` midió mal: el par
+fondo/texto de un `p-tag` ya viene calibrado y flipea solo en dark, contra el `--warn-fg` suelto que
+daba **1.95** de contraste en light.
+⚠️ Se evitó `::ng-deep`: el conteo va **proyectado dentro** del `p-tag` para poder marcarlo mono
+tabular sin pisar el componente — el doc lo permite sólo para vendor y como último recurso.
+
+⛔⛔ **Y el gate del repo cazó un defecto que ningún compilador ve.**
+`scripts/check-primeng-api.js`: **`styleClass` en `<p-message>` lo retiró PrimeNG 22**. Es una falla
+**muda** —build verde, sin warning— y la clase simplemente no se aplica: el aviso habría salido sin
+su ancho. Corregido a `class` en el host. *La única forma de verlo en runtime es abrir la pantalla;
+por eso existe la compuerta.*
+
+⚠️ **Y el acento grave, dos veces más en esta misma tanda** (van **once** en el repo): en un
+comentario HTML dentro del `template:` y en otro dentro del mismo. Los diagnósticos del editor
+salieron **limpios** las dos veces; lo cazó `check:templates`. **Regla operativa para mí: cero
+backticks en cualquier comentario que viva dentro de `template:` o `styles:`, sin excepción** — ni
+para citar un nombre de clase, que es justo cuando dan ganas de usarlos.
+
+**Pruebas:** módulo finanzas **500/500**. Gates: templates ✅ · estilos ✅ · tokens ✅ · motion ✅ ·
+**primeng-api ✅** (sin API retirada nueva).
+
 ⚠️ **Observado, sin causa establecida:** el selector de caja mostraba `CAJA GENERAL (1896)` y ahora
 sale sin el número. Su `label` sólo pone el conteo si `c.documentos` viene con valor, y existe un
 fallback sin número para cuando el catálogo no responde — **no se afirma cuál de los dos es**.

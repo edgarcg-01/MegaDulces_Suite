@@ -12,6 +12,8 @@ import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { SkeletonModule } from 'primeng/skeleton';
 import { TagModule } from 'primeng/tag';
+import { MessageModule } from 'primeng/message';
+import { TooltipModule } from 'primeng/tooltip';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -50,7 +52,7 @@ interface PPRecon { months: PPReconMonth[] }
   imports: [
     CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
     TableModule, SelectModule, SkeletonModule, TagModule, MetricStripComponent,
-    FreshnessPillComponent,
+    FreshnessPillComponent, MessageModule, TooltipModule,
   ],
   template: `
     <div class="surf-page in">
@@ -68,7 +70,13 @@ interface PPRecon { months: PPReconMonth[] }
           @if (data()?.freshness; as fr) {
             <app-freshness-pill measures="data" [freshness]="fr" label="Libro de Tesorería" [staleAfterSec]="30 * 24 * 3600" />
           } @else if (data()) {
-            <span class="pp-fresh-unknown" title="No se pudo medir de cuándo son los datos del libro. No es lo mismo que estar al día.">frescura sin medir</span>
+            <!-- PrimeNG-first (checklist 3): p-tag, no un span con clase propia. Severity
+                 secondary a proposito: "no se pudo medir" NO es una advertencia sobre el dato,
+                 es la ausencia de la medicion -- pintarlo de warn diria que el libro esta viejo,
+                 que es justamente lo que no se sabe. -->
+            <p-tag value="frescura sin medir" severity="secondary" styleClass="pp-fresh-unknown"
+                   pTooltip="No se pudo medir de cuándo son los datos del libro. No es lo mismo que estar al día."
+                   tooltipPosition="bottom"></p-tag>
           }
           <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!showRecon()" (click)="toggleRecon()"><span class="pi pi-check-square" aria-hidden="true"></span>&nbsp;Conciliación</button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
@@ -78,16 +86,20 @@ interface PPRecon { months: PPReconMonth[] }
       <!-- [PP.7] Los meses que FALTAN, enumerados. La pildora dice "esto esta viejo"; esto dice
            que no esta. Sin este aviso, un mes ausente se ve igual que un mes sin pagos: los dos
            llegan como cero, y el filtro de Mes ni siquiera lo ofrece porque sale de lo cargado. -->
+      <!-- PrimeNG-first (checklist 3): p-message, no un div con icono y borde propios. El
+           componente ya trae el rol, el icono y el par de color del tema. -->
       @if (cob()?.faltantes?.length) {
-        <div class="pp-gap" role="status">
-          <span class="pi pi-exclamation-triangle" aria-hidden="true"></span>
+        <!-- ⚠️ class en el HOST, NO styleClass: PrimeNG 22 retiró ese input de p-message y la
+             clase se perdería en silencio — build verde, sin warning, el aviso sin ancho.
+             Lo caza scripts/check-primeng-api.js, que existe exactamente para esto. -->
+        <p-message severity="warn" class="pp-gap">
           <span>
             <b>Faltan {{ cob()!.faltantes.length }} mes(es) en el libro:</b>
             {{ cob()!.faltantes.join(' · ') }}.
             Lo de abajo NO los incluye — no es que no se haya pagado, es que el Excel de Tesorería
             no se ha cargado. Se sube corriendo <code>import-payment-program.js</code> con el libro del mes.
           </span>
-        </div>
+        </p-message>
       }
 
       @if (showRecon()) {
@@ -220,11 +232,14 @@ interface PPRecon { months: PPReconMonth[] }
     :host ::ng-deep .pp-tag { font-size:.64rem; }
     .pp-foot { margin-top:1rem; font-size:.74rem; color:var(--text-faint); line-height:1.5; }
     /* [PP.7] Frescura sin medir: borde punteado, sin color de estado. No se puede ver como un verde. */
-    .pp-fresh-unknown { font-size:var(--fs-xs); color:var(--text-muted); border:1px dashed var(--border-color); border-radius:999px; padding:.15rem .55rem; align-self:center; }
+    /* El p-tag trae color, forma y borde del tema. Lo unico propio es que se alinee con los
+       botones de la cabecera: el resto lo declara el componente, no esta pantalla. */
+    .pp-fresh-unknown { align-self:center; }
     /* [PP.7] El aviso de meses faltantes. Usa warn, no bad: no es un error del sistema, es dato que no se ha cargado. */
-    .pp-gap { display:flex; align-items:flex-start; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .8rem; border:1px solid var(--border-color); border-left:3px solid var(--warn-fg); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-body); line-height:1.45; }
-    .pp-gap .pi { color:var(--warn-fg); margin-top:.15rem; }
-    .pp-gap code { font-family:var(--font-mono, monospace); font-size:var(--fs-sm); background:var(--surface-2, transparent); padding:.05rem .3rem; border-radius:var(--r-sm); }
+    /* El p-message pone el icono, el borde, el fondo y el par de color del tema. Lo propio es
+       solo el ancho y el ritmo del parrafo; el nombre del script va en mono porque es codigo. */
+    .pp-gap { width:100%; margin:.2rem 0 .8rem; line-height:1.45; }
+    .pp-gap code { font-family:var(--font-mono); font-size:var(--fs-sm); }
     .pp-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .pp-errbox .pi { color:var(--bad-fg); } .pp-errbox-txt { flex:1; font-size:.84rem; }
     .pp-empty-op { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:2.4rem 1rem; text-align:center; }
