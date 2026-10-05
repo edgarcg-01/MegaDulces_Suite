@@ -69,6 +69,18 @@ manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms e
 - [x] **[CSU.2]** Pantalla `/finanzas/cortes-sucursales`: resumen, tabla por sucursal, cortes de la
   sucursal y detalle (arqueo esperado/contado por forma de pago + cobros aplicados). Sección nueva
   **Ingresos** en el menú (Cortes/Sucursales · Ingresos contables · Crédito). 🧪 2026-10-05
+- [x] **[CSU.6]** **Quién ve qué** (decisión de Francisco, 2026-10-05): Finanzas, todas las
+  sucursales; encargados y auxiliares de tienda, **sólo la suya**. Lo decide `ScopeService`
+  (ADR-050, el mismo del arqueo de tienda) con `role_scopes`/`user_scopes`, no un `if` por rol
+  ni un `_VER_ALL`. La migración nueva `20261005210000` suma `encargado_tienda` y `auxiliar_tienda`
+  al permiso (va aparte: `20261005200000` ya está en `main` y no se modifica). La
+  respuesta trae `alcance` y la pantalla lo dice ("Viendo sólo tu sucursal: 05 Zamora Centro") o
+  avisa si la ficha no tiene sucursal. **Medido en prod con el servicio real** (148 usuarios
+  activos, 44 con acceso): 31 de 32 de Finanzas → todas; `jlh_lopez` (vendedor de ruta con
+  superadmin como complemento) → sólo 04, porque el alcance toma el rol principal; 11 de 12 de
+  tienda → su sucursal; `yadira_campero` → ninguna (sin `warehouse_code`; asignarla en
+  Personas). Excepciones personales sobre INCOME/CORTES: 0. La API relee permisos cada 30 s; el
+  menú necesita re-login. 🧪 2026-10-05
 - [ ] **[CSU.3]** Entrega 2 — banco: cruzar los cobros con `finance.bank_movements` (tarjeta y
   transferencia), tolerando que un abono cubra varios cobros y que el cobro no trae la fecha real.
   Requiere el estado de cuenta de oct-2026 cargado en Bancos.
@@ -79,7 +91,8 @@ manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms e
 
 ## 6. Pendiente para prod
 
-1. Aplicar la migración `20261005200000_grant_finance_cortes_ver.js` (una por una, como el resto).
+1. Aplicar las migraciones `20261005200000_grant_finance_cortes_ver.js` y
+   `20261005210000_grant_finance_cortes_ver_tienda.js`, una por una y en ese orden.
 2. Redeploy api + view (automático al entrar a `main`).
 3. Re-login de los usuarios para que el permiso llegue al token.
 4. **Validación visual pendiente**: no se levantó la app en local (regla del 2026-10-02); la

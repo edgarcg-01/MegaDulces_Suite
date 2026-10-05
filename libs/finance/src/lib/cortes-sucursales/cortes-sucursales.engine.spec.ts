@@ -89,6 +89,13 @@ describe('[CSU.1] respuesta', () => {
     base({ folio: '0000007', fecha: '2026-10-02', monto: '500', cobrado: '500' }),
   ], NOMBRES, { from: '2026-10-01', to: '2026-10-31' });
 
+  it('[CSU.6] el alcance viaja en la respuesta: sin sucursal asignada se DECLARA, no es "sin cortes"', () => {
+    const sin = armarRespuesta([], {}, { from: '2026-10-01', to: '2026-10-31' }, { todas: false, sucursales: [] });
+    expect(sin.alcance).toEqual({ todas: false, sucursales: [] });
+    expect(sin.totales.cortes).toBe(0);
+    const una = armarRespuesta([base({})], NOMBRES, { from: '2026-10-01', to: '2026-10-31' }, { todas: false, sucursales: [{ codigo: '05', nombre: 'Zamora Centro' }] });
+    expect(una.alcance.sucursales.map((s) => s.codigo)).toEqual(['05']);
+  });
   it('la clave distingue el mismo folio en dos sucursales', () => {
     const otra = armarRespuesta([base({}), base({ sucursal: '01' })], NOMBRES, { from: '2026-10-01', to: '2026-10-31' });
     expect(otra.cortes.map((c) => c.documento)).toEqual(['UD2301-0000001', 'UD2301-0000001']);
