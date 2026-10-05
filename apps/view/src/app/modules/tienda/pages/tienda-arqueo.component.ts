@@ -80,6 +80,17 @@ interface CortesPersona {
            textualmente "al guardar, el sistema revela tu diferencia real". -->
       <header class="surf-page-head arq-head-min">
         <h1 class="sr-only">Arqueo de caja</h1>
+        <!-- El buscador comparte renglon con la frescura y la ayuda: asi cuesta CERO
+             alto. Es un accesorio para cuando alguien llega al mostrador a media
+             cuenta, no una seccion. Si se abre la ventana con el precio y la
+             existencia, esa SI baja a su propio renglon (flex: 1 1 100%) y el
+             encabezado crece mientras dura -- la respuesta merece espacio, y se
+             cierra sola. -->
+        @if (puedeFaltante()) {
+          <div class="arq-faltante">
+            <app-faltante-express [sucursal]="sucursalActiva()" [compacto]="true" />
+          </div>
+        }
         <div class="arq-head-right">
           <!-- [VP.0.2] Decía label="Kepler" sobre un new Date() del navegador: se leía como "los datos
                de Kepler tienen 3 minutos" y era la hora en que cargó esta pantalla. -->
@@ -121,12 +132,6 @@ interface CortesPersona {
              no toca dirty, no roba el foco al cargar y no entra en esa cadena.
 
              ⚠️ NO PONER ACENTOS GRAVES ACÁ: esto vive dentro de un template literal. -->
-        @if (puedeFaltante()) {
-          <div class="arq-faltante">
-            <app-faltante-express [sucursal]="sucursalActiva()" [compacto]="true" />
-          </div>
-        }
-
         <!-- Captura -->
           <!-- SM.38/SM.40 - Dos cajas abiertas con el mismo usuario. Se DICE, y la
                captura queda habilitada abajo: el candado que vivia aca dejaba a la
@@ -841,8 +846,10 @@ interface CortesPersona {
     /* El encabezado deja de ocupar alto: un renglon con la frescura, nada mas.
        Va con las dos clases para ganarle a .surf-page-head global sin depender
        del orden en que se carguen las hojas. */
-    .surf-page-head.arq-head-min { display: flex; align-items: center; justify-content: flex-end;
-                                   min-height: 0; margin: 0 0 .45rem; padding: 0; border: 0; gap: .4rem; }
+    .surf-page-head.arq-head-min { display: flex; flex-wrap: wrap; align-items: center;
+                                   min-height: 0; margin: 0 0 .45rem; padding: 0; border: 0; gap: .35rem .6rem; }
+    /* Sin justify-content: a la derecha la lleva el margin-left:auto de
+       .arq-head-right, que funciona igual con o sin buscador al lado. */
     /* minmax(0,1fr), no 1fr: 1fr es minmax(auto,1fr) y no baja del
        min-content de la tarjeta. Con auto el historial (tabla de 10 columnas)
        estiraba la columna mas alla del ancho de la pantalla. */
@@ -860,8 +867,9 @@ interface CortesPersona {
        ganara por orden para que todo se desarmara (paso: salio una tarjeta de
        800px con los elementos dispersos). El renglon lo arma el hijo, que es
        quien conoce sus propias partes. */
-    .arq-faltante { padding: .4rem .7rem; border: 1px solid var(--border-color);
-                    background: var(--card-bg); border-radius: var(--r-md); }
+    /* Sin caja propia: el unico borde que queda es el del campo. Un recuadro
+       alrededor lo haria leer como una seccion, y es un accesorio. */
+    .arq-faltante { flex: 1 1 18rem; min-width: 0; max-width: 44rem; }
     :host ::ng-deep .arq-faltante app-faltante-express { display: block; }
     /* El turno, en un renglon. Reemplaza una grilla de seis campos Y dos cajas de aviso. */
     .arq-turno-linea { margin: 0 0 .7rem; font-size: .78rem; color: var(--text-muted);
