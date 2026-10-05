@@ -42,6 +42,7 @@ import {
   type SdVisibility,
   type BitacoraPort,
   type BitacoraTicketEvent,
+  SD_UBICACIONES_EXTRA,
 } from '@megadulces/contracts';
 import { KEPLER_BRANCH_NAMES, TenantContextService, TenantKnexService, applySmartSearch, branchName, toMxDateKey } from '@megadulces/platform-core';
 import { ServiceDeskAgentsService } from './agents.service';
@@ -50,6 +51,8 @@ import { nombreUbicacionExtra, ubicacionExtra } from './domain/ubicaciones';
 import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments.service';
 import { efectosDe, motivoDeCierre, puedeTransicionar, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
+import { clausulasOrden, validarOrden } from './domain/inbox-sort';
+import { fechaValida } from './domain/report-period';
 import { puedeCambiarPrioridad, sugerirPrioridad } from './domain/priority';
 import { evaluarSla, plazosIniciales, plazosTrasCambioDePrioridad, reanudarTrasPausa } from './domain/sla';
 import type { SdEventoClave } from './domain/notice';
@@ -142,6 +145,8 @@ export const juntar = (a: Efectos, b: Efectos): Efectos => ({ avisos: [...a.avis
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ABIERTOS: SdStatus[] = ['nuevo', 'asignado', 'en_proceso', 'en_espera'];
+/** `[MS.3.16]` Nombre que la pantalla muestra por código de ubicación: es por lo que se ordena la columna. */
+const NOMBRES_UBICACION: Readonly<Record<string, string>> = Object.freeze({ ...KEPLER_BRANCH_NAMES, ...SD_UBICACIONES_EXTRA });
 const FINALES: SdStatus[] = ['cerrado', 'cancelado'];
 const MAX_TITULO = 200;
 const MAX_TEXTO = 5000;
@@ -349,9 +354,31 @@ export class ServiceDeskRequestsService {
   /** La bandeja de quien atiende. Orden: prioridad → vencimiento → antigüedad. */
   async inbox(
     ctx: ActorCtx,
-    q: { scope?: string; queue_id?: string; priority?: string; status?: string; warehouse_code?: string; search?: string; limit?: number; offset?: number },
+    q: {
+      scope?: string;
+      queue_id?: string;
+      priority?: string;
+      status?: string;
+      warehouse_code?: string;
+      category_id?: string;
+      /** Un usuario, o `none` para «sin asignar». */
+      assigned_to?: string;
+      /** Fecha de alta, AAAA-MM-DD, en la zona de la mesa. */
+      from?: string;
+      to?: string;
+      sort?: string;
+      dir?: string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    },
   ): Promise<SdListResponse> {
     if (!ctx.esAgente) throw new ForbiddenException('La bandeja es para quien atiende solicitudes');
+    const orden = validarOrden(q.sort, q.dir);
+    if (!orden.ok) throw new BadRequestException(orden.motivo);
+    if (q.from !== undefined && q.from !== '' && !fechaValida(q.from)) throw new BadRequestException('from debe ser una fecha AAAA-MM-DD válida');
+    if (q.to !== undefined && q.to !== '' && !fechaValida(q.to)) throw new BadRequestException('to debe ser una fecha AAAA-MM-DD válida');
+    if (q.from && q.to && q.from > q.to) throw new BadRequestException('from no puede ser posterior a to');
     return this.tk.run(async (trx) => {
       const config = await this.cfg.load(trx);
       const qb = this.base(trx);
@@ -389,10 +416,26 @@ export class ServiceDeskRequestsService {
         qb.where('r.status', q.status);
       }
       if (q.warehouse_code) qb.where('r.warehouse_code', q.warehouse_code);
+      if (q.category_id) {
+        if (!esUuid(q.category_id)) throw new BadRequestException('category_id inválido');
+        qb.where('r.category_id', q.category_id);
+      }
+      if (q.assigned_to) {
+        if (q.assigned_to === 'none') qb.whereNull('r.assigned_to');
+        else if (esUuid(q.assigned_to)) qb.where('r.assigned_to', q.assigned_to);
+        else throw new BadRequestException('assigned_to debe ser un usuario o none');
+      }
+      const tz = config.settings.calendar.tz;
+      if (q.from) qb.whereRaw('r.created_at >= (?::date)::timestamp AT TIME ZONE ?', [q.from, tz]);
+      if (q.to) qb.whereRaw('r.created_at < ((?::date + 1))::timestamp AT TIME ZONE ?', [q.to, tz]);
       this.buscar(qb, q.search);
-      qb.orderByRaw(`CASE r.priority WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END`)
-        .orderByRaw('r.due_at ASC NULLS LAST')
-        .orderBy('r.created_at', 'asc');
+      if (orden.columna) {
+        for (const c of clausulasOrden(orden.columna, orden.direccion, NOMBRES_UBICACION)) qb.orderByRaw(c);
+      } else {
+        qb.orderByRaw(`CASE r.priority WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END`)
+          .orderByRaw('r.due_at ASC NULLS LAST')
+          .orderBy('r.created_at', 'asc');
+      }
       return this.paginar(qb, config, q.limit, q.offset);
     });
   }
