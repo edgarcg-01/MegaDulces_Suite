@@ -395,8 +395,18 @@ export class FaltanteExpressComponent {
 
   private readonly caja = viewChild<ElementRef<HTMLInputElement>>('caja');
 
-  /** Cuánto dura la ventana. Declarado acá y no suelto en el template para que se lea una vez. */
-  readonly segundosVentana = 9;
+  /**
+   * Cuánto dura la ventana. Declarado acá y no suelto en el template para que se lea una vez.
+   *
+   * Pedido de Edgar: a la mitad. Eran 9 y la mitad exacta es 4.5, que no sirve — este número
+   * se IMPRIME en la ayuda ("se cierra sola en N s") y "4.5 s" se lee como un error. Va 5,
+   * el entero más cercano a la mitad.
+   *
+   * Acortar no deja a nadie sin leer: la ventana se PAUSA al pasar el mouse por encima o al
+   * entrar con el teclado (mouseenter/focusin más arriba), así que quien necesite más tiempo
+   * lo retiene sin tocar nada. Si no fuera por esa pausa, bajar de 9 a 5 sí habría que medirlo.
+   */
+  readonly segundosVentana = 5;
   private get totalMs(): number { return this.segundosVentana * 1000; }
 
   readonly termino = signal('');
