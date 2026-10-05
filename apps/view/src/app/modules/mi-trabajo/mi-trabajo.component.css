@@ -191,10 +191,14 @@
   ancho entran 5 columnas para 7 grupos, o sea casi una por grupo, y equilibrar deja de tener
   sentido (ver `.mt-espacios`). El vacio no era del algoritmo, era del contenedor.
 
-  El tope sale de la suma de las dos columnas con sus topes propios --30rem + 2rem de hueco +
-  66rem del catalogo + los dos paddings-- no de un numero elegido. Arriba de eso la pagina se
-  centra, que es lo que hace cualquier app en un monitor ancho: un margen simetrico se lee como
-  decision, un agujero irregular se lee como error.
+  El tope sale de la suma de las dos columnas con sus topes propios --30rem de trabajo + 2rem de
+  hueco + 2rem de padding de `.mt-spaces` + 64rem de catalogo + 3rem de los dos paddings del
+  cuerpo = 101rem-- no de un numero elegido. Arriba de eso la pagina se centra, que es lo que hace
+  cualquier app en un monitor ancho: un margen simetrico se lee como decision, un agujero irregular
+  se lee como error.
+
+  ⚠️ Estos 101rem le dan a `.mt-espacios` exactamente sus 64rem utiles. Cambiar cualquiera de los
+  dos sin rehacer la resta tira la tercera columna y trae scroll -- ya paso, esta contado alla.
 
   ⚠️ La barra de arriba (`.mt-top`) NO se acota: es una barra con fondo y borde de lado a lado, y
   recortarla la partiria. Es el patron de siempre -- barra a sangre, contenido centrado.
@@ -205,7 +209,7 @@
   display: grid;
   grid-template-columns: minmax(0, 30rem) minmax(0, 1fr);
   gap: var(--sp-8);
-  max-width: 102rem;
+  max-width: 101rem;
   margin-inline: auto;
   width: 100%;
   min-height: 0;
@@ -686,14 +690,26 @@
     · 2 columnas -> 928 / 888, hueco 40 px
     · 3 columnas -> hueco ~150 px
     · 5 columnas -> cada columna un grupo, hueco de cientos
-  El tope de 66rem deja 3 columnas de 21rem como maximo. El numero sale del contenido, no de una
-  convencion: `DESIGN.md:544` habla de 1180-1280 px pero es la seccion del CATALOGO del Storefront,
-  no de Operations, asi que no aplica aca. Si algun dia hay 12 espacios, este tope se revisa.
+  ── ⚠️ Y el cliff de 8 px, que ya cobro una vez ────────────────────────────────────────────────
+  El primer intento de este tope dejo `columns: 21rem` con `max-width: 66rem`, y el ancho UTIL que
+  le llegaba eran 1040 px: 1632 (cuerpo) - 48 (padding del cuerpo) - 480 (columna de trabajo)
+  - 32 (hueco) - 32 (padding de `.mt-spaces`). Tres columnas de 21rem piden 1048. **Faltaron 8.**
+  Caia a 2 columnas, el alto se duplicaba y aparecia scroll -- que es justo lo que esta pantalla no
+  puede tener, porque entonces las puertas de abajo dejan de verse.
+
+  Es el mismo cliff que el comentario viejo de este bloque ya documentaba ("21rem y no 23rem, y la
+  diferencia la decidio UN pixel"), repetido por no hacer la resta. Ahora los tres numeros estan
+  ENCADENADOS a proposito y con holgura: `.mt-body` 101rem deja exactamente 64rem utiles aca, y
+  tres columnas de 20rem piden 1000 de los 1024 que hay. Si tocas uno, rehace la resta.
+
+  El tope sale del contenido, no de una convencion: `DESIGN.md:544` habla de 1180-1280 px pero es
+  la seccion del CATALOGO del Storefront, no de Operations, asi que no aplica aca. Si algun dia hay
+  12 espacios, esto se revisa entero.
 */
 .mt-espacios {
-  columns: 21rem;
+  columns: 20rem;
   column-gap: var(--sp-5);
-  max-width: 66rem;
+  max-width: 64rem;
 }
 /*
   Un grupo partido a la mitad entre dos columnas seria peor que el hueco que vino a resolver.
@@ -784,15 +800,18 @@
 
   [SN.27] La altura habia subido de 3.25rem a 4rem para que el nombre entrara en DOS renglones,
   porque a 154 px de ancho 8 de 22 nombres se cortaban.
-  [SN.28] Con la celda a ancho de columna (~21rem) el nombre entra en uno, asi que el alto vuelve a
-  bajar a 3.5rem y ese presupuesto se devuelve al catalogo. Sigue muy por encima del piso de
-  24x24 px que pide WCAG 2.2 / 2.5.8 (Target Size).
+  [SN.28] Con la celda a ancho de columna el nombre entra en uno, asi que el alto baja a 3rem y ese
+  presupuesto se devuelve al catalogo: 24 celdas x 16 px son 384 px menos de alto total, o sea
+  ~128 px menos por columna -- la diferencia entre entrar en pantalla y pedir scroll.
+
+  Entra holgado: nombre (12 px x 1.2) + origen (10 px x 1.25) = 27 px de texto en 48 px de caja. Y
+  sigue muy por encima del piso de 24x24 px que pide WCAG 2.2 / 2.5.8 (Target Size).
 */
 .mt-cell {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: 3.5rem;
+  min-height: 3rem;
   padding: 0 var(--sp-3);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
@@ -1080,7 +1099,9 @@
 */
 @media (max-height: 48rem) {
   .mt-freq { display: none; }
-  .mt-cell { min-height: 3.75rem; }
+  /* [SN.28] Aca cedia 4rem -> 3.75rem. Con la base ya en 3rem ese override AGRANDABA la celda en
+     la pantalla mas apretada del parque -- exactamente al reves de para lo que existia. Se retira:
+     la base de 3rem ya es mas chica que lo que este bloque pedia. */
 }
 
 /*
