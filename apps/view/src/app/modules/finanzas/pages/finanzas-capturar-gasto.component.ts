@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { branchLabel } from '../../../core/constants/store-branches';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -65,7 +66,7 @@ interface SelSolicitud {
         -->
         @if (noHallado(); as nh) {
           <div class="cap-nohallado">
-            <strong>No encontré la solicitud {{ nh.folio }}@if (nh.sucursal) { <span> de la sucursal {{ nh.sucursal }}</span> } en Kepler.</strong>
+            <strong>No encontré la solicitud {{ nh.folio }}@if (nh.sucursal) { <span> de la sucursal {{ branchLabel(nh.sucursal) }}</span> } en Kepler.</strong>
             <p>
               Por eso esta pantalla no muestra los pasos para adjuntar: sin la solicitud no hay
               a qué pegarle los documentos. Puede ser que el vale todavía no llegue por el feed,
@@ -97,7 +98,7 @@ interface SelSolicitud {
                   <div class="cap-ac-l">
                     <div class="cap-ac-top">
                       <span class="cap-ac-folio mono">{{ s.folio }}</span>
-                      <span>suc {{ s.sucursal || '?' }}</span>
+                      <span>{{ branchLabel(s.sucursal) || 'suc ?' }}</span>
                       @if (s.fecha) { <span>{{ s.fecha | date:'dd/MM/yy' }}</span> }
                     </div>
                     <div class="cap-ac-benef">{{ s.beneficiario || '—' }}</div>
@@ -119,7 +120,7 @@ interface SelSolicitud {
               <div class="cap-g-imp">{{ moneyFull(gasto()!.importe) }}</div>
             </div>
             <div class="cap-g-meta">
-              @if (gasto()!.sucursal) { <span><i class="pi pi-map-marker" aria-hidden="true"></i> {{ gasto()!.sucursal }}</span> }
+              @if (gasto()!.sucursal) { <span><i class="pi pi-map-marker" aria-hidden="true"></i> {{ branchLabel(gasto()!.sucursal) }}</span> }
               @if (gasto()!.solicitante) { <span><i class="pi pi-user" aria-hidden="true"></i> {{ gasto()!.solicitante }}</span> }
               @if (gasto()!.fecha) { <span><i class="pi pi-calendar" aria-hidden="true"></i> {{ gasto()!.fecha | date:'dd/MM/yy' }}</span> }
             </div>
@@ -419,7 +420,7 @@ interface SelSolicitud {
               <h3><i class="pi pi-database" aria-hidden="true"></i> Lo que trae Kepler</h3>
               <dl>
                 <dt>Folio</dt><dd class="mono">{{ g.folio }}</dd>
-                <dt>Sucursal</dt><dd>{{ g.sucursal || '—' }}</dd>
+                <dt>Sucursal</dt><dd>{{ branchLabel(g.sucursal) || '—' }}</dd>
                 <dt>Fecha</dt><dd>{{ g.fecha ? (g.fecha | date:'dd/MM/yy') : '—' }}</dd>
                 <dt>Beneficiario</dt><dd>{{ g.beneficiario || '—' }}</dd>
                 <dt>RFC</dt><dd class="mono">{{ g.rfc || '—' }}</dd>
@@ -682,6 +683,8 @@ interface SelSolicitud {
   `],
 })
 export class FinanzasCapturarGastoComponent {
+  /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
+  readonly branchLabel = branchLabel;
   private readonly svc = inject(ComprobacionesService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
@@ -1046,7 +1049,7 @@ export class FinanzasCapturarGastoComponent {
     this.ultimo.set(q);
     if (!q.length || (q.length < 2 && !/^[0-9]+$/.test(q))) { this.sug.set([]); return; }
     this.svc.searchSolicitudes(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((rows) => {
-      this.sug.set((rows || []).map((r) => ({ ...r, label: `${r.folio} · suc ${r.sucursal || '?'} · ${r.beneficiario || '—'} · ${this.moneyFull(r.importe)}` })));
+      this.sug.set((rows || []).map((r) => ({ ...r, label: `${r.folio} · ${branchLabel(r.sucursal) || 'suc ?'} · ${r.beneficiario || '—'} · ${this.moneyFull(r.importe)}` })));
       this.cdr.markForCheck();
     });
   }

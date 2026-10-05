@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { branchLabel } from '../../../core/constants/store-branches';
 import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
@@ -219,7 +220,7 @@ interface Columna {
                  (keydown.space)="p.proof && abrir(p.proof); p.proof && $event.preventDefault()">
           <div class="mg-it-head">
             <span class="mg-folio">{{ p.folio || 'sin folio' }}</span>
-            @if (p.sucursal) { <span class="mg-faint">suc {{ p.sucursal }}</span> }
+            @if (p.sucursal) { <span class="mg-faint">{{ branchLabel(p.sucursal) }}</span> }
             @if (pendiente && antiguedad(p); as a) {
               <span class="mg-faint" [class.mg-atorado]="atorado(p)">{{ a }}</span>
             }
@@ -360,6 +361,8 @@ interface Columna {
   `],
 })
 export class FinanzasMisGastosComponent {
+  /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
+  readonly branchLabel = branchLabel;
   private readonly svc = inject(ComprobacionesService);
   private readonly destroyRef = inject(DestroyRef);
 
