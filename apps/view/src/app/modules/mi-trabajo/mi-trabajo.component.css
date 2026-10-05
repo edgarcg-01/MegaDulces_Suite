@@ -641,36 +641,64 @@
   escritorio en 3 sin una sola consulta de medios. 23rem es el ancho que hace entrar DOS celdas por
   columna en las tres pantallas medidas (1366, 1440, 1920).
 */
+/*
+  [SN.28] REJILLA DE GRUPOS, no multi-columna.
+
+  ── Lo que estaba mal, medido ──────────────────────────────────────────────────────────────────
+  Aca vivia `columns: 21rem` + `break-inside: avoid`, y esa pareja convierte a cada GRUPO en un
+  atomo indivisible. El navegador equilibra multi-columna por ALTURA, asi que con los 7 grupos de
+  tamanos 1-6-3-3-5-2-4 (alturas 112-256-184-184-256-112-184 px, suman 1288) no hay reparto
+  posible en 4 columnas: el minimo que alcanza es 368 px y la cuarta se queda en 184. La mitad de
+  una columna vacia, y mover el `21rem` solo cambia el hueco de lugar.
+
+  Y un costo que no se ve: multi-columna impone orden de lectura POR COLUMNAS. Bajas por Direccion
+  General y Comercial, y despues tenes que volver arriba. Para prosa esta bien; para una rejilla de
+  destinos el ojo espera filas.
+
+  ── Por que grid y no otra cosa ────────────────────────────────────────────────────────────────
+  Con grid la unidad que fluye vuelve a ser el grupo pero SIN equilibrado por altura: se acomodan
+  en filas, se leen de izquierda a derecha, y el hueco -- cuando lo hay -- cae en el ultimo renglon
+  en vez de en media columna. `align-items: start` evita que un grupo corto se estire hasta el alto
+  del mas largo de su fila.
+
+  ⚠️ El `21rem` se conserva TAL CUAL y por la misma razon de antes: a 1366 el catalogo tiene 755 px
+  utiles y con 23rem pedia 776 -- caia a una sola columna justo en la pantalla mas apretada.
+  `auto-fill` reparte igual que `columns` lo hacia, sin el equilibrado.
+*/
 .mt-espacios {
-  /*
-    ⚠️ 21rem y no 23rem, y la diferencia la decidio UN pixel. El navegador parte en
-    floor((disponible + hueco) / (ancho + hueco)): a 1366 el catalogo tiene 755 px utiles y con
-    23rem pedia 388x2 = 776 > 775, asi que caia a UNA columna -- justo la pantalla mas apretada se
-    quedaba sin el arreglo. Medido con 21rem: 2 columnas a 1366 y a 1440, 3 a 1920.
-  */
-  columns: 21rem;
-  column-gap: var(--sp-5);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
+  gap: var(--sp-5);
+  align-items: start;
 }
 /*
-  Un grupo partido a la mitad entre dos columnas seria peor que el hueco que vino a resolver.
+  [SN.28] El encabezado del grupo SUBE de peso, no baja.
 
-  ⚠️ Y la separacion va ABAJO, no arriba entre hermanos: el primer grupo de la segunda columna
-  sigue siendo el hermano adyacente del ultimo de la primera, asi que un margin-top le habria
-  hundido el arranque respecto de la columna de al lado. Al pie de cada grupo el reparto es parejo.
+  La tentacion era retirarlo: 7 encabezados para 24 destinos es uno cada 3.4, y cada uno costaba
+  linea + regla + margen. Pero el encabezado es la via de navegacion PRINCIPAL de quien usa lector
+  de pantalla -- WebAIM, encuesta #11 (jul-ago 2026, 1,780 respuestas): 67.8% navega por
+  encabezados contra 3.4% por landmarks. Quitar los 7 `h3` le sacaba a dos de cada tres su forma
+  de recorrer la pagina.
+
+  Y para quien ve, agrupar tampoco sobra: arriba de ~7 items, dos niveles le ganan a una lista
+  plana porque encoge el numero de opciones PERCIBIDAS (Hick, chunking).
+
+  Lo que se abarata es su cromo -- el grupo ya no paga el margen de multi-columna -- y lo que
+  SUBE es su legibilidad: de 11 px `--text-muted` (que se leia como decoracion) a 12 px
+  `--text-main`. Si el encabezado sostiene la navegacion, tiene que verse.
 */
-.mt-space { break-inside: avoid; margin-bottom: var(--sp-5); }
 .mt-space-title {
   margin: 0 0 var(--sp-2);
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: .07em;
   font-weight: var(--fw-bold);
-  color: var(--text-muted);
+  color: var(--text-main);
 }
-.mt-space-ico { font-size: var(--fs-xs); color: var(--text-faint); }
+.mt-space-ico { font-size: var(--fs-xs); color: var(--text-muted); }
 .mt-space-n {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
@@ -682,32 +710,57 @@
 .mt-badge-prop { font-size: var(--fs-nano); text-transform: none; letter-spacing: 0; }
 
 /*
-  [SN.25] LA GRILLA RIGIDA (brief de Edgar, patron Odoo / SAP Fiori).
+  [SN.28] Dentro del grupo, UNA columna: la celda toma el ancho completo.
 
-  `auto-fill` + `minmax` fuerza que todas las celdas midan exactamente lo mismo y que no queden
-  huecos asimetricos al final de la fila. El minimo baja de 15.5rem a 9.5rem porque el presupuesto
-  vertical lo exige: medido sobre el layout vigente, la columna derecha tiene 944 px de alto a
-  1920x1080 y 632 px a 1366x768, y la tarjeta 1:1 de 240 px que pedia el brief necesita 2,245 px.
-  No hay tamano de cuadrado que entre con 22 modulos -- ni 120 px. Lo que entra es esta celda.
+  Aca vivia `repeat(auto-fill, minmax(9.5rem, 1fr))`, que partia cada grupo en dos celdas de
+  ~154 px. Ese ancho es el que obligaba a truncar el segundo renglon, y el truncado se comia justo
+  el texto que no podia perderse: "de Compras / Reabastecimi...", que es LO UNICO que distingue las
+  dos tarjetas «Hallazgos» de Auditoria.
+
+  Con el grupo ya repartido en la rejilla de arriba, la celda hereda los ~21rem de su columna: el
+  doble de ancho, el nombre entra en una linea y el origen entra entero. La celda se achica de alto
+  (4rem -> 3.5rem) porque ya no necesita dos renglones para el nombre.
+
+  Es `ul` en el HTML, asi que hay que apagar las vinetas y el relleno del user-agent.
 */
 .mt-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+  [SN.28] La rejilla del BUSCADOR, que es otro problema.
+
+  Los resultados de submodulos pueden ser hasta 101 y ocupan el ancho entero del panel, no la
+  columna de un grupo: en una sola fila vertical serian una tira interminable. Conservan varias
+  columnas -- pero con el minimo subido de 9.5rem a 16rem, porque acá la segunda linea SIEMPRE
+  dice de donde sale ("de Compras / Reabastecimiento") y a 154 px eso se cortaba igual que en los
+  grupos.
+*/
+.mt-subs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
   gap: var(--sp-2);
 }
 
 /*
-  La celda compacta: icono + nombre + UNA linea truncada. Altura fija, sin excepciones.
+  La celda: icono + nombre + (solo si es atajo) de donde sale.
 
-  [SN.27] La altura sube de 3.25rem a 4rem, y el alto salio de una medicion, no del gusto: al
-  repartir los espacios en columnas la columna derecha paso a pedir 624 px de los 732 que tiene
-  -- 108 px sin usar debajo del catalogo. Se gastan en que el NOMBRE entre (ver .mt-cell-nm).
+  [SN.27] La altura habia subido de 3.25rem a 4rem para que el nombre entrara en DOS renglones,
+  porque a 154 px de ancho 8 de 22 nombres se cortaban.
+  [SN.28] Con la celda a ancho de columna (~21rem) el nombre entra en uno, asi que el alto vuelve a
+  bajar a 3.5rem y ese presupuesto se devuelve al catalogo. Sigue muy por encima del piso de
+  24x24 px que pide WCAG 2.2 / 2.5.8 (Target Size).
 */
 .mt-cell {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: 4rem;
+  min-height: 3.5rem;
   padding: 0 var(--sp-3);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
@@ -769,15 +822,39 @@
   line-clamp: 2;
   overflow: hidden;
 }
-/* Una linea, truncada. Nunca dos: una descripcion larga deformaba la retícula. */
+/*
+  [SN.28] SE RETIRA EL TRUNCADO, y es el arreglo de fondo de esta celda.
+
+  Esta regla decia `white-space: nowrap` + `text-overflow: ellipsis`, o sea UNA linea cortada. A
+  154 px de ancho eso imprimia "de Compras / Reabastecimi..." -- y ese renglon es el UNICO dato que
+  separa las dos tarjetas «Hallazgos» de Auditoria, una de Finanzas y otra de Compras. El texto que
+  no se podia perder era exactamente el que se perdia. (`entryOrigin()` existe por eso: `[SN.10]`.)
+
+  Ahora el renglon aparece SOLO en los atajos (ver `sub` en el .ts), asi que son pocos y pueden
+  ocupar dos lineas sin deformar nada. El tope de 2 queda de red por si algun origen crece.
+
+  El color sube de `--text-faint` a `--text-muted`: a 10 px, 2.3:1 no se lee -- y esto no es
+  decoracion, es el desempate.
+*/
 .mt-cell-sb {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
   font-size: var(--fs-nano);
-  color: var(--text-faint);
+  color: var(--text-muted);
   line-height: 1.25;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
+.mt-cell-sb > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+/* La flecha dice «vive en otro proyecto» sin gastar palabras. Decorativa: el nombre accesible
+   del enlace ya trae «atajo a X» (ver `aria-label` en el HTML). */
+.mt-cell-atajo { font-size: var(--fs-nano); color: var(--text-faint); flex: none; }
 /*
   [SN.25] La celda que NO es un modulo: es un submodulo de otro modulo, sacado a la portada.
   Medido: 11 de las 22.
@@ -793,8 +870,19 @@
   color ni mas cajas: el titulo en peso regular contra el medium del modulo, el icono mas apagado,
   y la segunda linea diciendo literalmente de donde sale ("de Comercial / Ventas").
 */
-.mt-cell.is-alias .mt-cell-nm { font-weight: var(--fw-regular); color: var(--text-muted); }
-.mt-cell.is-alias .mt-cell-ico { opacity: .7; }
+/*
+  [SN.28] El NOMBRE del atajo deja de apagarse, y el icono tambien.
+
+  El peso regular + `--text-muted` sobre el titulo eran la unica senal de «esto vive en otro lado»
+  cuando no habia ninguna otra. Pero apagar el nombre de un destino REAL lo hace parecer
+  deshabilitado -- el mismo defecto que `[SN.26]` midio con el relleno, una capa mas arriba. Y
+  pegaba fuerte: en Auditoria y en Configuracion son grupos ENTEROS de atajos, o sea bloques que se
+  leian apagados.
+
+  Ahora la relacion la dicen dos cosas explicitas y legibles -- la flecha y el renglon con el
+  proyecto de origen -- asi que la tipografia puede volver a su trabajo, que es ser leida.
+*/
+.mt-cell.is-alias .mt-cell-ico { opacity: .85; }
 
 /* [SN.25] Submodulos hallados por el buscador: los 101 tienen ruta propia. */
 .mt-cell.is-sub .mt-cell-ico { color: var(--action); }
@@ -887,7 +975,9 @@
     padding: var(--sp-3) var(--sp-3) var(--sp-3);
     background: var(--layout-bg);
   }
-  .mt-space { margin-bottom: var(--sp-3); }
+  /* [SN.28] Con la isla puesta, los grupos ya se separan solos: el `gap` de la rejilla se achica
+     para no sumar aire al que ya aporta el padding de cada caja. */
+  .mt-espacios { gap: var(--sp-3); }
   .mt-space-title { margin-bottom: var(--sp-2); }
 }
 
@@ -946,7 +1036,9 @@
   esta pantalla existe para no hacer.
 */
 @media (max-height: 56rem) {
-  .mt-space { margin-bottom: var(--sp-4); }
+  /* [SN.28] Era `.mt-space { margin-bottom }`: con la rejilla de grupos la separacion la pone el
+     `gap` del contenedor, no el margen de cada hermano. Mismo efecto, y simetrico. */
+  .mt-espacios { gap: var(--sp-4); }
 }
 
 /*
@@ -964,30 +1056,20 @@
 }
 
 /*
-  [SN.27] El monitor grande. Con los espacios en columnas el catalogo pasa a pedir 442 px de los
-  801 que tiene a 1920x1080: sobran 359. Ahi la tarjeta con cuerpo que pedia el brief (Vercel,
-  proporcion cercana a 4:3, icono protagonista) por fin se puede pagar -- no cabia porque el
-  catalogo ocupaba una franja por grupo, no porque la tarjeta fuera mala idea.
+  [SN.28] ACA VIVIA la tarjeta alta del monitor grande: a partir de 60rem de alto la celda pasaba a
+  7rem, en columna, con el icono arriba solo como ancla visual y el texto al pie.
 
-  ⚠️ Solo por ALTO, nunca por ancho: lo que decide si una tarjeta alta cabe es el alto disponible.
-  La laptop conserva la celda de 4rem, que es la que la hace entrar sin scroll.
+  Se retira, y el motivo es que su premisa cambio. Esa forma existia porque la celda era ANGOSTA
+  (~154 px) y sobraba ALTO: apilar era la unica manera de darle cuerpo. Ahora la celda toma el
+  ancho entero de su columna (~21rem), asi que el icono arriba dejaria un renglon de texto corto
+  flotando sobre 300 px de blanco -- seria mover el aire de la pantalla a adentro de la tarjeta,
+  que es justo lo que aquel comentario queria evitar.
+
+  ⚠️ Y hay una razon que pesa mas que la estetica: una tarjeta que cambia de FORMA segun el alto de
+  la pantalla le da a la misma persona dos layouts distintos entre su laptop y su monitor. Eso es
+  lo que rompe la memoria espacial (NN/g): lo que se aprende de memoria no se mueve. Una sola
+  forma, en todos lados.
 */
-@media (min-height: 60rem) {
-  /*
-    Y con el alto pagado, la tarjeta toma la FORMA del brief (Vercel): el icono arriba, solo, como
-    ancla visual, y el texto al pie. Una tarjeta alta con el icono chico al lado del titulo deja el
-    50% inferior en blanco -- seria mover el aire de abajo de la pantalla a adentro de la tarjeta.
-  */
-  .mt-cell {
-    min-height: 7rem;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: space-between;
-    padding: var(--sp-3);
-  }
-  .mt-cell-ico { font-size: var(--fs-h3, 1.5rem); }
-  .mt-cell-tx { width: 100%; }
-}
 
 /* ── Angosto: la izquierda se achica antes de romper la rejilla de puertas ─ */
 @media (max-width: 80rem) {

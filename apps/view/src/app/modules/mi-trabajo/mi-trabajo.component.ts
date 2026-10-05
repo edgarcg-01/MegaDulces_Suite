@@ -306,22 +306,29 @@ export class MiTrabajoComponent {
         const modulos = this.lineaModulos(e.modules.map((m) => m.label));
         // Un módulo enlazado no tiene submódulos que listar; lo útil es de dónde sale.
         const detalle = modulos || (e.origin ? `de ${e.origin}` : '');
-        /*
-         * `[SN.25]` **Una sola línea, y la que distingue.**
-         *
-         * Antes iban tres módulos y un «+N» — y el corte era POR POSICIÓN, los tres primeros tal
-         * como fueron declarados. Medido: «Ventas» tiene 21 submódulos y nombraba tres; el «+18»
-         * escondía el 70% del catálogo y no se podía tocar. A 52 px de alto no entra una lista, así
-         * que la tarjeta deja de fingir que es un índice: dice **de dónde sale** si es un acceso
-         * directo, y **cuántos submódulos abre** si es un módulo. Lo demás lo resuelve `Ctrl K`,
-         * que ahora sí llega a los 101.
-         */
         const esAlias = !!e.entry.crossLink;
-        const sub = esAlias
-          ? (e.origin ? `de ${e.origin}` : 'acceso directo')
-          : e.modules.length
-            ? `${e.modules.length} ${e.modules.length === 1 ? 'submódulo' : 'submódulos'}`
-            : '';
+        /*
+         * `[SN.28]` **Un renglón, UN significado: de dónde sale.**
+         *
+         * ── Qué estaba mal ──────────────────────────────────────────────────────────────────
+         * Este mismo renglón decía dos cosas opuestas según la fila: `de Finanzas` para un acceso
+         * directo y `21 submódulos` para un módulo. Mismo gris, mismo tamaño, misma posición,
+         * sentido contrario — uno dice DE DÓNDE VIENE y el otro QUÉ TAN GRANDE ES. Y el conteo no
+         * ayudaba a decidir: entre «22 submódulos» y «1 submódulo» no cambia a dónde hacés clic.
+         * (El `+N` que vivió acá antes está contado en `[SN.25]`; esto retira a su reemplazo.)
+         *
+         * ── La regla ahora ──────────────────────────────────────────────────────────────────
+         * El renglón aparece **sólo cuando la pregunta sigue abierta**, o sea en un ATAJO: el
+         * encabezado de arriba nombra el espacio donde lo estás VIENDO, no el proyecto donde VIVE.
+         * En un módulo propio el encabezado ya contestó, así que repetirlo sería ruido — y el
+         * encabezado se queda justamente porque es por donde navega el 67.8% de quienes usan
+         * lector de pantalla (WebAIM, encuesta #11, jul–ago 2026, 1,780 respuestas).
+         *
+         * ⚠️ Este renglón es el ÚNICO que distingue las dos tarjetas «Hallazgos» de Auditoría
+         * —una de Finanzas y otra de Compras, `entryOrigin()` en `[SN.10]`— así que **no puede
+         * truncarse**: ver `.mt-cell-sb` en el CSS, que perdió el `nowrap` por esto.
+         */
+        const sub = esAlias ? (e.origin ?? 'acceso directo') : '';
         return {
           id: e.entry.id,
           label: e.label,
