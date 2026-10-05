@@ -54,7 +54,7 @@ interface DatosKepler {
   acreedor?: string | null;
 }
 import {
-  diaValido, etapaDe, hoyMx, particionarDelDia,
+  diaValido, etapaDe, hoyMx, particionarDelDia, ESTADOS_DECIDIDOS,
   type EtapaGasto, type ParticionDelDia,
 } from './etapas-del-dia';
 import {
@@ -238,7 +238,16 @@ export interface RespuestaDelDia extends ParticionDelDia {
   /** Los grupos por departamento de lo que espera decision ESE dia (la bandeja de entrada). */
   entrada: AgrupadoAprobacion;
   /** Lo que espera firma y NO cayo en este dia. El dia filtra lo que se lee, no lo que existe. */
-  pendientes_fuera_del_dia: { n: number; monto: number };
+  /**
+   * `[GX.67]` De la bandeja de entrada, cuanto **NO es del dia que se mira**. Se MUESTRA
+   * igual -- este numero es contexto, no una excusa para esconderlo.
+   */
+  entrada_de_otros_dias: { n: number; monto: number };
+  /**
+   * `[GX.67]` La bandeja de entrada toco el tope de `limit` y hay mas esperando firma.
+   * ⛔ Nunca se lee como "no hay mas": una lista truncada en silencio es trabajo invisible.
+   */
+  entrada_truncada: boolean;
 }
 
 /** Lo que el tablero necesita saber de un folio sin abrir el expediente. */
@@ -2177,14 +2186,29 @@ export class ExpenseProofsService {
    * mitad de la trampa de `porAprobar` -- ahi `to_char` es gratis porque esta en la lista
    * de seleccion, aca seria carisimo porque estaria en el `WHERE`.
    *
-   * ## (X) Acotar por dia NO puede esconder lo que espera firma
-   * Una pantalla que solo mire "hoy" haria desaparecer el expediente que nadie aprobo
-   * anteayer. Por eso la respuesta trae `pendientes_fuera_del_dia` con lo que quedo afuera
-   * del rango, y la pantalla lo dice con su monto. El dia filtra lo que se LEE, nunca lo
-   * que existe.
+   * ## (X) `[GX.67]` LA BANDEJA DE ENTRADA NO SE ACOTA POR DIA
+   * Pedido del usuario (2026-10-05): *"solo se pueden autorizar los que se levanten del dia,
+   * cambialo a que tambien se puedan pasado"*.
    *
-   * (!) El rail de dias que acompanaba a este numero se retiro de la pantalla, y con el la
-   * consulta que lo alimentaba: un payload que nadie lee es una consulta que nadie paga.
+   * Hasta acá la pantalla mostraba SOLO el día en curso y se limitaba a **avisar** cuántos
+   * expedientes habían quedado afuera -- sin ninguna forma de llegar a ellos, porque la barra
+   * de días se había retirado el 2026-09-25. **Medido en local el 2026-10-05: 78 expedientes
+   * esperando firma repartidos en ~25 días, el más viejo del 1-jul, y CERO levantados hoy** --
+   * o sea la bandeja salía vacía mientras esos 78 esperaban.
+   *
+   * El arreglo no es devolver la barra que el usuario quitó: es que **la bandeja de entrada
+   * deje de ser un reporte del día y vuelva a ser una cola de trabajo**. Lo que espera
+   * decisión se ve completo, de cualquier fecha; cada renglón trae su día de captura.
+   *
+   * Las otras dos pestañas SIGUEN siendo del día, y es a propósito: *Aprobados* y
+   * *Rechazados* son el **registro de lo que se decidió ese día**, no una cola. Abrirlas
+   * también volvería la pantalla un historial, que ya existe aparte.
+   *
+   * (!) Por eso las tres pestañas ya NO particionan el mismo conjunto, y la pantalla lo
+   * dice: el encabezado de cada una declara su alcance.
+   *
+   * (X) El tope de `limit` se aplica a cada mitad y `entrada_truncada` lo declara. Una lista
+   * cortada en silencio se lee igual que una lista completa.
    */
   async delDia(fecha?: string, limit = 500): Promise<RespuestaDelDia> {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -2211,26 +2235,52 @@ export class ExpenseProofsService {
       const desde = trx.raw(`(?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
       const hasta = trx.raw(`((?::date) + interval '1 day')::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
 
-      const filas: FilaCruda[] = await trx('finance.expense_proofs')
+      // Las columnas son las mismas en los dos viajes: una sola lista evita que uno traiga
+      // un campo que el otro no, y que la pantalla muestre `undefined` en media bandeja.
+      const COLS = [
+        'id', 'folio_solicitud', 'sucursal', 'departamento', 'proveedor', 'clasificacion',
+        'forma_pago', 'forma_pago_detalle', 'files', 'comentarios', 'created_by', 'status',
+        'motivo_rechazo', 'revision_nota', 'validated_by', 'validated_at',
+        trx.raw('importe::numeric AS importe'),
+        trx.raw(`to_char(fecha_gasto, 'YYYY-MM-DD') AS fecha_gasto`),
+        trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS created_dia`),
+        trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS created_hora`),
+      ];
+
+      // (1) El dia que se mira, completo: alimenta las tres pestanas.
+      const filasDelDia: FilaCruda[] = await trx('finance.expense_proofs')
         .where({ tenant_id: tenantId })
         .where('created_at', '>=', desde)
         .where('created_at', '<', hasta)
         .orderBy('created_at', 'desc')
         .limit(lim)
-        .select('id', 'folio_solicitud', 'sucursal', 'departamento', 'proveedor', 'clasificacion',
-          'forma_pago', 'forma_pago_detalle', 'files', 'comentarios', 'created_by', 'status',
-          'motivo_rechazo', 'revision_nota', 'validated_by', 'validated_at',
-          trx.raw('importe::numeric AS importe'),
-          trx.raw(`to_char(fecha_gasto, 'YYYY-MM-DD') AS fecha_gasto`),
-          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS created_dia`),
-          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS created_hora`));
+        .select(...COLS);
 
-      // Lo que espera firma y NO cayo en el dia que se mira. Sin este numero, un expediente
-      // parado hace un mes no existe en ninguna pantalla.
+      // (2) `[GX.67]` Lo que espera decision y es de OTRO dia. Entra entero a la bandeja.
+      //
+      // (X) `whereNotIn` contra `ESTADOS_DECIDIDOS`, que sale del mapa del repartidor -- NO
+      // `status = 'recibida'`. Con el literal, un estado nuevo en la tabla (o el `sin_etapa`
+      // que el repartidor usa de red) quedaria fuera de la bandeja sin que nada avise, que
+      // es justo el trabajo invisible que este cambio vino a terminar.
+      const deOtrosDias: FilaCruda[] = await trx('finance.expense_proofs')
+        .where({ tenant_id: tenantId })
+        .whereNotIn('status', [...ESTADOS_DECIDIDOS])
+        .where((w) => w.where('created_at', '<', desde).orWhere('created_at', '>=', hasta))
+        .orderBy('created_at', 'desc')
+        .limit(lim)
+        .select(...COLS);
+
+      // El total real de (2), para saber si la lista se corto. El COUNT es sobre el mismo
+      // WHERE: si no coincide con las filas traidas, hay mas y la pantalla lo dice.
       const [fuera] = await trx('finance.expense_proofs')
-        .where({ tenant_id: tenantId, status: 'recibida' })
+        .where({ tenant_id: tenantId })
+        .whereNotIn('status', [...ESTADOS_DECIDIDOS])
         .where((w) => w.where('created_at', '<', desde).orWhere('created_at', '>=', hasta))
         .select(trx.raw('COUNT(*)::int AS n'), trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
+
+      // Una sola lista, ordenada por captura descendente: lo de hoy arriba, lo viejo abajo.
+      const filas: FilaCruda[] = [...filasDelDia, ...deOtrosDias]
+        .sort((a, b) => `${b.created_dia} ${b.created_hora}`.localeCompare(`${a.created_dia} ${a.created_hora}`));
 
       const particion = particionarDelDia(filas.map((f) => ({
         id: f.id, status: f.status, importe: Number(f.importe) || 0,
@@ -2243,10 +2293,11 @@ export class ExpenseProofsService {
         hoy,
         // No-null = la fecha pedida era ilegible y se cayo a hoy. La pantalla lo dice.
         fecha_pedida: pedida != null && diaValido(pedida) == null ? pedida : null,
-        pendientes_fuera_del_dia: {
+        entrada_de_otros_dias: {
           n: Number(fuera?.n) || 0,
           monto: Math.round((Number(fuera?.monto) || 0) * 100) / 100,
         },
+        entrada_truncada: deOtrosDias.length >= lim || filasDelDia.length >= lim,
       };
 
       if (!filas.length) {
