@@ -235,13 +235,28 @@ const PASO_MS = 100;
        con flex-direction: column y la misma especificidad (0,1,0), asi que la
        regla de una sola clase perdia por orden y la tira salia apilada. Con las
        dos clases (0,2,0) gana sin importar el orden. */
-    .fx.fx-compacto { flex-direction: row; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; }
-    .fx.fx-compacto .fx-lbl-min { display: inline-flex; align-items: center; gap: .3rem; flex: 0 0 auto;
-                                  font-size: .76rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
-    .fx.fx-compacto .fx-wrap { flex: 1 1 18rem; min-width: 0; max-width: 34rem; }
-    .fx.fx-compacto .fx-input { min-height: 2.25rem; }
-    .fx.fx-compacto .fx-sin-suc { flex: 1 1 16rem; min-width: 0; margin: 0; padding: 0;
-                                  border: 0; background: none; font-size: .73rem; }
+    .fx.fx-compacto { flex-direction: row; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; }
+    .fx.fx-compacto .fx-lbl-min { display: inline-flex; align-items: center; gap: .25rem; flex: 0 0 auto;
+                                  font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); white-space: nowrap; }
+    .fx.fx-compacto .fx-wrap { flex: 1 1 14rem; min-width: 0; max-width: 28rem; }
+    /* A la altura del boton de ayuda del mismo renglon, no mas. */
+    .fx.fx-compacto .fx-input { min-height: 1.85rem; font-size: var(--fs-sm); padding-left: 1.85rem; }
+    .fx.fx-compacto .fx-ico { font-size: var(--fs-xs); left: .55rem; }
+    .fx.fx-compacto .fx-sin-suc { flex: 1 1 14rem; min-width: 0; margin: 0; padding: 0;
+                                  border: 0; background: none; font-size: var(--fs-micro); }
+    /* La ventana con el precio y la existencia NO entra en el renglon: baja a su
+       propia linea y ocupa todo el ancho. Es la respuesta, y dura unos segundos. */
+    .fx.fx-compacto .fx-ventana { flex: 1 1 100%; }
+    /* ⚠️ Lo compacto es para el MOUSE. Con el dedo vuelve el minimo de 44px
+       (DESIGN §11, Ley de Fitts): un campo de 30px en una tablet es un objetivo
+       que se falla, y esta caja la usa alguien con un cliente enfrente. El
+       font-size de 1rem no es estetica: por debajo de 16px Safari en iOS hace
+       zoom al enfocar y descuadra la pantalla a media captura. */
+    @media (pointer: coarse) {
+      .fx.fx-compacto .fx-input { min-height: var(--tap-min, 44px); font-size: 1rem; padding-left: 2.1rem; }
+      .fx.fx-compacto .fx-ico { left: .75rem; }
+      .fx.fx-compacto .fx-lbl-min { font-size: var(--fs-sm); }
+    }
 
     /* Operations (DESIGN §O). Todo por token: dark funciona solo. */
     .fx { display: flex; flex-direction: column; gap: .5rem; }
