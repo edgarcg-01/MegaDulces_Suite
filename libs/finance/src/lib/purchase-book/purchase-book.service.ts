@@ -222,6 +222,13 @@ export class PurchaseBookService {
              FROM fiscal.cfdis
             WHERE tenant_id = current_tenant_id()
               AND source = 'contpaqi_add' AND tipo_comprobante = 'I'
+              -- ⛔ `[IG.14]` `rol` EXPLICITO. `fiscal.cfdis` fue, hasta 2026-10-05, solo CFDI
+              -- RECIBIDO, asi que este filtro era implicito y nadie lo escribio. Ahora el ADD
+              -- tambien puede traer los EMITIDOS (213,520 facturas de VENTA por $4,680 M, que
+              -- siempre estuvieron ahi y nunca se pidieron). Sin esta linea, el LIBRO DE COMPRAS
+              -- empezaria a tratar nuestras propias facturas de venta como compras: un documento
+              -- fiscal corrompido, y en silencio.
+              AND rol = 'recibidas'
             GROUP BY 1
          )
          SELECT m.anio_mes, m.cfdis, m.total_cfdis,
@@ -327,6 +334,13 @@ export class PurchaseBookService {
              LEFT JOIN ctas c ON c.rfc = f.emisor_rfc
             WHERE f.tenant_id = current_tenant_id()
               AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
+              -- ⛔ `[IG.14]` `rol` EXPLICITO. `fiscal.cfdis` fue, hasta 2026-10-05, solo CFDI
+              -- RECIBIDO, asi que este filtro era implicito y nadie lo escribio. Ahora el ADD
+              -- tambien puede traer los EMITIDOS (213,520 facturas de VENTA por $4,680 M, que
+              -- siempre estuvieron ahi y nunca se pidieron). Sin esta linea, el LIBRO DE COMPRAS
+              -- empezaria a tratar nuestras propias facturas de venta como compras: un documento
+              -- fiscal corrompido, y en silencio.
+              AND f.rol = 'recibidas'
               -- Acotado a los meses que el tablero va a mostrar. Sin esto se escanean los
               -- 167 mil CFDIs del ADD para tirar 24 renglones.
               AND f.fecha >= date_trunc('month', now()) - make_interval(months => ?)
@@ -534,6 +548,7 @@ export class PurchaseBookService {
                  - coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0), 2)
           WHERE f.tenant_id = current_tenant_id()
             AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
+            AND f.rol = 'recibidas'   -- ⛔ [IG.14] ver la nota de arriba: sin esto el TXT lleva nuestras ventas
             -- Rango sobre la columna, NO to_char(fecha, 'YYYY-MM'): envolver la columna en
             -- una función anula el índice (tenant_id, fecha) y obliga a un seq scan de los
             -- 167k CFDIs — 4.6 s de los 11.8 s que tardaba abrir agosto. Equivalencia
@@ -1094,6 +1109,7 @@ export class PurchaseBookService {
              LEFT JOIN finance.gl_supplier_accounts a
                ON a.tenant_id = f.tenant_id AND a.rfc = f.emisor_rfc AND a.deleted_at IS NULL
             WHERE f.tenant_id = current_tenant_id() AND upper(f.uuid) = ANY (?)
+              AND f.rol = 'recibidas'   -- cinturon: el UUID ya acota, pero el rol es la regla
             ORDER BY upper(f.uuid), a.usado_en_asiento DESC NULLS LAST, a.account_suffix`,
           [uuids],
         )
@@ -1112,6 +1128,7 @@ export class PurchaseBookService {
              LEFT JOIN finance.gl_supplier_accounts a
                ON a.tenant_id = f.tenant_id AND a.rfc = f.emisor_rfc AND a.deleted_at IS NULL
             WHERE i.tenant_id = current_tenant_id() AND i.run_id = ? AND i.incluida
+              AND f.rol = 'recibidas'   -- cinturon: el run ya acota, pero el rol es la regla
             ORDER BY upper(f.uuid), a.usado_en_asiento DESC NULLS LAST, a.account_suffix`,
           [run.id],
         );
@@ -1463,7 +1480,8 @@ export class PurchaseBookService {
                 count(*) FILTER (WHERE aso_contabilidad IS NOT TRUE)::int AS sin_marca,
                 round(coalesce(sum(total) FILTER (WHERE aso_contabilidad IS NOT TRUE), 0), 2) AS monto
            FROM fiscal.cfdis
-          WHERE tenant_id = current_tenant_id() AND upper(uuid) = ANY (?)`,
+          WHERE tenant_id = current_tenant_id() AND upper(uuid) = ANY (?)
+            AND rol = 'recibidas'`,
         [uuids],
       );
       const dias = Math.floor((Date.now() - new Date(run.aplicado_at as string).getTime()) / 86400000);
