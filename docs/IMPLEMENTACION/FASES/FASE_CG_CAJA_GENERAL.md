@@ -1135,3 +1135,70 @@ marcado.
   `[LC.6.2]`). No se tocó: repartir o quitar permisos es decisión de Edgar desde la UI.
 - La decisión abierta de `[CG.42]`: si un corte `sin_base` (sin fondo inicial medido) debe poder
   cerrarse o hay que bloquearlo.
+
+### 13.4 Capa 3 — la operativa: ¿cumple para lo que existe?
+
+Las capas 0–2 probaron que el dato está, el backend es correcto y la pantalla se puede usar. La
+capa 3 pregunta lo único que importa al final. Los tres propósitos del §1, medidos en prod el
+2026-10-06:
+
+| | estado | medido |
+|---|---|---|
+| **Espejar** el libro de Access | ✅ funciona | 13,116 movimientos de 2026 · +$80.2M / −$81.4M · fresco al minuto (14:50) |
+| **Triangular** contra el cajero | ✅ con dos patas | Access 1,419 movs/30 d · CAOS 235 movs, último hoy 14:29 · ⚠️ la pata de `caja_depositos` está **muerta desde el 2026-01-21** (`[CG.40]`) |
+| **Reemplazar** el Access | ✖ **cero** | **2 movimientos**, los dos de `superoot` el 28-sep en una tarde · **0 cortes de caja, de cualquier estado** |
+
+#### ⭐ El hallazgo: la pantalla SÍ se abre, y aun así nadie captura
+
+`cobertura` se pide **una vez por carga de página** y tiene **61 llamadas en 23.5 h** →
+`/finanzas/caja-general` **se abre ~60 veces al día**. No la están ignorando. El ritmo de la
+bandeja (6.4/h contra 60/h si una pestaña quedara abierta) dice que entran y se van.
+
+⛔ **Y no quedó rastro de que alguien lo intentara**: `finance.cash_ledger_sequences` está en
+**exactamente 2**, igual que las filas. Un lote donde *todas* las filas se rechazan no toca la
+secuencia, así que esto no descarta intentos fallidos — lo declara como no medible desde la DB.
+
+#### ⛔⛔ Lo que la capa 3 encontró roto EN VIVO: migración adelante del código
+
+Las migs `20261006123000` (denom_key) y `20261006124500` (apertura) se aplicaron a mano a las
+**14:21**. El código que las usa (`[CG.38]`/`[CG.39]`) vivía en `origin/main` pero **la imagen
+desplegada era `45b64262` (13:23)**, 46 commits atrás. Verificado contra el bundle que corría:
+
+```
+denom_key=0   fondo_origen=0        ← el API no conocía las columnas
+.insert({ tenant_id, cash_ledger_id, denominacion, piezas })   ← 4 columnas
+```
+
+…contra una tabla que ahora exige 6, con **`denom_key` NOT NULL, sin default y sin trigger**
+(`flujo` y `momento` sí tienen default — el único que rompe es `denom_key`). Alcance exacto, por
+el guard `if (!dens.length)`:
+
+- guardar un movimiento **sin** desglose → funcionaba
+- guardar un movimiento **con** desglose de billetes → **fallaba**
+- **cerrar un corte con conteo** → **fallaba**
+
+O sea: durante ~50 min el módulo no podía hacer lo único para lo que existe. **Se cerró solo**: el
+`auto-deploy` tomó `43bc034a` (bendecido por `ci-green` a las 14:46) y a las ~15:12 los dos pods
+servían el código nuevo, con `denom_key` en el insert. Hoy todo prod está en `43bc034a`.
+
+⭐ **La lección, que es de proceso y no de código:** las migraciones se aplican **a mano** y el
+código se despliega por **otro carril** (`ci-green` → `auto-deploy`). Mientras esos dos carriles no
+se ordenen, cada migración que agrega una columna `NOT NULL` abre una ventana en la que el código
+viejo no puede escribir. No hace falta un error de nadie: basta el orden.
+
+#### Lo que queda abierto
+
+- ⛔ **No hay telemetría de páginas en la app de administración** (`portal_telemetry_events` es del
+  portal B2B). No se puede medir la adopción de una pantalla que no reporta que la abrieron; las 61
+  cargas se dedujeron del rastro de SQL, que es un proxy, no una medición.
+- ⛔ **Nada río abajo lee `finance.cash_ledger`.** Lo consumen el propio módulo de caja y un
+  contador de «Mi trabajo». Ni Conciliación Bancaria, ni Maat, ni contabilidad, ni ContPAQi. Quien
+  captura no recibe nada de vuelta, y eso es una razón de adopción más fuerte que cualquier defecto
+  de pantalla.
+- ⚠️ `20261006210000` se aplicó copiando el archivo al pod, y ese pod ya murió en el rollout. El
+  archivo **no está en `origin/main`**, así que `knex.migrate.list()` desde dentro del pod va a
+  decir *migration directory is corrupt*. Es la 7ª fila en ese estado (CLAUDE.md documenta 6). Se
+  cierra pusheando.
+- Dos consultas sobre el gate de 500 ms, las dos sobre `analytics.kepler_bank_movements`:
+  `cajas()` en 742 ms y el leg de Conciliación en 769 ms. Ver `[CG.41.1]` para lo que **no** hay
+  que reintentar.
