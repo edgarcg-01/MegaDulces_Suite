@@ -1695,7 +1695,41 @@ export class CommercialReplenishmentService {
           LEFT JOIN analytics.demand_acceleration da ON da.tenant_id = :t AND da.product_id = p.product_id
          ${wbWhere}`;
 
-      const rows = (await trx.raw(`${inner} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
+      // `[RA-PERF.3]` LOS TOTALES VIAJAN EN LA MISMA PASADA, en ventanas `OVER ()`.
+      //
+      // Hasta acá la pantalla pagaba el MISMO arbol de CTEs DOS veces: una para la pagina y otra
+      // para el `SELECT SUM(...) FROM (inner)`. No es una sospecha: `[RA-PERF.1]` lo dejo escrito
+      // como pendiente y pg_stat_statements lo confirma — las dos consultas aparecen con el mismo
+      // numero de llamadas (79 y 78) y practicamente el mismo promedio (49.3 s y 48.1 s).
+      //
+      // Medido contra prod el 2026-10-06, YA con la copia materializada de `[RA-PERF.1]`:
+      //     sin filtro      pagina 2,091 ms + totales 1,337 ms = 3,428 ms   ->  2,070 ms   (-40%)
+      //     con proveedor   pagina 1,100 ms + totales   812 ms = 1,912 ms   ->  1,074 ms   (-44%)
+      // y verificado despues contra la forma final, en los tres escenarios que la pantalla usa
+      // (sin filtro, con proveedor, y con el chip "Solo con pedido" que activa `wbWhere`): los
+      // OCHO totales identicos y las mismas filas en el mismo orden.
+      //
+      // ⚠️ Una ventana `OVER ()` se evalua ANTES del LIMIT, asi que cuenta y suma TODO el universo
+      // filtrado, no la pagina. Pero viaja PEGADA a las filas: si la pagina sale vacia no hay
+      // donde leerla, y por eso abajo queda el camino viejo como respaldo para ese unico caso
+      // (offset mas alla del final). Un total que desaparece cuando no hay filas se leeria como
+      // "no hay nada", que es otra afirmacion.
+      //
+      // NO SE INVENTA EL PATRON: `transferPlan` y `overstockList`, en este mismo archivo, ya
+      // publican su `_total` / `_total_valor` exactamente asi.
+      const TOT_COLS = ['_c', '_total_pedido', '_total_venta', '_total_exis', '_total_venta_costo',
+        '_exis_sin_valuar_skus', '_exis_sin_valuar_celdas', '_exis_sin_valuar_arbitrado'] as const;
+      const win = `, count(*) OVER ()::int AS _c,
+               round(SUM(pedido_valor) OVER ()::numeric, 2)                              AS _total_pedido,
+               round(SUM(valor_venta) OVER ()::numeric, 2)                               AS _total_venta,
+               round(SUM(valor_exis) OVER ()::numeric, 2)                                AS _total_exis,
+               round(SUM(valor_vta_costo) OVER ()::numeric, 2)                           AS _total_venta_costo,
+               (COUNT(*) FILTER (WHERE almacenes_sin_valuar > 0) OVER ())::int           AS _exis_sin_valuar_skus,
+               (COALESCE(SUM(almacenes_sin_valuar) OVER (), 0))::int                     AS _exis_sin_valuar_celdas,
+               round(COALESCE(SUM(valor_exis_arbitrado) OVER (), 0)::numeric, 2)         AS _exis_sin_valuar_arbitrado`;
+      const innerWin = inner.replace('\n          FROM prod p\n', `${win}\n          FROM prod p\n`);
+      if (innerWin === inner) throw new Error('[RA-PERF.3] no se pudo inyectar el bloque de totales en la consulta del workbook');
+      const rows = (await trx.raw(`${innerWin} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
       // [RA-PRO.67] Margen y venta perdida, SOLO sobre la página que se muestra (≤1000 SKUs; medido
       // 2026-10-02 con los 76 de GONAC: 225 ms el margen, 13 ms la venta perdida). El export a XLSX
       // no las necesita y pagaría el costo sobre el catálogo entero, así que se salta.
@@ -1707,7 +1741,22 @@ export class CommercialReplenishmentService {
       // `exis_sin_valuar_*` dice cuántos SKUs y cuánto valor (según el árbitro) quedaron fuera. Sin
       // esto el total bajaría en silencio y se leería como "hay menos inventario", que es otra
       // mentira distinta de la que estamos quitando.
-      const tot = (await trx.raw(`SELECT count(*)::int c,
+      //
+      // `[RA-PERF.3]` Los totales ya vienen pegados a las filas (ventanas `OVER ()` de arriba), asi
+      // que acá sólo se leen. El `SELECT SUM(...) FROM (inner)` queda SÓLO como respaldo del único
+      // caso en que no hay dónde leerlos: página vacía con universo no vacío (offset más allá del
+      // final). Si la página está vacía porque el filtro no casa con nada, el respaldo devuelve los
+      // ceros correctos y `total` sale 0, que es lo mismo que publicaba antes.
+      const w0 = rows[0] as Record<string, unknown> | undefined;
+      const tot = w0
+        ? {
+            c: w0._c, total_pedido: w0._total_pedido, total_venta: w0._total_venta,
+            total_exis: w0._total_exis, total_venta_costo: w0._total_venta_costo,
+            exis_sin_valuar_skus: w0._exis_sin_valuar_skus,
+            exis_sin_valuar_celdas: w0._exis_sin_valuar_celdas,
+            exis_sin_valuar_arbitrado: w0._exis_sin_valuar_arbitrado,
+          }
+        : (await trx.raw(`SELECT count(*)::int c,
           round(SUM(pedido_valor)::numeric,2) total_pedido,
           round(SUM(valor_venta)::numeric,2)  total_venta,
           round(SUM(valor_exis)::numeric,2)   total_exis,
@@ -1716,6 +1765,9 @@ export class CommercialReplenishmentService {
           COALESCE(SUM(almacenes_sin_valuar), 0)::int                    exis_sin_valuar_celdas,
           round(COALESCE(SUM(valor_exis_arbitrado), 0)::numeric, 2)      exis_sin_valuar_arbitrado
         FROM (${inner}) z`, binds)).rows[0];
+      // Los ocho acarreos salen del payload: son del CONJUNTO, no de la fila, y repetirlos en cada
+      // renglón engordaría el export (hasta 100,000 filas) sin decir nada nuevo.
+      for (const r of rows as Array<Record<string, unknown>>) for (const k of TOT_COLS) delete r[k];
       // Columnas presentes → dinámicas. General = 1 columna; por sucursal = 1 almacén por columna.
       const territories = general
         ? [{ code: 'GENERAL', name: 'General (red)' }]
