@@ -34,13 +34,43 @@
 set -u
 
 RETENER="${RETENER_IMG:-5}"
-# La política PRINCIPAL es la edad (ver el bloque 2: el techo por tamaño está medido y no
-# cumple). 72 h conserva el caché de los últimos ~3 días de despliegues, que es lo que hace que
-# un build tarde ~4 min y no ~15.
-EDAD_CACHE="${PODA_EDAD_CACHE:-72h}"
-EDAD_APRETADA="${PODA_EDAD_APRETADA:-24h}"
-TECHO_CACHE="${PODA_TECHO_CACHE:-30GB}"   # segunda pasada, best-effort — NO se le cree
-TECHO_DURO_GB="${PODA_TECHO_DURO_GB:-45}" # pasado esto, se apura la edad una vez
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# `[CD.22]` LA PODA ESTABA OPTIMIZANDO EL RECURSO EQUIVOCADO, Y COSTABA 10 MINUTOS POR DESPLIEGUE
+#
+# Lo que decía esta línea —«72 h … hace que un build tarde ~4 min y no ~15»— quedó medido y es
+# optimista: el 2026-10-06, con el caché tal como lo deja esta poda, reconstruir las etapas del
+# `api` costó
+#
+#     deps  (npm ci) ......... 416 s      ⬅ 6 min 56 s
+#     src   (copiar el repo) . 215 s      ⬅ 3 min 35 s
+#     build-api (Angular+Nest) ... 8 s
+#     runner-api ................. 2 s
+#     tocar main.ts y reconstruir  2 s    ⬅ con el caché caliente, TODO el sistema son 2 s
+#
+# ⭐ Compilar el código cuesta 8 segundos. Los 10:31 restantes son rehacer lo que esta poda
+#    acababa de tirar. Y `deps` sólo cambia de verdad si cambia `package-lock.json`: medido,
+#    **11 de 1,916 commits**. Se estaba reconstruyendo en el 99.4 % de los casos sin motivo.
+#
+# ⛔ Y el disco no lo justificaba. Medido el mismo día:
+#
+#     pgbackrest ....... 97 GB      volúmenes ... 115.6 GB
+#     backups .......... 20 GB      imágenes ..... 23.3 GB
+#     caché de build ... 16.9 GB    ⬅ el 5.6 % de los 303 GB usados, con 168 GB LIBRES
+#
+#    Se podaba cada 72 h lo que menos pesa y más cuesta rehacer, mientras 212 GB de respaldos y
+#    volúmenes nadie los miraba. La poda no estaba de más: estaba apuntada al lugar equivocado.
+#
+# ⚠️ LOS DOS NÚMEROS SE MUEVEN JUNTOS O NO SIRVE DE NADA. Subir sólo la edad quedaba anulado por
+#    `TECHO_DURO_GB`, que al superarse aprieta a `EDAD_APRETADA` y se lleva lo mismo que acabamos
+#    de proteger. Con 168 GB libres, un caché de hasta 90 GB es el 18 % del disco: cabe.
+#
+# ⚠️ `PISO_LIBRE_GB` queda igual (60 GB) y sigue siendo el freno de verdad: si el disco se
+#    aprieta, la poda aprieta, sin importar estos números. Eso es lo que hace seguro subirlos.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+EDAD_CACHE="${PODA_EDAD_CACHE:-336h}"     # 14 días — cubre una quincena sin desplegar
+EDAD_APRETADA="${PODA_EDAD_APRETADA:-72h}" # lo que ANTES era el default, ahora es la emergencia
+TECHO_CACHE="${PODA_TECHO_CACHE:-80GB}"   # segunda pasada, best-effort — NO se le cree
+TECHO_DURO_GB="${PODA_TECHO_DURO_GB:-90}" # pasado esto, se apura la edad una vez
 PISO_LIBRE_GB="${PODA_PISO_LIBRE_GB:-60}"
 TENANT="${CRON_TENANT_ID:-00000000-0000-0000-0000-00000000d01c}"
 IMAGENES="trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup trade-prod-caddy"

@@ -103,9 +103,16 @@ export * from './finance/ver-expediente.contract';
 export * from './finance/coincidencia-pago.contract';
 
 // ── [ID.28] authz — NO se re-exporta desde acá, a propósito ───────────────────
-// El catálogo de permisos vive en `./authz` y se importa por SUBRUTA:
-//   · `@megadulces/contracts/permissions` → el enum `Permission` (caliente)
-//   · `@megadulces/contracts/authz`       → enum + árbol + etiquetas + presets
+// El catálogo de permisos vive en `./authz` y se importa por SUBRUTA. ⚠️ Las rutas que decían
+// estas dos líneas (`/permissions` y `/authz` a secas) **NO EXISTEN en `tsconfig.base.json`** —
+// corregidas el 2026-10-06 después de que `compras-requisiciones.component.ts` importara del
+// barrel y tumbara el build de `main` con `TS2305`. Seguir el comentario viejo llevaba a otro
+// import que tampoco resuelve. Las reales, verificadas contra el mapeo:
+//   · `@megadulces/contracts/authz/permissions`     → el enum `Permission` (lo que casi siempre querés)
+//   · `@megadulces/contracts/authz/authz-tree`      → el árbol
+//   · `@megadulces/contracts/authz/permission-meta` → etiquetas
+//   · `@megadulces/contracts/authz/role-presets`    → presets
+//   · `@megadulces/contracts/authz/suite-map`       → el mapa de la suite
 //
 // Colgarlo de este barrel fue el primer intento y **rompió el presupuesto de
 // bundle de `apps/view`**: este archivo lo importan cosas del chunk inicial de

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, c
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { compareWarehouseCodes, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
@@ -108,7 +108,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
   selector: 'app-compras-pedido-real',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
+    CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, PopoverModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, ComprasFlujoComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -128,6 +128,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
              stop para el grupo en vez de uno por opción. -->
         <app-segmented [options]="modeOpts" [value]="mode()" ariaLabel="Vista"
                        (valueChange)="setMode($any($event))"></app-segmented>
+        <!-- [RQ.6] El siguiente paso, a la vista y ANTES de crear nada. La requisición que sale
+             de esta pantalla no le pide nada a nadie hasta que alguien la aprueba allá, y esta
+             pantalla no lo decía en ningún lado. -->
+        <a pButton routerLink="/compras/requisiciones" class="p-button-sm p-button-text pr-req-link"
+           title="Lo que se genera acá espera aprobación en Requisiciones"><span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Requisiciones</span></a>
       </header>
 
       <!-- [VP.0] Acá había una píldora hecha a mano que decía "Datos actualizados hace N min"
@@ -3414,7 +3419,19 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     let done = 0; const folios: string[] = []; let failed = 0;
     const finish = () => {
       this.saving.set(false);
-      if (folios.length) this.toast.add({ severity: 'success', summary: `${folios.length} requisición(es)`, detail: folios.join(', ') });
+      // `[RQ.6]` LA REQUISICIÓN NO MUERE EN UN TOAST.
+      //
+      // Hasta acá esto mostraba los folios unos segundos y recargaba la misma tabla: ni enlace,
+      // ni navegación, ni nada que dijera que esos folios ahora esperan a alguien. El resultado
+      // está medido — 610 requisiciones pendientes en prod, $42.7 M, 24 días de promedio y 77 la
+      // más vieja. El aviso dura 12 s y nombra el siguiente paso con su lugar.
+      if (folios.length) {
+        this.toast.add({
+          severity: 'success', life: 12000,
+          summary: `${folios.length} requisición(es) creada(s): ${folios.join(', ')}`,
+          detail: 'Quedan ESPERANDO APROBACIÓN. Abrí Compras › Requisiciones para aprobarlas o rechazarlas — hasta entonces no se le pide nada a nadie.',
+        });
+      }
       if (failed) this.toast.add({ severity: 'error', summary: 'Error parcial', detail: `${failed} no se pudieron crear.` });
       if (folios.length) { this.mode() === 'muerto' ? this.loadDead() : this.loadWorkbook(); }
     };

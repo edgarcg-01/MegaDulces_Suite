@@ -464,6 +464,11 @@ export interface RequisitionRow {
   warehouse_code: string | null;
   warehouse_name: string | null;
   supplier_name: string | null;
+  /** `[RQ.2]` Días desde que se creó, calculados por el SERVIDOR (VP.0: nunca el reloj del navegador). */
+  dias?: number;
+  /** `[RQ.1]` Vigencia de sus costos. `null` = no se pudo medir ninguno. */
+  vigencia?: RequisitionVigencia | null;
+  recalculated_at?: string | null;
 }
 export interface RequisitionLine {
   id: string;
@@ -485,11 +490,47 @@ export interface RequisitionLine {
   received_qty: number | null;
   unit_cost: number;
   line_cost: number;
+  /** `[RQ.1]` El costo que tiene HOY este producto en este almacén. `null` = no medible, nunca 0. */
+  costo_hoy?: number | null;
+  /** `true` movido · `false` igual · `null` **no se pudo medir** (no es lo mismo que "igual"). */
+  costo_movido?: boolean | null;
+}
+/**
+ * `[RQ.1]` ¿Los costos de esta requisición siguen siendo los de hoy?
+ *
+ * `vigente` es TERNARIO: `true` medido y sin cambio · `false` medido y movido · `null` **no se
+ * pudo medir**. `sin_medir` dice cuántos renglones quedaron fuera, para que un "vigente" sobre
+ * 2 de 130 renglones no se lea igual que uno sobre los 130.
+ */
+export interface RequisitionVigencia {
+  renglones: number;
+  medibles: number;
+  movidos: number;
+  sin_medir: number;
+  monto_capturado: number;
+  monto_hoy: number;
+  delta: number;
+  vigente: boolean | null;
+}
+/** `[RQ.2]` Cuántas requisiciones hay en cada estado, su monto y su antigüedad. */
+export interface RequisitionResumen {
+  estado: RequisitionEstado;
+  n: number;
+  monto: number;
+  dias_prom: number;
+  dias_max: number;
+  /** `[RQ.2]` Las que pasaron los 30 días — el escalón donde el costo deja de ser el de hoy. */
+  n_mas_30: number;
+  monto_mas_30: number;
 }
 export interface RequisitionDetail extends RequisitionRow {
   lines: RequisitionLine[];
   purchase_order_id: string | null;   // RA.15 — OC generada desde esta requisición
   purchase_order_folio: string | null;
+  /** `[RQ.2]` Días parada. Lo calcula el SERVIDOR, no el reloj del navegador (VP.0). */
+  dias?: number;
+  vigencia?: RequisitionVigencia | null;
+  recalculated_at?: string | null;
 }
 export interface CreateRequisitionLine {
   product_id: string;
@@ -1107,7 +1148,7 @@ export class ComprasService {
     return this.http.post<{ groups: number; merged: number; products_repointed: number }>(`${this.base}/categories/auto-dedup`, {});
   }
 
-  listRequisitions(q?: { estado?: string; warehouse_id?: string; source_type?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[] }> {
+  listRequisitions(q?: { estado?: string; warehouse_id?: string; source_type?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[]; resumen: RequisitionResumen[] }> {
     const p = new URLSearchParams();
     if (q?.estado) p.set('estado', q.estado);
     if (q?.warehouse_id) p.set('warehouse_id', q.warehouse_id);
@@ -1115,7 +1156,16 @@ export class ComprasService {
     if (q?.page) p.set('page', String(q.page));
     if (q?.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
-    return this.http.get<{ total: number; page: number; pageSize: number; rows: RequisitionRow[] }>(`${this.base}/requisitions${qs ? '?' + qs : ''}`);
+    return this.http.get<{ total: number; page: number; pageSize: number; rows: RequisitionRow[]; resumen: RequisitionResumen[] }>(`${this.base}/requisitions${qs ? '?' + qs : ''}`);
+  }
+
+  /** `[RQ.1]` Refresca los costos contra el plan de hoy (sólo el costo, nunca la cantidad). */
+  recalcularRequisicion(id: string): Observable<{ id: string; renglones_actualizados: number; total_cost: number; vigencia: RequisitionVigencia | null }> {
+    return this.http.post<{ id: string; renglones_actualizados: number; total_cost: number; vigencia: RequisitionVigencia | null }>(`${this.base}/requisitions/${id}/recalculate`, {});
+  }
+  /** `[RQ.4]` Aprueba o rechaza varias de una; lo que no pasa vuelve con su motivo. */
+  bulkRequisiciones(ids: string[], accion: 'approve' | 'reject'): Observable<{ pedidas: number; hechas: number; ok: string[]; fallas: Array<{ id: string; motivo: string }> }> {
+    return this.http.post<{ pedidas: number; hechas: number; ok: string[]; fallas: Array<{ id: string; motivo: string }> }>(`${this.base}/requisitions/bulk`, { ids, accion });
   }
 
   getRequisition(id: string): Observable<RequisitionDetail> {
