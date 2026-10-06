@@ -1347,13 +1347,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   error = signal(false);
 
   /**
-   * [RA-PERF.2] Generación de la consulta en vuelo. La respuesta que llega con una generación
+   * [RA-PERF.3] Generación de la consulta en vuelo. La respuesta que llega con una generación
    * vieja SE DESCARTA.
    *
    * No es defensa teórica: esta pantalla disparaba una consulta por cada cambio de filtro y NO
    * cancelaba ni descartaba la anterior (cero switchMap / unsubscribe en todo el componente), y
    * los tiempos hacen que la carrera sea el caso NORMAL, no el raro. Medido en prod con
-   * pg_stat_statements el 2026-10-06, antes de [RA-PERF.1]: la consulta del workbook promediaba
+   * pg_stat_statements el 2026-10-06 (ventana 02-oct a 06-oct): la consulta del workbook promediaba
    * 49.3 s y la peor 94.5 s SIN filtro, contra 1.9 s con un proveedor elegido. O sea: abrís la
    * pantalla (sin filtro, 50-95 s), elegís proveedor a los 5 s (vuelve en ~2 s y la tabla ya
    * muestra lo suyo) y 60 s después aterriza la respuesta vieja y PISA la tabla con el catálogo

@@ -1695,14 +1695,19 @@ export class CommercialReplenishmentService {
           LEFT JOIN analytics.demand_acceleration da ON da.tenant_id = :t AND da.product_id = p.product_id
          ${wbWhere}`;
 
-      // `[RA-PERF.3]` LOS TOTALES VIAJAN EN LA MISMA PASADA, en ventanas `OVER ()`.
+      // `[RA-PERF.4]` LOS TOTALES VIAJAN EN LA MISMA PASADA, en ventanas `OVER ()`.
       //
       // Hasta acá la pantalla pagaba el MISMO arbol de CTEs DOS veces: una para la pagina y otra
-      // para el `SELECT SUM(...) FROM (inner)`. No es una sospecha: `[RA-PERF.1]` lo dejo escrito
-      // como pendiente y pg_stat_statements lo confirma — las dos consultas aparecen con el mismo
-      // numero de llamadas (79 y 78) y practicamente el mismo promedio (49.3 s y 48.1 s).
+      // para el `SELECT SUM(...) FROM (inner)`. No es una sospecha: el commit de la copia
+      // materializada (`257244bc`, el bloque de arriba) lo dejo escrito como pendiente, y
+      // pg_stat_statements lo confirma — las dos consultas aparecen con el mismo numero de
+      // llamadas (79 y 78) y practicamente el mismo promedio (49.3 s y 48.1 s).
       //
-      // Medido contra prod el 2026-10-06, YA con la copia materializada de `[RA-PERF.1]`:
+      // ⚠️ Ese bloque se rotulo `[RA-PERF.1]` y ese codigo YA estaba ocupado en el tracker por el
+      // reparto de transito por ventana de `import-replenishment-plan.js`. Se deja la referencia
+      // por HASH para que no haya que adivinar a cual de los dos apunta.
+      //
+      // Medido contra prod el 2026-10-06, YA con esa copia materializada puesta:
       //     sin filtro      pagina 2,091 ms + totales 1,337 ms = 3,428 ms   ->  2,070 ms   (-40%)
       //     con proveedor   pagina 1,100 ms + totales   812 ms = 1,912 ms   ->  1,074 ms   (-44%)
       // y verificado despues contra la forma final, en los tres escenarios que la pantalla usa
@@ -1728,7 +1733,7 @@ export class CommercialReplenishmentService {
                (COALESCE(SUM(almacenes_sin_valuar) OVER (), 0))::int                     AS _exis_sin_valuar_celdas,
                round(COALESCE(SUM(valor_exis_arbitrado) OVER (), 0)::numeric, 2)         AS _exis_sin_valuar_arbitrado`;
       const innerWin = inner.replace('\n          FROM prod p\n', `${win}\n          FROM prod p\n`);
-      if (innerWin === inner) throw new Error('[RA-PERF.3] no se pudo inyectar el bloque de totales en la consulta del workbook');
+      if (innerWin === inner) throw new Error('[RA-PERF.4] no se pudo inyectar el bloque de totales en la consulta del workbook');
       const rows = (await trx.raw(`${innerWin} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
       // [RA-PRO.67] Margen y venta perdida, SOLO sobre la página que se muestra (≤1000 SKUs; medido
       // 2026-10-02 con los 76 de GONAC: 225 ms el margen, 13 ms la venta perdida). El export a XLSX
@@ -1742,7 +1747,7 @@ export class CommercialReplenishmentService {
       // esto el total bajaría en silencio y se leería como "hay menos inventario", que es otra
       // mentira distinta de la que estamos quitando.
       //
-      // `[RA-PERF.3]` Los totales ya vienen pegados a las filas (ventanas `OVER ()` de arriba), asi
+      // `[RA-PERF.4]` Los totales ya vienen pegados a las filas (ventanas `OVER ()` de arriba), asi
       // que acá sólo se leen. El `SELECT SUM(...) FROM (inner)` queda SÓLO como respaldo del único
       // caso en que no hay dónde leerlos: página vacía con universo no vacío (offset más allá del
       // final). Si la página está vacía porque el filtro no casa con nada, el respaldo devuelve los
