@@ -7523,6 +7523,90 @@ fallback sin número para cuando el catálogo no responde — **no se afirma cu�
 
 ---
 
+#### 🧪 `[CG.42]` · Auditoría por capas — capa 1 (backend): dos carreras y un arreglo inalcanzable — 2026-10-06
+
+**Lo que está bien, medido primero.** Los **31 endpoints** están gateados sin excepción
+(`FINANCE_CAJA_VER` lee, `_GESTIONAR` escribe, `_AUTORIZAR` firma) y el permiso de autorizar vive
+**fuera** del grupo de gestión: sólo `direccion` (2 personas) y `superadmin` (8) lo tienen, y los
+que cierran no lo tienen. **Cero `tk.run` anidados.** Los 4 `catch` silenciosos traen su motivo
+escrito. El cron tiene `timeZone` y latido con umbral. Y los índices únicos hacen el trabajo pesado:
+`ux_cash_cut_abierto` (parcial sobre `estado='borrador'`) impide dos cortes abiertos por sucursal
+desde la base, `ux_cash_ledger_origen_vivo` impide capturar dos veces el mismo documento del ERP y
+`ux_cash_ledger_client_uuid` da idempotencia. El gateway WS verifica JWT, exige tenant y permiso, y
+**no transporta el movimiento** —sólo dice «andá a buscar» con una firma—.
+
+⚠️ Los dos controladores de la MISMA pantalla piden permisos distintos (`FINANCE_BANK_VER` el de
+espejo, `FINANCE_CAJA_VER` el del libro). Hoy no rompe a nadie —medido: los **11 roles** que tienen
+uno tienen el otro— pero es una pantalla a medias esperando a que alguien reparta uno solo.
+
+#### ⛔ Dos carreras en controles de dinero, y **cero** pruebas de concurrencia en el módulo
+
+`cerrar()` toma `forUpdate` sobre el corte. `contar()` y `recontar()` también. **`autorizar()` y
+`cancelarMovimiento()` no.**
+
+- **`autorizar()`**: dos autorizaciones simultáneas **pasan las dos** por `puedeAutorizar` —las dos
+  leen `estado='cerrado'`— y las dos escriben: gana la última. `authorized_by` termina nombrando a
+  alguien que puede no ser quien autorizó primero. ⭐ No es bitácora: `authorized_by` **es** el
+  control — es la mitad de la regla de dos personas que sostienen `cut_doble_llave_chk` y
+  `puedeAutorizar`, y un control cuya evidencia se puede pisar no es un control.
+- **`cancelarMovimiento()`**: lee el estado del corte **sin bloquear**, así que entre ese `SELECT` y
+  el `UPDATE` cabe un `cerrar()`. Resultado: se cancela un movimiento que ya entró a un cuadre
+  **firmado** — exactamente lo que su propio mensaje de error promete que no puede pasar. *El freno
+  existía; lo que faltaba era que mirara un dato que no se mueve.*
+
+⭐ **Bloquear el MOVIMIENTO alcanza, y además evita el deadlock** que traería bloquear el corte:
+`cerrar()` toma el corte y DESPUÉS los movimientos, así que tomar acá el corte sería el orden
+inverso. Con el movimiento bloqueado, si `cerrar()` llega primero el `SELECT` espera y Postgres
+re-lee la fila viva (EvalPlanQual en READ COMMITTED): ve el `corte_id` puesto, lee el corte en
+`cerrado` y `puedeCancelarse` lo rechaza. Que es lo correcto.
+
+**El candado vigila la HUELLA, no el mecanismo** (un grep del fuente no prueba que corra): cancelar
+ANTES de cerrar es legal —`cerrar()` adjunta los cancelados a propósito—, cancelar DESPUÉS es la
+carrera, y se distingue por `cancelled_at > closed_at`. Hoy pasa **por vacío** (0 cortes firmados en
+prod) y el candado lo **declara** en vez de anotarse un ✓ que no ganó.
+
+#### ⛔⛔ `[CG.39]` es un arreglo que la pantalla NO PUEDE ALCANZAR
+
+`[CG.39]` (commit `657b9f714`, de hoy mismo) separó dos hechos que antes caían en el mismo cero:
+`NULL` = *no se midió con qué arrancó la caja*; `0` = *se contó y estaba vacía*. Volvió la columna
+nullable, agregó `fondo_origen='sin_medir'` y enseñó a `abrir()` a guardar `NULL` cuando llega
+`undefined`. **Y por la única vía real no llega nunca:**
+
+```
+fondoInicial = signal(0)                     // arranca en cero
+abrirApertura()  →  this.fondoInicial.set(0) // y el diálogo lo vuelve a precargar
+abrirCorte()     →  fondo_inicial: this.fondoInicial()   // SIEMPRE un número
+```
+
+Como `abrir()` sólo guarda `NULL` si el campo viene `undefined`, cada apertura sigue afirmando que
+la caja arrancó vacía — **ahora encima rotulada `fondo_origen='contado'`**, que es peor que el cero
+mudo de antes: es un cero que dice haber sido contado.
+
+**Y el camino de LECTURA lo aplastaba igual, en seis líneas.** `Number(c.fondo_inicial)` ×4 en
+contar/recontar/sellar/cerrar, más dos en `saldo()` — y **`Number(null)` es `0`**. Una de esas dos
+publicaba el cero directo a la pantalla. *Un arreglo que vive sólo del lado de la escritura no es un
+arreglo: es un dato que nadie usa.*
+
+**Qué se hizo.** El motor acepta `fondoInicial: number | null`, expone `fondo_sin_medir` y estrena
+el veredicto **`sin_base`** —hermano de `sin_contar`, mismo criterio— porque con el fondo sin medir
+el `esperado` arranca de un supuesto y decir `cuadra` ahí es afirmar que coincide con algo que nadie
+midió; el error se vería como un sobrante del tamaño exacto del fondo de cambio, todos los días. El
+`== null` atrapa `null` y `undefined` y **deja pasar el `0`**, que sí es un hecho. `proyectarCiego`
+deja viajar `fondo_sin_medir` sin revelar el esperado: quien cuenta necesita saberlo **antes** de
+contar. La pantalla arranca en `null`, manda `undefined` y el aviso deja de inventar un monto.
+
+**Probado por MUTACIÓN, no por inspección:** restaurar el `set(0)` pone roja exactamente la prueba
+nueva (1 falla / 122 pasan). Suites: `finance` **446/446** en 31 archivos · componente de caja
+**123/123** (+2).
+
+⬜ **Decisión abierta para Edgar:** hoy un corte `sin_base` **se puede cerrar** (queda firmado con su
+`fondo_origen='sin_medir'` y el veredicto lo dice). La alternativa es **bloquear** el cierre hasta
+que alguien mida el fondo. Bloquear es más correcto y puede frenar la operación: no lo decido yo.
+
+- `cash-cut.engine.ts` · `cash-cut.service.ts` · `finanzas-caja-general.component.ts` ·
+  `cash-ledger.service.ts` (front) · `caja-captura.util.ts` · candado bloque [5].
+- **Pendiente: redeploy api+view.** Sin migraciones ni permisos nuevos → **sin re-login**.
+
 #### 🧪 `[CG.41]` · El gate baja a 500 ms, y la pantalla tenía un solo culpable — 2026-10-06
 
 Edgar: *«una consulta de más de 500 milisegundos no funciona»*. El umbral venía de 1 s (2026-09-18)

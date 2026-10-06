@@ -9,6 +9,23 @@ import {
 } from './cash-cut.engine';
 
 /**
+ * ⛔ `[CG.42]` El fondo inicial tal como está en la base, **sin aplastar el `null`**.
+ *
+ * `[CG.39]` volvió `fondo_inicial` nullable justo para separar dos hechos distintos —`NULL` = no se
+ * midió con qué arrancó la caja; `0` = se contó y estaba vacía— y arregló el camino de ESCRITURA.
+ * El de LECTURA seguía haciendo `Number(c.fondo_inicial)`, y **`Number(null)` es `0`**: la
+ * distinción recién creada se perdía en las seis líneas que la leen, así que el `esperado` volvía a
+ * calcularse como si la caja hubiera arrancado vacía y el arqueo seguía inventando un sobrante del
+ * tamaño exacto del fondo de cambio.
+ *
+ * *Un arreglo que vive sólo del lado de la escritura no es un arreglo: es un dato que nadie usa.*
+ */
+function fondo(c: { fondo_inicial?: number | string | null } | null | undefined): number | null {
+  const v = c?.fondo_inicial;
+  return v === null || v === undefined ? null : Number(v);
+}
+
+/**
  * CG.15 — Corte de caja con doble llave, saldo y cancelación (ADR-070).
  *
  * Los SELECT y los UPDATE. La cuenta y el veredicto viven en `cash-cut.engine.ts` (puro, con
@@ -228,7 +245,7 @@ export class CashCutService {
 
       const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
       const totales = calcularCorte({
-        fondoInicial: Number(c.fondo_inicial), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
@@ -257,7 +274,7 @@ export class CashCutService {
       const previos = await trx('finance.cash_ledger_cut_denominations')
         .where({ tenant_id: tenantId, cut_id: id }).select('denominacion', 'piezas');
       const totalesPrevios = calcularCorte({
-        fondoInicial: Number(c.fondo_inicial), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs,
         conteo: previos as ConteoDenominacion[], morralla: Number(c.morralla ?? 0),
       });
 
@@ -275,7 +292,7 @@ export class CashCutService {
       });
 
       const totales = calcularCorte({
-        fondoInicial: Number(c.fondo_inicial), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
@@ -333,7 +350,7 @@ export class CashCutService {
       const movs: MovimientoDelCorte[] = filas.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
 
       const t = calcularCorte({
-        fondoInicial: Number(c.fondo_inicial), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
 
@@ -363,7 +380,18 @@ export class CashCutService {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const c = await trx('finance.cash_ledger_cuts').where({ tenant_id: tenantId, id }).first();
+      // ⛔ `[CG.42]` `forUpdate`, igual que `cerrar()`. Sin el bloqueo, dos autorizaciones
+      // simultáneas del mismo corte **pasan las dos** por `puedeAutorizar` —las dos leen
+      // `estado='cerrado'`— y las dos escriben: gana la última y `authorized_by` termina diciendo
+      // que lo autorizó alguien que no fue necesariamente quien lo autorizó primero.
+      //
+      // ⭐ No es un detalle de bitácora: `authorized_by` ES el control. Es la mitad de la regla de
+      // dos personas que el CHECK `cut_doble_llave_chk` y `puedeAutorizar` existen para sostener,
+      // y un control cuya evidencia se puede pisar no es un control.
+      //
+      // Mismo orden de bloqueo que `cerrar()` (corte primero): no introduce inversión ni deadlock.
+      const c = await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!c) throw new NotFoundException('Corte no encontrado');
 
       const gate = puedeAutorizar(c, u.id);
@@ -459,12 +487,12 @@ export class CashCutService {
         .where({ tenant_id: tenantId, sucursal, estado: 'borrador' }).first();
       const movs = await this.movimientosSueltos(trx, tenantId, sucursal);
       const cajero = await this.conciliacionCajero(trx, tenantId, sucursal, abierto?.created_at ?? null);
-      const t = calcularCorte({ fondoInicial: Number(abierto?.fondo_inicial ?? 0), movimientos: movs });
+      const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs });
       return {
         sucursal,
         corte_abierto: abierto
           ? {
-            id: abierto.id, folio: abierto.folio, fondo_inicial: Number(abierto.fondo_inicial),
+            id: abierto.id, folio: abierto.folio, fondo_inicial: fondo(abierto),
             // Que ya se recontó NO es secreto: no revela el esperado y la pantalla necesita
             // saberlo para apagar el botón antes de que el usuario lo intente.
             ya_reconto: abierto.conteo_previo != null,
@@ -679,7 +707,24 @@ export class CashCutService {
       throw new BadRequestException('Explicá por qué se cancela, con al menos 5 caracteres.');
     }
     return this.tk.run(async (trx) => {
-      const m = await trx('finance.cash_ledger').where({ tenant_id: tenantId, id }).first();
+      // ⛔ `[CG.42]` `forUpdate` sobre el MOVIMIENTO, y es lo que hace cierto al freno de abajo.
+      //
+      // `puedeCancelarse` decide mirando el estado del corte. Leerlo sin bloqueo es un
+      // *time-of-check / time-of-use*: entre el `SELECT` del corte y el `UPDATE` del movimiento,
+      // `cerrar()` puede cerrar ese corte. Resultado: se cancela un movimiento que ya entró a un
+      // cuadre **firmado**, que es exactamente lo que el mensaje de error de abajo promete que no
+      // puede pasar. El freno existía; lo que faltaba era que mirara un dato que no se mueve.
+      //
+      // ⭐ Bloquear el MOVIMIENTO alcanza, y además evita el deadlock que traería bloquear el
+      // corte: `cerrar()` toma el corte y DESPUÉS actualiza los movimientos, así que tomar acá el
+      // corte sería el orden inverso. Con el movimiento bloqueado:
+      //   · si cancelar llega primero → `cerrar()` espera y después lo adjunta ya cancelado (su
+      //     rama `where('estado','cancelado')` lo contempla, conservando el estado);
+      //   · si `cerrar()` llega primero → este `SELECT` **espera** y, al soltarse el lock, Postgres
+      //     re-lee la fila viva (EvalPlanQual en READ COMMITTED): ve `corte_id` ya puesto, lee el
+      //     corte en `cerrado` y `puedeCancelarse` lo rechaza. Que es lo correcto.
+      const m = await trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!m) throw new NotFoundException('Movimiento no encontrado');
 
       let estadoCorte: string | null = null;

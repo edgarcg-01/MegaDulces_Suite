@@ -1633,6 +1633,34 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.cierreAbierto()).toBe(true); // …y cae DERECHO en el conteo
   });
 
+  // ── `[CG.42]` El arreglo de `[CG.39]` era INALCANZABLE desde la pantalla ────────────────────
+  //
+  // `[CG.39]` volvio `fondo_inicial` nullable y enseno a `abrir()` a guardar NULL cuando llega
+  // `undefined`. Pero el formulario arrancaba el signal en `0` y SIEMPRE mandaba un numero, asi
+  // que `undefined` no se podia producir por la unica via real: cada apertura seguia afirmando
+  // "la caja arranco vacia", ahora encima rotulada `fondo_origen='contado'`.
+  //
+  // Estas dos pruebas son la compuerta: la de abajo falla si alguien vuelve a precargar un cero.
+  it('⭐ [CG.42] abrir sin tocar el fondo manda UNDEFINED, no 0 ("no se midio" != "esta vacia")', () => {
+    montar({ saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })) });
+    comp.abrirApertura();
+    expect(comp.fondoInicial()).toBeNull();   // el dialogo NO precarga un cero
+
+    comp.abrirCorte();
+    const body = (svc['abrirCorte'] as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as Record<string, unknown>;
+    expect(body['fondo_inicial']).toBeUndefined();
+    expect(body['fondo_inicial']).not.toBe(0);
+  });
+
+  it('[negativa] si la persona SI escribe el fondo, ese numero viaja tal cual -- incluido el 0', () => {
+    montar({ saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })) });
+    comp.abrirApertura();
+    comp.fondoInicial.set(0);                 // contar y que de cero ES una medicion
+    comp.abrirCorte();
+    const body = (svc['abrirCorte'] as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as Record<string, unknown>;
+    expect(body['fondo_inicial']).toBe(0);
+  });
+
   it('con corte abierto va derecho al conteo, sin volver a pedir el fondo', () => {
     // ⚠️ La fixture SALDO trae `corte_abierto: null`. Mi primera version decia "SALDO trae corte
     // abierto" en un comentario y montaba con el default: la prueba fallaba por la fixture, no

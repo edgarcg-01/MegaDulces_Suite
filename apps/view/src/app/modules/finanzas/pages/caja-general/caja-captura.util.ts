@@ -332,7 +332,8 @@ export interface CorteVista {
   closed_by?: string | null;
   closed_by_username?: string | null;
   authorized_by_username?: string | null;
-  fondo_inicial?: number;
+  /** `[CG.42]` `null` = no se midió con qué arrancó la caja. No es `0`. */
+  fondo_inicial?: number | null;
   esperado?: number | null;
   contado?: number | null;
   diferencia?: number | null;
