@@ -3,6 +3,9 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
+import type {
+  KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado,
+} from '@megadulces/contracts';
 
 // ── Tipos ────────────────────────────────────────────────────────────────
 
@@ -111,155 +114,11 @@ export interface Shipment {
 
 // ── EMB.12 — «Nuevo embarque» desde Kepler ────────────────────────────────
 
-export interface KeplerTripRow {
-  sucursal: string;
-  guia_embarque: string;
-  guia_digital: string;
-  fecha: string;
-  paradas: number;
-  destinos: number;
-  series: number;
-  transporte_code: string | null;
-  transporte_descripcion: string | null;
-  transporte_placas: string | null;
-  chofer_code: string | null;
-  chofer_nombre: string | null;
-  /** Kepler no trae chofer: lo precarga de la unidad y la unidad no tiene uno asignado. */
-  chofer_falta: boolean;
-  /** «Entrega a cliente», «Traspaso a sucursal», «Carga a camión de ruta» o la mezcla. */
-  tipo_etiqueta: string | null;
-  total: string | number;
-  vehicle_id: string | null;
-  vehicle_plate: string | null;
-  destinos_texto: string | null;
-  tomado_shipment_id: string | null;
-  tomado_folio: string | null;
-}
-
-export interface KeplerTripList {
-  rows: KeplerTripRow[];
-  page: number;
-  limit: number;
-  total: number;
-}
-
-export type MetodoResolucion = 'exacto' | 'normalizado' | 'ambiguo' | 'sin_resolver';
-
-export interface NuevoEmbarqueParada {
-  serie: number;
-  serie_label: string;
-  folio: string;
-  folio_digital: string;
-  fecha: string | null;
-  cliente_code: string | null;
-  destino_nombre: string | null;
-  destino_colonia: string | null;
-  destino_ciudad: string | null;
-  destino_estado: string | null;
-  domicilio: string | null;
-  domicilio_supuesto: boolean | null;
-  domicilio_calle: string | null;
-  domicilio_ciudad: string | null;
-  ruta_clave: string | null;
-  ruta_nombre: string | null;
-  orden_visita: number | null;
-  ruta_metodo: string | null;
-  total: number;
-  cajas: number | null;
-  sueltos: number | null;
-  kg: number | null;
-  renglones: number | null;
-  renglones_sin_empaque: number | null;
-  facturacion: string | null;
-  facturado: boolean | null;
-  hora_captura: string | null;
-  nota_almacen: string | null;
-  pedido_folio: string | null;
-  pedido_folio_digital: string | null;
-  surtio: { codigo: string | null; nombre: string | null; metodo: MetodoResolucion | null };
-  checo: { codigo: string | null; nombre: string | null; metodo: MetodoResolucion | null };
-  embarco: { codigo: string | null; nombre: string | null; metodo: MetodoResolucion | null };
-}
-
-export interface NuevoEmbarqueHoja {
-  viaje: {
-    sucursal: string;
-    sucursal_nombre: string | null;
-    guia: string;
-    guia_digital: string;
-    fecha: string | null;
-    hora_captura_desde: string | null;
-    hora_captura_hasta: string | null;
-    tipo: { tipo: 'entrega' | 'traspaso'; etiqueta: string; mixto: boolean; destinos: Record<'cliente' | 'sucursal' | 'ruta', number> };
-    multi_transporte: boolean;
-    multi_chofer: boolean;
-    multi_fecha: boolean;
-  };
-  unidad: {
-    kepler_code: string | null;
-    descripcion: string | null;
-    placas: string | null;
-    metodo: string | null;
-    vehicle_id: string | null;
-    suite: { plate: string; model: string | null; brand: string | null; status: string } | null;
-    gps: boolean;
-    motivo: string | null;
-  };
-  chofer: {
-    kepler_code: string | null;
-    nombre: string | null;
-    metodo: string | null;
-    asignado_a_la_unidad: string | null;
-    driver_id: string | null;
-    en_suite: boolean;
-    falta: boolean;
-    motivo: string | null;
-  };
-  responsables: { surtio: string[]; checo: string[]; embarco: string[]; sin_resolver: number };
-  paradas: NuevoEmbarqueParada[];
-  resumen: {
-    paradas: number;
-    clientes: number;
-    rutas: Array<{ clave: string; nombre: string | null; paradas: number }>;
-    paradas_sin_ruta: number;
-    cajas: number;
-    sueltos: number;
-    kg_vendido_por_kilo: number | null;
-    peso_total: null;
-    renglones_sin_empaque: number;
-    valor_venta: number;
-    valor_traspaso: number;
-    facturadas: number;
-    paradas_a_cliente: number;
-  };
-  comision: {
-    driver: number | null;
-    helper: number | null;
-    regla: 'mayor_comision_del_viaje';
-    ruta_usada: { clave: string; nombre: string | null; route_id: string } | null;
-    emparejadas: Array<{ clave: string; nombre: string | null; route_id: string; metodo: 'kepler_code' | 'nombre'; driver: number; helper: number }>;
-    sin_tarifa: Array<{ clave: string; nombre: string | null }>;
-  };
-  tomado: { id: string; folio: string; status: string } | null;
-  procedencia: Record<string, string>;
-}
-
-export interface TomaKeplerBody {
-  delivery_type: 'route' | 'long_trip';
-  driver_id?: string | null;
-  helper1_id?: string | null;
-  helper2_id?: string | null;
-  driver_commission?: number | null;
-  helper1_commission?: number | null;
-  helper2_commission?: number | null;
-  per_diem_total?: number | null;
-  per_diem_breakdown?: unknown;
-  overnight?: boolean;
-  freight_revenue?: number | null;
-  actual_km?: number | null;
-  total_weight_kg?: number | null;
-  notes?: string | null;
-}
+// EMB.12 — «Nuevo embarque» desde Kepler: la forma la define el contrato compartido con el
+// servidor (ADR-052). Se reexporta para que los componentes sigan importando de este servicio.
+export type {
+  KeplerTripRow, KeplerTripList, NuevoEmbarqueParada, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado,
+} from '@megadulces/contracts';
 
 export interface ShipmentsPage {
   items: Shipment[];
@@ -1170,7 +1029,7 @@ export class LogisticaService {
   }
   /** Crea el embarque con la llave de la guía + la guía de entrega + un destinatario por parada. */
   createShipmentFromKepler(sucursal: string, guia: string, body: TomaKeplerBody) {
-    return this.http.post<{ shipment: Shipment; guide: DeliveryGuide; destinatarios: number }>(
+    return this.http.post<TomaKeplerResultado>(
       `${this.base}/shipments/from-kepler/${encodeURIComponent(sucursal)}/${encodeURIComponent(guia)}`, body);
   }
   updateShipment(id: string, body: Partial<Shipment>) {

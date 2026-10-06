@@ -8,6 +8,7 @@ import {
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { ORDER_FULFILLMENT_PORT, OrderFulfillmentPort } from '@megadulces/contracts';
+import type { TomaKeplerResultado } from '@megadulces/contracts';
 import { haversineKm } from '../logistics-routing/route-solver';
 import { ErpShipmentsService } from '../logistics-erp-shipments/erp-shipments.service';
 import { armarDestinatarios, TomaInput, validarToma } from '../logistics-erp-shipments/nuevo-embarque.logic';
@@ -109,7 +110,7 @@ export class LogisticsShipmentsService {
    * el chofer: es un acuse, y un acuse no cambia si después se corrige el documento en Kepler.
    * La hoja en pantalla sigue leyendo Kepler en vivo y puede mostrar la diferencia.
    */
-  async createFromKepler(sucursal: string, guia: string, dto: TomaInput) {
+  async createFromKepler(sucursal: string, guia: string, dto: TomaInput): Promise<TomaKeplerResultado> {
     if (!/^[0-9A-Za-z]{1,10}$/.test(sucursal || '') || !/^[0-9]{1,20}$/.test(guia || '')) {
       throw new BadRequestException('Sucursal o guía inválida');
     }
@@ -139,7 +140,7 @@ export class LogisticsShipmentsService {
 
       const folio = await this.nextFolio(trx, 'EMB');
       const r = hoja.resumen;
-      let shipment: any;
+      let shipment: TomaKeplerResultado['shipment'];
       try {
         [shipment] = await trx('logistics.shipments')
           .insert({
@@ -164,16 +165,17 @@ export class LogisticsShipmentsService {
             kepler_guia: guia,
           })
           .returning('*');
-      } catch (e: any) {
+      } catch (e: unknown) {
         // Dos personas tomando la misma guía a la vez: gana la primera, la segunda lo sabe.
-        if (e?.code === '23505' && String(e?.constraint || e?.message).includes('kepler_guia')) {
+        const pg = e as { code?: string; constraint?: string; message?: string } | null;
+        if (pg?.code === '23505' && String(pg?.constraint || pg?.message).includes('kepler_guia')) {
           throw new ConflictException('Otra persona acaba de tomar este viaje. Recarga la lista.');
         }
         throw e;
       }
 
       const guideNumber = await this.nextFolio(trx, 'GUIA');
-      const [guide] = await trx('logistics.delivery_guides')
+      const [guide]: Array<TomaKeplerResultado['guide']> = await trx('logistics.delivery_guides')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           number: guideNumber,

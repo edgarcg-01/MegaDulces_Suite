@@ -1,11 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
+import type { NuevoEmbarqueHoja, NuevoEmbarqueParada } from '@megadulces/contracts';
 import {
   comisionSugerida,
   EntradaCatalogo,
   fechaISO,
   ordenarParadas,
-  ParadaKepler,
   resolverPorCodigo,
   resumirViaje,
   tipoDeViaje,
@@ -52,6 +52,85 @@ export interface TripRow {
   gps_seen_at: string | null;
   gps_speed: number | null;
 }
+
+/** EMB.12 — la fila de la lista con lo que necesita «Nuevo embarque» para elegir el viaje. */
+interface TripListRow extends TripRow {
+  chofer_code: string | null;
+  multi_transporte: boolean;
+  multi_chofer: boolean;
+  series: number;
+  tomado_shipment_id: string | null;
+  tomado_folio: string | null;
+  destinos_texto?: string | null;
+  tipo_etiqueta?: string | null;
+  chofer_falta?: boolean;
+}
+
+/** EMB.12 — el viaje como lo da `analytics.erp_shipment_trips`. */
+interface ViajeRow {
+  guia_digital: string;
+  fecha: Date | string | null;
+  vehicle_id: string | null;
+  transporte_descripcion: string | null;
+  transporte_placas: string | null;
+  multi_transporte: boolean;
+  multi_chofer: boolean;
+  multi_fecha: boolean;
+}
+
+/** EMB.12 — una cabecera `U-D-41` de la guía, como la da `analytics.erp_shipment_headers`. */
+interface CabeceraParadaRow {
+  serie: number | string;
+  serie_label: string;
+  folio: string;
+  folio_digital: string;
+  fecha: Date | string | null;
+  cliente_code: string | null;
+  destino_nombre: string | null;
+  destino_colonia: string | null;
+  destino_ciudad: string | null;
+  destino_estado: string | null;
+  total: number | string | null;
+  pedido_folio: string | null;
+  pedido_folio_digital: string | null;
+  resp_surtido: string | null;
+  resp_checado: string | null;
+  resp_embarque: string | null;
+  transporte_code: string | null;
+  transporte_clave_kepler: string | null;
+  transporte_metodo: string | null;
+  chofer_code: string | null;
+  chofer_clave_kepler: string | null;
+  chofer_nombre: string | null;
+  chofer_metodo: string | null;
+  chofer_asignado_a_la_unidad: string | null;
+}
+
+/** EMB.12 — ruta, domicilio y carga de la parada (`erp_shipment_stops` ⋈ `erp_shipment_stop_load`). */
+interface CargaParadaRow {
+  serie: number | string;
+  folio: string;
+  domicilio: string | null;
+  domicilio_supuesto: boolean | null;
+  domicilio_calle: string | null;
+  domicilio_ciudad: string | null;
+  ruta_clave: string | null;
+  ruta_nombre: string | null;
+  orden_visita: number | string | null;
+  ruta_metodo: string | null;
+  facturacion: string | null;
+  facturado: boolean | null;
+  hora_captura: string | null;
+  nota_almacen: string | null;
+  renglones: number | string | null;
+  cajas: number | string | null;
+  sueltos: number | string | null;
+  kg: number | string | null;
+  renglones_sin_empaque: number | string | null;
+}
+
+/** Número o null — `numeric` de Postgres llega como texto, y una ausencia no es cero. */
+const numONull = (v: number | string | null | undefined): number | null => (v == null ? null : Number(v));
 
 @Injectable()
 export class ErpShipmentsService {
@@ -101,7 +180,7 @@ export class ErpShipmentsService {
       };
 
       const [{ count }] = await base().clone().count({ count: '*' });
-      const rows = await base()
+      const rows: TripListRow[] = await base()
         .select(
           't.sucursal', 't.guia_embarque', 't.guia_digital', 't.fecha', 't.paradas', 't.destinos',
           't.transporte_code', 't.transporte_descripcion', 't.transporte_placas',
@@ -129,8 +208,8 @@ export class ErpShipmentsService {
       // sucursal (usa `ix_kdm1_venta_doc`), no de la cabecera completa recalculada otra vez.
       const porGuia = new Map<string, Array<{ serie: number; cliente_code: string | null; donde: string | null }>>();
       if (rows.length) {
-        const sucs = [...new Set(rows.map((r: any) => r.sucursal))];
-        const guias = [...new Set(rows.map((r: any) => r.guia_embarque))];
+        const sucs = [...new Set(rows.map((r) => r.sucursal))];
+        const guias = [...new Set(rows.map((r) => r.guia_embarque))];
         // ⚠️ whereIn y no `= ANY(?)` en un raw: knex expande un arreglo en `?` a varios placeholders.
         const d = await trx('analytics.erp_shipment_stops')
           .whereIn('sucursal', sucs).whereIn('guia_embarque', guias)
@@ -142,7 +221,7 @@ export class ErpShipmentsService {
           porGuia.get(k)!.push({ serie: Number(x.serie), cliente_code: x.cliente_code, donde: x.donde });
         }
       }
-      for (const r of rows as any[]) {
+      for (const r of rows) {
         const paradas = porGuia.get(`${r.sucursal}|${r.guia_embarque}`) ?? [];
         r.destinos_texto = [...new Set(paradas.map((p) => p.donde).filter(Boolean))].join(' · ') || null;
         r.tipo_etiqueta = paradas.length ? tipoDeViaje(paradas).etiqueta : null;
@@ -253,13 +332,13 @@ export class ErpShipmentsService {
    * chofer), las paradas enriquecidas con su carga (LATERAL para que el filtro llegue a los
    * índices de kdm2), los catálogos de responsables de esa sucursal, y lo de la Suite.
    */
-  async nuevoEmbarque(sucursal: string, guia: string) {
+  async nuevoEmbarque(sucursal: string, guia: string): Promise<NuevoEmbarqueHoja> {
     return this.tk.run(M, async (trx) => {
-      const trip = await trx('analytics.erp_shipment_trips')
+      const trip: ViajeRow | undefined = await trx('analytics.erp_shipment_trips')
         .where({ tenant_id: M, sucursal, guia_embarque: guia }).first();
       if (!trip) throw new NotFoundException(`Kepler no tiene el viaje ${sucursal}-G${guia}`);
 
-      const headers = await trx('analytics.erp_shipment_headers')
+      const headers: CabeceraParadaRow[] = await trx('analytics.erp_shipment_headers')
         .where({ tenant_id: M, sucursal, guia_embarque: guia })
         .select('serie', 'serie_label', 'folio', 'folio_digital', 'fecha', 'cliente_code',
           'destino_nombre', 'destino_colonia', 'destino_ciudad', 'destino_estado', 'total',
@@ -269,7 +348,7 @@ export class ErpShipmentsService {
           'transporte_metodo', 'chofer_code', 'chofer_clave_kepler', 'chofer_nombre', 'chofer_metodo',
           'chofer_asignado_a_la_unidad', 'vehicle_id', 'vehicle_plate');
 
-      const { rows: extras } = await trx.raw(
+      const { rows: extras } = await trx.raw<{ rows: CargaParadaRow[] }>(
         `SELECT s.serie, s.folio, s.domicilio, s.domicilio_supuesto, s.domicilio_calle,
                 s.domicilio_ciudad, s.domicilio_telefono, s.ruta_clave, s.ruta_nombre,
                 s.orden_visita, s.ruta_metodo, s.facturacion, s.facturado,
@@ -281,49 +360,75 @@ export class ErpShipmentsService {
               WHERE x.sucursal = s.sucursal AND x.serie = s.serie AND x.folio = s.folio
            ) l ON true
           WHERE s.sucursal = ? AND s.guia_embarque = ?`, [sucursal, guia]);
-      const extraDe = new Map<string, any>(extras.map((e: any) => [`${e.serie}|${e.folio}`, e]));
+      const extraDe = new Map<string, CargaParadaRow>(extras.map((e) => [`${e.serie}|${e.folio}`, e]));
 
-      const catalogos = await trx('analytics.v_kepler_responsables')
-        .where({ sucursal }).select('rol', 'codigo', 'nombre');
+      const catalogos: Array<{ rol: string; codigo: string; nombre: string | null }> =
+        await trx('analytics.v_kepler_responsables').where({ sucursal }).select('rol', 'codigo', 'nombre');
       const cat = (rol: string): EntradaCatalogo[] =>
-        catalogos.filter((c: any) => c.rol === rol).map((c: any) => ({ codigo: c.codigo, nombre: c.nombre }));
+        catalogos.filter((c) => c.rol === rol).map((c) => ({ codigo: c.codigo, nombre: c.nombre }));
       const catSur = cat('surtido');
       const catChe = cat('checado');
       const catEmb = cat('embarque');
 
-      const paradas = ordenarParadas(headers.map((h: any) => {
-        const e = extraDe.get(`${h.serie}|${h.folio}`) ?? {};
+      // Cada parada se arma campo por campo con la forma del contrato: lo que viaja al front es
+      // exactamente lo que `NuevoEmbarqueParada` declara, no la fila cruda de la vista.
+      const paradas = ordenarParadas(headers.map((h): NuevoEmbarqueParada => {
+        const e = extraDe.get(`${h.serie}|${h.folio}`);
         return {
-          ...h,
-          ...e,
-          fecha: fechaISO(h.fecha),
           serie: Number(h.serie),
+          serie_label: h.serie_label,
+          folio: h.folio,
+          folio_digital: h.folio_digital,
+          fecha: fechaISO(h.fecha),
+          cliente_code: h.cliente_code,
+          destino_nombre: h.destino_nombre,
+          destino_colonia: h.destino_colonia,
+          destino_ciudad: h.destino_ciudad,
+          destino_estado: h.destino_estado,
+          domicilio: e?.domicilio ?? null,
+          domicilio_supuesto: e?.domicilio_supuesto ?? null,
+          domicilio_calle: e?.domicilio_calle ?? null,
+          domicilio_ciudad: e?.domicilio_ciudad ?? null,
+          ruta_clave: e?.ruta_clave ?? null,
+          ruta_nombre: e?.ruta_nombre ?? null,
+          orden_visita: numONull(e?.orden_visita),
+          ruta_metodo: e?.ruta_metodo ?? null,
           total: Number(h.total ?? 0),
-          cajas: e.cajas == null ? null : Number(e.cajas),
-          sueltos: e.sueltos == null ? null : Number(e.sueltos),
-          kg: e.kg == null ? null : Number(e.kg),
-          orden_visita: e.orden_visita == null ? null : Number(e.orden_visita),
+          cajas: numONull(e?.cajas),
+          sueltos: numONull(e?.sueltos),
+          kg: numONull(e?.kg),
+          renglones: numONull(e?.renglones),
+          renglones_sin_empaque: numONull(e?.renglones_sin_empaque),
+          facturacion: e?.facturacion ?? null,
+          facturado: e?.facturado ?? null,
+          hora_captura: e?.hora_captura ?? null,
+          nota_almacen: e?.nota_almacen ?? null,
+          pedido_folio: h.pedido_folio,
+          pedido_folio_digital: h.pedido_folio_digital,
           surtio: resolverPorCodigo(h.resp_surtido, catSur),
           checo: resolverPorCodigo(h.resp_checado, catChe),
           embarco: resolverPorCodigo(h.resp_embarque, catEmb),
-        } as ParadaKepler & Record<string, any>;
+        };
       }));
 
       const resumen = resumirViaje(paradas);
       const tipo = tipoDeViaje(paradas);
 
       // ── Lo que la Suite sabe de los mismos objetos ───────────────────────────────────
-      const primero = (k: string) => headers.map((h: any) => h[k]).find((v: any) => v != null) ?? null;
+      const primero = <K extends keyof CabeceraParadaRow>(k: K): CabeceraParadaRow[K] | null =>
+        headers.map((h) => h[k]).find((v) => v != null) ?? null;
       const choferClave = primero('chofer_clave_kepler');
       const vehicleId = trip.vehicle_id ?? null;
 
       // El nombre de la sucursal sale del catálogo de Kepler (`pv_suc_ip`: 06 → «Sucursal Canindo»).
       // ⚠️ Se pregunta antes si la tabla existe: una consulta que falla dentro de la transacción
       // la aborta entera, y el nombre no vale tumbar la hoja.
-      const { rows: [hayPv] } = await trx.raw(`SELECT to_regclass('kepler_ods.pv_suc_ip') IS NOT NULL AS ok`);
+      const { rows: [hayPv] } = await trx.raw<{ rows: Array<{ ok: boolean }> }>(
+        `SELECT to_regclass('kepler_ods.pv_suc_ip') IS NOT NULL AS ok`);
       const sucNombre: string | null = hayPv?.ok
-        ? await trx.raw(`SELECT btrim(c2) AS nombre FROM kepler_ods.pv_suc_ip WHERE btrim(c1) = ? LIMIT 1`, [sucursal])
-          .then((r: any) => r.rows?.[0]?.nombre ?? null)
+        ? await trx.raw<{ rows: Array<{ nombre: string | null }> }>(
+          `SELECT btrim(c2) AS nombre FROM kepler_ods.pv_suc_ip WHERE btrim(c1) = ? LIMIT 1`, [sucursal])
+          .then((r) => r.rows?.[0]?.nombre ?? null)
         : null;
 
       // ⚠️ En SECUENCIA, no con Promise.all: dentro de una transacción todas van por el MISMO
@@ -347,12 +452,12 @@ export class ErpShipmentsService {
         .whereNull('deleted_at').whereNot('status', 'cancelado')
         .first('id', 'folio', 'status');
 
-      const nombresUnicos = (k: 'surtio' | 'checo' | 'embarco') =>
-        [...new Set(paradas.map((p: any) => p[k]?.nombre).filter(Boolean))] as string[];
-      const sinResolver = paradas.reduce((a: number, p: any) =>
+      const nombresUnicos = (k: 'surtio' | 'checo' | 'embarco'): string[] =>
+        [...new Set(paradas.map((p) => p[k].nombre).filter((x): x is string => !!x))];
+      const sinResolver = paradas.reduce((a, p) =>
         a + (['surtio', 'checo', 'embarco'] as const)
-          .filter((k) => p[k]?.metodo && !['exacto', 'normalizado'].includes(p[k].metodo)).length, 0);
-      const horas = paradas.map((p: any) => p.hora_captura).filter(Boolean).sort();
+          .filter((k) => { const m = p[k].metodo; return !!m && m !== 'exacto' && m !== 'normalizado'; }).length, 0);
+      const horas = paradas.map((p) => p.hora_captura).filter((x): x is string => !!x).sort();
 
       return {
         viaje: {

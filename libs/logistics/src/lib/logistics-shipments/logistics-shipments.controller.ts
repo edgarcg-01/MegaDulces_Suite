@@ -20,6 +20,7 @@ import {
   UpdateShipmentDto,
   ShipmentStatus,
 } from './logistics-shipments.service';
+import type { TomaKeplerResultado } from '@megadulces/contracts';
 import type { TomaInput } from '../logistics-erp-shipments/nuevo-embarque.logic';
 
 /**
@@ -53,7 +54,7 @@ export class LogisticsShipmentsController {
     @Param('sucursal') sucursal: string,
     @Param('guia') guia: string,
     @Body() body: TomaInput,
-  ) {
+  ): Promise<TomaKeplerResultado> {
     return this.service.createFromKepler(sucursal, guia, body ?? {});
   }
 

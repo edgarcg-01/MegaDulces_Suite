@@ -9,9 +9,16 @@
  *   · serie 1 = «Embarque Telemarketing» (a cliente), serie 2 = «Embarque Sucursal» (traspaso a
  *     una sucursal `TI###` o carga del camión de ruta `RUTA 21`/`RD 501`);
  *   · los catálogos de Kepler reusan claves cortas: normalizar a ciegas atribuye mal (EMB.0.1).
+ *
+ * Las formas que viajan al front (tipo de viaje, resumen, comisión) son las del contrato
+ * `@megadulces/contracts` (ADR-052): acá son alias, no una segunda definición que pueda divergir.
  */
+import type {
+  KeplerDestinoTipo, KeplerMetodoResolucion, NuevoEmbarqueComision, NuevoEmbarqueResumen,
+  NuevoEmbarqueTipoViaje,
+} from '@megadulces/contracts';
 
-export type MetodoResolucion = 'exacto' | 'normalizado' | 'ambiguo' | 'sin_resolver';
+export type MetodoResolucion = KeplerMetodoResolucion;
 
 export interface EntradaCatalogo {
   codigo: string;
@@ -79,7 +86,7 @@ export function resolverPorCodigo(code: string | null | undefined, catalogo: Ent
 
 // ── Tipo de viaje ─────────────────────────────────────────────────────────────────────────
 
-export type DestinoTipo = 'cliente' | 'sucursal' | 'ruta';
+export type DestinoTipo = KeplerDestinoTipo;
 
 /** A qué va una parada. La serie 2 mezcla dos operaciones, y el código del destino las separa. */
 export function destinoTipo(serie: number, clienteCode?: string | null): DestinoTipo {
@@ -89,14 +96,7 @@ export function destinoTipo(serie: number, clienteCode?: string | null): Destino
   return 'sucursal';
 }
 
-export interface TipoDeViaje {
-  /** Lo que acepta `logistics.shipments.type`. Llevar a un camión de ruta también es traspaso. */
-  tipo: 'entrega' | 'traspaso';
-  etiqueta: string;
-  /** El viaje lleva paradas de más de un tipo (pasa: una guía mezcla clientes y sucursales). */
-  mixto: boolean;
-  destinos: Record<DestinoTipo, number>;
-}
+export type TipoDeViaje = NuevoEmbarqueTipoViaje;
 
 export function tipoDeViaje(paradas: Array<{ serie: number; cliente_code?: string | null }>): TipoDeViaje {
   const destinos: Record<DestinoTipo, number> = { cliente: 0, sucursal: 0, ruta: 0 };
@@ -163,25 +163,7 @@ export function ordenarParadas<T extends ParadaKepler>(paradas: T[]): T[] {
   });
 }
 
-export interface ResumenViaje {
-  paradas: number;
-  clientes: number;
-  rutas: Array<{ clave: string; nombre: string | null; paradas: number }>;
-  paradas_sin_ruta: number;
-  cajas: number;
-  sueltos: number;
-  /** Kilos de los renglones vendidos POR KILO. null = ninguna parada lleva renglones por kilo. */
-  kg_vendido_por_kilo: number | null;
-  /** El peso total del viaje no existe en Kepler (no hay peso por producto). Se dice, siempre. */
-  peso_total: null;
-  renglones_sin_empaque: number;
-  /** Paradas a cliente: precio de venta con impuestos. */
-  valor_venta: number;
-  /** Traspasos y cargas a ruta: Kepler los valúa a COSTO. No se suman con la venta. */
-  valor_traspaso: number;
-  facturadas: number;
-  paradas_a_cliente: number;
-}
+export type ResumenViaje = NuevoEmbarqueResumen;
 
 export function resumirViaje(paradas: ParadaKepler[]): ResumenViaje {
   const rutas = new Map<string, { clave: string; nombre: string | null; paradas: number }>();
@@ -230,16 +212,7 @@ export function nombreNormalizado(s?: string | null): string {
     .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
 }
 
-export interface ComisionSugerida {
-  driver: number | null;
-  helper: number | null;
-  /** La regla de un viaje con VARIAS rutas: la de mayor comisión. Es una propuesta (EMB.12). */
-  regla: 'mayor_comision_del_viaje';
-  ruta_usada: { clave: string; nombre: string | null; route_id: string } | null;
-  emparejadas: Array<{ clave: string; nombre: string | null; route_id: string; metodo: 'kepler_code' | 'nombre'; driver: number; helper: number }>;
-  /** Rutas del viaje que el catálogo de la Suite no tiene: no se adivina su tarifa. */
-  sin_tarifa: Array<{ clave: string; nombre: string | null }>;
-}
+export type ComisionSugerida = NuevoEmbarqueComision;
 
 /**
  * Comisión que se SUGIERE para chofer y ayudante a partir del catálogo de rutas de la Suite.
