@@ -1144,6 +1144,16 @@
 }
 .mt-chip:hover .mt-chip-ico { color: var(--action); }
 .mt-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/*
+  [SN.40] El chip SUGERIDO -- el que no salio de tu historia sino de la de tu puesto o tu area.
+  Borde punteado y nada mas: es el mismo destino, con el mismo peso, y lo unico que cambia es de
+  donde vino la idea.
+
+  La diferencia NO se cifra en color: quien no distingue el borde tiene el motivo escrito en el
+  title y en el nombre accesible, que es donde de verdad se lee. Un chip gris claro contra uno
+  normal seria una pista que la mitad de la pantalla no recibe.
+*/
+.mt-chip-sug { border-style: dashed; }
 .mt-chip-ico { font-size: var(--fs-xs); color: var(--text-faint); flex: none; }
 .mt-chip-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mt-subs { margin-bottom: var(--sp-4); }

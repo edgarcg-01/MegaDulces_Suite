@@ -1,6 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { KNEX_NEW_DB } from '@megadulces/platform-core';
+import { KNEX_NEW_DB, TenantKnexService } from '@megadulces/platform-core';
+import {
+  PEDIDO_ACCESOS,
+  VENTANA_ACCESOS_DIAS,
+  type AccesoMedido,
+  type MisAccesos,
+  type OrigenAcceso,
+} from '@megadulces/contracts';
 import { Knex } from 'knex';
 
 const TABLE = 'commercial.portal_telemetry_events';
@@ -39,7 +46,10 @@ export interface SummaryQuery {
 export class CommercialTelemetryService {
   private readonly logger = new Logger(CommercialTelemetryService.name);
 
-  constructor(@Inject(KNEX_NEW_DB) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_NEW_DB) private readonly knex: Knex,
+    private readonly tk: TenantKnexService,
+  ) {}
 
   /**
    * `[SN.12]` Retención: 90 días y afuera.
@@ -155,6 +165,117 @@ export class CommercialTelemetryService {
     } catch {
       return null;
     }
+  }
+
+  // ── Lectura: lo que esta persona abre ────────────────────────────────────────
+
+  /**
+   * `[SN.40]` **El primer lector del registro de clics.** Devuelve las puertas que esta persona
+   * abre, y cuando no alcanzan, las de su puesto y después las de su departamento.
+   *
+   * ── Por qué la cascada no es un adorno ─────────────────────────────────────────────────────
+   * Medido en prod el 2026-10-05 sobre los 90 días: **64 de 148** personas activas no tienen un
+   * solo clic, y de las 84 que sí, **sólo 15 llegan a 6 puertas distintas**. Con la historia
+   * propia a secas, ~8 de cada 10 verían una fila vacía o de dos chips — que es exactamente el
+   * estado del que esta fase viene saliendo. El relleno por grupo es lo que hace que la fila
+   * valga el primer día; el campo `origen` es lo que hace que no mienta sobre de quién es.
+   *
+   * ── Las tres decisiones de la consulta ─────────────────────────────────────────────────────
+   *
+   * 1. **Una sola ida a la base.** Las tres fuentes se unen en SQL y `DISTINCT ON (id)` con la
+   *    prioridad se queda con la mejor: una puerta que ya es tuya nunca vuelve como "de tu
+   *    puesto". Tres consultas encadenadas serían tres viajes en la ruta de carga de la landing.
+   *
+   * 2. ⛔ **El tenant se filtra A MANO sobre los eventos.** `commercial.portal_telemetry_events`
+   *    **no tiene RLS** (verificado: `relrowsecurity = false`), así que sin este `where` la
+   *    consulta agregaría los clics de todos los tenants. `identity.users` sí lo tiene, y
+   *    FORZADO, por eso todo corre dentro de `tk.run()` — sin el contexto, el `JOIN` a usuarios
+   *    devolvería cero filas y la cascada se caería al silencio en vez de al error.
+   *
+   * 3. **El puesto y el departamento salen de la base, no del token.** El JWT no los lleva, y
+   *    aunque los llevara serían el estado congelado de hace hasta 12 h: a quien le cambian el
+   *    puesto le seguiría llegando la sugerencia del anterior.
+   *
+   * ⚠️ **La cobertura del puesto no es pareja y la fila lo va a reflejar**: `cajera` tiene 10 de
+   * 14 personas con clics, `encargado_sucursal` 6 de 6, pero `vendedor_ruta` **2 de 25**. Cuando
+   * no hay de dónde sacar, devuelve MENOS elementos. Nunca rellena con lo primero del mapa: un
+   * atajo inventado es peor que un hueco, porque el hueco se nota.
+   *
+   * ⚠️ Devuelve más de los que la fila muestra (`PEDIDO_ACCESOS`): el servidor no sabe qué puertas
+   * ve cada quien —lo decide `visibleSuiteMap()` contra los permisos— y las que no se puedan abrir
+   * se caen del lado del front.
+   */
+  async misAccesos(userId: string, tenantId: string, limite = PEDIDO_ACCESOS): Promise<MisAccesos> {
+    const dias = VENTANA_ACCESOS_DIAS;
+    const filas = await this.tk.run(tenantId, async (trx) => {
+      const { rows } = await trx.raw(
+        `
+        WITH yo AS (
+          SELECT position_code, department_code
+            FROM identity.users
+           WHERE id = ? AND tenant_id = ?
+        ), ev AS (
+          -- ⛔ El filtro de tenant va acá y es obligatorio: esta tabla no tiene RLS.
+          SELECT e.user_id, e.props->>'id' AS id, e.created_at
+            FROM commercial.portal_telemetry_events e
+           WHERE e.name = 'abrio_puerta'
+             AND e.tenant_id = ?
+             AND e.created_at >= now() - make_interval(days => ?)
+             AND coalesce(e.props->>'id', '') <> ''
+        ), mio AS (
+          SELECT id, count(*)::int AS clics, max(created_at) AS ultimo_at,
+                 1 AS personas, 'mio'::text AS origen, 1 AS prio
+            FROM ev WHERE user_id = ? GROUP BY 1
+        ), pares_puesto AS (
+          SELECT u.id FROM identity.users u, yo
+           WHERE u.tenant_id = ? AND u.id <> ? AND u.deleted_at IS NULL
+             AND yo.position_code IS NOT NULL AND u.position_code = yo.position_code
+        ), puesto AS (
+          SELECT id, count(*)::int AS clics, max(created_at) AS ultimo_at,
+                 count(DISTINCT user_id)::int AS personas, 'puesto'::text AS origen, 2 AS prio
+            FROM ev WHERE user_id IN (SELECT id FROM pares_puesto) GROUP BY 1
+        ), pares_depto AS (
+          SELECT u.id FROM identity.users u, yo
+           WHERE u.tenant_id = ? AND u.id <> ? AND u.deleted_at IS NULL
+             AND yo.department_code IS NOT NULL AND u.department_code = yo.department_code
+        ), depto AS (
+          SELECT id, count(*)::int AS clics, max(created_at) AS ultimo_at,
+                 count(DISTINCT user_id)::int AS personas, 'departamento'::text AS origen, 3 AS prio
+            FROM ev WHERE user_id IN (SELECT id FROM pares_depto) GROUP BY 1
+        ), todas AS (
+          SELECT * FROM mio
+          UNION ALL SELECT * FROM puesto
+          UNION ALL SELECT * FROM depto
+        ), mejor AS (
+          -- La de menor prio gana: tuya antes que de tu puesto, y de tu puesto antes que del área.
+          SELECT DISTINCT ON (id) * FROM todas ORDER BY id, prio
+        )
+        SELECT id, clics, ultimo_at, personas, origen,
+               (SELECT count(*)::int FROM mio) AS propias
+          FROM mejor
+         ORDER BY prio, clics DESC, ultimo_at DESC NULLS LAST
+         LIMIT ?
+        `,
+        [userId, tenantId, tenantId, dias, userId, tenantId, userId, tenantId, userId, limite],
+      );
+      return rows as Array<Record<string, unknown>>;
+    });
+
+    return {
+      medido_at: new Date().toISOString(),
+      ventana_dias: dias,
+      // `propias` viaja repetido en cada fila; sin filas es 0, que es el arranque en frío.
+      propias: filas.length ? Number(filas[0]['propias'] ?? 0) : 0,
+      accesos: filas.map(
+        (r): AccesoMedido => ({
+          id: String(r['id']),
+          clics: Number(r['clics'] ?? 0),
+          ultimo_at: r['ultimo_at'] ? new Date(r['ultimo_at'] as string).toISOString() : null,
+          origen: r['origen'] as OrigenAcceso,
+          personas: Number(r['personas'] ?? 0),
+        }),
+      ),
+    };
   }
 
   // ── Agregación (dashboard) ───────────────────────────────────────────────────

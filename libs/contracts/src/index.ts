@@ -33,6 +33,9 @@ export * from './money/denominations';
 export * from './http/identity.contract';
 // [SN.2] Identidad: el contexto de la persona en sesión (persona/puesto/departamento) para "Mi trabajo".
 export * from './http/identity-me.contract';
+// [SN.40] Lo que esta persona abre de verdad, con la cascada vos → puesto → departamento y el
+// `origen` declarado. El registro de clics llevaba un mes escribiendo sin que nadie lo leyera.
+export * from './http/suite-usage.contract';
 // [CDRP.2] Registro de umbrales: la forma y el clasificador de 5 estados del tablero directivo.
 export * from './http/kpi-threshold.contract';
 // [AU.0] Identidad: la ORGANIZACIÓN (puesto, cadena de mando, responsabilidad, historia).

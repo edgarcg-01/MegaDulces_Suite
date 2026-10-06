@@ -20,6 +20,7 @@ import {
   MOTIVO_SIN_TRABAJO_NOMINAL,
 } from '@megadulces/contracts';
 import type {
+  AccesoMedido,
   MeCanal,
   MeCanalGrupo,
   MeCiclo,
@@ -373,39 +374,60 @@ export class MiTrabajoComponent {
   });
 
   /**
-   * `[SN.25]` — **«Tus accesos»: lo ÚLTIMO que abriste, no «lo más usado».**
+   * `[SN.25]` `[SN.40]` — **El respaldo de «Tus accesos», ya no su fuente.**
    *
-   * El brief pedía los módulos más utilizados (patrón ClickUp). ⛔ **Hoy no se puede, y no se
-   * inventa.** El registro de uso escribe de verdad (`UsoService` → `POST /telemetry/suite` →
-   * `commercial.portal_telemetry_events`) pero **nadie lo lee**: cero endpoints, cero lectores,
-   * instrumentado en una sola pantalla, nacido el 2026-09-11, y la tabla tiene 534 filas casi todas
-   * del portal B2B, sin índice por `user_id` y con purga a 90 días. Un «más usado» calculado sobre
-   * eso sería un ranking inventado.
+   * Hasta el 2026-10-05 esta lista ERA la fila: lo que abriste en ESTE navegador, en orden de
+   * recencia. `[SN.40]` la sustituyó por la medición real del servidor (`sugeridos`), y la deja
+   * acá para dos casos concretos:
    *
-   * Lo que SÍ es cierto desde el primer día: lo que esta persona abrió en ESTE navegador. Vive en
-   * `localStorage`, arranca **vacía** —y entonces la fila no se dibuja, no se pinta una caja
-   * prometiendo algo que no hay— y se llena sola con el uso.
+   *  1. **El primer render**, antes de que conteste `GET /telemetry/suite/mios`. La landing es la
+   *     primera pantalla de todo el mundo; esperar la red para dibujar una fila de atajos sería
+   *     cambiar un dato pobre por un hueco.
+   *  2. **Cuando la llamada falla.** Sin red o con la API caída, la fila sigue sirviendo con lo
+   *     que este navegador recuerda, en vez de desaparecer.
+   *
+   * ⚠️ Sus límites no cambiaron y por eso dejó de mandar: vive en UN navegador, se va al limpiar
+   * los datos del sitio, y dice *lo último que abriste*, no *lo que más usás*.
    *
    * ⚠️ `localStorage` puede tirar (ventana privada, datos bloqueados): cada lectura y cada escritura
    * van en `try/catch` y el peor caso es que la fila no aparezca.
    */
   private readonly recientes = signal<string[]>(leerRecientes());
 
-  /** Hasta 6, y sólo las que esta persona TODAVÍA puede abrir: un permiso revocado no deja rastro. */
   /**
-   * `[SN.28]` **La recencia elige QUIÉNES, el mapa decide EN QUÉ ORDEN.**
+   * `[SN.40]` Lo que el servidor midió que esta persona abre. `null` mientras no contestó.
    *
-   * Antes la fila salía en orden de recencia pura, así que **se reacomodaba cada vez que abrías
-   * algo**. Medido entre dos capturas del mismo día: `Logística · Presupuestos · Finanzas · Punto
-   * de Venta…` y, un rato después, `Punto de Venta · Ventas · Almacén · Logística…`. Los mismos
-   * seis destinos, otro orden.
+   * Que el estado inicial sea `null` y no `[]` es la diferencia entre «todavía no sé» y «no hay
+   * nada»: con `[]` la fila caería al respaldo del navegador y después saltaría al dato bueno,
+   * y con `null` espera. Es el mismo tercer estado que ADR-056 exige en cada medición.
+   */
+  private readonly sugeridos = signal<AccesoMedido[] | null>(null);
+
+  /**
+   * `[SN.28]` `[SN.40]` **«Tus accesos»: lo que MÁS usás, y el mapa decide en qué orden.**
    *
-   * ⛔ Es exactamente lo que NN/g mide que rompe la memoria espacial, y es el argumento con el que
-   * esta misma fase justificó que la rejilla de abajo NO se reordene por persona. Estaba aplicando
-   * la regla de un lado de la pantalla y no del otro: lo que se aprende de memoria no se mueve.
+   * ── Qué cambió el 2026-10-05 ───────────────────────────────────────────────────────────────
+   * El brief original pedía «los módulos más utilizados» y `[SN.25]` tuvo que decir que no se
+   * podía: el registro de clics escribía pero **nadie lo leía**. `[SN.40]` construyó el lector,
+   * así que la fila por fin sale de la medición real —cruzada entre dispositivos, por persona— y
+   * no de `localStorage`.
    *
-   * ⚠️ El `slice` va ANTES del `sort` a propósito: la pertenencia (cuáles seis) sí es por
-   * recencia — si no, la fila mostraría siempre los primeros del mapa y dejaría de ser tuya.
+   * ── Lo que NO cambió, a propósito ──────────────────────────────────────────────────────────
+   * `[SN.28]` **El uso elige QUIÉNES, el mapa decide EN QUÉ ORDEN.** Antes de eso la fila salía
+   * por recencia pura y **se reacomodaba cada vez que abrías algo**: medido entre dos capturas
+   * del mismo día, `Logística · Presupuestos · Finanzas · Punto de Venta…` y, un rato después,
+   * `Punto de Venta · Ventas · Almacén · Logística…`. Los mismos seis destinos, otro orden.
+   *
+   * ⛔ Es lo que NN/g mide que rompe la memoria espacial, y el argumento con el que esta misma
+   * fase justificó que la rejilla de abajo no se reordene. Ordenar por número de clics tendría el
+   * mismo defecto, sólo que más lento: el ranking cambiaría solo, un martes cualquiera.
+   *
+   * ⚠️ El `slice` va ANTES del `sort`: la pertenencia (cuáles seis) sí la decide el uso — si no,
+   * la fila mostraría siempre los primeros del mapa y dejaría de ser tuya.
+   *
+   * ⚠️ Se filtra contra `espaciosTodos()`, que ya viene recortado por permisos: una puerta que la
+   * persona perdió, o una que le sugirió su puesto y ella no tiene, simplemente no está en el
+   * mapa y se cae sola. Por eso el servidor manda 12 para que queden 6.
    */
   readonly accesos = computed<EntradaVisible[]>(() => {
     if (this.buscando()) return [];
@@ -418,11 +440,58 @@ export class MiTrabajoComponent {
         pos.set(e.id, i++);
       }
     }
-    return this.recientes()
+    /*
+     * El respaldo del navegador entra en TRES casos, no en dos: mientras el servidor no
+     * contesta (`null`), si falló, y si midió y **no encontró nada**.
+     *
+     * ⚠️ El tercero se me escapó y lo encontró su propia prueba. `UsoService` traga el error y
+     * devuelve la forma vacía, así que «falló» y «midió cero» llegan acá idénticos: con la
+     * condición escrita sobre `null` a secas, una falla de red dejaba la fila en blanco aunque
+     * el navegador tuviera seis atajos guardados. Y aunque se pudieran distinguir, la decisión
+     * correcta es la misma en los dos: si el servidor no tiene nada que ofrecerte —ni tuyo, ni
+     * de tu puesto, ni de tu área— lo que recuerda este navegador es estrictamente mejor que
+     * una fila vacía.
+     */
+    const medido = this.sugeridos();
+    const ids = medido?.length ? medido.map((a) => a.id) : this.recientes();
+    return ids
       .map((id) => porId.get(id))
       .filter((e): e is EntradaVisible => !!e)
       .slice(0, MAX_ACCESOS)
       .sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
+  });
+
+  /**
+   * `[SN.40]` De dónde salió cada atajo, para que la fila no presente como tuyo algo prestado.
+   *
+   * Medido en prod: **64 de 148** personas activas no tienen un solo clic y sólo **15 de 84**
+   * llegan a seis puertas distintas, así que para la mayoría la fila se arma con lo que abre su
+   * puesto. Decirlo es la diferencia entre una sugerencia y una sorpresa — el «laberinto» que la
+   * crítica a la App Library de macOS describe es exactamente esto sin la etiqueta.
+   */
+  readonly origenAcceso = computed<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const a of this.sugeridos() ?? []) {
+      if (a.origen === 'puesto') out[a.id] = 'lo abre tu puesto';
+      else if (a.origen === 'departamento') out[a.id] = 'lo abre tu área';
+    }
+    return out;
+  });
+
+  /**
+   * `[SN.40]` El rótulo de la fila dice la VERDAD de lo que está mostrando, que es distinta según
+   * la persona: con historia propia es «lo que más abrís», sin historia es una sugerencia de su
+   * grupo, y antes de que conteste el servidor es lo que recuerda el navegador.
+   */
+  readonly accesosRotulo = computed<string>(() => {
+    const medido = this.sugeridos();
+    // Sin medición —o con una vacía— lo que se está mostrando es el respaldo del navegador, y el
+    // rótulo tiene que decir ESO. Ver la nota de `accesos`.
+    if (!medido?.length) return 'lo último que abriste';
+    const visibles = new Set(this.accesos().map((e) => e.id));
+    const prestados = medido.filter((a) => visibles.has(a.id) && a.origen !== 'mio').length;
+    if (!prestados) return 'lo que más abrís';
+    return prestados === visibles.size ? 'lo que abre tu equipo' : 'lo tuyo y lo de tu equipo';
   });
 
   /**
@@ -903,6 +972,21 @@ export class MiTrabajoComponent {
     this.cargarContexto();
     this.cargarTrabajo();
     this.escucharVentaEnVivo();
+    /*
+     * `[SN.40]` Lo que esta persona abre de verdad, para «Tus accesos».
+     *
+     * ⚠️ Se pide una sola vez y NO se vuelve a pedir después de cada clic, aunque el dato cambie:
+     * una fila de atajos que se reacomoda mientras la mirás es justo lo que `[SN.28]` arregló.
+     * El uso de hoy se ve mañana.
+     *
+     * ⛔ Sin `catchError` acá a propósito: `UsoService.misAccesos()` ya devuelve la forma vacía
+     * ante cualquier falla, así que el `error` de esta suscripción no puede ocurrir. Si ocurriera,
+     * `sugeridos` se queda en `null` y la fila sigue con lo que recuerda el navegador.
+     */
+    this.uso
+      .misAccesos()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((r) => this.sugeridos.set(r.accesos));
     this.scope
       .mine()
       .pipe(takeUntilDestroyed(this.destroyRef))
