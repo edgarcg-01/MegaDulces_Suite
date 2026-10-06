@@ -10383,3 +10383,102 @@ a conciencia el 01-oct al retirar la cifra en disputa (batch 653).
   es **purgarlo en Kepler**, no acá (ADR-040). Lo vigila el bloque `[4c]` del candado.
 - ⬜ **Ramas 06/07/08**: 8–14.5 % de sus SKUs no sobreviven la regla de corte. **No se tocaron por
   falta de árbitro.** Lo destraba el mismo reporte corrido por sucursal.
+
+---
+
+## `[DM.20]` — La recepción existía y la pantalla decía que no (2026-10-06)
+
+Edgar puso las dos capturas lado a lado: Kepler mostrando **`UA5001-0000377`, «Recepción Traspaso
+Suc» en 8 ESQUINAS, con «Embarque Suc Origen: UD4102-0000748»**, y nuestra pantalla diciendo
+**«Sin recepción registrada (en tránsito o no recibido) · Enviadas 301.34 · Recibidas 0»** sobre
+ese mismo embarque. *La pantalla tenía las dos mitades a la vista y no las unía.*
+
+### El dato estaba bien; la premisa no
+
+El back-pointer de Kepler (`parent_group=41` + `parent_serie` + `parent_folio`) apuntaba exacto, y
+nuestra base lo tenía: 7 líneas, 301.34 piezas, idénticas de los dos lados. Lo que fallaba era el
+**desempate**. Los folios son secuencias **por sucursal**, así que el mismo `(serie, folio)` existe
+en varias plazas y hay que elegir; se elegía por fecha, con una premisa escrita como ley física:
+
+> *«física: recepción nunca anterior a la salida + tope de tránsito 15d»*
+
+⛔ **Falsa, y medible.** Las dos plazas fechan el mismo movimiento por su cuenta. Sobre los **1,720
+pares donde dos testigos independientes coinciden** —el destino declarado apunta al almacén que
+recibe **y** la cantidad cuadra al 0.01— el desfase va de **−2 a +63 días**, mediana 0, con **24
+negativos**. El caso reportado cae justo en el mínimo: **−2**.
+
+### El desempate correcto lo declara el propio documento
+
+`dest_code` del embarque (vía `analytics.transfer_dest_map`, almacén **vivo**) contra el almacén
+que recibe. Sobre 3,487 pares candidatos el destino coincide en 1,909 y de los 1,724 con cantidad
+exacta **1,720 (99.77 %) coinciden también en destino**: dos testigos que no comparten origen —uno
+sale de la cabecera, el otro de los renglones.
+
+### El mismo error iba en el sentido contrario, y ése nadie lo miraba
+
+La fecha emparejaba embarques dirigidos a una **RUTA** (`RD 501`…`RD028`) con la recepción de una
+**SUCURSAL**, con desfases de cientos a miles de piezas y **ninguno** con cantidad exacta, y los
+publicaba como *recibidos y conciliados*. Son **39 documentos por $494,300.44**. Ahora dicen «sin
+recepción», que es lo que son. ⭐ *Un pareo que inventa tránsitos y otro que inventa recepciones
+salen de la misma línea de código.*
+
+### Medido en prod (2026-10-06, con el SQL real, sólo lectura)
+
+| | antes | después |
+|---|---|---|
+| pareos salida→recepción | 1,755 | 1,743 |
+| …de ellos con cantidad exacta | 1,694 | **1,720** |
+| recepciones que encuentran su origen | 1,712 | **1,747** |
+| Cuadre de septiembre: `ok` / `sin_origen` | 562 / 32 | **574 / 21** |
+| el documento reportado | `sin_recepcion` | **`ok`, 301.34 / 301.34** |
+
+Rescatados **+30 embarques ($851,389.80)**; soltados **39 pareos falsos a ruta ($494,300.44)**,
+ninguno con cantidad exacta. **La calidad sube en los dos sentidos** — que es la prueba de que no
+se cambió un error por otro.
+
+### Cuatro copias de la misma regla
+
+La ventana de 15 días estaba escrita a mano en `document`, `annotateTransferStatus`,
+`transfersPhysical` y `transfersCheckPair`. Por eso el arreglo tenía que tocar las cuatro. Ahora es
+un predicado compartido (`TRANSFER_PAIR_MATCH` + `pairMatchJs`), con el mismo razonamiento que ya
+había dejado escrito `DEST_WH_VIVO` en ese archivo: *una condición de integridad repetida a mano se
+desincroniza*. Y el candado **lee las ventanas del fuente**, para no medir con una copia vieja.
+
+### `[DM.20.1]` Rendimiento, en commit aparte y sin mover un número
+
+`transfersPhysical` **1,403 → 479 ms**; `transfersCheckPair` **1,222 → 624 ms**. Paridad verificada
+fila a fila con `EXCEPT ALL` en los dos sentidos: **2,040 y 32 filas, 0 diferencias**. Las tres
+causas eran la misma familia —**trabajo por RENGLÓN que debía ser por DOCUMENTO**—: el `LEFT JOIN`
+a `warehouses` **dentro** del agregado (el planner estima esa tabla en 1 fila y elige un nested
+loop sobre ~40k renglones) y un `LEFT JOIN LATERAL (… LIMIT 1)` sobre una CTE, que **la re-escanea
+entera una vez por recepción** (~600 × ~2,000 = 2.6 s) y que no se puede indexar → hash join +
+`DISTINCT ON` con el mismo orden de desempate.
+
+### Lecciones
+
+- ⭐ **Una premisa escrita como ley física merece la misma medición que un número publicado.** Ésta
+  llevaba meses en un comentario, en cuatro lugares, y nadie la había contrastado contra el dato.
+- ⭐ **Un desempate equivocado falla en los dos sentidos a la vez.** Buscábamos tránsitos inventados
+  y encontramos, en la misma línea, recepciones inventadas por $494 mil.
+- ⭐ **El segundo testigo tiene que venir de otro lado del documento.** Destino (cabecera) y cantidad
+  (renglones) coinciden al 99.77 % **y no al 100 %**: si coincidieran siempre, uno derivaría del
+  otro y no sería testigo. El candado vigila las dos cosas.
+- ⚠️ **El candado vigila la PREMISA, no sólo el resultado** (patrón `[CE.8]`): si dejaran de existir
+  pares de alta confianza con desfase negativo, esta regla sobraría y habría que revisarla.
+
+### Pendientes con nombre
+
+- ⬜ **Redeploy api+view.** Sin migraciones ni permisos nuevos → **sin re-login**. Hasta entonces la
+  pantalla sigue publicando los tránsitos falsos.
+- ⬜ **Validación visual** del modal (la contraparte y la leyenda nueva «pareado por destino
+  declarado»).
+- ⬜ **Borde de rango del Cuadre — declarado, no arreglado.** `transfersPhysical` busca la recepción
+  sólo dentro del rango que se mira, así que un embarque del 28-sep recibido el 2-oct sale
+  `sin_recepcion` en el cuadre de septiembre: **39 documentos / $482,975** medidos. No se tocó
+  porque la respuesta honesta no es pegarlo igual sino un estado que hoy no existe —**«recibido
+  FUERA del periodo»**— y eso toca pantalla, contadores y filtros. El bloque 8 del candado lo mide
+  y lo reporta en cada corrida.
+- ⬜ **`transfersCheckPair` sigue sobre el gate de 500 ms** (624 ms). Lo que queda es que calcula el
+  mes entero y recién al final filtra por origen y destino; empujar el filtro hacia arriba no es
+  seguro de un tirón, porque las filas `sin_origen` y `sin_recepcion` no sacan su origen ni su
+  destino del mismo lado.
