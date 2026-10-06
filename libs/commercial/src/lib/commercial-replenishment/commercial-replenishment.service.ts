@@ -1404,6 +1404,31 @@ export class CommercialReplenishmentService {
       else if (q.iad === 'decel') wbConds.push('da.iad <= -0.25');
       if (q.only_overstock) wbConds.push('p.has_over');
       const wbWhere = wbConds.length ? `WHERE ${wbConds.join(' AND ')}` : '';
+      // `[RA-PERF.1]` La vista del factor de caja se lee de su COPIA MATERIALIZADA.
+      //
+      // El bloque de abajo ya midio que `vbf` hay que materializarla Y acotarla al universo de
+      // la consulta -- y es cierto CUANDO HAY FILTRO. Medido en prod el 2026-10-06 SIN filtro,
+      // que es como se exporta: el EXISTS sobre productos saca 4,664 de 248,402 filas, o sea el
+      // 2%. Paga un hash join entero para no descartar casi nada, y ese CTE solo cuesta 15 s de
+      // los 47 s que tarda la consulta (72 llamadas, 94 s la peor, contra el gate de 1 s).
+      //
+      // `analytics.mv_warehouse_box_factor` YA existe, se refresca sola (1,080 veces en 4 dias)
+      // y tiene las 4 columnas que el CTE pide. Verificado contra prod ANTES de cambiar nada:
+      //     v_warehouse_box_factor  248,402 filas   EXCEPT contra mv -> 0
+      //     mv_warehouse_box_factor 248,402 filas   EXCEPT contra v  -> 0
+      // y el mismo CTE con el mismo filtro: 4,721 ms contra 129 ms (36x).
+      //
+      // Se pregunta si EXISTE en vez de asumirlo: el codigo y el DDL viajan por caminos
+      // distintos y llegan desordenados. Mismo patron que `existencia.service.ts` [EX-PERF.2],
+      // que ya lo resolvio asi para esta misma vista.
+      //
+      // No se toca el filtro de productos: cuando SI hay proveedor o busqueda, sigue acotando.
+      //
+      // NO ES FRESCURA: que exista no dice que este al dia. Un materializado que dejo de
+      // refrescarse sirve datos viejos sin un solo error; la edad la declara el latido.
+      const vbfSrc = (await trx.raw(
+        "SELECT to_regclass('analytics.mv_warehouse_box_factor') AS a",
+      )).rows?.[0]?.a ? 'analytics.mv_warehouse_box_factor' : 'analytics.v_warehouse_box_factor';
       const inner = `
         -- ⛔ \`MATERIALIZED\` NO ES ADORNO: sin él esta pantalla devuelve 500. Medido en PROD el
         -- 2026-09-24, con **6 de 6 peticiones muertas exactas a los 120 s** de
@@ -1464,7 +1489,7 @@ export class CommercialReplenishmentService {
         )${erpReady ? `, fre AS MATERIALIZED (${this.erpFillSubquery()}
         )` : ''}, vbf AS MATERIALIZED (
           SELECT v.tenant_id, v.warehouse_id, v.product_id, v.base_label
-            FROM analytics.v_warehouse_box_factor v
+            FROM ${vbfSrc} v
            WHERE v.tenant_id = :t
              AND EXISTS (SELECT 1 FROM catalog.products pr WHERE pr.id = v.product_id AND ${where})
         ), base AS MATERIALIZED (
