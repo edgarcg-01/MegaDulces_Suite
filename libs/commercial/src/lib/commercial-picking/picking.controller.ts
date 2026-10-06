@@ -32,11 +32,17 @@ export class PickingController {
     @Query('warehouse_id') warehouseId?: string,
     @Query('delivery_date') deliveryDate?: string,
     @Query('limit') limit?: string,
+    // [VEC.3] `?route_kind=vecinal` o `?route_kind=vecinal,camion`. Ausente = todos, que es
+    // como se comportaba el pool antes de esto.
+    @Query('route_kind') routeKind?: string,
   ) {
     return this.service.pool({
       warehouse_id: warehouseId,
       delivery_date: deliveryDate,
       limit: limit ? Number(limit) : undefined,
+      route_kind: routeKind
+        ? routeKind.split(',').map((k) => k.trim()).filter(Boolean)
+        : undefined,
     });
   }
 

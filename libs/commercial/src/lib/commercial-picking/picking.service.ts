@@ -8,6 +8,13 @@ import {
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { repartirOla, resumenPorPedido } from './allocation';
+import {
+  ROUTE_KINDS,
+  type RouteKind,
+  orderRouteSql,
+  routeKindFilterSql,
+  routeKindMotivoSql,
+} from '../shared/route-kind.sql';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -16,6 +23,11 @@ export interface PoolQuery {
   warehouse_id?: string;
   delivery_date?: string;
   limit?: number;
+  /**
+   * `[VEC.3]` Tipos de ruta a incluir (`vecinal`, `camion`, …). Vacío o ausente = **todos**,
+   * que es el comportamiento que el pool ya tenía — este filtro no cambia nada si no se pide.
+   */
+  route_kind?: readonly string[];
 }
 
 export interface CreateWaveDto {
@@ -83,6 +95,18 @@ export class PickingService {
 
       if (q.warehouse_id) qb = qb.where('o.warehouse_id', q.warehouse_id);
       if (q.delivery_date) qb = qb.where('o.requested_delivery_date', q.delivery_date);
+      // [VEC.3] Filtro por tipo de ruta. Los tipos se validan contra la taxonomía ANTES de
+      // llegar al SQL: un tipo inventado tiene que ser un 400, no un pool vacío que se lee
+      // como "hoy no hay nada que surtir".
+      if (q.route_kind?.length) {
+        const malos = q.route_kind.filter((k) => !ROUTE_KINDS.includes(k as RouteKind));
+        if (malos.length) {
+          throw new BadRequestException(
+            `route_kind inválido: ${malos.join(', ')}. Válidos: ${ROUTE_KINDS.join(', ')}`,
+          );
+        }
+        qb = qb.whereRaw(routeKindFilterSql(q.route_kind, 'c'));
+      }
 
       const rows = await qb
         .select(
@@ -96,6 +120,13 @@ export class PickingService {
           'o.total',
           'o.confirmed_at',
           'o.created_at',
+          // [VEC.3] De qué ruta viene el pedido y de qué tipo es. Van SIEMPRE, no sólo al
+          // filtrar: si el surtidor no ve el tipo, no puede notar que un pedido cayó en la
+          // ola equivocada — y el motivo separa "el cliente no tiene ruta" (lo arregla quien
+          // captura) de "la ruta no está declarada" (lo arregla Dirección).
+          trx.raw(`${orderRouteSql('c', 'value')} AS sales_route`),
+          trx.raw(`${orderRouteSql('c', 'route_kind')} AS route_kind`),
+          trx.raw(`${routeKindMotivoSql('c')} AS route_kind_motivo`),
           trx.raw('(SELECT count(*) FROM commercial.order_lines ol WHERE ol.order_id = o.id)::int AS lines'),
           trx.raw('(SELECT coalesce(sum(ol.quantity),0) FROM commercial.order_lines ol WHERE ol.order_id = o.id)::numeric AS units'),
         )
