@@ -64,6 +64,37 @@ REM 2) DIRECTO: venta local -> staging del runner (pipe, sin archivo).
 REM 3) Merge idempotente en mart.ventas (tambien escribe el heartbeat).
 echo [%date% %time%] merge -^> filas: >> "%LOG%"
 %PSQL% "%DST%" -c "select ingest.merge_route_sales('%TRUCK%', %DAYS%)" >> "%LOG%" 2>&1
+
+REM ===========================================================================
+REM  [RD.32] 4-6) LA EXISTENCIA DEL CAMION. Mismo canal, una consulta mas.
+REM
+REM  Kepler CENTRAL no publica saldo de ruta (kdik solo tiene una fila por
+REM  sucursal; los almacenes 01-00N no aparecen) y no existe documento de
+REM  retorno, asi que el saldo se venia RECONSTRUYENDO de embarque menos venta.
+REM  Medido el 2026-10-05 en la ruta 21: la pantalla publicaba 18,427 y el
+REM  camion traia 37,766 -- el 89% de la diferencia es mercancia que ya traia
+REM  antes de que pudieramos ver sus ventas, y que ningun documento registra.
+REM
+REM  El Kepler DE ESTA LAPTOP si lo sabe. Por eso va aca y no en una pantalla
+REM  para subir un Excel a mano: el dato tiene que llegar solo.
+REM
+REM  Columnas verificadas contra el ODS el 2026-10-05, NO adivinadas:
+REM    kdii.c1=SKU  kdii.c2=descripcion  kdii.c11=unidad  kdik.c2=SKU  kdik.c5=existencia  kdik.c16=costo
+REM  La unidad del reporte que imprime el camion coincide con kdii.c11 en
+REM  256 de 257 renglones (la unica que no, viene en blanco en el origen).
+REM
+REM  OJO: existencia > 0: el catalogo trae miles de productos en cero y subirlos
+REM     todos los dias es ruido. El merge del runner tambien lo filtra.
+REM  OJO: Esto NO lleva ventana de dias: es una FOTO del momento, y el merge del
+REM     runner REEMPLAZA la del dia en vez de acumular.
+REM ===========================================================================
+%PSQL% "%DST%" -c "delete from ingest.route_stock_stg where truck='%TRUCK%'" >> "%LOG%" 2>&1
+
+%PSQL% "%SRC%" -c "\copy (select '%TRUCK%',btrim(k.c2),btrim(i.c2),btrim(i.c11),k.c5::numeric,k.c16::numeric,(k.c5*k.c16)::numeric from md.kdik k join md.kdii i on btrim(i.c1)=btrim(k.c2) where k.c5 > 0) to stdout csv" | %PSQL% "%DST%" -c "\copy ingest.route_stock_stg (truck,sku,producto,unidad,existencia,costo,importe) from stdin csv" >> "%LOG%" 2>&1
+
+echo [%date% %time%] merge existencia -^> filas: >> "%LOG%"
+%PSQL% "%DST%" -c "select ingest.merge_route_stock('%TRUCK%')" >> "%LOG%" 2>&1
+
 echo [%date% %time%] OK %TRUCK% >> "%LOG%"
 
 endlocal
