@@ -3396,6 +3396,34 @@ cerrados con `validated_by = 'Claude Vision'`.
   (69×) en el filtro por defecto y hasta **294×** sin bucket. Candado con prueba negativa:
   `test-newdb-critical-stock-count.js` 15/15 contra prod. Commit `d74e7ee7`.
   🚫 **Falta desplegarlo** — ver el bloqueo de `[CG.22.4]`.
+- [x] **[RA-PERF.3]** 🧪 `/compras/pedido` — **el filtro no se borraba: se borraba el RESULTADO
+  filtrado.** Reportado desde campo como «al elegir un proveedor se borra el filtro». El
+  componente dispara una consulta por cada cambio de filtro y **no cancela ni descarta la
+  anterior** (cero `switchMap` y cero `unsubscribe` en sus 3,492 líneas). Con la consulta sin
+  filtro en **46.0 s de promedio y 94.5 s la peor** contra **~1.9 s** con proveedor elegido
+  (pg_stat_statements, prod, 02-oct→06-oct), la carrera es el caso **normal**: elegís proveedor,
+  ves tus filas, y un minuto después aterriza la respuesta vieja y **pisa la tabla con el
+  catálogo entero** — con el selector todavía diciendo el proveedor. Un contador de generación
+  descarta lo que llega tarde, en el workbook, en su enriquecimiento y en el stock muerto.
+  ⚠️ **Validación visual pendiente.**
+- [x] **[RA-PERF.4]** 🧪 `workbook()` — el **mismo árbol de CTEs se corría dos veces** por carga:
+  una para la página y otra para el `SELECT SUM(...) FROM (inner)` de los totales. Lo delata
+  pg_stat_statements: las dos consultas con **79 y 78 llamadas** y **49.3 s y 48.1 s** de
+  promedio. Ahora los ocho totales viajan en ventanas `OVER ()` de la misma consulta — el patrón
+  que `transferPlan` y `overstockList` ya usan en ese archivo; el camino viejo queda **sólo** de
+  respaldo para la página vacía, donde no hay fila a la cual pegarle la ventana. Medido contra
+  prod en los tres escenarios de la pantalla, con los **ocho totales idénticos y las mismas filas
+  en el mismo orden**: sin filtro **3,865 → 2,398 ms**, con proveedor **2,058 → 1,127 ms**, con
+  el chip «Solo con pedido» **3,431 → 2,102 ms**.
+  ⛔ **Dos cosas se midieron y NO se tocaron**, a propósito: (1) quitar el `tenant_id` redundante
+  del `ON` de `vbf` — lo encontré midiendo (el `CTE Scan` estimaba **33 filas** y releía
+  **276,817,730**; `base` 48.4 s → 3.2 s), y con la copia materializada que se desplegó ese mismo
+  día **ya no cambia nada** (3.43 s contra 3.63 s); (2) `transferPlan` y `overstockList` — su
+  promedio de 6.2 s es **contención, no costo propio**: medidos solos contra prod dan **522 ms y
+  80 ms** sin filtro y **163 ms y 61 ms** con proveedor, y su mínimo histórico es **151 ms y
+  1 ms**. Los estaba ahogando el workbook.
+  ⚠️ El commit de la copia materializada (`257244bc`) se rotuló `[RA-PERF.1]`, **código ya
+  ocupado** arriba por el reparto de tránsito por ventana; en el código se lo referencia por hash.
 - [x] **[EX-PERF.1]** 🧪 `/compras/existencia` — `SET LOCAL jit = off` antes de la consulta
   principal. A este volumen la compilación JIT no se amortiza: **821 funciones compiladas** para
   una consulta que devuelve 50 filas. ⚠️ `SET LOCAL` fuera de una transacción es un **no-op
