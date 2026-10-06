@@ -8512,7 +8512,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [x] **[GP.0]** 🧪 Decode del pedido `U-D-40` contra prod (solo lectura): origen `c27`, estatus `c11`, responsables
       `c100/c102/c103`, cantidades por etapa `kdm2.c51`–`c54`, liga embarque→pedido `c37`+`c39`. (2026-10-06)
       Falta: catálogos de responsables, unidad de `c51` vs `c52`, qué es `c69`.
-- [ ] **[GP.1]** ⬜ Vista `analytics.erp_sales_orders` (+renglones) + tablero `/almacen/pedidos` por origen/estatus/antigüedad.
+- [ ] **[GP.1]** 🧪 Tablero `/almacen/pedidos` (2026-10-06): pedidos Kepler U-D-40 por periodo (default **mes en curso**; hoy/semana/mes anterior/rango), filtro por **estatus** (botones con conteo), origen, sucursal y texto; detalle por renglón (ped/surt/chec/emb + ubicación por etapa) y embarques ligados. **Sin migración**: SQL directo sobre `kepler_ods` (patrón Cortes/Sucursales). Permiso `COMMERCIAL_PICKING_VER` (ya repartido: almacenista 6, encargado_tienda 7…). Medido en prod: octubre todas las sucursales 514 pedidos en 130–215 ms (el JOIN ingenuo tardaba 10–12 s); un pedido 6–38 ms. Pruebas: motor 14/14 con negativa vista en rojo; contratos 375/375; pestañas 9/9. **Falta:** build del CI, landing-guards en CI, validación visual.
 - [ ] **[GP.2]** ⬜ Origen Kepler para `commercial-picking` (pool lee `U-D-40` `AUTORIZADO`).
 - [ ] **[GP.3]** ⬜ Pantalla del surtidor (móvil), reemplaza el ticket `Referencia SURTIDO`. Pendiente P3 (equipo en piso).
 - [x] **[GP.0.1]** 🧪 Carga de operación medida (FASE_GP §4b): 33 pedidos sucursal + 40 telemarketing al día; sucursal 66% de renglones en unidad menor; PH telemarketing 25% pedidos muy chicos. (2026-10-06)

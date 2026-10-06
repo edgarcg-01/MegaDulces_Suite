@@ -246,7 +246,7 @@ vista derivada sobre `kepler_ods`, nunca copia.
 | Sprint | Qué | Depende de |
 |---|---|---|
 | **GP.0** | Decode del pedido `U-D-40` + medición | ✅ parcial (§2). Falta: catálogos de responsables (no están en el ODS), unidad de `c51` vs `c52`, qué es `c69` |
-| **GP.1** | Vista `analytics.erp_sales_orders` (+renglones) sobre `kepler_ods` + tablero `/almacen/pedidos`: por origen, estatus y antigüedad; pedidos atorados | GP.0 |
+| **GP.1** 🧪 | Tablero `/almacen/pedidos`: periodo (default mes en curso), filtro por estatus con conteos, origen, sucursal, texto; detalle por renglón y embarques. SQL directo sobre `kepler_ods`, **sin migración**. Código en `libs/commercial/src/lib/warehouse-orders/` + `apps/view/.../almacen-pedidos.component.ts` | GP.0 |
 | **GP.2** | Origen Kepler para `commercial-picking`: el pool lee pedidos `U-D-40` `AUTORIZADO` | GP.1 |
 | **GP.3** | Pantalla del surtidor (móvil): lista por ubicación, marca por renglón (reemplaza el círculo de pluma), faltantes. **Reemplaza el ticket `Referencia SURTIDO`** | GP.2 + P3 |
 | **GP.4** | Checado 3 · **unidad mayor**: escaneo de `C`+clave, conteo, espacio de espera. **Reemplaza el ticket `Referencia CHECADO`** | GP.3 |

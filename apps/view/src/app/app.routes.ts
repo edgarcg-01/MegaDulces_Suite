@@ -1291,6 +1291,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.ALMACEN_BI_VER)]
       },
       {
+        // [GP.1] Tablero de pedidos Kepler U-D-40 (telemarketing y sucursal), sólo lectura.
+        path: 'pedidos',
+        loadComponent: () => import('./modules/almacen/pages/almacen-pedidos.component').then(m => m.AlmacenPedidosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_VER)]
+      },
+      {
         // EXISTENCIA — el censo físico, derivado del ERP (el ODS). MISMO componente que
         // /compras/existencia y MISMO permiso: es la misma pantalla para las dos audiencias
         // (precedente vivo: Caducidades en /almacen + /tienda).

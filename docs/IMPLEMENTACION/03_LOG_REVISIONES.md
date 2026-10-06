@@ -5,6 +5,23 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-06 — `[GP.1]` Tablero de pedidos del almacén
+
+**Qué se entregó:** `/almacen/pedidos` — pedidos Kepler U-D-40 por periodo (default mes en curso),
+filtro por estatus con conteos, origen, sucursal y búsqueda; detalle por renglón y embarques.
+Backend `libs/commercial/src/lib/warehouse-orders/` (SQL directo sobre `kepler_ods`, sin migración),
+contrato `libs/contracts/src/http/warehouse-orders.contract.ts`, área "Pedidos" en Almacén.
+
+**Verificado:** SQL contra prod en solo lectura (los pedidos 2781 y 2749 cuadran con las capturas de
+Kepler, incluido el embarque UD4101-0002683); motor 14/14 con prueba negativa vista en rojo;
+contratos 375/375; pestañas de Almacén 9/9. **No verificado:** build (lo hace el CI), la spec de
+landing-guards (necesita el compilador de Angular) y la pantalla en el navegador.
+
+**Lección:** el conteo de renglones como JOIN + GROUP BY tardaba 10–12 s porque el planner estimaba
+UN pedido (eran 514) y re-agregaba kdm2 por cada uno (~780 mil búsquedas). Con la cabecera
+MATERIALIZED y el conteo como LATERAL por pedido: 130–215 ms. Medir el plan, no sólo el resultado.
+
+---
 ## 2026-10-06 — Ubicaciones: bodega y piso de venta en un solo almacén (ADR-085)
 
 **Qué se entregó:** addendum [`FASE_WMS` §12](FASES/FASE_WMS.md) y ADR-085. Sin código.
