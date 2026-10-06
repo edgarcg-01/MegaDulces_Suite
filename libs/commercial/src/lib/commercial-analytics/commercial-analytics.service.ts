@@ -8810,9 +8810,12 @@ export class CommercialAnalyticsService {
     }
     const tenantId = this.tenantCtx.requireTenantId();
 
-    // El SKU viaja NORMALIZADO: nuestro ledger trae ceros a la izquierda (08057) y el Kepler del
-    // camion los imprime sin ellos (8057). Sin esto el conteo no empalma y cada producto aparece
-    // dos veces -- una con saldo y otra sin el. Medido: 24 diferencias falsas de 257.
+    // ⛔ El SKU se recorta, NO se le quitan los ceros de la izquierda. Parece al reves y por eso
+    // va escrito: el archivo que origino esta fase traia 8057 donde el ledger dice 08057, y la
+    // conclusion facil era "el Kepler del camion los imprime sin cero". Medido el 2026-10-05, es
+    // FALSO: las tres fuentes de Kepler los conservan (kdik.c2 480 de 4,514 · kdii.c1 1,072 de
+    // 9,642 · kdm2.c8 6,811 de 65,789). Quien los perdio fue EXCEL, que leyo 08057 como numero.
+    // Pelarlos aca colapsaria dos SKU distintos que solo se diferencian por el cero.
     const norm = (s: unknown) => String(s ?? '').trim();
     const lineas = input.lines.map((l) => ({
       sku: norm(l.sku),
