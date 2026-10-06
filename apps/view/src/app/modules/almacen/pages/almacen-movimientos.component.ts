@@ -584,6 +584,12 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
               <strong>{{ cpTitle(cp.status) }}</strong>
               <span>Enviadas {{ absN(doc()!.totals.qty) | number:'1.0-2' }} · Recibidas {{ cp.qty | number:'1.0-2' }}</span>
               @if (cp.status === 'diferencia') { <span class="dm-strong">Δ {{ cp.delta > 0 ? '+' : '' }}{{ cp.delta | number:'1.0-2' }} pzs</span> }
+              <!-- [DM.20] el pareo declara con qué se hizo: la fecha sola ya emparejó mal antes. -->
+              @if (cp.match_evidence === 'destino_declarado') {
+                <span class="dm-ev" title="El embarque venía dirigido a ese almacén: lo dice el propio documento, no la fecha.">pareado por destino declarado</span>
+              } @else if (cp.match_evidence === 'fecha_y_cantidad') {
+                <span class="dm-ev dm-ev-weak" title="El embarque no tiene destino resuelto a un almacén (va a ruta o a cliente). Se desempató por fecha y cantidad: evidencia más débil.">pareado por fecha y cantidad · sin destino que lo respalde</span>
+              }
             </div>
           }
 
@@ -902,6 +908,9 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .dm-cp.cp-ok { color: var(--ok-soft-fg); background: var(--ok-soft-bg); border-color: var(--ok-border); }
     .dm-cp.cp-warn { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-color: var(--warn-border); }
     .dm-cp.cp-bad { color: var(--bad-soft-fg); background: var(--bad-soft-bg); border-color: var(--bad-border); }
+    /* DM.20 - con que se pareo. Secundario: informa, no compite con el veredicto. */
+    .dm-cp .dm-ev { margin-left: auto; font-size: .72rem; opacity: .8; letter-spacing: .01em; }
+    .dm-cp .dm-ev.dm-ev-weak { font-style: italic; }
     .dm-doc-head { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin-bottom: .3rem; }
     .dm-doc-meta { font-size: .78rem; color: var(--text-muted); }
     .dm-cols { display: grid; grid-template-columns: 1fr; gap: 1rem; }

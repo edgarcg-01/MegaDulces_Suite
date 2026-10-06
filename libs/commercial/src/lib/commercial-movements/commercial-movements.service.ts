@@ -77,6 +77,68 @@ export interface LedgerDetailFilters {
  */
 const DEST_WH_VIVO = (alias = 'w') => `${alias}.deleted_at IS NULL`;
 
+/**
+ * `[DM.20]` — **la llave del pareo salida↔recepción es el DESTINO DECLARADO, no la fecha.**
+ *
+ * Kepler liga la recepción con su embarque por un back-pointer explícito
+ * (`parent_group=41` + `parent_serie` + `parent_folio`). Lo único que obliga a desempatar es que
+ * los folios son **secuencias por sucursal**: el mismo `(serie, folio)` existe en varias plazas.
+ * Hasta acá el desempate era *la fecha* — "la recepción nunca es anterior a la salida, tope 15 d".
+ *
+ * ⛔ **Esa premisa es falsa y se midió.** Las dos plazas fechan el MISMO movimiento por su cuenta,
+ * así que la recepción puede quedar antes que el embarque. Sobre los 1,720 pares donde dos
+ * testigos independientes coinciden (el destino declarado apunta al almacén que recibe **y** la
+ * cantidad cuadra al 0.01), el desfase va de **−2 a +63 días**, mediana 0, y **24 son negativos**.
+ * El caso que lo destapó: salida CEDIS `UD4102-0000748` del 2026-09-28 ↔ recepción 8ESQ
+ * `UA5001-0000377` del 2026-09-26 — 301.34 piezas idénticas, destino declarado "8ESQ", y la
+ * pantalla decía **"sin recepción registrada"** porque la recepción caía dos días antes.
+ *
+ * El desempate correcto es el que el propio documento declara: `dest_code` del embarque
+ * (vía `analytics.transfer_dest_map`, almacén **vivo**) contra el almacén que recibe. Medido en
+ * prod sobre 3,487 pares candidatos: el destino coincide en 1,909, y de los 1,724 con cantidad
+ * exacta, **1,720 (99.77 %) también coinciden en destino** — dos testigos que no comparten origen.
+ *
+ * Efecto medido del cambio (prod, 2026-10-06):
+ * - salida→recepción: 1,755 → 1,743 pareos; **+30 rescatados** ($851,389.80), **−42 soltados**;
+ * - recepción→origen: 1,712 → **1,747**, sin perder ninguno;
+ * - y la calidad SUBE en los dos sentidos: los pareos con cantidad exacta pasan de 1,694 a 1,720.
+ *
+ * ⭐ Los 42 que se sueltan son el otro error, el que nadie estaba mirando: embarques dirigidos a
+ * una **RUTA** (`RD 501`…`RD028`) que la fecha emparejaba con la recepción de una SUCURSAL, con
+ * desfases de cientos a miles de piezas y **ninguno** con cantidad exacta. La pantalla los daba
+ * por recibidos y conciliados. Ahora dicen `sin_recepcion`, que es lo que son.
+ *
+ * ⚠️ Cuando el embarque NO tiene destino resuelto a un almacén vivo (va a ruta, a cliente, o el
+ * mapa no lo cubre) **no hay testigo de destino** y se conserva la ventana ciega de antes: no se
+ * ensancha una ventana que nadie puede corroborar. Por eso son dos ramas y no un `coalesce`.
+ */
+const PAIR_EARLY_DAYS = 15;   // la recepción puede fecharse ANTES del embarque (medido: hasta −2)
+const PAIR_LATE_DAYS = 90;    // tránsito + rezago de captura (medido: hasta +63)
+const PAIR_BLIND_DAYS = 15;   // sin testigo de destino: ventana de siempre, sin ensanchar
+
+/**
+ * Predicado de pareo, en SQL, para que los CUATRO puntos que parean traspasos digan lo mismo
+ * (`document`, `annotateTransferStatus`, `transfersPhysical`, `transfersCheckPair`). Mismo motivo
+ * que `DEST_WH_VIVO`: una regla de integridad repetida a mano se desincroniza — y acá ya había
+ * cuatro copias de la ventana de 15 días.
+ *
+ * `s` = alias del embarque (necesita `doc_date` y `dest_wh_id` ya resuelto a almacén vivo),
+ * `r` = alias de la recepción (necesita `doc_date` y `warehouse_id`).
+ */
+const TRANSFER_PAIR_MATCH = (s: string, r: string) => `(
+       (${s}.dest_wh_id IS NOT NULL AND ${s}.dest_wh_id = ${r}.warehouse_id
+        AND ${r}.doc_date BETWEEN ${s}.doc_date - ${PAIR_EARLY_DAYS} AND ${s}.doc_date + ${PAIR_LATE_DAYS})
+    OR (${s}.dest_wh_id IS NULL
+        AND ${r}.doc_date BETWEEN ${s}.doc_date AND ${s}.doc_date + ${PAIR_BLIND_DAYS}))`;
+
+/** Mismo criterio en JS, para los pareos que se resuelven en memoria. Fechas en milisegundos. */
+const pairMatchJs = (shipMs: number, rcvMs: number, destWhId: string | null, rcvWhId: string | null): boolean => {
+  const d = (n: number) => n * 864e5;
+  return destWhId && destWhId === rcvWhId
+    ? rcvMs >= shipMs - d(PAIR_EARLY_DAYS) && rcvMs <= shipMs + d(PAIR_LATE_DAYS)
+    : !destWhId && rcvMs >= shipMs && rcvMs <= shipMs + d(PAIR_BLIND_DAYS);
+};
+
 @Injectable()
 export class CommercialMovementsService {
   private readonly logger = new Logger(CommercialMovementsService.name);
@@ -392,8 +454,9 @@ export class CommercialMovementsService {
       const countRows: any[] = await trx.count('* as count').from(grouped().select('m.folio').as('g'));
       const count = countRows[0]?.count ?? 0;
       const rows = await fetch(pageSize, (page - 1) * pageSize);
-      await this.annotateTransferStatus(trx, tenantId, rows);
+      // [DM.20] el DESTINO va primero: el pareo lo usa como llave, no como adorno.
       await this.annotateDest(trx, tenantId, rows);
+      await this.annotateTransferStatus(trx, tenantId, rows);
       return { page, pageSize, total: Number(count), rows };
     });
   }
@@ -423,8 +486,9 @@ export class CommercialMovementsService {
         .select(trx.raw(`coalesce(m.parent_serie,'') AS ps`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`));
       for (const s of ships) {
         const sd = new Date(s.doc_date).getTime();
+        // [DM.20] llave = el destino declarado (annotateDest ya corrió); sin él, ventana ciega.
         const mine = cands.filter((c: any) => c.pf === s.folio && c.ps === (s.doc_serie ?? '') && c.wh !== s.warehouse_id
-          && new Date(c.d).getTime() >= sd && new Date(c.d).getTime() <= sd + 15 * 864e5); // recepción ≥ salida, tope 15d
+          && pairMatchJs(sd, new Date(c.d).getTime(), s.dest_warehouse_id ?? null, c.wh));
         const best = near(mine, Number(s.qty), s.doc_date);
         s.transfer_status = !best ? 'en_transito' : Math.abs(Number(best.q) - Number(s.qty)) < 0.01 ? 'completado' : 'diferencia';
         s.cp_warehouse_id = best ? best.wh : null;
@@ -434,14 +498,22 @@ export class CommercialMovementsService {
       const cands = await trx('analytics.stock_movements as m')
         .where('m.tenant_id', tenantId).andWhere('m.doc_code', 'TrsfShip')
         .whereIn('m.folio', rcvs.map((r) => r.parent_folio).filter(Boolean))
+        // [DM.20] a dónde iba dirigida CADA salida candidata — es la llave del pareo
+        .leftJoin('analytics.transfer_dest_map as dm', function (this: any) {
+          this.on('dm.tenant_id', 'm.tenant_id').andOn('dm.dest_code', 'm.dest_code');
+        })
+        .leftJoin('commercial.warehouses as dw', function (this: any) {
+          this.on('dw.id', 'dm.warehouse_id').andOnNull('dw.deleted_at');
+        })
         .groupBy('m.folio', 'm.doc_serie', 'm.warehouse_id')
         .select('m.folio as f', 'm.warehouse_id as wh')
-        .select(trx.raw(`coalesce(m.doc_serie,'') AS s`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`));
+        .select(trx.raw(`coalesce(m.doc_serie,'') AS s`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`),
+          trx.raw(`MAX(dw.id::text) AS dest_wh`));
       for (const r of rcvs) {
         if (r.parent_group !== '41' || !r.parent_folio) { r.transfer_status = 'diferencia'; continue; }
         const rd = new Date(r.doc_date).getTime();
         const mine = cands.filter((c: any) => c.f === r.parent_folio && c.s === (r.parent_serie ?? '') && c.wh !== r.warehouse_id
-          && new Date(c.d).getTime() <= rd && new Date(c.d).getTime() >= rd - 15 * 864e5); // salida ≤ recepción, tope 15d
+          && pairMatchJs(new Date(c.d).getTime(), rd, c.dest_wh ?? null, r.warehouse_id));
         const best = near(mine, Number(r.qty), r.doc_date);
         r.transfer_status = !best ? 'diferencia' : Math.abs(Number(best.q) - Number(r.qty)) < 0.01 ? 'completado' : 'diferencia';
         r.cp_warehouse_id = best ? best.wh : null;
@@ -571,26 +643,69 @@ export class CommercialMovementsService {
       // MEJOR por cantidad más cercana y luego fecha más cercana (mismo ranking que transfersCheck).
       let counterpart: any = null;
       const sentQty = lines.reduce((s: number, l: any) => s + Number(l.qty || 0), 0);
-      const findCp = async (docCode: string, folioCol: string, folioVal: string, serieCol: string, serieVal: string | null) => {
-        if (!folioVal) return null;
-        const cp = await trx('analytics.stock_movements as m')
-          .where('m.tenant_id', tenantId).andWhere('m.doc_code', docCode)
-          .andWhere(`m.${folioCol}`, folioVal)
-          .andWhereRaw(`coalesce(m.${serieCol},'') = coalesce(?, '')`, [serieVal])
-          // física: recepción nunca anterior a la salida + tope de tránsito 15d (folios colisionan entre sucursales)
-          .andWhereRaw(docCode === 'TrsfRcv'
-            ? `m.doc_date >= ?::date AND m.doc_date <= ?::date + 15`
-            : `m.doc_date <= ?::date AND m.doc_date >= ?::date - 15`, [h.doc_date, h.doc_date])
-          .whereNot('m.warehouse_id', h.warehouse_id ?? p.warehouse_id)
-          .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
-          .groupBy('m.folio', 'm.warehouse_id', 'w.code', 'w.name')
-          .select('m.folio', 'm.warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name')
-          .select(trx.raw(`MIN(m.doc_date) AS doc_date`), trx.raw(`MAX(m.doc_code) AS doc_code`), trx.raw(`MAX(m.doc_serie) AS doc_serie`), trx.raw(`SUM(m.qty) AS qty`), trx.raw(`COUNT(*)::int AS lineas`))
-          .orderByRaw(`abs(SUM(m.qty) - ?) ASC, abs(MIN(m.doc_date) - ?::date) ASC`, [sentQty, h.doc_date])
-          .limit(1);
+      const thisWh = h.warehouse_id ?? p.warehouse_id;
+      /** `[DM.20]` ambos sentidos del pareo, con el destino declarado como llave. */
+      const wrap = (cp: any[], evidence: 'destino_declarado' | 'fecha_y_cantidad') => {
         if (!cp.length) return null;
         const cpQty = Number(cp[0].qty || 0);
-        return { docs: cp, qty: cpQty, delta: cpQty - sentQty, status: Math.abs(cpQty - sentQty) < 0.01 ? 'ok' : 'diferencia' };
+        return {
+          docs: cp, qty: cpQty, delta: cpQty - sentQty, match_evidence: evidence,
+          status: Math.abs(cpQty - sentQty) < 0.01 ? 'ok' : 'diferencia',
+        };
+      };
+      const CP_COLS = (t: any) => [
+        'm.folio', 'm.warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name',
+        t.raw(`MIN(m.doc_date) AS doc_date`), t.raw(`MAX(m.doc_code) AS doc_code`),
+        t.raw(`MAX(m.doc_serie) AS doc_serie`), t.raw(`SUM(m.qty) AS qty`), t.raw(`COUNT(*)::int AS lineas`),
+      ];
+      /** Viendo una SALIDA: su recepción es la que ocurre en el almacén al que va dirigida. */
+      const findRcvForShip = async (destWhId: string | null) => {
+        if (!h.folio) return null;
+        const q = trx('analytics.stock_movements as m')
+          .where('m.tenant_id', tenantId).andWhere('m.doc_code', 'TrsfRcv').andWhere('m.parent_group', '41')
+          .andWhere('m.parent_folio', h.folio)
+          .andWhereRaw(`coalesce(m.parent_serie,'') = coalesce(?, '')`, [h.doc_serie])
+          .whereNot('m.warehouse_id', thisWh);
+        if (destWhId) {
+          q.andWhere('m.warehouse_id', destWhId)
+            .andWhereRaw(`m.doc_date BETWEEN ?::date - ${PAIR_EARLY_DAYS} AND ?::date + ${PAIR_LATE_DAYS}`, [h.doc_date, h.doc_date]);
+        } else {
+          q.andWhereRaw(`m.doc_date BETWEEN ?::date AND ?::date + ${PAIR_BLIND_DAYS}`, [h.doc_date, h.doc_date]);
+        }
+        const cp = await q
+          .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .groupBy('m.folio', 'm.warehouse_id', 'w.code', 'w.name')
+          .select(CP_COLS(trx))
+          .orderByRaw(`abs(SUM(m.qty) - ?) ASC, abs(MIN(m.doc_date) - ?::date) ASC`, [sentQty, h.doc_date])
+          .limit(1);
+        return wrap(cp, destWhId ? 'destino_declarado' : 'fecha_y_cantidad');
+      };
+      /** Viendo una RECEPCIÓN: su origen es la salida que venía dirigida a ESTE almacén. */
+      const findShipForRcv = async () => {
+        if (!h.parent_folio) return null;
+        const cp = await trx('analytics.stock_movements as m')
+          .where('m.tenant_id', tenantId).andWhere('m.doc_code', 'TrsfShip')
+          .andWhere('m.folio', h.parent_folio)
+          .andWhereRaw(`coalesce(m.doc_serie,'') = coalesce(?, '')`, [h.parent_serie])
+          .whereNot('m.warehouse_id', thisWh)
+          .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .leftJoin('analytics.transfer_dest_map as dm', function (this: any) {
+            this.on('dm.tenant_id', 'm.tenant_id').andOn('dm.dest_code', 'm.dest_code');
+          })
+          .leftJoin('commercial.warehouses as dw', function (this: any) {
+            this.on('dw.id', 'dm.warehouse_id').andOnNull('dw.deleted_at');
+          })
+          .groupBy('m.folio', 'm.warehouse_id', 'w.code', 'w.name')
+          // el embarque tiene que venir dirigido acá; sin destino resuelto, la ventana ciega de antes
+          .havingRaw(
+            `(MAX(dw.id::text) = ? AND MIN(m.doc_date) BETWEEN ?::date - ${PAIR_LATE_DAYS} AND ?::date + ${PAIR_EARLY_DAYS})
+             OR (MAX(dw.id::text) IS NULL AND MIN(m.doc_date) BETWEEN ?::date - ${PAIR_BLIND_DAYS} AND ?::date)`,
+            [thisWh, h.doc_date, h.doc_date, h.doc_date, h.doc_date])
+          .select(CP_COLS(trx))
+          .select(trx.raw(`MAX(dw.id::text) AS dest_wh_id`))
+          .orderByRaw(`abs(SUM(m.qty) - ?) ASC, abs(MIN(m.doc_date) - ?::date) ASC`, [sentQty, h.doc_date])
+          .limit(1);
+        return wrap(cp, cp[0]?.dest_wh_id ? 'destino_declarado' : 'fecha_y_cantidad');
       };
       /**
        * `[DM.17.1]` — **de qué plaza SALIÓ de verdad la mercancía.**
@@ -624,7 +739,7 @@ export class CommercialMovementsService {
       };
 
       if (h.doc_code === 'TrsfShip') {
-        counterpart = { kind: 'recepcion', ...(await findCp('TrsfRcv', 'parent_folio', h.folio, 'parent_serie', h.doc_serie) || { docs: [], qty: 0, delta: -sentQty, status: 'sin_recepcion' }) };
+        counterpart = { kind: 'recepcion', ...(await findRcvForShip(destWarehouseId) || { docs: [], qty: 0, delta: -sentQty, status: 'sin_recepcion', match_evidence: null }) };
         // DM.11 — a quién va dirigido (crítico cuando status='sin_recepcion')
         counterpart.dest_label = destLabel;
         counterpart.dest_warehouse_id = destWarehouseId;
@@ -632,7 +747,7 @@ export class CommercialMovementsService {
         // El documento que se está viendo ES la salida: su propio origen es el que se arbitra.
         counterpart.origen_real = await origenReal(h.warehouse_id ?? p.warehouse_id, h.folio, h.doc_serie);
       } else if (h.doc_code === 'TrsfRcv' && h.parent_group === '41') {
-        counterpart = { kind: 'origen', ...(await findCp('TrsfShip', 'folio', h.parent_folio, 'doc_serie', h.parent_serie) || { docs: [], qty: 0, delta: sentQty, status: 'sin_origen' }) };
+        counterpart = { kind: 'origen', ...(await findShipForRcv() || { docs: [], qty: 0, delta: sentQty, status: 'sin_origen', match_evidence: null }) };
         // Acá la salida es la CONTRAPARTE, así que se arbitra ella y no el documento de enfrente.
         const cpDoc = counterpart.docs?.[0];
         if (cpDoc) counterpart.origen_real = await origenReal(cpDoc.warehouse_id, cpDoc.folio, cpDoc.doc_serie);
@@ -670,11 +785,21 @@ export class CommercialMovementsService {
         WITH shp AS (
           SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.doc_serie,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
-                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
+                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label, m.tenant_id
           FROM analytics.stock_movements m
           LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?${shpDestSql}
-          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.doc_serie
+          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.doc_serie, m.tenant_id
+        ), shpd AS (
+          -- [DM.20] a dónde va dirigido CADA embarque: es la LLAVE del pareo, no un adorno.
+          -- [DM.15] sólo si el almacén sigue vivo; si no, cuenta como "sin destino resuelto".
+          -- ⚠️ El destino se resuelve DESPUÉS del agregado, sobre ~2k documentos y no sobre las
+          -- ~40k líneas: adentro, el planner elige un nested loop contra `warehouses` por cada
+          -- línea y la consulta pasa de 1.4 s a 3.5 s. Medido el 2026-10-06.
+          SELECT s.*, dw.id AS dest_wh_id
+          FROM shp s
+          LEFT JOIN analytics.transfer_dest_map dmx ON dmx.tenant_id = s.tenant_id AND dmx.dest_code = s.dest_code
+          LEFT JOIN commercial.warehouses dw ON dw.id = dmx.warehouse_id AND ${DEST_WH_VIVO('dw')}
         ), rcv AS (
           SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.parent_serie, m.parent_folio,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
@@ -689,22 +814,21 @@ export class CommercialMovementsService {
                  r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines
           FROM rcv r
           LEFT JOIN LATERAL (
-            SELECT * FROM shp s
+            SELECT * FROM shpd s
             WHERE s.folio = r.parent_folio
               AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
               AND s.warehouse_id <> r.warehouse_id
-              AND s.doc_date <= r.doc_date
-              AND s.doc_date >= r.doc_date - 15
+              AND ${TRANSFER_PAIR_MATCH('s', 'r')}
             ORDER BY abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
             LIMIT 1
           ) s ON true
         ), unreceived AS (
-          SELECT s.* FROM shp s
+          SELECT s.* FROM shpd s
           WHERE NOT EXISTS (
             SELECT 1 FROM rcv r
             WHERE r.parent_folio = s.folio AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
               AND r.warehouse_id <> s.warehouse_id
-              AND r.doc_date >= s.doc_date AND r.doc_date <= s.doc_date + 15)
+              AND ${TRANSFER_PAIR_MATCH('s', 'r')})
         )
         SELECT * FROM (
           SELECT origin_wh_id, origin_wh, origin_folio, doc_serie, ship_date, qty_sent, amount, ship_lines,
@@ -790,11 +914,21 @@ export class CommercialMovementsService {
         WITH shp AS (
           SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.doc_serie,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
-                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
+                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label, m.tenant_id
           FROM analytics.stock_movements m
           LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?${shpDestSql}
-          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.doc_serie
+          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.doc_serie, m.tenant_id
+        ), shpd AS (
+          -- [DM.20] a dónde va dirigido CADA embarque: es la LLAVE del pareo, no un adorno.
+          -- [DM.15] sólo si el almacén sigue vivo; si no, cuenta como "sin destino resuelto".
+          -- ⚠️ El destino se resuelve DESPUÉS del agregado, sobre ~2k documentos y no sobre las
+          -- ~40k líneas: adentro, el planner elige un nested loop contra `warehouses` por cada
+          -- línea y la consulta pasa de 1.4 s a 3.5 s. Medido el 2026-10-06.
+          SELECT s.*, dw.id AS dest_wh_id
+          FROM shp s
+          LEFT JOIN analytics.transfer_dest_map dmx ON dmx.tenant_id = s.tenant_id AND dmx.dest_code = s.dest_code
+          LEFT JOIN commercial.warehouses dw ON dw.id = dmx.warehouse_id AND ${DEST_WH_VIVO('dw')}
         ), rcv AS (
           SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.parent_serie, m.parent_folio,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
@@ -809,22 +943,21 @@ export class CommercialMovementsService {
                  r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines
           FROM rcv r
           LEFT JOIN LATERAL (
-            SELECT * FROM shp s
+            SELECT * FROM shpd s
             WHERE s.folio = r.parent_folio
               AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
               AND s.warehouse_id <> r.warehouse_id
-              AND s.doc_date <= r.doc_date
-              AND s.doc_date >= r.doc_date - 15
+              AND ${TRANSFER_PAIR_MATCH('s', 'r')}
             ORDER BY abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
             LIMIT 1
           ) s ON true
         ), unreceived AS (
-          SELECT s.* FROM shp s
+          SELECT s.* FROM shpd s
           WHERE NOT EXISTS (
             SELECT 1 FROM rcv r
             WHERE r.parent_folio = s.folio AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
               AND r.warehouse_id <> s.warehouse_id
-              AND r.doc_date >= s.doc_date AND r.doc_date <= s.doc_date + 15)
+              AND ${TRANSFER_PAIR_MATCH('s', 'r')})
         )
         SELECT * FROM (
           SELECT origin_wh_id, origin_wh, origin_folio, doc_serie, ship_date, qty_sent, amount, ship_lines,

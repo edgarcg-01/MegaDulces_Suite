@@ -114,6 +114,12 @@ export interface DocumentCounterpart {
   qty: number; delta: number; status: 'ok' | 'diferencia' | 'sin_recepcion' | 'sin_origen';
   /** DM.11 — a quién va dirigido el traspaso (crítico cuando status='sin_recepcion'). */
   dest_label?: string | null; dest_warehouse_id?: string | null; dest_warehouse_name?: string | null;
+  /**
+   * `[DM.20]` con qué se pareó: `destino_declarado` = el embarque venía dirigido a ese almacén
+   * (testigo del propio documento); `fecha_y_cantidad` = no había destino resuelto y se desempató
+   * a ciegas. `null` = no hay contraparte. El número dice con qué se calculó (ADR-056).
+   */
+  match_evidence?: 'destino_declarado' | 'fecha_y_cantidad' | null;
 }
 
 export interface DocumentHeader {
