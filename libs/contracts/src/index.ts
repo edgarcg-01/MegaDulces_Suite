@@ -55,6 +55,7 @@ export * from './http/purchase-delivery.contract';
 // enumera lo que cada una NO puede contestar. Sólo tipos y constantes: no pega al bundle.
 export * from './work/task.contract';
 export * from './work/caja-window.contract';
+export * from './work/caja-corte.contract';
 export * from './work/portada-nominal.contract';
 export * from './work/business-clock';
 // [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.

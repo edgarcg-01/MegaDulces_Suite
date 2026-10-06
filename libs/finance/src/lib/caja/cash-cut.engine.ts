@@ -44,6 +44,8 @@
 
 export type TipoMovimiento = 'ingreso' | 'gasto' | 'deposito';
 
+import type { VeredictoCorte } from '@megadulces/contracts';
+
 export interface MovimientoDelCorte {
   tipo: TipoMovimiento;
   monto: number;
@@ -76,7 +78,7 @@ export interface TotalesCorte {
    * es un hecho: es una resta que arranca de un supuesto. Decir `cuadra` ahí sería afirmar que
    * coincide con algo que nadie midió.
    */
-  veredicto: 'cuadra' | 'sobra' | 'falta' | 'sin_contar' | 'sin_base';
+  veredicto: VeredictoCorte;
   /**
    * `[CG.42]` No se midió con qué arrancó la caja (`fondo_inicial IS NULL`, `fondo_origen =
    * 'sin_medir'`). Va aparte del veredicto porque se puede estar sin base Y sin contar, y la

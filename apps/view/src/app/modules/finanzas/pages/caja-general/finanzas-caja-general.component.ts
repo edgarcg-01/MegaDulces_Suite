@@ -43,6 +43,9 @@ const ETIQUETA_ESTADO_CORTE: Record<string, string> = {
 };
 const ETIQUETA_VEREDICTO: Record<string, string> = {
   cuadra: 'Cuadra', sobra: 'Sobra efectivo', falta: 'Falta efectivo', sin_contar: 'Sin contar',
+  // `[CG.42]` NO dice "no cuadra": dice que la pregunta no tiene respuesta. Sin esta entrada el
+  // tag imprimía la clave cruda `sin_base`, porque el mapa cae a `?? v`.
+  sin_base: 'Sin fondo medido',
 };
 
 /**
