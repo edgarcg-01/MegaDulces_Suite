@@ -944,6 +944,16 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla
   // el acceso a la superficie, por eso el nav no se re-filtra por permiso.
   private repartoNavItems: NavItem[] = [
+    // ⛔ `[VEC.7]` Surtido NO estaba acá, y por eso no se podía llegar desde el menú.
+    // La Fase SU (ADR-067) construyó la pantalla, le dio ruta propia, ajustó el `repartoGuard`
+    // y el `repartoHomeGuard` para que `almacenista` no rebotara… y nunca la agregó al nav.
+    // Quedaba alcanzable sólo escribiendo la URL o entrando por «Mi trabajo» — o sea invisible
+    // para quien abre Reparto por el sidebar, que es como se abre un proyecto.
+    // Va PRIMERO porque es lo primero del flujo: se surte, después se reparte.
+    // ⚠️ Es el ÚNICO con permiso propio (`COMMERCIAL_PICKING_VER`): los otros cuatro usan
+    // `REPARTO_DESPACHAR`, que `almacenista` tiene en **false explícito**. Si se copiara el
+    // permiso del vecino, la persona que surte seguiría sin ver su propia pantalla.
+    { label: 'Surtido',          icon: 'pi pi-list-check', route: '/reparto/surtido',          permission: Permission.COMMERCIAL_PICKING_VER },
     { label: 'Asignar pedido',   icon: 'pi pi-send',       route: '/reparto/asignar',          permission: Permission.REPARTO_DESPACHAR },
     { label: 'Pedidos WhatsApp', icon: 'pi pi-whatsapp',   route: '/reparto/pedidos-whatsapp', permission: Permission.REPARTO_DESPACHAR },
     { label: 'Seguimiento',      icon: 'pi pi-map-marker', route: '/reparto/seguimiento',      permission: Permission.REPARTO_DESPACHAR },
