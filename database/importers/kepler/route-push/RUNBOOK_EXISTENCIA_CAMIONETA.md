@@ -72,21 +72,30 @@ el propio camión imprimió, así que es la única que puede decirnos si la cons
 
 ### 3.1 En la laptop de la 21
 
-1. **Identificarla.** ⚠️ Las IPs de la tabla de inventario **no son confiables** — son laptops que
-   viajan y toman DHCP. La única forma segura, ya adentro:
+1. **Encontrarla.** ⛔ Las IPs de la tabla de `INVENTARIO_Y_PLAN_RUTAS.md` **no son confiables** —
+   son laptops que viajan y toman DHCP, y una IP equivocada ya mandó a alguien a la máquina que no
+   era. ⭐ Desde `[RD.32.2]` **la van lo dice sola**: el latido guarda `inet_client_addr()` en cada
+   push, así que la columna *«donde esta»* de
+   `node database/scripts/check-route-stock-push.js` trae la dirección de su **último push**, con
+   su fecha al lado. Se llena a partir del primer push de cada van.
+
+   ⚠️ Es desde dónde se conectó, no una propiedad de la van: por eso se lee **junto a la edad del
+   latido**. Una IP de hace tres días no sirve para tocarla hoy.
+
+2. **Confirmar que es la correcta**, ya adentro — esto no se deduce, se lee:
    ```bat
    findstr /i "TRUCK" C:\KeplerPush\push-ruta.cmd
    ```
    Tiene que decir `set TRUCK=ruta_21`.
-2. **Respaldar** antes de tocar: `copy C:\KeplerPush\push-ruta.cmd C:\KeplerPush\push-ruta.bak.cmd`
-3. **Pegar** el bloque de §2 antes del `echo ... OK`.
-4. **Correr a mano** sin esperar los 15 min:
+3. **Respaldar** antes de tocar: `copy C:\KeplerPush\push-ruta.cmd C:\KeplerPush\push-ruta.bak.cmd`
+4. **Pegar** el bloque de §2 antes del `echo ... OK`.
+5. **Correr a mano** sin esperar los 15 min:
    ```bat
    schtasks /Run /TN "Ruta21"
    ```
    ⚠️ `schtasks /Query /TN "Ruta*"` **no funciona** (`/TN` no acepta comodines y el error se lee
    como "la tarea no existe"). Es `schtasks /Query /FO LIST | findstr /i "Ruta"`.
-5. **Mirar el log**: `type C:\KeplerPush\push_ruta_21.log` — las últimas líneas deben traer
+6. **Mirar el log**: `type C:\KeplerPush\push_ruta_21.log` — las últimas líneas deben traer
    `merge existencia -> filas:` con un número distinto de cero.
 
 ### 3.2 La aceptación, desde cualquier lado

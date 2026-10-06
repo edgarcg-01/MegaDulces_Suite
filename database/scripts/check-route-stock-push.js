@@ -52,6 +52,10 @@ const edad = (h) => (h == null ? 'nunca' : h < 1 ? `${Math.round(h * 60)} min` :
     `SELECT v.truck,
             v.last_ok   AS venta_ok,   v.rows_last AS venta_filas,
             s.last_ok   AS stock_ok,   s.rows_last AS stock_filas, s.valor_last AS stock_valor,
+            -- [RD.32.2] De donde se conecto en su ULTIMO push. Reemplaza a la tabla a mano del
+            -- inventario, que el propio documento declara poco confiable (son laptops que viajan
+            -- y toman DHCP; una IP equivocada ya mando a alguien a la maquina que no era).
+            host(coalesce(s.client_ip, v.client_ip)) AS ip,
             f.fecha::text AS foto_fecha, f.filas AS foto_filas, f.importe AS foto_importe
        FROM ingest.route_push_heartbeat v
        LEFT JOIN ingest.route_stock_heartbeat s ON s.truck = v.truck
@@ -64,9 +68,9 @@ const edad = (h) => (h == null ? 'nunca' : h < 1 ? `${Math.round(h * 60)} min` :
       WHERE ($1::text IS NULL OR v.truck = $1)
       ORDER BY v.truck`, [SOLO]);
 
-  console.log('\n[RD.32] Existencia de camion: quien ya manda y quien falta\n');
-  console.log('camion    | venta        | existencia   | foto del dia                    | estado');
-  console.log('----------+--------------+--------------+---------------------------------+------------------------');
+  console.log('\n[RD.32] Existencia de camion: quien ya manda, quien falta, y DONDE esta\n');
+  console.log('camion    | venta        | existencia   | donde esta      | foto del dia                    | estado');
+  console.log('----------+--------------+--------------+-----------------+---------------------------------+------------------------');
 
   let repartidos = 0, pendientes = 0, mudos = 0, valorTotal = 0;
   for (const r of rows) {
@@ -79,8 +83,10 @@ const edad = (h) => (h == null ? 'nunca' : h < 1 ? `${Math.round(h * 60)} min` :
     const foto = r.foto_fecha
       ? `${r.foto_fecha}  ${String(r.foto_filas).padStart(4)} prod  ${money(r.foto_importe).padStart(10)}`
       : '—';
+    // `—` cuando todavia no empuja desde que la columna existe: es "no lo sé", no una IP.
+    const donde = r.ip || '—';
     console.log(
-      `${r.truck.padEnd(9)} | ${edad(hv).padEnd(12)} | ${edad(hs).padEnd(12)} | ${foto.padEnd(31)} | ${estado}`,
+      `${r.truck.padEnd(9)} | ${edad(hv).padEnd(12)} | ${edad(hs).padEnd(12)} | ${donde.padEnd(15)} | ${foto.padEnd(31)} | ${estado}`,
     );
   }
 
