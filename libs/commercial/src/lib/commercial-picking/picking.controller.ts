@@ -51,6 +51,32 @@ export class PickingController {
   }
 
   /**
+   * `[VEC.10]` Lo que no se va a poder surtir y de qué sucursal traerlo, ordenado por
+   * distancia desde la sucursal que surte el pedido. Mismos filtros que el pool.
+   */
+  @Get('faltantes')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({
+    summary:
+      'Renglones sin existencia suficiente, con la sucursal más cercana que sí los tiene. Separa "traerlo" de "comprarlo".',
+  })
+  faltantes(
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('delivery_date') deliveryDate?: string,
+    @Query('route_kind') routeKind?: string,
+    @Query('sales_route') salesRoute?: string,
+  ) {
+    return this.service.faltantes({
+      warehouse_id: warehouseId,
+      delivery_date: deliveryDate,
+      route_kind: routeKind
+        ? routeKind.split(',').map((k) => k.trim()).filter(Boolean)
+        : undefined,
+      sales_route: salesRoute || undefined,
+    });
+  }
+
+  /**
    * `[VEC.4]` La bandeja de avisos de la sucursal. `?pendientes=1` = sólo lo no acusado.
    *
    * Recibe `@Query()` entero porque `ScopeService.warehouseIds()` lee de ahí el parámetro

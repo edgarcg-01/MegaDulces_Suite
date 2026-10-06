@@ -35,6 +35,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import {
   Aviso,
+  Faltante,
   PickingService,
   PoolGrupo,
   PoolOrder,
@@ -44,7 +45,7 @@ import {
 } from '../picking.service';
 
 /** [VEC.4] 'avisos' es un paso propio: el conteo de pendientes vive en la navegacion. */
-type Paso = 'pool' | 'recorrido' | 'avisos';
+type Paso = 'pool' | 'recorrido' | 'avisos' | 'faltantes';
 
 /**
  * Fase SU — Surtido (ADR-067). **UNA pantalla, UNA persona.**
@@ -138,6 +139,13 @@ type Paso = 'pool' | 'recorrido' | 'avisos';
             <span class="su-step-n">2</span>
             <span class="su-step-t">Recorrido</span>
             @if (olaActiva(); as o) { <span class="su-step-b mono">{{ o.code }}</span> }
+          </button>
+          <!-- [VEC.10] Los faltantes van ANTES del recorrido: descubrirlos en el anaquel, con
+               la ola ya armada, es justo lo que esta pestaña viene a evitar. -->
+          <button type="button" class="su-step" [class.on]="paso() === 'faltantes'" (click)="irAFaltantes()">
+            <span class="su-step-n"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span>
+            <span class="su-step-t">Faltantes</span>
+            @if (faltantes().length) { <span class="su-step-b alert">{{ faltantes().length }}</span> }
           </button>
           <!-- [VEC.4] La bandeja es un paso propio: el contador tiene que verse SIN entrar. -->
           <button type="button" class="su-step" [class.on]="paso() === 'avisos'" (click)="irAAvisos()">
@@ -347,6 +355,85 @@ type Paso = 'pool' | 'recorrido' | 'avisos';
               </button>
             </div>
           }
+        } @else if (paso() === 'faltantes') {
+          <!-- ── FALTANTES — lo que no alcanza, y de dónde traerlo ─────────────────────── -->
+          <section class="surf-card">
+            <div class="su-card-head">
+              <h2 class="su-h2">No va a alcanzar</h2>
+              @if (faltantesSinAlternativa()) {
+                <p-tag [value]="faltantesSinAlternativa() + ' sin alternativa'" severity="danger"></p-tag>
+              }
+            </div>
+            <p class="su-note">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              La distancia es en línea recta desde la sucursal que surte el pedido. Sirve para
+              elegir entre dos que están cerca; para dos que están lejos, decide quien conoce
+              el camino.
+            </p>
+
+            <p-table [value]="faltantes()" class="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="flex">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Pedido</th>
+                  <th scope="col">Producto</th>
+                  <th scope="col" class="num">Pide</th>
+                  <th scope="col" class="num">Hay</th>
+                  <th scope="col" class="num">Falta</th>
+                  <th scope="col">Dónde sí hay</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-f>
+                <tr class="su-row">
+                  <td>
+                    <span class="mono strong">{{ f.code }}</span>
+                    <span class="su-ruta-n su-blk">{{ f.sales_route || 'sin ruta' }} · {{ f.warehouse_name }}</span>
+                  </td>
+                  <!-- ⚠️ 3,043 de 11,291 productos no tienen descripción. Se cae al SKU, y si
+                       tampoco hay, se DICE: un producto anónimo es un dato a corregir, no un
+                       guion que se lee como "no importa". -->
+                  <td>
+                    @if (f.product_name) { {{ f.product_name }} }
+                    @else if (f.sku) { <span class="mono">SKU {{ f.sku }}</span> }
+                    @else { <p-tag value="Producto sin SKU ni nombre" severity="danger"></p-tag> }
+                  </td>
+                  <td class="num">{{ f.pedida }}</td>
+                  <td class="num">{{ f.hay }}</td>
+                  <td class="num strong">{{ f.falta }}</td>
+                  <td>
+                    @if (f.sugerencias.length) {
+                      <div class="su-sug">
+                        @for (s of f.sugerencias; track s.warehouse_id) {
+                          <span class="su-sug-i">
+                            <strong>{{ s.name }}</strong>
+                            <span>{{ s.disponible }} pz</span>
+                            @if (s.km !== null) { <span class="su-km">{{ s.km }} km</span> }
+                            @else { <span class="su-km">sin coordenada</span> }
+                          </span>
+                        }
+                      </div>
+                    } @else if (f.origen_sin_coordenada) {
+                      <!-- Distinto de "no hay": hay, pero no se puede ordenar por distancia. -->
+                      <p-tag value="Sucursal del pedido sin coordenada" severity="warn"></p-tag>
+                    } @else {
+                      <!-- ⭐ La distinción que importa: esto NO se trae de otra sucursal.
+                           Si se viera igual que un faltante normal, alguien saldría a buscar
+                           lo que no existe en ningún lado. -->
+                      <p-tag value="Ninguna sucursal lo tiene — se compra" severity="danger"></p-tag>
+                    }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="6" class="comm-empty-cell">
+                  <div class="comm-empty">
+                    <div class="comm-empty-icon"><i class="pi pi-check-circle" aria-hidden="true"></i></div>
+                    <h3>Todo alcanza</h3>
+                    <p>Con el filtro puesto, ningún renglón se queda corto de existencia.</p>
+                  </div>
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </section>
         } @else if (paso() === 'avisos') {
           <!-- ── BANDEJA — de qué le avisaron a esta sucursal ──────────────────────────── -->
           <section class="surf-card">
@@ -630,6 +717,12 @@ type Paso = 'pool' | 'recorrido' | 'avisos';
     .su-grupo-ruta { font-weight: 700; }
     .su-grupo-wh { display: inline-flex; align-items: center; gap: .25rem; font-size: var(--fs-xs); color: var(--text-muted); }
     .su-grupo-n { display: flex; gap: .7rem; font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
+    /* [VEC.10] Las sucursales sugeridas: la primera es la mas cercana y tiene que leerse de
+       un vistazo, sin contar columnas. */
+    .su-sug { display: flex; flex-direction: column; gap: .15rem; }
+    .su-sug-i { display: flex; align-items: baseline; gap: .4rem; font-size: var(--fs-xs); }
+    .su-km { color: var(--text-muted); }
+    .su-blk { display: block; }
     .su-acuse-col { white-space: nowrap; }
     .su-visto { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs); color: var(--text-muted); }
     /* Lo no acusado se marca con un borde lateral, no con fondo: un fondo de color en una fila
@@ -744,6 +837,8 @@ export class RepartoSurtidoComponent implements OnInit {
   /** `[VEC.8]` Qué grupo se está armando (clave `warehouse_id|sales_route`), para el spinner. */
   readonly armandoRuta = signal<string | null>(null);
   readonly grupos = signal<PoolGrupo[]>([]);
+  readonly faltantes = signal<Faltante[]>([]);
+  readonly faltantesSinAlternativa = signal(0);
 
   /** Opciones del filtro. Salen del contrato, no de una lista a mano en el template. */
   readonly tipoOptions = ROUTE_KINDS.map((k) => ({ label: ROUTE_KIND_LABEL[k], value: k }));
@@ -840,6 +935,21 @@ export class RepartoSurtidoComponent implements OnInit {
         },
         // Silencioso a propósito: la bandeja es un añadido. Si falla, el surtido —que es el
         // trabajo— tiene que seguir andando. El error del pool sí se muestra.
+        error: () => void 0,
+      });
+    // [VEC.10] Los faltantes, con el MISMO filtro que el pool: si usaran filtros distintos,
+    // la pestaña diría "3 faltantes" sobre una lista de pedidos que no son esos.
+    this.api
+      .faltantes({
+        warehouseId: this.warehouseId,
+        routeKind: this.filtroTipo(),
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.faltantes.set(r?.data || []);
+          this.faltantesSinAlternativa.set(r?.sin_alternativa || 0);
+        },
         error: () => void 0,
       });
   }
@@ -999,6 +1109,12 @@ export class RepartoSurtidoComponent implements OnInit {
   /** `[VEC.4]` Abre la bandeja. Recarga para no mostrar un acuse de hace diez minutos. */
   irAAvisos(): void {
     this.paso.set('avisos');
+    this.reload();
+  }
+
+  /** `[VEC.10]` Abre los faltantes. */
+  irAFaltantes(): void {
+    this.paso.set('faltantes');
     this.reload();
   }
 

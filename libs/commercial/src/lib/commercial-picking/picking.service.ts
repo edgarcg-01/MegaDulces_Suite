@@ -328,6 +328,148 @@ export class PickingService {
     });
   }
 
+  /**
+   * `[VEC.10]` Lo que NO se va a poder surtir, y de qué sucursal traerlo.
+   *
+   * ── Qué resuelve ────────────────────────────────────────────────────────────────────
+   * Hoy el faltante se descubre **en el anaquel**, con el recorrido ya empezado. Medido en
+   * prod: **13 renglones de 11 pedidos** (41% de los que esperan) no tienen existencia
+   * suficiente en su sucursal. Esto los saca a la luz ANTES de caminar, y dice dónde sí están.
+   *
+   * ── Qué significa "la más cercana" ──────────────────────────────────────────────────
+   * Distancia en línea recta (haversine) **desde la sucursal que surte el pedido**, no desde
+   * el vendedor. Lo definió Edgar y además es lo único medible: cada ruta tiene su sucursal
+   * base asignada, mientras que la posición del vendedor depende de un GPS que hoy casi no
+   * reporta (medido: 1,094 pings de 6 personas en 3 meses, el último hace 81 días).
+   *
+   * ⚠️ Es línea recta, no carretera. Para decidir "¿voy a 8ESQ o a Padre Hidalgo?" (0.8 vs
+   * 2.3 km) alcanza y sobra; para 110 km contra 115 km no decide nada — y por eso la pantalla
+   * muestra el número en vez de un veredicto.
+   *
+   * ⚠️ **CEDIS no tiene coordenada** (declarado en la migración `20261006150000`). No se lo
+   * excluye en silencio: sale al final de la lista marcado `sin_coordenada`, porque tener
+   * mercancía y no saber a qué distancia está es distinto de no tenerla.
+   */
+  async faltantes(q: PoolQuery = {}) {
+    if (q.warehouse_id && !UUID_RE.test(q.warehouse_id))
+      throw new BadRequestException('warehouse_id inválido');
+    if (q.delivery_date && !DATE_RE.test(q.delivery_date))
+      throw new BadRequestException('delivery_date debe ser YYYY-MM-DD');
+    if (q.route_kind?.length) {
+      const malos = q.route_kind.filter((k) => !ROUTE_KINDS.includes(k as RouteKind));
+      if (malos.length) {
+        throw new BadRequestException(`route_kind inválido: ${malos.join(', ')}`);
+      }
+    }
+
+    return this.tk.run(async (trx) => {
+      // Haversine en SQL. Se escribe UNA vez y se reusa en el SELECT y en el ORDER BY: con
+      // dos copias, el día que alguien toque una, la lista se ordenaría por un número
+      // distinto del que muestra — y nadie lo notaría.
+      const KM = `(6371 * 2 * asin(sqrt(
+        power(sin(radians(w2.latitude - b.lat1) / 2), 2) +
+        cos(radians(b.lat1)) * cos(radians(w2.latitude)) *
+        power(sin(radians(w2.longitude - b.lng1) / 2), 2))))`;
+
+      const { rows } = await trx.raw(
+        `WITH base AS (
+           SELECT o.id AS order_id, o.code, o.warehouse_id,
+                  w1.name AS warehouse_name, w1.latitude AS lat1, w1.longitude AS lng1,
+                  c.name AS customer_name, c.sales_route,
+                  ${orderRouteSql('c', 'route_kind')} AS route_kind,
+                  ol.product_id, ol.quantity AS pedida,
+                  COALESCE(s.quantity, 0) AS hay,
+                  (ol.quantity - COALESCE(s.quantity, 0)) AS falta
+             FROM commercial.orders o
+             JOIN commercial.order_lines ol ON ol.order_id = o.id
+             JOIN commercial.warehouses w1 ON w1.id = o.warehouse_id AND w1.tenant_id = o.tenant_id
+             LEFT JOIN commercial.customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
+             LEFT JOIN commercial.stock s
+                    ON s.warehouse_id = o.warehouse_id AND s.product_id = ol.product_id
+            WHERE o.status = 'confirmed'
+              AND NOT EXISTS (SELECT 1 FROM commercial.wave_orders wo
+                               WHERE wo.order_id = o.id AND wo.stage <> 'listo_embarque')
+              -- El corazón: lo pedido no cabe en lo que hay.
+              AND COALESCE(s.quantity, 0) < ol.quantity
+              AND (?::uuid IS NULL OR o.warehouse_id = ?::uuid)
+              AND (?::date IS NULL OR o.requested_delivery_date = ?::date)
+              AND (?::text IS NULL OR c.sales_route = ?::text)
+         )
+         SELECT b.order_id, b.code, b.warehouse_id, b.warehouse_name,
+                b.customer_name, b.sales_route, b.route_kind,
+                b.product_id, p.sku, p.description AS product_name,
+                b.pedida::numeric, b.hay::numeric, b.falta::numeric,
+                -- (b.lat1 IS NULL) viaja a la pantalla: si la sucursal del PEDIDO no tiene
+                -- coordenada, ninguna distancia se puede calcular y hay que decirlo.
+                (b.lat1 IS NULL OR b.lng1 IS NULL) AS origen_sin_coordenada,
+                COALESCE(sug.lista, '[]'::json) AS sugerencias
+           FROM base b
+           LEFT JOIN catalog.products p ON p.id = b.product_id
+           LEFT JOIN LATERAL (
+             SELECT json_agg(x ORDER BY x.km IS NULL, x.km) AS lista FROM (
+               SELECT w2.id AS warehouse_id, w2.name,
+                      s2.quantity::numeric AS disponible,
+                      CASE WHEN w2.latitude IS NULL OR w2.longitude IS NULL
+                                OR b.lat1 IS NULL OR b.lng1 IS NULL
+                           THEN NULL ELSE round(${KM}::numeric, 1) END AS km,
+                      (w2.latitude IS NULL OR w2.longitude IS NULL) AS sin_coordenada
+                 FROM commercial.stock s2
+                 JOIN commercial.warehouses w2
+                      ON w2.id = s2.warehouse_id AND w2.tenant_id = s2.tenant_id
+                WHERE s2.product_id = b.product_id
+                  AND s2.warehouse_id <> b.warehouse_id
+                  -- Sólo sirve si alcanza para TODO el faltante. Media solución obliga a
+                  -- dos viajes, y el surtidor no puede decidir eso desde una pantalla.
+                  AND s2.quantity >= b.falta
+                  AND w2.active AND w2.deleted_at IS NULL
+                  -- Los camiones de ruta tienen existencia pero NO son una sucursal a la que
+                  -- se pueda ir a buscar: andan en la calle.
+                  AND w2.kind = 'central'
+                -- ⚠️ Se ordena por la EXPRESION, no por el alias km: dentro de una
+                -- expresion (ORDER BY km IS NULL) Postgres resuelve km como columna de
+                -- ENTRADA y falla con "column km does not exist" -- el alias de salida solo
+                -- vale cuando va solo. Y se reusa la MISMA constante en vez de copiar la
+                -- fórmula: con dos copias, la lista se ordenaría por un número distinto del
+                -- que muestra el día que alguien toque una.
+                -- (ojo: no se nombra la constante acá adentro — esto es un template literal
+                --  y la interpolación ocurre TAMBIÉN dentro de un comentario SQL, pegando
+                --  una fórmula multilínea que rompe el parser. Pasó al escribir esto.)
+                -- NULLS LAST sale gratis: sin coordenada la aritmética ya da NULL, y el que
+                -- no se puede medir se ofrece igual, pero al final.
+                ORDER BY ${KM} NULLS LAST
+                LIMIT 3
+             ) x
+           ) sug ON true
+          ORDER BY b.warehouse_name, b.sales_route NULLS LAST, b.code`,
+        [
+          q.warehouse_id ?? null, q.warehouse_id ?? null,
+          q.delivery_date ?? null, q.delivery_date ?? null,
+          q.sales_route ?? null, q.sales_route ?? null,
+        ],
+      );
+
+      const filtradas = q.route_kind?.length
+        ? rows.filter((r: { route_kind: string | null }) =>
+            q.route_kind?.includes(r.route_kind as string))
+        : rows;
+
+      // Separar los dos "no hay sugerencia" es el punto: uno se resuelve con un traslado y
+      // el otro con una COMPRA. Si se ven igual, alguien sale a buscar lo que no existe.
+      const sinSalida = filtradas.filter(
+        (r: { sugerencias: unknown[] }) => !r.sugerencias?.length,
+      ).length;
+
+      return {
+        data: filtradas,
+        count: filtradas.length,
+        /** Renglones que ninguna sucursal puede cubrir: no es un traslado, es una compra. */
+        sin_alternativa: sinSalida,
+        /** ⚠️ Lo capturado sin señal no llegó: este conteo es de lo que YA está en el servidor. */
+        pendiente_offline: 'no_medible_desde_el_servidor',
+      };
+    });
+  }
+
   /** Detalle de una ola: cabecera, sus pedidos y el consolidado por SKU. */
   async byId(waveId: string) {
     if (!UUID_RE.test(waveId)) throw new BadRequestException('waveId inválido');

@@ -64,6 +64,46 @@ export interface AvisosResponse {
   alcance: 'todos' | 'recortado' | 'ninguno';
 }
 
+/** `[VEC.10]` Una sucursal que SÍ tiene lo que falta. */
+export interface SugerenciaSucursal {
+  warehouse_id: string;
+  name: string;
+  disponible: string | number;
+  /** Línea recta desde la sucursal del pedido. `null` = alguna de las dos no tiene coordenada. */
+  km: string | number | null;
+  sin_coordenada: boolean;
+}
+
+/** `[VEC.10]` Un renglón que no alcanza, y de dónde traerlo. */
+export interface Faltante {
+  order_id: string;
+  code: string;
+  warehouse_id: string;
+  warehouse_name: string | null;
+  customer_name: string | null;
+  sales_route: string | null;
+  route_kind: RouteKind | null;
+  product_id: string;
+  /** ⚠️ 3,043 de 11,291 productos no tienen descripción: la pantalla cae al SKU. */
+  sku: string | null;
+  product_name: string | null;
+  pedida: string | number;
+  hay: string | number;
+  falta: string | number;
+  /** La sucursal DEL PEDIDO no tiene coordenada → ninguna distancia se pudo calcular. */
+  origen_sin_coordenada: boolean;
+  /** Vacío = ninguna sucursal lo cubre. Eso NO es un traslado: es una compra. */
+  sugerencias: SugerenciaSucursal[];
+}
+
+export interface FaltantesResponse {
+  data: Faltante[];
+  count: number;
+  /** Cuántos no los cubre ninguna sucursal. Se separa porque se resuelve distinto. */
+  sin_alternativa: number;
+  pendiente_offline: string;
+}
+
 /** Respuesta de armar la ola sola. `creada:false` NO es un error: es que no había qué armar. */
 export interface OlaAutoResponse {
   creada: boolean;
@@ -183,6 +223,20 @@ export class PickingService {
     if (opts.routeKind?.length) params = params.set('route_kind', opts.routeKind.join(','));
     if (opts.salesRoute) params = params.set('sales_route', opts.salesRoute);
     return this.http.get<PoolResponse>(`${this.base}/pool`, { params });
+  }
+
+  /**
+   * `[VEC.10]` Lo que no se va a poder surtir, con la sucursal más cercana que sí lo tiene.
+   * Mismos filtros que el pool, para que lo que se ve acá corresponda a lo que se ve allá.
+   */
+  faltantes(
+    opts: { warehouseId?: string; routeKind?: readonly RouteKind[]; salesRoute?: string } = {},
+  ): Observable<FaltantesResponse> {
+    let params = new HttpParams();
+    if (opts.warehouseId) params = params.set('warehouse_id', opts.warehouseId);
+    if (opts.routeKind?.length) params = params.set('route_kind', opts.routeKind.join(','));
+    if (opts.salesRoute) params = params.set('sales_route', opts.salesRoute);
+    return this.http.get<FaltantesResponse>(`${this.base}/faltantes`, { params });
   }
 
   /** `[VEC.4]` La bandeja de avisos de la sucursal. `soloPendientes` = lo que nadie acusó. */
