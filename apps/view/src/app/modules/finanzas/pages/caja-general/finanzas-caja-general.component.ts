@@ -892,8 +892,6 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       </section>
 
       <!-- CG — Lo que el BUSCADOR encuentra FUERA del efectivo que inferimos: documentos POR PAGAR,
-
-      <!-- CG — Lo que el BUSCADOR encuentra FUERA del efectivo que inferimos: documentos POR PAGAR,
            gastos (XA1001) y órdenes de entrada (XA2001). Aparecen SÓLO al buscar — la bandeja de
            arriba es la cola de efectivo, y un documento por pagar todavía no es un movimiento de
            caja. Reusa las clases de fila de la lista del cajero (mismos primitivos visuales). -->
@@ -1049,9 +1047,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                [scrollable]="true" scrollHeight="flex">
         <ng-template #header>
           <tr>
-            <th>Folio</th><th>Fecha</th><th>Tipo</th><th>Cuenta / Concepto</th>
-            <th>Qué pasó</th><th class="ta-r">Monto</th><th>Capturó</th><th>Origen</th>
-            <th class="ta-c">Comprobante</th>
+            <!-- scope="col" como en las otras tres tablas de la pantalla: sin el, un lector de
+                 pantalla no liga la celda con su encabezado y lee nueve valores sueltos. -->
+            <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Tipo</th><th scope="col">Cuenta / Concepto</th>
+            <th scope="col">Qué pasó</th><th scope="col" class="ta-r">Monto</th><th scope="col">Capturó</th><th scope="col">Origen</th>
+            <th scope="col" class="ta-c">Comprobante</th>
           </tr>
         </ng-template>
         <ng-template #body let-m>
@@ -3350,9 +3350,23 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.malFechados.set(r.mal_fechados && r.mal_fechados.movimientos > 0 ? r.mal_fechados : null);
         this.errPend.set(null);
         this.cargandoPend.set(false);
+        // `[CG.43]` La marca pertenece a la lista que se VE. Va ANTES del borrador: ese restaura
+        // una vez por visita y despues no vuelve a podar nada.
+        const soltadas = this.podarSeleccion(r.rows ?? []);
         // Lo tecleado que sobrevivio a un refresh. Va DESPUES de tener las filas: sin ellas no
         // se puede saber que conteos siguen aplicando.
         this.restaurarBorrador();
+        if (soltadas) {
+          // El borrador se reescribe con lo que QUEDO: si no, la proxima visita las resucita.
+          this.persistir();
+          // Se DICE. Una marca que desaparece sin motivo se lee como trabajo perdido, y la
+          // persona vuelve a marcar lo mismo. No es un error: es el filtro haciendo su trabajo.
+          this.toast.add({
+            severity: 'info', summary: `${soltadas} marca(s) se soltaron`,
+            detail: 'Esos movimientos ya no estan en la lista: cambio el filtro, o alguien mas los confirmo.',
+            life: 5000,
+          });
+        }
       },
       // Un error de red NO es "no hay movimientos". Antes esto sólo apagaba la bandera, y en la
       // PRIMERA carga —con la lista vacía— la sección entera no se montaba: sin aviso y sin
@@ -3384,6 +3398,41 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       ? new Set(this.pendientes().filter((p) => p.confirmable).map((p) => p.origen_ref))
       : new Set());
     this.persistir();
+  }
+
+  /**
+   * ⛔ `[CG.43]` **La marca pertenece a la lista que se VE.**
+   *
+   * `seleccion` guarda referencias, no filas, y `cargarPendientes()` reemplaza las filas sin
+   * tocarla. La unica poda que existia vivia dentro de `restaurarBorrador()`, que corre **una
+   * vez por visita** — asi que a partir del segundo refresco la seleccion quedaba colgada.
+   *
+   * Lo que eso producia, medido con las dos pruebas de `[CG.43]`: la persona marca las 63
+   * confirmables de la pagina, acota por signo —que es la navegacion que la PROPIA pantalla
+   * recomienda cuando la lista viene topada en 100— y la bandeja trae otras filas. El boton
+   * sigue diciendo "Confirmar 63", el encabezado aparece sin marcar, y al tocarlo se **escriben
+   * en el libro 63 asientos de movimientos que no estan en pantalla**.
+   *
+   * ⚠️ Poda, NO vacia. El repaso de fondo de 60 s recarga la bandeja sin que nadie toque nada:
+   * vaciar ahi le borraria las marcas a alguien que esta contando. Lo que sigue en la lista se
+   * queda; lo que ya no esta, se suelta y **se dice**.
+   *
+   * Devuelve cuantas marcas se soltaron, para poder decirlo.
+   */
+  private podarSeleccion(filas: MovimientoPendiente[]): number {
+    const vivos = new Set(filas.map((p) => p.origen_ref));
+    const antes = this.seleccion();
+    const quedan = new Set([...antes].filter((ref) => vivos.has(ref)));
+    const soltadas = antes.size - quedan.size;
+    if (soltadas) this.seleccion.set(quedan);
+
+    // Lo CONTADO de una fila que ya no esta tampoco aplica, y se va con ella: si no, el conteo
+    // de ayer reaparece pegado a una fila distinta cuando el filtro la traiga de vuelta.
+    const m = this.contado();
+    if ([...m.keys()].some((ref) => !vivos.has(ref))) {
+      this.contado.set(new Map([...m].filter(([ref]) => vivos.has(ref))));
+    }
+    return soltadas;
   }
 
   contadoDe(ref: string): number | null { return this.contado().get(ref) ?? null; }
