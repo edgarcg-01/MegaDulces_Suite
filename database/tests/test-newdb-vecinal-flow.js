@@ -162,6 +162,42 @@ function motivoAusencia(salesRoute, kind) {
   const sinRuta = pool.filter((p) => !p.sales_route).length;
   console.log(`      (declarado: ${sinRuta} pedido(s) de cliente sin ruta — se ven como 'cliente_sin_ruta', no como 0)`);
 
+  // ── [3b] El aviso a la sucursal ──────────────────────────────────────────────────────
+  console.log('\n[3b] Aviso a la sucursal — tiene memoria, no sólo WebSocket');
+  const { rows: tabla } = await c.query(`
+    SELECT c.relrowsecurity AS rls, c.relforcerowsecurity AS forced
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname='commercial' AND c.relname='order_notifications'`);
+  if (!tabla.length) {
+    sinMedir('commercial.order_notifications no existe todavía — falta aplicar 20261006140000');
+  } else {
+    ok(tabla[0].rls && tabla[0].forced, 'order_notifications tiene RLS habilitado y FORZADO');
+    // Un pedido = un aviso. Sin esta llave, un reintento del device infla la bandeja.
+    const { rows: ux } = await c.query(`
+      SELECT 1 FROM pg_indexes
+       WHERE schemaname='commercial' AND indexname='ux_order_notifications_order'`);
+    ok(ux.length > 0, 'existe el UNIQUE (tenant_id, order_id): un pedido genera UN aviso');
+    // ⭐ El invariante que de verdad importa: todo pedido del pool tiene su aviso. Si el pool
+    // muestra algo que nunca avisó a nadie, el almacén lo ve y la sucursal no se enteró —
+    // justo la discrepancia que esta fase vino a cerrar.
+    const { rows: huecos } = await c.query(`
+      SELECT count(*)::int AS n
+        FROM commercial.orders o
+       WHERE o.status='confirmed' AND o.warehouse_id IS NOT NULL
+         AND o.confirmed_at > now() - interval '7 days'
+         AND NOT EXISTS (SELECT 1 FROM commercial.order_notifications n
+                          WHERE n.tenant_id=o.tenant_id AND n.order_id=o.id)`);
+    ok(huecos[0].n === 0,
+      huecos[0].n === 0
+        ? '0 pedidos confirmados (7d) sin su aviso'
+        : `${huecos[0].n} pedido(s) confirmados en 7d que nunca avisaron a su sucursal`);
+    // El acuse es coherente o no sirve para auditar.
+    const { rows: acuse } = await c.query(`
+      SELECT count(*)::int AS n FROM commercial.order_notifications
+       WHERE (seen_at IS NULL) <> (seen_by IS NULL)`);
+    ok(acuse[0].n === 0, `0 acuses incoherentes (seen_at sin seen_by o al revés)`);
+  }
+
   // ── [4] Desempeño: >1 s se lee como "no funciona" ────────────────────────────────────
   console.log('\n[4] Desempeño del pool');
   const t0 = Date.now();

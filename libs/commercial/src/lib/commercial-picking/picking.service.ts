@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
-import { TenantContextService } from '@megadulces/platform-core';
+import { TenantContextService, ScopeService } from '@megadulces/platform-core';
 import { repartirOla, resumenPorPedido } from './allocation';
 import {
   ROUTE_KINDS,
@@ -58,6 +58,9 @@ export class PickingService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    // [VEC.4] El recorte por sucursal de la bandeja de avisos. Primitivo existente — no se
+    // reimplementa el alcance leyendo `users.warehouse_id` a mano.
+    private readonly scope: ScopeService,
   ) {}
 
   /**
@@ -142,6 +145,109 @@ export class PickingService {
         // podamos calcular — es una ausencia, y se declara como tal.
         pendiente_offline: 'no_medible_desde_el_servidor',
       };
+    });
+  }
+
+  /**
+   * `[VEC.4]` La bandeja de la sucursal: pedidos que le avisaron que tiene que armar.
+   *
+   * ── En qué se diferencia del pool ───────────────────────────────────────────────────
+   * El pool es una **lectura derivada del estado** ("qué está listo para surtir ahora"). Esta
+   * bandeja es el **registro de un hecho con acuse** ("a esta sucursal se le avisó, y alguien
+   * lo vio o no"). Un pedido ya surtido sale del pool pero su aviso queda — así se puede
+   * responder *"¿nos avisaron?"* días después, que es justo lo que hoy no se puede.
+   *
+   * ⚠️ El recorte por sucursal sale de `ScopeService`, **no** de `identity.users.warehouse_id`.
+   * Medido 2026-10-06: sólo **1 de los 6 `almacenista`** tiene esa columna; filtrar por ella
+   * dejaría ciegas a 5 de las 6 personas que arman, y la función se vería entregada sirviendo
+   * cero. `ScopeService` devuelve `null` (= sin recorte) para quien no tiene alcance declarado:
+   * se prefiere un aviso de más, que se nota, a uno de menos, que no.
+   */
+  async avisos(query: Record<string, unknown> | undefined, soloPendientes = false) {
+    const almacenes = await this.scope.warehouseIds(query, 'reparto/surtido/avisos');
+    // `[]` = el alcance existe y no incluye ningún almacén vivo → no hay nada que mostrar.
+    // Es DISTINTO de `null` (sin recorte). Confundirlos sería mostrarle todo a quien no debe.
+    if (almacenes !== null && almacenes.length === 0) {
+      return { data: [], count: 0, alcance: 'ninguno' as const, pendientes: 0 };
+    }
+
+    return this.tk.run(async (trx) => {
+      let qb = trx('commercial.order_notifications as n')
+        .join('commercial.orders as o', function () {
+          this.on('o.id', '=', 'n.order_id').andOn('o.tenant_id', '=', 'n.tenant_id');
+        })
+        .leftJoin('commercial.customers as c', function () {
+          this.on('c.id', '=', 'o.customer_id').andOn('c.tenant_id', '=', 'o.tenant_id');
+        })
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.id', '=', 'n.warehouse_id').andOn('w.tenant_id', '=', 'n.tenant_id');
+        });
+
+      if (almacenes !== null) qb = qb.whereIn('n.warehouse_id', almacenes);
+      if (soloPendientes) qb = qb.whereNull('n.seen_at');
+
+      const rows = await qb
+        .select(
+          'n.id',
+          'n.order_id',
+          'n.warehouse_id',
+          'w.name as warehouse_name',
+          'n.created_at',
+          'n.seen_at',
+          'o.code',
+          'o.status',
+          'o.total',
+          'o.requested_delivery_date',
+          'c.name as customer_name',
+          // Mismo primitivo que el pool: el tipo de ruta y el motivo de su ausencia.
+          trx.raw(`${orderRouteSql('c', 'value')} AS sales_route`),
+          trx.raw(`${orderRouteSql('c', 'route_kind')} AS route_kind`),
+          trx.raw(`${routeKindMotivoSql('c')} AS route_kind_motivo`),
+          // ⭐ Que el pedido YA esté en una ola es lo que convierte la bandeja en algo
+          // accionable: sin esto el almacén no distingue "falta armarlo" de "ya lo armé".
+          trx.raw(`EXISTS (SELECT 1 FROM commercial.wave_orders wo
+                            WHERE wo.order_id = n.order_id AND wo.tenant_id = n.tenant_id) AS en_ola`),
+        )
+        // Lo no visto primero; dentro de eso, lo más viejo arriba — un aviso de hace tres días
+        // es más urgente que el de hace diez minutos, y el orden tiene que decirlo.
+        .orderByRaw('n.seen_at IS NOT NULL, n.created_at ASC')
+        .limit(300);
+
+      const pendientes = rows.filter((r: { seen_at: Date | null }) => !r.seen_at).length;
+      return {
+        data: rows,
+        count: rows.length,
+        pendientes,
+        alcance: almacenes === null ? ('todos' as const) : ('recortado' as const),
+      };
+    });
+  }
+
+  /**
+   * `[VEC.4]` Acuse: alguien de la sucursal vio el aviso.
+   *
+   * ⚠️ `seen_at` y `seen_by` van JUNTOS (lo exige el CHECK de la tabla) y **sólo la primera
+   * vez**: el `WHERE seen_at IS NULL` conserva quién lo vio primero. Sobrescribirlo con cada
+   * clic convertiría el acuse en "el último que pasó por acá", que no sirve para auditar nada.
+   */
+  async marcarVisto(id: string) {
+    if (!UUID_RE.test(id)) throw new BadRequestException('id inválido');
+    const userId = this.tenantCtx.get()?.userId || null;
+    if (!userId) throw new BadRequestException('sin usuario en contexto: el acuse necesita autor');
+
+    return this.tk.run(async (trx) => {
+      const [fila] = await trx('commercial.order_notifications')
+        .where({ id })
+        .whereNull('seen_at')
+        .update({ seen_at: trx.fn.now(), seen_by: userId })
+        .returning('*');
+      if (fila) return fila;
+
+      // No actualizó: o no existe, o ya estaba visto. Son dos cosas distintas y el que
+      // llama merece saber cuál — un 404 sobre un aviso ya acusado confunde al operador.
+      const previa = await trx('commercial.order_notifications').where({ id }).first();
+      if (!previa) throw new NotFoundException(`Aviso ${id} no encontrado`);
+      return previa; // ya estaba visto: idempotente, no es un error
     });
   }
 

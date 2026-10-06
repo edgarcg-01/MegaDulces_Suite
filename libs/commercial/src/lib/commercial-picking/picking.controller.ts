@@ -46,6 +46,36 @@ export class PickingController {
     });
   }
 
+  /**
+   * `[VEC.4]` La bandeja de avisos de la sucursal. `?pendientes=1` = sólo lo no acusado.
+   *
+   * Recibe `@Query()` entero porque `ScopeService.warehouseIds()` lee de ahí el parámetro
+   * canónico de sucursal — es el contrato del primitivo, no un atajo.
+   */
+  @Get('avisos')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({
+    summary:
+      'Pedidos de los que se avisó a esta sucursal para que los arme, con su acuse. Sobrevive a que nadie estuviera mirando.',
+  })
+  avisos(@Query() query: Record<string, unknown>, @Query('pendientes') pendientes?: string) {
+    return this.service.avisos(query, pendientes === '1' || pendientes === 'true');
+  }
+
+  /**
+   * `[VEC.4]` Acuse de un aviso. Idempotente: re-marcar algo ya visto devuelve lo que ya
+   * estaba y NO pisa quién lo vio primero.
+   *
+   * Exige `GESTIONAR` y no `VER` a propósito: acusar es afirmar "yo me hago cargo". Quien
+   * sólo mira (dirección, prevención) ve la bandeja pero no puede apagarle el aviso a otro.
+   */
+  @Post('avisos/:id/visto')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({ summary: 'Marca un aviso como visto por quien lo acusa.' })
+  marcarVisto(@Param('id') id: string) {
+    return this.service.marcarVisto(id);
+  }
+
   @Get('waves')
   @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
   @ApiOperation({ summary: 'Lista de olas (bandeja del jefe de almacén).' })
