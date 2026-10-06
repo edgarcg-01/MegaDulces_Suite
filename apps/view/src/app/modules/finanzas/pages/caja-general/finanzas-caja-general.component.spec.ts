@@ -1902,4 +1902,69 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(panel).toContain('Que NO cubre este cuadre (2)');   // los permanentes, contados y plegados
     expect(panel).not.toContain('La cola de Kepler no entra');
   });
+  // ── [CG.43] La marca pertenece a la lista que se ve ────────────────────────────────────────
+  //
+  // Medido en prod el 2026-10-06: 1,925 movimientos en la ventana, de los que 1,212 son
+  // confirmables de un clic. La bandeja viene TOPADA en 100 y el propio aviso de la pantalla
+  // dice "acotá por signo o por caja para verlas todas" — o sea que cambiar de filtro es la
+  // navegación PREVISTA, y es justo lo que dejaba la selección colgada.
+  //
+  // `seleccion` sólo se podaba dentro de `restaurarBorrador()`, que corre UNA vez por visita.
+  // Después de eso, cada recarga reemplaza las filas y deja las marcas viejas adentro: el botón
+  // "Confirmar N" cuenta filas invisibles, y al tocarlo las ESCRIBE en el libro.
+  describe('[CG.43] la seleccion no sobrevive a un cambio de filtro', () => {
+    /** Una pagina que NO comparte ninguna referencia con CON_DOS. */
+    const OTRA_PAGINA: PendientesResponse = {
+      rows: [{ ...FILA_A, origen_ref: '00|U-A-5|0009001|0011', folio: '0009001', tipo: 'ingreso' }],
+      limit: 100, has_more: false, confirmables: 1, desde: '2026-09-21', ventana_dias: 1,
+    };
+
+    it('⛔ cambiar de filtro NO puede dejar marcadas filas que ya no estan en pantalla', () => {
+      const pend = vi.fn(() => of(CON_DOS));
+      montar({ movimientosPendientes: pend });
+
+      comp.marcarTodas(true);
+      expect(comp.marcadas().length).toBe(2);
+
+      // La persona acota por signo: la bandeja trae OTRA pagina, sin ninguna de las dos filas.
+      pend.mockReturnValue(of(OTRA_PAGINA) as never);
+      comp.setSigno('ingreso');
+
+      // El boton dice "Confirmar N". Ese N no puede contar filas invisibles.
+      const vivas = new Set(comp.pendientes().map((p) => p.origen_ref));
+      for (const ref of comp.marcadas()) {
+        expect(vivas.has(ref), 'quedo marcada una fila que no esta en la lista: ' + ref).toBe(true);
+      }
+      expect(comp.marcadas().length).toBe(0);
+    });
+
+    it('⛔ confirmar el lote NO puede escribir asientos de filas invisibles', () => {
+      const pend = vi.fn(() => of(CON_DOS));
+      montar({ movimientosPendientes: pend });
+
+      comp.marcarTodas(true);
+      pend.mockReturnValue(of(OTRA_PAGINA) as never);
+      comp.setSigno('ingreso');
+      comp.confirmarLote();
+
+      // Lo que NO puede pasar es que se vayan al servidor las referencias de la pagina vieja.
+      const enviados = (svc['confirmarLote'].mock.calls as unknown[][])
+        .flatMap((c) => (c[0] as Array<{ origen_ref: string }>).map((x) => x.origen_ref));
+      expect(enviados).not.toContain(FILA_A.origen_ref);
+      expect(enviados).not.toContain(FILA_B.origen_ref);
+    });
+
+    it('✔ [negativa] lo que SIGUE en la lista conserva su marca', () => {
+      // El arreglo PODA, no vacia. Sin esta prueba, un `seleccion.set(new Set())` en cada carga
+      // pasaria las dos de arriba y rompería el repaso de fondo de 60 s, que recarga la bandeja
+      // sin que la persona toque nada: se le borrarian las marcas cada minuto.
+      const pend = vi.fn(() => of(CON_DOS));
+      montar({ movimientosPendientes: pend });
+      comp.marcarTodas(true);
+      expect(comp.marcadas().length).toBe(2);
+
+      comp.cargarPendientes(true);   // refresco de fondo: la misma pagina, otra vez
+      expect([...comp.marcadas()].sort()).toEqual([FILA_A.origen_ref, FILA_B.origen_ref].sort());
+    });
+  });
 });
