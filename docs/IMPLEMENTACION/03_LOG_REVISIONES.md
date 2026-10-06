@@ -5,6 +5,72 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-06 — `[IC.23]` El encargado de sucursal asigna quién cuenta (y los tres gates mal partidos que aparecieron)
+
+**Disparador:** al presentar el plan de los tres ritmos ([`FASE_IC_RITMOS_Y_ABC`](FASES/FASE_IC_RITMOS_Y_ABC.md)),
+Edgar resolvió las tres decisiones abiertas: el segundo eje del ABC es **capital parado** (no COGS),
+hay que **resolver el acceso del piso de tienda**, y **el encargado de sucursal asigna quién cuenta**.
+
+**La pregunta no era «¿le damos acceso?» sino «¿qué facultad es ésta?».** `SUPERVISAR` abre
+`GET :id/items`, que devuelve `expected_qty` **fila por fila** — el teórico. Es la misma puerta que
+`[IC.2]` le quitó al `almacenista` para no romper el conteo ciego; dársela al encargado lo pondría a
+saber el número antes que quien cuenta. La facultad correcta es `ASIGNAR`: armar el equipo y mirar
+el avance, sin ver contra qué se cuenta.
+
+**Y al ir a usarla aparecieron tres gates mal partidos** — el mismo patrón que `WMS-REC.9` corrigió
+en el Andén, y **latentes por la misma razón**: medido en prod, los 5 roles con `ASIGNAR`
+(compras, gerente_compras, marketing, supervisor, superadmin) tienen **también** `SUPERVISAR`, así
+que nadie los había pisado nunca. Se rompen justo en el acto de repartir `ASIGNAR`:
+
+| Endpoint | Qué pasaba |
+|---|---|
+| `GET :id/assignments` | podía **escribir** la lista de asignados y **no leerla** |
+| `GET :id/progress` | quien arma el equipo no podía saber si alguien contó |
+| `GET counts/:id/aisle-teams` | podía auto-generar un tablero **que no podía mirar** |
+
+Se verificó que `getProgress` devuelve **sólo agregados** antes de abrirlo. `:id/items` **no se
+abre**, y es justamente lo que permite abrir las otras tres.
+
+**Lecciones:**
+
+- ⭐⭐ **La medición evitó un callejón sin salida que ya estaba escrito.** El primer diseño mandaba
+  al encargado a la pantalla de **Equipos** (`:id/teams`, que ya era `ASIGNAR` y parecía hecha a
+  medida). `generateTeams` **exige pasillos activos**, y en prod **sólo Padre Hidalgo tiene
+  pasillos (4); los otros 8 almacenes tienen CERO**. Seis de los siete encargados habrían llegado a
+  un *«No hay pasillos activos en este almacén»*. **Una pantalla que ya existe y tiene el permiso
+  correcto no es, por eso, la pantalla correcta.**
+- ⭐ **Un permiso en `false` explícito no es lo mismo que ausente.** El patrón estándar de las
+  migraciones de permisos de este repo (`-> 'KEY' IS NULL`, para no pisar lo puesto a mano) habría
+  sido un **no-op**: `encargado_tienda` ya traía la clave en `false`, residuo de guardar el mapa
+  completo desde `/admin/roles` — la misma causa que `[LC.6.2]`.
+- ⭐ **Un diálogo de asignación se abre con lo que YA está asignado, nunca en blanco.**
+  `setAssignments` **reemplaza** la lista del rol: guardar sin haber cargado lo existente borraría a
+  todos sin avisar. Si la lectura falla, el diálogo se cierra (fail-closed) en vez de dejar un
+  Guardar que destruye.
+- ⚠️ **La ruta era MÁS estricta que el dato que protege.** `/almacen/inventory/sessions` exigía
+  `SUPERVISAR` mientras el endpoint que la alimenta servía con `VER`. No es simetría cosmética: es
+  por qué `prevencion` (3 personas con `VER`) rebotaba en una pantalla cuyos datos el API ya les daba.
+
+**Qué se entregó:** 3 gates abiertos + 1 explícitamente cerrado · migración `20261006200000`
+(`encargado_tienda` → `COMMERCIAL_INVENTORY_ASIGNAR`, pre-vuelo read-only contra prod: 1 fila, con
+prueba negativa y verificación de que `jsonb_set` no toca otra clave) · ruta a
+`anyPermissionGuard` · tab con `anyOf` · landing nuevo · diálogo de asignación en la lista ·
+candado `inventory-count.asignar.spec.ts` **12 aserciones, mutado a rojo** abriendo `:id/items`.
+`COMMERCIAL_INVENTORY_ASIGNAR` **sale de la lista `DEUDA`** de `landing-guards.spec.ts`.
+
+**Verificación:** inventario 40/40 · landing-guards 33/33 · almacen-tabs + panel-routes +
+drilldown 53/53 · `check:templates`, `check:tokens`, `check:tables`, `check:teclado`,
+`check:mig-colisiones` verdes.
+
+**Abierto y declarado:** **04 (Yurécuaro) y 08 (Morelia Abastos) no tienen encargado de tienda** —
+hueco de puesto, no de código · `ASIGNAR` **no lleva alcance por sucursal** (inventario no migró a
+`ScopeService`, aunque los 7 encargados **sí** tienen `warehouse_code`) · **abrir un folio sigue
+atado a ver el teórico**, así que hasta `[IC.18]` el folio diario lo abre alguien de compras.
+
+**Falta:** aplicar la migración a prod + redeploy api+view + **re-login de los 7 encargados**.
+
+---
+
 ## 2026-10-06 — `[IC.13]` Folios de inventario: el «cíclico» no era parcial y «estancado» medía la apertura
 
 **Disparador:** *«analizá `/almacen/inventory/sessions`»*. Lo medido contra prod antes de tocar
