@@ -15,7 +15,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { CAJA_VENTANA_DIAS } from '@megadulces/contracts';
+import { CAJA_VENTANA_DIAS, evaluarCambio, type Denominacion } from '@megadulces/contracts';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
@@ -29,7 +29,7 @@ import { CajaSocketService } from '../../caja-socket.service';
 import { imprimirComprobante as imprimirTicketComprobante, imprimirReporteDia as imprimirTicketReporte, type ComprobanteCaja, type ReporteDia } from './ticket-comprobante';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import {
-  BILLETES_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
+  BILLETES_CAJA, MONEDAS_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
   textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN,
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista,
 } from './caja-captura.util';
@@ -56,14 +56,34 @@ interface FormularioCajaUI {
   denominaciones: DenominacionCapturada[];
 }
 
-/** CS.3.7 — Suma piezas por denominación de varias fuentes (cajero + reja) y descarta las de 0. */
-function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): Array<{ denominacion: number; piezas: number }> {
-  const m = new Map<number, number>();
+/**
+ * CS.3.7 — Suma piezas de varias fuentes (cajero + reja) y descarta las de 0.
+ *
+ * ⛔ `[CG.38]` Agrupa por **`denom_key`**, no por el valor. Agrupaba por el número, y con monedas
+ * eso junta el billete de $20 con la moneda de $20 en un solo renglón: dos pilas distintas de
+ * dinero fundidas en una, y el desglose deja de poder reconstruirse. Mientras la caja contaba
+ * sólo billetes no mordía; ahora sí.
+ */
+/**
+ * La llave del BILLETE de ese valor. El catálogo compartido la define como el valor a secas
+ * (`'20'`), y la moneda que colisiona lleva sufijo (`'20m'`) — ver SM.39.
+ */
+function llaveBillete(valor: number): string {
+  return valor === 0.5 ? '0.5' : String(valor);
+}
+
+function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] {
+  const m = new Map<string, DenominacionCapturada>();
   for (const d of fuentes) {
-    const den = Number(d.denominacion); const pz = Number(d.piezas) || 0;
-    if (pz > 0) m.set(den, (m.get(den) ?? 0) + pz);
+    const pz = Number(d.piezas) || 0;
+    if (pz <= 0) continue;
+    const prev = m.get(d.denom_key);
+    if (prev) prev.piezas += pz;
+    else m.set(d.denom_key, { denom_key: d.denom_key, denominacion: Number(d.denominacion), piezas: pz });
   }
-  return [...m.entries()].map(([denominacion, piezas]) => ({ denominacion, piezas })).sort((a, b) => b.denominacion - a.denominacion);
+  // Del mayor al menor, y con el billete antes que la moneda del mismo valor (la llave del
+  // billete es el numero a secas, asi que ordena antes que la que lleva sufijo).
+  return [...m.values()].sort((a, b) => b.denominacion - a.denominacion || a.denom_key.localeCompare(b.denom_key));
 }
 
 /**
@@ -175,9 +195,25 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-arqueo-tbl tfoot th, .cg-arqueo-tbl tfoot td { border-top:1px solid var(--border-color);
                                                        padding-top:.4rem; font-weight:700; }
     /* Piezas: angosto, a la derecha y tabular. Contar es teclear numeros cortos en columna. */
-    .cg-arqueo-tbl input.cg-pieza, .cg-arqueo-tbl input.cg-pieza-corte {
+    /* [CG.38] El bloque del cambio devuelto. Separado por una línea y atenuado: es la excepción,
+       no el camino. */
+    .cg-cambio { margin-top:.5rem; border-top:1px solid var(--border-color); padding-top:.4rem; }
+    .cg-cambio-head { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+    .cg-cambio-cuenta { margin:.35rem 0 .2rem; }
+    .cg-arqueo-tbl input.cg-pieza, .cg-arqueo-tbl input.cg-pieza-corte, .cg-arqueo-tbl input.cg-pieza-dev {
       width:5.5rem; text-align:right; font-variant-numeric:tabular-nums; padding:.2rem .4rem; }
     .cg-arqueo-tbl input.cg-morralla-in { width:7.5rem; }
+    /* [CG.38] La reja pasó de 5 renglones a 11: hay que poder ver de un vistazo dónde empieza el
+       metal. La marca es TEXTO, no sólo un tono -- el color nunca es el único portador (DESIGN).
+       La línea va en la PRIMERA moneda, no en todas: es un corte, no un borde por fila. */
+    .cg-fam { font-size:var(--fs-micro); color:var(--text-muted); margin-left:.3rem;
+      font-family:var(--font-body); }
+    /* ⚠️ El selector es el HERMANO, no ":first-of-type". Todos los renglones son <tr>, así que
+       ":first-of-type" habría marcado el PRIMER renglón de la tabla —un billete— y la línea
+       nunca habría caído donde empieza el metal. Habría quedado puesta y sin efecto visible. */
+    tr:not(.cg-fila-moneda) + tr.cg-fila-moneda th,
+    tr:not(.cg-fila-moneda) + tr.cg-fila-moneda td {
+      border-top:1px solid var(--border-color); padding-top:.35rem; }
     /* El importe NO se teclea: sale del conteo. Se pinta como dato, no como campo. */
     .cg-sub { font-variant-numeric:tabular-nums; color:var(--text-muted); }
     .cg-na { text-align:center; font-size:var(--fs-xs); }
@@ -1315,7 +1351,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
               </div>
             }
             <div class="cg-caja-denoms fin-dim mono">
-              @for (d of denominacionesCajero(); track d.denominacion) {
+              @for (d of denominacionesCajero(); track d.denom_key) {
                 <span>{{ d.piezas }}×{{ money(d.denominacion) }}</span>
               }
             </div>
@@ -1359,7 +1395,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                seria cambiar lo contado sin querer. La tabla si pasa a p-table: asi el borde, la
                cabecera y el flip a oscuro los pone el tema y no una regla a mano por pantalla. -->
           <p class="cg-cap">Desglose del efectivo por denominación</p>
-          <p-table [value]="billetes" size="small" class="cg-arqueo-tbl">
+          <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
             <ng-template #header>
               <tr>
                 <th scope="col">Denominación</th>
@@ -1368,17 +1404,18 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
               </tr>
             </ng-template>
             <ng-template #body let-b>
-              <tr>
-                <th scope="row" class="mono">{{ b.label }}</th>
+              <tr [class.cg-fila-moneda]="b.familia === 'moneda'">
+                <th scope="row" class="mono">{{ b.label }}<!--
+                  --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
                 <td>
                   <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
-                         [ngModel]="piezasDe(b.valor)" (ngModelChange)="setPiezas(b.valor, $event)"
+                         [ngModel]="piezasDe(b)" (ngModelChange)="setPiezas(b, $event)"
                          (keydown.enter)="moverEnReja($event, 1)"
                          (keydown.arrowdown)="moverEnReja($event, 1)"
                          (keydown.arrowup)="moverEnReja($event, -1)"
-                         [attr.aria-label]="'Piezas de ' + b.label" />
+                         [attr.aria-label]="'Piezas de ' + (b.familia === 'moneda' ? 'la moneda de ' : 'el billete de ') + b.label" />
                 </td>
-                <td class="mono cg-sub">{{ money(subtotalDe(b.valor)) }}</td>
+                <td class="mono cg-sub">{{ money(subtotalDe(b)) }}</td>
               </tr>
             </ng-template>
             <ng-template #footer>
@@ -1405,6 +1442,74 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
               </tr>
             </ng-template>
           </p-table>
+
+          <!-- ⭐ [CG.38] EL CAMBIO QUE SE DEVUELVE. Hasta hoy no había dónde registrarlo: si te
+               daban $5,000 por un documento de $4,830, los $170 que volvían al cliente no
+               existían en ningún lado y la caja declaraba efectivo que ya no tenía.
+
+               Plegado por default: la mayoría de los movimientos no devuelven cambio, y once
+               campos abiertos convierten el caso común en el caso lento. Se abre de un clic. -->
+          <div class="cg-cambio">
+            <div class="cg-cambio-head">
+              <p-button [label]="(cambioAbierto() || hayDevuelto()) ? 'Ocultar el cambio' : '¿Diste cambio?'"
+                        [icon]="(cambioAbierto() || hayDevuelto()) ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+                        size="small" severity="secondary" [text]="true"
+                        (onClick)="cambioAbierto.set(!cambioAbierto())"></p-button>
+              @if (hayDevuelto()) {
+                <p-tag severity="info" [value]="'devolviste ' + money(totalDevuelto())"></p-tag>
+              }
+            </div>
+
+            @if (cambioAbierto() || hayDevuelto()) {
+              <p class="cg-cap">Desglose del cambio que salió de la caja</p>
+              <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col">Denominación</th>
+                    <th scope="col">Piezas</th>
+                    <th scope="col">Importe</th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-b>
+                  <tr [class.cg-fila-moneda]="b.familia === 'moneda'">
+                    <th scope="row" class="mono">{{ b.label }}<!--
+                      --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
+                    <td>
+                      <input pInputText type="number" class="cg-pieza-dev" min="0" step="1" inputmode="numeric"
+                             [ngModel]="piezasDevueltasDe(b)" (ngModelChange)="setPiezasDevueltas(b, $event)"
+                             (keydown.enter)="moverEnRejaDev($event, 1)"
+                             (keydown.arrowdown)="moverEnRejaDev($event, 1)"
+                             (keydown.arrowup)="moverEnRejaDev($event, -1)"
+                             [attr.aria-label]="'Piezas devueltas de ' + b.label" />
+                    </td>
+                    <td class="mono cg-sub">{{ money(b.valor * piezasDevueltasDe(b)) }}</td>
+                  </tr>
+                </ng-template>
+                <ng-template #footer>
+                  <tr>
+                    <th scope="row">Devuelto</th>
+                    <td class="fin-dim cg-na">sale de la caja</td>
+                    <td class="mono cg-sub">{{ money(totalDevuelto()) }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+
+              <!-- La cuenta en llano: entró, salió, queda. El monto del movimiento es el NETO. -->
+              @if (resumenCambio(); as r) {
+                <p class="fin-dim cg-cambio-cuenta">
+                  Entró <span class="mono">{{ money(r.entra) }}</span> ·
+                  devolviste <span class="mono">{{ money(r.sale) }}</span> ·
+                  queda en la caja <strong class="mono">{{ money(r.neto) }}</strong>
+                </p>
+                <!-- ⛔ El motor no se limita a sumar: NOMBRA el problema con su monto. Devolver
+                     más de lo que entró, o un canje que no cuadra, son dinero que se va sin
+                     registro -- y eso es exactamente lo que el pedido vino a evitar. -->
+                @if (r.problema) {
+                  <p-message severity="warn" class="cg-full">{{ r.problema }}</p-message>
+                }
+              }
+            }
+          </div>
         </div>
 
         </div><!-- /cg-col derecha -->
@@ -1503,7 +1608,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
              valor. La clase es distinta ("cg-pieza-corte") a proposito: el foco de este dialogo
              no puede saltar a los inputs del otro. -->
         <p class="cg-cap">Desglose del efectivo del corte</p>
-        <p-table [value]="billetes" size="small" class="cg-arqueo-tbl">
+        <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
           <ng-template #header>
             <tr>
               <th scope="col">Denominación</th>
@@ -1512,17 +1617,18 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             </tr>
           </ng-template>
           <ng-template #body let-b>
-            <tr>
-              <th scope="row" class="mono">{{ b.label }}</th>
+            <tr [class.cg-fila-moneda]="b.familia === 'moneda'">
+              <th scope="row" class="mono">{{ b.label }}<!--
+                --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
               <td>
                 <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric"
-                       [ngModel]="piezasCorteDe(b.valor)" (ngModelChange)="setPiezasCorte(b.valor, $event)"
+                       [ngModel]="piezasCorteDe(b)" (ngModelChange)="setPiezasCorte(b, $event)"
                        (keydown.enter)="moverEnRejaCorte($event, 1)"
                        (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
                        (keydown.arrowup)="moverEnRejaCorte($event, -1)"
-                       [attr.aria-label]="'Piezas de ' + b.label" />
+                       [attr.aria-label]="'Piezas de ' + (b.familia === 'moneda' ? 'la moneda de ' : 'el billete de ') + b.label" />
               </td>
-              <td class="mono cg-sub">{{ money(subtotalCorteDe(b.valor)) }}</td>
+              <td class="mono cg-sub">{{ money(subtotalCorteDe(b)) }}</td>
             </tr>
           </ng-template>
           <ng-template #footer>
@@ -1661,22 +1767,33 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** La reja de denominaciones del corte. */
   moverEnRejaCorte(ev: Event, dir: 1 | -1): void { this.moverFoco(ev, dir, 'input.cg-pieza-corte'); }
 
+  /**
+   * `[CG.38]` La reja del cambio devuelto. Clase propia y NO `cg-pieza`: si compartieran
+   * selector, la flecha saltaría de lo que entró a lo que salió sin que nadie lo note, y en un
+   * arqueo eso es teclear piezas en la columna equivocada.
+   */
+  moverEnRejaDev(ev: Event, dir: 1 | -1): void { this.moverFoco(ev, dir, 'input.cg-pieza-dev'); }
+
   readonly money = money;
   readonly dmy = dmy;
   /**
-   * Los cinco billetes de la caja. Salen del catálogo compartido, no de una lista de acá.
+   * `[CG.38]` Lo que la caja cuenta: **cinco billetes y seis monedas**, del mayor al menor.
+   * Salen del catálogo compartido, no de una lista de acá.
+   *
+   * ⚠️ Se llamaba `billetes` y hoy sería un nombre que miente: la morralla dejó de ser un campo
+   * suelto y se cuenta pieza por pieza. `reja` es como la nombra el resto de esta pantalla.
    *
    * ⚠️ La copia NO es adorno y NO se puede volver a `= BILLETES_CAJA`. El catálogo es
-   * `readonly Denominacion[]` a propósito —nadie debe empujarle un billete— pero `[value]` de
-   * `p-table` pide un array mutable, así que con la constante directo el compilador de Angular
-   * tira TS4104. Mientras eran dos `@for` daba igual; con p-table no.
+   * `readonly Denominacion[]` a propósito —nadie debe empujarle una denominación— pero `[value]`
+   * de `p-table` pide un array mutable, así que con la constante directo el compilador de
+   * Angular tira TS4104. Mientras eran dos `@for` daba igual; con p-table no.
    *
-   * ⛔ Y la copia va ACÁ, una sola vez, NO `[value]="billetes.slice()"` en la plantilla: ahí
+   * ⛔ Y la copia va ACÁ, una sola vez, NO `[value]="reja.slice()"` en la plantilla: ahí
    * devolvería un array nuevo en CADA ciclo de detección, y p-table reprocesaría su valor en
-   * cada tick aunque los billetes no cambien nunca. La identidad estable es la mitad del
+   * cada tick aunque las denominaciones no cambien nunca. La identidad estable es la mitad del
    * arreglo.
    */
-  readonly billetes = [...BILLETES_CAJA];
+  readonly reja = [...BILLETES_CAJA, ...MONEDAS_CAJA];
 
   readonly GLOSA_MIN = GLOSA_MIN;
 
@@ -1754,11 +1871,25 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * Suma el origen (captura anclada a un movimiento de CAOS) + los vínculos (retiros de un cobro/gasto).
    * La reja de abajo queda para la DIFERENCIA (morralla, monedas, un faltante), arrancando en cero.
    */
-  denominacionesCajero = computed(() => {
-    const src: Array<{ denominacion: number; piezas: number }> = [];
+  /**
+   * ⚠️ `[CG.38]` El cajero (CAOS) reporta **sólo el valor**, no la llave: es un feed externo y no
+   * lo podemos cambiar. Sus piezas se leen como BILLETES, y no es una adivinanza — CAOS es un
+   * dispensador de billetes, no da monedas. El único valor ambiguo en México es el `20`, y un
+   * dispensador que entrega `20` entregó el billete.
+   *
+   * Si algún día CAOS dispensara monedas, esto las contaría como billetes del mismo valor: el
+   * total seguiría bien y el desglose mentiría. Queda dicho acá, que es donde se decide.
+   */
+  denominacionesCajero = computed<DenominacionCapturada[]>(() => {
+    const src: DenominacionCapturada[] = [];
+    const comoBillete = (d: { denominacion: number | string; piezas: number | string }) => ({
+      denom_key: llaveBillete(Number(d.denominacion)),
+      denominacion: Number(d.denominacion),
+      piezas: Number(d.piezas),
+    });
     const o = this.caosElegido();
-    if (o?.denominaciones) src.push(...o.denominaciones.map((d) => ({ denominacion: Number(d.denominacion), piezas: Number(d.piezas) })));
-    for (const v of this.caosVinculados()) src.push(...v.denominaciones.map((d) => ({ denominacion: Number(d.denominacion), piezas: Number(d.piezas) })));
+    if (o?.denominaciones) src.push(...o.denominaciones.map(comoBillete));
+    for (const v of this.caosVinculados()) src.push(...v.denominaciones.map(comoBillete));
     return mergeDenoms(src);
   });
 
@@ -2025,7 +2156,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // `todayMx()` viaja como argumento (no lo lee el util) para que la lógica pura siga siendo
   // probable con un día fijo. Ver `motivosDeBloqueo`.
   bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo(
-    { ...this.f(), denominaciones: this.denominacionesParaGuardar(), venta_credito: this.ventaCredito() },
+    {
+      ...this.f(), denominaciones: this.denominacionesParaGuardar(), venta_credito: this.ventaCredito(),
+      // ⛔ [CG.38] Sin esto, devolver cambio trababa el guardado con `arqueo_no_cuadra`: el
+      // desglose sumaba lo que ENTRÓ y el monto ya era el NETO, así que la diferencia era
+      // exactamente el cambio. El botón quedaba apagado justo en el caso que la fase vino a
+      // habilitar. Lo encontró la prueba del envío, no la lectura del código.
+      devuelto: this.devuelto(),
+    },
     todayMx(),
   ));
   /**
@@ -2643,18 +2781,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
-  piezasCorteDe(d: number): number {
-    return this.conteoCorte().find((x) => x.denominacion === d)?.piezas ?? 0;
+  /** ⚠️ `[CG.38]` Por denominación entera, no por valor — el mismo motivo que en la otra reja. */
+  piezasCorteDe(d: Denominacion): number {
+    return this.conteoCorte().find((x) => x.denom_key === d.key)?.piezas ?? 0;
   }
 
   /** Lo que suma ese renglón del corte. Se calcula; no hay dónde teclearlo. */
-  subtotalCorteDe(d: number): number { return redondea(d * this.piezasCorteDe(d)); }
+  subtotalCorteDe(d: Denominacion): number { return redondea(d.valor * this.piezasCorteDe(d)); }
 
-  setPiezasCorte(d: number, piezas: number): void {
-    const list = this.conteoCorte().filter((x) => x.denominacion !== d);
+  setPiezasCorte(d: Denominacion, piezas: number): void {
+    const list = this.conteoCorte().filter((x) => x.denom_key !== d.key);
     // Enteras y no negativas: medio billete no existe, y el CHECK del servidor lo rechaza.
     const n = Math.max(0, Math.trunc(Number(piezas) || 0));
-    if (n > 0) list.push({ denominacion: d, piezas: n });
+    if (n > 0) list.push({ denom_key: d.key, denominacion: d.valor, piezas: n });
     this.conteoCorte.set(list);
   }
 
@@ -2753,6 +2892,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // CS.3.13 — la venta a crédito tampoco sobrevive al diálogo anterior.
     this.ventaCredito.set(0);
     this.clienteCredito.set(false);
+    // ⛔ [CG.38] Y el cambio devuelto TAMPOCO. Sin esta línea, la captura siguiente arranca con
+    // el cambio de la anterior ya restado del monto: dinero que se va de un movimiento al que
+    // no pertenece, y encima en silencio porque el bloque nace plegado.
+    this.devuelto.set([]);
+    this.cambioAbierto.set(false);
     this.cobros.set([]);
     // CS.3 — la fuente CAOS tampoco sobrevive al diálogo anterior.
     this.caosSel = null;
@@ -3467,18 +3611,23 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
-  piezasDe(d: number): number {
-    return this.f().denominaciones.find((x) => x.denominacion === d)?.piezas ?? 0;
+  /**
+   * ⚠️ `[CG.38]` Estos tres reciben la DENOMINACIÓN entera, no su valor. Con monedas en la reja,
+   * `piezasDe(20)` es ambiguo —hay billete y moneda de $20— y devolvería el renglón equivocado.
+   * Pasando el objeto, la llave viaja con el valor y no hay nada que adivinar.
+   */
+  piezasDe(d: Denominacion): number {
+    return this.f().denominaciones.find((x) => x.denom_key === d.key)?.piezas ?? 0;
   }
 
   /** Lo que suma ese renglón. Se CALCULA: no hay dónde teclearlo, y por eso va deshabilitado. */
-  subtotalDe(d: number): number { return redondea(d * this.piezasDe(d)); }
+  subtotalDe(d: Denominacion): number { return redondea(d.valor * this.piezasDe(d)); }
 
-  setPiezas(d: number, piezas: number): void {
-    const list = this.f().denominaciones.filter((x) => x.denominacion !== d);
+  setPiezas(d: Denominacion, piezas: number): void {
+    const list = this.f().denominaciones.filter((x) => x.denom_key !== d.key);
     // Enteras y no negativas: medio billete no existe, y el CHECK del servidor lo rechaza.
     const n = Math.max(0, Math.trunc(Number(piezas) || 0));
-    if (n > 0) list.push({ denominacion: d, piezas: n });
+    if (n > 0) list.push({ denom_key: d.key, denominacion: d.valor, piezas: n });
     this.f.update((v) => ({ ...v, denominaciones: list }));
     this.recomputarMonto();
   }
@@ -3506,8 +3655,59 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // CS.3.13 — + la VENTA A CRÉDITO (no llegó en efectivo pero es parte del total): monto = efectivo
     // + crédito. Así el monto>0 se cumple aunque la venta sea toda a crédito (efectivo 0).
     const efectivo = sumaDesglose(this.denominacionesParaGuardar(), Number(this.f().morralla || 0));
-    this.onMonto(efectivo + (Number(this.ventaCredito()) || 0));
+    // ⭐ [CG.38] El cambio que se devolvió SE RESTA. Sin esto, un cobro de $4,830 con un billete
+    // de $5,000 se guardaba como $5,000 y los $170 que volvieron al cliente quedaban dentro del
+    // movimiento: la caja declaraba tener efectivo que ya no estaba.
+    this.onMonto(efectivo - this.totalDevuelto() + (Number(this.ventaCredito()) || 0));
   }
+
+  // ── [CG.38] El cambio que se devuelve ───────────────────────────────────────────────────────
+
+  /**
+   * Arranca PLEGADO: la mayoría de los movimientos no devuelven cambio, y un bloque de once
+   * campos abierto por default convierte el caso común en el caso lento. El pedido fue
+   * explícito — *"que sea un proceso rápido"*.
+   */
+  cambioAbierto = signal(false);
+
+  /** Lo que salió de la caja en este mismo acto. Mismo tipo que lo que entró. */
+  devuelto = signal<DenominacionCapturada[]>([]);
+
+  piezasDevueltasDe(d: Denominacion): number {
+    return this.devuelto().find((x) => x.denom_key === d.key)?.piezas ?? 0;
+  }
+
+  setPiezasDevueltas(d: Denominacion, piezas: number): void {
+    const list = this.devuelto().filter((x) => x.denom_key !== d.key);
+    const n = Math.max(0, Math.trunc(Number(piezas) || 0));
+    if (n > 0) list.push({ denom_key: d.key, denominacion: d.valor, piezas: n });
+    this.devuelto.set(list);
+    this.recomputarMonto();
+  }
+
+  totalDevuelto = computed(() =>
+    redondea(this.devuelto().reduce((a, d) => a + d.denominacion * d.piezas, 0)));
+
+  /** Pasa una lista de renglones a la forma `{llave: piezas}` que pide el motor compartido. */
+  private porLlave(dens: DenominacionCapturada[]): Record<string, number> {
+    const m: Record<string, number> = {};
+    for (const d of dens) m[d.denom_key] = (m[d.denom_key] ?? 0) + d.piezas;
+    return m;
+  }
+
+  /**
+   * El veredicto del motor compartido: cuánto entró, cuánto salió, el neto, y **el problema con
+   * su monto** cuando no se puede guardar. El mismo motor lo va a correr el servidor: acá se
+   * adelanta para que la persona se entere ANTES de mandar, no por un 400.
+   */
+  resumenCambio = computed(() => evaluarCambio(
+    this.porLlave(this.denominacionesParaGuardar()),
+    this.porLlave(this.devuelto()),
+    Number(this.f().morralla || 0),
+  ));
+
+  /** Si hay algo devuelto, el bloque se queda abierto aunque se vuelva a tocar el botón. */
+  hayDevuelto = computed(() => this.devuelto().length > 0);
 
   /** CS.3.13 — La parte a crédito. Recalcula el monto (efectivo + crédito). Siempre editable. */
   setVentaCredito(v: number | null): void {
@@ -3564,7 +3764,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // CS.3.7 — El arqueo que va al servidor es el COMPLETO: el del cajero (en la UI va aparte) +
       // la reja manual, fusionados. El servidor exige que el desglose cuadre con el monto; por eso
       // acá se manda todo junto aunque en pantalla el cajero y la reja se muestren separados.
-      denominaciones: this.denominacionesParaGuardar(),
+      // ⭐ [CG.38] Las DOS pilas viajan juntas, separadas por `flujo`. Sin el `devuelto` el
+      // servidor vería un arqueo de $5,000 contra un monto de $4,830 y lo rechazaría por no
+      // cuadrar — y antes de esta fase ese cambio simplemente no se registraba en ningún lado.
+      denominaciones: [
+        ...this.denominacionesParaGuardar().map((d) => ({ ...d, flujo: 'recibido' as const })),
+        ...this.devuelto().map((d) => ({ ...d, flujo: 'devuelto' as const })),
+      ],
       // ⭐ CG.19 — la llave del documento de Kepler. Con esto el servidor RELEE el monto del ERP y
       // descarta el del formulario, y el índice único impide que el mismo documento entre dos veces.
       // ⛔ Acá estaba clavado en 'cobro'. Con CG.21 el diálogo puede anclar TAMBIÉN un pago, y un

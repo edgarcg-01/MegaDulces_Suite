@@ -89,7 +89,14 @@ export const GLOSA_MIN = 5;
 /** Tolerancia del cuadre: un centavo, por el redondeo de numeric. */
 export const ARQUEO_EPSILON = 0.005;
 
-export interface DenominacionCapturada { denominacion: number; piezas: number }
+/**
+ * Un renglón contado.
+ *
+ * ⚠️ `[CG.38]` `denom_key` es la IDENTIDAD; `denominacion` es su valor, y se conserva porque es
+ * lo que suma. **No son intercambiables**: el billete y la moneda de $20 valen los dos `20` y son
+ * cosas distintas, así que indexar por el número hace que una de las dos pilas desaparezca.
+ */
+export interface DenominacionCapturada { denom_key: string; denominacion: number; piezas: number }
 
 export type EstadoArqueo = 'sin_desglose' | 'cuadra' | 'difiere';
 
@@ -123,6 +130,14 @@ export function estadoArqueo(
   dens: DenominacionCapturada[] | null | undefined,
   morralla = 0,
   ventaCredito = 0,
+  /**
+   * `[CG.38]` El cambio que SALIÓ de la caja en este mismo acto. Se RESTA del desglose.
+   *
+   * ⛔ Sin esto, un cobro de $4,830 pagado con un billete de $5,000 bloqueaba el guardado con
+   * `arqueo_no_cuadra`: el desglose sumaba 5,000 contra un monto de 4,830 y la diferencia era
+   * justo el cambio devuelto. Lo encontró la prueba del envío al servidor, no la lectura.
+   */
+  devuelto: DenominacionCapturada[] | null | undefined = null,
 ): ResultadoArqueo {
   // CS.3.13 — El monto = EFECTIVO (denominaciones + morralla) + VENTA A CRÉDITO. La parte a crédito
   // no se cuenta en billetes pero es parte del total; por eso «cuenta» como desglose y su ausencia de
@@ -132,7 +147,7 @@ export function estadoArqueo(
   if (conPiezas.length === 0 && !Number(morralla) && credito <= 0) {
     return { estado: 'sin_desglose', desglosado: 0, diferencia: 0 };
   }
-  const desglosado = sumaDesglose(dens, morralla) + credito;
+  const desglosado = redondea(sumaDesglose(dens, morralla) - sumaDesglose(devuelto, 0) + credito);
   const diferencia = redondea(desglosado - Number(monto || 0));
   return { estado: Math.abs(diferencia) <= ARQUEO_EPSILON ? 'cuadra' : 'difiere', desglosado, diferencia };
 }
@@ -149,6 +164,8 @@ export interface FormularioCaja {
   denominaciones?: DenominacionCapturada[] | null;
   /** CS.3.13 — parte a crédito (no efectivo). `efectivo + venta_credito = monto`. */
   venta_credito?: number | null;
+  /** `[CG.38]` El cambio que salió de la caja en este acto. Se resta: `recibido − devuelto = monto`. */
+  devuelto?: DenominacionCapturada[] | null;
 }
 
 export type MotivoBloqueo =
@@ -199,7 +216,8 @@ export function motivosDeBloqueo(f: FormularioCaja, hoy?: string | null): Motivo
   // tecleaba suelto, así que el caso normal era registrar efectivo SIN contarlo y `sin_desglose`
   // no frenaba nada. Ahora el monto SALE del conteo, así que "no contó" y "monto en cero" son
   // la misma situación — y se dice UNA vez, con el texto que sirve ("contá"), no dos.
-  const arqueo = estadoArqueo(Number(f.monto), f.denominaciones, Number(f.morralla || 0), Number(f.venta_credito || 0));
+  const arqueo = estadoArqueo(
+    Number(f.monto), f.denominaciones, Number(f.morralla || 0), Number(f.venta_credito || 0), f.devuelto);
   if (arqueo.estado === 'sin_desglose') {
     m.push('falta_desglose');
   } else if (!(Number(f.monto) > 0)) {

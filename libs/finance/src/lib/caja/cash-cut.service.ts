@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { fondoSugerido } from './cash-opening.engine';
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
@@ -18,7 +19,19 @@ import {
  * Postgres. Si alguien borra este chequeo, el candado sigue puesto.
  */
 
-export interface AbrirCorteInput { fecha: string; sucursal: string; fondo_inicial?: number; nota?: string }
+export interface AbrirCorteInput {
+  fecha: string;
+  sucursal: string;
+  /**
+   * `[CG.39]` Con cuánto arranca. **`undefined` = no se midió** y se guarda `NULL`; `0` es un
+   * hecho distinto —se contó y estaba vacía—. Antes los dos terminaban en el mismo cero.
+   */
+  fondo_inicial?: number | null;
+  fondo_origen?: 'cierre_anterior' | 'contado' | 'sin_medir';
+  /** El desglose del arranque, por llave. Sin esto se sabe cuánto hay, no si hay con qué dar cambio. */
+  apertura?: Array<{ denom_key: string; denominacion: number; piezas: number }>;
+  nota?: string;
+}
 export interface CerrarCorteInput { conteo?: ConteoDenominacion[]; morralla?: number; nota?: string }
 
 interface Usuario { id?: string; username?: string }
@@ -85,6 +98,44 @@ export class CashCutService {
     return rows.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
   }
 
+  /**
+   * `[CG.39]` Con qué se propone que arranque la caja de esa sucursal: **el conteo con el que
+   * quedó su último corte cerrado**, con folio y fecha para que se vea de dónde salió.
+   *
+   * Sin corte anterior devuelve `monto: null` y `origen: 'sin_medir'` — nunca un cero. Un cero
+   * afirma *"la caja arrancó vacía"*, que con fondo para dar cambio es imposible.
+   */
+  async sugerirFondo(sucursal: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const previo = await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId, sucursal })
+        // Cerrado o autorizado: los dos tienen conteo. ⚠️ NO se filtra 'cancelado' — el CHECK de
+        // la tabla sólo admite borrador|cerrado|autorizado, así que ese filtro sería ruido que
+        // sugiere un estado que no existe.
+        .whereNot('estado', 'borrador')
+        .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'folio', order: 'desc' }])
+        .first();
+      if (!previo) return fondoSugerido(null);
+
+      const filas = await trx('finance.cash_ledger_cut_denominations')
+        .where({ tenant_id: tenantId, cut_id: previo.id })
+        // El desglose del CIERRE es lo que se hereda: la apertura del corte anterior ya pasó.
+        .where((q: any) => q.where('momento', 'cierre').orWhereNull('momento'))
+        .select('denom_key', 'piezas');
+
+      const dens: Record<string, number> = {};
+      for (const f of filas) if (f.denom_key) dens[String(f.denom_key)] = Number(f.piezas);
+
+      return fondoSugerido({
+        folio: previo.folio,
+        fecha: String(previo.fecha).slice(0, 10),
+        contado: previo.contado === null || previo.contado === undefined ? null : Number(previo.contado),
+        denominaciones: dens,
+      });
+    });
+  }
+
   async abrir(input: AbrirCorteInput, user: Usuario) {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
@@ -95,12 +146,38 @@ export class CashCutService {
         throw new BadRequestException(
           `La sucursal ${input.sucursal} ya tiene el corte ${abierto.folio} abierto. Cerralo antes de abrir otro.`);
       }
+
+      /**
+       * ⛔ `[CG.39]` ACÁ ESTABA `fondo_inicial: input.fondo_inicial ?? 0`.
+       *
+       * Ese `?? 0` no era un default inocuo: **afirmaba que la caja arrancó vacía**. Con el fondo
+       * para dar cambio —que existe, y es la razón por la que la persona puede devolver $170 de
+       * un billete de $500— cada peso de ese fondo se iba del `esperado` y reaparecía como
+       * sobrante en el arqueo. Un faltante y un sobrante del mismo tamaño, todos los días.
+       *
+       * Ahora `null` viaja como `null` y la columna lo acepta: NO SE MIDIÓ es un hecho distinto
+       * de "se contó y estaba vacía", y el CHECK de la tabla no deja guardar un monto sin decir
+       * de dónde salió.
+       */
+      const monto = input.fondo_inicial === undefined ? null : input.fondo_inicial;
+      const origen = monto === null ? 'sin_medir' : (input.fondo_origen ?? 'contado');
+
       const folio = await this.nextFolio(trx, tenantId, Number(String(input.fecha).slice(0, 4)));
       const [c] = await trx('finance.cash_ledger_cuts').insert({
         tenant_id: tenantId, folio, fecha: input.fecha, sucursal: input.sucursal,
-        fondo_inicial: input.fondo_inicial ?? 0, nota: input.nota ?? null,
+        fondo_inicial: monto, fondo_origen: origen, nota: input.nota ?? null,
         created_by: u.id, created_by_username: u.username ?? null,
       }).returning('*');
+
+      // El desglose de la APERTURA: lo que permite saber si hay con qué dar cambio, no sólo
+      // cuánto hay. Va en la misma tabla que el cierre, separado por `momento`.
+      const ap = (input.apertura ?? []).filter((d) => Number(d.piezas) > 0);
+      if (ap.length) {
+        await trx('finance.cash_ledger_cut_denominations').insert(ap.map((d) => ({
+          tenant_id: tenantId, cut_id: c.id, momento: 'apertura',
+          denom_key: d.denom_key, denominacion: d.denominacion, piezas: d.piezas,
+        })));
+      }
       return c;
     });
   }
