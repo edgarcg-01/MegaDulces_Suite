@@ -166,8 +166,36 @@ que más valor tiene para la Suite, y la lección es de diseño, no de disciplin
 3. **La posición en el camión se elige sobre un esquema del camión**, no escribiendo un número.
 4. **Un valor que no puede ser real se rechaza.** Si existe catálogo de carretas y posiciones, el
    `1`/`2`/`3` de relleno no pasa.
+5. ⭐ **Quien hace el trabajo es quien lo registra.** Francisco (2026-10-06), sobre por qué PH lo
+   omite y Canindo lo acaba de implementar: *"si el operador apunta y la capturista no registra,
+   pronto los dos dejan de hacer su trabajo"*. Hoy el operador anota en papel y otra persona lo
+   teclea; cuando el registro no aparece, el operador deja de anotar. En la Suite **no hay
+   intermediario**: el surtidor marca desde su celular o handheld y el registro existe en ese
+   momento, con su nombre.
 
-### 2.7 Lo que ya existe y se reusa
+### 2.7 El recorrido físico del pedido (Francisco, 2026-10-06)
+
+```
+Área de surtido ──(carreta numerada)──▶ reja ──▶ checado ──▶ espacio de espera ──▶ camión
+     c59 = carreta                            c60 = lugar de espera     c61 = estiba
+```
+
+- **Las carretas están numeradas** y se les puede pegar código. Se surte en un área; una **reja**
+  separa surtido de checado y la carreta cruza de un lado al otro.
+- **La "ubicación de checado" no es una mesa**: es el **espacio donde el pedido espera la unidad**
+  para cargar, ya del otro lado de la reja. Es el mismo `UB` del comentario `CJ 16 P 10 UB 6`.
+- **La ubicación de embarque es la estiba** del camión.
+- **Equipo en piso: celulares y handhelds.** La pantalla se diseña para los dos (pulgar en celular,
+  escáner en handheld).
+
+⚠️ **El riesgo de la opción A está justo aquí.** Con la opción A, alguien todavía teclea el
+resultado en Kepler: es el mismo relevo "operador → capturista" que hoy se degrada. Mitigaciones:
+(1) la Suite le da a quien captura un resumen corto, no la tabla de 100 renglones; (2) GP.6 mide
+cada día qué pedidos ya terminaron en la Suite y siguen sin avanzar en Kepler, con nombre de quien
+debía capturarlos; (3) si el cuadre muestra que la captura se cae, ese dato es el argumento para
+adelantar la opción B.
+
+### 2.8 Lo que ya existe y se reusa
 
 | Pieza | Dónde | Cómo se usa aquí |
 |---|---|---|
@@ -221,13 +249,16 @@ vista derivada sobre `kepler_ods`, nunca copia.
 |---|---|---|
 | ~~P1~~ | ✅ Un ticket por etapa (§2.4) | — |
 | ~~P2~~ | ✅ `CJ` bultos cerrados · `P` cajas de paquetería · `UB` ubicación de espera (§2.5) | — |
-| P10 | ¿Las ubicaciones de espera (`UB 6`) tienen un catálogo fijo o es un número libre? | GP.5 |
+| ~~P3~~ | ✅ Celulares y handhelds (§2.7) | — |
+| ~~P12~~ | ✅ Carretas numeradas, se les puede pegar código (§2.7) | — |
+| ~~P13~~ | ✅ Ubicación de checado = espacio de espera de unidad, pasando la reja (§2.7) | — |
+| ~~P14~~ | ✅ Posición en el camión = estiba (§2.7) | — |
+| ~~P15~~ | ✅ PH lo omite; Canindo recién implementado; se cae cuando el operador anota y nadie registra (§2.6) | — |
+| P10 | ¿Cuántos espacios de espera hay por almacén y cómo se llaman? | GP.5 |
 | P11 | ¿Quién arma las cajas de paquetería: el surtidor o el checador? | GP.4 |
-| P12 | ¿Las carretas de surtido están numeradas físicamente? ¿Cuántas hay por almacén? ¿Se les puede pegar un código QR? | GP.3 |
-| P13 | ¿Qué es la "ubicación de checado": una mesa, una zona? | GP.4 |
-| P14 | ¿Cómo se numeran las posiciones del camión (estibas)? ¿Varían por tipo de unidad? | GP.5 |
-| P15 | ¿Por qué Canindo llena con `1`/`2`/`3`? ¿Kepler se los exige ahí y en PH no? | Ninguno (dato) |
-| P3 | ¿Con qué trabajan en piso (celular, handheld con lector)? ¿Hay wifi en todo el almacén? | GP.3 |
+| P16 | ¿Cuántas carretas hay por almacén? (para el catálogo y sus códigos) | GP.3 |
+| P17 | ¿Cuántas estibas tiene cada tipo de camión y cómo se numeran? | GP.5 |
+| P18 | ¿Hay wifi en toda el área de surtido, checado y espera? | GP.3 (define si la pantalla debe trabajar sin red) |
 | P4 | ¿El checador es siempre otra persona? En el embarque 2683 los tres responsables son `01` | GP.4 |
 | P5 | ¿Se surte pedido por pedido o se juntan en olas (sobre todo telemarketing)? | GP.2 |
 | P6 | ¿Qué es el "tercer tipo, tienda"? ¿Las `TI00x` de §2.1? | GP.1 |
@@ -243,5 +274,6 @@ vista derivada sobre `kepler_ods`, nunca copia.
 |---|---|
 | El almacenista avanza el pedido en Kepler **sin** pasar por la Suite y el piloto queda vacío | GP.6 detecta esos pedidos y los declara |
 | Diferencias de captura al teclear en Kepler | Mismo cuadre de GP.6 |
+| **La captura en Kepler se degrada igual que hoy** (relevo operador → capturista, §2.6 punto 5) | Resumen corto para capturar + GP.6 diario con nombre del responsable; si se cae, es el argumento para la opción B |
 | Se publica un % de surtido con unidades mezcladas | Prohibido hasta resolver la unidad (§2.3) |
 | Querer escribir en Kepler "para ahorrar un paso" | Fuera de alcance por ADR-084; es la opción B y tiene su propio momento |
