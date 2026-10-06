@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — El encargado de sucursal asigna quién cuenta el inventario (IC.23, 2026-10-06)
+- **Nueva facultad en la lista de folios: «Asignar».** El encargado de sucursal elige quién cuenta cada folio desde un diálogo en la propia lista, sin entrar al detalle. Siete personas en seis sucursales lo reciben. El diálogo **abre con lo que ya está asignado**, nunca en blanco: guardar reemplaza la lista, y partir de vacío habría borrado a los asignados sin avisar.
+- **Lo que el encargado NO ve, a propósito: el teórico.** La cantidad que el sistema espera encontrar sigue siendo exclusiva de quien supervisa — es lo que mantiene ciego el conteo. Asignar, ver el avance y ver el tablero de equipos sí; ver contra qué se cuenta, no.
+- **Tres permisos estaban mal partidos y nadie lo había notado**, porque hasta hoy todos los que podían asignar podían además supervisar: se podía *escribir* la lista de asignados sin poder *leerla*, y auto-generar un tablero de equipos **sin poder mirarlo**. Quedan corregidos.
+- Medido antes de construir: mandar al encargado a la pantalla de Equipos —que parecía hecha a medida— habría llevado a **seis de los siete** a un error, porque esa pantalla exige pasillos definidos y **sólo una de las nueve bodegas los tiene**.
+- ⚠️ Los **7 encargados tienen que volver a entrar** para que el permiso surta efecto. Y queda declarado: **Yurécuaro y Morelia Abastos no tienen encargado de tienda**, así que ahí todavía no hay quién asigne.
 ### Added — Anexo de venta: suma de unidades por grupo y total del documento (AX.13, 2026-10-05)
 - Cada rótulo de grupo del anexo imprimible («Comprado por caja · 3 productos») suma sus unidades bajo la columna Cantidad («10 CJA»); al pie, el total del documento por unidad (CJA · PAQ · PZA · KG por separado, nunca mezcladas).
 - Fixed: el reparto caja/paquete/pieza truncaba la cantidad decimal de la base (2.5 KG salía «2 KG»).
