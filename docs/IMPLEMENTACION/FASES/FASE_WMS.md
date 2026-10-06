@@ -341,9 +341,9 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
    - **El orden de surtido es el orden numérico** (`B01` → `B99`): la secuencia de recorrido de
      §4.1 es el propio número, no un dato aparte que haya que capturar. Se guarda igual como columna
      (`pick_sequence`) para poder corregirla si algún tramo se recorre distinto.
-   - Se conservan `A1`…`B3` para los espacios de espera. ⚠️ **`B1`–`B3` de espera choca de
-     vista con `B01`–`B03` de bodega**: en pantalla siempre van con su tipo ("Espera B1" /
-     "Bodega B01"), y conviene confirmar si la espera puede renombrarse (`E1`…).
+   - **Espacios de espera de checado y embarque: `E01`, `E02`…** Se renombran (autorizado por
+     Francisco, 2026-10-06) porque los nombres de hoy (`A1`…`B3`) chocaban con bodega `B01`–`B03`.
+     La letra dice el tipo: `B` bodega · `T` tienda · `E` espera · `C` carreta.
    - Carretas `C52`, estibas por unidad.
 5. **Reposición de anaquel = tarea del anaquelista** (amplía WMS.7 al piso de venta): bodega →
    anaquel cuando la exhibición baja del mínimo. Se liga a la lista de faltantes de piso (Fase FLT)
