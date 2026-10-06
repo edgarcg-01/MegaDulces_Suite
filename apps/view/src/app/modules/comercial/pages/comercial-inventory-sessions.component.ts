@@ -71,7 +71,8 @@ const DIAS_ABANDONADO = 7;
         </div>
       </header>
 
-      <p-table [value]="counts()" [loading]="loading()" styleClass="p-datatable-sm surf-table" [scrollable]="true">
+      <div class="dt-scope">
+      <p-table [value]="counts()" [loading]="loading()" styleClass="p-datatable-sm surf-table dt-stack" [scrollable]="true">
         <ng-template #header>
           <tr>
             <th scope="col">Folio</th><th scope="col">Almacén</th><th scope="col">Tipo</th>
@@ -89,12 +90,12 @@ const DIAS_ABANDONADO = 7;
             [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])"
             (keydown.enter)="goToFolio(c.id)"
             (keydown.space)="$event.preventDefault(); goToFolio(c.id)">
-            <td class="in-mono"><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ c.folio }}</a></td>
-            <td>{{ c.warehouse_code }} · {{ c.warehouse_name }}</td>
-            <td>{{ c.type === 'full' ? 'Total' : 'Cíclico' }}</td>
+            <td role="cell" data-label="Folio" class="in-mono"><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ c.folio }}</a></td>
+            <td role="cell" data-label="Almacén">{{ c.warehouse_code }} · {{ c.warehouse_name }}</td>
+            <td role="cell" data-label="Tipo">{{ c.type === 'full' ? 'Total' : 'Cíclico' }}</td>
 
             <!-- [IC.13] El avance es la única columna que responde "¿esto va?". -->
-            <td class="in-avance-cell">
+            <td role="cell" data-label="Avance" class="in-avance-cell">
               @if (!c.items_total) {
                 <span class="in-dim" title="El folio no tiene SKUs en el snapshot de apertura">Sin snapshot</span>
               } @else {
@@ -106,7 +107,7 @@ const DIAS_ABANDONADO = 7;
               }
             </td>
 
-            <td>
+            <td role="cell" data-label="Estado">
               <p-tag [value]="statusLabel(c.status)" [severity]="statusSeverity(c.status)"></p-tag>
               <!-- Congelado se marca SIEMPRE que el folio esté vivo, no recién a las 24 h:
                    es el dato que explica por qué el almacén no se mueve. -->
@@ -118,10 +119,10 @@ const DIAS_ABANDONADO = 7;
               }
             </td>
 
-            <td>{{ c.started_at ? (c.started_at | date:'short') : '—' }}</td>
+            <td role="cell" data-label="Inicio">{{ c.started_at ? (c.started_at | date:'short') : '—' }}</td>
 
             <!-- NULL = nadie contó nunca. No se disfraza con started_at. -->
-            <td [title]="c.last_count_at ? (c.last_count_at | date:'medium') : 'Sin un solo escaneo registrado'">
+            <td role="cell" data-label="Última actividad" [title]="c.last_count_at ? (c.last_count_at | date:'medium') : 'Sin un solo escaneo registrado'">
               @if (c.last_count_at) {
                 {{ hace(c.last_count_at) }}
               } @else {
@@ -129,7 +130,7 @@ const DIAS_ABANDONADO = 7;
               }
             </td>
 
-            <td>
+            <td role="cell" data-label="Acciones">
               <a pButton size="small" [text]="true" [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Abrir</span></a>
             </td>
           </tr>
@@ -143,6 +144,7 @@ const DIAS_ABANDONADO = 7;
           </td></tr>
         </ng-template>
       </p-table>
+      </div>
 
       <!-- Dialog: abrir folio -->
       <p-dialog [(visible)]="dialogVisible" header="Abrir folio de inventario" [modal]="true"
