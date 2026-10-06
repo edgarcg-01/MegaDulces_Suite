@@ -244,7 +244,13 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
 
 ## 5. Sprints
 
-> Estimado grueso con el equipo actual; se recalibra al cerrar RH.1.
+> **Calendario acordado (opción rápida, 2026-10-06):** preparación hasta el 9-oct · corte de
+> asistencia el **7-nov** · corte de reclutamiento + bot el **5-dic** · una semana en sólo lectura ·
+> **Mega Talento apagado el 18-dic-2026**. Claude programa, prueba y documenta; David opera
+> (aprueba, aplica migraciones en prod, corre los cortes); Edgar revisa; RH valida y prueba.
+> Lo que lo hace posible: trasladar la lógica ya probada (horarios, conversación, solicitud, CV,
+> dictamen) en vez de reescribirla, y dejar los extras del bot (destacados, riesgo, calibración,
+> tableros de demanda) para después del apagado. Estimado grueso; se recalibra al cerrar RH.1.
 
 ### RH.0 — Preparación (≈1 semana, sin código de producto)
 
