@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
-import { hoyLocal, LogisticaNuevoEmbarqueComponent, sumarValor } from './logistica-nuevo-embarque.component';
+import { hoyLocal, LogisticaNuevoEmbarqueComponent } from './logistica-nuevo-embarque.component';
 import { KeplerTripRow } from '../logistica.service';
 
 /**
@@ -30,12 +30,9 @@ function montar() {
   return { f, http, el: f.nativeElement as HTMLElement };
 }
 
-describe('hoyLocal / sumarValor', () => {
-  it('hoyLocal usa la fecha LOCAL, no la de UTC', () => {
+describe('hoyLocal', () => {
+  it('usa la fecha LOCAL, no la de UTC', () => {
     expect(hoyLocal(new Date(2026, 9, 3, 23, 30))).toBe('2026-10-03');
-  });
-  it('sumarValor suma en centavos', () => {
-    expect(sumarValor([{ total: '0.1' }, { total: '0.2' }])).toBe(0.3);
   });
 });
 
@@ -48,7 +45,7 @@ describe('LogisticaNuevoEmbarqueComponent', () => {
     req.flush({ rows: [], page: 1, limit: 200, total: 0 });
   });
 
-  it('pinta cada viaje con su acción, y el chofer que falta como aviso', () => {
+  it('pinta cada viaje con sus datos y su acción, sin estados ni avisos', () => {
     const { f, http, el } = montar();
     http.expectOne(() => true).flush({
       rows: [fila(), fila({ sucursal: '01', guia_embarque: '0001626', guia_digital: '01-G0001626', chofer_code: null, chofer_nombre: null, chofer_falta: true })],
@@ -57,13 +54,15 @@ describe('LogisticaNuevoEmbarqueComponent', () => {
     f.detectChanges();
     const filas = [...el.querySelectorAll('tbody tr')];
     expect(filas).toHaveLength(2);
-    expect(filas[0].textContent).toContain('Listo para tomar');
-    expect(filas[1].textContent).toContain('No viene en Kepler');
-    expect(filas[1].textContent).toContain('Falta chofer');
+    expect(filas[0].textContent).toContain('CESAR C.');
+    // Sin chofer en Kepler la celda va vacía, como en la hoja: no se anuncia lo que falta.
+    expect(filas[1].querySelector('td[data-label="Chofer"]')!.textContent!.trim()).toBe('—');
+    for (const ruido of ['Listo para tomar', 'No viene en Kepler', 'Falta chofer', 'Sin chofer en Kepler', 'kdm1']) {
+      expect(el.textContent).not.toContain(ruido);
+    }
+    expect(el.querySelector('.ne-count')!.textContent).toContain('2 viajes · 26 paradas');
     const link = filas[0].querySelector('a[aria-label="Tomar el viaje 06-G0001419"]') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('/logistica/shipments/nuevo/06/0001419');
-    // KPI: un viaje sin chofer pendiente de tomar.
-    expect(el.textContent).toContain('Sin chofer en Kepler');
   });
 
   it('un viaje ya tomado lleva a su embarque, no a tomarlo otra vez', () => {
@@ -73,7 +72,7 @@ describe('LogisticaNuevoEmbarqueComponent', () => {
     });
     f.detectChanges();
     const tr = el.querySelector('tbody tr')!;
-    expect(tr.textContent).toContain('Tomado · EMB-2026-00012');
+    expect(tr.textContent).toContain('Ver embarque');
     expect(tr.querySelector('a')!.getAttribute('href')).toBe('/logistica/shipments/e1');
   });
 

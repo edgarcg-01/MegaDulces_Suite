@@ -318,6 +318,11 @@ export function validarToma(input: TomaInput, ctx: TomaContexto): string[] {
   if (!input.delivery_type || !['route', 'long_trip'].includes(input.delivery_type)) {
     errores.push('Indica si la entrega es por ruta o viaje largo.');
   }
+  // Lo que Kepler escribió no se cambia en la Suite: si Kepler trae al chofer, va ése. Otro
+  // chofer se corrige en Kepler, no aquí (la hoja lo muestra bloqueado; esto lo sostiene en la API).
+  if (ctx.chofer_kepler_driver_id && input.driver_id && input.driver_id !== ctx.chofer_kepler_driver_id) {
+    errores.push('El chofer viene de Kepler y no se cambia aquí: corrígelo en Kepler.');
+  }
   const chofer = input.driver_id || ctx.chofer_kepler_driver_id;
   if (!chofer) {
     errores.push('Falta el chofer: Kepler no lo trae para esta unidad. Elígelo.');

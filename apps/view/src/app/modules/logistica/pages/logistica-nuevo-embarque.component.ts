@@ -12,11 +12,6 @@ export function hoyLocal(d = new Date()): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-/** Suma de dinero en centavos (los totales vienen como texto numérico desde la vista). */
-export function sumarValor(rows: Array<Pick<KeplerTripRow, 'total'>>): number {
-  return rows.reduce((a, r) => a + Math.round(Number(r.total || 0) * 100), 0) / 100;
-}
-
 /**
  * EMB.12 — «Nuevo embarque», paso 1: ELEGIR el viaje que almacén ya dio de salida en Kepler.
  *
@@ -39,7 +34,7 @@ export function sumarValor(rows: Array<Pick<KeplerTripRow, 'total'>>): number {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Nuevo embarque</h1>
-          <p class="surf-page-sub">Paso 1 de 2 · Elige el viaje que almacén ya dio de salida en Kepler. Lo que Kepler no trae lo capturas en el paso 2.</p>
+          <p class="surf-page-sub">Paso 1 de 2 · Elige el viaje.</p>
         </div>
         <div class="ne-actions">
           <a pButton severity="secondary" [outlined]="true" size="small" routerLink="/logistica/shipments" [queryParams]="{ manual: 1 }">
@@ -67,28 +62,7 @@ export function sumarValor(rows: Array<Pick<KeplerTripRow, 'total'>>): number {
       </form>
 
       @if (!cargando() && rows().length) {
-        <section class="sheet cols-12" aria-label="Resumen del día">
-          <article class="cell cell-span-3">
-            <span class="cell-label">Viajes (guías)</span>
-            <span class="cell-value is-headline">{{ rows().length }}</span>
-            <span class="cell-sub">{{ paradas() }} parada{{ paradas() === 1 ? '' : 's' }}</span>
-          </article>
-          <article class="cell cell-span-3">
-            <span class="cell-label">Mercancía</span>
-            <span class="cell-value">{{ valor() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-            <span class="cell-sub">mezcla venta (entregas) y costo (traspasos)</span>
-          </article>
-          <article class="cell cell-span-3">
-            <span class="cell-label">Ya tomados</span>
-            <span class="cell-value">{{ tomados() }}</span>
-            <span class="cell-sub">con embarque en la Suite</span>
-          </article>
-          <article class="cell cell-span-3">
-            <span class="cell-label">Sin chofer en Kepler</span>
-            <span class="cell-value" [class.is-warn]="sinChofer() > 0">{{ sinChofer() }}</span>
-            <span class="cell-sub">el chofer se elige en el paso 2</span>
-          </article>
-        </section>
+        <p class="ne-count">{{ rows().length }} viaje{{ rows().length === 1 ? '' : 's' }} · {{ paradas() }} parada{{ paradas() === 1 ? '' : 's' }}</p>
       }
 
       <section class="ne-table-wrap dt-scope" aria-label="Viajes registrados en Kepler">
@@ -123,7 +97,6 @@ export function sumarValor(rows: Array<Pick<KeplerTripRow, 'total'>>): number {
                 <th scope="col">Unidad</th>
                 <th scope="col">Chofer</th>
                 <th scope="col" class="num">Valor</th>
-                <th scope="col">Estado</th>
                 <th scope="col"><span class="sr-only">Acción</span></th>
               </tr>
             </thead>
@@ -141,23 +114,8 @@ export function sumarValor(rows: Array<Pick<KeplerTripRow, 'total'>>): number {
                     <span>{{ r.transporte_code || '—' }}{{ r.transporte_descripcion ? ' · ' + r.transporte_descripcion : '' }}</span>
                     <span class="ne-sub ne-mono">{{ r.vehicle_plate || r.transporte_placas || 'sin placa' }}</span>
                   </td>
-                  <td data-label="Chofer" role="cell">
-                    @if (r.chofer_falta) {
-                      <span class="ne-pill is-warn">No viene en Kepler</span>
-                    } @else {
-                      <span>{{ r.chofer_nombre || r.chofer_code }}</span>
-                    }
-                  </td>
+                  <td data-label="Chofer" role="cell">{{ r.chofer_falta ? '—' : (r.chofer_nombre || r.chofer_code || '—') }}</td>
                   <td data-label="Valor" role="cell" class="num dt-num">{{ r.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td data-label="Estado" role="cell">
-                    @if (r.tomado_folio) {
-                      <span class="ne-pill is-ok">Tomado · {{ r.tomado_folio }}</span>
-                    } @else if (r.chofer_falta) {
-                      <span class="ne-pill is-warn">Falta chofer</span>
-                    } @else {
-                      <span class="ne-pill">Listo para tomar</span>
-                    }
-                  </td>
                   <td data-label="Acción" role="cell" class="dt-actions">
                     @if (r.tomado_shipment_id) {
                       <a pButton size="small" severity="secondary" [outlined]="true" [routerLink]="['/logistica/shipments', r.tomado_shipment_id]">
@@ -174,10 +132,6 @@ export function sumarValor(rows: Array<Pick<KeplerTripRow, 'total'>>): number {
               }
             </tbody>
           </table>
-          <p class="ne-foot">
-            Un viaje es una guía de embarque de Kepler (kdm1.c86); cada documento U-D-41 dentro de ella es una parada.
-            Kepler registra la salida, no la entrega: la entrega la confirma el chofer en la Suite.
-          </p>
         }
       </section>
     </div>
@@ -193,7 +147,6 @@ export function sumarValor(rows: Array<Pick<KeplerTripRow, 'total'>>): number {
     .ne-field input:focus-visible, .ne-field select:focus-visible, .ne-check input:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .ne-check { display: inline-flex; align-items: center; gap: .5rem; height: 2.25rem; font-size: var(--fs-sm); color: var(--c-text-1); }
     .ne-check input { width: 1rem; height: 1rem; accent-color: var(--action); }
-    .is-warn { color: var(--warn-soft-fg); }
 
     .ne-table-wrap { background: var(--c-surface-1); border: 1px solid var(--c-divider); border-radius: var(--r-md); padding: .5rem; overflow-x: auto; }
     .ne-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
@@ -204,10 +157,7 @@ export function sumarValor(rows: Array<Pick<KeplerTripRow, 'total'>>): number {
     .ne-code { font-weight: var(--fw-bold); }
     .ne-sub { display: block; font-size: var(--fs-xs); color: var(--c-text-2); }
     .ne-dest { max-width: 18rem; }
-    .ne-pill { display: inline-flex; align-items: center; padding: .1rem .5rem; border-radius: 999px; background: var(--c-surface-2); color: var(--c-text-1); font-size: var(--fs-xs); font-weight: var(--fw-medium); white-space: nowrap; }
-    .ne-pill.is-ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
-    .ne-pill.is-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
-    .ne-foot { margin: .5rem .25rem 0; font-size: var(--fs-xs); color: var(--c-text-2); }
+    .ne-count { margin: 0 0 .5rem; font-size: var(--fs-sm); color: var(--c-text-2); }
     .ne-empty { text-align: center; padding: 2.5rem 1rem; display: flex; flex-direction: column; align-items: center; gap: .5rem; color: var(--c-text-2); }
     .ne-empty h3 { margin: 0; font-size: var(--fs-h3); color: var(--c-text-1); }
     .ne-empty p { margin: 0; font-size: var(--fs-sm); }
@@ -237,9 +187,6 @@ export class LogisticaNuevoEmbarqueComponent implements OnInit {
   readonly rows = signal<KeplerTripRow[]>([]);
 
   readonly paradas = computed(() => this.rows().reduce((a, r) => a + Number(r.paradas || 0), 0));
-  readonly valor = computed(() => sumarValor(this.rows()));
-  readonly tomados = computed(() => this.rows().filter((r) => !!r.tomado_folio).length);
-  readonly sinChofer = computed(() => this.rows().filter((r) => r.chofer_falta && !r.tomado_folio).length);
 
   ngOnInit() { this.cargar(); }
 

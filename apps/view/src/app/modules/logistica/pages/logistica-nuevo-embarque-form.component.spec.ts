@@ -9,9 +9,9 @@ import { hojaGuia0001419, hojaSinChofer } from '../../../../testing/nuevo-embarq
 import { Driver, NuevoEmbarqueHoja } from '../logistica.service';
 
 /**
- * EMB.12 — «Nuevo embarque», paso 2. Lo que se prueba es lo que decide algo:
- *   · el chofer se pide SÓLO si Kepler no lo trae (unidad 00008 de Padre Hidalgo);
- *   · la comisión arranca con la sugerida por el catálogo de rutas;
+ * EMB.12 — «Nuevo embarque», paso 2: la hoja de embarque. Lo que se prueba es lo que decide algo:
+ *   · lo de Kepler va lleno y bloqueado; lo demás, en blanco para teclear — sin leyendas ni avisos;
+ *   · el chofer es campo SÓLO si Kepler no lo trae (unidad 00008 de Padre Hidalgo);
  *   · el cuerpo que se manda lleva sólo lo capturado, y al crear se va al embarque.
  */
 
@@ -27,8 +27,11 @@ describe('erroresDeCaptura', () => {
     expect(erroresDeCaptura(vacia(), hojaGuia0001419())).toEqual([]);
   });
   it('sin chofer en Kepler hay que elegirlo', () => {
-    expect(erroresDeCaptura(vacia(), hojaSinChofer())).toContain('Elige al chofer: Kepler no lo trae para esta unidad.');
+    expect(erroresDeCaptura(vacia(), hojaSinChofer())).toContain('Elige al chofer.');
     expect(erroresDeCaptura(vacia({ driver_id: 'd9' }), hojaSinChofer())).toEqual([]);
+  });
+  it('el tipo de entrega no viene de Kepler: hay que elegirlo', () => {
+    expect(erroresDeCaptura(vacia({ delivery_type: null }), hojaGuia0001419())).toEqual(['Elige el tipo de entrega.']);
   });
   it('un viaje ya tomado no se puede volver a tomar', () => {
     const h = hojaGuia0001419({ tomado: { id: 'e1', folio: 'EMB-2026-00012', status: 'programado' } });
@@ -86,24 +89,61 @@ const PERSONAS = [
 ] as Driver[];
 
 describe('LogisticaNuevoEmbarqueFormComponent', () => {
-  it('trae la hoja de Kepler y arranca la comisión del chofer con la sugerida', () => {
-    const { el, comp } = montar(hojaGuia0001419(), PERSONAS);
-    expect(el.querySelector('app-kepler-hoja')).not.toBeNull();
-    expect(comp.c.driver_commission).toBe(98.04);
-    expect(el.textContent).toContain('Del catálogo de rutas: JIQUILPAN');
-    // La ruta que Kepler escribe distinto («SANTAGIO TANGAMNADAPIO») se declara sin tarifa.
-    expect(el.textContent).toContain('Sin tarifa en el catálogo de rutas de la Suite');
-  });
-
-  it('con chofer de Kepler lo muestra fijo, sin selector', () => {
+  it('es UNA hoja: lo de Kepler va lleno y bloqueado, lo demás en blanco para teclear', () => {
     const { el } = montar(hojaGuia0001419(), PERSONAS);
-    expect(el.querySelector('#nf-chofer')).toBeNull();
-    expect(el.textContent).toContain('CESAR C.');
+    const bloqueados = Object.fromEntries([...el.querySelectorAll('dl.hj-f')].map((x) => [
+      x.querySelector('dt')!.textContent!.trim(), x.querySelector('dd')!.textContent!.trim(),
+    ]));
+    expect(bloqueados).toMatchObject({
+      Fecha: '2026-10-03', Guía: '0001419', Origen: 'Sucursal Canindo', Unidad: '00017 · FORD 450 GASOLINA SUPER DUTY',
+      Placas: 'NC-1134-D', Chofer: '00017 · CESAR C.', Cajas: '190', Sueltos: '85', 'Valor de la mercancía': '$159,596.20',
+      Surtió: 'JORGE, JOSE RAMON', Checó: 'ANA GABRIELA C.', Embarcó: 'JUAN MANUEL E.',
+    });
+    // Lo bloqueado no es un campo: no se edita ni se le pasa con Tab.
+    expect(el.querySelector('dl.hj-f input, dl.hj-f select, dl.hj-f textarea')).toBeNull();
+    // Lo que se teclea: tipo de entrega, ayudantes, comisiones, viáticos, peso, km, flete, notas.
+    for (const id of ['hj-ay1', 'hj-ay2', 'hj-com1', 'hj-com2', 'hj-com3', 'hj-pd', 'hj-pern', 'hj-peso', 'hj-km', 'hj-flete', 'hj-notas']) {
+      expect(el.querySelector('#' + id)).not.toBeNull();
+    }
+    expect(el.querySelectorAll('input[name="tipo"]').length).toBe(2);
+    expect(el.querySelectorAll('app-kepler-paradas tbody tr').length).toBe(13);
   });
 
-  it('sin chofer en Kepler el botón no avanza hasta elegirlo', () => {
+  it('no le muestra qué está y qué no: sin leyendas, marcas de origen ni avisos', () => {
+    const texto = montar(hojaGuia0001419(), PERSONAS).el.textContent!;
+    for (const ruido of ['Viene de Kepler', 'Captura', 'Sugerido', 'No existe en Kepler', 'Sin medir', '¿Qué tan completo',
+      'Del catálogo de rutas', 'Sin tarifa', 'kdm1', 'kdudent', 'La nota dice', 'Kepler sólo registra']) {
+      expect(texto).not.toContain(ruido);
+    }
+  });
+
+  it('la comisión del chofer arranca con la del catálogo de rutas y se puede cambiar', () => {
+    const { el, comp } = montar(hojaGuia0001419(), PERSONAS);
+    expect(comp.c.driver_commission).toBe(98.04);
+    expect((el.querySelector('#hj-com1') as HTMLInputElement).readOnly).toBe(false);
+  });
+
+  it('el tipo de entrega arranca en blanco: lo elige quien arma el embarque', () => {
+    const { el, comp } = montar(hojaGuia0001419(), PERSONAS);
+    expect(comp.c.delivery_type).toBeNull();
+    expect([...el.querySelectorAll<HTMLInputElement>('input[name="tipo"]')].some((r) => r.checked)).toBe(false);
+    expect(comp.puedeCrear()).toBe(false);
+    comp.c.delivery_type = 'route';
+    comp.tocar();
+    expect(comp.puedeCrear()).toBe(true);
+  });
+
+  it('con chofer de Kepler va bloqueado, sin selector para cambiarlo', () => {
+    const { el } = montar(hojaGuia0001419(), PERSONAS);
+    expect(el.querySelector('#hj-chofer')).toBeNull();
+    expect(el.textContent).not.toContain('Cambiar');
+  });
+
+  it('sin chofer en Kepler el chofer es un campo más, y el botón no avanza hasta elegirlo', () => {
     const { f, el, comp } = montar(hojaSinChofer(), PERSONAS);
-    expect(el.querySelector('#nf-chofer')).not.toBeNull();
+    expect(el.querySelector('#hj-chofer')).not.toBeNull();
+    comp.c.delivery_type = 'route';
+    comp.tocar();
     expect(comp.puedeCrear()).toBe(false);
     comp.c.driver_id = 'd-otro';
     comp.tocar();
@@ -119,18 +159,21 @@ describe('LogisticaNuevoEmbarqueFormComponent', () => {
     expect(botones.length).toBe(2);
     botones.forEach((b) => {
       expect(b.disabled).toBe(true);
-      expect(b.getAttribute('aria-describedby')).toBe('nf-faltan');
+      expect(b.getAttribute('aria-describedby')).toBe('hj-faltan');
     });
-    expect(el.querySelector('#nf-faltan')?.textContent).toContain('Elige al chofer');
+    const faltan = el.querySelector('#hj-faltan')!.textContent!;
+    expect(faltan).toContain('Elige el tipo de entrega.');
+    expect(faltan).toContain('Elige al chofer.');
 
+    comp.c.delivery_type = 'route';
     comp.c.driver_id = 'd-otro';
     comp.tocar();
     f.detectChanges();
-    expect(el.querySelector('#nf-faltan')).toBeNull();
+    expect(el.querySelector('#hj-faltan')).toBeNull();
     botones.forEach((b) => expect(b.getAttribute('aria-describedby')).toBeNull());
   });
 
-  it('al elegir ayudante le pone la comisión sugerida de ayudante', () => {
+  it('al elegir ayudante le pone la comisión de ayudante del catálogo', () => {
     const { comp } = montar(hojaGuia0001419(), PERSONAS);
     comp.c.helper1_id = 'd-ay';
     comp.alElegirAyudante('helper1');
@@ -139,13 +182,14 @@ describe('LogisticaNuevoEmbarqueFormComponent', () => {
 
   it('crear manda sólo lo capturado y lleva al embarque nuevo', () => {
     const { http, comp, nav } = montar(hojaGuia0001419(), PERSONAS);
+    comp.c.delivery_type = 'long_trip';
     comp.c.helper1_id = 'd-ay';
     comp.alElegirAyudante('helper1');
     comp.c.actual_km = 180;
     comp.crear();
     const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/logistics/shipments/from-kepler/06/0001419'));
     expect(req.request.body).toMatchObject({
-      delivery_type: 'route', driver_id: null, helper1_id: 'd-ay',
+      delivery_type: 'long_trip', driver_id: null, helper1_id: 'd-ay',
       driver_commission: 98.04, helper1_commission: 57.76, actual_km: 180, total_weight_kg: null,
     });
     req.flush({ shipment: { id: 'nuevo-id' }, guide: {}, destinatarios: 13 });
@@ -154,6 +198,8 @@ describe('LogisticaNuevoEmbarqueFormComponent', () => {
 
   it('si el servidor rechaza (otra persona lo tomó), lo dice y no navega', () => {
     const { f, http, el, comp, nav } = montar(hojaGuia0001419(), PERSONAS);
+    comp.c.delivery_type = 'route';
+    comp.tocar();
     comp.crear();
     http.expectOne((r) => r.method === 'POST').flush(
       { message: 'Otra persona acaba de tomar este viaje. Recarga la lista.' }, { status: 409, statusText: 'Conflict' });

@@ -88,7 +88,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         @if (s.kepler_guia) {
           <div class="shd-kepler">
             @if (hojaKepler(); as hk) {
-              <app-kepler-hoja [hoja]="hk" modo="final" [entregas]="entregasKepler()"></app-kepler-hoja>
+              <app-kepler-hoja [hoja]="hk" [entregas]="entregasKepler()"></app-kepler-hoja>
               <app-kepler-costo
                 [guia]="guides()[0] ?? null"
                 [personas]="drivers()"

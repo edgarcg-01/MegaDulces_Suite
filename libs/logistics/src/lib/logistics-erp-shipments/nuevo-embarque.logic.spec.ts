@@ -241,6 +241,13 @@ describe('validarToma', () => {
     expect(validarToma({ ...base, driver_id: 'd-x' }, ctxSinChofer)).toEqual([]);
   });
 
+  it('si Kepler trae al chofer, la API no acepta otro: se corrige en Kepler', () => {
+    expect(validarToma({ ...base, driver_id: 'd-otro' }, ctxConChofer))
+      .toContain('El chofer viene de Kepler y no se cambia aquí: corrígelo en Kepler.');
+    // Mandar el mismo que trae Kepler no es un cambio.
+    expect(validarToma({ ...base, driver_id: 'd-cesar' }, ctxConChofer)).toEqual([]);
+  });
+
   it('una guía ya tomada no se toma otra vez, y dice en qué embarque está', () => {
     expect(validarToma(base, { ...ctxConChofer, ya_tomado_folio: 'EMB-2026-00012' }))
       .toContain('Este viaje ya se tomó en el embarque EMB-2026-00012.');

@@ -72,7 +72,7 @@ export function costoEstimado(
               <tr><th scope="row">Viáticos{{ g.overnight ? ' · con pernocta' : '' }}</th><td class="num">{{ g.per_diem_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr>
             </tbody>
           </table>
-          <p class="kc-hint">Guía de entrega <code>{{ g.number }}</code>. Kepler sólo registra al chofer; ayudantes, comisiones y viáticos son de la Suite.</p>
+          <p class="kc-hint">Guía de entrega <code>{{ g.number }}</code>.</p>
         } @else {
           <p class="kc-hint">Este embarque no tiene guía de entrega.</p>
         }

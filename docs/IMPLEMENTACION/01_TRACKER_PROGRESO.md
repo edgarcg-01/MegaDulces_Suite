@@ -1936,8 +1936,14 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   facturación `c43`; hora de captura `c69`; nota de almacén `c24-c26`), `erp_shipment_stop_load`
   (cajas = `kdm2.c54` en CJA/BTO, sueltos el resto, kg sólo de renglones por kilo) y
   `v_kepler_responsables` (`kdm_cat_sur/che/emb`). Pantallas `/logistica/shipments/nuevo` (elegir el
-  viaje del día) y `/logistica/shipments/nuevo/:sucursal/:guia` (hoja de Kepler + captura); la
-  hoja final vive en el detalle del embarque con entregas y costo estimado. «Embarque manual»
+  viaje del día) y `/logistica/shipments/nuevo/:sucursal/:guia`: la **hoja de embarque**, un solo
+  formato con las secciones del embarque manual donde lo de Kepler va lleno y **bloqueado** (no se
+  edita en la Suite, se corrige en Kepler) y lo demás en blanco para teclear. Por decisión del
+  usuario la hoja **no** dice qué viene de Kepler y qué no: sin leyenda, sin marcas de origen, sin
+  panel de completitud ni avisos — sólo «Para crear el embarque falta:» junto al botón. El tipo de
+  entrega arranca en blanco (no es dato de Kepler) y el chofer de Kepler no se cambia: la API
+  responde 400 si se manda otro. La misma hoja, toda bloqueada, vive en el detalle del embarque con
+  entregas y costo estimado. «Embarque manual»
   (`?manual=1`) queda para lo que Kepler no emite. **Pruebas:** `libs/logistics` estrena Vitest
   (45, con mutación verificada), `apps/view` 50 (dos mutaciones verificadas), DB
   `test-newdb-emb-nuevo-embarque.js` 14/14 con prueba negativa del candado; además se ejecutó el
@@ -1947,8 +1953,8 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   **Falta:** aplicar la migración a prod (una por una) + redeploy api+view (sin permisos nuevos).
 - [ ] **[EMB.13]** ⬜ **Comisión de un viaje con varias rutas.** El catálogo de rutas tiene una
   tarifa por ruta y una guía cruza hasta 5 (medido: 71 de 122 guías de Telemarketing de PH son de
-  una sola). EMB.12 sugiere la **mayor** del viaje y lo dice en pantalla; la regla es una propuesta
-  que decide Logística. Y el emparejamiento es por `kepler_code` o nombre EXACTO: Kepler escribe
+  una sola). EMB.12 precarga la **mayor** del viaje en la comisión del chofer (editable); la regla
+  es una propuesta que decide Logística. Y el emparejamiento es por `kepler_code` o nombre EXACTO: Kepler escribe
   «SANTAGIO TANGAMNADAPIO», que no es «TANGAMANDAPIO» — se declara «sin tarifa», no se adivina.
 - [ ] **[EMB.14]** ⬜ **Tarifas de viáticos sin configurar** (`logistics.config_finance` no tiene la
   categoría `viatico` en la base local): la hoja pide el total a mano. Configurarlas activa el
