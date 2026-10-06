@@ -29,6 +29,9 @@ export * from './http/price-presentation.contract';
 // [SM.39] Denominaciones MXN. La clave de una denominacion NO es su valor: el
 // billete y la moneda de $20 valen lo mismo y son cosas distintas.
 export * from './money/denominations';
+// [CG.38] El cambio en Caja General: todo acto tiene una pila que ENTRA y otra que SALE, y el
+// neto es la resta. Un canje cuyas dos mitades no coinciden es un descuadre, no un canje.
+export * from './work/caja-cambio.contract';
 // [CH.1.10] Identidad: el tipo de cuenta y la duración de sesión de un dispositivo.
 export * from './http/identity.contract';
 // [SN.2] Identidad: el contexto de la persona en sesión (persona/puesto/departamento) para "Mi trabajo".

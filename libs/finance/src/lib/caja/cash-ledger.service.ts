@@ -38,7 +38,42 @@ export interface LedgerQuery {
   cuenta?: string; search?: string; limit?: number; offset?: number;
 }
 
-export interface DenominationInput { denominacion: number; piezas: number }
+/**
+ * `[CG.38]` Un renglón del arqueo.
+ *
+ * `denom_key` es la IDENTIDAD (llave del catálogo MXN compartido) y `flujo` dice de qué lado
+ * del acto está: lo que entró o el cambio que se devolvió.
+ *
+ * ⚠️ Los dos son **opcionales a propósito** y tienen default. Durante la ventana en que la
+ * migración ya está aplicada y el front todavía no manda llaves, el servicio tiene que seguir
+ * guardando — si no, la columna `NOT NULL` tira **toda captura de efectivo**. Es la regla del
+ * equipo: *base y código separados es cómo se rompe producción en silencio*; acá se cierra por
+ * el lado del código, que es el que puede tolerar las dos formas.
+ */
+export interface DenominationInput {
+  denominacion: number;
+  piezas: number;
+  denom_key?: string;
+  flujo?: 'recibido' | 'devuelto';
+}
+
+/**
+ * `[CG.38]` La llave de un renglón cuando el cliente mandó sólo el valor.
+ *
+ * ⛔ **Asume BILLETE**, y hay que decir por qué no es una adivinanza: el único valor ambiguo en
+ * México es el `20` —existe el billete y la moneda—, y hasta `[CG.38]` la pantalla ofrecía
+ * **únicamente billetes**. O sea que un cliente que manda sólo el valor es, por construcción,
+ * un cliente viejo, y lo que contó fue un billete.
+ *
+ * ⚠️ El que manda monedas tiene que mandar la llave. Si no la manda y el valor es ambiguo, esto
+ * elige el billete — por eso la pantalla nueva manda `denom_key` siempre, y por eso esta función
+ * es el puente de una ventana de despliegue, no la forma correcta de resolverlo.
+ */
+function llaveDeValor(valor: number): string {
+  const v = Number(valor);
+  // El catálogo compartido da la llave del billete como el valor a secas; 0.5 en vez de 0.50.
+  return v === 0.5 ? '0.5' : String(v);
+}
 
 export interface CreateMovementInput {
   tipo: 'ingreso' | 'gasto' | 'deposito';
@@ -744,7 +779,15 @@ export class CashLedgerService {
 
       if (dens.length) {
         await trx('finance.cash_ledger_denominations').insert(
-          dens.map((d) => ({ tenant_id: tenantId, cash_ledger_id: mov.id, denominacion: d.denominacion, piezas: d.piezas })),
+          dens.map((d) => ({
+            tenant_id: tenantId,
+            cash_ledger_id: mov.id,
+            // [CG.38] La llave manda; el valor queda derivado y atado por `cash_denom_par_chk`.
+            denom_key: d.denom_key ?? llaveDeValor(d.denominacion),
+            denominacion: d.denominacion,
+            piezas: d.piezas,
+            flujo: d.flujo ?? 'recibido',
+          })),
         );
       }
       // CS.3.4 — Enlaces al cajero (CAOS): registran qué retiros financiaron esta captura, CONSUMEN
