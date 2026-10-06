@@ -147,12 +147,11 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
      * `[GP.1]` Fase GP — el pedido que SALE del almacén (Kepler `U-D-40`, telemarketing y
      * sucursal). Hoy un solo tab: el tablero de lectura. Surtido, checado y carga (GP.3–GP.5)
      * entran aquí como tabs con su pantalla; no se declaran antes porque sin ruta el tab tiraría
-     * 404. Permiso `COMMERCIAL_PICKING_VER`, compartido a propósito con Reparto › Surtido (ver
-     * el comentario en `authz-tree.ts`).
+     * 404. Permiso propio `ALMACEN_PEDIDOS_VER` (ver el comentario en `authz-tree.ts`).
      */
     match: ['/almacen/pedidos'],
     tabs: [
-      { label: 'Tablero', icon: 'pi pi-list-check', route: '/almacen/pedidos', permission: Permission.COMMERCIAL_PICKING_VER, exact: true },
+      { label: 'Tablero', icon: 'pi pi-list-check', route: '/almacen/pedidos', permission: Permission.ALMACEN_PEDIDOS_VER, exact: true },
     ],
   },
   {

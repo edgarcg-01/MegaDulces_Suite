@@ -212,11 +212,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // es dinero —arqueo ciego, descuadre de caja— con una pata en inventario.
           { id: 'movimientos', label: 'Diario de movimientos', route: '/almacen/movimientos', view: [Permission.COMMERCIAL_MOVEMENTS_VER], manage: [Permission.COMMERCIAL_MOVEMENTS_GESTIONAR] },
           // [GP.1] Tablero de pedidos Kepler U-D-40 (telemarketing y sucursal), sólo lectura.
-          // ⚠️ PERMISO COMPARTIDO A PROPÓSITO con 'reparto-surtido' (proyecto Reparto): es el mismo
-          // trabajo de piso —surtir lo que sale— y COMMERCIAL_PICKING_VER ya está repartido a
-          // almacenistas y encargados de tienda. Crear uno nuevo lo dejaba sin repartir ([LC.6.2]).
-          // Mismo precedente que EXISTENCIA_* y COMMERCIAL_EXPIRY_* (ver el comentario de arriba).
-          { id: 'pedidos', label: 'Pedidos', route: '/almacen/pedidos', view: [Permission.COMMERCIAL_PICKING_VER], manage: [] },
+          // Permiso PROPIO: lo ven telemarketing y facturación, y reusar COMMERCIAL_PICKING_VER les
+          // abría también Reparto › Surtido. Se reparte por migración (20261006200000), no queda
+          // sólo declarado ([LC.6.2]).
+          { id: 'pedidos', label: 'Pedidos', route: '/almacen/pedidos', view: [Permission.ALMACEN_PEDIDOS_VER], manage: [] },
           // Análisis BI: superficie de LECTURA, sin manage (todavía no escribe nada). Con la
           // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing
           // → un rol que sólo tenga esta clave aterriza acá en vez de rebotar a /sin-acceso.

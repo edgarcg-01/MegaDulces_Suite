@@ -276,6 +276,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_MOVEMENTS_GESTIONAR]: { label: 'Auditar Movimientos', description: 'Marcar/desmarcar un documento de movimiento como auditado.', category: 'Comercial' },
 
   // ── Almacén — Análisis BI ─────────────────────────────────────────────
+  [Permission.ALMACEN_PEDIDOS_VER]: { label: 'Ver tablero de pedidos (Almacén)', description: 'Pedidos de Kepler (telemarketing y sucursal) por estatus y periodo, con su detalle por renglón (/almacen/pedidos). Solo lectura.', category: 'Comercial' },
   [Permission.ALMACEN_BI_VER]: { label: 'Ver Análisis BI (Almacén)', description: 'Espacio de indicadores cruzados del almacén (/almacen/analisis-bi). Solo lectura.', category: 'Comercial' },
   [Permission.AUTOABASTO_VER]: { label: 'Ver Autoabasto', description: 'Mesa de trabajo del almacenista y el encargado: qué falta, cuánto pedir y para cuándo (/almacen/autoabasto). Solo lectura.', category: 'Comercial' },
   [Permission.AUTOABASTO_SOLICITAR]: { label: 'Preparar solicitudes de abasto', description: 'Prepara solicitudes al comprador y propone cambios de mínimos, reorden y máximos. NO autoriza.', category: 'Comercial' },
