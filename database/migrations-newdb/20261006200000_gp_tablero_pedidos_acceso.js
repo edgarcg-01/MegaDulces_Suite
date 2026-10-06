@@ -46,8 +46,13 @@
  *    desde la pantalla.
  *  · María del Carmen García y Monserrath Frausto (facturadoras en `telemarketing`) NO se mueven
  *    al perfil `facturacion`: perderían lo de telemarketing sin haber medido qué usan.
- *  · Estefanía PIERDE las pantallas de Compras que le daba `auxiliar_compras` (órdenes de entrada,
- *    requisiciones…): ese rol no era el de su trabajo. Si usa alguna, se le agrega al perfil.
+ *  · Estefanía CONSERVA Compras (órdenes de entrada, requisiciones…) porque las usa por su doble
+ *    función: al cambiar `users.role_name`, el disparador `trg_sync_primary_role` degrada el perfil
+ *    anterior a COMPLEMENTO en `identity.user_roles` (no lo borra) y el login une los dos. No se
+ *    toca el perfil `facturacion`: así las demás facturadoras no heredan Compras. (Medido en local
+ *    el 2026-10-06; antes de medirlo se había declarado, mal, que lo perdía.)
+ *  · A Juan Diego, en cambio, el mismo disparador le dejaría `compras_operaciones` (35 permisos)
+ *    como complemento, y su trabajo es Embarques: ese complemento se le QUITA explícitamente.
  *
  * Idempotente.
  *
@@ -190,8 +195,8 @@ exports.up = async function up(knex) {
       .onConflict(['tenant_id', 'user_id', 'dimension', 'area'])
       .merge(['mode', 'values', 'nota']);
     await evento(estefania.id, 'roles_changed', {
-      quitados: ['auxiliar_compras'], agregados: ['facturacion'], perfil_base: 'facturacion',
-      motivo: `Puesto principal Facturación CEDIS, opera desde PH; ve PH (01) y CEDIS (00). ${AUTORIZA}.`,
+      quitados: [], agregados: ['facturacion'], perfil_base: 'facturacion', complementos: ['auxiliar_compras'],
+      motivo: `Puesto principal Facturación CEDIS, opera desde PH; ve PH (01) y CEDIS (00). Conserva Compras como complemento por su doble función. ${AUTORIZA}.`,
     });
     console.log('  [GP.1] estefania_mendez → facturacion, Facturación CEDIS, ve 01 y 00');
   } else {
@@ -211,8 +216,12 @@ exports.up = async function up(knex) {
         sessions_revoked_at: knex.fn.now(),
         updated_at: knex.fn.now(),
       });
+    // El disparador dejó compras_operaciones como complemento: se quita a propósito (su puesto es Embarques).
+    await knex('identity.user_roles')
+      .where({ tenant_id: tenant, user_id: juanDiego.id, role_name: 'compras_operaciones', is_primary: false })
+      .del();
     await evento(juanDiego.id, 'roles_changed', {
-      quitados: ['compras_operaciones'], agregados: ['coordinador_embarques'], perfil_base: 'coordinador_embarques',
+      quitados: ['compras_operaciones'], agregados: ['coordinador_embarques'], perfil_base: 'coordinador_embarques', complementos: [],
       motivo: `Coordinador de embarques en PH (01). ${AUTORIZA}.`,
     });
     console.log('  [GP.1] juan_arellano → coordinador_embarques, Embarques, PH');
@@ -236,15 +245,24 @@ exports.up = async function up(knex) {
 exports.down = async function down(knex) {
   const tenant = (await knex.raw(`SELECT id FROM identity.tenants WHERE slug = 'mega_dulces'`)).rows[0]?.id;
   if (!tenant) return;
-  // Personas: se devuelven a como se midieron, sólo si siguen como las dejó el up.
-  await knex('identity.users')
+  // Personas: se devuelven a como se midieron, sólo si siguen como las dejó el up. El disparador
+  // re-promueve el perfil anterior a principal; el complemento que dejó el up se limpia a mano.
+  const jd = await knex('identity.users')
     .where({ tenant_id: tenant, username: 'juan_arellano', role_name: 'coordinador_embarques', position_code: 'embarques' })
-    .update({ role_name: 'compras_operaciones', position_code: 'encargado_operaciones', updated_at: knex.fn.now() });
+    .first('id');
+  if (jd) {
+    await knex('identity.users').where({ id: jd.id })
+      .update({ role_name: 'compras_operaciones', position_code: 'encargado_operaciones', updated_at: knex.fn.now() });
+    await knex('identity.user_roles').where({ tenant_id: tenant, user_id: jd.id, role_name: 'coordinador_embarques', is_primary: false }).del();
+  }
   await knex('identity.users')
     .where({ tenant_id: tenant, username: 'estefania_mendez', role_name: 'facturacion' })
     .update({ role_name: 'auxiliar_compras', position_code: 'facturador', department_code: 'tienda', updated_at: knex.fn.now() });
   const est = await knex('identity.users').where({ tenant_id: tenant, username: 'estefania_mendez' }).first('id');
-  if (est) await knex('identity.user_scopes').where({ tenant_id: tenant, user_id: est.id, dimension: 'warehouse', area: '*' }).del();
+  if (est) {
+    await knex('identity.user_scopes').where({ tenant_id: tenant, user_id: est.id, dimension: 'warehouse', area: '*' }).del();
+    await knex('identity.user_roles').where({ tenant_id: tenant, user_id: est.id, role_name: 'facturacion', is_primary: false }).del();
+  }
   // La cuenta duplicada NO se reactiva: era un error de alta, no un estado al que volver.
 
   for (const [puesto, rol] of Object.entries(PUESTOS)) {
