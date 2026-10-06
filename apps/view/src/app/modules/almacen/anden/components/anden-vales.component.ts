@@ -33,7 +33,7 @@ import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service
             <span class="va-code">{{ sucursal().warehouse_code || sucursal().sucursal }}</span>
             <span>{{ sucursal().warehouse_name || 'Sucursal ' + sucursal().sucursal }}</span>
           </div>
-          <p class="va-sub">{{ sucursal().pendientes | number }} por recibir · {{ hoy }}</p>
+          <p class="va-sub">{{ sucursal().pendientes | number }} por recibir · <span class="va-dia">{{ hoy }}</span></p>
         </div>
       </header>
 
@@ -114,7 +114,9 @@ import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service
       font-size: var(--fs-xs); font-weight: var(--fw-black); font-variant-numeric: tabular-nums;
     }
     .va-sub { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--text-muted);
-      font-variant-numeric: tabular-nums; text-transform: capitalize; }
+      font-variant-numeric: tabular-nums; }
+    /* Sólo el día va con mayúscula ("Mar, 06/10"); capitalizar el renglón entero daba "Por Recibir". */
+    .va-dia { text-transform: capitalize; }
     .va-nota { margin: 0; padding: var(--sp-3); text-align: center; font-size: var(--fs-sm); color: var(--text-muted); }
     .va-mal {
       display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2);
