@@ -8,6 +8,9 @@
  * crea un segundo esquema.
  *
  * Qué agrega:
+ *   0. `hr.attendance_sites`: el sitio de checado (relojes que comparten la numeración de
+ *      personas). No es un almacén: corporativo y CEDIS son el mismo almacén 00 y sus códigos
+ *      chocarían. Todas las tablas de RH que llevan `site_code` apuntan aquí.
  *   1. `hr.attendance_devices`: cómo entra cada reloj (`ingest_mode`), si está en pausa
  *      (`is_paused`: sus marcas no se aplican hasta mapear sus códigos) y el latido del
  *      lector (`last_punch_at`, `last_backfill_at`, `seen_ip`, `logs_in_db`, `agent_*`).
@@ -47,6 +50,45 @@ exports.up = async function (knex) {
       await knex.raw(`ALTER TABLE hr.${table} ADD COLUMN ${column} ${ddl}`);
     }
   };
+
+  // ── 0) Sitios de checado ────────────────────────────────────────────────────
+  // Un sitio es el conjunto de relojes que comparten la misma numeración de personas (el
+  // "sucursal_id" de Mega Talento: corporativo tiene dos relojes con los mismos códigos). NO es
+  // un almacén: corporativo y CEDIS son el almacén 00 de Kepler y sus códigos chocarían si el
+  // sitio fuera el almacén. Cada sitio apunta a su almacén en `warehouse_code`.
+  if (!(await knex.schema.withSchema('hr').hasTable('attendance_sites'))) {
+    await knex.raw(`
+      CREATE TABLE hr.attendance_sites (
+        id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id       uuid NOT NULL,
+        code            text NOT NULL,                     -- 'corporativo', 'cedis', 'morelia-abastos'…
+        name            text NOT NULL,
+        warehouse_code  text,                              -- código Kepler del almacén (00, 01, …); lo valida RH
+        is_active       boolean NOT NULL DEFAULT true,
+        notes           text,
+        created_at      timestamptz NOT NULL DEFAULT now(),
+        created_by      uuid,
+        updated_at      timestamptz NOT NULL DEFAULT now(),
+        updated_by      uuid,
+        UNIQUE (tenant_id, id),
+        UNIQUE (tenant_id, code),
+        CONSTRAINT attendance_sites_code_ck CHECK (code ~ '^[a-z0-9][a-z0-9-]*$')
+      )`);
+    await knex.raw(`COMMENT ON TABLE hr.attendance_sites IS 'Fase RH: sitio de checado = relojes que comparten numeración de personas. No es un almacén; apunta a uno (warehouse_code).'`);
+    await rls('attendance_sites');
+  }
+  // El `site_code` de los relojes (Fase CH) pasa a apuntar a un sitio. NOT VALID: lo que ya
+  // exista no se valida (en prod la tabla está vacía; en desarrollo puede traer valores viejos),
+  // pero todo lo nuevo sí.
+  await knex.raw(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'attendance_devices_site_fk') THEN
+        ALTER TABLE hr.attendance_devices
+          ADD CONSTRAINT attendance_devices_site_fk
+          FOREIGN KEY (tenant_id, site_code) REFERENCES hr.attendance_sites (tenant_id, code)
+          ON UPDATE CASCADE NOT VALID;
+      END IF;
+    END $$`);
 
   // ── 1) Relojes: modo de entrada, pausa y latido del lector ──────────────────
   await addColumn('attendance_devices', 'ingest_mode',
@@ -146,6 +188,8 @@ exports.up = async function (knex) {
 };
 
 exports.down = async function (knex) {
+  await knex.raw(`ALTER TABLE hr.attendance_devices DROP CONSTRAINT IF EXISTS attendance_devices_site_fk`);
+  await knex.schema.withSchema('hr').dropTableIfExists('attendance_sites');
   await knex.schema.withSchema('hr').dropTableIfExists('ingest_batches');
   await knex.schema.withSchema('hr').dropTableIfExists('device_commands');
   await knex.raw(`DROP INDEX IF EXISTS hr.ix_hr_log_user`);

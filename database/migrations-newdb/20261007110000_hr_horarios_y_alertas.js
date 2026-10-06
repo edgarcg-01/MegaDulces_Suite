@@ -11,9 +11,9 @@
  * ya usa; `user_id` es la que usa la Suite. Los dos conviven hasta que todas las personas
  * estén mapeadas.
  *
- * `site_code` = el código de sucursal de Kepler (`commercial.warehouses.kepler_code`), igual
- * que en `hr.attendance_devices`. El mapeo desde los nombres de plaza de Mega Talento lo valida
- * RH en `[RH.0.4]`; no se adivina.
+ * `site_code` = el sitio de checado (`hr.attendance_sites`, migración 100000): los relojes que
+ * comparten la numeración de personas. Cada sitio apunta a su almacén; ese mapeo lo valida RH en
+ * `[RH.0.4]`, no se adivina.
  *
  * Qué crea:
  *   1. `hr.work_schedules`   — horarios por sitio (entrada, comida, salida, días, tolerancia).
@@ -63,11 +63,12 @@ exports.up = async function (knex) {
         updated_at         timestamptz NOT NULL DEFAULT now(),
         updated_by         uuid,
         UNIQUE (tenant_id, id),
+        FOREIGN KEY (tenant_id, site_code) REFERENCES hr.attendance_sites (tenant_id, code) ON UPDATE CASCADE,
         CONSTRAINT work_schedules_weekdays_ck CHECK (weekdays <@ ARRAY[0,1,2,3,4,5,6]::smallint[]),
         CONSTRAINT work_schedules_lunch_ck CHECK ((lunch_starts_at IS NULL) = (lunch_ends_at IS NULL))
       )`);
     await knex.raw(`CREATE INDEX ix_hr_sched_site ON hr.work_schedules (tenant_id, site_code) WHERE is_active`);
-    await knex.raw(`COMMENT ON TABLE hr.work_schedules IS 'Fase RH: horario por sitio (antes horarios_sucursal de Mega Talento). site_code = código Kepler.'`);
+    await knex.raw(`COMMENT ON TABLE hr.work_schedules IS 'Fase RH: horario por sitio de checado (antes horarios_sucursal de Mega Talento).'`);
     await rls('work_schedules');
   }
 
@@ -94,6 +95,7 @@ exports.up = async function (knex) {
         updated_at          timestamptz NOT NULL DEFAULT now(),
         UNIQUE (tenant_id, id),
         UNIQUE (tenant_id, site_code, person_code),
+        FOREIGN KEY (tenant_id, site_code) REFERENCES hr.attendance_sites (tenant_id, code) ON UPDATE CASCADE,
         FOREIGN KEY (tenant_id, user_id)     REFERENCES identity.users (tenant_id, id) ON DELETE SET NULL,
         FOREIGN KEY (tenant_id, schedule_id) REFERENCES hr.work_schedules (tenant_id, id) ON DELETE SET NULL,
         CONSTRAINT person_schedules_has_schedule_ck CHECK (cardinality(shift_starts) > 0 OR schedule_id IS NOT NULL),
@@ -116,6 +118,7 @@ exports.up = async function (knex) {
         updated_at  timestamptz NOT NULL DEFAULT now(),
         updated_by  uuid,
         UNIQUE (tenant_id, id),
+        FOREIGN KEY (tenant_id, site_code) REFERENCES hr.attendance_sites (tenant_id, code) ON UPDATE CASCADE,
         CONSTRAINT attendance_rules_config_ck CHECK (jsonb_typeof(config) = 'object')
       )`);
     await knex.raw(`CREATE UNIQUE INDEX ux_hr_rules_site ON hr.attendance_rules (tenant_id, COALESCE(site_code, ''))`);
@@ -152,6 +155,7 @@ exports.up = async function (knex) {
         analyzed_at               timestamptz NOT NULL DEFAULT now(),
         UNIQUE (tenant_id, id),
         UNIQUE (tenant_id, site_code, person_code, work_date, rule),
+        FOREIGN KEY (tenant_id, site_code) REFERENCES hr.attendance_sites (tenant_id, code) ON UPDATE CASCADE,
         FOREIGN KEY (tenant_id, user_id) REFERENCES identity.users (tenant_id, id) ON DELETE SET NULL,
         CONSTRAINT attendance_alerts_decided_ck CHECK ((status = 'sugerida_ia') = (decided_at IS NULL))
       )`);
@@ -181,6 +185,7 @@ exports.up = async function (knex) {
         updated_by     uuid,
         UNIQUE (tenant_id, id),
         UNIQUE (tenant_id, site_code, person_code, work_date),
+        FOREIGN KEY (tenant_id, site_code) REFERENCES hr.attendance_sites (tenant_id, code) ON UPDATE CASCADE,
         FOREIGN KEY (tenant_id, user_id) REFERENCES identity.users (tenant_id, id) ON DELETE SET NULL
       )`);
     await knex.raw(`COMMENT ON TABLE hr.attendance_reviews IS 'Fase RH: justificación de un día (antes asistencia_revision). Convive con las incidencias hasta que [RH.1.5] decida un solo mecanismo.'`);

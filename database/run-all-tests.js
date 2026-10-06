@@ -436,7 +436,7 @@ const TESTS = [
   { file: 'http-budget-unify-test.js', label: 'PU HTTP: unificacion de presupuestos por endpoint', needsApi: true },
   { file: 'http-cash-ledger-test.js', label: 'CG HTTP: libro de caja', needsApi: true },
   { file: 'http-bin-locations-test.js', label: 'WMS HTTP: ubicaciones de anaquel', needsApi: true },
-  { file: 'test-newdb-hr-asistencia-datos.js', label: 'RH.1.1 capa de datos de asistencia — las 3 migraciones de la Fase RH aplican y se repiten, RLS forzado en las 10 tablas nuevas, bitácora de incidencias de sólo agregar, cada CHECK rechaza el caso malo (prueba negativa) y aísla por empresa como app_runtime. Corre en una transacción que se deshace', needsApi: false },
+  { file: 'test-newdb-hr-asistencia-datos.js', label: 'RH.1.1 capa de datos de asistencia — las 3 migraciones de la Fase RH aplican y se repiten, RLS forzado en las 11 tablas nuevas (incluye el catálogo de sitios de checado), bitácora de incidencias de sólo agregar, cada CHECK rechaza el caso malo (prueba negativa) y aísla por empresa como app_runtime. Corre en una transacción que se deshace', needsApi: false },
 ];
 
 /**

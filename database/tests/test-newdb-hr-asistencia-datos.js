@@ -76,7 +76,7 @@ const check = (cond, msg) => {
       check(true, 'segunda pasada (idempotente)');
 
       console.log('\n[2] Tablas nuevas con RLS forzado');
-      const nuevas = ['device_commands', 'ingest_batches', 'work_schedules', 'person_schedules', 'attendance_rules',
+      const nuevas = ['attendance_sites', 'device_commands', 'ingest_batches', 'work_schedules', 'person_schedules', 'attendance_rules',
         'attendance_alerts', 'attendance_reviews', 'attendance_incidents', 'attendance_incident_log', 'attendance_closures'];
       const { rows: rlsRows } = await trx.raw(`
         SELECT c.relname, c.relrowsecurity AS rls, c.relforcerowsecurity AS forced,
@@ -106,6 +106,16 @@ const check = (cond, msg) => {
       const dev = await trx.raw(`INSERT INTO hr.attendance_devices (tenant_id, serial_number) VALUES (?, ?) RETURNING id`,
         [TENANT, `RH-TEST-${Date.now()}`]);
       const deviceId = dev.rows[0].id;
+
+      // Sitios de checado: todo lo de RH cuelga de uno
+      await expectFail('sitio con mayúsculas y espacios',
+        `INSERT INTO hr.attendance_sites (tenant_id, code, name) VALUES (?, 'Padre Hidalgo', 'Padre Hidalgo')`, [TENANT]);
+      await expectOk('sitio de checado 01',
+        `INSERT INTO hr.attendance_sites (tenant_id, code, name, warehouse_code) VALUES (?, '01', 'Padre Hidalgo', '01')`, [TENANT]);
+      await expectFail('incidencia en un sitio que no existe',
+        `INSERT INTO hr.attendance_incidents (tenant_id, site_code, person_code, incident_type, date_from, date_to) VALUES (?, 'no-existe', '15', 'VAC', '2026-10-01', '2026-10-02')`, [TENANT], '23503');
+      await expectFail('reloj nuevo en un sitio que no existe',
+        `INSERT INTO hr.attendance_devices (tenant_id, serial_number, site_code) VALUES (?, 'RH-TEST-X', 'no-existe')`, [TENANT], '23503');
 
       // Cierre semanal
       await expectFail('cierre que empieza en lunes',

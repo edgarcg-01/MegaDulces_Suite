@@ -74,6 +74,7 @@ exports.up = async function (knex) {
         void_reason            text,
         updated_at             timestamptz NOT NULL DEFAULT now(),
         UNIQUE (tenant_id, id),
+        FOREIGN KEY (tenant_id, site_code) REFERENCES hr.attendance_sites (tenant_id, code) ON UPDATE CASCADE,
         FOREIGN KEY (tenant_id, user_id) REFERENCES identity.users (tenant_id, id) ON DELETE SET NULL,
         CONSTRAINT attendance_incidents_range_ck CHECK (date_to >= date_from),
         CONSTRAINT attendance_incidents_audit_sod_ck CHECK (
@@ -132,6 +133,7 @@ exports.up = async function (knex) {
         reopened_at       timestamptz,
         reopen_reason     text,
         UNIQUE (tenant_id, id),
+        FOREIGN KEY (tenant_id, site_code) REFERENCES hr.attendance_sites (tenant_id, code) ON UPDATE CASCADE,
         CONSTRAINT attendance_closures_week_ck CHECK (
           EXTRACT(ISODOW FROM period_start) = 4 AND period_end = period_start + 6),
         CONSTRAINT attendance_closures_reopen_ck CHECK (
