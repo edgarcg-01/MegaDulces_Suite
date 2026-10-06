@@ -2579,3 +2579,24 @@ Plan, capas y sprints en [`FASE_MS_MESA_DE_SERVICIO.md`](FASES/FASE_MS_MESA_DE_S
 **Lo que se DECLARA y no se hace (ADR-056).** El regalo por cantidad (`free_goods`) no genera renglón hijo; el descuento del cliente (capa de documento, `kdud`) no se aplica todavía al pedido; la reserva de inventario y el bot de WhatsApp siguen con `resolvePriceForQty` y van a mostrar otro precio hasta migrarlos; varios productos traen `tax_rate = 0` en la lista de precios (42029, 70001, 57009), lo que no cambia el total cobrado pero sí el reparto subtotal/impuesto.
 
 **Hereda:** ADR-016 (el motor pone el número; el vendedor no inventa descuentos) · ADR-040 (read-only sobre el ERP) · ADR-055/057 (la unidad se resuelve contra la escalera de ese SKU, no por rótulo) · ADR-056 · ADR-059 (el precio se arbitra con evidencia del mismo ERP y la misma sucursal).
+
+---
+
+## ADR-084 — El trabajo de piso del pedido se hace en la Suite; Kepler recibe UNA captura del resultado
+
+**Fecha:** 2026-10-06 · **Estado:** ⏳ propuesto · **Fase:** GP (`/almacen`, gestión de pedidos)
+
+**Contexto.** En Kepler el pedido (`U-D-40`, telemarketing o sucursal) se surte, checa y embarca con **hojas impresas**, y las pantallas de *Estatus Surtido / Checado / Embarque* pierden la vista del pedido en cuanto avanza: la historia sólo se recupera en *Salida por Embarque*. Medido en prod (solo lectura): Kepler guarda las cuatro cantidades por renglón (`kdm2.c51`–`c54`) y los tres responsables (`kdm1.c100/c102/c103`), pero **no la hora de cada etapa**, y el estatus del renglón no se actualiza.
+
+**Decisión (Francisco, 2026-10-06).** Opción A de tres:
+1. **El pedido sigue naciendo y viviendo en Kepler.** La Suite lo lee del ODS como **vista derivada** (regla principal: cero importers).
+2. **Surtido, checado y embarque se ejecutan en la Suite**, sin papel. Cada paso es un **evento propio** (quién, cuándo, cantidad por renglón): dato HITL que no existe en ningún ERP, así que es tabla real legítima.
+3. **El almacenista captura a Kepler una sola vez** el resultado (cantidades + responsables). **La Suite no escribe en Kepler.**
+4. **La Suite cuadra** su registro contra lo que aparece después en `kepler_ods`: diferencias de captura y pedidos que avanzaron en Kepler sin pasar por la Suite van a una bandeja, no se corrigen solos.
+5. El motor de surtido **se reusa** (`commercial-picking`, ADR-067) agregándole un origen Kepler; no se construye otro.
+
+**Rechazado:** (B) escribir el estatus y las cantidades directamente en Kepler — *"en algún futuro, cuando la Suite domine el 99% de las funciones consultivas, comenzaremos con las operativas; será historia de otro momento"*; (C) sólo medir y dejar el papel, porque no cumple el objetivo.
+
+**Lo que se DECLARA (ADR-056).** No hay línea base histórica de tiempos por etapa (Kepler no la guarda): se mide desde el piloto. El porcentaje de surtido completo no se publica mientras pedida y surtida puedan venir en unidades distintas.
+
+**Hereda:** ADR-040 (read-only sobre el ERP) · ADR-067 (surtido por olas, sin apartar existencia) · ADR-056 · ADR-057 (unidad). Plan en [`FASE_GP`](FASES/FASE_GP_GESTION_PEDIDOS_ALMACEN.md).

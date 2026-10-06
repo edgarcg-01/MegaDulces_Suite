@@ -5,6 +5,24 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-06 — `[GP.0]` Gestión de pedidos en almacén: el pedido se queda en Kepler, el piso se va a la Suite
+
+**Qué se entregó:** plan [`FASE_GP`](FASES/FASE_GP_GESTION_PEDIDOS_ALMACEN.md), ADR-084 y decode del pedido
+`U-D-40` en [`ERP_KEPLER.md` §3.y.1](../ERP_KEPLER.md). Sin código.
+
+**Verificado:** contra prod en solo lectura, anclado a tres capturas de Kepler (pedido 2781 de sucursal,
+pedido de telemarketing y embarque 2683 → pedido 2749). El orden de las cantidades por etapa se probó con
+29,551 renglones: se llenan en el mismo orden en que avanza el estatus.
+
+**Lecciones:**
+1. **Telemarketing y sucursal son el mismo documento**; sólo cambia `c27`. Y "sucursal" abastece tres
+   destinos distintos (tienda, ruta, reparto directo).
+2. **Kepler no guarda la hora de cada etapa.** Los tiempos de surtido sólo van a existir si la Suite los
+   registra: no hay línea base que rescatar.
+3. **Una captura que "muestra la diferencia" puede no mostrarla**: las dos primeras decían `TELEMARK`
+   porque la forma de alta se reutiliza. Hizo falta un pedido ya guardado.
+
+---
 ## 2026-10-05 — `[CSU.0–CSU.2]` Cortes/Sucursales: el corte es lo contado, y el cuadre va por turno
 
 **Qué se entregó:** `/finanzas/cortes-sucursales` sigue cada corte de caja POS (`U-D-23`, cliente

@@ -561,6 +561,49 @@ NULL a propósito.
 **⛔ El embarque no es cartera.** No tiene saldo ni aplicaciones; la deuda la manda `kdue`
 (ver `analytics.erp_shipment_billing`). Excepción: en la suc 02 el embarque *sí* es el cargo.
 
+
+### 3.y.1 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06)
+
+`U-D-40` = **Pedido**, pantalla *Ventas › TeleMarketing › Pedido Telemarketing* y *Almacenes ›
+Control de Pedidos › Pedido de Sucursal*: **es la misma pantalla (`pv_tk.kpl`) y el mismo
+documento**. Los separa sólo el **Origen** (`c27` = `TELEMARK` / `SUCURSAL`). Anclado a la captura
+de `UD4001-0002781` (PH, cliente `RUTA 21`, 05-oct-2026), comprobado campo por campo:
+
+| en la pantalla | columna | valor en el 2781 |
+|---|---|---|
+| Origen | **`c27`** | `SUCURSAL` |
+| Estatus | **`c11`** | `EMBARCADO` (`CREADO → AUTORIZADO → SURTIDO → CHECADO → EMBARCADO`) |
+| Folio · prefijo | `c6` · `c63` | `0002781` · `PD-` |
+| Cliente · vendedor | `c10` · `c12` | `RUTA 21` · `00021` |
+| Resp. Surtido / Checado / Embarque | **`c100` / `c102` / `c103`** | `06` / `03` / `02` |
+| Transporte / Chofer / Dir. envío / Guía | `c83` / `c84` / `c85` / `c86` | `00013` / `00014` / `1` / `0001644` |
+| Hora ticket | `c62` | `18:10` |
+| IVA / IEPS / Importe | `c14` / `c15` / `c16` | `22.59` / `183.90` / `22,591.35` |
+
+⛔ **Los responsables cambian de columna según el documento:** en el pedido son `c100`/`c102`/`c103`;
+en el embarque `U-D-41` son `c80`/`c81`/`c82` (§3.y).
+
+**El embarque apunta a su pedido** con `c37` = tipo del padre (`'40'`) y `c39` = folio del pedido.
+Verificado: embarque `0002683` → `c37='40'`, `c39='0002749'`.
+
+**Renglón (`kdm2`):** cantidad **pedida / surtida / checada / embarcada** = **`c51` / `c52` / `c53` /
+`c54`**, en la unidad de **`c55`** (la presentación, p. ej. `BTO`); `c9` es la cantidad en la unidad
+de `c11` (p. ej. `KG`). El orden se probó porque las columnas se llenan **en el mismo orden en que
+avanza el estatus** (21 días, 29,551 renglones): `CREADO`/`AUTORIZADO` sólo traen `c51`;
+`SURTIDO` agrega `c52`; `CHECADO` agrega `c53`; `EMBARCADO` las cuatro.
+
+**Tres trampas:**
+1. **`kdm2.c28` (estatus del renglón) no se actualiza**: queda en `AUTORIZADO` con el encabezado en
+   `EMBARCADO`. Manda `kdm1.c11`.
+2. **`c51` y `c52` no siempre están en la misma unidad** (1 pedido contra 21.18 kg surtidos; `c51`
+   vacío en algunos renglones). "Embarcado ÷ pedido" da 102–103%: **no publicar % de surtido** sin
+   resolver la unidad.
+3. **No hay hora por etapa.** Sólo `c62` (ticket) y `c69` (sin decodificar: 18:27 en el pedido,
+   19:30 en su embarque). El tiempo de surtido/checado/embarque **no existe en Kepler**.
+
+**Sucursal ≠ tienda.** Los pedidos `SUCURSAL` van a clientes internos de tres clases: `TI00x`
+(tiendas), `RD 50x` (reparto directo) y `RUTA nn`. Nacen `AUTORIZADO` (nunca `CREADO`). Fase GP.
+
 ---
 
 ### 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto

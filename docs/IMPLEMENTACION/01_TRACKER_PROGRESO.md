@@ -8507,6 +8507,22 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 
 ---
 
+## 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_GP`](FASES/FASE_GP_GESTION_PEDIDOS_ALMACEN.md)
+
+- [x] **[GP.0]** 🧪 Decode del pedido `U-D-40` contra prod (solo lectura): origen `c27`, estatus `c11`, responsables
+      `c100/c102/c103`, cantidades por etapa `kdm2.c51`–`c54`, liga embarque→pedido `c37`+`c39`. (2026-10-06)
+      Falta: catálogos de responsables, unidad de `c51` vs `c52`, qué es `c69`.
+- [ ] **[GP.1]** ⬜ Vista `analytics.erp_sales_orders` (+renglones) + tablero `/almacen/pedidos` por origen/estatus/antigüedad.
+- [ ] **[GP.2]** ⬜ Origen Kepler para `commercial-picking` (pool lee `U-D-40` `AUTORIZADO`).
+- [ ] **[GP.3]** ⬜ Pantalla del surtidor (móvil), reemplaza la hoja impresa. 🚫 BLOQUEADO: formato de papel actual (P1).
+- [ ] **[GP.4]** ⬜ Checado.
+- [ ] **[GP.5]** ⬜ Embarque: bultos calculados, liga a transporte y guía.
+- [ ] **[GP.6]** ⬜ Cuadre Suite ↔ Kepler (diferencias de captura y pedidos sin paso por la Suite).
+- [ ] **[GP.7]** ⬜ Indicadores (tiempo por etapa, productividad, surtido completo con unidad resuelta).
+- [ ] **[GP.8]** ⬜ Piloto: un origen, una sucursal.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
