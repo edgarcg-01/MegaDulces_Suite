@@ -909,7 +909,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .dm-cp.cp-warn { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-color: var(--warn-border); }
     .dm-cp.cp-bad { color: var(--bad-soft-fg); background: var(--bad-soft-bg); border-color: var(--bad-border); }
     /* DM.20 - con que se pareo. Secundario: informa, no compite con el veredicto. */
-    .dm-cp .dm-ev { margin-left: auto; font-size: .72rem; opacity: .8; letter-spacing: .01em; }
+    .dm-cp .dm-ev { margin-left: auto; font-size: var(--fs-xs); opacity: .8; letter-spacing: .01em; }
     .dm-cp .dm-ev.dm-ev-weak { font-style: italic; }
     .dm-doc-head { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin-bottom: .3rem; }
     .dm-doc-meta { font-size: .78rem; color: var(--text-muted); }
