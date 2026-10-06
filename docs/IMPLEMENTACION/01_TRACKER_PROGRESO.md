@@ -8530,8 +8530,8 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[WMS.3b]** ⬜ Asignación producto × ubicación × papel + mínimo/máximo (slotting). Nuevo.
 - [ ] **[WMS.4]** ⬜ Secuencia de recorrido = orden numérico de la sección (`B01` → `B99`), corregible por columna.
 - [ ] **[WMS.7]** ⬜ Reposición: bodega → frente de surtido y bodega → anaquel (anaquelistas). Pendiente U3.
-- [ ] **[WMS.10]** ⬜ Maestro logístico (FASE_WMS §13): peso y medidas por producto × unidad, con origen; captura en recepción; Pareto PH (~200 SKUs = 50% de renglones).
-- [ ] **[WMS.11]** ⬜ Capacidad de unidades de reparto: kg (hoy 1 de 97), m³ y estibas por tipo de unidad.
+- [ ] **[WMS.10]** ⬜ Maestro logístico (FASE_WMS §13): peso y medidas por producto × unidad, con origen (medido / ficha del proveedor / estimado). **Pestaña "Medidas y peso" en `/compras/catalogo`**; captura en recepción (hay báscula y cinta); Pareto PH (~200 SKUs = 50% de renglones).
+- [ ] **[WMS.11]** ⬜ Catálogo de tipos de unidad (tortón 18 t · rabón 10 t · 5 t · 3.5 t · Nissan 1 t · ligeras 600 kg) y asignación de cada vehículo a su tipo; la capacidad se hereda. Hoy 1 de 97 tiene kg y 33 son de prueba.
 
 ---
 

@@ -441,3 +441,32 @@ peso o volumen; y el `weight_kg` de los destinatarios de la guía calculado en l
 
 **Regla (ADR-056):** un pedido con productos sin medir **no muestra un peso total como si estuviera
 completo**: muestra el peso de lo medido y cuánto falta por medir.
+
+### 13.4 Decisiones de Francisco (2026-10-06)
+
+- **El maestro logístico es parte del módulo de Catálogo**, no del WMS: vive como pestaña nueva
+  **"Medidas y peso"** en `/compras/catalogo` (junto a Productos, Costos, Precios, Códigos…). El
+  almacén lo **consume** (recepción, checado, carga); no es su dueño.
+- **Hay báscula y cinta en recepción**: la captura en la entrada (punto 3) es viable.
+- **Los proveedores sí mandan fichas técnicas** con medidas y peso: se cargan como origen
+  `proveedor` y la medición en recepción las confirma o corrige.
+
+### 13.5 Tipos de unidad de reparto y capacidad (Francisco, 2026-10-06)
+
+| Tipo | Capacidad de carga |
+|---|---|
+| Tortón | 18,000 kg |
+| Rabón | 10,000 kg |
+| 5 toneladas | 5,000 kg |
+| 3.5 toneladas | 3,500 kg |
+| Nissan | 1,000 kg |
+| Ligeras (Rapid, RAM 700) | 600 kg |
+
+**El alta de la flota no permite asignar el tipo automáticamente** (medido en
+`logistics.vehicles`, 2026-10-06): de 97 vehículos, **33 son de prueba** (`MODELO TEST`, inactivos)
+y en el resto la marca y el modelo están revueltos (`NISSAN` a veces en marca y a veces en modelo;
+`FORD 350/450/550`, `INTERNACIONAL`, `FREIGHTLINER`, `HINO 500` sin tipo). Sólo el **Isuzu NPR**
+tiene capacidad (3,500 kg, consistente con "3.5 toneladas"). Propuesta: un **catálogo de tipos de
+unidad** con su capacidad (kg, y después m³ y estibas) y que **cada vehículo se asigne a un tipo**
+en la pantalla de flota, por alguien que conozca la unidad. La capacidad se hereda del tipo; no se
+captura vehículo por vehículo.
