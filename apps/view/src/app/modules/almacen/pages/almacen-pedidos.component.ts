@@ -176,22 +176,22 @@ const dmy = (v: string | null | undefined): string => {
                 <h3>Renglones · {{ x.lineas.length }}</h3>
                 <p-table [value]="x.lineas" size="small" class="surf-table gp-lines" [scrollable]="true" scrollHeight="calc(100vh - 22rem)" dataKey="renglon">
                   <ng-template #header>
-                    <tr><th>Producto</th><th class="ta-r">Ped</th><th class="ta-r">Surt</th><th class="ta-r">Chec</th><th class="ta-r">Emb</th></tr>
+                    <tr><th>Producto</th><th class="ta-r">Ped</th><th class="ta-r" title="Cantidad surtida y, abajo, su ubicación">Surt</th><th class="ta-r" title="Cantidad checada y, abajo, su ubicación">Chec</th><th class="ta-r" title="Cantidad embarcada y, abajo, su ubicación">Emb</th></tr>
                   </ng-template>
                   <ng-template #body let-l>
                     <tr>
                       <td role="cell" data-label="Producto">
                         <span class="gp-trunc">{{ l.descripcion || l.sku }}</span>
-                        <span class="muted gp-sub mono">{{ l.sku }} · {{ l.unidad_presentacion || l.unidad || '' }} · <span title="Ubicación capturada en Kepler: surtido · checado · embarque">Ubic. S {{ l.ubic_surtido || '—' }} · C {{ l.ubic_checado || '—' }} · E {{ l.ubic_embarque || '—' }}</span>@if (agregado(l.etapa_alta)) { · <span class="gp-warn">agregado en {{ estatusLabel(l.etapa_alta).toLowerCase() }}</span> }</span>
+                        <span class="muted gp-sub mono">{{ l.sku }} · {{ l.unidad_presentacion || l.unidad || '' }}@if (agregado(l.etapa_alta)) { · <span class="gp-warn">agregado en {{ estatusLabel(l.etapa_alta).toLowerCase() }}</span> }</span>
                       </td>
                       <td class="ta-r num" role="cell" data-label="Ped">{{ cant(l.cant_pedida) }}</td>
-                      <td class="ta-r num" role="cell" data-label="Surt" [class.gp-warn]="difiere(l.cant_pedida, l.cant_surtida)">{{ cant(l.cant_surtida) }}</td>
-                      <td class="ta-r num" role="cell" data-label="Chec" [class.gp-warn]="difiere(l.cant_surtida, l.cant_checada)">{{ cant(l.cant_checada) }}</td>
-                      <td class="ta-r num" role="cell" data-label="Emb" [class.gp-warn]="difiere(l.cant_checada, l.cant_embarcada)">{{ cant(l.cant_embarcada) }}</td>
+                      <td class="ta-r num" role="cell" data-label="Surt" [class.gp-warn]="difiere(l.cant_pedida, l.cant_surtida)">{{ cant(l.cant_surtida) }}<span class="gp-sub gp-ubic" title="Ubicación de surtido">{{ l.ubic_surtido || '—' }}</span></td>
+                      <td class="ta-r num" role="cell" data-label="Chec" [class.gp-warn]="difiere(l.cant_surtida, l.cant_checada)">{{ cant(l.cant_checada) }}<span class="gp-sub gp-ubic" title="Ubicación de checado">{{ l.ubic_checado || '—' }}</span></td>
+                      <td class="ta-r num" role="cell" data-label="Emb" [class.gp-warn]="difiere(l.cant_checada, l.cant_embarcada)">{{ cant(l.cant_embarcada) }}<span class="gp-sub gp-ubic" title="Ubicación de embarque">{{ l.ubic_embarque || '—' }}</span></td>
                     </tr>
                   </ng-template>
                 </p-table>
-                <p class="gp-hint">Las cantidades van en la unidad del pedido. La ubicación por etapa casi nunca se captura en Kepler; se llenará al llevar el piso en la Suite.</p>
+                <p class="gp-hint">Cantidades en la unidad del pedido; abajo de cada una, su ubicación. La ubicación por etapa casi nunca se captura en Kepler; se llenará al llevar el piso en la Suite.</p>
               </div>
             } @else if (detErr(); as e) {
               <div class="gp-empty gp-pad"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>{{ e }}</span></div>
@@ -243,6 +243,7 @@ const dmy = (v: string | null | undefined): string => {
     .gp-row > span:last-child { text-align:right; min-width:0; }
     .gp-trunc { display:block; max-width:22rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .gp-sub { display:block; font-size:var(--fs-xs); }
+    .gp-ubic { color:var(--text-muted); font-weight:400; }
     .gp-vol { white-space:normal; max-width:11rem; margin-left:auto; line-height:1.25; }
     .gp-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:.5rem 0 0; }
     .gp-pad { padding:.5rem .85rem; }
