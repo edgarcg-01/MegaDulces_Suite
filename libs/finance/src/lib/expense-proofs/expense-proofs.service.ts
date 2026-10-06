@@ -1139,7 +1139,7 @@ export class ExpenseProofsService {
       // no lo cierra -- deja al capturista con algo mas que hacer (subir la evidencia), y ese
       // aviso es otro mensaje, no este. Avisar «aprobado» ahi diria que ya termino.
       if (full && cierra) this.avisarAlSolicitante('aprobado', full);
-      this.logger.log(`solicitud de gasto folio ${base.cur.folio_solicitud} aprobada [${finalClas}] → ${nextStatus}, por ${actor || '?'}`);
+      this.logger.log(`solicitud de gasto folio ${base.cur?.folio_solicitud} aprobada [${finalClas}] → ${nextStatus}, por ${actor || '?'}`);
       return row;
     });
   }
