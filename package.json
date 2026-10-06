@@ -27,6 +27,8 @@
     "check:motion": "node scripts/check-motion.js",
     "check:motion:self": "node scripts/check-motion.js --self-test",
     "check:estilos": "node scripts/check-estilos.js",
+    "check:spec-vivo": "node scripts/check-spec-vivo.js",
+    "check:spec-vivo:self": "node scripts/check-spec-vivo.js --self-test",
     "check:estilos:self": "node scripts/check-estilos.js --self-test",
     "check:tokens:self": "node scripts/check-css-tokens.js --self-test",
     "check:tables:self": "node scripts/check-dense-tables.js --self-test",

@@ -123,7 +123,7 @@ export class UsageMetricsInterceptor implements NestInterceptor, OnModuleDestroy
   }
 
   private anotar(req: Record<string, any>, ms: number, falla: boolean) {
-    const u = req['user'] as { id?: string; tenant_id?: string; role_name?: string } | undefined;
+    const u = req['user'] as { sub?: string; tenant_id?: string; role_name?: string } | undefined;
     const tenant = u?.tenant_id || process.env['DEFAULT_TENANT_ID'] || TENANT_POR_DEFECTO;
     if (!tenant) return;                       // sin tenant no hay dónde guardarlo
     const fecha = new Date().toISOString().slice(0, 10);
@@ -136,7 +136,23 @@ export class UsageMetricsInterceptor implements NestInterceptor, OnModuleDestroy
     c.hits++; c.msTotal += ms; c.msMax = Math.max(c.msMax, ms); if (falla) c.errores++;
     this.buffer.set(k, c);
 
-    if (u?.id) this.usuarios.set(`${tenant}|${fecha}|${ruta}|${u.id}`, u.role_name ?? null);
+    /*
+     * `[SN.40]` ⛔ **Acá decía `u?.id`, y el JWT no trae `id`: trae `sub`.**
+     *
+     * Efecto medido el 2026-10-05: `analytics.ui_usage` con 250,893 hits sobre 490 rutas, y
+     * `analytics.ui_usage_users` con **0 filas** desde que existe. La condición nunca fue cierta
+     * para una sola persona — `JwtAuthGuard` hace `request.user = payload` y el payload lo firma
+     * `login-core.ts` con `sub: user.id`, que es el estándar de JWT.
+     *
+     * ⚠️ Lo que lo hizo durar: `ui_usage` —su hermana, con el mismo `if` de guarda unas líneas
+     * arriba pero sobre `tenant_id`, que **sí** viaja con ese nombre— se llenaba perfecto. El
+     * tablero mostraba telemetría viva, así que nada se veía roto; lo que faltaba era el único
+     * eje que contesta "qué usa ESTA persona", que es para lo que la tabla existe.
+     *
+     * ⛔ El candado de `[UX.0]` tampoco lo vio: comprobaba que la tabla existiera, su PK y sus
+     * grants — nunca que se LLENARA. Un gate sobre la forma no prueba el contenido (ADR-056).
+     */
+    if (u?.sub) this.usuarios.set(`${tenant}|${fecha}|${ruta}|${u.sub}`, u.role_name ?? null);
   }
 
   /** Vuelca el buffer y late. Nunca lanza. */

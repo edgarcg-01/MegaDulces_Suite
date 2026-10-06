@@ -561,6 +561,24 @@ NULL a propósito.
 **⛔ El embarque no es cartera.** No tiene saldo ni aplicaciones; la deuda la manda `kdue`
 (ver `analytics.erp_shipment_billing`). Excepción: en la suc 02 el embarque *sí* es el cargo.
 
+**⭐⭐ Su contraparte es `U-A-50` «Recepción Traspaso Suc», y LA LIGA ES EL DESTINO, NO LA FECHA**
+(medido 2026-10-06, `[DM.20]`). La recepción apunta al embarque por un back-pointer explícito
+—`parent_group=41` + `parent_serie` + `parent_folio`, que en pantalla es el campo **«Embarque Suc
+Origen»**— y además nombra al CEDIS como «Proveedor» (`TI000`). Como el folio es **por sucursal**
+(§3.x), ese back-pointer **no es único** y hay que desempatar.
+
+⛔ **No se desempata por fecha.** La premisa intuitiva —*«la recepción nunca es anterior a la
+salida»*— **es falsa**: las dos plazas fechan el mismo movimiento por su cuenta. Medido sobre los
+1,720 pares donde el destino declarado **y** la cantidad coinciden, el desfase va de **−2 a +63
+días**, mediana 0, y **24 son negativos**. El caso que lo destapó: embarque CEDIS `UD4102-0000748`
+del **28-sep** recibido con `UA5001-0000377` del **26-sep**, 301.34 piezas idénticas.
+
+✅ **Se desempata por el destino que el embarque declara** (`dest_code` → el almacén que recibe).
+De los 1,724 pares con cantidad exacta, **1,720 (99.77 %)** coinciden también en destino: dos
+testigos que no comparten origen (uno de la cabecera, otro de los renglones). ⚠️ Y hay que
+hacerlo: un embarque dirigido a una **RUTA** (`RD 5xx`) comparte folio con recepciones de sucursal,
+y desempatar por fecha le acreditaba **39 recepciones que nunca existieron, por $494,300**.
+
 ---
 
 ### 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto

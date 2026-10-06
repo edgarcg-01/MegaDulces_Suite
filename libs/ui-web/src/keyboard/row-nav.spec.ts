@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+// [CG.38.1] Sin `import ... from 'vitest'`: la config usa `globals: true` (también `beforeEach`
+// y `afterEach`). Importarlo hace que el archivo NO CARGUE y reporte **0 tests**, no sus casos
+// fallando — el total de la suite sigue creciendo y nadie se entera de que no corren.
 import { installRowNavGuard, bajarAlPrimerRenglon, volverAlBuscador } from './row-nav';
 
 /**

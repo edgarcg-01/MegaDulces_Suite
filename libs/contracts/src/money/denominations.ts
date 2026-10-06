@@ -71,6 +71,7 @@ export const MONEDAS_MXN: readonly Denominacion[] = [
 
 export const DENOMINACIONES_MXN: readonly Denominacion[] = [...BILLETES_MXN, ...MONEDAS_MXN];
 
+
 const POR_KEY = new Map(DENOMINACIONES_MXN.map((d) => [d.key, d]));
 
 /** Las llaves validas del JSONB. Lo que no esta aca se rechaza. */
@@ -78,6 +79,40 @@ export const DENOM_KEYS: readonly string[] = DENOMINACIONES_MXN.map((d) => d.key
 
 /** La denominacion de una llave, o `undefined` si no existe. */
 export const denomDe = (key: string): Denominacion | undefined => POR_KEY.get(String(key));
+
+/**
+ * `[CG.38]` Elige denominaciones del catalogo por llave y **falla ruidosamente** si alguna no
+ * existe o no es de la familia pedida.
+ *
+ * ── Por que vive aca y no en la pantalla
+ *
+ * Nacio como `seleccionarBilletes` DENTRO de `caja-captura.util.ts`, local, cuando la caja
+ * contaba solo billetes. Al agregar monedas hacia falta la misma funcion otra vez -- y ADR-056
+ * es explicito: *un mecanismo generico vive en `libs/` o queda declarado como deuda*. Dos
+ * copias de esto es como una pantalla deja de ofrecer una denominacion en silencio.
+ *
+ * ⭐ Lo que protege: **una llave que desaparece del catalogo es dinero que no se puede contar**,
+ * y esa es la peor forma de fallar en un arqueo. Por eso revienta al construirse, en vez de
+ * devolver una lista mas corta y que nadie lo note.
+ */
+export function seleccionarDenominaciones(
+  keys: readonly string[],
+  familia?: FamiliaDenominacion,
+): readonly Denominacion[] {
+  return keys.map((k) => {
+    const d = POR_KEY.get(String(k));
+    if (!d) {
+      throw new Error(
+        'Denominacion "' + k + '" no existe en el catalogo MXN de @megadulces/contracts. ' +
+        'Una pantalla no puede ofrecer una denominacion que el catalogo compartido no reconoce.',
+      );
+    }
+    if (familia && d.familia !== familia) {
+      throw new Error('La denominacion "' + k + '" es ' + d.familia + ', no ' + familia + '.');
+    }
+    return d;
+  });
+}
 
 /**
  * Cuanto vale una pieza de esa llave. `null` si la llave no esta en el catalogo

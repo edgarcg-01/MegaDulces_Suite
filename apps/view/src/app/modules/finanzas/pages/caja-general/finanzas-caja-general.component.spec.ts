@@ -24,7 +24,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError, Subject } from 'rxjs';
 
-import { CAJA_VENTANA_DIAS } from '@megadulces/contracts';
+import { CAJA_VENTANA_DIAS, denomDe, type Denominacion } from '@megadulces/contracts';
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
 import {
   CashLedgerService, type CoberturaResponse, type LibroResponse, type SaldoResponse,
@@ -245,8 +245,18 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
    * con `onMonto(…)` arma un formulario que la pantalla real **ya no puede producir** — y se
    * pondría verde sobre un estado inexistente. Todas las pruebas de acá cuentan.
    */
-  const contar = (piezas: Record<number, number>): void => {
-    for (const [den, n] of Object.entries(piezas)) comp.setPiezas(Number(den), n);
+  /**
+   * ⚠️ `[CG.38]` La llave es un STRING del catálogo compartido, no el valor. `contar({500: 2})`
+   * sigue funcionando igual —`Object.entries` ya entrega `'500'`— y además ahora se puede contar
+   * la moneda de $20 con `contar({'20m': 3})`, que antes era indistinguible del billete.
+   */
+  const den = (k: string | number): Denominacion => {
+    const d = denomDe(String(k));
+    if (!d) throw new Error('La prueba pide la denominacion "' + k + '", que no existe en el catalogo.');
+    return d;
+  };
+  const contar = (piezas: Record<string, number>): void => {
+    for (const [k, n] of Object.entries(piezas)) comp.setPiezas(den(k), n);
   };
 
   // ── 1 · El defecto que rompía la pantalla ────────────────────────────────────────────────
@@ -422,7 +432,15 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(input!.disabled).toBe(false);
 
     // Y el checkbox SÍ sigue deshabilitado: confirmar sin cuenta declarada no se puede.
-    const check: HTMLInputElement | null = fixture.nativeElement.querySelector('tbody input.cg-check');
+    //
+    // ⚠️ [CG.36] El selector era 'tbody input.cg-check' y dejó de existir cuando la casilla
+    // nativa pasó a <p-checkbox>. Lo que se afirma NO cambió —la fila trabada no se puede
+    // marcar—; cambió de qué está hecho el control, así que se le pregunta al input real que
+    // PrimeNG renderiza adentro. La prueba fue la que encontró el cambio: ningún gate ni el
+    // compilador ven un selector de CSS que se quedó sin DOM.
+    const check: HTMLInputElement | null =
+      fixture.nativeElement.querySelector('tbody p-checkbox input[type="checkbox"]');
+    expect(check).not.toBeNull();
     expect(check!.disabled).toBe(true);
   });
 
@@ -814,20 +832,154 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect((fx.nativeElement.innerHTML as string)).not.toContain('(opcional)');
   });
 
-  it('son cinco billetes —500, 200, 100, 50, 20— más Morralla, y ninguna moneda suelta', async () => {
+  /**
+   * `[CG.38]` Esta prueba decía *"son cinco billetes … y ninguna moneda suelta"* y afirmaba
+   * `not.toContain('50¢')`. Era correcta: fijaba la decisión de `[CG.23]` —*"monedas no es
+   * necesario desglosarlo, en morralla queda perfecto"*—. Edgar la revirtió el 2026-10-06:
+   * *"la morralla se cuenta por denominación"*. Lo que cambió es el REQUISITO, no el código:
+   * por eso la prueba se reescribe entera en vez de aflojarle un número.
+   */
+  it('son cinco billetes y SEIS monedas, más el resto suelto', async () => {
     const fx = await capturaEnPantalla();
-    // 5 renglones de billete + 1 de morralla.
-    expect(inputsPieza(fx).length).toBe(6);
+    // 5 billetes + 6 monedas + 1 de resto suelto.
+    expect(inputsPieza(fx).length).toBe(12);
 
     // Acotado AL BLOQUE del arqueo: sobre el innerHTML de la página entera, "$1,000" aparece
     // en la tira de KPIs y la prueba fallaba por un importe que no tiene nada que ver.
     const reja: string = fx.nativeElement.querySelector('.cg-arqueo').innerHTML;
     for (const b of ['$500', '$200', '$100', '$50', '$20']) expect(reja).toContain(b);
-    expect(reja).toContain('Morralla');
-    // El metal no se desglosa: si apareciera un renglón de 50¢ —o el billete de $1,000, que
-    // esta caja no maneja— esto se pone rojo.
-    expect(reja).not.toContain('50¢');
+    expect(reja).toContain('50¢');          // el metal AHORA sí se desglosa
+    expect(reja).toContain('Morralla');     // y queda el campo suelto para lo de menos de 50¢
+    // El billete de $1,000 sigue fuera: esta caja no lo maneja.
     expect(reja).not.toContain('$1,000');
+  });
+
+  /**
+   * ⭐ La prueba que justifica todo el re-tecleo. El billete y la moneda de $20 valen lo mismo y
+   * son cosas distintas; con la identidad en el VALOR —como estaba— la segunda pisaba a la
+   * primera y una de las dos pilas de dinero desaparecía del desglose.
+   */
+  /**
+   * `[CG.38]` El cambio que se devuelve. Hasta esta fase no había dónde registrarlo: si te daban
+   * $5,000 por un documento de $4,830, los $170 que volvían al cliente **no existían en ningún
+   * lado** y la caja declaraba efectivo que ya no tenía.
+   */
+  describe('[CG.38] el cambio que se devuelve', () => {
+    it('⭐ el monto del movimiento es el NETO: entró menos lo devuelto', () => {
+      montar();
+      comp.setPiezas(den('500'), 10);                 // entran 5,000
+      expect(comp.f().monto).toBe(5000);
+
+      comp.setPiezasDevueltas(den('100'), 1);
+      comp.setPiezasDevueltas(den('50'), 1);
+      comp.setPiezasDevueltas(den('20'), 1);          // se devuelven 170
+
+      expect(comp.totalDevuelto()).toBe(170);
+      expect(comp.f().monto).toBe(4830);              // y NO 5,000
+    });
+
+    it('arranca PLEGADO: el caso común no paga el costo del caso raro', () => {
+      montar();
+      expect(comp.cambioAbierto()).toBe(false);
+      expect(comp.hayDevuelto()).toBe(false);
+    });
+
+    it('con cambio cargado NO se puede plegar y perderlo de vista', () => {
+      montar();
+      comp.setPiezasDevueltas(den('100'), 1);
+      // `hayDevuelto` mantiene el bloque abierto aunque el toggle diga que no.
+      expect(comp.cambioAbierto()).toBe(false);
+      expect(comp.hayDevuelto()).toBe(true);
+    });
+
+    it('⛔ [negativa] devolver MÁS de lo que entró se nombra con su monto', () => {
+      montar();
+      comp.setPiezas(den('100'), 1);                  // entran 100
+      comp.setPiezasDevueltas(den('500'), 1);         // se devuelven 500
+      const r = comp.resumenCambio();
+      expect(r.neto).toBe(-400);
+      expect(r.problema).toContain('400.00');
+    });
+
+    it('⛔ [negativa] entró y salió lo mismo: se avisa que eso es un canje', () => {
+      montar();
+      comp.setPiezas(den('500'), 1);
+      comp.setPiezasDevueltas(den('100'), 5);
+      const r = comp.resumenCambio();
+      expect(r.neto).toBe(0);
+      expect(r.problema).toContain('canje');
+    });
+
+    /**
+     * ⛔ El bug de dinero que esto previene: sin limpiar, la captura siguiente arranca con el
+     * cambio de la anterior **ya restado del monto**, y encima en silencio porque el bloque nace
+     * plegado. Todas las puertas del diálogo pasan por `abrirCaptura()`, así que se prueba ahí.
+     */
+    it('⛔ [negativa] el cambio NO sobrevive al diálogo anterior', () => {
+      montar();
+      comp.setPiezasDevueltas(den('100'), 2);
+      expect(comp.totalDevuelto()).toBe(200);
+
+      comp.abrirCaptura();
+      expect(comp.totalDevuelto()).toBe(0);
+      expect(comp.devuelto()).toEqual([]);
+      expect(comp.cambioAbierto()).toBe(false);
+    });
+
+    it('lo devuelto viaja al servidor con su flujo, no mezclado con lo que entró', () => {
+      const crear = vi.fn(() => of({ id: 'x', folio: 'CG-1' } as any));
+      montar({ crear });
+      comp.abrirCaptura();
+      comp.setF('kepler_cuenta', '601-001');
+      comp.setF('kepler_concepto', 'PAPELERIA');
+      comp.setF('glosa', 'entrega de ruta');
+      comp.setF('fecha', todayMx());
+      comp.setPiezas(den('500'), 10);
+      comp.setPiezasDevueltas(den('100'), 1);
+      expect(comp.bloqueos()).toEqual([]);          // si algo lo traba, la prueba lo dice acá
+      comp.guardar();
+
+      const body = crear.mock.calls[0][0] as any;
+      const recibido = body.denominaciones.filter((d: any) => d.flujo === 'recibido');
+      const devuelto = body.denominaciones.filter((d: any) => d.flujo === 'devuelto');
+      expect(recibido.length).toBe(1);
+      expect(devuelto.length).toBe(1);
+      expect(devuelto[0].denom_key).toBe('100');
+      expect(body.monto).toBe(4900);                 // 5,000 − 100
+    });
+
+    it('la reja del cambio tiene SU PROPIA clase: la flecha no salta entre columnas', async () => {
+      const fx = await capturaEnPantalla();
+      comp.cambioAbierto.set(true);
+      fx.detectChanges();
+      const dev = fx.nativeElement.querySelectorAll('input.cg-pieza-dev');
+      const ent = fx.nativeElement.querySelectorAll('input.cg-pieza');
+      expect(dev.length).toBe(11);                    // 5 billetes + 6 monedas
+      // ⛔ Si compartieran selector, contar en una columna movería el foco a la otra.
+      expect([...dev].some((i: Element) => i.classList.contains('cg-pieza'))).toBe(false);
+      expect(ent.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('⭐ [CG.38] el billete y la moneda de $20 se cuentan POR SEPARADO', () => {
+    montar();
+    comp.setPiezas(den('20'), 3);      // billetes
+    comp.setPiezas(den('20m'), 4);     // monedas
+
+    expect(comp.piezasDe(den('20'))).toBe(3);
+    expect(comp.piezasDe(den('20m'))).toBe(4);
+    expect(comp.f().denominaciones.length).toBe(2);        // DOS renglones, no uno
+    expect(comp.f().monto).toBe(140);                      // 60 + 80
+  });
+
+  it('⛔ [negativa] contar la moneda de $20 NO pisa al billete de $20', () => {
+    montar();
+    comp.setPiezas(den('20'), 3);
+    expect(comp.f().monto).toBe(60);
+    comp.setPiezas(den('20m'), 4);
+    // Con la identidad en el valor, esto habría dado 80: la moneda reemplazaba al billete.
+    expect(comp.f().monto).toBe(140);
+    expect(comp.piezasDe(den('20'))).toBe(3);
   });
 
   it('[negativa] el MONTO no se puede teclear: sale del conteo y va deshabilitado', async () => {
@@ -842,8 +994,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     contar({ 500: 2, 20: 3 });
     fx.detectChanges();
 
-    expect(comp.subtotalDe(500)).toBe(1000);
-    expect(comp.subtotalDe(20)).toBe(60);
+    expect(comp.subtotalDe(den(500))).toBe(1000);
+    expect(comp.subtotalDe(den(20))).toBe(60);
     expect(comp.f().monto).toBe(1060);
 
     const monto: HTMLInputElement = fx.nativeElement.querySelector('input#cg-monto');
@@ -859,10 +1011,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
   it('las piezas son ENTERAS y no negativas: medio billete no existe', async () => {
     await capturaEnPantalla();
-    comp.setPiezas(100, 3.7);
-    expect(comp.piezasDe(100)).toBe(3);
-    comp.setPiezas(100, -2);
-    expect(comp.piezasDe(100)).toBe(0);
+    comp.setPiezas(den(100), 3.7);
+    expect(comp.piezasDe(den(100))).toBe(3);
+    comp.setPiezas(den(100), -2);
+    expect(comp.piezasDe(den(100))).toBe(0);
   });
 
   it('Enter y la flecha abajo bajan por la reja, como se cuenta un fajo', async () => {
@@ -886,10 +1038,16 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(document.activeElement).toBe(ins[1]);
 
     // El último salto cae en Morralla, que está en la misma columna a propósito.
-    ins[4].focus();
-    ins[4].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-    expect(document.activeElement).toBe(ins[5]);
-    expect(ins[5].classList.contains('cg-morralla-in')).toBe(true);
+    //
+    // ⚠️ `[CG.38]` Los índices eran 4 y 5, fijos, de cuando la reja tenía 5 billetes. Con las
+    // monedas pasó a 12 renglones y la prueba se puso roja sin que el comportamiento cambiara.
+    // Se cuenta desde el FINAL: lo que se afirma es "el penúltimo salta al último, y el último
+    // es Morralla", que es verdad con cualquier cantidad de denominaciones.
+    const ultimo = ins.length - 1;
+    ins[ultimo - 1].focus();
+    ins[ultimo - 1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(ins[ultimo]);
+    expect(ins[ultimo].classList.contains('cg-morralla-in')).toBe(true);
   });
 
   it('[negativa] en el BORDE de la reja la flecha no incrementa lo contado', async () => {
@@ -1012,7 +1170,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.f().tipo).toBe('ingreso');
     expect(comp.f().sucursal).toBe('00');
     // El efectivo de la máquina va APARTE (denominacionesCajero), NO en la reja.
-    expect(comp.piezasDe(500)).toBe(0);
+    expect(comp.piezasDe(den(500))).toBe(0);
     expect(comp.aporteCajero()).toBe(1300);   // 500×2 + 100×3 = 1300
     expect(comp.f().monto).toBe(1300);        // monto = aporte del cajero + reja (0)
     // El arqueo (el del cajero) YA cuadra → no falta desglose ni descuadra.
@@ -1070,7 +1228,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.capturarDesdeCaos(CAOS_DEP);
     expect(comp.caosElegido()?.origen_ref).toBe('AST700-19758|1420');
     // El efectivo de la máquina va APARTE, no en la reja: la reja queda en cero (para la diferencia).
-    expect(comp.piezasDe(500)).toBe(0);
+    expect(comp.piezasDe(den(500))).toBe(0);
     expect(comp.hayCajero()).toBe(true);
     expect(comp.aporteCajero()).toBe(1300);
     expect(comp.f().monto).toBe(1300);   // monto = aporte del cajero + reja (0)
@@ -1081,10 +1239,12 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.elegirCaos({ value: CAOS_DEP } as any);
     fx.detectChanges();
     const piezas = inputsPieza(fx);
-    const billetes = piezas.filter((i) => !i.classList.contains('cg-morralla-in'));
+    const denoms = piezas.filter((i) => !i.classList.contains('cg-morralla-in'));
     const morralla = piezas.find((i) => i.classList.contains('cg-morralla-in'))!;
-    expect(billetes.length).toBe(5);
-    expect(billetes.every((i) => !i.readOnly)).toBe(true);  // editables: la reja es la DIFERENCIA
+    // ⚠️ `[CG.38]` Eran 5 (los billetes); hoy son 11 (5 billetes + 6 monedas). Lo que se afirma
+    // —que la reja queda EDITABLE porque es la diferencia— no cambió.
+    expect(denoms.length).toBe(11);
+    expect(denoms.every((i) => !i.readOnly)).toBe(true);  // editables: la reja es la DIFERENCIA
     expect(morralla.readOnly).toBe(false);
     expect(comp.hayCajero()).toBe(true);                     // el cajero se muestra aparte
   });
@@ -1109,7 +1269,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.buscarEnCajero();
     comp.vincularCaos(comp.caosSugeridos()[0] as any);
     // El efectivo del cajero va APARTE; la reja NO se toca (queda en cero, para la diferencia).
-    expect(comp.piezasDe(500)).toBe(0);
+    expect(comp.piezasDe(den(500))).toBe(0);
     expect(comp.aporteCajero()).toBe(1300);
     expect(comp.f().monto).toBe(1300);   // monto = cajero + reja
     // El arqueo que va al servidor FUSIONA cajero + reja, para que cuadre con el monto (assertArqueo).
@@ -1159,7 +1319,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     montar();
     comp.capturarDesde(COBRO_CREDITO);
     comp.setVentaCredito(300);                      // 300 a crédito
-    comp.setPiezas(500, 1); comp.setPiezas(200, 1); // 700 en efectivo
+    comp.setPiezas(den(500), 1); comp.setPiezas(den(200), 1); // 700 en efectivo
     expect(comp.f().monto).toBe(1000);             // 700 efectivo + 300 crédito
     expect(comp.bloqueos()).not.toContain('arqueo_no_cuadra');
   });
@@ -1473,6 +1633,34 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.cierreAbierto()).toBe(true); // …y cae DERECHO en el conteo
   });
 
+  // ── `[CG.42]` El arreglo de `[CG.39]` era INALCANZABLE desde la pantalla ────────────────────
+  //
+  // `[CG.39]` volvio `fondo_inicial` nullable y enseno a `abrir()` a guardar NULL cuando llega
+  // `undefined`. Pero el formulario arrancaba el signal en `0` y SIEMPRE mandaba un numero, asi
+  // que `undefined` no se podia producir por la unica via real: cada apertura seguia afirmando
+  // "la caja arranco vacia", ahora encima rotulada `fondo_origen='contado'`.
+  //
+  // Estas dos pruebas son la compuerta: la de abajo falla si alguien vuelve a precargar un cero.
+  it('⭐ [CG.42] abrir sin tocar el fondo manda UNDEFINED, no 0 ("no se midio" != "esta vacia")', () => {
+    montar({ saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })) });
+    comp.abrirApertura();
+    expect(comp.fondoInicial()).toBeNull();   // el dialogo NO precarga un cero
+
+    comp.abrirCorte();
+    const body = (svc['abrirCorte'] as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as Record<string, unknown>;
+    expect(body['fondo_inicial']).toBeUndefined();
+    expect(body['fondo_inicial']).not.toBe(0);
+  });
+
+  it('[negativa] si la persona SI escribe el fondo, ese numero viaja tal cual -- incluido el 0', () => {
+    montar({ saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })) });
+    comp.abrirApertura();
+    comp.fondoInicial.set(0);                 // contar y que de cero ES una medicion
+    comp.abrirCorte();
+    const body = (svc['abrirCorte'] as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as Record<string, unknown>;
+    expect(body['fondo_inicial']).toBe(0);
+  });
+
   it('con corte abierto va derecho al conteo, sin volver a pedir el fondo', () => {
     // ⚠️ La fixture SALDO trae `corte_abierto: null`. Mi primera version decia "SALDO trae corte
     // abierto" en un comentario y montaba con el default: la prueba fallaba por la fixture, no
@@ -1628,6 +1816,66 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       })),
     });
     expect(comp.motivosAgrupados()).toEqual([]);
+  });
+
+  /**
+   * `[CG.37]` El porqué de los motivos se PLIEGA. Lo que se verifica no es que exista el botón
+   * sino las dos mitades del trato: que plegado NO esté el texto largo (ése era el punto — tres
+   * frases de ~70 caracteres empujaban la primera fila debajo del pliegue) y que desplegado SÍ,
+   * en el DOM y no en un `title`.
+   */
+  it('[CG.37] el porqué arranca PLEGADO y el conteo se ve igual', async () => {
+    const fx = montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...VACIA, rows: [GASTO_TRABADO], confirmables: 0, total: 1,
+      })),
+    });
+    await Promise.resolve();
+    fx.detectChanges();
+    const html: string = fx.nativeElement.querySelector('.cg-bandeja').innerHTML;
+
+    expect(comp.motivosAbiertos()).toBe(false);
+    expect(html).toContain(comp.motivosAgrupados()[0].motivo);          // el motivo, a la vista
+    expect(fx.nativeElement.querySelector('.cg-motivos-por')).toBeNull(); // la frase, no
+  });
+
+  it('[CG.37] al desplegarlo la frase entra al DOM — no vive en un title', async () => {
+    const fx = montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...VACIA, rows: [GASTO_TRABADO], confirmables: 0, total: 1,
+      })),
+    });
+    await Promise.resolve();
+    comp.motivosAbiertos.set(true);
+    fx.detectChanges();
+
+    const por = fx.nativeElement.querySelector('.cg-motivos-por');
+    expect(por).not.toBeNull();
+    expect(por.textContent).toContain(comp.motivosAgrupados()[0].texto);
+  });
+
+  /**
+   * ⛔ La lección de `[CG.33]`: ahí nombré una señal nueva `cierreAbierto` sin mirar que ya
+   * existía, y como en una clase gana la ÚLTIMA declaración, el botón nuevo habría abierto el
+   * diálogo que SELLA el día. Ni `tsc` ni el editor lo vieron. Esta prueba es el candado: el
+   * toggle del porqué mueve SU señal y no toca ninguna de las otras tres de la pantalla.
+   */
+  it('⛔ [negativa] desplegar el porqué no abre ningún diálogo', () => {
+    montar();
+    const antes = [comp.capturaAbierta(), comp.cierreAbierto(), comp.cuadreAbierto()];
+    comp.motivosAbiertos.set(true);
+    expect([comp.capturaAbierta(), comp.cierreAbierto(), comp.cuadreAbierto()]).toEqual(antes);
+  });
+
+  it('⛔ [negativa] sin frase que revelar, el botón del porqué NO existe', () => {
+    // Un control que no revela nada es ruido, no información (DESIGN.md, salida de filtros).
+    montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...VACIA, rows: [{ ...GASTO_TRABADO, motivo_texto: '' }], confirmables: 0, total: 1,
+      })),
+    });
+    expect(comp.motivosAgrupados().length).toBe(1);   // el motivo SÍ está
+    expect(comp.hayPorque()).toBe(false);             // lo que no hay es qué desplegar
   });
 
   it('⛔ [negativa] una clave de motivo DESCONOCIDA se muestra tal cual, no se disfraza', () => {

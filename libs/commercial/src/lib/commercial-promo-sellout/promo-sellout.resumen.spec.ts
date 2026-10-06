@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+// [CG.38.1] Sin `import ... from 'vitest'`: la config usa `globals: true`. Importarlo hace que el
+// archivo NO CARGUE ("Cannot read properties of undefined (reading 'config')"), y un archivo que
+// no carga reporta **0 tests**, no sus casos fallando: el total de la suite sigue creciendo y
+// nadie se entera de que estas pruebas no corren.
 import { PromoSelloutService, ResultadoCanal, EstadoMedicion } from './promo-sellout.service';
 
 /**

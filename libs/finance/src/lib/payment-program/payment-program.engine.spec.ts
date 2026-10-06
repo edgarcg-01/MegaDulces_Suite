@@ -1,4 +1,11 @@
-import { describe, it, expect } from 'vitest';
+// ⛔ [CG.38] Acá decía `import { describe, it, expect } from 'vitest'` y el archivo **no
+// cargaba**: `TypeError: Cannot read properties of undefined (reading 'config')`. La config de
+// este proyecto corre con `globals: true`, así que los helpers ya están en el ámbito.
+//
+// ⚠️ Y lo que esto enseña vale más que el arreglo: un spec que **falla al cargar** reporta
+// **0 tests**, no 9 fallando. El resumen decía "420 passed · 1 failed file" y el número grande
+// seguía creciendo — las 9 pruebas de [PP.7] llevaban desde que se escribieron **sin correr una
+// sola vez**. Es ADR-056 en su forma más incómoda: lo que no se midió no se puede leer como ✔.
 import { coberturaLibro } from './payment-program.engine';
 
 /**

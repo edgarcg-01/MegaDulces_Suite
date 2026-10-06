@@ -44,6 +44,8 @@
 
 export type TipoMovimiento = 'ingreso' | 'gasto' | 'deposito';
 
+import type { VeredictoCorte } from '@megadulces/contracts';
+
 export interface MovimientoDelCorte {
   tipo: TipoMovimiento;
   monto: number;
@@ -69,8 +71,20 @@ export interface TotalesCorte {
   contado: number;
   /** contado − esperado. Positivo SOBRA, negativo FALTA. */
   diferencia: number;
-  /** `cuadra` sólo si |diferencia| ≤ 1 centavo. `sin_contar` NO es `cuadra`. */
-  veredicto: 'cuadra' | 'sobra' | 'falta' | 'sin_contar';
+  /**
+   * `cuadra` sólo si |diferencia| ≤ 1 centavo. `sin_contar` NO es `cuadra`.
+   *
+   * ⛔ `[CG.42]` `sin_base` tampoco. Si no se midió con cuánto arrancó la caja, el `esperado` no
+   * es un hecho: es una resta que arranca de un supuesto. Decir `cuadra` ahí sería afirmar que
+   * coincide con algo que nadie midió.
+   */
+  veredicto: VeredictoCorte;
+  /**
+   * `[CG.42]` No se midió con qué arrancó la caja (`fondo_inicial IS NULL`, `fondo_origen =
+   * 'sin_medir'`). Va aparte del veredicto porque se puede estar sin base Y sin contar, y la
+   * pantalla tiene que poder decir las dos cosas.
+   */
+  fondo_sin_medir: boolean;
   /** Cuántos movimientos entraron y cuántos se ignoraron por estar cancelados. */
   movimientos: number;
   cancelados: number;
@@ -104,7 +118,13 @@ export function redondea(n: number): number {
  * cuadró al centavo — que es exactamente la clase de mentira que esta fase existe para matar.
  */
 export function calcularCorte(input: {
-  fondoInicial: number;
+  /**
+   * ⛔ `[CG.42]` `null` = **no se midió con qué arrancó la caja**, y NO es lo mismo que `0`
+   * ("se contó y estaba vacía"). `[CG.39]` abrió esa distinción en la base y en `abrir()`; acá se
+   * respeta en vez de aplastarla con un `|| 0`, que es lo que volvía al `esperado` una cifra sin
+   * base y al veredicto un `cuadra` sobre un supuesto.
+   */
+  fondoInicial: number | null;
   movimientos: MovimientoDelCorte[];
   conteo?: ConteoDenominacion[] | null;
   morralla?: number;
@@ -118,7 +138,10 @@ export function calcularCorte(input: {
   const ingresos = suma('ingreso');
   const gastos = suma('gasto');
   const depositos = suma('deposito');
-  const esperado = redondea(Number(input.fondoInicial || 0) + ingresos - gastos - depositos);
+  // `[CG.42]` `== null` a propósito: atrapa `null` y `undefined` y deja pasar el `0`, que es un
+  // hecho medido. Un `|| 0` metía el cero en la misma bolsa que la ausencia.
+  const fondo_sin_medir = input.fondoInicial == null;
+  const esperado = redondea(Number(input.fondoInicial ?? 0) + ingresos - gastos - depositos);
 
   // De qué está hecho ese `esperado`. La aritmética no cambia; lo que cambia es que el corte
   // ahora DICE qué parte descansa en lo que alguien tecleó (ver el defecto de fondo, arriba).
@@ -135,7 +158,12 @@ export function calcularCorte(input: {
   const diferencia = redondea(contado - esperado);
 
   let veredicto: TotalesCorte['veredicto'];
+  // `sin_contar` va PRIMERO: si nadie contó, no hay con qué comparar, tenga base o no.
   if (!huboConteo) veredicto = 'sin_contar';
+  // ⛔ `[CG.42]` y `sin_base` va antes que el cuadre. Con el fondo sin medir, `esperado` arranca de
+  // un supuesto; declarar `cuadra` contra eso es afirmar que coincide con algo que nadie midió —
+  // y el error se vería como un sobrante o un faltante del tamaño exacto del fondo, todos los días.
+  else if (fondo_sin_medir) veredicto = 'sin_base';
   else if (Math.abs(diferencia) <= CORTE_EPSILON) veredicto = 'cuadra';
   else veredicto = diferencia > 0 ? 'sobra' : 'falta';
 
@@ -143,7 +171,7 @@ export function calcularCorte(input: {
     ingresos, gastos, depositos, esperado,
     contado: huboConteo ? contado : 0,
     diferencia: huboConteo ? diferencia : 0,
-    veredicto, movimientos: vivos.length, cancelados,
+    veredicto, fondo_sin_medir, movimientos: vivos.length, cancelados,
     ingresos_anclados, ingresos_capturados, cobertura_ingreso,
   };
 }

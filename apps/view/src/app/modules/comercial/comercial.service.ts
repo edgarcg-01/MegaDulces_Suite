@@ -1510,8 +1510,21 @@ export class ComercialService {
     return this.http.get<InventoryCount[]>(`${this.base}/inventory/counts`, { params });
   }
 
+  /**
+   * Folio TOTAL (todo el almacén). ⚠️ `type:'cycle'` sin subconjunto lo **rechaza el
+   * backend** desde `[IC.13]`: sin `product_ids` el snapshot es el almacén entero, o sea
+   * un folio total con la etiqueta equivocada. Para cíclico → `openCycleInventoryCount`.
+   */
   openInventoryCount(body: { warehouse_id: string; type?: 'full' | 'cycle'; freeze_movements?: boolean; blind_double_count?: boolean; recount_threshold_pct?: number; notes?: string }) {
     return this.http.post<InventoryCount & { expected_items: number }>(`${this.base}/inventory/counts/open`, body);
+  }
+
+  /**
+   * `[IC.13]` Folio CÍCLICO acotado por clase ABC (ABC.2). Es el camino real del conteo
+   * parcial: el backend resuelve el subconjunto y **no congela el almacén por default**.
+   */
+  openCycleInventoryCount(body: { warehouse_id: string; abc_class?: 'A' | 'B' | 'C'; product_ids?: string[]; max_items?: number; freeze_movements?: boolean; blind_double_count?: boolean; recount_threshold_pct?: number; notes?: string }) {
+    return this.http.post<InventoryCount & { expected_items: number }>(`${this.base}/inventory/counts/open-cycle`, body);
   }
 
   submitInventoryCount(countId: string, body: { product_id?: string; barcode?: string; quantity: number; recount?: boolean }) {
@@ -3087,12 +3100,31 @@ export interface InventoryCount {
   warehouse_code?: string;
   warehouse_name?: string;
   type: 'full' | 'cycle';
+  /**
+   * ⚠️ `open` y `ready_to_reconcile` están en el CHECK de la tabla pero **ningún escritor
+   * del backend los produce** (medido 2026-10-06, `commercial_inv_counts_status_valid` vs
+   * los `insert`/`update` de `inventory-count.service.ts`): la máquina real es
+   * `counting → review → reconciled | cancelled`. Se conservan en el tipo —y su etiqueta en
+   * pantalla— porque el CHECK los admite y un folio viejo podría traerlos; lo que no se
+   * hace es prometerlos como parte del flujo.
+   */
   status: 'open' | 'counting' | 'review' | 'ready_to_reconcile' | 'reconciled' | 'cancelled';
   freeze_movements?: boolean;
   blind_double_count?: boolean;
   started_at?: string;
   closed_at?: string;
   created_at?: string;
+  /** `[IC.13]` Última vez que el folio cambió de estado o fase (acción del supervisor). */
+  updated_at?: string;
+  /** `[IC.13]` SKUs del snapshot de apertura. */
+  items_total?: number;
+  /** `[IC.13]` SKUs con al menos un conteo registrado. */
+  items_counted?: number;
+  /**
+   * `[IC.13]` Último escaneo REAL del folio. **NULL = nadie contó nunca** — no se rellena
+   * con `started_at`, que daría una "última actividad" inventada.
+   */
+  last_count_at?: string | null;
 }
 
 export interface AssignableUser {

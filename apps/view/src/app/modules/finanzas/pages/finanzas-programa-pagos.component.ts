@@ -12,6 +12,8 @@ import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { SkeletonModule } from 'primeng/skeleton';
 import { TagModule } from 'primeng/tag';
+import { MessageModule } from 'primeng/message';
+import { TooltipModule } from 'primeng/tooltip';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -50,7 +52,7 @@ interface PPRecon { months: PPReconMonth[] }
   imports: [
     CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
     TableModule, SelectModule, SkeletonModule, TagModule, MetricStripComponent,
-    FreshnessPillComponent,
+    FreshnessPillComponent, MessageModule, TooltipModule,
   ],
   template: `
     <div class="surf-page in">
@@ -68,26 +70,42 @@ interface PPRecon { months: PPReconMonth[] }
           @if (data()?.freshness; as fr) {
             <app-freshness-pill measures="data" [freshness]="fr" label="Libro de Tesorería" [staleAfterSec]="30 * 24 * 3600" />
           } @else if (data()) {
-            <span class="pp-fresh-unknown" title="No se pudo medir de cuándo son los datos del libro. No es lo mismo que estar al día.">frescura sin medir</span>
+            <!-- PrimeNG-first (checklist 3): p-tag, no un span con clase propia. Severity
+                 secondary a proposito: "no se pudo medir" NO es una advertencia sobre el dato,
+                 es la ausencia de la medicion -- pintarlo de warn diria que el libro esta viejo,
+                 que es justamente lo que no se sabe. -->
+            <p-tag value="frescura sin medir" severity="secondary" styleClass="pp-fresh-unknown"
+                   pTooltip="No se pudo medir de cuándo son los datos del libro. No es lo mismo que estar al día."
+                   tooltipPosition="bottom"></p-tag>
           }
-          <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!showRecon()" (click)="toggleRecon()"><span class="pi pi-check-square" aria-hidden="true"></span>&nbsp;Conciliación</button>
-          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
+          <!-- [CG.36] Eran botones nativos con la DIRECTIVA, que en v22 ya no tiene label ni
+               icon -- por eso el rotulo y el icono venian escritos a mano en spans con las
+               clases internas de PrimeNG (p-button-icon, p-button-label), o sea copiando el DOM
+               del componente dentro de la plantilla. El componente los pone solo. -->
+          <p-button label="Conciliación" icon="pi pi-check-square" size="small"
+                    [outlined]="!showRecon()" (onClick)="toggleRecon()"></p-button>
+          <p-button label="Actualizar" icon="pi pi-refresh" size="small" [outlined]="true"
+                    [loading]="loading()" (onClick)="reload()"></p-button>
         </div>
       </header>
 
       <!-- [PP.7] Los meses que FALTAN, enumerados. La pildora dice "esto esta viejo"; esto dice
            que no esta. Sin este aviso, un mes ausente se ve igual que un mes sin pagos: los dos
            llegan como cero, y el filtro de Mes ni siquiera lo ofrece porque sale de lo cargado. -->
+      <!-- PrimeNG-first (checklist 3): p-message, no un div con icono y borde propios. El
+           componente ya trae el rol, el icono y el par de color del tema. -->
       @if (cob()?.faltantes?.length) {
-        <div class="pp-gap" role="status">
-          <span class="pi pi-exclamation-triangle" aria-hidden="true"></span>
+        <!-- ⚠️ class en el HOST, NO styleClass: PrimeNG 22 retiró ese input de p-message y la
+             clase se perdería en silencio — build verde, sin warning, el aviso sin ancho.
+             Lo caza scripts/check-primeng-api.js, que existe exactamente para esto. -->
+        <p-message severity="warn" class="pp-gap">
           <span>
             <b>Faltan {{ cob()!.faltantes.length }} mes(es) en el libro:</b>
             {{ cob()!.faltantes.join(' · ') }}.
             Lo de abajo NO los incluye — no es que no se haya pagado, es que el Excel de Tesorería
             no se ha cargado. Se sube corriendo <code>import-payment-program.js</code> con el libro del mes.
           </span>
-        </div>
+        </p-message>
       }
 
       @if (showRecon()) {
@@ -95,20 +113,23 @@ interface PPRecon { months: PPReconMonth[] }
           <h2 class="pp-recon-h">Conciliación mensual</h2>
           @if (recon(); as rc) {
             <div class="pp-recon-scroll">
-              <table class="pp-recon-tbl">
-                <thead><tr><th>Mes</th><th class="ta-r">Programa</th><th class="ta-r">Kepler 201 (pagos)</th><th class="ta-r">Bancos (CB)</th><th class="ta-r">Pagado no en Kepler</th></tr></thead>
-                <tbody>
-                  @for (m of rc.months; track m.month) {
-                    <tr>
-                      <td class="pp-mono">{{ m.month }}</td>
-                      <td class="ta-r pp-num">{{ money(m.program) }} <span class="pp-recon-n">{{ m.program_n }}</span></td>
-                      <td class="ta-r pp-num muted">{{ money(m.kepler201) }}</td>
-                      <td class="ta-r pp-num muted">{{ m.bank_cb === null ? '—' : money(m.bank_cb) }}</td>
-                      <td class="ta-r pp-num" [class.pp-warn]="m.flag_no > 0">{{ m.flag_no > 0 || m.flag_si > 0 ? (money(m.monto_no) + ' · ' + m.flag_no) : 's/dato' }}</td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
+              <!-- [CG.36] Era una <table> a mano en una pantalla que YA tenia un p-table doce
+                   renglones mas abajo: dos tablas con distinto borde y distinto alto de fila,
+                   una encima de la otra. -->
+              <p-table [value]="rc.months" size="small" class="pp-recon-tbl">
+                <ng-template #header>
+                  <tr><th>Mes</th><th class="ta-r">Programa</th><th class="ta-r">Kepler 201 (pagos)</th><th class="ta-r">Bancos (CB)</th><th class="ta-r">Pagado no en Kepler</th></tr>
+                </ng-template>
+                <ng-template #body let-m>
+                  <tr>
+                    <td class="pp-mono">{{ m.month }}</td>
+                    <td class="ta-r pp-num">{{ money(m.program) }} <span class="pp-recon-n">{{ m.program_n }}</span></td>
+                    <td class="ta-r pp-num muted">{{ money(m.kepler201) }}</td>
+                    <td class="ta-r pp-num muted">{{ m.bank_cb === null ? '—' : money(m.bank_cb) }}</td>
+                    <td class="ta-r pp-num" [class.pp-warn]="m.flag_no > 0">{{ m.flag_no > 0 || m.flag_si > 0 ? (money(m.monto_no) + ' · ' + m.flag_no) : 's/dato' }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
             </div>
             <p class="pp-recon-note">Los tres universos <b>no son iguales</b> — es informativo, no un descuadre: <b>Kepler 201</b> incluye nómina/inter-sucursal/gastos (superset); <b>Bancos CB</b> son todos los egresos del estado de cuenta (solo meses cargados). La señal <b>confiable</b> de "pagado pero no asentado en el ERP" es <b>Pagado no en Kepler</b> (columna KEPLER de Tesorería, $ · #), disponible donde el Excel la trae (jul/ago). "s/dato" = ese mes no traía la columna.</p>
           } @else { <p class="pp-empty">Cargando conciliación…</p> }
@@ -125,11 +146,19 @@ interface PPRecon { months: PPReconMonth[] }
           <p-inputicon styleClass="pi pi-search" />
           <input pInputText type="text" placeholder="Proveedor…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar proveedor" />
         </p-iconfield>
-        @if (hasFilters()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="clearFilters()"><span class="pi pi-filter-slash" aria-hidden="true"></span>&nbsp;Limpiar</button> }
+        @if (hasFilters()) { <p-button label="Limpiar" icon="pi pi-filter-slash" size="small" [text]="true" (onClick)="clearFilters()"></p-button> }
       </div>
 
       @if (err(); as e) {
-        <div class="pp-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="pp-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()" label="Reintentar"></button></div>
+        <div class="pp-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="pp-errbox-txt">{{ e }}</span><!--
+             ⛔ ESTE SALIA VACIO. Era un boton nativo con la DIRECTIVA y un atributo "label",
+             sin contenido adentro: la directiva perdio ese atributo en v22, asi que quedaba
+             muerto y el unico camino de vuelta tras un error era un boton sin texto. Build
+             verde, sin warning -- el modo de falla exacto que describe check-primeng-api.
+             ⚠️ Y el comentario NO puede citar la sintaxis vieja: la compuerta busca el patron
+             por TEXTO y no distingue codigo de comentario -- citarla aca la volvia a contar,
+             dejando el techo clavado en 22 y tapando justo el arreglo de abajo. Medido.
+        --><p-button label="Reintentar" size="small" [outlined]="true" (onClick)="reload()"></p-button></div>
       }
 
       @if (data(); as d) {
@@ -220,11 +249,14 @@ interface PPRecon { months: PPReconMonth[] }
     :host ::ng-deep .pp-tag { font-size:.64rem; }
     .pp-foot { margin-top:1rem; font-size:.74rem; color:var(--text-faint); line-height:1.5; }
     /* [PP.7] Frescura sin medir: borde punteado, sin color de estado. No se puede ver como un verde. */
-    .pp-fresh-unknown { font-size:var(--fs-xs); color:var(--text-muted); border:1px dashed var(--border-color); border-radius:999px; padding:.15rem .55rem; align-self:center; }
+    /* El p-tag trae color, forma y borde del tema. Lo unico propio es que se alinee con los
+       botones de la cabecera: el resto lo declara el componente, no esta pantalla. */
+    .pp-fresh-unknown { align-self:center; }
     /* [PP.7] El aviso de meses faltantes. Usa warn, no bad: no es un error del sistema, es dato que no se ha cargado. */
-    .pp-gap { display:flex; align-items:flex-start; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .8rem; border:1px solid var(--border-color); border-left:3px solid var(--warn-fg); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-body); line-height:1.45; }
-    .pp-gap .pi { color:var(--warn-fg); margin-top:.15rem; }
-    .pp-gap code { font-family:var(--font-mono, monospace); font-size:var(--fs-sm); background:var(--surface-2, transparent); padding:.05rem .3rem; border-radius:var(--r-sm); }
+    /* El p-message pone el icono, el borde, el fondo y el par de color del tema. Lo propio es
+       solo el ancho y el ritmo del parrafo; el nombre del script va en mono porque es codigo. */
+    .pp-gap { width:100%; margin:.2rem 0 .8rem; line-height:1.45; }
+    .pp-gap code { font-family:var(--font-mono); font-size:var(--fs-sm); }
     .pp-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .pp-errbox .pi { color:var(--bad-fg); } .pp-errbox-txt { flex:1; font-size:.84rem; }
     .pp-empty-op { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:2.4rem 1rem; text-align:center; }
@@ -235,7 +267,10 @@ interface PPRecon { months: PPReconMonth[] }
     .pp-recon { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.8rem 1rem; margin:.6rem 0 1rem; background:var(--card-bg); }
     .pp-recon-h { font-size:.9rem; font-weight:700; margin:0 0 .6rem; }
     .pp-recon-scroll { overflow-x:auto; }
-    .pp-recon-tbl { width:100%; border-collapse:collapse; font-size:.8rem; }
+    /* ⚠️ La clase cae en el HOST del p-table; la <table> de adentro la pinta PrimeNG. Aca queda
+       solo lo que CASCADEA o aplica al host — el ancho y el colapso de bordes son del
+       componente. Los dos selectores de abajo SI llegan: th/td viven en nuestras ng-template. */
+    .pp-recon-tbl { display:block; font-size:.8rem; }
     .pp-recon-tbl th, .pp-recon-tbl td { padding:.32rem .5rem; border-bottom:1px solid var(--border-color); white-space:nowrap; }
     .pp-recon-tbl th { color:var(--text-muted); font-weight:600; text-align:left; }
     .pp-recon-n { color:var(--text-faint); font-size:.72rem; margin-left:.3rem; }
