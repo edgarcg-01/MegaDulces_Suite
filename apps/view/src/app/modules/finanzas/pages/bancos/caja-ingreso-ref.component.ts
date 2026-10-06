@@ -78,6 +78,24 @@ import { BANCOS_STYLES } from './bancos.styles';
           </p>
         }
 
+        <!-- [CG.40] UNA FUENTE AUSENTE NO ES UN HUECO DEL ERP. Si una de las explicaciones no
+             tiene datos, todo lo que ella habría casado cae en "sin explicar" y la bandeja manda
+             a investigar depósito por depósito algo que se arregla recuperando la fuente. -->
+        @if (fuentesAusentes(c).length) {
+          <p class="ic-declara">
+            <i class="pi pi-exclamation-triangle"></i>
+            <span>
+              <b>El veredicto está incompleto</b> — «sin explicar» incluye lo que estas fuentes
+              habrían casado, así que es un tope, no una medición:
+              @for (f of fuentesAusentes(c); track f.nombre) {
+                <br><b>{{ f.nombre }}</b>:
+                {{ f.estado === 'sin_fuente' ? 'no se pudo consultar' : 'sin movimientos en este periodo' }}@if (f.ultimo_dato) {, último dato <b>{{ f.ultimo_dato }}</b>}.
+                <em>{{ f.accion }}</em>
+              }
+            </span>
+          </p>
+        }
+
         @if (c.por_cuenta?.length) {
           <button type="button" class="ic-toggle" (click)="openAcct.set(!openAcct())" [attr.aria-expanded]="openAcct()">
             <i class="pi" [class.pi-chevron-right]="!openAcct()" [class.pi-chevron-down]="openAcct()"></i>
@@ -211,5 +229,30 @@ export class CajaIngresoRefComponent {
   /** Lo mismo, por cuenta, para que las columnas de la tabla sumen el total de su fila. */
   sinMedir(a: IngresosControlCuenta): number {
     return (a.traspaso_sin_contraparte || 0) + (a.fecha_invalida || 0);
+  }
+
+  /**
+   * [CG.40] Las fuentes que no aportaron nada, con la acción que de verdad las resuelve.
+   *
+   * ⚠️ Un backend viejo no manda `fuentes`; en ese caso NO se inventa un aviso (devuelve vacío),
+   * porque «no sé» y «todas las fuentes bien» no son lo mismo y dibujar la segunda sería
+   * exactamente el defecto que este bloque viene a cerrar.
+   */
+  fuentesAusentes(c: IngresosControl): { nombre: string; estado: string; ultimo_dato?: string | null; accion: string }[] {
+    if (!c.fuentes) return [];
+    const META: Record<string, { nombre: string; accion: string }> = {
+      caja: { nombre: 'Caja (depósitos de tienda)', accion: 'Su origen dejó de alimentarse; mientras no vuelva, los depósitos de tienda no tienen con qué cruzarse.' },
+      cobranza: { nombre: 'Cobranza del ERP', accion: 'Revisá el feed de cobros de Kepler.' },
+      tesoreria: { nombre: 'Tesorería del ERP', accion: 'Revisá el feed de movimientos de banco de Kepler.' },
+      espejo: { nombre: 'Retiros espejo', accion: 'Faltan estados de cuenta cargados para encontrar la pata contraria.' },
+    };
+    return Object.entries(c.fuentes)
+      .filter(([, f]) => f.estado === 'sin_fuente' || f.filas === 0)
+      .map(([k, f]) => ({
+        nombre: META[k]?.nombre ?? k,
+        estado: f.estado,
+        ultimo_dato: f.ultimo_dato ?? null,
+        accion: META[k]?.accion ?? '',
+      }));
   }
 }

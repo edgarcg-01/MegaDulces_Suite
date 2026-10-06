@@ -267,8 +267,17 @@ export class CashLedgerService {
   /**
    * CG.19 Capa 1 — **El valor se TOMA de Kepler.**
    *
-   * Cuando el movimiento viene anclado a un cobro del ERP, el monto **no se acepta del cliente**:
-   * se lee de `finance.v_caja_ingresos_pendientes` (vista viva sobre `analytics.erp_collections`).
+   * Cuando el movimiento viene anclado a un documento del ERP, el monto **no se acepta del
+   * cliente**: se lee de `finance.v_caja_movimientos_pendientes` (vista viva sobre
+   * `analytics.mv_caja_movimientos`, o sea los movimientos de Kepler con `tipo_cuenta='caja'`).
+   *
+   * ⚠️ [CG.40] Acá decía `finance.v_caja_ingresos_pendientes`, y era **falso desde `CG.21`**: esa
+   * vista cubría sólo los INGRESOS (cobros `UA0501`) y fue reemplazada por la de movimientos
+   * cuando la fase pasó a anclar también el egreso. La vista vieja sigue existiendo en la base,
+   * **sin un solo consumidor**, y además trae `sucursal = '00'` cableado — correcto mientras el
+   * `00` concentraba, falso desde el corte del 1-oct-2026 (Fase PO). Quien se guiara por este
+   * comentario la habría tomado por viva y se habría llevado los dos defectos juntos.
+   *
    * Si el capturista manda otra cifra, se ignora — y si difiere, se dice, porque un front que
    * manda un monto distinto del documento es un bug que hay que ver, no un dato que hay que
    * aceptar.
