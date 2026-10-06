@@ -70,6 +70,12 @@ import { esDuenoDelVale, puedeVerCualquierExpediente, MENSAJE_EXPEDIENTE_AJENO, 
  * de reembolso ligada por folio a la solicitud de Kepler (XA1501), con múltiples
  * adjuntos. Vive en `finance.expense_proofs`; NO escribe a Kepler (se concilia por
  * folio). Flujo `recibida → validada | rechazada`.
+ *
+ * `[GX.69]` ⭐ **El IMPORTE del vale se lee de Kepler.** Toda lectura que muestre, sume o
+ * compare el importe va por `finance.v_expense_proofs`, donde `importe` = el **Saldo del
+ * gasto** en Kepler (`X-A-10 c42`, tal cual: sin impuestos ni recálculo), o el de la
+ * solicitud mientras el gasto no existe. Las ESCRITURAS siguen en `finance.expense_proofs`
+ * (una vista con joins no se actualiza). Lo grabado queda en `importe_capturado`.
  */
 
 /**
@@ -568,7 +574,7 @@ export class ExpenseProofsService {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!String(actor || '').trim()) return [];
     return this.tk.run(async (trx) => trx('finance.proposed_actions as a')
-      .join('finance.expense_proofs as p', trx.raw("p.id::text = a.payload->>'proof_id'"))
+      .join('finance.v_expense_proofs as p', trx.raw("p.id::text = a.payload->>'proof_id'"))
       .where({ 'a.tenant_id': tenantId, 'a.kind': KIND_REAPERTURA, 'a.estado': 'pending_approval' })
       .where('p.validated_by', actor)
       .orderBy('a.created_at', 'desc')
@@ -993,7 +999,7 @@ export class ExpenseProofsService {
     // Lee el estado actual + guardas FUERA de la trx pesada (la visión es I/O de segundos).
     const base = await this.tk.run(async (trx) => {
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
-      const cur: any = await trx('finance.expense_proofs').where({ id }).where('status', 'recibida')
+      const cur: any = await trx('finance.v_expense_proofs').where({ id }).where('status', 'recibida')
         .first('folio_solicitud', 'files', trx.raw('importe::numeric AS importe'),
           ...(clasCol ? ['clasificacion', 'comprobacion_nota'] : []));
       return { cur, clasCol };
@@ -1105,7 +1111,7 @@ export class ExpenseProofsService {
         })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o no está en estado por aprobar');
-      const [full] = await trx('finance.expense_proofs').where({ id })
+      const [full] = await trx('finance.v_expense_proofs').where({ id })
         .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal', 'proveedor', 'created_by');
       if (full) this.emit(cierra ? 'validated' : 'captured', full, actor);
       // `[GX.26]` Se avisa cuando la decision CIERRA el vale. Aprobar un gasto comprobable
@@ -1142,7 +1148,7 @@ export class ExpenseProofsService {
     // Datos base + guardas FUERA de la trx pesada (la visión es I/O de segundos).
     const base = await this.tk.run(async (trx) => {
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
-      const cur: any = await trx('finance.expense_proofs').where({ id }).where('status', 'aprobada')
+      const cur: any = await trx('finance.v_expense_proofs').where({ id }).where('status', 'aprobada')
         .first('folio_solicitud', 'files', 'provisional', trx.raw('importe::numeric AS importe'), ...(clasCol ? ['clasificacion'] : []));
       return { cur, clasificacion: clasCol ? cur?.clasificacion : null };
     });
@@ -1205,7 +1211,7 @@ export class ExpenseProofsService {
         .returning(['id', 'folio_solicitud', 'status']);
       if (!row) throw new BadRequestException('el gasto no está aprobado y a la espera de evidencia');
       this.logger.log(`evidencia de gasto folio ${row.folio_solicitud} → ${status}, por ${actor || '?'}`);
-      const [full] = await trx('finance.expense_proofs').where({ id })
+      const [full] = await trx('finance.v_expense_proofs').where({ id })
         .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
       if (full) this.emit('captured', full, actor);
       return row;
@@ -1358,7 +1364,7 @@ export class ExpenseProofsService {
     this.tenantCtx.requireTenantId();
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
     return this.tk.run(async (trx) => {
-      const b = trx('finance.expense_proofs')
+      const b = trx('finance.v_expense_proofs')
         .select('id', 'solicitante', 'departamento', 'departamento_code', 'sucursal',
           'fecha_gasto', 'folio_solicitud', 'proveedor',
           trx.raw('importe::numeric AS importe'), trx.raw('monto_ocr::numeric AS monto_ocr'), 'monto_match', 'revision_nota',
@@ -1498,7 +1504,7 @@ export class ExpenseProofsService {
 
     return this.tk.run(async (trx) => {
       interface FilaCruda { dia: string; n: number; monto: string | number }
-      const b = trx('finance.expense_proofs')
+      const b = trx('finance.v_expense_proofs')
         .where({ tenant_id: tenantId })
         .whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [desde])
         .whereRaw(`created_at <  (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [hasta])
@@ -1550,7 +1556,7 @@ export class ExpenseProofsService {
     return this.tk.run(async (trx) => {
       const tieneCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'tiene_comprobacion');
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
-      const r: any = await trx('finance.expense_proofs')
+      const r: any = await trx('finance.v_expense_proofs')
         .where({ id })
         .first(...(tieneCol ? ['tiene_comprobacion', 'comprobacion_nota'] : []),
           ...(clasCol ? ['clasificacion'] : []),
@@ -2134,7 +2140,7 @@ export class ExpenseProofsService {
         files: string | ProofFile[] | null; comentarios: string | null;
         created_by: string | null; importe: string | number;
       }
-      const filas: FilaCruda[] = await trx('finance.expense_proofs')
+      const filas: FilaCruda[] = await trx('finance.v_expense_proofs')
         .where({ tenant_id: tenantId, status: 'recibida' })
         .orderBy('created_at', 'desc')
         .limit(lim)
@@ -2298,7 +2304,7 @@ export class ExpenseProofsService {
       ];
 
       // (1) El dia que se mira, completo: alimenta las tres pestanas.
-      const filasDelDia: FilaCruda[] = await trx('finance.expense_proofs')
+      const filasDelDia: FilaCruda[] = await trx('finance.v_expense_proofs')
         .where({ tenant_id: tenantId })
         .where('created_at', '>=', desde)
         .where('created_at', '<', hasta)
@@ -2312,7 +2318,7 @@ export class ExpenseProofsService {
       // `status = 'recibida'`. Con el literal, un estado nuevo en la tabla (o el `sin_etapa`
       // que el repartidor usa de red) quedaria fuera de la bandeja sin que nada avise, que
       // es justo el trabajo invisible que este cambio vino a terminar.
-      const deOtrosDias: FilaCruda[] = await trx('finance.expense_proofs')
+      const deOtrosDias: FilaCruda[] = await trx('finance.v_expense_proofs')
         .where({ tenant_id: tenantId })
         .whereNotIn('status', [...ESTADOS_DECIDIDOS])
         .where((w) => w.where('created_at', '<', desde).orWhere('created_at', '>=', hasta))
@@ -2322,7 +2328,7 @@ export class ExpenseProofsService {
 
       // El total real de (2), para saber si la lista se corto. El COUNT es sobre el mismo
       // WHERE: si no coincide con las filas traidas, hay mas y la pantalla lo dice.
-      const [fuera] = await trx('finance.expense_proofs')
+      const [fuera] = await trx('finance.v_expense_proofs')
         .where({ tenant_id: tenantId })
         .whereNotIn('status', [...ESTADOS_DECIDIDOS])
         .where((w) => w.where('created_at', '<', desde).orWhere('created_at', '>=', hasta))
@@ -2477,7 +2483,7 @@ export class ExpenseProofsService {
         gasto_folios?: string[] | null;
       }
 
-      const q = trx('finance.expense_proofs as p')
+      const q = trx('finance.v_expense_proofs as p')
         .where('p.tenant_id', tenantId)
         .orderBy('p.created_at', 'desc')
         .limit(lim)
@@ -2807,7 +2813,7 @@ export class ExpenseProofsService {
         })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o ya validada');
-      const [full] = await trx('finance.expense_proofs').where({ id })
+      const [full] = await trx('finance.v_expense_proofs').where({ id })
         .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal', 'proveedor', 'created_by');
       if (full) this.emit('validated', full, actor);
       // `[GX.26]` Y el camino de vuelta: a quien levanto el gasto, a su campana.
@@ -2876,7 +2882,7 @@ export class ExpenseProofsService {
         .update({ status: 'rechazada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o ya rechazada');
-      const [full] = await trx('finance.expense_proofs').where({ id })
+      const [full] = await trx('finance.v_expense_proofs').where({ id })
         .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal', 'proveedor', 'created_by', 'motivo_rechazo');
       if (full) this.emit('rejected', full, actor);
       // `[GX.26]` El rechazo SIEMPRE viaja con su motivo: un «te lo rechazaron» sin por que
@@ -2977,7 +2983,7 @@ export class ExpenseProofsService {
     if (!f) throw new BadRequestException('folio requerido');
 
     const cur: any = await this.tk.run(async (trx) =>
-      trx('finance.expense_proofs').where({ id }).whereNull('folio_solicitud')
+      trx('finance.v_expense_proofs').where({ id }).whereNull('folio_solicitud')
         .first('id', 'files', 'clasificacion', 'capture_meta', 'sucursal', trx.raw('importe::numeric AS importe')));
     if (!cur) throw new BadRequestException('esta captura no existe o ya fue casada');
 
@@ -3021,7 +3027,7 @@ export class ExpenseProofsService {
       const brecha = real && Math.abs(real - declarado) > 0.5
         ? ` · declaró ${declarado} y Kepler dice ${real}` : '';
       this.logger.log(`captura ${id} casada con ${f} por ${actor || '?'}${brecha}`);
-      const [full] = await trx('finance.expense_proofs').where({ id })
+      const [full] = await trx('finance.v_expense_proofs').where({ id })
         .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
       if (full) this.emit('captured', full, actor);
       return { ...row, importe_declarado: declarado, importe_kepler: real };

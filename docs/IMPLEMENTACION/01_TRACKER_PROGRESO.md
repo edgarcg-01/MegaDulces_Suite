@@ -3948,6 +3948,23 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.69] · el importe del vale es el SALDO del gasto en Kepler — 2026-10-06
+
+- [x] **[GX.69]** 🧪 Regla del usuario: el importe del vale = **«Saldo» del gasto** (`X-A-10`, `kdm1.c42`),
+  **tal cual** — sin impuestos, sin recálculo, sin el importe contable. ⛔ Corrige a GX.68, que tomaba la
+  SOLICITUD (`X-A-15 c16`, con IVA). Medido en prod: en el gasto `c42 = c16` en 2,636/2,636; en la solicitud
+  el saldo es lo que FALTA aplicar (0008489: $113.02); gastos cancelados (337) en $0; 142 solicitudes con
+  varios gastos (se suman). ⚠️ El `importe` de `analytics.expense_documents` NO es Kepler crudo: lo pisa
+  `expense_doc_accounting` (0010102 salía $192.28 = el IVA; Kepler dice $1,394.00).
+  Vista `finance.v_expense_proofs` (mig `20261006210000`, `security_invoker`): `importe` = saldo del gasto,
+  o la solicitud mientras no hay gasto, o lo capturado; + `importe_capturado` / `importe_fuente` /
+  `importe_gastos`. Derivada, sin cron (regla principal). 238 vales en 18–30 ms. Las 17 lecturas del importe
+  van a la vista; escrituras siguen en la tabla. Cambian 8 vales en prod (0008489 → $706.37, 0000008 →
+  $756.20, 0000010 → $200.00, 0000066 → $302.76, 0000022 → $409.94; 3 sobre solicitud cancelada → $0).
+  Candado `importe-saldo-gasto.spec.ts` (5, rojo contra main).
+- [ ] **[GX.69.m]** ⚠️ Si una migración futura agrega columnas a `expense_proofs`, re-crear la vista.
+- [ ] **[GX.69.u]** Pantalla: decir de dónde sale el importe (`importe_fuente`: gasto / solicitud provisional).
+
 ### 🔨 [GX.68] · el importe del vale lo dicta Kepler — 2026-10-05
 
 - [x] **[GX.68]** 🧪 Reporte: *«Claude Vision sigue cambiando el monto total de los vales»*. Medido en el
