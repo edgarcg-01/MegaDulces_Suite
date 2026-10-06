@@ -7523,6 +7523,73 @@ fallback sin número para cuando el catálogo no responde — **no se afirma cu�
 
 ---
 
+#### 🧪 `[CG.41]` · El gate baja a 500 ms, y la pantalla tenía un solo culpable — 2026-10-06
+
+Edgar: *«una consulta de más de 500 milisegundos no funciona»*. El umbral venía de 1 s (2026-09-18)
+y **baja a 500 ms**. Medido contra prod, con la ventana real de cada pantalla.
+
+**12 de 14 pasan holgadas.** El `ngOnInit` de `/finanzas/caja-general` dispara **10 peticiones** y
+ninguna estorba: bandeja de pendientes **6 ms** (ventana real de 45 días, no la de 1 que medí
+primero), saldo **1 ms**, cortes **1 ms**, cajas **1 ms**, cobertura **1–5 ms**, frecuentes **1 ms**,
+arqueo del día **111 ms**, libro del mes **120 ms**. Las pestañas Cuadre **113 ms**, Overview
+**112 ms**, Por-sucursal **90 ms**, Arqueos **66 ms**, Facets **87 ms**.
+
+⛔ **La que no: la pestaña Conciliación, 825 ms.** Son cuatro `await` seguidos dentro de la misma
+transacción de tenant —no se pueden paralelizar, comparten conexión— y el reparto es brutal: caja
+**1 ms**, workbook **2 ms**, ContPAQi **43 ms** y **Kepler 663 ms**. ⭐ **El 80% del tiempo de la
+pestaña es una sola pierna**, y las otras tres juntas no llegan a 50 ms.
+
+**La causa, leída en el plan.** `analytics.kepler_bank_movements` es **vista viva**. Su CTE `flj` se
+referencia **dos veces** (el `UNION ALL` de las piernas del traspaso) y un CTE usado más de una vez
+Postgres lo **MATERIALIZA** → el filtro de fecha del consumidor **no baja** al scan. El plan lo dice
+entero: `Seq Scan on kdm1` leyendo **666,026 filas** (1,772 ms, 61,200 buffers) para que arriba el
+`CTE Scan on flj` tire 50,561 y entregue **103**. Media tabla de 552 MB para cien renglones. Y no
+hay índice que la salve: `ix_kdm1_venta_fecha` cubre `((c9)::date)` pero es **parcial a ventas**
+(`c2='U' AND c3='D'`), y tesorería es `U-A-5`/`X-D-26`/`X-D-25`/`X-D-60`/`X-D-10`/`X-A-45`/`U-A-25`.
+
+**Hacen falta los DOS cambios, y cada uno se midió por separado:**
+- **Sólo bajar el filtro al scan**: 697 → **475 ms**. Pasa raspando y sigue siendo seq scan.
+- **Sólo el índice**, sin tocar el CTE: **no sirve** — con `flj` materializado el scan no tiene
+  predicado de fecha que buscar.
+
+⭐⭐ **Y el índice obvio estaba mal, lo salvó probarlo.** El primer intento fue
+`(btrim(c45), (c9::date))`. **El planner no lo habría tocado jamás**: las claves de banco salen de
+una **subconsulta** sobre `kdb1`, así que el `IN` se resuelve como *hash semi join* y eso obliga a
+escanear. Medido forzando `enable_seqscan = off`: **sigue en Parallel Seq Scan, 61,206 buffers,
+513 ms**. *Un índice que el planner no elige es un índice que no existe, con el costo de mantenerlo
+en cada INSERT.* El que sí sirve **lidera con la fecha** —ahí el predicado es un rango de
+literales— y manda la condición de banco al **WHERE parcial**:
+`ON kdm1 (((c9)::date)) WHERE btrim(COALESCE(c45,'')) <> ''`. El `btrim(c1) = sucursal` es **columna
+contra columna**: ningún índice lo resuelve, sólo se filtra barato cuando el universo ya es chico.
+
+**Dimensionado antes de crearlo:** de 725,871 filas sólo **58,210 (8.0%)** traen clave de banco → el
+índice parcial guarda eso; del mes en curso son **210**. La forma está **comprobada en esta misma
+tabla**: `ix_kdm1_venta_fecha` tiene esta forma exacta y el planner la elige — **Index Scan, 2,825
+buffers, 87 ms para 19,516 filas** contra 61,200 del seq scan.
+
+**Alcance: no es sólo de Caja General.** La vista la leen **9 archivos** (Bancos, Caja, CAOS,
+comprobantes de pago, el escáner de feeds, `db-health`) y **`mv_caja_movimientos` se reconstruye
+desde ella**, así que abaratarla abarata también ese refresco. `NOT MATERIALIZED` es instrucción de
+**plan, no de semántica**: no cambia un solo resultado.
+
+**Una retractación mía.** También marqué `analytics.v_caja_doc_contracuenta` en 663 ms — con un
+`SELECT * ... LIMIT 200` **que nadie corre**. El servicio la usa con
+`whereIn(['sucursal','tipo_pol','folio'], …)` sobre una página de ~100 documentos: **32 ms**, justo
+lo que su propio comentario ya decía. *Medir una consulta parecida no mide nada.*
+
+- Mig `20261006170000_kdm1_tesoreria_fecha_idx.js` (`transaction: false` por `CONCURRENTLY`), que
+  **falla ruidosa** si no encuentra el marcador del CTE —un `replace` que no casa deja un no-op que
+  diría «listo» sin cambiar nada— y **verifica `indisvalid`**, porque un `CONCURRENTLY` a medias
+  deja un índice inválido que no se usa y la migración habría dicho que todo bien.
+- Gate en el candado `test-newdb-caja-fuentes-y-definer.js` (bloque 4): hoy **rojo en 736 ms**
+  contra prod, y el mensaje de falla apunta a esta migración.
+- ⚠️ **Declarado y NO medido:** el efecto exacto del índice. Crearlo exige DDL en prod y desde esta
+  máquina el rol es de sólo lectura. La proyección se apoya en el índice de ventas (19,516 filas en
+  87 ms) contra un objetivo de **210** — dos órdenes de magnitud menos. El candado mide lo real
+  cuando se aplique.
+- ⬜ **Pendiente prod:** aplicar en `md` con `apply-one-migration-prod.js`. `CONCURRENTLY` no bloquea
+  la escritura del CDC, pero son 552 MB: **fuera de horario hábil**.
+
 #### 🧪 `[CG.40]` · Auditoría por capas — capa 0 (datos): tres defectos que no levantan un error — 2026-10-06
 
 Pedido de Edgar: *«una auditoría por capas de `/finanzas/caja-general`, empezando por la capa de

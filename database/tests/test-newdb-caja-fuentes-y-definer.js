@@ -173,6 +173,54 @@ const VISTAS_DEFINER = [
       }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    // `[CG.41]` EL GATE DE RENDIMIENTO. Edgar, 2026-10-06: «una consulta de más de 500
+    // milisegundos no funciona». Bajó de 1 s.
+    //
+    // Se vigila la pierna Kepler de la pestaña Conciliación porque es **el 80% del tiempo** de esa
+    // pestaña (663 de 825 ms; las otras tres piernas juntas no llegan a 50 ms) y porque su causa es
+    // estructural: el CTE `flj` de `analytics.kepler_bank_movements` se usa dos veces, Postgres lo
+    // MATERIALIZA, y entonces el filtro de fecha no baja al scan — seq scan de 666k filas para
+    // devolver ~100.
+    //
+    // ⚠️ Esto mide desde DONDE CORRE EL TEST, así que incluye la red. Es a propósito: el número que
+    // importa es el que siente quien usa la pantalla, no el `Execution Time` de Postgres.
+    console.log('\n[4] El gate de 500 ms sobre la consulta más cara de la pantalla');
+    const mv = (await c.query(`SELECT to_regclass('analytics.kepler_bank_movements') r`)).rows[0].r;
+    if (!mv) {
+      skip('analytics.kepler_bank_movements no existe en esta DB');
+    } else {
+      const SQL = `SELECT banco_nombre, count(*) n, sum(importe) m
+                     FROM analytics.kepler_bank_movements
+                    WHERE tenant_id = $1 AND signo > 0 AND es_traspaso = false
+                      AND fecha_valor >= date_trunc('month', current_date)::date
+                    GROUP BY 1`;
+      const T_MEGA = '00000000-0000-0000-0000-00000000d01c';
+      const ts = [];
+      // 1 corrida de calentamiento descartada: la primera paga el caché frío y mediría el disco,
+      // no la consulta.
+      for (let i = 0; i < 4; i++) {
+        const t0 = process.hrtime.bigint();
+        const r = await c.query(SQL, [T_MEGA]);
+        const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+        if (i === 0 && r.rowCount === 0) break; // sin datos del mes: no hay qué medir
+        if (i > 0) ts.push(ms);
+      }
+      if (!ts.length) {
+        skip('sin movimientos de banco en el mes en curso → no hay con qué medir el gate. NO es un ✓.');
+      } else {
+        ts.sort((a, b) => a - b);
+        const med = Math.round(ts[Math.floor(ts.length / 2)]);
+        ok(med <= 500,
+          `la pierna Kepler de Conciliación responde en ${med} ms (gate 500 ms)`);
+        if (med > 500) {
+          console.log('    ⓘ si esto está rojo, lo que falta casi seguro es la mig 20261006170000: '
+            + 'el índice ix_kdm1_tesoreria_fecha + el CTE flj en NOT MATERIALIZED. Los dos juntos, '
+            + 'por separado ninguno alcanza (sólo la forma da 475 ms; sólo el índice, nada).');
+        }
+      }
+    }
+
     console.log(`\n${fail ? '✖' : '✔'} ${pass} ✓ / ${fail} ✗ / ${sinMedir} no medido`);
     process.exit(fail ? 1 : 0);
   } finally {
