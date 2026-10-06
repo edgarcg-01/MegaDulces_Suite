@@ -35,6 +35,9 @@ export class PickingController {
     // [VEC.3] `?route_kind=vecinal` o `?route_kind=vecinal,camion`. Ausente = todos, que es
     // como se comportaba el pool antes de esto.
     @Query('route_kind') routeKind?: string,
+    // [VEC.8] UNA ruta concreta. Siempre junto a warehouse_id: la misma ruta vive en dos
+    // sucursales, y sola juntaria mercancia de dos bodegas.
+    @Query('sales_route') salesRoute?: string,
   ) {
     return this.service.pool({
       warehouse_id: warehouseId,
@@ -43,6 +46,7 @@ export class PickingController {
       route_kind: routeKind
         ? routeKind.split(',').map((k) => k.trim()).filter(Boolean)
         : undefined,
+      sales_route: salesRoute || undefined,
     });
   }
 
@@ -114,7 +118,15 @@ export class PickingController {
       'Arma una ola con los pedidos pendientes de un tipo de ruta (el pedido global). No crea olas vacías.',
   })
   crearOlaAuto(
-    @Body() body: { warehouse_id: string; delivery_date?: string; route_kind?: string[]; assigned_to?: string },
+    @Body()
+    body: {
+      warehouse_id: string;
+      delivery_date?: string;
+      route_kind?: string[];
+      /** `[VEC.8]` Armar la ola de UNA ruta: una ola = una ruta, mercancía ya separada. */
+      sales_route?: string;
+      assigned_to?: string;
+    },
   ) {
     return this.service.crearOlaAuto(body);
   }

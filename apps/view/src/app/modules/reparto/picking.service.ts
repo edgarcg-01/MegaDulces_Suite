@@ -75,10 +75,31 @@ export interface OlaAutoResponse {
   orders_count?: number;
 }
 
+/**
+ * `[VEC.8]` Un grupo del pool: los pedidos de UNA ruta en UNA sucursal.
+ *
+ * El grano es **(sucursal, ruta)**, no sólo la ruta: medido en prod, `RUTA 23` existe en
+ * Padre Hidalgo **y** en La Piedad Abastos. Una ola por ruta sin acotar el almacén sería un
+ * recorrido imposible — dos bodegas.
+ */
+export interface PoolGrupo {
+  warehouse_id: string;
+  warehouse_name: string | null;
+  sales_route: string | null;
+  route_kind: RouteKind | null;
+  route_kind_motivo: RouteKindMotivo | null;
+  pedidos: number;
+  renglones: number;
+  unidades: string;
+  total: string;
+}
+
 export interface PoolResponse {
   data: PoolOrder[];
   count: number;
   capped: boolean;
+  /** `[VEC.8]` Los mismos pedidos, agrupados por (sucursal, ruta). Derivados de `data`. */
+  grupos: PoolGrupo[];
   /** ⚠️ Lo capturado sin señal todavía no llegó al servidor. Se declara, no se estima. */
   pendiente_offline: string;
 }
@@ -146,7 +167,13 @@ export class PickingService {
   private readonly base = `${environment.apiUrl}/reparto/surtido`;
 
   pool(
-    opts: { warehouseId?: string; deliveryDate?: string; routeKind?: readonly RouteKind[] } = {},
+    opts: {
+      warehouseId?: string;
+      deliveryDate?: string;
+      routeKind?: readonly RouteKind[];
+      /** [VEC.8] UNA ruta. Siempre con warehouseId: la misma ruta vive en dos sucursales. */
+      salesRoute?: string;
+    } = {},
   ): Observable<PoolResponse> {
     let params = new HttpParams();
     if (opts.warehouseId) params = params.set('warehouse_id', opts.warehouseId);
@@ -154,6 +181,7 @@ export class PickingService {
     // Lista vacía NO se manda: en el backend un filtro vacío devuelve TRUE (no filtra), pero
     // mandar `route_kind=` igual sería ruido en el log y en la URL. Sin filtro = todos.
     if (opts.routeKind?.length) params = params.set('route_kind', opts.routeKind.join(','));
+    if (opts.salesRoute) params = params.set('sales_route', opts.salesRoute);
     return this.http.get<PoolResponse>(`${this.base}/pool`, { params });
   }
 
@@ -177,6 +205,8 @@ export class PickingService {
     warehouse_id: string;
     delivery_date?: string;
     route_kind?: readonly RouteKind[];
+    /** `[VEC.8]` Armar la ola de UNA ruta: una ola = una ruta, mercancía ya separada. */
+    sales_route?: string;
   }): Observable<OlaAutoResponse> {
     return this.http.post<OlaAutoResponse>(`${this.base}/waves/auto`, dto);
   }

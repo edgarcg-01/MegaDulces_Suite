@@ -16,6 +16,44 @@ import {
   routeKindMotivoSql,
 } from '../shared/route-kind.sql';
 
+/**
+ * `[VEC.8]` Agrupa las filas del pool por (sucursal, ruta). **Función pura** a propósito: es
+ * lo que permite probarla con entradas armadas, incluida la que de verdad importa — la misma
+ * ruta en dos sucursales, que tiene que dar DOS grupos y no uno.
+ */
+export function agruparPool(
+  rows: ReadonlyArray<Record<string, unknown>>,
+): PoolGrupo[] {
+  const m = new Map<string, PoolGrupo>();
+  for (const r of rows) {
+    // La clave lleva la sucursal PRIMERO: el surtidor camina un almacén, y mezclar dos rutas
+    // del mismo almacén es un problema distinto (y menor) que mezclar dos almacenes.
+    const k = `${r['warehouse_id'] as string}|${(r['sales_route'] as string) ?? ''}`;
+    const g = m.get(k) ?? {
+      warehouse_id: r['warehouse_id'] as string,
+      warehouse_name: (r['warehouse_name'] as string) ?? null,
+      sales_route: (r['sales_route'] as string) ?? null,
+      route_kind: (r['route_kind'] as string) ?? null,
+      route_kind_motivo: (r['route_kind_motivo'] as string) ?? null,
+      pedidos: 0,
+      renglones: 0,
+      unidades: '0',
+      total: '0',
+    };
+    g.pedidos += 1;
+    g.renglones += Number(r['lines'] ?? 0);
+    g.unidades = String(Number(g.unidades) + Number(r['units'] ?? 0));
+    g.total = String(Number(g.total) + Number(r['total'] ?? 0));
+    m.set(k, g);
+  }
+  // Lo más grande primero: es donde consolidar rinde. Y a igualdad, por nombre de ruta para
+  // que el orden sea ESTABLE — una lista que se reordena sola entre recargas se lee como si
+  // hubieran cambiado los datos.
+  return [...m.values()].sort(
+    (a, b) => b.pedidos - a.pedidos || (a.sales_route ?? '').localeCompare(b.sales_route ?? ''),
+  );
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -28,6 +66,34 @@ export interface PoolQuery {
    * que es el comportamiento que el pool ya tenía — este filtro no cambia nada si no se pide.
    */
   route_kind?: readonly string[];
+  /**
+   * `[VEC.8]` UNA ruta concreta (`'1V004 JUAN ANGEL LOPEZ'`). Es el valor de
+   * `trade.catalogs.value`, que coincide exacto con `customers.sales_route`.
+   *
+   * ⚠️ **Sola no alcanza para armar una ola**: la misma ruta existe en dos sucursales (medido:
+   * `RUTA 23` está en Padre Hidalgo y en La Piedad Abastos). Siempre con `warehouse_id`.
+   */
+  sales_route?: string;
+}
+
+/**
+ * `[VEC.8]` Un grupo del pool: los pedidos de UNA ruta en UNA sucursal.
+ *
+ * El grano es **(sucursal, ruta)** y no sólo la ruta, porque la misma ruta aparece en dos
+ * sucursales. Armar "la ola de RUTA 23" sin acotar el almacén juntaría mercancía de dos
+ * bodegas — un recorrido imposible, que `createWave` rechaza con 409, pero recién después de
+ * que la persona ya creyó que iba a funcionar.
+ */
+export interface PoolGrupo {
+  warehouse_id: string;
+  warehouse_name: string | null;
+  sales_route: string | null;
+  route_kind: string | null;
+  route_kind_motivo: string | null;
+  pedidos: number;
+  renglones: number;
+  unidades: string;
+  total: string;
 }
 
 export interface CreateWaveDto {
@@ -110,6 +176,9 @@ export class PickingService {
         }
         qb = qb.whereRaw(routeKindFilterSql(q.route_kind, 'c'));
       }
+      // [VEC.8] Una ruta concreta. Se compara contra `customers.sales_route`, que es la misma
+      // cadena que `trade.catalogs.value` — por eso no hace falta resolver el id.
+      if (q.sales_route) qb = qb.where('c.sales_route', q.sales_route);
 
       const rows = await qb
         .select(
@@ -141,6 +210,14 @@ export class PickingService {
         data: rows,
         count: rows.length,
         capped: rows.length === limit,
+        // [VEC.8] Los grupos (sucursal, ruta): "que no se mezcle mercancía" empieza por poder
+        // VER cuánto hay de cada ruta antes de caminar.
+        //
+        // ⚠️ Se agregan sobre LAS MISMAS filas que se devuelven, no con un segundo SELECT.
+        // Un `GROUP BY` aparte volvería a aplicar los filtros y el `limit` por su cuenta, y el
+        // día que uno de los dos cambie, la pantalla mostraría 7 pedidos en la tabla y 9 en el
+        // encabezado del grupo. Derivar del mismo origen hace imposible esa divergencia.
+        grupos: agruparPool(rows),
         // ⚠️ Frescura del pool: lo creado sin señal todavía no llegó. No es un contador que
         // podamos calcular — es una ausencia, y se declara como tal.
         pendiente_offline: 'no_medible_desde_el_servidor',
@@ -478,6 +555,11 @@ export class PickingService {
     warehouse_id: string;
     delivery_date?: string;
     route_kind?: readonly string[];
+    /**
+     * `[VEC.8]` Armar la ola de UNA ruta. Es la forma que evita mezclar: una ola = una ruta,
+     * así el consolidado por SKU ya sale separado y no hay que desconsolidar a mano.
+     */
+    sales_route?: string;
     assigned_to?: string;
   }) {
     if (!UUID_RE.test(dto?.warehouse_id || '')) throw new BadRequestException('warehouse_id inválido');
@@ -491,6 +573,7 @@ export class PickingService {
       warehouse_id: dto.warehouse_id,
       delivery_date: dto.delivery_date,
       route_kind: dto.route_kind,
+      sales_route: dto.sales_route,
       limit: 500,
     });
 
@@ -518,7 +601,11 @@ export class PickingService {
       delivery_date: dto.delivery_date,
       order_ids: elegibles.data.map((o: { id: string }) => o.id),
       assigned_to: dto.assigned_to,
-      notes: `Automática — ${(dto.route_kind?.length ? dto.route_kind.join('/') : 'todos los tipos')}`,
+      // La nota dice de qué es la ola. Si es de una ruta, se nombra: el surtidor tiene que
+      // poder leer en la bandeja para quién es sin abrirla.
+      notes: dto.sales_route
+        ? `Automática — ruta ${dto.sales_route}`
+        : `Automática — ${dto.route_kind?.length ? dto.route_kind.join('/') : 'todos los tipos'}`,
     });
 
     this.logger.log(

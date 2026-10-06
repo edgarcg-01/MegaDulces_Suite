@@ -33,7 +33,15 @@ import {
 import { ComercialService, Warehouse } from '../../comercial/comercial.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { Aviso, PickingService, PoolOrder, Wave, WaveDetail, WaveLine } from '../picking.service';
+import {
+  Aviso,
+  PickingService,
+  PoolGrupo,
+  PoolOrder,
+  Wave,
+  WaveDetail,
+  WaveLine,
+} from '../picking.service';
 
 /** [VEC.4] 'avisos' es un paso propio: el conteo de pendientes vive en la navegacion. */
 type Paso = 'pool' | 'recorrido' | 'avisos';
@@ -261,25 +269,52 @@ type Paso = 'pool' | 'recorrido' | 'avisos';
             </p-table>
           </section>
 
-          <!-- [VEC.5] El pedido global: arma de un tiro todo lo que está filtrado. Aparece
-               sólo si hay algo que armar — un botón que no puede hacer nada no va. -->
-          @if (pool().length && puedeGestionar()) {
-            <section class="surf-card su-auto">
-              <div class="su-auto-txt">
-                <h2 class="su-h2">Armar el pedido global</h2>
-                <p>
-                  Junta los {{ pool().length }} pedido{{ pool().length === 1 ? '' : 's' }}
-                  @if (filtroTipo().length) {
-                    de {{ filtroTipo().length === 1 ? 'la ruta' : 'las rutas' }}
-                    @for (t of filtroTipo(); track t) {<strong>{{ etiquetaTipo(t) }}</strong>{{ $last ? '' : ', ' }}}
-                  } @else { de todas las rutas }
-                  en un solo recorrido, con el consolidado por producto.
-                </p>
+          <!-- [VEC.8] Una ola POR RUTA. Es lo que evita mezclar mercancía: si la ola es de una
+               ruta, el consolidado por SKU ya sale separado y no hay que desconsolidar a mano. -->
+          @if (grupos().length && puedeGestionar()) {
+            <section class="surf-card">
+              <div class="su-card-head">
+                <h2 class="su-h2">Armar por ruta</h2>
+                <span class="su-filtro-lbl">{{ grupos().length }} ruta(s) con pedidos esperando</span>
               </div>
-              <button pButton (click)="armarOlaAuto()" [loading]="armandoAuto()">
-                <span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span>
-                Armar ({{ pool().length }})
-              </button>
+              <p class="su-note">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                Una ola por ruta: así la mercancía sale separada desde el anaquel, en vez de
+                juntarla y tener que repartirla después.
+              </p>
+              <ul class="su-grupos">
+                @for (g of grupos(); track g.warehouse_id + '|' + g.sales_route) {
+                  <li class="su-grupo">
+                    <div class="su-grupo-id">
+                      @if (g.route_kind) {
+                        <p-tag [value]="etiquetaTipo(g.route_kind)" severity="info"></p-tag>
+                      } @else {
+                        <p-tag value="Sin tipo" severity="secondary" [pTooltip]="motivoTipo(g.route_kind_motivo)"></p-tag>
+                      }
+                      <span class="su-grupo-ruta">{{ g.sales_route || 'Clientes sin ruta' }}</span>
+                      <!-- ⚠️ La sucursal va SIEMPRE visible: la misma ruta existe en dos, y sin
+                           esto dos tarjetas se verían idénticas. -->
+                      <span class="su-grupo-wh"><i class="pi pi-warehouse" aria-hidden="true"></i> {{ g.warehouse_name || '—' }}</span>
+                    </div>
+                    <div class="su-grupo-n">
+                      <span><strong>{{ g.pedidos }}</strong> ped.</span>
+                      <span><strong>{{ g.renglones }}</strong> reng.</span>
+                      <span><strong>{{ g.unidades }}</strong> u</span>
+                    </div>
+                    <button
+                      pButton
+                      size="small"
+                      [loading]="armandoRuta() === (g.warehouse_id + '|' + g.sales_route)"
+                      [disabled]="!g.sales_route"
+                      [pTooltip]="g.sales_route ? '' : 'Sin ruta no se puede armar una ola por ruta: hay que asignarle ruta al cliente primero'"
+                      (click)="armarOlaDeRuta(g)"
+                    >
+                      <span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span>
+                      Armar
+                    </button>
+                  </li>
+                }
+              </ul>
             </section>
           }
 
@@ -586,6 +621,15 @@ type Paso = 'pool' | 'recorrido' | 'avisos';
     .su-auto { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
     .su-auto-txt { flex: 1; min-width: 14rem; }
     .su-auto-txt p { margin: .2rem 0 0; font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45; }
+    /* [VEC.8] Una fila por (sucursal, ruta). En estrecho se apila sin que el boton se pierda:
+       el trabajo se hace caminando y la pantalla chica es el caso normal, no la excepcion. */
+    .su-grupos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
+    .su-grupo { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+                padding: .55rem .7rem; border: 1px solid var(--surface-border); border-radius: var(--r-md, 10px); }
+    .su-grupo-id { display: flex; align-items: center; gap: .45rem; flex: 1; min-width: 12rem; flex-wrap: wrap; }
+    .su-grupo-ruta { font-weight: 700; }
+    .su-grupo-wh { display: inline-flex; align-items: center; gap: .25rem; font-size: var(--fs-xs); color: var(--text-muted); }
+    .su-grupo-n { display: flex; gap: .7rem; font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
     .su-acuse-col { white-space: nowrap; }
     .su-visto { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs); color: var(--text-muted); }
     /* Lo no acusado se marca con un borde lateral, no con fondo: un fondo de color en una fila
@@ -697,6 +741,9 @@ export class RepartoSurtidoComponent implements OnInit {
   readonly avisosAlcance = signal<'todos' | 'recortado' | 'ninguno'>('recortado');
   readonly acusando = signal<string | null>(null);
   readonly armandoAuto = signal(false);
+  /** `[VEC.8]` Qué grupo se está armando (clave `warehouse_id|sales_route`), para el spinner. */
+  readonly armandoRuta = signal<string | null>(null);
+  readonly grupos = signal<PoolGrupo[]>([]);
 
   /** Opciones del filtro. Salen del contrato, no de una lista a mano en el template. */
   readonly tipoOptions = ROUTE_KINDS.map((k) => ({ label: ROUTE_KIND_LABEL[k], value: k }));
@@ -765,6 +812,11 @@ export class RepartoSurtidoComponent implements OnInit {
       .subscribe({
         next: (r) => {
           this.pool.set(r?.data || []);
+          // [VEC.8] Los grupos vienen del servidor, derivados de LAS MISMAS filas. No se
+          // recalculan acá: dos agrupados (uno en el server, otro en el front) terminan
+          // discrepando el día que uno de los dos cambie, y el síntoma sería un encabezado
+          // que dice 7 sobre una tabla de 9.
+          this.grupos.set(r?.grupos || []);
           this.loading.set(false);
         },
         error: (e) => {
@@ -820,6 +872,65 @@ export class RepartoSurtidoComponent implements OnInit {
           });
         },
       });
+  }
+
+  /**
+   * `[VEC.8]` Arma la ola de UNA ruta en UNA sucursal — la forma que no mezcla mercancía.
+   *
+   * ⚠️ Manda `warehouse_id` **y** `sales_route` juntos. La misma ruta existe en dos sucursales
+   * (medido: `RUTA 23` en Padre Hidalgo y en La Piedad), así que la ruta sola juntaría dos
+   * bodegas. El backend igual lo rechazaría con 409, pero recién después de que la persona ya
+   * creyó que iba a funcionar.
+   */
+  armarOlaDeRuta(g: PoolGrupo): void {
+    if (!g.sales_route || !this.puedeGestionar()) return;
+    const clave = `${g.warehouse_id}|${g.sales_route}`;
+    this.confirm.confirm({
+      header: 'Armar la ola de esta ruta',
+      message: `Se va a crear un recorrido con los ${g.pedidos} pedido(s) de ${g.sales_route} en ${g.warehouse_name}. Los pedidos que entren después NO se suman a esta ola.`,
+      acceptLabel: 'Armar',
+      rejectLabel: 'Cancelar',
+      accept: () => {
+        this.armandoRuta.set(clave);
+        this.api
+          .crearOlaAuto({
+            warehouse_id: g.warehouse_id,
+            route_kind: this.filtroTipo(),
+            sales_route: g.sales_route as string,
+          })
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: (r) => {
+              this.armandoRuta.set(null);
+              if (!r.creada) {
+                this.toast.add({
+                  severity: 'info',
+                  summary: 'No había nada que armar',
+                  detail: r.detalle || 'Esos pedidos ya entraron a otra ola.',
+                });
+                this.reload();
+                return;
+              }
+              this.toast.add({
+                severity: 'success',
+                summary: `Ola ${r.code}`,
+                detail: `${r.orders_count} pedido(s) de ${g.sales_route}.`,
+              });
+              this.limpiarSeleccion();
+              if (r.id) this.abrirOla(r.id);
+              else this.reload();
+            },
+            error: (e) => {
+              this.armandoRuta.set(null);
+              this.toast.add({
+                severity: 'error',
+                summary: 'No se pudo armar',
+                detail: e?.error?.message || 'Error de red.',
+              });
+            },
+          });
+      },
+    });
   }
 
   /**
