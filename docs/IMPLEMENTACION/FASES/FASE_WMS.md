@@ -209,6 +209,20 @@ La arquitectura de referencia insiste con **silos** (que en WMS son granel: gran
 
 Si existe producto que se cuenta y se vende **por kilo**, entonces `quantity` en piezas es incorrecto para esos SKUs, y **no es un detalle de UI**: cambia el conteo, el surtido, la merma, la caducidad del lote abierto, y mete básculas al flujo. Es lo único del documento de referencia capaz de forzar un rediseño de fondo. **No arrancar WMS.5 sin esta respuesta.**
 
+> ✅ **Contestada (Francisco, 2026-10-06): en el almacén NO hay granel suelto.** Todo lo que llega a
+> granel **se empaca** en presentaciones fijas (1 kg, 500 g, 250 g…): son las unidades `KG`, `500`,
+> `250` de Kepler. **El surtidor siempre cuenta paquetes**, nunca pesa. Hay productos que, aunque
+> van en paquete, **se venden por kilo** (p. ej. bolsas en rollo); esos **se pesan sólo en la báscula
+> de las cajas** (punto de venta), no en el almacén. **No hace falta rediseñar `quantity` ni meter
+> básculas al surtido ni al conteo.**
+> Medido en PH (pedidos embarcados, 21 días): 969 renglones (~8%, ~$760k) se venden en `KG`; 290
+> se piden en bulto y 39 en caja (se cuenta el empaque, el peso sale del factor) y 640 en `KG`, de
+> los cuales **160 traen peso con decimales** (p. ej. "ALTOS ROLLO VERDE 25X35 1KG", 6.14 kg en
+> pedido, surtido y embarque). ⚠️ **Pendiente:** si la báscula está sólo en cajas, ¿de dónde sale el
+> peso de esos 160 renglones de pedido? (¿se pesa al tomar el pedido, o el pedido se corrige al
+> facturar?). No cambia el surtido —se cuentan paquetes— pero define si el checado debe capturar
+> un peso.
+
 **6.2 — Autoridad del inventario en la salida.**
 ADR-044 reparte limpio en entrada porque Kepler **no codifica caducidad**: el dato es net-new, sin conflicto. En salida se rompe la simetría, porque surtir **decrementa**. Dos caminos: (a) la app queda como capa sombra que reconcilia contra las salidas de Kepler —y el operario puede surtir algo que Kepler ya vendió—, o (b) la app pasa a ser SoR de la capa física y Kepler del comercial/fiscal. Define si el picking es **sugerencia o autoridad**. → ADR nuevo (§9).
 
@@ -347,8 +361,8 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
 - **WMS.5 / WMS.6 se implementan como GP.3 / GP.4** sobre ese origen. No se construyen dos veces.
 - **WMS.3 se destraba en parte:** la numeración física existe; falta recibir el croquis o la lista
   de PH para levantar el censo.
-- **§6.1 (granel por peso) sigue abierta y aplica:** hay renglones de pedido en `KG` y bultos de
-  15 kg (`17111`, `83771`).
+- **§6.1 (granel por peso): contestada.** Todo se empaca; el surtidor cuenta paquetes; los productos
+  que se venden por kilo se pesan sólo en la báscula de cajas.
 
 ### 12.4 Preguntas abiertas
 
@@ -358,5 +372,7 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
 | ~~U2~~ | ✅ Por el momento no hay zonas especiales | — |
 | U4 | Después de "pasillo superior 1" (`B31`–`B45`), ¿`B46`–`B60` es pasillo 3 de planta baja o superior 2? ¿Cuántos pasillos hay arriba y abajo en PH? | Censo (WMS.3) |
 | U5 | ¿La tienda también va en bloques de 15 por pasillo (`T01`–`T15`…)? ¿Cuántas secciones `T` tiene PH? | Censo (WMS.3) |
-| U6 | ¿Los espacios de espera `B1`–`B3` pueden renombrarse (p. ej. `E1`…) para no confundirse con bodega `B01`–`B03`? | Ninguno |
+| ~~U6~~ | ✅ Sí se renombran: espacios de espera de checado y embarque = `E01`, `E02`… | — |
+| U7 | PH tiene 4 pasillos en planta baja y 4 en planta alta, pero "superior 1 = `B31`–`B45`" y 8 × 15 = 120 > 99 no cuadran: falta la tabla de rangos por pasillo (bodega y tienda) | Censo (WMS.3) |
+| U8 | Los 160 renglones de pedido con peso decimal: ¿dónde se pesan si la báscula está sólo en cajas? | Checado (GP.4) |
 | U3 | ¿Cómo sabe hoy el anaquelista qué subir? (recorrido, lista, a ojo) | Reposición (WMS.7) |
