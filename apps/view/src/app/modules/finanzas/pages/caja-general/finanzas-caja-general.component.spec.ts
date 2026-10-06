@@ -1638,6 +1638,66 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.motivosAgrupados()).toEqual([]);
   });
 
+  /**
+   * `[CG.37]` El porqué de los motivos se PLIEGA. Lo que se verifica no es que exista el botón
+   * sino las dos mitades del trato: que plegado NO esté el texto largo (ése era el punto — tres
+   * frases de ~70 caracteres empujaban la primera fila debajo del pliegue) y que desplegado SÍ,
+   * en el DOM y no en un `title`.
+   */
+  it('[CG.37] el porqué arranca PLEGADO y el conteo se ve igual', async () => {
+    const fx = montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...VACIA, rows: [GASTO_TRABADO], confirmables: 0, total: 1,
+      })),
+    });
+    await Promise.resolve();
+    fx.detectChanges();
+    const html: string = fx.nativeElement.querySelector('.cg-bandeja').innerHTML;
+
+    expect(comp.motivosAbiertos()).toBe(false);
+    expect(html).toContain(comp.motivosAgrupados()[0].motivo);          // el motivo, a la vista
+    expect(fx.nativeElement.querySelector('.cg-motivos-por')).toBeNull(); // la frase, no
+  });
+
+  it('[CG.37] al desplegarlo la frase entra al DOM — no vive en un title', async () => {
+    const fx = montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...VACIA, rows: [GASTO_TRABADO], confirmables: 0, total: 1,
+      })),
+    });
+    await Promise.resolve();
+    comp.motivosAbiertos.set(true);
+    fx.detectChanges();
+
+    const por = fx.nativeElement.querySelector('.cg-motivos-por');
+    expect(por).not.toBeNull();
+    expect(por.textContent).toContain(comp.motivosAgrupados()[0].texto);
+  });
+
+  /**
+   * ⛔ La lección de `[CG.33]`: ahí nombré una señal nueva `cierreAbierto` sin mirar que ya
+   * existía, y como en una clase gana la ÚLTIMA declaración, el botón nuevo habría abierto el
+   * diálogo que SELLA el día. Ni `tsc` ni el editor lo vieron. Esta prueba es el candado: el
+   * toggle del porqué mueve SU señal y no toca ninguna de las otras tres de la pantalla.
+   */
+  it('⛔ [negativa] desplegar el porqué no abre ningún diálogo', () => {
+    montar();
+    const antes = [comp.capturaAbierta(), comp.cierreAbierto(), comp.cuadreAbierto()];
+    comp.motivosAbiertos.set(true);
+    expect([comp.capturaAbierta(), comp.cierreAbierto(), comp.cuadreAbierto()]).toEqual(antes);
+  });
+
+  it('⛔ [negativa] sin frase que revelar, el botón del porqué NO existe', () => {
+    // Un control que no revela nada es ruido, no información (DESIGN.md, salida de filtros).
+    montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...VACIA, rows: [{ ...GASTO_TRABADO, motivo_texto: '' }], confirmables: 0, total: 1,
+      })),
+    });
+    expect(comp.motivosAgrupados().length).toBe(1);   // el motivo SÍ está
+    expect(comp.hayPorque()).toBe(false);             // lo que no hay es qué desplegar
+  });
+
   it('⛔ [negativa] una clave de motivo DESCONOCIDA se muestra tal cual, no se disfraza', () => {
     // Una clave nueva del servidor tiene que VERSE, no caer a un generico.
     montar();

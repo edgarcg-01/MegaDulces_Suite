@@ -7,6 +7,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { TableModule } from 'primeng/table';
 import { CheckboxModule } from 'primeng/checkbox';
 import { ChipModule } from 'primeng/chip';
+import { DatePickerModule } from 'primeng/datepicker';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
@@ -19,7 +20,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../../shared/compon
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
-import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
+import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type RecurrentesResponse,
   type RecurrenteSinRegla } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
@@ -93,7 +94,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
   standalone: true,
   imports: [
     FormsModule, ButtonModule, InputTextModule, InputNumberModule, TableModule, CheckboxModule,
-    ChipModule, SelectModule, TagModule, DialogModule, AutoCompleteModule, MessageModule, ToastModule,
+    ChipModule, DatePickerModule, SelectModule, TagModule, DialogModule, AutoCompleteModule,
+    MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
@@ -242,11 +244,17 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-cajero { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .7rem; }
     .cg-cajero-head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
     .cg-cajero-head label { margin:0; }
-    /* CS.3.7 — La mención APARTE del efectivo del cajero (CAOS): ya contado por la máquina, no en la reja. */
-    .cg-caja-aparte { border:1px solid var(--action); border-radius:var(--r-md,8px); padding:.5rem .7rem;
+    /* CS.3.7 — La mención APARTE del efectivo del cajero (CAOS): ya contado por la máquina, no en la reja.
+       ⛔ [CG.37] El borde y el icono iban en --action. DESIGN.md reserva el color de marca para
+       CTA, chip activo, badge, "en vivo" y anillo de foco -- este panel no es ninguno de los
+       cinco: es informativo. Y el costo era concreto: el recuadro naranja es la superficie de
+       color MAS GRANDE del dialogo, asi que competia con "Guardar", que es el unico control que
+       escribe en la base. Cuando el naranja significa cuatro cosas deja de significar "apreta
+       aca". Panel en neutro; el acento queda para el boton. */
+    .cg-caja-aparte { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:.5rem .7rem;
       display:flex; flex-direction:column; gap:.35rem; }
     .cg-caja-aparte-top { display:flex; align-items:baseline; flex-wrap:wrap; gap:.4rem; }
-    .cg-caja-ico { color:var(--action); font-weight:700; }
+    .cg-caja-ico { color:var(--text-muted); font-weight:700; }
     .cg-caja-denoms { display:flex; flex-wrap:wrap; gap:.15rem .6rem; font-size:var(--fs-micro); }
     /* CS.3.8 — botón de imprimir comprobante en la lista de movimientos. */
     .ta-c { text-align:center; }
@@ -295,13 +303,17 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     /* El p-tag del motivo: su color y su forma son del tema. Lo unico propio es que ocupe su
        renglon y no compita de tamano con el beneficiario, que es el dato de la celda. */
     .cg-motivo-tag { display:inline-flex; margin-top:.15rem; font-size:var(--fs-xs); }
-    .cg-motivos-res { list-style:none; margin:.1rem 0 .6rem; padding:0;
-      display:flex; flex-direction:column; gap:.2rem; font-size:var(--fs-xs); }
-    .cg-motivos-res li { display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; }
+    /* [CG.37] Era una columna: un renglon por motivo, porque cada uno llevaba su frase al lado.
+       Ahora es UNA fila que envuelve -- los motivos son tres etiquetas cortas y entran juntas. */
+    .cg-motivos-res { margin:.1rem 0 .6rem; display:flex; align-items:center;
+      flex-wrap:wrap; gap:.4rem; font-size:var(--fs-xs); }
     /* El p-tag trae su color y su forma del tema; lo unico propio es la CIFRA en mono tabular
        (checklist 4: toda cifra, sin excepcion). Sin ::ng-deep: va proyectada adentro. */
     .cg-motivos-n { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-weight:600; }
-    .cg-motivos-txt { color:var(--text-muted); }
+    /* El porque, desplegado. Neutro a proposito: el aviso ya lo dio la etiqueta de arriba, y
+       repetirlo en naranja convertia el bloque en un muro de color. */
+    .cg-motivos-por { list-style:none; margin:-.35rem 0 .6rem; padding:0; display:flex;
+      flex-direction:column; gap:.2rem; font-size:var(--fs-xs); color:var(--text-muted); }
     /* [CG.32] El renglon que queda cuando el cuadre esta plegado. */
     .cg-conc-plegado { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
       font-size:var(--fs-sm); color:var(--text-muted); padding:.2rem 0 .1rem; }
@@ -429,9 +441,14 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             <p-tag [value]="'Corte ' + c.folio" severity="info"></p-tag>
           }
 
-          <input pInputText type="date" class="cg-conc-fecha"
-                 [ngModel]="arqueoFecha()" (ngModelChange)="setArqueoFecha($event)"
-                 aria-label="Jornada a revisar" />
+          <!-- [CG.37] Calendario de PrimeNG, no el nativo del sistema operativo. El nativo se
+               pinta con el tema de Windows: otro alto, otro foco y, en oscuro, otro color que
+               no sale de nuestros tokens. Es el antipatron que DESIGN.md nombra -- control
+               nativo conviviendo con su equivalente de PrimeNG en la MISMA vista. -->
+          <p-datepicker class="cg-conc-fecha" [ngModel]="fechaD(arqueoFecha())"
+                        (onSelect)="setArqueoFecha(claveDe($event))"
+                        dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                        ariaLabel="Jornada a revisar" />
 
           <!-- ⭐ [CG.29] LA ACCION QUE FALTABA, Y ERA EL PEOR DEFECTO DE LA PANTALLA.
                Este bloque se llamaba "Cierre de la jornada" y no tenia UN SOLO BOTON: prometia un
@@ -586,11 +603,18 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         }
       </div>
 
-      <!-- ⚠️ [CG.29] Esta tira es del LIBRO (el rango de abajo), no del dia. Sin rotulo, su
-           "Gastos $130,000.00" quedaba pegado al "Gastos $0.00" del cierre de la jornada: dos
-           numeros con la misma etiqueta, distinto periodo y un centimetro de distancia. -->
-      <h2 class="fin-h2 cg-kpi-h">El libro, del {{ dmy(from) }} al {{ dmy(to) }}</h2>
-      <app-metric-strip [items]="kpis()"></app-metric-strip>
+      <!-- ⛔ [CG.37] ACA ESTABAN EL TITULO "El libro" Y SU TIRA DE KPIs, y bajaron 340 lineas
+           hasta su propia tabla. [CG.29] le habia puesto el rotulo correcto -- la tira es del
+           LIBRO, no de la jornada -- pero la dejo donde estaba, o sea arriba del trabajo y
+           lejos de lo que resume.
+
+           Lo que costaba, medido sobre la captura de prod: el titulo, la tira y su margen se
+           comen ~100px JUSTO ANTES de la bandeja, que es la accion principal de la pantalla.
+           Con eso, la primera fila por confirmar nacia debajo del pliegue -- y los cuatro
+           mosaicos que la empujaban decian "$0.00" cuatro veces.
+
+           Reordenar, no rediseniar: no se quita ni un dato. El encabezado de la bandeja queda
+           pegado a sus filas, y la tira cae junto a los renglones que suma. -->
 
       <!-- CG.21 - Movimientos por confirmar, los DOS signos. Es la accion PRINCIPAL de la
            pantalla, no un accesorio: medido sobre 5 meses cerrados, el egreso de la caja cuadra
@@ -653,23 +677,42 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           <!-- [CG.33] POR QUE no se pueden confirmar, agrupado y CONTADO, una sola vez.
                Repetir la misma frase en 85 filas no decia lo unico accionable: cuantas rutas hay
                que dar de alta. Aca se dice una vez y con su numero. -->
+          <!-- [CG.37] Los motivos pasan de TRES RENGLONES a UNO. Cada uno ocupaba su propia
+               linea porque llevaba su frase de ~70 caracteres al lado, y las tres juntas
+               empujaban la primera fila por confirmar debajo del pliegue.
+
+               Lo que SE VE siempre es lo accionable: el conteo y el motivo. La frase explica el
+               motivo, se lee una vez y no cambia de un dia para el otro -- asi que se PLIEGA,
+               que es el mismo patron que esta pantalla ya usa dos veces ("Ver el cuadre", "Que
+               NO cubre este cuadre"). ⛔ Plegar NO es esconderla en un title: eso no se alcanza
+               por teclado y DESIGN.md lo lista como antipatron de Operations. Es un boton. -->
           @if (motivosAgrupados().length) {
-            <ul class="cg-motivos-res">
+            <div class="cg-motivos-res">
               @for (g of motivosAgrupados(); track g.motivo) {
-                <li>
-                  <!-- PrimeNG-first (checklist 3): el conteo va en p-tag, no en un span con clase
-                       propia. severity="warn" trae el color por TOKEN del tema (flipea solo en
-                       dark) en vez de que lo declare esta pantalla.
-                       Se PROYECTA el contenido en vez de usar [value] para poder marcar la cifra
-                       como mono tabular (checklist 4) sin un ::ng-deep sobre el componente: el
-                       doc permite ::ng-deep solo para vendor y como ultimo recurso. -->
-                  <p-tag severity="warn">
-                    <span class="cg-motivos-n">{{ g.n }}</span>&nbsp;{{ g.motivo }}
-                  </p-tag>
-                  @if (g.texto) { <span class="cg-motivos-txt">{{ g.texto }}</span> }
-                </li>
+                <!-- PrimeNG-first (checklist 3): el conteo va en p-tag, no en un span con clase
+                     propia. severity="warn" trae el color por TOKEN del tema (flipea solo en
+                     dark) en vez de que lo declare esta pantalla.
+                     Se PROYECTA el contenido en vez de usar [value] para poder marcar la cifra
+                     como mono tabular (checklist 4) sin un ::ng-deep sobre el componente: el
+                     doc permite ::ng-deep solo para vendor y como ultimo recurso. -->
+                <p-tag severity="warn">
+                  <span class="cg-motivos-n">{{ g.n }}</span>&nbsp;{{ g.motivo }}
+                </p-tag>
               }
-            </ul>
+              @if (hayPorque()) {
+                <p-button [label]="motivosAbiertos() ? 'Ocultar el porqué' : 'Qué significan'"
+                          [icon]="motivosAbiertos() ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+                          size="small" severity="secondary" [text]="true"
+                          (onClick)="motivosAbiertos.set(!motivosAbiertos())"></p-button>
+              }
+            </div>
+            @if (motivosAbiertos()) {
+              <ul class="cg-motivos-por">
+                @for (g of motivosAgrupados(); track g.motivo) {
+                  @if (g.texto) { <li><strong>{{ g.motivo }}</strong> — {{ g.texto }}</li> }
+                }
+              </ul>
+            }
           }
           <p class="sr-only">Movimientos de Kepler pendientes de confirmar en el libro de caja</p>
           <p-table [value]="pendientes()" size="small">
@@ -932,9 +975,20 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         }
       </section>
 
+      <!-- ⚠️ [CG.29] Esta tira es del LIBRO (el rango de acá abajo), no del día. Sin rótulo, su
+           "Gastos $130,000.00" quedaba pegado al "Gastos $0.00" del cierre de la jornada: dos
+           números con la misma etiqueta, distinto periodo y un centímetro de distancia.
+           [CG.37] Y ahora vive donde está lo que resume, no 340 líneas más arriba. -->
+      <h2 class="fin-h2 cg-kpi-h">El libro, del {{ dmy(from) }} al {{ dmy(to) }}</h2>
+      <app-metric-strip [items]="kpis()"></app-metric-strip>
+
       <div class="fin-filters">
-        <input pInputText type="date" [(ngModel)]="from" (ngModelChange)="cargar()" aria-label="Desde" />
-        <input pInputText type="date" [(ngModel)]="to" (ngModelChange)="cargar()" aria-label="Hasta" />
+        <p-datepicker [ngModel]="fechaD(from)" (onSelect)="setDesde($event)"
+                      dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                      placeholder="Desde" ariaLabel="Desde" />
+        <p-datepicker [ngModel]="fechaD(to)" (onSelect)="setHasta($event)"
+                      dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                      placeholder="Hasta" ariaLabel="Hasta" />
         <p-select [options]="tiposFiltro" [(ngModel)]="tipo" (ngModelChange)="cargar()"
                   optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
         <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()"
@@ -1062,7 +1116,9 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           <p-select inputId="cg-tipo" [options]="tiposCaptura" [ngModel]="f().tipo" optionLabel="label" optionValue="value"
                     (ngModelChange)="onTipo($event)"></p-select>
           <label for="cg-fecha">Fecha</label>
-          <input pInputText id="cg-fecha" type="date" [ngModel]="f().fecha" (ngModelChange)="setF('fecha', $event)" />
+          <p-datepicker inputId="cg-fecha" [ngModel]="fechaD(f().fecha)"
+                        (onSelect)="setF('fecha', claveDe($event))"
+                        dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" />
           <!-- La sucursal era TEXTO LIBRE en una captura contable: teclear "0" devolvía un catálogo
                de conceptos vacío sin decir por qué. Sale del mismo censo que ya mide la cobertura. -->
           <label for="cg-suc">Sucursal</label>
@@ -1092,7 +1148,10 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                             [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
                             placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
             @if (cobroElegido(); as c) {
-              <small class="fin-hint-ok">
+              <!-- [CG.37] Era verde. El verde significa "esto quedo bien"; esto es el ECO de lo
+                   que elegiste, o sea explicacion. Y la linea de abajo, que hace exactamente lo
+                   mismo, ya iba en fin-dim: dos hermanas con el mismo papel y distinto color. -->
+              <small class="fin-dim">
                 Kepler: {{ c.doc_tipo }} {{ c.folio }} · {{ c.beneficiario || c.entidad_code }} ·
                 {{ money(c.monto) }}@if (c.caja_nombre) { · {{ c.caja_nombre }} }. El monto sale del arqueo, no del documento.
               </small>
@@ -1271,7 +1330,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             <div class="cg-credito-head">
               <label for="cg-vcredito">Venta a crédito</label>
               @if (clienteCredito()) {
-                <span class="fin-hint-ok">cliente de crédito — auto-rellenado, editable</span>
+                <span class="fin-dim">cliente de crédito — auto-rellenado, editable</span>
               }
             </div>
             <input pInputText id="cg-vcredito" type="number" min="0" step="0.01" inputmode="decimal" class="cg-vcredito"
@@ -1291,7 +1350,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
               <span class="fin-dim">El documento dice <span class="mono">{{ money(c.monto) }}</span></span>
             }
             @if (hayCajero()) {
-              <span class="fin-hint-ok">El cajero ya aportó {{ money(aporteCajero()) }} — contá acá sólo lo que falta o la morralla (arranca en cero).</span>
+              <span class="fin-dim">El cajero ya aportó {{ money(aporteCajero()) }} — contá acá sólo lo que falta o la morralla (arranca en cero).</span>
             }
           </div>
           <!-- ⛔ Los INPUTS de esta reja se quedan nativos con pInputText, y es una decision
@@ -1403,7 +1462,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         <small class="fin-dim">Con qué efectivo arranca la caja. Es el punto de partida del saldo.</small>
         <!-- [CG.29] Se dice que esto NO termina acá: el gesto sigue en el conteo. Sin decirlo, la
              persona confirma y cree que ya rindió cuentas. -->
-        <small class="fin-hint-ok">Al confirmar seguís directo al conteo del efectivo.</small>
+        <small class="fin-dim">Al confirmar seguís directo al conteo del efectivo.</small>
       </div>
       <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cancelarApertura()"></p-button>
@@ -2070,6 +2129,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    *
    * Es sobre las filas que se VEN, igual que `confirmables`, y el texto lo dice.
    */
+  /**
+   * [CG.37] Si el porqué de los motivos está desplegado. Arranca cerrado: lo accionable es el
+   * conteo, y la explicación no cambia de un día para el otro.
+   *
+   * ⚠️ Nombre verificado contra el resto de la clase antes de declararlo. En `[CG.33]` elegí
+   * `cierreAbierto` para una cosa nueva sin mirar que ya existía: en una clase gana la ÚLTIMA
+   * declaración, así que el botón nuevo habría abierto el diálogo que SELLA el día. Ni `tsc` ni
+   * el editor dijeron nada — lo cazó una prueba negativa.
+   */
+  motivosAbiertos = signal(false);
+
+  /** El botón sólo existe si hay algo que desplegar: uno que no revela nada es ruido. */
+  hayPorque = computed(() => this.motivosAgrupados().some((g) => !!g.texto));
+
   motivosAgrupados = computed(() => {
     const cuenta = new Map<string, { n: number; texto: string }>();
     for (const p of this.pendientes()) {
@@ -2384,6 +2457,54 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       ? `${trabajo} · corte ${c.folio} abierto, falta rendir cuentas`
       : `${trabajo} · todavía no rendiste cuentas de esta jornada`;
   });
+
+  /**
+   * El `Date` que pide `<p-datepicker>`, derivado de la clave `YYYY-MM-DD` que esta pantalla
+   * guarda y le manda al API. La clave sigue siendo la fuente de verdad: el calendario es
+   * presentación, y el almacenamiento no cambia de tipo.
+   *
+   * ⛔ Se MEMOIZA por la clave, y no es microoptimización. Un `new Date(...)` evaluado en la
+   * plantilla devuelve un objeto NUEVO en cada ciclo de detección, así que `ngModel` ve el
+   * modelo cambiado en cada tick y el calendario puede re-renderizarse o cerrarse encima de la
+   * persona mientras elige. Misma clave, misma instancia.
+   *
+   * ⚠️ Parsea con `parseLocalDate` (medianoche LOCAL) y NO con `new Date(iso)`, que parsea UTC
+   * y en México cae al día ANTERIOR después de las 18:00 — el gotcha que documenta `mx-date.ts`.
+   */
+  private readonly _fechaD = new Map<string, Date>();
+  fechaD(clave: string | null | undefined): Date | null {
+    const k = (clave || '').slice(0, 10);
+    if (!k) return null;
+    let d = this._fechaD.get(k);
+    if (!d) {
+      const p = parseLocalDate(k);
+      if (!p) return null;
+      // El cache vive lo que la sesión y sólo crece con las fechas que la persona elige.
+      if (this._fechaD.size > 64) this._fechaD.clear();
+      d = p;
+      this._fechaD.set(k, d);
+    }
+    return d;
+  }
+
+  /**
+   * La vuelta: del `Date` del calendario a la clave de texto.
+   *
+   * ⛔ NO usa `toMxDateKey`, y la diferencia cambia el día. Ese helper traduce un INSTANTE a su
+   * día en México; lo que devuelve el calendario no es un instante sino un DÍA a medianoche
+   * LOCAL. Con el navegador fuera de MX, pasarlo por la zona horaria lo corre uno hacia atrás.
+   * Acá se leen los componentes locales, que es el inverso EXACTO de `parseLocalDate`.
+   */
+  claveDe(d: Date | null | undefined): string {
+    if (!d || isNaN(d.getTime())) return '';
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return String(d.getFullYear()) + '-' + mm + '-' + dd;
+  }
+
+  /** Desde/Hasta del libro. Van juntos acá para no asignar campos desde la plantilla. */
+  setDesde(d: Date | null): void { const k = this.claveDe(d); if (k) { this.from = k; this.cargar(); } }
+  setHasta(d: Date | null): void { const k = this.claveDe(d); if (k) { this.to = k; this.cargar(); } }
 
   setArqueoFecha(v: string): void {
     if (!v) return;
