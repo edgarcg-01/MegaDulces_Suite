@@ -220,6 +220,11 @@ export const ALMACEN_LANDING: LandingCandidate[] = withTreeCandidates('almacen',
   // — y de ahí a `/sin-acceso`. Su landing es el trabajo del día: los vales por recibir.
   { perm: Permission.COMMERCIAL_INVENTORY_RECIBIR, url: '/almacen/inventory/recepcion-sesiones' },
   { perm: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, url: '/almacen/inventory/sessions' },
+  // `[IC.23]` El encargado de sucursal: su trabajo del día es armar el equipo del conteo. Va
+  // DESPUÉS de SUPERVISAR a propósito — los 5 roles que tienen las dos claves no cambian de
+  // aterrizaje. Antes `encargado_tienda` (sólo `_VER`) caía al fallback `/almacen/inventory`,
+  // que es la consola de AJUSTE de stock: abrible, pero no es su trabajo.
+  { perm: Permission.COMMERCIAL_INVENTORY_ASIGNAR, url: '/almacen/inventory/sessions' },
   // `[SN.4]` Decía `/almacen/inventory/sessions`, que exige SUPERVISAR: el contador (sólo CONTAR)
   // rebotaba en el índice. Su pantalla es la del handheld. Lo destapó `landing-guards.spec.ts`.
   { perm: Permission.COMMERCIAL_INVENTORY_CONTAR, url: '/almacen/inventory/count' },
