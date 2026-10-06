@@ -11,7 +11,7 @@
  * IGUAL o MÁS ESTRICTA, nunca más permisiva.
  */
 
-import { seleccionarDenominaciones, type Denominacion } from '@megadulces/contracts';
+import { seleccionarDenominaciones, type Denominacion, type VeredictoCorte } from '@megadulces/contracts';
 
 /**
  * CG.23 — Los billetes que la Caja General cuenta, en el orden en que se cuentan.
@@ -323,7 +323,10 @@ export function textoCobertura(filas: Array<{ usables: number; filas_origen: num
 // **El candado está en la DB** (`cut_doble_llave_chk`); si esto y el servidor divergen manda
 // el servidor, y esto sólo puede ser IGUAL o MÁS ESTRICTO.
 
-export type VeredictoCorte = 'cuadra' | 'sobra' | 'falta' | 'sin_contar';
+// `[CG.42.1]` El veredicto ya NO se espeja a mano: vive en `libs/contracts` y los dos lados lo
+// importan. Escribirlo dos veces fue lo que rompió el build al agregar `sin_base` — y el comentario
+// de arriba decía que espejaba "a propósito" sin que nada comprobara que seguía igual.
+export type { VeredictoCorte };
 
 export interface CorteVista {
   id: string;
@@ -380,6 +383,20 @@ export function puedeCerrarUI(c: CorteVista | null, veredicto: VeredictoCorte): 
   if (c.estado !== 'borrador') return { ok: false, texto: 'Este corte ya está cerrado.' };
   if (veredicto === 'sin_contar') return { ok: false, texto: 'Contá el efectivo antes de cerrar.' };
   // Se puede cerrar aunque NO cuadre: un faltante se registra, no se esconde.
+  //
+  // ⛔ `[CG.42]` `sin_base` NO cae en "no cuadra". Sin saber con cuánto arrancó la caja, la
+  // diferencia no mide un faltante: mide la falta del dato. Mandarla al mismo texto haría que la
+  // persona saliera a buscar efectivo que nunca se perdió.
+  //
+  // ⚠️ Se DEJA cerrar a propósito: el servidor hoy lo permite y esta compuerta sólo puede ser
+  // igual o más estricta que él. Bloquearlo acá escondería el problema en la pantalla mientras el
+  // API lo sigue aceptando — y es una decisión de negocio, no de la UI.
+  if (veredicto === 'sin_base') {
+    return {
+      ok: true,
+      texto: 'Se puede cerrar, pero no se va a poder decir si cuadra: nadie midió con cuánto arrancó la caja.',
+    };
+  }
   return {
     ok: true,
     texto: veredicto === 'cuadra'

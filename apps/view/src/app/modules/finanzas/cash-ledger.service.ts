@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import type { VeredictoCorte } from '@megadulces/contracts';
 
 /**
  * CG.13/CG.17 — Cliente del libro de caja (ADR-070).
@@ -315,7 +316,7 @@ export interface TotalesCorte {
    * tres. Cuando faltan, viene `oculto: true`.
    */
   esperado?: number; diferencia?: number;
-  veredicto?: 'cuadra' | 'sobra' | 'falta' | 'sin_contar' | 'sin_base';
+  veredicto?: VeredictoCorte;
   /**
    * `[CG.42]` No se midió con qué arrancó la caja. Va FUERA del recorte ciego a propósito: no
    * revela el esperado —sólo dice que no tiene base— y quien cuenta necesita saberlo ANTES de
