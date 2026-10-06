@@ -2235,6 +2235,9 @@ export class FinanceBankService {
     const TOL = 1000;
 
     return this.tk.run(async (trx) => {
+      // [CG.40] Estado de cada fuente de explicación. Se declara acá, antes del primer uso.
+      const fuentes: Record<string, { estado: 'consultado' | 'sin_fuente'; filas: number; ultimo_dato?: string | null }> = {};
+
       // Depósitos del banco (solo cuentas kind='bank').
       // CB.46 — el universo se toma del PERIODO DEL ESTADO DE CUENTA, igual que el Concentrado,
       // el Cuadre, el Cierre y la Conciliación. Antes filtraba por `movement_date` entre ini y
@@ -2282,14 +2285,41 @@ export class FinanceBankService {
         let inner = tesIdx.get(lbl); if (!inner) { inner = new Map(); tesIdx.set(lbl, inner); }
         (inner.get(k) || inner.set(k, []).get(k))!.push(o);
       }
+      // Tesorería y espejo NO van en `try`: si fallan, la función entera falla y se ve. Se declaran
+      // igual para que la pantalla liste las cuatro fuentes y no haya que adivinar cuáles existen.
+      fuentes['tesoreria'] = { estado: 'consultado', filas: (tes as any[]).length };
+      fuentes['espejo'] = { estado: 'consultado', filas: (espejos as any[]).length };
 
+      // (la declaración de `fuentes` vive arriba, antes del primer uso)
+      // ⛔ [CG.40] EL ESTADO DE CADA FUENTE, DECLARADO. Las tres explicaciones de un depósito se
+      // cargaban con `catch { x = []; }`, así que **una fuente muerta, una fuente caída y una
+      // fuente sin movimientos en el periodo se veían exactamente iguales**: cero candidatos. Y
+      // lo que no encuentra candidato cae en `sin_explicar`, o sea que el tablero acusaba al ERP
+      // de un hueco que era nuestro.
+      //
+      // Medido en prod (2026-10-06), y no es hipotético: `analytics.caja_depositos` **no recibe un
+      // depósito desde ene-2026** —su importer se retiró en `CG.9h` por fuente muerta— y de feb en
+      // adelante aporta **0 candidatos todos los meses**: 228 en ene-2026 contra 0 en los nueve
+      // meses siguientes, mientras por el banco pasaban 24,662 depósitos por ~$594M. La 3ª
+      // estrategia lleva nueve meses siendo un no-op mudo.
+      //
+      // Esto NO corrige el conteo (los depósitos siguen sin origen conocido, y eso es cierto):
+      // corrige la ATRIBUCIÓN. La acción de «la fuente Caja no tiene datos» es cargar/retomar esa
+      // fuente, no investigar depósito por depósito. Es el mismo criterio que esta función ya
+      // aplica a `fecha_invalida` y `traspaso_sin_contraparte`, y que `conciliacion()` ya aplica
+      // con `caja_disponible` — faltaba justo acá (ADR-056).
       // Cobranza (UA0501), ventana ±5d.
       let cob: any[] = [];
       try {
         cob = (await trx('analytics.erp_collections').where('tenant_id', tenantId).where('monto', '>', 0)
           .andWhere('cobro_date', '>=', addDays(ini, -5)).andWhere('cobro_date', '<', addDays(fin, 5))
           .select('cobro_date as date', 'monto as amt')).map((c: any) => ({ date: c.date, amt: c.amt, used: false }));
-      } catch { cob = []; }
+        fuentes['cobranza'] = { estado: 'consultado', filas: cob.length };
+      } catch (e) {
+        cob = [];
+        fuentes['cobranza'] = { estado: 'sin_fuente', filas: 0 };
+        this.logger.warn(`ingresosControl: cobranza no consultable: ${(e as Error).message}`);
+      }
       const cobIdx = new Map<number, any[]>();
       for (const c of cob) { (cobIdx.get(peso(c.amt)) || cobIdx.set(peso(c.amt), []).get(peso(c.amt)))!.push(c); }
 
@@ -2300,7 +2330,30 @@ export class FinanceBankService {
           .where('total_deposito_real', '>', 0)
           .andWhere('deposito_date', '>=', addDays(ini, -3)).andWhere('deposito_date', '<', addDays(fin, 3))
           .select('deposito_date as date', 'total_deposito_real as amt', 'almacen', 'banco_name')).map((c: any) => ({ ...c, used: false }));
-      } catch { caja = []; }
+        // ⭐ El `ultimo_dato` es lo que vuelve ACCIONABLE el cero: «0 candidatos» no dice nada, pero
+        // «0 candidatos y el último depósito es de 2026-01» dice exactamente qué está pasando y a
+        // quién le toca. Se mide SIN la ventana del periodo, porque la pregunta es sobre la fuente,
+        // no sobre el mes.
+        //
+        // ⚠️ El `to_char` NO es cosmético: `max(deposito_date)` vuelve de `pg` como **objeto
+        // `Date`**, y `String(d).slice(0,10)` da `"Wed Jan 21"` — ni una fecha ni en español. Peor:
+        // `pg` lo construye a medianoche UTC, así que renderizarlo en hora MX (−06:00) puede
+        // devolver **el día anterior**. Se formatea en SQL, donde la fecha todavía es una fecha.
+        const ult = await trx('analytics.caja_depositos')
+          .where({ tenant_id: tenantId, source_instance: 'SI', eliminado: false })
+          .where('total_deposito_real', '>', 0)
+          .whereRaw('deposito_date <= (now() AT TIME ZONE \'America/Mexico_City\')::date')
+          .select(trx.raw(`to_char(max(deposito_date), 'YYYY-MM-DD') AS d`))
+          .first();
+        fuentes['caja'] = {
+          estado: 'consultado', filas: caja.length,
+          ultimo_dato: (ult?.d as string) ?? null,
+        };
+      } catch (e) {
+        caja = [];
+        fuentes['caja'] = { estado: 'sin_fuente', filas: 0, ultimo_dato: null };
+        this.logger.warn(`ingresosControl: caja no consultable: ${(e as Error).message}`);
+      }
       const cajaIdx = new Map<number, any[]>();
       for (const c of caja) { (cajaIdx.get(peso(c.amt)) || cajaIdx.set(peso(c.amt), []).get(peso(c.amt)))!.push(c); }
 
@@ -2413,6 +2466,14 @@ export class FinanceBankService {
           })),
         },
         sin_explicar: { n: buckets.sin_explicar.length, monto: sinExpl },
+        // [CG.40] Con qué evidencia se calculó el veredicto. Va SIEMPRE: una fuente en cero y una
+        // fuente muerta producen el mismo `sin_explicar`, y sin esto no hay forma de distinguirlas
+        // desde la pantalla.
+        fuentes,
+        // ⛔ NO es «está todo bien»: es «el veredicto se calculó con TODAS sus pruebas». Falso
+        // significa que `sin_explicar` está inflado por una fuente ausente, no que haya un hueco
+        // real de ese tamaño — y la acción es recuperar la fuente, no investigar los depósitos.
+        veredicto_completo: Object.values(fuentes).every((f) => f.estado === 'consultado' && f.filas > 0),
         // Lo declarado (fecha rota, traspaso sin contraparte) NO cuenta como explicado: no se
         // sabe su origen, sólo se sabe POR QUÉ no se sabe. Meterlo en `explicado` sería dibujar.
         explicado: Math.round((bankTotal - sinExpl - sum(buckets.fecha_invalida)

@@ -80,6 +80,14 @@ export interface IngresosControl {
   via_traspaso?: IngresosControlBucket; via_factoraje?: IngresosControlBucket;
   traspaso_sin_contraparte?: IngresosDeclarado; fecha_invalida?: IngresosDeclarado;
   sin_explicar: IngresosControlBucket; explicado: number; cuadra: boolean; tol: number;
+  /**
+   * [CG.40] Con qué evidencia se calculó el veredicto. Una fuente muerta y una fuente sin
+   * movimientos en el mes producen el mismo `sin_explicar`; sin esto no se distinguen.
+   * `ultimo_dato` (sólo en `caja`) es lo que vuelve accionable el cero.
+   */
+  fuentes?: Record<string, { estado: 'consultado' | 'sin_fuente'; filas: number; ultimo_dato?: string | null }>;
+  /** NO es «todo bien»: es «el veredicto se calculó con todas sus pruebas». */
+  veredicto_completo?: boolean;
   exceptions: IngresosException[];
   fuga: { n: number; monto: number; items: { fecha: string; almacen: string; banco: string; monto: number }[] };
 }

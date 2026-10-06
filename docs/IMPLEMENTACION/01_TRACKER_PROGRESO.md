@@ -7523,6 +7523,94 @@ fallback sin número para cuando el catálogo no responde — **no se afirma cu�
 
 ---
 
+#### 🧪 `[CG.40]` · Auditoría por capas — capa 0 (datos): tres defectos que no levantan un error — 2026-10-06
+
+Pedido de Edgar: *«una auditoría por capas de `/finanzas/caja-general`, empezando por la capa de
+datos»*. Todo medido contra **prod** (`pg-prod` en `md`, read-only como `edgar`/`dev_ro`).
+
+**Lo que está sano, y conviene no romper.** La tubería no tiene un solo defecto de integridad:
+réplica 09:48→09:51 y ship 10:10 el mismo día (rezago **0.4 h**, umbrales en `CRON_JOBS`);
+`caja_general_ods.doctos` con **117,298 filas, 0 identidades repetidas y 0 hashes repetidos** — el
+`UNIQUE NULLS NOT DISTINCT` de `CG.9` aguanta la mutación de `Corte`; la ventana cuadra exacta
+(13,071 = 13,071); los CHECK de `cash_ledger` son severos de verdad (glosa ≥5, doble llave
+`authorized_by <> closed_by`); y el candado de fecha futura vive en el servicio con el razonamiento
+correcto escrito (`current_date` es STABLE y no entra en un CHECK).
+
+**Los tres defectos, los tres mudos:**
+
+⛔ **1 · Una fuente muerta se leía como «depósito sin origen».** `analytics.caja_depositos` es la 3ª
+explicación de `ingresosControl` (CB.35) y **no recibe un depósito desde ene-2026** — su importer se
+retiró en `CG.9h` por fuente muerta. Medido con control antes/después: **228 candidatos en ene-2026
+contra 0 en cada uno de los nueve meses siguientes**, mientras por el banco pasaban **24,662
+depósitos por ~$594M**. Las tres fuentes se cargaban con `catch { x = []; }`, así que **fuente
+muerta, fuente caída y fuente sin movimientos se veían idénticas**, y lo que no encuentra candidato
+cae en `sin_explicar`: el tablero acusaba al ERP de un hueco que era nuestro. ⭐ No se corrige el
+conteo (los depósitos sí están sin origen conocido) sino la **atribución**: la acción es recuperar
+la fuente, no investigar depósito por depósito. Ahora cada fuente declara `estado` + `filas`, la
+caja además su `ultimo_dato`, y sale `veredicto_completo` — que **no** significa «todo bien» sino
+«el veredicto se calculó con todas sus pruebas». Es el mismo criterio que esta función ya aplicaba a
+`fecha_invalida` y `traspaso_sin_contraparte`, y que `conciliacion()` ya aplicaba con
+`caja_disponible`: faltaba justo acá (ADR-056).
+
+⛔⛔ **2 · Las vistas `analytics.caja_general_*` son SECURITY DEFINER a la fuerza, y su «arreglo»
+obvio es un apagón.** Una auditoría de higiene nota que no tienen `security_invoker` mientras sus
+hermanas de `finance.v_caja_*` sí, y concluye descuido. **No lo es:** `app_runtime` tiene `SELECT`
+sobre las 3 tablas de `caja_general_ods` pero **NO tiene `USAGE` sobre ese schema** — el **único**
+de la base sin USAGE (`analytics`, `finance`, `commercial`, `public` y `kepler_ods` lo tienen todos).
+Sin USAGE el SELECT **no se puede ejercer**: la pantalla funciona porque las vistas corren como su
+dueño. Ponerles invoker deja `/finanzas/caja-general` en blanco con un error que habla de schemas,
+no de la vista que se tocó. ⭐ *Tener SELECT no es poder leer* — misma forma que `[CV.17]`
+(`GOTCHAS.md` §33). Queda escrito en un `COMMENT ON VIEW` y el candado vigila la **premisa** (el
+USAGE), no el síntoma: el día que alguien lo conceda, lo que se revisa es la **decisión**.
+
+⚠️ **3 · Una vista jubilada con el anclaje de la era vieja, y un comentario que invitaba a usarla.**
+`finance.v_caja_ingresos_pendientes` trae `sucursal = '00'` cableado sobre `erp_collections` —
+correcto mientras el `00` concentraba (las otras plazas tenían **cero** cobros hasta sep-2026,
+medido) y falso desde el corte del 1-oct: esconde **12 cobros por $107,588.05** sin un solo error
+(Fase PO). **Mitigante medido: no tiene consumidor** — la bandeja viva es
+`v_caja_movimientos_pendientes`, que sí cubre las 9 plazas. Lo que sí estaba vivo era un comentario
+en `cash-ledger.service.ts` afirmando que el monto salía de la vista huérfana: quien se guiara por
+él se llevaba los dos defectos juntos. Comentario corregido; vista de-anclada y declarada jubilada
+en su `COMMENT` (no se dropea: el proyecto no borra objetos de prod sin autorización).
+
+**Dos bugs propios, uno de ellos el que el repo ya tenía documentado.** (a) La primera versión
+contaba **2,371 «duplicados»** en `v_kepler_conceptos` ignorando `sucursal`; al grano real
+`(tenant, sucursal, cuenta, concepto)` hay **2,781 pares y 0 repeticiones** — el `.first()` de
+`resolveConcept` es determinista. *Una medición al grano equivocado es otra afirmación.* (b) El
+`ultimo_dato` salió **`"Wed Jan 21"`**: `max(date)` vuelve de `pg` como **objeto `Date`** a
+medianoche UTC, así que `String(d).slice(0,10)` lo rompe y, renderizado en hora MX, puede dar **el
+día anterior**. Se formatea con `to_char` en SQL, y el candado comprueba el **formato** — porque ese
+bug no falla, sólo queda ilegible, y salía `✔`.
+
+**Un hallazgo que resultó NO ser defecto.** `CG-2026-00002` sigue fechado `2026-12-10` y el scanner
+lo reporta a diario (`1 en el libro · 0 resync`). No es un bug: `[CG.25]` decidió —con ADR-040— que
+**Kepler es el dueño de la fecha** y nosotros la seguimos. Verificado en prod: la llave del resync
+(`sucursal|doc_tipo|folio|clave_banco`) **sí casa** el documento, y Kepler **todavía** tiene
+`2026-12-10`. O sea que `0 resync` es la máquina funcionando. **Lo que falta es humano: corregir
+`X-D-26 0001298` en Kepler**, y el libro lo sigue solo.
+
+**Medido, para que no se discuta de memoria:** los defectos que la fase existe para cerrar **siguen
+creciendo** porque la captura sigue 100% en Access — sin concepto pasó de 2,387 a **2,566**
+movimientos y de $71.96M a **$75.04M** (46.5% del dinero del año) entre el 18-sep y el 6-oct: ~10
+movimientos y **~$171,000 por día**. Y el libro nuevo lleva **2 filas y 0 cortes cerrados** contra
+13,071 que Access capturó en 2026. ⭐ Pero el autorrelleno **no está muerto**: replicando el motor
+(soporte ≥3, dominancia ≥60%) sobre los 185 beneficiarios de la cola, **39 ya recibirían propuesta
+hoy** y 79 tienen historia. Lo que está en cero es el **mapa de conceptos** (122 cuentas, 0
+confirmadas), que es otro mecanismo y sólo pesa durante el traslape.
+
+- Backend: `finance-bank.service.ts` (`fuentes` + `veredicto_completo`), `cash-ledger.service.ts`
+  (comentario). Front: `bank.service.ts` + `caja-ingreso-ref.component.ts` (aviso de fuente ausente,
+  con el modismo que el componente ya usaba para lo no medido).
+- Mig `20261006160000_caja_vistas_anclaje_y_definer.js` · candado
+  `test-newdb-caja-fuentes-y-definer.js` (**14 ✓ / 5 ✗ contra prod ANTES de aplicar** — falla justo
+  en lo que la migración arregla), con **prueba negativa** del detector de anclaje.
+- ⬜ **Pendiente prod:** aplicar la migración en `md` con `apply-one-migration-prod.js` dentro de
+  `prod-api` (desde esta máquina no se puede: `edgar` sólo asume `dev_ro` y no tiene CREATE en
+  `finance`) + redeploy api+view. Sin permisos nuevos → **sin re-login**.
+- ⬜ **Pendiente humano, declarado y no construido:** corregir la fecha de `X-D-26 0001298` en
+  Kepler · que Finanzas confirme las ~20 cuentas que son el 97.9% del dinero en
+  `caja_kepler_concept_map` · y la adopción, que es la que corre a ~$171k/día.
+
 #### ✅ `[CG.37]` · El calendario, el pliegue y los cuatro naranjas del diálogo — 2026-10-05
 
 Edgar, sobre dos capturas de prod: *«aun existen errores de diseño… por ejemplo el calendario. todo
