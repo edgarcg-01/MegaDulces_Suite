@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — «Movimientos»: un apartado de Hallazgos que dice qué perseguir, con su ventana (DM.21, 2026-10-06)
+- El Cuadre decía **si** cuadra, no **qué** revisar. Ahora, arriba de los informes, un bloque compacto: cada hallazgo con su cifra, una frase que lo explica y un botón **Ver** que abre la ventana con los documentos. Clic en una fila abre el documento y su contraparte.
+- **Lo que el panel separa es el punto:** «sin recepción» mezclaba tres cosas y sólo una es un hueco — lo que salió **a un almacén** y nadie recibió (el hallazgo), la **carga a una camioneta de ruta** y la **entrega a un cliente**, que por definición no emiten acuse. Los tres se muestran y suman, para que no parezca que algo se esconde.
+- **Medido en prod, últimos 30 días:** 105 traspasos sin acuse por **$3,015,993**; aparte, 257 cargas a ruta y 1,096 entregas a cliente. Contarlos juntos —que es como quedaba al sumar en crudo— daba **$14.7M**, casi cinco veces el hueco real.
+- El panel **no se declara sano por no ver nada**: con el rango de 30 días no puede aparecer un documento de 45, así que dice cuántos días lleva el más antiguo del rango e invita a ampliarlo. **Redeploy api+view; sin permisos nuevos → sin re-login.**
 ### Fixed — Cobranza: la ficha de depósito se puede FOTOGRAFIAR (CC.20, 2026-10-06)
 - `/finanzas/cobranza` ofrece **«Tomar foto»**, el campo dice «Ficha de depósito (imagen o PDF)» y la pantalla previsualiza imágenes — pero el servidor contestaba **400 «Solo se aceptan archivos PDF.»** a cualquier foto. O sea que el camino principal, el de quien tiene la ficha del banco en la mano, fallaba siempre. Ahora entra la foto y el PDF.
 - ⛔ **No se tocaron los hermanos, que rechazan por decisión:** la remisión de entradas sigue siendo sólo PDF (una de tres hojas no se sostiene en fotos sueltas) y el comprobante de pago a proveedor también (es el SPEI o el cheque). Hay prueba negativa para que nadie los «arregle» de paso.
