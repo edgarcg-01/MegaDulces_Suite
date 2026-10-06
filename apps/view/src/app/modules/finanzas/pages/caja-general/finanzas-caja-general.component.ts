@@ -1604,8 +1604,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   readonly money = money;
   readonly dmy = dmy;
-  /** Los cinco billetes de la caja. Salen del catálogo compartido, no de una lista de acá. */
-  readonly billetes = BILLETES_CAJA;
+  /**
+   * Los cinco billetes de la caja. Salen del catálogo compartido, no de una lista de acá.
+   *
+   * ⚠️ La copia NO es adorno y NO se puede volver a `= BILLETES_CAJA`. El catálogo es
+   * `readonly Denominacion[]` a propósito —nadie debe empujarle un billete— pero `[value]` de
+   * `p-table` pide un array mutable, así que con la constante directo el compilador de Angular
+   * tira TS4104. Mientras eran dos `@for` daba igual; con p-table no.
+   *
+   * ⛔ Y la copia va ACÁ, una sola vez, NO `[value]="billetes.slice()"` en la plantilla: ahí
+   * devolvería un array nuevo en CADA ciclo de detección, y p-table reprocesaría su valor en
+   * cada tick aunque los billetes no cambien nunca. La identidad estable es la mitad del
+   * arreglo.
+   */
+  readonly billetes = [...BILLETES_CAJA];
 
   readonly GLOSA_MIN = GLOSA_MIN;
 
