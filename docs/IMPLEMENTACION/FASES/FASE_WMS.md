@@ -382,3 +382,62 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
 | ~~U7~~ | ✅ Se amplía el rango (`B100`+). Los rangos de cada pasillo se capturan en la pantalla de ubicaciones (planta, pasillo, desde, hasta), no bloquean: el orden de surtido es el número | — |
 | ~~U8~~ | ✅ El checado tiene báscula; ahí se cobra el peso exacto | — |
 | U3 | ¿Cómo sabe hoy el anaquelista qué subir? (recorrido, lista, a ojo) | Reposición (WMS.7) |
+
+---
+
+## 13. Addendum 2026-10-06 — Maestro logístico: peso y volumen por unidad
+
+**Origen:** Francisco, al medir la carga de pedidos (`FASE_GP` §4b): *"los auxiliares de volumen y
+peso tampoco están en Kepler, podemos desarrollarlos en la Suite"*.
+
+### 13.1 Lo medido
+
+- **Kepler no tiene peso ni dimensiones** de producto (confirmado por Francisco).
+- **La Suite tampoco:** ninguna columna de peso, largo, ancho, alto o volumen en `catalog`,
+  `commercial` ni `logistics` para productos. Sólo existen campos **de destino** que nadie llena
+  con base en el producto: `logistics.guide_recipients.weight_kg` (default 0),
+  `logistics.shipments.total_weight_kg`.
+- **Unidades de reparto:** `logistics.vehicles` tiene `capacity_kg` y `capacity_boxes`, pero de
+  **97 vehículos sólo 1 tiene capacidad en kg y 34 en cajas**. No hay volumen (m³) ni estibas.
+- **Cuántos productos hay que medir** (renglones de pedidos embarcados, 28 días):
+
+  | Alcance | SKUs distintos | SKUs para 50% · 80% · 90% · 95% de los renglones |
+  |---|---|---|
+  | Todas las sucursales | 2,997 | 264 · 861 · 1,365 · 1,822 |
+  | **PH** | 2,074 | **198 · 634** · 1,013 · 1,363 |
+
+  **Con ~200 productos se cubre la mitad de lo que se mueve en PH y con ~630, el 80%.** Es trabajo
+  de semanas, no de meses.
+
+### 13.2 Cómo lo hacen los WMS líderes
+
+Un **maestro logístico por unidad de medida**: para cada nivel (pieza → paquete → caja → tarima)
+se guarda largo, ancho, alto, **peso bruto** y, para tarima, cuántas cajas por cama y cuántas camas.
+Se llena de tres formas, de mejor a peor dato: **medido** en el almacén (cinta y báscula, o un
+dimensionador automático), **del proveedor** (catálogos electrónicos de producto), o **estimado**.
+Cada dato lleva su origen.
+
+### 13.3 Propuesta
+
+1. **Tabla propia de la Suite** (dato que no existe en ningún ERP): producto × unidad (base / dos /
+   tres, mismas unidades de `kdii`) × largo, ancho, alto (cm), peso bruto (kg), **origen**
+   (`medido` / `proveedor` / `estimado`), quién y cuándo.
+2. **Se mide la unidad mayor** (la caja o bulto, que es lo que se carga) y la base. Las intermedias
+   se derivan con el factor, y una diferencia grande entre lo derivado y lo medido se marca como
+   dato a revisar.
+3. **Se captura donde ya se trabaja:** en la recepción (estación de entrada, WMS-REC), cuando
+   llega un producto sin medidas, la pantalla pide medir **una** caja. Mismo principio de GP:
+   quien hace el trabajo lo registra.
+4. **Orden de captura por Pareto:** primero los ~200 productos que hacen la mitad de los renglones
+   de PH.
+5. **La báscula del checado sirve de testigo:** al cerrar una caja `P` o un contenedor se puede
+   pesar y comparar contra el peso calculado de su contenido. Si no cuadra, o está mal el dato
+   maestro o está mal el contenido.
+6. **Unidades de reparto:** completar `capacity_kg` y agregar volumen (m³) y número de estibas por
+   tipo de unidad. Con eso la carga de una guía se compara contra la capacidad del camión.
+
+**Lo que habilita:** peso y volumen por pedido, por bulto y por guía; aviso de camión pasado de
+peso o volumen; y el `weight_kg` de los destinatarios de la guía calculado en lugar de capturado.
+
+**Regla (ADR-056):** un pedido con productos sin medir **no muestra un peso total como si estuviera
+completo**: muestra el peso de lo medido y cuánto falta por medir.
