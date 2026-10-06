@@ -35,6 +35,21 @@ installRadioGroupNav(document);
 //    después. No se bloquea el arranque por un dato de diagnóstico.
 // ⛔ `.catch()` que no hace nada a propósito: sin red (el vendedor trabaja offline) esto falla,
 //    y un 404 en la consola no debe parecer un error de la app.
+//
+// ⚠️ HUECO DECLARADO — EN LA APK NO HAY SELLO, Y NUNCA LO HUBO.
+// Esto funciona por la vía PWA (nginx sirve `/assets/version.json`, lo escribe `start.sh`).
+// La vía nativa es otra: `nx build vendor` → `npx cap sync android` copia
+// `dist/apps/vendor/browser` dentro del APK (ver `capacitor.config.ts`), y ahí no hay nginx
+// ni `start.sh` que escriba nada, así que este `fetch` da 404 y la sonda dice `n/a`.
+// No es una regresión de `[CD.23]`: el `sed` que sellaba vivía en el Dockerfile, que la vía
+// nativa tampoco atraviesa — el APK venía mostrando el literal `BUILD_COMMIT_PLACEHOLDER`.
+// O sea que el cambio es de un placeholder confuso a una ausencia declarada, pero el dato
+// sigue sin existir justo donde más se necesita: el teléfono del vendedor en campo es el
+// caso en que «qué build tiene esto» es una pregunta de soporte.
+// Arreglarlo es un paso post-build en el empaquetado de Android (escribir
+// `dist/apps/vendor/browser/assets/version.json` antes del `cap sync`), NO acá, y es seguro
+// porque ngsw.json se genera durante el build: un archivo agregado después no entra en su
+// tabla de hashes. Fuera del alcance de `[CD.23]`, que es el carril de despliegue.
 fetch('/assets/version.json', { cache: 'no-store' })
   .then((r) => (r.ok ? r.json() : null))
   .then((v: { commit?: string; timestamp?: string } | null) => {
