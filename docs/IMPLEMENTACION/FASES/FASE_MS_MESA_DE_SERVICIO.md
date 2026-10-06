@@ -378,7 +378,7 @@ Meta.
 
 **Post-MVP (declarado, no construido):** MS.5 alcance de campo (vendor, enlace público) ·
 MS.6 auto-asignación balanceada (patrón `assignPending` de `recon_tasks`) · MS.7 más colas
-(Mantenimiento) · MS.8 puente Bitácora real y unificación · MS.9 vínculo con inventario de equipos
+(Mantenimiento — **diseñado en [`FASE_MS7_MANTENIMIENTO`](FASE_MS7_MANTENIMIENTO.md)**, 2026-10-06) · MS.8 puente Bitácora real y unificación · MS.9 vínculo con inventario de equipos
 (`asset_id`).
 
 ---
