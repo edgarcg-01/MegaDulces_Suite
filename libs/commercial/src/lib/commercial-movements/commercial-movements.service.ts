@@ -785,8 +785,8 @@ export class CommercialMovementsService {
         WITH shp AS (
           -- ⚠️ NADA de joins acá adentro. El agregado recorre ~40k renglones de traspaso y cada
           -- join que cuelgue de él se evalúa por RENGLÓN: el planner elige un nested loop contra
-          -- `warehouses` (28 filas, estimadas en 1) y el agregado pasa de 0.3 s a 2.4 s. Los
-          -- nombres y el destino se resuelven en `shpd`, sobre ~2k DOCUMENTOS. Medido 2026-10-06.
+          -- commercial.warehouses (28 filas, estimadas en 1) y el agregado pasa de 0.3 s a 2.4 s.
+          -- Los nombres y el destino se resuelven en shpd, sobre ~2k DOCUMENTOS. Medido 2026-10-06.
           SELECT m.warehouse_id, m.folio, m.doc_serie, m.tenant_id,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
                  max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
@@ -808,7 +808,7 @@ export class CommercialMovementsService {
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
           GROUP BY m.warehouse_id, m.folio, m.parent_serie, m.parent_folio
         ), paired AS (
-          -- ⚠️ Un `LEFT JOIN LATERAL (… LIMIT 1)` sobre una CTE la re-escanea ENTERA una vez por
+          -- ⚠️ Un LEFT JOIN LATERAL con LIMIT 1 sobre una CTE la re-escanea ENTERA una vez por
           -- recepción: con ~600 recepciones × ~2,000 embarques eran 2.6 s de los 3.5 s totales, y
           -- una CTE no se puede indexar. El mismo "mejor candidato" sale de un hash join + un
           -- DISTINCT ON, que recorre cada lado UNA vez. Mismo orden de desempate, mismo resultado
@@ -919,8 +919,8 @@ export class CommercialMovementsService {
         WITH shp AS (
           -- ⚠️ NADA de joins acá adentro. El agregado recorre ~40k renglones de traspaso y cada
           -- join que cuelgue de él se evalúa por RENGLÓN: el planner elige un nested loop contra
-          -- `warehouses` (28 filas, estimadas en 1) y el agregado pasa de 0.3 s a 2.4 s. Los
-          -- nombres y el destino se resuelven en `shpd`, sobre ~2k DOCUMENTOS. Medido 2026-10-06.
+          -- commercial.warehouses (28 filas, estimadas en 1) y el agregado pasa de 0.3 s a 2.4 s.
+          -- Los nombres y el destino se resuelven en shpd, sobre ~2k DOCUMENTOS. Medido 2026-10-06.
           SELECT m.warehouse_id, m.folio, m.doc_serie, m.tenant_id,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
                  max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
@@ -942,7 +942,7 @@ export class CommercialMovementsService {
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
           GROUP BY m.warehouse_id, m.folio, m.parent_serie, m.parent_folio
         ), paired AS (
-          -- ⚠️ Un `LEFT JOIN LATERAL (… LIMIT 1)` sobre una CTE la re-escanea ENTERA una vez por
+          -- ⚠️ Un LEFT JOIN LATERAL con LIMIT 1 sobre una CTE la re-escanea ENTERA una vez por
           -- recepción: con ~600 recepciones × ~2,000 embarques eran 2.6 s de los 3.5 s totales, y
           -- una CTE no se puede indexar. El mismo "mejor candidato" sale de un hash join + un
           -- DISTINCT ON, que recorre cada lado UNA vez. Mismo orden de desempate, mismo resultado
