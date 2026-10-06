@@ -183,7 +183,14 @@ const TECHO = {
   // Motor de margen y Experimentos, quedan 22 REALES repartidos en el resto de la app.
   // ⚠️ 22 no es una meta: es deuda MEDIDA, congelada para que la 23a no entre. Cada uno es
   //    un boton que se pinta SIN TEXTO en produccion.
-  'pButton con label': 22,
+  // 2026-10-05 [CG.36]: 22 -> 21. El "Reintentar" de Programa de Pagos era uno de ellos — el
+  //    UNICO camino de vuelta despues de un error de carga, y se pintaba sin texto.
+  // ⛔ Al arreglarlo el conteo NO bajo: el comentario que explicaba el arreglo CITABA la
+  //    sintaxis vieja, y esta compuerta busca por TEXTO sin distinguir codigo de comentario.
+  //    O sea que documentar el defecto lo volvia a contar y tapaba su propia correccion.
+  //    Misma familia que el acento grave dentro de un comentario de plantilla: en este repo,
+  //    lo que se escribe en un comentario lo leen las compuertas igual que al codigo.
+  'pButton con label': 21,
   // ⚠️ 2026-10-03: eran 289 y 263, y el techo estaba RANCIO — no lo subio un push nuevo.
   //    Medido antes de tocarlo: de los 9 archivos que el gate marca, solo 3 los toca la rama
   //    `integra/resto-2026-10-02`, y en esos 3 el conteo de `styleClass` es IDENTICO entre
