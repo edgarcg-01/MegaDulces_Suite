@@ -397,8 +397,20 @@ export class CommercialReplenishmentController {
 
   @Post('requisitions/:id/approve')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
-  @ApiOperation({ summary: 'Aprueba una requisición (pending_approval → approved).' })
+  @ApiOperation({ summary: '[RQ.3] Aprueba una requisición (pending_approval → approved). FRENA si algún renglón ya no tiene el costo de hoy — la salida es POST /requisitions/:id/recalculate. No frena lo que no se pudo medir.' })
   approve(@Param('id') id: string) { return this.svc.approve(id); }
+
+  @Post('requisitions/:id/recalculate')
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
+  @ApiOperation({ summary: '[RQ.1] Refresca los costos de los renglones contra analytics.replenishment_plan (sólo el costo, nunca la cantidad) y recalcula los totales. Deja constancia en recalculated_at/_by. Aplica a pending_approval y approved.' })
+  recalculate(@Param('id') id: string) { return this.svc.recalcularCostos(id); }
+
+  @Post('requisitions/bulk')
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
+  @ApiOperation({ summary: '[RQ.4] Aprueba o rechaza varias requisiciones de una (máx. 200). Cada una va en su propia transacción: lo que no pasa se informa con su motivo, sin tirar abajo el resto.' })
+  bulk(@Body() dto: { ids?: string[]; accion?: 'approve' | 'reject' }) {
+    return this.svc.bulkEstado(dto?.ids || [], dto?.accion === 'reject' ? 'reject' : 'approve');
+  }
 
   @Post('requisitions/:id/reject')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)

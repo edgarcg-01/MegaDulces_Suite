@@ -150,9 +150,17 @@ export class CommercialPurchaseOrdersService {
       })));
 
       // RQ → ordered (convertida). El CHECK ya incluye 'ordered'.
+      // `[RQ.5]` La bitácora del salto se ESCRIBE acá, no sólo el estado.
+      //
+      // Hasta el 2026-10-06 esta línea ponía `estado: 'ordered'` y nada más, así que
+      // `ordered_by` / `ordered_at` quedaban NULL — y como éste es el camino que se usa de
+      // verdad (el botón "Generar orden de compra"), estaban vacíos en **35 de 35** las
+      // ordenadas de prod. Las columnas existían y mentían por omisión: no se podía responder
+      // quién la ordenó ni cuándo, ni medir cuánto tarda aprobar→ordenar.
+      // El atajo manual `markOrdered` (RA.14) sí los llenaba, pero no lo usa nadie.
       await trx('commercial.purchase_requisitions')
         .where({ tenant_id: tenantId, id: requisitionId, estado: 'approved' })
-        .update({ estado: 'ordered', updated_at: trx.fn.now() });
+        .update({ estado: 'ordered', ordered_by: userId, ordered_at: trx.fn.now(), updated_at: trx.fn.now() });
 
       this.logger.log(`OC ${folio} generada desde requisición ${req.folio}`);
       return { id: po.id, folio: po.folio, estado: po.estado, requisition_folio: req.folio, total_units: totalUnits, total_cost: totalCost };
