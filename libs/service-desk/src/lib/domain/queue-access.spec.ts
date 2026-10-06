@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { SIN_COLAS, TODAS_LAS_COLAS, accesoATicket, colasDeLectura, construirAcceso, puedeAtenderCola, puedeCoordinarCola } from './queue-access';
 
 const TI = 'q-ti';
