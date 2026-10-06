@@ -317,8 +317,8 @@ export class AnexoVentaService {
    * el código tal como llegó la primera vez — mismo criterio verbatim que `unidad()`.
    * Orden: caja, paquete y luego el resto en el orden en que aparecen en la factura.
    */
-  private sumarUnidades(partes: { n: number; u: any }[]): { n: number; u: any }[] {
-    const acc = new Map<string, { n: number; u: any }>();
+  private sumarUnidades(partes: { n: number; u: unknown }[]): { n: number; u: unknown }[] {
+    const acc = new Map<string, { n: number; u: unknown }>();
     for (const p of partes) {
       const k = String(p.u ?? '').trim().toUpperCase();
       const prev = acc.get(k);
@@ -520,7 +520,7 @@ export class AnexoVentaService {
     // `[AX.13]` Cada rótulo de grupo suma sus unidades bajo la columna Cantidad ("10 CJA") y al
     // pie va el total del documento. La suma sale de las MISMAS partes que imprime cada renglón
     // (`compra`), así que siempre cuadra con lo que el cliente ve. Una línea por unidad.
-    const sumaHtml = (rows: { compra: { n: number; u: any }[] }[], conMas: boolean) =>
+    const sumaHtml = (rows: { compra: { n: number; u: unknown }[] }[], conMas: boolean) =>
       this.sumarUnidades(rows.flatMap((r) => r.compra))
         .map((s, i) => `<span>${conMas && i > 0 ? '+ ' : ''}${this.cantidadConUnidad(s.n, s.u)}</span>`).join('');
     const filas = (mezcla
