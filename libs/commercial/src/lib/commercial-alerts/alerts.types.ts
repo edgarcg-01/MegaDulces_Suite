@@ -18,6 +18,10 @@ export type AlertType =
   | 'delivery_delivered' // entrega a domicilio completada (Reparto)
   | 'db_health'          // una fuente de datos falló/se recuperó (feed caído, tabla congelada)
   | 'recon_bad_cut'      // arqueo ciego divergente ("corte malo") capturado en /tienda/arqueo (SM.9)
+  // [VEC.4] Un pedido quedó confirmado y SU sucursal lo tiene que armar. A diferencia de
+  // `order_confirmed` —que es tenant-wide e informativo— éste va DIRIGIDO (`emitTo`) a quien
+  // puede surtir en ese almacén, y tiene memoria: `commercial.order_notifications`.
+  | 'order_to_pick'
   | 'test';              // manual trigger para smoke testing
 
 export type AlertSeverity = 'info' | 'warn' | 'critical';

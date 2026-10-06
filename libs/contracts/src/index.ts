@@ -62,6 +62,7 @@ export * from './http/warehouse-order.contract';
 // Dato chico (4 entradas): no pega al bundle inicial.
 export * from './http/expense-family.contract';
 // [IG.1] El hermano del lado ingreso: canales de venta (el canal vive en c6, no en la cuenta).
+export * from './http/route-kind.contract';
 export * from './http/sales-channel.contract';
 export * from './http/income.contract';
 // [CSU.1] Cortes/Sucursales: corte de caja POS → cobro aplicado → arqueo del turno.
