@@ -1945,7 +1945,7 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   responde 400 si se manda otro. La misma hoja, toda bloqueada, vive en el detalle del embarque con
   entregas y costo estimado. «Embarque manual»
   (`?manual=1`) queda para lo que Kepler no emite. **Pruebas:** `libs/logistics` estrena Vitest
-  (45, con mutación verificada), `apps/view` 50 (dos mutaciones verificadas), DB
+  (59: reglas, armado de la hoja con base simulada, endpoints con ruta+permiso, toma), `apps/view` 58 en logística (cada componente montado con TestBed + rutas + servicio); cada regla nueva con mutación verificada, DB
   `test-newdb-emb-nuevo-embarque.js` 14/14 con prueba negativa del candado; además se ejecutó el
   servicio real contra la base local como `app_runtime` (lista 95 ms, hoja 103 ms).
   **Arreglado de paso:** el formulario manual pedía «Por ruta / Viaje largo» y lo tiraba (no había
