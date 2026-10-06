@@ -186,7 +186,21 @@ que más valor tiene para la Suite, y la lección es de diseño, no de disciplin
   para cargar, ya del otro lado de la reja. Es el mismo `UB` del comentario `CJ 16 P 10 UB 6`.
 - **La ubicación de embarque es la estiba** del camión.
 - **Equipo en piso: celulares y handhelds.** La pantalla se diseña para los dos (pulgar en celular,
-  escáner en handheld).
+  escáner en handheld). **Hay wifi** en surtido, checado y espera: la pantalla trabaja en línea.
+- **Las cajas de paquetería (`P`) las arma el checador** → se capturan en el checado (GP.4).
+
+**Tamaño de los catálogos (por almacén):**
+
+| Catálogo | Cuántos | Nombre hoy | Cómo se elige en pantalla |
+|---|---|---|---|
+| Carretas | 40–50 | Número | **Escaneo** del código pegado en la carreta (handheld) o **teclado numérico** (celular). Nunca una lista de 50 |
+| Espacios de espera | ~10 | `A1`…`A4`, `B1`…`B3` | **Botones** con el nombre: con 10 opciones no hace falta buscar ni teclear |
+| Estibas del camión | 10–30, según la unidad | Número | **Esquema del camión** por tipo de unidad, tocando la estiba |
+
+**Decisión sobre los nombres:** se **conservan** `A1`, `B2`… Francisco ofreció pasarlos a sólo número
+para buscar más rápido desde el celular, pero con ~10 espacios en botones no se busca nada, y la
+letra dice en qué fila está, que le sirve a quien carga. El número sólo conviene en las carretas,
+que son muchas.
 
 ⚠️ **El riesgo de la opción A está justo aquí.** Con la opción A, alguien todavía teclea el
 resultado en Kepler: es el mismo relevo "operador → capturista" que hoy se degrada. Mitigaciones:
@@ -254,11 +268,12 @@ vista derivada sobre `kepler_ods`, nunca copia.
 | ~~P13~~ | ✅ Ubicación de checado = espacio de espera de unidad, pasando la reja (§2.7) | — |
 | ~~P14~~ | ✅ Posición en el camión = estiba (§2.7) | — |
 | ~~P15~~ | ✅ PH lo omite; Canindo recién implementado; se cae cuando el operador anota y nadie registra (§2.6) | — |
-| P10 | ¿Cuántos espacios de espera hay por almacén y cómo se llaman? | GP.5 |
-| P11 | ¿Quién arma las cajas de paquetería: el surtidor o el checador? | GP.4 |
-| P16 | ¿Cuántas carretas hay por almacén? (para el catálogo y sus códigos) | GP.3 |
-| P17 | ¿Cuántas estibas tiene cada tipo de camión y cómo se numeran? | GP.5 |
-| P18 | ¿Hay wifi en toda el área de surtido, checado y espera? | GP.3 (define si la pantalla debe trabajar sin red) |
+| ~~P10~~ | ✅ ~10 espacios, `A1`…`A4`, `B1`…`B3` (§2.7) | — |
+| ~~P11~~ | ✅ El checador arma las cajas de paquetería | — |
+| ~~P16~~ | ✅ 40–50 carretas por almacén | — |
+| ~~P17~~ | ✅ 10–30 estibas según la unidad | — |
+| ~~P18~~ | ✅ Hay wifi | — |
+| P19 | ¿Qué tipos de unidad hay y cuántas estibas tiene cada uno? (para dibujar el esquema) | GP.5 |
 | P4 | ¿El checador es siempre otra persona? En el embarque 2683 los tres responsables son `01` | GP.4 |
 | P5 | ¿Se surte pedido por pedido o se juntan en olas (sobre todo telemarketing)? | GP.2 |
 | P6 | ¿Qué es el "tercer tipo, tienda"? ¿Las `TI00x` de §2.1? | GP.1 |
