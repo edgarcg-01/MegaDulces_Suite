@@ -512,6 +512,42 @@ export interface RequisitionVigencia {
   delta: number;
   vigente: boolean | null;
 }
+/** `[RQ.8]` Lo que devuelve crear un lote completo. */
+export interface RequisitionBatchResult {
+  batch_id: string;
+  /** `null` cuando la migración del lote todavía no llegó: se crean igual, pero sueltas. */
+  batch_folio: string | null;
+  total: number;
+  compras: number;
+  traspasos: number;
+  folios: string[];
+}
+/** `[RQ.8]` Una fila de la bandeja agrupada: UN «Armar», no un documento. */
+export interface RequisitionBatchRow {
+  lote: string;
+  batch_folio: string | null;
+  documentos: number;
+  compras: number;
+  traspasos: number;
+  almacenes: number;
+  proveedores: number;
+  renglones: number;
+  monto: number;
+  created_at: string;
+  dias: number;
+  /** `mixto` cuando los documentos del lote NO están todos en el mismo estado. */
+  estado: RequisitionEstado | 'mixto';
+  pendientes: number;
+  autor: string | null;
+  proveedor_muestra: string[] | null;
+  almacen_muestra: string[] | null;
+}
+export interface RequisitionBatchListDto {
+  total: number; page: number; pageSize: number; rows: RequisitionBatchRow[];
+  /** `false` = falta la migración 20261006190000. La pantalla lo DECLARA en vez de salir vacía. */
+  disponible: boolean;
+}
+
 /** `[RQ.2]` Cuántas requisiciones hay en cada estado, su monto y su antigüedad. */
 export interface RequisitionResumen {
   estado: RequisitionEstado;
@@ -531,6 +567,15 @@ export interface RequisitionDetail extends RequisitionRow {
   dias?: number;
   vigencia?: RequisitionVigencia | null;
   recalculated_at?: string | null;
+  /**
+   * `[RQ.8]` A dónde BAJA esta compra. Se DERIVA de la FK bajada→compra, no se copia: las
+   * sucursales destino de una compra consolidada son, exactamente, los destinos de sus bajadas.
+   */
+  bajadas?: Array<{ id: string; folio: string; estado: string; code: string | null; name: string | null; total_cost: number }>;
+  /** `[RQ.8]` De qué compra baja este traspaso. `null` cuando la bajada juntó varios proveedores. */
+  origen?: { id: string; folio: string; estado: string; supplier_name: string | null } | null;
+  /** `[RQ.8]` El «Armar» del que salió, y cuántos documentos más lo acompañan. */
+  lote?: { documentos: number; folio: string | null } | null;
 }
 export interface CreateRequisitionLine {
   product_id: string;
@@ -1148,15 +1193,36 @@ export class ComprasService {
     return this.http.post<{ groups: number; merged: number; products_repointed: number }>(`${this.base}/categories/auto-dedup`, {});
   }
 
-  listRequisitions(q?: { estado?: string; warehouse_id?: string; source_type?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[]; resumen: RequisitionResumen[] }> {
+  listRequisitions(q?: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[]; resumen: RequisitionResumen[] }> {
     const p = new URLSearchParams();
     if (q?.estado) p.set('estado', q.estado);
     if (q?.warehouse_id) p.set('warehouse_id', q.warehouse_id);
     if (q?.source_type) p.set('source_type', q.source_type);
+    if (q?.batch_id) p.set('batch_id', q.batch_id);
+    if (q?.search) p.set('search', q.search);
     if (q?.page) p.set('page', String(q.page));
     if (q?.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<{ total: number; page: number; pageSize: number; rows: RequisitionRow[]; resumen: RequisitionResumen[] }>(`${this.base}/requisitions${qs ? '?' + qs : ''}`);
+  }
+
+  /**
+   * `[RQ.8]` Crea TODAS las requisiciones de un «Armar» en una sola transacción, bajo un folio de
+   * lote. Reemplaza las N llamadas sueltas: con aquéllas, un fallo a la mitad dejaba medio pedido
+   * creado y el aviso decía «error parcial» sin decir cuál.
+   */
+  createRequisitionBatch(requisitions: CreateRequisitionDto[]): Observable<RequisitionBatchResult> {
+    return this.http.post<RequisitionBatchResult>(`${this.base}/requisitions/batch`, { requisitions });
+  }
+  /** `[RQ.8]` La bandeja por lote: una fila por «Armar», no por documento. */
+  listRequisitionBatches(q?: { estado?: string; source_type?: string; page?: number; pageSize?: number }): Observable<RequisitionBatchListDto> {
+    const p = new URLSearchParams();
+    if (q?.estado) p.set('estado', q.estado);
+    if (q?.source_type) p.set('source_type', q.source_type);
+    if (q?.page) p.set('page', String(q.page));
+    if (q?.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<RequisitionBatchListDto>(`${this.base}/requisitions/batches${qs ? '?' + qs : ''}`);
   }
 
   /** `[RQ.1]` Refresca los costos contra el plan de hoy (sólo el costo, nunca la cantidad). */

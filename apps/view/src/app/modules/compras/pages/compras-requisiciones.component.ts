@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { MultitareaService } from '../../../core/services/multitarea.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
@@ -7,11 +7,15 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule, TableLazyLoadEvent } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
+import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
 import { TagModule } from 'primeng/tag';
 import { TabsModule } from 'primeng/tabs';
 import { ToastModule } from 'primeng/toast';
+import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { MessageService } from 'primeng/api';
-import { ComprasService, RequisitionRow, RequisitionEstado, RequisitionResumen } from '../compras.service';
+import { ComprasService, RequisitionRow, RequisitionEstado, RequisitionResumen, RequisitionBatchRow } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 // ⛔ `[ID.28]` POR SUBRUTA, NO DESDE EL BARREL. `@megadulces/contracts` NO re-exporta el catálogo
@@ -26,7 +30,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-requisiciones',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule, TabsModule, ToastModule, MetricStripComponent],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule, TabsModule, ToastModule, MetricStripComponent, SegmentedComponent, InputTextModule, IconFieldModule, InputIconModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -44,6 +48,74 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
            Medido en prod el 2026-10-06: 610 pendientes por $42.7 M, 24 días de promedio y 77 la
            más vieja — todo invisible desde acá, porque las viejas caen en la página 12. -->
       <app-metric-strip [items]="kpis()" ariaLabel="Requisiciones por estado" />
+
+      <!-- [RQ.8] POR LOTE o POR DOCUMENTO. Un «Armar» genera 8.2 documentos en promedio y 117 en
+           el peor (82 generaciones medidas en prod), así que la lista plana obliga a leer 117
+           renglones para entender UN clic. La vista por lote es la que contesta «¿qué pedí?». -->
+      <div class="rq-vista">
+        <app-segmented [options]="vistaOpts" [value]="vista()" ariaLabel="Agrupación"
+                       (valueChange)="setVista($any($event))"></app-segmented>
+        @if (vista() === 'lote' && lotesNoDisponible()) {
+          <span class="rq-vista-warn"><i class="pi pi-info-circle" aria-hidden="true"></i>
+            El agrupado por lote necesita la migración <code>20261006190000</code>. Mientras tanto, cada requisición sale como lote de uno — no se inventa uno hacia atrás.</span>
+        }
+      </div>
+
+      @if (loteAbierto(); as g) {
+        <!-- [RQ.8] La migaja del lote: desde acá se ve de qué pedido son estos documentos y se
+             vuelve. Sin esto, abrir un lote dejaba una lista filtrada que no decía por qué. -->
+        <div class="rq-lote-cab" role="status">
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="cerrarLote()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Todos los lotes</span></button>
+          <span><strong>{{ g.batch_folio || 'Lote sin folio' }}</strong> · {{ g.documentos }} documento(s)
+            · {{ g.compras }} compra(s) + {{ g.traspasos }} traspaso(s) · {{ money(g.monto) }}</span>
+        </div>
+      }
+
+      @if (vista() === 'lote') {
+        <p-table [value]="lotes()" [loading]="loadingLotes()" styleClass="p-datatable-sm rq-table"
+                 [paginator]="true" [rows]="25" [totalRecords]="totalLotes()" [lazy]="true" (onLazyLoad)="onPageLotes($event)">
+          <ng-template #header>
+            <tr>
+              <th>Lote</th><th>Qué se pidió</th>
+              <th class="rq-r">Docs</th><th class="rq-r">Renglones</th><th class="rq-r">Monto</th>
+              <th>Estado</th><th class="rq-r">Días</th><th>Quién</th><th><span class="sr-only">Acciones</span></th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-g>
+            <tr class="rq-row" (click)="abrirLote(g)">
+              <td class="rq-mono">{{ g.batch_folio || '—' }}
+                <div class="rq-muted rq-sub">{{ g.created_at | date:'dd/MM/yy HH:mm' }}</div></td>
+              <td>
+                <div class="rq-lote-que">
+                  @if (g.compras > 0) { <span class="rq-pill rq-pill-buy">{{ g.compras }} compra{{ g.compras === 1 ? '' : 's' }}</span> }
+                  @if (g.traspasos > 0) { <span class="rq-pill rq-pill-tr">{{ g.traspasos }} traspaso{{ g.traspasos === 1 ? '' : 's' }}</span> }
+                </div>
+                <div class="rq-muted rq-sub">
+                  @if (g.proveedores > 0) { {{ g.proveedores }} proveedor{{ g.proveedores === 1 ? '' : 'es' }}@if (g.proveedor_muestra?.length) { ({{ g.proveedor_muestra.join(', ') }}@if (g.proveedores > g.proveedor_muestra.length) { …}) } · }
+                  {{ g.almacenes }} sucursal{{ g.almacenes === 1 ? '' : 'es' }}@if (g.almacen_muestra?.length) { : {{ g.almacen_muestra.join(', ') }}@if (g.almacenes > g.almacen_muestra.length) { …} }
+                </div>
+              </td>
+              <td class="rq-r rq-strong">{{ g.documentos }}</td>
+              <td class="rq-r">{{ g.renglones | number }}</td>
+              <td class="rq-r">{{ money(g.monto) }}</td>
+              <td>
+                <p-tag [value]="loteEstadoLabel(g)" [severity]="loteEstadoSev(g)"></p-tag>
+              </td>
+              <td class="rq-r" [class.rq-viejo]="g.dias > 30">{{ g.dias }}</td>
+              <td class="rq-muted">{{ g.autor || '—' }}</td>
+              <td><i class="pi pi-angle-right rq-muted"></i></td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr><td colspan="9" class="rq-empty">
+              @if (error()) {
+                <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar los lotes.
+                <button pButton type="button" class="p-button-text p-button-sm" (click)="reload()"><span class="p-button-label">Reintentar</span></button>
+              } @else { Sin lotes con este filtro. }
+            </td></tr>
+          </ng-template>
+        </p-table>
+      } @else {
 
       @if (atascadas(); as a) {
         <div class="rq-alerta" role="status">
@@ -70,6 +142,17 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <div class="rq-filters">
               <p-select [options]="estadoOpts" [(ngModel)]="fEstado" (onChange)="reload()"
                         optionLabel="label" optionValue="value" placeholder="Todos los estados" [showClear]="true" styleClass="rq-sel" appendTo="body"></p-select>
+              <!-- [RQ.9] Hasta acá el UNICO filtro era el estado, y el backend ya aceptaba
+                   warehouse_id sin que nadie lo usara. Con 670 requisiciones y 50 por pagina,
+                   encontrar un folio eran 14 paginas. -->
+              <p-select [options]="almacenOpts()" [(ngModel)]="fAlmacen" (onChange)="reload()"
+                        optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
+                        [filter]="true" filterBy="label" styleClass="rq-sel" appendTo="body" ariaLabel="Filtrar por sucursal"></p-select>
+              <p-iconfield styleClass="rq-search">
+                <p-inputicon styleClass="pi pi-search" />
+                <input pInputText type="text" [(ngModel)]="fBuscar" (keyup.enter)="reload()"
+                       placeholder="Folio, proveedor o lote…" aria-label="Buscar requisición" />
+              </p-iconfield>
               <!-- [RQ.4] Mover las 610 pendientes exigia abrir 610 fichas: el costo de la bandeja
                    ERA el tramite. La barra solo existe cuando hay algo marcado -- un boton de lote
                    permanentemente apagado es ruido, no informacion. -->
@@ -125,6 +208,17 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <div class="rq-filters">
               <p-select [options]="estadoOpts" [(ngModel)]="fEstado" (onChange)="reload()"
                         optionLabel="label" optionValue="value" placeholder="Todos los estados" [showClear]="true" styleClass="rq-sel" appendTo="body"></p-select>
+              <!-- [RQ.9] Hasta acá el UNICO filtro era el estado, y el backend ya aceptaba
+                   warehouse_id sin que nadie lo usara. Con 670 requisiciones y 50 por pagina,
+                   encontrar un folio eran 14 paginas. -->
+              <p-select [options]="almacenOpts()" [(ngModel)]="fAlmacen" (onChange)="reload()"
+                        optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
+                        [filter]="true" filterBy="label" styleClass="rq-sel" appendTo="body" ariaLabel="Filtrar por sucursal"></p-select>
+              <p-iconfield styleClass="rq-search">
+                <p-inputicon styleClass="pi pi-search" />
+                <input pInputText type="text" [(ngModel)]="fBuscar" (keyup.enter)="reload()"
+                       placeholder="Folio, proveedor o lote…" aria-label="Buscar requisición" />
+              </p-iconfield>
               <!-- [RQ.4] Mover las 610 pendientes exigia abrir 610 fichas: el costo de la bandeja
                    ERA el tramite. La barra solo existe cuando hay algo marcado -- un boton de lote
                    permanentemente apagado es ruido, no informacion. -->
@@ -180,6 +274,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           </p-tabpanel>
         </p-tabpanels>
       </p-tabs>
+      }
     </div>
   `,
   styles: [`
@@ -190,6 +285,20 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                border: 1px solid var(--surface-border); border-radius: var(--radius-md);
                background: var(--surface-card); }
     .rq-lote-n { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); margin-right: .25rem; }
+    /* [RQ.8] Vista por lote */
+    .rq-search input { min-width: 15rem; }
+    .rq-vista { display: flex; align-items: center; gap: .75rem; margin: .5rem 0 .75rem; flex-wrap: wrap; }
+    .rq-vista-warn { color: var(--text-muted); font-size: var(--fs-xs); display: inline-flex; align-items: center; gap: .35rem; }
+    .rq-lote-cab { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem;
+                   padding: .4rem .6rem; border-radius: var(--radius-md);
+                   border: 1px solid var(--surface-border); background: var(--surface-card); font-size: var(--fs-sm); }
+    .rq-sub { font-size: var(--fs-xs); }
+    .rq-strong { font-weight: 700; }
+    .rq-lote-que { display: flex; gap: .3rem; flex-wrap: wrap; }
+    .rq-pill { font-size: var(--fs-micro); font-weight: 700; padding: .1rem .4rem; border-radius: 999px;
+               border: 1px solid var(--surface-border); }
+    .rq-pill-buy { color: var(--action); border-color: var(--action); }
+    .rq-pill-tr  { color: var(--text-muted); }
     .rq-chk { width: 2.25rem; text-align: center; }
     .rq-chk input { cursor: pointer; }
     /* El rojo es del renglón que ya pasó los 30 días: a esa edad el costo capturado dejó de ser
@@ -207,8 +316,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .rq-muted { color: var(--text-muted); }
     .rq-empty { color: var(--text-muted); padding: 1.5rem; text-align: center; }
     .rq-wh-cell { display: inline-flex; align-items: center; gap: .35rem; }
-    .rq-origin-icon { color: var(--primary, #0284c7); font-size: .85rem; }
-    .rq-dest-icon { color: var(--text-color, #1f2937); font-size: .85rem; }
+    .rq-origin-icon { color: var(--action); font-size: var(--fs-sm); }
+    .rq-dest-icon { color: var(--text); font-size: var(--fs-sm); }
   `],
 })
 export class ComprasRequisicionesComponent implements OnInit {
@@ -235,8 +344,31 @@ export class ComprasRequisicionesComponent implements OnInit {
    * bandeja y un archivo histórico.
    */
   fEstado: string = 'pending_approval';
+  /** `[RQ.9]` Sucursal y buscador: el backend ya los aceptaba, la pantalla nunca los ofreció. */
+  fAlmacen: string | null = null;
+  fBuscar = '';
+  private readonly almacenes = signal<Array<{ id: string; code: string; name: string }>>([]);
+  almacenOpts = computed(() => this.almacenes().map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })));
   resumen = signal<RequisitionResumen[]>([]);
   busy = signal(false);
+
+  // ── `[RQ.8]` La vista por lote ─────────────────────────────────────────────────────────────
+  /**
+   * Arranca en **lote** porque es la unidad en que se trabaja: un «Armar» genera 8.2 documentos
+   * de promedio y 117 en el peor (82 generaciones medidas en prod el 2026-10-06). La lista plana
+   * sigue estando a un clic — es la que sirve para buscar UN folio, no para entender un pedido.
+   */
+  vista = signal<'lote' | 'documento'>('lote');
+  readonly vistaOpts: SegOption[] = [
+    { label: 'Por lote', value: 'lote' },
+    { label: 'Por documento', value: 'documento' },
+  ];
+  lotes = signal<RequisitionBatchRow[]>([]);
+  totalLotes = signal(0);
+  loadingLotes = signal(false);
+  pageLotes = signal(1);
+  /** `true` = falta la migración. Se DECLARA en pantalla; no se simula el lote con el reloj. */
+  lotesNoDisponible = signal(false);
   /** `[RQ.4]` Lo marcado para el lote. Se limpia en cada recarga: otra consulta, otro universo. */
   sel = signal<Set<string>>(new Set());
 
@@ -266,6 +398,13 @@ export class ComprasRequisicionesComponent implements OnInit {
     if (qTab === 'branch' || qTab === 'traspaso' || qTab === 'traspasos') {
       this.tab.set('branch');
     }
+    // `[RQ.9]` El catálogo de sucursales sale del MISMO /filters que usa Pedido. No se traga el
+    // error: sin lista, el selector queda mudo y nadie sabe por qué (DESIGN §Ing.UI 6).
+    this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (fl) => this.almacenes.set(fl.warehouses ?? []),
+      error: () => this.toast.add({ severity: 'warn', summary: 'Sin catálogo de sucursales',
+        detail: 'El filtro por sucursal queda vacío; el resto de la bandeja funciona.' }),
+    });
     this.reload();
   }
 
@@ -276,13 +415,60 @@ export class ComprasRequisicionesComponent implements OnInit {
     this.reload();
   }
 
-  reload(): void { this.page.set(1); this.load(); }
+  reload(): void { this.page.set(1); this.pageLotes.set(1); this.load(); if (this.vista() === 'lote') this.loadLotes(); }
+
+  setVista(v: 'lote' | 'documento'): void {
+    if (this.vista() === v) return;
+    this.vista.set(v);
+    if (v === 'lote') this.loadLotes();
+  }
+  onPageLotes(e: TableLazyLoadEvent): void {
+    this.pageLotes.set(Math.floor((e.first || 0) / (e.rows || 25)) + 1);
+    this.loadLotes();
+  }
+  private loadLotes(): void {
+    this.loadingLotes.set(true);
+    this.api.listRequisitionBatches({
+      estado: this.fEstado || undefined, source_type: this.tab(),
+      page: this.pageLotes(), pageSize: 25,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.lotes.set(r.rows ?? []); this.totalLotes.set(r.total ?? 0);
+        this.lotesNoDisponible.set(r.disponible === false);
+        this.loadingLotes.set(false); this.error.set(false);
+      },
+      error: () => { this.loadingLotes.set(false); this.error.set(true); },
+    });
+  }
+  /**
+   * Abrir un lote = ver sus documentos. Se cambia a la lista plana filtrada por ese lote, en vez
+   * de inventar una tercera pantalla: son las mismas filas con las mismas acciones.
+   */
+  abrirLote(g: RequisitionBatchRow): void {
+    this.vista.set('documento');
+    this.loteAbierto.set(g);
+    this.page.set(1);
+    this.load();
+  }
+  loteAbierto = signal<RequisitionBatchRow | null>(null);
+  cerrarLote(): void { this.loteAbierto.set(null); this.page.set(1); this.load(); }
+  /** `mixto` no es un estado: es la DECLARACIÓN de que el lote no está todo en el mismo. */
+  loteEstadoLabel(g: RequisitionBatchRow): string {
+    return g.estado === 'mixto' ? `mixto · ${g.pendientes} pendiente(s)` : this.estadoLabel(g.estado as RequisitionEstado);
+  }
+  loteEstadoSev(g: RequisitionBatchRow): Sev {
+    return g.estado === 'mixto' ? 'contrast' : this.estadoSev(g.estado as RequisitionEstado);
+  }
 
   private load(): void {
     this.loading.set(true);
     this.api.listRequisitions({
       estado: this.fEstado || undefined,
       source_type: this.tab(),
+      warehouse_id: this.fAlmacen || undefined,
+      search: this.fBuscar.trim() || undefined,
+      // `[RQ.8]` Abrir un lote = la misma lista, acotada a sus documentos.
+      batch_id: this.loteAbierto()?.lote || undefined,
       page: this.page(),
       pageSize: 50,
     })

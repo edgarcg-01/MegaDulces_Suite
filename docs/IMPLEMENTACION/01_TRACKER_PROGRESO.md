@@ -3474,6 +3474,62 @@ cerrados con `validated_by = 'Claude Vision'`.
   tiene** `COMPRAS_REQUISICIONES_GESTIONAR`: 134 siguen pendientes y él no puede moverlas.
   🚫 **Falta: aplicar la mig a prod + redeploy api+view + validación visual.** Sin permisos nuevos
   → sin re-login.
+
+> **Auditoría visual y estructural del momento de generar (2026-10-06).** Pedido de Edgar:
+> *«se genera una requisición por sucursal, pero va dentro de un mismo pedido; generar 20 o 30 es
+> un odio, observarlas más»* · *«al comprar no me dice dónde estoy comprando y a dónde se va a
+> traspasar»* · *«problemas de filtros»*. **Medido sobre 83 generaciones reales: promedio 8.2
+> documentos por «Armar», mediana 6, PEOR 117; 23 ráfagas de 10 o más.** ⚠️ La correlación global
+> del tamaño con el nº de proveedores es **0.956** contra **0.326** con almacenes — pero eso lo
+> dominan **3 lotes gigantes** (55.7 proveedores de promedio). Contando lotes se ordena al revés:
+> **69 de 83 los infla la SUCURSAL** (1 proveedor, 8.1 almacenes, hasta 21 documentos). O sea: el
+> día a día es el que Edgar describe; los extremos son otra bestia. ⛔ **Y esas 83 ráfagas no
+> existían como dato**: hubo que inferirlas con una ventana de 90 s sobre `created_at`.
+
+- [x] **[RQ.8]** 🧪 **Las requisiciones de un mismo «Armar» dejan de ser islas.** Mig
+  `20261006190000` (aditiva): `batch_id` + `batch_folio` (`RQ-LOTE-AAAA-NNNNN`, del secuenciador
+  que **ya** emite `OC` y `OE` — no se creó una tercera tabla de secuencias) + `origin_requisition_id`
+  (la **bajada apunta a la compra** que la originó). Endpoint nuevo `POST /requisitions/batch`:
+  **una sola transacción** — o entran todas o no entra ninguna —, con el folio de lote y la liga
+  resuelta server-side (el front manda un **índice**, no un id: cuando arma el pedido los ids no
+  existen). ⛔ **NO se fusionan las requisiciones**: `createRequisition` ya exige **un solo
+  proveedor** por compra y eso es correcto —es el documento que se le manda a alguien—; lo que
+  faltaba no era fusionar, era **atar**. ⛔ Y **no** se agrega una columna de «sucursales de esta
+  compra»: son, exactamente, los destinos de sus bajadas — se **derivan** de la FK (GOTCHAS §32).
+  ⚠️ La liga se pone **sólo cuando la bajada viene de UN proveedor**: se agrupa por (destino ×
+  CEDIS) y puede juntar varios, y ahí apuntar a la primera sería inventarla. La otra salida
+  —partir la bajada por proveedor— multiplicaría los documentos, que es lo contrario de esto.
+- [x] **[RQ.8.1]** 🧪 **Bandeja POR LOTE**, `GET /requisitions/batches`: una fila por «Armar» con
+  documentos, compras, traspasos, almacenes, proveedores, renglones, monto, antigüedad y estado
+  — **`mixto` cuando no todos coinciden**, porque un «pendiente» sobre un lote medio aprobado
+  sería mentira. **Pagina por LOTE, no por documento** (agrupar la página de 50 partiría lotes y
+  el conteo mentiría según dónde cayera el corte). Abrir un lote reusa la lista plana filtrada por
+  `batch_id`, con migaja de vuelta. Medido contra prod: **13 ms el conteo, 11 ms la página.**
+  ⚠️ Lo anterior a la migración se agrupa por su propio id, o sea sale como **lote de uno** — no
+  se le inventa un lote hacia atrás con una ventana de tiempo.
+- [x] **[RQ.8.2]** 🧪 **Diálogo de confirmación antes de crear.** El botón decía
+  `Requisiciones (50)` y ese 50 eran **productos marcados**, no documentos: nadie podía saber si
+  ese clic iba a crear 6 o 117. Ahora se para y enseña el desglose — *«6 COMPRAS a 1 proveedor,
+  entrega en 00 · 15 TRASPASOS, bajan a 01,02,…»* — con Cancelar.
+- [x] **[RQ.8.3]** 🧪 **La compra dice de dónde y a dónde.** `48 compras consolidadas por
+  $7,422,219` se veían **idénticas** a una entrega directa (la lista mostraba un solo «Almacén»,
+  que es el punto de **entrega**), y **203 bajadas por $7,210,097** decían «Bajada de compra
+  consolidada 00 → 03» en **texto libre** sin forma de ir ni de ida ni de vuelta. El detalle ahora
+  dice *«entrega en X»*, lista sus bajadas con enlace, y la bajada nombra su compra. Derivado de
+  la FK, no copiado.
+- [x] **[RQ.9]** 🧪 **Filtros.** El **único** filtro de la pantalla era el estado —y el backend ya
+  aceptaba `warehouse_id` sin que nadie lo usara—, con 670 requisiciones a 50 por página: 14
+  páginas para encontrar un folio. Se suman **sucursal** y **buscador** (folio · proveedor · folio
+  de lote), en las dos pestañas.
+- [x] **[RQ.10]** 🧪 Candado `test-newdb-requisicion-lote.js`, **3 ✓ / 0 ✗ / 2 NO MEDIDOS** contra
+  prod, en la regresión. Dos mitades a propósito: la **medición** del fan-out se hace siempre
+  (si un «Armar» pasara a producir un solo documento, la fase perdería sentido y acá se vería), y
+  las **invariantes del lote** (toda requisición con lote tiene folio · sólo una bajada apunta a un
+  origen · **2 pruebas negativas**: ninguna bajada apunta a otro **traspaso** ni a una compra de
+  **otro lote**) sólo se comprueban donde la migración corrió — mientras no esté reportan
+  **NO MEDIDO, no ✔**.
+  🚫 **Falta: aplicar `20261006180000` y `20261006190000` a prod + redeploy api+view + validación
+  visual.** Sin permisos nuevos → sin re-login.
 - [x] **[EX-PERF.1]** 🧪 `/compras/existencia` — `SET LOCAL jit = off` antes de la consulta
   principal. A este volumen la compilación JIT no se amortiza: **821 funciones compiladas** para
   una consulta que devuelve 50 filas. ⚠️ `SET LOCAL` fuera de una transacción es un **no-op

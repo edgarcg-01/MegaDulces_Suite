@@ -40,7 +40,12 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               @if (r.source_type === 'branch') {
                 Traspaso: <strong>{{ r.source_warehouse_code || 'CEDIS' }}</strong> ({{ r.source_warehouse_name || 'Origen' }}) → <strong>{{ r.warehouse_code }}</strong> ({{ r.warehouse_name }}) · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}
               } @else {
-                {{ r.warehouse_code }} · {{ r.warehouse_name }} · Proveedor: {{ r.supplier_name || 'Varios' }} · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}
+                <!-- [RQ.8] La COMPRA dice DÓNDE ENTREGA, que no es lo mismo que para quién es.
+                     Antes esta línea mostraba un solo almacén y las sucursales destino vivían en
+                     notes como texto libre: 48 compras consolidadas por $7.42M se veían
+                     idénticas a una entrega directa. -->
+                Proveedor: <strong>{{ r.supplier_name || 'Varios' }}</strong> · entrega en
+                <strong>{{ r.warehouse_code }}</strong> ({{ r.warehouse_name }}) · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}
               }
             </p>
           }
@@ -74,6 +79,30 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
              31-60 días y en el 98.7 % de los de 60+. Aprobar eso es ordenar a un precio que no
              existe, y la ficha no lo decía en ningún lado. Las TRES salidas llevan rótulos
              distintos a propósito: "sin medir" no es "al día" (ADR-056). -->
+        <!-- [RQ.8] DE DÓNDE VIENE Y A DÓNDE VA. Se DERIVA de la FK bajada→compra, no se copia:
+             las sucursales destino de una compra consolidada SON los destinos de sus bajadas. -->
+        @if (r.bajadas?.length) {
+          <div class="rd-ruta" role="status">
+            <i class="pi pi-sitemap" aria-hidden="true"></i>
+            <span>Esta compra <strong>se consolida</strong>: entrega en <strong>{{ r.warehouse_code }}</strong> y baja por traspaso a
+              @for (b of r.bajadas; track b.id) {<a class="rd-ruta-l" [routerLink]="['/compras/requisiciones', b.id]">{{ b.code }}</a>@if (!$last) {<span>, </span>}}
+              — {{ r.bajadas.length }} traspaso(s) generado(s) con ella.</span>
+          </div>
+        }
+        @if (r.origen; as o) {
+          <div class="rd-ruta" role="status">
+            <i class="pi pi-arrow-up-right" aria-hidden="true"></i>
+            <span>Este traspaso <strong>baja una compra</strong>: <a class="rd-ruta-l" [routerLink]="['/compras/requisiciones', o.id]">{{ o.folio }}</a>
+              @if (o.supplier_name) { a {{ o.supplier_name }} }({{ estadoLabel($any(o.estado)) }}).</span>
+          </div>
+        }
+        @if (r.lote; as l) {
+          <div class="rd-ruta rd-ruta-tenue" role="status">
+            <i class="pi pi-objects-column" aria-hidden="true"></i>
+            <span>Salió del lote <strong>{{ l.folio || 'sin folio' }}</strong>, junto con otros <strong>{{ l.documentos - 1 }}</strong> documento(s).
+              <a class="rd-ruta-l" routerLink="/compras/requisiciones">Ver el lote</a></span>
+          </div>
+        }
         @if (vigBanner(r); as b) {
           <div class="rd-vig" [ngClass]="b.cls" role="status">
             <i class="pi" [ngClass]="b.icono" aria-hidden="true"></i>
@@ -139,6 +168,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .rd-fill { margin-left: .35rem; font-size: .72rem; color: var(--text-muted); }
     /* [RQ.1] Vigencia: tres estados, tres lecturas. El gris NO es el verde — "no se midió" es su
        propio resultado y se ve distinto a propósito. */
+    /* [RQ.8] De dónde viene y a dónde va. */
+    .rd-ruta { display: flex; align-items: center; gap: .6rem; margin: .75rem 0 0;
+               padding: .5rem .7rem; border-radius: var(--radius-md);
+               border: 1px solid var(--surface-border); background: var(--surface-card); font-size: var(--fs-sm); }
+    .rd-ruta i { color: var(--action); }
+    .rd-ruta-tenue { opacity: .85; }
+    .rd-ruta-tenue i { color: var(--text-muted); }
+    .rd-ruta-l { font-weight: 600; }
     .rd-vig { display: flex; align-items: center; gap: .6rem; margin: 1rem 0 0;
               padding: .6rem .8rem; border-radius: var(--radius-md); border: 1px solid; font-size: var(--fs-body); }
     .rd-vig-ok { border-color: var(--ok-border); background: var(--ok-soft-bg); }
