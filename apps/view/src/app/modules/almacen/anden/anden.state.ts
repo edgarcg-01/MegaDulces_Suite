@@ -120,12 +120,23 @@ export class AndenState {
     return v ? v.warehouse_code || v.warehouse_name || null : null;
   });
 
+  /**
+   * Quién manda y qué documento respalda el vale, en una línea.
+   *
+   * Lee primero lo que se eligió en el menú (`erp`) y, si el vale se RETOMÓ desde «En
+   * curso» o desde el borrador, la ficha que trae el propio vale (`vale().erp`) y su
+   * origen. Sin eso, un traspaso retomado se leía sólo por su código `TI###` — o vacío.
+   */
   readonly proveedor = computed(() => {
     const e = this.erp();
     const v = this.vale();
     if (!v) return 'Esperando camión';
-    const partes = [e?.proveedor_nombre || v.supplier_code, e?.folio ? `Kepler ${e.folio}` : null,
-      v.warehouse_name || v.warehouse_code].filter(Boolean);
+    const ficha = v.erp ?? null;
+    const quien = e?.proveedor_nombre || ficha?.proveedor_nombre || v.origin?.name || v.supplier_code;
+    const folio = e?.folio || ficha?.folio || null;
+    const esEmbarque = (e?.fuente ?? ficha?.fuente) === 'embarque';
+    const documento = folio ? (esEmbarque ? `Embarque ${folio}` : `Kepler ${folio}`) : null;
+    const partes = [quien, documento, v.warehouse_name || v.warehouse_code].filter(Boolean);
     return partes.join(' · ');
   });
 

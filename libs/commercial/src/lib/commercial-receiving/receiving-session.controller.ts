@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import type { ErpPendingMenu, ErpOrderMatch } from '@megadulces/contracts';
+import type { ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso } from '@megadulces/contracts';
 import {
   ReceivingSessionService,
   OpenSessionDto,
@@ -30,7 +30,10 @@ export class ReceivingSessionController {
 
   @Post()
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
-  @ApiOperation({ summary: 'Abrir un Vale de entrada (sesión de recepción): manual o desde orden de entrada del ERP' })
+  @ApiOperation({
+    summary:
+      'Abrir un Vale de entrada (sesión de recepción): manual, desde orden de entrada del ERP o desde un embarque de traspaso (erp_transfer).',
+  })
   open(@Body() body: OpenSessionDto) {
     return this.service.open(body);
   }
@@ -73,9 +76,26 @@ export class ReceivingSessionController {
     return this.service.pendingErpBranches();
   }
 
+  /**
+   * `[WMS-REC.17]` Los vales abiertos y sin cerrar, para cambiar de camion a media captura.
+   * Va ANTES de `@Get(':id')`: si no, Nest lo toma como un id y responde 400.
+   */
+  @Get('en-curso')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({
+    summary:
+      'Vales del Anden abiertos y sin cerrar (en captura), acotados al alcance de almacen: para volver a uno despues de atender otro camion.',
+  })
+  enCurso(@Query('limit') limit?: string): Promise<AndenValeEnCurso[]> {
+    return this.service.inProgress(limit ? Number(limit) : undefined);
+  }
+
   @Get('erp-pending')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
-  @ApiOperation({ summary: 'Vales de entrada de HOY de UNA sucursal, sin abrir, listos para el Anden.' })
+  @ApiOperation({
+    summary:
+      'Vales de UNA sucursal sin abrir, listos para el Anden: ordenes de entrada de HOY y embarques de traspaso que vienen a su almacen.',
+  })
   erpPending(@Query('sucursal') sucursal: string, @Query('limit') limit?: string): Promise<ErpOrderMatch[]> {
     return this.service.pendingErpOrders(sucursal, limit ? Number(limit) : undefined);
   }

@@ -39,7 +39,15 @@ export interface ErpPendingBranch {
   warehouse_id: string | null;
   warehouse_code: string | null;
   warehouse_name: string | null;
+  /** Total por abrir: `compras + traspasos`. Es el numero que pinta la insignia. */
   pendientes: number;
+  /** Ordenes de entrada de HOY (las compras; regla de solo-hoy). */
+  compras: number;
+  /**
+   * `[WMS-REC.17]` Embarques de otra sucursal o del CEDIS que vienen a esta y nadie abrio.
+   * Su regla de dia es distinta (salio hoy, o sigue en camino): ver `transferVisible()`.
+   */
+  traspasos: number;
   ultimo: string | null;
   /** Sin mapa sucursal->almacen no se puede abrir el vale: la pantalla lo avisa antes. */
   sin_almacen: boolean;
@@ -86,4 +94,46 @@ export interface ErpOrderMatch {
   /** De donde viene la mercancia. Una sola definicion: `receiving-origin.ts`. */
   origin?: { kind: 'supplier' | 'transfer'; isCedis: boolean; label: string; name: string | null };
   tipo: 'compra' | 'traspaso';
+  /**
+   * `[WMS-REC.17]` QUE documento de Kepler respalda el vale:
+   *  · `orden_entrada` — `XA2001` de la sucursal que recibe (compras, y traspasos viejos `TI###`).
+   *  · `embarque`      — `U-D-41` de la sucursal que EMBARCA. Ahi `sucursal` es el ORIGEN y
+   *                      el almacen (`warehouse_*`) es el DESTINO.
+   * Ausente = `orden_entrada` (lo que devolvian los endpoints antes de existir el campo).
+   */
+  fuente?: 'orden_entrada' | 'embarque';
+  /** Serie del embarque (el folio de Kepler se repite entre series). Solo en `embarque`. */
+  serie?: number | null;
+  /** Fecha en que Kepler registro la recepcion `U-A-50`; `null` = todavia no la registra. */
+  recibido_kepler?: string | null;
+  /** Dias desde que salio el embarque (hora de Mexico). Solo en `embarque`. */
+  dias_en_camino?: number | null;
+  /** A donde lo mando Kepler, tal cual: codigo `TI###` y nombre del documento. */
+  destino_code?: string | null;
+  destino_nombre?: string | null;
+}
+
+/**
+ * `[WMS-REC.17]` Un vale que alguien ya abrio y no ha cerrado.
+ *
+ * Existe para poder **cambiar de camion** a media captura: el vale abierto sale del menu de
+ * pendientes (ya tiene sesion), y sin esta lista no habia forma de volver a el mas que el
+ * borrador local del equipo, que solo recuerda el ultimo.
+ */
+export interface AndenValeEnCurso {
+  id: string;
+  /** Folio del vale de la Suite (`VE-2026-00123`). */
+  folio: string;
+  source_kind: 'manual' | 'erp_receipt' | 'erp_transfer';
+  /** El documento de Kepler, para reconocerlo: `01/0000412` o `Embarque 00-2-0001048`. */
+  documento: string | null;
+  warehouse_id: string;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  origin: { kind: 'supplier' | 'transfer'; isCedis: boolean; label: string; name: string | null };
+  renglones: number;
+  /** Renglones que todavia esperan lote y caducidad. */
+  por_fechar: number;
+  abierto_por: string | null;
+  created_at: string;
 }

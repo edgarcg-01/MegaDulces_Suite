@@ -22,6 +22,11 @@ import { join } from 'path';
 const DIR = join(__dirname, 'components');
 const SUCURSALES = readFileSync(join(DIR, 'anden-sucursales.component.ts'), 'utf8');
 const VALES = readFileSync(join(DIR, 'anden-vales.component.ts'), 'utf8');
+const EN_CURSO = readFileSync(join(DIR, 'anden-en-curso.component.ts'), 'utf8');
+const SERVICIO = readFileSync(
+  join(__dirname, '../../../../../../../libs/commercial/src/lib/commercial-receiving/receiving-session.service.ts'),
+  'utf8',
+);
 const ORQUESTADOR = readFileSync(join(__dirname, 'anden.component.ts'), 'utf8');
 
 /** El acento grave, escrito así para no meterlo literal en este archivo. */
@@ -102,10 +107,39 @@ describe('Andén · el menú de sucursales', () => {
     expect(ORQUESTADOR).toMatch(/'inicio' \| 'alta' \| 'vales' \| 'folio'/);
   });
 
+  /**
+   * `[WMS-REC.17]` Un vale CANCELADO no puede seguir tapando a su documento: `open()` deja
+   * reabrirlo sin `force`, y el menú lo escondía para siempre. Son dos consultas (el menú y
+   * los vales de una sucursal) y las dos tienen que saberlo.
+   */
+  it('un vale cancelado no esconde su documento del menú', () => {
+    const veces = SERVICIO.split(".andWhereNot('s.status', 'cancelled')").length - 1;
+    expect(veces).toBeGreaterThanOrEqual(2);
+  });
+
+  /**
+   * `[WMS-REC.17]` La regla de sólo-hoy es de las COMPRAS. Un traspaso tiene la suya
+   * (salió hoy o sigue en camino) y vive en UNA función, que es la que el menú aplica.
+   */
+  it('los traspasos usan su propia regla de día, una sola vez definida', () => {
+    expect(SERVICIO).toContain('transferVisible(');
+    expect(SERVICIO).not.toMatch(/function transferVisible/);
+  });
+
+  it('desde el menú se puede volver a un vale que quedó a medias', () => {
+    expect(ORQUESTADOR).toContain('app-anden-en-curso');
+    expect(ORQUESTADOR).toContain('Cambiar de camión');
+    // Cambiar de camión NO cancela el vale: sale al menú y lo deja en curso.
+    const i = ORQUESTADOR.indexOf('cambiarDeCamion(): void');
+    expect(i).toBeGreaterThan(-1);
+    const cuerpo = ORQUESTADOR.slice(i, ORQUESTADOR.indexOf('\n  }\n', i));
+    expect(cuerpo).not.toMatch(/\.cancel\(/);
+  });
+
   it('el extractor de literales encuentra de verdad el bloque, no una cadena vacía', () => {
     // Sin esto, un helper roto haría pasar el candado de abajo sobre la nada —
     // que es exactamente como falló su primera versión.
-    for (const fuente of [SUCURSALES, VALES]) {
+    for (const fuente of [SUCURSALES, VALES, EN_CURSO]) {
       const bloques = literales(fuente);
       expect(bloques.length).toBe(2);
       for (const b of bloques) expect(b.length).toBeGreaterThan(400);
@@ -118,6 +152,7 @@ describe('Andén · el menú de sucursales', () => {
     for (const [nombre, fuente] of [
       ['sucursales', SUCURSALES],
       ['vales', VALES],
+      ['en-curso', EN_CURSO],
     ] as const) {
       for (const bloque of literales(fuente)) {
         expect([nombre, bloque.includes(BT)]).toEqual([nombre, false]);

@@ -198,6 +198,18 @@
 - Vistas nuevas sobre el ODS: `analytics.erp_shipment_stops` (ruta por domicilio de entrega), `erp_shipment_stop_load` (cajas y sueltos desde los renglones) y `v_kepler_responsables` (mig `20261006210000`). «Embarque manual» sigue para lo que Kepler no emite.
 - Fixed: el formulario manual pedía «Por ruta / Viaje largo» y no se guardaba, y la fecha se mandaba en UTC (después de las 18:00 quedaba el día siguiente).
 - Internal: `libs/logistics` estrena pruebas con Vitest.
+### Added — Andén: los traspasos (CEDIS y entre sucursales) aparecen para dar de alta sus caducidades (WMS-REC.17, 2026-10-06)
+- Reporte: «CEDIS mandó mercancía a Padre Hidalgo y no aparece en el Andén». El Andén sólo leía la orden de entrada `XA2001` (compras). Un traspaso viaja en otro documento: el **embarque `U-D-41`** de quien manda y la **recepción `U-A-50`** de quien recibe. Desde que el CEDIS entró a Kepler (30-sep) manda con su embarque, y el Andén no lo veía.
+- El menú y la lista de cada sucursal traen ahora los **embarques que vienen a su almacén** (destino `TI###` → `analytics.transfer_dest_map`), con origen, cuándo salió y si Kepler ya registró la recepción. El vale se abre **desde el embarque** (`source_kind = 'erp_transfer'`, `source_ref = UD41/<origen>/<serie>/<folio>`) y la búsqueda por folio encuentra el folio del embarque. Lectura en vivo de `kepler_ods`, sin importer.
+- Regla de día propia para traspasos (`transferVisible`): salió hoy, o sigue en camino hasta 7 días, o Kepler lo recibió hoy. La de compras («sólo hoy») no cambia.
+- Un faltante de traspaso se reclama a la **sucursal que embarcó** (el almacén se sabe del documento) con el costo del embarque.
+
+### Added — Andén: botón «Cambiar de camión» y lista «En curso» (WMS-REC.17, 2026-10-06)
+- A media captura se puede salir al menú **sin cancelar el vale**: queda en «En curso» (`GET /commercial/receiving/sessions/en-curso`, acotado al alcance) y se retoma de un toque. Sólo pide confirmación si hay un renglón abierto, que es lo único sin guardar.
+
+### Fixed — Andén: un vale cancelado escondía su documento para siempre, y «Salir» del almacén congelado no salía (WMS-REC.17, 2026-10-06)
+- El menú excluía cualquier documento con sesión, incluso cancelada, aunque `open()` deja reabrirlo. Ahora sólo lo tapa una sesión viva.
+- El muro del inventario físico quedaba puesto al salir y tapaba el menú.
 ### Added — Anexo de venta: suma de unidades por grupo y total del documento (AX.13, 2026-10-05)
 - Cada rótulo de grupo del anexo imprimible («Comprado por caja · 3 productos») suma sus unidades bajo la columna Cantidad («10 CJA»); al pie, el total del documento por unidad (CJA · PAQ · PZA · KG por separado, nunca mezcladas).
 - Fixed: el reparto caja/paquete/pieza truncaba la cantidad decimal de la base (2.5 KG salía «2 KG»).

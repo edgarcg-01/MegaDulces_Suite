@@ -348,6 +348,47 @@ las 24 h.
 
 ---
 
+## 2026-10-06 — `[WMS-REC.17]` El traspaso entra al Andén por su embarque, y se puede cambiar de camión
+
+**Reporte:** «CEDIS mandó mercancía a la sucursal de PH (Padre Hidalgo) y no aparece en la sección
+para dar de alta las caducidades».
+
+**Causa (por código, decode ya existente en el repo):** el Andén sólo lista la orden de entrada
+`XA2001` de la sucursal que recibe, que es el documento de las COMPRAS. Un traspaso en Kepler es
+**embarque `U-D-41`** en quien manda (`c10` = destino `TI###`) → **recepción `U-A-50`** en quien
+recibe (`c37`=41 · `c38`=serie · `c39`=folio del embarque). Mientras el CEDIS vivió en Wincaja, la
+sucursal registraba su mercancía como compra a `TI000` y por eso se veía; desde el 30-sep el CEDIS
+está en Kepler y manda con su embarque.
+
+**Qué se entregó:** el Andén ofrece los embarques que vienen a cada almacén (destino resuelto por el
+mapa curado `analytics.transfer_dest_map`, sólo almacenes vivos), abre el vale desde el embarque
+(`erp_transfer`, migración `20261006140000` amplía el CHECK), busca por folio de embarque, y el
+reclamo de un faltante va a la sucursal que embarcó con el costo del embarque. Más: botón «Cambiar
+de camión» + lista «En curso» para volver a un vale a medias, sin cancelarlo.
+
+**Verificado:** el SQL REAL del servicio corrió contra la base local en una transacción revertida
+(menú, lista, búsqueda, abrir, en curso, cerrar con reclamo): el embarque `06-2-0001048` (Canindo →
+PH, $10,670.88) aparece, se abre con sus 3 renglones en `PAQ`, sale del menú y entra a «En curso»,
+y los 3 reclamos suman **exacto** el total del embarque, a nombre de Canindo. Unitarias: 15 de la
+lógica del traspaso + 13 de componentes + 3 del flujo completo montado, y las dos mutaciones
+(regla de día, abrir como compra) se ponen rojas.
+
+**NO verificado (declarado):**
+1. **Prod no se leyó** (sin credencial de lectura en esta máquina). Falta medir: que PH reciba lo de
+   CEDIS con `U-A-50` y no con la orden de entrada vieja (si fuera la vieja, el mismo traspaso saldría
+   **dos veces**); la demora real embarque→recepción (la ventana de 7 días es decisión, no medición);
+   y que `transfer_dest_map` tenga los `TI###` vivos (`TI000` no está mapeado a propósito, `[DM.11e]`).
+   Script listo: `medir-traspasos.js` (7 consultas, sólo lectura).
+2. **La pantalla en el navegador** (regla 2026-10-02: no se levanta la app en local).
+3. **La regla de día de los traspasos es de Edgar**: la de compras («sólo hoy») no se tocó.
+
+**Lecciones:**
+1. **Que un documento no aparezca no siempre es un filtro: puede ser OTRO documento.** El corte del
+   1-oct no cambió una columna; cambió por qué puerta entra la mercancía.
+2. **«Ya tiene sesión» no es lo mismo que «ya se recibió»**: contar una sesión cancelada como recibida
+   escondía el vale para siempre.
+
+---
 ## 2026-10-05 — `[CSU.0–CSU.2]` Cortes/Sucursales: el corte es lo contado, y el cuadre va por turno
 
 **Qué se entregó:** `/finanzas/cortes-sucursales` sigue cada corte de caja POS (`U-D-23`, cliente

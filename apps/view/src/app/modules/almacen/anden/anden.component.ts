@@ -5,7 +5,7 @@ import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { firstValueFrom } from 'rxjs';
-import { ErpOrderMatch, ErpPendingBranch, ReceivingSessionService } from '../receiving-session.service';
+import { AndenValeEnCurso, ErpOrderMatch, ErpPendingBranch, ReceivingSessionService } from '../receiving-session.service';
 import { ReceivingAuditorService, ReceivingCapture } from '../receiving-auditor.service';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
@@ -18,6 +18,7 @@ import { AndenDraftService } from './anden-draft.service';
 import { AndenFolioComponent } from './components/anden-folio.component';
 import { AndenSucursalesComponent } from './components/anden-sucursales.component';
 import { AndenValesComponent } from './components/anden-vales.component';
+import { AndenEnCursoComponent } from './components/anden-en-curso.component';
 import { AndenSegmentedComponent, SegItem } from './components/anden-segmented.component';
 import { AndenCaducidadComponent, FechadoConfirmado, FechadoEntrada } from './components/anden-caducidad.component';
 import { AndenFechaMasivaComponent, AvanceMasivo, FechadoMasivo } from './components/anden-fecha-masiva.component';
@@ -60,7 +61,7 @@ import { Buscable, coincide, normalizar } from './filtro.util';
   imports: [
     DecimalPipe, ButtonModule, ToastModule,
     RouterLink,
-    AndenFolioComponent, AndenSucursalesComponent, AndenValesComponent, AndenCongeladoComponent,
+    AndenFolioComponent, AndenSucursalesComponent, AndenValesComponent, AndenEnCursoComponent, AndenCongeladoComponent,
     AndenSegmentedComponent, AndenCaducidadComponent,
     AndenFechaMasivaComponent, AndenUbicacionComponent, AndenCartelComponent, ScanFieldComponent,
   ],
@@ -83,6 +84,28 @@ import { Buscable, coincide, normalizar } from './filtro.util';
           @if (s.guardado()) { <span class="an-save">Guardado ✓</span> }
         </div>
       </header>
+
+      <!-- [WMS-REC.17] Cambiar de camion. Llega otro camion mientras se fecha este: el
+           bodeguero sale al menu, lo atiende y vuelve. Lo ya fechado y acomodado vive en el
+           servidor, asi que salir no pierde nada; el vale queda en En curso. Solo se pide
+           confirmacion si hay un renglon abierto, que es lo unico que todavia no se guardo. -->
+      @if (s.abierto()) {
+        @if (confirmandoCambio()) {
+          <div class="an-cambio" role="alertdialog" aria-label="Cambiar de camión">
+            <p>
+              <b>{{ s.vale()!.folio }}</b> queda <b>en curso</b>: lo ya fechado y acomodado está guardado y lo
+              retomás desde el menú. Lo que estás escribiendo en este renglón y no guardaste se pierde.
+            </p>
+            <div class="an-cambio-bt">
+              <button pButton type="button" size="small" (click)="cambiarDeCamion()">Ir a otro camión</button>
+              <button pButton type="button" size="small" [text]="true" severity="secondary"
+                (click)="confirmandoCambio.set(false)">Seguir aquí</button>
+            </div>
+          </div>
+        } @else {
+          <button type="button" class="an-volver an-cambiar" (click)="pedirCambio()">← Cambiar de camión</button>
+        }
+      }
 
       <!-- El avance cuenta LAS DOS mitades del trabajo. Sin esto se llegaba a
            "todo fechado" con lotes sin rack, y la pantalla no lo decía: así es
@@ -173,6 +196,9 @@ import { Buscable, coincide, normalizar } from './filtro.util';
                 <!-- Paso 0: a qué sucursal entra la mercancía. Antes acá se
                      tecleaba el folio del papel; ahora el folio es el respaldo. -->
                 <button type="button" class="an-volver" (click)="modo.set('inicio')">← Menú</button>
+                <app-anden-en-curso
+                  [vales]="enCurso()" [abriendo]="s.cargando()" [error]="errorEnCurso()"
+                  (retomar)="retomar($event)" />
                 <app-anden-sucursales
                   [sucursales]="sucursales()" [cargando]="cargandoMenu()" [error]="errorMenu()"
                   [alcanceAbierto]="alcanceAbierto()"
@@ -401,6 +427,16 @@ import { Buscable, coincide, normalizar } from './filtro.util';
       background: none; border: 1px solid var(--border-color); border-radius: var(--r-sm);
       color: var(--text-muted); font: inherit; font-size: var(--fs-xs); cursor: pointer;
     }
+    /* Cambiar de camion: el mismo boton de volver del resto del Anden, a la vista siempre. */
+    .an-cambiar { display: block; margin: 0 0 var(--sp-2); }
+    .an-cambio {
+      display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-2);
+      padding: var(--sp-2) var(--sp-3); background: var(--card-bg);
+      border: 1px solid var(--border-color); border-left: 3px solid var(--action); border-radius: var(--r-sm);
+    }
+    .an-cambio p { margin: 0; font-size: var(--fs-xs); line-height: 1.45; color: var(--text-muted); }
+    .an-cambio b { color: var(--text-main); }
+    .an-cambio-bt { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .an-fol { font-size: var(--fs-h3); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
     .an-prov { font-size: var(--fs-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
     .an-pills { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: 0 0 auto; }
@@ -517,6 +553,15 @@ export class AndenComponent implements OnInit {
   readonly errorMenu = signal<string | null>(null);
   /** El alcance del usuario no acota nada: la pantalla lo dice en vez de fingirlo. */
   readonly alcanceAbierto = signal(false);
+
+  /**
+   * `[WMS-REC.17]` Vales abiertos sin cerrar: a donde se vuelve despues de atender otro
+   * camion. Se piden con el menu, porque otra persona pudo abrir o cerrar uno desde otro equipo.
+   */
+  readonly enCurso = signal<AndenValeEnCurso[]>([]);
+  readonly errorEnCurso = signal<string | null>(null);
+  /** Pidiendo confirmacion para salir del vale con un renglon a medio capturar. */
+  readonly confirmandoCambio = signal(false);
 
   readonly sucursalElegida = signal<ErpPendingBranch | null>(null);
   readonly valesDelDia = signal<ErpOrderMatch[]>([]);
@@ -840,8 +885,13 @@ export class AndenComponent implements OnInit {
   abrirVale(m: ErpOrderMatch): void {
     this.s.erp.set(m);
     this.s.cargando.set(true);
-    // El almacén NO se manda: lo deriva el backend del mapa sucursal→almacén.
-    this.sessions.open({ source_kind: 'erp_receipt', erp_sucursal: m.sucursal, erp_folio: m.folio })
+    // El almacén NO se manda: lo deriva el backend (mapa sucursal→almacén, o el destino del
+    // traspaso). `[WMS-REC.17]` Un traspaso se abre desde el EMBARQUE de quien mandó: ahí
+    // `sucursal` es el origen y la serie es parte de la llave (el folio se repite entre series).
+    const dto = m.fuente === 'embarque'
+      ? { source_kind: 'erp_transfer' as const, erp_sucursal: m.sucursal, erp_serie: m.serie ?? undefined, erp_folio: m.folio }
+      : { source_kind: 'erp_receipt' as const, erp_sucursal: m.sucursal, erp_folio: m.folio };
+    this.sessions.open(dto)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (v) => this.cargarDetalle(v.id, () => { this.cargarBins(); this.cargarLotes(); }),
         error: (e) => {
@@ -1393,6 +1443,7 @@ export class AndenComponent implements OnInit {
    * siguiente pasan minutos y otra persona pudo abrir vales desde otro equipo.
    */
   cargarSucursales(): void {
+    this.cargarEnCurso();
     this.cargandoMenu.set(true);
     this.errorMenu.set(null);
     this.sessions.pendingErpBranches().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -1448,7 +1499,69 @@ export class AndenComponent implements OnInit {
     this.codigoNuevo.set(null);
     this.masiva.set(false);
     this.avance.set(null);
+    this.confirmandoCambio.set(false);
+    // El muro del inventario fisico es del ALMACEN del vale que se deja. Si se quedara puesto,
+    // tapaba el menu entero: el boton "Salir" del muro llamaba aca y no se veia nada.
+    this.congelado.set(null);
+    this.consulta.set('');
     this.s.reset();
     this.volverASucursales();
+  }
+
+  /**
+   * `[WMS-REC.17]` **Cambiar de camion a media captura.**
+   *
+   * Sin renglon abierto se sale directo: todo lo fechado y acomodado ya esta en el servidor.
+   * Con un renglon (o el fechado masivo) abierto se pide confirmacion, porque eso que se esta
+   * escribiendo es lo UNICO que todavia no se guardo.
+   */
+  pedirCambio(): void {
+    if (this.s.actual() || this.s.loteActual() || this.masiva()) {
+      this.confirmandoCambio.set(true);
+      return;
+    }
+    this.cambiarDeCamion();
+  }
+
+  /**
+   * Sale al menu SIN cancelar el vale: queda abierto en el servidor y aparece en «En curso».
+   * El borrador local se borra a proposito — si quedara, al volver a entrar la pantalla
+   * reabriria este vale sola, y el bodeguero ya esta con otro camion.
+   */
+  cambiarDeCamion(): void {
+    const v = this.s.vale();
+    const sigueAbierto = !!v && !this.s.cerrado();
+    this.otroCamion();
+    if (v && sigueAbierto) {
+      this.toast.add({
+        severity: 'info',
+        summary: 'Vale en curso',
+        detail: `${v.folio} quedó en «En curso». Tocalo en el menú para seguir donde lo dejaste.`,
+      });
+    }
+  }
+
+  /** Los vales abiertos sin cerrar, para el menu. Si falla, se DICE (no se pinta "no hay"). */
+  cargarEnCurso(): void {
+    this.errorEnCurso.set(null);
+    this.sessions.enCurso().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.enCurso.set(r ?? []),
+      error: (e) => {
+        this.enCurso.set([]);
+        this.errorEnCurso.set(motivoHttp(e, 'leer los vales en curso'));
+      },
+    });
+  }
+
+  /** Vuelve a un vale que quedó a medias: el mismo camino que el borrador de este equipo. */
+  retomar(v: AndenValeEnCurso): void {
+    if (this.s.cargando()) return;
+    this.s.reset();
+    this.s.cargando.set(true);
+    this.cargarDetalle(v.id, () => {
+      this.cargarBins();
+      this.cargarLotes();
+      this.toast.add({ severity: 'info', summary: 'Vale retomado', detail: `${v.folio} — seguí donde lo dejaste.` });
+    });
   }
 }

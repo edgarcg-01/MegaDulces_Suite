@@ -10,7 +10,8 @@ import {
   TenantContextService,
   applySmartSearch,
 } from '@megadulces/platform-core';
-import { classifyReceivingOrigin } from './receiving-origin';
+import { classifyReceivingOrigin, type ReceivingOrigin } from './receiving-origin';
+import { classifyShipmentOrigin, parseTransferRef } from './receiving-transfer';
 import {
   CLAIMABLE_KINDS,
   OPEN_STATUSES,
@@ -108,7 +109,29 @@ export class ReceivingClaimsService {
     // sobre `kepler_ods` en prod). `analytics.*` NO tiene RLS → tenant explícito
     // (GOTCHAS §1).
     const costBySku = new Map<string, { unit_cost: number | null; unidad: string | null }>();
-    if (session.source_ref) {
+    // `[WMS-REC.17]` Un vale de TRASPASO no tiene orden de entrada: su documento es el
+    // EMBARQUE de quien mandó (`UD41/<origen>/<serie>/<folio>`). Partirlo como `sucursal/folio`
+    // daría `UD41`, que no es sucursal: no cruzaría con nada, pero el reclamo saldría sin costo
+    // y, peor, a nombre de un "proveedor". Por eso va primero y por su propio camino.
+    const traspaso = parseTransferRef(session.source_ref);
+    if (traspaso) {
+      const rows = await trx('analytics.erp_shipment_lines')
+        .where({ tenant_id: tenantId, sucursal: traspaso.origen, serie: traspaso.serie, folio: traspaso.folio })
+        .whereNotNull('sku')
+        .groupBy('sku')
+        .select(
+          'sku',
+          trx.raw(`CASE WHEN SUM(cantidad) > 0
+                        THEN ROUND(SUM(importe) / SUM(cantidad), 4) END AS unit_cost`),
+          trx.raw(`CASE WHEN COUNT(DISTINCT TRIM(unidad)) > 1 THEN 'ambigua'
+                        ELSE MIN(TRIM(unidad)) END AS unidad`),
+        );
+      for (const r of rows as any[])
+        costBySku.set(String(r.sku), {
+          unit_cost: r.unit_cost == null ? null : Number(r.unit_cost),
+          unidad: r.unidad || null,
+        });
+    } else if (session.source_ref) {
       const [suc, fol] = String(session.source_ref).split('/');
       if (suc && fol) {
         const rows = await trx('analytics.erp_goods_receipt_lines')
@@ -136,15 +159,34 @@ export class ReceivingClaimsService {
     }
 
     // A quién. El nombre sale del documento del ERP cuando está; si no, del código.
-    let docName: string | null = null;
-    if (session.source_ref) {
-      const [suc, fol] = String(session.source_ref).split('/');
-      const h = await trx('analytics.erp_goods_receipts')
-        .where({ tenant_id: tenantId, sucursal: suc, folio: fol })
-        .first('proveedor_nombre');
-      docName = h?.proveedor_nombre || null;
+    let origin: ReceivingOrigin;
+    // En un traspaso desde el embarque, el almacén que embarcó se SABE (es la sucursal del
+    // documento), no hace falta el crosswalk capturado a mano.
+    let almacenQueEmbarco: string | null = null;
+    if (traspaso) {
+      const porMapa = await trx('commercial.erp_sucursal_warehouse as m')
+        .join('commercial.warehouses as w', function (this: any) {
+          this.on('w.tenant_id', '=', 'm.tenant_id').andOn('w.id', '=', 'm.warehouse_id');
+        })
+        .where('m.sucursal', traspaso.origen)
+        .whereNull('w.deleted_at')
+        .first('w.id', 'w.name');
+      const wo =
+        porMapa ||
+        (await trx('commercial.warehouses').where({ code: traspaso.origen }).whereNull('deleted_at').first('id', 'name'));
+      almacenQueEmbarco = wo?.id || null;
+      origin = classifyShipmentOrigin(traspaso.origen, wo?.name ?? null);
+    } else {
+      let docName: string | null = null;
+      if (session.source_ref) {
+        const [suc, fol] = String(session.source_ref).split('/');
+        const h = await trx('analytics.erp_goods_receipts')
+          .where({ tenant_id: tenantId, sucursal: suc, folio: fol })
+          .first('proveedor_nombre');
+        docName = h?.proveedor_nombre || null;
+      }
+      origin = classifyReceivingOrigin(session.supplier_code, docName);
     }
-    const origin = classifyReceivingOrigin(session.supplier_code, docName);
     const responsible = responsibleFor(origin, session.supplier_code);
 
     // Proveedor del catálogo (para que el reclamo le pegue al fill rate). Traspaso:
@@ -156,8 +198,9 @@ export class ReceivingClaimsService {
             .whereNull('deleted_at')
             .first('id')
         : null;
-    const transferOrigin =
-      responsible.responsible_kind === 'branch' && session.supplier_code
+    const transferOrigin = almacenQueEmbarco
+      ? { warehouse_id: almacenQueEmbarco }
+      : responsible.responsible_kind === 'branch' && session.supplier_code
         ? await this.findTransferOriginTx(trx, session.supplier_code)
         : null;
 

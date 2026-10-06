@@ -66,8 +66,8 @@ import { ErpPendingBranch } from '../../receiving-session.service';
           </div>
           <h3>Hoy no hay vales</h3>
           <p>
-            Kepler no tiene ninguna entrada con fecha de hoy en las sucursales que te tocan.
-            En cuanto capturen una, aparece acá.
+            Kepler no tiene ninguna entrada con fecha de hoy ni traspasos en camino a las
+            sucursales que te tocan. En cuanto capturen una, aparece acá.
           </p>
           <p class="su-cero-hint">
             <b>¿Llegó un camión igual?</b> El papel puede llegar antes que Kepler. Buscá el vale
@@ -77,8 +77,8 @@ import { ErpPendingBranch } from '../../receiving-session.service';
         </div>
       } @else {
         <div class="su-cab">
-          <span>Vales de hoy sin abrir</span>
-          <span>sólo la fecha de hoy</span>
+          <span>Por recibir</span>
+          <span>compras de hoy · traspasos en camino</span>
         </div>
 
         <ul class="su-lista">
@@ -90,6 +90,11 @@ import { ErpPendingBranch } from '../../receiving-session.service';
                 <span class="su-nm">
                   {{ b.warehouse_name || 'Sucursal ' + b.sucursal }}
                   @if (b.sin_almacen) { <small>sin almacén configurado — no se puede recibir</small> }
+                  @else if (b.traspasos) {
+                    <!-- [WMS-REC.17] Se dice cuántos son traspasos: llegan con otro papel (el
+                         embarque de quien manda), y el bodeguero lo tiene que buscar distinto. -->
+                    <small class="su-tr">{{ b.traspasos | number }} {{ b.traspasos === 1 ? 'traspaso' : 'traspasos' }} en camino</small>
+                  }
                 </span>
                 <span class="su-n">{{ b.pendientes | number }}</span>
               </button>
@@ -157,6 +162,7 @@ import { ErpPendingBranch } from '../../receiving-session.service';
     .su-nm { min-width: 0; font-size: var(--fs-body); font-weight: var(--fw-medium); }
     .su-nm small { display: block; font-size: var(--fs-micro); font-weight: var(--fw-regular);
       color: var(--bad-fg); }
+    .su-nm small.su-tr { color: var(--warn-fg); font-weight: var(--fw-bold); }
     .su-n {
       flex: 0 0 auto; min-width: 26px; height: 24px; padding: 0 8px;
       display: flex; align-items: center; justify-content: center;

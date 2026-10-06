@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { CurrencyPipe, DecimalPipe } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service';
@@ -10,9 +10,14 @@ import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service
  * proveedor y el monto están para reconocerlo de un vistazo sin leer el folio
  * entero.
  *
- * **No lleva la fecha en cada renglón, a propósito:** con la regla de sólo-hoy
- * todos son del mismo día y repetirla nueve veces es ruido. El día se dice una
- * vez, en el encabezado.
+ * **No lleva la fecha en cada renglón de compra, a propósito:** con la regla de
+ * sólo-hoy todos son del mismo día y repetirla nueve veces es ruido. El día se dice
+ * una vez, en el encabezado.
+ *
+ * **`[WMS-REC.17]` Los traspasos van aparte y arriba.** Llegan con el EMBARQUE de quien
+ * manda (otro documento, otra regla de día: salió hoy o sigue en camino), así que cada
+ * uno dice de dónde viene, cuándo salió y si Kepler ya registró la recepción. Mezclarlos
+ * con las compras haría pasar un "salió hace 3 días" por un vale de hoy.
  */
 @Component({
   selector: 'app-anden-vales',
@@ -28,7 +33,7 @@ import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service
             <span class="va-code">{{ sucursal().warehouse_code || sucursal().sucursal }}</span>
             <span>{{ sucursal().warehouse_name || 'Sucursal ' + sucursal().sucursal }}</span>
           </div>
-          <p class="va-sub">{{ sucursal().pendientes | number }} vales de hoy · {{ hoy }}</p>
+          <p class="va-sub">{{ sucursal().pendientes | number }} por recibir · {{ hoy }}</p>
         </div>
       </header>
 
@@ -45,27 +50,50 @@ import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service
              entre una pantalla y la otra. Se dice, no se deja una lista muda. -->
         <div class="va-cero">
           <h3>Ya no queda ninguno</h3>
-          <p>Los vales de hoy de esta sucursal ya se abrieron. Puede haberlos tomado otra persona.</p>
+          <p>Los vales de esta sucursal ya se abrieron. Puede haberlos tomado otra persona: buscalos en «En curso».</p>
           <button pButton type="button" [outlined]="true" (click)="volver.emit()">Volver a sucursales</button>
         </div>
       } @else {
-        <div class="va-cab">
-          <span>Elegí el vale</span>
-          <span>sólo la fecha de hoy</span>
-        </div>
+        @if (traspasos().length) {
+          <div class="va-cab">
+            <span>Traspasos</span>
+            <span>salieron hoy o siguen en camino</span>
+          </div>
+          <ul class="va-lista">
+            @for (v of traspasos(); track 'UD41/' + v.sucursal + '/' + v.serie + '/' + v.folio) {
+              <li>
+                <button type="button" class="va-row va-row-tr" [disabled]="abriendo()" (click)="abrir.emit(v)">
+                  <span class="va-folio">
+                    Embarque {{ v.folio }}
+                    <span class="va-chip">{{ v.origin?.label || 'Traspaso' }}</span>
+                  </span>
+                  <span class="va-monto">{{ v.monto | currency: 'MXN' : 'symbol-narrow' : '1.2-2' }}</span>
+                  <span class="va-prov">De {{ v.origin?.name || v.proveedor_nombre || 'Sucursal ' + v.sucursal }} · {{ estado(v) }}</span>
+                  <span class="va-reng">{{ v.line_count | number }} {{ v.line_count === 1 ? 'renglón' : 'renglones' }}</span>
+                </button>
+              </li>
+            }
+          </ul>
+        }
 
-        <ul class="va-lista">
-          @for (v of vales(); track v.sucursal + '/' + v.folio) {
-            <li>
-              <button type="button" class="va-row" [disabled]="abriendo()" (click)="abrir.emit(v)">
-                <span class="va-folio">{{ v.folio }}</span>
-                <span class="va-monto">{{ v.monto | currency: 'MXN' : 'symbol-narrow' : '1.2-2' }}</span>
-                <span class="va-prov">{{ v.proveedor_nombre || v.proveedor_code || 'Sin proveedor' }}</span>
-                <span class="va-reng">{{ v.line_count | number }} {{ v.line_count === 1 ? 'renglón' : 'renglones' }}</span>
-              </button>
-            </li>
-          }
-        </ul>
+        @if (compras().length) {
+          <div class="va-cab">
+            <span>{{ traspasos().length ? 'Compras' : 'Elegí el vale' }}</span>
+            <span>sólo la fecha de hoy</span>
+          </div>
+          <ul class="va-lista">
+            @for (v of compras(); track v.sucursal + '/' + v.folio) {
+              <li>
+                <button type="button" class="va-row" [disabled]="abriendo()" (click)="abrir.emit(v)">
+                  <span class="va-folio">{{ v.folio }}</span>
+                  <span class="va-monto">{{ v.monto | currency: 'MXN' : 'symbol-narrow' : '1.2-2' }}</span>
+                  <span class="va-prov">{{ v.proveedor_nombre || v.proveedor_code || 'Sin proveedor' }}</span>
+                  <span class="va-reng">{{ v.line_count | number }} {{ v.line_count === 1 ? 'renglón' : 'renglones' }}</span>
+                </button>
+              </li>
+            }
+          </ul>
+        }
       }
     </div>
   `,
@@ -109,6 +137,13 @@ import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service
       border: 1px solid var(--border-color); border-radius: var(--r-md); font: inherit;
     }
     .va-row:hover { border-color: var(--action); }
+    /* El traspaso lleva el ámbar de "ojo con esto" del chip de origen: el reclamo es interno. */
+    .va-row-tr { border-left: 3px solid var(--warn-fg); }
+    .va-chip {
+      margin-left: 6px; padding: 2px 7px; vertical-align: middle;
+      font-size: var(--fs-micro); font-weight: var(--fw-bold); letter-spacing: .07em; text-transform: uppercase;
+      border-radius: var(--r-pill); background: var(--warn-soft-bg); color: var(--warn-fg);
+    }
     .va-row:disabled { opacity: .6; cursor: progress; }
     .va-folio { grid-column: 1; font-size: var(--fs-body); font-weight: var(--fw-black);
       font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
@@ -134,6 +169,25 @@ export class AndenValesComponent {
   readonly abrir = output<ErpOrderMatch>();
   readonly volver = output<void>();
   readonly reintentar = output<void>();
+
+  /** Embarques de traspaso (`fuente = 'embarque'`): van primero y con su propia regla de día. */
+  readonly traspasos = computed(() => this.vales().filter((v) => v.fuente === 'embarque'));
+  /** Órdenes de entrada de hoy. Sin `fuente` = orden de entrada (lo que existía antes). */
+  readonly compras = computed(() => this.vales().filter((v) => v.fuente !== 'embarque'));
+
+  /**
+   * Cómo va el traspaso, en palabras de andén. Que Kepler ya tenga la recepción NO quiere
+   * decir que tenga caducidad: se dice para que nadie busque el camión en la calle.
+   */
+  estado(v: ErpOrderMatch): string {
+    if (v.recibido_kepler) return 'Kepler ya registró la recepción';
+    const d = v.dias_en_camino;
+    if (d == null) return 'en camino';
+    if (d < 0) return 'fechado a futuro en Kepler';
+    if (d === 0) return 'salió hoy';
+    if (d === 1) return 'salió ayer';
+    return `salió hace ${d} días`;
+  }
 
   readonly hoy = new Date().toLocaleDateString('es-MX', {
     weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'America/Mexico_City',
