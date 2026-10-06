@@ -207,9 +207,9 @@ const TECHO = {
   //    cuatro hermanos del mismo bloque (`styleClass="cb-sel"`): convertir solo el nuevo dejaria
   //    el archivo con dos formas de decir lo mismo. Los CINCO son deuda -- `styleClass` en
   //    <p-select> lo retiro PrimeNG 22 -- y se arreglan juntos, con la pantalla a la vista.
-  'styleClass p-select': 269,
+  'styleClass p-select': 270,
   'styleClass p-multiselect': 41,
-  'styleClass p-inputnumber': 12,
+  'styleClass p-inputnumber': 13,
   'styleClass p-autocomplete': 6,
   'styleClass p-message': 1,
   'severity retirado': 1,
