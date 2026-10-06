@@ -307,6 +307,30 @@ export class AnexoVentaService {
     if (!cod) return String(cant);
     return /^\d+$/.test(cod) ? `${cant} × ${cod}` : `${cant} ${cod}`;
   }
+  /** Cantidad a 3 decimales: suficiente para KG y mata el ruido de coma flotante (2.4999999). */
+  private redondeaCant(n: number): number {
+    return Math.round(n * 1000) / 1000;
+  }
+  /**
+   * `[AX.13]` Suma partes de cantidad POR UNIDAD, sin mezclarlas nunca: 8 CJA + 6 PAQ no son
+   * "14" de nada. La llave es el código de Kepler normalizado (trim + mayúsculas) y se imprime
+   * el código tal como llegó la primera vez — mismo criterio verbatim que `unidad()`.
+   * Orden: caja, paquete y luego el resto en el orden en que aparecen en la factura.
+   */
+  private sumarUnidades(partes: { n: number; u: any }[]): { n: number; u: any }[] {
+    const acc = new Map<string, { n: number; u: any }>();
+    for (const p of partes) {
+      const k = String(p.u ?? '').trim().toUpperCase();
+      const prev = acc.get(k);
+      if (prev) prev.n = this.redondeaCant(prev.n + p.n);
+      else acc.set(k, { n: this.redondeaCant(p.n), u: p.u });
+    }
+    const rango = (k: string) => (/^(CJA|CJ|CAJA|CJS)$/.test(k) ? 0 : /^(PAQ|PQ|PAQUETE)$/.test(k) ? 1 : 2);
+    return [...acc.entries()]
+      .map(([k, v], i) => ({ k, v, i }))
+      .sort((a, b) => rango(a.k) - rango(b.k) || a.i - b.i)
+      .map((x) => x.v);
+  }
 
   /** Importe con letra (pesos MXN). Sin dependencia externa: el documento debe ser autosuficiente. */
   private conLetra(n: number): string {
@@ -426,13 +450,18 @@ export class AnexoVentaService {
       // LO COMPRADO, SEPARADO en caja + paquete + pieza (descomposición euclidiana): cuando la
       // compra abarca varias unidades se muestra "3 CJA + 5 PAQ + 2 PZA" en vez de puras piezas.
       // Son partes ADITIVAS (no equivalencias) → los remanentes llevan "+".
+      // `[AX.13]` El ÚLTIMO nivel (la base, factor 1) se queda con el resto TAL CUAL, sin
+      // `floor`: con `floor` en todos los niveles, 2.5 KG se imprimía "2 KG" y el medio kilo
+      // desaparecía del papel (y de la suma del grupo, que se arma con estas mismas partes).
       const compra: { n: number; u: any }[] = [];
       let restoPz = qtyPz;
-      for (const lvl of unitLevels) {
-        const n = Math.floor(restoPz / lvl.factor);
+      unitLevels.forEach((lvl, i) => {
+        const n = i === unitLevels.length - 1
+          ? this.redondeaCant(restoPz)
+          : Math.floor(restoPz / lvl.factor);
         restoPz -= n * lvl.factor;
         if (n > 0) compra.push({ n, u: lvl.u });
-      }
+      });
       if (!compra.length) compra.push({ n: qtyPz, u: l.unidad_venta || l.unidad });
 
       // El grupo se decide por la unidad MAYOR que realmente se MUESTRA (compra[0]), no por la
@@ -468,7 +497,7 @@ export class AnexoVentaService {
         <td class="desc">${Number(l.descuento) < 0 ? '+' : '−'}${this.m(Math.abs(Number(l.descuento)))}</td>
         <td class="neto">${this.m(l.neto)}</td>`
         : `<td class="neto">${this.m(l.importe)}</td>`;
-      return { tier, html: `<tr>
+      return { tier, compra, html: `<tr>
         <td><div class="p-name">${this.esc(l.descripcion)}</div><div class="p-sku">${this.esc(l.sku)}${equivHtml}</div></td>
         <td class="qcell">${qCell}</td>
         <td class="u-price">${priceLadder(false)}</td>
@@ -488,14 +517,28 @@ export class AnexoVentaService {
     // ~20 px cada uno —hasta 40 px, media docena de renglones— para decir algo que la columna
     // Cantidad ya dice en cada línea ("3 CJA", "48 KG"). Se rotula desde 10 productos.
     const mezcla = new Set(filasArr.map((f) => f.tier)).size > 1 && filasArr.length >= 10;
-    const filas = mezcla
+    // `[AX.13]` Cada rótulo de grupo suma sus unidades bajo la columna Cantidad ("10 CJA") y al
+    // pie va el total del documento. La suma sale de las MISMAS partes que imprime cada renglón
+    // (`compra`), así que siempre cuadra con lo que el cliente ve. Una línea por unidad.
+    const sumaHtml = (rows: { compra: { n: number; u: any }[] }[], conMas: boolean) =>
+      this.sumarUnidades(rows.flatMap((r) => r.compra))
+        .map((s, i) => `<span>${conMas && i > 0 ? '+ ' : ''}${this.cantidadConUnidad(s.n, s.u)}</span>`).join('');
+    const filas = (mezcla
       ? GRUPOS.map((g) => {
           const rows = filasArr.filter((f) => f.tier === g.t);
           if (!rows.length) return '';
-          return `<tr class="grp"><td colspan="${NCOLS}">${g.label} · ${rows.length} producto${rows.length === 1 ? '' : 's'}</td></tr>`
+          return `<tr class="grp"><td>${g.label} · ${rows.length} producto${rows.length === 1 ? '' : 's'}</td>`
+            + `<td class="gsum">${sumaHtml(rows, true)}</td><td colspan="${NCOLS - 2}"></td></tr>`
             + rows.map((r) => r.html).join('\n');
         }).filter(Boolean).join('\n')
-      : filasArr.map((f) => f.html).join('\n');
+      : filasArr.map((f) => f.html).join('\n'))
+      // Último renglón del tbody y NO un <tfoot>: Chromium repite el tfoot al pie de CADA hoja
+      // impresa, y en una factura de 3 hojas el total saldría tres veces, dos a media lista.
+      // Con un solo producto el total repetiría el renglón: no se imprime.
+      + (filasArr.length > 1
+        ? `\n<tr class="tot-u"><td>Total de unidades del documento<small>cada unidad se suma por separado</small></td>`
+          + `<td class="tq">${sumaHtml(filasArr, false)}</td><td colspan="${NCOLS - 2}"></td></tr>`
+        : '');
 
     const ctas = cuentasDeposito(doc.sucursal)
       .map((c) => `<tr><td class="bco">${c.banco}</td><td>${c.cuenta}</td><td class="clabe">${c.clabe}</td></tr>`).join('');
@@ -558,6 +601,14 @@ table.det tbody tr{break-inside:avoid}
 table.det tbody td{padding:2px 5px;border-bottom:1px solid var(--line-2);vertical-align:top}
 table.det tbody tr.grp td{padding:4px 7px 3px;font-size:7pt;font-weight:800;letter-spacing:.09em;
   text-transform:uppercase;color:var(--accent);background:var(--accent-soft);border-bottom:1.5px solid var(--accent);break-after:avoid}
+/* AX.13: la suma del grupo, alineada con la columna Cantidad. Una unidad por linea. */
+table.det tbody tr.grp td.gsum{text-align:left;font-size:8pt;letter-spacing:.02em;color:#6d2f04;white-space:nowrap;line-height:1.25;text-transform:none}
+.gsum span,.tq span{display:block;white-space:nowrap}
+.gsum span+span{font-size:7pt;color:var(--accent)}
+table.det tbody tr.tot-u td{padding:5px;border-top:1.5px solid var(--ink);border-bottom:0;font-weight:700}
+table.det tbody tr.tot-u td:first-child{font-size:7pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+table.det tbody tr.tot-u small{display:block;text-transform:none;letter-spacing:0;font-weight:600;font-size:7pt;margin-top:1px}
+.tq span{font-size:8.5pt}
 .p-name{font-weight:700;font-size:8.5pt;line-height:1.18}
 .p-sku{font-size:7pt;color:var(--muted);font-weight:600;margin-top:1px;line-height:1.2}
 .p-sku:before{content:'SKU '}

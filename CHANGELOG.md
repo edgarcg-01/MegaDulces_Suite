@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — Anexo de venta: suma de unidades por grupo y total del documento (AX.13, 2026-10-05)
+- Cada rótulo de grupo del anexo imprimible («Comprado por caja · 3 productos») suma sus unidades bajo la columna Cantidad («10 CJA»); al pie, el total del documento por unidad (CJA · PAQ · PZA · KG por separado, nunca mezcladas).
+- Fixed: el reparto caja/paquete/pieza truncaba la cantidad decimal de la base (2.5 KG salía «2 KG»).
 ### Added — Cortes/Sucursales: corte de caja POS → cobro → arqueo del turno (CSU.0–CSU.2, 2026-10-05)
 - `/finanzas/cortes-sucursales`, en la sección nueva **Ingresos** del menú de Finanzas. Por sucursal: lo vendido en cortes (cliente `CONTADO`), lo cobrado en Kepler, el saldo pendiente y el cuadre de cada corte contra el arqueo de su turno. Mes en curso por defecto o rango específico.
 - `GET /finance/cortes-sucursales`, permiso `FINANCE_CORTES_VER` (mig `20261005200000`: los 11 roles de Ingresos contables; mig `20261005210000`: `encargado_tienda` + `auxiliar_tienda`). Sólo lectura sobre el ODS, sin importer.

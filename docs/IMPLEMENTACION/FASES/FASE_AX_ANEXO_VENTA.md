@@ -176,6 +176,18 @@ Smoke `test-newdb-sales-docs-cobranza.js` **13/13 contra prod** (el dinero no ca
 
 El apartado costaba ~21 px, que en una factura al filo son una hoja entera. Se recuperaron **sin tocar información**: el aviso *"no es comprobante fiscal"* estaba **dos veces en la misma hoja** (la banda con borde de arriba y otra vez en la prosa del pie) → queda sólo arriba, donde es prominente; el espacio de firma pasa de 11 a **7 mm** (sigue siendo espacio real para firmar); y una decena de paddings de 1-2 px. La caja del cliente además toma **1.45×** el ancho de las otras dos: es la única que carga un texto largo (el domicilio), y con las tres iguales se partía en 3 renglones y fijaba el alto de la fila mientras las otras desperdiciaban su ancho. **El A/B se mantiene en 41 → 24 hojas** con el logo grande y el apartado nuevo dentro. Gate **22/22**.
 
+### AX.13 — cuántas cajas, paquetes y kilos son 🧪 (2026-10-05)
+
+Disparador (usuarios, vía Francisco): *"donde está el renglón COMPRADO POR CAJA · 3 PRODUCTOS que sume las cajas correspondientes al documento (10 cajas) y de igual manera en piezas, paquetes o kg, con todas las unidades manifestadas en el documento"*. Maqueta aprobada antes de tocar código.
+
+- 🧪 **Suma por grupo.** El rótulo de grupo pasa de una celda con `colspan` a tres: el texto, la **suma bajo la columna Cantidad** (alineada con los números que suma) y relleno. Ej. factura 08 UD0801-0000270: «Comprado por caja · 3 productos → **10 CJA**».
+- 🧪 **Una cifra por unidad, nunca mezcladas.** `sumarUnidades()` agrupa por el código de Kepler normalizado (trim + mayúsculas) y lo imprime verbatim, como `unidad()`. Orden: caja, paquete, y el resto en el orden en que aparece. Una unidad numérica de Kepler sale «3 × 500» (mismo criterio de `cantidadConUnidad()`).
+- 🧪 **La suma sale de lo que el renglón imprime** (`compra`, el reparto caja+paquete+pieza), no de `kdm2.c9` ni de la unidad de venta: si un renglón dice «3 CJA + 3 PAQ», el grupo de caja suma «+ 3 PAQ» en su propia línea. Así el total del papel siempre cuadra a ojo con los renglones.
+- 🧪 **Total del documento** al final de la tabla (todas las unidades, una por línea), también en facturas cortas sin grupos. Con **un solo producto no se imprime** (repetiría el renglón). Va como último renglón del `tbody`, **no como `<tfoot>`**: Chromium repite el `tfoot` al pie de cada hoja impresa.
+- 🧪 **Bug encontrado de paso: el kilo decimal se truncaba.** El reparto aplicaba `Math.floor` en *todos* los niveles, incluida la base (factor 1), así que 2.5 KG se imprimía **«2 KG»** y el medio kilo desaparecía del papel. Ahora la base se queda con el resto redondeado a 3 decimales. ⚠️ **No medido** cuántas facturas lo sufrieron (requiere contar renglones con cantidad fraccionaria en prod).
+
+Candado: 7 pruebas nuevas en `anexo-venta.spec.ts` (vitest **28/28**). Prueba negativa hecha: devolver el `floor` a la base y quitar la acumulación de la suma ponen **4 pruebas en rojo** cada una. Sin migraciones, sin permisos, sin cambios de API → **sin re-login**. Falta: validación visual sobre una factura real impresa.
+
 ### Diferidos
 - ⬜ **AX.5** Agente de impresión por WebSocket (`/print`, room por sucursal) para sucursal desatendida. Hoy **no existe** ESC/POS ni agente local en el repo; el navegador cubre oficina.
 - ⬜ **AX.6** IA: búsqueda en lenguaje natural → **filtros estructurados** (el LLM nunca calcula importes, ADR-016); aviso de riesgo por motor determinista; OCR del pagaré firmado (`extractDepositSlip` ya recibe PDF nativo).
