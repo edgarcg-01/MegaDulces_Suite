@@ -95,6 +95,9 @@
 // `CREATE INDEX CONCURRENTLY` no corre dentro de una transacción.
 exports.config = { transaction: false };
 
+/** Literal SQL para los comandos de utilidad, que no aceptan binds. Ver el `COMMENT ON` de abajo. */
+const lit = (s) => `'${String(s).replace(/'/g, "''")}'`;
+
 const IDX = 'ix_kdm1_tesoreria_fecha';
 const VISTA = 'analytics.kepler_bank_movements';
 
@@ -147,7 +150,10 @@ exports.up = async function up(knex) {
       + `Hay que hacer DROP INDEX CONCURRENTLY ${IDX} y volver a correr esta migración.`);
   }
 
-  await knex.raw(`COMMENT ON INDEX kepler_ods.${IDX} IS ?`, [
+  // ⛔ `COMMENT ON` NO admite parámetros: es un comando de utilidad y el bind nunca se resuelve.
+  // Con `IS ?` knex manda `IS $1` y el servidor contesta `syntax error at or near "$1"`, lo que
+  // tira la migración entera. El texto va literal, con las comillas simples duplicadas.
+  await knex.raw(`COMMENT ON INDEX kepler_ods.${IDX} IS ${lit([
     '[CG.41] Fecha de los movimientos de TESORERIA (parcial: solo los que traen clave de banco en '
     + 'c45 = 58,210 de 725,871 filas). Sin el, analytics.kepler_bank_movements hace seq scan de '
     + '666k filas para devolver ~100 y la pestana Conciliacion tarda 825 ms. LIDERA CON LA FECHA a '
@@ -155,7 +161,7 @@ exports.up = async function up(knex) {
     + 'una subconsulta sobre kdb1 y eso se resuelve como hash semi join (medido: sigue en seq scan '
     + 'aun con enable_seqscan=off). Va junto con el CTE flj en NOT MATERIALIZED: con flj '
     + 'materializado el predicado de fecha no baja al scan y este indice no se usa.',
-  ]);
+  ].join(''))}`);
 
   // 2 · Que el predicado pueda bajar al scan.
   await reescribirFlj(knex, MARCA, MARCA_NUEVA);

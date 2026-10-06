@@ -110,13 +110,24 @@ const COMENTARIO_DEFINER = (q) => `[CG.40] NO agregar security_invoker. app_runt
   + `El aislamiento por tenant vive DENTRO de la vista (patron kepler_ods, CG.9c). `
   + `Si alguna vez se quiere invoker: GRANT USAGE primero, medir la pantalla, y recien despues.`;
 
+/**
+ * ⛔ `COMMENT ON` **no admite parámetros**: es un comando de utilidad, no una consulta, y el
+ * planificador nunca ve un bind. `knex.raw('COMMENT ON ... IS ?', [txt])` manda `IS $1` y el
+ * servidor responde `syntax error at or near "$1"` — la migración revienta entera y revierte.
+ * Medido acá el 2026-10-06: fallaba para cualquiera, en cualquier base.
+ *
+ * El texto va LITERAL, con las comillas simples duplicadas. Hace falta de verdad: los comentarios
+ * de abajo citan `sucursal='00'`.
+ */
+const lit = (s) => `'${String(s).replace(/'/g, "''")}'`;
+
 exports.up = async function up(knex) {
   // ── 1 · De-anclar la vista huérfana ────────────────────────────────────────────────────
   // `CREATE OR REPLACE` conserva dueño y privilegios, pero el GRANT se re-aplica explícito:
   // esta casa ya perdió un GRANT en un replace y sólo lo vio una aserción de metadata.
   await knex.raw(`CREATE OR REPLACE VIEW ${VISTA_HUERFANA} AS ${DEF_SIN_ANCLAJE}`);
   await knex.raw(`GRANT SELECT ON ${VISTA_HUERFANA} TO app_runtime`);
-  await knex.raw(`COMMENT ON VIEW ${VISTA_HUERFANA} IS ?`, [COMENTARIO_HUERFANA]);
+  await knex.raw(`COMMENT ON VIEW ${VISTA_HUERFANA} IS ${lit(COMENTARIO_HUERFANA)}`);
 
   // ── 2 · Dejar escrito que el security definer es LOAD-BEARING ──────────────────────────
   // Sin esto, la próxima auditoría de higiene "arregla" la inconsistencia y apaga la pantalla.
@@ -125,7 +136,7 @@ exports.up = async function up(knex) {
     ['analytics.caja_general_cuentas', 'caja_general_ods.cuenta'],
     ['analytics.caja_arqueos', 'caja_general_ods.arqueo_movimientos'],
   ]) {
-    await knex.raw(`COMMENT ON VIEW ${vista} IS ?`, [COMENTARIO_DEFINER(origen)]);
+    await knex.raw(`COMMENT ON VIEW ${vista} IS ${lit(COMENTARIO_DEFINER(origen))}`);
   }
 };
 
