@@ -313,6 +313,17 @@ export class CashLedgerController {
     return this.cortes.listar({ from, to, sucursal, estado, limit: limit ? Number(limit) : undefined });
   }
 
+  /**
+   * `[CG.39]` Con qué se propone que arranque la caja: el conteo con el que quedó el último
+   * corte cerrado de esa sucursal. Es LECTURA — no abre nada.
+   */
+  @Get('cortes/fondo-sugerido')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'Con qué arrancaría la caja: el cierre del corte anterior, o "sin medir".' })
+  fondoSugerido(@Query('sucursal') sucursal?: string) {
+    return this.cortes.sugerirFondo(sucursal || '00');
+  }
+
   @Post('cortes')
   @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
   @ApiOperation({ summary: 'Abre el corte de la sucursal con su fondo inicial. Uno solo abierto por sucursal.' })
