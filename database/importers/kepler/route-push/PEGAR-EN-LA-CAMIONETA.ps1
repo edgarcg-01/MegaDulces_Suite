@@ -7,9 +7,13 @@
 #  No pide datos: el TRUCK, el psql y las credenciales salen del propio agente.
 #  Correrlo dos veces no duplica nada.
 # =============================================================================
-#  El parametro tiene default: se pega sin tocar nada. Existe para poder PROBARLO
-#  contra una copia antes de soltarlo en once laptops.
-param([string] $f = 'C:\KeplerPush\push-ruta.cmd')
+# ⛔ NADA de param() aca: esto se PEGA en una consola interactiva, y ahi param()
+#    solo es valido como primera instruccion de un script -- al pegarlo revienta
+#    y las lineas siguientes corren igual, con $f sin definir. Medido en la
+#    ruta_22 el 2026-10-06: el paso [4] dijo "psql o SRC no encontrados" porque
+#    las variables nunca se llenaron. Una asignacion simple se comporta igual
+#    pegada que ejecutada como archivo.
+if (-not $f) { $f = 'C:\KeplerPush\push-ruta.cmd' }
 $ErrorActionPreference = 'Continue'
 if (-not (Test-Path $f)) { Write-Host "ERROR: no existe $f" -f Red; return }
 $t = Get-Content $f -Raw -Encoding Default
@@ -67,7 +71,7 @@ if (schtasks /Query /FO LIST 2>$null | Select-String -SimpleMatch $tarea) {
 }
 
 # ---- 3. El log --------------------------------------------------------------
-$log = "C:\KeplerPush\push_$tr.log"
+$log = Join-Path (Split-Path $f) "push_$tr.log"
 if (Test-Path $log) {
   $ult = Get-Content $log -Tail 30
   $linea = ($ult | Select-String 'merge existencia' -Context 0,2 | Select-Object -Last 1)
@@ -78,8 +82,16 @@ if (Test-Path $log) {
 
 # ---- 4. El numero con el que se compara, preguntado a ESTA laptop ------------
 # El agente ya trae el psql y la cadena local: se reusan en vez de pedirlos.
-$psql = @('18','17','16','15','14') | ForEach-Object { "C:\Program Files\PostgreSQL\$_\bin\psql.exe" } | Where-Object { Test-Path $_ } | Select-Object -First 1
-$src  = [regex]::Match($t, '(?im)^\s*set\s+SRC\s*=\s*(\S+)').Groups[1].Value
+# Se BUSCA psql donde este, no en una lista de versiones: el agente mira 14..18 y
+# si manana hay una 19 la lista queda vieja sin que nadie se entere.
+$psql = @()
+foreach ($r in @('C:\Program Files\PostgreSQL','C:\Program Files (x86)\PostgreSQL')) {
+  if (Test-Path $r) { $psql += (Get-ChildItem $r -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'bin\psql.exe' } | Where-Object { Test-Path $_ }) }
+}
+if (-not $psql) { $psql = @((Get-Command psql.exe -ErrorAction SilentlyContinue).Source) }
+$psql = $psql | Where-Object { $_ } | Select-Object -First 1
+# `(.+?)\s*$` y no `(\S+)`: una cadena con espacios o entre comillas se cortaria.
+$src  = [regex]::Match($t, '(?im)^\s*set\s+SRC\s*=\s*(.+?)\s*$').Groups[1].Value
 if ($psql -and $src) {
   $q = "select count(*)::text || ' productos | ' || to_char(sum(k.c5*k.c16),'FM999,999,990.00') from md.kdik k join md.kdii i on btrim(i.c1)=btrim(k.c2) where k.c5 > 0"
   $r = (& $psql $src -tAc $q 2>&1) -join ' '
