@@ -147,15 +147,21 @@ exports.up = async function up(knex) {
       + `Hay que hacer DROP INDEX CONCURRENTLY ${IDX} y volver a correr esta migración.`);
   }
 
-  await knex.raw(`COMMENT ON INDEX kepler_ods.${IDX} IS ?`, [
+  // ⛔ `COMMENT ON` NO admite parametros: Postgres contesta "syntax error at or near $1".
+  //    No es knex -- es la gramatica del servidor, que pide un literal. Medido en PROD el
+  //    2026-10-06: esta migracion fallo DESPUES de crear el indice, y como corre con
+  //    `transaction: false` (CONCURRENTLY no admite transaccion) NO hubo rollback: el
+  //    indice quedo valido y la migracion sin registrar. Se escapa y se embebe.
+  const lit = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+  const COMENTARIO_IDX =
     '[CG.41] Fecha de los movimientos de TESORERIA (parcial: solo los que traen clave de banco en '
-    + 'c45 = 58,210 de 725,871 filas). Sin el, analytics.kepler_bank_movements hace seq scan de '
-    + '666k filas para devolver ~100 y la pestana Conciliacion tarda 825 ms. LIDERA CON LA FECHA a '
-    + 'proposito: un indice que empiece por c45 el planner NO lo usa, porque las claves vienen de '
-    + 'una subconsulta sobre kdb1 y eso se resuelve como hash semi join (medido: sigue en seq scan '
-    + 'aun con enable_seqscan=off). Va junto con el CTE flj en NOT MATERIALIZED: con flj '
-    + 'materializado el predicado de fecha no baja al scan y este indice no se usa.',
-  ]);
+  + 'c45 = 58,210 de 725,871 filas). Sin el, analytics.kepler_bank_movements hace seq scan de '
+  + '666k filas para devolver ~100 y la pestana Conciliacion tarda 825 ms. LIDERA CON LA FECHA a '
+  + 'proposito: un indice que empiece por c45 el planner NO lo usa, porque las claves vienen de '
+  + 'una subconsulta sobre kdb1 y eso se resuelve como hash semi join (medido: sigue en seq scan '
+  + 'aun con enable_seqscan=off). Va junto con el CTE flj en NOT MATERIALIZED: con flj '
+  + 'materializado el predicado de fecha no baja al scan y este indice no se usa.';
+  await knex.raw(`COMMENT ON INDEX kepler_ods.${IDX} IS ${lit(COMENTARIO_IDX)}`);
 
   // 2 · Que el predicado pueda bajar al scan.
   await reescribirFlj(knex, MARCA, MARCA_NUEVA);
