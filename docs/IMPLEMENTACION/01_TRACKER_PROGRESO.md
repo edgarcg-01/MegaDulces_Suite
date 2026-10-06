@@ -7517,6 +7517,80 @@ fallback sin número para cuando el catálogo no responde — **no se afirma cu�
 
 ---
 
+#### ✅ `[CG.36]` · «no se actualizó a los componentes de PrimeNG» — y era cierto: `[CG.35]` tocó 5 piezas sobre 20 — 2026-10-05
+
+Edgar, mirando el resultado de `[CG.35]`: *«no se actualizó a los components de PrimeNG»*. **Tenía
+razón, y el error de `[CG.35]` fue de ALCANCE**: convertí sólo *«las cinco piezas que yo había
+puesto»* y di la pantalla por hecha. Medido antes de tocar nada, en los dos archivos de la tanda:
+
+| crudo | había | ahora |
+|---|---|---|
+| `<table>` a mano | **6** (y 3 `p-table` al lado, en la misma pantalla) | 0 — **8 `p-table`** |
+| `<button>` sin PrimeNG | **8** | 0 — **26 `p-button`** |
+| `<input type="checkbox">` nativo | **3** | 0 — **3 `p-checkbox`** |
+| chip con su `✕` tecleada | **1** | **`p-chip` `[removable]`** |
+| botones con la DIRECTIVA `pButton` | **4** | 0 |
+
+⭐ **El mix era el problema, no el HTML**: `DESIGN.md` lista como antipatrón *«control nativo
+conviviendo con su equivalente de PrimeNG en la MISMA vista»*, y acá había **tres `p-table` y
+tres `<table>` a mano en la misma página** — dos bordes, dos altos de fila y dos comportamientos
+en oscuro, uno encima del otro.
+
+⭐ **Lo que se borra vale más que lo que se agrega: ~45 líneas de CSS.** `.cg-tbl`, `.cg-check`,
+`.cg-chip`, `.cg-chip-n`, `.cg-chip-x`, `.cg-link`, `.cg-print`, `.cg-lim-tog` — y **tres bloques
+`@media (pointer: coarse)` separados** que le subían el alto de toque a 44px a mano, uno por
+control. `p-button`/`p-chip`/`p-checkbox` lo traen de serie. **No es que estuviera mal escrito:
+es que había que acordarse, tres veces.** Y el contador del chip de frecuentes pasa a ser el
+`[badge]` del propio `p-button`.
+
+⛔⛔ **Un botón que se pintaba SIN TEXTO en producción.** El «Reintentar» de Programa de Pagos era
+`pButton` + atributo `label`, que la **directiva** perdió en v22 → atributo muerto, build verde,
+sin warning. Era **el único camino de vuelta después de un error de carga**. `[CG.35]` corrió esta
+misma compuerta y pasó: el defecto estaba bajo el **techo** de deuda heredada (22), no en cero.
+
+⛔ **Y al arreglarlo, el conteo NO bajó.** El comentario que explicaba el arreglo **citaba la
+sintaxis vieja**, y la compuerta busca por TEXTO sin distinguir código de comentario → documentar
+el defecto lo volvía a contar y tapaba su propia corrección. Es la **misma familia** que el acento
+grave: *en este repo, lo que se escribe en un comentario lo leen las compuertas igual que al
+código*. Techo bajado **22 → 21**, con prueba negativa (el 22º da rojo).
+
+⚠️ **Dos trampas de `p-table` que sólo se ven leyendo su `.d.ts`:**
+1. **`#caption` NO es un `<caption>`**: se pinta en `.p-datatable-header`, o sea **una barra
+   visible**. Los cuatro rótulos de esta pantalla nacieron ocultos a propósito (describen la
+   tabla, no la titulan) — usarlo los habría sacado a la pantalla sin que nadie lo pidiera.
+   Quedan afuera y sólo para lector de pantalla.
+2. **La clase cae en el HOST, no en la `<table>`**: `width:100%` y `border-collapse` quedaban
+   muertos. Los selectores `th`/`td` **sí** llegan, porque viven en nuestras `ng-template` y
+   llevan el atributo de encapsulación de la pantalla.
+
+✅ **Lo que NO se convirtió, con su medición** (no es deuda: es decisión):
+- **Los `<input type="number">` de las dos rejas de arqueo y de la columna «Contado».** En
+  `p-inputnumber` las flechas **incrementan el valor**, y acá las flechas **bajan por la
+  columna** — que es como se cuenta un fajo. Convertirlos sería cambiar lo contado sin querer.
+  El código ya traía esa decisión escrita; se respeta y se deja explícita. Llevan `pInputText`,
+  o sea que el tema igual los pinta.
+- **Los `<input type="date">`.** Pasarlos a `p-datepicker` cambia el modelo de `string` a `Date`
+  y toca `from`/`to`/`fecha`, que viajan al API. Sin pedido y sin forma de validarlo visualmente,
+  no se toca. Repo: 31 archivos con nativo contra 47 con `p-datepicker` — no es un outlier.
+
+⛔ **El test cazó mi cambio**: `tbody input.cg-check` se quedó sin DOM. **Lo que afirma no cambió**
+(la fila trabada no se puede marcar), cambió de qué está hecho el control → se adapta el selector,
+no la aserción. *Ningún gate ni el compilador ven un selector de CSS que se quedó sin DOM.*
+
+**Pruebas:** `view` **1839/1839** (116 archivos) — el spec instancia el componente, así que la
+plantilla **compila de verdad** y el `p-checkbox` deshabilitado se verifica contra el DOM real.
+Gates: primeng-api ✅ · templates ✅ · estilos ✅ · tokens ✅ · tablas ✅ · motion ✅ · teclado ✅.
+
+⚠️ **Hallazgo colateral, fuera de alcance, medido:** quedan **21 botones más en la app que se
+pintan sin texto** (`compras-costo-estandar` ×3, `compras-cuadre-proveedor` ×3, `compras-costo-neto`
+×2, `almacen-existencia`, `almacen-movimientos`, `comercial-analisis`, `vendor-route-admin`…), y
+**303 `p-table` piden densidad con un `styleClass` que v22 ignora** — ninguna pasa `size`, así que
+Operations está renderizando en densidad default, lo contrario del «compact++» que fija `DESIGN.md`.
+
+⛔ **Sigue sin validación visual**: lo desplegado **no tiene** estos commits.
+
+---
+
 #### ✅ `[CG.26]` · Arqueo de fin de jornada, y el cuadre del cajero que miraba 2 de 6 tipos — 2026-09-29
 
 Pedido: *"un arqueo diario al finalizar la jornada para ver que todo cuadró en caja general y CAOS"*.

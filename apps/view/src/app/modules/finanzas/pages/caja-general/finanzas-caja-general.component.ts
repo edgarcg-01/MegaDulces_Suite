@@ -5,6 +5,8 @@ import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { TableModule } from 'primeng/table';
+import { CheckboxModule } from 'primeng/checkbox';
+import { ChipModule } from 'primeng/chip';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
@@ -90,8 +92,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
   selector: 'app-finanzas-caja-general',
   standalone: true,
   imports: [
-    FormsModule, ButtonModule, InputTextModule, InputNumberModule, TableModule,
-    SelectModule, TagModule, DialogModule, AutoCompleteModule, MessageModule, ToastModule,
+    FormsModule, ButtonModule, InputTextModule, InputNumberModule, TableModule, CheckboxModule,
+    ChipModule, SelectModule, TagModule, DialogModule, AutoCompleteModule, MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
@@ -157,7 +159,12 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     /* El caption es para el lector de pantalla; en pantalla la cabecera ya lo dice. */
     .cg-cap { position:absolute; width:1px; height:1px; overflow:hidden;
               clip-path:inset(50%); white-space:nowrap; }
-    .cg-arqueo-tbl { width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
+    /* ⚠️ Ojo con el DUENO de cada declaracion ahora que esto es un p-table: la clase cae en el
+       HOST <p-table>, y la <table> de adentro la pinta PrimeNG. Por eso aca solo queda lo que
+       CASCADEA (font-size) o aplica al host (display); el ancho y el colapso de bordes los
+       gobierna el componente. Los selectores de abajo SI llegan: th/td viven en nuestras
+       <ng-template>, asi que llevan el atributo de encapsulacion de esta pantalla. */
+    .cg-arqueo-tbl { display:block; font-size:var(--fs-sm); }
     .cg-arqueo-tbl th, .cg-arqueo-tbl td { padding:.2rem .4rem; text-align:right; }
     .cg-arqueo-tbl thead th { font-weight:600; color:var(--text-muted); font-size:var(--fs-xs);
                               border-bottom:1px solid var(--border-color); }
@@ -184,11 +191,11 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-bandeja-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:.6rem; margin-bottom:.5rem; }
     .cg-bandeja-head .fin-h2 { margin:0; }
     .cg-bandeja-sp { flex:1 1 auto; }
-    .cg-tbl { width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
-    .cg-tbl th { text-align:left; font-weight:600; color:var(--text-muted); padding:.35rem .5rem;
-                 border-bottom:1px solid var(--border-color); white-space:nowrap; }
-    .cg-tbl td { padding:.3rem .5rem; border-bottom:1px solid var(--border-color);
-                 vertical-align:top; }
+    /* ⛔ ACA VIVIA ".cg-tbl": una tabla entera dibujada a mano (ancho, colapso de bordes, color
+       de cabecera, borde inferior de cada celda). Eran TRES tablas de datos usandola mientras
+       otras dos en la MISMA pantalla ya eran p-table -- o sea dos tablas con distinto borde,
+       distinto alto de fila y distinto flip a oscuro, una al lado de la otra. Las tres pasaron
+       a p-table y la clase se retira completa. */
     /* La fila trabada se ve distinta PERO SIGUE VISIBLE: esconderla dejaria a la persona sin
        saber que ese movimiento existe y que alguien tiene que declarar su cuenta.
        ⚠️ El .62 de antes se comia tambien el motivo, que es justo lo que hay que poder leer:
@@ -200,9 +207,10 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-trabada .cg-motivo { opacity:1; }
     .cg-contado { width:7.5rem; text-align:right; font-variant-numeric:tabular-nums; }
     .cg-rezago { margin:.5rem 0 0; font-size:var(--fs-xs); }
-    /* El control principal de la bandeja es marcar fila por fila: un checkbox de 13px es el
-       objetivo mas chico de la pantalla y el que mas se usa. */
-    .cg-check { width:1.05rem; height:1.05rem; cursor:pointer; accent-color:var(--action); }
+    /* ⛔ ACA VIVIA ".cg-check", un <input type="checkbox"> nativo con alto y accent-color a mano.
+       El control principal de la bandeja es marcar fila por fila, asi que era el objetivo mas
+       chico de la pantalla Y el mas usado. Hoy es p-checkbox: el alto, el anillo de foco y el
+       par de colores los pone el tema, y en oscuro deja de pintarlo el sistema operativo. */
     /* CG.21 - el signo se lee de un vistazo. La flecha va ADEMAS del color, no en su lugar:
        el color solo deja fuera a quien no lo distingue.
        ⚠️ Decia var(--p-green-600) / var(--p-orange-600): son tokens de paleta de @primeuix que
@@ -210,27 +218,22 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-in  { color:var(--ok-fg); }
     .cg-out { color:var(--warn-fg); }
 
-    /* Chips de lo que mas se repite. El numero es el soporte: sin el, un chip es una opinion. */
+    /* Chips de lo que mas se repite. El numero es el soporte: sin el, un chip es una opinion
+       -- y ahora ese numero es el [badge] del propio p-button, no un <span> aparte.
+       ⛔ Aca vivian ".cg-chip", ".cg-chip-n", ".cg-chip-x" y ".cg-link": cuatro controles
+       dibujados a mano (borde, radio, hover, anillo de foco y alto de toque, todo repetido).
+       Los cubren p-button y p-chip. Queda SOLO el contenedor, que es reparto, no control. */
     .cg-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
-    .cg-chip { display:inline-flex; align-items:center; gap:.35rem; cursor:pointer;
-               border:1px solid var(--border-color); border-radius:999px;
-               background:transparent; color:inherit; font:inherit; font-size:var(--fs-xs);
-               padding:.3rem .7rem; min-height:2rem; }
-    .cg-chip:hover { border-color:var(--action); color:var(--action); }
-    .cg-chip:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
-    .cg-chip-n { color:var(--text-muted); font-variant-numeric:tabular-nums; font-size:var(--fs-micro); }
-    .cg-link { align-self:flex-start; background:none; border:0; padding:0; cursor:pointer;
-      color:var(--action); font-size:var(--fs-micro); text-decoration:underline; }
-    .cg-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
     .cg-caos-list { display:flex; flex-direction:column; gap:.35rem; }
-    .cg-caos-row { display:flex; align-items:center; gap:.75rem; width:100%; text-align:left;
-      cursor:pointer; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
-      background:transparent; padding:.5rem .7rem; min-height:var(--tap-min,44px); color:inherit; }
-    .cg-caos-row:hover { border-color:var(--action); }
-    .cg-caos-row:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    /* El renglon del cajero: el borde, el hover, el foco y el alto los da el p-button que lo
+       envuelve. Esta regla ya solo REPARTE el contenido proyectado -- que es nuestro, asi que
+       la agarra el CSS encapsulado sin ::ng-deep. */
+    .cg-caos-row { display:flex; align-items:center; gap:.75rem; width:100%; text-align:left; }
     .cg-caos-tag { font-size:var(--fs-micro); font-weight:600; padding:.1rem .45rem; border-radius:999px;
       border:1px solid var(--border-color); color:var(--text-muted); white-space:nowrap; }
-    .cg-caos-in { color:var(--action); border-color:var(--action); }
+    /* Sobre el p-chip del cajero: el color CASCADEA hasta su rotulo. El borde lo pinta el
+       componente, asi que un border-color aca seria una declaracion muerta. */
+    .cg-caos-in { color:var(--action); }
     .cg-caos-monto { font-variant-numeric:tabular-nums; }
     .cg-caos-ref { flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cg-caos-go { color:var(--action); font-size:var(--fs-micro); white-space:nowrap; }
@@ -252,10 +255,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
        en styles.css solo existe ".ta-r > .surf-sort". O sea que los importes de la bandeja y del
        libro nunca estuvieron alineados a la derecha. Otras ~10 pantallas la definen local. */
     .ta-r { text-align:right; }
-    .cg-print { background:none; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
-      cursor:pointer; color:var(--action); padding:.25rem .55rem; min-height:2rem; min-width:2.2rem; }
-    .cg-print:hover { border-color:var(--action); }
-    .cg-print:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    /* ⛔ ".cg-print" retirada: era un <button> con la impresora adentro, con su borde, su hover
+       y su anillo a mano. Hoy es un p-button redondo de icono. */
     /* CS.3.11 — panel de conciliación caja chica vs cajero (CAOS). */
     .cg-conc { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .8rem;
       display:flex; flex-direction:column; gap:.3rem; max-width:34rem; }
@@ -266,7 +267,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     /* [CG.26] El cierre de la jornada reusa el mismo panel, en dos columnas: nuestro libro y el
        cajero. Se ensancha porque ahora lleva la tabla de tipos del cajero, que antes no existia. */
     /* [CG.27] La lista de recurrentes sin regla. */
-    .cg-rec .cg-tbl td { vertical-align:top; }
+    .cg-rec td { vertical-align:top; }
     .cg-cv { font-size:var(--fs-xs); color:var(--text-soft); }
     .cg-cv-fijo { color:var(--ok-fg, var(--action)); font-weight:600; }
     /* ⛔ [CG.34] LOS DOS SUBTITULOS SALIAN PEGADOS: "...de esta jornada2,777 conceptos de 2,954".
@@ -304,19 +305,12 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     /* [CG.32] El renglon que queda cuando el cuadre esta plegado. */
     .cg-conc-plegado { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
       font-size:var(--fs-sm); color:var(--text-muted); padding:.2rem 0 .1rem; }
-    /* ⚠️ Checklist 11: en touch, >=44px. La clase cg-lim-tog mide ~20px de alto (padding .25rem)
-       y le alcanzaba para ser un "ver mas" opcional -- pero aca es la UNICA forma de abrir el
-       cuadre, asi que un target de 20px lo deja inalcanzable en el telefono. Se agranda SOLO en
-       este uso: tocar la clase compartida cambiaria tambien el boton de los limites.
-       2.75rem = 44px. La regla global de pointer:coarse de styles.css cubre celdas de tabla,
-       no botones. */
-    @media (pointer: coarse) {
-      .cg-conc-plegado .cg-lim-tog { min-height:2.75rem; display:inline-flex; align-items:center; }
-    }
+    /* ⛔ ACA VIVIA ".cg-lim-tog" MAS un @media (pointer: coarse) que le subia el alto a 44px,
+       porque la clase medía ~20px (padding .25rem) y era la UNICA forma de abrir el cuadre en
+       el telefono. Las dos se retiran juntas: el p-button que la reemplaza ya nace con su alto
+       de toque, su anillo de foco y su hover. Es exactamente el tipo de regla que PrimeNG-first
+       evita tener que acordarse de escribir. */
     .cg-kpi-h { margin-top:1.25rem; }
-    .cg-lim-tog { background:none; border:0; padding:.25rem 0; cursor:pointer; text-align:left;
-      color:var(--text-soft); font-size:var(--fs-xs); text-decoration:underline; }
-    .cg-lim-tog:hover { color:var(--action); }
     .cg-conc-lim { margin:.2rem 0 0; padding-left:1.1rem; font-size:var(--fs-xs);
       color:var(--text-soft); display:flex; flex-direction:column; gap:.2rem; }
     .cg-conc-wide { max-width:none; }
@@ -342,16 +336,14 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-credito-head label { margin:0; font-size:var(--fs-sm); color:var(--text-muted); }
     input.cg-vcredito { width:9rem; text-align:right; font-variant-numeric:tabular-nums; padding:.25rem .5rem; }
     .cg-caos-alta { color:var(--action); border-color:var(--action); font-weight:700; }
-    .cg-chip-x { background:none; border:0; cursor:pointer; color:inherit; padding:0 0 0 .25rem; }
     /* CS.3.1c — El billete que la máquina ya contó se ve BLOQUEADO (readonly), no editable. */
     .cg-arqueo-tbl input.cg-pieza:read-only { color:var(--text-muted); cursor:not-allowed;
       background:color-mix(in srgb, var(--border-color) 22%, transparent); }
 
-    /* Fitts en tactil: el dedo no acierta un chip de 24px ni un checkbox de 16. */
-    @media (pointer: coarse) {
-      .cg-chip { min-height:var(--tap-min, 44px); padding:.5rem .9rem; }
-      .cg-check { width:1.4rem; height:1.4rem; }
-    }
+    /* ⛔ Tercer bloque de alto-de-toque retirado. Decia: "Fitts en tactil: el dedo no acierta un
+       chip de 24px ni un checkbox de 16" -- cierto, y por eso la pantalla lo venia parchando en
+       TRES lugares distintos (.cg-chip, .cg-check y .cg-lim-tog). p-button, p-chip y p-checkbox
+       lo traen de serie, y ahi no hay que acordarse. */
 
     /* ⛔ ACA VIVIA UN BUG MUDO. Estos anchos se pedian con styleClass="w-full" / "cg-sel", y
        PrimeNG 22 RETIRO el input styleClass de p-select, p-message, p-table, p-autocomplete y
@@ -520,28 +512,32 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             <div class="cg-conc-col">
               <strong class="cg-conc-sub">Cajero (CAOS) <small class="fin-dim">(la boveda)</small></strong>
               @if (a.cajero; as cj) {
-                <table class="cg-tbl cg-conc-tbl">
-                  <caption class="cg-cap">Movimientos del cajero en la jornada, por tipo</caption>
-                  <thead>
+                <!-- ⚠️ El texto va AFUERA y sigue siendo solo para lector de pantalla. El
+                     "#caption" de p-table NO es un <caption>: lo pinta en .p-datatable-header,
+                     o sea una barra VISIBLE. Estos cuatro rotulos nacieron ocultos a proposito
+                     (describen la tabla, no la titulan), asi que usarlo los habria sacado a la
+                     pantalla sin que nadie lo pidiera. -->
+                <p class="cg-cap">Movimientos del cajero en la jornada, por tipo</p>
+                <p-table [value]="cj.por_tipo" size="small" class="cg-conc-tbl">
+                  <ng-template #header>
                     <tr><th scope="col">Tipo</th><th scope="col" class="ta-r">Movs</th><th scope="col" class="ta-r">Monto</th></tr>
-                  </thead>
-                  <tbody>
-                    @for (t of cj.por_tipo; track t.type_id) {
-                      <tr [class.cg-trabada]="t.desconocido">
-                        <td>
-                          {{ t.etiqueta }}
-                          @if (t.desconocido) {
-                            <small class="fin-hint-warn d-block">Tipo que no conocemos: NO se sumo a ninguna pierna.</small>
-                          }
-                        </td>
-                        <td class="ta-r mono">{{ t.movimientos }}</td>
-                        <td class="ta-r mono">{{ money(t.monto) }}</td>
-                      </tr>
-                    } @empty {
-                      <tr><td colspan="3"><small class="fin-dim">El cajero no se movio en esta jornada.</small></td></tr>
-                    }
-                  </tbody>
-                </table>
+                  </ng-template>
+                  <ng-template #body let-t>
+                    <tr [class.cg-trabada]="t.desconocido">
+                      <td>
+                        {{ t.etiqueta }}
+                        @if (t.desconocido) {
+                          <small class="fin-hint-warn d-block">Tipo que no conocemos: NO se sumo a ninguna pierna.</small>
+                        }
+                      </td>
+                      <td class="ta-r mono">{{ t.movimientos }}</td>
+                      <td class="ta-r mono">{{ money(t.monto) }}</td>
+                    </tr>
+                  </ng-template>
+                  <ng-template #emptymessage>
+                    <tr><td colspan="3"><small class="fin-dim">El cajero no se movio en esta jornada.</small></td></tr>
+                  </ng-template>
+                </p-table>
                 <div class="cg-conc-row"><span>Entra <small class="fin-dim">(deposito + dotar)</small></span>
                   <span class="mono">+ {{ money(cj.entra) }}</span></div>
                 <div class="cg-conc-row"><span>Sale <small class="fin-dim">(dispensar + vaciar)</small></span>
@@ -572,9 +568,12 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           }
           <!-- Abajo y en gris, lo que este cuadre NUNCA va a cubrir. No se esconde: se ordena. -->
           @if (a.limites?.length) {
-            <button type="button" class="cg-lim-tog" (click)="limitesAbiertos.set(!limitesAbiertos())">
-              {{ limitesAbiertos() ? 'Ocultar' : 'Que NO cubre este cuadre' }} ({{ a.limites!.length }})
-            </button>
+            <!-- PrimeNG-first (checklist 3): el alto de toque y el anillo de foco los pone el
+                 componente, no una regla a mano por pantalla. -->
+            <p-button [label]="(limitesAbiertos() ? 'Ocultar' : 'Que NO cubre este cuadre') + ' (' + a.limites!.length + ')'"
+                      [icon]="limitesAbiertos() ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+                      size="small" severity="secondary" [text]="true"
+                      (onClick)="limitesAbiertos.set(!limitesAbiertos())"></p-button>
             @if (limitesAbiertos()) {
               <ul class="cg-conc-lim">
                 @for (m of a.limites!; track m) { <li>{{ m }}</li> }
@@ -638,7 +637,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           <p-message [severity]="b.conteos ? 'info' : 'warn'" class="cg-full">
             {{ textoRestaurado(b) }}
             @if (b.conteos) {
-              <button type="button" class="cg-chip" (click)="descartarBorrador()">Descartar</button>
+              <p-button label="Descartar" icon="pi pi-trash" size="small" severity="secondary"
+                        [text]="true" (onClick)="descartarBorrador()"></p-button>
             }
           </p-message>
         }
@@ -671,28 +671,27 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
               }
             </ul>
           }
-          <table class="cg-tbl">
-            <caption class="sr-only">Movimientos de Kepler pendientes de confirmar en el libro de caja</caption>
-            <thead>
+          <p class="sr-only">Movimientos de Kepler pendientes de confirmar en el libro de caja</p>
+          <p-table [value]="pendientes()" size="small">
+            <ng-template #header>
               <tr>
-                <th scope="col" class="ta-c"><input type="checkbox" class="cg-check" [checked]="todasMarcadas()"
-                                        (change)="marcarTodas($any($event.target).checked)"
-                                        aria-label="Marcar todas las confirmables" /></th>
+                <th scope="col" class="ta-c"><p-checkbox [binary]="true" [ngModel]="todasMarcadas()"
+                                        (ngModelChange)="marcarTodas($event)"
+                                        ariaLabel="Marcar todas las confirmables"></p-checkbox></th>
                 <th scope="col">Fecha</th>
                 <th scope="col"><span class="sr-only">Entra o sale</span></th>
                 <th scope="col">Contraparte</th><th scope="col">Documento</th><th scope="col">Cuenta</th>
                 <th scope="col" class="ta-r">Importe (ERP)</th><th scope="col" class="ta-r">Contado</th>
                 <th scope="col"><span class="sr-only">Capturar a mano</span></th>
               </tr>
-            </thead>
-            <tbody>
-              @for (p of pendientes(); track p.origen_ref) {
+            </ng-template>
+            <ng-template #body let-p>
                 <tr [class.cg-trabada]="!p.confirmable">
                   <td class="ta-c">
-                    <input type="checkbox" class="cg-check" [disabled]="!p.confirmable"
-                           [checked]="estaMarcada(p.origen_ref)"
-                           (change)="marcar(p.origen_ref, $any($event.target).checked)"
-                           [attr.aria-label]="'Confirmar ' + p.doc_tipo + ' ' + p.folio" />
+                    <p-checkbox [binary]="true" [disabled]="!p.confirmable"
+                           [ngModel]="estaMarcada(p.origen_ref)"
+                           (ngModelChange)="marcar(p.origen_ref, $event)"
+                           [ariaLabel]="'Confirmar ' + p.doc_tipo + ' ' + p.folio"></p-checkbox>
                   </td>
                   <td>
                     {{ dmy(p.fecha_valor) }}
@@ -772,9 +771,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                               (onClick)="capturarDesde(p)"></p-button>
                   </td>
                 </tr>
-              }
-            </tbody>
-          </table>
+            </ng-template>
+          </p-table>
 
           <!-- La lista viene TOPADA. Sin esto, un movimiento más allá del tope era invisible y
                nadie lo iba a confirmar nunca: el contador de arriba mentía sobre un conjunto
@@ -866,9 +864,9 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
 
         @if (recAbierto()) {
         @if (recurrentes(); as rc) {
-          <table class="cg-tbl">
-            <caption class="cg-cap">Beneficiarios recurrentes sin regla de clasificacion declarada</caption>
-            <thead>
+          <p class="cg-cap">Beneficiarios recurrentes sin regla de clasificacion declarada</p>
+          <p-table [value]="rc.rows" size="small">
+            <ng-template #header>
               <tr>
                 <th scope="col">Beneficiario</th>
                 <th scope="col" class="ta-r">Pagos</th>
@@ -878,9 +876,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                 <th scope="col" class="ta-r">Sin cobrar</th>
                 <th scope="col"><span class="sr-only">Declarar</span></th>
               </tr>
-            </thead>
-            <tbody>
-              @for (r of rc.rows; track r.beneficiario) {
+            </ng-template>
+            <ng-template #body let-r>
                 <tr>
                   <td>
                     {{ r.beneficiario }}
@@ -918,11 +915,11 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                               (onClick)="declararDesdeRecurrente(r)"></p-button>
                   </td>
                 </tr>
-              } @empty {
-                <tr><td colspan="7"><small class="fin-dim">Ninguno: todos los que repiten tienen su cuenta declarada.</small></td></tr>
-              }
-            </tbody>
-          </table>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="7"><small class="fin-dim">Ninguno: todos los que repiten tienen su cuenta declarada.</small></td></tr>
+            </ng-template>
+          </p-table>
 
           @if (rc.medido.caidos > 0) {
             <!-- [CG.27-B.3] Que un recurrente deje de cobrar es una senial: se fue, o alguien dejo
@@ -987,10 +984,10 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
               <!-- CS.3.8 — re-imprime el comprobante en la térmica (folio nuestro, desglose, concepto,
                    recibido, total, firma). No para los cancelados: su comprobante ya no vale. -->
               @if (m.estado !== 'cancelado') {
-                <button type="button" class="cg-print" (click)="imprimirComprobante(m)"
-                        title="Imprimir comprobante" aria-label="Imprimir comprobante">
-                  <i class="pi pi-print" aria-hidden="true"></i>
-                </button>
+                <p-button icon="pi pi-print" size="small" severity="secondary" [text]="true"
+                          [rounded]="true" title="Imprimir comprobante"
+                          ariaLabel="Imprimir comprobante"
+                          (onClick)="imprimirComprobante(m)"></p-button>
               }
             </td>
           </tr>
@@ -1143,11 +1140,13 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             <label>Lo que más repetís en la sucursal {{ f().sucursal }}</label>
             <div class="cg-chips">
               @for (fr of frecuentes(); track fr.rango) {
-                <button type="button" class="cg-chip" (click)="usarFrecuente(fr)"
-                        [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'">
-                  {{ fr.glosa || fr.kepler_concepto }}
-                  <span class="cg-chip-n">{{ fr.usos }}</span>
-                </button>
+                <!-- El conteo va en el "badge" del propio p-button, no en un <span> con clase
+                     propia: asi el par fondo/texto del contador lo calibra el tema y flipea solo
+                     en oscuro, que es justo lo que esta pantalla venia declarando a mano. -->
+                <p-button [label]="fr.glosa || fr.kepler_concepto" [badge]="fr.usos + ''"
+                          badgeSeverity="secondary" size="small" severity="secondary"
+                          [outlined]="true" (onClick)="usarFrecuente(fr)"
+                          [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'"></p-button>
               }
             </div>
             <small class="fin-dim">Llenan cuenta, concepto y beneficiario. El importe siempre se escribe.</small>
@@ -1172,7 +1171,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             {{ etiquetaConcepto().texto }}
           </small>
           @if (cuentaFuenteDoc()) {
-            <button type="button" class="cg-link" (click)="corregirCuentaDoc()">Corregir la cuenta</button>
+            <p-button label="Corregir la cuenta" icon="pi pi-pencil" size="small"
+                      severity="secondary" [text]="true" (onClick)="corregirCuentaDoc()"></p-button>
           }
         </div>
 
@@ -1205,19 +1205,29 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           <div class="fin-row fin-row-col cg-cajero">
             <div class="cg-cajero-head">
               <label>Del cajero (CAOS)</label>
-              <button type="button" class="cg-link" (click)="buscarEnCajero()" [disabled]="buscandoCajero()">
-                {{ buscandoCajero() ? 'buscando…' : '¿salió del cajero? buscar retiros' }}
-              </button>
+              <!-- El "buscando…" deja de ser un rotulo que se cambia a mano: [loading] pone el
+                   spinner Y desactiva el boton, que es lo que evita la segunda busqueda. -->
+              <p-button label="¿salió del cajero? buscar retiros" icon="pi pi-search" size="small"
+                        severity="secondary" [text]="true" [loading]="buscandoCajero()"
+                        (onClick)="buscarEnCajero()"></p-button>
             </div>
             @if (caosSugeridos().length) {
               <div class="cg-caos-list">
                 @for (c of caosSugeridos(); track c.external_id) {
-                  <button type="button" class="cg-caos-row" (click)="vincularCaos(c)">
-                    <span class="cg-caos-tag" [class.cg-caos-alta]="c.confianza === 'alta'">{{ c.confianza }}</span>
-                    <span class="mono cg-caos-monto">{{ money(c.monto) }}</span>
-                    <span class="fin-dim cg-caos-ref">{{ c.ref || 'sin ref' }} · {{ dmy(c.fecha_valor) }}</span>
-                    <span class="cg-caos-go" aria-hidden="true">agregar →</span>
-                  </button>
+                  <!-- Renglon rico: el contenido va PROYECTADO dentro del p-button (sin label).
+                       El reparto horizontal lo hace un <span> NUESTRO, no el boton de PrimeNG:
+                       asi la regla la agarra el CSS encapsulado y no hace falta ::ng-deep para
+                       entrar al DOM del componente. El ancho completo lo da [fluid]. -->
+                  <p-button severity="secondary" [text]="true" [fluid]="true"
+                            [ariaLabel]="'Agregar el retiro de ' + money(c.monto) + ' del cajero'"
+                            (onClick)="vincularCaos(c)">
+                    <span class="cg-caos-row">
+                      <span class="cg-caos-tag" [class.cg-caos-alta]="c.confianza === 'alta'">{{ c.confianza }}</span>
+                      <span class="mono cg-caos-monto">{{ money(c.monto) }}</span>
+                      <span class="fin-dim cg-caos-ref">{{ c.ref || 'sin ref' }} · {{ dmy(c.fecha_valor) }}</span>
+                      <span class="cg-caos-go" aria-hidden="true">agregar <i class="pi pi-arrow-right"></i></span>
+                    </span>
+                  </p-button>
                 }
               </div>
             }
@@ -1237,9 +1247,11 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             @if (caosVinculados().length) {
               <div class="cg-chips">
                 @for (v of caosVinculados(); track v.external_id) {
-                  <span class="cg-chip cg-caos-in">{{ money(v.monto) }} · {{ v.ref || 's/ref' }}
-                    <button type="button" class="cg-chip-x" (click)="desvincularCaos(v.external_id)" aria-label="Quitar del cajero">✕</button>
-                  </span>
+                  <!-- Esto ES un chip removible: p-chip lo trae con su boton de quitar, su icono
+                       y su foco. Antes era un <span> con un <button> adentro y una "✕" tecleada. -->
+                  <p-chip [label]="money(v.monto) + ' · ' + (v.ref || 's/ref')" class="cg-caos-in"
+                          [removable]="true" removeIcon="pi pi-times"
+                          (onRemove)="desvincularCaos(v.external_id)"></p-chip>
                 }
               </div>
             }
@@ -1282,35 +1294,35 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
               <span class="fin-hint-ok">El cajero ya aportó {{ money(aporteCajero()) }} — contá acá sólo lo que falta o la morralla (arranca en cero).</span>
             }
           </div>
-          <table class="cg-arqueo-tbl">
-            <caption class="cg-cap">Desglose del efectivo por denominación</caption>
-            <thead>
+          <!-- ⛔ Los INPUTS de esta reja se quedan nativos con pInputText, y es una decision
+               medida, no deuda: en un p-inputnumber las flechas INCREMENTAN el valor de a uno y
+               aca las flechas BAJAN POR LA COLUMNA, que es como se cuenta un fajo. Cambiarlas
+               seria cambiar lo contado sin querer. La tabla si pasa a p-table: asi el borde, la
+               cabecera y el flip a oscuro los pone el tema y no una regla a mano por pantalla. -->
+          <p class="cg-cap">Desglose del efectivo por denominación</p>
+          <p-table [value]="billetes" size="small" class="cg-arqueo-tbl">
+            <ng-template #header>
               <tr>
                 <th scope="col">Denominación</th>
                 <th scope="col">Piezas</th>
                 <th scope="col">Importe</th>
               </tr>
-            </thead>
-            <tbody>
-              <!-- Enter y las flechas bajan por la columna, que es como se cuenta un fajo. Y en
-                   un input numerico las flechas INCREMENTAN el valor de a uno, asi que
-                   quitarselas es parte del arreglo, no un efecto colateral: en un arqueo eso es
-                   cambiar lo contado sin querer. Mismo motivo por el que aca va un input nativo
-                   y no p-inputnumber, igual que en la bandeja. -->
-              @for (b of billetes; track b.key) {
-                <tr>
-                  <th scope="row" class="mono">{{ b.label }}</th>
-                  <td>
-                    <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
-                           [ngModel]="piezasDe(b.valor)" (ngModelChange)="setPiezas(b.valor, $event)"
-                           (keydown.enter)="moverEnReja($event, 1)"
-                           (keydown.arrowdown)="moverEnReja($event, 1)"
-                           (keydown.arrowup)="moverEnReja($event, -1)"
-                           [attr.aria-label]="'Piezas de ' + b.label" />
-                  </td>
-                  <td class="mono cg-sub">{{ money(subtotalDe(b.valor)) }}</td>
-                </tr>
-              }
+            </ng-template>
+            <ng-template #body let-b>
+              <tr>
+                <th scope="row" class="mono">{{ b.label }}</th>
+                <td>
+                  <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
+                         [ngModel]="piezasDe(b.valor)" (ngModelChange)="setPiezas(b.valor, $event)"
+                         (keydown.enter)="moverEnReja($event, 1)"
+                         (keydown.arrowdown)="moverEnReja($event, 1)"
+                         (keydown.arrowup)="moverEnReja($event, -1)"
+                         [attr.aria-label]="'Piezas de ' + b.label" />
+                </td>
+                <td class="mono cg-sub">{{ money(subtotalDe(b.valor)) }}</td>
+              </tr>
+            </ng-template>
+            <ng-template #footer>
               <tr>
                 <th scope="row">Morralla</th>
                 <td class="fin-dim cg-na">—</td>
@@ -1324,8 +1336,6 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                          aria-label="Importe de morralla, todas las monedas juntas" />
                 </td>
               </tr>
-            </tbody>
-            <tfoot>
               <tr>
                 <th scope="row">Monto del movimiento</th>
                 <td class="fin-dim cg-na">{{ hayCajero() ? 'cajero + a mano' : 'del conteo' }}</td>
@@ -1334,8 +1344,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                          disabled tabindex="-1" aria-label="Monto del movimiento, calculado del conteo" />
                 </td>
               </tr>
-            </tfoot>
-          </table>
+            </ng-template>
+          </p-table>
         </div>
 
         </div><!-- /cg-col derecha -->
@@ -1348,8 +1358,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
              la persona tiene el beneficiario delante y acaba de elegir la cuenta. -->
         @if (puedeDeclararRegla()) {
           <label class="fin-row cg-declara">
-            <input type="checkbox" class="cg-check" [checked]="declararRegla()"
-                   (change)="declararRegla.set($any($event.target).checked)" />
+            <p-checkbox [binary]="true" [ngModel]="declararRegla()"
+                        (ngModelChange)="declararRegla.set($event)"></p-checkbox>
             <span>
               De ahora en adelante, <strong>{{ f().beneficiario }}</strong> va a
               <span class="mono">{{ f().kepler_cuenta }} / {{ f().kepler_concepto }}</span>.
@@ -1433,30 +1443,30 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
              importes se calculan, y las flechas bajan por la columna en vez de incrementar el
              valor. La clase es distinta ("cg-pieza-corte") a proposito: el foco de este dialogo
              no puede saltar a los inputs del otro. -->
-        <table class="cg-arqueo-tbl">
-          <caption class="cg-cap">Desglose del efectivo del corte</caption>
-          <thead>
+        <p class="cg-cap">Desglose del efectivo del corte</p>
+        <p-table [value]="billetes" size="small" class="cg-arqueo-tbl">
+          <ng-template #header>
             <tr>
               <th scope="col">Denominación</th>
               <th scope="col">Piezas</th>
               <th scope="col">Importe</th>
             </tr>
-          </thead>
-          <tbody>
-            @for (b of billetes; track b.key) {
-              <tr>
-                <th scope="row" class="mono">{{ b.label }}</th>
-                <td>
-                  <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric"
-                         [ngModel]="piezasCorteDe(b.valor)" (ngModelChange)="setPiezasCorte(b.valor, $event)"
-                         (keydown.enter)="moverEnRejaCorte($event, 1)"
-                         (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
-                         (keydown.arrowup)="moverEnRejaCorte($event, -1)"
-                         [attr.aria-label]="'Piezas de ' + b.label" />
-                </td>
-                <td class="mono cg-sub">{{ money(subtotalCorteDe(b.valor)) }}</td>
-              </tr>
-            }
+          </ng-template>
+          <ng-template #body let-b>
+            <tr>
+              <th scope="row" class="mono">{{ b.label }}</th>
+              <td>
+                <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric"
+                       [ngModel]="piezasCorteDe(b.valor)" (ngModelChange)="setPiezasCorte(b.valor, $event)"
+                       (keydown.enter)="moverEnRejaCorte($event, 1)"
+                       (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
+                       (keydown.arrowup)="moverEnRejaCorte($event, -1)"
+                       [attr.aria-label]="'Piezas de ' + b.label" />
+              </td>
+              <td class="mono cg-sub">{{ money(subtotalCorteDe(b.valor)) }}</td>
+            </tr>
+          </ng-template>
+          <ng-template #footer>
             <tr>
               <th scope="row">Morralla</th>
               <td class="fin-dim cg-na">—</td>
@@ -1470,8 +1480,6 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                        aria-label="Importe de morralla, todas las monedas juntas" />
               </td>
             </tr>
-          </tbody>
-          <tfoot>
             <tr>
               <th scope="row">Contado</th>
               <td class="fin-dim cg-na">del conteo</td>
@@ -1480,8 +1488,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                        disabled tabindex="-1" aria-label="Total contado, calculado del conteo" />
               </td>
             </tr>
-          </tfoot>
-        </table>
+          </ng-template>
+        </p-table>
         @if (revelado() && revelado()!.veredicto !== 'cuadra' && puedeRecontar()) {
           <div class="fin-row">
             <label for="cg-motivo">Motivo del reconteo</label>

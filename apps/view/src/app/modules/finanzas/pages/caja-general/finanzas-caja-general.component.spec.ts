@@ -422,7 +422,15 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(input!.disabled).toBe(false);
 
     // Y el checkbox SÍ sigue deshabilitado: confirmar sin cuenta declarada no se puede.
-    const check: HTMLInputElement | null = fixture.nativeElement.querySelector('tbody input.cg-check');
+    //
+    // ⚠️ [CG.36] El selector era 'tbody input.cg-check' y dejó de existir cuando la casilla
+    // nativa pasó a <p-checkbox>. Lo que se afirma NO cambió —la fila trabada no se puede
+    // marcar—; cambió de qué está hecho el control, así que se le pregunta al input real que
+    // PrimeNG renderiza adentro. La prueba fue la que encontró el cambio: ningún gate ni el
+    // compilador ven un selector de CSS que se quedó sin DOM.
+    const check: HTMLInputElement | null =
+      fixture.nativeElement.querySelector('tbody p-checkbox input[type="checkbox"]');
+    expect(check).not.toBeNull();
     expect(check!.disabled).toBe(true);
   });
 
