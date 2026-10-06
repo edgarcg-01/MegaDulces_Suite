@@ -99,12 +99,14 @@ Y se actualiza el símbolo al avanzar:
 > corre en **una laptop**. La base de Railway de Mega Talento la comparten **otros cuatro sistemas**. La
 > rama local de Mega Talento lleva 103 commits fuera de GitHub; el bot sí está respaldado.
 
-- [ ] **[RH.0.1]** ⬜ Respaldo: rama de Mega Talento a GitHub (103 commits). El bot ya está al día con GitHub (verificado 2026-10-06).
+- [x] **[RH.0.1]** ✅ 2026-10-06 Respaldo: rama `horarios-incidencias` de Mega Talento en GitHub (repo privado; 0/0 contra el remoto), verificado antes de subir que el commit viejo con contraseña NO está en su historia. El bot ya estaba al día con GitHub. La carpeta del agente de relojes no cambió de rama.
 - [ ] **[RH.0.2]** ⬜ ADR-084 aprobado (persona = `identity.users`; un solo lector; carga única verificada; `hr.*`/`talent.*`/`whatsapp.*`; orden; portal público).
 - [ ] **[RH.0.3]** ⬜ Un solo lector de relojes: medir desde `md` TCP 4370 a los 12 (hoy los lee una laptop) y retirar del código los otros tres lectores.
 - [ ] **[RH.0.4]** ⬜ Mapeos validados por RH: 41 departamentos, puestos, plazas → `warehouse_code`, 73 homónimos (`[CH.0.8]`).
 - [ ] **[RH.0.5]** ⬜ Inventario de uso con RH (qué pantallas y funciones del bot se usan).
 - [ ] **[RH.0.6]** ⬜ Cerrar en Mega Talento los endpoints sin autenticación (D7).
+- [ ] **[RH.1.1]** 🧪 Capa de datos de asistencia en la rama `feat/rh-asistencia-datos` (sin aplicar en ningún lado): 3 migraciones `20261007100000/110000/120000` — sitios de checado (el sitio NO es el almacén: corporativo y CEDIS son el 00 y sus códigos chocarían), relojes, órdenes al reloj, lotes crudos, horarios, horario confirmado, reglas y alertas, revisiones, incidencias (6 estados, separación de funciones), bitácora de sólo agregar, cierre jueves→miércoles. Candado `test-newdb-hr-asistencia-datos.js` 48/48 en `platform_local` dentro de una transacción que se deshace. Espera la aprobación de ADR-084.
+- [ ] **[RH.0.4]** 🔨 Propuesta de mapeos lista para RH (11 sitios → almacén, 40 departamentos → 21, puesto por defecto por departamento). ⚠️ Medido: 485 de 488 activos NO tienen puesto en Mega Talento y el «departamento» mezcla áreas con plazas; 101 son promotoras (¿empleadas o de la marca?).
 - [ ] **[RH.1]** ⬜ Asistencia en la Suite (`hr.*`, ingesta con llave, agente en `md`, personas, horarios y alertas, incidencias, cierre semanal, pantallas, corte).
 - [ ] **[RH.2]** ⬜ Reclutamiento (`talent.*`, API, pantallas, portal público con token firmado).
 - [ ] **[RH.3]** ⬜ Bot de reclutamiento en `libs/whatsapp` + corte conjunto con RH.2.
