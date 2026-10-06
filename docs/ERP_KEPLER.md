@@ -617,6 +617,39 @@ pasar, no una carreta. Ninguna carreta real (p. ej. 52) aparece entre los valore
 **Sucursal ≠ tienda.** Los pedidos `SUCURSAL` van a clientes internos de tres clases: `TI00x`
 (tiendas), `RD 50x` (reparto directo) y `RUTA nn`. Nacen `AUTORIZADO` (nunca `CREADO`). Fase GP.
 
+### 3.y.2 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06)
+
+Pantalla *Catálogo de productos › Estructura de Unidades para POS*: tres unidades (Base / Dos /
+Tres), cada una con **tres casillas de código**. Anclado a capturas de `78158` (LECHITA SANTA
+CLARA) y `06001` (CHOC SNICKERS /6), sucursal 01, cada código ubicado en `kdii`:
+
+| Unidad | Nombre · factor | Casilla 1 | Casilla 2 | Casilla 3 |
+|---|---|---|---|---|
+| Base | `c11` · 1 | `c7` | `c93` | **`c102`** ⭐ nuevo |
+| Dos | `c80` · `c81` | `c82` | `c95` | **`c96`** ⭐ corregido |
+| Tres | `c83` · `c84` | `c85` | sin decodificar | sin decodificar |
+
+⛔ **Dos correcciones al decode que usan el verificador (`kp.service.ts`) y `barcode-compute.js`:**
+1. **`c102` no estaba**: es la tercera casilla de la unidad base (`7501055377213`, `7502271917405`).
+2. **`c96` SÍ es un código**: la tercera casilla de la unidad dos (`7502271917412` en el 06001).
+   Se había descartado como "código interno" porque a veces trae cosas como `CB2383139`, pero es
+   una casilla libre: el valor depende de lo que se capturó.
+
+Las casillas 2 y 3 de la unidad tres venían vacías en las dos capturas: **quedan sin decodificar**.
+
+**Cobertura medida** (renglones de pedido `U-D-40` embarcados en PH, 21 días, según la unidad en
+que se pidió y si esa unidad tiene un EAN de 8–14 dígitos en alguna de sus casillas):
+
+| Unidad pedida | Renglones | Con EAN |
+|---|---|---|
+| Base | 6,888 | 94% |
+| Dos | 2,739 | 51% |
+| Tres (caja) | 2,366 | **1%**: el 99% sólo trae `C`+clave (`C06001`), código interno sin etiqueta del proveedor |
+
+⚠️ La tabla `catalog.product_barcodes` (importer `import-product-barcodes.js`) **no es la fuente**:
+es un importer, contra la regla principal. Para escanear se lee `kdii` **de la misma sucursal**,
+igual que el verificador.
+
 ---
 
 ### 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto

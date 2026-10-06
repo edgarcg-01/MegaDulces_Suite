@@ -334,7 +334,10 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
    en este mismo catálogo**) · zonas especiales (p. ej. fresco), que **sí existen** según Francisco.
 4. **Formato de código: el que ya usa el piso** (Francisco, 2026-10-06). La propuesta inicial
    (`B03-05-2` pasillo-rack-nivel) **se descarta**: la numeración física ya existe y es más simple.
-   - **Bodega `B01`…`B99`** y **tienda `T01`…`T99`**, consecutivos. Cada código es una
+   - **Bodega `B01`, `B02`…** y **tienda `T01`, `T02`…**, consecutivos y **sin tope en 99**
+     (Francisco amplió el rango, 2026-10-06): 4 pasillos en planta baja y 4 en planta alta de 15
+     secciones dan 120, así que hay `B100` en adelante. **Se ordena por número, no por texto**
+     (para que `B100` vaya después de `B99`). Cada código es una
      **sección**; no hay nivel ni posición dentro del código.
    - **El pasillo se deduce del número**, en bloques de 15: pasillo 1 = `B01`–`B15`, pasillo 2 =
      `B16`–`B30`, **pasillo superior 1** = `B31`–`B45`, y así consecutivamente.
@@ -373,6 +376,6 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
 | U4 | Después de "pasillo superior 1" (`B31`–`B45`), ¿`B46`–`B60` es pasillo 3 de planta baja o superior 2? ¿Cuántos pasillos hay arriba y abajo en PH? | Censo (WMS.3) |
 | U5 | ¿La tienda también va en bloques de 15 por pasillo (`T01`–`T15`…)? ¿Cuántas secciones `T` tiene PH? | Censo (WMS.3) |
 | ~~U6~~ | ✅ Sí se renombran: espacios de espera de checado y embarque = `E01`, `E02`… | — |
-| U7 | PH tiene 4 pasillos en planta baja y 4 en planta alta, pero "superior 1 = `B31`–`B45`" y 8 × 15 = 120 > 99 no cuadran: falta la tabla de rangos por pasillo (bodega y tienda) | Censo (WMS.3) |
-| U8 | Los 160 renglones de pedido con peso decimal: ¿dónde se pesan si la báscula está sólo en cajas? | Checado (GP.4) |
+| ~~U7~~ | ✅ Se amplía el rango (`B100`+). Los rangos de cada pasillo se capturan en la pantalla de ubicaciones (planta, pasillo, desde, hasta), no bloquean: el orden de surtido es el número | — |
+| ~~U8~~ | ✅ El checado tiene báscula; ahí se cobra el peso exacto | — |
 | U3 | ¿Cómo sabe hoy el anaquelista qué subir? (recorrido, lista, a ojo) | Reposición (WMS.7) |

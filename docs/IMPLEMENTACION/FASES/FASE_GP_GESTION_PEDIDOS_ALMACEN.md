@@ -283,6 +283,32 @@ vista derivada sobre `kepler_ods`, nunca copia.
 
 ---
 
+## 5a. El checado es por escaneo (Francisco, 2026-10-06)
+
+**El checador "rastrilla"**: escanea cada artículo y la Suite lo registra contra el pedido. El
+código dice **qué producto y en qué unidad** (pieza, paquete o caja; decode completo en
+[`ERP_KEPLER.md` §3.y.2](../../ERP_KEPLER.md)), así que un escaneo del paquete cuenta un paquete y
+uno de la caja cuenta una caja.
+
+**Lo que la pantalla hace con cada escaneo:**
+- Suma en la unidad del código y lo convierte a la unidad del pedido con el factor de `kdii`.
+- **Producto que no va en el pedido** → alerta inmediata ("no va en este pedido").
+- **Más de lo pedido** → alerta en ese renglón.
+- Al terminar, lista **sólo lo que no cuadra**: faltantes, sobrantes y productos ajenos.
+
+**El hueco medido: las cajas casi no tienen código.** En PH, el 94% de lo que se pide en pieza y
+el 51% de lo que se pide en paquete tiene EAN, pero **sólo el 1% de lo que se pide en caja**: el
+resto únicamente trae el código interno `C`+clave, que no viene impreso en la caja del proveedor.
+Dos salidas, en este orden:
+1. **Ya:** escanear **cualquier** código del producto (el de la pieza basta) y teclear cuántas cajas.
+2. **Después:** imprimir la etiqueta `C06001` al recibir o al surtir, reusando la impresión de
+   etiquetas que ya existe (`/tienda/etiquetas`).
+
+**Productos que se venden por kilo:** el checado tiene báscula y **ahí se cobra el peso exacto**
+(Francisco, 2026-10-06). Es lo que explica los 160 renglones con peso decimal de PH (p. ej. 6.14 kg).
+El checador escanea el producto y **captura el peso** de la báscula; la pantalla lo pide sólo en
+los productos cuya unidad de venta es `KG`.
+
 ## 5b. Relación con la Fase WMS (descubierta 2026-10-06)
 
 [`FASE_WMS`](FASE_WMS.md) ya planeaba la salida del almacén (WMS.5 surtido, WMS.6 checado) y las
