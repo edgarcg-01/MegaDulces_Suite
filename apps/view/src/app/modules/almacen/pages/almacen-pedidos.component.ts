@@ -9,6 +9,7 @@ import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
+import { CheckboxModule } from 'primeng/checkbox';
 import type { WarehouseOrderDetail, WarehouseOrderRow, WarehouseOrdersResponse } from '@megadulces/contracts';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { money } from '../../../shared/util/money.util';
@@ -26,6 +27,8 @@ const ESTATUS: Record<string, { label: string; sev: Sev }> = {
   EMBARCADO: { label: 'Embarcado', sev: 'success' },
 };
 const ORIGEN: Record<string, string> = { TELEMARK: 'Telemarketing', SUCURSAL: 'Sucursal' };
+/** Lo que ya le toca al almacén: todo menos Creado, que aún no está autorizado. */
+const ESTATUS_DE_ALMACEN = ['AUTORIZADO', 'SURTIDO', 'CHECADO', 'EMBARCADO'];
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -50,7 +53,7 @@ const dmy = (v: string | null | undefined): string => {
   selector: 'app-almacen-pedidos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, InputTextModule, TagModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, InputTextModule, TagModule, CheckboxModule, MetricStripComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -95,6 +98,10 @@ const dmy = (v: string | null | undefined): string => {
                 }
               </div>
               <div class="gp-filters">
+                <label class="gp-check" title="Esconde los pedidos Creado: todavía no están autorizados para el almacén">
+                  <p-checkbox [binary]="true" inputId="gp-autorizados" [ngModel]="soloAutorizados()" (ngModelChange)="toggleAutorizados($event)" />
+                  <span>Sólo autorizados en adelante</span>
+                </label>
                 <p-select [options]="origenOpts" optionLabel="label" optionValue="value" [ngModel]="origen()" (onChange)="pickOrigen($event.value)" ariaLabel="Origen" appendTo="body" class="gp-sel" />
                 @if (sucursalOpts().length > 2) {
                   <p-select [options]="sucursalOpts()" optionLabel="label" optionValue="value" [ngModel]="sucursal()" (onChange)="pickSucursal($event.value)" ariaLabel="Sucursal" appendTo="body" class="gp-sel" />
@@ -209,6 +216,7 @@ const dmy = (v: string | null | undefined): string => {
     .gp-chip { height:2rem; padding:0 .65rem; border:1px solid var(--border-color); border-radius:999px; background:var(--card-bg); color:var(--text-main); font:inherit; font-size:var(--fs-xs); display:inline-flex; align-items:center; gap:.35rem; cursor:pointer; }
     .gp-chip.on { background:var(--text-main); border-color:var(--text-main); color:var(--card-bg); }
     .gp-filters { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; }
+    .gp-check { display:inline-flex; align-items:center; gap:.45rem; height:2.25rem; padding:0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-sm); font-size:var(--fs-sm); cursor:pointer; white-space:nowrap; }
     :host ::ng-deep .gp-sel { min-width:9.5rem; }
     .gp-q { min-width:14rem; height:2.25rem; }
     .gp-detail { position:sticky; top:.5rem; }
@@ -266,6 +274,7 @@ export class AlmacenPedidosComponent implements OnInit {
   readonly estatus = signal<string | null>(null);
   readonly origen = signal<string | null>(null);
   readonly sucursal = signal<string | null>(null);
+  readonly soloAutorizados = signal(false);
   readonly q = signal('');
 
   readonly loading = signal(false);
@@ -325,19 +334,26 @@ export class AlmacenPedidosComponent implements OnInit {
   }
 
   pickEstatus(e: string | null): void { this.estatus.set(this.estatus() === e ? null : e); this.reload(); }
+  /** Con la casilla puesta, elegir "Creado" no tiene sentido: se quita ese filtro en vez de dejar la lista vacía. */
+  toggleAutorizados(v: boolean): void {
+    this.soloAutorizados.set(v);
+    if (v && this.estatus() && !ESTATUS_DE_ALMACEN.includes(this.estatus() as string)) this.estatus.set(null);
+    this.reload();
+  }
   pickOrigen(o: string | null): void { this.origen.set(o); this.reload(); }
   pickSucursal(s: string | null): void { this.sucursal.set(s); this.reload(); }
   onQ(v: string): void { this.q$.next(v); }
 
-  hayFiltros(): boolean { return !!(this.estatus() || this.origen() || this.sucursal() || this.q()); }
+  hayFiltros(): boolean { return !!(this.estatus() || this.origen() || this.sucursal() || this.q() || this.soloAutorizados()); }
   limpiar(): void {
-    this.estatus.set(null); this.origen.set(null); this.sucursal.set(null); this.q.set('');
+    this.estatus.set(null); this.origen.set(null); this.sucursal.set(null); this.q.set(''); this.soloAutorizados.set(false);
     this.reload();
   }
 
   private filtro(): AlmacenPedidosFiltro {
     const f: AlmacenPedidosFiltro = {
-      estatus: this.estatus() ? [this.estatus() as string] : [],
+      // Un botón de estatus elegido manda; si no, la casilla limita a los cuatro de almacén.
+      estatus: this.estatus() ? [this.estatus() as string] : this.soloAutorizados() ? [...ESTATUS_DE_ALMACEN] : [],
       origen: this.origen(),
       sucursal: this.sucursal(),
       q: this.q() || null,
