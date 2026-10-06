@@ -14,7 +14,10 @@ import { armarRespuesta, type CorteCrudo } from './cortes-sucursales.engine';
  *             entre fechas (Hidalgo caja 1 folio 93 aparece 22-sep, 28-sep y 2-oct): se casa con
  *             la fecha más cercana dentro de ±3 días, nunca con cualquiera.
  *
- * Costo medido en prod (2026-10-05): un mes completo, 110 cortes, 421 ms.
+ * Costo medido en prod (2026-10-05): un mes completo, 106 cortes, 630-750 ms en caliente; casi todo
+ * el tiempo es la vista analytics.erp_collections (forma de pago del cobro).
+ * Replica cruzada (un corte de otra plaza en la replica de esta): medido 0 en las 8 sucursales;
+ * igual se filtra c1 = sucursal para que el dia que aparezca no fabrique un corte fantasma.
  * `kepler_ods.*` no tiene tenant ni RLS; `analytics.*` sin RLS → filtro tenant explícito.
  */
 const SQL = `
@@ -30,15 +33,16 @@ WITH co AS (
          round(e.c11::numeric, 2)                               AS monto
     FROM kepler_ods.kdue e
    WHERE btrim(e.c2) = 'CONTADO' AND e.c29 = 'C' AND e.c4 = 23 AND e.c5 = 1
+     AND btrim(e.c1) = e.sucursal                 -- el documento es de SU plaza (filtro canonico, Fase PO)
      AND e.c7 >= ?::date AND e.c7 < (?::date + 1)
-   ORDER BY e.sucursal, btrim(e.c6), (btrim(e.c1) = e.sucursal) DESC
+   ORDER BY e.sucursal, btrim(e.c6)
 ),
 ap AS (
   SELECT DISTINCT btrim(m.c1) AS sucursal, btrim(m.c11) AS corte_folio,
          'U' || btrim(m.c3) || lpad(btrim(m.c4::text), 2, '0') || lpad(btrim(m.c5::text), 2, '0') AS doc_prefix,
          btrim(m.c6) AS folio, round(m.c13::numeric, 2) AS monto
     FROM kepler_ods.kdm5 m
-   WHERE m.c2 = 'U' AND btrim(m.c8) = 'D' AND btrim(m.c9::text) = '23' AND btrim(m.c10::text) = '1'
+   WHERE m.c2 = 'U' AND btrim(m.c1) = m.sucursal AND btrim(m.c8) = 'D' AND btrim(m.c9::text) = '23' AND btrim(m.c10::text) = '1'
      AND btrim(m.c1) IN (SELECT DISTINCT sucursal FROM co)
 )
 SELECT co.sucursal, co.folio, co.fecha, co.referencia, co.caja, co.turno, co.monto,

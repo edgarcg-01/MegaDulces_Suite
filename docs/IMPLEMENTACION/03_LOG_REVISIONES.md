@@ -14,7 +14,7 @@
 
 **Verificado:** reproduce al centavo las dos pantallas de Kepler que trajo Francisco (Alta de cobro
 de Zamora Centro: 10 documentos, saldo $194,188.12; y el cobro `UA0501-0000003`). Servicio
-ejecutado contra prod en solo lectura: oct-2026, 105 cortes en ~430 ms. Motor con 9 pruebas, y la
+ejecutado contra prod en solo lectura: oct-2026, 106 cortes en 630–750 ms en caliente. Motor con 10 pruebas, y la
 negativa ("sin arqueo nunca cuadra") rompe al mutar la regla. Compuertas estáticas en verde.
 **No verificado:** la pantalla en el navegador (no se levanta la app en local, regla 2026-10-02).
 

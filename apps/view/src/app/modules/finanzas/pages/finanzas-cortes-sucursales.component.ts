@@ -83,7 +83,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
           <div class="cs-note" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i><span>El corte de caja POS en Kepler arrancó el <b>01/10/2026</b>. Antes de esa fecha casi no hay cortes; un periodo anterior se ve vacío por eso, no porque no haya habido venta.</span></div>
         }
 
-        <app-metric-strip [items]="kpis(d)" ariaLabel="Resumen de cortes del periodo" />
+        <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de cortes del periodo" />
 
         <section class="cs-block dt-scope" aria-labelledby="cs-h-suc">
           <div class="cs-bh"><h2 id="cs-h-suc">Por sucursal</h2>
@@ -184,31 +184,31 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-actions { display:flex; gap:.5rem; align-items:center; }
     .cs-filters { display:flex; flex-wrap:wrap; gap:.8rem; align-items:flex-end; margin:.4rem 0 .6rem; }
     .cs-field { display:flex; flex-direction:column; gap:.25rem; }
-    .cs-field label { font-size:.68rem; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); }
+    .cs-field label { font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); }
     :host ::ng-deep .cs-sel { min-width:11rem; }
     .cs-toggle { align-items:flex-start; }
-    .cs-periodo { margin:.2rem 0 .4rem; font-size:.78rem; color:var(--text-muted); }
-    .cs-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:.82rem; }
+    .cs-periodo { margin:.2rem 0 .4rem; font-size:var(--fs-xs); color:var(--text-muted); }
+    .cs-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
     .cs-note .pi { color:var(--text-muted); margin-top:.15rem; }
     app-metric-strip { display:block; margin:.6rem 0; }
     .cs-block { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; margin-bottom:1rem; }
     .cs-bh { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem; padding:.6rem .85rem; border-bottom:1px solid var(--border-color); }
-    .cs-bh h2 { font-size:.95rem; font-weight:700; margin:0; }
-    .cs-hint { font-size:.76rem; color:var(--text-muted); margin:0; }
+    .cs-bh h2 { font-size:var(--fs-h3); font-weight:700; margin:0; }
+    .cs-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:0; }
     .cs-pad { padding:.5rem .85rem 0; }
     .cs-link { background:none; border:0; padding:0; color:var(--action); cursor:pointer; font:inherit; text-decoration:underline; }
     .cs-split { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:1rem; align-items:start; }
-    @media (max-width:1100px) { .cs-split { grid-template-columns:minmax(0,1fr); } }
+    @media (max-width:68.75rem) { .cs-split { grid-template-columns:minmax(0,1fr); } }
     .cs-detail { position:sticky; top:.5rem; }
     .cs-step { padding:.7rem .85rem; border-top:1px solid var(--border-color); }
     .cs-step:first-of-type { border-top:0; }
-    .cs-step h3 { display:flex; align-items:center; gap:.45rem; font-size:.82rem; font-weight:700; margin:0 0 .45rem; }
-    .cs-n { display:inline-grid; place-items:center; width:1.3rem; height:1.3rem; border-radius:50%; background:var(--hover-bg); font-size:.7rem; }
-    .cs-row { display:flex; justify-content:space-between; gap:.8rem; font-size:.8rem; padding:.22rem 0; border-bottom:1px dashed var(--border-color); }
+    .cs-step h3 { display:flex; align-items:center; gap:.45rem; font-size:var(--fs-sm); font-weight:700; margin:0 0 .45rem; }
+    .cs-n { display:inline-grid; place-items:center; width:1.3rem; height:1.3rem; border-radius:50%; background:var(--hover-bg); font-size:var(--fs-micro); }
+    .cs-row { display:flex; justify-content:space-between; gap:.8rem; font-size:var(--fs-sm); padding:.22rem 0; border-bottom:1px dashed var(--border-color); }
     .cs-row span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; }
     .cs-tot { font-weight:600; border-bottom:0; }
-    .cs-mini { width:100%; border-collapse:collapse; font-size:.8rem; margin-bottom:.4rem; }
-    .cs-mini th { font-size:.66rem; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); font-weight:600; padding:.2rem 0; text-align:left; }
+    .cs-mini { width:100%; border-collapse:collapse; font-size:var(--fs-sm); margin-bottom:.4rem; }
+    .cs-mini th { font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); font-weight:600; padding:.2rem 0; text-align:left; }
     .cs-mini td { padding:.2rem 0; border-bottom:1px dashed var(--border-color); }
     .cs-mini tr.cs-tot td { border-bottom:0; }
     .ta-r { text-align:right !important; }
@@ -216,11 +216,11 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-strong { font-weight:600; }
     .cs-bad { color:var(--bad-fg); }
     .muted { color:var(--text-muted); }
-    :host ::ng-deep .cs-tag { font-size:.64rem; margin-right:.25rem; }
+    :host ::ng-deep .cs-tag { font-size:var(--fs-nano); margin-right:.25rem; }
     .cs-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
-    .cs-errbox .pi { color:var(--bad-fg); } .cs-errbox-txt { flex:1; font-size:.84rem; }
+    .cs-errbox .pi { color:var(--bad-fg); } .cs-errbox-txt { flex:1; font-size:var(--fs-sm); }
     .cs-empty { display:flex; flex-direction:column; align-items:center; gap:var(--sp-2); padding:var(--sp-6); text-align:center; color:var(--text-muted); }
-    .cs-empty .pi { font-size:1.3rem; }
+    .cs-empty .pi { font-size:var(--fs-lg); }
   `],
 })
 export class FinanzasCortesSucursalesComponent implements OnInit {
@@ -258,6 +258,7 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
     const s = this.selSuc();
     return d.cortes.filter((c) => (!s || c.sucursal === s.sucursal) && (!this.soloSaldo() || c.saldo > 0.005));
   });
+  readonly kpiItems = computed<MetricStripItem[]>(() => { const d = this.data(); return d ? this.kpis(d) : []; });
   readonly pendienteVisible = computed(() => this.cortes().reduce((t, c) => t + Math.max(c.saldo, 0), 0));
 
   ngOnInit(): void { this.reload(); }

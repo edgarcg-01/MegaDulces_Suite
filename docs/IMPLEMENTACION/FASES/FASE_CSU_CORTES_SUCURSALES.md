@@ -57,14 +57,14 @@ importer ni tabla nueva (regla principal del proyecto).
 ## 4. Filtro de fechas
 
 Mes (por defecto el **mes en curso**, hora de México) o **rango específico** (`from`+`to`), que
-manda sobre el mes. Costo medido: un mes completo, 110 cortes, **~430 ms**.
+manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms en caliente**; el plan usa índice en `kdue`, `kdm5` y `cash_cuts`, y casi todo el tiempo es la vista `analytics.erp_collections` (forma de pago del cobro).
 
 ## 5. Items
 
 - [x] **[CSU.0]** Decode y medición en prod (este documento §2). ✅ 2026-10-05
 - [x] **[CSU.1]** Backend `GET /finance/cortes-sucursales` (`libs/finance/src/lib/cortes-sucursales/`),
   contrato `cortes-sucursales.contract.ts`, permiso `FINANCE_CORTES_VER` + migración
-  `20261005190000` que lo reparte calcando `FINANCE_INCOME_VER` (11 roles). Motor puro con 9
+  `20261005200000` que lo reparte calcando `FINANCE_INCOME_VER` (11 roles). Motor puro con 10
   pruebas, incluida la negativa. 🧪 2026-10-05
 - [x] **[CSU.2]** Pantalla `/finanzas/cortes-sucursales`: resumen, tabla por sucursal, cortes de la
   sucursal y detalle (arqueo esperado/contado por forma de pago + cobros aplicados). Sección nueva
@@ -79,7 +79,7 @@ manda sobre el mes. Costo medido: un mes completo, 110 cortes, **~430 ms**.
 
 ## 6. Pendiente para prod
 
-1. Aplicar la migración `20261005190000_grant_finance_cortes_ver.js` (una por una, como el resto).
+1. Aplicar la migración `20261005200000_grant_finance_cortes_ver.js` (una por una, como el resto).
 2. Redeploy api + view (automático al entrar a `main`).
 3. Re-login de los usuarios para que el permiso llegue al token.
 4. **Validación visual pendiente**: no se levantó la app en local (regla del 2026-10-02); la

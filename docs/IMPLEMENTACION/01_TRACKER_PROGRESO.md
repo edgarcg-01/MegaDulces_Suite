@@ -93,7 +93,7 @@ Y se actualiza el símbolo al avanzar:
 ### Fase CSU — Cortes/Sucursales: corte de caja → cobro → ingreso · 2026-10-05 · plan en [`FASE_CSU`](FASES/FASE_CSU_CORTES_SUCURSALES.md)
 
 - [x] **[CSU.0]** Decode medido en prod: corte `U-D-23` = cargo a `CONTADO` en `kdue` (`c16`=`Caja <caja>-<folio>`), cobros por `kdm5`, arqueo del turno en `analytics.cash_cuts`. El monto del corte es lo **contado**, no lo vendido; el cuadre va por **turno**, no por día. ✅ 2026-10-05
-- [x] **[CSU.1]** `GET /finance/cortes-sucursales` + contrato + `FINANCE_CORTES_VER` (mig `20261005190000`, calca `FINANCE_INCOME_VER`: 11 roles). Motor puro, 9 pruebas con negativa. Mes de oct-2026: 105 cortes, ~430 ms. 🧪 2026-10-05
+- [x] **[CSU.1]** `GET /finance/cortes-sucursales` + contrato + `FINANCE_CORTES_VER` (mig `20261005200000`, calca `FINANCE_INCOME_VER`: 11 roles). Motor puro, 10 pruebas con negativa. Mes de oct-2026: 106 cortes, 630–750 ms en caliente (lo domina la vista `erp_collections`). 🧪 2026-10-05
 - [x] **[CSU.2]** Pantalla `/finanzas/cortes-sucursales` (mes en curso por defecto + rango específico) y sección **Ingresos** en el menú de Finanzas. Validación visual pendiente. 🧪 2026-10-05
 - [ ] **[CSU.3]** Entrega 2 — cobro ↔ estado de cuenta (tarjeta/transferencia). Falta cargar oct-2026 en Bancos.
 - [ ] **[CSU.4]** Entrega 2 — efectivo: Caja Fuerte → Caja General → depósito.
