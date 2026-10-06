@@ -7523,6 +7523,72 @@ fallback sin número para cuando el catálogo no responde — **no se afirma cu�
 
 ---
 
+#### ✅ `[CG.37]` · El calendario, el pliegue y los cuatro naranjas del diálogo — 2026-10-05
+
+Edgar, sobre dos capturas de prod: *«aun existen errores de diseño… por ejemplo el calendario. todo
+debería tratar de mostrarse en la pantalla principal sin hacer scroll. capturar un movimiento satura
+de información y colores»*. Tres cosas, las tres medibles.
+
+**1 · El calendario eran 4 `<input type="date">` nativos.** Los pinta el **sistema operativo**: otro
+alto, otro foco y, en oscuro, un color que no sale de nuestros tokens. Es el antipatrón que
+`DESIGN.md` nombra con todas las letras — *control nativo conviviendo con su equivalente de PrimeNG
+en la MISMA vista*. Pasan a **`p-datepicker`**.
+
+⚠️ **Y el puente entre los dos no es obvio.** La pantalla guarda la fecha como clave `YYYY-MM-DD`
+(es lo que viaja al API) y el calendario habla `Date`. Dos trampas, las dos resueltas con comentario:
+- **`parseLocalDate`, NO `new Date(iso)`** — el parser nativo lee UTC y en México cae al **día
+  anterior** después de las 18:00. Es el gotcha que `mx-date.ts` documenta desde el principio.
+- **La vuelta NO es `toMxDateKey`** — ese helper traduce un *instante* a su día en México; lo que
+  devuelve el calendario no es un instante sino un **día a medianoche local**. Con el navegador
+  fuera de MX lo correría uno hacia atrás. Se leen los componentes locales, que es el inverso exacto.
+- **El `Date` se MEMOIZA por clave.** Un `new Date(...)` evaluado en la plantilla devuelve un objeto
+  nuevo en cada ciclo de detección → `ngModel` ve el modelo cambiado en cada tick y el calendario
+  puede cerrarse **encima de la persona mientras elige**.
+
+**2 · El pliegue: ~155px recuperados, y uno era un error de ubicación.**
+- ⛔ **El título «El libro» y su tira de KPIs estaban 340 líneas ARRIBA de su propia tabla.**
+  `[CG.29]` les había puesto el rótulo correcto —*la tira es del libro, no de la jornada*— pero los
+  dejó donde estaban: justo encima de la bandeja, que es el trabajo. En la captura, los cuatro
+  mosaicos que empujaban la primera fila decían **`$0.00` cuatro veces**. Bajan junto a los
+  renglones que suman. **Reordenar, no rediseñar: no se quita ni un dato.**
+- **Los 3 motivos pasan de tres renglones a uno.** Cada uno llevaba su frase de ~70 caracteres al
+  lado. Lo accionable es **el conteo**; la frase explica el motivo, se lee una vez y no cambia de un
+  día para el otro → se **pliega**, que es el patrón que esta pantalla ya usa dos veces («Ver el
+  cuadre», «Qué NO cubre este cuadre»). ⛔ Plegar **no** es esconderla en un `title`: eso no se
+  alcanza por teclado y `DESIGN.md` lo lista como antipatrón de Operations. Es un botón, y **sólo
+  existe si hay algo que revelar**.
+
+**3 · El diálogo: el naranja significaba CUATRO cosas.** `DESIGN.md` reserva el color de marca para
+CTA, chip activo, badge, «en vivo» y anillo de foco. En el diálogo lo llevaban además **el borde del
+panel del cajero** —la superficie de color más grande de la ventana— y su icono. **Cuando el naranja
+significa cuatro cosas deja de significar «apretá acá»**, y acá el único control que escribe en la
+base es *Guardar*. Panel en neutro; el acento queda para el botón.
+
+⭐ **Y el verde estaba peleado consigo mismo.** Cuatro líneas iban en `fin-hint-ok` siendo
+**explicación, no éxito** («cliente de crédito — auto-rellenado, editable», «El cajero ya aportó…
+contá acá sólo lo que falta»). La prueba de que era inconsistencia y no criterio: **dos de ellas
+tienen una hermana `fin-dim` justo al lado haciendo exactamente el mismo trabajo**. Pasan a `fin-dim`
+(`--text-muted`, 7.03 de contraste medido). Quedan en verde sólo los estados que de verdad lo son.
+
+**Pruebas:** `view` **1839 → 1843** (4 nuevas). Incluye **prueba negativa ejercida**: con el plegado
+roto a propósito (`motivosAbiertos` arrancando en `true`) el test se pone **rojo**, verificado. Y el
+candado de la lección de `[CG.33]`: desplegar el porqué **no mueve ninguna de las otras tres señales
+de diálogo** — ahí nombré `cierreAbierto` sin mirar que ya existía, y como en una clase gana la
+última declaración, el botón nuevo habría abierto el diálogo que **sella el día**.
+Gates: los 7 verdes. Tipos de los bindings nuevos auditados contra el `.d.ts` antes de commitear
+(`onSelect` emite `Date`; `FormularioCajaUI.fecha` es `string`) — la lección de `[CG.36.1]`.
+
+⛔ **Lo que NO puedo afirmar:** los ~155px son **estimados** del template y de las posiciones en la
+captura, no medidos en el DOM — lo desplegado no tiene estos commits y no puedo levantar la app.
+**«Todo sin scroll» no se alcanza** sin quitar información que la persona necesita; lo que sí se
+hizo es subir **el trabajo**, no todo. Lo que queda arriba es el encabezado, el cierre de la jornada
+(con sus dos avisos accionables) y los filtros.
+
+⚠️ **Fuera de alcance, medido:** quedan **33 archivos de la app** con `<input type="date">` nativo —
+5 de ellos en Finanzas. Es patrón de repo, no de esta pantalla.
+
+---
+
 #### ✅ `[CG.36]` · «no se actualizó a los componentes de PrimeNG» — y era cierto: `[CG.35]` tocó 5 piezas sobre 20 — 2026-10-05
 
 Edgar, mirando el resultado de `[CG.35]`: *«no se actualizó a los components de PrimeNG»*. **Tenía
