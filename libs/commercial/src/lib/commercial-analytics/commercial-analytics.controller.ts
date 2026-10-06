@@ -6,6 +6,8 @@ import {
   CommercialAnalyticsService,
   type RouteInventoryReport,
   type RouteInventoryDetail,
+  type RouteCountInput,
+  type RouteCountResult,
 } from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
 import { SellOutExportService } from './sell-out-export.service';
@@ -1078,6 +1080,22 @@ export class CommercialAnalyticsController {
     @Query('to') to?: string,
   ): Promise<RouteInventoryDetail> {
     return this.service.routeInventoryDetail(routeNo, from, to);
+  }
+
+  @Post('route-inventory/count')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_COUNT_REGISTRAR)
+  @ApiOperation({
+    summary:
+      'RD.31 - Registra el CONTEO FISICO de un camion: el ancla. Es lo unico que mata el saldo '
+      + 'que ningun documento explica (Kepler no publica saldo de ruta y no existe documento de '
+      + 'retorno). Medido en la ruta 21 el 2026-10-05: la pantalla publicaba 18,427 y el camion '
+      + 'traia 37,766; el 89% de la diferencia era mercancia que el camion ya traia. '
+      + 'Un conteo RESETEA: lo que no lista queda en CERO. Es el saldo de CIERRE de su dia, los '
+      + 'movimientos entran despues. La fecha la DECLARA quien captura, no el nombre del archivo. '
+      + 'Idempotente por (ruta, fecha): reenviar el mismo dia reemplaza, no acumula.',
+  })
+  registerRouteCount(@Body() body: RouteCountInput): Promise<RouteCountResult> {
+    return this.service.registerRouteCount(body);
   }
 
   @Get('route-inventory/series')

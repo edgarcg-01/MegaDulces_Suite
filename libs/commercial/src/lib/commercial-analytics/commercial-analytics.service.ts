@@ -304,6 +304,47 @@ export interface RouteInventoryDetail {
   truncado: boolean;
 }
 
+/**
+ * `[RD.31]` Un renglón del conteo físico de un camión.
+ *
+ * ⚠️ `unidad` es parte de la llave, no un adorno: el mismo SKU se cuenta en PZA y en PAQ, y
+ * mezclarlos es el error que ADR-055/057 documentan en todo el proyecto.
+ */
+export interface RouteCountLineInput {
+  sku: string;
+  unidad: string;
+  qty: number;
+  descripcion?: string | null;
+  /** El costo que IMPRIME el origen. Alimenta la valuación cuando la ruta no vuelve a cargar. */
+  costo_unitario?: number | null;
+  importe?: number | null;
+}
+
+/** `[RD.31]` El conteo completo. `count_date` la **declara** quien captura, no el archivo. */
+export interface RouteCountInput {
+  route_no: string;
+  count_date: string;
+  lines: RouteCountLineInput[];
+  source?: 'excel' | 'manual' | 'kepler';
+  /** Lo que el papel dice que suma. `null` = no lo declaró; **nunca 0** (ADR-056). */
+  declared_total?: number | null;
+  note?: string | null;
+  counted_by?: string | null;
+  counted_by_username?: string | null;
+}
+
+export interface RouteCountResult {
+  count_id: string;
+  route_no: string;
+  count_date: string;
+  renglones: number;
+  importe_sumado: number;
+  importe_declarado: number | null;
+  /** `null` = el origen no declaró un total, así que **no hay con qué cuadrar**. */
+  cuadra: boolean | null;
+  aviso: string;
+}
+
 export interface RouteInventoryReport {
   desde: string; hasta: string;
   /** El día que la pantalla llama «ayer», resuelto en TZ MX por el servidor, no por el navegador. */
@@ -8188,6 +8229,11 @@ export class CommercialAnalyticsService {
            SELECT l.route_no, l.sku, l.unidad,
                   sum(l.qty)       FILTER (WHERE l.clase='carga') AS cq,
                   sum(l.costo_doc) FILTER (WHERE l.clase='carga') AS cv,
+                  -- [RD.31] El conteo fisico es el ARRANQUE del saldo, no una carga. Viaja en su
+                  -- propia clase para que carga_costo siga diciendo lo que se le SUBIO al camion:
+                  -- sumarlo ahi inflaria el cargado del periodo con mercancia que ya estaba arriba.
+                  sum(l.qty)       FILTER (WHERE l.clase='conteo') AS kq,
+                  sum(l.costo_doc) FILTER (WHERE l.clase='conteo') AS kv,
                   sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
                   sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi,
                   sum(l.costo_erp) FILTER (WHERE l.clase='venta') AS ce,
@@ -8213,7 +8259,10 @@ export class CommercialAnalyticsService {
             * negativo -- donde invertirse es lo correcto.
             */
            SELECT w.*, u.costo_u, u.precio_u, u.origen_costo, u.origen_precio,
-                  coalesce(w.cq,0) - coalesce(w.vq,0) AS saldo
+                  -- [RD.31] saldo = lo contado + lo cargado despues - lo vendido despues. Sin
+                  -- conteo, kq es NULL y la cuenta es la de siempre: la columna no cambia de
+                  -- significado, gana un sumando que hasta hoy no existia.
+                  coalesce(w.cq,0) + coalesce(w.kq,0) - coalesce(w.vq,0) AS saldo
              FROM win w
              LEFT JOIN analytics.mv_rd_route_unit_value u
                ON u.tenant_id = ? AND u.route_no = w.route_no
@@ -8446,34 +8495,51 @@ export class CommercialAnalyticsService {
          SELECT l.sku, l.unidad,
                 sum(l.qty)       FILTER (WHERE l.clase='carga') AS cq,
                 sum(l.costo_doc) FILTER (WHERE l.clase='carga') AS cv,
+                -- [RD.31] el conteo fisico: arranque del saldo, en su propia clase.
+                sum(l.qty)       FILTER (WHERE l.clase='conteo') AS kq,
+                sum(l.costo_doc) FILTER (WHERE l.clase='conteo') AS kv,
                 sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
                 sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi
            FROM analytics.mv_rd_route_ledger l
           WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date >= ? AND l.business_date <= ?
           GROUP BY 1,2
+       ), d AS (
+         -- El saldo y los unitarios se calculan UNA vez. Antes la misma expresion aparecia cinco
+         -- veces y cualquier cambio tenia que acertarle a las cinco; con el conteo serian siete.
+         SELECT w.*,
+                coalesce(w.cq,0) + coalesce(w.kq,0) - coalesce(w.vq,0)        AS saldo,
+                -- El costo del conteo entra DESPUES del de la ruta y ANTES de nada: un producto
+                -- anclado y no vuelto a cargar no tiene carga en la ventana, y sin esto quedaria
+                -- sin valuar justo el dia en que por fin sabemos cuanto trae.
+                coalesce(w.cv / nullif(w.cq,0), w.kv / nullif(w.kq,0))        AS cu,
+                w.vi / nullif(w.vq,0)                                         AS pu
+           FROM win w
        )
-       SELECT w.sku, w.unidad,
-              coalesce(p.description, w.sku)                     AS producto,
-              round(coalesce(w.cq,0),3)::float                   AS qty_carga,
-              round(coalesce(w.vq,0),3)::float                   AS qty_venta,
-              round(coalesce(w.cq,0)-coalesce(w.vq,0),3)::float  AS saldo,
-              round(w.cv / nullif(w.cq,0),4)::float              AS costo_unitario,
-              round(w.vi / nullif(w.vq,0),4)::float              AS precio_unitario,
-              round((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.cv / nullif(w.cq,0)),2)::float  AS saldo_costo,
-              round((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.vi / nullif(w.vq,0)),2)::float  AS saldo_venta,
+       SELECT d.sku, d.unidad,
+              coalesce(p.description, d.sku)                     AS producto,
+              round(coalesce(d.cq,0),3)::float                   AS qty_carga,
+              round(coalesce(d.vq,0),3)::float                   AS qty_venta,
+              round(d.saldo,3)::float                            AS saldo,
+              round(d.cu,4)::float                               AS costo_unitario,
+              round(d.pu,4)::float                               AS precio_unitario,
+              round(d.saldo * d.cu,2)::float                     AS saldo_costo,
+              round(d.saldo * d.pu,2)::float                     AS saldo_venta,
               -- ⚠️ El veredicto COMPONE, no elige. Todo "sin costo" es por construcción negativo
               -- (no hubo carga ⇒ saldo = −vendido), así que un CASE excluyente le quitaba a esas
               -- filas justo la etiqueta que explica por qué están en rojo.
               -- ⛔ Sin acentos graves acá adentro: cierran el template literal, y check:templates
               -- NO mira este archivo (sólo *.component.ts). Lo atrapó el candado, por suerte.
-              CASE WHEN w.cv / nullif(w.cq,0) IS NULL THEN 'sin_costo'
-                   WHEN w.vi / nullif(w.vq,0) IS NULL THEN 'sin_precio'
+              CASE WHEN d.cu IS NULL THEN 'sin_costo'
+                   WHEN d.pu IS NULL THEN 'sin_precio'
                    ELSE 'ok' END                                 AS veredicto,
-              (coalesce(w.cq,0)-coalesce(w.vq,0) < 0)                        AS ya_lo_traia,
+              -- ⚠️ Con un conteo de por medio esto ya NO es "lo traia de antes": el conteo puso el
+              -- arranque en cero y todo lo anterior salio del calculo. Un negativo DESPUES de un
+              -- conteo es un descuadre nuevo, y por eso la columna se apaga cuando hay ancla.
+              (d.saldo < 0 AND coalesce(d.kq,0) = 0)             AS ya_lo_traia,
               count(*) OVER ()::int                              AS _total
-         FROM win w
-         LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = w.sku AND p.deleted_at IS NULL
-        ORDER BY abs(coalesce((coalesce(w.cq,0)-coalesce(w.vq,0)) * (w.cv / nullif(w.cq,0)),0)) DESC
+         FROM d
+         LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = d.sku AND p.deleted_at IS NULL
+        ORDER BY abs(coalesce(d.saldo * d.cu,0)) DESC
         LIMIT ?`,
       [tenantId, ruta, desde, hasta, tenantId, DETALLE_TOPE],
     )).rows).then((filas: (RouteInventoryDetailRow & { _total: number })[]) => {
@@ -8524,8 +8590,14 @@ export class CommercialAnalyticsService {
          -- criterio del resumen: si cada dia resolviera el suyo, un dia sin carga dejaria el
          -- COGS de ese dia en cero y el saldo saltaria sin que nada se haya movido.
          SELECT sku, unidad,
-                sum(costo_doc) FILTER (WHERE clase='carga')
-                  / nullif(sum(qty) FILTER (WHERE clase='carga'),0) AS costo_u,
+                -- [RD.31] El costo del conteo entra despues del de la ruta: una ruta recien
+                -- anclada no tiene carga posterior y sin esto su COGS del dia saldria en cero.
+                coalesce(
+                  sum(costo_doc) FILTER (WHERE clase='carga')
+                    / nullif(sum(qty) FILTER (WHERE clase='carga'),0),
+                  sum(costo_doc) FILTER (WHERE clase='conteo')
+                    / nullif(sum(qty) FILTER (WHERE clase='conteo'),0)
+                )                                                  AS costo_u,
                 sum(venta_doc) FILTER (WHERE clase='venta')
                   / nullif(sum(qty) FILTER (WHERE clase='venta'),0) AS precio_u
            FROM analytics.mv_rd_route_ledger
@@ -8535,6 +8607,11 @@ export class CommercialAnalyticsService {
          SELECT l.business_date,
                 sum(l.qty) FILTER (WHERE l.clase='carga')             AS carga_qty,
                 sum(l.qty) FILTER (WHERE l.clase='venta')             AS venta_qty,
+                -- [RD.31] El conteo NO se suma a "cargado": no se le subio nada al camion ese dia,
+                -- se midio lo que ya traia. Viaja aparte y entra solo al ACUMULADO, que es el saldo.
+                sum(l.qty)              FILTER (WHERE l.clase='conteo') AS conteo_qty,
+                sum(l.costo_doc)        FILTER (WHERE l.clase='conteo') AS conteo_costo,
+                sum(l.qty * u.precio_u) FILTER (WHERE l.clase='conteo') AS conteo_precio,
                 -- Columna COSTO: lo cargado y lo vendido, los dos al costo del embarque.
                 sum(l.costo_doc)        FILTER (WHERE l.clase='carga') AS carga_costo,
                 sum(l.qty * u.costo_u)  FILTER (WHERE l.clase='venta') AS cogs_costo,
@@ -8553,11 +8630,14 @@ export class CommercialAnalyticsService {
               round(coalesce(venta_precio,0),2)::float        AS vendido_venta,
               round(coalesce(carga_qty,0),2)::float           AS cargado_qty,
               round(coalesce(venta_qty,0),2)::float           AS vendido_qty,
-              round(sum(coalesce(carga_qty,0) - coalesce(venta_qty,0))
+              -- [RD.31] El acumulado ARRANCA en el conteo cuando lo hay. Es legible porque el
+              -- ledger ya no publica nada anterior al ancla: el primer punto de la serie ES el dia
+              -- del conteo, y la linea empieza donde el camion de verdad estaba.
+              round(sum(coalesce(carga_qty,0) + coalesce(conteo_qty,0) - coalesce(venta_qty,0))
                     OVER (ORDER BY business_date),2)::float   AS saldo_qty_acum,
-              round(sum(coalesce(carga_costo,0) - coalesce(cogs_costo,0))
+              round(sum(coalesce(carga_costo,0) + coalesce(conteo_costo,0) - coalesce(cogs_costo,0))
                     OVER (ORDER BY business_date),2)::float   AS saldo_costo_acum,
-              round(sum(coalesce(carga_precio,0) - coalesce(venta_precio,0))
+              round(sum(coalesce(carga_precio,0) + coalesce(conteo_precio,0) - coalesce(venta_precio,0))
                     OVER (ORDER BY business_date),2)::float   AS saldo_venta_acum
          FROM d ORDER BY business_date`,
       [tenantId, ruta, desde, hasta, tenantId, ruta, desde, hasta],
@@ -8653,9 +8733,16 @@ export class CommercialAnalyticsService {
     return this.tk.run(async (trx) => (await trx.raw(
       `WITH mov AS (
          SELECT sku, unidad, business_date,
-                sum(CASE WHEN clase='carga' THEN qty ELSE -qty END) AS neto,
-                sum(qty)       FILTER (WHERE clase='carga') AS cq,
-                sum(costo_doc) FILTER (WHERE clase='carga') AS cv
+                -- ⛔ [RD.31] La clase del conteo SUMA, no resta. Con el CASE anterior
+                -- (solo 'carga' suma, ELSE resta) un conteo fisico se habria restado como si
+                -- fuera una venta, y esta pantalla habria marcado en rojo justo los productos
+                -- que alguien acaba de contar ARRIBA del camion. Un tercer valor en una columna
+                -- de clase rompe todo ELSE que la trate como binaria.
+                sum(CASE WHEN clase IN ('carga','conteo') THEN qty ELSE -qty END) AS neto,
+                sum(qty)       FILTER (WHERE clase='carga')  AS cq,
+                sum(costo_doc) FILTER (WHERE clase='carga')  AS cv,
+                sum(qty)       FILTER (WHERE clase='conteo') AS kq,
+                sum(costo_doc) FILTER (WHERE clase='conteo') AS kv
            FROM analytics.mv_rd_route_ledger
           WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
           GROUP BY 1,2,3
@@ -8666,13 +8753,18 @@ export class CommercialAnalyticsService {
          SELECT sku, unidad,
                 sum(neto)                                   AS saldo_final,
                 sum(coalesce(cq,0))                         AS carga_total,
-                sum(cv) / nullif(sum(cq),0)                 AS costo_u,
+                sum(coalesce(kq,0))                         AS conteo_total,
+                coalesce(sum(cv) / nullif(sum(cq),0),
+                         sum(kv) / nullif(sum(kq),0))       AS costo_u,
                 min(business_date) FILTER (WHERE saldo < 0) AS desde
            FROM acum GROUP BY 1,2
        )
        SELECT f.sku, coalesce(p.description, f.sku) AS producto, f.unidad,
               round(f.saldo_final,2)::float             AS saldo,
-              CASE WHEN f.carga_total = 0 THEN 'nunca_cargado' ELSE 'se_acabo' END AS familia,
+              -- Un producto contado SI tiene arranque conocido, aunque nunca se le haya cargado
+              -- despues: ya no es "nunca cargado", es un descuadre posterior al conteo.
+              CASE WHEN f.carga_total = 0 AND f.conteo_total = 0
+                   THEN 'nunca_cargado' ELSE 'se_acabo' END AS familia,
               to_char(f.desde,'YYYY-MM-DD')             AS desde,
               (CURRENT_DATE - f.desde)::int             AS dias_en_rojo,
               round(f.saldo_final * f.costo_u,2)::float AS valor_costo
@@ -8683,6 +8775,124 @@ export class CommercialAnalyticsService {
         LIMIT ?`,
       [tenantId, ruta, desde, hasta, tenantId, DETALLE_TOPE],
     )).rows as RouteNegativeRow[]);
+  }
+
+  /**
+   * `[RD.31]` **Registra el conteo físico de un camión: el ancla.**
+   *
+   * Es la única forma de matar el saldo que ningún documento explica. Medido en la ruta 21 el
+   * 2026-10-05: la pantalla publicaba **$18,427** y el camión traía **$37,766**; de los −$35,376
+   * del lado «en contra», **$31,357 (89 %)** eran productos cargados la primera semana o nunca
+   * cargados — mercancía que el camión ya traía antes de que pudiéramos ver sus ventas.
+   *
+   * ⭐ **Un conteo RESETEA, no parchea.** A partir de su fecha, un producto que el conteo no lista
+   * queda en **cero** aunque antes tuviera saldo: la persona miró el camión y no estaba. El ledger
+   * lo consigue excluyendo todo lo anterior al ancla, no restando nada.
+   *
+   * ⚠️ **Es el saldo de CIERRE de su día**: los movimientos entran estrictamente después. Si se
+   * registra con la fecha de hoy, la venta de hoy ya está adentro y no se vuelve a restar.
+   *
+   * ⚠️ **La fecha la declara quien captura, NO se deduce del archivo.** El conteo que originó esta
+   * fase venía en un archivo llamado `rd21 05-sep.xlsx` y era del **5 de octubre**: de 36 productos
+   * cuyo costo cambió entre septiembre y octubre, los 36 traían el de octubre. Un nombre de archivo
+   * no es un dato.
+   *
+   * Idempotente por `(ruta, fecha)`: volver a enviar el mismo día **reemplaza** los renglones en la
+   * misma transacción, no acumula un segundo conteo.
+   */
+  async registerRouteCount(input: RouteCountInput): Promise<RouteCountResult> {
+    const ruta = this.routeNoValido(input.route_no);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.count_date ?? '')) {
+      throw new BadRequestException('count_date debe ser YYYY-MM-DD');
+    }
+    if (!Array.isArray(input.lines) || input.lines.length === 0) {
+      throw new BadRequestException('el conteo no trae renglones');
+    }
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    // El SKU viaja NORMALIZADO: nuestro ledger trae ceros a la izquierda (08057) y el Kepler del
+    // camion los imprime sin ellos (8057). Sin esto el conteo no empalma y cada producto aparece
+    // dos veces -- una con saldo y otra sin el. Medido: 24 diferencias falsas de 257.
+    const norm = (s: unknown) => String(s ?? '').trim();
+    const lineas = input.lines.map((l) => ({
+      sku: norm(l.sku),
+      unidad: norm(l.unidad).toUpperCase(),
+      descripcion: l.descripcion ? String(l.descripcion).slice(0, 200) : null,
+      qty: Number(l.qty),
+      costo_unitario: l.costo_unitario == null ? null : Number(l.costo_unitario),
+      importe: l.importe == null ? null : Number(l.importe),
+    }));
+    const malas = lineas.filter(
+      (l) => !l.sku || !l.unidad || !Number.isFinite(l.qty) || l.qty < 0,
+    );
+    if (malas.length) {
+      throw new BadRequestException(
+        `${malas.length} renglon(es) sin SKU, sin unidad o con cantidad invalida (ej. ${malas[0].sku || '(vacio)'})`,
+      );
+    }
+    // Dos renglones del mismo (sku, unidad) son un error de captura, no algo que haya que sumar
+    // en silencio: si el archivo trae el mismo producto dos veces, alguien tiene que mirarlo.
+    const vistos = new Set<string>();
+    for (const l of lineas) {
+      const k = `${l.sku}|${l.unidad}`;
+      if (vistos.has(k)) throw new BadRequestException(`el conteo repite ${l.sku} en ${l.unidad}`);
+      vistos.add(k);
+    }
+
+    return this.tk.run(async (trx) => {
+      const wh = (await trx('commercial.warehouses')
+        .select('id')
+        .where({ tenant_id: tenantId, kind: 'truck' })
+        .whereNull('deleted_at')
+        .whereRaw(`split_part(code, '-', 2) = ?`, [ruta])
+        .first()) as { id: string } | undefined;
+      if (!wh) throw new BadRequestException(`la ruta ${ruta} no existe como almacen de camion`);
+
+      // Reemplazo idempotente del conteo de ese dia: se cancela el anterior y se inserta el nuevo.
+      // Cancelar en vez de borrar deja el rastro de que hubo una correccion.
+      await trx('commercial.route_counts')
+        .where({ tenant_id: tenantId, warehouse_id: wh.id, count_date: input.count_date })
+        .whereNot('status', 'cancelled')
+        .update({ status: 'cancelled', updated_at: trx.fn.now() });
+
+      const [cab] = (await trx('commercial.route_counts')
+        .insert({
+          tenant_id: tenantId,
+          warehouse_id: wh.id,
+          count_date: input.count_date,
+          status: 'active',
+          source: input.source ?? 'excel',
+          declared_total: input.declared_total ?? null,
+          note: input.note ?? null,
+          counted_by: input.counted_by ?? null,
+          counted_by_username: input.counted_by_username ?? null,
+        })
+        .returning(['id'])) as Array<{ id: string }>;
+
+      await trx.batchInsert(
+        'commercial.route_count_lines',
+        lineas.map((l) => ({ tenant_id: tenantId, count_id: cab.id, ...l })),
+        500,
+      );
+
+      // El contraste contra lo que el papel DICE que suma. No bloquea: declara. Un conteo cuyo
+      // total no cuadra con sus renglones sigue siendo mejor que no tener conteo -- pero quien
+      // lo lea tiene derecho a saberlo (ADR-056).
+      const sumado = lineas.reduce((a, l) => a + (Number.isFinite(l.importe as number) ? (l.importe as number) : 0), 0);
+      const declarado = input.declared_total ?? null;
+      return {
+        count_id: cab.id,
+        route_no: ruta,
+        count_date: input.count_date,
+        renglones: lineas.length,
+        importe_sumado: Math.round(sumado * 100) / 100,
+        importe_declarado: declarado,
+        cuadra: declarado == null ? null : Math.abs(sumado - declarado) < 1,
+        // El ancla no se ve hasta que la copia por costo se refresca (cada 30 min) o alguien
+        // la fuerza. Decirlo evita el reporte de "lo subi y no cambio nada".
+        aviso: 'El saldo de la pantalla cambia cuando se refresque la copia (hasta 30 min).',
+      };
+    });
   }
 
   /** `route_no` sale de un código canónico (`RUTA-23` -> `23`): acotado y validado en un solo lugar. */

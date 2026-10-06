@@ -321,6 +321,11 @@ export enum Permission {
   COMMERCIAL_SELLOUT_TARGETS_GESTIONAR = 'COMMERCIAL_SELLOUT_TARGETS_GESTIONAR',
   COMMERCIAL_SALIDAS_VER = 'COMMERCIAL_SALIDAS_VER',
   COMMERCIAL_ROUTE_SALES_VER = 'COMMERCIAL_ROUTE_SALES_VER',
+  // RD.31 — registrar el CONTEO FISICO de un camion. Permiso PROPIO y no colgado de
+  // ROUTE_SALES_VER: un conteo no es una lectura, es lo que MUEVE el inventario publicado de
+  // esa ruta (resetea el saldo y manda a cero lo que no lista). Quien cuenta el camion no es
+  // necesariamente quien cuenta el almacen, asi que tampoco se reusa INVENTORY_CONTAR.
+  COMMERCIAL_ROUTE_COUNT_REGISTRAR = 'COMMERCIAL_ROUTE_COUNT_REGISTRAR',
   // RD.6 — comisiones de Ruta Directa. Permiso PROPIO y no colgado de ROUTE_SALES_VER:
   // ver cuánto vendió una ruta y ver cuánto cobra su chofer son dos cosas distintas, y
   // esto último es nómina. GESTIONAR = calcular, aprobar y marcar pagada la corrida.
