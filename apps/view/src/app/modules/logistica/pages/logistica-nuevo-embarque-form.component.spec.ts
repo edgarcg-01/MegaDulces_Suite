@@ -111,6 +111,25 @@ describe('LogisticaNuevoEmbarqueFormComponent', () => {
     expect(comp.puedeCrear()).toBe(true);
   });
 
+  // Hallado en la simulación de usuario: la lista de "qué falta" sólo se pintaba DESPUÉS de intentar
+  // crear, pero el botón se apaga justo cuando falta algo — o sea, el motivo nunca se podía ver.
+  it('con el botón apagado, el motivo se ve sin tener que hacer clic', () => {
+    const { f, el, comp } = montar(hojaSinChofer(), PERSONAS);
+    const botones = [...el.querySelectorAll('button')].filter((b) => b.textContent?.includes('Crear embarque'));
+    expect(botones.length).toBe(2);
+    botones.forEach((b) => {
+      expect(b.disabled).toBe(true);
+      expect(b.getAttribute('aria-describedby')).toBe('nf-faltan');
+    });
+    expect(el.querySelector('#nf-faltan')?.textContent).toContain('Elige al chofer');
+
+    comp.c.driver_id = 'd-otro';
+    comp.tocar();
+    f.detectChanges();
+    expect(el.querySelector('#nf-faltan')).toBeNull();
+    botones.forEach((b) => expect(b.getAttribute('aria-describedby')).toBeNull());
+  });
+
   it('al elegir ayudante le pone la comisión sugerida de ayudante', () => {
     const { comp } = montar(hojaGuia0001419(), PERSONAS);
     comp.c.helper1_id = 'd-ay';

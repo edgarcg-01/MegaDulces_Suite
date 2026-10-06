@@ -130,7 +130,8 @@ export function cuerpoDeToma(
           </div>
           <div class="nf-actions">
             <a pButton severity="secondary" [outlined]="true" size="small" routerLink="/logistica/shipments/nuevo"><span class="p-button-label">Cancelar</span></a>
-            <button pButton size="small" type="button" [disabled]="!puedeCrear()" [loading]="guardando()" (click)="crear()">
+            <button pButton size="small" type="button" [disabled]="!puedeCrear()" [loading]="guardando()"
+                    [attr.aria-describedby]="errores().length ? 'nf-faltan' : null" (click)="crear()">
               <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
               <span class="p-button-label">Crear embarque</span>
             </button>
@@ -313,13 +314,15 @@ export function cuerpoDeToma(
               </ul>
             </section>
             <section class="nf-card">
-              @if (errores().length && intentado()) {
-                <ul class="nf-errores" role="alert">
+              @if (errores().length) {
+                <p class="nf-faltan-titulo">Para crear el embarque falta:</p>
+                <ul id="nf-faltan" class="nf-errores" role="status">
                   @for (e of errores(); track e) { <li>{{ e }}</li> }
                 </ul>
               }
               @if (errorServidor()) { <p class="nf-errores" role="alert">{{ errorServidor() }}</p> }
-              <button pButton type="button" class="nf-cta" [disabled]="!puedeCrear()" [loading]="guardando()" (click)="crear()">
+              <button pButton type="button" class="nf-cta" [disabled]="!puedeCrear()" [loading]="guardando()"
+                      [attr.aria-describedby]="errores().length ? 'nf-faltan' : null" (click)="crear()">
                 <span class="p-button-label">Crear embarque</span>
               </button>
               <p class="nf-hint">
@@ -397,6 +400,7 @@ export function cuerpoDeToma(
     .nf-dl dd.is-strong { font-weight: var(--fw-bold); }
     .nf-check-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .45rem; font-size: var(--fs-sm); }
     .nf-check-list li { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+    .nf-faltan-titulo { margin: 0 0 .25rem; font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--bad-soft-fg); }
     .nf-errores { margin: 0; padding-left: 1rem; font-size: var(--fs-xs); color: var(--bad-soft-fg); }
     .nf-cta { width: 100%; justify-content: center; }
     .nf-empty { text-align: center; padding: 3rem 1rem; display: flex; flex-direction: column; align-items: center; gap: .5rem; }
@@ -413,7 +417,6 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
   readonly guardando = signal(false);
   readonly errorCarga = signal<string | null>(null);
   readonly errorServidor = signal<string | null>(null);
-  readonly intentado = signal(false);
   readonly hoja = signal<NuevoEmbarqueHoja | null>(null);
   readonly personas = signal<Driver[]>([]);
   readonly tarifas = signal<Record<Comida, number>>({ cafe: 0, desayuno: 0, comida: 0, cena: 0 });
@@ -551,7 +554,6 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
   }
 
   crear() {
-    this.intentado.set(true);
     this.errorServidor.set(null);
     const h = this.hoja();
     if (!h || this.errores().length) return;
