@@ -14,7 +14,11 @@ import { MessageService } from 'primeng/api';
 import { ComprasService, RequisitionRow, RequisitionEstado, RequisitionResumen } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
-import { Permission } from '@megadulces/contracts';
+// ⛔ `[ID.28]` POR SUBRUTA, NO DESDE EL BARREL. `@megadulces/contracts` NO re-exporta el catálogo
+// de autorización a propósito: colgarlo de ese barrel fue el primer intento y metió **+225 kB
+// medidos** en el arranque de las TRES apps Angular, porque lo importa el chunk inicial y los
+// ~80 kB del catálogo sólo los necesita una pantalla lazy.
+import { Permission } from '@megadulces/contracts/authz/permissions';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
