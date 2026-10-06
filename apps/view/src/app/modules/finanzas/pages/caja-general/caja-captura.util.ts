@@ -11,7 +11,7 @@
  * IGUAL o MÁS ESTRICTA, nunca más permisiva.
  */
 
-import { denomDe, type Denominacion } from '@megadulces/contracts';
+import { seleccionarDenominaciones, type Denominacion } from '@megadulces/contracts';
 
 /**
  * CG.23 — Los billetes que la Caja General cuenta, en el orden en que se cuentan.
@@ -46,28 +46,42 @@ import { denomDe, type Denominacion } from '@megadulces/contracts';
 const CAJA_BILLETES_KEYS = ['500', '200', '100', '50', '20'] as const;
 
 /**
- * Elige denominaciones del catálogo compartido por llave, y **falla ruidosamente** si alguna
- * no existe o no es billete. Es una función y no una constante armada inline para que la
- * prueba negativa pueda ejercerla: un gate sin prueba negativa es una intención.
+ * `[CG.38]` Las monedas que la caja cuenta, de la mayor a la menor.
+ *
+ * ── Qué cambió
+ *
+ * Hasta hoy todo el metal caía en el campo suelto "Morralla" — decisión de Edgar en `[CG.23]`:
+ * *"monedas no es necesario desglosarlo"*. El 2026-10-06 la revirtió: *"la morralla se cuenta
+ * por denominación"*, y eligió **las seis del catálogo compartido** (las mismas que ya usan
+ * tienda y almacén), dejando un campo suelto para lo de menos de 50¢.
+ *
+ * ⚠️ `'20m'` es la moneda de $20, NO el billete. Valen lo mismo y son cosas distintas: es el
+ * defecto que SM.39 arregló en el catálogo, y el que obligó a cambiarle la llave primaria a
+ * `finance.cash_ledger_denominations` — con la identidad en el VALOR, estas dos pilas de dinero
+ * no podían coexistir en un mismo movimiento.
+ */
+const CAJA_MONEDAS_KEYS = ['20m', '10', '5', '2', '1', '0.5'] as const;
+
+/**
+ * ⭐ El selector genérico **subió a `libs/contracts`** (`seleccionarDenominaciones`). Vivía acá,
+ * local, mientras la caja contaba sólo billetes; al necesitar lo mismo para monedas habría
+ * quedado escrito dos veces, y ADR-056 es explícito: *un mecanismo genérico vive en `libs/` o
+ * queda declarado como deuda*. Estos dos envoltorios conservan el nombre y la firma de siempre
+ * para no tocar a quien ya los usa.
  */
 export function seleccionarBilletes(keys: readonly string[]): readonly Denominacion[] {
-  return keys.map((k) => {
-    const d = denomDe(k);
-    if (!d) {
-      throw new Error(
-        'Denominacion "' + k + '" no existe en el catalogo MXN de @megadulces/contracts. ' +
-        'La caja no puede ofrecer un billete que el catalogo compartido no reconoce.',
-      );
-    }
-    if (d.familia !== 'billete') {
-      throw new Error('La denominacion "' + k + '" es ' + d.familia + ', no billete.');
-    }
-    return d;
-  });
+  return seleccionarDenominaciones(keys, 'billete');
 }
 
-/** Los cinco billetes de la caja, del mayor al menor. La morralla va aparte, en su campo. */
+export function seleccionarMonedas(keys: readonly string[]): readonly Denominacion[] {
+  return seleccionarDenominaciones(keys, 'moneda');
+}
+
+/** Los cinco billetes de la caja, del mayor al menor. */
 export const BILLETES_CAJA: readonly Denominacion[] = seleccionarBilletes(CAJA_BILLETES_KEYS);
+
+/** Las seis monedas de la caja. Lo de menos de 50¢ sigue cayendo en el campo suelto. */
+export const MONEDAS_CAJA: readonly Denominacion[] = seleccionarMonedas(CAJA_MONEDAS_KEYS);
 
 /** Largo mínimo de la glosa. Espejo del CHECK de `finance.cash_ledger`. */
 export const GLOSA_MIN = 5;
