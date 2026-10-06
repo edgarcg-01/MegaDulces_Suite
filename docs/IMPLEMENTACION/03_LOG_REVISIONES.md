@@ -5,6 +5,83 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-06 — `[IC.13]` Folios de inventario: el «cíclico» no era parcial y «estancado» medía la apertura
+
+**Disparador:** *«analizá `/almacen/inventory/sessions`»*. Lo medido contra prod antes de tocar
+nada: **6 folios, los 6 `cancelled`, cero reconciliados**, ninguno posterior a junio-2026 — o sea
+que **`stock_source='erp'` (el teórico del ODS de `[IC.1]`) todavía no se ejerció una sola vez en
+prod**, los 6 abrieron con `commercial`/`inventory`. La pantalla existe y nadie la usa.
+
+**(a) El rótulo que mentía.** El diálogo ofrecía «Cíclico (parcial)» y mandaba `POST /open` con
+`type:'cycle'` y **sin `product_ids`**. El snapshot de `openCount` **no se ramifica por `type`**:
+sin subconjunto siembra el almacén entero. O sea que la palabra "parcial" no acotaba nada — y como
+«Congelar movimientos» viene en `true`, ese supuesto conteo parcial **congelaba la sucursal**, que
+es justo lo que `openCycleCount` evita a propósito (su freeze default es `false`). ⛔ El camino
+cíclico real existe desde ABC.2 y **cero componentes del frontend lo llamaban**.
+
+El freno se puso en el **servicio**, no en la pantalla: `openCount` rechaza `cycle` sin subconjunto.
+La pantalla es un cliente entre varios; con el freno adentro, ningún otro puede volver a pedir lo
+imposible. El diálogo ahora llama `/open-cycle` con selector de clase ABC leído de `abcSummary`
+—verificado en prod: 8 almacenes con A/B/C recalculados hoy, el CEDIS `00` **sólo clase C**, y las
+14 `RUTA-*` **ninguna**, que el diálogo **declara** en vez de dejar fallar el botón— y apaga el
+congelado al elegir cíclico.
+
+**(b) «Estancado» medía lo que no decía.** El badge comparaba contra `started_at` —*cuándo se
+abrió*— con el tooltip «Sin avanzar hace +24h». Un conteo de tres días que avanza normal salía
+«Estancado» desde la hora 25 **y no podía volver a limpio nunca**. Y el dato correcto
+(`inventory_count_items.counted_at_*`) existía, pero `listCounts` **no lo seleccionaba**: el
+frontend no podía calcularlo aunque quisiera. Es el caso del incidente de `[WMS-REC.16]`:
+`INV-2026-00009` congeló Padre Hidalgo **100 días con 3 escaneos sobre 2,094 artículos**, y la lista
+no lo decía.
+
+Ahora `listCounts` devuelve `items_total`/`items_counted`/`last_count_at`/`updated_at`, y la fila
+**separa las dos ausencias** (ADR-056): `Sin conteos` (nadie escaneó nunca → lo arregla quien asigna
+personal) ≠ `Sin avanzar` (se frenó → lo arregla quien supervisa). `last_count_at` llega **NULL**,
+nunca rellenado con `started_at`. El chip **Congelado** se pinta mientras el folio viva, no recién a
+las 24 h.
+
+**Lecciones:**
+
+- ⭐ **Un rótulo de UI puede ser un defecto de backend.** El arreglo tentador era renombrar la
+  opción; el arreglo real era que el servicio **no puede aceptar** la combinación imposible. Un
+  freno en la pantalla deja la puerta abierta para el próximo cliente.
+- ⭐ **Si la lista no trae el dato, el frontend lo inventa.** `isStale` no era descuido: era la
+  única cuenta posible con lo que `listCounts` devolvía. El badge mentía porque el endpoint
+  callaba.
+- ⚠️ **El `LIMIT` va DENTRO del CTE.** Con el LATERAL sobre la tabla completa, el plan agregaba los
+  ítems de **todos** los folios y recortaba después. Con 6 folios no se nota; con 200 × ~3k ítems
+  son 600k filas por cada carga de la pantalla. Medido: 58 ms en frío, 5-8 ms en caliente.
+- ⚠️⚠️ **Sexta vez que un acento grave en un comentario rompe el build** — esta vez fueron tres
+  comentarios míos adentro del `template:` y del `styles:`. Lo agarró `check:templates`, no yo.
+  El reflejo que falta es no escribir acentos graves **dentro del decorador**, nunca.
+- ⭐ **El candado se mutó.** Con el freno apagado (`if (false)`) la prueba se pone en **rojo 3/10**;
+  con él puesto, 10/10. Y su **prueba negativa** exige que el cíclico CON `product_ids` **pase**:
+  sin eso, un freno que rechazara todo cíclico habría quedado verde y roto el scheduler nocturno de
+  ABC.3 sin que nadie se enterara.
+
+**Hallazgos que NO se arreglaron, medidos y con nombre:**
+
+- **El gate de la pantalla no es el gate del dato.** La ruta exige `SUPERVISAR`;
+  `GET /commercial/inventory/counts` exige sólo `VER`. Consecuencia en prod: `prevencion` +
+  `prevencion_auxiliar` (**3 personas**) tienen `VER` y la pantalla los rebota, mientras
+  **`customer_b2b` (3 clientes reales activos) tiene `COMMERCIAL_INVENTORY_VER`** y puede listar
+  por API todos los folios de inventario de la empresa. Los ítems con cantidades sí piden
+  `SUPERVISAR`, así que la fuga es de **metadatos**, no de cifras.
+- **Quién puede entrar, medido:** 15 personas con `SUPERVISAR` — `superadmin` 8, `compras` 2,
+  `gerente_compras` 2, **`marketing` 2**, `supervisor` 1. Los que operan el almacén
+  (`almacenista` 6, `encargado_tienda` 7) **no pueden abrir esta pantalla**. Y que `marketing`
+  tenga `SUPERVISAR+ASIGNAR+CONTAR` sobre inventario parece deriva de permisos, no diseño.
+- **Dos estados muertos.** `commercial_inv_counts_status_valid` admite `open` y
+  `ready_to_reconcile`, pero **ningún escritor los produce**: la máquina real es
+  `counting → review → reconciled | cancelled`.
+- **Ajeno pero rojo:** `npm run check:sql-backticks` falla por dos acentos graves en un comentario
+  SQL de `commercial-movements.service.ts` (líneas 797 y 926), de `[DM.20]`/`fc4412d4f`, de hoy.
+  No se tocó: es archivo de otra sesión activa.
+
+**Falta:** redeploy api+view + validación visual. Sin migraciones ni permisos nuevos → sin re-login.
+
+---
+
 ## 2026-10-05 — `[CSU.0–CSU.2]` Cortes/Sucursales: el corte es lo contado, y el cuadre va por turno
 
 **Qué se entregó:** `/finanzas/cortes-sucursales` sigue cada corte de caja POS (`U-D-23`, cliente

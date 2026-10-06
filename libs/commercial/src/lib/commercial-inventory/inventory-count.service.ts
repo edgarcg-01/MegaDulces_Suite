@@ -154,6 +154,26 @@ export class InventoryCountService {
     const blind = dto.blind_double_count !== false; // default true
     const recountThreshold = Math.min(100, Math.max(0, Number(dto.recount_threshold_pct) || 0)); // 0 = off
 
+    // ── [IC.13] Un folio `cycle` SIN subconjunto es un folio TOTAL con otra etiqueta ──────
+    //
+    // El snapshot de más abajo NO se ramifica por `type`: sin `product_ids` siembra el
+    // almacén entero. O sea que `type:'cycle'` solo pinta la palabra "Cíclico" en la lista
+    // y en nada más — y como `freeze_movements` default es `true`, ese "parcial" además
+    // CONGELA la sucursal, que es exactamente lo que `openCycleCount` evita a propósito
+    // (su default de freeze es `false`).
+    //
+    // Medido: el diálogo de `/almacen/inventory/sessions` ofrecía "Cíclico (parcial)" y
+    // mandaba justo esto — rótulo que miente y almacén congelado. El freno va acá y no en
+    // la pantalla porque la pantalla es un cliente entre varios: así ningún otro puede
+    // volver a pedir lo imposible. El camino del cíclico es `openCycleCount`, que resuelve
+    // el subconjunto (clase ABC o lista) ANTES de llamar acá.
+    const subset = Array.isArray(dto.product_ids) && dto.product_ids.length > 0;
+    if (type === 'cycle' && !subset)
+      throw new BadRequestException(
+        'Un conteo cíclico necesita el subconjunto a contar (clase ABC o product_ids). '
+          + 'Usá POST /commercial/inventory/counts/open-cycle. Sin subconjunto el folio sería TOTAL.',
+      );
+
     return this.tk.run(async (trx) => {
       const uid = this.userId();
 
@@ -228,7 +248,7 @@ export class InventoryCountService {
 
       // Snapshot del teórico al abrir. Si `product_ids` viene (folio cíclico
       // acotado, ABC.2), siembra SOLO ese subset; si no, todo el almacén (full).
-      const subset = Array.isArray(dto.product_ids) && dto.product_ids.length > 0;
+      // `subset` se calcula arriba, junto al freno de `[IC.13]` que lo exige para `cycle`.
       let snapInserted: any;
       if (stockSource === 'erp') {
         // [IC.1] El teórico sale del ERP (derivado del ODS, 100% contra el POS) y de paso
@@ -1115,27 +1135,62 @@ export class InventoryCountService {
     });
   }
 
+  /**
+   * `[IC.13]` Lista de folios **con avance y última actividad real**.
+   *
+   * Antes devolvía sólo la cabecera, y por eso la pantalla no podía responder la única
+   * pregunta que importa en un tablero de folios: *¿esto avanza?*. Lo medido en prod el
+   * 2026-10-06: `INV-2026-00009` congeló Padre Hidalgo **100 días** con **3 escaneos sobre
+   * 2,094 artículos**, y la lista no lo decía — el badge "Estancado" se calculaba contra
+   * `started_at`, o sea contra *cuándo se abrió*, no contra *cuándo se contó por última vez*.
+   *
+   * Se devuelven **dos ausencias distintas a propósito** (ADR-056): `items_counted = 0` es
+   * "nadie contó nunca" y lo arregla quien asigna personal; `last_count_at` viejo con
+   * `items_counted > 0` es "se frenó" y lo arregla quien supervisa. Colapsarlas en un solo
+   * badge es justo lo que escondía el caso de arriba. `last_count_at` llega **NULL** cuando
+   * no hay un solo escaneo — nunca se rellena con `started_at`, que daría un "última
+   * actividad" inventado para un folio en el que no pasó nada.
+   *
+   * ⚠️ El `LIMIT` va DENTRO del CTE a propósito: con el LATERAL sobre la tabla completa el
+   * plan agregaba los ítems de **todos** los folios y recién después recortaba a 200. Con 6
+   * folios no se nota; con 200 × ~3k ítems son 600k filas por cada carga de la pantalla.
+   * Medido contra prod: 58 ms en frío, 5-8 ms en caliente (gate 500 ms).
+   */
   async listCounts(warehouseId?: string) {
+    // El filtro ahora viaja como bind `::uuid`: un valor basura reventaría en Postgres
+    // con un 500 en vez del 400 que corresponde.
+    if (warehouseId && !UUID.test(warehouseId))
+      throw new BadRequestException('warehouse_id inválido');
     return this.tk.run(async (trx) => {
-      let q = trx('commercial.inventory_counts as c')
-        .leftJoin('commercial.warehouses as w', 'w.id', 'c.warehouse_id');
-      if (warehouseId) q = q.where('c.warehouse_id', warehouseId);
-      return q
-        .select(
-          'c.id',
-          'c.folio',
-          'c.warehouse_id',
-          'w.code as warehouse_code',
-          'w.name as warehouse_name',
-          'c.type',
-          'c.status',
-          'c.freeze_movements',
-          'c.started_at',
-          'c.closed_at',
-          'c.created_at',
-        )
-        .orderBy('c.created_at', 'desc')
-        .limit(200);
+      const { rows } = await trx.raw(
+        `WITH f AS (
+           SELECT c.id, c.folio, c.warehouse_id, c.type, c.status, c.freeze_movements,
+                  c.started_at, c.closed_at, c.created_at, c.updated_at
+             FROM commercial.inventory_counts c
+            WHERE (?::uuid IS NULL OR c.warehouse_id = ?::uuid)
+            ORDER BY c.created_at DESC
+            LIMIT 200
+         )
+         SELECT f.id, f.folio, f.warehouse_id,
+                w.code AS warehouse_code, w.name AS warehouse_name,
+                f.type, f.status, f.freeze_movements,
+                f.started_at, f.closed_at, f.created_at, f.updated_at,
+                COALESCE(prog.items_total, 0)   AS items_total,
+                COALESCE(prog.items_counted, 0) AS items_counted,
+                prog.last_count_at
+           FROM f
+           LEFT JOIN commercial.warehouses w ON w.id = f.warehouse_id
+           LEFT JOIN LATERAL (
+             SELECT COUNT(*)::int AS items_total,
+                    COUNT(*) FILTER (WHERE i.count_1 IS NOT NULL)::int AS items_counted,
+                    MAX(GREATEST(i.counted_at_1, i.counted_at_2, i.counted_at_3)) AS last_count_at
+               FROM commercial.inventory_count_items i
+              WHERE i.count_id = f.id
+           ) prog ON true
+          ORDER BY f.created_at DESC`,
+        [warehouseId || null, warehouseId || null],
+      );
+      return rows;
     });
   }
 
