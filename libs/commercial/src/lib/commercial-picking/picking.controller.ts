@@ -100,6 +100,25 @@ export class PickingController {
     return this.service.createWave(dto);
   }
 
+  /**
+   * `[VEC.5]` El "pedido global" en un clic: arma una ola con todo lo que falta surtir de un
+   * tipo de ruta. `{ warehouse_id, delivery_date?, route_kind?: ['vecinal'], assigned_to? }`.
+   *
+   * Idempotente en la práctica: repetirlo no duplica nada porque el pool ya excluye lo que
+   * está en una ola viva — la segunda vez responde `creada: false`.
+   */
+  @Post('waves/auto')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'Arma una ola con los pedidos pendientes de un tipo de ruta (el pedido global). No crea olas vacías.',
+  })
+  crearOlaAuto(
+    @Body() body: { warehouse_id: string; delivery_date?: string; route_kind?: string[]; assigned_to?: string },
+  ) {
+    return this.service.crearOlaAuto(body);
+  }
+
   @Post('waves/:id/assign')
   @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
   @ApiOperation({ summary: 'Asigna o reasigna la ola a un surtidor.' })

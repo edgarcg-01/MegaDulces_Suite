@@ -449,6 +449,85 @@ export class PickingService {
     });
   }
 
+  /**
+   * `[VEC.5]` Arma la ola de un tipo de ruta en un clic: **el "pedido global"**.
+   *
+   * ── Por qué un botón y NO un cron ───────────────────────────────────────────────────
+   * El pedido decía "en cuanto agende el pedido … se genera un pedido global". Tomarlo al pie
+   * de la letra —crear/ampliar la ola en el instante de cada `place()`— tiene dos problemas
+   * que lo vuelven peor que el trabajo manual:
+   *
+   *   1. El primer pedido del día crearía una ola **de un solo renglón**, y consolidar por SKU
+   *      sobre un pedido no consolida nada: el valor de la ola es juntar.
+   *   2. Peor: un pedido que entra a las 11:40 se sumaría a una ola que alguien **ya está
+   *      caminando** con su lista impresa. Mercancía que aparece a mitad del recorrido es
+   *      exactamente cómo se arma mal un pedido.
+   *
+   * Entonces el aviso (`[VEC.4]`) es **inmediato** y el armado es **a demanda**: la sucursal
+   * ve que tiene 15 pedidos vecinales y arma su ola cuando decide cerrar el corte. Quien
+   * decide cuándo se cierra es quien va a caminar el almacén.
+   *
+   * ⚠️ **Nunca toca una ola existente.** Crea una nueva con lo que todavía no está en ninguna
+   * (el pool ya excluye lo que está en ola viva). Por eso es seguro repetir el clic: la segunda
+   * vez no hay elegibles y responde `creada: false` en vez de crear una ola vacía.
+   *
+   * ⚠️ **No crea olas vacías.** Una ola sin pedidos se ve en la bandeja igual que una real y
+   * ensucia el folio; si no hay nada que armar, lo dice.
+   */
+  async crearOlaAuto(dto: {
+    warehouse_id: string;
+    delivery_date?: string;
+    route_kind?: readonly string[];
+    assigned_to?: string;
+  }) {
+    if (!UUID_RE.test(dto?.warehouse_id || '')) throw new BadRequestException('warehouse_id inválido');
+    if (dto.delivery_date && !DATE_RE.test(dto.delivery_date))
+      throw new BadRequestException('delivery_date debe ser YYYY-MM-DD');
+
+    // El universo sale del MISMO `pool()` que ve la pantalla. Si armara su propia consulta,
+    // el día que una de las dos cambie el almacén armaría algo distinto de lo que vio — y esa
+    // divergencia no se nota hasta que falta mercancía.
+    const elegibles = await this.pool({
+      warehouse_id: dto.warehouse_id,
+      delivery_date: dto.delivery_date,
+      route_kind: dto.route_kind,
+      limit: 500,
+    });
+
+    if (!elegibles.data.length) {
+      return {
+        creada: false,
+        motivo: 'sin_pedidos_elegibles',
+        detalle:
+          'No hay pedidos confirmados fuera de ola para ese almacén/fecha/tipo de ruta. ' +
+          'No se crea una ola vacía: ensuciaría el folio y se vería igual que una real.',
+        // ⚠️ Lo que el pool NO puede ver se arrastra hasta acá: un pedido tomado sin señal
+        // todavía no llegó al servidor. "No hay nada que armar" y "no ha llegado todavía" se
+        // leen igual en pantalla si no se dice (ADR-056).
+        pendiente_offline: elegibles.pendiente_offline,
+      };
+    }
+
+    // ⚠️ `pool()` y `createWave()` abren transacciones distintas, así que entre las dos otra
+    // sesión puede llevarse un pedido a su ola. NO se arregla fusionándolas: `createWave` ya
+    // valida `yaEnOla` y tira 409 nombrando los pedidos. Se prefiere un error ruidoso —que
+    // obliga a reintentar y arma la ola correcta— a una ola que se lleva algo que otro almacén
+    // ya estaba caminando.
+    const wave = await this.createWave({
+      warehouse_id: dto.warehouse_id,
+      delivery_date: dto.delivery_date,
+      order_ids: elegibles.data.map((o: { id: string }) => o.id),
+      assigned_to: dto.assigned_to,
+      notes: `Automática — ${(dto.route_kind?.length ? dto.route_kind.join('/') : 'todos los tipos')}`,
+    });
+
+    this.logger.log(
+      `[VEC.5] Ola ${wave.code} armada sola: ${elegibles.data.length} pedido(s) ` +
+        `(${dto.route_kind?.join('/') || 'todos'}) en ${dto.warehouse_id}`,
+    );
+    return { creada: true, ...wave, pendiente_offline: elegibles.pendiente_offline };
+  }
+
   /** Asigna (o reasigna) la ola a un surtidor. */
   async assign(waveId: string, assignedTo: string) {
     if (!UUID_RE.test(waveId)) throw new BadRequestException('waveId inválido');
