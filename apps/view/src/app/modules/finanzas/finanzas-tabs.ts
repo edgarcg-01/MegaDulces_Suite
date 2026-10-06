@@ -20,6 +20,13 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_INCOME_VER,
   },
   {
+    // [CSU.2] Corte de caja POS → cobro → arqueo del turno, por sucursal. Sólo lectura.
+    label: 'Cortes / Sucursales',
+    route: '/finanzas/cortes-sucursales',
+    icon: 'pi pi-shop',
+    permission: Permission.FINANCE_CORTES_VER,
+  },
+  {
     label: 'Bancos',
     route: '/finanzas/bancos',
     icon: 'pi pi-building-columns',

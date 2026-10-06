@@ -90,6 +90,15 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase CSU — Cortes/Sucursales: corte de caja → cobro → ingreso · 2026-10-05 · plan en [`FASE_CSU`](FASES/FASE_CSU_CORTES_SUCURSALES.md)
+
+- [x] **[CSU.0]** Decode medido en prod: corte `U-D-23` = cargo a `CONTADO` en `kdue` (`c16`=`Caja <caja>-<folio>`), cobros por `kdm5`, arqueo del turno en `analytics.cash_cuts`. El monto del corte es lo **contado**, no lo vendido; el cuadre va por **turno**, no por día. ✅ 2026-10-05
+- [x] **[CSU.1]** `GET /finance/cortes-sucursales` + contrato + `FINANCE_CORTES_VER` (mig `20261005190000`, calca `FINANCE_INCOME_VER`: 11 roles). Motor puro, 9 pruebas con negativa. Mes de oct-2026: 105 cortes, ~430 ms. 🧪 2026-10-05
+- [x] **[CSU.2]** Pantalla `/finanzas/cortes-sucursales` (mes en curso por defecto + rango específico) y sección **Ingresos** en el menú de Finanzas. Validación visual pendiente. 🧪 2026-10-05
+- [ ] **[CSU.3]** Entrega 2 — cobro ↔ estado de cuenta (tarjeta/transferencia). Falta cargar oct-2026 en Bancos.
+- [ ] **[CSU.4]** Entrega 2 — efectivo: Caja Fuerte → Caja General → depósito.
+- [ ] **[CSU.5]** Decidir si se muestra el "cobro sin corte".
+
 ### Fase RA-DYN — Motor de pedido: unir lo que ya sabíamos · 2026-10-02 · ADR-056 / ADR-059
 
 Pedido de Edgar: *«necesito que empecemos a unir toda nuestra informacion disponible para armar un
