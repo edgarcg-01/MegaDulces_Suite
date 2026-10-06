@@ -783,45 +783,50 @@ export class CommercialMovementsService {
     return this.tk.run(async (trx) => {
       const all: any[] = (await trx.raw(`
         WITH shp AS (
-          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.doc_serie,
+          -- ⚠️ NADA de joins acá adentro. El agregado recorre ~40k renglones de traspaso y cada
+          -- join que cuelgue de él se evalúa por RENGLÓN: el planner elige un nested loop contra
+          -- `warehouses` (28 filas, estimadas en 1) y el agregado pasa de 0.3 s a 2.4 s. Los
+          -- nombres y el destino se resuelven en `shpd`, sobre ~2k DOCUMENTOS. Medido 2026-10-06.
+          SELECT m.warehouse_id, m.folio, m.doc_serie, m.tenant_id,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
-                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label, m.tenant_id
+                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
           FROM analytics.stock_movements m
-          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?${shpDestSql}
-          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.doc_serie, m.tenant_id
+          GROUP BY m.warehouse_id, m.folio, m.doc_serie, m.tenant_id
         ), shpd AS (
           -- [DM.20] a dónde va dirigido CADA embarque: es la LLAVE del pareo, no un adorno.
           -- [DM.15] sólo si el almacén sigue vivo; si no, cuenta como "sin destino resuelto".
-          -- ⚠️ El destino se resuelve DESPUÉS del agregado, sobre ~2k documentos y no sobre las
-          -- ~40k líneas: adentro, el planner elige un nested loop contra `warehouses` por cada
-          -- línea y la consulta pasa de 1.4 s a 3.5 s. Medido el 2026-10-06.
-          SELECT s.*, dw.id AS dest_wh_id
+          SELECT s.*, coalesce(w.name, w.code) AS wh_code, dw.id AS dest_wh_id
           FROM shp s
+          LEFT JOIN commercial.warehouses w ON w.id = s.warehouse_id
           LEFT JOIN analytics.transfer_dest_map dmx ON dmx.tenant_id = s.tenant_id AND dmx.dest_code = s.dest_code
           LEFT JOIN commercial.warehouses dw ON dw.id = dmx.warehouse_id AND ${DEST_WH_VIVO('dw')}
         ), rcv AS (
-          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.parent_serie, m.parent_folio,
+          SELECT m.warehouse_id, m.folio, m.parent_serie, m.parent_folio,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
           FROM analytics.stock_movements m
-          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
-          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.parent_serie, m.parent_folio
+          GROUP BY m.warehouse_id, m.folio, m.parent_serie, m.parent_folio
         ), paired AS (
-          SELECT s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
+          -- ⚠️ Un `LEFT JOIN LATERAL (… LIMIT 1)` sobre una CTE la re-escanea ENTERA una vez por
+          -- recepción: con ~600 recepciones × ~2,000 embarques eran 2.6 s de los 3.5 s totales, y
+          -- una CTE no se puede indexar. El mismo "mejor candidato" sale de un hash join + un
+          -- DISTINCT ON, que recorre cada lado UNA vez. Mismo orden de desempate, mismo resultado
+          -- (verificado fila a fila contra la versión LATERAL). Medido el 2026-10-06.
+          SELECT DISTINCT ON (r.warehouse_id, r.folio, r.parent_serie, r.parent_folio)
+                 s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
                  s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
-                 r.warehouse_id AS dest_wh_id, r.wh_code AS dest_wh, r.folio AS rcv_folio,
+                 r.warehouse_id AS dest_wh_id, coalesce(rw.name, rw.code) AS dest_wh, r.folio AS rcv_folio,
                  r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines
           FROM rcv r
-          LEFT JOIN LATERAL (
-            SELECT * FROM shpd s
-            WHERE s.folio = r.parent_folio
-              AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
-              AND s.warehouse_id <> r.warehouse_id
-              AND ${TRANSFER_PAIR_MATCH('s', 'r')}
-            ORDER BY abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
-            LIMIT 1
-          ) s ON true
+          LEFT JOIN commercial.warehouses rw ON rw.id = r.warehouse_id
+          LEFT JOIN shpd s
+            ON s.folio = r.parent_folio
+           AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
+           AND s.warehouse_id <> r.warehouse_id
+           AND ${TRANSFER_PAIR_MATCH('s', 'r')}
+          ORDER BY r.warehouse_id, r.folio, r.parent_serie, r.parent_folio,
+                   abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
         ), unreceived AS (
           SELECT s.* FROM shpd s
           WHERE NOT EXISTS (
@@ -912,45 +917,50 @@ export class CommercialMovementsService {
     return this.tk.run(async (trx) => {
       const rows = (await trx.raw(`
         WITH shp AS (
-          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.doc_serie,
+          -- ⚠️ NADA de joins acá adentro. El agregado recorre ~40k renglones de traspaso y cada
+          -- join que cuelgue de él se evalúa por RENGLÓN: el planner elige un nested loop contra
+          -- `warehouses` (28 filas, estimadas en 1) y el agregado pasa de 0.3 s a 2.4 s. Los
+          -- nombres y el destino se resuelven en `shpd`, sobre ~2k DOCUMENTOS. Medido 2026-10-06.
+          SELECT m.warehouse_id, m.folio, m.doc_serie, m.tenant_id,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
-                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label, m.tenant_id
+                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
           FROM analytics.stock_movements m
-          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?${shpDestSql}
-          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.doc_serie, m.tenant_id
+          GROUP BY m.warehouse_id, m.folio, m.doc_serie, m.tenant_id
         ), shpd AS (
           -- [DM.20] a dónde va dirigido CADA embarque: es la LLAVE del pareo, no un adorno.
           -- [DM.15] sólo si el almacén sigue vivo; si no, cuenta como "sin destino resuelto".
-          -- ⚠️ El destino se resuelve DESPUÉS del agregado, sobre ~2k documentos y no sobre las
-          -- ~40k líneas: adentro, el planner elige un nested loop contra `warehouses` por cada
-          -- línea y la consulta pasa de 1.4 s a 3.5 s. Medido el 2026-10-06.
-          SELECT s.*, dw.id AS dest_wh_id
+          SELECT s.*, coalesce(w.name, w.code) AS wh_code, dw.id AS dest_wh_id
           FROM shp s
+          LEFT JOIN commercial.warehouses w ON w.id = s.warehouse_id
           LEFT JOIN analytics.transfer_dest_map dmx ON dmx.tenant_id = s.tenant_id AND dmx.dest_code = s.dest_code
           LEFT JOIN commercial.warehouses dw ON dw.id = dmx.warehouse_id AND ${DEST_WH_VIVO('dw')}
         ), rcv AS (
-          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.parent_serie, m.parent_folio,
+          SELECT m.warehouse_id, m.folio, m.parent_serie, m.parent_folio,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
           FROM analytics.stock_movements m
-          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
-          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.parent_serie, m.parent_folio
+          GROUP BY m.warehouse_id, m.folio, m.parent_serie, m.parent_folio
         ), paired AS (
-          SELECT s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
+          -- ⚠️ Un `LEFT JOIN LATERAL (… LIMIT 1)` sobre una CTE la re-escanea ENTERA una vez por
+          -- recepción: con ~600 recepciones × ~2,000 embarques eran 2.6 s de los 3.5 s totales, y
+          -- una CTE no se puede indexar. El mismo "mejor candidato" sale de un hash join + un
+          -- DISTINCT ON, que recorre cada lado UNA vez. Mismo orden de desempate, mismo resultado
+          -- (verificado fila a fila contra la versión LATERAL). Medido el 2026-10-06.
+          SELECT DISTINCT ON (r.warehouse_id, r.folio, r.parent_serie, r.parent_folio)
+                 s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
                  s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
-                 r.warehouse_id AS dest_wh_id, r.wh_code AS dest_wh, r.folio AS rcv_folio,
+                 r.warehouse_id AS dest_wh_id, coalesce(rw.name, rw.code) AS dest_wh, r.folio AS rcv_folio,
                  r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines
           FROM rcv r
-          LEFT JOIN LATERAL (
-            SELECT * FROM shpd s
-            WHERE s.folio = r.parent_folio
-              AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
-              AND s.warehouse_id <> r.warehouse_id
-              AND ${TRANSFER_PAIR_MATCH('s', 'r')}
-            ORDER BY abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
-            LIMIT 1
-          ) s ON true
+          LEFT JOIN commercial.warehouses rw ON rw.id = r.warehouse_id
+          LEFT JOIN shpd s
+            ON s.folio = r.parent_folio
+           AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
+           AND s.warehouse_id <> r.warehouse_id
+           AND ${TRANSFER_PAIR_MATCH('s', 'r')}
+          ORDER BY r.warehouse_id, r.folio, r.parent_serie, r.parent_folio,
+                   abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
         ), unreceived AS (
           SELECT s.* FROM shpd s
           WHERE NOT EXISTS (
