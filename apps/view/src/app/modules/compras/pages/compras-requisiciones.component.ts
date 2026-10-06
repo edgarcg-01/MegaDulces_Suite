@@ -13,7 +13,6 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComprasService, RequisitionRow, RequisitionEstado, RequisitionResumen } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '@megadulces/contracts';
 
@@ -238,9 +237,17 @@ export class ComprasRequisicionesComponent implements OnInit {
   sel = signal<Set<string>>(new Set());
 
   private readonly toast = inject(MessageService);
-  private readonly auth = inject(AuthService);
+  /**
+   * `[RQ.4]` El gate sale de `PermissionsService` y NO de `AuthService`, a propósito.
+   *
+   * Los dos saben lo mismo, pero `AuthService` arrastra HttpClient + DataScope + Uso + Injector y
+   * llama a `restoreSession()` en su constructor: meterlo acá habría roto el spec de esta pantalla
+   * (que monta con `provideRouter` y un solo doble) y, peor, habría hecho que una lista de
+   * requisiciones dependa del arranque de la sesión. `PermissionsService` no inyecta nada.
+   * El permiso igual lo exige el servidor; esto sólo decide si el botón se puede apretar.
+   */
   private readonly perms = inject(PermissionsService);
-  canManage = this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMPRAS_REQUISICIONES_GESTIONAR];
+  canManage = this.perms.isAdmin() || this.perms.has(Permission.COMPRAS_REQUISICIONES_GESTIONAR);
 
   estadoOpts = [
     { label: 'Pendiente de aprobar', value: 'pending_approval' },

@@ -173,11 +173,33 @@ describe('[MT] el drill-down renderizado', () => {
     comp.open = () => { filaNavego++; };
     fix.detectChanges();
 
-    const otraCelda = fix.nativeElement.querySelector('tr.rq-row > td:nth-child(2)') as HTMLElement;
+    // `[RQ.4]` La celda 1 es la casilla de selección y la 2 el folio, así que "otra celda"
+    // es la 3. Antes era la 2 y el test seguía pasando por casualidad: medía el folio.
+    const otraCelda = fix.nativeElement.querySelector('tr.rq-row > td:nth-child(3)') as HTMLElement;
     expect(otraCelda).toBeTruthy();
     otraCelda.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
     expect(filaNavego).toBe(1);
+  });
+
+  /**
+   * `[RQ.4]` Misma familia que la negativa del folio: marcar para el lote NO puede navegar.
+   * Si lo hiciera, elegir tres requisiciones sería imposible — la primera te saca de la lista.
+   */
+  it('NEGATIVA: marcar la casilla de selección no abre la requisición', () => {
+    const fix = montar();
+    const comp = fix.componentInstance;
+    let filaNavego = 0;
+    comp.open = () => { filaNavego++; };
+    fix.detectChanges();
+
+    const chk = fix.nativeElement.querySelector('tr.rq-row > td.rq-chk input') as HTMLInputElement;
+    expect(chk).toBeTruthy();
+    chk.click();
+    fix.detectChanges();
+
+    expect(filaNavego).toBe(0);
+    expect(comp.sel().has(FILA.id)).toBe(true);
   });
 
   describe('segmentación en pestañas (Requerimientos a Proveedor vs Traspaso)', () => {
