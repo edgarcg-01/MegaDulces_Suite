@@ -599,6 +599,17 @@ export interface CreateRequisitionDto {
   target_basis?: TargetBasis;
   notes?: string;
   lines: CreateRequisitionLine[];
+  /**
+   * `[RQ.8]` Para un lote: el ÍNDICE dentro del arreglo que manda el navegador, de la compra que
+   * origina esta bajada. Es un índice y no un id porque cuando el front arma el pedido los ids
+   * todavía no existen — el servidor los resuelve al insertar, que es el único lugar donde los
+   * conoce. Sólo tiene sentido en `POST /requisitions/batch`.
+   *
+   * ⚠️ Copiado VERBATIM del DTO del servidor (`commercial-replenishment.service.ts:171`), que ya
+   * lo declaraba y lo consume. Este tipo es una copia a mano del de allá: por eso el campo pudo
+   * existir de un lado y no del otro, y el build se cayó.
+   */
+  link_to?: number | null;
 }
 export interface ReceiveLine { line_id: string; received_qty: number; }
 
