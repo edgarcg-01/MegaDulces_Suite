@@ -20,6 +20,12 @@
 - **Tres permisos estaban mal partidos y nadie lo había notado**, porque hasta hoy todos los que podían asignar podían además supervisar: se podía *escribir* la lista de asignados sin poder *leerla*, y auto-generar un tablero de equipos **sin poder mirarlo**. Quedan corregidos.
 - Medido antes de construir: mandar al encargado a la pantalla de Equipos —que parecía hecha a medida— habría llevado a **seis de los siete** a un error, porque esa pantalla exige pasillos definidos y **sólo una de las nueve bodegas los tiene**.
 - ⚠️ Los **7 encargados tienen que volver a entrar** para que el permiso surta efecto. Y queda declarado: **Yurécuaro y Morelia Abastos no tienen encargado de tienda**, así que ahí todavía no hay quién asigne.
+### Added — «Nuevo embarque» toma el viaje de Kepler en vez de recapturarlo (EMB.12, 2026-10-06)
+- `/logistica/shipments/nuevo`: se elige la guía de embarque que almacén ya dio de salida en Kepler (con tipo, destinos, unidad, chofer y si ya se tomó). `/logistica/shipments/nuevo/:sucursal/:guia`: la hoja de Kepler en solo lectura (unidad, chofer, paradas con su ruta y orden, cajas, valor, responsables, cada dato con su columna de origen) y sólo se captura lo que Kepler no tiene: tipo de entrega, ayudantes, comisiones (sugeridas por el catálogo de rutas), viáticos, flete, km y peso.
+- Al crear se guarda la llave de la guía (`kepler_sucursal` + `kepler_guia`, una guía activa a la vez), la guía de entrega y un destinatario por parada para que el chofer confirme cada entrega. El detalle del embarque muestra la hoja final con entregas y costo estimado.
+- Vistas nuevas sobre el ODS: `analytics.erp_shipment_stops` (ruta por domicilio de entrega), `erp_shipment_stop_load` (cajas y sueltos desde los renglones) y `v_kepler_responsables` (mig `20261006150000`). «Embarque manual» sigue para lo que Kepler no emite.
+- Fixed: el formulario manual pedía «Por ruta / Viaje largo» y no se guardaba, y la fecha se mandaba en UTC (después de las 18:00 quedaba el día siguiente).
+- Internal: `libs/logistics` estrena pruebas con Vitest.
 ### Added — Anexo de venta: suma de unidades por grupo y total del documento (AX.13, 2026-10-05)
 - Cada rótulo de grupo del anexo imprimible («Comprado por caja · 3 productos») suma sus unidades bajo la columna Cantidad («10 CJA»); al pie, el total del documento por unidad (CJA · PAQ · PZA · KG por separado, nunca mezcladas).
 - Fixed: el reparto caja/paquete/pieza truncaba la cantidad decimal de la base (2.5 KG salía «2 KG»).

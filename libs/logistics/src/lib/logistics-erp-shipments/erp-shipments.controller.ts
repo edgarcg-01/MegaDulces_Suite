@@ -51,6 +51,13 @@ export class ErpShipmentsController {
     return this.service.tripDetail(sucursal, guia);
   }
 
+  @Get('trips/:sucursal/:guia/nuevo-embarque')
+  @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_VER)
+  @ApiOperation({ summary: 'EMB.12 — La hoja de «Nuevo embarque» de ese viaje: lo que Kepler ya capturó (unidad, chofer, paradas con ruta, carga, valor) + tarifa sugerida + si ya se tomó' })
+  nuevoEmbarque(@Param('sucursal') sucursal: string, @Param('guia') guia: string) {
+    return this.service.nuevoEmbarque(sucursal, guia);
+  }
+
   @Get('lines/:sucursal/:serie/:folio')
   @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_VER)
   @ApiOperation({ summary: 'Qué lleva esa parada: renglones en la unidad del ERP y su equivalencia en cajas' })

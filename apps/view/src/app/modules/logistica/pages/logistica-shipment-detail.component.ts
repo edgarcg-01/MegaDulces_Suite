@@ -19,8 +19,10 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
   CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite, OrderLite, ShipmentReadiness,
-  DeliveryGuide, Driver, GuideRecipient, LogisticaService, Shipment, ShipmentExpense, Vehicle,
+  DeliveryGuide, Driver, GuideRecipient, LogisticaService, NuevoEmbarqueHoja, Shipment, ShipmentExpense, Vehicle,
 } from '../logistica.service';
+import { KeplerHojaComponent } from '../components/kepler-hoja.component';
+import { KeplerCostoComponent } from '../components/kepler-costo.component';
 
 type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -32,6 +34,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, CheckboxModule, SelectModule, AutoCompleteModule,
     TagModule, TooltipModule, ToastModule, ConfirmDialogModule,
+    KeplerHojaComponent, KeplerCostoComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -81,6 +84,27 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <button pButton severity="secondary" [outlined]="true" size="small" (click)="downloadPdf(s.id)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
           </div>
         </header>
+        <!-- EMB.12 — HOJA DE EMBARQUE: el viaje de Kepler en vivo + lo que se capturó en la Suite -->
+        @if (s.kepler_guia) {
+          <div class="shd-kepler">
+            @if (hojaKepler(); as hk) {
+              <app-kepler-hoja [hoja]="hk" modo="final" [entregas]="entregasKepler()"></app-kepler-hoja>
+              <app-kepler-costo
+                [guia]="guides()[0] ?? null"
+                [personas]="drivers()"
+                [valor]="hk.resumen.valor_venta + hk.resumen.valor_traspaso"
+                [gastosKepler]="gastosKepler()"
+                [motivoGastos]="motivoGastosKepler()"></app-kepler-costo>
+            } @else if (errorKepler()) {
+              <p class="shd-kepler-err" role="alert">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                No se pudo leer el viaje {{ s.kepler_sucursal }}-G{{ s.kepler_guia }} de Kepler: {{ errorKepler() }}
+              </p>
+            } @else {
+              <p class="shd-kepler-wait">Leyendo el viaje {{ s.kepler_sucursal }}-G{{ s.kepler_guia }} de Kepler…</p>
+            }
+          </div>
+        }
         <!-- MODE TABS -->
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush shd-tabs-cell">
@@ -623,6 +647,10 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       width: max-content;
     }
     .shd-back:hover { color: var(--c-text-1); background: var(--c-surface-2); }
+    .shd-kepler { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem; }
+    .shd-kepler-err, .shd-kepler-wait { margin: 0; padding: .6rem .8rem; border-radius: var(--r-sm); font-size: var(--fs-sm); }
+    .shd-kepler-err { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .shd-kepler-wait { background: var(--c-surface-2); color: var(--c-text-2); }
     .shd-back i { font-size: var(--fs-xs); }
 
     .shd-eyebrow {
@@ -860,6 +888,13 @@ export class LogisticaShipmentDetailComponent {
   readonly shipmentId = signal<string>('');
   readonly shipment = signal<Shipment | null>(null);
   readonly guides = signal<DeliveryGuide[]>([]);
+  // EMB.12 — la hoja del viaje de Kepler que este embarque tomó (null si es un embarque propio).
+  readonly hojaKepler = signal<NuevoEmbarqueHoja | null>(null);
+  readonly errorKepler = signal<string | null>(null);
+  readonly entregasKepler = signal<GuideRecipient[]>([]);
+  /** Gasto de Kepler atribuido a la guía (CGU.4). null = no se pudo medir; no es cero. */
+  readonly gastosKepler = signal<number | null>(null);
+  readonly motivoGastosKepler = signal<string | null>(null);
   readonly expense = signal<ShipmentExpense | null>(null);
   readonly drivers = signal<Driver[]>([]);
   readonly driverOptions = computed(() =>
@@ -934,7 +969,10 @@ export class LogisticaShipmentDetailComponent {
 
   loadAll(id: string) {
     this.api.getShipment(id).subscribe({
-      next: (s) => this.shipment.set(s),
+      next: (s) => {
+        this.shipment.set(s);
+        if (s.kepler_sucursal && s.kepler_guia) this.cargarHojaKepler(id, s.kepler_sucursal, s.kepler_guia);
+      },
       error: () => this.toast.add({ severity:'error', summary:'Error', detail:'No se cargó embarque' }),
     });
     this.api.listGuides(id).subscribe({
@@ -953,6 +991,37 @@ export class LogisticaShipmentDetailComponent {
       error: () => { /* 404 si no hay expense aún — OK */ },
     });
     this.refreshReadiness();
+  }
+
+  /**
+   * EMB.12 — La hoja final: el viaje de Kepler EN VIVO (no la copia guardada), las entregas que
+   * va confirmando el chofer, y el gasto de Kepler atribuido a la guía. Cada pieza falla sola:
+   * sin permiso de costos la hoja sale igual, con el gasto «sin medir».
+   */
+  private cargarHojaKepler(shipmentId: string, sucursal: string, guia: string) {
+    this.errorKepler.set(null);
+    this.api.getNuevoEmbarque(sucursal, guia).subscribe({
+      next: (h) => {
+        this.hojaKepler.set(h);
+        if (h.viaje.fecha) {
+          this.api.guideCostBreakdown(sucursal, guia, h.viaje.fecha, h.viaje.fecha).subscribe({
+            next: (c) => { this.gastosKepler.set(Number(c.total ?? 0)); this.motivoGastosKepler.set(null); },
+            error: (e) => {
+              this.gastosKepler.set(null);
+              this.motivoGastosKepler.set(e?.status === 403
+                ? 'Sin permiso para ver gastos: el total no incluye el gasto de Kepler.'
+                : 'El gasto de Kepler de esa guía no se pudo leer: el total no lo incluye.');
+            },
+          });
+        }
+      },
+      error: (e) => this.errorKepler.set(e?.error?.message || 'intenta de nuevo en un momento'),
+    });
+    this.api.listGuides(shipmentId).subscribe((gs) => {
+      const g = (gs || [])[0];
+      if (!g) return;
+      this.api.getGuide(g.id).subscribe((full: any) => this.entregasKepler.set(full?.recipients || []));
+    });
   }
 
   refreshReadiness() {
