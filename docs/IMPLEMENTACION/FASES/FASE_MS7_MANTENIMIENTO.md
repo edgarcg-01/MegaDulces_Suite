@@ -1,6 +1,6 @@
 # FASE MS.7 — La Mesa de Servicio multi-área: empezar por Mantenimiento
 
-> **Estado:** 📋 DISEÑADO (planeación) 2026-10-06 — sin código. Sub-fase de [`FASE_MS`](FASE_MS_MESA_DE_SERVICIO.md) (ADR-081); ocupa el renglón *«MS.7 más colas (Mantenimiento)»* que esa fase dejó reservado.
+> **Estado:** 📋 DISEÑADO (planeación) 2026-10-06 — sin código. **Decisiones de Sistemas del 2026-10-06 incorporadas** (M2, M3, M4, M5, M11 y lo de infraestructura; ver §2 y §7). Sub-fase de [`FASE_MS`](FASE_MS_MESA_DE_SERVICIO.md) (ADR-081); ocupa el renglón *«MS.7 más colas (Mantenimiento)»* que esa fase dejó reservado.
 > **Origen:** pedido de Sistemas: agregar todos los departamentos de la empresa a la Mesa de Servicio, con **un responsable por área** que atienda cada orden. Se empieza por **Mantenimiento**. Llegó con un plan en dos archivos (`CLAUDE.md` + `PLAN_MANTENIMIENTO.md`, de la parte de Sistemas/Frank); este documento **lo contrasta con el código real** y lo adecua.
 > **Para quién:** Sistemas (dueño de la Mesa), Frank (negocio de Mantenimiento), Edgar (revisión) y el dev que lo construya.
 
@@ -16,14 +16,14 @@ El plan original parte de que hay que *generalizar* una mesa que sólo sabe de T
 | 1.3 «permisos por cola; un técnico de Mantenimiento no ve tickets de TI» | ⛔ **No existe.** `SERVICIO_ATENDER`/`SERVICIO_COORDINAR` son claves **globales** y `puedeVer = esAgente \|\| es el solicitante` (`requests.service.ts:934`). `inbox`, `stats`, `reports`, `agents.listIn` (de donde salen los destinatarios de avisos, el ruteo y las alertas de SLA) no miran la cola. | **Es el cambio más delicado y va primero.** Sembrar Mantenimiento *sin* esto mete sus tickets —y sus fotos— en la bandeja de TI y al revés. |
 | 1.6 SLA por cola y prioridad | `sla_policies` es **por prioridad y global del tenant** (`UNIQUE (tenant_id, priority)`). | Agregar la dimensión cola (con *fallback* al general). |
 | 1.6 prioridad por «riesgo para personas × detiene la operación» | La matriz actual es **impacto × bloquea** (`domain/priority.ts`), distinta. | Modelo de prioridad **configurable por cola** (no un `if`). |
-| 1.7 estados configurables por cola (Diagnóstico, Esperando refacción…) | Los estados viven en **11 CHECK de la base + una máquina pura global** (`request-state.ts`). `en_espera` ya pausa el reloj. | No se configuran por cola sin reescribir ambas capas. Ver decisión **M3**. |
-| 1.2 prefijo de folio `MTO` | El folio es `SRV-AAAA-NNNNN`, con CHECK `^SRV-…`, consecutivo **por año** y regex en el código. | Ver decisión **M2** (recomiendo **un solo folio**). |
+| 1.7 estados configurables por cola (Diagnóstico, Esperando refacción…) | Los estados viven en **11 CHECK de la base + una máquina pura global** (`request-state.ts`). `en_espera` ya pausa el reloj. | No se configuran por cola sin reescribir ambas capas. Resuelto (**M3**): misma máquina + motivo de pausa; sin «Diagnóstico». |
+| 1.2 prefijo de folio `MTO` | El folio es `SRV-AAAA-NNNNN`, con CHECK `^SRV-…`, consecutivo **por año** y regex en el código. | Resuelto (**M2**): **un solo folio**. |
 | 1.1 campos extra por cola | **No existe** (`requests` no tiene datos extra). | Tabla de definición + `requests.extra jsonb`. |
 | 1.2 `is_test` | **No existe.** Los tickets de prueba de TI hoy se limpian a mano en el E2E. | Columna + acción de coordinación. |
 | 1.2 «11 ubicaciones» | Ya hay **10**: CEDIS + 8 sucursales (`00`–`08`) + Oficinas (`OF`, `SD_UBICACIONES_EXTRA`). Falta **Estacionamiento CEDIS**. Las *zonas* no existen. | Un código extra (sin migración) + tabla de zonas. |
 | 1.8 asignación por ubicación y categoría | `routing_rules` asigna por **categoría o palabra clave → persona**; ubicación no. | Sumar la dimensión ubicación y un responsable por omisión del área. |
 | 1.8 reasignar entre colas | No existe (sólo se asigna a una **persona**). | Operación nueva `transferir`. |
-| 1.9 correo + notificación interna | Existe el motor (correo, WhatsApp, campana). ⚠️ **`SMTP_*` y `S3_*` siguen sin configurar en prod** (sin ellos: sin correo y sin adjuntos), y la foto obligatoria de Mantenimiento **depende de S3**. | Dependencia de infraestructura, no de código. |
+| 1.9 correo + notificación interna | Existe el motor (correo, WhatsApp, campana). ⚠️ **`SMTP_*` y `S3_*` siguen sin configurar en prod** (sin ellos: sin correo y sin adjuntos), y la foto de Mantenimiento **depende de S3**. | Decisión de Sistemas: se quedan como están, **no son obligatorios** → la foto es **opcional** por ahora y el correo sigue como hoy. |
 | 1.10 reporte mínimo | `reports.service` ya da abiertas por ubicación, tiempo por categoría y % en SLA. | Sólo falta filtrar por cola y excluir `is_test`. |
 | Fase 2 «QR como el Inventario de Equipos» | **No hay inventario de equipos ni librería de QR** en este repo. Sí hay mantenimiento de **vehículos** (`logistics.vehicle_usage_maintenance`). | Fase 2 es una **fase propia** (ver §6), no un sprint más. |
 | `CLAUDE.md` «copia a la raíz» | La raíz ya tiene un `CLAUDE.md` de ~100 KB que **es la memoria del proyecto**. | **No se copia ni se pega al final.** Las reglas útiles están en §8; el resto ya está cubierto por las del repo. |
@@ -32,23 +32,23 @@ El plan original parte de que hay que *generalizar* una mesa que sólo sabe de T
 
 ---
 
-## 2. Decisiones propuestas
+## 2. Decisiones
 
-Cada una trae su recomendación; las marcadas ⚠️ las debe confirmar Sistemas/Frank antes del sprint que las usa.
+Las marcadas ✅ las **resolvió Sistemas el 2026-10-06** (con la opción que se recomendaba, salvo donde se indica); las ⚠️ siguen abiertas y se confirman antes del sprint que las usa.
 
 | # | Decisión | Recomendación y por qué |
 |---|---|---|
 | **M1** | **Dónde vive «quién atiende qué área».** | **Es un dato, no una clave de permiso:** tabla `servicedesk.queue_members (cola, persona, rol: coordinador \| técnico)`. Las claves `SERVICIO_ATENDER/COORDINAR` siguen siendo *capacidades* («puede atender / puede repartir») y la membresía dice *dónde*. Se administra **desde la pantalla** (`/servicio/configuracion`), como pidió Edgar para todo lo de personas. **Se rechaza** una clave por área (`SERVICIO_MANTENIMIENTO_ATENDER`): obligaría a tocar enum, árbol de permisos y roles por cada departamento, o sea exactamente el `if (cola === …)` que la regla 1 prohíbe. Efecto colateral bueno: **no hay permisos nuevos → no hace falta re-login.** |
-| **M2** ⚠️ | **Folio.** | **Un solo folio `SRV-AAAA-NNNNN` para todas las áreas**; la cola se ve como etiqueta en la lista y en la ficha. Razón: transferir un ticket TI→Mantenimiento *no cambia de folio* (el plan pedía «registrar el cambio de folio o la relación»: con folio único no hay nada que registrar), no se toca el CHECK, el consecutivo, el regex ni los enlaces de la campana. Si Frank exige `MTO-…`, el costo es: `queues.folio_prefix`, CHECK nuevo, consecutivo por `(prefijo, año)`, `parseFolio`, búsqueda y deep-links, **y** decidir qué pasa con el folio al transferir. |
-| **M3** ⚠️ | **Estados de Mantenimiento.** | **Misma máquina para todas las áreas**, más un **motivo de pausa** en `en_espera` (`proveedor`, `refaccion`, `aprobacion`, `solicitante`, `otro`). «Esperando refacción o proveedor» = `en_espera` + motivo (ya pausa el SLA). «Diagnóstico» = `en_proceso` (se ve por el hilo/nota) — **salvo que Frank lo necesite como estado propio**: eso es un estado nuevo en los 11 CHECK + la máquina + los filtros y vale la pena sólo si habrá un reporte de «tiempo en diagnóstico». |
-| **M4** ⚠️ | **Prioridad.** | `queues.priority_model`: `impacto` (el de hoy, default → TI sin cambios) o `riesgo_operacion` (la matriz de Mantenimiento). Se elige **por el valor configurado**, nunca por el nombre de la cola. «Crítica» del plan = `urgente` del sistema: **preguntar si se renombra en pantalla** (el enum no se toca). Y la regla de ADR-081 se mantiene: **la persona no cambia su prioridad**, sólo quien atiende (el plan dejaba que la persona «la baje a Baja»; es inocuo, pero es una excepción que no vale la pena). |
-| **M5** ⚠️ | **SLA por cola.** | `sla_policies.queue_id` (NULL = general) con *fallback* cola → general. Números del plan (Crítica 1 h/4 h · Alta 4 h/24 h · Media 1 d/3 d · Baja 3 d/10 d) como **propuesta sin calibrar** (D5 de la Mesa: primero miden). ⚠️ **Falta fijar la unidad:** en la Mesa «1 día» = **480 min hábiles** (8 h), y «24 h» de Alta puede ser corrido o hábil. Se siembra como dato editable y se calibra con 30 días de medición. |
+| **M2** ✅ | **Folio.** | **Resuelto: un solo folio `SRV-AAAA-NNNNN` para todas las áreas**; la cola se ve como etiqueta en la lista y en la ficha. Razón: transferir un ticket TI→Mantenimiento *no cambia de folio* (el plan pedía «registrar el cambio de folio o la relación»: con folio único no hay nada que registrar), no se toca el CHECK, el consecutivo, el regex ni los enlaces de la campana. Si Frank exige `MTO-…`, el costo es: `queues.folio_prefix`, CHECK nuevo, consecutivo por `(prefijo, año)`, `parseFolio`, búsqueda y deep-links, **y** decidir qué pasa con el folio al transferir. |
+| **M3** ✅ | **Estados de Mantenimiento.** | **Resuelto: «Diagnóstico» no se necesita.** Misma máquina para todas las áreas, más un **motivo de pausa** en `en_espera` (`proveedor`, `refaccion`, `aprobacion`, `solicitante`, `otro`). «Esperando refacción o proveedor» = `en_espera` + motivo (ya pausa el SLA). «Diagnóstico» = `en_proceso` (se ve por el hilo/nota). Sin estado nuevo: no se tocan los 11 CHECK ni la máquina. |
+| **M4** ✅ | **Prioridad.** | `queues.priority_model`: `impacto` (el de hoy, default → TI sin cambios) o `riesgo_operacion` (la matriz de Mantenimiento). Se elige **por el valor configurado**, nunca por el nombre de la cola. «Crítica» del plan = `urgente` del sistema, y **resuelto: no se renombra** (en pantalla sigue «Urgente»; el enum no se toca). Y la regla de ADR-081 se mantiene: **la persona no cambia su prioridad**, sólo quien atiende (el plan dejaba que la persona «la baje a Baja»; es inocuo, pero es una excepción que no vale la pena). |
+| **M5** ✅ | **SLA por cola.** | `sla_policies.queue_id` (NULL = general) con *fallback* cola → general. **Resuelto: todo en horario hábil** (`clock='business'`). Se siembra, como **propuesta sin calibrar** (D5 de la Mesa: primero miden), con «1 día» = 8 h hábiles = 480 min: **Urgente 60 / 240 · Alta 240 / 480 · Media 480 / 1,440 · Baja 1,440 / 4,800** (minutos hábiles; primera respuesta / resolución). ⚠️ **Dos lecturas a confirmar con Frank:** (a) «24 h» de Alta se tomó como **1 día hábil** (480 min); leído como 24 horas *hábiles* serían 1,440 min = 3 días y empataría con la resolución de Media; (b) con reloj hábil, una **Urgente fuera de horario (noche, domingo) no corre hasta la mañana** — en TI la urgente corre corrida. Es un campo editable por política: si Frank quiere la urgente corrida, se cambia en pantalla, sin código. |
 | **M6** | **Transferir entre colas.** | **Mueve el mismo ticket** (mismo folio, hilo y adjuntos; no clona): cambia cola y categoría, quita la asignación, recalcula prioridad y SLA con la política de la cola nueva, deja un mensaje de sistema en el hilo (de→a, quién, por qué) y avisa a la cola destino. Lo puede hacer **quien coordina la cola de origen**. |
 | **M7** | **Ubicaciones y zonas.** | `EC` = «Estacionamiento CEDIS» en `SD_UBICACIONES_EXTRA` (mismo mecanismo que Oficinas: sin migración, no toca `STORE_BRANCHES`). **Zonas** = tabla propia `servicedesk.zones` (bodega, andén, oficina, baños, exterior…) y `requests.zone_code` opcional; no es parte de la ubicación. |
 | **M8** | **Tickets de prueba.** | `requests.is_test`; lo marca **la coordinación desde la ficha** (queda en el hilo), y se excluye de reportes, tablero, «Mi trabajo» y avisos. El «Prueba de tickets» (SRV-2026-00003) se marca **desde la pantalla**, no editando datos de prod a mano. |
-| **M9** | **Responsable del área.** | Es el miembro con rol **coordinador** (reparte y reasigna). Si una cola define `default_assignee_id`, los tickets sin regla le caen a esa persona; si no, quedan «Sin asignar» y los ven todos los miembros de la cola (el comportamiento actual de TI). **Nunca** se asigna a alguien que no sea miembro. |
+| **M9** ✅ | **Responsable del área.** | **Resuelto: el responsable de Mantenimiento es Ubaldo Barajas Valencia** (personal de la empresa, **no** un proveedor externo). Es el miembro con rol **coordinador** (reparte y reasigna). Si una cola define `default_assignee_id`, los tickets sin regla le caen a esa persona; si no, quedan «Sin asignar» y los ven todos los miembros de la cola (el comportamiento actual de TI). **Nunca** se asigna a alguien que no sea miembro. |
 | **M10** | **Escalamiento.** | Sigue **apagado** (`escalation_enabled`) hasta medir ~30 días por cola. Hereda D5. |
-| **M11** ⚠️ | **¿Un coordinador ve todas las áreas?** | **No**: el acceso siempre es por membresía; sólo el god-mode (por nombre de rol, ADR-054) ve todo. Quien hoy atiende TI se **respalda como miembro de TI** en la migración, para que nadie pierda acceso. Si Dirección quiere un rol «ve todas las colas», es una membresía por cada una (o una bandera `all_queues` posterior). |
+| **M11** ✅ | **¿Un coordinador ve todas las áreas?** | **Resuelto: se deja como está hoy.** El acceso es por membresía de cola; sólo el god-mode (por nombre de rol, ADR-054) ve todo. Quien hoy atiende TI se **respalda como miembro de TI** en la migración, para que nadie pierda acceso. Si más adelante Dirección quiere un acceso «todas las colas», será una membresía por cola (o una bandera `all_queues`), sin rediseño. |
 
 ---
 
@@ -90,7 +90,7 @@ Orden de la Mesa: primero la base, luego la lógica con sus pruebas, al final la
 |---|---|---|
 | **MS.7.6 ⚠️** | **Acceso por cola.** `ActorCtx` trae las colas del actor (`todas` para god-mode); `puedeVer`, `inbox`, `stats`, `reports`, `agents.listIn(cola)`, take/assign (el destino debe ser miembro) y los avisos filtran por cola. El solicitante **siempre** ve lo suyo. | Un técnico de MTO **no ve** un ticket de TI (404 en la ficha, ausente en inbox/stats/reporte, sin avisos); TI sigue idéntico; el solicitante ve el suyo; **mutación**: abrir `puedeVer` debe poner rojas varias comprobaciones. |
 | **MS.7.7** | Prioridad por modelo de cola (`riesgo_operacion`) + SLA con *fallback* cola→general. | La matriz completa (4 combinaciones), el *max* con la prioridad de la categoría, y que TI siga calculando con `impacto`. |
-| **MS.7.8** | Campos extra y **foto obligatoria**: validador puro (requeridos, tipos, opciones) leído de `queue_fields`. | Falta un campo requerido → 400; sin foto en una cola que la exige → 400; TI sin campos → igual que hoy. |
+| **MS.7.8** | Campos extra y **foto (opcional por ahora)**: validador puro (requeridos, tipos, opciones) leído de `queue_fields`. La capacidad de exigir foto (`required`) queda construida, pero **Mantenimiento no la activa** (decisión de Sistemas: adjuntos como están hoy, sin almacenamiento obligatorio). | Falta un campo requerido → 400; una cola que SÍ exige foto sin foto → 400 (probado con una cola de prueba, no con la real); Mantenimiento acepta el ticket sin foto; TI sin campos → igual que hoy. |
 | **MS.7.9** | Motivo de pausa en `en_espera` (pausa el SLA); auto-cierre a 3 días ya existente, probado también por cola. | Pausar con motivo, reanudar, el reloj no corre en pausa. |
 | **MS.7.10** | Ruteo por ubicación + responsable por omisión; el destino debe ser **miembro** de la cola del ticket. | Gana la regla más específica y primera por orden; sin regla → default o «sin asignar»; no se asigna a no-miembros. |
 | **MS.7.11** | `transferir` (M6). | Mismo folio/hilo/adjuntos; la categoría debe ser de la cola destino; recalcula SLA; mensaje de sistema; sólo coordina el origen; no se pierde el ticket en una cola que nadie atiende (la destino debe tener al menos un miembro activo). |
@@ -101,13 +101,13 @@ Orden de la Mesa: primero la base, luego la lógica con sus pruebas, al final la
 
 | Sprint | Qué |
 |---|---|
-| **MS.7.14** | Cola **Mantenimiento** (`code='mantenimiento'`, `priority_model='riesgo_operacion'`), las **11 categorías** del plan, SLA propio, las **zonas**, los dos campos de riesgo/operación + foto obligatoria, y los miembros que Frank defina. Sólo después de verificar MS.7.6. |
+| **MS.7.14** | Cola **Mantenimiento** (`code='mantenimiento'`, `priority_model='riesgo_operacion'`), las **11 categorías** del plan, SLA propio, las **zonas**, los dos campos de riesgo/operación (la foto **opcional**), y los miembros: **Ubaldo Barajas Valencia como coordinador** más los técnicos que él defina desde la pantalla. Sólo después de verificar MS.7.6. |
 
 ### Capa 3 — Visual (`apps/view`, Operations)
 
 | Sprint | Qué |
 |---|---|
-| **MS.7.15** | «Nueva solicitud»: elegir **área** → categorías de esa área → ubicación (ya visible) → zona → campos dinámicos → foto. |
+| **MS.7.15** | «Nueva solicitud»: elegir **área** → categorías de esa área → ubicación (ya visible) → zona → campos dinámicos → foto (opcional). |
 | **MS.7.16** | Bandeja y ficha por cola: selector de cola (sólo las permitidas), etiqueta de cola en filas y ficha, motivo de pausa, **Transferir a otra área**, **Marcar como prueba**. |
 | **MS.7.17** | Configuración de colas: miembros (coordinador/técnicos), responsable por omisión, modelo de prioridad, SLA por cola, campos, zonas. Demuestra la regla 1: **crear otra área sin tocar código**. |
 | **MS.7.18** | Reportes con filtro de cola; «Mi trabajo»: lo «por asignar» de **cada cola que reparte** esa persona. |
@@ -119,8 +119,10 @@ Orden de la Mesa: primero la base, luego la lógica con sus pruebas, al final la
 
 - **Fase 0 (reconocimiento): hecha** — es este documento (y §8 completa la sección *Stack*).
 - **1.1 y 1.2** se reparten en MS.7.1–7.5 y 7.14: sin crear colas ni categorías desde cero, con la siembra **después** del acceso por cola.
-- **Estados configurables por cola** → motivo de pausa (M3). **Prefijo de folio por cola** → folio único (M2). Ambos son decisión revisable si Frank lo exige.
-- **«La persona puede bajar la prioridad»** → no (M4).
+- **Estados configurables por cola** → motivo de pausa, sin «Diagnóstico» (M3 ✅). **Prefijo de folio por cola** → folio único (M2 ✅).
+- **Foto obligatoria de Mantenimiento** → foto opcional por ahora (los adjuntos siguen como están; ver §7).
+- **«La persona puede bajar la prioridad»** → no (M4 ✅).
+- **«Crítica»** → se queda «Urgente» en pantalla (M4 ✅).
 
 ---
 
@@ -133,15 +135,24 @@ No entran a MS.7 y **no deben empezar antes de calibrar la Fase 1** (30 días de
 
 ---
 
-## 7. Preguntas abiertas (para Frank y Edgar)
+## 7. Resuelto y pendiente
 
-1. **Frank (las del plan):** quién coordina Mantenimiento, quién atiende en cada sitio, proveedores externos (¿tienen usuario o sólo son un registro?), monto que exige aprobación, SLAs finales.
-2. **M2:** ¿folio único `SRV-` o prefijo `MTO-`? (Recomendado: único.)
-3. **M3:** ¿«Diagnóstico» necesita ser un estado propio o basta con el motivo de pausa?
-4. **M4:** ¿se renombra «Urgente» a «Crítica» en pantalla (sólo etiqueta)?
-5. **M5:** ¿«24 h» y «3 d» son corridos u horario hábil? (La Mesa cuenta «1 día» = 8 h hábiles.)
-6. **M11:** ¿Dirección necesita ver **todas** las colas con un solo acceso, o basta con membresías?
-7. **Infra (no es de código):** `SMTP_*` y `S3_*` en prod — **sin S3 no hay foto obligatoria**; migraciones de la Mesa pendientes de aplicar en prod; dar `SERVICIO_ATENDER` a quien atenderá Mantenimiento.
+**Resuelto por Sistemas (2026-10-06):**
+1. **Folio:** único `SRV-AAAA-NNNNN` (M2).
+2. **«Diagnóstico»:** no se necesita (M3).
+3. **«Crítica»:** no se renombra; sigue «Urgente» (M4).
+4. **Reloj del SLA:** horario hábil para todas las políticas (M5).
+5. **Visión de Dirección:** se deja como está hoy — por membresía de cola, god-mode ve todo (M11).
+6. **Responsable de Mantenimiento:** **Ubaldo Barajas Valencia**, personal de la empresa; **no hay proveedores externos** en el alcance (el catálogo de proveedores de la Fase 2 del plan queda fuera por ahora).
+7. **Infraestructura:** `SMTP_*` y `S3_*` **se quedan como están**; no son obligatorios. Consecuencia: la foto de Mantenimiento es **opcional** y los avisos por correo siguen como hoy.
+
+**Pendiente (no bloquea empezar por la capa de BD):**
+- **Alta de Ubaldo en la Mesa:** confirmar en producción que tiene usuario y que su rol le da `SERVICIO_ATENDER` **y** `SERVICIO_COORDINAR` (esta máquina no tiene su ficha: sólo se verifica en prod). Si no, se reparte desde `/admin/personas`. Ver también:
+- **Departamento «Mantenimiento»:** el catálogo (`identity.departments`) **no tiene** uno; la cola puede quedar con `department_code` en blanco (es opcional) o se crea el departamento aparte, que es decisión de RH/administración, no de la Mesa.
+- **Quién atiende en cada sitio** (los técnicos de Mantenimiento): se cargan como miembros desde la pantalla de MS.7.17; no hace falta tenerlos antes de construir.
+- **Monto que exige aprobación y plazos finales:** sólo importan para la Fase 2 (aprobación por monto) y para calibrar el SLA tras 30 días.
+- **Las dos lecturas del SLA** de M5 (24 h de Alta; Urgente en horario hábil).
+- **Aplicar las migraciones de la Mesa en prod** (las 6 anteriores, una por una) antes que las de MS.7.
 
 ---
 
