@@ -258,6 +258,27 @@ export interface ExpedienteDetalle {
   [extra: string]: unknown;
 }
 
+/**
+ * `[GX.69]` Una fila del vale leída de `finance.v_expense_proofs` — sólo lo que las lecturas
+ * piden. `importe` es el de Kepler (saldo del gasto, o la solicitud si aún no hay gasto); pg lo
+ * entrega como texto, por eso `string | number`. `files` llega como JSON crudo o ya parseado.
+ */
+interface ValeLeido {
+  id?: string;
+  status?: string;
+  folio_solicitud: string | null;
+  sucursal?: string | null;
+  files: string | ProofFile[] | null;
+  importe: string | number | null;
+  provisional?: boolean | null;
+  clasificacion?: string | null;
+  comprobacion_nota?: string | null;
+  tiene_comprobacion?: boolean | null;
+  monto_ocr?: string | number | null;
+  created_by?: string | null;
+  evidencia_por?: string | null;
+}
+
 /** `[GX.20]` Lo que devuelve `delDia()`. Cruza el boundary REST (ADR-052), asi que se declara. */
 export interface RespuestaDelDia extends ParticionDelDia {
   /** El dia que se esta mirando (`YYYY-MM-DD`, Mexico). */
@@ -999,7 +1020,7 @@ export class ExpenseProofsService {
     // Lee el estado actual + guardas FUERA de la trx pesada (la visión es I/O de segundos).
     const base = await this.tk.run(async (trx) => {
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
-      const cur: any = await trx('finance.v_expense_proofs').where({ id }).where('status', 'recibida')
+      const cur: ValeLeido | undefined = await trx('finance.v_expense_proofs').where({ id }).where('status', 'recibida')
         .first('folio_solicitud', 'files', trx.raw('importe::numeric AS importe'),
           ...(clasCol ? ['clasificacion', 'comprobacion_nota'] : []));
       return { cur, clasCol };
@@ -1148,7 +1169,7 @@ export class ExpenseProofsService {
     // Datos base + guardas FUERA de la trx pesada (la visión es I/O de segundos).
     const base = await this.tk.run(async (trx) => {
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
-      const cur: any = await trx('finance.v_expense_proofs').where({ id }).where('status', 'aprobada')
+      const cur: ValeLeido | undefined = await trx('finance.v_expense_proofs').where({ id }).where('status', 'aprobada')
         .first('folio_solicitud', 'files', 'provisional', trx.raw('importe::numeric AS importe'), ...(clasCol ? ['clasificacion'] : []));
       return { cur, clasificacion: clasCol ? cur?.clasificacion : null };
     });
@@ -1556,7 +1577,7 @@ export class ExpenseProofsService {
     return this.tk.run(async (trx) => {
       const tieneCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'tiene_comprobacion');
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
-      const r: any = await trx('finance.v_expense_proofs')
+      const r: (ValeLeido & { id: string; status: string }) | undefined = await trx('finance.v_expense_proofs')
         .where({ id })
         .first(...(tieneCol ? ['tiene_comprobacion', 'comprobacion_nota'] : []),
           ...(clasCol ? ['clasificacion'] : []),
