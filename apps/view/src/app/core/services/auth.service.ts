@@ -5,6 +5,7 @@ import { tap, timeout } from 'rxjs/operators';
 import { Observable, firstValueFrom } from 'rxjs';
 import { Permission } from '../constants/permissions';
 import { DataScopeService } from './data-scope.service';
+import { UsoService } from './uso.service';
 import { PermissionsService } from './permissions.service';
 import { limpiarRastroDeSesion } from '@megadulces/ui-web';
 import type { RastroLimpiado } from '@megadulces/ui-web';
@@ -57,6 +58,12 @@ export class AuthService {
     private http: HttpClient,
     private perms: PermissionsService,
     private scope: DataScopeService,
+    /**
+     * `[SN.40]` Cachea «Tus accesos» con `shareReplay` de por vida, igual que `scope`. Se reinicia
+     * en los dos mismos puntos, por el mismo motivo medido: sin eso, cambiar de usuario sin
+     * recargar le muestra a la persona nueva los atajos de la anterior.
+     */
+    private uso: UsoService,
     /** `[SEG.3]` Para resolver la base offline PEREZOSAMENTE — ver `decidirYLimpiar`. */
     private injector: Injector,
   ) {
@@ -218,6 +225,7 @@ export class AuthService {
     // filtraban filas — pero la pantalla mentía: un usuario de una sucursal veía nueve,
     // elegía una ajena y la tabla volvía vacía sin decir por qué.
     this.scope.reset();
+    this.uso.reset();
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* no-op */ }
     // Limpiar cookie legacy si quedó alguno
     if (typeof document !== 'undefined') {
@@ -301,6 +309,7 @@ export class AuthService {
       // Sesión nueva ⇒ alcance nuevo. Se limpia también acá y no sólo en logout: el login
       // desde una sesión ya abierta (cambio de usuario) no pasa por logout.
       this.scope.reset();
+      this.uso.reset();
 
       if (persist) {
         try { localStorage.setItem(STORAGE_KEY, token); } catch { /* quota / privacy mode */ }

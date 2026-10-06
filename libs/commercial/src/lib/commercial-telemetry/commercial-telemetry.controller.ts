@@ -20,6 +20,7 @@ import {
   ReqUser,
   TenantContextService,
 } from '@megadulces/platform-core';
+import { VENTANA_ACCESOS_DIAS, type MisAccesos } from '@megadulces/contracts';
 import {
   CommercialTelemetryService,
   RawTelemetryEvent,
@@ -108,6 +109,44 @@ export class CommercialTelemetryController {
       tenantId: this.tenantCtx.get()?.tenantId ?? null,
       userId: user?.sub ?? null,
     });
+  }
+
+  /**
+   * `[SN.40]` **Lo que ESTA persona abre.** El primer lector del registro de clics, que llevaba
+   * desde el 2026-09-11 escribiendo sin que nadie lo consumiera (medido: 3,677 aperturas de 84
+   * personas, cero lectores).
+   *
+   * Self-scoped y **sin `@RequirePermissions`**, igual que `me/work` y `me/context`: el `user_id`
+   * sale del token, nunca de un parámetro. Preguntar por los clics de otra persona no es que esté
+   * prohibido — es que no hay cómo pedirlo.
+   *
+   * ⚠️ Lo que devuelve NO es sólo tuyo: cuando tu historia no alcanza, completa con tu puesto y
+   * tu área, y cada elemento trae `origen` diciendo de cuál de los tres salió. La pantalla tiene
+   * que mostrarlo; un atajo prestado que se presenta como propio es el «laberinto» del que
+   * advierte la crítica a la App Library.
+   *
+   * ⛔ **Nunca rompe la landing.** Ante cualquier falla devuelve la forma vacía con `propias: 0`,
+   * que el front ya sabe leer como arranque en frío: la fila no se dibuja y el resto de la
+   * pantalla no se entera. Es el mismo contrato que la ingesta de arriba.
+   */
+  @Get('suite/mios')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Las puertas que esta persona abre (con relleno por puesto y área)' })
+  async misAccesos(@ReqUser() user: { sub?: string }): Promise<MisAccesos> {
+    const vacio: MisAccesos = {
+      medido_at: new Date().toISOString(),
+      ventana_dias: VENTANA_ACCESOS_DIAS,
+      propias: 0,
+      accesos: [],
+    };
+    const tenantId = this.tenantCtx.get()?.tenantId ?? null;
+    if (!user?.sub || !tenantId) return vacio;
+    try {
+      return await this.service.misAccesos(user.sub, tenantId);
+    } catch {
+      // Un atajo que no se pudo calcular es una fila que no se dibuja, jamás una landing en 500.
+      return vacio;
+    }
   }
 
   /**

@@ -974,6 +974,130 @@ Cross-links (Dirección General, Mercadotecnia, Auditoría) aparecen para 27 rol
 
 **Lo que el pathspec NO protege:** el pathspec evita que YO me lleve lo ajeno; no evita que OTRO se lleve lo mío en la ventana entre que edito y commiteo. La mitigación real es **commitear pronto**, sobre todo los archivos calientes que todas las sesiones tocan (`CHANGELOG.md`, `01_TRACKER_PROGRESO.md`): cuanto más tiempo pase entre editarlos y commitearlos, más probable es que viajen en el commit de otro.
 
+## 11bis. `[SN.40]` El registro de clics se LEE (2026-10-05)
+
+### El defecto: un mes escribiendo, cero lectores
+
+`UsoService` guarda cada apertura desde el 2026-09-11 (`[SN.12]`). Medido en prod el 2026-10-05,
+read-only:
+
+| | |
+|---|---|
+| `abrio_puerta` | **3,677 clics · 84 personas** (2026-09-11 → 2026-10-05) |
+| `abrio_bandeja` | 58 · 25 personas |
+| Lugares que **escriben** | 5 |
+| Lugares que **leen** | **0** — ni un endpoint, ni un consumidor |
+
+Y lo único de la pantalla que se parecía al uso —la fila «Tus accesos»— salía de `localStorage`:
+un solo navegador, perdida al limpiar datos, y ordenada por *lo último que abriste*. El propio
+comentario de `[SN.25]` lo declaraba y decía que «lo más usado» no se podía hacer todavía.
+
+⛔ **Dos cosas que NO eran telemetría y conviene no confundir:** el contador de las tarjetas sale
+de `MePendiente` (`me/work`), y los chips congelados de `[SN.28]` no cambiaron de fuente, sólo de
+orden.
+
+### El bug que lo acompañaba: `analytics.ui_usage_users` con 0 filas
+
+`usage-metrics.interceptor.ts:139` guardaba al usuario bajo `u?.id`, y **el JWT trae `sub`**
+(`login-core.ts` firma `sub: user.id`; `JwtAuthGuard` hace `request.user = payload`). La condición
+nunca fue cierta para nadie: `ui_usage` acumulaba **250,893 hits sobre 490 rutas** y su hermana
+por persona llevaba **cero filas desde que existe**.
+
+⚠️ **Por qué duró:** la tabla hermana se llenaba perfecto, así que el tablero mostraba telemetría
+viva. Y el candado `[UX.0]` comprobaba tablas, PK, grants e invariantes de coherencia — **todo
+sobre la FORMA, nada sobre si se llenaba**. Se le agregó la aserción que faltaba (hay tráfico con
+sesión ⇒ `ui_usage_users` no puede estar vacía), con su tercer estado para el día de sólo tráfico
+anónimo. Contra prod da **rojo hoy**, que es correcto: prod corre el código viejo hasta el
+redeploy.
+
+### El arranque en frío, que es lo que define el diseño
+
+Medido sobre 90 días de prod, antes de escribir el endpoint:
+
+- **64 de 148** personas activas no tienen un solo clic → con la historia propia a secas la fila
+  saldría **vacía**.
+- De las 84 que sí tienen, **sólo 15 llegan a 6 puertas distintas**; 41 tienen una o dos.
+
+O sea que «lo más usado» a secas no alcanza para ~8 de cada 10. Por eso `GET /telemetry/suite/mios`
+completa con el **puesto** y después el **departamento**, y cada elemento declara su `origen`.
+
+⚠️ **La cobertura por puesto no es pareja**: `cajera` 10 de 14, `encargado_sucursal` 6 de 6, pero
+`vendedor_ruta` **2 de 25**. Cuando no hay de dónde, devuelve **menos** elementos — nunca rellena
+con lo primero del mapa. Un hueco se nota; un relleno plausible, no.
+
+Verificado en vivo: una cajera sin historia recibe `pisos-de-venta` de 10 compañeras de puesto;
+`rafael_quirino` (auxiliar de compras, 0 clics) recibe `compras` de 3. 8–14 ms por consulta.
+
+### Lo construido
+
+| Pieza | Dónde |
+|---|---|
+| El fix de una línea | `usage-metrics.interceptor.ts` (`u?.id` → `u?.sub`) |
+| La forma del wire | `libs/contracts/src/http/suite-usage.contract.ts` |
+| La cascada en UNA consulta | `CommercialTelemetryService.misAccesos()` |
+| El endpoint self-scoped | `GET /telemetry/suite/mios` (sin `@RequirePermissions`, como `me/work`) |
+| Índice **parcial** | mig `20261006100000` — ver abajo |
+| La fila | `mi-trabajo.component.*` + `UsoService.misAccesos()` |
+
+**Tres decisiones que no son obvias:**
+
+1. ⛔ **El tenant se filtra a mano.** `portal_telemetry_events` **no tiene RLS** (verificado, no
+   asumido); `identity.users` sí, y forzado, por eso todo corre dentro de `tk.run()`.
+2. **El puesto sale de la base, no del token.** El JWT no lo lleva, y aunque lo llevara sería el
+   estado congelado de hasta 12 h.
+3. **El servidor manda 12 y la fila muestra 6**: no sabe qué puertas ve cada quien —lo decide
+   `visibleSuiteMap()` contra los permisos— así que la fila sobrevive al filtro. Resolver permisos
+   en el backend duplicaría ese primitivo, que es lo que ADR-056 prohíbe.
+
+**El índice es parcial por medición, no por precaución:** hoy la consulta tarda 8–14 ms sobre 5,117
+filas. Pero `web_vital` (`[DS.7]`) empezó a aterrizar el 2026-10-03 y ya mete **894 filas/día**
+contra 303 de `abrio_puerta` → estado estacionario ~108,000 filas, **21×**. `WHERE name =
+'abrio_puerta'` deja la avalancha afuera.
+
+**Lo que se arregló de camino:** `UsoService` cachea con `shareReplay` de por vida, igual que
+`DataScopeService` — cuyo `reset()` estuvo escrito **sin llamador** y hacía que al cambiar de
+usuario sin recargar la pantalla mostrara los datos del anterior. Acá habría filtrado algo peor que
+una lista de sucursales: **qué abre otra persona**. Se cableó `uso.reset()` en los dos puntos donde
+ya se llama `scope.reset()`.
+
+### Los candados, y la mutación que destapó uno falso
+
+`test-newdb-suite-accesos.js` — **14 ✓ / 0 ✗ / 1 no medido** contra prod. Las tres aserciones
+críticas se probaron **mutando la consulta** y verificando el rojo:
+
+| Mutación | Qué simula | Resultado |
+|---|---|---|
+| `e.tenant_id = ? OR TRUE` | se borra el filtro de tenant | ✘ detectada |
+| `ORDER BY id, prio DESC` | la cascada se invierte | ✘ detectada |
+| `0 AS clics` | relleno sin evidencia | ✘ detectada (2 aserciones) |
+
+⭐ **La de precedencia nació siendo un no-op** —`A || B` con un `B` trivialmente cierto— y se puso
+verde bajo la mutación. Se reescribió contra un **testigo independiente**: otra consulta que
+pregunta qué abrió esa persona. *Un candado que compara la consulta consigo misma no prueba nada.*
+
+El candado vigila además una **premisa de negocio**, no de código: si algún día más de la mitad de
+la gente llena los seis atajos sola, el relleno por puesto pasó de ayuda a ruido y lo que se revisa
+es el diseño, no el código.
+
+### `[SN.28]` dejó seis pruebas rojas y nadie las corrió
+
+Medido restaurando `HEAD` sobre los cuatro archivos de `mi-trabajo`: **6 de 7 fallas ya estaban en
+`main`**, todas de mis propios commits `[SN.28]`, que cambiaron el contrato y no movieron las
+pruebas — el recuento «N submódulos» se retiró de la tarjeta, el prefijo «de » del origen también,
+y los chips dejaron de ordenarse por recencia. Se repararon contra el contrato nuevo (96/96).
+
+⚠️ Y una séptima estaba **verde en falso**: `toMatch(/\.mt-espacios\s*\{[^}]*columns\s*:/)` casaba
+con `grid-template-columns` porque `[^}]*` se comía el prefijo. Ahora pide `repeat(12` y **prohíbe**
+la multicolumna explícitamente, más una prueba nueva que verifica que el tramo de los espacios
+completa filas de 12 para **1 a 12 espacios visibles** — porque cuántos ve cada quien depende de
+sus permisos.
+
+### Pendiente
+
+Aplicar la migración a prod · redeploy api+view · validación visual. **Sin permisos nuevos → sin
+re-login.** Declarado y no construido: ordenar `Ctrl+K` por uso, y el reporte de puertas muertas
+(las que nadie abre en 90 días), que ahora es una consulta de una línea.
+
 ## 12. Etapa 3 y siguientes (fuera de esta fase)
 
 Indicadores con ficha (P-06) y "Esto ve Dirección General de mi gestión"; renombre `/projects` → `/mi-trabajo`; Operación por zonas (la zona ya es eje de alcance); decisión P-14 (dónde vive `trade`) y P-03 (Auditoría como espacio propio); alinear árbol ↔ guards para ir vaciando `DEUDA`; unificar los `*NavGroups` del layout con el árbol.

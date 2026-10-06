@@ -762,17 +762,26 @@
           </p>
         } @else {
           <!--
-            [SN.25] Tus accesos: lo ULTIMO que abriste, desde este navegador.
-            NO es "lo mas usado" -- ese dato no existe todavia (ver el comentario de `recientes`).
-            Arranca vacia y por eso no se dibuja hasta que haya algo: una caja vacia prometiendo
-            accesos frecuentes seria peor que no tenerla.
+            [SN.25] [SN.40] Tus accesos: lo que MAS abris, medido en el servidor y por persona
+            (ya no "lo ultimo", que vivia en un solo navegador). Cuando la historia propia no
+            alcanza -- y medido en prod no alcanza para 8 de cada 10 -- se completa con lo que
+            abre tu puesto y despues tu area, y cada chip prestado LO DICE.
+
+            Sigue sin dibujarse cuando queda vacia: una caja prometiendo accesos frecuentes que
+            no estan seria peor que no tenerla.
           -->
           @if (accesos().length) {
             <div class="mt-freq">
               <p class="mt-freq-h">
                 <span>Tus accesos</span>
                 <span class="mt-freq-rule" aria-hidden="true"></span>
-                <span class="mt-freq-why" title="Se llena sola con lo que vas abriendo. Vive en este navegador.">lo último que abriste</span>
+                <!--
+                  [SN.40] El rotulo dice QUE esta mostrando, y eso cambia por persona: con
+                  historia propia es lo que mas abris, sin historia es lo que abre tu puesto.
+                  Un rotulo fijo mentiria a la mayoria -- medido, 64 de 148 personas no tienen
+                  un solo clic.
+                -->
+                <span class="mt-freq-why">{{ accesosRotulo() }}</span>
               </p>
               <!--
                 [SN.26] Chips, no mosaicos 4:3. Medido a 1440x874: los mosaicos costaban 146 px de
@@ -782,7 +791,19 @@
               -->
               <div class="mt-chips">
                 @for (e of accesos(); track e.id) {
-                  <a class="mt-chip" [routerLink]="e.route" [title]="e.groupLabel || e.label"
+                  <!--
+                    [SN.40] Un atajo que NO salio de tu historia lo dice. Va en el nombre
+                    accesible y en el title, no en un icono mudo: el lector de pantalla tiene
+                    que oir la diferencia entre "lo abris vos" y "lo abre tu puesto".
+                  -->
+                  <a class="mt-chip" [routerLink]="e.route"
+                     [class.mt-chip-sug]="!!origenAcceso()[e.id]"
+                     [title]="origenAcceso()[e.id]
+                        ? (e.groupLabel || e.label) + ' — ' + origenAcceso()[e.id]
+                        : (e.groupLabel || e.label)"
+                     [attr.aria-label]="origenAcceso()[e.id]
+                        ? e.label + ', sugerido: ' + origenAcceso()[e.id]
+                        : null"
                      (click)="abrioPuerta(e, { id: '', label: '', icon: '', status: '', entradas: [] })">
                     <i class="mt-chip-ico" [class]="e.icon" aria-hidden="true"></i>
                     <span class="mt-chip-nm">{{ e.label }}</span>
