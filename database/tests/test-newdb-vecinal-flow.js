@@ -177,20 +177,51 @@ function motivoAusencia(salesRoute, kind) {
       SELECT 1 FROM pg_indexes
        WHERE schemaname='commercial' AND indexname='ux_order_notifications_order'`);
     ok(ux.length > 0, 'existe el UNIQUE (tenant_id, order_id): un pedido genera UN aviso');
-    // ⭐ El invariante que de verdad importa: todo pedido del pool tiene su aviso. Si el pool
-    // muestra algo que nunca avisó a nadie, el almacén lo ve y la sucursal no se enteró —
-    // justo la discrepancia que esta fase vino a cerrar.
-    const { rows: huecos } = await c.query(`
-      SELECT count(*)::int AS n
-        FROM commercial.orders o
-       WHERE o.status='confirmed' AND o.warehouse_id IS NOT NULL
-         AND o.confirmed_at > now() - interval '7 days'
-         AND NOT EXISTS (SELECT 1 FROM commercial.order_notifications n
-                          WHERE n.tenant_id=o.tenant_id AND n.order_id=o.id)`);
-    ok(huecos[0].n === 0,
-      huecos[0].n === 0
-        ? '0 pedidos confirmados (7d) sin su aviso'
-        : `${huecos[0].n} pedido(s) confirmados en 7d que nunca avisaron a su sucursal`);
+    // ⭐ El invariante que de verdad importa: desde que EXISTE el mecanismo, todo pedido
+    // confirmado tiene su aviso. Si el pool muestra algo que nunca avisó a nadie, el almacén
+    // lo ve y la sucursal no se enteró — la discrepancia que esta fase vino a cerrar.
+    //
+    // ⚠️ La ventana arranca en la fecha de la PROPIA migración, no en "hace 7 días". La
+    // primera versión usaba 7 días y daba ROJO con 9 pedidos confirmados **antes de que la
+    // tabla existiera**: medir el pasado contra una regla que todavía no existía es un rojo
+    // falso, y un rojo falso enseña a ignorar el candado. Sale de `knex_migrations`, que es
+    // exacto y auditable (`pg_class` no guarda fecha de creación).
+    const { rows: desde } = await c.query(`
+      SELECT migration_time FROM public.knex_migrations
+       WHERE name = '20261006140000_order_notifications.js' LIMIT 1`);
+    if (!desde.length) {
+      sinMedir('no hay registro de cuándo se aplicó la migración de avisos');
+    } else {
+      const { rows: huecos } = await c.query(
+        `SELECT count(*)::int AS n,
+                (SELECT count(*)::int FROM commercial.order_notifications) AS avisos
+           FROM commercial.orders o
+          WHERE o.status='confirmed' AND o.warehouse_id IS NOT NULL
+            AND o.confirmed_at > $1
+            AND NOT EXISTS (SELECT 1 FROM commercial.order_notifications n
+                             WHERE n.tenant_id=o.tenant_id AND n.order_id=o.id)`,
+        [desde[0].migration_time],
+      );
+      // ⚠️ Y si NADIE confirmó nada desde entonces, esto no es verde: es que no hubo con qué
+      // medirlo. Un candado que pasa porque no pasó nada se lee igual que uno que pasó
+      // midiendo (ADR-056). Ocurre mientras el CÓDIGO que escribe el aviso no esté desplegado.
+      const { rows: universo } = await c.query(
+        `SELECT count(*)::int AS n FROM commercial.orders
+          WHERE status='confirmed' AND warehouse_id IS NOT NULL AND confirmed_at > $1`,
+        [desde[0].migration_time],
+      );
+      if (universo[0].n === 0) {
+        sinMedir(
+          `ningún pedido confirmado desde que existe la tabla (${desde[0].migration_time.toISOString().slice(0, 16)}) ` +
+            '— no hay con qué probar el invariante. Se mide cuando el código esté desplegado.',
+        );
+      } else {
+        ok(huecos[0].n === 0,
+          huecos[0].n === 0
+            ? `0 de ${universo[0].n} pedido(s) confirmados desde la migración quedaron sin aviso`
+            : `${huecos[0].n} de ${universo[0].n} confirmados desde la migración nunca avisaron a su sucursal`);
+      }
+    }
     // El acuse es coherente o no sirve para auditar.
     const { rows: acuse } = await c.query(`
       SELECT count(*)::int AS n FROM commercial.order_notifications

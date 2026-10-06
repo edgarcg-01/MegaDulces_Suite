@@ -71,8 +71,14 @@ const CLASIFICADOR = `
     WHEN tc.value ILIKE '%mayoreo%'                                          THEN 'mayoreo'
     -- 10001/10002 NO tienen erp_vendor_code (sólo 9 de 29 rutas lo tienen) -> por prefijo.
     WHEN btrim(tc.value) ~ '^1000[12] '                                      THEN 'mayoreo'
-    -- Espacio LITERAL, no \\s (ver encabezado).
-    WHEN btrim(tc.value) ~* '^(ruta)? *[0-9]+$'                              THEN 'camion'
+    -- ⛔ DOS trampas en este solo renglón, las dos MUDAS (sin error, resultado vacío):
+    --   1. Espacio LITERAL, no \\s: con \\s esta base matchea '502' y NO 'RUTA 21'.
+    --   2. Cuantificador {0,1} y NO el signo de interrogacion: knex.raw() lo lee como
+    --      placeholder de BINDING. Sin bindings no tira error -- devuelve un regex que no
+    --      matchea nada. Medido contra prod: 0 de 29 contra 16. Es el bug de [CV.7] otra vez,
+    --      y aca salio PEOR porque alla al menos reventaba con "Expected N bindings".
+    --   (sin acentos graves en este bloque: es un template literal de JS y lo terminarian)
+    WHEN btrim(tc.value) ~* '^(ruta){0,1} *[0-9]+$'                          THEN 'camion'
     ELSE NULL
   END`;
 
