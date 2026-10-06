@@ -8514,7 +8514,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
       Falta: catálogos de responsables, unidad de `c51` vs `c52`, qué es `c69`.
 - [ ] **[GP.1]** ⬜ Vista `analytics.erp_sales_orders` (+renglones) + tablero `/almacen/pedidos` por origen/estatus/antigüedad.
 - [ ] **[GP.2]** ⬜ Origen Kepler para `commercial-picking` (pool lee `U-D-40` `AUTORIZADO`).
-- [ ] **[GP.3]** ⬜ Pantalla del surtidor (móvil), reemplaza la hoja impresa. 🚫 BLOQUEADO: formato de papel actual (P1).
+- [ ] **[GP.3]** ⬜ Pantalla del surtidor (móvil), reemplaza el ticket `Referencia SURTIDO`. Pendiente P3 (equipo en piso).
 - [ ] **[GP.4]** ⬜ Checado.
 - [ ] **[GP.5]** ⬜ Embarque: bultos calculados, liga a transporte y guía.
 - [ ] **[GP.6]** ⬜ Cuadre Suite ↔ Kepler (diferencias de captura y pedidos sin paso por la Suite).

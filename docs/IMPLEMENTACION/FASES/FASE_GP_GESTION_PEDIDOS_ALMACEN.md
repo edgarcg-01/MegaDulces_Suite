@@ -97,7 +97,45 @@ estatus (21 días, 29,551 renglones):
    decodificar). **Los tiempos por etapa sólo existen si la Suite los registra**, así que no hay línea
    base histórica: se empieza a medir desde el piloto.
 
-### 2.4 Lo que ya existe y se reusa
+### 2.4 El papel de hoy (fotos de Francisco, 2026-10-06)
+
+**Se imprime UN ticket por etapa**, del mismo pedido, en impresora de tickets. El encabezado dice
+`Referencia SURTIDO`, `Referencia CHECADO` o `Referencia EMBARCADO`: el mismo pedido sale **tres
+veces** en papel. Ejemplos: `UD4001-0000367` (suc 08, sucursal → `TI009` Morelia Madero, impreso
+como SURTIDO y otra vez como CHECADO) y `UD4001-0000327` (suc 08, telemarketing → Dulcería Meli,
+impreso como EMBARCADO).
+
+| Lo que trae el ticket | Para qué lo usa el piso | Qué hace la Suite |
+|---|---|---|
+| Cantidad + unidad + clave + descripción | Lista de surtido | Igual, **ordenada por ubicación** (el ticket va en el orden de captura) |
+| `Exis` (existencia al imprimir) | Referencia de si hay | Existencia viva. ⚠️ Cambia entre impresiones (407 → 402 del SURTIDO al CHECADO): es una foto, no un dato |
+| El surtidor **encierra en círculo** cada cantidad | Marca de "ya lo levanté" | Captura por renglón, con hora |
+| Total por unidad (`CJA 16`; `PAQ 37 / PZA 25`) | Contar lo que sale | Calculado |
+| Importe y total con letra | Nada en piso | No se muestra al surtidor |
+| Firma (`Yuli`) y claves de responsable **escritas a mano** | Quién lo hizo | El usuario que inició sesión |
+
+**Confirmado contra prod:** el 367 está en `CHECADO` con `c102 = 30001`, la clave escrita a mano en
+el ticket de checado. Las claves de responsable son números de 5 dígitos (`30001`, `30002`…).
+
+**Medido (embarcados, 30 días):** Kepler tiene los tres responsables capturados en **~87–90%** de
+los pedidos de PH y Canindo, pero sólo en **~60%** de Morelia Abastos (184 de 308 con surtidor).
+La Suite los registraría siempre.
+
+**Hipótesis sin verificar:** `c69` parece la hora del **último** cambio de estatus (el 367 dice
+`09:41` estando en CHECADO). Sería sólo la última etapa y sin fecha propia, así que no reemplaza
+el registro por etapa.
+
+### 2.5 Los bultos del embarque (`CJ 16 P 10 UB 6`)
+
+Escrito a mano en los comentarios del embarque. Significa:
+
+| Clave | Qué es | Cómo lo obtiene la Suite |
+|---|---|---|
+| `CJ 16` | 16 bultos de unidad cerrada: cajas, bultos o cubetas | **Calculado** de los renglones en unidad cerrada (`CJA`/`BTO`/`CUB`) |
+| `P 10` | 10 cajas armadas con todo lo de **paquetería** (paquetes y piezas sueltas) | **Lo captura el checador**: depende de cómo se acomodó, no se calcula |
+| `UB 6` | Ubicación donde queda el pedido **esperando carga** | **Lo captura quien lo deja**; lo lee quien carga |
+
+### 2.6 Lo que ya existe y se reusa
 
 | Pieza | Dónde | Cómo se usa aquí |
 |---|---|---|
@@ -136,9 +174,9 @@ vista derivada sobre `kepler_ods`, nunca copia.
 | **GP.0** | Decode del pedido `U-D-40` + medición | ✅ parcial (§2). Falta: catálogos de responsables (no están en el ODS), unidad de `c51` vs `c52`, qué es `c69` |
 | **GP.1** | Vista `analytics.erp_sales_orders` (+renglones) sobre `kepler_ods` + tablero `/almacen/pedidos`: por origen, estatus y antigüedad; pedidos atorados | GP.0 |
 | **GP.2** | Origen Kepler para `commercial-picking`: el pool lee pedidos `U-D-40` `AUTORIZADO` | GP.1 |
-| **GP.3** | Pantalla del surtidor (móvil): lista por ubicación, captura de cantidad, faltantes. **Reemplaza la hoja impresa** | GP.2 + formato de papel actual |
-| **GP.4** | Checado: otra persona, diferencias, regreso al surtidor | GP.3 |
-| **GP.5** | Embarque: bultos (el `CJ 16 P 10 UB 6` de los comentarios) calculados, no escritos a mano; liga a transporte y guía | GP.4 |
+| **GP.3** | Pantalla del surtidor (móvil): lista por ubicación, marca por renglón (reemplaza el círculo de pluma), faltantes. **Reemplaza el ticket `Referencia SURTIDO`** | GP.2 + P3 |
+| **GP.4** | Checado: otra persona, diferencias, regreso al surtidor; captura `P` (cajas de paquetería). **Reemplaza el ticket `Referencia CHECADO`** | GP.3 |
+| **GP.5** | Embarque: `CJ` calculado, `P` y `UB` capturados (§2.5); liga a transporte y guía. **Reemplaza el ticket `Referencia EMBARCADO`** y el comentario escrito a mano | GP.4 |
 | **GP.6** | Cuadre Suite ↔ Kepler: lo capturado en Kepler contra lo registrado en piso; y pedidos avanzados en Kepler **sin** paso por la Suite | GP.5 |
 | **GP.7** | Indicadores: tiempo por etapa, productividad por persona, surtido completo (con unidad resuelta) | GP.6 |
 | **GP.8** | Piloto: un origen, una sucursal (propuesta: **sucursal en PH**) | GP.3–GP.6 |
@@ -149,8 +187,10 @@ vista derivada sobre `kepler_ods`, nunca copia.
 
 | # | Pregunta | Bloquea |
 |---|---|---|
-| P1 | ¿Qué papel se imprime hoy? Foto de cada formato (hoja de surtido, de checado, etiquetas) | GP.3 |
-| P2 | ¿Qué significa `CJ 16 P 10 UB 6` en los comentarios del embarque? | GP.5 |
+| ~~P1~~ | ✅ Un ticket por etapa (§2.4) | — |
+| ~~P2~~ | ✅ `CJ` bultos cerrados · `P` cajas de paquetería · `UB` ubicación de espera (§2.5) | — |
+| P10 | ¿Las ubicaciones de espera (`UB 6`) tienen un catálogo fijo o es un número libre? | GP.5 |
+| P11 | ¿Quién arma las cajas de paquetería: el surtidor o el checador? | GP.4 |
 | P3 | ¿Con qué trabajan en piso (celular, handheld con lector)? ¿Hay wifi en todo el almacén? | GP.3 |
 | P4 | ¿El checador es siempre otra persona? En el embarque 2683 los tres responsables son `01` | GP.4 |
 | P5 | ¿Se surte pedido por pedido o se juntan en olas (sobre todo telemarketing)? | GP.2 |
