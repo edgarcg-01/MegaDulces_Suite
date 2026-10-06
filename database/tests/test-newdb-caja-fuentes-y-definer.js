@@ -214,9 +214,16 @@ const VISTAS_DEFINER = [
         ok(med <= 500,
           `la pierna Kepler de Conciliación responde en ${med} ms (gate 500 ms)`);
         if (med > 500) {
-          console.log('    ⓘ si esto está rojo, lo que falta casi seguro es la mig 20261006170000: '
-            + 'el índice ix_kdm1_tesoreria_fecha + el CTE flj en NOT MATERIALIZED. Los dos juntos, '
-            + 'por separado ninguno alcanza (sólo la forma da 475 ms; sólo el índice, nada).');
+          // ⛔ Acá decía que lo que faltaba era la mig 20261006170000 (el índice
+          // `ix_kdm1_tesoreria_fecha` + el CTE `flj` en NOT MATERIALIZED). **Esa mig se aplicó el
+          // 2026-10-06 y se REVIRTIÓ el mismo día**: medida contra prod fue una regresión en las
+          // dos consultas, incluida ésta (793 ms → 11,787 ms), y el índice terminó con `idx_scan`
+          // en 0. Ver `[CG.41.1]` / mig 20261006210000. Dejar el consejo viejo era mandar a la
+          // próxima sesión a repetirlo.
+          console.log('    ⓘ este rojo es el estado REAL y conocido, no algo sin aplicar: la pierna '
+            + 'está en ~770 ms y nunca estuvo por debajo del gate. ⛔ NO reintentar el CTE `flj` en '
+            + 'NOT MATERIALIZED ni el índice ix_kdm1_tesoreria_fecha: los dos están MEDIDOS como '
+            + 'peores ([CG.41.1]). Lo que falta es un plan nuevo, no reponer aquello.');
         }
       }
     }
