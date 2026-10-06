@@ -8534,7 +8534,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[WMS.11]** ⬜ Catálogo de tipos de unidad (tortón 18 t · rabón 10 t · 5 t · 3.5 t · Nissan 1 t · ligeras 600 kg) y asignación de cada vehículo a su tipo; la capacidad se hereda. Hoy 1 de 97 tiene kg y 33 son de prueba.
 
 **Pendientes de negocio (Francisco, 2026-10-06)**
-- [ ] **[GP.P1]** ⬜ Asignar cada vehículo a su tipo de unidad; decidir la baja de los 33 vehículos de prueba (). ⚠️ No se toca prod sin autorización.
+- [ ] **[GP.P1]** ⬜ Asignar cada vehículo a su tipo de unidad; decidir la baja de los 33 vehículos de prueba ("MODELO TEST"). ⚠️ No se toca prod sin autorización.
 - [ ] **[GP.P2]** ⬜ Número de estibas por tipo de unidad (para el esquema del camión en GP.5).
 - [ ] **[GP.P3]** ⬜ Cómo decide hoy el anaquelista qué subir (diseño de WMS.7).
 - [ ] **[GP.P4]** ⬜ Rangos de secciones por pasillo y planta en PH (se capturan en la pantalla de ubicaciones).
