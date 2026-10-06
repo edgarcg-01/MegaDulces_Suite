@@ -77,6 +77,11 @@ const COMPUERTAS = [
   //     `pTemplate="footer"` en un `p-dialog` abre el diálogo SIN BOTONES (GOTCHAS §59).
   { nombre: 'reactividad', script: 'check-signal-reactivity.js', que: 'ningún computed() depende de un campo plano mutable', push: true, ms: 1801 },
   { nombre: 'primeng', script: 'check-primeng-api.js', que: 'sin API de PrimeNG retirada en v22 (falla muda)', push: true, ms: 2084 },
+  //   · spec-vivo: un archivo de prueba que no CARGA reporta 0 tests, no fallas — el total de
+  //     la suite sigue creciendo y nadie mira la línea de archivos. Medido el 2026-10-06:
+  //     13 archivos de libs/ así, 166 pruebas sin correr una sola vez, entre ellas el candado
+  //     del teclado de todas las tablas.
+  { nombre: 'spec-vivo', script: 'check-spec-vivo.js', que: 'ningún spec de libs/ importa de "vitest" (cargaría en cero)', push: true, ms: 180 },
   /**
    * ⛔ **Las cuatro de abajo faltaban acá, y el encabezado de este archivo dice "corre todas las
    * que existen".** Hallado el 2026-10-01: `check-dense-tables` y `check-css-tokens` vivían en

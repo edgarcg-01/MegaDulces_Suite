@@ -9,7 +9,8 @@
  * se fija `current()` con el alcance ya resuelto de cada tipo de usuario.
  */
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { describe, expect, it, vi } from 'vitest';
+// [CG.38.1] Sin `import ... from 'vitest'`: la config usa `globals: true` (y `vi` también es
+// global). Importarlo hace que el archivo NO CARGUE y reporte **0 tests**, no sus casos fallando.
 import { ScopeService, type ResolvedScope, type ScopeMode } from '@megadulces/platform-core';
 import { CommercialQuotesService } from './commercial-quotes.service';
 import { QuotePricingService } from './quote-pricing.service';
