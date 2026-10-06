@@ -9,6 +9,17 @@
 ---
 
 ## [Unreleased]
+### Fixed — Cobranza: la ficha de depósito se puede FOTOGRAFIAR (CC.20, 2026-10-06)
+- `/finanzas/cobranza` ofrece **«Tomar foto»**, el campo dice «Ficha de depósito (imagen o PDF)» y la pantalla previsualiza imágenes — pero el servidor contestaba **400 «Solo se aceptan archivos PDF.»** a cualquier foto. O sea que el camino principal, el de quien tiene la ficha del banco en la mano, fallaba siempre. Ahora entra la foto y el PDF.
+- ⛔ **No se tocaron los hermanos, que rechazan por decisión:** la remisión de entradas sigue siendo sólo PDF (una de tres hojas no se sostiene en fotos sueltas) y el comprobante de pago a proveedor también (es el SPEI o el cheque). Hay prueba negativa para que nadie los «arregle» de paso.
+- **Los tiempos de carga, medidos contra prod:** la pantalla cuesta **~480 ms en caliente y ~2.4 s en frío**, porque `analytics.erp_collections` es una vista sin índices que se materializa entera (27,549 filas) **dos veces por carga**. ⚠️ Acotar por fecha **no ayuda** (240 ms con ventana de 30 días y 240 ms sin ninguna: el filtro no entra a la vista). El arreglo de fondo es una matvista con refresco nocturno y **no entra en un hotfix**; mientras tanto la respuesta ya **publica** cuánto tardó cada consulta y avisa en el log arriba de 1 s.
+
+### Added — El encargado de sucursal asigna quién cuenta el inventario (IC.23, 2026-10-06)
+- **Nueva facultad en la lista de folios: «Asignar».** El encargado de sucursal elige quién cuenta cada folio desde un diálogo en la propia lista, sin entrar al detalle. Siete personas en seis sucursales lo reciben. El diálogo **abre con lo que ya está asignado**, nunca en blanco: guardar reemplaza la lista, y partir de vacío habría borrado a los asignados sin avisar.
+- **Lo que el encargado NO ve, a propósito: el teórico.** La cantidad que el sistema espera encontrar sigue siendo exclusiva de quien supervisa — es lo que mantiene ciego el conteo. Asignar, ver el avance y ver el tablero de equipos sí; ver contra qué se cuenta, no.
+- **Tres permisos estaban mal partidos y nadie lo había notado**, porque hasta hoy todos los que podían asignar podían además supervisar: se podía *escribir* la lista de asignados sin poder *leerla*, y auto-generar un tablero de equipos **sin poder mirarlo**. Quedan corregidos.
+- Medido antes de construir: mandar al encargado a la pantalla de Equipos —que parecía hecha a medida— habría llevado a **seis de los siete** a un error, porque esa pantalla exige pasillos definidos y **sólo una de las nueve bodegas los tiene**.
+- ⚠️ Los **7 encargados tienen que volver a entrar** para que el permiso surta efecto. Y queda declarado: **Yurécuaro y Morelia Abastos no tienen encargado de tienda**, así que ahí todavía no hay quién asigne.
 ### Added — Anexo de venta: suma de unidades por grupo y total del documento (AX.13, 2026-10-05)
 - Cada rótulo de grupo del anexo imprimible («Comprado por caja · 3 productos») suma sus unidades bajo la columna Cantidad («10 CJA»); al pie, el total del documento por unidad (CJA · PAQ · PZA · KG por separado, nunca mezcladas).
 - Fixed: el reparto caja/paquete/pieza truncaba la cantidad decimal de la base (2.5 KG salía «2 KG»).

@@ -1315,13 +1315,20 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
       },
       {
-        // Fase I.3 — supervisor: lista + apertura de folios
+        // Fase I.3 — supervisor: lista + apertura de folios.
+        // [IC.23] También entra quien ASIGNA: el encargado de sucursal arma el equipo del
+        // conteo diario (decisión 2026-10-06) y ésta es la única puerta a sus folios. El
+        // backend ya servía esta lista con INVENTORY_VER, así que la ruta era MÁS estricta
+        // que el dato que protege. No se abre a VER a secas: `prevencion` y `customer_b2b`
+        // lo tienen, y esta pantalla además abre y congela almacenes.
         path: 'inventory/sessions',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-sessions.component').then(m => m.ComercialInventorySessionsComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
       },
       {
-        // Fase I.3 — supervisor: detalle del folio + reconciliación
+        // Fase I.3 — supervisor: detalle del folio + reconciliación.
+        // ⛔ [IC.23] Ésta NO se abre a ASIGNAR: carga `:id/items`, que trae el TEÓRICO fila por
+        // fila. Quien sólo asigna va a `:id/teams` (abajo), que es su pantalla.
         path: 'inventory/sessions/:id',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-session-detail.component').then(m => m.ComercialInventorySessionDetailComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
