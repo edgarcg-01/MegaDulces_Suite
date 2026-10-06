@@ -5,6 +5,9 @@ import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { TableModule } from 'primeng/table';
+import { CheckboxModule } from 'primeng/checkbox';
+import { ChipModule } from 'primeng/chip';
+import { DatePickerModule } from 'primeng/datepicker';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
@@ -12,12 +15,12 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { CAJA_VENTANA_DIAS } from '@megadulces/contracts';
+import { CAJA_VENTANA_DIAS, evaluarCambio, type Denominacion } from '@megadulces/contracts';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
-import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
+import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type RecurrentesResponse,
   type RecurrenteSinRegla } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
@@ -26,7 +29,7 @@ import { CajaSocketService } from '../../caja-socket.service';
 import { imprimirComprobante as imprimirTicketComprobante, imprimirReporteDia as imprimirTicketReporte, type ComprobanteCaja, type ReporteDia } from './ticket-comprobante';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import {
-  BILLETES_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
+  BILLETES_CAJA, MONEDAS_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
   textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN,
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista,
 } from './caja-captura.util';
@@ -40,6 +43,9 @@ const ETIQUETA_ESTADO_CORTE: Record<string, string> = {
 };
 const ETIQUETA_VEREDICTO: Record<string, string> = {
   cuadra: 'Cuadra', sobra: 'Sobra efectivo', falta: 'Falta efectivo', sin_contar: 'Sin contar',
+  // `[CG.42]` NO dice "no cuadra": dice que la pregunta no tiene respuesta. Sin esta entrada el
+  // tag imprimía la clave cruda `sin_base`, porque el mapa cae a `?? v`.
+  sin_base: 'Sin fondo medido',
 };
 
 /**
@@ -53,14 +59,34 @@ interface FormularioCajaUI {
   denominaciones: DenominacionCapturada[];
 }
 
-/** CS.3.7 — Suma piezas por denominación de varias fuentes (cajero + reja) y descarta las de 0. */
-function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): Array<{ denominacion: number; piezas: number }> {
-  const m = new Map<number, number>();
+/**
+ * CS.3.7 — Suma piezas de varias fuentes (cajero + reja) y descarta las de 0.
+ *
+ * ⛔ `[CG.38]` Agrupa por **`denom_key`**, no por el valor. Agrupaba por el número, y con monedas
+ * eso junta el billete de $20 con la moneda de $20 en un solo renglón: dos pilas distintas de
+ * dinero fundidas en una, y el desglose deja de poder reconstruirse. Mientras la caja contaba
+ * sólo billetes no mordía; ahora sí.
+ */
+/**
+ * La llave del BILLETE de ese valor. El catálogo compartido la define como el valor a secas
+ * (`'20'`), y la moneda que colisiona lleva sufijo (`'20m'`) — ver SM.39.
+ */
+function llaveBillete(valor: number): string {
+  return valor === 0.5 ? '0.5' : String(valor);
+}
+
+function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] {
+  const m = new Map<string, DenominacionCapturada>();
   for (const d of fuentes) {
-    const den = Number(d.denominacion); const pz = Number(d.piezas) || 0;
-    if (pz > 0) m.set(den, (m.get(den) ?? 0) + pz);
+    const pz = Number(d.piezas) || 0;
+    if (pz <= 0) continue;
+    const prev = m.get(d.denom_key);
+    if (prev) prev.piezas += pz;
+    else m.set(d.denom_key, { denom_key: d.denom_key, denominacion: Number(d.denominacion), piezas: pz });
   }
-  return [...m.entries()].map(([denominacion, piezas]) => ({ denominacion, piezas })).sort((a, b) => b.denominacion - a.denominacion);
+  // Del mayor al menor, y con el billete antes que la moneda del mismo valor (la llave del
+  // billete es el numero a secas, asi que ordena antes que la que lleva sufijo).
+  return [...m.values()].sort((a, b) => b.denominacion - a.denominacion || a.denom_key.localeCompare(b.denom_key));
 }
 
 /**
@@ -90,8 +116,9 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
   selector: 'app-finanzas-caja-general',
   standalone: true,
   imports: [
-    FormsModule, ButtonModule, InputTextModule, InputNumberModule, TableModule,
-    SelectModule, TagModule, DialogModule, AutoCompleteModule, MessageModule, ToastModule,
+    FormsModule, ButtonModule, InputTextModule, InputNumberModule, TableModule, CheckboxModule,
+    ChipModule, DatePickerModule, SelectModule, TagModule, DialogModule, AutoCompleteModule,
+    MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
@@ -157,7 +184,12 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     /* El caption es para el lector de pantalla; en pantalla la cabecera ya lo dice. */
     .cg-cap { position:absolute; width:1px; height:1px; overflow:hidden;
               clip-path:inset(50%); white-space:nowrap; }
-    .cg-arqueo-tbl { width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
+    /* ⚠️ Ojo con el DUENO de cada declaracion ahora que esto es un p-table: la clase cae en el
+       HOST <p-table>, y la <table> de adentro la pinta PrimeNG. Por eso aca solo queda lo que
+       CASCADEA (font-size) o aplica al host (display); el ancho y el colapso de bordes los
+       gobierna el componente. Los selectores de abajo SI llegan: th/td viven en nuestras
+       <ng-template>, asi que llevan el atributo de encapsulacion de esta pantalla. */
+    .cg-arqueo-tbl { display:block; font-size:var(--fs-sm); }
     .cg-arqueo-tbl th, .cg-arqueo-tbl td { padding:.2rem .4rem; text-align:right; }
     .cg-arqueo-tbl thead th { font-weight:600; color:var(--text-muted); font-size:var(--fs-xs);
                               border-bottom:1px solid var(--border-color); }
@@ -166,9 +198,25 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-arqueo-tbl tfoot th, .cg-arqueo-tbl tfoot td { border-top:1px solid var(--border-color);
                                                        padding-top:.4rem; font-weight:700; }
     /* Piezas: angosto, a la derecha y tabular. Contar es teclear numeros cortos en columna. */
-    .cg-arqueo-tbl input.cg-pieza, .cg-arqueo-tbl input.cg-pieza-corte {
+    /* [CG.38] El bloque del cambio devuelto. Separado por una línea y atenuado: es la excepción,
+       no el camino. */
+    .cg-cambio { margin-top:.5rem; border-top:1px solid var(--border-color); padding-top:.4rem; }
+    .cg-cambio-head { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+    .cg-cambio-cuenta { margin:.35rem 0 .2rem; }
+    .cg-arqueo-tbl input.cg-pieza, .cg-arqueo-tbl input.cg-pieza-corte, .cg-arqueo-tbl input.cg-pieza-dev {
       width:5.5rem; text-align:right; font-variant-numeric:tabular-nums; padding:.2rem .4rem; }
     .cg-arqueo-tbl input.cg-morralla-in { width:7.5rem; }
+    /* [CG.38] La reja pasó de 5 renglones a 11: hay que poder ver de un vistazo dónde empieza el
+       metal. La marca es TEXTO, no sólo un tono -- el color nunca es el único portador (DESIGN).
+       La línea va en la PRIMERA moneda, no en todas: es un corte, no un borde por fila. */
+    .cg-fam { font-size:var(--fs-micro); color:var(--text-muted); margin-left:.3rem;
+      font-family:var(--font-body); }
+    /* ⚠️ El selector es el HERMANO, no ":first-of-type". Todos los renglones son <tr>, así que
+       ":first-of-type" habría marcado el PRIMER renglón de la tabla —un billete— y la línea
+       nunca habría caído donde empieza el metal. Habría quedado puesta y sin efecto visible. */
+    tr:not(.cg-fila-moneda) + tr.cg-fila-moneda th,
+    tr:not(.cg-fila-moneda) + tr.cg-fila-moneda td {
+      border-top:1px solid var(--border-color); padding-top:.35rem; }
     /* El importe NO se teclea: sale del conteo. Se pinta como dato, no como campo. */
     .cg-sub { font-variant-numeric:tabular-nums; color:var(--text-muted); }
     .cg-na { text-align:center; font-size:var(--fs-xs); }
@@ -184,11 +232,11 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-bandeja-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:.6rem; margin-bottom:.5rem; }
     .cg-bandeja-head .fin-h2 { margin:0; }
     .cg-bandeja-sp { flex:1 1 auto; }
-    .cg-tbl { width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
-    .cg-tbl th { text-align:left; font-weight:600; color:var(--text-muted); padding:.35rem .5rem;
-                 border-bottom:1px solid var(--border-color); white-space:nowrap; }
-    .cg-tbl td { padding:.3rem .5rem; border-bottom:1px solid var(--border-color);
-                 vertical-align:top; }
+    /* ⛔ ACA VIVIA ".cg-tbl": una tabla entera dibujada a mano (ancho, colapso de bordes, color
+       de cabecera, borde inferior de cada celda). Eran TRES tablas de datos usandola mientras
+       otras dos en la MISMA pantalla ya eran p-table -- o sea dos tablas con distinto borde,
+       distinto alto de fila y distinto flip a oscuro, una al lado de la otra. Las tres pasaron
+       a p-table y la clase se retira completa. */
     /* La fila trabada se ve distinta PERO SIGUE VISIBLE: esconderla dejaria a la persona sin
        saber que ese movimiento existe y que alguien tiene que declarar su cuenta.
        ⚠️ El .62 de antes se comia tambien el motivo, que es justo lo que hay que poder leer:
@@ -200,9 +248,10 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-trabada .cg-motivo { opacity:1; }
     .cg-contado { width:7.5rem; text-align:right; font-variant-numeric:tabular-nums; }
     .cg-rezago { margin:.5rem 0 0; font-size:var(--fs-xs); }
-    /* El control principal de la bandeja es marcar fila por fila: un checkbox de 13px es el
-       objetivo mas chico de la pantalla y el que mas se usa. */
-    .cg-check { width:1.05rem; height:1.05rem; cursor:pointer; accent-color:var(--action); }
+    /* ⛔ ACA VIVIA ".cg-check", un <input type="checkbox"> nativo con alto y accent-color a mano.
+       El control principal de la bandeja es marcar fila por fila, asi que era el objetivo mas
+       chico de la pantalla Y el mas usado. Hoy es p-checkbox: el alto, el anillo de foco y el
+       par de colores los pone el tema, y en oscuro deja de pintarlo el sistema operativo. */
     /* CG.21 - el signo se lee de un vistazo. La flecha va ADEMAS del color, no en su lugar:
        el color solo deja fuera a quien no lo distingue.
        ⚠️ Decia var(--p-green-600) / var(--p-orange-600): son tokens de paleta de @primeuix que
@@ -210,27 +259,22 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-in  { color:var(--ok-fg); }
     .cg-out { color:var(--warn-fg); }
 
-    /* Chips de lo que mas se repite. El numero es el soporte: sin el, un chip es una opinion. */
+    /* Chips de lo que mas se repite. El numero es el soporte: sin el, un chip es una opinion
+       -- y ahora ese numero es el [badge] del propio p-button, no un <span> aparte.
+       ⛔ Aca vivian ".cg-chip", ".cg-chip-n", ".cg-chip-x" y ".cg-link": cuatro controles
+       dibujados a mano (borde, radio, hover, anillo de foco y alto de toque, todo repetido).
+       Los cubren p-button y p-chip. Queda SOLO el contenedor, que es reparto, no control. */
     .cg-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
-    .cg-chip { display:inline-flex; align-items:center; gap:.35rem; cursor:pointer;
-               border:1px solid var(--border-color); border-radius:999px;
-               background:transparent; color:inherit; font:inherit; font-size:var(--fs-xs);
-               padding:.3rem .7rem; min-height:2rem; }
-    .cg-chip:hover { border-color:var(--action); color:var(--action); }
-    .cg-chip:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
-    .cg-chip-n { color:var(--text-muted); font-variant-numeric:tabular-nums; font-size:var(--fs-micro); }
-    .cg-link { align-self:flex-start; background:none; border:0; padding:0; cursor:pointer;
-      color:var(--action); font-size:var(--fs-micro); text-decoration:underline; }
-    .cg-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
     .cg-caos-list { display:flex; flex-direction:column; gap:.35rem; }
-    .cg-caos-row { display:flex; align-items:center; gap:.75rem; width:100%; text-align:left;
-      cursor:pointer; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
-      background:transparent; padding:.5rem .7rem; min-height:var(--tap-min,44px); color:inherit; }
-    .cg-caos-row:hover { border-color:var(--action); }
-    .cg-caos-row:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    /* El renglon del cajero: el borde, el hover, el foco y el alto los da el p-button que lo
+       envuelve. Esta regla ya solo REPARTE el contenido proyectado -- que es nuestro, asi que
+       la agarra el CSS encapsulado sin ::ng-deep. */
+    .cg-caos-row { display:flex; align-items:center; gap:.75rem; width:100%; text-align:left; }
     .cg-caos-tag { font-size:var(--fs-micro); font-weight:600; padding:.1rem .45rem; border-radius:999px;
       border:1px solid var(--border-color); color:var(--text-muted); white-space:nowrap; }
-    .cg-caos-in { color:var(--action); border-color:var(--action); }
+    /* Sobre el p-chip del cajero: el color CASCADEA hasta su rotulo. El borde lo pinta el
+       componente, asi que un border-color aca seria una declaracion muerta. */
+    .cg-caos-in { color:var(--action); }
     .cg-caos-monto { font-variant-numeric:tabular-nums; }
     .cg-caos-ref { flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cg-caos-go { color:var(--action); font-size:var(--fs-micro); white-space:nowrap; }
@@ -239,11 +283,17 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-cajero { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .7rem; }
     .cg-cajero-head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
     .cg-cajero-head label { margin:0; }
-    /* CS.3.7 — La mención APARTE del efectivo del cajero (CAOS): ya contado por la máquina, no en la reja. */
-    .cg-caja-aparte { border:1px solid var(--action); border-radius:var(--r-md,8px); padding:.5rem .7rem;
+    /* CS.3.7 — La mención APARTE del efectivo del cajero (CAOS): ya contado por la máquina, no en la reja.
+       ⛔ [CG.37] El borde y el icono iban en --action. DESIGN.md reserva el color de marca para
+       CTA, chip activo, badge, "en vivo" y anillo de foco -- este panel no es ninguno de los
+       cinco: es informativo. Y el costo era concreto: el recuadro naranja es la superficie de
+       color MAS GRANDE del dialogo, asi que competia con "Guardar", que es el unico control que
+       escribe en la base. Cuando el naranja significa cuatro cosas deja de significar "apreta
+       aca". Panel en neutro; el acento queda para el boton. */
+    .cg-caja-aparte { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:.5rem .7rem;
       display:flex; flex-direction:column; gap:.35rem; }
     .cg-caja-aparte-top { display:flex; align-items:baseline; flex-wrap:wrap; gap:.4rem; }
-    .cg-caja-ico { color:var(--action); font-weight:700; }
+    .cg-caja-ico { color:var(--text-muted); font-weight:700; }
     .cg-caja-denoms { display:flex; flex-wrap:wrap; gap:.15rem .6rem; font-size:var(--fs-micro); }
     /* CS.3.8 — botón de imprimir comprobante en la lista de movimientos. */
     .ta-c { text-align:center; }
@@ -252,10 +302,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
        en styles.css solo existe ".ta-r > .surf-sort". O sea que los importes de la bandeja y del
        libro nunca estuvieron alineados a la derecha. Otras ~10 pantallas la definen local. */
     .ta-r { text-align:right; }
-    .cg-print { background:none; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
-      cursor:pointer; color:var(--action); padding:.25rem .55rem; min-height:2rem; min-width:2.2rem; }
-    .cg-print:hover { border-color:var(--action); }
-    .cg-print:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    /* ⛔ ".cg-print" retirada: era un <button> con la impresora adentro, con su borde, su hover
+       y su anillo a mano. Hoy es un p-button redondo de icono. */
     /* CS.3.11 — panel de conciliación caja chica vs cajero (CAOS). */
     .cg-conc { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .8rem;
       display:flex; flex-direction:column; gap:.3rem; max-width:34rem; }
@@ -266,7 +314,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     /* [CG.26] El cierre de la jornada reusa el mismo panel, en dos columnas: nuestro libro y el
        cajero. Se ensancha porque ahora lleva la tabla de tipos del cajero, que antes no existia. */
     /* [CG.27] La lista de recurrentes sin regla. */
-    .cg-rec .cg-tbl td { vertical-align:top; }
+    .cg-rec td { vertical-align:top; }
     .cg-cv { font-size:var(--fs-xs); color:var(--text-soft); }
     .cg-cv-fijo { color:var(--ok-fg, var(--action)); font-weight:600; }
     /* ⛔ [CG.34] LOS DOS SUBTITULOS SALIAN PEGADOS: "...de esta jornada2,777 conceptos de 2,954".
@@ -291,31 +339,29 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
        Lo que hacia el muro tampoco era el color: era repetir 85 veces una frase de 80
        caracteres. El texto largo NO vive en un title -- no se alcanza por teclado (checklist 11)
        y DESIGN.md lo lista como antipatron explicito de Operations. */
-    .cg-motivo { font-size:var(--fs-xs); color:var(--text-muted); }
-    .cg-motivos-res { list-style:none; margin:.1rem 0 .6rem; padding:0;
-      display:flex; flex-direction:column; gap:.15rem; font-size:var(--fs-xs); }
-    .cg-motivos-res li { display:flex; align-items:baseline; gap:.4rem; flex-wrap:wrap; }
-    /* Cifra = Geist mono tabular (checklist 4: toda cifra, sin excepcion). */
-    .cg-motivos-n { font-family:var(--font-mono); font-variant-numeric:tabular-nums;
-      color:var(--text-main); min-width:2.5ch; text-align:right; }
-    .cg-motivos-k { color:var(--text-main); }
-    .cg-motivos-txt { color:var(--text-muted); }
+    /* El p-tag del motivo: su color y su forma son del tema. Lo unico propio es que ocupe su
+       renglon y no compita de tamano con el beneficiario, que es el dato de la celda. */
+    .cg-motivo-tag { display:inline-flex; margin-top:.15rem; font-size:var(--fs-xs); }
+    /* [CG.37] Era una columna: un renglon por motivo, porque cada uno llevaba su frase al lado.
+       Ahora es UNA fila que envuelve -- los motivos son tres etiquetas cortas y entran juntas. */
+    .cg-motivos-res { margin:.1rem 0 .6rem; display:flex; align-items:center;
+      flex-wrap:wrap; gap:.4rem; font-size:var(--fs-xs); }
+    /* El p-tag trae su color y su forma del tema; lo unico propio es la CIFRA en mono tabular
+       (checklist 4: toda cifra, sin excepcion). Sin ::ng-deep: va proyectada adentro. */
+    .cg-motivos-n { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-weight:600; }
+    /* El porque, desplegado. Neutro a proposito: el aviso ya lo dio la etiqueta de arriba, y
+       repetirlo en naranja convertia el bloque en un muro de color. */
+    .cg-motivos-por { list-style:none; margin:-.35rem 0 .6rem; padding:0; display:flex;
+      flex-direction:column; gap:.2rem; font-size:var(--fs-xs); color:var(--text-muted); }
     /* [CG.32] El renglon que queda cuando el cuadre esta plegado. */
     .cg-conc-plegado { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
       font-size:var(--fs-sm); color:var(--text-muted); padding:.2rem 0 .1rem; }
-    /* ⚠️ Checklist 11: en touch, >=44px. La clase cg-lim-tog mide ~20px de alto (padding .25rem)
-       y le alcanzaba para ser un "ver mas" opcional -- pero aca es la UNICA forma de abrir el
-       cuadre, asi que un target de 20px lo deja inalcanzable en el telefono. Se agranda SOLO en
-       este uso: tocar la clase compartida cambiaria tambien el boton de los limites.
-       2.75rem = 44px. La regla global de pointer:coarse de styles.css cubre celdas de tabla,
-       no botones. */
-    @media (pointer: coarse) {
-      .cg-conc-plegado .cg-lim-tog { min-height:2.75rem; display:inline-flex; align-items:center; }
-    }
+    /* ⛔ ACA VIVIA ".cg-lim-tog" MAS un @media (pointer: coarse) que le subia el alto a 44px,
+       porque la clase medía ~20px (padding .25rem) y era la UNICA forma de abrir el cuadre en
+       el telefono. Las dos se retiran juntas: el p-button que la reemplaza ya nace con su alto
+       de toque, su anillo de foco y su hover. Es exactamente el tipo de regla que PrimeNG-first
+       evita tener que acordarse de escribir. */
     .cg-kpi-h { margin-top:1.25rem; }
-    .cg-lim-tog { background:none; border:0; padding:.25rem 0; cursor:pointer; text-align:left;
-      color:var(--text-soft); font-size:var(--fs-xs); text-decoration:underline; }
-    .cg-lim-tog:hover { color:var(--action); }
     .cg-conc-lim { margin:.2rem 0 0; padding-left:1.1rem; font-size:var(--fs-xs);
       color:var(--text-soft); display:flex; flex-direction:column; gap:.2rem; }
     .cg-conc-wide { max-width:none; }
@@ -341,16 +387,14 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
     .cg-credito-head label { margin:0; font-size:var(--fs-sm); color:var(--text-muted); }
     input.cg-vcredito { width:9rem; text-align:right; font-variant-numeric:tabular-nums; padding:.25rem .5rem; }
     .cg-caos-alta { color:var(--action); border-color:var(--action); font-weight:700; }
-    .cg-chip-x { background:none; border:0; cursor:pointer; color:inherit; padding:0 0 0 .25rem; }
     /* CS.3.1c — El billete que la máquina ya contó se ve BLOQUEADO (readonly), no editable. */
     .cg-arqueo-tbl input.cg-pieza:read-only { color:var(--text-muted); cursor:not-allowed;
       background:color-mix(in srgb, var(--border-color) 22%, transparent); }
 
-    /* Fitts en tactil: el dedo no acierta un chip de 24px ni un checkbox de 16. */
-    @media (pointer: coarse) {
-      .cg-chip { min-height:var(--tap-min, 44px); padding:.5rem .9rem; }
-      .cg-check { width:1.4rem; height:1.4rem; }
-    }
+    /* ⛔ Tercer bloque de alto-de-toque retirado. Decia: "Fitts en tactil: el dedo no acierta un
+       chip de 24px ni un checkbox de 16" -- cierto, y por eso la pantalla lo venia parchando en
+       TRES lugares distintos (.cg-chip, .cg-check y .cg-lim-tog). p-button, p-chip y p-checkbox
+       lo traen de serie, y ahi no hay que acordarse. */
 
     /* ⛔ ACA VIVIA UN BUG MUDO. Estos anchos se pedian con styleClass="w-full" / "cg-sel", y
        PrimeNG 22 RETIRO el input styleClass de p-select, p-message, p-table, p-autocomplete y
@@ -436,9 +480,14 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             <p-tag [value]="'Corte ' + c.folio" severity="info"></p-tag>
           }
 
-          <input pInputText type="date" class="cg-conc-fecha"
-                 [ngModel]="arqueoFecha()" (ngModelChange)="setArqueoFecha($event)"
-                 aria-label="Jornada a revisar" />
+          <!-- [CG.37] Calendario de PrimeNG, no el nativo del sistema operativo. El nativo se
+               pinta con el tema de Windows: otro alto, otro foco y, en oscuro, otro color que
+               no sale de nuestros tokens. Es el antipatron que DESIGN.md nombra -- control
+               nativo conviviendo con su equivalente de PrimeNG en la MISMA vista. -->
+          <p-datepicker class="cg-conc-fecha" [ngModel]="fechaD(arqueoFecha())"
+                        (onSelect)="setArqueoFecha(claveDe($event))"
+                        dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                        ariaLabel="Jornada a revisar" />
 
           <!-- ⭐ [CG.29] LA ACCION QUE FALTABA, Y ERA EL PEOR DEFECTO DE LA PANTALLA.
                Este bloque se llamaba "Cierre de la jornada" y no tenia UN SOLO BOTON: prometia un
@@ -470,7 +519,11 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           @if (!verDetalleCierre()) {
             <div class="cg-conc-plegado">
               <span>El libro no registro movimiento en esta jornada.</span>
-              <button type="button" class="cg-lim-tog" (click)="cuadreAbierto.set(true)">Ver el cuadre</button>
+              <!-- PrimeNG-first (checklist 3): p-button, no un <button> con clase propia. Ghost
+                   NEUTRO -- la accion en --action de esta cabecera es "Cerrar jornada", y dos
+                   acciones de marca en la misma fila dejan de distinguir cual escribe en la DB. -->
+              <p-button label="Ver el cuadre" size="small" severity="secondary" [text]="true"
+                        icon="pi pi-chevron-down" (onClick)="cuadreAbierto.set(true)"></p-button>
             </div>
           }
 
@@ -515,28 +568,32 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             <div class="cg-conc-col">
               <strong class="cg-conc-sub">Cajero (CAOS) <small class="fin-dim">(la boveda)</small></strong>
               @if (a.cajero; as cj) {
-                <table class="cg-tbl cg-conc-tbl">
-                  <caption class="cg-cap">Movimientos del cajero en la jornada, por tipo</caption>
-                  <thead>
+                <!-- ⚠️ El texto va AFUERA y sigue siendo solo para lector de pantalla. El
+                     "#caption" de p-table NO es un <caption>: lo pinta en .p-datatable-header,
+                     o sea una barra VISIBLE. Estos cuatro rotulos nacieron ocultos a proposito
+                     (describen la tabla, no la titulan), asi que usarlo los habria sacado a la
+                     pantalla sin que nadie lo pidiera. -->
+                <p class="cg-cap">Movimientos del cajero en la jornada, por tipo</p>
+                <p-table [value]="cj.por_tipo" size="small" class="cg-conc-tbl">
+                  <ng-template #header>
                     <tr><th scope="col">Tipo</th><th scope="col" class="ta-r">Movs</th><th scope="col" class="ta-r">Monto</th></tr>
-                  </thead>
-                  <tbody>
-                    @for (t of cj.por_tipo; track t.type_id) {
-                      <tr [class.cg-trabada]="t.desconocido">
-                        <td>
-                          {{ t.etiqueta }}
-                          @if (t.desconocido) {
-                            <small class="fin-hint-warn d-block">Tipo que no conocemos: NO se sumo a ninguna pierna.</small>
-                          }
-                        </td>
-                        <td class="ta-r mono">{{ t.movimientos }}</td>
-                        <td class="ta-r mono">{{ money(t.monto) }}</td>
-                      </tr>
-                    } @empty {
-                      <tr><td colspan="3"><small class="fin-dim">El cajero no se movio en esta jornada.</small></td></tr>
-                    }
-                  </tbody>
-                </table>
+                  </ng-template>
+                  <ng-template #body let-t>
+                    <tr [class.cg-trabada]="t.desconocido">
+                      <td>
+                        {{ t.etiqueta }}
+                        @if (t.desconocido) {
+                          <small class="fin-hint-warn d-block">Tipo que no conocemos: NO se sumo a ninguna pierna.</small>
+                        }
+                      </td>
+                      <td class="ta-r mono">{{ t.movimientos }}</td>
+                      <td class="ta-r mono">{{ money(t.monto) }}</td>
+                    </tr>
+                  </ng-template>
+                  <ng-template #emptymessage>
+                    <tr><td colspan="3"><small class="fin-dim">El cajero no se movio en esta jornada.</small></td></tr>
+                  </ng-template>
+                </p-table>
                 <div class="cg-conc-row"><span>Entra <small class="fin-dim">(deposito + dotar)</small></span>
                   <span class="mono">+ {{ money(cj.entra) }}</span></div>
                 <div class="cg-conc-row"><span>Sale <small class="fin-dim">(dispensar + vaciar)</small></span>
@@ -567,9 +624,12 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           }
           <!-- Abajo y en gris, lo que este cuadre NUNCA va a cubrir. No se esconde: se ordena. -->
           @if (a.limites?.length) {
-            <button type="button" class="cg-lim-tog" (click)="limitesAbiertos.set(!limitesAbiertos())">
-              {{ limitesAbiertos() ? 'Ocultar' : 'Que NO cubre este cuadre' }} ({{ a.limites!.length }})
-            </button>
+            <!-- PrimeNG-first (checklist 3): el alto de toque y el anillo de foco los pone el
+                 componente, no una regla a mano por pantalla. -->
+            <p-button [label]="(limitesAbiertos() ? 'Ocultar' : 'Que NO cubre este cuadre') + ' (' + a.limites!.length + ')'"
+                      [icon]="limitesAbiertos() ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+                      size="small" severity="secondary" [text]="true"
+                      (onClick)="limitesAbiertos.set(!limitesAbiertos())"></p-button>
             @if (limitesAbiertos()) {
               <ul class="cg-conc-lim">
                 @for (m of a.limites!; track m) { <li>{{ m }}</li> }
@@ -582,11 +642,18 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         }
       </div>
 
-      <!-- ⚠️ [CG.29] Esta tira es del LIBRO (el rango de abajo), no del dia. Sin rotulo, su
-           "Gastos $130,000.00" quedaba pegado al "Gastos $0.00" del cierre de la jornada: dos
-           numeros con la misma etiqueta, distinto periodo y un centimetro de distancia. -->
-      <h2 class="fin-h2 cg-kpi-h">El libro, del {{ dmy(from) }} al {{ dmy(to) }}</h2>
-      <app-metric-strip [items]="kpis()"></app-metric-strip>
+      <!-- ⛔ [CG.37] ACA ESTABAN EL TITULO "El libro" Y SU TIRA DE KPIs, y bajaron 340 lineas
+           hasta su propia tabla. [CG.29] le habia puesto el rotulo correcto -- la tira es del
+           LIBRO, no de la jornada -- pero la dejo donde estaba, o sea arriba del trabajo y
+           lejos de lo que resume.
+
+           Lo que costaba, medido sobre la captura de prod: el titulo, la tira y su margen se
+           comen ~100px JUSTO ANTES de la bandeja, que es la accion principal de la pantalla.
+           Con eso, la primera fila por confirmar nacia debajo del pliegue -- y los cuatro
+           mosaicos que la empujaban decian "$0.00" cuatro veces.
+
+           Reordenar, no rediseniar: no se quita ni un dato. El encabezado de la bandeja queda
+           pegado a sus filas, y la tira cae junto a los renglones que suma. -->
 
       <!-- CG.21 - Movimientos por confirmar, los DOS signos. Es la accion PRINCIPAL de la
            pantalla, no un accesorio: medido sobre 5 meses cerrados, el egreso de la caja cuadra
@@ -633,7 +700,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           <p-message [severity]="b.conteos ? 'info' : 'warn'" class="cg-full">
             {{ textoRestaurado(b) }}
             @if (b.conteos) {
-              <button type="button" class="cg-chip" (click)="descartarBorrador()">Descartar</button>
+              <p-button label="Descartar" icon="pi pi-trash" size="small" severity="secondary"
+                        [text]="true" (onClick)="descartarBorrador()"></p-button>
             }
           </p-message>
         }
@@ -648,39 +716,64 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           <!-- [CG.33] POR QUE no se pueden confirmar, agrupado y CONTADO, una sola vez.
                Repetir la misma frase en 85 filas no decia lo unico accionable: cuantas rutas hay
                que dar de alta. Aca se dice una vez y con su numero. -->
+          <!-- [CG.37] Los motivos pasan de TRES RENGLONES a UNO. Cada uno ocupaba su propia
+               linea porque llevaba su frase de ~70 caracteres al lado, y las tres juntas
+               empujaban la primera fila por confirmar debajo del pliegue.
+
+               Lo que SE VE siempre es lo accionable: el conteo y el motivo. La frase explica el
+               motivo, se lee una vez y no cambia de un dia para el otro -- asi que se PLIEGA,
+               que es el mismo patron que esta pantalla ya usa dos veces ("Ver el cuadre", "Que
+               NO cubre este cuadre"). ⛔ Plegar NO es esconderla en un title: eso no se alcanza
+               por teclado y DESIGN.md lo lista como antipatron de Operations. Es un boton. -->
           @if (motivosAgrupados().length) {
-            <ul class="cg-motivos-res">
+            <div class="cg-motivos-res">
               @for (g of motivosAgrupados(); track g.motivo) {
-                <li>
-                  <strong class="cg-motivos-n">{{ g.n }}</strong>
-                  <span class="cg-motivos-k">{{ g.motivo }}</span>
-                  @if (g.texto) { <span class="cg-motivos-txt">{{ g.texto }}</span> }
-                </li>
+                <!-- PrimeNG-first (checklist 3): el conteo va en p-tag, no en un span con clase
+                     propia. severity="warn" trae el color por TOKEN del tema (flipea solo en
+                     dark) en vez de que lo declare esta pantalla.
+                     Se PROYECTA el contenido en vez de usar [value] para poder marcar la cifra
+                     como mono tabular (checklist 4) sin un ::ng-deep sobre el componente: el
+                     doc permite ::ng-deep solo para vendor y como ultimo recurso. -->
+                <p-tag severity="warn">
+                  <span class="cg-motivos-n">{{ g.n }}</span>&nbsp;{{ g.motivo }}
+                </p-tag>
               }
-            </ul>
+              @if (hayPorque()) {
+                <p-button [label]="motivosAbiertos() ? 'Ocultar el porqué' : 'Qué significan'"
+                          [icon]="motivosAbiertos() ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+                          size="small" severity="secondary" [text]="true"
+                          (onClick)="motivosAbiertos.set(!motivosAbiertos())"></p-button>
+              }
+            </div>
+            @if (motivosAbiertos()) {
+              <ul class="cg-motivos-por">
+                @for (g of motivosAgrupados(); track g.motivo) {
+                  @if (g.texto) { <li><strong>{{ g.motivo }}</strong> — {{ g.texto }}</li> }
+                }
+              </ul>
+            }
           }
-          <table class="cg-tbl">
-            <caption class="sr-only">Movimientos de Kepler pendientes de confirmar en el libro de caja</caption>
-            <thead>
+          <p class="sr-only">Movimientos de Kepler pendientes de confirmar en el libro de caja</p>
+          <p-table [value]="pendientes()" size="small">
+            <ng-template #header>
               <tr>
-                <th scope="col" class="ta-c"><input type="checkbox" class="cg-check" [checked]="todasMarcadas()"
-                                        (change)="marcarTodas($any($event.target).checked)"
-                                        aria-label="Marcar todas las confirmables" /></th>
+                <th scope="col" class="ta-c"><p-checkbox [binary]="true" [ngModel]="todasMarcadas()"
+                                        (ngModelChange)="marcarTodas($event)"
+                                        ariaLabel="Marcar todas las confirmables"></p-checkbox></th>
                 <th scope="col">Fecha</th>
                 <th scope="col"><span class="sr-only">Entra o sale</span></th>
                 <th scope="col">Contraparte</th><th scope="col">Documento</th><th scope="col">Cuenta</th>
                 <th scope="col" class="ta-r">Importe (ERP)</th><th scope="col" class="ta-r">Contado</th>
                 <th scope="col"><span class="sr-only">Capturar a mano</span></th>
               </tr>
-            </thead>
-            <tbody>
-              @for (p of pendientes(); track p.origen_ref) {
+            </ng-template>
+            <ng-template #body let-p>
                 <tr [class.cg-trabada]="!p.confirmable">
                   <td class="ta-c">
-                    <input type="checkbox" class="cg-check" [disabled]="!p.confirmable"
-                           [checked]="estaMarcada(p.origen_ref)"
-                           (change)="marcar(p.origen_ref, $any($event.target).checked)"
-                           [attr.aria-label]="'Confirmar ' + p.doc_tipo + ' ' + p.folio" />
+                    <p-checkbox [binary]="true" [disabled]="!p.confirmable"
+                           [ngModel]="estaMarcada(p.origen_ref)"
+                           (ngModelChange)="marcar(p.origen_ref, $event)"
+                           [ariaLabel]="'Confirmar ' + p.doc_tipo + ' ' + p.folio"></p-checkbox>
                   </td>
                   <td>
                     {{ dmy(p.fecha_valor) }}
@@ -709,7 +802,11 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                          aviso pesaba mas que el monto. El porque completo esta arriba (agrupado,
                          con su conteo) y aca en el title de la marca. -->
                     @if (!p.confirmable) {
-                      <small class="cg-motivo d-block">{{ motivoCorto(p.motivo) }}</small>
+                      <!-- PrimeNG-first (checklist 3): p-tag, no un <small> con clase propia.
+                           Trae su color del TEMA (par fondo/texto ya calibrado, y flipea en dark),
+                           que es justo lo que esta pantalla venia declarando a mano con --warn-fg
+                           -- y ese, medido en vivo, daba 1.95 de contraste en light. -->
+                      <p-tag [value]="motivoCorto(p.motivo)" severity="warn" styleClass="cg-motivo-tag"></p-tag>
                     }
                     @if (p.caos_match; as cm) {
                       <small class="cg-caos-attach d-block" [class.cg-caos-alta]="cm.confianza === 'alta'">
@@ -756,9 +853,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                               (onClick)="capturarDesde(p)"></p-button>
                   </td>
                 </tr>
-              }
-            </tbody>
-          </table>
+            </ng-template>
+          </p-table>
 
           <!-- La lista viene TOPADA. Sin esto, un movimiento más allá del tope era invisible y
                nadie lo iba a confirmar nunca: el contador de arriba mentía sobre un conjunto
@@ -850,9 +946,9 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
 
         @if (recAbierto()) {
         @if (recurrentes(); as rc) {
-          <table class="cg-tbl">
-            <caption class="cg-cap">Beneficiarios recurrentes sin regla de clasificacion declarada</caption>
-            <thead>
+          <p class="cg-cap">Beneficiarios recurrentes sin regla de clasificacion declarada</p>
+          <p-table [value]="rc.rows" size="small">
+            <ng-template #header>
               <tr>
                 <th scope="col">Beneficiario</th>
                 <th scope="col" class="ta-r">Pagos</th>
@@ -862,9 +958,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                 <th scope="col" class="ta-r">Sin cobrar</th>
                 <th scope="col"><span class="sr-only">Declarar</span></th>
               </tr>
-            </thead>
-            <tbody>
-              @for (r of rc.rows; track r.beneficiario) {
+            </ng-template>
+            <ng-template #body let-r>
                 <tr>
                   <td>
                     {{ r.beneficiario }}
@@ -902,11 +997,11 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                               (onClick)="declararDesdeRecurrente(r)"></p-button>
                   </td>
                 </tr>
-              } @empty {
-                <tr><td colspan="7"><small class="fin-dim">Ninguno: todos los que repiten tienen su cuenta declarada.</small></td></tr>
-              }
-            </tbody>
-          </table>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="7"><small class="fin-dim">Ninguno: todos los que repiten tienen su cuenta declarada.</small></td></tr>
+            </ng-template>
+          </p-table>
 
           @if (rc.medido.caidos > 0) {
             <!-- [CG.27-B.3] Que un recurrente deje de cobrar es una senial: se fue, o alguien dejo
@@ -919,9 +1014,20 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         }
       </section>
 
+      <!-- ⚠️ [CG.29] Esta tira es del LIBRO (el rango de acá abajo), no del día. Sin rótulo, su
+           "Gastos $130,000.00" quedaba pegado al "Gastos $0.00" del cierre de la jornada: dos
+           números con la misma etiqueta, distinto periodo y un centímetro de distancia.
+           [CG.37] Y ahora vive donde está lo que resume, no 340 líneas más arriba. -->
+      <h2 class="fin-h2 cg-kpi-h">El libro, del {{ dmy(from) }} al {{ dmy(to) }}</h2>
+      <app-metric-strip [items]="kpis()"></app-metric-strip>
+
       <div class="fin-filters">
-        <input pInputText type="date" [(ngModel)]="from" (ngModelChange)="cargar()" aria-label="Desde" />
-        <input pInputText type="date" [(ngModel)]="to" (ngModelChange)="cargar()" aria-label="Hasta" />
+        <p-datepicker [ngModel]="fechaD(from)" (onSelect)="setDesde($event)"
+                      dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                      placeholder="Desde" ariaLabel="Desde" />
+        <p-datepicker [ngModel]="fechaD(to)" (onSelect)="setHasta($event)"
+                      dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                      placeholder="Hasta" ariaLabel="Hasta" />
         <p-select [options]="tiposFiltro" [(ngModel)]="tipo" (ngModelChange)="cargar()"
                   optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
         <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()"
@@ -971,10 +1077,10 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
               <!-- CS.3.8 — re-imprime el comprobante en la térmica (folio nuestro, desglose, concepto,
                    recibido, total, firma). No para los cancelados: su comprobante ya no vale. -->
               @if (m.estado !== 'cancelado') {
-                <button type="button" class="cg-print" (click)="imprimirComprobante(m)"
-                        title="Imprimir comprobante" aria-label="Imprimir comprobante">
-                  <i class="pi pi-print" aria-hidden="true"></i>
-                </button>
+                <p-button icon="pi pi-print" size="small" severity="secondary" [text]="true"
+                          [rounded]="true" title="Imprimir comprobante"
+                          ariaLabel="Imprimir comprobante"
+                          (onClick)="imprimirComprobante(m)"></p-button>
               }
             </td>
           </tr>
@@ -1049,7 +1155,9 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           <p-select inputId="cg-tipo" [options]="tiposCaptura" [ngModel]="f().tipo" optionLabel="label" optionValue="value"
                     (ngModelChange)="onTipo($event)"></p-select>
           <label for="cg-fecha">Fecha</label>
-          <input pInputText id="cg-fecha" type="date" [ngModel]="f().fecha" (ngModelChange)="setF('fecha', $event)" />
+          <p-datepicker inputId="cg-fecha" [ngModel]="fechaD(f().fecha)"
+                        (onSelect)="setF('fecha', claveDe($event))"
+                        dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" />
           <!-- La sucursal era TEXTO LIBRE en una captura contable: teclear "0" devolvía un catálogo
                de conceptos vacío sin decir por qué. Sale del mismo censo que ya mide la cobertura. -->
           <label for="cg-suc">Sucursal</label>
@@ -1079,7 +1187,10 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                             [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
                             placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
             @if (cobroElegido(); as c) {
-              <small class="fin-hint-ok">
+              <!-- [CG.37] Era verde. El verde significa "esto quedo bien"; esto es el ECO de lo
+                   que elegiste, o sea explicacion. Y la linea de abajo, que hace exactamente lo
+                   mismo, ya iba en fin-dim: dos hermanas con el mismo papel y distinto color. -->
+              <small class="fin-dim">
                 Kepler: {{ c.doc_tipo }} {{ c.folio }} · {{ c.beneficiario || c.entidad_code }} ·
                 {{ money(c.monto) }}@if (c.caja_nombre) { · {{ c.caja_nombre }} }. El monto sale del arqueo, no del documento.
               </small>
@@ -1127,11 +1238,13 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             <label>Lo que más repetís en la sucursal {{ f().sucursal }}</label>
             <div class="cg-chips">
               @for (fr of frecuentes(); track fr.rango) {
-                <button type="button" class="cg-chip" (click)="usarFrecuente(fr)"
-                        [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'">
-                  {{ fr.glosa || fr.kepler_concepto }}
-                  <span class="cg-chip-n">{{ fr.usos }}</span>
-                </button>
+                <!-- El conteo va en el "badge" del propio p-button, no en un <span> con clase
+                     propia: asi el par fondo/texto del contador lo calibra el tema y flipea solo
+                     en oscuro, que es justo lo que esta pantalla venia declarando a mano. -->
+                <p-button [label]="fr.glosa || fr.kepler_concepto" [badge]="fr.usos + ''"
+                          badgeSeverity="secondary" size="small" severity="secondary"
+                          [outlined]="true" (onClick)="usarFrecuente(fr)"
+                          [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'"></p-button>
               }
             </div>
             <small class="fin-dim">Llenan cuenta, concepto y beneficiario. El importe siempre se escribe.</small>
@@ -1156,7 +1269,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             {{ etiquetaConcepto().texto }}
           </small>
           @if (cuentaFuenteDoc()) {
-            <button type="button" class="cg-link" (click)="corregirCuentaDoc()">Corregir la cuenta</button>
+            <p-button label="Corregir la cuenta" icon="pi pi-pencil" size="small"
+                      severity="secondary" [text]="true" (onClick)="corregirCuentaDoc()"></p-button>
           }
         </div>
 
@@ -1189,19 +1303,29 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
           <div class="fin-row fin-row-col cg-cajero">
             <div class="cg-cajero-head">
               <label>Del cajero (CAOS)</label>
-              <button type="button" class="cg-link" (click)="buscarEnCajero()" [disabled]="buscandoCajero()">
-                {{ buscandoCajero() ? 'buscando…' : '¿salió del cajero? buscar retiros' }}
-              </button>
+              <!-- El "buscando…" deja de ser un rotulo que se cambia a mano: [loading] pone el
+                   spinner Y desactiva el boton, que es lo que evita la segunda busqueda. -->
+              <p-button label="¿salió del cajero? buscar retiros" icon="pi pi-search" size="small"
+                        severity="secondary" [text]="true" [loading]="buscandoCajero()"
+                        (onClick)="buscarEnCajero()"></p-button>
             </div>
             @if (caosSugeridos().length) {
               <div class="cg-caos-list">
                 @for (c of caosSugeridos(); track c.external_id) {
-                  <button type="button" class="cg-caos-row" (click)="vincularCaos(c)">
-                    <span class="cg-caos-tag" [class.cg-caos-alta]="c.confianza === 'alta'">{{ c.confianza }}</span>
-                    <span class="mono cg-caos-monto">{{ money(c.monto) }}</span>
-                    <span class="fin-dim cg-caos-ref">{{ c.ref || 'sin ref' }} · {{ dmy(c.fecha_valor) }}</span>
-                    <span class="cg-caos-go" aria-hidden="true">agregar →</span>
-                  </button>
+                  <!-- Renglon rico: el contenido va PROYECTADO dentro del p-button (sin label).
+                       El reparto horizontal lo hace un <span> NUESTRO, no el boton de PrimeNG:
+                       asi la regla la agarra el CSS encapsulado y no hace falta ::ng-deep para
+                       entrar al DOM del componente. El ancho completo lo da [fluid]. -->
+                  <p-button severity="secondary" [text]="true" [fluid]="true"
+                            [ariaLabel]="'Agregar el retiro de ' + money(c.monto) + ' del cajero'"
+                            (onClick)="vincularCaos(c)">
+                    <span class="cg-caos-row">
+                      <span class="cg-caos-tag" [class.cg-caos-alta]="c.confianza === 'alta'">{{ c.confianza }}</span>
+                      <span class="mono cg-caos-monto">{{ money(c.monto) }}</span>
+                      <span class="fin-dim cg-caos-ref">{{ c.ref || 'sin ref' }} · {{ dmy(c.fecha_valor) }}</span>
+                      <span class="cg-caos-go" aria-hidden="true">agregar <i class="pi pi-arrow-right"></i></span>
+                    </span>
+                  </p-button>
                 }
               </div>
             }
@@ -1221,14 +1345,16 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             @if (caosVinculados().length) {
               <div class="cg-chips">
                 @for (v of caosVinculados(); track v.external_id) {
-                  <span class="cg-chip cg-caos-in">{{ money(v.monto) }} · {{ v.ref || 's/ref' }}
-                    <button type="button" class="cg-chip-x" (click)="desvincularCaos(v.external_id)" aria-label="Quitar del cajero">✕</button>
-                  </span>
+                  <!-- Esto ES un chip removible: p-chip lo trae con su boton de quitar, su icono
+                       y su foco. Antes era un <span> con un <button> adentro y una "✕" tecleada. -->
+                  <p-chip [label]="money(v.monto) + ' · ' + (v.ref || 's/ref')" class="cg-caos-in"
+                          [removable]="true" removeIcon="pi pi-times"
+                          (onRemove)="desvincularCaos(v.external_id)"></p-chip>
                 }
               </div>
             }
             <div class="cg-caja-denoms fin-dim mono">
-              @for (d of denominacionesCajero(); track d.denominacion) {
+              @for (d of denominacionesCajero(); track d.denom_key) {
                 <span>{{ d.piezas }}×{{ money(d.denominacion) }}</span>
               }
             </div>
@@ -1243,7 +1369,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
             <div class="cg-credito-head">
               <label for="cg-vcredito">Venta a crédito</label>
               @if (clienteCredito()) {
-                <span class="fin-hint-ok">cliente de crédito — auto-rellenado, editable</span>
+                <span class="fin-dim">cliente de crédito — auto-rellenado, editable</span>
               }
             </div>
             <input pInputText id="cg-vcredito" type="number" min="0" step="0.01" inputmode="decimal" class="cg-vcredito"
@@ -1263,38 +1389,39 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
               <span class="fin-dim">El documento dice <span class="mono">{{ money(c.monto) }}</span></span>
             }
             @if (hayCajero()) {
-              <span class="fin-hint-ok">El cajero ya aportó {{ money(aporteCajero()) }} — contá acá sólo lo que falta o la morralla (arranca en cero).</span>
+              <span class="fin-dim">El cajero ya aportó {{ money(aporteCajero()) }} — contá acá sólo lo que falta o la morralla (arranca en cero).</span>
             }
           </div>
-          <table class="cg-arqueo-tbl">
-            <caption class="cg-cap">Desglose del efectivo por denominación</caption>
-            <thead>
+          <!-- ⛔ Los INPUTS de esta reja se quedan nativos con pInputText, y es una decision
+               medida, no deuda: en un p-inputnumber las flechas INCREMENTAN el valor de a uno y
+               aca las flechas BAJAN POR LA COLUMNA, que es como se cuenta un fajo. Cambiarlas
+               seria cambiar lo contado sin querer. La tabla si pasa a p-table: asi el borde, la
+               cabecera y el flip a oscuro los pone el tema y no una regla a mano por pantalla. -->
+          <p class="cg-cap">Desglose del efectivo por denominación</p>
+          <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
+            <ng-template #header>
               <tr>
                 <th scope="col">Denominación</th>
                 <th scope="col">Piezas</th>
                 <th scope="col">Importe</th>
               </tr>
-            </thead>
-            <tbody>
-              <!-- Enter y las flechas bajan por la columna, que es como se cuenta un fajo. Y en
-                   un input numerico las flechas INCREMENTAN el valor de a uno, asi que
-                   quitarselas es parte del arreglo, no un efecto colateral: en un arqueo eso es
-                   cambiar lo contado sin querer. Mismo motivo por el que aca va un input nativo
-                   y no p-inputnumber, igual que en la bandeja. -->
-              @for (b of billetes; track b.key) {
-                <tr>
-                  <th scope="row" class="mono">{{ b.label }}</th>
-                  <td>
-                    <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
-                           [ngModel]="piezasDe(b.valor)" (ngModelChange)="setPiezas(b.valor, $event)"
-                           (keydown.enter)="moverEnReja($event, 1)"
-                           (keydown.arrowdown)="moverEnReja($event, 1)"
-                           (keydown.arrowup)="moverEnReja($event, -1)"
-                           [attr.aria-label]="'Piezas de ' + b.label" />
-                  </td>
-                  <td class="mono cg-sub">{{ money(subtotalDe(b.valor)) }}</td>
-                </tr>
-              }
+            </ng-template>
+            <ng-template #body let-b>
+              <tr [class.cg-fila-moneda]="b.familia === 'moneda'">
+                <th scope="row" class="mono">{{ b.label }}<!--
+                  --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
+                <td>
+                  <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
+                         [ngModel]="piezasDe(b)" (ngModelChange)="setPiezas(b, $event)"
+                         (keydown.enter)="moverEnReja($event, 1)"
+                         (keydown.arrowdown)="moverEnReja($event, 1)"
+                         (keydown.arrowup)="moverEnReja($event, -1)"
+                         [attr.aria-label]="'Piezas de ' + (b.familia === 'moneda' ? 'la moneda de ' : 'el billete de ') + b.label" />
+                </td>
+                <td class="mono cg-sub">{{ money(subtotalDe(b)) }}</td>
+              </tr>
+            </ng-template>
+            <ng-template #footer>
               <tr>
                 <th scope="row">Morralla</th>
                 <td class="fin-dim cg-na">—</td>
@@ -1308,8 +1435,6 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                          aria-label="Importe de morralla, todas las monedas juntas" />
                 </td>
               </tr>
-            </tbody>
-            <tfoot>
               <tr>
                 <th scope="row">Monto del movimiento</th>
                 <td class="fin-dim cg-na">{{ hayCajero() ? 'cajero + a mano' : 'del conteo' }}</td>
@@ -1318,8 +1443,76 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                          disabled tabindex="-1" aria-label="Monto del movimiento, calculado del conteo" />
                 </td>
               </tr>
-            </tfoot>
-          </table>
+            </ng-template>
+          </p-table>
+
+          <!-- ⭐ [CG.38] EL CAMBIO QUE SE DEVUELVE. Hasta hoy no había dónde registrarlo: si te
+               daban $5,000 por un documento de $4,830, los $170 que volvían al cliente no
+               existían en ningún lado y la caja declaraba efectivo que ya no tenía.
+
+               Plegado por default: la mayoría de los movimientos no devuelven cambio, y once
+               campos abiertos convierten el caso común en el caso lento. Se abre de un clic. -->
+          <div class="cg-cambio">
+            <div class="cg-cambio-head">
+              <p-button [label]="(cambioAbierto() || hayDevuelto()) ? 'Ocultar el cambio' : '¿Diste cambio?'"
+                        [icon]="(cambioAbierto() || hayDevuelto()) ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+                        size="small" severity="secondary" [text]="true"
+                        (onClick)="cambioAbierto.set(!cambioAbierto())"></p-button>
+              @if (hayDevuelto()) {
+                <p-tag severity="info" [value]="'devolviste ' + money(totalDevuelto())"></p-tag>
+              }
+            </div>
+
+            @if (cambioAbierto() || hayDevuelto()) {
+              <p class="cg-cap">Desglose del cambio que salió de la caja</p>
+              <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col">Denominación</th>
+                    <th scope="col">Piezas</th>
+                    <th scope="col">Importe</th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-b>
+                  <tr [class.cg-fila-moneda]="b.familia === 'moneda'">
+                    <th scope="row" class="mono">{{ b.label }}<!--
+                      --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
+                    <td>
+                      <input pInputText type="number" class="cg-pieza-dev" min="0" step="1" inputmode="numeric"
+                             [ngModel]="piezasDevueltasDe(b)" (ngModelChange)="setPiezasDevueltas(b, $event)"
+                             (keydown.enter)="moverEnRejaDev($event, 1)"
+                             (keydown.arrowdown)="moverEnRejaDev($event, 1)"
+                             (keydown.arrowup)="moverEnRejaDev($event, -1)"
+                             [attr.aria-label]="'Piezas devueltas de ' + b.label" />
+                    </td>
+                    <td class="mono cg-sub">{{ money(b.valor * piezasDevueltasDe(b)) }}</td>
+                  </tr>
+                </ng-template>
+                <ng-template #footer>
+                  <tr>
+                    <th scope="row">Devuelto</th>
+                    <td class="fin-dim cg-na">sale de la caja</td>
+                    <td class="mono cg-sub">{{ money(totalDevuelto()) }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+
+              <!-- La cuenta en llano: entró, salió, queda. El monto del movimiento es el NETO. -->
+              @if (resumenCambio(); as r) {
+                <p class="fin-dim cg-cambio-cuenta">
+                  Entró <span class="mono">{{ money(r.entra) }}</span> ·
+                  devolviste <span class="mono">{{ money(r.sale) }}</span> ·
+                  queda en la caja <strong class="mono">{{ money(r.neto) }}</strong>
+                </p>
+                <!-- ⛔ El motor no se limita a sumar: NOMBRA el problema con su monto. Devolver
+                     más de lo que entró, o un canje que no cuadra, son dinero que se va sin
+                     registro -- y eso es exactamente lo que el pedido vino a evitar. -->
+                @if (r.problema) {
+                  <p-message severity="warn" class="cg-full">{{ r.problema }}</p-message>
+                }
+              }
+            }
+          </div>
         </div>
 
         </div><!-- /cg-col derecha -->
@@ -1332,8 +1525,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
              la persona tiene el beneficiario delante y acaba de elegir la cuenta. -->
         @if (puedeDeclararRegla()) {
           <label class="fin-row cg-declara">
-            <input type="checkbox" class="cg-check" [checked]="declararRegla()"
-                   (change)="declararRegla.set($any($event.target).checked)" />
+            <p-checkbox [binary]="true" [ngModel]="declararRegla()"
+                        (ngModelChange)="declararRegla.set($event)"></p-checkbox>
             <span>
               De ahora en adelante, <strong>{{ f().beneficiario }}</strong> va a
               <span class="mono">{{ f().kepler_cuenta }} / {{ f().kepler_concepto }}</span>.
@@ -1377,7 +1570,7 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
         <small class="fin-dim">Con qué efectivo arranca la caja. Es el punto de partida del saldo.</small>
         <!-- [CG.29] Se dice que esto NO termina acá: el gesto sigue en el conteo. Sin decirlo, la
              persona confirma y cree que ya rindió cuentas. -->
-        <small class="fin-hint-ok">Al confirmar seguís directo al conteo del efectivo.</small>
+        <small class="fin-dim">Al confirmar seguís directo al conteo del efectivo.</small>
       </div>
       <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cancelarApertura()"></p-button>
@@ -1417,30 +1610,31 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
              importes se calculan, y las flechas bajan por la columna en vez de incrementar el
              valor. La clase es distinta ("cg-pieza-corte") a proposito: el foco de este dialogo
              no puede saltar a los inputs del otro. -->
-        <table class="cg-arqueo-tbl">
-          <caption class="cg-cap">Desglose del efectivo del corte</caption>
-          <thead>
+        <p class="cg-cap">Desglose del efectivo del corte</p>
+        <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
+          <ng-template #header>
             <tr>
               <th scope="col">Denominación</th>
               <th scope="col">Piezas</th>
               <th scope="col">Importe</th>
             </tr>
-          </thead>
-          <tbody>
-            @for (b of billetes; track b.key) {
-              <tr>
-                <th scope="row" class="mono">{{ b.label }}</th>
-                <td>
-                  <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric"
-                         [ngModel]="piezasCorteDe(b.valor)" (ngModelChange)="setPiezasCorte(b.valor, $event)"
-                         (keydown.enter)="moverEnRejaCorte($event, 1)"
-                         (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
-                         (keydown.arrowup)="moverEnRejaCorte($event, -1)"
-                         [attr.aria-label]="'Piezas de ' + b.label" />
-                </td>
-                <td class="mono cg-sub">{{ money(subtotalCorteDe(b.valor)) }}</td>
-              </tr>
-            }
+          </ng-template>
+          <ng-template #body let-b>
+            <tr [class.cg-fila-moneda]="b.familia === 'moneda'">
+              <th scope="row" class="mono">{{ b.label }}<!--
+                --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
+              <td>
+                <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric"
+                       [ngModel]="piezasCorteDe(b)" (ngModelChange)="setPiezasCorte(b, $event)"
+                       (keydown.enter)="moverEnRejaCorte($event, 1)"
+                       (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
+                       (keydown.arrowup)="moverEnRejaCorte($event, -1)"
+                       [attr.aria-label]="'Piezas de ' + (b.familia === 'moneda' ? 'la moneda de ' : 'el billete de ') + b.label" />
+              </td>
+              <td class="mono cg-sub">{{ money(subtotalCorteDe(b)) }}</td>
+            </tr>
+          </ng-template>
+          <ng-template #footer>
             <tr>
               <th scope="row">Morralla</th>
               <td class="fin-dim cg-na">—</td>
@@ -1454,8 +1648,6 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                        aria-label="Importe de morralla, todas las monedas juntas" />
               </td>
             </tr>
-          </tbody>
-          <tfoot>
             <tr>
               <th scope="row">Contado</th>
               <td class="fin-dim cg-na">del conteo</td>
@@ -1464,8 +1656,8 @@ function mergeDenoms(fuentes: Array<{ denominacion: number; piezas: number }>): 
                        disabled tabindex="-1" aria-label="Total contado, calculado del conteo" />
               </td>
             </tr>
-          </tfoot>
-        </table>
+          </ng-template>
+        </p-table>
         @if (revelado() && revelado()!.veredicto !== 'cuadra' && puedeRecontar()) {
           <div class="fin-row">
             <label for="cg-motivo">Motivo del reconteo</label>
@@ -1578,10 +1770,33 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** La reja de denominaciones del corte. */
   moverEnRejaCorte(ev: Event, dir: 1 | -1): void { this.moverFoco(ev, dir, 'input.cg-pieza-corte'); }
 
+  /**
+   * `[CG.38]` La reja del cambio devuelto. Clase propia y NO `cg-pieza`: si compartieran
+   * selector, la flecha saltaría de lo que entró a lo que salió sin que nadie lo note, y en un
+   * arqueo eso es teclear piezas en la columna equivocada.
+   */
+  moverEnRejaDev(ev: Event, dir: 1 | -1): void { this.moverFoco(ev, dir, 'input.cg-pieza-dev'); }
+
   readonly money = money;
   readonly dmy = dmy;
-  /** Los cinco billetes de la caja. Salen del catálogo compartido, no de una lista de acá. */
-  readonly billetes = BILLETES_CAJA;
+  /**
+   * `[CG.38]` Lo que la caja cuenta: **cinco billetes y seis monedas**, del mayor al menor.
+   * Salen del catálogo compartido, no de una lista de acá.
+   *
+   * ⚠️ Se llamaba `billetes` y hoy sería un nombre que miente: la morralla dejó de ser un campo
+   * suelto y se cuenta pieza por pieza. `reja` es como la nombra el resto de esta pantalla.
+   *
+   * ⚠️ La copia NO es adorno y NO se puede volver a `= BILLETES_CAJA`. El catálogo es
+   * `readonly Denominacion[]` a propósito —nadie debe empujarle una denominación— pero `[value]`
+   * de `p-table` pide un array mutable, así que con la constante directo el compilador de
+   * Angular tira TS4104. Mientras eran dos `@for` daba igual; con p-table no.
+   *
+   * ⛔ Y la copia va ACÁ, una sola vez, NO `[value]="reja.slice()"` en la plantilla: ahí
+   * devolvería un array nuevo en CADA ciclo de detección, y p-table reprocesaría su valor en
+   * cada tick aunque las denominaciones no cambien nunca. La identidad estable es la mitad del
+   * arreglo.
+   */
+  readonly reja = [...BILLETES_CAJA, ...MONEDAS_CAJA];
 
   readonly GLOSA_MIN = GLOSA_MIN;
 
@@ -1659,11 +1874,25 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * Suma el origen (captura anclada a un movimiento de CAOS) + los vínculos (retiros de un cobro/gasto).
    * La reja de abajo queda para la DIFERENCIA (morralla, monedas, un faltante), arrancando en cero.
    */
-  denominacionesCajero = computed(() => {
-    const src: Array<{ denominacion: number; piezas: number }> = [];
+  /**
+   * ⚠️ `[CG.38]` El cajero (CAOS) reporta **sólo el valor**, no la llave: es un feed externo y no
+   * lo podemos cambiar. Sus piezas se leen como BILLETES, y no es una adivinanza — CAOS es un
+   * dispensador de billetes, no da monedas. El único valor ambiguo en México es el `20`, y un
+   * dispensador que entrega `20` entregó el billete.
+   *
+   * Si algún día CAOS dispensara monedas, esto las contaría como billetes del mismo valor: el
+   * total seguiría bien y el desglose mentiría. Queda dicho acá, que es donde se decide.
+   */
+  denominacionesCajero = computed<DenominacionCapturada[]>(() => {
+    const src: DenominacionCapturada[] = [];
+    const comoBillete = (d: { denominacion: number | string; piezas: number | string }) => ({
+      denom_key: llaveBillete(Number(d.denominacion)),
+      denominacion: Number(d.denominacion),
+      piezas: Number(d.piezas),
+    });
     const o = this.caosElegido();
-    if (o?.denominaciones) src.push(...o.denominaciones.map((d) => ({ denominacion: Number(d.denominacion), piezas: Number(d.piezas) })));
-    for (const v of this.caosVinculados()) src.push(...v.denominaciones.map((d) => ({ denominacion: Number(d.denominacion), piezas: Number(d.piezas) })));
+    if (o?.denominaciones) src.push(...o.denominaciones.map(comoBillete));
+    for (const v of this.caosVinculados()) src.push(...v.denominaciones.map(comoBillete));
     return mergeDenoms(src);
   });
 
@@ -1806,7 +2035,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   capturaAbierta = signal(false);
   aperturaAbierta = signal(false);
   cierreAbierto = signal(false);
-  fondoInicial = signal(0);
+  /**
+   * `[CG.42]` **`null` = no se midió**, y es el estado INICIAL. Antes arrancaba en `0` y el
+   * formulario siempre mandaba un número, así que el `undefined` que `[CG.39]` necesitaba para
+   * guardar `NULL` **no se podía producir desde la pantalla**: la única vía real de abrir caja
+   * seguía afirmando "arrancó vacía", ahora encima rotulada como `contado`.
+   */
+  fondoInicial = signal<number | null>(null);
   morrallaCorte = signal(0);
   conteoCorte = signal<DenominacionCapturada[]>([]);
   saldoResp = signal<SaldoResponse | null>(null);
@@ -1892,7 +2127,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     if (!s || !co || s.saldo == null) return null;
     const t = s.totales;
     return {
-      fondo: Number(co.fondo_inicial) || 0,
+      // `[CG.42]` `null` se conserva: "no se midió" no es "arrancó en cero".
+      fondo: co.fondo_inicial == null ? null : Number(co.fondo_inicial),
       ingresos: Number(t?.ingresos) || 0,
       gastos: Number(t?.gastos) || 0,
       depositos: Number(t?.depositos) || 0,
@@ -1930,7 +2166,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // `todayMx()` viaja como argumento (no lo lee el util) para que la lógica pura siga siendo
   // probable con un día fijo. Ver `motivosDeBloqueo`.
   bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo(
-    { ...this.f(), denominaciones: this.denominacionesParaGuardar(), venta_credito: this.ventaCredito() },
+    {
+      ...this.f(), denominaciones: this.denominacionesParaGuardar(), venta_credito: this.ventaCredito(),
+      // ⛔ [CG.38] Sin esto, devolver cambio trababa el guardado con `arqueo_no_cuadra`: el
+      // desglose sumaba lo que ENTRÓ y el monto ya era el NETO, así que la diferencia era
+      // exactamente el cambio. El botón quedaba apagado justo en el caso que la fase vino a
+      // habilitar. Lo encontró la prueba del envío, no la lectura del código.
+      devuelto: this.devuelto(),
+    },
     todayMx(),
   ));
   /**
@@ -2034,6 +2277,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    *
    * Es sobre las filas que se VEN, igual que `confirmables`, y el texto lo dice.
    */
+  /**
+   * [CG.37] Si el porqué de los motivos está desplegado. Arranca cerrado: lo accionable es el
+   * conteo, y la explicación no cambia de un día para el otro.
+   *
+   * ⚠️ Nombre verificado contra el resto de la clase antes de declararlo. En `[CG.33]` elegí
+   * `cierreAbierto` para una cosa nueva sin mirar que ya existía: en una clase gana la ÚLTIMA
+   * declaración, así que el botón nuevo habría abierto el diálogo que SELLA el día. Ni `tsc` ni
+   * el editor dijeron nada — lo cazó una prueba negativa.
+   */
+  motivosAbiertos = signal(false);
+
+  /** El botón sólo existe si hay algo que desplegar: uno que no revela nada es ruido. */
+  hayPorque = computed(() => this.motivosAgrupados().some((g) => !!g.texto));
+
   motivosAgrupados = computed(() => {
     const cuenta = new Map<string, { n: number; texto: string }>();
     for (const p of this.pendientes()) {
@@ -2349,6 +2606,54 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       : `${trabajo} · todavía no rendiste cuentas de esta jornada`;
   });
 
+  /**
+   * El `Date` que pide `<p-datepicker>`, derivado de la clave `YYYY-MM-DD` que esta pantalla
+   * guarda y le manda al API. La clave sigue siendo la fuente de verdad: el calendario es
+   * presentación, y el almacenamiento no cambia de tipo.
+   *
+   * ⛔ Se MEMOIZA por la clave, y no es microoptimización. Un `new Date(...)` evaluado en la
+   * plantilla devuelve un objeto NUEVO en cada ciclo de detección, así que `ngModel` ve el
+   * modelo cambiado en cada tick y el calendario puede re-renderizarse o cerrarse encima de la
+   * persona mientras elige. Misma clave, misma instancia.
+   *
+   * ⚠️ Parsea con `parseLocalDate` (medianoche LOCAL) y NO con `new Date(iso)`, que parsea UTC
+   * y en México cae al día ANTERIOR después de las 18:00 — el gotcha que documenta `mx-date.ts`.
+   */
+  private readonly _fechaD = new Map<string, Date>();
+  fechaD(clave: string | null | undefined): Date | null {
+    const k = (clave || '').slice(0, 10);
+    if (!k) return null;
+    let d = this._fechaD.get(k);
+    if (!d) {
+      const p = parseLocalDate(k);
+      if (!p) return null;
+      // El cache vive lo que la sesión y sólo crece con las fechas que la persona elige.
+      if (this._fechaD.size > 64) this._fechaD.clear();
+      d = p;
+      this._fechaD.set(k, d);
+    }
+    return d;
+  }
+
+  /**
+   * La vuelta: del `Date` del calendario a la clave de texto.
+   *
+   * ⛔ NO usa `toMxDateKey`, y la diferencia cambia el día. Ese helper traduce un INSTANTE a su
+   * día en México; lo que devuelve el calendario no es un instante sino un DÍA a medianoche
+   * LOCAL. Con el navegador fuera de MX, pasarlo por la zona horaria lo corre uno hacia atrás.
+   * Acá se leen los componentes locales, que es el inverso EXACTO de `parseLocalDate`.
+   */
+  claveDe(d: Date | null | undefined): string {
+    if (!d || isNaN(d.getTime())) return '';
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return String(d.getFullYear()) + '-' + mm + '-' + dd;
+  }
+
+  /** Desde/Hasta del libro. Van juntos acá para no asignar campos desde la plantilla. */
+  setDesde(d: Date | null): void { const k = this.claveDe(d); if (k) { this.from = k; this.cargar(); } }
+  setHasta(d: Date | null): void { const k = this.claveDe(d); if (k) { this.to = k; this.cargar(); } }
+
   setArqueoFecha(v: string): void {
     if (!v) return;
     this.arqueoFecha.set(String(v).slice(0, 10));
@@ -2414,7 +2719,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.pedirPropuesta();
   }
 
-  abrirApertura(): void { this.fondoInicial.set(0); this.abrirConFoco(this.aperturaAbierta); }
+  abrirApertura(): void { this.fondoInicial.set(null); this.abrirConFoco(this.aperturaAbierta); }
 
   /** Si se cancela la apertura, la intención de cerrar NO queda colgada esperando. */
   cancelarApertura(): void { this.cerrarTrasAbrir.set(false); this.cerrarConFoco(this.aperturaAbierta); }
@@ -2427,12 +2732,17 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // devuelve MAÑANA, y el corte nacía con fecha de mañana.
       fecha: todayMx(),
       sucursal: this.sucursalActiva,
-      fondo_inicial: this.fondoInicial(),
+      // `null` → `undefined`: es la forma exacta que `abrir()` traduce a `NULL` + `sin_medir`.
+      // Mandar `null` NO sirve: el servicio compara contra `undefined`.
+      fondo_inicial: this.fondoInicial() ?? undefined,
     }).subscribe({
       next: () => {
         this.abriendo.set(false);
         this.aperturaAbierta.set(false);
-        this.avisarOk('Corte abierto', `Fondo inicial ${money(this.fondoInicial())}`);
+        const f = this.fondoInicial();
+        this.avisarOk('Corte abierto', f == null
+          ? 'Sin fondo inicial medido: el arqueo no va a poder decir si cuadra.'
+          : `Fondo inicial ${money(f)}`);
         this.cargarSaldo(); this.cargarCortes(); this.cargarArqueo();
         // [CG.29] Si la apertura vino de "rendir cuentas", se sigue DERECHO al conteo: el gesto
         // es uno solo. Sin esto la persona quedaba con el corte abierto y sin saber que le
@@ -2486,18 +2796,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
-  piezasCorteDe(d: number): number {
-    return this.conteoCorte().find((x) => x.denominacion === d)?.piezas ?? 0;
+  /** ⚠️ `[CG.38]` Por denominación entera, no por valor — el mismo motivo que en la otra reja. */
+  piezasCorteDe(d: Denominacion): number {
+    return this.conteoCorte().find((x) => x.denom_key === d.key)?.piezas ?? 0;
   }
 
   /** Lo que suma ese renglón del corte. Se calcula; no hay dónde teclearlo. */
-  subtotalCorteDe(d: number): number { return redondea(d * this.piezasCorteDe(d)); }
+  subtotalCorteDe(d: Denominacion): number { return redondea(d.valor * this.piezasCorteDe(d)); }
 
-  setPiezasCorte(d: number, piezas: number): void {
-    const list = this.conteoCorte().filter((x) => x.denominacion !== d);
+  setPiezasCorte(d: Denominacion, piezas: number): void {
+    const list = this.conteoCorte().filter((x) => x.denom_key !== d.key);
     // Enteras y no negativas: medio billete no existe, y el CHECK del servidor lo rechaza.
     const n = Math.max(0, Math.trunc(Number(piezas) || 0));
-    if (n > 0) list.push({ denominacion: d, piezas: n });
+    if (n > 0) list.push({ denom_key: d.key, denominacion: d.valor, piezas: n });
     this.conteoCorte.set(list);
   }
 
@@ -2596,6 +2907,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // CS.3.13 — la venta a crédito tampoco sobrevive al diálogo anterior.
     this.ventaCredito.set(0);
     this.clienteCredito.set(false);
+    // ⛔ [CG.38] Y el cambio devuelto TAMPOCO. Sin esta línea, la captura siguiente arranca con
+    // el cambio de la anterior ya restado del monto: dinero que se va de un movimiento al que
+    // no pertenece, y encima en silencio porque el bloque nace plegado.
+    this.devuelto.set([]);
+    this.cambioAbierto.set(false);
     this.cobros.set([]);
     // CS.3 — la fuente CAOS tampoco sobrevive al diálogo anterior.
     this.caosSel = null;
@@ -3310,18 +3626,23 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
-  piezasDe(d: number): number {
-    return this.f().denominaciones.find((x) => x.denominacion === d)?.piezas ?? 0;
+  /**
+   * ⚠️ `[CG.38]` Estos tres reciben la DENOMINACIÓN entera, no su valor. Con monedas en la reja,
+   * `piezasDe(20)` es ambiguo —hay billete y moneda de $20— y devolvería el renglón equivocado.
+   * Pasando el objeto, la llave viaja con el valor y no hay nada que adivinar.
+   */
+  piezasDe(d: Denominacion): number {
+    return this.f().denominaciones.find((x) => x.denom_key === d.key)?.piezas ?? 0;
   }
 
   /** Lo que suma ese renglón. Se CALCULA: no hay dónde teclearlo, y por eso va deshabilitado. */
-  subtotalDe(d: number): number { return redondea(d * this.piezasDe(d)); }
+  subtotalDe(d: Denominacion): number { return redondea(d.valor * this.piezasDe(d)); }
 
-  setPiezas(d: number, piezas: number): void {
-    const list = this.f().denominaciones.filter((x) => x.denominacion !== d);
+  setPiezas(d: Denominacion, piezas: number): void {
+    const list = this.f().denominaciones.filter((x) => x.denom_key !== d.key);
     // Enteras y no negativas: medio billete no existe, y el CHECK del servidor lo rechaza.
     const n = Math.max(0, Math.trunc(Number(piezas) || 0));
-    if (n > 0) list.push({ denominacion: d, piezas: n });
+    if (n > 0) list.push({ denom_key: d.key, denominacion: d.valor, piezas: n });
     this.f.update((v) => ({ ...v, denominaciones: list }));
     this.recomputarMonto();
   }
@@ -3349,8 +3670,59 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // CS.3.13 — + la VENTA A CRÉDITO (no llegó en efectivo pero es parte del total): monto = efectivo
     // + crédito. Así el monto>0 se cumple aunque la venta sea toda a crédito (efectivo 0).
     const efectivo = sumaDesglose(this.denominacionesParaGuardar(), Number(this.f().morralla || 0));
-    this.onMonto(efectivo + (Number(this.ventaCredito()) || 0));
+    // ⭐ [CG.38] El cambio que se devolvió SE RESTA. Sin esto, un cobro de $4,830 con un billete
+    // de $5,000 se guardaba como $5,000 y los $170 que volvieron al cliente quedaban dentro del
+    // movimiento: la caja declaraba tener efectivo que ya no estaba.
+    this.onMonto(efectivo - this.totalDevuelto() + (Number(this.ventaCredito()) || 0));
   }
+
+  // ── [CG.38] El cambio que se devuelve ───────────────────────────────────────────────────────
+
+  /**
+   * Arranca PLEGADO: la mayoría de los movimientos no devuelven cambio, y un bloque de once
+   * campos abierto por default convierte el caso común en el caso lento. El pedido fue
+   * explícito — *"que sea un proceso rápido"*.
+   */
+  cambioAbierto = signal(false);
+
+  /** Lo que salió de la caja en este mismo acto. Mismo tipo que lo que entró. */
+  devuelto = signal<DenominacionCapturada[]>([]);
+
+  piezasDevueltasDe(d: Denominacion): number {
+    return this.devuelto().find((x) => x.denom_key === d.key)?.piezas ?? 0;
+  }
+
+  setPiezasDevueltas(d: Denominacion, piezas: number): void {
+    const list = this.devuelto().filter((x) => x.denom_key !== d.key);
+    const n = Math.max(0, Math.trunc(Number(piezas) || 0));
+    if (n > 0) list.push({ denom_key: d.key, denominacion: d.valor, piezas: n });
+    this.devuelto.set(list);
+    this.recomputarMonto();
+  }
+
+  totalDevuelto = computed(() =>
+    redondea(this.devuelto().reduce((a, d) => a + d.denominacion * d.piezas, 0)));
+
+  /** Pasa una lista de renglones a la forma `{llave: piezas}` que pide el motor compartido. */
+  private porLlave(dens: DenominacionCapturada[]): Record<string, number> {
+    const m: Record<string, number> = {};
+    for (const d of dens) m[d.denom_key] = (m[d.denom_key] ?? 0) + d.piezas;
+    return m;
+  }
+
+  /**
+   * El veredicto del motor compartido: cuánto entró, cuánto salió, el neto, y **el problema con
+   * su monto** cuando no se puede guardar. El mismo motor lo va a correr el servidor: acá se
+   * adelanta para que la persona se entere ANTES de mandar, no por un 400.
+   */
+  resumenCambio = computed(() => evaluarCambio(
+    this.porLlave(this.denominacionesParaGuardar()),
+    this.porLlave(this.devuelto()),
+    Number(this.f().morralla || 0),
+  ));
+
+  /** Si hay algo devuelto, el bloque se queda abierto aunque se vuelva a tocar el botón. */
+  hayDevuelto = computed(() => this.devuelto().length > 0);
 
   /** CS.3.13 — La parte a crédito. Recalcula el monto (efectivo + crédito). Siempre editable. */
   setVentaCredito(v: number | null): void {
@@ -3407,7 +3779,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // CS.3.7 — El arqueo que va al servidor es el COMPLETO: el del cajero (en la UI va aparte) +
       // la reja manual, fusionados. El servidor exige que el desglose cuadre con el monto; por eso
       // acá se manda todo junto aunque en pantalla el cajero y la reja se muestren separados.
-      denominaciones: this.denominacionesParaGuardar(),
+      // ⭐ [CG.38] Las DOS pilas viajan juntas, separadas por `flujo`. Sin el `devuelto` el
+      // servidor vería un arqueo de $5,000 contra un monto de $4,830 y lo rechazaría por no
+      // cuadrar — y antes de esta fase ese cambio simplemente no se registraba en ningún lado.
+      denominaciones: [
+        ...this.denominacionesParaGuardar().map((d) => ({ ...d, flujo: 'recibido' as const })),
+        ...this.devuelto().map((d) => ({ ...d, flujo: 'devuelto' as const })),
+      ],
       // ⭐ CG.19 — la llave del documento de Kepler. Con esto el servidor RELEE el monto del ERP y
       // descarta el del formulario, y el índice único impide que el mismo documento entre dos veces.
       // ⛔ Acá estaba clavado en 'cobro'. Con CG.21 el diálogo puede anclar TAMBIÉN un pago, y un

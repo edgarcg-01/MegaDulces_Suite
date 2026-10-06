@@ -99,6 +99,12 @@ Y se actualiza el símbolo al avanzar:
 > a la sucursal sobreviva a que nadie esté mirando la pantalla.
 
 - [x] **[VEC.0]** Re-reparto de `COMMERCIAL_PICKING_VER/_GESTIONAR` (mig `20261006120000`) + compuerta `[2c]` en `test-newdb-permission-delivery.js`. ⭐ **El diagnóstico obvio era falso:** SU.2 (`20260917140100`) **sí corrió** (17-sep, batch 450) y repartió bien — lo que falla es que **una derivación es una FOTO**, no una regla viva: `almacenista` recibió sus permisos de inventario **11 días después** (Fase IC, batch 552) y nada volvió a correr la derivación → el rol que de verdad surte (**6 personas**) quedó fuera **19 días**. Y la regla de GESTIONAR estaba mal: **surtir no es ajustar** — levantar del anaquel es de la familia de `RECIBIR`, no de `AJUSTAR`, que la Fase IC le quitó a `almacenista` **a propósito** (quien cuenta no ajusta). Pasa a `AJUSTAR OR RECIBIR`. En seco contra prod toca **exactamente `almacenista`**; post-apply simulado, las 3 compuertas dan 0 y los que pueden surtir pasan de **22 a 28**. La compuerta nueva mira el **estado**, no la migración (atrapa también la deriva que entra por `/admin/roles`), y trae prueba negativa **y control positivo** (un `false` explícito NO se marca). 🚀 **EN PROD 2026-10-06 (batch 729, 0.1 s)**: tocó exactamente `almacenista`, `AJUSTAR` **sigue en `false`** (la segregación de IC intacta) y los que pueden surtir pasaron a **28 personas / 7 roles** — igual que el ensayo en seco. El candado pasó de **ROJO** (nombraba las 2 derivaciones viejas) a **verde**, con su negativa y su control positivo. PR [#267](https://github.com/edgarcg-01/MegaDulces_Suite/pull/267). ⚠️ **Falta: re-login de los 6 almacenistas** (los permisos viajan en el JWT). ⛔ **Hallazgo de operación:** el runbook [`ops/prod/RUNBOOK-despliegue.md`](../../ops/prod/RUNBOOK-despliegue.md) está **rancio** — manda a `docker exec prod-api`, y ese contenedor lleva 4 días `Exited`: **prod corre en k3s** desde entonces (`k3s kubectl -n prod`, 2 réplicas de `api`). Falla ruidoso («container is not running»), no en silencio, pero cuesta el susto de creer que prod está caído. 🚀 2026-10-06
+- [x] **[VEC.1]** 🔨 **EN CÓDIGO 2026-10-06** — mig `20261006130000`. El seed sale de **reglas**, no de una lista de UUIDs (una lista pegada a mano no se audita ni se re-corre): **8 vecinal · 16 camión · 4 mayoreo · 1 sin declarar**, validado en seco contra prod. Testigos: `kduv.c3` dice "RUTA VECINAL…" para `1V001`–`1V004` y `3V001`; los 3 de Morelia por `analytics.vendor_identity`, cuyas notas curadas dicen *"07:2V001 alimenta el índice de rutas"* y llaman a `2V005` **"código vecinal"**; `10001`/`10002` a mayoreo porque sus notas dicen **"Mayoreo Kepler"** (resuelve 2 de las 3 ambiguas que yo había diferido). Queda **1 sin declarar: `20005 GLORIA`** (el rollup la pone en *mostrador*) — dueño: Edgar. ⚠️ **`\s` NO funciona en los literales de regex de esta base**: comprobado por tres caminos (literal, binding `$1`, `length()`) — con `\s` el patrón matchea `'502'` y **no** `'RUTA 21'`, o sea que lo lee como una `s`. Se usa espacio literal. ⚠️ La prueba negativa de la migración va dentro de un **SAVEPOINT**: knex corre todo en UNA transacción y el UPDATE que falla a propósito la aborta (25P02) — un `try/catch` NO la rescata.
+- [x] **[VEC.2]** 🔨 **EN CÓDIGO 2026-10-06** — ⭐ **No es columna, es derivación**, y medir tiró la primera versión: `customers.sales_route` está poblada en **937/948 (98.8%)** y su texto mapea **exacto** a `trade.catalogs.value` — el mismo join que ya hace la cartera del vendedor. De los 62 pedidos vivos, **58 resuelven ruta y 0 son huérfanas**. Una columna habría sido una segunda materialización de algo derivable, y esto además funciona **hacia atrás** (los 58 quedan clasificados sin backfill). Primitivo en [`route-kind.sql.ts`](../../libs/commercial/src/lib/shared/route-kind.sql.ts). Se usa la ruta del **cliente**, no la del vendedor: la ola agrupa mercancía para que salga por una ruta de reparto, y eso lo define quien la recibe (divergen cuando toma el pedido un supervisor y con "Clientes otras rutas" `[VS.1]`). ⛔ **Hallazgo: `commercial.orders.route_id` NO sirve** — su FK apunta a `logistics.routes` (rutas de **embarque**) y **0 de las 29** rutas de venta existen ahí; además `createDraft` lo escribe como `customer.route_id`, que está **NULL en 948/948** → código muerto con bomba latente (el día que alguien pueble esa columna con un id de `trade.catalogs`, el INSERT revienta). No se tocó (hoy es no-op), queda declarado.
+- [x] **[VEC.3]** 🔨 **EN CÓDIGO 2026-10-06** — `pool()` acepta `?route_kind=vecinal[,camion]`. Un tipo inventado es **400**, no un pool vacío que se lee como "hoy no hay nada que surtir"; filtro vacío = `TRUE`, nunca `FALSE`. El tipo **y el motivo de su ausencia** viajan en cada fila aunque no se filtre: sin el tipo a la vista el surtidor no nota que un pedido cayó en la ola equivocada, y el motivo separa `cliente_sin_ruta` (lo arregla quien captura) de `ruta_sin_declarar` (lo arregla Dirección). **Verificado contra prod: 27 pedidos esperando surtido, 15 vecinales por $10,826, 0 huérfanas, 16 ms.**
+- [x] **[VEC.4]** 🔨 **EN CÓDIGO 2026-10-06** — mig `20261006140000` + `avisarSucursal()` + bandeja `GET /reparto/surtido/avisos` + acuse. El canal existía y no servía: `emitOrderConfirmed` va a la room `tenant:<id>` — **efímero** (no hay ninguna tabla de avisos en `commercial.*`) y **tenant-wide** (a Morelia le llegaba el pedido de La Piedad). `emitTo` (room `u:<tenant>:<username>`, Fase C.4) **ya existía y nadie lo usaba para esto**. La tabla guarda **sólo el hecho y el acuse**; cliente/total/ruta se derivan (copiarlos sería una segunda verdad que envejece). Se emite en **los dos caminos** que llegan a `confirmed` (`place` del campo y `approve` del escritorio) porque los dos meten el pedido al pool — y el candado lo vigila (0 confirmados en 7 d sin aviso). Va **dentro del mismo trx** (si el pedido se confirma, el aviso existe) pero **nunca tira el pedido** (una venta ya tomada no se pierde por un fallo al avisar). ⛔ **El recorte NO puede salir de `users.warehouse_id`: sólo 1 de los 6 `almacenista` la tiene poblada** — filtrar por ahí dejaría ciegas a 5 de las 6 personas que arman. Usa `ScopeService` (`null` = sin recorte para quien no tiene alcance declarado: mejor un aviso de más, que se nota, que uno de menos). **Asignarle sucursal a esas 5 personas es trabajo humano pendiente.**
+- [x] **[VEC.5]** 🔨 **EN CÓDIGO 2026-10-06** — `POST /reparto/surtido/waves/auto`: el **pedido global** en un clic. ⭐ **Deliberadamente NO es un cron ni se dispara en `place()`**, aunque el pedido lo pedía literal: el primer pedido del día crearía una ola de **un renglón** (consolidar por SKU sobre un pedido no consolida nada), y peor, un pedido de las 11:40 se sumaría a una ola que alguien **ya está caminando** con la lista impresa. El aviso es inmediato, el armado es a demanda — decide quien va a caminar el almacén. Nunca toca una ola existente, **no crea olas vacías**, y el universo sale del **mismo `pool()`** que ve la pantalla. Carrera entre `pool()` y `createWave()` **declarada**: `createWave` ya tira 409 nombrando los pedidos, y un error ruidoso es mejor que una ola que se lleva algo que otro ya estaba caminando.
+- [x] **[VEC.0]** Re-reparto de `COMMERCIAL_PICKING_VER/_GESTIONAR` (mig `20261006120000`) + compuerta `[2c]` en `test-newdb-permission-delivery.js`. ⭐ **El diagnóstico obvio era falso:** SU.2 (`20260917140100`) **sí corrió** (17-sep, batch 450) y repartió bien — lo que falla es que **una derivación es una FOTO**, no una regla viva: `almacenista` recibió sus permisos de inventario **11 días después** (Fase IC, batch 552) y nada volvió a correr la derivación → el rol que de verdad surte (**6 personas**) quedó fuera **19 días**. Y la regla de GESTIONAR estaba mal: **surtir no es ajustar** — levantar del anaquel es de la familia de `RECIBIR`, no de `AJUSTAR`, que la Fase IC le quitó a `almacenista` **a propósito** (quien cuenta no ajusta). Pasa a `AJUSTAR OR RECIBIR`. En seco contra prod toca **exactamente `almacenista`**; post-apply simulado, las 3 compuertas dan 0 y los que pueden surtir pasan de **22 a 28**. La compuerta nueva mira el **estado**, no la migración (atrapa también la deriva que entra por `/admin/roles`), y trae prueba negativa **y control positivo** (un `false` explícito NO se marca). Corrida contra prod se pone **ROJA** y nombra las 2 derivaciones viejas. **Falta: aplicar a prod + re-login de los 6 almacenistas** (los permisos viajan en el JWT). 🔨 2026-10-06
 - [ ] **[VEC.1]** `trade.catalogs.route_kind` (CHECK cerrado `vecinal|camion|telemarketing|mayoreo|piso`, **NULL = sin declarar**, nunca un default). ⛔ **No se puede derivar, medido:** de 12 códigos `NVnnn` de Kepler sólo **7** son vecinal — `2V004` es **TELEMARKETING MORELIA**; y filtrar por el nombre **pierde Morelia entera** (`2V001`/`2V003` hacen vecinal y su nombre no lo dice; el rollup los tiene en `preventa_vecinal` como `30:94`/`32:45`). `kepler_ods.kduv` **no tiene columna de tipo**: `c4`–`c14` vacías o en cero en los 9 códigos probados. 26 de 29 rutas se siembran con testigo; **3 quedan en NULL** y las declara un humano: `20005 GLORIA` (el rollup la pone en **mostrador**) y `10001`/`10002`, que existen además como `10M01`/`10M02` **TLMK**.
 - [ ] **[VEC.2]** Sellar el origen en el pedido: `commercial.orders.sales_route_id` → `trade.catalogs`, escrito por `place()`/`createDraft`. ⛔ **`orders.route_id` NO sirve**: su FK apunta a `logistics.routes` (rutas de **embarque**) y **0 de las 29** rutas de venta existen ahí. Columna y no vista: la ruta de un vendedor cambia, y derivarla al leer re-etiquetaría pedidos viejos (mismo criterio por el que `daily_captures.captured_by_username` quedó canónica).
 - [ ] **[VEC.3]** `pool()` filtrable por `route_kind` / `sales_route_id` (hoy sólo por `warehouse_id` + `delivery_date`).
@@ -2325,6 +2331,7 @@ segunda lista. Lo que la spec pide y no existe se declara, no se pinta.
 
 | **[SN.22]** Telemarketing entra al sidebar | 🧪 2026-09-15 | Pedido: "una sidebar decente que ayude en todas sus subdivisiones". **Era el ÚNICO proyecto de Operations sin el sidebar** que DESIGN.md §8 da por estándar (`LayoutComponent`): montaba un shell propio con la navegación en un header horizontal. Se retiró ese shell en vez de escribir un segundo chrome a mano — `televenta` entra a `PROJECT_KEY` + `televentaNavGroups` (**Operación**: Cola de llamadas, Mis clientes tomados · **Resultados**: Resumen, Facturación con su propio permiso). `anyOf: [VER, OPERATE]` en los tres items propios: el route-guard exige **OPERATE** y los items se filtraban por **VER**, así que un rol con OPERATE y sin VER entraba y encontraba el sidebar vacío. **Dos defectos vivos encontrados de paso:** (1) queue/lead/take-order inyectaban `MessageService` **sin proveerlo** y pintaban en el `<p-toast>` del shell — al quitarlo se rompían; ahora cada página es dueña de su toast, como el resto de la app; (2) dos `routerLink` seguían en la URL vieja `/televenta/queue`, y **su gate estaba verde**: buscaba `'/televenta/` con comilla SIMPLE y en un template los atributos van con comilla doble. Gate reescrito a los 3 delimitadores + **prueba negativa ejercida** (rojo con el enlace viejo). `nx build view` OK · spec 11/11 · lint sin errores nuevos. **Pendiente humano: validación visual** (esta sesión no tuvo browser: los MCP de Playwright/chrome-devtools no conectaron). ⚠️ Los 3 rojos de `landing-guards.spec` son **preexistentes y ajenos** (`/almacen/catalogo-interno` declarado en el árbol desde `77eca70b` sin ruta en `app.routes.ts`) |
 
+| **[SN.40]** «Tus accesos» sale de la medición, no del navegador | 🧪 2026-10-05 | **El registro de clics llevaba un mes escribiendo y CERO leyendo.** Medido en prod read-only: `abrio_puerta` **3,677 clics / 84 personas** desde el 2026-09-11, 5 lugares que escriben y **0 que leen** — ni un endpoint, ni un consumidor. Lo único de la landing que se parecía al uso, la fila «Tus accesos», salía de `localStorage`: UN navegador, perdida al limpiar datos, y era *lo último que abriste* (el propio comentario de `[SN.25]` lo declaraba y decía que «lo más usado» no se podía todavía). ⛔ **Y el eje por persona nunca se escribió**: `usage-metrics.interceptor.ts:139` guardaba bajo `u?.id` y el JWT trae `sub` (`login-core` firma `sub: user.id`), así que `analytics.ui_usage_users` llevaba **0 filas** mientras su hermana acumulaba **250,893 hits sobre 490 rutas** — nada se veía roto porque la hermana se llenaba perfecto, y el candado `[UX.0]` comprobaba tablas, PK, grants e invariantes, **todo sobre la FORMA, nada sobre si se llenaba**. ⭐ **Lo que define el diseño es el arranque en frío, medido antes de escribir nada**: **64 de 148** personas activas no tienen un solo clic y de las 84 que sí, **sólo 15 llegan a 6 puertas distintas** (41 tienen una o dos) → «lo más usado» a secas deja la fila vacía para ~8 de cada 10. Por eso `GET /telemetry/suite/mios` (self-scoped, sin permiso, como `me/work`) completa con **puesto** y después **departamento** y cada elemento declara su `origen`; el chip prestado va punteado y **lo dice en el nombre accesible** (un borde no se oye). ⚠️ La cobertura por puesto NO es pareja —`cajera` 10/14, `encargado_sucursal` 6/6, `vendedor_ruta` **2/25**— así que cuando no hay de dónde devuelve **menos** elementos: nunca rellena con lo primero del mapa, porque un hueco se nota y un relleno plausible no. Verificado en vivo: una cajera sin historia recibe `pisos-de-venta` de 10 compañeras; `rafael_quirino` (0 clics) recibe `compras` de 3. **Tres decisiones no obvias:** el tenant se filtra A MANO (`portal_telemetry_events` **no tiene RLS**, verificado, no asumido; `identity.users` sí y forzado → todo dentro de `tk.run()`); el puesto sale de la BASE y no del token (el JWT no lo lleva, y si lo llevara sería estado congelado de hasta 12 h); y el servidor manda **12** para que la fila muestre **6**, porque no sabe qué puertas ve cada quien —lo decide `visibleSuiteMap()`— y resolver permisos en el backend duplicaría ese primitivo (ADR-056). **El índice es parcial por MEDICIÓN**: hoy la consulta da 8–14 ms sobre 5,117 filas, pero `web_vital` (`[DS.7]`) aterriza desde el 2026-10-03 y ya mete **894 filas/día** contra 303 de aperturas → estado estacionario ~108,000, **21×**. ⭐ **De camino se cerró un defecto que este repo ya pagó una vez**: `UsoService` cachea con `shareReplay` de por vida igual que `DataScopeService`, cuyo `reset()` estuvo escrito **sin llamador** y mostraba los datos del usuario anterior al cambiar de sesión sin recargar; acá habría filtrado algo peor que una lista de sucursales —**qué abre otra persona**— así que se cableó en los dos puntos. **Candado `test-newdb-suite-accesos.js` 14 ✓ / 0 ✗ / 1 no medido contra prod, con las tres aserciones críticas probadas MUTANDO la consulta**: `OR TRUE` en el filtro de tenant ✘, `prio DESC` ✘, `0 AS clics` ✘. ⭐⭐ **La de precedencia nació siendo un no-op** (`A || B` con `B` trivialmente cierto) y **se puso verde bajo la mutación**; se reescribió contra un **testigo independiente** —otra consulta que pregunta qué abrió esa persona— porque un candado que compara la consulta consigo misma no prueba nada. Vigila además una **premisa de negocio**: si algún día más de la mitad llena los seis atajos sola, el relleno por puesto pasó de ayuda a ruido y se revisa el DISEÑO, no el código. ⚠️ **`[SN.28]` había dejado 6 pruebas rojas en `main` y nadie las corrió** —verificado restaurando `HEAD` sobre los 4 archivos de `mi-trabajo`: fallan igual— porque cambié el contrato (se retiró «N submódulos», el prefijo «de » del origen, y el orden por recencia) y no moví las pruebas; reparadas contra el contrato nuevo, **96/96**. Y una séptima estaba **VERDE EN FALSO**: `toMatch(/.mt-espacioss*{[^}]*columnss*:/)` casaba con `grid-template-columns` porque `[^}]*` se comía el prefijo — ahora pide `repeat(12`, **prohíbe** la multicolumna, y una prueba nueva verifica que el tramo completa filas de 12 para **1 a 12 espacios visibles**. Suite `view` **1,838 pasan**; el único rojo (`CG.22` de caja-general) es **ajeno y sin commitear**, de otra sesión. 5 compuertas verdes. **Pendiente: mig `20261006100000` a prod + redeploy api+view + validación visual. Sin permisos nuevos → sin re-login.** Declarado y NO construido: ordenar `Ctrl+K` por uso, y el reporte de puertas muertas (nadie las abre en 90 d), que ahora es una consulta de una línea |
 | **[SN.31]** el destino sobrevive al login (dejás de caer en "Mi trabajo") | 🧪 2026-09-22 | Salió de analizar si la Suite puede trabajarse en varias pestañas: al medir por qué una ventana nueva aterriza en `/projects` apareció un defecto vivo. **El interceptor conservaba el destino y los guards no.** `auth.interceptor` arma `?returnUrl=` desde que se arregló el "logout mudo", pero los **6 puntos de guard** que también echan al login navegaban pelados (`auth.guard` ×1, `permission.guard` ×3, `reparto.guard`, `televenta.guard`) — y el login sin `returnUrl` cae a `/projects` por diseño. Consecuencia: si la sesión se caía **mientras trabajabas** volvías a tu pantalla, y si abrías una **ventana nueva** sobre esa misma URL perdías el destino. ⭐ En `auth.guard` el parámetro `state` **ya estaba en la firma, sin usarse**. Es el patrón de ADR-056: el mecanismo existía, bien hecho, en **un** lugar, y nunca se generalizó — y el propio `permission.guard` ya tenía el primitivo correcto al lado (`denied()` con `createUrlTree` + `from` + `perm`) aplicado al 403 y no al 401. Nuevo `core/auth/login-redirect.ts` (`loginUrlTree` + `destinoValido`), consumido por los 6 guards **y** por el interceptor, que deja de tener su copia de la regla. **Devuelve `UrlTree`, no navega**: un guard que hace `navigate()` y devuelve `false` arranca una segunda navegación mientras la primera se cancela. ⛔ **Dos puntos NO conservan el destino a propósito** (`customer_b2b` en reparto y televenta): ahí la sesión es válida y la app es la equivocada, así que volver sería un **bucle**, no una cortesía — y esa es la **prueba negativa**, que sigue verde cuando las otras caen. Motivo nuevo `reason=required` separado de `expired`: `isAuthenticated` es `!!token()`, así que el guard **no puede afirmar que expiró** (ADR-056: se declara lo que se sabe). El login re-valida el parámetro al **leerlo** (ruta interna, no `//host`) porque ahí viene de la barra de direcciones. Verificado que Angular descarta los query params en `null` (`removeEmptyProps` del router) en vez de asumirlo. `login-redirect.spec` **9/9**, con el **rojo ejercido**: se rompió `destinoValido` a propósito → 4 rojas (las que miden el destino) y 5 verdes (incluida la negativa). `nx build view` OK (1.27 MB, sin cambio) · lint 0 errores. ⚠️ Los **7 rojos de `landing-guards.spec` son preexistentes y ajenos** — confirmado corriendo ese spec con la versión de `HEAD` del archivo: fallan igual (crecieron de 3 a 7 desde `[SN.22]`). ⛔ **`apps/vendor` tiene el MISMO defecto copiado** (`auth.guard` ×1, `permission.guard` ×2, `rider.guard`, `vendor.guard`) y queda **fuera por alcance** (el pedido fue "sólo en suite"). **Pendiente: validación visual + redeploy** |
 
 | **[MT.0]** poléa sólo mientras la pestaña se ve | 🧪 2026-09-22 | **ADR-078.** Primer item de la Fase MT (multitarea en la Suite), prerrequisito de todo lo demás: sin esto, bendecir varias ventanas multiplica la carga del API por cada una. **Medido antes: 14 componentes con `setInterval` y sólo 2 miraban si la pestaña se ve.** ⭐ **El multiplicador global no estaba donde yo dije** — mi primera lectura acusó a `core/`, y al medirlos uno es un **reloj de UI** (`_now.set(Date.now())`), otro es GPS bajo demanda y el tercero ya pausaba. El que pesa es **`notifications-bell`**, que vive en el header del layout: corre en **TODA** pantalla de la Suite y son **2 peticiones cada 60 s**, en cada ventana, la mire alguien o no. **El primitivo no se inventó**: `tienda-arqueo` ya lo tenía completo (chequea `visibilityState` + re-consulta al volver por `@HostListener`) y `tienda-arqueo-historial` **la mitad** (chequea, pero espera al timer al volver) — mismo patrón ADR-056 que `[SN.31]`, bien hecho en un lugar y nunca subido. Nuevo `core/utils/poll-visible.ts` (`encuestarVisible`), **9 consumidores** cableados (campana · live-map ×2 · db-health · erp-trips · logística-live · rastreo · home-delivery ×2 · tienda-cajas · arqueo-historial). ⭐ **Ponerse al día NO es opcional**: pausar sin re-consultar al reaparecer deja al usuario mirando dato MÁS VIEJO que antes del cambio (esperás un ciclo entero); con la puesta al día, pausar ahorra peticiones **y** devuelve dato más fresco que el timer ciego. ⛔ **Tres cosas NO se pausaron, con motivo**: los relojes de UI (no cuestan red, pausarlos congela la pantalla), **`comercial-inventory-count`** (no es lectura — es el vaciado de capturas pendientes; primero el dato de alguien, después el ahorro) y `tienda-arqueo` (ya tiene el mecanismo completo; migrarlo sería tocar 1,858 líneas sin cambiar conducta). **MEDICIÓN antes/después, determinista en el spec** — 10 min con la pestaña abierta y 8 de fondo: **10 vueltas → 3** (20 → 6 peticiones de la campana). ⚠️ **Es la medición del MECANISMO, no del uso**: no hay telemetría de peticiones ni de cuántas ventanas deja abierta la gente → se declara, es `[MT.4]`. **Prueba negativa ejercida**: alternar rápido entre dos ventanas NO dispara consultas de más — si la puesta al día corriera en cada `visibilitychange` sin mirar cuánto pasó, trabajar con dos ventanas pediría MÁS que el timer ciego, o sea el cambio sería peor que no hacerlo, y el bloque de la medición se pondría verde igual. `poll-visible.spec` **7/7** · suite `view` **592 pasan** · `tsc --noEmit` limpio · lint **0 errores nuevos** (los 8 son preexistentes, verificado contra HEAD). ⚠️ **`nx build view` está ROTO en `main` por un commit ajeno** (`edde8468` `[TK.8]`, PR #144): `TS2339: Property 'id' does not exist on type 'ClienteCandidato'` en `comercial-reporte-cliente.component.ts:57` — la interfaz tiene `cliente_code`, **no lo toqué** porque con `clave_ambigua` no está claro que sirva de `track` único y el archivo es de otra sesión; parchado en local sólo para verificar, **mi build da verde, 1.27 MB sin cambio**. ⛔ `apps/vendor` tiene el mismo defecto de polling copiado: fuera por el recorte "sólo en suite". **Pendiente: validación visual + redeploy** |
@@ -3389,6 +3396,34 @@ cerrados con `validated_by = 'Claude Vision'`.
   (69×) en el filtro por defecto y hasta **294×** sin bucket. Candado con prueba negativa:
   `test-newdb-critical-stock-count.js` 15/15 contra prod. Commit `d74e7ee7`.
   🚫 **Falta desplegarlo** — ver el bloqueo de `[CG.22.4]`.
+- [x] **[RA-PERF.3]** 🧪 `/compras/pedido` — **el filtro no se borraba: se borraba el RESULTADO
+  filtrado.** Reportado desde campo como «al elegir un proveedor se borra el filtro». El
+  componente dispara una consulta por cada cambio de filtro y **no cancela ni descarta la
+  anterior** (cero `switchMap` y cero `unsubscribe` en sus 3,492 líneas). Con la consulta sin
+  filtro en **46.0 s de promedio y 94.5 s la peor** contra **~1.9 s** con proveedor elegido
+  (pg_stat_statements, prod, 02-oct→06-oct), la carrera es el caso **normal**: elegís proveedor,
+  ves tus filas, y un minuto después aterriza la respuesta vieja y **pisa la tabla con el
+  catálogo entero** — con el selector todavía diciendo el proveedor. Un contador de generación
+  descarta lo que llega tarde, en el workbook, en su enriquecimiento y en el stock muerto.
+  ⚠️ **Validación visual pendiente.**
+- [x] **[RA-PERF.4]** 🧪 `workbook()` — el **mismo árbol de CTEs se corría dos veces** por carga:
+  una para la página y otra para el `SELECT SUM(...) FROM (inner)` de los totales. Lo delata
+  pg_stat_statements: las dos consultas con **79 y 78 llamadas** y **49.3 s y 48.1 s** de
+  promedio. Ahora los ocho totales viajan en ventanas `OVER ()` de la misma consulta — el patrón
+  que `transferPlan` y `overstockList` ya usan en ese archivo; el camino viejo queda **sólo** de
+  respaldo para la página vacía, donde no hay fila a la cual pegarle la ventana. Medido contra
+  prod en los tres escenarios de la pantalla, con los **ocho totales idénticos y las mismas filas
+  en el mismo orden**: sin filtro **3,865 → 2,398 ms**, con proveedor **2,058 → 1,127 ms**, con
+  el chip «Solo con pedido» **3,431 → 2,102 ms**.
+  ⛔ **Dos cosas se midieron y NO se tocaron**, a propósito: (1) quitar el `tenant_id` redundante
+  del `ON` de `vbf` — lo encontré midiendo (el `CTE Scan` estimaba **33 filas** y releía
+  **276,817,730**; `base` 48.4 s → 3.2 s), y con la copia materializada que se desplegó ese mismo
+  día **ya no cambia nada** (3.43 s contra 3.63 s); (2) `transferPlan` y `overstockList` — su
+  promedio de 6.2 s es **contención, no costo propio**: medidos solos contra prod dan **522 ms y
+  80 ms** sin filtro y **163 ms y 61 ms** con proveedor, y su mínimo histórico es **151 ms y
+  1 ms**. Los estaba ahogando el workbook.
+  ⚠️ El commit de la copia materializada (`257244bc`) se rotuló `[RA-PERF.1]`, **código ya
+  ocupado** arriba por el reparto de tránsito por ventana; en el código se lo referencia por hash.
 - [x] **[EX-PERF.1]** 🧪 `/compras/existencia` — `SET LOCAL jit = off` antes de la consulta
   principal. A este volumen la compilación JIT no se amortiza: **821 funciones compiladas** para
   una consulta que devuelve 50 filas. ⚠️ `SET LOCAL` fuera de una transacción es un **no-op
@@ -4484,6 +4519,7 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 - [x] **[SM.33]** 🔧 **Local 2026-09-10** — **La cajera ve sus cortes del DÍA, no su historial.** Pedido desde la operación. Medido antes de diseñar: el rol real es **`cajero` (32 usuarios activos)**, no `cajera` (el rol de SM.9 quedó con 0), y **`auxiliar_tienda` (4)** tiene exactamente los mismos permisos — captura arqueo y **no** revela el cuadre. Así que el corte se hace por **`revela`** (el mismo discriminante que ya separa a la encargada en todo el controlador), no por nombre de rol: cualquier rol futuro que capture sin supervisar queda cubierto solo. Del otro lado quedan `encargado_tienda` (9), `superadmin` (10) y `direccion` (1), que SÍ necesitan el historial para perseguir un descuadre viejo. **Tres piezas:** (1) `list()` y `historial()` recortan al día en SQL cuando `!revela` — y el `from`/`to` del cliente **se ignora**, porque esto no es un filtro de pantalla sino el límite de lo que se devuelve; (2) `/store/arqueo/por-cajera` **se niega con 403**, no se recorta: es el acumulado por cajera, o sea un historial, y a quien no supervisa no le sirve ni su propia fila (mismo patrón que `cumplimiento`); (3) la pestaña «Por cajera» y su ruta pasan a pedir `RECONCILIATION_VER` — pedían `STORE_ARQUEO_VER`, que **la cajera tiene** (es lo que le abre su propia pantalla), así que la pestaña se le mostraba; con un solo tab visible la barra se oculta sola. **La ventana son DOS condiciones unidas por OR, y la segunda no es de adorno:** el turno que cierra pasada la medianoche conserva el `business_date` del día que abrió, así que con `business_date = hoy` a secas la cajera guardaba su arqueo a las 00:30 y lo veía **desaparecer**; se agrega `OR captured_at >= <medianoche MX>`. La hora la pone la **DB** (`now() AT TIME ZONE 'America/Mexico_City'`), no el reloj de Node: el server puede estar en UTC y a las 19:00 de México ya sería mañana. El rótulo de la tarjeta cambia a «Tus cortes de hoy» porque el CONTENIDO cambió — decir «recientes» sobre una lista de un día le haría creer que perdió arqueos. **Hallazgo de paso:** ese controlador tenía un **byte NUL commiteado** dentro de un literal (`user?.username || ' '`, donde los otros dos usos ponen `' '`); Postgres no admite NUL en `text`, así que un usuario sin username daba **500** en vez de lista vacía — `grep` lo delataba con «Binary file matches» y se había pasado por alto. También se borran 15 líneas de proyección que el 403 dejó inalcanzables. Smoke `http-store-arqueo-test` extendido de 47 a **56 checks, todos verde**, con las dos mitades de la ventana probadas por separado (el de hace 40 días NO aparece; el de ayer capturado hoy SÍ) y `from/to` explícitos comprobando que no la burlan. Trampas nuevas en `GOTCHAS §44` (nx desde un worktree compila el otro checkout **y sale verde** — me hizo perder media hora buscando el bug en mi código) y **§45** (el byte NUL). **Pendiente: PR + merge + redeploy api+view.** Sin migraciones ni permisos nuevos → **sin re-login**.
 - [x] **[DM.12]** 🔨 **Cuadre de traspasos en `/almacen/movimientos`** (pestaña dedicada + reporte PDF) — 2026-08-05. Contracara del `transfersCheck` físico: la balanza Kepler **mayor 515 «Ajuste traspasos internos»** (515-001 entrada / 515-002 salida) debe netear ≈$0; Δ≠0 = traspaso sin cuadrar. **Backend** (`commercial-movements`, `RequireAnyPermission COMMERCIAL_MOVEMENTS_VER|RECONCILIATION_VER`): `GET transfers-ledger` (contable por mes+sucursal desde `analytics.ledger_monthly`), `GET transfers-matrix` (físico origen→destino desde `stock_movements`, mismo pareo LATERAL que `transfers-check` agregado por par), `GET transfers-cuadre.pdf` (reporte mensual, puppeteer + estilo DESIGN.md). **Frontend**: `p-tabs` (Diario | Cuadre de traspasos) con rango propio (vista de red); informe con 4 desgloses (subcuenta 515-001/002 · serie mensual+tendencia con Δ/%/acumulado · por sucursal · matriz origen→destino · drill a folio sin cuadrar que abre el documento) + botón **Reporte PDF**. Commits `a86d3519` (panel inicial) → `0a5aa518` (pestaña+informe) → `2e99d80f` (PDF) → `dff04003` (detalle por póliza). **Detalle por póliza** (`GET transfers-ledger-detail` sobre `analytics.gl_poliza_lines`, ADR-041): **pareo tolerante ±2% + ventana ±1 mes** (origen/destino registran el traspaso con costo ligeramente distinto → el match exacto perdía la contraparte). 3 baldes: exacto · con diferencia de costo (muestra el par entrada_ref↔salida_ref + Δ = dónde está la contraparte) · **sin rastro** (accionable, con `referencia`/localizador Kepler ej. "TRAS DE CEDIS A ZAMORA T-7904"). Sección UI (2 tablas) + sección 4 del PDF. **Verificado mayo-2026: de 634 falsos "sin contraparte" (match exacto) a 115 reales (85 ent/30 sal); 602 pares eran diferencia de costo (Δ $269k).** Commit `d3fd3915`. Builds api+view verdes. **Verificado contable vs DB**: Δ acumulado ene–jul 2026 = **+$11.63M**, cuadre perfecto ene–feb, divergencia jun–jul. **Local no trae traspasos físicos** en `stock_movements` (feed acotado) → matriz/folios con empty-state honesto; se llenan en prod. **Pendiente**: deploy api+view + re-login + verificación visual (pestaña + PDF renderizado en prod).
 - [x] **[DM.15]** ✅ **Un almacén RETIRADO no puede nombrarse como destino de un traspaso** — 2026-09-30. Disparado por el reporte de Edgar: *"nos estamos inventando traspasos a sucursal, mencionando que se hizo a otra sucursal, peor aún, que cuadra la información"*. **⛔ La primera hipótesis era mía y resultó FALSA, medida y descartada antes de tocar código:** el desempate del pareo (`ORDER BY abs(qty_enviada − qty_recibida)`, que elige el candidato que mejor cuadra y después declara que cuadra) **no** fabrica pares — de los 52 sospechosos, **0** tenían disponible el candidato correcto y lo descartaron, y **49 de 52 tenían un solo candidato**, o sea no hubo desempate que sesgar. **Y el árbitro con el que los acusé era el que mentía** (`transfer_dest_map`, que lo puebla el mismo pareo: verificar la vista contra sí misma). Con un testigo de verdad independiente —`dest_label`, el texto que Kepler escribe en el envío, que no participa ni del pareo ni del mapa— **1,561 de 1,562 pares de 180 días coinciden** con el almacén que recibió ($66.86M); el único que contradice es `RD 503` (una **ruta** de Canindo) acreditada a `03 8ESQ` por $15,566, y **ni ése se publica como OK**. **La máquina de inventar era el MAPA**: `analytics.transfer_dest_map` decía `TI009 "SUCURSAL MORELIA MADERO" → MD-32 "Almacén Morelia Madero (32)"`, el almacén **Wincaja** de esa tienda — `deleted_at` puesto y **cero recepciones de traspaso en toda su historia** — mientras quien recibe es el Kepler `07`. Morelia Madero migró y el mapa se quedó en el almacén viejo: los envíos sin recepción salían con destino a una sucursal que ya no existe, y **la misma ruta física aparecía partida en dos filas de la matriz** (`00→07` por pareo, `01→MD-32` por mapa), así que sus totales no cuadraban ni contra sí mismos. ⚠️ **El candado de `[DM.11e]` le daba verde y hacía bien su trabajo**: pregunta *"¿la etiqueta y el almacén hablan del mismo lugar?"* y con dos almacenes de la misma tienda en dos ERP la respuesta honesta es que sí — no hay umbral ni prefijo que lo arregle, **faltaba otra pregunta: ¿sigue vivo, y alguna vez recibió algo?**. **Entregado:** `DEST_WH_VIVO` en `commercial-movements.service.ts` aplicado a los **5** puntos que leen el mapa (una condición de integridad repetida a mano se desincroniza — ya pasó con este mapa) + `w.deleted_at IS NULL` en el auto-ligado `[DM.11d]` de `import-stock-movements.js`, que es la puerta por la que entró. **Se FILTRA, no se marca**: la pantalla dice "(sin destino)", que se investiga, antes que un nombre falso, que se cobra. **Candado `[DM.11e]` extendido de 3 a 7 bloques** — `[4]` el destino existe · `[5]` el destino recibe, con **las dos ausencias separadas** (`retirado` = vínculo falso, FALLA; `no_verificable` = el almacén opera pero su recepción no vive en el feed —es el CEDIS— que se **declara con su monto**, ni se falla ni se aprueba) · `[6]` prueba negativa sobre **casos fabricados** y no sobre basura viva (al limpiar el mapa el detector dejaba de poder demostrar dientes, y uno romo se ve igual de verde) · `[7]` identidad del pareo contra la etiqueta del ERP. **Medido contra prod: ANTES 5 OK/2 FALLAS, DESPUÉS 6 OK/0 FALLAS.** **El dato se corrigió sin escribir el valor a mano**: se soltó `TI009` a NULL y se le devolvió la decisión al auto-ligado, que lo resolvió a `07 Morelia Madero` con **91.2% de evidencia** (52 de 57 envíos) contra 1.8% de los candidatos de ruido. Valor anterior por si hay que volver: `0d1fdcee-fa03-4ab9-8f61-5ba4c86caea8`. **Queda DECLARADO, no arreglado:** `TI000 → 00 CEDIS` atribuye 15 envíos / **$123,454.08** que nadie puede verificar porque la recepción del CEDIS no está en `stock_movements`; y `00007 "NO TOCAR ANTONIO VILLA" → 02 La Piedad Abastos` (0 envíos en 180 d) se reporta para revisión humana y **no se toca**: decidirlo sin saber dónde recibe ese cliente sería inventar en la dirección contraria. **Pendiente: redeploy api** (sin migraciones ni permisos nuevos → sin re-login) **+ validación visual.**
+- [x] **[DM.20]** 🧪 **La recepción existía y la pantalla decía que no: la llave del pareo es el DESTINO, no la fecha** — 2026-10-06. Disparado por Edgar con la captura de Kepler al lado de la nuestra: `/almacen/movimientos` publicaba **«Sin recepción registrada (en tránsito o no recibido) · Enviadas 301.34 · Recibidas 0»** sobre un embarque que el ERP tenía recibido y firmado — salida CEDIS `UD4102-0000748` del 2026-09-28 contra recepción 8ESQ `UA5001-0000377` del **2026-09-26**, 301.34 piezas idénticas, y el propio embarque declarando «SUCURSAL 8 ESQUINAS» como destino. **La pantalla tenía las dos mitades a la vista y no las unía.** El back-pointer de Kepler (`parent_group=41` + `parent_serie` + `parent_folio`) estaba bien; lo que fallaba era el **DESEMPATE**: los folios son secuencias **por sucursal**, el mismo `(serie, folio)` existe en varias plazas y hay que elegir. Se elegía por fecha, con una premisa escrita como ley física — *«la recepción nunca es anterior a la salida, tope 15 d»*. ⛔ **Esa premisa es falsa y se midió:** las dos plazas fechan el mismo movimiento por su cuenta, y sobre los **1,720 pares donde dos testigos independientes coinciden** (el destino declarado apunta al almacén que recibe **y** la cantidad cuadra al 0.01) el desfase va de **−2 a +63 días**, mediana 0, con **24 negativos**. El caso reportado cae justo en el mínimo: **−2**. El desempate correcto es el que el documento declara: `dest_code` del embarque (vía `analytics.transfer_dest_map`, almacén **vivo**) contra el almacén que recibe — sobre 3,487 pares candidatos el destino coincide en 1,909, y de los 1,724 con cantidad exacta **1,720 (99.77 %) también coinciden en destino**, dos testigos que no comparten origen. ⭐ **Y el error iba en los DOS sentidos, siendo el otro el que nadie miraba:** la fecha emparejaba embarques dirigidos a una **RUTA** (`RD 501`…`RD028`) con la recepción de una **SUCURSAL** —desfases de cientos a miles de piezas, **ninguno** con cantidad exacta— y los publicaba como recibidos y conciliados. **Medido en prod 2026-10-06 corriendo el SQL real:** salida→recepción **1,755 → 1,743** pareos, **+30 rescatados ($851,389.80)** y **−39 falsos a ruta soltados ($494,300.44)**; recepción→origen **1,712 → 1,747 sin perder ninguno**; y la calidad **sube en los dos sentidos** — los pareos con cantidad exacta pasan de **1,694 a 1,720**. En el Cuadre de septiembre: `ok` 562→574, `sin_origen` 32→21. **La regla vivía en CUATRO copias** (`document`, `annotateTransferStatus`, `transfersPhysical`, `transfersCheckPair`) y por eso el arreglo tenía que tocarlas todas; ahora es un predicado compartido (`TRANSFER_PAIR_MATCH` + `pairMatchJs`), mismo motivo que `DEST_WH_VIVO`. El modal además **DECLARA con qué pareó** («por destino declarado» / «por fecha y cantidad · sin destino que lo respalde», ADR-056). **Candado nuevo `test-newdb-transfer-pairing.js`: 19 ✓ / 0 ✗ / 1 NO MEDIDO contra prod** — lee las ventanas del fuente para no envejecer, **vigila la PREMISA** (si dejaran de existir los desfases negativos, esta regla sobraría) y trae **prueba negativa con control positivo** (ruta-contra-sucursal: 0 en la nueva, >0 en la vieja; sin el control, una regla que no parea nada se ve igual de verde). **[DM.20.1] rendimiento, commit aparte y sin mover un número:** `transfersPhysical` **1,403 → 479 ms** y `transfersCheckPair` **1,222 → 624 ms**, con paridad verificada fila a fila (`EXCEPT ALL` en los dos sentidos: 2,040 y 32 filas, 0 diferencias). Las tres causas eran la misma familia —trabajo por RENGLÓN que debía ser por DOCUMENTO—: el join a `warehouses` **dentro** del agregado (nested loop sobre ~40k renglones, 2.4 s) y un `LEFT JOIN LATERAL (… LIMIT 1)` sobre una CTE, que la **re-escanea entera una vez por recepción** (~600 × ~2,000 = 2.6 s) y que no se puede indexar → hash join + `DISTINCT ON` con el mismo orden de desempate. ⚠️ **Declarado, no arreglado:** (1) el **borde de rango** del Cuadre — `transfersPhysical` busca la recepción sólo dentro del rango que se mira, así que un embarque del 28-sep recibido el 2-oct sale `sin_recepcion` en el cuadre de septiembre: **39 documentos / $482,975** medidos; no se tocó porque la respuesta honesta no es pegarlo igual sino un estado que hoy no existe, «recibido FUERA del periodo», y eso toca pantalla, contadores y filtros (el bloque 8 del candado lo mide y lo reporta); (2) `transfersCheckPair` sigue **sobre el gate de 500 ms**. **Pendiente: redeploy api+view** (sin migraciones ni permisos nuevos → sin re-login) **+ validación visual.** Commits `fc4412d4` + `eb460636`.
 
 ---
 
@@ -7473,9 +7509,448 @@ con el `pointer: coarse` de `[CG.33.1]` — el fix que lo hacía alcanzable en e
 pantalla desplegada **todavía no tiene estos commits** (prod servía el texto viejo, *«20 de 100»*).
 Falta mirarla con los cambios puestos.
 
+#### ✅ `[CG.35]` · PrimeNG-first: lo que yo había puesto en HTML crudo — 2026-10-05
+
+Edgar: *«hay componentes que no son de PrimeNG. todos deben ser de PrimeNG»*. Es el **checklist §3**
+de `DESIGN.md` (*«Lo que PrimeNG cubra, con PrimeNG… no HTML crudo»*), y lo había incumplido en las
+cinco piezas que agregué:
+
+| lo que puse | pasa a ser |
+|---|---|
+| `<button class="cg-lim-tog">` «Ver el cuadre» | **`p-button`** ghost neutro |
+| `<span>` con conteo en el resumen de motivos | **`p-tag severity="warn"`** |
+| `<small>` con el motivo en cada fila | **`p-tag`** |
+| `<span class="pp-fresh-unknown">` | **`p-tag severity="secondary"`** + `pTooltip` |
+| `<div class="pp-gap">` con icono y borde propios | **`p-message severity="warn"`** |
+
+⭐ **No crece la dependencia** (la advertencia de licencia del §3): `TagModule`, `ButtonModule` y
+`MessageModule` ya estaban importados. Y lo que se gana no es estético — **el color deja de
+declararlo esta pantalla y lo pone el tema**, que es justo lo que `[CG.34]` midió mal: el par
+fondo/texto de un `p-tag` ya viene calibrado y flipea solo en dark, contra el `--warn-fg` suelto que
+daba **1.95** de contraste en light.
+⚠️ Se evitó `::ng-deep`: el conteo va **proyectado dentro** del `p-tag` para poder marcarlo mono
+tabular sin pisar el componente — el doc lo permite sólo para vendor y como último recurso.
+
+⛔⛔ **Y el gate del repo cazó un defecto que ningún compilador ve.**
+`scripts/check-primeng-api.js`: **`styleClass` en `<p-message>` lo retiró PrimeNG 22**. Es una falla
+**muda** —build verde, sin warning— y la clase simplemente no se aplica: el aviso habría salido sin
+su ancho. Corregido a `class` en el host. *La única forma de verlo en runtime es abrir la pantalla;
+por eso existe la compuerta.*
+
+⚠️ **Y el acento grave, dos veces más en esta misma tanda** (van **once** en el repo): en un
+comentario HTML dentro del `template:` y en otro dentro del mismo. Los diagnósticos del editor
+salieron **limpios** las dos veces; lo cazó `check:templates`. **Regla operativa para mí: cero
+backticks en cualquier comentario que viva dentro de `template:` o `styles:`, sin excepción** — ni
+para citar un nombre de clase, que es justo cuando dan ganas de usarlos.
+
+**Pruebas:** módulo finanzas **500/500**. Gates: templates ✅ · estilos ✅ · tokens ✅ · motion ✅ ·
+**primeng-api ✅** (sin API retirada nueva).
+
 ⚠️ **Observado, sin causa establecida:** el selector de caja mostraba `CAJA GENERAL (1896)` y ahora
 sale sin el número. Su `label` sólo pone el conteo si `c.documentos` viene con valor, y existe un
 fallback sin número para cuando el catálogo no responde — **no se afirma cuál de los dos es**.
+
+---
+
+#### 🧪 `[CG.42]` · Auditoría por capas — capa 1 (backend): dos carreras y un arreglo inalcanzable — 2026-10-06
+
+**Lo que está bien, medido primero.** Los **31 endpoints** están gateados sin excepción
+(`FINANCE_CAJA_VER` lee, `_GESTIONAR` escribe, `_AUTORIZAR` firma) y el permiso de autorizar vive
+**fuera** del grupo de gestión: sólo `direccion` (2 personas) y `superadmin` (8) lo tienen, y los
+que cierran no lo tienen. **Cero `tk.run` anidados.** Los 4 `catch` silenciosos traen su motivo
+escrito. El cron tiene `timeZone` y latido con umbral. Y los índices únicos hacen el trabajo pesado:
+`ux_cash_cut_abierto` (parcial sobre `estado='borrador'`) impide dos cortes abiertos por sucursal
+desde la base, `ux_cash_ledger_origen_vivo` impide capturar dos veces el mismo documento del ERP y
+`ux_cash_ledger_client_uuid` da idempotencia. El gateway WS verifica JWT, exige tenant y permiso, y
+**no transporta el movimiento** —sólo dice «andá a buscar» con una firma—.
+
+⚠️ Los dos controladores de la MISMA pantalla piden permisos distintos (`FINANCE_BANK_VER` el de
+espejo, `FINANCE_CAJA_VER` el del libro). Hoy no rompe a nadie —medido: los **11 roles** que tienen
+uno tienen el otro— pero es una pantalla a medias esperando a que alguien reparta uno solo.
+
+#### ⛔ Dos carreras en controles de dinero, y **cero** pruebas de concurrencia en el módulo
+
+`cerrar()` toma `forUpdate` sobre el corte. `contar()` y `recontar()` también. **`autorizar()` y
+`cancelarMovimiento()` no.**
+
+- **`autorizar()`**: dos autorizaciones simultáneas **pasan las dos** por `puedeAutorizar` —las dos
+  leen `estado='cerrado'`— y las dos escriben: gana la última. `authorized_by` termina nombrando a
+  alguien que puede no ser quien autorizó primero. ⭐ No es bitácora: `authorized_by` **es** el
+  control — es la mitad de la regla de dos personas que sostienen `cut_doble_llave_chk` y
+  `puedeAutorizar`, y un control cuya evidencia se puede pisar no es un control.
+- **`cancelarMovimiento()`**: lee el estado del corte **sin bloquear**, así que entre ese `SELECT` y
+  el `UPDATE` cabe un `cerrar()`. Resultado: se cancela un movimiento que ya entró a un cuadre
+  **firmado** — exactamente lo que su propio mensaje de error promete que no puede pasar. *El freno
+  existía; lo que faltaba era que mirara un dato que no se mueve.*
+
+⭐ **Bloquear el MOVIMIENTO alcanza, y además evita el deadlock** que traería bloquear el corte:
+`cerrar()` toma el corte y DESPUÉS los movimientos, así que tomar acá el corte sería el orden
+inverso. Con el movimiento bloqueado, si `cerrar()` llega primero el `SELECT` espera y Postgres
+re-lee la fila viva (EvalPlanQual en READ COMMITTED): ve el `corte_id` puesto, lee el corte en
+`cerrado` y `puedeCancelarse` lo rechaza. Que es lo correcto.
+
+**El candado vigila la HUELLA, no el mecanismo** (un grep del fuente no prueba que corra): cancelar
+ANTES de cerrar es legal —`cerrar()` adjunta los cancelados a propósito—, cancelar DESPUÉS es la
+carrera, y se distingue por `cancelled_at > closed_at`. Hoy pasa **por vacío** (0 cortes firmados en
+prod) y el candado lo **declara** en vez de anotarse un ✓ que no ganó.
+
+#### ⛔⛔ `[CG.39]` es un arreglo que la pantalla NO PUEDE ALCANZAR
+
+`[CG.39]` (commit `657b9f714`, de hoy mismo) separó dos hechos que antes caían en el mismo cero:
+`NULL` = *no se midió con qué arrancó la caja*; `0` = *se contó y estaba vacía*. Volvió la columna
+nullable, agregó `fondo_origen='sin_medir'` y enseñó a `abrir()` a guardar `NULL` cuando llega
+`undefined`. **Y por la única vía real no llega nunca:**
+
+```
+fondoInicial = signal(0)                     // arranca en cero
+abrirApertura()  →  this.fondoInicial.set(0) // y el diálogo lo vuelve a precargar
+abrirCorte()     →  fondo_inicial: this.fondoInicial()   // SIEMPRE un número
+```
+
+Como `abrir()` sólo guarda `NULL` si el campo viene `undefined`, cada apertura sigue afirmando que
+la caja arrancó vacía — **ahora encima rotulada `fondo_origen='contado'`**, que es peor que el cero
+mudo de antes: es un cero que dice haber sido contado.
+
+**Y el camino de LECTURA lo aplastaba igual, en seis líneas.** `Number(c.fondo_inicial)` ×4 en
+contar/recontar/sellar/cerrar, más dos en `saldo()` — y **`Number(null)` es `0`**. Una de esas dos
+publicaba el cero directo a la pantalla. *Un arreglo que vive sólo del lado de la escritura no es un
+arreglo: es un dato que nadie usa.*
+
+**Qué se hizo.** El motor acepta `fondoInicial: number | null`, expone `fondo_sin_medir` y estrena
+el veredicto **`sin_base`** —hermano de `sin_contar`, mismo criterio— porque con el fondo sin medir
+el `esperado` arranca de un supuesto y decir `cuadra` ahí es afirmar que coincide con algo que nadie
+midió; el error se vería como un sobrante del tamaño exacto del fondo de cambio, todos los días. El
+`== null` atrapa `null` y `undefined` y **deja pasar el `0`**, que sí es un hecho. `proyectarCiego`
+deja viajar `fondo_sin_medir` sin revelar el esperado: quien cuenta necesita saberlo **antes** de
+contar. La pantalla arranca en `null`, manda `undefined` y el aviso deja de inventar un monto.
+
+**Probado por MUTACIÓN, no por inspección:** restaurar el `set(0)` pone roja exactamente la prueba
+nueva (1 falla / 122 pasan). Suites: `finance` **446/446** en 31 archivos · componente de caja
+**123/123** (+2).
+
+⬜ **Decisión abierta para Edgar:** hoy un corte `sin_base` **se puede cerrar** (queda firmado con su
+`fondo_origen='sin_medir'` y el veredicto lo dice). La alternativa es **bloquear** el cierre hasta
+que alguien mida el fondo. Bloquear es más correcto y puede frenar la operación: no lo decido yo.
+
+- `cash-cut.engine.ts` · `cash-cut.service.ts` · `finanzas-caja-general.component.ts` ·
+  `cash-ledger.service.ts` (front) · `caja-captura.util.ts` · candado bloque [5].
+- **Pendiente: redeploy api+view.** Sin migraciones ni permisos nuevos → **sin re-login**.
+
+#### 🧪 `[CG.41]` · El gate baja a 500 ms, y la pantalla tenía un solo culpable — 2026-10-06
+
+Edgar: *«una consulta de más de 500 milisegundos no funciona»*. El umbral venía de 1 s (2026-09-18)
+y **baja a 500 ms**. Medido contra prod, con la ventana real de cada pantalla.
+
+**12 de 14 pasan holgadas.** El `ngOnInit` de `/finanzas/caja-general` dispara **10 peticiones** y
+ninguna estorba: bandeja de pendientes **6 ms** (ventana real de 45 días, no la de 1 que medí
+primero), saldo **1 ms**, cortes **1 ms**, cajas **1 ms**, cobertura **1–5 ms**, frecuentes **1 ms**,
+arqueo del día **111 ms**, libro del mes **120 ms**. Las pestañas Cuadre **113 ms**, Overview
+**112 ms**, Por-sucursal **90 ms**, Arqueos **66 ms**, Facets **87 ms**.
+
+⛔ **La que no: la pestaña Conciliación, 825 ms.** Son cuatro `await` seguidos dentro de la misma
+transacción de tenant —no se pueden paralelizar, comparten conexión— y el reparto es brutal: caja
+**1 ms**, workbook **2 ms**, ContPAQi **43 ms** y **Kepler 663 ms**. ⭐ **El 80% del tiempo de la
+pestaña es una sola pierna**, y las otras tres juntas no llegan a 50 ms.
+
+**La causa, leída en el plan.** `analytics.kepler_bank_movements` es **vista viva**. Su CTE `flj` se
+referencia **dos veces** (el `UNION ALL` de las piernas del traspaso) y un CTE usado más de una vez
+Postgres lo **MATERIALIZA** → el filtro de fecha del consumidor **no baja** al scan. El plan lo dice
+entero: `Seq Scan on kdm1` leyendo **666,026 filas** (1,772 ms, 61,200 buffers) para que arriba el
+`CTE Scan on flj` tire 50,561 y entregue **103**. Media tabla de 552 MB para cien renglones. Y no
+hay índice que la salve: `ix_kdm1_venta_fecha` cubre `((c9)::date)` pero es **parcial a ventas**
+(`c2='U' AND c3='D'`), y tesorería es `U-A-5`/`X-D-26`/`X-D-25`/`X-D-60`/`X-D-10`/`X-A-45`/`U-A-25`.
+
+**Hacen falta los DOS cambios, y cada uno se midió por separado:**
+- **Sólo bajar el filtro al scan**: 697 → **475 ms**. Pasa raspando y sigue siendo seq scan.
+- **Sólo el índice**, sin tocar el CTE: **no sirve** — con `flj` materializado el scan no tiene
+  predicado de fecha que buscar.
+
+⭐⭐ **Y el índice obvio estaba mal, lo salvó probarlo.** El primer intento fue
+`(btrim(c45), (c9::date))`. **El planner no lo habría tocado jamás**: las claves de banco salen de
+una **subconsulta** sobre `kdb1`, así que el `IN` se resuelve como *hash semi join* y eso obliga a
+escanear. Medido forzando `enable_seqscan = off`: **sigue en Parallel Seq Scan, 61,206 buffers,
+513 ms**. *Un índice que el planner no elige es un índice que no existe, con el costo de mantenerlo
+en cada INSERT.* El que sí sirve **lidera con la fecha** —ahí el predicado es un rango de
+literales— y manda la condición de banco al **WHERE parcial**:
+`ON kdm1 (((c9)::date)) WHERE btrim(COALESCE(c45,'')) <> ''`. El `btrim(c1) = sucursal` es **columna
+contra columna**: ningún índice lo resuelve, sólo se filtra barato cuando el universo ya es chico.
+
+**Dimensionado antes de crearlo:** de 725,871 filas sólo **58,210 (8.0%)** traen clave de banco → el
+índice parcial guarda eso; del mes en curso son **210**. La forma está **comprobada en esta misma
+tabla**: `ix_kdm1_venta_fecha` tiene esta forma exacta y el planner la elige — **Index Scan, 2,825
+buffers, 87 ms para 19,516 filas** contra 61,200 del seq scan.
+
+**Alcance: no es sólo de Caja General.** La vista la leen **9 archivos** (Bancos, Caja, CAOS,
+comprobantes de pago, el escáner de feeds, `db-health`) y **`mv_caja_movimientos` se reconstruye
+desde ella**, así que abaratarla abarata también ese refresco. `NOT MATERIALIZED` es instrucción de
+**plan, no de semántica**: no cambia un solo resultado.
+
+**Una retractación mía.** También marqué `analytics.v_caja_doc_contracuenta` en 663 ms — con un
+`SELECT * ... LIMIT 200` **que nadie corre**. El servicio la usa con
+`whereIn(['sucursal','tipo_pol','folio'], …)` sobre una página de ~100 documentos: **32 ms**, justo
+lo que su propio comentario ya decía. *Medir una consulta parecida no mide nada.*
+
+- Mig `20261006170000_kdm1_tesoreria_fecha_idx.js` (`transaction: false` por `CONCURRENTLY`), que
+  **falla ruidosa** si no encuentra el marcador del CTE —un `replace` que no casa deja un no-op que
+  diría «listo» sin cambiar nada— y **verifica `indisvalid`**, porque un `CONCURRENTLY` a medias
+  deja un índice inválido que no se usa y la migración habría dicho que todo bien.
+- Gate en el candado `test-newdb-caja-fuentes-y-definer.js` (bloque 4): hoy **rojo en 736 ms**
+  contra prod, y el mensaje de falla apunta a esta migración.
+- ⚠️ **Declarado y NO medido:** el efecto exacto del índice. Crearlo exige DDL en prod y desde esta
+  máquina el rol es de sólo lectura. La proyección se apoya en el índice de ventas (19,516 filas en
+  87 ms) contra un objetivo de **210** — dos órdenes de magnitud menos. El candado mide lo real
+  cuando se aplique.
+- ⬜ **Pendiente prod:** aplicar en `md` con `apply-one-migration-prod.js`. `CONCURRENTLY` no bloquea
+  la escritura del CDC, pero son 552 MB: **fuera de horario hábil**.
+
+#### 🧪 `[CG.40]` · Auditoría por capas — capa 0 (datos): tres defectos que no levantan un error — 2026-10-06
+
+Pedido de Edgar: *«una auditoría por capas de `/finanzas/caja-general`, empezando por la capa de
+datos»*. Todo medido contra **prod** (`pg-prod` en `md`, read-only como `edgar`/`dev_ro`).
+
+**Lo que está sano, y conviene no romper.** La tubería no tiene un solo defecto de integridad:
+réplica 09:48→09:51 y ship 10:10 el mismo día (rezago **0.4 h**, umbrales en `CRON_JOBS`);
+`caja_general_ods.doctos` con **117,298 filas, 0 identidades repetidas y 0 hashes repetidos** — el
+`UNIQUE NULLS NOT DISTINCT` de `CG.9` aguanta la mutación de `Corte`; la ventana cuadra exacta
+(13,071 = 13,071); los CHECK de `cash_ledger` son severos de verdad (glosa ≥5, doble llave
+`authorized_by <> closed_by`); y el candado de fecha futura vive en el servicio con el razonamiento
+correcto escrito (`current_date` es STABLE y no entra en un CHECK).
+
+**Los tres defectos, los tres mudos:**
+
+⛔ **1 · Una fuente muerta se leía como «depósito sin origen».** `analytics.caja_depositos` es la 3ª
+explicación de `ingresosControl` (CB.35) y **no recibe un depósito desde ene-2026** — su importer se
+retiró en `CG.9h` por fuente muerta. Medido con control antes/después: **228 candidatos en ene-2026
+contra 0 en cada uno de los nueve meses siguientes**, mientras por el banco pasaban **24,662
+depósitos por ~$594M**. Las tres fuentes se cargaban con `catch { x = []; }`, así que **fuente
+muerta, fuente caída y fuente sin movimientos se veían idénticas**, y lo que no encuentra candidato
+cae en `sin_explicar`: el tablero acusaba al ERP de un hueco que era nuestro. ⭐ No se corrige el
+conteo (los depósitos sí están sin origen conocido) sino la **atribución**: la acción es recuperar
+la fuente, no investigar depósito por depósito. Ahora cada fuente declara `estado` + `filas`, la
+caja además su `ultimo_dato`, y sale `veredicto_completo` — que **no** significa «todo bien» sino
+«el veredicto se calculó con todas sus pruebas». Es el mismo criterio que esta función ya aplicaba a
+`fecha_invalida` y `traspaso_sin_contraparte`, y que `conciliacion()` ya aplicaba con
+`caja_disponible`: faltaba justo acá (ADR-056).
+
+⛔⛔ **2 · Las vistas `analytics.caja_general_*` son SECURITY DEFINER a la fuerza, y su «arreglo»
+obvio es un apagón.** Una auditoría de higiene nota que no tienen `security_invoker` mientras sus
+hermanas de `finance.v_caja_*` sí, y concluye descuido. **No lo es:** `app_runtime` tiene `SELECT`
+sobre las 3 tablas de `caja_general_ods` pero **NO tiene `USAGE` sobre ese schema** — el **único**
+de la base sin USAGE (`analytics`, `finance`, `commercial`, `public` y `kepler_ods` lo tienen todos).
+Sin USAGE el SELECT **no se puede ejercer**: la pantalla funciona porque las vistas corren como su
+dueño. Ponerles invoker deja `/finanzas/caja-general` en blanco con un error que habla de schemas,
+no de la vista que se tocó. ⭐ *Tener SELECT no es poder leer* — misma forma que `[CV.17]`
+(`GOTCHAS.md` §33). Queda escrito en un `COMMENT ON VIEW` y el candado vigila la **premisa** (el
+USAGE), no el síntoma: el día que alguien lo conceda, lo que se revisa es la **decisión**.
+
+⚠️ **3 · Una vista jubilada con el anclaje de la era vieja, y un comentario que invitaba a usarla.**
+`finance.v_caja_ingresos_pendientes` trae `sucursal = '00'` cableado sobre `erp_collections` —
+correcto mientras el `00` concentraba (las otras plazas tenían **cero** cobros hasta sep-2026,
+medido) y falso desde el corte del 1-oct: esconde **12 cobros por $107,588.05** sin un solo error
+(Fase PO). **Mitigante medido: no tiene consumidor** — la bandeja viva es
+`v_caja_movimientos_pendientes`, que sí cubre las 9 plazas. Lo que sí estaba vivo era un comentario
+en `cash-ledger.service.ts` afirmando que el monto salía de la vista huérfana: quien se guiara por
+él se llevaba los dos defectos juntos. Comentario corregido; vista de-anclada y declarada jubilada
+en su `COMMENT` (no se dropea: el proyecto no borra objetos de prod sin autorización).
+
+**Dos bugs propios, uno de ellos el que el repo ya tenía documentado.** (a) La primera versión
+contaba **2,371 «duplicados»** en `v_kepler_conceptos` ignorando `sucursal`; al grano real
+`(tenant, sucursal, cuenta, concepto)` hay **2,781 pares y 0 repeticiones** — el `.first()` de
+`resolveConcept` es determinista. *Una medición al grano equivocado es otra afirmación.* (b) El
+`ultimo_dato` salió **`"Wed Jan 21"`**: `max(date)` vuelve de `pg` como **objeto `Date`** a
+medianoche UTC, así que `String(d).slice(0,10)` lo rompe y, renderizado en hora MX, puede dar **el
+día anterior**. Se formatea con `to_char` en SQL, y el candado comprueba el **formato** — porque ese
+bug no falla, sólo queda ilegible, y salía `✔`.
+
+**Un hallazgo que resultó NO ser defecto.** `CG-2026-00002` sigue fechado `2026-12-10` y el scanner
+lo reporta a diario (`1 en el libro · 0 resync`). No es un bug: `[CG.25]` decidió —con ADR-040— que
+**Kepler es el dueño de la fecha** y nosotros la seguimos. Verificado en prod: la llave del resync
+(`sucursal|doc_tipo|folio|clave_banco`) **sí casa** el documento, y Kepler **todavía** tiene
+`2026-12-10`. O sea que `0 resync` es la máquina funcionando. **Lo que falta es humano: corregir
+`X-D-26 0001298` en Kepler**, y el libro lo sigue solo.
+
+**Medido, para que no se discuta de memoria:** los defectos que la fase existe para cerrar **siguen
+creciendo** porque la captura sigue 100% en Access — sin concepto pasó de 2,387 a **2,566**
+movimientos y de $71.96M a **$75.04M** (46.5% del dinero del año) entre el 18-sep y el 6-oct: ~10
+movimientos y **~$171,000 por día**. Y el libro nuevo lleva **2 filas y 0 cortes cerrados** contra
+13,071 que Access capturó en 2026. ⭐ Pero el autorrelleno **no está muerto**: replicando el motor
+(soporte ≥3, dominancia ≥60%) sobre los 185 beneficiarios de la cola, **39 ya recibirían propuesta
+hoy** y 79 tienen historia. Lo que está en cero es el **mapa de conceptos** (122 cuentas, 0
+confirmadas), que es otro mecanismo y sólo pesa durante el traslape.
+
+- Backend: `finance-bank.service.ts` (`fuentes` + `veredicto_completo`), `cash-ledger.service.ts`
+  (comentario). Front: `bank.service.ts` + `caja-ingreso-ref.component.ts` (aviso de fuente ausente,
+  con el modismo que el componente ya usaba para lo no medido).
+- Mig `20261006160000_caja_vistas_anclaje_y_definer.js` · candado
+  `test-newdb-caja-fuentes-y-definer.js` (**14 ✓ / 5 ✗ contra prod ANTES de aplicar** — falla justo
+  en lo que la migración arregla), con **prueba negativa** del detector de anclaje.
+- ⬜ **Pendiente prod:** aplicar la migración en `md` con `apply-one-migration-prod.js` dentro de
+  `prod-api` (desde esta máquina no se puede: `edgar` sólo asume `dev_ro` y no tiene CREATE en
+  `finance`) + redeploy api+view. Sin permisos nuevos → **sin re-login**.
+- ⬜ **Pendiente humano, declarado y no construido:** corregir la fecha de `X-D-26 0001298` en
+  Kepler · que Finanzas confirme las ~20 cuentas que son el 97.9% del dinero en
+  `caja_kepler_concept_map` · y la adopción, que es la que corre a ~$171k/día.
+
+#### ✅ `[CG.37]` · El calendario, el pliegue y los cuatro naranjas del diálogo — 2026-10-05
+
+Edgar, sobre dos capturas de prod: *«aun existen errores de diseño… por ejemplo el calendario. todo
+debería tratar de mostrarse en la pantalla principal sin hacer scroll. capturar un movimiento satura
+de información y colores»*. Tres cosas, las tres medibles.
+
+**1 · El calendario eran 4 `<input type="date">` nativos.** Los pinta el **sistema operativo**: otro
+alto, otro foco y, en oscuro, un color que no sale de nuestros tokens. Es el antipatrón que
+`DESIGN.md` nombra con todas las letras — *control nativo conviviendo con su equivalente de PrimeNG
+en la MISMA vista*. Pasan a **`p-datepicker`**.
+
+⚠️ **Y el puente entre los dos no es obvio.** La pantalla guarda la fecha como clave `YYYY-MM-DD`
+(es lo que viaja al API) y el calendario habla `Date`. Dos trampas, las dos resueltas con comentario:
+- **`parseLocalDate`, NO `new Date(iso)`** — el parser nativo lee UTC y en México cae al **día
+  anterior** después de las 18:00. Es el gotcha que `mx-date.ts` documenta desde el principio.
+- **La vuelta NO es `toMxDateKey`** — ese helper traduce un *instante* a su día en México; lo que
+  devuelve el calendario no es un instante sino un **día a medianoche local**. Con el navegador
+  fuera de MX lo correría uno hacia atrás. Se leen los componentes locales, que es el inverso exacto.
+- **El `Date` se MEMOIZA por clave.** Un `new Date(...)` evaluado en la plantilla devuelve un objeto
+  nuevo en cada ciclo de detección → `ngModel` ve el modelo cambiado en cada tick y el calendario
+  puede cerrarse **encima de la persona mientras elige**.
+
+**2 · El pliegue: ~155px recuperados, y uno era un error de ubicación.**
+- ⛔ **El título «El libro» y su tira de KPIs estaban 340 líneas ARRIBA de su propia tabla.**
+  `[CG.29]` les había puesto el rótulo correcto —*la tira es del libro, no de la jornada*— pero los
+  dejó donde estaban: justo encima de la bandeja, que es el trabajo. En la captura, los cuatro
+  mosaicos que empujaban la primera fila decían **`$0.00` cuatro veces**. Bajan junto a los
+  renglones que suman. **Reordenar, no rediseñar: no se quita ni un dato.**
+- **Los 3 motivos pasan de tres renglones a uno.** Cada uno llevaba su frase de ~70 caracteres al
+  lado. Lo accionable es **el conteo**; la frase explica el motivo, se lee una vez y no cambia de un
+  día para el otro → se **pliega**, que es el patrón que esta pantalla ya usa dos veces («Ver el
+  cuadre», «Qué NO cubre este cuadre»). ⛔ Plegar **no** es esconderla en un `title`: eso no se
+  alcanza por teclado y `DESIGN.md` lo lista como antipatrón de Operations. Es un botón, y **sólo
+  existe si hay algo que revelar**.
+
+**3 · El diálogo: el naranja significaba CUATRO cosas.** `DESIGN.md` reserva el color de marca para
+CTA, chip activo, badge, «en vivo» y anillo de foco. En el diálogo lo llevaban además **el borde del
+panel del cajero** —la superficie de color más grande de la ventana— y su icono. **Cuando el naranja
+significa cuatro cosas deja de significar «apretá acá»**, y acá el único control que escribe en la
+base es *Guardar*. Panel en neutro; el acento queda para el botón.
+
+⭐ **Y el verde estaba peleado consigo mismo.** Cuatro líneas iban en `fin-hint-ok` siendo
+**explicación, no éxito** («cliente de crédito — auto-rellenado, editable», «El cajero ya aportó…
+contá acá sólo lo que falta»). La prueba de que era inconsistencia y no criterio: **dos de ellas
+tienen una hermana `fin-dim` justo al lado haciendo exactamente el mismo trabajo**. Pasan a `fin-dim`
+(`--text-muted`, 7.03 de contraste medido). Quedan en verde sólo los estados que de verdad lo son.
+
+**Pruebas:** `view` **1839 → 1843** (4 nuevas). Incluye **prueba negativa ejercida**: con el plegado
+roto a propósito (`motivosAbiertos` arrancando en `true`) el test se pone **rojo**, verificado. Y el
+candado de la lección de `[CG.33]`: desplegar el porqué **no mueve ninguna de las otras tres señales
+de diálogo** — ahí nombré `cierreAbierto` sin mirar que ya existía, y como en una clase gana la
+última declaración, el botón nuevo habría abierto el diálogo que **sella el día**.
+Gates: los 7 verdes. Tipos de los bindings nuevos auditados contra el `.d.ts` antes de commitear
+(`onSelect` emite `Date`; `FormularioCajaUI.fecha` es `string`) — la lección de `[CG.36.1]`.
+
+⛔ **Lo que NO puedo afirmar:** los ~155px son **estimados** del template y de las posiciones en la
+captura, no medidos en el DOM — lo desplegado no tiene estos commits y no puedo levantar la app.
+**«Todo sin scroll» no se alcanza** sin quitar información que la persona necesita; lo que sí se
+hizo es subir **el trabajo**, no todo. Lo que queda arriba es el encabezado, el cierre de la jornada
+(con sus dos avisos accionables) y los filtros.
+
+⚠️ **Fuera de alcance, medido:** quedan **33 archivos de la app** con `<input type="date">` nativo —
+5 de ellos en Finanzas. Es patrón de repo, no de esta pantalla.
+
+---
+
+#### ✅ `[CG.36]` · «no se actualizó a los componentes de PrimeNG» — y era cierto: `[CG.35]` tocó 5 piezas sobre 20 — 2026-10-05
+
+Edgar, mirando el resultado de `[CG.35]`: *«no se actualizó a los components de PrimeNG»*. **Tenía
+razón, y el error de `[CG.35]` fue de ALCANCE**: convertí sólo *«las cinco piezas que yo había
+puesto»* y di la pantalla por hecha. Medido antes de tocar nada, en los dos archivos de la tanda:
+
+| crudo | había | ahora |
+|---|---|---|
+| `<table>` a mano | **6** (y 3 `p-table` al lado, en la misma pantalla) | 0 — **8 `p-table`** |
+| `<button>` sin PrimeNG | **8** | 0 — **26 `p-button`** |
+| `<input type="checkbox">` nativo | **3** | 0 — **3 `p-checkbox`** |
+| chip con su `✕` tecleada | **1** | **`p-chip` `[removable]`** |
+| botones con la DIRECTIVA `pButton` | **4** | 0 |
+
+⭐ **El mix era el problema, no el HTML**: `DESIGN.md` lista como antipatrón *«control nativo
+conviviendo con su equivalente de PrimeNG en la MISMA vista»*, y acá había **tres `p-table` y
+tres `<table>` a mano en la misma página** — dos bordes, dos altos de fila y dos comportamientos
+en oscuro, uno encima del otro.
+
+⭐ **Lo que se borra vale más que lo que se agrega: ~45 líneas de CSS.** `.cg-tbl`, `.cg-check`,
+`.cg-chip`, `.cg-chip-n`, `.cg-chip-x`, `.cg-link`, `.cg-print`, `.cg-lim-tog` — y **tres bloques
+`@media (pointer: coarse)` separados** que le subían el alto de toque a 44px a mano, uno por
+control. `p-button`/`p-chip`/`p-checkbox` lo traen de serie. **No es que estuviera mal escrito:
+es que había que acordarse, tres veces.** Y el contador del chip de frecuentes pasa a ser el
+`[badge]` del propio `p-button`.
+
+⛔⛔ **Un botón que se pintaba SIN TEXTO en producción.** El «Reintentar» de Programa de Pagos era
+`pButton` + atributo `label`, que la **directiva** perdió en v22 → atributo muerto, build verde,
+sin warning. Era **el único camino de vuelta después de un error de carga**. `[CG.35]` corrió esta
+misma compuerta y pasó: el defecto estaba bajo el **techo** de deuda heredada (22), no en cero.
+
+⛔ **Y al arreglarlo, el conteo NO bajó.** El comentario que explicaba el arreglo **citaba la
+sintaxis vieja**, y la compuerta busca por TEXTO sin distinguir código de comentario → documentar
+el defecto lo volvía a contar y tapaba su propia corrección. Es la **misma familia** que el acento
+grave: *en este repo, lo que se escribe en un comentario lo leen las compuertas igual que al
+código*. Techo bajado **22 → 21**, con prueba negativa (el 22º da rojo).
+
+⚠️ **Dos trampas de `p-table` que sólo se ven leyendo su `.d.ts`:**
+1. **`#caption` NO es un `<caption>`**: se pinta en `.p-datatable-header`, o sea **una barra
+   visible**. Los cuatro rótulos de esta pantalla nacieron ocultos a propósito (describen la
+   tabla, no la titulan) — usarlo los habría sacado a la pantalla sin que nadie lo pidiera.
+   Quedan afuera y sólo para lector de pantalla.
+2. **La clase cae en el HOST, no en la `<table>`**: `width:100%` y `border-collapse` quedaban
+   muertos. Los selectores `th`/`td` **sí** llegan, porque viven en nuestras `ng-template` y
+   llevan el atributo de encapsulación de la pantalla.
+
+✅ **Lo que NO se convirtió, con su medición** (no es deuda: es decisión):
+- **Los `<input type="number">` de las dos rejas de arqueo y de la columna «Contado».** En
+  `p-inputnumber` las flechas **incrementan el valor**, y acá las flechas **bajan por la
+  columna** — que es como se cuenta un fajo. Convertirlos sería cambiar lo contado sin querer.
+  El código ya traía esa decisión escrita; se respeta y se deja explícita. Llevan `pInputText`,
+  o sea que el tema igual los pinta.
+- **Los `<input type="date">`.** Pasarlos a `p-datepicker` cambia el modelo de `string` a `Date`
+  y toca `from`/`to`/`fecha`, que viajan al API. Sin pedido y sin forma de validarlo visualmente,
+  no se toca. Repo: 31 archivos con nativo contra 47 con `p-datepicker` — no es un outlier.
+
+⛔ **El test cazó mi cambio**: `tbody input.cg-check` se quedó sin DOM. **Lo que afirma no cambió**
+(la fila trabada no se puede marcar), cambió de qué está hecho el control → se adapta el selector,
+no la aserción. *Ningún gate ni el compilador ven un selector de CSS que se quedó sin DOM.*
+
+**Pruebas:** `view` **1839/1839** (116 archivos) — el spec instancia el componente, así que el
+`p-checkbox` deshabilitado se verifica contra el DOM real.
+Gates: primeng-api ✅ · templates ✅ · estilos ✅ · tokens ✅ · tablas ✅ · motion ✅ · teclado ✅.
+
+⛔⛔ **Y aun así el CI tiró el build — con 1839 pruebas verdes y 7 compuertas verdes.** `TS4104`
+en los dos `p-table` del arqueo: `BILLETES_CAJA` es `readonly Denominacion[]` (a propósito: nadie
+debe empujarle un billete) y **`[value]` de `p-table` pide un array mutable**. Mientras eran dos
+`@for` daba igual — `@for` acepta `readonly`; `p-table` no.
+
+⭐ **La lección, y es de método:** *«el spec instancia el componente, así que la plantilla compila»*
+—que es lo que yo escribí arriba— **es falso**. Vitest monta con el compilador JIT y **no corre el
+chequeo de tipos de plantillas** (`strictTemplates`); eso sólo lo hace `ngtsc`, o sea `nx build`,
+o sea **el CI**. Una prueba verde dice que el componente *se instancia*, no que *tipa*. Es la misma
+familia que [[feedback_doubles_never_validate_sql]]: la prueba corrió, y lo que falla no estaba en
+el camino que la prueba ejercita.
+
+⚠️ **Y la copia va en el campo, no en la plantilla.** `[value]="billetes.slice()"` también compila
+—y es la salida que sale sola— pero devuelve un array **nuevo en cada ciclo de detección**, así que
+`p-table` reprocesaría su valor en cada tick aunque los billetes no cambien nunca. `readonly
+billetes = [...BILLETES_CAJA]`: una vez, identidad estable, y la constante compartida sigue
+`readonly` para todos los demás.
+
+✅ **Auditados los otros 6 `[value]` antes de reenviar** (para no gastar un tercer viaje al CI):
+`por_tipo`, `rows`, `cortes`, `pendientes`, `rc.rows` y `rc.months` son todos arrays mutables.
+Y `<ng-template #footer>` dentro de un `p-table` es idiom vivo del repo (`almacen-existencia`, la
+fila de totales), no una apuesta.
+
+⚠️ **Hallazgo colateral, fuera de alcance, medido:** quedan **21 botones más en la app que se
+pintan sin texto** (`compras-costo-estandar` ×3, `compras-cuadre-proveedor` ×3, `compras-costo-neto`
+×2, `almacen-existencia`, `almacen-movimientos`, `comercial-analisis`, `vendor-route-admin`…), y
+**303 `p-table` piden densidad con un `styleClass` que v22 ignora** — ninguna pasa `size`, así que
+Operations está renderizando en densidad default, lo contrario del «compact++» que fija `DESIGN.md`.
+
+⛔ **Sigue sin validación visual**: lo desplegado **no tiene** estos commits.
 
 ---
 
@@ -8465,6 +8940,8 @@ semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso)
 - [x] **[MS.3.17]** 🧪 2026-10-05 **La ubicación se ve siempre al levantar una solicitud** (reporte de campo: «al levantar la orden no aparece la ubicación»). El campo estaba detrás de un enlace «Indicar ubicación (opcional)» que sólo se abría al pulsarlo (o si la categoría la exigía), así que quien levantaba la solicitud no lo veía; y «A toda mi sucursal» no tiene sentido sin saber cuál. Ahora el selector está siempre visible: «Ubicación (opcional)», o «Ubicación *» si la categoría la exige (sin cambio en esa regla ni en el servidor). Specs: la opcional se ve sin pulsar nada, y negativa antes de elegir categoría (visible y sin asterisco). Sin migraciones ni permisos.
 - [x] **[MS.3.16]** 🧪 2026-10-05 **La bandeja filtra y ordena, y la migaja deja volver a la Mesa de Servicio** (pedido de Sistemas con dos capturas de la bandeja). **(1) Filtros:** estado, categoría, quién atiende (con «Sin asignar»), ubicación y rango de fecha de alta, además de lo que ya había (alcance, prioridad, búsqueda); se combinan y hay «Limpiar filtros». Los filtros van al SERVIDOR (`category_id`, `assigned_to` = usuario o `none`, `from`/`to`): la bandeja trae 100 de N, y filtrar sólo esas 100 en la pantalla diría «no hay» donde sí hay. El día se mide en la zona de la mesa. **(2) Orden por columna** (`sort`/`dir`, también en el servidor): clic = dirección natural, segundo clic = inversa, tercero = vuelve al orden por urgencia; `aria-sort` en el encabezado y «Ordenado por… · Quitar orden». ⛔ **Lista cerrada:** la columna llega por la URL y va a un `ORDER BY` en crudo, así que sólo se acepta lo de `COLUMNAS_ORDEN` (`domain/inbox-sort.ts`, puro); lo demás es 400 (probado con una inyección y comprobando que la tabla sigue ahí). Los vacíos (`NULL`) van SIEMPRE al final, asc o desc; el desempate es fijo (antigüedad, id) y la lista no baila entre cargas; prioridad y estado ordenan por gravedad/ciclo de vida, no alfabéticamente; y la ubicación por el NOMBRE que se ve («8 Esquinas», «Oficinas Corporativas»), no por su código (con el código, «La Piedad» salía antes que «8 Esquinas»: verlo en pantalla lo destapó). Una respuesta vieja que llega tarde NO pisa a la nueva (clics seguidos). En teléfono los filtros quedan tras un botón que cuenta cuántos hay puestos (apilados empujaban la lista fuera de la pantalla). **(3) Migaja:** «Mesa de Servicio» (y el proyecto de cualquier espacio) ahora es enlace a su inicio; antes sólo lo era el espacio. Función pura `construirMigas(url)` (`layout-crumbs.ts`) en vez de `computed` dentro del layout. `service-desk` 162 (14 nuevas) · view specs nuevas (12 de filtros/orden, 5 de migaja) · E2E 363/0 (bloque 20b, 18/18 combinaciones columna×dirección). **Mutaciones atrapadas:** quitar el guardián de respuesta vieja, anular el enlace de la migaja y quitar `NULLS LAST` ponen rojas sus pruebas. Revisado en navegador (escritorio y 390 px). **Declarado:** al pulsar la migaja estando en la bandeja de quien atiende se queda en la bandeja (es el inicio de la Mesa para esa persona); el orden por columna no está en la vista de tarjetas del teléfono (no hay encabezados); `check:signal-reactivity` marca `comercial-inventory-variance` (preexistente, ajeno).
 - [x] **[MS.3.15]** 🧪 2026-10-05 **El tiempo registrado se ve: lista en la ficha y horas por categoría en Reportes** (pregunta de Sistemas: «¿dónde aparece el registro de tiempo?»). Hasta aquí el tiempo sólo aparecía como un TOTAL en la ficha («Tiempo: 1 h 45 min», sólo para quien atiende); la nota «Qué hiciste» se guardaba en `work_log.note` y **ninguna pantalla la mostraba**, no había detalle de quién/cuándo y los reportes no usaban el tiempo. **(1) Ficha:** `time_entries` en el detalle (quién, cuándo, cuánto, qué hizo y si vino de la Bitácora; del más viejo al más nuevo) y el resumen «Registrar tiempo trabajado · 2 registros (1 h 45 min)» con la lista debajo; `time_logged_minutes` es la SUMA de esa lista, no un número aparte. ⛔ **Para quien reportó es `null`** (no «lista vacía»: no tiene acceso) y en nada de su respuesta aparece la nota del trabajo. **(2) Reportes:** horas registradas por categoría + cuántas solicitudes tienen registro («3 de 3»), y el total en un KPI. ⛔ **Sin ceros dibujados:** una categoría donde nadie registró sale `null` («—»), no «0 min»; el tiempo de un ticket cancelado sí cuenta (se trabajó). ⛔ **No se desglosa por persona** (mismo criterio que el resto del reporte: mide el servicio, no a quien atiende; el detalle por persona vive sólo en la ficha de cada ticket) y se **declara** que el tiempo es sólo lo que se registra a mano: un ticket sin registro no es un ticket sin trabajo, por eso se muestra la cobertura. `service-desk` 148 (6 nuevas del reporte, con la negativa «null, no 0») · view 1777 (6 de la ficha y 4 de Reportes) · E2E 335/0 (bloque 21). **Mutación atrapada (privacidad):** abriendo `time_entries` a todo el mundo quien reportó recibe la lista con los nombres y la nota, y 3 comprobaciones se ponen rojas (una de ellas ya existía: «el solicitante NO ve el tiempo»). Revisado en navegador (ficha y Reportes); salió un defecto visual —«1 h 15 min» partido en dos renglones— ya corregido. **Declarado:** sigue sin haber edición ni baja de un registro (`app_runtime` no tiene UPDATE/DELETE sobre `work_log`: es registro, a propósito); un error de captura se corrige con una nota.
+- [ ] **[MS.7]** 📋 2026-10-06 **La Mesa de Servicio multi-área, empezando por Mantenimiento** (pedido de Sistemas: todos los departamentos con un responsable por área). Llegaron `CLAUDE.md` + `PLAN_MANTENIMIENTO.md`; se contrastaron con el código y se adecuaron en [`FASE_MS7_MANTENIMIENTO`](docs/IMPLEMENTACION/FASES/FASE_MS7_MANTENIMIENTO.md). **Lo medido:** el modelo multi-cola **ya existe** (`queues`, `categories`, `queue_id`, editor de colas), pero ⛔ **el acceso por cola NO** (`puedeVer = esAgente || solicitante`, claves `SERVICIO_*` globales) — es el cambio más delicado y va primero (MS.7.6): sin él, sembrar Mantenimiento mete sus tickets en la bandeja de TI. También faltan SLA por cola, prioridad por modelo, campos extra, `is_test`, zonas, ruteo por ubicación y transferir entre colas; los estados y el folio están en CHECK y no se configuran por cola (decisiones **M2/M3**: folio único `SRV` y motivo de pausa). Acceso = **dato** (`queue_members`), no una clave por área: sin permisos nuevos, sin re-login. 19 sprints (BD → lógica → siembra → visual); Fases 2 y 3 del plan (activos/QR, preventivos, padre-hijo) quedan como fases propias tras 30 d de SLA medido. **Decisiones de Sistemas (2026-10-06):** folio único `SRV`, sin estado Diagnóstico, «Urgente» no se renombra, SLA en horario hábil, visión de Dirección como está hoy, responsable de Mantenimiento = **Ubaldo Barajas Valencia** (sin proveedores externos), `SMTP_*`/`S3_*` como están (foto opcional). **Pendiente:** confirmar su alta/permisos en prod, las dos lecturas de los plazos del SLA con Frank y quienes atenderán cada sitio. Sin código.
+- [ ] **[RH]** 📋 2026-10-06 **La Mesa de Servicio de Recursos Humanos (cola confidencial)** — [`FASE_RH_MESA_DE_SERVICIO`](docs/IMPLEMENTACION/FASES/FASE_RH_MESA_DE_SERVICIO.md). Plan de Sistemas contrastado con el código: **se puede construir**, pero el prerrequisito no está cumplido (el PR #269 es sólo el plan: no existe `queue_members` ni acceso por cola) y el plan no cubría 9 fugas (H1–H9): el administrador puede agregarse a RH, 9 archivos leen `servicedesk.requests` sin punto único de control, el título se copia a `notification_log`, URLs de adjunto de 600 s, `priority` NOT NULL, `UPDATE` libre sobre la marca, levantar a nombre de otro, reportes globales y el puerto de Bitácora. Diseño: marca de la cola copiada al ticket y fijada por **trigger**, acceso por ticket completo|básico|ninguno, **candado estático** de lecturas, avisos neutros al escribir, sin prioridad ni SLA (`uses_priority`/`sla_enabled`), reportes con mínimo de casos. RLS por ticket descartado por ahora. Sprints RH.0–RH.4 y **matriz de 20 casos**; prompt maestro corregido en el Apéndice. **Abiertas:** R3 (un ticket de RH no sale a una cola no confidencial), R8 (cómo llega a RH), categorías con RH, alta de Lesly Berber y Tania Solorio en prod, aviso de privacidad. Sin código.
 - [ ] **[MS.3.9]** 🧪 2026-10-02 Validación visual **HECHA** con API + vista reales y tres personas (solicitante, agente, coordinación): claro, oscuro y 390 px, 19 capturas. **Seis defectos que ninguna otra prueba veía, todos corregidos:** (1) `pi-life-ring` y `pi-hand-pointer` NO existen en PrimeIcons (el `<i>` medía 0 px: botones sin ícono; spec nuevo que lee `primeicons.css`); (2) el hilo mostraba el USUARIO (`vis_frank`) y no el nombre, porque el JWT sólo trae el usuario (`ServiceDeskActorsService`; E2E 189→190); (3) con la ficha abierta la lista se apretaba hasta partir el título en 6 renglones (columnas secundarias ocultas); (4) en móvil la ficha quedaba bajo los KPIs y filtros; (5) «Mi trabajo» no tenía acceso a reportar; (6) **estando ya en la página, pulsar un aviso de la campana o «Reportar un problema» cambiaba la URL y la pantalla NO reaccionaba** (el parámetro se leía una vez al iniciar; ahora se escucha). **Aún NO medido:** impresión/lectores de pantalla y un teléfono físico.
 
 **Cierre**

@@ -11,7 +11,7 @@
  * IGUAL o MÁS ESTRICTA, nunca más permisiva.
  */
 
-import { denomDe, type Denominacion } from '@megadulces/contracts';
+import { seleccionarDenominaciones, type Denominacion, type VeredictoCorte } from '@megadulces/contracts';
 
 /**
  * CG.23 — Los billetes que la Caja General cuenta, en el orden en que se cuentan.
@@ -46,28 +46,42 @@ import { denomDe, type Denominacion } from '@megadulces/contracts';
 const CAJA_BILLETES_KEYS = ['500', '200', '100', '50', '20'] as const;
 
 /**
- * Elige denominaciones del catálogo compartido por llave, y **falla ruidosamente** si alguna
- * no existe o no es billete. Es una función y no una constante armada inline para que la
- * prueba negativa pueda ejercerla: un gate sin prueba negativa es una intención.
+ * `[CG.38]` Las monedas que la caja cuenta, de la mayor a la menor.
+ *
+ * ── Qué cambió
+ *
+ * Hasta hoy todo el metal caía en el campo suelto "Morralla" — decisión de Edgar en `[CG.23]`:
+ * *"monedas no es necesario desglosarlo"*. El 2026-10-06 la revirtió: *"la morralla se cuenta
+ * por denominación"*, y eligió **las seis del catálogo compartido** (las mismas que ya usan
+ * tienda y almacén), dejando un campo suelto para lo de menos de 50¢.
+ *
+ * ⚠️ `'20m'` es la moneda de $20, NO el billete. Valen lo mismo y son cosas distintas: es el
+ * defecto que SM.39 arregló en el catálogo, y el que obligó a cambiarle la llave primaria a
+ * `finance.cash_ledger_denominations` — con la identidad en el VALOR, estas dos pilas de dinero
+ * no podían coexistir en un mismo movimiento.
+ */
+const CAJA_MONEDAS_KEYS = ['20m', '10', '5', '2', '1', '0.5'] as const;
+
+/**
+ * ⭐ El selector genérico **subió a `libs/contracts`** (`seleccionarDenominaciones`). Vivía acá,
+ * local, mientras la caja contaba sólo billetes; al necesitar lo mismo para monedas habría
+ * quedado escrito dos veces, y ADR-056 es explícito: *un mecanismo genérico vive en `libs/` o
+ * queda declarado como deuda*. Estos dos envoltorios conservan el nombre y la firma de siempre
+ * para no tocar a quien ya los usa.
  */
 export function seleccionarBilletes(keys: readonly string[]): readonly Denominacion[] {
-  return keys.map((k) => {
-    const d = denomDe(k);
-    if (!d) {
-      throw new Error(
-        'Denominacion "' + k + '" no existe en el catalogo MXN de @megadulces/contracts. ' +
-        'La caja no puede ofrecer un billete que el catalogo compartido no reconoce.',
-      );
-    }
-    if (d.familia !== 'billete') {
-      throw new Error('La denominacion "' + k + '" es ' + d.familia + ', no billete.');
-    }
-    return d;
-  });
+  return seleccionarDenominaciones(keys, 'billete');
 }
 
-/** Los cinco billetes de la caja, del mayor al menor. La morralla va aparte, en su campo. */
+export function seleccionarMonedas(keys: readonly string[]): readonly Denominacion[] {
+  return seleccionarDenominaciones(keys, 'moneda');
+}
+
+/** Los cinco billetes de la caja, del mayor al menor. */
 export const BILLETES_CAJA: readonly Denominacion[] = seleccionarBilletes(CAJA_BILLETES_KEYS);
+
+/** Las seis monedas de la caja. Lo de menos de 50¢ sigue cayendo en el campo suelto. */
+export const MONEDAS_CAJA: readonly Denominacion[] = seleccionarMonedas(CAJA_MONEDAS_KEYS);
 
 /** Largo mínimo de la glosa. Espejo del CHECK de `finance.cash_ledger`. */
 export const GLOSA_MIN = 5;
@@ -75,7 +89,14 @@ export const GLOSA_MIN = 5;
 /** Tolerancia del cuadre: un centavo, por el redondeo de numeric. */
 export const ARQUEO_EPSILON = 0.005;
 
-export interface DenominacionCapturada { denominacion: number; piezas: number }
+/**
+ * Un renglón contado.
+ *
+ * ⚠️ `[CG.38]` `denom_key` es la IDENTIDAD; `denominacion` es su valor, y se conserva porque es
+ * lo que suma. **No son intercambiables**: el billete y la moneda de $20 valen los dos `20` y son
+ * cosas distintas, así que indexar por el número hace que una de las dos pilas desaparezca.
+ */
+export interface DenominacionCapturada { denom_key: string; denominacion: number; piezas: number }
 
 export type EstadoArqueo = 'sin_desglose' | 'cuadra' | 'difiere';
 
@@ -109,6 +130,14 @@ export function estadoArqueo(
   dens: DenominacionCapturada[] | null | undefined,
   morralla = 0,
   ventaCredito = 0,
+  /**
+   * `[CG.38]` El cambio que SALIÓ de la caja en este mismo acto. Se RESTA del desglose.
+   *
+   * ⛔ Sin esto, un cobro de $4,830 pagado con un billete de $5,000 bloqueaba el guardado con
+   * `arqueo_no_cuadra`: el desglose sumaba 5,000 contra un monto de 4,830 y la diferencia era
+   * justo el cambio devuelto. Lo encontró la prueba del envío al servidor, no la lectura.
+   */
+  devuelto: DenominacionCapturada[] | null | undefined = null,
 ): ResultadoArqueo {
   // CS.3.13 — El monto = EFECTIVO (denominaciones + morralla) + VENTA A CRÉDITO. La parte a crédito
   // no se cuenta en billetes pero es parte del total; por eso «cuenta» como desglose y su ausencia de
@@ -118,7 +147,7 @@ export function estadoArqueo(
   if (conPiezas.length === 0 && !Number(morralla) && credito <= 0) {
     return { estado: 'sin_desglose', desglosado: 0, diferencia: 0 };
   }
-  const desglosado = sumaDesglose(dens, morralla) + credito;
+  const desglosado = redondea(sumaDesglose(dens, morralla) - sumaDesglose(devuelto, 0) + credito);
   const diferencia = redondea(desglosado - Number(monto || 0));
   return { estado: Math.abs(diferencia) <= ARQUEO_EPSILON ? 'cuadra' : 'difiere', desglosado, diferencia };
 }
@@ -135,6 +164,8 @@ export interface FormularioCaja {
   denominaciones?: DenominacionCapturada[] | null;
   /** CS.3.13 — parte a crédito (no efectivo). `efectivo + venta_credito = monto`. */
   venta_credito?: number | null;
+  /** `[CG.38]` El cambio que salió de la caja en este acto. Se resta: `recibido − devuelto = monto`. */
+  devuelto?: DenominacionCapturada[] | null;
 }
 
 export type MotivoBloqueo =
@@ -185,7 +216,8 @@ export function motivosDeBloqueo(f: FormularioCaja, hoy?: string | null): Motivo
   // tecleaba suelto, así que el caso normal era registrar efectivo SIN contarlo y `sin_desglose`
   // no frenaba nada. Ahora el monto SALE del conteo, así que "no contó" y "monto en cero" son
   // la misma situación — y se dice UNA vez, con el texto que sirve ("contá"), no dos.
-  const arqueo = estadoArqueo(Number(f.monto), f.denominaciones, Number(f.morralla || 0), Number(f.venta_credito || 0));
+  const arqueo = estadoArqueo(
+    Number(f.monto), f.denominaciones, Number(f.morralla || 0), Number(f.venta_credito || 0), f.devuelto);
   if (arqueo.estado === 'sin_desglose') {
     m.push('falta_desglose');
   } else if (!(Number(f.monto) > 0)) {
@@ -291,7 +323,10 @@ export function textoCobertura(filas: Array<{ usables: number; filas_origen: num
 // **El candado está en la DB** (`cut_doble_llave_chk`); si esto y el servidor divergen manda
 // el servidor, y esto sólo puede ser IGUAL o MÁS ESTRICTO.
 
-export type VeredictoCorte = 'cuadra' | 'sobra' | 'falta' | 'sin_contar';
+// `[CG.42.1]` El veredicto ya NO se espeja a mano: vive en `libs/contracts` y los dos lados lo
+// importan. Escribirlo dos veces fue lo que rompió el build al agregar `sin_base` — y el comentario
+// de arriba decía que espejaba "a propósito" sin que nada comprobara que seguía igual.
+export type { VeredictoCorte };
 
 export interface CorteVista {
   id: string;
@@ -300,7 +335,8 @@ export interface CorteVista {
   closed_by?: string | null;
   closed_by_username?: string | null;
   authorized_by_username?: string | null;
-  fondo_inicial?: number;
+  /** `[CG.42]` `null` = no se midió con qué arrancó la caja. No es `0`. */
+  fondo_inicial?: number | null;
   esperado?: number | null;
   contado?: number | null;
   diferencia?: number | null;
@@ -347,6 +383,20 @@ export function puedeCerrarUI(c: CorteVista | null, veredicto: VeredictoCorte): 
   if (c.estado !== 'borrador') return { ok: false, texto: 'Este corte ya está cerrado.' };
   if (veredicto === 'sin_contar') return { ok: false, texto: 'Contá el efectivo antes de cerrar.' };
   // Se puede cerrar aunque NO cuadre: un faltante se registra, no se esconde.
+  //
+  // ⛔ `[CG.42]` `sin_base` NO cae en "no cuadra". Sin saber con cuánto arrancó la caja, la
+  // diferencia no mide un faltante: mide la falta del dato. Mandarla al mismo texto haría que la
+  // persona saliera a buscar efectivo que nunca se perdió.
+  //
+  // ⚠️ Se DEJA cerrar a propósito: el servidor hoy lo permite y esta compuerta sólo puede ser
+  // igual o más estricta que él. Bloquearlo acá escondería el problema en la pantalla mientras el
+  // API lo sigue aceptando — y es una decisión de negocio, no de la UI.
+  if (veredicto === 'sin_base') {
+    return {
+      ok: true,
+      texto: 'Se puede cerrar, pero no se va a poder decir si cuadra: nadie midió con cuánto arrancó la caja.',
+    };
+  }
   return {
     ok: true,
     texto: veredicto === 'cuadra'

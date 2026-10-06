@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+// [CG.38.1] Sin `import ... from 'vitest'`: la config usa `globals: true`. Importarlo hace que el
+// archivo NO CARGUE y entonces reporta **0 tests**, no sus casos fallando.
 import type { FlujoRequisicionDto } from '@megadulces/contracts';
 import {
   CandidatoOc, elegirOc, etapaRequisicion, mediana, negadosRecurrentes, resumenFlujo, sucursalKepler, surtidoPct,

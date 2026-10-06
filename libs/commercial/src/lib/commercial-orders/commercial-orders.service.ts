@@ -1189,6 +1189,12 @@ export class CommercialOrdersService {
         `Tu pedido ${updated.code} fue confirmado y está en proceso.`,
       );
 
+      // [VEC.4] Y el aviso a la SUCURSAL que lo tiene que armar. Va en los DOS caminos que
+      // llegan a `confirmed` (`place` del campo y `approve` del escritorio) porque los dos
+      // meten el pedido al pool: avisar sólo en uno dejaría pedidos visibles para surtir que
+      // nunca avisaron a nadie, y esa discrepancia no se nota hasta que falta mercancía.
+      await this.avisarSucursal(trx, updated, customerName);
+
       return updated;
     });
   }
@@ -1307,8 +1313,84 @@ export class CommercialOrdersService {
         `Tu pedido ${updated.code} fue confirmado y está en proceso.`,
       );
 
+      // [VEC.4] Y el aviso a la SUCURSAL que lo tiene que armar. Va en los DOS caminos que
+      // llegan a `confirmed` (`place` del campo y `approve` del escritorio) porque los dos
+      // meten el pedido al pool: avisar sólo en uno dejaría pedidos visibles para surtir que
+      // nunca avisaron a nadie, y esa discrepancia no se nota hasta que falta mercancía.
+      await this.avisarSucursal(trx, updated, customerName);
+
       return updated;
     });
+  }
+
+  /**
+   * `[VEC.4]` Deja constancia de que una sucursal tiene un pedido por armar, y lo empuja en
+   * vivo a su gente.
+   *
+   * ── Por qué una fila y no sólo el WebSocket ─────────────────────────────────────────
+   * `emitOrderConfirmed` va a la room `tenant:<id>`: es **efímero y para todos**. Si nadie de
+   * esa sucursal tiene la pantalla abierta en ese segundo, el aviso se evapora sin dejar
+   * rastro; y a Morelia le llega el pedido de La Piedad. La fila es la memoria, el `emitTo`
+   * dirigido es la inmediatez: ninguna reemplaza a la otra.
+   *
+   * ⚠️ **Nunca tira el pedido.** Un fallo acá (la tabla todavía sin migrar, por ejemplo) no
+   * puede costar una venta ya tomada en campo: se registra y se sigue. Lo que se pierde es el
+   * aviso, no el pedido — y el pedido igual aparece en el pool, que se deriva del estado.
+   *
+   * ⚠️ El `ON CONFLICT DO NOTHING` no es decorativo: `place()` es idempotente y el device
+   * reintenta sin señal. Sin él, un reintento metería el mismo pedido tres veces en la bandeja.
+   */
+  private async avisarSucursal(
+    trx: Knex.Transaction,
+    order: { id: string; tenant_id: string; code: string; warehouse_id: string | null },
+    customerName: string,
+  ): Promise<void> {
+    if (!order?.warehouse_id) return; // sin sucursal resuelta no hay a quién avisarle
+    try {
+      await trx.raw(
+        `INSERT INTO commercial.order_notifications (tenant_id, order_id, warehouse_id, created_by)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (tenant_id, order_id) DO NOTHING`,
+        [order.tenant_id, order.id, order.warehouse_id, this.tenantCtx.get()?.userId || null],
+      );
+
+      // Empuje en vivo, SÓLO a quien le toca. `emitTo` (room `u:<tenant>:<username>`) ya
+      // existía desde la Fase C.4 y nadie lo usaba para esto.
+      const { rows: gente } = await trx.raw(
+        `SELECT DISTINCT u.username
+           FROM identity.users u
+           JOIN identity.role_permissions rp
+             ON rp.role_name = u.role_name AND rp.deleted_at IS NULL
+          WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL
+            AND u.warehouse_id = ?
+            AND (rp.permissions ->> 'COMMERCIAL_PICKING_GESTIONAR') = 'true'`,
+        [order.tenant_id, order.warehouse_id],
+      );
+      for (const g of gente) {
+        this.alerts.emitTo(order.tenant_id, g.username, {
+          type: 'order_to_pick',
+          severity: 'info',
+          title: 'Pedido por armar',
+          message: `${order.code} — ${customerName}`,
+          data: { order_id: order.id, code: order.code, warehouse_id: order.warehouse_id },
+        });
+      }
+      // ⚠️ Medido 2026-10-06: sólo 1 de los 6 `almacenista` tiene `warehouse_id`, así que este
+      // empuje alcanza a poca gente HOY. NO se "arregla" cayendo a tenant-wide — eso devolvería
+      // el ruido que esta fase quita. La bandeja (que recorta con `ScopeService` y muestra todo
+      // a quien no tiene alcance declarado) es la red de seguridad; asignarles sucursal a esas
+      // 5 personas es trabajo humano, y queda declarado en vez de disimulado.
+      if (!gente.length) {
+        this.logger.warn(
+          `[VEC.4] ${order.code}: nadie con warehouse_id=${order.warehouse_id} y permiso de surtir. ` +
+            'Queda en la bandeja; en vivo no le llegó a nadie.',
+        );
+      }
+    } catch (e) {
+      this.logger.error(
+        `[VEC.4] no se pudo avisar a la sucursal de ${order.code}: ${(e as Error).message}`,
+      );
+    }
   }
 
   /**

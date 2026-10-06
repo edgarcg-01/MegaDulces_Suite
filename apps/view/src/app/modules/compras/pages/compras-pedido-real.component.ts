@@ -1345,6 +1345,26 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   deadRows = signal<DeadStockRow[]>([]);
   loading = signal(false);
   error = signal(false);
+
+  /**
+   * [RA-PERF.3] Generación de la consulta en vuelo. La respuesta que llega con una generación
+   * vieja SE DESCARTA.
+   *
+   * No es defensa teórica: esta pantalla disparaba una consulta por cada cambio de filtro y NO
+   * cancelaba ni descartaba la anterior (cero switchMap / unsubscribe en todo el componente), y
+   * los tiempos hacen que la carrera sea el caso NORMAL, no el raro. Medido en prod con
+   * pg_stat_statements el 2026-10-06 (ventana 02-oct a 06-oct): la consulta del workbook promediaba
+   * 49.3 s y la peor 94.5 s SIN filtro, contra 1.9 s con un proveedor elegido. O sea: abrís la
+   * pantalla (sin filtro, 50-95 s), elegís proveedor a los 5 s (vuelve en ~2 s y la tabla ya
+   * muestra lo suyo) y 60 s después aterriza la respuesta vieja y PISA la tabla con el catálogo
+   * entero — con el selector todavía diciendo el proveedor. Eso es lo que se reportó como "al
+   * elegir un proveedor se borra el filtro": el filtro no se borra, lo que se borra es el
+   * resultado filtrado.
+   *
+   * El contador es compartido entre el workbook y el stock muerto a propósito: cambiar de vista
+   * también tiene que invalidar lo que viene en camino de la otra.
+   */
+  private reqGen = 0;
   dl = signal(false);
   saving = signal(false);
   mode = signal<Mode>('pedido');
@@ -2823,6 +2843,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * segundo plano. Paginar NO re-dispara el enriquecimiento (cubre los top ~1000 productos del filtro).
    */
   private fetchWorkbookPage(reloadEnrichment: boolean): void {
+    const gen = ++this.reqGen;
     this.loading.set(true); this.error.set(false); this.saveFilters();
     this.wbOpen.set(new Set());   // nueva página/data → colapsa el acordeón
     if (reloadEnrichment) {
@@ -2838,6 +2859,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       page: Math.floor(this.wbFirst() / this.wbPageSize()) + 1, pageSize: this.wbPageSize(),
     }).pipe(catchError(() => of(null as WorkbookResponse | null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((r) => {
+        if (gen !== this.reqGen) return;   // llegó tarde: otra consulta ya la reemplazó
         this.loading.set(false);
         if (!r) { this.error.set(true); this.wbRows.set([]); return; }
         this.wbRows.set(r.rows); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
@@ -2845,6 +2867,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         this.loadedAt.set(Date.now());
         if (reloadEnrichment) {
           this.fetchConsolidated(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
+            if (gen !== this.reqGen) return;   // idem: el enriquecimiento de una consulta vieja
             this.buyRows.set(res.buy?.rows ?? []); this.trRows.set(res.tr?.rows ?? []); this.ovRows.set(res.ov?.rows ?? []);
             this.rebuild(); this.detailReady.set(true);
           });
@@ -3208,10 +3231,14 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   });
 
   loadDead(): void {
+    const gen = ++this.reqGen;
     this.loading.set(true); this.saveFilters();
     this.api.deadStock({ search: this.search.trim() || undefined, pageSize: 200 })
       .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
-      .subscribe((r) => { this.loading.set(false); this.deadRows.set(r?.rows ?? []); this.deadValue.set(Number(r?.total_value) || 0); this.loadedAt.set(Date.now()); });
+      .subscribe((r) => {
+        if (gen !== this.reqGen) return;
+        this.loading.set(false); this.deadRows.set(r?.rows ?? []); this.deadValue.set(Number(r?.total_value) || 0); this.loadedAt.set(Date.now());
+      });
   }
 
   /** RA-PRO.33 — XLSX del stock muerto (capital inmovilizado). */

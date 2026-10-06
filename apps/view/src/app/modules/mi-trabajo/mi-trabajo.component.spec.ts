@@ -5,7 +5,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { Observable, Subject, of, throwError } from 'rxjs';
-import type { MeContext, MePendiente, MeWork, MeZona } from '@megadulces/contracts';
+import type { AccesoMedido, MeContext, MePendiente, MeWork, MeZona, MisAccesos } from '@megadulces/contracts';
+import { UsoService } from '../../core/services/uso.service';
 import { MiTrabajoComponent } from './mi-trabajo.component';
 import { AuthService, JwtPayload } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
@@ -148,9 +149,18 @@ interface Montaje {
   scope$?: Observable<MyScope | null>;
   work$?: Observable<MeWork>;
   stay?: boolean;
+  /**
+   * `[SN.40]` Lo que el servidor midió que esta persona abre. Sin esto, el doble no contesta y la
+   * fila se queda con el respaldo del navegador — que es el comportamiento real mientras la
+   * llamada está en vuelo. `'error'` simula la falla: `UsoService` la traga y devuelve lo vacío.
+   */
+  accesos?: AccesoMedido[] | 'error';
 }
 
 const con = (...p: Permission[]): Record<string, boolean> => Object.fromEntries(p.map((k) => [k, true]));
+
+/** `[SN.40]` Un observable que nunca emite: la llamada que todavía está en vuelo. */
+const NUNCA = new Observable<never>(() => undefined);
 
 describe('MiTrabajoComponent · lo que ve cada persona', () => {
   let fix: ComponentFixture<MiTrabajoComponent>;
@@ -233,6 +243,33 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
         },
         { provide: DataScopeService, useValue: { mine: () => m.scope$ ?? of(SCOPE_BASE) } },
         {
+          /*
+           * `[SN.40]` El doble de la medición de uso.
+           *
+           * ⚠️ Por defecto **no contesta** (`NUNCA`), que es el estado real mientras la llamada
+           * está en vuelo: así las pruebas viejas —las que escriben en `localStorage`— siguen
+           * ejerciendo el respaldo del navegador, que es justo lo que afirman.
+           */
+          provide: UsoService,
+          useValue: {
+            registrarApertura: vi.fn(),
+            medirWebVitals: vi.fn(),
+            reset: vi.fn(),
+            misAccesos: () =>
+              m.accesos === undefined
+                ? NUNCA
+                : of<MisAccesos>({
+                    medido_at: '2026-10-05T18:00:00.000Z',
+                    ventana_dias: 90,
+                    // `'error'` ⇒ `UsoService` ya tragó la falla: lo que llega es la forma vacía.
+                    propias: m.accesos === 'error'
+                      ? 0
+                      : m.accesos.filter((a) => a.origen === 'mio').length,
+                    accesos: m.accesos === 'error' ? [] : m.accesos,
+                  }),
+          },
+        },
+        {
           provide: StoreSocketService,
           useValue: {
             ticket$: (ticket$ = new Subject()),
@@ -270,12 +307,22 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(cards.length).toBe(1);
     expect(cards[0].textContent).toContain('Almacén');
     /*
-     * `[SN.25]` La celda ya no nombra tres submódulos: dice CUÁNTOS abre esta persona. Y el número
-     * sigue siendo el de ella, no el del módulo — Almacén tiene 12 y con RECIBIR + SUPERVISAR se
-     * abren 2. Eso es lo que la prueba original protegía, y se protege mejor: antes se verificaba
-     * un nombre, ahora el recuento completo.
+     * `[SN.25]` `[SN.28]` **El recorte por permisos es de ESTA persona, no del módulo.** Almacén
+     * tiene 12 submódulos y con RECIBIR + SUPERVISAR se abren 2.
+     *
+     * ⚠️ `[SN.28]` retiró el recuento de la pantalla (el renglón decía dos cosas opuestas según
+     * la fila), así que esta prueba quedó roja pidiendo un texto que ya no existe. El invariante
+     * NO cambió —el mapa sigue recortado por persona— sólo dejó de ser visible, así que se mide
+     * donde vive: en el dato que alimenta la tarjeta.
      */
-    expect(cards[0].textContent).toContain('2 submódulos');
+    const comp = fix.componentInstance as unknown as {
+      espaciosTodos(): Array<{ entradas: Array<{ route: string; nSub: number }> }>;
+    };
+    const almacen = comp
+      .espaciosTodos()
+      .flatMap((s) => s.entradas)
+      .find((e) => e.route === '/almacen');
+    expect(almacen?.nSub).toBe(2);
     // Es un enlace de verdad: href puesto por routerLink.
     expect(cards[0].getAttribute('href')).toBe('/almacen');
     // Y no ofrece lo que no puede abrir.
@@ -329,15 +376,26 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   });
 
   /*
-   * `[SN.25]` Esta prueba exigía «tres módulos y un +N», que es exactamente lo que se retiró: el
-   * corte era POR POSICIÓN y el «+N» escondía 71 de 101 submódulos sin poder tocarse. Ahora exige
-   * lo contrario — que la línea diga el recuento de ESA persona y que el «+N» no vuelva.
+   * `[SN.25]` `[SN.28]` **La segunda línea de un módulo propio: ninguna.**
+   *
+   * Tres contratos en tres rondas. `[SN.25]` retiró el «tres módulos y un +N» —el corte era POR
+   * POSICIÓN y escondía 71 de 101 submódulos sin poder tocarse— y lo cambió por el recuento
+   * («21 submódulos»). `[SN.28]` retiró también el recuento, por una razón distinta: **el mismo
+   * renglón decía dos cosas opuestas**, «de Finanzas» en un atajo y «21 submódulos» en un módulo,
+   * con el mismo gris y la misma posición. Y el número no ayudaba a decidir: entre «22
+   * submódulos» y «1 submódulo» no cambia a dónde hacés clic.
+   *
+   * ⚠️ Esta prueba se quedó pidiendo el contrato de `[SN.25]` y por eso estaba roja. Ahora fija el
+   * de `[SN.28]`, con las dos formas viejas prohibidas para que ninguna vuelva por la puerta de
+   * atrás.
    */
-  it('la línea de contenido dice cuántos submódulos abre ESA persona, y ya no hay «+N»', async () => {
+  it('un módulo propio no lleva segunda línea: ni «+N», ni el recuento de submódulos', async () => {
     await montar({ perms: [], role: 'superadmin' });
     const finanzas = Array.from(tarjetas()).find((a) => a.getAttribute('href') === '/finanzas');
     expect(finanzas).toBeTruthy();
-    expect(finanzas!.textContent).toMatch(/\d+ submódulos/);
+    expect(finanzas!.classList.contains('is-alias')).toBe(false);
+    expect(finanzas!.querySelector('.mt-cell-sb')).toBeNull();
+    expect(finanzas!.textContent).not.toMatch(/\d+ submódulos/);
     expect(finanzas!.textContent).not.toMatch(/· \+\d+/);
   });
 
@@ -779,14 +837,20 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(html()).not.toContain('Atajo');
   });
 
+  /*
+   * ⚠️ `[SN.28]` cambió el texto de «de Finanzas» a «Finanzas» (el renglón pasó a tener UN
+   * significado: de dónde sale), y esta prueba quedó pidiendo el prefijo viejo. Lo que importa y
+   * se conserva es el invariante: los dos «Hallazgos» del mismo espacio **tienen que poder
+   * distinguirse**, y este renglón es lo único que los distingue.
+   */
   it('dos módulos homónimos en el mismo espacio se distinguen por su proyecto de origen', async () => {
     await montar({ perms: [], role: 'superadmin' });
     const hallazgos = Array.from(tarjetas()).filter((a) => (a.textContent ?? '').includes('Hallazgos'));
     expect(hallazgos.length).toBeGreaterThanOrEqual(2);
     const textos = hallazgos.map((a) => a.textContent ?? '');
-    // Cada uno dice de dónde sale, y no hay dos idénticos.
-    expect(textos.some((t) => t.includes('de Finanzas'))).toBe(true);
+    expect(textos.some((t) => t.includes('Finanzas'))).toBe(true);
     expect(textos.some((t) => t.includes('Compras'))).toBe(true);
+    // ⛔ El invariante de verdad: ninguno queda indistinguible de otro.
     expect(new Set(textos).size).toBe(textos.length);
   });
 
@@ -815,34 +879,49 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
    * submódulo de otro módulo sacado a la portada — y llevaban el mismo cuerpo, tamaño y peso que
    * un módulo de 21 submódulos. Por eso había dos «Hallazgos» idénticos uno al lado del otro.
    */
+  /*
+   * ⚠️ `[SN.28]` quitó el prefijo «de »: el renglón quedó con UN solo significado —de dónde
+   * sale— así que ya no necesita una preposición que lo desambigüe de un recuento. Lo que esta
+   * prueba cuida sigue igual: todo atajo DECLARA su origen y ninguno queda mudo.
+   */
   it('un acceso directo se distingue de un módulo, y dice de dónde sale', async () => {
     await montar({ perms: [], role: 'superadmin' });
     const alias = q<HTMLElement>('a.mt-cell.is-alias');
     expect(alias.length).toBeGreaterThan(5);
-    // Cada uno declara su origen; ninguno finge tener submódulos propios.
     for (const a of Array.from(alias)) {
       const sb = a.querySelector('.mt-cell-sb')?.textContent?.trim() ?? '';
-      expect(sb.startsWith('de ') || sb === 'acceso directo').toBe(true);
+      // ⛔ Nunca vacío: un atajo sin origen es indistinguible del módulo que imita.
+      expect(sb.length).toBeGreaterThan(0);
+      // Y nunca el recuento, que es lo que `[SN.28]` retiró por decir lo contrario en el mismo lugar.
       expect(sb).not.toMatch(/submódulos?$/);
     }
   });
 
-  it('un módulo dice cuántos submódulos abre, en vez de nombrar tres y esconder el resto', async () => {
+  /*
+   * `[SN.28]` **UN renglón, UN significado — medido sobre TODAS las tarjetas, no sobre una.**
+   *
+   * El defecto que esto cierra: la segunda línea decía «de Finanzas» en un atajo y «21
+   * submódulos» en un módulo, mismo gris, misma posición, sentido contrario. La regla nueva es que
+   * ese renglón existe **sólo** cuando la pregunta sigue abierta, o sea en un atajo.
+   *
+   * ⚠️ La prueba que vivía acá exigía justo lo contrario (que los módulos propios SÍ llevaran el
+   * recuento) y quedó roja cuando el contrato cambió. Se reemplaza en vez de borrarse para no
+   * perder el guardia del «+N», que es un residuo distinto y sigue prohibido.
+   */
+  it('la segunda línea de la tarjeta sólo aparece en los atajos, nunca en un módulo propio', async () => {
     await montar({ perms: [], role: 'superadmin' });
-    const propios = Array.from(tarjetas()).filter((a) => !a.classList.contains('is-alias'));
-    const conCuenta = propios
-      .map((a) => a.querySelector('.mt-cell-sb')?.textContent?.trim() ?? '')
-      .filter((t) => /submódulos?$/.test(t));
-    expect(conCuenta.length).toBeGreaterThan(5);
+    const todas = Array.from(tarjetas());
+    expect(todas.length).toBeGreaterThan(10); // ⛔ sin esto, cero tarjetas pasa como cero infracciones
+    const conSegundaLinea = todas.filter((a) => a.querySelector('.mt-cell-sb'));
+    expect(conSegundaLinea.length).toBeGreaterThan(5);
+    for (const a of conSegundaLinea) expect(a.classList.contains('is-alias')).toBe(true);
     // Y ya no queda ningún «+N»: era el residuo que escondía el 70% del catálogo.
     expect(html()).not.toMatch(/·\s*\+\d+/);
   });
 
   /*
-   * ⛔ La prueba que sostiene la honestidad de «Tus accesos»: arranca VACÍA. No se puede pintar
-   * «lo más usado» porque el registro de uso todavía no se lee (cero endpoints, días de vida), así
-   * que lo que hay es «lo último que abriste» — y si no abriste nada, no se dibuja una caja
-   * prometiendo accesos que no existen.
+   * ⛔ La prueba que sostiene la honestidad de «Tus accesos»: arranca VACÍA. Si no hay nada que
+   * mostrar no se dibuja una caja prometiendo accesos que no existen.
    */
   it('«Tus accesos» no se dibuja mientras no hayas abierto nada', async () => {
     localStorage.removeItem('mt.accesos.v1');
@@ -851,12 +930,106 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(html()).not.toContain('Tus accesos');
   });
 
-  it('…y aparece con lo que abriste, sin repetir y con lo más reciente primero', async () => {
+  /*
+   * `[SN.28]` **El uso elige QUIÉNES, el mapa decide EN QUÉ ORDEN.**
+   *
+   * ⚠️ Esta prueba pedía «lo más reciente primero» y quedó roja cuando `[SN.28]` congeló el orden.
+   * El motivo del cambio: con orden por recencia la fila **se reacomodaba cada vez que abrías
+   * algo** —medido entre dos capturas del mismo día, los mismos seis destinos en otro orden—, que
+   * es lo que NN/g mide que rompe la memoria espacial, y es el mismo argumento con el que esta
+   * fase congeló la rejilla de abajo. Se estaba aplicando la regla de un lado de la pantalla y no
+   * del otro.
+   *
+   * Lo que se conserva: la PERTENENCIA (cuáles aparecen) sigue siendo tuya, y no se repite.
+   */
+  it('…y aparece con lo que abriste, sin repetir y en un orden que no se mueve', async () => {
     localStorage.setItem('mt.accesos.v1', JSON.stringify(['finanzas', 'compras', 'finanzas']));
     await montar({ perms: [], role: 'superadmin' });
+    const textos = [...q<HTMLAnchorElement>('a.mt-chip')].map((c) => c.textContent ?? '');
+    expect(textos.length).toBe(2); // el duplicado se cae
+    expect(textos.join(' ')).toContain('Finanzas');
+    expect(textos.join(' ')).toContain('Compras');
+    // ⛔ El orden lo fija el mapa, así que abrir Finanzas de nuevo NO la manda al frente.
+    const comp = fix.componentInstance as unknown as {
+      espaciosTodos(): Array<{ entradas: Array<{ id: string }> }>;
+    };
+    const enElMapa = comp.espaciosTodos().flatMap((s) => s.entradas).map((e) => e.id);
+    const esperado = ['finanzas', 'compras']
+      .sort((a, b) => enElMapa.indexOf(a) - enElMapa.indexOf(b));
+    const vistos = [...q<HTMLAnchorElement>('a.mt-chip')]
+      .map((c) => (c.getAttribute('href') ?? '').replace('/', ''));
+    expect(vistos).toEqual(esperado);
+    localStorage.removeItem('mt.accesos.v1');
+  });
+
+  /*
+   * ── `[SN.40]` «Tus accesos» deja el navegador ──────────────────────────────────────────────
+   *
+   * Hasta el 2026-10-05 la fila salía de `localStorage`: un solo navegador, perdida al limpiar
+   * datos, y ordenada por *lo último que abriste*. El registro de clics existía desde el 11 de
+   * septiembre y **nadie lo leía** (medido en prod: 3,677 aperturas de 84 personas, cero
+   * consumidores). Estas pruebas fijan las tres cosas que el cambio promete.
+   */
+  it('[SN.40] la fila sale de la MEDICIÓN del servidor, no del navegador', async () => {
+    // El navegador recuerda una cosa y el servidor midió otra: tiene que ganar el servidor.
+    localStorage.setItem('mt.accesos.v1', JSON.stringify(['finanzas']));
+    await montar({
+      perms: [],
+      role: 'superadmin',
+      accesos: [
+        { id: 'compras', clics: 40, ultimo_at: null, origen: 'mio', personas: 1 },
+        { id: 'almacenes', clics: 9, ultimo_at: null, origen: 'mio', personas: 1 },
+      ],
+    });
+    const chips = [...q<HTMLAnchorElement>('a.mt-chip')].map((c) => c.textContent ?? '');
+    expect(chips.length).toBe(2);
+    expect(chips.join(' ')).not.toContain('Finanzas');
+    expect(html()).toContain('lo que más abrís');
+    localStorage.removeItem('mt.accesos.v1');
+  });
+
+  /*
+   * ⛔ El atajo PRESTADO lo dice. Medido en prod: 64 de 148 personas activas no tienen un solo
+   * clic y sólo 15 de 84 llenan los seis con historia propia, así que para la mayoría la fila se
+   * arma con lo que abre su puesto. Presentarlo como propio es el «laberinto» que la crítica a la
+   * App Library describe — cosas en lugares sorprendentes, sin explicación.
+   *
+   * ⚠️ Se comprueba en el NOMBRE ACCESIBLE, no en la clase CSS: quien usa lector de pantalla tiene
+   * que oír la diferencia, y un borde punteado no se oye.
+   */
+  it('[SN.40] un atajo que viene del puesto o del área se anuncia como sugerido', async () => {
+    await montar({
+      perms: [],
+      role: 'superadmin',
+      accesos: [
+        { id: 'compras', clics: 40, ultimo_at: null, origen: 'mio', personas: 1 },
+        { id: 'almacenes', clics: 12, ultimo_at: null, origen: 'puesto', personas: 3 },
+        { id: 'finanzas', clics: 5, ultimo_at: null, origen: 'departamento', personas: 2 },
+      ],
+    });
+    const chips = [...q<HTMLAnchorElement>('a.mt-chip')];
+    const etiqueta = (id: string) =>
+      chips.find((c) => (c.getAttribute('href') ?? '').includes(id))?.getAttribute('aria-label');
+    expect(etiqueta('almacen')).toContain('lo abre tu puesto');
+    expect(etiqueta('finanzas')).toContain('lo abre tu área');
+    // ⛔ Lo tuyo NO se anuncia como sugerido: si todo llevara etiqueta, la etiqueta no diría nada.
+    expect(etiqueta('compras')).toBeNull();
+    expect(chips.filter((c) => c.classList.contains('mt-chip-sug')).length).toBe(2);
+    // Y el rótulo de la fila reconoce la mezcla en vez de llamarla «lo que más abrís».
+    expect(html()).toContain('lo tuyo y lo de tu equipo');
+  });
+
+  /*
+   * ⛔ Si la medición falla, la fila NO desaparece: cae a lo que recuerda el navegador. La landing
+   * es la primera pantalla de todo el mundo y perder los atajos por un 500 sería cambiar un dato
+   * pobre por un hueco.
+   */
+  it('[SN.40] si la medición falla, la fila cae a lo que recuerda el navegador', async () => {
+    localStorage.setItem('mt.accesos.v1', JSON.stringify(['finanzas', 'compras']));
+    await montar({ perms: [], role: 'superadmin', accesos: 'error' });
     const chips = q<HTMLAnchorElement>('a.mt-chip');
     expect(chips.length).toBe(2);
-    expect(chips[0].textContent).toContain('Finanzas');
+    expect(html()).toContain('lo último que abriste');
     localStorage.removeItem('mt.accesos.v1');
   });
 
@@ -884,18 +1057,61 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
    * relleno que lo desaparece — así que la clase ya no puede traer `background` propio.
    */
   /*
-   * `[SN.27]` **El hueco no estaba en la celda, estaba en el GRUPO.** Cada espacio ocupaba una
-   * franja de ancho completo, así que uno de 2 tarjetas dejaba 3 huecos a su derecha: 52% de
-   * ocupación a 1920, 63% a 1440. Con los espacios en columnas los grupos chicos comparten fila y
-   * sube a 88%. Esta prueba fija las dos mitades del contrato —el contenedor existe y declara
-   * columnas— porque jsdom no calcula multicolumna y sin las dos la regresión pasa muda.
+   * `[SN.27]` `[SN.28]` **El hueco no estaba en la celda, estaba en el GRUPO** — y la multicolumna
+   * tampoco lo cerró.
+   *
+   * `[SN.27]` puso los espacios en `columns:` porque cada uno ocupaba una franja de ancho completo
+   * y uno de 2 tarjetas dejaba 3 huecos a su derecha (52% de ocupación a 1920, 63% a 1440). Pero
+   * la multicolumna reparte por ALTURA, y las alturas de los 7 espacios van de 106 a 386 px: el
+   * desnivel medido entre columnas fue de 146 px con 2, **436 con 3** y 218 con 4. No hay número
+   * de columnas que lo reparta parejo, porque los bloques son indivisibles y muy dispares.
+   *
+   * `[SN.28]` quitó el reparto: la rejilla es de 12 columnas y cada espacio es una CELDA con su
+   * tramo (`tramoEspacio`), calculado sobre cuántos espacios ve ESA persona, de modo que toda fila
+   * suma exactamente 12 y el borde inferior queda plano por construcción.
+   *
+   * ⚠️ Esta aserción pedía `columns:` y quedó en rojo cuando `[SN.28]` cambió el mecanismo: el CSS
+   * se migró y la prueba no. Ahora fija el contrato nuevo, y lo fija en sus DOS mitades —la rejilla
+   * declarada y el tramo por celda— porque jsdom no calcula layout y con una sola la regresión
+   * pasaría muda.
    */
-  it('los espacios fluyen en columnas, no en franjas de ancho completo', async () => {
+  it('los espacios son celdas de una rejilla de 12, no franjas ni columnas que reparten por alto', async () => {
     await montar({ perms: [], role: 'superadmin' });
     const cont = q<HTMLElement>('.mt-espacios');
     expect(cont.length).toBe(1);
     expect(cont[0].querySelectorAll('section.mt-space').length).toBeGreaterThan(3);
-    expect(cssDelComponente()).toMatch(/\.mt-espacios\s*\{[^}]*columns\s*:/);
+    expect(cssDelComponente()).toMatch(
+      /\.mt-espacios\s*\{[^}]*grid-template-columns\s*:\s*repeat\(12/,
+    );
+    // ⛔ Y la multicolumna no vuelve por la puerta de atrás: era la causa del desnivel.
+    expect(cssDelComponente()).not.toMatch(/\.mt-espacios\s*\{[^}]*[^-]columns\s*:/);
+    // Cada espacio declara su tramo en línea; sin esto la rejilla existe y nadie la ocupa.
+    const conTramo = [...cont[0].querySelectorAll<HTMLElement>('section.mt-space')]
+      .filter((s) => /span \d+/.test(s.style.gridColumn ?? ''));
+    expect(conTramo.length).toBe(cont[0].querySelectorAll('section.mt-space').length);
+  });
+
+  /*
+   * `[SN.28]` **Toda fila suma 12, para cualquier cantidad de espacios.** Es la aritmética que
+   * sostiene el borde plano, y depende de cuántos espacios ve cada persona —una cajera ve 2,
+   * Sistemas ve 7— así que se comprueba el rango entero, no el caso que se tenía a mano.
+   */
+  it('el tramo de los espacios completa filas de 12 para cualquier cantidad visible', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const comp = fix.componentInstance as unknown as {
+      tramoEspacio(i: number, total: number): string;
+    };
+    for (let total = 1; total <= 12; total++) {
+      let fila = 0;
+      for (let i = 0; i < total; i++) {
+        const n = Number(/span (\d+)/.exec(comp.tramoEspacio(i, total))?.[1]);
+        expect(n).toBeGreaterThan(0);
+        fila += n;
+        if (fila === 12) fila = 0;
+        expect(fila).toBeLessThan(12);
+      }
+      expect(fila).toBe(0); // la última fila cerró: no quedó un tramo colgando
+    }
   });
 
   it('un acceso directo se distingue por tipo, no por un relleno que lo borra', () => {

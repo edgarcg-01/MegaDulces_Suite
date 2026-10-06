@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import type { VeredictoCorte } from '@megadulces/contracts';
 
 /**
  * CG.13/CG.17 — Cliente del libro de caja (ADR-070).
@@ -252,6 +253,10 @@ export class CashLedgerService {
     return this.http.get<{ rows: CorteCaja[]; limit: number }>(`${this.base}/cortes`, { params: p });
   }
 
+  /**
+   * `[CG.42]` `fondo_inicial` **omitido** = no se midió → el backend guarda `NULL` +
+   * `fondo_origen='sin_medir'`. Mandar `0` afirma que se contó y estaba vacía.
+   */
   abrirCorte(body: { fecha: string; sucursal: string; fondo_inicial?: number; nota?: string }): Observable<CorteCaja> {
     return this.http.post<CorteCaja>(`${this.base}/cortes`, body);
   }
@@ -311,7 +316,13 @@ export interface TotalesCorte {
    * tres. Cuando faltan, viene `oculto: true`.
    */
   esperado?: number; diferencia?: number;
-  veredicto?: 'cuadra' | 'sobra' | 'falta' | 'sin_contar';
+  veredicto?: VeredictoCorte;
+  /**
+   * `[CG.42]` No se midió con qué arrancó la caja. Va FUERA del recorte ciego a propósito: no
+   * revela el esperado —sólo dice que no tiene base— y quien cuenta necesita saberlo ANTES de
+   * contar, no después.
+   */
+  fondo_sin_medir?: boolean;
   contado: number;
   movimientos: number; cancelados: number;
   /** De qué está hecho el esperado: cuánto del ingreso viene de Kepler y cuánto de un teclado. */

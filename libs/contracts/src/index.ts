@@ -29,10 +29,16 @@ export * from './http/price-presentation.contract';
 // [SM.39] Denominaciones MXN. La clave de una denominacion NO es su valor: el
 // billete y la moneda de $20 valen lo mismo y son cosas distintas.
 export * from './money/denominations';
+// [CG.38] El cambio en Caja General: todo acto tiene una pila que ENTRA y otra que SALE, y el
+// neto es la resta. Un canje cuyas dos mitades no coinciden es un descuadre, no un canje.
+export * from './work/caja-cambio.contract';
 // [CH.1.10] Identidad: el tipo de cuenta y la duración de sesión de un dispositivo.
 export * from './http/identity.contract';
 // [SN.2] Identidad: el contexto de la persona en sesión (persona/puesto/departamento) para "Mi trabajo".
 export * from './http/identity-me.contract';
+// [SN.40] Lo que esta persona abre de verdad, con la cascada vos → puesto → departamento y el
+// `origen` declarado. El registro de clics llevaba un mes escribiendo sin que nadie lo leyera.
+export * from './http/suite-usage.contract';
 // [CDRP.2] Registro de umbrales: la forma y el clasificador de 5 estados del tablero directivo.
 export * from './http/kpi-threshold.contract';
 // [AU.0] Identidad: la ORGANIZACIÓN (puesto, cadena de mando, responsabilidad, historia).
@@ -49,6 +55,7 @@ export * from './http/purchase-delivery.contract';
 // enumera lo que cada una NO puede contestar. Sólo tipos y constantes: no pega al bundle.
 export * from './work/task.contract';
 export * from './work/caja-window.contract';
+export * from './work/caja-corte.contract';
 export * from './work/portada-nominal.contract';
 export * from './work/business-clock';
 // [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.
@@ -62,6 +69,7 @@ export * from './http/warehouse-order.contract';
 // Dato chico (4 entradas): no pega al bundle inicial.
 export * from './http/expense-family.contract';
 // [IG.1] El hermano del lado ingreso: canales de venta (el canal vive en c6, no en la cuenta).
+export * from './http/route-kind.contract';
 export * from './http/sales-channel.contract';
 export * from './http/income.contract';
 // [CSU.1] Cortes/Sucursales: corte de caja POS → cobro aplicado → arqueo del turno.

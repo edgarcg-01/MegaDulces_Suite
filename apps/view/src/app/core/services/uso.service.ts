@@ -1,6 +1,10 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { catchError, of } from 'rxjs';
+import { Observable, catchError, of, shareReplay } from 'rxjs';
+import {
+  VENTANA_ACCESOS_DIAS,
+  type MisAccesos,
+} from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 /**
@@ -81,6 +85,64 @@ export class UsoService {
       onLCP(reportar);
       onCLS(reportar);
     });
+  }
+
+  /**
+   * `[SN.40]` **La vuelta del dato: qué abre esta persona de verdad.**
+   *
+   * Hasta hoy este servicio sólo ESCRIBÍA. Medido el 2026-10-05 en prod: 3,677 aperturas de 84
+   * personas guardadas desde el 11 de septiembre, y **cero lectores** — ningún endpoint, ningún
+   * consumidor. La fila «Tus accesos» de la landing, que es lo único de la pantalla que se
+   * parecía al uso, salía de `localStorage`: un solo navegador, perdida al limpiar datos, y
+   * ordenada por *lo último*, no por *lo más*.
+   *
+   * Lo que vuelve NO es sólo tuyo: cuando tu historia no alcanza —y para ~8 de cada 10 personas
+   * no alcanza— el servidor completa con tu puesto y tu área, y cada elemento trae `origen`
+   * diciendo de dónde salió. Ver `suite-usage.contract.ts` para la medición que lo justifica.
+   *
+   * ⚠️ Se cachea por sesión de pantalla con `shareReplay`: la landing la pide una vez y no vuelve
+   * a preguntar aunque se re-renderice. Un clic nuevo se refleja en la siguiente carga, no en el
+   * acto — que es el comportamiento correcto para una fila que NO debe reacomodarse debajo del
+   * cursor.
+   *
+   * ⛔ Nunca falla hacia afuera: ante cualquier error devuelve la forma vacía con `propias: 0`,
+   * y la landing ya sabe leer eso como "no hay nada que mostrar" y no dibujar la fila.
+   */
+  misAccesos(): Observable<MisAccesos> {
+    this.accesos$ ??= this.http
+      .get<MisAccesos>(`${environment.apiUrl}/telemetry/suite/mios`)
+      .pipe(
+        catchError(() =>
+          of<MisAccesos>({
+            medido_at: new Date().toISOString(),
+            ventana_dias: VENTANA_ACCESOS_DIAS,
+            propias: 0,
+            accesos: [],
+          }),
+        ),
+        shareReplay({ bufferSize: 1, refCount: false }),
+      );
+    return this.accesos$;
+  }
+
+  private accesos$?: Observable<MisAccesos>;
+
+  /**
+   * `[SN.40]` Olvida lo medido. Lo llama `AuthService.logout()`.
+   *
+   * ⛔ **Sin esto, cambiar de usuario SIN recargar la página le mostraría a la persona nueva los
+   * atajos de la anterior.** Este servicio es `providedIn: 'root'` y el `shareReplay` de arriba
+   * vive lo que vive el SPA; `logout()` vacía los signals pero no destruye el inyector salvo que
+   * le pidan `derribar`, y el interceptor que cierra sesión ante un 401 justamente NO lo pide
+   * (recargar ahí puede dejar un bucle).
+   *
+   * No es hipotético: es el defecto exacto que `DataScopeService` ya pagó —su `reset()` estaba
+   * escrito y sin llamador, y los selectores de sucursal seguían ofreciendo las del usuario
+   * anterior—. Acá además filtraría algo peor que una lista de sucursales: **qué abre otra
+   * persona**, que es lo que esta fase prometió no convertir en vigilancia.
+   */
+  reset(): void {
+    this.accesos$ = undefined;
   }
 
   private enviar(evento: Record<string, unknown>): void {

@@ -2635,3 +2635,46 @@ cuentas de familia 4, cada una con su `agrupador_sat` (`401.04` tasa 0 % · `401
 O sea que el cruce **por plaza y por tasa fiscal sí es posible**, y el detector
 `kepler_vs_contpaqi_descuadre` —hoy desactivado por «no reconciliables»— tiene un eje que nadie
 había mirado. **No se construyó acá: se declara.**
+
+---
+
+## 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06)
+
+**La pregunta:** ¿este embarque fue recibido? Lo contesta `/almacen/movimientos` (Diario, Cuadre
+de traspasos y su matriz), y de ahí salen los «traspasos sin cuadrar» que se persiguen a mano.
+
+**El árbitro es el DESTINO que el embarque declara**, no la fecha. Kepler ya liga la recepción
+`U-A-50` con su embarque `U-D-41` por un back-pointer explícito (`parent_group=41` +
+`parent_serie` + `parent_folio`), pero **el folio es secuencia por sucursal** y ese puntero no
+distingue entre plazas: hay que desempatar. El desempate honesto es `dest_code` del embarque
+(→ `analytics.transfer_dest_map`, almacén **vivo**) contra el almacén que recibe.
+
+**Cuánto aguanta.** Dos testigos que no comparten origen —el destino sale de la **cabecera**, la
+cantidad de los **renglones**— coinciden en **1,720 de 1,724 pares (99.77 %)**. No coinciden al
+100 %, que es lo que haría sospechar que uno deriva del otro.
+
+⛔ **Lo que se retracta: «la recepción nunca es anterior a la salida».** Estuvo escrito como ley
+física en cuatro lugares del servicio y es **falso** — las dos plazas fechan el mismo movimiento
+por su cuenta. Sobre el conjunto de alta confianza el desfase va de **−2 a +63 días**, mediana 0,
+con **24 negativos**. Costo de creerlo: **30 embarques ($851,389.80) publicados como «en tránsito»
+estando recibidos y firmados**, el que lo destapó entre ellos.
+
+⛔ **Y el mismo desempate fallaba al revés:** daba por *recibidos y conciliados* **39 embarques
+dirigidos a una RUTA** (`RD 5xx`) emparejados con la recepción de una **sucursal**, por
+**$494,300.44** — desfases de cientos a miles de piezas y **ninguno** con cantidad exacta. *Un
+pareo que inventa tránsitos y uno que inventa recepciones salen de la misma línea.*
+
+**Huecos declarados:**
+- **Borde de rango:** el Cuadre busca la recepción sólo dentro del periodo que se mira, así que un
+  embarque del 28-sep recibido el 2-oct sale `sin_recepcion` en septiembre — **39 documentos /
+  $482,975**. Falta el estado «recibido FUERA del periodo»; hoy se mide en el candado y no se
+  publica.
+- **Sin destino resuelto** (embarque a ruta, a cliente, o código fuera del mapa) **no hay testigo**
+  y se conserva el desempate ciego por fecha y cantidad. La pantalla lo **declara**: «pareado por
+  fecha y cantidad · sin destino que lo respalde».
+- **Recepción del CEDIS:** sigue sin vivir en `analytics.stock_movements` (`[DM.15]`), así que los
+  envíos *hacia* el CEDIS no son verificables por esta vía.
+
+**Candado:** `database/tests/test-newdb-transfer-pairing.js` — 19 ✓ / 0 ✗ / 1 NO MEDIDO contra
+prod. Vigila la **premisa** (si dejaran de existir los desfases negativos, esta regla sobraría) y
+trae **prueba negativa con control positivo**.

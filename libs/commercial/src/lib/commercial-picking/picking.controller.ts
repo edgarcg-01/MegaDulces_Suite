@@ -32,12 +32,78 @@ export class PickingController {
     @Query('warehouse_id') warehouseId?: string,
     @Query('delivery_date') deliveryDate?: string,
     @Query('limit') limit?: string,
+    // [VEC.3] `?route_kind=vecinal` o `?route_kind=vecinal,camion`. Ausente = todos, que es
+    // como se comportaba el pool antes de esto.
+    @Query('route_kind') routeKind?: string,
+    // [VEC.8] UNA ruta concreta. Siempre junto a warehouse_id: la misma ruta vive en dos
+    // sucursales, y sola juntaria mercancia de dos bodegas.
+    @Query('sales_route') salesRoute?: string,
   ) {
     return this.service.pool({
       warehouse_id: warehouseId,
       delivery_date: deliveryDate,
       limit: limit ? Number(limit) : undefined,
+      route_kind: routeKind
+        ? routeKind.split(',').map((k) => k.trim()).filter(Boolean)
+        : undefined,
+      sales_route: salesRoute || undefined,
     });
+  }
+
+  /**
+   * `[VEC.10]` Lo que no se va a poder surtir y de qué sucursal traerlo, ordenado por
+   * distancia desde la sucursal que surte el pedido. Mismos filtros que el pool.
+   */
+  @Get('faltantes')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({
+    summary:
+      'Renglones sin existencia suficiente, con la sucursal más cercana que sí los tiene. Separa "traerlo" de "comprarlo".',
+  })
+  faltantes(
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('delivery_date') deliveryDate?: string,
+    @Query('route_kind') routeKind?: string,
+    @Query('sales_route') salesRoute?: string,
+  ) {
+    return this.service.faltantes({
+      warehouse_id: warehouseId,
+      delivery_date: deliveryDate,
+      route_kind: routeKind
+        ? routeKind.split(',').map((k) => k.trim()).filter(Boolean)
+        : undefined,
+      sales_route: salesRoute || undefined,
+    });
+  }
+
+  /**
+   * `[VEC.4]` La bandeja de avisos de la sucursal. `?pendientes=1` = sólo lo no acusado.
+   *
+   * Recibe `@Query()` entero porque `ScopeService.warehouseIds()` lee de ahí el parámetro
+   * canónico de sucursal — es el contrato del primitivo, no un atajo.
+   */
+  @Get('avisos')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({
+    summary:
+      'Pedidos de los que se avisó a esta sucursal para que los arme, con su acuse. Sobrevive a que nadie estuviera mirando.',
+  })
+  avisos(@Query() query: Record<string, unknown>, @Query('pendientes') pendientes?: string) {
+    return this.service.avisos(query, pendientes === '1' || pendientes === 'true');
+  }
+
+  /**
+   * `[VEC.4]` Acuse de un aviso. Idempotente: re-marcar algo ya visto devuelve lo que ya
+   * estaba y NO pisa quién lo vio primero.
+   *
+   * Exige `GESTIONAR` y no `VER` a propósito: acusar es afirmar "yo me hago cargo". Quien
+   * sólo mira (dirección, prevención) ve la bandeja pero no puede apagarle el aviso a otro.
+   */
+  @Post('avisos/:id/visto')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({ summary: 'Marca un aviso como visto por quien lo acusa.' })
+  marcarVisto(@Param('id') id: string) {
+    return this.service.marcarVisto(id);
   }
 
   @Get('waves')
@@ -62,6 +128,33 @@ export class PickingController {
   @ApiOperation({ summary: 'Arma una ola con los pedidos dados (folio W-YYYY-NNNNN).' })
   create(@Body() dto: CreateWaveDto) {
     return this.service.createWave(dto);
+  }
+
+  /**
+   * `[VEC.5]` El "pedido global" en un clic: arma una ola con todo lo que falta surtir de un
+   * tipo de ruta. `{ warehouse_id, delivery_date?, route_kind?: ['vecinal'], assigned_to? }`.
+   *
+   * Idempotente en la práctica: repetirlo no duplica nada porque el pool ya excluye lo que
+   * está en una ola viva — la segunda vez responde `creada: false`.
+   */
+  @Post('waves/auto')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'Arma una ola con los pedidos pendientes de un tipo de ruta (el pedido global). No crea olas vacías.',
+  })
+  crearOlaAuto(
+    @Body()
+    body: {
+      warehouse_id: string;
+      delivery_date?: string;
+      route_kind?: string[];
+      /** `[VEC.8]` Armar la ola de UNA ruta: una ola = una ruta, mercancía ya separada. */
+      sales_route?: string;
+      assigned_to?: string;
+    },
+  ) {
+    return this.service.crearOlaAuto(body);
   }
 
   @Post('waves/:id/assign')
