@@ -885,9 +885,58 @@ export class CommercialMovementsService {
       const mTotals = { qty_sent: 0, qty_received: 0, amount: 0, n_ok: 0, n_diferencia: 0, n_sin_recepcion: 0 };
       for (const m of mRows) { mTotals.qty_sent += m.qty_sent; mTotals.qty_received += m.qty_received; mTotals.amount += m.amount; mTotals.n_ok += m.n_ok; mTotals.n_diferencia += m.n_diferencia; mTotals.n_sin_recepcion += m.n_sin_recepcion; }
 
+      /**
+       * `[DM.21]` — resumen de HALLAZGOS para el panel del Cuadre.
+       *
+       * ⚠️ Se calcula sobre `checkAll`, **no sobre `checkRows`**: ésas están cortadas en 500 y
+       * ordenadas problemas primero. Medido en septiembre: 1,466 problemas contra 500 filas
+       * servidas — un panel que sumara desde las filas publicaría un tercio del dinero y se
+       * vería igual de convincente. Por eso el importe viaja desde acá y `truncado` dice si la
+       * LISTA del detalle está recortada (el conteo nunca lo está).
+       *
+       * ⛔ `sin_recepcion` MEZCLA TRES COSAS y sólo una es un hueco. Se separan acá, y los tres
+       * baldes suman `cTotals.sin_recepcion` para que no parezca que algo se esconde:
+       *   · **a un almacén** (`dest_wh_id` resuelto y no es ruta) → el hallazgo real;
+       *   · **carga a ruta** → una camioneta no emite recepción: "sin acuse" es su estado normal;
+       *   · **entrega a cliente** → tampoco emite acuse, y es la mayoría.
+       *
+       * ⚠️ El balde del cliente se descubrió simulando la salida del panel antes de publicarla:
+       * contándolo junto con el resto, el hallazgo decía **$14.67M en 30 días** cuando el hueco de
+       * verdad es una fracción. La trampa está en que `dest_wh` **no sirve para distinguirlos**:
+       * la rama `unreceived` hace `coalesce(dw.name, dw.code, u.dest_label, u.dest_code)`, así que
+       * para un cliente trae su NOMBRE y se ve igual de lleno que el de una sucursal. Lo que
+       * separa es **`dest_wh_id`**, que sólo existe si el destino mapea a un almacén vivo.
+       */
+      const DIA = 864e5;
+      const ahora = Date.now();
+      const diasDe = (d: any) => (d ? Math.floor((ahora - new Date(d).getTime()) / DIA) : 0);
+      const esRuta = (n: string | null) => !!n && /^\s*ruta/i.test(n);
+      const hallazgos = {
+        truncado: (cTotals.diferencia + cTotals.sin_recepcion + cTotals.sin_origen) > checkRows.length,
+        sin_acuse: { docs: 0, amount: 0, dias_max: 0, viejo_docs: 0, viejo_amount: 0 },
+        sin_acuse_ruta: { docs: 0, amount: 0 },
+        sin_acuse_cliente: { docs: 0, amount: 0 },
+        sin_origen: { docs: cTotals.sin_origen },
+        diferencia: { docs: cTotals.diferencia, piezas: 0 },
+      };
+      for (const r of checkAll) {
+        const monto = Number(r.amount) || 0;
+        if (r.status === 'sin_recepcion') {
+          if (!r.dest_wh_id) { hallazgos.sin_acuse_cliente.docs++; hallazgos.sin_acuse_cliente.amount += monto; continue; }
+          if (esRuta(r.dest_wh)) { hallazgos.sin_acuse_ruta.docs++; hallazgos.sin_acuse_ruta.amount += monto; continue; }
+          hallazgos.sin_acuse.docs++; hallazgos.sin_acuse.amount += monto;
+          const d = diasDe(r.ship_date);
+          if (d > hallazgos.sin_acuse.dias_max) hallazgos.sin_acuse.dias_max = d;
+          // 45 d: más del doble de la ventana de tránsito medida en [DM.20] (máximo +63, p99 +13).
+          if (d > 45) { hallazgos.sin_acuse.viejo_docs++; hallazgos.sin_acuse.viejo_amount += monto; }
+        } else if (r.status === 'diferencia') {
+          hallazgos.diferencia.piezas += Math.abs(Number(r.delta) || 0);
+        }
+      }
+
       return {
         range: { from, to },
-        check: { range: { from, to }, totals: cTotals, rows: checkRows },
+        check: { range: { from, to }, totals: cTotals, hallazgos, rows: checkRows },
         matrix: { range: { from, to }, totals: mTotals, rows: mRows },
       };
     });

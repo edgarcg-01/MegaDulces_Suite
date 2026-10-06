@@ -1,6 +1,6 @@
 import {
   AfterViewInit, ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit,
-  effect, inject, signal, viewChild, viewChildren,
+  computed, effect, inject, signal, viewChild, viewChildren,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
@@ -38,6 +38,13 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
  *     (folio A ⇄ folio B, si existe) y el documento contraparte al lado, para validar
  *     que se entregó y se recibió correctamente antes de auditarlo.
  */
+/**
+ * `[DM.21]` — los hallazgos que el Cuadre sabe nombrar. Los tres primeros salen del mismo
+ * `sin_recepcion` crudo y **sólo el primero es un hueco**: a una ruta y a un cliente nadie les
+ * emite acuse. Se listan los tres para que los baldes sumen y no parezca que algo se esconde.
+ */
+type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_origen' | 'diferencia';
+
 @Component({
   selector: 'app-almacen-movimientos',
   standalone: true,
@@ -294,6 +301,34 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                 </div>
               }
             </div>
+          }
+
+          <!--
+            [DM.21] HALLAZGOS. El veredicto de arriba dice SI cuadra; esto dice QUÉ hay que
+            perseguir, con nombre, monto y una puerta al detalle. Las cifras vienen del servidor
+            calculadas sobre el conjunto completo: la lista de filas está cortada en 500 y sumar
+            desde ella publicaría un tercio del dinero.
+          -->
+          @if (!cuadreLoading() && !cuadreError() && cuadreLoaded() && hallazgos().length) {
+            <section class="dm-hz" aria-labelledby="dm-hz-h">
+              <h2 class="dm-hz-title" id="dm-hz-h"><i class="pi pi-flag" aria-hidden="true"></i> Hallazgos</h2>
+              @for (h of hallazgos(); track h.id) {
+                <article class="dm-hz-item" [attr.data-tono]="h.tono">
+                  <div class="dm-hz-head">
+                    <span class="dm-hz-nom">{{ h.titulo }}</span>
+                    <span class="dm-hz-cifra">{{ h.cifra }}</span>
+                    @if (h.verable) {
+                      <button pButton type="button" class="p-button-sm p-button-text dm-hz-btn"
+                              [attr.aria-label]="'Ver los documentos de: ' + h.titulo" (click)="abrirHallazgo(h.id)">
+                        <span class="p-button-icon p-button-icon-left pi pi-window-maximize" aria-hidden="true"></span>
+                        <span class="p-button-label">Ver</span>
+                      </button>
+                    }
+                  </div>
+                  <p class="dm-hz-desc">{{ h.desc }}</p>
+                </article>
+              }
+            </section>
           }
 
           @if (cuadreLoading()) { <div class="dm-empty">Cargando informe de cuadre…</div> }
@@ -719,6 +754,40 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
       } @else { <div class="dm-empty">Sin datos.</div> }
     </p-dialog>
 
+    <!-- [DM.21] ventana de un hallazgo: los documentos que lo componen, con puerta al documento -->
+    <p-dialog [(visible)]="hzOpen" [modal]="true" [style]="{ width: '72rem', maxWidth: '96vw' }" [dismissableMask]="true" styleClass="dm-dlg">
+      <ng-template #header><span class="dm-dlg-title">{{ hzTitulo() }}</span></ng-template>
+      <p class="dm-block-sub">{{ hzDesc() }}</p>
+      @if (check()?.hallazgos?.truncado) {
+        <div class="dm-hz-aviso">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
+          <span>El conteo de arriba es completo; esta lista muestra los primeros {{ hzFilas().length | number }}
+                (el servidor sirve hasta 500 filas, problemas primero). Acotá el rango para verlos todos.</span>
+        </div>
+      }
+      <table class="dm-docs dm-tbl">
+        <thead><tr><th>Origen</th><th>Destino</th><th>Folio salida</th><th>Folio recepción</th>
+          <th class="dm-r">Enviado</th><th class="dm-r">Recibido</th><th class="dm-r">Valor</th><th>Fecha</th><th class="dm-r">Días</th></tr></thead>
+        <tbody>
+          @for (r of hzFilas(); track r.origin_folio + '|' + r.rcv_folio + '|' + r.origin_wh_id + '|' + r.dest_wh_id) {
+            <tr class="dm-row" role="button" tabindex="0" [attr.aria-label]="'Abrir traspaso ' + (r.origin_folio || r.rcv_folio || '')"
+                (click)="openTransfer(r)" (keydown.enter)="openTransfer(r)" (keydown.space)="$event.preventDefault(); openTransfer(r)">
+              <td>{{ r.origin_wh || 'sin origen' }}</td>
+              <td>{{ r.dest_wh || '(sin destino)' }}</td>
+              <td class="dm-mono dm-link">{{ r.origin_folio || '—' }}</td>
+              <td class="dm-mono">{{ r.rcv_folio || '—' }}</td>
+              <td class="dm-r">{{ r.qty_sent != null ? (r.qty_sent | number:'1.0-0') : '—' }}</td>
+              <td class="dm-r">{{ r.qty_received != null ? (r.qty_received | number:'1.0-0') : '—' }}</td>
+              <td class="dm-r dm-strong">{{ r.amount != null ? money(r.amount) : '—' }}</td>
+              <td class="dm-muted">{{ (r.ship_date || r.rcv_date) | date:'yyyy-MM-dd' }}</td>
+              <td class="dm-r" [class.down]="diasDesde(r.ship_date || r.rcv_date) > 45">{{ diasDesde(r.ship_date || r.rcv_date) | number }}</td>
+            </tr>
+          } @empty { <tr><td colspan="9" class="dm-empty">Sin documentos en este hallazgo.</td></tr> }
+        </tbody>
+      </table>
+      <p class="dm-block-sub">Clic en una fila para abrir el documento y su contraparte.</p>
+    </p-dialog>
+
     <!-- DM.13b — detalle Kepler ⇄ Wincaja de una tienda×mes (los DOS sistemas lado a lado) -->
     <p-dialog [(visible)]="wcDetailOpen" [modal]="true" [style]="{ width: '74rem', maxWidth: '96vw' }" [dismissableMask]="true" styleClass="dm-dlg">
       <ng-template #header><span class="dm-dlg-title">Detalle Kepler ⇄ Wincaja</span></ng-template>
@@ -908,6 +977,27 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .dm-cp.cp-ok { color: var(--ok-soft-fg); background: var(--ok-soft-bg); border-color: var(--ok-border); }
     .dm-cp.cp-warn { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-color: var(--warn-border); }
     .dm-cp.cp-bad { color: var(--bad-soft-fg); background: var(--bad-soft-bg); border-color: var(--bad-border); }
+    /* DM.21 - Hallazgos. Bloque compacto: nombra, cifra, describe y abre la ventana.
+       El tono vive en el borde izquierdo, no en el fondo: a cuatro filas seguidas un fondo
+       de color las vuelve un semaforo ilegible. */
+    .dm-hz { margin: 0 0 1rem; border: 1px solid var(--border-color); border-radius: var(--r-sm); overflow: hidden; }
+    .dm-hz-title { display: flex; align-items: center; gap: .45rem; margin: 0; padding: .5rem .7rem;
+      font-size: var(--fs-sm); font-weight: 700; color: var(--text-main);
+      background: var(--surface-2); border-bottom: 1px solid var(--border-color); }
+    .dm-hz-item { padding: .55rem .7rem; border-left: 3px solid var(--border-color); }
+    .dm-hz-item + .dm-hz-item { border-top: 1px solid var(--border-color); }
+    .dm-hz-item[data-tono='bad']  { border-left-color: var(--bad-border); }
+    .dm-hz-item[data-tono='warn'] { border-left-color: var(--warn-border); }
+    .dm-hz-item[data-tono='info'] { border-left-color: var(--border-color); }
+    .dm-hz-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+    .dm-hz-nom { font-weight: 700; font-size: var(--fs-sm); color: var(--text-main); }
+    .dm-hz-cifra { font-size: var(--fs-sm); color: var(--text-muted); }
+    .dm-hz-btn { margin-left: auto; }
+    .dm-hz-desc { margin: .25rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); max-width: 86ch; line-height: 1.45; }
+    .dm-hz-aviso { display: flex; align-items: flex-start; gap: .45rem; margin: 0 0 .6rem;
+      padding: .45rem .6rem; border-radius: var(--r-sm); font-size: var(--fs-xs);
+      color: var(--warn-soft-fg); background: var(--warn-soft-bg); border: 1px solid var(--warn-border); }
+
     /* DM.20 - con que se pareo. Secundario: informa, no compite con el veredicto. */
     .dm-cp .dm-ev { margin-left: auto; font-size: var(--fs-xs); opacity: .8; letter-spacing: .01em; }
     .dm-cp .dm-ev.dm-ev-weak { font-style: italic; }
@@ -1041,6 +1131,110 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   ledger = signal<TransfersLedgerResponse | null>(null);       // contable (mayor 515)
   matrix = signal<TransfersMatrixResponse | null>(null);       // físico origen→destino
   check = signal<TransfersCheckResponse | null>(null);         // físico folio a folio
+
+  // ── [DM.21] HALLAZGOS del Cuadre ────────────────────────────────────────────────────────
+  // El veredicto dice SI cuadra; esto dice QUÉ perseguir. Las cifras las calcula el servidor
+  // sobre el conjunto completo (`check.hallazgos`): la lista de filas está cortada en 500 y
+  // sumarla acá publicaría un tercio del dinero. Un hallazgo con 0 documentos NO se pinta.
+  hzOpen = false;
+  private readonly hzSel = signal<HallazgoId | null>(null);
+
+  /** Días transcurridos desde una fecha de documento. */
+  diasDesde(d: string | null): number {
+    if (!d) return 0;
+    return Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 864e5));
+  }
+
+  readonly hallazgos = computed(() => {
+    const h = this.check()?.hallazgos;
+    if (!h) return [];
+    const docs = (n: number) => `${n.toLocaleString('es-MX')} ${n === 1 ? 'documento' : 'documentos'}`;
+    const out: { id: HallazgoId; titulo: string; cifra: string; desc: string; tono: 'bad' | 'warn' | 'info'; verable: boolean }[] = [];
+
+    if (h.sin_acuse.docs) {
+      out.push({
+        id: 'sin_acuse',
+        titulo: 'Traspasos sin acuse',
+        cifra: `${docs(h.sin_acuse.docs)} · ${this.money(h.sin_acuse.amount)}`,
+        tono: h.sin_acuse.viejo_docs ? 'bad' : 'warn',
+        verable: true,
+        desc: h.sin_acuse.viejo_docs
+          ? `Salieron de un almacén y nadie registró la recepción en el ERP. ${docs(h.sin_acuse.viejo_docs)} `
+            + `(${this.money(h.sin_acuse.viejo_amount)}) llevan más de 45 días, y el más viejo ${h.sin_acuse.dias_max.toLocaleString('es-MX')}: `
+            + `fuera de todo tránsito razonable. No prueba faltante de mercancía — prueba que falta el acuse.`
+          // ⚠️ Sin viejos NO se dice "está todo bien": con el rango por defecto (30 días) es
+          // imposible que aparezca uno de 45, así que el silencio es de la ventana, no del dato.
+          : `Salieron de un almacén y todavía no tienen recepción registrada. El más antiguo de este `
+            + `rango lleva ${h.sin_acuse.dias_max.toLocaleString('es-MX')} días. Ampliá el rango para `
+            + `ver si hay más viejos: este hallazgo sólo mira lo que entra en las fechas elegidas.`,
+      });
+    }
+    if (h.diferencia.docs) {
+      out.push({
+        id: 'diferencia',
+        titulo: 'Recibidos con diferencia de piezas',
+        cifra: `${docs(h.diferencia.docs)} · ${h.diferencia.piezas.toLocaleString('es-MX')} pzs de descuadre`,
+        tono: 'warn', verable: true,
+        desc: 'La recepción existe pero las piezas no coinciden con lo enviado: merma en tránsito, '
+          + 'error de conteo al recibir, o una captura incompleta.',
+      });
+    }
+    if (h.sin_origen.docs) {
+      out.push({
+        id: 'sin_origen',
+        titulo: 'Recepciones sin origen visible',
+        cifra: docs(h.sin_origen.docs),
+        tono: 'warn', verable: true,
+        desc: 'Una sucursal registró que recibió, pero el embarque que lo ampara no aparece: '
+          + 'o salió fuera del rango que estás mirando, o nunca se capturó.',
+      });
+    }
+    if (h.sin_acuse_ruta.docs) {
+      out.push({
+        id: 'sin_acuse_ruta',
+        titulo: 'Cargas a ruta (no son un hueco)',
+        cifra: `${docs(h.sin_acuse_ruta.docs)} · ${this.money(h.sin_acuse_ruta.amount)}`,
+        tono: 'info', verable: true,
+        desc: 'Surtido a una camioneta de reparto. Ese flujo NO emite documento de recepción, '
+          + 'así que “sin acuse” es su estado normal y no hay nada que perseguir. Se listan aparte '
+          + 'para que no inflen el hallazgo de arriba.',
+      });
+    }
+    if (h.sin_acuse_cliente.docs) {
+      out.push({
+        id: 'sin_acuse_cliente',
+        titulo: 'Entregas a cliente (no son traspaso)',
+        cifra: `${docs(h.sin_acuse_cliente.docs)} · ${this.money(h.sin_acuse_cliente.amount)}`,
+        tono: 'info', verable: true,
+        desc: 'Salidas dirigidas a un cliente, no a un almacén de la red. Un cliente no emite acuse, '
+          + 'así que tampoco hay nada que cuadrar. Van listadas porque son la mayor parte del '
+          + '“sin recepción” en crudo: sumarlas al hallazgo de arriba multiplicaría su monto.',
+      });
+    }
+    return out;
+  });
+
+  readonly hzFilas = computed(() => {
+    const id = this.hzSel();
+    const rows = this.check()?.rows ?? [];
+    if (!id) return [];
+    const esRuta = (n: string | null) => !!n && /^\s*ruta/i.test(n);
+    // ⚠️ Mismo criterio que el servidor: lo que separa cliente de almacén es `dest_wh_id`, no el
+    // nombre — `dest_wh` cae al rótulo del ERP y para un cliente trae su nombre propio.
+    const aAlmacen = (r: TransferCheckRow) => r.status === 'sin_recepcion' && !!r.dest_wh_id;
+    if (id === 'sin_acuse') return rows.filter((r) => aAlmacen(r) && !esRuta(r.dest_wh));
+    if (id === 'sin_acuse_ruta') return rows.filter((r) => aAlmacen(r) && esRuta(r.dest_wh));
+    if (id === 'sin_acuse_cliente') return rows.filter((r) => r.status === 'sin_recepcion' && !r.dest_wh_id);
+    return rows.filter((r) => r.status === id);
+  });
+
+  readonly hzTitulo = computed(() => this.hallazgos().find((h) => h.id === this.hzSel())?.titulo ?? 'Hallazgo');
+  readonly hzDesc = computed(() => this.hallazgos().find((h) => h.id === this.hzSel())?.desc ?? '');
+
+  abrirHallazgo(id: HallazgoId): void {
+    this.hzSel.set(id);
+    this.hzOpen = true;
+  }
   detail = signal<TransfersLedgerDetailResponse | null>(null); // pólizas 515 clasificadas
   wincaja = signal<TransfersWincajaCheckResponse | null>(null); // cuadre Kepler→Wincaja
   detailLoading = signal(false);

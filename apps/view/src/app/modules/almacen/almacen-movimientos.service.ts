@@ -93,9 +93,32 @@ export interface TransferCheckRow {
   rcv_date: string | null; qty_received: number | null; rcv_lines: number | null;
   status: TransferStatus; delta: number;
 }
+/**
+ * `[DM.21]` — resumen de hallazgos del Cuadre. **Los conteos e importes vienen del servidor
+ * calculados sobre el conjunto COMPLETO**, no sobre `rows`, que está cortada en 500 y ordenada
+ * problemas primero: sumarlos acá publicaría un tercio del dinero. `truncado` avisa que la LISTA
+ * del detalle está recortada — el conteo nunca lo está.
+ */
+export interface TransfersHallazgos {
+  truncado: boolean;
+  /**
+   * El hueco real: salió hacia un ALMACÉN y nadie registró la recepción.
+   * ⚠️ `sin_recepcion` mezcla tres cosas; los otros dos baldes no son huecos y suman con éste.
+   */
+  sin_acuse: { docs: number; amount: number; dias_max: number; viejo_docs: number; viejo_amount: number };
+  /** Carga a camioneta: NO emite recepción, así que "sin acuse" es su estado normal. */
+  sin_acuse_ruta: { docs: number; amount: number };
+  /** Entrega a un cliente: tampoco emite acuse. Es la mayoría del `sin_recepcion` crudo. */
+  sin_acuse_cliente: { docs: number; amount: number };
+  /** Llegó mercancía cuyo embarque no aparece. */
+  sin_origen: { docs: number };
+  /** Hay recepción pero las piezas no cuadran. */
+  diferencia: { docs: number; piezas: number };
+}
 export interface TransfersCheckResponse {
   range: { from: string; to: string };
   totals: { ok: number; diferencia: number; sin_recepcion: number; sin_origen: number };
+  hallazgos?: TransfersHallazgos;
   rows: TransferCheckRow[];
 }
 
