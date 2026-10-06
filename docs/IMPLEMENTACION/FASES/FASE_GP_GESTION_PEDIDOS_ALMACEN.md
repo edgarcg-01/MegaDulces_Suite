@@ -88,8 +88,9 @@ estatus (21 días, 29,551 renglones):
 
 ### 2.3 Tres trampas medidas
 
-1. **El estatus del renglón (`kdm2.c28`) no se actualiza.** Sigue en `AUTORIZADO` con el encabezado
-   en `EMBARCADO`. Manda el encabezado.
+1. **`kdm2.c28` es la etapa en que se AGREGÓ el renglón, no su estatus.** ~3.2% de los renglones
+   embarcados nacieron en surtido, checado o embarque (productos agregados sobre la marcha) y no
+   tienen cantidad original. El estatus lo manda el encabezado.
 2. **Pedida y surtida pueden estar en unidades distintas** (1 pedido contra 21.18 kg surtidos; o la
    pedida vacía). "Embarcado ÷ pedido" da **102–103%**, que es imposible: es mezcla de unidad. **El
    porcentaje de surtido completo NO se publica** hasta resolver la unidad por renglón.
@@ -135,7 +136,38 @@ Escrito a mano en los comentarios del embarque. Significa:
 | `P 10` | 10 cajas armadas con todo lo de **paquetería** (paquetes y piezas sueltas) | **Lo captura el checador**: depende de cómo se acomodó, no se calcula |
 | `UB 6` | Ubicación donde queda el pedido **esperando carga** | **Lo captura quien lo deja**; lo lee quien carga |
 
-### 2.6 Lo que ya existe y se reusa
+### 2.6 La ubicación por etapa: el proceso la pide, nadie la llena
+
+Explicado por Francisco (2026-10-06): el proceso está diseñado para que **cada renglón lleve la
+ubicación de cada paso**. Se surte en una **carreta** del área de surtido (MAZAPÁN y CH CUBIN en la
+carreta 52, POPULAR CAM en la 53); ya checado pasa a embarques, y la ubicación de embarque es **en
+qué estiba o posición del camión va**. Kepler lo guarda en `kdm2.c59` / `c60` / `c61`.
+
+**No se usa porque la interfaz lo esconde:** las columnas quedan a la derecha de la tabla y hay que
+desplazarla para llenarlas, así que los operadores se saltan el paso.
+
+**Medido (renglones embarcados, 21 días):**
+
+| Sucursal | Renglones | Ubic. surtido | Ubic. checado | Ubic. embarque |
+|---|---|---|---|---|
+| PH (01) | 12,021 | 0% | 0% | 33% |
+| Canindo (06) | 8,936 | 66%, **99% relleno** (`1`/`A1`) | 70%, **99% relleno** (`2`/`A2`) | 65%, **99% relleno** (`3`/`A3`) |
+| Morelia Abastos (08) | 4,291 | 0% | 0% | 0% |
+| CEDIS (00) | 2,398 | 2% relleno | 1% relleno | 1% relleno |
+
+**Conclusión: hoy no existe trazabilidad de dónde está un pedido dentro del almacén.** Es el hueco
+que más valor tiene para la Suite, y la lección es de diseño, no de disciplina:
+
+1. **La ubicación se pide en el momento del paso, no en una columna.** No puede estar fuera de la
+   vista ni ser opcional.
+2. **Se asigna una vez por grupo, no por renglón.** Al empezar a surtir se escanea o elige la
+   carreta, y todos los renglones la heredan; sólo se cambia por excepción (un pedido que no cabe
+   en una carreta). Teclear la misma carreta en 102 renglones es justo lo que hoy nadie hace.
+3. **La posición en el camión se elige sobre un esquema del camión**, no escribiendo un número.
+4. **Un valor que no puede ser real se rechaza.** Si existe catálogo de carretas y posiciones, el
+   `1`/`2`/`3` de relleno no pasa.
+
+### 2.7 Lo que ya existe y se reusa
 
 | Pieza | Dónde | Cómo se usa aquí |
 |---|---|---|
@@ -191,6 +223,10 @@ vista derivada sobre `kepler_ods`, nunca copia.
 | ~~P2~~ | ✅ `CJ` bultos cerrados · `P` cajas de paquetería · `UB` ubicación de espera (§2.5) | — |
 | P10 | ¿Las ubicaciones de espera (`UB 6`) tienen un catálogo fijo o es un número libre? | GP.5 |
 | P11 | ¿Quién arma las cajas de paquetería: el surtidor o el checador? | GP.4 |
+| P12 | ¿Las carretas de surtido están numeradas físicamente? ¿Cuántas hay por almacén? ¿Se les puede pegar un código QR? | GP.3 |
+| P13 | ¿Qué es la "ubicación de checado": una mesa, una zona? | GP.4 |
+| P14 | ¿Cómo se numeran las posiciones del camión (estibas)? ¿Varían por tipo de unidad? | GP.5 |
+| P15 | ¿Por qué Canindo llena con `1`/`2`/`3`? ¿Kepler se los exige ahí y en PH no? | Ninguno (dato) |
 | P3 | ¿Con qué trabajan en piso (celular, handheld con lector)? ¿Hay wifi en todo el almacén? | GP.3 |
 | P4 | ¿El checador es siempre otra persona? En el embarque 2683 los tres responsables son `01` | GP.4 |
 | P5 | ¿Se surte pedido por pedido o se juntan en olas (sobre todo telemarketing)? | GP.2 |

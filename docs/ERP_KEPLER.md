@@ -592,9 +592,22 @@ de `c11` (p. ej. `KG`). El orden se probó porque las columnas se llenan **en el
 avanza el estatus** (21 días, 29,551 renglones): `CREADO`/`AUTORIZADO` sólo traen `c51`;
 `SURTIDO` agrega `c52`; `CHECADO` agrega `c53`; `EMBARCADO` las cuatro.
 
+**Ubicación por etapa, por renglón:** **`c59` = ubicación de surtido** (la carreta), **`c60` = de
+checado**, **`c61` = de embarque** (la estiba o posición en el camión). Anclado al embarque 2683:
+`c61 = 8` en todos los renglones, igual que la pantalla. En la pantalla de Kepler estas columnas
+quedan **a la derecha, fuera de la vista**, y hay que desplazar la tabla para llenarlas.
+⛔ **Casi no traen dato real** (embarcados, 21 días): PH `c59`/`c60` vacíos en el **100%** y `c61`
+lleno en 33%; Morelia Abastos y CEDIS ~0%; Canindo las llena en ~66–70% pero **el 99% es el número
+de la etapa** (`1`/`A1` en surtido, `2`/`A2` en checado, `3`/`A3` en embarque): relleno para
+pasar, no una carreta. Ninguna carreta real (p. ej. 52) aparece entre los valores frecuentes.
+
 **Tres trampas:**
-1. **`kdm2.c28` (estatus del renglón) no se actualiza**: queda en `AUTORIZADO` con el encabezado en
-   `EMBARCADO`. Manda `kdm1.c11`.
+1. **`kdm2.c28` NO es el estatus del renglón: es la ETAPA EN QUE SE AGREGÓ.** En 21 días, 921
+   renglones embarcados (~3.2%) nacieron después del pedido: 375 en `SURTIDO`, 377 en `CHECADO`,
+   169 en `EMBARCADO`. Esos renglones **no tienen `c51`** (y los de checado/embarque tampoco
+   `c52`). Ejemplo: POPULAR CAM GRANDE (17111) del pedido 2749 nació en `CHECADO` y no tiene
+   cantidad surtida. El estatus del pedido lo manda `kdm1.c11`. **Hipótesis:** la "Cant. Ped" de
+   la pantalla es `c56` (llena en el 100%) y `c51` es la cantidad original del pedido.
 2. **`c51` y `c52` no siempre están en la misma unidad** (1 pedido contra 21.18 kg surtidos; `c51`
    vacío en algunos renglones). "Embarcado ÷ pedido" da 102–103%: **no publicar % de surtido** sin
    resolver la unidad.
