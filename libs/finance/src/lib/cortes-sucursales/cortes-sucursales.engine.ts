@@ -90,10 +90,12 @@ export function construirCorte(c: CorteCrudo, nombres: Record<string, string>): 
     doc_prefix: x.doc_prefix, folio: x.folio, fecha: x.fecha ? String(x.fecha).slice(0, 10) : null,
     monto: r2(n(x.monto)), forma_pago: x.forma_pago ?? null, concepto: x.concepto ?? null,
   }));
+  const documento = `UD2301-${c.folio}`;
   return {
+    clave: `${c.sucursal}-${documento}`,
     sucursal: c.sucursal,
     sucursal_nombre: nombres[c.sucursal] || `Sucursal ${c.sucursal}`,
-    documento: `UD2301-${c.folio}`,
+    documento,
     folio: c.folio,
     fecha: String(c.fecha).slice(0, 10),
     referencia: c.referencia || '',

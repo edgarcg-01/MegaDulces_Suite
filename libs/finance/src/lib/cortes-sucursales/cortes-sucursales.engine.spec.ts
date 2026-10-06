@@ -89,6 +89,11 @@ describe('[CSU.1] respuesta', () => {
     base({ folio: '0000007', fecha: '2026-10-02', monto: '500', cobrado: '500' }),
   ], NOMBRES, { from: '2026-10-01', to: '2026-10-31' });
 
+  it('la clave distingue el mismo folio en dos sucursales', () => {
+    const otra = armarRespuesta([base({}), base({ sucursal: '01' })], NOMBRES, { from: '2026-10-01', to: '2026-10-31' });
+    expect(otra.cortes.map((c) => c.documento)).toEqual(['UD2301-0000001', 'UD2301-0000001']);
+    expect(new Set(otra.cortes.map((c) => c.clave)).size).toBe(2);
+  });
   it('los cortes en blanco se DECLARAN aparte, no se listan', () => {
     expect(r.cortes_en_blanco).toBe(1);
     expect(r.cortes.map((c) => c.folio)).toEqual(['0000001', '0000007']);

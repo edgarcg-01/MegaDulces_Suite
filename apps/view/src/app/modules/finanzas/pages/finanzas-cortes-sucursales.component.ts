@@ -79,7 +79,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
       @if (loading() && !data()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
       @else if (data(); as d) {
         <p class="cs-periodo">Periodo {{ dmy(d.periodo.from) }} – {{ dmy(d.periodo.to) }}@if (d.ultimo_corte) { · último corte {{ dmy(d.ultimo_corte) }} }@if (d.cortes_en_blanco) { · {{ d.cortes_en_blanco }} corte(s) en blanco (menos de $1) no se listan }</p>
-        @if (d.periodo.from < inicio) {
+        @if (antesDeCortes(d)) {
           <div class="cs-note" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i><span>El corte de caja POS en Kepler arrancó el <b>01/10/2026</b>. Antes de esa fecha casi no hay cortes; un periodo anterior se ve vacío por eso, no porque no haya habido venta.</span></div>
         }
 
@@ -113,7 +113,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
         <div class="cs-split">
           <section class="cs-block dt-scope" aria-labelledby="cs-h-cortes">
             <div class="cs-bh"><h2 id="cs-h-cortes">Cortes @if (selSuc(); as s) { · {{ s.sucursal_nombre }} }</h2><span class="cs-hint">{{ cortes().length }} corte(s) · pendiente {{ money(pendienteVisible()) }}</span></div>
-            <p-table [value]="cortes()" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" selectionMode="single" [selection]="selCorte()" (selectionChange)="selCorte.set($event)" [dataKey]="'documento'" [paginator]="cortes().length > 200" [rows]="200">
+            <p-table [value]="cortes()" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" selectionMode="single" [selection]="selCorte()" (selectionChange)="selCorte.set($event)" dataKey="clave" [paginator]="cortes().length > 200" [rows]="200">
               <ng-template #header><tr><th>Corte</th><th>Fecha</th>@if (!selSuc()) { <th>Suc</th> }<th>Caja</th><th class="ta-r">Monto</th><th class="ta-r">Cobrado</th><th class="ta-r">Saldo</th><th>Cobro</th><th>Cuadre</th></tr></ng-template>
               <ng-template #body let-c>
                 <tr [pSelectableRow]="c">
@@ -229,7 +229,6 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
   private readonly base = `${environment.apiUrl}/finance/cortes-sucursales`;
 
   readonly skel = Array.from({ length: 8 });
-  readonly inicio = INICIO_CORTES;
   readonly money = money;
   readonly dmy = dmy;
 
@@ -296,7 +295,7 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
         const s = this.selSuc();
         this.selSuc.set(s ? d.sucursales.find((x) => x.sucursal === s.sucursal) ?? null : null);
         const c = this.selCorte();
-        this.selCorte.set(c ? d.cortes.find((x) => x.documento === c.documento && x.sucursal === c.sucursal) ?? null : null);
+        this.selCorte.set(c ? d.cortes.find((x) => x.clave === c.clave) ?? null : null);
         this.loading.set(false);
       },
       error: () => { this.loading.set(false); this.err.set('No se pudieron cargar los cortes.'); },
@@ -313,6 +312,8 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
     ];
   }
 
+  /** El periodo empieza antes de que existieran los cortes POS en Kepler. */
+  antesDeCortes(d: CortesSucursalesResponse): boolean { return d.periodo.from < INICIO_CORTES; }
   pct(a: number, b: number): string { return b > 0 ? `${((a / b) * 100).toFixed(1)}%` : '—'; }
   dias(desde: string): number {
     const hoy = new Date();

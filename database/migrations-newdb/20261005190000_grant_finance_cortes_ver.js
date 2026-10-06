@@ -25,6 +25,10 @@ exports.up = async function (knex) {
   const tabla = await knex.raw(`SELECT to_regclass('identity.role_permissions') AS t`);
   if (!tabla.rows[0]?.t) return; // entorno sin el módulo de identidad
 
+  // `role_permissions` es tabla viva (cada login la lee): si alguien la tiene tomada, esperar
+  // poco y fallar, en vez de formar fila detrás y bloquear los logins.
+  await knex.raw(`SET LOCAL lock_timeout = '3s'`);
+
   const { rows } = await knex.raw(`
     UPDATE identity.role_permissions
        SET permissions = permissions || '{"FINANCE_CORTES_VER": true}'::jsonb
@@ -41,6 +45,7 @@ exports.up = async function (knex) {
 exports.down = async function (knex) {
   const tabla = await knex.raw(`SELECT to_regclass('identity.role_permissions') AS t`);
   if (!tabla.rows[0]?.t) return;
+  await knex.raw(`SET LOCAL lock_timeout = '3s'`);
   await knex.raw(`
     UPDATE identity.role_permissions
        SET permissions = permissions - 'FINANCE_CORTES_VER'

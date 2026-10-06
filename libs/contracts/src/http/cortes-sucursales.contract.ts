@@ -49,6 +49,11 @@ export interface CorteArqueo {
 }
 
 export interface CorteRow {
+  /**
+   * Llave única del corte en toda la red: `<sucursal>-<documento>`. ⚠️ El `documento` solo NO es
+   * único — cada sucursal tiene su propio `UD2301-0000001`.
+   */
+  clave: string;
   sucursal: string;
   sucursal_nombre: string;
   /** `UD2301-0000001` — el folio con el que se ve en Kepler. */
