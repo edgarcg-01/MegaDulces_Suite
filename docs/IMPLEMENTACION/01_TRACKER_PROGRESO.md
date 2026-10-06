@@ -8521,6 +8521,13 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[GP.7]** ⬜ Indicadores (tiempo por etapa, productividad, surtido completo con unidad resuelta).
 - [ ] **[GP.8]** ⬜ Piloto: un origen, una sucursal.
 
+**Ubicaciones (addendum [`FASE_WMS` §12](FASES/FASE_WMS.md), ADR-085)**
+- [ ] **[WMS.2]** ⬜ Tipos de zona, ampliados con `tienda_piso`, `tienda_cabecera`, `contenedor` y zonas especiales.
+- [ ] **[WMS.3]** ⚠️ Censo y etiquetas de PH (bodega y piso de venta). 🚫 BLOQUEADO: croquis o lista de numeración de PH (U1).
+- [ ] **[WMS.3b]** ⬜ Asignación producto × ubicación × papel + mínimo/máximo (slotting). Nuevo.
+- [ ] **[WMS.4]** ⬜ Secuencia de recorrido (ordena la lista de GP.3).
+- [ ] **[WMS.7]** ⬜ Reposición: bodega → frente de surtido y bodega → anaquel (anaquelistas). Pendiente U3.
+
 ---
 
 ## 📋 BACKLOG — Fases G, H, I

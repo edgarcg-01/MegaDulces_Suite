@@ -279,3 +279,72 @@ Restrictivos, **sin seed** (se asignan en `/admin/roles` + re-login), siguiendo 
 ## 11. Relación con otras fases
 
 [`FASE_WMS_ESTACION_RECEPCION`](FASE_WMS_ESTACION_RECEPCION.md) (WMS-REC.1-5, inbound ✅) · [`PROYECTO_WMS_INVENTARIO_TRAZABLE`](PROYECTO_WMS_INVENTARIO_TRAZABLE.md) (el mapa de brechas original) · `FASE_I_INVENTARIO` (conteo ✅) · [`FASE_PREVENCION_INVENTARIOS`](FASE_PREVENCION_INVENTARIOS.md) (PREV ✅) · `FASE_FEFO_CADUCIDAD` (P2 ✅) · `FASE_PASILLOS_EQUIPOS` (PA ✅) · `FASE_ABC_CYCLE_COUNT` (✅) · [`FASE_RA_REABASTECIMIENTO`](FASE_RA_REABASTECIMIENTO.md) (compras ✅, consumidor) · `FASE_J*` (logística: embarque ✅) · [`FASE_VR`](FASE_VR_VENTA_EN_RUTA.md) / [`FASE_LM`](FASE_LM_ULTIMA_MILLA.md) (canales de salida diseñados, sin código) · [`FASE_AX`](FASE_AX_ANEXO_VENTA.md) (factor de cajas `kdii.c84`).
+
+---
+
+## 12. Addendum 2026-10-06 — Ubicaciones de bodega Y piso de venta (ADR-085) y relación con la Fase GP
+
+**Origen:** conversación con Francisco al diseñar la Fase GP ([`FASE_GP`](FASE_GP_GESTION_PEDIDOS_ALMACEN.md)).
+Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones en **bodega** y en
+**piso de venta**, y un mismo producto convive en las dos.
+
+### 12.1 Lo medido
+
+- **Las tablas de §2 A.1 existen pero están vacías en prod:** `warehouse_aisles` 4 filas,
+  `warehouse_bins` **1**, `stock_lot_locations` **1**. No hay datos que migrar ni que cuidar.
+- **Kepler lleva UNA existencia por sucursal** ("ALMACÉN PH") y la Suite un `commercial.warehouses`
+  por sucursal (más uno por camión de ruta). Bodega y piso de venta están **en el mismo edificio**
+  (confirmado por Francisco) y Kepler no los distingue.
+- **La ubicación por etapa del pedido existe en Kepler y nadie la llena** (`kdm2.c59/c60/c61`:
+  PH 0%/0%/33%; Canindo 99% relleno). Detalle en `FASE_GP` §2.6.
+
+### 12.2 Decisiones (ADR-085)
+
+1. **Bodega y piso de venta son ZONAS del mismo almacén, no dos almacenes.** Separarlos obligaría a
+   registrar un traspaso cada vez que el anaquelista sube producto, traspaso que Kepler nunca ve, y
+   la existencia dejaría de cuadrar con el ERP.
+2. **Tres capas separadas**, como los WMS líderes (Manhattan, Blue Yonder, SAP EWM, Oracle):
+   - **Ubicación física** (`warehouse_bins`): sucursal → zona → pasillo → rack/góndola → nivel →
+     posición, con **tipo de zona**, **secuencia de recorrido** (= §4.1), **dígito verificador**
+     en la etiqueta, unidad que admite y si es móvil.
+   - **Asignación (slotting)** — ⬜ **nuevo, no estaba en este plan**: producto × sucursal ×
+     ubicación × papel (`surtido_fijo` · `exhibicion_tienda` · `reserva_preferida`) + mínimo/máximo.
+     Dice dónde **debe** estar el producto sin llevar cantidad.
+   - **Cantidad por ubicación** (`stock_lot_locations`): **se difiere**. Exige escanear cada
+     movimiento; sin eso se desvía de Kepler en semanas (es el "el operador anota y nadie registra"
+     de `FASE_GP` §2.6). ⚠️ **Esto cambia WMS.5**, que planeaba el decremento real de
+     `stock_lot_locations` al surtir: queda condicionado a que las capas 1 y 2 se usen.
+3. **Tipos de zona** (amplía WMS.2): `recepcion` · `reserva` · `surtido` (frente) ·
+   **`tienda_piso`** · **`tienda_cabecera`** · `espera` · `anden` · `cuarentena` · `merma` ·
+   **`contenedor`** (carretas, tarimas y estibas de camión: **las ubicaciones móviles de GP entran
+   en este mismo catálogo**) · zonas especiales (p. ej. fresco), que **sí existen** según Francisco.
+4. **Formato de código propuesto:** bodega `B03-05-2` (pasillo-rack-nivel) · tienda `T07-3`
+   (góndola-entrepaño), cabecera `TC2` · espera `A2` (se conservan) · carreta `C52` · estiba
+   `U13-08`. Racks de bodega y piso de venta **ya están numerados** físicamente: el formato final
+   se ajusta a esa numeración, no al revés.
+5. **Reposición de anaquel = tarea del anaquelista** (amplía WMS.7 al piso de venta): bodega →
+   anaquel cuando la exhibición baja del mínimo. Se liga a la lista de faltantes de piso (Fase FLT)
+   y a los planogramas de Trade (`trade.planogram_skus`): la ubicación de exhibición se toma del
+   planograma donde exista, no se captura dos veces.
+6. **Piloto: PH**, igual que GP.
+
+### 12.3 Lo que esto contesta de §6 y §8
+
+- **§6.2 (autoridad en la salida):** resuelta por **ADR-084**: el pedido sigue en Kepler; la Suite
+  lleva el trabajo de piso y **no escribe en Kepler**; se le captura una vez el resultado.
+- **§6.3 (de dónde viene la demanda de salida):** del **pedido Kepler `U-D-40`**, que cubre
+  sucursal (incluye tiendas, rutas y reparto directo) y telemarketing: 1,823 + 2,164 pedidos en 60
+  días. No de `commercial.orders`.
+- **WMS.5 / WMS.6 se implementan como GP.3 / GP.4** sobre ese origen. No se construyen dos veces.
+- **WMS.3 se destraba en parte:** la numeración física existe; falta recibir el croquis o la lista
+  de PH para levantar el censo.
+- **§6.1 (granel por peso) sigue abierta y aplica:** hay renglones de pedido en `KG` y bultos de
+  15 kg (`17111`, `83771`).
+
+### 12.4 Preguntas abiertas
+
+| # | Pregunta | Bloquea |
+|---|---|---|
+| U1 | Croquis o lista de la numeración de PH (pasillos, racks, niveles de bodega; góndolas y entrepaños de tienda) | Censo (WMS.3) |
+| U2 | ¿Qué zonas especiales hay y qué productos van ahí (fresco, granel, alto valor)? | Tipos de zona |
+| U3 | ¿Cómo sabe hoy el anaquelista qué subir? (recorrido, lista, a ojo) | Reposición (WMS.7) |

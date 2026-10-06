@@ -5,6 +5,16 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-06 — Ubicaciones: bodega y piso de venta en un solo almacén (ADR-085)
+
+**Qué se entregó:** addendum [`FASE_WMS` §12](FASES/FASE_WMS.md) y ADR-085. Sin código.
+
+**Lección:** antes de abrir una fase, buscar si ya existe el plan. Iba a abrir una fase de
+ubicaciones y `FASE_WMS` ya tenía tipos de zona, censo, secuencia de recorrido, surtido y checado.
+Lo nuevo de hoy se agregó ahí (piso de venta, asignación por producto, cantidad diferida) y GP quedó
+declarada como la implementación de WMS.5/WMS.6 para los pedidos de Kepler.
+
+---
 ## 2026-10-06 — `[GP.0]` Gestión de pedidos en almacén: el pedido se queda en Kepler, el piso se va a la Suite
 
 **Qué se entregó:** plan [`FASE_GP`](FASES/FASE_GP_GESTION_PEDIDOS_ALMACEN.md), ADR-084 y decode del pedido

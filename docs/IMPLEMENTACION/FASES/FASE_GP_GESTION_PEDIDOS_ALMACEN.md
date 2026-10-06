@@ -283,6 +283,16 @@ vista derivada sobre `kepler_ods`, nunca copia.
 
 ---
 
+## 5b. Relación con la Fase WMS (descubierta 2026-10-06)
+
+[`FASE_WMS`](FASE_WMS.md) ya planeaba la salida del almacén (WMS.5 surtido, WMS.6 checado) y las
+ubicaciones (WMS.2–WMS.4). **GP no la duplica: es su implementación para los pedidos de Kepler.**
+- GP.3 / GP.4 = WMS.5 / WMS.6 sobre el pedido `U-D-40`.
+- La lista del surtidor se ordena por la **secuencia de recorrido** de WMS.4.
+- Carretas, espacios de espera y estibas son ubicaciones de tipo `contenedor`/`espera` del catálogo
+  de ubicaciones (ADR-085, `FASE_WMS` §12).
+- ADR-084 contesta la decisión abierta WMS §6.2 y la medición de §2.1 contesta §6.3.
+
 ## 6. Riesgos
 
 | Riesgo | Mitigación |
