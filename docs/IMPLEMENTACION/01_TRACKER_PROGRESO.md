@@ -1931,7 +1931,7 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   índice único parcial: una guía activa) y lo que Kepler no tiene (tipo de entrega, ayudantes,
   comisiones, viáticos, flete, km, peso). Unidad, chofer, paradas, cajas y valor se leen **en vivo**.
   Crea además la guía de entrega y **un destinatario por parada** (acuse para el POD del chofer).
-  Mig `20261006150000`: vistas `analytics.erp_shipment_stops` (la ruta por **domicilio de entrega**
+  Mig `20261006210000`: vistas `analytics.erp_shipment_stops` (la ruta por **domicilio de entrega**
   `c10+c85 → kdudent.c13 → kdm_rutas`, 100% medido en suc 01 y 06; orden `kdm_rutas2.c4`;
   facturación `c43`; hora de captura `c69`; nota de almacén `c24-c26`), `erp_shipment_stop_load`
   (cajas = `kdm2.c54` en CJA/BTO, sueltos el resto, kg sólo de renglones por kilo) y

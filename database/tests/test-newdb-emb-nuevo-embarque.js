@@ -50,7 +50,7 @@ correr(async () => {
     const rels = await q(`
       SELECT c.relname, c.relkind::text AS kind FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
        WHERE ns.nspname = 'analytics' AND c.relname IN ('erp_shipment_stops','erp_shipment_stop_load','v_kepler_responsables')`);
-    if (rels.length === 0) noMedido('las vistas de EMB.12 no están en este destino (migración 20261006150000 sin aplicar)');
+    if (rels.length === 0) noMedido('las vistas de EMB.12 no están en este destino (migración 20261006210000 sin aplicar)');
     assert(rels.length === 3 && rels.every((r) => r.kind === 'v'), 'las 3 relaciones existen y son VISTAS, no copias');
     const cols = (await q(`SELECT column_name FROM information_schema.columns
        WHERE table_schema='logistics' AND table_name='shipments' AND column_name IN ('kepler_sucursal','kepler_guia','delivery_type')`))

@@ -603,7 +603,7 @@ ODS (el esquema de `kepler_ods` los trae; falta confirmar filas en prod).
 | Serie 2 | `c10` = `TI###` (sucursal, ver `pv_suc_ip`) o `RUTA 2x`/`RD 50x` (camión de ruta) | Una misma guía puede mezclar serie 1 (venta con impuestos) y serie 2 (traspaso **a costo**): no se suman. |
 
 Vistas: `analytics.erp_shipment_stops`, `analytics.erp_shipment_stop_load`,
-`analytics.v_kepler_responsables` (mig `20261006150000`).
+`analytics.v_kepler_responsables` (mig `20261006210000`).
 
 #### 3.y.2 El gasto del embarque en Kepler (medido 2026-10-05)
 

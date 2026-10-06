@@ -4,7 +4,7 @@
  * Viven aparte del servicio para poder probarlas sin base de datos: cada una decide un número
  * o un nombre que se le enseña al usuario, y un error ahí no truena — publica otra cosa.
  *
- * Contexto (medido en Kepler, ver la migración 20261006150000):
+ * Contexto (medido en Kepler, ver la migración 20261006210000):
  *   · la GUÍA (`kdm1.c86`) es el viaje; cada U-D-41 dentro de ella es una PARADA;
  *   · serie 1 = «Embarque Telemarketing» (a cliente), serie 2 = «Embarque Sucursal» (traspaso a
  *     una sucursal `TI###` o carga del camión de ruta `RUTA 21`/`RD 501`);
