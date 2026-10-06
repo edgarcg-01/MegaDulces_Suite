@@ -19,13 +19,24 @@ import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { SelectButtonModule } from 'primeng/selectbutton';
+import { MessageModule } from 'primeng/message';
+import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmationService, MessageService } from 'primeng/api';
+import {
+  ROUTE_KINDS,
+  ROUTE_KIND_LABEL,
+  ROUTE_KIND_MOTIVO_LABEL,
+  routeKindLabel,
+  type RouteKind,
+} from '@megadulces/contracts';
 import { ComercialService, Warehouse } from '../../comercial/comercial.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PickingService, PoolOrder, Wave, WaveDetail, WaveLine } from '../picking.service';
+import { Aviso, PickingService, PoolOrder, Wave, WaveDetail, WaveLine } from '../picking.service';
 
-type Paso = 'pool' | 'recorrido';
+/** [VEC.4] 'avisos' es un paso propio: el conteo de pendientes vive en la navegacion. */
+type Paso = 'pool' | 'recorrido' | 'avisos';
 
 /**
  * Fase SU — Surtido (ADR-067). **UNA pantalla, UNA persona.**
@@ -58,6 +69,12 @@ type Paso = 'pool' | 'recorrido';
     ToastModule,
     SkeletonModule,
     ConfirmDialogModule,
+    // [VEC.1-5] PrimeNG-first (DESIGN.md checklist 3): el filtro, el aviso y el motivo del
+    // "sin tipo" van con componentes del tema, no con HTML crudo. Así el COLOR lo pone el
+    // tema y flipea solo en dark, en vez de declararlo esta pantalla (lección [CG.34]/[CG.35]).
+    SelectButtonModule,
+    MessageModule,
+    TooltipModule,
   ],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -114,6 +131,12 @@ type Paso = 'pool' | 'recorrido';
             <span class="su-step-t">Recorrido</span>
             @if (olaActiva(); as o) { <span class="su-step-b mono">{{ o.code }}</span> }
           </button>
+          <!-- [VEC.4] La bandeja es un paso propio: el contador tiene que verse SIN entrar. -->
+          <button type="button" class="su-step" [class.on]="paso() === 'avisos'" (click)="irAAvisos()">
+            <span class="su-step-n"><i class="pi pi-bell" aria-hidden="true"></i></span>
+            <span class="su-step-t">Avisos</span>
+            @if (avisosPendientes()) { <span class="su-step-b alert">{{ avisosPendientes() }}</span> }
+          </button>
         </nav>
 
         @if (loading()) {
@@ -146,6 +169,34 @@ type Paso = 'pool' | 'recorrido';
               sincroniza. Esta lista muestra lo que ya llegó.
             </p>
 
+            <!-- [VEC.3] Filtro por tipo de ruta. Sin selección = todos, igual que el backend. -->
+            <div class="su-filtro">
+              <p-selectbutton
+                [options]="tipoOptions"
+                [ngModel]="filtroTipo()"
+                (ngModelChange)="cambiarFiltroTipo($event)"
+                optionLabel="label"
+                optionValue="value"
+                [multiple]="true"
+                [allowEmpty]="true"
+                ariaLabelledBy="su-filtro-lbl"
+                styleClass="su-sb"
+              ></p-selectbutton>
+              <span id="su-filtro-lbl" class="su-filtro-lbl">
+                {{ filtroTipo().length ? 'Filtrando por tipo de ruta' : 'Mostrando todos los tipos' }}
+              </span>
+            </div>
+
+            <!-- ⚠️ Los que no se pueden clasificar se DECLARAN acá arriba y no en una fila
+                 perdida: con el filtro puesto desaparecen de la tabla, y "no hay vecinales
+                 hoy" se lee idéntico a "hay 9 que nadie pudo clasificar". -->
+            @if (poolSinTipo() > 0 && !filtroTipo().length) {
+              <p-message severity="warn" class="su-msg">
+                {{ poolSinTipo() }} de {{ pool().length }} pedidos no tienen tipo de ruta. Si filtrás
+                por tipo, esos no van a aparecer en ninguna lista.
+              </p-message>
+            }
+
             <p-table
               [value]="pool()"
               styleClass="p-datatable-sm surf-table"
@@ -157,6 +208,7 @@ type Paso = 'pool' | 'recorrido';
                   <th scope="col" class="su-check"></th>
                   <th scope="col">Pedido</th>
                   <th scope="col">Cliente</th>
+                  <th scope="col">Ruta</th>
                   <th scope="col">Entrega</th>
                   <th scope="col" class="num">Renglones</th>
                   <th scope="col" class="num">Unidades</th>
@@ -169,21 +221,67 @@ type Paso = 'pool' | 'recorrido';
                   </td>
                   <td class="mono strong">{{ o.code }}</td>
                   <td>{{ o.customer_name || '—' }}</td>
+                  <!-- [VEC.2] Ruta y tipo. El tipo va SIEMPRE, no sólo al filtrar: sin él a la
+                       vista nadie nota que un pedido cayó en la ola equivocada. -->
+                  <td class="su-ruta">
+                    @if (o.route_kind) {
+                      <p-tag [value]="etiquetaTipo(o.route_kind)" severity="info"></p-tag>
+                    } @else {
+                      <p-tag
+                        value="Sin tipo"
+                        severity="secondary"
+                        [pTooltip]="motivoTipo(o.route_kind_motivo)"
+                      ></p-tag>
+                    }
+                    <span class="su-ruta-n">{{ o.sales_route || '—' }}</span>
+                  </td>
                   <td class="mono">{{ o.requested_delivery_date || '—' }}</td>
                   <td class="num">{{ o.lines }}</td>
                   <td class="num strong">{{ o.units }}</td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage>
-                <tr><td colspan="6" class="comm-empty-cell">
-                  <div class="comm-empty">
-                    <h3>No hay pedidos por surtir</h3>
-                    <p>Cuando los vendedores confirmen pedidos para este almacén van a aparecer acá.</p>
-                  </div>
+                <tr><td colspan="7" class="comm-empty-cell">
+                  <!-- DESIGN §3: "sin datos" y "sin resultados" son dos cosas distintas.
+                       Con un filtro puesto, decir "no hay pedidos" sería mentira. -->
+                  @if (filtroTipo().length) {
+                    <div class="comm-empty">
+                      <h3>Ningún pedido de ese tipo de ruta</h3>
+                      <p>Hay pedidos esperando, pero no de {{ filtroTipo().length === 1 ? 'ese tipo' : 'esos tipos' }}. Quitá el filtro para verlos todos.</p>
+                      <button pButton size="small" [text]="true" (click)="cambiarFiltroTipo([])">Ver todos</button>
+                    </div>
+                  } @else {
+                    <div class="comm-empty">
+                      <h3>No hay pedidos por surtir</h3>
+                      <p>Cuando los vendedores confirmen pedidos para este almacén van a aparecer acá.</p>
+                    </div>
+                  }
                 </td></tr>
               </ng-template>
             </p-table>
           </section>
+
+          <!-- [VEC.5] El pedido global: arma de un tiro todo lo que está filtrado. Aparece
+               sólo si hay algo que armar — un botón que no puede hacer nada no va. -->
+          @if (pool().length && puedeGestionar()) {
+            <section class="surf-card su-auto">
+              <div class="su-auto-txt">
+                <h2 class="su-h2">Armar el pedido global</h2>
+                <p>
+                  Junta los {{ pool().length }} pedido{{ pool().length === 1 ? '' : 's' }}
+                  @if (filtroTipo().length) {
+                    de {{ filtroTipo().length === 1 ? 'la ruta' : 'las rutas' }}
+                    @for (t of filtroTipo(); track t) {<strong>{{ etiquetaTipo(t) }}</strong>{{ $last ? '' : ', ' }}}
+                  } @else { de todas las rutas }
+                  en un solo recorrido, con el consolidado por producto.
+                </p>
+              </div>
+              <button pButton (click)="armarOlaAuto()" [loading]="armandoAuto()">
+                <span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span>
+                Armar ({{ pool().length }})
+              </button>
+            </section>
+          }
 
           <!-- Olas abiertas: para retomar una a medias -->
           @if (olasVivas().length) {
@@ -214,6 +312,96 @@ type Paso = 'pool' | 'recorrido';
               </button>
             </div>
           }
+        } @else if (paso() === 'avisos') {
+          <!-- ── BANDEJA — de qué le avisaron a esta sucursal ──────────────────────────── -->
+          <section class="surf-card">
+            <div class="su-card-head">
+              <h2 class="su-h2">Avisos de la sucursal</h2>
+              @if (avisosPendientes()) {
+                <p-tag [value]="avisosPendientes() + ' sin ver'" severity="warn"></p-tag>
+              }
+            </div>
+
+            <!-- ⚠️ De dónde sale el recorte, dicho. "Ves todo" no es un privilegio: es que la
+                 persona no tiene sucursal asignada, y conviene que se note para que se asigne. -->
+            @if (avisosAlcance() === 'todos') {
+              <p-message severity="info" class="su-msg">
+                Estás viendo los avisos de todas las sucursales porque tu usuario no tiene una
+                asignada. Pedile a tu supervisor que te asigne la tuya para ver sólo lo que te toca.
+              </p-message>
+            } @else if (avisosAlcance() === 'ninguno') {
+              <p-message severity="warn" class="su-msg">
+                Tu usuario tiene un alcance configurado que no incluye ninguna sucursal activa.
+              </p-message>
+            }
+
+            <p-table
+              [value]="avisos()"
+              class="p-datatable-sm surf-table"
+              [scrollable]="true"
+              scrollHeight="flex"
+            >
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Pedido</th>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Ruta</th>
+                  <th scope="col">Sucursal</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col" class="su-acuse-col">Acuse</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-a>
+                <tr class="su-row" [class.su-nuevo]="!a.seen_at">
+                  <td class="mono strong">{{ a.code }}</td>
+                  <td>{{ a.customer_name || '—' }}</td>
+                  <td class="su-ruta">
+                    @if (a.route_kind) {
+                      <p-tag [value]="etiquetaTipo(a.route_kind)" severity="info"></p-tag>
+                    } @else {
+                      <p-tag value="Sin tipo" severity="secondary" [pTooltip]="motivoTipo(a.route_kind_motivo)"></p-tag>
+                    }
+                    <span class="su-ruta-n">{{ a.sales_route || '—' }}</span>
+                  </td>
+                  <td>{{ a.warehouse_name || '—' }}</td>
+                  <td>
+                    <!-- Lo que hace la bandeja accionable: distingue "falta armarlo" de "ya lo armé" -->
+                    @if (a.en_ola) {
+                      <p-tag value="Ya en un recorrido" severity="success"></p-tag>
+                    } @else {
+                      <p-tag value="Falta armarlo" severity="warn"></p-tag>
+                    }
+                  </td>
+                  <td class="su-acuse-col">
+                    @if (a.seen_at) {
+                      <span class="su-visto"><i class="pi pi-check" aria-hidden="true"></i> Visto</span>
+                    } @else {
+                      <button
+                        pButton
+                        size="small"
+                        [text]="true"
+                        severity="secondary"
+                        [loading]="acusando() === a.id"
+                        [disabled]="!puedeGestionar()"
+                        (click)="acusar(a)"
+                      >
+                        Marcar visto
+                      </button>
+                    }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="6" class="comm-empty-cell">
+                  <div class="comm-empty">
+                    <div class="comm-empty-icon"><i class="pi pi-bell" aria-hidden="true"></i></div>
+                    <h3>Sin avisos</h3>
+                    <p>Cuando un vendedor agende un pedido que surte esta sucursal, va a aparecer acá y no se va a perder aunque no estés mirando.</p>
+                  </div>
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </section>
         } @else if (olaActiva(); as ola) {
           <!-- ── PASO 2 — el recorrido ─────────────────────────────────────────────────── -->
           <section class="surf-card">
@@ -385,6 +573,25 @@ type Paso = 'pool' | 'recorrido';
     .su-step-b { font-size: var(--fs-xs); font-weight: 700; }
 
     .su-note { display: flex; align-items: flex-start; gap: .4rem; font-size: .78rem; line-height: 1.4; color: var(--text-muted); margin: 0 0 .75rem; }
+
+    /* [VEC.1-5] Flujo vecinal. Cero colores propios: el p-tag y el p-message traen su par
+       fondo/texto calibrado y flipean solos en dark -- declararlos acá fue el defecto de CG.34. */
+    .su-filtro { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .6rem; }
+    .su-filtro-lbl { font-size: var(--fs-xs); color: var(--text-muted); }
+    .su-msg { display: block; margin-bottom: .75rem; }
+    /* Ruta: el tipo manda (chip) y el nombre acompaña. En estrecho el nombre se corta antes
+       que el chip, porque el tipo es lo que decide a qué ola va. */
+    .su-ruta { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+    .su-ruta-n { font-size: var(--fs-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .su-auto { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .su-auto-txt { flex: 1; min-width: 14rem; }
+    .su-auto-txt p { margin: .2rem 0 0; font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45; }
+    .su-acuse-col { white-space: nowrap; }
+    .su-visto { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs); color: var(--text-muted); }
+    /* Lo no acusado se marca con un borde lateral, no con fondo: un fondo de color en una fila
+       densa pelea con el hover y con la selección, y DESIGN pide que la fila siga siendo legible. */
+    .su-nuevo td:first-child { box-shadow: inset 3px 0 0 var(--p-primary-color, currentColor); }
+    .su-step-b.alert { background: var(--p-message-warn-background, transparent); }
     .su-note i { margin-top: .15rem; flex-shrink: 0; }
     .su-note-sm { margin-top: .5rem; margin-bottom: 0; }
     .su-err h3 { margin-bottom: .25rem; }
@@ -483,6 +690,32 @@ export class RepartoSurtidoComponent implements OnInit {
     { label: 'Había menos de lo pedido', value: 'faltante' },
   ];
 
+  // ── [VEC.1-5] Flujo vecinal ─────────────────────────────────────────────────────────
+  /** Tipos de ruta elegidos. Vacío = todos, igual que el backend. */
+  readonly filtroTipo = signal<RouteKind[]>([]);
+  readonly avisos = signal<Aviso[]>([]);
+  readonly avisosAlcance = signal<'todos' | 'recortado' | 'ninguno'>('recortado');
+  readonly acusando = signal<string | null>(null);
+  readonly armandoAuto = signal(false);
+
+  /** Opciones del filtro. Salen del contrato, no de una lista a mano en el template. */
+  readonly tipoOptions = ROUTE_KINDS.map((k) => ({ label: ROUTE_KIND_LABEL[k], value: k }));
+
+  readonly avisosPendientes = computed(() => this.avisos().filter((a) => !a.seen_at).length);
+
+  /**
+   * Cuántos pedidos del pool NO se pueden clasificar. Va a la vista: si 9 de 27 no tienen
+   * tipo, filtrar por "Vecinal" muestra menos de lo que hay y **eso no se puede inferir
+   * mirando la tabla filtrada** — se vería igual que "no hay vecinales hoy".
+   */
+  readonly poolSinTipo = computed(() => this.pool().filter((o) => !o.route_kind).length);
+
+  readonly etiquetaTipo = routeKindLabel;
+  readonly motivoTipo = (m: string | null): string =>
+    m && m in ROUTE_KIND_MOTIVO_LABEL
+      ? ROUTE_KIND_MOTIVO_LABEL[m as keyof typeof ROUTE_KIND_MOTIVO_LABEL]
+      : 'Sin declarar';
+
   readonly puedeGestionar = computed(() => this.perms.has(Permission.COMMERCIAL_PICKING_GESTIONAR));
   readonly warehouseOptions = computed(() =>
     this.warehouses().map((w) => ({ label: w.name, value: w.id })),
@@ -527,7 +760,7 @@ export class RepartoSurtidoComponent implements OnInit {
     this.loading.set(true);
     this.loadError.set(null);
     this.api
-      .pool({ warehouseId: this.warehouseId })
+      .pool({ warehouseId: this.warehouseId, routeKind: this.filtroTipo() })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
@@ -543,10 +776,118 @@ export class RepartoSurtidoComponent implements OnInit {
       .waves()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (w) => this.olas.set(w || []), error: () => void 0 });
+    // [VEC.4] La bandeja se carga SIEMPRE, no sólo al abrir su paso: el contador de pendientes
+    // vive en la navegación, y un badge que sólo aparece cuando ya entraste no avisa de nada.
+    this.api
+      .avisos()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.avisos.set(r?.data || []);
+          this.avisosAlcance.set(r?.alcance || 'recortado');
+        },
+        // Silencioso a propósito: la bandeja es un añadido. Si falla, el surtido —que es el
+        // trabajo— tiene que seguir andando. El error del pool sí se muestra.
+        error: () => void 0,
+      });
+  }
+
+  /** `[VEC.3]` Cambió el filtro de tipo de ruta → se vuelve a pedir al servidor. */
+  cambiarFiltroTipo(v: RouteKind[] | null): void {
+    this.filtroTipo.set(v || []);
+    this.limpiarSeleccion();
+    this.reload();
+  }
+
+  /** `[VEC.4]` Acuse de un aviso. Optimista NO: se confirma contra el servidor. */
+  acusar(a: Aviso): void {
+    if (a.seen_at || this.acusando()) return;
+    this.acusando.set(a.id);
+    this.api
+      .marcarVisto(a.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.acusando.set(null);
+          this.avisos.update((xs) => xs.map((x) => (x.id === a.id ? { ...x, seen_at: r.seen_at } : x)));
+        },
+        error: (e) => {
+          this.acusando.set(null);
+          this.toast.add({
+            severity: 'error',
+            summary: 'No se pudo marcar',
+            detail: e?.error?.message || 'Error de red.',
+          });
+        },
+      });
+  }
+
+  /**
+   * `[VEC.5]` Arma la ola con todo lo pendiente del filtro puesto — el pedido global.
+   *
+   * ⚠️ Pide confirmación nombrando **cuántos y de qué tipo**: "armar" es irreversible desde la
+   * pantalla (cancelar una ola es otro flujo), así que el operador tiene que poder ver qué se
+   * lleva antes de que se lo lleve.
+   */
+  armarOlaAuto(): void {
+    if (!this.warehouseId || !this.puedeGestionar()) return;
+    const tipos = this.filtroTipo();
+    const n = this.pool().length;
+    if (!n) return;
+    const queTipo = tipos.length ? tipos.map((t) => ROUTE_KIND_LABEL[t]).join(' y ') : 'todos los tipos';
+    this.confirm.confirm({
+      header: 'Armar el pedido global',
+      message: `Se va a crear un recorrido con los ${n} pedido(s) de ${queTipo} que están esperando. Los pedidos que entren después NO se suman a esta ola.`,
+      acceptLabel: 'Armar',
+      rejectLabel: 'Cancelar',
+      accept: () => {
+        this.armandoAuto.set(true);
+        this.api
+          .crearOlaAuto({ warehouse_id: this.warehouseId, route_kind: tipos })
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: (r) => {
+              this.armandoAuto.set(false);
+              if (!r.creada) {
+                // `creada:false` NO es un error — es que no había nada que armar. Se dice con
+                // severidad informativa: un toast rojo acá enseñaría a ignorar los rojos.
+                this.toast.add({
+                  severity: 'info',
+                  summary: 'No había nada que armar',
+                  detail: r.detalle || 'Ningún pedido pendiente con ese filtro.',
+                });
+                return;
+              }
+              this.toast.add({
+                severity: 'success',
+                summary: `Ola ${r.code}`,
+                detail: `${r.orders_count} pedido(s) en un solo recorrido.`,
+              });
+              this.limpiarSeleccion();
+              if (r.id) this.abrirOla(r.id);
+              else this.reload();
+            },
+            error: (e) => {
+              this.armandoAuto.set(false);
+              this.toast.add({
+                severity: 'error',
+                summary: 'No se pudo armar',
+                detail: e?.error?.message || 'Error de red.',
+              });
+            },
+          });
+      },
+    });
   }
 
   irAPool(): void {
     this.paso.set('pool');
+    this.reload();
+  }
+
+  /** `[VEC.4]` Abre la bandeja. Recarga para no mostrar un acuse de hace diez minutos. */
+  irAAvisos(): void {
+    this.paso.set('avisos');
     this.reload();
   }
 

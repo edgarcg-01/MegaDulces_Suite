@@ -34,32 +34,16 @@
  * foto en ese momento — hoy no existe y se declara.
  */
 
-/** Los valores de `trade.catalogs.route_kind`. Espejo del CHECK de la migración `20261006130000`. */
-export type RouteKind = 'vecinal' | 'camion' | 'telemarketing' | 'mayoreo' | 'piso';
-
-export const ROUTE_KINDS: readonly RouteKind[] = [
-  'vecinal',
-  'camion',
-  'telemarketing',
-  'mayoreo',
-  'piso',
-] as const;
-
-/** Etiqueta de pantalla. Fuente única: una ruta nueva no sale como `'camion'` pelado. */
-export const ROUTE_KIND_LABEL: Record<RouteKind, string> = {
-  vecinal: 'Vecinal',
-  camion: 'Camión',
-  telemarketing: 'Telemarketing',
-  mayoreo: 'Mayoreo',
-  piso: 'Piso',
-};
-
-/** Lo que se muestra cuando NADIE declaró el tipo. No es 'Otro': es una ausencia con nombre. */
-export const ROUTE_KIND_SIN_DECLARAR = 'Sin declarar';
-
-export function routeKindLabel(k: string | null | undefined): string {
-  return k && k in ROUTE_KIND_LABEL ? ROUTE_KIND_LABEL[k as RouteKind] : ROUTE_KIND_SIN_DECLARAR;
-}
+// ⚠️ El tipo y sus etiquetas NO se declaran acá: viven en `libs/contracts`, porque el frontend
+// los necesita igual. ADR-052 midió que un tipo de backend copiado a mano al front diverge a los
+// tres días — y una etiqueta divergente no falla, sólo muestra la clave pelada en una pantalla.
+export {
+  ROUTE_KINDS,
+  ROUTE_KIND_LABEL,
+  ROUTE_KIND_SIN_DECLARAR,
+  routeKindLabel,
+  type RouteKind,
+} from '@megadulces/contracts';
 
 /**
  * Sub-select de UNA columna con la ruta del pedido, lista para la lista de selección.
