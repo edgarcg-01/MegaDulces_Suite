@@ -149,44 +149,44 @@ RUN --mount=type=cache,id=trade-nx,target=/app/.nx/cache,sharing=locked \
 
 
 # ═══ 3b. build-portal ════════════════════════════════════════════════════════════════════════
-# ⭐ `[VL.20.2]` EL SELLO ES DETERMINISTA POR COMMIT. Antes esta línea metía `date -u`, un reloj
-# de pared, dentro de `apps/portal/src/index.html` y `public/assets/version.json` — los dos bajo
-# `{projectRoot}/**/*`, o sea dentro del hash de `build`. El propio comentario viejo lo declaraba:
-# **este target no acertaba el caché NUNCA, por diseño**, ni siquiera recompilando el mismo
-# commit. Ahora el sello es función del commit, así que un rollback o un reintento del carril
-# aciertan.
+# ⭐ `[CD.23]` EL SELLO SALIÓ DE LOS INSUMOS DEL BUILD — valía 65 s POR DESPLIEGUE, SIEMPRE.
 #
-# ⛔ El sello va ANTES del build, no después: el service worker (ngsw) hashea los bytes FINALES
-# de `index.html` y de `assets/**`, y los dos están en los assetGroups de `ngsw-config.json`.
-# Mutarlos post-build deja `ngsw.json` desfasado → el SW entra en loop de re-fetch
-# (`index.html?ngsw-cache-bust`). Sellando acá, los bytes servidos == los hasheados.
+# Acá vivía un `sed` que escribía el commit dentro de `apps/portal/src/index.html` y de
+# `public/assets/version.json`. Los dos caen bajo `{projectRoot}/**/*`, o sea DENTRO del hash de
+# Nx. `[VL.20.2]` ya había sacado de ahí un `date -u` —un reloj de pared— y lo volvió determinista
+# por commit; eso arregló el reintento del MISMO commit (un rollback acierta). Pero entre commits
+# distintos el hash cambia igual, y un despliegue normal es justamente eso: **portal y vendedor
+# recompilaban Angular entero en cada despliegue, sin excepción.**
+#
+# MEDIDO sobre los 6 despliegues del 2026-10-05/06: `portal` 30-41 s y `vendor` 34-49 s, en 6 de
+# 6, sin un solo acierto — ni siquiera en los despliegues donde su código no se tocó. En el más
+# rápido (129 s en total) fueron **64 s, la mitad del despliegue, para escribir 7 caracteres**.
+#
+# Ahora el sello se publica en RUNTIME: `start.sh` escribe `assets/version.json` desde las
+# variables que hornea el runner, y `version.json` sale de `public/` para dejar de ser un archivo
+# del build. Lo que ngsw no construyó, no lo hashea; nginx lo sirve igual, en la misma URL.
+#
+# ⛔ `index.html` SIGUE SIN TOCARSE, ni acá ni en runtime — el comentario viejo tenía razón en
+# eso: ngsw hashea sus bytes FINALES y los de `assets/**`, y mutarlos post-build deja `ngsw.json`
+# desfasado → el service worker entra en loop de re-fetch (`index.html?ngsw-cache-bust`). Por eso
+# los `<meta>` de sello se retiraron en vez de moverse: quien quiera el build pide
+# `/assets/version.json`.
 #
 # ⚠️ `GIT_COMMIT_ISO` lo calcula `deploy.sh`, y ahí hay una trampa medida: `git show
 # --date=format:` **NO respeta `TZ`** (usa la zona del commit), así que rotulaba `Z` una hora
 # local. Va `--date=format-local:` con `TZ=UTC`. Detalle en `ops/prod/deploy.sh`.
 FROM src AS build-portal
-ARG GIT_COMMIT_SHA=
-ARG GIT_COMMIT_ISO=
-RUN COMMIT=$(printf '%s' "${GIT_COMMIT_SHA:-unknown}" | cut -c1-7); \
-    TS=$(printf '%s' "${GIT_COMMIT_ISO:-unknown}"); \
-    sed -i "s|BUILD_COMMIT_PLACEHOLDER|$COMMIT|g; s|BUILD_TS_PLACEHOLDER|$TS|g" \
-      apps/portal/src/index.html apps/portal/public/assets/version.json
 RUN --mount=type=cache,id=trade-nx,target=/app/.nx/cache,sharing=locked \
     NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
     npx nx build portal --configuration=production
 
 
 # ═══ 3c. build-vendor ════════════════════════════════════════════════════════════════════════
-# Mismo criterio que `build-portal`. Acá el sello se lee en un solo lugar: la sonda de
-# diagnóstico de `vendor-shell.component.ts` (`__BUILD_TIMESTAMP__`), al lado de
-# `__BUILD_VERSION__` —el commit— que ya identifica el build sin ambigüedad.
+# Mismo criterio que `build-portal`: nada de sello acá dentro. El único lector en código es la
+# sonda de diagnóstico de `vendor-shell.component.ts`, que lee `window.__BUILD_VERSION__` /
+# `__BUILD_TIMESTAMP__`; `apps/vendor/src/main.ts` los puebla al arrancar desde
+# `/assets/version.json`, así que la sonda no cambió una línea.
 FROM src AS build-vendor
-ARG GIT_COMMIT_SHA=
-ARG GIT_COMMIT_ISO=
-RUN COMMIT=$(printf '%s' "${GIT_COMMIT_SHA:-unknown}" | cut -c1-7); \
-    TS=$(printf '%s' "${GIT_COMMIT_ISO:-unknown}"); \
-    sed -i "s|BUILD_COMMIT_PLACEHOLDER|$COMMIT|g; s|BUILD_TS_PLACEHOLDER|$TS|g" \
-      apps/vendor/src/index.html apps/vendor/public/assets/version.json
 RUN --mount=type=cache,id=trade-nx,target=/app/.nx/cache,sharing=locked \
     NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
     npx nx build vendor --configuration=production
@@ -400,9 +400,18 @@ COPY --from=build-portal --chown=node:node /app/dist/apps/portal/browser /usr/sh
 COPY --chown=node:node             apps/portal/nginx.conf /etc/nginx/sites-available/default
 COPY --chown=node:node --chmod=755 apps/portal/start.sh   ./start.sh
 
+# `[CD.23]` El commit va ACÁ, en el runner, y DESPUÉS de los COPY — mismo criterio que
+# `runner-api` (`[VL.11.C]`): cambiar de commit invalida dos capas de metadatos, no el bundle.
+# Lo consume `start.sh`, que lo publica en `/assets/version.json`.
+ARG GIT_COMMIT_SHA=
+ARG GIT_COMMIT_ISO=
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA} \
+    GIT_COMMIT_ISO=${GIT_COMMIT_ISO}
+
 LABEL org.opencontainers.image.title="Mega Dulces — Portal B2B" \
       org.opencontainers.image.vendor="Mega Dulces" \
-      org.opencontainers.image.licenses="UNLICENSED"
+      org.opencontainers.image.licenses="UNLICENSED" \
+      org.opencontainers.image.revision="${GIT_COMMIT_SHA}"
 
 EXPOSE 10000
 STOPSIGNAL SIGTERM
@@ -417,9 +426,17 @@ COPY --from=build-vendor --chown=node:node /app/dist/apps/vendor/browser /usr/sh
 COPY --chown=node:node             apps/vendor/nginx.conf /etc/nginx/sites-available/default
 COPY --chown=node:node --chmod=755 apps/vendor/start.sh   ./start.sh
 
+# `[CD.23]` Ver `runner-portal`. Acá importa doble: el vendedor corre en campo, instalado como
+# PWA, así que «qué build tiene este teléfono» es una pregunta de soporte, no de curiosidad.
+ARG GIT_COMMIT_SHA=
+ARG GIT_COMMIT_ISO=
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA} \
+    GIT_COMMIT_ISO=${GIT_COMMIT_ISO}
+
 LABEL org.opencontainers.image.title="Mega Dulces — App Vendedor" \
       org.opencontainers.image.vendor="Mega Dulces" \
-      org.opencontainers.image.licenses="UNLICENSED"
+      org.opencontainers.image.licenses="UNLICENSED" \
+      org.opencontainers.image.revision="${GIT_COMMIT_SHA}"
 
 EXPOSE 10000
 STOPSIGNAL SIGTERM

@@ -59,9 +59,26 @@ export HSTS_LINE CSP_UPGRADE
 envsubst '$PORT $API_UPSTREAM $NGINX_RESOLVER $HSTS_LINE $CSP_UPGRADE' < /etc/nginx/sites-available/default > /tmp/nginx.conf
 mv /tmp/nginx.conf /etc/nginx/sites-available/default
 
-# El sello de versión (index.html / assets/version.json) se inyecta en BUILD-TIME
-# (ver Dockerfile), NO acá: mutar esos archivos en runtime rompe los hashes de
-# ngsw → loop de re-fetch del service worker. Acá solo lo logueamos.
-echo "[vendor] build $(printf '%s' "${RAILWAY_GIT_COMMIT_SHA:-unknown}" | cut -c1-7)"
+# ── `[CD.23]` EL SELLO DE VERSIÓN SE ESCRIBE ACÁ, NO EN EL BUILD ───────────────────
+# `assets/version.json` ya no sale de `public/`: lo escribe este arranque con lo que la
+# imagen horneó en `GIT_COMMIT_SHA`/`GIT_COMMIT_ISO`. Así el bundle de Angular es idéntico
+# entre commits y Nx acierta su caché — el `sed` que vivía en el Dockerfile costaba 34-49 s
+# por despliegue, en el 100% de los despliegues (medido sobre 6, el 2026-10-06).
+#
+# ⛔ `index.html` NO se toca, ni acá ni en el build: ngsw hashea sus bytes finales y los de
+#    `assets/**`; mutarlos deja `ngsw.json` desfasado → loop de re-fetch del service worker.
+#    (El comentario que había en `index.html` afirmaba que este guion ya sellaba en runtime.
+#    No era cierto: sellaba el Dockerfile. Ahora sí es cierto, y por otra vía.)
+#    Este archivo es seguro porque ngsw NO lo construyó: no está en su tabla de hashes.
+#
+# ⚠️ No es fatal: el vendedor en campo prefiere una app sin sello a una app que no arranca.
+SELLO_SHA="$(printf '%s' "${GIT_COMMIT_SHA:-unknown}" | cut -c1-7)"
+mkdir -p /usr/share/nginx/html/assets 2>/dev/null || true
+if printf '{"commit":"%s","timestamp":"%s","app":"vendor"}\n' "$SELLO_SHA" "${GIT_COMMIT_ISO:-unknown}" \
+     > /usr/share/nginx/html/assets/version.json 2>/dev/null; then
+  echo "[vendor] build $SELLO_SHA (${GIT_COMMIT_ISO:-sin fecha}) → /assets/version.json"
+else
+  echo "[vendor] ⚠️  no pude escribir /assets/version.json — queda SIN sello; sigo arrancando"
+fi
 
 exec nginx -g 'daemon off;'

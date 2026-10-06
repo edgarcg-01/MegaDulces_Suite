@@ -28,7 +28,6 @@ fi
 export NGINX_RESOLVER
 
 echo "[portal] nginx en :${PORT} — API_UPSTREAM=${API_UPSTREAM} (resolver ${NGINX_RESOLVER})"
-echo "[portal] build $(printf '%s' "${RAILWAY_GIT_COMMIT_SHA:-unknown}" | cut -c1-7)"
 
 # Solo sustituimos $PORT, $API_UPSTREAM y $NGINX_RESOLVER; las demás ($host,
 # $remote_addr, ...) son variables de runtime de nginx y deben quedar intactas.
@@ -59,6 +58,28 @@ export HSTS_LINE CSP_UPGRADE
 
 envsubst '$PORT $API_UPSTREAM $NGINX_RESOLVER $HSTS_LINE $CSP_UPGRADE' < /etc/nginx/sites-available/default > /tmp/nginx.conf
 mv /tmp/nginx.conf /etc/nginx/sites-available/default
+
+# ── `[CD.23]` EL SELLO DE VERSIÓN SE ESCRIBE ACÁ, NO EN EL BUILD ───────────────────
+# `assets/version.json` ya no sale de `public/`: lo escribe este arranque con lo que la
+# imagen horneó en `GIT_COMMIT_SHA`/`GIT_COMMIT_ISO`. Así el bundle de Angular es idéntico
+# entre commits y Nx acierta su caché — el `sed` que vivía en el Dockerfile costaba 30-41 s
+# por despliegue, en el 100% de los despliegues (medido sobre 6, el 2026-10-06).
+#
+# ⛔ `index.html` NO se toca, ni acá ni en el build: ngsw hashea sus bytes finales y los de
+#    `assets/**`; mutarlos deja `ngsw.json` desfasado → loop de re-fetch del service worker.
+#    Este archivo es seguro justamente porque ngsw NO lo construyó: no está en su tabla de
+#    hashes, así que el SW lo deja pasar a la red y nginx lo sirve con `no-store`.
+#
+# ⚠️ No es fatal. Un sello ausente es un dato de diagnóstico menos; tumbar el contenedor del
+#    portal por eso sería cambiar una molestia por una caída. Pero se avisa fuerte.
+SELLO_SHA="$(printf '%s' "${GIT_COMMIT_SHA:-unknown}" | cut -c1-7)"
+mkdir -p /usr/share/nginx/html/assets 2>/dev/null || true
+if printf '{"commit":"%s","builtAt":"%s"}\n' "$SELLO_SHA" "${GIT_COMMIT_ISO:-unknown}" \
+     > /usr/share/nginx/html/assets/version.json 2>/dev/null; then
+  echo "[portal] build $SELLO_SHA (${GIT_COMMIT_ISO:-sin fecha}) → /assets/version.json"
+else
+  echo "[portal] ⚠️  no pude escribir /assets/version.json — queda SIN sello; sigo arrancando"
+fi
 
 # exec → nginx reemplaza a sh y queda como hijo directo de tini, así recibe
 # SIGTERM sin intermediario (shutdown limpio en redeploys de Railway).

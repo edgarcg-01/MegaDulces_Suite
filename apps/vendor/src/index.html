@@ -43,10 +43,12 @@
 
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
 
-  <!-- Sello de build: start.sh reemplaza los placeholders en runtime (index.html se
-       sirve no-cache → siempre refleja el contenedor vivo). El overlay de Ajustes
-       lo muestra para saber QUÉ build corre en el device (deploy-vs-cache). -->
-  <script>window.__BUILD_VERSION__='BUILD_COMMIT_PLACEHOLDER';window.__BUILD_TIMESTAMP__='BUILD_TS_PLACEHOLDER';</script>
+  <!-- `[CD.23]` El sello de build YA NO VIVE ACÁ. Este comentario afirmaba que lo reemplazaba
+       `start.sh` en runtime; no era cierto — lo escribía un `sed` del Dockerfile ANTES de
+       compilar, y por eso el bundle del vendedor se recompilaba entero en cada despliegue
+       (34-49 s, en 6 de 6 medidos). Ahora `main.ts` lo pide a `/assets/version.json`, que sí
+       nace en runtime, y puebla las mismas dos globales que lee el overlay de Ajustes.
+       ⛔ No se vuelve a poner acá: ngsw hashea los bytes finales de `index.html`. -->
 </head>
 <body>
   <app-root></app-root>

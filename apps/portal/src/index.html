@@ -32,10 +32,12 @@
     <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#18181B" media="(prefers-color-scheme: dark)" />
     <meta name="description" content="Portal B2B de Mega Dulces — catálogo, pedidos y promociones para tu negocio." />
-    <!-- Sello de build inyectado en BUILD-TIME (ver Dockerfile). Permite confirmar
-         qué commit está vivo desde DevTools sin abrir Railway. -->
-    <meta name="build-commit" content="BUILD_COMMIT_PLACEHOLDER" />
-    <meta name="build-ts" content="BUILD_TS_PLACEHOLDER" />
+    <!-- `[CD.23]` El sello de build YA NO VIVE ACÁ. Eran dos `<meta>` que un `sed` del
+         Dockerfile escribía antes de compilar, lo que metía el commit dentro del hash de Nx:
+         el bundle se recompilaba entero en cada despliegue (30-41 s, en 6 de 6 medidos).
+         Ahora lo publica `start.sh` en runtime y se pide con `curl .../assets/version.json`.
+         ⛔ No se mueve a runtime DENTRO de este archivo: ngsw hashea los bytes finales de
+            `index.html` y mutarlo deja `ngsw.json` desfasado → loop de re-fetch del SW. -->
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
