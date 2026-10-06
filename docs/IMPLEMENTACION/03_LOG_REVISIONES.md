@@ -5,6 +5,30 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-06 — `[GP.1]` Tablero de pedidos: revisión con el usuario, acceso y estándares
+
+**Qué cambió tras revisarlo con Francisco en localhost:** casilla «Sólo autorizados en adelante»;
+diseño compacto para monitor de 16" (fuera las tarjetas de indicadores, encabezado en una línea, la
+tabla ocupa el ancho y el alto, detalle en panel lateral); origen bajo el folio; volumen por unidad
+bajo los renglones; ubicación de cada etapa bajo su cantidad. Claves en cero de Kepler (`0`,
+`00000`) se devuelven vacías. API renombrada a `/api/warehouse/orders` por la convención de
+URLs en inglés. Permiso propio `ALMACEN_PEDIDOS_VER` y migración de acceso `20261006200000`.
+
+**Verificado:** en navegador a 1366×768, claro y oscuro, contra una base local (Docker) sembrada con
+pedidos reales de octubre copiados de prod en solo lectura; la API local sin una sola conexión a prod
+y con los 51 cron apagados (autorizado por Francisco). Migración probada up/down/up en local.
+
+**Lecciones:**
+1. **Una migración que sólo toca datos frena el auto-deploy de todos**: la compuerta no le puede
+   extraer objetos y la clasifica NO_MEDIDO. Se aplica en prod ANTES del merge (RUNBOOK §3).
+2. **Cambiar `users.role_name` no quita el perfil anterior**: `trg_sync_primary_role` lo degrada a
+   complemento. Lo había declarado al revés (que Estefanía perdía Compras) antes de medirlo.
+3. **`'?'` dentro del SQL rompe `knex.raw`** (lo toma como parámetro) y **`$'` en el texto de
+   un `String.replace`** pega el resto del archivo: usar un reemplazo por función.
+4. **El script de bootstrap local no arrancaba para nadie** por comillas invertidas dentro de un
+   template literal: el mismo tipo de error que `CLAUDE.md` ya registraba en builds.
+
+---
 ## 2026-10-06 — `[GP.1]` Tablero de pedidos del almacén
 
 **Qué se entregó:** `/almacen/pedidos` — pedidos Kepler U-D-40 por periodo (default mes en curso),

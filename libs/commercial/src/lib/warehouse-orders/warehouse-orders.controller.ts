@@ -11,10 +11,11 @@ import { WarehouseOrdersService } from './warehouse-orders.service';
  * Permiso propio `ALMACEN_PEDIDOS_VER` (repartido por la migración 20261006200000). No es el de
  * surtido: el tablero lo ven telemarketing y facturación, y con aquél se les abría Reparto › Surtido.
  */
-@ApiTags('almacen-pedidos')
+@ApiTags('warehouse-orders')
 @ApiBearerAuth()
 @UseGuards(RequireAuthGuard, RolesGuard)
-@Controller('almacen/pedidos')
+// URL y parámetros en inglés (convención de CLAUDE.md); la pantalla sigue en /almacen/pedidos.
+@Controller('warehouse/orders')
 export class WarehouseOrdersController {
   constructor(private readonly svc: WarehouseOrdersService) {}
 
@@ -22,28 +23,28 @@ export class WarehouseOrdersController {
   @RequirePermissions(Permission.ALMACEN_PEDIDOS_VER)
   @ApiOperation({
     summary:
-      'Pedidos Kepler U-D-40 del periodo. Filtros: month (AAAA-MM, default mes en curso) o from+to; estatus (coma), origen (TELEMARK|SUCURSAL), sucursal, q.',
+      'Pedidos Kepler U-D-40 del periodo. Filtros: month (AAAA-MM, default mes en curso) o from+to; status (estatus Kepler, separados por coma), origin (TELEMARK|SUCURSAL), branch (sucursal, 2 dígitos), q.',
   })
   list(
     @Query('month') month?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
-    @Query('estatus') estatus?: string,
-    @Query('origen') origen?: string,
-    @Query('sucursal') sucursal?: string,
+    @Query('status') status?: string,
+    @Query('origin') origin?: string,
+    @Query('branch') branch?: string,
     @Query('q') q?: string,
   ): Promise<WarehouseOrdersResponse> {
-    return this.svc.list({ month, from, to, estatus, origen, sucursal, q });
+    return this.svc.list({ month, from, to, estatus: status, origen: origin, sucursal: branch, q });
   }
 
-  @Get(':sucursal/:serie/:folio')
+  @Get(':branch/:serie/:folio')
   @RequirePermissions(Permission.ALMACEN_PEDIDOS_VER)
   @ApiOperation({ summary: 'Un pedido con sus renglones (cantidades y ubicación por etapa) y sus embarques U-D-41.' })
   detail(
-    @Param('sucursal') sucursal: string,
+    @Param('branch') branch: string,
     @Param('serie') serie: string,
     @Param('folio') folio: string,
   ): Promise<WarehouseOrderDetail> {
-    return this.svc.detail(sucursal, serie, folio);
+    return this.svc.detail(branch, serie, folio);
   }
 }

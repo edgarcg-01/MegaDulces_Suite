@@ -19,15 +19,15 @@ export interface AlmacenPedidosFiltro {
 @Injectable({ providedIn: 'root' })
 export class AlmacenPedidosService {
   private readonly http = inject(HttpClient);
-  private readonly base = `${environment.apiUrl}/almacen/pedidos`;
+  private readonly base = `${environment.apiUrl}/warehouse/orders`;
 
   list(f: AlmacenPedidosFiltro): Observable<WarehouseOrdersResponse> {
     let p = new HttpParams();
     if (f.from && f.to) p = p.set('from', f.from).set('to', f.to);
     else if (f.month) p = p.set('month', f.month);
-    if (f.estatus?.length) p = p.set('estatus', f.estatus.join(','));
-    if (f.origen) p = p.set('origen', f.origen);
-    if (f.sucursal) p = p.set('sucursal', f.sucursal);
+    if (f.estatus?.length) p = p.set('status', f.estatus.join(','));
+    if (f.origen) p = p.set('origin', f.origen);
+    if (f.sucursal) p = p.set('branch', f.sucursal);
     if (f.q) p = p.set('q', f.q);
     return this.http.get<WarehouseOrdersResponse>(this.base, { params: p });
   }
