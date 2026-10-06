@@ -292,3 +292,82 @@ describe('AX.11 · cuentas de depósito por plaza', () => {
     expect(publicadas).not.toContain(FICHA);
   });
 });
+
+/**
+ * AX.13 — la suma de unidades. Lo pidieron los usuarios: el rótulo "COMPRADO POR CAJA · 3
+ * PRODUCTOS" debe decir cuántas cajas son (10), y lo mismo para paquetes, piezas y kilos, más
+ * el total del documento. Lo que no se puede romper: que se mezclen unidades (8 CJA + 6 PAQ no
+ * son "14" de nada) y que la suma no cuadre con lo que cada renglón imprime.
+ */
+describe('AX.13 · suma de unidades por grupo y del documento', () => {
+  // Factores como los trae Kepler: box_factor = piezas por caja · factor_paq = piezas por paquete.
+  const caja = (sku: string, n: number) => ({
+    ...LINEA, sku, descripcion: `A CAJA ${sku}`, unidad: 'CJA', unidad_venta: 'PZA',
+    unidad_bulto: 'CJA', unidad_paq: null, cantidad: n, box_factor: 24, factor_paq: 0,
+  });
+  const paq = (sku: string, n: number) => ({
+    ...LINEA, sku, descripcion: `B PAQ ${sku}`, unidad: 'PAQ', unidad_venta: 'PZA',
+    unidad_bulto: 'CJA', unidad_paq: 'PAQ', cantidad: n, box_factor: 800, factor_paq: 50,
+  });
+  const granel = (sku: string, n: number, u = 'KG') => ({
+    ...LINEA, sku, descripcion: `C GRANEL ${sku}`, unidad: u, unidad_venta: u,
+    unidad_bulto: null, unidad_paq: null, cantidad: n, box_factor: 0, factor_paq: 0,
+  });
+  // 3 renglones en caja (8+1+1), 6 en paquete (6 c/u) y medio kilo de más en granel = 10 productos.
+  const FACTURA = [caja('1', 8), caja('2', 1), caja('3', 1),
+    ...['4', '5', '6', '7', '8', '9'].map((s) => paq(s, 6)), granel('10', 2.5)];
+
+  /** Contenido de la celda de suma de cada grupo, en orden, ya sin etiquetas. */
+  const sumas = (html: string) => [...html.matchAll(/<td class="gsum">(.*?)<\/td>/g)]
+    .map((m) => m[1].replace(/<\/span><span>/g, ' | ').replace(/<[^>]+>/g, ''));
+  const total = (html: string) => (html.match(/<td class="tq">(.*?)<\/td>/) || [])[1]
+    ?.replace(/<\/span><span>/g, ' | ').replace(/<[^>]+>/g, '');
+
+  it('cada grupo suma sus unidades bajo la columna Cantidad', () => {
+    const html = render({ lineas: FACTURA });
+    expect(html).toContain('Comprado por caja · 3 productos</td><td class="gsum">');
+    expect(sumas(html)).toEqual(['10 CJA', '36 PAQ', '2.5 KG']);
+  });
+
+  it('nunca suma unidades distintas entre sí', () => {
+    const html = render({ lineas: FACTURA });
+    expect(total(html)).toBe('10 CJA | 36 PAQ | 2.5 KG');
+    // NEGATIVA: 10 + 36 + 2.5 = 48.5 es un número sin unidad que no significa nada.
+    expect(html).not.toMatch(/48\.5|>46 /);
+  });
+
+  it('lo que sobra de un renglón (3 CJA + 3 PAQ) también se suma, en su propia línea', () => {
+    // 18 PAQ de 30 pz con caja de 150 pz = 540 pz = 3 CJA + 3 PAQ.
+    const sobrante = { ...paq('11', 18), box_factor: 150, factor_paq: 30 };
+    const html = render({ lineas: [...FACTURA, sobrante] });
+    expect(sumas(html)[0]).toBe('13 CJA | + 3 PAQ');
+    expect(total(html)).toBe('13 CJA | 39 PAQ | 2.5 KG');
+  });
+
+  it('el kilo decimal no se trunca: 2.5 KG se imprime 2.5 KG', () => {
+    const html = render({ lineas: [granel('10', 2.5), caja('1', 1)] });
+    expect(html).toContain('<span class="q-main">2.5 KG</span>');
+    // NEGATIVA: antes de AX.13 el reparto hacía floor en todos los niveles y salía "2 KG".
+    expect(html).not.toContain('<span class="q-main">2 KG</span>');
+  });
+
+  it('el total sale UNA vez y como renglón del tbody, no como tfoot', () => {
+    const html = render({ lineas: FACTURA });
+    expect(html.match(/class="tot-u"/g)).toHaveLength(1);
+    // NEGATIVA: Chromium repite el <tfoot> al pie de cada hoja impresa.
+    expect(html).not.toContain('<tfoot');
+  });
+
+  it('factura corta: sin rótulos de grupo pero con total; con un solo producto, sin total', () => {
+    const corta = render({ lineas: [caja('1', 8), paq('4', 6)] });
+    expect(corta).not.toContain('class="grp"');
+    expect(total(corta)).toBe('8 CJA | 6 PAQ');
+    const uno = render({ lineas: [caja('1', 8)] });
+    expect(uno).not.toContain('class="tot-u"');
+  });
+
+  it('una unidad numérica de Kepler ("500") se suma con su × y no se lee como millar', () => {
+    const html = render({ lineas: [granel('12', 2, '500'), granel('13', 1, '500')] });
+    expect(total(html)).toBe('3 × 500');
+  });
+});
