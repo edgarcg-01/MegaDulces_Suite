@@ -249,7 +249,7 @@ vista derivada sobre `kepler_ods`, nunca copia.
 | **GP.1** | Vista `analytics.erp_sales_orders` (+renglones) sobre `kepler_ods` + tablero `/almacen/pedidos`: por origen, estatus y antigüedad; pedidos atorados | GP.0 |
 | **GP.2** | Origen Kepler para `commercial-picking`: el pool lee pedidos `U-D-40` `AUTORIZADO` | GP.1 |
 | **GP.3** | Pantalla del surtidor (móvil): lista por ubicación, marca por renglón (reemplaza el círculo de pluma), faltantes. **Reemplaza el ticket `Referencia SURTIDO`** | GP.2 + P3 |
-| **GP.4** | Checado: otra persona, diferencias, regreso al surtidor; captura `P` (cajas de paquetería). **Reemplaza el ticket `Referencia CHECADO`** | GP.3 |
+| **GP.4** | Checado 3 · **unidad mayor**: escaneo de `C`+clave, conteo, espacio de espera. **Reemplaza el ticket `Referencia CHECADO`** | GP.3 |
 | **GP.4b** | **Bultos de entrega** (§5c): abrir/cerrar `P1`, `P2`… al checar, contenido por bulto, etiqueta impresa, ubicación por bulto | GP.4 |
 | **GP.5** | Embarque: se escanea **cada bulto** a su estiba; la Suite avisa los que faltan; liga a transporte y guía. **Reemplaza el ticket `Referencia EMBARCADO`** y el comentario escrito a mano | GP.4b |
 | **GP.6** | Cuadre Suite ↔ Kepler: lo capturado en Kepler contra lo registrado en piso; y pedidos avanzados en Kepler **sin** paso por la Suite | GP.5 |
@@ -284,7 +284,68 @@ vista derivada sobre `kepler_ods`, nunca copia.
 
 ---
 
+## 4b. Carga de operación medida (pedidos `U-D-40` embarcados, 08-sep → 05-oct-2026, prod solo lectura)
+
+37,207 renglones en 1,982 pedidos. "Unidad mayor" = la más grande que el producto tiene en `kdii`
+de su sucursal (unidad tres; si no hay, la dos; si no, la base). Todo producto tuvo ficha.
+
+**Por origen:**
+
+| | Sucursal | Telemarketing |
+|---|---|---|
+| Pedidos/día (todas las sucursales) | 33.1 | 40.5 |
+| Renglones/día | 905 | 457 |
+| Renglones por pedido: promedio · mediana · p90 · máx | 27.3 · 11 · 85 · 148 | 11.3 · 7 · 27 · 160 |
+| Renglones en **unidad mayor** (checado 3) | **34%** | **56%** |
+| Renglones en **unidad menor** (checado 3b) | **66%** | **44%** |
+| Cajas (unidad mayor) por pedido: promedio · p90 | 75 · 159 | 15.5 · 40 |
+| Pedidos sólo de paquetería | 6.1% | 15.7% |
+| **Pedidos muy chicos** (sin cajas, ≤5 renglones: candidatos a contenedor compartido) | 3.9% | **12.4%** |
+| Importe promedio | $30,386 | $9,919 |
+
+Unidades menores: `PAQ` 19,687 · `KG` 1,487 · `PZA` 578 · `BTO` 66 · `500` 42 · `250` 21.
+
+**Por sucursal (las que tienen ≥10 pedidos):**
+
+| Sucursal · origen | Pedidos/día | Renglones/día | Renglones/pedido (p90) | Cajas/pedido | Renglones menores/pedido | Muy chicos |
+|---|---|---|---|---|---|---|
+| 00 · sucursal | 10.4 | 130 | 12.5 (33) | 187.7 | 0.8 | 3.8% |
+| **01 PH · sucursal** | 12.7 | **476** | 37.6 (94) | 32.1 | **27.1** | 0.9% |
+| **01 PH · telemarketing** | **22.6** | 216 | 9.6 (26) | 12.1 | 4.8 | **24.9%** |
+| 06 Canindo · sucursal | 6.8 | 332 | 48.8 (104) | 34.8 | 41.0 | 0.6% |
+| 06 Canindo · telemarketing | 15.3 | 154 | 10.1 (22) | 17.3 | 3.5 | 2.6% |
+| 08 Morelia Abastos · sucursal | 7.9 | 59 | 7.5 (16) | 33.3 | 1.4 | 4.2% |
+| 08 Morelia Abastos · telemarketing | 13.1 | 232 | 17.7 (37) | 20.1 | 8.2 | 1.5% |
+
+**PH, el piloto:** 30.9 pedidos y 650 renglones al día en promedio (máximo 50 pedidos y 1,078
+renglones), ~627 cajas al día (máximo 1,332). Lunes a jueves cargan más (32–44 pedidos, 670–900
+renglones); sábado ~13 pedidos; domingo casi nada. **Los pedidos se crean sobre todo de 14:00 a
+19:00** (pico de renglones a las 16:00, ~139 renglones/hora); el telemarketing se concentra de
+10:00 a 17:00 y los pedidos de sucursal se alargan hasta las 19:00.
+
+**Lo que esto decide:**
+1. **El checado de paquetería (3b) es el trabajo pesado en los pedidos de sucursal** (27–41
+   renglones de paquetería por pedido en PH y Canindo). El de unidad mayor (3) es corto.
+2. **El contenedor compartido importa en PH telemarketing:** 1 de cada 4 pedidos es muy chico,
+   ~5–6 al día. En Canindo y Morelia casi no.
+3. **El CEDIS (00) despacha casi sólo cajas cerradas** (188 por pedido, <1 renglón de paquetería).
+   ⚠️ Esta ventana es casi toda anterior al corte del 1-oct, cuando el `00` era concentrador
+   (Fase PO): **no proyectar el 00 hacia adelante** sin re-medir.
+4. **Las listas son largas:** p90 de 85–104 renglones en sucursal. La pantalla del surtidor agrupa
+   por pasillo y la del checado sólo muestra lo pendiente.
+
+**No medido:** peso y volumen físico de la carga (m³, kg por camión). Kepler no se usó para eso y
+no se verificó si `kdii` tiene dimensiones; se declara, no se estima.
+
 ## 5a. El checado es por escaneo (Francisco, 2026-10-06)
+
+**Se divide en dos pantallas por la unidad del renglón** (Francisco, 2026-10-06):
+- **Checado 3 · unidad mayor**: los renglones pedidos en la unidad más grande del producto (caja,
+  bulto). Se escanea la etiqueta `C`+clave, se cuentan y se mandan a su espacio de espera. Cada
+  caja es un bulto `CJ`.
+- **Checado 3b · unidades menores**: paquetes, piezas, `KG`, `500`, `250`, cubetas… todo lo que
+  esté en una unidad inferior a la mayor. Se arma en cajas `P` del pedido o en contenedores
+  compartidos (§5c), y aquí se pesa lo que se vende por kilo.
 
 **El checador "rastrilla"**: escanea cada artículo y la Suite lo registra contra el pedido. El
 código dice **qué producto y en qué unidad** (pieza, paquete o caja; decode completo en
