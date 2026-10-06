@@ -94,14 +94,14 @@ Y se actualiza el símbolo al avanzar:
 ### Fase RH — Recursos Humanos: migración de Mega Talento · 2026-10-06 · plan en [`FASE_RH`](FASES/FASE_RH_MIGRACION_MEGA_TALENTO.md) · ADR-084
 
 > **Lo medido antes de planear:** el "sistema del proveedor" del que Mega Talento leía las checadas es
-> la **Fase CH de la propia Suite** (mismo esquema `hr.*`, misma carga del 2026-08-17). Hay **tres
-> lectores** para los mismos 12 relojes y un ZKTeco acepta una sola sesión. La base de Railway de Mega
-> Talento la comparten **otros cuatro sistemas**. La rama local de Mega Talento lleva 103 commits fuera
-> de GitHub y la copia local del bot no tiene repo ni `package.json`.
+> la **Fase CH de la propia Suite** (mismo esquema `hr.*`, misma carga del 2026-08-17). Se escribieron
+> **cuatro lectores** para los mismos 12 relojes (un ZKTeco acepta una sola sesión); hoy sólo vive uno, y
+> corre en **una laptop**. La base de Railway de Mega Talento la comparten **otros cuatro sistemas**. La
+> rama local de Mega Talento lleva 103 commits fuera de GitHub; el bot sí está respaldado.
 
-- [ ] **[RH.0.1]** ⬜ Respaldo: rama de Mega Talento a GitHub + código real de BOT-RH (con `package.json` y `db/schema.sql`) a un repo.
+- [ ] **[RH.0.1]** ⬜ Respaldo: rama de Mega Talento a GitHub (103 commits). El bot ya está al día con GitHub (verificado 2026-10-06).
 - [ ] **[RH.0.2]** ⬜ ADR-084 aprobado (persona = `identity.users`; un solo lector; carga única verificada; `hr.*`/`talent.*`/`whatsapp.*`; orden; portal público).
-- [ ] **[RH.0.3]** ⬜ Un solo lector de relojes: medir desde `md` TCP 4370 a los 12; confirmar que el poller de CH y la base `hr` de `.245` ya no se usan.
+- [ ] **[RH.0.3]** ⬜ Un solo lector de relojes: medir desde `md` TCP 4370 a los 12 (hoy los lee una laptop) y retirar del código los otros tres lectores.
 - [ ] **[RH.0.4]** ⬜ Mapeos validados por RH: 41 departamentos, puestos, plazas → `warehouse_code`, 73 homónimos (`[CH.0.8]`).
 - [ ] **[RH.0.5]** ⬜ Inventario de uso con RH (qué pantallas y funciones del bot se usan).
 - [ ] **[RH.0.6]** ⬜ Cerrar en Mega Talento los endpoints sin autenticación (D7).

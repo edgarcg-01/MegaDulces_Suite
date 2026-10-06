@@ -22,7 +22,7 @@ absorbe `[CH.0.7]`–`[CH.0.10]` y desbloquea `[ID.16]`.
 | **Front** Mega Talento | Angular 20 standalone, CSS a mano (sin PrimeNG), Railway | ~51k líneas, 46 componentes, 33 pantallas |
 | **Portal de candidatos** | Mismo front, rutas públicas (`/unete`, `/empleos`, `/evaluacion/:id`, `/pedir-personal`…) | 9 rutas sin login |
 | **BOT-RH** | Node/Express + WhatsApp Cloud API (Meta) + Anthropic + Groq Whisper, Railway | ~17.5k líneas + 5.6k de scripts |
-| **Agente de checadas** | Servicio de Windows en una PC del corporativo (lee los relojes por TCP 4370 y empuja a la API) | ~2.3k líneas + SQLite local |
+| **Agente de checadas** | Servicio de Windows en **una laptop** del corporativo (lee los 12 relojes por TCP 4370 y empuja a la API) | ~2.3k líneas + SQLite local |
 | **Base** | Postgres 18 en Railway, **compartida con otros 4 sistemas** (ver §2.3) | 196 MB |
 
 ### 1.2 Los datos de Mega Talento (esquema `public` de esa base)
@@ -77,14 +77,19 @@ mismo día (2026-08-17) la Fase CH cargó **129,461** checadas y el agente midi�
 **Consecuencia:** no hay "proveedor" que respetar. La asistencia de la Suite y la de Mega Talento se
 unifican en `hr.*`, y la Fase RH continúa la Fase CH en lugar de abrir una paralela.
 
-### 2.2 Hay tres lectores para los mismos 12 relojes, y un ZKTeco acepta una sola sesión TCP
+### 2.2 Se han escrito cuatro lectores para los mismos 12 relojes, y un ZKTeco acepta una sola sesión TCP
 
-1. El agente de Mega Talento (hoy en modo `relojes`, TCP directo, desde una PC del corporativo).
-2. El `import-checadores.js` de la Fase CH (TCP directo; `[CH.0.9]` nunca lo agendó, pero se ha corrido a mano).
-3. El modo `hr` del mismo agente (que leía la base que llenaba el lector 2).
+| Lector | Estado medido 2026-10-06 |
+|---|---|
+| Agente de Mega Talento, modo `relojes` (TCP directo) | **El único vivo.** Los 12 relojes con latido de minutos; 9,191 checadas en 14 días. Corre como servicio de Windows en **una laptop** (`LapSistemasA`) |
+| `agente-checador` del repo del bot (julio, empujaba al bot) | Muerto: su última checada es del 2026-08-21 (142,148 filas con `origen` NULL) |
+| Modo `hr` del agente de Mega Talento (leía la base `hr` de `.245`) | Apagado: el agente está configurado en `relojes` |
+| `import-checadores.js` de la Fase CH | No agendado (`[CH.0.9]`), pero existe y se puede correr a mano |
 
 Dos lectores al mismo reloj **se pisan la sesión y leen a medias** (el propio agente lo documenta).
-**Tiene que quedar uno solo** antes de cualquier corte (D3).
+Hoy hay uno solo de hecho; **tiene que quedar uno solo de derecho** (D3): los otros tres se retiran
+del código, no sólo se dejan de correr. Y el que queda **no puede vivir en una laptop**: si se cierra o
+sale de la red, la asistencia de toda la empresa se detiene sin que nadie lo note.
 
 ### 2.3 La base de Railway la comparten cinco sistemas
 
@@ -100,13 +105,14 @@ sistema que quede recibe su propio rol.
 ### 2.4 Lo que sólo existe en una máquina
 
 - La rama local de Mega Talento lleva **103 commits que no están en GitHub**.
-- La copia local de **BOT-RH no tiene `.git` ni `package.json`**, y le falta `db/schema.sql` (que el
-  bot aplica en cada arranque). Dos archivos (`server.js`, `conversacion.js`) se editaron después de
-  la copia. **No hay garantía de que esa copia sea lo que corre en producción.**
+- El bot **sí está respaldado**: su repo de verdad es la copia "mudanza" (con `.git`, `package.json` y
+  `db/schema.sql`), al día con GitHub y sin cambios pendientes. Había una segunda copia sin esos
+  archivos; su contenido es idéntico salvo los fines de línea.
 - El **servicio de Windows del agente corre directo desde la carpeta de trabajo** del repo de Mega
-  Talento: cambiar de rama ahí cambia el código que corre en producción en su siguiente reinicio.
+  Talento, en una laptop: cambiar de rama ahí cambia el código que corre en producción en su
+  siguiente reinicio.
 
-Por eso `[RH.0.1]` (respaldo) es lo primero, antes que cualquier otra cosa.
+Por eso `[RH.0.1]` (respaldo de Mega Talento) es lo primero, antes que cualquier otra cosa.
 
 ### 2.5 Seguridad en producción hoy
 
@@ -242,11 +248,11 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
 
 ### RH.0 — Preparación (≈1 semana, sin código de producto)
 
-- [ ] **[RH.0.1]** Respaldo: subir a GitHub la rama de Mega Talento (103 commits) y rescatar el código
-  **real** de BOT-RH (con `package.json` y `db/schema.sql`) a un repo. Sin esto no se migra.
+- [ ] **[RH.0.1]** Respaldo: subir a GitHub la rama de Mega Talento (103 commits). El bot ya está
+  respaldado (repo al día con GitHub, verificado 2026-10-06). Sin esto no se migra.
 - [ ] **[RH.0.2]** ADR-084 aprobado por Edgar (D1–D8).
-- [ ] **[RH.0.3]** Un solo lector de relojes: medir desde `md` que los 12 relojes contestan en TCP 4370;
-  confirmar que el poller de CH y la base `hr` de `.245` ya no se usan; documentar quién lee hoy.
+- [ ] **[RH.0.3]** Un solo lector de relojes: medir desde `md` que los 12 relojes contestan en TCP 4370
+  (hoy los lee una laptop); retirar del código los otros tres lectores (§2.2).
 - [ ] **[RH.0.4]** Mapeos validados por RH: 41 departamentos → `identity.departments`; puestos de
   `empleados` → `identity.positions`; slugs de plaza → `warehouse_code`; 73 homónimos de `[CH.0.8]`.
 - [ ] **[RH.0.5]** Inventario de uso con RH: qué pantallas y funciones del bot se usan cada semana.
@@ -320,7 +326,7 @@ comprobante sellado (NOM-151). Se construye sobre RH.1 cuando se decida.
 
 | Riesgo | Mitigación |
 |---|---|
-| El código de BOT-RH en producción no es el que tenemos | `[RH.0.1]` antes de todo; si no aparece, se reconstruye desde el contenedor de Railway |
+| La asistencia de toda la empresa depende hoy de una laptop prendida | `[RH.1.3]` lleva el lector a `md`; mientras tanto, que esa laptop no se apague ni salga de la red |
 | Dos lectores peleando un reloj durante la transición | `[RH.0.3]`: uno solo, siempre |
 | ~500 personas sin acceso en `identity.users` ensucian `/admin/users` y pruebas de permisos | Filtro "con acceso / sin acceso" y `status='invited'` sin hash; se mide `test-newdb-permission-delivery` |
 | Plantillas de WhatsApp: la Suite tiene pendiente la aprobación de Meta (OBS.5) | El número de RH ya tiene plantillas aprobadas; se migran con el número, no se piden nuevas |
