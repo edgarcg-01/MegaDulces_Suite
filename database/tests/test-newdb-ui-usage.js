@@ -140,6 +140,36 @@ const noMedido = (n, m) => { nm++; console.log(`  ◻ NO MEDIDO: ${n} — ${m}`)
         + 'lo ejerce la app en sus primeros 60 s y lo vigilan los invariantes de coherencia');
     }
 
+    // ── 5bis. `[SN.40]` LAS DOS TABLAS SE LLENAN JUNTAS, o la atribución está rota ─────
+    //
+    // La aserción que faltaba, y que habría ahorrado el bug: hasta el 2026-10-05 el interceptor
+    // guardaba al usuario bajo `u?.id` y el JWT trae `sub`, así que `ui_usage_users` llevaba
+    // **0 filas** mientras su hermana acumulaba 250,893 hits sobre 490 rutas. Todo lo que este
+    // candado comprobaba —tablas, PK, grants, invariantes— estaba en verde, porque todo eso
+    // mira la FORMA. Nada miraba si el eje que contesta "qué usa ESTA persona" se llenaba.
+    //
+    // ⚠️ El contraste tiene que ser contra tráfico **con sesión**: el verificador de precios es
+    // público y sus hits entran con rol `(anonimo)`, que legítimamente no tiene usuario. Un día
+    // sólo de tráfico anónimo es un cero sano, y se declara NO MEDIDO en vez de pintarse rojo.
+    {
+      const [r] = (await db.raw(`
+        SELECT (SELECT count(*)::int FROM analytics.ui_usage
+                 WHERE role_name <> '(anonimo)')                      AS celdas_con_sesion,
+               (SELECT count(*)::int FROM analytics.ui_usage_users)    AS filas_users,
+               (SELECT count(DISTINCT user_id)::int
+                  FROM analytics.ui_usage_users)                       AS personas`)).rows;
+      if (Number(r.celdas_con_sesion) === 0) {
+        noMedido('que la atribución por persona se llene',
+          'no hay tráfico con sesión medido en este destino: sólo anónimo o tabla vacía');
+      } else {
+        t(`⛔ hay tráfico con sesión (${r.celdas_con_sesion} celdas) y ui_usage_users NO está `
+          + `vacía (${r.filas_users} filas, ${r.personas} personas)`,
+          Number(r.filas_users) > 0,
+          'la atribución por persona está rota: revisar de qué campo sale el usuario en '
+          + 'usage-metrics.interceptor.ts (el JWT trae `sub`, no `id`)');
+      }
+    }
+
     // ── 5. El latido ───────────────────────────────────────────────────────────────────
     {
       const { rows } = await db.raw(
