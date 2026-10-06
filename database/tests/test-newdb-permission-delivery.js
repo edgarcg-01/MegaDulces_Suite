@@ -87,6 +87,55 @@ const SIN_PERSONAS = {
     'permiso se conservan: son el primitivo, no el defecto.',
 };
 
+/**
+ * `[VEC.0]` — PARES DERIVADOS. Repartos que una migracion calculo a partir de OTRO permiso.
+ *
+ * ── Por que hace falta una compuerta mas ────────────────────────────────────────────────
+ * Las de arriba preguntan *"¿alguien la concede?"* y *"¿alguien la tiene?"*. Ninguna atrapa
+ * el defecto que esta lista vigila, porque la clave SI esta repartida y SI tiene gente:
+ *
+ *   **una derivacion es una FOTO del momento en que corre la migracion, no una regla viva.**
+ *
+ * Medido en prod el 2026-10-06: `20260917140100_grant_picking_permissions` (Fase SU.2) corrio
+ * el 17-sep y derivo `COMMERCIAL_PICKING_*` de `COMMERCIAL_INVENTORY_*`. Once dias despues la
+ * Fase IC le dio a `almacenista` sus permisos de inventario (mig `20260928120000`, batch 552).
+ * Nada volvio a correr la derivacion → **el rol que de verdad surte (6 personas) quedo fuera
+ * 19 dias**, con el modulo de surtido en prod y `commercial.picking_waves` en CERO filas.
+ *
+ * El encabezado de SU.2 dice *"si manana un rol gana o pierde el permiso de inventario, este
+ * reparto sigue siendo el que se documento"*. Esa frase describe una INTENCION; la migracion
+ * corre una vez. Esto es el mecanismo que faltaba.
+ *
+ * ⚠️ La compuerta mira el ESTADO, no la migracion: no le importa quien ni cuando reparto,
+ * solo que hoy la regla se cumpla. Por eso sigue sirviendo si manana alguien edita un rol a
+ * mano desde `/admin/roles`, que es por donde entra la mitad de la deriva.
+ *
+ * `excluidos` = las excepciones deliberadas de la migracion que creo el par. Van aca para que
+ * se vean: una excepcion que no se escribe se vuelve un defecto a los dos meses.
+ */
+const PARES_DERIVADOS = [
+  {
+    derivada: 'COMMERCIAL_PICKING_VER',
+    hermanas: ['COMMERCIAL_INVENTORY_VER'],
+    excluidos: ['customer_b2b'],
+    motivo:
+      'SU.2 (ADR-067): quien ve el inventario de un almacen puede ver como se surte. ' +
+      '`customer_b2b` fuera: es cliente externo, ve existencia para saber si le surten, no el ' +
+      'trabajo interno del almacen.',
+  },
+  {
+    derivada: 'COMMERCIAL_PICKING_GESTIONAR',
+    hermanas: ['COMMERCIAL_INVENTORY_AJUSTAR', 'COMMERCIAL_INVENTORY_RECIBIR'],
+    excluidos: ['customer_b2b'],
+    motivo:
+      'VEC.0 corrige la regla de SU.2: SURTIR NO ES AJUSTAR. Levantar del anaquel es de la ' +
+      'familia de RECIBIR (mover mercancia fisica), no de AJUSTAR (corregir el saldo). La Fase ' +
+      'IC le quito AJUSTAR a `almacenista` A PROPOSITO (quien cuenta no ajusta, para que un ' +
+      'faltante no se tape con un ajuste); derivar de AJUSTAR obligaba a elegir entre romper ' +
+      'esa segregacion o dejar al almacen sin poder surtir.',
+  },
+];
+
 // ── El catalogo, leido de la definicion UNICA (ID.28) ────────────────────────────────────
 const CATALOGO = [...fs.readFileSync(path.join(REPO, 'libs/contracts/src/authz/permissions.ts'), 'utf8')
   .matchAll(/^\s{2}([A-Z][A-Z0-9_]*)\s*=\s*'([A-Z0-9_]+)'/gm)].map((m) => m[2]);
@@ -140,6 +189,36 @@ function evaluar(catalogo, vivo, gatean, permitidas, porRol, rolesConGente, sinP
   return { nadieMenciona, nadieConcede, fueraDeCatalogo, sinNadieQueLaTenga };
 }
 
+/**
+ * `[VEC.0]` Quinta compuerta, tambien PURA: roles donde la derivacion quedo vieja.
+ *
+ * `mapaPorRol`: Map<role_name, Record<clave, 'true'|'false'>> — el padron crudo. Hace falta
+ * el detalle por rol: los agregados de `evaluar()` no pueden ver esto, porque la clave si
+ * esta repartida (a otros) y si tiene gente.
+ *
+ * ⚠️ Solo marca la clave AUSENTE, nunca la que esta en `false` explicito: ese `false` es un
+ * dato real (alguien decidio que no) y pisarlo seria el defecto que `[LC.6.2]` documenta.
+ * Un reparto derivado completa huecos; no revierte decisiones.
+ */
+function derivacionesRotas(mapaPorRol, pares) {
+  const rotas = [];
+  for (const par of pares) {
+    for (const [rol, claves] of mapaPorRol) {
+      if (par.excluidos.includes(rol) || /^retirado_/.test(rol)) continue;
+      const tieneHermana = par.hermanas.some((h) => claves[h] === 'true');
+      if (!tieneHermana) continue;
+      if (claves[par.derivada] === undefined) {
+        rotas.push({
+          rol,
+          derivada: par.derivada,
+          via: par.hermanas.filter((h) => claves[h] === 'true').join('/'),
+        });
+      }
+    }
+  }
+  return rotas;
+}
+
 (async () => {
   const url = process.env.PERM_DELIVERY_URL || process.env.DATABASE_URL_NEW || process.env.FLEET_DB_URL;
   if (!url) noMedido('no hay FLEET_DB_URL ni DATABASE_URL_NEW en .env');
@@ -187,10 +266,30 @@ function evaluar(catalogo, vivo, gatean, permitidas, porRol, rolesConGente, sinP
       FROM identity.user_roles ur
       JOIN identity.users u ON u.id = ur.user_id AND u.tenant_id = ur.tenant_id
      WHERE u.deleted_at IS NULL AND u.status = 'active'`);
+  // [VEC.0] El padron CRUDO por rol. Los agregados de arriba no sirven para la compuerta de
+  // derivacion: ahi la clave si esta repartida y si tiene gente -- el hueco es por rol.
+  const { rows: filasCrudas } = await c.query(`
+    SELECT role_name, permissions
+      FROM identity.role_permissions
+     WHERE deleted_at IS NULL AND role_name NOT LIKE 'retirado%'`);
+  // Personas activas por rol: sin esto, "a almacenista le falta" no distingue un rol con 6
+  // personas de uno vacio, y la lista se lee con la misma urgencia en los dos casos.
+  const { rows: filasPersonas } = await c.query(`
+    SELECT role_name, count(*)::int AS personas
+      FROM identity.users
+     WHERE activo AND deleted_at IS NULL
+     GROUP BY role_name`);
   await c.end();
 
   const porRol = new Map(filasRol.map((f) => [f.key, f.roles]));
   const rolesConGente = new Set(filasGente.map((f) => f.role_name));
+  // jsonb llega como objeto con booleanos; la compuerta compara contra 'true'/'false' y
+  // necesita distinguir AUSENTE de false → se normaliza a string, dejando undefined al que falta.
+  const mapaPorRol = new Map(filasCrudas.map((f) => [
+    f.role_name,
+    Object.fromEntries(Object.entries(f.permissions || {}).map(([k, v]) => [k, String(v)])),
+  ]));
+  const personasPorRol = new Map(filasPersonas.map((f) => [f.role_name, f.personas]));
   const vivo = new Map(rows.map((r) => [r.key, { conTrue: Number(r.con_true), conFalse: Number(r.con_false) }]));
   const gatean = clavesQueGatean();
 
@@ -234,6 +333,20 @@ function evaluar(catalogo, vivo, gatean, permitidas, porRol, rolesConGente, sinP
     r.sinNadieQueLaTenga.length === 0
       ? 'toda clave concedida la tiene alguna persona activa (o esta declarada)'
       : `${r.sinNadieQueLaTenga.length} clave(s) cuya unica via es un rol que nadie tiene`);
+
+  // ── 2c. Un reparto DERIVADO no se queda viejo ────────────────────────────────────────
+  // La clave esta repartida y tiene gente, asi que [2] y [2b] la dan por sana. El hueco es
+  // por rol: alguien gano la hermana DESPUES de que la migracion corrio. Ver PARES_DERIVADOS.
+  console.log('\n[2c] Derivacion -- quien gana la hermana tiene que ganar la derivada');
+  const rotas = derivacionesRotas(mapaPorRol, PARES_DERIVADOS);
+  for (const d of rotas) {
+    const n = personasPorRol.get(d.rol) || 0;
+    console.log(`      ${d.rol} (${n} persona(s)) tiene ${d.via} y le FALTA ${d.derivada}`);
+  }
+  ok(rotas.length === 0,
+    rotas.length === 0
+      ? `los ${PARES_DERIVADOS.length} pares derivados siguen al dia en todos los roles`
+      : `${rotas.length} derivacion(es) vieja(s): la migracion que las reparto fue una foto, y el padron se movio`);
 
   // ── 3. Nada en la DB fuera del catalogo ──────────────────────────────────────────────
   console.log('\n[3] Deriva -- el padron no inventa claves');
@@ -304,6 +417,45 @@ function evaluar(catalogo, vivo, gatean, permitidas, porRol, rolesConGente, sinP
   const n5 = evaluar(CATALOGO, vivo, gatean, SIN_REPARTIR, porRol, genteRota, SIN_PERSONAS);
   ok(n5.sinNadieQueLaTenga.includes(sana[0]),
     `[2b] detecta que ${sana[0]} queda sin una sola persona si se vacian ${sana[1].join('/')}`);
+
+  // [2c]: se le BORRA la derivada a un rol que hoy la tiene por derivacion, y tiene que caer.
+  // Se elige la victima de los datos, no a mano: si manana cambian los pares, sigue valiendo.
+  const victimaDeriv = (() => {
+    for (const par of PARES_DERIVADOS) {
+      for (const [rol, claves] of mapaPorRol) {
+        if (par.excluidos.includes(rol)) continue;
+        if (par.hermanas.some((h) => claves[h] === 'true') && claves[par.derivada] !== undefined) {
+          return { rol, par };
+        }
+      }
+    }
+    return null;
+  })();
+  if (!victimaDeriv) {
+    // Sin victima no se puede probar nada — y eso NO es un pase (ADR-056).
+    ok(false, '[2c] NO MEDIDO: ningun rol cumple hoy un par derivado, la prueba negativa no tiene con que correr');
+  } else {
+    const mapaRoto = new Map([...mapaPorRol].map(([rol, claves]) => {
+      if (rol !== victimaDeriv.rol) return [rol, claves];
+      const copia = { ...claves };
+      delete copia[victimaDeriv.par.derivada];
+      return [rol, copia];
+    }));
+    const n2c = derivacionesRotas(mapaRoto, PARES_DERIVADOS);
+    ok(n2c.some((d) => d.rol === victimaDeriv.rol && d.derivada === victimaDeriv.par.derivada),
+      `[2c] detecta que a ${victimaDeriv.rol} le falta ${victimaDeriv.par.derivada} teniendo la hermana`);
+
+    // CONTROL POSITIVO: la MISMA clave puesta en `false` explicito NO se marca. Sin esto, una
+    // compuerta que marcara todo se veria igual de verde, y pisar un `false` deliberado es
+    // exactamente el defecto de [LC.6.2].
+    const mapaFalse = new Map([...mapaPorRol].map(([rol, claves]) =>
+      rol === victimaDeriv.rol
+        ? [rol, { ...claves, [victimaDeriv.par.derivada]: 'false' }]
+        : [rol, claves]));
+    const n2cFalse = derivacionesRotas(mapaFalse, PARES_DERIVADOS);
+    ok(!n2cFalse.some((d) => d.rol === victimaDeriv.rol && d.derivada === victimaDeriv.par.derivada),
+      `[2c] NO marca a ${victimaDeriv.rol} cuando la clave esta en false explicito (decision, no hueco)`);
+  }
 
   const n4 = evaluar(CATALOGO, vivo, gatean, {}, porRol, rolesConGente, {});
   ok(n4.nadieConcede.length > r.nadieConcede.length && n4.sinNadieQueLaTenga.length > r.sinNadieQueLaTenga.length,
