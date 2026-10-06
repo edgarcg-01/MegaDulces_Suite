@@ -8517,7 +8517,8 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[GP.3]** ⬜ Pantalla del surtidor (móvil), reemplaza el ticket `Referencia SURTIDO`. Pendiente P3 (equipo en piso).
 - [ ] **[GP.4]** ⬜ Checado **por escaneo** (rastrillo): el código resuelve producto + unidad desde `kdii` de la sucursal; alerta de producto ajeno y de sobrante; peso de báscula en productos `KG`; cajas sin código → escanear la pieza y teclear cajas (FASE_GP §5a).
 - [ ] **[GP.4.1]** ⬜ Corregir el decode de códigos en el verificador: falta `c102` (base, casilla 3) y `c96` sí es código (unidad dos, casilla 3). ERP_KEPLER §3.y.2.
-- [ ] **[GP.5]** ⬜ Embarque: bultos calculados, liga a transporte y guía.
+- [ ] **[GP.4b]** ⬜ Bultos de entrega P1, P2… (FASE_GP §5c): contenido por bulto al checar, etiqueta, ubicación por bulto.
+- [ ] **[GP.5]** ⬜ Embarque: escaneo de cada bulto a su estiba, aviso de bultos faltantes, liga a transporte y guía.
 - [ ] **[GP.6]** ⬜ Cuadre Suite ↔ Kepler (diferencias de captura y pedidos sin paso por la Suite).
 - [ ] **[GP.7]** ⬜ Indicadores (tiempo por etapa, productividad, surtido completo con unidad resuelta).
 - [ ] **[GP.8]** ⬜ Piloto: un origen, una sucursal.

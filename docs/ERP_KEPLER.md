@@ -644,7 +644,10 @@ que se pidió y si esa unidad tiene un EAN de 8–14 dígitos en alguna de sus c
 |---|---|---|
 | Base | 6,888 | 94% |
 | Dos | 2,739 | 51% |
-| Tres (caja) | 2,366 | **1%**: el 99% sólo trae `C`+clave (`C06001`), código interno sin etiqueta del proveedor |
+| Tres (caja) | 2,366 | **1%** con EAN: el 99% trae `C`+clave (`C06001`) |
+
+**El `C`+clave SÍ está impreso**: Mega Dulces **reetiqueta todo al ingresar** con ese código
+(Francisco, 2026-10-06). O sea que `c85` es escaneable aunque no sea un EAN.
 
 ⚠️ La tabla `catalog.product_barcodes` (importer `import-product-barcodes.js`) **no es la fuente**:
 es un importer, contra la regla principal. Para escanear se lee `kdii` **de la misma sucursal**,

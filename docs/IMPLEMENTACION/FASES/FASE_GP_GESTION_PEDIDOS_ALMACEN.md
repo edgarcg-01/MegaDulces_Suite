@@ -250,7 +250,8 @@ vista derivada sobre `kepler_ods`, nunca copia.
 | **GP.2** | Origen Kepler para `commercial-picking`: el pool lee pedidos `U-D-40` `AUTORIZADO` | GP.1 |
 | **GP.3** | Pantalla del surtidor (móvil): lista por ubicación, marca por renglón (reemplaza el círculo de pluma), faltantes. **Reemplaza el ticket `Referencia SURTIDO`** | GP.2 + P3 |
 | **GP.4** | Checado: otra persona, diferencias, regreso al surtidor; captura `P` (cajas de paquetería). **Reemplaza el ticket `Referencia CHECADO`** | GP.3 |
-| **GP.5** | Embarque: `CJ` calculado, `P` y `UB` capturados (§2.5); liga a transporte y guía. **Reemplaza el ticket `Referencia EMBARCADO`** y el comentario escrito a mano | GP.4 |
+| **GP.4b** | **Bultos de entrega** (§5c): abrir/cerrar `P1`, `P2`… al checar, contenido por bulto, etiqueta impresa, ubicación por bulto | GP.4 |
+| **GP.5** | Embarque: se escanea **cada bulto** a su estiba; la Suite avisa los que faltan; liga a transporte y guía. **Reemplaza el ticket `Referencia EMBARCADO`** y el comentario escrito a mano | GP.4b |
 | **GP.6** | Cuadre Suite ↔ Kepler: lo capturado en Kepler contra lo registrado en piso; y pedidos avanzados en Kepler **sin** paso por la Suite | GP.5 |
 | **GP.7** | Indicadores: tiempo por etapa, productividad por persona, surtido completo (con unidad resuelta) | GP.6 |
 | **GP.8** | Piloto: un origen, una sucursal (propuesta: **sucursal en PH**) | GP.3–GP.6 |
@@ -296,18 +297,44 @@ uno de la caja cuenta una caja.
 - **Más de lo pedido** → alerta en ese renglón.
 - Al terminar, lista **sólo lo que no cuadra**: faltantes, sobrantes y productos ajenos.
 
-**El hueco medido: las cajas casi no tienen código.** En PH, el 94% de lo que se pide en pieza y
-el 51% de lo que se pide en paquete tiene EAN, pero **sólo el 1% de lo que se pide en caja**: el
-resto únicamente trae el código interno `C`+clave, que no viene impreso en la caja del proveedor.
-Dos salidas, en este orden:
-1. **Ya:** escanear **cualquier** código del producto (el de la pieza basta) y teclear cuántas cajas.
-2. **Después:** imprimir la etiqueta `C06001` al recibir o al surtir, reusando la impresión de
-   etiquetas que ya existe (`/tienda/etiquetas`).
+**Las cajas SÍ se escanean.** Medido en PH: el 94% de lo que se pide en pieza y el 51% de lo que se
+pide en paquete tiene EAN, y sólo el 1% de lo que se pide en caja; el resto trae el código interno
+`C`+clave (`C06001`). **Pero ese código sí está impreso: todo se reetiqueta al ingresar con
+`C`+clave** (Francisco, 2026-10-06). Así que la casilla `c85` se lee y el escaneo de cajas cubre
+casi todo. Respaldo para la caja que llegue sin etiqueta: escanear la pieza y teclear cuántas cajas.
 
 **Productos que se venden por kilo:** el checado tiene báscula y **ahí se cobra el peso exacto**
 (Francisco, 2026-10-06). Es lo que explica los 160 renglones con peso decimal de PH (p. ej. 6.14 kg).
 El checador escanea el producto y **captura el peso** de la báscula; la pantalla lo pide sólo en
 los productos cuya unidad de venta es `KG`.
+
+## 5c. Los bultos de entrega (P1, P2…): cada uno con contenido y ubicación (Francisco, 2026-10-06)
+
+Al checar, la paquetería suelta se empaca en **cajas de entrega**: `P1`, `P2`… (el `P 10` del
+comentario `CJ 16 P 10 UB 6`). Lo que pide el piso: **que quede claro qué mercancía va en cada P y
+dónde está cada P** (en qué carreta o espacio de espera, o en qué posición de embarque).
+
+Es lo que los WMS líderes llaman **bulto con identidad** (LPN / handling unit). El diseño:
+
+1. **El checador arma el bulto escaneando.** Abre `P1` (la Suite imprime su etiqueta), escanea lo
+   que mete, lo cierra y escoge dónde lo deja; luego abre `P2`. Cada escaneo cae en **el bulto
+   abierto**. Mover un producto de un bulto a otro es un escaneo, no una corrección a mano.
+2. **La etiqueta del bulto** lleva folio + número + total (`PD 0002781 · P3 de 10`), cliente,
+   destino y un código propio. Se escanea para moverlo, cargarlo y entregarlo.
+3. **Cada bulto tiene ubicación propia**, igual que una carreta: `C52` → `E02` → estiba del camión.
+   Mover el bulto = escanear su etiqueta y la ubicación nueva.
+4. **Las cajas cerradas (`CJ`)** ya traen la etiqueta `C`+clave; cuentan como bultos (cada caja es
+   uno) y también registran dónde quedan.
+5. **Al cargar** se escanean los bultos, no los productos. La Suite cuadra contra lo checado:
+   **"faltan P7 y P9"** antes de que salga el camión.
+6. **Al entregar** (Logística, POD), el cliente recibe y firma por bultos (`10 P + 16 CJ`); si
+   reclama, se sabe qué había en cada uno.
+
+Resultado: el manifiesto del pedido deja de ser un comentario escrito a mano (`CJ 16 P 10 UB 6`) y
+pasa a ser una lista de bultos con contenido y ubicación.
+
+**Dato propio de la Suite** (tabla real, permitido: no existe en Kepler): bulto (pedido, número,
+tipo P/CJ, ubicación, estado) + contenido (bulto, producto, unidad, cantidad).
 
 ## 5b. Relación con la Fase WMS (descubierta 2026-10-06)
 
