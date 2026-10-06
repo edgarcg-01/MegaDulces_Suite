@@ -1081,3 +1081,57 @@ cubiertos.**
 - Fuentes exportadas de `Control` (274 objetos: formularios, reportes, módulos VBA, macros), en el
   scratchpad de la sesión del 2026-09-18. **No están versionadas** — si el plan avanza, conviene
   meterlas al repo como referencia congelada.
+
+---
+
+## 13. Auditoría por capas (2026-10-06)
+
+Pedido de Edgar: *«una auditoría por capas de `/finanzas/caja-general`»*, empezando por entender
+qué busca el submódulo. Las capas 0 (datos), 1 (backend) y 2 (frontend/UX) están recorridas.
+
+### 13.1 Capa 2 — lo que se encontró y se arregló
+
+**`[CG.43]` — la marca pertenecía a una lista que ya no estaba en pantalla.** El único botón que
+escribe N asientos de un golpe. `seleccion` guarda referencias, no filas, y `cargarPendientes()`
+reemplaza las filas sin tocarla; la única poda vivía dentro de `restaurarBorrador()`, que corre
+**una vez por visita**. Desde el segundo refresco la selección quedaba colgada: la persona marca
+las confirmables de la página, acota por signo —la navegación que la **propia pantalla recomienda**
+cuando la lista viene topada en 100—, el encabezado aparece sin marcar, el botón sigue diciendo
+«Confirmar 63», y al tocarlo **se escriben 63 asientos de movimientos que no están a la vista**.
+Ninguno de los cuatro filtros podaba. Arreglado con `podarSeleccion()`, que **poda y no vacía** (el
+repaso de fondo de 60 s recarga sin que nadie toque nada) y **dice** lo que soltó. Tres pruebas,
+mutadas en los dos sentidos.
+
+Dos menores de la misma lectura: un comentario duplicado y **sin cerrar** en la plantilla —hoy no
+se traga nada, pero lo que alguien escriba entre las dos aperturas desaparece sin error—, y los 9
+`<th>` del libro sin `scope`, únicos de las cuatro tablas de la pantalla.
+
+### 13.2 Lo que la capa 2 midió y NO era un defecto
+
+Se anota para que nadie lo vuelva a buscar:
+
+| Sospecha | Medición | Veredicto |
+|---|---|---|
+| El arranque dispara 9 peticiones y alguna pasa el gate de 500 ms | `pg_stat_statements` de prod: la peor es `caja_depositos` a **73 ms**; la bandeja real, **6.2 ms** sobre 189 llamadas | Refutada |
+| Las fechas se rompen con `String(f).slice(0,10)` | `fecha_valor` es `date` y pg lo serializa a `06:00Z` (proceso en TZ MX) → el corte da el día correcto | Refutada |
+| Hay un `computed()` congelado, como el de `[CG.22]` | Los 26 leen señales | Refutada |
+| La adopción es cero porque falta repartir el permiso (patrón `[LC.6.2]`) | **29 personas** pueden abrir la pantalla, **27** capturar | Refutada |
+| El botón «Confirmar» está muerto: con 0 reglas y 0 rutas, ninguna fila es confirmable | De las **1,925** en ventana, **1,212 (63 %)** son confirmables de un clic por el tercer piso (`[CS.3.1b]`, la contracuenta del propio documento) | Refutada |
+
+⚠️ Las compuertas de diseño del repo (`check:templates`, `tokens`, `tables`, `estilos`, `teclado`,
+`motion`, `provenance`) pasan limpias sobre esta pantalla y **no la tienen en ninguna lista de
+deuda**. El hallazgo de `[CG.43]` no lo podía ver ninguna: es de ciclo de vida de estado, no de
+marcado.
+
+### 13.3 Lo que queda abierto y NO es código
+
+- ⛔ **La adopción sigue en cero y ya no hay excusa técnica.** El libro tiene **2 movimientos**
+  (2026-09-25 → 2026-12-10) y **0 cortes**, contra 1,212 confirmables de un clic esperando en la
+  bandeja y 10,982 más ($140.9 M) detrás de la ventana de 45 días. El permiso está repartido, el
+  backend responde en milisegundos y el camino de un clic existe. Lo que falta es que alguien lo
+  use una vez — es decisión de Finanzas, no un item de esta fase.
+- ⚠️ **`marketing` y `gerente_compras` tienen `FINANCE_CAJA_GESTIONAR`**: pueden escribir asientos
+  de efectivo. Huele al residuo de guardar el mapa completo desde `/admin/roles` (misma causa que
+  `[LC.6.2]`). No se tocó: repartir o quitar permisos es decisión de Edgar desde la UI.
+- La decisión abierta de `[CG.42]`: si un corte `sin_base` (sin fondo inicial medido) debe poder
+  cerrarse o hay que bloquearlo.
