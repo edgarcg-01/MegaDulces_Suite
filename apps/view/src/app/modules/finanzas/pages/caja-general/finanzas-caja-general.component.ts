@@ -2032,7 +2032,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   capturaAbierta = signal(false);
   aperturaAbierta = signal(false);
   cierreAbierto = signal(false);
-  fondoInicial = signal(0);
+  /**
+   * `[CG.42]` **`null` = no se midió**, y es el estado INICIAL. Antes arrancaba en `0` y el
+   * formulario siempre mandaba un número, así que el `undefined` que `[CG.39]` necesitaba para
+   * guardar `NULL` **no se podía producir desde la pantalla**: la única vía real de abrir caja
+   * seguía afirmando "arrancó vacía", ahora encima rotulada como `contado`.
+   */
+  fondoInicial = signal<number | null>(null);
   morrallaCorte = signal(0);
   conteoCorte = signal<DenominacionCapturada[]>([]);
   saldoResp = signal<SaldoResponse | null>(null);
@@ -2118,7 +2124,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     if (!s || !co || s.saldo == null) return null;
     const t = s.totales;
     return {
-      fondo: Number(co.fondo_inicial) || 0,
+      // `[CG.42]` `null` se conserva: "no se midió" no es "arrancó en cero".
+      fondo: co.fondo_inicial == null ? null : Number(co.fondo_inicial),
       ingresos: Number(t?.ingresos) || 0,
       gastos: Number(t?.gastos) || 0,
       depositos: Number(t?.depositos) || 0,
@@ -2709,7 +2716,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.pedirPropuesta();
   }
 
-  abrirApertura(): void { this.fondoInicial.set(0); this.abrirConFoco(this.aperturaAbierta); }
+  abrirApertura(): void { this.fondoInicial.set(null); this.abrirConFoco(this.aperturaAbierta); }
 
   /** Si se cancela la apertura, la intención de cerrar NO queda colgada esperando. */
   cancelarApertura(): void { this.cerrarTrasAbrir.set(false); this.cerrarConFoco(this.aperturaAbierta); }
@@ -2722,12 +2729,17 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // devuelve MAÑANA, y el corte nacía con fecha de mañana.
       fecha: todayMx(),
       sucursal: this.sucursalActiva,
-      fondo_inicial: this.fondoInicial(),
+      // `null` → `undefined`: es la forma exacta que `abrir()` traduce a `NULL` + `sin_medir`.
+      // Mandar `null` NO sirve: el servicio compara contra `undefined`.
+      fondo_inicial: this.fondoInicial() ?? undefined,
     }).subscribe({
       next: () => {
         this.abriendo.set(false);
         this.aperturaAbierta.set(false);
-        this.avisarOk('Corte abierto', `Fondo inicial ${money(this.fondoInicial())}`);
+        const f = this.fondoInicial();
+        this.avisarOk('Corte abierto', f == null
+          ? 'Sin fondo inicial medido: el arqueo no va a poder decir si cuadra.'
+          : `Fondo inicial ${money(f)}`);
         this.cargarSaldo(); this.cargarCortes(); this.cargarArqueo();
         // [CG.29] Si la apertura vino de "rendir cuentas", se sigue DERECHO al conteo: el gesto
         // es uno solo. Sin esto la persona quedaba con el corte abierto y sin saber que le

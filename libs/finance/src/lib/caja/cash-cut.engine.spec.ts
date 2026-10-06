@@ -386,3 +386,58 @@ describe('avisoLibroVacio', () => {
     expect(m).toContain('100,000');
   });
 });
+
+// ── `[CG.42]` EL FONDO SIN MEDIR ───────────────────────────────────────────────────────────────
+//
+// `[CG.39]` separó dos hechos que antes caían en el mismo cero: `NULL` = no se midió con qué
+// arrancó la caja; `0` = se contó y estaba vacía. Arregló la ESCRITURA y dejó la LECTURA: el motor
+// hacía `Number(fondoInicial || 0)`, así que la distinción moría acá y el arqueo volvía a inventar
+// un sobrante del tamaño exacto del fondo de cambio.
+describe('calcularCorte — fondo sin medir ([CG.42])', () => {
+  const unIngreso = [{ tipo: 'ingreso' as const, monto: 100, estado: 'registrado' }];
+  const conteoDe100 = [{ denominacion: 100, piezas: 1 }];
+
+  it('fondo NULL marca fondo_sin_medir y el veredicto es sin_base, NUNCA cuadra', () => {
+    const t = calcularCorte({ fondoInicial: null, movimientos: unIngreso, conteo: conteoDe100 });
+    expect(t.fondo_sin_medir).toBe(true);
+    // La aritmética da 0 de diferencia, y precisamente por eso habría dicho "cuadra":
+    // coincidir con un supuesto no es cuadrar.
+    expect(t.diferencia).toBe(0);
+    expect(t.veredicto).toBe('sin_base');
+    expect(t.veredicto).not.toBe('cuadra');
+  });
+
+  it('[negativa] fondo 0 SÍ es una medición: cuadra normal y no marca sin_medir', () => {
+    const t = calcularCorte({ fondoInicial: 0, movimientos: unIngreso, conteo: conteoDe100 });
+    expect(t.fondo_sin_medir).toBe(false);
+    expect(t.veredicto).toBe('cuadra');
+  });
+
+  it('[negativa] el cero no se cuela por el `||`: 0 y null tienen que dar veredictos distintos', () => {
+    const conCero = calcularCorte({ fondoInicial: 0, movimientos: unIngreso, conteo: conteoDe100 });
+    const sinMedir = calcularCorte({ fondoInicial: null, movimientos: unIngreso, conteo: conteoDe100 });
+    expect(conCero.esperado).toBe(sinMedir.esperado); // misma aritmética…
+    expect(conCero.veredicto).not.toBe(sinMedir.veredicto); // …distinta afirmación
+  });
+
+  it('sin contar gana sobre sin_base: si nadie contó, no hay con qué comparar', () => {
+    const t = calcularCorte({ fondoInicial: null, movimientos: unIngreso });
+    expect(t.veredicto).toBe('sin_contar');
+    expect(t.fondo_sin_medir).toBe(true); // el hecho viaja igual
+  });
+
+  it('undefined se trata como null: no se midió', () => {
+    const t = calcularCorte({ fondoInicial: undefined as unknown as null, movimientos: unIngreso, conteo: conteoDe100 });
+    expect(t.fondo_sin_medir).toBe(true);
+  });
+
+  it('el arqueo CIEGO conserva fondo_sin_medir sin revelar el esperado', () => {
+    const t = calcularCorte({ fondoInicial: null, movimientos: unIngreso, conteo: conteoDe100 });
+    const ciego = proyectarCiego(t, false) as Record<string, unknown>;
+    // Quien cuenta tiene que saber que no hay base ANTES de contar; eso no revela nada.
+    expect(ciego['fondo_sin_medir']).toBe(true);
+    expect(ciego['esperado']).toBeUndefined();
+    expect(ciego['diferencia']).toBeUndefined();
+    expect(ciego['veredicto']).toBeUndefined();
+  });
+});

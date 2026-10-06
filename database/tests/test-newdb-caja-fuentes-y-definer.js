@@ -221,6 +221,54 @@ const VISTAS_DEFINER = [
       }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    // `[CG.42]` LA HUELLA DE LA CARRERA, no el mecanismo.
+    //
+    // `cancelarMovimiento()` leía el estado del corte **sin bloquear**, así que entre el `SELECT`
+    // del corte y el `UPDATE` del movimiento cabía un `cerrar()`: se podía cancelar un movimiento
+    // que ya había entrado a un cuadre firmado — justo lo que su propio mensaje de error promete
+    // que no pasa.
+    //
+    // ⭐ No se vigila "¿tiene forUpdate?" (un grep sobre el fuente no prueba que corra), sino el
+    // RASTRO que la carrera deja en los datos y que no se puede fabricar de otra forma:
+    //
+    //   · cancelar ANTES de cerrar es LEGAL — `cerrar()` adjunta los cancelados a propósito,
+    //     conservando su estado, para que el corte deje constancia de que se cancelaron.
+    //   · cancelar DESPUÉS de cerrar es la carrera, y se distingue por una sola cosa:
+    //     `cancelled_at > closed_at`.
+    console.log('\n[5] Ningún movimiento se canceló DESPUÉS de que su corte se firmó');
+    const cl = (await c.query(`SELECT to_regclass('finance.cash_ledger') r`)).rows[0].r;
+    const cc = (await c.query(`SELECT to_regclass('finance.cash_ledger_cuts') r`)).rows[0].r;
+    if (!cl || !cc) {
+      skip('faltan finance.cash_ledger / cash_ledger_cuts en esta DB');
+    } else {
+      const firmados = (await c.query(
+        `SELECT count(*)::int n FROM finance.cash_ledger_cuts WHERE estado IN ('cerrado','autorizado')`)).rowCount
+        ? (await c.query(`SELECT count(*)::int n FROM finance.cash_ledger_cuts WHERE estado IN ('cerrado','autorizado')`)).rows[0].n
+        : 0;
+      const r = (await c.query(`
+        SELECT count(*)::int n,
+               COALESCE(round(sum(l.monto), 2), 0)::float monto
+          FROM finance.cash_ledger l
+          JOIN finance.cash_ledger_cuts k ON k.id = l.corte_id AND k.tenant_id = l.tenant_id
+         WHERE l.estado = 'cancelado'
+           AND k.closed_at IS NOT NULL
+           AND l.cancelled_at IS NOT NULL
+           AND l.cancelled_at > k.closed_at`)).rows[0];
+
+      ok(r.n === 0,
+        `0 movimientos cancelados después del cierre de su corte (hay ${r.n}${r.n ? ` por $${r.monto}` : ''})`);
+
+      // ⛔ Sin cortes firmados el ✓ de arriba es trivial —no hay con qué violarlo— y un verde
+      // trivial se lee igual que un verde ganado. Se DECLARA (ADR-056).
+      if (firmados === 0) {
+        skip(`no hay ni un corte cerrado o autorizado en esta DB (${firmados}), así que el invariante `
+          + 'de arriba no se pudo EJERCER: pasa por vacío, no por sano. NO es un ✓ ganado.');
+      } else {
+        console.log(`    ⓘ ejercido contra ${firmados} corte(s) firmado(s).`);
+      }
+    }
+
     console.log(`\n${fail ? '✖' : '✔'} ${pass} ✓ / ${fail} ✗ / ${sinMedir} no medido`);
     process.exit(fail ? 1 : 0);
   } finally {
