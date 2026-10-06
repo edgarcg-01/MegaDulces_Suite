@@ -347,6 +347,9 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
    - **Espacios de espera de checado y embarque: `E01`, `E02`…** Se renombran (autorizado por
      Francisco, 2026-10-06) porque los nombres de hoy (`A1`…`B3`) chocaban con bodega `B01`–`B03`.
      La letra dice el tipo: `B` bodega · `T` tienda · `E` espera · `C` carreta.
+   - ⚠️ **Choque de letras a resolver:** `C` ya es carreta (`C52`) **y** el prefijo de la etiqueta
+     de caja de producto (`C06001`). No se confunden por largo (2 dígitos contra la clave completa),
+     pero falta letra para los **contenedores de plástico** (GP §5c): se propone `K01`, `K02`…
    - Carretas `C52`, estibas por unidad.
 5. **Reposición de anaquel = tarea del anaquelista** (amplía WMS.7 al piso de venta): bodega →
    anaquel cuando la exhibición baja del mínimo. Se liga a la lista de faltantes de piso (Fase FLT)

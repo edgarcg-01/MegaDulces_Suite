@@ -333,6 +333,25 @@ Es lo que los WMS líderes llaman **bulto con identidad** (LPN / handling unit).
 Resultado: el manifiesto del pedido deja de ser un comentario escrito a mano (`CJ 16 P 10 UB 6`) y
 pasa a ser una lista de bultos con contenido y ubicación.
 
+**Tres tipos de bulto** (Francisco, 2026-10-06):
+
+| Tipo | Qué es | Contiene | Identificación | Vida |
+|---|---|---|---|---|
+| **CJ** | Caja cerrada del producto | Un producto | `C`+clave, impresa al ingresar | Sale con el cliente |
+| **P** | Caja de cartón de paquetería | **Un pedido** | Etiqueta impresa al cerrar (`PD 0002781 · P3 de 10`) | Sale con el cliente |
+| **Contenedor de plástico** | Caja de plástico | **Pedidos muy chicos de VARIOS clientes** (no se embolsan) | **Número o QR fijo**, pegado una vez | **Regresa** al almacén |
+
+Lo que cambia por el contenedor de plástico:
+- **El contenido se registra por pedido dentro del contenedor**: al escanear, cada artículo queda
+  ligado al contenedor **y** a su pedido. El repartidor ve qué le toca a cada cliente.
+- **Se reutiliza**: su número es permanente, no se imprime por pedido. Se libera cuando se entrega
+  todo su contenido, y la Suite puede saber **qué contenedores no han regresado**.
+- Un pedido puede estar repartido entre una `P` propia y un contenedor compartido; el manifiesto del
+  pedido lista los dos.
+
+**Productos por peso:** se identifican igual por su código (ej. `17083` ALTOS CAM CHICA COLOR 1KG,
+base kilogramo, bulto de 20 kg = `C17083`); el peso exacto se captura en la báscula del checado.
+
 **Dato propio de la Suite** (tabla real, permitido: no existe en Kepler): bulto (pedido, número,
 tipo P/CJ, ubicación, estado) + contenido (bulto, producto, unidad, cantidad).
 
