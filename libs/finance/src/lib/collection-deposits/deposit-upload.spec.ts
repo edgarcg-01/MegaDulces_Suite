@@ -19,7 +19,6 @@
  * el `comprobante` de pago a proveedor porque es el SPEI o el cheque. Si alguien algún día
  * "arregla" los tres de un saque, estas pruebas se ponen rojas.
  */
-import { describe, expect, it, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { CollectionDepositsService } from './collection-deposits.service';
 
