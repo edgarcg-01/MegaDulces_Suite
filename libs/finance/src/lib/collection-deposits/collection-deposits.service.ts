@@ -123,17 +123,39 @@ export class CollectionDepositsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 300));
     const soloFicha = q.incluir_todas !== '1' && !q.forma_pago;
+    /*
+     * `[CC.20]` **Qué tarda, medido — antes era opinión.**
+     *
+     * Medido contra prod el 2026-10-06: `analytics.erp_collections` es una VISTA sobre el ODS,
+     * sin índices posibles, y el plan real la materializa entera —27,549 filas— antes de ordenar
+     * y recortar a 300. **En frío 1,205 ms; en caliente ~240 ms, y se escanea DOS veces por
+     * carga** (la lista y los KPIs, que van sobre todo el universo a propósito).
+     *
+     * ⛔ Acotar por fecha NO ayuda: 240 ms con ventana de 30 días y 240 ms sin ninguna — el
+     * filtro no se empuja dentro de la vista. O sea que el default de la pantalla no es el
+     * problema, y cambiarlo sería optimizar la cosa equivocada.
+     *
+     * El arreglo de fondo es materializar la vista con refresco nocturno (patrón `[IC.12]`), que
+     * es una migración con su propio candado y no entra en un hotfix. Hasta entonces esto PUBLICA
+     * el costo en la respuesta y avisa en el log arriba de 1 s, que es el gate de aceptación.
+     */
+    const reloj = Date.now();
+    const tiempos: Record<string, number> = {};
 
     return this.tk.run(async (trx) => {
+      const marca = async <T>(k: string, p: Promise<T>): Promise<T> => {
+        const t0 = Date.now();
+        try { return await p; } finally { tiempos[k] = Date.now() - t0; }
+      };
       // Folios electrónicos que aparecen en MÁS DE UN cobro vivo (mismo depósito
       // aplicado a varios cobros) → se marcan para revisión.
-      const dupRefs: string[] = await trx('finance.collection_deposits')
+      const dupRefs: string[] = await marca('duplicados', trx('finance.collection_deposits')
         .where('tenant_id', tenantId)
         .whereNot('status', 'rechazado')
         .whereNotNull('ref_norm')
         .groupBy('ref_norm')
         .havingRaw('count(distinct sucursal || \'/\' || folio) > 1')
-        .pluck('ref_norm');
+        .pluck('ref_norm'));
       const dupSet = new Set(dupRefs);
 
       // Evidencia agregada por (sucursal, folio): cuántas, último estado, si alguna cuadra.
@@ -178,7 +200,7 @@ export class CollectionDepositsService {
         numeric: ['c.monto'],
       });
 
-      const rows = (await b).map((r: any) => {
+      const rows = (await marca('filas', b as unknown as Promise<any[]>)).map((r: any) => {
         const refs: string[] = Array.isArray(r.refs) ? r.refs : [];
         const refDup = refs.some((x) => dupSet.has(x));
         const cuentaAjena = r.cuenta_ajena === true;
@@ -195,13 +217,22 @@ export class CollectionDepositsService {
       if (q.tipo_cuenta) kpiBase.where('c.tipo_cuenta', q.tipo_cuenta);
       if (q.from) kpiBase.where('c.cobro_date', '>=', q.from);
       if (q.to) kpiBase.where('c.cobro_date', '<=', q.to);
-      const [k] = await kpiBase.select(
+      const [k] = await marca('kpis', kpiBase.select(
         trx.raw('COUNT(*)::int AS cobros'),
         trx.raw('COUNT(d.n)::int AS con_comprobante'),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validado')::int AS validados`),
         trx.raw('COALESCE(SUM(c.monto::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente'),
         trx.raw('COUNT(*) FILTER (WHERE d.cuenta_ajena)::int AS cuentas_ajenas'),
-      );
+      ) as unknown as Promise<any[]>);
+
+      tiempos['total'] = Date.now() - reloj;
+      if (tiempos['total'] > 1000) {
+        this.logger.warn(
+          `lista de cobranza lenta: ${tiempos['total']} ms `
+          + `(duplicados ${tiempos['duplicados']} · filas ${tiempos['filas']} · kpis ${tiempos['kpis']}) `
+          + `estado=${q.estado || '-'} desde=${q.from || '-'} buscar=${q.search ? 'sí' : 'no'}`,
+        );
+      }
 
       return {
         kpis: {
@@ -210,6 +241,7 @@ export class CollectionDepositsService {
           cuentas_ajenas: Number(k.cuentas_ajenas), refs_duplicadas: dupSet.size,
         },
         rows,
+        tiempos_ms: tiempos,
       };
     });
   }
@@ -252,16 +284,35 @@ export class CollectionDepositsService {
     });
   }
 
-  /** Sube UN archivo (ficha/evidencia) a Cloudinary y devuelve su referencia. Imagen o PDF. */
+  /**
+   * Sube UN archivo (ficha/evidencia) al bucket privado y devuelve su referencia. **Imagen o PDF.**
+   *
+   * ⛔ **Acá se llamaba a `putPdf`, que rechaza imágenes con 400 «Solo se aceptan archivos PDF.»**
+   * O sea que el botón **«Tomar foto»** de la pantalla —`accept="image/*" capture="environment"`,
+   * el camino pensado para quien tiene la ficha del banco en la mano— **fallaba siempre**. Y el
+   * rótulo del campo dice literal *«Ficha de depósito (imagen o PDF)»*: la pantalla prometía una
+   * cosa y la frontera devolvía la contraria.
+   *
+   * No era una restricción, era una contradicción: la firma de este método ya decía «Imagen o
+   * PDF», `runOcr` de abajo dice «la ficha (imagen/PDF)», y `extractDepositSlip` lee las dos.
+   *
+   * ⚠️ **NO se toca a los hermanos, que sí rechazan por decisión:** la remisión de entradas
+   * (`goods-receipt-proofs`) es sólo PDF porque una remisión de tres hojas no se sostiene en
+   * fotos sueltas, y el `comprobante` de pago a proveedor es sólo PDF porque es el SPEI o el
+   * cheque. Acá el documento es **una ficha de una sola hoja que se fotografía en la ventanilla**.
+   *
+   * El resto del camino ya la tolera: `signFiles` firma por key sin mirar la extensión y
+   * `getDataUri` contempla un `ContentType` de imagen.
+   */
   async uploadFile(dataUri: string, role = 'deposito'): Promise<DepositFile> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     if (!DEPOSIT_FILE_ROLES.includes(role as DepositFileRole)) throw new BadRequestException(`role inválido: ${role}`);
     try {
-      const f = await this.storage.putPdf(dataUri, `finance/${tenantId}/collection-deposits`); // solo PDF → Railway Bucket
+      const f = await this.storage.putFile(dataUri, `finance/${tenantId}/collection-deposits`);
       return { role, url: f.key, public_id: f.key, kind: f.kind };
     } catch (e: any) {
-      if (e?.status === 400) throw e; // "Solo PDF" / "no configurado"
+      if (e?.status === 400) throw e; // "no configurado" → mensaje directo al usuario
       this.logger.error(`fallo subiendo ficha (${role}): ${e?.message || e}`);
       throw new BadRequestException('no se pudo subir el archivo');
     }
@@ -660,7 +711,7 @@ export class CollectionDepositsService {
       if (q.search) { cond.push('AND m.concept ILIKE ?'); filtros.push(`%${q.search}%`); }
 
       const sql = `
-        -- [CC.9] Los folios YA ligados, aparte y materializados. Meter este NOT EXISTS dentro
+        -- [CC.20] Los folios YA ligados, aparte y materializados. Meter este NOT EXISTS dentro
         -- de "cob" era lo que mataba la consulta: el planificador estima esa CTE en rows=1
         -- cuando trae ~24,000, elige Nested Loop Anti Join y recorre bank_recon_matches por
         -- cada cobro. Es la misma mala estimacion que documento [PERF.4b] para
@@ -693,7 +744,7 @@ export class CollectionDepositsService {
         -- [CC.8] Los cobros de Kepler que TODAVIA no estan ligados a ningun abono.
         -- NO se filtra por forma_pago. El porque, con sus numeros, en el JSDoc del metodo.
         --
-        -- [CC.9] Cada cobro se expande a SUS TRES CUBETAS de monto. Con tolerancia de
+        -- [CC.20] Cada cobro se expande a SUS TRES CUBETAS de monto. Con tolerancia de
         -- ${BANK_TOL} peso, un cobro que case esta a lo sumo una cubeta de distancia, asi que
         -- tres filas por cobro convierten el cruce en una IGUALDAD -- y por igualdad Postgres
         -- hace hash join. Se expande este lado (24k -> 72k) y no el de los abonos porque es
