@@ -6,8 +6,53 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
-import { TenantContextService } from '@megadulces/platform-core';
+import { TenantContextService, ScopeService } from '@megadulces/platform-core';
 import { repartirOla, resumenPorPedido } from './allocation';
+import {
+  ROUTE_KINDS,
+  type RouteKind,
+  orderRouteSql,
+  routeKindFilterSql,
+  routeKindMotivoSql,
+} from '../shared/route-kind.sql';
+
+/**
+ * `[VEC.8]` Agrupa las filas del pool por (sucursal, ruta). **Función pura** a propósito: es
+ * lo que permite probarla con entradas armadas, incluida la que de verdad importa — la misma
+ * ruta en dos sucursales, que tiene que dar DOS grupos y no uno.
+ */
+export function agruparPool(
+  rows: ReadonlyArray<Record<string, unknown>>,
+): PoolGrupo[] {
+  const m = new Map<string, PoolGrupo>();
+  for (const r of rows) {
+    // La clave lleva la sucursal PRIMERO: el surtidor camina un almacén, y mezclar dos rutas
+    // del mismo almacén es un problema distinto (y menor) que mezclar dos almacenes.
+    const k = `${r['warehouse_id'] as string}|${(r['sales_route'] as string) ?? ''}`;
+    const g = m.get(k) ?? {
+      warehouse_id: r['warehouse_id'] as string,
+      warehouse_name: (r['warehouse_name'] as string) ?? null,
+      sales_route: (r['sales_route'] as string) ?? null,
+      route_kind: (r['route_kind'] as string) ?? null,
+      route_kind_motivo: (r['route_kind_motivo'] as string) ?? null,
+      pedidos: 0,
+      renglones: 0,
+      unidades: '0',
+      total: '0',
+    };
+    g.pedidos += 1;
+    g.renglones += Number(r['lines'] ?? 0);
+    g.unidades = String(Number(g.unidades) + Number(r['units'] ?? 0));
+    g.total = String(Number(g.total) + Number(r['total'] ?? 0));
+    m.set(k, g);
+  }
+  // Lo más grande primero: es donde consolidar rinde. Y a igualdad, por nombre de ruta para
+  // que el orden sea ESTABLE — una lista que se reordena sola entre recargas se lee como si
+  // hubieran cambiado los datos.
+  return [...m.values()].sort(
+    (a, b) => b.pedidos - a.pedidos || (a.sales_route ?? '').localeCompare(b.sales_route ?? ''),
+  );
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -16,6 +61,39 @@ export interface PoolQuery {
   warehouse_id?: string;
   delivery_date?: string;
   limit?: number;
+  /**
+   * `[VEC.3]` Tipos de ruta a incluir (`vecinal`, `camion`, …). Vacío o ausente = **todos**,
+   * que es el comportamiento que el pool ya tenía — este filtro no cambia nada si no se pide.
+   */
+  route_kind?: readonly string[];
+  /**
+   * `[VEC.8]` UNA ruta concreta (`'1V004 JUAN ANGEL LOPEZ'`). Es el valor de
+   * `trade.catalogs.value`, que coincide exacto con `customers.sales_route`.
+   *
+   * ⚠️ **Sola no alcanza para armar una ola**: la misma ruta existe en dos sucursales (medido:
+   * `RUTA 23` está en Padre Hidalgo y en La Piedad Abastos). Siempre con `warehouse_id`.
+   */
+  sales_route?: string;
+}
+
+/**
+ * `[VEC.8]` Un grupo del pool: los pedidos de UNA ruta en UNA sucursal.
+ *
+ * El grano es **(sucursal, ruta)** y no sólo la ruta, porque la misma ruta aparece en dos
+ * sucursales. Armar "la ola de RUTA 23" sin acotar el almacén juntaría mercancía de dos
+ * bodegas — un recorrido imposible, que `createWave` rechaza con 409, pero recién después de
+ * que la persona ya creyó que iba a funcionar.
+ */
+export interface PoolGrupo {
+  warehouse_id: string;
+  warehouse_name: string | null;
+  sales_route: string | null;
+  route_kind: string | null;
+  route_kind_motivo: string | null;
+  pedidos: number;
+  renglones: number;
+  unidades: string;
+  total: string;
 }
 
 export interface CreateWaveDto {
@@ -46,6 +124,9 @@ export class PickingService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    // [VEC.4] El recorte por sucursal de la bandeja de avisos. Primitivo existente — no se
+    // reimplementa el alcance leyendo `users.warehouse_id` a mano.
+    private readonly scope: ScopeService,
   ) {}
 
   /**
@@ -83,6 +164,21 @@ export class PickingService {
 
       if (q.warehouse_id) qb = qb.where('o.warehouse_id', q.warehouse_id);
       if (q.delivery_date) qb = qb.where('o.requested_delivery_date', q.delivery_date);
+      // [VEC.3] Filtro por tipo de ruta. Los tipos se validan contra la taxonomía ANTES de
+      // llegar al SQL: un tipo inventado tiene que ser un 400, no un pool vacío que se lee
+      // como "hoy no hay nada que surtir".
+      if (q.route_kind?.length) {
+        const malos = q.route_kind.filter((k) => !ROUTE_KINDS.includes(k as RouteKind));
+        if (malos.length) {
+          throw new BadRequestException(
+            `route_kind inválido: ${malos.join(', ')}. Válidos: ${ROUTE_KINDS.join(', ')}`,
+          );
+        }
+        qb = qb.whereRaw(routeKindFilterSql(q.route_kind, 'c'));
+      }
+      // [VEC.8] Una ruta concreta. Se compara contra `customers.sales_route`, que es la misma
+      // cadena que `trade.catalogs.value` — por eso no hace falta resolver el id.
+      if (q.sales_route) qb = qb.where('c.sales_route', q.sales_route);
 
       const rows = await qb
         .select(
@@ -96,6 +192,13 @@ export class PickingService {
           'o.total',
           'o.confirmed_at',
           'o.created_at',
+          // [VEC.3] De qué ruta viene el pedido y de qué tipo es. Van SIEMPRE, no sólo al
+          // filtrar: si el surtidor no ve el tipo, no puede notar que un pedido cayó en la
+          // ola equivocada — y el motivo separa "el cliente no tiene ruta" (lo arregla quien
+          // captura) de "la ruta no está declarada" (lo arregla Dirección).
+          trx.raw(`${orderRouteSql('c', 'value')} AS sales_route`),
+          trx.raw(`${orderRouteSql('c', 'route_kind')} AS route_kind`),
+          trx.raw(`${routeKindMotivoSql('c')} AS route_kind_motivo`),
           trx.raw('(SELECT count(*) FROM commercial.order_lines ol WHERE ol.order_id = o.id)::int AS lines'),
           trx.raw('(SELECT coalesce(sum(ol.quantity),0) FROM commercial.order_lines ol WHERE ol.order_id = o.id)::numeric AS units'),
         )
@@ -107,8 +210,261 @@ export class PickingService {
         data: rows,
         count: rows.length,
         capped: rows.length === limit,
+        // [VEC.8] Los grupos (sucursal, ruta): "que no se mezcle mercancía" empieza por poder
+        // VER cuánto hay de cada ruta antes de caminar.
+        //
+        // ⚠️ Se agregan sobre LAS MISMAS filas que se devuelven, no con un segundo SELECT.
+        // Un `GROUP BY` aparte volvería a aplicar los filtros y el `limit` por su cuenta, y el
+        // día que uno de los dos cambie, la pantalla mostraría 7 pedidos en la tabla y 9 en el
+        // encabezado del grupo. Derivar del mismo origen hace imposible esa divergencia.
+        grupos: agruparPool(rows),
         // ⚠️ Frescura del pool: lo creado sin señal todavía no llegó. No es un contador que
         // podamos calcular — es una ausencia, y se declara como tal.
+        pendiente_offline: 'no_medible_desde_el_servidor',
+      };
+    });
+  }
+
+  /**
+   * `[VEC.4]` La bandeja de la sucursal: pedidos que le avisaron que tiene que armar.
+   *
+   * ── En qué se diferencia del pool ───────────────────────────────────────────────────
+   * El pool es una **lectura derivada del estado** ("qué está listo para surtir ahora"). Esta
+   * bandeja es el **registro de un hecho con acuse** ("a esta sucursal se le avisó, y alguien
+   * lo vio o no"). Un pedido ya surtido sale del pool pero su aviso queda — así se puede
+   * responder *"¿nos avisaron?"* días después, que es justo lo que hoy no se puede.
+   *
+   * ⚠️ El recorte por sucursal sale de `ScopeService`, **no** de `identity.users.warehouse_id`.
+   * Medido 2026-10-06: sólo **1 de los 6 `almacenista`** tiene esa columna; filtrar por ella
+   * dejaría ciegas a 5 de las 6 personas que arman, y la función se vería entregada sirviendo
+   * cero. `ScopeService` devuelve `null` (= sin recorte) para quien no tiene alcance declarado:
+   * se prefiere un aviso de más, que se nota, a uno de menos, que no.
+   */
+  async avisos(query: Record<string, unknown> | undefined, soloPendientes = false) {
+    const almacenes = await this.scope.warehouseIds(query, 'reparto/surtido/avisos');
+    // `[]` = el alcance existe y no incluye ningún almacén vivo → no hay nada que mostrar.
+    // Es DISTINTO de `null` (sin recorte). Confundirlos sería mostrarle todo a quien no debe.
+    if (almacenes !== null && almacenes.length === 0) {
+      return { data: [], count: 0, alcance: 'ninguno' as const, pendientes: 0 };
+    }
+
+    return this.tk.run(async (trx) => {
+      let qb = trx('commercial.order_notifications as n')
+        .join('commercial.orders as o', function () {
+          this.on('o.id', '=', 'n.order_id').andOn('o.tenant_id', '=', 'n.tenant_id');
+        })
+        .leftJoin('commercial.customers as c', function () {
+          this.on('c.id', '=', 'o.customer_id').andOn('c.tenant_id', '=', 'o.tenant_id');
+        })
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.id', '=', 'n.warehouse_id').andOn('w.tenant_id', '=', 'n.tenant_id');
+        });
+
+      if (almacenes !== null) qb = qb.whereIn('n.warehouse_id', almacenes);
+      if (soloPendientes) qb = qb.whereNull('n.seen_at');
+
+      const rows = await qb
+        .select(
+          'n.id',
+          'n.order_id',
+          'n.warehouse_id',
+          'w.name as warehouse_name',
+          'n.created_at',
+          'n.seen_at',
+          'o.code',
+          'o.status',
+          'o.total',
+          'o.requested_delivery_date',
+          'c.name as customer_name',
+          // Mismo primitivo que el pool: el tipo de ruta y el motivo de su ausencia.
+          trx.raw(`${orderRouteSql('c', 'value')} AS sales_route`),
+          trx.raw(`${orderRouteSql('c', 'route_kind')} AS route_kind`),
+          trx.raw(`${routeKindMotivoSql('c')} AS route_kind_motivo`),
+          // ⭐ Que el pedido YA esté en una ola es lo que convierte la bandeja en algo
+          // accionable: sin esto el almacén no distingue "falta armarlo" de "ya lo armé".
+          trx.raw(`EXISTS (SELECT 1 FROM commercial.wave_orders wo
+                            WHERE wo.order_id = n.order_id AND wo.tenant_id = n.tenant_id) AS en_ola`),
+        )
+        // Lo no visto primero; dentro de eso, lo más viejo arriba — un aviso de hace tres días
+        // es más urgente que el de hace diez minutos, y el orden tiene que decirlo.
+        .orderByRaw('n.seen_at IS NOT NULL, n.created_at ASC')
+        .limit(300);
+
+      const pendientes = rows.filter((r: { seen_at: Date | null }) => !r.seen_at).length;
+      return {
+        data: rows,
+        count: rows.length,
+        pendientes,
+        alcance: almacenes === null ? ('todos' as const) : ('recortado' as const),
+      };
+    });
+  }
+
+  /**
+   * `[VEC.4]` Acuse: alguien de la sucursal vio el aviso.
+   *
+   * ⚠️ `seen_at` y `seen_by` van JUNTOS (lo exige el CHECK de la tabla) y **sólo la primera
+   * vez**: el `WHERE seen_at IS NULL` conserva quién lo vio primero. Sobrescribirlo con cada
+   * clic convertiría el acuse en "el último que pasó por acá", que no sirve para auditar nada.
+   */
+  async marcarVisto(id: string) {
+    if (!UUID_RE.test(id)) throw new BadRequestException('id inválido');
+    const userId = this.tenantCtx.get()?.userId || null;
+    if (!userId) throw new BadRequestException('sin usuario en contexto: el acuse necesita autor');
+
+    return this.tk.run(async (trx) => {
+      const [fila] = await trx('commercial.order_notifications')
+        .where({ id })
+        .whereNull('seen_at')
+        .update({ seen_at: trx.fn.now(), seen_by: userId })
+        .returning('*');
+      if (fila) return fila;
+
+      // No actualizó: o no existe, o ya estaba visto. Son dos cosas distintas y el que
+      // llama merece saber cuál — un 404 sobre un aviso ya acusado confunde al operador.
+      const previa = await trx('commercial.order_notifications').where({ id }).first();
+      if (!previa) throw new NotFoundException(`Aviso ${id} no encontrado`);
+      return previa; // ya estaba visto: idempotente, no es un error
+    });
+  }
+
+  /**
+   * `[VEC.10]` Lo que NO se va a poder surtir, y de qué sucursal traerlo.
+   *
+   * ── Qué resuelve ────────────────────────────────────────────────────────────────────
+   * Hoy el faltante se descubre **en el anaquel**, con el recorrido ya empezado. Medido en
+   * prod: **13 renglones de 11 pedidos** (41% de los que esperan) no tienen existencia
+   * suficiente en su sucursal. Esto los saca a la luz ANTES de caminar, y dice dónde sí están.
+   *
+   * ── Qué significa "la más cercana" ──────────────────────────────────────────────────
+   * Distancia en línea recta (haversine) **desde la sucursal que surte el pedido**, no desde
+   * el vendedor. Lo definió Edgar y además es lo único medible: cada ruta tiene su sucursal
+   * base asignada, mientras que la posición del vendedor depende de un GPS que hoy casi no
+   * reporta (medido: 1,094 pings de 6 personas en 3 meses, el último hace 81 días).
+   *
+   * ⚠️ Es línea recta, no carretera. Para decidir "¿voy a 8ESQ o a Padre Hidalgo?" (0.8 vs
+   * 2.3 km) alcanza y sobra; para 110 km contra 115 km no decide nada — y por eso la pantalla
+   * muestra el número en vez de un veredicto.
+   *
+   * ⚠️ **CEDIS no tiene coordenada** (declarado en la migración `20261006150000`). No se lo
+   * excluye en silencio: sale al final de la lista marcado `sin_coordenada`, porque tener
+   * mercancía y no saber a qué distancia está es distinto de no tenerla.
+   */
+  async faltantes(q: PoolQuery = {}) {
+    if (q.warehouse_id && !UUID_RE.test(q.warehouse_id))
+      throw new BadRequestException('warehouse_id inválido');
+    if (q.delivery_date && !DATE_RE.test(q.delivery_date))
+      throw new BadRequestException('delivery_date debe ser YYYY-MM-DD');
+    if (q.route_kind?.length) {
+      const malos = q.route_kind.filter((k) => !ROUTE_KINDS.includes(k as RouteKind));
+      if (malos.length) {
+        throw new BadRequestException(`route_kind inválido: ${malos.join(', ')}`);
+      }
+    }
+
+    return this.tk.run(async (trx) => {
+      // Haversine en SQL. Se escribe UNA vez y se reusa en el SELECT y en el ORDER BY: con
+      // dos copias, el día que alguien toque una, la lista se ordenaría por un número
+      // distinto del que muestra — y nadie lo notaría.
+      const KM = `(6371 * 2 * asin(sqrt(
+        power(sin(radians(w2.latitude - b.lat1) / 2), 2) +
+        cos(radians(b.lat1)) * cos(radians(w2.latitude)) *
+        power(sin(radians(w2.longitude - b.lng1) / 2), 2))))`;
+
+      const { rows } = await trx.raw(
+        `WITH base AS (
+           SELECT o.id AS order_id, o.code, o.warehouse_id,
+                  w1.name AS warehouse_name, w1.latitude AS lat1, w1.longitude AS lng1,
+                  c.name AS customer_name, c.sales_route,
+                  ${orderRouteSql('c', 'route_kind')} AS route_kind,
+                  ol.product_id, ol.quantity AS pedida,
+                  COALESCE(s.quantity, 0) AS hay,
+                  (ol.quantity - COALESCE(s.quantity, 0)) AS falta
+             FROM commercial.orders o
+             JOIN commercial.order_lines ol ON ol.order_id = o.id
+             JOIN commercial.warehouses w1 ON w1.id = o.warehouse_id AND w1.tenant_id = o.tenant_id
+             LEFT JOIN commercial.customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
+             LEFT JOIN commercial.stock s
+                    ON s.warehouse_id = o.warehouse_id AND s.product_id = ol.product_id
+            WHERE o.status = 'confirmed'
+              AND NOT EXISTS (SELECT 1 FROM commercial.wave_orders wo
+                               WHERE wo.order_id = o.id AND wo.stage <> 'listo_embarque')
+              -- El corazón: lo pedido no cabe en lo que hay.
+              AND COALESCE(s.quantity, 0) < ol.quantity
+              AND (?::uuid IS NULL OR o.warehouse_id = ?::uuid)
+              AND (?::date IS NULL OR o.requested_delivery_date = ?::date)
+              AND (?::text IS NULL OR c.sales_route = ?::text)
+         )
+         SELECT b.order_id, b.code, b.warehouse_id, b.warehouse_name,
+                b.customer_name, b.sales_route, b.route_kind,
+                b.product_id, p.sku, p.description AS product_name,
+                b.pedida::numeric, b.hay::numeric, b.falta::numeric,
+                -- (b.lat1 IS NULL) viaja a la pantalla: si la sucursal del PEDIDO no tiene
+                -- coordenada, ninguna distancia se puede calcular y hay que decirlo.
+                (b.lat1 IS NULL OR b.lng1 IS NULL) AS origen_sin_coordenada,
+                COALESCE(sug.lista, '[]'::json) AS sugerencias
+           FROM base b
+           LEFT JOIN catalog.products p ON p.id = b.product_id
+           LEFT JOIN LATERAL (
+             SELECT json_agg(x ORDER BY x.km IS NULL, x.km) AS lista FROM (
+               SELECT w2.id AS warehouse_id, w2.name,
+                      s2.quantity::numeric AS disponible,
+                      CASE WHEN w2.latitude IS NULL OR w2.longitude IS NULL
+                                OR b.lat1 IS NULL OR b.lng1 IS NULL
+                           THEN NULL ELSE round(${KM}::numeric, 1) END AS km,
+                      (w2.latitude IS NULL OR w2.longitude IS NULL) AS sin_coordenada
+                 FROM commercial.stock s2
+                 JOIN commercial.warehouses w2
+                      ON w2.id = s2.warehouse_id AND w2.tenant_id = s2.tenant_id
+                WHERE s2.product_id = b.product_id
+                  AND s2.warehouse_id <> b.warehouse_id
+                  -- Sólo sirve si alcanza para TODO el faltante. Media solución obliga a
+                  -- dos viajes, y el surtidor no puede decidir eso desde una pantalla.
+                  AND s2.quantity >= b.falta
+                  AND w2.active AND w2.deleted_at IS NULL
+                  -- Los camiones de ruta tienen existencia pero NO son una sucursal a la que
+                  -- se pueda ir a buscar: andan en la calle.
+                  AND w2.kind = 'central'
+                -- ⚠️ Se ordena por la EXPRESION, no por el alias km: dentro de una
+                -- expresion (ORDER BY km IS NULL) Postgres resuelve km como columna de
+                -- ENTRADA y falla con "column km does not exist" -- el alias de salida solo
+                -- vale cuando va solo. Y se reusa la MISMA constante en vez de copiar la
+                -- fórmula: con dos copias, la lista se ordenaría por un número distinto del
+                -- que muestra el día que alguien toque una.
+                -- (ojo: no se nombra la constante acá adentro — esto es un template literal
+                --  y la interpolación ocurre TAMBIÉN dentro de un comentario SQL, pegando
+                --  una fórmula multilínea que rompe el parser. Pasó al escribir esto.)
+                -- NULLS LAST sale gratis: sin coordenada la aritmética ya da NULL, y el que
+                -- no se puede medir se ofrece igual, pero al final.
+                ORDER BY ${KM} NULLS LAST
+                LIMIT 3
+             ) x
+           ) sug ON true
+          ORDER BY b.warehouse_name, b.sales_route NULLS LAST, b.code`,
+        [
+          q.warehouse_id ?? null, q.warehouse_id ?? null,
+          q.delivery_date ?? null, q.delivery_date ?? null,
+          q.sales_route ?? null, q.sales_route ?? null,
+        ],
+      );
+
+      const filtradas = q.route_kind?.length
+        ? rows.filter((r: { route_kind: string | null }) =>
+            q.route_kind?.includes(r.route_kind as string))
+        : rows;
+
+      // Separar los dos "no hay sugerencia" es el punto: uno se resuelve con un traslado y
+      // el otro con una COMPRA. Si se ven igual, alguien sale a buscar lo que no existe.
+      const sinSalida = filtradas.filter(
+        (r: { sugerencias: unknown[] }) => !r.sugerencias?.length,
+      ).length;
+
+      return {
+        data: filtradas,
+        count: filtradas.length,
+        /** Renglones que ninguna sucursal puede cubrir: no es un traslado, es una compra. */
+        sin_alternativa: sinSalida,
+        /** ⚠️ Lo capturado sin señal no llegó: este conteo es de lo que YA está en el servidor. */
         pendiente_offline: 'no_medible_desde_el_servidor',
       };
     });
@@ -310,6 +666,95 @@ export class PickingService {
       this.logger.log(`Ola ${code} creada con ${ids.length} pedido(s)`);
       return { ...wave, orders_count: ids.length };
     });
+  }
+
+  /**
+   * `[VEC.5]` Arma la ola de un tipo de ruta en un clic: **el "pedido global"**.
+   *
+   * ── Por qué un botón y NO un cron ───────────────────────────────────────────────────
+   * El pedido decía "en cuanto agende el pedido … se genera un pedido global". Tomarlo al pie
+   * de la letra —crear/ampliar la ola en el instante de cada `place()`— tiene dos problemas
+   * que lo vuelven peor que el trabajo manual:
+   *
+   *   1. El primer pedido del día crearía una ola **de un solo renglón**, y consolidar por SKU
+   *      sobre un pedido no consolida nada: el valor de la ola es juntar.
+   *   2. Peor: un pedido que entra a las 11:40 se sumaría a una ola que alguien **ya está
+   *      caminando** con su lista impresa. Mercancía que aparece a mitad del recorrido es
+   *      exactamente cómo se arma mal un pedido.
+   *
+   * Entonces el aviso (`[VEC.4]`) es **inmediato** y el armado es **a demanda**: la sucursal
+   * ve que tiene 15 pedidos vecinales y arma su ola cuando decide cerrar el corte. Quien
+   * decide cuándo se cierra es quien va a caminar el almacén.
+   *
+   * ⚠️ **Nunca toca una ola existente.** Crea una nueva con lo que todavía no está en ninguna
+   * (el pool ya excluye lo que está en ola viva). Por eso es seguro repetir el clic: la segunda
+   * vez no hay elegibles y responde `creada: false` en vez de crear una ola vacía.
+   *
+   * ⚠️ **No crea olas vacías.** Una ola sin pedidos se ve en la bandeja igual que una real y
+   * ensucia el folio; si no hay nada que armar, lo dice.
+   */
+  async crearOlaAuto(dto: {
+    warehouse_id: string;
+    delivery_date?: string;
+    route_kind?: readonly string[];
+    /**
+     * `[VEC.8]` Armar la ola de UNA ruta. Es la forma que evita mezclar: una ola = una ruta,
+     * así el consolidado por SKU ya sale separado y no hay que desconsolidar a mano.
+     */
+    sales_route?: string;
+    assigned_to?: string;
+  }) {
+    if (!UUID_RE.test(dto?.warehouse_id || '')) throw new BadRequestException('warehouse_id inválido');
+    if (dto.delivery_date && !DATE_RE.test(dto.delivery_date))
+      throw new BadRequestException('delivery_date debe ser YYYY-MM-DD');
+
+    // El universo sale del MISMO `pool()` que ve la pantalla. Si armara su propia consulta,
+    // el día que una de las dos cambie el almacén armaría algo distinto de lo que vio — y esa
+    // divergencia no se nota hasta que falta mercancía.
+    const elegibles = await this.pool({
+      warehouse_id: dto.warehouse_id,
+      delivery_date: dto.delivery_date,
+      route_kind: dto.route_kind,
+      sales_route: dto.sales_route,
+      limit: 500,
+    });
+
+    if (!elegibles.data.length) {
+      return {
+        creada: false,
+        motivo: 'sin_pedidos_elegibles',
+        detalle:
+          'No hay pedidos confirmados fuera de ola para ese almacén/fecha/tipo de ruta. ' +
+          'No se crea una ola vacía: ensuciaría el folio y se vería igual que una real.',
+        // ⚠️ Lo que el pool NO puede ver se arrastra hasta acá: un pedido tomado sin señal
+        // todavía no llegó al servidor. "No hay nada que armar" y "no ha llegado todavía" se
+        // leen igual en pantalla si no se dice (ADR-056).
+        pendiente_offline: elegibles.pendiente_offline,
+      };
+    }
+
+    // ⚠️ `pool()` y `createWave()` abren transacciones distintas, así que entre las dos otra
+    // sesión puede llevarse un pedido a su ola. NO se arregla fusionándolas: `createWave` ya
+    // valida `yaEnOla` y tira 409 nombrando los pedidos. Se prefiere un error ruidoso —que
+    // obliga a reintentar y arma la ola correcta— a una ola que se lleva algo que otro almacén
+    // ya estaba caminando.
+    const wave = await this.createWave({
+      warehouse_id: dto.warehouse_id,
+      delivery_date: dto.delivery_date,
+      order_ids: elegibles.data.map((o: { id: string }) => o.id),
+      assigned_to: dto.assigned_to,
+      // La nota dice de qué es la ola. Si es de una ruta, se nombra: el surtidor tiene que
+      // poder leer en la bandeja para quién es sin abrirla.
+      notes: dto.sales_route
+        ? `Automática — ruta ${dto.sales_route}`
+        : `Automática — ${dto.route_kind?.length ? dto.route_kind.join('/') : 'todos los tipos'}`,
+    });
+
+    this.logger.log(
+      `[VEC.5] Ola ${wave.code} armada sola: ${elegibles.data.length} pedido(s) ` +
+        `(${dto.route_kind?.join('/') || 'todos'}) en ${dto.warehouse_id}`,
+    );
+    return { creada: true, ...wave, pendiente_offline: elegibles.pendiente_offline };
   }
 
   /** Asigna (o reasigna) la ola a un surtidor. */
