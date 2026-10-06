@@ -17,7 +17,7 @@ import { MessageService } from 'primeng/api';
 import { ComercialService, InventoryCount, Warehouse, AssignableUser, AbcSummary } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { forkJoin } from 'rxjs';
+import { forkJoin, of } from 'rxjs';
 
 /**
  * Los estados en que un folio todavía ocupa su almacén. `open` y `ready_to_reconcile`
@@ -66,7 +66,11 @@ const DIAS_ABANDONADO = 7;
           </p>
         </div>
         <div class="in-head-actions">
-          <button pButton size="small" (click)="openDialog()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Abrir folio</span></button>
+          <!-- [IC.23] Abrir un folio exige SUPERVISAR en el backend (POST /open y /open-cycle).
+               Quien sólo asigna no vería el botón fallar: no lo ve. -->
+          @if (puedeSupervisar()) {
+            <button pButton size="small" (click)="openDialog()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Abrir folio</span></button>
+          }
           <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" aria-label="Recargar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
@@ -86,11 +90,18 @@ const DIAS_ABANDONADO = 7;
             class="comm-row-clickable"
             role="button"
             tabindex="0"
-            [attr.aria-label]="'Abrir folio ' + c.folio"
-            [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])"
-            (keydown.enter)="goToFolio(c.id)"
-            (keydown.space)="$event.preventDefault(); goToFolio(c.id)">
-            <td role="cell" data-label="Folio" class="in-mono"><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ c.folio }}</a></td>
+            [attr.aria-label]="puedeSupervisar() ? ('Abrir folio ' + c.folio) : ('Asignar quién cuenta el folio ' + c.folio)"
+            [routerLink]="puedeSupervisar() ? multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id]) : null"
+            (click)="puedeSupervisar() ? null : abrirAsignar(c)"
+            (keydown.enter)="activarFila(c)"
+            (keydown.space)="$event.preventDefault(); activarFila(c)">
+            <td role="cell" data-label="Folio" class="in-mono">
+              @if (puedeSupervisar()) {
+                <a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ c.folio }}</a>
+              } @else {
+                {{ c.folio }}
+              }
+            </td>
             <td role="cell" data-label="Almacén">{{ c.warehouse_code }} · {{ c.warehouse_name }}</td>
             <td role="cell" data-label="Tipo">{{ c.type === 'full' ? 'Total' : 'Cíclico' }}</td>
 
@@ -131,7 +142,12 @@ const DIAS_ABANDONADO = 7;
             </td>
 
             <td role="cell" data-label="Acciones">
-              <a pButton size="small" [text]="true" [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Abrir</span></a>
+              @if (canAssign() && !esCerrado(c)) {
+                <button pButton size="small" [text]="true" severity="secondary" (click)="$event.stopPropagation(); abrirAsignar(c)"><span class="p-button-icon p-button-icon-left pi pi-users" aria-hidden="true"></span><span class="p-button-label">Asignar</span></button>
+              }
+              @if (puedeSupervisar()) {
+                <a pButton size="small" [text]="true" [routerLink]="multitarea.enlaceDetalle(['/almacen/inventory/sessions', c.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Abrir</span></a>
+              }
             </td>
           </tr>
         </ng-template>
@@ -139,12 +155,50 @@ const DIAS_ABANDONADO = 7;
           <tr><td colspan="8" class="comm-empty-cell">
             <div class="comm-empty">
               <i class="pi pi-clipboard comm-empty-icon"></i>
-              <span>No hay folios. Abrí uno para empezar a contar.</span>
+              <!-- [IC.23] El consejo depende de quién mira: quien sólo asigna no puede abrir uno,
+                   y decirle que lo haga es mandarlo a buscar un botón que no tiene. -->
+              @if (puedeSupervisar()) {
+                <span>No hay folios. Abrí uno para empezar a contar.</span>
+              } @else {
+                <span>No hay folios abiertos en este momento. Cuando se abra uno, acá asignás quién cuenta.</span>
+              }
             </div>
           </td></tr>
         </ng-template>
       </p-table>
       </div>
+
+      <!-- [IC.23] Dialog: quién cuenta este folio. Es el trabajo del encargado de sucursal. -->
+      <p-dialog [(visible)]="asignarVisible" [modal]="true" [draggable]="false" [dismissableMask]="true"
+                [style]="{ width: '92vw', maxWidth: '460px' }"
+                [contentStyle]="{ maxHeight: '72vh', overflow: 'auto' }"
+                [breakpoints]="{ '640px': '96vw' }">
+        <ng-template #header>
+          <span class="in-dlg-head">Quién cuenta · <b class="in-mono">{{ asignarFolio()?.folio }}</b></span>
+        </ng-template>
+        @if (asignarCargando()) {
+          <p class="in-dim">Leyendo quién está asignado…</p>
+        } @else {
+          <div class="in-form">
+            <label>Contadores</label>
+            <p-multiselect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
+                           placeholder="Sin asignar — lo cuenta quien tenga el permiso" [filter]="true" display="chip"
+                           styleClass="in-w-full" appendTo="body" scrollHeight="45vh"
+                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiselect>
+            <small>Dejarlo vacío NO bloquea el folio: queda abierto a cualquiera con permiso de contar.</small>
+
+            <label>Supervisores responsables</label>
+            <p-multiselect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
+                           placeholder="Sin asignar" [filter]="true" display="chip"
+                           styleClass="in-w-full" appendTo="body" scrollHeight="45vh"
+                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiselect>
+          </div>
+        }
+        <ng-template #footer>
+          <button pButton [text]="true" severity="secondary" (click)="asignarVisible.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton [loading]="asignarGuardando()" [disabled]="asignarCargando()" (click)="guardarAsignacion()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
+        </ng-template>
+      </p-dialog>
 
       <!-- Dialog: abrir folio -->
       <p-dialog [(visible)]="dialogVisible" header="Abrir folio de inventario" [modal]="true"
@@ -233,6 +287,7 @@ const DIAS_ABANDONADO = 7;
        clavaría el valor de modo claro y en dark se leería mal. Los nombres se verificaron
        contra el archivo: --danger-soft-* y --surface-3 NO existen; son
        --bad-soft-* y --hover-bg. */
+    .in-dlg-head { font-weight: 600; }
     .in-mono { font-family: var(--font-mono, monospace); font-weight: 600; }
     .in-dim { color: var(--text-muted); }
     .in-sub-note { color: var(--text-muted); }
@@ -329,6 +384,36 @@ export class ComercialInventorySessionsComponent {
    * Como `computed`, sigue al mapa.
    */
   canAssign = computed(() => this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_ASIGNAR] === true);
+
+  /**
+   * `[IC.23]` **Desde acá entran DOS públicos distintos, y uno no puede abrir el detalle.**
+   *
+   * El encargado de sucursal llega con `ASIGNAR` a armar el equipo del conteo diario. El
+   * detalle del folio carga `:id/items`, que trae el TEÓRICO fila por fila y sigue exigiendo
+   * `SUPERVISAR` — mandarlo ahí le daría un 403 sobre la pantalla entera. Su destino es
+   * `:id/teams`, que ya es suyo.
+   *
+   * Se lee del mapa de permisos, no del rol: un permiso por persona (`identity.user_permissions`)
+   * tiene que contar igual que uno por rol.
+   */
+  puedeSupervisar = computed(() => this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_SUPERVISAR] === true);
+
+  /**
+   * `[IC.23]` La asignación vive ACÁ, en un diálogo de la lista, y no en una pantalla aparte.
+   *
+   * ⛔ El primer intento mandaba al encargado a `:id/teams` —que ya es `ASIGNAR`— y **era un
+   * callejón sin salida**: `generateTeams` exige pasillos activos, y medido en prod **sólo
+   * Padre Hidalgo tiene pasillos (4); los otros 8 almacenes tienen CERO**. Seis de los siete
+   * encargados habrían llegado a un *«No hay pasillos activos en este almacén»*.
+   *
+   * Los tres endpoints que este diálogo usa ya son suyos y **ninguno necesita pasillos**:
+   * `GET assignable-users` y `POST :id/assignments` ya eran `ASIGNAR`, y `GET :id/assignments`
+   * se abrió en este mismo commit.
+   */
+  asignarVisible = signal(false);
+  asignarFolio = signal<InventoryCount | null>(null);
+  asignarGuardando = signal(false);
+  asignarCargando = signal(false);
   counterOpts = signal<{ label: string; value: string }[]>([]);
   supervisorOpts = signal<{ label: string; value: string }[]>([]);
   selCounters = signal<string[]>([]);
@@ -345,8 +430,89 @@ export class ComercialInventorySessionsComponent {
     this.load();
   }
 
-  goToFolio(id: string) {
-    this.router.navigate(['/almacen/inventory/sessions', id]);
+  /** Enter/espacio sobre la fila hace lo MISMO que el clic. Si divergieran, el teclado
+   *  mandaría al encargado a una pantalla que le contesta 403. */
+  activarFila(c: InventoryCount) {
+    if (this.puedeSupervisar()) this.router.navigate(['/almacen/inventory/sessions', c.id]);
+    else this.abrirAsignar(c);
+  }
+
+  /** Un folio cerrado no se re-asigna: `setAssignments` lo rechaza con 409. */
+  esCerrado(c: InventoryCount): boolean {
+    return c.status === 'reconciled' || c.status === 'cancelled';
+  }
+
+  /**
+   * `[IC.23]` Abre el diálogo con lo que YA está asignado, no en blanco.
+   *
+   * Abrirlo vacío sería una trampa: `setAssignments` **reemplaza** la lista del rol, así que
+   * guardar sin haber cargado lo existente borraría a todos los asignados sin avisar.
+   */
+  abrirAsignar(c: InventoryCount) {
+    if (!this.canAssign() || this.esCerrado(c)) return;
+    this.asignarFolio.set(c);
+    this.selCounters.set([]);
+    this.selSupervisors.set([]);
+    this.asignarCargando.set(true);
+    this.asignarVisible.set(true);
+
+    const opt = (u: AssignableUser) => ({ label: `${u.nombre || u.username} (${u.role_name})`, value: u.id });
+    const catalogos = this.counterOpts().length
+      ? null
+      : forkJoin({
+          counters: this.svc.inventoryAssignableUsers('counter'),
+          supervisors: this.svc.inventoryAssignableUsers('supervisor'),
+        });
+
+    forkJoin({
+      asignados: this.svc.inventoryListAssignments(c.id),
+      catalogos: catalogos ?? of(null),
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ asignados, catalogos: cat }) => {
+          if (cat) {
+            this.counterOpts.set(cat.counters.map(opt));
+            this.supervisorOpts.set(cat.supervisors.map(opt));
+          }
+          this.selCounters.set(asignados.filter((a) => a.assignment_role === 'counter').map((a) => a.user_id));
+          this.selSupervisors.set(asignados.filter((a) => a.assignment_role === 'supervisor').map((a) => a.user_id));
+          this.asignarCargando.set(false);
+        },
+        // Fail-closed: si no se pudo leer lo asignado, se cierra el diálogo en vez de dejar
+        // un Guardar que borraría la lista existente.
+        error: () => {
+          this.asignarCargando.set(false);
+          this.asignarVisible.set(false);
+          this.toast.add({ severity: 'warn', summary: 'No se pudo leer quién está asignado', detail: 'Probá de nuevo.' });
+        },
+      });
+  }
+
+  guardarAsignacion() {
+    const c = this.asignarFolio();
+    if (!c || this.asignarCargando()) return;
+    this.asignarGuardando.set(true);
+    forkJoin([
+      this.svc.inventorySetAssignments(c.id, 'counter', this.selCounters()),
+      this.svc.inventorySetAssignments(c.id, 'supervisor', this.selSupervisors()),
+    ])
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.asignarGuardando.set(false);
+          this.asignarVisible.set(false);
+          this.toast.add({
+            severity: 'success',
+            summary: `Folio ${c.folio}`,
+            detail: `${this.selCounters().length} contador(es), ${this.selSupervisors().length} supervisor(es)`,
+          });
+        },
+        error: (e) => {
+          this.asignarGuardando.set(false);
+          this.toast.add({ severity: 'warn', summary: 'No se guardó', detail: e?.error?.message || 'Error' });
+        },
+      });
   }
 
   load() {

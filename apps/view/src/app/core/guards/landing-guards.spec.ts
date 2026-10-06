@@ -52,7 +52,11 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.COMMERCIAL_INVENTORY_AJUSTAR, url: '/almacen/inventory', motivo: 'manage sin view: la ruta exige INVENTORY_VER' },
   { perm: Permission.COMMERCIAL_WAREHOUSES_GESTIONAR, url: '/almacen/warehouses', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_INVENTORY_RECONCILIAR, url: '/almacen/inventory/sessions', motivo: 'manage sin view' },
-  { perm: Permission.COMMERCIAL_INVENTORY_ASIGNAR, url: '/almacen/inventory/sessions', motivo: 'manage sin view' },
+  // `[IC.23]` `COMMERCIAL_INVENTORY_ASIGNAR` SALE de la deuda: la ruta ya lo acepta
+  // (`anyPermissionGuard(SUPERVISAR, ASIGNAR)`). Dejó de ser «manage sin view» el día que el
+  // encargado de sucursal pasó a armar el equipo del conteo diario — su facultad SÍ tiene
+  // pantalla propia. Si alguien volviera la ruta a `permissionGuard(SUPERVISAR)`, el bloque
+  // NO REBOTE de este mismo archivo se pone en rojo, que es para lo que está.
   // `[AZ.3]` Las cuatro entraron al arbol para poder OTORGARSE (antes eran invisibles en
   // /admin/roles y el candado [AUTHZ.5] las listaba en rojo). Caen en la misma deuda que sus
   // vecinas de arriba: son facultades que se dan ADEMAS del permiso de ver, nunca solas, asi que
