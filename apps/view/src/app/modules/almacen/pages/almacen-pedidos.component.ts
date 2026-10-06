@@ -10,8 +10,8 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
 import { CheckboxModule } from 'primeng/checkbox';
+import { DrawerModule } from 'primeng/drawer';
 import type { WarehouseOrderDetail, WarehouseOrderRow, WarehouseOrdersResponse } from '@megadulces/contracts';
-import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { money } from '../../../shared/util/money.util';
 import { AlmacenPedidosService, type AlmacenPedidosFiltro } from '../almacen-pedidos.service';
 
@@ -53,13 +53,15 @@ const dmy = (v: string | null | undefined): string => {
   selector: 'app-almacen-pedidos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, InputTextModule, TagModule, CheckboxModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, InputTextModule, TagModule, CheckboxModule, DrawerModule],
   template: `
     <div class="surf-page in">
-      <header class="surf-page-head">
-        <div class="surf-page-head-text">
+      <header class="surf-page-head gp-head">
+        <div class="gp-head-text">
           <h1>Pedidos</h1>
-          <p class="surf-page-sub">Pedidos de Kepler por surtir, checar y embarcar: telemarketing y sucursal. Sólo lectura; el pedido se sigue avanzando en Kepler.</p>
+          @if (data(); as d) {
+            <span class="gp-meta">{{ dmy(d.periodo.from) }} – {{ dmy(d.periodo.to) }} · Kepler leído {{ hora(d.generado_en) }} · sólo lectura, el pedido se avanza en Kepler</span>
+          }
         </div>
         <div class="gp-actions">
           <div class="gp-seg" role="group" aria-label="Periodo">
@@ -76,7 +78,6 @@ const dmy = (v: string | null | undefined): string => {
 
       @if (loading() && !data()) { <div class="gp-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="gp-skel-row"></div> }</div> }
       @else if (data(); as d) {
-        <p class="gp-periodo">Periodo {{ dmy(d.periodo.from) }} – {{ dmy(d.periodo.to) }} · Kepler leído {{ hora(d.generado_en) }}</p>
         @if (!d.alcance.todas) {
           @if (d.alcance.sucursales.length) {
             <div class="gp-note" role="note"><i class="pi pi-shop" aria-hidden="true"></i><span>Viendo sólo {{ d.alcance.sucursales.length === 1 ? 'tu sucursal' : 'tus sucursales' }}: <b>{{ sucursalesTexto(d) }}</b>.</span></div>
@@ -85,9 +86,7 @@ const dmy = (v: string | null | undefined): string => {
           }
         }
 
-        <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de pedidos filtrados" />
-
-        <div class="gp-split">
+        <div class="gp-list">
           <section class="gp-block dt-scope" aria-labelledby="gp-h-lista">
             <div class="gp-bh">
               <h2 id="gp-h-lista" class="sr-only">Lista de pedidos</h2>
@@ -110,7 +109,7 @@ const dmy = (v: string | null | undefined): string => {
               </div>
             </div>
             @if (d.truncado) { <p class="gp-hint gp-pad">Se muestran los primeros {{ d.items.length }}; los conteos y totales sí incluyen todos. Acota el periodo o filtra por estatus.</p> }
-            <p-table [value]="d.items" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="60vh" selectionMode="single" [selection]="sel()" (selectionChange)="pick($event)" dataKey="clave" [paginator]="d.items.length > 200" [rows]="200">
+            <p-table [value]="d.items" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="calc(100vh - 25rem)" selectionMode="single" [selection]="sel()" (selectionChange)="pick($event)" dataKey="clave" [paginator]="d.items.length > 200" [rows]="200">
               <ng-template #header>
                 <tr>
                   <th>Pedido</th><th>Fecha</th>@if (multiSucursal(d)) { <th>Suc</th> }<th>Origen</th><th>Cliente / destino</th>
@@ -122,7 +121,7 @@ const dmy = (v: string | null | undefined): string => {
               <ng-template #body let-r>
                 <tr [pSelectableRow]="r">
                   <td class="mono" role="cell" data-label="Pedido">{{ r.documento }}</td>
-                  <td class="mono" role="cell" data-label="Fecha">{{ dmy(r.fecha) }} <span class="muted">{{ r.hora || '' }}</span></td>
+                  <td class="mono" role="cell" data-label="Fecha">{{ dm(r.fecha) }} <span class="muted">{{ r.hora || '' }}</span></td>
                   @if (multiSucursal(d)) { <td class="mono muted" role="cell" data-label="Suc">{{ r.sucursal }}</td> }
                   <td role="cell" data-label="Origen">{{ origenLabel(r.origen) }}</td>
                   <td role="cell" data-label="Cliente / destino"><span class="gp-trunc">{{ r.destino_nombre || r.cliente_code || '—' }}</span>@if (r.destino_ciudad) { <span class="muted gp-sub">{{ r.destino_ciudad }}</span> }</td>
@@ -137,15 +136,27 @@ const dmy = (v: string | null | undefined): string => {
                 <tr><td [attr.colspan]="multiSucursal(d) ? 10 : 9"><div class="gp-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Ningún pedido con estos filtros entre {{ dmy(d.periodo.from) }} y {{ dmy(d.periodo.to) }}.</span>@if (hayFiltros()) { <button type="button" class="gp-link" (click)="limpiar()">Quitar filtros</button> }</div></td></tr>
               </ng-template>
             </p-table>
+            <div class="gp-foot" aria-label="Totales de lo filtrado">
+              <span><b class="num">{{ d.totales.pedidos.toLocaleString('es-MX') }}</b> pedidos</span>
+              <span><b class="num">{{ d.totales.renglones.toLocaleString('es-MX') }}</b> renglones</span>
+              <span><b class="num">{{ money(d.totales.importe) }}</b></span>
+              @if (masAntiguo(); as h) { <span class="gp-foot-warn">sin embarcar más antiguo: <b class="num">{{ horas(h) }}</b></span> }
+            </div>
           </section>
+        </div>
 
-          <section class="gp-block gp-detail" aria-labelledby="gp-h-det" aria-live="polite">
+        <!-- Detalle como panel lateral (DESIGN.md: side-peek): la bandeja usa todo el ancho y el
+             detalle sólo ocupa pantalla cuando hay un pedido elegido. -->
+        <p-drawer [visible]="!!sel()" (visibleChange)="!$event && pick(null)" position="right" styleClass="gp-drawer"
+                  [style]="{ width: 'min(560px, 100vw)' }" [header]="sel()?.documento || 'Pedido'">
+          <section class="gp-detail" aria-labelledby="gp-h-det" aria-live="polite">
             @if (detLoading()) {
               <div class="gp-skeleton gp-pad" aria-busy="true">@for (i of skelDet; track i) { <div class="gp-skel-row"></div> }</div>
             } @else if (det(); as x) {
-              <div class="gp-bh">
-                <h2 id="gp-h-det" class="mono">{{ x.pedido.documento }}</h2>
+              <div class="gp-det-head">
+                <h2 id="gp-h-det" class="sr-only">Detalle del pedido {{ x.pedido.documento }}</h2>
                 <p-tag [value]="estatusLabel(x.pedido.estatus)" [severity]="estatusSev(x.pedido.estatus)" styleClass="gp-tag" />
+                <span class="muted">{{ x.pedido.renglones }} renglones · {{ x.pedido.importe === null ? '—' : money(x.pedido.importe) }}</span>
               </div>
               <div class="gp-step">
                 <div class="gp-row"><span>Cliente</span><span>{{ x.pedido.destino_nombre || x.pedido.cliente_code || '—' }}@if (x.pedido.destino_ciudad) { <span class="muted"> · {{ x.pedido.destino_ciudad }}</span> }</span></div>
@@ -160,11 +171,11 @@ const dmy = (v: string | null | undefined): string => {
                   <div class="gp-row"><span>Embarque</span><span class="muted">Sin embarque todavía</span></div>
                 }
               </div>
-              <div class="gp-step dt-scope">
+              <div class="gp-step">
                 <h3>Renglones · {{ x.lineas.length }}</h3>
-                <p-table [value]="x.lineas" size="small" class="surf-table dt-stack" [scrollable]="true" scrollHeight="42vh" dataKey="renglon">
+                <p-table [value]="x.lineas" size="small" class="surf-table gp-lines" [scrollable]="true" scrollHeight="calc(100vh - 22rem)" dataKey="renglon">
                   <ng-template #header>
-                    <tr><th>Producto</th><th class="ta-r">Ped</th><th class="ta-r">Surt</th><th class="ta-r">Chec</th><th class="ta-r">Emb</th><th title="Ubicación de surtido · checado · embarque capturada en Kepler">Ubic. S · C · E</th></tr>
+                    <tr><th>Producto</th><th class="ta-r">Ped</th><th class="ta-r">Surt</th><th class="ta-r">Chec</th><th class="ta-r">Emb</th><th title="Ubicación de surtido · checado · embarque capturada en Kepler">Ubic.</th></tr>
                   </ng-template>
                   <ng-template #body let-l>
                     <tr>
@@ -184,11 +195,9 @@ const dmy = (v: string | null | undefined): string => {
               </div>
             } @else if (detErr(); as e) {
               <div class="gp-empty gp-pad"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>{{ e }}</span></div>
-            } @else {
-              <div class="gp-empty gp-pad"><i class="pi pi-arrow-left" aria-hidden="true"></i><span>Elige un pedido para ver sus renglones, responsables y embarque.</span></div>
             }
           </section>
-        </div>
+        </p-drawer>
       }
     </div>
   `,
@@ -196,19 +205,22 @@ const dmy = (v: string | null | undefined): string => {
     :host { display:block; }
     .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
     .gp-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+    .gp-head { align-items:center; margin-bottom:.5rem; }
+    .gp-head-text { display:flex; flex-wrap:wrap; align-items:baseline; gap:.35rem .75rem; min-width:0; }
+    .gp-head-text h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.01em; }
+    .gp-meta { font-size:var(--fs-xs); color:var(--text-muted); }
+    .gp-foot { display:flex; flex-wrap:wrap; gap:.25rem 1.1rem; padding:.45rem .85rem; border-top:1px solid var(--border-color); font-size:var(--fs-xs); color:var(--text-muted); }
+    .gp-foot b { color:var(--text-main); font-weight:600; }
+    .gp-foot-warn b { color:var(--warn-soft-fg); }
     .gp-seg { display:inline-flex; border:1px solid var(--border-color); border-radius:var(--r-sm); overflow:hidden; background:var(--card-bg); }
     .gp-seg-b { height:2.25rem; padding:0 .75rem; border:0; border-left:1px solid var(--border-color); background:transparent; color:var(--text-main); font:inherit; font-size:var(--fs-sm); cursor:pointer; }
     .gp-seg-b:first-child { border-left:0; }
     .gp-seg-b.on { background:var(--text-main); color:var(--card-bg); }
     .gp-seg-b:focus-visible, .gp-chip:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
-    .gp-periodo { margin:.2rem 0 .4rem; font-size:var(--fs-xs); color:var(--text-muted); }
     .gp-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
     .gp-note .pi { color:var(--text-muted); margin-top:.15rem; }
     .gp-note-bad { border-left:3px solid var(--bad-fg); }
     .gp-note-bad .pi { color:var(--bad-fg); }
-    app-metric-strip { display:block; margin:.6rem 0; }
-    .gp-split { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(0,1fr); gap:1rem; align-items:start; }
-    @media (max-width:68.75rem) { .gp-split { grid-template-columns:minmax(0,1fr); } }
     .gp-block { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; }
     .gp-bh { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem; padding:.6rem .85rem; border-bottom:1px solid var(--border-color); }
     .gp-bh h2 { font-size:var(--fs-h3); font-weight:700; margin:0; }
@@ -219,7 +231,10 @@ const dmy = (v: string | null | undefined): string => {
     .gp-check { display:inline-flex; align-items:center; gap:.45rem; height:2.25rem; padding:0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-sm); font-size:var(--fs-sm); cursor:pointer; white-space:nowrap; }
     :host ::ng-deep .gp-sel { min-width:9.5rem; }
     .gp-q { min-width:14rem; height:2.25rem; }
-    .gp-detail { position:sticky; top:.5rem; }
+    :host ::ng-deep .gp-lines .p-datatable-tbody > tr > td, :host ::ng-deep .gp-lines .p-datatable-thead > tr > th { padding:.3rem .4rem; font-size:var(--fs-xs); }
+    :host ::ng-deep .gp-lines .gp-trunc { max-width:15rem; font-size:var(--fs-sm); }
+    .gp-det-head { display:flex; align-items:center; gap:.6rem; padding:0 0 .5rem; font-size:var(--fs-sm); }
+    .gp-detail .gp-step { padding-left:0; padding-right:0; }
     .gp-step { padding:.7rem .85rem; border-top:1px solid var(--border-color); }
     .gp-bh + .gp-step { border-top:0; }
     .gp-step h3 { font-size:var(--fs-sm); font-weight:700; margin:0 0 .45rem; }
@@ -256,6 +271,8 @@ export class AlmacenPedidosComponent implements OnInit {
   readonly skelDet = Array.from({ length: 6 });
   readonly money = money;
   readonly dmy = dmy;
+  /** Fecha corta para la tabla: el año ya está en el periodo de arriba. */
+  dm(v: string | null): string { return v ? dmy(v).slice(0, 5) : '—'; }
 
   readonly presets: { key: Exclude<Preset, 'rango'>; label: string }[] = [
     { key: 'hoy', label: 'Hoy' },
@@ -285,17 +302,15 @@ export class AlmacenPedidosComponent implements OnInit {
   readonly detLoading = signal(false);
   readonly detErr = signal<string | null>(null);
 
-  readonly kpiItems = computed<MetricStripItem[]>(() => {
+  /**
+   * Antigüedad del pedido sin embarcar más viejo DE LO QUE SE VE (respeta todos los filtros).
+   * Antes eran tarjetas grandes y "Sin embarcar" ignoraba el filtro de estatus mientras "Pedidos"
+   * lo respetaba: se leían como contradictorias (47 pedidos, 137 sin embarcar).
+   */
+  readonly masAntiguo = computed<number | null>(() => {
     const d = this.data();
-    if (!d) return [];
-    const abiertos = d.conteos.filter((c) => c.estatus !== 'EMBARCADO');
-    const pendientes = abiertos.reduce((t, c) => t + c.pedidos, 0);
-    const masAntiguo = abiertos.reduce<number | null>((m, c) => (c.mas_antiguo_horas != null && (m == null || c.mas_antiguo_horas > m) ? c.mas_antiguo_horas : m), null);
-    return [
-      { label: 'Pedidos', value: d.totales.pedidos, format: 'number', tone: 'default', sub: `${d.totales.renglones.toLocaleString('es-MX')} renglones` },
-      { label: 'Sin embarcar', value: pendientes, format: 'number', tone: pendientes ? 'warn' : 'ok', sub: masAntiguo == null ? 'ninguno abierto' : `el más antiguo lleva ${this.horas(masAntiguo)}` },
-      { label: 'Importe', value: d.totales.importe, format: 'currency2', tone: 'default', sub: 'de los pedidos filtrados' },
-    ];
+    if (!d) return null;
+    return d.items.reduce<number | null>((m, r) => (r.horas_abierto != null && (m == null || r.horas_abierto > m) ? r.horas_abierto : m), null);
   });
 
   /** Sucursales para el filtro: las del alcance, o las que aparecen en el periodo si se ven todas. */
