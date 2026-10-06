@@ -7577,9 +7577,32 @@ código*. Techo bajado **22 → 21**, con prueba negativa (el 22º da rojo).
 (la fila trabada no se puede marcar), cambió de qué está hecho el control → se adapta el selector,
 no la aserción. *Ningún gate ni el compilador ven un selector de CSS que se quedó sin DOM.*
 
-**Pruebas:** `view` **1839/1839** (116 archivos) — el spec instancia el componente, así que la
-plantilla **compila de verdad** y el `p-checkbox` deshabilitado se verifica contra el DOM real.
+**Pruebas:** `view` **1839/1839** (116 archivos) — el spec instancia el componente, así que el
+`p-checkbox` deshabilitado se verifica contra el DOM real.
 Gates: primeng-api ✅ · templates ✅ · estilos ✅ · tokens ✅ · tablas ✅ · motion ✅ · teclado ✅.
+
+⛔⛔ **Y aun así el CI tiró el build — con 1839 pruebas verdes y 7 compuertas verdes.** `TS4104`
+en los dos `p-table` del arqueo: `BILLETES_CAJA` es `readonly Denominacion[]` (a propósito: nadie
+debe empujarle un billete) y **`[value]` de `p-table` pide un array mutable**. Mientras eran dos
+`@for` daba igual — `@for` acepta `readonly`; `p-table` no.
+
+⭐ **La lección, y es de método:** *«el spec instancia el componente, así que la plantilla compila»*
+—que es lo que yo escribí arriba— **es falso**. Vitest monta con el compilador JIT y **no corre el
+chequeo de tipos de plantillas** (`strictTemplates`); eso sólo lo hace `ngtsc`, o sea `nx build`,
+o sea **el CI**. Una prueba verde dice que el componente *se instancia*, no que *tipa*. Es la misma
+familia que [[feedback_doubles_never_validate_sql]]: la prueba corrió, y lo que falla no estaba en
+el camino que la prueba ejercita.
+
+⚠️ **Y la copia va en el campo, no en la plantilla.** `[value]="billetes.slice()"` también compila
+—y es la salida que sale sola— pero devuelve un array **nuevo en cada ciclo de detección**, así que
+`p-table` reprocesaría su valor en cada tick aunque los billetes no cambien nunca. `readonly
+billetes = [...BILLETES_CAJA]`: una vez, identidad estable, y la constante compartida sigue
+`readonly` para todos los demás.
+
+✅ **Auditados los otros 6 `[value]` antes de reenviar** (para no gastar un tercer viaje al CI):
+`por_tipo`, `rows`, `cortes`, `pendientes`, `rc.rows` y `rc.months` son todos arrays mutables.
+Y `<ng-template #footer>` dentro de un `p-table` es idiom vivo del repo (`almacen-existencia`, la
+fila de totales), no una apuesta.
 
 ⚠️ **Hallazgo colateral, fuera de alcance, medido:** quedan **21 botones más en la app que se
 pintan sin texto** (`compras-costo-estandar` ×3, `compras-cuadre-proveedor` ×3, `compras-costo-neto`
