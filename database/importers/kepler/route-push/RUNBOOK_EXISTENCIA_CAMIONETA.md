@@ -65,6 +65,33 @@ echo [%date% %time%] merge existencia -^> filas: >> "%LOG%"
 
 ---
 
+## 2bis. ⛔ A QUÉ HORA sirve la foto — leer antes de empezar
+
+**Los camiones se cargan por la TARDE, entre las 17:00 y las 19:00.** Medido en los embarques de
+la ruta 21 (`kdm1.c69`): 18:29 · 15:11 · 18:24 · 17:22 · 17:13 · 18:00 · 18:53. El camión se carga
+de noche y sale a vender al día siguiente.
+
+⇒ **La foto que ancla es la ÚLTIMA del día**, ya con la carga de esa tarde adentro. El ledger suma
+los movimientos **posteriores** a la fecha de la foto, así que la carga de esa misma tarde **tiene
+que estar en la foto** — no la va a sumar después.
+
+⛔ **Y esto no es teórico.** Hoy, 2026-10-05: el último push de la `ruta_21` fue a las **18:15** y
+el embarque entró a las **18:29**. La laptop se apagó en medio. Si hoy hubiera estado repartido,
+la foto habría perdido **$22,591.35** — y nadie se habría enterado, porque una foto incompleta se
+ve igual que una completa.
+
+**Qué hacer con eso, mañana:**
+
+1. La aceptación de §3.2 se hace con una foto tomada **después de la carga de la tarde**, y se
+   confirma mirando la hora en el log de la van, no suponiéndola.
+2. Si una van se apaga antes de cargar, su foto del día queda corta. El push cada 15 min lo
+   resuelve **mientras la laptop esté encendida** — y están en la base justo a esa hora.
+3. ⬜ Pendiente con nombre: guardar la **hora** de la foto (hoy sólo se guarda el día) para que el
+   ledger pueda decidir por timestamp en vez de por fecha. Sin eso, la regla correcta depende de
+   si la foto es de la mañana o de la noche, y eso no se puede adivinar después.
+
+---
+
 ## 3. El orden: la 21 primero, y sola
 
 ⛔ **No se reparte a las once hasta que la 21 cuadre.** Es la única de la que tenemos el número que

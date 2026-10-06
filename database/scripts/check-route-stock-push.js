@@ -93,6 +93,52 @@ const edad = (h) => (h == null ? 'nunca' : h < 1 ? `${Math.round(h * 60)} min` :
   console.log(`\n  ✅ al dia: ${repartidos}   ⬜ sin repartir: ${pendientes}   ⛔/⚠️ sin latido: ${mudos}   (de ${rows.length})`);
   if (repartidos) console.log(`  inventario de la flota, segun lo que ella misma declara: ${money(valorTotal)}`);
 
+  // ── ¿La foto es PLAUSIBLE? ────────────────────────────────────────────────────────────────
+  // De la ruta 21 tenemos el numero que su propio Kepler imprimio ($37,765.58). De las otras
+  // diez NO hay referencia, y mirar diez cifras a ojo no escala. Lo que si hay es nuestra
+  // reconstruccion: no es la verdad —ese es justo el problema que esta fase resuelve— pero sirve
+  // de BANDA. Un error de peldano de unidad no se equivoca por poco: se equivoca por 12, por 20.
+  //
+  // ⭐ La foto DEBE salir MAYOR que el lado a favor de la reconstruccion, porque la reconstruccion
+  // no ve la mercancia que el camion ya traia. Que salga MENOR, o diez veces mayor, es la senal.
+  const conFoto = rows.filter((r) => r.foto_importe != null);
+  if (conFoto.length && process.env.PROD_DB_URL) {
+    const p = new Client({ connectionString: process.env.PROD_DB_URL, ssl: false, connectionTimeoutMillis: 10000 });
+    try {
+      await p.connect();
+      const { rows: rec } = await p.query(
+        `WITH win AS (
+           SELECT route_no, sku, unidad,
+                  sum(qty) FILTER (WHERE clase='carga')  AS cq,
+                  sum(qty) FILTER (WHERE clase='conteo') AS kq,
+                  sum(qty) FILTER (WHERE clase='venta')  AS vq
+             FROM analytics.mv_rd_route_ledger GROUP BY 1,2,3)
+         SELECT w.route_no,
+                round(sum((coalesce(w.cq,0)+coalesce(w.kq,0)-coalesce(w.vq,0)) * u.costo_u)
+                      FILTER (WHERE coalesce(w.cq,0)+coalesce(w.kq,0)-coalesce(w.vq,0) > 0),2)::float AS a_favor
+           FROM win w LEFT JOIN analytics.mv_rd_route_unit_value u
+             ON u.route_no=w.route_no AND u.sku=w.sku AND u.unidad=w.unidad
+          GROUP BY 1`);
+      const m = new Map(rec.map((x) => [x.route_no, x.a_favor]));
+      console.log('\n  ¿la foto es plausible? (contra nuestra reconstruccion — es una BANDA, no la verdad)');
+      for (const r of conFoto) {
+        const rt = String(r.truck).split('_')[1];
+        const base = m.get(rt);
+        if (!base) { console.log(`    ${r.truck.padEnd(9)} sin reconstruccion con que comparar — NO MEDIDO`); continue; }
+        const k = Number(r.foto_importe) / base;
+        const v = k < 0.8 ? '⛔ la foto trae MENOS que la reconstruccion: revisar'
+          : k > 8 ? '⛔ desproporcionada: huele a peldaño de unidad'
+            : k > 1.0 ? '✔ plausible' : '⚠️ justo en el borde';
+        console.log(`    ${r.truck.padEnd(9)} foto ${money(r.foto_importe).padStart(10)}  vs reconstruido ${money(base).padStart(10)}  = ${k.toFixed(2)}x  ${v}`);
+      }
+      await p.end();
+    } catch (e) {
+      // Que falle la comparacion NO puede volverse un veredicto: se declara.
+      console.log(`\n  (no se pudo comparar contra prod: ${e.message} — plausibilidad NO MEDIDA)`);
+      try { await p.end(); } catch { /* ya cerrado */ }
+    }
+  }
+
   // ⭐ La compuerta: mientras falte una sola, el inventario publicado de ESA ruta sigue siendo una
   // reconstruccion. Decirlo evita que "ya quedo" se lea como "las once".
   if (pendientes || mudos) {
