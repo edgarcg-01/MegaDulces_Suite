@@ -318,10 +318,19 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
    **`tienda_piso`** · **`tienda_cabecera`** · `espera` · `anden` · `cuarentena` · `merma` ·
    **`contenedor`** (carretas, tarimas y estibas de camión: **las ubicaciones móviles de GP entran
    en este mismo catálogo**) · zonas especiales (p. ej. fresco), que **sí existen** según Francisco.
-4. **Formato de código propuesto:** bodega `B03-05-2` (pasillo-rack-nivel) · tienda `T07-3`
-   (góndola-entrepaño), cabecera `TC2` · espera `A2` (se conservan) · carreta `C52` · estiba
-   `U13-08`. Racks de bodega y piso de venta **ya están numerados** físicamente: el formato final
-   se ajusta a esa numeración, no al revés.
+4. **Formato de código: el que ya usa el piso** (Francisco, 2026-10-06). La propuesta inicial
+   (`B03-05-2` pasillo-rack-nivel) **se descarta**: la numeración física ya existe y es más simple.
+   - **Bodega `B01`…`B99`** y **tienda `T01`…`T99`**, consecutivos. Cada código es una
+     **sección**; no hay nivel ni posición dentro del código.
+   - **El pasillo se deduce del número**, en bloques de 15: pasillo 1 = `B01`–`B15`, pasillo 2 =
+     `B16`–`B30`, **pasillo superior 1** = `B31`–`B45`, y así consecutivamente.
+   - **El orden de surtido es el orden numérico** (`B01` → `B99`): la secuencia de recorrido de
+     §4.1 es el propio número, no un dato aparte que haya que capturar. Se guarda igual como columna
+     (`pick_sequence`) para poder corregirla si algún tramo se recorre distinto.
+   - Se conservan `A1`…`B3` para los espacios de espera. ⚠️ **`B1`–`B3` de espera choca de
+     vista con `B01`–`B03` de bodega**: en pantalla siempre van con su tipo ("Espera B1" /
+     "Bodega B01"), y conviene confirmar si la espera puede renombrarse (`E1`…).
+   - Carretas `C52`, estibas por unidad.
 5. **Reposición de anaquel = tarea del anaquelista** (amplía WMS.7 al piso de venta): bodega →
    anaquel cuando la exhibición baja del mínimo. Se liga a la lista de faltantes de piso (Fase FLT)
    y a los planogramas de Trade (`trade.planogram_skus`): la ubicación de exhibición se toma del
@@ -345,6 +354,9 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
 
 | # | Pregunta | Bloquea |
 |---|---|---|
-| U1 | Croquis o lista de la numeración de PH (pasillos, racks, niveles de bodega; góndolas y entrepaños de tienda) | Censo (WMS.3) |
-| U2 | ¿Qué zonas especiales hay y qué productos van ahí (fresco, granel, alto valor)? | Tipos de zona |
+| ~~U1~~ | ✅ `B01`–`B99` bodega, `T01`–`T99` tienda; pasillos de 15 secciones; hay pasillos superiores | — |
+| ~~U2~~ | ✅ Por el momento no hay zonas especiales | — |
+| U4 | Después de "pasillo superior 1" (`B31`–`B45`), ¿`B46`–`B60` es pasillo 3 de planta baja o superior 2? ¿Cuántos pasillos hay arriba y abajo en PH? | Censo (WMS.3) |
+| U5 | ¿La tienda también va en bloques de 15 por pasillo (`T01`–`T15`…)? ¿Cuántas secciones `T` tiene PH? | Censo (WMS.3) |
+| U6 | ¿Los espacios de espera `B1`–`B3` pueden renombrarse (p. ej. `E1`…) para no confundirse con bodega `B01`–`B03`? | Ninguno |
 | U3 | ¿Cómo sabe hoy el anaquelista qué subir? (recorrido, lista, a ojo) | Reposición (WMS.7) |

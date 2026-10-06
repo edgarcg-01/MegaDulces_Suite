@@ -8523,9 +8523,9 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 
 **Ubicaciones (addendum [`FASE_WMS` §12](FASES/FASE_WMS.md), ADR-085)**
 - [ ] **[WMS.2]** ⬜ Tipos de zona, ampliados con `tienda_piso`, `tienda_cabecera`, `contenedor` y zonas especiales.
-- [ ] **[WMS.3]** ⚠️ Censo y etiquetas de PH (bodega y piso de venta). 🚫 BLOQUEADO: croquis o lista de numeración de PH (U1).
+- [ ] **[WMS.3]** ⬜ Censo y etiquetas de PH: `B01`–`B99` bodega y `T01`–`T99` tienda, pasillos de 15. Falta U4/U5 (cuántos pasillos y cuáles son superiores).
 - [ ] **[WMS.3b]** ⬜ Asignación producto × ubicación × papel + mínimo/máximo (slotting). Nuevo.
-- [ ] **[WMS.4]** ⬜ Secuencia de recorrido (ordena la lista de GP.3).
+- [ ] **[WMS.4]** ⬜ Secuencia de recorrido = orden numérico de la sección (`B01` → `B99`), corregible por columna.
 - [ ] **[WMS.7]** ⬜ Reposición: bodega → frente de surtido y bodega → anaquel (anaquelistas). Pendiente U3.
 
 ---
