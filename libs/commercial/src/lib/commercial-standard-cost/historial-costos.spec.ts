@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+// [CG.38.1] Sin `import ... from 'vitest'`: la config usa `globals: true`. Importarlo hace que el
+// archivo NO CARGUE y entonces reporta **0 tests**, no sus casos fallando.
 import { EntradaCruda, MuestraEstandar, cambiosEstandar, estandarEn, limpiarPicos, trazarEntradas } from './historial-costos';
 
 const m = (sucursal: string, fecha: string, costo: number): MuestraEstandar => ({ sucursal, fecha, costo });
