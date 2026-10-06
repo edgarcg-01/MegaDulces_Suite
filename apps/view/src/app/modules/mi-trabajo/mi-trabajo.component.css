@@ -702,9 +702,13 @@
   la fila entera, si sobran dos se parten la fila. **La ultima fila siempre cierra**, con 2
   espacios o con 7.
 
-  La celda ancha no queda vacia porque `.mt-grid` fluye con `auto-fill`: mas ancho, mas columnas
-  internas. El tamano se ajusta al contenido -- que es lo que la guia de bento pide, y lo contrario
-  de lo que yo hacia al dimensionar por cantidad de puertas.
+  La celda ancha no queda vacia porque `.mt-grid` fluye con `auto-fit`: mas ancho, mas columnas
+  internas, y las que sobran se COLAPSAN. El tamano se ajusta al contenido -- que es lo que la guia
+  de bento pide, y lo contrario de lo que yo hacia al dimensionar por cantidad de puertas.
+
+  ⛔ [SN.40] Esto decia `auto-fill` y era FALSO: esa palabra conserva las pistas vacias, asi que la
+  celda ancha SI quedaba vacia --~460 px de un tercio de fila, medidos en la captura del 2026-10-05.
+  La correccion esta en el bloque de `.mt-grid`.
 
   ⛔ Nada de `grid-auto-flow: dense`: tapa huecos reordenando, y el salto de foco que deja es el
   riesgo de accesibilidad numero uno del patron ("source order mismatch").
@@ -795,15 +799,25 @@
   Es `ul` en el HTML, asi que hay que apagar las vinetas y el relleno del user-agent.
 */
 /*
-  [SN.28] Los destinos FLUYEN segun el ancho que le toco a su celda.
+  [SN.28] [SN.40] Los destinos FLUYEN segun el ancho que le toco a su celda.
 
-  Es la pieza que hace que la celda ancha no quede vacia: el espacio que cae al final de la fila
-  toma `span 12` y, con `auto-fill`, sus puertas se reparten en cuatro o cinco columnas internas en
-  vez de quedar en una tira con 80% de aire al lado. El tamano se ajusta al contenido, no al reves.
+  ⛔ [SN.40] Aca decia `auto-fill`, con el argumento de que asi la celda ancha no quedaba vacia.
+  ES AL REVES, y se vio en la primera captura: `auto-fill` CONSERVA las pistas que sobran, asi que
+  «Configuracion de la suite» --4 entradas en un `span 12`-- las repartia cada ~210 px y dejaba
+  ~460 px en blanco a la derecha, como un tercio de la fila. Justo el hueco que la rejilla venia
+  a cerrar.
+
+  `auto-fit` colapsa las pistas vacias y reparte lo que hay en todo el ancho disponible. Es la
+  diferencia entre "cuantas columnas caben" y "cuantas columnas se usan".
+
+  ⚠️ Donde hay MAS entradas que columnas no cambia nada --Comercial con 6, Almacenes con 3--
+  porque `auto-fit` solo colapsa pistas que quedaron vacias. Sirve exactamente en los dos casos
+  que se veian mal: el `span 12` del final y el grupo de UNA sola entrada (Direccion General, que
+  ocupaba media caja).
 */
 .mt-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   gap: var(--sp-1) var(--sp-3);
   margin: 0;
   padding: 0;
@@ -818,6 +832,11 @@
   columnas -- pero con el minimo subido de 9.5rem a 16rem, porque acá la segunda linea SIEMPRE
   dice de donde sale ("de Compras / Reabastecimiento") y a 154 px eso se cortaba igual que en los
   grupos.
+
+  ⛔ [SN.40] Esta SE QUEDA con `auto-fill`, a diferencia de `.mt-grid`. No es un descuido: aca la
+  cantidad de resultados la decide lo que escribas, y con `auto-fit` buscar algo que devuelve DOS
+  resultados los estiraria a ~600 px cada uno. Un resultado de busqueda tiene que leerse igual sin
+  importar cuantos haya; una celda de grupo, no --su ancho ya lo fijo el tramo del espacio.
 */
 .mt-subs-grid {
   display: grid;
