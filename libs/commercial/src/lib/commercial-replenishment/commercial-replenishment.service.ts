@@ -6,6 +6,7 @@ import {
   validarSeguimiento,
 } from '@megadulces/contracts';
 import { Knex } from 'knex';
+import { randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
 
@@ -161,6 +162,13 @@ export interface CreateRequisitionDto {
   target_basis?: string;
   notes?: string;
   lines: RequisitionLineDto[];
+  /**
+   * `[RQ.8]` Para un lote: el ÍNDICE dentro del arreglo que manda el navegador, de la compra que
+   * origina esta bajada. Es un índice y no un id porque cuando el front arma el pedido los ids
+   * todavía no existen — el servidor los resuelve al insertar, que es el único lugar donde los
+   * conoce. Sólo tiene sentido en `POST /requisitions/batch`.
+   */
+  link_to?: number | null;
 }
 interface ReceiveLineDto { line_id: string; received_qty: number; }
 
@@ -3065,6 +3073,17 @@ export class CommercialReplenishmentService {
   // ── Requisiciones (HITL) ──────────────────────────────────────────────
   async createRequisition(dto: CreateRequisitionDto) {
     const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run((trx) => this.insertRequisition(trx, tenantId, dto));
+  }
+
+  /**
+   * `[RQ.8]` El insert de UNA requisición, con sus validaciones, **recibiendo la transacción**.
+   *
+   * Se extrajo de `createRequisition` para que la creación suelta y la del lote compartan
+   * exactamente el mismo código. ⚠️ No abre su propia transacción a propósito: anidar
+   * `tk.run()` dentro de otro `tk.run()` es un error conocido de este repo.
+   */
+  private async insertRequisition(trx: Knex.Transaction, tenantId: string, dto: CreateRequisitionDto) {
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!dto?.warehouse_id || !UUID_RX.test(dto.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
     const basis = this.basis(dto.target_basis);
@@ -3091,7 +3110,7 @@ export class CommercialReplenishmentService {
     const hdrSrcWh = hdrBranch && dto.source_warehouse_id && UUID_RX.test(dto.source_warehouse_id) ? dto.source_warehouse_id : null;
     if (hdrBranch && !hdrSrcWh) throw new BadRequestException('El traspaso requiere almacén origen');
 
-    return this.tk.run(async (trx) => {
+    {
       const year = new Date().getFullYear();
       const seqRes = await trx.raw(
         `INSERT INTO commercial.requisition_sequences (tenant_id, year, last_seq) VALUES (?, ?, 1)
@@ -3127,16 +3146,149 @@ export class CommercialReplenishmentService {
 
       this.logger.log(`Requisición ${folio} creada (${lines.length} líneas, ${totalUnits} u) por ${userId ?? 'system'}`);
       return { id: req.id, folio: req.folio, estado: req.estado, total_lines: lines.length, total_units: totalUnits, total_cost: totalCost };
+    }
+  }
+
+  /**
+   * `[RQ.8]` CREA TODAS LAS REQUISICIONES DE UN «ARMAR» EN UNA SOLA TRANSACCIÓN, bajo un folio
+   * de lote, y ata cada bajada a la compra que la originó.
+   *
+   * Reemplaza N llamadas HTTP sueltas desde el navegador. Tres cosas que así no se podían:
+   *   1. **El lote existe como dato.** Antes había que inferirlo con una ventana de 90 s sobre
+   *      `created_at` — medido así: 82 generaciones, promedio 8.2, peor **117**.
+   *   2. **O entran todas o no entra ninguna.** Con N llamadas, un fallo a la mitad dejaba medio
+   *      pedido creado y el otro medio no, y el aviso decía "error parcial" sin decir cuál.
+   *   3. **La bajada puede apuntar a su compra**, porque acá —y sólo acá— se conocen las dos.
+   *
+   * ⚠️ El orden importa: las compras se insertan PRIMERO para que las bajadas tengan a quién
+   * apuntar. El `link` que manda el front es un índice dentro de este mismo arreglo, no un id:
+   * los ids todavía no existen cuando el navegador arma el pedido.
+   */
+  async createRequisitionBatch(dto: { requisitions?: CreateRequisitionDto[] }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const entrada = dto?.requisitions || [];
+    if (!entrada.length) throw new BadRequestException('El lote no trae requisiciones');
+    if (entrada.length > 300) throw new BadRequestException('Máximo 300 requisiciones por lote');
+    // Las compras primero: una bajada no puede apuntar a algo que todavía no se insertó.
+    const orden = entrada.map((r, i) => ({ r, i }))
+      .sort((a, b) => (a.r.source_type === 'branch' ? 1 : 0) - (b.r.source_type === 'branch' ? 1 : 0));
+    const vigCols = await this.tk.run((trx) => this.loteColsListas(trx));
+    return this.tk.run(async (trx) => {
+      const year = new Date().getFullYear();
+      const batchId = randomUUID();
+      let batchFolio: string | null = null;
+      if (vigCols) {
+        const s = await trx.raw(
+          `INSERT INTO commercial.purchase_doc_sequences (tenant_id, year, doc_kind, last_seq) VALUES (?, ?, 'RQL', 1)
+           ON CONFLICT (tenant_id, year, doc_kind) DO UPDATE SET last_seq = commercial.purchase_doc_sequences.last_seq + 1
+           RETURNING last_seq`, [tenantId, year]);
+        batchFolio = `RQ-LOTE-${year}-${String(s.rows[0].last_seq).padStart(5, '0')}`;
+      }
+      const porIndice = new Map<number, string>();   // índice en el arreglo → id creado
+      const creadas: Array<{ id: string; folio: string; source_type: string }> = [];
+      for (const { r, i } of orden) {
+        const hecha = await this.insertRequisition(trx, tenantId, r);
+        porIndice.set(i, hecha.id);
+        creadas.push({ id: hecha.id, folio: hecha.folio, source_type: r.source_type === 'branch' ? 'branch' : 'supplier' });
+        if (vigCols) {
+          const origen = typeof r.link_to === 'number' ? porIndice.get(r.link_to) ?? null : null;
+          await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id: hecha.id })
+            .update({ batch_id: batchId, batch_folio: batchFolio, origin_requisition_id: origen });
+        }
+      }
+      this.logger.log(`Lote ${batchFolio ?? batchId}: ${creadas.length} requisición(es)`);
+      return {
+        batch_id: batchId, batch_folio: batchFolio, total: creadas.length,
+        compras: creadas.filter((x) => x.source_type === 'supplier').length,
+        traspasos: creadas.filter((x) => x.source_type === 'branch').length,
+        folios: creadas.map((x) => x.folio),
+      };
     });
   }
 
+  /**
+   * `[RQ.8]` LA BANDEJA, POR LOTE: una fila por «Armar», no por documento.
+   *
+   * Es la vista que faltaba. Medido: el promedio es 8.2 documentos por generación y el peor 117,
+   * así que la lista plana obliga a leer 117 renglones para entender **un** clic.
+   *
+   * ⚠️ Pagina por LOTE, no por documento: agrupar la página de 50 documentos partiría lotes por
+   * la mitad y el conteo de cada uno mentiría según dónde cayera el corte.
+   *
+   * ⚠️ Lo anterior a la migración tiene `batch_id` NULL. Se agrupa por su propio id, o sea sale
+   * como **lote de uno** — que es lo que de verdad se sabe de ellas. Inventarles un lote hacia
+   * atrás con una ventana de tiempo sería publicar una reconstrucción como si fuera un hecho.
+   */
+  async listRequisitionBatches(q: { estado?: string; source_type?: string; page?: number; pageSize?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(q.pageSize) || 25));
+    return this.tk.run(async (trx) => {
+      if (!(await this.loteColsListas(trx))) return { total: 0, page, pageSize, rows: [], disponible: false };
+      const binds: Record<string, unknown> = { t: tenantId };
+      const conds = ['r.tenant_id = :t'];
+      if (q.estado) { conds.push('r.estado = :est'); binds.est = q.estado; }
+      if (q.source_type === 'supplier' || q.source_type === 'branch') { conds.push('r.source_type = :st'); binds.st = q.source_type; }
+      const where = conds.join(' AND ');
+      const inner = `
+        SELECT COALESCE(r.batch_id, r.id)                                   AS lote,
+               max(r.batch_folio)                                           AS batch_folio,
+               count(*)::int                                                AS documentos,
+               count(*) FILTER (WHERE r.source_type = 'supplier')::int      AS compras,
+               count(*) FILTER (WHERE r.source_type = 'branch')::int        AS traspasos,
+               count(DISTINCT r.warehouse_id)::int                          AS almacenes,
+               count(DISTINCT r.supplier_id) FILTER (WHERE r.supplier_id IS NOT NULL)::int AS proveedores,
+               COALESCE(sum(r.total_lines), 0)::int                         AS renglones,
+               COALESCE(sum(r.total_cost), 0)                               AS monto,
+               min(r.created_at)                                            AS created_at,
+               floor(extract(epoch FROM now() - min(r.created_at)) / 86400)::int AS dias,
+               -- El estado del LOTE no se inventa: si todos coinciden es ése, y si no, se DICE
+               -- que está mezclado. Un "pendiente" sobre un lote medio aprobado sería mentira.
+               CASE WHEN count(DISTINCT r.estado) = 1 THEN min(r.estado) ELSE 'mixto' END AS estado,
+               count(*) FILTER (WHERE r.estado = 'pending_approval')::int   AS pendientes,
+               max(u.username)                                              AS autor,
+               (array_agg(DISTINCT sup.name) FILTER (WHERE sup.name IS NOT NULL))[1:3] AS proveedor_muestra,
+               (array_agg(DISTINCT w.code ORDER BY w.code))[1:6]            AS almacen_muestra
+          FROM commercial.purchase_requisitions r
+          LEFT JOIN identity.users u      ON u.id = r.created_by
+          LEFT JOIN catalog.suppliers sup ON sup.tenant_id = r.tenant_id AND sup.id = r.supplier_id
+          LEFT JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
+         WHERE ${where}
+         GROUP BY COALESCE(r.batch_id, r.id)`;
+      const tot = (await trx.raw(`SELECT count(*)::int c FROM (${inner}) z`, binds)).rows[0];
+      const rows = (await trx.raw(
+        `${inner} ORDER BY min(r.created_at) DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+      return { total: Number(tot?.c || 0), page, pageSize, rows, disponible: true };
+    });
+  }
+
+  /** `[RQ.8]` ¿Llegó la migración del lote? Se pregunta, no se asume (igual que `[RQ.1]`). */
+  private rqLoteCols: boolean | null = null;
+  private async loteColsListas(trx: Knex.Transaction): Promise<boolean> {
+    if (this.rqLoteCols != null) return this.rqLoteCols;
+    try {
+      const r = await trx.raw(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+        WHERE table_schema='commercial' AND table_name='purchase_requisitions'
+          AND column_name='batch_id') AS t`);
+      this.rqLoteCols = !!r.rows?.[0]?.t;
+    } catch { this.rqLoteCols = false; }
+    if (!this.rqLoteCols)
+      this.logger.warn('[RQ.8] falta la migración 20261006190000 — las requisiciones se crean igual, pero sueltas: sin folio de lote y sin liga bajada→compra.');
+    return this.rqLoteCols;
+  }
+
   async listRequisitions(
-    q: { estado?: string; warehouse_id?: string; source_type?: string; page?: number; pageSize?: number },
+    q: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; page?: number; pageSize?: number },
   ): Promise<RequisitionListDto> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(q.pageSize) || 50));
     return this.tk.run(async (trx) => {
+      // Se preguntan ANTES de armar el WHERE: la búsqueda toca `batch_folio`, que no existe
+      // hasta que corre la migración, y un SELECT sobre una columna ausente es un 42703 que se
+      // lleva la bandeja entera.
+      const vigCols = await this.vigenciaColsListas(trx);
+      const loteCols = await this.loteColsListas(trx);
       const base = trx('commercial.purchase_requisitions as r')
         .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'r.tenant_id').andOn('w.id', 'r.warehouse_id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'r.tenant_id').andOn('sup.id', 'r.supplier_id'))
@@ -3147,12 +3299,23 @@ export class CommercialReplenishmentService {
       if (q.source_type && (q.source_type === 'supplier' || q.source_type === 'branch')) {
         base.andWhere('r.source_type', q.source_type);
       }
-      const vigCols = await this.vigenciaColsListas(trx);
+      // `[RQ.8]` Los documentos de UN lote. Es lo que abre la fila de la bandeja agrupada.
+      if (q.batch_id && UUID_RX.test(q.batch_id)) base.andWhere('r.batch_id', q.batch_id);
+      // `[RQ.9]` Buscar por folio o por proveedor. Hasta acá el ÚNICO filtro de la pantalla era
+      // el estado: con 670 requisiciones y 50 por página, encontrar un folio eran 14 páginas.
+      if (q.search && q.search.trim()) {
+        const t = `%${q.search.trim()}%`;
+        base.andWhere((w) => {
+          w.whereRaw('r.folio ILIKE ?', [t]).orWhereRaw('sup.name ILIKE ?', [t]);
+          if (loteCols) w.orWhereRaw("COALESCE(r.batch_folio, '') ILIKE ?", [t]);
+        });
+      }
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
       const rows = await base.clone()
         .select('r.id', 'r.folio', 'r.estado', 'r.source_type', 'r.source_warehouse_id', 'r.target_basis', 'r.total_lines', 'r.total_units', 'r.total_cost',
           'r.notes', 'r.created_at', 'r.approved_at',
           ...(vigCols ? ['r.recalculated_at'] : []),
+          ...(loteCols ? ['r.batch_id', 'r.batch_folio', 'r.origin_requisition_id'] : []),
           trx.raw('w.code AS warehouse_code'), trx.raw('w.name AS warehouse_name'),
           trx.raw('sup.name AS supplier_name'),
           trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'),
@@ -3318,8 +3481,41 @@ export class CommercialReplenishmentService {
       }
       const vig = (await this.vigenciaDeRequisiciones(trx, tenantId, [id])).get(id) ?? null;
       const dias = Math.floor((Date.now() - new Date(header.created_at).getTime()) / 86400000);
+
+      // `[RQ.8]` DE DÓNDE VIENE Y A DÓNDE VA — derivado de la FK, no copiado.
+      //
+      // Hasta acá una compra consolidada se veía igual que una directa: la pantalla mostraba un
+      // solo almacén (el punto de ENTREGA) y las sucursales para las que era vivían en `notes`
+      // como texto libre. Medido: **48 compras consolidadas por $7,422,219** eran indistinguibles,
+      // y **197 traspasos por $7,121,283** decían "Bajada de compra consolidada 00 → 03" sin
+      // forma de volver al folio que los originó.
+      //
+      // Las sucursales destino NO se guardan en ningún lado: SON los destinos de sus bajadas.
+      let bajadas: Array<{ id: string; folio: string; estado: string; code: string | null; name: string | null; total_cost: number }> = [];
+      let origen: { id: string; folio: string; estado: string; supplier_name: string | null } | null = null;
+      let lote: { documentos: number; folio: string | null } | null = null;
+      if (await this.loteColsListas(trx)) {
+        bajadas = (await trx('commercial.purchase_requisitions as r')
+          .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'r.tenant_id').andOn('w.id', 'r.warehouse_id'))
+          .where({ 'r.tenant_id': tenantId, 'r.origin_requisition_id': id })
+          .select('r.id', 'r.folio', 'r.estado', 'r.total_cost',
+            trx.raw('w.code AS code'), trx.raw('w.name AS name'))
+          .orderBy('w.code')) as never;
+        if (header.origin_requisition_id) {
+          origen = (await trx('commercial.purchase_requisitions as r')
+            .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'r.tenant_id').andOn('sup.id', 'r.supplier_id'))
+            .where({ 'r.tenant_id': tenantId, 'r.id': header.origin_requisition_id })
+            .select('r.id', 'r.folio', 'r.estado', trx.raw('sup.name AS supplier_name'))
+            .first()) as never;
+        }
+        if (header.batch_id) {
+          const n: any = await trx('commercial.purchase_requisitions')
+            .where({ tenant_id: tenantId, batch_id: header.batch_id }).count('* as c').first();
+          lote = { documentos: Number(n?.c || 0), folio: header.batch_folio ?? null };
+        }
+      }
       return {
-        ...header, lines, dias, vigencia: vig,
+        ...header, lines, dias, vigencia: vig, bajadas, origen, lote,
         purchase_order_id: po?.id ?? null, purchase_order_folio: po?.folio ?? null,
       };
     });
