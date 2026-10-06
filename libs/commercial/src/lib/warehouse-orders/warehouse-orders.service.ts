@@ -20,6 +20,9 @@ import { armarRespuesta, horasAbierto, periodo, PeriodoInvalido, relojMx, type F
  *               por etapa `c59/c60/c61`, etapa en que se agregó el renglón `c28`.
  *  · Embarque = `U-D-41` con `c37='40'` y `c39` = folio del pedido.
  *
+ * Claves en cero (`0`, `00000`, `0000000`) = SIN capturar: Kepler guarda ceros en vez de vacío
+ * en transporte, chofer, guía y responsables. Se devuelven `null`, nunca como si fueran una clave.
+ *
  * `btrim(c1) = sucursal`: el documento es de SU plaza (filtro canónico, Fase PO); sin él, una
  * réplica cruzada fabricaría pedidos duplicados.
  *
@@ -49,12 +52,12 @@ WITH h AS MATERIALIZED (
          NULLIF(btrim(h.c34::text), '')                      AS destino_ciudad,
          NULLIF(btrim(h.c12::text), '')                      AS vendedor_code,
          round(NULLIF(btrim(h.c16::text), '')::numeric, 2)   AS importe,
-         NULLIF(NULLIF(btrim(h.c86::text), ''), '0000000')   AS guia,
-         NULLIF(btrim(h.c83::text), '')                      AS transporte,
-         NULLIF(btrim(h.c84::text), '')                      AS chofer,
-         NULLIF(btrim(h.c100::text), '')                     AS resp_surtido,
-         NULLIF(btrim(h.c102::text), '')                     AS resp_checado,
-         NULLIF(btrim(h.c103::text), '')                     AS resp_embarque
+         CASE WHEN btrim(h.c86::text) ~ '^0*$' THEN NULL ELSE btrim(h.c86::text) END AS guia,
+         CASE WHEN btrim(h.c83::text) ~ '^0*$' THEN NULL ELSE btrim(h.c83::text) END AS transporte,
+         CASE WHEN btrim(h.c84::text) ~ '^0*$' THEN NULL ELSE btrim(h.c84::text) END AS chofer,
+         CASE WHEN btrim(h.c100::text) ~ '^0*$' THEN NULL ELSE btrim(h.c100::text) END AS resp_surtido,
+         CASE WHEN btrim(h.c102::text) ~ '^0*$' THEN NULL ELSE btrim(h.c102::text) END AS resp_checado,
+         CASE WHEN btrim(h.c103::text) ~ '^0*$' THEN NULL ELSE btrim(h.c103::text) END AS resp_embarque
     FROM kepler_ods.kdm1 h
    WHERE h.c2 = 'U' AND h.c3 = 'D' AND (h.c4)::int = 40
      AND btrim(h.c1) = btrim(h.sucursal)
@@ -69,12 +72,19 @@ vend AS (
 )
 SELECT h.sucursal, h.serie, h.folio, h.fecha, h.hora, h.origen, h.estatus, h.cliente_code,
        h.destino_nombre, h.destino_ciudad, h.vendedor_code, v.nombre AS vendedor_nombre,
-       coalesce(lc.renglones, 0) AS renglones, h.importe, h.guia, h.transporte, h.chofer,
+       coalesce(lc.renglones, 0) AS renglones, lc.volumen, h.importe, h.guia, h.transporte, h.chofer,
        h.resp_surtido, h.resp_checado, h.resp_embarque
   FROM h
+  -- Renglones y volumen por unidad de presentación (c55, cantidad c56), una búsqueda por pedido.
+  -- Medido 2026-10-06: octubre, 532 pedidos, 55-140 ms; el 0000367 da 16 CJA, igual que su ticket.
   LEFT JOIN LATERAL (
-    SELECT count(*)::int AS renglones FROM kepler_ods.kdm2 l
-     WHERE l.sucursal = h.sucursal AND l.c2 = h.k2 AND l.c3 = h.k3 AND l.c4 = h.k4 AND l.c5 = h.k5 AND l.c6 = h.k6
+    SELECT coalesce(sum(x.n), 0)::int AS renglones,
+           jsonb_agg(jsonb_build_object('unidad', x.u, 'cantidad', x.q) ORDER BY x.q DESC) AS volumen
+      FROM (SELECT coalesce(upper(NULLIF(btrim(l.c55::text), '')), 'SIN UNIDAD') AS u,
+                   sum(coalesce(NULLIF(btrim(l.c56::text), '')::numeric, 0)) AS q, count(*) AS n
+              FROM kepler_ods.kdm2 l
+             WHERE l.sucursal = h.sucursal AND l.c2 = h.k2 AND l.c3 = h.k3 AND l.c4 = h.k4 AND l.c5 = h.k5 AND l.c6 = h.k6
+             GROUP BY 1) x
   ) lc ON true
   LEFT JOIN vend v ON v.sucursal = h.sucursal AND v.code = h.vendedor_code
  ORDER BY h.fecha DESC, h.hora DESC NULLS LAST, h.sucursal, h.folio DESC`;
@@ -107,7 +117,7 @@ const SHIPMENTS_SQL = `
 SELECT DISTINCT ON (e.c5, e.c6)
        (e.c5)::int AS serie, btrim(e.c6::text) AS folio, to_char(e.c9::date, 'YYYY-MM-DD') AS fecha,
        upper(NULLIF(btrim(e.c11::text), '')) AS estatus,
-       NULLIF(NULLIF(btrim(e.c86::text), ''), '0000000') AS guia
+       CASE WHEN btrim(e.c86::text) ~ '^0*$' THEN NULL ELSE btrim(e.c86::text) END AS guia
   FROM kepler_ods.kdm1 e
  WHERE e.sucursal = ? AND e.c2 = 'U' AND e.c3 = 'D' AND (e.c4)::int = 41
    AND btrim(e.c1) = btrim(e.sucursal)
@@ -128,9 +138,11 @@ export interface WarehouseOrdersQuery {
   q?: string;
 }
 
-type Crudo = Omit<WarehouseOrderRow, 'clave' | 'sucursal_nombre' | 'documento' | 'importe' | 'horas_abierto' | 'serie'> & {
+type Crudo = Omit<WarehouseOrderRow, 'clave' | 'sucursal_nombre' | 'documento' | 'importe' | 'horas_abierto' | 'serie' | 'volumen'> & {
   serie: number | string;
   importe: string | number | null;
+  /** jsonb de pg: los números pueden llegar como texto. */
+  volumen: Array<{ unidad: string; cantidad: string | number }> | null;
 };
 
 /** Renglón crudo de kdm2: los numéricos llegan como texto desde pg. */
@@ -182,6 +194,7 @@ export class WarehouseOrdersService {
       documento: documento(serie, r.folio),
       importe: num(r.importe),
       renglones: Number(r.renglones) || 0,
+      volumen: (r.volumen ?? []).map((v) => ({ unidad: v.unidad, cantidad: Number(v.cantidad) || 0 })),
       horas_abierto: horasAbierto(r.fecha, r.hora, r.estatus, reloj),
     };
   }

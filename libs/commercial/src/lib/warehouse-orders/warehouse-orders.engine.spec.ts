@@ -15,7 +15,7 @@ const fila = (over: Partial<WarehouseOrderRow>): WarehouseOrderRow => ({
   clave: '01-1-0002781', sucursal: '01', sucursal_nombre: 'Padre Hidalgo', serie: 1, folio: '0002781',
   documento: 'UD4001-0002781', fecha: '2026-10-05', hora: '18:10', origen: 'SUCURSAL', estatus: 'EMBARCADO',
   cliente_code: 'RUTA 21', destino_nombre: 'R.D. 21 PH Urbano Olivares Victorino', destino_ciudad: 'Santa Ana Pacueco',
-  vendedor_code: '00021', vendedor_nombre: null, renglones: 102, importe: 22591.35, guia: '0001644',
+  vendedor_code: '00021', vendedor_nombre: null, renglones: 102, volumen: [{ unidad: 'PAQ', cantidad: 164 }], importe: 22591.35, guia: '0001644',
   transporte: '00013', chofer: '00014', resp_surtido: '06', resp_checado: '03', resp_embarque: '02',
   horas_abierto: null, ...over,
 });

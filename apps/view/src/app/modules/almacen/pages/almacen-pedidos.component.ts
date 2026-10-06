@@ -29,6 +29,8 @@ const ESTATUS: Record<string, { label: string; sev: Sev }> = {
 const ORIGEN: Record<string, string> = { TELEMARK: 'Telemarketing', SUCURSAL: 'Sucursal' };
 /** Lo que ya le toca al almacén: todo menos Creado, que aún no está autorizado. */
 const ESTATUS_DE_ALMACEN = ['AUTORIZADO', 'SURTIDO', 'CHECADO', 'EMBARCADO'];
+/** Orden de las unidades en el volumen: de la más grande a la más chica; las demás al final. */
+const ORDEN_UNIDADES = ['CJA', 'BULTO', 'BTO', 'CUB', 'PAQ', 'PZA', 'KG', '500', '400', '250'];
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -112,20 +114,19 @@ const dmy = (v: string | null | undefined): string => {
             <p-table [value]="d.items" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="calc(100vh - 25rem)" selectionMode="single" [selection]="sel()" (selectionChange)="pick($event)" dataKey="clave" [paginator]="d.items.length > 200" [rows]="200">
               <ng-template #header>
                 <tr>
-                  <th>Pedido</th><th>Fecha</th>@if (multiSucursal(d)) { <th>Suc</th> }<th>Origen</th><th>Cliente / destino</th>
-                  <th class="ta-r">Reng.</th><th>Estatus</th>
+                  <th>Pedido</th><th>Fecha</th>@if (multiSucursal(d)) { <th>Suc</th> }<th>Cliente / destino</th>
+                  <th class="ta-r" title="Renglones del pedido y volumen sumado por unidad">Reng. · volumen</th><th>Estatus</th>
                   <th class="ta-r" title="Horas desde que se creó el pedido. Kepler no guarda cuándo cambió de estatus.">Abierto</th>
                   <th>Guía</th><th class="ta-r">Importe</th>
                 </tr>
               </ng-template>
               <ng-template #body let-r>
                 <tr [pSelectableRow]="r">
-                  <td class="mono" role="cell" data-label="Pedido">{{ r.documento }}</td>
+                  <td role="cell" data-label="Pedido"><span class="mono">{{ r.documento }}</span><span class="muted gp-sub">{{ origenLabel(r.origen) }}</span></td>
                   <td class="mono" role="cell" data-label="Fecha">{{ dm(r.fecha) }} <span class="muted">{{ r.hora || '' }}</span></td>
                   @if (multiSucursal(d)) { <td class="mono muted" role="cell" data-label="Suc">{{ r.sucursal }}</td> }
-                  <td role="cell" data-label="Origen">{{ origenLabel(r.origen) }}</td>
                   <td role="cell" data-label="Cliente / destino"><span class="gp-trunc">{{ r.destino_nombre || r.cliente_code || '—' }}</span>@if (r.destino_ciudad) { <span class="muted gp-sub">{{ r.destino_ciudad }}</span> }</td>
-                  <td class="ta-r num" role="cell" data-label="Reng.">{{ r.renglones }}</td>
+                  <td class="ta-r" role="cell" data-label="Reng. · volumen"><span class="num">{{ r.renglones }}</span><span class="muted gp-sub gp-vol num">{{ volumenTexto(r.volumen) }}</span></td>
                   <td role="cell" data-label="Estatus"><p-tag [value]="estatusLabel(r.estatus)" [severity]="estatusSev(r.estatus)" styleClass="gp-tag" /></td>
                   <td class="ta-r num" role="cell" data-label="Abierto">{{ horas(r.horas_abierto) }}</td>
                   <td class="mono" role="cell" data-label="Guía" [class.muted]="!r.guia">{{ r.guia || '—' }}</td>
@@ -133,7 +134,7 @@ const dmy = (v: string | null | undefined): string => {
                 </tr>
               </ng-template>
               <ng-template #emptymessage>
-                <tr><td [attr.colspan]="multiSucursal(d) ? 10 : 9"><div class="gp-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Ningún pedido con estos filtros entre {{ dmy(d.periodo.from) }} y {{ dmy(d.periodo.to) }}.</span>@if (hayFiltros()) { <button type="button" class="gp-link" (click)="limpiar()">Quitar filtros</button> }</div></td></tr>
+                <tr><td [attr.colspan]="multiSucursal(d) ? 9 : 8"><div class="gp-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Ningún pedido con estos filtros entre {{ dmy(d.periodo.from) }} y {{ dmy(d.periodo.to) }}.</span>@if (hayFiltros()) { <button type="button" class="gp-link" (click)="limpiar()">Quitar filtros</button> }</div></td></tr>
               </ng-template>
             </p-table>
             <div class="gp-foot" aria-label="Totales de lo filtrado">
@@ -175,19 +176,18 @@ const dmy = (v: string | null | undefined): string => {
                 <h3>Renglones · {{ x.lineas.length }}</h3>
                 <p-table [value]="x.lineas" size="small" class="surf-table gp-lines" [scrollable]="true" scrollHeight="calc(100vh - 22rem)" dataKey="renglon">
                   <ng-template #header>
-                    <tr><th>Producto</th><th class="ta-r">Ped</th><th class="ta-r">Surt</th><th class="ta-r">Chec</th><th class="ta-r">Emb</th><th title="Ubicación de surtido · checado · embarque capturada en Kepler">Ubic.</th></tr>
+                    <tr><th>Producto</th><th class="ta-r">Ped</th><th class="ta-r">Surt</th><th class="ta-r">Chec</th><th class="ta-r">Emb</th></tr>
                   </ng-template>
                   <ng-template #body let-l>
                     <tr>
                       <td role="cell" data-label="Producto">
                         <span class="gp-trunc">{{ l.descripcion || l.sku }}</span>
-                        <span class="muted gp-sub mono">{{ l.sku }} · {{ l.unidad_presentacion || l.unidad || '' }}@if (agregado(l.etapa_alta)) { · <span class="gp-warn">agregado en {{ estatusLabel(l.etapa_alta).toLowerCase() }}</span> }</span>
+                        <span class="muted gp-sub mono">{{ l.sku }} · {{ l.unidad_presentacion || l.unidad || '' }} · <span title="Ubicación capturada en Kepler: surtido · checado · embarque">Ubic. S {{ l.ubic_surtido || '—' }} · C {{ l.ubic_checado || '—' }} · E {{ l.ubic_embarque || '—' }}</span>@if (agregado(l.etapa_alta)) { · <span class="gp-warn">agregado en {{ estatusLabel(l.etapa_alta).toLowerCase() }}</span> }</span>
                       </td>
                       <td class="ta-r num" role="cell" data-label="Ped">{{ cant(l.cant_pedida) }}</td>
                       <td class="ta-r num" role="cell" data-label="Surt" [class.gp-warn]="difiere(l.cant_pedida, l.cant_surtida)">{{ cant(l.cant_surtida) }}</td>
                       <td class="ta-r num" role="cell" data-label="Chec" [class.gp-warn]="difiere(l.cant_surtida, l.cant_checada)">{{ cant(l.cant_checada) }}</td>
                       <td class="ta-r num" role="cell" data-label="Emb" [class.gp-warn]="difiere(l.cant_checada, l.cant_embarcada)">{{ cant(l.cant_embarcada) }}</td>
-                      <td class="mono" role="cell" data-label="Ubic. S · C · E">{{ l.ubic_surtido || '—' }} · {{ l.ubic_checado || '—' }} · {{ l.ubic_embarque || '—' }}</td>
                     </tr>
                   </ng-template>
                 </p-table>
@@ -243,6 +243,7 @@ const dmy = (v: string | null | undefined): string => {
     .gp-row > span:last-child { text-align:right; min-width:0; }
     .gp-trunc { display:block; max-width:22rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .gp-sub { display:block; font-size:var(--fs-xs); }
+    .gp-vol { white-space:normal; max-width:11rem; margin-left:auto; line-height:1.25; }
     .gp-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:.5rem 0 0; }
     .gp-pad { padding:.5rem .85rem; }
     .gp-warn { color:var(--warn-soft-fg); font-weight:600; }
@@ -429,6 +430,14 @@ export class AlmacenPedidosComponent implements OnInit {
   /** El renglón se agregó después de que el pedido se creó (en surtido, checado o embarque). */
   agregado(etapa: string | null): boolean { return !!etapa && etapa !== 'CREADO' && etapa !== 'AUTORIZADO'; }
   difiere(a: number | null, b: number | null): boolean { return a != null && b != null && Math.abs(a - b) > 0.0001; }
+  volumenTexto(v: { unidad: string; cantidad: number }[] | null | undefined): string {
+    if (!v?.length) return '';
+    const orden = (u: string) => { const i = ORDEN_UNIDADES.indexOf(u); return i < 0 ? 99 : i; };
+    return [...v]
+      .sort((a, b) => orden(a.unidad) - orden(b.unidad) || b.cantidad - a.cantidad)
+      .map((x) => `${x.cantidad.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${x.unidad}`)
+      .join(' · ');
+  }
   cant(v: number | null): string { return v == null ? '—' : v.toLocaleString('es-MX', { maximumFractionDigits: 3 }); }
   horas(h: number | null): string {
     if (h == null) return '—';

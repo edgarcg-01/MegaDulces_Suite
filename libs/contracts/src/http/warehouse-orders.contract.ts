@@ -39,6 +39,11 @@ export interface WarehouseOrderRow {
   vendedor_code: string | null;
   vendedor_nombre: string | null;
   renglones: number;
+  /**
+   * Volumen del pedido sumado por unidad de presentación (`kdm2.c55`, cantidad `c56`): p. ej.
+   * 16 CJA, 164 PAQ, 43.4 KG. Unidad `SIN UNIDAD` = renglón sin unidad capturada (no se usa `?`: knex lo toma como parámetro).
+   */
+  volumen: Array<{ unidad: string; cantidad: number }>;
   importe: number | null;
   guia: string | null;
   transporte: string | null;
