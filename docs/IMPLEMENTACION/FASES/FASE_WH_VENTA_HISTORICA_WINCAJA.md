@@ -357,9 +357,68 @@ de la cota se **declara con su monto y su `Consecutivo`**, no se borra.
 
 ---
 
-**Pendiente de WH.0:** repetir el placebo en una segunda sucursal (`h50`→06, que también tiene
-crédito publicado) para confirmar que el discriminante `Caja` no es particular de PH, y levantar el
-censo de cajas de las nueve para saber cuánto falta clasificar en total.
+---
+
+#### ⭐⭐ AUDITORÍA (2026-10-07): el discriminante NO es la caja, es la CONTRAPARTE
+
+Encargo de Edgar: *"genera una auditoría y descúbrelo o investiga si no está documentado"*.
+
+**1. No está documentado en la fuente.** El `.mdb` trae una tabla **`Cajas`**, pero sólo tiene
+folios y contadores: **ninguna columna de nombre o descripción**. Callejón sin salida, declarado.
+
+**2. Sí se puede descubrir, por la contraparte (`MaestroMovAlmacen.Tercero` ⋈ `Clientes.Nombre`).**
+La firma de cada caja de PH en 9 años separa sola:
+
+| `Caja` | terceros distintos | contraparte dominante | lectura |
+|---|---:|---|---|
+| 12 · 13 · 14 · 19 · 17 · 18 · 16 · 11 · 81 · 82 | 83–2,310 | **en blanco** (76–98 %) | mostrador al público |
+| 15 | 1,817 | el top es 1.5 % | preventa (cada ticket, otro cliente) |
+| 70 | 797 | personas con nombre | crédito / facturación |
+| 10 · 90 | 82 | `960` **VENTAS DE MOSTRADOR** | mostrador |
+| **98** | **10** | `23` **RUTA 23** | **surtido a ruta** |
+| **99** | **21** | `40` **ALMACEN 8 ESQUINAS** | **traspaso a sucursal** |
+
+⭐ **Confirma a Lupita de forma independiente, y al peso.** El 99.5 % de la caja 98 va a
+`RUTA 21/22/23/26/27/28/61`; la 99 va a `ALMACEN` de las ocho sucursales + CEDIS.
+
+**3. ⛔ Y el residuo demuestra que clasificar POR CAJA está mal.** Medido en PH, 9 años:
+
+| clase (por contraparte) | cobrado en caja 98/99 | cobrado en OTRA caja |
+|---|---:|---:|
+| surtido a ruta | 11,701 tickets · $163,517,569 | **26 · $99,840** |
+| traspaso a sucursal | 7,136 · $300,888,630 | **38 · $926,371** |
+| venta a cliente | **23 · $176,422** | 2,227,899 |
+
+**64 movimientos internos ($1,026,211) se cobraron fuera de las cajas 98/99** —una regla por caja
+los publicaría como venta— y **23 ventas reales ($176,422) se cobraron dentro** —una regla por caja
+las borraría—. Error neto $849,789 en una sola sucursal, y en una plaza con registros más laxos
+sería mayor.
+
+⭐⭐ **Y lo más valioso: la regla por contraparte DISUELVE el problema del censo de cajas.** Ya no
+hay que averiguar qué fue la caja 19, la 17, la 81… **se clasifica el TICKET, no el registro**, y
+una caja que sólo existió en 2020 entra sin que nadie la haya catalogado. Los $20.9 M en riesgo de
+§WH.0-4 dejan de estarlo.
+
+**4. Generaliza.** La misma regla sobre otras dos sucursales (2017–2025, con la cota de cordura
+puesta):
+
+| sucursal | venta a cliente | traspaso interno |
+|---|---:|---:|
+| 03 8 Esquinas (`h40`) | 2,486,779 tickets · $445,024,088 | 1,419 · $5,397,838 |
+| 06 Canindo (`h50`) | 879,897 tickets · $962,570,128 | 1,015 · $20,297,726 |
+
+**5. ⚠️ Salvedad que NO se tapa: Canindo da CERO surtido a ruta teniendo rutas propias**
+(`RUTA-501`…`505` existen y publican en `wincaja_ruta`). O su surtido se hace por otro mecanismo, o
+—más probable— sus contrapartes se llaman distinto y el patrón `RUTA%` no las ve: en el propio PH
+ya apareció **`RD CANINDO`**, que ese patrón no atrapa.
+
+⛔ **Por eso el catálogo de contrapartes internas se DERIVA y se REVISA por sucursal; no se
+hardcodea un regex.** Entregable: `analytics.wincaja_internal_parties` (tenant, sucursal, tercero,
+nombre, clase) sembrada del catálogo `Clientes` y **revisada por una persona**, con lo no
+clasificado **declarado con su monto** — nunca descartado ni incluido en silencio.
+
+**WH.0 queda CERRADO** salvo esa revisión humana de contrapartes, que ya no bloquea el diseño:
+bloquea la publicación de la cifra final, que es donde debe bloquear.
 
 ---
 
