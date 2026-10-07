@@ -26,6 +26,7 @@ import {
   type SdSlaScanResult,
   type SdUpdatePreferencesDto,
   type SdUpsertCategoryDto,
+  type SdQueueCandidateDto,
   type SdQueueMembersResponse,
   type SdUpsertQueueDto,
   type SdUpsertQueueMemberDto,
@@ -292,6 +293,13 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'Quién atiende una cola (coordinador / técnico). Lo ve quien la atiende.' })
   queueMembers(@Param('id') id: string, @Req() req: AuthedRequest): Promise<SdQueueMembersResponse> {
     return this.actors.resolve(req).then((ctx) => this.members.list(ctx, id));
+  }
+
+  @Get('config/queues/:id/candidates')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Quién podría entrar a la cola: tiene la clave de atender/coordinar y aún no es miembro. Sólo la coordinación de esa cola.' })
+  queueCandidates(@Param('id') id: string, @Req() req: AuthedRequest): Promise<SdQueueCandidateDto[]> {
+    return this.actors.resolve(req).then((ctx) => this.members.candidates(ctx, id));
   }
 
   @Put('config/queues/:id/members/:userId')
