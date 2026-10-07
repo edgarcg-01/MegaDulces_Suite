@@ -5,7 +5,7 @@ import { GoodsReceiptProofsService, ListReceiptsQuery, AttachReceiptDto, Receipt
 import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
 import { ReceiptSlaService } from './receipt-sla.service';
 import { GoodsReceiptExpedienteService } from './goods-receipt-expediente.service';
-import type { EntradasSinOcResumen, ReceiptExpediente } from '@megadulces/contracts';
+import type { EntradasSinOcResumen, IdentificacionEntrada, IdentificarLectura, ReceiptExpediente } from '@megadulces/contracts';
 import { RemisionLine } from '@megadulces/platform-core';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
@@ -248,6 +248,13 @@ export class GoodsReceiptProofsController {
   @ApiOperation({ summary: 'Detalle de la entrada + sus remisiones adjuntas. Acepta el folio de OFICINAS (00): si es espejo, devuelve la canónica de sucursal + `redirigido_de`.' })
   detail(@Param('sucursal') sucursal: string, @Param('folio') folio: string) {
     return this.svc.detail(sucursal, folio);
+  }
+
+  @Post('identificar')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
+  @ApiOperation({ summary: '[RE.35.7] Captura por lote: con lo leído de UN papel (UUID, RFC, folio, total, sello, firma) busca su CFDI en ContPAQi y las entradas de Kepler que cuadran, y dice si la propuesta viene lista. Sólo lectura: no guarda nada.' })
+  identificar(@Body() body: IdentificarLectura): Promise<IdentificacionEntrada> {
+    return this.expedienteSvc.identificar(body || {});
   }
 
   @Post('ocr')

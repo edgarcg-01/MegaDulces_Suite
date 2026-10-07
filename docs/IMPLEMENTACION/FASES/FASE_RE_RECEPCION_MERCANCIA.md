@@ -257,6 +257,20 @@ Una entrada con factura **pasa sola** si cumple **F1–F8**, **tiene OC**, **tie
 - **Meta de arranque: 60–70% automático** (con el UUID del PDF/XML resolviendo la factura que cubre varias entradas). El 90% no se busca abriendo la tolerancia ni la OC.
 - **Límites declarados:** sólo Kepler (Wincaja fuera), un trimestre, emparejamiento por importe, y las NC de Kepler sólo traen la sucursal `00`.
 
+#### RE.35.6 — El CFDI manda sobre el OCR (Francisco, 2026-10-06)
+
+Cuando el OCR pifia el total del papel pero el CFDI de ContPAQi está ligado de forma **exacta** y cuadra con Kepler (`E1_cuadre` ok, vía factura), la entrada **va para adelante**: aviso verde en el panel, chip de la fila según el expediente y **Aprobar N** la acepta (`validateBulk`, tercera puerta `cubo = auto`). La lectura del OCR se muestra tachada como descartada. El OCR sigue sirviendo para **identificar** (UUID, folio, RFC); no es árbitro del importe. Una liga sugerida (no exacta) **no** manda.
+
+#### RE.35.7 — Archivar varias facturas a la vez: el papel vale por su sello y su firma (Francisco, 2026-10-06)
+
+El papel escaneado no aporta datos fiscales (esos los da el CFDI): aporta la **prueba de la entrega**, el **sello de recibido** y la **firma** de quien recibió. Por eso se archiva y por eso el OCR los lee.
+
+- **Captura por lote** en costo por compra (botón *Varias* o soltar 2+ PDF en la barra; varias fotos soltadas ahí siguen juntándose en una factura), con el patrón de pagos a proveedores: una recepción por archivo; las fotos se convierten a un PDF cada una.
+- **Identificación** (`POST identificar`): lo leído (UUID, RFC, folio, total) → su CFDI con `ligarCfdi` → las entradas cuyo monto cuadra (tolerancia R-v2) y cuyo proveedor es el emisor (RFC o nombre). **Listo** sólo con CFDI exacto + una sola entrada libre + proveedor confirmado + sello y firma vistos. Lo demás se propone sin pre-marcar o se elige.
+- **Expediente R-v2:** checks *Sello de recibido* y *Firma de quien recibió*. `false` bloquea; sin dato (lecturas anteriores) se informa sin bloquear.
+- **Medición (2026-10-06):** Medido en prod (sólo lectura) sobre las **576 facturas ya archivadas**, dándole al identificador sólo lo que leyó cada papel: propone la entrada correcta en **262** (133 vendrían «listas» con sello y firma), entre gemelas la fecha elige bien en 19, en 25 la correcta queda entre las opciones, 276 van a búsqueda a mano y **0 «listas» equivocadas**. La regla se endureció con esa medición: con entradas gemelas (mismo proveedor e importe cada semana) nunca se pre-marca, y una sola candidata lejos de la fecha de la factura tampoco.
+- Pendiente: medir con papeles reales cuántas veces el OCR distingue sello y firma, y si conviene un hallazgo «recibió sin sellar/firmar» por sucursal.
+
 #### Lo que se queda en manos del auxiliar enseña — sin dejar huecos (ADR-085)
 
 Pedido de Francisco: *«lo que se quede comience a estudiar al usuario para aplicar correctivos y scripts que usen interpretación en código para ajustar criterios que aporten a ir aumentando, sin dejar huecos por detrás»*. Es el patrón de ADR-021 (Horus.L) y Maat (L2), aplicado a la recepción: **el motor aprende con reglas tipadas y auditables; el LLM no decide.**
