@@ -100,7 +100,8 @@ const TODOS = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
     // `[MS.3.10]` +2: «Equipo de cómputo e impresoras» (exige sucursal) y «Desarrollo» entraron con el ruteo automático.
     ok(cats.length === 14, `14 categorías de TI sembradas: las 12 de la bitácora + 2 del ruteo automático (hay ${cats.length})`);
     ok(cats.filter((c) => c.requires_branch).length === 5, '5 categorías exigen sucursal (soporte, CCTV, redes, inventario, equipo de cómputo)');
-    const sla = Object.fromEntries((await knex('servicedesk.sla_policies').where({ tenant_id: T })).map((r) => [r.priority, r]));
+    // `[MS.7.2]` Las GENERALES (queue_id NULL): las de cada cola se miden en test-newdb-sla-por-cola.
+    const sla = Object.fromEntries((await knex('servicedesk.sla_policies').where({ tenant_id: T }).whereNull('queue_id')).map((r) => [r.priority, r]));
     ok(sla.urgente && sla.urgente.first_response_minutes === 30 && sla.urgente.resolution_minutes === 240 && sla.urgente.clock === 'calendar',
       'Urgente: 30 min / 4 h, reloj corrido');
     ok(sla.alta && sla.alta.first_response_minutes === 120 && sla.alta.resolution_minutes === 480 && sla.alta.clock === 'business',

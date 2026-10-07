@@ -62,7 +62,7 @@ export class ServiceDeskConfigAdminService {
     return this.tk.run(async (trx) => {
       const s = await trx('servicedesk.settings').first();
       if (!s) throw new NotFoundException('La Mesa de Servicio no está configurada para este tenant');
-      const policies = await trx('servicedesk.sla_policies').select('priority', 'first_response_minutes', 'resolution_minutes', 'clock');
+      const policies = await trx('servicedesk.sla_policies').select('queue_id', 'priority', 'first_response_minutes', 'resolution_minutes', 'clock');
       const queues = await trx('servicedesk.queues').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'department_code', 'active', 'sort_order');
       const cats = await trx('servicedesk.categories').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'queue_id', 'code', 'name', 'default_priority', 'requires_branch', 'active', 'sort_order');
       const orden = (p: SdPriority): number => SD_PRIORITIES.indexOf(p);
@@ -79,8 +79,9 @@ export class ServiceDeskConfigAdminService {
           unassigned_alert_minutes: Number(s.unassigned_alert_minutes),
         },
         policies: (policies as SdSlaPolicyDto[])
-          .map((p) => ({ priority: p.priority, first_response_minutes: Number(p.first_response_minutes), resolution_minutes: Number(p.resolution_minutes), clock: p.clock }))
-          .sort((a, b) => orden(a.priority) - orden(b.priority)),
+          .map((p) => ({ queue_id: p.queue_id ?? null, priority: p.priority, first_response_minutes: Number(p.first_response_minutes), resolution_minutes: Number(p.resolution_minutes), clock: p.clock }))
+          // La general primero (queue_id null), luego las de cada cola; dentro de cada una, de la más baja a la más urgente.
+          .sort((a, b) => (a.queue_id ?? '').localeCompare(b.queue_id ?? '') || orden(a.priority) - orden(b.priority)),
         queues: queues as SdQueueAdminDto[],
         categories: cats as SdCategoryAdminDto[],
       };
@@ -138,8 +139,17 @@ export class ServiceDeskConfigAdminService {
     return this.get();
   }
 
-  async updatePolicy(ctx: ActorCtx, priority: string, dto: Partial<Omit<SdSlaPolicyDto, 'priority'>>): Promise<SdConfigResponse> {
+  /**
+   * Cambia los plazos de una prioridad. Sin `queueId` es la política GENERAL (la de siempre). Con `queueId` es la de ESA cola:
+   * si ya tenía una propia se edita; si no, **nace como copia de la general con el cambio aplicado** (una cola puede cambiar
+   * sólo algunas prioridades y heredar el resto). `[MS.7.2]` Sólo la coordinación de ESA cola (o el god-mode).
+   */
+  async updatePolicy(ctx: ActorCtx, priority: string, dto: Partial<Omit<SdSlaPolicyDto, 'priority' | 'queue_id'>>, queueId?: string | null): Promise<SdConfigResponse> {
     if (!SD_PRIORITIES.includes(priority as SdPriority)) throw new BadRequestException(`priority debe ser una de: ${SD_PRIORITIES.join(', ')}`);
+    if (queueId) {
+      if (!UUID_RE.test(queueId)) throw new BadRequestException('queue_id inválido');
+      if (!puedeCoordinarCola(ctx.colas, queueId)) throw new ForbiddenException('Sólo la coordinación de esa cola cambia sus plazos');
+    }
     const patch: Record<string, unknown> = {};
     if (dto.first_response_minutes !== undefined) {
       if (!esEntero(dto.first_response_minutes, 1, 525_600)) throw new BadRequestException('first_response_minutes debe ser un entero positivo');
@@ -156,16 +166,49 @@ export class ServiceDeskConfigAdminService {
     if (!Object.keys(patch).length) throw new BadRequestException('No se indicó ningún campo para cambiar');
 
     await this.tk.run(async (trx) => {
-      const actual = await trx('servicedesk.sla_policies').where({ priority }).first();
-      if (!actual) throw new NotFoundException(`No hay política para la prioridad «${priority}»`);
-      const primera = Number(patch['first_response_minutes'] ?? actual.first_response_minutes);
-      const resolucion = Number(patch['resolution_minutes'] ?? actual.resolution_minutes);
+      const alcance = (qb: Knex.QueryBuilder): Knex.QueryBuilder => (queueId ? qb.where({ queue_id: queueId }) : qb.whereNull('queue_id'));
+      const propia = await trx('servicedesk.sla_policies').where({ priority }).modify(alcance).first();
+      // Sin política propia de la cola se parte de la general: es lo que la cola «hereda» y ahora cambia.
+      const base = propia ?? (queueId ? await trx('servicedesk.sla_policies').where({ priority }).whereNull('queue_id').first() : null);
+      if (!base) throw new NotFoundException(`No hay política para la prioridad «${priority}»`);
+      if (queueId) {
+        const cola = await trx('servicedesk.queues').where({ id: queueId }).whereNull('deleted_at').first('id');
+        if (!cola) throw new NotFoundException('Cola no encontrada');
+      }
+      const primera = Number(patch['first_response_minutes'] ?? base.first_response_minutes);
+      const resolucion = Number(patch['resolution_minutes'] ?? base.resolution_minutes);
       if (primera > resolucion) throw new BadRequestException('La primera respuesta no puede tardar más que la resolución');
       try {
-        await trx('servicedesk.sla_policies').where({ priority }).update({ ...patch, updated_at: trx.fn.now(), updated_by: ctx.userId });
+        if (propia) {
+          await trx('servicedesk.sla_policies').where({ id: propia.id }).update({ ...patch, updated_at: trx.fn.now(), updated_by: ctx.userId });
+        } else if (queueId) {
+          await trx('servicedesk.sla_policies').insert({
+            tenant_id: this.tenantCtx.requireTenantId(),
+            queue_id: queueId,
+            priority,
+            first_response_minutes: base.first_response_minutes,
+            resolution_minutes: base.resolution_minutes,
+            clock: base.clock,
+            ...patch,
+            created_by: ctx.userId,
+            updated_by: ctx.userId,
+          });
+        }
       } catch (e) {
         traducir(e);
       }
+    });
+    return this.get();
+  }
+
+  /** `[MS.7.2]` La cola vuelve a heredar la política general de esa prioridad (se borra su cambio propio). */
+  async removeQueuePolicy(ctx: ActorCtx, priority: string, queueId: string): Promise<SdConfigResponse> {
+    if (!SD_PRIORITIES.includes(priority as SdPriority)) throw new BadRequestException(`priority debe ser una de: ${SD_PRIORITIES.join(', ')}`);
+    if (!queueId || !UUID_RE.test(queueId)) throw new BadRequestException('queue_id inválido');
+    if (!puedeCoordinarCola(ctx.colas, queueId)) throw new ForbiddenException('Sólo la coordinación de esa cola cambia sus plazos');
+    await this.tk.run(async (trx) => {
+      const n = await trx('servicedesk.sla_policies').where({ priority, queue_id: queueId }).del();
+      if (!n) throw new NotFoundException('Esa cola no tiene un plazo propio para esa prioridad: ya hereda el general');
     });
     return this.get();
   }

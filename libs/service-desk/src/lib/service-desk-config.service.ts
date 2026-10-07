@@ -8,7 +8,7 @@ import type { Knex } from 'knex';
 import { SD_IMPACTS, type SdCatalogResponse, type SdPriority } from '@megadulces/contracts';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { parseHHMM, type BusinessCalendar } from './domain/business-clock';
-import type { PoliticaSla } from './domain/sla';
+import { politicaEfectiva, type PoliticaSla, type PoliticasPorPrioridad } from './domain/sla';
 
 export interface SdSettings {
   calendar: BusinessCalendar;
@@ -20,7 +20,15 @@ export interface SdSettings {
 
 export interface SdConfig {
   settings: SdSettings;
+  /** La política GENERAL del tenant (`queue_id IS NULL`): la de siempre y la que heredan las colas que no cambiaron nada. */
   policies: Readonly<Record<SdPriority, PoliticaSla>>;
+  /** `[MS.7.2]` Lo que cada cola cambió a su manera, por id de cola. Para leer la política de un ticket usa `politicaDe`. */
+  queuePolicies: ReadonlyMap<string, PoliticasPorPrioridad>;
+}
+
+/** `[MS.7.2]` La política que rige a un ticket de `queueId` con esa prioridad (la de su cola o, si no, la general). */
+export function politicaDe(cfg: Pick<SdConfig, 'policies' | 'queuePolicies'>, queueId: string, priority: SdPriority): PoliticaSla | undefined {
+  return politicaEfectiva(cfg.policies, cfg.queuePolicies.get(queueId), priority);
 }
 
 @Injectable()
@@ -31,15 +39,21 @@ export class ServiceDeskConfigService {
   async load(trx: Knex.Transaction): Promise<SdConfig> {
     const s = await trx('servicedesk.settings').first();
     if (!s) throw new Error('servicedesk.settings no tiene fila para este tenant: falta correr la migración de catálogos');
-    const rows = await trx('servicedesk.sla_policies').select('priority', 'first_response_minutes', 'resolution_minutes', 'clock');
+    const rows = await trx('servicedesk.sla_policies').select('queue_id', 'priority', 'first_response_minutes', 'resolution_minutes', 'clock');
     const policies = {} as Record<SdPriority, PoliticaSla>;
+    const porCola = new Map<string, Partial<Record<SdPriority, PoliticaSla>>>();
     for (const r of rows) {
-      policies[r.priority as SdPriority] = {
+      const p: PoliticaSla = {
         priority: r.priority,
         first_response_minutes: Number(r.first_response_minutes),
         resolution_minutes: Number(r.resolution_minutes),
         clock: r.clock,
       };
+      if (r.queue_id) {
+        const m = porCola.get(r.queue_id) ?? {};
+        m[r.priority as SdPriority] = p;
+        porCola.set(r.queue_id, m);
+      } else policies[r.priority as SdPriority] = p;
     }
     return {
       settings: {
@@ -55,6 +69,7 @@ export class ServiceDeskConfigService {
         maxAttachmentBytes: Number(s.max_attachment_mb) * 1048576,
       },
       policies,
+      queuePolicies: porCola,
     };
   }
 

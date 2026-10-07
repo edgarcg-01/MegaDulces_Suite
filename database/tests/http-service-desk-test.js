@@ -328,7 +328,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     // Se guarda el estado de la configuración ANTES de tocarla: se restaura al final (la base dev es compartida).
     restaurar = {
       settings: await knex('servicedesk.settings').where({ tenant_id: T }).first(),
-      policies: await knex('servicedesk.sla_policies').where({ tenant_id: T }).select('priority', 'first_response_minutes', 'resolution_minutes', 'clock'),
+      policies: await knex('servicedesk.sla_policies').where({ tenant_id: T }).whereNull('queue_id').select('priority', 'first_response_minutes', 'resolution_minutes', 'clock'),
     };
 
     // ── 11. Configuración ───────────────────────────────────────────────────────
@@ -341,7 +341,9 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     const cfg = await req('GET', `${SD}/config`, coord.token);
     check('la coordinación lee la configuración → 200', cfg.status === 200, dump(cfg));
     check('⭐ la escalación está APAGADA de fábrica (primero se mide)', cfg.body?.settings?.escalation_enabled === false, JSON.stringify(cfg.body?.settings));
-    check('trae las 4 políticas, urgente primero en el reloj corrido', cfg.body?.policies?.length === 4 && cfg.body.policies.find((p) => p.priority === 'urgente')?.clock === 'calendar');
+    // `[MS.7.2]` La respuesta trae también los plazos propios de cada cola (queue_id con valor): las GENERALES son las de queue_id null.
+    const generales = (cfg.body?.policies ?? []).filter((p) => p.queue_id === null);
+    check('trae las 4 políticas GENERALES, urgente primero en el reloj corrido', generales.length === 4 && generales.find((p) => p.priority === 'urgente')?.clock === 'calendar');
     check('el horario hábil de fábrica es Lun–Sáb 08:00–19:00 en hora de México', JSON.stringify(cfg.body?.settings?.business_days) === '[1,2,3,4,5,6]' && cfg.body?.settings?.business_start === '08:00' && cfg.body?.settings?.business_end === '19:00' && cfg.body?.settings?.tz === 'America/Mexico_City');
 
     console.log('\n   negativas de la configuración');
@@ -1114,6 +1116,91 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       }
     }
 
+    // ── 25. [MS.7.2] SLA por cola: la política de la cola manda, y lo no cambiado se hereda ──────────
+    {
+      console.log('\n25 — SLA por cola: plazos propios, herencia de la general, y quién puede cambiarlos');
+      const [{ id: qSla }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_sla72', name: 'SMOKE SLA por cola', sort_order: 902 }).returning('id');
+      const [{ id: catSla }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qSla, code: 'smoke_sla72_cat', name: 'SMOKE SLA cat', default_priority: 'media', requires_branch: false }).returning('id');
+      const jefeSla = await crearUsuario('sla_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qSla, role: 'coordinador' }]);
+      const tecSla = await crearUsuario('sla_tec', ['SERVICIO_ATENDER'], [{ queue_id: qSla, role: 'tecnico' }]);
+      const diosSla = await crearUsuario('sla_dios');
+      await knex('identity.users').where({ id: diosSla.id }).update({ role_name: 'superadmin' });
+      diosSla.token = (await req('POST', '/auth-mt/login', null, { tenant_slug: 'mega_dulces', username: diosSla.username, password: PASS_PLANO })).body?.access_token ?? null;
+      usuarios.push(jefeSla, tecSla, diosSla);
+
+      const pol = (qs = '') => knex('servicedesk.sla_policies').where({ tenant_id: T }).modify((qb) => (qs ? qb.where({ queue_id: qs }) : qb.whereNull('queue_id')));
+      const minutosDe = async (id) => {
+        const r = await knex('servicedesk.requests').where({ id }).first('created_at', 'due_at', 'first_response_due_at');
+        return { resolucion: (new Date(r.due_at) - new Date(r.created_at)) / 60000, primera: (new Date(r.first_response_due_at) - new Date(r.created_at)) / 60000 };
+      };
+      const cerca = (a, b) => Math.abs(a - b) < 0.5;
+      const generalMedia = await pol().where({ priority: 'media' }).first('clock', 'first_response_minutes', 'resolution_minutes');
+
+      // Sin plazo propio: hereda la general (nada cambia para una cola nueva).
+      const t0 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSla, title: 'SMOKE 7.2 hereda la general' });
+      check('una cola nueva SIN plazos propios no tiene ninguna fila de SLA (hereda sin sembrar nada)', (await pol(qSla)).length === 0);
+      const m0 = await minutosDe(t0.body?.id);
+      if (generalMedia.clock === 'calendar') check('⭐ …y su ticket se mide con los minutos de la general', cerca(m0.resolucion, generalMedia.resolution_minutes), JSON.stringify([m0, generalMedia]));
+      else noMedido.push('SLA por cola: la general «media» corre en horario hábil en este destino; la aritmética exacta se comprueba con un reloj corrido (se fija en la prueba siguiente)');
+
+      // Permisos.
+      const cfg = (token) => req('PUT', `${SD}/config/policies/media?queue_id=${qSla}`, token, { first_response_minutes: 10, resolution_minutes: 100, clock: 'calendar' });
+      check('⛔ el coordinador de TI NO cambia los plazos de otra cola → 403', (await cfg(coord.token)).status === 403);
+      check('⛔ el técnico (sin la clave de coordinar) tampoco → 403', (await cfg(tecSla.token)).status === 403);
+      check('⛔ un queue_id inválido → 400', (await req('PUT', `${SD}/config/policies/media?queue_id=no-es-uuid`, diosSla.token, { resolution_minutes: 100 })).status === 400);
+      check('⛔ una cola inexistente → 404', (await req('PUT', `${SD}/config/policies/media?queue_id=00000000-0000-0000-0000-000000000000`, diosSla.token, { resolution_minutes: 100 })).status === 404);
+      check('⛔ primera respuesta mayor que la resolución → 400', (await req('PUT', `${SD}/config/policies/media?queue_id=${qSla}`, jefeSla.token, { first_response_minutes: 500, resolution_minutes: 100 })).status === 400);
+      check('⛔ y no se crea nada con la petición rechazada', (await pol(qSla)).length === 0);
+
+      // Su coordinación fija plazos propios (reloj corrido: aritmética exacta).
+      const ok1 = await cfg(jefeSla.token);
+      check('⭐ la coordinación de la cola fija sus plazos', ok1.status === 200, dump(ok1));
+      const propia = await pol(qSla);
+      check('⭐ nace UNA fila propia (copia de la general con el cambio) y la general NO se toca', propia.length === 1 && propia[0].priority === 'media' && propia[0].resolution_minutes === 100, JSON.stringify(propia));
+      const generalDespues = await pol().where({ priority: 'media' }).first('first_response_minutes', 'resolution_minutes', 'clock');
+      check('la política general de «media» sigue igual', generalDespues.resolution_minutes === generalMedia.resolution_minutes && generalDespues.clock === generalMedia.clock);
+      const cfgVista = await req('GET', `${SD}/config`, jefeSla.token);
+      check('la configuración declara de qué cola es cada plazo (queue_id) y conserva las generales con null', (cfgVista.body?.policies ?? []).some((p) => p.queue_id === qSla && p.priority === 'media') && (cfgVista.body?.policies ?? []).filter((p) => p.queue_id === null).length === 4, JSON.stringify((cfgVista.body?.policies ?? []).map((p) => [p.queue_id, p.priority])));
+
+      const t1 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSla, title: 'SMOKE 7.2 con plazo propio' });
+      const m1 = await minutosDe(t1.body?.id);
+      check('⭐ el ticket NUEVO se mide con el plazo de SU cola (100 min), no con el general', cerca(m1.resolucion, 100) && cerca(m1.primera, 10), JSON.stringify(m1));
+      const tTi = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.2 TI no cambia' });
+      const mTi = await minutosDe(tTi.body?.id);
+      const generalTi = await pol().where({ priority: 'media' }).first('clock', 'resolution_minutes');
+      if (generalTi.clock === 'calendar') check('⭐ y un ticket de TI sigue midiéndose con la general (el cambio de una cola no se filtra a otra)', cerca(mTi.resolucion, generalTi.resolution_minutes), JSON.stringify([mTi, generalTi]));
+      else check('un ticket de TI NO se mide con los 100 min de la otra cola', !cerca(mTi.resolucion, 100), JSON.stringify(mTi));
+
+      // Cambiar plazos otra vez edita, no duplica.
+      await req('PUT', `${SD}/config/policies/media?queue_id=${qSla}`, jefeSla.token, { resolution_minutes: 120 });
+      const trasEditar = await pol(qSla);
+      check('⭐ cambiar otra vez EDITA la fila (no la duplica)', trasEditar.length === 1 && trasEditar[0].resolution_minutes === 120, JSON.stringify(trasEditar));
+
+      // Herencia parcial: sólo se cambió «media»; «baja» sigue siendo la general.
+      const cambiaPrio = await req('POST', `${SD}/requests/${t1.body?.id}/priority`, jefeSla.token, { priority: 'baja', reason: 'SMOKE 7.2' });
+      const generalBaja = await pol().where({ priority: 'baja' }).first('clock', 'resolution_minutes');
+      check('el cambio de prioridad se acepta', cambiaPrio.status < 300, dump(cambiaPrio));
+      const mB = await minutosDe(t1.body?.id);
+      if (generalBaja.clock === 'calendar') check('⭐ HERENCIA PARCIAL: «baja» (que la cola no cambió) se mide con la general', cerca(mB.resolucion, generalBaja.resolution_minutes), JSON.stringify([mB, generalBaja]));
+      else check('⭐ HERENCIA PARCIAL: «baja» ya no se mide con el plazo propio de «media»', !cerca(mB.resolucion, 120), JSON.stringify(mB));
+
+      // Volver a heredar.
+      check('⛔ el coordinador de TI NO borra el plazo propio de otra cola → 403', (await req('DELETE', `${SD}/config/policies/media?queue_id=${qSla}`, coord.token)).status === 403);
+      check('⛔ sin queue_id no hay qué borrar → 400', (await req('DELETE', `${SD}/config/policies/media`, jefeSla.token)).status === 400);
+      const quita = await req('DELETE', `${SD}/config/policies/media?queue_id=${qSla}`, jefeSla.token);
+      check('⭐ la coordinación vuelve a heredar la general (se borra su plazo propio)', quita.status === 200 && (await pol(qSla)).length === 0, dump(quita));
+      check('⛔ borrar lo que ya no existe → 404', (await req('DELETE', `${SD}/config/policies/media?queue_id=${qSla}`, jefeSla.token)).status === 404);
+      const t2 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSla, title: 'SMOKE 7.2 vuelve a la general' });
+      const m2 = await minutosDe(t2.body?.id);
+      if (generalMedia.clock === 'calendar') check('⭐ el ticket nuevo vuelve a medirse con la general', cerca(m2.resolucion, generalMedia.resolution_minutes), JSON.stringify([m2, generalMedia]));
+      else check('el ticket nuevo ya no se mide con el plazo propio', !cerca(m2.resolucion, 120), JSON.stringify(m2));
+
+      // La política general sigue editable como siempre (y sin queue_id no se crea nada por cola).
+      const filasAntes = (await knex('servicedesk.sla_policies').where({ tenant_id: T }).whereNotNull('queue_id')).length;
+      check('la política general se sigue editando sin queue_id (compatibilidad)', (await req('PUT', `${SD}/config/policies/media`, coord.token, { first_response_minutes: generalMedia.first_response_minutes })).status === 200);
+      check('…y no crea filas por cola', (await knex('servicedesk.sla_policies').where({ tenant_id: T }).whereNotNull('queue_id')).length === filasAntes);
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
@@ -1272,7 +1359,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       const { tenant_id, created_at, created_by, ...ajustes } = restaurar.settings;
       await knex('servicedesk.settings').where({ tenant_id: T }).update(ajustes);
       for (const p of restaurar.policies) {
-        await knex('servicedesk.sla_policies').where({ tenant_id: T, priority: p.priority }).update({
+        await knex('servicedesk.sla_policies').where({ tenant_id: T, priority: p.priority }).whereNull('queue_id').update({
           first_response_minutes: p.first_response_minutes, resolution_minutes: p.resolution_minutes, clock: p.clock,
         });
       }
@@ -1298,6 +1385,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       await knex('identity.users').whereIn('id', ids).del();
     }
     await knex('servicedesk.queue_members').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
+    await knex('servicedesk.sla_policies').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.categories').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex.destroy();
