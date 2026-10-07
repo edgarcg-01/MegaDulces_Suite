@@ -175,6 +175,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        columna, que es el caso que de todos modos aplica a 32rem. */
     @container (max-width:46rem) { .cg-grid { grid-template-columns:1fr; } }
     @supports not (container-type: inline-size) { .cg-grid { grid-template-columns:1fr; } }
+    /* [CG.49] Apilado (que es lo que pasa SIEMPRE dentro del aside de 32rem) manda el orden del
+       DOM, y ahi el arqueo va primero porque es la tarea. Estas dos reglas fijan la posicion para
+       el caso ancho, para que el diseno de CS.3.7 -- QUE a la izquierda, CUANTO a la derecha -- no
+       dependa de en que orden esten escritas las columnas. */
+    @container (min-width:46rem) {
+      .cg-grid > .cg-col-que    { grid-column:1; grid-row:1; }
+      .cg-grid > .cg-col-cuanto { grid-column:2; grid-row:1; }
+    }
 
     /* Angosto: se apila. El detalle VACÍO se esconde acá —y sólo acá—: con la pantalla apilada,
        una caja que dice "nada elegido" empuja la bandeja fuera de la vista. Con algo elegido sí
@@ -262,6 +270,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-detail-head { display:flex; align-items:center; gap:var(--sp-2); padding:var(--sp-3);
                       border-bottom:1px solid var(--border-color); }
     .cg-detail-h { font-size:var(--fs-h3); font-weight:700; }
+    /* [CG.49] El titulo y el documento anclado, en dos renglones de una sola fila. */
+    .cg-detail-titulo { display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .cg-detail-sub { font-size:var(--fs-xs); color:var(--text-muted);
+                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     /* El contenedor de consulta vive ACA y no en el aside, para no mezclar la contencion con el
        position:sticky de arriba. */
     .cg-detail-cuerpo { flex:1 1 auto; overflow:auto; padding:var(--sp-3);
@@ -1254,8 +1266,17 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <aside class="cg-detail" [class.cg-detail-vacio]="!capturaAbierta()"
                aria-label="Detalle del movimiento">
           @if (capturaAbierta()) {
+            <!-- [CG.49] El documento anclado sube AL ENCABEZADO. Con el arqueo arriba, lo primero
+                 que se ve son las denominaciones, y contar sin saber contra que documento es contar
+                 a ciegas del lado equivocado: el detalle del movimiento quedo debajo de la reja. Es
+                 una linea, no una ficha -- la ficha completa sigue abajo, en su columna. -->
             <div class="cg-detail-head">
-              <strong class="cg-detail-h">Registrar movimiento de caja</strong>
+              <div class="cg-detail-titulo">
+                <strong class="cg-detail-h">Registrar movimiento de caja</strong>
+                @if (cobroElegido(); as c) {
+                  <small class="cg-detail-sub mono">{{ c.doc_tipo }} {{ c.folio }} · {{ money(c.monto) }}</small>
+                }
+              </div>
               <span class="cg-bandeja-sp"></span>
               <p-button icon="pi pi-times" size="small" severity="secondary" [text]="true" [rounded]="true"
                         ariaLabel="Cerrar la captura y volver a la lista"
@@ -1263,140 +1284,27 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </div>
             <div class="cg-detail-cuerpo">
             <div class="fin-form">
-              <div class="fin-row">
-                <!-- Los <label> de este formulario NO tenían for= ni envolvían su control: un lector de
-                     pantalla anunciaba TODA la captura de caja como campos sin nombre. -->
-                <label for="cg-tipo">Tipo</label>
-                <p-select inputId="cg-tipo" [options]="tiposCaptura" [ngModel]="f().tipo" optionLabel="label" optionValue="value"
-                          (ngModelChange)="onTipo($event)"></p-select>
-                <label for="cg-fecha">Fecha</label>
-                <p-datepicker inputId="cg-fecha" [ngModel]="fechaD(f().fecha)"
-                              (onSelect)="setF('fecha', claveDe($event))"
-                              dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" />
-                <!-- La sucursal era TEXTO LIBRE en una captura contable: teclear "0" devolvía un catálogo
-                     de conceptos vacío sin decir por qué. Sale del mismo censo que ya mide la cobertura. -->
-                <label for="cg-suc">Sucursal</label>
-                <p-select inputId="cg-suc" [options]="opcionesSucursal()" [ngModel]="f().sucursal" optionLabel="label" optionValue="value"
-                          (ngModelChange)="onSucursal($event)" [ariaLabel]="'Sucursal'"></p-select>
-              </div>
 
               <!-- CS.3.7 — Dos columnas para que TODO entre en una pantalla sin scroll. Izquierda: el
                    QUÉ/QUIÉN (documento, beneficiario, cuenta, glosa). Derecha: el CUÁNTO (cajero + arqueo). -->
               <div class="cg-grid">
-              <div class="cg-col">
+              <!-- [CG.49] EL ARQUEO VA PRIMERO, y es un cambio de ORDEN, no de contenido.
 
-              <!-- ⭐ CG.19 Capa 1 — el movimiento se ELIGE, no se teclea. El monto viaja de Kepler.
-                   ⛔ Acá decía "Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP
-                   detrás", y CG.21 REFUTÓ eso con medición: el egreso de la caja cuadra al 100% contra
-                   Kepler en 5 meses cerrados ($44,108,221.92 vs $44,123,427.09). El servicio ya pedía
-                   los dos signos ("tipo: ... === 'gasto' ? 'gasto' : 'ingreso'") y la plantilla lo
-                   escondía, así que para un GASTO no había forma de anclar al documento: había que
-                   retipearlo entero a mano. El depósito sí queda fuera, y con motivo: es una salida a
-                   banco, no un pago, y su pierna doble ("N-A-26") está declarada fuera de alcance. -->
-              @if (f().tipo === 'ingreso' || f().tipo === 'gasto') {
-                <div class="fin-row fin-row-col">
-                  <label for="cg-cobro">{{ f().tipo === 'gasto' ? 'Comprobante contra un pago de Kepler' : 'Entrega contra un cobro de Kepler' }}</label>
-                  <p-autocomplete inputId="cg-cobro" [(ngModel)]="cobroSel" [suggestions]="cobros()"
-                                  (completeMethod)="buscarCobros($event)" (onSelect)="elegirCobro($event)"
-                                  (onClear)="soltarCobro()" optionLabel="label" [delay]="250"
-                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
-                                  placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
-                  @if (cobroElegido(); as c) {
-                    <!-- [CG.37] Era verde. El verde significa "esto quedo bien"; esto es el ECO de lo
-                         que elegiste, o sea explicacion. Y la linea de abajo, que hace exactamente lo
-                         mismo, ya iba en fin-dim: dos hermanas con el mismo papel y distinto color. -->
-                    <small class="fin-dim">
-                      Kepler: {{ c.doc_tipo }} {{ c.folio }} · {{ c.beneficiario || c.entidad_code }} ·
-                      {{ money(c.monto) }}@if (c.caja_nombre) { · {{ c.caja_nombre }} }. El monto sale del arqueo, no del documento.
-                    </small>
-                    <!-- ⛔ [CG.48] Acá se mostraba "ya habías contado X en la bandeja": la referencia
-                         al conteo por renglón, que ya no existe. Se cuenta una sola vez, acá abajo. -->
-                    <!-- La diferencia se DICE antes de guardar: el hallazgo del servidor no sirve si la persona no la vio. -->
-                    @if (montoContado(); as mc) {
-                      <small class="fin-hint-warn">
-                        Contaste {{ money(mc) }} vs documento {{ money(c.monto) }}:
-                        <strong>{{ money(mc - c.monto) }}</strong> de diferencia — se registra y queda un hallazgo.
-                      </small>
-                    }
-                  } @else {
-                    <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elegilo y el importe lo pone el documento.</small>
-                  }
-                </div>
+                   Reportado por Edgar sobre la pantalla en vivo: "tengo que hacer scroll para ver
+                   todo el contenido, al menos el importante que es el arqueo".
 
-                <!-- CS.3 — La segunda fuente: la caja fuerte (CAOS). Al elegir un movimiento, el arqueo de
-                     abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano. -->
-                <div class="fin-row fin-row-col">
-                  <label for="cg-caos">…o traer de la caja fuerte (CAOS)</label>
-                  <p-autocomplete inputId="cg-caos" [(ngModel)]="caosSel" [suggestions]="caosOpciones()"
-                                  (completeMethod)="buscarCaos($event)" (onSelect)="elegirCaos($event)"
-                                  (onClear)="soltarCaos()" optionLabel="label" [delay]="250"
-                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
-                                  placeholder="Depósito o dispensación de la máquina — el arqueo se precarga solo"></p-autocomplete>
-                  @if (caosElegido(); as m) {
-                    <small class="fin-hint-ok">
-                      De la caja fuerte: {{ m.type_label }} #{{ m.external_id }} ·
-                      {{ m.user_external }} · {{ money(m.monto) }}@if (m.ref) { · «{{ m.ref }}»}.
-                      El arqueo se precargó con el conteo de la máquina; la morralla y lo que falte, a mano.
-                    </small>
-                  }
-                </div>
-              }
+                   La causa NO era falta de diseno: estas dos columnas existen justamente "para que
+                   TODO entre en una pantalla sin scroll". Lo que paso es que [CG.46] mudo la captura
+                   de un p-dialog ancho a este aside, que .cg-split dimensiona en 32rem -- y .cg-grid
+                   colapsa a una columna por debajo de 46rem. O sea que la condicion para mostrar dos
+                   columnas NO SE PUEDE CUMPLIR aca, y al apilarse el arqueo quedaba detras de todo el
+                   contexto: la tarea, al final. Fue una regresion de [CG.46] que ningun gate ve.
 
-              <!-- CG.20 - Lo que esta persona repite se ofrece, no se reescribe. Medido: 57% de los
-                   gastos cae en un par (cuenta, concepto) ya usado 3+ veces, y Krmn tecleo 61 en una
-                   hora. Un toque llena cuenta + concepto + beneficiario; solo queda el importe.
-                   El gasto NO se deriva de Kepler, asi que esto baja clics pero no vuelve auditable
-                   el dato -- y por eso el bloque lo dice. -->
-              @if (f().tipo === 'gasto' && frecuentes().length) {
-                <div class="fin-row fin-row-col">
-                  <label>Lo que más repetís en la sucursal {{ f().sucursal }}</label>
-                  <div class="cg-chips">
-                    @for (fr of frecuentes(); track fr.rango) {
-                      <!-- El conteo va en el "badge" del propio p-button, no en un <span> con clase
-                           propia: asi el par fondo/texto del contador lo calibra el tema y flipea solo
-                           en oscuro, que es justo lo que esta pantalla venia declarando a mano. -->
-                      <p-button [label]="fr.glosa || fr.kepler_concepto" [badge]="fr.usos + ''"
-                                badgeSeverity="secondary" size="small" severity="secondary"
-                                [outlined]="true" (onClick)="usarFrecuente(fr)"
-                                [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'"></p-button>
-                    }
-                  </div>
-                  <small class="fin-dim">Llenan cuenta, concepto y beneficiario. El importe siempre se escribe.</small>
-                </div>
-              }
-
-              <div class="fin-row">
-                <label for="cg-benef">Beneficiario</label>
-                <input pInputText id="cg-benef" [ngModel]="f().beneficiario" (ngModelChange)="setF('beneficiario', $event)"
-                       (blur)="pedirPropuesta()" class="cg-full" [readonly]="!!cobroElegido()" />
-              </div>
-
-              <div class="fin-row fin-row-col">
-                <label for="cg-concepto">Cuenta y concepto de Kepler</label>
-                <p-autocomplete inputId="cg-concepto" [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
-                                (completeMethod)="buscarConceptos($event)" (onSelect)="elegirConcepto($event)"
-                                optionLabel="label" [delay]="250" [minQueryLength]="cuentaFuenteDoc() ? 0 : 2"
-                                [dropdown]="!!cuentaFuenteDoc()" [showClear]="true"
-                                placeholder="Buscá por nombre, cuenta o código" appendTo="body"
-                                class="cg-full"></p-autocomplete>
-                <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
-                  {{ etiquetaConcepto().texto }}
-                </small>
-                @if (cuentaFuenteDoc()) {
-                  <p-button label="Corregir la cuenta" icon="pi pi-pencil" size="small"
-                            severity="secondary" [text]="true" (onClick)="corregirCuentaDoc()"></p-button>
-                }
-              </div>
-
-              <div class="fin-row">
-                <label for="cg-glosa">Qué pasó</label>
-                <input pInputText id="cg-glosa" [ngModel]="f().glosa" (ngModelChange)="onGlosa($event)" class="cg-full"
-                       (keydown.enter)="guardar()"
-                       placeholder="Contá qué pasó — esto NO es el concepto contable" />
-              </div>
-
-              </div><!-- /cg-col izquierda -->
-              <div class="cg-col"><!-- derecha: el CUÁNTO (cajero aparte + arqueo) -->
+                   Apilado manda el orden del DOM, asi que el CUANTO va primero. Las reglas de
+                   @container (min-width:46rem) fijan la posicion de cada columna, para que si algun
+                   dia esto vive en un contenedor ancho el QUE siga a la izquierda y el CUANTO a la
+                   derecha: el diseno de CS.3.7 intacto, sin depender del orden del DOM. -->
+              <div class="cg-col cg-col-cuanto"><!-- el CUANTO: cajero aparte + arqueo. Va PRIMERO porque es la tarea -->
 
               <!-- ⛔ CG.23 - EL ARQUEO, QUE ANTES ERA OPCIONAL Y PLEGADO.
                    Esto era un "details" rotulado "Desglose por denominacion (opcional)" y, arriba, un
@@ -1634,7 +1542,136 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 </div>
               </div>
 
-              </div><!-- /cg-col derecha -->
+              </div><!-- /cg-col del CUANTO -->
+              <div class="cg-col cg-col-que"><!-- el QUE/QUIEN: tipo, fecha, sucursal, documento, beneficiario, cuenta, glosa -->
+              <div class="fin-row">
+                <!-- Los <label> de este formulario NO tenían for= ni envolvían su control: un lector de
+                     pantalla anunciaba TODA la captura de caja como campos sin nombre. -->
+                <label for="cg-tipo">Tipo</label>
+                <p-select inputId="cg-tipo" [options]="tiposCaptura" [ngModel]="f().tipo" optionLabel="label" optionValue="value"
+                          (ngModelChange)="onTipo($event)"></p-select>
+                <label for="cg-fecha">Fecha</label>
+                <p-datepicker inputId="cg-fecha" [ngModel]="fechaD(f().fecha)"
+                              (onSelect)="setF('fecha', claveDe($event))"
+                              dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" />
+                <!-- La sucursal era TEXTO LIBRE en una captura contable: teclear "0" devolvía un catálogo
+                     de conceptos vacío sin decir por qué. Sale del mismo censo que ya mide la cobertura. -->
+                <label for="cg-suc">Sucursal</label>
+                <p-select inputId="cg-suc" [options]="opcionesSucursal()" [ngModel]="f().sucursal" optionLabel="label" optionValue="value"
+                          (ngModelChange)="onSucursal($event)" [ariaLabel]="'Sucursal'"></p-select>
+              </div>
+
+              <!-- ⭐ CG.19 Capa 1 — el movimiento se ELIGE, no se teclea. El monto viaja de Kepler.
+                   ⛔ Acá decía "Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP
+                   detrás", y CG.21 REFUTÓ eso con medición: el egreso de la caja cuadra al 100% contra
+                   Kepler en 5 meses cerrados ($44,108,221.92 vs $44,123,427.09). El servicio ya pedía
+                   los dos signos ("tipo: ... === 'gasto' ? 'gasto' : 'ingreso'") y la plantilla lo
+                   escondía, así que para un GASTO no había forma de anclar al documento: había que
+                   retipearlo entero a mano. El depósito sí queda fuera, y con motivo: es una salida a
+                   banco, no un pago, y su pierna doble ("N-A-26") está declarada fuera de alcance. -->
+              @if (f().tipo === 'ingreso' || f().tipo === 'gasto') {
+                <div class="fin-row fin-row-col">
+                  <label for="cg-cobro">{{ f().tipo === 'gasto' ? 'Comprobante contra un pago de Kepler' : 'Entrega contra un cobro de Kepler' }}</label>
+                  <p-autocomplete inputId="cg-cobro" [(ngModel)]="cobroSel" [suggestions]="cobros()"
+                                  (completeMethod)="buscarCobros($event)" (onSelect)="elegirCobro($event)"
+                                  (onClear)="soltarCobro()" optionLabel="label" [delay]="250"
+                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
+                                  placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
+                  @if (cobroElegido(); as c) {
+                    <!-- [CG.37] Era verde. El verde significa "esto quedo bien"; esto es el ECO de lo
+                         que elegiste, o sea explicacion. Y la linea de abajo, que hace exactamente lo
+                         mismo, ya iba en fin-dim: dos hermanas con el mismo papel y distinto color. -->
+                    <small class="fin-dim">
+                      Kepler: {{ c.doc_tipo }} {{ c.folio }} · {{ c.beneficiario || c.entidad_code }} ·
+                      {{ money(c.monto) }}@if (c.caja_nombre) { · {{ c.caja_nombre }} }. El monto sale del arqueo, no del documento.
+                    </small>
+                    <!-- ⛔ [CG.48] Acá se mostraba "ya habías contado X en la bandeja": la referencia
+                         al conteo por renglón, que ya no existe. Se cuenta una sola vez, acá abajo. -->
+                    <!-- La diferencia se DICE antes de guardar: el hallazgo del servidor no sirve si la persona no la vio. -->
+                    @if (montoContado(); as mc) {
+                      <small class="fin-hint-warn">
+                        Contaste {{ money(mc) }} vs documento {{ money(c.monto) }}:
+                        <strong>{{ money(mc - c.monto) }}</strong> de diferencia — se registra y queda un hallazgo.
+                      </small>
+                    }
+                  } @else {
+                    <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elegilo y el importe lo pone el documento.</small>
+                  }
+                </div>
+
+                <!-- CS.3 — La segunda fuente: la caja fuerte (CAOS). Al elegir un movimiento, el arqueo de
+                     abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano. -->
+                <div class="fin-row fin-row-col">
+                  <label for="cg-caos">…o traer de la caja fuerte (CAOS)</label>
+                  <p-autocomplete inputId="cg-caos" [(ngModel)]="caosSel" [suggestions]="caosOpciones()"
+                                  (completeMethod)="buscarCaos($event)" (onSelect)="elegirCaos($event)"
+                                  (onClear)="soltarCaos()" optionLabel="label" [delay]="250"
+                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
+                                  placeholder="Depósito o dispensación de la máquina — el arqueo se precarga solo"></p-autocomplete>
+                  @if (caosElegido(); as m) {
+                    <small class="fin-hint-ok">
+                      De la caja fuerte: {{ m.type_label }} #{{ m.external_id }} ·
+                      {{ m.user_external }} · {{ money(m.monto) }}@if (m.ref) { · «{{ m.ref }}»}.
+                      El arqueo se precargó con el conteo de la máquina; la morralla y lo que falte, a mano.
+                    </small>
+                  }
+                </div>
+              }
+
+              <!-- CG.20 - Lo que esta persona repite se ofrece, no se reescribe. Medido: 57% de los
+                   gastos cae en un par (cuenta, concepto) ya usado 3+ veces, y Krmn tecleo 61 en una
+                   hora. Un toque llena cuenta + concepto + beneficiario; solo queda el importe.
+                   El gasto NO se deriva de Kepler, asi que esto baja clics pero no vuelve auditable
+                   el dato -- y por eso el bloque lo dice. -->
+              @if (f().tipo === 'gasto' && frecuentes().length) {
+                <div class="fin-row fin-row-col">
+                  <label>Lo que más repetís en la sucursal {{ f().sucursal }}</label>
+                  <div class="cg-chips">
+                    @for (fr of frecuentes(); track fr.rango) {
+                      <!-- El conteo va en el "badge" del propio p-button, no en un <span> con clase
+                           propia: asi el par fondo/texto del contador lo calibra el tema y flipea solo
+                           en oscuro, que es justo lo que esta pantalla venia declarando a mano. -->
+                      <p-button [label]="fr.glosa || fr.kepler_concepto" [badge]="fr.usos + ''"
+                                badgeSeverity="secondary" size="small" severity="secondary"
+                                [outlined]="true" (onClick)="usarFrecuente(fr)"
+                                [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'"></p-button>
+                    }
+                  </div>
+                  <small class="fin-dim">Llenan cuenta, concepto y beneficiario. El importe siempre se escribe.</small>
+                </div>
+              }
+
+              <div class="fin-row">
+                <label for="cg-benef">Beneficiario</label>
+                <input pInputText id="cg-benef" [ngModel]="f().beneficiario" (ngModelChange)="setF('beneficiario', $event)"
+                       (blur)="pedirPropuesta()" class="cg-full" [readonly]="!!cobroElegido()" />
+              </div>
+
+              <div class="fin-row fin-row-col">
+                <label for="cg-concepto">Cuenta y concepto de Kepler</label>
+                <p-autocomplete inputId="cg-concepto" [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
+                                (completeMethod)="buscarConceptos($event)" (onSelect)="elegirConcepto($event)"
+                                optionLabel="label" [delay]="250" [minQueryLength]="cuentaFuenteDoc() ? 0 : 2"
+                                [dropdown]="!!cuentaFuenteDoc()" [showClear]="true"
+                                placeholder="Buscá por nombre, cuenta o código" appendTo="body"
+                                class="cg-full"></p-autocomplete>
+                <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
+                  {{ etiquetaConcepto().texto }}
+                </small>
+                @if (cuentaFuenteDoc()) {
+                  <p-button label="Corregir la cuenta" icon="pi pi-pencil" size="small"
+                            severity="secondary" [text]="true" (onClick)="corregirCuentaDoc()"></p-button>
+                }
+              </div>
+
+              <div class="fin-row">
+                <label for="cg-glosa">Qué pasó</label>
+                <input pInputText id="cg-glosa" [ngModel]="f().glosa" (ngModelChange)="onGlosa($event)" class="cg-full"
+                       (keydown.enter)="guardar()"
+                       placeholder="Contá qué pasó — esto NO es el concepto contable" />
+              </div>
+
+              </div><!-- /cg-col del QUE -->
               </div><!-- /cg-grid -->
 
               <!-- ⛔ ACÁ ESTABA EL BLOQUEO DE TODO EL MÓDULO, y no era falta de trabajo: medido el

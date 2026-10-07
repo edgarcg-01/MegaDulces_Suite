@@ -721,6 +721,45 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(document.activeElement).toBe(ultimo);
   });
 
+  // ── [CG.49] El arqueo primero: la tarea no va al final de su propio formulario ────────────
+  //
+  // Reportado por Edgar sobre la pantalla en vivo: *"tengo que hacer scroll para ver todo el
+  // contenido, al menos el importante que es el arqueo"*.
+  //
+  // ⛔ La causa fue una REGRESIÓN de `[CG.46]`, y no la ve ningún gate: las dos columnas del panel
+  // existen desde CS.3.7 *"para que TODO entre en una pantalla sin scroll"*, pero al mudar la
+  // captura de un `p-dialog` ancho a un `aside` que `.cg-split` dimensiona en **32rem**, el
+  // `@container (max-width:46rem)` las colapsa **siempre** — la condición de dos columnas no se
+  // puede cumplir ahí. Apilado manda el orden del DOM, y en el DOM el arqueo venía último.
+
+  it('el ARQUEO va ANTES que la clasificación: contar es la tarea, clasificar viene después', async () => {
+    const fx = montar();
+    comp.abrirCaptura();
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const reja: Element | null = fx.nativeElement.querySelector('.cg-arqueo-tbl');
+    const glosa: Element | null = fx.nativeElement.querySelector('#cg-glosa');
+    expect(reja).not.toBeNull();
+    expect(glosa).not.toBeNull();
+
+    // La pregunta es de ORDEN, así que se le pregunta al DOM y no a una clase de CSS: con el panel
+    // apilado —que es lo que pasa siempre dentro del aside— el DOM ES lo que se ve.
+    expect(reja!.compareDocumentPosition(glosa!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('la primera columna del panel es la del CUÁNTO, y la segunda la del QUÉ', async () => {
+    const fx = montar();
+    comp.abrirCaptura();
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const cols = Array.from(fx.nativeElement.querySelectorAll('.cg-grid > .cg-col')) as HTMLElement[];
+    expect(cols.length).toBe(2);
+    expect(cols[0].classList.contains('cg-col-cuanto')).toBe(true);
+    expect(cols[1].classList.contains('cg-col-que')).toBe(true);
+  });
+
   it('cerrar un diálogo DEVUELVE el foco a donde estaba (PrimeNG no lo hace)', async () => {
     const fx = montar();
     // Verificado en node_modules: p-dialog trae closeOnEscape/focusOnShow/focusTrap, pero CERO

@@ -1283,3 +1283,62 @@ podía reconstruir, y el arqueo del día no cuadraba contra el libro que lo regi
   `compras-requisiciones.component.spec.ts`, más `lint`/`build`/`sin emojis`/`migrations` sobre
   trabajo a medias de otras sesiones en el árbol. `typecheck` de api y de `view` en verde, y los
   ocho archivos tocados acá lintean con **0 errores**.
+
+---
+
+## 15. `[CG.49]` El arqueo encabeza el panel (2026-10-07)
+
+**Reportado por Edgar sobre la pantalla en vivo**, con captura: *"menciona que todo tiene que
+entrar en la interfaz principal. y tengo que hacer scroll para ver todo el contenido, al menos el
+importante que es el arqueo"*.
+
+### La causa NO era falta de diseño — era una regresión de `[CG.46]`
+
+El panel **ya estaba diseñado en dos columnas**, y el comentario que las abre lo dice textual:
+*«CS.3.7 — Dos columnas para que TODO entre en una pantalla sin scroll. Izquierda: el QUÉ/QUIÉN
+(documento, beneficiario, cuenta, glosa). Derecha: el CUÁNTO (cajero + arqueo)»*.
+
+Lo que pasó:
+
+| | |
+|---|---|
+| `.cg-grid` colapsa a una columna | `@container (max-width:46rem)` |
+| `[CG.46]` mudó la captura de un `p-dialog` ancho a un `aside` | `.cg-split { grid-template-columns: minmax(0,1fr) **32rem** }` |
+
+**32rem < 46rem, siempre.** O sea que la condición para mostrar dos columnas **no se puede
+cumplir dentro de ese `aside`**: el diseño que existía para que todo entrara en una pantalla quedó
+desactivado por construcción, y apilado manda el orden del DOM — donde el arqueo venía **último**,
+detrás del tipo, la fecha, la sucursal, el documento, el beneficiario, la cuenta, el concepto, la
+glosa, el bloque de CAOS y la venta a crédito. La tarea, al final de su propio formulario.
+
+⚠️ **Ningún gate ve esto.** El build compila, los tipos cierran, los 196 tests pasaban y
+`check:templates` está verde. Lo que se rompió fue la *relación* entre un umbral de CSS y el ancho
+que otro commit le asignó al contenedor — y eso sólo se ve mirando la pantalla.
+
+### Lo que se hizo
+
+1. **La columna del CUÁNTO va primero en el DOM** (arqueo + cajero), y la del QUÉ segunda, con
+   `Tipo/Fecha/Sucursal` movidos adentro. Es un cambio de **orden**, no de contenido: ni un campo
+   cambió de forma.
+2. **Dos reglas `@container (min-width:46rem)`** fijan `grid-column` de cada columna, para que si
+   algún día el panel vive en un contenedor ancho el QUÉ siga a la izquierda y el CUÁNTO a la
+   derecha — el diseño de CS.3.7 intacto, **sin depender del orden del DOM**.
+3. **El documento anclado sube al encabezado** del panel (`X-D-26 0022707 · $144.00`). Con el
+   arqueo arriba, contar sin ver contra qué documento sería contar a ciegas del lado equivocado;
+   la ficha completa sigue abajo, en su columna.
+
+### Verificación
+
+- `nx test view` caja-general: **198/198** (2 pruebas nuevas). `typecheck` de `view` en verde.
+- **Mutación**, las dos: intercambiar los rótulos de columna → 1 roja; devolver el QUÉ al primer
+  lugar del DOM → **2 rojas**.
+- La prueba del orden le pregunta al **DOM** (`compareDocumentPosition`), no a una clase de CSS:
+  con el panel apilado —que es lo que pasa siempre dentro del `aside`— el DOM *es* lo que se ve.
+
+### Lo que sigue sin entrar, y es deliberado
+
+Debajo del arqueo quedan la clasificación (documento, beneficiario, cuenta, concepto, glosa) y el
+pie con Guardar, y **eso sí scrollea**. Es el orden correcto del trabajo: se cuenta primero y se
+clasifica después. Si hace falta que entre literalmente todo, lo que hay que recortar es el
+**encabezado de página + el bloque «Cierre de la jornada»**, que juntos se comen ~360 px antes de
+que el panel empiece — no el formulario.
