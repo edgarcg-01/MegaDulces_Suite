@@ -112,6 +112,19 @@ describe('cuerpoTicket — el papel dice QUÉ es', () => {
     expect(t).toContain('Entrega a');
     expect(t).toContain('MARIA_LOPEZ');
   });
+
+  // [SM.43] La copia sacada del historial se distingue del original, y la marca no rompe la grilla.
+  it('la reimpresión se marca debajo del título, con su fecha, sin pasar de 32 caracteres', () => {
+    const L = lineas({ tipo: 'retiro', reimpresion: '2026-10-07T21:05:00.000Z' });
+    expect(L[1]).toBe('RETIRO DE CAJA');
+    expect(L[2]).toBe('*** REIMPRESION ***');
+    expect(L[3]).toMatch(/^Reimpreso\s+\S/);
+    expect(L.every((l) => l.length <= 32)).toBe(true);
+  });
+
+  it('el original NO lleva la marca de reimpresión', () => {
+    expect(lineas({ tipo: 'retiro' }).join('\n')).not.toContain('REIMPRESION');
+  });
 });
 
 describe('cuerpoTicket — el arqueo sigue siendo ciego en el papel', () => {

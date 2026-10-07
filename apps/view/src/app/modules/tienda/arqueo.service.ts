@@ -183,6 +183,11 @@ export interface ArqueoRow {
   ambiguous?: boolean;
   cajero_code: string | null; cajero_entrante: string | null; cajero_nombre: string | null; total_contado: number;
   captured_by: string | null; captured_at: string; nota: string | null; incidencia_tipo: string | null;
+  /**
+   * `[SM.43]` Lo que la persona declaró en los otros medios (tarjeta, transferencia…), tal
+   * como se guardó. Opcional: un backend sin SM.43 no lo manda y la reimpresión sale sin él.
+   */
+  medios?: Record<string, number> | null;
   cash_cut_folio?: string | null; caja_kepler?: string | null; turno_abierto_at?: string | null;
   /** `validado_at` nulo = pendiente de que la encargada lo firme presencialmente. */
   validado_por?: string | null; validado_at?: string | null; validado_nota?: string | null;
