@@ -6997,9 +6997,9 @@ export class CommercialAnalyticsService {
           WHERE rpl.business_date >= (CURRENT_DATE - INTERVAL '2 years')
             AND COALESCE(rpl.route_no, '') !~ '${VECINAL_RX}'
          UNION ALL
-         -- `[VEC.9]` La vecinal sale de su fuente derivada del ODS. En `route_push_lines` quedó
-         -- lo que escribió el importer retirado, con SKUs y clientes de otras cajas: un combo
-         -- armado con eso ofrece productos que esa ruta nunca vendió.
+         -- [VEC.9] La vecinal sale de su fuente derivada del ODS. En route_push_lines quedo
+         -- lo que escribio el importer retirado, con SKUs y clientes de otras cajas: un combo
+         -- armado con eso ofrece productos que esa ruta nunca vendio.
          SELECT vl.tenant_id, vl.cliente, vl.sku, vl.importe
            FROM analytics.v_kepler_vecinal_sales_lines vl
           WHERE vl.business_date >= (CURRENT_DATE - INTERVAL '2 years')
