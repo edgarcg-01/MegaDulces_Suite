@@ -748,6 +748,66 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(reja!.compareDocumentPosition(glosa!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // ── [CG.50] D.7: las tablas se RECORREN con las flechas ──────────────────────────────────
+  //
+  // Edgar: *"necesito que toda la interfaz se pueda usar con las flechas del teclado"*.
+  // Medido antes de tocar nada: **9 tablas en esta pantalla, 0 con `pSelectableRow`**. Con 100
+  // filas de bandeja el teclado sólo podía tabular (casilla → Abrir → casilla → …) = 200 paradas.
+  //
+  // ⚠️ El primitivo NO se diseña: DESIGN D.7 es explícito en que `pSelectableRow` de PrimeNG ya
+  // da ↑↓, Home/End, Enter/Space y **roving tabindex**, y que escribir una directiva propia para
+  // una tabla es un antipatrón. Lo que se prueba acá es que esté PUESTO.
+
+  it('las filas de la bandeja existen para el teclado: roving tabindex, no 200 paradas', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    // ⚠️ El selector va ACOTADO a la bandeja: la pantalla tiene 8 tablas y un `tbody tr` pelado
+    // devuelve las filas del libro y de los cortes también. La prueba lo encontró sola.
+    const filas = () =>
+      Array.from(fx.nativeElement.querySelectorAll('.cg-bandeja-tbl tbody tr')) as HTMLElement[];
+    expect(filas().length).toBe(2);
+
+    // Lo que esto afirma: las filas EXISTEN para el teclado. Antes no tenían `tabindex` y no se
+    // llegaba a ellas ni tabulando ni con flechas.
+    for (const tr of filas()) expect(tr.getAttribute('tabindex')).not.toBeNull();
+    expect(filas().every((tr) => tr.hasAttribute('data-p-selectable-row'))).toBe(true);
+
+    // ⛔ Y lo que NO es cierto, medido en el fuente de PrimeNG 22 (`setRowTabIndex`): el roving
+    // **no arranca encendido**. Mientras `anchorRowIndex` sea null, TODAS las filas devuelven 0
+    // — o sea N paradas de tabulador, justo lo que D.4a quiere evitar. Empieza a rotar recién
+    // cuando hay una fila ancla. DESIGN D.7 dice "el tabindex ya es roving" a secas: es media
+    // verdad, y acá queda medida en vez de repetida.
+    expect(filas().filter((tr) => tr.getAttribute('tabindex') === '0').length).toBe(2);
+
+    comp.marcar(FILA_A.origen_ref, true);
+    fx.detectChanges();
+    const conAncla = filas().filter((tr) => tr.getAttribute('tabindex') === '0').length;
+    expect(conAncla).toBeLessThanOrEqual(2);
+  });
+
+  it('marcar con el teclado NO mete una fila sin cuenta declarada (el servidor la rechazaría)', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    // Lo que emite p-table al marcar con Space sobre una fila trabada.
+    comp.onSeleccionTabla([GASTO_TRABADO]);
+    expect(comp.marcadas()).toEqual([]);
+  });
+
+  it('la selección de la tabla y la señal son UNA sola verdad, en los dos sentidos', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+
+    // De la tabla a la señal.
+    comp.onSeleccionTabla([FILA_A]);
+    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
+    // Y de la señal a la tabla: `filasMarcadas` es una proyección, no un segundo estado.
+    expect(comp.filasMarcadas().map((f) => f.origen_ref)).toEqual([FILA_A.origen_ref]);
+
+    comp.marcar(FILA_B.origen_ref, true);
+    expect(comp.filasMarcadas().map((f) => f.origen_ref).sort())
+      .toEqual([FILA_A.origen_ref, FILA_B.origen_ref].sort());
+  });
+
   it('la primera columna del panel es la del CUÁNTO, y la segunda la del QUÉ', async () => {
     const fx = montar();
     comp.abrirCaptura();
