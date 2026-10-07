@@ -391,11 +391,11 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     expect(cmp.idxCajero()).toBe(2);
   });
 
-  // ── `[SM.42]` El efectivo se cuenta en UNA lista, de menor a mayor ────────────────────────
+  // ── `[SM.42]` El efectivo se cuenta en UNA lista, de mayor a menor ────────────────────────
   //
-  // Es el formato de la hoja de arqueo de la operacion: «Monedas / billetes», de 50¢ a
-  // $1,000, consecutivas, con el total en efectivo al pie, en TODAS las pestanas. Lo que
-  // cambia por tipo es la columna de al lado: el retiro muestra sus retiros del turno (no
+  // Es el formato de la hoja de arqueo de la operacion: «Monedas / billetes», de $1,000 a
+  // 50¢ (billetes y luego monedas), consecutivas, con el total en efectivo al pie, en
+  // TODAS las pestanas. Lo que cambia por tipo es la columna de al lado: el retiro muestra sus retiros del turno (no
   // lleva medios), el cierre y las rutas sus medios de pago, el relevo nada.
   const retiroListo = async (): Promise<void> => {
     svc.resp = { turnos: [turno()], aviso: null };
@@ -407,7 +407,7 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
   const casillasRetiro = (): HTMLInputElement[] =>
     Array.from((fix.nativeElement as HTMLElement).querySelectorAll<HTMLInputElement>('.arq-lista input'));
 
-  it('⭐ la lista va de 50¢ a $1,000 con el total en efectivo, en todas las pestañas', async () => {
+  it('⭐ la lista va de $1,000 a 50¢ (billetes y luego monedas) con el total en efectivo, en todas las pestañas', async () => {
     await retiroListo();
     const root = fix.nativeElement as HTMLElement;
     const etiquetas = (): string[] =>
@@ -415,11 +415,11 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
         .map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
 
     expect(etiquetas()).toHaveLength(12);
-    expect(etiquetas()[0]).toBe('50¢');
-    expect(etiquetas()[11]).toBe('$1,000');
-    // La de $20 existe dos veces; la moneda va primero (menor a mayor, monedas antes que billetes).
-    expect(etiquetas()[5]).toContain('moneda');
-    expect(etiquetas()[6]).toContain('billete');
+    expect(etiquetas()[0]).toBe('$1,000');
+    expect(etiquetas()[11]).toBe('50¢');
+    // La de $20 existe dos veces; el billete va primero (de mayor a menor, billetes antes que monedas).
+    expect(etiquetas()[5]).toContain('billete');
+    expect(etiquetas()[6]).toContain('moneda');
     expect(html()).toContain('Total en efectivo');
     // Las dos columnas de antes ya no existen en ninguna pestaña.
     expect(html()).not.toContain('Registro detallado de billetes');
@@ -431,7 +431,7 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     cmp.elegirTipo('cierre');
     await tick();
     expect(etiquetas()).toHaveLength(12);
-    expect(etiquetas()[0]).toBe('50¢');
+    expect(etiquetas()[0]).toBe('$1,000');
     expect(html()).toContain('Medios de pago y movimientos');
     expect(html()).not.toContain('Retiros de este turno');
 
@@ -476,7 +476,7 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     cmp.onCellKey(new KeyboardEvent('keydown', { key: 'ArrowDown' }), 0, 0);
     expect(document.activeElement).toBe(casillas[1]);
 
-    // La prueba que importa: de la $20 moneda a la $20 billete. Partida en billetes|monedas
+    // La prueba que importa: del $20 billete al $20 moneda. Partida en billetes|monedas
     // (como era la grilla cuando eran dos bloques), la columna se cortaba aquí y Enter
     // saltaba al botón con medio conteo sin capturar.
     cmp.onCellKey(new KeyboardEvent('keydown', { key: 'Enter' }), 0, 5);

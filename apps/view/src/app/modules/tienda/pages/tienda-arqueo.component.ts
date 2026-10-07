@@ -354,8 +354,8 @@ interface CortesPersona {
               </div>
             }
 
-            <!-- [SM.42] El efectivo se cuenta en UNA sola lista, de menor a mayor: primero
-                 las monedas y luego los billetes, consecutivas, con el total en efectivo al
+            <!-- [SM.42] El efectivo se cuenta en UNA sola lista, de mayor a menor: primero
+                 los billetes y luego las monedas, consecutivas, con el total en efectivo al
                  pie. Es el formato de la hoja de arqueo que pidio la operacion, y es el que
                  corre mas rapido con la fila esperando: una sola columna que se baja con
                  Enter, sin decidir en que bloque va cada pieza. Reemplaza a las dos columnas
@@ -372,7 +372,7 @@ interface CortesPersona {
                 <div class="arq-lista-row arq-lista-head" aria-hidden="true">
                   <span>Monedas / billetes</span><span>Cantidad</span><span>Importe</span>
                 </div>
-                @for (d of denomsLista; track d.key; let i = $index) {
+                @for (d of denoms; track d.key; let i = $index) {
                   <label class="arq-lista-row" [class.has]="(denomCount[d.key] || 0) > 0">
                     <span class="arq-lista-den">{{ d.label }}@if (d.valor === 20) {<span class="arq-lista-tp">{{ d.familia }}</span>}</span>
                     <span class="arq-lista-q">
@@ -445,7 +445,7 @@ interface CortesPersona {
               }
             </div>
             <p class="arq-hint"><i class="pi pi-arrows-alt" aria-hidden="true"></i>
-              Escribe cuántas piezas hay de cada una, de 50¢ a $1,000: <kbd>Enter</kbd> o <kbd>↓</kbd> baja a la siguiente
+              Escribe cuántas piezas hay de cada una, de $1,000 a 50¢: <kbd>Enter</kbd> o <kbd>↓</kbd> baja a la siguiente
               y <kbd>↑</kbd> sube.
               @if (aTipo() !== 'retiro' && aTipo() !== 'relevo') { Con <kbd>→</kbd> pasas a los medios de pago. }
               Abajo de la última casilla está el botón de guardar.</p>
@@ -1505,15 +1505,12 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    */
   readonly billetes = BILLETES_MXN;
   readonly monedas = MONEDAS_MXN;
-  /** El orden importa: es el de los inputs en pantalla (navegacion ↑/↓). */
-  readonly denoms = DENOMINACIONES_MXN;
   /**
-   * [SM.42] El orden de la lista de conteo: de menor a mayor, monedas y luego billetes
-   * (50¢ → $1,000), en todas las pestañas. Se arma aca y no en `libs/contracts`: el catalogo
-   * compartido va de mayor a menor y lo leen tambien el ticket y el cuadre de almacen, que
-   * no cambian.
+   * El orden importa: es el de los inputs en pantalla (navegacion ↑/↓).
+   * [SM.42] Es tambien el de la lista de conteo: billetes y luego monedas, de mayor a menor
+   * ($1,000 → 50¢) — el mismo del catalogo compartido, asi que no se reordena aca.
    */
-  readonly denomsLista: readonly Denominacion[] = [...MONEDAS_MXN].reverse().concat([...BILLETES_MXN].reverse());
+  readonly denoms = DENOMINACIONES_MXN;
   /** La llave es la del catalogo (`20` billete, `20m` moneda), no el valor. */
   denomCount: Record<string, number> = {};
   readonly aTipo = signal<ArqueoTipo>('cierre');
@@ -1888,7 +1885,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   /**
    * **La captura se mueve como se ve: en dos dimensiones.**
    *
-   * [SM.42] La pantalla son dos columnas: la lista de denominaciones (50¢ → $1,000) y,
+   * [SM.42] La pantalla son dos columnas: la lista de denominaciones ($1,000 → 50¢) y,
    * cuando el tipo los lleva, los medios de pago. Ahora:
    *
    *  - `↑` / `↓` → dentro de la columna;
@@ -2034,7 +2031,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * billetes; los medios son su propia lista y **se omiten si no se renderizaron**.
    */
   private grilla(): HTMLInputElement[][] {
-    // [SM.42] Las denominaciones son UNA sola columna (50¢ → $1,000): ↑/↓ la recorren entera.
+    // [SM.42] Las denominaciones son UNA sola columna ($1,000 → 50¢): ↑/↓ la recorren entera.
     // Partirla en billetes|monedas, como cuando eran dos bloques, la cortaría en la $20.
     const den = (this.denomInputs?.toArray() ?? []).map((r) => r.nativeElement);
     const med = (this.medioInputs?.toArray() ?? []).map((r) => r.nativeElement);
