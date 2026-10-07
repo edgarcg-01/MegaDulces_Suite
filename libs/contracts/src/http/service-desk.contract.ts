@@ -530,6 +530,16 @@ export interface SdQueueMemberDto {
 export interface SdQueueMembersResponse {
   queue_id: string;
   members: SdQueueMemberDto[];
+  /** `[MS.7.17]` ¿Quien pregunta puede agregar, cambiar de rol o quitar? (coordina ESA cola). La pantalla sólo ofrece los controles si sí. */
+  can_manage: boolean;
+}
+
+/** `[MS.7.17]` Alguien que PODRÍA entrar a la cola: tiene la clave de atender (o coordinar) y todavía no es miembro. */
+export interface SdQueueCandidateDto {
+  user_id: string;
+  username: string;
+  name: string | null;
+  can_coordinate: boolean;
 }
 
 export interface SdUpsertQueueMemberDto {

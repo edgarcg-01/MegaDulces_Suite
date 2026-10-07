@@ -6,6 +6,7 @@ import type {
   SdCreateRequestDto, SdListResponse, SdLogTimeDto, SdNotificationDto, SdPostMessageDto, SdPreferencesDto,
   SdPriority, SdRequestDetail, SdSettingsDto, SdSlaPolicyDto, SdSlaScanResult, SdStatsResponse, SdStatus,
   SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact, SdRoutingResponse, SdUpsertRoutingRuleDto, SdReportResponse, SdRequesterDto, SdDepartmentDto,
+  SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -117,6 +118,13 @@ export class ServiceDeskService {
   }
   routing(): Observable<SdRoutingResponse> { return this.http.get<SdRoutingResponse>(`${this.base}/config/routing`); }
   createRouting(dto: SdUpsertRoutingRuleDto): Observable<SdRoutingResponse> { return this.http.post<SdRoutingResponse>(`${this.base}/config/routing`, dto); }
+  /** `[MS.7.17]` Quién atiende una cola, y a quién se puede agregar. Las reglas las impone el servidor. */
+  queueMembers(queueId: string): Observable<SdQueueMembersResponse> { return this.http.get<SdQueueMembersResponse>(`${this.base}/config/queues/${queueId}/members`); }
+  queueCandidates(queueId: string): Observable<SdQueueCandidateDto[]> { return this.http.get<SdQueueCandidateDto[]>(`${this.base}/config/queues/${queueId}/candidates`); }
+  upsertQueueMember(queueId: string, userId: string, role: SdQueueRole): Observable<SdQueueMembersResponse> {
+    return this.http.put<SdQueueMembersResponse>(`${this.base}/config/queues/${queueId}/members/${userId}`, { role });
+  }
+  removeQueueMember(queueId: string, userId: string): Observable<SdQueueMembersResponse> { return this.http.delete<SdQueueMembersResponse>(`${this.base}/config/queues/${queueId}/members/${userId}`); }
   updateRouting(id: string, dto: SdUpsertRoutingRuleDto): Observable<SdRoutingResponse> { return this.http.put<SdRoutingResponse>(`${this.base}/config/routing/${id}`, dto); }
   removeRouting(id: string): Observable<SdRoutingResponse> { return this.http.delete<SdRoutingResponse>(`${this.base}/config/routing/${id}`); }
   scanNow(): Observable<SdSlaScanResult> { return this.http.post<SdSlaScanResult>(`${this.base}/sla/scan-now`, {}); }

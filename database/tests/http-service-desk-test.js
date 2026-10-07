@@ -981,6 +981,22 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('⭐ y deja de verlos', !ids(await filasDe(huerfano.token)).has(idMto));
       check('el god-mode también administra miembros', (await req('PUT', `${SD}/config/queues/${qMto}/members/${huerfano.id}`, dios.token, { role: 'tecnico' })).status === 200);
 
+      // ── `[MS.7.17]` la pantalla de miembros: a quién se puede agregar y quién puede administrar ──
+      const cand = await req('GET', `${SD}/config/queues/${qMto}/candidates`, coordMto.token);
+      const idsCand = new Set((cand.body ?? []).map((x) => x.user_id));
+      check('⭐ los candidatos son quienes tienen la clave y aún NO son miembros (el agente y el coordinador de TI)', cand.status === 200 && idsCand.has(agente.id) && idsCand.has(coord.id), dump(cand));
+      check('⛔ y NO aparecen quienes ya son miembros', !idsCand.has(tecMto.id) && !idsCand.has(coordMto.id) && !idsCand.has(huerfano.id));
+      check('⛔ ni quien no tiene la clave de atender (el solicitante)', !idsCand.has(sol.id));
+      check('cada candidato dice si podría coordinar', (cand.body ?? []).find((x) => x.user_id === coord.id)?.can_coordinate === true && (cand.body ?? []).find((x) => x.user_id === agente.id)?.can_coordinate === false);
+      check('⛔ el coordinador de TI NO ve los candidatos de Mantenimiento → 403', (await req('GET', `${SD}/config/queues/${qMto}/candidates`, coord.token)).status === 403);
+      check('⛔ el técnico (sin la clave de coordinar) tampoco → 403', (await req('GET', `${SD}/config/queues/${qMto}/candidates`, tecMto.token)).status === 403);
+      check('⛔ una cola inexistente → 404', (await req('GET', `${SD}/config/queues/00000000-0000-0000-0000-000000000000/candidates`, dios.token)).status === 404);
+      const mgCoord = await req('GET', `${SD}/config/queues/${qMto}/members`, coordMto.token);
+      const mgTec = await req('GET', `${SD}/config/queues/${qMto}/members`, tecMto.token);
+      check('⭐ la respuesta dice si quien pregunta puede administrar: la coordinación sí…', mgCoord.body?.can_manage === true);
+      check('⛔ …el técnico NO (ve con quién trabaja, pero la pantalla no le ofrece los controles)', mgTec.status === 200 && mgTec.body?.can_manage === false);
+      check('el god-mode sí', (await req('GET', `${SD}/config/queues/${qMto}/members`, dios.token)).body?.can_manage === true);
+
       // ── configuración de la cola ──
       check('⛔ la coordinación de TI NO cambia una categoría de Mantenimiento → 403', (await req('PUT', `${SD}/config/categories/${catMto}`, coord.token, { name: 'robada' })).status === 403);
       check('⛔ ni le agrega una → 403', (await req('POST', `${SD}/config/categories`, coord.token, { queue_id: qMto, code: 'smoke_x', name: 'x' })).status === 403);
