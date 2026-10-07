@@ -1419,3 +1419,76 @@ veces. En este repo suponer sobre la API de PrimeNG ya costó dos veces (`styleC
 - ⚠️ La prueba del `tabindex` nació con un selector `tbody tr` pelado y agarró **7 filas** — las del
   libro y los cortes. La encontró ella sola; quedó acotada a `.cg-bandeja-tbl`.
 - ⚠️⚠️ **Octava vez** que un acento grave en un comentario del `template:` rompe el build acá.
+
+---
+
+## 17. `[CG.51]` La jornada por default, y el historial plegado (2026-10-07)
+
+**Pedido de Edgar:** *"demasiado scroll en general. y por default sólo deben ser los movimientos
+del día"*.
+
+### ⛔ «El día» literal ya se intentó, y ya se revirtió
+
+El default **estuvo en 1 día** desde el 2026-09-22 (*"puesto para las PRUEBAS de CG.21, con este
+mismo comentario diciendo que antes de operar de verdad tenía que volver — y se quedó"*). Lo que
+causaba, medido en prod el 2026-09-30: la bandeja devolvía **7 filas y las 7 eran documentos mal
+fechados**, porque la ventana no tenía tope de arriba y lo único que pasaba un filtro de «último
+día» eran los de diciembre.
+
+**Re-medido contra prod el 2026-10-07, antes de tocar nada:**
+
+| Ventana | Movimientos |
+|---|---|
+| **hoy (07/10)** | **0** |
+| hoy + ayer | 7 |
+| últimos 7 días | 201 |
+| ventana de 45 días | **12,976** |
+| día más reciente con volumen | **05/10, con 40** |
+
+⛔ **«Hoy» abre la pantalla vacía, todos los días.** `fecha_valor` es la fecha del DOCUMENTO en
+Kepler, no la de cuándo el trabajo llega, y el ERP captura con una mediana de **3 días** de rezago.
+El propio código ya lo tenía escrito: *"ningún documento legítimo tiene `fecha_valor` de hoy"*. Hay
+hasta un contador aparte (`malFechados`) para los que vienen fechados **en el futuro**: hoy son 7,
+entre el 1 y el 14 de diciembre.
+
+### Lo que se hizo
+
+1. **`CAJA_JORNADA_DIAS = 3`**, constante propia en `libs/contracts` al lado de `CAJA_VENTANA_DIAS`,
+   con su medición. Son dos preguntas distintas: 45 es **el borde** (hasta dónde un movimiento sigue
+   siendo trabajo, y lo consume también «Mi trabajo»); 3 es **con cuánto arranca la pantalla**. La
+   jornada *y su rezago normal* = **~40 renglones** en vez de 12,976.
+   La opción del selector se llama **«La jornada»**, no «3 días»: dice para qué sirve.
+2. **El historial se pliega y arranca cerrado.** Debajo del área de trabajo vivían el libro (título
+   + tira de KPIs + 4 filtros + tabla) y los cortes (título + tabla): **128 líneas de plantilla**,
+   ~800 px de archivo que nadie necesita para confirmar efectivo.
+
+⚠️ **Plegado NO es escondido**, y eso es la mitad del diseño: la cabecera publica *«Historial — del
+X al Y · N movimiento(s) en el libro · M corte(s)»*, así que cerrado se lee igual que abierto para
+decidir si vale la pena abrirlo. Es un `<button>` con `aria-expanded`, no un `<h2>` con `(click)`.
+
+⚠️ Y lo que la ventana deja fuera **tampoco** se esconde: `rezago()` publica cuántos quedan antes
+del corte y por cuánto dinero. Verificado en el servicio antes de angostar la ventana: `atras` se
+calcula con `fecha_valor < desde` contra **el `from` que manda la pantalla**, no contra el default
+del servidor — al angostarla, el aviso crece solo.
+
+### Un test que pasaba por acumulación
+
+`'sin resultados, los selectores de la bandeja SIGUEN en pantalla'` afirmaba *"los tres `p-select`
+viven en el encabezado de la sección"* y contaba `p-select` de **toda la página**. El tercero vivía
+en los filtros del libro, 300 líneas más abajo. Plegar el historial lo destapó. Quedó acotado a
+`.cg-bandeja` y afirmando lo que hay de verdad: **2 selects + 1 segmented + 1 buscador**.
+
+### Verificación
+
+- `nx test view` caja-general **204/204** (5 pruebas nuevas) · `nx test contracts` **387/387** ·
+  `check:teclado` y `check:templates` verdes · `typecheck` de `view` verde.
+- **Mutación**: devolver el default a 45 → 1 roja; abrir el historial por default → 2 rojas.
+- La medición de hoy se corrió **read-only** contra `pg-prod` (`DATABASE_URL_NEW`), sólo `SELECT`
+  con `GROUP BY` sobre la vista de pendientes.
+
+### Lo que sigue abierto
+
+El scroll que queda arriba del área de trabajo: encabezado de página (título + 2 subtítulos) más el
+bloque «Cierre de la jornada», ~360 px antes de que empiece el split. Es lo próximo a recortar si
+hace falta; no se tocó acá porque el «Cierre de la jornada» es el único lugar donde se rinde cuentas
+y esconderlo tendría el costo opuesto.

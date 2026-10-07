@@ -24,7 +24,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError, Subject } from 'rxjs';
 
-import { CAJA_VENTANA_DIAS, denomDe, type Denominacion } from '@megadulces/contracts';
+import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, denomDe, type Denominacion } from '@megadulces/contracts';
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
  import { CONTEXT_HELP } from '../../../../shared/context-help/context-help.dictionary';
 import {
@@ -303,9 +303,17 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
     const html: string = fixture.nativeElement.innerHTML;
     expect(html).toContain('Movimientos por confirmar');
-    // Los tres p-select viven en el encabezado de la sección: si la sección se desmonta, la
-    // persona queda encerrada con el filtro puesto y sin forma de sacarlo.
-    expect(fixture.nativeElement.querySelectorAll('p-select').length).toBeGreaterThanOrEqual(3);
+
+    // ⛔ `[CG.51]` Esto decía "los tres p-select viven en el encabezado de la sección" y contaba
+    // `p-select` de TODA la página — el tercero vivía en los filtros del libro, 300 líneas abajo.
+    // Pasaba por acumulación, no por lo que afirmaba. Lo destapó plegar el historial.
+    // Lo que importa es que los filtros DE LA BANDEJA sigan ahí: con la lista vacía, si la sección
+    // se desmonta la persona queda encerrada con el filtro puesto y sin forma de sacarlo.
+    const bandeja: Element | null = fixture.nativeElement.querySelector('.cg-bandeja');
+    expect(bandeja).not.toBeNull();
+    expect(bandeja!.querySelectorAll('p-select').length).toBe(2);   // ventana + caja
+    expect(bandeja!.querySelectorAll('app-segmented').length).toBe(1); // entra / sale
+    expect(bandeja!.querySelectorAll('input[type="search"], input.cg-buscar').length).toBe(1);
   });
 
   it('un error de red en la bandeja se DECLARA, no se ve como "no hay nada"', () => {
@@ -1695,11 +1703,49 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // eran justamente los del futuro: el ERP captura con 3 dias de mediana y ninguno legitimo
   // tiene `fecha_valor` de hoy.
 
-  it('la ventana por default es la MEDIDA, no la de pruebas', () => {
+  it('la ventana por default es la MEDIDA, no la de pruebas ni «hoy»', () => {
     // Estuvo en 1 dia desde el 22-sep "para las pruebas de CG.21", con un comentario que decia
     // que tenia que volver. Se quedo ocho dias.
+    //
+    // `[CG.51]` Y ahora arranca en LA JORNADA (3 dias) por pedido de Edgar -- "por default solo
+    // deben ser los movimientos del dia"-- pero NO en 1 dia, que es lo que esa frase pide al pie
+    // de la letra. Medido contra prod el 2026-10-07 antes de cambiarlo: hoy = 0 movimientos, y el
+    // dia mas reciente con volumen real es el 05/10. `fecha_valor` es la fecha del DOCUMENTO y el
+    // ERP captura con 3 dias de mediana, asi que "hoy" abre la pantalla VACIA todos los dias.
     montar();
-    expect(comp.ventanaDias()).toBe(CAJA_VENTANA_DIAS);
+    expect(comp.ventanaDias()).toBe(CAJA_JORNADA_DIAS);
+    expect(comp.ventanaDias()).not.toBe(1);
+    expect(comp.ventanaDias()).toBeLessThan(CAJA_VENTANA_DIAS);
+  });
+
+  // ── [CG.51] El scroll: el historial se pliega, pero NO se esconde ─────────────────────────
+
+  it('el historial arranca CERRADO: debajo del area de trabajo no hay 800px de archivo', () => {
+    const fx = montar();
+    expect(comp.historialAbierto()).toBe(false);
+    // La tabla del libro y la de los cortes no estan en el DOM mientras este cerrado.
+    expect(fx.nativeElement.querySelector('app-metric-strip')).toBeNull();
+  });
+
+  it('cerrado NO es escondido: la cabecera dice el rango y cuanto hay adentro', () => {
+    const fx = montar();
+    const h: HTMLElement | null = fx.nativeElement.querySelector('.cg-historial-h');
+    expect(h).not.toBeNull();
+    // Plegar algo sin decir que tiene adentro lo vuelve indistinguible de que no exista.
+    expect(h!.textContent).toContain('Historial');
+    expect(h!.textContent).toContain('movimiento(s) en el libro');
+    expect(h!.textContent).toContain('corte(s)');
+    // Y es un <button> con su estado anunciado, no un <h2> con (click).
+    expect(h!.tagName).toBe('BUTTON');
+    expect(h!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('al abrirlo aparece el libro, y el aria-expanded lo acompana', () => {
+    const fx = montar();
+    comp.historialAbierto.set(true);
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelector('app-metric-strip')).not.toBeNull();
+    expect(fx.nativeElement.querySelector('.cg-historial-h')!.getAttribute('aria-expanded')).toBe('true');
   });
 
   it('⛔ [negativa] los mal fechados se DICEN, no se esconden', () => {
