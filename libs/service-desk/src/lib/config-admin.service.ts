@@ -11,10 +11,12 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import type { Knex } from 'knex';
 import {
   SD_PRIORITIES,
+  SD_PRIORITY_MODELS,
   type SdCategoryAdminDto,
   type SdClock,
   type SdConfigResponse,
   type SdPriority,
+  type SdPriorityModel,
   type SdQueueAdminDto,
   type SdSettingsDto,
   type SdSlaPolicyDto,
@@ -63,7 +65,7 @@ export class ServiceDeskConfigAdminService {
       const s = await trx('servicedesk.settings').first();
       if (!s) throw new NotFoundException('La Mesa de Servicio no está configurada para este tenant');
       const policies = await trx('servicedesk.sla_policies').select('queue_id', 'priority', 'first_response_minutes', 'resolution_minutes', 'clock');
-      const queues = await trx('servicedesk.queues').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'department_code', 'active', 'sort_order');
+      const queues = await trx('servicedesk.queues').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'department_code', 'active', 'sort_order', 'priority_model');
       const cats = await trx('servicedesk.categories').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'queue_id', 'code', 'name', 'default_priority', 'requires_branch', 'active', 'sort_order');
       const orden = (p: SdPriority): number => SD_PRIORITIES.indexOf(p);
       return {
@@ -219,6 +221,7 @@ export class ServiceDeskConfigAdminService {
     if (!CODIGO_RE.test(code)) throw new BadRequestException('code debe ir en minúsculas, empezar con letra y usar sólo letras, números y guion bajo');
     if (!name) throw new BadRequestException('Escribe el nombre de la cola');
     const orden = dto.sort_order !== undefined ? this.orden(dto.sort_order) : 100;
+    const modelo = dto.priority_model !== undefined ? this.modelo(dto.priority_model) : 'impacto';
     await this.tk.run(async (trx) => {
       try {
         const [{ id }] = await trx('servicedesk.queues')
@@ -226,6 +229,7 @@ export class ServiceDeskConfigAdminService {
             tenant_id: this.tenantCtx.requireTenantId(),
             code,
             name,
+            priority_model: modelo,
             department_code: dto.department_code ? String(dto.department_code) : null,
             active: dto.active ?? true,
             sort_order: orden,
@@ -255,6 +259,7 @@ export class ServiceDeskConfigAdminService {
       patch['active'] = dto.active;
     }
     if (dto.sort_order !== undefined) patch['sort_order'] = this.orden(dto.sort_order);
+    if (dto.priority_model !== undefined) patch['priority_model'] = this.modelo(dto.priority_model);
     if (!Object.keys(patch).length) throw new BadRequestException('No se indicó ningún campo para cambiar');
     // `[MS.7.6]` Sólo la coordinación de ESA cola (o el god-mode) edita su cola.
     if (!puedeCoordinarCola(ctx.colas, id)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiarla');
@@ -354,6 +359,14 @@ export class ServiceDeskConfigAdminService {
       throw new BadRequestException(`${campo} debe tener el formato HH:MM`);
     }
     return String(v).slice(0, 5);
+  }
+
+  /** `[MS.7.7]` El modelo con el que se sugiere la prioridad de la cola: sólo los que el código sabe aplicar. */
+  private modelo(v: unknown): SdPriorityModel {
+    if (typeof v !== 'string' || !(SD_PRIORITY_MODELS as readonly string[]).includes(v)) {
+      throw new BadRequestException(`priority_model debe ser uno de: ${SD_PRIORITY_MODELS.join(', ')}`);
+    }
+    return v as SdPriorityModel;
   }
 
   private orden(v: unknown): number {

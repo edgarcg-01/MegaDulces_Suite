@@ -163,6 +163,10 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                 <b>{{ q.name }}</b><span class="sc-mono">{{ q.code }}</span>
                 @if (!q.active) { <em class="sc-off">apagada</em> }
                 <span class="sc-sp"></span>
+                <!-- [MS.7.7] Cómo se SUGIERE la prioridad de esta cola. Lo elige la coordinación de la cola; el servidor lo exige. -->
+                <label class="sc-modelo"><span>Prioridad sugerida por</span>
+                  <p-select [options]="modelos" optionLabel="label" optionValue="value" [ngModel]="q.priority_model" (ngModelChange)="cambiarModelo(q.id, q.priority_model, $event)"
+                            appendTo="body" [ariaLabel]="'Cómo se sugiere la prioridad en ' + q.name" /></label>
                 <p-button [label]="q.active ? 'Apagar cola' : 'Encender cola'" size="small" severity="secondary" [text]="true" (onClick)="alternarCola(q.id, q.active)" />
               </div>
               <!-- [MS.7.17] Quién atiende esta cola: la coordinación de ESA cola administra a sus miembros. -->
@@ -241,6 +245,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
     .sc-pri[data-p='alta'] { color: var(--warn-fg); background: var(--warn-soft-bg); }
     .sc-pri[data-p='urgente'] { color: var(--bad-fg); background: var(--bad-soft-bg); font-weight: 600; }
     .sc-ambito { max-width: 22rem; }
+    .sc-modelo { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
     .sc-tag { font-style: normal; font-size: var(--fs-xs); color: var(--text-muted); margin-left: var(--sp-2); }
     .sc-tag.propio { color: var(--action); font-weight: 600; }
     .sc-acc { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
@@ -263,6 +268,8 @@ export class ServicioConfiguracionComponent implements OnInit {
   readonly dias = DIAS;
   readonly prioridad = PRIORITY_LABEL;
   readonly prioridades = SD_PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }));
+  /** `[MS.7.7]` Las dos matrices que el código sabe aplicar (la cola elige por este valor, nunca por su nombre). */
+  readonly modelos = [{ value: 'impacto', label: 'Impacto y bloqueo' }, { value: 'riesgo_operacion', label: 'Riesgo y operación' }];
   readonly relojes = [{ value: 'business', label: 'Hábil' }, { value: 'calendar', label: 'Corrido (24 h)' }];
 
   readonly cfg = signal<SdConfigResponse | null>(null);
@@ -400,6 +407,10 @@ export class ServicioConfiguracionComponent implements OnInit {
     const q = this.ambito();
     if (!q) return;
     this.guardar(this.api.removeQueuePolicy(p.priority, q), `${this.nombreAmbito()} vuelve a usar el plazo general de «${PRIORITY_LABEL[p.priority]}».`);
+  }
+  cambiarModelo(id: string, actual: string, nuevo: string): void {
+    if (nuevo === actual) return;
+    this.guardar(this.api.updateQueue(id, { priority_model: nuevo as 'impacto' | 'riesgo_operacion' }), nuevo === 'riesgo_operacion' ? 'La prioridad de esta cola se sugiere ahora por riesgo para personas y si detiene la operación.' : 'La prioridad de esta cola se sugiere ahora por impacto y bloqueo.');
   }
   alternarCola(id: string, activa: boolean): void { this.guardar(this.api.updateQueue(id, { active: !activa }), activa ? 'Cola apagada.' : 'Cola encendida.'); }
   alternarCategoria(id: string, activa: boolean): void { this.guardar(this.api.updateCategory(id, { active: !activa }), activa ? 'Categoría apagada.' : 'Categoría encendida.'); }

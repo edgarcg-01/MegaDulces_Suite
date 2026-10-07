@@ -55,7 +55,7 @@ import { formatFolio } from './domain/folio';
 import { clausulasOrden, validarOrden } from './domain/inbox-sort';
 import { accesoATicket, colasDeLectura, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
 import { fechaValida } from './domain/report-period';
-import { puedeCambiarPrioridad, sugerirPrioridad } from './domain/priority';
+import { puedeCambiarPrioridad, sugerirPrioridadPorModelo } from './domain/priority';
 import { evaluarSla, plazosIniciales, plazosTrasCambioDePrioridad, reanudarTrasPausa } from './domain/sla';
 import type { SdEventoClave } from './domain/notice';
 import { ServiceDeskNotificationsService, type SdEvento } from './notifications.service';
@@ -77,6 +77,7 @@ interface RequestRow {
   priority_suggested: SdPriority | null;
   impact: SdImpact;
   blocks_work: boolean;
+  safety_risk?: boolean | null;
   status: SdStatus;
   requester_id: string;
   requester_name: string | null;
@@ -219,9 +220,19 @@ export class ServiceDeskRequestsService {
           .where('c.id', dto.category_id)
           .where({ 'c.active': true, 'q.active': true })
           .whereNull('c.deleted_at')
-          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch');
+          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch', 'q.priority_model');
         if (!cat) throw new BadRequestException('La categoría no existe o no está disponible');
         if (cat.requires_branch && !warehouse) throw new BadRequestException('Esta categoría exige indicar la ubicación');
+        /*
+         * `[MS.7.7]` El modelo de prioridad lo dicta la COLA (su `priority_model`), no su nombre. En `riesgo_operacion` «¿hay riesgo
+         * para personas?» es OBLIGATORIA y debe ser verdadero o falso: un faltante NO se toma como «no hay riesgo» (el peligro nunca
+         * se infiere por omisión). En `impacto` la respuesta se ignora y se guarda NULL («no se preguntó»), no un `false` inventado.
+         */
+        const modelo: string = cat.priority_model ?? 'impacto';
+        if (modelo === 'riesgo_operacion' && typeof dto.safety_risk !== 'boolean') {
+          throw new BadRequestException('Indica si hay riesgo para personas (sí o no): sin eso no se puede sugerir la prioridad de esta área');
+        }
+        const riesgo: boolean | null = modelo === 'riesgo_operacion' ? (dto.safety_risk as boolean) : null;
 
         // El solicitante es quien llama, salvo que quien atiende haya indicado a otra persona.
         const solicitanteId = pidioOtro ? (dto.requester_id as string) : ctx.userId;
@@ -242,7 +253,7 @@ export class ServiceDeskRequestsService {
         }
         const nombreSolicitante = me?.nombre || me?.username || ctx.nombre;
         const now = new Date();
-        const priority = sugerirPrioridad({ defaultPriority: cat.default_priority, impact, blocksWork });
+        const priority = sugerirPrioridadPorModelo({ defaultPriority: cat.default_priority, impact, blocksWork, modelo, safetyRisk: riesgo });
         const politica = politicaDe(config, cat.queue_id, priority);
         if (!politica) throw new ConflictException(`No hay política de SLA configurada para la prioridad «${priority}»`);
         const plazos = plazosIniciales(now, politica, config.settings.calendar);
@@ -263,6 +274,7 @@ export class ServiceDeskRequestsService {
             priority_suggested: priority,
             impact,
             blocks_work: blocksWork,
+            safety_risk: riesgo,
             status: 'nuevo',
             requester_id: solicitanteId,
             requester_name: nombreSolicitante,
@@ -282,7 +294,7 @@ export class ServiceDeskRequestsService {
           authorId: ctx.userId,
           authorLabel: ctx.nombre,
           body: pidioOtro ? `Solicitud levantada por ${ctx.nombre} a nombre de ${nombreSolicitante}` : 'Solicitud creada',
-          meta: { priority, impact, blocks_work: blocksWork, ...(pidioOtro ? { opened_on_behalf: true, opened_by: ctx.userId, requester_id: solicitanteId } : {}) },
+          meta: { priority, impact, blocks_work: blocksWork, ...(riesgo !== null ? { safety_risk: riesgo } : {}), ...(pidioOtro ? { opened_on_behalf: true, opened_by: ctx.userId, requester_id: solicitanteId } : {}) },
         });
         await this.insertAdjuntos(trx, tenantId, id, msgId, ctx.userId, subidos);
 
@@ -1065,6 +1077,7 @@ export class ServiceDeskRequestsService {
       priority_suggested: r.priority_suggested ?? null,
       impact: r.impact,
       blocks_work: !!r.blocks_work,
+      safety_risk: r.safety_risk ?? null,
       status: r.status,
       requester_id: r.requester_id,
       requester_name: r.requester_name ?? null,
