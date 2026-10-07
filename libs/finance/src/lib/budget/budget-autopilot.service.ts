@@ -5,6 +5,7 @@ import { KNEX_NEW_DB, TenantContextService } from '@megadulces/platform-core';
 import { BudgetSalesPlanService } from './budget-sales-plan.service';
 import { BudgetExpensePlanService } from './budget-expense-plan.service';
 import { BudgetMaterializeService } from './budget-materialize.service';
+import { BudgetGenerationService } from './budget-generation.service';
 
 /**
  * `[VE.3]` — **El presupuesto se mantiene solo.** Pedido de Edgar, 2026-10-06: *«todo presupuestos
@@ -62,6 +63,8 @@ export interface AutopilotBudgetResult {
   gastos: { escritas: number; manual_kept: number } | null;
   targets: { filas: number } | null;
   partidas: { creadas: number; ajustadas: number; sin_cambio: number } | null;
+  /** [VE.5-D] El folio de la generacion que produjo estos numeros. */
+  run_folio?: string;
   errores: string[];
 }
 
@@ -84,6 +87,7 @@ export class BudgetAutopilotService {
     private readonly salesPlan: BudgetSalesPlanService,
     private readonly expensePlan: BudgetExpensePlanService,
     private readonly materialize: BudgetMaterializeService,
+    private readonly generation: BudgetGenerationService,
     @Optional() private readonly tenantCtx?: TenantContextService,
   ) {}
 
@@ -127,6 +131,21 @@ export class BudgetAutopilotService {
 
       for (const t of tenants) {
         const tid = String(t.id);
+
+        // `[VE.5-A]` Que NUNCA falte el ejercicio del año que viene. Si ya existe —en el estado que
+        // sea— no crea otro; si no, nace en `borrador` con folio `PRE-AAAA-NNN` y nombre derivado.
+        // ⭐ Esto mata dos errores medidos en prod a la vez: el ejercicio que se llama `presupesto`
+        // (texto libre tecleado una vez, que quedó como el identificador que todos ven) y el
+        // «nadie se acordó de crearlo». Nadie firma nada acá: el ciclo sigue siendo humano.
+        const fySiguiente = new Date().getFullYear() + 1;
+        try {
+          const e = await this.conTenant(tid, () =>
+            this.generation.ensureBudgetForYear(tid, fySiguiente, AUTOR));
+          if (e.created) this.logger.log(`[VE.5] ejercicio ${e.folio} creado (FY${fySiguiente})`);
+        } catch (e) {
+          errores.push(`crear ejercicio FY${fySiguiente}: ${(e as Error)?.message ?? e}`);
+        }
+
         const { abiertos, totales } = await this.conTenant(tid, async () => {
           const rows = await this.knex('budget.budgets')
             .select('id', 'name', 'fiscal_year', 'status')
@@ -195,6 +214,21 @@ export class BudgetAutopilotService {
     // Los cuatro son independientes salvo `materialize`, que necesita el plan ya escrito — por eso
     // va al final, y por eso se salta si los dos planes fallaron.
     await this.conTenant(tenantId, async () => {
+      // `[VE.5-D]` La procedencia: con QUÉ supuestos se calculó esta pasada. Se lee ANTES de
+      // tocar nada, porque es lo que explica el número que queda. Sin esto, «la meta de P7 cambió
+      // entre ayer y hoy» no tiene respuesta — y un valor derivado que nadie puede auditar es
+      // peor que uno capturado, porque nadie lo revisa (ADR-056).
+      let run: { id: string; folio: string } | null = null;
+      try {
+        const sup = await this.salesPlan.getSettings(budgetId).catch(() => null);
+        run = await this.generation.openRun(tenantId, 'pasada', 'cron', budgetId, sup, AUTOR);
+        out.run_folio = run.folio;
+      } catch (e) {
+        // Que falle el registro NO puede impedir la generación, pero tampoco se calla: una pasada
+        // sin procedencia es exactamente lo que esto vino a evitar.
+        out.errores.push(`registro de procedencia: ${(e as Error)?.message ?? e}`);
+      }
+
       try {
         const r = await this.salesPlan.proposePlan(budgetId, {}, AUTOR);
         const c = r.coverage as Record<string, number>;
@@ -231,6 +265,14 @@ export class BudgetAutopilotService {
             sin_cambio: s.skipped ?? 0,
           };
         } catch (e) { out.errores.push(`materialización: ${(e as Error)?.message ?? e}`); }
+      }
+
+      // `[VE.5-D]` Cierra el registro con lo que entregó, POR PASO. Un total («escribió 418
+      // celdas») no dice si el plan de gastos corrió; el objeto sí.
+      if (run) {
+        await this.generation.closeRun(tenantId, run.id, {
+          ventas: out.ventas, gastos: out.gastos, targets: out.targets, partidas: out.partidas,
+        }, out.errores.length ? out.errores.join(' | ') : null).catch(() => undefined);
       }
       return null;
     });

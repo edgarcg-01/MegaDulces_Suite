@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { BudgetGenerationService } from './budget-generation.service';
 
 /**
  * Fase PU.1 — Presupuestos: motor de egresos (ADR-066).
@@ -78,6 +79,8 @@ export class BudgetLinesService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    /** `[VE.5-F]` La compuerta de completitud que usa `submitBudget`. */
+    private readonly generation: BudgetGenerationService,
   ) {}
 
   // ── Cabecera ────────────────────────────────────────────────────────────────────────────
@@ -112,8 +115,23 @@ export class BudgetLinesService {
     return row;
   }
 
-  /** borrador → pendiente (listo para autorizar). */
+  /**
+   * borrador → pendiente (listo para autorizar).
+   *
+   * `[VE.5-F]` ⛔ **No se manda a firma un ejercicio vacío.** El caso está vivo en prod: `prueba`
+   * (FY2026) quedó en `pendiente` con **0 planes, 0 partidas y 0 supuestos**. Si alguien le da
+   * Aprobar, aprueba nada — y además el ejercicio sale del alcance del piloto, que sólo trabaja
+   * sobre `borrador`/`en_revision`, así que se queda vacío para siempre.
+   *
+   * La compuerta separa **bloqueos** de **avisos**: un plan de gastos faltante se declara y deja
+   * pasar; no tener ni un renglón, o un plan de ventas que cubre 10 de 13 periodos, no.
+   */
   async submitBudget(id: string, username: string) {
+    const estado = await this.generation.completeness(id);
+    if (!estado.listo) {
+      throw new BadRequestException(
+        `El ejercicio ${estado.folio ?? id} no está listo para autorizar: ${estado.bloqueos.join(' · ')}`);
+    }
     return this.transitionBudget(id, ['borrador', 'en_revision'], 'pendiente', username);
   }
 
