@@ -15,7 +15,7 @@ import { armarRespuesta, horasAbierto, periodo, PeriodoInvalido, relojMx, type F
  * (derive-no-copy, mismo patrón que Cortes/Sucursales). La Suite NO escribe en Kepler (ADR-086).
  *
  *  · Pedido   = `kepler_ods.kdm1` `U-D-40`. Origen `c27`, estatus `c11`, responsables
- *               `c100/c102/c103`, transporte/chofer/guía `c83/c84/c86`. Decode: ERP_KEPLER §3.y.1.
+ *               `c100/c102/c103`, transporte/chofer/guía `c83/c84/c86`. Decode: ERP_KEPLER §3.y.3.
  *  · Renglón  = `kepler_ods.kdm2`. Cantidades por etapa `c51..c54` (en la unidad `c55`), ubicación
  *               por etapa `c59/c60/c61`, etapa en que se agregó el renglón `c28`.
  *  · Embarque = `U-D-41` con `c37='40'` y `c39` = folio del pedido.
@@ -77,6 +77,8 @@ SELECT h.sucursal, h.serie, h.folio, h.fecha, h.hora, h.origen, h.estatus, h.cli
   FROM h
   -- Renglones y volumen por unidad de presentación (c55, cantidad c56), una búsqueda por pedido.
   -- Medido 2026-10-06: octubre, 532 pedidos, 55-140 ms; el 0000367 da 16 CJA, igual que su ticket.
+  -- Los renglones también anclan c1: la base de la 03 guarda copias de pedidos de la 02 con la
+  -- misma serie y folio que los suyos (41 de 41 chocan, medido 2026-10-06) y se mezclarían.
   LEFT JOIN LATERAL (
     SELECT coalesce(sum(x.n), 0)::int AS renglones,
            jsonb_agg(jsonb_build_object('unidad', x.u, 'cantidad', x.q) ORDER BY x.q DESC) AS volumen
@@ -84,6 +86,7 @@ SELECT h.sucursal, h.serie, h.folio, h.fecha, h.hora, h.origen, h.estatus, h.cli
                    sum(coalesce(NULLIF(btrim(l.c56::text), '')::numeric, 0)) AS q, count(*) AS n
               FROM kepler_ods.kdm2 l
              WHERE l.sucursal = h.sucursal AND l.c2 = h.k2 AND l.c3 = h.k3 AND l.c4 = h.k4 AND l.c5 = h.k5 AND l.c6 = h.k6
+               AND btrim(l.c1) = btrim(l.sucursal)
              GROUP BY 1) x
   ) lc ON true
   LEFT JOIN vend v ON v.sucursal = h.sucursal AND v.code = h.vendedor_code
@@ -111,6 +114,7 @@ SELECT (l.c7)::int                                         AS renglon,
        round(NULLIF(btrim(l.c13::text), '')::numeric, 2)   AS importe
   FROM kepler_ods.kdm2 l
  WHERE l.sucursal = ? AND l.c2 = 'U' AND l.c3 = 'D' AND (l.c4)::int = 40 AND (l.c5)::int = ? AND btrim(l.c6::text) = ?
+   AND btrim(l.c1) = btrim(l.sucursal)
  ORDER BY (l.c7)::int`;
 
 const SHIPMENTS_SQL = `

@@ -89,6 +89,8 @@ const AUTORIZA = 'Autorizado por Francisco López (2026-10-06)';
  * por rol + dimensión se llevaría una regla que esta migración nunca creó.
  */
 const NOTA_BODEGA = '[GP.1] no tenía regla de sucursal: con el permiso habría visto la lista vacía';
+// Igual que NOTA_BODEGA: la nota firma el alcance de Estefanía para que el down borre sólo ése.
+const NOTA_ESTEFANIA = '[GP.1] factura en PH y en CEDIS';
 
 exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
@@ -197,7 +199,7 @@ exports.up = async function up(knex) {
     await knex('identity.user_scopes')
       .insert({
         tenant_id: tenant, user_id: estefania.id, dimension: 'warehouse', area: '*', mode: 'listed',
-        values: ['00', '01'], nota: '[GP.1] factura en PH y en CEDIS',
+        values: ['00', '01'], nota: NOTA_ESTEFANIA,
       })
       .onConflict(['tenant_id', 'user_id', 'dimension', 'area'])
       .merge(['mode', 'values', 'nota']);
@@ -267,7 +269,7 @@ exports.down = async function down(knex) {
     .update({ role_name: 'auxiliar_compras', position_code: 'facturador', department_code: 'tienda', updated_at: knex.fn.now() });
   const est = await knex('identity.users').where({ tenant_id: tenant, username: 'estefania_mendez' }).first('id');
   if (est) {
-    await knex('identity.user_scopes').where({ tenant_id: tenant, user_id: est.id, dimension: 'warehouse', area: '*' }).del();
+    await knex('identity.user_scopes').where({ tenant_id: tenant, user_id: est.id, dimension: 'warehouse', area: '*', nota: NOTA_ESTEFANIA }).del();
     await knex('identity.user_roles').where({ tenant_id: tenant, user_id: est.id, role_name: 'facturacion', is_primary: false }).del();
   }
   // La cuenta duplicada NO se reactiva: era un error de alta, no un estado al que volver.

@@ -5,6 +5,31 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-06 — `[GP.1]` Revisión de PM (Edgar) al PR #271
+
+**Lo que resolvió Edgar en la rama** (`00a42cf16`, `c33b5e094`, `df4285581`, `f61196f90`): merge de `main`, ADR-084/085 →
+**ADR-086/087**, `ERP_KEPLER.md` §3.y.1/§3.y.2 → **§3.y.3/§3.y.4**, migración → **`20261006370000`**,
+`down` acotado para `encargado_bodega` (por `NOTA_BODEGA`) y para el permiso (sólo donde vale `true`).
+
+**Lo que se agregó encima:**
+- **Renglones anclados a su sucursal (punto 7: era bug).** La consulta de `kdm2` no anclaba
+  `btrim(c1) = sucursal` como sus hermanas. Medido en prod (solo lectura): la base de la `03` guarda
+  864 pedidos copia de la `02`, y **los 41 pedidos propios de la `03` chocan** en serie y folio con una
+  copia. El `03/0000001` (TI008, AUTORIZADO) mostraba 4 renglones, 3 del pedido EMBARCADO de la `02`;
+  ahora 1. Octubre: 16 renglones ajenos fuera; la lista bajó de 126 a 65 ms.
+- **El `down` también acota por nota** el alcance de Estefanía (`NOTA_ESTEFANIA`), con el mismo criterio
+  que `NOTA_BODEGA`: si alguien lo edita después desde /admin, el `down` ya no se lo lleva. Los alcances
+  de los perfiles nuevos NO se acotan: `role_scopes` cae en cascada (`ON DELETE CASCADE`) con su perfil,
+  y el `down` sólo borra un perfil que nadie usa; acotar ahí sería una protección de adorno.
+- Dos referencias que quedaban viejas: el servicio citaba §3.y.1 (es §3.y.3) y `[GP.4.1]` §3.y.2 (es §3.y.4).
+
+**Verificado:** up → down → up en local con un `false` puesto a mano y una regla ajena de
+`encargado_bodega`: los dos sobreviven al `down` y el `up` respeta el `false`.
+
+**Lección:** «llega por la llave de una cabecera ya anclada» no basta: `(sucursal, serie, folio)` no es
+única dentro de una base que guarda copias de otra sucursal. Toda consulta a `kdm1`/`kdm2` ancla `c1`.
+
+---
 ## 2026-10-06 — `[GP.1]` Tablero de pedidos: revisión con el usuario, acceso y estándares
 
 **Qué cambió tras revisarlo con Francisco en localhost:** casilla «Sólo autorizados en adelante»;
