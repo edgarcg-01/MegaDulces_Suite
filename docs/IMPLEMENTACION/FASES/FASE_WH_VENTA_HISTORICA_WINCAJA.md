@@ -503,7 +503,56 @@ Sin esto no se carga una sola fila. Lo que hay que contestar, con evidencia inde
 **Entregable:** una sección en [`VERDAD_ABSOLUTA.md`](../../VERDAD_ABSOLUTA.md) que diga qué
 arbitra la venta histórica de Wincaja y cuánto aguanta. **Sin firma, la fase no avanza.**
 
-### `[WH.1]` — Inventario y arbitraje de CORTES
+### ✅ `[WH.1]` — Arbitraje de CORTES · **EJECUTADO 2026-10-07**
+
+**1. La premisa del repo era cierta, y ahora está medida, no supuesta.** Cada carpeta-año contiene
+**≥ 99.9 % de su propio año**. El residuo, cuantificado sobre las nueve sucursales:
+
+| corte | de SU año | de otro año | centinela 2000 | futuro |
+|---|---:|---:|---:|---:|
+| 2017 | 1,091,021 | 0 | 1,573 | — |
+| 2020 | 960,774 | **1,059** (0.11 %) | 35 | — |
+| 2022 | 1,082,977 | 634 (0.06 %) | 1,029 | — |
+| 2025 | 1,185,696 | 4 | 111 | **1** |
+| los otros cinco | 5,479,018 | ≤ 338 c/u | ~2,400 | — |
+
+⭐ **Consecuencia de diseño: el día de la venta sale de la FECHA parseada, no del nombre del corte.**
+El `_dataset` sirve para la identidad y la deduplicación, nunca para fechar. Con ~2,000 tickets
+mal ubicados si se fechara por carpeta, es barato hacerlo bien.
+
+**2. ⭐⭐ Y la duplicación entre cortes está EXACTAMENTE acotada.** Identidad de ticket =
+`(Documento, Caja, Fecha)`, sobre los cortes anuales + los de nombre propio (sin
+`Actuales`/`Concentradas`):
+
+| sucursal | filas | tickets únicos | repetidos | % |
+|---|---:|---:|---:|---:|
+| 00 · 03 · 04 · 05 · 06 · 08 | 5,430,440 | 5,430,440 | **0** | 0.00 |
+| 01 Padre Hidalgo | 2,280,567 | 2,250,870 | 29,697 | 1.30 |
+| 02 La Piedad | 1,131,814 | 1,013,084 | 118,730 | 10.49 |
+| 07 Morelia Madero | 1,068,599 | 1,030,026 | 38,573 | 3.61 |
+| **total** | **10,055,420** | **9,724,420** | **187,000** | 1.86 |
+
+**Los repetidos cuadran al ticket con los cortes de nombre propio:**
+
+- 01 → **29,697** = `2025-2025_dic` (29,697) ✔ exacto
+- 07 → **38,573** = `2021-32_morelia_madero_01_21` (11,794) + `..._dic` (26,779) ✔ exacto
+- 02 → **118,730** ≈ `2023-42_piedad_abastos2` (118,731) — **1 ticket de diferencia**, declarado
+
+⭐ **Las seis sucursales sin cortes de nombre propio tienen CERO duplicación**: las carpetas
+anuales son una partición limpia. Eso es lo que convierte §2.1 de sospecha en veredicto.
+
+**3. El veredicto, y por qué NO es "borrar los cortes malos".** Lo obvio sería descartar los cinco
+cortes con nombre; sería correcto hoy y frágil mañana (exige mantener una lista a mano, y pierde
+el ticket huérfano de La Piedad). **La regla va por la identidad**: `DISTINCT ON (Documento, Caja,
+Fecha)` prefiriendo el corte anual. Recupera exactamente los mismos 9,724,420 tickets, recoge el
+huérfano solo, y no necesita que nadie mantenga nada.
+
+⚠️ `2018-70_telemarketing_cia` y `2019-70_telemarketing_error` viven en `h70` (telemarketing), no
+en las nueve de tienda → se arbitran en **WH.8** con las rutas.
+
+---
+
+### `[WH.1]` — enunciado original
 
 Por cada `(sucursal, _dataset)`: días cubiertos, tickets por día, y el veredicto
 `canónico | subconjunto_de_X | complementario | sin_arbitrar`. El criterio es el de §2.1 (días
