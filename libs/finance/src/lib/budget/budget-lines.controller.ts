@@ -4,6 +4,7 @@ import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform
 import {
   BudgetLinesService, CreateBudgetDto, CreateBudgetLineDto, MovementOpts,
 } from './budget-lines.service';
+import { BudgetGenerationService } from './budget-generation.service';
 import { BudgetMaterializeService } from './budget-materialize.service';
 
 interface AuthedRequest { user?: { username?: string } }
@@ -24,6 +25,7 @@ export class BudgetLinesController {
   constructor(
     private readonly svc: BudgetLinesService,
     private readonly materialize: BudgetMaterializeService,
+    private readonly generation: BudgetGenerationService,
   ) {}
 
   private who(req: AuthedRequest) { return req.user?.username || 'sistema'; }
@@ -40,6 +42,11 @@ export class BudgetLinesController {
   @Get('budgets/:id')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   getBudget(@Param('id') id: string) { return this.svc.getBudget(id); }
+
+  @Get('budgets/:id/completeness')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: '[VE.5-F] Qué le falta al ejercicio para poder ir a firma. Separa bloqueos (impiden submit) de avisos (se declaran).' })
+  completeness(@Param('id') id: string) { return this.generation.completeness(id); }
 
   @Post('budgets/:id/submit')
   @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)

@@ -18,6 +18,7 @@ import { BudgetExpenseController } from './budget-expense.controller';
 import { BudgetMaterializeService } from './budget-materialize.service';
 import { SelloutRollupService } from './sellout-rollup.service';
 import { BudgetAutopilotService } from './budget-autopilot.service';
+import { BudgetGenerationService } from './budget-generation.service';
 
 /**
  * Fase PU — Presupuestos (ADR-066). Sistema de presupuestos: motor de egresos (PU.1, ledger de 5
@@ -30,7 +31,7 @@ import { BudgetAutopilotService } from './budget-autopilot.service';
  */
 @Module({
   controllers: [BudgetLinesController, BudgetComparisonController, BudgetPlanningController, BudgetCampaignsController, BudgetSalesController, BudgetExpenseController],
-  providers: [BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService],
-  exports: [BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService],
+  providers: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService],
+  exports: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService],
 })
 export class FinanceBudgetModule {}

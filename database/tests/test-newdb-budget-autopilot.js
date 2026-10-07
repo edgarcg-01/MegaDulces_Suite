@@ -228,6 +228,58 @@ const TIENE_GUARDA = (src) =>
           ? `${oblEst.map((r) => `${r.status}:${r.n}`).join(' · ')} — toda obligación comprometida tiene firma`
           : `obligaciones comprometidas SIN authorized_by: ${malas.map((r) => `${r.status} ${r.n - r.firmadas}`).join(', ')}`);
     }
+    // ── 6. `[VE.5]` Folio, procedencia y completitud ────────────────────────────────────
+    console.log('\n[6] El ejercicio tiene folio, la generación deja procedencia, y lo vacío no se firma');
+
+    const sinFolio = await q(`SELECT count(*)::int n FROM budget.budgets WHERE folio IS NULL`);
+    chk(Number(sinFolio[0].n) === 0,
+      `${sinFolio[0].n} ejercicios sin folio — el folio es la identidad; el nombre es texto libre `
+      + '(de ahí salió «presupesto»)');
+
+    const dupFolio = await q(
+      `SELECT count(*)::int n FROM (
+         SELECT tenant_id, folio FROM budget.budgets WHERE folio IS NOT NULL
+          GROUP BY 1,2 HAVING count(*) > 1) d`);
+    chk(Number(dupFolio[0].n) === 0, 'ningún folio repetido (la secuencia es atómica, no max()+1)');
+
+    const rls = await q(
+      `SELECT relname, relforcerowsecurity FROM pg_class
+        WHERE oid IN ('budget.generation_runs'::regclass, 'budget.folio_sequences'::regclass)`);
+    chk(rls.length === 2 && rls.every((r) => r.relforcerowsecurity === true),
+      'generation_runs y folio_sequences con RLS FORZADO');
+
+    const runs = await q(
+      `SELECT count(*)::int total,
+              count(*) FILTER (WHERE assumptions IS NULL)::int sin_supuestos,
+              count(*) FILTER (WHERE status = 'ok' AND output IS NULL)::int ok_sin_salida
+         FROM budget.generation_runs`);
+    if (!Number(runs[0].total)) {
+      nm('todavía no hay corridas registradas (el piloto no ha corrido con este código)');
+    } else {
+      // ⭐ Una corrida que dice `ok` y no deja con QUÉ calculó ni QUÉ entregó es justo el agujero
+      // que esta tabla vino a tapar: un valor derivado que nadie puede auditar.
+      chk(Number(runs[0].ok_sin_salida) === 0,
+        `${runs[0].total} corridas · ${runs[0].ok_sin_salida} en «ok» sin registrar qué entregaron`);
+      chk(Number(runs[0].sin_supuestos) === 0,
+        `${runs[0].sin_supuestos} corridas sin los supuestos con que calcularon`);
+    }
+
+    // ⛔ EL CASO VIVO: `prueba` FY2026 está en `pendiente` —esperando autorización— con 0 planes y
+    // 0 partidas. La compuerta nueva impide que se repita, pero NO arregla el que ya pasó: queda
+    // acá en rojo hasta que alguien lo cancele o lo devuelva a borrador. Un ejercicio vacío
+    // esperando firma es alguien a punto de aprobar nada.
+    const vacios = await q(
+      `SELECT b.folio, b.name, b.fiscal_year, b.status
+         FROM budget.budgets b
+        WHERE b.status IN ('pendiente', 'aprobado')
+          AND NOT EXISTS (SELECT 1 FROM budget.sales_plan_lines s WHERE s.budget_id = b.id)
+          AND NOT EXISTS (SELECT 1 FROM budget.expense_plan_lines e WHERE e.budget_id = b.id)`);
+    chk(vacios.length === 0,
+      vacios.length === 0
+        ? 'ningún ejercicio vacío esperando o con firma'
+        : `${vacios.length} ejercicio(s) VACÍOS fuera de borrador: `
+          + `${vacios.map((v) => `${v.folio ?? v.name} FY${v.fiscal_year} (${v.status})`).join(', ')}`
+          + ' — aprobarlos es aprobar nada, y salen del alcance del piloto para siempre');
   } finally {
     await c.end().catch(() => undefined);
   }
