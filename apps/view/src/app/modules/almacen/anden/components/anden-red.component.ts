@@ -110,7 +110,8 @@ export class AndenRedComponent {
 
   hora(iso: string): string {
     try {
-      return new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' }).format(new Date(iso));
+      // 24 horas: en 12 horas sale "12:40 p.m." y el punto final de la frase quedaba doble.
+      return new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Mexico_City' }).format(new Date(iso));
     } catch {
       return iso.slice(11, 16);
     }
