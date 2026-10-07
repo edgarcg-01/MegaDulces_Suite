@@ -76,7 +76,7 @@ export class CajaGeneralController {
 
   @Get('movement')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
-  @ApiOperation({ summary: 'Detalle COMPLETO de un movimiento del Cuadre (click en el drill). source=control|workbook|kepler + key (PK codificada).' })
+  @ApiOperation({ summary: 'Detalle COMPLETO de un movimiento del Cuadre (click en el drill). source=control|workbook|kepler|ruta + key (PK codificada; en ruta, "<ruta>|<YYYY-MM-DD>").' })
   movement(@Query('source') source: string, @Query('key') key: string) {
     return this.svc.movementDetail(source, key);
   }
