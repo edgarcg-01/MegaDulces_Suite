@@ -4013,9 +4013,9 @@ export interface CommissionLine {
    * `CommissionLine` esté escrita DOS veces (servidor y front) en vez de vivir en
    * `libs/contracts`, el compilador no puede avisar hasta que alguien usa el campo nuevo.
    */
-  subtotal_origen: string | null;
+  subtotal_origen?: string | null;
   /** Hermano de `subtotal_origen`, del mismo DTO. Se declara junto para que no se vuelvan a separar. */
-  costo_status: string | null;
+  costo_status?: string | null;
   pct_aplicado: number | null; comision: number; bonos: number;
   bonos_detalle: { nombre: string; monto: number; metrica: string; umbral: number }[];
   bono_veredicto: string | null;
