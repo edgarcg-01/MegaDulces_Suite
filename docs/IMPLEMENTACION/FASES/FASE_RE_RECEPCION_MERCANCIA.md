@@ -167,6 +167,112 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 | RE.33 | Al confirmar Finanzas nace la obligación en el Calendario con el vencimiento del plazo (RE.30); regreso: fecha de pago, NC descontadas, días recepción→pago y vs vencimiento (liga EXACTA hacia adelante; lo histórico sigue heurístico RE.8) | ⬜ |
 | RE.34 | Extensión de plazo POR FACTURA: la registra el auxiliar (`negotiated_date` ya existe) con **quién la negoció** (comprador/dirección) + motivo; no cambia el plazo del proveedor | ⬜ |
 
+### RE.35–RE.41 — El expediente de la factura: lo que cuadra pasa solo, y lo que no, enseña · 🔨 RE.35–RE.35.5 EN CÓDIGO 2026-10-06 (en PR) · RE.36–RE.41 ⬜ diseñado (ADR-085)
+
+**El proceso real (Francisco, 2026-10-06).** El **auxiliar de entradas** de Compras valida cada entrada en `/compras/costo-por-compra` (la misma pantalla que `/compras/entradas`, lente del dinero): factura, orden de compra, fecha, RFC, método de pago y que la entrada cuadre con la factura del proveedor. Con el expediente armado se lo **entrega en un listado a Finanzas** (RE.32), que programa y paga, y regresa al archivo del proveedor. Hoy RE.32 lee las mismas entradas que costo-por-compra (llave `sucursal + folio XA2001`), pero su check de entrega **no está atado** a la validación.
+
+**Qué revisa el auxiliar, por tipo de documento (Francisco):**
+- **Remisión:** que cuadre con la entrada, la orden de compra y la fecha de recepción.
+- **Factura:** lo mismo **más** RFC del emisor, nombre del emisor, RFC del receptor, régimen fiscal, uso CFDI, forma de pago y método de pago.
+
+**Fuente de los datos fiscales: `fiscal.cfdis`** (los CFDI recibidos que sincroniza ContPAQi, Fase LC), **no el OCR**. El OCR acierta el RFC en el 49% (RE.25) y no lee régimen, uso ni forma; el CFDI los trae del XML timbrado. ⛔ **Kepler no guarda el UUID** (medido en `[GX.40]`), así que la liga exacta entrada → CFDI sale del **papel**: el UUID impreso en la factura.
+
+**¿La entrada ya está ligada a su CFDI? No — medido 2026-10-06 (prod, sólo lectura):**
+- **Kepler:** 3,000 órdenes XA2001 recientes, ninguna columna de `kdm1` con forma de UUID. `kdfe33docprv` («documentos de proveedor», 5,595 filas) **no es de compras**: liga tickets de venta `U-D-10` con su factura de venta `U-D-5`.
+- **Costo por compra:** el auxiliar ya sube **588 PDF de factura** desde el 4-ago (sólo PDF: la pantalla acepta `application/pdf`), pero el OCR lee folio, RFC y totales; **el UUID no se guarda**. Validados: 8.
+- **`fiscal.cfdi_assignments`** (MAT.1, la tabla hecha justo para CFDI ↔ XA2001): **0 filas**.
+- **ContPAQi** (`aso_contabilidad`): asocia el CFDI a una **póliza**, no a una entrada, y va a la baja: 85% de las facturas `G01` en may–jun, 19% en septiembre.
+
+→ **Intención (Francisco, 2026-10-06):** al subir el **papel físico que entrega el repartidor** (escaneado o foto), el sistema lo liga solo a los CFDI que trae ContPAQi, para **identificar más rápido**. Un escaneo normalmente no trae texto, así que la llave tiene que salir de lo que toda factura trae impreso:
+1. **El código QR del SAT** (obligatorio en la representación impresa): trae UUID, RFC emisor, RFC receptor y total. Se decodifica de forma determinista → liga **exacta**. ⚠️ **Sin medir** (hay que probarlo sobre los archivos, que viven en el almacenamiento de objetos).
+2. **Si no hay QR legible, el OCR** (el que ya corre) lee además UUID, serie y folio. Un UUID mal leído se corrige contra los existentes (≤3 caracteres distintos y candidato único).
+3. **Si no hay UUID:** RFC (del OCR o el aprendido del proveedor) + folio o total → candidato **sugerido** que confirma una persona.
+4. **Al revés también:** desde la factura identificada se proponen las entradas que cubre (mismo emisor, total, fecha), que es lo que acelera la búsqueda en «Subir factura».
+
+📏 **Medido sobre los 588 comprobantes de factura ya subidos (lecturas del OCR actual, sin QR):**
+| Llave | Encuentra su CFDI único |
+|---|---|
+| UUID leído y existente | 35 (6.0%) · se leyó en 70; **22 más** se recuperan corrigiendo ≤3 caracteres, 0 ambiguos |
+| RFC + folio | 98 (16.7%) |
+| Folio + total | 216 (36.7%) |
+| Total + fecha ±3 d | 259 (44.0%) |
+| RFC (OCR o Kepler) + folio o importe de la entrada | 233 (39.6%) |
+| **Cualquiera** | **322 (54.8%)** |
+
+**Por qué fallan las 266 restantes:** **141 sin RFC** (ni el OCR ni Kepler lo traen → lo resuelven el QR o el RFC aprendido del proveedor) · **66 de emisores sin ningún CFDI en ContPAQi** (remisión subida como factura, o proveedor que no se sincroniza → se declara, no se liga) · 36 el emisor sí factura pero no cuadra folio ni total · 16 hoja ilegible · 6 ambiguas · 1 sin folio ni total. Techo estimado con QR + RFC aprendido: **~80%**, a confirmar midiendo el QR.
+
+La liga se guarda en **`fiscal.cfdi_assignments`** (MAT.1, existe y está vacía): no se crea otra tabla.
+
+**Regla de fuentes (Francisco, 2026-10-06): el papel identifica, el CFDI informa.** Del papel del repartidor sólo se leen las **llaves** para encontrar la factura (QR, UUID, serie/folio, RFC, total). **Todo dato fiscalmente sensible se muestra y se valida desde el CFDI que sincroniza ContPAQi, nunca desde el OCR.** Medido en las 1,821 facturas `G01` de jul–oct 2026: ContPAQi trae al **100%** UUID, fecha de timbrado, RFC/nombre/régimen del emisor, RFC/régimen/uso del receptor, subtotal, descuento, total, moneda y tipo de cambio, método y forma de pago, lugar de expedición, retenciones e **impuestos desglosados por tasa** (IVA 0/16, IEPS 8…, con sus bases). Trae parcial los conceptos (17.4%) y **no trae el estatus de cancelación (0%)** → se declara «sin verificar».
+
+**Señales fiscales extra que el expediente puede marcar con ese dato** (facturas `G01` de 2026, 5,458):
+| Señal | Facturas | Efecto propuesto |
+|---|---|---|
+| Emisor en lista 69-B del SAT (EFOS) | 0 | Bloquea: no pasa sola nunca |
+| Emisor en lista 69 (créditos firmes / cancelados) | 89 (2 emisores, $196k) | Aviso, no bloquea |
+| **IEPS por cuota** | 22 | Aviso a contabilidad: se acredita, no se va al costo (hallazgo de la Fase LC) |
+| Moneda distinta de MXN | 3 | Revisar (tipo de cambio) |
+| Con retenciones | 1 | Revisar (no es normal en mercancía) |
+| Con descuento | 1,717 (31%) | Sólo informa; cuenta para el cuadre contra la entrada |
+
+#### Los valores esperados — medidos, no supuestos
+
+Prod en sólo lectura, 2026-10-06: facturas recibidas de 2026 y entradas Kepler de jul–sep 2026 (3,195 entradas, $158.5M).
+
+| Check | Esperado | Evidencia |
+|---|---|---|
+| F1 RFC receptor | `LOGL851014AQ5` | 11,227 de 11,227 facturas recibidas de 2026 |
+| F2 Régimen receptor | `612` | 100% en mercancía; los 63 `606` son gastos `G03` ($5.3M) |
+| F3 Uso CFDI | `G01` | 100% de las ligadas a una entrada; en proveedores de mercancía 2,813 `G01` contra 57 de otro uso |
+| F4 Régimen emisor | Coherente con el tipo de persona (RFC de 12 → `601`/`603`/`620`/`626`…; de 13 → `612`/`621`/`626`…) **y** ya usado antes por ese emisor (≥10% de su historia) | 206 de 209 emisores con un solo régimen; el que alterna (`612`/`621`) es legítimo |
+| F5 Método ↔ forma | PPD → `99`; PUE → nunca `99` (regla del SAT) | PPD sin `99`: **0**. PUE con `99`: **9 facturas, $1.9M** en 2026 |
+| F6 Método | El habitual del emisor (si ≥90% de su historia es uno); sin historia, PPD | 95% PPD; 152 emisores siempre PPD, 23 siempre PUE, 34 mixtos |
+| F7 Nombre emisor | Igual al de Kepler **o** al que ese RFC usa siempre en sus CFDI (el 4.0 no trae «SA DE CV») | Las fallas eran tecleo en Kepler: `LUCHETTI`/`LUCCHETTI`, `ALCARRUZZ`/`ALCARUZZ` |
+| F8 Estatus | No cancelada | ⚠️ las 13,142 que llegan de ContPAQi tienen `estatus_sat = desconocido` → se **declara** «sin verificar», no «vigente» |
+
+⛔ **Dos fuentes que NO sirven de esperado:**
+- **La condición de pago de Kepler:** 120 de 138 entradas «Pago de contado» llegaron con factura **PPD**.
+- **El plazo de RE.30:** 0 proveedores con plazo confirmado entre los ligados.
+
+⛔ **El RFC de Kepler no es identidad:** 1,366 entradas (43%) sin RFC y ~555 (17%) con error de captura (`BALO20930EL9` por `BAL020930EL9`, `NAL73213BKA`, `PTE120913`). El RFC correcto por proveedor **se aprende** de las ligas confirmadas; `catalog.suppliers` no tiene columna de RFC.
+
+#### La regla de auto-aprobación v1 (decisiones de Francisco, 2026-10-06)
+
+Una entrada con factura **pasa sola** si cumple **F1–F8**, **tiene OC**, **tiene fecha de recepción** y **cuadra**: la diferencia factura − entrada es **menor al 0.25% Y menor a $200**. Una remisión pasa con OC + fecha + cuadre.
+- **Sin OC no hay excepción.** No es omisión tolerable: cae al auxiliar y deja **trazabilidad de quién capturó sin OC**.
+- **Fuera de alcance:** las entradas cuyo proveedor es la propia empresa (146 en el trimestre, $2M).
+
+**Cobertura medida de la v1** (emparejamiento aproximado por importe, porque hoy no hay UUID):
+
+| Entradas con factura (1,823) | n | % |
+|---|---|---|
+| **Pasan solas** | **1,022** | **56.1%** (68.7% de las emparejadas) |
+| Caen por cuadre | 270 | 14.8% |
+| Caen por falta de OC | 195 | 10.7% |
+| No se emparejan 1 a 1 (una factura cubre varias entradas: Bolsas de los Altos, 123 entradas / 29 facturas) | 335 | 18.4% |
+| Caen por lo fiscal (F1–F8) | 1 | — |
+
+- **Las notas de crédito explican poco:** de 327 fuera de tolerancia, sólo **53** con explicación coherente (factura mayor + NC: 41 del SAT, 10 de Kepler; factura menor + devolución XD40: 2). Quedan ~233 diferencias de precio reales: **136 por arriba (+$419k)** y **97 por abajo (−$266k)**.
+- **Sin OC, concentrado:** 437 entradas (13.7%); un solo usuario de captura de Kepler (`USR-A`; el código real vive en la base, no se publica en el repo) captura **221 (~$10M)**: 60% de las suyas en el CEDIS y 80% en la `08`. ⚠️ Kepler registra quién **capturó**, no quién **pidió**.
+- **Meta de arranque: 60–70% automático** (con el UUID del PDF/XML resolviendo la factura que cubre varias entradas). El 90% no se busca abriendo la tolerancia ni la OC.
+- **Límites declarados:** sólo Kepler (Wincaja fuera), un trimestre, emparejamiento por importe, y las NC de Kepler sólo traen la sucursal `00`.
+
+#### Lo que se queda en manos del auxiliar enseña — sin dejar huecos (ADR-085)
+
+Pedido de Francisco: *«lo que se quede comience a estudiar al usuario para aplicar correctivos y scripts que usen interpretación en código para ajustar criterios que aporten a ir aumentando, sin dejar huecos por detrás»*. Es el patrón de ADR-021 (Horus.L) y Maat (L2), aplicado a la recepción: **el motor aprende con reglas tipadas y auditables; el LLM no decide.**
+
+| Item | Qué | Estado |
+|---|---|---|
+| RE.35 | **Motor v1 + veredicto único por entrada.** Función pura y versionada (patrón `receipt-match.ts`): cada entrada cae en **exactamente un** cubo — `auto` · `revisar(motivos[])` · `sin_cfdi_aun` (ContPAQi sincroniza diario; **no** es falla) · `fuera_de_alcance`. Tolerancia en `finance.receipt_settings`. Expediente con los checks en costo-por-compra (columnas Kepler · papel · CFDI) y la entrega a Finanzas generada desde ahí (RE.32 se reusa) | ⬜ |
+| RE.36 | **Subir el papel del repartidor liga solo con ContPAQi:** (1) QR del SAT → UUID exacto; (2) OCR ampliado a UUID/serie/folio, con corrección del UUID contra los existentes; (3) RFC (OCR o aprendido) + folio o total → sugerida que confirma una persona; (4) de la factura identificada se proponen las entradas que cubre. También acepta XML. Liga en `fiscal.cfdi_assignments` con `match_source` = `qr` · `uuid_ocr` · `folio_rfc` · `importe_fecha` · `manual`; sólo `qr` y `uuid_ocr` exacto entran sin confirmación. Hoy, con el OCR actual: 54.8% de 588; techo estimado ~80%. Primero: medir el QR en una muestra | ⬜ |
+| RE.37 | **Bitácora de decisiones humanas = el material de aprendizaje.** Cada decisión sobre una entrada `revisar` guarda la **foto de los checks** (valores, diferencia, proveedor, sucursal, usuario de captura), qué decidió (aceptar · devolver · corregir en Kepler) y un **motivo de lista cerrada** (p. ej. `precio_acordado`, `nc_pendiente`, `error_captura_kepler`, `factura_multiple`; `otro` exige texto). Sin motivo cerrado no hay patrón que aprender | ⬜ |
+| RE.38 | **Minero de patrones (nocturno, determinista).** Agrupa decisiones por (check que falló × proveedor × motivo × signo y tamaño de la diferencia × usuario). Un grupo con soporte suficiente y aceptación consistente **propone una regla tipada** (alias de nombre, régimen alterno, tolerancia de redondeo por proveedor, factura múltiple conocida) — parámetros, no código libre. El LLM sólo puede clasificar el texto de `otro` en un motivo y redactar la explicación | ⬜ |
+| RE.39 | **Banco de pruebas antes de activar.** La candidata se re-juega sobre **todo** el historial de decisiones: se exige **cero casos** donde el humano devolvió o corrigió y la regla habría aprobado; luego corre **en sombra** (registra lo que haría, no decide) y se compara contra el humano | ⬜ |
+| RE.40 | **Promoción con dos llaves y versión.** El sistema propone; el jefe de compras aprueba (quien propone no aprueba). Tabla de reglas versionada: estado `propuesta → sombra → activa → retirada`, evidencia del banco de pruebas, quién aprobó. **Toda auto-aprobación queda sellada con la regla y versión que la decidió** | ⬜ |
+| RE.41 | **Sin huecos por detrás.** (a) **Auditoría por muestreo:** un % al azar de lo auto-aprobado vuelve a un humano; si una se devuelve, la regla que la aprobó **se suspende sola** y abre hallazgo. (b) **Precisión por regla** (patrón Maat L2); si baja, regresa a sombra. (c) **Candado de cobertura diario:** `auto + revisar + sin_cfdi_aun + fuera_de_alcance = universo de Kepler`, con prueba negativa. (d) **Deriva:** RFC, régimen o nombre nuevos del proveedor → la regla aprendida no aplica, cae al humano. (e) **Lo que nunca se aprende:** F1, F3, F5, F8 y la **OC obligatoria** sólo cambian por decisión humana con ADR. (f) **Correctivos al origen:** tablero por usuario/sucursal de por qué se cae (sin OC, RFC mal tecleado, precio distinto) para corregir **la captura en Kepler**, no para aflojar la regla — hoy `USR-A` sería el primer caso | ⬜ |
+
+**El KPI:** % automático semanal **con su denominador declarado**, más la tasa de devolución en la muestra auditada. Si el % sube y la muestra se ensucia, no es progreso.
+
 ## 6. Schema nuevo (consolidado)
 - `analytics.erp_goods_receipts`: `+ source, fecha_vence, condicion_pago, dias_credito, poliza, total_factura, total_compra`. Sucursal real (RE.0).
 - `finance.goods_receipt_proofs`: `+ discrepancy_kind (CHECK), discrepancy_amount` ✅ mig `20260805160000` (RE.2 — persiste el veredicto del auto-explain). Pendiente aún: `role, credit_note_ref`.

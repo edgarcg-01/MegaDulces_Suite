@@ -2600,3 +2600,23 @@ Plan, capas y sprints en [`FASE_MS_MESA_DE_SERVICIO.md`](FASES/FASE_MS_MESA_DE_S
 **Hereda:** ADR-010 (`tenant_id` + RLS) · ADR-053 (el latido mide entrega) · ADR-054 (permiso = clave; declarar no es entregar) · ADR-056 (lo no medido se declara) · ADR-061 (el espacio se deriva del mapa de la suite) · ADR-081 (no hay tabla `tickets`; el patrón de reparto de permisos).
 
 Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FASE_RH_MIGRACION_MEGA_TALENTO.md).
+
+## ADR-085 — La factura de compra pasa sola si cuadra; lo que se queda en manos del auxiliar enseña al motor, nunca al revés
+
+**Fecha:** 2026-10-06 · **Estado:** ⏳ propuesto · **Fase:** RE (RE.35–RE.41, `/compras/costo-por-compra`)
+
+**Contexto.** El auxiliar de entradas valida a mano cada factura (RFC, nombre y régimen del emisor, RFC receptor, uso CFDI, forma y método de pago) y que la entrada cuadre con ella; con el expediente armado lo entrega a Finanzas. Medido en prod (sólo lectura, 2026-10-06): los siete datos fiscales ya existen en `fiscal.cfdis` y los checks fiscales pasan solos en el **99.3%** de las facturas ligadas; lo que frena la automatización es el **cuadre** factura-vs-entrada (diferencias de precio reales en las dos direcciones), la **falta de OC** (13.7%, concentrada en un usuario de captura) y que una factura cubra varias entradas. Kepler no guarda el UUID; su RFC falta en el 43% de las entradas y está mal en ~17%.
+
+**Decisión (Francisco, 2026-10-06).**
+1. **Regla v1:** pasa sola la entrada que cumple los checks fiscales, tiene OC y fecha de recepción, y cuadra con **diferencia < 0.25% y < $200**. Sin OC **no hay excepción**: cae al auxiliar y queda la traza de quién capturó. Meta de arranque: **60–70% automático**.
+2. **Lo que cae al humano es material de aprendizaje.** Cada decisión se registra con la foto de los checks y un motivo de lista cerrada; un minero nocturno **determinista** propone reglas **tipadas** (parámetros, no código libre); cada candidata pasa un banco de pruebas sobre todo el historial con **cero aprobaciones que el humano habría devuelto**, corre en sombra, y la activa una persona distinta de quien la propuso. Toda auto-aprobación queda sellada con su regla y versión.
+3. **Sin huecos:** auditoría por muestreo de lo automático con suspensión automática de la regla si una muestra se devuelve; precisión por regla; candado diario de que cada entrada cae en **exactamente un** cubo (`auto` · `revisar` · `sin_cfdi_aun` · `fuera_de_alcance`); deriva del proveedor → humano.
+4. **No se aprende:** receptor, uso CFDI, método↔forma, cancelación y OC obligatoria cambian sólo por decisión humana con ADR.
+5. **La liga entrada → CFDI sale del documento que ya se sube:** UUID por búsqueda de texto en el PDF (o del XML), guardada en `fiscal.cfdi_assignments` (MAT.1, ya existe y hoy está vacía) con `match_source = uuid_documento`. Kepler no guarda el UUID y ContPAQi asocia el CFDI a pólizas, no a entradas (medido). El emparejamiento por importe y fecha queda sólo como sugerencia.
+6. **Correctivos al origen:** el aprendizaje también señala **quién y dónde** se origina el error (sin OC, RFC mal tecleado), para corregir la captura en Kepler en vez de aflojar la regla.
+
+**Rechazado:** abrir la tolerancia o exentar la OC para llegar al 90% (convierte hallazgos de control en aprobaciones invisibles); fine-tunear o dejar que un LLM apruebe (ADR-016/021: el LLM sólo clasifica el texto libre y redacta); ligar por el RFC de Kepler (no es identidad); dar por «vigente» un CFDI cuyo estatus nadie verificó.
+
+**Hereda:** ADR-016 (el motor decide, el LLM fuera del dinero) · ADR-021 (aprendizaje determinista, colector antes que learner, pin humano) · ADR-040 (read-only sobre el ERP y ContPAQi) · ADR-056 (lo no medido se declara; un gate sin prueba negativa es una intención) · ADR-065 (preparar ≠ autorizar). Detalle y cifras en [`FASE_RE` §RE.35–RE.41](FASES/FASE_RE_RECEPCION_MERCANCIA.md).
+
+---

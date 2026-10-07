@@ -1096,6 +1096,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
       {
+        // [RE.35.3] Entradas sin orden de compra por quién las capturó en Kepler (sólo lectura).
+        path: 'entradas/control/sin-oc',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-sin-oc.component').then(m => m.ComprasEntradasSinOcComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      {
         // RE.16.3 — parámetros del proceso (arranque, tolerancia, los dos SLA, tope de lote).
         // VALIDAR y no VER: mover la fecha de arranque cambia el tablero de toda la red.
         path: 'entradas/control/ajustes',

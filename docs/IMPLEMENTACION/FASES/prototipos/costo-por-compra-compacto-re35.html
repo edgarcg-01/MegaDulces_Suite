@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Costo por compra compacto</title>
+<!-- [RE.35.4] Maqueta: barra de filtros compacta de /compras/costo-por-compra. Datos de EJEMPLO. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: comparación antes/después de alto → barra única (bandeja + periodo + sucursal + hallazgo + buscar + subir) → línea de estado → tabla (la bandeja de trabajo) */
+:root{
+  --bg:#FAFAF9; --surface:#FFFFFF; --sunken:#F5F5F4; --line:#E7E5E4; --line-strong:#D6D3D1;
+  --fg:#1C1917; --muted:#57534E; --faint:#A8A29E;
+  --action:#EA580C; --action-soft:#FFEDD5; --action-fg:#9A3412;
+  --ok:#15803D; --ok-soft:#DCFCE7; --no:#B91C1C; --no-soft:#FEE2E2; --warn:#A16207; --warn-soft:#FEF9C3; --info:#1D4ED8; --info-soft:#DBEAFE;
+  --f-ui:"Hanken Grotesk", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --f-mono:"Geist Mono", ui-monospace, Consolas, monospace;
+  --r-sm:4px; --r-md:6px; --r-lg:10px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111111; --surface:#18181B; --sunken:#1F1F23; --line:#2A2A2E; --line-strong:#3F3F46;
+  --fg:#F4F4F5; --muted:#A1A1AA; --faint:#71717A;
+  --action:#FB923C; --action-soft:#3B1D0B; --action-fg:#FDBA74;
+  --ok:#4ADE80; --ok-soft:#0F2A1A; --no:#F87171; --no-soft:#2E1212; --warn:#FACC15; --warn-soft:#2A2408; --info:#93C5FD; --info-soft:#13213D;
+  color-scheme: dark; } }
+:root[data-theme="dark"]{
+  --bg:#111111; --surface:#18181B; --sunken:#1F1F23; --line:#2A2A2E; --line-strong:#3F3F46;
+  --fg:#F4F4F5; --muted:#A1A1AA; --faint:#71717A;
+  --action:#FB923C; --action-soft:#3B1D0B; --action-fg:#FDBA74;
+  --ok:#4ADE80; --ok-soft:#0F2A1A; --no:#F87171; --no-soft:#2E1212; --warn:#FACC15; --warn-soft:#2A2408; --info:#93C5FD; --info-soft:#13213D;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px;line-height:1.45}
+.wrap{max-width:1400px;margin:0 auto;padding-inline:20px;padding-block:14px 40px;display:flex;flex-direction:column;gap:10px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+h1{font-size:1.3rem;margin:0;font-weight:700}
+h2{font-size:.95rem;margin:0;font-weight:700}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--action);outline-offset:2px}
+.note{font-size:.76rem;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-md);padding:8px 10px;color:var(--muted)}
+.ejemplo{font-size:.7rem;font-weight:700;color:var(--warn);background:var(--warn-soft);padding:2px 8px;border-radius:999px}
+
+/* Comparación de alto */
+.cmp{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.cmp .c{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.barv{height:12px;border-radius:999px;background:var(--sunken);overflow:hidden}
+.barv i{display:block;height:100%}
+.big{font-size:1.4rem;font-weight:700;font-family:var(--f-mono)}
+
+/* Pestañas */
+.ptabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto}
+.ptabs span{padding:7px 12px;font-size:.84rem;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+.ptabs span.on{color:var(--fg);border-bottom-color:var(--action)}
+
+/* Barra única */
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:8px 10px}
+.seg{display:inline-flex;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-md);padding:2px;gap:2px;flex-wrap:wrap}
+.seg button{all:unset;cursor:pointer;padding:4px 9px;border-radius:var(--r-sm);font-weight:600;font-size:.78rem;color:var(--muted);white-space:nowrap;display:inline-flex;gap:5px;align-items:center}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgb(0 0 0 / .08)}
+.n{font-family:var(--f-mono);font-size:.7rem;padding:0 5px;border-radius:999px;background:var(--line);color:var(--fg)}
+.n.warn{background:var(--warn-soft);color:var(--warn)} .n.ok{background:var(--ok-soft);color:var(--ok)} .n.info{background:var(--info-soft);color:var(--info)}
+.dd{position:relative}
+.ddb{all:unset;cursor:pointer;display:inline-flex;gap:6px;align-items:center;font-size:.8rem;padding:6px 10px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);white-space:nowrap}
+.ddb b{font-weight:600}
+.ddb .lbl{color:var(--faint);font-size:.7rem;text-transform:uppercase;letter-spacing:.04em}
+.ddb[aria-expanded="true"]{border-color:var(--action)}
+.pop{position:absolute;top:calc(100% + 4px);left:0;z-index:10;min-width:15rem;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-md);box-shadow:0 8px 24px rgb(0 0 0 / .14);padding:6px;display:flex;flex-direction:column;gap:2px}
+.pop .opt{all:unset;cursor:pointer;display:flex;justify-content:space-between;gap:10px;align-items:center;padding:6px 8px;border-radius:var(--r-sm);font-size:.82rem}
+.pop .opt:hover{background:var(--sunken)}
+.pop .opt[aria-checked="true"]{background:var(--action-soft);color:var(--action-fg);font-weight:600}
+.pop .sep{height:1px;background:var(--line);margin:4px 0}
+.pop .hd{font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);padding:4px 8px 2px}
+.pop .sub{font-size:.7rem;color:var(--faint);font-weight:400}
+.rango{display:grid;grid-template-columns:auto 1fr;gap:6px 8px;align-items:center;padding:4px 8px 6px;font-size:.78rem}
+.rango input{font:inherit;font-size:.78rem;padding:4px 6px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--surface);color:var(--fg);min-width:0}
+.cbx{display:flex;gap:8px;align-items:center;padding:5px 8px;border-radius:var(--r-sm);font-size:.82rem;cursor:pointer}
+.cbx:hover{background:var(--sunken)} .cbx input{accent-color:var(--action)}
+.search{flex:1 1 14rem;min-width:10rem;font:inherit;font-size:.8rem;padding:6px 10px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--fg)}
+.primary{all:unset;cursor:pointer;background:var(--action);color:#fff;font-weight:600;font-size:.8rem;padding:7px 12px;border-radius:var(--r-md);white-space:nowrap}
+/* Zona para soltar: buscar + botón grande. Arrastrar en cualquier parte de ella lee el papel con IA. */
+.drop{flex:1 1 30rem;display:flex;gap:10px;align-items:stretch;border:2px dashed transparent;border-radius:var(--r-lg);padding:4px;transition:border-color .12s,background .12s;min-width:0}
+.drop.over{border-color:var(--action);background:var(--action-soft)}
+.drop .search{flex:1 1 auto;align-self:center}
+.upload{all:unset;cursor:pointer;background:var(--action);color:#fff;border-radius:var(--r-lg);padding:12px 22px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:2px;min-height:58px;box-shadow:0 2px 6px rgb(234 88 12 / .25)}
+.upload b{font-size:1.05rem;font-weight:700;white-space:nowrap}
+.upload span{font-size:.72rem;opacity:.9;white-space:nowrap}
+.drop-hint{display:none;align-self:center;font-weight:700;color:var(--action-fg);font-size:.9rem}
+.drop.over .drop-hint{display:block}
+.drop.over .search{display:none}
+.lectura{background:var(--surface);border:1px solid var(--line-strong);border-left:4px solid var(--action);border-radius:var(--r-lg);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.lectura .row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+.lectura .files{font-size:.74rem;color:var(--muted)}
+.lectura dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0}
+.lectura dl div{background:var(--sunken);border-radius:var(--r-sm);padding:5px 8px;min-width:0}
+.lectura dt{font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;color:var(--faint)}
+.lectura dd{margin:0;font-family:var(--f-mono);font-size:.84rem;overflow-wrap:anywhere}
+.lectura .btns{display:flex;gap:6px;flex-wrap:wrap}
+.btn2{all:unset;cursor:pointer;font-size:.8rem;font-weight:600;padding:6px 11px;border-radius:var(--r-md);border:1px solid var(--line-strong);background:var(--surface)}
+.btn2.pri{background:var(--action);border-color:var(--action);color:#fff}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--line-strong);border-top-color:var(--action);border-radius:50%;animation:g 0.8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes g{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){ .spin{animation:none} }
+@media (max-width:700px){ .lectura dl{grid-template-columns:repeat(2,minmax(0,1fr))} }
+.status{display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:.76rem;color:var(--muted);padding:0 4px}
+.status b{color:var(--fg);font-family:var(--f-mono)}
+.pill{border:1px solid var(--line);border-radius:999px;padding:2px 9px;background:var(--surface)}
+.pill.ok::before{content:"● ";color:var(--ok)}
+
+/* Tabla */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg)}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.8rem}
+th{font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);background:var(--sunken);white-space:nowrap}
+td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+.ta-r{text-align:right}
+.tag{font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap}
+.t-ok{background:var(--ok-soft);color:var(--ok)} .t-warn{background:var(--warn-soft);color:var(--warn)} .t-no{background:var(--no-soft);color:var(--no)} .t-info{background:var(--info-soft);color:var(--info)} .t-plain{background:var(--sunken);color:var(--muted);border:1px solid var(--line)}
+.sub2{font-size:.7rem;color:var(--muted)}
+.where{font-size:.74rem}
+.where td{padding:5px 8px}
+.where td:first-child{color:var(--muted);white-space:nowrap}
+@media (max-width:900px){ .cmp{grid-template-columns:minmax(0,1fr)} }
+@media (max-width:520px){ .wrap{padding-inline:16px} }
+</style>
+</head><body>
+
+<div class="wrap">
+  <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+    <h1>Costo por compra</h1>
+    <span class="ejemplo">Maqueta · datos de ejemplo</span>
+  </div>
+
+  <div class="cmp">
+    <div class="c">
+      <h2>Hoy</h2>
+      <div class="barv"><i style="width:100%;background:var(--no)"></i></div>
+      <span class="muted">Filtros en 2 renglones + indicadores + frescura antes de la primera fila: <b class="mono">≈330 px</b></span>
+    </div>
+    <div class="c">
+      <h2>Propuesta</h2>
+      <div class="barv"><i style="width:35%;background:var(--ok)"></i></div>
+      <span class="muted">Una barra (con el botón grande) + una línea de estado: <b class="mono">≈115 px</b>. La tabla gana ~5 filas a la vista.</span>
+    </div>
+  </div>
+
+  <nav class="ptabs" aria-label="Control de entradas">
+    <span>Cobertura por sucursal</span><span class="on">Listado</span><span>Capturas duplicadas</span><span>Sin orden de compra</span><span>Parámetros</span>
+  </nav>
+
+  <!-- ===== Barra única ===== -->
+  <div class="bar" role="toolbar" aria-label="Filtros">
+    <div class="seg" role="group" aria-label="Bandeja" id="bandeja"></div>
+
+    <div class="dd">
+      <button class="ddb" id="b-per" aria-expanded="false"><span class="lbl">Periodo</span><b id="per-txt">Últimos 7 días</b> ▾</button>
+      <div class="pop" id="p-per" hidden>
+        <div class="hd">Rápido</div>
+        <button class="opt" data-per="Hoy">Hoy</button>
+        <button class="opt" data-per="Últimos 7 días" aria-checked="true">Últimos 7 días</button>
+        <button class="opt" data-per="Este mes">Este mes</button>
+        <button class="opt" data-per="Mes pasado">Mes pasado</button>
+        <div class="sep"></div>
+        <div class="hd">Rango</div>
+        <div class="rango"><label for="r1">Desde</label><input id="r1" type="date" value="2026-09-30"><label for="r2">Hasta</label><input id="r2" type="date" value="2026-10-06"></div>
+        <button class="opt" id="aplica-rango">Aplicar rango <span class="sub">2026-09-30 → 2026-10-06</span></button>
+        <div class="sep"></div>
+        <button class="opt" data-per="Rezago (antes del arranque)">Ver rezago <span class="sub">antes del 1-ago</span></button>
+      </div>
+    </div>
+
+    <div class="dd">
+      <button class="ddb" id="b-suc" aria-expanded="false"><span class="lbl">Sucursal</span><b id="suc-txt">Todas (9)</b> ▾</button>
+      <div class="pop" id="p-suc" hidden>
+        <label class="cbx"><input type="checkbox" id="suc-all" checked> <b>Todas</b></label>
+        <div class="sep"></div>
+        <div id="suc-list"></div>
+      </div>
+    </div>
+
+    <div class="dd">
+      <button class="ddb" id="b-hal" aria-expanded="false"><span class="lbl">Hallazgo</span><b id="hal-txt">Cualquiera</b> ▾</button>
+      <div class="pop" id="p-hal" hidden style="min-width:20rem"></div>
+    </div>
+
+    <div class="drop" id="drop" aria-label="Buscar o soltar la factura">
+      <input class="search" type="search" placeholder="Últimos 4 del folio, proveedor, RFC u OC…  ·  o arrastra aquí la factura" aria-label="Buscar">
+      <span class="drop-hint">Suelta aquí la factura · PDF o fotos</span>
+      <button class="upload" id="upload" type="button"><b>＋ Subir factura</b><span>o arrástrala aquí · PDF o fotos</span></button>
+      <input type="file" id="file" accept="application/pdf,image/*" multiple hidden>
+    </div>
+  </div>
+  <section class="lectura" id="lectura" hidden aria-live="polite"></section>
+
+  <div class="status">
+    <span>Mostrando <b id="st-n">7</b> de <b>215</b> entradas</span>
+    <span>Por comprobar <b>$2,885,727</b></span>
+    <span class="pill ok" title="00 hoy · 01 hoy · 02 hoy · 03 hoy · 04 ayer · 05 hoy · 06 hoy · 07 ayer · 08 hoy · CFDI ContPAQi hoy 03:10">Datos al día · 9 sucursales y CFDI</span>
+  </div>
+
+  <div class="card">
+    <div class="tw">
+      <table>
+        <thead><tr><th>Fecha</th><th>Entrada</th><th>Proveedor</th><th>OC</th><th class="ta-r">Factura</th><th class="ta-r">Ajuste</th><th class="ta-r">Neto</th><th>Expediente</th><th>Hallazgo</th></tr></thead>
+        <tbody id="tb"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2 style="margin-top:8px">Dónde quedó cada filtro de hoy</h2>
+  <div class="card"><div class="tw"><table class="where"><tbody>
+    <tr><td>Ver (El proceso / El dinero)</td><td><b>Se quita.</b> Las dos vistas muestran la misma fila; «El dinero» es la completa (agrega Ajuste, Neto y el total al pie). Lo único propio de «El proceso» eran los conteos «con remisión» y «validadas», que ahora salen en la Bandeja.</td></tr>
+    <tr><td>Estado + Cuadre</td><td><b>Se funden en «Bandeja».</b> Estado decía en qué va el trámite y Cuadre si los números del papel concuerdan; el expediente ya juzga las dos cosas (contra el CFDI, más confiable que el OCR). La Bandeja trae el conteo en cada opción.</td></tr>
+    <tr><td>Periodo + Desde + Hasta</td><td><b>Un solo control.</b> Opciones rápidas, un renglón «Rango» con las dos fechas, y «Ver rezago» adentro (ya no es botón aparte).</td></tr>
+    <tr><td>Plaza / Sucursal</td><td><b>«Sucursal» con selección múltiple</b>, «Todas» marcada y las 9 enumeradas. «De otra plaza» deja de ser filtro y queda como etiqueta en la fila.</td></tr>
+    <tr><td>Ajuste + Orden de compra</td><td><b>Se vuelven «Hallazgo»</b>: el catalogador de qué hacer y con quién (cobrar nota de crédito, factura mal emitida, entrega incompleta, sin OC, ajuste comercial).</td></tr>
+    <tr><td>Subir factura</td><td><b>El doble de grande, y la búsqueda + el botón son una zona para soltar.</b> Arrastrar ahí un PDF o fotos dispara la lectura con IA y propone la entrada. Las fotos se juntan en <b>un solo PDF</b> antes de subirse: así se respeta la regla de que el expediente sea un archivo con todas sus hojas.</td></tr>
+    <tr><td>Indicadores + Datos al día</td><td><b>Una línea de estado.</b> Los conteos ya están en la Bandeja; la frescura es una píldora que sólo se abre si alguna sucursal se atrasa.</td></tr>
+  </tbody></table></div></div>
+
+  <p class="note">«Hallazgo» separa precio de cantidad sólo donde hay evidencia: una devolución de Kepler (XD40) marca entrega incompleta; una factura mayor sin devolución ni nota se trata como «cobrar nota de crédito». El detalle por producto del CFDI sólo viene en 17% de las facturas, así que no se puede separar siempre.</p>
+</div>
+
+<script>
+const SUC = [['00','CEDIS'],['01','Padre Hidalgo'],['02','La Piedad Abastos'],['03','8 Esquinas'],['04','Yurécuaro'],['05','Zamora Centro'],['06','Canindo'],['07','Morelia Madero'],['08','Morelia Abastos']];
+const BANDEJA = [['revisar','Por revisar',62,'warn'],['auto','Pasan solas',78,'ok'],['espera','Sin CFDI aún',6,'info'],['sinpapel','Sin papel',58,''],['validada','Validadas',9,''],['descartada','Descartadas',2,''],['todas','Todas',215,'']];
+const HALLAZGO = [
+  ['', 'Cualquiera', null, 'todo lo filtrado'],
+  ['cobrar_nc', 'Cobrar nota de crédito', 18, 'factura mayor que lo recibido, sin nota ni devolución'],
+  ['mal_emitida', 'Factura mal emitida', 4, 'uso, método/forma, régimen o RFC: pedir que refacture'],
+  ['incompleta', 'Entrega incompleta', 7, 'devolución en Kepler (faltante, mal estado, no solicitado)'],
+  ['sin_oc', 'Sin orden de compra', 21, 'corregir la captura en Kepler'],
+  ['nc_aplicada', 'Nota de crédito ya aplicada', 5, 'la diferencia la explica una nota del SAT'],
+  ['comercial', 'Ajuste comercial', 11, 'descuento, pronto pago o apoyo de marca: sólo informa'],
+];
+const ROWS = [
+  ['05/10','00/9812','DISTRIBUIDORA DE LA ROSA','0000921',97571.97,0,'revisar','cobrar_nc','Factura $1,250 mayor'],
+  ['05/10','01/0631','HERSHEY MEXICO','0000302',84320.50,0,'auto','',''],
+  ['04/10','00/9808','COMERCIALIZADORA GONAC',null,41250,0,'revisar','sin_oc','Capturó USR-B'],
+  ['04/10','03/0291','DULCES LAS DELICIAS','0000135',18936.37,279.15,'revisar','incompleta','Devolución: faltante'],
+  ['03/10','06/0158','TRESMONTES LUCCHETTI','0000104',199814.67,2140.5,'auto','comercial','Apoyo de marca'],
+  ['03/10','04/0081','ALCARUZZ','0000060',42836.21,0,'revisar','mal_emitida','PUE con forma 99'],
+  ['02/10','00/9797','PROCESADORA DE ALIMENTOS CALE','0000915',135772.88,0,'auto','nc_aplicada','NC $738.26'],
+];
+const state = { bandeja: 'revisar', suc: new Set(SUC.map(s => s[0])), hal: '' };
+const fmt = (n) => n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+
+function renderBandeja() {
+  document.getElementById('bandeja').innerHTML = BANDEJA.map(([k, t, n, tone]) =>
+    `<button aria-pressed="${state.bandeja === k}" data-b="${k}">${t} <span class="n ${tone}">${n}</span></button>`).join('');
+  document.querySelectorAll('[data-b]').forEach(b => b.onclick = () => { state.bandeja = b.dataset.b; renderAll(); });
+}
+function renderSuc() {
+  document.getElementById('suc-list').innerHTML = SUC.map(([c, n]) => `<label class="cbx"><input type="checkbox" data-s="${c}" ${state.suc.has(c) ? 'checked' : ''}> <span class="mono">${c}</span> ${n}</label>`).join('');
+  document.querySelectorAll('[data-s]').forEach(i => i.onchange = () => { i.checked ? state.suc.add(i.dataset.s) : state.suc.delete(i.dataset.s); syncSuc(); });
+  syncSuc();
+}
+function syncSuc() {
+  const n = state.suc.size; document.getElementById('suc-all').checked = n === SUC.length;
+  document.getElementById('suc-txt').textContent = n === SUC.length ? 'Todas (9)' : n === 0 ? 'Ninguna' : n === 1 ? SUC.find(s => state.suc.has(s[0])).join(' ') : `${n} sucursales`;
+  renderRows();
+}
+document.getElementById('suc-all').onchange = (e) => { state.suc = e.target.checked ? new Set(SUC.map(s => s[0])) : new Set(); renderSuc(); };
+function renderHal() {
+  document.getElementById('p-hal').innerHTML = '<div class="hd">Qué hacer y con quién</div>' + HALLAZGO.map(([k, t, n, d]) =>
+    `<button class="opt" data-h="${k}" aria-checked="${state.hal === k}"><span>${t}<br><span class="sub">${d}</span></span>${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('');
+  document.querySelectorAll('[data-h]').forEach(b => b.onclick = () => { state.hal = b.dataset.h; document.getElementById('hal-txt').textContent = HALLAZGO.find(h => h[0] === state.hal)[1]; close(); renderAll(); });
+}
+function renderRows() {
+  const rows = ROWS.filter(r => (state.bandeja === 'todas' || r[6] === state.bandeja) && state.suc.has(r[1].slice(0, 2)) && (!state.hal || r[7] === state.hal));
+  document.getElementById('st-n').textContent = rows.length;
+  const tagH = (k) => { const h = HALLAZGO.find(x => x[0] === k); if (!h || !k) return '<span class="faint">—</span>'; const tone = { cobrar_nc: 't-no', mal_emitida: 't-no', incompleta: 't-warn', sin_oc: 't-warn', nc_aplicada: 't-ok', comercial: 't-plain' }[k]; return `<span class="tag ${tone}">${h[1]}</span>`; };
+  document.getElementById('tb').innerHTML = rows.length ? rows.map(r => `<tr>
+    <td class="mono">${r[0]}</td><td class="mono">${r[1]}</td><td>${r[2]}</td><td class="mono muted">${r[3] ?? '—'}</td>
+    <td class="ta-r mono">${fmt(r[4])}</td><td class="ta-r mono">${r[5] ? '−' + fmt(r[5]) : '<span class="faint">—</span>'}</td><td class="ta-r mono"><b>${fmt(r[4] - r[5])}</b></td>
+    <td><span class="tag ${r[6] === 'auto' ? 't-ok' : 't-warn'}">${r[6] === 'auto' ? '● Pasa sola' : '▲ Revisar'}</span></td>
+    <td>${tagH(r[7])}${r[8] ? `<div class="sub2">${r[8]}</div>` : ''}</td></tr>`).join('')
+    : '<tr><td colspan="9" class="muted" style="text-align:center;padding:16px">El ejemplo no trae filas con este filtro.</td></tr>';
+}
+function close() { document.querySelectorAll('.pop').forEach(p => p.hidden = true); document.querySelectorAll('.ddb').forEach(b => b.setAttribute('aria-expanded', 'false')); }
+for (const [b, p] of [['b-per', 'p-per'], ['b-suc', 'p-suc'], ['b-hal', 'p-hal']]) {
+  document.getElementById(b).onclick = (e) => { e.stopPropagation(); const pop = document.getElementById(p); const open = pop.hidden; close(); pop.hidden = !open; document.getElementById(b).setAttribute('aria-expanded', String(open)); };
+  document.getElementById(p).onclick = (e) => e.stopPropagation();
+}
+document.addEventListener('click', close);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+document.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { document.querySelectorAll('[data-per]').forEach(x => x.setAttribute('aria-checked', 'false')); b.setAttribute('aria-checked', 'true'); document.getElementById('per-txt').textContent = b.dataset.per; close(); });
+document.getElementById('aplica-rango').onclick = () => { document.getElementById('per-txt').textContent = `${document.getElementById('r1').value} → ${document.getElementById('r2').value}`; close(); };
+// ── Soltar o elegir archivos: las fotos se juntan en UN PDF (regla de Edgar: un archivo, todas las hojas)
+const drop = document.getElementById('drop');
+['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); if (ev === 'dragleave' && drop.contains(e.relatedTarget)) return; drop.classList.remove('over'); }));
+drop.addEventListener('drop', (e) => leer([...e.dataTransfer.files]));
+document.getElementById('upload').onclick = () => document.getElementById('file').click();
+document.getElementById('file').onchange = (e) => leer([...e.target.files]);
+function leer(files) {
+  const ok = files.filter((f) => f.type === 'application/pdf' || f.type.startsWith('image/'));
+  const L = document.getElementById('lectura');
+  L.hidden = false;
+  if (!ok.length) { L.innerHTML = '<b>Ese archivo no se puede leer.</b> <span class="muted">Sube un PDF o fotos (JPG, PNG, HEIC…).</span>'; return; }
+  const fotos = ok.filter((f) => f.type.startsWith('image/')).length;
+  const nota = fotos ? `${fotos} foto${fotos > 1 ? 's' : ''} → se juntan en un PDF de ${fotos} página${fotos > 1 ? 's' : ''} antes de subir` : 'PDF';
+  L.innerHTML = `<div class="row"><span><span class="spin" aria-hidden="true"></span><b>Leyendo con IA…</b></span><span class="files">${ok.map((f) => f.name).join(' · ')} · ${nota}</span></div>`;
+  setTimeout(() => {
+    L.innerHTML = `
+      <div class="row"><b>Es la factura A-5521 de AZTECA CONFITERIA · CFDI del SAT encontrado</b><span class="files">${nota}</span></div>
+      <dl>
+        <div><dt>UUID (del QR)</dt><dd>6F2C1A9E-…-7E21B44C09A1</dd></div>
+        <div><dt>RFC emisor</dt><dd>ACO101112411</dd></div>
+        <div><dt>Total</dt><dd>$48,210.50</dd></div>
+        <div><dt>Fecha</dt><dd>2026-10-04</dd></div>
+      </dl>
+      <div class="row"><span>Entrada que cubre: <b class="mono">01/0397</b> · AZTECA CONFITERIA · $48,210.50 · <span class="tag t-ok">● Pasa sola</span></span>
+        <span class="btns"><button class="btn2 pri" type="button">Adjuntar a 01/0397</button><button class="btn2" type="button">Elegir otra entrada</button></span></div>
+      <span class="files">Ejemplo de lo que devolvería la lectura. Del papel sólo se toman las llaves; los datos fiscales salen del CFDI.</span>`;
+  }, 1300);
+}
+
+function renderAll() { renderBandeja(); renderHal(); renderRows(); }
+renderSuc(); renderAll();
+</script>
+</body></html>

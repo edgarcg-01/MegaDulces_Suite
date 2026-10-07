@@ -5,9 +5,11 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 // `[RE.25]` El cuadre del documento. Puro y medido — ver el encabezado de `receipt-match.ts`.
 // `CUADRE_SQL` vive allá y no acá a propósito: es la MISMA regla que `evaluarCuadre()`, y
 // tenerlas pegadas es lo que hace visible cambiar una sin la otra.
+import { GoodsReceiptExpedienteService } from './goods-receipt-expediente.service';
+import type { ExpedienteConteos, ExpedienteResumenFila } from '@megadulces/contracts';
 import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
-  HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL,
+  HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL, COMERCIAL_CATS,
 } from './receipt-match';
 
 /**
@@ -218,6 +220,10 @@ export interface ListReceiptsQuery {
    *   `sin_evidencia` → todavía no hay remisión adjunta.
    */
   cuadre?: 'cuadra' | 'revisar' | 'sin_datos' | 'sin_evidencia' | string;
+  /** `[RE.35.5]` La Bandeja: el veredicto del expediente (sólo las que tienen documento). */
+  bandeja?: 'auto' | 'revisar' | 'sin_cfdi_aun';
+  /** `[RE.35.5]` El Hallazgo: qué hacer y con quién. */
+  hallazgo?: 'cobrar_nc' | 'mal_emitida' | 'incompleta' | 'sin_oc' | 'nc_aplicada' | 'comercial';
   /** `rezago` = lo anterior a `reception_start` · `al_dia` (default) = de la fecha de arranque en adelante. */
   carril?: 'al_dia' | 'rezago' | 'todo';
   /**
@@ -275,7 +281,7 @@ export interface ListReceiptsQuery {
  * leyendo la MISMA tabla de `analytics.*`, y acoplar `finance` → `commercial` por una lista de
  * tres strings es peor que repetirla. Si crece, sube a `platform-core`.
  */
-const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
+// `[RE.35.5]` La lista vive en receipt-match.ts (la comparte el expediente).
 
 export interface AttachReceiptDto {
   sucursal?: string;
@@ -340,6 +346,8 @@ export class GoodsReceiptProofsService {
     private readonly ocr: LlmExtractorService,
     private readonly readings: OcrReadingsService,
     private readonly scope: ScopeService,
+    // `[RE.35.5]` El veredicto del expediente por lote: la Bandeja y el Hallazgo del listado.
+    private readonly expediente: GoodsReceiptExpedienteService,
   ) {}
 
   // ─────────────────── RE.13.0 — parámetros del proceso ───────────────────
@@ -645,6 +653,40 @@ export class GoodsReceiptProofsService {
         .groupBy('sucursal', 'folio')
         .as('d');
 
+      /**
+       * `[RE.35.5]` El veredicto del expediente, por lote, sobre el UNIVERSO del listado (alcance +
+       * carril + periodo, sólo los documentos ESPERANDO DECISIÓN —subidos, ni validados ni devueltos— y
+       * no descartados: es la bandeja de trabajo, así los conteos coinciden con las filas). Da los conteos de la
+       * Bandeja y del Hallazgo, y si se pidió una de las dos, las llaves que pasan el filtro — se
+       * aplican ANTES de paginar, o la página 2 contaría otra cosa que la 1.
+       */
+      let resumen: { filas: Map<string, ExpedienteResumenFila>; conteos: ExpedienteConteos } | null = null;
+      let filtroLlaves: string[][] | null = null;
+      if (dinero) {
+        const u = trx('analytics.erp_goods_receipts as c')
+          .join(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
+          .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL')
+          .whereRaw(`d.last_status = 'recibido'`);
+        if (alcance) { if (alcance.length) u.whereIn('c.sucursal', alcance); else u.whereRaw('false'); }
+        if (q.carril === 'rezago') u.where('c.receipt_date', '<', cfg.reception_start);
+        else if (q.carril !== 'todo') u.where('c.receipt_date', '>=', cfg.reception_start);
+        if (q.from) u.where('c.receipt_date', '>=', q.from);
+        if (q.to) u.where('c.receipt_date', '<=', q.to);
+        if (hayDesc) {
+          u.whereNotExists(trx('finance.goods_receipt_discards as x').whereRaw('x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio'));
+        }
+        const llaves = (await u.select('c.sucursal', 'c.folio')) as { sucursal: string; folio: string }[];
+        resumen = await this.expediente.resumenLote(trx, tenantId, llaves);
+        if (q.bandeja || q.hallazgo) {
+          filtroLlaves = [];
+          for (const [k, v] of resumen.filas) {
+            if (q.bandeja && v.cubo !== q.bandeja) continue;
+            if (q.hallazgo && !v.hallazgos.includes(q.hallazgo)) continue;
+            const i = k.indexOf('/'); filtroLlaves.push([k.slice(0, i), k.slice(i + 1)]);
+          }
+        }
+      }
+
       /** Todos los filtros, sin select ni orden: lo comparten las filas, el total y los KPIs. */
       const base = () => {
         const b = trx('analytics.erp_goods_receipts as c')
@@ -670,6 +712,8 @@ export class GoodsReceiptProofsService {
         }
         // Alcance: `null` = sin filtro (alcance `all`) · `[]` = no ve ninguna (fail-closed).
         if (alcance) { if (alcance.length) b.whereIn('c.sucursal', alcance); else b.whereRaw('false'); }
+        // `[RE.35.5]` Bandeja / Hallazgo: las llaves que pasaron el veredicto (ver arriba).
+        if (filtroLlaves) { if (filtroLlaves.length) b.whereIn(['c.sucursal', 'c.folio'], filtroLlaves); else b.whereRaw('false'); }
         // `[DM.19]` — de qué plaza es la compra. Entra al `base()` y no sólo al select porque
         // la pregunta con la que se abre esta vista es "mostrame lo que NO es mío".
         if (q.plaza === 'otra') b.whereRaw(PLAZA_AJENA);
@@ -846,6 +890,11 @@ export class GoodsReceiptProofsService {
         discrepancy_amount: r.discrepancy_amount == null ? null : Number(r.discrepancy_amount),
         dias: Number(r.dias),
         dias_espera: r.dias_espera == null ? null : Number(r.dias_espera),
+        // `[RE.35.5]` El veredicto de la fila (el mismo cálculo que el panel lateral).
+        // Sólo los que esperan decisión tienen veredicto; validados y devueltos ya se decidieron.
+        expediente: r.deposits > 0
+          ? (resumen?.filas.get(`${r.sucursal}/${r.folio}`) ?? null)
+          : { cubo: 'sin_documento', hallazgos: [], motivo: null },
         // Un solo lugar decide "atrasada": el reloj que aplica según tenga o no evidencia.
         atrasada: r.deposits > 0
           ? (r.dias_espera != null && Number(r.dias_espera) > cfg.sla_review_days)
@@ -952,6 +1001,12 @@ export class GoodsReceiptProofsService {
           ajuste_comercial: Number(totales.ajuste_comercial), ajuste_operativo: Number(totales.ajuste_operativo),
         } : null,
         total: Number(total), page, pageSize,
+        // `[RE.35.5]` Conteos de la Bandeja y del Hallazgo. Las que no tienen documento se cuentan
+        // desde los KPIs (no pasan por el motor: no hay papel que juzgar).
+        expediente: resumen ? {
+          ...resumen.conteos,
+          por_cubo: { ...resumen.conteos.por_cubo, sin_documento: Math.max(0, Number(k.entradas) - Number(k.con_comprobante)) },
+        } : null,
         frescura: await this.frescuraPorFuente(trx, tenantId),
         rows,
       };
