@@ -24,6 +24,7 @@ import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ComprasEntradaExpedienteComponent } from './compras-entrada-expediente.component';
+import { ComprasCapturaLoteComponent } from './compras-captura-lote.component';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { prepararArchivos } from '../imagenes-a-pdf';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
@@ -89,7 +90,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
   standalone: true,
   imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, SelectModule,
     DatePickerModule,
-    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent, ComprasEntradaExpedienteComponent, MultiSelectModule,
+    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent, ComprasEntradaExpedienteComponent, ComprasCapturaLoteComponent, MultiSelectModule,
     LoadStateComponent, EntityInspectorComponent, PageTabsComponent, SidePeekComponent, DocViewerComponent,
     FreshnessPillComponent, ContextHelpComponent, TableDensityComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -173,6 +174,14 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
               <span class="p-button-icon pi pi-plus" aria-hidden="true"></span>
               <span class="cb-upload-txt"><b>Subir factura</b><small>o arrástrala aquí · PDF o fotos</small></span>
             </button>
+            <!-- [RE.35.7] Varias recepciones a la vez (como pagos a proveedores). Soltar 2 o más archivos aquí abre lo mismo. -->
+            @if (canManage()) {
+              <button pButton type="button" severity="secondary" outlined class="cb-upload-varias" (click)="abrirCapturaLote()"
+                      title="Varias facturas recibidas a la vez (PDF o fotos, una recepción por archivo): la IA identifica cada una y tú confirmas">
+                <span class="p-button-icon pi pi-copy" aria-hidden="true"></span>
+                <span class="cb-upload-txt"><b>Varias</b><small>una por archivo</small></span>
+              </button>
+            }
           </div>
           @if (draggingBarra()) { <span class="cb-dropzone-hint">Suelta aquí la factura · PDF o fotos</span> }
         </div>
@@ -790,6 +799,12 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
       Un toast que dice "12 de 15" no sirve para saber cuáles tres se quedaron ni por qué —y el
       server omite por motivos distintos: descuadre, la subiste vos, otro ya decidió.
     -->
+    <!-- [RE.35.7] Captura por lote: el papel con su sello y firma se archiva; la IA identifica su entrada. -->
+    <p-dialog [visible]="showCapturaLote()" (visibleChange)="onCapturaLoteVisible($event)" [modal]="true" [draggable]="false"
+              [style]="{ width: '72rem', maxWidth: '96vw' }" header="Archivar varias facturas recibidas">
+      <app-compras-captura-lote [entrantes]="archivosLote()" (guardados)="load()" />
+    </p-dialog>
+
     <p-dialog [visible]="showLote()" (visibleChange)="onLoteVisible($event)" [modal]="true"
               [draggable]="false" [style]="{ width: '34rem', maxWidth: '96vw' }"
               [header]="loteResultado().length ? 'Resultado del lote' : 'Aprobar las que cuadran'">
@@ -1476,6 +1491,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-dropzone-row input { flex: 1 1 auto; min-width: 10rem; }
     .cb-upload-big { min-height: 3.4rem; padding-inline: 1.1rem; gap: .5rem; white-space: nowrap; }
     .cb-upload-big .pi { font-size: 1.1rem; }
+    /* [RE.35.7] Varias recepciones a la vez: mismo alto que Subir factura, menos peso visual. */
+    .cb-upload-varias { min-height: 3.4rem; padding-inline: .9rem; gap: .5rem; white-space: nowrap; }
     .cb-upload-txt { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; }
     .cb-upload-txt b { font-size: 1rem; }
     .cb-upload-txt small { font-size: var(--fs-micro); opacity: .9; font-weight: 500; }
@@ -2468,9 +2485,25 @@ export class ComprasEntradasComponent {
     this.draggingBarra.set(false);
     const files = ev.dataTransfer?.files ? Array.from(ev.dataTransfer.files) : [];
     if (!files.length) return;
+    // [RE.35.7] Dos o más archivos = varias recepciones: van a la captura por lote. Para juntar
+    // varias fotos de UNA misma factura está el botón «Subir factura».
+    if (files.length > 1 && this.canManage()) { this.abrirCapturaLote(files); return; }
     this.openAttachPhotoFirst();
     this.desdeBarra = true;
     await this.agregarArchivos(files);
+  }
+
+  // ── [RE.35.7] Captura por lote ──
+  readonly showCapturaLote = signal(false);
+  /** Lo soltado en la barra; cada arreglo nuevo lo agrega la captura una vez. */
+  readonly archivosLote = signal<File[] | null>(null);
+  abrirCapturaLote(files: File[] | null = null): void {
+    this.archivosLote.set(files);
+    this.showCapturaLote.set(true);
+  }
+  onCapturaLoteVisible(v: boolean): void {
+    this.showCapturaLote.set(v);
+    if (!v) this.archivosLote.set(null);
   }
 
   /** PDF tal cual; si hay fotos, se juntan en UN PDF (regla: un expediente, un archivo). */

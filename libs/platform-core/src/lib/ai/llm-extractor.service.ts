@@ -78,6 +78,20 @@ export interface RemisionFields {
   documents_present: DocPresence[];
   // RE.11.0 — renglones extraídos del documento fiscal principal (para conciliación por línea).
   lines: RemisionLine[];
+  /**
+   * `[RE.35.7]` Folio fiscal (UUID del timbre) impreso en la factura. Es la llave que liga el papel
+   * con su CFDI de ContPAQi. Opcional: lecturas anteriores no lo traen.
+   */
+  uuid?: string | null;
+  /**
+   * `[RE.35.7]` Lo que da valor al papel escaneado (Francisco, 2026-10-06): el SELLO de recibido y
+   * la FIRMA de quien recibió. true = se ve; false = el documento se ve completo y no lo tiene;
+   * null = no se distingue (ilegible, recortado) o lectura anterior a RE.35.7.
+   */
+  sello_recibido?: boolean | null;
+  firma_recibido?: boolean | null;
+  /** Lo que dice el sello (fecha, sucursal, leyenda), tal cual, máx ~60 caracteres. */
+  sello_evidencia?: string | null;
 }
 
 /** Campos del documento "Gastos" de Kepler (XA1001) — auto-rellena la comprobación de gasto. */
@@ -1299,6 +1313,10 @@ export class LlmExtractorService implements OnModuleInit {
                 subtotal: { type: ['number', 'null'], description: 'Subtotal (antes de IVA) en pesos, sin símbolo ni comas. null si no se ve.' },
                 iva: { type: ['number', 'null'], description: 'IVA/impuestos en pesos, sin símbolo ni comas. null si no se ve.' },
                 total: { type: ['number', 'null'], description: 'TOTAL a pagar en pesos (el importe principal del documento), sin símbolo ni comas. null si no se ve.' },
+                uuid: { type: ['string', 'null'], description: 'Folio fiscal (UUID) del timbre de la factura: 36 caracteres con guiones (8-4-4-4-12), ej. "F32A11C2-0AE3-4DFF-9993-55E3690649E9". Copiar EXACTO, carácter por carácter. null si no aparece (las remisiones no lo traen).' },
+                sello_recibido: { type: ['boolean', 'null'], description: 'true si en el papel hay un SELLO de recibido de Mega Dulces / De Los Altos (sello de goma o tinta con "RECIBIDO", fecha o sucursal). false si el documento se ve completo y NO tiene sello. null si no se puede saber (hoja recortada o ilegible).' },
+                firma_recibido: { type: ['boolean', 'null'], description: 'true si hay una FIRMA o rúbrica manuscrita de quien recibió la mercancía (normalmente junto al sello o en "recibí"). false si el documento se ve completo y NO tiene firma. null si no se puede saber.' },
+                sello_evidencia: { type: ['string', 'null'], description: 'Lo que se lee en el sello de recibido (fecha, sucursal, leyenda), tal cual, máx ~60 caracteres. null si no hay sello o no se lee.' },
                 documents_present: {
                   type: 'array',
                   description: 'TODOS los documentos que aparecen en este archivo (un PDF escaneado puede traer VARIOS documentos juntos, uno por página o varios por página). ' +
@@ -1340,7 +1358,7 @@ export class LlmExtractorService implements OnModuleInit {
                   },
                 },
               },
-              required: ['folio', 'fecha', 'proveedor', 'rfc', 'subtotal', 'iva', 'total', 'documents_present', 'lines'],
+              required: ['folio', 'fecha', 'proveedor', 'rfc', 'subtotal', 'iva', 'total', 'uuid', 'sello_recibido', 'firma_recibido', 'sello_evidencia', 'documents_present', 'lines'],
             },
           },
         ],
@@ -1349,7 +1367,7 @@ export class LlmExtractorService implements OnModuleInit {
             role: 'user',
             content: [
               fileBlock,
-              { type: 'text', text: 'Este archivo documenta la recepción de mercancía de un proveedor. Puede ser UN documento o un PAQUETE con varias hojas escaneadas juntas (orden de entrada, factura, remisión, ticket, orden de recepción). Revisá TODAS las páginas. Con extract_remision: en documents_present listá CADA documento que veas con {type, page (1-based), evidence (su folio/título)}, y extrae los campos (folio/fecha/proveedor/total…) del documento fiscal principal.' },
+              { type: 'text', text: 'Este archivo documenta la recepción de mercancía de un proveedor. Puede ser UN documento o un PAQUETE con varias hojas escaneadas juntas (orden de entrada, factura, remisión, ticket, orden de recepción). Revisá TODAS las páginas. Con extract_remision: en documents_present listá CADA documento que veas con {type, page (1-based), evidence (su folio/título)}, y extrae los campos (folio/fecha/proveedor/total…) del documento fiscal principal. Además: el folio fiscal (UUID) si es factura, y si el papel trae el SELLO de recibido y la FIRMA de quien recibió (son la prueba de la entrega).' },
             ],
           },
         ],
@@ -1413,6 +1431,9 @@ export class LlmExtractorService implements OnModuleInit {
         };
       })
       .filter((l): l is RemisionLine => l !== null);
+    // [RE.35.7] El UUID sólo se acepta con su forma (8-4-4-4-12 hex): un texto cualquiera no liga nada.
+    const uuidLeido = str(inp.uuid)?.toUpperCase().replace(/\s+/g, '') ?? null;
+    const bool = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
     return {
       folio: str(inp.folio),
       fecha: this.parseTicketDate(inp.fecha),
@@ -1421,6 +1442,10 @@ export class LlmExtractorService implements OnModuleInit {
       subtotal: num(inp.subtotal),
       iva: num(inp.iva),
       total: num(inp.total),
+      uuid: uuidLeido && /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(uuidLeido) ? uuidLeido : null,
+      sello_recibido: bool(inp.sello_recibido),
+      firma_recibido: bool(inp.firma_recibido),
+      sello_evidencia: str(inp.sello_evidencia)?.slice(0, 60) ?? null,
       documents_present: docs,
       lines,
     };

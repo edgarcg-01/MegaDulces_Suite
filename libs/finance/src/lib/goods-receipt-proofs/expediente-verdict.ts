@@ -32,7 +32,7 @@ import type {
 import { folioNumero, parecidoNombre, rfcBienFormado, rfcComparable, UMBRAL_NOMBRE } from './receipt-match';
 
 /** La regla y su versión: sello de cada veredicto (ADR-085). Cambiar un umbral = subir la versión. */
-export const REGLA_EXPEDIENTE = 'R-v1';
+export const REGLA_EXPEDIENTE = 'R-v2';
 /** Cuadre: la diferencia tiene que ser MENOR a las dos (decisión de Francisco, 2026-10-06). */
 export const TOLERANCIA_PCT = 0.0025;
 export const TOLERANCIA_ABS = 200;
@@ -263,6 +263,14 @@ export interface EntradaVeredicto {
   notaCredito?: NotaCredito | null;
   /** `[RE.35.2]` El proveedor tiene CFDI en ContPAQi (si no, su papel se revisa como remisión). */
   proveedorEnContpaqi?: boolean;
+  /**
+   * `[RE.35.7]` Sello de recibido y firma de quien recibió, según el OCR del papel. Son lo que da
+   * valor al papel archivado. `false` bloquea; `null`/ausente (no se distingue, o lectura anterior a
+   * RE.35.7) se informa sin bloquear: castigar lo que nunca se midió dejaría todo en revisar.
+   */
+  sello?: boolean | null;
+  firma?: boolean | null;
+  selloEvidencia?: string | null;
   /** Hoy, `YYYY-MM-DD` (inyectado para que el test no dependa del reloj). */
   hoy: string;
 }
@@ -343,6 +351,13 @@ export function veredictoExpediente(v: EntradaVeredicto): Veredicto {
   add({ clave: 'E3_recepcion', grupo: 'entrada', etiqueta: 'Fecha de recepción', valor: v.entrada.fecha_recepcion,
     estado: v.entrada.fecha_recepcion ? 'ok' : 'sin_medir', bloquea: true,
     nota: v.entrada.fecha_recepcion ? null : 'Kepler no trae la captura del vale (o es Wincaja).' });
+  // `[RE.35.7]` La prueba física de la entrega: sello de recibido y firma, leídos del papel.
+  add({ clave: 'E4_sello', grupo: 'entrada', etiqueta: 'Sello de recibido', valor: v.sello == null ? null : v.sello ? (v.selloEvidencia || 'Sí') : 'No',
+    esperado: 'sello de recibido en el papel', estado: v.sello === true ? 'ok' : v.sello === false ? 'falla' : 'sin_medir', bloquea: v.sello === false,
+    nota: v.sello === false ? 'El papel no trae el sello de recibido.' : v.sello == null ? 'No se distinguió en el escaneo (o se subió antes de leerlo).' : null });
+  add({ clave: 'E5_firma', grupo: 'entrada', etiqueta: 'Firma de quien recibió', valor: v.firma == null ? null : v.firma ? 'Sí' : 'No',
+    esperado: 'firma en el papel', estado: v.firma === true ? 'ok' : v.firma === false ? 'falla' : 'sin_medir', bloquea: v.firma === false,
+    nota: v.firma === false ? 'El papel no trae la firma de quien recibió.' : v.firma == null ? 'No se distinguió en el escaneo (o se subió antes de leerlo).' : null });
 
   // ── Factura sin CFDI de un proveedor que no factura en ContPAQi: aviso (no bloquea) y vía remisión.
   if (v.docTipo === 'factura' && comoRemision) {
