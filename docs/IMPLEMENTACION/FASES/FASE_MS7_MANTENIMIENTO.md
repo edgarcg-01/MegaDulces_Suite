@@ -82,7 +82,7 @@ Orden de la Mesa: primero la base, luego la lógica con sus pruebas, al final la
 | **MS.7.2** | SLA por cola (`queue_id`, unicidad de expresión). | Las 4 políticas actuales siguen siendo las generales; el cálculo de TI da lo mismo. |
 | **MS.7.3** ✅ | `zones`, `requests.zone_code`, `queues.asks_zone`. (`EC` ya estaba desde MS.7.14.) Ver §9.6. | Las 5 zonas sembradas, sin tocar `STORE_BRANCHES`; la zona sólo viaja si la cola la pregunta. |
 | **MS.7.4** ✅ | `queue_fields`, `requests.extra` (`is_test` **no** se construyó: nadie lo pidió). Ver §9.7. | Los tickets existentes quedan con `extra = {}`; ninguna cola trae campos de fábrica. |
-| **MS.7.5** | `pause_reason`, `routing_rules.warehouse_code`, `kind='transfer'`. | CHECKs nuevos aceptan todo lo existente. |
+| **MS.7.5** ✅ | `pause_reason`, `routing_rules.warehouse_code`, `kind='transfer'`. Ver §9.8. | CHECKs nuevos aceptan todo lo existente. |
 
 ### Capa 2 — Lógica (`libs/service-desk`, con pruebas)
 
@@ -273,3 +273,12 @@ No entran a MS.7 y **no deben empezar antes de calibrar la Fase 1** (30 días de
 - **Pantallas:** «Nueva solicitud» pinta los campos de la cola de la categoría (sí/no, lista, texto), marca los obligatorios y **no deja enviar** sin contestarlos (la foto obligatoria pide un archivo); cambiar de categoría descarta lo contestado de otra cola. La ficha lista las respuestas. Configuración trae, **por cola**, «Campos propios de esta cola» (lista con apagados, obligatoria, apagar/encender y alta; el código se **deriva de la pregunta**).
 - **Pruebas:** `service-desk` 210 (el validador: clave desconocida, requerido, `false` vs «sin contestar», tipos, opciones, tope de texto, foto, definición) · DB `test-newdb-campos-por-cola` 29 (RLS, `extra` sólo objeto, CHECK de opciones por tipo, FK compuesta, unicidad por cola, runtime sin DELETE) · E2E bloque 28 (total **586**) · view 186. **Mutaciones atrapadas:** validar contra definiciones vacías pone en rojo 5 comprobaciones; ignorar lo obligatorio en el formulario pone en rojo su spec. **Visto en navegador:** alta del campo en Configuración, el formulario lo pide, bloquea el envío y la ficha muestra la respuesta.
 - **Declarado:** la foto requerida con un adjunto **real** no se midió en este destino (sin bucket; la negativa «sin foto → 400» sí); el campo no tiene condiciones («mostrar sólo si…») ni tipos número/fecha; `safety_risk` sigue siendo columna propia; un ticket **ya creado** no se revalida si luego se vuelve obligatorio un campo; `is_test` del plan original no se construyó.
+
+### 9.8 MS.7.5 construido (2026-10-07): la base de la pausa con motivo, el ruteo por ubicación y el traslado
+
+- **Migración `20261007290000`** (aditiva, idempotente, reversible). Sólo AMPLÍA: cada CHECK nuevo acepta todo lo que ya existe.
+  - `requests.pause_reason` — `proveedor | refaccion | aprobacion | solicitante | otro`. **La base exige que el motivo sólo exista mientras el ticket está en espera** (`requests_pause_reason_state_ck`), igual que ya exige `en_espera ⇔ reloj pausado`: un motivo huérfano de una pausa que terminó sería un dato que miente. Consecuencia para el código (MS.7.9): al reanudar hay que limpiar el motivo en la misma operación, o la base lo rechaza.
+  - `routing_rules.warehouse_code` — la regla también puede dispararse por **ubicación**; el disparador pasa de «categoría o palabras» a «categoría, palabras **o** ubicación» (una regla sin ninguno sigue siendo un typo).
+  - `request_messages.kind` admite `transfer` — el historial de traslados es un **mensaje de sistema** del hilo (de→a, quién, por qué), no una tabla nueva.
+- **`down`** conserva lo ensanchado si ya hay datos que lo usan (una regla sólo por ubicación, un mensaje de traslado): no se tira un registro.
+- **Prueba:** `test-newdb-pausa-ruteo-traslado` 29 (cada CHECK roto a propósito con su control; los 5 motivos; el motivo en un ticket que no está en espera; reanudar sin limpiarlo; regla vacía vs. sólo por ubicación; tipo de mensaje inventado; la nota interna sigue sin poder ser pública).
