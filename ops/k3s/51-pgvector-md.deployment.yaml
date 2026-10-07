@@ -1,0 +1,146 @@
+# ═══ pgvector-md — LA FUENTE DE LA INGESTA ═══  [K3S.38]
+#
+# 65.8 GB, 13 bases y NUEVE suscripciones de replicación lógica vivas contra las sucursales.
+# Es de donde los siete carriles del ODS leen todo. Si esto se cae, la venta y la existencia
+# publicadas dejan de refrescarse — pero se recuperan solas por watermark, que es exactamente
+# por qué va ANTES que `pg-prod`: su peor caso es recuperable.
+#
+# ── EL DATO NO SE COPIA NI SE MUEVE: se monta donde ya está ─────────────────
+#
+# 65.8 GB copiados exigirían parar la base mientras se copia — minutos de ingesta detenida.
+# El pod monta por hostPath el MISMO directorio que usaba el contenedor, así que el corte dura
+# lo que tarda un pod en arrancar.
+#
+# ⛔ Eso acopla K3s al layout de volúmenes de Docker, y hay que decirlo en voz alta: un
+# `docker volume prune` borraría datos que un pod está usando.
+# ⭐ La defensa es deliberada: el contenedor `pgvector-md` se deja DETENIDO, no se borra. Un
+# volumen referenciado por un contenedor —aunque esté apagado— NO lo toca `prune`. Y de paso
+# ese contenedor es la vuelta atrás: `docker start pgvector-md`.
+# ⚠️ Corolario: el día que alguien borre ese contenedor "porque está apagado", desprotege 65 GB.
+#
+# ── ⛔ SIN `PGDATA`, Y ESTO SE APRENDIÓ ROMPIÉNDOLO ─────────────────────────
+#
+# En `pg-rag` se puso `PGDATA: /var/lib/postgresql/data` "para ser explícito" y la explicitud
+# fue el error: PostgreSQL 18 cambió el layout de la imagen oficial a
+# `/var/lib/postgresql/18/docker`. Forzar la ruta vieja hizo que Postgres no encontrara cluster
+# y CREARA UNO NUEVO Y VACÍO — el pod arrancó, la sonda `select 1` dio verde, y las bases no
+# estaban. Medido en el contenedor vivo antes de escribir esto: `show data_directory` dice
+# `/var/lib/postgresql/18/docker`. La imagen sabe dónde está su dato; no hay que ayudarla.
+#
+# ── Las tres trampas de Postgres en K8s ────────────────────────────────────
+#
+# ⛔ SIN `limits.memory`: el cgroup cuenta el page cache, que es la caché real de Postgres. Un
+#    límite lo mata por OOM justo cuando está trabajando bien.
+# ⛔ `/dev/shm` de 1 GB: el default de 64 MB rompe los parallel workers con "could not resize
+#    shared memory segment". ⚠️ El emptyDir en memoria cuenta contra `requests.memory`.
+# ⛔ `replicas: 1` + `Recreate`: dos Postgres sobre el mismo datadir no son dos réplicas, son
+#    corrupción.
+---
+apiVersion: v1
+kind: Service
+metadata: { name: pgvector-md, namespace: prod }
+spec:
+  selector: { app: pgvector-md }
+  ports: [{ name: postgres, port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgvector-md
+  namespace: prod
+  labels: { app: pgvector-md, singleton: "true", migracion: migrado }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: pgvector-md }
+  template:
+    metadata:
+      labels: { app: pgvector-md }
+    spec:
+      # ⚠️ 65 GB no se apagan de golpe. Postgres necesita su checkpoint de cierre; si lo matan
+      # antes, el arranque siguiente entra en recuperación y tarda. El default de K8s son 30 s.
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg18
+          # ═══ [K3S.42] EL `command` DEL COMPOSE — SIN ESTO EL POD ARRANCA EN DEFAULTS ═══
+          #
+          # ⛔⛔ ESTO FALTABA EN LOS TRES MANIFIESTOS Y DOS YA ESTABAN EN PRODUCCIÓN ASÍ.
+          #
+          # Medido el 2026-10-01: los pods de `pg-rag` y `pgvector-md` corrían con
+          # shared_buffers en 16384 bloques = 128 MB, el default de fábrica. En Compose eran
+          # 512 MB y 4 GB. O sea 32× menos caché en la base que alimenta los 7 carriles.
+          #
+          # ⭐ Por qué se escapó: el manifiesto se escribió mirando `docker inspect` —volúmenes,
+          # entorno, puertos, sondas— y TODO eso estaba bien. La afinación no vive ahí: vive en
+          # el `command`, que es lo único que un vistazo a la configuración del contenedor no
+          # devuelve con el mismo nombre. Lo que se copia por parecido deja afuera lo que no se
+          # parece.
+          #
+          # ⚠️ Y no todo se perdía: `wal_level`, los slots y los workers de replicación SÍ
+          # sobrevivieron, porque viven en el `postgresql.conf` del datadir y el datadir viaja.
+          # La mitad que sobrevive es justamente lo que hace que la otra mitad no se note.
+          args:
+            # ⚠️ Los cinco de replicación tienen que ser >= a los del cluster de ORIGEN o el
+            # datadir copiado no arranca. Medidos en .249 el 2026-09-10. Hoy ya viven también
+            # en el postgresql.conf del datadir, pero se declaran acá igual: depender de que
+            # un archivo adentro del volumen los tenga es depender de algo que nadie versiona.
+            - postgres
+            - "-c"
+            - "shared_buffers=4GB"
+            - "-c"
+            - "effective_cache_size=9GB"
+            - "-c"
+            - "maintenance_work_mem=1GB"
+            - "-c"
+            - "work_mem=32MB"
+            - "-c"
+            - "max_wal_size=4GB"
+            - "-c"
+            - "checkpoint_completion_target=0.9"
+            - "-c"
+            - "wal_level=logical"
+            - "-c"
+            - "max_replication_slots=20"
+            - "-c"
+            - "max_wal_senders=20"
+            - "-c"
+            - "max_logical_replication_workers=16"
+            - "-c"
+            - "max_worker_processes=24"
+          imagePullPolicy: IfNotPresent
+          ports:
+            # hostPort 5433, el MISMO que publicaba Compose: los puentes `pg-ods` de los
+            # carriles apuntan a 192.168.0.222:5433 y no se enteran del cambio.
+            - { name: postgres, containerPort: 5432, hostPort: 5433, protocol: TCP }
+          env:
+            - { name: TZ, value: America/Mexico_City }
+            # ⛔ [K3S.38] SIN POSTGRES_PASSWORD, y se comprobo antes de cortar: el contenedor
+            # vivo NO la tiene en su entorno. La imagen oficial solo la usa al INICIALIZAR un
+            # datadir vacio; con el dato ya existente, pedirla sobra. Un secretKeyRef a una
+            # clave que no existe habria dejado el pod en CreateContainerConfigError.
+            # ⭐ Se vio porque el volcado del entorno del contenedor devolvio CERO lineas, no
+            # porque lo supusiera: copiar la forma de un manifiesto anterior sin medir el
+            # servicio que se migra es como se arrastran supuestos ajenos.
+          volumeMounts:
+            - { name: datos, mountPath: /var/lib/postgresql }
+            - { name: shm,   mountPath: /dev/shm }
+          # ⭐ La sonda cuenta BASES, no pregunta si el motor vive. Un Postgres recién
+          # inicializado y vacío contesta `select 1` igual de bien que el que tiene los datos
+          # — así pasó desapercibido el cluster vacío de `pg-rag`. Trece es lo que había.
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "test \"$(psql -U postgres -t -A -c 'select count(*) from pg_database where datistemplate=false')\" -ge 13"]
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 15
+          resources:
+            # ⛔ SIN limits. Ver arriba.
+            requests: { memory: "2Gi", cpu: "200m" }
+      volumes:
+        - name: datos
+          hostPath: { path: /var/lib/docker/volumes/pgvector-md-data/_data, type: Directory }
+        - name: shm
+          emptyDir: { medium: Memory, sizeLimit: 1Gi }

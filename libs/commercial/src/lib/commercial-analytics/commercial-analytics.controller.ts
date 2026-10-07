@@ -1,0 +1,1459 @@
+import { Controller, Get, Post, Body, Query, Param, Req, UseGuards, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import {
+  CommercialAnalyticsService,
+  type RouteInventoryReport,
+  type RouteInventoryDetail,
+  type RouteCountInput,
+  type RouteCountResult,
+} from './commercial-analytics.service';
+import { AnalyticsRefreshService } from './analytics-refresh.service';
+import { SellOutExportService } from './sell-out-export.service';
+import { RoutePromoService, PromoQuery } from './route-promo.service';
+import { SelloutChatService } from './sellout-chat.service';
+// [IG.1.1] La forma de los filtros de ingreso vive con la lógica pura, no en el controller.
+import type { IncomeQueryFilters } from './period-coverage';
+import type { IncomeRecon, IncomeReconDetalle, IncomeReport, IncomeSources, IncomeTree, IncomeTreeChildren, IncomeDocumento } from '@megadulces/contracts';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
+import { CommandCenterDashboard } from '@megadulces/contracts';
+
+@ApiTags('commercial-analytics')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
+@Controller('commercial/analytics')
+export class CommercialAnalyticsController {
+  constructor(
+    private readonly service: CommercialAnalyticsService,
+    private readonly refresh: AnalyticsRefreshService,
+    private readonly exporter: SellOutExportService,
+    private readonly routePromoSvc: RoutePromoService,
+    private readonly selloutChat: SelloutChatService,
+  ) {}
+
+  @Get('overview')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'KPIs rolling 30d (MV por default). Con from/to o ?live=true → on-the-fly.',
+  })
+  overview(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('live') live?: string,
+  ) {
+    return this.service.overview({ from, to, live: live === 'true' });
+  }
+
+  @Post('query')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'VG.1 — consulta semántica de ventas: (metric × dimension × rango) sobre analytics.sales_daily (determinista, mismos SUM que los reportes probados). body: { metric: ventas|margen|unidades|tickets|ticket_promedio, dimension: canal|marca|categoria|sucursal|producto|tiempo, from?, to? (YYYY-MM-DD), limit? }. Devuelve rows[{label,value,share,...}] + total + coverage_pct.',
+  })
+  salesQuery(@Body() body: {
+    metric?: string; dimension?: string; from?: string; to?: string; limit?: number;
+    channel?: string; warehouse_id?: string; brand_id?: string; category_id?: string;
+    sku?: string; brand?: string; category?: string;
+  }) {
+    return this.service.salesQuery(body || {});
+  }
+
+  @Get('query/filters')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'VG.1 — opciones para los filtros de "Ventas Generales": canales, sucursales, marcas y categorías con venta (self-sufficient: COMMERCIAL_ANALYTICS_VER).' })
+  salesQueryFilters() {
+    return this.service.salesQueryFilters();
+  }
+
+  // ── VENTA REAL de la red (analytics.*, feeds Kepler) — Command Center ──
+
+  @Get('network/overview')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'KPIs 30d sobre VENTA REAL de la red (analytics.sales_daily): bruto, margen, unidades, tickets, mix por canal + clientes activos (KV.3) + pipeline B2B.',
+  })
+  networkOverview() {
+    return this.service.networkOverview();
+  }
+
+  @Get('network/top-products')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'Top productos por venta real 30d (analytics.product_sales_stats + ABC). `share_pct` = participación sobre la venta total de la red: sale del total que ya calculó network/overview (memo 60 s) y viene `null` si no hay uno fresco. `?share=true` lo fuerza a costa de una pasada extra por sales_daily (~1.3 s).',
+  })
+  networkTopProducts(@Query('limit') limit?: string, @Query('share') share?: string) {
+    return this.service.networkTopProducts(limit, { share: share === 'true' });
+  }
+
+  @Get('network/sales-by-brand')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'Mix por marca sobre venta real 30d + share %' })
+  networkSalesByBrand() {
+    return this.service.networkSalesByBrand();
+  }
+
+  @Get('network/daily-series')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'Serie diaria de venta real (revenue/units/tickets) para sparklines' })
+  networkDailySeries(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.networkDailySeries({ from, to });
+  }
+
+  @Get('command-center')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'BFF del Command Center (ADR-052): los 7 paneles COMMERCIAL_ANALYTICS_VER en 1 respuesta tipada (contrato compartido en libs/contracts). Los paneles con otro permiso (erp-customers=CUSTOMERS360_VER, conversion/nba=intelligence) siguen como llamadas aparte para NO bypassear su gate.',
+  })
+  async commandCenter(): Promise<CommandCenterDashboard> {
+    // Mismos parámetros que el dashboard usaba en sus 11 llamadas sueltas, para que el
+    // BFF sea un reemplazo EXACTO (misma data): ventana 30d, low-stock threshold 200,
+    // inactivos limit 5. Ver command-center.component.ts → loadAll().
+    const to = new Date();
+    const from = new Date(to.getTime() - 29 * 86400_000);
+    const fromIso = from.toISOString().slice(0, 10);
+    const toIso = to.toISOString().slice(0, 10);
+    const [
+      overview,
+      top_products,
+      sales_by_brand,
+      daily_series,
+      low_stock,
+      inactive_customers,
+      ranking_out_of_stock,
+    ] = await Promise.all([
+      this.service.networkOverview(),
+      this.service.networkTopProducts('8', { share: false }),
+      this.service.networkSalesByBrand(),
+      this.service.networkDailySeries({ from: fromIso, to: toIso }),
+      this.service.lowStock('200'),
+      this.service.inactiveCustomers('30', '5'),
+      this.service.rankingOutOfStock({ limit: 10, topN: 200 }),
+    ]);
+    // El BFF es el punto donde se hace CUMPLIR el contrato: valida en runtime que
+    // los 7 paneles cuadren con `CommandCenterDashboard` (ADR-052). Si un service
+    // devuelve una forma que viola el contrato, revienta acá — drift visible, no
+    // silencioso. `.parse` acepta `unknown`, así que también resuelve el gap de que
+    // los métodos del service estén tipados suelto (source: string, campos any).
+    return CommandCenterDashboard.parse({
+      overview,
+      top_products,
+      sales_by_brand,
+      daily_series,
+      low_stock,
+      inactive_customers,
+      ranking_out_of_stock,
+    });
+  }
+
+  @Get('top-customers')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'Top N customers por revenue (MV rolling 30d o live)' })
+  topCustomers(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+    @Query('live') live?: string,
+  ) {
+    return this.service.topCustomers({
+      from,
+      to,
+      limit: limit ? Number(limit) : undefined,
+      live: live === 'true',
+    });
+  }
+
+  @Get('top-products')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'Top N productos (MV rolling 30d o live, orderBy=units|revenue)' })
+  topProducts(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+    @Query('orderBy') orderBy?: 'units' | 'revenue',
+    @Query('live') live?: string,
+  ) {
+    return this.service.topProducts({
+      from,
+      to,
+      limit: limit ? Number(limit) : undefined,
+      orderBy,
+      live: live === 'true',
+    });
+  }
+
+  @Post('refresh')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_FULFILL)
+  @Throttle({ short: { limit: 3, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Disparar refresh manual de las MVs en `analytics.*`. Gate: COMMERCIAL_ORDERS_FULFILL (admin-only). 3 req/min anti-DoS porque REFRESH MATERIALIZED VIEW es operación cara.',
+  })
+  refreshMvs() {
+    return this.refresh.refreshAll('manual');
+  }
+
+  @Get('inactive-customers')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'Customers activos sin pedidos en los últimos N días (oportunidad de recuperación)',
+  })
+  inactiveCustomers(@Query('days') days?: string, @Query('limit') limit?: string) {
+    return this.service.inactiveCustomers(days, limit);
+  }
+
+  @Get('sales-by-brand')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'Revenue + units por brand en el período + share %' })
+  salesByBrand(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.salesByBrand({ from, to });
+  }
+
+  @Get('low-stock')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'Productos con stock disponible (quantity - reserved) bajo threshold. Gate ORDERS_VER (no INVENTORY_VER) porque el command-center necesita alertas para todos los roles comerciales sin requerir CRUD de inventario.',
+  })
+  lowStock(
+    @Query('threshold') threshold?: string,
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.lowStock(threshold, warehouseId, limit);
+  }
+
+  @Get('dead-stock')
+  @RequirePermissions(Permission.COMMERCIAL_DEADSTOCK_VER)
+  @ApiOperation({
+    summary:
+      'Stock muerto: existencia > 0 sin venta reciente (sales_units_30d=0). Capital parado al costo, por almacén. Accionable para compras (liquidar / dejar de surtir).',
+  })
+  deadStock(
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.deadStock(warehouseId, limit);
+  }
+
+  @Get('daily-series')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'Series diarias de revenue + orders count (TZ MX)' })
+  dailySeries(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.dailySeries({ from, to });
+  }
+
+  // ─────────── Sprint M.3 — Ventas históricas (ERP Mega_Dulces vía FDW) ───────────
+
+  @Get('historical/daily')
+  @RequirePermissions(Permission.COMMERCIAL_HISTORICAL_VER)
+  @ApiOperation({
+    summary:
+      'Series diarias de ventas REALES del ERP (Mega_Dulces.ventas vía FDW). Read-only, no se mezcla con commercial.orders. Soporta filtro ?zona=La Piedad.',
+  })
+  historicalDaily(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('zona') zona?: string,
+  ) {
+    return this.service.historicalSalesDaily({ from, to, zona });
+  }
+
+  @Get('historical/top-products')
+  @RequirePermissions(Permission.COMMERCIAL_HISTORICAL_VER)
+  @ApiOperation({
+    summary: 'Top N productos del ERP por revenue (FDW). Filtros: from/to/zona/limit',
+  })
+  historicalTopProducts(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('zona') zona?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.historicalTopProducts({
+      from,
+      to,
+      zona,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('historical/by-zona')
+  @RequirePermissions(Permission.COMMERCIAL_HISTORICAL_VER)
+  @ApiOperation({
+    summary:
+      'Ventas del ERP por zona/sucursal en el período: tickets, customers únicos, units, revenue',
+  })
+  historicalByZona(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.historicalSalesByZona({ from, to });
+  }
+
+  @Get('historical/ranking')
+  @RequirePermissions(Permission.COMMERCIAL_HISTORICAL_VER)
+  @ApiOperation({
+    summary:
+      'Top N pre-calculado por el ERP (Mega_Dulces.ranking_productos). Cuenta TODA la venta del ERP, no solo pedidos levantados por la app. Default limit 100, max 1000.',
+  })
+  historicalRanking(@Query('limit') limit?: string) {
+    return this.service.historicalRanking({ limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('historical/margin-by-category')
+  @RequirePermissions(Permission.COMMERCIAL_HISTORICAL_VER)
+  @ApiOperation({
+    summary:
+      'Margen por categoría en el período. JOIN ventas_legacy (FDW) ↔ products.cost_base ↔ categories. Devuelve revenue, costo, margen $, margen %.',
+  })
+  historicalMarginByCategory(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.historicalMarginByCategory({
+      from,
+      to,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('ranking-out-of-stock')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'Productos en el top-N del ERP con stock disponible 0 — oportunidad de venta perdida. Scan default top-200 del ERP, devuelve hasta `limit` (default 10).',
+  })
+  rankingOutOfStock(
+    @Query('limit') limit?: string,
+    @Query('topN') topN?: string,
+  ) {
+    return this.service.rankingOutOfStock({
+      limit: limit ? Number(limit) : undefined,
+      topN: topN ? Number(topN) : undefined,
+    });
+  }
+
+  // ─────────── KV.3/5/6 — analytics.* (venta real Kepler) ───────────
+
+  @Get('inventory-health')
+  @RequirePermissions(Permission.COMMERCIAL_INVHEALTH_VER)
+  @ApiOperation({ summary: 'KV.5 — Salud de inventario: días de cobertura + status por producto×almacén.' })
+  inventoryHealth(@Query('warehouse_id') warehouseId?: string, @Query('status') status?: string) {
+    return this.service.inventoryHealth({ warehouse_id: warehouseId, status });
+  }
+
+  // ─────────── GX v2 — Egresos contables (motor dinámico) ───────────
+
+  @Get('expenses')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({
+    summary:
+      'GX — Egresos contables agregados por dimensión dinámica (group_by=cuenta|cuenta_mayor|beneficiario|sucursal|doc_tipo|area|mes). Filtros: from,to (90d), sucursal=csv, familia=1|5|6|7 (1=activo no circulante 150 · 5=compras 511 · 6=gastos 6xx · 7=financieros e impuestos 702-764), doc_tipo, cuenta, cuenta_mayor, area, beneficiario, min_importe, max_importe. compare=true → Δ% vs período previo. Incluye serie mensual por familia.',
+  })
+  expenses(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('group_by') groupBy?: string,
+    @Query('compare') compare?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('familia') familia?: string,
+    @Query('doc_tipo') docTipo?: string,
+    @Query('cuenta') cuenta?: string,
+    @Query('cuenta_mayor') cuentaMayor?: string,
+    @Query('area') area?: string,
+    @Query('dpto') dpto?: string,
+    @Query('concepto') concepto?: string,
+    @Query('beneficiario') beneficiario?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
+  ) {
+    return this.service.expenses({
+      ...this.parseExpenseFilters(from, to, sucursal, familia, docTipo, cuenta, cuentaMayor, area, beneficiario, minImporte, maxImporte, dpto, concepto),
+      group_by: groupBy,
+      compare: compare === 'true',
+    });
+  }
+
+  // ─────────── IG — Ingresos contables ───────────
+  //
+  // Permiso PROPIO (`FINANCE_INCOME_VER`), no un alias del de egresos: hay roles que deben ver la
+  // venta sin ver el gasto. La fuente es `analytics.income_entries_src()` (derive-no-copy sobre el
+  // ODS) y las tres reglas duras viven adentro de esa función, no acá.
+
+  @Get('income')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({
+    summary:
+      'IG — Ingresos contables (pólizas 401, sólo CEDIS y sólo UD1301) agregados por dimensión dinámica '
+      + '(group_by=canal|plaza|mes|documento). Filtros: from,to (90d), canal=csv, plaza, concepto (ILIKE), '
+      + 'min/max importe. compare=true → Δ% vs período previo. Incluye cobertura, frescura y serie por canal.',
+  })
+  income(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('group_by') groupBy?: string,
+    @Query('compare') compare?: string,
+    @Query('canal') canal?: string,
+    @Query('plaza') plaza?: string,
+    @Query('concepto') concepto?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
+  ): Promise<IncomeReport> {
+    return this.service.income({
+      ...this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte),
+      group_by: groupBy,
+      compare: compare === 'true',
+    });
+  }
+
+  /**
+   * `[IG.12]` El desglose de una celda de la conciliación: sus documentos uno por uno.
+   *
+   * ⚠️ Va declarada ANTES que `income/conciliacion` por la regla de siempre en Nest: la ruta más
+   * específica primero. Acá no hay `:param` que se la trague, pero la disciplina se sostiene
+   * cuando no cuesta nada — en Fase LC costó un módulo inalcanzable.
+   */
+  @Get('income/conciliacion/detalle')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({
+    summary:
+      'IG.12 — Los documentos de UNA celda de la conciliación: folio, cliente, qué es, facturado, '
+      + 'cobrado, saldo y por qué cuenta entró el dinero. La ventana es el período de la celda '
+      + 'RECORTADO al rango de la pantalla, para que el desglose sume exactamente su renglón.',
+  })
+  incomeReconDetalle(
+    @Query('periodo') periodo: string,
+    @Query('canal') canal: string,
+    @Query('plaza') plaza?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('grain') grain?: string,
+  ): Promise<IncomeReconDetalle> {
+    return this.service.incomeReconDetalle({
+      periodo, canal, plaza: plaza ?? '', from, to,
+      grain: grain === 'dia' || grain === 'trimestre' ? grain : 'mes',
+    });
+  }
+
+  // `[IG.6]` La conciliación va ANTES de `income/:algo` por el orden de rutas de Nest: una ruta
+  // literal declarada después de una paramétrica del mismo prefijo no se alcanza nunca (ya pasó
+  // en Fase LC con `no-asociados` vs `@Get(':mes')`).
+  @Get('income/conciliacion')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({
+    summary:
+      'IG.6 — Conciliación por sucursal: lo VENDIDO a cliente real contra lo COBRADO, con el puente '
+      + 'declarado renglón por renglón. grain=dia|mes|trimestre. Separa el traspaso interno '
+      + '(el CEDIS facturando a sus propias tiendas: $41.25M de ago-2026) del ingreso real, marca la '
+      + 'factura global U-D-6 que envuelve a los tickets, y trae por cuenta de tesorería si el dinero '
+      + 'entró en efectivo o por qué banco, más cuántos pagos distintos se casaron (kdm5). '
+      + 'El medio de pago del MOSTRADOR se declara como NO MEDIDO: Kepler no lo guarda.',
+  })
+  incomeRecon(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('grain') grain?: string,
+    @Query('canal') canal?: string,
+    @Query('plaza') plaza?: string,
+    @Query('concepto') concepto?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
+  ): Promise<IncomeRecon> {
+    return this.service.incomeRecon({
+      ...this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte),
+      grain: grain === 'dia' || grain === 'trimestre' ? grain : 'mes',
+    });
+  }
+
+  /**
+   * `[IG.9]` Los hijos de un nodo del árbol, pedidos al abrir.
+   *
+   * ⚠️ Va declarada ANTES que `income/tree`: una ruta con segmento fijo tiene que ganarle a
+   * cualquier `:param` que pueda tragarse su primer segmento.
+   */
+  @Get('income/tree/children')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({ summary: 'IG.9/IG.10 — Hijos del árbol: sólo plaza da los días, +fecha los documentos, +folio cada depósito.' })
+  incomeTreeChildren(
+    @Query('canal') canal: string,
+    @Query('plaza') plaza?: string,
+    @Query('fecha') fecha?: string,
+    @Query('folio') folio?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('grain') grain?: string,
+  ): Promise<IncomeTreeChildren> {
+    const g = grain === 'mes' || grain === 'trimestre' ? grain : 'dia';
+    return this.service.incomeTreeChildren({ canal, plaza, fecha, folio, from, to, grain: g });
+  }
+
+  /**
+   * `[IG.10]` El documento detrás de un folio del árbol.
+   *
+   * ⚠️ Va ANTES de `income/:param` por la misma razón de siempre: una ruta con segmento fijo
+   * tiene que ganarle a cualquier parámetro que pueda tragarse su primer segmento.
+   */
+  @Get('income/documento')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({ summary: 'IG.10 — El documento de un folio: encabezado, renglón y sus cobros uno por uno.' })
+  incomeDocumento(
+    @Query('folio') folio: string,
+    @Query('fecha') fecha: string,
+  ): Promise<IncomeDocumento> {
+    return this.service.incomeDocumento({ folio, fecha });
+  }
+
+  @Get('income/tree')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({ summary: 'IG — Árbol Canal → día → folio → depósito. Mismos filtros que /income.' })
+  incomeTree(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('canal') canal?: string,
+    @Query('plaza') plaza?: string,
+    @Query('concepto') concepto?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
+    @Query('grain') grain?: string,
+  ): Promise<IncomeTree> {
+    const g = grain === 'mes' || grain === 'trimestre' ? grain : 'dia';
+    return this.service.incomeTree({
+      ...this.parseIncomeFilters(from, to, canal, plaza, concepto, minImporte, maxImporte),
+      grain: g,
+    });
+  }
+
+  @Get('income/sources')
+  @RequirePermissions(Permission.FINANCE_INCOME_VER)
+  @ApiOperation({
+    summary:
+      'IG — Cuadre de las cuatro fuentes del mismo peso de venta (contable · por canal · hecho de venta · '
+      + 'cobranza), con su Δ%. La cobranza va marcada NO comparable de frente: es DSO, no faltante.',
+  })
+  incomeSources(@Query('from') from?: string, @Query('to') to?: string): Promise<IncomeSources> {
+    return this.service.incomeSources(this.parseIncomeFilters(from, to));
+  }
+
+  @Get('expenses/tree')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'GX — Árbol jerárquico Familia → Cuenta mayor → Subcuenta (desglose de menú). Mismos filtros que /expenses.' })
+  expensesTree(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('familia') familia?: string,
+    @Query('doc_tipo') docTipo?: string,
+    @Query('area') area?: string,
+    @Query('dpto') dpto?: string,
+    @Query('concepto') concepto?: string,
+    @Query('beneficiario') beneficiario?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
+  ) {
+    return this.service.expensesTree(
+      this.parseExpenseFilters(from, to, sucursal, familia, docTipo, undefined, undefined, area, beneficiario, minImporte, maxImporte, dpto, concepto),
+    );
+  }
+
+  @Get('expenses/documents')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'GX — Renglones de egreso (documentos) filtrados. Mismos filtros que /expenses.' })
+  expenseDocuments(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('familia') familia?: string,
+    @Query('doc_tipo') docTipo?: string,
+    @Query('cuenta') cuenta?: string,
+    @Query('cuenta_mayor') cuentaMayor?: string,
+    @Query('area') area?: string,
+    @Query('area_null') areaNull?: string,
+    @Query('dpto') dpto?: string,
+    @Query('dpto_null') dptoNull?: string,
+    @Query('concepto') concepto?: string,
+    @Query('concepto_null') conceptoNull?: string,
+    @Query('beneficiario') beneficiario?: string,
+    @Query('beneficiario_eq') beneficiarioEq?: string,
+    @Query('beneficiario_null') beneficiarioNull?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
+  ) {
+    return this.service.expenseDocuments({
+      ...this.parseExpenseFilters(from, to, sucursal, familia, docTipo, cuenta, cuentaMayor, area, beneficiario, minImporte, maxImporte, dpto, concepto),
+      area_null: areaNull === 'true',
+      dpto_null: dptoNull === 'true',
+      concepto_null: conceptoNull === 'true',
+      beneficiario_eq: beneficiarioEq,
+      beneficiario_null: beneficiarioNull === 'true',
+    });
+  }
+
+  @Get('expenses/document')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'GX v3 — Drill al documento fuente detrás de una póliza: cabecera (proveedor/RFC/concepto/área/total/IVA) + posturas contables + líneas de producto (compras).' })
+  expenseDocument(
+    @Query('sucursal') sucursal: string,
+    @Query('doc_tipo') docTipo: string,
+    @Query('folio') folio: string,
+  ) {
+    return this.service.expenseDocument({ sucursal, doc_tipo: docTipo, folio });
+  }
+
+  @Get('expenses/providers')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'GX v3 — Auxiliar de proveedores (201): compra, pagos, saldo, #facturas, última compra, DPO. Filtros: search, sucursal=csv, limit.' })
+  apProviders(
+    @Query('search') search?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.apProviders({
+      search,
+      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('expenses/findings')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'GX v3 — Hallazgos contables (iva_bug|prov_203|anticipo_107): resumen por tipo + filas del tipo seleccionado. Filtros: tipo, sucursal=csv, limit.' })
+  expenseFindings(
+    @Query('tipo') tipo?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.expenseFindings({
+      tipo,
+      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('expenses/provider')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'GX.4.2 — Proveedor 360: resumen 201 (saldo/DPO/pagos/última compra) + top productos comprados. key=beneficiario, sucursal=csv.' })
+  expenseProvider(@Query('key') key: string, @Query('sucursal') sucursal?: string) {
+    return this.service.expenseProvider({
+      key,
+      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+    });
+  }
+
+  @Get('expenses/requests')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'GX.6 — Solicitudes de gasto (XA1501) con estado y aplicada/pendiente + KPIs. Filtros: from,to, sucursal=csv, estado=F|A|C|N, solicitante, aplicada=true|false, search, grupo=csv (cuenta_grupo), min_importe.' })
+  expenseRequests(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('estado') estado?: string,
+    @Query('solicitante') solicitante?: string,
+    @Query('aplicada') aplicada?: string,
+    @Query('search') search?: string,
+    @Query('grupo') grupo?: string,
+    @Query('min_importe') min_importe?: string,
+    @Query('mias') mias?: string,
+    @Query('limit') limit?: string,
+    @Req() req?: { user?: { sub?: string; username?: string; nombre?: string } },
+  ) {
+    return this.service.expenseRequests({
+      from,
+      to,
+      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      estado,
+      solicitante,
+      aplicada: aplicada === 'true' ? true : aplicada === 'false' ? false : undefined,
+      search,
+      grupo: grupo ? grupo.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      min_importe: min_importe ? Number(min_importe) : undefined,
+      mias: mias === 'true',
+      userId: req?.user?.sub,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('expenses/filters')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'GX — Valores para los filtros del reporte (tipos doc, áreas, cuentas mayores).' })
+  expensesFilters() {
+    return this.service.expensesFilters();
+  }
+
+  @Get('expenses/sucursales')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'GX — Sucursales con egresos (para el selector del reporte).' })
+  expensesSucursales() {
+    return this.service.expensesSucursales();
+  }
+
+  /**
+   * `[IG.1.1]` Filtros del reporte de ingresos. Mucho más corto que el de egresos a propósito: del
+   * lado del ingreso la sucursal es siempre `00`, los campos del ciclo de solicitud vienen vacíos y
+   * el nombre de la cuenta miente. Lo que discrimina es canal y plaza.
+   */
+  private parseIncomeFilters(
+    from?: string, to?: string, canal?: string, plaza?: string, concepto?: string,
+    minImporte?: string, maxImporte?: string,
+  ): IncomeQueryFilters {
+    return {
+      from,
+      to,
+      canal: canal ? canal.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      plaza,
+      concepto,
+      min_importe: minImporte != null && minImporte !== '' ? Number(minImporte) : undefined,
+      max_importe: maxImporte != null && maxImporte !== '' ? Number(maxImporte) : undefined,
+    };
+  }
+
+  private parseExpenseFilters(
+    from?: string, to?: string, sucursal?: string, familia?: string, docTipo?: string,
+    cuenta?: string, cuentaMayor?: string, area?: string, beneficiario?: string,
+    minImporte?: string, maxImporte?: string, dpto?: string, concepto?: string,
+  ) {
+    return {
+      from,
+      to,
+      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      familia,
+      doc_tipo: docTipo,
+      cuenta,
+      cuenta_mayor: cuentaMayor,
+      area,
+      dpto,
+      concepto,
+      beneficiario,
+      min_importe: minImporte != null && minImporte !== '' ? Number(minImporte) : undefined,
+      max_importe: maxImporte != null && maxImporte !== '' ? Number(maxImporte) : undefined,
+    };
+  }
+
+  @Get('erp-customers')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS360_VER)
+  @ApiOperation({ summary: 'KV.3 — Clientes Kepler con compra agregada 180d.' })
+  erpCustomers(@Query('search') search?: string, @Query('limit') limit?: string) {
+    return this.service.erpCustomers({ search, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('erp-customers/:code/products')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS360_VER)
+  @ApiOperation({ summary: 'KV.3 — Productos comprados por un cliente Kepler.' })
+  erpCustomerProducts(@Param('code') code: string) {
+    return this.service.erpCustomerProducts(code);
+  }
+
+  @Get('erp-promotions')
+  @RequirePermissions(Permission.COMMERCIAL_ERP_PROMOS_VER)
+  @ApiOperation({ summary: 'KV.6 — Promos vigentes del ERP.' })
+  erpPromotions() {
+    return this.service.erpPromotions();
+  }
+
+  @Get('erp-shipments')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'KV.8 — Embarques reales del ERP agregados. ?group_by=route|status|warehouse|day|product ?from ?to ?route ?status' })
+  erpShipments(
+    @Query('group_by') groupBy?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('route') route?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.service.erpShipments({ group_by: groupBy, from, to, route, status });
+  }
+
+  // ─────────── Fase RS — Generador Sell-Out por empresa ───────────
+
+  @Get('sell-out/brands')
+  // Lookup compartido: lo consume Sell-Out y también /comercial/salidas (filtro de marca).
+  // Basta con VER cualquiera de las dos (independencia de permisos entre features).
+  @RequireAnyPermission(Permission.COMMERCIAL_SELLOUT_VER, Permission.COMMERCIAL_SALIDAS_VER)
+  @ApiOperation({ summary: 'RS — Empresas/proveedores (marcas con productos) para el selector de reporte.' })
+  sellOutBrands(@Query('search') search?: string) {
+    return this.service.sellOutBrands(search);
+  }
+
+  @Get('sell-out/warehouses')
+  // Lookup compartido: Sell-Out + /comercial/salidas (filtro de sucursal).
+  @RequireAnyPermission(Permission.COMMERCIAL_SELLOUT_VER, Permission.COMMERCIAL_SALIDAS_VER)
+  @ApiOperation({ summary: 'RS — Almacenes/sucursales con venta EN EL RANGO (para el selector del reporte).' })
+  sellOutWarehouses(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.sellOutWarehouses(from, to);
+  }
+
+  @Get('sell-out/canales')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  @ApiOperation({ summary: 'RS.4 — Árbol CANAL (Sucursal/RD/RV/Mayoreo) para el slicer, acotado al rango.' })
+  sellOutCanales(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.sellOutCanales(from, to);
+  }
+
+  @Get('sell-out/channels')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  @ApiOperation({
+    summary:
+      'VSO.1 — Canales de NEGOCIO que el filtro puede ofrecer, del resolvedor analytics.sellout_channel_map. El front NO los enumera: el vocabulario duplicado fue lo que dejó `mayoreo` ($21.4M/90d) sin casilla. `from_db=false` = respaldo degradado.',
+  })
+  sellOutChannels() {
+    return this.service.sellOutChannels();
+  }
+
+  @Get('sell-out/vendors')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  @ApiOperation({ summary: 'RS.4 — Árbol VENDEDOR (Mayoreo/RD/RV → vendedores) para el slicer, acotado al rango.' })
+  sellOutVendors(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.sellOutVendors(from, to);
+  }
+
+  @Get('sell-out')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  @ApiOperation({
+    summary:
+      'RS — Reporte Sell-Out: matriz Producto × (Sucursal[×Canal]) con cajas + monto. Fuente = analytics.sales_daily. Params: brand_id, from, to, group_by=branch|branch_channel, channels=csv, warehouses=csv (códigos), include_zeros=true.',
+  })
+  sellOut(
+    @Query('brand_id') brandId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('group_by') groupBy?: 'branch' | 'branch_channel',
+    @Query('channels') channels?: string,
+    @Query('warehouses') warehouses?: string,
+    @Query('include_zeros') includeZeros?: string,
+    @Query('search') search?: string,
+    @Query('view') view?: string,
+    @Query('cells') cells?: string,
+    @Query('promo') promo?: string,
+    @Query('layout') layout?: string,
+  ) {
+    return this.service.sellOut(
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo, layout),
+    );
+  }
+
+  @Get('sell-out/by-vendor')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  @ApiOperation({
+    summary:
+      'RS.4 — Sell-Out POR VENDEDOR (solo Wincaja): matriz Producto × Vendedor agrupada MAYOREO/RD/RV. Params: brand_id, from, to, search, cells=csv ("<grupo>|<vendedor>" o "<grupo>|*").',
+  })
+  sellOutByVendor(
+    @Query('brand_id') brandId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('search') search?: string,
+    @Query('cells') cells?: string,
+    @Query('promo') promo?: string,
+  ) {
+    return this.service.sellOutByVendor(
+      this.parseSellOutQuery(brandId, from, to, undefined, undefined, undefined, undefined, search, undefined, cells, promo),
+    );
+  }
+
+  // ─────────── BI.3 — Sub-modulo Analisis: "Explica el cambio" ───────────
+  @Get('sell-out/explain')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({
+    summary:
+      'BI.3 — Explica el cambio: descompone el delta del sell-out por dimension (dim=brand|branch|channel) vs periodo anterior o YoY (compare=prev|yoy). Suma exacta al delta total. Params: from, to, dim, compare, brand_id, measure=monto|neto, promo, search, warehouses=csv.',
+  })
+  sellOutExplain(
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('dim') dim?: string,
+    @Query('compare') compare?: string,
+    @Query('brand_id') brandId?: string,
+    @Query('measure') measure?: string,
+    @Query('promo') promo?: string,
+    @Query('search') search?: string,
+    @Query('warehouses') warehouses?: string,
+    @Query('channel') channel?: string,
+  ) {
+    return this.service.explainChange({
+      from, to, dim, compare, brand_id: brandId, measure, promo, search, channel,
+      warehouses: warehouses ? warehouses.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+    });
+  }
+
+  // ─────────── BI.9 — objetivos / metas ───────────
+  @Get('sell-out/targets')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.9 — Metas del mes vs lo real (total/sucursal/canal). Param: month=YYYY-MM.' })
+  sellOutTargets(@Query('month') month?: string) {
+    return this.service.selloutTargets({ month });
+  }
+
+  @Post('sell-out/targets')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_TARGETS_GESTIONAR)
+  @ApiOperation({ summary: 'BI.9 — Captura/edita una meta. Body: { scope: total|branch|channel, scope_key?, year_month, target_monto }.' })
+  sellOutTargetUpsert(@Body() body: { scope?: string; scope_key?: string; year_month?: string; target_monto?: number }) {
+    return this.service.upsertSelloutTarget(body || {});
+  }
+
+  // ─────────── BI.4 — graficas de soporte (tendencia + Pareto) ───────────
+  @Get('sell-out/series')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.4 — Serie mensual de monto (tendencia). Params: to_month=YYYY-MM, months, brand_id, channel.' })
+  sellOutSeries(@Query('to_month') toMonth?: string, @Query('months') months?: string, @Query('brand_id') brandId?: string, @Query('channel') channel?: string) {
+    return this.service.selloutSeries({ to_month: toMonth, months: months ? Number(months) : undefined, brand_id: brandId, channel });
+  }
+
+  @Get('sell-out/pareto')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.4 — Pareto/ABC: miembros por contribucion con share acumulado y clase. Params: month=YYYY-MM, dim, n, channel.' })
+  sellOutPareto(@Query('month') month?: string, @Query('dim') dim?: string, @Query('n') n?: string, @Query('channel') channel?: string) {
+    return this.service.selloutPareto({ month, dim, n: n ? Number(n) : undefined, channel });
+  }
+
+  // ─────────── BI.6 — "Radar": anomalias proactivas ───────────
+  @Get('sell-out/anomalies')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.6 — Radar: anomalias del sell-out (cada miembro vs su propio promedio). Params: month=YYYY-MM, dim=brand|branch|channel, lookback.' })
+  sellOutAnomalies(@Query('month') month?: string, @Query('dim') dim?: string, @Query('lookback') lookback?: string) {
+    return this.service.selloutAnomalies({ month, dim, lookback: lookback ? Number(lookback) : undefined });
+  }
+
+  // ─────────── BI.5 — "Preguntale al Sell-Out" (chat tool-use, cero numeros del LLM) ───────────
+  @Post('sell-out/ask')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
+  @ApiOperation({ summary: 'BI.5 — Pregunta en lenguaje natural sobre el sell-out. El LLM elige tools deterministas; los numeros salen de la DB. Body: { message, history?, think? }.' })
+  sellOutAsk(@Body() body: { message?: string; history?: { role: 'user' | 'assistant'; content: string }[]; think?: boolean }) {
+    return this.selloutChat.ask({ message: body?.message || '', history: body?.history, think: !!body?.think });
+  }
+
+  @Get('sell-out.xlsx')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  @ApiOperation({ summary: 'RS — Descarga XLSX del reporte Sell-Out (mismos params que /sell-out).' })
+  async sellOutXlsx(
+    @Res() res: Response,
+    @Query('brand_id') brandId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('group_by') groupBy?: 'branch' | 'branch_channel',
+    @Query('channels') channels?: string,
+    @Query('warehouses') warehouses?: string,
+    @Query('include_zeros') includeZeros?: string,
+    @Query('search') search?: string,
+    @Query('view') view?: string,
+    @Query('cells') cells?: string,
+    @Query('mode') mode?: string,
+    @Query('promo') promo?: string,
+    @Query('layout') layout?: string,
+    @Query('measure') measure?: string,
+  ) {
+    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo, layout);
+    const report = mode === 'vendedor' ? await this.service.sellOutByVendor(q) : await this.service.sellOut(q);
+    // RS — la Medida elegida en pantalla manda sobre las subcolumnas del XLSX. Si el
+    // param no viene (llamada vieja/externa) se conservan los defaults históricos:
+    // plaza = sólo CAJAS (formato del reporte manual), matriz = CAJAS+MONTO.
+    const m = measure === 'cajas' || measure === 'monto' || measure === 'ambas' ? measure : undefined;
+    const buf = report.layout === 'plaza'
+      ? await this.exporter.buildPlazaXlsx(report, m ?? 'cajas')
+      : await this.exporter.buildXlsx(report, m ?? 'ambas');
+    this.sendFile(res, buf, this.exporter.fileName(report, 'xlsx'),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
+  @Get('sell-out.pdf')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  @ApiOperation({ summary: 'RS — Descarga PDF del reporte Sell-Out (mismos params que /sell-out).' })
+  async sellOutPdf(
+    @Res() res: Response,
+    @Query('brand_id') brandId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('group_by') groupBy?: 'branch' | 'branch_channel',
+    @Query('channels') channels?: string,
+    @Query('warehouses') warehouses?: string,
+    @Query('include_zeros') includeZeros?: string,
+    @Query('search') search?: string,
+    @Query('view') view?: string,
+    @Query('cells') cells?: string,
+    @Query('mode') mode?: string,
+    @Query('promo') promo?: string,
+    @Query('layout') layout?: string,
+    @Query('measure') measure?: string,
+  ) {
+    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo, layout);
+    const report = mode === 'vendedor' ? await this.service.sellOutByVendor(q) : await this.service.sellOut(q);
+    // Misma regla que el XLSX: la Medida elegida manda; sin param, cajas+monto (default histórico).
+    const m = measure === 'cajas' || measure === 'monto' || measure === 'ambas' ? measure : 'ambas';
+    const buf = await this.exporter.buildPdf(report, m);
+    this.sendFile(res, buf, this.exporter.fileName(report, 'pdf'), 'application/pdf');
+  }
+
+  @Get('salidas')
+  @RequirePermissions(Permission.COMMERCIAL_SALIDAS_VER)
+  @ApiOperation({
+    summary:
+      'SAL — Salidas/Ventas por Producto. Modo AÑO (year → columnas por mes) o RANGO (from/to ISO → Venta/Costo del período, venta diaria). Params: year | from,to · warehouses=csv, brand_id, supplier_id, search.',
+  })
+  salidas(
+    @Query('year') year?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('warehouses') warehouses?: string,
+    @Query('brand_id') brandId?: string,
+    @Query('supplier_id') supplierId?: string,
+    @Query('category_id') categoryId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.service.salidasReport(this.parseSalidasQuery(year, from, to, warehouses, brandId, supplierId, categoryId, search));
+  }
+
+  @Get('salidas/categories')
+  @RequirePermissions(Permission.COMMERCIAL_SALIDAS_VER)
+  @ApiOperation({ summary: 'SAL — categorías de compra (con productos activos) para el filtro de Salidas.' })
+  salidasCategories() { return this.service.salidasCategories(); }
+
+  @Get('salidas.xlsx')
+  @RequirePermissions(Permission.COMMERCIAL_SALIDAS_VER)
+  @ApiOperation({ summary: 'SAL — Descarga XLSX de Salidas por Producto (mismos params que /salidas).' })
+  async salidasXlsx(
+    @Res() res: Response,
+    @Query('year') year?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('warehouses') warehouses?: string,
+    @Query('brand_id') brandId?: string,
+    @Query('supplier_id') supplierId?: string,
+    @Query('category_id') categoryId?: string,
+    @Query('search') search?: string,
+  ) {
+    const report = await this.service.salidasReport(this.parseSalidasQuery(year, from, to, warehouses, brandId, supplierId, categoryId, search));
+    const buf = await this.exporter.buildSalidasXlsx(report);
+    this.sendFile(res, buf, this.exporter.salidasFileName(report),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
+  private parseSalidasQuery(
+    year?: string, from?: string, to?: string, warehouses?: string,
+    brandId?: string, supplierId?: string, categoryId?: string, search?: string,
+  ) {
+    const isRange = !!(from && to);
+    return {
+      year: isRange ? undefined : (year ? Number(year) : new Date().getFullYear()),
+      from: isRange ? from : undefined,
+      to: isRange ? to : undefined,
+      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      brand_id: brandId,
+      supplier_id: supplierId,
+      category_id: categoryId,
+      search,
+    };
+  }
+
+  // ─────────── Fase RR — Ventas por Ruta ───────────
+
+  @Get('route-inventory')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.10 - Inventario de los camiones de Ruta Directa, en las DOS valuaciones (a costo del '
+      + 'embarque y a precio realizado), con el cuadre carga - vendido = inventario cerrando al '
+      + 'centavo en cada columna. Params opcionales: from, to (YYYY-MM-DD); sin ellos devuelve '
+      + 'toda la ventana desde la primera carga documentada de cada ruta. '
+      + 'Kepler NO publica saldo de ruta (kdil y kdij no tienen una sola fila de almacen de ruta): '
+      + 'esto se reconstruye del embarque U-D-41 y de la venta del carril push.',
+  })
+  routeInventory(@Query('from') from?: string, @Query('to') to?: string): Promise<RouteInventoryReport> {
+    return this.service.routeInventory(from, to);
+  }
+
+  @Get('route-inventory/detail')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.10 - El detalle por SKU y unidad de una ruta. La unidad es parte de la llave: el mismo '
+      + 'SKU se carga y se vende en PZA y en PAQ, y restar sin fijar el peldano mezcla piezas con '
+      + 'paquetes (ADR-055). Params: route_no, from, to.',
+  })
+  routeInventoryDetail(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<RouteInventoryDetail> {
+    return this.service.routeInventoryDetail(routeNo, from, to);
+  }
+
+  @Post('route-inventory/count')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_COUNT_REGISTRAR)
+  @ApiOperation({
+    summary:
+      'RD.31 - Registra el CONTEO FISICO de un camion: el ancla. Es lo unico que mata el saldo '
+      + 'que ningun documento explica (Kepler no publica saldo de ruta y no existe documento de '
+      + 'retorno). Medido en la ruta 21 el 2026-10-05: la pantalla publicaba 18,427 y el camion '
+      + 'traia 37,766; el 89% de la diferencia era mercancia que el camion ya traia. '
+      + 'Un conteo RESETEA: lo que no lista queda en CERO. Es el saldo de CIERRE de su dia, los '
+      + 'movimientos entran despues. La fecha la DECLARA quien captura, no el nombre del archivo. '
+      + 'Idempotente por (ruta, fecha): reenviar el mismo dia reemplaza, no acumula.',
+  })
+  registerRouteCount(@Body() body: RouteCountInput): Promise<RouteCountResult> {
+    return this.service.registerRouteCount(body);
+  }
+
+  @Get('route-inventory/series')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.18 - Serie diaria de una ruta: cargado contra vendido, mas el SALDO ACUMULADO del camion '
+      + 'al cierre de cada jornada. El dia en que ese acumulado cruza a negativo es el dia en que '
+      + 'la ruta empezo a vender lo que ya traia. Params: route_no, from, to.',
+  })
+  routeSeries(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): ReturnType<CommercialAnalyticsService['routeSeries']> {
+    return this.service.routeSeries(routeNo, from, to);
+  }
+
+  @Get('route-inventory/shipments')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.19 - Los traspasos (embarques U-D-41) a una ruta, documento por documento. El ledger '
+      + 'agrega al grano (ruta, fecha, clase, sku, unidad) y TIRA el folio; el documento es la '
+      + 'unidad de la respuesta porque es lo que se firma y se reclama. Medido: 25-72 por ruta, '
+      + 'se devuelven todos. Params: route_no, from, to.',
+  })
+  routeShipments(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): ReturnType<CommercialAnalyticsService['routeShipments']> {
+    return this.service.routeShipments(routeNo, from, to);
+  }
+
+  @Get('route-inventory/shipment-lines')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.19+RD.21 - Las lineas de UN embarque, con el costo unitario al que se le cargo cada '
+      + 'producto al camion. `salto_peldano` marca la linea cuyo costo se despega >=2x del mediano '
+      + 'historico de ese SKU: el umbral 2.00 sale de CE.8 (el factor de caja minimo del catalogo), '
+      + 'no de oido. Params: route_no, folio, serie.',
+  })
+  routeShipmentLines(
+    @Query('route_no') routeNo: string,
+    @Query('folio') folio: string,
+    @Query('serie') serie?: string,
+  ): ReturnType<CommercialAnalyticsService['routeShipmentLines']> {
+    return this.service.routeShipmentLines(routeNo, folio, serie);
+  }
+
+  @Get('route-inventory/negatives')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.20 - Los numeros rojos de una ruta, partidos en sus DOS familias y con su antiguedad. '
+      + '`nunca_cargado` = lo vendio sin que nadie se lo cargara en la ventana (mercancia anterior '
+      + 'al primer embarque): NO se puede valuar, se declara. `se_acabo` = se le cargo, lo vendio '
+      + 'todo y siguio vendiendo: es la familia accionable. `desde` es el primer dia en que el '
+      + 'saldo acumulado cruzo a negativo. Params: route_no, from, to.',
+  })
+  routeNegatives(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): ReturnType<CommercialAnalyticsService['routeNegatives']> {
+    return this.service.routeNegatives(routeNo, from, to);
+  }
+
+  @Get('sales-by-route/routes')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({ summary: 'RR — Opciones del filtro: SOLO las rutas del reporte (value = warehouse_code|route_code).' })
+  salesByRouteRoutes() {
+    return this.service.salesByRouteRoutes();
+  }
+
+  @Get('sales-by-route/products')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({ summary: 'RR — Opciones del filtro por producto (SKUs vendidos en ruta).' })
+  salesByRouteProducts() {
+    return this.service.salesByRouteProducts();
+  }
+
+  @Get('sales-by-route/clients')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({ summary: 'RR — Opciones del filtro por cliente (clientes de ruta, sin público).' })
+  salesByRouteClients() {
+    return this.service.salesByRouteClients();
+  }
+
+  @Get('sales-by-route/dashboard')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RR [AUD-DAT.18] - Los bloques REALES de /dashboard/ventas-detalle para un rango: serie '
+      + 'diaria y COBERTURA DEL COSTO. Reemplaza bloques que el frontend inventaba (la serie se '
+      + 'repartia con pesos por dia de semana y una ondulacion derivada del indice del bucle; el '
+      + 'margen era un 12.5 % plano). Medido en prod: el costo solo existe en el 12.4 % de la '
+      + 'venta de ruta del ultimo mes cerrado, asi que el margen viaja con revenue_with_cost y su '
+      + 'cost_coverage_pct en vez de publicarse sobre la venta total. [AUD-DAT.20] Las dos listas '
+      + 'pesadas se mudaron a sales-by-route/tops: esto responde en 7 ms y pinta la pantalla. '
+      + 'Params: from, to (YYYY-MM-DD).',
+  })
+  salesByRouteDashboard(@Query('from') from: string, @Query('to') to: string) {
+    return this.service.salesByRouteDashboard(from, to);
+  }
+
+  @Get('sales-by-route/tops')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RR [AUD-DAT.20] - Top 10 productos y top 10 clientes de ruta en un rango. Endpoint APARTE '
+      + 'porque cuesta tres ordenes de magnitud mas que el resto del tablero (serie + cobertura '
+      + '7 ms contra 3,941 ms de estas dos listas) y vive debajo del pliegue: la pantalla pinta '
+      + 'sin esperarlo y estas listas llegan despues. Ademas acota las ramas de Wincaja con una '
+      + 'cota CONSULTADA (la venta de ruta migro a Kepler y Wincaja no aporta desde el 2026-08-12) '
+      + ', lo que baja una ventana post-corte de 3,941 ms a 195 ms con resultado identico. La '
+      + 'respuesta declara en "fuente" si Wincaja entro y por que. Params: from, to (YYYY-MM-DD).',
+  })
+  salesByRouteTops(@Query('from') from: string, @Query('to') to: string) {
+    return this.service.salesByRouteTops(from, to);
+  }
+
+  @Get('sales-by-route/detail')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({ summary: 'RR — Desglose de una ruta: productos, serie diaria, clientes y tickets. Params: route (WIN-<code>), year.' })
+  salesByRouteDetail(
+    @Query('route') route: string,
+    @Query('year') year?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('sku') sku?: string,
+    @Query('client') client?: string,
+    @Query('unit') unit?: string,
+  ) {
+    return this.service.salesByRouteDetail(route, year ? Number(year) : new Date().getFullYear(), {
+      from: from?.trim() || undefined,
+      to: to?.trim() || undefined,
+      sku: sku?.trim() || undefined,
+      client: client?.trim() || undefined,
+      unit: unit?.trim() || undefined,
+    });
+  }
+
+  @Get('sales-by-route/tickets')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RR2 — Tickets de una ruta, paginado server-side. `route` es obligatoria (sin scope barre la tabla-hecho). '
+      + 'Filtros: from/to o year, client, sku, unit, payment_method, doc_type, min/max_revenue, q. '
+      + 'sort=date|revenue|units|lines|margin · dir=asc|desc · limit≤500.',
+  })
+  salesByRouteTickets(
+    @Query('route') route: string,
+    @Query('year') year?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('client') client?: string,
+    @Query('sku') sku?: string,
+    @Query('unit') unit?: string,
+    @Query('payment_method') paymentMethod?: string,
+    @Query('doc_type') docType?: string,
+    @Query('min_revenue') minRevenue?: string,
+    @Query('max_revenue') maxRevenue?: string,
+    @Query('q') q?: string,
+    @Query('sort') sort?: string,
+    @Query('dir') dir?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.service.salesByRouteTickets({
+      route,
+      year: year ? Number(year) : undefined,
+      from: from?.trim() || undefined,
+      to: to?.trim() || undefined,
+      client: client?.trim() || undefined,
+      sku: sku?.trim() || undefined,
+      unit: unit?.trim() || undefined,
+      paymentMethod: paymentMethod?.trim() || undefined,
+      docType: docType?.trim() || undefined,
+      minRevenue: minRevenue != null && minRevenue !== '' ? Number(minRevenue) : undefined,
+      maxRevenue: maxRevenue != null && maxRevenue !== '' ? Number(maxRevenue) : undefined,
+      q: q?.trim() || undefined,
+      sort: sort as any,
+      dir: dir as any,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+  }
+
+  @Get('sales-by-route/ticket')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RR2 — Un ticket con sus renglones: unidad en la que se vendió, precio unitario, equivalencia en cajas '
+      + '(factor canónico, sólo si el renglón se vendió en esa unidad), costo/margen e impuestos. '
+      + 'Param: key = `source|route|YYYY-MM-DD|consecutivo` (el folio no es único entre rutas y días).',
+  })
+  salesByRouteTicket(@Query('key') key: string) {
+    return this.service.salesByRouteTicket(key);
+  }
+
+  @Get('sales-by-route/closure-reconciliation')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({ summary: 'RR — Conciliación cierre de ruta vs venta real (histórico D+1): incidencias cierre_faltante/descuadre/cierre_sin_venta. Params: from, to (YYYY-MM-DD).' })
+  routeClosureReconciliation(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.routeClosureReconciliation(from?.trim() || undefined, to?.trim() || undefined);
+  }
+
+  @Get('sales-by-route')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RR — Ventas por Ruta: SOLO rutas reales (venta a bordo Wincaja, WIN-). Fila por (sucursal, ruta) mes a mes + share%. Params: year, routes=csv (warehouse_code|route_code).',
+  })
+  salesByRoute(
+    @Query('year') year?: string,
+    @Query('routes') routes?: string,
+    @Query('sku') sku?: string,
+    @Query('client') client?: string,
+  ) {
+    return this.service.salesByRoute({
+      year: year ? Number(year) : new Date().getFullYear(),
+      routes: routes ? routes.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      sku: sku?.trim() || undefined,
+      client: client?.trim() || undefined,
+    });
+  }
+
+  @Post('sales-by-route/promo')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'RR-PROMO — Evalúa una mecánica de incentivo de ruta (RD) desde un ENUNCIADO en lenguaje natural. ' +
+      'Haiku traduce el enunciado a regla; un motor SQL determinista calcula el pago por ruta. ' +
+      'Body: { enunciado, year? | from?+to?, sku?, rule? }.',
+  })
+  routePromo(@Body() body: PromoQuery) {
+    return this.routePromoSvc.evaluate(body || {});
+  }
+
+  @Post('sales-by-route/promo.xlsx')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({ summary: 'RR-PROMO — XLSX del incentivo (resumen por ruta + clientes que participaron). Body igual que /promo.' })
+  async routePromoXlsx(@Res() res: Response, @Body() body: PromoQuery) {
+    const r = await this.routePromoSvc.evaluate(body || {});
+    const buf = await this.exporter.buildPromoXlsx(r);
+    this.sendFile(res, buf, this.exporter.promoFileName(r, 'xlsx'),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
+  @Post('sales-by-route/promo.pdf')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({ summary: 'RR-PROMO — PDF del incentivo (resumen por ruta + clientes que participaron). Body igual que /promo.' })
+  async routePromoPdf(@Res() res: Response, @Body() body: PromoQuery) {
+    const r = await this.routePromoSvc.evaluate(body || {});
+    const buf = await this.exporter.buildPromoPdf(r);
+    this.sendFile(res, buf, this.exporter.promoFileName(r, 'pdf'), 'application/pdf');
+  }
+
+  @Get('sales-by-route.xlsx')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({ summary: 'RR — Descarga XLSX de Ventas por Ruta (mismos params que /sales-by-route).' })
+  async salesByRouteXlsx(
+    @Res() res: Response,
+    @Query('year') year?: string,
+    @Query('routes') routes?: string,
+    @Query('sku') sku?: string,
+    @Query('client') client?: string,
+  ) {
+    const report = await this.service.salesByRoute({
+      year: year ? Number(year) : new Date().getFullYear(),
+      routes: routes ? routes.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      sku: sku?.trim() || undefined,
+      client: client?.trim() || undefined,
+    });
+    const buf = await this.exporter.buildSalesByRouteXlsx(report);
+    this.sendFile(res, buf, this.exporter.salesByRouteFileName(report),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
+  // ─────────── Fase T — Traspasos (movimientos que NO son venta) ───────────
+
+  @Get('transfers')
+  @RequirePermissions(Permission.LOGISTICS_TRANSFERS_VER)
+  @ApiOperation({
+    summary:
+      'T — Traspasos / movimientos que NO son venta (consolidación UD06, recepción UA50, traspasos): fila por (sucursal, tipo) mes a mes + share%. Params: year, warehouses=csv.',
+  })
+  transfers(@Query('year') year?: string, @Query('warehouses') warehouses?: string) {
+    return this.service.transfersReport({
+      year: year ? Number(year) : new Date().getFullYear(),
+      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+    });
+  }
+
+  @Get('transfers.xlsx')
+  @RequirePermissions(Permission.LOGISTICS_TRANSFERS_VER)
+  @ApiOperation({ summary: 'T — Descarga XLSX de Traspasos (mismos params que /transfers).' })
+  async transfersXlsx(
+    @Res() res: Response,
+    @Query('year') year?: string,
+    @Query('warehouses') warehouses?: string,
+  ) {
+    const report = await this.service.transfersReport({
+      year: year ? Number(year) : new Date().getFullYear(),
+      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+    });
+    const buf = await this.exporter.buildTransfersXlsx(report);
+    this.sendFile(res, buf, this.exporter.transfersFileName(report),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
+  private parseSellOutQuery(
+    brandId: string,
+    from: string,
+    to: string,
+    groupBy?: 'branch' | 'branch_channel',
+    channels?: string,
+    warehouses?: string,
+    includeZeros?: string,
+    search?: string,
+    view?: string,
+    cells?: string,
+    promo?: string,
+    layout?: string,
+  ) {
+    const csv = (s?: string) => (s ? s.split(',').map((v) => v.trim()).filter(Boolean) : undefined);
+    const parsedView = view === 'month_columns' || view === 'month_summary'
+      ? (view as 'month_columns' | 'month_summary')
+      : undefined;
+    return {
+      brand_id: brandId,
+      from,
+      to,
+      group_by: groupBy,
+      view: parsedView,
+      channels: csv(channels),
+      warehouses: csv(warehouses),
+      cells: csv(cells),
+      include_zeros: includeZeros === 'true',
+      search: search?.trim() || undefined,
+      promo: (promo === 'solo' || promo === 'todo') ? (promo as 'solo' | 'todo') : undefined,
+      layout: layout === 'plaza' ? ('plaza' as const) : undefined,
+    };
+  }
+
+  private sendFile(res: Response, buf: Buffer, filename: string, contentType: string) {
+    res.setHeader('Content-Type', contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename.replace(/[^ -~]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    res.setHeader('Content-Length', String(buf.length));
+    res.end(buf);
+  }
+}

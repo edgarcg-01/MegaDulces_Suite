@@ -1,0 +1,1543 @@
+/*
+ * [SN.3] [SN.8] [SN.9] [SN.10] [SN.11] Mi trabajo — la landing.
+ *
+ * SN.11 cambia la apuesta, no el estilo. Hasta SN.10 la pantalla ERA el menú: las 22 puertas se
+ * comían el lienzo y el trabajo quedaba en una tira de píldoras, así que cada ronda de "que quepa"
+ * costaba contenido (SN.10 documentó nueve defectos, dos de ellos hacían MENTIR a la pantalla sobre
+ * a quién le toca el trabajo). Ahora son DOS COLUMNAS: el trabajo a la izquierda, fijo; las puertas
+ * a la derecha, rodando dentro de su columna. Nada se corta para caber.
+ *
+ * La TARJETA se conserva —es el organismo aprobado— y recupera el aire que la compresión le quitó,
+ * más la línea de grupo que se calculaba y nunca se pintaba. La regla "sin card grid" de DESIGN.md
+ * gobierna las superficies de DATOS de Operations; ésta es el lanzador.
+ *
+ * Tokens de libs/design-tokens/tokens.css; dark sale solo (body.theme-monochrome).
+ * Breakpoints en rem (DESIGN.md §9), no en px.
+ */
+:host { display: block; }
+
+.mt-page {
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--layout-bg);
+  color: var(--text-main);
+  overflow: hidden;
+}
+
+/* ── Cabecera de identidad ──────────────────────────────────────────────── */
+.mt-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border-color);
+  padding: calc(var(--sp-3) + env(safe-area-inset-top)) calc(var(--sp-6) + env(safe-area-inset-right))
+           var(--sp-3) calc(var(--sp-6) + env(safe-area-inset-left));
+}
+.mt-id { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; flex: 1 1 auto; }
+.mt-avatar {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-pill);
+  background: var(--action);
+  color: var(--action-ink);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: .02em;
+}
+.mt-id-txt { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mt-name {
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-bold);
+  line-height: 1.2;
+  letter-spacing: -.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Contexto: una línea de valores separados por punto medio. La etiqueta existe para el lector
+   de pantalla — "Puesto", "Alcance" y "Periodo" no necesitan ocupar pixeles para que se entienda. */
+.mt-ctx { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-2); min-width: 0; }
+.mt-ctx-cell { display: flex; align-items: baseline; min-width: 0; }
+.mt-ctx-cell + .mt-ctx-cell::before {
+  content: "·";
+  color: var(--text-faint);
+  padding-right: var(--sp-2);
+}
+.mt-ctx-k {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.mt-ctx-v {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mt-ctx-v.is-ausente { color: var(--text-faint); font-style: italic; }
+
+.mt-ctx-err { font-size: var(--fs-xs); color: var(--text-faint); }
+
+.mt-linkbtn {
+  background: none;
+  border: 0;
+  padding: 0 0 0 var(--sp-1);
+  color: var(--action);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.mt-linkbtn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* ── Buscador ───────────────────────────────────────────────────────────── */
+/*
+ * `[SN.14]` UN solo elemento dibuja el foco, y es el input.
+ *
+ * Antes el anillo lo pintaba el CONTENEDOR (`:focus-within` con borde + halo) y el input traía
+ * además el suyo, porque `styles.css:753` declara
+ *     input:focus { outline: 2px solid var(--action) !important; outline-offset: 2px !important; }
+ * y ese `!important` global se come cualquier `outline: none` de componente. Resultado medido: dos
+ * anillos concéntricos de formas distintas — el de afuera con radio 12 px, el de adentro
+ * RECTANGULAR (el input no tenía radio) y además excluyendo la lupa y el `Ctrl K`, que quedaban
+ * fuera de su caja.
+ *
+ * La salida no es pelear `!important` contra `!important` —DESIGN.md lo veta como primera
+ * herramienta— sino que el input DEJE de ser un trozo del control y pase a SER el control: ocupa
+ * toda la caja, lleva el borde y el radio, y la lupa y la tecla se superponen sin quitarle área.
+ * Así el anillo global cae justo donde debe, con la forma correcta, y no hace falta anular nada.
+ * ⚠️ Medido antes de culpar al global: `focus-within` aparecía en UN solo archivo de la app — el
+ * de esta pantalla. El choque lo introdujo este componente, no el global.
+ */
+.mt-search { position: relative; flex: 0 1 24rem; min-width: 0; display: flex; }
+.mt-search-input {
+  width: 100%;
+  height: 2.25rem;
+  /* Sitio para la lupa a la izquierda y para la tecla (o la X) a la derecha. */
+  padding: 0 4rem 0 2.25rem;
+  background: var(--layout-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.mt-search-input::placeholder { color: var(--text-faint); }
+/* La X nativa del `type=search` duplicaría nuestro botón de limpiar. */
+.mt-search-input::-webkit-search-cancel-button { display: none; }
+
+.mt-search-ico {
+  position: absolute;
+  left: var(--sp-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  pointer-events: none; /* clic en la lupa = clic en el campo */
+}
+.mt-search-clear {
+  position: absolute;
+  right: var(--sp-2);
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: var(--sp-1);
+  font-size: var(--fs-xs);
+  line-height: 1;
+}
+.mt-search-clear:hover { color: var(--text-main); }
+.mt-search-clear:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.mt-kbd {
+  position: absolute;
+  right: var(--sp-2);
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-nano);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-sm);
+  padding: 1px var(--sp-1);
+  background: var(--card-bg);
+  pointer-events: none;
+}
+
+/* ── Cuerpo: dos columnas ───────────────────────────────────────────────── */
+/*
+ * 30rem y no 34: medido en vivo, la columna de trabajo no necesita más (sus 7 filas no cortan una
+ * sola línea a ningún ancho probado) y los 64 px que suelta hacen crecer cada tarjeta de 249 a 262,
+ * lo que baja de 3 a 2 las segundas líneas que piden un tercer renglón. De 30 a 28 ya no gana nada.
+ */
+/*
+  [SN.28] SIN tope de ancho: la pagina usa el monitor entero.
+
+  Aca hubo un `max-width: 97rem` con centrado, y nacio para tapar un problema de otro lado: cuando
+  el catalogo se repartia por `column-width`, a 1950 px de panel se abria en 5 columnas finas para
+  7 grupos y el equilibrado dejaba de tener con que. El tope lo evitaba, pero el precio, medido a
+  1986 px de pantalla, eran **434 px de margen muerto** a los lados.
+
+  Se retira porque la causa se arreglo de raiz: `.mt-espacios` ahora CUENTA sus columnas en vez de
+  declarar su ancho, asi que se estiran hasta llenar el panel y nunca se multiplican solas. El
+  sobrante va a las columnas, no a un margen.
+
+  ⚠️ La columna de trabajo sigue clavada en 30rem a proposito: es una lista de texto, y estirarla
+  solo alarga el renglon. Todo el ancho extra es del catalogo, que si lo aprovecha.
+*/
+.mt-body {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--sp-6);
+  min-height: 0;
+  padding: var(--sp-5) calc(var(--sp-6) + env(safe-area-inset-right))
+           calc(var(--sp-4) + env(safe-area-inset-bottom)) calc(var(--sp-6) + env(safe-area-inset-left));
+}
+.mt-col { min-height: 0; display: flex; flex-direction: column; }
+/*
+ * La columna de trabajo es la fija. El `overflow` es un seguro, no un recurso de layout: hoy el
+ * máximo son 8 bandejas (~420px) contra ~900 disponibles. Si algún día no cupiera, rueda — antes
+ * que cortar, que es el daño que esta fase vino a arreglar.
+ */
+/*
+  [SN.28] Las dos columnas dejan de ser «una fija y el resto»: son TRAMOS de la rejilla de 12.
+
+  Antes la de trabajo estaba clavada en 30rem y el catalogo se quedaba con todo el sobrante -- a
+  1986 px de pantalla eso eran ~1950 px para 24 destinos, y a 2533 la mitad del monitor en huecos.
+  Con 4 y 8 doceavos las dos crecen juntas: la de trabajo pasa de 480 px fijos a ~630 a 1986 (mas
+  ancho, menos renglones cortados) y el catalogo baja de 1426 a ~1270, que es justo lo que necesita
+  para tres celdas por fila.
+*/
+.mt-work { grid-column: span 4; overflow: auto; }
+/*
+ * `[SN.12]` El delimitante. Antes las dos columnas sólo estaban separadas por un `gap`, y sin una
+ * línea no se leían como dos cosas distintas — parecía una sola superficie con un hueco. Hairline,
+ * como todo separador del sistema (DESIGN.md: la profundidad la lleva el borde de 1 px, no sombra).
+ */
+/*
+  [SN.28] `container-type` para que el catalogo mida SU panel, no la ventana.
+
+  La isla de cada grupo se encendia con `@media (min-width: 100rem)`, y eso es medir la cosa
+  equivocada: lo que decide si la isla cabe no es el ancho del monitor sino el del panel derecho, y
+  entre los dos hay una columna fija de 30rem, dos paddings y un hueco. Con el cuerpo acotado a
+  97rem el panel se queda en 62rem aunque la ventana tenga 158. La consulta de contenedor pregunta
+  por el ancho real (Baseline desde agosto 2025, ~93% de soporte).
+
+  ⚠️ `container-type: inline-size` aplica `contain: layout`, que convierte al elemento en bloque
+  contenedor de sus descendientes absolutos. Verificado antes de ponerlo: los cinco `position:
+  absolute` del componente viven en la cabecera y en la columna de trabajo -- ninguno aca adentro.
+*/
+.mt-spaces {
+  grid-column: span 8;
+  overflow: hidden;
+  border-left: 1px solid var(--border-color);
+  padding-left: var(--sp-6);
+  container-type: inline-size;
+  container-name: espacios;
+}
+
+.mt-col-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--border-color);
+}
+.mt-col-h {
+  margin: 0;
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: var(--fw-bold);
+  color: var(--text-muted);
+}
+.mt-col-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+}
+.mt-col-meta .is-ausente { font-style: italic; }
+
+/* ── Tu trabajo ─────────────────────────────────────────────────────────── */
+/*
+ * `[SN.13]` El titular: la única headline metric de la vista (DESIGN.md permite una). No lleva
+ * caja — el peso lo da la cifra, no una superficie más — y se apoya en la regla que ya separa la
+ * cabecera de la columna.
+ */
+.mt-titular {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+.mt-titular-n {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-display);
+  font-weight: var(--fw-black);
+  letter-spacing: -.04em;
+  line-height: 1;
+  color: var(--text-main);
+}
+/*
+ * `[SN.29]` Un 0 propio se pinta, y se pinta ATENUADO. Que nadie te haya asignado nada es el hecho
+ * medido —hoy 94 de 122 personas no tienen responsabilidad declarada— y esconderlo fue el error
+ * que `[SN.11]` ya corrigió para el bloque «A tu nombre». Pero un 0 a 40 px en negro pleno grita
+ * como si fuera una cifra, y no lo es: es una ausencia.
+ */
+.mt-titular-n.is-cero { color: var(--text-faint); font-weight: var(--fw-bold); }
+.mt-titular-txt { display: flex; flex-direction: column; min-width: 0; }
+.mt-titular-l { font-size: var(--fs-body); font-weight: var(--fw-medium); line-height: 1.25; }
+.mt-titular-d { font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.3; }
+
+.mt-grupo + .mt-grupo { margin-top: var(--sp-5); }
+.mt-grupo-tag {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-faint);
+}
+
+/*
+ * `[SN.13]` La fila es un OBJETO, no una línea de texto.
+ *
+ * Medido antes de tocarla: la columna de trabajo tenía **0** elementos con superficie propia
+ * contra 30 de la columna de puertas — 0 % de área contra 36 %. El ojo va a donde hay objetos, así
+ * que la columna que la fase declaró protagonista era la que menos presencia tenía. Ahora comparte
+ * el mismo cuerpo que una puerta: fondo de tarjeta, hairline y radio. Sin sombra (DESIGN.md: la
+ * profundidad in-page la lleva el borde).
+ */
+.mt-task {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--row-h-lg);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
+  margin-bottom: var(--sp-2);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out);
+}
+.mt-task:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+.mt-task:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+/* Riel de pertenencia: sunset = es TUYO; neutro = es una cola que abre tu permiso. */
+.mt-task::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: var(--sp-2);
+  bottom: var(--sp-2);
+  width: 3px;
+  border-top-left-radius: 0;
+  border-radius: var(--r-pill);
+  background: var(--border-color);
+}
+.mt-task.is-mine::before { background: var(--action); }
+.mt-task-n {
+  flex: none;
+  width: 4rem;
+  text-align: right;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-bold);
+  letter-spacing: -.02em;
+  line-height: 1.1;
+}
+.mt-task.is-mine .mt-task-n { color: var(--action); }
+/*
+ * `[SN.13]` `MePendiente.icono` llegaba del backend desde SN.7 y nunca se pintó — quedó declarado
+ * como deuda en SN.11. Acá gana su chip, el mismo organismo que el de una puerta: le da cuerpo a
+ * la fila y empareja las dos columnas.
+ */
+.mt-task-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--layout-bg);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.mt-task.is-mine .mt-task-ico { background: var(--action); color: var(--action-ink); }
+
+.mt-task-txt { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
+.mt-task-l {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.mt-task:hover .mt-task-l { text-decoration: underline; text-underline-offset: 3px; }
+/*
+ * `[SN.13]` Dos renglones, por el mismo motivo que la segunda linea de la tarjeta: al ganar el chip
+ * de icono la fila perdio ancho y 3 de 7 detalles pasaron a cortarse. Un solo criterio en toda la
+ * pantalla -- nada se corta para caber, y en esta columna sobra alto.
+ */
+.mt-task-d {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+  line-height: 1.3;
+  overflow: hidden;
+}
+/*
+ * `[SN.12]` Hace cuánto espera el más viejo de la cola. Es el dato que ORDENA la bandeja, así que
+ * se muestra: sin él, "1,865 arriba y 5 abajo" parecía un orden por tamaño y no por urgencia.
+ * Sin semáforo a propósito — un umbral de "viejo" sería inventado; el orden ya lo dice.
+ */
+.mt-task-edad {
+  flex: none;
+  min-width: 2.75rem;
+  text-align: right;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+}
+.mt-task-go { flex: none; color: var(--text-faint); font-size: var(--fs-xs); }
+.mt-task:hover .mt-task-go { color: var(--action); }
+
+/*
+ * `[SN.29]` ── El veredicto de la cola ───────────────────────────────────────────────────────────
+ *
+ * PUNTO + TEXTO, nunca pastilla llena. Es la lección que `[SN.16]` ya trajo del riel de meses del
+ * Libro de Compras: *«105 pastillas de color le compiten a la única acción naranja»*. Acá son
+ * pocas filas, pero el principio es el mismo — el estado orienta, no alarma, y la única superficie
+ * saturada de la pantalla sigue siendo la acción.
+ *
+ * Y `al_dia` NO tiene regla: lo sano no lleva insignia. Si las cinco filas la llevaran volverían a
+ * verse todas iguales, que es exactamente el defecto que esto corrige.
+ */
+.mt-veredicto {
+  display: inline-flex;
+  align-items: center;
+  gap: .3em;
+  margin-left: var(--sp-2);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.mt-veredicto::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+/* Crece: entran más de las que salen. Es lo único que el trabajo de hoy puede frenar. */
+.is-v-se_acumula .mt-veredicto { color: var(--bad-fg); }
+/* Atrasada: se trabaja, pero el más viejo pasó su umbral declarado. */
+.is-v-atrasada   .mt-veredicto { color: var(--warn-fg); }
+/*
+ * Congelada y sin medir van en NEUTRO a propósito. No son alarmas que la persona pueda apagar
+ * trabajando: una necesita dueño y la otra necesita que alguien arregle la medición. Pintarlas de
+ * rojo pediría atención sobre algo que el clic no resuelve — y una alarma que no se puede atender
+ * enseña a ignorar el tablero (la lección del `fleet_gps` en `[VL.4b]`).
+ */
+.is-v-congelada  .mt-veredicto,
+.is-v-sin_medir  .mt-veredicto { color: var(--text-faint); }
+
+/*
+ * `[SN.29]` La línea de flujo. Es la tercera de la fila y la más chica: el número manda, la
+ * etiqueta explica, y esto CALIFICA. Se corta al final, nunca a media palabra.
+ */
+.mt-task-flujo {
+  display: block;
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── `[SN.33]` Desglose de una bandeja: un renglón por fila ─────────────────────────────────
+   Va INDENTADO y con una guía a la izquierda porque pertenece a la fila de arriba. Sin esa
+   pertenencia visual los renglones se leerían como bandejas nuevas y la portada pasaría de 2
+   colas a 8, que es lo contrario de lo que el desglose viene a hacer.
+
+   ⛔ NO son enlaces (`li`, no `a`): la pantalla que los resuelve es la de la bandeja. */
+.mt-desglose {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--border-color);
+  margin-left: 21px; /* alinea la guía bajo el icono de la bandeja */
+}
+.mt-dg {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 3px 0;
+  min-width: 0;
+}
+/* La gravedad es la primera columna y tiene ancho FIJO: es lo que se escanea verticalmente. */
+.mt-dg-nivel {
+  flex: none;
+  width: 4.6rem;
+  font-size: var(--fs-nano);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+.mt-dg.is-n-critical .mt-dg-nivel { color: var(--bad-fg); }
+.mt-dg.is-n-warn     .mt-dg-nivel { color: var(--warn-fg); }
+/* `[SN.33]` Sin nivel declarado NO se pinta como aviso: queda en tinta apagada y lo dice. */
+.mt-dg.is-n-sin      .mt-dg-nivel { color: var(--text-faint); font-style: italic; }
+.mt-dg-txt { min-width: 0; flex: 1; }
+.mt-dg-l {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mt-dg-n {
+  display: block;
+  font-size: var(--fs-nano);
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mt-dg-edad {
+  flex: none;
+  font-size: var(--fs-nano);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.mt-dg.is-mas {
+  font-size: var(--fs-nano);
+  color: var(--text-faint);
+  padding-left: calc(4.6rem + 9px);
+}
+
+/* `[SN.29]` La declaración de las colas congeladas. Tono neutro: es un hecho, no una alarma. */
+.mt-congeladas {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  font-size: var(--fs-micro);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.mt-congeladas .pi { flex: none; margin-top: .15em; color: var(--text-faint); }
+
+/*
+ * `[SN.15]` El vencimiento ocupa el MISMO lugar que la antigüedad, y por eso hereda su caja: en
+ * una tarea la pregunta útil es "¿para cuándo?", y en una cola "¿desde cuándo?". Nunca aparecen
+ * las dos — la plantilla elige una.
+ */
+.mt-task-vence {
+  flex: none;
+  min-width: 2.75rem;
+  text-align: right;
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+}
+/*
+ * Vencido es el ÚNICO estado semántico de esta columna. El color va sólo acá porque codifica un
+ * dato (ya pasó la fecha), que es la excepción que DESIGN.md declara — no decora la fila.
+ */
+/*
+ * `[SN.29]` ⚠️ Acá decía `var(--danger, #b42318)` y **`--danger` no existe en `tokens.css`**: el
+ * fallback ganaba SIEMPRE, así que el vencido se pintaba con un hex fijo que no se adapta al modo
+ * oscuro (donde el rojo tiene que subir a `#F87171` para mantener contraste sobre zinc-950). El
+ * token correcto es `--bad-fg`, que ya redefine su valor en el bloque oscuro.
+ */
+.mt-task-vence.is-vencido { color: var(--bad-fg); font-weight: var(--fw-medium); }
+
+/*
+ * Te asignaron la tarea y tu permiso no abre su pantalla. Se muestra igual —esconderla taparía
+ * que quien reparte y quien puede abrir no coinciden— pero NO finge ser un enlace: sin cursor,
+ * sin flecha, sin hover. El candado lo dice antes de leer.
+ */
+.mt-task.is-bloqueada {
+  cursor: default;
+  opacity: .78;
+  border-style: dashed;
+}
+.mt-task.is-bloqueada:hover { border-color: var(--border-color); transform: none; }
+.mt-task.is-bloqueada .mt-task-ico { background: var(--layout-bg); color: var(--text-muted); }
+.mt-task.is-bloqueada .mt-task-n { color: var(--text-muted); }
+
+/* Sobre qué universo se contó. Es procedencia, no adorno: va tenue y dentro de la 2ª línea. */
+.mt-task-ambito { color: var(--text-faint); }
+
+/* No hay trabajo a tu nombre — y el porqué cambia según haya reparto o no: se dice, no se disimula. */
+.mt-sin-mio {
+  margin: 0;
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  padding: var(--sp-3);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--r-md);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.mt-sin-mio > i { color: var(--text-faint); margin-top: 2px; }
+.mt-sin-mio b { display: block; font-weight: var(--fw-medium); color: var(--text-main); }
+.mt-sin-mio-why { display: block; color: var(--text-faint); line-height: 1.4; }
+
+.mt-nada {
+  margin: var(--sp-3) 0 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.mt-declarado {
+  margin: var(--sp-4) 0 0;
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--overlay-hover, transparent);
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.mt-declarado > i { color: var(--warn-fg); margin-top: 2px; }
+.mt-declarado b { color: var(--text-main); font-weight: var(--fw-medium); }
+/*
+  [SN.21] La misma caja, en tono neutro. El recorte por reparto es una EXPLICACION, no una alarma:
+  con el icono en ambar competia por atencion con lo que si la necesita (una bandeja sin medir).
+*/
+.mt-declarado.is-nota > i { color: var(--text-faint); }
+
+.mt-refresh {
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 0;
+  font-size: var(--fs-xs);
+}
+.mt-refresh:hover:not(:disabled) { color: var(--text-main); }
+.mt-refresh:disabled { opacity: .6; cursor: default; }
+.mt-refresh:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.is-spin { display: inline-block; animation: mt-spin 1s linear infinite; }
+@keyframes mt-spin { to { transform: rotate(360deg); } }
+
+/* ── Tus espacios: la única zona que rueda ──────────────────────────────── */
+.mt-scroll {
+  min-height: 0;
+  overflow: auto;
+  padding-right: var(--sp-2);
+}
+/*
+  [SN.27] LOS ESPACIOS EN COLUMNAS. El hueco no estaba en la celda, estaba en el GRUPO: cada uno
+  ocupaba una franja de ancho completo, asi que "Administracion y Finanzas" con 2 tarjetas dejaba
+  3 huecos a su derecha y "Direccion General" con 1 dejaba 6. Medido antes: 52% de ocupacion a
+  1920 (20 huecos de 42 celdas) y 63% a 1440.
+
+  Multicolumna y no grid, por una razon concreta: el navegador BALANCEA las columnas al mismo alto.
+  Un grid de espacios los acomoda fila por fila, y entonces la altura de cada fila es la del grupo
+  mas alto -- el hueco vuelve, girado 90 grados.
+
+  Manda el ANCHO de columna, no un numero fijo de columnas: asi la laptop parte en 2 y el
+  escritorio en 3 sin una sola consulta de medios. 23rem es el ancho que hace entrar DOS celdas por
+  columna en las tres pantallas medidas (1366, 1440, 1920).
+*/
+/*
+  [SN.28] CELDAS EN UNA REJILLA DE 12, con el tramo calculado para que la ultima fila CIERRE.
+
+  ── La historia corta, porque costo seis rondas ────────────────────────────────────────────────
+  Aca vivieron, en orden: `columns: 21rem` (multi-columna, equilibra por ALTURA y dejaba la cuarta
+  columna a 184 de 368), una rejilla de grupos (ALINEA por fila, y los grupos cortos dejaban ~15
+  celdas de hueco), `columns: 14rem` con tope (434 px de canaleta muerta a 1986 px de pantalla) y
+  `column-count` (sin canaleta, pero con 7 grupos en 3 columnas el reparto da 3+3+1 y la tercera
+  queda **436 px mas corta**).
+
+  ⭐ Todas fallaron por lo mismo: los 7 grupos son bloques indivisibles de altura muy dispareja
+  --alturas 106 · 386 · 218 · 218 · 330 · 162 · 274, Comercial es 3.6x Direccion General-- y
+  ninguna cantidad de columnas los reparte parejo. El error de metodo fue medir el alto TOTAL
+  contra el disponible y darlo por bueno; lo que se ve en pantalla es el DESNIVEL entre columnas.
+
+  ── Lo que cambia de raiz ──────────────────────────────────────────────────────────────────────
+  Ya no se reparte nada: cada espacio es una CELDA con su tramo, y el tramo se calcula sobre
+  cuantos espacios ve esa persona (`tramoEspacio()` en el .ts). De a 3 por fila; si sobra uno toma
+  la fila entera, si sobran dos se parten la fila. **La ultima fila siempre cierra**, con 2
+  espacios o con 7.
+
+  La celda ancha no queda vacia porque `.mt-grid` fluye con `auto-fit`: mas ancho, mas columnas
+  internas, y las que sobran se COLAPSAN. El tamano se ajusta al contenido -- que es lo que la guia
+  de bento pide, y lo contrario de lo que yo hacia al dimensionar por cantidad de puertas.
+
+  ⛔ [SN.40] Esto decia `auto-fill` y era FALSO: esa palabra conserva las pistas vacias, asi que la
+  celda ancha SI quedaba vacia --~460 px de un tercio de fila, medidos en la captura del 2026-10-05.
+  La correccion esta en el bloque de `.mt-grid`.
+
+  ⛔ Nada de `grid-auto-flow: dense`: tapa huecos reordenando, y el salto de foco que deja es el
+  riesgo de accesibilidad numero uno del patron ("source order mismatch").
+*/
+.mt-espacios {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--sp-4);
+  align-items: start;
+}
+/*
+  Un grupo partido a la mitad entre dos columnas seria peor que el hueco que vino a resolver.
+
+  ⚠️ La separacion va ABAJO, no arriba entre hermanos: el primer grupo de la segunda columna sigue
+  siendo el hermano adyacente del ultimo de la primera, asi que un margin-top le habria hundido el
+  arranque respecto de la columna de al lado.
+*/
+/*
+  [SN.28] LA CELDA. Deja de ser un bloque que fluye y pasa a ser una caja de la rejilla, con su
+  borde siempre puesto.
+
+  El borde estaba atado a `@container (min-width: 56rem)` porque antes era decoracion opcional: con
+  los grupos fluyendo en columnas, encajonarlos en pantallas chicas costaba alto sin aportar. Ahora
+  es lo que hace que la celda se LEA como celda -- sin el, una rejilla de 12 con tramos distintos
+  se ve como texto suelto desalineado. Y ya no cuesta: el tramo lo decide `tramoEspacio()`, no el
+  ancho de la ventana.
+
+  Se van `break-inside: avoid` (no hay columnas que partir) y el `margin-bottom` (la separacion la
+  pone el `gap` de la rejilla, y es simetrica).
+*/
+.mt-space {
+  box-sizing: border-box;
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-lg);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  background: var(--card-bg);
+}
+/*
+  [SN.28] El encabezado del grupo SUBE de peso, no baja.
+
+  La tentacion era retirarlo: 7 encabezados para 24 destinos es uno cada 3.4, y cada uno costaba
+  linea + regla + margen. Pero el encabezado es la via de navegacion PRINCIPAL de quien usa lector
+  de pantalla -- WebAIM, encuesta #11 (jul-ago 2026, 1,780 respuestas): 67.8% navega por
+  encabezados contra 3.4% por landmarks. Quitar los 7 `h3` le sacaba a dos de cada tres su forma
+  de recorrer la pagina.
+
+  Y para quien ve, agrupar tampoco sobra: arriba de ~7 items, dos niveles le ganan a una lista
+  plana porque encoge el numero de opciones PERCIBIDAS (Hick, chunking).
+
+  Lo que se abarata es su cromo -- el grupo ya no paga el margen de multi-columna -- y lo que
+  SUBE es su legibilidad: de 11 px `--text-muted` (que se leia como decoracion) a 12 px
+  `--text-main`. Si el encabezado sostiene la navegacion, tiene que verse.
+*/
+.mt-space-title {
+  margin: 0 0 var(--sp-2);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: var(--fw-bold);
+  color: var(--text-main);
+}
+.mt-space-ico { font-size: var(--fs-xs); color: var(--text-muted); }
+.mt-space-n {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-regular);
+  color: var(--text-faint);
+}
+.mt-space-rule { flex: 1 1 auto; height: 1px; background: var(--border-color); }
+.mt-badge-prop { font-size: var(--fs-nano); text-transform: none; letter-spacing: 0; }
+
+/*
+  [SN.28] Dentro del grupo, UNA columna: la celda toma el ancho completo.
+
+  Aca vivia `repeat(auto-fill, minmax(9.5rem, 1fr))`, que partia cada grupo en dos celdas de
+  ~154 px. Ese ancho es el que obligaba a truncar el segundo renglon, y el truncado se comia justo
+  el texto que no podia perderse: "de Compras / Reabastecimi...", que es LO UNICO que distingue las
+  dos tarjetas «Hallazgos» de Auditoria.
+
+  Con el grupo ya repartido en la rejilla de arriba, la celda hereda los ~21rem de su columna: el
+  doble de ancho, el nombre entra en una linea y el origen entra entero. La celda se achica de alto
+  (4rem -> 3.5rem) porque ya no necesita dos renglones para el nombre.
+
+  Es `ul` en el HTML, asi que hay que apagar las vinetas y el relleno del user-agent.
+*/
+/*
+  [SN.28] [SN.40] Los destinos FLUYEN segun el ancho que le toco a su celda.
+
+  ⛔ [SN.40] Aca decia `auto-fill`, con el argumento de que asi la celda ancha no quedaba vacia.
+  ES AL REVES, y se vio en la primera captura: `auto-fill` CONSERVA las pistas que sobran, asi que
+  «Configuracion de la suite» --4 entradas en un `span 12`-- las repartia cada ~210 px y dejaba
+  ~460 px en blanco a la derecha, como un tercio de la fila. Justo el hueco que la rejilla venia
+  a cerrar.
+
+  `auto-fit` colapsa las pistas vacias y reparte lo que hay en todo el ancho disponible. Es la
+  diferencia entre "cuantas columnas caben" y "cuantas columnas se usan".
+
+  ⚠️ Donde hay MAS entradas que columnas no cambia nada --Comercial con 6, Almacenes con 3--
+  porque `auto-fit` solo colapsa pistas que quedaron vacias. Sirve exactamente en los dos casos
+  que se veian mal: el `span 12` del final y el grupo de UNA sola entrada (Direccion General, que
+  ocupaba media caja).
+*/
+.mt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--sp-1) var(--sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+  [SN.28] La rejilla del BUSCADOR, que es otro problema.
+
+  Los resultados de submodulos pueden ser hasta 101 y ocupan el ancho entero del panel, no la
+  columna de un grupo: en una sola fila vertical serian una tira interminable. Conservan varias
+  columnas -- pero con el minimo subido de 9.5rem a 16rem, porque acá la segunda linea SIEMPRE
+  dice de donde sale ("de Compras / Reabastecimiento") y a 154 px eso se cortaba igual que en los
+  grupos.
+
+  ⛔ [SN.40] Esta SE QUEDA con `auto-fill`, a diferencia de `.mt-grid`. No es un descuido: aca la
+  cantidad de resultados la decide lo que escribas, y con `auto-fit` buscar algo que devuelve DOS
+  resultados los estiraria a ~600 px cada uno. Un resultado de busqueda tiene que leerse igual sin
+  importar cuantos haya; una celda de grupo, no --su ancho ya lo fijo el tramo del espacio.
+*/
+.mt-subs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--sp-2);
+}
+
+/*
+  La celda: icono + nombre + (solo si es atajo) de donde sale.
+
+  [SN.27] La altura habia subido de 3.25rem a 4rem para que el nombre entrara en DOS renglones,
+  porque a 154 px de ancho 8 de 22 nombres se cortaban.
+  [SN.28] Con la celda a ancho de columna el nombre entra en uno, asi que el alto baja a 3rem y ese
+  presupuesto se devuelve al catalogo: 24 celdas x 16 px son 384 px menos de alto total, o sea
+  ~128 px menos por columna -- la diferencia entre entrar en pantalla y pedir scroll.
+
+  Entra holgado: nombre (12 px x 1.2) + origen (10 px x 1.25) = 27 px de texto en 48 px de caja. Y
+  sigue muy por encima del piso de 24x24 px que pide WCAG 2.2 / 2.5.8 (Target Size).
+*/
+/*
+  [SN.28] ⚠️ La puerta deja de ser TARJETA, porque la celda ya lo es.
+
+  Con `.mt-space` convertida en caja blanca con borde, dejar la puerta tambien con fondo blanco y
+  borde pone una caja adentro de otra del mismo color: dos bordes a 1 px separados por 12, y el de
+  adentro no delimita nada que el de afuera no delimite ya. DESIGN.md:540 lo dice directo -- «el
+  borde es el ultimo recurso, no el primero».
+
+  Queda como renglon: el aviso lo da el FONDO al pasar el mouse, que ademas es mas visible que el
+  cambio de borde de 1 px que `[SN.26]` midio como invisible.
+*/
+.mt-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 2.5rem;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-md);
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+  /* Brief: 200 ms maximo. En un sistema transaccional una animacion larga se lee como lentitud. */
+  transition: background-color 120ms ease-in-out, color 120ms ease-in-out;
+}
+/*
+  Los resultados del buscador NO viven adentro de una celda: flotan sobre el fondo de la pagina, asi
+  que ahi la tarjeta sigue haciendo falta para que se lean como objetos y no como texto suelto.
+*/
+.mt-subs-grid .mt-cell {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+}
+
+/*
+  [SN.28] EL COLOR POR AREA, que es lo que hace que esto se lea como un lanzador y no como un
+  indice. Es el gesto de Odoo (el icono distintivo es el ancla visual) y de Fiori.
+
+  ⚠️ `[SN.25]` ya habia retirado un mapa de colores de aca, y con razon: pintaba 22 ids con
+  `--chart-*` ARBITRARIAMENTE, el color no codificaba nada y encima se rellenaba saturado al hover.
+  La diferencia es que este color SI codifica un dato -- el ESPACIO, que son 7 y estan en el mapa
+  -- y nunca va solo: el encabezado del grupo dice lo mismo en palabras. Es exactamente lo que pide
+  `DESIGN.md` Q.6: determinista, tinte y no fill saturado, jamas unico portador.
+
+  Cero hex nuevos: `--chart-1..8` ya existen y estan definidos para los DOS temas, asi que el modo
+  oscuro viene resuelto. `color-mix` hace el tinte sin tener que declarar 7 variantes a mano.
+*/
+.mt-space[data-espacio='direccion-general']                { --mt-tint: var(--chart-1); }
+.mt-space[data-espacio='comercial']                        { --mt-tint: var(--chart-2); }
+.mt-space[data-espacio='almacenes-y-logistica']            { --mt-tint: var(--chart-6); }
+.mt-space[data-espacio='administracion-y-finanzas']        { --mt-tint: var(--chart-3); }
+.mt-space[data-espacio='auditoria-prevencion-control']     { --mt-tint: var(--chart-7); }
+.mt-space[data-espacio='sistemas-servicios-mantenimiento'] { --mt-tint: var(--chart-4); }
+.mt-space[data-espacio='configuracion-de-la-suite']        { --mt-tint: var(--chart-8); }
+
+.mt-cell-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /*
+    20 px y no 24: a 1366 la columna mide 245 px y cada pixel de cromo se lo quita al NOMBRE.
+    Con chip 20 + hueco 8 + padding 16 quedan 201 px, que es lo que necesita el nombre mas largo
+    que no envuelve ("Compras / Reabastecimiento", ~160 px a 12 px).
+  */
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: var(--r-sm);
+  /*
+    22% y no 14%. Al 14% sobre blanco el azul de Comercial daba #DFE9F2 -- existe, pero en 20 px de
+    chip no hay superficie para que se lea, y la senal que vino a dar identidad al area terminaba
+    siendo invisible. Al 22% da #CCDCEB. Sigue siendo TINTE y no relleno saturado, que es lo que
+    `DESIGN.md` Q.6 pide, y sigue sin ser el unico portador: el encabezado lo dice en palabras.
+  */
+  background: color-mix(in srgb, var(--mt-tint, var(--text-faint)) 22%, var(--card-bg));
+  transition: background-color 120ms ease-in-out;
+}
+
+/*
+  [SN.28] El contador, patron `dynamic tile` de Fiori: la puerta deja de ser muda y dice cuanto hay
+  detras. Sale de las MISMAS colas que pinta la columna de la izquierda (ver `pendPorEntrada`).
+
+  ⚠️ Neutro y no `--action`: sobre naranja, `--action-ink` da 3.39:1, que no pasa AA para texto
+  chico -- y es deuda ya declarada en `DESIGN.md`. Un contador que no se puede leer no es un
+  contador. La urgencia la sigue diciendo la columna de trabajo, que tiene sitio para el motivo.
+*/
+.mt-cell-n {
+  flex: none;
+  min-width: 1.25rem;
+  padding: 0 var(--sp-1);
+  border-radius: 999px;
+  background: var(--hover-bg);
+  color: var(--text-main);
+  font-size: var(--fs-nano);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25rem;
+  text-align: center;
+}
+
+/*
+  [SN.28] La fila RESPIRA donde hay alto, y sólo donde lo hay.
+
+  40 px es el techo que impone la laptop: a 1366x768 son 612 px de 632 disponibles y a 44 ya hay
+  scroll. Pero en un monitor de 1986x996 el catalogo ocupa 631 px de 814 y deja **183 px muertos
+  abajo** -- apretar ahi no lo pide nadie. A 48 px pasa a 742 de 814: el fondo queda parejo y la
+  fila deja de verse espartana.
+
+  Va por CONTENEDOR y no por ventana, que es la leccion de esta fase: lo que decide si la fila
+  puede crecer es el ancho del PANEL (y con el, cuantas columnas hay para repartir el alto), no el
+  del monitor. Entre los dos hay una columna fija de 30rem, dos paddings y un hueco.
+*/
+@container espacios (min-width: 80rem) {
+  .mt-cell { min-height: 3rem; }
+  .mt-cell-chip { width: 1.5rem; height: 1.5rem; }
+}
+/*
+  [SN.26] midio que el hover NO SE VEIA: Edgar lo reporto como "no existe un cambio de color al
+  hacer hover a un modulo". La causa era que la sombra se dibujaba con `--overlay-hover`, que no es
+  un color de sombra sino el TINTE DE SUPERFICIE del sistema (4.5% de tinta); repartido en 10 px de
+  blur es invisible, y el fondo no cambiaba nunca. La respuesta de entonces fue subir cuatro cosas
+  a la vez: superficie, borde, icono y `--shadow-float`.
+
+  [SN.28] De esas cuatro queda la que resolvia el problema: **el cambio de fondo**. El lift de
+  -2px y la sombra se retiran con la tarjeta -- en una fila de 30 px levantar el renglon lo
+  despega de sus vecinos y el movimiento se lee como un salto, no como respuesta. Ademas
+  `transform` es propiedad de layout y estaba contada en la deuda de `[DS.1]`; esto la devuelve.
+
+  La transicion baja de 180 a 120 ms: a esta densidad el puntero cruza varias filas por segundo y
+  180 ms deja una estela de renglones todavia apagandose.
+*/
+.mt-cell:hover { background: var(--hover-bg); }
+.mt-cell:hover .mt-cell-nm { color: var(--action); }
+.mt-subs-grid .mt-cell:hover { border-color: var(--action); }
+/* El tinte del area sube de 22% a 38%: el aviso se ve, y sigue siendo SU color, no uno prestado. */
+.mt-cell:hover .mt-cell-chip {
+  background: color-mix(in srgb, var(--mt-tint, var(--action)) 38%, var(--card-bg));
+}
+.mt-cell:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.mt-cell-ico { font-size: var(--fs-xs); color: var(--mt-tint, var(--text-muted)); flex: none; }
+/*
+  [SN.28] El texto en LINEA, no apilado. El nombre y el origen comparten renglon y el origen
+  envuelve solo si no entra -- es lo que permite la fila de 30 px. Con `baseline` las dos letras de
+  distinto tamano se apoyan en la misma linea en vez de centrarse cada una por su cuenta.
+*/
+.mt-cell-tx {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--sp-2);
+  min-width: 0;
+}
+/*
+  Jerarquia estricta (patron Attio): peso SOLO en el titulo.
+
+  [SN.27] DOS lineas, no una truncada. Medido con la celda de 153 px: 8 de 22 nombres se cortaban a
+  1920 -- "Centro de Control (vista parcial: Comer...", "Cuadre / Supervisor ...". Un catalogo donde
+  el 36% de los nombres no se puede leer no es un catalogo, y el atajo obvio (achicar la letra) era
+  cambiar un defecto por otro. Con los espacios en columnas la celda paso de 153 a 201 px de ancho
+  y sobraron 108 px de alto: las dos cosas juntas alcanzan para el segundo renglon.
+  El corte sigue existiendo en el tercer renglon, que ningun nombre del mapa alcanza hoy.
+*/
+.mt-cell-nm {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+/*
+  [SN.28] SE RETIRA EL TRUNCADO, y es el arreglo de fondo de esta celda.
+
+  Esta regla decia `white-space: nowrap` + `text-overflow: ellipsis`, o sea UNA linea cortada. A
+  154 px de ancho eso imprimia "de Compras / Reabastecimi..." -- y ese renglon es el UNICO dato que
+  separa las dos tarjetas «Hallazgos» de Auditoria, una de Finanzas y otra de Compras. El texto que
+  no se podia perder era exactamente el que se perdia. (`entryOrigin()` existe por eso: `[SN.10]`.)
+
+  Ahora el renglon aparece SOLO en los atajos (ver `sub` en el .ts), asi que son pocos y pueden
+  ocupar dos lineas sin deformar nada. El tope de 2 queda de red por si algun origen crece.
+
+  El color sube de `--text-faint` a `--text-muted`: a 10 px, 2.3:1 no se lee -- y esto no es
+  decoracion, es el desempate.
+*/
+.mt-cell-sb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  font-size: var(--fs-nano);
+  color: var(--text-muted);
+  line-height: 1.25;
+  min-width: 0;
+}
+/*
+  ⚠️ SIN `white-space: nowrap`. Casi se vuelve a colar al pasar el origen a la misma linea que el
+  nombre: con `flex-wrap` en `.mt-cell-tx`, si no entra al lado baja a su propio renglon y ahi
+  tiene la columna entera (~225-313 px) para 130 px de texto. Truncarlo seria repetir el defecto
+  que esta fase vino a arreglar.
+*/
+.mt-cell-sb > span { min-width: 0; }
+/* La flecha dice «vive en otro proyecto» sin gastar palabras. Decorativa: el nombre accesible
+   del enlace ya trae «atajo a X» (ver `aria-label` en el HTML). */
+.mt-cell-atajo { font-size: var(--fs-nano); color: var(--text-faint); flex: none; }
+/*
+  [SN.25] La celda que NO es un modulo: es un submodulo de otro modulo, sacado a la portada.
+  Medido: 11 de las 22.
+
+  [SN.26] ⚠️ Se hundia con background: var(--layout-bg) -- y ese es EXACTAMENTE el fondo que toma
+  la isla del grupo arriba de 100rem. Medido en vivo: celda rgb(245,241,234) sobre isla
+  rgb(245,241,234). Once de las 22 tarjetas quedaban sin ningun contraste de relleno contra su
+  propio contenedor: sostenidas por una hairline de 1 px, se leian como deshabilitadas, no como
+  acceso directo. Y en esa mitad del catalogo entran las cinco de Auditoria y tres de
+  Configuracion, o sea grupos ENTEROS que parecian apagados.
+
+  El relleno se retira. La distincion se queda donde DESIGN.md Q.5 la pide -- tipo y contraste, no
+  color ni mas cajas: el titulo en peso regular contra el medium del modulo, el icono mas apagado,
+  y la segunda linea diciendo literalmente de donde sale ("de Comercial / Ventas").
+*/
+/*
+  [SN.28] El NOMBRE del atajo deja de apagarse, y el icono tambien.
+
+  El peso regular + `--text-muted` sobre el titulo eran la unica senal de «esto vive en otro lado»
+  cuando no habia ninguna otra. Pero apagar el nombre de un destino REAL lo hace parecer
+  deshabilitado -- el mismo defecto que `[SN.26]` midio con el relleno, una capa mas arriba. Y
+  pegaba fuerte: en Auditoria y en Configuracion son grupos ENTEROS de atajos, o sea bloques que se
+  leian apagados.
+
+  Ahora la relacion la dicen dos cosas explicitas y legibles -- la flecha y el renglon con el
+  proyecto de origen -- asi que la tipografia puede volver a su trabajo, que es ser leida.
+*/
+.mt-cell.is-alias .mt-cell-ico { opacity: .85; }
+
+/* [SN.25] Submodulos hallados por el buscador: los 101 tienen ruta propia. */
+.mt-cell.is-sub .mt-cell-ico { color: var(--action); }
+
+/*
+  [SN.25] «Tus accesos» — la unica fila donde la tarjeta grande se gana el lugar (4:3, icono
+  protagonista, patron Vercel/ClickUp). Son seis: 22 cuadradas no caben, seis si.
+
+  [SN.26] ⚠️ REVERTIDO A CHIPS, y el motivo es aritmetica de la laptop. Medido a 1440x874, que es
+  la maquina con la que Edgar lo miro: la columna derecha necesita 836 px y tiene 732 -- 104 px de
+  scroll en la pantalla que existe para NO tener scroll. La fila de mosaicos costaba 146 px de esos
+  732 (el 20% del presupuesto vertical) y ademas dejaba 3 de 5 columnas vacias, porque un grid de
+  ancho fijo con dos elementos deja huecos.
+
+  Y lo que compraba con esos 146 px era una repeticion: medido en vivo, 2 de 2 mosaicos apuntaban a
+  una tarjeta que ya estaba visible 200 px mas abajo, sin scroll de por medio. Un atajo sirve para
+  lo que esta LEJOS; en una pantalla que cabe entera no hay nada lejos. El chip conserva el bloque
+  que pedia el brief (ClickUp) en 32 px, se acomoda en linea sin dejar huecos, y devuelve 114 px
+  -- los que hacian falta para que el catalogo entre en una laptop.
+*/
+.mt-freq { margin-bottom: var(--sp-3); }
+.mt-freq-h {
+  margin: 0 0 var(--sp-2);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: var(--fw-bold);
+  /*
+    [SN.26] Iba en --action. Era lo UNICO naranja de toda la columna derecha, puesto encima del
+    bloque menos informativo de la pantalla (una comodidad que vive en este navegador), mientras
+    los seis rotulos de espacio -- que si ordenan el catalogo -- iban en --text-muted. El acento
+    gastado al reves. DESIGN.md Q.5: la jerarquia se expresa por tipo y contraste, nunca por color.
+  */
+  color: var(--text-muted);
+}
+.mt-freq-rule { flex: 1 1 auto; height: 1px; background: var(--border-color); }
+.mt-freq-why {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: var(--fw-regular);
+  color: var(--text-faint);
+}
+/*
+  [SN.26] El chip. Se acomoda en LINEA y toma el ancho de su texto, asi que no deja huecos: es la
+  unica forma de esta pantalla que no hereda el hueco del grid de ancho fijo.
+*/
+.mt-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.mt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 2rem;
+  max-width: 15rem;
+  padding: 0 var(--sp-3);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-pill);
+  color: inherit;
+  text-decoration: none;
+  font-size: var(--fs-xs);
+  transition:
+    transform 180ms ease-in-out,
+    box-shadow 180ms ease-in-out,
+    border-color 180ms ease-in-out;
+}
+.mt-chip:hover {
+  transform: translateY(-2px);
+  border-color: var(--action);
+  box-shadow: var(--shadow-float);
+}
+.mt-chip:hover .mt-chip-ico { color: var(--action); }
+.mt-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/*
+  [SN.40] El chip SUGERIDO -- el que no salio de tu historia sino de la de tu puesto o tu area.
+  Borde punteado y nada mas: es el mismo destino, con el mismo peso, y lo unico que cambia es de
+  donde vino la idea.
+
+  La diferencia NO se cifra en color: quien no distingue el borde tiene el motivo escrito en el
+  title y en el nombre accesible, que es donde de verdad se lee. Un chip gris claro contra uno
+  normal seria una pista que la mitad de la pantalla no recibe.
+*/
+.mt-chip-sug { border-style: dashed; }
+.mt-chip-ico { font-size: var(--fs-xs); color: var(--text-faint); flex: none; }
+.mt-chip-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-subs { margin-bottom: var(--sp-4); }
+
+/*
+  [SN.25] midio que las «islas» de Fiori sólo se pagaban donde el alto sobraba: seis superficies
+  con borde, padding y encabezado costaban 384 px, el 41% del presupuesto a 1920 y el 61% a 1366.
+  Por eso el borde vivia detras de un umbral de ancho.
+
+  [SN.28] El umbral se retira y la caja pasa a `.mt-space` sin condicion. La premisa cambio: ya no
+  es decoracion sobre un grupo que fluye, es lo que delimita una CELDA de la rejilla de 12 -- sin
+  ella, tramos de 4 y de 12 mezclados se leen como texto desalineado. Y el costo de 384 px se
+  recupero por otro lado: la puerta de adentro perdio su propio borde y su fondo (ver `.mt-cell`),
+  asi que donde habia dos bordes ahora hay uno.
+*/
+
+/*
+ * `[SN.25]` Acá vivía `.mt-card`: la tarjeta apaisada de tres líneas con el chip de color.
+ *
+ * Se retiró entera, y no sólo por espacio. El chip se rellenaba de color SATURADO al pasar el
+ * mouse, y ese color no codificaba ningún dato: era arbitrario por módulo (un mapa de 22 ids a
+ * `--chart-*`). DESIGN.md Q.6 (`:832`) pide «tinte/borde, **no fill saturado**», determinista y
+ * nunca único portador; y `:520` lista el ícono de color como antipatrón. La justificación que
+ * tenía escrita —«sólo en hover, en reposo es monocromática»— defendía el momento, no el criterio.
+ *
+ * La reemplaza `.mt-cell` (la grilla rígida, más arriba), que además cabe: medido sobre este mismo
+ * layout, la columna tiene 944 px de alto a 1920×1080 y la tarjeta 1:1 del brief pedía 2,245 px.
+ */
+/*
+ * `[SN.25]` ⚠️ **La migaja del grupo también se retiró, y vale decir por qué.**
+ *
+ * `[SN.11]` la había agregado con buen motivo —ubica la entrada en el árbol de Dirección sin
+ * abrirla— pero iba ARRIBA del nombre, en mayúsculas, y por estar primero se leía antes que el
+ * título. En una celda de 52 px no hay renglón para las dos, y entre «VENTAS › PISOS DE VENTA» y
+ * «Punto de Venta» lo imprescindible es el nombre. El grupo completo sigue vivo en el `title` del
+ * enlace y en el heno del buscador, así que no se perdió: dejó de competir.
+ *
+ * Y el nombre ahora SÍ se trunca con elipsis, contra lo que decía el comentario anterior. Es la
+ * regla del brief (jerarquía estricta, una línea) y es lo que sostiene la retícula: un nombre de
+ * dos renglones deformaba la fila entera.
+ */
+
+.mt-vacio-busqueda {
+  margin: var(--sp-4) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+/*
+ * ── Declaraciones al pie de SU columna ──────────────────────────────────
+ * Antes iban juntas en una banda al pie de la pantalla, pero declaran cosas distintas: una habla
+ * del trabajo y la otra de los espacios. Cada una al pie de la columna que le corresponde.
+ */
+.mt-declara-pie {
+  margin: var(--sp-5) 0 0;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-color);
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+/*
+  [SN.26] La laptop. Medido a 1440x874 con las 22 puertas: despues de cambiar los mosaicos por
+  chips la columna pedia 747 px sobre 732 -- quedaban 15. El grupo se forma por espaciado
+  (DESIGN.md:540), asi que lo que se ajusta es el espaciado, no el contenido: 20 px entre grupos
+  bajan a 16 SOLO donde el alto aprieta, y son 5 huecos = 20 px recuperados. El escritorio alto
+  conserva su ritmo. ⚠️ Recortar tarjetas para que "quepa" seria esconder puertas, que es lo que
+  esta pantalla existe para no hacer.
+*/
+@media (max-height: 56rem) {
+  /* [SN.28] Era `.mt-space { margin-bottom }`. Con la rejilla la separacion la pone el `gap`, y
+     achicarlo ahi la achica en los DOS ejes, que es lo que esta pantalla necesita cuando el alto
+     aprieta. */
+  .mt-espacios { gap: var(--sp-3); }
+}
+
+/*
+  [SN.27] La pantalla mas baja del parque (1366x768). Aun con los espacios en dos columnas quedaban
+  82 px afuera: 21 de las 22 puertas visibles y una debajo del pliegue. Se cierran donde menos
+  cuesta, y el orden de prioridad esta dicho: primero las PUERTAS, despues la comodidad.
+
+  Con 768 px de alto, la fila de accesos se lleva 57 px -- el 9% del presupuesto -- para repetir
+  tarjetas que en esta configuracion ya estan TODAS en pantalla. Se apaga, y la celda cede 4 px.
+  ⚠️ Es la unica pantalla donde se apaga; de 48rem para arriba vuelve.
+*/
+@media (max-height: 48rem) {
+  .mt-freq { display: none; }
+  /*
+    [SN.28] La fila cede 4 px mas, y acá sí hace falta la cuenta: a 1280x720 el catalogo pedia
+    582 px de 584 disponibles -- DOS de holgura, que es el margen con el que ya se rompió dos
+    veces esta fase. Con la fila en 36 px baja a ~550 y sobran ~50.
+
+    ⚠️ Va DESPUES de `@container espacios (min-width: 80rem)` a proposito: en una pantalla ancha
+    pero baja (1920x768) las dos reglas aplican, y tienen la misma especificidad, asi que gana la
+    ultima del archivo. Tiene que ganar esta -- la que achica.
+  */
+  .mt-cell { min-height: 2.25rem; }
+}
+
+/*
+  [SN.28] ACA VIVIA la tarjeta alta del monitor grande: a partir de 60rem de alto la celda pasaba a
+  7rem, en columna, con el icono arriba solo como ancla visual y el texto al pie.
+
+  Se retira, y el motivo es que su premisa cambio. Esa forma existia porque la celda era ANGOSTA
+  (~154 px) y sobraba ALTO: apilar era la unica manera de darle cuerpo. Ahora la celda toma el
+  ancho entero de su columna (~21rem), asi que el icono arriba dejaria un renglon de texto corto
+  flotando sobre 300 px de blanco -- seria mover el aire de la pantalla a adentro de la tarjeta,
+  que es justo lo que aquel comentario queria evitar.
+
+  ⚠️ Y hay una razon que pesa mas que la estetica: una tarjeta que cambia de FORMA segun el alto de
+  la pantalla le da a la misma persona dos layouts distintos entre su laptop y su monitor. Eso es
+  lo que rompe la memoria espacial (NN/g): lo que se aprende de memoria no se mueve. Una sola
+  forma, en todos lados.
+*/
+
+/*
+  ── Angosto: la de trabajo cede un doceavo antes de romper la rejilla de puertas ─
+  [SN.28] Era un tope en rem; ahora son tramos. A 1280 px, 4/12 le dejarian ~390 px a la columna de
+  trabajo y sus renglones empezarian a cortarse, asi que toma 5 y el catalogo baja a 7 -- que sigue
+  alcanzando para dos celdas por fila.
+*/
+@media (max-width: 80rem) {
+  .mt-body { gap: var(--sp-5); }
+  .mt-work { grid-column: span 5; }
+  .mt-spaces { grid-column: span 7; }
+}
+
+/* ── Pantallas chicas: la altura fija deja de valer y se vuelve documento ─ */
+@media (max-width: 62rem), (max-height: 39rem) {
+  .mt-page { height: auto; min-height: 100dvh; overflow: visible; }
+  .mt-body { grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); }
+  /*
+    [SN.28] ⚠️ Los tramos SE RESETEAN acá, y no es cosmético: con una sola columna declarada, un
+    `grid-column: span 4` no se recorta -- crea tres columnas implícitas y el layout se desarma.
+    Mismo motivo para los espacios: apiladas, cada celda ocupa el ancho entero.
+  */
+  .mt-work, .mt-spaces { grid-column: auto; }
+  .mt-espacios { grid-template-columns: minmax(0, 1fr); }
+  .mt-space { grid-column: auto !important; }
+  .mt-work, .mt-spaces, .mt-scroll { overflow: visible; }
+  /* Apiladas, el delimitante deja de ir al costado y pasa a separar arriba. */
+  .mt-spaces { border-left: 0; border-top: 1px solid var(--border-color); padding-left: 0; padding-top: var(--sp-5); }
+  .mt-top { flex-wrap: wrap; }
+  .mt-search { flex: 1 1 100%; order: 3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-spin { animation: none; }
+  /* `[SN.25]` El brief pide 180 ms; quien pidió menos movimiento no recibe ninguno. */
+  .mt-cell, .mt-chip, .mt-task, .mt-canal, .mt-periodo { transition: none; }
+  /*
+    `[SN.26]` El movimiento se va, el AVISO se queda. Antes esta regla apagaba las dos únicas
+    señales que había, y por eso quedó anotado.
+    `[SN.28]` Para `.mt-cell` ya no hace falta: su hover es sólo fondo e icono, que no son
+    movimiento. Se conserva para `.mt-chip`, que sí levanta.
+  */
+  .mt-chip:hover { transform: none; box-shadow: none; }
+}
+
+/* ═══ [JZ.3] Cómo va tu zona ═══════════════════════════════════════════════════════════════
+ *
+ * Superficie Operations de DESIGN.md: sin ilustración, cifras en mono tabular, punto + texto en
+ * lugar de pastilla llena, y lo que no se pudo medir se DECLARA en vez de pintarse como cero.
+ *
+ * La fila reusa el cuerpo de .mt-task (fondo de tarjeta + hairline + radio) pero NO su riel de
+ * pertenencia: acá todo lo que se muestra ya es tuyo por construcción — si una fila llegó a esta
+ * lista es porque respondés de ese canal ([SN.30]). Un riel que está siempre encendido no informa.
+ */
+.mt-zona { margin-bottom: var(--sp-6); }
+
+/* El total de la zona no compite con el titular de pendientes: es la mitad de alto. */
+.mt-titular.is-zona { margin-bottom: var(--sp-4); }
+.mt-titular.is-zona .mt-titular-n { font-size: var(--fs-h1); font-weight: var(--fw-bold); }
+
+/*
+ * [JZ.7] El total de TODAS las zonas, cuando hay más de una. Se separa con una regla, no con un
+ * tamaño mayor: si el consolidado gritara más que las zonas, la pantalla contestaría «cuánto
+ * vendimos» cuando la pregunta del director es «cuál va mejor». Jerarquía por posición y línea.
+ */
+.mt-titular.is-zona.is-total {
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border-color);
+}
+.mt-titular.is-zona.is-total .mt-titular-l { font-weight: var(--fw-medium); }
+
+.mt-grupo-sub { text-transform: none; letter-spacing: 0; }
+
+/*
+ * `[CDRP.1]` Margen y ticket del canal. Van DEBAJO del rótulo del bloque y encima de sus filas,
+ * porque describen al bloque entero, no a una fila. Tipografía de dato secundario: la cifra que
+ * manda en este organismo sigue siendo la venta.
+ *
+ * ⛔ Lo que no se pudo medir NO se atenúa hasta desaparecer: `.is-nd` cambia el peso, no el color
+ * del rótulo. Un «sin medir» invisible se lee igual que un cero (ADR-056).
+ */
+.mt-metricas {
+  margin: 0 0 var(--sp-2);
+  padding-left: var(--sp-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+}
+.mt-metrica { display: inline-flex; align-items: baseline; gap: var(--sp-1); min-width: 0; }
+.mt-metrica-k { color: var(--text-faint); }
+.mt-metrica-v {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-medium);
+  color: var(--text-main);
+}
+.mt-metrica.is-nd .mt-metrica-v { font-family: inherit; font-weight: var(--fw-regular); color: var(--text-faint); }
+.mt-metrica-cob { color: var(--text-faint); }
+
+.mt-canal {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-2);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out);
+}
+.mt-canal:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+.mt-canal:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+/* Sin cifra: borde punteado y fondo hundido. Se ve distinto de un dato, porque no lo es. */
+.mt-canal.is-nd, .mt-canal.is-bloqueada {
+  border-style: dashed;
+  background: var(--surface-ground);
+}
+.mt-canal.is-bloqueada:hover { transform: none; border-color: var(--border-color); }
+
+.mt-canal-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--surface-ground);
+  color: var(--text-muted);
+  font-size: var(--fs-micro);
+}
+.mt-canal-txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.mt-canal-l { font-size: var(--fs-sm); font-weight: var(--fw-medium); line-height: 1.3; }
+.mt-canal-d {
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mt-canal-v { flex: none; display: flex; flex-direction: column; align-items: flex-end; min-width: 5.5rem; }
+.mt-canal-m {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  letter-spacing: -.02em;
+  line-height: 1.25;
+}
+.mt-canal-p { font-size: var(--fs-micro); line-height: 1.2; }
+
+/*
+ * ⛔ El tercer estado tiene su propio color, y NO es el rojo de «bajó».
+ *
+ * Las 5 rutas de ZAMORA no venden desde el 12-ago porque dejó de llegar el dato del sell-out, no
+ * porque hayan dejado de vender. Pintarlas de rojo mandaría al jefe a buscar al vendedor; en gris
+ * y con «sin medir» le habla a Sistemas.
+ */
+.mt-delta {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-bold);
+}
+.mt-delta.is-up { color: var(--ok-fg); }
+.mt-delta.is-down { color: var(--bad-fg); }
+.mt-delta.is-plano { color: var(--text-muted); }
+.mt-delta.is-nd { color: var(--text-faint); font-weight: var(--fw-medium); }
+
+.mt-excluido {
+  display: flex;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  line-height: 1.45;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--r-md);
+}
+.mt-excluido b { color: var(--text-main); font-weight: var(--fw-bold); }
+
+/* ═══ [JZ.4] El selector de grano ══════════════════════════════════════════════════════════
+ *
+ * Tres botones en un riel, no un <select>: son tres y se cambian seguido, así que esconderlos
+ * tras un clic cuesta más de lo que ahorra. Superficie Operations: hairline + radio chico, el
+ * activo con el color de acción, sin pastilla llena.
+ */
+.mt-periodos {
+  display: inline-flex;
+  gap: 2px;
+  margin-bottom: var(--sp-3);
+  padding: 2px;
+  background: var(--surface-ground);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
+}
+.mt-periodo {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out);
+}
+.mt-periodo:hover { color: var(--text-main); }
+.mt-periodo:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.mt-periodo.is-on { background: var(--action); color: var(--action-ink); font-weight: var(--fw-bold); }
+
+/* El recorte NO es una nota al pie: cambió el tramo sobre el que se calculó el número de arriba. */
+.mt-titular-d.is-corte { color: var(--warn-fg); font-weight: var(--fw-medium); }
+
+/*
+ * `[JZ.5]` El punto de «en vivo». Punto + texto, NO pastilla llena (DESIGN.md, Operations).
+ * Va sólo sobre el bloque de tiendas: el stream no publica un solo ticket de ruta, y una etiqueta
+ * que afirma más de lo que cubre es peor que no tenerla.
+ */
+.mt-vivo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: var(--sp-2);
+  font-size: var(--fs-nano);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--ok-fg);
+}
+.mt-vivo::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+  animation: mt-latido 2.4s ease-in-out infinite;
+}
+@keyframes mt-latido { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  /* Quien pidió menos movimiento conserva el punto: lo que se apaga es el latido, no el estado. */
+  .mt-vivo::before { animation: none; }
+}

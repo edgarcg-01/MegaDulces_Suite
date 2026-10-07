@@ -1,0 +1,599 @@
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ButtonModule } from 'primeng/button';
+import { CardModule } from 'primeng/card';
+import { TableModule } from 'primeng/table';
+import { TagModule } from 'primeng/tag';
+import { ToastModule } from 'primeng/toast';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { TimelineModule } from 'primeng/timeline';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { TooltipModule } from 'primeng/tooltip';
+import { SkeletonModule } from 'primeng/skeleton';
+import { MessageService, ConfirmationService } from 'primeng/api';
+import { ComercialService, OrderDetail, OrderHistoryEntry, OrderLine, OrderStatus } from '../comercial.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { LogisticaService, Shipment, ShipmentStatus } from '../../logistica/logistica.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
+
+@Component({
+  selector: 'app-comercial-order-detail',
+  standalone: true,
+  imports: [
+    CommonModule,
+    FormsModule,
+    RouterLink,
+    ButtonModule,
+    CardModule,
+    TableModule,
+    TagModule,
+    ToastModule,
+    ConfirmDialogModule,
+    TimelineModule,
+    InputNumberModule,
+    TooltipModule,
+    SkeletonModule,
+    MetricStripComponent,
+  ],
+  providers: [MessageService, ConfirmationService],
+  template: `
+    <p-toast></p-toast>
+    <p-confirmdialog></p-confirmdialog>
+    
+    <div class="surf-page">
+      <div class="topbar">
+        <button pButton severity="secondary" [text]="true" (click)="back()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Volver</span></button>
+      </div>
+    
+      @if (loading()) {
+        <div class="od-loading" aria-hidden="true">
+          <p-skeleton width="30%" height="1.5rem"></p-skeleton>
+          <div class="grid">
+            <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
+            <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
+            <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
+          </div>
+          <p-skeleton height="220px" borderRadius="12px"></p-skeleton>
+        </div>
+      }
+    
+      @if (order(); as o) {
+        <header class="surf-page-head">
+          <div class="surf-page-head-text">
+            <h1><code class="comm-code">{{ o.folio }}</code></h1>
+            <p class="surf-page-sub">Creado {{ o.created_at | date:'medium' }} por <strong>{{ o.user_username || '—' }}</strong></p>
+          </div>
+          <div class="hero-tags">
+            @if (o.route_name) {
+              <p-tag
+                severity="contrast"
+                [value]="o.route_name"
+                icon="pi pi-directions"
+                pTooltip="Ruta de reparto asignada al cliente"
+              ></p-tag>
+            }
+            <p-tag
+              severity="secondary"
+              [value]="o.delivery_type === 'long_trip' ? 'Viaje largo' : 'Por ruta'"
+              [icon]="o.delivery_type === 'long_trip' ? 'pi pi-globe' : 'pi pi-truck'"
+            ></p-tag>
+            <p-tag [severity]="severity(o.status)" [value]="statusLabel(o.status)" styleClass="status-tag"></p-tag>
+            @if (o.cfdi_uuid) {
+              <p-tag
+                severity="success"
+                icon="pi pi-file-check"
+                [value]="'CFDI ' + shortUuid(o.cfdi_uuid)"
+                [pTooltip]="'Facturado · UUID ' + o.cfdi_uuid"
+              ></p-tag>
+            }
+          </div>
+        </header>
+        <app-metric-strip [items]="headItems(o)" ariaLabel="Resumen del pedido" />
+        <p-card header="Líneas">
+          @if (o.status === 'pending_approval') {
+            <div class="lines-banner">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              <span>
+                Revisá producto por producto. Ajustá la cantidad según stock disponible,
+                o eliminá la línea si no se puede surtir. Cuando todo esté listo, aprobá el pedido.
+              </span>
+            </div>
+          }
+          <p-table [value]="o.lines" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
+            <ng-template #header>
+              <tr>
+                <th scope="col">Producto</th>
+                <th scope="col" class="comm-num">Cantidad pedida</th>
+                <th scope="col" class="comm-num">Stock disponible</th>
+                @if (o.status === 'pending_approval') {
+                  <th scope="col" class="comm-num">Cantidad a aprobar</th>
+                }
+                <th scope="col" class="comm-num">Precio unit</th>
+                <th scope="col" class="comm-num">Desc%</th>
+                <th scope="col" class="comm-num">Total línea</th>
+                @if (o.status === 'pending_approval') {
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                }
+              </tr>
+            </ng-template>
+            <ng-template #body let-l>
+              <tr [class.line-shortfall]="lineShortfall(l, o)">
+                <td>
+                  <div class="comm-cell-strong">{{ l.product_name || l.product_id }}</div>
+                  @if (l.brand_name) {
+                    <div class="comm-muted is-small">{{ l.brand_name }}</div>
+                  }
+                </td>
+                <td class="comm-num">
+                  <strong>{{ requestedQty(l) }}</strong>
+                  @if (o.status === 'pending_approval' && Number(l.quantity) < requestedQty(l)) {
+                    <div class="comm-muted is-small">
+                      recortado a {{ l.quantity }}
+                    </div>
+                  }
+                </td>
+                <td class="comm-num">
+                  <span class="stock-chip" [class.is-short]="lineShortfall(l, o)">
+                    {{ stockAvailableNum(l) }}
+                  </span>
+                </td>
+                @if (o.status === 'pending_approval') {
+                  <td class="comm-num">
+                    <div class="qty-edit">
+                      <p-inputnumber
+                        [ngModel]="l.quantity"
+                        (onBlur)="onLineQtyBlur(l, $safeNavigationMigration($any($event).target?.value), o)"
+                        (onKeyDown)="$any($event).key === 'Enter' && $any($event).target.blur()"
+                        [min]="1"
+                        [max]="approvableMax(l)"
+                        [showButtons]="true"
+                        buttonLayout="horizontal"
+                        spinnerMode="horizontal"
+                        incrementButtonIcon="pi pi-plus"
+                        decrementButtonIcon="pi pi-minus"
+                        inputStyleClass="qty-input"
+                        [disabled]="savingLineId() === l.id"
+                      ></p-inputnumber>
+                      @if (savingLineId() === l.id) {
+                        <i class="pi pi-spin pi-spinner saving-spinner"></i>
+                      }
+                    </div>
+                    <div class="comm-muted is-small">
+                      tope: {{ approvableMax(l) }} / {{ requestedQty(l) }}
+                    </div>
+                  </td>
+                }
+                <td class="comm-num">{{ l.unit_price | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td class="comm-num">{{ (l.discount_percent * 100) | number:'1.0-1' }}%</td>
+                <td class="comm-num is-strong">{{ l.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                @if (o.status === 'pending_approval') {
+                  <td class="comm-actions">
+                    <button pButton size="small" severity="secondary" [text]="true" [disabled]="savingLineId() === l.id" (click)="confirmRemoveLine(l, o)" aria-label="Quitar línea del pedido" pTooltip="Quitar línea (libera reserva)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                  </td>
+                }
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td [attr.colspan]="o.status === 'pending_approval' ? 8 : 6" class="comm-muted">Sin líneas en este pedido.</td></tr>
+            </ng-template>
+          </p-table>
+        </p-card>
+        @if (o.status === 'draft' || o.status === 'pending_approval' || o.status === 'confirmed') {
+          <div class="action-bar">
+            @if (o.status === 'draft') {
+              <button pButton [loading]="actioning()" severity="contrast" (click)="confirmTransition('confirm', o)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Confirmar pedido</span></button>
+            }
+            @if (o.status === 'pending_approval') {
+              <button pButton [loading]="actioning()" severity="contrast" (click)="confirmTransition('approve', o)"><span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span><span class="p-button-label">Aprobar pedido</span></button>
+            }
+            @if (o.status === 'confirmed') {
+              <button pButton [loading]="actioning()" severity="contrast" (click)="confirmTransition('fulfill', o)"><span class="p-button-icon p-button-icon-left pi pi-truck" aria-hidden="true"></span><span class="p-button-label">Marcar entregado</span></button>
+            }
+            <button pButton [loading]="actioning()" severity="danger" [outlined]="true" (click)="confirmTransition('cancel', o)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar pedido</span></button>
+          </div>
+        }
+        <!-- FE.5: facturar pedido entregado. El auto-invoice al entregar es best-effort;
+        este botón es el fallback manual (y para clientes con datos fiscales recién
+        capturados). Idempotente en backend (409 si ya tiene CFDI). -->
+        @if (o.status === 'fulfilled' && !o.cfdi_uuid && canFacturar()) {
+          <div class="action-bar">
+            <button pButton [loading]="facturando()" severity="contrast" (click)="facturar(o)"><span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span><span class="p-button-label">Facturar (CFDI)</span></button>
+            <span class="comm-muted is-small fa-hint">
+              Emite la factura nominativa. Requiere RFC, razón social, régimen, uso CFDI y CP fiscal del cliente.
+            </span>
+          </div>
+        }
+        <!-- Logística: embarques asociados (solo si user tiene LOGISTICS_SHIPMENTS_VER) -->
+        @if (canSeeLogistics()) {
+          <p-card styleClass="logistics-card">
+            <ng-template #header>
+              <div class="logistics-header">
+                <div>
+                  <i class="pi pi-truck" aria-hidden="true"></i>
+                  <strong>Embarques de logística</strong>
+                  @if (shipments().length) {
+                    <span class="comm-muted is-small"> · {{ shipments().length }} asociados</span>
+                  }
+                </div>
+                @if (canCreateShipment(o)) {
+                  <button pButton size="small" [routerLink]="['/logistica/shipments']" [queryParams]="{ order_id: o.id }"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Crear embarque</span></button>
+                }
+              </div>
+            </ng-template>
+            <p-table [value]="shipments()" [loading]="loadingShipments()" styleClass="p-datatable-sm surf-table surf-table--sticky">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Folio</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Origen → Destino</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-s>
+                <tr class="comm-row-clickable"
+                  role="link" [tabindex]="0"
+                  [attr.aria-label]="'Ver embarque ' + s.folio"
+                  (click)="goShipment(s.id)"
+                  (keydown.enter)="goShipment(s.id)"
+                  (keydown.space)="$event.preventDefault(); goShipment(s.id)">
+                  <td><code class="comm-code">{{ s.folio }}</code></td>
+                  <td>{{ s.shipment_date | date:'shortDate' }}</td>
+                  <td>{{ s.type }}</td>
+                  <td class="comm-muted">{{ (s.origin || '—') + ' → ' + (s.destination || '—') }}</td>
+                  <td><p-tag [severity]="sevShip(s.status)" [value]="s.status"></p-tag></td>
+                  <td class="comm-actions">
+                    <a pButton size="small" [text]="true" (click)="$event.stopPropagation()" [routerLink]="['/logistica/shipments', s.id]" aria-label="Ver embarque" pTooltip="Ver embarque"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span></a>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="6" class="comm-muted">
+                  {{ canCreateShipment(o) ? 'Sin embarques. Crear uno para enviar este pedido.' : 'Sin embarques registrados.' }}
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </p-card>
+        }
+        <p-card header="Historial de cambios" styleClass="history-card">
+          <p-timeline [value]="history()" align="left" styleClass="status-timeline">
+            <ng-template #content let-event>
+              <div class="event">
+                <div class="event-headline">
+                  <p-tag [severity]="severity(event.to_status)" [value]="statusLabel(event.to_status)"></p-tag>
+                  @if (event.from_status) {
+                    <span class="comm-muted is-small">desde {{ statusLabel(event.from_status) }}</span>
+                  }
+                  @if (!event.from_status) {
+                    <span class="comm-muted is-small">creación</span>
+                  }
+                </div>
+                <div class="event-meta">
+                  <span><i class="pi pi-user" aria-hidden="true"></i> {{ event.changed_by_username }}</span>
+                  <span><i class="pi pi-clock" aria-hidden="true"></i> {{ event.created_at | date:'medium' }}</span>
+                </div>
+                @if (event.reason) {
+                  <div class="event-reason">{{ event.reason }}</div>
+                }
+              </div>
+            </ng-template>
+          </p-timeline>
+          @if (history().length === 0) {
+            <div class="comm-muted">Sin historial registrado.</div>
+          }
+        </p-card>
+      }
+    
+      @if (!order() && !loading()) {
+        <div class="comm-empty">
+          <i class="pi pi-exclamation-circle comm-empty-icon" aria-hidden="true"></i>
+          <h3>Pedido no encontrado</h3>
+          <p>No pudimos encontrar este pedido.</p>
+          <button pButton (click)="back()"><span class="p-button-label">Volver</span></button>
+        </div>
+      }
+    </div>
+    `,
+  styles: [`
+    :host { display:block; }
+    /* Ritmo y padding de página vienen de .surf-page (gap:1rem, padding:0 1.5rem 2rem),
+     * idéntico a las otras 21 páginas. Nada de márgenes ad-hoc por sección. */
+    .od-loading { display:flex; flex-direction:column; gap:1rem; }
+    app-metric-strip { display:block; }
+    .action-bar { display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; }
+    .action-bar .fa-hint { align-self:center; max-width:34rem; }
+
+    :host ::ng-deep .status-timeline { padding: .25rem 0; }
+    .event { padding:.5rem 0; }
+    .event-headline { display:flex; align-items:center; gap:.75rem; margin-bottom:.25rem; }
+    .event-meta { display:flex; gap:1rem; font-size:.8rem; color:var(--text-muted); }
+    .event-meta i { margin-right:.25rem; }
+    .event-reason { margin-top:.25rem; font-size:.85rem; font-style:italic; }
+    .hero-tags { display:flex; flex-direction:column; align-items:flex-end; gap:.375rem; }
+    .logistics-header { display:flex; justify-content:space-between; align-items:center; padding: 0 1rem; }
+    .logistics-header i { margin-right: .375rem; color: var(--action); }
+    .lines-banner { display:flex; gap:.5rem; align-items:flex-start; background: var(--info-soft-bg); color: var(--info-soft-fg); padding:.625rem .75rem; border-radius: var(--r-sm, 8px); font-size:.85rem; margin-bottom:.75rem; }
+    .lines-banner i { margin-top:.125rem; }
+    .qty-edit { display:inline-flex; align-items:center; gap:.375rem; justify-content:flex-end; }
+    :host ::ng-deep .qty-edit .qty-input { width: 4.5rem; text-align:right; }
+    .saving-spinner { color: var(--action); font-size:.85rem; }
+    .stock-chip { display:inline-block; padding:.125rem .5rem; border-radius:999px; background: var(--surface-100); font-weight:500; font-size:.82rem; }
+    .stock-chip.is-short { background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-weight:600; }
+    tr.line-shortfall { background: var(--bad-soft-bg); }
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class ComercialOrderDetailComponent {
+  private readonly api = inject(ComercialService);
+  private readonly logistica = inject(LogisticaService);
+  private readonly auth = inject(AuthService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly toast = inject(MessageService);
+  private readonly confirm = inject(ConfirmationService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  readonly order = signal<OrderDetail | null>(null);
+
+  /** Cabecera del pedido vía MetricStrip (Cliente/Almacén como texto, Total en moneda). */
+  headItems(o: OrderDetail): MetricStripItem[] {
+    return [
+      { label: 'Cliente', value: o.customer_name || o.customer_id || '—', format: 'text' },
+      { label: 'Almacén', value: o.warehouse_name || '—', format: 'text' },
+      {
+        label: 'Total', value: o.total, format: 'currency', tone: 'brand',
+        sub: o.discount_total ? `Descuento: ${(+o.discount_total).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}` : undefined,
+      },
+    ];
+  }
+  readonly history = signal<OrderHistoryEntry[]>([]);
+  readonly loading = signal(true);
+  readonly actioning = signal(false);
+  readonly shipments = signal<Shipment[]>([]);
+  readonly loadingShipments = signal(false);
+  readonly savingLineId = signal<string | null>(null);
+  readonly facturando = signal(false);
+
+  /** FE.5 — puede emitir CFDI del pedido (mismo permiso que el endpoint). */
+  readonly canFacturar = computed(() => {
+    const perms = this.auth.user()?.permissions || {};
+    return perms[Permission.FISCAL_FACTURAR_GESTIONAR] === true;
+  });
+
+  /** Primeros 8 chars del UUID del CFDI, para el chip compacto. */
+  shortUuid(u: string | null | undefined): string {
+    return u ? u.slice(0, 8) : '';
+  }
+
+  /** Helper para usar Number() en el template. */
+  readonly Number = Number;
+
+  stockAvailableNum(l: OrderLine): number {
+    return Number(l.stock_available ?? 0);
+  }
+
+  /** Cantidad original que pidió el cliente (snapshot al confirmar). */
+  requestedQty(l: OrderLine): number {
+    return Number(l.requested_quantity ?? l.quantity ?? 0);
+  }
+
+  /**
+   * Tope al que se puede aprobar la línea: nunca más de lo que pidió el cliente
+   * ni más de lo que hay disponible. Si la línea ya está por encima de uno de
+   * los dos (data legacy), se mantiene el valor actual como piso para no
+   * bloquear el input.
+   */
+  approvableMax(l: OrderLine): number {
+    const cap = Math.min(this.requestedQty(l), this.stockAvailableNum(l));
+    const qty = Number(l.quantity) || 0;
+    return Math.max(cap, qty);
+  }
+
+  /** True si la cantidad aprobada excede el stock disponible (alerta visual). */
+  lineShortfall(l: OrderLine, o: OrderDetail): boolean {
+    if (o.status !== 'pending_approval') return false;
+    return Number(l.quantity) > this.stockAvailableNum(l);
+  }
+
+  onLineQtyBlur(l: OrderLine, raw: any, o: OrderDetail): void {
+    const next = Math.max(1, Number(raw) || 0);
+    if (next === Number(l.quantity)) return;
+    this.savingLineId.set(l.id);
+    this.api.updateOrderLine(o.id, l.id, { quantity: next }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.savingLineId.set(null);
+        this.toast.add({ severity: 'success', summary: 'Cantidad actualizada', life: 1800 });
+        this.load(o.id);
+      },
+      error: (err) => {
+        this.savingLineId.set(null);
+        const detail = err?.error?.message || 'No se pudo actualizar la línea';
+        this.toast.add({ severity: 'error', summary: 'Error', detail, life: 6000 });
+        this.load(o.id);
+      },
+    });
+  }
+
+  confirmRemoveLine(l: OrderLine, o: OrderDetail): void {
+    this.confirm.confirm({
+      message: `¿Quitar "${l.product_name || l.product_id}" del pedido? Libera la reserva de stock.`,
+      header: 'Quitar línea',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, quitar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => {
+        this.savingLineId.set(l.id);
+        this.api.removeOrderLine(o.id, l.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: () => {
+            this.savingLineId.set(null);
+            this.toast.add({ severity: 'success', summary: 'Línea quitada' });
+            this.load(o.id);
+          },
+          error: (err) => {
+            this.savingLineId.set(null);
+            const detail = err?.error?.message || 'No se pudo quitar la línea';
+            this.toast.add({ severity: 'error', summary: 'Error', detail });
+          },
+        });
+      },
+    });
+  }
+
+  readonly canSeeLogistics = computed(() => {
+    const perms = this.auth.user()?.permissions || {};
+    return perms[Permission.LOGISTICS_SHIPMENTS_VER] === true;
+  });
+  private readonly canManageLogistics = computed(() => {
+    const perms = this.auth.user()?.permissions || {};
+    return perms[Permission.LOGISTICS_SHIPMENTS_GESTIONAR] === true;
+  });
+
+  constructor() {
+    const id = this.route.snapshot.paramMap.get('id');
+    if (id) this.load(id);
+  }
+
+  load(id: string): void {
+    this.loading.set(true);
+    this.api.getOrder(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (o) => {
+        this.order.set(o);
+        this.loading.set(false);
+      },
+      error: () => {
+        this.loading.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el pedido' });
+      },
+    });
+    this.api.getOrderHistory(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (h) => this.history.set(h.data || []),
+      error: () => this.history.set([]),
+    });
+    if (this.canSeeLogistics()) {
+      this.loadingShipments.set(true);
+      this.logistica.listShipments({ order_id: id, pageSize: 100 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { this.shipments.set(r.items || []); this.loadingShipments.set(false); },
+        error: () => { this.loadingShipments.set(false); /* silencioso: no romper la página */ },
+      });
+    }
+  }
+
+  /**
+   * Solo permite crear embarques mientras el pedido esté `confirmed`. En `draft`
+   * no tiene sentido (stock no reservado todavía) y en `fulfilled`/`cancelled`
+   * tampoco. Requiere LOGISTICS_SHIPMENTS_GESTIONAR.
+   */
+  canCreateShipment(o: OrderDetail): boolean {
+    return this.canManageLogistics() && o.status === 'confirmed';
+  }
+
+  sevShip(s: ShipmentStatus): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
+    return s === 'programado' ? 'info'
+         : s === 'en_ruta'    ? 'warn'
+         : s === 'entregado'  ? 'success'
+         : s === 'cerrado'    ? 'secondary'
+         : 'danger';
+  }
+
+  back(): void {
+    this.router.navigate(['/comercial/orders']);
+  }
+
+  goShipment(id: string): void {
+    this.router.navigate(['/logistica/shipments', id]);
+  }
+
+  confirmTransition(action: 'confirm' | 'approve' | 'fulfill' | 'cancel', o: OrderDetail): void {
+    const msg = {
+      confirm: `¿Confirmar pedido ${o.folio}? Esto reserva el stock.`,
+      approve: `¿Aprobar pedido ${o.folio}? Pasa a 'confirmed' y notifica al cliente.`,
+      fulfill: `¿Marcar pedido ${o.folio} como entregado? Esto consume el stock reservado.`,
+      cancel: `¿Cancelar pedido ${o.folio}? Esta acción libera reservas.`,
+    }[action];
+    const acceptCls = action === 'cancel' ? 'p-button-danger' : '';
+    this.confirm.confirm({
+      message: msg,
+      header: 'Confirmar',
+      icon: 'pi pi-question-circle',
+      acceptLabel: 'Sí, continuar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: acceptCls,
+      accept: () => this.runTransition(action, o.id),
+    });
+  }
+
+  private runTransition(action: 'confirm' | 'approve' | 'fulfill' | 'cancel', id: string): void {
+    this.actioning.set(true);
+    const obs =
+      action === 'confirm'
+        ? this.api.confirmOrder(id)
+        : action === 'approve'
+        ? this.api.approveOrder(id)
+        : action === 'fulfill'
+        ? this.api.fulfillOrder(id)
+        : this.api.cancelOrder(id);
+    obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.actioning.set(false);
+        this.toast.add({ severity: 'success', summary: 'Pedido actualizado' });
+        this.load(id);
+      },
+      error: (err) => {
+        this.actioning.set(false);
+        const detail = err?.error?.message || 'No se pudo aplicar el cambio';
+        this.toast.add({ severity: 'error', summary: 'Error', detail });
+      },
+    });
+  }
+
+  /** FE.5 — emite/timbra el CFDI nominativa del pedido entregado (fallback manual). */
+  facturar(o: OrderDetail): void {
+    this.confirm.confirm({
+      message: `¿Emitir la factura (CFDI) del pedido ${o.folio}? Se timbra ante el SAT con los datos fiscales del cliente.`,
+      header: 'Facturar pedido',
+      icon: 'pi pi-file-edit',
+      acceptLabel: 'Sí, facturar',
+      rejectLabel: 'Cancelar',
+      accept: () => {
+        this.facturando.set(true);
+        this.api.facturarOrder(o.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: (res) => {
+            this.facturando.set(false);
+            this.toast.add({ severity: 'success', summary: 'CFDI emitido', detail: `UUID ${res.uuid}`, life: 6000 });
+            this.load(o.id);
+          },
+          error: (err) => {
+            this.facturando.set(false);
+            const detail = err?.error?.message || 'No se pudo emitir el CFDI';
+            this.toast.add({ severity: 'error', summary: 'Error al facturar', detail, life: 8000 });
+          },
+        });
+      },
+    });
+  }
+
+  severity(s: OrderStatus | null): 'info' | 'success' | 'warn' | 'danger' | 'secondary' {
+    if (s === 'fulfilled') return 'success';
+    if (s === 'confirmed') return 'info';
+    if (s === 'pending_approval') return 'warn';
+    if (s === 'cancelled') return 'danger';
+    if (s === 'draft') return 'secondary';
+    return 'secondary';
+  }
+  statusLabel(s: OrderStatus | null): string {
+    if (!s) return 'inicial';
+    return {
+      draft: 'Borrador',
+      pending_approval: 'Pendiente',
+      confirmed: 'Confirmado',
+      fulfilled: 'Entregado',
+      cancelled: 'Cancelado',
+    }[s];
+  }
+}

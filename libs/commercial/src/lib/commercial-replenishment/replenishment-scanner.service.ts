@@ -1,0 +1,205 @@
+import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
+import { Knex } from 'knex';
+import { KNEX_NEW_DB } from '@megadulces/platform-core';
+
+/**
+ * RA.8 — Scanner nocturno de reabastecimiento. Detecta situaciones críticas y las
+ * persiste en commercial.replenishment_findings (bandeja HITL, idempotente por
+ * dedup_key). El motor decide, el humano trabaja la bandeja (ADR-016).
+ *
+ *   agotado_abc  = clase A con existencia disponible ≤ 0        → crítica
+ *   bajo_reorden = existencia ≤ punto de reorden (reorden > 0)  → alta (A) / media (resto)
+ *
+ * Corre como postgres user (KNEX_NEW_DB) con SET LOCAL app.tenant_id por tenant
+ * (mismo patrón que AlertsScannerService). Resta el tránsito (RA.5). Al cerrar cada
+ * tenant, resuelve los hallazgos 'open' cuya condición ya no se cumple.
+ *
+ * WS realtime = diferido (la bandeja es la superficie). El cron se puede apagar con
+ * ENABLE_REPLENISHMENT_SCAN=false; el endpoint manual /scan-now siempre funciona.
+ */
+@Injectable()
+export class ReplenishmentScannerService {
+  private readonly logger = new Logger(ReplenishmentScannerService.name);
+  private isRunning = false;
+
+  constructor(@Inject(KNEX_NEW_DB) private readonly knex: Knex) {}
+
+  @Cron('0 0 0 * * *', { timeZone: 'America/Mexico_City' }) // 00:00 America/Mexico_City
+  async scheduledScan(): Promise<void> {
+    if (process.env.ENABLE_REPLENISHMENT_SCAN === 'false') return;
+    if (this.isRunning) { this.logger.warn('Skip: previous scan still running'); return; }
+    await this.scanAllTenants();
+  }
+
+  async scanAllTenants(): Promise<{ tenants: number; findings: number }> {
+    this.isRunning = true;
+    let findings = 0;
+    try {
+      const tenants = await this.knex('public.tenants').where({ activo: true }).select('id');
+      for (const t of tenants) findings += await this.scanTenant(t.id);
+      this.logger.log(`Reorden scan: ${tenants.length} tenants, ${findings} hallazgos activos`);
+      return { tenants: tenants.length, findings };
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  async scanTenant(tenantId: string): Promise<number> {
+    let count = 0;
+    await this.knex.transaction(async (trx) => {
+      await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`); // Postgres NO acepta bind param en SET (42601); literal como los demás scanners
+
+      const oh = '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))';
+      // OC a recibir en unidades de stock, desde el fact (que lo deriva del ODS en cajas → ×bf
+      // vuelve exacto). La tabla analytics.purchase_in_transit se retiró — ver GOTCHAS §25.
+      // RA-PRO.45: se usa la columna PESADA por P(llega|edad), igual que el pedido — si no, la
+      // bandeja de hallazgos se queda ciega justo en los SKUs que una OC estancada está tapando.
+      //
+      // ⚠️ U.0 (2026-09-03) — "×bf vuelve exacto" SÓLO vale en las sucursales Kepler. `bf` cuenta
+      // unidades BASE de Kepler por caja; en los almacenes de Wincaja la existencia (`oh`) está en
+      // la unidad de venta de Wincaja, y ahí el divisor correcto es `display_bf` (ADR-055), que
+      // ≈ bf/10 en los multipack. O sea `it` sale ~10× inflado y **se sobre-acredita el tránsito →
+      // sub-pedido** en MD-30/MD-32/00. La mig 20260902220000 introdujo `display_bf` y NO tocó esta
+      // ruta. Queda declarado, no parchado: el fix va con la bandeja `peldano_cruzado`.
+      const it = 'COALESCE(rpl.transit_eff_cajas, rpl.transit_cajas, 0) * COALESCE(rpl.bf, 1)';
+      // Objetivo = máximo (restock real). Sugerido neto de tránsito.
+      const sugg = `GREATEST(0, rp.max_stock - ${oh} - ${it})`;
+      // Costo unitario canónico = cost_with_tax (por PIEZA); cost_base es fallback (está a
+      // escala de CAJA en granel e inflaba el valorizado ~16.6%). Debe casar con Existencia
+      // Crítica (ver commercial-replenishment.service.ts costUnit()).
+      // ✅ U.0: "por PIEZA" confirmado midiendo — `cost_with_tax = u1_cost × (1 + impuesto)`,
+      // razones 1.0000/1.0800/1.1600/1.2400 exactas sobre 6,626 SKUs. Detalle en costUnit().
+      const costUnit = 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
+      // U.2 — el $ valorizado NO se persiste cuando el costo de compra contradice el peldaño de la
+      // cantidad: la bandeja guardaría una cifra inflada y la ordenaría por ella. Se lee del fact
+      // (`analytics.replenishment_plan.rung_veredicto`, mig 20260903170000) que este scan YA
+      // joinea como `rpl` — sólo los veredictos en contra se persisten, así que `IS NULL` = medible.
+      // Ver commercial-replenishment.service.ts rungMedible() y analytics.v_unit_rung_audit.
+      const medible = 'rpl.rung_veredicto IS NULL';
+      const suggCost = `CASE WHEN ${medible} THEN ROUND(${sugg} * ${costUnit}, 2) END AS suggested_cost`;
+
+      const rows: any[] = await trx('commercial.reorder_policy as rp')
+        .leftJoin('commercial.stock as s', (j) =>
+          j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
+        .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
+        .leftJoin('commercial.abc_classification as abc', (j) =>
+          j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
+        .where('rp.tenant_id', tenantId)
+        .andWhere('rp.reorder_point', '>', 0)
+        .andWhereRaw(`${oh} <= rp.reorder_point`) // sólo crítico (≤ punto de reorden)
+        .select(
+          'rp.warehouse_id', 'rp.product_id',
+          trx.raw(`${oh} AS on_hand`),
+          'rp.reorder_point',
+          trx.raw(`${it} AS in_transit`),
+          trx.raw('abc.abc_class AS abc_class'),
+          trx.raw(`${sugg} AS suggested_qty`),
+          trx.raw(suggCost),
+        );
+
+      const seen: string[] = [];
+      for (const r of rows) {
+        const onHand = Number(r.on_hand);
+        const abc = (r.abc_class || '').toUpperCase();
+        const isA = abc === 'A';
+        const kind = onHand <= 0 && isA ? 'agotado_abc' : 'bajo_reorden';
+        // agotado_abc sólo para clase A agotada; el resto es bajo_reorden.
+        const severity = kind === 'agotado_abc' ? 'critica' : (isA ? 'alta' : 'media');
+        const dedup = `${kind}:${r.warehouse_id}:${r.product_id}`;
+        seen.push(dedup);
+        await trx.raw(
+          `INSERT INTO commercial.replenishment_findings
+             (tenant_id, warehouse_id, product_id, kind, severity, dedup_key, status, abc_class, on_hand, reorder_point, in_transit, suggested_qty, suggested_cost, first_seen_at, last_seen_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, now(), now(), now())
+           ON CONFLICT (tenant_id, dedup_key) DO UPDATE SET
+             status='open', severity=EXCLUDED.severity, abc_class=EXCLUDED.abc_class,
+             on_hand=EXCLUDED.on_hand, reorder_point=EXCLUDED.reorder_point, in_transit=EXCLUDED.in_transit,
+             suggested_qty=EXCLUDED.suggested_qty, suggested_cost=EXCLUDED.suggested_cost,
+             last_seen_at=now(), resolved_at=NULL, updated_at=now()`,
+          [tenantId, r.warehouse_id, r.product_id, kind, severity, dedup, abc || null,
+           onHand, Number(r.reorder_point), Number(r.in_transit), Number(r.suggested_qty),
+           // U.2 — ⚠️ NO `Number(...)`: `Number(null)` es 0 y persistiría "vale cero" donde la
+           // verdad es "no se está midiendo". La columna admite NULL a propósito.
+           r.suggested_cost == null ? null : Number(r.suggested_cost)],
+        );
+        count++;
+      }
+
+      // RA-PRO.8.4 — "cadencia_lenta": SKU que ROTA (ABC A/B) cuyo proveedor se COMPRA
+      // con cadencia > 21d → riesgo estructural de quiebre (el pedido llega demasiado
+      // espaciado para lo que vende). Distinto de bajo_reorden (momentáneo): esto es la
+      // política de compra la que no alcanza. Solo canales de compra (los traspasos son
+      // internos y rápidos). El umbral de rotación (A/B) evita marcar proveedores lentos legítimos.
+      const cadRows: any[] = await trx('commercial.replenishment_channel as rc')
+        .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rc.tenant_id').andOn('pr.supplier_id', 'rc.supplier_id'))
+        .join('commercial.reorder_policy as rp', (j) =>
+          j.on('rp.tenant_id', 'rc.tenant_id').andOn('rp.warehouse_id', 'rc.warehouse_id').andOn('rp.product_id', 'pr.id'))
+        .leftJoin('commercial.stock as s', (j) =>
+          j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
+        .leftJoin('commercial.abc_classification as abc', (j) =>
+          j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
+        .leftJoin('analytics.inventory_health as ih', (j) =>
+          j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
+        .where('rc.tenant_id', tenantId)
+        .andWhere('rc.via', 'purchase')
+        .andWhere('rc.cadence_days', '>', 21)
+        .andWhere('pr.activo', true)
+        // "Rota" se mide por VELOCIDAD (avg_daily), NO por ABC-valor (el dulce es casi todo
+        // clase C aunque venda mucho). Y la venta entre pedidos (avg×cadencia) supera el
+        // colchón del reorden → riesgo estructural de quiebre. Auto-escalado (sin umbral fijo).
+        .andWhereRaw(`COALESCE(ih.avg_daily_units,0) >= 2`)
+        .andWhereRaw(`COALESCE(ih.avg_daily_units,0) * rc.cadence_days > GREATEST(rp.reorder_point, 1)`)
+        .select(
+          'rc.warehouse_id', 'rp.product_id',
+          trx.raw('rc.cadence_days AS cadence_days'),
+          trx.raw(`${oh} AS on_hand`),
+          'rp.reorder_point',
+          trx.raw(`${it} AS in_transit`),
+          trx.raw(`COALESCE(abc.abc_class, rp.abc_class) AS abc_class`),
+          trx.raw(`${sugg} AS suggested_qty`),
+          trx.raw(suggCost),
+        );
+
+      for (const r of cadRows) {
+        const abc = (r.abc_class || '').toUpperCase();
+        const cad = Number(r.cadence_days);
+        const severity = cad > 45 ? 'critica' : cad > 30 ? 'alta' : 'media';
+        const dedup = `cadencia_lenta:${r.warehouse_id}:${r.product_id}`;
+        seen.push(dedup);
+        await trx.raw(
+          `INSERT INTO commercial.replenishment_findings
+             (tenant_id, warehouse_id, product_id, kind, severity, dedup_key, status, abc_class, on_hand, reorder_point, in_transit, suggested_qty, suggested_cost, first_seen_at, last_seen_at, updated_at)
+           VALUES (?, ?, ?, 'cadencia_lenta', ?, ?, 'open', ?, ?, ?, ?, ?, ?, now(), now(), now())
+           ON CONFLICT (tenant_id, dedup_key) DO UPDATE SET
+             status='open', severity=EXCLUDED.severity, abc_class=EXCLUDED.abc_class,
+             on_hand=EXCLUDED.on_hand, reorder_point=EXCLUDED.reorder_point, in_transit=EXCLUDED.in_transit,
+             suggested_qty=EXCLUDED.suggested_qty, suggested_cost=EXCLUDED.suggested_cost,
+             last_seen_at=now(), resolved_at=NULL, updated_at=now()`,
+          [tenantId, r.warehouse_id, r.product_id, severity, dedup, abc || null,
+           Number(r.on_hand), Number(r.reorder_point), Number(r.in_transit), Number(r.suggested_qty),
+           // U.2 — ver arriba: `Number(null)` sería 0, y 0 no es "no medido".
+           r.suggested_cost == null ? null : Number(r.suggested_cost)],
+        );
+        count++;
+      }
+
+      // Resolver los hallazgos abiertos cuya condición ya no aplica.
+      if (seen.length) {
+        await trx('commercial.replenishment_findings')
+          .where({ tenant_id: tenantId, status: 'open' })
+          .whereNotIn('dedup_key', seen)
+          .update({ status: 'resolved', resolved_at: trx.fn.now(), updated_at: trx.fn.now() });
+      } else {
+        await trx('commercial.replenishment_findings')
+          .where({ tenant_id: tenantId, status: 'open' })
+          .update({ status: 'resolved', resolved_at: trx.fn.now(), updated_at: trx.fn.now() });
+      }
+    });
+    return count;
+  }
+}

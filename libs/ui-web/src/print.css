@@ -1,0 +1,97 @@
+/*
+ * [DS.8] — Qué pasa cuando alguien aprieta Ctrl+P.
+ *
+ * ── Por qué existe ──────────────────────────────────────────────────────────────────────────
+ * Medido el 2026-10-02: **`@media print` aparecía 7 veces en todo el repo**, y `DESIGN.md` —1,242
+ * líneas, decenas de reglas BINDING— **no nombra el papel ni una vez**. En una app que emite
+ * pólizas, libro de compras, anexo de venta con pagaré, requisiciones y acuses de conteo, eso no
+ * es un hueco de detalle: es una superficie entera sin régimen.
+ *
+ * ⚠️ **Esto NO toca los documentos que ya se imprimen bien.** Los tickets y los exports
+ * (`ticket-venta`, `ticket-arqueo`, `ticket-comprobante`, `*-export.service`, `reports.service`)
+ * abren una **ventana nueva** con su propio HTML y no cargan este `styles.css`. Aquellos están
+ * diseñados para el papel desde el primer carácter. Lo que esta hoja arregla es el otro caso: la
+ * persona que está en una pantalla cualquiera y aprieta Ctrl+P — que hoy imprime la barra lateral,
+ * la navegación, los avisos flotantes y, si tiene el modo oscuro puesto, una página negra entera.
+ *
+ * ── Las cuatro decisiones ───────────────────────────────────────────────────────────────────
+ *   1. **El papel es claro, siempre.** El modo oscuro es una preferencia de PANTALLA. Imprimirlo
+ *      gasta tóner, se lee peor y en muchas impresoras sale gris sucio. Los tokens de superficie
+ *      y de texto se fuerzan a claro acá, sin tocar el tema de la app.
+ *   2. **El chrome no se imprime.** Barra lateral, encabezado, navegación inferior, avisos y
+ *      diálogos no son el documento: son cómo se llegó a él.
+ *   3. **La tabla no se parte mal.** El encabezado se repite en cada hoja y ningún renglón se
+ *      corta por la mitad. Es la diferencia entre un listado que se puede leer y uno que no.
+ *   4. **El semáforo SÍ se imprime.** `print-color-adjust: exact` en las pastillas de estado:
+ *      si el color es el dato, quitarlo al imprimir deja una hoja que no dice lo que decía la
+ *      pantalla. Es la misma excepción que `DESIGN.md` le concede a la data-viz.
+ *
+ * ⚠️ Esto es un PISO razonable, no una plantilla de documento. Una pantalla que necesite salir
+ * bien en papel de verdad (un reporte formal) se arma como los tickets: su propio HTML.
+ */
+
+@media print {
+  /* ── 1. El papel es claro ───────────────────────────────────────────────────────────────── */
+  :root,
+  body,
+  body.theme-monochrome {
+    --layout-bg: #FFFFFF;
+    --surface-ground: #FFFFFF;
+    --card-bg: #FFFFFF;
+    --hover-bg: #FFFFFF;
+    --border-color: #D4D4D8;
+    --text-main: #09090B;
+    --text-muted: #3F3F46;
+    --text-faint: #52525B;
+    --ink-rgb: 9, 9, 11;
+    /* Los tokens de arriba ya quedaron en claro: se consumen, no se repite el hex. */
+    background: var(--card-bg) !important;
+    color: var(--text-main) !important;
+  }
+
+  /* ── 2. El chrome no es el documento ────────────────────────────────────────────────────── */
+  /* `bg-surface-sidebar` lo usan sólo el layout y la campana de avisos — verificado 2026-10-03,
+     2 archivos. Si algún día lo usa un panel de contenido, esta regla hay que acotarla. */
+  .bg-surface-sidebar,
+  p-toast,
+  .p-toast,
+  .p-dialog-mask,
+  app-offline-status,
+  [data-print="no"] {
+    display: none !important;
+  }
+
+  /* ── 3. La tabla no se parte mal ────────────────────────────────────────────────────────── */
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  tr, .surf-row, .dt-stack > * { break-inside: avoid; page-break-inside: avoid; }
+  /* Un alto de fila pensado para el dedo desperdicia media hoja. */
+  :root { --row-h-sm: auto; --row-h-md: auto; --row-h-lg: auto; }
+  /* El scroll horizontal no existe en papel: la tabla se deja fluir. */
+  .p-datatable-wrapper,
+  .p-datatable-table-container,
+  .dt-scope { overflow: visible !important; max-height: none !important; }
+
+  /* ── 4. El color que ES dato sobrevive ──────────────────────────────────────────────────── */
+  .p-tag,
+  .status-chip,
+  .surf-chip,
+  .app-chart,
+  app-sparkline,
+  app-mini-bars,
+  app-ring-gauge {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* ── Higiene ────────────────────────────────────────────────────────────────────────────── */
+  /* La sombra en papel es una mancha gris: la profundidad la lleva el borde, como en oscuro. */
+  * { box-shadow: none !important; text-shadow: none !important; }
+  /* Nada de animaciones en una hoja. */
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  /* Un enlace subrayado en azul sobre papel no lleva a ningún lado. */
+  a { text-decoration: none; color: inherit; }
+  /* Que no se corte un título del párrafo que encabeza. */
+  h1, h2, h3, h4 { break-after: avoid; page-break-after: avoid; }
+  @page { margin: 14mm; }
+}

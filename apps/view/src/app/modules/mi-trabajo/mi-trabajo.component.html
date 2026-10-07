@@ -1,0 +1,939 @@
+<div class="mt-page">
+
+  <!--
+    [SN.11] Cabecera de identidad: quién sos antes que a dónde vas. `calc(base + env(...))` para que
+    el safe-area SUME al padding base (la clase `safe-top` sola lo REEMPLAZA y el título pegaba al
+    borde en browser normal).
+  -->
+  <header class="mt-top">
+    <div class="mt-id">
+      <span class="mt-avatar" aria-hidden="true">{{ iniciales() }}</span>
+      <span class="mt-id-txt">
+        <span class="mt-name">{{ nombreVisible() }}</span>
+        <!-- Contexto en una sola línea. Las etiquetas viven para el lector de pantalla. -->
+        @if (!contextoCargando() && !contextoError()) {
+          <dl class="mt-ctx">
+            @for (c of celdas(); track c.etiqueta) {
+              <div class="mt-ctx-cell">
+                <dt class="mt-ctx-k">{{ c.etiqueta }}</dt>
+                <dd class="mt-ctx-v" [class.is-ausente]="c.ausente">{{ c.valor }}</dd>
+              </div>
+            }
+          </dl>
+        } @else if (contextoError()) {
+          <span class="mt-ctx-err">
+            {{ contextoError() }}
+            <button type="button" class="mt-linkbtn" (click)="recargarContexto()">Reintentar</button>
+          </span>
+        } @else {
+          <span class="mt-ctx-err">{{ user()?.username }} · {{ user()?.role_name }}</span>
+        }
+      </span>
+    </div>
+
+    <!-- Buscador: filtra módulos y pendientes en vivo, sin ir al servidor. -->
+    <div class="mt-search">
+      <i class="pi pi-search mt-search-ico" aria-hidden="true"></i>
+      <input
+        #buscador
+        type="search"
+        class="mt-search-input"
+        placeholder="Buscar módulo o pendiente…"
+        aria-label="Buscar módulo o pendiente"
+        [value]="consulta()"
+        (input)="consulta.set($any($event.target).value)"
+        (keydown.enter)="irAlPrimero()" />
+      @if (buscando()) {
+        <button type="button" class="mt-search-clear" (click)="limpiar()" aria-label="Limpiar búsqueda">
+          <i class="pi pi-times" aria-hidden="true"></i>
+        </button>
+      } @else {
+        <kbd class="mt-kbd">{{ atajoBuscar }}</kbd>
+      }
+    </div>
+
+    <!-- `[MS.3.1]` /projects no monta el layout de proyectos, así que el botón de su header no llega acá:
+         sin esto, quien sólo ve «Mi trabajo» no tenía ninguna forma de reportar un problema. -->
+    @if (puedeReportar()) {
+      <p-button
+        label="Reportar un problema"
+        icon="pi pi-headphones"
+        severity="secondary"
+        [outlined]="true"
+        size="small"
+        (click)="reportar()">
+      </p-button>
+    }
+
+    <p-button
+      label="Cerrar sesión"
+      icon="pi pi-sign-out"
+      severity="secondary"
+      [outlined]="true"
+      size="small"
+      (click)="logout()">
+    </p-button>
+
+    <!--
+      [CDRP.1] Aca vivia "Mi trabajo se llama" (CDRP 1.1): la frase del puesto, traida de
+      identity.positions.proposito. RETIRADA DE LA PANTALLA por decision de Edgar (2026-09-18).
+
+      Lo que se retiro es SOLO este bloque. La columna, las 9 frases sembradas y el campo
+      `position.proposito` de me/context siguen ahi: el dato es catalogo organizacional y se edita
+      desde /admin/puestos. Volver a mostrarlo es reponer estas cinco lineas, no rehacer la fase.
+    -->
+  </header>
+
+  <!-- ══ Dos columnas: el trabajo manda a la izquierda, las puertas ruedan a la derecha ══════ -->
+  <div class="mt-body">
+
+    <!-- ── Tu trabajo ───────────────────────────────────────────────────────────────────── -->
+    <section class="mt-col mt-work" aria-labelledby="h-trabajo">
+      <div class="mt-col-head">
+        <h2 class="mt-col-h" id="h-trabajo">Tu trabajo</h2>
+        <span class="mt-col-meta">
+          <button type="button" class="mt-refresh" (click)="cargarTrabajo()" [disabled]="trabajoCargando()"
+                  aria-label="Volver a contar">
+            <i class="pi pi-refresh" [class.is-spin]="trabajoCargando()" aria-hidden="true"></i>
+          </button>
+          @if (horaConteo()) {
+            <span [title]="'Medición del servidor: ' + medidoAt()">contado a las {{ horaConteo() }}</span>
+          } @else if (!trabajoCargando()) {
+            <span class="is-ausente">hora de conteo no declarada</span>
+          }
+        </span>
+      </div>
+
+      <app-load-state
+        [loading]="trabajoCargando()"
+        [error]="trabajoError()"
+        [isEmpty]="false"
+        [skeletonRows]="3"
+        errorTitle="No se pudo consultar tu trabajo pendiente"
+        (retry)="cargarTrabajo()">
+
+        <!--
+          Cada grupo es su propio bloque con su etiqueta adentro: la distinción entre lo que está a
+          tu nombre y una cola compartida es la razón de ser de esta columna, y en SN.9 se perdía al
+          envolver. Medido en prod: las tres tablas de asignación nominal están en CERO filas.
+        -->
+        <!--
+          [SN.13] El titular. La columna tenía 0 objetos con superficie contra 30 de la de puertas
+          y su cifra mayor era de 18 px: el dato por el que existe la pantalla pesaba como una
+          etiqueta. Es la ÚNICA headline metric de la vista (DESIGN.md permite una).
+        -->
+        <!--
+          [SN.29] El numero grande es LO TUYO, no la suma de las colas compartidas.
+
+          Antes iba `totalPendientes()` = suma de `deBandeja()`, o sea por construccion lo unico
+          de la pantalla que no es de nadie: en la captura que disparo esto, 1 era tuyo y 2,082 no.
+          Un 0 aca no se esconde -- que nadie te haya asignado nada es el hecho medido, y taparlo
+          fue exactamente el error que [SN.11] ya habia corregido para el bloque "A tu nombre".
+        -->
+        <!--
+          [SN.35] «A tu nombre» apagado para este departamento (pedido de Edgar, 2026-09-22).
+          Se DECLARA: una portada recortada en silencio es indistinguible de una portada vacía.
+        -->
+        @if (sinTrabajoNominal() && !buscando()) {
+          <p class="mt-declarado is-nota">
+            <i class="pi pi-eye-slash" aria-hidden="true"></i>
+            <span>{{ motivoSinNominal }}</span>
+          </p>
+        }
+
+        <!--
+          [SN.35] ⛔ El titular se apaga CON el bloque. Publicar «0 pendientes a tu nombre»
+          mientras se ocultan 10 no es un recorte: es una afirmación falsa. Se prefiere no
+          publicar la cifra a publicarla mal (ADR-056).
+        -->
+        @if (hayTrabajo() && !buscando() && !sinTrabajoNominal()) {
+          <div class="mt-titular">
+            <span class="mt-titular-n" [class.is-cero]="totalPendientes() === 0">{{ formatoTotal(totalPendientes()) }}</span>
+            <span class="mt-titular-txt">
+              <span class="mt-titular-l">{{ totalPendientes() === 1 ? 'pendiente a tu nombre' : 'pendientes a tu nombre' }}</span>
+              <!-- [SN.17] Cada cosa en su unidad: los MESES por cerrar y los items de las colas. -->
+              @if (resumenMio()) { <span class="mt-titular-d">{{ resumenMio() }}</span> }
+            </span>
+          </div>
+        }
+
+        <!--
+          [JZ.3] COMO VA TU ZONA. Cuarto organismo: no cuenta pendientes, mide resultado.
+
+          Va PRIMERO en la columna a proposito. Para quien responde de la venta de su zona, esta
+          es la respuesta a "como voy" -- y el organismo de abajo contesta "que me falta hacer",
+          que es una pregunta posterior.
+
+          Nada de esto es una pantalla nueva: el detalle de las tiendas ya vive en /tienda/live y
+          el de las rutas en /comercial/ventas-por-ruta, que desde [JZ.1] aterriza filtrada por
+          URL. Aca solo esta el numero y el enlace.
+
+          Regla dura: una fila SIN cifra dice desde cuando no hay dato, NUNCA -100%.
+
+          [JZ.7] Y son N zonas, no una: un jefe de zona ve la suya, la direccion ve las 6 que
+          tienen canal de venta. El selector de grano y el total van UNA vez, arriba de todas.
+        -->
+        @if (zonas().length) {
+          <div class="mt-zona">
+            <!--
+              [JZ.4] El grano. Cada uno trae su PROPIO comparador y no son intercambiables:
+              dia    -> el ultimo dia cerrado contra el mismo dia de la semana anterior
+              semana -> los ultimos 7 dias cerrados contra los 7 anteriores
+              mes    -> del 1 a hoy contra el mismo tramo del mes pasado
+              Medido en prod sobre 60 dias, el dia de la semana manda mas que la tendencia
+              (rutas: lunes 162,470 vs sabado 115,765), asi que "contra ayer" seria puro calendario.
+              El cambio vuelve a pedir me/work: el comparador se calcula en el servidor.
+            -->
+            <div class="mt-periodos" role="group" aria-label="Periodo de la comparación">
+              @for (p of PERIODOS; track p.id) {
+                <button type="button" class="mt-periodo"
+                        [class.is-on]="periodoZona() === p.id"
+                        [attr.aria-pressed]="periodoZona() === p.id"
+                        [title]="p.ayuda"
+                        (click)="cambiarPeriodo(p.id)">{{ p.label }}</button>
+              }
+            </div>
+
+            <!--
+              [JZ.7] EL TOTAL DE LA EMPRESA. Solo aparece con mas de una zona; con una sola seria
+              repetir el unico bloque con otro nombre.
+
+              El tramo es UNO para todas: si cada zona se midiera hasta donde llega SU fuente, el
+              total sumaria 15 dias de LA PIEDAD con 14 de MORELIA y las zonas no serian
+              comparables entre si -- que es justo lo que se hace con esta pantalla. El recorte
+              se declara abajo, en la zona que lo provoco.
+            -->
+            @if (consolidado(); as cons) {
+              <div class="mt-titular is-zona is-total">
+                <span class="mt-titular-n">{{ formatoDinero(cons.monto) }}</span>
+                <span class="mt-titular-txt">
+                  <span class="mt-titular-l">vendieron tus {{ cons.zonas }} zonas {{ tramoTexto(zonas()[0]) }}</span>
+                  <span class="mt-titular-d">
+                    @if (formatoVariacion(cons.variacion_pct); as v) {
+                      <span class="mt-delta" [class]="claseVariacion(cons.variacion_pct)">{{ v }}</span>
+                      contra {{ formatoDinero(cons.comparado) }} del mismo tramo
+                    } @else {
+                      sin tramo comparable
+                    }
+                  </span>
+                  @if (cons.no_comparado; as nc) {
+                    <span class="mt-titular-d">
+                      ⚠ {{ nc.canales }} {{ nc.canales === 1 ? 'zona' : 'zonas' }} sin dato en el tramo
+                      ({{ formatoDinero(nc.monto_anterior) }} en el anterior) quedan fuera de la comparación
+                    </span>
+                  }
+                </span>
+              </div>
+            }
+
+            @for (z of zonas(); track z.zona) {
+            <div class="mt-titular is-zona">
+              <span class="mt-titular-n">{{ formatoDinero(z.monto) }}</span>
+              <span class="mt-titular-txt">
+                <span class="mt-titular-l">vendió {{ z.zona }} {{ tramoTexto(z) }}</span>
+                <span class="mt-titular-d">
+                  @if (formatoVariacion(z.variacion_pct); as v) {
+                    <span class="mt-delta" [class]="claseVariacion(z.variacion_pct)">{{ v }}</span>
+                    contra {{ formatoDinero(z.comparado) }} del {{ z.desde_comparado }} al {{ z.hasta_comparado }}
+                  } @else {
+                    sin tramo comparable el mes pasado
+                  }
+                </span>
+                <!--
+                  [JZ.3] Lo que NO entra en la comparacion, dicho. Nace de un defecto medido:
+                  ZAMORA publicaba -42.2% sumando una tienda de este mes contra una tienda mas
+                  tres rutas del anterior. Un canal entra en los dos lados o en ninguno; lo que
+                  queda afuera se cuenta aca en vez de desaparecer del subtotal en silencio.
+                -->
+                @if (z.no_comparado; as nc) {
+                  <span class="mt-titular-d">
+                    ⚠ {{ nc.canales }} {{ nc.canales === 1 ? 'canal' : 'canales' }} sin dato en el tramo
+                    ({{ formatoDinero(nc.monto_anterior) }} en el anterior) quedan fuera de la comparación
+                  </span>
+                }
+                <!--
+                  [JZ.4] El tramo termina donde termina el DATO, no donde termina el reloj.
+                  Nace de una mentira publicada: MORELIA ABASTOS decia -26.1% comparando 10 dias de
+                  septiembre contra 15 de agosto porque su fuente no entregaba desde el 10; con el
+                  tramo parejo la zona SUBE 17.1%. Recortar sin decirlo cambiaria una mentira por
+                  un silencio.
+                -->
+                @if (z.corte; as c) {
+                  <span class="mt-titular-d is-corte">
+                    ⛔ Tramo recortado al {{ z.hasta }}: {{ c.fuentes.join(', ') }}
+                    {{ c.fuentes.length === 1 ? 'lleva' : 'llevan' }}
+                    {{ c.dias_sin_entregar }} {{ c.dias_sin_entregar === 1 ? 'día' : 'días' }} sin entregar
+                  </span>
+                } @else if (z.incluye_dia_en_curso) {
+                  <span class="mt-titular-d">Incluye el día de hoy, que va a medias</span>
+                }
+              </span>
+            </div>
+
+            @for (b of z.bloques; track b.grupo) {
+              <div class="mt-grupo">
+                <p class="mt-grupo-tag">
+                  {{ b.label }}
+                  <!--
+                    [JZ.5] El punto de "en vivo" va SOLO en tiendas, y es un hecho medido: el
+                    stream de /tienda/live no trae UNA sola ruta (`RUTA%` no existe en
+                    store_live_tickets, nunca). Ponerlo sobre el bloque entero prometeria un vivo
+                    que la mitad de la portada no tiene.
+                    El numero sigue saliendo de sales_daily: el ticket solo dice "volve a
+                    preguntar". El stream NO es el mismo universo -- hoy la sucursal 06 da 49.7%
+                    del fact porque el stream es de mostrador y ella tambien vende credito.
+                  -->
+                  @if (b.grupo === 'tienda' && vivo()) {
+                    <span class="mt-vivo" [title]="tituloVivo()">en vivo</span>
+                  }
+                  <span class="mt-grupo-sub">
+                    @if (b.peso !== null) { — {{ (b.peso * 100).toFixed(0) }}% de tu venta }
+                    @if (formatoVariacion(b.variacion_pct); as v) {
+                      · <span class="mt-delta" [class]="claseVariacion(b.variacion_pct)">{{ v }}</span>
+                    }
+                  </span>
+                </p>
+
+                <!--
+                  [CDRP.1] Margen y ticket del CANAL (CDRP 3 KPI 3 y 5, 7 KPI 2 y 5). Misma
+                  consulta que la venta: son dos agregados mas sobre las filas que este bloque ya
+                  leia, no una fuente nueva.
+
+                  Van por canal y NUNCA agregados, y es un hecho medido: el ticket de tienda es
+                  $86, el de ruta $586 y el de vecinal $1,675. El promedio de los tres no es el
+                  ticket de nadie.
+
+                  La COBERTURA se dice siempre que hay margen: un margen calculado sobre el 89% de
+                  la venta se lee igual que uno sobre el 100% si nadie aclara cual es cual.
+                -->
+                <p class="mt-metricas">
+                  @if (b.margen_pct !== null) {
+                    <span class="mt-metrica">
+                      <span class="mt-metrica-k">Margen</span>
+                      <span class="mt-metrica-v">{{ (b.margen_pct * 100).toFixed(2) }}%</span>
+                      @if (b.margen_cobertura !== null && b.margen_cobertura < 0.999) {
+                        <span class="mt-metrica-cob"
+                              title="El resto de la venta de este canal no trae costo en su fuente, así que no entra en el margen.">
+                          sobre el {{ (b.margen_cobertura * 100).toFixed(1) }}% de su venta
+                        </span>
+                      }
+                    </span>
+                  } @else {
+                    <span class="mt-metrica is-nd">
+                      <span class="mt-metrica-k">Margen</span>
+                      <span class="mt-metrica-v">sin medir</span>
+                      <span class="mt-metrica-cob">su fuente no trae costo</span>
+                    </span>
+                  }
+                  @if (b.ticket_promedio !== null) {
+                    <span class="mt-metrica">
+                      <span class="mt-metrica-k">Ticket</span>
+                      <span class="mt-metrica-v">{{ formatoDinero(b.ticket_promedio) }}</span>
+                      <span class="mt-metrica-cob">en {{ formatoTotal(b.tickets ?? 0) }} tickets</span>
+                    </span>
+                  }
+                </p>
+
+                @for (c of b.canales; track c.id) {
+                  @if (!c.ruta) {
+                    <!--
+                      Respondes de esto y tu permiso no abre su pantalla: la fila se muestra SIN
+                      enlace y con el motivo. Medido: la jefa de zona de LA PIEDAD no tiene
+                      COMMERCIAL_ROUTE_SALES_VER, o sea el 21% de su venta. Esconderla taparia la
+                      discrepancia; enlazarla llevaria a un 403.
+                    -->
+                    <p class="mt-canal is-bloqueada" [title]="c.sin_acceso ?? ''">
+                      <span class="mt-canal-ico"><i class="pi pi-lock" aria-hidden="true"></i></span>
+                      <span class="mt-canal-txt">
+                        <span class="mt-canal-l">{{ c.label }}</span>
+                        <span class="mt-canal-d">{{ c.sin_acceso }}</span>
+                      </span>
+                      <span class="mt-canal-v">
+                        <span class="mt-canal-m">{{ formatoDinero(c.monto) }}</span>
+                      </span>
+                    </p>
+                  } @else {
+                    <a class="mt-canal" [class.is-nd]="c.monto === null"
+                       [routerLink]="c.ruta" [queryParams]="c.queryParams"
+                       [title]="detalleCanal(c)">
+                      <span class="mt-canal-ico"><i [class]="iconoCanal(b.grupo)" aria-hidden="true"></i></span>
+                      <span class="mt-canal-txt">
+                        <span class="mt-canal-l">{{ c.label }}</span>
+                        <span class="mt-canal-d">{{ detalleCanal(c) }}</span>
+                      </span>
+                      <span class="mt-canal-v">
+                        <span class="mt-canal-m">{{ formatoDinero(c.monto) }}</span>
+                        @if (formatoVariacion(c.variacion_pct); as v) {
+                          <span class="mt-canal-p mt-delta" [class]="claseVariacion(c.variacion_pct)">{{ v }}</span>
+                        } @else {
+                          <span class="mt-canal-p mt-delta is-nd">sin medir</span>
+                        }
+                      </span>
+                    </a>
+                  }
+                }
+
+                <!--
+                  [JZ.2] Lo que NO entra en el subtotal, con su motivo. Una ruta cuya clave
+                  reclaman dos zonas no se puede sumar a ninguna sin contarla dos veces (501 y 502
+                  valen $1.04M). Omitirla en silencio haria que el subtotal no cuadre y nadie
+                  pudiera explicar la diferencia.
+                -->
+                @for (x of b.excluidos; track x.label) {
+                  <p class="mt-excluido">
+                    <i class="pi pi-info-circle" aria-hidden="true"></i>
+                    <span><b>{{ x.label }}</b> no se suma: {{ x.motivo }}</span>
+                  </p>
+                }
+              </div>
+            }
+            }
+          </div>
+        }
+
+        <!--
+          [SN.15] "A tu nombre" = lo que ALGUIEN te asignó (tareas, con dueño y fecha) + lo que vos
+          empezaste. Las dos cosas llevan tu nombre; una cola compartida NO, y por eso vive abajo.
+          La regla es de `work/task.contract.ts`: el permiso dice si podés abrirlo, la
+          responsabilidad dice si es tuyo, la tarea dice que alguien te lo asignó.
+        -->
+        <!-- [SN.35] El grupo entero no se pinta cuando está apagado: ver el aviso de arriba. -->
+        @if (!sinTrabajoNominal()) {
+        <div class="mt-grupo">
+          <p class="mt-grupo-tag">A tu nombre</p>
+
+          @for (t of tareas(); track t.fuente) {
+            <!--
+              Sin permiso NO hay enlace: la fila se queda como <p>. Esconderla taparía que quien
+              reparte y quien puede abrir no coinciden; enlazarla llevaría a un 403.
+            -->
+            @if (t.ruta) {
+              <a class="mt-task is-mine" [routerLink]="t.ruta" [queryParams]="t.queryParams" [title]="t.detalle" (click)="abrioTarea(t)">
+                <span class="mt-task-ico"><i [class]="t.icono" aria-hidden="true"></i></span>
+                <span class="mt-task-n">{{ formatoTotal(t.total) }}</span>
+                <span class="mt-task-txt">
+                  <span class="mt-task-l">{{ t.label }}</span>
+                  @if (t.detalle) { <span class="mt-task-d">{{ t.detalle }}</span> }
+                </span>
+                @if (vencimiento(t); as v) {
+                  <span class="mt-task-vence" [class.is-vencido]="(t.vencidas ?? 0) > 0">{{ v }}</span>
+                } @else {
+                  <span class="mt-task-edad" [title]="t.mas_viejo_at ? 'Te la asignaron el ' + t.mas_viejo_at : 'Esta fuente no reportó fecha de asignación'">{{ antiguedad(t) }}</span>
+                }
+                <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
+              </a>
+            } @else {
+              <p class="mt-task is-mine is-bloqueada" [title]="t.sin_acceso ?? ''">
+                <span class="mt-task-ico"><i class="pi pi-lock" aria-hidden="true"></i></span>
+                <span class="mt-task-n">{{ formatoTotal(t.total) }}</span>
+                <span class="mt-task-txt">
+                  <span class="mt-task-l">{{ t.label }}</span>
+                  <span class="mt-task-d">{{ t.sin_acceso }}</span>
+                </span>
+              </p>
+            }
+          }
+
+          @for (p of mios(); track p.id) {
+            @if (p.ruta) {
+              <a class="mt-task is-mine" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
+                <span class="mt-task-ico"><i [class]="p.icono" aria-hidden="true"></i></span>
+                <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
+                <span class="mt-task-txt">
+                  <span class="mt-task-l">{{ p.label }}</span>
+                  @if (p.detalle) { <span class="mt-task-d">{{ p.detalle }}</span> }
+                </span>
+                <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
+                <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
+              </a>
+            } @else {
+              <!--
+                [SN.24] La actividad es TUYA pero tu permiso no abre su pantalla. Se muestra con el
+                motivo y SIN enlace, igual que una tarea asignada sin acceso: esconderla taparia la
+                discrepancia entre quien reparte y quien puede abrir, y enlazarla invitaria a un 403.
+              -->
+              <p class="mt-task is-mine is-bloqueada" [title]="p.sin_acceso ?? ''">
+                <span class="mt-task-ico"><i class="pi pi-lock" aria-hidden="true"></i></span>
+                <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
+                <span class="mt-task-txt">
+                  <span class="mt-task-l">{{ p.label }}</span>
+                  <span class="mt-task-d">{{ p.sin_acceso }}</span>
+                </span>
+              </p>
+            }
+          }
+
+          <!--
+            [SN.17] El ciclo del que ESTA persona responde. Ivonne concilia ingresos y Mayra
+            egresos, y las dos son `auxiliar_finanzas` — así que el reparto no sale del puesto sino
+            de `user_responsibilities`. Lo que no es tuyo NO desaparece: baja a «Por periodo».
+          -->
+          @for (c of ciclosMios(); track c.id) {
+            <app-periodo-strip [ciclo]="c" (abrio)="abrioPeriodo(c, $event)" />
+          }
+
+          @if (!hayAlgoMio() && !buscando()) {
+            <!--
+              [SN.30] CUATRO estados, elegidos por el dato y nunca por un default (ADR-056).
+
+              Con la regla nueva ("una cola se te muestra solo si vos respondes de ella") este
+              bloque dejo de ser el caso raro: medido en prod, 94 de 122 personas no tienen ninguna
+              responsabilidad declarada y 84 de esas quedan aqui sin nada. Por eso el texto tiene
+              que decir POR QUE y a quien pedirselo -- una pantalla vacia sin motivo se lee como un
+              error del sistema, y es lo contrario: es el sistema diciendo la verdad.
+
+              El cuarto estado es el que faltaba: quien SI tiene reparto pero su unica cola esta
+              APAGADA. Sin el, a esas 6 personas la pantalla les diria "nadie te asigno nada",
+              que es falso.
+            -->
+            <p class="mt-sin-mio">
+              <i class="pi pi-user" aria-hidden="true"></i>
+              <span>
+                @if (soloRetiradas()) {
+                  <b>Tu actividad está pausada.</b>
+                  <span class="mt-sin-mio-why">
+                    Respondes de {{ soloRetiradas() }}, pero esa bandeja está apagada por ahora
+                    porque su fuente no es confiable. No es que no tengas trabajo: es que ese
+                    trabajo no se está repartiendo. Puedes abrir la pantalla desde el menú.
+                  </span>
+                } @else if (sinReparto()) {
+                  <b>Nadie definió de qué respondes.</b>
+                  <span class="mt-sin-mio-why">
+                    «Tu trabajo» solo muestra lo que es tuyo, así que hasta que tu puesto tenga
+                    actividades asignadas esta columna va a estar vacía. Los módulos de la derecha
+                    los sigues abriendo igual — tener acceso y tener la responsabilidad son dos
+                    cosas distintas. Pídeselo a tu jefe o a Sistemas.
+                  </span>
+                } @else if (delegacion() === null) {
+                  <b>No se pudo leer tu reparto.</b>
+                  <span class="mt-sin-mio-why">
+                    No sabemos de qué respondes, así que no se muestra nada en vez de adivinar.
+                    Vuelve a intentar; si sigue igual, avísale a Sistemas.
+                  </span>
+                } @else {
+                  <b>Estás al día.</b>
+                  <span class="mt-sin-mio-why">
+                    Respondes de {{ clavesTexto() }} y ninguna tiene pendientes ahora mismo.
+                  </span>
+                }
+              </span>
+            </p>
+          }
+        </div>
+        }
+
+        @if (deBandeja().length) {
+          <div class="mt-grupo">
+            <!--
+              [SN.30] Dejaron de ser "colas compartidas": con la regla nueva aca solo llega lo que
+              ESTA persona responde. La distincion con "A tu nombre" sigue siendo real -- alla hay
+              un assigned_to con nombre y fecha, aca respondes del conjunto -- pero las dos son
+              tuyas, y el rotulo viejo decia lo contrario.
+            -->
+            <p class="mt-grupo-tag" title="Actividades de las que respondes por tu puesto o por asignacion directa. Nadie te las reparte una por una.">
+              De las que respondes
+            </p>
+            @for (p of deBandeja(); track p.id) {
+              @if (!p.ruta) {
+                <!-- [SN.24] Tuya por designacion, cerrada por permiso: se dice, no se esconde. -->
+                <p class="mt-task is-bloqueada" [title]="p.sin_acceso ?? ''">
+                  <span class="mt-task-ico"><i class="pi pi-lock" aria-hidden="true"></i></span>
+                  <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
+                  <span class="mt-task-txt">
+                    <span class="mt-task-l">{{ p.label }}</span>
+                    <span class="mt-task-d">{{ p.sin_acceso }}</span>
+                  </span>
+                </p>
+              } @else {
+              <a class="mt-task" [class]="'is-v-' + p.veredicto" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
+                <span class="mt-task-ico"><i [class]="p.icono" aria-hidden="true"></i></span>
+                <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
+                <span class="mt-task-txt">
+                  <span class="mt-task-l">
+                    {{ p.label }}
+                    <!--
+                      [SN.29] La insignia del veredicto. Lo sano NO lleva una: si las cinco filas
+                      la llevaran, volverian a verse todas iguales -- que es el defecto de origen.
+                    -->
+                    @if (veredictoTexto(p); as v) {
+                      <span class="mt-veredicto" [title]="veredictoMotivo(p)">{{ v }}</span>
+                    }
+                  </span>
+                  <!--
+                    [SN.15] El universo del conteo, sólo cuando hay algo que decir. Si la cola no
+                    tiene sucursal no se rotula: sería ruido en 5 de 8 filas. Si la ficha no tiene
+                    sucursal SÍ, porque ahí el número podría haber sido acotado y no lo fue.
+                  -->
+                  @if (p.detalle) {
+                    <span class="mt-task-d">
+                      {{ p.detalle }}@if (p.ambito === 'sucursal') {<span class="mt-task-ambito"> · tu sucursal</span>}@else if (p.ambito === 'red_sin_ficha') {<span class="mt-task-ambito" title="Esta cola se puede acotar por sucursal, pero tu ficha no tiene una asignada. Se cuenta toda la red."> · toda la red</span>}
+                    </span>
+                  }
+                  <!--
+                    [SN.29] El FLUJO: lo que entro contra lo que salio. Es lo que distingue un
+                    vertedero de una cola que se trabaja, y de paso da el "desde la ultima vez"
+                    que la pantalla no tenia: abrirla dos veces mostraba el mismo total.
+                  -->
+                  @if (flujoTexto(p); as f) { <span class="mt-task-flujo">{{ f }}</span> }
+                </span>
+                <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
+                <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
+              </a>
+              <!--
+                [SN.33] El DESGLOSE: un renglón por fila, cuando la cola sabe nombrarlas.
+
+                Pedido de Edgar (2026-09-22) sobre la bandeja de salud de datos. Un "7" dice
+                cuánto, no QUÉ -- y ahí el qué es toda la información: no es lo mismo que fallen
+                dos réplicas de Wincaja a que falle el reconciliador del ODS.
+
+                ⛔ Los renglones NO llevan enlace propio. La pantalla que los resuelve es UNA
+                (la de la bandeja, arriba): darle ruta a cada uno multiplicaría las puertas de la
+                portada para llevarlas todas al mismo lugar.
+
+                ⛔ `desglose` ausente = esta cola NO se desglosa; no significa "salió vacía". Por
+                eso el @if pregunta por longitud y no se pinta un vacío con cara de "no hay nada".
+              -->
+              @if (p.desglose?.length) {
+                <ul class="mt-desglose">
+                  @for (d of p.desglose; track d.id) {
+                    <li class="mt-dg" [class]="'is-n-' + (d.nivel ?? 'sin')">
+                      <span class="mt-dg-nivel" [title]="nivelMotivo(d)">{{ nivelTexto(d) }}</span>
+                      <span class="mt-dg-txt">
+                        <span class="mt-dg-l">{{ d.label }}</span>
+                        @if (d.nota) { <span class="mt-dg-n">{{ d.nota }}</span> }
+                      </span>
+                      <span class="mt-dg-edad" [title]="d.desde ? 'Desde el ' + d.desde : 'Esta fuente no reportó desde cuándo'">{{ antiguedad({ mas_viejo_at: d.desde }) }}</span>
+                    </li>
+                  }
+                  <!--
+                    Lo recortado se DICE: una lista truncada se lee igual que una completa, y
+                    entonces "eso es todo" y "eso es lo que cabe" se confunden ([SN.21]).
+                  -->
+                  @if (p.desglose_truncado) {
+                    <li class="mt-dg is-mas">+{{ formatoTotal(p.desglose_truncado) }} más — se ven todas en la pantalla</li>
+                  }
+                </ul>
+              }
+              }
+            }
+
+            <!--
+              [SN.29] Las colas CONGELADAS se declaran, no se disfrazan de trabajo pendiente.
+
+              Medido contra prod: dos de las cinco que la pantalla publicaba no han tenido una sola
+              fila resuelta (descuadres 2,409 de 2,409 desde el 8-jul; acciones de Maat 192 de 198,
+              las unicas 6 decididas el 6-ago). Juntas eran el 90% del titular viejo.
+
+              Es el criterio de [SN.18] -- "una cola que nadie trabaja no es trabajo pendiente" --
+              pero sin decidir por Edgar que se apaguen: se dice lo que les falta, que es un DUENO,
+              no un clic. Apagarlas es una linea (`BandejaDef.retirada`) y es su decision.
+            -->
+            @if (congeladas().length && !buscando()) {
+              <p class="mt-congeladas">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                <span>
+                  {{ congeladas().length === 1 ? 'Una de estas colas está congelada' : congeladas().length + ' de estas colas están congeladas' }}:
+                  nadie ha resuelto una sola fila en 30 días. Lo que les falta es un dueño, no un clic.
+                </span>
+              </p>
+            }
+          </div>
+        }
+
+        <!--
+          [SN.16] El trabajo que se cierra MES POR MES. Es el tercer organismo: una tarea tiene
+          dueno, una bandeja es una cola sin fin, y esto es una cola CON CALENDARIO.
+
+          [SN.30] Este grupo SOLO existe ya para el caso de falla: cuando las responsabilidades no
+          se pudieron leer, el backend falla ABIERTO y manda todo con `es_mio: false` en vez de
+          vaciar la pantalla por un error transitorio ([SN.22]). En la ruta normal el backend no
+          manda trabajo ajeno, y el frontend tampoco debe tener DONDE ponerlo: el mismo defecto
+          -- trabajo de otra persona en tu portada -- se reporto tres veces ([SN.20], [SN.24],
+          [SN.28]) y cada vez algo se filtro. Gatearlo por `delegacion() === null` lo hace fallar
+          CERRADO en todos los demas casos.
+        -->
+        @if (delegacion() === null && ciclosCompartidos().length) {
+          <div class="mt-grupo">
+            <p class="mt-grupo-tag" title="No se pudo leer de que respondes, asi que se muestra todo lo que abre tu permiso en vez de vaciar la pantalla">
+              Por periodo · sin poder confirmar que es tuyo
+            </p>
+            @for (c of ciclosCompartidos(); track c.id) {
+              <app-periodo-strip [ciclo]="c" (abrio)="abrioPeriodo(c, $event)" />
+            }
+          </div>
+        }
+
+        @if (sinPendientes()) {
+          <p class="mt-nada"><i class="pi pi-check-circle" aria-hidden="true"></i> Sin pendientes en tus bandejas</p>
+        }
+
+        @if (noMedido().length) {
+          <!-- Lo que no se pudo contar se DECLARA: un cero dibujado se lee igual que "al día". -->
+          <p class="mt-declarado">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <span>
+              <b>Sin medir:</b>
+              @for (n of noMedido(); track n.id; let last = $last) {
+                <span [title]="n.motivo">{{ n.label }}</span>@if (!last) { <span aria-hidden="true"> · </span> }
+              }
+              — esa bandeja no respondió, así que no se muestra en cero.
+            </span>
+          </p>
+        }
+
+        @if (recorteVisible(); as d) {
+          <!--
+            [SN.21] Una lista RECORTADA en silencio se lee igual que una lista completa, y entonces
+            "ya no hay nada" y "lo demás no es tuyo" se confunden. Se dice cuánto quedó fuera y se
+            aclara que sigue abierto: la responsabilidad ordena esta lista, no cierra ninguna puerta.
+          -->
+          <p class="mt-declarado is-nota">
+            <i class="pi pi-filter" aria-hidden="true"></i>
+            <span>
+              Esta lista está acotada a lo que responde tu reparto.
+              {{ d.ocultas }} {{ d.ocultas === 1 ? 'cola más que tu permiso abre no aparece' : 'colas más que tu permiso abre no aparecen' }}
+              acá — las sigues abriendo desde su pantalla.
+            </span>
+          </p>
+        }
+      </app-load-state>
+
+      <!--
+        Esta declaración es SOBRE el trabajo, así que vive en la columna del trabajo. Antes iba en
+        una banda al pie mezclada con la de los espacios, que declara otra cosa distinta.
+      -->
+      @if (!buscando()) {
+        <!--
+          [SN.15] Decía "Reparto nominal de tareas: pendiente de definición (P-06)", y eso ya no es
+          cierto: el reparto EXISTE (151 tareas vivas, medido). Lo que sigue pendiente es otra cosa
+          —de qué responde cada puesto— y es la que hay que declarar, sin confundirla con la otra.
+        -->
+        <p class="mt-declara-pie">
+          <!-- [SN.35] Con el bloque apagado esta frase describiría algo que no está en pantalla. -->
+          @if (sinTrabajoNominal()) {
+            <b>De las que respondes</b> son colas que te tocan por tu puesto. El trabajo a tu
+            nombre está oculto por ahora — lo dice el aviso de arriba.
+          } @else if (sinReparto()) {
+            De qué responde cada puesto todavía no está definido (P-06), así que lo de
+            <b>En tus bandejas</b> son colas que abre tu permiso, no trabajo que alguien te repartió.
+          } @else {
+            <b>A tu nombre</b> es lo que alguien te asignó; <b>En tus bandejas</b> son colas que abre
+            tu permiso y que nadie tiene asignadas.
+          }
+          Indicadores con meta: pendientes de definición (P-01 · P-11).
+        </p>
+      }
+    </section>
+
+    <!-- ── Tus espacios ─────────────────────────────────────────────────────────────────── -->
+    <section class="mt-col mt-spaces" aria-labelledby="h-espacios">
+      <div class="mt-col-head">
+        <h2 class="mt-col-h" id="h-espacios">Tus espacios</h2>
+        <span class="mt-col-meta">
+          @if (buscando()) {
+            {{ entradasVisibles() }} de {{ totalEntradas() }}
+            @if (pendientes().length) { <span>· {{ pendientes().length }} pendientes</span> }
+            <span class="is-ausente">· Enter abre el primero</span>
+          } @else {
+            {{ totalEntradas() }} accesos
+          }
+        </span>
+      </div>
+
+      <!-- Única zona que rueda. Cortar contenido para que "quepa" es esconder puertas. -->
+      <div class="mt-scroll">
+        @if (!permisosCargados()) {
+          <!-- Permisos aún sin cargar: un `{}` de "todavía no sé" no es un `{}` de "no tienes". -->
+          <app-load-state [loading]="true" [skeletonRows]="4"></app-load-state>
+        } @else if (sinEspacios()) {
+          <app-load-state
+            [isEmpty]="true"
+            emptyIcon="pi-lock"
+            emptyTitle="Tu cuenta no tiene ningún espacio asignado"
+            [emptyHint]="'Pide a Sistemas que revise el puesto y los permisos de ' + (user()?.username ?? 'tu usuario') + ' (' + (user()?.role_name ?? 'sin rol') + '). Hasta entonces no hay a dónde entrar.'"
+            emptyCta="Cerrar sesión"
+            emptyCtaIcon="pi pi-sign-out"
+            (cta)="logout()">
+          </app-load-state>
+        } @else if (sinCoincidencias()) {
+          <p class="mt-vacio-busqueda">
+            Nada coincide con <strong>{{ consulta() }}</strong>.
+            <button type="button" class="mt-linkbtn" (click)="limpiar()">Limpiar búsqueda</button>
+          </p>
+        } @else {
+          <!--
+            [SN.25] [SN.40] Tus accesos: lo que MAS abris, medido en el servidor y por persona
+            (ya no "lo ultimo", que vivia en un solo navegador). Cuando la historia propia no
+            alcanza -- y medido en prod no alcanza para 8 de cada 10 -- se completa con lo que
+            abre tu puesto y despues tu area, y cada chip prestado LO DICE.
+
+            Sigue sin dibujarse cuando queda vacia: una caja prometiendo accesos frecuentes que
+            no estan seria peor que no tenerla.
+          -->
+          @if (accesos().length) {
+            <div class="mt-freq">
+              <p class="mt-freq-h">
+                <span>Tus accesos</span>
+                <span class="mt-freq-rule" aria-hidden="true"></span>
+                <!--
+                  [SN.40] El rotulo dice QUE esta mostrando, y eso cambia por persona: con
+                  historia propia es lo que mas abris, sin historia es lo que abre tu puesto.
+                  Un rotulo fijo mentiria a la mayoria -- medido, 64 de 148 personas no tienen
+                  un solo clic.
+                -->
+                <span class="mt-freq-why">{{ accesosRotulo() }}</span>
+              </p>
+              <!--
+                [SN.26] Chips, no mosaicos 4:3. Medido a 1440x874: los mosaicos costaban 146 px de
+                un presupuesto de 732 y dejaban 3 de 5 columnas vacías, para repetir tarjetas que
+                ya estaban visibles 200 px más abajo (2 de 2, medido). El chip toma el ancho de su
+                texto y se acomoda en línea: mismo bloque, 32 px, sin huecos.
+              -->
+              <div class="mt-chips">
+                @for (e of accesos(); track e.id) {
+                  <!--
+                    [SN.40] Un atajo que NO salio de tu historia lo dice. Va en el nombre
+                    accesible y en el title, no en un icono mudo: el lector de pantalla tiene
+                    que oir la diferencia entre "lo abris vos" y "lo abre tu puesto".
+                  -->
+                  <a class="mt-chip" [routerLink]="e.route"
+                     [class.mt-chip-sug]="!!origenAcceso()[e.id]"
+                     [title]="origenAcceso()[e.id]
+                        ? (e.groupLabel || e.label) + ' — ' + origenAcceso()[e.id]
+                        : (e.groupLabel || e.label)"
+                     [attr.aria-label]="origenAcceso()[e.id]
+                        ? e.label + ', sugerido: ' + origenAcceso()[e.id]
+                        : null"
+                     (click)="abrioPuerta(e, { id: '', label: '', icon: '', status: '', entradas: [] })">
+                    <i class="mt-chip-ico" [class]="e.icon" aria-hidden="true"></i>
+                    <span class="mt-chip-nm">{{ e.label }}</span>
+                  </a>
+                }
+              </div>
+            </div>
+          }
+
+          <!--
+            [SN.25] Los submodulos que casan con la busqueda. Son 101 y cada uno trae ruta propia,
+            asi que escribir "Clientes 360" ya no te deja en Ventas para que busques adentro.
+          -->
+          @if (submodulos().length) {
+            <div class="mt-subs">
+              <p class="mt-freq-h">
+                <span>Submódulos</span>
+                <span class="mt-freq-rule" aria-hidden="true"></span>
+                <span class="mt-freq-why">{{ submodulos().length }} coinciden</span>
+              </p>
+              <!--
+                [SN.28] Rejilla PROPIA, y no la de los grupos. `.mt-grid` paso a ser una columna
+                unica (la celda toma el ancho del grupo); acá eso seria una tira vertical de hasta
+                101 resultados a lo ancho del panel. El buscador conserva varias columnas.
+              -->
+              <div class="mt-subs-grid">
+                @for (x of submodulos(); track x.id) {
+                  <a class="mt-cell is-sub" [routerLink]="x.route" [title]="x.label + ' · de ' + x.modulo"
+                     (click)="abrioSubmodulo(x)">
+                    <span class="mt-cell-chip" aria-hidden="true">
+                      <i class="mt-cell-ico pi pi-angle-right"></i>
+                    </span>
+                    <span class="mt-cell-tx">
+                      <span class="mt-cell-nm">{{ x.label }}</span>
+                      <span class="mt-cell-sb"><span>de {{ x.modulo }}</span></span>
+                    </span>
+                  </a>
+                }
+              </div>
+            </div>
+          }
+
+          <!--
+            [SN.27] Cada grupo era una franja de ancho completo, así que uno de 2 tarjetas dejaba 3 o
+            5 huecos a su derecha: medido, 52% de ocupación a 1920 y 63% a 1440. La solución fue
+            repartirlos en columnas, y el ancho de columna manda (no un número fijo).
+
+            [SN.28] Pero eran columnas de verdad (`columns: 21rem`), que equilibran por ALTURA con
+            cada grupo como átomo indivisible — y con 7 grupos de 1·6·3·3·5·2·4 eso dejaba la cuarta
+            columna a la mitad, 184 px de 368. Ahora es una REJILLA de grupos: se acomodan en filas,
+            se leen de izquierda a derecha y el hueco cae en el último renglón. Detalle en el CSS.
+          -->
+          <div class="mt-espacios">
+          @for (s of espacios(); track s.id) {
+            <section class="mt-space" [id]="'espacio-' + s.id" [attr.data-espacio]="s.id"
+                     [style.gridColumn]="tramoEspacio($index, espacios().length)"
+                     [attr.aria-labelledby]="'h-' + s.id">
+              <h3 class="mt-space-title" [id]="'h-' + s.id">
+                <i class="mt-space-ico" [class]="s.icon" aria-hidden="true"></i>
+                <span>{{ s.label }}</span>
+                <span class="mt-space-n">{{ s.entradas.length }}</span>
+                @if (s.status === 'proposed') {
+                  <span hlmBadge variant="outline" class="mt-badge-prop"
+                        [title]="'Espacio propuesto por la especificación; depende de la decisión ' + s.proposal">
+                    {{ s.proposal }}
+                  </span>
+                }
+                <span class="mt-space-rule" aria-hidden="true"></span>
+              </h3>
+
+              <!--
+                [SN.28] LISTA, no rejilla de celdas angostas.
+
+                Es `ul`/`li` a proposito: para una coleccion de ENLACES, la lista nativa le anuncia
+                al lector de pantalla cuantos son y en cual va, con el mismo esfuerzo de teclado.
+                Lo que NO se hace es convertirla en `role="grid"` con un solo tab stop y flechas
+                (Roselli, "ARIA Grid As an Anti-Pattern"): quien usa teclado espera Tab y se pasaria
+                de largo las puertas. Ese patron queda para los selectores, donde si corresponde.
+
+                `is-alias` = la celda que no es un modulo propio sino uno de otro proyecto traido
+                aca. Antes la unica senal era tipografica; ahora lo dice la flecha Y el renglon.
+              -->
+              <ul class="mt-grid">
+                @for (e of s.entradas; track e.id) {
+                  <li>
+                    <a class="mt-cell" [class.is-alias]="e.esAlias"
+                       [routerLink]="e.route"
+                       [title]="e.esAlias ? 'Atajo a ' + e.sub : (e.groupLabel || e.detalle || e.label)"
+                       [attr.aria-label]="etiquetaPuerta(e)"
+                       (click)="abrioPuerta(e, s)">
+                      <span class="mt-cell-chip" aria-hidden="true">
+                        <i class="mt-cell-ico" [class]="e.icon"></i>
+                      </span>
+                      <span class="mt-cell-tx">
+                        <span class="mt-cell-nm">{{ e.label }}</span>
+                        @if (e.sub) {
+                          <span class="mt-cell-sb">
+                            <i class="pi pi-arrow-up-right mt-cell-atajo" aria-hidden="true"></i>
+                            <span>{{ e.sub }}</span>
+                          </span>
+                        }
+                      </span>
+                      <!--
+                        [SN.28] El contador del `dynamic tile` de Fiori. `aria-hidden` porque el
+                        nombre accesible del enlace ya lo dice con sus palabras (`etiquetaPuerta`);
+                        si no, se oiria "Finanzas 11" sin saber que cuenta ese 11.
+                      -->
+                      @if (pendPorEntrada()[e.id]; as n) {
+                        <span class="mt-cell-n" aria-hidden="true">{{ n }}</span>
+                      }
+                    </a>
+                  </li>
+                }
+              </ul>
+            </section>
+          }
+          </div>
+
+          <!-- Lo que la especificación pide y la suite todavía no tiene: se declara, no se pinta. -->
+          @if (declarados().length && !buscando()) {
+            <p class="mt-declara-pie">
+              Espacios sin funciones todavía:
+              @for (d of declarados(); track d.id; let last = $last) {
+                <span>{{ d.label }}</span>@if (!last) { <span aria-hidden="true"> · </span> }
+              }
+            </p>
+          }
+        }
+      </div>
+    </section>
+  </div>
+
+</div>

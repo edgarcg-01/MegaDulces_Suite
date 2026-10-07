@@ -1,0 +1,730 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  HostListener,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
+import { CardModule } from 'primeng/card';
+import { SkeletonModule } from 'primeng/skeleton';
+import { InputTextModule } from 'primeng/inputtext';
+import { ButtonModule } from 'primeng/button';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, debounceTime, switchMap, of, catchError, map } from 'rxjs';
+import { VendorService, VendorCustomer } from '../vendor.service';
+import { OfflineSyncService } from '../../../core/services/offline-sync.service';
+import { AuthService } from '../../../core/services/auth.service';
+
+@Component({
+  selector: 'app-vendor-customers',
+  standalone: true,
+  imports: [
+    CommonModule,
+    FormsModule,
+    CardModule,
+    SkeletonModule,
+    InputTextModule,
+    ButtonModule,
+  ],
+  template: `
+    @if (notice()) {
+      <div class="notice">
+        <i class="pi pi-cloud-upload"></i> {{ notice() }}
+      </div>
+    }
+    
+    <div class="head">
+      <div>
+        <h1 class="page-title">Buscar cliente</h1>
+        <p class="subtitle">Primero los de tu ruta; los demás, en la otra pestaña</p>
+      </div>
+      <button type="button" class="new-btn" [class.active]="showForm()" (click)="toggleForm()">
+        <i class="pi" [ngClass]="showForm() ? 'pi-times' : 'pi-plus'"></i>
+        {{ showForm() ? 'Cancelar' : 'Nuevo' }}
+      </button>
+    </div>
+    
+    <!-- Alta de cliente nuevo -->
+    @if (showForm()) {
+      <form class="new-form" (ngSubmit)="submit(true)">
+        @if (formError()) {
+          <div class="form-err">
+            <i class="pi pi-exclamation-circle"></i> {{ formError() }}
+          </div>
+        }
+        <label class="fld">
+          <span>Nombre del negocio *</span>
+          <input pInputText type="text" name="name" [(ngModel)]="form.name"
+            placeholder="Ej. Abarrotes La Esquina" autocapitalize="words"
+            enterkeyhint="next" required />
+          </label>
+          <label class="fld">
+            <span>Teléfono / WhatsApp</span>
+            <input pInputText type="tel" name="phone" [(ngModel)]="form.phone"
+              placeholder="10 dígitos" inputmode="tel" autocomplete="off" />
+            </label>
+            <label class="fld">
+              <span>RFC <em>(opcional)</em></span>
+              <input pInputText type="text" name="rfc" [(ngModel)]="form.rfc"
+                placeholder="XAXX010101000" autocapitalize="characters"
+                autocorrect="off" spellcheck="false" />
+              </label>
+              <label class="fld">
+                <span>Dirección / referencia</span>
+                <input pInputText type="text" name="notes" [(ngModel)]="form.notes"
+                  placeholder="Calle, colonia, entre calles…" autocapitalize="sentences" />
+                </label>
+                <button type="button" class="geo-btn" [class.ok]="hasGeo()" [class.err]="geoFailed()" (click)="captureLocation()">
+                  <i class="pi" [ngClass]="locating() ? 'pi-spin pi-spinner' : (hasGeo() ? 'pi-check-circle' : (geoFailed() ? 'pi-refresh' : 'pi-map-marker'))"></i>
+                  {{ locating() ? 'Obteniendo ubicación…' : (hasGeo() ? 'Ubicación capturada ✓' : (geoFailed() ? 'Reintentar ubicación' : 'Capturar ubicación')) }}
+                </button>
+                <div class="form-actions">
+                  <p-button type="submit" styleClass="submit-btn"
+                    [disabled]="saving() || !form.name.trim()"
+                  [label]="saving() ? 'Guardando…' : 'Crear y tomar pedido'"></p-button>
+                  <button pButton type="button" severity="secondary" [outlined]="true"
+                    [disabled]="saving() || !form.name.trim()"
+                  (click)="submit(false)"><span class="p-button-label">Solo registrar (sin pedido)</span></button>
+                </div>
+              </form>
+            }
+    
+            @if (!showForm()) {
+              <div class="search">
+                <i class="pi" [ngClass]="searching() ? 'pi-spin pi-spinner' : 'pi-search'"></i>
+                <input
+                  pInputText
+                  type="search"
+                  placeholder="Nombre, código o RFC"
+                  [(ngModel)]="search"
+                  (ngModelChange)="onSearch($event)"
+                  inputmode="search"
+                  enterkeyhint="search"
+                  autocapitalize="none"
+                  autocorrect="off"
+                  spellcheck="false"
+                  />
+                </div>
+                <!-- [VS.1] Tu ruta / otras rutas -->
+                <div class="tabs" role="tablist" aria-label="Qué clientes ver">
+                  <button type="button" role="tab" class="tab" [class.on]="tab() === 'mine'"
+                    [attr.aria-selected]="tab() === 'mine'" (click)="setTab('mine')">
+                    {{ mineLabel() }}
+                    @if (tab() === 'mine' && !loading()) { <span class="cnt">{{ total() }}</span> }
+                  </button>
+                  <button type="button" role="tab" class="tab" [class.on]="tab() === 'others'"
+                    [attr.aria-selected]="tab() === 'others'" (click)="setTab('others')">
+                    Clientes otras rutas
+                    @if (tab() === 'others' && !loading()) { <span class="cnt">{{ total() }}</span> }
+                  </button>
+                </div>
+                @if (loading()) {
+                  <p-skeleton height="500px"></p-skeleton>
+                }
+                <!-- Fallo de red sin resultados previos -->
+                @if (!loading() && loadError() && customers().length === 0) {
+                  <div class="empty">
+                    <i class="pi pi-cloud"></i>
+                    <p>No se pudo buscar. Revisá tu conexión.</p>
+                    <a pButton severity="secondary" [text]="true" (click)="retry()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></a>
+                  </div>
+                }
+                @if (!loading() && !loadError() && customers().length === 0) {
+                  <div class="empty">
+                    <i class="pi pi-search"></i>
+                    @if (search) {
+                      <p>Sin resultados para "{{ search }}".</p>
+                    }
+                    @if (!search && tab() === 'mine') {
+                      <p>No tienes clientes en tu ruta de hoy.</p>
+                    }
+                    @if (!search && tab() === 'others') {
+                      <p>Escribí para buscar un cliente.</p>
+                    }
+                    @if (search) {
+                      <a pButton severity="secondary" [text]="true" (click)="toggleForm()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Crear cliente nuevo</span></a>
+                    }
+                  </div>
+                }
+                <!-- Resultados previos en pantalla pero la última búsqueda falló -->
+                @if (!loading() && loadError() && customers().length > 0) {
+                  <button type="button" class="err-banner" (click)="retry()">
+                    <i class="pi pi-exclamation-triangle"></i> No se pudo actualizar — tocá para reintentar
+                  </button>
+                }
+                @if (!loading() && customers().length > 0) {
+                  <div class="list">
+                    @for (c of customers(); track c) {
+                      <button class="client" (click)="openSheet(c)">
+                        <span class="av">{{ initials(c.name) }}</span>
+                        <span class="cbody">
+                          <span class="nm">{{ c.name }}</span>
+                          @if (address(c); as addr) {
+                            <span class="addr"><i class="pi pi-map-marker"></i><span>{{ addr }}</span></span>
+                          }
+                          @if (customerRef(c) || c.phone) {
+                            <span class="meta">
+                              @if (customerRef(c); as ref) {
+                                <span class="chip">{{ ref }}</span>
+                              }
+                              @if (c.phone) {
+                                <span class="tel"><i class="pi pi-phone"></i>{{ c.phone }}</span>
+                              }
+                            </span>
+                          }
+                        </span>
+                        <i class="pi pi-chevron-right more" aria-hidden="true"></i>
+                      </button>
+                    }
+                  </div>
+                }
+              }
+    
+              <!-- Menú de opciones del cliente seleccionado -->
+              @if (sheet(); as c) {
+                <div class="sheet-backdrop" [class.closing]="sheetClosing()" (click)="closeSheet()"></div>
+                <div class="sheet" [class.closing]="sheetClosing()" role="dialog" aria-modal="true" aria-label="Opciones del cliente">
+                  <div class="sheet-handle"></div>
+                  <div class="sheet-head">
+                    <span class="av">{{ initials(c.name) }}</span>
+                    <div>
+                      <span class="n">{{ c.name }}</span>
+                      <span class="cd">@if (customerRef(c); as ref) { {{ ref }} } @else { Cliente }</span>
+                    </div>
+                  </div>
+                  @if (address(c); as addr) {
+                    <p class="sheet-addr"><i class="pi pi-map-marker"></i><span>{{ addr }}</span></p>
+                  }
+                  <button class="sheet-primary" (click)="goOrder(c)">
+                    <i class="pi pi-shopping-cart"></i> Tomar pedido
+                  </button>
+                  <button class="action" (click)="goCapture(c)">
+                    <i class="pi pi-camera"></i>
+                    <span class="lbl">Capturar exhibición</span>
+                  </button>
+                  <button class="action" (click)="saveLocation(c)" [disabled]="savingLoc()">
+                    <i class="pi" [ngClass]="savingLoc() ? 'pi-spin pi-spinner' : 'pi-map-marker'"></i>
+                    <span class="lbl">Guardar ubicación de la tienda</span>
+                  </button>
+                  @if (locMsg()) {
+                    <p class="loc-msg">{{ locMsg() }}</p>
+                  }
+                  @if (c.phone || c.whatsapp) {
+                    <div class="contact">
+                      @if (c.phone) {
+                        <a class="contact-btn" [href]="'tel:' + c.phone"><i class="pi pi-phone"></i> Llamar</a>
+                      }
+                      @if (c.whatsapp) {
+                        <a class="contact-btn wa" [href]="waLink(c.whatsapp)" target="_blank" rel="noopener">
+                          <i class="pi pi-whatsapp"></i> WhatsApp
+                        </a>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+    `,
+  styles: [
+    `
+      :host { display: block; }
+      .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem; }
+      .notice { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.85rem; padding: 0.6rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--ok-soft-bg); color: var(--ok-soft-fg); font-size: 0.82rem; font-weight: 600; }
+      .page-title { margin: 0 0 0.2rem; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text-main); }
+      .subtitle { margin: 0; color: var(--text-muted); font-size: var(--fs-body); }
+      .new-btn {
+        flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.4rem;
+        background: var(--action); color: #fff; border: none; border-radius: var(--r-pill, 999px);
+        padding: 0.6rem 1rem; font-weight: 700; font-size: 0.85rem; cursor: pointer;
+        box-shadow: 0 1px 2px rgba(16,13,9,0.08); transition: transform 0.06s var(--ease, ease), filter 0.15s ease;
+      }
+      .new-btn:active { transform: scale(0.97); }
+      .new-btn.active { background: var(--card-bg); color: var(--text-muted); border: 1px solid var(--border-color); }
+      @media (prefers-reduced-motion: reduce) { .new-btn { transition: none; } }
+
+      .new-form { display: flex; flex-direction: column; gap: 0.85rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg, 16px); padding: 1rem; box-shadow: 0 1px 2px rgba(16,13,9,0.05); animation: list-in 0.18s var(--ease-out, cubic-bezier(0.23,1,0.32,1)); }
+      .form-err { display: flex; align-items: center; gap: 0.45rem; padding: 0.55rem 0.7rem; border-radius: var(--r-md, 12px); background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-size: 0.8rem; font-weight: 600; }
+      .fld { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; }
+      .fld > span { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 700; }
+      .fld > span em { font-style: normal; color: var(--text-faint); font-weight: 500; text-transform: none; letter-spacing: 0; }
+      .fld input { width: 100%; height: 2.7rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); background: var(--card-bg); padding: 0 0.85rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
+      .fld input:focus { outline: none; border-color: var(--text-muted); }
+      .fld input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+      .row { display: flex; gap: 0.7rem; }
+      .geo-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; height: 2.7rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, 12px); background: var(--card-bg); color: var(--text-muted); font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+      .geo-btn.ok { border-style: solid; border-color: var(--ok-fg, #2e7d32); color: var(--ok-fg, #2e7d32); }
+      .geo-btn.err { border-style: solid; border-color: var(--warn-fg, #b45309); color: var(--warn-fg, #b45309); }
+      .form-actions { display: flex; flex-direction: column; gap: 0.5rem; }
+      .form-actions ::ng-deep .p-button { width: 100%; justify-content: center; }
+      .submit-btn { width: 100%; }
+      .submit-btn ::ng-deep .p-button { width: 100%; justify-content: center; background: var(--action); border-color: var(--action); font-weight: 700; }
+
+      .search { display: flex; align-items: center; gap: 0.6rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: 0.1rem 0.95rem; margin-bottom: 1rem; box-shadow: 0 1px 2px rgba(16,13,9,0.05); }
+      .search i { color: var(--text-muted); }
+      .search input { flex: 1; border: none; background: none; outline: none; height: 2.8rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
+      .search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+      .tabs { display: flex; gap: 0.25rem; margin: -0.25rem 0 1rem; padding: 0.2rem; border-radius: var(--r-pill, 999px); background: var(--neutral-100); }
+      .tab { flex: 1; min-width: 0; min-height: 2.5rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; border: none; border-radius: var(--r-pill, 999px); background: none; color: var(--text-muted); font-family: var(--font-body); font-weight: 700; font-size: 0.82rem; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .tab.on { background: var(--card-bg); color: var(--text-main); box-shadow: 0 1px 2px rgba(16,13,9,0.1); }
+      .tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+      .tab .cnt { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
+      .empty { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
+      .empty i { font-size: 2.25rem; display: block; margin-bottom: 0.5rem; color: var(--text-faint); }
+      .err-banner { display: flex; align-items: center; gap: 0.45rem; width: 100%; margin-bottom: 0.6rem; padding: 0.55rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--bad-soft-bg); border: 1px solid var(--bad-soft-bg); color: var(--bad-soft-fg); font-size: 0.78rem; font-weight: 600; text-align: left; cursor: pointer; }
+      .list { display: flex; flex-direction: column; gap: 0.5rem; animation: list-in 0.18s var(--ease-out, cubic-bezier(0.23,1,0.32,1)); }
+      @keyframes list-in { from { opacity: 0; } to { opacity: 1; } }
+      .client {
+        display: flex; align-items: center; gap: 0.8rem; width: 100%; text-align: left;
+        background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg, 16px);
+        padding: 0.7rem 0.875rem; cursor: pointer; box-shadow: 0 1px 2px rgba(16,13,9,0.05);
+        transition: transform 0.06s var(--ease, ease);
+      }
+      .client:active { transform: scale(0.985); }
+      @media (prefers-reduced-motion: reduce) { .list { animation: none; } .client { transition: none; } .new-form { animation: none; } }
+      .av { width: 2.4rem; height: 2.4rem; border-radius: 16px; flex-shrink: 0; display: grid; place-items: center; background: var(--neutral-100); color: var(--neutral-700); font-weight: 800; font-size: 0.9rem; }
+      .cbody { flex: 1; min-width: 0; }
+      /* Nombre: hasta 2 renglones (los nombres de abarrotes son largos) en vez de cortarlo a uno. */
+      .nm {
+        display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+        font-weight: 700; font-size: 0.95rem; color: var(--text-main); line-height: 1.25;
+        overflow-wrap: anywhere;
+      }
+      .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.6rem; font-size: 0.78rem; color: var(--text-muted); margin-top: 0.35rem; }
+      .chip {
+        display: inline-flex; align-items: center; max-width: 100%;
+        padding: 0.1rem 0.5rem; border-radius: var(--r-pill, 999px);
+        background: var(--neutral-100); color: var(--neutral-700);
+        font-size: 0.72rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .addr { display: flex; align-items: flex-start; gap: 0.3rem; margin-top: 0.25rem; font-size: 0.8rem; color: var(--text-muted); line-height: 1.3; }
+      .addr i { font-size: 0.7rem; margin-top: 0.2rem; flex-shrink: 0; }
+      .addr span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .tel { display: inline-flex; align-items: center; gap: 0.3rem; font-family: var(--font-mono); white-space: nowrap; }
+      .tel i { font-size: 0.7rem; }
+      /* OJO: no usar .action aquí — esa clase es del bottom-sheet (width:100%) y aplastaba el nombre a 0. */
+      .more { color: var(--text-faint); font-size: 0.85rem; flex-shrink: 0; }
+
+      /* Celular en horizontal (16:9) o tablet: dos columnas para aprovechar el ancho. */
+      @media (min-width: 37.5rem) {
+        .list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+
+      /* Bottom-sheet de opciones */
+      .sheet-backdrop { position: fixed; inset: 0; background: rgba(16,13,9,0.45); z-index: 50; animation: backdrop-in 0.2s ease; }
+      .sheet-backdrop.closing { animation: backdrop-out 0.2s ease forwards; }
+      @keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes backdrop-out { from { opacity: 1; } to { opacity: 0; } }
+      .sheet {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 51;
+        background: var(--card-bg); border-radius: var(--r-2xl, 24px) var(--r-2xl, 24px) 0 0;
+        padding: 0.6rem 1rem calc(1.4rem + env(safe-area-inset-bottom));
+        box-shadow: 0 -10px 34px rgba(16,13,9,0.2); max-height: 88vh; overflow-y: auto;
+        animation: sheet-up 0.3s var(--ease-drawer, cubic-bezier(0.32,0.72,0,1));
+      }
+      .sheet.closing { animation: sheet-down 0.2s var(--ease-out, cubic-bezier(0.23,1,0.32,1)) forwards; }
+      @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      @keyframes sheet-down { from { transform: translateY(0); } to { transform: translateY(100%); } }
+      .sheet-handle { width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--neutral-200); margin: 0 auto 0.875rem; }
+      .sheet-head { display: flex; align-items: center; gap: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); }
+      .sheet-head .av { width: 2.6rem; height: 2.6rem; border-radius: 16px; background: var(--ember-grad, var(--action)); color: #fff; display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
+      .sheet-head .n { display: block; font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--text-main); }
+      .sheet-head .cd { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
+      .sheet-addr { display: flex; align-items: flex-start; gap: 0.45rem; margin: 0.65rem 0 0; font-size: var(--fs-body); color: var(--text-muted); line-height: 1.35; }
+      .sheet-addr i { margin-top: 0.15rem; color: var(--action); flex-shrink: 0; }
+      .sheet-primary {
+        width: 100%; height: 3.25rem; border: none; border-radius: var(--r-lg, 16px); background: var(--accent-brand, var(--action)); color: #000;
+        font-family: var(--font-body); font-weight: 700; font-size: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.6rem;
+        margin: 0.75rem 0 0.25rem; box-shadow: 0 4px 14px -4px rgba(199,150,15,0.4);
+        transition: transform 0.07s var(--ease, ease);
+      }
+      .sheet-primary:active { transform: scale(0.97); }
+      .sheet .action {
+        display: flex; align-items: center; gap: 0.875rem; width: 100%; text-align: left;
+        border: none; background: none; cursor: pointer; padding: 0.85rem 0.25rem;
+        border-bottom: 1px solid var(--border-color); font-size: 0.95rem; color: var(--text-main);
+        transition: background-color 0.12s ease;
+      }
+      .sheet .action:last-of-type { border-bottom: none; }
+      .sheet .action i { font-size: 1.2rem; width: 1.5rem; text-align: center; color: var(--action); flex-shrink: 0; }
+      .sheet .action .lbl { font-weight: 600; }
+      .sheet .action:active { background: var(--surface-ground); }
+      .contact { display: flex; gap: 0.5rem; margin-top: 0.875rem; }
+      .contact-btn { flex: 1; height: 2.9rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: var(--r-md, 12px); text-decoration: none; font-weight: 700; font-size: var(--fs-body); border: 1px solid var(--border-color); color: var(--text-main); background: var(--surface-ground); }
+      .contact-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
+      .loc-msg { margin: 0.5rem 0 0; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-align: center; }
+      @media (prefers-reduced-motion: reduce) {
+        .sheet, .sheet.closing, .sheet-backdrop, .sheet-backdrop.closing { animation: none; }
+        .sheet-primary, .sheet .action { transition: none; }
+      }
+    `,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class VendorCustomersComponent implements OnInit {
+  private readonly api = inject(VendorService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly offlineSync = inject(OfflineSyncService);
+  private readonly auth = inject(AuthService);
+
+  readonly loading = signal(true); // skeleton solo en la carga inicial
+  readonly searching = signal(false); // re-búsqueda: spinner sutil sin blanquear la lista
+  /** Falló la búsqueda (red) — distinto de "sin resultados" (estándar PWA §5). */
+  readonly loadError = signal(false);
+  readonly customers = signal<VendorCustomer[]>([]);
+  /** [VS.1] Pestaña activa: la cartera de hoy o el resto del catálogo. */
+  readonly tab = signal<'mine' | 'others'>('mine');
+  /** Total que devolvió el servidor para la pestaña activa (puede ser más que lo mostrado). */
+  readonly total = signal(0);
+  /** Rutas de hoy del vendedor; null = aún no cargan o fallaron. */
+  readonly routes = signal<string[] | null>(null);
+  readonly mineLabel = computed(() => {
+    const r = this.routes();
+    if (r && r.length === 1) return `Tu ruta · ${r[0]}`;
+    if (r && r.length > 1) return `Tus rutas (${r.length})`;
+    return 'Tu ruta';
+  });
+
+  // ─── Menú de opciones (bottom-sheet) ───
+  readonly sheet = signal<VendorCustomer | null>(null);
+  readonly sheetClosing = signal(false);
+  readonly savingLoc = signal(false);
+  readonly locMsg = signal<string | null>(null);
+
+  // ─── Alta de cliente nuevo ───
+  readonly showForm = signal(false);
+  readonly saving = signal(false);
+  readonly formError = signal<string | null>(null);
+  /** Aviso positivo (ej. guardado offline). */
+  readonly notice = signal<string | null>(null);
+  readonly locating = signal(false);
+  readonly geoFailed = signal(false);
+  readonly geo = signal<{ lat: number; lng: number } | null>(null);
+  form = { name: '', phone: '', rfc: '', notes: '' };
+
+  search = '';
+  private first = true;
+  private readonly search$ = new Subject<string>();
+
+  ngOnInit(): void {
+    this.search$
+      .pipe(
+        debounceTime(250),
+        // catchError DENTRO del switchMap: un error de red NO mata el stream
+        // (sin esto, tras un fallo la búsqueda quedaba muerta hasta recargar).
+        switchMap((s) =>
+          this.api
+            .listCustomers({
+              search: s.trim() || undefined,
+              // La cartera de un día cabe entera (la más grande medida: 158); el resto, paginado.
+              pageSize: this.tab() === 'mine' ? 300 : 100,
+              scope: this.tab(),
+            })
+            .pipe(
+            map((r) => {
+              this.total.set(r.total);
+              return r.data;
+            }),
+            catchError(() => {
+              this.loadError.set(true);
+              return of<VendorCustomer[] | null>(null);
+            }),
+          ),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((data) => {
+        if (data !== null) {
+          this.customers.set(data);
+          this.loadError.set(false);
+        }
+        this.loading.set(false);
+        this.searching.set(false);
+        this.first = false;
+      });
+
+    this.runSearch(''); // carga inicial
+    this.api
+      .myRoutes()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => this.routes.set(r), error: () => this.routes.set(null) });
+
+    // Llegada desde "Agregar cliente" del home (ronda vacía): abre el form directo.
+    if (this.route.snapshot.queryParamMap.get('new') === '1') {
+      this.toggleForm();
+    }
+  }
+
+  setTab(t: 'mine' | 'others'): void {
+    if (this.tab() === t) return;
+    this.tab.set(t);
+    this.customers.set([]);
+    this.first = true; // skeleton: la lista de la otra pestaña no es la misma
+    this.runSearch(this.search);
+  }
+
+  onSearch(v: string): void {
+    this.runSearch(v);
+  }
+
+  private runSearch(v: string): void {
+    this.loadError.set(false);
+    if (this.first) this.loading.set(true);
+    else this.searching.set(true);
+    this.search$.next(v);
+  }
+
+  /** Reintenta la última búsqueda tras un fallo de red. */
+  retry(): void {
+    this.runSearch(this.search);
+  }
+
+  // ─── Menú de opciones ───
+
+  openSheet(c: VendorCustomer): void {
+    this.locMsg.set(null);
+    this.savingLoc.set(false);
+    this.sheet.set(c);
+  }
+
+  closeSheet(): void {
+    if (!this.sheet() || this.sheetClosing()) return;
+    this.sheetClosing.set(true);
+    setTimeout(() => {
+      this.sheet.set(null);
+      this.sheetClosing.set(false);
+    }, 200);
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.sheet()) this.closeSheet();
+  }
+
+  goOrder(c: VendorCustomer): void {
+    this.closeSheet();
+    this.router.navigate(['/vendor/take-order', c.id]);
+  }
+
+  goCapture(c: VendorCustomer): void {
+    this.closeSheet();
+    // Captura customer-driven: pasamos el cliente; la captura ya no detecta tienda por GPS.
+    this.router.navigate(['/vendor/capture'], {
+      queryParams: { customerId: c.id, customerName: c.name },
+    });
+  }
+
+  /**
+   * Guarda la ubicación de la tienda con el GPS del vendedor (estando en sitio).
+   * Puebla customer.latitude/longitude → habilita la autodetección de llegada del
+   * home, que hoy casi no funciona porque la mayoría de clientes no tiene coords.
+   */
+  saveLocation(c: VendorCustomer): void {
+    if (!navigator.geolocation) {
+      this.locMsg.set('Tu dispositivo no permite ubicación.');
+      return;
+    }
+    this.savingLoc.set(true);
+    this.locMsg.set('Obteniendo ubicación…');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        this.api
+          .setCustomerLocation(c.id, pos.coords.latitude, pos.coords.longitude, true)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: () => {
+              this.savingLoc.set(false);
+              this.locMsg.set('Ubicación guardada ✓');
+            },
+            error: () => {
+              this.savingLoc.set(false);
+              this.locMsg.set('No se pudo guardar la ubicación.');
+            },
+          });
+      },
+      () => {
+        this.savingLoc.set(false);
+        this.locMsg.set('No se pudo obtener tu ubicación.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
+  }
+
+  waLink(wa: string): string {
+    return 'https://wa.me/' + wa.replace(/[^0-9]/g, '');
+  }
+
+  // ─── Alta de cliente ───
+
+  hasGeo(): boolean {
+    return this.geo() !== null;
+  }
+
+  toggleForm(): void {
+    const next = !this.showForm();
+    this.showForm.set(next);
+    if (next) {
+      // Pre-llena el nombre con lo que venía buscando (atajo de campo).
+      this.form = { name: this.search.trim(), phone: '', rfc: '', notes: '' };
+      this.geo.set(null);
+      this.geoFailed.set(false);
+      this.formError.set(null);
+      // Captura la ubicación apenas se abre el form: así queda lista al guardar
+      // sin depender de que el vendedor recuerde el botón ni de un race al crear.
+      this.captureLocation();
+    }
+  }
+
+  captureLocation(): void {
+    if (!navigator.geolocation) {
+      this.geoFailed.set(true);
+      return;
+    }
+    this.locating.set(true);
+    this.geoFailed.set(false);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        this.geo.set({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        this.locating.set(false);
+        this.geoFailed.set(false);
+      },
+      () => {
+        this.locating.set(false);
+        this.geoFailed.set(true);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
+  }
+
+  submit(takeOrder: boolean): void {
+    const name = this.form.name.trim();
+    if (!name) {
+      this.formError.set('El nombre del negocio es obligatorio.');
+      return;
+    }
+    if (this.saving()) return;
+    this.saving.set(true);
+    this.formError.set(null);
+    this.notice.set(null);
+    const g = this.geo();
+    const phone = this.form.phone.trim() || undefined;
+    const dto = {
+      name,
+      // Teléfono y WhatsApp son el mismo número: poblamos ambos campos.
+      phone,
+      whatsapp: phone,
+      rfc: this.form.rfc.trim() || undefined,
+      notes: this.form.notes.trim() || undefined,
+      latitude: g?.lat,
+      longitude: g?.lng,
+    };
+
+    // Sin conexión: encolar. El cliente offline NO se puede operar (pedido/menú)
+    // hasta sincronizar — no existe aún en el catálogo del backend.
+    if (!navigator.onLine) {
+      void this.saveCustomerOffline(dto);
+      return;
+    }
+
+    this.api
+      .createCustomer(dto)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (c) => {
+          this.saving.set(false);
+          this.showForm.set(false);
+          if (takeOrder) {
+            // Alta → tomar pedido de inmediato.
+            this.router.navigate(['/vendor/take-order', c.id]);
+          } else {
+            // Solo registrar: abre el menú de opciones del cliente nuevo
+            // (tomar pedido / capturar / guardar ubicación / contacto) — sin forzar pedido.
+            this.openSheet(c);
+          }
+        },
+        error: (e) => {
+          // Red caída mid-POST (transient): encolar offline para no perder el alta.
+          if (this.isTransient(e)) {
+            void this.saveCustomerOffline(dto);
+            return;
+          }
+          this.saving.set(false);
+          this.formError.set(
+            e?.error?.message ||
+              'No se pudo crear el cliente. Revisá los datos e intentá de nuevo.',
+          );
+        },
+      });
+  }
+
+  /** Encola el alta sin red; el sync la POSTea al volver la conexión. */
+  private async saveCustomerOffline(dto: {
+    name: string;
+    phone?: string;
+    whatsapp?: string;
+    rfc?: string;
+    notes?: string;
+    latitude?: number;
+    longitude?: number;
+  }): Promise<void> {
+    try {
+      await this.offlineSync.guardarClienteOffline(this.auth.user()?.sub || '', dto);
+      this.saving.set(false);
+      this.showForm.set(false);
+      this.notice.set('Cliente guardado sin conexión. Se registrará solo al volver la red.');
+    } catch {
+      this.saving.set(false);
+      this.formError.set('No se pudo guardar el cliente sin conexión. Reintentá.');
+    }
+  }
+
+  private isTransient(e: any): boolean {
+    const s = e?.status;
+    return s === 0 || s === undefined || s === 408 || s === 502 || s === 503 || s === 504 || s === 522 || s === 524;
+  }
+
+  initials(name: string): string {
+    const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    return ((parts[0][0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+  }
+
+  /**
+   * Domicilio legible. Prefiere el domicilio estructurado (entrega → fiscal);
+   * medido 2026-09-29: ninguno de los 440 clientes lo tiene, y 258 traen el
+   * domicilio en `notes` (lo captura ahí el alta del vendedor, campo
+   * "Dirección / referencia"). Sin nada → null y el template no pinta la línea.
+   */
+  address(c: VendorCustomer): string | null {
+    const a = c.shipping_address || c.billing_address;
+    if (a) {
+      const street = [a.street, a.exterior_number, a.interior_number && `int. ${a.interior_number}`]
+        .filter(Boolean)
+        .join(' ');
+      const txt = [street, a.neighborhood, a.city].filter(Boolean).join(', ') || a.reference;
+      if (txt?.trim()) return txt.trim();
+    }
+    const notes = (c.notes || '').trim();
+    return notes || null;
+  }
+
+  /**
+   * Referencia legible del cliente para la UI. NUNCA mostramos el código
+   * auto-generado aleatorio `V-<hex>` (lo asigna el alta del vendedor en
+   * commercial-vendor-routes.service) porque al vendedor le parece un "id raro".
+   * Preferimos la ruta de venta; si el código es real (no V-hex) lo usamos; si no,
+   * null → el template no muestra nada.
+   */
+  customerRef(c: VendorCustomer): string | null {
+    if (c.sales_route) return c.sales_route;
+    const code = (c.code || '').trim();
+    if (!code || /^V-[0-9A-F]{6,}$/i.test(code)) return null;
+    return code;
+  }
+}

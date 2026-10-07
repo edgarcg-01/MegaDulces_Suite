@@ -1,0 +1,950 @@
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { Router, RouterLink } from '@angular/router';
+import { forkJoin, Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { ButtonModule } from 'primeng/button';
+import { TableModule, TableLazyLoadEvent } from 'primeng/table';
+import { ToastModule } from 'primeng/toast';
+import { SelectModule } from 'primeng/select';
+import { MultiSelectModule } from 'primeng/multiselect';
+import { DialogModule } from 'primeng/dialog';
+import { TagModule } from 'primeng/tag';
+import { InputTextModule } from 'primeng/inputtext';
+import { CheckboxModule, CheckboxChangeEvent } from 'primeng/checkbox';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
+import { MessageService } from 'primeng/api';
+import { ComprasService, CriticalStockRow, ReplenishmentSummary, Bucket, TargetBasis, SourceType, CreateRequisitionDto, DeadStockRow } from '../compras.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+
+type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
+
+/** Línea del borrador de requisición: sugerido + origen (proveedor/sucursal) + datos para el aviso de mínimo. */
+interface DraftLine {
+  product_id: string;
+  warehouse_id: string;
+  warehouse_code: string;
+  sku: string;
+  nombre: string;
+  supplier_id: string | null;
+  supplier_name: string | null;
+  supplier_min_boxes: number | null;
+  factor_purchase: number | null;
+  source_type: SourceType;
+  source_warehouse_id: string | null;
+  on_hand: number;
+  in_transit: number;
+  min_stock: number;
+  reorder_point: number;
+  max_stock: number;
+  suggested_qty: number;
+  final_qty: number;
+  unit_cost: number;
+}
+
+/**
+ * Fase RA (ADR-030) — Existencia Crítica. Existencia vs mín/reorden/máx + sugerido de
+ * compra; selección → requisición (HITL). Superficie Operations (PrimeNG denso).
+ * RA.11 origen proveedor/sucursal · RA.12 multi-sucursal · RA.13a aviso de mínimo en cajas.
+ */
+@Component({
+  selector: 'app-compras-existencia-critica',
+  standalone: true,
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule, DialogModule, TagModule, InputTextModule, CheckboxModule, IconFieldModule, InputIconModule, MetricStripComponent, FreshnessPillComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [MessageService],
+  template: `
+    <div class="surf-page in ec-page">
+      <p-toast></p-toast>
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Existencia crítica</h1>
+          <p class="surf-page-sub">Existencia contra punto de reorden por almacén. El motor sugiere cuánto pedir; tú generas la requisición.</p>
+        </div>
+        <div class="ec-head-actions">
+          @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" /> }
+          <a pButton routerLink="/compras/pedido" class="p-button-sm p-button-text" title="Armar el pedido por proveedor y ciclo de reabasto"><span class="p-button-icon p-button-icon-left pi pi-cart-plus" aria-hidden="true"></span><span class="p-button-label">Pedido</span></a>
+          <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [loading]="dl()" [disabled]="dl() || total() === 0" (click)="downloadXlsx()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
+          <p-button type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"
+                  styleClass="p-button-sm" [disabled]="!canRequire()" (click)="openDialog()"></p-button>
+        </div>
+      </header>
+
+      <!-- KPIs -->
+      @if (summary(); as s) {
+        <app-metric-strip [items]="kpiItems(s)" ariaLabel="Resumen de existencia crítica" />
+        <!-- U.2 — el hueco se DECLARA arriba de la tabla. Un total que excluye en silencio se
+             lee como si lo abarcara todo. -->
+        @if (s.sin_valuar_politicas) {
+          <p class="ec-rung-banner">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <span>{{ sinValuarTexto(s) }}</span>
+          </p>
+        }
+      }
+
+      <!-- Filtros -->
+      <div class="ec-filters">
+        <div class="ec-wh">
+          <p-multiselect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
+                         optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
+                         [filter]="true" filterBy="label" filterPlaceholder="Buscar almacén…"
+                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="ec-sel" appendTo="body"></p-multiselect>
+          <div class="ec-atajos">
+            <span class="ec-atajos-lbl">Atajos:</span>
+            <button type="button" class="ec-atajo" [class.on]="!fWarehouses.length" (click)="clearWh()">Todos</button>
+            @for (t of territories(); track t.label) {
+              <button type="button" class="ec-atajo" [class.on]="isTerr(t.codes)" (click)="applyTerr(t.codes)">{{ t.label }}</button>
+            }
+          </div>
+        </div>
+        <p-select [options]="bucketOpts" [(ngModel)]="fBucket" (onChange)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="Críticos (≤ reorden)" [showClear]="true" styleClass="ec-sel" appendTo="body"></p-select>
+        <p-select [options]="basisOpts" [(ngModel)]="fBasis" (onChange)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="Objetivo" styleClass="ec-sel" appendTo="body"></p-select>
+        <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
+                  [filter]="true" filterBy="label" filterPlaceholder="Buscar categoría (Guadalajara, Arandas…)" [resetFilterOnHide]="true"
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="ec-sel-wide" ariaLabel="Filtrar por categoría de compra" appendTo="body"></p-select>
+        <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
+                  [filter]="true" filterBy="label" filterPlaceholder="Buscar proveedor…" [resetFilterOnHide]="true"
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="ec-sel-wide" appendTo="body"></p-select>
+        <p-select [options]="abcOpts" [(ngModel)]="fAbc" (onChange)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="ABC" [showClear]="true" styleClass="ec-sel-sm" appendTo="body"></p-select>
+        <p-select [options]="xyzOpts" [(ngModel)]="fXyz" (onChange)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="XYZ" [showClear]="true" styleClass="ec-sel-sm" appendTo="body"></p-select>
+        <p-iconfield styleClass="ec-search">
+          <p-inputicon styleClass="pi pi-search" />
+          <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="onSearchChange($event)" (keyup.enter)="reload()"
+                 placeholder="SKU o nombre…" aria-label="Buscar por SKU o nombre" />
+          @if (fSearch) { <p-inputicon styleClass="pi pi-times ec-search-clear" (click)="clearSearch()" role="button" ariaLabel="Limpiar búsqueda" /> }
+        </p-iconfield>
+        <!-- [EC.U] En qué unidad se lee la tabla. Segmentado y a la vista: las nueve columnas de
+             cantidad estaban TODAS en cajas y eso sólo se decía en los tooltips. Mismo control y
+             mismo default (cajas) que /compras/existencia. -->
+        <div class="ec-unit" role="group" aria-label="Unidad de medida">
+          <button type="button" [class.on]="unidad() === 'caja'" (click)="setUnidad('caja')"
+                  [attr.aria-pressed]="unidad() === 'caja'"
+                  title="Cantidades en CAJAS: la cantidad nativa dividida por el factor del almacén (ADR-055). Es la unidad de trabajo de la compra y la única comparable entre los dos ERPs.">Cajas</button>
+          <button type="button" [class.on]="unidad() === 'nativa'" (click)="setUnidad('nativa')"
+                  [attr.aria-pressed]="unidad() === 'nativa'"
+                  title="Cantidades en la unidad NATIVA del almacén (piezas, paquetes, kilos...), tal como las guarda su ERP: sin dividir. Vienen de la fuente, no de re-multiplicar la columna en cajas.">Unidad del ERP</button>
+        </div>
+      </div>
+
+      <!-- Tabla -->
+      <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
+               [paginator]="true" [rows]="pageSize" [totalRecords]="total()" [lazy]="true" (onLazyLoad)="onPage($event)"
+               styleClass="p-datatable-sm ec-table" [rowsPerPageOptions]="[50, 100, 200]">
+        <ng-template #header>
+          <tr>
+            <th pFrozenColumn style="width:2.5rem"><p-checkbox [binary]="true" [ngModel]="allSelected()" (onChange)="toggleAll($event)" ariaLabel="Seleccionar todo" /></th>
+            <th pFrozenColumn style="min-width:7rem" pSortableColumn="sku">SKU <p-sorticon field="sku" /></th>
+            <th pSortableColumn="nombre">Producto <p-sorticon field="nombre" /></th>
+            <th pSortableColumn="warehouse_code">Almacén <p-sorticon field="warehouse_code" /></th>
+            <th pSortableColumn="abc_class">Clase <p-sorticon field="abc_class" /></th>
+            <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por venta EN DINERO (venta/mes) del proveedor en la sucursal — #1 = el que más te vende en $ = más importante pedir. Coincide con ordenar por Venta/mes.">Rank vta <p-sorticon field="sales_rank" /></th>
+            <th class="ec-r" pSortableColumn="monthly_revenue" title="Venta mensual estimada ($) = demanda diaria × 30 × precio de venta. El peso en dinero del producto: cuánto representa en venta.">Venta/mes <p-sorticon field="monthly_revenue" /></th>
+            <!-- [EC.U] El divisor NO es kdii.c84: es analytics.v_warehouse_box_factor
+                 (display_bf), que es lo que esta consulta usa desde ADR-055. El tooltip nombraba
+                 c84 -- la columna cruda del ERP que las reglas del proyecto prohiben leer, y justo
+                 la que publico 1 pieza por caja en el SKU 96504 que abrio todo esto.
+                 (Sin acentos graves aca: este template es un template literal de JS.) -->
+            <th class="ec-r" pSortableColumn="on_hand" [title]="colTitulo('la existencia')">Existencia {{ unidadSufijo() }} <p-sorticon field="on_hand" /></th>
+            <th class="ec-r" pSortableColumn="min_stock" [title]="colTitulo('el mínimo')">Mín <p-sorticon field="min_stock" /></th>
+            <th class="ec-r" pSortableColumn="reorder_point" [title]="colTitulo('el punto de reorden')">Reorden <p-sorticon field="reorder_point" /></th>
+            <th class="ec-r" pSortableColumn="max_stock" [title]="colTitulo('el máximo')">Máx <p-sorticon field="max_stock" /></th>
+            <th class="ec-r" pSortableColumn="safety_stock" [title]="colTitulo('el colchón (safety stock)')">Colchón <p-sorticon field="safety_stock" /></th>
+            <th class="ec-r" pSortableColumn="in_transit" [title]="colTitulo('la OC en tránsito por recibir')">OC a recibir <p-sorticon field="in_transit" /></th>
+            <th class="ec-r" pSortableColumn="suggested_qty" [title]="colTitulo('el sugerido a pedir (objetivo menos existencia menos tránsito)')">Sugerido <p-sorticon field="suggested_qty" /></th>
+            <th class="ec-r" pSortableColumn="transfer_in" [title]="colTitulo('lo que se cubre con sobrante de otra sucursal en vez de comprar')">Traspaso <p-sorticon field="transfer_in" /></th>
+            <th class="ec-r" pSortableColumn="buy_qty" [title]="colTitulo('la compra REAL: sugerido menos traspaso posible')">Comprar <p-sorticon field="buy_qty" /></th>
+            <th pSortableColumn="accion">Acción <p-sorticon field="accion" /></th>
+            <th>Estado</th>
+            <th pSortableColumn="supplier_name">Proveedor <p-sorticon field="supplier_name" /></th>
+            <th class="ec-r" pSortableColumn="suggested_cost">Costo est. <p-sorticon field="suggested_cost" /></th>
+            <th>Origen</th>
+            <th title="Cómo se surte (compra/traspaso) y cada cuánto — deriva del histórico">Ciclo</th>
+          </tr>
+        </ng-template>
+        <ng-template #body let-r>
+          <tr [class.ec-sel-row]="isSelected(r)">
+            <td pFrozenColumn><p-checkbox [binary]="true" [ngModel]="isSelected(r)" (onChange)="toggle(r)" [ariaLabel]="'Seleccionar ' + r.sku" /></td>
+            <td pFrozenColumn class="ec-mono">{{ r.sku }}</td>
+            <td>{{ r.nombre }}</td>
+            <td class="ec-muted">{{ r.warehouse_code }}</td>
+            <td class="ec-class">
+              @if (r.abc_class) { <span class="ec-cls ec-abc-{{ r.abc_class }}">{{ r.abc_class }}</span> }
+              @if (r.xyz_class) { <span class="ec-cls ec-xyz-{{ r.xyz_class }}" [title]="xyzTitle(r)">{{ r.xyz_class }}</span> }
+              @if (!r.abc_class && !r.xyz_class) { <span class="ec-muted">—</span> }
+            </td>
+            <td class="ec-r">
+              @if (r.sales_rank != null) { <span [class.ec-rank-top]="r.sales_rank <= 20">#{{ r.sales_rank }}</span> }
+              @else { <span class="ec-muted">—</span> }
+            </td>
+            <td class="ec-r">
+              @if (revNum(r.monthly_revenue) > 0) { {{ money(r.monthly_revenue) }} }
+              @else { <span class="ec-muted">—</span> }
+            </td>
+            <td class="ec-r" [title]="cajaTitle(r)">{{ qv(r, 'on_hand') }}@if (unidad() === 'nativa') { <span class="ec-u">{{ natU(r) }}</span> }</td>
+            <td class="ec-r ec-muted">{{ qv(r, 'min_stock') }}</td>
+            <td class="ec-r ec-muted">{{ qv(r, 'reorder_point') }}</td>
+            <td class="ec-r ec-muted">{{ qv(r, 'max_stock') }}</td>
+            <td class="ec-r" [title]="safetyTitle(r)">{{ qv(r, 'safety_stock') }}@if (r.service_level) {<span class="ec-svc">{{ (r.service_level * 100) | number:'1.0-0' }}%</span>}</td>
+            <td class="ec-r" [class.ec-transit]="r.in_transit > 0">{{ r.in_transit > 0 ? qv(r, 'in_transit') : '—' }}</td>
+            <td class="ec-r ec-muted">{{ qv(r, 'suggested_qty') }}</td>
+            <td class="ec-r" [class.ec-transit]="(r.transfer_in || 0) > 0" [title]="(r.surplus_network || 0) > 0 ? ('Sobrante en la red: ' + (r.surplus_network | number:'1.0-1')) : ''">{{ (r.transfer_in || 0) > 0 ? qv(r, 'transfer_in') : '—' }}</td>
+            <td class="ec-r ec-strong">{{ qvCompra(r) }}</td>
+            <td><p-tag [value]="accionLabel(r.accion)" [severity]="accionSev(r.accion)"></p-tag></td>
+            <td><p-tag [value]="bucketLabel(r.bucket)" [severity]="bucketSev(r.bucket)"></p-tag></td>
+            <td class="ec-muted">{{ r.supplier_name || '—' }}</td>
+            <td class="ec-r">{{ money(r.suggested_cost) }}</td>
+            <td><span class="ec-src ec-src-{{ r.source }}">{{ sourceLabel(r.source) }}</span></td>
+            <td class="ec-muted ec-cycle">
+              @if (r.cadence_days != null) {
+                <i [class]="r.replenish_via === 'transfer' ? 'pi pi-arrow-right-arrow-left' : 'pi pi-shopping-cart'"
+                   [title]="r.replenish_via === 'transfer' ? ('Traspaso ← ' + (r.source_warehouse_code || '?')) : 'Compra directa'"></i>
+                {{ r.cadence_days | number:'1.0-0' }}d
+                @if (r.next_due_date) { <span class="ec-cyc-due">· {{ r.next_due_date | date:'dd/MM' }}</span> }
+              } @else { — }
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template #emptymessage>
+          <tr><td colspan="18" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
+        </ng-template>
+      </p-table>
+    </div>
+
+    <!-- Stock muerto: existencia sin política (no rota) = capital inmovilizado. Colapsable. -->
+    <section class="ec-dead">
+      <button type="button" class="ec-dead-head" (click)="toggleDead()" [attr.aria-expanded]="deadOpen()">
+        <i class="pi" [class.pi-chevron-right]="!deadOpen()" [class.pi-chevron-down]="deadOpen()" aria-hidden="true"></i>
+        <span class="ec-dead-title">Stock muerto</span>
+        @if (deadTotal()) { <span class="ec-dead-count">{{ deadTotal() | number }}</span> }
+        @if (deadValue()) { <span class="ec-dead-val">{{ money(deadValue()) }} inmovilizado</span> }
+        <i class="pi pi-info-circle ec-dead-about" (click)="openAbout($event)" title="¿Qué es el stock muerto?" aria-label="Qué es el stock muerto"></i>
+      </button>
+
+      @if (deadOpen()) {
+        <p class="ec-dead-sub">TODO producto activo SIN rotación (sin política de reorden), por eso no aparece arriba. <b>Con existencia</b> = capital inmovilizado (liquidar/promover); <b>Sin existencia</b> = descontinuado o nunca surtido aquí. "Desde cuándo" = última venta/movimiento en el almacén; si nunca tuvo → alta en catálogo.</p>
+        <p-table [value]="deadRows()" [loading]="deadLoading()" [scrollable]="true"
+                 [paginator]="true" [rows]="pageSize" [totalRecords]="deadTotal()" [lazy]="true" (onLazyLoad)="onDeadPage($event)"
+                 styleClass="p-datatable-sm ec-table" [rowsPerPageOptions]="[50, 100, 200]">
+          <ng-template #header>
+            <tr>
+              <th>SKU</th>
+              <th>Producto</th>
+              <th>Almacén</th>
+              <th class="ec-r">Existencia</th>
+              <th>Estado</th>
+              <th>Desde cuándo</th>
+              <th class="ec-r">Costo unit.</th>
+              <th class="ec-r">Capital inmovilizado</th>
+              <th>Proveedor</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-r>
+            <tr>
+              <td class="ec-mono">{{ r.sku }}</td>
+              <td>{{ r.nombre }}</td>
+              <td class="ec-muted">{{ r.warehouse_code }}</td>
+              <td class="ec-r">{{ r.on_hand | number:'1.0-0' }}</td>
+              <td>
+                @if (r.on_hand > 0) { <span class="ec-dead-cap">Con existencia</span> }
+                @else { <span class="ec-muted">Sin existencia</span> }
+              </td>
+              <td class="ec-muted ec-dead-since">{{ deadSince(r) }}</td>
+              <td class="ec-r ec-muted">{{ money(r.unit_cost) }}</td>
+              <td class="ec-r ec-strong">{{ money(r.dead_value) }}</td>
+              <td class="ec-muted">{{ r.supplier_name || '—' }}</td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr><td colspan="9" class="ec-empty">Sin productos sin rotación con estos filtros. 🎉</td></tr>
+          </ng-template>
+        </p-table>
+      }
+    </section>
+
+    <!-- About: qué es el stock muerto -->
+    <p-dialog [visible]="aboutOpen()" (visibleChange)="aboutOpen.set($event)" [modal]="true" appendTo="body"
+              [style]="{ width: '34rem', maxWidth: '94vw' }" header="Stock muerto" [dismissableMask]="true">
+      <div class="ec-about">
+        <p><strong>Stock muerto</strong> = productos con existencia física pero <strong>sin rotación</strong> (0 ventas en la sucursal en la ventana de análisis).</p>
+        <p>Como no venden, el motor no les calcula una <em>política de reorden</em> (mínimo/reorden/máximo), y por eso <strong>no aparecen en Existencia Crítica</strong> arriba — que solo lista lo que hay que reabastecer.</p>
+        <p>Es <strong>capital inmovilizado</strong>: inventario parado que ocupa espacio y dinero. La acción no es pedir más, sino <strong>liquidar, promocionar o trasladar</strong> a una sucursal donde sí rote.</p>
+        <p class="ec-about-note">Para ver TODO el inventario (rote o no), usa el reporte de <strong>Salidas</strong> (/comercial/salidas), que lista el catálogo completo por sucursal.</p>
+      </div>
+    </p-dialog>
+
+    <!-- Dialog: generar requisición. appendTo=body: la página vive en un contenedor
+         con overflow/transform → sin esto el modal se renderiza pero queda clipeado
+         detrás (el clic "no hace nada" a la vista). -->
+    <p-dialog [visible]="dialogOpen()" (visibleChange)="dialogOpen.set($event)" [modal]="true" appendTo="body" [style]="{ width: '52rem', maxWidth: '96vw' }" header="Generar requisición" [dismissableMask]="true">
+      <div class="ec-dlg">
+        <p class="ec-dlg-sub">{{ draft().length }} producto(s) · {{ draftWarehouses().length }} almacén(es) · objetivo <strong>{{ basisLabel(fBasis) }}</strong>
+          @if (draftReqCount() > 1) { <span class="ec-dlg-note">— se crearán {{ draftReqCount() }} requisiciones (compra: una por proveedor · traspaso: una por sucursal origen)</span> }
+        </p>
+
+        <!-- Aviso de compra mínima (RA.13a): proveedores que no alcanzan su mínimo en cajas -->
+        @for (w of minBoxesWarn(); track w.supplier_id) {
+          <div class="ec-warn"><i class="pi pi-exclamation-triangle"></i>
+            <strong>{{ w.supplier_name }}</strong>: {{ w.have | number:'1.0-1' }} de {{ w.need | number:'1.0-1' }} cajas mínimas. Faltan {{ (w.need - w.have) | number:'1.0-1' }}.
+          </div>
+        }
+
+        <div class="ec-dlg-lines">
+          @for (l of draft(); track l.product_id + '|' + l.warehouse_id) {
+            <div class="ec-dlg-line">
+              <span class="ec-dlg-name"><span class="ec-mono">{{ l.sku }}</span> {{ l.nombre }} <span class="ec-muted">· {{ l.warehouse_code }}</span></span>
+              <p-select [options]="originOpts" [(ngModel)]="l.source_type" optionLabel="label" optionValue="value" styleClass="ec-dlg-origin" appendTo="body"></p-select>
+              @if (l.source_type === 'branch') {
+                <p-select [options]="warehouseOpts()" [(ngModel)]="l.source_warehouse_id" optionLabel="label" optionValue="value"
+                          placeholder="Almacén origen" [filter]="true" filterBy="label" filterPlaceholder="Buscar…"
+                          styleClass="ec-dlg-srcwh" appendTo="body"></p-select>
+              }
+              <input pInputText type="number" min="0" [(ngModel)]="l.final_qty" class="ec-dlg-qty" />
+            </div>
+          }
+        </div>
+        <input pInputText type="text" [(ngModel)]="notes" placeholder="Nota (opcional)" class="ec-dlg-notes" />
+      </div>
+      <ng-template #footer>
+        <button pButton type="button" class="p-button-text p-button-sm" [disabled]="saving()" (click)="dialogOpen.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" class="p-button-sm" [loading]="saving()" [disabled]="saving()" (click)="create()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear requisición</span></button>
+      </ng-template>
+    </p-dialog>
+  `,
+  styles: [`
+    :host { display: block; }
+    .ec-head-actions { display: flex; gap: .5rem; align-items: center; }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
+    /* U.2 — banner de lo que NO se está midiendo. Tono de aviso, no de error: el dato existe,
+       lo que falta es la certeza de su unidad. Mismo lenguaje que /compras/pedido. */
+    .ec-rung-banner {
+      display:flex; gap:.5rem; align-items:flex-start; margin:-.5rem 0 1rem;
+      padding:.55rem .7rem; border:1px solid var(--border-color); border-radius:var(--radius-md, 8px);
+      background:var(--surface-hover, transparent); color:var(--text-muted);
+      font-size:.78rem; line-height:1.45;
+    }
+    .ec-rung-banner i { color:var(--warn-fg, #b45309); margin-top:.1rem; flex:none; }
+    .ec-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; margin-bottom: .75rem; }
+    /* [EC.U] Selector de unidad: segmentado, las dos opciones SIEMPRE a la vista. Un desplegable
+       esconderia en que unidad se esta leyendo, y esa es justo la informacion que faltaba. */
+    .ec-unit { display:inline-flex; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
+      overflow:hidden; align-self:center; }
+    .ec-unit button { appearance:none; border:0; background:transparent; cursor:pointer;
+      font:inherit; font-size:.72rem; font-weight:600; color:var(--text-muted);
+      padding:.3rem .6rem; line-height:1.2; }
+    .ec-unit button + button { border-left:1px solid var(--border-color); }
+    .ec-unit button.on { background:var(--surface-2, rgba(0,0,0,.05)); color:var(--text-main); }
+    .ec-unit button:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
+    /* El rotulo de la unidad, pegado a la cifra y en tono secundario: acompana, no compite. */
+    .ec-u { margin-left:.22rem; font-size:.62rem; font-weight:600; color:var(--text-muted);
+      text-transform:lowercase; letter-spacing:.02em; }
+    .ec-wh { display: flex; flex-direction: column; gap: .25rem; }
+    .ec-atajos { display: flex; align-items: center; gap: .1rem; flex-wrap: wrap; }
+    .ec-atajos-lbl { font-size: .7rem; color: var(--text-muted); margin-right: .2rem; }
+    .ec-atajo { border: none; background: none; cursor: pointer; font-size: .74rem; color: var(--text-muted);
+      padding: .05rem .4rem; border-radius: var(--r-sm, 6px); font-family: inherit; }
+    .ec-atajo:hover { color: var(--text-main); background: color-mix(in srgb, var(--text-main) 6%, transparent); }
+    .ec-atajo.on { color: var(--action); font-weight: 600; }
+    .ec-sel { min-width: 12rem; } .ec-sel-wide { min-width: 15rem; } .ec-sel-sm { min-width: 6.5rem; }
+    /* Search: p-iconfield pone el ícono de lupa a la izquierda; el clear (inputicon) a la derecha. */
+    :host ::ng-deep .ec-search input { min-width: 14rem; }
+    /* p-inputicon trae pointer-events:none por default; el clear necesita ser clickeable. */
+    :host ::ng-deep .ec-search-clear { pointer-events: auto; cursor: pointer; font-size: .72rem; color: var(--text-muted); }
+    :host ::ng-deep .ec-search-clear:hover { color: var(--text-main); }
+    .ec-class { white-space: nowrap; }
+    .ec-cls { display: inline-block; min-width: 1.1rem; text-align: center; font-size: .68rem; font-weight: 700; font-family: var(--font-mono, ui-monospace, monospace); padding: 0 .2rem; color: var(--text-muted); }
+    .ec-abc-A { color: var(--text-main); } /* alto valor: un poco más de peso */
+    .ec-xyz-Z { color: var(--action); }       /* errático: difícil de pronosticar (señal) */
+    .ec-svc { display: block; font-size: .62rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .ec-table { font-size: .82rem; }
+    .ec-r { text-align: right; font-variant-numeric: tabular-nums; }
+    .ec-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; }
+    .ec-muted { color: var(--text-muted); }
+    .ec-strong { font-weight: 700; }
+    .ec-rank-top { font-weight: 700; } /* top-20 vendedor de la sucursal: resalta por peso (quiet-luxury, sin color) */
+    .ec-sel-row { background: var(--surface-hover-bg); }
+    .ec-src { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+    .ec-src-kepler { color: var(--action); }
+    .ec-transit { font-weight: 600; }
+    .ec-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
+    /* Stock muerto */
+    .ec-dead { margin-top: 1.25rem; border-top: 1px solid var(--border-color); padding-top: .75rem; }
+    .ec-dead-head { display: flex; align-items: center; gap: .5rem; width: 100%; background: none; border: 0; cursor: pointer; padding: .3rem 0; color: var(--text-main); font: inherit; }
+    .ec-dead-head .pi-chevron-right, .ec-dead-head .pi-chevron-down { color: var(--text-muted); font-size: .8rem; }
+    .ec-dead-title { font-weight: 700; }
+    .ec-dead-count { font-variant-numeric: tabular-nums; font-size: .78rem; color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .05rem .4rem; }
+    .ec-dead-val { font-variant-numeric: tabular-nums; font-size: .78rem; color: var(--text-muted); }
+    .ec-dead-about { margin-left: .25rem; color: var(--text-muted); cursor: pointer; font-size: .85rem; }
+    .ec-dead-about:hover { color: var(--action); }
+    .ec-dead-sub { color: var(--text-muted); font-size: .8rem; margin: .35rem 0 .6rem; }
+    .ec-dead-cap { font-size: .7rem; padding: .08rem .4rem; border: 1px solid var(--border-color); border-radius: var(--r-sm); white-space: nowrap; }
+    .ec-dead-since { white-space: nowrap; font-size: .74rem; }
+    .ec-about p { font-size: .88rem; line-height: 1.5; margin: 0 0 .7rem; }
+    .ec-about-note { color: var(--text-muted); font-size: .82rem; border-top: 1px solid var(--border-color); padding-top: .6rem; }
+    .ec-dlg-sub { color: var(--text-muted); font-size: .85rem; margin-bottom: .5rem; }
+    .ec-dlg-note { color: var(--action); }
+    .ec-warn { display: flex; gap: .45rem; align-items: center; font-size: .8rem; color: var(--warn-soft-fg); background: var(--warn-soft-bg); border: 1px solid var(--warn-border); border-radius: var(--r-sm); padding: .45rem .6rem; margin-bottom: .4rem; }
+    .ec-dlg-lines { max-height: 24rem; overflow-y: auto; display: flex; flex-direction: column; gap: .35rem; }
+    .ec-dlg-line { display: flex; gap: .5rem; align-items: center; }
+    .ec-dlg-name { font-size: .82rem; flex: 1; min-width: 0; }
+    .ec-dlg-origin { min-width: 8rem; } .ec-dlg-srcwh { min-width: 10rem; }
+    .ec-dlg-qty { width: 5.5rem; text-align: right; }
+    .ec-dlg-notes { width: 100%; margin-top: .6rem; }
+  `],
+})
+export class ComprasExistenciaCriticaComponent implements OnInit {
+  private readonly api = inject(ComprasService);
+  private readonly toast = inject(MessageService);
+  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+
+  readonly pageSize = 50;
+  // Lecturas reactivas (Resource API). Los filtros son campos planos → el disparo
+  // es explícito vía `tick` (no rewire de los [(ngModel)]). Gana cancelación + teardown.
+  private readonly tick = signal(0);
+  private readonly deadTick = signal(0);
+
+  private readonly listRes = rxResource({
+    params: () => this.tick(),
+    stream: () => {
+      const scope = this.fBucket === '__all' ? 'all' : undefined;
+      const bucket = this.fBucket && this.fBucket !== '__all' ? this.fBucket : undefined;
+      return this.api.criticalStock({
+        warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
+        category_id: this.fCategory || undefined,
+        abc: this.fAbc || undefined, xyz: this.fXyz || undefined,
+        bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
+        sort_by: this.fSortBy || undefined, sort_dir: this.fSortBy ? this.fSortDir : undefined,
+        page: this.page(), pageSize: this.pageSize,
+      });
+    },
+  });
+  readonly rows = computed<CriticalStockRow[]>(() => this.listRes.value()?.rows ?? []);
+  readonly total = computed(() => this.listRes.value()?.total ?? 0);
+
+  private readonly summaryRes = rxResource({
+    params: () => this.tick(),
+    stream: () => this.api.summary({ warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined, target_basis: this.fBasis }),
+  });
+  readonly summary = computed<ReplenishmentSummary | null>(() => this.summaryRes.value() ?? null);
+
+  kpiItems(s: ReplenishmentSummary): MetricStripItem[] {
+    return [
+      { label: 'Agotado', value: s.agotado, tone: s.agotado > 0 ? 'bad' : 'default' },
+      { label: 'Bajo mínimo', value: s.bajo_minimo, tone: s.bajo_minimo > 0 ? 'bad' : 'default' },
+      { label: 'Bajo reorden', value: s.bajo_reorden, tone: s.bajo_reorden > 0 ? 'warn' : 'default' },
+      { label: 'Sobrestock', value: s.sobrestock },
+      { label: 'Con política', value: s.total_policies },
+      { label: 'Traspasable (ya lo tienes)', value: s.traspasable_valor || 0, format: 'currency', tone: (s.traspasable_valor || 0) > 0 ? 'warn' : 'default' },
+      { label: 'Compra real', value: s.compra_real_valor ?? (s.sugerido_costo || 0), format: 'currency', tone: 'brand' },
+      // U.2 — lo que los importes de arriba NO incluyen. Va como KPI propio y no como nota al pie:
+      // un total que excluye en silencio se lee como si lo abarcara todo.
+      ...(s.sin_valuar_politicas
+        ? [{ label: 'Sin valuar (peldaño)', value: s.sin_valuar_politicas, tone: 'warn' as const }]
+        : []),
+    ];
+  }
+  /** U.2 — el detalle del hueco, para el título del KPI y el banner. */
+  sinValuarTexto(s: ReplenishmentSummary): string {
+    if (!s.sin_valuar_politicas) return '';
+    const arb = s.sin_valuar_arbitrado
+      ? ` Por lo que se pagó valdrían ~${this.money(s.sin_valuar_arbitrado)}, cifra de referencia para revisar — no publicable.`
+      : '';
+    return `${s.sin_valuar_politicas} filas (${s.sin_valuar_skus || 0} productos) quedan FUERA de los importes y de las cajas: `
+      + `el costo de compra contradice el divisor con el que se lee su existencia, así que multiplicar `
+      + `cantidad × costo mezclaría unidades. No valen cero: no se están midiendo.${arb}`;
+  }
+  accionLabel(a?: string) { return ({ sobrante: 'Sobrante · traspasar', traspaso: 'Traspaso', traspaso_parcial: 'Traspaso + compra', comprar: 'Comprar', ok: 'OK' } as Record<string, string>)[a || 'ok'] || a; }
+  accionSev(a?: string): Sev { return ({ sobrante: 'secondary', traspaso: 'success', traspaso_parcial: 'warn', comprar: 'info', ok: 'contrast' } as Record<string, Sev>)[a || 'ok'] || 'info'; }
+  readonly loading = computed(() => this.listRes.isLoading());
+  dl = signal(false);
+  saving = signal(false);
+  page = signal(1);
+  readonly loadedAt = signal<number | null>(null); // §14 frescura
+
+  // Stock muerto (existencia sin política de reorden = capital inmovilizado sin rotación).
+  private readonly deadRes = rxResource({
+    params: () => this.deadOpen() ? this.deadTick() : undefined,
+    stream: () => this.api.deadStock({
+      warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined,
+      supplier_id: this.fSupplier || undefined,
+      search: this.fSearch || undefined,
+      page: this.deadPage(), pageSize: this.pageSize,
+    }),
+  });
+  readonly deadRows = computed<DeadStockRow[]>(() => this.deadRes.value()?.rows ?? []);
+  readonly deadTotal = computed(() => this.deadRes.value()?.total ?? 0);
+  readonly deadValue = computed(() => this.deadRes.value()?.total_value ?? 0);
+  readonly deadLoading = computed(() => this.deadRes.isLoading());
+  deadOpen = signal(false);
+  deadPage = signal(1);
+  aboutOpen = signal(false);
+
+  warehouseOpts = signal<{ label: string; value: string; code: string }[]>([]);
+  supplierOpts = signal<{ label: string; value: string }[]>([]);
+  categoryOpts = signal<{ label: string; value: string }[]>([]);
+  /**
+   * `[ZN.3.3]` Atajos por zona, DERIVADOS de `purchase_zone` de cada almacen.
+   *
+   * Antes eran cuatro grupos escritos a mano aca (`Bajio 01-04`, `Morelia MD-30/MD-32`, `Zamora
+   * 05/06`, `CEDIS 00`). Dos problemas, y el segundo es el que duele:
+   *
+   *   1. **Contradecian el modelo.** El negocio tiene TRES zonas (La Piedad, Zamora, Morelia) y
+   *      el CEDIS es corporativo, no una zona (`[ZN.0]`). "Bajio" no existe en ningun lado.
+   *   2. **No respetaban el alcance.** Un boton que dice "Zamora" a alguien que solo alcanza La
+   *      Piedad ofrece algo que la consulta ya no va a devolver.
+   *
+   * Ahora salen de la misma respuesta que puebla el selector, que el backend YA recorta al
+   * alcance: si una zona no tiene ni un almacen alcanzable, su boton no se dibuja. Y si ningun
+   * almacen trae zona, la lista queda VACIA a proposito -- se declara con "Todos" y nada mas,
+   * en vez de inventar una agrupacion.
+   */
+  territories = signal<{ label: string; codes: string[] }[]>([]);
+  private warehouseNames = new Map<string, string>();
+
+  fWarehouses: string[] = [];
+  fBucket = '';
+  fBasis: TargetBasis = 'max';
+  fSupplier = '';
+  fCategory = '';
+  fAbc = '';
+  fXyz = '';
+  fSearch = '';
+  /** Orden por columna (server-side). null = orden por defecto (prioridad por valor). */
+  fSortBy: string | null = null;
+  fSortDir: 'asc' | 'desc' = 'desc';
+
+  /** Búsqueda en vivo: cada tecla empuja al Subject; debounce evita una consulta por letra. */
+  private readonly search$ = new Subject<string>();
+
+  abcOpts = [
+    { label: 'A (alto valor)', value: 'A' },
+    { label: 'B (medio)', value: 'B' },
+    { label: 'C (cola larga)', value: 'C' },
+  ];
+  xyzOpts = [
+    { label: 'X estable', value: 'X' },
+    { label: 'Y variable', value: 'Y' },
+    { label: 'Z errático', value: 'Z' },
+  ];
+
+  bucketOpts = [
+    { label: 'Agotado', value: 'agotado' },
+    { label: 'Bajo mínimo', value: 'bajo_minimo' },
+    { label: 'Bajo reorden', value: 'bajo_reorden' },
+    { label: 'Sobrestock', value: 'sobrestock' },
+    { label: 'Todos', value: '__all' },
+  ];
+  basisOpts = [
+    { label: 'Ciclo (cadencia)', value: 'cadence' }, // RA-PRO.9 — objetivo por horizonte de ciclo (casa con Qué Toca)
+    { label: 'Hasta el máximo', value: 'max' },
+    { label: 'Hasta reorden', value: 'reorder' },
+    { label: 'Hasta el mínimo', value: 'min' },
+  ];
+  originOpts = [
+    { label: 'Proveedor', value: 'supplier' as SourceType },
+    { label: 'Sucursal', value: 'branch' as SourceType },
+  ];
+
+  // Selección → requisición. La key incluye el almacén: el MISMO SKU puede aparecer
+  // en varias sucursales (multi-select) y colisionaría con sólo product_id.
+  // El tamaño vive en un signal porque computed() sólo reacciona a signals.
+  private selected = new Map<string, CriticalStockRow>();
+  selCount = signal(0);
+  dialogOpen = signal(false);
+  notes = '';
+  draft = signal<DraftLine[]>([]);
+
+  // Leer el signal SIEMPRE primero e incondicional: detrás de un `&&` que corta al
+  // init, el computed queda sin dependencias y jamás recalcula (el botón nunca se
+  // habilitaría). Ver [[feedback_vendor_ux_best_practices]].
+  canRequire = computed(() => this.selCount() > 0);
+
+  constructor() {
+    // Restaura filtros ANTES del primer fetch del rxResource (sobrevive cambio de tab / nav / reload).
+    this.restoreFilters();
+    // Sella la frescura en cada carga resuelta del listado (reemplaza loadedAt.set del next viejo).
+    effect(() => { if (this.listRes.value() !== undefined) this.loadedAt.set(Date.now()); });
+    // Toasts de error (equivalen a los catch de los subscribe viejos).
+    effect(() => { if (this.listRes.error()) this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la existencia crítica.' }); });
+    effect(() => { if (this.deadRes.error()) this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el stock muerto.' }); });
+  }
+
+  ngOnInit(): void {
+    this.cargarUnidad();   // [EC.U] sin nada guardado manda el default pedido: cajas
+    this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f) => {
+      this.warehouseOpts.set(f.warehouses.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id, code: w.code })));
+      f.warehouses.forEach((w) => this.warehouseNames.set(w.id, `${w.code} · ${w.name}`));
+      // `[ZN.3.3]` La zona la manda la TABLA (`purchase_zone`), no un mapa en el bundle. El orden
+      // es el de la lista, que ya viene en el orden canonico de la red (no alfabetico).
+      const porZona = new Map<string, string[]>();
+      for (const w of f.warehouses) {
+        const zona = (w.purchase_zone || '').trim();
+        if (!zona) continue;               // sin zona declarada NO se agrupa: se declara, no se adivina
+        porZona.set(zona, [...(porZona.get(zona) ?? []), w.code]);
+      }
+      this.territories.set([...porZona].map(([label, codes]) => ({ label, codes })));
+      this.supplierOpts.set(f.suppliers.map((s) => ({ label: s.name, value: s.id })));
+      this.categoryOpts.set((f.categories || []).map((c) => ({ label: `${c.name} · ${c.n_suppliers} prov`, value: c.id })));
+    });
+    // Búsqueda en vivo: debounce 300ms + distinct para no reconsultar con el mismo texto.
+    this.search$.pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.reload());
+    // El listado + resumen se auto-cargan por sus rxResource (tick inicial = 0).
+  }
+
+  onSearchChange(v: string): void { this.search$.next((v ?? '').trim()); }
+  clearSearch(): void { this.fSearch = ''; this.reload(); }
+  clearWh(): void { this.fWarehouses = []; this.reload(); }
+  applyTerr(codes: string[]): void { this.fWarehouses = this.isTerr(codes) ? [] : this.idsForCodes(codes); this.reload(); }
+  isTerr(codes: string[]): boolean { const ids = this.idsForCodes(codes); return ids.length > 0 && ids.length === this.fWarehouses.length && ids.every((i) => this.fWarehouses.includes(i)); }
+  private idsForCodes(codes: string[]): string[] { return this.warehouseOpts().filter((w) => codes.includes(w.code)).map((w) => w.value); }
+
+  reload(): void {
+    this.saveFilters();
+    this.selected.clear();
+    this.selCount.set(0);
+    this.page.set(1);
+    this.deadPage.set(1);
+    this.tick.update((t) => t + 1);                 // refetch listado + resumen
+    if (this.deadOpen()) this.deadTick.update((t) => t + 1);
+  }
+
+  // Persistencia de filtros en localStorage (mismo patrón que /compras/pedido).
+  private readonly FKEY = 'existencia-critica-filters:v1';
+  private saveFilters(): void {
+    try {
+      localStorage.setItem(this.FKEY, JSON.stringify({
+        fWarehouses: this.fWarehouses, fBucket: this.fBucket, fBasis: this.fBasis,
+        fSupplier: this.fSupplier, fCategory: this.fCategory, fAbc: this.fAbc, fXyz: this.fXyz,
+        fSearch: this.fSearch, fSortBy: this.fSortBy, fSortDir: this.fSortDir,
+      }));
+    } catch { /* localStorage no disponible */ }
+  }
+  private restoreFilters(): void {
+    try {
+      const raw = localStorage.getItem(this.FKEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (Array.isArray(s.fWarehouses)) this.fWarehouses = s.fWarehouses;
+      if (typeof s.fBucket === 'string') this.fBucket = s.fBucket;
+      if (typeof s.fBasis === 'string') this.fBasis = s.fBasis as TargetBasis;
+      if (typeof s.fSupplier === 'string') this.fSupplier = s.fSupplier;
+      if (typeof s.fCategory === 'string') this.fCategory = s.fCategory;
+      if (typeof s.fAbc === 'string') this.fAbc = s.fAbc;
+      if (typeof s.fXyz === 'string') this.fXyz = s.fXyz;
+      if (typeof s.fSearch === 'string') this.fSearch = s.fSearch;
+      if (s.fSortBy === null || typeof s.fSortBy === 'string') this.fSortBy = s.fSortBy;
+      if (s.fSortDir === 'asc' || s.fSortDir === 'desc') this.fSortDir = s.fSortDir;
+    } catch { /* JSON inválido */ }
+  }
+
+  toggleDead(): void {
+    const open = !this.deadOpen();
+    this.deadOpen.set(open);
+    if (open) { this.deadPage.set(1); this.deadTick.update((t) => t + 1); }
+  }
+  openAbout(e: Event): void { e.stopPropagation(); this.aboutOpen.set(true); }
+  onDeadPage(e: TableLazyLoadEvent): void {
+    const size = e.rows || this.pageSize;
+    this.deadPage.set(Math.floor((e.first || 0) / size) + 1);
+    this.deadTick.update((t) => t + 1);
+  }
+
+  /** Export XLSX con diseño: mismos filtros de la vista, todas las filas del filtro. */
+  downloadXlsx(): void {
+    this.dl.set(true);
+    const scope = this.fBucket === '__all' ? 'all' : undefined;
+    const bucket = this.fBucket && this.fBucket !== '__all' ? this.fBucket : undefined;
+    this.api.criticalStockXlsx({
+      warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
+      category_id: this.fCategory || undefined,
+      abc: this.fAbc || undefined, xyz: this.fXyz || undefined,
+      bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
+      sort_by: this.fSortBy || undefined, sort_dir: this.fSortBy ? this.fSortDir : undefined,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => {
+        this.dl.set(false);
+        const blob = resp.body!;
+        const cd = resp.headers.get('content-disposition') || '';
+        const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        const plain = /filename="?([^";]+)"?/i.exec(cd);
+        const name = star ? decodeURIComponent(star[1]) : (plain ? plain[1] : 'Existencia_Critica.xlsx');
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = name; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el Excel.' }); },
+    });
+  }
+
+  onPage(e: TableLazyLoadEvent): void {
+    const size = e.rows || this.pageSize;
+    this.page.set(Math.floor((e.first || 0) / size) + 1);
+    // Ordenamiento por columna (server-side): PrimeNG manda sortField + sortOrder (1 asc, -1 desc).
+    const field = Array.isArray(e.sortField) ? e.sortField[0] : e.sortField;
+    this.fSortBy = field || null;
+    this.fSortDir = e.sortOrder === 1 ? 'asc' : 'desc';
+    this.tick.update((t) => t + 1);
+  }
+
+  // Selección — key = producto|almacén.
+  private key(r: CriticalStockRow) { return `${r.product_id}|${r.warehouse_id}`; }
+  isSelected(r: CriticalStockRow) { return this.selected.has(this.key(r)); }
+  toggle(r: CriticalStockRow) {
+    const k = this.key(r);
+    this.selected.has(k) ? this.selected.delete(k) : this.selected.set(k, r);
+    this.selCount.set(this.selected.size);
+  }
+  allSelected() { return this.rows().length > 0 && this.rows().every((r) => this.selected.has(this.key(r))); }
+  toggleAll(e: CheckboxChangeEvent) {
+    if (e.checked) this.rows().forEach((r) => this.selected.set(this.key(r), r));
+    else this.rows().forEach((r) => this.selected.delete(this.key(r)));
+    this.selCount.set(this.selected.size);
+  }
+
+  openDialog(): void {
+    this.draft.set([...this.selected.values()].map((r) => ({
+      product_id: r.product_id, warehouse_id: r.warehouse_id, warehouse_code: r.warehouse_code,
+      sku: r.sku, nombre: r.nombre,
+      supplier_id: r.supplier_id, supplier_name: r.supplier_name,
+      supplier_min_boxes: r.supplier_min_boxes, factor_purchase: r.factor_purchase,
+      source_type: 'supplier' as SourceType, source_warehouse_id: null,
+      on_hand: r.on_hand, in_transit: r.in_transit,
+      min_stock: r.min_stock, reorder_point: r.reorder_point, max_stock: r.max_stock,
+      suggested_qty: r.suggested_qty, final_qty: Math.round(r.suggested_qty), unit_cost: r.unit_cost || 0,
+    })));
+    this.notes = '';
+    this.dialogOpen.set(true);
+  }
+
+  /** Almacenes distintos en el borrador (para el aviso "N requisiciones"). */
+  draftWarehouses(): string[] { return [...new Set(this.draft().map((l) => l.warehouse_id))]; }
+
+  /** Clave de agrupación de requisición: compra → (almacén, proveedor);
+   * traspaso → (almacén, sucursal origen). Compra y traspaso nunca se mezclan. */
+  private reqGroupKey(l: DraftLine): string {
+    const branch = l.source_type === 'branch';
+    const sub = branch ? (l.source_warehouse_id || 'SIN-ORIGEN') : (l.supplier_id || 'SIN-PROV');
+    return `${l.warehouse_id}||${branch ? 'branch' : 'supplier'}||${sub}`;
+  }
+  /** Cuántas requisiciones se crearán (una por grupo compra/traspaso × origen). */
+  draftReqCount(): number {
+    return new Set(this.draft().filter((l) => Number(l.final_qty) > 0).map((l) => this.reqGroupKey(l))).size;
+  }
+
+  /**
+   * RA.13a — proveedores del borrador que NO alcanzan su pedido mínimo en cajas.
+   * cajas = Σ final_qty por proveedor, sólo líneas source_type='supplier'.
+   * Método (no computed): final_qty se edita por ngModel sobre objeto plano; el CD del
+   * diálogo lo recorre en cada cambio.
+   *
+   * ⛔ `[RA-DYN.U3]` **Ya NO se divide por `factor_purchase`.** `final_qty` arranca en
+   * `suggested_qty`, que el servidor ya devuelve EN CAJAS (lo divide por el factor del almacén
+   * antes de mandarlo), así que dividir otra vez era contar dos veces.
+   *
+   * Hasta hoy no se notaba y el aviso salía bien **por coincidencia**: medido contra prod el
+   * 2026-10-01, `catalog.products.factor_purchase` vale **1 o NULL en los 14,872 productos**
+   * (min = max = 1), o sea que la división era un no-op. El día que alguien cargara el factor
+   * real —6, 12, 24— esta pantalla habría empezado a reportar 1/6 de las cajas que hay y a
+   * avisar en falso, sin que nada cambiara en este archivo. Quitarlo hoy no mueve ningún número
+   * y cierra esa puerta. Ver `reference_box_factor_factor_sale`: el factor que SÍ sirve es
+   * `factor_sale`, y el canónico por almacén es `analytics.v_warehouse_box_factor` (ADR-055).
+   */
+  minBoxesWarn(): { supplier_id: string; supplier_name: string; need: number; have: number }[] {
+    const bySup = new Map<string, { name: string; min: number; boxes: number }>();
+    for (const l of this.draft()) {
+      if (l.source_type !== 'supplier' || !l.supplier_id || !l.supplier_min_boxes || l.supplier_min_boxes <= 0) continue;
+      const boxes = Number(l.final_qty || 0);
+      const cur = bySup.get(l.supplier_id) || { name: l.supplier_name || '—', min: Number(l.supplier_min_boxes), boxes: 0 };
+      cur.boxes += boxes;
+      bySup.set(l.supplier_id, cur);
+    }
+    return [...bySup.entries()]
+      .filter(([, v]) => v.boxes < v.min)
+      .map(([supplier_id, v]) => ({ supplier_id, supplier_name: v.name, need: v.min, have: v.boxes }));
+  }
+
+  create(): void {
+    if (this.saving()) return; // §13 idempotencia visual: ignora re-clicks
+    const all = this.draft().filter((l) => Number(l.final_qty) > 0);
+    if (!all.length) { this.toast.add({ severity: 'warn', summary: 'Sin líneas', detail: 'Ajusta las cantidades (> 0).' }); return; }
+    // Validar que las líneas de traspaso tengan almacén origen.
+    if (all.some((l) => l.source_type === 'branch' && !l.source_warehouse_id)) {
+      this.toast.add({ severity: 'warn', summary: 'Falta almacén origen', detail: 'Elige la sucursal origen de las líneas por traspaso.' }); return;
+    }
+    // Compra y traspaso NUNCA van juntos, y la compra es UNA requisición por
+    // proveedor. Grano = almacén destino × origen: compra → (almacén, proveedor);
+    // traspaso → (almacén, sucursal origen).
+    const groups = new Map<string, DraftLine[]>();
+    for (const l of all) { const k = this.reqGroupKey(l); (groups.get(k) ?? groups.set(k, []).get(k)!).push(l); }
+
+    const dtos: CreateRequisitionDto[] = [...groups.values()].map((lines) => {
+      const f = lines[0];
+      const isBranch = f.source_type === 'branch';
+      return {
+        warehouse_id: f.warehouse_id,
+        supplier_id: isBranch ? null : (f.supplier_id ?? null),
+        source_type: isBranch ? 'branch' : 'supplier',
+        source_warehouse_id: isBranch ? f.source_warehouse_id : null,
+        target_basis: this.fBasis, notes: this.notes || undefined,
+        lines: lines.map((l) => ({
+          product_id: l.product_id, supplier_id: l.supplier_id,
+          source_type: l.source_type, source_warehouse_id: l.source_type === 'branch' ? l.source_warehouse_id : null,
+          on_hand: l.on_hand, in_transit: l.in_transit,
+          min_stock: l.min_stock, reorder_point: l.reorder_point, max_stock: l.max_stock,
+          suggested_qty: l.suggested_qty, final_qty: Number(l.final_qty), unit_cost: l.unit_cost,
+        })),
+      };
+    });
+
+    this.saving.set(true);
+    forkJoin(dtos.map((d) => this.api.createRequisition(d))).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.saving.set(false); this.dialogOpen.set(false);
+        if (res.length === 1) {
+          this.toast.add({ severity: 'success', summary: 'Requisición creada', detail: res[0].folio });
+          this.router.navigate(['/compras/requisiciones', res[0].id]);
+        } else {
+          this.toast.add({ severity: 'success', summary: `${res.length} requisiciones creadas`, detail: res.map((r) => r.folio).join(', ') });
+          this.router.navigate(['/compras/requisiciones']);
+        }
+      },
+      error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo crear la requisición.' }); },
+    });
+  }
+
+  // Helpers
+  /** Postgres numeric llega como STRING por JSON; sin Number() el toLocaleString de string ignora el formato de moneda. */
+  // U.2 — null NO es cero. Un importe ausente significa "no se está midiendo" (el costo de compra
+  // contradice el peldaño de la cantidad, ver rung_veredicto) y se dibuja como raya, nunca como $0:
+  // $0 se lee "no cuesta nada" y es justamente la mentira que este bloque de trabajo quita.
+  // El 0 numérico real sí sigue saliendo como $0.
+  money(v: number | string | null | undefined) {
+    if (v === null || v === undefined || v === '') return '—';
+    return (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+  }
+  /** venta/mes como número (numeric de Postgres llega string) para el guard de "—". */
+  revNum(v: number | string | null | undefined) { return Number(v ?? 0) || 0; }
+  /** fecha corta es-MX; '—' si inválida/nula. */
+  fmtDate(d: string | null | undefined) {
+    if (!d) return '—';
+    const dt = new Date(d);
+    return isNaN(dt.getTime()) ? '—' : dt.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  /** "Desde cuándo": última venta/movimiento; si nunca tuvo → alta en catálogo. */
+  deadSince(r: DeadStockRow) {
+    return r.last_activity ? this.fmtDate(r.last_activity) : `sin actividad · alta ${this.fmtDate(r.created_at)}`;
+  }
+  basisLabel(b: string) { return this.basisOpts.find((o) => o.value === b)?.label || b; }
+  bucketLabel(b: Bucket) { return ({ agotado: 'Agotado', bajo_minimo: 'Bajo mínimo', bajo_reorden: 'Bajo reorden', sobrestock: 'Sobrestock', sano: 'Sano' } as Record<Bucket, string>)[b]; }
+  bucketSev(b: Bucket): Sev { return ({ agotado: 'danger', bajo_minimo: 'danger', bajo_reorden: 'warn', sobrestock: 'secondary', sano: 'success' } as Record<Bucket, Sev>)[b]; }
+  sourceLabel(s: string) { return s === 'kepler' ? 'Kepler' : s === 'computed' ? 'Computado' : 'Manual'; }
+
+  // RA-PRO.2 — tooltips de segmentación y colchón.
+  xyzTitle(r: CriticalStockRow) {
+    const cv = r.demand_cv != null ? Number(r.demand_cv).toFixed(2) : '—';
+    const lbl = r.xyz_class === 'X' ? 'estable' : r.xyz_class === 'Y' ? 'variable' : 'errático';
+    return `Demanda ${lbl} · CV=${cv}`;
+  }
+  safetyTitle(r: CriticalStockRow) {
+    if (r.policy_method !== 'service_level') return 'Colchón por días de cobertura (legacy)';
+    const svc = r.service_level != null ? (r.service_level * 100).toFixed(0) + '%' : '—';
+    const lt = r.lead_time_days ?? '—';
+    return `Safety stock por nivel de servicio ${svc} (Z×σ×√lead). Lead ${lt}d.`;
+  }
+  // ─────────────── [EC.U] En qué unidad se lee la tabla ───────────────
+  //
+  // Pedido de Edgar (2026-09-12), el mismo que cerró /compras/existencia y el sell-out. Acá las
+  // nueve columnas de cantidad venían TODAS en cajas y la unidad sólo aparecía en los tooltips.
+  //
+  // ⚠️ Cambiar de unidad NO recalcula nada, y sobre todo NO re-multiplica la columna en cajas:
+  // ésa llega con `ROUND(..., 1)` desde SQL, y devolverle el factor a un 0.1 con un divisor de 58
+  // inventaría casi 6 unidades. Las cifras nativas vienen de la fuente, en su propio campo.
+  readonly unidad = signal<'caja' | 'nativa'>('caja');
+
+  setUnidad(u: 'caja' | 'nativa'): void {
+    this.unidad.set(u);
+    try { localStorage.setItem('ec.unidad', u); } catch { /* sin persistencia, no es crítico */ }
+  }
+
+  protected cargarUnidad(): void {
+    try {
+      const u = localStorage.getItem('ec.unidad');
+      if (u === 'nativa' || u === 'caja') this.unidad.set(u);
+    } catch { /* sin localStorage manda el default: cajas */ }
+  }
+
+  /** El campo hermano en unidad nativa de cada columna. Lo manda el backend, no se deriva acá. */
+  private static readonly NAT: Record<string, string> = {
+    on_hand: 'on_hand_nat', min_stock: 'min_stock_nat', reorder_point: 'reorder_point_nat',
+    max_stock: 'max_stock_nat', safety_stock: 'safety_stock_nat', in_transit: 'in_transit_nat',
+    suggested_qty: 'suggested_qty_nat', transfer_in: 'transfer_in_nat', buy_qty: 'buy_qty_nat',
+  };
+
+  /**
+   * La cantidad de una columna, en la unidad elegida. Raya cuando no hay cifra — incluido el caso
+   * en que el backend todavía no manda el campo nativo (despliegue viejo): ahí la respuesta honesta
+   * es "no lo tengo", no un cero ni una multiplicación inventada.
+   */
+  qv(r: CriticalStockRow, field: string): string {
+    const raw = this.unidad() === 'nativa'
+      ? (r as unknown as Record<string, unknown>)[ComprasExistenciaCriticaComponent.NAT[field]]
+      : (r as unknown as Record<string, unknown>)[field];
+    if (raw == null || raw === '') return '—';
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return '—';
+    return n.toLocaleString('es-MX', { maximumFractionDigits: this.unidad() === 'nativa' ? 2 : 1 });
+  }
+
+  /** "Comprar" cae al sugerido cuando el residual no viene, en la unidad que toque. */
+  qvCompra(r: CriticalStockRow): string {
+    const v = this.qv(r, 'buy_qty');
+    return v === '—' ? this.qv(r, 'suggested_qty') : v;
+  }
+
+  /** El rótulo de la unidad nativa. ⚠️ Kepler a veces guarda ahí el GRAMAJE ('500'), no un nombre. */
+  natU(r: CriticalStockRow): string {
+    const raw = String(r.rung_base_label ?? '').trim();
+    if (!raw) return '';
+    return /^[\d.]+$/.test(raw) ? '' : raw.toLowerCase();
+  }
+
+  unidadSufijo(): string { return this.unidad() === 'nativa' ? '(unidad ERP)' : '(cajas)'; }
+
+  colTitulo(que: string): string {
+    return this.unidad() === 'nativa'
+      ? `Acá va ${que} en la unidad NATIVA del almacén (piezas, paquetes, kilos...), tal como la `
+        + 'guarda su ERP: sin dividir. ⛔ No se suma entre almacenes con ERPs distintos.'
+      : `Acá va ${que} en CAJAS = la cantidad nativa dividida por el factor de ESE almacén, del `
+        + 'resolvedor canónico analytics.v_warehouse_box_factor (ADR-055). Wincaja guarda en su '
+        + 'unidad de venta y Kepler en la base, así que el divisor no es el mismo en los dos.';
+  }
+
+  cajaTitle(r: CriticalStockRow) {
+    const f = r.caja_factor != null ? Number(r.caja_factor) : null;
+    const u = this.natU(r);
+    if (this.unidad() === 'nativa') {
+      return u
+        ? `Existencia en ${u}, la unidad del ERP de este almacén. Sin dividir.`
+        : 'Existencia en la unidad del ERP de este almacén, sin dividir. Su rótulo no está '
+          + 'declarado, así que no se le pone uno.';
+    }
+    if (!f || f <= 1) return 'Cifras en cajas (el divisor de este almacén es 1).';
+    // ⚠️ Antes decía "por piezas/caja (c84)". El divisor NO sale de kdii.c84: sale de
+    // analytics.v_warehouse_box_factor, por almacén y producto (ADR-055).
+    return `Cajas = existencia ÷ ${f}${u ? ` (${u} por caja)` : ' por caja'}, con el divisor de `
+      + 'ESTE almacén (analytics.v_warehouse_box_factor).';
+  }
+}

@@ -1,0 +1,874 @@
+/* eslint-disable no-console */
+/**
+ * Registro de handlers de APPLY por feed — ÚNICA fuente de verdad del SQL de escritura.
+ *
+ * Lo usan dos consumidores:
+ *   - modo pg  : el importer on-prem lo llama con su propio Client ya conectado a Railway
+ *                (comportamiento histórico, escribe por el proxy público).
+ *   - modo http: el servicio `services/feeds-ingest` lo llama con un Client interno
+ *                (`*.railway.internal`), tras recibir el changeset por HTTPS (ingress gratis).
+ *
+ * Contrato de un handler: async (client, tenantId, rows, meta) → rowCount.
+ *   - Maneja su PROPIA transacción (BEGIN/COMMIT/ROLLBACK).
+ *   - `rows` son objetos JSON (mismos que se serializan en el POST).
+ *   - NO asume nada del transporte: idéntico resultado en pg y http.
+ */
+
+const { buildSalesDailySrc } = require('./sales-daily-projection');
+const { buildMovementsSelect, SM_COLS } = require('./movements-projection');
+const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute');
+// `[TDA.1]` Aviso a las pantallas de que un precio de etiqueta cambió. Fail-open por diseño.
+const { notifyLabelPricesChanged } = require('./notify-store');
+const { computeBarcodes } = require('./barcode-compute');
+const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice } = require('./ods-derived');
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BATCH = 1000;
+
+function assertTenant(tenantId) {
+  if (!UUID_RE.test(String(tenantId || ''))) throw new Error(`tenant_id inválido: ${tenantId}`);
+}
+
+/**
+ * feed 'stock-delta' — existencia viva multi-sucursal → commercial.stock.
+ * rows: [{ code, product_id, quantity }]  (ya agregadas y únicas por (code, product_id);
+ *        una fila con quantity=0 es un "drop" = poner en 0).
+ * SQL idéntico al histórico de import-branch-stock-live.js (JOIN warehouses por code,
+ * JOIN products para no violar FK con drops de productos borrados, GREATEST vs reserved).
+ */
+async function applyStockDelta(client, tenantId, rows) {
+  assertTenant(tenantId);
+  if (!Array.isArray(rows) || !rows.length) return 0;
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    await client.query(`CREATE TEMP TABLE stg_stock (code text, product_id uuid, quantity numeric) ON COMMIT DROP`);
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const chunk = rows.slice(i, i + BATCH);
+      const vals = [], params = [];
+      chunk.forEach((r, ri) => {
+        vals.push(`($${ri * 3 + 1},$${ri * 3 + 2},$${ri * 3 + 3})`);
+        params.push(r.code, r.product_id, r.quantity);
+      });
+      await client.query(`INSERT INTO stg_stock (code, product_id, quantity) VALUES ${vals.join(',')}`, params);
+    }
+    const up = await client.query(`
+      INSERT INTO commercial.stock (id, tenant_id, warehouse_id, product_id, quantity, updated_at)
+      SELECT gen_random_uuid(), $1, w.id, s.product_id, s.quantity, now()
+      FROM stg_stock s
+      JOIN commercial.warehouses w ON w.tenant_id=$1 AND w.code=s.code
+      JOIN public.products p ON p.tenant_id=$1 AND p.id=s.product_id
+      ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE
+        SET quantity=GREATEST(EXCLUDED.quantity, commercial.stock.reserved_quantity), updated_at=now()`, [tenantId]);
+    await client.query('COMMIT');
+    return up.rowCount;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+/**
+ * feed 'wincaja-stock' — existencia viva de una sucursal Wincaja → commercial.stock.
+ * meta: { warehouse_code }  (destino en commercial.warehouses.code, p.ej. '00' CEDIS, 'MD-30'…).
+ * rows: [{ sku, existencia }]  — DELTA incremental (solo SKUs cuya existencia cambió; un 0
+ *        es "poner en 0"). NO es snapshot completo → por eso NO hay delete-not-seen (borraría
+ *        el resto del almacén). El agente lleva su watermark/snapshot local por sucursal.
+ * Resuelve sku→product_id server-side contra catalog.products (lectura interna, gratis).
+ * Espeja el mapeo de import-cedis-stock-wincaja.js, pero en modo delta (no REPLACE).
+ */
+async function applyWincajaStock(client, tenantId, rows, meta) {
+  assertTenant(tenantId);
+  const wcode = meta && meta.warehouse_code;
+  if (!wcode) throw new Error('wincaja-stock: meta.warehouse_code requerido');
+  if (!Array.isArray(rows) || !rows.length) return 0; // sin filas = nada (nunca borra el almacén)
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    const wh = await client.query(
+      `SELECT id FROM commercial.warehouses WHERE tenant_id=$1 AND code=$2 AND deleted_at IS NULL`,
+      [tenantId, wcode],
+    );
+    if (!wh.rows.length) throw new Error(`wincaja-stock: warehouse code=${wcode} no existe`);
+    const whId = wh.rows[0].id;
+
+    await client.query(`CREATE TEMP TABLE stg_wstk_raw (sku text, existencia numeric) ON COMMIT DROP`);
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const chunk = rows.slice(i, i + BATCH);
+      const vals = [], params = [];
+      chunk.forEach((r, ri) => {
+        vals.push(`($${ri * 2 + 1},$${ri * 2 + 2})`);
+        params.push(String(r.sku), r.existencia);
+      });
+      await client.query(`INSERT INTO stg_wstk_raw (sku, existencia) VALUES ${vals.join(',')}`, params);
+    }
+    // sku→product_id + agrega por producto (sku duplicado en el .mdb → suma); clamp negativos a 0.
+    await client.query(
+      `CREATE TEMP TABLE stg_wstk ON COMMIT DROP AS
+         SELECT p.id AS product_id, GREATEST(SUM(COALESCE(r.existencia,0)), 0) AS qty
+         FROM stg_wstk_raw r
+         JOIN catalog.products p ON p.tenant_id=$1 AND p.sku=r.sku AND p.deleted_at IS NULL
+         GROUP BY p.id`,
+      [tenantId],
+    );
+    const up = await client.query(
+      `INSERT INTO commercial.stock AS s (tenant_id, warehouse_id, product_id, quantity, reserved_quantity, updated_at)
+       SELECT $1, $2, product_id, qty, 0, now() FROM stg_wstk
+       ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE
+         SET quantity=GREATEST(EXCLUDED.quantity, s.reserved_quantity), updated_at=now()
+       WHERE s.quantity IS DISTINCT FROM GREATEST(EXCLUDED.quantity, s.reserved_quantity)`,
+      [tenantId, whId],
+    );
+    await client.query('COMMIT');
+    return up.rowCount;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+/**
+ * feed 'wincaja-sales-bronze' — venta CRUDA de una sucursal Wincaja → bronze + re-deriva sales_daily.
+ * meta: { source_branch, source_dataset='actual' }.
+ * rows: cada fila lleva `k`: 'm' (maestro_mov_almacen) o 'd' (detalles_mov_almacen).
+ *   El extractor empuja maestro+detalles de los consecutivos NUEVOS (Tipo='V') de forma incremental.
+ * Flujo (1 trx): upsert maestro por PK · block-diff detalles por consecutivo (PK surrogate) ·
+ *   re-deriva analytics.sales_daily SCOPED a (branch, días tocados) con el MISMO SQL del gold feed
+ *   (sales-daily-projection) → cero divergencia. bronze acumula, así el total diario converge.
+ */
+const M_COLS = ['consecutivo', 'tipo', 'documento', 'tercero', 'referencia', 'fecha', 'hora', 'almacen', 'moneda', 'paridad', 'caja', 'cajero', 'vendedor', 'cancelado', 'observaciones', 'fecha_captura'];
+const D_COLS = ['consecutivo', 'articulo', 'tipo', 'documento', 'cantidad_regular', 'cantidad_auxiliar', 'valor_costo', 'valor_venta', 'iva', 'ieps', 'descuento1', 'descuento2', 'tipo_precio', 'unidad_venta'];
+
+async function applyWincajaSalesBronze(client, tenantId, rows, meta) {
+  assertTenant(tenantId);
+  const branch = meta && meta.source_branch;
+  const dataset = (meta && meta.source_dataset) || 'actual';
+  if (!branch || !/^[0-9A-Za-z_-]{1,12}$/.test(String(branch))) throw new Error(`wincaja-sales-bronze: meta.source_branch inválido: ${branch}`);
+  const maestro = [], detalles = [];
+  for (const r of Array.isArray(rows) ? rows : []) { if (r.k === 'm') maestro.push(r); else if (r.k === 'd') detalles.push(r); }
+  if (!maestro.length && !detalles.length) return 0;
+
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+
+    // 1) upsert maestro (PK natural)
+    let mUp = 0;
+    for (let i = 0; i < maestro.length; i += 500) {
+      const chunk = maestro.slice(i, i + 500);
+      const cols = ['tenant_id', 'source_branch', 'source_dataset', ...M_COLS];
+      const params = [];
+      const tuples = chunk.map((r) => {
+        const rowVals = [tenantId, branch, dataset, ...M_COLS.map((c) => (r[c] === undefined ? null : r[c]))];
+        const ph = rowVals.map((v) => { params.push(v); return `$${params.length}`; });
+        return `(${ph.join(',')})`;
+      });
+      const setCols = M_COLS.filter((c) => c !== 'consecutivo').map((c) => `${c}=EXCLUDED.${c}`).join(', ');
+      const res = await client.query(
+        `INSERT INTO wincaja.maestro_mov_almacen (${cols.join(',')}) VALUES ${tuples.join(',')}
+         ON CONFLICT (tenant_id, source_branch, source_dataset, consecutivo) DO UPDATE SET ${setCols}`,
+        params,
+      );
+      mUp += res.rowCount;
+    }
+
+    // 2) block-diff detalles por consecutivo (PK surrogate → borrar+insertar)
+    const consSet = Array.from(new Set([...maestro, ...detalles].map((r) => String(r.consecutivo)).filter(Boolean)));
+    if (consSet.length) {
+      await client.query(
+        `DELETE FROM wincaja.detalles_mov_almacen WHERE tenant_id=$1 AND source_branch=$2 AND source_dataset=$3 AND consecutivo = ANY($4)`,
+        [tenantId, branch, dataset, consSet],
+      );
+    }
+    for (let i = 0; i < detalles.length; i += 500) {
+      const chunk = detalles.slice(i, i + 500);
+      const cols = ['tenant_id', 'source_branch', 'source_dataset', ...D_COLS];
+      const params = [];
+      const tuples = chunk.map((r) => {
+        const rowVals = [tenantId, branch, dataset, ...D_COLS.map((c) => (r[c] === undefined ? null : r[c]))];
+        const ph = rowVals.map((v) => { params.push(v); return `$${params.length}`; });
+        return `(${ph.join(',')})`;
+      });
+      await client.query(`INSERT INTO wincaja.detalles_mov_almacen (${cols.join(',')}) VALUES ${tuples.join(',')}`, params);
+    }
+
+    // 3) días tocados (de las cabeceras) → 4) re-derivar sales_daily SCOPED
+    const days = Array.from(new Set(maestro.map((r) => String(r.fecha || '').slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))));
+    let sdUp = 0, sdDel = 0;
+    if (days.length) {
+      const src = buildSalesDailySrc({ tenantId, branches: [String(branch)], days });
+      await client.query(`CREATE TEMP TABLE stg_wsd ON COMMIT DROP AS SELECT * FROM (${src}) src`);
+      const up = await client.query(
+        `INSERT INTO analytics.sales_daily AS sd (tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, updated_at)
+         SELECT $1, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, now() FROM stg_wsd
+         ON CONFLICT (tenant_id, product_id, warehouse_id, channel, sale_date) DO UPDATE SET
+           units=EXCLUDED.units, revenue=EXCLUDED.revenue, cost=EXCLUDED.cost, tickets=EXCLUDED.tickets, unit_kind=EXCLUDED.unit_kind, updated_at=now()
+         WHERE (sd.units, sd.revenue, sd.cost, sd.tickets, sd.unit_kind)
+               IS DISTINCT FROM (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind)`,
+        [tenantId],
+      );
+      sdUp = up.rowCount;
+      // reconciliar: borrar filas wincaja% de esos (almacén, día) que ya no vienen del re-proyectado
+      const del = await client.query(
+        `DELETE FROM analytics.sales_daily sd
+          WHERE sd.tenant_id=$1 AND sd.channel LIKE 'wincaja%'
+            AND sd.sale_date = ANY($2::date[])
+            AND sd.warehouse_id IN (SELECT DISTINCT warehouse_id FROM stg_wsd)
+            AND NOT EXISTS (SELECT 1 FROM stg_wsd s WHERE s.product_id=sd.product_id AND s.warehouse_id=sd.warehouse_id AND s.channel=sd.channel AND s.sale_date=sd.sale_date)`,
+        [tenantId, days],
+      );
+      sdDel = del.rowCount;
+    }
+
+    // 5) re-derivar analytics.stock_movements (todos los tipos, desde bronce acumulado) scoped
+    //    a (almacén de esta sucursal wincaja_only, días tocados). Delete+insert (ventana chica,
+    //    idempotente). source_branch='W<branch>' — el feed Kepler excluye 'W%' de su DELETE.
+    let smMv = 0;
+    if (days.length) {
+      const wcode = `MD-${branch}`; // sucursales wincaja_only 30/32/50 → MD-30/32/50
+      const whMv = await client.query(
+        `SELECT id FROM commercial.warehouses WHERE tenant_id=$1 AND code=$2 AND deleted_at IS NULL`,
+        [tenantId, wcode],
+      );
+      if (whMv.rows.length) {
+        const whId = whMv.rows[0].id;
+        const mvSel = buildMovementsSelect({ tenantId, branch: String(branch), warehouseId: whId, days });
+        await client.query(
+          `DELETE FROM analytics.stock_movements WHERE tenant_id=$1 AND warehouse_id=$2 AND source_branch=$3 AND doc_date = ANY($4::date[])`,
+          [tenantId, whId, `W${branch}`, days],
+        );
+        const insMv = await client.query(`INSERT INTO analytics.stock_movements (${SM_COLS.join(',')}) ${mvSel}`);
+        smMv = insMv.rowCount;
+      }
+    }
+
+    await client.query('COMMIT');
+    return mUp + sdUp + sdDel + smMv;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+/** Inserta filas (objetos) en una tabla TEMP por lotes parametrizados.
+ * perInsert acota filas×columnas ≤ límite de bind params de Postgres (65535); con muchas
+ * columnas (p.ej. kdii=104) un batch fijo de 1000 se pasa → "bind message supplies N params". */
+async function copyIntoTemp(client, tempName, cols, rows, perInsert) {
+  const step = Math.max(1, perInsert || BATCH);
+  for (let i = 0; i < rows.length; i += step) {
+    const chunk = rows.slice(i, i + step);
+    const params = [];
+    const tuples = chunk.map((r) => {
+      const ph = cols.map((c) => { params.push(r[c] === undefined ? null : r[c]); return `$${params.length}`; });
+      return `(${ph.join(',')})`;
+    });
+    // Identificadores CITADOS: la staging se crea con comillas (preserva el case del origen) y sin
+    // citar acá, Postgres bajaba el nombre a minúsculas → `column "almacen" of relation "stg_raw"
+    // does not exist` con las tablas CamelCase de Wincaja (WR.8.0). Para los demás handlers, que
+    // pasan snake_case en minúsculas, citar no cambia nada.
+    const colList = cols.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(',');
+    await client.query(`INSERT INTO ${tempName} (${colList}) VALUES ${tuples.join(',')}`, params);
+  }
+}
+
+/**
+ * feed 'raw-upsert' — CDC genérico Access/Kepler → <schema>.<tabla> (SYNC.2 · WR.8).
+ *
+ * TABLA-AGNÓSTICO: replica cualquier tabla de origen sin código por tabla. El replicador
+ * descubre columnas + PK del origen y los manda en `meta`; este handler:
+ *   1) auto-crea/auto-altera <schema>.<tabla> (DDL confinado a un schema de la whitelist),
+ *   2) UPSERT SIN CHURN: ON CONFLICT (sucursal, PK…) DO UPDATE … WHERE IS DISTINCT FROM
+ *      → una fila que no cambió NO se reescribe (cero I/O, cero bloat).
+ *
+ * meta: { table, pk:[cols-origen sin 'sucursal'], columns:[{name,type}] (incluye 'sucursal'),
+ *         schema?: 'kepler_ods' (default) | 'wincaja_ods' }.
+ * rows: objetos { sucursal, <col>:val, … }. Los identificadores vienen por HTTP → se validan
+ *   contra whitelist estricta. Los ODS son single-tenant (sin tenant_id/RLS); assertTenant solo
+ *   protege el endpoint.
+ *
+ * `meta.schema` (WR.8.0) permite reusar este mismo handler para el agente-POS de Wincaja, que
+ * empuja desde el `.mdb` VIVO de la caja. El UPSERT sin churn de acá es justamente lo que le
+ * permite al agente mandar SNAPSHOTS COMPLETOS de catálogos sin hashear en PowerShell: el delta
+ * lo calcula Postgres. Default sin cambios → el carril Kepler no se entera.
+ */
+const ODS_SCHEMAS = new Set(['kepler_ods', 'wincaja_ods']);
+const ODS_IDENT_RE = /^[a-z_][a-z0-9_]*$/i;
+const ODS_TYPES = new Set(['text', 'numeric', 'double precision', 'real', 'integer', 'bigint', 'smallint', 'boolean', 'date', 'timestamp', 'timestamptz']);
+const odsQid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
+function odsIdent(x) {
+  const s = String(x == null ? '' : x);
+  if (!ODS_IDENT_RE.test(s) || s.length > 63) throw new Error(`raw-upsert: identificador inválido '${s}'`);
+  return s;
+}
+function odsType(t) { return ODS_TYPES.has(String(t)) ? String(t) : 'text'; }
+function odsSchema(s) {
+  const v = String(s == null || s === '' ? 'kepler_ods' : s);
+  if (!ODS_SCHEMAS.has(v)) throw new Error(`raw-upsert: schema no permitido '${v}'`);
+  return v;
+}
+
+async function applyRawUpsert(client, tenantId, rows, meta) {
+  assertTenant(tenantId);
+  if (!meta || typeof meta !== 'object') throw new Error('raw-upsert: meta requerido');
+  const table = odsIdent(meta.table);
+  const cols = (Array.isArray(meta.columns) ? meta.columns : []).map((c) => ({ name: odsIdent(c && c.name), type: odsType(c && c.type) }));
+  if (!cols.length) throw new Error('raw-upsert: meta.columns vacío');
+  const colSet = new Set(cols.map((c) => c.name));
+  if (!colSet.has('sucursal')) throw new Error("raw-upsert: falta la columna 'sucursal'");
+  const pk = (Array.isArray(meta.pk) ? meta.pk : []).map(odsIdent);
+  if (!pk.length) throw new Error('raw-upsert: meta.pk vacío (requerido para UPSERT sin churn)');
+  for (const k of pk) if (!colSet.has(k)) throw new Error(`raw-upsert: PK '${k}' no está en columns`);
+
+  // Destino: PK compuesta (sucursal, PK-origen). No-clave = todo lo demás.
+  const schema = odsSchema(meta.schema);
+  const conflict = ['sucursal', ...pk.filter((k) => k !== 'sucursal')];
+  const conflictSet = new Set(conflict);
+  const nonKey = cols.map((c) => c.name).filter((n) => !conflictSet.has(n));
+  const rel = `${odsQid(schema)}.${odsQid(table)}`;
+
+  await client.query('BEGIN');
+  try {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${odsQid(schema)}`);
+
+    // Auto-create / auto-alter.
+    // OJO: `to_regclass` sobre un literal SIN comillas baja el identificador a minúsculas → con
+    // nombres CamelCase (las tablas de Wincaja: `MaestroMovAlmacen`) daba null aunque la tabla
+    // existiera, y el handler intentaba CREATE de nuevo. `quote_ident` lo resuelve para los dos
+    // carriles (Kepler ya venía en minúsculas, así que no cambia nada allá).
+    const exists = (await client.query(
+      `SELECT to_regclass(quote_ident($1) || '.' || quote_ident($2)) t`, [schema, table])).rows[0].t;
+    if (!exists) {
+      const defs = cols.map((c) => `${odsQid(c.name)} ${c.type}`).join(', ');
+      await client.query(`CREATE TABLE ${rel} (${defs}, PRIMARY KEY (${conflict.map(odsQid).join(', ')}))`);
+      // ⛔ [PUB.1] ACÁ HABÍA UN `try { GRANT … } catch { /* rol ausente en dev */ }` Y NO FUNCIONA.
+      // Un statement que falla DENTRO de una transacción la deja ABORTADA: atrapar el error en JS
+      // no la revive, y todo lo que viene después muere con 25P02 «current transaction is aborted».
+      // O sea que el auto-create de este handler **no puede crear una tabla** en ninguna base que
+      // no tenga el rol `app_runtime`. Nunca se vio porque prod y la réplica de pruebas sí lo
+      // tienen; se midió el 2026-09-28 contra la base de la tienda mayorista, que no, y ahí el
+      // carril entero se caía al crear `kdil`. Reproducido a mano: el catch reporta 42704 y la
+      // transacción siguiente ya viene abortada.
+      // El GRANT condicional no falla nunca, así que no hay nada que atrapar.
+      // `schema` y `table` ya pasaron por `odsIdent()` (whitelist /^[a-z_][a-z0-9_]*$/), así que
+      // interpolarlos acá no abre nada que el CREATE TABLE de arriba no abriera antes.
+      await client.query(
+        `DO $do$ BEGIN
+           IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') THEN
+             EXECUTE 'GRANT SELECT ON ${rel} TO app_runtime';
+           END IF;
+         END $do$`);
+    } else {
+      const have = new Set((await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2`, [schema, table]
+      )).rows.map((r) => r.column_name));
+      for (const c of cols) {
+        if (!have.has(c.name)) await client.query(`ALTER TABLE ${rel} ADD COLUMN ${odsQid(c.name)} ${c.type}`);
+      }
+    }
+
+    let changed = 0;
+    if (Array.isArray(rows) && rows.length) {
+      const defs = cols.map((c) => `${odsQid(c.name)} ${c.type}`).join(', ');
+      await client.query(`CREATE TEMP TABLE stg_raw (${defs}) ON COMMIT DROP`);
+      const perInsert = Math.max(1, Math.floor(60000 / cols.length)); // ≤65535 bind params
+      await copyIntoTemp(client, 'stg_raw', cols.map((c) => c.name), rows, perInsert);
+
+      const colList = cols.map((c) => odsQid(c.name)).join(', ');
+      const onConf = conflict.map(odsQid).join(', ');
+      let sql;
+      if (!nonKey.length) {
+        // Tabla toda-PK (junction): nada que actualizar.
+        sql = `INSERT INTO ${rel} (${colList}) SELECT ${colList} FROM stg_raw ON CONFLICT (${onConf}) DO NOTHING`;
+      } else {
+        const setList = nonKey.map((n) => `${odsQid(n)}=EXCLUDED.${odsQid(n)}`).join(', ');
+        const tTuple = nonKey.map((n) => `t.${odsQid(n)}`).join(', ');
+        const eTuple = nonKey.map((n) => `EXCLUDED.${odsQid(n)}`).join(', ');
+        sql = `INSERT INTO ${rel} AS t (${colList}) SELECT ${colList} FROM stg_raw
+               ON CONFLICT (${onConf}) DO UPDATE SET ${setList}
+               WHERE (${tTuple}) IS DISTINCT FROM (${eTuple})`;
+      }
+      changed = (await client.query(sql)).rowCount;
+    }
+
+    // Marca de frescura (siempre, aunque changed=0 → prueba que el sync corrió). Por schema:
+    // el carril Wincaja tiene su propio `_sync_status` y no se mezcla con el de Kepler.
+    // La sucursal va en la llave porque el agente-POS empuja por caja: un `MaestroMovAlmacen`
+    // fresco en la 30 no dice nada de la 32, y una sola fila por tabla lo taparía.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ${odsQid(schema)}._sync_status (
+        table_name text PRIMARY KEY, last_push_at timestamptz NOT NULL DEFAULT now(),
+        rows_last integer DEFAULT 0, rows_seen integer DEFAULT 0)`);
+    // Sólo el carril nuevo lleva sucursal en la llave. En `kepler_ods` la llave sigue siendo la
+    // tabla a secas: `db-health` ya lee esas llaves y cambiarlas le rompería el sensor de frescura.
+    //
+    // [OBS.3.2] Se evaluó sumar acá una llave `tabla@sucursal` para vigilar el catálogo por rama y
+    // se DESCARTÓ: esta marca sólo se escribe cuando llega un lote, y el carril hash **no empuja
+    // nada cuando no hay cambios** (`replicate-ods-live.js:382` corta antes del POST). O sea la
+    // llave por rama heredaría la misma ambigüedad que ya documenta `analytics.v_feed_freshness`
+    // para las tablas del ODS — vieja puede ser "el carril murió" o "esa rama no cambió de precio
+    // en tres días" — y alarmaría sobre ramas tranquilas. La marca de que una rama se **REVISÓ**
+    // (distinta de que se le **EMPUJÓ** algo) la escribe el shipper en `analytics.ods_branch_checks`.
+    const branches = schema === 'kepler_ods' ? [] : (Array.isArray(rows)
+      ? Array.from(new Set(rows.map((r) => (r && r.sucursal != null ? String(r.sucursal).trim() : '')).filter(Boolean)))
+      : []);
+    const stKey = branches.length === 1 ? `${table}@${branches[0]}` : table;
+    await client.query(
+      `INSERT INTO ${odsQid(schema)}._sync_status (table_name, last_push_at, rows_last, rows_seen)
+       VALUES ($1, now(), $2, $3)
+       ON CONFLICT (table_name) DO UPDATE SET last_push_at=now(), rows_last=EXCLUDED.rows_last, rows_seen=EXCLUDED.rows_seen`,
+      [stKey, changed, Array.isArray(rows) ? rows.length : 0]);
+
+    await client.query('COMMIT');
+
+    // Normalize-al-llegar (hop 2): si esta tabla tiene normalizador (kdii→catálogo/precio), corre
+    // en tx PROPIA tras el COMMIT del mirror crudo → si falla NO bloquea el CDC (el barrido completo
+    // sync-product-master es el respaldo). Scoped a las llaves que llegaron = barato.
+    // Los normalizadores son de Kepler (kdii…); wincaja_ods no matchea ninguno y no corre nada.
+    // [PUB.1] `meta.normalize === false` los apaga para destinos que NO son la Suite (la base de la
+    // tienda mayorista recibe el mismo `kepler_ods` crudo pero no tiene `catalog.*`/`commercial.*`).
+    // Sin esto correrían y fallarían en cada ciclo: el `catch` de abajo los deja pasar, pero el log
+    // se llena de errores que no son fallas — y un tablero con ruido se lee igual que uno apagado.
+    // Default sin cambios: si `normalize` no viene, se comporta exactamente como antes.
+    const normalizar = !(meta && meta.normalize === false);
+    const cfg = (schema === 'kepler_ods' && normalizar) ? ODS_NORMALIZERS[table] : null;
+    if (cfg && Array.isArray(rows) && rows.length) {
+      const skuCol = cfg.skuCol || pk[0];
+      const keys = Array.from(new Set(rows.map((r) => (r[skuCol] == null ? '' : String(r[skuCol]).trim())).filter(Boolean)));
+      if (keys.length) {
+        for (const norm of cfg.fns) {
+          // [DB-MEM.20] El caro no corre acá: se junta y se vacía por ventana. El precio SIGUE
+          // saliendo de la venta; lo que cambia es cada cuánto se recalcula la moda de 90 días.
+          const clave = `${table}:${norm.name}`;
+          if (COALESCIBLES.has(clave)) { acumular(clave, norm, keys); continue; }
+          // cada normalizador en su PROPIA tx → si uno falla, NO tumba a los otros ni al CDC (lo toma el barrido).
+          try { const nz = await norm(client, tenantId, keys); if (nz) console.log(`  [normalize:${table}:${norm.name}] ${nz} filas (${keys.length} llaves)`); }
+          catch (e) { console.error(`  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)} (CDC ok; lo toma el barrido)`); }
+        }
+      }
+    }
+    // [DB-MEM.20] FUERA del `if (cfg…)` a propósito: si `kdm2` deja de embarcar un rato, lo que ya
+    // se juntó igual tiene que salir. Es no-op mientras no le toque la ventana, y nunca tira.
+    if (schema === 'kepler_ods' && normalizar && pendientes.size) {
+      try { await vaciarCoalescidos(client, tenantId); }
+      catch (e) { console.error(`  [coalesce] ⚠ ${String(e.message).slice(0, 140)} (CDC ok; lo toma el barrido)`); }
+    }
+    return changed;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+/**
+ * feed 'raw-delete' — CDC DELETE genérico → borra de kepler_ods.<tabla> por llave (sucursal, PK).
+ * Gemelo de 'raw-upsert' para el hard-delete que el poll (UPSERT-only) nunca propagó (ADR-047, CDC.3).
+ * meta: { table, pk:[cols], columns:[{name,type}] (incluye 'sucursal') } (misma que raw-upsert).
+ * rows: objetos con AL MENOS las columnas llave { sucursal, <pk>:val } (el resto se ignora).
+ * Si la tabla no existe → 0 (nada que borrar; no auto-crea en un delete).
+ */
+async function applyRawDelete(client, tenantId, rows, meta) {
+  assertTenant(tenantId);
+  if (!meta || typeof meta !== 'object') throw new Error('raw-delete: meta requerido');
+  const table = odsIdent(meta.table);
+  const cols = (Array.isArray(meta.columns) ? meta.columns : []).map((c) => ({ name: odsIdent(c && c.name), type: odsType(c && c.type) }));
+  const colType = new Map(cols.map((c) => [c.name, c.type]));
+  const pk = (Array.isArray(meta.pk) ? meta.pk : []).map(odsIdent);
+  if (!pk.length) throw new Error('raw-delete: meta.pk vacío (requerido para el WHERE del borrado)');
+  const keyCols = ['sucursal', ...pk.filter((k) => k !== 'sucursal')];
+  for (const k of keyCols) if (k !== 'sucursal' && !colType.has(k)) throw new Error(`raw-delete: PK '${k}' no está en columns`);
+  if (!Array.isArray(rows) || !rows.length) return 0;
+  const rel = `kepler_ods.${odsQid(table)}`;
+
+  await client.query('BEGIN');
+  try {
+    const exists = (await client.query(`SELECT to_regclass('kepler_ods.${table.replace(/'/g, "''")}') t`)).rows[0].t;
+    if (!exists) { await client.query('ROLLBACK'); return 0; }
+    const defs = keyCols.map((c) => `${odsQid(c)} ${c === 'sucursal' ? 'text' : colType.get(c)}`).join(', ');
+    await client.query(`CREATE TEMP TABLE stg_del (${defs}) ON COMMIT DROP`);
+    await copyIntoTemp(client, 'stg_del', keyCols, rows, Math.max(1, Math.floor(60000 / keyCols.length)));
+    const on = keyCols.map((c) => `t.${odsQid(c)}=d.${odsQid(c)}`).join(' AND ');
+    const del = await client.query(`DELETE FROM ${rel} t USING stg_del d WHERE ${on}`);
+    // marca de frescura (un batch de solo-deletes igual prueba que el sync corrió)
+    await client.query(
+      `INSERT INTO kepler_ods._sync_status (table_name, last_push_at, rows_last, rows_seen)
+       VALUES ($1, now(), $2, $2)
+       ON CONFLICT (table_name) DO UPDATE SET last_push_at=now()`, [table, del.rowCount]).catch(() => {});
+    await client.query('COMMIT');
+    return del.rowCount;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+/**
+ * feed 'cdc-heartbeat' — latido del consumidor CDC on-prem → analytics.cron_runs (CDC.5).
+ * El consumidor (ods-cdc-wal.js) corre en la LAN y shipea por feeds-ingest; no puede escribir
+ * cron_runs directo (su DATABASE_URL apunta al :5433). Este handler lo hace del lado prod.
+ * rows[0]: { job_key, label?, status?, note? (lag del slot + shipped), host? }.
+ * Con esto db-health hace dead-man's switch: si el consumidor muere (y el slot empieza a
+ * retener WAL en el :5433), cron_runs se congela → ROJO antes de llenar disco.
+ */
+async function applyCdcHeartbeat(client, tenantId, rows) {
+  assertTenant(tenantId);
+  if (!Array.isArray(rows) || !rows.length) return 0;
+  const r = rows[0] || {};
+  const jobKey = String(r.job_key || '').slice(0, 60);
+  if (!/^[a-z0-9_]+$/i.test(jobKey)) throw new Error(`cdc-heartbeat: job_key inválido '${jobKey}'`);
+  await client.query(
+    `INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, last_finish, status, note, host, updated_at)
+     VALUES ($1,$2,$3, now(), now(), $4, $5, $6, now())
+     ON CONFLICT (tenant_id, job_key) DO UPDATE
+       SET label=COALESCE(EXCLUDED.label, analytics.cron_runs.label), last_finish=now(),
+           status=EXCLUDED.status, note=EXCLUDED.note, host=EXCLUDED.host, updated_at=now()`,
+    [tenantId, jobKey, String(r.label || jobKey).slice(0, 120), String(r.status || 'ok').slice(0, 20), r.note ? String(r.note).slice(0, 500) : null, String(r.host || 'cdc-lan').slice(0, 80)]);
+  return 1;
+}
+
+// ---- Normalize-al-llegar (hop 2): kepler_ods.<tabla> → tablas que la app LEE ----
+// Cuando llega un cambio crudo a kepler_ods, se normaliza SOLO esas llaves a las tablas de la app.
+// El mismo single-source que el barrido (sync-product-master) pero dirigido y en tx aparte.
+
+const PRODUCT_BASE_LIST = '00000000-0000-0000-0000-0000c0ffee02'; // commercial.price_lists BASE-MXN (is_default)
+
+// Política de barcode (Edgar 2026-08-17): la plataforma CONSERVA el EAN real; Kepler solo llena si
+// está vacío o es placeholder (c7 = SKU con ceros, p.ej. '089137'). NUNCA pisa un EAN real con un
+// placeholder. Placeholder := nulo, o == sku (sin ceros), o < 8 chars. Real := ≥ 12 chars.
+const BARCODE_CASE = `CASE
+    WHEN length(coalesce(p.barcode,'')) >= 12
+         AND (s.barcode IS NULL OR ltrim(s.barcode,'0') = ltrim(s.sku,'0') OR length(s.barcode) < 8)
+      THEN p.barcode
+    ELSE COALESCE(nullif(s.barcode,''), p.barcode)
+  END`;
+
+/**
+ * Normaliza SOLO estos SKUs desde kepler_ods.kdii → catalog.products (identidad + política barcode)
+ * (el precio lo lleva normalizeSalePrice). NO reactiva (activo=false es decisión aparte) ni borra (el
+ * barrido reconcilia bajas). Idempotente y churn-free.
+ */
+async function normalizeProductsFromOds(client, tenantId, skus) {
+  assertTenant(tenantId);
+  if (!Array.isArray(skus) || !skus.length) return 0;
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+
+    // snapshot canónico SOLO de estos SKUs (una fila por sku, CEDIS '00' primero).
+    await client.query(`
+      CREATE TEMP TABLE snap_p ON COMMIT DROP AS
+      SELECT DISTINCT ON (btrim(c1))
+             btrim(c1) AS sku, btrim(c2) AS nombre,
+             nullif(btrim(coalesce(c7,'')),'') AS barcode,
+             btrim(c3::text) AS linea, NULL::uuid AS brand_id
+        FROM kepler_ods.kdii
+       WHERE btrim(c1) = ANY($1) AND btrim(coalesce(c2,'')) <> ''
+       ORDER BY btrim(c1), (sucursal='00') DESC, sucursal`, [skus]);
+    await client.query(`UPDATE snap_p s SET brand_id=b.id FROM catalog.brands b
+                         WHERE b.tenant_id=$1 AND b.deleted_at IS NULL AND btrim(b.code)=s.linea`, [tenantId]);
+    const fallback = (await client.query(
+      `SELECT id FROM catalog.brands WHERE tenant_id=$1 AND code='SIN-LINEA' LIMIT 1`, [tenantId])).rows[0]?.id || null;
+
+    // 1) INSERT nuevos: sku sin fila alguna, (brand,nombre) sin colisión, marca = resuelta ∨ fallback.
+    const ins = fallback ? (await client.query(`
+      INSERT INTO catalog.products (id, tenant_id, brand_id, sku, nombre, barcode, source, created_at, updated_at)
+      SELECT gen_random_uuid(), $1, d.brand_id, d.sku, d.nombre, d.barcode, 'kepler', now(), now()
+      FROM (SELECT DISTINCT ON (eff.brand_id, eff.nombre) eff.brand_id, eff.sku, eff.nombre, eff.barcode
+              FROM (SELECT sku, nombre, barcode, COALESCE(brand_id, $2::uuid) AS brand_id FROM snap_p) eff
+             WHERE eff.brand_id IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM catalog.products p WHERE p.tenant_id=$1 AND p.sku=eff.sku)
+               AND NOT EXISTS (SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id=$1 AND p2.brand_id=eff.brand_id AND p2.nombre=eff.nombre)
+             ORDER BY eff.brand_id, eff.nombre, eff.sku) d`, [tenantId, fallback])).rowCount : 0;
+
+    // 2) UPDATE identidad (nombre + barcode por política), churn-free, sin colisión de la unique.
+    const idn = (await client.query(`
+      UPDATE catalog.products p SET nombre=s.nombre, barcode=${BARCODE_CASE}, updated_at=now()
+      FROM snap_p s
+      WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.sku=s.sku
+        AND ( p.nombre IS DISTINCT FROM s.nombre OR p.barcode IS DISTINCT FROM ${BARCODE_CASE} )
+        AND NOT EXISTS (SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id=$1 AND p2.id<>p.id
+                          AND p2.brand_id=p.brand_id AND p2.nombre=s.nombre)`, [tenantId])).rowCount;
+
+    // El PRECIO ya no se escribe acá. Vivía como "UPSERT c90 > 0.05" tomando la fila de CEDIS
+    // primero y sin una sola validación — era el escritor que estampaba las plantillas de kdii
+    // ($15.25/$7.02/$8.48) sobre BASE-MXN. Pasó a `normalizeSalePrice` (ods-derived), que lee la
+    // BITÁCORA con su unidad y valida contra lo cobrado / la escalera / el costo. Sigue siendo
+    // al-momento: está registrado en ODS_NORMALIZERS para kdm2 (la venta), kdii y kdpv_prod_util.
+    await client.query('COMMIT');
+    return ins + idn;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+/**
+ * Normaliza SOLO estos SKUs desde kepler_ods.kdii + kdpv_prod_util → commercial.product_label_prices
+ * (etiquetera Tienda). Hop-2 AL-MOMENTO: cuando un cambio de kdii/kdpv llega al ODS, la etiqueta de
+ * anaquel se recomputa al instante (misma lógica que el importer nocturno, vía label-compute — single
+ * source of truth). Churn-free (upsertLabels solo reescribe si algo cambió). NUNCA pisa source='manual'.
+ * El barcode-fallback de productos SIN sku + el backfill de products.barcode los cubre el nightly.
+ * Ver feedback_ods_derived_realtime_no_batch_lag.
+ */
+async function normalizeLabelsFromOds(client, tenantId, skus) {
+  assertTenant(tenantId);
+  const clean = Array.from(new Set((Array.isArray(skus) ? skus : []).map((s) => String(s == null ? '' : s).trim()).filter(Boolean)));
+  if (!clean.length) return 0;
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    const labels = await computeLabels(client, { schema: 'kepler_ods', skus: clean });
+    if (!labels.length) { await client.query('COMMIT'); return 0; }
+    // sku → product_id (activos). Productos sin sku (match por barcode) los toma el barrido nocturno.
+    const pmap = new Map((await client.query(
+      `SELECT id, btrim(sku) AS sku FROM catalog.products
+        WHERE tenant_id=$1 AND deleted_at IS NULL AND btrim(coalesce(sku,'')) = ANY($2)`,
+      [tenantId, clean])).rows.map((r) => [r.sku, r.id]));
+    // `[NORM.3]` La identidad es (producto, PLAZA): antes se quedaba con la primera fila del SKU y
+    // tiraba las otras siete. Ahora cada tienda aporta la suya; el dedupe sólo protege de que una
+    // misma plaza llegue repetida.
+    const seen = new Set();
+    // Igual que el reconciliador: el PRIMER sku que reclama un producto se queda con todas sus
+    // plazas. Explícito, no heredado del orden de las filas — si no, un producto podría terminar
+    // con la plaza 01 de un sku y la 02 de otro, y ese precio no existiría en ninguna parte.
+    const duenoDePid = new Map();
+    const tuples = [];
+    for (const lab of labels) {
+      const pid = pmap.get(lab.sku);
+      if (!pid) continue;
+      const dueno = duenoDePid.get(pid);
+      if (dueno === undefined) duenoDePid.set(pid, lab.sku);
+      else if (dueno !== lab.sku) continue;
+      const k = `${pid} ${lab.sucursal}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      tuples.push(toStageTuple(lab, pid));
+    }
+    // `[TDA.1]` Se capturan los product_id que REALMENTE cambiaron (el UPSERT es churn-free, así que
+    // esto no son "los que se intentaron" sino "los que se escribieron").
+    const cambiados = [];
+    const changed = await upsertLabels(client, tenantId, tuples, 1000, cambiados);
+    await client.query('COMMIT');
+    // El aviso va DESPUÉS del COMMIT y a propósito sin `await`: es un aviso, no el dato. Si el API
+    // no contesta, el precio ya quedó guardado y la pantalla lo verá al siguiente escaneo — el
+    // comportamiento de siempre. Bloquear el hop-2 por un aviso le sumaría latencia a un carril que
+    // corre cada 15 s, y hacerlo fallar cambiaría un problema chico por uno grande.
+    if (cambiados.length) {
+      // `[NORM.3]` Con grano por plaza, un mismo producto puede volver hasta 8 veces. El aviso es
+      // por PRODUCTO (la pantalla re-consulta y el backend ya filtra por su sucursal), así que se
+      // deduplica acá: si no, el `truncated` del aviso se dispararía con un octavo de los cambios.
+      notifyLabelPricesChanged(tenantId, Array.from(new Set(cambiados)))
+        .catch(() => { /* fail-open, ya loguea adentro */ });
+    }
+    return changed;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+/**
+ * Normaliza SOLO estos SKUs desde kepler_ods.kdii → catalog.product_barcodes (barcodes por UNIDAD,
+ * 1 SKU→N). Hop-2 AL-MOMENTO: un cambio de kdii recomputa los barcodes al instante (misma lógica que
+ * el reconciliador nocturno, vía barcode-compute — single source of truth). Churn-free (solo escribe
+ * si algo cambió). Soft-delete de los barcodes kepler_* que ya no salen de Kepler para ese SKU (no toca
+ * source='wincaja' ni manual). Ver feedback_everything_derivable_from_ods + project_etiquetera_tienda.
+ */
+async function normalizeBarcodesFromOds(client, tenantId, skus) {
+  assertTenant(tenantId);
+  const clean = Array.from(new Set((Array.isArray(skus) ? skus : []).map((s) => String(s == null ? '' : s).trim()).filter(Boolean)));
+  if (!clean.length) return 0;
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    const rows = await computeBarcodes(client, { schema: 'kepler_ods', skus: clean });
+    // stg_bc SIEMPRE (aunque vacía) para que el soft-delete de stale funcione uniforme.
+    await client.query(`CREATE TEMP TABLE stg_bc (
+      sku text, barcode text, unit text, factor numeric, source text, is_primary boolean) ON COMMIT DROP`);
+    const BATCH = 1000;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const chunk = rows.slice(i, i + BATCH);
+      const vals = [], params = [];
+      chunk.forEach((r, ri) => {
+        const b = ri * 6;
+        vals.push(`($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6})`);
+        params.push(r.sku, r.barcode, r.unit, r.factor, r.source, r.is_primary);
+      });
+      await client.query(`INSERT INTO stg_bc VALUES ${vals.join(',')}`, params);
+    }
+    let changed = 0;
+    if (rows.length) {
+      const up = await client.query(`
+        -- [NORM.2] La fila se liga al producto por product_id (FK real), no sólo por el texto del
+        -- sku. El JOIN es INNER a propósito: un barcode cuyo sku no existe en el catálogo es
+        -- exactamente el huérfano del que la migración retiró 3,655 — no se vuelve a crear.
+        INSERT INTO catalog.product_barcodes (id, tenant_id, product_id, sku, barcode, unit, factor, source, is_primary, synced_at, updated_at)
+        SELECT gen_random_uuid(), $1, p.id, s.sku, s.barcode, s.unit, s.factor, s.source, s.is_primary, now(), now()
+          FROM stg_bc s
+          JOIN catalog.products p
+            ON p.tenant_id = $1 AND btrim(p.sku) = btrim(s.sku) AND p.deleted_at IS NULL
+        ON CONFLICT (tenant_id, sku, barcode) WHERE deleted_at IS NULL DO UPDATE SET
+          product_id=EXCLUDED.product_id,
+          unit=EXCLUDED.unit, factor=EXCLUDED.factor, source=EXCLUDED.source,
+          is_primary=EXCLUDED.is_primary, synced_at=now(), updated_at=now()
+        -- product_id entra en la comparación para que una fila vieja sin ligar se ligue sola en
+        -- la próxima pasada, sin dejar de ser churn-free para las que ya están bien.
+        WHERE (catalog.product_barcodes.product_id, catalog.product_barcodes.unit, catalog.product_barcodes.factor,
+               catalog.product_barcodes.source, catalog.product_barcodes.is_primary)
+              IS DISTINCT FROM (EXCLUDED.product_id, EXCLUDED.unit, EXCLUDED.factor, EXCLUDED.source, EXCLUDED.is_primary)`,
+        [tenantId]);
+      changed += up.rowCount;
+    }
+    // soft-delete de barcodes kepler_* que ya NO salen de Kepler para estos SKUs (no toca wincaja/manual).
+    const del = await client.query(`
+      UPDATE catalog.product_barcodes p SET deleted_at=now(), updated_at=now()
+       WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.source LIKE 'kepler\\_%'
+         AND btrim(p.sku) = ANY($2)
+         AND NOT EXISTS (SELECT 1 FROM stg_bc s WHERE s.sku=btrim(p.sku) AND s.barcode=p.barcode)`,
+      [tenantId, clean]);
+    changed += del.rowCount;
+    await client.query('COMMIT');
+    return changed;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// [DB-MEM.20] COALESCEDOR — para el normalizador que NO cabe en el ciclo del carril.
+//
+// ⭐ EL PRECIO SIGUE SALIENDO DE LA VENTA. Esto no saca a `kdm2` de la ecuación: cambia CADA
+// CUÁNTO se recalcula, de "en cada embarque" a "cada N minutos, con los SKUs juntados y sin
+// repetir". La moda es sobre 90 DÍAS — un lote de 15 segundos no puede moverla.
+//
+// Por qué, medido en prod el 2026-09-23 (el día que `[DB-MEM.18]` encendió el log):
+//   · `normalizeSalePrice` era el 92.8% de TODO el tiempo de consulta de la base.
+//   · 38 ejecuciones movieron 4,850,000 bloques (~37 GB) para devolver 124 filas.
+//     Cero disco, cero temporales: CPU pura.
+//   · Costo cronometrado: 1 SKU = 924 ms · 4 SKUs = 2,433 ms ⇒ ~600 ms POR SKU. O sea
+//     98 SKUs ≈ 60 s y 535 SKUs ≈ 5 min, y se llegaron a ver DOS corridas apiladas.
+//   · Entró el 2026-08-25 (9e42351a). Duele ahora porque `[VL.11]` puso producción y la
+//     ingesta a compartir los mismos 4 núcleos.
+//
+// La forma: ventana + presupuesto. Cada `COALESCE_SEC` se vacía lo juntado, en lotes chicos y sin
+// pasarse de `PRESUPUESTO_MS`; lo que sobra espera la ventana siguiente. Eso acota el gasto a
+// **10 s cada 60 s (~17% de un núcleo)** en vez de los ~113% continuos que se midieron, y —más
+// importante— el ciclo del carril vuelve a cerrar dentro de su umbral de salud: medido, pasó de
+// **no cerrar nunca (>17 min) a 6.5 segundos**, y los huecos del reconciliador de 1,059 a 77.
+//
+// Los números están elegidos con la medición, no de oído: el catálogo que vende en un día son
+// ~3,164 SKUs y el recálculo sale ~180 ms por SKU en lotes calientes ⇒ una pasada completa cuesta
+// ~570 s de CPU. Con 10 s cada 60 s se recorre el catálogo entero en ~1 hora, que es el "minutos"
+// que se pidió, sin pasar de ~1/6 de un núcleo. Y la ventana corta (60 s en vez de 300) mantiene
+// el vaciado por debajo de 10 s, para no retrasar el embarque de un carril que es de @15 s.
+//
+// ⚠️ SE DECLARA LO QUE NO CUBRE: lo juntado vive en memoria del proceso. Un reinicio duro
+// pierde los SKUs pendientes; los recupera la próxima venta de ese SKU (que es inminente, por
+// algo estaban en la lista) o el barrido nocturno. Por eso la ventana es de minutos y no de
+// horas, y por eso el rezago se IMPRIME en vez de suponerse.
+// ⚠️ `kdii` y `kdpv_prod_util` NO se coalescen a propósito: ésos son un cambio de precio en
+// Kepler, y `[TDA.1]` exige que llegue a la etiquetera EN VIVO. Lo que se espacia es el
+// camino derivado de la VENTA, que es el caro.
+const COALESCE_SEC = Math.max(0, Number(process.env.ODS_PRICE_COALESCE_SEC || 60));
+const COALESCE_PRESUPUESTO_MS = Math.max(1000, Number(process.env.ODS_PRICE_COALESCE_BUDGET_MS || 10000));
+const COALESCE_LOTE = Math.max(1, Number(process.env.ODS_PRICE_COALESCE_CHUNK || 25));
+/** Qué pares (tabla, normalizador) se juntan en vez de correr al momento. `0` = desactivado. */
+const COALESCIBLES = new Set(COALESCE_SEC > 0 ? ['kdm2:normalizeSalePrice'] : []);
+/** clave → { fn, skus:Set, ultimoVaciado } — estado del proceso, a propósito (ver arriba). */
+const pendientes = new Map();
+
+function acumular(clave, fn, keys) {
+  let st = pendientes.get(clave);
+  if (!st) { st = { fn, skus: new Set(), ultimoVaciado: Date.now() }; pendientes.set(clave, st); }
+  for (const k of keys) st.skus.add(k);
+}
+
+/**
+ * Vacía lo juntado si le tocó la ventana, en lotes y sin pasarse del presupuesto.
+ * NUNCA tira: si un lote falla, sus SKUs vuelven a la bolsa y se reintentan en la ventana
+ * siguiente — igual que el normalizador al momento, que ya trataba su error como "lo toma el barrido".
+ */
+async function vaciarCoalescidos(client, tenantId) {
+  const t0 = Date.now();
+  for (const [clave, st] of pendientes) {
+    if (Date.now() - st.ultimoVaciado < COALESCE_SEC * 1000) continue;
+    if (!st.skus.size) { st.ultimoVaciado = Date.now(); continue; }
+    let filas = 0; let hechos = 0;
+    while (st.skus.size && Date.now() - t0 < COALESCE_PRESUPUESTO_MS) {
+      const lote = [];
+      for (const s of st.skus) { lote.push(s); if (lote.length >= COALESCE_LOTE) break; }
+      try {
+        filas += (await st.fn(client, tenantId, lote)) || 0;
+        hechos += lote.length;
+        for (const s of lote) st.skus.delete(s);   // se sacan RECIÉN al confirmar: un fallo no pierde SKUs
+      } catch (e) {
+        console.error(`  [coalesce:${clave}] ⚠ ${String(e.message).slice(0, 140)} — ${lote.length} SKUs vuelven a la bolsa`);
+        break;
+      }
+    }
+    // ⛔ EL RELOJ SE REINICIA SIEMPRE, con bolsa vacía o con rezago. La primera versión de esto
+    // lo reiniciaba SÓLO al vaciar del todo, con la idea de "seguir avanzando si quedó algo" — y
+    // estaba mal, medido a los 20 minutos de desplegarlo: `vaciarCoalescidos` se llama una vez
+    // por (rama, tabla), o sea hasta ~170 veces por ciclo, así que con rezago pendiente el
+    // presupuesto NO acotaba nada — se gastaba entero en CADA llamada. El registro lo mostró sin
+    // ambigüedad: `20948ms · quedan 3682`, `20619ms · quedan 3582`, una tras otra.
+    //
+    // ⭐ Y mostró algo más, que es el hallazgo de fondo: el rezago se SATURA en ~3,200-3,800 SKUs,
+    // que es prácticamente todo el catálogo que vende en un día (3,164 medidos). O sea que el
+    // disparador "por SKU que llegó" es una ilusión: en régimen esto es un BARRIDO COMPLETO
+    // continuo. Y produce 0-2 cambios de precio por cada 110 SKUs recalculados.
+    // ⇒ Queda declarado como deuda con nombre: si de todos modos se recorre el catálogo entero,
+    //   la forma barata es UNA consulta sin filtro cada N minutos, no 3,164 búsquedas scoped.
+    //   Mientras eso no se decida, lo que corresponde es ACOTAR el gasto, no acelerarlo.
+    st.ultimoVaciado = Date.now();
+    if (hechos) {
+      console.log(`  [coalesce:${clave}] ${filas} filas · ${hechos} SKUs · ${Date.now() - t0}ms`
+        + (st.skus.size ? ` · quedan ${st.skus.size} para la próxima ventana` : ''));
+    }
+  }
+}
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+// Una tabla → { skuCol?, fns:[...] }. skuCol = de qué columna sacar los SKUs que llegaron (default pk[0];
+// kdik lo tiene en c2, no en su pk[0]=c1). Cada fn se corre en orden, en su PROPIA tx.
+// Todo lo derivado de current-state del ODS va acá (al-momento) → feedback_ods_derived_realtime_no_batch_lag.
+const ODS_NORMALIZERS = {
+  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder] },
+  kdik: { skuCol: 'c2', fns: [normalizeCost] },              // costo: c16 es la fuente primaria
+  kdpv_prod_util: { fns: [normalizeSalePrice, normalizeLabelsFromOds, normalizeBoxPrice] },
+  // Bitácora de cambios de precio de Kepler: es la FUENTE del precio de venta, así que un cambio de
+  // precio recalcula al instante. Su SKU vive en c3 (el pk[0] es la sucursal).
+  // Una VENTA nueva es un precio nuevo: el PdV es la fuente. Su SKU vive en c8.
+  kdm2: { skuCol: 'c8', fns: [normalizeSalePrice] },
+};
+
+// RETIRADOS 2026-09-03: los feeds 'erp-goods-receipts' y 'erp-purchase-docs'. Sus destinos
+// (`analytics.erp_goods_receipts`/`_lines` y `erp_purchase_docs`/`_lines`) son VISTAS
+// derive-no-copy sobre `kepler_ods` desde las migs 20260819120000 / 20260820200000 —
+// verificado en prod: relkind='v' en los cuatro. Escribir ahí no desactualiza nada, revienta.
+// `applyErpPurchaseDocs` ya había quedado como no-op explícito (probaba relkind y devolvía 0);
+// `applyErpGoodsReceipts` no tenía ni esa guarda. Sus únicos emisores eran
+// `import-goods-receipts.js` / `import-wincaja-receipts.js` / `import-purchase-docs.js`,
+// borrados en este mismo commit.
+const HANDLERS = {
+  'stock-delta': applyStockDelta,
+  'wincaja-stock': applyWincajaStock,
+  'wincaja-sales-bronze': applyWincajaSalesBronze,
+  'raw-upsert': applyRawUpsert,
+  'raw-delete': applyRawDelete,
+  'cdc-heartbeat': applyCdcHeartbeat,
+};
+
+module.exports = {
+  HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyRawUpsert,
+  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE,
+  // [DB-MEM.20] Expuesto SOLO para `database/tests/test-newdb-price-coalesce.js`. Nada de
+  // producción lo importa: el coalescedor se usa desde `applyRawUpsert`, que está arriba. Se
+  // expone porque la alternativa era probarlo a través de un `applyRawUpsert` con Postgres real,
+  // y entonces la propiedad que hay que garantizar —que un lote fallado DEVUELVE sus SKUs a la
+  // bolsa— sólo se podría comprobar rompiendo la base a propósito.
+  __coalesce: {
+    acumular, vaciarCoalescidos, pendientes, COALESCIBLES,
+    COALESCE_SEC, COALESCE_LOTE, COALESCE_PRESUPUESTO_MS,
+  },
+};

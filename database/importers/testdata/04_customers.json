@@ -1,0 +1,22 @@
+[
+  { "code": "TST-0001", "name": "Abarrotes La Esquina", "rfc": "AES010203XYZ", "phone": "+52 55 1111 0001", "default_price_list_code": "BASE-MXN", "credit_limit": 15000, "payment_terms_days": 15, "billing_address": { "street": "Av. Insurgentes", "exterior_number": "123", "neighborhood": "Roma", "city": "Cuauhtémoc", "state": "CDMX", "zip": "06700" } },
+  { "code": "TST-0002", "name": "Mini Súper Don Pancho", "phone": "+52 55 1111 0002", "default_price_list_code": "BASE-MXN", "credit_limit": 8000, "payment_terms_days": 7 },
+  { "code": "TST-0003", "name": "Tienda La Curva", "default_price_list_code": "BASE-MXN", "credit_limit": 5000 },
+  { "code": "TST-0004", "name": "Papelería Doña Lupe", "default_price_list_code": "BASE-MXN", "phone": "+52 55 1111 0004", "credit_limit": 3000 },
+  { "code": "TST-0005", "name": "Abarrotes El Tío Beto", "default_price_list_code": "BASE-MXN", "credit_limit": 12000, "payment_terms_days": 15 },
+  { "code": "TST-0006", "name": "Súper El Ahorro", "default_price_list_code": "BASE-MXN", "credit_limit": 25000, "payment_terms_days": 30 },
+  { "code": "TST-0007", "name": "Tiendita Doña Rosa", "default_price_list_code": "BASE-MXN" },
+  { "code": "TST-0008", "name": "Mercadito San José", "default_price_list_code": "BASE-MXN", "credit_limit": 6000 },
+  { "code": "TST-0009", "name": "Abarrotes Buen Precio", "default_price_list_code": "BASE-MXN", "credit_limit": 10000 },
+  { "code": "TST-0010", "name": "El Encanto Dulcería", "default_price_list_code": "BASE-MXN", "phone": "+52 55 1111 0010", "credit_limit": 18000, "payment_terms_days": 15 },
+  { "code": "TST-0011", "name": "Tienda La Florecita", "default_price_list_code": "BASE-MXN", "credit_limit": 4500 },
+  { "code": "TST-0012", "name": "Súper Mi Tienda", "default_price_list_code": "BASE-MXN", "credit_limit": 9000 },
+  { "code": "TST-0013", "name": "Abarrotes 24h Express", "default_price_list_code": "BASE-MXN", "credit_limit": 20000, "payment_terms_days": 15 },
+  { "code": "TST-0014", "name": "Tienda Familiar Los Pinos", "default_price_list_code": "BASE-MXN" },
+  { "code": "TST-0015", "name": "Mini Mart La Bendición", "default_price_list_code": "BASE-MXN", "credit_limit": 7500 },
+  { "code": "TST-0016", "name": "Abarrotes Don Memo", "default_price_list_code": "BASE-MXN", "phone": "+52 55 1111 0016", "credit_limit": 5500 },
+  { "code": "TST-0017", "name": "Súper La Fortuna", "default_price_list_code": "BASE-MXN", "credit_limit": 14000, "payment_terms_days": 15 },
+  { "code": "TST-0018", "name": "Tienda La Económica", "default_price_list_code": "BASE-MXN", "credit_limit": 3500 },
+  { "code": "TST-0019", "name": "Abarrotes Las Palmas", "default_price_list_code": "BASE-MXN", "credit_limit": 8500 },
+  { "code": "TST-0020", "name": "Dulcería Mi Capricho", "default_price_list_code": "BASE-MXN", "phone": "+52 55 1111 0020", "credit_limit": 16000, "payment_terms_days": 30 }
+]

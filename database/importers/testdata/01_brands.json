@@ -1,0 +1,7 @@
+[
+  { "nombre": "Chocolates Premium", "activo": true, "orden": 1 },
+  { "nombre": "Dulces Típicos MX", "activo": true, "orden": 2 },
+  { "nombre": "Chicles & Gomitas", "activo": true, "orden": 3 },
+  { "nombre": "Paletas y Helados", "activo": true, "orden": 4 },
+  { "nombre": "Galletas y Snacks", "activo": true, "orden": 5 }
+]

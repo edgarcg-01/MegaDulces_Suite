@@ -1,0 +1,181 @@
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ButtonModule } from 'primeng/button';
+import { TableModule } from 'primeng/table';
+import { TagModule } from 'primeng/tag';
+import { SelectModule } from 'primeng/select';
+import { ToastModule } from 'primeng/toast';
+import { MessageService } from 'primeng/api';
+import { ComercialService, DeadStockReport, Warehouse } from '../comercial.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
+
+/**
+ * Reporte de STOCK MUERTO: existencia > 0 sin venta en 90 días = capital parado
+ * al costo. Accionable para compras (liquidar / dejar de surtir).
+ */
+@Component({
+  selector: 'app-comercial-dead-stock',
+  standalone: true,
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, ProductSearchComponent, MetricStripComponent],
+  providers: [MessageService],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div class="surf-page in">
+      <p-toast></p-toast>
+
+
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Stock muerto</h1>
+          <p class="surf-page-sub">Existencia sin venta en 90 días — capital parado al costo</p>
+        </div>
+        <div class="ds-head-actions">
+          <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
+                    (onChange)="load()" styleClass="ds-wh"></p-select>
+          <app-product-search (productSelected)="prodFilter.set($event)"></app-product-search>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+        </div>
+      </header>
+
+      <!-- KPIs -->
+      <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de stock muerto" />
+
+      <!-- [KE.3] La cifra declara con qué se calculó. Sin esto, un capital valuado sobre
+           el 60% de los SKUs se lee exactamente igual que uno sobre el 100%. -->
+      @if (report()?.costo; as cc) {
+        <p class="ds-proc" [class.ds-proc--warn]="cc.sin_costo > 0">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
+          Valuado con el costo del propio ERP (Kepler <code>kdik.c16</code> · Wincaja
+          <code>costo_promedio</code>) en <b>{{ cc.cobertura_pct }}%</b> de
+          {{ cc.skus }} SKUs.
+          @if (cc.sin_costo > 0) {
+            <b>{{ cc.sin_costo }}</b> sin costo de ningún ERP ni del catálogo: se declaran
+            sin valuar, no en cero.
+          }
+        </p>
+      }
+
+
+      <!-- Resumen por almacén -->
+      @if ((report()?.by_warehouse?.length ?? 0) > 1 && !isSpecific()) {
+        <div class="ds-by-wh">
+          @for (w of report()?.by_warehouse; track w.warehouse_code) {
+            <div class="ds-wh-chip">
+              <b>{{ w.warehouse_code }}</b>
+              <span>{{ w.skus }} SKUs · {{ (+w.capital_parado) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Tabla -->
+      <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table"
+               [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="rows()" [rowsPerPageOptions]="[25, 50, 100, 200]">
+        <ng-template #header>
+          <tr>
+            <th scope="col">Almacén</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Marca</th><th scope="col">Rot.</th>
+            <th scope="col" class="ds-num">Existencia</th><th scope="col" class="ds-num">Costo</th><th scope="col" class="ds-num">Capital parado</th>
+          </tr>
+        </ng-template>
+        <ng-template #body let-it>
+          <tr>
+            <td class="ds-mono">{{ it.warehouse_code }}</td>
+            <td class="ds-mono">{{ it.sku }}</td>
+            <td class="ds-name">{{ it.product_name }}</td>
+            <td>{{ it.brand_name || '—' }}</td>
+            <td><p-tag [value]="it.rotation_tier || 'muerto'" [severity]="it.rotation_tier ? 'warn' : 'danger'"></p-tag></td>
+            <td class="ds-num">{{ it.quantity }} {{ it.unit_sale }}</td>
+            <td class="ds-num">
+              @if (it.costo_unitario != null) {
+                {{ it.costo_unitario | currency:'MXN':'symbol-narrow':'1.2-2' }}
+              } @else { <span class="ds-null" title="Ningún ERP declara costo para este almacén">sin costo</span> }
+            </td>
+            <td class="ds-num ds-cap">
+              @if (it.capital_parado != null) {
+                {{ it.capital_parado | currency:'MXN':'symbol-narrow':'1.0-0' }}
+              } @else { <span class="ds-null">—</span> }
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template #emptymessage>
+          <tr>
+            <td colspan="8" class="comm-empty-cell">
+              <div class="comm-empty">
+                <div class="comm-empty-icon"><i class="pi pi-check-circle" aria-hidden="true"></i></div>
+                <h3>Sin stock muerto</h3>
+                <p>No se detectó stock muerto (requiere rotación computada).</p>
+              </div>
+            </td>
+          </tr>
+        </ng-template>
+      </p-table>
+    </div>
+  `,
+  styles: [`
+    .ds-head-actions { display: flex; gap: .5rem; align-items: center; }
+    :host ::ng-deep .ds-wh { min-width: 220px; }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
+    .ds-by-wh { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+    .ds-wh-chip { background: var(--surface-100,var(--c-surface-2)); border-radius: 8px; padding: .4rem .7rem; font-size: .8rem; display: flex; gap: .5rem; align-items: baseline; }
+    .ds-mono { font-family: var(--font-mono,monospace); }
+    .ds-name { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ds-num { text-align: right; font-variant-numeric: tabular-nums; }
+    .ds-cap { font-weight: 700; color: var(--bad-fg); }
+    .ds-null { color: var(--c-text-3, #8a8a8a); font-style: italic; font-size: .8rem; }
+    .ds-proc { display:flex; gap:.45rem; align-items:baseline; flex-wrap:wrap; margin:0 0 1rem;
+               font-size:.8rem; color: var(--c-text-2, #6b6b6b); }
+    .ds-proc code { font-family: var(--font-mono,monospace); font-size:var(--fs-xs); }
+    .ds-proc--warn { color: var(--warn-fg, #9a6b00); }
+  `],
+})
+export class ComercialDeadStockComponent {
+
+  private readonly svc = inject(ComercialService);
+  private readonly toast = inject(MessageService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  readonly ALL = '__all__';
+  report = signal<DeadStockReport | null>(null);
+  loading = signal(false);
+  rows = signal(25);
+  warehouseFilter = this.ALL;
+  warehouses = signal<{ label: string; value: string }[]>([]);
+  warehouseOptions = computed(() => [{ label: 'Todos los almacenes', value: this.ALL }, ...this.warehouses()]);
+
+  readonly kpiItems = computed<MetricStripItem[]>(() => [
+    { label: 'Capital parado', value: this.report()?.total_capital_parado ?? 0, format: 'currency', tone: 'bad' },
+    { label: 'SKUs muertos', value: this.report()?.total_skus ?? 0 },
+  ]);
+
+  isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
+  private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
+
+  /** Filtro de producto (client-side por SKU sobre las filas cargadas). */
+  prodFilter = signal<ProductHit | null>(null);
+  items = computed(() => {
+    const all = this.report()?.items ?? [];
+    const f = this.prodFilter();
+    if (!f) return all;
+    return all.filter((r) => (f.sku ? r.sku === f.sku : r.product_name === f.label));
+  });
+
+  constructor() {
+    this.svc.listWarehouses()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (ws: Warehouse[]) => this.warehouses.set(ws.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id }))) });
+    this.load();
+  }
+
+  load() {
+    this.loading.set(true);
+    this.svc.deadStock(this.whParam(), 1000)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.report.set(r); this.loading.set(false); },
+        error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al cargar stock muerto' }); },
+      });
+  }
+}

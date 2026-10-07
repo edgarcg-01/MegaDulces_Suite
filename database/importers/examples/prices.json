@@ -1,0 +1,5 @@
+[
+  { "product_brand": "Marca Demo A", "product_nombre": "Producto A1", "price": 25.50, "tax_rate": 0.16, "min_qty": 1 },
+  { "product_brand": "Marca Demo A", "product_nombre": "Producto A2", "price": 14.90, "tax_rate": 0.16, "min_qty": 6 },
+  { "product_brand": "Marca Demo B", "product_nombre": "Producto B1", "price": 32.00, "tax_rate": 0.16, "min_qty": 1 }
+]

@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tarea del push de ruta REACTIVO A LA RED.
+  Dispara: (1) en cuanto se conecta una red (evento 10000 de NetworkProfile) +
+           (2) cada 15 min como heartbeat/seguridad.
+  Corre como SYSTEM, oculto, solo si hay red, y reintenta si falla.
+
+  Instalar (cmd como Administrador):
+    schtasks /Create /TN RutaNN /XML ruta.task.xml /F
+  NOTA: si schtasks se queja del encoding, guardar este archivo como UTF-16 LE
+  y cambiar la 1a linea a encoding="UTF-16".
+-->
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Push de venta de ruta: al conectar la red + cada 15 min.</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <!-- Dispara EN CUANTO se conecta una red -->
+    <EventTrigger>
+      <Enabled>true</Enabled>
+      <Subscription>&lt;QueryList&gt;&lt;Query Id="0" Path="Microsoft-Windows-NetworkProfile/Operational"&gt;&lt;Select Path="Microsoft-Windows-NetworkProfile/Operational"&gt;*[System[(EventID=10000)]]&lt;/Select&gt;&lt;/Query&gt;&lt;/QueryList&gt;</Subscription>
+      <Delay>PT30S</Delay>
+    </EventTrigger>
+    <!-- Heartbeat cada 15 min, todo el dia -->
+    <TimeTrigger>
+      <Enabled>true</Enabled>
+      <StartBoundary>2026-01-01T00:00:00</StartBoundary>
+      <Repetition>
+        <Interval>PT15M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+    </TimeTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-18</UserId>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
+    <ExecutionTimeLimit>PT10M</ExecutionTimeLimit>
+    <RestartOnFailure>
+      <Interval>PT5M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <Hidden>true</Hidden>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>C:\KeplerPush\push-ruta.cmd</Command>
+    </Exec>
+  </Actions>
+</Task>

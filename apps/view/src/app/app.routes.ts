@@ -1,0 +1,2137 @@
+import { inject } from '@angular/core';
+import { Router, Routes, UrlMatcher } from '@angular/router';
+import { LayoutComponent } from './modules/dashboard/layout/layout.component';
+import { authGuard } from './core/guards/auth.guard';
+import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard } from './core/guards/permission.guard';
+import { Permission } from './core/constants/permissions';
+import { televentaGuard } from './modules/televenta/televenta.guard';
+import { repartoGuard } from './modules/reparto/reparto.guard';
+import { storeEntryRedirect } from './modules/tienda/tienda.guards';
+import { AnalisisStateService } from './modules/tienda/analisis/analisis-state.service';
+import { rutasDelPanel } from './core/panel/panel-routes';
+import { countFocusGuard } from './core/guards/count-focus.guard';
+import { unsavedChangesGuard } from './core/guards/unsaved-changes.guard';
+
+export const routes: Routes = [
+  {
+    // `[BND.3]` ⚠️ LAZY a propósito, aunque sea la primera pantalla. Era la ÚNICA ruta eager
+    // aparte del shell, y con ella viajaba `@angular/forms` entero al arranque: 57.7 KB medidos
+    // dentro del `main` de producción, para TODO el mundo — incluida la mayoría, que llega con
+    // sesión abierta y nunca ve este formulario. Ningún otro archivo del grafo eager importa
+    // forms (verificado), así que sale del `main` con la ruta.
+    // El costo es una petición de ~70 KB antes de pintar el login; el beneficio es que el resto
+    // de la app arranca 70 KB más liviana siempre.
+    path: 'login',
+    loadComponent: () => import('./modules/auth/login/login.component').then((m) => m.LoginComponent),
+    // `[BND.4]` ⛔ Sin esto, hacer el login lazy ABRE UNA REGRESIÓN OFFLINE, y es sutil: el
+    // service worker precachea `/main-*.js` (grupo `app`, prefetch) pero los chunks caen en el
+    // grupo `chunks`, que es **lazy** — se guardan recién después de pedirlos una vez. Mientras
+    // el login vivía dentro de `main` viajaba precacheado siempre; ahora un equipo con la sesión
+    // vencida y sin red se quedaba sin la pantalla donde escribirla. Falla igual con o sin esto
+    // (autenticar necesita API), pero la diferencia es ver el formulario o ver un error de carga.
+    // La precarga es opt-in y llega 8 s después del arranque, así que NO toca el bundle inicial:
+    // baja en segundo plano y el service worker la guarda. Es el único `preload: true` del repo.
+    data: { preload: true }
+  },
+  // `[SN.3]` "Mi trabajo": la landing por espacios de responsabilidad (ADR-061). Conserva la URL
+  // `/projects` a propósito: renombrarla es cosmético y toca 7 archivos + la PWA. Lazy como el
+  // resto: quien tiene una sola puerta ni la ve (auto-entrada), así que no va en el chunk inicial.
+  {
+    path: 'projects',
+    canActivate: [authGuard],
+    loadComponent: () => import('./modules/mi-trabajo/mi-trabajo.component').then(m => m.MiTrabajoComponent),
+  },
+  // GX.9 — captura de gasto por link, desde el celular y SIN cuenta. Va al tope del árbol,
+  // fuera del LayoutComponent y sin ningún guard: quien la abre no tiene sesión (y no debe
+  // necesitarla). Se autoriza con el token de la URL, que el backend revalida contra la fila
+  // del link en cada uso. `authInterceptor` tiene exceptuada esta ruta de API.
+  {
+    path: 'captura/:token',
+    loadComponent: () => import('./modules/finanzas/pages/captura-gasto-link.component').then(m => m.CapturaGastoLinkComponent),
+  },
+  // Diagnostico de un cuelgue en un clic. Sin permiso propio a proposito: cuando algo se
+  // traba hay que poder pedirselo a quien lo esta sufriendo, sea quien sea.
+  {
+    path: 'diagnostico',
+    canActivate: [authGuard],
+    loadComponent: () => import('./core/errors/diagnostico.component').then(m => m.DiagnosticoComponent),
+  },
+  // ── Proyecto Trade Marketing / Exhibidores ──────────────────────────
+  // Captura PdV, scoring, reportes, seguimiento, planograma, catálogos.
+  {
+    path: 'dashboard',
+    canActivate: [authGuard, colaboradorGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', loadComponent: () => import('./modules/dashboard/home/home.component').then(m => m.HomeComponent) },
+      { path: 'ventas-detalle', loadComponent: () => import('./modules/dashboard/ventas-detalle/ventas-detalle.component').then(m => m.VentasDetalleComponent), canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)] },
+      { path: 'dashboard', loadComponent: () => import('./modules/dashboard/reports/graphics/dashboard.component').then(m => m.DashboardComponent) },
+      { path: 'captures', loadComponent: () => import('./modules/dashboard/captures/captures.component').then(m => m.CapturesComponent) },
+      { path: 'reports', loadComponent: () => import('./modules/dashboard/reports/reports.component').then(m => m.ReportsComponent) },
+      { path: 'seguimiento', loadComponent: () => import('./modules/dashboard/seguimiento/seguimiento.component').then(m => m.SeguimientoComponent), canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
+      { path: 'routes', loadComponent: () => import('./modules/dashboard/routes-analysis/routes-analysis.component').then(m => m.RoutesAnalysisComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
+      { path: 'live-map', loadComponent: () => import('./modules/dashboard/live-map/live-map.component').then(m => m.LiveMapComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
+      // LTV — Flota de RUTA (camionetas R-NN + vendedor). Dominio Venta al detalle, separado de Logística.
+      { path: 'route-tracking', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
+      { path: 'route-activity', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
+      { path: 'route-compliance', loadComponent: () => import('../app/modules/logistica/pages/logistica-auditoria-ruta.component').then(m => m.LogisticaAuditoriaRutaComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
+      // Hub "Auditoría de ruta" (camionetas de ruta): Cumplimiento + Rastreo + Actividad en tabs ruteadas.
+      {
+        path: 'route-audit',
+        loadComponent: () => import('./shared/components/tab-shell/tab-shell.component').then(m => m.TabShellComponent),
+        canActivate: [permissionGuard(Permission.RUTAS_VER)],
+        data: { tabs: [
+          { label: 'Cumplimiento', path: 'cumplimiento', icon: 'pi-check-circle' },
+          { label: 'Rastreo en vivo', path: 'rastreo', icon: 'pi-map-marker' },
+          { label: 'Actividad', path: 'actividad', icon: 'pi-chart-bar' },
+        ] },
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'cumplimiento' },
+          { path: 'cumplimiento', loadComponent: () => import('../app/modules/logistica/pages/logistica-auditoria-ruta.component').then(m => m.LogisticaAuditoriaRutaComponent) },
+          { path: 'rastreo', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent) },
+          { path: 'actividad', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent) },
+        ],
+      },
+      { path: 'field-map', loadComponent: () => import('./modules/dashboard/field-map/field-map.component').then(m => m.FieldMapComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
+      { path: 'vendor-history', loadComponent: () => import('./modules/dashboard/vendor-history/vendor-history.component').then(m => m.VendorHistoryComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
+      { path: 'commercial-map', loadComponent: () => import('./modules/dashboard/commercial-map/commercial-map.component').then(m => m.CommercialMapComponent), canActivate: [permissionGuard(Permission.COMMERCIAL_MAP_VER)] },
+      { path: 'supervisor-ai', loadComponent: () => import('./modules/dashboard/supervisor-ai/supervisor-ai.component').then(m => m.SupervisorAiComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
+      { path: 'supervisor-ai/chat', loadComponent: () => import('./modules/dashboard/supervisor-ai/supervisor-ai-chat.component').then(m => m.SupervisorAiChatComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
+      { path: 'supervisor-ai/route-optimization', loadComponent: () => import('./modules/dashboard/supervisor-ai/route-optimization.component').then(m => m.RouteOptimizationComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
+      { path: 'supervisor-ai/route-balance', loadComponent: () => import('./modules/dashboard/supervisor-ai/route-balance.component').then(m => m.RouteBalanceComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
+      { path: 'stores', loadComponent: () => import('./modules/dashboard/stores/stores.component').then(m => m.StoresComponent), canActivate: [permissionGuard(Permission.TIENDAS_VER)] },
+      { path: 'visits', loadComponent: () => import('./modules/dashboard/visits/visits.component').then(m => m.VisitsComponent) },
+      { path: 'exhibitions', loadComponent: () => import('./modules/dashboard/exhibitions/exhibitions.component').then(m => m.ExhibitionsComponent) },
+      {
+        // Catálogos de captura (conceptos, ubicaciones, niveles, zonas) — siguen en Trade Marketing.
+        path: 'admin/catalogs/:type',
+        loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
+        canActivate: [permissionGuard(Permission.CATALOGO_GESTIONAR)]
+      },
+      {
+        path: 'admin/scoring',
+        loadComponent: () => import('./modules/dashboard/admin-scoring/admin-scoring.component').then(m => m.AdminScoringComponent),
+        canActivate: [permissionGuard(Permission.SCORING_CONFIG_VER)]
+      },
+      {
+        path: 'admin/planograma',
+        loadComponent: () => import('./modules/dashboard/admin-planograma/admin-planograma.component').then(m => m.AdminPlanogramaComponent),
+        canActivate: [permissionGuard(Permission.PLANOGRAMAS_GESTIONAR)]
+      },
+      {
+        path: 'daily-assignments',
+        loadComponent: () => import('./modules/dashboard/daily-assignments/daily-assignments.component').then(m => m.DailyAssignmentsComponent),
+        canActivate: [permissionGuard(Permission.TRADE_ROUTE_PLAN_VER)]
+      },
+    ]
+  },
+  // ── Proyecto Comercial / Venta ──────────────────────────────────────
+  // B2B, pedidos, clientes, almacenes, pricing, inventario, analytics commercial.
+  // Reusa LayoutComponent (mismo shell) — el nav se ajusta vía URL prefix.
+  {
+    path: 'comercial',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      // Landing dinámico: comercialHomeGuard devuelve un UrlTree a la primera
+      // superficie accesible del rol (command-center, orders, …, sell-out). El
+      // loadComponent nunca corre porque el guard siempre redirige.
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [comercialHomeGuard],
+        loadComponent: () => import('./modules/dashboard/command-center/command-center.component').then(m => m.CommandCenterComponent),
+      },
+      {
+        path: 'command-center',
+        loadComponent: () => import('./modules/dashboard/command-center/command-center.component').then(m => m.CommandCenterComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+      },
+      {
+        path: 'customers',
+        loadComponent: () => import('./modules/comercial/pages/comercial-customers.component').then(m => m.ComercialCustomersComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_CUSTOMERS_VER)]
+      },
+      {
+        // V.0 — cartera de ventas: supervisor asigna rutas a vendedores + orden de visita.
+        path: 'cartera',
+        loadComponent: () => import('./modules/comercial/pages/comercial-cartera.component').then(m => m.ComercialCarteraComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_CARTERA_VER)]
+      },
+      {
+        path: 'orders',
+        loadComponent: () => import('./modules/comercial/pages/comercial-orders.component').then(m => m.ComercialOrdersComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)],
+        data: { mode: 'pending' }
+      },
+      {
+        path: 'orders/history',
+        loadComponent: () => import('./modules/comercial/pages/comercial-orders.component').then(m => m.ComercialOrdersComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)],
+        data: { mode: 'history' }
+      },
+      {
+        path: 'orders/:id',
+        loadComponent: () => import('./modules/comercial/pages/comercial-order-detail.component').then(m => m.ComercialOrderDetailComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+      },
+      // Inventario/almacén vive ahora en el proyecto Almacén (/almacen/*).
+      // Redirects prefix: /comercial/inventory/** → /almacen/inventory/** (deep-links viejos siguen).
+      { path: 'inventory', redirectTo: '/almacen/inventory' },
+      { path: 'warehouses', redirectTo: '/almacen/warehouses' },
+      { path: 'dead-stock', redirectTo: '/almacen/dead-stock' },
+      { path: 'inventory-health', redirectTo: '/almacen/inventory-health' },
+      {
+        path: 'customers-360',
+        loadComponent: () => import('./modules/comercial/pages/comercial-customers-360.component').then(m => m.ComercialCustomers360Component),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_CUSTOMERS360_VER)]
+      },
+      // `[MKT.0]` Promos del ERP se mudó al proyecto MKT. Enlaces y marcadores viejos redirigen.
+      { path: 'erp-promos', redirectTo: '/mkt/erp-promos', pathMatch: 'full' },
+      {
+        path: 'sell-out',
+        loadComponent: () => import('./modules/comercial/pages/comercial-sell-out.component').then(m => m.ComercialSellOutComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SELLOUT_VER)]
+      },
+      {
+        // BI.0 — sub-modulo Analisis (Sell-Out BI). Reusa el SellOutReport; permiso propio.
+        path: 'analisis',
+        loadComponent: () => import('./modules/comercial/pages/comercial-analisis.component').then(m => m.ComercialAnalisisComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)]
+      },
+      {
+        path: 'salidas',
+        loadComponent: () => import('./modules/comercial/pages/comercial-salidas.component').then(m => m.ComercialSalidasComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SALIDAS_VER)]
+      },
+      {
+        // Fase VG — Ventas Generales: tablero de venta global por (métrica × dimensión × rango).
+        path: 'ventas-generales',
+        loadComponent: () => import('./modules/comercial/pages/ventas-generales.component').then(m => m.VentasGeneralesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+      },
+      {
+        path: 'wincaja',
+        loadComponent: () => import('./modules/comercial/pages/comercial-wincaja.component').then(m => m.ComercialWincajaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+      },
+      {
+        path: 'ventas-por-ruta',
+        loadComponent: () => import('./modules/comercial/pages/comercial-ventas-por-ruta.component').then(m => m.ComercialVentasPorRutaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
+      },
+      {
+        // RD.13 — el inventario de los camiones. Mismo permiso que Ventas por ruta: es la misma
+        // operacion mirada del otro lado (lo que se le cargo contra lo que vendio), no nomina.
+        path: 'inventario-ruta',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventario-ruta.component').then(m => m.ComercialInventarioRutaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
+      },
+      {
+        // RD.6 — comisiones quincenales de Ruta Directa. Permiso PROPIO: es nomina, no el
+        // reporte de ventas por ruta.
+        path: 'comisiones',
+        loadComponent: () => import('./modules/comercial/pages/comercial-comisiones.component').then(m => m.ComercialComisionesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_COMMISSIONS_VER)]
+      },
+      {
+        // TK.2 — Tickets de venta: buscar CUALQUIER folio (mostrador U/D/10, telemarketing y
+        // crédito U/D/8-12, y pedidos propios PD-) y reimprimirlo en ticket térmico o carta.
+        // Permiso PROPIO: alcanza más canales que COMMERCIAL_SALES_DOCS_VER, que es sólo TM.
+        path: 'tickets',
+        loadComponent: () => import('./modules/comercial/pages/comercial-tickets.component').then(m => m.ComercialTicketsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_TICKETS_VER)]
+      },
+      {
+        // TK.8 — Reporte por cliente: SU PROPIA sección, no una pestaña de la de arriba. La
+        // pantalla de buscar folio responde "dame ESTE documento"; ésta responde "dame TODO lo
+        // de este cliente", con filtros que a la otra le estorbarían. Mismo permiso: es la
+        // misma superficie de lectura sobre los mismos documentos.
+        path: 'tickets/reporte',
+        loadComponent: () => import('./modules/comercial/pages/comercial-reporte-cliente.component').then(m => m.ComercialReporteClienteComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_TICKETS_VER)]
+      },
+      {
+        // AX.2 — facturas de venta (vistas en vivo sobre kepler_ods) + anexo imprimible
+        path: 'documentos',
+        loadComponent: () => import('./modules/comercial/pages/comercial-documentos.component').then(m => m.ComercialDocumentosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)]
+      },
+      {
+        // GT.12 — Expedientes: historial de las Guías de Cobranza emitidas. Va DESPUÉS de
+        // 'documentos' y como ruta propia (no hija) porque cada tab es una página hermana.
+        path: 'documentos/expedientes',
+        loadComponent: () => import('./modules/comercial/pages/comercial-expedientes.component').then(m => m.ComercialExpedientesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)]
+      },
+      // La pestaña se llamaba "Reportes" y ahí se seleccionaban las facturas (GT.2). Eso se
+      // movió a Facturación TM, que es donde están; el deep-link viejo no se deja roto.
+      { path: 'documentos/reportes', redirectTo: 'documentos/expedientes' },
+      // Egresos vive ahora en el proyecto Finanzas (deep-links viejos siguen funcionando).
+      { path: 'egresos', redirectTo: '/finanzas/egresos' },
+      { path: 'egresos/detalle', redirectTo: '/finanzas/egresos/detalle' },
+      {
+        path: 'thot-chat',
+        loadComponent: () => import('./modules/comercial/pages/comercial-thot-chat.component').then(m => m.ComercialThotChatComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_THOT_VER)]
+      },
+      {
+        path: 'thot-curation',
+        loadComponent: () => import('./modules/comercial/pages/comercial-thot-curation.component').then(m => m.ComercialThotCurationComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_THOT_GESTIONAR)]
+      },
+      {
+        path: 'razonamiento',
+        loadComponent: () => import('./modules/comercial/pages/comercial-razonamiento.component').then(m => m.ComercialRazonamientoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_THOT_VER)]
+      },
+      {
+        // Fase MR — Motor de Rentabilidad: cascada de margen sobre venta real.
+        path: 'rentabilidad',
+        loadComponent: () => import('./modules/comercial/pages/comercial-rentabilidad.component').then(m => m.ComercialRentabilidadComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PROFITABILITY_VER)]
+      },
+      {
+        path: 'pricing',
+        loadComponent: () => import('./modules/comercial/pages/comercial-pricing.component').then(m => m.ComercialPricingComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRICING_VER)]
+      },
+      {
+        // `[PR.V2]` **Control de margen** — la puerta única del sidebar. No tiene pantalla
+        // propia: `preciosHomeGuard` manda a la primera pestaña que esa persona SÍ puede abrir.
+        //
+        // ⛔ Un `redirectTo` fijo NO sirve. Medido en prod: 5 roles ven las dos pestañas, pero
+        //    `compras`/`finanzas` ven **sólo el motor** y `telemarketing` **sólo los
+        //    experimentos** — mandarlo a `motor` lo rebota contra su propio guard, que es
+        //    exactamente `[AUTHZ.6]`, lo que `landing-guards.spec` existe para impedir.
+        path: 'precios',
+        pathMatch: 'full',
+        canActivate: [preciosHomeGuard],
+        // El loadComponent nunca corre: el guard siempre devuelve un UrlTree. Mismo patrón que
+        // el landing de `/comercial`.
+        loadComponent: () => import('./modules/comercial/pages/comercial-motor-margen.component').then(m => m.ComercialMotorMargenComponent),
+      },
+      {
+        // [PR.V1] El motor de margen: el triage de precio por SKU y plaza, con lo que el motor
+        // NO puede ver declarado al lado. Un solo permiso y de lectura — no hay GESTIONAR
+        // porque Kepler es read-only (ADR-040) y el precio lo captura una persona allá.
+        //
+        // ⚠️ Ruta PLANA con el prefijo adentro (`precios/motor`), no una hija anidada. El parser
+        //    de `landing-guards.spec` sólo lee hijas a 8 espacios y con un padre anidado
+        //    reconstruye mal la URL: todo candidato de esta pantalla saldría como «la ruta no
+        //    existe». Es la misma convención que Almacén, que tampoco indenta las hijas del shell.
+        path: 'precios/motor',
+        loadComponent: () => import('./modules/comercial/pages/comercial-motor-margen.component').then(m => m.ComercialMotorMargenComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_MARGIN_ENGINE_VER)]
+      },
+      {
+        // `[PR.M3]`+`[PR.M6]` La competencia: cuánto vende por marca y a qué precio, desde la
+        // medición mensual de ISCAM.
+        //
+        // ⛔ Mismo permiso que el motor y SIN uno propio: es la misma lectura del mismo módulo,
+        //    no un dominio aparte. Un permiso nuevo habría que repartirlo, y repartir uno para
+        //    una pestaña de la pantalla que ya se puede abrir es pedir una llave para una
+        //    puerta interior de un cuarto en el que ya estás.
+        path: 'precios/competencia',
+        loadComponent: () => import('./modules/comercial/pages/comercial-competencia.component').then(m => m.ComercialCompetenciaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_MARGIN_ENGINE_VER)]
+      },
+      {
+        // [PR.D2] El experimento de aterrizaje psicológico del precio: la lista para capturar
+        // en Kepler (que es read-only por decisión, ADR-040) y el veredicto de no-inferioridad.
+        //
+        // ⭐ anyPermissionGuard, no permissionGuard: `landing-guards.spec` lo atrapó. Un rol con
+        // sólo GESTIONAR y sin VER rebotaría en el índice del proyecto. La migración de reparto
+        // garantiza que GESTIONAR ⊆ VER, pero el guard NO debe depender de que los datos se
+        // mantengan así — la puerta se defiende sola.
+        path: 'precios/experimentos',
+        loadComponent: () => import('./modules/comercial/pages/comercial-experimentos-precio.component').then(m => m.ComercialExperimentosPrecioComponent),
+        canActivate: [anyPermissionGuard(
+          Permission.COMMERCIAL_PRICE_EXPERIMENT_VER,
+          Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR,
+        )]
+      },
+      // `[PR.V2]` Las dos URLs viejas siguen valiendo: hay marcadores del equipo y enlaces en los
+      // docs de fase apuntando ahí. Mismo criterio que `[CAT.1]` cuando el catálogo se mudó.
+      { path: 'motor-margen', redirectTo: 'precios/motor', pathMatch: 'full' },
+      { path: 'experimentos-precio', redirectTo: 'precios/experimentos', pathMatch: 'full' },
+      {
+        // [CAT.1] El catálogo se mudó a Compras (/compras/catalogo). Se deja el redirect porque hay
+        // enlaces internos y marcadores del equipo apuntando a esta ruta.
+        path: 'products',
+        redirectTo: '/compras/catalogo',
+        pathMatch: 'full'
+      },
+      // `[MKT.0]` Promociones se mudó al proyecto MKT. Enlaces y marcadores viejos redirigen.
+      { path: 'promotions', redirectTo: '/mkt/promotions', pathMatch: 'full' },
+      {
+        // Thot T.2 — empuje dirigido (marca foco): el negocio decide qué empujar.
+        path: 'empuje',
+        loadComponent: () => import('./modules/comercial/pages/comercial-thot-directives.component').then(m => m.ComercialThotDirectivesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTIONS_GESTIONAR)]
+      },
+      {
+        // Sprint M.3: ventas históricas del ERP Mega_Dulces vía FDW (read-only).
+        path: 'historical',
+        loadComponent: () => import('./modules/dashboard/historical-analytics/historical-analytics.component').then(m => m.HistoricalAnalyticsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_HISTORICAL_VER)]
+      },
+      {
+        // Cierre de ruta: control de tickets venta/carga/combustible de vendedores.
+        path: 'route-tickets',
+        loadComponent: () => import('./modules/comercial/pages/comercial-route-tickets.component').then(m => m.ComercialRouteTicketsComponent),
+        canActivate: [permissionGuard(Permission.ROUTE_CONTROL_VER)]
+      },
+      {
+        // Ventas de vendedor: parte comercial del ticket OCR de la captura.
+        path: 'vendor-sales',
+        loadComponent: () => import('./modules/comercial/pages/comercial-vendor-sales.component').then(m => m.ComercialVendorSalesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_VENDOR_SALES_VER)]
+      },
+    ]
+  },
+  // ── Proyecto Logística (Fase J) ─────────────────────────────────────
+  // Embarques, flotilla, costos, liquidaciones. Reusa LayoutComponent.
+  // ── Proyecto Finanzas ───────────────────────────────────────────────
+  // Egresos contables (pólizas 5xx/6xx), documentos y CxP. Separado de Ventas:
+  // un rol contable no arrastra permisos comerciales. Reusa LayoutComponent.
+  {
+    path: 'finanzas',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      // `[SN.4]` Landing dinámico (antes `redirectTo: 'egresos'` fijo): la primera superficie
+      // accesible del rol. El loadComponent nunca corre porque el guard siempre redirige.
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [finanzasHomeGuard],
+        loadComponent: () => import('./modules/comercial/pages/comercial-egresos.component').then(m => m.ComercialEgresosComponent),
+      },
+      // Compat: Presupuesto se movió a su módulo propio /presupuesto (Fase PU). El viejo enlace redirige.
+      { path: 'presupuesto', redirectTo: '/presupuesto', pathMatch: 'full' },
+      {
+        path: 'egresos',
+        loadComponent: () => import('./modules/comercial/pages/comercial-egresos.component').then(m => m.ComercialEgresosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+      },
+      {
+        // [IG.2] El otro lado del libro. Permiso PROPIO: hay roles que ven la venta y no el gasto.
+        path: 'ingresos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-ingresos.component').then(m => m.FinanzasIngresosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_INCOME_VER)]
+      },
+      {
+        // [CSU.2] Corte de caja POS (cliente CONTADO) → cobro aplicado → arqueo del turno.
+        path: 'cortes-sucursales',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cortes-sucursales.component').then(m => m.FinanzasCortesSucursalesComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_CORTES_VER)]
+      },
+      {
+        path: 'egresos/detalle',
+        loadComponent: () => import('./modules/comercial/pages/comercial-egreso-detalle.component').then(m => m.ComercialEgresoDetalleComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+      },
+      {
+        path: 'bancos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-bancos.component').then(m => m.FinanzasBancosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
+      {
+        // GX.10 — UNA puerta al ciclo del gasto. Antes eran tres rutas para el mismo
+        // trámite. El guard deja pasar con CUALQUIERA de los dos permisos y el componente
+        // decide la superficie: tablero para quien puede ver, captura mínima para quien
+        // sólo captura (75 usuarios activos están en ese segundo grupo — ver el componente).
+        path: 'gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos.component').then(m => m.FinanzasGastosComponent),
+        // `[GX.17]` SIN permiso: la sección se partió en dos y ésta es la de CAPTURAR —
+        // pegar el folio de Kepler, declarar cómo se pagó y subir la foto. Decisión del
+        // usuario: «para este tendrán acceso todos».
+        //
+        // ⛔ Abrir la RUTA no abre el dato: el backend sigue acotando por áreas, y quien no
+        // tiene ninguna necesita el folio EXACTO para encontrar una solicitud
+        // (`searchSolicitudes`). O sea que nadie puede pasearse por el gasto ajeno.
+        // El padre `/finanzas` conserva su `authGuard`: «todos» son los que iniciaron sesión.
+        canActivate: []
+      },
+      {
+        // `[GX.17]` La otra mitad: dar luz verde. Sólo quien puede firmar.
+        // `FINANCE_EXPENSES_COMPROBAR` ya existía y ya gateaba approve/validate/reject
+        // desde GX.7 — no se inventó un permiso nuevo para la misma puerta.
+        // Hoy lo tienen: `tesoreria` (María) + `superadmin` por god-mode (Luis Francisco,
+        // Guillermo) + Jesús por override de persona (mig 20260924120000).
+        path: 'aprobacion-gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-aprobacion-gastos.component').then(m => m.FinanzasAprobacionGastosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR)]
+      },
+      {
+        // `[GX.17]` El tablero de GX.10 NO se borra: 25 personas con `FINANCE_EXPENSES_VER`
+        // lo usan para revisar y buscar. Deja de ser lo que sirve `/finanzas/gastos` (que
+        // ahora es sólo captura) y pasa a tener ruta propia.
+        // `[GX.25]` El historial: de TODAS las fechas, y con dos ambitos segun el permiso.
+        // `anyOf` porque quien solo CAPTURA tiene que poder ver lo suyo -- el endpoint
+        // `mine` lo acota por token, asi que no hay forma de pedir el de otro.
+        // `[GX.33]` El Historial deja de ser de TODOS los que capturan y pasa a ser de
+        // quien REVISA. Medido en prod: lo veían 80 personas, y 57 de ellas sólo capturan
+        // -- para ésas el servidor ya acotaba a lo suyo, así que la pantalla les prometía
+        // un historial de la empresa y les daba el propio. Esas 57 pasan a «Mis gastos».
+        //
+        // ⛔ Va `VER` además de `COMPROBAR` a propósito: con COMPROBAR a secas quedaba en
+        // UNA persona, y `credito_cobranza`, `direccion` y `finanzas` (4 usuarios) se
+        // quedaban sin ninguna de las dos pantallas -- no capturan, así que «Mis gastos»
+        // tampoco los cubre. Consultar no es aprobar, pero tampoco es no tener nada.
+        path: 'gastos-historial',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos-historial.component').then(m => m.FinanzasGastosHistorialComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR)]
+      },
+      {
+        /**
+         * [GX.59] EXPEDIENTE - el tramite de gasto de TODAS las personas, agrupado por persona.
+         *
+         * Pedido del usuario (2026-10-01): «en lugar de historial sera expediente, todos
+         * aquellos que tengan el poder de autorizar gastos podran ver los vales de todos».
+         *
+         * El permiso es el de quien FIRMA (FINANCE_EXPENSES_COMPROBAR), el mismo que guarda la
+         * bandeja de aprobacion. El endpoint esta gateado igual: el recorte vive en el
+         * servidor, y esta linea es la cortesia de no mostrar una puerta que no abre.
+         *
+         * ⚠️ `gastos-historial` NO se retiro, y es una decision MEDIDA. Guardar esta pantalla
+         * con COMPROBAR deja fuera a 14 personas que hoy si ven el historial (direccion,
+         * contabilidad, finanzas_operativo, credito_cobranza, gerente_compras, marketing:
+         * todas con _VER y sin _COMPROBAR). Borrar la ruta vieja las dejaba sin ninguna vista
+         * de empresa y sin aviso. Queda ABIERTO si Historial se retira: es decision del
+         * usuario, no un olvido.
+         */
+        path: 'expediente',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-expediente.component').then(m => m.FinanzasExpedienteComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR)]
+      },
+      {
+        // `[GX.33]` Lo que YO levanté y en qué quedó. Mismo alcance que `/mine`, que el
+        // servidor acota por token: acá no se filtra del lado del cliente.
+        path: 'mis-gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-mis-gastos.component').then(m => m.FinanzasMisGastosComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)]
+      },
+      {
+        path: 'gastos-tablero',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-solicitudes.component').then(m => m.FinanzasSolicitudesComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+      },
+      // Las tres rutas viejas quedan como redirect: hay enlaces internos, marcadores del
+      // equipo y links compartidos apuntando ahí. `solicitudes` conserva sus query params
+      // (periodo/etapa/mias/anejas viajan en la URL), y `capturas-sin-folio` aterriza con
+      // su etapa ya elegida — ahora es una etapa más del embudo, no una pantalla aparte.
+      {
+        path: 'solicitudes',
+        redirectTo: ({ queryParams, fragment }) =>
+          inject(Router).createUrlTree(['/finanzas/gastos'], { queryParams, fragment: fragment ?? undefined }),
+      },
+      { path: 'capturar-gasto', pathMatch: 'full', redirectTo: 'gastos' },
+      {
+        path: 'capturas-sin-folio',
+        redirectTo: () =>
+          inject(Router).createUrlTree(['/finanzas/gastos'], { queryParams: { etapa: 'sin_folio' } }),
+      },
+      {
+        path: 'cobranza',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cobranza.component').then(m => m.FinanzasCobranzaComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_COLLECTIONS_VER)]
+      },
+      {
+        /**
+         * `[CXC.26]` La misma cartera con el DÍA como eje. Va ANTES de `cartera` a secas: con el
+         * matcher de Angular el orden no cambia nada porque los paths son distintos, pero dejarlo
+         * pegado deja ver de un vistazo que son dos vistas del mismo dato.
+         *
+         * ⛔ **Mismo guard, no uno nuevo.** `carteraEntryGuard` exige `FINANCE_RECEIVABLES_VER` y
+         * redirige a Cobranza a quien sólo tenga el permiso de ésa — exactamente lo que hace falta
+         * acá. Un `permissionGuard` propio dejaría a ese usuario con un 403 seco en vez del rebote.
+         *
+         * NO se registra como nodo de `AUTHZ_TREE`: no es un módulo, es una lente de `cartera`
+         * bajo su mismo permiso. Un nodo propio la haría aparecer como proyecto aparte en
+         * «Mi trabajo» y como candidato duplicado del landing de Finanzas (ADR-061).
+         */
+        path: 'cartera/dia',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cartera-dia.component').then(m => m.FinanzasCarteraDiaComponent),
+        canActivate: [carteraEntryGuard]
+      },
+      {
+        path: 'cartera',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cartera.component').then(m => m.FinanzasCarteraComponent),
+        canActivate: [carteraEntryGuard]
+      },
+      {
+        path: 'pagos-comprobantes',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-pagos-comprobantes.component').then(m => m.FinanzasPagosComprobantesComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
+        path: 'calendario-pagos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-calendario-pagos.component').then(m => m.FinanzasCalendarioPagosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
+        /**
+         * SM.4 — Supervisor de Movimientos: bandeja de descuadres (caja/inventario/cruce).
+         * `[SM.9]` Llegó de `/almacen/cuadre` (redirect allá). El componente se queda en
+         * `modules/almacen/` porque consume su servicio — mismo criterio que el vecino
+         * `cuadre-proveedor`, que vive acá con el componente en `modules/compras/`.
+         */
+        path: 'cuadre',
+        loadComponent: () => import('./modules/almacen/pages/almacen-cuadre.component').then(m => m.AlmacenCuadreComponent),
+        canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
+      },
+      {
+        // CXP.7 — Cuadre y deuda por proveedor (CxP/Tesorería): estado de cuenta 201 Kepler +
+        // deuda real ContPAQi 2120. Vive en Finanzas (el componente sigue en modules/compras
+        // porque consume ComprasService). Antes en /compras/cuadre-proveedor (redirect abajo).
+        path: 'cuadre-proveedor',
+        loadComponent: () => import('./modules/compras/pages/compras-cuadre-proveedor.component').then(m => m.ComprasCuadreProveedorComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
+        // PP.3 — Programa de Pagos (Tesorería): espejo del Excel de pagos.
+        path: 'programa-pagos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-programa-pagos.component').then(m => m.FinanzasProgramaPagosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
+        // CG.14 (ADR-070) — Caja General: donde la plataforma REGISTRA el efectivo. Reemplaza
+        // las 6 formas de captura del Access `Control`. Distinta de 'caja', que es la LECTURA
+        // del espejo y sigue viva durante el traslape.
+        path: 'caja-general',
+        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-general.component').then(m => m.FinanzasCajaGeneralComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR)]
+      },
+      {
+        // CS.2 — Caja Fuerte (CAOS): reporte de movimientos de efectivo del dispositivo AST700.
+        path: 'caos',
+        loadComponent: () => import('./modules/finanzas/pages/caos/finanzas-caos.component').then(m => m.FinanzasCaosComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_CAOS_VER)]
+      },
+      {
+        // CG.4 — Caja General (Tesorería): venta diaria → depósito + arqueo + conciliación CB.
+        path: 'caja',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-caja.component').then(m => m.FinanzasCajaComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
+      {
+        // Documentos cancelados de Kepler (c43='C') — lo que los cuadres excluyen, aquí se audita.
+        path: 'cancelados',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cancelados.component').then(m => m.FinanzasCanceladosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
+      {
+        path: 'maat',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-maat-chat.component').then(m => m.FinanzasMaatChatComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
+      },
+      {
+        path: 'hallazgos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-hallazgos.component').then(m => m.FinanzasHallazgosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
+      },
+      {
+        path: 'pagos-control',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-pagos-control.component').then(m => m.FinanzasPagosControlComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
+      },
+      {
+        path: 'tareas',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-tareas.component').then(m => m.FinanzasTareasComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
+    ]
+  },
+  // ── Proyecto MKT (mercadotecnia) `[MKT.0]` ──────────────────────────
+  // Proyecto propio en el espacio Comercial. Nace con las pantallas de promociones que
+  // vivían en /comercial; mismos componentes y permisos, sólo cambia la casa.
+  {
+    path: 'mkt',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      // Landing dinámico: mktHomeGuard redirige a la primera superficie accesible del rol.
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [mktHomeGuard],
+        loadComponent: () => import('./modules/comercial/pages/comercial-promotions.component').then(m => m.ComercialPromotionsComponent),
+      },
+      {
+        path: 'promotions',
+        loadComponent: () => import('./modules/comercial/pages/comercial-promotions.component').then(m => m.ComercialPromotionsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTIONS_VER)]
+      },
+      {
+        path: 'erp-promos',
+        loadComponent: () => import('./modules/comercial/pages/comercial-erp-promos.component').then(m => m.ComercialErpPromosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ERP_PROMOS_VER)]
+      },
+      // `[MKT.1]` Acuerdos con proveedor (MKTN001) + su expediente por plaza.
+      // `anyPermissionGuard` a propósito: quien sube la evidencia de su sucursal entra con
+      // MKT_AGREEMENT_EVIDENCE_SUBIR. Con un guard de sólo VER, el encargado de plaza vería la
+      // entrada del menú y rebotaría al entrar. El recorte de QUÉ plazas ve lo hace el alcance.
+      {
+        path: 'acuerdos',
+        loadComponent: () => import('./modules/comercial/pages/mkt-acuerdos.component').then(m => m.MktAcuerdosComponent),
+        // GESTIONAR va en la lista aunque hoy nadie lo tenga suelto: el reparto se edita desde
+        // /admin/roles y basta con guardar el mapa para dejar a alguien con la clave de gestión
+        // sin la de lectura — vería la entrada en la landing y rebotaría al entrar. Lo midió
+        // `landing-guards.spec`.
+        canActivate: [anyPermissionGuard(Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENTS_GESTIONAR, Permission.MKT_AGREEMENT_EVIDENCE_SUBIR)]
+      },
+      // `[MKT.6]` El RESULTADO del acuerdo: ¿movió la aguja? Pantalla aparte de `acuerdos`
+      // porque son dos preguntas distintas —"se ejecutó" y "sirvió"— y mezclarlas haría que
+      // "subió tres fotos" y "vendió $12,000 más" se lean como el mismo hecho.
+      // Mismas dos audiencias que el expediente, y por eso el mismo `anyPermissionGuard`: la
+      // plaza que sube la evidencia tiene derecho a saber si su exhibición vendió. El recorte
+      // de QUÉ plazas ve lo hace el alcance en el servidor, no este guard.
+      {
+        path: 'resultado',
+        loadComponent: () => import('./modules/comercial/pages/mkt-resultado.component').then(m => m.MktResultadoComponent),
+        canActivate: [anyPermissionGuard(Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENT_EVIDENCE_SUBIR)]
+      },
+    ]
+  },
+  // ── Proyecto Presupuestos (Fase PU / ADR-066) ───────────────────────
+  // Módulo propio, FUERA de Finanzas (decisión usuario 2026-09-17): planeación
+  // y control de recursos. Una pantalla con sub-vistas internas (Segmented).
+  // ⚠️ La ruta faltaba: el componente/tab/authz-tree existían pero nadie la registró.
+  {
+    path: 'presupuesto',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        canActivate: [permissionGuard(Permission.PRESUPUESTOS_VER)],
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-presupuesto.component').then(m => m.FinanzasPresupuestoComponent),
+      },
+    ]
+  },
+  // ── Proyecto Desarrolladores (Fase DEV, 2026-10-01) ─────────────────
+  // Bitácora de proyectos del equipo de desarrollo. Hoy un solo módulo
+  // (Proyectos); el índice resuelve por permiso como el resto (`[SN.4]`).
+  {
+    path: 'desarrolladores',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [desarrolladoresHomeGuard],
+        loadComponent: () => import('./modules/desarrolladores/pages/dev-proyectos.component').then(m => m.DevProyectosComponent),
+      },
+      {
+        path: 'proyectos',
+        canActivate: [anyPermissionGuard(Permission.DEV_PROJECTS_VER, Permission.DEV_PROJECTS_GESTIONAR)],
+        loadComponent: () => import('./modules/desarrolladores/pages/dev-proyectos.component').then(m => m.DevProyectosComponent),
+      },
+    ]
+  },
+  // ── Proyecto Mesa de Servicio (Fase MS, ADR-081) ────────────────────
+  // Tickets de servicio para toda la suite. `solicitudes` es la puerta de CUALQUIER persona
+  // (`SERVICIO_REPORTAR`, repartido a todo rol con personas pero sin destino en el mapa: se llega
+  // por el botón del header). `bandeja` es de quien atiende; `configuracion`, de la coordinación.
+  {
+    path: 'servicio',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [servicioHomeGuard],
+        loadComponent: () => import('./modules/servicio/pages/servicio-solicitudes.component').then(m => m.ServicioSolicitudesComponent),
+      },
+      {
+        path: 'solicitudes',
+        canActivate: [permissionGuard(Permission.SERVICIO_REPORTAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-solicitudes.component').then(m => m.ServicioSolicitudesComponent),
+      },
+      {
+        path: 'bandeja',
+        canActivate: [anyPermissionGuard(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-bandeja.component').then(m => m.ServicioBandejaComponent),
+      },
+      {
+        path: 'reportes',
+        canActivate: [permissionGuard(Permission.SERVICIO_COORDINAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-reportes.component').then(m => m.ServicioReportesComponent),
+      },
+      {
+        path: 'configuracion',
+        canActivate: [permissionGuard(Permission.SERVICIO_COORDINAR)],
+        loadComponent: () => import('./modules/servicio/pages/servicio-configuracion.component').then(m => m.ServicioConfiguracionComponent),
+      },
+    ]
+  },
+  // ── Proyecto Contabilidad (Fase FISCAL) ─────────────────────────────
+  // Cumplimiento SAT / CFDI: listas negras, almacén CFDI, conciliación, DIOT,
+  // descarga masiva, materialidad, contabilidad electrónica, impuestos, e.firma.
+  // Separado de Finanzas. Reusa LayoutComponent; nav por URL prefix.
+  {
+    path: 'contabilidad',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      // `[SN.4]` Landing dinámico (antes `redirectTo: 'listas-sat'` fijo).
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [contabilidadHomeGuard],
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-listas-sat.component').then(m => m.ContabilidadListasSatComponent),
+      },
+      {
+        path: 'listas-sat',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-listas-sat.component').then(m => m.ContabilidadListasSatComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_LISTAS_VER)]
+      },
+      {
+        path: 'cfdi',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-cfdi.component').then(m => m.ContabilidadCfdiComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CFDI_VER)]
+      },
+      {
+        path: 'facturar',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-facturar.component').then(m => m.ContabilidadFacturarComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_FACTURAR_VER)]
+      },
+      {
+        path: 'diagnostico',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-diagnostico.component').then(m => m.ContabilidadDiagnosticoComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_FACTURAR_VER)]
+      },
+      {
+        path: 'conciliacion',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-conciliacion.component').then(m => m.ContabilidadConciliacionComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONCILIACION_VER)]
+      },
+      {
+        path: 'diot',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-diot.component').then(m => m.ContabilidadDiotComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_DIOT_VER)]
+      },
+      {
+        path: 'descarga',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-descarga.component').then(m => m.ContabilidadDescargaComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_DESCARGA_VER)]
+      },
+      {
+        path: 'materialidad',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-materialidad.component').then(m => m.ContabilidadMaterialidadComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_LISTAS_VER)]
+      },
+      {
+        path: 'contabilidad',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-contabilidad.component').then(m => m.ContabilidadContabilidadComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
+      },
+      {
+        path: 'contpaqi',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-contpaqi.component').then(m => m.ContabilidadContpaqiComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
+      },
+      {
+        path: 'polizas',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-polizas.component').then(m => m.ContabilidadPolizasComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
+      },
+      {
+        // LC — lo que ContPAQi no tiene atado a ninguna póliza. Es el propósito del módulo:
+        // sacar lo que falta en TXT para que contabilidad cierre el trámite.
+        path: 'movimientos-no-asociados',
+        loadComponent: () => import('./modules/contabilidad/pages/libro-compras/movimientos-no-asociados.component').then(m => m.MovimientosNoAsociadosComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_PURCHASE_BOOK_VER)]
+      },
+      {
+        // LC — el libro completo del mes. Solo aplica a un mes que nunca se subió.
+        path: 'libro-de-compras',
+        loadComponent: () => import('./modules/contabilidad/pages/libro-compras/libro-compras.component').then(m => m.LibroComprasComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_PURCHASE_BOOK_VER)]
+      },
+      {
+        path: 'impuestos',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-impuestos.component').then(m => m.ContabilidadImpuestosComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_DIOT_VER)]
+      },
+      {
+        path: 'credenciales',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-credenciales.component').then(m => m.ContabilidadCredencialesComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CREDENCIALES_GESTIONAR)]
+      },
+    ]
+  },
+  // ── Proyecto Compras (Fase RA — ADR-030) ────────────────────────────
+  // Reabastecimiento: existencia crítica, punto de reorden, sugerido de compra
+  // y requisiciones (HITL). Reusa LayoutComponent; nav por URL prefix.
+  {
+    path: 'compras',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      // Landing dinámico: aterriza en la primera vista accesible del rol (no fijo a Pedido).
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [comprasHomeGuard],
+        loadComponent: () => import('./modules/compras/pages/compras-pedido-real.component').then(m => m.ComprasPedidoRealComponent),
+      },
+      {
+        // RA-PRO.17 — Pedido UNIFICADO (demand-driven + requisición + export + stock muerto).
+        // Fusiona las 3 vistas previas: pedido(que-toca) + compra-sugerida + existencia-critica.
+        path: 'pedido',
+        loadComponent: () => import('./modules/compras/pages/compras-pedido-real.component').then(m => m.ComprasPedidoRealComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_VER)],
+        canDeactivate: [unsavedChangesGuard]
+      },
+      { path: 'que-toca', redirectTo: 'pedido', pathMatch: 'full' },
+      { path: 'pedido-real', redirectTo: 'pedido', pathMatch: 'full' },        // fusionada en Pedido
+      { path: 'existencia-critica', redirectTo: 'pedido', pathMatch: 'full' }, // fusionada en Pedido
+      {
+        // EXISTENCIA — la MISMA pantalla que /almacen/inventory/existencia, mismo componente y
+        // mismo permiso. Acá el comprador ve qué hay antes de decidir qué pedir; el componente
+        // vive en modules/almacen porque Almacén es el dueño del censo (igual que /dashboard
+        // importa los componentes de logistica/).
+        path: 'existencia',
+        loadComponent: () => import('./modules/almacen/pages/almacen-existencia.component').then(m => m.AlmacenExistenciaComponent),
+        canActivate: [permissionGuard(Permission.EXISTENCIA_VER)]
+      },
+      {
+        path: 'asistente',
+        loadComponent: () => import('./modules/compras/pages/compras-asistente.component').then(m => m.ComprasAsistenteComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_GESTIONAR)]
+      },
+      {
+        path: 'requisiciones',
+        loadComponent: () => import('./modules/compras/pages/compras-requisiciones.component').then(m => m.ComprasRequisicionesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_REQUISICIONES_VER)]
+      },
+      {
+        path: 'hallazgos',
+        loadComponent: () => import('./modules/compras/pages/compras-hallazgos.component').then(m => m.ComprasHallazgosComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
+      },
+      {
+        // `[FLT.13]` Faltantes de piso: lo que el mostrador reportó que un cliente pidió y no
+        // había. Reusa el permiso de Hallazgos porque es la misma persona (el comprador) la que
+        // abre las tres bandejas — mismo criterio que WMS-REC.8 tomó para Reclamos.
+        //
+        // Es la única señal de demanda que NO sale de un feed: una venta que no ocurrió no deja
+        // rastro en el ERP, así que el barrido nocturno de Hallazgos nunca la puede ver.
+        path: 'faltantes',
+        loadComponent: () => import('./modules/compras/pages/compras-faltantes.component').then(m => m.ComprasFaltantesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
+      },
+      {
+        // WMS-REC.8 — reclamos de faltantes de recepción (ADR-053). Reusa el permiso de
+        // Hallazgos: es la misma persona (el comprador) la que abre las dos bandejas, así
+        // que no se agrega un permiso nuevo (ni su backfill ni su re-login).
+        path: 'reclamos',
+        loadComponent: () => import('./modules/compras/pages/compras-reclamos.component').then(m => m.ComprasReclamosComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
+      },
+      {
+        // RA-PRO.45 — la vista inversa del "En camino" del Pedido: las OCs de Kepler que quedaron
+        // abiertas. Mismo permiso que Pedido porque es la otra cara del mismo dato.
+        path: 'oc-abiertas',
+        loadComponent: () => import('./modules/compras/pages/compras-oc-abiertas.component').then(m => m.ComprasOcAbiertasComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_VER)]
+      },
+      {
+        // [CAT.1] El catálogo se muda de Ventas (/comercial/products) a Compras: quien lo mantiene
+        // es el comprador (da de alta el producto, negocia el costo y captura el precio en Kepler).
+        // Adentro trae su pestaña de códigos de barras repetidos (CATALOGO_TABS).
+        path: 'catalogo',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo.component').then(m => m.ComprasCatalogoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
+        // [CAT-OPS.1] Centro operativo. Las rutas usan el mismo cascarón mientras cada bandeja
+        // recibe sus datos y reglas de negocio en entregas posteriores.
+        path: 'catalogo/resumen',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'resumen' }
+      },
+      {
+        path: 'catalogo/solicitudes',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'solicitudes' }
+      },
+      {
+        path: 'catalogo/incidencias',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'incidencias' }
+      },
+      {
+        // [CAT-COSTO.4] Costos deja de ser cascarón: Etapa 1, costo estándar entre sucursales.
+        // Permiso del costo estándar, no el del catálogo: el costo es dato sensible (decisión de Compras).
+        path: 'catalogo/costos',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-costos.component').then(m => m.ComprasCatalogoCostosComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_COSTO_ESTANDAR_VER)]
+      },
+      {
+        // Las listas recibidas de proveedores viven separadas del flujo que aplica cambios al ERP.
+        path: 'catalogo/listas-precios',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-apartado.component').then(m => m.ComprasCatalogoApartadoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)],
+        data: { catalogoApartado: 'listas-precios' }
+      },
+      {
+        // [CAT.3] El mismo producto a distinto precio segun la plaza.
+        path: 'catalogo/precios',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-precios.component').then(m => m.ComprasCatalogoPreciosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
+        path: 'catalogo/codigos',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-codigos.component').then(m => m.ComprasCatalogoCodigosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
+        // [CAT.7] El reporte imprimible de precios por proveedor. Mismo permiso que el resto del
+        // catálogo: es el mismo dato, mirado para llevárselo en papel a la negociación.
+        path: 'catalogo/reporte',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-reporte.component').then(m => m.ComprasCatalogoReporteComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
+        path: 'proveedores',
+        loadComponent: () => import('./modules/compras/pages/compras-proveedores.component').then(m => m.ComprasProveedoresComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_PROVEEDORES_VER)]
+      },
+      {
+        // Fase TP (ADR-064) — la cuenta por pagar a proveedor que alimenta el Calendario de
+        // Pagos. La página y el backend existían desde TP; faltaba la ruta.
+        path: 'obligaciones',
+        loadComponent: () => import('./modules/compras/pages/compras-obligaciones.component').then(m => m.ComprasObligacionesComponent),
+        // [RE.32] Finanzas entra a confirmar lo que Compras le entregó (sólo ve la pestaña Entregas).
+        canActivate: [anyPermissionGuard(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_GESTIONAR)]
+      },
+      {
+        // TP.7 — cuentas bancarias de pago a proveedor (alta/cambio por solicitud). Mismo permiso.
+        path: 'cuentas-pago',
+        loadComponent: () => import('./modules/compras/pages/compras-cuentas-pago.component').then(m => m.ComprasCuentasPagoComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
+      },
+      {
+        path: 'red',
+        loadComponent: () => import('./modules/compras/pages/compras-red.component').then(m => m.ComprasRedComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_RED_VER)]
+      },
+      {
+        // RE.13.1 — "Mis pendientes": la worklist del capturista de sucursal (scopeada por
+        // alcance, lo más viejo primero, con cámara). Es la puerta del proceso.
+        //
+        // RE.16.9 — pide GESTIONAR, no VER: acá TODO lo que se puede hacer (OCR, adjuntar,
+        // lote) exige GESTIONAR en el backend. Con VER a secas la pantalla se abría entera y
+        // el 403 llegaba recién al soltar el PDF. `direccion` ya está en ese caso hoy
+        // (VER sí, GESTIONAR no). El que sólo observa entra por el Centro de control.
+        path: 'entradas',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-pendientes.component').then(m => m.ComprasEntradasPendientesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_GESTIONAR)],
+        // RE.17.2 — la bandeja de PDFs ya leídos por OCR no vive en el servidor hasta que se
+        // envía: salir sin avisar tira el trabajo (y las llamadas de visión ya pagadas).
+        canDeactivate: [unsavedChangesGuard]
+      },
+      {
+        // RE.3 — el calendario de pago. Permiso de LECTURA de entradas: es una vista derivada
+        // del vencimiento que ya trae la orden, no una operación sobre dinero.
+        path: 'vencimientos',
+        loadComponent: () => import('./modules/compras/pages/compras-vencimientos.component').then(m => m.ComprasVencimientosComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+
+      // ── RE.16 — Centro de control: lo que el administrador OBSERVA, en 4 pestañas ────────
+      // Antes eran items de sidebar sueltos y se leían como módulos distintos. Las rutas
+      // viejas quedan como redirect: hay links pegados en chats y en Compras 360.
+      {
+        // RE.16.2 — cobertura por sucursal + quién tiene permiso de subir en cada una.
+        path: 'entradas/control',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-control.component').then(m => m.ComprasEntradasControlComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      {
+        // CC ext — la vista completa (auditoría por línea + conciliación + validación). Es el
+        // único camino "tengo el papel y no sé de qué entrada es", por eso sigue viva.
+        path: 'entradas/control/ordenes',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas.component').then(m => m.ComprasEntradasComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      {
+        // RE.20.1 — la MISMA pantalla con el otro lente. `Compras 360` era un componente aparte
+        // (1,059 líneas), con su propio endpoint, su propio detalle y su propia paginación
+        // **sobre la misma entidad**: una fila por orden de entrada. No era solape de datos —
+        // era la misma fila con dos preguntas, y nadie sabía cuál de las dos abrir. Tanto que
+        // la otra ya se había construido adentro un lente de "cumplimiento".
+        //
+        // Absorbe ÉSTA y no al revés por dos razones medidas (2026-08-29):
+        //   1. `COMPRAS_360_VER` ⊂ `COMPRAS_ENTRADAS_VER` — todo rol con 360 tiene ENT_VER, y
+        //      `auxiliar_tienda` (4 personas) tiene ENT_VER SIN 360. Fusionar hacia 360 los
+        //      dejaba afuera; hacia acá no pierde nadie.
+        //   2. Acá viven las escrituras (adjuntar/validar/devolver/descartar, 3 permisos), el
+        //      alcance, el carril y la conciliación por línea RE.11. Mover columnas hacia
+        //      adentro es aditivo; mover escrituras hacia afuera es riesgoso.
+        //
+        // Ruta propia y no un `?lente=` a secas para que el sidebar no marque dos items a la vez.
+        path: 'costo-por-compra',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas.component').then(m => m.ComprasEntradasComponent),
+        data: { lente: 'dinero' },
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      // El nombre viejo sigue vivo como redirect: hay links pegados en chats y en el detalle de
+      // otras pantallas. Misma regla que los redirects de RE.16.
+      { path: 'compras-360', redirectTo: 'costo-por-compra', pathMatch: 'full' },
+      {
+        // RE.14 — la misma recepción capturada dos veces (sucursal + oficinas 9.95). Ver el par y
+        // dictaminar los dudosos. Se entra con VER; los botones piden VALIDAR (mueve el conteo).
+        path: 'entradas/control/gemelas',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-gemelas.component').then(m => m.ComprasEntradasGemelasComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      {
+        // RE.16.3 — parámetros del proceso (arranque, tolerancia, los dos SLA, tope de lote).
+        // VALIDAR y no VER: mover la fecha de arranque cambia el tablero de toda la red.
+        path: 'entradas/control/ajustes',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-ajustes.component').then(m => m.ComprasEntradasAjustesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)],
+        // RE.17.2 — mover el arranque o el SLA recalcula el tablero de las 9 sucursales; la
+        // pantalla ya decía "hay cambios sin guardar" y después te dejaba salir en silencio.
+        canDeactivate: [unsavedChangesGuard]
+      },
+
+      // Rutas viejas → su lugar nuevo. `lote` desaparece como pantalla: soltar N PDFs en la
+      // tabla de pendientes ES el lote (una pantalla menos que aprender).
+      { path: 'entradas/lote', redirectTo: 'entradas', pathMatch: 'full' },
+      { path: 'entradas/todas', redirectTo: 'entradas/control/ordenes', pathMatch: 'full' },
+      { path: 'entradas/gemelas', redirectTo: 'entradas/control/gemelas', pathMatch: 'full' },
+      // `[RE.24]` La cabina de revisión sale de uso (decisión de Edgar, 2026-09-02). Validar y
+      // rechazar ya viven en la lista de órdenes, que además es la pantalla donde se llega
+      // buscando un folio. Se redirige y NO se borra: el componente queda en el repo, y una
+      // ruta muerta que tira 404 es peor que una que lleva a donde sí se trabaja (hay links
+      // guardados y el Centro de control apuntaba acá). Angular conserva los query params, así
+      // que el `?suc=30` con el que llegaba desde Cobertura sigue filtrando.
+      { path: 'entradas/revision', redirectTo: 'entradas/control/ordenes', pathMatch: 'full' },
+      {
+        // RE.10 — descuentos/apoyos + facturas duplicadas (ajustes de compra X-D-40/55).
+        path: 'descuentos',
+        loadComponent: () => import('./modules/compras/pages/compras-descuentos.component').then(m => m.ComprasDescuentosComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_DESCUENTOS_VER)]
+      },
+      {
+        // CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo.
+        path: 'costo-neto',
+        loadComponent: () => import('./modules/compras/pages/compras-costo-neto.component').then(m => m.ComprasCostoNetoComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_COSTO_NETO_VER)]
+      },
+      {
+        // [CE.6] Costo estándar del catálogo de Kepler (el que fija el precio) contra el costo
+        // de reposición del ERP. Sólo lectura: se corrige en Kepler, que es el SoR del catálogo.
+        // Recableada: el componente y su servicio vienen en ESTE commit.
+        path: 'costo-estandar',
+        loadComponent: () => import('./modules/compras/pages/compras-costo-estandar.component').then(m => m.ComprasCostoEstandarComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_COSTO_ESTANDAR_VER)]
+      },
+      {
+        // CXP.7 — "Cuadre y deuda por proveedor" SE MUDÓ a Finanzas (CxP/Tesorería). Redirects
+        // para bookmarks/links viejos de Compras.
+        path: 'cuadre-proveedor',
+        redirectTo: '/finanzas/cuadre-proveedor',
+        pathMatch: 'full',
+      },
+      {
+        path: 'deuda-contpaqi',
+        redirectTo: '/finanzas/cuadre-proveedor',
+        pathMatch: 'full',
+      },
+      {
+        path: 'categorias',
+        loadComponent: () => import('./modules/compras/pages/compras-categorias.component').then(m => m.ComprasCategoriasComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_CATEGORIAS_VER)]
+      },
+      {
+        path: 'requisiciones/:id',
+        loadComponent: () => import('./modules/compras/pages/compras-requisicion-detalle.component').then(m => m.ComprasRequisicionDetalleComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_REQUISICIONES_VER)]
+      },
+      {
+        path: 'ordenes',
+        loadComponent: () => import('./modules/compras/pages/compras-ordenes.component').then(m => m.ComprasOrdenesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ORDENES_VER)]
+      },
+      {
+        path: 'ordenes/:id',
+        loadComponent: () => import('./modules/compras/pages/compras-orden-detalle.component').then(m => m.ComprasOrdenDetalleComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ORDENES_VER)]
+      },
+    ]
+  },
+  // ── Proyecto Almacén ────────────────────────────────────────────────
+  // Existencias, conteo físico (ciego/doble), FEFO, ABC/cíclico, pasillos.
+  // Operación de almacén, no de venta. Reusa permisos COMMERCIAL_INVENTORY_*.
+  {
+    path: 'almacen',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      // Landing dinámico: primera superficie accesible del rol (guard → UrlTree).
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [almacenHomeGuard],
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
+      },
+      // ── Pantallas de FOCO (handheld) — Fase WMS.1 ─────────────────────
+      // Cuelgan FUERA del shell de área a propósito: NO llevan barra de tabs.
+      // Una barra acá invita al operario a irse a otra pantalla a media tarima
+      // (el conteo además tiene `countFocusGuard` en canDeactivate). Van ANTES
+      // del shell porque el router matchea en orden y el shell tiene path ''.
+      {
+        // Fase I.2 — página del contador (handheld, conteo ciego)
+        path: 'inventory/count',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-count.component').then(m => m.ComercialInventoryCountComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_CONTAR)],
+        canDeactivate: [countFocusGuard]
+      },
+      {
+        // WMS-REC Pieza 1 — estación handheld de una sesión (escaneo + líneas + cierre)
+        path: 'inventory/recepcion-sesiones/:id',
+        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-sesion.component').then(m => m.AlmacenRecepcionSesionComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
+        // WMS-BI.1 — detalle de UN documento, abierto en pestaña nueva desde Análisis BI.
+        // Foco: sin barra de tabs. Ruta propia (no /almacen/movimientos) — ver el comentario
+        // en AlmacenAnalisisBiComponent.openDocument().
+        path: 'analisis-bi/documento',
+        loadComponent: () => import('./modules/almacen/pages/almacen-bi-documento.component').then(m => m.AlmacenBiDocumentoComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_BI_VER)]
+      },
+      {
+        // WMS-REC — **Andén de Entrada**: las dos puertas (cotejo+acceso, y
+        // fechado+acomodo) en una sola pasada junto al camión. Reemplaza el
+        // recorrido de 4 pantallas: 79 toques por vale de 5 líneas → 24.
+        // Pantalla de foco: el operario entra escaneando el folio del papel, no
+        // eligiendo de una lista, así que no lleva barra de tabs.
+        path: 'anden',
+        loadComponent: () => import('./modules/almacen/anden/anden.component').then(m => m.AndenComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
+        // DM — Diario de movimientos (mejora del reporte Kepler): entradas/salidas agregadas + drill por folio.
+        // También es superficie de auditoría/prevención → accesible con RECONCILIATION_VER.
+        //
+        // ⛔ INTOCABLE (decisión del equipo, 2026-08-31): queda como estaba —
+        // item propio de sidebar, FUERA del shell de áreas y por lo tanto SIN
+        // barra de tabs. No moverlo a un área en refactors futuros.
+        path: 'movimientos',
+        loadComponent: () => import('./modules/almacen/pages/almacen-movimientos.component').then(m => m.AlmacenMovimientosComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)]
+      },
+      {
+        // WMS-REC — **Andén de Entrada**: las dos puertas (cotejo+acceso, y
+        // fechado+acomodo) en una sola pasada junto al camión. Reemplaza el
+        // recorrido de 4 pantallas: 79 toques por vale de 5 líneas → 24.
+        // Pantalla de foco: se entra escaneando el folio del papel, no eligiendo
+        // de una lista, así que no lleva barra de tabs.
+        path: 'anden',
+        loadComponent: () => import('./modules/almacen/anden/anden.component').then(m => m.AndenComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
+        /**
+         * `[SM.9]` El Supervisor de Movimientos (SM.4) se fue a `/finanzas/cuadre`: su
+         * permiso siempre fue `RECONCILIATION_*` —dominio propio, ADR-029— y lo que
+         * cuadra es dinero (arqueo ciego contra corte de caja) con una pata en inventario.
+         * Queda el redirect porque la URL vieja está viva en las alertas WS ya enviadas
+         * y en el marcador de quien la abría a diario.
+         * ⚠️ Va ANTES del shell de áreas, no adentro: el shell pinta la barra de tabs de
+         * almacén, y esta URL ya no es de almacén.
+         */
+        path: 'cuadre',
+        redirectTo: '/finanzas/cuadre',
+        pathMatch: 'full'
+      },
+      // ── Áreas con barra de tabs — Fase WMS.1 ──────────────────────────
+      // Padre con `path: ''`: las URLs de los hijos NO cambian, así que los
+      // deep-links y los redirects viejos (`/comercial/inventory/**`) siguen
+      // valiendo. La barra `liquid` se pinta UNA sola vez en el shell, en vez
+      // de repetir `<app-page-tabs>` en los ~19 componentes. El mapa
+      // área → tabs vive en `modules/almacen/almacen-tabs.ts`.
+      // Va AL FINAL: un padre con path vacío matchea cualquier URL restante.
+      {
+        path: '',
+        loadComponent: () => import('./modules/almacen/almacen-area-shell.component').then(m => m.AlmacenAreaShellComponent),
+        children: [
+      {
+        // AUTOABASTO (Fase AB) — la mesa del almacenista y del encargado. Sirve los MISMOS
+        // números que /compras/pedido (mismo CommercialReplenishmentService) para la OTRA
+        // audiencia, con llave propia: `almacenista` tiene COMPRAS_PEDIDO_VER en `false`
+        // explícito y por eso no alcanza la pantalla del comprador. Hoy sólo LEE; solicitar y
+        // autorizar entran en el PR siguiente de la fase.
+        path: 'autoabasto',
+        loadComponent: () => import('./modules/almacen/pages/almacen-autoabasto.component').then(m => m.AlmacenAutoabastoComponent),
+        // `anyPermissionGuard` y no `permissionGuard(VER)`: quien PREPARA solicitudes tiene que
+        // poder abrir la mesa. Con sólo VER en la puerta, `AUTOABASTO_SOLICITAR` queda como
+        // candidato de aterrizaje que rebota — el defecto "manage sin view" que SN.4 ya arrastra
+        // veinte veces como deuda declarada. Acá no se declara: se evita.
+        canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
+      },
+      {
+        // Análisis BI — espacio de indicadores cruzados del almacén. Arranca SIN indicadores
+        // publicados a propósito: ver el doc del componente.
+        path: 'analisis-bi',
+        loadComponent: () => import('./modules/almacen/pages/almacen-analisis-bi.component').then(m => m.AlmacenAnalisisBiComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_BI_VER)]
+      },
+      {
+        // EXISTENCIA — el censo físico, derivado del ERP (el ODS). MISMO componente que
+        // /compras/existencia y MISMO permiso: es la misma pantalla para las dos audiencias
+        // (precedente vivo: Caducidades en /almacen + /tienda).
+        path: 'inventory/existencia',
+        loadComponent: () => import('./modules/almacen/pages/almacen-existencia.component').then(m => m.AlmacenExistenciaComponent),
+        canActivate: [permissionGuard(Permission.EXISTENCIA_VER)]
+      },
+      {
+        // OJO: esta pantalla se llamaba "Existencias" y NO lo es — lee `commercial.stock`, el
+        // libro transaccional (acierta 91% contra el POS). Es la consola de AJUSTE y el único
+        // lugar con el apartado. El censo físico está arriba. No se retira porque la escritura
+        // vive acá; se re-rotuló a "Ajustes de stock" y lo declara en pantalla.
+        path: 'inventory',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+      },
+      {
+        // [IC.0] Diferencias del conteo físico de Kepler — el descuadre que ya existe y no
+        // se veía en ninguna pantalla. Gate VER: es lectura, y ese permiso ya está repartido.
+        path: 'inventory/diferencias',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-variance.component').then(m => m.ComercialInventoryVarianceComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+      },
+      {
+        // Fase I.3 — supervisor: lista + apertura de folios.
+        // [IC.23] También entra quien ASIGNA: el encargado de sucursal arma el equipo del
+        // conteo diario (decisión 2026-10-06) y ésta es la única puerta a sus folios. El
+        // backend ya servía esta lista con INVENTORY_VER, así que la ruta era MÁS estricta
+        // que el dato que protege. No se abre a VER a secas: `prevencion` y `customer_b2b`
+        // lo tienen, y esta pantalla además abre y congela almacenes.
+        path: 'inventory/sessions',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-sessions.component').then(m => m.ComercialInventorySessionsComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
+      },
+      {
+        // Fase I.3 — supervisor: detalle del folio + reconciliación.
+        // ⛔ [IC.23] Ésta NO se abre a ASIGNAR: carga `:id/items`, que trae el TEÓRICO fila por
+        // fila. Quien sólo asigna va a `:id/teams` (abajo), que es su pantalla.
+        path: 'inventory/sessions/:id',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-session-detail.component').then(m => m.ComercialInventorySessionDetailComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+      },
+      {
+        // Fase I.5 — KPI de exactitud de inventario (IRA)
+        path: 'inventory/ira',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-ira.component').then(m => m.ComercialInventoryIraComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+      },
+      {
+        // P2.2c — lotes por vencer / vencidos (FEFO)
+        path: 'inventory/expiring',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-expiring.component').then(m => m.ComercialInventoryExpiringComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+      },
+      {
+        // WMS-REC (ADR-044) — Auditor de recepción por caducidad (foto+OCR+semáforo 🟢🟡🔴)
+        path: 'inventory/recepcion',
+        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-auditor.component').then(m => m.AlmacenRecepcionAuditorComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
+        // WMS-REC Pieza 1 (ADR-044) — Vales de entrada (sesiones de recepción por escaneo)
+        path: 'inventory/recepcion-sesiones',
+        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-sesiones.component').then(m => m.AlmacenRecepcionSesionesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
+        // WMS-REC Pieza 3 (ADR-044) — Ubicaciones bin-level (auxiliar + put-away + FEFO)
+        path: 'inventory/ubicaciones',
+        loadComponent: () => import('./modules/almacen/pages/almacen-ubicaciones.component').then(m => m.AlmacenUbicacionesComponent),
+        // Tambien entra quien RECIBE: medido en prod, el rol `almacenista` (4 de los 5
+        // usuarios que reciben) solo tiene RECIBIR, asi que acomodaba la tarima y no
+        // podia volver a ver donde la dejo. No se le reparte INVENTORY_VER porque ese
+        // permiso abre ademas la consola de ajustes de stock.
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
+        // WMS-REC (ADR-044, Opción A) — Caducidades · Por fechar: la cola del bodeguero.
+        // Ruta hermana de 'inventory/caducidades' (hojas de anaquel), no su reemplazo:
+        // son dos trabajos distintos y los dos siguen existiendo.
+        path: 'inventory/por-fechar',
+        loadComponent: () => import('./modules/almacen/pages/almacen-caducidades-por-fechar.component').then(m => m.AlmacenCaducidadesPorFecharComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_CAPTURAR)]
+      },
+      {
+        // P2.6 — Control de Caducidades: lista de hojas de inspección de anaquel
+        path: 'inventory/caducidades',
+        loadComponent: () => import('./modules/comercial/pages/comercial-expiry-reviews.component').then(m => m.ComercialExpiryReviewsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_VER)]
+      },
+      {
+        // P2.6 — Control de Caducidades: detalle/captura de una hoja
+        path: 'inventory/caducidades/:id',
+        loadComponent: () => import('./modules/comercial/pages/comercial-expiry-review-detail.component').then(m => m.ComercialExpiryReviewDetailComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_VER)]
+      },
+      {
+        // ABC.3b — conteo cíclico (clasificación ABC + agenda)
+        path: 'inventory/abc',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-abc.component').then(m => m.ComercialInventoryAbcComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+      },
+      {
+        // PA.1b — editor 2D de pasillos (layout + mapeo bulk SKU→pasillo)
+        path: 'inventory/aisles',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-aisles.component').then(m => m.ComercialInventoryAislesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
+      },
+      {
+        // PA.3 — tablero de equipos por folio (staffing por pasillo)
+        path: 'inventory/sessions/:id/teams',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-teams.component').then(m => m.ComercialInventoryTeamsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
+      },
+      {
+        path: 'warehouses',
+        loadComponent: () => import('./modules/comercial/pages/comercial-warehouses.component').then(m => m.ComercialWarehousesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]
+      },
+      {
+        path: 'dead-stock',
+        loadComponent: () => import('./modules/comercial/pages/comercial-dead-stock.component').then(m => m.ComercialDeadStockComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_DEADSTOCK_VER)]
+      },
+      {
+        path: 'inventory-health',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-health.component').then(m => m.ComercialInventoryHealthComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVHEALTH_VER)]
+      },
+      {
+        // PREV.1 — Prevención de Inventarios: expediente de investigación de diferencias + timeline SKU
+        path: 'prevencion',
+        loadComponent: () => import('./modules/almacen/pages/almacen-prevencion.component').then(m => m.AlmacenPrevencionComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PREVENTION_VER)]
+      },
+      {
+        // PREV.2 — Monitoreo intensivo + ventanas de pérdida
+        path: 'monitoreo',
+        loadComponent: () => import('./modules/almacen/pages/almacen-monitoreo.component').then(m => m.AlmacenMonitoreoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PREVENTION_VER)]
+      },
+      {
+        // PREV.3 — Índice de riesgo de inventario (prioridad de Prevención)
+        path: 'riesgo',
+        loadComponent: () => import('./modules/almacen/pages/almacen-riesgo.component').then(m => m.AlmacenRiesgoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PREVENTION_VER)]
+      },
+        ]
+      },
+    ]
+  },
+  // ── Proyecto Tienda ─────────────────────────────────────────────────
+  // Monitor de tickets de venta EN VIVO por sucursal (WebSocket /store).
+  {
+    path: 'tienda',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      // Redirect condicional (determinista): monitor en vivo si tiene STORE_LIVE_VER /
+      // manage:all; si solo tiene etiquetas (rol etiquetas_tienda), cae en /tienda/etiquetas.
+      { path: '', pathMatch: 'full', redirectTo: storeEntryRedirect },
+      {
+        path: 'live',
+        loadComponent: () => import('./modules/tienda/pages/tienda-live.component').then(m => m.TiendaLiveComponent),
+        canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
+      },
+      {
+        path: 'branches',
+        loadComponent: () => import('./modules/tienda/pages/tienda-branches.component').then(m => m.TiendaBranchesComponent),
+        canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
+      },
+      {
+        path: 'pace',
+        loadComponent: () => import('./modules/tienda/pages/tienda-pace.component').then(m => m.TiendaPaceComponent),
+        canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
+      },
+      {
+        // `[ETQ-CAMBIOS.1]` VA ANTES que `etiquetas`: esa ruta es una hoja (component, sin
+        // children), así que declarada primero se comería el prefijo y `etiquetas/cambios`
+        // nunca resolvería. Mismo permiso: quien imprime una etiqueta puede ver cuáles quedaron
+        // viejas — es la misma decisión.
+        path: 'etiquetas/cambios',
+        loadComponent: () => import('./modules/tienda/pages/tienda-cambios-precio.component').then(m => m.TiendaCambiosPrecioComponent),
+        canActivate: [permissionGuard(Permission.STORE_LABELS_VER)]
+      },
+      {
+        path: 'etiquetas',
+        loadComponent: () => import('./modules/tienda/pages/tienda-etiquetas.component').then(m => m.TiendaEtiquetasComponent),
+        canActivate: [permissionGuard(Permission.STORE_LABELS_VER)]
+      },
+      {
+        path: 'cajas',
+        loadComponent: () => import('./modules/tienda/pages/tienda-cajas.component').then(m => m.TiendaCajasComponent),
+        canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
+      },
+      {
+        path: 'arqueo',
+        loadComponent: () => import('./modules/tienda/pages/tienda-arqueo.component').then(m => m.TiendaArqueoComponent),
+        canActivate: [anyPermissionGuard(Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR)],
+        canDeactivate: [unsavedChangesGuard]
+      },
+      {
+        path: 'arqueos',
+        loadComponent: () => import('./modules/tienda/pages/tienda-arqueo-historial.component').then(m => m.TiendaArqueoHistorialComponent),
+        // SM.33 — Supervision: el historial por cajera no es de la cajera.
+        // Antes pedia STORE_ARQUEO_VER, que ella tiene. El backend ademas
+        // devuelve 403 en /store/arqueo/por-cajera: el guard es comodidad,
+        // la negativa real esta del otro lado.
+        canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
+      },
+      {
+        // `[TDA.A1]` Análisis de ventas — cuatro secciones sobre el MISMO recorte
+        // (rango + sucursal): Tráfico · Productos y proveedores · Clientes · Promociones.
+        //
+        // El shell monta el encabezado, el filtro y la barra de pestañas una sola vez; el
+        // estado va en `providers` de ESTA ruta (no `providedIn: 'root'`) para que entrar
+        // al módulo arranque limpio y salir lo suelte. Al ser providers de ruta, las 4
+        // hijas comparten la misma instancia sin depender del injector del outlet.
+        //
+        // La URL no cambió aunque la pantalla ya no sea sólo semanal: renombrarla rompería
+        // marcadores y el nav sin ganar nada. Los hijos cuelgan de ella, así que
+        // `/tienda/analisis-semanal` sigue abriendo Tráfico.
+        path: 'analisis-semanal',
+        loadComponent: () => import('./modules/tienda/analisis/analisis-shell.component').then(m => m.TiendaAnalisisShellComponent),
+        canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)],
+        providers: [AnalisisStateService],
+        children: [
+          {
+            path: '',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-trafico.component').then(m => m.TiendaAnalisisTraficoComponent),
+          },
+          {
+            path: 'productos',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-productos.component').then(m => m.TiendaAnalisisProductosComponent),
+          },
+          {
+            // `[TDA.A3]` Productos TOP: Pareto + Línea/Tipo/Grupo. Separada de
+            // «Proveedores y productos» porque son dos preguntas distintas.
+            path: 'top',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-top.component').then(m => m.TiendaAnalisisTopComponent),
+          },
+          {
+            path: 'clientes',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-clientes.component').then(m => m.TiendaAnalisisClientesComponent),
+          },
+          {
+            path: 'promociones',
+            loadComponent: () => import('./modules/tienda/analisis/analisis-promociones.component').then(m => m.TiendaAnalisisPromocionesComponent),
+          },
+        ],
+      },
+      {
+        // [CV.24] Verificador de precios de mostrador (kiosco con lector de barras).
+        // Los endpoints que consume son `@Public()` (`/api/kp/*`, `/api/sucursales`) porque
+        // también los lee un kiosco sin sesión; el permiso gatea la PANTALLA. Acepta
+        // `?sucursal=NN` para la máquina del mostrador que no tiene cuenta de esa tienda.
+        path: 'verificador',
+        loadComponent: () => import('./modules/tienda/pages/tienda-verificador.component').then(m => m.TiendaVerificadorComponent),
+        canActivate: [permissionGuard(Permission.STORE_PRICE_CHECK_VER)]
+      },
+      {
+        // `[FLT.10]` Lista de faltantes: la venta que NO ocurrió, capturada en el piso. Es el
+        // único dato de la suite que ningún feed puede ver — una venta que no pasó no deja rastro.
+        //
+        // Gate de CUALQUIERA de los dos permisos, no sólo VER: la cajera tiene únicamente
+        // CAPTURAR (medido — `cajero` ni siquiera tiene el del verificador), y con
+        // `permissionGuard(VER)` no podría entrar a la pantalla donde trabaja. Es la misma
+        // corrección que ya necesitó Caducidades.
+        //
+        // Acepta `?sucursal=NN` igual que el verificador, para la máquina del mostrador que no
+        // tiene cuenta de esa tienda.
+        path: 'faltantes',
+        loadComponent: () => import('./modules/tienda/pages/tienda-faltantes.component').then(m => m.TiendaFaltantesComponent),
+        canActivate: [anyPermissionGuard(Permission.STORE_STOCKOUT_VER, Permission.STORE_STOCKOUT_CAPTURAR)]
+      },
+      {
+        // `[BP.8]` Retiros en caja: el renglón que se quitó del ticket, con quién lo autorizó.
+        // Medido el 2026-09-28 — Kepler exige la contraseña del supervisor y después NO guarda
+        // el hecho en ningún lado, así que el único instrumento que queda es la persona.
+        //
+        // Gate de CUALQUIERA de los dos, igual que Faltantes y Caducidades: quien sólo registra
+        // tiene que poder entrar a la pantalla donde registra y ver lo que registró.
+        path: 'retiros',
+        loadComponent: () => import('./modules/tienda/pages/tienda-retiros.component').then(m => m.TiendaRetirosComponent),
+        canActivate: [anyPermissionGuard(Permission.STORE_POS_VOID_VER, Permission.STORE_POS_VOID_CAPTURAR)]
+      },
+      {
+        // Caducidades de tienda (2026-09-08): captura directa, un producto a la
+        // vez, en la sucursal del usuario. Reemplaza el alta por "hoja" que
+        // vivía acá; `/almacen/inventory/caducidades` sigue con la lista de hojas.
+        //
+        // Gate de CUALQUIERA de los dos permisos, no solo VER: el colaborador de
+        // sucursal tiene únicamente CAPTURAR y con `permissionGuard(VER)` no
+        // podía ni entrar a la pantalla donde trabaja. La pantalla adentro decide
+        // qué le muestra a cada uno (captura / historial).
+        path: 'caducidades',
+        loadComponent: () => import('./modules/tienda/pages/tienda-caducidades.component').then(m => m.TiendaCaducidadesComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR)]
+      },
+      {
+        // Expediente: las hojas (una por producto) archivadas por sucursal.
+        // Va ANTES de `caducidades/:id` — Angular matchea en orden y `:id` se
+        // tragaría `expediente` como si fuera el id de una hoja.
+        path: 'caducidades/expediente',
+        loadComponent: () => import('./modules/tienda/pages/tienda-caducidades-expediente.component').then(m => m.TiendaCaducidadesExpedienteComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_VER)]
+      },
+      {
+        // El formato imprimible de UNA hoja. Acepta folio (`CAD-03-2026-00001`) o
+        // el id del renglón. Gate de cualquiera de los dos permisos: quien
+        // capturó tiene que poder imprimir su hoja para firmarla y archivarla.
+        path: 'caducidades/hoja/:folioOrId',
+        loadComponent: () => import('./modules/tienda/pages/tienda-caducidad-hoja.component').then(m => m.TiendaCaducidadHojaComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR)]
+      },
+      {
+        path: 'caducidades/:id',
+        loadComponent: () => import('./modules/comercial/pages/comercial-expiry-review-detail.component').then(m => m.ComercialExpiryReviewDetailComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_VER)]
+      },
+    ]
+  },
+  {
+    path: 'logistica',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      // Landing dinámico: primera superficie accesible del rol (guard → UrlTree).
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [logisticaHomeGuard],
+        loadComponent: () => import('./modules/logistica/pages/logistica-dashboard.component').then(m => m.LogisticaDashboardComponent),
+      },
+      {
+        path: 'dashboard',
+        loadComponent: () => import('./modules/logistica/pages/logistica-dashboard.component').then(m => m.LogisticaDashboardComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      {
+        path: 'shipments',
+        loadComponent: () => import('./modules/logistica/pages/logistica-shipments.component').then(m => m.LogisticaShipmentsComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      {
+        path: 'guides',
+        loadComponent: () => import('./modules/logistica/pages/logistica-guides.component').then(m => m.LogisticaGuidesComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_GUIDES_VER)]
+      },
+      {
+        // FC.1 — El padrón de personal vive como pestaña dentro de Flotilla
+        // (misma tabla `logistics.drivers`, mismo permiso). Esta ruta se
+        // conserva para no romper links guardados, pero salió del nav: dos
+        // puertas a la misma población confundían.
+        path: 'staff',
+        loadComponent: () => import('./modules/logistica/pages/logistica-staff.component').then(m => m.LogisticaStaffComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
+      },
+      {
+        path: 'costs',
+        loadComponent: () => import('./modules/logistica/pages/logistica-costs.component').then(m => m.LogisticaCostsComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_EXPENSES_VER)]
+      },
+      {
+        // RD.4 + RD.5 — gasto de flota y operación (odómetro / $/km) de Ruta Directa.
+        // La ruta la declara `authz-tree.ts` desde RD.4; hasta hoy no tenía componente.
+        path: 'gasto-ruta',
+        loadComponent: () => import('./modules/logistica/pages/logistica-gasto-ruta.component').then(m => m.LogisticaGastoRutaComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_ROUTE_EXPENSES_VER)]
+      },
+      {
+        // Fase T — Traspasos (movimientos que NO son venta): consolidación UD06, recepción UA50, traspasos.
+        path: 'traspasos',
+        loadComponent: () => import('./modules/logistica/pages/logistica-traspasos.component').then(m => m.LogisticaTraspasosComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_TRANSFERS_VER)]
+      },
+      {
+        path: 'shipments/:id',
+        loadComponent: () => import('./modules/logistica/pages/logistica-shipment-detail.component').then(m => m.LogisticaShipmentDetailComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      // J.8 — checklists, fotos, reports
+      {
+        path: 'shipments/:shipmentId/checklists',
+        loadComponent: () => import('./modules/logistica/pages/logistica-checklist.component').then(m => m.LogisticaChecklistComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      {
+        path: 'shipments/:shipmentId/photos',
+        loadComponent: () => import('./modules/logistica/pages/logistica-photos.component').then(m => m.LogisticaPhotosComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      {
+        path: 'reports',
+        loadComponent: () => import('./modules/logistica/pages/logistica-reports.component').then(m => m.LogisticaReportsComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      // J.9.7 — Driver Assignments (mobile-first "mis entregas" del chofer)
+      {
+        path: 'my-assignments',
+        loadComponent: () => import('./modules/logistica/pages/logistica-driver-assignments.component').then(m => m.LogisticaDriverAssignmentsComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      {
+        path: 'fleet',
+        loadComponent: () => import('./modules/logistica/pages/logistica-fleet.component').then(m => m.LogisticaFleetComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
+      },
+      // J12.1 — Flota en vivo (rastreo web del chofer)
+      {
+        path: 'live',
+        loadComponent: () => import('./modules/logistica/pages/logistica-live.component').then(m => m.LogisticaLiveComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
+      },
+      // LT — Rastreo de flota logística (foráneas/embarques/motos). Solo route_number IS NULL.
+      {
+        path: 'rastreo',
+        data: { fleet: 'logistics' },
+        loadComponent: () => import('./modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
+      },
+      // LTV.0 + LTV.5 — Actividad de la flota logística
+      {
+        path: 'actividad',
+        data: { fleet: 'logistics' },
+        loadComponent: () => import('./modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
+      },
+      // Hub "Rastreo" (flota logística): Flota en vivo + Rastreo GPS + Actividad en tabs ruteadas.
+      {
+        path: 'tracking',
+        loadComponent: () => import('./shared/components/tab-shell/tab-shell.component').then(m => m.TabShellComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)],
+        data: { tabs: [
+          { label: 'Flota en vivo', path: 'live', icon: 'pi-map-marker' },
+          { label: 'Rastreo GPS', path: 'gps', icon: 'pi-map' },
+          { label: 'Actividad', path: 'actividad', icon: 'pi-chart-bar' },
+        ] },
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'live' },
+          { path: 'live', loadComponent: () => import('./modules/logistica/pages/logistica-live.component').then(m => m.LogisticaLiveComponent) },
+          { path: 'gps', data: { fleet: 'logistics' }, loadComponent: () => import('./modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent) },
+          { path: 'actividad', data: { fleet: 'logistics' }, loadComponent: () => import('./modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent) },
+        ],
+      },
+      // J12.3 — Planeador de ruta (mapa + optimización)
+      {
+        path: 'planner',
+        loadComponent: () => import('./modules/logistica/pages/logistica-planner.component').then(m => m.LogisticaPlannerComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      {
+        path: 'payroll',
+        loadComponent: () => import('./modules/logistica/pages/logistica-payroll.component').then(m => m.LogisticaPayrollComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_PAYROLL_VER)]
+      },
+      {
+        path: 'config',
+        loadComponent: () => import('./modules/logistica/pages/logistica-config.component').then(m => m.LogisticaConfigComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_CONFIG_GESTIONAR)]
+      },
+    ]
+  },
+  // ── Proyecto Administración (cross-cutting) ─────────────────────────
+  // Gestión de usuarios + roles + permisos. No pertenece a un proyecto operativo.
+  {
+    path: 'admin',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      // `[SN.4]` Landing dinámico (antes `redirectTo: 'users'` fijo, que exige USUARIOS_GESTIONAR
+      // y rebotaba a quien sólo tiene ROLES_VER).
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [adminHomeGuard],
+        loadComponent: () => import('./modules/admin/pages/admin-personas.component').then(m => m.AdminPersonasComponent),
+      },
+      {
+        /*
+         * `[AU.1]` La puerta abre con `USUARIOS_VER`, no con `USUARIOS_GESTIONAR`.
+         *
+         * El árbol de authz declara esta pantalla como `view: [USUARIOS_VER]`
+         * (`authz-tree.ts`), y la ruta exigía el permiso de ESCRIBIR. Medido en
+         * prod: entraban **sólo los 9 superadmin**, y otras **10 personas con
+         * `USUARIOS_VER` rebotaban** — 6 encargados de tienda, 3 supervisores de
+         * ventas y 1 jefe de mercadotecnia. Un permiso que el árbol promete y la
+         * ruta no honra es una compuerta muerta, que es lo que ADR-054 midió
+         * cuatro veces.
+         *
+         * ⛔ No afloja nada: escribir sigue exigiendo `USUARIOS_GESTIONAR`, y lo
+         * valida el BACKEND en cada `POST`/`PUT`/`DELETE` — el botón escondido es
+         * cortesía, la barrera está del otro lado.
+         *
+         * Y el alcance ya estaba resuelto: `alcanceDelPadron()` (`[ID.27]`/`[ID.35]`)
+         * acota a cada quien. Medido, lo que ve cada uno de los 10 al abrir:
+         * los 6 encargados 5–13 (el personal de SU sucursal), los 3 supervisores
+         * 7–14 (su equipo).
+         *
+         * ⚠️ `anyPermissionGuard`, no `permissionGuard(USUARIOS_VER)`: con la clave
+         * sola, quien tuviera `USUARIOS_GESTIONAR` **sin** `USUARIOS_VER` quedaría
+         * afuera de la pantalla que administra. Hoy nadie está así (los 2 roles que
+         * conceden GESTIONAR conceden VER), pero el gate es literal y el editor de
+         * roles deja dejarlo en ese estado con dos clics. Lo atrapó
+         * `landing-guards.spec.ts`, que es para lo que existe.
+         */
+        path: 'users',
+        loadComponent: () => import('./modules/admin/pages/admin-personas.component').then(m => m.AdminPersonasComponent),
+        canActivate: [anyPermissionGuard(Permission.USUARIOS_VER, Permission.USUARIOS_GESTIONAR)]
+      },
+      {
+        /*
+         * `[GX.16]` Áreas de gasto: con cuál nombre de «solicitante» de Kepler se le
+         * reconocen sus gastos a cada persona.
+         *
+         * Existe porque el selector por usuario no alcanzaba: medido el 2026-09-24,
+         * **0 de 76** personas que capturan o revisan gastos tenían un área asignada, y
+         * asignarlas era abrir 76 diálogos. El efecto no se veía como error — la persona
+         * abría su bandeja y encontraba una lista vacía.
+         *
+         * `USUARIOS_GESTIONAR` y no un permiso nuevo: lo que se escribe es un campo de
+         * `users`, y quien administra usuarios ya podía hacer esto mismo diálogo por
+         * diálogo. Un permiso nuevo exigiría migración y re-login sin dar nada que no
+         * se tuviera ya.
+         */
+        path: 'areas-gasto',
+        loadComponent: () => import('./modules/dashboard/admin-users/areas-gasto.component').then(m => m.AreasGastoComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSE_AREAS_GESTIONAR)]
+      },
+      {
+        // `[AU.3]` El catálogo de puestos y la cadena de mando. Hasta ahora sólo
+        // se administraba por migración.
+        path: 'puestos',
+        loadComponent: () => import('./modules/admin/pages/admin-puestos.component').then(m => m.AdminPuestosComponent),
+        canActivate: [anyPermissionGuard(Permission.USUARIOS_VER, Permission.USUARIOS_GESTIONAR)]
+      },
+      {
+        // `[AU.4]` De qué responde cada puesto, con el diagnóstico de si su
+        // perfil puede abrirlo.
+        path: 'responsabilidades',
+        loadComponent: () => import('./modules/admin/pages/admin-responsabilidades.component').then(m => m.AdminResponsabilidadesComponent),
+        canActivate: [anyPermissionGuard(Permission.USUARIOS_VER, Permission.USUARIOS_GESTIONAR)]
+      },
+      {
+        // P2.6 — asignar marcas a promotores (scoping del Control de Caducidades)
+        path: 'promotores',
+        loadComponent: () => import('./modules/dashboard/admin-promoters/admin-promoters.component').then(m => m.AdminPromotersComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTERS_GESTIONAR)]
+      },
+      {
+        // La cartera de ventas vive en /comercial/cartera (dominio comercial).
+        // Redirect para no romper enlaces viejos a /admin/cartera.
+        path: 'cartera',
+        redirectTo: '/comercial/cartera',
+        pathMatch: 'full',
+      },
+      {
+        path: 'roles',
+        loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
+        canActivate: [permissionGuard(Permission.ROLES_VER)]
+      },
+      {
+        path: 'db-health',
+        loadComponent: () => import('./modules/dashboard/admin-db-health/admin-db-health.component').then(m => m.AdminDbHealthComponent),
+        canActivate: [permissionGuard(Permission.PLATFORM_HEALTH_VER)]
+      },
+      {
+        path: 'roles/:role_name/permissions',
+        loadComponent: () => import('./modules/dashboard/admin-roles/admin-roles-permissions.component').then(m => m.AdminRolesPermissionsComponent),
+        canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
+      },
+    ]
+  },
+  {
+    /**
+     * `[E.13]` Monta el layout común, como los otros 13 proyectos. Tenía un shell propio
+     * (header + nav arriba, sin sidebar, sin migaja) y era el ÚNICO que no lo hacía.
+     *
+     * Lo que gana por montar el layout, medido, no son sólo pixeles:
+     *  · el sidebar, la migaja Espacio › Proyecto y la vuelta a "Mi trabajo" dejan de estar
+     *    escritos a mano en un archivo aparte;
+     *  · hereda el outlet `panel` — el bloque del final de este archivo lo deriva de
+     *    `component === LayoutComponent`, así que la pantalla partida nunca le llegó.
+     *
+     * ⚠️ El shell proveía `MessageService` y pintaba el `p-toast` para sus 5 páginas hijas.
+     * El layout NO provee ninguno de los dos (medido): cada página se los da ahora a sí misma,
+     * que es lo que hacen las otras 105 de la app.
+     */
+    path: 'telemarketing',
+    canActivate: [televentaGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
+      // E.4 — Dashboard métricas
+      {
+        path: 'dashboard',
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-dashboard.component').then(
+            (m) => m.TeleventaDashboardComponent,
+          ),
+      },
+      {
+        path: 'queue',
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-queue.component').then(
+            (m) => m.TeleventaQueueComponent,
+          ),
+      },
+      // [E.12] Cotizaciones de mayoreo. Guard PROPIO y no heredado del shell: el
+      // `televentaGuard` pide COMMERCIAL_TELEVENTA_OPERATE, y cotizar es otra llave
+      // (COMMERCIAL_QUOTES_VER). El RolesGuard es exact-key: no hay herencia entre hermanos.
+      {
+        path: 'cotizaciones',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_QUOTES_VER)],
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-quotes.component').then(
+            (m) => m.TeleventaQuotesComponent,
+          ),
+      },
+      // [E.12.1] Alta. Va ANTES que cualquier ':id' de cotizaciones y con permiso de GESTIONAR,
+      // no el de ver: entrar al alta es empezar a ofrecer precio.
+      {
+        path: 'cotizaciones/nueva',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_QUOTES_GESTIONAR)],
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-quote-new.component').then(
+            (m) => m.TeleventaQuoteNewComponent,
+          ),
+      },
+      {
+        /**
+         * `[COT.1b]` El detalle: es donde se le cargan los renglones. Hasta ahora NO existía, así
+         * que la mesa era un callejón sin salida — se podía crear una cotización y después no se
+         * podía abrir, aunque `getOne` y `cancel` ya estuvieran en el servicio.
+         *
+         * ⚠️ Va DESPUÉS de `cotizaciones/nueva`: un `:id` declarado antes se comería la palabra
+         * "nueva" como si fuera un identificador.
+         *
+         * Permiso de VER y no de GESTIONAR: mirar lo que se cotizó no es ofrecer precio. La
+         * pantalla esconde sola los controles de edición cuando falta la llave o la cotización
+         * ya no es borrador.
+         */
+        path: 'cotizaciones/:id',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_QUOTES_VER)],
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-quote-detail.component').then(
+            (m) => m.TeleventaQuoteDetailComponent,
+          ),
+      },
+      {
+        path: 'my',
+        // Reusa el mismo queue component (muestra Mis reservas activas arriba).
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-queue.component').then(
+            (m) => m.TeleventaQueueComponent,
+          ),
+      },
+      {
+        path: 'lead/:customer_id',
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-lead.component').then(
+            (m) => m.TeleventaLeadComponent,
+          ),
+      },
+      {
+        path: 'lead/:customer_id/take-order',
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-take-order.component').then(
+            (m) => m.TeleventaTakeOrderComponent,
+          ),
+      },
+      // E.12 — Cotizaciones de mayoreo
+      /**
+       * `[COT.1b]` Acá vivía una SEGUNDA declaración de `path: 'cotizaciones'` en este mismo
+       * `children`. Angular toma la primera, así que era código muerto — y era la **más
+       * permisiva**: su `anyPermissionGuard(QUOTES_VER, TELEVENTA_OPERATE)` habría vuelto
+       * decorativo el permiso nuevo (cualquiera que opere telemarketing entraría sin la llave
+       * de cotizar). Se borró: dos guards que dicen proteger la misma URL, y el que alguien lee
+       * segundo es el que nunca corre. Queda el `permissionGuard(COMMERCIAL_QUOTES_VER)` exacto
+       * de arriba. La fase lo había anotado en `FASE_E12` §6 y seguía vivo.
+       */
+    ],
+  },
+  {
+    // E.9 — la ruta canónica es /telemarketing (el ERP, el rol de prod y toda la pantalla
+    // llaman así al canal). `/televenta/*` sigue viva como redirect porque hay enlaces
+    // guardados y marcadores: el `**` conserva los segmentos, así que
+    // /televenta/lead/123/take-order aterriza en /telemarketing/lead/123/take-order.
+    // Sin componente a propósito: no debe existir una segunda copia de la pantalla en la
+    // URL vieja — una sola URL canónica.
+    //
+    // Devuelve UrlTree, no string: un `redirectTo` FUNCIONAL que devuelve string **tira los
+    // query params** (el `redirectTo` estático sí los conserva — la asimetría no está en la
+    // doc y la cazó el spec). Con el UrlTree armado a mano viajan query params y fragment.
+    path: 'televenta',
+    children: [
+      {
+        path: '**',
+        redirectTo: ({ url, queryParams, fragment }) =>
+          inject(Router).createUrlTree(['/telemarketing', ...url.map((s) => s.path)], {
+            queryParams,
+            fragment: fragment ?? undefined,
+          }),
+      },
+    ],
+  },
+  {
+    // Módulo Reparto — personal de tienda: asignar pedidos a domicilio + cortes de caja.
+    path: 'reparto',
+    canActivate: [repartoGuard],
+    component: LayoutComponent,
+    children: [
+      // `[SU.2.1]` El índice ya no manda fijo a 'asignar': quien sólo tiene Surtido rebotaría.
+      { path: '', canActivate: [repartoHomeGuard], children: [] },
+      // ⚠️ Las 4 pantallas de a domicilio ganan su `permissionGuard`. No lo tenían porque el
+      // guard del proyecto exigía REPARTO_DESPACHAR para todo `/reparto` y hacía de control
+      // único; al abrir la puerta para Surtido, sin esto alguien con COMMERCIAL_PICKING_VER
+      // entraría a los cortes del repartidor.
+      {
+        path: 'asignar',
+        loadComponent: () =>
+          import('./modules/reparto/pages/home-delivery-dispatch.component').then((m) => m.HomeDeliveryDispatchComponent),
+        canActivate: [permissionGuard(Permission.REPARTO_DESPACHAR)],
+      },
+      {
+        path: 'pedidos-whatsapp',
+        loadComponent: () =>
+          import('./modules/reparto/pages/whatsapp-orders.component').then((m) => m.WhatsAppOrdersComponent),
+        canActivate: [permissionGuard(Permission.REPARTO_DESPACHAR)],
+      },
+      {
+        path: 'seguimiento',
+        loadComponent: () =>
+          import('./modules/reparto/pages/home-delivery-tracking.component').then((m) => m.HomeDeliveryTrackingComponent),
+        canActivate: [permissionGuard(Permission.REPARTO_DESPACHAR)],
+      },
+      {
+        path: 'cortes',
+        loadComponent: () =>
+          import('./modules/reparto/pages/rider-liquidation.component').then((m) => m.RiderLiquidationComponent),
+        canActivate: [permissionGuard(Permission.REPARTO_DESPACHAR)],
+      },
+      {
+        // Fase SU (ADR-067) — Surtido: UNA pantalla para UNA persona (arma el recorrido, lo
+        // camina, lo cierra). Vive en Reparto porque prepara lo que se reparte.
+        path: 'surtido',
+        loadComponent: () =>
+          import('./modules/reparto/pages/reparto-surtido.component').then((m) => m.RepartoSurtidoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_VER)],
+      },
+    ],
+  },
+  {
+    path: '',
+    redirectTo: '/projects',
+    pathMatch: 'full'
+  },
+  {
+    // 403. Dentro del layout, igual que el 404: el sidebar es la salida.
+    // Recibe ?from= (ruta vedada) y ?perm= (permiso que faltó) del guard.
+    path: 'sin-acceso',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        loadComponent: () =>
+          import('./modules/errors/forbidden.component').then((m) => m.ForbiddenComponent),
+      },
+    ],
+  },
+  {
+    // 404. Va DENTRO del layout: el sidebar es la salida más rápida, y como el
+    // layout deduce el proyecto leyendo la URL, un 404 bajo /comercial/… sale con
+    // el menú de Comercial al lado. Antes esto redirigía a /login, que con la
+    // sesión viva se leía como "se te cayó la sesión" por un dedazo en la URL.
+    // Sin sesión, authGuard sigue mandando a /login, que es lo correcto.
+    path: '**',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        loadComponent: () =>
+          import('./modules/errors/not-found.component').then((m) => m.NotFoundComponent),
+      },
+    ],
+  }
+];
+
+/**
+ * `[MT.5]` — El PANEL de la pantalla partida.
+ *
+ * Cada una de las 12 rutas de área gana un hijo al outlet `panel`. El árbol que
+ * cuelga de ahí es el espejo aplanado de TODAS las áreas (ver `panel-routes`):
+ * eso es lo que permite tener cartera a la izquierda y el documento a la
+ * derecha, que es el caso que la pantalla partida existe para resolver.
+ *
+ * ── Por qué se agrega acá y no escrito en las 12 ─────────────────────────────
+ * Escribirlo a mano son 12 copias que hay que acordarse de poner cuando nazca
+ * el área 13. Este bloque lo deriva de la misma condición que define un área
+ * (`component === LayoutComponent` con hijos), así que el área nueva lo hereda
+ * sin que nadie se acuerde.
+ *
+ * ── Por qué no cuesta nada mientras nadie parta la pantalla ──────────────────
+ * Es UN objeto de ruta por área con `loadChildren`: el espejo no se arma hasta
+ * que el router tiene que resolver un segmento del outlet `panel`, o sea hasta
+ * que alguien abre algo al lado. Y no toca el matching del outlet primario: una
+ * ruta con `outlet` sólo se considera para ESE outlet.
+ */
+/**
+ * El aux route del panel se activa **sólo si la URL trae algo para el panel**.
+ *
+ * ⛔ Acá estaba el defecto de fondo, y está una capa más abajo de donde parecía.
+ * Esto era `path: ''`, y a una ruta de outlet NOMBRADO con hijos y sin
+ * componente Angular le pone `ɵEmptyOutletComponent` por su cuenta
+ * (`standardizeConfig`). O sea que el camino vacío matcheaba SIEMPRE, el outlet
+ * `panel` emitía `(activate)` en **todas** las pantallas de la Suite, y el
+ * layout —que escucha justamente ese evento para saber si hay panel— abría 960
+ * px de columna que nadie pidió. La X entonces "no hacía nada": sacaba el panel
+ * de la URL (eso funcionaba) pero el outlet se volvía a activar solo.
+ *
+ * Medido en producción sobre `176dee6e`: `/comercial/command-center`, una URL
+ * sin nada de panel, abría el panel con el 404 de la app adentro.
+ *
+ * `consumed: []` no consume segmentos: deja que los hijos —el espejo— matcheen
+ * el camino completo. Lo único que agrega es la condición que faltaba.
+ */
+const soloSiPidenPanel: UrlMatcher = (segmentos) => (segmentos.length > 0 ? { consumed: [] } : null);
+
+// ⛔ `r.path !== '**'`: el 404 de la app vive DENTRO del layout (para salir por
+// el sidebar), así que cumple las otras dos condiciones y se colaba como área.
+// Espejarlo mete un comodín en el panel; recibir el aux route le pone un panel
+// al propio 404. Un comodín no es un área: no tiene camino propio que prefijar.
+const esArea = (r: (typeof routes)[number]) =>
+  r.component === LayoutComponent && !!r.children?.length && !!r.path && r.path !== '**';
+for (const area of routes) {
+  if (!esArea(area) || !area.path) continue;
+  area.children!.push({
+    matcher: soloSiPidenPanel,
+    outlet: 'panel',
+    loadChildren: () => rutasDelPanel(routes, esArea),
+  });
+}

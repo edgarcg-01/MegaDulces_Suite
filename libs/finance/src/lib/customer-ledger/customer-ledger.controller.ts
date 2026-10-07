@@ -1,0 +1,155 @@
+import { Controller, Get, Post, Param, Query, Body, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { RolesGuard, RequirePermissions, Permission, TenantContextService } from '@megadulces/platform-core';
+import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
+// ⚠️ `import type`: con `emitDecoratorMetadata` + `isolatedModules`, un tipo usado en la firma de
+// un método decorado tiene que entrar así o el compilador lo rechaza (TS1272).
+import type { PorDiaResp } from './customer-ledger.service';
+import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
+
+interface AuthedRequest { user?: { username?: string } }
+
+/**
+ * Fase CXC (ADR-048) — Cartera de clientes / Partidas vivas (CxC). Estado de cuenta
+ * read-only sobre Kepler (kdue). Cartera + aging por cliente y auxiliar por cliente.
+ */
+@ApiTags('finance-customer-ledger')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
+@Controller('finance/receivables')
+export class CustomerLedgerController {
+  constructor(
+    private readonly svc: CustomerLedgerService,
+    private readonly scanner: CustomerReceivablesScannerService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  @Post('scan-now')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Corre el detector de riesgo de cartera ahora (vencido / sobre-límite) → bandeja Maat.' })
+  async scanNow() {
+    const inserted = await this.scanner.scanTenant(this.tenantCtx.requireTenantId());
+    return { inserted };
+  }
+
+  @Get()
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Cartera CxC por cliente: saldo + vencido + aging + KPIs.' })
+  cartera(
+    @Query('sucursal') sucursal?: string,
+    @Query('cliente') cliente?: string,
+    @Query('vendedor') vendedor?: string,
+    @Query('grupo') grupo?: string,
+    @Query('zona') zona?: string,
+    /** `[CXC.25]` cliente_final | interno | ruta — a quién le estás cobrando. */
+    @Query('cuenta') cuenta?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('incluir_saldados') incluir_saldados?: string,
+    @Query('search') search?: string,
+    @Query('sort') sort?: 'saldo' | 'vencido',
+    @Query('limit') limit?: string,
+  ) {
+    const q: CarteraQuery = { sucursal, cliente, vendedor, grupo, zona, cuenta, from, to, incluir_saldados, search, sort, limit: limit ? Number(limit) : undefined };
+    return this.svc.cartera(q);
+  }
+
+  // Rutas de 1 segmento declaradas ANTES de ':sucursal/:cliente' (2 segmentos) — sin colisión.
+  @Get('filtros')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Valores distintos para los selects (sucursal/grupo/zona/vendedor).' })
+  filtros() { return this.svc.filtros(); }
+
+  @Get('resumen')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Resumen gerencial: DSO, concentración top-10, proyección de cobranza, por vendedor/zona.' })
+  resumen(
+    @Query('sucursal') sucursal?: string, @Query('grupo') grupo?: string, @Query('zona') zona?: string,
+    @Query('vendedor') vendedor?: string, @Query('cuenta') cuenta?: string, @Query('search') search?: string,
+  ) {
+    return this.svc.resumen({ sucursal, grupo, zona, vendedor, cuenta, search });
+  }
+
+  /**
+   * `[CXC.26]` La misma cartera con el DÍA como eje: quiénes deben cada día y qué día cobrar.
+   *
+   * ⚠️ De UN segmento, así que va antes de `:sucursal/:cliente` — misma nota que encabeza
+   * `filtros` y `producto`. Se repite porque es el error que este controller invita a cometer.
+   *
+   * Mismo permiso que la vista por cliente: **es el mismo dato, reagrupado**. Un permiso nuevo
+   * acá sería una puerta que nadie pidió sobre información que el rol ya puede ver.
+   */
+  @Get('por-dia')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Cartera por día de vencimiento: agenda de cobranza (vencido + por vencer) con sus clientes.' })
+  porDia(
+    @Query('sucursal') sucursal?: string, @Query('vendedor') vendedor?: string,
+    @Query('grupo') grupo?: string, @Query('zona') zona?: string,
+    @Query('cuenta') cuenta?: string, @Query('search') search?: string,
+  ): Promise<PorDiaResp> {
+    return this.svc.porDia({ sucursal, vendedor, grupo, zona, cuenta, search });
+  }
+
+  @Get('tendencia')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Tendencia de cartera (snapshots diarios): saldo / vencido / % vencido.' })
+  tendencia(@Query('sucursal') sucursal?: string, @Query('dias') dias?: string) {
+    return this.svc.tendencia({ sucursal, dias: dias ? Number(dias) : undefined });
+  }
+
+  /**
+   * `[CXC.20]` Corre por el MISMO camino que el cron (`scanAll`), no por `snapshotTenant` suelto.
+   *
+   * Así era antes y por eso una corrida manual **no dejaba latido**: la foto entraba a la tabla y
+   * `analytics.cron_runs` se quedaba con el estado de la corrida anterior. Medido en prod el
+   * 2026-09-24: 9 fotos del 23-sep contra un latido en `error` del 22-sep — imposible saber, sin
+   * abrir la base, si el trabajo estaba roto o si alguien lo había disparado a mano.
+   */
+  @Post('snapshot-now')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Captura el snapshot de cartera de hoy (para la tendencia) y deja latido.' })
+  async snapshotNow() {
+    const { tenants, findings } = await this.scanner.scanAll();
+    return { tenants, findings };
+  }
+
+  // Compromisos de pago (CXC.13). 'promise/:id/resolve' declarado antes que ':sucursal/:cliente'.
+  @Post('promise/:id/resolve')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Resuelve un compromiso de pago: cumplida | incumplida | cancelada.' })
+  resolvePromise(@Param('id') id: string, @Body('estado') estado: 'cumplida' | 'incumplida' | 'cancelada', @Req() req: AuthedRequest) {
+    return this.svc.resolvePromise(id, estado, req.user?.username);
+  }
+
+  @Post(':sucursal/:cliente/promise')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Registra un compromiso de pago (promesa de cobro) del cliente.' })
+  createPromise(
+    @Param('sucursal') sucursal: string, @Param('cliente') cliente: string,
+    @Body() body: { monto: number; fecha: string; nota?: string }, @Req() req: AuthedRequest,
+  ) {
+    return this.svc.createPromise(sucursal, cliente, body, req.user?.username);
+  }
+
+  /**
+   * `[CXC.SKU.1]` Buscar por SKU o descripción: qué facturas Y qué notas de crédito o
+   * devoluciones tocaron ese producto.
+   *
+   * ⚠️ Va ANTES de `:sucursal/:cliente` — es de UN segmento y si quedara después,
+   * Express lo casaría como sucursal='producto'. Es la misma nota que encabeza
+   * `filtros` acá arriba; se repite porque es el error que esta ruta invita a cometer.
+   */
+  @Get('producto')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Documentos que tocaron un producto: facturas + notas de crédito/devoluciones.' })
+  buscarPorProducto(@Query('q') q?: string, @Query('limit') limit?: string) {
+    return this.svc.buscarPorProducto({ texto: q, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get(':sucursal/:cliente')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Auxiliar de un cliente: partidas vivas con saldo por documento + aging + abonos + compromisos.' })
+  detalle(@Param('sucursal') sucursal: string, @Param('cliente') cliente: string) {
+    return this.svc.detalle(sucursal, cliente);
+  }
+}

@@ -1,0 +1,92 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# [CT.4] LA AGENDA DEL RECONCILIADOR FULL, versionada.
+#
+# ⛔ POR QUÉ EXISTE ESTE ARCHIVO
+# Hasta el 2026-09-24 esta agenda vivía DENTRO de una cadena de shell del
+# `command:` de `ops/vl/docker-compose.yml`:
+#
+#     'node …/reconcile-ods-window.js --full … ; echo "0 3 * * * …" | crontab - ; exec crond -f'
+#
+# O sea que el contenedor se escribía su propio crontab en runtime. Eso rompe lo
+# que ADR-060 vino a arreglar: la agenda tiene que verse en un diff. Un inventario
+# de agendas por archivo NO la encontraba — `grep` sobre `crontab.*` daba cero, y
+# el horario real sólo aparecía leyendo una línea de YAML de 300 caracteres.
+#
+# ⛔ Y SE FUE LA PASADA DE ARRANQUE, que era la OTRA agenda no declarada.
+# El comando corría una pasada `--full --delete-sobrantes` **al arrancar el
+# contenedor**. "Cada vez que alguien reinicie" es una agenda que nadie escribió, y
+# se cobró tres veces el mismo día:
+#   · el 2026-09-24 a las 09:06 corrió por un recreate, en horario hábil (108 s);
+#   · a las 15:05, tras el corte de corriente, se disparó sola y FALLÓ con
+#     `ERR the database system is starting up` — arrancó 2 s antes que Postgres;
+#   · y no dejó latido de error, porque el carril lleva `ODS_HB_IGNORE_ERROR=1`.
+#     Falló en silencio y el tablero siguió mostrando la corrida de las 09:06.
+#   · Encima era el motivo de que este contenedor fuera el ÚNICO que no se podía
+#     recrear en horario hábil, y por eso quedó atrás en la deriva que arregló CT.1.
+# Ahora corre cuando lo dice este archivo, y nada más.
+#
+# ⛔ NO A LAS 03:00. Ahí corre `nightly` (ops/vl/crontab.feeds), que tarda **48 min**
+# medidos el 2026-09-24 (03:00 → 03:48). Los dos apuntaban al mismo minuto contra el
+# mismo Postgres. La lección de VL.4 fue exactamente ésta: *"los cuatro carriles más
+# pesados cayendo juntos en el mismo minuto … el ship del ODS empezó a morir con
+# `canceling statement due to statement timeout`"*.
+#
+# Ventana elegida: **02:10 MX**, libre todos los días —los respaldos terminan 23:30,
+# `nightly` arranca 03:00, y el `catalog` de los sábados es a las 02:00 en punto—.
+#
+# ⚠️ FIN DE LÍNEA LF, OBLIGATORIO. `.gitattributes` trae `crontab.* text eol=lf` y
+# `ops/ingest/Dockerfile` vuelve a limpiarlo y ASERTA que no quedó ningún CR. No es
+# paranoia: un `\r` al final hizo que `argv.includes('--apply')` —comparación
+# exacta— no matcheara `--apply\r`, y NUEVE carriles corrieron en seco diciendo
+# "ok" durante horas, sin escribir latido, dejando la marca vieja en el tablero.
+#
+# ⚠️ El env NO se sourcea acá, a diferencia de `crontab.feeds`: este contenedor
+# recibe `ingest.env` por `env_file:` del compose y busybox crond se lo pasa al job
+# (verificado: la corrida de las 03:01 del 2026-09-24 entregó con esta misma forma).
+# `crontab.feeds` tiene que sourcear porque su contenedor NO usa `env_file` — monta
+# el secreto y lo lee por carril.
+#
+# ⚠️ `cd /app` explícito: crond lanza desde `/root` y los pasos usan rutas relativas.
+# Sin esto el mismo comando da 2/2 OK por `docker exec` y 0/2 desde cron.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Reconciliación FULL de las tres tablas de movimiento grandes, con borrado de
+# sobrantes. Es el único carril que propaga DELETE al ODS (el CDC por WAL se retiró
+# en OBS.8). Sus dos frenos anti-catástrofe viven en el código, no acá:
+# re-confirmación full-table de cada sobrante + `ODS_DELETE_MAX_FRAC=0.6`.
+10 2 * * * cd /app && node database/importers/kepler/reconcile-ods-window.js --full --delete-sobrantes --apply --tables=kdpord,kdm2,kdij >> /proc/1/fd/1 2>&1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [OBS.12] DEDUP de las tablas contables `kdc2YYMM`.
+#
+# Es un defecto DISTINTO del de arriba y por eso es otra línea, no un `--tables`
+# más en la anterior: aquél propaga BORRADOS (la fila ya no está en el origen),
+# éste resuelve una colisión de IDENTIDAD (la fila SÍ está, pero el ODS tiene dos
+# copias). Por llave de día `--delete-sobrantes` recorre este caso y ve 0.
+#
+# Causa: `c2` está en la PK y el ODS trae dos renderizados del mismo instante —el
+# poll escribía +6 h hasta el 2026-09-23 y 00:00 desde entonces—, así que un
+# UPDATE de Kepler entra como INSERT y conviven el ANTES y el DESPUÉS de la misma
+# póliza. Medido el 2026-09-29: 1,737 grupos por $22,796,303.99, y el ingreso
+# publicado de agosto iba $77,131.36 alto.
+#
+# ⚠️ LATIDO PROPIO (`cdc_dedupe_fecha`), no el del carril de arriba. Dos carriles
+# escribiendo la misma fila de `cron_runs` fue un incidente real de este repo
+# (`ods-reconcile-chicas`, 2026-09-24): el tablero mostraba al que hubiera corrido
+# último y mantenía FRESCO el renglón ajeno. Registrado en `CRON_JOBS` con umbral;
+# sin ese renglón el sensor da verde incondicional.
+#
+# ⚠️ VENTANA DE 4 MESES, y es una limitación declarada: un duplicado sólo nace
+# cuando se EDITA una fila anterior al 2026-09-23, y eso pasa casi siempre en el
+# mes abierto y los anteriores. Una edición sobre un mes más viejo no la agarra
+# esta línea — hay que correr el barrido completo a mano. Se acota así porque el
+# universo crece un mes por mes y esto corre todas las noches.
+#
+# ⚠️ NADA de `%` en esta línea: crond lo trata como fin de comando y manda el
+# resto por stdin. Por eso el año se recorta con `.slice(2)` y no con `% 100`.
+#
+# ⛔ Deja de hacer falta cuando se normalicen los timestamps históricos del ODS a
+# un solo renderizado. Mientras tanto, cada edición de una fila vieja crea un
+# gemelo nuevo y esto lo limpia a la noche siguiente.
+# ─────────────────────────────────────────────────────────────────────────────
+25 2 * * * cd /app && ODS_RECONCILE_HB_KEY=cdc_dedupe_fecha node database/importers/kepler/reconcile-ods-window.js --full --dedupe-fecha --apply --tables=$(node -e "const d=new Date();console.log([0,1,2,3].map(n=>{const x=new Date(d.getFullYear(),d.getMonth()-n,1);return 'kdc2'+String(x.getFullYear()).slice(2)+String(x.getMonth()+1).padStart(2,'0')}).join(','))") >> /proc/1/fd/1 2>&1

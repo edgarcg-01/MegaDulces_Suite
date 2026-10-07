@@ -1,0 +1,555 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
+import { UsersService } from './users.service';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { RequireAuthGuard } from '@megadulces/platform-core';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { ReqUser } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
+import { ScopeService, TenantContextService, isPlatformAdminRole } from '@megadulces/platform-core';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
+import type { MeZonaPeriodo } from '@megadulces/contracts';
+
+/**
+ * Lo que este controller usa de `req.user`.
+ *
+ * `permissions` y `role_name` NO son decorativos: se propagan tal cual al service, que se los pasa
+ * a `getDataScope()` para acotar el padrón. Estaban sin declarar (el tipo decía `rules?: unknown[]`,
+ * de la época de CASL) y funcionaba sólo porque en runtime llega el `req.user` completo — si alguien
+ * armaba el objeto a mano, TypeScript no se quejaba y el alcance caía en silencio a `own`.
+ */
+interface AuthUser {
+  sub: string;
+  username?: string;
+  /** Mapa fresco que `RolesGuard` relee del cache en cada request. */
+  permissions?: Record<string, boolean> | null;
+  /** Rol del que depende el god-mode de plataforma (`isPlatformAdminRole`). */
+  role_name?: string;
+}
+
+@ApiTags('users')
+@ApiBearerAuth()
+@UseGuards(RequireAuthGuard, RolesGuard)
+@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+@Controller('users')
+export class UsersController {
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly scope: ScopeService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  @Post()
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  create(@Body() createUserDto: CreateUserDto, @ReqUser() user: AuthUser) {
+    return this.usersService.create(createUserDto, user);
+  }
+
+  /**
+   * `[AU.0b]` Devuelve un sobre `{ rows, total, page, page_size }`, no el arreglo
+   * pelado. El filtrado y la búsqueda pasaron al servidor: la del navegador no
+   * tolera acentos ni typos, y lo transaccional se pagina.
+   */
+  @Get()
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiQuery({ name: 'zona', required: false })
+  @ApiQuery({ name: 'activo', required: false, enum: ['true', 'false'] })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'page_size', required: false, type: Number })
+  @ApiQuery({ name: 'department_code', required: false })
+  @ApiQuery({ name: 'position_code', required: false })
+  @ApiQuery({ name: 'kind', required: false })
+  @ApiQuery({ name: 'status', required: false, description: 'invited | active | suspended | terminated' })
+  @ApiQuery({
+    name: 'incluir_bajas',
+    required: false,
+    description: 'Por defecto el padrón NO trae las cuentas con `deleted_at`. Ponelo en true para auditarlas.',
+  })
+  findAll(
+    @ReqUser() user: AuthUser,
+    @Query('zona') zona?: string,
+    @Query('activo') activo?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('page_size') pageSize?: string,
+    @Query('department_code') departmentCode?: string,
+    @Query('position_code') positionCode?: string,
+    @Query('kind') kind?: string,
+    @Query('status') status?: string,
+    @Query('incluir_bajas') incluirBajas?: string,
+  ) {
+    // Los query params llegan como string. `Number('')` es 0 y `Number(undefined)`
+    // es NaN: los dos caen al default del service, que además los acota.
+    const num = (v?: string) => (v == null || v === '' ? undefined : Number(v));
+    return this.usersService.findAll(
+      {
+        zona,
+        activo,
+        search,
+        page: num(page),
+        pageSize: num(pageSize),
+        department_code: departmentCode,
+        position_code: positionCode,
+        kind,
+        status,
+        incluir_bajas: incluirBajas === 'true',
+      },
+      user,
+    );
+  }
+
+  @Get('roles')
+  // Sin @RequirePermissions: consumido por selects en múltiples módulos.
+  getRoles() {
+    return this.usersService.getRoles();
+  }
+
+  @Get('supervisors')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiQuery({ name: 'zona', required: false })
+  getSupervisors(@Query('zona') zona?: string) {
+    return this.usersService.findSupervisors(zona);
+  }
+
+  @Get('sellers')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiQuery({ name: 'zona', required: false })
+  @ApiQuery({ name: 'supervisor_id', required: false })
+  @ApiOperation({ summary: 'Obtener vendedores/ejecutivos activos' })
+  getSellers(
+    @Query('zona') zona?: string,
+    @Query('supervisor_id') supervisorId?: string,
+  ) {
+    return this.usersService.findSellers(zona, supervisorId);
+  }
+
+  @Get('supervisor/:id/team')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  getTeamBySupervisor(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.usersService.findBySupervisor(id);
+  }
+
+  /**
+   * `[ZN.6]` — Catálogo de zonas, con su `kind`.
+   *
+   * **Sin `@RequirePermissions`, y eso es deliberado** — a diferencia de sus dos hermanos de
+   * abajo. Se evaluó alinearlo con ellos y **la medición lo desaconsejó**: lo consumen
+   * `seguimiento` y `reports`, que son tableros operativos, y **115 de las 136 personas vivas no
+   * tienen `USUARIOS_VER`** (sólo 6 de 52 roles lo conceden). Exigirlo les apagaría el filtro de
+   * zona a casi toda la empresa para proteger una lista de tres nombres.
+   *
+   * No queda abierto: el `JwtAuthGuard` global exige sesión. Lo que sí cambió es que la respuesta
+   * trae `kind`, para que quien la use pueda distinguir una zona de las otras 8 filas que viven
+   * en la misma tabla sin serlo.
+   */
+  @Get('zones')
+  @ApiOperation({ summary: 'Catálogo de zonas con su kind (zona | sucursal | canal | oficina)' })
+  getZones() {
+    return this.usersService.getZones();
+  }
+
+  /**
+   * `[ID.23]` — Sucursales con su zona. El alta elige sucursal y deriva la zona
+   * de acá, en vez de preguntar las dos cosas por separado.
+   */
+  @Get('branches')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Sucursales (código de 2 dígitos) con la zona que cada una declara' })
+  getBranches() {
+    return this.usersService.getBranches();
+  }
+
+  /**
+   * `[ID.24.1]` — Rutas con la zona que implican. Alimenta el selector de ruta
+   * de la gente de eje `ruta`, que hasta acá no tenía dónde guardarla.
+   */
+  @Get('routes')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Rutas del catálogo con su zona derivada y cuántas tiendas trae cada una' })
+  getRoutes() {
+    return this.usersService.getRoutes();
+  }
+
+  @Get('departments')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Catálogo de departamentos del organigrama (eje organizacional)' })
+  getDepartments() {
+    return this.usersService.getDepartments();
+  }
+
+  @Get('positions')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Catálogo de puestos del ORGANIGRAMA 2026, con el departamento y el perfil base que cada uno propone' })
+  getPositions() {
+    return this.usersService.getPositions();
+  }
+
+  /**
+   * `[ID.26]` — El estado del padrón, medido, con su cobertura declarada.
+   *
+   * Existe porque las mediciones que sostienen el rediseño de identidad vivían
+   * en mensajes de chat y en consultas que alguien corría a mano. Un número que
+   * no se puede volver a sacar no es una medición, es una anécdota.
+   *
+   * Lo que responde, y por qué cada cosa:
+   *   · **ceguera de alcance** — cuántas personas tienen `own` sobre una
+   *     dimensión cuya columna en su ficha está vacía. Es el hallazgo que hizo
+   *     falta declarar: `applyTo()` emite el MISMO `WHERE false` para eso que
+   *     para `none`, así que hoy «no ve nada» y «no sabemos qué ve» son
+   *     indistinguibles en pantalla. Se reporta ANTES de cerrar nada.
+   *   · **ficha incompleta** — puesto / sucursal / zona / supervisor.
+   *   · **clases de cuenta** — persona vs credencial de puesto vs servicio, que
+   *     hoy conviven en la misma tabla y se distinguen adivinando.
+   *   · **roles inertes** — los que conceden cero y tienen gente activa.
+   *
+   * Declarado antes de `:id` a propósito, como `me/scope`.
+   *
+   * ⚠️ ADR-056: cada bloque viaja con su `measured`. Un padrón sin usuarios
+   * reporta `measured: false`, **no** «0 problemas» — que es exactamente cómo
+   * un diagnóstico roto se disfraza de sano.
+   */
+  @Get('padron/diagnostico')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Estado medido del padrón: ceguera de alcance, ficha incompleta, clases de cuenta y roles inertes — con su cobertura declarada' })
+  diagnosticoPadron() {
+    return this.usersService.diagnosticoPadron();
+  }
+
+  /**
+   * `[ID.15]` — Qué propone el sistema para un puesto: departamento, perfil base
+   * y el alcance que trae ese perfil. Declarado antes de `:id` a propósito.
+   */
+  @Get('positions/:code/propuesta')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Departamento + perfil base + alcance que el sistema propone para un puesto (el alta ya no adivina)' })
+  proposeForPosition(@Param('code') code: string) {
+    return this.usersService.proposeForPosition(code);
+  }
+
+  /**
+   * `[ID.2]` — Alcance del usuario en sesión (Fase ID / ADR-050).
+   *
+   * Declarado ANTES de `:id`: si fuera después, la ruta genérica se tragaría
+   * `me/scope` (mismo cuidado que en sales-documents con `:folio/anexo.pdf`).
+   *
+   * SIN `@RequirePermissions`: cualquiera puede preguntar por su PROPIO alcance
+   * — es lo que alimenta los selectores de sucursal del front, y pedir un
+   * permiso para saber qué puedes ver es circular.
+   */
+  @Get('me/scope')
+  @ApiOperation({ summary: 'Alcance de datos del usuario en sesión, por dimensión, con las opciones que puede elegir' })
+  async myScope() {
+    const scope = await this.scope.current();
+    return {
+      user_id: scope.userId,
+      role_name: scope.roleName,
+      dimensions: await this.scope.describe(scope),
+    };
+  }
+
+  /**
+   * `[ID.21]` — Permisos VIGENTES del usuario en sesión.
+   *
+   * SIN `@RequirePermissions` y antes de `:id`, por lo mismo que `me/scope`:
+   * preguntar por lo tuyo no puede exigir un permiso. Es lo que le permite al
+   * front refrescar el menú cuando le cambian el acceso, sin re-login.
+   */
+  @Get('me/access')
+  @ApiOperation({ summary: 'Permisos y reglas vigentes del usuario en sesión (frescos de DB, no del JWT)' })
+  async myAccess(@ReqUser() user: AuthUser) {
+    const res = await this.usersService.accessFor(user.sub, user.role_name);
+    // Nunca contestar un mapa vacío: el front reemplaza su snapshot con esto y
+    // se quedaría sin menú. Vacío = algo salió mal (token legacy sin tenant,
+    // usuario sin rol) y la respuesta honesta es un error, no "cero permisos".
+    if (!res.permissions || Object.keys(res.permissions).length === 0) {
+      throw new NotFoundException('No se pudieron resolver los permisos vigentes.');
+    }
+    return res;
+  }
+
+  /**
+   * `[SN.2]` — Contexto de la persona en sesión: nombre, rol, puesto, departamento, sucursal, zona.
+   *
+   * SIN `@RequirePermissions` y ANTES de `:id`, por lo mismo que `me/scope` y `me/access`:
+   * preguntar por lo tuyo no puede exigir un permiso (`GET /users/positions` sí lo exige, y por
+   * eso un cajero no podía saber su propio puesto). Alimenta el bloque "Mi contexto" de
+   * `/projects`. Si la persona no tiene puesto, `position` viene `null`: se declara, no se inventa.
+   */
+  @Get('me/context')
+  @ApiOperation({ summary: 'Contexto de la persona en sesión (nombre, rol, puesto, departamento, sucursal, zona)' })
+  myContext(@ReqUser() user: AuthUser) {
+    return this.usersService.contextFor(user.sub);
+  }
+
+  /**
+   * `[SN.7]` — Trabajo pendiente de la persona en sesión: sus bandejas con conteo al momento.
+   *
+   * SIN `@RequirePermissions` y ANTES de `:id`, por lo mismo que `me/scope`, `me/access` y
+   * `me/context`. El gate no se relaja: cada bandeja declara el permiso que abre SU pantalla y
+   * `workFor` sólo cuenta las que esta persona puede abrir — un conteo ya es información.
+   *
+   * `permissions` sale del `req.user` que `RolesGuard` relee del cache en cada request (fresco,
+   * no el snapshot del JWT), y el god-mode por nombre de rol, como en el resto de la suite.
+   */
+  @Get('me/work')
+  @ApiOperation({ summary: 'Trabajo pendiente de la persona en sesión (bandejas con conteo al momento)' })
+  myWork(@ReqUser() user: AuthUser, @Query('periodo') periodo?: string) {
+    /*
+     * `[JZ.4]` El grano del bloque «Cómo va tu zona» (día / semana / mes). Se valida contra la
+     * lista cerrada y cualquier otra cosa cae en `'mes'` — un valor libre elegiría un comparador
+     * que nadie diseñó. Sólo afecta a ese bloque: bandejas, tareas y ciclos no tienen periodo.
+     */
+    const p: MeZonaPeriodo =
+      periodo === 'dia' || periodo === 'semana' || periodo === 'mes' ? periodo : 'mes';
+    return this.usersService.workFor(
+      user.sub,
+      user.permissions,
+      isPlatformAdminRole(user.role_name),
+      p,
+    );
+  }
+
+  /**
+   * `[JZ.5]` — **Sólo el bloque de zona.** Es lo que refresca el WebSocket de tienda.
+   *
+   * ── Por qué no se reusa `me/work` ───────────────────────────────────────────────────────────
+   * Porque cuesta 15 mediciones (6 bandejas + 5 fuentes de tarea + 4 ciclos) y el ticket que
+   * dispara el refresco sólo puede mover UNA: la venta de la zona. Recalcular las otras trece por
+   * cada ticket sería pagar el reporte completo para actualizar un número — y en una zona de tres
+   * sucursales llega un ticket cada ~45 s (medido: 18,958 tickets en 30 días sólo en la 01).
+   *
+   * ⛔ Va ANTES de `@Get(':id')`, por lo mismo que `me/work`, `me/scope` y `me/context`: la ruta
+   * genérica se lo tragaría. El bloque 3 del smoke lo vigila.
+   *
+   * Mismo criterio de permisos que `me/work`: self-scoped, sin `@RequirePermissions`, y cada canal
+   * declara adentro el permiso que abre SU pantalla.
+   */
+  @Get('me/work/zona')
+  @ApiQuery({ name: 'periodo', required: false, enum: ['dia', 'semana', 'mes'] })
+  @ApiOperation({ summary: 'Sólo «Cómo va tu zona» — refresco barato para el vivo del WS de tienda' })
+  myWorkZona(@ReqUser() user: AuthUser, @Query('periodo') periodo?: string) {
+    const p: MeZonaPeriodo =
+      periodo === 'dia' || periodo === 'semana' || periodo === 'mes' ? periodo : 'mes';
+    return this.usersService.zonaFor(
+      user.sub,
+      user.permissions,
+      isPlatformAdminRole(user.role_name),
+      p,
+    );
+  }
+
+  /** `[ID.2]` — Alcance de OTRO usuario, para el panel "Acceso efectivo" del admin. */
+  @Get(':id/scope')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Alcance efectivo de un usuario y de dónde sale cada dimensión (user override / rol / default)' })
+  async userScope(@Param('id', new ParseUUIDPipe()) id: string) {
+    const scope = await this.scope.forUser(this.tenantCtx.requireTenantId(), id);
+    return {
+      user_id: scope.userId,
+      role_name: scope.roleName,
+      dimensions: await this.scope.describe(scope),
+      // `[ZN.8]` Las excepciones por área. `dimensions` responde «qué ve en general»; esto
+      // responde «y dónde ve distinto», que es la pregunta que el alcance no podía contestar.
+      excepciones: await this.usersService.scopeAreaOverrides(id),
+    };
+  }
+
+  /**
+   * `[ID.9]` — Editar el ALCANCE de un usuario desde la UI.
+   *
+   * Hasta acá `identity.user_scopes` sólo se podía tocar por migración, o sea
+   * que ampliar o recortar lo que alguien ve exigía una sesión con acceso a prod.
+   * Regla de Edgar: el dato operativo se administra en /admin/*.
+   *
+   * `mode: null` borra el override y el usuario vuelve al default de su rol —
+   * distinto de `mode: 'none'`, que es "explícitamente no ve nada".
+   */
+  @Put(':id/scope/:dimension')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Fija (o borra, con mode=null) el alcance de un usuario en una dimensión. Queda asentado en identity.user_events.' })
+  setScope(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('dimension') dimension: string,
+    @Body() body: { mode?: string | null; values?: string[] | null; mode_write?: string | null; nota?: string | null },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.setScope(id, dimension, body ?? {}, { sub: user.sub, username: user.username });
+  }
+
+  /**
+   * `[ID.9]` — Asignación MASIVA de los ejes de control (departamento, puesto,
+   * sucursal, estado). Es lo que evita el script: normalizar 116 usuarios de a
+   * uno por pantalla no es viable, y por eso el dato se quedaba viejo.
+   */
+  @Patch('bulk')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Asigna departamento / puesto / sucursal / estado a varios usuarios de una vez. Un evento por usuario.' })
+  bulkAssign(
+    @Body() body: { user_ids: string[]; department_code?: string | null; position_code?: string | null; warehouse_code?: string | null; status?: string | null; motivo_desvio?: string | null },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.bulkAssign(body, { sub: user.sub, username: user.username });
+  }
+
+  /**
+   * `[ID.13]` — Roles del usuario: perfil base + complementos, con el conteo de
+   * permisos de cada uno.
+   */
+  @Get(':id/roles')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Perfil base y complementos de un usuario (identity.user_roles) con sus permisos otorgados' })
+  userRoles(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.usersService.roles(id);
+  }
+
+  /**
+   * `[ID.13]` — Fija los COMPLEMENTOS del usuario desde la UI.
+   *
+   * Semántica de PUT: la lista que llega es la lista final. El perfil base no se
+   * cambia acá (eso es `role_name` en el formulario) — así "sumarle una tarea a
+   * alguien" y "cambiarle el puesto" quedan como dos acciones distintas, que es
+   * lo que son.
+   */
+  @Put(':id/roles')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Fija los complementos (roles extra) de un usuario. Devuelve qué se agregó y qué se quitó. Queda asentado en identity.user_events.' })
+  setUserRoles(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: { roles?: string[] },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.setRoles(id, body?.roles ?? [], { sub: user.sub, username: user.username });
+  }
+
+  /**
+   * `[ID.21]` — Permisos de una persona en tres capas: los del puesto, los suyos
+   * propios (de más / de menos) y los efectivos.
+   */
+  /**
+   * `[AU.33]` — Cuánta gente abre hoy cada permiso. Es el contexto que la pantalla pinta al lado
+   * de lo que se está por conceder: «18 personas en 6 perfiles ya la abren» dice más que
+   * cualquier descripción sobre si esto es excepcional o rutina.
+   *
+   * ⚠️ Va declarado ANTES de `@Get(':id/permissions')` por costumbre, no por necesidad: acá los
+   * dos patrones tienen 3 segmentos y el último difiere, así que no colisionan. La costumbre es
+   * del caso en que sí colisionan, que este proyecto ya pagó una vez.
+   */
+  @Get('permissions/usage')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Cuántas personas y perfiles abren hoy cada permiso (los roles de plataforma van aparte)' })
+  permissionUsage(): ReturnType<UsersService['permissionUsage']> {
+    return this.usersService.permissionUsage();
+  }
+
+  @Get(':id/permissions')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Permisos de un usuario: los que le da su puesto, los propios (de más/de menos) y los efectivos' })
+  userPermissions(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.usersService.permissions(id);
+  }
+
+  /**
+   * `[ID.21]` — Fija los permisos propios del usuario (la diferencia contra su
+   * puesto). PUT: la lista que llega es la final; lo que no venga vuelve al
+   * estándar del puesto.
+   */
+  @Put(':id/permissions')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  @ApiOperation({ summary: 'Fija los permisos propios de un usuario (allow=true concede de más, allow=false quita). Queda asentado en identity.user_events.' })
+  setUserPermissions(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: { overrides?: Array<{ permission_key: string; allow: boolean; nota?: string | null }> },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.setPermissions(id, body?.overrides ?? [], {
+      sub: user.sub,
+      username: user.username,
+    });
+  }
+
+  /**
+   * `[ID.38]` — Cierra todas las sesiones vivas de la cuenta, sin apagarla.
+   *
+   * Permiso: `USUARIOS_PASSWORDS` (el mismo de «Resetear Contraseñas»), no
+   * `USUARIOS_GESTIONAR`. Es deliberado y está medido: son la misma familia de
+   * acción —invalidar la credencial de otro— y esa llave ya vive exactamente en
+   * los roles que corresponden, así que encender esto **no le da la capacidad a
+   * nadie nuevo**. Un permiso nuevo habría que repartirlo, y sin repartir es la
+   * deuda de `[LC.6.2]`: declarado en el enum y concedido por nadie.
+   */
+  @Post(':id/revoke-sessions')
+  @RequirePermissions(Permission.USUARIOS_PASSWORDS)
+  @ApiOperation({
+    summary:
+      'Cierra todas las sesiones de la cuenta (invalida los JWT ya emitidos) sin desactivarla. Queda asentado en identity.user_events.',
+  })
+  revokeSessions(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: { motivo?: string | null },
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.revokeSessions(
+      id,
+      { sub: user.sub, username: user.username },
+      body?.motivo ?? null,
+    );
+  }
+
+  /** `[ID.9]` — Bitácora del usuario: quién le cambió qué y cuándo. */
+  @Get(':id/events')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Últimos cambios registrados del usuario (identity.user_events)' })
+  events(@Param('id', new ParseUUIDPipe()) id: string, @Query('limit') limit?: string) {
+    return this.usersService.events(id, limit ? Number(limit) : undefined);
+  }
+
+  @Get(':id')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  findOne(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.findOne(id, user);
+  }
+
+  @Put(':id')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() updateUserDto: UpdateUserDto,
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.update(id, updateUserDto, user);
+  }
+
+  @Delete(':id')
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  remove(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.usersService.remove(id, user);
+  }
+}

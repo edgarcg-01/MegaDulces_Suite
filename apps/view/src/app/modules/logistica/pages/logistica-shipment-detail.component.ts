@@ -1,0 +1,1322 @@
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
+import { CommonModule } from '@angular/common';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
+import { ButtonModule } from 'primeng/button';
+import { CardModule } from 'primeng/card';
+import { TableModule } from 'primeng/table';
+import { DialogModule } from 'primeng/dialog';
+import { InputTextModule } from 'primeng/inputtext';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { CheckboxModule } from 'primeng/checkbox';
+import { SelectModule } from 'primeng/select';
+import { AutoCompleteModule } from 'primeng/autocomplete';
+import { TagModule } from 'primeng/tag';
+import { TooltipModule } from 'primeng/tooltip';
+import { ToastModule } from 'primeng/toast';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { MessageService, ConfirmationService } from 'primeng/api';
+import {
+  CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite, OrderLite, ShipmentReadiness,
+  DeliveryGuide, Driver, GuideRecipient, LogisticaService, Shipment, ShipmentExpense, Vehicle,
+} from '../logistica.service';
+
+type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
+
+@Component({
+  selector: 'app-logistica-shipment-detail',
+  standalone: true,
+  imports: [
+    CommonModule, RouterLink, FormsModule, ReactiveFormsModule,
+    ButtonModule, CardModule, TableModule, DialogModule,
+    InputTextModule, InputNumberModule, CheckboxModule, SelectModule, AutoCompleteModule,
+    TagModule, TooltipModule, ToastModule, ConfirmDialogModule,
+  ],
+  providers: [MessageService, ConfirmationService],
+  template: `
+    <div class="surf-page shd">
+      <p-toast></p-toast>
+      <p-confirmdialog></p-confirmdialog>
+    
+      @if (shipment(); as s) {
+        <!-- BACK LINK -->
+        <a routerLink="/logistica/shipments" class="shd-back">
+          <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a embarques
+        </a>
+        <!-- PAGE HEAD -->
+        <header class="surf-page-head">
+          <div class="surf-page-head-text">
+            <span class="shd-eyebrow">
+              <i class="pi pi-truck" aria-hidden="true"></i>
+              Embarque
+            </span>
+            <h1><code class="comm-code">{{ s.folio }}</code></h1>
+            <p class="surf-page-sub">
+              {{ s.shipment_date | date:'dd MMM yyyy' }}
+              <span class="shd-divider" aria-hidden="true">·</span>
+              {{ s.origin || '—' }} → {{ s.destination || '—' }}
+            </p>
+          </div>
+          <div class="shd-head-actions">
+            <span class="comm-pill" [class]="statusPillClass(s.status)">
+              {{ statusLabel(s.status) }}
+            </span>
+            <!-- Transiciones de estado (solo las válidas para el estado actual) -->
+            @if (canDepart()) {
+              <button pButton size="small" (click)="transition('depart')"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Marcar en ruta</span></button>
+            }
+            @if (canDeliver()) {
+              <button pButton size="small" (click)="transition('deliver')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Marcar entregado</span></button>
+            }
+            @if (canClose()) {
+              <button pButton size="small" (click)="transition('close')"><span class="p-button-icon p-button-icon-left pi pi-lock" aria-hidden="true"></span><span class="p-button-label">Cerrar embarque</span></button>
+            }
+            @if (canCancel()) {
+              <button pButton size="small" severity="danger" [text]="true" (click)="confirmCancel()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar</span></button>
+            }
+            <span class="shd-head-sep" aria-hidden="true"></span>
+            <a pButton severity="secondary" [outlined]="true" size="small" [routerLink]="['/logistica/shipments', s.id, 'checklists']"><span class="p-button-icon p-button-icon-left pi pi-check-square" aria-hidden="true"></span><span class="p-button-label">Checklists</span></a>
+            <a pButton severity="secondary" [outlined]="true" size="small" [routerLink]="['/logistica/shipments', s.id, 'photos']"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Fotos</span></a>
+            <button pButton severity="secondary" [outlined]="true" size="small" (click)="downloadPdf(s.id)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
+          </div>
+        </header>
+        <!-- MODE TABS -->
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12 is-flush shd-tabs-cell">
+            <nav class="shd-mode-tabs" role="radiogroup" aria-label="Secciones del embarque">
+              <button
+                type="button"
+                class="shd-mode-tab"
+                [class.active]="tab() === 'info'"
+                role="radio"
+                [attr.aria-checked]="tab() === 'info'"
+                (click)="setTab('info')"
+                >
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                <span>Información</span>
+              </button>
+              <button
+                type="button"
+                class="shd-mode-tab"
+                [class.active]="tab() === 'guides'"
+                role="radio"
+                [attr.aria-checked]="tab() === 'guides'"
+                (click)="setTab('guides')"
+                >
+                <i class="pi pi-file-edit" aria-hidden="true"></i>
+                <span>Guías</span>
+                <span class="shd-tab-count">{{ guides().length }}</span>
+              </button>
+              <button
+                type="button"
+                class="shd-mode-tab"
+                [class.active]="tab() === 'expenses'"
+                role="radio"
+                [attr.aria-checked]="tab() === 'expenses'"
+                (click)="setTab('expenses')"
+                >
+                <i class="pi pi-money-bill" aria-hidden="true"></i>
+                <span>Costos</span>
+              </button>
+              <button
+                type="button"
+                class="shd-mode-tab"
+                [class.active]="tab() === 'cartaporte'"
+                role="radio"
+                [attr.aria-checked]="tab() === 'cartaporte'"
+                (click)="setTab('cartaporte')"
+                >
+                <i class="pi pi-file-check" aria-hidden="true"></i>
+                <span>Carta Porte</span>
+              </button>
+            </nav>
+          </article>
+        </div>
+        <!-- ── TAB INFO ── -->
+        @if (tab() === 'info') {
+          <!-- Semáforo de preparación del viaje -->
+          @if (readiness(); as rd) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12">
+                <div class="rd-head">
+                  <span class="cell-label">Preparación del viaje</span>
+                  <span class="rd-pill" [class.ok]="rd.ready">{{ rd.ready ? 'Listo para operar' : 'Faltan datos' }}</span>
+                </div>
+                <div class="rd-progress">
+                  <div class="rd-progress-track">
+                    <div class="rd-progress-fill" [class.ok]="rd.ready" [style.width.%]="readinessPct()"></div>
+                  </div>
+                  <span class="rd-progress-pct">{{ readinessPct() }}%</span>
+                </div>
+                <ul class="rd-list">
+                  @for (c of rd.checks; track c) {
+                    <li [class]="'rd-' + c.status">
+                      <i class="pi" [class.pi-check-circle]="c.status==='ok'" [class.pi-exclamation-triangle]="c.status==='warn'" [class.pi-circle]="c.status==='pending'" aria-hidden="true"></i>
+                      <span class="rd-label">{{ c.label }}</span>
+                      <span class="rd-detail">{{ c.detail }}</span>
+                    </li>
+                  }
+                </ul>
+              </article>
+            </div>
+          }
+          <div class="sheet cols-12">
+            <article class="cell cell-span-3">
+              <span class="cell-label">Tipo</span>
+              <span class="cell-value is-small">{{ s.type }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-label">Cajas</span>
+              <span class="cell-value is-medium">{{ s.boxes_count }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-label">Peso (kg)</span>
+              <span class="cell-value is-medium">{{ s.total_weight_kg }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-label">Km recorridos</span>
+              <span class="cell-value is-medium">{{ s.actual_km || '—' }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-icon" aria-hidden="true"><i class="pi pi-dollar"></i></span>
+              <span class="cell-label">Valor carga</span>
+              <span class="cell-value is-medium">{{ s.cargo_value | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
+              <span class="cell-label">Flete cobrado</span>
+              <span class="cell-value is-medium">{{ s.freight_revenue | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-label">Salida</span>
+              <span class="cell-value is-small">{{ s.departure_at ? (s.departure_at | date:'short') : '—' }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-label">Llegada</span>
+              <span class="cell-value is-small">{{ s.arrival_at ? (s.arrival_at | date:'short') : '—' }}</span>
+            </article>
+          </div>
+          <!-- Notas (conditional) -->
+          @if (s.notes) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12">
+                <span class="cell-label">Notas</span>
+                <p class="shd-notes">{{ s.notes }}</p>
+              </article>
+            </div>
+          }
+          <!-- Action: editar metrics -->
+          @if (s.status !== 'cerrado' && s.status !== 'cancelado') {
+            <div class="shd-info-actions">
+              <button pButton size="small" severity="secondary" [outlined]="true" (click)="openEditMetrics()"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span><span class="p-button-label">Editar km / flete</span></button>
+            </div>
+          }
+        }
+        <!-- ── TAB GUÍAS ── -->
+        @if (tab() === 'guides') {
+          @if (canAddGuide()) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12 is-flush shd-cta-cell">
+                <span class="comm-muted is-small">
+                  Asigná chofer + ayudantes + destinatarios por cada guía de reparto.
+                </span>
+                <div class="shd-cta-actions">
+                  <button pButton size="small" severity="secondary" [outlined]="true" [loading]="optimizing()" [disabled]="!guides().length" (click)="optimizeRoute()" pTooltip="Ordena las paradas por cercanía (menos km)"><span class="p-button-icon p-button-icon-left pi pi-compass" aria-hidden="true"></span><span class="p-button-label">Optimizar ruta</span></button>
+                  <button pButton size="small" (click)="openCreateGuide()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva guía</span></button>
+                </div>
+              </article>
+            </div>
+          }
+          <div class="sheet cols-12">
+            <article class="cell cell-span-12 is-flush">
+              <p-table [value]="guides()" styleClass="surf-table surf-table--sticky surf-table--frozen-first p-datatable-sm">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col">Número</th>
+                    <th scope="col">Chofer</th>
+                    <th scope="col" class="comm-num num">Comisiones</th>
+                    <th scope="col" class="comm-num num">Viáticos</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col"><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-g>
+                  <tr>
+                    <td><code class="comm-code">{{ g.number }}</code></td>
+                    <td class="comm-cell-strong">{{ driverName(g.driver_id) || '—' }}</td>
+                    <td class="comm-num">
+                      {{ (g.driver_commission + g.helper1_commission + g.helper2_commission) | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                    </td>
+                    <td class="comm-num">{{ g.per_diem_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    <td>
+                      <span class="comm-pill" [class]="guidePillClass(g.status)">
+                        {{ guideLabel(g.status) }}
+                      </span>
+                    </td>
+                    <td class="comm-actions">
+                      <button pButton size="small" severity="secondary" [text]="true" (click)="openGuideDetail(g)" pTooltip="Ver destinatarios"><span class="p-button-icon p-button-icon-left pi pi-eye" aria-hidden="true"></span></button>
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template #emptymessage>
+                  <tr>
+                    <td colspan="6" class="comm-empty-cell">
+                      <div class="comm-empty">
+                        <div class="comm-empty-icon"><i class="pi pi-file-edit" aria-hidden="true"></i></div>
+                        <h3>Sin guías</h3>
+                        <p>Agregá una guía para asignar chofer + destinatarios.</p>
+                        @if (canAddGuide()) {
+                          <button type="button" pButton severity="primary" size="small" (click)="openCreateGuide()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva guía</span></button>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </article>
+          </div>
+          <!-- ETA de ruta (J12.4) -->
+          @if (guides().length) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12">
+                <div class="shd-eta-head">
+                  <div>
+                    <span class="cell-label">ETA de ruta</span>
+                    @if (eta(); as e) {
+                      <p class="comm-muted is-small">
+                        {{ e.stops.length }} paradas pendientes · {{ e.total_km }} km · ~{{ e.total_minutes }} min
+                        @if (e.speed_kmh) {
+                          <span> · {{ e.speed_kmh }} km/h@if (e.speed_source === 'calibrated') {
+                            <span> (calibrada)</span>
+                          }</span>
+                        }
+                        @if (e.from_source === 'first_stop') {
+                          <span> · (sin GPS del chofer, desde 1ª parada)</span>
+                        }
+                      </p>
+                    }
+                  </div>
+                  <button pButton size="small" severity="secondary" [outlined]="true" [loading]="etaLoading()" (click)="loadEta()"><span class="p-button-icon p-button-icon-left pi pi-clock" aria-hidden="true"></span><span class="p-button-label">Calcular ETA</span></button>
+                </div>
+                @if (eta(); as e) {
+                  <div>
+                    @if (e.stops.length) {
+                      <p-table [value]="e.stops" styleClass="surf-table surf-table--sticky p-datatable-sm">
+                        <ng-template #header>
+                          <tr><th scope="col">#</th><th scope="col">Cliente</th><th scope="col" class="comm-num num">Km acum.</th><th scope="col">ETA</th></tr>
+                        </ng-template>
+                        <ng-template #body let-s>
+                          <tr>
+                            <td><span class="shd-eta-seq">{{ s.sequence_order }}</span></td>
+                            <td class="comm-cell-strong">{{ s.customer_name }}</td>
+                            <td class="comm-num">{{ s.cumulative_km }}</td>
+                            <td class="shd-eta-time">{{ s.eta | date:'shortTime' }}</td>
+                          </tr>
+                        </ng-template>
+                      </p-table>
+                    }
+                    @if (!e.stops.length) {
+                      <p class="comm-muted is-small">
+                        Sin paradas con orden + ubicación. Corré "Optimizar ruta" y captura lat/lng de los clientes.
+                      </p>
+                    }
+                  </div>
+                }
+              </article>
+            </div>
+          }
+        }
+        <!-- ── TAB COSTOS ── -->
+        @if (tab() === 'expenses') {
+          <!-- Form de inputs -->
+          <div class="sheet cols-12">
+            <article class="cell cell-span-12">
+              <span class="cell-label">Conceptos de gasto operativo</span>
+              <form [formGroup]="expForm" class="shd-exp-form">
+                <div class="shd-exp-row">
+                  <label><span>Combustible</span><p-inputnumber formControlName="fuel" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Casetas</span><p-inputnumber formControlName="tolls" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Hospedaje</span><p-inputnumber formControlName="lodging" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                </div>
+                <div class="shd-exp-row">
+                  <label><span>Pensiones</span><p-inputnumber formControlName="parking" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Permisos</span><p-inputnumber formControlName="permits" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Talachas</span><p-inputnumber formControlName="repairs" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                </div>
+                <div class="shd-exp-row">
+                  <label><span>Ayudantes ext.</span><p-inputnumber formControlName="external_helpers" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Maniobras</span><p-inputnumber formControlName="handling" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Viáticos guía</span><p-inputnumber formControlName="driver_per_diem" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                </div>
+                <div class="shd-exp-row">
+                  <label><span>Otros</span><p-inputnumber formControlName="other" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label class="shd-check-line shd-check-span-2">
+                    <p-checkbox formControlName="apply_config_km" [binary]="true" inputId="apply_km"></p-checkbox>
+                    <span>Aplicar costo km de configuración (recalcula total)</span>
+                  </label>
+                </div>
+                <label class="shd-notes-field">
+                  <span>Notas</span>
+                  <input pInputText formControlName="notes" />
+                </label>
+              </form>
+            </article>
+          </div>
+          <!-- Totales -->
+          @if (expense(); as e) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-4">
+                <span class="cell-label">Subtotal operativo</span>
+                <span class="cell-value is-medium">{{ e.operating_subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                <span class="cell-sub">suma de conceptos</span>
+              </article>
+              <article class="cell cell-span-4">
+                <span class="cell-label">Costo por km</span>
+                <span class="cell-value is-medium">{{ (e.total_cost - e.operating_subtotal) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                <span class="cell-sub">× {{ e.fixed_cost_per_km | number:'1.2-4' }} /km</span>
+              </article>
+              <article class="cell cell-span-4">
+                <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
+                <span class="cell-label">Total</span>
+                <span class="cell-value is-headline">{{ e.total_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+              </article>
+            </div>
+          }
+          <!-- Save action -->
+          <div class="shd-info-actions">
+            <button pButton [loading]="savingExp()" (click)="saveExpense()"><span class="p-button-icon p-button-icon-left pi pi-save" aria-hidden="true"></span><span class="p-button-label">Guardar costos</span></button>
+          </div>
+        }
+        <!-- ── TAB CARTA PORTE ── -->
+        @if (tab() === 'cartaporte') {
+          <!-- Documentos ya timbrados -->
+          @if (cpDocs().length) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12 is-flush">
+                <p-table [value]="cpDocs()" styleClass="surf-table surf-table--sticky p-datatable-sm">
+                  <ng-template #header>
+                    <tr><th scope="col">Folio fiscal (UUID)</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Timbrado</th></tr>
+                  </ng-template>
+                  <ng-template #body let-d>
+                    <tr>
+                      <td><code class="comm-code">{{ d.uuid_fiscal || '—' }}</code></td>
+                      <td>{{ d.cfdi_type }}</td>
+                      <td><span class="comm-pill" [class]="cpPillClass(d.status)">{{ d.status }}</span></td>
+                      <td class="comm-muted">{{ d.stamped_at ? (d.stamped_at | date:'short') : '—' }}</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
+              </article>
+            </div>
+          }
+          <!-- Validación + acción -->
+          <div class="sheet cols-12">
+            <article class="cell cell-span-12">
+              <div class="shd-cp-head">
+                <div>
+                  <span class="cell-label">Timbrado Carta Porte 3.1</span>
+                  <p class="comm-muted is-small">CFDI de Traslado, un complemento por embarque. Revisá datos faltantes antes de timbrar.</p>
+                </div>
+                <div class="shd-cp-actions">
+                  <button pButton size="small" severity="secondary" [outlined]="true" [loading]="cpValidating()" (click)="validateCp()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Revisar datos</span></button>
+                  <button pButton size="small" [loading]="cpStamping()" [disabled]="!cpReady()" (click)="stampCp()"><span class="p-button-icon p-button-icon-left pi pi-file-check" aria-hidden="true"></span><span class="p-button-label">Timbrar Carta Porte</span></button>
+                </div>
+              </div>
+              <!-- Gaps -->
+              @if (cpChecked() && cpGaps().length) {
+                <div class="shd-cp-gaps">
+                  <div class="shd-cp-gaps-head">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                    Faltan {{ cpGaps().length }} dato{{ cpGaps().length === 1 ? '' : 's' }} para timbrar
+                  </div>
+                  <ul>
+                    @for (g of cpGaps(); track g) {
+                      <li>
+                        <code>{{ g.field }}</code> <span>{{ g.detail }}</span>
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
+              <!-- Listo -->
+              @if (cpChecked() && !cpGaps().length) {
+                <div class="shd-cp-ready">
+                  <i class="pi pi-check-circle" aria-hidden="true"></i>
+                  Datos completos — listo para timbrar.
+                </div>
+              }
+            </article>
+          </div>
+        }
+      }
+    
+      <!-- Edit metrics dialog -->
+      <p-dialog [(visible)]="metricsDialog" [modal]="true" [draggable]="false" [style]="{ width: '420px' }" header="Editar km / flete">
+        <form [formGroup]="metricsForm" class="comm-form">
+          <label>
+            <span>Km recorridos</span>
+            <p-inputnumber formControlName="actual_km"></p-inputnumber>
+          </label>
+          <label>
+            <span>Flete cobrado</span>
+            <p-inputnumber formControlName="freight_revenue" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
+          </label>
+        </form>
+        <ng-template #footer>
+          <button pButton severity="secondary" [outlined]="true" (click)="metricsDialog = false"><span class="p-button-label">Cancelar</span></button>
+          <button pButton (click)="saveMetrics()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
+        </ng-template>
+      </p-dialog>
+    
+      <!-- Create guide dialog -->
+      <p-dialog [(visible)]="guideDialog" [modal]="true" [draggable]="false" [style]="{ width: '560px' }" header="Nueva guía">
+        <form [formGroup]="guideForm" class="comm-form-grid">
+          <label class="full">
+            <span>Chofer principal</span>
+            <p-select formControlName="driver_id" [options]="driverOptions()" optionLabel="label" optionValue="value"
+            placeholder="Seleccionar" [showClear]="true" appendTo="body"></p-select>
+          </label>
+          <label>
+            <span>Ayudante 1</span>
+            <p-select formControlName="helper1_id" [options]="driverOptions()" optionLabel="label" optionValue="value"
+            placeholder="Sin asignar" [showClear]="true" appendTo="body"></p-select>
+          </label>
+          <label>
+            <span>Ayudante 2</span>
+            <p-select formControlName="helper2_id" [options]="driverOptions()" optionLabel="label" optionValue="value"
+            placeholder="Sin asignar" [showClear]="true" appendTo="body"></p-select>
+          </label>
+          <label>
+            <span>Comisión chofer</span>
+            <p-inputnumber formControlName="driver_commission" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
+          </label>
+          <label>
+            <span>Comisión ayudante 1</span>
+            <p-inputnumber formControlName="helper1_commission" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
+          </label>
+          <label>
+            <span>Comisión ayudante 2</span>
+            <p-inputnumber formControlName="helper2_commission" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
+          </label>
+          <label>
+            <span>Viáticos totales</span>
+            <p-inputnumber formControlName="per_diem_total" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
+          </label>
+          <label class="checkbox-line full">
+            <p-checkbox formControlName="overnight" [binary]="true" inputId="ov"></p-checkbox>
+            <span>El chofer duerme fuera (overnight)</span>
+          </label>
+        </form>
+        <ng-template #footer>
+          <button pButton severity="secondary" [outlined]="true" (click)="guideDialog = false"><span class="p-button-label">Cancelar</span></button>
+          <button pButton [loading]="savingGuide()" (click)="createGuide()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear guía</span></button>
+        </ng-template>
+      </p-dialog>
+    
+      <!-- Guide detail dialog: recipients -->
+      <p-dialog [(visible)]="guideDetailDialog" [modal]="true" [draggable]="false" [style]="{ width: '720px' }"
+        [header]="'Guía ' + (selectedGuide()?.number || '')">
+        @if (selectedGuide(); as g) {
+          <div>
+            <div class="shd-recipients-head">
+              <span class="cell-label">Destinatarios</span>
+              <span class="comm-muted is-small">{{ (g.recipients || []).length }} registrado{{ (g.recipients || []).length === 1 ? '' : 's' }}</span>
+            </div>
+            <p-table [value]="g.recipients || []" styleClass="surf-table surf-table--sticky surf-table--frozen-first p-datatable-sm">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Dirección</th>
+                  <th scope="col" class="comm-num num">Cajas</th>
+                  <th scope="col" class="comm-num num">Valor</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr>
+                  <td><span class="shd-eta-seq">{{ r.sequence_order ?? '—' }}</span></td>
+                  <td class="comm-cell-strong">{{ r.customer_name }}</td>
+                  <td class="comm-muted">{{ r.address || '—' }}</td>
+                  <td class="comm-num">{{ r.boxes_count }}</td>
+                  <td class="comm-num">{{ r.value | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td>
+                    <span class="comm-pill" [class]="recipientPillClass(r.status)">
+                      {{ recipientLabel(r.status) }}
+                    </span>
+                  </td>
+                  <td class="comm-actions">
+                    @if (r.status === 'pendiente') {
+                      <button pButton size="small" severity="secondary" [text]="true" pTooltip="Marcar entregado" (click)="markRecipientDelivered(r)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
+                    }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="7" class="comm-muted shd-recip-empty">Sin destinatarios.</td></tr>
+              </ng-template>
+            </p-table>
+            @if (g.status !== 'entregada' && g.status !== 'cancelada') {
+              <form [formGroup]="recipientForm" class="comm-form-grid shd-add-recipient"
+                >
+                <div class="full shd-add-head">
+                  <span class="cell-label">Agregar destinatario</span>
+                </div>
+                <label class="full">
+                  <span>Buscar cliente</span>
+                  <p-autocomplete [suggestions]="customerSuggestions()" (completeMethod)="searchCustomer($event)"
+                    (onSelect)="onCustomerSelect($event)" field="name" [forceSelection]="false"
+                  placeholder="Nombre, código o RFC…" appendTo="body" styleClass="w-full"></p-autocomplete>
+                </label>
+                @if (customerOrders().length) {
+                  <label class="full">
+                    <span>Ligar pedido (opcional)</span>
+                    <p-select formControlName="order_id" [options]="customerOrders()" optionLabel="code" optionValue="id"
+                      placeholder="Sin pedido" [showClear]="true" appendTo="body"
+                    (onChange)="onOrderSelect($event.value)"></p-select>
+                  </label>
+                }
+                <label class="full">
+                  <span>Nombre <em>*</em></span>
+                  <input pInputText formControlName="customer_name" />
+                </label>
+                <label>
+                  <span>Cajas</span>
+                  <p-inputnumber formControlName="boxes_count"></p-inputnumber>
+                </label>
+                <label>
+                  <span>Valor</span>
+                  <p-inputnumber formControlName="value" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
+                </label>
+                <label class="full">
+                  <span>Dirección</span>
+                  <input pInputText formControlName="address" />
+                </label>
+                <div class="full shd-add-actions">
+                  <button pButton size="small" [disabled]="recipientForm.invalid" (click)="addRecipient(g)"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar</span></button>
+                </div>
+              </form>
+            }
+          </div>
+        }
+      </p-dialog>
+    </div>
+    `,
+  styles: [`
+    :host { display:block; }
+
+    /* ── BACK link + eyebrow + head ── */
+    .shd-back {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-medium);
+      color: var(--c-text-2);
+      text-decoration: none;
+      padding: .375rem .625rem;
+      border-radius: 6px;
+      margin-bottom: .25rem;
+      transition: all 120ms var(--ease-standard);
+      width: max-content;
+    }
+    .shd-back:hover { color: var(--c-text-1); background: var(--c-surface-2); }
+    .shd-back i { font-size: var(--fs-xs); }
+
+    .shd-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      font-size: var(--fs-micro);
+      font-weight: var(--fw-bold);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--c-text-2);
+      margin-bottom: .35rem;
+    }
+    .shd-eyebrow i { font-size: var(--fs-xs); }
+    .shd-divider { opacity: 0.4; }
+
+    .shd-head-actions {
+      display: flex;
+      gap: .5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .shd-head-sep {
+      width: 1px;
+      align-self: stretch;
+      min-height: 24px;
+      background: var(--c-divider);
+      margin: 0 .125rem;
+    }
+
+    /* ── TABS CELL ── */
+    .shd-tabs-cell { padding: .5rem .75rem; }
+    .shd-mode-tabs {
+      display: inline-flex;
+      gap: .25rem;
+      padding: 3px;
+      background: var(--c-surface-2);
+      border: 1px solid var(--c-divider);
+      border-radius: 10px;
+    }
+    .shd-mode-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      background: transparent;
+      border: none;
+      padding: .4rem .75rem;
+      font-size: var(--fs-sm);
+      font-weight: var(--fw-medium);
+      color: var(--c-text-2);
+      cursor: pointer;
+      border-radius: 7px;
+      transition: all 120ms var(--ease-standard);
+      white-space: nowrap;
+    }
+    .shd-mode-tab:hover { color: var(--c-text-1); }
+    .shd-mode-tab:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .shd-mode-tab.active {
+      background: var(--c-surface-1);
+      color: var(--c-text-1);
+      box-shadow: 0 1px 2px rgba(0,0,0,.08);
+      font-weight: var(--fw-bold);
+    }
+    .shd-mode-tab i { font-size: var(--fs-sm); }
+    .shd-tab-count {
+      background: var(--c-surface-1);
+      color: var(--c-text-2);
+      border: 1px solid var(--c-divider);
+      font-size: var(--fs-micro);
+      font-weight: var(--fw-bold);
+      padding: .05rem .4rem;
+      border-radius: 999px;
+      font-variant-numeric: tabular-nums;
+      min-width: 18px;
+      text-align: center;
+    }
+    .shd-mode-tab.active .shd-tab-count { background: var(--c-surface-2); }
+
+    /* ── NOTES paragraph ── */
+    .shd-notes {
+      margin: .375rem 0 0;
+      color: var(--c-text-1);
+      font-size: var(--fs-sm);
+      line-height: 1.5;
+    }
+
+    /* ── INFO actions row ── */
+    .shd-info-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: .5rem;
+      padding: 0 .5rem;
+    }
+
+    /* ── CTA cell (Guías) ── */
+    .shd-cta-cell {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: .75rem 1rem;
+    }
+    .shd-cta-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    /* ── Semáforo de preparación ── */
+    .rd-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:.6rem; }
+    .rd-pill { font-size:var(--fs-micro); padding:.2rem .55rem; border-radius:6px; background:var(--warn-soft-bg); color:var(--warn-soft-fg); font-weight:var(--fw-bold); }
+    .rd-pill.ok { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
+    /* Barra de % listo (semáforo de preparación) */
+    .rd-progress { display:flex; align-items:center; gap:.625rem; margin-bottom:.75rem; }
+    .rd-progress-track { flex:1; height:6px; border-radius:999px; background:var(--c-surface-2); overflow:hidden; }
+    .rd-progress-fill { height:100%; border-radius:999px; background:var(--warn-fg); transition:width var(--dur-standard,250ms) var(--ease-standard); }
+    .rd-progress-fill.ok { background:var(--ok-fg); }
+    .rd-progress-pct { font-variant-numeric:tabular-nums; font-weight:var(--fw-bold); font-size:var(--fs-sm); color:var(--c-text-1); min-width:34px; text-align:right; }
+    @media (prefers-reduced-motion: reduce){ .rd-progress-fill { transition:none; } }
+    .rd-list { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:.4rem .9rem; }
+    @media (max-width:45rem){ .rd-list { grid-template-columns:1fr; } }
+    .rd-list li { display:flex; align-items:center; gap:.5rem; font-size:var(--fs-sm); padding:.25rem 0; }
+    .rd-list li i { font-size:1rem; flex:0 0 auto; }
+    .rd-ok i { color:var(--ok-fg); }
+    .rd-warn i { color:var(--warn-fg); }
+    .rd-pending i { color:var(--c-text-3); }
+    .rd-label { font-weight:var(--fw-medium); }
+    .rd-detail { color:var(--c-text-3); font-size:var(--fs-micro); margin-left:auto; text-align:right; }
+    .shd-eta-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .5rem; }
+    .shd-eta-head p { margin: .25rem 0 0; }
+    .shd-eta-seq { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--c-surface-2); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); font-size: var(--fs-micro); }
+    .shd-eta-time { font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
+
+    /* ── EXP FORM (Costos) ── */
+    .shd-exp-form { display: flex; flex-direction: column; gap: .875rem; }
+    .shd-exp-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: .75rem;
+    }
+    @media (max-width: 45rem) {
+      .shd-exp-row { grid-template-columns: 1fr; }
+    }
+    .shd-exp-form label {
+      display: flex;
+      flex-direction: column;
+      gap: .3rem;
+      font-size: var(--fs-micro);
+      color: var(--c-text-2);
+      font-weight: var(--fw-bold);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .shd-check-line {
+      flex-direction: row !important;
+      align-items: center;
+      gap: .5rem !important;
+      text-transform: none !important;
+      letter-spacing: 0 !important;
+      font-size: var(--fs-sm) !important;
+      color: var(--c-text-1) !important;
+      font-weight: var(--fw-regular) !important;
+    }
+    .shd-check-span-2 { grid-column: span 2; }
+    .shd-notes-field {
+      display: flex;
+      flex-direction: column;
+      gap: .3rem;
+      font-size: var(--fs-micro);
+      color: var(--c-text-2);
+      font-weight: var(--fw-bold);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    /* ── DIALOG: recipients ── */
+    .shd-recipients-head {
+      display: flex;
+      align-items: baseline;
+      gap: .5rem;
+      margin-bottom: .75rem;
+    }
+    .shd-recip-empty { padding: 1.5rem !important; text-align: center !important; }
+    .shd-add-recipient {
+      margin-top: 1.25rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--c-divider);
+    }
+    .shd-add-head { margin-bottom: .25rem; }
+    .shd-add-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    /* ── CARTA PORTE ── */
+    .shd-cp-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .shd-cp-head p { margin: .25rem 0 0; }
+    .shd-cp-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .shd-cp-gaps {
+      margin-top: 1rem;
+      border: 1px solid var(--warn-border);
+      background: var(--warn-soft-bg);
+      border-radius: 10px;
+      padding: .875rem 1rem;
+    }
+    .shd-cp-gaps-head {
+      display: flex; align-items: center; gap: .5rem;
+      font-weight: var(--fw-bold); font-size: var(--fs-sm);
+      color: var(--c-text-1); margin-bottom: .5rem;
+    }
+    .shd-cp-gaps ul { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
+    .shd-cp-gaps li { font-size: var(--fs-sm); color: var(--c-text-2); }
+    .shd-cp-gaps li code {
+      background: var(--c-surface-2); padding: .05rem .35rem; border-radius: 4px;
+      font-size: var(--fs-micro); color: var(--c-text-1); margin-right: .4rem;
+    }
+    .shd-cp-ready {
+      margin-top: 1rem;
+      display: flex; align-items: center; gap: .5rem;
+      font-size: var(--fs-sm); font-weight: var(--fw-medium);
+      color: var(--c-ok);
+    }
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class LogisticaShipmentDetailComponent {
+  private readonly api = inject(LogisticaService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly fb = inject(FormBuilder);
+  private readonly toast = inject(MessageService);
+  private readonly confirm = inject(ConfirmationService);
+
+  readonly shipmentId = signal<string>('');
+  readonly shipment = signal<Shipment | null>(null);
+  readonly guides = signal<DeliveryGuide[]>([]);
+  readonly expense = signal<ShipmentExpense | null>(null);
+  readonly drivers = signal<Driver[]>([]);
+  readonly driverOptions = computed(() =>
+    this.drivers().map((d) => ({ label: `${d.full_name} (${d.roles.join(', ')})`, value: d.id })),
+  );
+
+  readonly savingExp = signal(false);
+  readonly savingGuide = signal(false);
+  readonly optimizing = signal(false);
+  readonly eta = signal<ShipmentEta | null>(null);
+  readonly etaLoading = signal(false);
+  readonly readiness = signal<ShipmentReadiness | null>(null);
+  readonly selectedGuide = signal<DeliveryGuide | null>(null);
+  readonly tab = signal<'info' | 'guides' | 'expenses' | 'cartaporte'>('info');
+
+  // ── Carta Porte ──
+  readonly cpDocs = signal<CartaPorteDocument[]>([]);
+  readonly cpGaps = signal<CartaPorteGap[]>([]);
+  readonly cpChecked = signal(false);
+  readonly cpValidating = signal(false);
+  readonly cpStamping = signal(false);
+  readonly cpReady = computed(() => this.cpChecked() && this.cpGaps().length === 0);
+
+  setTab(t: 'info' | 'guides' | 'expenses' | 'cartaporte') {
+    this.tab.set(t);
+    if (t === 'cartaporte') this.loadCp();
+  }
+
+  metricsDialog = false;
+  guideDialog = false;
+  guideDetailDialog = false;
+
+  metricsForm: FormGroup = this.fb.group({ actual_km: [0], freight_revenue: [0] });
+
+  guideForm: FormGroup = this.fb.group({
+    driver_id: [null], helper1_id: [null], helper2_id: [null],
+    driver_commission: [0], helper1_commission: [0], helper2_commission: [0],
+    overnight: [false], per_diem_total: [0],
+  });
+
+  recipientForm: FormGroup = this.fb.group({
+    customer_id: [null as string | null],
+    order_id: [null as string | null],
+    customer_name: ['', Validators.required],
+    address: [''],
+    boxes_count: [0],
+    value: [0],
+  });
+  private readonly customerQuery = signal<string | null>(null);
+  private readonly customerRes = rxResource({
+    params: () => this.customerQuery() === null ? undefined : this.customerQuery()!,
+    stream: ({ params }) => this.api.searchCustomers(params),
+  });
+  readonly customerSuggestions = computed<CustomerLite[]>(() => this.customerRes.value() ?? []);
+  readonly customerOrders = signal<OrderLite[]>([]);
+
+  expForm: FormGroup = this.fb.group({
+    fuel: [0], tolls: [0], lodging: [0], parking: [0], permits: [0], repairs: [0],
+    external_helpers: [0], handling: [0], driver_per_diem: [0], other: [0],
+    apply_config_km: [false],
+    notes: [''],
+  });
+
+  constructor() {
+    this.route.paramMap.subscribe((p) => {
+      const id = p.get('id') || '';
+      this.shipmentId.set(id);
+      if (id) this.loadAll(id);
+    });
+    this.api.listDrivers({ active: true }).subscribe((r) => this.drivers.set(r || []));
+  }
+
+  loadAll(id: string) {
+    this.api.getShipment(id).subscribe({
+      next: (s) => this.shipment.set(s),
+      error: () => this.toast.add({ severity:'error', summary:'Error', detail:'No se cargó embarque' }),
+    });
+    this.api.listGuides(id).subscribe({
+      next: (g) => this.guides.set(g || []),
+    });
+    this.api.getExpense(id).subscribe({
+      next: (e) => {
+        this.expense.set(e);
+        this.expForm.patchValue({
+          fuel: e.fuel, tolls: e.tolls, lodging: e.lodging, parking: e.parking,
+          permits: e.permits, repairs: e.repairs, external_helpers: e.external_helpers,
+          handling: e.handling, driver_per_diem: e.driver_per_diem, other: e.other,
+          notes: e.notes || '',
+        });
+      },
+      error: () => { /* 404 si no hay expense aún — OK */ },
+    });
+    this.refreshReadiness();
+  }
+
+  refreshReadiness() {
+    const id = this.shipmentId();
+    if (!id) return;
+    this.api.shipmentReadiness(id).subscribe({
+      next: (r) => this.readiness.set(r),
+      error: () => { /* silencioso */ },
+    });
+  }
+
+  /** % de checks en estado 'ok' — alimenta la barra del semáforo de preparación. */
+  readonly readinessPct = computed(() => {
+    const r = this.readiness();
+    if (!r || !r.checks.length) return 0;
+    const ok = r.checks.filter((c) => c.status === 'ok').length;
+    return Math.round((ok / r.checks.length) * 100);
+  });
+
+  // ── Transiciones de estado (mismo state-machine que la lista) ───────────
+  canDepart(): boolean {
+    const s = this.shipment()?.status;
+    return s === 'programado' || s === 'checklist_salida';
+  }
+  canDeliver(): boolean { return this.shipment()?.status === 'en_ruta'; }
+  canClose(): boolean {
+    const s = this.shipment()?.status;
+    return s === 'entregado' || s === 'checklist_llegada' || s === 'costos_pendientes';
+  }
+  canCancel(): boolean {
+    const s = this.shipment()?.status;
+    return s === 'programado' || s === 'en_ruta';
+  }
+
+  transition(kind: 'depart' | 'deliver' | 'close') {
+    const id = this.shipmentId();
+    const fn = kind === 'depart' ? this.api.shipmentDepart(id)
+            : kind === 'deliver' ? this.api.shipmentDeliver(id)
+            : this.api.shipmentClose(id);
+    fn.subscribe({
+      next: (r) => {
+        this.shipment.set(r);
+        this.refreshReadiness();
+        this.toast.add({ severity: 'success', summary: `Embarque ${r.folio} actualizado` });
+      },
+      error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se pudo' }),
+    });
+  }
+
+  confirmCancel() {
+    const s = this.shipment(); if (!s) return;
+    this.confirm.confirm({
+      message: `¿Cancelar embarque ${s.folio}? Esto liberará la unidad asignada.`,
+      header: 'Confirmar', icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, cancelar', rejectLabel: 'Volver',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => this.api.shipmentCancel(s.id, 'Cancelado desde detalle').subscribe({
+        next: (r) => { this.shipment.set(r); this.toast.add({ severity: 'info', summary: 'Embarque cancelado' }); },
+        error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se pudo' }),
+      }),
+    });
+  }
+
+  driverName(id?: string | null): string {
+    if (!id) return '';
+    return this.drivers().find((d) => d.id === id)?.full_name || '';
+  }
+  canAddGuide(): boolean {
+    const s = this.shipment(); return !!s && !['cerrado', 'cancelado'].includes(s.status);
+  }
+
+  severityStatus(s: string): Severity {
+    if (s === 'programado' || s === 'checklist_salida') return 'info';
+    if (s === 'en_ruta' || s === 'costos_pendientes') return 'warn';
+    if (s === 'entregado' || s === 'checklist_llegada') return 'success';
+    if (s === 'cerrado') return 'secondary';
+    return 'danger';
+  }
+
+  /** Clase de comm-pill semántica por estado de embarque. */
+  statusPillClass(s: string): string {
+    if (s === 'programado' || s === 'checklist_salida') return 'is-info';
+    if (s === 'en_ruta' || s === 'costos_pendientes') return 'is-warn';
+    if (s === 'entregado' || s === 'checklist_llegada') return 'is-ok';
+    if (s === 'cerrado') return 'is-neutral';
+    return 'is-bad';
+  }
+
+  statusLabel(s: string): string {
+    const map: Record<string, string> = {
+      programado: 'Programado',
+      checklist_salida: 'Checklist salida',
+      en_ruta: 'En ruta',
+      entregado: 'Entregado',
+      checklist_llegada: 'Checklist llegada',
+      costos_pendientes: 'Costos pendientes',
+      cerrado: 'Cerrado',
+      cancelado: 'Cancelado',
+    };
+    return map[s] || s;
+  }
+
+  guidePillClass(s: string): string {
+    if (s === 'pendiente') return 'is-info';
+    if (s === 'en_ruta') return 'is-warn';
+    if (s === 'entregada') return 'is-ok';
+    return 'is-bad';
+  }
+
+  guideLabel(s: string): string {
+    const map: Record<string, string> = {
+      pendiente: 'Pendiente',
+      en_ruta: 'En ruta',
+      entregada: 'Entregada',
+      cancelada: 'Cancelada',
+    };
+    return map[s] || s;
+  }
+
+  recipientPillClass(s: string): string {
+    if (s === 'pendiente') return 'is-info';
+    if (s === 'entregado') return 'is-ok';
+    return 'is-bad';
+  }
+
+  recipientLabel(s: string): string {
+    const map: Record<string, string> = {
+      pendiente: 'Pendiente',
+      entregado: 'Entregado',
+      cancelado: 'Cancelado',
+    };
+    return map[s] || s;
+  }
+
+  // J.8 — descarga PDF reporte del shipment (jspdf backend)
+  downloadPdf(id: string): void {
+    this.api.downloadShipmentPdf(id).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `embarque-${this.shipment()?.folio || id}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se descargó PDF' }),
+    });
+  }
+  severityGuide(s: string): Severity {
+    return s === 'pendiente' ? 'info' : s === 'en_ruta' ? 'warn' :
+           s === 'entregada' ? 'success' : 'danger';
+  }
+  severityRecip(s: string): Severity {
+    return s === 'pendiente' ? 'info' : s === 'entregado' ? 'success' : 'danger';
+  }
+
+  // ── Metrics ─────────────────────────────────────────────────────────
+  openEditMetrics() {
+    const s = this.shipment(); if (!s) return;
+    this.metricsForm.patchValue({ actual_km: s.actual_km || 0, freight_revenue: s.freight_revenue });
+    this.metricsDialog = true;
+  }
+  saveMetrics() {
+    const id = this.shipmentId();
+    this.api.updateShipment(id, this.metricsForm.value).subscribe({
+      next: (r) => {
+        this.metricsDialog = false;
+        this.shipment.set(r);
+        this.toast.add({ severity:'success', summary:'Datos actualizados' });
+      },
+      error: (err) => this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' }),
+    });
+  }
+
+  // ── Guides ──────────────────────────────────────────────────────────
+  openCreateGuide() {
+    this.guideForm.reset({
+      driver_id: null, helper1_id: null, helper2_id: null,
+      driver_commission: 0, helper1_commission: 0, helper2_commission: 0,
+      overnight: false, per_diem_total: 0,
+    });
+    this.guideDialog = true;
+    // Autollenar comisiones desde la ruta del embarque (consistencia con el alta).
+    const routeId = this.shipment()?.route_id;
+    if (routeId) {
+      this.api.listRoutes({ active: true }).subscribe((rs) => {
+        const r = (rs || []).find((x) => x.id === routeId);
+        if (r) this.guideForm.patchValue({
+          driver_commission: r.driver_commission || 0,
+          helper1_commission: r.helper_commission || 0,
+          helper2_commission: r.helper_commission || 0,
+        });
+      });
+    }
+  }
+  createGuide() {
+    this.savingGuide.set(true);
+    this.api.createGuide({ shipment_id: this.shipmentId(), ...this.guideForm.value, auto_commissions: false }).subscribe({
+      next: () => {
+        this.savingGuide.set(false); this.guideDialog = false;
+        this.toast.add({ severity:'success', summary:'Guía creada' });
+        this.api.listGuides(this.shipmentId()).subscribe((g) => this.guides.set(g || []));
+        this.refreshReadiness();
+      },
+      error: (err) => {
+        this.savingGuide.set(false);
+        this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' });
+      },
+    });
+  }
+
+  optimizeRoute() {
+    this.optimizing.set(true);
+    this.api.optimizeShipmentRoute(this.shipmentId()).subscribe({
+      next: (r) => {
+        this.optimizing.set(false);
+        const extra = r.unlocated ? ` · ${r.unlocated} sin ubicación` : '';
+        this.toast.add({
+          severity: r.located ? 'success' : 'warn',
+          summary: r.located ? 'Ruta optimizada' : 'Sin paradas localizables',
+          detail: r.located ? `${r.located} paradas · ${r.total_km} km${extra}` : 'Captura lat/lng en los clientes destino.',
+        });
+        this.api.listGuides(this.shipmentId()).subscribe((g) => this.guides.set(g || []));
+        this.refreshReadiness();
+      },
+      error: (err) => {
+        this.optimizing.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se optimizó' });
+      },
+    });
+  }
+
+  loadEta() {
+    this.etaLoading.set(true);
+    this.api.shipmentEta(this.shipmentId()).subscribe({
+      next: (e) => { this.eta.set(e); this.etaLoading.set(false); },
+      error: (err) => {
+        this.etaLoading.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se calculó ETA' });
+      },
+    });
+  }
+
+  openGuideDetail(g: DeliveryGuide) {
+    this.api.getGuide(g.id).subscribe({
+      next: (full) => {
+        this.selectedGuide.set(full);
+        this.recipientForm.reset({ customer_id: null, order_id: null, customer_name: '', address: '', boxes_count: 0, value: 0 });
+        this.customerQuery.set(null);
+        this.customerOrders.set([]);
+        this.guideDetailDialog = true;
+      },
+    });
+  }
+
+  addRecipient(g: DeliveryGuide) {
+    if (this.recipientForm.invalid) return;
+    this.api.addRecipient(g.id, this.recipientForm.value).subscribe({
+      next: () => {
+        this.toast.add({ severity:'success', summary:'Destinatario agregado' });
+        this.openGuideDetail(g);
+      },
+      error: (err) => this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' }),
+    });
+  }
+  markRecipientDelivered(r: GuideRecipient) {
+    this.api.markRecipientDelivered(r.id, {}).subscribe({
+      next: () => {
+        this.toast.add({ severity:'success', summary:'Marcado como entregado' });
+        const g = this.selectedGuide(); if (g) this.openGuideDetail(g);
+      },
+      error: (err) => this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' }),
+    });
+  }
+
+  // ── Destinatario: búsqueda de cliente (autorelleno) ─────────────────
+  searchCustomer(e: { query: string }) {
+    this.customerQuery.set(e.query ?? '');
+  }
+  onCustomerSelect(e: any) {
+    const c: CustomerLite = e?.value ?? e;
+    if (!c) return;
+    const a = c.billing_address || c.shipping_address;
+    const address = a
+      ? [a['street'], a['exterior_number'], a['neighborhood'], a['city'], a['state'], a['zip']].filter(Boolean).join(', ')
+      : '';
+    this.recipientForm.patchValue({ customer_id: c.id, customer_name: c.name, address, order_id: null });
+    // Trae los pedidos entregables del cliente para ligar order_id + valor.
+    this.customerOrders.set([]);
+    this.api.customerOrders(c.id).subscribe({
+      next: (os) => this.customerOrders.set(os || []),
+      error: () => this.customerOrders.set([]),
+    });
+  }
+  onOrderSelect(orderId: string | null) {
+    const o = this.customerOrders().find((x) => x.id === orderId);
+    if (o) this.recipientForm.patchValue({ value: o.total });
+  }
+
+  // ── Carta Porte ─────────────────────────────────────────────────────
+  loadCp() {
+    this.api.listCartaPorteByShipment(this.shipmentId()).subscribe({
+      next: (d) => this.cpDocs.set(d || []),
+      error: () => { /* sin documentos aún — OK */ },
+    });
+  }
+  validateCp() {
+    this.cpValidating.set(true);
+    this.api.validateCartaPorte(this.shipmentId()).subscribe({
+      next: (gaps) => {
+        this.cpGaps.set(gaps || []);
+        this.cpChecked.set(true);
+        this.cpValidating.set(false);
+      },
+      error: (err) => {
+        this.cpValidating.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se validó' });
+      },
+    });
+  }
+  stampCp() {
+    this.confirm.confirm({
+      header: 'Timbrar Carta Porte',
+      message: 'Se generará un CFDI de Traslado con complemento Carta Porte ante el SAT. ¿Continuar?',
+      icon: 'pi pi-file-check',
+      accept: () => {
+        this.cpStamping.set(true);
+        this.api.stampCartaPorte(this.shipmentId()).subscribe({
+          next: () => {
+            this.cpStamping.set(false);
+            this.toast.add({ severity: 'success', summary: 'Carta Porte timbrada' });
+            this.loadCp();
+          },
+          error: (err) => {
+            this.cpStamping.set(false);
+            const gaps = err?.error?.gaps as CartaPorteGap[] | undefined;
+            if (gaps?.length) { this.cpGaps.set(gaps); this.cpChecked.set(true); }
+            this.toast.add({ severity: 'error', summary: 'No se timbró', detail: err?.error?.message || 'Error PAC' });
+          },
+        });
+      },
+    });
+  }
+  cpPillClass(s: string): string {
+    if (s === 'timbrado') return 'is-ok';
+    if (s === 'error') return 'is-bad';
+    if (s === 'cancelado') return 'is-neutral';
+    return 'is-info';
+  }
+
+  // ── Expenses ────────────────────────────────────────────────────────
+  saveExpense() {
+    this.savingExp.set(true);
+    this.api.upsertExpense(this.shipmentId(), this.expForm.value).subscribe({
+      next: (e) => {
+        this.savingExp.set(false);
+        this.expense.set(e);
+        this.toast.add({ severity:'success', summary:'Costos guardados' });
+        this.refreshReadiness();
+      },
+      error: (err) => {
+        this.savingExp.set(false);
+        this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' });
+      },
+    });
+  }
+}

@@ -1,0 +1,362 @@
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { ButtonModule } from 'primeng/button';
+import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
+import { TableModule } from 'primeng/table';
+import { SelectModule } from 'primeng/select';
+import { SkeletonModule } from 'primeng/skeleton';
+import { TagModule } from 'primeng/tag';
+import { MessageModule } from 'primeng/message';
+import { TooltipModule } from 'primeng/tooltip';
+import { environment } from '../../../../environments/environment';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import type { Freshness } from '@megadulces/contracts';
+
+interface PPRow {
+  id: string; source_month: string; pay_date: string | null; clearing_date: string | null;
+  supplier_text: string | null; supplier_name: string | null; sucursal_code: string | null;
+  tipo: string | null; method: string | null; method_ref: string | null; bank_text: string | null;
+  amount: number; invoice_folios: string | null; kepler_flag: boolean | null;
+  credit_days: number | null;
+}
+interface PPResponse {
+  rows: PPRow[];
+  /** [PP.7] De cuándo son estos datos. El servidor lo mide; acá sólo se pinta. */
+  freshness?: Freshness | null;
+  totals: { n: number; monto: number; kep_si: number; kep_no: number; sin_resolver: number };
+  by_bank: { bank: string; n: number; monto: number }[];
+  by_method: { method: string; n: number; monto: number }[];
+}
+interface PPFacets { months: string[]; banks: string[]; methods: string[]; tipos: string[] }
+/** [PP.7] Qué meses están y cuáles faltan. `faltantes` vacío NO significa "al día": significa que no falta ninguno hasta el mes pasado. */
+interface PPCobertura { cargados: string[]; faltantes: string[]; desde: string | null; hasta_esperado: string | null }
+interface PPReconMonth { month: string; program: number; program_n: number; flag_si: number; flag_no: number; flag_na: number; monto_no: number; kepler201: number; bank_cb: number | null }
+interface PPRecon { months: PPReconMonth[] }
+
+/**
+ * Fase PP.3 — Programa de Pagos (Tesorería). Espejo del Excel de pagos: qué se paga, a quién,
+ * de qué banco, con qué método, cuándo, y si está en Kepler. Read-only sobre finance.payment_program.
+ * Operations mode, PrimeNG-first.
+ */
+@Component({
+  selector: 'app-finanzas-programa-pagos',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
+    TableModule, SelectModule, SkeletonModule, TagModule, MetricStripComponent,
+    FreshnessPillComponent, MessageModule, TooltipModule,
+  ],
+  template: `
+    <div class="surf-page in">
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Programa de Pagos</h1>
+          <p class="surf-page-sub">Ejecución de pagos de Tesorería <b>vs</b> el ERP: qué ya se pagó (banco, método, cuándo) y qué <b>aún no está asentado en Kepler</b> (columna KEPLER). Útil sobre todo para el mes en curso —lo ya posteado se ve al detalle en <b>Pagos a proveedor</b>. Espejo read-only del programa.</p>
+        </div>
+        <div class="pp-head-actions">
+          <!-- [PP.7] De cuándo son estos datos. measures="data" porque el veredicto lo emite el
+               SERVIDOR (el eslabon mas viejo de la cadena), no el reloj del navegador: medir
+               cuando respondio el fetch diria "hace 2 segundos" sobre un libro cerrado en agosto.
+               Sin medicion no se pinta una pildora: un hueco rotulado es honesto, un verde sobre
+               una medicion que fallo no lo es. -->
+          @if (data()?.freshness; as fr) {
+            <app-freshness-pill measures="data" [freshness]="fr" label="Libro de Tesorería" [staleAfterSec]="30 * 24 * 3600" />
+          } @else if (data()) {
+            <!-- PrimeNG-first (checklist 3): p-tag, no un span con clase propia. Severity
+                 secondary a proposito: "no se pudo medir" NO es una advertencia sobre el dato,
+                 es la ausencia de la medicion -- pintarlo de warn diria que el libro esta viejo,
+                 que es justamente lo que no se sabe. -->
+            <p-tag value="frescura sin medir" severity="secondary" styleClass="pp-fresh-unknown"
+                   pTooltip="No se pudo medir de cuándo son los datos del libro. No es lo mismo que estar al día."
+                   tooltipPosition="bottom"></p-tag>
+          }
+          <!-- [CG.36] Eran botones nativos con la DIRECTIVA, que en v22 ya no tiene label ni
+               icon -- por eso el rotulo y el icono venian escritos a mano en spans con las
+               clases internas de PrimeNG (p-button-icon, p-button-label), o sea copiando el DOM
+               del componente dentro de la plantilla. El componente los pone solo. -->
+          <p-button label="Conciliación" icon="pi pi-check-square" size="small"
+                    [outlined]="!showRecon()" (onClick)="toggleRecon()"></p-button>
+          <p-button label="Actualizar" icon="pi pi-refresh" size="small" [outlined]="true"
+                    [loading]="loading()" (onClick)="reload()"></p-button>
+        </div>
+      </header>
+
+      <!-- [PP.7] Los meses que FALTAN, enumerados. La pildora dice "esto esta viejo"; esto dice
+           que no esta. Sin este aviso, un mes ausente se ve igual que un mes sin pagos: los dos
+           llegan como cero, y el filtro de Mes ni siquiera lo ofrece porque sale de lo cargado. -->
+      <!-- PrimeNG-first (checklist 3): p-message, no un div con icono y borde propios. El
+           componente ya trae el rol, el icono y el par de color del tema. -->
+      @if (cob()?.faltantes?.length) {
+        <!-- ⚠️ class en el HOST, NO styleClass: PrimeNG 22 retiró ese input de p-message y la
+             clase se perdería en silencio — build verde, sin warning, el aviso sin ancho.
+             Lo caza scripts/check-primeng-api.js, que existe exactamente para esto. -->
+        <p-message severity="warn" class="pp-gap">
+          <span>
+            <b>Faltan {{ cob()!.faltantes.length }} mes(es) en el libro:</b>
+            {{ cob()!.faltantes.join(' · ') }}.
+            Lo de abajo NO los incluye — no es que no se haya pagado, es que el Excel de Tesorería
+            no se ha cargado. Se sube corriendo <code>import-payment-program.js</code> con el libro del mes.
+          </span>
+        </p-message>
+      }
+
+      @if (showRecon()) {
+        <section class="pp-recon">
+          <h2 class="pp-recon-h">Conciliación mensual</h2>
+          @if (recon(); as rc) {
+            <div class="pp-recon-scroll">
+              <!-- [CG.36] Era una <table> a mano en una pantalla que YA tenia un p-table doce
+                   renglones mas abajo: dos tablas con distinto borde y distinto alto de fila,
+                   una encima de la otra. -->
+              <p-table [value]="rc.months" size="small" class="pp-recon-tbl">
+                <ng-template #header>
+                  <tr><th>Mes</th><th class="ta-r">Programa</th><th class="ta-r">Kepler 201 (pagos)</th><th class="ta-r">Bancos (CB)</th><th class="ta-r">Pagado no en Kepler</th></tr>
+                </ng-template>
+                <ng-template #body let-m>
+                  <tr>
+                    <td class="pp-mono">{{ m.month }}</td>
+                    <td class="ta-r pp-num">{{ money(m.program) }} <span class="pp-recon-n">{{ m.program_n }}</span></td>
+                    <td class="ta-r pp-num muted">{{ money(m.kepler201) }}</td>
+                    <td class="ta-r pp-num muted">{{ m.bank_cb === null ? '—' : money(m.bank_cb) }}</td>
+                    <td class="ta-r pp-num" [class.pp-warn]="m.flag_no > 0">{{ m.flag_no > 0 || m.flag_si > 0 ? (money(m.monto_no) + ' · ' + m.flag_no) : 's/dato' }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </div>
+            <p class="pp-recon-note">Los tres universos <b>no son iguales</b> — es informativo, no un descuadre: <b>Kepler 201</b> incluye nómina/inter-sucursal/gastos (superset); <b>Bancos CB</b> son todos los egresos del estado de cuenta (solo meses cargados). La señal <b>confiable</b> de "pagado pero no asentado en el ERP" es <b>Pagado no en Kepler</b> (columna KEPLER de Tesorería, $ · #), disponible donde el Excel la trae (jul/ago). "s/dato" = ese mes no traía la columna.</p>
+          } @else { <p class="pp-empty">Cargando conciliación…</p> }
+        </section>
+      }
+
+      <div class="pp-filters">
+        <p-select [options]="f().months" [ngModel]="month()" (onChange)="onFilter('month', $event.value)" placeholder="Mes" [showClear]="true" styleClass="pp-sel" ariaLabel="Mes" />
+        <p-select [options]="f().banks" [ngModel]="bank()" (onChange)="onFilter('bank', $event.value)" placeholder="Banco" [showClear]="true" styleClass="pp-sel" ariaLabel="Banco" />
+        <p-select [options]="f().methods" [ngModel]="method()" (onChange)="onFilter('method', $event.value)" placeholder="Método" [showClear]="true" styleClass="pp-sel" ariaLabel="Método" />
+        <p-select [options]="f().tipos" [ngModel]="tipo()" (onChange)="onFilter('tipo', $event.value)" placeholder="Tipo" [showClear]="true" styleClass="pp-sel" ariaLabel="Tipo" />
+        <p-select [options]="keplerOpts" [ngModel]="kepler()" (onChange)="onFilter('kepler', $event.value)" optionLabel="label" optionValue="value" placeholder="Kepler" [showClear]="true" styleClass="pp-sel" ariaLabel="Estado Kepler" />
+        <p-iconfield styleClass="pp-search">
+          <p-inputicon styleClass="pi pi-search" />
+          <input pInputText type="text" placeholder="Proveedor…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar proveedor" />
+        </p-iconfield>
+        @if (hasFilters()) { <p-button label="Limpiar" icon="pi pi-filter-slash" size="small" [text]="true" (onClick)="clearFilters()"></p-button> }
+      </div>
+
+      @if (err(); as e) {
+        <div class="pp-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="pp-errbox-txt">{{ e }}</span><!--
+             ⛔ ESTE SALIA VACIO. Era un boton nativo con la DIRECTIVA y un atributo "label",
+             sin contenido adentro: la directiva perdio ese atributo en v22, asi que quedaba
+             muerto y el unico camino de vuelta tras un error era un boton sin texto. Build
+             verde, sin warning -- el modo de falla exacto que describe check-primeng-api.
+             ⚠️ Y el comentario NO puede citar la sintaxis vieja: la compuerta busca el patron
+             por TEXTO y no distingue codigo de comentario -- citarla aca la volvia a contar,
+             dejando el techo clavado en 22 y tapando justo el arreglo de abajo. Medido.
+        --><p-button label="Reintentar" size="small" [outlined]="true" (onClick)="reload()"></p-button></div>
+      }
+
+      @if (data(); as d) {
+        <app-metric-strip [items]="kpis(d)" ariaLabel="Totales del programa de pagos" />
+        <div class="pp-breakdown">
+          <div class="pp-bd-col">
+            <span class="pp-bd-title">Por banco</span>
+            @for (b of d.by_bank; track b.bank) { <div class="pp-bd-row"><span class="pp-bd-k">{{ b.bank || '—' }}</span><span class="pp-bd-v">{{ money(b.monto) }}</span><span class="pp-bd-n">{{ b.n }}</span></div> }
+          </div>
+          <div class="pp-bd-col">
+            <span class="pp-bd-title">Por método</span>
+            @for (m of d.by_method; track m.method) { <div class="pp-bd-row"><span class="pp-bd-k">{{ m.method || '—' }}</span><span class="pp-bd-v">{{ money(m.monto) }}</span><span class="pp-bd-n">{{ m.n }}</span></div> }
+          </div>
+        </div>
+      }
+
+      @if (loading()) {
+        <div class="pp-skel">@for (i of skelRows; track i) { <p-skeleton height="2rem" styleClass="pp-skel-row" /> }</div>
+      } @else if (data(); as d) {
+        <p-table [value]="d.rows" styleClass="p-datatable-sm surf-table surf-table--sticky pp-table" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.rows.length > 200" [rows]="200">
+          <ng-template #header>
+            <tr>
+              <th class="pp-w-date">Fecha</th>
+              <th>Proveedor</th>
+              <th class="pp-w-suc">Suc</th>
+              <th class="pp-w-tipo">Tipo</th>
+              <th class="pp-w-met">Método</th>
+              <th class="pp-w-bank">Banco</th>
+              <th class="pp-w-fol">Facturas</th>
+              <th class="ta-r pp-w-amt">Monto</th>
+              <th class="pp-w-kep">Kepler</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-r>
+            <tr>
+              <td class="pp-mono">{{ r.pay_date || '—' }}</td>
+              <td class="pp-prov" [title]="r.supplier_name || r.supplier_text">
+                {{ r.supplier_name || r.supplier_text || '—' }}
+                @if (!r.supplier_name && r.supplier_text) { <span class="pp-unres" aria-hidden="true" title="proveedor sin resolver">·?</span> }
+              </td>
+              <td class="pp-mono muted">{{ r.sucursal_code || '—' }}</td>
+              <td>@if (r.tipo) { <p-tag [value]="r.tipo" [severity]="r.tipo==='compra'?'info':r.tipo==='gasto'?'warn':'secondary'" styleClass="pp-tag" /> }</td>
+              <td class="pp-mono muted">{{ r.method || '—' }}@if (r.method_ref) { <span class="pp-ref"> {{ r.method_ref }}</span> }</td>
+              <td class="pp-mono">{{ r.bank_text || '—' }}</td>
+              <td class="pp-mono muted pp-fol" [title]="r.invoice_folios">{{ r.invoice_folios || '—' }}</td>
+              <td class="ta-r pp-num pp-strong">{{ money(r.amount) }}</td>
+              <td>
+                @if (r.kepler_flag === true) { <p-tag value="✓" severity="success" styleClass="pp-tag" /> }
+                @else if (r.kepler_flag === false) { <p-tag value="no" severity="danger" styleClass="pp-tag" /> }
+                @else { <span class="muted">—</span> }
+              </td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr><td colspan="9"><div class="pp-empty-op"><i class="pi pi-inbox" aria-hidden="true"></i><span class="pp-empty-op-title">Sin pagos</span><span class="pp-empty-op-sub">Ningún pago coincide con los filtros.</span></div></td></tr>
+          </ng-template>
+        </p-table>
+        <p class="pp-foot">Espejo del <b>Programa de Pagos</b> de Tesorería (finance.payment_program). <b>Valor único:</b> los pagos con KEPLER=<b>no</b> son ejecutados por Tesorería y <b>aún no asentados en el ERP</b> (en agosto: la mayoría, por el rezago de posteo). Lo ya posteado vive con más detalle en <b>Pagos a proveedor</b> (analytics.erp_supplier_payments) y la política de descuento en Compras. <b>Método</b>: transferencia/cheque/factoraje/anticipo. "·?" = proveedor no resuelto. Máx {{ d.rows.length }} filas.</p>
+      }
+    </div>
+  `,
+  styles: [`
+    :host { display:block; }
+    .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
+    .pp-head-actions { display:flex; gap:.5rem; }
+    .pp-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin:1rem 0 .6rem; }
+    :host ::ng-deep .pp-sel { min-width:9rem; }
+    .pp-search input { min-width:200px; }
+    app-metric-strip { display:block; margin:.9rem 0 .6rem; }
+    .pp-breakdown { display:flex; gap:1.4rem; flex-wrap:wrap; margin:.2rem 0 .8rem; }
+    .pp-bd-col { flex:1; min-width:220px; border:1px solid var(--border-color); border-radius:var(--r-md); padding:.55rem .7rem; }
+    .pp-bd-title { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); }
+    .pp-bd-row { display:flex; align-items:baseline; gap:.6rem; font-size:.8rem; padding:.15rem 0; }
+    .pp-bd-k { flex:1; color:var(--text-main); }
+    .pp-bd-v { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+    .pp-bd-n { color:var(--text-faint); font-size:.72rem; min-width:2.5rem; text-align:right; }
+    .pp-table { margin-top:.4rem; }
+    .ta-r { text-align:right; }
+    .pp-num, .pp-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .pp-strong { font-weight:700; }
+    .muted { color:var(--text-faint); }
+    .pp-prov { max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pp-unres { color:var(--warn-fg); font-weight:700; margin-left:.2rem; }
+    .pp-ref { color:var(--text-faint); }
+    .pp-fol { max-width:150px; overflow:hidden; text-overflow:ellipsis; }
+    .pp-w-date { width:6.2rem; } .pp-w-suc { width:3.2rem; } .pp-w-tipo { width:5.5rem; } .pp-w-met { width:9rem; }
+    .pp-w-bank { width:6rem; } .pp-w-fol { width:9rem; } .pp-w-amt { width:8rem; } .pp-w-kep { width:4rem; }
+    :host ::ng-deep .pp-tag { font-size:.64rem; }
+    .pp-foot { margin-top:1rem; font-size:.74rem; color:var(--text-faint); line-height:1.5; }
+    /* [PP.7] Frescura sin medir: borde punteado, sin color de estado. No se puede ver como un verde. */
+    /* El p-tag trae color, forma y borde del tema. Lo unico propio es que se alinee con los
+       botones de la cabecera: el resto lo declara el componente, no esta pantalla. */
+    .pp-fresh-unknown { align-self:center; }
+    /* [PP.7] El aviso de meses faltantes. Usa warn, no bad: no es un error del sistema, es dato que no se ha cargado. */
+    /* El p-message pone el icono, el borde, el fondo y el par de color del tema. Lo propio es
+       solo el ancho y el ritmo del parrafo; el nombre del script va en mono porque es codigo. */
+    .pp-gap { width:100%; margin:.2rem 0 .8rem; line-height:1.45; }
+    .pp-gap code { font-family:var(--font-mono); font-size:var(--fs-sm); }
+    .pp-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
+    .pp-errbox .pi { color:var(--bad-fg); } .pp-errbox-txt { flex:1; font-size:.84rem; }
+    .pp-empty-op { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:2.4rem 1rem; text-align:center; }
+    .pp-empty-op .pi { font-size:1.6rem; color:var(--text-faint); }
+    .pp-empty-op-title { font-weight:600; }
+    .pp-empty-op-sub { font-size:.84rem; color:var(--text-muted); }
+    .pp-skel { display:flex; flex-direction:column; gap:.4rem; margin-top:1rem; }
+    .pp-recon { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.8rem 1rem; margin:.6rem 0 1rem; background:var(--card-bg); }
+    .pp-recon-h { font-size:.9rem; font-weight:700; margin:0 0 .6rem; }
+    .pp-recon-scroll { overflow-x:auto; }
+    /* ⚠️ La clase cae en el HOST del p-table; la <table> de adentro la pinta PrimeNG. Aca queda
+       solo lo que CASCADEA o aplica al host — el ancho y el colapso de bordes son del
+       componente. Los dos selectores de abajo SI llegan: th/td viven en nuestras ng-template. */
+    .pp-recon-tbl { display:block; font-size:.8rem; }
+    .pp-recon-tbl th, .pp-recon-tbl td { padding:.32rem .5rem; border-bottom:1px solid var(--border-color); white-space:nowrap; }
+    .pp-recon-tbl th { color:var(--text-muted); font-weight:600; text-align:left; }
+    .pp-recon-n { color:var(--text-faint); font-size:.72rem; margin-left:.3rem; }
+    .pp-warn { color:var(--warn-fg); font-weight:700; }
+    .pp-recon-note { font-size:.72rem; color:var(--text-faint); line-height:1.5; margin:.6rem 0 0; }
+    .pp-empty { padding:1rem; text-align:center; color:var(--text-faint); font-size:.85rem; }
+  `],
+})
+export class FinanzasProgramaPagosComponent implements OnInit {
+  private readonly http = inject(HttpClient);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly base = `${environment.apiUrl}/finance/payment-program`;
+
+  readonly data = signal<PPResponse | null>(null);
+  readonly f = signal<PPFacets>({ months: [], banks: [], methods: [], tipos: [] });
+  readonly loading = signal(false);
+  readonly err = signal<string | null>(null);
+  readonly month = signal<string | null>(null);
+  readonly bank = signal<string | null>(null);
+  readonly method = signal<string | null>(null);
+  readonly tipo = signal<string | null>(null);
+  readonly kepler = signal<string | null>(null);
+  readonly search = signal('');
+  readonly skelRows = Array.from({ length: 10 });
+  readonly keplerOpts = [{ label: 'En Kepler', value: 'si' }, { label: 'No en Kepler', value: 'no' }, { label: 'Sin dato', value: 'na' }];
+  readonly showRecon = signal(false);
+  readonly recon = signal<PPRecon | null>(null);
+  /** [PP.7] Meses cargados vs faltantes. Arranca en null = "todavía no sé", que no es lo mismo que "no falta ninguno". */
+  readonly cob = signal<PPCobertura | null>(null);
+  private searchTimer: any;
+
+  toggleRecon(): void {
+    const next = !this.showRecon(); this.showRecon.set(next);
+    if (next && !this.recon()) {
+      this.http.get<PPRecon>(`${this.base}/recon`).pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({ next: (r) => this.recon.set(r), error: () => this.recon.set({ months: [] }) });
+    }
+  }
+
+  ngOnInit(): void {
+    this.http.get<PPFacets>(`${this.base}/facets`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (f) => { this.f.set(f); if (f.months?.length) this.month.set(f.months[0]); this.reload(); },
+      error: () => { this.err.set('No se pudieron cargar los filtros.'); this.reload(); },
+    });
+    // [PP.7] La cobertura va en su propia llamada y su error NO rompe la pantalla: si no se
+    // puede medir qué falta, el signal queda en null y el aviso simplemente no se pinta —
+    // nunca se pinta "no falta ninguno", que sería afirmar algo que no se midió.
+    this.http.get<PPCobertura>(`${this.base}/cobertura`).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (c) => this.cob.set(c), error: () => this.cob.set(null) });
+  }
+
+  private query(): Observable<PPResponse> {
+    const p = new URLSearchParams();
+    if (this.month()) p.set('month', this.month()!);
+    if (this.bank()) p.set('bank', this.bank()!);
+    if (this.method()) p.set('method', this.method()!);
+    if (this.tipo()) p.set('tipo', this.tipo()!);
+    if (this.kepler()) p.set('kepler', this.kepler()!);
+    if (this.search().trim()) p.set('search', this.search().trim());
+    const qs = p.toString();
+    return this.http.get<PPResponse>(`${this.base}${qs ? '?' + qs : ''}`);
+  }
+
+  reload(): void {
+    this.loading.set(true); this.err.set(null);
+    this.query().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.data.set(d); this.loading.set(false); },
+      error: () => { this.loading.set(false); this.err.set('No se pudo cargar el programa de pagos.'); },
+    });
+  }
+
+  onFilter(which: 'month' | 'bank' | 'method' | 'tipo' | 'kepler', v: string | null): void {
+    ({ month: this.month, bank: this.bank, method: this.method, tipo: this.tipo, kepler: this.kepler })[which].set(v);
+    this.reload();
+  }
+  onSearch(v: string): void { this.search.set(v); if (this.searchTimer) clearTimeout(this.searchTimer); this.searchTimer = setTimeout(() => this.reload(), 320); }
+  hasFilters(): boolean { return !!(this.bank() || this.method() || this.tipo() || this.kepler() || this.search().trim()); }
+  clearFilters(): void { this.bank.set(null); this.method.set(null); this.tipo.set(null); this.kepler.set(null); this.search.set(''); this.reload(); }
+
+  kpis(d: PPResponse): MetricStripItem[] {
+    return [
+      { label: 'Pagado', value: d.totals.monto, format: 'currency-short', tone: 'default', sub: `${d.totals.n} pagos` },
+      { label: 'En Kepler', value: d.totals.kep_si, format: 'number', tone: 'ok' },
+      { label: 'No en Kepler', value: d.totals.kep_no, format: 'number', tone: d.totals.kep_no > 0 ? 'warn' : 'default' },
+      { label: 'Sin resolver', value: d.totals.sin_resolver, format: 'number', tone: 'default', sub: 'proveedor' },
+    ];
+  }
+  money(n: number): string { return Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+}

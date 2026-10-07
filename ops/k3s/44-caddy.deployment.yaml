@@ -1,0 +1,112 @@
+# ═══ CADDY — el terminador de TLS del camino INTERNO ═══  [K3S.34]
+#
+# ⛔ ES EL ÚNICO SERVICIO DE TODA LA MIGRACIÓN QUE EXIGE VENTANA, y conviene saber por qué
+# antes de tocarlo: dos Caddy no pueden convivir ni un segundo.
+#   · Se disputan el :443 del host. El segundo no arranca.
+#   · Y peor: se disputan el ALMACÉN DE CERTIFICADOS. Dos procesos escribiendo el mismo
+#     directorio de ACME pueden dejarlo en un estado que obligue a re-emitir.
+#
+# ⚠️ Y re-emitir no es gratis: Let's Encrypt admite 5 certificados por dominio cada 7 días.
+# Se agota en una tarde de pruebas, y entonces el sitio queda SIN certificado hasta que pase
+# la semana. Con HSTS ya encendido, el navegador da un error IMPOSIBLE DE SALTAR — y los que
+# lo verían son los agentes de las cajas, que no tienen a nadie para saltarlo.
+#
+# ── Por qué hostPath y no un PVC ────────────────────────────────────────────
+#
+# El almacén se COPIÓ del volumen de Docker a `/home/superoot/caddy-k3s/data` y el pod lo monta
+# de ahí. Copiar 132 KB es instantáneo y, sobre todo, deja el volumen de Docker INTACTO como
+# camino de vuelta: si el pod no levanta, se arranca `prod-caddy` y sigue con sus certificados.
+# Un PVC habría movido el dato a un lugar del que volver cuesta.
+#
+# ⛔ El Caddyfile se monta por hostPath COMO ARCHIVO, igual que en Compose, y por la misma
+# razón de `[INFRA.6]`: un montaje de archivo ata el INODO. `subir_compose` lo escribe EN SU
+# LUGAR (`cat nuevo > viejo`) y no con `mv`, que crearía un inodo nuevo y desengancharía el
+# montaje para siempre. Eso ya pasó: seis días de cambios invisibles.
+#
+# ⚠️ Caddy NO recarga solo al cambiar el archivo, y con `admin off` tampoco sirve
+# `caddy reload`. Después de tocar el Caddyfile hay que reiniciar: `kubectl rollout restart`.
+#
+# ── hostPort, y por qué singleton ───────────────────────────────────────────
+#
+# `singleton: "true"` + `Recreate` no es por estado compartido como en los carriles del ODS:
+# es porque DOS pods no pueden tomar el mismo puerto del nodo. Con `RollingUpdate`, el pod
+# nuevo quedaría en Pending esperando un puerto que el viejo no suelta — y el despliegue se
+# colgaría sin decir nada obvio.
+#
+# El :443/UDP es HTTP/3. Sin él el cliente cae a TCP en silencio tras un intento fallido:
+# funciona, pagando un viaje de más.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy
+  namespace: prod
+  labels: { app: caddy, singleton: "true", migracion: migrado }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # ⛔ ver arriba: dos pods no comparten el :443 del host
+  selector:
+    matchLabels: { app: caddy }
+  template:
+    metadata:
+      labels: { app: caddy }
+    spec:
+      # Para que la sonda hable con el nombre real sin salir a preguntarle a nadie. Ver el
+      # comentario de `readinessProbe`: el certificado lo elige el SNI, y el SNI sale de la URL.
+      hostAliases:
+        - ip: "127.0.0.1"
+          hostnames: ["interno.megadulcessuite.com"]
+      containers:
+        - name: caddy
+          image: localhost:5000/trade-prod-caddy:__COMMIT__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http,  containerPort: 80,  hostPort: 80,  protocol: TCP }
+            - { name: https, containerPort: 443, hostPort: 443, protocol: TCP }
+            - { name: h3,    containerPort: 443, hostPort: 443, protocol: UDP }
+          env:
+            - { name: TZ, value: America/Mexico_City }
+            - name: CLOUDFLARE_DNS_API_TOKEN
+              valueFrom:
+                secretKeyRef: { name: caddy-env, key: CLOUDFLARE_DNS_API_TOKEN }
+          volumeMounts:
+            - { name: caddyfile, mountPath: /etc/caddy/Caddyfile, readOnly: true }
+            - { name: datos,     mountPath: /data }
+            - { name: config,    mountPath: /config }
+          # ⭐ LA SONDA VALIDA LA CADENA DE CERTIFICADOS, no sólo que el proceso viva. Lo que
+          # puede fallar en Caddy no es morirse: es quedarse sin certificado válido. Por eso NO
+          # lleva `--no-check-certificate`.
+          #
+          # ⛔ La primera versión usaba `https://127.0.0.1` con `--header='Host: ...'` y
+          # fallaba SIEMPRE, con el servicio funcionando perfecto. Motivo: el `Host:` es una
+          # cabecera HTTP, que viaja DENTRO del TLS; el nombre que elige el certificado es el
+          # **SNI**, y busybox `wget` lo toma de la URL. Caddy recibía SNI `127.0.0.1`, no tenía
+          # certificado para esa IP y abortaba el handshake: `tlsv1 alert internal error`.
+          # Medido el 2026-10-01: el pod nunca llegó a Ready mientras los cuatro sitios daban
+          # 200. Una sonda que no puede pasar es peor que no tener sonda.
+          #
+          # ⭐ `hostAliases` resuelve el nombre REAL a sí mismo, así que el SNI es correcto y la
+          # sonda NO depende del DNS: si el resolvedor se cae, Caddy no se marca enfermo por
+          # algo que no es suyo.
+          #
+          # ⚠️ Lo que esto SÍ acopla, dicho a propósito: la sonda pasa por el proxy hacia el
+          # API. Si el API está caído, Caddy queda NotReady. No cambia nada operativo —no hay
+          # Service delante, el `hostPort` sirve igual— pero el tablero lo va a mostrar. Es
+          # correcto: mide lo que el usuario vive, no lo que el proceso cree.
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "wget -q -O /dev/null https://interno.megadulcessuite.com/api/health"]
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 10
+          resources:
+            requests: { memory: "32Mi", cpu: "25m" }
+            limits:   { memory: "512Mi" }
+      volumes:
+        - name: caddyfile
+          hostPath: { path: /home/superoot/ops/prod/Caddyfile, type: File }
+        - name: datos
+          hostPath: { path: /home/superoot/caddy-k3s/data, type: Directory }
+        - name: config
+          hostPath: { path: /home/superoot/caddy-k3s/config, type: Directory }

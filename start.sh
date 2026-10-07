@@ -1,0 +1,117 @@
+#!/bin/sh
+# ─────────────────────────────────────────────────────────────────────────────
+# start.sh — arranque del contenedor (Railway / Render).
+#
+# Orden:
+#   1. Aplica migraciones pendientes (knex migrate:latest). Idempotente y
+#      protegido por knex_migrations_lock (safe en restarts concurrentes).
+#   2. Lanza la API NestJS en background sobre $API_PORT (interno, fijo).
+#   3. Espera un margen de boot y confirma que el proceso sigue vivo.
+#   4. Renderiza nginx.conf inyectando $PORT y arranca nginx en background.
+#   5. Supervisa ambos: si cualquiera muere, sale 1 → Railway reinicia.
+#      (Sin healthcheck HTTP: Railway monitorea el contenedor + esta supervisión.)
+#
+# Si la API muere o las migraciones fallan, `set -e` aborta el boot y la
+# plataforma reintenta. Mejor fallar fuerte que correr con esquema sucio.
+# ─────────────────────────────────────────────────────────────────────────────
+set -e
+
+API_PORT="${API_PORT:-3333}"
+API_PREFIX="${API_PREFIX:-api}"
+PORT="${PORT:-10000}"
+
+# ── 1. Migraciones de base de datos ─────────────────────────────────────────
+# En Railway las migraciones corren como `preDeployCommand` (migrate.sh), NO
+# aquí. Si fallan, el deploy nuevo se marca FAILED y el anterior sigue sirviendo
+# — sin crash loop. Correrlas en el boot con `set -e` era lo que tumbaba prod
+# ante una migración rota (Railway reintentaba el mismo error N veces).
+#
+# Fallback opt-in RUN_MIGRATIONS_ON_BOOT=1 para plataformas sin pre-deploy hook
+# (p.ej. Render). Default off: en Railway el pre-deploy ya las aplicó.
+if [ "${RUN_MIGRATIONS_ON_BOOT:-0}" = "1" ]; then
+  echo "[start] RUN_MIGRATIONS_ON_BOOT=1 — aplicando migraciones en boot..."
+  sh ./migrate.sh
+else
+  echo "[start] Migraciones delegadas a preDeployCommand (migrate.sh) — skip en boot."
+fi
+
+# ── Cap del heap de V8 ───────────────────────────────────────────────────────
+# Sin --max-old-space-size, V8 fija el old-space según la RAM que "ve" en el
+# host (el nodo de Railway, no el límite del container) y es perezoso con el GC
+# mientras cree que hay memoria libre → el RSS trepa a 2-4GB en reposo aunque el
+# trabajo real sea chico. Al capar el heap, Node recolecta al acercarse al techo
+# en vez de acumular. 1024MB deja margen para PDFs (puppeteer/chromium corre en
+# proceso aparte), analytics y embeddings; bajar a 768 si se mantiene estable.
+# Override vía NODE_MAX_OLD_SPACE_MB en Railway sin tocar la imagen.
+export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-1024}"
+echo "[start] NODE_OPTIONS=${NODE_OPTIONS}"
+
+echo "[start] Starting NestJS API on port ${API_PORT}..."
+NODE_ENV=production node dist/apps/api/main.js &
+API_PID=$!
+
+# Esperamos un tiempo prudencial para que NestJS bindeé el puerto. No usamos
+# poll a un endpoint /health (lo eliminamos del API) — el riesgo de levantar
+# nginx un poco antes que la API está acotado: los primeros requests verán
+# 502 brevemente hasta que la API termine de inicializar. Mejor que matar el
+# contenedor por un falso negativo del healthcheck.
+echo "[start] Waiting 10s for API to bind port ${API_PORT}..."
+sleep 10
+
+# Confirmamos al menos que el proceso de la API sigue vivo. Si murió durante
+# el sleep, no tiene sentido seguir.
+if ! kill -0 "$API_PID" 2>/dev/null; then
+  echo "[start] API process died during boot."
+  exit 1
+fi
+echo "[start] API process alive (PID ${API_PID})."
+
+echo "[start] Configuring Nginx on port ${PORT}..."
+# ── [VL.9.12] LAS DOS CABECERAS QUE FUERZAN HTTPS, CONDICIONALES ────────────────
+# `Strict-Transport-Security` y el `upgrade-insecure-requests` del CSP son CORRECTAS
+# detrás de TLS: en Railway lo termina la plataforma. Servido por HTTP plano —que es
+# como queda on-prem hasta que exista el tunel— vuelven la app INUSABLE en un
+# navegador: el CSP reescribe cada recurso a https:// y el puerto no habla TLS, asi
+# que todo muere con ERR_SSL_PROTOCOL_ERROR. Medido el 2026-09-22 abriendo
+# http://192.168.0.222:8080.
+#
+# El default es `true` = el comportamiento de SIEMPRE, para que Railway no cambie.
+# Solo el compose on-prem pone `TLS_TERMINADO=false`, y tiene que volver a `true`
+# el dia que el tunel de Cloudflare termine TLS adelante.
+#
+# ⚠️ Y hay un efecto que sobrevive al arreglo: el navegador YA guardo la politica
+# HSTS de ese host y la va a respetar hasta un anio. Se borra en
+# chrome://net-internals/#hsts -> "Delete domain security policies".
+if [ "${TLS_TERMINADO:-true}" = "false" ]; then
+  HSTS_LINE=""
+  CSP_UPGRADE=""
+  echo "[start] TLS_TERMINADO=false -> sin HSTS y sin upgrade-insecure-requests (servido por HTTP plano)"
+else
+  HSTS_LINE='add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
+  CSP_UPGRADE="upgrade-insecure-requests"
+fi
+export HSTS_LINE CSP_UPGRADE
+
+envsubst '$PORT $HSTS_LINE $CSP_UPGRADE' < /etc/nginx/sites-available/default > /tmp/nginx.conf
+mv /tmp/nginx.conf /etc/nginx/sites-available/default
+
+echo "[start] Starting Nginx on port ${PORT}..."
+nginx -g 'daemon off;' &
+NGINX_PID=$!
+
+# Propagar SIGTERM/SIGINT a ambos hijos para un shutdown limpio en redeploys de
+# Railway (el `trap` corre cuando tini reenvía la señal a este script).
+trap 'echo "[start] señal recibida — terminando API+nginx"; kill -TERM "$API_PID" "$NGINX_PID" 2>/dev/null; exit 0' TERM INT
+
+# Supervisión post-boot: si CUALQUIERA de los dos muere, tumbamos el contenedor
+# para que Railway lo reinicie. Antes el API corría sin supervisión → si crasheaba
+# después del boot, nginx seguía "sano" sirviendo 502 indefinidamente y el
+# contenedor nunca reiniciaba. `kill -0` solo testea que el PID siga vivo.
+# (Poll POSIX porque /bin/sh es dash en Debian slim → no hay `wait -n`.)
+while kill -0 "$API_PID" 2>/dev/null && kill -0 "$NGINX_PID" 2>/dev/null; do
+  sleep 5
+done
+
+echo "[start] Un proceso gestionado murió (API_PID=${API_PID} NGINX_PID=${NGINX_PID}) — deteniendo contenedor para que Railway reinicie."
+kill -TERM "$API_PID" "$NGINX_PID" 2>/dev/null || true
+exit 1

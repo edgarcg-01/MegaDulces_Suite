@@ -1,0 +1,2996 @@
+import {
+  AfterViewInit,
+  Component,
+  DestroyRef,
+  ElementRef,
+  OnInit,
+  QueryList,
+  ViewChild,
+  ViewChildren,
+  inject,
+  signal,
+  computed,
+  effect,
+  untracked,
+  ChangeDetectionStrategy,
+  ChangeDetectorRef
+} from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
+import { toMxDateKey, todayMx, parseLocalDate } from '../../../core/utils/mx-date';
+import {
+  takeUntilDestroyed,
+  toObservable,
+  toSignal,
+} from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { environment } from '../../../../environments/environment';
+import { TableModule } from 'primeng/table';
+import { TagModule } from 'primeng/tag';
+import { ButtonModule } from 'primeng/button';
+import { ChartModule } from 'primeng/chart';
+import { ToastModule } from 'primeng/toast';
+import { TabsModule } from 'primeng/tabs';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
+import { InputTextModule } from 'primeng/inputtext';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { DialogModule } from 'primeng/dialog';
+import { ImageModule } from 'primeng/image';
+import { CheckboxModule } from 'primeng/checkbox';
+import { ChipModule } from 'primeng/chip';
+import { MultiSelectModule } from 'primeng/multiselect';
+import { SelectModule } from 'primeng/select';
+import { MessageService, ConfirmationService } from 'primeng/api';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { SkeletonModule } from 'primeng/skeleton';
+import { MenuModule } from 'primeng/menu';
+import type { MenuItem } from 'primeng/api';
+// jsPDF + autoTable se importan dinámicamente (lazy) la primera vez que el
+// usuario exporta un PDF. Ahorra ~400-600 KB del bundle inicial — eran las
+// libs más pesadas del tree para una funcionalidad on-demand.
+// Tipos via `import type` (sólo TypeScript, no genera código en runtime).
+import type jsPDFType from 'jspdf';
+type JsPDFCtor = typeof jsPDFType;
+type AutoTableFn = (doc: jsPDFType, options: Record<string, unknown>) => void;
+
+import { ReportsService, ReportsData } from './reports.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { FiltersStateService } from '../reports/graphics/filters-state.service';
+import { DailyCaptureService } from '../captures/daily-capture.service';
+import { BrandGroup } from '../captures/daily-capture.models';
+import {
+  MetasConfigService,
+  KpiStatus,
+} from '../reports/graphics/metas-config.service';
+import { GlobalFiltersComponent } from '../reports/graphics/global-filters.component';
+import { StoresTabComponent } from './stores-tab/stores-tab.component';
+import { RoutesTabComponent } from './routes-tab/routes-tab.component';
+import { Permission } from '../../../core/constants/permissions';
+import { ThemeService } from '../../../core/services/theme.service';
+import { getChartTokens, chartSeriesPalette } from '../../../shared/theme/chart-theme';
+
+/**
+ * Interfaz para agrupar visitas por día
+ */
+interface DayGroup {
+  id: string;
+  fecha: string;
+  totalVisitas: number;
+  avgScore: number;
+  totalVenta: number;
+  scoreStatus: KpiStatus;
+  visitasStatus: KpiStatus;
+  visits: any[];
+}
+
+/**
+ * Interfaz para secciones del PDF
+ */
+interface PdfSection {
+  id: string;
+  label: string;
+  checked: boolean;
+}
+
+@Component({
+  selector: 'app-reports',
+  standalone: true,
+  imports: [
+    CommonModule,
+    FormsModule,
+    TableModule,
+    TagModule,
+    ButtonModule,
+    ChartModule,
+    ToastModule,
+    TabsModule,
+    IconFieldModule,
+    InputIconModule,
+    InputTextModule,
+    InputNumberModule,
+    DialogModule,
+    ImageModule,
+    CheckboxModule,
+    ChipModule,
+    MultiSelectModule,
+    SelectModule,
+    GlobalFiltersComponent,
+    StoresTabComponent,
+    RoutesTabComponent,
+    ConfirmDialogModule,
+    SkeletonModule,
+    MenuModule,
+  ],
+  providers: [MessageService, ConfirmationService],
+  templateUrl: './reports.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styles: [
+    `
+      :host ::ng-deep .p-datatable-sm .p-datatable-tbody > tr > td {
+        padding: 0.5rem;
+      }
+      :host ::ng-deep .p-tablist-tablist {
+        border-bottom: 2px solid var(--border-color);
+      }
+    `,
+  ],
+})
+/**
+ * Componente principal de reportes y análisis de métricas
+ * Muestra KPIs, gráficas y tablas de visitas individuales
+ */
+export class ReportsComponent implements OnInit, AfterViewInit {
+  @ViewChildren('liquidTab') liquidTabs?: QueryList<ElementRef<HTMLButtonElement>>;
+  @ViewChild('liquidIndicator') liquidIndicator?: ElementRef<HTMLSpanElement>;
+  @ViewChild('liquidTabsContainer') liquidTabsContainer?: ElementRef<HTMLDivElement>;
+  private liquidResizeObserver?: ResizeObserver;
+
+  private reportsService = inject(ReportsService);
+  private http = inject(HttpClient);
+  private auth = inject(AuthService);
+  private perms = inject(PermissionsService);
+  private messageService = inject(MessageService);
+  private confirmationService = inject(ConfirmationService);
+  private cdr = inject(ChangeDetectorRef); // zoneless: CD tras callbacks async imperativos
+  readonly filtersState = inject(FiltersStateService);
+  readonly metasConfig = inject(MetasConfigService);
+  private dailyCaptureService = inject(DailyCaptureService);
+  private destroyRef = inject(DestroyRef);
+  public themeService = inject(ThemeService);
+
+  /** Estado de carga */
+  loading = signal(false);
+  /** Datos de reportes */
+  reportsData = signal<ReportsData | null>(null);
+  /** Tab activo (lazy-load: solo se renderiza el contenido del tab visible) */
+  activeTab = signal<number>(0);
+  /** Texto de búsqueda (signal para poder debouncear) */
+  searchText = signal<string>('');
+
+  /**
+   * Set de IDs de día seleccionados — antes vivía mutando `day.selected`
+   * dentro del computed `groupedRows()`, lo que se perdía cada vez que el
+   * computed se recomputaba (cambio de filtro, WS event, recarga).
+   */
+  private selectedDayIds = signal<Set<string>>(new Set());
+
+  isDaySelected(id: string): boolean {
+    return this.selectedDayIds().has(id);
+  }
+
+  toggleDaySelected(id: string, checked: boolean): void {
+    const next = new Set(this.selectedDayIds());
+    if (checked) next.add(id);
+    else next.delete(id);
+    this.selectedDayIds.set(next);
+  }
+
+  /** Search debounceado para filtrar la tabla sin lag por keystroke. */
+  searchTextDebounced = toSignal(
+    toObservable(this.searchText).pipe(
+      debounceTime(250),
+      distinctUntilChanged(),
+    ),
+    { initialValue: '' },
+  );
+  /** Filas expandidas en la tabla */
+  expandedRows: { [key: string]: boolean } = {};
+  /** Fila seleccionada */
+  selectedRow: any = null;
+  /** Muestra el diálogo de detalle */
+  showDetail = false;
+  /** Muestra el constructor de PDF */
+  showPdfBuilder = false;
+  /** Muestra el diálogo de reporte de rutas */
+  showRouteReportDialog = false;
+  /** Muestra la vista previa de imagen */
+  showImagePreview = false;
+  /** URL de imagen para vista previa */
+  previewImageUrl = '';
+  /** Usuarios seleccionados para reporte de rutas */
+  selectedRouteUsers: string[] = [];
+  /** Fecha del reporte de rutas */
+  routeReportDate: string = '';
+  /** Usuarios disponibles */
+  availableUsers = signal<any[]>([]);
+  /** Productos por usuario procesados para mostrar */
+  sellerProductsByUser = computed(() => {
+    const data = this.reportsData();
+    if (!data?.sellerProductStats || !data?.productMap) return [];
+
+    const userMap = new Map();
+    const rows = data.rows || [];
+
+    // Mapear userId a username
+    rows.forEach((row: any) => {
+      if (row.user_id && row.captured_by_username) {
+        userMap.set(row.user_id, row.captured_by_username);
+      }
+    });
+
+    // Procesar productos por usuario
+    const result: Array<{
+      userId: string;
+      username: string;
+      products: Array<{ name: string; brandName: string; count: number }>;
+      totalProducts: number;
+    }> = [];
+
+    Object.entries(data.sellerProductStats).forEach(([userId, products]) => {
+      const username = userMap.get(userId) || userId;
+      const productList = Object.entries(products).map(([pid, count]) => ({
+        name: data.productMap?.[pid]?.name || pid,
+        brandName: data.productMap?.[pid]?.brandName || 'Otras',
+        count: count as number,
+      })).sort((a, b) => b.count - a.count);
+
+      result.push({
+        userId,
+        username,
+        products: productList,
+        totalProducts: productList.reduce((sum, p) => sum + p.count, 0),
+      });
+    });
+
+    return result.sort((a, b) => b.totalProducts - a.totalProducts);
+  });
+
+  /** Muestra el diálogo de todos los productos */
+  showAllProductsDialog = false;
+  /** Término de búsqueda para productos */
+  productSearchTerm = '';
+  /** Productos filtrados para mostrar en tabla */
+  filteredProductsTable = signal<any[]>([]);
+  
+  /** Todos los productos procesados para mostrar en tabla */
+  allProductsTable = computed(() => {
+    const data = this.reportsData();
+    if (!data?.productStats || !data?.productMap) return [];
+
+    const result: Array<{
+      id: string;
+      name: string;
+      brandName: string;
+      total: number;
+      exhibidores: Record<string, number>;
+    }> = [];
+
+    Object.entries(data.productStats).forEach(([pid, stats]) => {
+      result.push({
+        id: pid,
+        name: data.productMap?.[pid]?.name || pid,
+        brandName: data.productMap?.[pid]?.brandName || 'Otras',
+        total: stats.total,
+        exhibidores: stats.exhibidores,
+      });
+    });
+
+    return result.sort((a, b) => b.total - a.total);
+  });
+
+  /** Filtrar productos según el término de búsqueda */
+  filterProducts() {
+    const allProducts = this.allProductsTable();
+    const searchTerm = this.productSearchTerm.toLowerCase().trim();
+    
+    if (!searchTerm) {
+      this.filteredProductsTable.set(allProducts);
+      return;
+    }
+    
+    const filtered = allProducts.filter(product => 
+      product.name.toLowerCase().includes(searchTerm) ||
+      product.brandName.toLowerCase().includes(searchTerm)
+    );
+    
+    this.filteredProductsTable.set(filtered);
+  }
+
+  /** Limpiar búsqueda de productos */
+  clearProductSearch() {
+    this.productSearchTerm = '';
+    this.filterProducts();
+  }
+
+  /** Inicializar productos filtrados cuando se abre el diálogo */
+  initializeProductDialog() {
+    this.productSearchTerm = '';
+    this.filterProducts();
+  }
+
+  /** Abrir diálogo de todos los productos */
+  openAllProductsDialog() {
+    this.initializeProductDialog();
+    this.showAllProductsDialog = true;
+  }
+
+  isSupervisor = this.perms.has$(Permission.REPORTES_VER_EQUIPO);
+
+  /** Título del PDF */
+  pdfTitle = 'Reporte de mercadeo';
+  /** Secciones disponibles para el PDF */
+  pdfSections: PdfSection[] = [
+    { id: 'metrics', label: 'Resumen de métricas', checked: true },
+    { id: 'trend', label: 'Gráfica de tendencia', checked: true },
+    { id: 'furniture', label: 'Cumplimiento mobiliario', checked: true },
+    { id: 'table', label: 'Tabla de registros', checked: true },
+    { id: 'ranking', label: 'Ranking por vendedor', checked: false },
+  ];
+
+  // Modal de metas (solo superadmin y supervisor_m)
+  /** Muestra el diálogo de configuración de metas */
+  showMetasDialog = false;
+  /** Mobiliario editable */
+  editableFurniture = [...this.metasConfig.furniture()].map((f) => ({ ...f }));
+  /** Rangos de KPI editables */
+  editableKpi = [...this.metasConfig.kpiRanges()].map((k) => ({ ...k }));
+
+  canEditMetas = this.perms.hasAny$(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL);
+
+  canManageReports = this.perms.has$(Permission.REPORTES_GESTIONAR);
+
+  /**
+   * Muestra el diálogo de confirmación para eliminar un reporte
+   * @param report Reporte a eliminar
+   */
+  confirmDelete(report: any) {
+    this.confirmationService.confirm({
+      message: `¿Estás seguro de que deseas eliminar permanentemente el reporte con folio <b>${report.folio}</b>? Esta acción no se puede deshacer.`,
+      header: 'Confirmar Eliminación',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, eliminar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger p-button-text',
+      rejectButtonStyleClass: 'p-button-text p-button-secondary',
+      accept: () => {
+        this.deleteReport(report.id);
+      },
+    });
+  }
+
+  /**
+   * Elimina un reporte por su ID
+   * @param id ID del reporte a eliminar
+   */
+  private deleteReport(id: string) {
+    this.loading.set(true);
+    this.reportsService
+      .deleteReport(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Eliminado',
+            detail: 'El reporte ha sido eliminado correctamente',
+          });
+          this.loadData();
+        },
+        error: (err: any) => {
+          this.loading.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: err?.error?.message || 'No se pudo eliminar el reporte',
+          });
+        },
+      });
+  }
+
+  constructor() {
+    effect(() => {
+      // Re-construir los charts de productos cuando cambien los datos Y los catálogos se hayan cargado
+      const data = this.reportsData();
+      const products = this.dailyCaptureService.groupedProducts();
+      if (data?.productStats && products.length > 0) {
+        this.buildProductCharts(data);
+      }
+    });
+
+    // Re-render chart options + data al cambiar tema. Los tokens se resuelven
+    // desde getComputedStyle al construir los configs, por eso necesitamos
+    // re-construir cuando cambia el tema (NG0600: writes vía untracked).
+    effect(() => {
+      this.themeService.isMonochrome();
+      untracked(() => {
+        this.initChartOptions();
+        const data = this.reportsData();
+        if (data) this.buildCharts(data);
+      });
+    });
+
+    // Reposicionar el blob deslizante de los tabs al cambiar activeTab.
+    effect(() => {
+      this.activeTab();
+      untracked(() => queueMicrotask(() => this.syncLiquidIndicator()));
+    });
+  }
+
+  ngAfterViewInit(): void {
+    queueMicrotask(() => this.syncLiquidIndicator());
+    if (typeof ResizeObserver !== 'undefined' && this.liquidTabsContainer) {
+      this.liquidResizeObserver = new ResizeObserver(() => this.syncLiquidIndicator());
+      this.liquidResizeObserver.observe(this.liquidTabsContainer.nativeElement);
+      this.liquidTabs?.forEach(t => this.liquidResizeObserver!.observe(t.nativeElement));
+      this.destroyRef.onDestroy(() => this.liquidResizeObserver?.disconnect());
+    }
+  }
+
+  private syncLiquidIndicator(): void {
+    const tabs = this.liquidTabs?.toArray();
+    const idx = this.activeTab();
+    const tab = tabs?.[idx]?.nativeElement;
+    const indicator = this.liquidIndicator?.nativeElement;
+    const container = this.liquidTabsContainer?.nativeElement;
+    if (!tab || !indicator || !container) return;
+
+    const left = tab.offsetLeft;
+    const width = tab.offsetWidth;
+    indicator.style.transform = `translate3d(${left}px, 0, 0)`;
+    indicator.style.width = `${width}px`;
+
+    // Scroll horizontal en mobile: asegurar que la tab activa quede visible.
+    if (container.scrollWidth > container.clientWidth) {
+      const tabCenter = left + width / 2;
+      const viewCenter = container.scrollLeft + container.clientWidth / 2;
+      const delta = tabCenter - viewCenter;
+      if (Math.abs(delta) > 8) {
+        container.scrollTo({ left: container.scrollLeft + delta, behavior: 'smooth' });
+      }
+    }
+  }
+
+  /** Datos de la gráfica principal */
+  chartData: any;
+  /** Opciones de la gráfica principal */
+  chartOptions: any;
+  /** Datos de la gráfica de zonas */
+  zoneChartData: any;
+  /** Opciones de la gráfica de zonas */
+  zoneChartOptions: any;
+  /** Datos de la gráfica de vendedores */
+  sellerChartData: any;
+  /** Opciones de la gráfica horizontal */
+  horizontalChartOptions: any;
+  /** Datos de la distribución de scores */
+  scoreDistData: any;
+  /** Opciones de la distribución de scores */
+  scoreDistOptions: any;
+  // Nueva gráfica apilada moderna tipo PrimeNG
+  /** Datos de la gráfica apilada */
+  stackedChartData: any;
+  /** Opciones de la gráfica apilada */
+  stackedChartOptions: any;
+  // Gráficas adicionales de PrimeNG
+  /** Datos de la gráfica de doughnut */
+  doughnutChartData: any;
+  /** Opciones de la gráfica de doughnut */
+  doughnutChartOptions: any;
+  /** Datos de la gráfica radar */
+  radarChartData: any;
+  /** Opciones de la gráfica radar */
+  radarChartOptions: any;
+  /** Datos de la gráfica polar area */
+  polarAreaChartData: any;
+  /** Opciones de la gráfica polar area */
+  polarAreaChartOptions: any;
+  /** Datos de la gráfica scatter */
+  scatterChartData: any;
+  /** Opciones de la gráfica scatter */
+  scatterChartOptions: any;
+  // Gráfica de línea movida desde Home (Ejecución semanal vs meta)
+  /** Datos de la gráfica de línea */
+  lineChartData: any;
+  /** Opciones de la gráfica de línea */
+  lineChartOptions: any;
+
+  // Propiedades para filtrado de productos
+  /** Marca seleccionada para filtrar productos */
+  selectedBrand: string | null = null;
+  /** Marcas disponibles */
+  availableBrands: any[] = [];
+  /** Estadísticas de productos sin filtrar */
+  allProductStatsRaw: any[] = [];
+
+  // Analysis de Productos
+  /** Datos de la gráfica de productos top */
+  productTopChartData: any;
+  /** Productos más frecuentes */
+  topProducts: any[] = [];
+  /** Productos menos frecuentes */
+  bottomProducts: any[] = [];
+  /** Indica si se han procesado las estadísticas de productos */
+  productStatsProcessed: boolean = false;
+
+  // Nuevas Métricas
+  /** Datos de la gráfica de salud de exhibidores */
+  exhibidoresHealthChartData: any;
+  /** Productos con mayor faltante */
+  topFaltantes: any[] = [];
+
+  /**
+   * Agrupa las filas de visitas por fecha
+   * @returns Lista de grupos de días con estadísticas
+   */
+  groupedRows = computed<DayGroup[]>(() => {
+    const data = this.reportsData();
+    if (!data?.rows) return [];
+
+    const groups: Record<string, DayGroup> = {};
+    data.rows.forEach((row: any) => {
+      // Derivar día calendario en TZ MX. `row.fecha` viene del backend ya
+      // tematizado a MX (DATE en MX). Si por alguna razón solo está
+      // `hora_inicio`, lo convertimos. Antes se usaba `toISOString()` que
+      // movía la fecha al día siguiente UTC para capturas vespertinas.
+      const dStr = toMxDateKey(row.fecha) || toMxDateKey(row.hora_inicio);
+      if (!groups[dStr]) {
+        groups[dStr] = {
+          id: dStr,
+          fecha: dStr,
+          totalVisitas: 0,
+          avgScore: 0,
+          totalVenta: 0,
+          scoreStatus: 'ok',
+          visitasStatus: 'ok',
+          visits: [],
+        };
+      }
+      groups[dStr].visits.push(row);
+      groups[dStr].totalVisitas += 1;
+      groups[dStr].totalVenta += row.stats?.ventaTotal ?? 0;
+    });
+
+    return Object.values(groups)
+      .map((day: any) => {
+        const totalScore = day.visits.reduce(
+          (s: number, v: any) => s + (v.stats?.puntuacionTotal ?? 0),
+          0,
+        );
+        day.avgScore = day.visits.length
+          ? Math.round(totalScore / day.visits.length)
+          : 0;
+        day.scoreStatus = this.metasConfig.statusFor('score', day.avgScore);
+        day.visitasStatus = this.metasConfig.statusFor(
+          'visitas',
+          day.totalVisitas,
+        );
+        return day;
+      })
+      .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  });
+
+  selectedDayCount = computed(() => this.selectedDayIds().size);
+
+  kpiCards = computed(() => {
+    const data = this.reportsData();
+    if (!data) return [];
+    const m = (data.metrics ?? {}) as ReportsData['metrics'];
+    const defs = [
+      {
+        id: 'visitas',
+        label: 'Visitas',
+        raw: m.totalVisitas ?? 0,
+        fmt: (v: number) => v.toLocaleString(),
+        unit: '',
+      },
+      {
+        id: 'score',
+        label: 'Avg score',
+        raw: m.avgScore ?? 0,
+        fmt: (v: number) => Math.round(+v || 0) + ' pts',
+        unit: 'pts',
+      },
+      {
+        id: 'venta',
+        label: 'Impacto venta',
+        raw: m.totalVentas ?? 0,
+        fmt: (v: number) => '$' + v.toLocaleString(),
+        unit: '',
+      },
+      {
+        id: 'exhibiciones',
+        label: 'Exhibiciones evaluadas',
+        raw: (m as any).totalExhibidores ?? 0,
+        fmt: (v: number) => v.toLocaleString(),
+        unit: '',
+      },
+      {
+        id: 'avgVenta',
+        label: 'Venta promedio',
+        raw: (m as any).avgVentaPorVisita ?? 0,
+        fmt: (v: number) => '$' + v.toLocaleString(),
+        unit: '',
+      },
+      {
+        // id 'stockoutRate' conservado para reusar el rango de metas existente
+        // (ya relabelado a "Productos/visita", min 1 / opt 3). El valor ahora es
+        // productsPerVisit real (SKUs distintos por visita), no un % de stockout.
+        id: 'stockoutRate',
+        label: 'Productos/visita',
+        raw: (m as any).productsPerVisit ?? 0,
+        fmt: (v: number) => (Math.round((+v || 0) * 10) / 10).toString(),
+        unit: '',
+      },
+      {
+        id: 'healthRate',
+        label: 'Health Rate',
+        raw: (m as any).healthRate ?? 0,
+        fmt: (v: number) => v + '%',
+        unit: '%',
+      },
+      {
+        id: 'uniqueProducts',
+        label: 'Productos Únicos',
+        raw: (m as any).uniqueProducts ?? 0,
+        fmt: (v: number) => v.toLocaleString(),
+        unit: '',
+      },
+    ];
+    return defs.map((d) => {
+      const range = this.metasConfig.getRange(d.id);
+      const status = this.metasConfig.statusFor(d.id, d.raw);
+      const pct = this.metasConfig.progressPct(d.id, d.raw);
+      // Solo calcular delta si el backend envió `prev_*` real; si no, dejar
+      // el campo vacío. Antes el fallback `?? d.raw` igualaba prev = raw y
+      // mostraba "Sin variación" para todos los KPIs aunque nunca hubiéramos
+      // calculado una comparación real.
+      const prevRaw = (m as any)['prev_' + d.id];
+      const hasPrev =
+        typeof prevRaw === 'number' && Number.isFinite(prevRaw) && prevRaw !== 0;
+      const diff = hasPrev ? Math.round(((d.raw - prevRaw) / prevRaw) * 100) : null;
+      return {
+        label: d.label,
+        value: d.fmt(d.raw),
+        status,
+        pct,
+        delta:
+          diff === null
+            ? ''
+            : diff === 0
+              ? 'Sin variación'
+              : (diff > 0 ? `+${diff}%` : `${diff}%`) + ' vs anterior',
+        deltaDir: diff === null
+          ? 'flat'
+          : diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat',
+        meta: range ? `${range.opt}${d.unit}` : '—',
+      };
+    });
+  });
+
+  /** Circunferencia del gauge radial de las KPI cards de resumen (r=18). */
+  readonly GAUGE_C = 2 * Math.PI * 18;
+  /** stroke-dasharray del arco según % de progreso a la meta (clamp 0–100). */
+  gaugeDash(pct: number | null | undefined): string {
+    const p = Math.max(0, Math.min(100, pct ?? 0));
+    return `${(p / 100) * this.GAUGE_C} ${this.GAUGE_C}`;
+  }
+  /** % redondeado para el texto central del gauge. */
+  pctLabel(pct: number | null | undefined): number {
+    return Math.round(Math.max(0, Math.min(100, pct ?? 0)));
+  }
+
+  /**
+   * Inicializa el componente cargando las opciones de gráficas y datos
+   */
+  ngOnInit() {
+    this.initChartOptions();
+    this.loadData();
+  }
+
+  /**
+   * Carga los datos de reportes aplicando los filtros actuales
+   */
+  loadData() {
+    const f = this.filtersState.filters();
+    if (!f.startDate) return;
+    this.loading.set(true);
+
+    this.reportsService
+      .getReportsData({
+        startDate: f.startDate,
+        endDate: f.endDate,
+        zone: f.zone,
+        supervisorId: f.supervisorId,
+        sellerIds: f.sellerIds,
+      }, undefined, undefined, 'products')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data: ReportsData) => {
+          this.reportsData.set(data);
+          this.buildCharts(data);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudieron cargar los reportes.',
+          });
+        },
+      });
+  }
+
+  /**
+   * Reseta todos los filtros (llamado por GlobalFiltersComponent)
+   */
+  resetAll() {
+    this.loadData();
+  }
+
+  /**
+   * Construye todas las gráficas con los datos de reportes
+   * @param data Datos de reportes
+   */
+  buildCharts(data: ReportsData) {
+    const t = getChartTokens();
+    const visitasMeta = this.metasConfig.getRange('visitas')?.opt ?? 50;
+    const scoreMeta = this.metasConfig.getRange('score')?.opt ?? 80;
+    const trend = data.trendData ?? [];
+
+    // Filtrar solo los últimos 7 días
+    const last7Days = trend.slice(-7);
+
+    // Etiquetas con nombre de día. `parseLocalDate` evita el desplazamiento
+    // de UTC (`new Date('YYYY-MM-DD')` interpreta como UTC midnight y en MX
+    // cae al día anterior). Util compartido en core/utils/mx-date.
+    const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const labels = last7Days.map((d: any) => {
+      const date = parseLocalDate(d.date);
+      if (!date) return '';
+      return dayNames[date.getDay()] + ' ' + date.getDate();
+    });
+
+    this.chartData = {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Visitas por día',
+          data: last7Days.map((d: any) => d.visits),
+          borderColor: t.okFg,
+          backgroundColor: t.okFg,
+          borderWidth: 2,
+          borderRadius: 6,
+          borderSkipped: false,
+          yAxisID: 'y',
+        },
+        {
+          label: 'Meta diaria',
+          data: last7Days.map(() => Math.round(visitasMeta / 7)), // Meta distribuida por día
+          borderColor: t.badFg,
+          borderDash: [4, 3],
+          borderWidth: 2,
+          pointRadius: 0,
+          backgroundColor: 'transparent',
+          yAxisID: 'y',
+        },
+      ],
+    };
+
+    const zones = (data as any).zoneStats ?? [];
+    this.zoneChartData = {
+      labels: zones.map((z: any) => z.zone),
+      datasets: [
+        {
+          label: 'Avg score',
+          data: zones.map((z: any) => z.avgScore),
+          backgroundColor: zones.map((z: any) =>
+            z.avgScore >= scoreMeta
+              ? t.okFg
+              : z.avgScore >= this.metasConfig.getRange('score')!.min
+                ? t.warnFg
+                : t.badFg,
+          ),
+        },
+      ],
+    };
+
+    const sellers = ((data as any).sellerStats ?? []).slice(0, 7);
+    this.sellerChartData = {
+      labels: sellers.map((s: any) => s.username),
+      datasets: [
+        {
+          label: 'Visitas',
+          data: sellers.map((s: any) => s.totalVisitas),
+          backgroundColor: t.okFg,
+        },
+      ],
+    };
+
+    const rows = data.rows ?? [];
+
+    // Obtener niveles del catálogo real para clasificar visitas
+    const nivelesCatalogo = this.dailyCaptureService.niveles();
+    const nivelMap = new Map<string, { value: string; puntuacion: number; color: string }>();
+    
+    // Mapear niveles del catálogo con colores
+    const colorMap: Record<string, string> = {
+      'alto': t.okFg,
+      'medio': t.infoFg,
+      'bajo': t.warnFg,
+      'crítico': t.badFg,
+    };
+
+    nivelesCatalogo.forEach(n => {
+      nivelMap.set(n.id, {
+        value: n.value.toLowerCase(),
+        puntuacion: Number(n.puntuacion) || 1,
+        color: colorMap[n.value.toLowerCase()] || t.chart8,
+      });
+    });
+
+    // Clasificar cada visita según el peor nivel de ejecución de sus exhibiciones.
+    // `nivelOrden` ordenado de peor (idx 0) a mejor (idx 3). Una visita con
+    // múltiples exhibiciones se clasifica por el nivel MÁS BAJO.
+    const nivelOrden = ['crítico', 'bajo', 'medio', 'alto'];
+
+    const visitLevelCounts: Record<string, number> = {
+      'alto': 0, 'medio': 0, 'bajo': 0, 'crítico': 0,
+    };
+
+    rows.forEach((row: any) => {
+      const exhibiciones = row.exhibiciones || [];
+      if (exhibiciones.length === 0) {
+        visitLevelCounts['crítico']++;
+        return;
+      }
+
+      // Arrancamos en el mejor ('alto') y bajamos si encontramos algo peor.
+      // `nivelOrden.indexOf` peor=0, mejor=3 → comparar con `<` para tomar
+      // el menor índice (= nivel más bajo de calidad). Antes el código usaba
+      // `>` lo que NUNCA bajaba el worstLevel porque 'alto' (3) ya es el max.
+      let worstLevel = 'alto';
+      for (const ex of exhibiciones) {
+        const nivelId = ex.nivelEjecucionId || ex.nivel_ejecucion_id;
+        const nivelInfo = nivelMap.get(nivelId);
+        let candidate: string | null = null;
+        if (nivelInfo) {
+          candidate = nivelInfo.value.toLowerCase();
+        } else if (ex.nivelEjecucion) {
+          candidate = String(ex.nivelEjecucion).toLowerCase();
+        }
+        if (!candidate) continue;
+        const candidateIdx = nivelOrden.indexOf(candidate);
+        if (candidateIdx === -1) continue;
+        const currentIdx = nivelOrden.indexOf(worstLevel);
+        if (candidateIdx < currentIdx) {
+          worstLevel = candidate;
+        }
+      }
+      visitLevelCounts[worstLevel] = (visitLevelCounts[worstLevel] || 0) + 1;
+    });
+
+    // Distribución de scores por nivel de ejecución real
+    const dist = nivelOrden.map(nivel => visitLevelCounts[nivel] || 0);
+    this.scoreDistData = {
+      labels: nivelOrden.map(n => n.charAt(0).toUpperCase() + n.slice(1)),
+      datasets: [
+        {
+          label: 'Visitas',
+          data: dist,
+          backgroundColor: nivelOrden.map(n => colorMap[n] || t.chart8),
+        },
+      ],
+    };
+
+    // Gráfica de visitas por día — barra única coloreada por el score
+    // promedio REAL del día. Antes inventaba un desglose 60/30/10 que no
+    // representaba nada (todas las visitas con score alto seguían mostrando
+    // barras de "Bajo Score" por la fórmula).
+    const dailyStats = last7Days.map((d: any) => ({
+      visits: d.visits || 0,
+      avgScore: typeof d.avgScore === 'number' ? d.avgScore : 0,
+    }));
+
+    // Una barra por día con el TOTAL real de visitas; color según el score
+    // promedio real del día (≥80 alto, ≥50 medio, sino bajo).
+    const colorForScore = (score: number): string => {
+      if (score >= scoreMeta) return t.okFg;
+      if (score >= (this.metasConfig.getRange('score')?.min ?? 50)) return t.warnFg;
+      return t.badFg;
+    };
+
+    this.stackedChartData = {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Visitas',
+          data: dailyStats.map((s) => s.visits),
+          backgroundColor: dailyStats.map((s) => colorForScore(s.avgScore)),
+          avgScores: dailyStats.map((s) => s.avgScore),
+          borderRadius: 4,
+          borderSkipped: false,
+        },
+      ],
+    };
+
+    // 1. DOUGHNUT CHART - Distribución porcentual de visitas por nivel de ejecución real
+    const doughnutLabels = nivelOrden.map(n => n.charAt(0).toUpperCase() + n.slice(1));
+    const doughnutValues = nivelOrden.map(nivel => visitLevelCounts[nivel] || 0);
+    const doughnutColors = nivelOrden.map(n => colorMap[n] || t.chart8);
+    
+    this.doughnutChartData = {
+      labels: doughnutLabels,
+      datasets: [
+        {
+          data: doughnutValues,
+          backgroundColor: doughnutColors,
+          borderWidth: 0,
+          hoverOffset: 4,
+        },
+      ],
+    };
+
+    // 2. RADAR CHART - Comparación multivariable de KPIs por zona
+    // Muestra el desempeño de cada zona en múltiples dimensiones
+    const radarZones = data.zoneStats?.slice(0, 5) ?? [];
+    const radarLabels = [
+      'Score Promedio',
+      'Visitas',
+      'Cumplimiento GPS',
+      'Exhibiciones',
+      'Ventas',
+    ];
+
+    // Si no hay datos de zonas, generar datos desde las filas agrupadas por zona
+    let zoneData = radarZones;
+    if (zoneData.length === 0) {
+      const zoneMap = new Map<string, any>();
+      rows.forEach((r: any) => {
+        const zone = r.zona_captura || 'Sin zona';
+        if (!zoneMap.has(zone)) {
+          zoneMap.set(zone, {
+            zone,
+            avgScore: 0,
+            totalVisitas: 0,
+            gpsPct: 0,
+            totalExhibiciones: 0,
+            totalVentas: 0,
+            count: 0,
+          });
+        }
+        const z = zoneMap.get(zone);
+        z.avgScore += r.stats?.puntuacionTotal ?? 0;
+        z.totalVisitas += 1;
+        z.gpsPct += r.stats?.gpsPct ?? 0;
+        z.totalExhibiciones += r.exhibiciones?.length ?? 0;
+        z.totalVentas += r.stats?.ventaTotal ?? 0;
+        z.count += 1;
+      });
+
+      zoneData = Array.from(zoneMap.values())
+        .map((z: any) => ({
+          zone: z.zone,
+          avgScore: z.count > 0 ? z.avgScore / z.count : 0,
+          totalVisitas: z.totalVisitas,
+          gpsPct: z.count > 0 ? z.gpsPct / z.count : 0,
+          totalExhibiciones: z.totalExhibiciones,
+          totalVentas: z.totalVentas,
+        }))
+        .slice(0, 5);
+    }
+
+    // Normalización dinámica: para cada métrica (visitas, exhibiciones, ventas)
+    // tomamos el máximo DE LAS ZONAS y escalamos relativo a ese máximo. Antes
+    // estaba hardcodeado `/2`, `/1000` y con cifras reales de Mega Dulces todas
+    // las zonas clipeaban a 100 → radar visualmente idéntico (bug del audit).
+    // Score y gpsPct ya vienen 0-100 nativamente.
+    const maxVisitas = Math.max(1, ...zoneData.map((z: any) => z.totalVisitas ?? 0));
+    const maxExhibiciones = Math.max(1, ...zoneData.map((z: any) => z.totalExhibiciones ?? 0));
+    const maxVentas = Math.max(1, ...zoneData.map((z: any) => z.totalVentas ?? 0));
+    const norm = (v: number, max: number) => max > 0 ? Math.round((v / max) * 100) : 0;
+
+    this.radarChartData = {
+      labels: radarLabels,
+      datasets: zoneData.map((z: any, idx: number) => ({
+        label: z.zone,
+        data: [
+          Math.round(z.avgScore || 0),
+          norm(z.totalVisitas ?? 0, maxVisitas),
+          Math.round(z.gpsPct || 0),
+          norm(z.totalExhibiciones ?? 0, maxExhibiciones),
+          norm(z.totalVentas ?? 0, maxVentas),
+        ],
+        borderColor: chartSeriesPalette(t, 5)[idx],
+        backgroundColor: chartSeriesPalette(t, 5)[idx],
+      })),
+    };
+
+    // 3. POLAR AREA CHART - Distribución de calidad de visitas por nivel real
+    const polarLabels = [...nivelOrden].reverse().map(n => n.charAt(0).toUpperCase() + n.slice(1));
+    const polarValues = [...nivelOrden].reverse().map(nivel => visitLevelCounts[nivel] || 0);
+    const polarColors = [...nivelOrden].reverse().map(n => {
+      const baseColor = colorMap[n] || t.chart8;
+      // Convert hex to rgba (only works for #RRGGBB literals; CSS vars del
+      // tema resuelven a hex, así que es seguro).
+      if (!baseColor.startsWith('#') || baseColor.length < 7) return baseColor;
+      const r = parseInt(baseColor.slice(1, 3), 16);
+      const g = parseInt(baseColor.slice(3, 5), 16);
+      const b = parseInt(baseColor.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, 0.7)`;
+    });
+
+    this.polarAreaChartData = {
+      labels: polarLabels,
+      datasets: [
+        {
+          data: polarValues,
+          backgroundColor: polarColors,
+          borderWidth: 1,
+          borderColor: t.cardBg,
+        },
+      ],
+    };
+
+    // 4. SCATTER CHART - Correlación entre Score y Ventas
+    // Cada punto representa una visita, mostrando relación calidad vs impacto económico
+    const scatterData = rows.slice(0, 50).map((r: any) => ({
+      x: r.stats?.puntuacionTotal ?? 0,
+      y: r.stats?.ventaTotal ?? 0,
+    }));
+    this.scatterChartData = {
+      datasets: [
+        {
+          label: 'Visitas: Score vs Ventas',
+          data: scatterData,
+          backgroundColor: t.okFg,
+          borderColor: t.okFg,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+        },
+      ],
+    };
+
+    // 5. LINE CHART - Ejecución Semanal vs Meta (movida desde Home)
+    // Muestra la tendencia del score promedio a lo largo del tiempo
+    this.lineChartData = {
+      labels: trend.map((d: any) => d.date),
+      datasets: [
+        {
+          label: 'Score Promedio',
+          data: trend.map((d: any) => d.avgScore),
+          borderColor: t.brand400,
+          backgroundColor: t.brand400,
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+          pointBackgroundColor: t.brand400,
+          pointBorderColor: t.cardBg,
+          pointBorderWidth: 2,
+        },
+      ],
+    };
+
+    // Salud General SIEMPRE se puebla (independiente de productStats / marca):
+    // el pie del tab Productos debe aparecer con "Todas las marcas" aunque la
+    // data se haya cargado sin include=products. El filtro por marca lo
+    // recalcula updateHealthByBrand() encima.
+    this.refreshHealthData(data.exhibidoresHealth);
+
+    if (data.productStats) {
+      this.buildProductCharts(data);
+    }
+  }
+
+  buildProductCharts(data: ReportsData) {
+    // Health chart se puebla siempre — `exhibidoresHealth` viene del backend
+    // aunque productStats esté vacío (el agregado se hace en otro loop).
+    this.refreshHealthData(data.exhibidoresHealth);
+
+    if (!data.productStats || Object.keys(data.productStats).length === 0) {
+      this.productStatsProcessed = false;
+      return;
+    }
+    this.productStatsProcessed = true;
+    const stats = data.productStats;
+
+    const groups = this.dailyCaptureService.groupedProducts();
+    // Poblar mapa de productos para búsqueda rápida por marca
+    this.pidToBrandMap = {};
+    groups.forEach(g => {
+      g.items.forEach((i: any) => this.pidToBrandMap[i.pid] = g.marca);
+    });
+    
+    // Extraer marcas directamente de la Base de Datos (del catálogo asíncrono).
+    // Si la BD no devolvió marcas, dejamos la lista vacía — antes había un
+    // fallback a mocks Bimbo/Marinela que producía datos falsos sin que el
+    // usuario se enterara.
+    const dbBrands = groups.map(g => g.marca);
+    const uniqueBrands = Array.from(new Set(dbBrands));
+
+    // Preparar lista de marcas para el dropdown
+    const sortedBrands = uniqueBrands.sort((a, b) => a.localeCompare(b));
+    this.availableBrands = [
+      { label: 'Todas las marcas', value: null },
+      ...sortedBrands.map(marca => ({ label: marca, value: marca }))
+    ];
+
+    this.allProductStatsRaw = Object.keys(stats).map(pid => {
+      const pData = stats[pid];
+      
+      // Intentar obtener nombre y marca del mapa del backend (Fuente de Verdad de la DB)
+      let name = pid;
+      let marca = 'Otros';
+      
+      const dbProduct = data.productMap?.[pid];
+      if (dbProduct) {
+        name = dbProduct.name;
+        marca = dbProduct.brandName || 'Otros';
+      } else {
+        // Fallback a los catálogos locales si no viene en el mapa
+        name = this.getProductName(pid);
+        const dbGroup = groups.find(g => g.items.some((i: any) => i.pid === pid));
+        if (dbGroup) marca = dbGroup.marca;
+      }
+      
+      return {
+        pid,
+        name,
+        marca,
+        total: pData.total,
+        exhibidores: pData.exhibidores
+      };
+    });
+
+    // Ordenar de mayor a menor globalmente
+    this.allProductStatsRaw.sort((a, b) => b.total - a.total);
+    
+    this.applyBrandFilter();
+  }
+
+  applyBrandFilter() {
+    const t = getChartTokens();
+    const filtered = this.selectedBrand
+      ? this.allProductStatsRaw.filter(p => p.marca === this.selectedBrand)
+      : this.allProductStatsRaw;
+
+    this.topProducts = filtered.slice(0, 7);
+    this.bottomProducts = [...filtered].reverse().slice(0, 5);
+
+    this.productTopChartData = {
+      labels: this.topProducts.map(p => p.name.length > 20 ? p.name.substring(0,20)+'...' : p.name),
+      datasets: [
+        {
+          label: 'Frecuencia en puntos de venta',
+          data: this.topProducts.map(p => p.total),
+          backgroundColor: t.okFg,
+          borderRadius: 4,
+        }
+      ]
+    };
+
+    const rData = this.reportsData();
+    const totalVisitas = rData?.metrics?.count || 1; 
+    
+    const stockoutData = filtered.map(p => {
+       const rate = Math.max(0, 100 - ((p.total / totalVisitas) * 100));
+       return {
+          ...p,
+          stockoutRate: rate.toFixed(1),
+          rateNum: rate
+       };
+    }).sort((a, b) => b.rateNum - a.rateNum);
+    
+    this.topFaltantes = stockoutData.slice(0, 5); 
+    this.updateHealthByBrand();
+  }
+
+  pidToBrandMap: Record<string, string> = {};
+  currentHealthStats = { optimo: 0, regular: 0, critico: 0 };
+
+  totalHealthExhibidores(): number {
+    const h = this.currentHealthStats;
+    return (h?.optimo || 0) + (h?.regular || 0) + (h?.critico || 0);
+  }
+
+  /** % de participación de un conteo de salud sobre el total (0 si no hay). */
+  healthPct(part: number): number {
+    const t = this.totalHealthExhibidores();
+    return t > 0 ? Math.round((part / t) * 100) : 0;
+  }
+
+  updateHealthByBrand() {
+    const data = this.reportsData();
+    if (!data?.rows) return;
+
+    const eh = data.exhibidoresHealth;
+    const backendHasData = eh && ((eh.optimo || 0) + (eh.regular || 0) + (eh.critico || 0)) > 0;
+    if (!this.selectedBrand && backendHasData) {
+      // "Todas las marcas": usar el agregado global del backend (sobre el set
+      // completo, no solo la página) cuando trae datos.
+      this.refreshHealthData(eh);
+      return;
+    }
+
+    // Sin marca y backend vacío → computar global desde rows (fallback).
+    // Con marca → filtrar por marca. Mismo loop.
+    const health = { optimo: 0, regular: 0, critico: 0 };
+    data.rows.forEach(row => {
+      const exhibiciones = row.exhibiciones || [];
+      exhibiciones.forEach((ex: any) => {
+        const matchesBrand = !this.selectedBrand
+          || ex.productosMarcados?.some((pid: string) => this.pidToBrandMap[pid] === this.selectedBrand);
+        if (!matchesBrand) return;
+        const val = String(ex.nivelEjecucion).toLowerCase();
+        const isOptimo = val === 'alto' || val === 'excelente' || val === 'optimo';
+        const isRegular = val === 'medio' || val === 'regular';
+        if (isOptimo) health.optimo++;
+        else if (isRegular) health.regular++;
+        else health.critico++;
+      });
+    });
+
+    this.refreshHealthData(health);
+  }
+
+  refreshHealthData(h: any) {
+    const t = getChartTokens();
+    this.currentHealthStats = h || { optimo: 0, regular: 0, critico: 0 };
+    this.exhibidoresHealthChartData = {
+      labels: ['Óptimo', 'Regular', 'Crítico'],
+      datasets: [{
+        data: [this.currentHealthStats.optimo, this.currentHealthStats.regular, this.currentHealthStats.critico],
+        backgroundColor: [t.okFg, t.warnFg, t.badFg],
+        hoverBackgroundColor: [t.okFg, t.warnFg, t.badFg],
+        borderWidth: 0
+      }]
+    };
+  }
+
+  initChartOptions() {
+    const t = getChartTokens();
+    // Base moderna para todas las gráficas
+    const base = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top' as const,
+          labels: {
+            usePointStyle: true,
+            pointStyle: 'circle',
+            padding: 20,
+            font: { size: 12, weight: '500' },
+            color: t.textMuted,
+          },
+        },
+        tooltip: {
+          backgroundColor: t.cardBg,
+          titleColor: t.textMain,
+          bodyColor: t.textMuted,
+          borderColor: t.borderColor,
+          borderWidth: 1,
+          padding: 12,
+          cornerRadius: 8,
+          displayColors: true,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          titleFont: { size: 13, weight: '600' },
+          bodyFont: { size: 12 },
+        },
+      },
+    };
+
+    // Gráfica de tendencia principal - Ahora barras para visitas de los últimos 7 días
+    this.chartOptions = {
+      ...base,
+      plugins: {
+        ...base.plugins,
+        legend: {
+          display: true,
+          position: 'top' as const,
+          labels: {
+            usePointStyle: true,
+            pointStyle: 'rect',
+            padding: 20,
+            font: { size: 12, weight: '500' },
+            color: t.textMuted,
+          },
+        },
+        tooltip: {
+          backgroundColor: t.cardBg,
+          titleColor: t.textMain,
+          bodyColor: t.textMuted,
+          borderColor: t.borderColor,
+          borderWidth: 1,
+          padding: 12,
+          cornerRadius: 8,
+          displayColors: true,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          titleFont: { size: 13, weight: '600' },
+          bodyFont: { size: 12 },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: {
+            font: { size: 11, weight: '500' },
+            color: t.chartAxis,
+          },
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: t.chartGrid, drawBorder: false },
+          ticks: { font: { size: 11 }, color: t.chartAxis },
+        },
+      },
+    };
+
+    // Gráfica de zonas - Barras verticales con gradiente
+    this.zoneChartOptions = {
+      ...base,
+      plugins: {
+        ...base.plugins,
+        legend: { display: false },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 11, weight: '500' }, color: t.chartAxis },
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: t.chartGrid, drawBorder: false },
+          ticks: { font: { size: 11 }, color: t.chartAxis },
+        },
+      },
+    };
+
+    // Gráfica horizontal de vendedores - Barras horizontales modernas
+    this.horizontalChartOptions = {
+      ...base,
+      indexAxis: 'y' as const,
+      plugins: {
+        ...base.plugins,
+        legend: { display: false },
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          grid: { color: t.chartGrid, drawBorder: false },
+          ticks: { font: { size: 11 }, color: t.chartAxis },
+        },
+        y: {
+          grid: { display: false },
+          ticks: { font: { size: 12, weight: '500' }, color: t.textMuted },
+        },
+      },
+    };
+
+    // Distribución de scores - Barras con colores de semáforo
+    this.scoreDistOptions = {
+      ...base,
+      plugins: {
+        ...base.plugins,
+        legend: { display: false },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 11, weight: '500' }, color: t.textMuted },
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: t.chartGrid, drawBorder: false },
+          ticks: { font: { size: 11 }, color: t.chartAxis },
+        },
+      },
+    };
+
+    // Gráfica apilada moderna tipo PrimeNG - Stacked Bar Chart
+    this.stackedChartOptions = {
+      ...base,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top' as const,
+          align: 'end' as const,
+          labels: {
+            usePointStyle: true,
+            pointStyle: 'circle',
+            padding: 15,
+            font: { size: 11, weight: '500' },
+            color: t.textMuted,
+          },
+        },
+        tooltip: {
+          backgroundColor: t.cardBg,
+          titleColor: t.textMain,
+          bodyColor: t.textMuted,
+          borderColor: t.borderColor,
+          borderWidth: 1,
+          padding: 12,
+          cornerRadius: 10,
+          displayColors: true,
+          callbacks: {
+            label: function (context: any) {
+              let label = context.dataset.label || '';
+              if (label) {
+                label += ': ';
+              }
+              if (context.parsed.y !== null) {
+                label += context.parsed.y;
+              }
+              return label;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          grid: { display: false },
+          ticks: {
+            font: { size: 11, weight: '500' },
+            color: t.chartAxis,
+          },
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          grid: { color: t.chartGrid, drawBorder: false },
+          ticks: {
+            font: { size: 11 },
+            color: t.chartAxis,
+            callback: function (value: number) {
+              return value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value;
+            },
+          },
+        },
+      },
+      interaction: {
+        mode: 'index' as const,
+        intersect: false,
+      },
+      animation: {
+        duration: 750,
+        easing: 'easeOutQuart' as any,
+      },
+    };
+
+    // 1. DOUGHNUT CHART OPTIONS - Distribución porcentual
+    this.doughnutChartOptions = {
+      ...base,
+      cutout: '60%', // Hace el anillo más delgado
+      plugins: {
+        legend: {
+          position: 'right' as const,
+          labels: {
+            usePointStyle: true,
+            pointStyle: 'circle',
+            padding: 15,
+            font: { size: 11 },
+            color: t.textMuted,
+          },
+        },
+        tooltip: {
+          callbacks: {
+            label: function (context: any) {
+              const label = context.label || '';
+              const value = context.parsed;
+              const total = context.dataset.data.reduce(
+                (a: number, b: number) => a + b,
+                0,
+              );
+              const percentage =
+                total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+              return `${label}: ${value} visitas (${percentage}%)`;
+            },
+          },
+        },
+      },
+    };
+
+    // 2. RADAR CHART OPTIONS - Comparación multivariable
+    this.radarChartOptions = {
+      ...base,
+      scales: {
+        r: {
+          angleLines: { color: t.borderColor },
+          grid: { color: t.chartGrid },
+          pointLabels: {
+            font: { size: 11, weight: '500' },
+            color: t.textMuted,
+          },
+          ticks: {
+            backdropColor: 'transparent',
+            color: t.chartAxis,
+            font: { size: 10 },
+          },
+          suggestedMin: 0,
+          suggestedMax: 100,
+        },
+      },
+    };
+
+    // 3. POLAR AREA CHART OPTIONS - Distribución por ángulo
+    this.polarAreaChartOptions = {
+      ...base,
+      scales: {
+        r: {
+          grid: { color: t.chartGrid },
+          angleLines: { color: t.borderColor },
+          pointLabels: {
+            font: { size: 11 },
+            color: t.textMuted,
+          },
+          ticks: {
+            backdropColor: 'transparent',
+            color: t.chartAxis,
+          },
+        },
+      },
+    };
+
+    // 4. SCATTER CHART OPTIONS - Correlación entre variables
+    this.scatterChartOptions = {
+      ...base,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function (context: any) {
+              return `Score: ${context.parsed.x}%, Ventas: $${context.parsed.y}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          type: 'linear' as const,
+          position: 'bottom' as const,
+          title: {
+            display: true,
+            text: 'Score (pts)',
+            font: { size: 12, weight: '500' },
+            color: t.textMuted,
+          },
+          grid: { color: t.chartGrid },
+          ticks: { color: t.chartAxis },
+        },
+        y: {
+          title: {
+            display: true,
+            text: 'Ventas ($)',
+            font: { size: 12, weight: '500' },
+            color: t.textMuted,
+          },
+          grid: { color: t.chartGrid },
+          ticks: { color: t.chartAxis },
+        },
+      },
+    };
+
+    // 5. LINE CHART OPTIONS - Ejecución Semanal vs Meta (movida desde Home)
+    this.lineChartOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 1000, easing: 'easeOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: t.cardBg,
+          titleColor: t.textMain,
+          bodyColor: t.textMuted,
+          borderColor: t.borderColor,
+          borderWidth: 1,
+          padding: 12,
+          boxPadding: 6,
+          usePointStyle: true,
+          callbacks: {
+            label: (context: any) => ` Score: ${context.parsed.y}%`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: t.chartAxis, font: { size: 11, weight: '500' } },
+        },
+        y: {
+          min: 0,
+          max: 100,
+          grid: { color: t.chartGrid, drawTicks: false },
+          ticks: {
+            color: t.chartAxis,
+            font: { size: 11 },
+            callback: (value: any) => `${value}%`,
+          },
+        },
+      },
+    };
+  }
+
+  statusLabel(s: KpiStatus): string {
+    return s === 'ok' ? 'Óptimo' : s === 'warn' ? 'En rango' : 'Bajo';
+  }
+  fmtScore(v: any): string { return v != null ? Math.round(v) + ' pts' : ''; }
+  visitScoreStatus(visit: any): KpiStatus {
+    return this.metasConfig.statusFor(
+      'score',
+      visit.stats?.puntuacionTotal ?? 0,
+    );
+  }
+
+  /**
+   * Devuelve el status semántico (ok|warn|bad) según el nivel de ejecución
+   * textual capturado en campo. Reemplaza la lógica `[ngClass]` ternaria
+   * gigante que se repetía 3+ veces en el template.
+   */
+  nivelSeverity(nivel: string | null | undefined): KpiStatus {
+    const n = (nivel ?? '').toLowerCase();
+    if (n === 'alto' || n === 'excelente' || n === 'optimo' || n === 'óptimo') return 'ok';
+    if (n === 'medio' || n === 'regular') return 'warn';
+    return 'bad';
+  }
+
+  /**
+   * Status para el stockout rate de un producto (mayor % = peor).
+   */
+  stockoutSeverity(rate: number | string): KpiStatus {
+    const r = +rate;
+    if (r > 20) return 'bad';
+    if (r > 10) return 'warn';
+    return 'ok';
+  }
+
+  /**
+   * Items del menú "..." que aparece en mobile cuando los botones secundarios
+   * del header se colapsan (Refrescar / CSV / Metas / Rutas). El botón PDF
+   * sigue siendo el primario visible. `canEditMetas()` se evalúa en build,
+   * así que el item de Metas solo aparece si el usuario tiene permiso.
+   */
+  headerActionsMenu = computed<MenuItem[]>(() => {
+    const items: MenuItem[] = [
+      {
+        label: 'Refrescar filtros',
+        icon: 'pi pi-refresh',
+        disabled: this.loading(),
+        command: () => this.resetAll(),
+      },
+      {
+        label: 'Exportar CSV',
+        icon: 'pi pi-file-excel',
+        disabled: this.loading(),
+        command: () => this.exportCsv(),
+      },
+      {
+        label: 'Reporte de rutas',
+        icon: 'pi pi-route',
+        disabled: this.loading(),
+        command: () => this.openRouteReportDialog(),
+      },
+    ];
+    if (this.canEditMetas()) {
+      items.push({
+        label: 'Configurar metas',
+        icon: 'pi pi-sliders-h',
+        disabled: this.loading(),
+        command: () => this.openMetasDialog(),
+      });
+    }
+    return items;
+  });
+  toggleExpand(day: DayGroup) {
+    if (this.expandedRows[day.id]) delete this.expandedRows[day.id];
+    else this.expandedRows[day.id] = true;
+    this.expandedRows = { ...this.expandedRows };
+  }
+  toggleSelectAll(event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    if (checked) {
+      this.selectedDayIds.set(new Set(this.groupedRows().map((d) => d.id)));
+    } else {
+      this.selectedDayIds.set(new Set());
+    }
+  }
+  viewDetail(row: any) {
+    this.selectedRow = row;
+    this.showDetail = true;
+  }
+
+  openRouteReportDialog() {
+    const user = this.auth.user();
+    if (!user) return;
+
+    // Si es colaborador, usar su propio ID
+    if (!this.isSupervisor()) {
+      this.selectedRouteUsers = [user.sub];
+    } else {
+      // Si es supervisor, cargar usuarios disponibles
+      this.reportsService
+        .getSellers()
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (users) => {
+            this.availableUsers.set(users || []);
+            this.selectedRouteUsers = [];
+          },
+          error: () => {
+            this.availableUsers.set([]);
+            this.selectedRouteUsers = [];
+          },
+        });
+    }
+
+    // Fecha de hoy por defecto en TZ MX (no UTC, evita off-by-one al cargar
+    // el dialog después de las 18:00 MX).
+    this.routeReportDate = todayMx();
+    this.showRouteReportDialog = true;
+  }
+
+  /**
+   * Carga jsPDF + autoTable on-demand. Se cachea el resultado para que solo
+   * haya un download de chunk la primera vez; subsecuentes exports reusan.
+   * Esto saca ~400-600 KB del bundle inicial — la bestia eran ambas libs
+   * cargadas eagerly aunque el 99% de sesiones nunca exportan PDF.
+   */
+  private _pdfLibsPromise: Promise<{ jsPDF: JsPDFCtor; autoTable: AutoTableFn }> | null = null;
+  private getPdfLibs() {
+    if (!this._pdfLibsPromise) {
+      this._pdfLibsPromise = Promise.all([
+        import('jspdf'),
+        import('jspdf-autotable'),
+      ]).then(([jsPDFMod, autoTableMod]) => ({
+        jsPDF: jsPDFMod.default as JsPDFCtor,
+        autoTable: autoTableMod.default as unknown as AutoTableFn,
+      }));
+    }
+    return this._pdfLibsPromise;
+  }
+
+  async exportRouteReportPdf() {
+    const user = this.auth.user();
+    if (!user) return;
+
+    let userIds: string[];
+    if (!this.isSupervisor()) {
+      userIds = [user.sub];
+    } else {
+      userIds =
+        this.selectedRouteUsers.length === 0 ? [] : this.selectedRouteUsers;
+    }
+
+    await this.generateRouteReportPdf(userIds, this.routeReportDate);
+    this.showRouteReportDialog = false;
+  }
+
+  async generateRouteReportPdf(userIds: string[], date: string) {
+    try {
+      const { jsPDF, autoTable } = await this.getPdfLibs();
+      const doc = new jsPDF();
+      const margin = 15;
+      const pageWidth = doc.internal.pageSize.width;
+
+      const brandPrimary: [number, number, number] = [253, 231, 7];
+      const brandOrange: [number, number, number] = [246, 143, 30];
+      const brandSunset: [number, number, number] = [240, 90, 40];
+      const brandLight: [number, number, number] = [255, 248, 188];
+      const text: [number, number, number] = [30, 30, 30];
+      const textMuted: [number, number, number] = [100, 100, 100];
+      const white: [number, number, number] = [255, 255, 255];
+
+      doc.setFillColor(brandOrange[0], brandOrange[1], brandOrange[2]);
+      doc.rect(margin, 10, pageWidth - margin * 2, 35, 'F');
+      doc.setFillColor(brandLight[0], brandLight[1], brandLight[2]);
+      doc.circle(margin + 15, 27.5, 10, 'F');
+      doc.setTextColor(brandSunset[0], brandSunset[1], brandSunset[2]);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('MD', margin + 15, 32, { align: 'center' });
+      doc.setTextColor(white[0], white[1], white[2]);
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('REPORTE DE RUTAS', pageWidth / 2, 25, { align: 'center' });
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'normal');
+      doc.text(
+        `Fecha: ${new Date(date).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
+        pageWidth / 2, 35, { align: 'center' },
+      );
+
+      let y = 55;
+      doc.setTextColor(text[0], text[1], text[2]);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('INFORMACIÓN DEL REPORTE', margin, y);
+      y += 8;
+
+      autoTable(doc, {
+        startY: y,
+        body: [
+          ['Fecha del reporte', new Date(date).toLocaleDateString('es-MX')],
+          ['Usuarios', userIds.length === 0 ? 'Todos los usuarios' : userIds.length === 1 && userIds[0] === this.auth.user()?.sub ? 'Mi reporte' : `${userIds.length} usuarios seleccionados`],
+          ['Generado por', this.auth.user()?.username || 'N/A'],
+          ['Rol', this.auth.user()?.role_name || 'N/A'],
+        ],
+        theme: 'plain',
+        bodyStyles: { fontSize: 9, textColor: text, cellPadding: 3 },
+        columnStyles: { 0: { cellWidth: 40, fontStyle: 'bold', textColor: textMuted }, 1: { cellWidth: 'auto' } },
+        margin: { left: margin, right: margin },
+      });
+
+      y = (doc as any).lastAutoTable.finalY + 15;
+
+      let params = new HttpParams()
+        .set('startDate', date)
+        .set('endDate', date);
+      if (userIds.length > 0) {
+        userIds.forEach(id => { params = params.append('userIds', id); });
+      }
+
+      const res = await firstValueFrom(
+        this.http.get<{ routes: any[] }>(`${environment.apiUrl}/reports/routes`, { params })
+      );
+      const routes = res?.routes || [];
+
+      doc.setTextColor(text[0], text[1], text[2]);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('RUTAS DEL DÍA', margin, y);
+      y += 10;
+
+      if (routes.length === 0) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+        doc.text('No hay rutas registradas para la fecha seleccionada.', margin, y);
+      } else {
+        for (const route of routes) {
+          if (y > 240) { doc.addPage(); y = 20; }
+
+          doc.setTextColor(text[0], text[1], text[2]);
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.text(route.name || 'Ruta', margin, y);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+          if (route.zona) doc.text(`Zona: ${route.zona}`, margin + 60, y);
+          y += 6;
+
+          autoTable(doc, {
+            startY: y,
+            body: [['Visitas', String(route.visitas ?? 0), 'Score', String(route.score ?? 0), 'Venta', `$${(route.venta || 0).toLocaleString('es-MX')}`]],
+            theme: 'grid',
+            bodyStyles: { fontSize: 8, textColor: text, cellPadding: 2, halign: 'center' },
+            columnStyles: { 0: { cellWidth: 20, fontStyle: 'bold', halign: 'left' }, 1: { cellWidth: 22 }, 2: { cellWidth: 16, fontStyle: 'bold', halign: 'left' }, 3: { cellWidth: 22 }, 4: { cellWidth: 15, fontStyle: 'bold', halign: 'left' }, 5: { cellWidth: 'auto' } },
+            margin: { left: margin, right: margin },
+          });
+          y = (doc as any).lastAutoTable.finalY + 4;
+
+          if (route.execs?.length > 0) {
+            autoTable(doc, {
+              startY: y,
+              head: [['Ejecutivo', 'Visitas', 'Score', 'Venta']],
+              body: route.execs.map((e: any) => [e.name || '', String(e.v ?? 0), String(e.s ?? 0), `$${(e.sale || 0).toLocaleString('es-MX')}`]),
+              theme: 'striped',
+              headStyles: { fontSize: 7, fillColor: brandOrange, textColor: white },
+              bodyStyles: { fontSize: 7, cellPadding: 2 },
+              columnStyles: { 0: { cellWidth: 70 }, 1: { cellWidth: 25, halign: 'center' }, 2: { cellWidth: 20, halign: 'center' }, 3: { cellWidth: 'auto', halign: 'right' } },
+              margin: { left: margin, right: margin },
+            });
+            y = (doc as any).lastAutoTable.finalY + 8;
+          } else {
+            y += 4;
+          }
+        }
+      }
+
+      const totalPages = (doc as any).getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+        doc.text(`Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`, pageWidth / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+      }
+
+      doc.save(`rutas_${date}.pdf`);
+      this.messageService.add({ severity: 'success', summary: 'PDF generado', detail: 'El reporte de rutas se ha generado correctamente.' });
+    } catch (error) {
+      this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el PDF de rutas. Por favor intenta nuevamente.' });
+    }
+  }
+  openMap(lat: number, lng: number) {
+    if (lat && lng) {
+      window.open(`https://www.google.com/maps?q=${lat},${lng}`, '_blank');
+    }
+  }
+
+  openImagePreview(imageUrl: string) {
+    this.previewImageUrl = imageUrl;
+    this.showImagePreview = true;
+  }
+
+  closeImagePreview() {
+    this.showImagePreview = false;
+    this.previewImageUrl = '';
+  }
+
+  getImageUrl(url: string): string {
+    if (!url) return '';
+    if (url.startsWith('http')) return url;
+    const base =
+      (this.reportsService as any).apiUrl?.replace('/reports', '') ?? '';
+    return `${base}${url}`;
+  }
+
+  // Helper methods to get names from IDs
+  getProductName(pid: string): string {
+    // 1. Priorizar el mapa que viene del reporte actual (backend DB)
+    const reportData = this.reportsData();
+    if (reportData?.productMap?.[pid]) {
+      return reportData.productMap[pid].name;
+    }
+
+    // 2. Fallback: buscar en el catálogo dinámico del service (BD)
+    const allProducts = this.dailyCaptureService.groupedProducts();
+    for (const brand of allProducts) {
+      const prod = brand.items.find((p) => p.pid === pid);
+      if (prod) {
+        return prod.name;
+      }
+    }
+
+    return pid;
+  }
+
+  getLocationName(ubicacionId: string): string {
+    const ubicaciones = this.dailyCaptureService.ubicaciones();
+    const loc = ubicaciones.find((u) => u.id === ubicacionId);
+    return loc ? loc.nombre : ubicacionId;
+  }
+
+  getConceptoName(conceptoId: string): string {
+    const conceptos = this.dailyCaptureService.conceptos();
+    const concept = conceptos.find((c) => c.id === conceptoId);
+    return concept ? concept.nombre : conceptoId;
+  }
+
+  getProductNames(pids: string[]): string[] {
+    if (!pids || pids.length === 0) return [];
+    return pids.map((pid) => this.getProductName(pid));
+  }
+  captureChartAndExport(_type: string) {
+    this.messageService.add({
+      severity: 'info',
+      summary: 'Tip',
+      detail: 'Abre el constructor de PDF y activa "Gráficas" para incluirlas.',
+    });
+  }
+
+  exportCsv() {
+    const f = this.filtersState.filters();
+    this.reportsService
+      .exportCsv({
+        startDate: f.startDate,
+        endDate: f.endDate,
+        zone: f.zone,
+        userIds: f.sellerIds,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob: Blob) => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'reporte.csv';
+          a.click();
+          window.URL.revokeObjectURL(url);
+        },
+        error: () => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudo generar el CSV.',
+          });
+        },
+      });
+  }
+
+  exportSelectedCsv() {
+    const selectedIds = this.selectedDayIds();
+    const selected = this.groupedRows()
+      .filter((d) => selectedIds.has(d.id))
+      .flatMap((d) => d.visits);
+    if (!selected.length) return;
+    const headers = ['Folio', 'Ejecutivo', 'Zona', 'Score', 'Venta'];
+    const rows = selected.map((v) => [
+      v.folio,
+      v.captured_by_username,
+      v.zona_captura,
+      v.stats?.puntuacionTotal,
+      v.stats?.ventaTotal,
+    ]);
+    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'seleccion.csv';
+    a.click();
+  }
+
+  async exportSelectedPdf() {
+    const selectedIds = this.selectedDayIds();
+    const selected = this.groupedRows().filter((d) => selectedIds.has(d.id));
+    if (!selected.length) return;
+    const { jsPDF, autoTable } = await this.getPdfLibs();
+    const doc = new jsPDF();
+    const f = this.filtersState.filters();
+    doc.setFontSize(14);
+    doc.text('Reporte — Jornadas seleccionadas', 14, 20);
+    doc.setFontSize(10);
+    doc.text(`Período: ${f.startDate} → ${f.endDate}`, 14, 28);
+    autoTable(doc, {
+      startY: 34,
+      head: [['Fecha', 'Visitas', 'Avg Score', 'Estado', 'Total venta']],
+      body: selected.map((d) => [
+        new Date(d.fecha).toLocaleDateString(),
+        d.totalVisitas,
+        d.avgScore + ' pts',
+        this.statusLabel(d.scoreStatus),
+        '$' + d.totalVenta.toLocaleString(),
+      ]),
+    });
+    doc.save('jornadas_seleccion.pdf');
+  }
+
+  // Logo base64 (placeholder - reemplazar con logo real convertido a base64)
+  private logoBase64 = ''; // Aquí irá el logo en base64
+
+  async exportBuiltPdf() {
+    try {
+      const data = this.reportsData();
+      if (!data) {
+        this.messageService.add({
+          severity: 'warn',
+          summary: 'Sin datos',
+          detail: 'No hay datos disponibles para generar el PDF.',
+        });
+        return;
+      }
+      const { jsPDF, autoTable } = await this.getPdfLibs();
+      const doc = new jsPDF();
+      const f = this.filtersState.filters();
+      const pageWidth = doc.internal.pageSize.width;
+      const margin = 14;
+
+      // Colores corporativos (simplified to reduce excessive color)
+      const primary: [number, number, number] = [100, 100, 100];
+      const text: [number, number, number] = [9, 9, 11];
+      const textMuted: [number, number, number] = [82, 82, 91];
+      const bgLight: [number, number, number] = [244, 244, 245];
+      const success: [number, number, number] = [34, 197, 94];
+      const warning: [number, number, number] = [251, 191, 36];
+      const danger: [number, number, number] = [239, 68, 68];
+
+      // Header simplificado
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(text[0], text[1], text[2]);
+      doc.text('MEGA DULCES', margin, 20);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.text('Trade Marketing Report', margin, 28);
+
+      // Título del reporte
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(text[0], text[1], text[2]);
+      doc.text('Reporte Ejecutivo', pageWidth - margin, 20, { align: 'right' });
+
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.text('Análisis de desempeño comercial', pageWidth - margin, 28, {
+        align: 'right',
+      });
+
+      // Período
+      let y = 50;
+      doc.setFillColor(bgLight[0], bgLight[1], bgLight[2]);
+      doc.roundedRect(margin, y, pageWidth - margin * 2, 20, 4, 4, 'F');
+      doc.setFontSize(9);
+      doc.setTextColor(text[0], text[1], text[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PERÍODO DE ANÁLISIS', margin + 6, y + 7);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(primary[0], primary[1], primary[2]);
+      doc.text(this.filtersState.rangeLabel(), margin + 6, y + 16);
+      doc.setFont('helvetica', 'normal');
+
+      y += 35;
+
+      // KPIs
+      if (this.pdfSections.find((s) => s.id === 'metrics')?.checked) {
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(text[0], text[1], text[2]);
+        doc.text('MÉTRICAS PRINCIPALES', margin, y);
+        y += 10;
+
+        autoTable(doc, {
+          startY: y,
+          head: [['KPI', 'Valor', 'Meta', 'Estado']],
+          body: this.kpiCards().map((k) => [
+            k.label,
+            k.value,
+            k.meta,
+            this.statusLabel(k.status),
+          ]),
+          theme: 'grid',
+          headStyles: {
+            fillColor: bgLight,
+            textColor: text,
+            fontSize: 9,
+            fontStyle: 'bold',
+          },
+          bodyStyles: {
+            fontSize: 9,
+            textColor: text,
+          },
+          alternateRowStyles: {
+            fillColor: [250, 250, 250],
+          },
+          margin: { left: margin, right: margin },
+        });
+
+        y = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // Mobiliario
+      if (this.pdfSections.find((s) => s.id === 'furniture')?.checked) {
+        if (y > 220) {
+          doc.addPage();
+          y = 20;
+        }
+
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(text[0], text[1], text[2]);
+        doc.text('CUMPLIMIENTO POR MOBILIARIO', margin, y);
+        y += 10;
+
+        const furnitureData = this.metasConfig.furniture().map((f) => {
+          const current = data.furniture?.[f.id] ?? 0;
+          const pct = Math.min(100, (current / f.target) * 100);
+          let status: KpiStatus = 'ok';
+          if (pct < 50) status = 'bad';
+          else if (pct < 80) status = 'warn';
+          return [
+            f.label,
+            `${current}/${f.target}`,
+            `${pct.toFixed(0)}%`,
+            this.statusLabel(status),
+          ];
+        });
+
+        autoTable(doc, {
+          startY: y,
+          head: [['Activo', 'Progreso', 'Porcentaje', 'Estado']],
+          body: furnitureData,
+          theme: 'grid',
+          headStyles: {
+            fillColor: bgLight,
+            textColor: text,
+            fontSize: 9,
+            fontStyle: 'bold',
+          },
+          bodyStyles: {
+            fontSize: 9,
+            textColor: text,
+          },
+          alternateRowStyles: {
+            fillColor: [250, 250, 250],
+          },
+          margin: { left: margin, right: margin },
+        });
+
+        y = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // Ranking
+      if (
+        this.pdfSections.find((s) => s.id === 'ranking')?.checked &&
+        data.sellerStats
+      ) {
+        if (y > 180) {
+          doc.addPage();
+          y = 20;
+        }
+
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(text[0], text[1], text[2]);
+        doc.text('RANKING DE EJECUTIVOS', margin, y);
+        y += 10;
+
+        autoTable(doc, {
+          startY: y,
+          head: [['#', 'Ejecutivo', 'Visitas', 'Score Prom.', 'Calificación']],
+          body: data.sellerStats.map((s: any, index: number) => {
+            let stars = '★★★';
+            if (s.avgScore >= 90) stars = '★★★★★';
+            else if (s.avgScore >= 80) stars = '★★★★';
+            else if (s.avgScore >= 70) stars = '★★★';
+            else if (s.avgScore >= 60) stars = '★★';
+            else stars = '★';
+            return [
+              (index + 1).toString(),
+              s.username,
+              s.totalVisitas.toString(),
+              `${s.avgScore} pts`,
+              stars,
+            ];
+          }),
+          theme: 'grid',
+          headStyles: {
+            fillColor: bgLight,
+            textColor: text,
+            fontSize: 9,
+            fontStyle: 'bold',
+            halign: 'center',
+          },
+          bodyStyles: {
+            fontSize: 9,
+            textColor: text,
+          },
+          columnStyles: {
+            0: { halign: 'center', cellWidth: 15 },
+            2: { halign: 'center', cellWidth: 20 },
+            3: { halign: 'center', cellWidth: 25 },
+            4: { halign: 'center', cellWidth: 30 },
+          },
+          alternateRowStyles: {
+            fillColor: [250, 250, 250],
+          },
+          margin: { left: margin, right: margin },
+        });
+
+        y = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // Gráficas como tablas
+      if (this.pdfSections.find((s) => s.id === 'charts')?.checked) {
+        if (y > 200) {
+          doc.addPage();
+          y = 20;
+        }
+
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(text[0], text[1], text[2]);
+        doc.text('ANÁLISIS VISUAL', margin, y);
+        y += 10;
+
+        // Tendencia de ejecución semanal (line chart data)
+        if (this.lineChartData && this.lineChartData.labels?.length > 0) {
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+          doc.text('Tendencia de Ejecución Semanal', margin, y);
+          y += 8;
+
+          const trendData = this.lineChartData.labels.map(
+            (label: string, index: number) => ({
+              fecha: label,
+              score:
+                typeof this.lineChartData.datasets[0].data[index] === 'number'
+                  ? Math.round(this.lineChartData.datasets[0].data[index]).toString()
+                  : '0',
+            }),
+          );
+
+          autoTable(doc, {
+            startY: y,
+            head: [['Fecha', 'Score']],
+            body: trendData.map((d: any) => [d.fecha, d.score + ' pts']),
+            theme: 'grid',
+            headStyles: {
+              fillColor: bgLight,
+              textColor: text,
+              fontSize: 8,
+              fontStyle: 'bold',
+            },
+            bodyStyles: {
+              fontSize: 8,
+              textColor: text,
+            },
+            alternateRowStyles: {
+              fillColor: [250, 250, 250],
+            },
+            margin: { left: margin, right: margin },
+          });
+
+          y = (doc as any).lastAutoTable.finalY + 12;
+        }
+
+        // Distribución de scores (doughnut chart data)
+        if (
+          this.doughnutChartData &&
+          this.doughnutChartData.labels?.length > 0
+        ) {
+          if (y > 220) {
+            doc.addPage();
+            y = 20;
+          }
+
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+          doc.text('Distribución de Calidad de Visitas', margin, y);
+          y += 8;
+
+          const distData = this.doughnutChartData.labels.map(
+            (label: string, index: number) => ({
+              rango: label,
+              cantidad: this.doughnutChartData.datasets[0].data[index],
+            }),
+          );
+
+          autoTable(doc, {
+            startY: y,
+            head: [['Rango', 'Cantidad']],
+            body: distData.map((d: any) => [d.rango, d.cantidad]),
+            theme: 'grid',
+            headStyles: {
+              fillColor: bgLight,
+              textColor: text,
+              fontSize: 8,
+              fontStyle: 'bold',
+            },
+            bodyStyles: {
+              fontSize: 8,
+              textColor: text,
+            },
+            alternateRowStyles: {
+              fillColor: [250, 250, 250],
+            },
+            margin: { left: margin, right: margin },
+          });
+
+          y = (doc as any).lastAutoTable.finalY + 12;
+        }
+
+        // Performance por zona (radar chart data)
+        if (this.radarChartData && this.radarChartData.datasets?.length > 0) {
+          if (y > 220) {
+            doc.addPage();
+            y = 20;
+          }
+
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+          doc.text('Performance por Zona', margin, y);
+          y += 8;
+
+          const zoneData = this.radarChartData.datasets.map((ds: any) => ({
+            zona: ds.label,
+            score: ds.data[0] != null ? Math.round(ds.data[0]).toString() : '0',
+            visitas: ds.data[1]?.toFixed(0) || '0',
+          }));
+
+          autoTable(doc, {
+            startY: y,
+            head: [['Zona', 'Score', 'Visitas']],
+            body: zoneData.map((d: any) => [d.zona, d.score + ' pts', d.visitas]),
+            theme: 'grid',
+            headStyles: {
+              fillColor: bgLight,
+              textColor: text,
+              fontSize: 8,
+              fontStyle: 'bold',
+            },
+            bodyStyles: {
+              fontSize: 8,
+              textColor: text,
+            },
+            alternateRowStyles: {
+              fillColor: [250, 250, 250],
+            },
+            margin: { left: margin, right: margin },
+          });
+
+          y = (doc as any).lastAutoTable.finalY + 12;
+        }
+      }
+
+      // Detalle
+      if (
+        this.pdfSections.find((s) => s.id === 'table')?.checked &&
+        data.rows?.length
+      ) {
+        doc.addPage();
+        let yDetail = 20;
+
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(text[0], text[1], text[2]);
+        doc.text('REGISTROS DETALLADOS', margin, yDetail);
+        yDetail += 10;
+
+        autoTable(doc, {
+          startY: yDetail,
+          head: [
+            ['Folio', 'Fecha', 'Ejecutivo', 'Zona', 'Score', 'Estado', 'Venta'],
+          ],
+          body: data.rows.map((r: any) => {
+            const status = this.metasConfig.statusFor(
+              'score',
+              r.stats?.puntuacionTotal ?? 0,
+            );
+            let statusText = 'OK';
+            if (status === 'warn') statusText = 'REGULAR';
+            if (status === 'bad') statusText = 'BAJO';
+            return [
+              r.folio?.substring(0, 8) || 'N/A',
+              new Date(r.fecha).toLocaleDateString('es-ES', {
+                day: '2-digit',
+                month: 'short',
+              }),
+              r.captured_by_username?.substring(0, 20) || 'N/A',
+              r.zona_captura?.substring(0, 15) || 'N/A',
+              `${Math.round(r.stats?.puntuacionTotal ?? 0)} pts`,
+              statusText,
+              `$${(r.stats?.ventaTotal ?? 0).toLocaleString()}`,
+            ];
+          }),
+          theme: 'grid',
+          headStyles: {
+            fillColor: bgLight,
+            textColor: text,
+            fontSize: 8,
+            fontStyle: 'bold',
+          },
+          bodyStyles: {
+            fontSize: 8,
+            textColor: text,
+          },
+          columnStyles: {
+            0: { cellWidth: 22 },
+            1: { cellWidth: 20, halign: 'center' },
+            4: { cellWidth: 18, halign: 'center' },
+            5: { cellWidth: 20, halign: 'center' },
+            6: { cellWidth: 25, halign: 'right' },
+          },
+          alternateRowStyles: {
+            fillColor: [250, 250, 250],
+          },
+          margin: { left: margin, right: margin },
+        });
+      }
+
+      // Footer
+      const totalPages = (doc as any).getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+        doc.text(
+          `Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`,
+          pageWidth / 2,
+          doc.internal.pageSize.height - 10,
+          { align: 'center' },
+        );
+      }
+
+      doc.save(`reporte_${f.startDate}_${f.endDate}.pdf`);
+      this.showPdfBuilder = false;
+      this.messageService.add({
+        severity: 'success',
+        summary: 'PDF generado',
+        detail: 'El reporte se ha generado correctamente.',
+      });
+    } catch (error) {
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'No se pudo generar el PDF. Por favor intenta nuevamente.',
+      });
+    }
+  }
+
+  brandPdfLoading = false;
+
+  exportBrandPdf() {
+    console.log('[brand-pdf] click', { selectedBrand: this.selectedBrand, loading: this.brandPdfLoading });
+    if (!this.selectedBrand) {
+      this.messageService.add({
+        severity: 'warn',
+        summary: 'Selecciona una marca',
+        detail: 'Elegí una marca del menú para generar su reporte.',
+      });
+      return;
+    }
+    if (this.brandPdfLoading) return;
+    this.brandPdfLoading = true;
+
+    const f = this.filtersState.filters();
+    const body: Record<string, any> = { brand: this.selectedBrand };
+    if (f.startDate) body['startDate'] = f.startDate;
+    if (f.endDate) body['endDate'] = f.endDate;
+    if (f.zone) body['zone'] = f.zone;
+
+    this.messageService.add({
+      severity: 'info',
+      summary: 'Generando reporte',
+      detail: 'Construyendo el PDF de Presencia de Marca…',
+      life: 4000,
+    });
+
+    this.http
+      .post(`${environment.apiUrl}/reports/brand-presence/pdf`, body, { responseType: 'blob' })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob: Blob) => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          const safeBrand = String(this.selectedBrand).replace(/[^a-zA-Z0-9_-]/g, '_');
+          a.href = url;
+          a.download = `presencia_marca_${safeBrand}_${f.startDate || 'inicio'}_${f.endDate || 'hoy'}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+          this.brandPdfLoading = false;
+          this.cdr.markForCheck();
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Reporte generado',
+            detail: `Presencia de "${this.selectedBrand}" descargado.`,
+          });
+        },
+        error: (err: any) => {
+          this.brandPdfLoading = false;
+          this.cdr.markForCheck();
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: err?.error?.message || 'No se pudo generar el reporte. Intenta nuevamente.',
+          });
+        },
+      });
+  }
+
+  async exportSingleVisitPdf(row: any) {
+    try {
+      const { jsPDF, autoTable } = await this.getPdfLibs();
+      const doc = new jsPDF();
+      const margin = 15;
+      const pageWidth = doc.internal.pageSize.width;
+
+      // Colores corporativos (paleta amarillo-naranja de la empresa)
+      const brandPrimary: [number, number, number] = [253, 231, 7]; // Amarillo
+      const brandOrange: [number, number, number] = [246, 143, 30]; // Naranja
+      const brandSunset: [number, number, number] = [240, 90, 40]; // Naranja oscuro
+      const brandLight: [number, number, number] = [255, 248, 188]; // Amarillo claro
+      const text: [number, number, number] = [30, 30, 30];
+      const textMuted: [number, number, number] = [100, 100, 100];
+      const white: [number, number, number] = [255, 255, 255];
+      const grayLight: [number, number, number] = [245, 245, 245];
+
+      // Header con gradiente amarillo-naranja
+      doc.setFillColor(brandOrange[0], brandOrange[1], brandOrange[2]);
+      doc.rect(margin, 10, pageWidth - margin * 2, 35, 'F');
+
+      // Logo circular (simulado)
+      doc.setFillColor(brandLight[0], brandLight[1], brandLight[2]);
+      doc.circle(margin + 15, 27.5, 10, 'F');
+      doc.setTextColor(brandSunset[0], brandSunset[1], brandSunset[2]);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('MD', margin + 15, 32, { align: 'center' });
+
+      // Título centrado
+      doc.setTextColor(white[0], white[1], white[2]);
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('REPORTE DE VISITA', pageWidth / 2, 25, { align: 'center' });
+      doc.setFontSize(12);
+      doc.text(`#${row.folio}`, pageWidth / 2, 35, { align: 'center' });
+
+      // Bloque de datos emisor/receptor
+      let y = 55;
+
+      // Línea divisoria vertical
+      doc.setDrawColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.setLineWidth(0.1);
+      doc.line(pageWidth / 2, y - 5, pageWidth / 2, y + 35);
+
+      // Columna izquierda - Datos del ejecutivo
+      doc.setTextColor(text[0], text[1], text[2]);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DATOS DEL EJECUTIVO', margin, y);
+      y += 7;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(`Nombre: ${row.captured_by_username || 'N/A'}`, margin, y);
+      y += 5;
+      doc.text(`Zona: ${row.zona_captura || 'N/A'}`, margin, y);
+      y += 5;
+      doc.text(
+        `Fecha: ${row.fecha ? new Date(row.fecha).toLocaleDateString('es-MX') : 'N/A'}`,
+        margin,
+        y,
+      );
+      y += 5;
+      doc.text(
+        `Hora inicio: ${row.hora_inicio ? new Date(row.hora_inicio).toLocaleTimeString('es-MX') : 'N/A'}`,
+        margin,
+        y,
+      );
+      y += 5;
+      doc.text(
+        `Hora fin: ${row.hora_fin ? new Date(row.hora_fin).toLocaleTimeString('es-MX') : 'N/A'}`,
+        margin,
+        y,
+      );
+
+      // Columna derecha - Datos de la visita
+      y = 55;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text('DATOS DE LA VISITA', pageWidth / 2 + 5, y);
+      y += 7;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(
+        `Exhibiciones: ${row.exhibiciones?.length ?? 0}`,
+        pageWidth / 2 + 5,
+        y,
+      );
+      y += 5;
+      doc.text(
+        `Venta total: $${((row.stats?.ventaTotal ?? 0) || 0).toLocaleString('es-MX')}`,
+        pageWidth / 2 + 5,
+        y,
+      );
+      y += 5;
+      doc.text(
+        `GPS: ${row.latitud && typeof row.latitud === 'number' ? `${row.latitud.toFixed(6)}, ${row.longitud.toFixed(6)}` : 'No capturado'}`,
+        pageWidth / 2 + 5,
+        y,
+      );
+      y += 5;
+
+      // Score badge
+      const score = row.stats?.puntuacionTotal ?? 0;
+      const status = this.statusLabel(
+        this.metasConfig.statusFor('score', score),
+      );
+      doc.text(`Score: ${score}% (${status})`, pageWidth / 2 + 5, y);
+
+      y += 15;
+
+      // Tabla de exhibiciones
+      if (row.exhibiciones && row.exhibiciones.length > 0) {
+        const exhibicionesData = row.exhibiciones.map((ex: any) => {
+          try {
+            const productos =
+              ex.productosMarcados && ex.productosMarcados.length > 0
+                ? this.getProductNames(ex.productosMarcados).join(', ')
+                : 'Sin productos';
+
+            return [
+              this.getConceptoName(ex.conceptoId),
+              (ex.nivelEjecucion || 'N/A').toLowerCase().replace(/\b\w/g, (l: string) => l.toUpperCase()),
+              ex.rangoCompra || ex.rango_compra || ex.rango || '-',
+              productos,
+              '$' + (ex.ventaAdicional || 0 || 0).toLocaleString('es-MX'),
+              (ex.puntuacionCalculada || 0).toString(),
+            ];
+          } catch (e) {
+            return ['N/A', 'N/A', 'N/A', 'Error', '$0', '0'];
+          }
+        });
+
+        autoTable(doc, {
+          startY: y,
+          head: [['FORMATO', 'NIVEL', 'RANGO', 'PRODUCTOS', 'VENTA', 'PUNTOS']],
+          body: exhibicionesData,
+          theme: 'grid',
+          headStyles: {
+            fillColor: brandOrange,
+            textColor: white,
+            fontSize: 9,
+            fontStyle: 'bold',
+            halign: 'center',
+          },
+          bodyStyles: {
+            fontSize: 8,
+            textColor: text,
+            cellPadding: 4,
+            valign: 'top',
+          },
+          columnStyles: {
+            0: { cellWidth: 25 },
+            1: { cellWidth: 20, halign: 'center' },
+            2: { cellWidth: 20, halign: 'center' },
+            3: { cellWidth: 'auto' },
+            4: { cellWidth: 25, halign: 'right' },
+            5: { cellWidth: 15, halign: 'right' },
+          },
+          alternateRowStyles: {
+            fillColor: grayLight,
+          },
+          margin: { left: margin, right: margin },
+        });
+
+        y = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // Bloque de totales
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text('RESUMEN', pageWidth - margin, y, { align: 'right' });
+      y += 8;
+
+      autoTable(doc, {
+        startY: y,
+        body: [
+          ['Score Total', `${Math.round(row.stats?.puntuacionTotal ?? 0)} pts`],
+          [
+            'Venta Total',
+            `$${((row.stats?.ventaTotal ?? 0) || 0).toLocaleString('es-MX')}`,
+          ],
+          ['Exhibiciones', (row.exhibiciones?.length ?? 0).toString()],
+          [
+            'Estado',
+            this.statusLabel(
+              this.metasConfig.statusFor(
+                'score',
+                row.stats?.puntuacionTotal ?? 0,
+              ),
+            ),
+          ],
+        ],
+        theme: 'plain',
+        bodyStyles: {
+          fontSize: 9,
+          textColor: text,
+          cellPadding: 3,
+        },
+        columnStyles: {
+          0: { cellWidth: 80, fontStyle: 'normal', textColor: textMuted },
+          1: {
+            cellWidth: 40,
+            fontStyle: 'bold',
+            halign: 'right',
+            textColor: brandSunset,
+          },
+        },
+        margin: { left: pageWidth - 125, right: margin },
+      });
+
+      y = (doc as any).lastAutoTable.finalY + 30;
+
+      // Pie de documento con firmas
+      doc.setDrawColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.setLineWidth(0.3);
+
+      // Firma ejecutivo
+      doc.line(margin, y, margin + 60, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.text('Firma del Ejecutivo', margin, y + 5);
+
+      // Firma cliente
+      doc.line(pageWidth - margin - 60, y, pageWidth - margin, y);
+      doc.text('Firma del Cliente', pageWidth - margin - 60, y + 5);
+
+      // Footer
+      const totalPages = (doc as any).getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+        doc.text(
+          `Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`,
+          pageWidth / 2,
+          doc.internal.pageSize.height - 10,
+          { align: 'center' },
+        );
+      }
+
+      doc.save(`visita_${row.folio}.pdf`);
+      this.messageService.add({
+        severity: 'success',
+        summary: 'PDF generado',
+        detail: 'El reporte de visita se ha generado correctamente.',
+      });
+    } catch (error) {
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Error',
+        detail:
+          'No se pudo generar el PDF de la visita. Por favor intenta nuevamente.',
+      });
+    }
+  }
+
+  // --- Lógica del Diálogo de Metas ---
+  openMetasDialog() {
+    this.editableFurniture = this.metasConfig
+      .furniture()
+      .map((f) => ({ ...f }));
+    this.editableKpi = this.metasConfig.kpiRanges().map((k) => ({ ...k }));
+    this.showMetasDialog = true;
+  }
+
+  saveMetas() {
+    // Persistir AMBOS bloques del dialog:
+    //  1. targets de mobiliario (vitrinas/checkstands/etc.)
+    //  2. rangos KPI (score/visitas/gps/exhibiciones) — antes se perdían
+    //     porque solo se llamaba updateFurnitureTarget, lo cual hacía que
+    //     los semáforos y umbrales de las gráficas no respondieran a los
+    //     cambios del usuario.
+    this.editableFurniture.forEach((f) =>
+      this.metasConfig.updateFurnitureTarget(f.id, f.target),
+    );
+    this.editableKpi.forEach((k) =>
+      this.metasConfig.updateKpiRange(k.id, k.min, k.opt),
+    );
+
+    this.showMetasDialog = false;
+
+    // Reconstruir las gráficas con los nuevos umbrales:
+    //   - `buildCharts(data)` lee directamente `metasConfig.getRange(...)`
+    //     para visitas/score, y dibuja líneas de meta + colores tier.
+    //   - Las tablas/KPI cards/cumplimiento usan `statusFor()` en computeds
+    //     que sí reaccionan al cambio de signal de metasConfig, pero los
+    //     charts de Chart.js no se redibujan solos: hay que reasignar el
+    //     objeto data para que `<p-chart>` detecte el change.
+    const data = this.reportsData();
+    if (data) {
+      this.buildCharts(data);
+      // Trigger signal reactivity para computeds que dependen de reportsData
+      this.reportsData.set({ ...data });
+    }
+
+    this.messageService.add({
+      severity: 'success',
+      summary: 'Metas actualizadas',
+      detail: 'Las metas se han guardado y las gráficas se actualizaron.',
+    });
+  }
+
+  cancelMetas() {
+    this.showMetasDialog = false;
+  }
+
+  /**
+   * Helper para obtener las claves de un objeto en el template
+   * @param obj Objeto del cual obtener las claves
+   * @returns Array de claves
+   */
+  objectKeys(obj: any): string[] {
+    return Object.keys(obj);
+  }
+
+  /**
+   * Exporta PDF usando el backend (Puppeteer)
+   * Genera el reporte inmediatamente sin diálogo de configuración
+   */
+  exportarPDF() {
+    // Validar que hay datos
+    const data = this.reportsData();
+    if (!data) {
+      this.messageService.add({
+        severity: 'warn',
+        summary: 'Sin datos',
+        detail: 'No hay datos disponibles para generar el PDF.',
+      });
+      return;
+    }
+
+    const f = this.filtersState.filters();
+    const fechaDesdeStr = f.startDate ? new Date(f.startDate).toLocaleDateString('es-MX') : '-';
+    const fechaHastaStr = f.endDate ? new Date(f.endDate).toLocaleDateString('es-MX') : '-';
+
+    // Preparar datos para enviar al backend
+    // Helper: extraer fecha (YYYY-MM-DD) tolerante a `hora_inicio` o `fecha`.
+    const rowDate = (r: any): string => {
+      const raw = r.hora_inicio || r.fecha;
+      if (!raw) return '-';
+      try {
+        return new Date(raw).toLocaleDateString('es-MX');
+      } catch {
+        return String(raw);
+      }
+    };
+
+    const payload = {
+      fechaDesde: fechaDesdeStr,
+      fechaHasta: fechaHastaStr,
+      kpis: {
+        visitas: (data.metrics?.totalVisitas || 0).toLocaleString('es-MX'),
+        score: `${Math.round(data.metrics?.avgScore || 0)} pts`,
+        venta: (data.metrics?.totalVentas || 0).toLocaleString('es-MX'),
+      },
+      chartData: data.rows && data.rows.length > 0 ? JSON.stringify({
+        labels: data.rows.slice(0, 10).map((r: any) => rowDate(r)),
+        datasets: [{
+          label: 'Visitas',
+          data: data.rows.slice(0, 10).map((r: any) => r.stats?.puntuacionTotal || 0),
+          backgroundColor: 'rgba(66, 66, 66, 0.8)',
+        }]
+      }) : null,
+      tableData: data.rows && data.rows.length > 0 ? data.rows.slice(0, 20).map((r: any) => ({
+        folio: r.folio?.substring(0, 8) || 'N/A',
+        fecha: rowDate(r),
+        ejecutivo: r.captured_by_username?.substring(0, 15) || 'N/A',
+        zona: r.zona_captura?.substring(0, 12) || 'N/A',
+        score: Math.round(r.stats?.puntuacionTotal || 0),
+        venta: r.stats?.ventaTotal > 0 ? r.stats.ventaTotal.toLocaleString() : '-'
+      })) : null,
+    };
+
+    // Usar `environment.apiUrl` para soportar deploy con frontend y API en
+    // hosts distintos (CDN + API separadas).
+    this.http
+      .post(`${environment.apiUrl}/reports/export-pdf`, payload, {
+        responseType: 'blob',
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob: Blob) => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `reporte-mercadeo-${todayMx()}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+
+          this.messageService.add({
+            severity: 'success',
+            summary: 'PDF Generado',
+            detail: 'El reporte se ha descargado correctamente.',
+          });
+        },
+        error: (err: any) => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail:
+              err?.error?.message ||
+              'No se pudo generar el PDF. Por favor intenta nuevamente.',
+          });
+        },
+      });
+  }
+}

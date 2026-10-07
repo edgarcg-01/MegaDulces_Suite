@@ -1,0 +1,175 @@
+# ═══ BUCKET PROPIO ═══  [K3S.22]  — sacar los comprobantes de Tigris/Railway
+#
+# ── Qué hay hoy, medido el 2026-10-03 ───────────────────────────────────────────────────────
+#   Tigris (`t3.storageapi.dev`, lo que Railway revende) · bucket `indexed-carrier-r94gtps6l`
+#     911 objetos · 787.6 MB · escrito HOY  →  finance 901 · receiving-labels 7 · commercial 3
+#   Cloudinary (`dovah7amw`, plan Free)
+#     5,313 recursos · 1,501.7 MB · 137.6 MB/mes de ancho de banda
+#
+# ⭐ Mover los PDFs NO TOCA CÓDIGO: `libs/platform-core/.../object-storage.service.ts` ya habla
+#    S3 (bucket privado + URL prefirmada). Es variable de entorno + copia de datos.
+#    Las IMÁGENES son otra mudanza: Cloudinary transforma al vuelo (`w_24`, `h_200`, `c_limit`,
+#    `q_auto`) y un bucket pelado sirve bytes. Son 22 llamadas y **un solo archivo** arma URLs
+#    de `res.cloudinary.com`, pero es trabajo aparte y se declara, no se mezcla.
+#
+# ── ⛔ POR QUÉ GARAGE Y NO MINIO, que era lo obvio ──────────────────────────────────────────
+# Porque MinIO **ya no publica imágenes que se puedan bajar**. Medido el 2026-10-03:
+#
+#     quay.io/minio/minio:latest   → 401 UNAUTHORIZED
+#     minio/minio:latest           → falla
+#     minio/minio:RELEASE.2025-…   → falla
+#
+# No es un problema de red (`quay.io` contesta 401 en 0.2 s, que es su respuesta normal sin
+# credencial, y Docker Hub también). Es la continuación de lo que MinIO viene haciendo con su
+# edición comunitaria. Garage es **Apache-2.0**, está hecho para auto-hospedaje en una sola
+# máquina, e implementa las URLs prefirmadas que esta aplicación ya usa.
+#
+# ── ⛔ POR QUÉ `hostPath` Y NO UN PVC NORMAL ────────────────────────────────────────────────
+# La única `StorageClass` del clúster es `local-path` con **`reclaimPolicy: Delete`**: un
+# `kubectl delete pvc` borra los datos, y lo que acá se guarda es **evidencia fiscal**
+# (comprobantes de pago, pólizas, CFDIs) que hay que conservar por años. Además un PVC deja los
+# bytes bajo `pvc-<uuid>/`, un nombre que nadie puede respaldar a mano ni reconocer. Con una
+# ruta con nombre, el respaldo es `tar` y el dato sobrevive al clúster.
+#
+# ⛔⛔ ESTO NO ES UN RESPALDO Y NO MEJORA LA DURABILIDAD — LA EMPEORA.
+#    Hoy esos objetos están en un almacén replicado de un proveedor. Acá quedan en **un solo
+#    NVMe**, en una máquina que se cayó **6 veces el 2026-10-02** por una causa física sin
+#    resolver, **sin UPS** (deuda `VL.8`) y con los respaldos de la base en ese mismo disco.
+#    ⇒ El plan es **copiar y verificar, NO cortar**: Tigris sigue escribiendo hasta que (1) la
+#      copia cuadre objeto por objeto y (2) esto tenga respaldo FUERA de `md`. Cambiar
+#      `S3_ENDPOINT` antes de eso es mover evidencia fiscal a un disco solo.
+#
+# ⚠️ SOLO LAN: sin ruta en Caddy ni túnel. Los pods lo consumen por `http://garage:3900`.
+#
+#   aplicar:  k3s kubectl apply -f ops/k3s/62-garage.deployment.yaml
+#   init:     ops/k3s/garage-init.sh   (una sola vez: layout, bucket y llave)
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: garage-datos
+spec:
+  capacity: { storage: 60Gi }
+  accessModes: [ReadWriteOnce]
+  # ⭐ `Retain`: si alguien borra el PVC, el PV queda y los bytes NO se tocan. Es la diferencia
+  #    entre un error recuperable y la pérdida de la evidencia fiscal.
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: garage-local
+  hostPath:
+    path: /home/superoot/datos/garage
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: garage-datos
+  namespace: prod
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: garage-local
+  volumeName: garage-datos
+  resources:
+    requests: { storage: 60Gi }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-config
+  namespace: prod
+data:
+  garage.toml: |
+    metadata_dir = "/datos/meta"
+    data_dir     = "/datos/data"
+    db_engine    = "sqlite"
+
+    # Un solo nodo: no hay a quién replicar. Queda DECLARADO acá para que nadie lea
+    # "almacén de objetos" y suponga redundancia — la copia de seguridad es externa.
+    replication_factor = 1
+
+    rpc_bind_addr   = "[::]:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+
+    [s3_api]
+    # ⚠️ Tiene que coincidir con lo que firma el cliente. `ObjectStorageService` manda
+    #    `process.env.S3_REGION || "auto"`, así que acá va "auto" o las firmas no validan.
+    s3_region     = "auto"
+    api_bind_addr = "[::]:3900"
+
+    [admin]
+    api_bind_addr = "[::]:3903"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garage
+  namespace: prod
+  labels: { app: garage }
+spec:
+  replicas: 1
+  # ⛔ `Recreate`: dos procesos sobre el mismo directorio corrompen el almacén, y con `RWO`
+  #    un rollout normal se colgaría esperando el volumen.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: garage }
+  template:
+    metadata:
+      labels: { app: garage }
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: garage
+          image: dxflrs/garage:v1.1.0
+          env:
+            - { name: TZ, value: America/Mexico_City }
+            - name: GARAGE_RPC_SECRET
+              valueFrom: { secretKeyRef: { name: garage-secretos, key: rpc_secret } }
+            - name: GARAGE_ADMIN_TOKEN
+              valueFrom: { secretKeyRef: { name: garage-secretos, key: admin_token } }
+          ports:
+            - { containerPort: 3900, name: s3 }
+            - { containerPort: 3903, name: admin }
+          volumeMounts:
+            - { name: datos,  mountPath: /datos }
+            - { name: config, mountPath: /etc/garage.toml, subPath: garage.toml, readOnly: true }
+          resources:
+            requests: { memory: 128Mi, cpu: 30m }
+            limits:   { memory: 1Gi }
+          readinessProbe:
+            # `/health` del puerto admin responde 200 sólo cuando el nodo puede servir.
+            httpGet: { path: /health, port: 3903 }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            tcpSocket: { port: 3900 }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: datos
+          persistentVolumeClaim: { claimName: garage-datos }
+        - name: config
+          configMap: { name: garage-config }
+---
+# Para los pods, dentro del clúster: http://garage:3900
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage
+  namespace: prod
+spec:
+  selector: { app: garage }
+  ports:
+    - { name: s3,    port: 3900, targetPort: 3900 }
+    - { name: admin, port: 3903, targetPort: 3903 }
+---
+# Para la LAN: copias, inspección y alta de llaves desde la oficina.
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage-lan
+  namespace: prod
+spec:
+  type: NodePort
+  selector: { app: garage }
+  ports:
+    - { name: s3, port: 3900, targetPort: 3900, nodePort: 30900 }

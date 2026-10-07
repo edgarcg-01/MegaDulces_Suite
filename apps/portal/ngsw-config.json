@@ -1,0 +1,78 @@
+{
+  "$schema": "./node_modules/@angular/service-worker/config/schema.json",
+  "index": "/index.html",
+  "assetGroups": [
+    {
+      "name": "app-shell",
+      "installMode": "prefetch",
+      "updateMode": "prefetch",
+      "resources": {
+        "files": [
+          "/index.html",
+          "/manifest.webmanifest",
+          "/*.css",
+          "/*.js"
+        ]
+      }
+    },
+    {
+      "name": "assets",
+      "installMode": "lazy",
+      "updateMode": "prefetch",
+      "resources": {
+        "files": [
+          "/favicon.ico",
+          "/assets/**",
+          "/*.(svg|png|jpg|jpeg|webp|avif|gif|woff|woff2|ttf|eot)"
+        ]
+      }
+    }
+  ],
+  "dataGroups": [
+    {
+      "name": "portal-catalog",
+      "urls": [
+        "/api/commercial/catalog/**",
+        "/api/commercial/price-lists/**",
+        "/api/commercial/warehouses",
+        "/api/commercial/promotions",
+        "/api/commercial/recommendations/**"
+      ],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 200,
+        "maxAge": "1h"
+      }
+    },
+    {
+      "name": "portal-dynamic",
+      "urls": [
+        "/api/commercial/orders/**",
+        "/api/commercial/customers/me"
+      ],
+      "cacheConfig": {
+        "strategy": "freshness",
+        "maxSize": 100,
+        "maxAge": "1d",
+        "timeout": "3s"
+      }
+    },
+    {
+      "name": "google-fonts",
+      "urls": [
+        "https://fonts.googleapis.com/**",
+        "https://fonts.gstatic.com/**"
+      ],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 30,
+        "maxAge": "30d"
+      }
+    }
+  ],
+  "navigationUrls": [
+    "/**",
+    "!/**/*.*",
+    "!/**/api/**"
+  ]
+}

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Reporte de Mercadeo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @page { size: A4; margin: 0; }
+        body { -webkit-print-color-adjust: exact; }
+    </style>
+</head>
+<body class="p-8 bg-white text-gray-800">
+
+    <div class="border-b-2 border-gray-300 pb-4 mb-6">
+        <h1 class="text-3xl font-bold">Reporte de Mercadeo</h1>
+        <p class="text-gray-500">Periodo: {{fechaDesde}} - {{fechaHasta}}</p>
+    </div>
+
+    <!-- KPIs -->
+    <div class="grid grid-cols-3 gap-4 mb-8">
+        <div class="bg-gray-100 p-4 rounded-lg">
+            <h3 class="text-sm font-bold text-gray-500">Visitas Totales</h3>
+            <p class="text-2xl">{{kpis.visitas}}</p>
+        </div>
+        <div class="bg-gray-100 p-4 rounded-lg">
+            <h3 class="text-sm font-bold text-gray-500">Score Promedio</h3>
+            <p class="text-2xl">{{kpis.score}}</p>
+        </div>
+        <div class="bg-gray-100 p-4 rounded-lg">
+            <h3 class="text-sm font-bold text-gray-500">Venta Total</h3>
+            <p class="text-2xl">${{kpis.venta}}</p>
+        </div>
+    </div>
+
+    <!-- Gráfica -->
+    {{#if chartData}}
+    <div class="mb-8" style="width: 100%; height: 300px;">
+        <canvas id="miGrafica"></canvas>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('miGrafica').getContext('2d');
+        const datosGrafica = {{{ chartData }}};
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: datosGrafica,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false
+            }
+        });
+    </script>
+    {{/if}}
+
+    <!-- Tabla de datos -->
+    {{#if tableData}}
+    <div class="mt-8">
+        <h2 class="text-xl font-bold mb-4">Detalle de Visitas</h2>
+        <table class="w-full border-collapse">
+            <thead>
+                <tr class="bg-gray-200">
+                    <th class="border p-2 text-left">Folio</th>
+                    <th class="border p-2 text-left">Fecha</th>
+                    <th class="border p-2 text-left">Ejecutivo</th>
+                    <th class="border p-2 text-left">Score</th>
+                    <th class="border p-2 text-left">Venta</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{#each tableData}}
+                <tr>
+                    <td class="border p-2">{{this.folio}}</td>
+                    <td class="border p-2">{{this.fecha}}</td>
+                    <td class="border p-2">{{this.ejecutivo}}</td>
+                    <td class="border p-2">{{this.score}}</td>
+                    <td class="border p-2">${{this.venta}}</td>
+                </tr>
+                {{/each}}
+            </tbody>
+        </table>
+    </div>
+    {{/if}}
+
+</body>
+</html>

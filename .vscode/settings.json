@@ -1,0 +1,21 @@
+{
+  // El editor tiene que usar el TypeScript DEL REPO, no el que trae empaquetado.
+  //
+  // Medido el 2026-09-12: el panel Problems mostraba 10 errores en archivos `tsconfig*.json`
+  // ("Cannot find type definition file for '*'" e "Invalid value for '--ignoreDeprecations'"),
+  // mientras `npx tsc -p <el mismo archivo> --noEmit` daba **0 errores**. No era una config rota:
+  // era que el editor la compilaba con OTRO compilador.
+  //
+  // Prueba negativa (para que el silencio de tsc signifique algo): con el 6.0.3 del repo,
+  // `ignoreDeprecations: "99.9"` SI es rechazado con el mismo TS5103 que mostraba el editor,
+  // y `"6.0"` + `types: ["*"]` pasan limpios. O sea la config es valida para el compilador que
+  // construye de verdad, y el VSCode empaquetado —anterior a la 6.0— no conoce ese valor.
+  //
+  // ⚠️ Por eso NO se toco ningun `tsconfig`: "arreglarlos" para complacer a un compilador mas
+  // viejo habria degradado la configuracion del build real para tapar un sintoma del editor.
+  //
+  // La primera vez, VSCode pregunta si usar la version del workspace: hay que aceptar. Tambien
+  // se puede forzar con  Ctrl+Shift+P > "TypeScript: Select TypeScript Version" > Use Workspace.
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true
+}

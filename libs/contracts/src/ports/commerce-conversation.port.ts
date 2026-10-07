@@ -1,0 +1,255 @@
+// Port de inversión de dependencia (ADR-034, Fase F.2): el orquestador
+// conversacional de WhatsApp (libs/whatsapp) resuelve productos del catálogo SIN
+// importar el dominio commercial. El orquestador inyecta este token con
+// @Optional() (el binding solo existe con ENABLE_MULTITENANT=true) y lo llama
+// dentro del scope de tenant. El binding al servicio real (CatalogSearch) se hace
+// en el composition root (app.module), único lugar que conoce ambos lados.
+//
+// INVARIANTE ADR-016: el precio lo decide el MOTOR (product_prices vía
+// CatalogSearch), NUNCA el LLM. El bot solo pasa el product_id que ESTE puerto
+// devolvió en una búsqueda previa; el precio se toma de aquí, no del texto del LLM.
+
+export const COMMERCE_CONVERSATION_PORT = 'COMMERCE_CONVERSATION_PORT';
+
+/**
+ * Producto resuelto por el motor: id + nombre + precio + existencia + empaque.
+ * Todo lo cuantitativo (precio/stock/factor) sale del motor, NUNCA del LLM (ADR-016).
+ */
+export interface ConversationProductHit {
+  product_id: string;
+  name: string;
+  brand_name: string | null;
+  /** Precio por PIEZA (unidad canónica del pedido). De la lista del cliente si se reconoció (FIQ.3). */
+  unit_price: number;
+  /** Precio por PAQUETE/CAJA = unit_price × pieces_per_package (FIQ.3 mayoreo). El motor lo calcula, no el LLM. */
+  price_per_package: number;
+  min_qty: number;
+  /**
+   * Piezas disponibles en el almacén de surtido (quantity − reserved). USO INTERNO
+   * (tope de `agregar_al_carrito`, ADR-016) — el motor NUNCA debe exponer este
+   * número exacto al LLM/cliente. Para comunicar disponibilidad, usar `availability`.
+   */
+  stock_pieces: number;
+  /**
+   * Disponibilidad CUALITATIVA (FIQ.2 / requisito 7): lo único que se comunica al
+   * cliente. 'agotado' | 'pocas' (quedan pocas) | 'disponible'. Sin revelar el total.
+   */
+  availability: 'disponible' | 'pocas' | 'agotado';
+  /** Piezas por paquete/caja (factor_sale UXC). 1 = se vende suelto por pieza. */
+  pieces_per_package: number;
+}
+
+/**
+ * Producto del historial del cliente (FIQ.4 / requisito 8) — un hit normal +
+ * cuántas veces lo pidió y cuándo fue la última. Para "lo de siempre" / reorden.
+ */
+export interface ConversationHistoryHit extends ConversationProductHit {
+  times_ordered: number;
+  last_ordered_at: string | null;
+}
+
+/** Sugerencia IA (FIQ.4) — canasta estratégica (base/focus/exploration/innovation) + razón. Cubre upsell/cross-sell. */
+export interface ConversationSuggestionHit extends ConversationProductHit {
+  reason: string;
+  category: string | null;
+}
+
+/** Producto con promoción activa (FIQ.4) aplicable al cliente/canal. */
+export interface ConversationPromoHit extends ConversationProductHit {
+  promo_name: string;
+  promo_type: string;
+}
+
+/**
+ * Producto en un ranking de mercado (FIQ.8 / requisito 2) — demanda REAL agregada
+ * (analytics.product_sales_stats), no personalizada. Sirve como prueba social para
+ * casual/nuevo. Customer-safe: rank + etiqueta cualitativa, SIN revenue ni unidades
+ * exactas (el motor filtra tenant_id explícito; analytics.* no tiene RLS).
+ */
+export interface ConversationMarketHit extends ConversationProductHit {
+  market_label: string; // "de lo más pedido" | "en tendencia"
+  rank: number;
+}
+
+/** Alta de un pedido a domicilio desde una conversación aprobada (F.3). */
+export interface ConversationOrderDto {
+  /** Cliente casual (alta rápida / dedupe por teléfono). */
+  casual: { name: string; phone: string };
+  delivery_address: {
+    street: string;
+    references?: string;
+    recipient_name?: string;
+    phone?: string;
+  };
+  lines: { product_id: string; quantity: number }[];
+}
+
+export interface ConversationOrderResult {
+  order_id: string;
+  code: string;
+  total: number;
+}
+
+/** Línea de un apartado (FIQ.6): producto + piezas + snapshot de precio. */
+export interface ConversationReservationLine {
+  product_id: string;
+  name: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+}
+
+/**
+ * Apartado de pedido con TTL (FIQ.6 / ADR-038). Hold temporal de stock anclado al
+ * teléfono del contacto; el motor reserva el inventario y un cron lo libera al
+ * vencer. NO es una orden ni un cobro (ADR-034). El folio (AP-YYYY-NNNNN) lo pone
+ * el motor.
+ */
+export interface ConversationReservation {
+  reservation_id: string;
+  folio: string;
+  expires_at: string;
+  expires_in_minutes: number;
+  total: number;
+  lines: ConversationReservationLine[];
+}
+
+/**
+ * Cliente reconocido por su teléfono (FIQ.0 / ADR-036). El bot lo usa para
+ * saludar por nombre y, más adelante (FIQ.3/4), para su precio de mayoreo,
+ * historial y recomendaciones. Resuelto por el MOTOR (motor decide, LLM narra).
+ */
+export interface ConversationCustomer {
+  customer_id: string;
+  name: string;
+  /** true = alta rápida sin cartera formal (casual). */
+  is_casual: boolean;
+  /** Lista de precio del cliente (mayoreo). null = usa el default del tenant. */
+  default_price_list_id: string | null;
+}
+
+export interface CommerceConversationPort {
+  /**
+   * Busca productos por lenguaje natural, scoped al price_list default del
+   * tenant (cliente casual de WhatsApp sin cartera). Devuelve top-N con precio.
+   * Debe ejecutarse dentro de un scope de tenant (CLS) ya establecido.
+   */
+  searchProducts(
+    query: string,
+    opts?: { limit?: number; customerId?: string | null },
+  ): Promise<ConversationProductHit[]>;
+
+  /**
+   * Resuelve el cliente de cartera por su teléfono (FIQ.0 / ADR-036). Normaliza
+   * a MSISDN canónico y busca por `customers.whatsapp` (y `phone` de fallback).
+   * Devuelve null si no hay match (contacto casual/nuevo). Debe ejecutarse dentro
+   * de un scope de tenant (CLS) ya establecido.
+   */
+  resolveCustomerByPhone(phone: string): Promise<ConversationCustomer | null>;
+
+  /**
+   * Historial de compra del cliente (FIQ.4 / requisito 8) para "lo de siempre" /
+   * reorden. `customerId` resuelto por FIQ.0. Devuelve top productos por frecuencia
+   * con precio + existencia (bucket). [] si no tiene historial. Scope de tenant (CLS).
+   */
+  customerHistory(customerId: string, opts?: { limit?: number; days?: number }): Promise<ConversationHistoryHit[]>;
+
+  /**
+   * Canasta IA de sugeridos del cliente (FIQ.4 / requisito 8+1) — base/focus/
+   * exploration/innovation con razón. Sirve para upsell/cross-sell. `customerId`
+   * de FIQ.0. [] si no hay. Scope de tenant (CLS).
+   */
+  customerSuggested(customerId: string): Promise<ConversationSuggestionHit[]>;
+
+  /**
+   * Productos con promoción activa (FIQ.4 / requisito 1+6) aplicable al cliente
+   * (o `all_customers` si casual). `customerId` opcional (null = casual). Scope CLS.
+   */
+  activePromotions(opts?: { customerId?: string | null }): Promise<ConversationPromoHit[]>;
+
+  /**
+   * Crea el pedido a domicilio (canal whatsapp) cuando un HUMANO aprueba la
+   * conversación desde la bandeja (F.3). Reusa el intake de última milla
+   * (cliente casual + dirección + líneas), deja el pedido confirmado (stock
+   * reservado) listo para `/reparto/asignar`. La aprobación humana ES la
+   * confirmación (ADR-034: bot arma / humano confirma).
+   */
+  createHomeDeliveryOrder(dto: ConversationOrderDto): Promise<ConversationOrderResult>;
+
+  /**
+   * Aparta (reserva con TTL) los productos indicados para el contacto (FIQ.6 /
+   * ADR-038). El MOTOR reserva el stock (reserved_quantity) de forma atómica —
+   * todo-o-nada — y devuelve el folio + vencimiento. Lanza si alguna línea no
+   * alcanza (mensaje cualitativo, sin revelar el inventario). `customerId` de FIQ.0.
+   * Scope de tenant (CLS) ya establecido.
+   */
+  reserveStock(input: {
+    phone: string;
+    customerId?: string | null;
+    lines: { product_id: string; quantity: number }[];
+    ttlMinutes?: number;
+    notes?: string;
+  }): Promise<ConversationReservation>;
+
+  /** Apartados ACTIVOS (no vencidos) del teléfono (FIQ.6). [] si no hay. Scope CLS. */
+  activeReservations(phone: string): Promise<ConversationReservation[]>;
+
+  /**
+   * Libera apartado(s) del teléfono y devuelve el stock (FIQ.6). Si `reservationId`
+   * viene, solo ese; si no, todos los activos del teléfono. Scope CLS.
+   */
+  releaseReservation(input: { phone: string; reservationId?: string }): Promise<{ released: number }>;
+
+  /**
+   * Evalúa la confianza del contacto por su teléfono (FIQ.7 / ADR-037). El MOTOR
+   * agrega señales reales (no-show, cancelaciones, "solo conversa sin comprar",
+   * deuda) → un tier que el gate del bot obedece; el LLM solo comunica y NUNCA
+   * acusa ni revela el score. `require_deposit` = transferencia/anticipo (no cobro
+   * online). Determinista, CERO LLM. Scope de tenant (CLS) ya establecido.
+   */
+  assessContactTrust(phone: string): Promise<ConversationTrust>;
+
+  /**
+   * Ranking de productos por demanda REAL (FIQ.8 / requisito 2) — los más pedidos
+   * (365d). Prueba social para casual/nuevo. Enriquecidos con precio+existencia
+   * (para ofrecer y agregar). `brand` opcional filtra por marca. Motor filtra
+   * tenant_id explícito. Scope de tenant (CLS) ya establecido.
+   */
+  marketTopProducts(opts?: { brand?: string; limit?: number }): Promise<ConversationMarketHit[]>;
+
+  /**
+   * Productos EN TENDENCIA (FIQ.8) — más movimiento reciente (30d) = "lo de
+   * temporada". Mismo enriquecimiento y garantías que marketTopProducts.
+   */
+  marketTrending(opts?: { limit?: number }): Promise<ConversationMarketHit[]>;
+
+  /**
+   * Clientes DEBIDOS para un nudge de reorden (FIQ.10) — atrasados vs su cadencia
+   * (customer_360) + su producto habitual (recommended_baskets), solo contactables
+   * (teléfono E.164 no-nulo) y en etapa active/at_risk. El MOTOR decide; el agente
+   * compone y respeta opt-in. Ordenado por más atrasado. Scope de tenant (CLS).
+   */
+  listDueForReorder(opts?: { limit?: number; minOverdueDays?: number }): Promise<ConversationReorderCandidate[]>;
+}
+
+/** Veredicto de confianza del contacto (FIQ.7). El gate actúa; el LLM comunica sin acusar. */
+export interface ConversationTrust {
+  tier: 'neutral' | 'allow' | 'require_deposit' | 'block';
+  risk_score: number;
+  reasons: string[];
+}
+
+/**
+ * Cliente DEBIDO para un nudge de reorden (FIQ.10 / requisito 2+8). El MOTOR
+ * decide quién está atrasado vs su cadencia (customer_360) y su producto habitual
+ * (recommended_baskets); el agente compone el mensaje y respeta opt-in/24h. El
+ * teléfono viene E.164 canónico y no-nulo (solo contactables).
+ */
+export interface ConversationReorderCandidate {
+  customer_id: string;
+  name: string;
+  phone: string;
+  days_overdue: number;
+  cadence_days: number;
+  top_product: string | null;
+}

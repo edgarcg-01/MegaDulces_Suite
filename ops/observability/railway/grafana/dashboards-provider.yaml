@@ -1,0 +1,13 @@
+# Provisiona el/los dashboard(s) de Trade al arrancar Grafana (INFRA.2).
+# Se hornea en la imagen (ver Dockerfile). Convive con el provider propio de otel-lgtm.
+apiVersion: 1
+providers:
+  - name: trade
+    orgId: 1
+    folder: Trade
+    type: file
+    disableDeletion: false
+    editable: true
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/trade

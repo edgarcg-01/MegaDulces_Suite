@@ -1,0 +1,191 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# [VL.11.A] El camino INTERNO: mismos nombres, sin salir del edificio.
+#
+# Una vez que el MikroTik resuelva estos tres nombres a 192.168.0.222, la oficina
+# entra por acá y el resto del mundo sigue entrando por el túnel de Cloudflare.
+# Misma URL en los dos lados, así que una laptop que va y viene no cambia nada.
+#
+# ⚠️ El orden de encendido NO es negociable: primero el certificado, después el DNS.
+# Si la oficina apunta a `md` antes de que exista el certificado, con HSTS ya encendido
+# el navegador da un error IMPOSIBLE DE SALTAR. Ver Dockerfile.caddy.
+# ─────────────────────────────────────────────────────────────────────────────
+
+{
+	# Sin `email`: Caddy funciona igual, sólo que Let's Encrypt no manda avisos de
+	# vencimiento a nadie. Se puede agregar, pero un correo personal acá se vuelve
+	# una dependencia de una persona. El aviso real lo tiene que dar el monitoreo.
+	#
+	# ⚠️ El `admin` se apaga: por default Caddy abre una API de administración en
+	# localhost:2019 que puede recargar la configuración entera. Adentro del contenedor
+	# no la usa nadie.
+	admin off
+}
+
+# ── El bloque de TLS, una vez ───────────────────────────────────────────────
+(tls-dns-cloudflare) {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_DNS_API_TOKEN}
+
+		# ⛔ RESOLVEDORES EXPLÍCITOS, Y NO ES DECORACIÓN. Para validar por DNS-01, Caddy
+		# escribe un TXT en `_acme-challenge.<nombre>` y después CONSULTA que se haya
+		# propagado. Si esa consulta la contesta el MikroTik —que es el resolvedor de `md`
+		# y va a tener entradas estáticas para este dominio— puede devolver un registro A
+		# donde se espera un TXT, y la renovación falla.
+		#
+		# ⚠️ El costo de equivocarse acá NO se ve hoy: el certificado se renueva solo cada
+		# ~60 días, así que el sitio se cae DOS MESES después, cuando ya nadie asocia la
+		# caída con haber tocado el router.
+		#
+		# Por eso además las entradas del MikroTik van por NOMBRE EXACTO y nunca por
+		# `regexp` (un regexp amplio capturaría `_acme-challenge.…`, y el de RouterOS
+		# tampoco está anclado). Son dos defensas para el mismo modo de falla.
+		resolvers 1.1.1.1 8.8.8.8
+	}
+}
+
+# ── [INFRA.2] EL API, BALANCEADO ENTRE LAS DOS RÉPLICAS ─────────────────────
+# Snippet y no dos bloques copiados: las dos entradas (`megadulcessuite.com` e
+# `interno.…`) tienen que repartir IGUAL. Copiado a mano, un día una balancea y la otra no.
+#
+# `lb_policy cookie` — AFINIDAD DE SESIÓN, y existe por una razón medida, no por costumbre:
+# los clientes se conectan con `transports: ['websocket', 'polling']`. Websocket va PRIMERO
+# y no necesita afinidad (una conexión, una réplica, y el adapter de Redis de `[INFRA.1]`
+# hace que un emit en una alcance a la otra). Pero el `polling` de respaldo —el que usan los
+# navegadores detrás de un proxy corporativo que rompe el upgrade— hace VARIAS peticiones
+# HTTP por sesión, y si caen en réplicas distintas el handshake nunca cierra.
+#
+# Los chequeos activos son lo que convierte esto en despliegue sin caída: Caddy saca de
+# rotación la réplica que deja de contestar `/api/health`, así que recrear una no corta a
+# nadie. Sin ellos, balancear hacia un contenedor que se está reiniciando es repartir 502.
+# ⭐ [K3S.16] EL BALANCEO SE FUE DE CADDY AL CLÚSTER. Acá había dos upstreams —`api` y `api2`,
+# dos servicios de Compose copiados a mano con un ancla— y Caddy repartía con `lb_policy cookie`
+# para darle a Socket.IO la afinidad de sesión que su transporte de sondeo exige.
+#
+# En K8s eso es UN Deployment con `replicas: 2` y un Service con `sessionAffinity: ClientIP`:
+# el reparto y la afinidad los hace el clúster, y Caddy vuelve a ser lo que debe ser —un
+# terminador de TLS que habla con UN destino—. `api2` deja de existir como concepto.
+#
+# ⚠️ El `health_uri` también se fue, y no se perdió: lo reemplaza la `readinessProbe` del pod,
+# que es estrictamente mejor — saca del balanceo a la réplica que no sirve ANTES de mandarle
+# tráfico, en vez de descubrirlo con una petición fallida.
+(api-balanceado) {
+	# ⛔ [K3S.20 2026-10-01] VUELTO AL API DE DOCKER, a proposito y temporalmente.
+	# Apuntar al NodePort dejo a los usuarios INTERNOS (agentes de caja, oficina) sirviendo
+	# 13a2379 mientras Docker servia ece8269: las imagenes de K3s estaban 36 commits atras
+	# y NADIE lo vio, porque verificar.sh mide el :8080 de Docker y no este camino.
+	# ⚠️ No se vuelve al NodePort hasta que exista un camino AUTOMATICO de build -> containerd.
+	# Migrar el ingreso antes que el despliegue es publicar una version que nadie eligio.
+	#
+	# Se apunta al PUERTO DEL HOST (8080), no al nombre de Docker: la forma de [K3S.14]
+	# sigue siendo la buena -- lo que estaba mal era el numero, no la forma.
+	reverse_proxy 192.168.0.222:30080 {
+		# ── [K3S.22] PUENTE: sumarle el bucket propio a la lista de la CSP ──────────
+		# El 2026-10-05 los comprobantes pasaron de Tigris a Garage (`archivos.megadulcessuite.com`).
+		# Abrian solos, pero NO se incrustaban: pantalla gris con el icono de documento roto. La
+		# causa no era el bucket -- el archivo se sirve `200` con `content-disposition: inline`
+		# incluso con cabeceras de `<embed>`. Lo rechazaba el NAVEGADOR: la CSP de la pagina
+		# nombraba a `t3.storageapi.dev` y no al host nuevo, en `img-src` y en `frame-src`.
+		#
+		# ⛔ Esa CSP vive en `nginx.conf`, HORNEADO en la imagen del api (sin volumenes), asi que
+		# arreglarla ahi exige reconstruir y desplegar -- y el despliegue esta trabado por 139
+		# commits sin integrar y 13 migraciones sin aplicar. Esto lo corrige en el borde, hoy.
+		#
+		# ⭐ Es una SUSTITUCION, no una copia de la politica entera: agrega el host nuevo justo
+		# donde ya aparece el comodin de Tigris -- una vez en `img-src` y otra en `frame-src`.
+		# Copiar la CSP completa aca la duplicaria en dos lugares y empezaria a derivar el dia
+		# que alguien toque uno solo.
+		#
+		# ⚠️ ES TEMPORAL Y SE RETIRA SOLO EN CUANTO LA IMAGEN TRAIGA LA CSP CORREGIDA (ya esta
+		# en `nginx.conf` del repo). Dejarlo despues no rompe nada -- la sustitucion no
+		# encontraria nada que reemplazar y seria un no-op-- pero es codigo que miente sobre
+		# por que las cosas funcionan.
+		header_down Content-Security-Policy "https://\*\.t3\.storageapi\.dev" "https://*.t3.storageapi.dev https://archivos.megadulcessuite.com"
+	}
+}
+
+# [K3S.22] Acá vivía `(api-balanceado-viejo)`, que repartía entre `api` y `api2` con
+# `lb_policy cookie`. Se borra porque `api2` dejó de existir en el compose el 2026-10-01:
+# un fragmento que nombra un destino inexistente es una trampa esperando a que alguien lo
+# importe de vuelta creyendo que es el camino de respaldo.
+#
+# ⭐ Lo que ese fragmento SÍ sabía y conviene no perder: la afinidad de sesión por COOKIE.
+# Al traducirla a K8s la puse como `sessionAffinity: ClientIP`, y NO son equivalentes — la
+# cookie reparte por navegador; la IP de origen, detrás de un proxy, es UNA sola. Medido el
+# 2026-10-01: 12 de 12 pedidos al mismo pod. Si alguna vez el ingreso vuelve a entrar al
+# clúster, la afinidad tiene que resolverse donde se ve al cliente, no en el Service.
+
+# ── Los tres destinos ───────────────────────────────────────────────────────
+# Verificados alcanzables por nombre desde la red `prod_default` (HTTP 200 los tres).
+# El tráfico entre este contenedor y las apps es interno y va en claro a propósito:
+# el TLS lo termina acá, igual que lo termina Cloudflare del otro lado.
+
+megadulcessuite.com {
+	import tls-dns-cloudflare
+	import api-balanceado
+}
+
+# ⭐ [VL.11.A2] El nombre que NO necesita tocar un solo router.
+#
+# `interno.megadulcessuite.com` tiene un registro A **público** que apunta a 192.168.0.222
+# (una IP privada). Suena raro y es completamente válido: el DNS público devuelve el número,
+# y sólo lo puede USAR quien esté adentro de la red.
+#
+# Sondeado el 2026-09-23 preguntándole a CADA router de plaza: los **8** devuelven
+# `192.168.0.222` sin filtrar — o sea que ninguno tiene protección anti-rebinding activa.
+# ⇒ Funciona en oficinas y en las 9 plazas **sin una sola entrada estática**, incluidas CEDIS
+# y Padre Hidalgo, cuyos gateways ni siquiera pudimos ubicar.
+#
+# ⚠️ Lo que NO reemplaza: este nombre sólo sirve ADENTRO. Una laptop que se va de la oficina
+# deja de resolverlo a algo alcanzable. Por eso es el nombre de las MÁQUINAS (los agentes de
+# las cajas, que nunca salen), no el de las personas. Para que la gente use la MISMA URL
+# adentro y afuera siguen haciendo falta las entradas estáticas en los routers.
+interno.megadulcessuite.com {
+	import tls-dns-cloudflare
+	import api-balanceado
+}
+
+# ⭐ [K3S.14] APUNTAN AL PUERTO DEL HOST, NO AL NOMBRE DE DOCKER — y eso es lo que DESACOPLA
+# la migración a K3s del camino de entrada del sitio.
+#
+# `reverse_proxy portal:10000` resolvía por DNS de la red de Docker, así que el día que `portal`
+# se vuelva un pod, Caddy deja de encontrarlo y el sitio cae. Apuntando a `192.168.0.222:8081`
+# —el puerto que el contenedor YA publica, y que el pod va a publicar igual con `hostPort`—
+# Caddy funciona en los dos mundos sin enterarse de cuál está corriendo.
+#
+# El orden importa: este cambio se hizo CON LAS APPS TODAVÍA EN DOCKER y se verificó que el
+# sitio seguía contestando. Recién después se mueve cada app. Así cada paso es reversible por
+# separado, en vez de que un solo corte mueva el ingreso y la app a la vez.
+#
+# ⚠️ [K3S.20] Este párrafo decía que `(api-balanceado)` NO se había tocado y que repartía entre
+# `api` y `api2`. Las dos cosas dejaron de ser ciertas el 2026-10-01 y se corrigen acá mismo,
+# porque un comentario que miente cuesta más que no tener comentario: ahora los TRES sitios
+# apuntan al puerto del host del contenedor de Docker, y `api2` está en retiro.
+portal.megadulcessuite.com {
+	import tls-dns-cloudflare
+	# ⭐ [K3S.25] AL POD (30081). `portal` vive en K3s desde el 2026-10-01.
+	#
+	# Se movió recién cuando se cumplieron las TRES condiciones, en este orden:
+	#   1. las imágenes se publican solas al registry, etiquetadas por commit  ([K3S.24])
+	#   2. `auto-deploy.sh` aplica los manifiestos en cada despliegue           ([K3S.26/27])
+	#   3. el túnel de Cloudflare apunta al NodePort, no al nombre de Docker
+	#
+	# Se intentó ANTES de tener (1) y (2) y hubo que revertir en el acto: `auto-deploy.sh`
+	# actualizaba Compose y no K3s, así que el primer despliegue compartido habría dejado
+	# estos pods viejos EN SILENCIO. ⭐ Mover el ingreso antes que el despliegue es publicar
+	# una versión que nadie eligió.
+	#
+	# Medido antes de mover la línea, con los pods arriba y sin tráfico: el md5 del index es
+	# IDÉNTICO al del contenedor de Docker y ngsw.json da 200 en los dos mundos.
+	reverse_proxy 192.168.0.222:30081
+}
+
+vendedor.megadulcessuite.com {
+	import tls-dns-cloudflare
+	# ⭐ [K3S.25] Al pod (30082), mismo criterio y mismas tres condiciones que portal.
+	#
+	# ⚠️ El API va DESPUÉS de estos dos, NUNCA a la vez. portal y vendor son apátridas y
+	# sirven estáticos; el API arrastra sesiones, el adaptador de socket.io sobre Redis y el
+	# Throttler, que depende de `app.set('trust proxy', 1)` — un salto más en la cadena le
+	# cambia la IP que lee como cliente. Un corte a la vez.
+	reverse_proxy 192.168.0.222:30082
+}

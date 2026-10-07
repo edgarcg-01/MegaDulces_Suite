@@ -1,0 +1,132 @@
+import { Injectable, Logger, Inject } from '@nestjs/common';
+import { UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
+import { Readable } from 'stream';
+// Side-effect import: carga la augmentation global `Express.Multer` (tipos de
+// multer) para todo el compile. Antes la traía el import de 'multer' en
+// exhibitions.controller (ya eliminado); sin esto, `Express.Multer.File` deja
+// de resolver en este service, daily-captures.controller y ticket-extractor.
+import 'multer';
+
+let sharp: any;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  sharp = require('sharp');
+} catch (e) {
+  // sharp is optional
+}
+
+@Injectable()
+export class CloudinaryService {
+  private readonly logger = new Logger(CloudinaryService.name);
+
+  constructor(@Inject('CLOUDINARY') private readonly cloudinary: any) {
+    this.logger.log('Cloudinary Service initialized');
+  }
+
+  /**
+   * Comprime una imagen usando sharp antes de subirla
+   * @param buffer Buffer de la imagen original
+   * @returns Buffer de la imagen comprimida
+   */
+  private async compressImage(buffer: Buffer): Promise<Buffer> {
+    if (!sharp) {
+      this.logger.warn('Sharp module not available. Skipping image compression.');
+      return buffer;
+    }
+
+    try {
+      this.logger.log('Comprimiendo imagen...');
+      
+      const compressedBuffer = await sharp(buffer)
+        .resize({
+          width: 1920,
+          height: 1920,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .jpeg({
+          quality: 80,
+          progressive: true,
+          mozjpeg: true,
+        })
+        .toBuffer();
+
+      const originalSize = buffer.length;
+      const compressedSize = compressedBuffer.length;
+      const compressionRatio = (((originalSize - compressedSize) / originalSize) * 100).toFixed(2);
+      
+      this.logger.log(
+        `Imagen comprimida: ${originalSize} bytes -> ${compressedSize} bytes (${compressionRatio}% reducción)`,
+      );
+
+      return compressedBuffer;
+    } catch (error) {
+      this.logger.error('Error comprimiendo imagen:', error);
+      return buffer;
+    }
+  }
+
+  async uploadImage(
+    file: Express.Multer.File,
+    folder = 'trade_marketing',
+  ): Promise<UploadApiResponse> {
+    this.logger.log(`Iniciando carga de imagen (Buffer) a carpeta: ${folder}`);
+    
+    const compressedBuffer = await this.compressImage(file.buffer);
+    
+    return new Promise((resolve, reject) => {
+      const upload = this.cloudinary.uploader.upload_stream(
+        { folder },
+        (error: UploadApiErrorResponse, result: UploadApiResponse) => {
+          if (error) return reject(error);
+          resolve(result);
+        },
+      );
+      Readable.from(compressedBuffer).pipe(upload);
+    });
+  }
+
+  async uploadImageBase64(base64Str: string, folder = 'trade_marketing'): Promise<UploadApiResponse> {
+    this.logger.log(`Iniciando carga de imagen (Base64) a carpeta: ${folder}`);
+    
+    const base64Data = base64Str.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    
+    const compressedBuffer = await this.compressImage(buffer);
+    
+    const compressedBase64 = `data:image/jpeg;base64,${compressedBuffer.toString('base64')}`;
+    
+    return this.cloudinary.uploader.upload(compressedBase64, { folder });
+  }
+
+  /**
+   * Sube un comprobante que puede ser PDF o imagen (data URI con o sin prefijo).
+   * Las imágenes se comprimen (JPEG); los PDF se suben tal cual con
+   * `resource_type:'auto'` (Cloudinary los trata como `raw`), sin pasar por sharp.
+   * Devuelve `{ url, public_id, kind }`.
+   */
+  async uploadDocumentBase64(
+    dataUri: string,
+    folder = 'trade_marketing',
+  ): Promise<{ url: string; public_id: string; kind: 'pdf' | 'image' }> {
+    const isPdf = /^data:application\/pdf/i.test(dataUri) || /^JVBER/i.test(dataUri.replace(/^data:[^,]*,/, ''));
+    if (isPdf) {
+      this.logger.log(`Subiendo comprobante PDF a: ${folder}`);
+      const payload = dataUri.startsWith('data:') ? dataUri : `data:application/pdf;base64,${dataUri}`;
+      const res: UploadApiResponse = await this.cloudinary.uploader.upload(payload, { folder, resource_type: 'auto' });
+      return { url: res.secure_url, public_id: res.public_id, kind: 'pdf' };
+    }
+    const res = await this.uploadImageBase64(dataUri, folder);
+    return { url: res.secure_url, public_id: res.public_id, kind: 'image' };
+  }
+
+  async deleteImage(publicId: string): Promise<any> {
+    try {
+      this.logger.log(`Solicitando borrado a Cloudinary: ${publicId}`);
+      return await this.cloudinary.uploader.destroy(publicId);
+    } catch (error) {
+      this.logger.error(`Error borrando ${publicId}:`, error);
+      throw error;
+    }
+  }
+}

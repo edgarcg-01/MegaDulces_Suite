@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Mega Dulces Vendedor</string>
+    <string name="title_activity_main">Mega Dulces Vendedor</string>
+    <string name="package_name">com.megadulces.vendedor</string>
+    <string name="custom_url_scheme">com.megadulces.vendedor</string>
+</resources>

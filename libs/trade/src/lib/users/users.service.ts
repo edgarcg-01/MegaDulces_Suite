@@ -1,0 +1,3681 @@
+import {
+  BadRequestException,
+  Logger,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { Knex } from 'knex';
+import { adaptadorDe, businessMinutesBetween, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeWorkZona, type MeZonaPeriodo } from '@megadulces/contracts';
+import { BANDEJAS, TOPE_DESGLOSE, puedeVerBandeja, type MedirCtx } from './me-work';
+import { medirZona } from './me-zona';
+import { FUENTES_VISIBLES, puedeAbrirTarea } from './me-tasks';
+import { CICLOS, puedeVerCiclo } from './me-cycles';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import * as bcrypt from 'bcryptjs';
+import {
+  getDataScope,
+  TenantContextService,
+  PermissionsCacheService,
+  ScopeService,
+  // `[ZN.6]` El tipo de la dimensión, para validar `values` contra su universo en `setScope`.
+  ScopeDimension,
+  Permission,
+  branchKeySql,
+  branchKeyFilterSql,
+  // `[SN.22]` Para aislar cada medición de `me/work` en un savepoint: ver `aislado()`.
+  legacyTxStorage,
+  // `[AU.0b]` El buscador compartido: sin acentos, multi-palabra, tolera typos.
+  applySmartSearch,
+  // `[AU.1b]` El god-mode se pregunta EXPLÍCITO antes de degradar el `all` del
+  // padrón: si saliera por `getDataScope`, degradarlo degradaría a superadmin.
+  isPlatformAdminRole,
+} from '@megadulces/platform-core';
+import { evaluarDivergencia } from '@megadulces/contracts/authz/divergencia';
+// `[ZN.8]` Las áreas se DERIVAN de AUTHZ_TREE: copiarlas acá las haría divergir (ADR-056).
+import { AREAS_DE_ALCANCE, AREA_TODAS, esAreaDeAlcance } from '@megadulces/contracts/authz/scope-areas';
+
+interface RequesterContext {
+  sub: string;
+  /** Se asienta en la bitácora: un uuid solo no dice quién fue. */
+  username?: string;
+  /**
+   * Mapa de permisos que el guard relee del cache en cada request. Es la fuente de
+   * `alcanceDelPadron()`, que acota el padrón a own / team / all.
+   *
+   * Antes acá decía `rules?: unknown[]` (las reglas de CASL serializadas en el JWT). Cuando CASL se
+   * retiró, `getDataScope` pasó a leer `permissions` y este tipo quedó declarando un campo muerto y
+   * ocultando el que de verdad se usa. Funcionaba porque en runtime llega el `req.user` completo,
+   * pero nada impedía que un caller armara `{ sub, username }` y el alcance cayera en silencio a
+   * `own` — el mismo trago amargo que el `if (payload.rules)` de vendor/portal.
+   */
+  permissions?: Record<string, boolean> | null;
+  /** Rol del que depende el god-mode de plataforma (`isPlatformAdminRole`). */
+  role_name?: string;
+}
+
+const ELEVATED_ROLES = new Set(['superadmin', 'admin']);
+
+@Injectable()
+export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly tenantCtx: TenantContextService,
+    // `[ID.13]` Optional: el cache vive en platform-core y este service se
+    // instancia en tests sin él. Sin cache el complemento tarda el TTL (30s)
+    // en verse; con cache se ve al instante.
+    @Optional() private readonly permsCache?: PermissionsCacheService,
+    // `[AUTHZ-HARD.0]` Para invalidar el cache de alcance (TTL 30s) al cambiar un scope, igual
+    // que permsCache para permisos. Optional: los tests instancian el service sin él.
+    @Optional() private readonly scopeService?: ScopeService,
+  ) {}
+
+  /**
+   * Tenant del request. TODAS las queries de este service lo necesitan
+   * EXPLÍCITO: `KNEX_CONNECTION` conecta como superusuario de Postgres, y un
+   * superusuario bypassea RLS incluso con FORCE ROW LEVEL SECURITY. Sin el
+   * filtro, este service veía y escribía el padrón de todos los tenants.
+   */
+  private get tenantId(): string {
+    return this.tenantCtx.requireTenantId();
+  }
+
+  /**
+   * `[ID.27]` Alcance del PADRÓN. No es `getDataScope()` a secas, y la diferencia
+   * es un bug medido en prod, no una preferencia de estilo.
+   *
+   * `getDataScope()` resuelve el eje jerárquico de **REPORTES**: mira
+   * `REPORTES_VER_GLOBAL` / `REPORTES_VER_EQUIPO`. El padrón de usuarios lo venía
+   * usando tal cual, así que **quién ve la lista de personas dependía de sus
+   * permisos de reporte**, no de sus permisos de usuarios. Consecuencia con
+   * nombre y apellido:
+   *
+   *   · `recursos_humanos` (el rol de `[IDG.8]`) tiene `USUARIOS_GESTIONAR` y
+   *     **ningún** permiso de reporte → caía en `own` → quien lo tuviera abriría
+   *     `/admin/usuarios` y vería **una sola fila: la suya**. Un rol creado para
+   *     administrar 126 cuentas que no podía ver ninguna.
+   *   · `encargado_tienda` (**6 personas reales**, todas con sesión iniciada)
+   *     tiene `USUARIOS_VER` sin permisos de reporte → mismo `own` → misma fila
+   *     única. Esto es anterior al rol de RH: el patrón ya estaba ahí.
+   *
+   * La regla acá agrega **una** cláusula y no quita ninguna: quien administra
+   * personal ve el padrón. Radio de impacto medido antes de escribirla:
+   * `USUARIOS_GESTIONAR` lo conceden hoy exactamente 2 roles — `superadmin` (que
+   * ya sale por god-mode) y `recursos_humanos` (0 personas asignadas). O sea que
+   * **hoy no le cambia el alcance a ningún usuario vivo**; lo que hace es que el
+   * rol de RH sirva cuando alguien lo reciba.
+   *
+   * ⚠️ Lo que esto NO arregla, y queda declarado en vez de resuelto a escondidas:
+   * los 6 `encargado_tienda` veían 1 fila. `[ID.35]` lo resuelve con un cuarto
+   * estado, `sucursal` — ver abajo.
+   */
+  private alcanceDelPadron(requester: RequesterContext): {
+    type: 'own' | 'team' | 'all' | 'sucursal';
+    userId: string;
+  } {
+    // Administrar personal exige verlo. Se evalúa ANTES de delegar en el eje de
+    // reportes para que un rol de RH no dependa de tener permisos de reporte.
+    if (requester.permissions?.[Permission.USUARIOS_GESTIONAR] === true) {
+      return { type: 'all', userId: requester.sub };
+    }
+
+    const porReportes = getDataScope(requester);
+
+    /**
+     * `[ID.35]` — Cuarto estado: **el personal de mi sucursal**.
+     *
+     * Quien puede VER el padrón pero no administrarlo ni ver reportes caía en
+     * `own` y abría `/admin/usuarios` para encontrar **una sola fila: la suya**.
+     * Le pasaba a los 6 `encargado_tienda`, todos con sesión iniciada. Un
+     * permiso que abre una pantalla vacía es peor que no tenerlo: parece un bug
+     * del sistema, no una decisión de acceso.
+     *
+     * El eje correcto no es este de tres estados —que mira la jerarquía de
+     * reportes— sino la dimensión `warehouse` de `ScopeService`, que es la que
+     * ya gobierna qué sucursal le toca a cada quien (viva, 26 call sites).
+     * Medido antes de escribirlo: `encargado_tienda` resuelve `warehouse: own`
+     * sin overrides, así que cada uno pasa a ver entre 6 y 13 personas — el
+     * personal de su tienda, incluida su etiquetera. Las 82 cuentas sin
+     * sucursal (oficina, rutas) siguen fuera, que es lo correcto.
+     *
+     * ⚠️ Ensancha acceso a 6 personas reales: es decisión del lead, tomada el
+     * 2026-09-10, no un efecto colateral.
+     */
+    if (porReportes.type === 'own' && requester.permissions?.[Permission.USUARIOS_VER] === true) {
+      return { type: 'sucursal', userId: requester.sub };
+    }
+
+    /**
+     * `[AU.1b]` — **El padrón deja de heredar `REPORTES_VER_GLOBAL`.**
+     *
+     * `getDataScope` devuelve `all` a quien ve reportes globales, y hasta ahora
+     * eso también abría el padrón entero. Estaba tapado porque la ruta exigía
+     * `USUARIOS_GESTIONAR` y nadie con sólo reportes podía llegar; al abrir la
+     * puerta en `[AU.1]` quedó a la vista: **`jefe_marketing` vería las 122
+     * cuentas**, que no es «su gente».
+     *
+     * Ver el padrón COMPLETO pasa a exigir `USUARIOS_GESTIONAR`. Un permiso de
+     * reportes habla de cifras del negocio, no del legajo de las personas.
+     *
+     * ⛔ El god-mode NO se toca: `isPlatformAdminRole` se pregunta explícito
+     * ANTES de degradar. Si se dejara salir por `getDataScope`, degradar el
+     * `all` degradaría también a superadmin — hoy no se nota porque además
+     * tienen `USUARIOS_GESTIONAR`, y esa coincidencia es justo lo que haría el
+     * bug invisible.
+     *
+     * Medido: hoy afecta a **una sola persona** (`cristian.lopez`), que pasa de
+     * 122 a su equipo. Decisión del lead, 2026-09-13.
+     */
+    if (porReportes.type === 'all' && !isPlatformAdminRole(requester.role_name)) {
+      return { type: 'team', userId: requester.sub };
+    }
+
+    // God-mode y `team` conservan el comportamiento vigente.
+    return porReportes;
+  }
+
+  /**
+   * `[ID.35]` Acota el padrón a la sucursal del que pregunta, **sin poder
+   * dejarlo en cero**.
+   *
+   * El `OR u.id = <él mismo>` no es cortesía: `ScopeService.applyTo` emite
+   * `WHERE false` cuando el modo es `own` y la ficha no tiene sucursal, y ahí la
+   * pantalla quedaría **más vacía que antes** — ni siquiera su propia fila. Es
+   * exactamente el fail-open silencioso que `[ID.26]` vino a hacer visible, y no
+   * se reintroduce por la puerta de al lado.
+   */
+  /**
+   * `[AU.1b]` **Mi equipo: quien me reporta a mí, o cuyo PUESTO le reporta al mío.**
+   *
+   * ── Por qué no alcanza `supervisor_id` ──────────────────────────────────────
+   * Es la única fuente del jefe desde siempre y está poblada en **24 de 100**
+   * personas; la cadena de mando entre puestos (`[OR.8]`) cubre **98**. Quien
+   * tiene equipo pero nadie le apunta con `supervisor_id` ve una sola fila: la
+   * suya. Le pasa hoy a `cristian.lopez`, que tiene dos auxiliares a cargo.
+   *
+   * ── ⚠️ Por qué el puesto SOLO sería peor que el bug ─────────────────────────
+   * La organización es por ZONA, así que el mismo puesto existe tres veces con
+   * tres jefes: `cajera` reporta a `encargado_sucursal`, y hay 24 cajeras en la
+   * red. Sin acotar, **cada encargado vería las 24**. Medido. El puesto da el
+   * TIPO de jefe; el EJE del departamento dice cuál de ellos.
+   *
+   * Por eso se cruza con el eje efectivo (`coalesce(positions.scope_axis,
+   * departments.scope_axis)`, la misma precedencia de `[ID.24.2]`), y el valor
+   * del eje tiene que existir en LAS DOS fichas: comparar dos NULL con
+   * `IS NOT DISTINCT FROM` haría que dos personas sin sucursal «coincidan», que
+   * es ensanchar por un descuido de datos.
+   *
+   * Es UNIÓN, no reemplazo: nadie pierde a quien ya veía. Medido antes de
+   * escribirlo — los 3 supervisores ven lo mismo que hoy (14/11/7) porque su
+   * `supervisor_id` ya es más generoso que su cadena de puestos.
+   */
+  private async acotarPorEquipo(
+    query: Knex.QueryBuilder,
+    requesterId: string,
+  ): Promise<Knex.QueryBuilder> {
+    const tenantId = this.tenantId;
+    const yo = await this.knex('identity.users as u')
+      .leftJoin('identity.positions as p', function () {
+        this.on('p.tenant_id', '=', 'u.tenant_id').andOn('p.code', '=', 'u.position_code');
+      })
+      .leftJoin('identity.departments as d', function () {
+        this.on('d.tenant_id', '=', 'u.tenant_id').andOn('d.code', '=', 'u.department_code');
+      })
+      .where({ 'u.tenant_id': tenantId, 'u.id': requesterId })
+      .first(
+        'u.position_code',
+        'u.warehouse_code',
+        'u.zona_id',
+        this.knex.raw('COALESCE(p.scope_axis, d.scope_axis) AS eje'),
+      );
+
+    // El eje decide con qué columna se desempata. `red`, `cartera` y `cliente`
+    // no acotan por lugar: ahí el puesto ya es suficientemente específico.
+    const porEje: { columna: string; valor: string | null } | null =
+      yo?.eje === 'sucursal'
+        ? { columna: 'u.warehouse_code', valor: (yo.warehouse_code as string) ?? null }
+        : yo?.eje === 'zona' || yo?.eje === 'ruta'
+          ? { columna: 'u.zona_id', valor: (yo.zona_id as string) ?? null }
+          : null;
+
+    // Si el eje pide un valor y mi ficha no lo tiene, la rama del puesto NO
+    // aporta: sin desempate traería a todos los del puesto en toda la red.
+    const puestoSirve = Boolean(yo?.position_code) && (porEje === null || porEje.valor != null);
+
+    return query.where((qb: Knex.QueryBuilder) => {
+      qb.where('u.supervisor_id', requesterId).orWhere('u.id', requesterId);
+      if (!puestoSirve) return;
+      // ⚠️ El eje va DENTRO de esta rama, no colgado del grupo: un `andWhere` al
+      // final se aplicaría también a `supervisor_id` y a mi propia fila, y ahí el
+      // cambio dejaría de ser una unión — les quitaría a los 3 supervisores a
+      // quien ya ven y no comparta su zona. Es la diferencia entre `A OR B OR
+      // (C AND eje)` y `(A OR B OR C) AND eje`.
+      qb.orWhere((rama: Knex.QueryBuilder) => {
+        rama.whereIn('u.position_code', (sub: Knex.QueryBuilder) => {
+          sub
+            .select('code')
+            .from('identity.positions')
+            .where({ tenant_id: tenantId, reports_to_position_code: yo.position_code })
+            .whereNull('deleted_at');
+        });
+        if (porEje?.valor != null) rama.andWhere(porEje.columna, porEje.valor);
+      });
+    });
+  }
+
+  private async acotarPorSucursal(
+    query: Knex.QueryBuilder,
+    requesterId: string,
+  ): Promise<Knex.QueryBuilder> {
+    // Sin `ScopeService` (los tests instancian el service sin él) se cae al
+    // comportamiento anterior: sólo su fila. Fail-closed, nunca "ve todo".
+    if (!this.scopeService) return query.where('u.id', requesterId);
+    const scope = await this.scopeService.forUser(this.tenantId, requesterId);
+    return query.where((qb: Knex.QueryBuilder) => {
+      this.scopeService!.applyTo(qb, scope, 'warehouse', 'u.warehouse_code');
+      qb.orWhere('u.id', requesterId);
+    });
+  }
+
+  private async resolveZonaId(zonaName?: string): Promise<string | null> {
+    if (!zonaName) return null;
+    const zone = await this.knex('zones')
+      .where({ name: zonaName, tenant_id: this.tenantId })
+      .select('id')
+      .first();
+    return zone ? zone.id : null;
+  }
+
+  /**
+   * `[ID.7]` — La zona llega por tres nombres y hay que quedarse con uno.
+   *
+   * `zone_id` es el canónico; `zona_id` y `zona` son alias deprecados que se
+   * siguen aceptando para no romper al frontend actual. La precedencia es
+   * explícita (uuid canónico → uuid viejo → nombre resuelto) en vez de quedar
+   * al azar del orden de las propiedades del body.
+   *
+   * Devuelve `undefined` cuando NINGUNO vino, para poder distinguir en el
+   * update "no lo mandes" de "ponelo en null" (desasignar zona).
+   *
+   * ⛔ `[ZN.6]` **Eso último era mentira y lo decía este mismo comentario.** Las dos primeras
+   * guardas preguntaban por el valor (`if (dto.zone_id)`) y no por su presencia, así que un
+   * `zone_id: null` —que es exactamente lo que manda la pantalla cuando elegís «Ninguna»— es
+   * *falsy*, se caía por los tres `if` y salía `undefined` = «no toques nada». **La zona no se
+   * podía desasignar desde la UI**, mientras que sus dos campos hermanos (`warehouse_code` y
+   * `route_id`) sí se limpian porque viajan en el `...rest`. Tres campos que se ven iguales en
+   * pantalla y uno se comportaba distinto, en silencio.
+   *
+   * Ahora se pregunta por **presencia** (`!== undefined`) y el valor se normaliza: `null` y `''`
+   * son los dos «desasignar».
+   */
+  private async resolveZoneRef(dto: {
+    zone_id?: string | null;
+    zona_id?: string | null;
+    zona?: string | null;
+  }): Promise<string | null | undefined> {
+    if (dto.zone_id !== undefined) return dto.zone_id || null;
+    if (dto.zona_id !== undefined) return dto.zona_id || null;
+    if (dto.zona !== undefined) return this.resolveZonaId(dto.zona ?? undefined);
+    return undefined;
+  }
+
+  /**
+   * `[ID.24]` — La zona se DERIVA, no se pregunta.
+   *
+   * ── `[ZN.6]` ⛔ Dos correcciones, las dos medidas contra prod ────────────────────────────────
+   *
+   * **1 · La sucursal se resolvía con la columna equivocada.** Esto leía
+   * `commercial.warehouses.zone_id`, y de sus 8 filas pobladas **4 apuntan a una fila de
+   * `trade.zones` que NO es una zona sino una sucursal** (`04`→YURECUARO VECINAL, `06`→CANINDO,
+   * `07`→MORELIA MADERO, `08`→MORELIA ABASTOS). O sea que cada alta en esas cuatro plazas volvía
+   * a anclar a alguien a su propia sucursal disfrazada de zona — **es el motor que fabricó las 34
+   * personas cuyo filtro de zona no filtra por una zona**.
+   *
+   * El resolvedor correcto ya existía y no lo consumía nadie: `analytics.v_branch_zone`
+   * (`[ZN.0]`), que deriva de `purchase_zone` y une por `code` contra `kind='zona'`. Acierta
+   * **9 de 9**. El CEDIS resuelve `zona_id NULL` con `es_corporativo` — y eso es correcto: no
+   * cuelga de ninguna plaza, así que no hay zona que derivar.
+   *
+   * **2 · Ruta → zona NO es una función.** El comentario que estaba acá afirmaba que *«de las 15
+   * rutas con tiendas cargadas, ninguna cruza de zona»*. Hoy es falso: `Ruta Vecinal #1` tiene
+   * **742 tiendas repartidas en dos** (58 en LA PIEDAD RD y 684 en MORELIA MADERO), y el
+   * `.first()` sin `ORDER BY` elegía **una al azar** según el plan de ejecución. Ahora se piden
+   * las zonas DISTINTAS y sólo se deriva cuando hay exactamente una.
+   *
+   * ⚠️ Y se exige `kind='zona'`: 5 rutas tienen todas sus tiendas colgadas de una fila-sucursal
+   * (`Ruta mayoreo 01` y `RUTA 321`→MORELIA MADERO, `Ruta 501`/`502`→CANINDO, `RVDAM01`→ZAMORA
+   * VECINAL). Antes eso se propagaba a la persona; ahora cae al camino de la sucursal, que sí
+   * resuelve bien.
+   *
+   * Precedencia: la ruta gana. Para el vendedor de ruta vecinal parado en la sucursal 02, su
+   * zona es su territorio, no la plaza de la tienda donde está.
+   *
+   * Devuelve `undefined` cuando NO se puede derivar (ruta ambigua o sin tiendas en una zona real,
+   * sucursal sin plaza, CEDIS, persona de oficinas). `undefined` significa **no toques lo que ya
+   * tiene**. Lo que no se puede derivar se DECLARA —la ficha lo muestra como «no resoluble»
+   * (`[ID.26]`)— en vez de inventar una zona plausible: ese disfraz es justo lo que costó 34
+   * personas mal ancladas.
+   */
+  private async derivarZona(
+    routeId?: string | null,
+    warehouseCode?: string | null,
+  ): Promise<string | undefined> {
+    if (routeId) {
+      const zonas = await this.knex('trade.stores as s')
+        .join('trade.zones as z', 'z.id', 's.zona_id')
+        .where({ 's.tenant_id': this.tenantId, 's.ruta_id': routeId })
+        .whereNull('s.deleted_at')
+        .whereNull('z.deleted_at')
+        .where('z.kind', 'zona')
+        .distinct('z.id as zona_id');
+      if (zonas.length === 1) return zonas[0].zona_id;
+      if (zonas.length > 1) {
+        this.logger.warn(
+          `[ZN.6] la ruta ${routeId} tiene tiendas en ${zonas.length} zonas distintas: no se deriva, se declara`,
+        );
+      }
+    }
+    if (warehouseCode) {
+      const w = await this.knex('analytics.v_branch_zone')
+        .where({ tenant_id: this.tenantId, branch_code: warehouseCode })
+        .whereNotNull('zona_id')
+        .select('zona_id')
+        .first();
+      if (w?.zona_id) return w.zona_id;
+    }
+    return undefined;
+  }
+
+  /**
+   * `[ID.8]` — Asienta un cambio en `identity.user_events`.
+   *
+   * Es append-only y **nunca hace fallar la operación**: si la bitácora se cae,
+   * el alta o el cambio de rol ya se hizo, y perder el asiento es mucho menos
+   * grave que dejar la operación a medias. El error se loguea, no se propaga.
+   *
+   * Se le pasa la trx cuando hay una abierta, para que el asiento viva o muera
+   * con la operación que describe.
+   */
+  private async recordEvent(
+    trx: Knex | Knex.Transaction,
+    userId: string,
+    event: string,
+    detalle: Record<string, unknown>,
+    requester: RequesterContext,
+  ): Promise<void> {
+    try {
+      await trx('identity.user_events').insert({
+        tenant_id: this.tenantId,
+        user_id: userId,
+        event,
+        detalle: JSON.stringify(detalle),
+        actor_user_id: requester.sub ?? null,
+        actor_username: requester.username ?? null,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `No se pudo asentar el evento "${event}" del usuario ${userId}: ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /** Nombre de la zona a partir del uuid, para las respuestas de escritura. */
+  private async zoneNameOf(zonaId?: string | null): Promise<string | null> {
+    if (!zonaId) return null;
+    const z = await this.knex('zones')
+      .where({ id: zonaId, tenant_id: this.tenantId })
+      .select('name')
+      .first();
+    return z?.name ?? null;
+  }
+
+  private normalizeUsername(username: string): string {
+    return username.toLowerCase().trim();
+  }
+
+  /**
+   * Anti-escalation: solo un superadmin puede otorgar roles elevados
+   * (superadmin/admin). Cualquier intento de elevar a alguien desde un rol
+   * no-superadmin es rechazado.
+   */
+  private async assertCanAssignRole(
+    targetRole: string,
+    requester: RequesterContext,
+  ): Promise<void> {
+    const normalized = targetRole.toLowerCase();
+    if (!ELEVATED_ROLES.has(normalized)) return;
+
+    const requesterRow = await this.knex('users')
+      .where({ id: requester.sub, tenant_id: this.tenantId })
+      .select('role_name')
+      .first();
+    const requesterRole = (requesterRow?.role_name ?? '').toLowerCase();
+    if (requesterRole !== 'superadmin') {
+      throw new ForbiddenException(
+        `Solo un superadmin puede asignar el rol "${normalized}".`,
+      );
+    }
+  }
+
+  /**
+   * `[CH.1.10]` — Quién puede emitir una SESIÓN LARGA (cuenta de dispositivo).
+   *
+   * `USUARIOS_GESTIONAR` está diseñado para que RH dé de alta personas: en
+   * `role-presets.ts` el grupo `usuarios` es primario de `rh`. Emitir una
+   * credencial que vive un año es otra cosa, así que se restringe con el MISMO
+   * mecanismo anti-escalada que ya usa este archivo para los roles elevados
+   * (`assertCanAssignRole`): lo hace un superadmin.
+   *
+   * Se eligió reusar el mecanismo existente en vez de estrenar un permiso
+   * `USUARIOS_TOKEN_DISPOSITIVO`. Un permiso nuevo son 4 touch-points + su
+   * reparto en prod, y uno declarado pero NO repartido es exactamente la deuda
+   * de la lección LC.6.2 (un módulo entero en prod que nadie podía abrir). El
+   * permiso dedicado es el estado final deseable — el día que RH tenga que
+   * hacerlo sin un superadmin a mano — y queda anotado en el tracker, no
+   * implementado a medias.
+   *
+   * Sólo mira lo que el request PIDE: quitar el TTL (mandar `null`) no requiere
+   * ser superadmin. Bajar privilegio nunca se gatea igual que subirlo.
+   */
+  private async assertCanSetDeviceSession(
+    ttlPedido: number | null | undefined,
+    requester: RequesterContext,
+  ): Promise<void> {
+    if (ttlPedido == null) return;
+
+    const requesterRow = await this.knex('users')
+      .where({ id: requester.sub, tenant_id: this.tenantId })
+      .select('role_name')
+      .first();
+    if ((requesterRow?.role_name ?? '').toLowerCase() !== 'superadmin') {
+      throw new ForbiddenException(
+        'Sólo un superadmin puede emitir una sesión de dispositivo (un token que vive más de las 12 h del default).',
+      );
+    }
+  }
+
+  /**
+   * `[AU.28]` — Cambiarle la contraseña a otro exige `USUARIOS_PASSWORDS`.
+   *
+   * ⛔ Ese permiso existía **muerto**: estaba en el enum, en `permission-meta`,
+   * en `role-presets` y en `authz-tree`, y **ningún endpoint lo pedía**. Resetear
+   * una contraseña pasaba por `USUARIOS_GESTIONAR`, el mismo permiso con el que
+   * RH da de alta gente. Es la clase de compuerta que ADR-054 retiró: declarada
+   * en cuatro lugares y sin efecto en ninguno.
+   *
+   * A diferencia de `assertCanSetDeviceSession` —que reusó el mecanismo de rol
+   * en vez de estrenar un permiso, porque uno nuevo hay que repartirlo y sin
+   * repartir es la deuda de `[LC.6.2]`— acá **no hay nada que repartir**: se
+   * midió en prod antes de encenderlo y los dos permisos viven exactamente en
+   * los mismos 2 roles (`superadmin` con 8 personas, `recursos_humanos` con 0).
+   * Encenderlo **no le quita el acceso a nadie**; le devuelve sentido a una
+   * llave que ya está en los llaveros correctos.
+   *
+   * Sólo mira lo que el request PIDE: un PUT sin `password` no pasa por acá, y
+   * cambiarse la PROPIA contraseña tampoco — para eso está el flujo de cuenta,
+   * que no es administrar a un tercero.
+   */
+  private assertCanChangePassword(
+    password: string | undefined,
+    id: string,
+    requester: RequesterContext,
+  ): void {
+    if (!password) return;
+    if (id === requester.sub) return;
+    if (isPlatformAdminRole(requester.role_name)) return;
+    if (requester.permissions?.[Permission.USUARIOS_PASSWORDS] === true) return;
+    throw new ForbiddenException(
+      'Cambiarle la contraseña a otra persona exige el permiso «Resetear Contraseñas» (USUARIOS_PASSWORDS), que es distinto de administrar su ficha.',
+    );
+  }
+
+  /**
+   * `[CH.1.10]` — Una contraseña que nadie está obligado a cambiar sólo se
+   * justifica en una pantalla desatendida.
+   *
+   * `[ID.8]` puso `must_change_password` en `true` para toda alta, y por una
+   * razón: la contraseña la eligió OTRO (el admin), así que el dueño tiene que
+   * cambiarla. Un kiosco es la excepción real — si se forzara el cambio, la
+   * primera persona que pasa la cambia y la pantalla queda afuera (ya pasó:
+   * `20260908150000_etiqueteras_no_forzar_cambio.js`).
+   *
+   * La regla, entonces: `false` se acepta **sólo si la cuenta declara su
+   * duración de sesión**, o sea sólo si es un dispositivo.
+   *
+   * ── Se evalúa el CAMBIO, no la fila resultante ─────────────────────────────
+   * Es la diferencia entre una compuerta y un bloqueo de trabajo ajeno. Las 7
+   * cuentas `etiquetas.NN` que ya existen son `must_change_password = false` con
+   * `token_ttl_days = null` — no porque alguien lo decidiera, sino porque su
+   * script es anterior a la columna. Si esto mirara la fila resultante,
+   * editarle el NOMBRE a una etiquetera se rechazaría, sin que el request haya
+   * mencionado ninguno de los dos campos. Así que sólo se rechaza el movimiento
+   * HACIA la combinación prohibida; lo que ya estaba queda editable.
+   *
+   * Y rechaza, no voltea en silencio: este repo ya pagó el precio de un default
+   * silencioso (`{}` vs `{ expiresIn: undefined }` en `token-ttl.ts`).
+   */
+  private assertDeviceCredential(
+    body: { must_change_password?: boolean; token_ttl_days?: number | null },
+    actual?: { must_change_password?: boolean; token_ttl_days?: number | null },
+  ): void {
+    const pideForzarNo = body.must_change_password === false;
+    const pideQuitarTtl = 'token_ttl_days' in body && body.token_ttl_days == null;
+    if (!pideForzarNo && !pideQuitarTtl) return;
+
+    const ttlResultante =
+      'token_ttl_days' in body ? body.token_ttl_days : (actual?.token_ttl_days ?? null);
+    const forzarResultante =
+      body.must_change_password !== undefined
+        ? body.must_change_password
+        : (actual?.must_change_password ?? true);
+
+    if (pideForzarNo && ttlResultante == null) {
+      throw new BadRequestException(
+        'Una cuenta que no fuerza el cambio de contraseña es una credencial de dispositivo: declará su duración de sesión (token_ttl_days). Si es una persona, la contraseña la eligió el admin y el dueño tiene que cambiarla.',
+      );
+    }
+    if (pideQuitarTtl && forzarResultante === false) {
+      throw new BadRequestException(
+        'No se puede quitar la sesión larga sin devolver el cambio de contraseña forzado: quedaría una contraseña que nadie eligió y que nadie está obligado a cambiar. Mandá must_change_password: true en el mismo request.',
+      );
+    }
+  }
+
+  /**
+   * Bloquea el caso de dejar al sistema sin ningún superadmin activo.
+   * Se invoca antes de degradar de rol o desactivar.
+   */
+  private async assertNotLastSuperadmin(
+    userId: string,
+    nextActive: boolean,
+    nextRole: string | undefined,
+  ): Promise<void> {
+    const current = await this.knex('users')
+      .where({ id: userId, tenant_id: this.tenantId })
+      .select('role_name', 'activo')
+      .first();
+    if (!current) return;
+
+    const wasSuperadmin =
+      (current.role_name ?? '').toLowerCase() === 'superadmin' &&
+      current.activo === true;
+    if (!wasSuperadmin) return;
+
+    const willStaySuperadmin =
+      nextActive !== false &&
+      (nextRole === undefined ||
+        nextRole.toLowerCase() === 'superadmin');
+    if (willStaySuperadmin) return;
+
+    // El cambio degradaría/desactivaría a un superadmin. Verificar que
+    // queda al menos otro superadmin activo.
+    const otherActive = await this.knex('users')
+      .where({ role_name: 'superadmin', activo: true, tenant_id: this.tenantId })
+      .andWhereNot({ id: userId })
+      .count<{ count: string }>('id as count')
+      .first();
+    const otherCount = Number(otherActive?.count ?? 0);
+    if (otherCount === 0) {
+      throw new BadRequestException(
+        'No puedes desactivar o degradar al último superadmin activo del sistema.',
+      );
+    }
+  }
+
+  /**
+   * Valida los códigos de catálogo del usuario contra la DB ANTES de escribir.
+   * Sin esto la FK compuesta tira 23503 y el handler lo convierte en un 500: el
+   * admin veía "Error al actualizar usuario" sin motivo y quedaba un error de
+   * servidor en el log por un dato de entrada inválido.
+   *
+   * `warehouse_code` se sumó acá y se le quitó el `@Matches(/^[0-9]{2}$/)` del
+   * DTO: el regex validaba FORMA, no EXISTENCIA — aceptaba `'99'` feliz. Con el
+   * default de alcance en `own` desde `[ID.3]`, una sucursal mal escrita ya no
+   * es cosmética: deja al usuario sin ver nada y sin pista de por qué.
+   */
+  private async assertOrgCodes(
+    departmentCode?: string | null,
+    positionCode?: string | null,
+    warehouseCode?: string | null,
+    routeId?: string | null,
+  ): Promise<void> {
+    // `[ID.24.1]` La FK de `users.route_id` apunta a `trade.catalogs`, que guarda
+    // TODOS los catálogos: la FK sola aceptaría un concepto o una ubicación como
+    // "ruta". Que sea del catálogo de rutas no se expresa en una FK, así que se
+    // valida acá — mismo motivo por el que `warehouse_code` dejó de confiar en
+    // un regex de forma.
+    if (routeId) {
+      const ruta = await this.knex('trade.catalogs')
+        .where({ tenant_id: this.tenantId, id: routeId, catalog_id: 'rutas' })
+        .whereNull('deleted_at')
+        .select('id')
+        .first();
+      if (!ruta) {
+        throw new BadRequestException('La ruta seleccionada no existe en el catálogo de rutas.');
+      }
+    }
+    if (warehouseCode) {
+      // `[RE.27]` Se valida contra la MISMA llave canónica que ofrece `getBranches()`,
+      // no contra `code` pelado. Antes el formulario ofrecía `30` (Morelia, RE.23) y
+      // este chequeo lo rebotaba con 400, porque en el catálogo esa fila se llama
+      // `MD-30`: el alta ofrecía una sucursal que ella misma no aceptaba, y las 319
+      // recepciones mensuales de Morelia se quedaron sin nadie que pudiera subirlas.
+      //
+      // El modo silencioso era peor. Escribiendo `MD-30` a mano sí pasaba —y sigue
+      // sin pasar, a propósito: `branchKeyFilterSql` sólo admite llaves de 2 dígitos—
+      // porque entonces el alcance `own` resolvía a `['MD-30']`, el
+      // `WHERE c.sucursal IN ('MD-30')` daba cero filas, y la persona veía la pantalla
+      // vacía, que se lee igual que "no hay entradas".
+      const wh = await this.knex('commercial.warehouses as w')
+        .where({ 'w.tenant_id': this.tenantId })
+        .whereNull('w.deleted_at')
+        .whereRaw(branchKeyFilterSql('w'))
+        .whereRaw(`(${branchKeySql('w')}) = ?`, [warehouseCode])
+        .select('w.code')
+        .first();
+      if (!wh) {
+        throw new BadRequestException(
+          `La sucursal "${warehouseCode}" no existe en el catálogo de almacenes.`,
+        );
+      }
+    }
+    if (departmentCode) {
+      const dep = await this.knex('identity.departments')
+        .where({ tenant_id: this.tenantId, code: departmentCode })
+        .whereNull('deleted_at')
+        .select('code')
+        .first();
+      if (!dep) {
+        throw new BadRequestException(
+          `El departamento "${departmentCode}" no existe.`,
+        );
+      }
+    }
+    if (positionCode) {
+      const pos = await this.knex('identity.positions')
+        .where({ tenant_id: this.tenantId, code: positionCode })
+        .whereNull('deleted_at')
+        .select('code')
+        .first();
+      if (!pos) {
+        throw new BadRequestException(`El puesto "${positionCode}" no existe.`);
+      }
+    }
+  }
+
+  /**
+   * `[OR.2]` — ¿El perfil elegido se aparta del que propone el puesto?
+   *
+   * El puesto propone un `default_role` desde `[ID.15]` y el formulario ya
+   * mostraba el select cuando el valor divergía — «una decisión que alguien tomó
+   * y hay que poder ver». Lo que faltaba era **el porqué**: medido en prod, 14
+   * de 100 personas llevan un rol distinto al que su puesto propone y no hay un
+   * solo renglón que diga si fue decisión o descuido. 13 de esas 14 son el mismo
+   * caso (`vendedor_ruta` con perfil `promotor_ruta`).
+   *
+   * Devuelve `null` cuando no hay divergencia, cuando el puesto no propone nada
+   * (20 puestos siguen con `default_role` NULL) o cuando no hay puesto.
+   */
+  private async detectarDesvio(
+    positionCode: string | null | undefined,
+    roleName: string | null | undefined,
+  ): Promise<{ position_code: string; propone: string | null; elegido: string } | null> {
+    if (!positionCode || !roleName) return null;
+    const pos = await this.knex('identity.positions')
+      .where({ tenant_id: this.tenantId, code: positionCode })
+      .whereNull('deleted_at')
+      .first('code', 'default_role');
+    if (!pos) return null;
+    /*
+     * `[AU.15]` Un puesto que no propone NADA no es «sin desvío».
+     *
+     * Hasta acá `if (!pos.default_role) return null` apagaba la regla entera: el
+     * perfil se elegía a dedo y no quedaba escrito por qué. Son **13 puestos** en
+     * prod, todos vacantes hoy — o sea el hueco se abre justo el día que alguien
+     * los ocupe. `propone: null` lo DECLARA en vez de dibujarlo como «en orden».
+     */
+    // `[OR.2.1]` La regla la decide `evaluarDivergencia`, la MISMA que usan los dos
+    // formularios. Estaba escrita tres veces y una de las tres decía lo contrario: el
+    // formulario del alta concluía "no diverge" cuando el puesto no propone perfil, así que
+    // no pedía el motivo que acá abajo se exige — y con 20 de los 57 puestos el alta era
+    // imposible desde la pantalla.
+    const elegido = roleName.toLowerCase();
+    const d = evaluarDivergencia({ propone: pos.default_role, elegido });
+    if (!d.diverge) return null;
+    return { position_code: pos.code, propone: d.sinPropuesta ? null : pos.default_role, elegido };
+  }
+
+  /**
+   * `[OR.2]` — Apartarse del puesto se puede; hacerlo en silencio, no.
+   *
+   * ⚠️ **La regla se evalúa sobre el CAMBIO, no sobre el estado guardado**, igual
+   * que `must_change_password`/`token_ttl_days`. Si no, el formulario —que hace
+   * `PUT` con el payload completo— pediría un motivo cada vez que alguien edita
+   * el teléfono de una de las 14 personas que ya divergen, por una decisión que
+   * tomó otro hace meses. Acá sólo pide motivo quien **crea** la divergencia:
+   * un alta divergente, o un cambio que mueve el rol o el puesto.
+   */
+  private exigirMotivo(
+    desvio: { position_code: string; propone: string | null; elegido: string },
+    motivo: string | null | undefined,
+  ): void {
+    if (motivo && motivo.trim()) return;
+    if (desvio.propone === null) {
+      throw new BadRequestException(
+        `El puesto "${desvio.position_code}" no propone ningún perfil, así que "${desvio.elegido}" ` +
+          `es una elección a dedo y no hay contra qué contrastarla. Se puede, pero hay que decir ` +
+          `por qué: enviá "motivo_desvio". (Lo que lo cierra de raíz es darle un perfil al puesto.)`,
+      );
+    }
+    throw new BadRequestException(
+      `El puesto "${desvio.position_code}" propone el perfil "${desvio.propone}" y se eligió ` +
+        `"${desvio.elegido}". Apartarse está permitido, pero hay que decir por qué: enviá ` +
+        `"motivo_desvio".`,
+    );
+  }
+
+  async create(createUserDto: CreateUserDto, requester: RequesterContext) {
+    // `zone_id`/`zona_id`/`zona` salen del rest: los tres colapsan en una sola
+    // columna y la precedencia la decide `resolveZoneRef`.
+    const {
+      password,
+      zona: _zonaLegacy,
+      zona_id: _zonaIdLegacy,
+      zone_id: _zoneId,
+      role_name,
+      username,
+      // `[OR.2]` Fuera del `rest`: NO es una columna de `identity.users`, viaja
+      // al evento. Dejarlo pasar haría reventar el INSERT con "column does not exist".
+      motivo_desvio,
+      ...rest
+    } = createUserDto;
+
+    await this.assertCanAssignRole(role_name, requester);
+
+    // `[OR.2]` En un alta, toda divergencia es una decisión que se toma AHORA.
+    const desvio = await this.detectarDesvio(createUserDto.position_code, role_name);
+    if (desvio) this.exigirMotivo(desvio, motivo_desvio);
+    // `[CH.1.10]` Sin fila previa: en un alta el "resultante" es lo que trae el body.
+    this.assertDeviceCredential(createUserDto);
+    await this.assertCanSetDeviceSession(createUserDto.token_ttl_days, requester);
+    await this.assertOrgCodes(
+      createUserDto.department_code,
+      createUserDto.position_code,
+      createUserDto.warehouse_code,
+      createUserDto.route_id,
+    );
+
+    const normalizedUsername = this.normalizeUsername(username);
+
+    const existing = await this.knex('users')
+      .where({ username: normalizedUsername, tenant_id: this.tenantId })
+      .select('id')
+      .first();
+    if (existing) {
+      throw new ConflictException(
+        `El nombre de usuario "${normalizedUsername}" ya está en uso.`,
+      );
+    }
+
+    const password_hash = await bcrypt.hash(password, 10);
+    // `[ID.24]` La zona se deriva de la ruta o de la sucursal.
+    //
+    // `[ZN.6]` ⛔ Acá el alta y la edicion usaban reglas OPUESTAS para el mismo hecho: en el alta
+    // la derivada PISABA lo que el admin habia elegido, sin aviso ni rastro; en la edicion mandaba
+    // lo explicito. Un campo que se comporta distinto segun si la persona ya existe es un campo en
+    // el que no se puede confiar. Se unifica en la regla de `update`: manda quien lo escribio.
+    //
+    // La coherencia no se pierde: `[ZN.6.B2]` deja el selector ofreciendo solo `kind='zona'`, asi
+    // que ya no se puede elegir una sucursal disfrazada. Y si lo elegido contradice lo derivable,
+    // queda ASENTADO en el log en vez de resolverse a escondidas. Lo que lo cierra de raiz es
+    // dejar de capturar la zona (`[ZN.4]`), que es otra entrega.
+    const zoneRef = await this.resolveZoneRef(createUserDto);
+    const derivada = await this.derivarZona(
+      createUserDto.route_id,
+      createUserDto.warehouse_code,
+    );
+    if (zoneRef && derivada && zoneRef !== derivada) {
+      this.logger.warn(
+        `[ZN.6] alta de ${createUserDto.username}: la zona elegida (${zoneRef}) no es la que sale de su lugar de trabajo (${derivada}). Se respeta la elegida.`,
+      );
+    }
+    const zona_id = zoneRef !== undefined ? zoneRef : derivada ?? null;
+    const normalizedRoleName = role_name.toLowerCase();
+
+    const [user] = await this.knex('users')
+      .insert({
+        ...rest,
+        tenant_id: this.tenantCtx.requireTenantId(),
+        zona_id,
+        password_hash,
+        role_name: normalizedRoleName,
+        username: normalizedUsername,
+        updated_by: requester.sub,
+        created_by: requester.sub,
+        // `[ID.8]` La contraseña la eligió OTRO (el admin que da el alta), así
+        // que el dueño tiene que cambiarla. `created_by` además deja de estar
+        // vacío: en prod estaba en NULL para los 117 usuarios.
+        password_changed_at: this.knex.fn.now(),
+        // `[CH.1.10]` Sigue siendo `true` por default — deja de ser una CONSTANTE
+        // y pasa a ser un default. `[ID.8]` no se debilita: el único camino a
+        // `false` lo abre `assertDeviceCredential()`, que lo exige acompañado de
+        // una duración de sesión. Mientras estuvo hardcodeado, dar de alta un
+        // kiosco por el endpoint era imposible y por eso el alta terminó en un
+        // script suelto haciendo INSERT directo.
+        must_change_password: rest.must_change_password ?? true,
+      })
+      .returning([
+        'id',
+        'username',
+        'nombre',
+        'zona_id',
+        'role_name',
+        'activo',
+        'supervisor_id',
+        'created_at',
+        // `[CH.1.7]` La respuesta tiene que describir lo que quedó guardado. Sin
+        // estos dos, el cliente manda un TTL, recibe 200 y no puede distinguir
+        // "se guardó" de "se descartó en silencio" — que es exactamente lo que
+        // hace `ValidationPipe({ whitelist: true })` con un campo no declarado.
+        'token_ttl_days',
+        'kind',
+      ]);
+
+    // `[CH.1.10]` Emitir una credencial de un año queda asentado. Es la mitad
+    // que faltaba de "auditable": la otra es poder verlo en la pantalla, y sin
+    // este renglón la única huella de quién la emitió sería el `created_by`.
+    if (user?.token_ttl_days != null) {
+      await this.recordEvent(
+        this.knex,
+        user.id,
+        'device_session_granted',
+        {
+          token_ttl_days: user.token_ttl_days,
+          must_change_password: rest.must_change_password ?? true,
+          kind: user.kind ?? null,
+          nota: 'credencial de pantalla desatendida: se revoca desactivando la cuenta, no esperando su vencimiento',
+        },
+        requester,
+      );
+    }
+
+    // `[OR.2]` La divergencia con el puesto queda asentada CON su motivo. Antes
+    // era visible en el formulario y no quedaba en ningún lado: las 14 personas
+    // que hoy divergen no tienen un renglón que diga si fue decisión o descuido.
+    if (desvio && user?.id) {
+      await this.recordEvent(
+        this.knex,
+        user.id,
+        'desvio_de_puesto',
+        { ...desvio, motivo: (motivo_desvio ?? '').trim(), origen: 'alta' },
+        requester,
+      );
+    }
+
+    // El nombre de la zona se resuelve del uuid que quedó guardado: ya no hay
+    // una variable `zona` en scope (los tres alias colapsaron en `[ID.7]`) y
+    // devolver el que mandó el cliente sería devolverle su propio input.
+    return { ...user, zona: await this.zoneNameOf(zona_id) };
+  }
+
+  /**
+   * `[AU.0b]` El padrón, ahora **buscable y paginado en el servidor**.
+   *
+   * ── Por qué cambia la forma de la respuesta ─────────────────────────────
+   * Antes devolvía el arreglo completo y el filtrado era en el cliente. Con 122
+   * cuentas se aguanta; el problema no es el tamaño sino que la búsqueda del
+   * navegador **no tolera acentos ni typos** y la regla de datos densos exige
+   * paginar lo transaccional. `applySmartSearch` ya resuelve las tres cosas y lo
+   * usan 9 servicios más — no se reescribe una décima versión a mano.
+   *
+   * Devuelve un sobre `{ rows, total, page, page_size }`. El único consumidor de
+   * este endpoint es la pantalla de administración (medido: `getTeam()` es lo
+   * que usa `daily-assignments`, no esto), así que no se deja una respuesta
+   * polimórfica «arreglo o sobre» arrastrándose para siempre.
+   *
+   * ⚠️ **El `ORDER BY` no es cosmético.** La consulta no tenía ninguno: sin
+   * orden estable, dos páginas pueden traer a la misma persona y saltearse otra,
+   * porque Postgres no promete conservar el orden entre ejecuciones. Se ordena
+   * por nombre y se desempata por `id`, que es único.
+   *
+   * ⚠️ El total va con `count(DISTINCT u.id)`: el `leftJoin` a las asignaciones
+   * del día **puede** duplicar la fila si alguien tuviera dos rutas el mismo día.
+   * Hoy no pasa (medido: 122 filas para 122 personas) y **no hay nada que lo
+   * impida**, así que el conteo no depende de que siga sin pasar.
+   */
+  async findAll(
+    params: {
+      zona?: string;
+      activo?: string;
+      search?: string;
+      page?: number;
+      pageSize?: number;
+      department_code?: string;
+      position_code?: string;
+      kind?: string;
+      status?: string;
+      incluir_bajas?: boolean;
+    },
+    requester: RequesterContext,
+  ) {
+    const { zona, activo } = params;
+    const jsDay = new Date().getDay();
+    const dow = jsDay === 0 ? 7 : jsDay;
+
+    const knex = this.knex;
+    const query = knex('users as u')
+      .where('u.tenant_id', this.tenantId)
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .leftJoin('daily_assignments as da', function () {
+        this.on('da.user_id', '=', 'u.id');
+        this.on('da.day_of_week', '=', knex.raw('?', [dow]));
+      })
+      .leftJoin('catalogs as cr', function () {
+        this.on('cr.id', '=', 'da.route_id');
+        this.on('cr.catalog_id', '=', knex.raw("'rutas'"));
+      })
+      // Ejes organizacionales (Fase UN): el departamento y el puesto son dato
+      // real de la fila, ya no se infieren del role_name en el frontend.
+      .leftJoin('identity.departments as dp', function () {
+        this.on('dp.tenant_id', '=', 'u.tenant_id');
+        this.on('dp.code', '=', 'u.department_code');
+      })
+      .leftJoin('identity.positions as ps', function () {
+        this.on('ps.tenant_id', '=', 'u.tenant_id');
+        this.on('ps.code', '=', 'u.position_code');
+      })
+      /*
+       * `[AU.0b]` El NOMBRE de la sucursal, no sólo su código.
+       *
+       * Medido antes de agregarlo: buscar «padre hidalgo» devolvía **3 filas, y
+       * las tres eran kioscos** — los únicos cuyo `nombre` contiene el texto. Las
+       * personas de esa sucursal no aparecían porque en la fila sólo vive
+       * `warehouse_code = '01'`. Buscar gente por el nombre de su tienda es como
+       * busca cualquiera que no se sepa los códigos de memoria.
+       *
+       * ⚠️ El join va por `branchKeySql`, no por `w.code`: en Morelia la llave de
+       * 2 dígitos no está en `code` (`MD-30`) sino en `wincaja_source_branch`
+       * (`[RE.23]`). Con `w.code` esas dos sucursales quedarían fuera.
+       */
+      .leftJoin(
+        knex.raw(
+          `commercial.warehouses as w ON w.tenant_id = u.tenant_id
+             AND w.deleted_at IS NULL AND ${branchKeySql('w')} = u.warehouse_code`,
+        ),
+      )
+      .select(
+        'u.id',
+        'u.username',
+        'u.nombre',
+        'w.name as warehouse_name',
+        'z.name as zona',
+        'u.zona_id',
+        'u.role_name',
+        'u.activo',
+        // `[AU.12]` El ciclo de vida REAL. `activo` es un booleano deprecado que
+        // no distingue `suspended` de `terminated`, y la pantalla llamaba
+        // «Suspendida» a las 11 personas que en prod están dadas de baja.
+        'u.status',
+        'u.supervisor_id',
+        'u.warehouse_code',
+        // [ID.24.1] La ruta de la persona: su eje, si es de ruta.
+        'u.route_id',
+        'u.department_code',
+        'dp.name as department_name',
+        'u.position_code',
+        'ps.name as position_name',
+        'u.finance_expense_area_ids',
+        'u.created_at',
+        'u.last_login_at',
+        'u.last_login_ip',
+        // `[CH.1.7]` Cuánto vive el token de esta cuenta y de qué tipo es.
+        // Se devuelven para que exista la lista auditable de "quién tiene token
+        // largo": el TTL nació en `[CH.1.1]` y la capa que administra usuarios
+        // no lo conocía, así que la única forma de verlo era un SELECT a mano.
+        // Un permiso de un año que no se puede ver desde la pantalla tampoco se
+        // puede revisar ni quitar.
+        'u.token_ttl_days',
+        'u.kind',
+        knex.raw(
+          'CASE WHEN da.id IS NOT NULL THEN true ELSE false END as has_route_today',
+        ),
+        'cr.value as route_name_today',
+      );
+
+    // Scope enforcement: quien administra personal (`USUARIOS_GESTIONAR`) o ve
+    // reportes globales ve todo el padrón; `sucursal` ve al personal de su
+    // tienda (`[ID.35]`); team-scope ve su equipo + sí mismo; own-scope sólo a
+    // sí mismo. Ver `alcanceDelPadron` para por qué el eje de reportes no
+    // alcanzaba — `[ID.27]`.
+    const scope = this.alcanceDelPadron(requester);
+    if (scope.type === 'team') {
+      await this.acotarPorEquipo(query, requester.sub);
+    } else if (scope.type === 'sucursal') {
+      await this.acotarPorSucursal(query, requester.sub);
+    } else if (scope.type === 'own') {
+      query.where('u.id', requester.sub);
+    }
+
+    /*
+     * `[AU.12]` Las bajas salen del padrón salvo que se pidan.
+     *
+     * Medido en prod antes de cambiarlo: `kind='interno'` devolvía **111 filas,
+     * 100 vivas y 11 con `deleted_at`**, y cinco de esas once caían en la primera
+     * página. La pantalla las pintaba como «Suspendida», que es otro estado del
+     * ciclo. El padrón sobre-reportaba 11 personas que ya no trabajan acá.
+     */
+    if (!params.incluir_bajas) query.whereNull('u.deleted_at');
+
+    if (zona) query.where('z.name', zona);
+    if (activo) query.where('u.activo', activo === 'true');
+    if (params.department_code) query.where('u.department_code', params.department_code);
+    if (params.position_code) query.where('u.position_code', params.position_code);
+    if (params.kind) query.where('u.kind', params.kind);
+    if (params.status) query.where('u.status', params.status);
+
+    // Insensible a acentos, multi-palabra en cualquier orden y tolerante a
+    // typos. `position_name`/`department_name` entran a propósito: buscar
+    // "cajera" o "finanzas" es como la gente busca a alguien cuyo usuario no
+    // recuerda.
+    applySmartSearch(query, params.search, {
+      columns: [
+        'u.username',
+        'u.nombre',
+        'u.role_name',
+        'u.warehouse_code',
+        'w.name',
+        'ps.name',
+        'dp.name',
+        'z.name',
+      ],
+    });
+
+    // El conteo se saca ANTES de paginar y sobre el MISMO builder (mismos joins,
+    // mismo alcance, mismo filtro): clonarlo evita que el total y las filas se
+    // contesten preguntas distintas.
+    const totalQ = query.clone().clearSelect().clearOrder().countDistinct({ n: 'u.id' });
+
+    /*
+     * `[AU.12]` El resumen se cuenta sobre el MISMO builder, por la misma razón.
+     *
+     * Antes la tira de KPI se calculaba en el navegador sobre las 50 filas de la
+     * página y se leía como el padrón entero: decía «sin puesto 25» cuando el
+     * padrón tenía 81, y el número cambiaba al pasar de página.
+     *
+     * ⚠️ `DISTINCT u.id` y no `count(*)`: el join de almacenes puede casar más de
+     * una fila por persona, igual que en `totalQ`.
+     * ⚠️ Tampoco sirve `diagnosticoPadron()`: mide el tenant entero, así que a un
+     * supervisor le pondría un número que no corresponde a su tabla.
+     */
+    const resumenQ = query
+      .clone()
+      .clearSelect()
+      .clearOrder()
+      .select(
+        /*
+         * `[AU.16]` «Sin jefe» cuenta a quien no tiene jefe **ni por puesto**.
+         *
+         * Contar `supervisor_id IS NULL` daba 76 de 100 y se leía como «76 sin
+         * jefe», pero **45 de esos 76 sí tienen jefe**: su puesto reporta a otro
+         * que está ocupado. El número accionable es el resto — los 29 cuyo
+         * puesto jefe está vacante y los 2 que son raíz del organigrama.
+         */
+        knex.raw(
+          `count(DISTINCT u.id) FILTER (WHERE u.position_code IS NULL)::int AS sin_puesto,
+           count(DISTINCT u.id) FILTER (
+             WHERE u.supervisor_id IS NULL AND NOT EXISTS (
+               SELECT 1 FROM identity.users oj
+                WHERE oj.tenant_id = u.tenant_id AND oj.deleted_at IS NULL
+                  AND oj.position_code = ps.reports_to_position_code)
+           )::int AS sin_jefe,
+           count(DISTINCT u.id) FILTER (WHERE u.token_ttl_days IS NOT NULL)::int AS sesion_larga,
+           count(DISTINCT u.id) FILTER (WHERE u.last_login_at IS NULL)::int AS nunca_entraron`,
+        ),
+      );
+
+    const page = Math.max(1, Math.trunc(params.page ?? 1));
+    const pageSize = Math.min(500, Math.max(1, Math.trunc(params.pageSize ?? 50)));
+
+    query
+      .orderByRaw('lower(coalesce(u.nombre, u.username)) asc')
+      .orderBy('u.id', 'asc')
+      .limit(pageSize)
+      .offset((page - 1) * pageSize);
+
+    const [rows, totalRows, resumenRows] = await Promise.all([query, totalQ, resumenQ]);
+    const r = (resumenRows as Array<Record<string, number>>)[0] ?? {};
+    return {
+      rows,
+      total: Number((totalRows as Array<{ n: string | number }>)[0]?.n ?? 0),
+      page,
+      page_size: pageSize,
+      resumen: {
+        sin_puesto: Number(r['sin_puesto'] ?? 0),
+        sin_jefe: Number(r['sin_jefe'] ?? 0),
+        sesion_larga: Number(r['sesion_larga'] ?? 0),
+        nunca_entraron: Number(r['nunca_entraron'] ?? 0),
+      },
+      medido_at: new Date().toISOString(),
+    };
+  }
+
+  async findOne(id: string, requester: RequesterContext) {
+    const user = await this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .leftJoin('identity.departments as dp', function () {
+        this.on('dp.tenant_id', '=', 'u.tenant_id');
+        this.on('dp.code', '=', 'u.department_code');
+      })
+      .leftJoin('identity.positions as ps', function () {
+        this.on('ps.tenant_id', '=', 'u.tenant_id');
+        this.on('ps.code', '=', 'u.position_code');
+      })
+      .where('u.id', id)
+      .where('u.tenant_id', this.tenantId)
+      .select(
+        'u.id',
+        'u.username',
+        'u.nombre',
+        'z.name as zona',
+        'u.zona_id',
+        'u.role_name',
+        'u.activo',
+        'u.supervisor_id',
+        'u.supervisor_id as parent_supervisor',
+        'u.warehouse_code',
+        // `[ID.24.1]` La ruta de la persona: su eje, si es de ruta.
+        'u.route_id',
+        'u.department_code',
+        'dp.name as department_name',
+        'u.position_code',
+        'ps.name as position_name',
+        'u.finance_expense_area_ids',
+        'u.created_at',
+        // `[CH.1.7]` Ver el detalle de una cuenta tiene que incluir cuánto vive
+        // su token: es el atributo que decide si la credencial dura 12 h o un año.
+        'u.token_ttl_days',
+        'u.kind',
+      )
+      .first();
+
+    if (!user) {
+      throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+    }
+
+    // Mismo eje que `findAll`: si la lista te muestra a alguien, el detalle no
+    // puede negártelo — y al revés. `[ID.27]`
+    const scope = this.alcanceDelPadron(requester);
+    if (scope.type === 'team') {
+      const isSelf = user.id === requester.sub;
+      const isDirectReport = user.parent_supervisor === requester.sub;
+      if (!isSelf && !isDirectReport) {
+        throw new ForbiddenException(
+          'No puedes ver usuarios fuera de tu equipo.',
+        );
+      }
+    } else if (scope.type === 'sucursal') {
+      // `[ID.35]` El detalle usa el MISMO criterio que la lista: la sucursal del
+      // que pregunta, más su propia ficha. Si la lista te lo mostró, el detalle
+      // no puede negártelo — y si no, tampoco puede dejarte entrar por la URL.
+      const esUnoMismo = user.id === requester.sub;
+      const puede =
+        esUnoMismo ||
+        (!!this.scopeService &&
+          !!user.warehouse_code &&
+          this.scopeService.canRead(
+            await this.scopeService.forUser(this.tenantId, requester.sub),
+            'warehouse',
+            String(user.warehouse_code),
+          ));
+      if (!puede) {
+        throw new ForbiddenException('No puedes ver usuarios de otra sucursal.');
+      }
+    } else if (scope.type === 'own' && user.id !== requester.sub) {
+      throw new ForbiddenException('No puedes ver otros usuarios.');
+    }
+
+    return user;
+  }
+
+  async update(
+    id: string,
+    updateUserDto: UpdateUserDto,
+    requester: RequesterContext,
+  ) {
+    // Los tres nombres de zona salen del rest (colapsan en una sola columna).
+    const {
+      password,
+      zona: _zonaLegacy,
+      zona_id: _zonaIdLegacy,
+      zone_id: _zoneId,
+      role_name,
+      username,
+      activo,
+      // `[OR.2]` Fuera del `rest`: no es columna de `identity.users`, va al evento.
+      motivo_desvio,
+      ...rest
+    } = updateUserDto;
+
+    const isSelf = id === requester.sub;
+
+    // Anti-self-elevation / self-lockout: nadie puede cambiarse su propio
+    // rol ni desactivarse a sí mismo. Estos cambios solo proceden vía un
+    // tercero con permisos suficientes.
+    if (isSelf && role_name !== undefined) {
+      throw new ForbiddenException(
+        'No puedes modificar tu propio rol.',
+      );
+    }
+    if (isSelf && activo === false) {
+      throw new ForbiddenException(
+        'No puedes desactivar tu propio usuario.',
+      );
+    }
+
+    if (role_name !== undefined) {
+      await this.assertCanAssignRole(role_name, requester);
+    }
+
+    // `[CH.1.10]` La compuerta de la credencial de dispositivo, también en la
+    // edición. Sin esto la regla sería la mitad de una regla: hoy un PUT puede
+    // poner `must_change_password: false` a cualquier persona y nadie lo mira.
+    // Se lee la fila actual porque la regla se evalúa sobre el CAMBIO — un PUT
+    // que no menciona ninguno de los dos campos no se toca (ver el método).
+    if (
+      updateUserDto.must_change_password !== undefined ||
+      'token_ttl_days' in updateUserDto
+    ) {
+      const actual = await this.knex('users')
+        .where({ id, tenant_id: this.tenantId })
+        .select('must_change_password', 'token_ttl_days')
+        .first();
+      if (!actual) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+      this.assertDeviceCredential(updateUserDto, actual);
+      await this.assertCanSetDeviceSession(updateUserDto.token_ttl_days, requester);
+    }
+
+    await this.assertOrgCodes(
+      updateUserDto.department_code,
+      updateUserDto.position_code,
+      updateUserDto.warehouse_code,
+      updateUserDto.route_id,
+    );
+
+    // `[OR.2]` Divergencia con el puesto. ⚠️ Se evalúa sobre el CAMBIO: el
+    // formulario hace `PUT` con el payload completo, así que mirar el estado
+    // guardado pediría motivo cada vez que alguien edita el teléfono de una de
+    // las 14 personas que ya divergen, por una decisión que tomó otro hace
+    // meses. Sólo se le pide a quien CREA la divergencia.
+    let desvioUpd: { position_code: string; propone: string | null; elegido: string } | null = null;
+    if (role_name !== undefined || 'position_code' in updateUserDto) {
+      const actual = await this.knex('users')
+        .where({ id, tenant_id: this.tenantId })
+        .select('role_name', 'position_code')
+        .first();
+      if (!actual) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+      const rolFinal = role_name !== undefined ? role_name : actual.role_name;
+      const puestoFinal =
+        'position_code' in updateUserDto ? updateUserDto.position_code : actual.position_code;
+
+      const cambiaRol =
+        role_name !== undefined &&
+        (role_name ?? '').toLowerCase() !== (actual.role_name ?? '').toLowerCase();
+      const cambiaPuesto =
+        'position_code' in updateUserDto &&
+        (updateUserDto.position_code ?? null) !== (actual.position_code ?? null);
+
+      if (cambiaRol || cambiaPuesto) {
+        desvioUpd = await this.detectarDesvio(puestoFinal, rolFinal);
+        if (desvioUpd) this.exigirMotivo(desvioUpd, motivo_desvio);
+      }
+    }
+
+    // Defensa contra dejar al sistema sin superadmins activos.
+    if (role_name !== undefined || activo !== undefined) {
+      await this.assertNotLastSuperadmin(id, activo !== false, role_name);
+    }
+
+    const updateData: Record<string, unknown> = { ...rest };
+
+    if (password) {
+      // `[AU.28]` La llave que estaba declarada en cuatro lugares y no la pedía
+      // nadie. Va ANTES del hash: no se gasta un bcrypt en un request que se
+      // va a rechazar.
+      this.assertCanChangePassword(password, id, requester);
+
+      updateData['password_hash'] = await bcrypt.hash(password, 10);
+
+      /*
+       * `[AU.28]` Los dos campos que el ALTA sí escribe y la EDICIÓN no escribía.
+       *
+       * Sin `password_changed_at`, la fecha queda diciendo cuándo se puso la
+       * contraseña ANTERIOR — y es el único dato con el que se puede responder
+       * «¿desde cuándo tiene ésta?».
+       *
+       * Y sin `must_change_password`, un reset dejaba exactamente lo que
+       * `[CH.1.10]` no admite en ningún otro camino: **una contraseña que eligió
+       * el admin y que el dueño no está obligado a cambiar**. El alta lo pone en
+       * `true` por esa razón; un reset es el mismo hecho.
+       *
+       * ⚠️ Con UNA excepción, que es la misma que `[CH.1.10]` ya reconoce: una
+       * cuenta de dispositivo. Forzarle el cambio a un kiosco lo deja inservible
+       * —la primera persona que pasa la cambia y la pantalla queda afuera—, así
+       * que si la cuenta tiene sesión larga, no se fuerza. Y si el request lo
+       * dice explícito, gana lo que mandó: ya pasó por `assertDeviceCredential`.
+       */
+      updateData['password_changed_at'] = this.knex.fn.now();
+      if (updateUserDto.must_change_password === undefined) {
+        /*
+         * ⛔ `[AU.31]` Esto decidía sólo por `token_ttl_days`, y estaba mal: se
+         * midió en prod y **las 18 cuentas `kind='dispositivo'` tienen
+         * `token_ttl_days = NULL`** — las 8 etiqueteras incluidas. El TTL no es
+         * lo que hace a un dispositivo: es `kind`. Con la versión anterior, un
+         * reset a `etiquetas.32` le ponía `must_change_password = true` y
+         * dejaba las 8 pantallas afuera, que es textual lo que `[CH.1.10]` dice
+         * que ya pasó una vez.
+         *
+         * El TTL se conserva como segundo criterio: una cuenta interna con
+         * sesión larga también es una credencial desatendida.
+         */
+        const fila = await this.knex('users')
+          .where({ id, tenant_id: this.tenantId })
+          .select('token_ttl_days', 'kind')
+          .first();
+        const ttlResultante =
+          'token_ttl_days' in updateUserDto
+            ? updateUserDto.token_ttl_days
+            : fila?.token_ttl_days;
+        const esDispositivo = fila?.kind === 'dispositivo' || ttlResultante != null;
+        updateData['must_change_password'] = !esDispositivo;
+      }
+    }
+
+    if (username) {
+      const normalized = this.normalizeUsername(username);
+      const conflict = await this.knex('users')
+        .where({ username: normalized, tenant_id: this.tenantId })
+        .andWhereNot({ id })
+        .select('id')
+        .first();
+      if (conflict) {
+        throw new ConflictException(
+          `El nombre de usuario "${normalized}" ya está en uso.`,
+        );
+      }
+      updateData['username'] = normalized;
+    }
+
+    // `undefined` = ninguno de los tres nombres vino → no se toca la columna.
+    // `null` = vino `zona: ''` o un nombre que no existe → se desasigna. La
+    // distinción importa: un PATCH que no menciona la zona no debe borrarla.
+    const zoneRef = await this.resolveZoneRef(updateUserDto);
+    if (zoneRef !== undefined) {
+      updateData['zona_id'] = zoneRef;
+    }
+
+    // `[ID.24]` Si cambió la ruta o la sucursal, la zona se RE-DERIVA. Sin esto
+    // se puede mover a alguien de plaza y dejarle la zona anterior, que es
+    // exactamente la clase de desacuerdo silencioso que el eje vino a matar.
+    // Sólo pisa cuando hay de dónde derivar, y nunca contra una zona que vino
+    // explícita en el mismo request (ahí manda quien la escribió).
+    if (zoneRef === undefined && (updateUserDto.route_id !== undefined || updateUserDto.warehouse_code !== undefined)) {
+      const derivada = await this.derivarZona(
+        updateUserDto.route_id,
+        updateUserDto.warehouse_code,
+      );
+      if (derivada) updateData['zona_id'] = derivada;
+    }
+
+    if (role_name !== undefined) {
+      updateData['role_name'] = role_name.toLowerCase();
+    }
+
+    if (activo !== undefined) {
+      updateData['activo'] = activo;
+    }
+
+    updateData['updated_at'] = this.knex.fn.now();
+    updateData['updated_by'] = requester.sub;
+
+    const [user] = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .update(updateData)
+      .returning([
+        'id',
+        'username',
+        'nombre',
+        'zona_id',
+        'role_name',
+        'activo',
+        'supervisor_id',
+        'created_at',
+        // `[CH.1.7]` La respuesta tiene que describir lo que quedó guardado. Sin
+        // estos dos, el cliente manda un TTL, recibe 200 y no puede distinguir
+        // "se guardó" de "se descartó en silencio" — que es exactamente lo que
+        // hace `ValidationPipe({ whitelist: true })` con un campo no declarado.
+        'token_ttl_days',
+        'kind',
+      ]);
+
+    if (!user) {
+      throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+    }
+
+    // `[CH.1.10]` Otorgar Y revocar una sesión larga quedan asentados. Revocar
+    // importa igual que otorgar: es la operación que alguien va a querer
+    // reconstruir el día que un kiosco "dejó de funcionar solo".
+    if ('token_ttl_days' in updateUserDto) {
+      await this.recordEvent(
+        this.knex,
+        id,
+        user.token_ttl_days != null ? 'device_session_granted' : 'device_session_revoked',
+        {
+          token_ttl_days: user.token_ttl_days ?? null,
+          must_change_password: updateUserDto.must_change_password,
+          nota:
+            user.token_ttl_days != null
+              ? 'la nueva duración aplica al PRÓXIMO ingreso; no acorta el token ya emitido'
+              : 'vuelve al default global (12 h) en su próximo ingreso; el token vigente sigue vivo hasta su exp',
+        },
+        requester,
+      );
+    }
+
+    // `[OR.2]` Quien se apartó del puesto, cuándo y por qué.
+    if (desvioUpd) {
+      await this.recordEvent(
+        this.knex,
+        id,
+        'desvio_de_puesto',
+        { ...desvioUpd, motivo: (motivo_desvio ?? '').trim(), origen: 'edicion' },
+        requester,
+      );
+    }
+
+    // `[ID.38]` Cambiar la contraseña mueve `password_changed_at`, y desde ahora eso
+    // CIERRA las sesiones abiertas de esa cuenta. El guard cachea el estado 30 s: sin
+    // esta invalidación, el token viejo seguiría entrando hasta medio minuto después
+    // de un reset — justo el medio minuto que importa cuando se resetea porque se
+    // filtró la credencial.
+    if (password) {
+      this.permsCache?.invalidateUser?.(id, this.tenantId);
+    }
+
+    return { ...user, zona: await this.zoneNameOf(user.zona_id) };
+  }
+
+  async remove(id: string, requester: RequesterContext) {
+    if (requester.sub === id) {
+      throw new ForbiddenException(
+        'No puedes desactivar tu propio usuario.',
+      );
+    }
+
+    await this.assertNotLastSuperadmin(id, false, undefined);
+
+    return this.knex.transaction(async (trx) => {
+      const count = await trx('users').where({ id, tenant_id: this.tenantId }).update({
+        activo: false,
+        deleted_at: trx.fn.now(),
+        deleted_by: requester.sub,
+        updated_at: trx.fn.now(),
+        updated_by: requester.sub,
+      });
+      if (count === 0) {
+        throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+      }
+
+      const orphans = await trx('users')
+        .where({ supervisor_id: id, tenant_id: this.tenantId })
+        .update({ supervisor_id: null });
+
+      return {
+        message: 'El usuario ha sido desactivado (soft delete)',
+        orphans_cleared: orphans,
+      };
+    });
+  }
+
+  /**
+   * `[AU.13]` — El catálogo de perfiles, con lo necesario para **elegir uno**.
+   *
+   * Devolvía sólo `role_name`, así que todo selector de perfil de la suite mostraba una lista
+   * plana de códigos: sin saber qué abre cada uno, quién lo usa ni de qué parte de la
+   * organización es. Se agregan tres campos DERIVADOS —nada que mantener a mano—:
+   *
+   *   · `permisos`      del mismo JSONB de la fila;
+   *   · `departamentos` de `identity.positions` (qué puestos lo declaran como base o complemento);
+   *   · `personas`      de `identity.user_roles` (quién lo tiene hoy, activo).
+   *
+   * ⚠️ **Sin SQL nueva, a propósito.** El agrupado se hace en JS sobre tres SELECT planos (son
+   * ~36 perfiles, ~57 puestos y ~120 personas: nada que justifique una consulta que no se pueda
+   * ejercer desde acá). Es consecuencia directa de `GOTCHAS §67`: un doble de knex no ejecuta
+   * SQL, así que una consulta nueva que no se puede correr contra Postgres no se puede declarar
+   * verificada — y este endpoint no exige permiso y lo consumen varios selects, o sea que un 500
+   * acá rompe varias pantallas a la vez.
+   *
+   * ⚠️ Las dos fuentes derivadas van en `try/catch` y devuelven **`null`, no `[]`/`0`**, cuando la
+   * tabla no existe en ese entorno: son cosas distintas y la pantalla dice cosas distintas
+   * (ADR-056). El mismo patrón que `PermissionsCacheService` usa con estas dos tablas.
+   */
+  async getRoles() {
+    // Filtro de tenant EXPLÍCITO: `KNEX_CONNECTION` conecta como superusuario, y
+    // un superusuario bypassea RLS incluso con FORCE ROW LEVEL SECURITY. Sin
+    // este WHERE el endpoint devolvía los roles de TODOS los tenants (verificado:
+    // 47 filas para 30 roles reales).
+    const base = await this.knex('role_permissions')
+      .where({ tenant_id: this.tenantId })
+      .whereNull('deleted_at')
+      .select('role_name', 'permissions')
+      .orderBy('role_name', 'asc');
+
+    // `=== true` y no "truthy": el mapa guarda las claves NEGADAS en `false` (residuo de guardar
+    // el mapa completo desde /admin/roles) y esas no conceden nada.
+    const cuantosConcede = (permisos: unknown): number =>
+      permisos && typeof permisos === 'object'
+        ? Object.values(permisos as Record<string, unknown>).filter((v) => v === true).length
+        : 0;
+
+    // ── Qué parte de la organización declara cada perfil ────────────────────────
+    // El puesto lo propone de DOS formas (`[OR.7.0b]`): como base o dentro de sus complementos.
+    // Las dos cuentan, y se ordena por cuántos puestos lo declaran para que la pantalla pueda
+    // agrupar sin empates arbitrarios.
+    let deptosPorRol: Map<string, string[]> | null = null;
+    try {
+      const puestos = await this.knex('identity.positions')
+        .where({ tenant_id: this.tenantId })
+        .whereNull('deleted_at')
+        .select('department_code', 'default_role', 'default_complements');
+      const deptos = await this.knex('identity.departments')
+        .where({ tenant_id: this.tenantId })
+        .whereNull('deleted_at')
+        .select('code', 'name', 'orden');
+      const nombreDe = new Map(deptos.map((d: any) => [String(d.code), String(d.name)]));
+      const ordenDe = new Map(deptos.map((d: any) => [String(d.name), Number(d.orden ?? 0)]));
+
+      const cuenta = new Map<string, Map<string, number>>();
+      for (const q of puestos as any[]) {
+        const depto = nombreDe.get(String(q.department_code ?? ''));
+        if (!depto) continue; // puesto sin departamento: no puede agrupar a nadie
+        const declarados = [q.default_role, ...(q.default_complements ?? [])].filter(Boolean);
+        for (const rol of declarados as string[]) {
+          if (!cuenta.has(rol)) cuenta.set(rol, new Map());
+          const m = cuenta.get(rol)!;
+          m.set(depto, (m.get(depto) ?? 0) + 1);
+        }
+      }
+      deptosPorRol = new Map(
+        [...cuenta.entries()].map(([rol, m]) => [
+          rol,
+          [...m.entries()]
+            // El más declarado primero; a igual cantidad manda el orden del organigrama, y
+            // recién después el alfabeto. Sin el desempate, dos cargas seguidas podían agrupar
+            // el mismo perfil en departamentos distintos.
+            .sort((a, b) => b[1] - a[1]
+              || (ordenDe.get(a[0]) ?? 0) - (ordenDe.get(b[0]) ?? 0)
+              || a[0].localeCompare(b[0]))
+            .map(([nombre]) => nombre),
+        ]),
+      );
+    } catch (e: any) {
+      this.logger.warn(`positions/departments no disponible (${e?.message}); los perfiles van sin departamento MEDIDO`);
+    }
+
+    // ── Quién lo tiene hoy ──────────────────────────────────────────────────────
+    let personasPorRol: Map<string, number> | null = null;
+    try {
+      const filas = await this.knex('identity.user_roles as ur')
+        // Mismo idioma de join que el resto de este archivo (2 argumentos), no una variante
+        // nueva: la forma que ya corre en produccion es la que menos sorpresas trae.
+        .join('identity.users as u', (j) =>
+          j.on('u.tenant_id', 'ur.tenant_id').andOn('u.id', 'ur.user_id'))
+        .where('ur.tenant_id', this.tenantId)
+        .andWhere('u.activo', true)
+        .whereNull('u.deleted_at')
+        .select('ur.role_name');
+      personasPorRol = new Map();
+      for (const f of filas as any[]) {
+        const k = String(f.role_name);
+        personasPorRol.set(k, (personasPorRol.get(k) ?? 0) + 1);
+      }
+    } catch (e: any) {
+      this.logger.warn(`user_roles no disponible (${e?.message}); los perfiles van sin conteo de personas`);
+    }
+
+    return base.map((r: { role_name: string; permissions: unknown }) => ({
+      role_name: r.role_name,
+      permisos: cuantosConcede(r.permissions),
+      departamentos: deptosPorRol ? (deptosPorRol.get(r.role_name) ?? []) : null,
+      personas: personasPorRol ? (personasPorRol.get(r.role_name) ?? 0) : null,
+    }));
+  }
+
+  async findSupervisors(zona?: string) {
+    const query = this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .where('u.role_name', 'like', '%supervisor%')
+      .where({ 'u.activo': true, 'u.tenant_id': this.tenantId })
+      .select('u.id', 'u.nombre', 'u.username', 'z.name as zona');
+
+    if (zona) query.where('z.name', zona);
+    return query;
+  }
+
+  async findSellers(zona?: string, supervisorId?: string) {
+    const query = this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .whereNotIn('u.role_name', ['supervisor_v', 'admin', 'superadmin'])
+      .where({ 'u.activo': true, 'u.tenant_id': this.tenantId })
+      .select(
+        'u.id',
+        'u.nombre',
+        'u.username',
+        'z.name as zona',
+        'u.role_name',
+        'u.supervisor_id',
+      );
+
+    if (zona) query.where('z.name', zona);
+    if (supervisorId) query.where({ 'u.supervisor_id': supervisorId });
+
+    return query;
+  }
+
+  async findBySupervisor(supervisorId: string) {
+    return this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .where({ 'u.supervisor_id': supervisorId, 'u.activo': true, 'u.tenant_id': this.tenantId })
+      .select('u.id', 'u.nombre', 'u.username', 'z.name as zona', 'u.role_name');
+  }
+
+  /**
+   * `[ZN.6]` — El catálogo de zonas, con lo que cada fila **es**.
+   *
+   * ⛔ Dos cosas que faltaban, y las dos se veían igual de bien en pantalla:
+   *
+   * 1. **No filtraba `deleted_at`**, así que una zona borrada seguía siendo elegible. Es el mismo
+   *    mecanismo que dejó a 4 personas ancladas a la sucursal `32` después de que se la borrara
+   *    (`[ZN.2.0]`): el valor se guarda, no falla nada, y la persona termina filtrando por algo
+   *    que ya no existe.
+   * 2. **No decía el `kind`.** `trade.zones` tiene 11 filas vivas y sólo 3 son zonas; las otras 8
+   *    son 4 sucursales, 2 canales, OFICINAS y una sin clasificar. Sin `kind` el selector las
+   *    ofrecía todas como si fueran lo mismo — por eso hay 34 personas cuyo «zona» es en realidad
+   *    su propia sucursal. La columna la escribió `[ZN.0]` hace una semana y **ninguna pantalla la
+   *    había leído**.
+   *
+   * ⚠️ Se devuelven **todas** las filas vivas, no sólo `kind='zona'`: quien elige (el alta) tiene
+   * que ofrecer sólo zonas, pero quien MUESTRA una ficha ya guardada necesita poder nombrar la
+   * fila que esa persona tiene, aunque no sea una zona. Recortar acá dejaría el selector en blanco
+   * para 54 personas, y un blanco se lee como «no tiene» — que es otra afirmación, y falsa.
+   * Filtrar es responsabilidad de quien ofrece; declarar, de quien muestra.
+   */
+  async getZones() {
+    return this.knex('zones')
+      .where({ tenant_id: this.tenantId })
+      .whereNull('deleted_at')
+      .orderBy('orden', 'asc')
+      .select('id', 'name as value', 'orden', 'kind', 'kind_motivo');
+  }
+
+  /**
+   * Catálogo de departamentos del organigrama (eje organizacional, Fase UN).
+   * No confundir con los roles: el departamento describe dónde trabaja la
+   * persona, el rol describe qué puede hacer en la app.
+   */
+  /**
+   * `[ID.23]` — Sucursales con la ZONA que cada una declara.
+   *
+   * Existe para que el alta pregunte una sola vez: se elige la sucursal y la zona
+   * se deriva de acá. Antes el formulario listaba las sucursales desde una
+   * constante hardcodeada del front (`STORE_BRANCHES`), que además de no traer la
+   * zona se desincroniza de la DB sin que nadie se entere.
+   *
+   * `zone_id` puede venir NULL: hay sucursales sin plaza definida (04 Yurécuaro)
+   * y el formulario tiene que poder decirlo en vez de rellenar cualquier cosa.
+   */
+  async getBranches() {
+    return this.knex('commercial.warehouses as w')
+      .leftJoin('trade.zones as z', function () {
+        this.on('z.tenant_id', '=', 'w.tenant_id').andOn('z.id', '=', 'w.zone_id');
+      })
+      .where({ 'w.tenant_id': this.tenantId })
+      .whereNull('w.deleted_at')
+      // `[RE.23]` La sucursal se identifica por su código de 2 dígitos, que en
+      // Morelia NO vive en `code` (`MD-30`) sino en `wincaja_source_branch`.
+      // Filtrar por `code` dejaba a Morelia fuera del alta: no había forma de
+      // asignarle esas sucursales a nadie. Ver `branchKeySql` en platform-core.
+      .whereRaw(branchKeyFilterSql('w'))
+      .orderByRaw('1')
+      .select(
+        this.knex.raw(`${branchKeySql('w')} AS code`),
+        'w.name',
+        'w.zone_id',
+        'z.name as zone_name',
+      );
+  }
+
+  /**
+   * `[ID.26]` — El estado del padrón, medido y con su cobertura declarada.
+   *
+   * ── Por qué existe ──────────────────────────────────────────────────────────
+   * Las cifras que sostienen el rediseño de identidad se sacaron a mano contra
+   * prod y vivían en un mensaje. Un número que no se puede volver a sacar no es
+   * una medición. Esto las pone en una consulta versionada.
+   *
+   * ── El bloque que importa: la ceguera de alcance ────────────────────────────
+   * `ScopeService.applyTo()` emite `WHERE false` cuando el modo es `none` **o**
+   * cuando la lista de valores viene vacía. Y `valoresDe()` devuelve lista vacía
+   * para `own` con la columna de la ficha en NULL. Consecuencia: **«no ve nada
+   * porque así se configuró» y «no sabemos qué ve porque le falta el dato»
+   * producen el mismo SQL y la misma pantalla en blanco.**
+   *
+   * Se mide contra `identity.user_scopes` → `role_scopes` con la misma
+   * precedencia que el resolver (override de persona gana; sin fila, `none`), y
+   * se reporta ANTES de cerrar nada — cerrar primero es la ceguera que esto
+   * viene a denunciar.
+   *
+   * ── ADR-056 ─────────────────────────────────────────────────────────────────
+   * Cada bloque viaja con `measured`. Sin universo que medir se reporta
+   * `measured: false`, **nunca** «0 problemas»: un diagnóstico que se pone verde
+   * en vacío es peor que no tenerlo, porque además da confianza.
+   */
+  async diagnosticoPadron() {
+    const tenantId = this.tenantId;
+
+    // Universo: las cuentas vivas del tenant. Si es 0, no se mide nada.
+    const { rows: universo } = await this.knex.raw(
+      `SELECT count(*)::int AS cuentas,
+              count(*) FILTER (WHERE kind = 'interno')::int AS internas
+         FROM identity.users
+        WHERE tenant_id = ? AND activo AND deleted_at IS NULL`,
+      [tenantId],
+    );
+    const cuentas = universo[0]?.cuentas ?? 0;
+    if (!cuentas) {
+      return {
+        tenant_id: tenantId,
+        medido_at: new Date().toISOString(),
+        universo: { cuentas: 0, internas: 0 },
+        ceguera_alcance: { measured: false, motivo: 'El tenant no tiene cuentas activas.' },
+        ficha: { measured: false, motivo: 'El tenant no tiene cuentas activas.' },
+        clases: { measured: false, motivo: 'El tenant no tiene cuentas activas.' },
+        roles_inertes: { measured: false, motivo: 'El tenant no tiene cuentas activas.' },
+      };
+    }
+
+    // ── Ceguera de alcance ────────────────────────────────────────────────────
+    // La columna de la ficha por dimensión es la misma tabla que usa
+    // `ScopeService.COLUMNA_PROPIA`. Las dimensiones sin columna (`brand`,
+    // `expense_area`) no pueden resolver `own` por construccion: tambien cuentan.
+    const { rows: ciegos } = await this.knex.raw(
+      `WITH efectivo AS (
+         SELECT u.id, u.username, u.role_name, d.code AS dimension,
+                COALESCE(us.mode, rs.mode) AS mode,
+                CASE d.code
+                  WHEN 'warehouse' THEN u.warehouse_code
+                  WHEN 'zone'      THEN u.zona_id::text
+                  WHEN 'route'     THEN u.route_id::text
+                  WHEN 'customer'  THEN u.customer_id::text
+                  ELSE NULL
+                END AS valor_ficha
+           FROM identity.users u
+           CROSS JOIN identity.scope_dimensions d
+           LEFT JOIN identity.user_scopes us
+             ON us.tenant_id = u.tenant_id AND us.user_id = u.id AND us.dimension = d.code
+           LEFT JOIN identity.role_scopes rs
+             ON rs.tenant_id = u.tenant_id AND rs.role_name = u.role_name AND rs.dimension = d.code
+          WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL)
+       SELECT dimension, count(*)::int AS personas,
+              string_agg(username, ', ' ORDER BY username) AS quienes
+         FROM efectivo
+        WHERE mode = 'own' AND valor_ficha IS NULL
+        GROUP BY dimension ORDER BY 2 DESC`,
+      [tenantId],
+    );
+
+    // ── Ficha incompleta ──────────────────────────────────────────────────────
+    const { rows: ficha } = await this.knex.raw(
+      `SELECT count(*)::int AS internas,
+              count(*) FILTER (WHERE position_code   IS NULL)::int AS sin_puesto,
+              count(*) FILTER (WHERE department_code IS NULL)::int AS sin_departamento,
+              count(*) FILTER (WHERE warehouse_code  IS NULL)::int AS sin_sucursal,
+              count(*) FILTER (WHERE zona_id         IS NULL)::int AS sin_zona,
+              count(*) FILTER (WHERE supervisor_id   IS NULL)::int AS sin_supervisor,
+              count(*) FILTER (WHERE last_login_at   IS NULL)::int AS nunca_entraron
+         FROM identity.users
+        WHERE tenant_id = ? AND activo AND deleted_at IS NULL AND kind = 'interno'`,
+      [tenantId],
+    );
+
+    // ── Clases de cuenta ──────────────────────────────────────────────────────
+    // Heurística DECLARADA, no verdad: un `nombre` de una sola palabra o igual
+    // al username es una credencial de puesto, no una persona. Lo correcto es
+    // que la cuenta lo declare (`[ID.28]`); hasta entonces esto se etiqueta como
+    // estimado y por eso el campo se llama `estimado`.
+    const { rows: clases } = await this.knex.raw(
+      `SELECT CASE
+                WHEN kind = 'servicio' THEN 'cuenta_de_servicio'
+                WHEN role_name = 'customer_b2b' THEN 'no_empleado'
+                WHEN upper(COALESCE(nombre, '')) = upper(username)
+                  OR COALESCE(nombre, '') NOT LIKE '% %' THEN 'credencial_de_puesto'
+                ELSE 'persona' END AS clase,
+              count(*)::int AS cuentas
+         FROM identity.users
+        WHERE tenant_id = ? AND activo AND deleted_at IS NULL
+        GROUP BY 1 ORDER BY 2 DESC`,
+      [tenantId],
+    );
+
+    // ── Personas con más de una cuenta ────────────────────────────────────────
+    const { rows: dobles } = await this.knex.raw(
+      `SELECT lower(nombre) AS persona, count(*)::int AS cuentas,
+              string_agg(username || ' [' || role_name || ']', ' + ' ORDER BY username) AS detalle
+         FROM identity.users
+        WHERE tenant_id = ? AND activo AND deleted_at IS NULL
+          AND COALESCE(nombre, '') LIKE '% %'
+        GROUP BY 1 HAVING count(*) > 1 ORDER BY 2 DESC`,
+      [tenantId],
+    );
+
+    // ── Roles que conceden CERO y tienen gente activa ─────────────────────────
+    const { rows: inertes } = await this.knex.raw(
+      `SELECT rp.role_name, count(u.id)::int AS usuarios_activos,
+              string_agg(u.username, ', ' ORDER BY u.username) AS quienes
+         FROM identity.role_permissions rp
+         JOIN identity.users u
+           ON u.tenant_id = rp.tenant_id AND lower(u.role_name) = lower(rp.role_name)
+          AND u.activo AND u.deleted_at IS NULL
+        WHERE rp.tenant_id = ? AND rp.deleted_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM jsonb_each(rp.permissions) e(k, v) WHERE v = 'true'::jsonb)
+        GROUP BY rp.role_name ORDER BY 2 DESC`,
+      [tenantId],
+    );
+
+    return {
+      tenant_id: tenantId,
+      medido_at: new Date().toISOString(),
+      universo: universo[0],
+      ceguera_alcance: {
+        measured: true,
+        personas: ciegos.reduce((a: number, r: any) => a + r.personas, 0),
+        por_dimension: ciegos,
+        nota:
+          'mode = own con la columna de la ficha en NULL. Hoy produce el MISMO WHERE false que none, ' +
+          'asi que en pantalla es indistinguible de "no ve nada". Cerrar el filtro es [ID.43], y va ' +
+          'DESPUES de poblar la ficha.',
+      },
+      ficha: { measured: true, ...ficha[0] },
+      clases: { measured: true, estimado: clases, personas_con_varias_cuentas: dobles },
+      roles_inertes: { measured: true, roles: inertes },
+    };
+  }
+
+  async getDepartments() {
+    return this.knex('identity.departments')
+      .where({ tenant_id: this.tenantId })
+      .whereNull('deleted_at')
+      .orderBy('orden', 'asc')
+      // `[ID.24]` `scope_axis` viaja con el departamento: es el FALLBACK del eje
+      // para los 77 usuarios sin puesto asignado (sólo 7 no tienen departamento).
+      .select('code', 'name', 'orden', 'scope_axis');
+  }
+
+  /**
+   * `[ID.24.1]` — Rutas con la zona que cada una implica.
+   *
+   * Alimenta el selector de ruta del alta para la gente de eje `ruta`. La zona
+   * viene calculada acá y no en el front porque sale de las TIENDAS de la ruta
+   * (no hay columna de zona en el catálogo de rutas), y eso es una query, no un
+   * dato que el formulario deba saber armar.
+   *
+   * Devuelve también `tiendas`: una ruta con 0 tiendas no puede derivar zona, y
+   * la pantalla tiene que poder decirlo en vez de dejar la zona en blanco sin
+   * explicación. Hoy son 8 de 23.
+   *
+   * `[VK.8]` Trae además el vendedor de Kepler al que está ligada la ruta (VK: Kepler
+   * gobierna su cartera), para que el selector diga "RVMAB01 · GLORIA CALDERON (Kepler
+   * 08:20005)" y el admin reconozca la ruta como la conoce el ERP. El nombre se lee del
+   * catálogo de vendedores (`kduv`) de LA MISMA sucursal: el código se reusa entre plazas.
+   */
+  async getRoutes() {
+    const filas = await this.knex.raw(
+      `SELECT c.id::text AS id,
+              c.value AS name,
+              count(s.id)::int AS tiendas,
+              (array_agg(z.id::text ORDER BY z.name) FILTER (WHERE z.id IS NOT NULL))[1] AS zone_id,
+              (array_agg(z.name  ORDER BY z.name) FILTER (WHERE z.id IS NOT NULL))[1] AS zone_name,
+              c.erp_source_branch,
+              c.erp_vendor_code,
+              (SELECT NULLIF(regexp_replace(btrim(v.c3), '\\s+', ' ', 'g'), '') FROM kepler_ods.kduv v
+                WHERE v.sucursal = c.erp_source_branch AND btrim(v.c2) = c.erp_vendor_code
+                LIMIT 1) AS erp_vendor_name
+         FROM trade.catalogs c
+         LEFT JOIN trade.stores s
+           ON s.tenant_id = c.tenant_id AND s.ruta_id = c.id AND s.deleted_at IS NULL
+         LEFT JOIN trade.zones z
+           ON z.tenant_id = s.tenant_id AND z.id = s.zona_id
+        WHERE c.tenant_id = ? AND c.catalog_id = 'rutas' AND c.deleted_at IS NULL
+        GROUP BY c.id, c.value, c.orden, c.erp_source_branch, c.erp_vendor_code
+        ORDER BY c.orden, c.value`,
+      [this.tenantId],
+    );
+    return filas.rows;
+  }
+
+  /**
+   * Catálogo plano de puestos canonicalizados del ORGANIGRAMA 2026.
+   * `org_labels` trae las etiquetas literales del PDF que se colapsaron en cada
+   * puesto — útil para que el admin reconozca el puesto por como se llama en el
+   * organigrama impreso.
+   */
+  async getPositions() {
+    return this.knex('identity.positions')
+      .where({ tenant_id: this.tenantId })
+      .whereNull('deleted_at')
+      .orderBy('orden', 'asc')
+      // `[ID.15]` `department_code` y `default_role` viajan con el puesto: es lo
+      // que permite que el alta PROPONGA en vez de pedirle al que da de alta que
+      // adivine entre 28 roles. `default_role` puede venir NULL — hay 20 puestos
+      // para los que todavía no existe un perfil que les quede.
+      // `[ID.24]` `scope_axis` NULL = hereda del departamento. El front resuelve
+      // `puesto → departamento` con las dos listas que ya carga.
+      .select('code', 'name', 'org_labels', 'orden', 'department_code', 'default_role', 'scope_axis');
+  }
+
+  /**
+   * `[ID.15]` — Lo que el sistema PROPONE para un puesto.
+   *
+   * El alta deja de ser "elegí un rol de esta lista larga" y pasa a ser
+   * "persona + puesto + sucursal", con el departamento y el perfil ya sugeridos.
+   * Ahí muere el crecimiento del catálogo: nadie inventa un rol para dar de alta
+   * a alguien.
+   */
+  async proposeForPosition(positionCode: string) {
+    const pos = await this.knex('identity.positions')
+      .where({ tenant_id: this.tenantId, code: positionCode })
+      .whereNull('deleted_at')
+      .first(
+        'code',
+        'name',
+        'department_code',
+        'default_role',
+        'scope_axis',
+        // `[OR.1a]` El jefe del PUESTO. Es la cuarta cosa que el puesto propone.
+        'reports_to_position_code',
+        // `[OR.7.0b]` El perfil puede ser COMPUESTO. Nació de medir que las 3
+        // personas de `auxiliar_administrativo` tienen las 3 el complemento
+        // `analisis_ventas`: eso no es una excepción, es el perfil del puesto.
+        'default_complements',
+      );
+    if (!pos) throw new NotFoundException(`El puesto "${positionCode}" no existe`);
+
+    const dept = pos.department_code
+      ? await this.knex('identity.departments')
+          .where({ tenant_id: this.tenantId, code: pos.department_code })
+          .first('code', 'name', 'scope_axis')
+      : null;
+
+    // El alcance por default NO sale del puesto: vive en `identity.role_scopes`
+    // (por rol, desde `[ID.3]`). Se devuelve para que la pantalla lo muestre,
+    // pero la fuente sigue siendo una sola.
+    const alcance = pos.default_role
+      ? await this.knex('identity.role_scopes')
+          .where({ tenant_id: this.tenantId, role_name: pos.default_role })
+          .orderBy('dimension')
+          .select('dimension', 'mode', 'values', 'mode_write')
+      : [];
+
+    // `[OR.1a]` El JEFE sale del PUESTO, no de la persona. `supervisor_id` quedó
+    // como excepción. Se devuelve también QUIÉN ocupa hoy ese puesto: un jefe
+    // declarado sobre un puesto vacante es una cadena correcta pero un
+    // escalamiento que hoy no llega a nadie, y eso hay que poder verlo.
+    const jefe = pos.reports_to_position_code
+      ? await this.knex('identity.positions')
+          .where({ tenant_id: this.tenantId, code: pos.reports_to_position_code })
+          .whereNull('deleted_at')
+          .first('code', 'name')
+      : null;
+    const jefeOcupantes = jefe
+      ? await this.knex('identity.users')
+          .where({ tenant_id: this.tenantId, position_code: jefe.code, activo: true })
+          .whereNull('deleted_at')
+          .select('id', 'username', 'nombre')
+      : [];
+
+    // `[OR.1b]` De qué responde el puesto. Hoy `position_responsibilities` está
+    // VACÍA a propósito (sembrarla desde el permiso colapsaría la distinción
+    // «puede abrirlo» vs «responde de ello»), así que esto devuelve `[]` — y el
+    // flag lo DECLARA en vez de dejar que un arreglo vacío se lea como "no
+    // responde de nada".
+    const responsabilidades = await this.knex('identity.position_responsibilities as pr')
+      .join('identity.responsibilities as r', 'r.key', 'pr.responsibility_key')
+      .where({ 'pr.tenant_id': this.tenantId, 'pr.position_code': pos.code })
+      .whereNull('pr.deleted_at')
+      .orderBy('r.orden')
+      .select('r.key', 'r.label', 'r.dimension', 'pr.es_principal');
+
+    return {
+      position_code: pos.code,
+      position_name: pos.name,
+      department_code: pos.department_code ?? null,
+      department_name: dept?.name ?? null,
+      role_name: pos.default_role ?? null,
+      /** Sin perfil sugerido: la pantalla tiene que pedirlo explícitamente. */
+      sin_perfil: !pos.default_role,
+      /**
+       * `[OR.7.0b]` Roles complementarios que el puesto propone. ⛔ **PROPONE, no
+       * otorga**: quien concede sigue siendo `identity.user_roles`. El alta los
+       * precarga igual que el perfil base, y quien los quite deja el motivo.
+       */
+      complementos: (pos.default_complements ?? []) as string[],
+      /** `[OR.1a]` El jefe que propone el puesto, y si hay alguien ocupándolo. */
+      reports_to: jefe ? { code: jefe.code, name: jefe.name, ocupantes: jefeOcupantes } : null,
+      jefe_sin_ocupante: !!jefe && jefeOcupantes.length === 0,
+      /** `[OR.1b]` De qué responde. Vacío + `sin_responsabilidades` para no leerlo como cero. */
+      responsabilidades,
+      sin_responsabilidades: responsabilidades.length === 0,
+      /**
+       * `[ID.24]` El EJE del puesto: qué pregunta corresponde hacerle a esta
+       * persona. `ruta` → su ruta · `sucursal` → su tienda · `zona` → la plaza
+       * que supervisa · `red` → nada (oficinas) · `cartera` → televenta ·
+       * `cliente` → externo. Resolución puesto → departamento.
+       */
+      scope_axis: pos.scope_axis ?? dept?.scope_axis ?? null,
+      alcance,
+    };
+  }
+
+  // ═══════════════════════ [ID.9] administrable desde la UI ═══════════════════
+  // Regla de Edgar: el dato operativo se administra en /admin/*, no por script.
+  // Un script se justifica sólo para el backfill inicial de una fase.
+
+  /**
+   * Escribe el override de alcance de un usuario en UNA dimensión
+   * (`identity.user_scopes`). Hasta acá esto sólo se podía tocar por migración.
+   *
+   * `mode = null` BORRA el override y el usuario vuelve al default de su rol.
+   * Es distinto de `mode = 'none'`, que es "explícitamente no ve nada": uno
+   * hereda, el otro decide. La UI tiene que ofrecer las dos cosas.
+   */
+  async setScope(
+    id: string,
+    dimension: string,
+    dto: { mode?: string | null; values?: string[] | null; mode_write?: string | null; nota?: string | null; area?: string | null },
+    requester: RequesterContext,
+  ) {
+    const dim = await this.knex('identity.scope_dimensions').where({ code: dimension }).first('code', 'supports_own');
+    if (!dim) throw new BadRequestException(`La dimensión de alcance "${dimension}" no existe.`);
+
+    // `[ZN.8]` El área se valida contra `AUTHZ_TREE`, que es donde viven los proyectos. Sin esto
+    // un typo (`"compra"`) se guardaría feliz y crearía una excepción que **no aplica a ninguna
+    // pantalla** — invisible, porque el resolvedor simplemente nunca la encuentra y cae al `'*'`.
+    const area = (dto.area ?? AREA_TODAS).trim() || AREA_TODAS;
+    if (!esAreaDeAlcance(area)) {
+      throw new BadRequestException(
+        `El área "${area}" no es un proyecto conocido. Las válidas son: ` +
+          `${AREA_TODAS} (todas) y ${AREAS_DE_ALCANCE.map((a) => a.id).join(', ')}.`,
+      );
+    }
+
+    const user = await this.knex('users').where({ id, tenant_id: this.tenantId }).first('id', 'username');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    // `[AUTHZ-HARD.0]` Frenos de escalada de alcance. Sin esto, un manager acotado a una sucursal
+    // con USUARIOS_GESTIONAR se ponía `warehouse=all` a sí mismo (el override de usuario gana al
+    // rol) y veía toda la red. Sólo aplica al setear un modo explícito (heredar-del-rol de abajo
+    // es de-escalada y es seguro). Amplitud: none < own < listed < all.
+    if (dto.mode != null) {
+      const requesterRow = await this.knex('users')
+        .where({ id: requester.sub, tenant_id: this.tenantId })
+        .first('role_name');
+      const esSuperadmin = String(requesterRow?.role_name ?? '').toLowerCase() === 'superadmin';
+      if (!esSuperadmin) {
+        if (requester.sub === id) {
+          throw new ForbiddenException('No puedes cambiar tu propio alcance. Pedíselo a un superadmin.');
+        }
+        const amplitud = (m?: string | null): number =>
+          ({ none: 0, own: 1, listed: 2, all: 3 } as Record<string, number>)[String(m ?? 'none')] ?? 0;
+        // Alcance efectivo del que otorga para esta dimensión: su override de usuario, si no el del rol.
+        const propioUser = await this.knex('identity.user_scopes')
+          .where({ tenant_id: this.tenantId, user_id: requester.sub, dimension })
+          .first('mode');
+        const propioRol = await this.knex('identity.role_scopes')
+          .whereRaw('LOWER(role_name) = ?', [String(requesterRow?.role_name ?? '').toLowerCase()])
+          .andWhere({ dimension })
+          .first('mode');
+        const propioMode = propioUser?.mode ?? propioRol?.mode ?? 'none';
+        if (amplitud(dto.mode) > amplitud(propioMode)) {
+          throw new ForbiddenException(
+            `No puedes otorgar un alcance "${dto.mode}" en "${dimension}": es más amplio que el tuyo ("${propioMode}").`,
+          );
+        }
+      }
+    }
+
+    const previo = await this.knex('identity.user_scopes')
+      .where({ tenant_id: this.tenantId, user_id: id, dimension, area })
+      .first('mode', 'values', 'mode_write');
+
+    // Heredar del rol = borrar la fila propia.
+    if (dto.mode == null) {
+      // `[ZN.8]` Borrar la regla de un ÁREA la devuelve a lo que diga su `'*'` (y si no hay, al
+      // rol). Borrar la de `'*'` la devuelve al rol sin tocar las excepciones por área: son
+      // decisiones distintas y se retiran por separado.
+      await this.knex('identity.user_scopes')
+        .where({ tenant_id: this.tenantId, user_id: id, dimension, area })
+        .del();
+      await this.recordEvent(this.knex, id, 'scope_changed', { dimension, area, de: previo ?? null, a: null, hereda_del_rol: true }, requester);
+      this.scopeService?.invalidateUser?.(this.tenantId, id);
+      return { dimension, area, hereda_del_rol: true };
+    }
+
+    if (dto.mode === 'own' && !dim.supports_own) {
+      throw new BadRequestException(
+        `La dimensión "${dimension}" no soporta "own": no hay columna propia en el usuario de la que sacar el valor.`,
+      );
+    }
+    const values = dto.mode === 'listed' ? (dto.values ?? []).map(String).filter(Boolean) : null;
+    if (dto.mode === 'listed' && !values?.length) {
+      // El CHECK de la DB también lo rechaza, pero acá el mensaje es útil.
+      throw new BadRequestException('Un alcance "listed" sin valores dejaría al usuario sin ver nada. Elegí valores o usá "none".');
+    }
+
+    // `[ZN.6]` ⛔ **Nada contrastaba `values` contra la realidad.** El endpoint recibe `@Body()`
+    // crudo y esto hacía `.map(String).filter(Boolean)` y a la base. O sea que se podía guardar
+    // cualquier uuid: el de otra tabla, el de una fila borrada, o —lo que efectivamente pasó en
+    // prod— el de `OFICINAS`, que no es una zona sino una actividad. El resultado no es un error:
+    // es una persona que filtra por algo que no existe y ve **cero filas**, sin que nada lo diga.
+    //
+    // Es el mismo defecto que `assertOrgCodes` ya había cerrado para `warehouse_code` en el alta,
+    // y que acá seguía abierto. Se valida contra `universeFor()`, que es la MISMA fuente que
+    // alimenta el selector — así el formulario no puede ofrecer algo que el endpoint rechace, ni
+    // al revés.
+    if (values?.length) {
+      if (!this.scopeService) {
+        throw new ServiceUnavailableException(
+          'No se puede validar el alcance en este momento. Se rechaza en vez de guardar valores sin comprobar.',
+        );
+      }
+      const universo = await this.scopeService.universeFor(this.tenantId, dimension as ScopeDimension);
+      const conocidos = new Set(universo.map((o) => o.value));
+      const desconocidos = values.filter((v) => !conocidos.has(v));
+      if (desconocidos.length) {
+        throw new BadRequestException(
+          `Estos valores no existen en "${dimension}": ${desconocidos.join(', ')}. ` +
+            `Guardarlos dejaría a ${user.username} filtrando por algo que no existe, o sea sin ver nada.`,
+        );
+      }
+    }
+
+    const fila = {
+      tenant_id: this.tenantId,
+      user_id: id,
+      dimension,
+      area,
+      mode: dto.mode,
+      values,
+      mode_write: dto.mode_write ?? null,
+      nota: dto.nota ?? null,
+      updated_by: requester.sub,
+      updated_at: this.knex.fn.now(),
+    };
+    await this.knex('identity.user_scopes')
+      .insert({ ...fila, created_by: requester.sub })
+      .onConflict(['tenant_id', 'user_id', 'dimension', 'area'])
+      .merge(fila);
+
+    await this.recordEvent(this.knex, id, 'scope_changed', { dimension, area, de: previo ?? null, a: { mode: dto.mode, values, mode_write: dto.mode_write ?? null } }, requester);
+    this.scopeService?.invalidateUser?.(this.tenantId, id);
+    return { dimension, area, mode: dto.mode, values, mode_write: dto.mode_write ?? null };
+  }
+
+  /**
+   * `[ZN.8]` — Las excepciones por ÁREA de una persona, para que la ficha las pueda mostrar.
+   *
+   * `describe()` resuelve UN área a la vez (la que pregunta la pantalla), así que por sí solo no
+   * puede decir «en Compras ve las 9 y en Tienda sólo Morelia»: eso exige ver las reglas, no el
+   * resultado. Devuelve sólo las que NO son `'*'`; la regla general ya viaja en `dimensions`.
+   *
+   * ⚠️ Van con `label` resuelto desde `AUTHZ_TREE`. Mandar el id pelado obligaría al front a
+   * tener su propia tabla de nombres de proyecto — la copia a mano que esta fase evita.
+   */
+  async scopeAreaOverrides(id: string) {
+    const rows = await this.knex('identity.user_scopes')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .whereNot('area', AREA_TODAS)
+      .orderBy(['area', 'dimension'])
+      .select('dimension', 'area', 'mode', 'values', 'mode_write', 'nota');
+    return rows.map((r: Record<string, unknown>) => ({
+      ...r,
+      area_label: AREAS_DE_ALCANCE.find((a) => a.id === r['area'])?.label ?? String(r['area']),
+    }));
+  }
+
+  /**
+   * Asignación MASIVA de los ejes de control. Es lo que hacía falta para no
+   * depender de un script: normalizar 116 usuarios de a uno por pantalla no es
+   * viable, y por eso el dato se quedaba viejo.
+   *
+   * Sólo toca los campos que vengan. Valida los códigos contra su catálogo
+   * (400, no 500) y asienta un evento por usuario.
+   */
+  async bulkAssign(
+    dto: {
+      user_ids: string[];
+      department_code?: string | null;
+      position_code?: string | null;
+      warehouse_code?: string | null;
+      status?: string | null;
+      /** `[OR.2]` Motivo, UNA vez para todo el lote (ver abajo). */
+      motivo_desvio?: string | null;
+    },
+    requester: RequesterContext,
+  ) {
+    const ids = (dto.user_ids ?? []).filter(Boolean);
+    if (!ids.length) throw new BadRequestException('Hay que seleccionar al menos un usuario.');
+
+    await this.assertOrgCodes(dto.department_code, dto.position_code, dto.warehouse_code);
+
+    // `[OR.2]` El lote NO puede cambiar el rol, pero SÍ el puesto — así que
+    // también puede crear divergencia, moviendo gente a un puesto que propone
+    // otro perfil. Sin esto la regla quedaba a medias: se pedía motivo en el
+    // alta y en la edición, y el camino masivo la esquivaba entero.
+    //
+    // El motivo se pide **una vez por lote**, no por persona: es UNA decisión
+    // ("paso a estos 12 a `cajera` aunque su perfil sea otro"), y pedir doce
+    // motivos volvería inusable justamente la herramienta que existe para
+    // normalizar 116 usuarios sin depender de un script.
+    let desviados: { id: string; username: string; propone: string | null; elegido: string }[] = [];
+    if (dto.position_code) {
+      const pos = await this.knex('identity.positions')
+        .where({ tenant_id: this.tenantId, code: dto.position_code })
+        .whereNull('deleted_at')
+        .first('code', 'default_role');
+      if (pos) {
+        const filas = await this.knex('users')
+          .where({ tenant_id: this.tenantId })
+          .whereIn('id', ids)
+          .whereNull('deleted_at')
+          .select('id', 'username', 'role_name', 'position_code');
+        // `[AU.15]` El mismo hueco que en el alta: `if (pos?.default_role)` dejaba
+        // pasar el lote entero cuando el puesto destino no propone nada.
+        const mueve = (u: { position_code?: string }) =>
+          (u.position_code ?? null) !== dto.position_code;
+        desviados = filas
+          .filter((u: { role_name?: string; position_code?: string }) =>
+            pos.default_role
+              ? (u.role_name ?? '').toLowerCase() !== pos.default_role.toLowerCase() && mueve(u)
+              : mueve(u),
+          )
+          .map((u: { id: string; username: string; role_name: string }) => ({
+            id: u.id,
+            username: u.username,
+            propone: pos.default_role ?? null,
+            elegido: u.role_name,
+          }));
+      }
+    }
+    if (desviados.length && !(dto.motivo_desvio ?? '').trim()) {
+      const ejemplos = desviados.slice(0, 3).map((d) => `${d.username} (${d.elegido})`).join(', ');
+      const cola = `${desviados.length > 3 ? '…' : ''}. Se puede, pero hay que decir por qué: enviá "motivo_desvio".`;
+      throw new BadRequestException(
+        desviados[0].propone === null
+          ? `El puesto "${dto.position_code}" no propone ningún perfil, así que los ${desviados.length} ` +
+            `seleccionados se quedan con el suyo y nadie deja escrito por qué: ${ejemplos}${cola}`
+          : `${desviados.length} de los seleccionados quedarían con un perfil distinto al que propone ` +
+            `"${dto.position_code}" ("${desviados[0].propone}"): ${ejemplos}${cola}`,
+      );
+    }
+
+    const cambios: Record<string, unknown> = {};
+    for (const k of ['department_code', 'position_code', 'warehouse_code', 'status'] as const) {
+      if (dto[k] !== undefined) cambios[k] = dto[k];
+    }
+    if (!Object.keys(cambios).length) throw new BadRequestException('No hay ningún campo para cambiar.');
+
+    // Nadie se cambia a sí mismo el estado en un lote: el guard de
+    // auto-desactivación del update individual no aplicaría acá.
+    if (cambios['status'] && ids.includes(requester.sub)) {
+      throw new ForbiddenException('No puedes cambiar tu propio estado en una asignación masiva.');
+    }
+
+    return this.knex.transaction(async (trx) => {
+      const afectados = await trx('users')
+        .where({ tenant_id: this.tenantId })
+        .whereIn('id', ids)
+        .whereNull('deleted_at')
+        .update({ ...cambios, updated_at: trx.fn.now(), updated_by: requester.sub })
+        .returning(['id', 'username']);
+
+      for (const u of afectados) {
+        await this.recordEvent(trx, u.id, 'bulk_assigned', cambios, requester);
+      }
+      // `[OR.2]` Un asiento por persona desviada, con el motivo del lote. El
+      // evento es por persona aunque la decisión fuera una: dentro de seis meses
+      // la pregunta va a ser "¿por qué Fulano tiene este perfil?", no "¿qué pasó
+      // en aquel lote".
+      for (const d of desviados) {
+        if (!afectados.some((u: { id: string }) => u.id === d.id)) continue;
+        await this.recordEvent(
+          trx,
+          d.id,
+          'desvio_de_puesto',
+          {
+            position_code: dto.position_code,
+            propone: d.propone,
+            elegido: d.elegido,
+            motivo: (dto.motivo_desvio ?? '').trim(),
+            origen: 'asignacion masiva',
+            lote: afectados.length,
+          },
+          requester,
+        );
+      }
+      return { actualizados: afectados.length, campos: Object.keys(cambios), usuarios: afectados.map((u: any) => u.username) };
+    });
+  }
+
+  /**
+   * `[ID.13]` — Roles de un usuario: el perfil base + los complementos.
+   *
+   * Devuelve además el conteo de permisos de cada uno, que es lo que hace la
+   * pantalla legible: "cajero (3 permisos) + captura_gastos (1)" dice mucho más
+   * que dos nombres sueltos.
+   */
+  async roles(id: string) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'role_name');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const filas = await this.knex('identity.user_roles as ur')
+      .leftJoin('identity.role_permissions as rp', function () {
+        this.on('rp.tenant_id', '=', 'ur.tenant_id').andOn('rp.role_name', '=', 'ur.role_name');
+      })
+      .where({ 'ur.tenant_id': this.tenantId, 'ur.user_id': id })
+      .orderBy([{ column: 'ur.is_primary', order: 'desc' }, { column: 'ur.role_name' }])
+      .select(
+        'ur.role_name',
+        'ur.is_primary',
+        'ur.nota',
+        'ur.created_at',
+        this.knex.raw(`(
+          SELECT count(*) FROM jsonb_each(coalesce(rp.permissions, '{}'::jsonb)) e
+           WHERE e.value = 'true'
+        )::int AS permisos`),
+      );
+
+    return {
+      user_id: id,
+      username: user.username,
+      perfil_base: user.role_name,
+      roles: filas,
+    };
+  }
+
+  /**
+   * `[ID.13]` — Fija los COMPLEMENTOS de un usuario (el perfil base no se toca
+   * acá: eso sigue siendo `role_name` en el formulario del usuario).
+   *
+   * Es la operación que resuelve dos cosas medidas en prod:
+   *   - la encargada de sucursal que además cobra en caja no necesita una
+   *     segunda cuenta con username de terminal;
+   *   - `captura_gastos` (22 usuarios, 1 permiso) deja de ser un "rol" que
+   *     además le pisaba el departamento a la persona.
+   *
+   * Recibe la lista COMPLETA de complementos deseados (semántica de PUT): lo
+   * que no venga se quita. Devuelve qué se agregó y qué se quitó para que la
+   * UI y la bitácora digan exactamente eso.
+   */
+  async setRoles(id: string, roleNames: string[], requester: RequesterContext) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'role_name');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const pedidos = Array.from(new Set((roleNames ?? []).map((r) => String(r).trim()).filter(Boolean)));
+
+    // Los nombres se resuelven contra el catálogo (case-insensitive, igual que
+    // el resto del sistema) y se guarda el CANÓNICO: la FK compuesta lo exige y
+    // un rol con distinto case = 0 permisos silenciosos.
+    const catalogo = await this.knex('identity.role_permissions')
+      .where({ tenant_id: this.tenantId })
+      .whereNull('deleted_at')
+      .select('role_name');
+    const porLower = new Map<string, string>(
+      catalogo.map((r: { role_name: string }) => [r.role_name.toLowerCase(), r.role_name]),
+    );
+
+    const canonicos: string[] = [];
+    for (const p of pedidos) {
+      const c = porLower.get(p.toLowerCase());
+      if (!c) throw new BadRequestException(`El rol "${p}" no existe en el catálogo.`);
+      // El perfil base no se administra como complemento: si viene, se ignora
+      // en silencio en vez de crear una fila que el trigger va a pelear.
+      if (c.toLowerCase() !== String(user.role_name ?? '').toLowerCase()) canonicos.push(c);
+    }
+
+    const previos: string[] = await this.knex('identity.user_roles')
+      .where({ tenant_id: this.tenantId, user_id: id, is_primary: false })
+      .pluck('role_name');
+
+    const agregados = canonicos.filter((c) => !previos.includes(c));
+    const quitados = previos.filter((p) => !canonicos.includes(p));
+
+    // `[AUTHZ-HARD.0]` Frenos de escalada. Sin esto, cualquiera con USUARIOS_GESTIONAR podía
+    // añadirse `superadmin` como COMPLEMENTO y heredar las 164 claves por la unión de roles del
+    // perms-cache (`true` gana) — la ruta que sus hermanos `update`/`setPermissions` sí frenan y
+    // ésta no. Sólo aplican a lo que se AGREGA (quitar un rol nunca eleva).
+    if (agregados.length) {
+      const requesterRow = await this.knex('users')
+        .where({ id: requester.sub, tenant_id: this.tenantId })
+        .first('role_name');
+      const esSuperadmin = String(requesterRow?.role_name ?? '').toLowerCase() === 'superadmin';
+
+      // (a) Rol elevado (superadmin/admin) sólo lo asigna un superadmin.
+      for (const rol of agregados) {
+        await this.assertCanAssignRole(rol, requester);
+      }
+
+      if (!esSuperadmin) {
+        // (b) No editarse los propios roles.
+        if (requester.sub === id) {
+          throw new ForbiddenException(
+            'No puedes cambiarte tus propios roles. Pedíselo a un superadmin.',
+          );
+        }
+        // (c) Techo: no otorgar un rol cuyo mapa tenga claves que el que otorga NO tiene.
+        const propios = await this.permsCache?.getPermissionsForUser?.(
+          requester.sub,
+          this.tenantId,
+          requesterRow?.role_name,
+        );
+        for (const rol of agregados) {
+          const mapa = await this.permsCache?.getPermissionsForRole?.(rol, this.tenantId);
+          const claves = Object.entries(mapa ?? {})
+            .filter(([, v]) => v === true)
+            .map(([k]) => k);
+          const sinTener = claves.filter((k) => propios?.[k] !== true);
+          if (sinTener.length) {
+            throw new ForbiddenException(
+              `No puedes otorgar el rol "${rol}": incluye permisos que no tenés (${sinTener
+                .slice(0, 5)
+                .join(', ')}${sinTener.length > 5 ? '…' : ''}).`,
+            );
+          }
+        }
+      }
+    }
+    if (!agregados.length && !quitados.length) {
+      return { user_id: id, complementos: canonicos, agregados: [], quitados: [] };
+    }
+
+    await this.knex.transaction(async (trx) => {
+      if (quitados.length) {
+        await trx('identity.user_roles')
+          .where({ tenant_id: this.tenantId, user_id: id, is_primary: false })
+          .whereIn('role_name', quitados)
+          .del();
+      }
+      for (const rol of agregados) {
+        const fila = {
+          tenant_id: this.tenantId,
+          user_id: id,
+          role_name: rol,
+          is_primary: false,
+          updated_by: requester.sub,
+          updated_at: trx.fn.now(),
+        };
+        await trx('identity.user_roles')
+          .insert({ ...fila, created_by: requester.sub })
+          .onConflict(['tenant_id', 'user_id', 'role_name'])
+          .merge(fila);
+      }
+      await this.recordEvent(
+        trx,
+        id,
+        'roles_changed',
+        { agregados, quitados, complementos: canonicos, perfil_base: user.role_name },
+        requester,
+      );
+    });
+
+    // El guard cachea la LISTA de roles 30s; sin esto el complemento nuevo
+    // tarda hasta medio minuto en verse y parece que no se guardó.
+    this.permsCache?.invalidateUser?.(id, this.tenantId);
+
+    return { user_id: id, complementos: canonicos, agregados, quitados };
+  }
+
+  /**
+   * `[ID.21]` — Acceso VIGENTE del usuario en sesión, para que el front no dependa
+   * del snapshot del JWT.
+   *
+   * El problema concreto: los permisos viajan en el token (ADR-050), así que el
+   * backend aplica un cambio en ≤30s pero el MENÚ sigue mostrando lo de antes
+   * hasta que la persona vuelve a entrar. Con permisos por usuario eso se vuelve
+   * la queja principal — "le di el permiso y no le aparece". El front llama esto
+   * al arrancar y refresca su mapa sin re-login.
+   *
+   * Devuelve el MAPA de permisos y nada más. Antes devolvía además `rules` de CASL para el
+   * `PermissionsService` del front; ese front ya gatea por clave exacta contra `permissions`, así
+   * que las reglas eran una segunda copia de la misma verdad (y la más pobre de las dos).
+   */
+  async accessFor(userId: string, roleName?: string) {
+    const permisos =
+      (await this.permsCache?.getPermissionsForUser?.(userId, this.tenantId, roleName)) ??
+      (await (async () => {
+        // Sin cache (tests): se reconstruye desde la misma fuente.
+        const detalle = await this.permissions(userId);
+        return Object.fromEntries(detalle.efectivos.map((k: string) => [k, true]));
+      })());
+    // Ya no se devuelven reglas de CASL: el front gatea por clave exacta contra `permissions`.
+    return { user_id: userId, role_name: roleName ?? null, permissions: permisos };
+  }
+
+  /**
+   * `[SN.2]` — Contexto de la persona en sesión, para el bloque "Mi contexto" de la landing.
+   *
+   * Self-scoped: sólo se pregunta por el propio `userId` (el controller lo saca del JWT), por eso
+   * no pasa por `alcanceDelPadron` ni pide permiso. Mismos LEFT JOIN que `findOne` para puesto y
+   * departamento; si la persona no tiene puesto, `position` es `null` y se DECLARA así — nunca se
+   * deriva del rol (la migración que asignó puestos lo dejó NULL a propósito en dos roles).
+   */
+  async contextFor(userId: string): Promise<MeContext> {
+    const u = await this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .leftJoin('identity.departments as dp', function () {
+        this.on('dp.tenant_id', '=', 'u.tenant_id');
+        this.on('dp.code', '=', 'u.department_code');
+      })
+      .leftJoin('identity.positions as ps', function () {
+        this.on('ps.tenant_id', '=', 'u.tenant_id');
+        this.on('ps.code', '=', 'u.position_code');
+      })
+      .where('u.id', userId)
+      .where('u.tenant_id', this.tenantId)
+      .select(
+        'u.id',
+        'u.username',
+        'u.nombre',
+        'u.role_name',
+        'u.kind',
+        'u.warehouse_code',
+        'z.name as zona',
+        'u.department_code',
+        'dp.name as department_name',
+        'u.position_code',
+        'ps.name as position_name',
+        // `[CDRP.1]` Para qué existe el puesto, en una línea (CDRP §1.1). Texto declarado por
+        // Dirección; `null` cuando el puesto todavía no la tiene, y se muestra como ausencia.
+        'ps.proposito as position_proposito',
+      )
+      .first();
+    if (!u) throw new NotFoundException('Usuario en sesión no encontrado');
+    return {
+      user_id: u.id,
+      username: u.username,
+      nombre: u.nombre ?? null,
+      role_name: u.role_name ?? null,
+      kind: u.kind ?? null,
+      warehouse_code: u.warehouse_code ?? null,
+      zona: u.zona ?? null,
+      department: u.department_code
+        ? { code: u.department_code, name: u.department_name ?? u.department_code }
+        : null,
+      position: u.position_code
+        ? {
+            code: u.position_code,
+            name: u.position_name ?? u.position_code,
+            proposito: u.position_proposito ?? null,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * `[SN.7]` — Trabajo pendiente de la persona en sesión: lo que le toca HACER, no a dónde puede
+   * entrar. Alimenta el bloque "Mi trabajo" de la landing.
+   *
+   * Self-scoped y sin permiso propio, como `me/context`: cada bandeja ya trae el suyo y sólo se
+   * cuenta la que esta persona puede abrir (un conteo es información). El registro de bandejas,
+   * con la medición que lo justifica, vive en `me-work.ts`.
+   *
+   * Cada conteo va en su propio `try`: si una tabla no existe todavía en este ambiente (una fase a
+   * medio desplegar), esa bandeja se DECLARA en `no_medido` con su motivo y las demás siguen
+   * contando. Nunca baja a cero — un cero dibujado se lee igual que "estás al día" (ADR-056).
+   */
+  /**
+   * `[JZ.5]` — **Sólo el bloque de zona, para el refresco en vivo.**
+   *
+   * Mismo cuerpo que la rama de zona de `workFor`, sin las otras trece mediciones: el ticket que
+   * lo dispara no puede mover una bandeja ni un ciclo. Devuelve `medido_at` porque la pantalla
+   * necesita poder decir de cuándo es el número que está mostrando.
+   *
+   * ⛔ `responsabilidadesDe` se vuelve a preguntar y NO se cachea: el reparto puede cambiar entre
+   * dos refrescos, y `[SN.30]` hace que de eso dependa si el bloque se muestra o no. Es una
+   * consulta contra dos tablas chicas.
+   */
+  async zonaFor(
+    userId: string,
+    permisos: Record<string, boolean> | null | undefined,
+    esAdmin: boolean,
+    periodo: MeZonaPeriodo = 'mes',
+  ): Promise<MeWorkZona> {
+    const misResponsabilidades = await this.responsabilidadesDe(userId);
+    try {
+      const r = await medirZona(
+        this.knex,
+        { tenantId: this.tenantId, userId, responsabilidades: misResponsabilidades, permisos, esAdmin },
+        periodo,
+      );
+      return {
+        zonas: r.zonas,
+        consolidado: r.consolidado,
+        motivo: r.motivo,
+        medido_at: new Date().toISOString(),
+      };
+    } catch (e) {
+      // Se DECLARA igual que en `workFor`: el refresco que falla no puede dejar en pantalla un
+      // número viejo haciéndose pasar por nuevo.
+      return {
+        zonas: [],
+        consolidado: null,
+        motivo: `No se pudo medir la venta de tu zona: ${(e as Error).message}`,
+        medido_at: new Date().toISOString(),
+      };
+    }
+  }
+
+  async workFor(
+    userId: string,
+    permisos: Record<string, boolean> | null | undefined,
+    esAdmin: boolean,
+    /** `[JZ.4]` Grano del bloque de zona. Sólo afecta a ése; las colas no tienen periodo. */
+    periodoZona: MeZonaPeriodo = 'mes',
+  ): Promise<MeWork> {
+    const pendientes: MePendiente[] = [];
+    const tareas: MeTarea[] = [];
+    const no_medido: MeWork['no_medido'] = [];
+
+    /*
+     * `[SN.15]` El alcance se resuelve UNA vez, ANTES de contar y FUERA de cualquier `tk.run`:
+     * `ScopeService` abre su propia conexión y anidar transacciones ya cobró antes en este repo.
+     *
+     * ⛔ `[]` NO se propaga. `applyTo()` emite el mismo `WHERE false` para `none` que para un `own`
+     * cuya ficha está vacía, y la ficha está vacía en el **74%** de quienes ven la bandeja de
+     * reabasto (medido en prod). Un `[]` acá convertiría "tu ficha no tiene sucursal" en "estás al
+     * día". Por eso sólo se acota cuando el alcance es RESOLUBLE y tiene valores; si no, se cuenta
+     * toda la red y la fila lo dice (ADR-056 / `[ID.26]`).
+     */
+    const sucursales = await this.sucursalesDelAlcance(userId);
+    const ctx: MedirCtx = { tenantId: this.tenantId, userId, sucursales };
+    const misResponsabilidades = await this.responsabilidadesDe(userId);
+
+    /*
+     * `[SN.24]` — **El trabajo con dueño designado SÓLO lo ve su dueño.**
+     *
+     * Edgar (2026-09-14): *"todos pueden ver el trabajo de conciliación, que está mal. Ese
+     * trabajo sólo lo puede ver quien tiene designada esa actividad."*
+     *
+     * ⚠️ Y tenía razón. `[SN.21]` implementó la regla **por persona**: «si algo de lo que VOS ves
+     * es tuyo, mostrá sólo eso; si nada de lo que ves es tuyo, no filtres nada». Esa segunda
+     * mitad era una salvaguarda mía contra dejar pantallas vacías, y **se volvió el caso normal**
+     * porque casi nadie tiene reparto. Medido en prod el 2026-09-14: cada una de las cuatro
+     * conciliaciones la veían **15 personas**, cuando son de Ivonne (ingresos) y Mayra (egresos).
+     *
+     * La condición pasa a ser **por COLA**, que es lo que dice la frase:
+     *
+     *     si la actividad tiene dueño  →  la ve sólo su dueño
+     *     si no tiene dueño            →  cola compartida: la ve quien la abra su permiso
+     *
+     * La diferencia con `[SN.21]` es de sujeto: antes preguntaba «¿vos tenés reparto?», ahora
+     * pregunta «¿esta actividad tiene dueño?». Por eso ya no hace falta la salvaguarda: a nadie
+     * se le esconde una cola sin dueño, y las 6 personas cuya única responsabilidad es la bandeja
+     * retirada (`finanzas.hallazgos`) no pierden nada, porque lo que se evalúa ya no es su
+     * reparto sino el de cada cola.
+     *
+     * ⛔ Sigue sin ser autorización (`[OR.1b]`): quien deja de ver una cola acá entra igual a esa
+     * pantalla por el menú. Se recorta la lista de lo que te toca, no el acceso.
+     */
+    const esMiaLaBandeja = (b: (typeof BANDEJAS)[number]) =>
+      !!misResponsabilidades?.has(b.responsabilidad);
+    const esMioElCiclo = (c: (typeof CICLOS)[number]) =>
+      !!c.responsabilidad && !!misResponsabilidades?.has(c.responsabilidad);
+
+    /**
+     * `[SN.30]` **Una cola se te muestra SÓLO si vos respondés de ella.** Punto.
+     *
+     * ── Qué cambió y por qué ─────────────────────────────────────────────────────────────────
+     * Edgar (2026-09-14): *«si no tiene responsabilidades no se le muestra nada»*.
+     *
+     * `[SN.24]` preguntaba **«¿esta actividad tiene dueño?»** y, si no lo tenía, la trataba como
+     * cola compartida visible para cualquiera que la abriera. Esa mitad se cae: era la última
+     * salvaguarda mía contra dejar pantallas vacías, y **era justo la que producía el problema**
+     * — el titular de 2,082 de la captura eran cinco colas sin dueño ofrecidas a un superadmin
+     * que no responde de ninguna. La condición ya no mira la cola: mira si es TUYA.
+     *
+     * `[SN.28]` sigue vigente y ahora es redundante por construcción: el god-mode no puede
+     * volverte dueño porque acá ya no se pregunta por permiso, sólo por responsabilidad.
+     *
+     * ⛔ **Se cae también el concepto de «cola sin dueño».** Por eso desaparece la consulta
+     * `responsabilidadesConDueno()`: no hace falta saber si alguien más la reclama, sólo si vos
+     * la reclamás. Una consulta menos por request.
+     *
+     * ── Lo medido antes de aplicarlo (prod, 2026-09-14) ──────────────────────────────────────
+     *  · **94 de 122 personas (77 %)** no tienen ninguna responsabilidad declarada y pasan a ver
+     *    su columna vacía. **De ésas, 10 conservan algo** por tarea asignada o borrador propio,
+     *    así que **84 quedan en blanco de verdad**. La pantalla lo dice con su motivo: el vacío
+     *    es el hecho, no un error (`[SN.11]`).
+     *  · ⛔ **`logistica.flota` NO tiene dueño**, así que las alertas de flota **desaparecen de
+     *    la portada de todo el mundo** hasta que alguien responda de ellas. Es consecuencia
+     *    buscada de la regla, no un efecto colateral: queda declarado acá y reportado a Edgar.
+     *  · ⚠️ **6 personas** (`diana_rodriguez`, `ernesto_zarate`, `maria_rodriguez`,
+     *    `jesus_carrillo`, `perla_garcia`, `julio_torres`) tienen como ÚNICA responsabilidad
+     *    `finanzas.hallazgos`, que está **retirada desde `[SN.18]`**. Su columna queda vacía
+     *    aunque sí tengan reparto — su cola está apagada, que es un caso distinto de no tener
+     *    ninguna, y la pantalla los distingue.
+     *
+     * ── Las dos exenciones que quedan, con su motivo ─────────────────────────────────────────
+     * ⛔ **`alcance: 'mio'`** es tu BORRADOR: `caducidades-mias` ya filtra por
+     * `responsible_user_id`. Esconderle a alguien su propio trabajo a medias sería el peor
+     * resultado de una regla que existe para mostrarle lo suyo.
+     *
+     * ⛔ **Las TAREAS asignadas** (`me-tasks.ts`) no pasan por acá y siguen mostrándose. Un
+     * `assigned_to` con tu nombre es la afirmación MÁS fuerte de las tres que separa
+     * `work/task.contract.ts` (*el permiso decide si podés abrirlo, la responsabilidad decide si
+     * es tuyo, la tarea dice que alguien te lo asignó*): filtrarla por responsabilidad sería
+     * esconderte algo que una persona te repartió con nombre y fecha.
+     *
+     * ⛔ Y si las responsabilidades NO se pudieron leer (`null`), se falla ABIERTO: vaciar la
+     * pantalla por una falla transitoria es la lección de `[SN.22]` — lo que no se pudo medir se
+     * declara, no se asume.
+     *
+     * ⛔ Sigue sin ser autorización (`[OR.1b]`): quien deja de ver una cola acá entra igual a esa
+     * pantalla por el menú. Se recorta la lista de lo que te toca, **no el acceso**.
+     */
+    const ajena = (propia: boolean, alcance?: string): boolean => {
+      if (alcance === 'mio' || misResponsabilidades === null) return false;
+      return !propia;
+    };
+    let ocultasPorDelegacion = 0;
+
+    for (const b of BANDEJAS) {
+      // `[SN.18]` Una bandeja retirada no se cuenta ni se pinta. El motivo vive en su definición,
+      // y NO va a `no_medido`: eso es para lo que falló al medirse, no para lo que se apagó a
+      // propósito. Confundirlos haría que la pantalla pidiera atención sobre una decisión tomada.
+      if (b.retirada) continue;
+      /*
+       * `[SN.24]` — **La cola que es TUYA pero tu permiso no abre.**
+       *
+       * Medido en prod: 3 supervisores responden de `comercial.thot` y no tienen
+       * `COMMERCIAL_THOT_GESTIONAR`; 2 auxiliares de tienda responden de `tienda.caducidades` sin
+       * `COMMERCIAL_EXPIRY_*`. Con la regla por cola y sin esta rama, «Acciones comerciales por
+       * aprobar» pasaría de 18 personas a **CERO**: sólo la verían sus dueños, y sus dueños no
+       * pueden verla. El trabajo desaparecería de la suite entera.
+       *
+       * Se muestra **al dueño, sin enlace y con el motivo** — el patrón que `me-tasks.ts` ya usa
+       * para las tareas asignadas: *esconderla taparía la discrepancia entre quién reparte y quién
+       * puede abrir; enlazarla invitaría a un 403*.
+       *
+       * ⚠️ Esto es una excepción consciente a la regla 2 de `me-work.ts` («sólo se cuenta la
+       * bandeja cuyo permiso tiene la persona»): esa regla se escribió cuando la responsabilidad
+       * todavía no designaba a nadie. Una actividad designada es una afirmación MÁS fuerte que el
+       * permiso — el número es su propia carga de trabajo, no la de otro.
+       */
+      const propia = esMiaLaBandeja(b);
+      const abre = puedeVerBandeja(b, permisos, esAdmin);
+      if (!abre && !propia) continue;
+      // `[SN.30]` La cola que NO es tuya no va en TU lista. No entra a `no_medido`: eso es para
+      // lo que falló al medirse, no para lo que le toca a otra persona (o a nadie todavía).
+      if (ajena(propia, b.alcance)) {
+        ocultasPorDelegacion++;
+        continue;
+      }
+      try {
+        const medida = await this.aislado(() => b.medir(this.knex, ctx));
+        const { total, mas_viejo_at } = medida;
+        // Una bandeja en cero no se pinta: la pantalla no tiene cajas vacías.
+        if (total > 0) {
+          /*
+           * `[MS.3.8]` La cola cuyo plazo es de MINUTOS HÁBILES (tickets sin asignar) lo lee de la
+           * configuración del tenant y mide la espera con ESE calendario. Si la configuración no se puede
+           * leer, `plazoHabil` lanza y la bandeja cae en `no_medido` con su motivo — no se inventa un plazo.
+           */
+          const plazo = b.plazoHabil ? await b.plazoHabil(this.knex, ctx.tenantId) : null;
+          const espera =
+            plazo && mas_viejo_at
+              ? businessMinutesBetween(new Date(mas_viejo_at), new Date(), plazo.calendario)
+              : null;
+          pendientes.push({
+            id: b.id,
+            label: b.label,
+            detalle: b.detalle,
+            // Sin permiso no hay enlace: el número es tuyo, la puerta no se abre.
+            ruta: abre ? b.ruta : null,
+            sin_acceso: abre
+              ? null
+              : `Respondes de esta actividad, pero tu permiso no abre ${b.ruta}. Pídeselo a Sistemas.`,
+            icono: b.icono,
+            total,
+            mas_viejo_at,
+            // `[SN.29]` El umbral viaja para que la pantalla pueda decir contra QUÉ está atrasada
+            // («7 d de umbral»), no sólo que lo está. Un veredicto sin su vara es una opinión.
+            umbral_dias: b.umbral_dias,
+            umbral_minutos_habiles: plazo ? plazo.minutos : null,
+            espera_minutos_habiles: plazo ? espera : null,
+            flujo: medida.flujo,
+            veredicto: veredictoDe(
+              medida,
+              b.umbral_dias,
+              Date.now(),
+              plazo ? { espera, umbral: plazo.minutos } : null,
+            ),
+            alcance: b.alcance,
+            // El universo del conteo se DECLARA. "Se podría acotar pero tu ficha no tiene
+            // sucursal" no es lo mismo que "esta cola no tiene sucursal", y ninguna de las dos
+            // es "acotado a lo tuyo".
+            ambito: !b.acotablePorSucursal ? 'red' : sucursales ? 'sucursal' : 'red_sin_ficha',
+            ...(await this.desgloseDe(b, ctx, total)),
+          });
+        }
+      } catch (e) {
+        const motivo = e instanceof Error ? e.message.split('\n')[0] : 'error desconocido';
+        this.logger.warn(`me/work: bandeja ${b.id} no se pudo contar — ${motivo}`);
+        no_medido.push({ id: b.id, label: b.label, motivo });
+      }
+    }
+
+    /*
+     * `[SN.29]` **Lo propio primero, y después por VEREDICTO — no por edad y no por volumen.**
+     *
+     * ⚠️ Esto corrige a `[SN.12]`, que cambió volumen → antigüedad del más viejo, y a `[SN.13]`,
+     * que lo celebró con el ejemplo *«1,208 con 15 días aparece antes que 1,865 con 14»*. Las dos
+     * versiones fallan por el mismo motivo, y recién se ve con el flujo medido:
+     *
+     *   **una cola que nadie trabaja SIEMPRE tiene el más viejo antiguo.**
+     *
+     * O sea que ordenar por antigüedad promueve sistemáticamente las colas donde hacer clic no
+     * sirve. Medido en prod el 2026-09-14: arriba quedaban los descuadres (68 días, **cero**
+     * resueltos de 2,409 en toda su historia) y al fondo las alertas de flota (9 abiertas, todas
+     * de hoy, 10,339 cerradas) — la cola más sana de la empresa, enterrada por estar sana.
+     *
+     * El orden nuevo, y por qué `congelada` va TERCERA y no primera: lo primero es lo que el
+     * trabajo de hoy puede cambiar (`se_acumula`), después lo que ya se trabaja pero arrastra cola
+     * vieja (`atrasada`), y recién ahí la congelada — que no se drena con un clic, necesita que
+     * alguien decida asignarle dueño o apagarla (`[SN.18]`). `sin_medir` nunca se ordena junto a
+     * `al_dia`: no poder medir no es estar bien (ADR-056).
+     *
+     * Dentro del mismo veredicto se conserva el criterio de `[SN.12]`: lo más viejo arriba, y la
+     * bandeja sin fecha medible al final de su grupo, donde el volumen desempata.
+     */
+    const edad = (p: { mas_viejo_at: string | null }): number =>
+      p.mas_viejo_at ? Date.parse(p.mas_viejo_at) : Number.POSITIVE_INFINITY;
+    pendientes.sort((a, b) => {
+      if (a.alcance !== b.alcance) return a.alcance === 'mio' ? -1 : 1;
+      const va = ORDEN_VEREDICTO[a.veredicto];
+      const vb = ORDEN_VEREDICTO[b.veredicto];
+      if (va !== vb) return va - vb;
+      const ea = edad(a);
+      const eb = edad(b);
+      if (ea !== eb) return ea - eb;
+      return b.total - a.total;
+    });
+
+    /*
+     * `[SN.15]` Lo que ALGUIEN te asignó. Va aparte de `pendientes` porque una tarea y una cola no
+     * son lo mismo: la tarea tiene dueño y fecha, la cola no. Ver `work/task.contract.ts`.
+     *
+     * La fila se muestra AUNQUE la persona no tenga el permiso que abre su ruta — en ese caso sin
+     * enlace y con el motivo. Esconderla taparía la discrepancia entre quién reparte y quién puede
+     * abrir; enlazarla invitaría a un 403 (medido en prod: 2 conteos asignados a gente sin la
+     * clave). Es un hallazgo, no un error que convenga disimular.
+     */
+    for (const f of FUENTES_VISIBLES) {
+      try {
+        const m = await this.aislado(() => f.medir(this.knex, this.tenantId, userId));
+        if (m.total === 0) continue;
+        const puede = puedeAbrirTarea(f, permisos, esAdmin);
+        tareas.push({
+          fuente: f.fuente,
+          label: f.label,
+          detalle: f.detalle,
+          ruta: puede ? f.ruta : null,
+          queryParams: puede && f.queryParams ? f.queryParams : null,
+          sin_acceso: puede
+            ? null
+            : `Te la asignaron, pero tu permiso no abre ${f.ruta}. Pídeselo a Sistemas.`,
+          icono: f.icono,
+          total: m.total,
+          mas_viejo_at: m.mas_viejo_at,
+          vence_at: m.vence_at,
+          vencidas: m.vencidas,
+          no_responde: adaptadorDe(f.fuente).no_responde,
+        });
+      } catch (e) {
+        const motivo = e instanceof Error ? e.message.split('\n')[0] : 'error desconocido';
+        this.logger.warn(`me/work: tarea ${f.fuente} no se pudo contar — ${motivo}`);
+        no_medido.push({ id: f.fuente, label: f.label, motivo });
+      }
+    }
+    // Lo vencido primero; después lo que vence antes; al final lo que no vence, por antigüedad.
+    tareas.sort((a, b) => {
+      const va = (a.vencidas ?? 0) > 0 ? 0 : 1;
+      const vb = (b.vencidas ?? 0) > 0 ? 0 : 1;
+      if (va !== vb) return va - vb;
+      const fa = a.vence_at ? Date.parse(a.vence_at) : Number.POSITIVE_INFINITY;
+      const fb = b.vence_at ? Date.parse(b.vence_at) : Number.POSITIVE_INFINITY;
+      if (fa !== fb) return fa - fb;
+      return edad(a) - edad(b);
+    });
+
+    /*
+     * `[SN.16]` El trabajo CÍCLICO: el que se cierra mes por mes. Tercer organismo, ni tarea ni
+     * cola simple. Cada ciclo mide sus 12 periodos en UNA consulta (medido: ~7 ms el de bancos,
+     * 0.9 ms el del libro de compras).
+     *
+     * ⛔ Un periodo `sin_datos` NO trae ruta y NO cuenta como pendiente: no hay con qué trabajar
+     * ese mes, y ofrecer un enlace a un mes vacío manda a la persona a una pantalla que no le
+     * puede contestar nada.
+     */
+    const ciclos: MeCiclo[] = [];
+
+    /*
+     * `[SN.20]` **Si te delegaron el trabajo, ves el TUYO y nada más.**
+     *
+     * ⚠️ Acá yo había aplicado mal la regla de `[OR.1b]` («la responsabilidad no gatea»). Esa regla
+     * existe para que la responsabilidad no se convierta en un cuarto sistema de AUTORIZACIÓN — y
+     * no lo es mientras el módulo siga abierto. «Mi trabajo» no es un menú de permisos: es la lista
+     * de lo que te delegaron. Filtrarla no le quita acceso a nadie: Ivonne entra igual a
+     * `/finanzas/bancos` y ve las cuatro conciliaciones; lo que no le aparece es el trabajo de otra
+     * persona en SU lista de pendientes.
+     *
+     * `[SN.24]` La condición se calcula ARRIBA y es **por cola**. Un ciclo sin `responsabilidad`
+     * —hoy el Libro de compras— no puede tener dueño, así que queda **compartido para todos**, que
+     * es lo correcto: nadie lo reclamó. ⚠️ Con la regla anterior pasaba lo opuesto (desaparecía
+     * para quien tuviera cualquier reparto), y ése era un bug esperando.
+     */
+    for (const c of CICLOS) {
+      // `[SN.24]` Mismo criterio que las bandejas: si el ciclo es TUYO pero tu permiso no abre su
+      // pantalla, se muestra sin enlace y con el motivo, en vez de desaparecer.
+      const mio = esMioElCiclo(c);
+      const abreCiclo = puedeVerCiclo(c, permisos, esAdmin);
+      if (!abreCiclo && !mio) continue;
+      if (ajena(mio)) {
+        ocultasPorDelegacion++;
+        continue;
+      }
+      try {
+        const periodos = (await this.aislado(() => c.medir(this.knex, ctx))).map((p) => ({
+          ...p,
+          // Sin permiso NINGÚN mes navega: la tira sigue informando, pero no invita a un 403.
+          ruta: p.estado === 'sin_datos' || !abreCiclo ? null : c.ruta,
+          queryParams: p.estado === 'sin_datos' || !abreCiclo ? null : c.queryDe(p.periodo),
+        }));
+        ciclos.push({
+          id: c.id,
+          label: c.label,
+          detalle: c.detalle,
+          icono: c.icono,
+          periodos,
+          pendientes: periodos.filter(
+            (p) => p.estado === 'sin_empezar' || p.estado === 'en_proceso',
+          ).length,
+          es_mio: mio,
+          sin_acceso: abreCiclo
+            ? null
+            : `Respondes de esta actividad, pero tu permiso no abre ${c.ruta}. Pídeselo a Sistemas.`,
+        });
+      } catch (e) {
+        const motivo = e instanceof Error ? e.message.split('\n')[0] : 'error desconocido';
+        this.logger.warn(`me/work: ciclo ${c.id} no se pudo medir — ${motivo}`);
+        no_medido.push({ id: c.id, label: c.label, motivo });
+      }
+    }
+
+    /*
+     * `[SN.17]` Lo TUYO primero, y dentro de cada grupo lo que más espera. La responsabilidad no
+     * quita nada de la lista: sólo la ordena. Ivonne ve su conciliación de ingresos arriba y la de
+     * egresos abajo; Mayra al revés; las otras 4 auxiliares ven las dos como compartidas.
+     */
+    ciclos.sort((a, b) => {
+      if (a.es_mio !== b.es_mio) return a.es_mio ? -1 : 1;
+      return b.pendientes - a.pendientes;
+    });
+
+    /*
+     * `[JZ.3]`/`[JZ.6]` Cómo va la zona. Va en su propio `try`, igual que cada bandeja: si las
+     * vistas que necesita (`analytics.v_route_zone`, `analytics.v_rd_route_daily`) todavía no
+     * existen en este ambiente, el bloque se DECLARA en `no_medido` y el resto de la portada
+     * sigue. ⚠️ Acá decía `v_route_warehouse`, la vista de `[JZ.2]`: dejó de ser la fuente de la
+     * venta cuando `[JZ.6]` la reemplazó por el registro operativo.
+     */
+    let zonas: MeWork['zonas'] = [];
+    let consolidado: MeWork['consolidado'] = null;
+    try {
+      const r = await medirZona(
+        this.knex,
+        {
+          tenantId: this.tenantId,
+          userId,
+          responsabilidades: misResponsabilidades,
+          permisos,
+          esAdmin,
+        },
+        periodoZona,
+      );
+      zonas = r.zonas;
+      consolidado = r.consolidado;
+      if (r.motivo) no_medido.push({ id: 'zona', label: 'Cómo va tu zona', motivo: r.motivo });
+    } catch (e) {
+      no_medido.push({
+        id: 'zona',
+        label: 'Cómo va tu zona',
+        motivo: `No se pudo medir la venta de tu zona: ${(e as Error).message}`,
+      });
+    }
+
+    return {
+      tareas,
+      pendientes,
+      ciclos,
+      zonas,
+      consolidado,
+      no_medido,
+      // `null` sólo si la consulta falló; el set vacío es una respuesta legítima ("no responde
+      // de nada declarado"), distinta de "no se pudo preguntar" (ADR-056).
+      tiene_responsabilidades: misResponsabilidades === null ? null : misResponsabilidades.size > 0,
+      /*
+       * `[SN.21]` Lo que el reparto le hizo a esta lista, dicho en voz alta. Una lista recortada
+       * en silencio se lee igual que una lista completa — y entonces «no tenés nada más» y «lo
+       * demás no es tuyo» se confunden, que es exactamente lo que ADR-056 no deja hacer.
+       */
+      /*
+       * `[SN.30]` `activa` es el HECHO de que algo que tu permiso abre quedó fuera **por no ser
+       * tuyo** — distinto de «no tenés permiso», y por eso se dice aparte. `null` cuando las
+       * responsabilidades no se pudieron leer (ADR-056: se declara, no se asume vacío).
+       */
+      delegacion:
+        misResponsabilidades === null
+          ? null
+          : {
+              activa: ocultasPorDelegacion > 0,
+              claves: [...misResponsabilidades].sort(),
+              ocultas: ocultasPorDelegacion,
+              /*
+               * `[SN.30]` Tus responsabilidades cuya superficie está APAGADA. Sin esto la pantalla
+               * le diría «no tienes trabajo a tu nombre» a alguien que SÍ tiene reparto — sólo que
+               * su cola está retirada. Medido: le pasa a 6 personas cuya única responsabilidad es
+               * `finanzas.hallazgos`, retirada desde `[SN.18]`.
+               */
+              // Hoy sólo `BandejaDef` tiene `retirada`; `CicloDef` no la declara. El día que la
+              // gane, se suma acá en una línea.
+              retiradas: [...new Set(
+                BANDEJAS.filter((b) => !!b.retirada && misResponsabilidades.has(b.responsabilidad))
+                  .map((b) => b.responsabilidad as string),
+              )].sort(),
+            },
+      medido_at: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * `[SN.15]` Los códigos de sucursal a los que se acota el conteo de esta persona, o `null` para
+   * "no acotar".
+   *
+   * `null` cubre TRES casos que la pantalla necesita distinguir de "no tenés nada":
+   *   · alcance `all` (ve la red entera, por diseño),
+   *   · `resolvable: false` — la ficha no tiene `warehouse_code` (**78 de 122** personas),
+   *   · no hay `ScopeService` (los tests instancian el service sin él).
+   *
+   * Nunca devuelve `[]`: un array vacío filtraría a cero y se leería como "estás al día".
+   */
+  /**
+   * `[SN.22]` — **Una medición que falla no puede envenenar a las demás.**
+   *
+   * `KNEX_CONNECTION` es un proxy: si hay transacción de request en el ALS (y la hay en todo
+   * request con token, `tenant-context.interceptor.ts`), **cada consulta corre dentro de ella**.
+   * Y en Postgres una sentencia fallida ABORTA la transacción: todo lo que siga responde
+   * `25P02 transacción abortada`. **De eso no se sale con un `try/catch`** — atrapar la excepción
+   * en JS no des-aborta nada.
+   *
+   * Eso hacía FALSA la promesa central de `me-work.ts`: cada `medir()` tiene su `catch` y declara
+   * «esta bandeja no respondió», como si las demás siguieran siendo confiables. Medido el
+   * 2026-09-12 contra `platform_test`: **una** tabla ausente (`identity.position_responsibilities`,
+   * que allá no existe porque la migración sólo se aplicó a prod) dejó a Mayra con las **nueve**
+   * mediciones en «Sin medir» — un `42P01` real y ocho `25P02` de arrastre, cada uno reportando su
+   * propio motivo como si fuera independiente.
+   *
+   * El savepoint arregla justo eso: si `fn` falla, se deshace hasta el savepoint y la transacción
+   * de la request sigue usable. Es el mismo patrón —y el mismo motivo— de
+   * `catalogs.service.ts:849`. Cuesta dos idas y vueltas por medición (SAVEPOINT + RELEASE) contra
+   * una base que vive al lado de la API; a cambio, `no_medido` dice la verdad por primera vez.
+   *
+   * ⚠️ El `try/catch` va SIEMPRE por fuera de esta llamada. Si se atrapa adentro, el error no
+   * escapa, el savepoint se libera como si todo hubiera ido bien, y el aislamiento no sirve.
+   */
+  private aislado<T>(fn: () => Promise<T>): Promise<T> {
+    const store = legacyTxStorage.getStore();
+    if (!store?.tx) return fn();
+    return store.tx.transaction((sp) =>
+      legacyTxStorage.run({ tx: sp, tenantId: store.tenantId }, fn),
+    );
+  }
+
+  private async sucursalesDelAlcance(userId: string): Promise<string[] | null> {
+    if (!this.scopeService) return null;
+    try {
+      const scope = await this.aislado(() => this.scopeService!.forUser(this.tenantId, userId));
+      const dim = scope.dims.warehouse;
+      if (!dim || dim.mode === 'all' || !dim.resolvable) return null;
+      return dim.values.length ? dim.values : null;
+    } catch (e) {
+      // El alcance es una MEJORA del conteo, no su requisito: si falla, se cuenta todo y se dice.
+      this.logger.warn(
+        `me/work: no se pudo resolver el alcance de ${userId} — ${e instanceof Error ? e.message : e}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * `[SN.15]` ¿El puesto de esta persona tiene declarado de qué responde?
+   *
+   * Es la segunda de las tres preguntas (`work/task.contract.ts`): el permiso dice si podés
+   * abrirlo, la responsabilidad dice si es TUYO. Hoy la respuesta es **no para todos**:
+   * `identity.position_responsibilities` tiene 0 filas a propósito — `[OR.1b]` se negó a sembrarla
+   * desde el permiso porque eso colapsaría justo la distinción que la tabla crea (medido: una
+   * auxiliar de marketing puede ABRIR 6 de las 8 bandejas, incluidos 82,289 hallazgos de finanzas).
+   *
+   * La pantalla usa esto para DECLARAR por qué no puede decir "esto es tuyo", en vez de callarlo.
+   * `null` = no se pudo consultar (la migración no llegó a este ambiente), que no es `false`.
+   */
+  /**
+   * `[SN.17]` **De qué responde esta persona** — la segunda de las tres preguntas.
+   *
+   * Dos fuentes, y la de persona GANA sobre la de puesto:
+   *  · `identity.position_responsibilities` — lo normal, lo que le toca a su puesto.
+   *  · `identity.user_responsibilities` — la excepción, con `accion` `'suma'` o `'resta'` y
+   *    vigencia. Existe porque el puesto no siempre alcanza: medido, `mayra_gutierrez` e
+   *    `ivonne_cruz` son las dos `auxiliar_finanzas` y hacen trabajos distintos (egresos e
+   *    ingresos). Partirlo por puesto exigiría partir el puesto, que es decisión de organigrama.
+   *
+   * ⛔ Esto **no autoriza nada**: ordena la pantalla. El permiso sigue decidiendo quién abre qué.
+   * `null` = **no se pudo consultar** (la migración no llegó a este ambiente), que no es lo mismo
+   * que "no responde de nada". El peor caso es que nada se marque como propio, nunca que alguien
+   * pierda acceso.
+   */
+
+  /**
+   * `[SN.33]` — **Las filas que forman el total, cuando la cola sabe nombrarlas.**
+   *
+   * Devuelve las claves que se esparcen sobre `MePendiente`, o `{}` cuando esta bandeja no
+   * declara `desglosar` (la mayoría: ver el motivo en `BandejaDef.desglosar`).
+   *
+   * ⛔ **Un desglose que falla NO tumba la fila.** El `total` ya está medido y es el número por el
+   * que la fila existe; perder los nombres es una falla estrictamente menor. Mandar la bandeja
+   * entera a `no_medido` por no poder detallarla escondería un conteo que sí se pudo hacer — el
+   * mismo error de categoría que ADR-056 persigue, sólo que al revés.
+   *
+   * ⚠️ Va dentro de `aislado()` por la lección de `[SN.22]`: una consulta que revienta sin savepoint
+   * deja la transacción de la request abortada y mata las mediciones que vienen después.
+   */
+  private async desgloseDe(
+    b: (typeof BANDEJAS)[number],
+    ctx: MedirCtx,
+    total: number,
+  ): Promise<Pick<MePendiente, 'desglose' | 'desglose_truncado'> | Record<string, never>> {
+    if (!b.desglosar) return {};
+    try {
+      const items = await this.aislado(() => b.desglosar!(this.knex, ctx, TOPE_DESGLOSE));
+      return {
+        desglose: items,
+        // Exacto: el tope recorta la consulta, y el resto sale del total que ya se midió.
+        desglose_truncado: Math.max(0, total - items.length),
+      };
+    } catch (e) {
+      const motivo = e instanceof Error ? e.message.split('\n')[0] : 'error desconocido';
+      this.logger.warn(`me/work: bandeja ${b.id} se contó pero no se pudo desglosar — ${motivo}`);
+      return {};
+    }
+  }
+
+  private async responsabilidadesDe(userId: string): Promise<Set<string> | null> {
+    try {
+      /*
+       * `[SN.22]` Las DOS lecturas van en UN solo savepoint, y el `catch` por fuera.
+       *
+       * Éste es el origen medido del incidente del 2026-09-12: las dos tablas las crea `[OR.1b]` y
+       * **no existen en `platform_test`**, así que acá salta un `42P01` — que este `catch` atrapa
+       * y convierte en `null`, como si fuera una degradación limpia. No lo era: la transacción de
+       * la request ya quedaba abortada y las nueve mediciones posteriores morían con `25P02`.
+       * Un ambiente sin una migración dejaba la pantalla entera en «Sin medir».
+       */
+      const { delPuesto, dePersona } = await this.aislado(async () => ({
+        delPuesto: (await this.knex('identity.position_responsibilities as pr')
+          .join('identity.users as u', function () {
+            this.on('u.position_code', '=', 'pr.position_code').andOn('u.tenant_id', '=', 'pr.tenant_id');
+          })
+          .where('u.id', userId)
+          .where('pr.tenant_id', this.tenantId)
+          .whereNull('pr.deleted_at')
+          .pluck('pr.responsibility_key')) as string[],
+
+        // `valid_to` nulo = sigue vigente. Una excepción vencida NO cuenta.
+        dePersona: (await this.knex('identity.user_responsibilities')
+          .where({ tenant_id: this.tenantId, user_id: userId })
+          .whereNull('deleted_at')
+          .whereRaw('valid_from <= CURRENT_DATE')
+          .andWhere((q) => q.whereNull('valid_to').orWhereRaw('valid_to >= CURRENT_DATE'))
+          .select('responsibility_key', 'accion')) as { responsibility_key: string; accion: string }[],
+      }));
+
+      const set = new Set<string>(delPuesto);
+      for (const r of dePersona) {
+        if (r.accion === 'resta') set.delete(r.responsibility_key);
+        else set.add(r.responsibility_key);
+      }
+      return set;
+    } catch (e) {
+      this.logger.warn(
+        `me/work: no se pudieron leer las responsabilidades de ${userId} — ${e instanceof Error ? e.message : e}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * `[ID.21]` — Permisos de una persona: lo que le da su puesto, lo que tiene de
+   * más o de menos, y lo que aplica de verdad.
+   *
+   * Devuelve las tres capas por separado en vez de un solo mapa aplanado, porque
+   * la pregunta que se hace frente a la pantalla no es "qué puede hacer" sino
+   * "por qué puede hacer esto" — y la respuesta útil es "se lo da el puesto" o
+   * "alguien se lo dio a él, con esta nota, este día".
+   */
+  async permissions(id: string) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'nombre', 'role_name');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const roles = await this.knex('identity.user_roles')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .orderBy([{ column: 'is_primary', order: 'desc' }, { column: 'role_name' }])
+      .select('role_name', 'is_primary');
+    // Fallback: si no hay filas (usuario viejo, migración sin correr) el perfil
+    // base sigue siendo `users.role_name`. Mismo criterio que el guard.
+    const nombresRol = roles.length ? roles.map((r) => r.role_name) : [user.role_name].filter(Boolean);
+
+    // El estándar del puesto = unión de los roles, `true` gana.
+    const delPuesto: Record<string, boolean> = {};
+    if (nombresRol.length) {
+      const filas = await this.knex('identity.role_permissions')
+        .where({ tenant_id: this.tenantId })
+        .whereRaw(
+          `LOWER(role_name) = ANY(?)`,
+          [nombresRol.map((r: string) => String(r).toLowerCase())],
+        )
+        .select('permissions');
+      for (const f of filas as Array<{ permissions: Record<string, boolean> }>) {
+        for (const [k, v] of Object.entries(f.permissions ?? {})) {
+          if (v === true) delPuesto[k] = true;
+        }
+      }
+    }
+
+    const overrides = await this.knex('identity.user_permissions')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .orderBy('permission_key')
+      .select('permission_key', 'allow', 'nota', 'granted_by_username', 'created_at', 'updated_at');
+
+    const efectivos: Record<string, boolean> = { ...delPuesto };
+    for (const o of overrides) {
+      if (o.allow) efectivos[o.permission_key] = true;
+      else delete efectivos[o.permission_key];
+    }
+
+    return {
+      user_id: id,
+      username: user.username,
+      nombre: user.nombre,
+      perfil_base: user.role_name,
+      roles,
+      // `superadmin` pasa por `manage:all` antes de mirar el mapa: los overrides
+      // no le muerden. La UI lo dice en vez de mostrar casillas que no hacen nada.
+      platform_admin: ELEVATED_ROLES.has(String(user.role_name ?? '').toLowerCase()),
+      del_puesto: Object.keys(delPuesto).sort(),
+      efectivos: Object.keys(efectivos).sort(),
+      overrides,
+      de_mas: overrides.filter((o) => o.allow).map((o) => o.permission_key),
+      de_menos: overrides.filter((o) => !o.allow).map((o) => o.permission_key),
+    };
+  }
+
+  /**
+   * `[AU.33]` — **Cuánta gente abre hoy cada permiso.**
+   *
+   * Es el contexto que faltaba para decidir si conceder algo: «18 personas en 6 perfiles ya la
+   * abren» dice más sobre si este permiso es excepcional que cualquier descripción. La pantalla de
+   * una persona lo pinta al lado de la pantalla que se está concediendo.
+   *
+   * ── Qué cuenta, exactamente ─────────────────────────────────────────────
+   * Una persona «lo tiene» si se lo da su perfil base, o alguno de sus complementos, o una
+   * excepción propia `allow = true` — y NO lo tiene si una excepción propia dice `allow = false`,
+   * aunque su perfil se lo dé. O sea: lo mismo que resuelve el guard, no una aproximación.
+   *
+   * ⚠️ **Los roles de plataforma se cuentan APARTE, no se reparten.** `superadmin`/`admin` pasan
+   * por el god-mode antes de mirar el mapa: tienen TODO, pero su fila de `role_permissions` no lo
+   * declara. Sumarlos a cada clave inflaría los 223 números por igual y sería mentira; no
+   * contarlos haría que «18 personas» se lea como el total cuando no lo es. Van en
+   * `platform_admins`, una sola vez, y la pantalla los declara como lo que son.
+   */
+  async permissionUsage(): Promise<{
+    uso: Record<string, { roles: number; personas: number }>;
+    platform_admins: number;
+    medido_en: string;
+  }> {
+    const elevados = [...ELEVATED_ROLES];
+
+    // ⚠️ Bindings POSICIONALES y `CAST(...)` en vez de `::`. Con bindings nombrados knex lee el
+    // `::int` de un cast como el parámetro `:int` y revienta — es la misma familia del
+    // `permissions ? 'KEY'` que el proyecto ya tiene documentado: knex no escapa todo lo que
+    // Postgres considera sintaxis.
+    const t = this.tenantId;
+    const { rows } = await this.knex.raw(
+      `
+      WITH rc AS (
+        SELECT rp.role_name, e.key AS k
+          FROM identity.role_permissions rp, jsonb_each(rp.permissions) e
+         WHERE rp.tenant_id = ? AND e.value = CAST('true' AS jsonb)
+      ),
+      viva AS (
+        SELECT id, role_name FROM identity.users
+         WHERE tenant_id = ? AND deleted_at IS NULL
+      ),
+      por_rol AS (
+        SELECT rc.k, v.id FROM viva v JOIN rc ON LOWER(rc.role_name) = LOWER(v.role_name)
+        UNION
+        SELECT rc.k, ur.user_id
+          FROM identity.user_roles ur
+          JOIN viva v2 ON v2.id = ur.user_id
+          JOIN rc ON LOWER(rc.role_name) = LOWER(ur.role_name)
+         WHERE ur.tenant_id = ?
+      ),
+      efectivo AS (
+        SELECT pr.k, pr.id
+          FROM por_rol pr
+         WHERE NOT EXISTS (
+                 SELECT 1 FROM identity.user_permissions up
+                  WHERE up.tenant_id = ? AND up.user_id = pr.id
+                    AND up.permission_key = pr.k AND up.allow = false)
+        UNION
+        SELECT up.permission_key, up.user_id
+          FROM identity.user_permissions up
+          JOIN viva v3 ON v3.id = up.user_id
+         WHERE up.tenant_id = ? AND up.allow = true
+      )
+      SELECT e.k AS clave,
+             CAST(count(DISTINCT e.id) AS int) AS personas,
+             (SELECT CAST(count(DISTINCT rc2.role_name) AS int) FROM rc rc2 WHERE rc2.k = e.k) AS roles
+        FROM efectivo e
+       GROUP BY e.k
+      `,
+      [t, t, t, t, t],
+    );
+
+    const { rows: admins } = await this.knex.raw(
+      `SELECT CAST(count(*) AS int) AS n FROM identity.users
+        WHERE tenant_id = ? AND deleted_at IS NULL AND LOWER(role_name) = ANY(?)`,
+      [t, elevados],
+    );
+
+    const uso: Record<string, { roles: number; personas: number }> = {};
+    for (const r of rows as Array<{ clave: string; personas: number; roles: number }>) {
+      uso[r.clave] = { personas: r.personas, roles: r.roles };
+    }
+
+    return {
+      uso,
+      platform_admins: admins[0]?.n ?? 0,
+      // Frescura declarada: el consumidor pinta un número y tiene derecho a saber de cuándo es.
+      medido_en: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * `[ID.21]` — Fija los permisos PROPIOS de una persona (la diferencia contra el
+   * estándar de su puesto). Semántica de PUT: la lista que llega es la final.
+   *
+   * Tres cosas que este método NO deja hacer, y el motivo:
+   *
+   *   1. **Overrides sobre un rol de plataforma.** `isPlatformAdminRole` deja pasar a
+   *      superadmin/admin antes de mirar el mapa y el guard corta ahí. Un `allow=false`
+   *      quedaría guardado y no haría nada: peor que no poder, porque el admin
+   *      cree que revocó. Se rechaza con el motivo.
+   *   2. **Otorgar lo que quien edita no tiene.** Con `USUARIOS_GESTIONAR`
+   *      alcanzaría para darse a sí mismo cualquier permiso del sistema. Un
+   *      superadmin está exento (ya tiene todo).
+   *   3. **Darse permisos a uno mismo.** Un no-superadmin editando su propia
+   *      ficha es exactamente el camino de escalación, aunque el permiso ya lo
+   *      tenga por rol.
+   */
+  async setPermissions(
+    id: string,
+    overrides: Array<{ permission_key: string; allow: boolean; nota?: string | null }>,
+    requester: RequesterContext,
+  ) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'role_name');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    const requesterRow = await this.knex('users')
+      .where({ id: requester.sub, tenant_id: this.tenantId })
+      .first('role_name');
+    const esSuperadmin = String(requesterRow?.role_name ?? '').toLowerCase() === 'superadmin';
+
+    const pedidos = (overrides ?? []).filter((o) => o && o.permission_key);
+    if (ELEVATED_ROLES.has(String(user.role_name ?? '').toLowerCase()) && pedidos.length) {
+      throw new BadRequestException(
+        `"${user.role_name}" ya tiene acceso total por rol: los permisos por usuario no le aplican. ` +
+          `Para limitar a esta persona hay que cambiarle el perfil base.`,
+      );
+    }
+
+    // Claves válidas = el enum. El CHECK de la tabla valida la FORMA; esto valida
+    // que EXISTA. Un permiso mal escrito se guarda feliz y no hace nada.
+    const validas = new Set<string>(Object.values(Permission) as string[]);
+    for (const o of pedidos) {
+      if (!validas.has(o.permission_key)) {
+        throw new BadRequestException(`El permiso "${o.permission_key}" no existe.`);
+      }
+    }
+
+    if (!esSuperadmin) {
+      if (requester.sub === id) {
+        throw new ForbiddenException(
+          'No puedes editar tus propios permisos. Pedíselo a un superadmin.',
+        );
+      }
+      const propios = await this.permsCache?.getPermissionsForUser?.(
+        requester.sub,
+        this.tenantId,
+        requesterRow?.role_name,
+      );
+      const otorgando = pedidos.filter((o) => o.allow).map((o) => o.permission_key);
+      const sinTener = otorgando.filter((k) => propios?.[k] !== true);
+      if (sinTener.length) {
+        throw new ForbiddenException(
+          `No puedes otorgar permisos que no tenés: ${sinTener.join(', ')}.`,
+        );
+      }
+    }
+
+    const previos = await this.knex('identity.user_permissions')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .select('permission_key', 'allow');
+    const previoDe = new Map<string, boolean>(previos.map((p) => [p.permission_key, p.allow]));
+    const pedidoDe = new Map<string, { allow: boolean; nota?: string | null }>(
+      pedidos.map((o) => [o.permission_key, { allow: !!o.allow, nota: o.nota ?? null }]),
+    );
+
+    const quitados = Array.from(previoDe.keys()).filter((k) => !pedidoDe.has(k));
+    const cambiados = Array.from(pedidoDe.entries()).filter(
+      ([k, v]) => !previoDe.has(k) || previoDe.get(k) !== v.allow,
+    );
+    if (!quitados.length && !cambiados.length) {
+      return { user_id: id, overrides: pedidos, agregados: [], quitados: [], sin_cambios: true };
+    }
+
+    await this.knex.transaction(async (trx) => {
+      if (quitados.length) {
+        await trx('identity.user_permissions')
+          .where({ tenant_id: this.tenantId, user_id: id })
+          .whereIn('permission_key', quitados)
+          .del();
+      }
+      for (const [key, v] of pedidoDe.entries()) {
+        const fila = {
+          tenant_id: this.tenantId,
+          user_id: id,
+          permission_key: key,
+          allow: v.allow,
+          nota: v.nota,
+          granted_by: requester.sub,
+          granted_by_username: requester.username ?? null,
+          updated_at: trx.fn.now(),
+        };
+        await trx('identity.user_permissions')
+          .insert(fila)
+          .onConflict(['tenant_id', 'user_id', 'permission_key'])
+          .merge(fila);
+      }
+      await this.recordEvent(
+        trx,
+        id,
+        'permissions_changed',
+        {
+          concedidos: cambiados.filter(([, v]) => v.allow).map(([k]) => k),
+          revocados: cambiados.filter(([, v]) => !v.allow).map(([k]) => k),
+          vueltos_al_puesto: quitados,
+          perfil_base: user.role_name,
+        },
+        requester,
+      );
+    });
+
+    // El guard cachea los overrides 30s: sin esto el cambio tarda medio minuto
+    // en aplicar y parece que no se guardó.
+    this.permsCache?.invalidateUser?.(id, this.tenantId);
+
+    return {
+      user_id: id,
+      overrides: pedidos,
+      agregados: cambiados.map(([k]) => k),
+      quitados,
+    };
+  }
+
+  /**
+   * `[ID.38]` — Cierra TODAS las sesiones vivas de una cuenta, sin apagarla.
+   *
+   * ── Para qué existe ─────────────────────────────────────────────────────────
+   * Hasta hoy la única forma de matar un token filtrado era `activo = false`, o
+   * sea apagar la cuenta. En las **18 cuentas `kind='dispositivo'`** (etiqueteras,
+   * checadores, verificadores de precio) eso significa apagar la pantalla, que es
+   * justamente lo que `[CH.1.3]` dice que no se puede hacer — y son las cuentas
+   * con el token más largo, o sea las que más lo necesitan.
+   *
+   * Esto escribe el corte (`sessions_revoked_at = now()`) y `jwt-auth.guard`
+   * rechaza todo token con `iat` anterior. La cuenta sigue activa: vuelve a
+   * entrar con su contraseña y sigue trabajando.
+   *
+   * ── Lo que NO hace ──────────────────────────────────────────────────────────
+   * No revoca UN token: corta todas las sesiones de esa cuenta a la vez. Para
+   * cortar sólo un dispositivo haría falta un `jti` por token y una tabla donde
+   * anotarlos — sigue sin existir, y se declara acá en vez de insinuar que está.
+   */
+  async revokeSessions(id: string, requester: RequesterContext, motivo?: string | null) {
+    const user = await this.knex('users')
+      .where({ id, tenant_id: this.tenantId })
+      .first('id', 'username', 'nombre', 'kind', 'role_name', 'last_login_at');
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+    let revocadoEn: string | null = null;
+    try {
+      await this.knex.transaction(async (trx) => {
+      // `identity.users` explícito, no la vista `public.users`: la columna es de
+      // `[ID.38]` y la vista compat no la expone (recrear una vista viva tiene su
+      // propio riesgo — ver el gotcha de los planes cacheados).
+        const [fila] = await trx('identity.users')
+          .where({ id, tenant_id: this.tenantId })
+          .update({ sessions_revoked_at: trx.fn.now() })
+          .returning(['sessions_revoked_at']);
+        revocadoEn = fila?.sessions_revoked_at ?? null;
+
+        await this.recordEvent(
+          trx,
+          id,
+          'sessions_revoked',
+          {
+            motivo: motivo ?? null,
+            kind: user.kind ?? null,
+            role_name: user.role_name ?? null,
+            // Con qué sesión se lo está haciendo: si alguien revoca las suyas, que
+            // quede dicho en la bitácora y no se lea como que lo echó otro.
+            propia: requester.sub === id,
+          },
+          requester,
+        );
+      });
+    } catch (e: any) {
+      // Ventana de despliegue: el código llegó antes que la migración. Un 500 con
+      // "column does not exist" hace que quien lo vea busque el bug en el lugar
+      // equivocado; esto dice qué falta y qué hacer mientras tanto.
+      if (/sessions_revoked_at/i.test(String(e?.message ?? ''))) {
+        throw new BadRequestException(
+          'Falta aplicar la migración [ID.38] (identity.users.sessions_revoked_at) en este ambiente. ' +
+            'Mientras tanto, cambiarle la contraseña también cierra sus sesiones.',
+        );
+      }
+      throw e;
+    }
+
+    // El guard cachea el estado de la cuenta 30s: sin esto el corte tarda medio
+    // minuto en aplicar, que es medio minuto de un token que ya se dio por muerto.
+    this.permsCache?.invalidateUser?.(id, this.tenantId);
+
+    this.logger.warn(
+      `[ID.38] Sesiones revocadas de "${user.username}" por "${requester.username ?? requester.sub}"` +
+        (motivo ? ` — ${motivo}` : ''),
+    );
+
+    return {
+      user_id: id,
+      username: user.username,
+      sessions_revoked_at: revocadoEn,
+      // Para que la pantalla pueda decir "tenía sesión desde ..." en vez de sólo
+      // confirmar que hizo algo.
+      last_login_at: user.last_login_at ?? null,
+    };
+  }
+
+  /** Bitácora del usuario, para el panel de detalle. */
+  async events(id: string, limit = 50) {
+    return this.knex('identity.user_events')
+      .where({ tenant_id: this.tenantId, user_id: id })
+      .orderBy('created_at', 'desc')
+      .limit(Math.min(200, Math.max(1, limit)))
+      .select('event', 'detalle', 'actor_username', 'created_at');
+  }
+}

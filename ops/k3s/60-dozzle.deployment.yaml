@@ -1,0 +1,155 @@
+# ═══ VISOR DE LOGS DE PRODUCCIÓN ═══  [K3S.20]  — lo que Railway daba y acá no existía
+#
+# ── El hueco que cierra, medido el 2026-10-02 ───────────────────────────────────────────────
+# Ya había un Dozzle corriendo (`obs-dozzle`, puerto 8085) y **era ciego a producción**:
+#
+#     contenedores que veía (socket de Docker) ......  5   (registry, backup, netdata,
+#                                                           el propio dozzle, autoheal)
+#     pods que corren de verdad (k3s/containerd) ..... 24   (api, worker, caddy, portal,
+#                                                           vendor, pg-prod, los 7 carriles…)
+#
+# Lee `/var/run/docker.sock`; prod vive en `/run/k3s/containerd/containerd.sock`. O sea que el
+# visor de logs mostraba todo MENOS la aplicación. Para leer un log de la API había que entrar
+# por ssh y hacer `kubectl logs`. Esto es el pedido literal: *"una interfaz donde vea cada log,
+# tal cual trabajaba en Railway"*.
+#
+# ── Por qué Dozzle otra vez y no un tablero de Kubernetes ───────────────────────────────────
+# Porque ya está en uso y la gente sabe manejarlo: la pantalla no cambia, cambia lo que muestra.
+# Un Kubernetes Dashboard / Headlamp / Portainer trae ADEMÁS crear, escalar y borrar recursos —
+# superficie que nadie pidió sobre el clúster que sirve la venta. Acá hace falta LEER.
+# ⛔ Y Coolify queda descartado desde VL.9/VL.11.A: su proxy (Traefik) ató el 8080 y **dejó prod
+#    caído 50 min**. No se reabre esa puerta.
+#
+# ── ⛔ LA AUTENTICACIÓN NO ES OPCIONAL ACÁ, Y ESTO ES UN CAMBIO DE RIESGO ────────────────────
+# El `obs-dozzle` de Compose corre SIN clave, y eso estaba declarado como deuda tolerable porque
+# mostraba 5 contenedores sin nada adentro. Éste muestra **la aplicación entera**: un stack trace
+# de la API imprime parámetros, y los parámetros de este negocio son datos de clientes y dinero.
+# Pasar de "nada sensible, sin clave" a "todo, sin clave" sin decirlo sería subir el riesgo en
+# silencio. Va con `simple` + un `users.yml` generado, en un Secret que NO vive en este repo:
+#
+#     docker run --rm amir20/dozzle generate edgar --password '<la que elijas>' \
+#       --email sistemas@megadulces.com.mx --name 'Edgar' > /tmp/users.yml
+#     k3s kubectl -n obs create secret generic dozzle-users --from-file=users.yml=/tmp/users.yml
+#     shred -u /tmp/users.yml
+#
+# ⚠️ SOLO LAN, igual que el resto del stack de observabilidad: sin ruta en Caddy y sin túnel.
+#    Se llega por http://192.168.0.222:30085 — el `NodePort` es feo a propósito: cambiar el rango
+#    de k3s para usar el 8085 exige reiniciar el apiserver, y hoy no se toca prod por gusto.
+#
+# ⚠️ Permisos de SÓLO LECTURA. Sin el verbo `delete` sobre pods: Dozzle ofrece un botón de
+#    reiniciar contenedor si se lo das, y nadie pidió un botón que reinicie producción desde una
+#    pantalla sin más confirmación que un clic.
+#
+#   aplicar:  k3s kubectl apply -f ops/k3s/60-dozzle.deployment.yaml
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: obs
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pod-viewer
+  namespace: obs
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dozzle-pod-viewer
+rules:
+  # ⛔ `get, list, watch` y NADA MÁS. `watch` es el que permite el log en vivo; sin él la
+  #    pantalla muestra una foto y hay que recargar, que es justamente lo que no sirve.
+  - apiGroups: [""]
+    resources: [pods, pods/log, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: ["apps"]
+    resources: [deployments, replicasets, daemonsets, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: ["batch"]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: [pods]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dozzle-pod-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dozzle-pod-viewer
+subjects:
+  - kind: ServiceAccount
+    name: pod-viewer
+    namespace: obs
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dozzle
+  namespace: obs
+  labels: { app: dozzle }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: dozzle }
+  template:
+    metadata:
+      labels: { app: dozzle }
+    spec:
+      serviceAccountName: pod-viewer
+      # ⚠️ El Service se llama `dozzle`, así que Kubernetes le inyecta al pod
+      # `DOZZLE_PORT`, `DOZZLE_SERVICE_HOST`, `DOZZLE_PORT_8080_TCP`… y el propio
+      # Dozzle, que lee todo `DOZZLE_*` como configuración suya, escupe **siete
+      # warnings** en cada arranque por variables que él no puso. Son inofensivas,
+      # pero un log que arranca con warnings falsos enseña a saltearse los warnings.
+      enableServiceLinks: false
+      containers:
+        - name: dozzle
+          image: amir20/dozzle:latest
+          env:
+            - name: DOZZLE_MODE
+              value: k8s
+            - name: DOZZLE_AUTH_PROVIDER
+              value: simple
+            - name: DOZZLE_NO_ANALYTICS
+              value: "true"
+            - name: TZ
+              value: America/Mexico_City
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: users
+              mountPath: /data/users.yml
+              subPath: users.yml
+              readOnly: true
+          resources:
+            # Es un lector de flujos: no acumula. El tope existe para que un pod que escupe
+            # megabytes por segundo no se lleve puesta la RAM del nodo que sirve la venta.
+            requests: { memory: 32Mi, cpu: 10m }
+            limits:   { memory: 256Mi }
+          livenessProbe:
+            httpGet: { path: /, port: 8080 }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: users
+          secret:
+            secretName: dozzle-users
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dozzle
+  namespace: obs
+spec:
+  type: NodePort
+  selector: { app: dozzle }
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30085

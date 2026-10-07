@@ -1,0 +1,13 @@
+{
+  "//": "Proxy LOCAL para probar [MKT.6] sin tocar proxy.conf.json, que es el que usan las otras sesiones (apuntan a :3401). Apunta a la API de esta sesión en :3411. Archivo desechable: no va al PR.",
+  "/api": {
+    "target": "http://localhost:3411",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/socket.io": {
+    "target": "http://localhost:3411",
+    "secure": false,
+    "ws": true
+  }
+}

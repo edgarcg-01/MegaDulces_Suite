@@ -1,0 +1,68 @@
+# ═══ CLOUDFLARED — el túnel, la puerta de entrada desde internet ═══  [K3S.33]
+#
+# ⭐ ES EL MÁS REPLICABLE DE TODO EL SISTEMA, y por una vez la redundancia no se discute:
+# el túnel de Cloudflare está DISEÑADO para varios conectores con el mismo token. El borde
+# reparte entre los que estén registrados y saca al que deja de responder. Dos réplicas acá no
+# son "por si acaso": son el modo soportado de alta disponibilidad.
+#
+# ⚠️ Corolario que hace seguro el corte: durante la migración pueden convivir el contenedor de
+# Docker y los pods. El borde los ve a los tres y reparte. NO hay ventana de caída — a
+# diferencia de `caddy`, donde dos instancias se pelean el :443 y el almacén de certificados.
+#
+# ── Qué NO necesita, y por qué conviene decirlo ─────────────────────────────
+#
+# · Sin `ports`: no escucha nada. Abre una conexión SALIENTE al borde de Cloudflare y el
+#   tráfico viaja por ahí. Por eso el servidor no expone 80/443 a internet y por eso este pod
+#   no necesita `hostPort` ni NodePort.
+# · Sin volumen: no guarda estado. Toda su configuración —las reglas de ingreso— vive en
+#   Cloudflare y la recibe al conectarse. ⛔ Eso es también su trampa: el repo NO puede
+#   declarar a dónde enruta. El 2026-10-01 eso costó una caída, dos veces: el túnel apuntaba a
+#   `http://api:10000`, DNS de Docker, y mover la app rompió el sitio público.
+#
+# ── La imagen ───────────────────────────────────────────────────────────────
+#
+# ⚠️ `:latest` a propósito, igual que en Compose: es la imagen PÚBLICA de Cloudflare, no una
+# nuestra, y el candado de `npm run check:k3s` sólo exige tag por commit a las propias
+# (`trade-*`). Cloudflare retira versiones viejas del túnel, así que fijarla acá es firmar una
+# fecha de vencimiento silenciosa. A cambio, `imagePullPolicy: IfNotPresent` evita que un pod
+# nuevo salga a buscar una versión distinta en medio de un reinicio.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: prod
+  labels: { app: cloudflared, singleton: "false", migracion: migrado }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: cloudflared }
+  template:
+    metadata:
+      labels: { app: cloudflared }
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:latest
+          imagePullPolicy: IfNotPresent
+          args: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:20241", "run"]
+          env:
+            - { name: TZ, value: America/Mexico_City }
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef: { name: tunel-env, key: TUNNEL_TOKEN }
+          # ⭐ LA SONDA MIDE EL TÚNEL, NO EL PROCESO. `cloudflared` expone `/ready`, que
+          # responde 200 sólo si tiene conexiones REGISTRADAS contra el borde. Un proceso vivo
+          # sin conexiones es exactamente la falla que importa y la única que `ps` no ve.
+          readinessProbe:
+            httpGet: { path: /ready, port: 20241 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /ready, port: 20241 }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests: { memory: "32Mi", cpu: "25m" }
+            limits:   { memory: "256Mi" }

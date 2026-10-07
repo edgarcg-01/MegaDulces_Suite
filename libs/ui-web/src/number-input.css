@@ -1,0 +1,39 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   CAMPO NUMÉRICO — la mitad en CSS de DESIGN.md D.5.
+   La otra mitad es `installNumberWheelGuard()`, en este mismo lib. Las dos
+   describen el mismo contrato y por eso viven juntas.
+
+   Importado por el `styles.css` de las 3 apps. Un stylesheet GLOBAL penetra los
+   componentes Angular —los selectores de elemento no quedan scopeados—, así que
+   esto alcanza también a los inputs que viven dentro de un componente.
+
+   ── Fuera el spinner nativo ──────────────────────────────────────────────────
+   Hace tres daños, y TRES DE LOS TRES valen en cualquier campo, no sólo en una
+   columna de captura:
+     (a) aparece al enfocar/hover y EMPUJA la cifra — el número salta justo en la
+         columna que existe para que las cifras estén alineadas;
+     (b) son dos targets de ~9px, muy por debajo del piso de 24px de §datos
+         densos 13, e inexistentes en touch (o sea: en media flota no existe);
+     (c) se come ~1rem de un campo de 4rem.
+
+   ⚠️ Qué se pierde, declarado: el usuario de mouse que hacía clic en esas flechas
+   de 9px. No se pierde el incremento por TECLADO — `↑↓` son del input, no del
+   spinner, y siguen andando en todas las pantallas salvo donde D.5 las reasignó a
+   moverse entre campos (`/compras/pedido`, que además anuncia `Alt+↑↓` para
+   incrementar). Una pantalla que quiera un stepper de verdad pone sus botones
+   `+`/`−`, que es lo que ya hacen el carrito del portal y el pad del vendedor.
+
+   ⚠️ Se puede optar por salir: una regla de componente gana por especificidad
+   (el atributo `[_ngcontent-*]` que Angular agrega la sube). `appearance: auto`
+   en el componente devuelve el spinner si alguna vez hace falta.
+   ════════════════════════════════════════════════════════════════════════════ */
+input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}

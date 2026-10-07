@@ -1,0 +1,329 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { InventoryCountService } from './inventory-count.service';
+import type {
+  OpenCountDto,
+  OpenCycleCountDto,
+  SubmitCountDto,
+  ResolveItemDto,
+} from './inventory-count.service';
+import {
+  RolesGuard,
+  RequirePermissions,
+  RequireAnyPermission,
+  Permission,
+  isPlatformAdminRole,
+} from '@megadulces/platform-core';
+
+/**
+ * Inventario físico (Fase I). Endpoints gateados por la jerarquía:
+ *   CONTAR      → enviar conteos (ciego).
+ *   SUPERVISAR  → abrir folio, ver avance/items, calcular discrepancias, resolver.
+ *   RECONCILIAR → autorizar el ajuste de saldo y cerrar.
+ */
+@ApiTags('commercial-inventory-counts')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
+@Controller('commercial/inventory/counts')
+export class InventoryCountController {
+  constructor(private readonly service: InventoryCountService) {}
+
+  @Get()
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({ summary: 'Listar folios de inventario' })
+  list(@Query('warehouse_id') warehouseId?: string) {
+    return this.service.listCounts(warehouseId);
+  }
+
+  @Get('mine')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'Folios que el contador puede contar (asignado, o folios sin contadores asignados)' })
+  myFolios() {
+    return this.service.myCountingFolios();
+  }
+
+  @Get('resolve')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'Resolver código de barras/SKU → identificación del producto (ciego, sin existencia)' })
+  resolveProduct(@Query('barcode') barcode?: string, @Query('product_id') productId?: string) {
+    return this.service.resolveProduct(barcode, productId);
+  }
+
+  @Get('assignable-users')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
+  @ApiOperation({ summary: 'Usuarios asignables como contador o supervisor (?role=counter|supervisor)' })
+  assignableUsers(@Query('role') role?: string) {
+    return this.service.assignableUsers(role === 'supervisor' ? 'supervisor' : 'counter');
+  }
+
+  @Get('variance-reasons')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Catálogo de motivos de varianza (para clasificar al resolver discrepancias)' })
+  varianceReasons() {
+    return this.service.varianceReasons();
+  }
+
+  @Get('ira')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'KPI de exactitud de inventario (IRA) + shrinkage por causa (folios reconciliados)' })
+  ira(
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('tolerance_pct') tolerancePct?: string,
+  ) {
+    return this.service.iraMetrics({
+      warehouse_id: warehouseId,
+      from,
+      to,
+      tolerance_pct: tolerancePct != null ? Number(tolerancePct) : undefined,
+    });
+  }
+
+  @Post('open')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Abrir folio + snapshot del teórico (por almacén)' })
+  open(@Body() body: OpenCountDto) {
+    return this.service.openCount(body);
+  }
+
+  @Post('open-cycle')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({
+    summary:
+      'Abrir folio CÍCLICO acotado por clase ABC o lista de productos (no congela el almacén) — ABC.2',
+  })
+  openCycle(@Body() body: OpenCycleCountDto) {
+    return this.service.openCycleCount(body);
+  }
+
+  @Post(':id/count')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'Registrar conteo CIEGO (barcode o product_id)' })
+  submit(@Param('id') id: string, @Body() body: SubmitCountDto) {
+    return this.service.submitCount(id, body);
+  }
+
+  @Get(':id/count-progress')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'Avance CIEGO para el contador (sin teórico ni varianza)' })
+  countProgress(@Param('id') id: string) {
+    return this.service.counterProgress(id);
+  }
+
+  @Get(':id/catalog')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'Catálogo blind-safe del folio (sku/barcode/nombre/ubic., SIN existencia) para pre-cache offline' })
+  catalog(@Param('id') id: string) {
+    return this.service.counterCatalog(id);
+  }
+
+  @Post(':id/session/start')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'El contador abre su jornada de conteo (modo foco)' })
+  startSession(@Param('id') id: string) {
+    return this.service.startSession(id);
+  }
+
+  @Post(':id/session/finish')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'El contador termina su jornada de conteo' })
+  finishSession(@Param('id') id: string) {
+    return this.service.finishSession(id);
+  }
+
+  @Get(':id/sessions')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Jornadas del personal + productividad + interrupciones (control del supervisor)' })
+  sessions(@Param('id') id: string) {
+    return this.service.listSessions(id);
+  }
+
+  @Post(':id/advance-pass')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Avanzar de fase (1→2) o cerrar conteo a revisión, si la pasada está 100% cubierta' })
+  advancePass(@Param('id') id: string) {
+    return this.service.advancePass(id);
+  }
+
+  @Post(':id/interruption')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'Registrar que el contador salió de la app (background/lock) durante el folio' })
+  interruption(
+    @Param('id') id: string,
+    @Body() body: { left_at: string; returned_at?: string; duration_seconds?: number; source?: string },
+  ) {
+    return this.service.recordInterruption(id, body);
+  }
+
+  @Get(':id/interruptions')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Timeline de interrupciones del folio + resumen por contador' })
+  interruptions(@Param('id') id: string) {
+    return this.service.listInterruptions(id);
+  }
+
+  /**
+   * `[IC.23]` **Quien ASIGNA tiene que poder LEER a quién asignó.** Hasta acá `ASIGNAR` podía
+   * escribir la lista (`POST`, abajo) y no leerla — un gate mal partido, el mismo que
+   * `WMS-REC.9` corrigió en el Andén. Estaba latente porque **hoy nadie tiene `ASIGNAR` sin
+   * `SUPERVISAR`** (medido en prod: compras, gerente_compras, marketing, supervisor y
+   * superadmin tienen las dos). Se rompe en el momento en que `encargado_tienda` recibe
+   * `ASIGNAR` — que es exactamente lo que hace la migración de esta fase.
+   */
+  @Get(':id/assignments')
+  @RequireAnyPermission(
+    Permission.COMMERCIAL_INVENTORY_SUPERVISAR,
+    Permission.COMMERCIAL_INVENTORY_ASIGNAR,
+  )
+  @ApiOperation({ summary: 'Contadores y supervisores asignados al folio' })
+  assignments(@Param('id') id: string) {
+    return this.service.listAssignments(id);
+  }
+
+  @Post(':id/assignments')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
+  @ApiOperation({ summary: 'Reemplazar la lista de asignados de un rol (body: {role, user_ids})' })
+  setAssignments(
+    @Param('id') id: string,
+    @Body() body: { role: 'counter' | 'supervisor'; user_ids: string[] },
+  ) {
+    return this.service.setAssignments(id, body?.role, body?.user_ids || []);
+  }
+
+  /**
+   * `[IC.23]` Abierto también a `ASIGNAR`: quien arma el equipo necesita ver **cómo va**, o
+   * asigna a ciegas y no se entera de que nadie contó.
+   *
+   * ⚠️ Se verificó que NO filtra el teórico antes de abrirlo: `getProgress` devuelve
+   * **sólo agregados** (total / contados / discrepancias / `value_at_variance` sumado /
+   * productividad por contador / bloqueos con su conteo). El teórico por SKU vive en
+   * `:id/items`, que **sigue exigiendo `SUPERVISAR` a secas** — ver el bloque de ahí abajo.
+   */
+  @Get(':id/progress')
+  @RequireAnyPermission(
+    Permission.COMMERCIAL_INVENTORY_SUPERVISAR,
+    Permission.COMMERCIAL_INVENTORY_ASIGNAR,
+  )
+  @ApiOperation({ summary: 'Tablero del supervisor: avance, discrepancias, valor en riesgo' })
+  progress(@Param('id') id: string) {
+    return this.service.getProgress(id);
+  }
+
+  @Get(':id/aisle-progress')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Avance del conteo POR PASILLO (cobertura/discrepancias) + bucket sin pasillo — PA.4' })
+  aisleProgress(@Param('id') id: string) {
+    return this.service.aisleProgress(id);
+  }
+
+  /**
+   * ⛔ `[IC.23]` **ESTA NO SE ABRE, y es la razón por la que las otras sí se pudieron abrir.**
+   * Devuelve `expected_qty` — el teórico — fila por fila. Es la puerta que `[IC.2]` le quitó al
+   * `almacenista` para no romper el conteo ciego, y la que separa «armo el equipo y miro el
+   * avance» (`ASIGNAR`) de «veo contra qué se está contando» (`SUPERVISAR`). Si algún día se
+   * abre a `ASIGNAR`, el encargado de sucursal pasa a saber el número antes que quien cuenta.
+   */
+  @Get(':id/items')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Items del folio con teórico + varianza (no para contadores)' })
+  items(@Param('id') id: string, @Query('status') status?: string) {
+    return this.service.listItems(id, status);
+  }
+
+  @Post(':id/compute')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Calcular discrepancias y pasar a review' })
+  compute(@Param('id') id: string) {
+    return this.service.computeDiscrepancies(id);
+  }
+
+  @Post(':id/items/:itemId/resolve')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Resolver manualmente el valor final de un item' })
+  resolve(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() body: ResolveItemDto,
+  ) {
+    return this.service.resolveItem(id, itemId, body);
+  }
+
+  @Get(':id/kepler-export')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECONCILIAR)
+  @ApiOperation({ summary: 'Exportar el ajuste del folio reconciliado al formato Kepler (InvIn/InvOut/PhysInv). No escribe en el ERP.' })
+  keplerExport(@Param('id') id: string) {
+    return this.service.keplerAdjustmentExport(id);
+  }
+
+  // ── [IC.7] El acuse: sin esto el ciclo no cierra ─────────────────────────────────────
+  @Post(':id/kepler-export/ack')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECONCILIAR)
+  @ApiOperation({
+    summary: 'Confirmar que el archivo YA se capturó en Kepler, con quién y cuándo. '
+      + 'Mientras no se capture, el ERP sigue con su saldo viejo y el conteo siguiente '
+      + 'vuelve a encontrar la misma diferencia.',
+  })
+  keplerExportAck(
+    @Param('id') id: string,
+    @Body() body: { kepler_folio?: string; notas?: string },
+  ) {
+    return this.service.keplerExportAck(id, body ?? {});
+  }
+
+  @Get(':id/kepler-export/status')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Estado del archivo: exportado / capturado / sin emitir' })
+  keplerExportStatus(@Param('id') id: string) {
+    return this.service.keplerExportStatus(id);
+  }
+
+  @Post(':id/reconcile')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECONCILIAR)
+  @ApiOperation({ summary: 'Reconciliar: ajustar stock al físico + cerrar folio' })
+  reconcile(@Param('id') id: string) {
+    return this.service.reconcile(id);
+  }
+
+  /**
+   * **Cancelar = ABANDONAR el folio. No toca stock** — eso es `reconcile`.
+   *
+   * Acepta CUALQUIERA de las dos llaves a propósito (WMS-REC.16). Hasta acá sólo
+   * `RECONCILIAR` abría esta puerta, y como esa misma llave también aplica el ajuste,
+   * la acción segura quedaba encerrada detrás de la peligrosa. Medido en producción
+   * el 2026-09-28: `INV-2026-00009` llevaba 100 días congelando Padre Hidalgo, y de las
+   * 5 personas que entran al Andén sólo 1 podía destrabarlo.
+   *
+   * ⚠️ `reconcile` (el de arriba) NO se abre: sigue pidiendo `RECONCILIAR` a secas. Ese
+   * folio tiene 8 escaneos sobre 2,094 artículos — aplicarlo pondría el inventario de la
+   * sucursal casi en cero. Separar las dos llaves es justamente para que abandonar no
+   * exija el poder de vaciar un almacén.
+   */
+  @Post(':id/cancel')
+  @RequireAnyPermission(
+    Permission.COMMERCIAL_INVENTORY_RECONCILIAR,
+    Permission.COMMERCIAL_INVENTORY_CANCELAR_CONTEO,
+  )
+  @ApiOperation({ summary: 'Cancelar folio (abandona el conteo; no ajusta stock)' })
+  cancel(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<{ status: string; folio: string }> {
+    // `req.user.permissions` lo escribe RolesGuard con el mapa FRESCO de la DB (no el del
+    // token), asi que un permiso recien repartido se honra sin re-loguear del lado del server.
+    const puedeReconciliar =
+      req?.user?.permissions?.[Permission.COMMERCIAL_INVENTORY_RECONCILIAR] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.service.cancel(id, body?.reason, { soloSiEstaAbandonado: !puedeReconciliar });
+  }
+}

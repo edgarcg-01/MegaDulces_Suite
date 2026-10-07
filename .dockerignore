@@ -1,0 +1,98 @@
+# Dependencies (se reinstalan dentro del build con npm ci)
+node_modules
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+
+# Build outputs (se generan dentro del builder stage)
+dist
+build
+.next
+out
+tmp
+
+# Environment files (los inyecta Railway/Render como secrets)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+
+# IDE / editor
+.vscode
+.idea
+.cursor
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github
+.gitlab-ci.yml
+
+# Documentation (no aporta al runtime)
+docs
+*.md
+LICENSE
+
+# Uploads / tmp (storage local de dev, no debe entrar)
+uploads
+
+# Tests / coverage
+coverage
+.nyc_output
+**/*.spec.ts
+**/*.test.ts
+jest.config.*
+karma.conf.*
+
+# Nx cache + workspace artifacts
+.nx
+.nx/cache
+.nx/workspace-data
+
+# Angular cache
+.angular
+.angular/cache
+
+# Logs
+*.log
+logs
+
+# Lighthouse / análisis local
+lh-*.report.*
+lighthouse-*.json
+
+# Claude / local agent state
+.claude
+
+# ── [VL.11.C] VOLCADOS DE BASE — 551 MB que NO deben entrar al contexto ─────────
+# ⚠️ `database/` SÍ viaja a las imágenes (`COPY database ./database` en /Dockerfile:271 y
+# Dockerfile.worker:118) porque knex lee de ahí las migraciones. Lo que no debe viajar son
+# los volcados sueltos: `BACKUP.sql` 228 MB, `backup tienda LPA R 42…sql` 147 MB,
+# `R10 19-06-2026.sql` 41 MB, más `database/backups/` 110 MB.
+#
+# Hoy `ops/prod/deploy.sh` se salva de casualidad: manda `git archive HEAD`, y estos archivos
+# no están versionados, así que a `md` llegan 8.5 MB. Pero **cualquier `docker build .`
+# local o de CI empuja ~540 MB** al contexto y los hornea en las DOS imágenes.
+#
+# ⭐ El patrón es el mismo que `.gitignore:88` (`database/*.sql`), o sea una regla que este
+# repo ya validó. Verificado antes de escribirla: **0** archivos `.sql` versionados viven
+# directamente en `database/`; los 53 que sí existen están todos en subcarpetas
+# (`database/importers/…`, `database/scripts/…`) y este patrón NO los alcanza.
+database/*.sql
+database/backups

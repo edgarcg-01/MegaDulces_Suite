@@ -1,0 +1,90 @@
+{
+  "name": "view",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/view/src",
+  "prefix": "app",
+  "tags": [
+    "scope:view",
+    "type:app"
+  ],
+  "targets": {
+    "build": {
+      "//": "Angular 22: builder `application` (esbuild + dev server Vite). Reemplazó a browser-esbuild (deprecado). outputPath aplanado (browser: '') → sale a dist/apps/view directo, que es lo que copia el Dockerfile a nginx. serviceWorker toma el PATH (no true). Entry = `browser` (no `main`). aot/buildOptimizer no aplican (application siempre AOT).",
+      "executor": "@nx/angular:application",
+      "outputs": [
+        "{options.outputPath.base}"
+      ],
+      "options": {
+        "outputPath": {
+          "base": "dist/apps/view",
+          "browser": ""
+        },
+        "index": "apps/view/src/index.html",
+        "browser": "apps/view/src/main.ts",
+        "polyfills": [
+          "apps/view/src/polyfills.ts"
+        ],
+        "tsConfig": "apps/view/tsconfig.app.json",
+        "assets": [
+          "apps/view/src/favicon.ico",
+          "apps/view/src/assets"
+        ],
+        "styles": [
+          "apps/view/src/styles.css"
+        ],
+        "scripts": [],
+        "allowedCommonJsDependencies": [
+          "leaflet",
+          "jsbarcode",
+          "exceljs"
+        ],
+        "serviceWorker": "apps/view/ngsw-config.json"
+      },
+      "configurations": {
+        "production": {
+          "optimization": true,
+          "budgets": [
+            {
+              "type": "initial",
+              "maximumWarning": "1.35mb",
+              "maximumError": "1.4mb"
+            },
+            {
+              "type": "anyComponentStyle",
+              "maximumWarning": "28kb",
+              "maximumError": "34kb"
+            }
+          ],
+          "outputHashing": "all"
+        },
+        "development": {
+          "optimization": false,
+          "extractLicenses": false,
+          "sourceMap": true
+        }
+      },
+      "defaultConfiguration": "production"
+    },
+    "serve": {
+      "executor": "@nx/angular:dev-server",
+      "configurations": {
+        "production": {
+          "buildTarget": "view:build:production"
+        },
+        "development": {
+          "buildTarget": "view:build:development",
+          "proxyConfig": "apps/view/proxy.conf.json"
+        }
+      },
+      "defaultConfiguration": "development",
+      "continuous": true
+    },
+    "extract-i18n": {
+      "executor": "@nx/angular:extract-i18n",
+      "options": {
+        "buildTarget": "view:build"
+      }
+    }
+  }
+}

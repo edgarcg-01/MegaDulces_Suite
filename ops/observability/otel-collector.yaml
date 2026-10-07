@@ -1,0 +1,45 @@
+# OTel Collector (INFRA.2). Recibe OTLP del API/worker y lo reparte a Loki/Tempo/Prometheus.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+  # Protege .249: si llega una ráfaga, no revienta memoria.
+  memory_limiter:
+    check_interval: 2s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+exporters:
+  # Logs → Loki (OTLP nativo del endpoint de Loki 3.x).
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  # Traces → Tempo (OTLP).
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  # Métricas → las expone el collector para que Prometheus las scrapee.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]

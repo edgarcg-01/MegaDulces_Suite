@@ -1,0 +1,385 @@
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { Router, RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
+import { AlertsSocketService, CommercialAlert } from '../command-center/alerts-socket.service';
+import { FindingsService } from '../../finanzas/findings.service';
+import { ActionsService } from '../../finanzas/actions.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
+import { DataScopeService } from '../../../core/services/data-scope.service';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
+import { ServiceDeskService } from '../../servicio/service-desk.service';
+
+interface FeedItem { type: string; severity: 'info' | 'warn' | 'critical'; title: string; message: string; at: number; route?: string }
+
+/**
+ * Notificaciones de finanzas TEMPORALMENTE desactivadas (2026-08): la bandeja de hallazgos
+ * está en recalibración; el badge de "críticos" traía cientos de hallazgos sin triar (ruido).
+ * Con esto la campana no muestra ni cuenta nada de finanzas (sección, badge y alertas
+ * finance_finding del feed en vivo). Volver a `true` cuando el flujo esté bien estructurado.
+ */
+const FINANCE_NOTIF_ENABLED = false;
+
+/**
+ * CxP (Fase CXP.1) — Centro de Notificaciones del header. Campana única que reúne
+ * lo que necesita atención SIN entrar a cada pantalla:
+ *   · Cuenta autoritativa (poll 60s): hallazgos críticos + acciones HITL por aprobar
+ *     (de Maat/CxP) → badge. Solo si el usuario ve finanzas (evita 403).
+ *   · Feed en vivo (WS /alerts): cualquier alerta que llega (finance_finding,
+ *     pedidos, stock, db_health…) con un pulso "hay algo nuevo".
+ *
+ * Read-state en localStorage: al abrir marca leído y apaga el pulso; el badge es un
+ * conteo VIVO de pendientes (no se apaga hasta que se resuelvan). Autónomo como el
+ * HealthAlertToast: se monta una vez en el header. No desconecta el socket en destroy
+ * (lo administra el toast hermano; misma vida del layout).
+ */
+@Component({
+  selector: 'app-notifications-bell',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RouterLink, CommonModule],
+  template: `
+    <div class="relative">
+      <button
+        type="button"
+        (click)="toggle()"
+        class="p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted relative
+               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+        [class.text-content-active]="attentionCount() > 0"
+        aria-label="Notificaciones"
+        aria-haspopup="dialog"
+        [attr.aria-expanded]="open()"
+      >
+        <i class="pi pi-bell text-lg" [class.animate-pulse]="hasNew()" aria-hidden="true"></i>
+        @if (attentionCount() > 0) {
+          <span
+            class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold leading-none
+                   flex items-center justify-center"
+            [style.background]="criticos() > 0 ? 'var(--bad-fg)' : 'var(--action)'"
+            style="color:#fff"
+            aria-hidden="true"
+          >{{ attentionCount() > 99 ? '99+' : attentionCount() }}</span>
+        } @else if (hasNew()) {
+          <span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full animate-pulse" style="background:var(--action)" aria-hidden="true"></span>
+        }
+      </button>
+
+      @if (open()) {
+        <div class="fixed inset-0 z-[40]" (click)="close()" aria-hidden="true"></div>
+        <div
+          class="absolute right-0 top-full mt-2 w-[360px] max-w-[92vw] bg-surface-sidebar border border-divider rounded-xl shadow-lg z-[50] overflow-hidden"
+          role="dialog"
+          aria-label="Centro de notificaciones"
+        >
+          <header class="flex items-center justify-between px-4 py-3 border-b border-divider">
+            <span class="text-sm font-semibold text-content-main">Notificaciones</span>
+            @if (canSeeFinance()) {
+              <a routerLink="/finanzas/hallazgos" (click)="close()" class="text-xs text-[color:var(--action)] hover:underline">Ver hallazgos</a>
+            }
+          </header>
+
+          @if (canSeeFinance()) {
+            <div class="px-2 py-2 border-b border-divider grid grid-cols-1 gap-1">
+              <a routerLink="/finanzas/hallazgos" (click)="close()" class="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-surface-hover text-left transition-colors">
+                <i class="pi pi-flag text-base" [style.color]="criticos() > 0 ? 'var(--bad-fg)' : 'var(--content-muted, currentColor)'" aria-hidden="true"></i>
+                <span class="flex-1 min-w-0">
+                  <span class="block text-sm text-content-main">{{ criticos() }} crítico(s) · {{ pendientes() }} pendiente(s)</span>
+                  <span class="block text-xs text-content-muted">Hallazgos de Maat</span>
+                </span>
+                @if (montoRiesgo() > 0) { <span class="text-xs font-semibold text-content-main tabular-nums">{{ money(montoRiesgo()) }}</span> }
+              </a>
+              <a routerLink="/finanzas/hallazgos" fragment="acciones" (click)="close()" class="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-surface-hover text-left transition-colors">
+                <i class="pi pi-check-square text-base" [style.color]="accionesPend() > 0 ? 'var(--action)' : 'var(--content-muted, currentColor)'" aria-hidden="true"></i>
+                <span class="flex-1 min-w-0">
+                  <span class="block text-sm text-content-main">{{ accionesPend() }} acción(es) por aprobar</span>
+                  <span class="block text-xs text-content-muted">Cuentas por Pagar / Tesorería (HITL)</span>
+                </span>
+                <i class="pi pi-angle-right text-content-muted" aria-hidden="true"></i>
+              </a>
+            </div>
+          }
+
+          <div class="max-h-[46vh] overflow-y-auto">
+            @if (feed().length === 0) {
+              <p class="px-4 py-6 text-center text-xs text-content-muted">Sin novedades en tiempo real.</p>
+            } @else {
+              <ul class="divide-y divide-[color:var(--c-divider,var(--border-color))]">
+                @for (it of feed(); track it.at) {
+                  <li>
+                    <button type="button" (click)="goFeed(it)" class="w-full flex items-start gap-3 px-4 py-2.5 hover:bg-surface-hover text-left transition-colors">
+                      <i class="pi {{ icon(it) }} text-sm mt-0.5" [style.color]="sevColor(it.severity)" aria-hidden="true"></i>
+                      <span class="flex-1 min-w-0">
+                        <span class="block text-sm text-content-main truncate">{{ it.title }}</span>
+                        <span class="block text-xs text-content-muted line-clamp-2">{{ it.message }}</span>
+                      </span>
+                      <span class="text-[10px] text-content-muted whitespace-nowrap mt-0.5">{{ ago(it.at) }}</span>
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+
+          @if (!connected()) {
+            <div class="px-4 py-1.5 text-[10px] text-content-muted border-t border-divider status-bad">
+              <span class="status-dot" aria-hidden="true"></span> Sin conexión en tiempo real
+            </div>
+          }
+        </div>
+      }
+    </div>
+  `,
+})
+export class NotificationsBellComponent implements OnInit, OnDestroy {
+  private readonly socket = inject(AlertsSocketService);
+  private readonly findingsSvc = inject(FindingsService);
+  private readonly actionsSvc = inject(ActionsService);
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
+  private readonly router = inject(Router);
+  private readonly dataScope = inject(DataScopeService);
+  private readonly serviceDesk = inject(ServiceDeskService);
+
+  readonly open = signal(false);
+  readonly criticos = signal(0);
+  readonly pendientes = signal(0);
+  readonly montoRiesgo = signal(0);
+  readonly accionesPend = signal(0);
+  readonly feed = signal<FeedItem[]>([]);
+  readonly connected = this.socket.connected;
+  private readonly lastReadAt = signal<number>(Number(localStorage.getItem('cxp_notif_read_at') || 0));
+  private readonly newSince = signal(false);
+
+  readonly canSeeFinance = computed(() =>
+    FINANCE_NOTIF_ENABLED &&
+    (this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_AI_CHAT] === true));
+  /**
+   * Quién ve los avisos de FEED (Kepler/ContPAQi trajo movimientos): quien tiene el
+   * módulo de Bancos. Independiente de FINANCE_NOTIF_ENABLED (ese flag apaga los
+   * hallazgos ruidosos de Maat, no estos avisos de feed).
+   */
+  readonly canSeeFinanceFeed = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_BANK_VER] === true);
+
+  // ── `[RE.27.C]` La cola de órdenes de entrada ────────────────────────────
+  //
+  // Estos avisos se filtran por DOS ejes, no uno. El permiso dice si le
+  // corresponde el oficio; el alcance dice si le corresponde ESA sucursal.
+  //
+  // El segundo no es adorno: `COMPRAS_ENTRADAS_VALIDAR` lo tienen 25 personas y
+  // casi todas ven la red entera, así que sin el filtro de alcance el aviso de
+  // Padre Hidalgo le llega a los 25. Una alerta que le llega a todos no la
+  // atiende nadie — que es, textualmente, el estado del que sale esta fase
+  // (26 pueden validar, 3 lo hicieron alguna vez).
+  /**
+   * `[PV.4]` Quién ve los avisos de TIPO de póliza: quien tiene Contabilidad, que es
+   * quien arma y sube las pólizas. Tipo propio a propósito: NO entra por
+   * `finance_finding`, que la campana descarta entero mientras FINANCE_NOTIF_ENABLED
+   * esté en false — un aviso que entra por ahí hoy no le llega a nadie.
+   *
+   * Y el `if` explícito hace falta: sin él el tipo cae en el default, que deja pasar,
+   * o sea le llegaría a TODOS. Un aviso mal ruteado se ignora igual que uno que falta.
+   */
+  private readonly canSeeTipoPoliza = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FISCAL_CONTAB_VER] === true);
+
+  private readonly canValidarEntradas = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
+  private readonly canCapturarEntradas = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
+
+  /**
+   * Sucursales del alcance del usuario. `null` mientras no se resuelva y para
+   * quien las ve todas — en los dos casos NO se filtra, por motivos opuestos:
+   * el de alcance total tiene que verlas, y esconder un aviso porque el alcance
+   * todavía no cargó sería perderlo sin dejar rastro. Un aviso de más se ignora;
+   * uno de menos no existe.
+   */
+  private readonly misSucursales = signal<Set<string> | null>(null);
+  readonly attentionCount = computed(() => this.criticos() + this.accionesPend());
+  readonly hasNew = computed(() => this.newSince());
+
+  /**
+   * `[MS.3.6]` Mesa de Servicio. Los avisos se LEEN de `servicedesk.notification_log` (canal `app`) por
+   * poll, y el WebSocket sólo sirve para adelantar esa lectura. No es redundancia: lo que nace en el
+   * barrido del SLA o en el auto-cierre sale del worker, que no tiene WebSocket (ADR-080), así que un
+   * aviso que dependiera del push se perdería justo cuando nadie lo provocó con las manos. El log
+   * es la fuente de verdad; el push, una mejora de latencia.
+   */
+  private readonly sdActivo = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
+  private readonly sdPuedeAtender = computed(() => this.perms.hasAny(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR));
+  private sdVisto = new Set<string>();
+  private sdDesde: string | undefined;
+
+  private sub?: Subscription;
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly zone = inject(NgZone);
+
+  ngOnInit(): void {
+    this.socket.connect();
+    this.sub = this.socket.alert$.subscribe((a) => this.onAlert(a));
+    if (this.canSeeFinance()) {
+      this.refresh();
+      // Esta campana vive en el header del layout, o sea corre en TODA pantalla
+      // de la Suite. Con 'setInterval' pelado, cada ventana abierta sumaba 2
+      // peticiones por minuto aunque nadie la estuviera mirando. Ver
+      // 'core/utils/poll-visible'.
+      encuestarVisible(60_000, () => this.refresh(), { destroyRef: this.destroyRef, zone: this.zone });
+    }
+    if (this.sdActivo()) {
+      this.pollServicio();
+      encuestarVisible(60_000, () => this.pollServicio(), { destroyRef: this.destroyRef, zone: this.zone });
+    }
+    // `[RE.27.C]` Alcance de sucursales para filtrar los avisos de entradas. Va
+    // cacheado en el servicio (una llamada por sesión) y es best-effort: si no
+    // responde, `null` deja pasar todo en vez de silenciar la campana.
+    if (this.canValidarEntradas() || this.canCapturarEntradas()) {
+      this.dataScope.dim('warehouse').subscribe({
+        next: (d) => this.misSucursales.set(
+          !d || d.mode === 'all' ? null : new Set((d.options || []).map((o) => String(o.value))),
+        ),
+        error: () => this.misSucursales.set(null),
+      });
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.sub?.unsubscribe();
+    // La encuesta se corta sola con el DestroyRef.
+    // el socket lo administra HealthAlertToast (hermano de layout) — no desconectar aquí.
+  }
+
+  /** Trae los avisos nuevos de la mesa y los suma al feed. Best-effort: un fallo no calla la campana. */
+  private pollServicio(): void {
+    this.serviceDesk.notifications(this.sdDesde).subscribe({
+      next: (rows) => {
+        const nuevos = rows.filter((n) => !this.sdVisto.has(n.id));
+        if (!nuevos.length) return;
+        for (const n of nuevos) this.sdVisto.add(n.id);
+        // `since` avanza al más reciente que ya se vio; el servidor devuelve estrictamente posteriores.
+        this.sdDesde = rows.reduce((m, n) => (n.created_at > m ? n.created_at : m), this.sdDesde ?? '');
+        const items: FeedItem[] = nuevos.map((n) => ({
+          type: 'service_desk', severity: n.severity, title: n.title, message: n.message,
+          at: Date.parse(n.created_at) || Date.now(), route: this.rutaServicio(n.event, n.request_id),
+        }));
+        this.feed.update((f) => [...items, ...f].sort((a, b) => b.at - a.at).slice(0, 20));
+        // Sólo pulsa por lo posterior a la última vez que abrieron la campana (no por el histórico al cargar).
+        if (items.some((i) => i.at > this.lastReadAt())) this.newSince.set(true);
+      },
+      // Best-effort: un fallo de red no calla la campana, vuelve a intentar en el siguiente ciclo.
+      error: () => undefined,
+    });
+  }
+
+  /** A dónde lleva un aviso: lo que es de quien atiende, a la bandeja; lo demás, a sus solicitudes. */
+  private rutaServicio(event: string, requestId: string | null): string {
+    const deAtencion = event === 'nuevo_prioritario' || event === 'asignado' || event === 'reabierto' || event.startsWith('sla_');
+    const base = deAtencion && this.sdPuedeAtender() ? '/servicio/bandeja' : '/servicio/solicitudes';
+    return requestId ? `${base}?id=${requestId}` : base;
+  }
+
+  private onAlert(a: CommercialAlert): void {
+    // `[MS.3.6]` El push de la mesa NO entra al feed: sólo adelanta la lectura del log (ver arriba).
+    // Entrar por las dos vías duplicaría cada aviso.
+    if (a.type === ('service_desk' as any)) { if (this.sdActivo()) this.pollServicio(); return; }
+    // Finanzas (hallazgos Maat) desactivado: no dejamos pasar sus alertas al feed en vivo.
+    if (!FINANCE_NOTIF_ENABLED && a.type === ('finance_finding' as any)) return;
+    // Aviso de FEED nuevo (Kepler/ContPAQi): solo a quien tiene el módulo de Finanzas.
+    if (a.type === ('finance_feed' as any) && !this.canSeeFinanceFeed()) return;
+    // `[RE.27.C]` Cola de órdenes de entrada: permiso del oficio + alcance de la sucursal.
+    if (a.type === ('entradas_sla' as any) && !this.aplicaEntradas(a)) return;
+    // `[PV.4]` Tipo de póliza incongruente: es trabajo de Contabilidad.
+    if (a.type === ('polizas_tipo' as any) && !this.canSeeTipoPoliza()) return;
+    /**
+     * `[GX.26]` El vale resuelto NO se filtra acá, y es a propósito: el servidor ya lo
+     * mandó al cuarto de UNA persona, así que si llegó es porque es suyo. Filtrarlo por
+     * permiso además lo escondería justo a quien tiene que verlo -- el capturista, que
+     * por lo general no tiene ningún permiso de Finanzas.
+     */
+    const at = Date.parse(a.emitted_at) || Date.now();
+    this.feed.update((f) => [{ type: a.type, severity: a.severity, title: a.title, message: a.message, at, route: a.data?.route }, ...f].slice(0, 20));
+    this.newSince.set(true);
+    // Una alerta financiera implica hallazgos nuevos → refresca el conteo.
+    if (a.type === ('finance_finding' as any) && this.canSeeFinance()) this.refresh();
+  }
+
+  /**
+   * `[RE.27.C]` ¿Este aviso de entradas es para mí?
+   *
+   * Dos preguntas, en orden: el oficio (revisar pide `_VALIDAR`, capturar pide
+   * `_GESTIONAR` — son trabajos distintos y muchas veces de personas distintas)
+   * y la sucursal.
+   */
+  private aplicaEntradas(a: CommercialAlert): boolean {
+    const tipo = a.data?.tipo;
+    const puede = tipo === 'captura' ? this.canCapturarEntradas() : this.canValidarEntradas();
+    if (!puede) return false;
+    const mias = this.misSucursales();
+    const suc = a.data?.sucursal ? String(a.data.sucursal) : null;
+    // Sin alcance resuelto (o alcance total) no se filtra; un aviso sin sucursal
+    // tampoco se esconde: no poder decidir no es motivo para callarlo.
+    if (!mias || !suc) return true;
+    return mias.has(suc);
+  }
+
+  private refresh(): void {
+    this.findingsSvc.stats().subscribe({
+      next: (s) => { this.criticos.set(s.criticos || 0); this.pendientes.set(s.pendientes || 0); this.montoRiesgo.set(s.monto_en_riesgo || 0); },
+      error: () => {},
+    });
+    this.actionsSvc.list('pending_approval').subscribe({
+      next: (rows) => this.accionesPend.set(rows?.length || 0),
+      error: () => {},
+    });
+  }
+
+  toggle(): void {
+    const willOpen = !this.open();
+    this.open.set(willOpen);
+    if (willOpen) { this.markRead(); if (this.canSeeFinance()) this.refresh(); }
+  }
+  close(): void { this.open.set(false); }
+
+  private markRead(): void {
+    const now = Date.now();
+    this.lastReadAt.set(now);
+    localStorage.setItem('cxp_notif_read_at', String(now));
+    this.newSince.set(false);
+  }
+
+  // Hallazgos y acciones se abren con <a routerLink>: una alerta de la campana
+  // es justo lo que querés abrir AL LADO de lo que estabas haciendo (ADR-078).
+  goFeed(it: FeedItem): void { this.close(); if (it.route) this.router.navigateByUrl(it.route); }
+
+  icon(it: FeedItem): string {
+    switch (it.type) {
+      case 'finance_finding': return 'pi-flag';
+      case 'large_order': return 'pi-shopping-cart';
+      case 'order_confirmed': case 'order_fulfilled': return 'pi-check-circle';
+      case 'low_stock_critical': return 'pi-box';
+      case 'vip_inactive': return 'pi-user';
+      case 'db_health': return 'pi-database';
+      case 'finance_feed': return 'pi-sync';
+      // `[RE.27.C]` La cola de entradas: es trabajo esperando, no un dato nuevo.
+      case 'entradas_sla': return 'pi-clock';
+      // `[PV.4]` Tipo de póliza: es una clasificación mal puesta, no un dato nuevo.
+      case 'polizas_tipo': return 'pi-tags';
+      // `[GX.26]` La decisión sobre TU vale: llegó una respuesta, no una tarea.
+      case 'vale_resuelto': return 'pi-verified';
+      // `[MS.3.6]` Mesa de Servicio: una solicitud que se movió o que espera a alguien.
+      case 'service_desk': return 'pi-ticket';
+      default: return 'pi-bell';
+    }
+  }
+  sevColor(s: 'info' | 'warn' | 'critical'): string {
+    return s === 'critical' ? 'var(--bad-fg)' : s === 'warn' ? 'var(--warn-fg)' : 'var(--info-fg, currentColor)';
+  }
+  money(n: number): string { return Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  ago(at: number): string {
+    const s = Math.max(0, Math.floor((Date.now() - at) / 1000));
+    if (s < 60) return 'ahora'; if (s < 3600) return `${Math.floor(s / 60)}m`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h`; return `${Math.floor(s / 86400)}d`;
+  }
+}

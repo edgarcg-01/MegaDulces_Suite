@@ -1,0 +1,24 @@
+{
+  "//": [
+    "⛔ Este archivo existe SOLO para declarar los tags de @nx/enforce-module-boundaries.",
+    "Un proyecto sin tags no matchea ningun sourceTag, asi que NINGUNA de las reglas del repo le",
+    "aplica: el candado que el repo cree tener puesto no existe para el. Ya habia pasado con portal",
+    "y vendor (tapado el 2026-09-15); este y trade-ingest-lanes eran los dos que quedaban.",
+    "",
+    "Se probo primero con la clave \"nx\" del package.json y NO funciono: Nx 23 reporto tags: []",
+    "igual. Medido. Por eso va en project.json, que es explicito.",
+    "",
+    "scope:ops no puede depender de NADA (ver eslint.config.js), y es literal: esto se empaqueta",
+    "con su PROPIO package.json y su propio Dockerfile. Un import a una lib del monorepo compilaria",
+    "en el editor y reventaria en runtime dentro del contenedor, donde esa lib no esta.",
+    "",
+    "Medido antes de etiquetar: cero violaciones -- solo usa builtins de Node y pg."
+  ],
+  "name": "feeds-ingest",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "tags": [
+    "scope:ops",
+    "type:service"
+  ]
+}

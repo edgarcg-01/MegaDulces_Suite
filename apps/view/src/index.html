@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Mega Dulces</title>
+  <base href="/">
+  <!-- App-like: bloqueamos el pinch/double-tap zoom del usuario. El zoom mueve el
+       viewport visual y desalinea los elementos position:fixed (FAB, bottom-nav,
+       hero, header sticky). maximum-scale=1 + user-scalable=no lo fija a 1x como una
+       app nativa. (Trade-off a11y: el usuario no puede hacer zoom para leer; aceptable
+       en una app interna de campo. El texto sí escala con el tamaño de fuente del SO.) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+
+  <!-- Google Fonts: preconnect + carga asíncrona (no bloquea render).
+       Truco: media="print" hace que el browser baje la hoja sin parar el
+       renderizado; onload la promueve a "all" cuando ya está cargada.
+       `<noscript>` es fallback si JS está desactivado. Lighthouse cuenta
+       esto como NO render-blocking, ahorrando ~240-360ms en FCP. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Sniglet: SOLO para /tienda/verificador (excepción confirmada a DESIGN §O.3, ver el
+       componente `TiendaVerificadorComponent` — clon fiel del kiosco `verificador.html`
+       retirado en la Fase CV). No se usa en ningún otro módulo. -->
+  <link rel="preload" as="style"
+        href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&family=Sniglet:wght@400;800&display=swap"
+        onload="this.onload=null;this.rel='stylesheet'">
+  <noscript>
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&family=Sniglet:wght@400;800&display=swap">
+  </noscript>
+
+  <!-- Favicon - Logo Mega Dulces -->
+  <link rel="icon" type="image/png" href="assets/logos/mega-dulces-logo.png">
+  <link rel="shortcut icon" type="image/png" href="assets/logos/mega-dulces-logo.png">
+
+  <!-- Theme color del chrome del PWA. Estos son FALLBACK pre-boot (siguen al
+       SO via prefers-color-scheme). Apenas Angular monta, ThemeService los
+       elimina y deja un único meta dinámico que matchea el tema de la APP
+       (no el del SO) — evita la línea amarilla cuando el SO está en claro
+       pero la app forzada a oscuro. Neutros para no destellar amarillo. -->
+  <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#18181B" media="(prefers-color-scheme: dark)">
+  <meta name="msapplication-TileColor" content="#FDE707">
+
+  <!-- Apple Touch Icon - Logo Mega Dulces (sizes deben matchear el PNG real;
+       iOS no rescala bien si el tamaño declarado no coincide). -->
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/icon-180x180.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="assets/icons/icon-152x152.png">
+  <link rel="apple-touch-icon" sizes="120x120" href="assets/icons/icon-120x120.png">
+  <link rel="apple-touch-icon" sizes="76x76" href="assets/icons/icon-76x76.png">
+
+  <!-- Meta tags para iOS -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <!-- black-translucent = contenido borde-a-borde (el header/bottom-nav rellenan
+       las safe-areas con su color via .safe-top/.safe-bottom). NO usar `default`:
+       deja el área del home-indicator como franja del sistema (margen negro). -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Mega Dulces">
+
+  <!-- Meta tags para PWA -->
+  <meta name="application-name" content="Mega Dulces">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-touch-fullscreen" content="yes">
+  <meta name="format-detection" content="telephone=no">
+
+  <!-- Meta tags para descripción y SEO -->
+  <meta name="description" content="Plataforma B2B de Mega Dulces — trade marketing, pedidos comerciales, logística y operación de campo.">
+  <meta name="keywords" content="mega dulces, trade marketing, pedidos b2b, logística, ventas">
+  <meta name="author" content="Mega Dulces">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="/">
+  <meta property="og:title" content="Mega Dulces — Plataforma B2B">
+  <meta property="og:description" content="Plataforma B2B de Mega Dulces — trade marketing, pedidos comerciales, logística y operación de campo.">
+  <meta property="og:image" content="assets/icons/icon-512x512.png">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="/">
+  <meta property="twitter:title" content="Mega Dulces — Plataforma B2B">
+  <meta property="twitter:description" content="Plataforma B2B de Mega Dulces — trade marketing, pedidos comerciales, logística y operación de campo.">
+  <meta property="twitter:image" content="assets/icons/icon-512x512.png">
+
+  <!-- Preload critical resources -->
+  <link rel="preload" href="assets/icons/icon-192x192.png" as="image">
+
+  <!-- Web Manifest -->
+  <link rel="manifest" href="assets/manifest.webmanifest">
+  
+  <!-- Security headers -->
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta http-equiv="X-XSS-Protection" content="1; mode=block">
+
+  <!--
+    PWA install prompt — usa los design tokens cargados desde styles.css.
+    Las vars existen apenas Angular monta la app; los estilos viven en el
+    <head> y aplican igual al prompt inyectado por PwaInstallService.
+  -->
+  <style>
+    /*
+      El aviso de instalar es `position: fixed` con `z-index: 9999` sobre el contenido y
+      dura 30 s. En esos 30 s no solo se VE encima: se COME LOS CLICS de lo que quede
+      debajo, y la persona ve un boton que no responde.
+
+      Medido en `/finanzas/gastos` (paso 3): `document.elementFromPoint()` sobre el centro
+      del boton «Subir vale escaneado» devolvia `DIV.pwa-install-prompt` en vez del boton.
+      Tambien tapaba dos botones de envio. Sintoma reportado: "al darle click no me abre
+      nada" -- y es cierto, el clic nunca llegaba.
+
+      La barra deja pasar los clics y solo sus PROPIOS botones los reciben. Se eligio esto
+      y no reservar espacio con `padding-bottom` porque el padding hace SCROLLEABLE lo que
+      esta debajo pero no lo mueve: el boton seguia tapado hasta que alguien scrolleara.
+      Verificado en el navegador con el aviso puesto: el centro del boton pasa a devolver
+      `LABEL.cap-ev-b`, y «Instalar» / «Ahora no» siguen respondiendo.
+    */
+    .pwa-install-prompt { pointer-events: none; }
+    .pwa-install-prompt button { pointer-events: auto; }
+
+    .pwa-install-prompt {
+      position: fixed;
+      bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+      left: 20px;
+      right: 20px;
+      background: var(--card-bg, #FFFFFF);
+      color: var(--text-main, #09090B);
+      border: 1px solid var(--border-color, #E4E4E7);
+      padding: 16px;
+      border-radius: 16px;
+      box-shadow: var(--shadow-hover, 0 10px 30px -10px rgba(0, 0, 0, 0.1));
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      animation: pwaSlideUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .pwa-install-prompt.hide {
+      animation: pwaSlideDown 0.3s ease-out forwards;
+    }
+
+    @keyframes pwaSlideUp {
+      from { transform: translateY(100px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    @keyframes pwaSlideDown {
+      from { transform: translateY(0); opacity: 1; }
+      to { transform: translateY(100px); opacity: 0; }
+    }
+
+    .pwa-install-prompt-content { flex: 1; min-width: 0; }
+    .pwa-install-prompt-title { font-weight: 600; margin-bottom: 4px; }
+    .pwa-install-prompt-text { font-size: 14px; color: var(--text-muted, #52525B); }
+
+    .pwa-install-prompt-buttons {
+      display: flex;
+      gap: 8px;
+      margin-left: 16px;
+    }
+
+    .pwa-install-prompt button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .pwa-install-prompt .install-btn {
+      background: var(--brand-400, #FDE707);
+      color: var(--neutral-950, #09090B);
+    }
+
+    .pwa-install-prompt .dismiss-btn {
+      background: transparent;
+      color: var(--text-muted, #52525B);
+      border: 1px solid var(--border-color, #E4E4E7);
+    }
+
+    .pwa-install-prompt .install-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-light, 0 1px 3px rgba(0, 0, 0, 0.05));
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .pwa-install-prompt,
+      .pwa-install-prompt.hide { animation: none; opacity: 1; }
+      .pwa-install-prompt.hide { opacity: 0; transition: opacity 200ms ease; }
+    }
+  </style>
+</head>
+<body>
+  <app-root></app-root>
+</body>
+</html>

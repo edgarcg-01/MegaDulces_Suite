@@ -1,0 +1,16 @@
+# Prometheus (métricas) — scrapea las métricas que el OTel Collector expone. INFRA.2.
+global:
+  scrape_interval: 30s
+  external_labels:
+    monitor: trade-marketing
+
+scrape_configs:
+  # Métricas de la app (llegan por OTLP al collector, que las reexpone en :8889).
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  # Salud del propio Prometheus.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

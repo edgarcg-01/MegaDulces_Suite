@@ -1,0 +1,110 @@
+// @megadulces/platform-core — barrel público.
+// Infra compartida por todos los dominios. Es infra leaf: no depende de
+// ningún dominio. Los dominios importan SIEMPRE desde aquí (nunca deep import).
+
+// ── database ──
+export * from './lib/database/database.module';
+export * from './lib/database/new-database.module';
+export * from './lib/database/tenant-knex.service';
+export * from './lib/database/vector-database.module';
+export * from './lib/database/neo4j.module';
+// ⛔ RETIRADO 2026-09-28 [VSO.12]: `kepler-database.module` (`KNEX_KEPLER_RO`) — provider
+// global sin un solo consumidor, cuyo único efecto observable era una advertencia falsa
+// sobre el Sell-Out en cada arranque. Ver el comentario en `apps/api/src/app.module.ts`.
+export * from './lib/database/pg-listen.service';
+
+// ── queue (worker-tier, pg-boss) ──
+export * from './lib/queue/queue.module';
+export * from './lib/queue/queue.service';
+export * from './lib/queue/scheduler-owner';
+export * from './lib/queue/cron-single-flight';
+
+// ── tenant ──
+export * from './lib/tenant/tenant.module';
+export * from './lib/tenant/tenant-context.service';
+export * from './lib/tenant/tenant-context.interceptor';
+export * from './lib/tenant/legacy-tx.als';
+export * from './lib/tenant/require-tenant';
+
+// ── cache (tenant-aware) ──
+export * from './lib/cache/tenant-cache.service';
+export * from './lib/cache/tenant-cache.module';
+
+// ── ability / permisos ──
+export * from './lib/ability/ability.module';
+export * from './lib/ability/platform-admin';
+export * from './lib/ability/data-scope';
+export * from './lib/ability/permissions-cache.service';
+// [ID.29] Al token sólo viajan las claves concedidas: los `false` no cargan
+// información en ningún nivel y son el 96% del header en el peor rol.
+export * from './lib/ability/granted-permissions';
+
+// ── auth ──
+export * from './lib/auth/jwt-auth.guard';
+export * from './lib/auth/public.decorator';
+export * from './lib/auth/jwt-secret';
+export * from './lib/auth/token-ttl';
+// `[ID.37]` LA regla de login, una sola para las dos puertas (`/auth/login` y
+// `/auth-mt/login`). Vive en libs porque copiada en dos servicios se desincronizó.
+export * from './lib/auth/login-core';
+
+// ── guards ──
+export * from './lib/guards/require-auth.guard';
+export * from './lib/guards/roles.guard';
+
+// ── decorators ──
+export * from './lib/decorators/permissions.decorator';
+export * from './lib/decorators/req-user.decorator';
+export * from './lib/decorators/skip-tenant-tx.decorator';
+// roles.decorator.ts deprecado (sin exports) — no se re-exporta.
+
+// ── ai ──
+export * from './lib/ai/anthropic.service';
+export * from './lib/ai/speech-to-text.service';
+export * from './lib/ai/embeddings.service';
+export * from './lib/ai/llm-extractor.service';
+export * from './lib/ai/ocr-readings.service';
+export * from './lib/ai-product-matcher/ai-product-matcher.module';
+export * from './lib/ai-product-matcher/ai-product-matcher.service';
+
+// ── cloudinary ──
+export * from './lib/cloudinary/cloudinary.module';
+export * from './lib/cloudinary/cloudinary.service';
+// ── object storage (Railway Bucket / S3) ──
+export * from './lib/storage/object-storage.service';
+
+// ── constants / schemas / date ──
+export * from './lib/constants/permissions';
+export * from './lib/constants/branches';
+export * from './lib/schemas/jsonb-schemas';
+export * from './lib/date/mx-date';
+export * from './lib/phone/mx-phone';
+
+// ── scope (alcance de datos — ADR-050) ──
+export * from './lib/scope/scope.module';
+export * from './lib/scope/scope.service';
+export * from './lib/scope/scope.types';
+export * from './lib/scope/scope-params';
+
+// ── search (motor de búsqueda compartido) ──
+export * from './lib/search/smart-search';
+
+// ── pipes (validacion Zod del boundary — ADR-052) ──
+export * from './lib/pipes/zod-validation.pipe';
+
+// ── provenance (VP.2.2 — el primitivo de procedencia, ADR-056) ──
+// Vivía en `libs/commercial/src/lib/shared/`, que es un DOMINIO y no algo compartido: el briefing de
+// Horus (`libs/trade`, deliberadamente desacoplado del motor comercial) no podía declarar su
+// frescura sin acoplar dos dominios o copiar la lógica. `platform-core` ya es dependencia de los dos.
+export * from './lib/provenance/freshness';
+// [CC.10] El otro lado del mismo par: `freshness` LEE `analytics.cron_runs`, esto lo ESCRIBE.
+// Estaba copiado a mano en 7 servicios cuando el octavo iba a nacer.
+export * from './lib/provenance/cron-heartbeat';
+// [UX.0] Qué pantallas se usan. Vive acá y no en `apps/api` porque es un primitivo de la
+// plataforma —lo consumen todas las apps por el mismo interceptor global— y porque ADR-056 pide
+// que un mecanismo genérico viva en `libs/` compartido, no adentro de la fase que lo inventó.
+export * from './lib/observability/usage-metrics.interceptor';
+// [CPU.2] «Preferí la copia materializada y declará su edad». Mismo patrón que los dos de arriba:
+// estaba bien resuelto en UN servicio (`commercial-bi-almacen`) mientras el de al lado tenía la
+// vista viva clavada a mano en tres lugares, quemando el 16.4 % del SQL de prod.
+export * from './lib/provenance/materialized';

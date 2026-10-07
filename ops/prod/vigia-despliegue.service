@@ -1,0 +1,35 @@
+# `[CD.20]` El vigía de `ci-green`, como servicio del sistema.
+#
+# ⭐ Va en systemd y NO en cron ni en k3s, con motivo:
+#   · cron tiene granularidad de 1 minuto y lanza un proceso nuevo cada vez; esto es un bucle
+#     que recuerda el SHA anterior, y esa memoria es justamente lo que evita redesplegar.
+#   · k3s sería lo coherente con la decisión «todo en K8s» (2026-10-01), pero este proceso
+#     ejecuta `auto-deploy.sh`, que hace `docker build`, usa la llave ssh del host y corre
+#     `kubectl apply`. Meterlo en un pod exige darle el socket de Docker y permisos de admin
+#     sobre el clúster — lo mismo que `ADR-080` punto 3 vino a sacar. Queda DECLARADO: es la
+#     excepción, no un olvido.
+#
+# ⚠️ `Restart=always` + `RestartSec` porque la máquina se cae sola (causa física abierta,
+#    deuda `VL.8`). Con `WantedBy=multi-user.target` vuelve con el arranque, sin sesión.
+#
+#   sudo cp ops/prod/vigia-despliegue.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now vigia-despliegue
+#   systemctl status vigia-despliegue   ·   journalctl -u vigia-despliegue -f
+
+[Unit]
+Description=Vigia de ci-green — despliega cuando el CI aprueba (CD.20)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=superoot
+WorkingDirectory=/home/superoot
+ExecStart=/bin/sh /home/superoot/ops/prod/vigia-ci-green.sh
+Restart=always
+RestartSec=30
+# El trabajo real lo hace `auto-deploy.sh`; este bucle sólo pregunta por un SHA.
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

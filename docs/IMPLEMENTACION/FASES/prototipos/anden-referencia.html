@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Andén de Entrada — prototipo de referencia</title>
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap');
+
+/* ── documento ── */
+:root{
+  --paper:#F5F1EA; --surface:#FFFFFF; --surface-2:#FBF9F6;
+  --ink:#100D09; --ink-2:#5E564B; --ink-3:#B0A595;
+  --rule:#E8E2D7; --rule-soft:#F0EBE3;
+  --act:#F05A28; --act-soft:#FDEDE7;
+  --crit:#DC2626; --crit-soft:#FEE2E2;
+  --warn:#B45309; --warn-soft:#FEF3C7;
+  --ok:#15803D; --ok-soft:#DCFCE7;
+  --stage:#EAE4DA;
+  --shadow:0 1px 0 rgba(16,13,9,.03), 0 1px 3px rgba(16,13,9,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#111111; --surface:#1A1A1A; --surface-2:#202020;
+    --ink:#FBF4E9; --ink-2:#B0A595; --ink-3:#837A6C;
+    --rule:#2A2A2A; --rule-soft:#222222;
+    --act:#FF7A4D; --act-soft:#2E1710;
+    --crit:#F19A92; --crit-soft:#361A17;
+    --warn:#E4B45F; --warn-soft:#332813;
+    --ok:#7DCBA2; --ok-soft:#14301F;
+    --stage:#0C0C0C;
+    --shadow:0 1px 0 rgba(0,0,0,.2), 0 1px 3px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#111111; --surface:#1A1A1A; --surface-2:#202020;
+  --ink:#FBF4E9; --ink-2:#B0A595; --ink-3:#837A6C;
+  --rule:#2A2A2A; --rule-soft:#222222;
+  --act:#FF7A4D; --act-soft:#2E1710;
+  --crit:#F19A92; --crit-soft:#361A17;
+  --warn:#E4B45F; --warn-soft:#332813;
+  --ok:#7DCBA2; --ok-soft:#14301F;
+  --stage:#0C0C0C;
+  --shadow:0 1px 0 rgba(0,0,0,.2), 0 1px 3px rgba(0,0,0,.3);
+}
+
+
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);margin:0;padding:28px 16px 60px;
+  font-family:'Hanken Grotesk',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.hd{max-width:920px;margin:0 auto 22px;padding:0 6px}
+.hd h1{font-weight:800;font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
+.hd p{margin:0 0 8px;color:var(--ink-2);font-size:14.5px;max-width:70ch}
+.hd code{font-family:'Geist Mono',monospace;font-size:12.5px;background:var(--surface);
+  border:1px solid var(--rule);padding:1px 5px;border-radius:4px}
+.wrap{max-width:920px;margin:0 auto}
+/* ─────────── ESCENARIO ─────────── */
+.stage{background:var(--stage);border:1px solid var(--rule);padding:24px 22px 28px;
+  margin:0 0 20px;border-radius:12px}
+.stagebar{display:flex;gap:12px;justify-content:center;align-items:center;
+  flex-wrap:wrap;margin:0 0 22px}
+.switch{display:flex;gap:1px;background:var(--rule);border:1px solid var(--rule);
+  border-radius:8px;overflow:hidden}
+.switch button{appearance:none;border:0;background:var(--surface);color:var(--ink-2);
+  font-family:'Geist Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.07em;
+  text-transform:uppercase;padding:9px 15px;cursor:pointer;white-space:nowrap}
+.switch button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.switch button:focus-visible{outline:2px solid var(--act);outline-offset:-2px}
+.deck{display:flex;gap:26px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
+
+/* ── dispositivo: usa los tokens reales de Mega Dulces ── */
+.dev{width:380px;max-width:100%;border:10px solid #2A2622;border-radius:30px;
+  box-shadow:0 14px 38px rgba(16,13,9,.30);overflow:hidden;flex:0 0 auto}
+.dev[data-t="light"]{
+  --d-bg:#F5F1EA; --d-card:#FFFFFF; --d-sunk:#EDE7DE; --d-line:#E8E2D7;
+  --d-t1:#100D09; --d-t2:#5E564B; --d-t3:#B0A595;
+  --d-act:#F05A28; --d-act-ink:#FFFFFF; --d-act-soft:#FDEDE7;
+  --d-ok:#16A34A; --d-ok-bg:#DCFCE7; --d-ok-fg:#166534;
+  --d-warn:#F59E0B; --d-warn-bg:#FEF3C7; --d-warn-fg:#92400E;
+  --d-bad:#DC2626; --d-bad-bg:#FEE2E2; --d-bad-fg:#991B1B;
+  --d-info-bg:#DBEAFE; --d-info-fg:#1E40AF;
+  --d-thumb:#FFFFFF; --d-thumb-sh:0 1px 3px rgba(16,13,9,.16);
+}
+.dev[data-t="dark"]{
+  --d-bg:#111111; --d-card:#1A1A1A; --d-sunk:#0A0A0A; --d-line:#2A2A2A;
+  --d-t1:#FBF4E9; --d-t2:#B0A595; --d-t3:#837A6C;
+  --d-act:#F05A28; --d-act-ink:#FFFFFF; --d-act-soft:#2E1710;
+  --d-ok:#41C489; --d-ok-bg:#14301F; --d-ok-fg:#7DCBA2;
+  --d-warn:#E4B45F; --d-warn-bg:#332813; --d-warn-fg:#E4B45F;
+  --d-bad:#E0574A; --d-bad-bg:#361A17; --d-bad-fg:#F19A92;
+  --d-info-bg:#152238; --d-info-fg:#8FB4E8;
+  --d-thumb:#2E2E2E; --d-thumb-sh:0 1px 3px rgba(0,0,0,.5);
+}
+.dev-bar{background:var(--d-sunk);color:var(--d-t3);font-family:'Geist Mono',monospace;
+  font-size:10px;letter-spacing:.1em;padding:7px 16px;display:flex;justify-content:space-between}
+.scr{background:var(--d-bg);color:var(--d-t1);min-height:640px;display:flex;flex-direction:column;
+  font-size:15px;line-height:1.45}
+
+.scr-hd{padding:12px 14px 10px;background:var(--d-card);border-bottom:1px solid var(--d-line)}
+.hd-row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.hd-row .fol{font-family:'Geist Mono',monospace;font-size:15px;font-weight:600}
+.hd-row .prov{font-size:11.5px;color:var(--d-t3);margin-top:2px}
+.hd-meta{display:flex;gap:8px;align-items:center;margin-top:7px;flex-wrap:wrap}
+.pill{font-family:'Geist Mono',monospace;font-size:9.5px;font-weight:600;letter-spacing:.07em;
+  text-transform:uppercase;padding:3px 7px;border-radius:999px;display:inline-flex;
+  align-items:center;gap:4px;white-space:nowrap}
+.pill.st{background:var(--d-info-bg);color:var(--d-info-fg)}
+.pill.on{background:var(--d-ok-bg);color:var(--d-ok-fg)}
+.pill.sv{background:transparent;color:var(--d-t3);padding-left:0}
+.pill .dt{width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 auto}
+
+/* segmented iOS */
+.seg{display:flex;gap:2px;background:var(--d-sunk);border-radius:10px;padding:3px;margin:10px 0 0}
+.seg button{flex:1 1 0;appearance:none;border:0;background:transparent;color:var(--d-t2);
+  font-family:inherit;font-size:13px;font-weight:600;padding:8px 4px;border-radius:8px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;
+  min-height:38px;transition:background var(--d-dur,150ms) cubic-bezier(.4,0,.2,1),color 150ms}
+.seg button[aria-selected="true"]{background:var(--d-thumb);color:var(--d-t1);box-shadow:var(--d-thumb-sh)}
+.seg button:disabled{color:var(--d-t3);opacity:.45;cursor:not-allowed}
+.seg button:focus-visible{outline:2px solid var(--d-act);outline-offset:1px}
+.seg .bdg{font-family:'Geist Mono',monospace;font-size:10.5px;font-weight:700;
+  min-width:17px;height:17px;padding:0 4px;border-radius:999px;display:inline-flex;
+  align-items:center;justify-content:center;background:var(--d-act);color:var(--d-act-ink);
+  font-variant-numeric:tabular-nums}
+.seg button:disabled .bdg{background:var(--d-t3)}
+.seg .bdg.done{background:var(--d-ok-bg);color:var(--d-ok-fg)}
+
+.scr-bd{padding:14px;flex:1;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+
+.scanbox{border:2px dashed var(--d-line);background:var(--d-card);padding:16px 14px;
+  text-align:center;cursor:pointer;border-radius:12px;transition:border-color 150ms,background 150ms}
+.scanbox:hover,.scanbox:focus-visible{border-color:var(--d-act);outline:none}
+.scanbox .ic{font-family:'Geist Mono',monospace;font-size:24px;color:var(--d-act);letter-spacing:-2px}
+.scanbox .t{font-weight:700;font-size:15.5px;margin-top:4px}
+.scanbox .d{font-size:11.5px;color:var(--d-t3);margin-top:3px}
+
+.lines{display:flex;flex-direction:column;gap:1px;background:var(--d-line);
+  border:1px solid var(--d-line);border-radius:10px;overflow:hidden auto;flex:1}
+.ln{background:var(--d-card);padding:10px 12px;display:grid;grid-template-columns:1fr auto;
+  gap:2px 10px;align-items:center;cursor:pointer;min-height:var(--d-row,48px)}
+.ln:hover{background:var(--d-sunk)}
+.ln.next{box-shadow:inset 3px 0 0 var(--d-act)}
+.ln.ok{opacity:.55}
+.ln .nm{font-size:13.6px;font-weight:600;line-height:1.25}
+.ln .sk{font-family:'Geist Mono',monospace;font-size:10.5px;color:var(--d-t3);grid-column:1}
+.ln .qt{font-family:'Geist Mono',monospace;font-size:13px;color:var(--d-t2);
+  font-variant-numeric:tabular-nums;text-align:right;grid-column:2;grid-row:1/3;
+  align-self:center;justify-self:end;white-space:nowrap;font-weight:600}
+.ln.ok .qt{color:var(--d-ok)}
+
+.eh{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.eh .nm{font-weight:700;font-size:19px;line-height:1.2;letter-spacing:-.01em}
+.eh .sk{font-family:'Geist Mono',monospace;font-size:11px;color:var(--d-t3);margin-top:3px}
+.eh button{appearance:none;background:transparent;border:1px solid var(--d-line);color:var(--d-t2);
+  font-family:'Geist Mono',monospace;font-size:11px;padding:6px 9px;border-radius:8px;
+  cursor:pointer;flex:0 0 auto;min-height:32px}
+
+.note{background:var(--d-card);border:1px solid var(--d-line);border-left:3px solid var(--d-act);
+  padding:9px 11px;font-size:12.4px;color:var(--d-t2);line-height:1.4;border-radius:8px}
+.note b{color:var(--d-t1);font-weight:700}
+
+.fld{display:flex;flex-direction:column;gap:6px}
+.fld label{font-family:'Geist Mono',monospace;font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--d-t3)}
+.fld .row{display:flex;gap:8px;align-items:stretch}
+.inp{flex:1;min-width:0;width:100%;background:var(--d-card);border:1px solid var(--d-line);
+  color:var(--d-t1);font-family:'Geist Mono',monospace;font-size:19px;font-weight:600;
+  padding:10px 12px;min-height:48px;border-radius:10px;font-variant-numeric:tabular-nums}
+.inp:focus{outline:none;border-color:var(--d-act);box-shadow:0 0 0 3px rgba(240,90,40,.20)}
+.inp::placeholder{color:var(--d-t3);font-weight:400}
+.inp.sm{font-size:15px;font-weight:500}
+.hint{font-family:'Geist Mono',monospace;font-size:11px;color:var(--d-t3)}
+.chip{appearance:none;background:var(--d-card);border:1px solid var(--d-line);color:var(--d-t2);
+  font-family:'Geist Mono',monospace;font-size:12px;font-weight:600;padding:0 13px;
+  min-height:48px;cursor:pointer;white-space:nowrap;letter-spacing:.04em;border-radius:10px}
+.chip:hover{border-color:var(--d-act);color:var(--d-act)}
+.chip.wide{width:100%;min-height:46px;display:flex;align-items:center;justify-content:center;gap:8px}
+.chip.busy{color:var(--d-act);border-color:var(--d-act)}
+
+.sem{display:flex;align-items:center;gap:9px;font-size:12.6px;padding:8px 11px;
+  font-weight:600;border-radius:8px}
+.sem .dot{width:10px;height:10px;flex:0 0 auto;border-radius:50%}
+.sem.g{background:var(--d-ok-bg);color:var(--d-ok-fg)} .sem.g .dot{background:var(--d-ok)}
+.sem.y{background:var(--d-warn-bg);color:var(--d-warn-fg)} .sem.y .dot{background:var(--d-warn)}
+.sem.r{background:var(--d-bad-bg);color:var(--d-bad-fg)} .sem.r .dot{background:var(--d-bad)}
+.sem.n{background:var(--d-sunk);color:var(--d-t3)} .sem.n .dot{background:var(--d-t3)}
+
+.go{appearance:none;width:100%;background:var(--d-act);color:var(--d-act-ink);border:0;
+  font-family:inherit;font-weight:700;font-size:17px;min-height:54px;cursor:pointer;
+  margin-top:auto;border-radius:12px}
+.go:hover{background:#D2451C}
+.go:active{transform:scale(.985)}
+.go:disabled{background:var(--d-sunk);color:var(--d-t3);cursor:not-allowed}
+
+.toast{background:var(--d-ok-bg);border-left:3px solid var(--d-ok);color:var(--d-ok-fg);
+  padding:10px 12px;font-size:12.8px;line-height:1.4;border-radius:8px;font-weight:500}
+.toast.r{background:var(--d-bad-bg);border-left-color:var(--d-bad);color:var(--d-bad-fg)}
+
+.fin{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;gap:8px;padding:20px}
+.fin .big{font-size:48px;font-weight:800;color:var(--d-ok);line-height:1}
+.fin .t{font-size:20px;font-weight:700;letter-spacing:-.01em}
+.fin .d{font-size:13.4px;color:var(--d-t3);max-width:27ch;line-height:1.45}
+
+/* panel lateral */
+.panel{flex:1 1 380px;min-width:0;background:var(--surface);border:1px solid var(--rule);
+  box-shadow:var(--shadow);max-width:520px;border-radius:10px;overflow:hidden}
+.panel-hd{padding:14px 18px;border-bottom:1px solid var(--rule);display:flex;
+  justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.panel-hd b{font-weight:700;font-size:16.5px}
+.panel-hd span{font-family:'Geist Mono',monospace;font-size:11px;color:var(--ink-3);
+  letter-spacing:.08em;text-transform:uppercase}
+.prow{padding:12px 18px;border-bottom:1px solid var(--rule-soft);display:grid;
+  grid-template-columns:1fr auto;gap:3px 12px;align-items:center}
+.prow:last-child{border-bottom:0}
+.prow .nm{font-size:14px;font-weight:600;line-height:1.25}
+.prow .mt{font-family:'Geist Mono',monospace;font-size:11px;color:var(--ink-3);grid-column:1}
+.prow .age{font-family:'Geist Mono',monospace;font-size:12px;font-weight:700;grid-column:2;
+  grid-row:1/3;align-self:center;justify-self:end;text-align:right;white-space:nowrap;
+  padding:3px 8px;border-radius:6px}
+.age.hot{background:var(--crit-soft);color:var(--crit)}
+.age.warm{background:var(--warn-soft);color:var(--warn)}
+.age.cool{background:var(--act-soft);color:var(--act)}
+
+.tip{font-size:13px;color:var(--ink-3);text-align:center;margin:16px auto 0;
+  max-width:58ch;line-height:1.5}
+
+
+</style></head><body>
+<div class="hd">
+  <h1>Andén de Entrada — prototipo de referencia</h1>
+  <p><strong>Es la especificación de comportamiento</strong>: el orden de las secciones, qué campo llega
+  precargado, cuántos toques cuesta cada renglón, el texto exacto de cada etiqueta, y cómo se comporta
+  en claro y en oscuro. Recorrelo entero antes de portarlo.</p>
+  <p>El equipo usa los tokens reales del sistema Mercado (<code>libs/design-tokens/tokens.css</code>):
+  Stone cálido en claro, zinc <code>#111111</code> en oscuro, sunset <code>#F05A28</code> como acción.
+  Cambiá el tema con el selector de la derecha — los dos tienen que verse bien.</p>
+  <p><strong>Probá recargar la página a media captura:</strong> el vale sigue donde lo dejaste. Esa es la
+  recuperación de borrador que la app tiene que implementar.</p>
+</div>
+<div class="wrap"><div class="stage">
+    <div class="stagebar">
+      <div class="switch" role="group" aria-label="Vista">
+        <button type="button" data-view="dev" aria-pressed="true">Equipo del bodeguero</button>
+        <button type="button" data-view="sup" aria-pressed="false">Tablero del supervisor</button>
+      </div>
+      <div class="switch" role="group" aria-label="Tema del equipo">
+        <button type="button" data-t="dark" aria-pressed="true">Oscuro</button>
+        <button type="button" data-t="light" aria-pressed="false">Claro</button>
+      </div>
+    </div>
+
+    <div class="deck">
+      <div class="dev" id="dev" data-t="dark">
+        <div class="dev-bar"><span>MEGA DULCES · CEDIS</span><span id="clock">07:42</span></div>
+        <div class="scr">
+          <div class="scr-hd">
+            <div class="hd-row">
+              <div>
+                <div class="fol" id="fol">—</div>
+                <div class="prov" id="prov">Esperando camión</div>
+              </div>
+            </div>
+            <div class="hd-meta">
+              <span class="pill on" id="p-scan"><span class="dt"></span>Pistola lista</span>
+              <span class="pill st" id="p-est">sin identificar</span>
+              <span class="pill sv" id="p-save"></span>
+            </div>
+            <div class="seg" role="tablist" id="seg"></div>
+          </div>
+          <div class="scr-bd" id="scr"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel"></div>
+    </div>
+
+    <p class="tip" id="tip"></p>
+  </div></div>
+<script>
+(function(){
+  var LINES=[
+    {id:1,sku:'7501030470014',nm:'Mazapán De la Rosa 28g',esp:480,uxc:24,vida:120,bin:'R04-N02-A'},
+    {id:2,sku:'7501001200015',nm:'Pulparindo Enchilado 14g',esp:600,uxc:30,vida:120,bin:'R04-N03-C'},
+    {id:3,sku:'7501030450016',nm:'Bocadín Chocolate 12g',esp:360,uxc:24,vida:90,bin:'R07-N01-B'},
+    {id:4,sku:'7501030478010',nm:'Obleas con Cajeta 40g',esp:240,uxc:12,vida:90,bin:'R07-N01-D'},
+    {id:5,sku:'7501030471011',nm:'Mazapán Cacahuate 5 pz',esp:120,uxc:12,vida:120,bin:'R04-N02-B'}
+  ];
+  var KEY='anden.VE-2026-01847';
+  var st={view:'dev',seg:'llegada',abierto:false,folio:'',buscado:false,acceso:false,
+          rec:{},fec:{},ubi:{},cap:null,cur:null,cajas:'',sueltas:'',
+          lote:'',fechaRaw:'',bin:'',ocr:false,toast:null,saved:false};
+
+  var scr=document.getElementById('scr'),panel=document.getElementById('panel'),
+      segEl=document.getElementById('seg'),tipEl=document.getElementById('tip'),
+      devEl=document.getElementById('dev');
+
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+  /* ── persistencia: lo que la app real hace con el borrador ── */
+  function save(){
+    try{
+      localStorage.setItem(KEY,JSON.stringify({
+        seg:st.seg,abierto:st.abierto,acceso:st.acceso,rec:st.rec,fec:st.fec,ubi:st.ubi}));
+      st.saved=true;
+    }catch(e){/* modo privado o storage lleno: la UI no depende de esto */}
+  }
+  function restore(){
+    try{
+      var raw=localStorage.getItem(KEY); if(!raw) return;
+      var d=JSON.parse(raw); if(!d||typeof d!=='object') return;
+      st.seg=d.seg||'llegada'; st.abierto=!!d.abierto; st.acceso=!!d.acceso;
+      st.rec=d.rec||{}; st.fec=d.fec||{}; st.ubi=d.ubi||{};
+      if(st.abierto) st.saved=true;
+    }catch(e){}
+  }
+
+  /* Cada interacción persiste el borrador al instante. */
+  function tap(){save();}
+  function n(o){return Object.keys(o||{}).length}
+  function pendFec(){var c=0;for(var i=0;i<LINES.length;i++){var L=LINES[i];
+    if(st.rec[L.id]!==undefined&&!st.fec[L.id])c++;}return c;}
+  function pendUbi(){var c=0;for(var i=0;i<LINES.length;i++){var L=LINES[i];
+    if(st.rec[L.id]!==undefined&&!st.ubi[L.id])c++;}return c;}
+  function nextRec(){for(var i=0;i<LINES.length;i++)if(st.rec[LINES[i].id]===undefined)return LINES[i];return null}
+  function nextFec(){for(var i=0;i<LINES.length;i++){var L=LINES[i];
+    if(st.rec[L.id]!==undefined&&!st.fec[L.id])return L}return null}
+  function nextUbi(){for(var i=0;i<LINES.length;i++){var L=LINES[i];
+    if(st.rec[L.id]!==undefined&&!st.ubi[L.id])return L}return null}
+  function unidades(){var t=0;for(var k in st.rec)t+=st.rec[k];return t}
+  function difs(){var c=0;for(var i=0;i<LINES.length;i++){var L=LINES[i];
+    if(st.rec[L.id]!==undefined&&st.rec[L.id]!==L.esp)c++}return c}
+
+  function addDays(k){var d=new Date();d.setDate(d.getDate()+k);
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+  function parseCorta(raw){
+    var d=String(raw||'').replace(/\D/g,'');
+    if(d.length===4){var m=+d.slice(0,2),y=2000+ +d.slice(2);if(m<1||m>12)return null;
+      var u=new Date(y,m,0).getDate();
+      return y+'-'+String(m).padStart(2,'0')+'-'+String(u).padStart(2,'0');}
+    if(d.length===6){var dd=+d.slice(0,2),mm=+d.slice(2,4),yy=2000+ +d.slice(4);
+      if(mm<1||mm>12||dd<1||dd>31)return null;
+      return yy+'-'+String(mm).padStart(2,'0')+'-'+String(dd).padStart(2,'0');}
+    return null;
+  }
+  function daysTo(iso){if(!iso)return null;var p=iso.split('-');if(p.length!==3)return null;
+    var d=new Date(+p[0],+p[1]-1,+p[2]);if(isNaN(d))return null;
+    return Math.round((d-new Date())/86400000)}
+  function fmt(iso){if(!iso)return '—';var p=String(iso).split('-');
+    return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:iso}
+  function sem(d,v){
+    if(d===null)return{c:'n',t:'Capturá la caducidad para ver el veredicto'};
+    if(d<v)return{c:'r',t:d+' días de vida · bajo el mínimo de '+v+' — quedará retenido'};
+    if(d<v+60)return{c:'y',t:d+' días de vida · cumple, pero justo. Entra con reserva'};
+    return{c:'g',t:d+' días de vida · buen plazo, entra directo'};
+  }
+
+  /* ── selector segmentado (patrón iOS) ── */
+  function renderSeg(){
+    var tabs=[
+      {k:'llegada',l:'Llegada',on:true,
+       b:st.abierto&&!st.acceso?(LINES.length-n(st.rec)):0,done:st.acceso},
+      {k:'caducidad',l:'Caducidad',on:st.acceso,b:pendFec(),done:st.acceso&&pendFec()===0},
+      {k:'ubicacion',l:'Ubicación',on:st.acceso,b:pendUbi(),done:st.acceso&&pendUbi()===0}
+    ];
+    var h='';
+    for(var i=0;i<tabs.length;i++){var t=tabs[i];
+      h+='<button role="tab" data-seg="'+t.k+'" aria-selected="'+(st.seg===t.k)+'"'
+       + (t.on?'':' disabled')+'>'+t.l
+       + (t.done?'<span class="bdg done">✓</span>':(t.b>0?'<span class="bdg">'+t.b+'</span>':''))
+       + '</button>';
+    }
+    segEl.innerHTML=h;
+  }
+
+  /* ── LLEGADA ── */
+  function vFolio(){
+    var h='';
+    h+='<div class="note">Llegó un camión. En el papel que trae el chofer viene el folio del vale que mandó Kepler.</div>';
+    h+='<div class="fld"><label>Folio del vale · Kepler</label><div class="row">'
+     + '<input class="inp" id="f-folio" inputmode="numeric" placeholder="909" value="'+esc(st.folio)+'">'
+     + '<button class="chip" data-a="buscar">BUSCAR</button></div>'
+     + '<span class="hint">La pistola también dispara acá si el papel trae código</span></div>';
+    if(st.buscado){
+      h+='<div class="lines"><div class="ln next" data-a="abrir-vale" style="grid-template-columns:1fr">'
+       + '<div class="nm">DE LA ROSA · $48,320.00</div>'
+       + '<div class="sk">CEDIS (00) · OE 909 · 5 líneas de mercancía · 1 flete</div></div></div>';
+      h+='<button class="go" data-a="abrir-vale">Abrir y cotejar</button>';
+    }else{
+      h+='<div class="sem n"><span class="dot"></span>Escaneá el papel o tecleá el folio</div>';
+      h+='<button class="go" disabled>Identificá el vale primero</button>';
+    }
+    scr.innerHTML=h;
+    var el=document.getElementById('f-folio');
+    if(el)el.addEventListener('input',function(){st.folio=el.value});
+  }
+
+  function vCantidad(){
+    var L=st.cap;
+    var cj=Math.max(0,parseInt(st.cajas,10)||0),su=Math.max(0,parseInt(st.sueltas,10)||0);
+    var tot=cj*L.uxc+su,dif=tot-L.esp,toc=st.cajas!==''||st.sueltas!=='';
+    var h='';
+    h+='<div class="eh"><div><div class="nm">'+esc(L.nm)+'</div>'
+     + '<div class="sk">'+esc(L.sku)+' · leíste el código de <b>CAJA de '+L.uxc+'</b></div></div>'
+     + '<button data-a="cancel-cap">✕</button></div>';
+    h+='<div class="note">Kepler espera <b>'+L.esp+' pz</b> — o sea <b>'+(L.esp/L.uxc)+' cajas</b> de '+L.uxc+'.</div>';
+    h+='<div class="fld"><label>Cajas completas que contaste</label>'
+     + '<input class="inp" id="c-cajas" inputmode="numeric" placeholder="0" value="'+esc(st.cajas)+'"></div>';
+    h+='<div class="fld"><label>Piezas sueltas</label>'
+     + '<input class="inp" id="c-sueltas" inputmode="numeric" placeholder="0" value="'+esc(st.sueltas)+'"></div>';
+    var c=!toc?'n':dif===0?'g':Math.abs(dif)<=L.uxc?'y':'r';
+    var t=!toc?'Contá la tarima y capturá lo que llegó'
+      :dif===0?'Total '+tot+' pz · coincide exacto con Kepler'
+      :dif<0?'Total '+tot+' pz · faltan '+(-dif)+' ('+((-dif)%L.uxc===0?(-dif)/L.uxc+' cajas':(-dif)+' pz')+')'
+      :'Total '+tot+' pz · sobran '+dif;
+    h+='<div class="sem '+c+'"><span class="dot"></span>'+esc(t)+'</div>';
+    h+='<button class="chip wide" data-a="todo-cap">LLEGÓ TODO · '+(L.esp/L.uxc)+' cajas</button>';
+    h+='<button class="go" data-a="ok-cap"'+(toc?'':' disabled')+'>'
+     + (toc?'Confirmar '+tot+' pz':'Capturá la cantidad')+'</button>';
+    scr.innerHTML=h;
+    ['c-cajas','c-sueltas'].forEach(function(id){
+      var el=document.getElementById(id);if(!el)return;
+      el.addEventListener('input',function(){
+        st[id==='c-cajas'?'cajas':'sueltas']=el.value;
+        var p=el.selectionStart;vCantidad();
+        var m=document.getElementById(id);if(m){m.focus();try{m.setSelectionRange(p,p)}catch(e){}}});
+    });
+    var f=document.getElementById('c-cajas');if(f)f.focus();
+  }
+
+  function vLlegada(){
+    if(!st.abierto)return vFolio();
+    if(st.cap)return vCantidad();
+    var h='';
+    if(st.acceso){
+      h+='<div class="fin"><div class="big">✓</div><div class="t">Acceso dado</div>'
+       + '<div class="d">'+unidades()+' piezas entraron en lote <span class="mono">NA</span>. El chofer se puede ir. '
+       + 'Quedan <b>'+pendFec()+'</b> por fechar y <b>'+pendUbi()+'</b> por ubicar.</div>'
+       + '<button class="chip wide" data-a="ir-cad" style="margin-top:12px">Ir a Caducidad →</button>'
+       + '<button class="chip wide" data-a="reset" style="margin-top:8px;opacity:.6">Empezar de nuevo</button></div>';
+      scr.innerHTML=h;return;
+    }
+    if(st.toast)h+='<div class="toast'+(st.toast.r?' r':'')+'">'+esc(st.toast.t)+'</div>';
+    h+='<div class="scanbox" tabindex="0" role="button" data-a="cotejar">'
+     + '<div class="ic">|||‖|‖||</div><div class="t">Escaneá la tarima</div>'
+     + '<div class="d">o tocá una línea para capturar otra cantidad</div></div>';
+    h+='<div class="lines">';
+    for(var i=0;i<LINES.length;i++){
+      var L=LINES[i],r=st.rec[L.id],hecho=r!==undefined,dif=hecho&&r!==L.esp;
+      h+='<div class="ln'+(hecho&&!dif?' ok':'')+(!hecho&&L.id===(nextRec()||{}).id?' next':'')
+       + '" data-a="cotejar-uno" data-id="'+L.id+'">'
+       + '<div class="nm">'+esc(L.nm)+'</div>'
+       + '<div class="sk">'+(hecho?(dif?'faltan '+(L.esp-r)+' pz':'cajas de '+L.uxc+' · completo')
+                                  :esc(L.sku)+' · caja de '+L.uxc)+'</div>'
+       + '<div class="qt"'+(dif?' style="color:var(--d-warn)"':'')+'>'
+       + (hecho?(dif?r:'✓ '+r):'—')+' <span style="color:var(--d-t3)">/'+L.esp+'</span></div></div>';
+    }
+    h+='</div>';
+    var listo=n(st.rec)===LINES.length;
+    h+='<div class="note"'+(difs()?' style="border-left-color:var(--d-warn)"':'')+'>'
+     + 'Kepler mandó <b>'+LINES.length+' líneas</b> · '
+     + (listo?unidades()+' pz cotejadas':n(st.rec)+' de '+LINES.length+' cotejadas')
+     + (difs()?' · <b>'+difs()+' con diferencia</b>':listo?' · <b>sin diferencias</b>':'')+'</div>';
+    h+='<button class="go" data-a="acceso"'+(listo?'':' disabled')+'>'
+     + (listo?'Dar acceso':'Faltan '+(LINES.length-n(st.rec))+' por cotejar')+'</button>';
+    scr.innerHTML=h;
+  }
+
+  /* ── CADUCIDAD ── */
+  function vCaducidad(){
+    if(st.cur)return vFechar();
+    var h='';
+    if(pendFec()===0){
+      h+='<div class="fin"><div class="big">✓</div><div class="t">Todo fechado</div>'
+       + '<div class="d">Las '+LINES.length+' líneas tienen lote y caducidad. '
+       + (pendUbi()?'Quedan <b>'+pendUbi()+'</b> por ubicar.':'Nada pendiente en Ubicación tampoco.')+'</div>'
+       + (pendUbi()?'<button class="chip wide" data-a="ir-ubi" style="margin-top:12px">Ir a Ubicación →</button>':'')
+       + '</div>';
+      scr.innerHTML=h;return;
+    }
+    if(st.toast)h+='<div class="toast'+(st.toast.r?' r':'')+'">'+esc(st.toast.t)+'</div>';
+    h+='<div class="note">Estas líneas entraron en lote <b>NA</b>, sin fecha. Mientras sigan así, el vale no cierra.</div>';
+    h+='<div class="lines">';
+    for(var i=0;i<LINES.length;i++){
+      var L=LINES[i];if(st.rec[L.id]===undefined)continue;
+      var f=st.fec[L.id];
+      h+='<div class="ln'+(f?' ok':'')+(!f&&L.id===(nextFec()||{}).id?' next':'')
+       + '" data-a="abrir-fec" data-id="'+L.id+'">'
+       + '<div class="nm">'+esc(L.nm)+'</div>'
+       + '<div class="sk">'+(f?'lote '+esc(f.lote)+' · vence '+fmt(f.iso):'sin fecha · lote NA')+'</div>'
+       + '<div class="qt">'+(f?'✓':'')+' '+st.rec[L.id]+'</div></div>';
+    }
+    h+='</div>';
+    scr.innerHTML=h;
+  }
+
+  function vFechar(){
+    var L=st.cur,q=st.rec[L.id],iso=parseCorta(st.fechaRaw),d=daysTo(iso),s=sem(d,L.vida);
+    var h='';
+    if(st.toast)h+='<div class="toast'+(st.toast.r?' r':'')+'">'+esc(st.toast.t)+'</div>';
+    h+='<div class="eh"><div><div class="nm">'+esc(L.nm)+'</div>'
+     + '<div class="sk">'+esc(L.sku)+' · <b>'+q+' pz</b> cotejadas</div></div>'
+     + '<button data-a="volver-fec">← Lista</button></div>';
+    h+='<div class="note">Política <b>DE LA ROSA</b>: mínimo <b>'+L.vida+' días</b> de vida. '
+     + 'En stock, este SKU caduca el <b>'+fmt(addDays(L.vida+95))+'</b>.</div>';
+    h+='<button class="chip wide'+(st.ocr?' busy':'')+'" data-a="foto">'
+     + (st.ocr?'Leyendo la etiqueta…':'Tomar foto de la caducidad')+'</button>';
+    h+='<div class="fld"><label>Lote y caducidad</label><div class="row">'
+     + '<input class="inp sm" id="f-lote" placeholder="Lote" value="'+esc(st.lote)+'" style="flex:0 0 40%">'
+     + '<input class="inp" id="f-fecha" inputmode="numeric" placeholder="0327" value="'+esc(st.fechaRaw)+'"></div>'
+     + '<span class="hint">'+(iso?'→ '+fmt(iso):'4 dígitos = MM/AA · 6 dígitos = DD/MM/AA')+'</span></div>';
+    h+='<div class="sem '+s.c+'"><span class="dot"></span>'+esc(s.t)+'</div>';
+    h+='<button class="go" data-a="ok-fec"'+(iso?'':' disabled')+'>'
+     + (iso?'Guardar caducidad':'Falta la caducidad')+'</button>';
+    scr.innerHTML=h;
+    ['f-lote','f-fecha'].forEach(function(id){
+      var el=document.getElementById(id);if(!el)return;
+      el.addEventListener('input',function(){
+        st[id==='f-fecha'?'fechaRaw':'lote']=el.value;
+        if(id==='f-fecha'){var p=el.selectionStart;vFechar();
+          var m=document.getElementById(id);if(m){m.focus();try{m.setSelectionRange(p,p)}catch(e){}}}});
+    });
+  }
+
+  /* ── UBICACIÓN ── */
+  function vUbicacion(){
+    if(st.cur)return vUbicar();
+    var h='';
+    if(pendUbi()===0){
+      h+='<div class="fin"><div class="big">✓</div><div class="t">Todo acomodado</div>'
+       + '<div class="d">'+(pendFec()
+           ?'Quedan <b>'+pendFec()+'</b> por fechar antes de cerrar el vale.'
+           :'Vale cerrado: cero pendientes en las tres secciones.')+'</div></div>';
+      scr.innerHTML=h;return;
+    }
+    if(st.toast)h+='<div class="toast'+(st.toast.r?' r':'')+'">'+esc(st.toast.t)+'</div>';
+    h+='<div class="note">Mercancía en existencia que todavía no tiene rack. El surtidor no la encuentra.</div>';
+    h+='<div class="lines">';
+    for(var i=0;i<LINES.length;i++){
+      var L=LINES[i];if(st.rec[L.id]===undefined)continue;
+      var u=st.ubi[L.id];
+      h+='<div class="ln'+(u?' ok':'')+(!u&&L.id===(nextUbi()||{}).id?' next':'')
+       + '" data-a="abrir-ubi" data-id="'+L.id+'">'
+       + '<div class="nm">'+esc(L.nm)+'</div>'
+       + '<div class="sk">'+(u?'en '+esc(u):'sugerido '+esc(L.bin))+'</div>'
+       + '<div class="qt">'+(u?'✓':'')+' '+st.rec[L.id]+'</div></div>';
+    }
+    h+='</div>';
+    scr.innerHTML=h;
+  }
+
+  function vUbicar(){
+    var L=st.cur,q=st.rec[L.id];
+    var h='';
+    if(st.toast)h+='<div class="toast'+(st.toast.r?' r':'')+'">'+esc(st.toast.t)+'</div>';
+    h+='<div class="eh"><div><div class="nm">'+esc(L.nm)+'</div>'
+     + '<div class="sk">'+esc(L.sku)+' · <b>'+q+' pz</b> por acomodar</div></div>'
+     + '<button data-a="volver-ubi">← Lista</button></div>';
+    h+='<div class="note">Este SKU ya vive en <b>'+esc(L.bin)+'</b>. Viene precargado; escaneá el rack si va a otro lado.</div>';
+    h+='<div class="fld"><label>Rack</label>'
+     + '<input class="inp" id="u-bin" placeholder="Escaneá el rack" value="'+esc(st.bin)+'">'
+     + '<span class="hint">La pistola escribe acá directo</span></div>';
+    h+='<button class="go" data-a="ok-ubi"'+(st.bin?'':' disabled')+'>'
+     + (st.bin?'Acomodar en '+esc(st.bin):'Falta el rack')+'</button>';
+    scr.innerHTML=h;
+    var el=document.getElementById('u-bin');
+    if(el){el.addEventListener('input',function(){st.bin=el.value;
+      var p=el.selectionStart;vUbicar();
+      var m=document.getElementById('u-bin');if(m){m.focus();try{m.setSelectionRange(p,p)}catch(e){}}});}
+  }
+
+  /* ── panel del supervisor ── */
+  function renderPanel(){
+    if(st.view==='dev'){
+      var txt = !st.abierto
+        ? 'Todavía no se identifica ningún vale. El andén arranca con el folio del papel, no con una lista.'
+        : !st.acceso
+          ? 'Abierto y sin acceso. Nada entró a existencia; el camión sigue en el andén.'
+          : (pendFec()+pendUbi())===0
+            ? 'Cerrado. Las '+LINES.length+' líneas fechadas y acomodadas. No dejó deuda.'
+            : '<b>'+pendFec()+'</b> sin fechar y <b>'+pendUbi()+'</b> sin acomodar. Mientras eso siga así, el vale no cierra y aparece en el tablero.';
+      panel.innerHTML='<div class="panel-hd"><b>Este vale</b><span>'
+        + (!st.abierto?'sin identificar':st.acceso?'con_acceso':'abierto')+'</span></div>'
+        + '<div class="prow"><div class="nm" style="font-weight:400;color:var(--ink-2)">'+txt+'</div></div>';
+      return;
+    }
+    var v=[
+      {f:'VE-2026-01793',p:'LORENA',mt:'3 sin fechar · 540 pz',age:'9 d',c:'hot'},
+      {f:'VE-2026-01801',p:'VERO',mt:'1 retenida · espera supervisor',age:'6 d',c:'hot'},
+      {f:'VE-2026-01820',p:'DE LA ROSA',mt:'2 sin acomodar · 240 pz',age:'3 d',c:'warm'},
+      {f:'VE-2026-01829',p:'SONRICS',mt:'1 sin fechar · 96 pz',age:'2 d',c:'warm'},
+      {f:'VE-2026-01841',p:'DULCES VERO',mt:'4 sin acomodar · 360 pz',age:'1 d',c:'cool'}
+    ];
+    var h='<div class="panel-hd"><b>Vales con acceso, sin cerrar</b><span>5 vales · 1,236 pz</span></div>';
+    for(var i=0;i<v.length;i++){
+      h+='<div class="prow"><div class="nm mono" style="font-size:13.5px">'+esc(v[i].f)
+       + ' <span style="font-family:inherit;color:var(--ink-3);font-weight:400">· '+esc(v[i].p)+'</span></div>'
+       + '<div class="mt">'+esc(v[i].mt)+'</div>'
+       + '<div class="age '+v[i].c+'">'+esc(v[i].age)+'</div></div>';
+    }
+    panel.innerHTML=h;
+  }
+
+  function chrome(){
+    document.getElementById('fol').textContent=st.abierto?'VE-2026-01847':'—';
+    document.getElementById('prov').textContent=st.abierto
+      ?'DE LA ROSA · Kepler 909 · CEDIS (00)':'Esperando camión';
+    var e=document.getElementById('p-est');
+    e.textContent=!st.abierto?'sin identificar':st.acceso?'con_acceso':'abierto';
+    e.className='pill '+(st.acceso?'on':'st');
+    document.getElementById('p-save').textContent=st.saved?'Guardado ✓':'';
+  }
+
+  function render(){
+    renderSeg();
+    if(st.seg==='llegada')vLlegada();
+    else if(st.seg==='caducidad')vCaducidad();
+    else vUbicacion();
+    chrome();renderPanel();
+    tipEl.innerHTML = st.view==='sup'
+      ? 'Cada fila es un camión, no un renglón suelto: <em>este lleva 9 días con acceso y sin cerrar</em>.'
+      : !st.abierto ? 'Tocá BUSCAR para traer el vale de Kepler. Es lo único que trae el chofer.'
+      : st.cap ? 'Se cuenta por cajas. El código de la caja ya sabe cuántas trae — ese dato está en la base y hoy no se usa.'
+      : !st.acceso ? 'Escaneá la tarima: identifica el renglón y abre la captura de cantidad.'
+      : 'Saltá entre las tres secciones con el selector de arriba. Los contadores dicen qué falta. <strong>Recargá la página: el vale sigue acá.</strong>';
+  }
+
+  /* ── acciones ── */
+  document.addEventListener('click',function(ev){
+    var v=ev.target.closest('[data-view]');
+    if(v){st.view=v.getAttribute('data-view');
+      document.querySelectorAll('[data-view]').forEach(function(x){
+        x.setAttribute('aria-pressed',String(x.getAttribute('data-view')===st.view))});
+      render();return;}
+    var th=ev.target.closest('[data-t]');
+    if(th&&th.tagName==='BUTTON'){var t=th.getAttribute('data-t');devEl.setAttribute('data-t',t);
+      document.querySelectorAll('button[data-t]').forEach(function(x){
+        x.setAttribute('aria-pressed',String(x.getAttribute('data-t')===t))});
+      return;}
+    var sg=ev.target.closest('[data-seg]');
+    if(sg&&!sg.disabled){st.seg=sg.getAttribute('data-seg');st.cur=null;st.cap=null;st.toast=null;
+      save();render();return;}
+    var el=ev.target.closest('[data-a]');if(!el)return;
+    var a=el.getAttribute('data-a');
+
+    if(a==='buscar'){tap();st.folio=st.folio||'909';st.buscado=true;render();return}
+    if(a==='abrir-vale'){tap();st.abierto=true;st.buscado=false;save();render();return}
+
+    if(a==='cotejar'||a==='cotejar-uno'){
+      var L=a==='cotejar-uno'
+        ?LINES.filter(function(x){return x.id===+el.getAttribute('data-id')})[0]:nextRec();
+      if(!L)return;
+      tap();st.cap=L;st.toast=null;
+      var pv=st.rec[L.id];
+      st.cajas=pv!==undefined?String(Math.floor(pv/L.uxc)):'';
+      st.sueltas=pv!==undefined?String(pv%L.uxc):'';
+      render();return;
+    }
+    if(a==='cancel-cap'){st.cap=null;st.cajas='';st.sueltas='';render();return}
+    if(a==='todo-cap'){tap();var T=st.cap;st.rec[T.id]=T.esp;st.cap=null;st.cajas='';st.sueltas='';
+      st.toast={r:false,t:'✓ '+T.nm+' — '+(T.esp/T.uxc)+' cajas, '+T.esp+' pz. Cuadra con Kepler.'};
+      save();render();return}
+    if(a==='ok-cap'){tap();var C=st.cap;
+      var q=(Math.max(0,parseInt(st.cajas,10)||0))*C.uxc+Math.max(0,parseInt(st.sueltas,10)||0);
+      st.rec[C.id]=q;st.cap=null;st.cajas='';st.sueltas='';
+      st.toast=q===C.esp?{r:false,t:'✓ '+C.nm+' — '+q+' pz, cuadra con Kepler.'}
+        :{r:true,t:'Kepler mandó '+C.esp+' y contaste '+q+'. Queda como '+(q<C.esp?'faltante':'sobrante')
+          +': el proveedor lo va a ver en su scorecard.'};
+      save();render();return}
+    if(a==='acceso'){tap();st.acceso=true;st.toast=null;save();render();return}
+    if(a==='ir-cad'){st.seg='caducidad';st.toast=null;save();render();return}
+    if(a==='ir-ubi'){st.seg='ubicacion';st.toast=null;save();render();return}
+
+    if(a==='abrir-fec'){
+      var F=LINES.filter(function(x){return x.id===+el.getAttribute('data-id')})[0];
+      if(!F||st.fec[F.id])return;
+      tap();st.cur=F;st.toast=null;st.lote='';st.fechaRaw='';st.ocr=false;render();return}
+    if(a==='volver-fec'){st.cur=null;render();return}
+    if(a==='foto'){if(st.ocr)return;tap();st.ocr=true;vFechar();
+      setTimeout(function(){st.ocr=false;st.lote='L'+(240+st.cur.id)+'A';
+        var p=addDays(st.cur.id===3?st.cur.vida-25:st.cur.vida+150).split('-');
+        st.fechaRaw=p[2]+p[1]+p[0].slice(2);vFechar()},850);return}
+    if(a==='ok-fec'){tap();
+      var iso=parseCorta(st.fechaRaw),dd=daysTo(iso),rojo=dd!==null&&dd<st.cur.vida,P=st.cur;
+      st.fec[P.id]={lote:st.lote||'NA',iso:iso,rojo:rojo};
+      st.toast=rojo
+        ?{r:true,t:'Fechada, pero 🔴 retenida: un supervisor tiene que liberarla antes de cerrar el vale.'}
+        :{r:false,t:'✓ '+P.nm+' — vence '+fmt(iso)+', lote '+(st.lote||'NA')+'.'};
+      var sig=nextFec();st.cur=sig||null;
+      st.lote='';st.fechaRaw='';save();render();return}
+
+    if(a==='abrir-ubi'){
+      var U=LINES.filter(function(x){return x.id===+el.getAttribute('data-id')})[0];
+      if(!U||st.ubi[U.id])return;
+      tap();st.cur=U;st.toast=null;st.bin=U.bin;render();return}
+    if(a==='volver-ubi'){st.cur=null;render();return}
+    if(a==='ok-ubi'){tap();var V=st.cur;st.ubi[V.id]=st.bin;
+      st.toast={r:false,t:'✓ '+V.nm+' — acomodado en '+st.bin+'.'};
+      var s2=nextUbi();st.cur=s2||null;st.bin=s2?s2.bin:'';
+      save();render();return}
+
+    if(a==='reset'){
+      try{localStorage.removeItem(KEY)}catch(e){}
+      st.abierto=false;st.folio='';st.buscado=false;st.acceso=false;st.seg='llegada';
+      st.rec={};st.fec={};st.ubi={};st.cap=null;st.cur=null;st.toast=null;st.saved=false;
+      st.cajas='';st.sueltas='';st.lote='';st.fechaRaw='';st.bin='';
+      render();return}
+  });
+
+  document.addEventListener('keydown',function(ev){
+    if(ev.key!=='Enter'&&ev.key!==' ')return;
+    var el=ev.target.closest&&ev.target.closest('.scanbox');
+    if(el){ev.preventDefault();el.click()}
+  });
+
+  (function tick(){var d=new Date(),c=document.getElementById('clock');
+    if(c)c.textContent=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+    setTimeout(tick,30000)})();
+
+  restore();
+  render();
+})();
+</script>
+</body></html>

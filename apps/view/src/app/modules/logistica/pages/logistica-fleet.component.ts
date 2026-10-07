@@ -1,0 +1,1447 @@
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
+import { ButtonModule } from 'primeng/button';
+import { CardModule } from 'primeng/card';
+import { TableModule } from 'primeng/table';
+import { DialogModule } from 'primeng/dialog';
+import { InputTextModule } from 'primeng/inputtext';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { SelectModule } from 'primeng/select';
+import { MultiSelectModule } from 'primeng/multiselect';
+import { DatePickerModule } from 'primeng/datepicker';
+import { TagModule } from 'primeng/tag';
+import { TabsModule } from 'primeng/tabs';
+import { TooltipModule } from 'primeng/tooltip';
+import { ToastModule } from 'primeng/toast';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { MessageService, ConfirmationService } from 'primeng/api';
+import {
+  Driver, DriverRole, LogisticaService, Vehicle, VehicleStatus,
+  VehicleUsageLog, VehicleMaintenance, MaintenanceDue, FuelEfficiency, FuelEfficiencyReport, FuelTransaction,
+  DriverEntitlements, VehicleEntitlement, VehicleAssignment, EntitlementCapacity, AssignmentTemplate, ConditionGrade, LinkableUser,
+} from '../logistica.service';
+
+const VEHICLE_STATUS_OPTIONS: { label: string; value: VehicleStatus }[] = [
+  { label: 'Disponible', value: 'disponible' },
+  { label: 'En ruta', value: 'en_ruta' },
+  { label: 'Mantenimiento', value: 'mantenimiento' },
+  { label: 'Baja', value: 'baja' },
+];
+const DRIVER_ROLE_OPTIONS: { label: string; value: DriverRole }[] = [
+  { label: 'Chofer', value: 'chofer' },
+  { label: 'Ayudante', value: 'ayudante' },
+  { label: 'Cargador', value: 'cargador' },
+];
+const DRIVER_STATUS_OPTIONS = [
+  { label: 'Activo', value: 'activo' },
+  { label: 'Inactivo', value: 'inactivo' },
+  { label: 'Suspendido', value: 'suspendido' },
+];
+
+type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
+function severityForVehicleStatus(s: VehicleStatus): Severity {
+  return s === 'disponible' ? 'success' : s === 'en_ruta' ? 'info' : s === 'mantenimiento' ? 'warn' : 'danger';
+}
+function severityForDriverStatus(s: string): Severity {
+  return s === 'activo' ? 'success' : s === 'suspendido' ? 'warn' : 'danger';
+}
+
+@Component({
+  selector: 'app-logistica-fleet',
+  standalone: true,
+  imports: [
+    CommonModule, FormsModule, ReactiveFormsModule,
+    ButtonModule, CardModule, TableModule, DialogModule,
+    InputTextModule, InputNumberModule, SelectModule, MultiSelectModule, DatePickerModule,
+    TagModule, TabsModule, TooltipModule, ToastModule, ConfirmDialogModule,
+  ],
+  providers: [MessageService, ConfirmationService],
+  template: `
+    <div class="surf-page logf">
+      <p-toast></p-toast>
+      <p-confirmdialog></p-confirmdialog>
+    
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Flotilla y personal</h1>
+          <p class="surf-page-sub">Unidades, colaboradores, derechos de uso, actas de asignación, uso, mantenimiento y combustible.</p>
+        </div>
+      </header>
+    
+      <p-tabs value="vehicles">
+        <p-tablist>
+          <p-tab value="vehicles"><i class="pi pi-truck"></i> Unidades ({{ vehicles().length }})</p-tab>
+          <p-tab value="drivers"><i class="pi pi-id-card"></i> Personal ({{ drivers().length }})</p-tab>
+          <p-tab value="entitlements"><i class="pi pi-key"></i> Derechos ({{ conDerecho() }})</p-tab>
+          <p-tab value="assignments"><i class="pi pi-file-edit"></i> Asignaciones ({{ assignments().length }})</p-tab>
+          <p-tab value="usage"><i class="pi pi-clock"></i> Uso ({{ usageLogs().length }})</p-tab>
+          <p-tab value="maintenance"><i class="pi pi-wrench"></i> Mantenimiento ({{ maintenance().length }})</p-tab>
+          <p-tab value="fuel"><i class="pi pi-bolt"></i> Combustible ({{ fuelTx().length }})</p-tab>
+        </p-tablist>
+        <p-tabpanels>
+          <p-tabpanel value="vehicles">
+            <div class="tab-actions"><button pButton (click)="openVehicleCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva unidad</span></button></div>
+            <p-card>
+              <p-table [value]="vehicles()" [loading]="loadingV()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col">Placa</th><th scope="col">Marca/Modelo</th><th scope="col">Año</th>
+                    <th scope="col">Cap. cajas</th><th scope="col">Rendim.</th><th scope="col">Estado</th>
+                    <th scope="col"><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-v>
+                  <tr>
+                    <td><code>{{ v.plate }}</code></td>
+                    <td>{{ (v.brand || '—') + ' / ' + (v.model || '—') }}</td>
+                    <td class="num">{{ v.year || '—' }}</td>
+                    <td class="num">{{ v.capacity_boxes || '—' }}</td>
+                    <td class="num">{{ v.fuel_efficiency_km_l ? (v.fuel_efficiency_km_l + ' km/l') : '—' }}</td>
+                    <td><p-tag [severity]="severityVeh(v.status)" [value]="vStatusLabel(v.status)"></p-tag></td>
+                    <td class="actions">
+                      <button pButton size="small" severity="secondary" [text]="true" (click)="openVehicleEdit(v)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                      @if (v.active) {
+                        <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteVehicle(v)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template #emptymessage>
+                  <tr><td colspan="7" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div><h3>Sin unidades</h3><p>Aún no hay unidades registradas.</p></div></td></tr>
+                </ng-template>
+              </p-table>
+            </p-card>
+          </p-tabpanel>
+    
+          <p-tabpanel value="drivers">
+            <div class="tab-actions"><button pButton (click)="openDriverCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo colaborador</span></button></div>
+            <p-card>
+              <p-table [value]="drivers()" [loading]="loadingD()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col">Nombre</th><th scope="col">Roles</th><th scope="col">Tipo</th>
+                    <th scope="col">Teléfono</th><th scope="col">Estado</th>
+                    <th scope="col"><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-d>
+                  <tr>
+                    <td class="strong">{{ d.full_name }}</td>
+                    <td>
+                      @for (r of d.roles; track r) {
+                        <p-tag [value]="r" severity="secondary" class="role-tag"></p-tag>
+                      }
+                    </td>
+                    <td>{{ d.employee_type }}</td>
+                    <td>{{ d.phone || '—' }}</td>
+                    <td><p-tag [severity]="severityDrv(d.status)" [value]="d.status"></p-tag></td>
+                    <td class="actions">
+                      <button pButton size="small" severity="secondary" [text]="true" (click)="openDriverEdit(d)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                      @if (d.active) {
+                        <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteDriver(d)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template #emptymessage>
+                  <tr><td colspan="6" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-id-card" aria-hidden="true"></i></div><h3>Sin colaboradores</h3><p>Aún no hay colaboradores registrados.</p></div></td></tr>
+                </ng-template>
+              </p-table>
+            </p-card>
+          </p-tabpanel>
+
+        <p-tabpanel value="entitlements">
+          <p class="fc-help">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            Qué unidades puede usar cada colaborador. Es el <strong>permiso permanente</strong>, distinto
+            del acta de entrega: revocar aquí no borra el histórico, lo vence.
+          </p>
+          <div class="tab-actions tab-actions--split">
+            <span class="fc-count">{{ conDerecho() }} de {{ entitlements().length }} colaboradores con al menos una unidad</span>
+            <button pButton (click)="openGrant()" [disabled]="!drivers().length || !vehicles().length"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Otorgar derecho</span></button>
+          </div>
+          <p-table [value]="entitlements()" [loading]="loadingEnt()" dataKey="driver_id"
+            styleClass="p-datatable-sm surf-table surf-table--sticky">
+            <ng-template #header>
+              <tr><th scope="col">Colaborador</th><th scope="col">Estado</th><th scope="col">Unidades a las que tiene derecho</th></tr>
+            </ng-template>
+            <ng-template #body let-e>
+              <tr [class.fc-sin]="!e.vehicles.length">
+                <td class="strong">{{ e.full_name }}</td>
+                <td><p-tag [severity]="severityDrv(e.status)" [value]="e.status"></p-tag></td>
+                <td>
+                  @if (e.vehicles.length) {
+                    <div class="fc-chips">
+                      @for (v of e.vehicles; track v.entitlement_id) {
+                        <span class="fc-chip" [class.fc-chip--resp]="v.capacity === 'responsable_administrativo'">
+                          <code>{{ v.plate }}</code>
+                          <span class="fc-chip-cap">{{ capacityLabel(v.capacity) }}</span>
+                          <button pButton [text]="true" size="small" severity="secondary"
+                            pTooltip="Revocar" [attr.aria-label]="'Revocar ' + v.plate"
+                            (click)="revoke(v)"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
+                        </span>
+                      }
+                    </div>
+                  } @else {
+                    <span class="muted">Sin unidades autorizadas</span>
+                  }
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="3" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-id-card" aria-hidden="true"></i></div><h3>Sin personal</h3><p>Da de alta colaboradores en la pestaña Personal.</p></div></td></tr></ng-template>
+          </p-table>
+        </p-tabpanel>
+
+        <p-tabpanel value="assignments">
+          <p class="fc-help">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            El <strong>formato de asignación vehicular</strong>: folio, kilometraje, responsable, chofer
+            y el estado físico de la unidad al entregarla.
+          </p>
+          <div class="tab-actions">
+            <button pButton (click)="openAssignment()" [disabled]="!vehicles().length"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva asignación</span></button>
+          </div>
+          <p-table [value]="assignments()" [loading]="loadingAsg()"
+            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
+            <ng-template #header>
+              <tr>
+                <th scope="col">Folio</th><th scope="col">Unidad</th><th scope="col">Responsable</th>
+                <th scope="col">Chofer</th><th scope="col">Área</th>
+                <th scope="col" class="num">Km</th><th scope="col">Entrega</th>
+                <th scope="col">Estado físico</th><th scope="col">Estado</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-a>
+              <tr>
+                <td class="strong">{{ a.folio }}</td>
+                <td><code>{{ a.plate }}</code> <span class="small muted">{{ a.model || '' }}</span></td>
+                <td>{{ a.responsible_name || '—' }}</td>
+                <td>{{ a.driver_name || '—' }}</td>
+                <td class="small">{{ a.area || '—' }}</td>
+                <td class="num">{{ a.odometer != null ? (a.odometer | number:'1.0-0') : '—' }}</td>
+                <td>{{ a.assigned_on | date:'shortDate' }}</td>
+                <td>
+                  @if (conditionSummary(a); as c) {
+                    <span class="fc-cond">
+                      @if (c.M) { <span class="fc-g fc-g--m" [pTooltip]="'Malo: ' + c.M">{{ c.M }}M</span> }
+                      @if (c.R) { <span class="fc-g fc-g--r" [pTooltip]="'Regular: ' + c.R">{{ c.R }}R</span> }
+                      @if (c.B) { <span class="fc-g fc-g--b" [pTooltip]="'Bueno: ' + c.B">{{ c.B }}B</span> }
+                      @if (!c.M && !c.R && !c.B) { <span class="muted">sin capturar</span> }
+                    </span>
+                  }
+                </td>
+                <td><p-tag [severity]="a.status === 'vigente' ? 'success' : 'secondary'" [value]="a.status"></p-tag></td>
+                <td class="actions">
+                  @if (a.status === 'vigente') {
+                    <button pButton size="small" severity="secondary" [text]="true" pTooltip="Registrar devolución"
+                      (click)="returnAssignment(a)"><span class="p-button-icon pi pi-reply" aria-hidden="true"></span></button>
+                  }
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="10" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-file-edit" aria-hidden="true"></i></div><h3>Sin actas</h3><p>Registra la primera asignación vehicular.</p></div></td></tr></ng-template>
+          </p-table>
+        </p-tabpanel>
+    
+          <!-- ──── J.9.9 Tab Uso (check-in/check-out) ──── -->
+          <p-tabpanel value="usage">
+            <div class="tab-actions">
+              <button pButton (click)="openCheckIn()"><span class="p-button-icon p-button-icon-left pi pi-sign-out" aria-hidden="true"></span><span class="p-button-label">Nuevo check-in</span></button>
+            </div>
+            <p-card>
+              <p-table [value]="usageLogs()" [loading]="loadingUsage()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col">Vehículo</th>
+                    <th scope="col">Chofer</th>
+                    <th scope="col">Salida</th>
+                    <th scope="col" class="num">Km inicial</th>
+                    <th scope="col">Regreso</th>
+                    <th scope="col" class="num">Km final</th>
+                    <th scope="col" class="num">Combustible (L)</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col"><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-u>
+                  <tr>
+                    <td><code>{{ u.vehicle_plate }}</code></td>
+                    <td>{{ u.driver_name || '—' }}</td>
+                    <td>{{ u.check_in_at | date:'short' }}</td>
+                    <td class="num">{{ u.check_in_km | number:'1.0-0' }}</td>
+                    <td>{{ u.check_out_at ? (u.check_out_at | date:'short') : '—' }}</td>
+                    <td class="num">{{ u.check_out_km !== null ? (u.check_out_km | number:'1.0-0') : '—' }}</td>
+                    <td class="num">{{ u.fuel_loaded_liters !== null ? (u.fuel_loaded_liters | number:'1.2-2') : '—' }}</td>
+                    <td>
+                      <p-tag [severity]="u.status === 'en_uso' ? 'warn' : 'success'" [value]="u.status === 'en_uso' ? 'En uso' : 'Cerrado'"></p-tag>
+                    </td>
+                    <td class="actions">
+                      @if (u.status === 'en_uso') {
+                        <button pButton size="small" (click)="openCheckOut(u)"><span class="p-button-icon p-button-icon-left pi pi-sign-in" aria-hidden="true"></span><span class="p-button-label">Check-out</span></button>
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template #emptymessage>
+                  <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-clock" aria-hidden="true"></i></div><h3>Sin historial de uso</h3><p>Aún no hay check-ins registrados.</p></div></td></tr>
+                </ng-template>
+              </p-table>
+            </p-card>
+          </p-tabpanel>
+    
+          <!-- ──── J.9.9 Tab Mantenimiento ──── -->
+          <p-tabpanel value="maintenance">
+            <div class="tab-actions">
+              <button pButton (click)="openMaintenance()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo mantenimiento</span></button>
+            </div>
+            @if (maintDue().length) {
+              <div class="maint-due">
+                <div class="maint-due-head"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              {{ maintDue().length }} unidad{{ maintDue().length === 1 ? '' : 'es' }} con servicio vencido</div>
+              <ul>
+                @for (d of maintDue(); track d) {
+                  <li>
+                    <code>{{ d.plate }}</code> {{ d.model || '' }}
+                    <span class="maint-due-reason">{{ d.reasons.join(' · ') }}</span>
+                  </li>
+                }
+              </ul>
+            </div>
+          }
+    
+    
+          <p-card>
+            <p-table [value]="maintenance()" [loading]="loadingMaint()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Vehículo</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Descripción</th>
+                  <th scope="col">Proveedor</th>
+                  <th scope="col" class="num">Km</th>
+                  <th scope="col" class="num">Costo</th>
+                  <th scope="col">Próximo</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-m>
+                <tr>
+                  <td><code>{{ m.vehicle_plate }}</code></td>
+                  <td>{{ m.service_date | date:'shortDate' }}</td>
+                  <td>
+                    <p-tag [severity]="m.type === 'correctivo' ? 'danger' : (m.type === 'preventivo' ? 'info' : 'secondary')" [value]="m.type"></p-tag>
+                  </td>
+                  <td class="small">{{ m.description }}</td>
+                  <td>{{ m.vendor || '—' }}</td>
+                  <td class="num">{{ m.km_at_service ? (m.km_at_service | number:'1.0-0') : '—' }}</td>
+                  <td class="num">\${{ m.cost | number:'1.2-2' }}</td>
+                  <td class="small">{{ m.next_service_date ? (m.next_service_date | date:'shortDate') : (m.next_service_km ? (m.next_service_km + ' km') : '—') }}</td>
+                  <td class="actions">
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteMaint(m)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-wrench" aria-hidden="true"></i></div><h3>Sin mantenimientos</h3><p>Aún no hay registros de mantenimiento.</p></div></td></tr>
+              </ng-template>
+            </p-table>
+          </p-card>
+        </p-tabpanel>
+
+        <p-tabpanel value="fuel">
+          <p class="fc-help">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            Rendimiento y cargas. Estaba enterrado dentro de Mantenimiento: el combustible es
+            el evento más frecuente de la unidad, no un anexo del taller.
+          </p>
+          @if (fuelEff().length) {
+            <p-card class="fuel-card">
+              <h3 class="fuel-title">Rendimiento de combustible (real vs spec)</h3>
+              @if (fuelCoverage(); as cov) {
+                <p class="fuel-cov">
+                  Medible en <strong>{{ cov.vehicles_medibles }}</strong> de {{ cov.vehicles_total }} unidades activas.
+                  @if (fuelOrphan(); as orf) {
+                    @if (orf.liters > 0) {
+                      <span class="fuel-orphan">
+                        · <strong>{{ orf.liters | number:'1.0-0' }} L</strong>
+                        ({{ orf.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}, {{ orf.rows }} cargas)
+                        <strong>sin unidad asignada</strong> — fuera de todo km/L.
+                      </span>
+                    }
+                  }
+                </p>
+              }
+              <p-table [value]="fuelEff()" styleClass="p-datatable-sm surf-table surf-table--sticky">
+                <ng-template #header>
+                  <tr><th scope="col">Vehículo</th><th scope="col" class="num">Km</th><th scope="col" class="num">Litros</th><th scope="col">Fuente</th><th scope="col" class="num">Real km/l</th><th scope="col" class="num">Spec</th><th scope="col" class="num">Desv.</th></tr>
+                </ng-template>
+                <ng-template #body let-f>
+                  <tr [class.fuel-flag]="f.flag">
+                    <td><code>{{ f.plate }}</code></td>
+                    <td class="num">{{ f.km | number:'1.0-0' }}</td>
+                    <td class="num">{{ f.liters | number:'1.0-1' }}</td>
+                    <td class="fuel-src">
+                      @if (f.liters_by_source?.usage_log) { <span>check-out {{ f.liters_by_source.usage_log | number:'1.0-0' }}</span> }
+                      @if (f.liters_by_source?.fuel_transaction) { <span>cargas {{ f.liters_by_source.fuel_transaction | number:'1.0-0' }}</span> }
+                      @if (f.liters_by_source?.route_expense) { <span>ruta {{ f.liters_by_source.route_expense | number:'1.0-0' }}</span> }
+                      @if (!f.liters) { <span class="muted">—</span> }
+                    </td>
+                    <td class="num">{{ f.real_km_l != null ? (f.real_km_l | number:'1.1-2') : (f.no_medible || '—') }}</td>
+                    <td class="num">{{ f.spec_km_l != null ? (f.spec_km_l | number:'1.1-2') : '—' }}</td>
+                    <td class="num">
+                      @if (f.deviation_pct != null) {
+                        <span [class.fuel-bad]="f.flag">{{ f.deviation_pct > 0 ? '+' : '' }}{{ f.deviation_pct }}%</span>
+                      }
+                      @if (f.deviation_pct == null) {
+                        <span>—</span>
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </p-card>
+          }
+    
+          <p-card class="fuel-card">
+            <h3 class="fuel-title">Combustible — registrar carga</h3>
+            <form [formGroup]="fuelForm" class="fuel-form">
+              <p-select formControlName="vehicle_id" [options]="vehicleOptions()" optionLabel="label" optionValue="value" [filter]="true" placeholder="Unidad *" appendTo="body"></p-select>
+              <p-inputnumber formControlName="liters" placeholder="Litros *" [minFractionDigits]="0" [maxFractionDigits]="2"></p-inputnumber>
+              <p-inputnumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" placeholder="Monto"></p-inputnumber>
+              <p-inputnumber formControlName="odometer_km" placeholder="Odómetro km"></p-inputnumber>
+              <input pInputText formControlName="station" placeholder="Estación" />
+              <button pButton size="small" [loading]="savingFuel()" [disabled]="fuelForm.invalid" (click)="registerFuel()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Registrar</span></button>
+            </form>
+            <p-table [value]="fuelTx()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first" [paginator]="fuelTx().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
+              <ng-template #header>
+                <tr><th scope="col">Fecha</th><th scope="col">Unidad</th><th scope="col" class="num">Litros</th><th scope="col" class="num">Monto</th><th scope="col" class="num">Odómetro</th><th scope="col">Estación</th><th scope="col"><span class="sr-only">Acciones</span></th></tr>
+              </ng-template>
+              <ng-template #body let-f>
+                <tr>
+                  <td>{{ f.loaded_at | date:'shortDate' }}</td>
+                  <td><code>{{ f.vehicle_plate }}</code></td>
+                  <td class="num">{{ f.liters | number:'1.0-2' }}</td>
+                  <td class="num">\${{ f.amount | number:'1.2-2' }}</td>
+                  <td class="num">{{ f.odometer_km ? (f.odometer_km | number:'1.0-0') : '—' }}</td>
+                  <td class="small">{{ f.station || '—' }}</td>
+                  <td class="actions"><button pButton size="small" severity="secondary" [text]="true" (click)="deleteFuel(f)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button></td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage><tr><td colspan="7" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-bolt" aria-hidden="true"></i></div><h3>Sin cargas registradas</h3><p>Aún no hay cargas de combustible.</p></div></td></tr></ng-template>
+            </p-table>
+          </p-card>
+        </p-tabpanel>
+
+      </p-tabpanels>
+    </p-tabs>
+    </div>
+    
+    <!-- ──── J.9.9 Check-in dialog ──── -->
+    <p-dialog [(visible)]="checkInDialog" [modal]="true" [style]="{ width: '480px' }" header="Nuevo check-in de vehículo">
+      <form [formGroup]="checkInForm" class="form">
+        <label>
+          <span>Vehículo *</span>
+          <p-select formControlName="vehicle_id" [options]="vehicleOptions()" optionLabel="label" optionValue="value" [filter]="true" placeholder="Seleccionar vehículo"></p-select>
+        </label>
+        <label>
+          <span>Chofer</span>
+          <p-select formControlName="driver_id" [options]="driverOptions()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true" placeholder="Sin chofer"></p-select>
+        </label>
+        <label>
+          <span>Km inicial *</span>
+          <p-inputnumber formControlName="check_in_km" [min]="0" [useGrouping]="false"></p-inputnumber>
+        </label>
+        <label>
+          <span>Notas</span>
+          <input pInputText formControlName="check_in_notes" placeholder="Estado del vehículo, observaciones..." />
+        </label>
+      </form>
+      <ng-template #footer>
+        <button pButton severity="secondary" [text]="true" (click)="checkInDialog = false" [disabled]="savingUsage()"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingUsage()" [disabled]="checkInForm.invalid" (click)="submitCheckIn()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Registrar salida</span></button>
+      </ng-template>
+    </p-dialog>
+    
+    <!-- ──── J.9.9 Check-out dialog ──── -->
+    <p-dialog [(visible)]="checkOutDialog" [modal]="true" [style]="{ width: '480px' }" header="Check-out de vehículo">
+      @if (checkingOutUsage(); as u) {
+        <div class="muted small" style="margin-bottom: 1rem;">
+          <p>Vehículo: <strong>{{ u.vehicle_plate }}</strong></p>
+          <p>Km inicial: <strong>{{ u.check_in_km | number:'1.0-0' }}</strong></p>
+        </div>
+      }
+      <form [formGroup]="checkOutForm" class="form">
+        <label>
+          <span>Km final *</span>
+          <p-inputnumber formControlName="check_out_km" [min]="0" [useGrouping]="false"></p-inputnumber>
+        </label>
+        <label>
+          <span>Combustible cargado (L)</span>
+          <p-inputnumber formControlName="fuel_loaded_liters" [minFractionDigits]="2"></p-inputnumber>
+        </label>
+        <label>
+          <span>Notas</span>
+          <input pInputText formControlName="check_out_notes" placeholder="Daños, incidentes, etc." />
+        </label>
+      </form>
+      <ng-template #footer>
+        <button pButton severity="secondary" [text]="true" (click)="checkOutDialog = false" [disabled]="savingUsage()"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingUsage()" [disabled]="checkOutForm.invalid" (click)="submitCheckOut()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Cerrar uso</span></button>
+      </ng-template>
+    </p-dialog>
+    
+    <!-- ──── J.9.9 Maintenance dialog ──── -->
+    <p-dialog [(visible)]="maintenanceDialog" [modal]="true" [style]="{ width: '560px' }" header="Nuevo mantenimiento">
+      <form [formGroup]="maintenanceForm" class="form">
+        <div class="row">
+          <label>
+            <span>Vehículo *</span>
+            <p-select formControlName="vehicle_id" [options]="vehicleOptions()" optionLabel="label" optionValue="value" [filter]="true"></p-select>
+          </label>
+          <label>
+            <span>Tipo *</span>
+            <p-select formControlName="type" [options]="maintenanceTypeOptions" optionLabel="label" optionValue="value"></p-select>
+          </label>
+        </div>
+        <div class="row">
+          <label>
+            <span>Fecha *</span>
+            <p-datepicker formControlName="service_date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker>
+          </label>
+          <label>
+            <span>Km al servicio</span>
+            <p-inputnumber formControlName="km_at_service" [useGrouping]="false"></p-inputnumber>
+          </label>
+        </div>
+        <label>
+          <span>Descripción *</span>
+          <input pInputText formControlName="description" placeholder="Cambio de aceite, frenos, etc." />
+        </label>
+        <div class="row">
+          <label>
+            <span>Proveedor / Taller</span>
+            <input pInputText formControlName="vendor" />
+          </label>
+          <label>
+            <span>Costo</span>
+            <p-inputnumber formControlName="cost" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
+          </label>
+        </div>
+        <div class="row">
+          <label>
+            <span>Próximo servicio (fecha)</span>
+            <p-datepicker formControlName="next_service_date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker>
+          </label>
+          <label>
+            <span>Próximo servicio (km)</span>
+            <p-inputnumber formControlName="next_service_km" [useGrouping]="false"></p-inputnumber>
+          </label>
+        </div>
+        <label>
+          <span>Notas</span>
+          <input pInputText formControlName="notes" />
+        </label>
+      </form>
+      <ng-template #footer>
+        <button pButton severity="secondary" [text]="true" (click)="maintenanceDialog = false" [disabled]="savingMaint()"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingMaint()" [disabled]="maintenanceForm.invalid" (click)="submitMaintenance()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Registrar</span></button>
+      </ng-template>
+    </p-dialog>
+    
+    <!-- Vehicle dialog -->
+    <p-dialog [(visible)]="vDialog" [modal]="true" [draggable]="false" [style]="{ width: '560px' }"
+      [header]="editingV() ? 'Editar unidad' : 'Nueva unidad'">
+      @if (vForm) {
+        <form [formGroup]="vForm" class="form">
+          <div class="row">
+            <label>
+              <span>Placa <em>*</em></span>
+              <input pInputText formControlName="plate" placeholder="ABC-1234" />
+            </label>
+            <label>
+              <span>Año</span>
+              <p-inputnumber formControlName="year" [showButtons]="false" [useGrouping]="false"></p-inputnumber>
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              <span>Marca</span>
+              <input pInputText formControlName="brand" />
+            </label>
+            <label>
+              <span>Modelo</span>
+              <input pInputText formControlName="model" />
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              <span>Capacidad (cajas)</span>
+              <p-inputnumber formControlName="capacity_boxes"></p-inputnumber>
+            </label>
+            <label>
+              <span>Capacidad (kg)</span>
+              <p-inputnumber formControlName="capacity_kg"></p-inputnumber>
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              <span>Rendimiento (km/l)</span>
+              <p-inputnumber formControlName="fuel_efficiency_km_l" [maxFractionDigits]="2" mode="decimal"></p-inputnumber>
+            </label>
+            <label>
+              <span>Estado</span>
+              <p-select formControlName="status" [options]="vehicleStatusOptions" optionLabel="label" optionValue="value"></p-select>
+            </label>
+          </div>
+          <label>
+            <span>Notas</span>
+            <input pInputText formControlName="notes" />
+          </label>
+        </form>
+      }
+      <ng-template #footer>
+        <button pButton severity="secondary" [outlined]="true" (click)="vDialog = false"><span class="p-button-label">Cancelar</span></button>
+        <p-button [label]="editingV() ? 'Guardar' : 'Crear'" icon="pi pi-check"
+        [loading]="savingV()" [disabled]="vForm.invalid" (click)="saveVehicle()"></p-button>
+      </ng-template>
+    </p-dialog>
+    
+    <!-- Driver dialog -->
+    <p-dialog [(visible)]="dDialog" [modal]="true" [draggable]="false" [style]="{ width: '560px' }"
+      [header]="editingD() ? 'Editar colaborador' : 'Nuevo colaborador'">
+      @if (dForm) {
+        <form [formGroup]="dForm" class="form">
+          <label>
+            <span>Nombre completo <em>*</em></span>
+            <input pInputText formControlName="full_name" />
+          </label>
+          <label>
+            <span>Roles <em>*</em></span>
+            <p-multiselect formControlName="roles" [options]="driverRoleOptions" optionLabel="label" optionValue="value"
+            display="chip" placeholder="Seleccionar"></p-multiselect>
+          </label>
+          <div class="row">
+            <label>
+              <span>Tipo</span>
+              <p-select formControlName="employee_type" [options]="employeeTypes" optionLabel="label" optionValue="value"></p-select>
+            </label>
+            <label>
+              <span>Estado</span>
+              <p-select formControlName="status" [options]="driverStatusOptions" optionLabel="label" optionValue="value"></p-select>
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              <span>Teléfono</span>
+              <input pInputText formControlName="phone" />
+            </label>
+            <label>
+              <span>NSS</span>
+              <input pInputText formControlName="nss" />
+            </label>
+          </div>
+          <label>
+            <span>Contacto emergencia</span>
+            <input pInputText formControlName="emergency_contact" />
+          </label>
+          <label>
+            <span>Notas</span>
+            <input pInputText formControlName="notes" />
+          </label>
+          <label>
+            <span>Cuenta del sistema <em class="fc-opt">(opcional)</em></span>
+            <p-select formControlName="user_id" [options]="linkable()" optionLabel="nombre" optionValue="id"
+              [filter]="true" [showClear]="true" [editable]="false" filterPlaceholder="Escribí 2+ letras"
+              placeholder="Sin cuenta — sólo ficha" appendTo="body"
+              (onFilter)="buscarUsuarios($event)" [emptyFilterMessage]="linkableMsg()">
+              <ng-template let-u #item>
+                <div class="fc-user-opt"><strong>{{ u.nombre }}</strong> <span class="muted">{{ u.username }}</span></div>
+              </ng-template>
+            </p-select>
+            <small class="fc-hint">Vincularla deja al colaborador entrar al sistema con su usuario. Se puede dejar en blanco y ligarla después.</small>
+          </label>
+        </form>
+      }
+      <ng-template #footer>
+        <button pButton severity="secondary" [outlined]="true" (click)="dDialog = false"><span class="p-button-label">Cancelar</span></button>
+        <p-button [label]="editingD() ? 'Guardar' : 'Crear'" icon="pi pi-check"
+        [loading]="savingD()" [disabled]="dForm.invalid" (click)="saveDriver()"></p-button>
+      </ng-template>
+    </p-dialog>
+
+    <!-- FC.1 — Otorgar derecho de uso -->
+    <p-dialog [(visible)]="grantDialog" [modal]="true" [draggable]="false" [style]="{ width: '520px' }"
+      header="Otorgar derecho de uso">
+      <form [formGroup]="grantForm" class="form">
+        <label><span>Colaborador</span>
+          <div class="fc-inline">
+            <p-select formControlName="driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
+              [filter]="true" filterBy="full_name" placeholder="Elegir" appendTo="body"></p-select>
+            <button pButton type="button" severity="secondary" [outlined]="true" pTooltip="Agregar colaborador que no está en la lista"
+              (click)="nuevoColaborador('grant', 'driver_id')" aria-label="Agregar colaborador"><span class="p-button-icon pi pi-user-plus" aria-hidden="true"></span></button>
+          </div>
+        </label>
+        <label><span>Unidad</span>
+          <p-select formControlName="vehicle_id" [options]="vehicles()" optionLabel="plate" optionValue="id"
+            [filter]="true" filterBy="plate,model" placeholder="Elegir" appendTo="body"></p-select>
+        </label>
+        <label><span>Carácter</span>
+          <p-select formControlName="capacity" [options]="capacityOptions" optionLabel="label" optionValue="value" appendTo="body"></p-select>
+        </label>
+        <label><span>Notas</span><input pInputText formControlName="notes" /></label>
+      </form>
+      <ng-template #footer>
+        <button pButton severity="secondary" [outlined]="true" (click)="grantDialog = false"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingEnt()" [disabled]="grantForm.invalid" (click)="saveGrant()"><span class="p-button-label">Otorgar</span></button>
+      </ng-template>
+    </p-dialog>
+
+    <!-- FC.1 — Acta de asignación vehicular -->
+    <p-dialog [(visible)]="assignmentDialog" [modal]="true" [draggable]="false" [style]="{ width: '900px' }"
+      header="Formato de asignación vehicular">
+      <form [formGroup]="assignmentForm" class="fc-asg-form">
+        <label><span>Folio</span><input pInputText formControlName="folio" placeholder="p. ej. 2-4-26" /></label>
+        <label><span>Unidad</span>
+          <p-select formControlName="vehicle_id" [options]="vehicles()" optionLabel="plate" optionValue="id"
+            [filter]="true" filterBy="plate,model" placeholder="Elegir" appendTo="body"></p-select>
+        </label>
+        <label><span>Fecha de entrega</span>
+          <p-datepicker formControlName="assigned_on" dateFormat="dd/mm/yy" appendTo="body"></p-datepicker>
+        </label>
+        <label><span>Responsable</span>
+          <div class="fc-inline">
+            <p-select formControlName="responsible_driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
+              [filter]="true" filterBy="full_name" placeholder="Elegir" [showClear]="true" appendTo="body"></p-select>
+            <button pButton type="button" severity="secondary" [outlined]="true" pTooltip="Agregar responsable que no está en la lista"
+              (click)="nuevoColaborador('assignment', 'responsible_driver_id')" aria-label="Agregar responsable"><span class="p-button-icon pi pi-user-plus" aria-hidden="true"></span></button>
+          </div>
+        </label>
+        <label><span>Chofer</span>
+          <div class="fc-inline">
+            <p-select formControlName="driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
+              [filter]="true" filterBy="full_name" placeholder="Elegir" [showClear]="true" appendTo="body"></p-select>
+            <button pButton type="button" severity="secondary" [outlined]="true" pTooltip="Agregar chofer que no está en la lista"
+              (click)="nuevoColaborador('assignment', 'driver_id')" aria-label="Agregar chofer"><span class="p-button-icon pi pi-user-plus" aria-hidden="true"></span></button>
+          </div>
+        </label>
+        <label><span>Área</span><input pInputText formControlName="area" /></label>
+        <label><span>Kilometraje</span><p-inputnumber formControlName="odometer" [min]="0"></p-inputnumber></label>
+      </form>
+
+      @if (template(); as tpl) {
+        <div class="fc-cond-head">
+          <h4>Estado de la unidad</h4>
+          <span class="fc-count">{{ capturados }} de {{ tpl.items.length }} conceptos calificados</span>
+        </div>
+        @for (sec of ['interiores', 'exteriores', 'accesorios']; track sec) {
+          <details class="fc-sec" open>
+            <summary>{{ sec | titlecase }}</summary>
+            <div class="fc-grid">
+              @for (it of itemsOf($any(sec)); track it.id) {
+                <div class="fc-item">
+                  <span class="fc-item-label">{{ it.label }}</span>
+                  <div class="fc-grades" role="group" [attr.aria-label]="it.label">
+                    @for (g of tpl.grades; track g.value) {
+                      <button type="button" class="fc-grade" [class.on]="gradeOf(it.id) === g.value"
+                        [attr.aria-pressed]="gradeOf(it.id) === g.value" [pTooltip]="g.label"
+                        (click)="setGrade(it.id, g.value)">{{ g.value }}</button>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          </details>
+        }
+      }
+
+      <label class="fc-obs"><span>Observaciones</span>
+        <input pInputText [formControl]="$any(assignmentForm.get('observations'))" placeholder="Lo que va escrito al pie de la hoja" />
+      </label>
+      <label class="fc-check">
+        <input type="checkbox" [formControl]="$any(assignmentForm.get('grant_entitlements'))" />
+        <span>Otorgar el derecho de uso al chofer y al responsable (como el papel firmado)</span>
+      </label>
+
+      <ng-template #footer>
+        <button pButton severity="secondary" [outlined]="true" (click)="assignmentDialog = false"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingAsg()" [disabled]="assignmentForm.invalid" (click)="saveAssignment()"><span class="p-button-label">Registrar acta</span></button>
+      </ng-template>
+    </p-dialog>
+
+    `,
+  styles: [`
+    /* ── FC.1 Derechos + actas de asignación ─────────────────────────────── */
+    .fc-help { display:flex; gap:.45rem; align-items:flex-start; margin:0 0 .75rem;
+      font-size:var(--fs-sm); color:var(--c-text-2); }
+    .fc-help i { color:var(--action); margin-top:.15rem; }
+    .fc-count { font-size:var(--fs-sm); color:var(--c-text-2); }
+    .fc-sin td { opacity:.62; }
+    .fc-chips { display:flex; flex-wrap:wrap; gap:.35rem; }
+    .fc-chip { display:inline-flex; align-items:center; gap:.35rem; padding:.1rem .1rem .1rem .45rem;
+      border:1px solid var(--c-divider); border-radius:var(--r-sm,6px); background:var(--c-surface-2); }
+    .fc-chip code { font-size:var(--fs-xs); }
+    .fc-chip--resp { border-color:var(--action); }
+    .fc-chip-cap { font-size:var(--fs-xs); color:var(--c-text-2); }
+    .fc-cond { display:inline-flex; gap:.25rem; }
+    .fc-g { font-size:var(--fs-xs); font-weight:var(--fw-medium); padding:.05rem .3rem;
+      border-radius:var(--r-sm,6px); border:1px solid var(--c-divider); }
+    .fc-g--m { color:var(--bad-fg); border-color:var(--bad-fg); }
+    .fc-g--r { color:var(--warn-fg, var(--action)); border-color:var(--warn-fg, var(--action)); }
+    .fc-g--b { color:var(--ok-fg); border-color:var(--ok-fg); }
+
+    .fc-asg-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+      gap:.75rem; margin-bottom:1rem; }
+    .fc-asg-form label { display:flex; flex-direction:column; gap:.25rem; }
+    .fc-asg-form label > span { font-size:var(--fs-sm); color:var(--c-text-2); }
+    .fc-cond-head { display:flex; justify-content:space-between; align-items:baseline;
+      border-top:1px solid var(--c-divider); padding-top:.75rem; margin-bottom:.5rem; }
+    .fc-cond-head h4 { margin:0; font-size:var(--fs-md); }
+    .fc-sec { margin-bottom:.6rem; }
+    .fc-sec > summary { cursor:pointer; font-weight:var(--fw-medium); padding:.3rem 0;
+      font-size:var(--fs-sm); text-transform:capitalize; }
+    .fc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:.3rem .9rem; }
+    .fc-item { display:flex; align-items:center; justify-content:space-between; gap:.5rem;
+      padding:.15rem 0; border-bottom:1px dotted var(--c-divider); }
+    .fc-item-label { font-size:var(--fs-sm); }
+    .fc-grades { display:inline-flex; gap:.15rem; flex:0 0 auto; }
+    .fc-grade { width:1.6rem; height:1.6rem; border:1px solid var(--c-divider); background:transparent;
+      border-radius:var(--r-sm,6px); cursor:pointer; font:inherit; font-size:var(--fs-xs);
+      font-weight:var(--fw-medium); color:var(--c-text-2); }
+    .fc-grade:hover { background:var(--overlay-hover); }
+    .fc-grade:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
+    .fc-grade.on { background:var(--action); border-color:var(--action); color:var(--action-ink,#fff); }
+    .fc-obs { display:flex; flex-direction:column; gap:.25rem; margin-top:.75rem; }
+    .fc-obs > span { font-size:var(--fs-sm); color:var(--c-text-2); }
+    .fc-check { display:flex; align-items:center; gap:.5rem; margin-top:.6rem; font-size:var(--fs-sm); }
+    .fc-inline { display:flex; gap:.35rem; align-items:center; }
+    .fc-inline p-select { flex:1 1 auto; min-width:0; }
+    .fc-opt { font-style:normal; color:var(--c-text-3,var(--c-text-2)); font-weight:400; }
+    .fc-hint { display:block; margin-top:.2rem; font-size:var(--fs-xs); color:var(--c-text-2); }
+    .fc-user-opt { display:flex; gap:.5rem; align-items:baseline; }
+    :host { display:block; }
+    .tab-actions { display:flex; justify-content:flex-end; margin: .5rem 0; }
+    .tab-actions--split { justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; }
+    .muted { color: var(--c-text-2); font-size: var(--fs-sm); }
+    .strong { font-weight: var(--fw-medium); }
+    .small { font-size: var(--fs-xs); }
+    .num { font-variant-numeric: tabular-nums; text-align: right; font-family: var(--font-mono); }
+    .actions { display:flex; gap:.25rem; justify-content:flex-end; }
+    .role-tag { margin-right: .25rem; }
+    code { background: var(--c-surface-2); padding:.15rem .4rem; border-radius:4px; font-size:.85rem; font-family: var(--font-mono); }
+    .form { display:flex; flex-direction:column; gap: .85rem; }
+    .form label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color: var(--c-text-2); }
+    .form em { color: var(--bad-fg); font-style:normal; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .maint-due { border:1px solid var(--warn-border); background: var(--warn-soft-bg); border-radius:10px; padding:.75rem 1rem; margin-bottom:1rem; color: var(--warn-soft-fg); }
+    .maint-due-head { display:flex; align-items:center; gap:.5rem; font-weight: var(--fw-bold); margin-bottom:.4rem; }
+    .maint-due ul { margin:0; padding-left:1.1rem; display:flex; flex-direction:column; gap:.25rem; }
+    .maint-due li { font-size:.9rem; }
+    .maint-due-reason { color: var(--c-text-2); margin-left:.4rem; }
+    .fuel-card { display:block; margin-bottom:1rem; }
+    .fuel-cov { margin:0 0 .6rem; font-size:var(--fs-sm); color:var(--c-text-2); }
+    .fuel-orphan { color:var(--warn-fg, var(--action)); }
+    .fuel-src { font-size:var(--fs-xs); color:var(--c-text-2); }
+    .fuel-src span + span::before { content:' · '; }
+    .fuel-title { margin:0 0 .5rem; font-size:1rem; }
+    .fuel-flag { background: var(--bad-soft-bg); }
+    .fuel-bad { color: var(--bad-fg); font-weight: var(--fw-medium); }
+    .fuel-form { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class LogisticaFleetComponent {
+  private readonly api = inject(LogisticaService);
+  private readonly fb = inject(FormBuilder);
+  private readonly toast = inject(MessageService);
+  private readonly confirm = inject(ConfirmationService);
+
+  readonly vehicles = signal<Vehicle[]>([]);
+  readonly drivers = signal<Driver[]>([]);
+  readonly loadingV = signal(false);
+  readonly loadingD = signal(false);
+
+  readonly editingV = signal<Vehicle | null>(null);
+  readonly editingD = signal<Driver | null>(null);
+  readonly savingV = signal(false);
+  readonly savingD = signal(false);
+
+  vDialog = false;
+  dDialog = false;
+
+  // J.9.9 — Vehicle usage + maintenance state
+  readonly usageLogs = signal<VehicleUsageLog[]>([]);
+  readonly maintenance = signal<VehicleMaintenance[]>([]);
+  readonly maintDue = signal<MaintenanceDue[]>([]);
+  readonly fuelEff = signal<FuelEfficiency[]>([]);
+  readonly fuelCoverage = signal<FuelEfficiencyReport['coverage'] | null>(null);
+  readonly fuelOrphan = signal<FuelEfficiencyReport['unattributed'] | null>(null);
+  readonly fuelTx = signal<FuelTransaction[]>([]);
+  readonly savingFuel = signal(false);
+  fuelForm: FormGroup = this.fb.group({
+    vehicle_id: [null as string | null, Validators.required],
+    liters: [null as number | null, [Validators.required, Validators.min(0.01)]],
+    amount: [0],
+    odometer_km: [null as number | null],
+    station: [''],
+  });
+  // ── FC.1 Derechos + actas de asignación ──────────────────────────────────
+  readonly entitlements = signal<DriverEntitlements[]>([]);
+  readonly assignments = signal<VehicleAssignment[]>([]);
+  readonly template = signal<AssignmentTemplate | null>(null);
+  readonly loadingEnt = signal(false);
+  readonly loadingAsg = signal(false);
+  readonly savingEnt = signal(false);
+  readonly savingAsg = signal(false);
+  readonly conDerecho = computed(() => this.entitlements().filter((e) => e.vehicles.length > 0).length);
+  grantDialog = false;
+  assignmentDialog = false;
+  /** Cuentas encontradas para vincular a la ficha (lookup por búsqueda). */
+  readonly linkable = signal<LinkableUser[]>([]);
+  readonly linkableMsg = signal('Escribí al menos 2 letras');
+  /**
+   * Desde qué campo se abrió "agregar colaborador": al guardarlo, la ficha
+   * nueva queda SELECCIONADA ahí y el diálogo de origen se reabre. Sin esto el
+   * usuario pierde lo que llevaba capturado del acta.
+   */
+  private volverA: { dialog: 'grant' | 'assignment'; control: string } | null = null;
+  /** Calificación M/R/B en captura, por concepto. */
+  readonly condition = signal<Record<string, ConditionGrade>>({});
+  grantForm: FormGroup = this.fb.group({
+    driver_id: [null as string | null, Validators.required],
+    vehicle_id: [null as string | null, Validators.required],
+    capacity: ['chofer' as EntitlementCapacity, Validators.required],
+    notes: [''],
+  });
+  assignmentForm: FormGroup = this.fb.group({
+    folio: ['', Validators.required],
+    vehicle_id: [null as string | null, Validators.required],
+    responsible_driver_id: [null as string | null],
+    driver_id: [null as string | null],
+    area: [''],
+    odometer: [null as number | null],
+    assigned_on: [new Date(), Validators.required],
+    observations: [''],
+    grant_entitlements: [true],
+  });
+
+  readonly loadingUsage = signal(false);
+  readonly loadingMaint = signal(false);
+  readonly savingUsage = signal(false);
+  readonly savingMaint = signal(false);
+  readonly checkingOutUsage = signal<VehicleUsageLog | null>(null);
+  checkInDialog = false;
+  checkOutDialog = false;
+  maintenanceDialog = false;
+
+  readonly vehicleStatusOptions = VEHICLE_STATUS_OPTIONS;
+  readonly driverRoleOptions = DRIVER_ROLE_OPTIONS;
+  readonly driverStatusOptions = DRIVER_STATUS_OPTIONS;
+  readonly employeeTypes = [{ label: 'Interno', value: 'interno' }, { label: 'Externo', value: 'externo' }];
+  readonly maintenanceTypeOptions = [
+    { label: 'Preventivo', value: 'preventivo' },
+    { label: 'Correctivo', value: 'correctivo' },
+    { label: 'Inspección', value: 'inspeccion' },
+  ];
+
+  // Vehicle/Driver options para los selects de los dialogs J.9.9
+  readonly vehicleOptions = computed(() =>
+    this.vehicles().filter((v) => v.active).map((v) => ({
+      label: `${v.plate}${v.model ? ' — ' + v.model : ''}`,
+      value: v.id,
+    })),
+  );
+  readonly driverOptions = computed(() =>
+    this.drivers().filter((d) => d.active && d.status === 'activo' && d.roles.includes('chofer')),
+  );
+
+  // J.9.9 forms
+  checkInForm: FormGroup = this.fb.group({
+    vehicle_id: [null as string | null, Validators.required],
+    driver_id: [null as string | null],
+    check_in_km: [0, [Validators.required, Validators.min(0)]],
+    check_in_notes: [''],
+  });
+  checkOutForm: FormGroup = this.fb.group({
+    check_out_km: [0, [Validators.required, Validators.min(0)]],
+    fuel_loaded_liters: [null as number | null],
+    check_out_notes: [''],
+  });
+  maintenanceForm: FormGroup = this.fb.group({
+    vehicle_id: [null as string | null, Validators.required],
+    type: ['preventivo' as 'preventivo' | 'correctivo' | 'inspeccion', Validators.required],
+    service_date: [new Date(), Validators.required],
+    km_at_service: [null as number | null],
+    vendor: [''],
+    description: ['', Validators.required],
+    cost: [0],
+    next_service_date: [null as Date | null],
+    next_service_km: [null as number | null],
+    notes: [''],
+  });
+
+  vForm: FormGroup = this.fb.group({
+    plate: ['', [Validators.required, Validators.pattern(/^[A-Z0-9-]{2,20}$/)]],
+    brand: [''], model: [''], year: [null],
+    capacity_boxes: [null], capacity_kg: [null], fuel_efficiency_km_l: [null],
+    status: ['disponible' as VehicleStatus, Validators.required],
+    notes: [''],
+  });
+
+  dForm: FormGroup = this.fb.group({
+    full_name: ['', Validators.required],
+    roles: [['chofer'] as DriverRole[], [Validators.required]],
+    employee_type: ['interno', Validators.required],
+    status: ['activo', Validators.required],
+    phone: [''], nss: [''], emergency_contact: [''], notes: [''],
+    // Opcional: liga la ficha a una cuenta del sistema. Null = sólo ficha.
+    user_id: [null as string | null],
+  });
+
+  constructor() {
+    this.loadVehicles();
+    this.loadDrivers();
+    this.loadUsage();
+    this.loadMaintenance();
+    this.loadEntitlements();
+    this.loadAssignments();
+    this.api.assignmentTemplate().subscribe({ next: (t) => this.template.set(t), error: () => {} });
+
+    // Autollenar km del odómetro al elegir unidad (check-in + mantenimiento).
+    this.checkInForm.get('vehicle_id')!.valueChanges.subscribe((id) => this.fillOdometer(id, this.checkInForm, 'check_in_km'));
+    this.maintenanceForm.get('vehicle_id')!.valueChanges.subscribe((id) => this.fillOdometer(id, this.maintenanceForm, 'km_at_service'));
+  }
+
+  private fillOdometer(vehicleId: string | null, form: FormGroup, control: string) {
+    if (!vehicleId) return;
+    this.api.vehicleOdometer(vehicleId).subscribe({
+      next: (r) => { if (r.odometer != null) form.get(control)!.setValue(r.odometer); },
+      error: () => { /* sin historial — el usuario teclea */ },
+    });
+  }
+
+  loadVehicles() {
+    this.loadingV.set(true);
+    this.api.listVehicles().subscribe({
+      next: (r) => { this.vehicles.set(r || []); this.loadingV.set(false); },
+      error: () => { this.loadingV.set(false); this.toast.add({ severity:'error', summary:'Error', detail:'No se cargaron unidades' }); },
+    });
+  }
+  loadDrivers() {
+    this.loadingD.set(true);
+    this.api.listDrivers().subscribe({
+      next: (r) => { this.drivers.set(r || []); this.loadingD.set(false); },
+      error: () => { this.loadingD.set(false); this.toast.add({ severity:'error', summary:'Error', detail:'No se cargaron colaboradores' }); },
+    });
+  }
+
+  // ── J.9.9 Vehicle usage (check-in / check-out) ──────────────────────────
+  loadUsage() {
+    this.loadingUsage.set(true);
+    this.api.listVehicleUsage({ limit: 100 }).subscribe({
+      next: (r) => { this.usageLogs.set(r || []); this.loadingUsage.set(false); },
+      error: () => { this.loadingUsage.set(false); /* silent */ },
+    });
+  }
+  openCheckIn() {
+    this.checkInForm.reset({ vehicle_id: null, driver_id: null, check_in_km: 0, check_in_notes: '' });
+    this.checkInDialog = true;
+  }
+  submitCheckIn() {
+    if (this.checkInForm.invalid) return;
+    this.savingUsage.set(true);
+    this.api.vehicleCheckIn(this.checkInForm.value).subscribe({
+      next: () => {
+        this.savingUsage.set(false); this.checkInDialog = false;
+        this.toast.add({ severity: 'success', summary: 'Check-in registrado' });
+        this.loadUsage(); this.loadVehicles();
+      },
+      error: (e) => {
+        this.savingUsage.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo registrar' });
+      },
+    });
+  }
+  openCheckOut(u: VehicleUsageLog) {
+    this.checkingOutUsage.set(u);
+    this.checkOutForm.reset({ check_out_km: u.check_in_km, fuel_loaded_liters: null, check_out_notes: '' });
+    this.checkOutDialog = true;
+  }
+  submitCheckOut() {
+    const u = this.checkingOutUsage();
+    if (!u || this.checkOutForm.invalid) return;
+    this.savingUsage.set(true);
+    this.api.vehicleCheckOut(u.id, this.checkOutForm.value).subscribe({
+      next: () => {
+        this.savingUsage.set(false); this.checkOutDialog = false;
+        this.toast.add({ severity: 'success', summary: 'Check-out completado' });
+        this.loadUsage(); this.loadVehicles();
+      },
+      error: (e) => {
+        this.savingUsage.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cerrar' });
+      },
+    });
+  }
+
+  // ── J.9.9 Vehicle maintenance log ───────────────────────────────────────
+  loadMaintenance() {
+    this.loadingMaint.set(true);
+    this.api.listMaintenance({ limit: 100 }).subscribe({
+      next: (r) => { this.maintenance.set(r || []); this.loadingMaint.set(false); },
+      error: () => { this.loadingMaint.set(false); /* silent */ },
+    });
+    this.api.maintenanceDue().subscribe({ next: (r) => this.maintDue.set(r || []), error: () => {} });
+    this.api.fuelEfficiency().subscribe({
+      next: (r) => {
+        this.fuelEff.set(r?.items || []);
+        this.fuelCoverage.set(r?.coverage || null);
+        this.fuelOrphan.set(r?.unattributed || null);
+      },
+      error: () => {},
+    });
+    this.api.listFuel({ limit: 50 }).subscribe({ next: (r) => this.fuelTx.set(r || []), error: () => {} });
+  }
+
+  registerFuel() {
+    if (this.fuelForm.invalid) return;
+    this.savingFuel.set(true);
+    this.api.createFuel(this.fuelForm.value).subscribe({
+      next: () => {
+        this.savingFuel.set(false);
+        this.fuelForm.reset({ vehicle_id: null, liters: null, amount: 0, odometer_km: null, station: '' });
+        this.toast.add({ severity: 'success', summary: 'Carga registrada' });
+        this.loadMaintenance();
+      },
+      error: (err) => { this.savingFuel.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se registró' }); },
+    });
+  }
+  deleteFuel(f: FuelTransaction) {
+    this.confirm.confirm({
+      header: 'Borrar carga', message: `¿Borrar la carga de ${f.liters} L?`, icon: 'pi pi-trash',
+      accept: () => this.api.deleteFuel(f.id).subscribe({
+        next: () => { this.toast.add({ severity: 'success', summary: 'Borrada' }); this.loadMaintenance(); },
+        error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se borró' }),
+      }),
+    });
+  }
+  openMaintenance() {
+    this.maintenanceForm.reset({
+      vehicle_id: null, type: 'preventivo', service_date: new Date(),
+      km_at_service: null, vendor: '', description: '', cost: 0,
+      next_service_date: null, next_service_km: null, notes: '',
+    });
+    this.maintenanceDialog = true;
+  }
+  submitMaintenance() {
+    if (this.maintenanceForm.invalid) return;
+    const raw = this.maintenanceForm.value;
+    const body = {
+      ...raw,
+      service_date: raw.service_date instanceof Date
+        ? raw.service_date.toISOString().slice(0, 10)
+        : raw.service_date,
+      next_service_date: raw.next_service_date instanceof Date
+        ? raw.next_service_date.toISOString().slice(0, 10)
+        : raw.next_service_date || undefined,
+    };
+    this.savingMaint.set(true);
+    this.api.createMaintenance(body).subscribe({
+      next: () => {
+        this.savingMaint.set(false); this.maintenanceDialog = false;
+        this.toast.add({ severity: 'success', summary: 'Mantenimiento registrado' });
+        this.loadMaintenance();
+      },
+      error: (e) => {
+        this.savingMaint.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo registrar' });
+      },
+    });
+  }
+  confirmDeleteMaint(m: VehicleMaintenance) {
+    this.confirm.confirm({
+      header: 'Eliminar mantenimiento',
+      message: `¿Borrar el registro "${m.description}" del ${m.service_date}?`,
+      icon: 'pi pi-exclamation-triangle',
+      accept: () => {
+        this.api.deleteMaintenance(m.id).subscribe({
+          next: () => { this.toast.add({ severity: 'success', summary: 'Borrado' }); this.loadMaintenance(); },
+          error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se borró' }),
+        });
+      },
+    });
+  }
+
+
+  // ── FC.1 Derechos de uso ──────────────────────────────────────────────────
+
+  capacityLabel(c: EntitlementCapacity): string {
+    return c === 'responsable_administrativo' ? 'responsable' : c;
+  }
+
+  loadEntitlements() {
+    this.loadingEnt.set(true);
+    this.api.entitlementsByDriver().subscribe({
+      next: (r) => { this.entitlements.set(r || []); this.loadingEnt.set(false); },
+      error: () => this.loadingEnt.set(false),
+    });
+  }
+
+  openGrant() {
+    this.grantForm.reset({ driver_id: null, vehicle_id: null, capacity: 'chofer', notes: '' });
+    this.grantDialog = true;
+  }
+
+  saveGrant() {
+    if (this.grantForm.invalid) return;
+    this.savingEnt.set(true);
+    this.api.grantEntitlement(this.grantForm.value).subscribe({
+      next: () => {
+        this.savingEnt.set(false); this.grantDialog = false;
+        this.toast.add({ severity: 'success', summary: 'Derecho otorgado' });
+        this.loadEntitlements();
+      },
+      error: (err) => {
+        this.savingEnt.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo otorgar', detail: err?.error?.message || 'Error' });
+      },
+    });
+  }
+
+  revoke(v: VehicleEntitlement) {
+    this.confirm.confirm({
+      message: `¿Revocar el derecho sobre ${v.plate}? Queda en el histórico, no se borra.`,
+      header: 'Revocar derecho',
+      acceptLabel: 'Revocar', rejectLabel: 'Cancelar',
+      accept: () => {
+        this.api.revokeEntitlement(v.entitlement_id!).subscribe({
+          next: () => { this.toast.add({ severity: 'success', summary: 'Derecho revocado' }); this.loadEntitlements(); },
+          error: (err) => this.toast.add({ severity: 'error', summary: 'No se pudo revocar', detail: err?.error?.message || 'Error' }),
+        });
+      },
+    });
+  }
+
+  // ── FC.1 Actas de asignación ──────────────────────────────────────────────
+
+  loadAssignments() {
+    this.loadingAsg.set(true);
+    this.api.listAssignments().subscribe({
+      next: (r) => { this.assignments.set(r || []); this.loadingAsg.set(false); },
+      error: () => this.loadingAsg.set(false),
+    });
+  }
+
+  /** Cuántas piezas quedaron en cada calificación. Sin capturar NO cuenta como bueno. */
+  conditionSummary(a: VehicleAssignment): { M: number; R: number; B: number } {
+    const out = { M: 0, R: 0, B: 0 };
+    for (const g of Object.values(a.condition || {})) {
+      if (g === 'M' || g === 'R' || g === 'B') out[g]++;
+    }
+    return out;
+  }
+
+  itemsOf(section: 'interiores' | 'exteriores' | 'accesorios') {
+    return (this.template()?.items || []).filter((i) => i.section === section);
+  }
+
+  setGrade(itemId: string, grade: ConditionGrade) {
+    this.condition.update((c) => ({ ...c, [itemId]: grade }));
+  }
+
+  gradeOf(itemId: string): ConditionGrade | null {
+    return this.condition()[itemId] ?? null;
+  }
+
+  get capturados(): number { return Object.keys(this.condition()).length; }
+
+  openAssignment() {
+    this.assignmentForm.reset({
+      folio: '', vehicle_id: null, responsible_driver_id: null, driver_id: null,
+      area: '', odometer: null, assigned_on: new Date(), observations: '', grant_entitlements: true,
+    });
+    this.condition.set({});
+    this.assignmentDialog = true;
+  }
+
+  saveAssignment() {
+    if (this.assignmentForm.invalid) return;
+    const v = this.assignmentForm.value;
+    const fecha: Date = v.assigned_on instanceof Date ? v.assigned_on : new Date(v.assigned_on);
+    // Fecha en local, no toISOString(): en MX (UTC−6) el ISO de una fecha
+    // elegida en el calendario cae el día anterior.
+    const iso = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
+    this.savingAsg.set(true);
+    this.api.createAssignment({ ...v, assigned_on: iso, condition: this.condition() }).subscribe({
+      next: () => {
+        this.savingAsg.set(false); this.assignmentDialog = false;
+        this.toast.add({ severity: 'success', summary: 'Acta registrada' });
+        this.loadAssignments(); this.loadEntitlements(); this.loadVehicles();
+      },
+      error: (err) => {
+        this.savingAsg.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo registrar', detail: err?.error?.message || 'Error' });
+      },
+    });
+  }
+
+  returnAssignment(a: VehicleAssignment) {
+    this.confirm.confirm({
+      message: `¿Registrar la devolución de ${a.plate} (acta ${a.folio})? La unidad queda libre para reasignarse.`,
+      header: 'Devolución de unidad',
+      acceptLabel: 'Registrar', rejectLabel: 'Cancelar',
+      accept: () => {
+        this.api.returnAssignment(a.id).subscribe({
+          next: () => { this.toast.add({ severity: 'success', summary: 'Devolución registrada' }); this.loadAssignments(); },
+          error: (err) => this.toast.add({ severity: 'error', summary: 'No se pudo', detail: err?.error?.message || 'Error' }),
+        });
+      },
+    });
+  }
+
+  readonly capacityOptions: { label: string; value: EntitlementCapacity }[] = [
+    { label: 'Chofer', value: 'chofer' },
+    { label: 'Responsable administrativo', value: 'responsable_administrativo' },
+    { label: 'Ayudante', value: 'ayudante' },
+  ];
+
+  severityVeh(s: VehicleStatus): Severity { return severityForVehicleStatus(s); }
+  severityDrv(s: string): Severity { return severityForDriverStatus(s); }
+  vStatusLabel(s: VehicleStatus): string {
+    return VEHICLE_STATUS_OPTIONS.find((o) => o.value === s)?.label || s;
+  }
+
+  // ── Vehicles ─────────────────────────────────────────────────────────
+  openVehicleCreate() {
+    this.editingV.set(null);
+    this.vForm.reset({ plate: '', brand: '', model: '', year: null, capacity_boxes: null, capacity_kg: null, fuel_efficiency_km_l: null, status: 'disponible', notes: '' });
+    this.vForm.get('plate')?.enable();
+    this.vDialog = true;
+  }
+  openVehicleEdit(v: Vehicle) {
+    this.editingV.set(v);
+    this.vForm.reset({
+      plate: v.plate, brand: v.brand || '', model: v.model || '',
+      year: v.year, capacity_boxes: v.capacity_boxes, capacity_kg: v.capacity_kg,
+      fuel_efficiency_km_l: v.fuel_efficiency_km_l, status: v.status, notes: v.notes || '',
+    });
+    this.vForm.get('plate')?.disable();
+    this.vDialog = true;
+  }
+  saveVehicle() {
+    if (this.vForm.invalid) return;
+    this.savingV.set(true);
+    const payload = this.vForm.getRawValue();
+    const editing = this.editingV();
+    const obs = editing ? this.api.updateVehicle(editing.id, payload) : this.api.createVehicle(payload);
+    obs.subscribe({
+      next: () => {
+        this.savingV.set(false); this.vDialog = false;
+        this.toast.add({ severity:'success', summary: editing ? 'Unidad actualizada' : 'Unidad creada' });
+        this.loadVehicles();
+      },
+      error: (err) => {
+        this.savingV.set(false);
+        this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo guardar' });
+      },
+    });
+  }
+  confirmDeleteVehicle(v: Vehicle) {
+    this.confirm.confirm({
+      message: `¿Dar de baja la unidad ${v.plate}? No podrá asignarse a nuevos embarques.`,
+      header: 'Confirmar', icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, dar de baja', rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => this.api.deleteVehicle(v.id).subscribe({
+        next: () => { this.toast.add({ severity:'success', summary:'Unidad dada de baja' }); this.loadVehicles(); },
+        error: (err) => this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' }),
+      }),
+    });
+  }
+
+  // ── Drivers ──────────────────────────────────────────────────────────
+  openDriverCreate() {
+    this.editingD.set(null);
+    this.volverA = null;
+    this.linkable.set([]);
+    this.dForm.reset({ full_name: '', roles: ['chofer'], employee_type: 'interno', status: 'activo', phone: '', nss: '', emergency_contact: '', notes: '', user_id: null });
+    this.dDialog = true;
+  }
+
+  /**
+   * Alta de colaborador SIN salir del flujo de asignación. El caso real: llega
+   * una hoja con alguien que no está en el padrón; antes había que abandonar la
+   * captura, ir a la pestaña Personal, darlo de alta y volver a empezar.
+   */
+  nuevoColaborador(dialog: 'grant' | 'assignment', control: string) {
+    this.volverA = { dialog, control };
+    if (dialog === 'grant') this.grantDialog = false; else this.assignmentDialog = false;
+    this.editingD.set(null);
+    this.linkable.set([]);
+    this.dForm.reset({
+      full_name: '', roles: [control === 'responsible_driver_id' ? 'chofer' : 'chofer'],
+      employee_type: 'interno', status: 'activo', phone: '', nss: '', emergency_contact: '', notes: '', user_id: null,
+    });
+    this.dDialog = true;
+  }
+
+  buscarUsuarios(ev: { filter: string }) {
+    const q = (ev?.filter || '').trim();
+    if (q.length < 2) { this.linkable.set([]); this.linkableMsg.set('Escribí al menos 2 letras'); return; }
+    this.api.linkableUsers(q).subscribe({
+      next: (r) => {
+        this.linkable.set(r || []);
+        this.linkableMsg.set(r?.length ? '' : 'Sin cuentas libres con ese nombre');
+      },
+      error: () => { this.linkable.set([]); this.linkableMsg.set('No se pudo buscar'); },
+    });
+  }
+  openDriverEdit(d: Driver) {
+    this.editingD.set(d);
+    this.dForm.reset({
+      full_name: d.full_name, roles: d.roles, employee_type: d.employee_type, status: d.status,
+      phone: d.phone || '', nss: d.nss || '', emergency_contact: d.emergency_contact || '', notes: d.notes || '',
+    });
+    this.dDialog = true;
+  }
+  saveDriver() {
+    if (this.dForm.invalid) return;
+    this.savingD.set(true);
+    const payload = this.dForm.getRawValue();
+    const editing = this.editingD();
+    const obs = editing ? this.api.updateDriver(editing.id, payload) : this.api.createDriver(payload);
+    obs.subscribe({
+      next: (creado: Driver) => {
+        this.savingD.set(false); this.dDialog = false;
+        this.toast.add({ severity:'success', summary: editing ? 'Colaborador actualizado' : 'Colaborador creado' });
+        this.loadDrivers();
+        this.loadEntitlements();
+        const volver = this.volverA;
+        this.volverA = null;
+        if (volver && creado?.id) {
+          const form = volver.dialog === 'grant' ? this.grantForm : this.assignmentForm;
+          form.get(volver.control)?.setValue(creado.id);
+          if (volver.dialog === 'grant') this.grantDialog = true; else this.assignmentDialog = true;
+        }
+      },
+      error: (err) => {
+        this.savingD.set(false);
+        this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo guardar' });
+      },
+    });
+  }
+  confirmDeleteDriver(d: Driver) {
+    this.confirm.confirm({
+      message: `¿Dar de baja al colaborador ${d.full_name}? No podrá ser asignado a nuevas guías.`,
+      header: 'Confirmar', icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, dar de baja', rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => this.api.deleteDriver(d.id).subscribe({
+        next: () => { this.toast.add({ severity:'success', summary:'Colaborador dado de baja' }); this.loadDrivers(); },
+        error: (err) => this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' }),
+      }),
+    });
+  }
+}

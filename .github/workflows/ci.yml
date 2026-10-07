@@ -1,0 +1,596 @@
+name: CI
+
+# Gate de build/typecheck. Compila las 4 apps deployables (api, view, portal,
+# vendor) con la MISMA config que los Dockerfiles de prod (--configuration=
+# production + --import load-compiler.mjs). Atrapa errores de TS / budgets de
+# Angular ANTES de que `ops/prod/auto-deploy.sh` construya esa imagen en `md`.
+#
+# ─── ESTADO REAL, medido el 2026-09-30 ────────────────────────────────────────────────────
+#
+# ✅ ESTE WORKFLOW SÍ CORRE. Está `active` y corrió hoy.
+#
+# ⚠️ Lo que decía este bloque hasta hoy —que el workflow estaba `disabled_manually` desde el
+#    2026-08-25 por la facturación bloqueada de la cuenta— **quedó viejo**. La facturación se
+#    destrabó, el workflow se reactivó, y las corridas arrancan normal. Si llegaste acá por ese
+#    párrafo: ya no aplica. (Se deja escrito el episodio porque explica el hueco de agosto.)
+#
+# ⛔ PERO EL CI NO BLOQUEA NADA, y ahora por OTRA razón — peor que la anterior:
+#
+#    El repo pasó a PRIVADO y la cuenta está en plan free. GitHub responde **403** tanto a
+#    `repos/.../branches/main/protection` como a `repos/.../rulesets`:
+#
+#        "Upgrade to GitHub Pro or make this repository public to enable this feature."
+#
+#    O sea: `main` hoy no tiene **ninguna** protección. Ni review obligatorio, ni required
+#    status checks, ni freno al force-push. Antes faltaban los checks; ahora falta todo.
+#
+# Lo que eso cuesta, medido sobre los 30 días previos:
+#
+#     · ~58 de 60 commits a `main` entraron por **push directo**, no por PR.
+#     · De los últimos 20 pushes a `main`: **15 rojos, 1 verde**, 4 cancelados.
+#     · Las fallas son REALES, no infra: dos veces hoy fue `check:tokens` marcando
+#       `var(--token)` que no existen — una declaración que el navegador tira en silencio.
+#
+# ⭐ El CI no está roto: atrapa defectos de verdad. Lo que falla es CUÁNDO — corre después del
+#    merge, sobre la rama de la que se deploya. Por eso la compuerta se movió al push.
+#
+# ─── Qué falta, en orden, y quién lo puede hacer ───────────────────────────────────────────
+#
+#   1. [DEV, hoy]   `npm run hooks:install` en cada máquina. Activa `.githooks/pre-push`
+#                   (bloquea el push directo a `main` + 6 gates sobre TUS archivos, ~2.5 s) y
+#                   de paso el `pre-commit` de gitleaks, que llevaba dos meses dormido.
+#                   ⚠️ Es de CLIENTE: se evade con `--no-verify`. Sirve por rapidez, no manda.
+#   2. [LEAD]       ✅ HECHO. El secret `NX_CLOUD_ACCESS_TOKEN` está dado de alta desde el
+#                   2026-09-19 (verificado con `gh secret list`). El paso "Declarar el caché
+#                   remoto" sigue existiendo porque su trabajo es el caso contrario: avisar si
+#                   algún día se borra o vence, en vez de degradar a caché local en silencio.
+#                   Sin pendientes de secretos: `GITHUB_TOKEN` lo inyecta Actions, y
+#                   `GITLEAKS_LICENSE` sólo haría falta si el repo fuera de una ORG — es de
+#                   cuenta personal, así que gitleaks corre sin licencia.
+#
+# ⛔ LO QUE YA NO ESTÁ EN ESTA LISTA, Y NO VA A VOLVER: "pasar la cuenta a GitHub Pro".
+#    Decisión del 2026-09-30: no se paga. Volver el repo a público también desbloquearía la
+#    protección y se descartó (los docs traen IPs internas, hostnames de DB y cifras del
+#    negocio). O sea que `main` **nunca** va a tener protección del lado de GitHub, y el script
+#    `scripts/apply-branch-protection.js` se retiró: un script que no puede correr insinúa un
+#    pendiente que no existe.
+#
+# ⭐ En su lugar está `[CI.SELLO]` (el job `sellar`, al final de este archivo): la compuerta se
+#    mueve al DESPLIEGUE, que sí es nuestro. `main` puede ponerse roja; lo rojo no llega a prod.
+#
+# Flujo de equipo: rama por feature → PR → 1 review (CODEOWNERS) → squash a main (la rama se
+# borra sola). Ver ONBOARDING.md §8.
+#
+# NO publica imágenes, y el motivo CAMBIÓ — la línea anterior decía "Railway construye desde el
+# repo en cada push" y eso dejó de ser cierto el 2026-09-22, cuando prod salió de Railway. Hoy
+# quien construye es `ops/prod/auto-deploy.sh`, EN `md`, con el repo clonado ahí: no hay registro
+# de imágenes de por medio y el CI no tiene nada que publicar. Este workflow aporta dos cosas al
+# despliegue: el veredicto `ci-green` que la compuerta lee (`[CI.SELLO]`, al final), y el gate de
+# calidad. ⚠️ Si algún día se mete un registro en el medio, ESTE es el job que tendría que
+# empujar la imagen — no `auto-deploy.sh`, que está del lado del servidor.
+#
+# PENDIENTE (follow-up): agregar un job que corra la regression suite
+# (database/run-all-tests.js) contra un Postgres de servicio + API en background.
+# Hoy queda como gate LOCAL/manual porque necesita multi-DB sembrada.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# `[NX.5]` Caché REMOTO de Nx Cloud, para todos los jobs.
+#
+# El workspace ya está conectado (`nxCloudId` en `nx.json`, desde el PR #115) y el caché remoto
+# está VERIFICADO funcionando — medido el 2026-09-18 con dos cachés locales vacías distintas:
+# la primera falló y escribió, la segunda leyó del remoto (`1/1 hit`, 1.4 s → 8 ms).
+#
+# ⚠️ Si el secret no está cargado, Nx NO se cae: imprime el 401 y sigue con caché local
+# (medido con un token inventado — `Invalid Credentials (CI Access Token) ... (code: 401)`,
+# exit 0). Eso es bueno para no tumbar el CI, y es justo por eso que hace falta el paso
+# "Declarar el caché remoto" de abajo: si no, la ausencia del token se ve igual que tenerlo.
+env:
+  NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+
+jobs:
+  # Escaneo de secretos. Job SEPARADO del build (no lo bloquea). gitleaks-action
+  # escanea solo los commits nuevos del push/PR (no revienta con el historial).
+  # NOTA: si el repo es de una ORG, necesita un GITLEAKS_LICENSE (gratis, se
+  # registra en gitleaks.io) como secret. Repos personales: no hace falta.
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  build:
+    name: Build & typecheck (affected)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # `nx affected` necesita el historial para el diff base↔head.
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # ── `[CD.3]` EL CUELLO MEDIDO NO ERA EL BUILD ────────────────────────────────────────
+      # Desglose real de este job en la corrida 37033825652 (2026-10-02):
+      #   checkout 11 s · setup-node 11 s · **npm ci 70 s** · SHAs 4 s · **build 10 s**
+      # O sea: `nx affected` + el caché remoto ya hacen su trabajo (10 s), y el 65% del job se
+      # va instalando dependencias. `setup-node` con `cache: npm` cachea los TARBALLS, pero
+      # `npm ci` igual borra y reescribe ~60k archivos en cada corrida.
+      #
+      # Acá se cachea `node_modules` ARMADO. Con acierto, el paso siguiente se saltea entero.
+      # ⛔ Clave EXACTA y sin `restore-keys` a propósito: un `node_modules` restaurado desde un
+      #    lock PARECIDO es peor que no tener caché — instala una versión que nadie pidió y el
+      #    fallo aparece lejos, en runtime. Si el lock cambió, se paga el `npm ci` y listo.
+      - name: Caché de node_modules (clave exacta por package-lock)
+        id: cache-nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        # Sólo si el caché falló. El `if` es lo que convierte el caché en tiempo ahorrado.
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci
+        env:
+          # El monorepo tiene puppeteer (deps del api). Sin esto npm ci baja
+          # Chrome (~120MB) y puede colgarse. Mismo flag que los Dockerfiles.
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+          CI: 'true'
+
+      # `[NX.5]` El `actions/cache` de `.nx/cache` que vivía acá SE RETIRÓ. Era el sustituto
+      # pobre de cuando no había Nx Cloud, y su propio comentario decía "No hay Nx Cloud
+      # configurado" — dejó de ser cierto en el PR #115. Ahora es peor que redundante: sube y
+      # baja un tarball con lo mismo que el caché remoto ya sirve, y encima particionado por
+      # rama (`restore-keys`), así que una rama nueva arrancaba en frío aunque otra corrida ya
+      # hubiera compilado ese hash exacto. El caché remoto no tiene esa frontera: es uno solo
+      # para todas las ramas, todas las máquinas y —esto es lo nuevo— también los builds de
+      # Railway (`[NX.4]`).
+      - name: Declarar el caché remoto (ADR-056 — no degradar en silencio)
+        run: |
+          if [ -z "${NX_CLOUD_ACCESS_TOKEN}" ]; then
+            echo "::warning title=Nx Cloud sin token::Falta el secret NX_CLOUD_ACCESS_TOKEN. El CI corre SIN caché remoto (cada tarea desde cero). Cargalo en Settings → Secrets → Actions."
+            echo "caché remoto: NO MEDIDO (sin token)"
+          else
+            echo "caché remoto: activo"
+          fi
+
+      - name: Derivar SHAs base/head para affected
+        uses: nrwl/nx-set-shas@v4
+
+      # `affected` en vez de `run-many`: este job compila TRES apps Angular de producción
+      # y era el más caro del workflow, pero hasta el 2026-09-15 recompilaba las cuatro
+      # aunque el cambio tocara una sola. Medido sobre commits reales del repo: un fix de
+      # un componente selecciona 1 proyecto (`view`) y un commit de sólo docs selecciona
+      # 0 — mientras que el `run-many` construía api+view+portal+vendor en los tres casos.
+      #
+      # Lo que NO cambia: un cambio en `package.json`/`package-lock.json` o en una lib
+      # compartida sigue afectando a las 17, porque entra por `sharedGlobals`. Eso es
+      # correcto y es justo lo que se quiere conservar — medido en el commit de WMS-BI.5,
+      # que agregó `sql.js` y afectó a todos.
+      #
+      # --parallel=1: el heap de 4096 es por PROCESO y acá hay TRES apps Angular
+      # (view, portal, vendor). Con parallel=2 dos de ellas pican a la vez y el
+      # runner se queda sin RAM; el job muere sin imprimir error de TypeScript.
+      # Mismo criterio que el Dockerfile raíz.
+      - name: Build (affected)
+        run: npx nx affected -t build --configuration=production --parallel=1
+        env:
+          NX_DAEMON: 'false'
+          # Mismo arranque que los Dockerfiles: heap 4096 + @angular/compiler
+          # precargado (Angular v18 + esbuild en Node 20 lo necesita).
+          NODE_OPTIONS: "--max-old-space-size=4096 --import file://${{ github.workspace }}/load-compiler.mjs"
+
+  # INFRA.5 (ADR-043): lint + test SOLO de lo que el cambio toca (nx affected).
+  # La regression suite (database/run-all-tests.js) NO va acá — necesita API arriba
+  # + multi-DB sembrada; queda como gate local/manual.
+  #
+  # ⚠️ Acá decía «Blast radius acotado: NO revienta por deuda de lint pre-existente
+  # en código ajeno al PR/push». Era FALSO, y se midió: `nx affected` selecciona
+  # PROYECTOS, y el lint de un proyecto barre TODOS sus archivos. En la corrida
+  # 35876934497 (PR #146) eso fueron **294 errores y 5,483 warnings** en 11
+  # proyectos, de los cuales SÓLO 2 caían en un archivo del PR y NINGUNO en una
+  # línea que el PR hubiera escrito. Desde que el workflow se reactivó (22-sep),
+  # 24 de 26 corridas en rojo — y el MISMO diff dio rojo como PR y verde como
+  # merge, según qué proyectos calculó `affected`. Una compuerta que se pone verde
+  # por azar enseña a ignorar el tablero (ADR-056).
+  #
+  # Ahora el bloqueante es `scripts/lint-changed.js` (ratchet por LÍNEA, el mismo
+  # mecanismo que TS.0 ya usaba en `lint-boundary-gate.js`), y el barrido por
+  # proyecto se queda como MEDICIÓN no bloqueante: la deuda se declara, no se
+  # esconde — borrar el paso habría hecho desaparecer los 294.
+  verify:
+    name: Lint & test (affected)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # nx affected necesita el historial para el diff base↔head.
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Derivar SHAs base/head para affected
+        uses: nrwl/nx-set-shas@v4
+
+      # `[CD.3]` Mismo caché que el job `build`, y con la MISMA clave a propósito: los dos jobs
+      # corren en paralelo sobre el mismo lock, así que el segundo come de lo que guardó el
+      # primero. Antes los dos pagaban 70 s de `npm ci` cada uno.
+      - name: Caché de node_modules (clave exacta por package-lock)
+        id: cache-nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+          CI: 'true'
+
+      # `[NX.5]` Acá también se retiró el `actions/cache` — ver el motivo en el job `build`.
+      # `lint` y `test` son targets cacheables y los sirve el caché remoto.
+      - name: Declarar el caché remoto (ADR-056 — no degradar en silencio)
+        run: |
+          if [ -z "${NX_CLOUD_ACCESS_TOKEN}" ]; then
+            echo "::warning title=Nx Cloud sin token::Falta el secret NX_CLOUD_ACCESS_TOKEN. El CI corre SIN caché remoto."
+            echo "caché remoto: NO MEDIDO (sin token)"
+          else
+            echo "caché remoto: activo"
+          fi
+
+      # BLOQUEANTE: sólo lo que este cambio escribió. Ratchet por línea — tocar un
+      # archivo con deuda vieja no te obliga a pagarla, pero la imprime declarada.
+      - name: Lint (líneas nuevas del diff)
+        id: g-lint
+        run: node scripts/lint-changed.js
+
+      # MEDICIÓN, no compuerta: el barrido por proyecto sigue corriendo para que la
+      # deuda tenga número y nadie la dé por inexistente.
+      #
+      # ⚠️ `continue-on-error` hace que GitHub marque el paso SUCCESS aunque el comando
+      # falle, así que la casilla verde no dice nada — por eso el total se publica como
+      # ANOTACIÓN y en el resumen de la corrida. Un número enterrado en un log se lee
+      # igual que «no hay deuda» (ADR-056), que es justo el error que este PR corrige.
+      - name: Deuda de lint por proyecto (medición, no bloquea)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          NX_DAEMON: 'false'
+        run: |
+          set +e
+          npx nx affected -t lint --parallel=3 > lint-debt.log 2>&1
+          set -e
+          # Una línea por proyecto con hallazgos: '✖ N problems (E errors, W warnings)'.
+          # Se cuenta sin quitar los códigos de color: el paréntesis no los lleva adentro.
+          ERR=$(grep -oE '\([0-9]+ errors?,' lint-debt.log | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          WARN=$(grep -oE '[0-9]+ warnings?\)' lint-debt.log | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          # ⚠️ `|| true`: `grep -c` sale con 1 cuando NO encuentra nada, y con `set -e`
+          # eso mata el paso justo en el caso «sin hallazgos» — o sea que el estado que
+          # más importa declarar era el único que no se alcanzaba a imprimir. Medido en
+          # la corrida 35911764690: el paso murió acá y NO publicó ninguna anotación.
+          PROJ=$(grep -cE '[0-9]+ problems \([0-9]+ error' lint-debt.log || true)
+          if [ "$PROJ" -eq 0 ]; then
+            # ⚠️ Cero proyectos CON hallazgos no es lo mismo que cero proyectos MIRADOS.
+            if grep -q 'Successfully ran target lint' lint-debt.log; then
+              echo "deuda de lint: 0 errores en los proyectos afectados" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo '::notice title=Deuda de lint::NO MEDIDA — affected no seleccionó ningún proyecto (el cambio no toca código de un proyecto Nx).'
+              echo 'deuda de lint: **NO MEDIDA** (0 proyectos afectados)' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "::warning title=Deuda de lint::$ERR errores y $WARN warnings PRE-EXISTENTES en $PROJ proyecto(s). No bloquean: el gate corta por las líneas que este cambio escribió."
+            echo "deuda de lint: **$ERR errores** y $WARN warnings en $PROJ proyecto(s) — pre-existente, no bloquea" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          tail -40 lint-debt.log
+
+      # TS.0 (ADR-052): gate de tipado del boundary. Corre eslint SOLO sobre los
+      # .controller.ts/.service.ts CAMBIADOS y falla si agregan `any` o returns
+      # sin tipar. Usa NX_BASE/NX_HEAD que expone nx-set-shas arriba.
+      - name: Boundary type gate (nuevo/cambiado)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-boundary-gate.js
+
+      # VP.2.3 (ADR-056): una respuesta de reporte que declara `generated_at` tiene que declarar
+      # también `freshness`. `generated_at` dice cuándo corrió la consulta; un servidor que contesta
+      # en 200 ms sobre matvistas de hace seis días lo reporta igual de fresco — publicar la mitad
+      # conveniente es cómo la plataforma sirvió precio, costo y margen muertos durante seis días.
+      # Ratchet, como TS.0: la deuda medida se declara y SÓLO PUEDE BAJAR. Rojo si sube.
+      - name: Provenance gate (generated_at sin freshness)
+        if: ${{ !cancelled() }}
+        run: node scripts/check-provenance.js
+
+      # DESIGN (2026-09-14): una sola familia de bug — PUNTUACIÓN ADENTRO DE UN COMENTARIO QUE
+      # TERMINA EL COMENTARIO. Lo que sigue se lee como código, y en dos de los tres casos el
+      # build queda VERDE mientras algo se rompe. El script cubre los tres:
+      #
+      #   1. Backtick en un comentario de `template:`/`styles:` → cierra el template literal. El
+      #      error sale desplazado (NG1002 o cascada de TS1005 a cientos de líneas), así que se
+      #      pierde el tiempo buscándolo donde no está. Ya rompió el build varias veces, y en una
+      #      sola sesión sobre DESIGN.md pasó OCHO: se comete justo al documentar un token o una
+      #      clase en el comentario, que es lo que más se pide hacer acá. Ojo: con un número PAR
+      #      de backticks el archivo parsea igual y revienta después, como error semántico.
+      #   2. El cierre de comentario CSS adentro de un comentario CSS (escribir `--warn-*` con la
+      #      barra pegada). ⚠️ Esto `tsc` NO lo ve y el build NO lo frena: sale como *warning* y
+      #      nada más. Medido el 2026-09-14 en `tienda-verificador.component.ts` — ese warning
+      #      significaba que la regla `.vf-cambio` no existía en el bundle (Angular le pegó el
+      #      atributo de scope a cada palabra del comentario y el selector dejó de matchear) y la
+      #      caja de aviso "precio cambiado" del verificador de mostrador se renderizaba SIN
+      #      ESTILO en producción. Se parsea con esbuild, el mismo parser que usa el build, para
+      #      que el veredicto no pueda divergir del suyo.
+      #   3. Cierre de comentario HTML huérfano en un `template:` → lo de en medio se RENDERIZA
+      #      como texto en la página. Angular no se queja: es texto válido.
+      #
+      # Corre sobre 305 componentes (281 templates + 269 bloques de estilo) en ~2.9 s. Lo que
+      # NO se puede parsear —un literal con ${} — se declara como NO MEDIDO en la salida en vez
+      # de saltarse en silencio (ADR-056); hoy son 0. Este job y `build` son independientes y
+      # corren EN PARALELO, así que no le ahorra el ciclo al build: lo que da es el diagnóstico
+      # exacto (archivo y línea) en segundos, y en los casos 2 y 3 atrapa lo que el build deja
+      # pasar. No reemplaza a `tsc`: no valida tipos ni bindings.
+      #
+      # Pruebas negativas 2026-09-14, una por caso + la del camino "no medido": los tres rotos a
+      # propósito salen 1 apuntando a la línea correcta; el bloque con ${} sale 0 pero declarando.
+      - name: Comment gate (comentario que se cierra solo en template/styles)
+        id: g-templates
+        if: ${{ !cancelled() }}
+        run: npm run check:templates
+
+      # [IG.14.3] EL HERMANO QUE FALTABA, Y POR QUE ESTE PASO EXISTE.
+      #
+      # `check:templates` recorre SOLO `*.component.ts` (su walk filtra por ese sufijo). El
+      # 2026-10-05 un comentario SQL con acentos graves dentro de un template literal rompio el
+      # build en un *.service.ts: `check:templates` escaneo 375 componentes y dio VERDE, porque el
+      # archivo roto no era un componente. Es la octava vez que un acento grave en un comentario
+      # tumba la compilacion de este repo.
+      #
+      # `check:sql-backticks` SI cubre apps/libs/database/scripts/ops y habria atrapado ese caso
+      # exacto... pero no estaba cableado en ningun lado: ni pre-commit, ni pre-push, ni aca. Era
+      # un script huerfano, escrito despues de la vez anterior y nunca enchufado -- el mismo patron
+      # que la Fase VP ya midio con las 21 pruebas fuera del runner.
+      #
+      # Un candado que nadie corre no es un candado: es un archivo.
+      - name: Comment gate (acentos graves en comentarios SQL, todo el repo)
+        id: g-sqlticks
+        if: ${{ !cancelled() }}
+        run: npm run check:sql-backticks
+
+      # `[UIM.1]` Tabla ancha sin salida en estrecho. Su prueba negativa corre PRIMERO y en su
+      # propio paso, a propósito: si la compuerta dejó de detectar lo que dice detectar, el verde
+      # del barrido no significa nada — y ese orden es lo que distingue una compuerta de una
+      # intención. Ver DESIGN_TABLES.md §6 y scripts/check-dense-tables.js.
+      - name: Dense table gate — prueba negativa
+        if: ${{ !cancelled() }}
+        run: npm run check:tables:self
+
+      - name: Dense table gate (ancha sin apilado ni pérdida de eje)
+        id: g-tablas
+        if: ${{ !cancelled() }}
+        run: npm run check:tables
+
+      # `[UIM.5]` Token de CSS que no existe. Este defecto se arregló DOS VECES EN DOS DÍAS antes
+      # de que la compuerta existiera, y las dos veces llevaba meses vivo: un `var()` sin respaldo
+      # que no resuelve TIRA la declaración entera y el build no dice nada — para el navegador no
+      # es un error. La prueba negativa va primero y aparte, como las otras.
+      - name: CSS token gate — prueba negativa
+        if: ${{ !cancelled() }}
+        run: npm run check:tokens:self
+
+      - name: CSS token gate (declaración que se cae por un token inexistente)
+        id: g-tokens
+        if: ${{ !cancelled() }}
+        run: npm run check:tokens
+
+      # `[DS.1]` Techo de motion. DESIGN.md lo marca BINDING desde hace meses y su propia tabla
+      # de cumplimiento publicaba "19 declaraciones por encima del techo" — midiendo SÓLO
+      # notación en milisegundos. La auditoría del 2026-10-02 encontró que el número real era
+      # 40+ porque nadie contaba `.5s`, `0.8s`, `.7s`. El arquetipo canónico (`MetricStrip`, 81
+      # pantallas) llevaba tres semanas con `transition: width 900ms`: 2.6× el techo y sobre una
+      # propiedad de layout. Se encendió en VERDE, con el repo ya limpio, a propósito.
+      - name: Motion gate — prueba negativa
+        if: ${{ !cancelled() }}
+        run: npm run check:motion:self
+
+      - name: Motion gate (techo de 350ms + deuda de layout que no crece)
+        id: g-motion
+        if: ${{ !cancelled() }}
+        run: npm run check:motion
+
+      # `[DS.3]` Las 4 reglas de CSS que DESIGN.md marca BINDING y nadie medía. ⚠️ NO es stylelint
+      # a propósito, y la medición lo decidió: el 89% de los `font-size` y el 95% de los hex crudos
+      # de este repo viven DENTRO de template literals de TypeScript (337 componentes con `styles:`
+      # inline contra 28 `.component.css`). Stylelint de fábrica vería ~1 de cada 10 defectos y
+      # cobraría una dependencia nueva por esa décima parte. Acá se reusa la extracción con el
+      # compilador de TS que `check:templates` ya tenía: 100% de cobertura, 0 dependencias.
+      # Es un RATCHET: cada regla arranca con la deuda de hoy congelada y frena si CRECE.
+      - name: Estilos gate — prueba negativa
+        if: ${{ !cancelled() }}
+        run: npm run check:estilos:self
+
+      - name: Estilos gate (escala --fs-*, hex crudo, breakpoints px, foco sin anillo)
+        id: g-estilos
+        if: ${{ !cancelled() }}
+        run: npm run check:estilos
+
+      # `[NX.3]` Este es el único gate cuyo defecto NO se puede ver en la máquina de quien lo
+      # introduce: el contexto de Docker sólo se ejerce al construir la imagen. Nació de un caso
+      # real — `vitest.shared.ts` en la raíz, importado por los 7 `vitest.config.ts`, y el
+      # `COPY` granular del Dockerfile no lo traía: `NX Failed to process project graph` y el
+      # build del contenedor ni arrancaba, con un error que no menciona ni Docker ni el COPY.
+      # Prueba negativa ejercida: quitando el archivo del COPY, sale 1 y lo nombra.
+      - name: Docker context gate (la raíz que los configs de proyecto necesitan)
+        if: ${{ !cancelled() }}
+        run: npm run check:docker
+
+      # `[NX.7]` Va ANTES del typecheck: `tsconfig.ts7.json` no puede extender
+      # `tsconfig.base.json` (TS 7 removió `baseUrl` y exige paths relativos — verificado con
+      # TS5102/TS5090), así que el mapa de `paths` está duplicado a la fuerza y se desfasa solo.
+      # Medido el 2026-09-18: faltaban 6 alias y sobraban 3 de una lib inexistente, y el
+      # typecheck salía rojo con 5 × TS2307 que NO eran errores de código.
+      # Pruebas negativas ejercidas: alias que falta, alias que sobra, mismo alias con otro
+      # destino — los tres salen 1 y lo nombran.
+      - name: TS7 paths gate (typecheck y build resuelven lo mismo)
+        if: ${{ !cancelled() }}
+        run: npm run check:ts7paths
+
+      # `[NX.7]` `apps/api` compila con SWC: los tipos se BORRAN sin comprobarse, así que el job
+      # `build` no dice nada sobre ellos. Las tres apps Angular sí typechequean en AOT. Este
+      # target es el único que cubre ese hueco, y desde que vive en Nx es cacheable y entra en
+      # `affected` (medido: 5.8 s en frío, 89 ms con caché).
+      - name: Typecheck (affected)
+        id: g-typecheck
+        if: ${{ !cancelled() }}
+        run: npx nx affected -t typecheck --parallel=3
+        env:
+          NX_DAEMON: 'false'
+
+      # `--passWithNoTests` ya NO va acá: cada `vitest.config.ts` lo declara, y desde
+      # `[NX.3]` el target `test` lo INFIERE el plugin `@nx/vitest` de la existencia de ese
+      # archivo — un proyecto sin config simplemente no tiene target que correr.
+      - name: Test (affected)
+        id: g-test
+        if: ${{ !cancelled() }}
+        run: npx nx affected -t test --parallel=3
+        env:
+          NX_DAEMON: 'false'
+
+      # ── `[CD.4]` EL VEREDICTO EN UNA PANTALLA, NO EN UN VOLCADO ──────────────────────────
+      # El log de este job son miles de líneas y el error real queda enterrado. Esto corre SOLO
+      # cuando algo falló y escribe, en el resumen de la corrida, QUÉ compuerta cortó y QUÉ
+      # hacer — sin obligar a abrir el log.
+      #
+      # ⛔ NO es `continue-on-error`: el job sigue en rojo. Lo único que cambia es que el rojo se
+      #    puede leer. Una compuerta que falla sin explicarse se termina ignorando (ADR-056).
+      - name: Resumen semántico de la falla
+        if: ${{ failure() }}
+        env:
+          R_LINT: ${{ steps.g-lint.outcome }}
+          R_TEMPLATES: ${{ steps.g-templates.outcome }}
+          R_TABLAS: ${{ steps.g-tablas.outcome }}
+          R_TOKENS: ${{ steps.g-tokens.outcome }}
+          R_MOTION: ${{ steps.g-motion.outcome }}
+          R_ESTILOS: ${{ steps.g-estilos.outcome }}
+          R_TYPECHECK: ${{ steps.g-typecheck.outcome }}
+          R_TEST: ${{ steps.g-test.outcome }}
+        run: |
+          set -eu
+          S="$GITHUB_STEP_SUMMARY"
+          echo "## Por qué está en rojo" >> "$S"
+          echo "" >> "$S"
+          hubo=0
+          fila() {
+            # $1=resultado  $2=compuerta  $3=qué significa  $4=cómo se arregla
+            if [ "$1" = "failure" ]; then
+              hubo=1
+              echo "### $2" >> "$S"
+              echo "$3" >> "$S"
+              echo "" >> "$S"
+              echo "**Reproducilo local:** \`$4\`" >> "$S"
+              echo "" >> "$S"
+            fi
+          }
+          fila "$R_LINT"      "Lint de líneas nuevas" \
+            "Una línea que ESTE cambio escribió no pasa eslint. La deuda vieja no cuenta." \
+            "node scripts/lint-changed.js"
+          fila "$R_TEMPLATES" "Comentario que cierra su propio bloque" \
+            "Un backtick o un cierre de comentario dentro de template/styles. En dos de los tres casos el build queda verde y algo se rompe igual." \
+            "npm run check:templates"
+          fila "$R_TABLAS"    "Tabla ancha sin salida en estrecho" \
+            "Una tabla que ESTE cambio tocó tiene muchas columnas y no declara qué hace en pantalla angosta." \
+            "npm run check:tables"
+          fila "$R_TOKENS"    "Token de CSS inexistente" \
+            "Un var(--x) sin respaldo tira la declaración entera, en silencio, en el navegador." \
+            "npm run check:tokens"
+          fila "$R_MOTION"    "Techo de motion (350ms)" \
+            "Una animación de Operations dura más que --dur-max, o crecieron las transiciones sobre propiedades de layout." \
+            "npm run check:motion"
+          fila "$R_ESTILOS"   "Reglas de CSS (escala, hex, breakpoints, foco)" \
+            "Creció alguna de las cuatro deudas de CSS: font-size fuera de la escala --fs-*, hex crudo en un color, breakpoint en px, u outline:none sin anillo de foco." \
+            "npm run check:estilos"
+          fila "$R_TYPECHECK" "Typecheck" \
+            "apps/api compila con SWC y BORRA los tipos sin comprobarlos: este es el único paso que los mira." \
+            "npx nx affected -t typecheck"
+          fila "$R_TEST"      "Pruebas" \
+            "Una prueba de un proyecto afectado falló." \
+            "npx nx affected -t test"
+          if [ "$hubo" = "0" ]; then
+            echo "Ninguna compuerta con \`id\` reportó falla: el corte vino de un paso sin id (ver el log)." >> "$S"
+          fi
+          echo "---" >> "$S"
+          echo "ℹ️ Las compuertas de diseño cortan **sólo por los archivos que este cambio tocó** (\`[CD.2]\`). La deuda del resto se sigue midiendo e imprimiendo, pero no frena a quien no la escribió." >> "$S"
+
+  # ──────────────────────────────────────────────────────────────────────────────────────────
+  # `[CI.SELLO]` EL SELLO — mueve la rama marcadora `ci-green` al commit que acaba de pasar.
+  #
+  # ── Por qué existe ────────────────────────────────────────────────────────────────────────
+  # Porque la protección de rama de GitHub **no se va a comprar** (decisión del 2026-09-30) y en
+  # un repo privado de plan free no existe: `403` a `branches/main/protection` y a `rulesets`.
+  # Sin eso, nada del lado del servidor puede frenar un merge rojo, y la compuerta de push
+  # (`.githooks/pre-push`) es de CLIENTE — se evade con `--no-verify` y no existe en la máquina
+  # de quien no corrió `npm run hooks:install`.
+  #
+  # ⭐ Así que la compuerta se mueve a donde SÍ somos dueños: el despliegue. Prod dejó Railway el
+  # 2026-09-22 y vive en `md`, desplegado por `ops/prod/auto-deploy.sh`. Este job publica un
+  # veredicto que ese script lee, y así lo que protege producción deja de depender de que cada
+  # dev tenga un hook instalado.
+  #
+  # ── Qué sella, y qué NO ───────────────────────────────────────────────────────────────────
+  # `needs: [build, secret-scan]` a propósito, y **no** `verify`:
+  #   · `build`       — si no compila, lo que se despliegue no funciona. Frena.
+  #   · `secret-scan` — un secreto que llega a prod ya se filtró. Frena.
+  #   · `verify`      — mezcla tests reales con compuertas de estilo (tokens CSS, tablas densas),
+  #                     y hoy está rojo por deuda preexistente. Exigirlo frenaría TODOS los
+  #                     despliegues desde el primer día, y una compuerta que bloquea todo se
+  #                     desactiva. Se DECLARA en el CI, no frena el deploy. Apretar esto exige
+  #                     antes partir `verify` en dos (tests / estilo) y medir.
+  #
+  # ⚠️ Sólo sella `main` y sólo en `push`: un PR verde no es algo que se despliegue.
+  # ⚠️ `ci-green` es un MARCADOR, no una rama de trabajo. No se ramifica desde ella ni se mergea.
+  sellar:
+    name: Sellar CI verde (ci-green)
+    needs: [build, secret-scan]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # `--force` porque el marcador AVANZA con cada commit verde; no es una rama que acumule.
+      - name: Mover ci-green a ${{ github.sha }}
+        run: |
+          set -eu
+          git push --force origin "${GITHUB_SHA}:refs/heads/ci-green"
+          echo "ci-green -> ${GITHUB_SHA}"

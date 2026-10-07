@@ -1,0 +1,734 @@
+/* eslint-disable no-console */
+/**
+ * Orquestador del RUNNER ON-PREM → prod (Railway). Punto de entrada único para el
+ * Task Scheduler de Windows. Corre los importers bulk como subprocesos, en orden,
+ * con el env ya cargado. NO contiene lógica de negocio (cada importer es la fuente
+ * de verdad); solo secuencia + guardas.
+ *
+ * Modos:
+ *   node database/importers/kepler/run-prod-feeds.js live      # venta viva → prod (cada 15-30 min; LIGERO, solo consolidado local)
+ *   node database/importers/kepler/run-prod-feeds.js stock     # stock 6 sucursales (cada 30 min)
+ *   node database/importers/kepler/run-prod-feeds.js nightly   # rotación + top-sellers + contables (nightly)
+ *   node database/importers/kepler/run-prod-feeds.js finance   # solo feeds contables (balanza/cadena/solicitudes/canal/caja) — re-run manual
+ *   node database/importers/kepler/run-prod-feeds.js catalog   # catálogo + precios (semanal)
+ *   node database/importers/kepler/run-prod-feeds.js all       # todo (cutover / manual)
+ *
+ * Por seguridad NO aplica salvo --apply (default dry-run), y exige que
+ * DATABASE_URL_NEW apunte explícitamente a prod (evita pegarle al local sin querer).
+ *
+ * Env requerido (cargar en la tarea programada):
+ *   DATABASE_URL_NEW                 = <proxy Railway prod>
+ *   DATABASE_URL_KEPLER_CONSOLIDADO  = postgresql://...@localhost:5433/kepler_consolidado
+ *   MEGA_DULCES_URL                  = postgresql://...@192.168.0.245:5432/Mega_Dulces  (solo catalog)
+ */
+
+const { spawn, spawnSync } = require('node:child_process');
+const path = require('node:path');
+const hb = require('../lib/cron-heartbeat'); // Salud BD: latido por MODO → analytics.cron_runs
+
+const MODE = process.argv[2];
+const APPLY = process.argv.includes('--apply');
+// Timeout por importer. Un importer sano termina en minutos; un cuelgue (ECONNRESET a
+// prod sin timeout de socket) es INFINITO y trababa todo el batch → el scheduler lo
+// mataba a los 20min dejando node huérfanos que bloqueaban las corridas siguientes
+// (incidente 2026-08-05). Con esto, un paso colgado se mata y el batch sigue.
+const STEP_TIMEOUT_MIN = Number(process.env.FEED_STEP_TIMEOUT_MIN) || 10;
+// Override de timeout para importers PESADOS que no caben en el default. import-stock-movements
+// hace el pase 120d de kdm1⋈kdm2 en las 6 sucursales (delete+reinsert por ventana) → tardaba
+// >10 min y el nightly lo mataba (exit 124), dejando /almacen/movimientos sin el backstop de
+// correcciones viejas. Le damos presupuesto propio SIN tocar su lógica ni recortar la ventana
+// 120d. El pase intradía (ventana corta) hereda el override pero termina mucho antes → inocuo.
+// Nota: la versión kepler_ods single-DB (mata el fan-out per-branch) es el fix de fondo pendiente.
+//
+// ⚠️ `[AUD-DAT.14]` 30 → 45 min. **El presupuesto se había vuelto más chico que el trabajo.**
+// Medido en `analytics.cron_run_log`, últimas 6 noches del paso 120d:
+//
+//     22-sep 1,087 s · 24-sep 1,637 s · 25-sep 1,782 s · 26-sep 1,669 s
+//     27-sep 1,800 s → TIMEOUT (exit 124)   ·   28-sep 1,703 s
+//
+// O sea que corría al **95 % de su techo** y el 27 lo cruzó. No es un paso flaky: es uno que
+// creció hasta el borde, y con 5 % de margen cualquier noche cargada lo mata. Subir el techo NO
+// arregla el crecimiento — sólo deja de convertirlo en una falla nocturna mientras se decide
+// qué hacer con la ventana, que es **alcance de negocio y no una optimización** (recortarla deja
+// de atrapar correcciones viejas, que es justo para lo que existe el pase 120d).
+//
+// ⛔ **Lo que hace falta decidir, con su medición** (`pg_stat_statements`, ventana de 4 d 4 h):
+// el `INSERT INTO stg_mov` de este importer lleva **100 llamadas · 291 s de promedio ·
+// 29,122 s totales** = ~2 h de tiempo de base **por día**. Las 25 llamadas diarias son 24 del
+// carril intradía (ventana 15 d) + 1 del nocturno (120 d), así que **el intradía cuesta ~1.8 h/día
+// y el nocturno 28 min**: el grueso del gasto NO está donde se lo buscaba. Con eso sobre la mesa
+// se puede elegir entre bajar la cadencia intradía, recortar su ventana, o atacar la consulta.
+const STEP_TIMEOUT_OVERRIDE_MIN = { 'import-stock-movements.js': 45 };
+const timeoutMinFor = (script) => Math.max(STEP_TIMEOUT_MIN, STEP_TIMEOUT_OVERRIDE_MIN[path.basename(script)] || 0);
+// Techo real de duración de un paso (para el sweep de huérfanos): nunca barrer un paso que
+// legítimamente puede correr hasta su override (si no, un intraday concurrente mataría el
+// stock-movements 120d del nightly a los 13 min).
+const MAX_STEP_MIN = Math.max(STEP_TIMEOUT_MIN, ...Object.values(STEP_TIMEOUT_OVERRIDE_MIN));
+const DIR = path.join('database', 'importers');
+const K = path.join(DIR, 'kepler');
+const SCRIPTS = path.join('database', 'scripts');
+
+const STEPS = {
+  // LIVE (cada 15-30 min): venta del día → prod. Solo lee mart.ventas_enriched
+  // (consolidado local, que ya incluye las camionetas ruta_NN vía el push) → NO
+  // toca las 6 sucursales, así que es barato para correr seguido.
+  live: [
+    // ─── [NORM.3] `import-sales-fact.js` SALIÓ DE ACÁ. No se silenció una alarma: se quitó
+    // TRABAJO DUPLICADO, y de paso se corrigió una regresión que entró con la mudanza al VPS.
+    //
+    // 1. DUPLICACIÓN. `livefast` corre este MISMO importer cada 60 s (abajo). Este carril lo
+    //    repetía cada 30 min, o sea 30 veces menos seguido sobre el mismo destino.
+    //
+    // 2. LA REGRESIÓN. Cuatro fuentes independientes dicen que el carril `live` debe pasar
+    //    `SALES_FACT_DAYS=2`: `install-live-task.ps1` ("el env lo setea run-feeds.cmd cuando el
+    //    modo es live"), `orchestrator/schedules.js:26`, el `jenkins/Jenkinsfile.feeds` del
+    //    scaffold —retirado en `[CD.14]`; su linea 88 decia textual
+    //    `if (params.MODE == 'live') { env.SALES_FACT_DAYS = params.LIVE_DAYS }`, se transcribe
+    //    acá para que la cuarta fuente no se pierda con el archivo— y el encabezado
+    //    del propio importer ("Default = 13 meses (nightly, refresco completo); el feed LIVE pasa
+    //    SALES_FACT_DAYS=N"). [VL.4] mudó el carril de `run-feeds.cmd` —que seteaba el env POR
+    //    MODO— a `crontab.feeds` + `run-feed.sh`, que carga un `feeds.env` PLANO sin env por
+    //    carril. La variable se perdió en la mudanza y nadie lo notó.
+    //    Verificado en `md` el 2026-09-23: `feeds-cron` la tiene VACÍA, `feeds-livefast` la tiene
+    //    en "2" → desde el 11-sep este carril re-derivaba **13 MESES cada 30 minutos**.
+    //
+    // 3. EL COSTO, MEDIDO en `kepler_consolidado`: la ventana de 13 meses son **845,233** filas
+    //    de origen contra **23,334** de la de 2 días = **36×**. Son DOS agregados sobre
+    //    `mart.ventas_enriched` (uno de unidades, otro de folios), traídos a Node y subidos a una
+    //    temp de prod en lotes de 2,000 (~423 viajes) — 48 veces al día.
+    //    ⚠️ Pasó desapercibido JUSTAMENTE por el VPS: prod y el consolidado ahora viven en la
+    //    misma caja, así que esos 845k viajan por loopback. Contra Railway habría dolido el día 1.
+    //
+    // 4. LO QUE SE PIERDE, DECLARADO: el refresco completo es el único que toca filas de más de
+    //    2 días. Medido sobre 8 días en prod, su régimen normal son **98–852 filas/día
+    //    ($12k–$86k)**, con picos de re-derivación masiva (45,573 filas / $9.5 M el 17-sep) cuando
+    //    cambia un insumo (markup, escalera de unidad). Eso ahora llega con el nocturno, o sea
+    //    hasta 24 h después en vez de hasta 30 min. Es el contrato que el código ya declaraba.
+    //    ⛔ Depende de que `feed_nightly` corra: el 23-sep NO corrió (ver más abajo).
+    //
+    // 5. Y ES LA CAUSA DE LOS ERRORES FALSOS: dos emisores sobre la llave `kepler_sales_fact`
+    //    (cuya PK es `(tenant_id, job_key)`, sin host) se pisaban el renglón. `hb.begin()` cierra
+    //    como ERROR toda corrida que encuentre en `running` — así que cada cruce fabricaba un
+    //    "la corrida anterior no reportó cierre". Medido: **304 de 6,296 corridas en 7 días
+    //    (4.8 %)**, 16× más que la siguiente llave. Alarma inventada y, a la vez, un `live` muerto
+    //    se habría visto verde porque `livefast` repintaba la llave 30 veces por medio.
+    //
+    // ⛔ `import-cash-sessions.js` salió por lo mismo: `livefast` ya lo corre cada 60 s, sin
+    //    ventana ni argumento que los distinga. Era la misma corrida, 30 veces menos seguido.
+    //
+    // Lo que queda acá son los DOS pasos que sólo este carril hace, y ambos leen `sales_daily`,
+    // que `livefast` mantiene a 60 s — o sea MÁS fresco de lo que este carril se daba a sí mismo.
+    path.join(K, 'import-sales-stats.js'), // sales_daily → ABC/share
+    // [NORM.3] decía "— tras sales-fact" y ya no lo es: el fact lo mantiene `livefast` a 60 s.
+    path.join(K, 'import-demand-clean.js'), // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand (compra/traspaso/ranking)
+    // [DB-MEM.10] `import-replenishment-plan.js` SE RETIRÓ DE ACÁ (sigue en `stock` y `nightly`).
+    //
+    // Es la consulta #1 de toda la base: `CREATE TEMP TABLE stg_rplan` mide **157 s por corrida**
+    // y corría 6 veces por hora (live @30min = 2 + stock @15min = 4) = **39 % del gasto vivo**,
+    // medio core continuo.
+    //
+    // ⛔⛔ [RA-PERF] EL DIAGNÓSTICO QUE SEGUÍA ACÁ ERA FALSO EN SUS TRES AFIRMACIONES, y se
+    // corrige con medición del 2026-09-24. Decía: «NO hay un nodo malo que arreglar: el costo
+    // está repartido entre 44 sub-CTEs» · «mide 157 s» · «`analytics.sales_daily` (4.5 GB) se
+    // escanea 4 veces por corrida — 28 s de los 64 s». Lo medido:
+    //
+    //   · SÍ hay un nodo malo, y es el 67 %: el CTE `tr_eff` resolvía el reparto de tránsito con
+    //     un Nested Loop que tiraba **171,538,214 filas** por el Join Filter = **100.3 s**.
+    //   · El segundo es el JIT: el plan cuesta 3.6× el umbral de inlining/optimization, así que
+    //     LLVM compila 2,860 funciones = **42.2 s de puro compilar**, sin tocar un dato.
+    //     Los dos suman 142.5 de los 153.9 s.
+    //   · `analytics.sales_daily` NO es el problema y NO le falta ningún índice: son **545 MB**
+    //     de heap (no 4.5 GB), sus 4 escaneos ya son Index Only Scan sobre `ix_sales_daily_cover`
+    //     y cuestan **3.7 s = 2.5 %**. Un índice nuevo ahí habría sido un índice inventado.
+    //
+    // Con los dos arreglos puestos: **153,890 → 25,332 ms (6.08×)**, y los buffers NO se mueven
+    // (1,744,443 → 1,745,288, +0.05 %) — o sea que lo que desaparece es CPU, no lecturas.
+    //
+    // ⚠️ ESO CAMBIA EL TRADE-OFF QUE ESTE COMENTARIO JUSTIFICA. Sacar el importer de `live` se
+    // aceptó a cambio de un rezago acotado de 5 min PORQUE costaba 157 s. A ~17 s de corrida real
+    // (proyección del ratio 6.08× sobre el `mean_exec_time` de 107.7 s de pg_stat_statements,
+    // declarada como proyección y no como medición) la decisión habría que RE-TOMARLA. Queda
+    // abierto a propósito: revertirla es un cambio con su propia medición, no un efecto colateral. Reescribir eso es cirugía sobre la ruta del dinero.
+    //
+    // Y el resultado casi no cambia: de las 47,327 filas del fact, **2,879 (6.1 %) cambiaron en
+    // los últimos 15 min** y **31,210 (66 %) llevan más de 6 horas iguales**.
+    //
+    // ⭐ Por qué se saca de `live` y NO de `stock`: el único insumo que se mueve rápido es la
+    // EXISTENCIA, y `stock` es justo el carril que la refresca (por eso recalcula el plan ahí,
+    // "tras cambiar existencia"). Lo que `live` aporta es DEMANDA — ventanas de 90 días, que no
+    // se mueven en media hora; el propio comentario de `livefast` (abajo) ya lo declara así.
+    //
+    // ⚠️ El rezago que esto introduce está ACOTADO A 5 MINUTOS, no a 30: `stock` corre a los
+    // 5,20,35,50 y `live` a los 0,30 — o sea que después de cada `live` hay un `stock` cinco
+    // minutos más tarde que vuelve a computar el plan con la demanda nueva.
+    //
+    // [NORM.3] `import-cash-sessions.js` SE RETIRÓ de acá — ver el bloque de arriba: `livefast`
+    // lo corre cada 60 s con exactamente los mismos argumentos y el mismo entorno (verificado en
+    // `md`: ninguna de las variables propias de `feeds-livefast` la lee este script).
+  ],
+  // LIVEFAST (loop continuo ~60s): la capa COCINADA display-crítica al momento — venta del día
+  // (sales_daily → Command Center) + cajas abiertas (/tienda). Subset barato del 'live': lee el
+  // consolidado local (RefreshConsolidado @2min) → UPSERT churn-free. NO recalcula demanda/reabasto
+  // (eso se queda en 'live' @30min, no cambia por minuto). Lo agenda \Tienda\LiveFastLoop.
+  livefast: [
+    path.join(K, 'import-sales-fact.js'),    // mart.ventas_enriched → analytics.sales_daily (revenue)
+    path.join(K, 'import-cash-sessions.js'), // cajas ABIERTAS ahora → /tienda/cajas
+  ],
+  stock:   [
+    path.join(K, 'import-branch-stock-live.js'),
+    path.join(DIR, 'wincaja', 'import-cedis-stock-wincaja.js'), // RA-PRO.24 CEDIS '00' = Wincaja Irapuato (NO Kepler) — tras stock Kepler, ANTES del fact (guard: no borra si Irapuato vacío)
+    path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 refresca el fact tras cambiar existencia
+  ],
+  // RECEIPTS — la copia se RETIRÓ 2026-08-19 (`analytics.erp_goods_receipts` es VISTA derive-no-copy
+  // sobre kepler_ods.kdm1 XA2001 + Wincaja movimiento_proveedores, mig 20260819120000). Lo único que
+  // corre acá es el detector de gemelas CEDIS (RE.12): refresca las marcas de dedup en la tabla chica
+  // analytics.erp_goods_receipt_dedup que la vista lee por LEFT JOIN (mig 20260820120000). Lee la
+  // vista viva y escribe solo la tabla de marcas — NO reconstruye recepciones.
+  receipts: [
+    path.join(K, 'detect-goods-receipt-duplicates.js'), // RE.12 marca copias CEDIS '00' → erp_goods_receipt_dedup
+  ],
+  // INTRADAY (cada ~30-60 min): feeds TRANSACCIONALES que cambian a diario y ANTES estaban
+  // huérfanos (no en ningún modo → se quedaban viejos). UPSERT churn-free; ventanas rodantes
+  // donde aplica (PAYMENTS_DAYS/…). Los agenda \Kepler\Intraday + los vigila el FeedGuardian.
+  intraday: [
+    // RETIRADO 2026-08-19: erp_supplier_payments y erp_collections son VISTAS derive-no-copy sobre
+    // kepler_ods.kdm1 (mig 20260819220000) → se derivan EN VIVO del ODS, sin importer que se atrase.
+    // Correr los importers pegaría contra la vista → error. Los .js quedan como fallback histórico.
+    path.join(K, 'import-pos-ticket-sales.js'),    // venta de tickets → analytics.pos_ticket_sales
+    path.join(K, 'import-kardex.js'),              // movimientos de inventario → analytics.stock_ledger
+    path.join(K, 'import-purchase-adjustments.js'), // ajustes de compra → analytics.erp_purchase_adjustments
+    // RETIRADO 2026-09-03: import-kepler-bank-movements.js → analytics.kepler_bank_movements ahora es
+    // VISTA derive-no-copy sobre kepler_ods.kdm1⋈kdb1 (mig 20260903120000). Cero importer, siempre fresca.
+    // CG.16 — Control de CAJA GENERAL (.mdb/Doctos): los GASTOS se capturan/suben al .mdb (no
+    // viven en Kepler), así que el importer del .mdb es la fuente válida. Sube a INTRADAY (no solo
+    // nightly) para que refresque seguido junto al ritmo del libro. Requiere Z: (.245) montado.
+    //
+    // [DB-MEM.8] ⛔ RETIRADO de `intraday` y `nightly` el 2026-09-15 — NO PUEDE correr acá.
+    // `import-caja-general.js` lee los `.mdb` de `\\192.168.0.245\D` (Z:) con **PowerShell +
+    // ACE.OLEDB** (`extract-mdb.ps1`). Desde VL.4b estos carriles corren en `md`, que es Linux:
+    // verificado dentro del contenedor — no hay `powershell`, no hay `pwsh`, no hay `Z:`.
+    //
+    // Lo que se midió antes de tocarlo (2026-09-15):
+    //   · fallaba en el **100 %** de las corridas de `intraday` (24 intentos al día)
+    //   · `analytics.caja_arqueos` / `caja_general_movimientos` congelados en **2026-09-11**,
+    //     que es exactamente el día en que VL.4b mudó los carriles a `md`
+    //   · el tablero decía `ok` igual, porque `run-prod-feeds.js` sólo marca `error` si fallan
+    //     TODOS los pasos → **5 días de datos financieros parados, en silencio**
+    //   · y **no existía ningún sensor de caja en `db-health`** que lo vigilara
+    //
+    // Sigue disponible en el modo `finance`, que NO está en `ops/vl/crontab.feeds` y por lo tanto
+    // puede lanzarse desde `.249` (Windows, con Z: montado), igual que los 3 carriles de Wincaja.
+    // Mismo criterio de VL: **lo que no corre en Linux se DECLARA, no se deja fallando**.
+    // Su frescura ahora la vigila el sensor `caja_general` de db-health.
+    path.join(K, 'import-stock-movements.js'),   // DM — diario de movimientos Kepler (6 sucursales). Ventana rodante STOCK_MOVEMENTS_DAYS (intradía); el nightly hace el pase 120d. Antes SOLO nightly → /almacen/movimientos iba 2 días atrás mientras Wincaja iba al día.
+    // RR — ventas por ruta AL DÍA. El reporte /comercial/ventas-por-ruta lee el rollup
+    // analytics.sales_by_route_monthly; antes estos feeds SOLO estaban en nightly → el reporte
+    // iba ~24h atrás aunque el ORIGEN (.249 mart.ventas del push de camionetas) va al día (cada
+    // 15min). Intradía lo refresca cada ~1h. Idempotentes (UPSERT GREATEST); siguen en nightly
+    // como respaldo. El push lee local (.249), la vecinal lee md_01.
+    path.join(K, 'import-route-push-monthly.js'),    // WIN-<NN> camionetas PH (.249 mart.ventas ruta_NN → mensual)
+    path.join(K, 'import-route-push-lines.js'),      // line-level del push → route_push_lines (drill-down del reporte)
+  ],
+  nightly: [
+    path.join(K, 'import-rotation-from-consolidado.js'),
+    path.join(K, 'import-top-sellers-from-consolidado.js'),
+    path.join(K, 'import-margin.js'),        // KV.4 markup (lee sucursal) — antes del fact
+    path.join(K, 'import-sales-fact.js'),    // KV.1 fact (lee consolidado; cost usa markup)
+    path.join(K, 'import-sales-stats.js'),   // KV.2 ABC/share (lee prod sales_daily) — tras sales-fact
+    path.join(K, 'import-sales-monthly.js'), // HVT.1 rollup mensual durable (sales_daily → sales_monthly, serie larga + calibración demanda) — tras sales-fact
+    path.join(K, 'import-demand-clean.js'),  // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand — tras sales-fact
+    path.join(DIR, 'wincaja', 'import-cedis-stock-wincaja.js'), // RA-PRO.24 CEDIS '00' = Wincaja Irapuato (NO Kepler) — ANTES de inventory-health/DRP/fact (guard: no borra si Irapuato vacío)
+    path.join(K, 'import-inventory-health.js'), // KV.5 días cobertura/status (stock × sales_daily); demanda en PIEZAS crudas (canónico, ver import-inventory-health)
+    path.join(K, 'import-reorder-policy.js'),   // RA.2 umbrales reorden Kepler (kdii.c33/34/35 → reorder_policy source=kepler)
+    path.join(K, 'import-computed-reorder.js'), // RA.3/RA-PRO.1 reorden por demanda + safety stock por nivel de servicio + XYZ — tras inventory-health
+    path.join(K, 'import-network-reorder.js'),  // RA-PRO.6 DRP: reorden del CEDIS por demanda dependiente (Σ sucursales) — tras computed-reorder
+    // RETIRADO 2026-08-28: import-in-transit — el tránsito (X-A-35 sin X-A-40) se DERIVA del ODS
+    // dentro de import-replenishment-plan (CTE `tr`). Mientras fue tabla + importer aparte, el
+    // rename qty_in_transit → transit_cajas se comió la conversión de unidad. Ver GOTCHAS §25.
+    path.join(K, 'import-auto-received.js'),     // RA.15.1 auto-received: X-A-40 Kepler → cierra nuestras OC abiertas (OE source=kepler, sin mover stock)
+    path.join(K, 'import-stock-movements.js'),  // DM — Diario de movimientos (kdm1⋈kdm2 filtrado por doctype.k_binv) → analytics.stock_movements (ventana 120d)
+    path.join(K, 'import-purchase-velocity.js'), // RA-PRO.17 velocidad de compra real (entrada X-A-40) → analytics.purchase_velocity — TRAS stock-movements (ancla del sugerido)
+    // RETIRADO 2026-08-20: import-erp-promos — analytics.erp_promotions es VISTA derive-no-copy
+    // sobre kepler_ods.kdpv_* (mig 20260820160000). Correrlo pegaría TRUNCATE/INSERT contra la vista.
+    // RETIRADO 2026-08-20: import-erp-customers — analytics.erp_customers es VISTA derive-no-copy
+    // sobre kepler_ods.kdud (mig 20260820150000). Correrlo pegaría INSERT contra la vista → error.
+    path.join(K, 'import-customer-sales.js'),// KV.3 historial por cliente (lee consolidado) → analytics.customer_product_sales (fuente RFM de customer_360, CT-C.1b)
+    path.join(K, 'import-logistics-dims.js'),// KV.8 dims logística (rutas/choferes/flota)
+    // RETIRADO 2026-08-20: import-erp-shipments — analytics.erp_shipments es VISTA derive-no-copy
+    // sobre kepler_ods.kdpord (anti-réplica c19=sucursal, mig 20260820170000). No correr contra la vista.
+    // ⛔ [AUD-DAT.10] EL ORDEN IMPORTA Y ANTES ESTABA AL REVÉS. La mensual dejó de leer
+    // Kepler: ahora es el ROLLUP de la diaria, así que la diaria va PRIMERO. Invertirlas
+    // publica la mensual con el dato de ayer — y "ordenar no es depender" (ADR-056): si la
+    // diaria falla, la mensual se queda con lo de ayer, no se inventa nada.
+    path.join(K, 'import-product-sales-daily.js'), // SAL.5 venta DIARIA x producto (rango 7/15/30d; upsert acumulativo 180d)
+    path.join(K, 'import-product-sales-monthly.js'), // SAL.1 venta mensual x producto ← rollup LOCAL de la diaria
+    path.join(K, 'import-sales-by-route-monthly.js'), // RR.2 venta mensual x RUTA (serie c63; upsert acumulativo)
+    path.join(K, 'import-route-push-monthly.js'), // RR — venta en ruta del PUSH (.249 mart.ventas ruta_NN) → WIN-<NN> (PH migró de .mdb al push, jul→)
+    path.join(K, 'import-route-push-lines.js'), // RR — line-level del push (.249) → route_push_lines (drill-down del reporte; incremental)
+    // RR — rutas de Canindo (WIN-50N @ warehouse 06): DUEÑO de la llave. Compone la serie de sus dos
+    // eras — Wincaja hasta la frontera medida (11/12-ago) + PUSH del runner desde la frontera — y la
+    // escribe con overwrite. Va DESPUÉS de import-route-push-monthly (que ya subió la pierna del push)
+    // y ANTES del reconciler. Sólo nightly: la pierna Wincaja tarda ~2 min (v_sales_lines es cara) y
+    // la era Wincaja está CERRADA — lo que se mueve intradía es el push, que ya corre cada hora.
+    path.join(K, 'import-canindo-routes-monthly.js'),
+    [path.join(K, 'reconcile-route-provenance.js'), '--apply'], // VP/ADR-056 (deuda D) — DECLARA push vs branch en la llave que ambos escriben (GREATEST ciego); tras push+canindo. Sólo metadata → route_monthly_provenance; el sensor route_provenance dispara si branch gana (push atorado)
+    path.join(K, 'repoint-catalog-presence.js'), // catálogo — INSERTA productos nuevos + REACTIVA borrados-vivos desde KP_CONCENTRADA (el snapshot Mega_Dulces se atrasa). ANTES de names/prices para que existan al repuntarlos.
+    path.join(K, 'repoint-catalog-names.js'), // catálogo — repoint UPDATE-only de nombres de claves REUSADAS desde KP_CONCENTRADA (catalogo_completo externo se atrasa)
+    // catálogo — RELLENO de precio base + recálculo de is_promo. Degradado a --gap-fill-only 2026-08-24:
+    // el precio de venta lo lleva `normalizeSalePrice` (ods-derived) AL MOMENTO vía hop-2, porque leer
+    // `kdii.c90` como "precio pieza" es un decode equivocado (c90 es el precio de la UNIDAD BASE) y
+    // kdii carga 219 tripletas de plantilla que afectan 1,667 SKUs. Este paso ya NO toca precios
+    // existentes; sólo rellena huecos y mantiene is_promo.
+    // NO agregar acá un feed de precio: nada derivado del ODS se refresca por cron.
+    // Ver docs/IMPLEMENTACION/KEPLER_PRECIOS_MODELO.md y feedback_ods_derived_realtime_no_batch_lag.
+    [path.join(K, 'repoint-catalog-prices.js'), '--gap-fill-only'],
+    path.join(K, 'repoint-catalog-cost.js'), // CANON.0.1 catálogo — SYNC costo (kepler_ods.kdik.c16 mediana retail → cost_base/with_tax/per_case, clamp [1/3,3]× anti-unidad-caja). Mata el escritor de costo de catalog-bulk (.245); nightly lo mantiene fresco entre corridas semanales de catalog. TRAS presence (que los productos existan).
+    path.join(K, 'import-transfers-monthly.js'), // T — traspasos NO-venta (salida CEDIS U/D/13 + consolidación UD06 + recepción UA50; upsert acumulativo)
+    path.join(K, 'import-expenses-polizas.js'), // GX — egresos contables (pólizas gastos 6xx + compras 5xx) desde kdc2YYMM
+    path.join(K, 'import-ap-findings.js'),      // GX v3 — auxiliar de proveedores (201) + hallazgos (iva_bug/203/107)
+    path.join(K, 'import-ledger-chain.js'),      // MAAT.1 — balanza fam 1-9 + cadena de gasto → Maat P&L / fiscal / impuestos provisionales
+    path.join(K, 'import-expense-requests.js'),  // GX.6 — vínculo solicitud↔gasto (expense_documents.solicitud_*) + hallazgos. `expense_requests` es VISTA (mig 20260819160000); lee de kepler_ods (local, sin timeout) — TRAS expenses-polizas
+    path.join(K, 'import-sales-by-channel.js'),  // venta contable 401 reclasificada por canal real (solo CEDIS)
+    path.join(K, 'import-cash-cuts.js'),         // SM.1 — cortes/arqueos de caja POS (kdpv_folio_caja)
+    // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings ahora es MATERIALIZED VIEW
+    // derive-no-copy sobre kepler_ods.kdc2YYMM vía analytics.bank_postings_src() (mig 20260903130000).
+    // La refresca AnalyticsRefreshService (cron 15m). Cero importer.
+    // [DB-MEM.8] ⛔ RETIRADO del `nightly` por el mismo motivo que de `intraday` (ver allá): este
+    // carril corre en `md` (Linux) desde VL.4b y el importer exige PowerShell + ACE.OLEDB + `Z:`.
+    // Queda sólo en el modo `finance`, que se lanza desde `.249`.
+    // path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 VIVO (BMovimientosCajas, al día) + Base Movimientos (histórico). Idempotente (UPSERT). REQUIERE Z: (.245 \\D) montado en el host del feed + PowerShell/ACE.OLEDB.
+    // Feeds antes HUÉRFANOS (nunca agendados → se quedaban viejos). Cadencia diaria correcta.
+    path.join(K, 'import-kepler-polizas.js'),    // pólizas contables Kepler (kdc2) → analytics.gl_poliza_*
+    path.join(K, 'import-sales-boxes-monthly.js'), // venta en cajas mensual → analytics.sales_boxes_monthly
+    path.join(DIR, 'wincaja', 'import-sales-by-vendor-monthly.js'), // AUDIT 2026-08-20 — era HUÉRFANO (648k filas sell-out x vendedor, sin modo ni latido). Al nightly + hereda heartbeat feed_nightly. Idempotente (UPSERT + DELETE-orphan + Canindo remap).
+    path.join(K, 'import-pos-cashiers.js'),      // dim cajeros POS → analytics.pos_cashiers
+    path.join(K, 'import-supplier-params.js'),   // params de proveedor → catalog.suppliers (UPDATE)
+    // RETIRADO 2026-08-26: import-kepler-accounts — finance.kepler_accounts es VISTA derive-no-copy
+    // sobre analytics.ledger_monthly (mig 20260826190000). Correrlo pegaría INSERT contra la vista.
+    // Pasó el gate de costo: fuente 2,548 filas, paridad 175/175 exacta, misma latencia de lectura.
+    path.join(K, 'import-replenishment-cadence.js'), // cadencia de reabasto → commercial.replenishment_channel
+    // CT-C.3 — feature store de Thot al nightly (antes eran scripts manuales): afinidad de canasta + demanda por zona
+    // + presencia en PdV. Alimentan el score de suggest (afinidad/zona/whitespace) y los findings de distribución.
+    path.join(SCRIPTS, 'thot-build-features.js'),     // intelligence.product_affinity (lift market-basket) + zone_demand
+    path.join(SCRIPTS, 'thot-build-pdv-presence.js'), // intelligence.pdv_presence (desde capturas Trade)
+    path.join(K, 'import-demand-acceleration.js'), // RA-PRO.36 IAD por SKU (−2..+2) para la matriz — tras demanda (usa piece_price)
+    path.join(K, 'import-box-factor.js'),          // RA-PRO.37 factor de caja autoritativo (kdii.c84) — ANTES del plan (el uxc lo usa)
+    path.join(K, 'import-box-price.js'),           // RA-PRO.39 precio de CJA por producto (kdpv) — base de cajas money-anchored en sell-out
+    path.join(K, 'import-label-data.js'),          // Etiquetas de anaquel (kdii c90/91/92 precio pieza/paq/caja) → product_label_prices. ANTES quedaba stale (no estaba en nightly) → precios de anaquel ~10% abajo del Kepler vigente (bug 30061 ago-2026)
+    path.join(DIR, 'wincaja', 'import-wincaja-caja-factor.js'), // Factor de caja Wincaja (factor_venta) para MOSTRAR cajas en almacenes ciegos MD-30/32/50 — depende de box-factor(c84)+label(c81). Set doble-testigo (anida+costo=paquete)
+    path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 fact del pedido — AL FINAL (tras demanda/stock/velocity/tránsito/reorden)
+    // Norm ALMACÉN Paso 2b (BARRIDO): tras todos los importers, llena warehouse_id NULL de las
+    // tablas normalizadas (batch 1 warehouse_code + batch 2 sucursal). Idempotente (solo toca NULL),
+    // barato. Batch 1 ya va inline en sus writers; esto cubre batch 2 (~15 importers) sin editarlos +
+    // identity.users (app-escrita) + auto-cubre futuros batches. AL FINAL (tras poblarse las filas).
+    path.join(SCRIPTS, 'backfill-warehouse-id-batch1.js'),
+    path.join(SCRIPTS, 'backfill-warehouse-id-batch2.js'),
+  ],
+  catalog: [
+    path.join(K, 'import-brands-lineas.js'), // líneas kdig → brands nuevas (si falta la línea, el producto se descarta abajo)
+    // CANON.0.2 (2026-08-21) — RETIRADOS los 2 escritores .245 (Mega_Dulces) → mata la fuente .245 (7→6):
+    //   · import-catalog-bulk.js  — su COSTO ya lo cubre repoint-catalog-cost (CANON.0.1); nombre/precio/
+    //     presencia/barcode los cubren los repoints ODS (CANON.1.3). Los campos ESTÁTICOS que solo él
+    //     escribía (category_id/description/unit_purchase/factor_purchase/location/loyalty/iva_purchase) se
+    //     CONGELAN en su valor actual (cambian poco; category_id ya estaba deprecado/inconsistente).
+    //   · import-prices-bulk.js   — tiers P1-P4/MAYOREO = DATO MUERTO (0 clientes fuera de BASE-MXN). Su
+    //     único valor, el recálculo de is_promo, se REUBICÓ a repoint-catalog-prices (misma fuente kdii.c90).
+    // Ambos .js quedan como fallback manual histórico (y semilla de un futuro mayoreo real desde kdpv_prod_util).
+    path.join(K, 'import-kepler-suppliers.js'), // RA — proveedores kdig + products.supplier_id (filtro/sugerido de compras)
+  ],
+  // PRECIOS (cada 30 min) — [VL.4b] Existía como tarea suelta (`C:\KeplerRunner\run-prices.cmd`) y
+  // por eso era MUDO: los dos scripts se invocaban directo, fuera del runner, así que no escribían
+  // `analytics.cron_runs` y db-health no tenía nada que vigilar. Entra como modo para heredar la
+  // maquinaria que ya existe: latido `feed_prices`, timeout por paso y agregación de fallas.
+  //
+  // ⚠️ NO es un carril cualquiera: ÉSTE es el del incidente que fundó la Fase OBS — seis días
+  // publicando precios viejos, uno 54 % bajo costo, y lo encontró un humano corrigiendo un SKU a
+  // mano. El carril que publica el precio era justamente el único sin manera de avisar.
+  //
+  // `repoint-catalog-prices` va con `--sync` (precio de venta completo). En el `nightly` el mismo
+  // script corre con `--gap-fill-only`, que es otra cosa: ahí sólo rellena huecos.
+  prices: [
+    path.join(K, 'import-label-data.js'),                        // → commercial.product_label_prices (pieza/paq/caja)
+    // `[NORM.2]` Reconciliador de códigos de barra → `catalog.product_barcodes`. **No estaba en
+    // ningún carril**: medido en prod, la tabla no recibía un INSERT desde el 2026-08-25 (17 días)
+    // y la cobertura de los productos NUEVOS había caído de ~80 % a 13 %. La leen la etiquetera
+    // (`commercial-labels`) y el escáner de caducidades de bodega (`commercial-expiry-reviews`).
+    //
+    // ⚠️ **El hop-2 NO está roto** — lo verifiqué corriendo `computeBarcodes` acotado a los SKUs
+    // que faltaban y devuelve las filas correctas. Es que es *event-driven*: sólo recomputa los
+    // SKUs cuya fila de `kdii` shipeó, y una fila que no cambia no vuelve a shipear nunca. Un
+    // barcode que faltaba desde antes **no se puebla solo jamás**. Para exactamente eso existe un
+    // reconciliador full-catálogo; el error era no tenerlo agendado.
+    //
+    // Va acá y no en `nightly` por dos razones medidas: cuesta **4.5 s** el catálogo completo
+    // (12,412 filas / 11,556 SKUs), así que el argumento de costo no existe; y la etiquetera
+    // necesita **precio Y barcode juntos** para imprimir — salen de las mismas filas de `kdii`,
+    // y darle a uno 30 min y al otro 24 h es incoherente.
+    //
+    // Sin `--apply` explícito: el runner ya lo agrega en modo aplicar (línea ~313); ponerlo acá
+    // lo haría escribir también en un dry-run, que es justo lo que el dry-run evita.
+    path.join(K, 'import-product-barcodes.js'),                  // → catalog.product_barcodes (1 SKU → N, Kepler ∪ Wincaja)
+    // `[VPR.3]` 2026-10-05 — ESTE PASO YA NO ESCRIBE EL PRECIO. Pasaba `--sync` y competia con
+    // `services/feeds-ingest/ods-derived.js`, que escribe la MISMA columna con la politica
+    // contraria: este ponia lo que Kepler CONFIGURA (`kdii.c90`) y aquel lo que el PdV COBRA
+    // (moda de `kdm2.c12`). Medido en prod: **50,679 contra 50,270 cambios en 24 h** sobre
+    // ~1,070 filas -- el precio publicado dependia de quien escribio ultimo, y eso es lo que
+    // el campo reportaba como "desactualizacion".
+    //
+    // La politica ya estaba decidida (Edgar 2026-08-25): manda lo que el PdV cobra. Asi que
+    // el dueno del precio es `ods-derived` y este paso queda SOLO con `is_promo`, que es lo
+    // unico que nadie mas recalcula. Ver la cabecera de repoint-catalog-prices.js.
+    [path.join(K, 'repoint-catalog-prices.js'), '--solo-promo'],  // → catalog.products.is_promo (el precio lo escribe ods-derived)
+  ],
+  // KV.8 — logística sola (on-demand): dims. (import-erp-shipments RETIRADO 2026-08-20:
+  // analytics.erp_shipments es VISTA derive-no-copy sobre kepler_ods.kdpord, mig 20260820170000
+  // → correrlo pegaba INSERT/DEL contra la vista y fallaba. Se derivan en vivo del ODS.)
+  logistics: [
+    path.join(K, 'import-logistics-dims.js'),
+  ],
+  // CONTPAQi (cada 1 min): pólizas + bancos INCREMENTALES por firma RowVersion — cada corrida
+  // lee solo las firmas (ligero) y trae/UPSERTea solo el delta (insert+update). No machaca el SoR.
+  contpaqi: [
+    path.join(DIR, 'contpaqi', 'import-contpaqi-polizas.js'),        // → analytics.gl_poliza_* (incremental)
+    path.join(DIR, 'contpaqi', 'import-contpaqi-bank-movements.js'), // → analytics.contpaqi_bank_movements (incremental)
+  ],
+  // CONTPAQi lento (cada ~2h): balanza + proveedores (full, cambian poco). Requiere CONTPAQI_SQL_*.
+  'contpaqi-slow': [
+    path.join(DIR, 'contpaqi', 'import-contpaqi-ledger.js'),    // → analytics.contpaqi_ledger_monthly (balanza)
+    path.join(DIR, 'contpaqi', 'import-contpaqi-suppliers.js'), // → analytics.contpaqi_suppliers (× EFOS)
+  ],
+  // FINANCE — feeds contables solos (re-run manual). Mismo set que corre en nightly.
+  // Todos idempotentes por UPSERT (no DELETE) para no cargar la red de Railway.
+  finance: [
+    path.join(K, 'import-expenses-polizas.js'),
+    path.join(K, 'import-ap-findings.js'),
+    path.join(K, 'import-ledger-chain.js'),
+    path.join(K, 'import-expense-requests.js'), // tras expenses-polizas (UPDATE a expense_documents)
+    path.join(K, 'import-sales-by-channel.js'),
+    path.join(K, 'import-cash-cuts.js'),
+    // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings es MATERIALIZED VIEW (mig 20260903130000).
+
+    // [CG.9c] El carril NUEVO de la caja general, y va ANTES del importer viejo a propósito.
+    // Shipea el delta del espejo crudo (:5433/caja_general, que llena replicate-caja-general-live.js
+    // con Jet) → caja_general_ods.* → y de ahí `analytics.caja_general_movimientos` /
+    // `caja_general_cuentas` / `caja_arqueos` son VISTAS derive-no-copy (mig 20260918240000).
+    // No lee ningún .mdb: sólo Postgres → Postgres, así que es barato y no depende de ACE.OLEDB.
+    path.join(DIR, 'movimientos-caja', 'ship-caja-general.js'),
+
+    // ⛔ RETIRADO 2026-09-18 [CG.9h]: `import-caja-general.js` (y su `extract-mdb.ps1`) se BORRARON.
+    //
+    // Sus 7 destinos se repartieron en dos grupos, y ninguno lo necesita:
+    //
+    //   · `caja_general_movimientos` / `caja_general_cuentas` / `caja_arqueos` → son VISTAS
+    //     derive-no-copy sobre `caja_general_ods.*` (mig 20260918240000), que llena el par
+    //     `replicate-caja-general-live.js` + `ship-caja-general.js` bajo PM2. El importer ya las
+    //     saltaba solo.
+    //   · `caja_ventas_diarias` / `caja_depositos` / `caja_sucursales_catalog` /
+    //     `caja_bancos_catalog` → su fuente (`Base Movimientos SI/NO`) está MUERTA, y está medido:
+    //     capturas por año ~3,000 hasta 2025 y **247 / 198 en 2026**; última captura `SI`
+    //     2026-07-02, `NO` 2026-02-03. Las tablas NO se borran —guardan histórico 2009→2026 y
+    //     tienen lectores vivos (`finance-bank.service.ts` las usa como 3ª estrategia del matcher
+    //     de conciliación, y `caja-general.service.ts` para el catálogo almacén→empresa)— pero
+    //     quedan como HISTÓRICO, sin escritor.
+    //
+    // ⚠️ Consecuencia declarada: si Finanzas retomara la captura en `Base Movimientos`, esas 4
+    // tablas ya no se actualizarían. El importer está en la historia de git si hiciera falta.
+  ],
+};
+STEPS.all = [...STEPS.catalog, ...STEPS.stock, ...STEPS.nightly];
+
+// Etiquetas legibles del latido por modo (Salud BD grupo "Crons"). Los modos AGENDADOS
+// se registran además en db-health.service.ts (CRON_JOBS) con su cadencia+umbral → un
+// silencio los pinta en ROJO (dead-man's switch). Los modos MANUALES (finance/logistics/
+// all) laten también pero, al no estar registrados, el tablero los muestra en verde sin
+// alarmar (no tienen cadencia esperada).
+const FEED_LABELS = {
+  live: 'Feed live (venta viva @30min)',
+  livefast: 'Feed livefast (loop ~60s)',
+  stock: 'Feed stock (existencia @15min)',
+  receipts: 'Feed recepciones (XA2001 @1-2min)',
+  intraday: 'Feed intraday (transaccionales @1h)',
+  nightly: 'Feed nightly (batch nocturno)',
+  catalog: 'Feed catálogo (semanal/diario)',
+  contpaqi: 'Feed ContPAQi (pólizas+bancos @1min)',
+  prices: 'Feed precios (etiqueta+venta @30min)',
+  'contpaqi-slow': 'Feed ContPAQi lento (balanza+prov @2h)',
+  finance: 'Feed finanzas (manual)',
+  logistics: 'Feed logística (manual)',
+  all: 'Feed all (cutover/manual)',
+};
+
+// [VL.6.4] Carriles que NO llevan bitácora por paso. El criterio es medible y es uno solo:
+// **cadencia sub-minuto con 1-2 pasos**. Ahí el latido del carril YA es por paso (si falla uno de
+// dos, el campo `error` dice cuál), y en cambio la bitácora costaría ~7,200 filas/día — 7× lo que
+// suman todos los demás carriles juntos. En los batch (nocturno 53, intradía 8, live 5…) pasa al
+// revés: el latido no puede decir cuál paso murió, y el volumen es de ~940 filas/día.
+const SIN_BITACORA_POR_PASO = new Set(['livefast', 'receipts', 'contpaqi']);
+
+function usage() {
+  console.error('Uso: node run-prod-feeds.js <live|stock|nightly|finance|catalog|logistics|all> [--apply]');
+  process.exit(2);
+}
+
+let currentChild = null;
+
+// Mata un proceso y TODO su árbol (Windows: taskkill /T). SIGKILL solo no basta si el
+// importer dejó subprocesos; y un node colgado en un socket muerto ignora SIGTERM.
+function killTree(proc) {
+  try { proc.kill('SIGKILL'); } catch { /* ya murió */ }
+  if (process.platform === 'win32' && proc.pid) {
+    try { spawnSync('taskkill', ['/F', '/T', '/PID', String(proc.pid)], { stdio: 'ignore', timeout: 10000 }); } catch { /* */ }
+  }
+}
+
+// Una entrada de la lista puede ser una ruta o `[ruta, ...flags]` cuando el script necesita un
+// modo distinto del default (ej. repoint-catalog-prices en --gap-fill-only, porque el sync de
+// precio lo tomó repoint-prices-from-bitacora).
+const pathOf = (entry) => (Array.isArray(entry) ? entry[0] : entry);
+// Identidad del paso DENTRO del carril, para la bitácora. Lleva las banderas a propósito:
+// `repoint-catalog-prices.js` corre en `nightly` con --gap-fill-only y en `prices` con --sync,
+// y son operaciones distintas. Medido: ningún carril repite un paso, así que esta llave es única.
+const stepKeyOf = (entry) => (Array.isArray(entry)
+  ? [path.basename(entry[0]), ...entry.slice(1)].join(' ')
+  : path.basename(entry));
+
+function run(entry) {
+  return new Promise((resolve) => {
+    const script = pathOf(entry);
+    const args = [script, ...(Array.isArray(entry) ? entry.slice(1) : [])];
+    if (APPLY) args.push('--apply');
+    // [VL.6.4] stdout/stderr por TUBO en vez de `inherit`, para quedarnos con la cola de la
+    // salida (la línea de resumen que cada importer imprime: `COMMIT — N filas…`). Se reescribe
+    // byte a byte al stdout del runner en el mismo momento, así el log del contenedor queda
+    // IGUAL que antes. stdin sigue heredado: ningún importer lee de stdin y no hay razón para
+    // cambiarle el entorno a un carril que corre en prod.
+    const proc = spawn('node', args, { stdio: ['inherit', 'pipe', 'pipe'] });
+    let cola = '';
+    const capturar = (salida, buf) => {
+      try { salida.write(buf); } catch { /* EPIPE: el log se perdió, el paso sigue */ }
+      // Cota dura: nos interesa el final, no el historial. 4 KB alcanzan para varias líneas.
+      try { cola = (cola + buf.toString('utf8')).slice(-4000); } catch { /* binario raro */ }
+    };
+    // `?.` porque un spawn que falla (ENOENT) puede devolver el proceso sin flujos.
+    proc.stdout?.on('data', (b) => capturar(process.stdout, b));
+    proc.stderr?.on('data', (b) => capturar(process.stderr, b));
+    currentChild = proc;
+    let done = false;
+    let gracia = null;
+    const finish = (code) => {
+      if (done) return; done = true;
+      clearTimeout(timer); clearTimeout(gracia);
+      if (currentChild === proc) currentChild = null;
+      // Última línea NO vacía: es donde los importers dejan su resumen.
+      const lineas = cola.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      resolve({ code, resumen: lineas.length ? lineas[lineas.length - 1] : null });
+    };
+    const mins = timeoutMinFor(script);
+    const timer = setTimeout(() => {
+      console.error(`⏱️  TIMEOUT ${mins} min — ${script} colgado, matando y sigo`);
+      killTree(proc);
+      finish(124);
+    }, mins * 60 * 1000);
+    // ⚠️ CON TUBOS, `close` YA NO ES CONFIABLE POR SÍ SOLO. `close` espera a que se cierren los
+    // flujos, y un NIETO que hereda el tubo los mantiene abiertos aunque el hijo ya haya salido
+    // → el paso quedaría colgado hasta su timeout de 10 min. No es hipotético: `import-auto-
+    // received`, `import-cash-cuts` y `import-caja-general` lanzan subprocesos, y los tres están
+    // en el nocturno. Con `stdio:'inherit'` el problema no existía, así que es una regresión que
+    // habría introducido la captura de la cola.
+    // Se manda `exit` (que dispara cuando sale el PROCESO, haya o no nietos) con una gracia
+    // corta para que termine de drenarse lo ya escrito. En el camino normal `close` llega antes
+    // y la gracia no cuesta nada; en el patológico, acota el cuelgue a medio segundo.
+    proc.on('exit', (code) => { gracia = setTimeout(() => finish(code ?? 1), 500); });
+    proc.on('close', (code) => finish(code ?? 1));
+    proc.on('error', (e) => { console.error(`No se pudo ejecutar ${script}: ${e.message}`); finish(1); });
+  });
+}
+
+// Barre node huérfanos de una corrida previa (scripts de ESTE modo, vivos > timeout+3min
+// → colgados). El umbral protege una corrida concurrente legítima de otro modo (joven).
+// Se apoya en kill-stale-feeds.ps1 (Windows) para evitar el infierno de comillas inline.
+// TODO el cuerpo va dentro del try: esto es limpieza best-effort y NO puede tumbar la corrida.
+// Lo que pasó el 25 y el 26-ago: `names` se calculaba FUERA del try, tiró ERR_INVALID_ARG_TYPE
+// (un step `[ruta, ...flags]` llegando a basename) y se llevó el modo `nightly` entero — y encima
+// antes del primer latido, así que ni `cron_runs` registró el intento.
+function sweepStaleOrphans(steps) {
+  if (process.platform !== 'win32') return;
+  try {
+    const ps1 = path.join(__dirname, 'kill-stale-feeds.ps1');
+    // pathOf: una entrada puede ser `[ruta, ...flags]` (ver arriba); basename() sobre el Array explota.
+    const names = [...new Set(steps.map((s) => path.basename(pathOf(s))))].join(',');
+    const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', ps1,
+      '-Names', names, '-MaxAgeMin', String(MAX_STEP_MIN + 3), '-SelfPid', String(process.pid)],
+      // windowsHide: el default de Node es FALSE y esto abriría una consola en el escritorio
+      // cada vez que el orquestador arranca. Mismo criterio que `lib/access-adapter.js`.
+      { encoding: 'utf8', timeout: 30000, windowsHide: true });
+    const out = (r.stdout || '').trim();
+    if (out) console.log('🧹 huérfanos previos:\n   ' + out.replace(/\n/g, '\n   '));
+  } catch (e) { console.error('sweep huérfanos (no fatal): ' + e.message.slice(0, 100)); }
+}
+
+// Si al orquestador lo terminan (Ctrl-C / scheduler), matar el hijo en curso — no
+// dejar huérfanos (best-effort; en Windows SIGTERM es limitado pero SIGINT funciona).
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => { if (currentChild) killTree(currentChild); process.exit(1); });
+}
+
+(async () => {
+  const steps = STEPS[MODE];
+  if (!steps) usage();
+
+  const LOCAL = process.argv.includes('--local');
+  const dst = process.env.DATABASE_URL_NEW || '';
+  const isLocal = dst === '' || /localhost|127\.0\.0\.1|192\.168\.|::1/i.test(dst);
+  // Por default solo-prod (evita pegarle a local sin querer). El chequeo del destino de PROD
+  // usa el guard canónico `assertProdTarget` (target-guard.js, ADR-056) en vez del `/railway/`
+  // inline de antes: `classify()` distingue prod de local/compartida/desconocido, así el
+  // incidente MR (escribir a `platform_test` creyendo que era prod) no se repite en NINGÚN
+  // prod-writer. Pasá --local para poblar dev; ahí EXIGE que el target NO sea Railway.
+  if (APPLY && !LOCAL) {
+    const { assertProdTarget } = require(path.join(__dirname, '../../../libs/platform-core/src/lib/provenance/target-guard.js'));
+    assertProdTarget('run-prod-feeds', { url: dst }); // aborta (exit 2) si el destino no clasifica como prod
+  }
+  if (APPLY && LOCAL && !isLocal) {
+    console.error('ABORT: --local pero DATABASE_URL_NEW no es local/LAN (parece prod). Quitá --local o corregí el target. Actual: ' + dst);
+    process.exit(3);
+  }
+  if (LOCAL) console.log('  modo LOCAL: poblando DB de desarrollo (' + (dst || 'DATABASE_URL_NEW — sin ella los importers fallan; la copia local :5433/postgres_platform fue purgada 2026-09-08') + ')');
+
+  // [DB-MEM.7] ENV POR MODO — la mitigación existía, pero en el sustrato equivocado.
+  //
+  // `import-stock-movements.js` trae un auto-ligado (ship↔rcv, DM.11d) cuyo propio comentario
+  // dice: *"es MANTENIMIENTO: NO hace falta cada corrida y su LATERAL escanea la tabla (~9 min)
+  // … Se SALTA en intradía/catch-up (SKIP_AUTOLINK=1)"*. Ese `SKIP_AUTOLINK` estaba declarado
+  // **sólo en `database/importers/orchestrator/schedules.js`**, que lo consume `feed-worker.js`
+  // (PM2 + pgboss). Pero el sustrato que corre en producción desde la Fase VL es
+  // `ops/vl/crontab.feeds` → ESTE runner, que nunca lo seteó.
+  //
+  // Resultado medido en prod con `pg_stat_statements`: el LATERAL corría **780 s por llamada**,
+  // 2,113 MB de disco, y el carril `intraday` va cada hora (`15 * * * *`) → ~24 corridas al día
+  // = **~5 h de CPU diarias** en una tarea que el autor marcó como "no hace falta cada corrida".
+  //
+  // ⚠️ El `nightly` NO lleva el skip a propósito: ahí es donde el auto-ligado debe correr (y ya
+  // va acotado a su ventana). Si mañana aparece otra mitigación por modo, va acá, no en el
+  // orchestrator — o vuelve a quedar escrita para un sustrato que no es el que corre.
+  //
+  // [CPU.1 2026-09-25] Y "mañana" era la MISMA LÍNEA. `STOCK_MOVEMENTS_DAYS: '15'` es la otra
+  // mitad del bloque `env` de `orchestrator/schedules.js:27`
+  // (`{ …, STOCK_MOVEMENTS_DAYS: '15', SKIP_AUTOLINK: '1' }`): DB-MEM.7 se trajo una de las dos
+  // variables y dejó la hermana allá. Es la TERCERA vez que ese bloque cobra — antes fueron
+  // `SALES_FACT_DAYS` (NORM.3: 13 meses cada 30 min) y `SKIP_AUTOLINK` (DB-MEM.7: ~5 h/día).
+  // Rescatar UNA variable de un bloque perdido no es arreglar el bloque; hay que traerlo entero.
+  //
+  // Verificado en `md` antes de tocar nada: `feeds.env` NO la define y `docker exec feeds-cron
+  // echo $STOCK_MOVEMENTS_DAYS` devuelve vacío → el importer caía a su default de 120 d, o sea
+  // 8× la ventana de diseño, cada hora.
+  //
+  // Medido en prod con `pg_stat_statements` (ventana de 21 h 12 min; total SQL = 58,952 s):
+  //   INSERT INTO stg_mov          16,152 s · 21 llamadas · 769 s c/u · 27.4 % = 0.21 núcleos
+  //   CREATE TEMP mov_changed          63 s   ← el fingerprint que decide qué cambió
+  //   INSERT INTO stock_movements      33 s   ← lo que REALMENTE se escribe
+  // O sea 769 s de barrido para 1.6 s de escritura: el merge churn-free funciona perfecto, lo
+  // que sobraba era escanear 120 d de kdm1⋈kdm2 cada hora para descubrir que no cambió nada,
+  // con un núcleo clavado ~13 de cada 60 min (la corrida de las 12:15 llevaba 13 m 20 s en vivo).
+  //
+  // ⚠️ Tampoco va en `nightly`: ahí el default de 120 d ES el pase de backfill. El precio
+  // declarado de la ventana corta: una corrección a un documento de más de 15 días deja de
+  // aterrizar en la hora y aterriza esa noche. Es el reparto que `schedules.js` ya había elegido.
+  //
+  // DESPUÉS, medido el mismo día por el MISMO wrapper del cron (`run-feed.sh intraday`, que es
+  // lo único que reproduce flock + env + CWD — una corrida a mano con `docker exec node …` no):
+  //   carril `feed_intraday`   836 s → **196 s**   (baseline: 13 corridas entre 770 y 1,013 s)
+  //   INSERT INTO stg_mov      769 s → **145 s**   (confirmado por `min_exec_time` = 144,917 ms)
+  //   7/7 pasos OK · el importer rotula «(kepler_ods, APPLY, 15d)» · 24 corridas/día ⇒ se
+  //   recuperan ~15,360 s/día = **0.18 núcleos** de los 8 de `md`.
+  // Historia intacta tras la ventana corta (el merge es aditivo por bloque, no borra fuera de
+  // ventana): 54,748 filas ≤15 d · 589,854 de 16-120 d · 3,097,674 de más de 120 d (desde 2020).
+  const ENV_POR_MODO = {
+    intraday: { SKIP_AUTOLINK: '1', STOCK_MOVEMENTS_DAYS: '15' },
+    stock:    { SKIP_AUTOLINK: '1' },
+    live:     { SKIP_AUTOLINK: '1' },
+    livefast: { SKIP_AUTOLINK: '1' },
+  };
+  for (const [k, v] of Object.entries(ENV_POR_MODO[MODE] || {})) {
+    if (process.env[k] === undefined) process.env[k] = v;   // un override explícito del entorno gana
+  }
+
+  console.log(`\n=== Runner prod feeds — modo "${MODE}" (${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${steps.length} paso(s) ===`);
+  if (ENV_POR_MODO[MODE]) {
+    console.log(`  env del modo: ${Object.entries(ENV_POR_MODO[MODE]).map(([k, v]) => `${k}=${process.env[k]}${process.env[k] !== v ? ' (del entorno)' : ''}`).join(' · ')}`);
+  }
+
+  // El latido va PRIMERO, antes de cualquier otra cosa. Si el runner se cae despues (o se lo
+  // matan), queda un latido 'running' que envejece y Salud BD lo marca en rojo por maxRunH: es
+  // el dead-man's switch. Cuando el latido iba DESPUES del sweep, el crash del 25 y 26-ago no
+  // dejo rastro en cron_runs — el nightly simplemente no existio dos noches y nadie se entero.
+  const hbKey = `feed_${MODE}`;
+  if (APPLY) await hb.begin(hbKey, FEED_LABELS[MODE] || `Feed ${MODE}`);
+
+  sweepStaleOrphans(steps); // limpia colgados de una corrida previa antes de arrancar
+
+  // [VL.6.4] Contabilidad POR PASO → analytics.cron_run_log (ver cron-heartbeat.stepLog).
+  // Existe porque `feed_nightly` es UN latido para 53 pasos y sólo se pone rojo si fallan los
+  // 53: un paso que hace años no escribe una fila se ve idéntico a uno crítico. Sin esto,
+  // "¿cuáles de los 53 sobran?" no tiene con qué contestarse.
+  const bitacora = (APPLY && !SIN_BITACORA_POR_PASO.has(MODE)) ? hb.stepLog(hbKey) : null;
+
+  let failed = 0;
+  const failedSteps = [];
+  for (const s of steps) {
+    console.log(`\n--- ${pathOf(s)} ---`);
+    const t0 = new Date();
+    const { code, resumen } = await run(s);
+    const t1 = new Date();
+    const ms = t1 - t0;
+    if (code !== 0) { failed++; failedSteps.push(path.basename(pathOf(s))); console.error(`✗ ${pathOf(s)} salió con código ${code}`); }
+    console.log(`    ⏱  ${(ms / 1000).toFixed(1)}s · ${code === 0 ? 'ok' : 'error'}`);
+    // `add` nunca lanza (la bitácora no puede tumbar el carril) y descarga sola cada 10 pasos.
+    if (bitacora) {
+      await bitacora.add({
+        step: stepKeyOf(s),
+        status: code === 0 ? 'ok' : 'error',
+        startedAt: t0.toISOString(),
+        finishedAt: t1.toISOString(),
+        durationMs: ms,
+        note: resumen, // la última línea del propio importer, TEXTUAL (no es una medición de filas)
+        error: code === 0 ? null
+          : (code === 124 ? `TIMEOUT ${timeoutMinFor(pathOf(s))} min` : `exit ${code}`),
+      });
+    }
+  }
+  if (bitacora) await bitacora.flush(); // la cola que no llegó a completar lote
+  console.log(`\n=== Runner terminó: ${steps.length - failed}/${steps.length} OK ===`);
+
+  // Latido de cierre. status='error' SOLO si el batch entero falló (DB caída / mode roto);
+  // una falla PARCIAL (p.ej. 1 paso flaky en el nightly) queda en 'ok' con el detalle en note
+  // → visible en el tablero sin disparar alarma crítica por ruido.
+  //
+  // ⚠️ Eso NO deja ciego al tablero, y conviene saber por qué antes de "arreglarlo":
+  //   · el estado que pinta `db-health` sale de la FRESCURA (`classify(ageSec, warnH, critH)`),
+  //     no de este `status`;
+  //   · y `recurrenciaLevantaLaMano()` (`db-health-recurrencia.ts`) marca el carril por la vía
+  //     `enPasos` leyendo `analytics.cron_run_log`, que es donde late CADA paso (`[VL.6.4]`).
+  // Medido 2026-09-28: la bitácora tiene 296,267 filas y reporta bien `import-cash-cuts.js` 6/6,
+  // `import-sales-by-vendor-monthly.js` 5/6 y `import-stock-movements.js` 1/6. La detección
+  // está completa; lo que falta es que la alarma salga del edificio (OBS.0.2, sin `SMTP_*`).
+  if (APPLY) {
+    const total = steps.length;
+    const okCount = total - failed;
+    await hb.end(hbKey, {
+      status: total > 0 && failed === total ? 'error' : 'ok',
+      // ⛔ [AUD-DAT.13] ACÁ IBA `rows: okCount` Y ERA UNA MENTIRA MEDIBLE. El campo es
+      // `rows_affected` y el tablero lo imprime como «· N filas»: un carril que movió 52 tablas
+      // publicaba «· 50 filas», que son PASOS. Es el mismo defecto que ya se corrigió en la nota
+      // («contpaqi_add_cfdis pasó 30 h muerto mostrando "OK · 167224 filas"»), en el campo de al
+      // lado. Este runner NO puede contar filas —52 importers heterogéneos, cada uno con su
+      // unidad— así que se DECLARA nulo en vez de dibujar un número que mide otra cosa
+      // (ADR-056). El conteo de pasos ya viaja en `note`, que es donde significa lo que dice.
+      // Verificado: `db-health` omite el sufijo cuando es null y ninguna regla lo lee como falla.
+      rows: null,
+      note: `${okCount}/${total} pasos OK`,
+      error: failed ? `${failed} paso(s) fallaron: ${failedSteps.join(', ')}`.slice(0, 500) : null,
+    });
+  }
+  process.exit(failed ? 1 : 0);
+})();

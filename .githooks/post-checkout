@@ -1,0 +1,61 @@
+#!/bin/sh
+# ─────────────────────────────────────────────────────────────────────────────
+# `[CD.13]` AVISO: cambiaste la rama de un árbol que NO es sólo tuyo.
+#
+# ── Por qué existe ───────────────────────────────────────────────────────────
+# Medido el 2026-10-02: **11 sesiones** (ListAgents) sobre el MISMO working tree, el
+# MISMO `.git/index` y la MISMA rama. Git sólo puede tener una rama activa, así que
+# un `git switch` de cualquiera **arrastra a las otras diez**, en silencio y a mitad
+# de su trabajo.
+#
+# No es teoría: ese día una sesión empezó en `main`, y a mitad de la tarea el HEAD ya
+# estaba en `integra/trabajo-local-2026-10-02` porque otra había hecho switch y
+# commiteado encima. Se enteró por casualidad, comparando un SHA.
+#
+# ── Qué hace, y qué NO ───────────────────────────────────────────────────────
+# ⛔ NO bloquea. No puede: `post-checkout` corre DESPUÉS, el cambio ya ocurrió. Y aunque
+#    pudiera, bloquear el checkout rompería el trabajo legítimo de quien abre una rama.
+#    Lo que hace es volver VISIBLE en el acto algo que hoy se descubre por accidente.
+#
+# ⚠️ Se calla cuando no hay nada que decir: sólo habla si el checkout fue de RAMA (git
+#    pasa 1 en $3) y la rama realmente cambió. Un `git checkout -- archivo.ts` no imprime
+#    nada. Un aviso que sale siempre se vuelve parte del ruido y deja de leerse.
+#
+# Lo invoca git con: $1=SHA anterior  $2=SHA nuevo  $3=1 si fue cambio de rama
+# ─────────────────────────────────────────────────────────────────────────────
+
+[ "$3" = "1" ] || exit 0          # checkout de archivos, no de rama → nada que avisar
+[ "$1" = "$2" ] || RAMA_CAMBIO=1
+[ -n "${RAMA_CAMBIO:-}" ] || exit 0
+
+RAMA=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+ANTES=$(git name-rev --name-only "$1" 2>/dev/null | sed 's#^remotes/##;s#\^0$##')
+
+# ⚠️ `name-rev` devuelve cosas como `main~2` cuando el SHA no es la punta de ninguna rama, y
+#    `git switch main~2` NO existe — es un consejo que falla al pegarlo. Probado el 2026-10-02:
+#    el primer borrador de este hook lo imprimía tal cual. Si el nombre trae `~` o `^`, el
+#    destino seguro es el SHA, que siempre funciona con `git switch --detach`.
+case "$ANTES" in
+  *'~'*|*'^'*|'')  VOLVER="--detach $(git rev-parse --short "$1")"
+                   ANTES="$(git rev-parse --short "$1")" ;;
+  *)               VOLVER="$ANTES" ;;
+esac
+
+echo ""
+echo "⚠️  Cambiaste de rama en un árbol COMPARTIDO:  ${ANTES}  →  ${RAMA}"
+echo "   Las otras sesiones de este repo quedaron en la rama nueva sin pedirlo."
+echo "   Si no era tu intención moverlas, volvé con:  git switch ${VOLVER}"
+
+# ── Divergencia: avisa SÓLO cuando ya duele ──────────────────────────────────
+# El umbral sale de lo medido, no de una corazonada: el 2026-10-02 una línea local con
+# **42** commits sin sincronizar costó **9 conflictos** para traer **4** commits remotos.
+# A 20 todavía se arregla barato; por eso avisa ahí y no antes. Nunca falla el checkout.
+DIV=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
+if [ "${DIV:-0}" -gt 20 ]; then
+  echo ""
+  echo "⚠️  Esta rama lleva ${DIV} commits sin sincronizar con origin/main."
+  echo "   Medido: 42 de divergencia = 9 conflictos para traer 4 commits. Traelo ahora:"
+  echo "       git fetch origin main && git merge origin/main"
+fi
+echo ""
+exit 0

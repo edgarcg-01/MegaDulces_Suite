@@ -1,0 +1,58 @@
+import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { RecommendationsService } from './recommendations.service';
+import { RecommendationsRefreshService } from './recommendations-refresh.service';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
+
+@ApiTags('commercial-recommendations')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
+@Controller('commercial/recommendations')
+export class RecommendationsController {
+  constructor(
+    private readonly recommendations: RecommendationsService,
+    private readonly refresh: RecommendationsRefreshService,
+  ) {}
+
+  @Get('my')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'Canasta estratégica del customer del JWT (Portal B2B). Recomputa si stale (>24h).',
+  })
+  my() {
+    return this.recommendations.getForMyCustomer();
+  }
+
+  @Get(':customer_id')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @ApiOperation({
+    summary:
+      'Canasta estratégica de un customer específico (admin). Recomputa si stale.',
+  })
+  async getForCustomer(@Param('customer_id') customerId: string) {
+    await this.recommendations.assertCustomerAccess(customerId);
+    return this.recommendations.getForCustomer(customerId);
+  }
+
+  @Post(':customer_id/compute')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Forzar recómputo (UPSERT) de la canasta de un customer',
+  })
+  compute(@Param('customer_id') customerId: string) {
+    return this.recommendations.computeForCustomer(customerId);
+  }
+
+  @Post('refresh-all')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'Trigger manual del cron nightly: refresca canasta de TODOS los customers (admin only)',
+  })
+  refreshAll() {
+    return this.refresh.refreshAllTenants();
+  }
+}

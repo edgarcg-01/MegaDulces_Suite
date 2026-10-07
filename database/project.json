@@ -1,0 +1,48 @@
+{
+  "name": "database",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "//": [
+    "`[NX.8]` Este proyecto NO existe para compilar nada: existe para que la suite de regresión",
+    "—~218 pruebas, el gate más pesado del repo— deje de ser un script suelto invocable sólo",
+    "como `node database/run-all-tests.js` y pase a ser un target de Nx como cualquier otro:",
+    "visible en `nx graph`, en `nx run-many`, y con sus logs en Nx Cloud.",
+    "",
+    "⛔ El plugin `@nx/eslint/plugin` lo EXCLUYE (ver el porqué en nx.json): al nacer el proyecto",
+    "le infirió un `lint` de 1089 problems / 468 errors sobre 238 archivos nunca lintados. Esa",
+    "deuda se declara, no se enciende de rebote."
+  ],
+  "targets": {
+    "regression": {
+      "executor": "nx:run-commands",
+      "//": [
+        "⛔ `cache: false` A PROPÓSITO, y no es conservadurismo: estas pruebas leen y escriben",
+        "Postgres REAL (varias bases, más un API en :3334). El estado de la base NO entra en el",
+        "hash de Nx, así que cachear esto serviría un ✔ viejo sobre datos nuevos — exactamente el",
+        "modo de falla MUDO que `[NX.1]` (migrations fuera del hash) y `[NX.3]` (vitest.shared",
+        "fuera del hash) ya cobraron acá, pero peor: allá se servía un build viejo, acá se serviría",
+        "un VEREDICTO viejo. Un verde que no corrió es lo único más caro que un rojo.",
+        "",
+        "⚠️ `nx affected` acá vale MENOS de lo que parece, y se dice para no venderlo de más: el",
+        "proyecto no importa TypeScript de nadie, así que el grafo sólo lo marca afectado cuando",
+        "cambia `database/**`. Un cambio en `libs/finance` NO lo dispara. Para que lo hiciera",
+        "harían falta `implicitDependencies`, y eso se deja sin poner a propósito: declararle una",
+        "dependencia a cada lib que alguna prueba toca es una lista que se desactualiza sola y",
+        "que mentiría en las dos direcciones.",
+        "",
+        "El target NO se llama `test`: si se llamara, `nx run-many -t test` y `npm run check` lo",
+        "arrastrarían, y fallarían en cualquier máquina sin el API arriba y sin las bases",
+        "sembradas. Se corre a mano, o desde `npm run regression`."
+      ],
+      "cache": false,
+      "options": {
+        "command": "node database/run-all-tests.js",
+        "cwd": "{workspaceRoot}"
+      }
+    }
+  },
+  "tags": [
+    "scope:shared",
+    "type:util"
+  ]
+}

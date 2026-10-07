@@ -1,0 +1,83 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Observabilidad + uptime self-hosted (corre en .249)
+#
+#   docker compose -f ops/observability/docker-compose.yml up -d
+#
+# - uptime-kuma  → USABLE YA. Monitorea la URL pública de Railway (salida a
+#                  internet desde .249 = ok) y avisa por WhatsApp/Telegram/email.
+# - glitchtip    → error tracking (compatible SDK Sentry). Solo útil cuando prod
+#                  esté on-prem (LAN); Railway en la nube NO alcanza un GlitchTip
+#                  en LAN. Mientras prod siga en Railway usá Sentry SaaS free tier
+#                  (mismo SDK, solo cambia el DSN). Se deja listo para el cutover.
+#
+# Antes de levantar glitchtip: generá un SECRET_KEY y seteá el dominio (.env al lado).
+# ─────────────────────────────────────────────────────────────────────────────
+x-glitchtip-env: &glitchtip-env
+  DATABASE_URL: postgres://postgres:postgres@gt-postgres:5432/postgres
+  SECRET_KEY: ${GLITCHTIP_SECRET_KEY:?generá uno: openssl rand -hex 32}
+  PORT: "8000"
+  EMAIL_URL: ${GLITCHTIP_EMAIL_URL:-consolemail://}
+  GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN:-http://localhost:8000}
+  DEFAULT_FROM_EMAIL: ${GLITCHTIP_FROM_EMAIL:-glitchtip@localhost}
+  CELERY_WORKER_AUTOSCALE: "1,3"
+
+services:
+  # ── Uptime monitoring (usable ya) ──────────────────────────────────────────
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime-kuma-data:/app/data
+
+  # ── GlitchTip (error tracking self-hosted; para cuando prod sea on-prem) ─────
+  gt-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - glitchtip-pg:/var/lib/postgresql/data
+
+  gt-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  glitchtip-web:
+    image: glitchtip/glitchtip
+    depends_on: [gt-postgres, gt-redis]
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *glitchtip-env
+      REDIS_URL: redis://gt-redis:6379/0
+    volumes:
+      - glitchtip-uploads:/code/uploads
+
+  glitchtip-worker:
+    image: glitchtip/glitchtip
+    command: ./bin/run-celery-with-beat.sh
+    depends_on: [gt-postgres, gt-redis]
+    restart: unless-stopped
+    environment:
+      <<: *glitchtip-env
+      REDIS_URL: redis://gt-redis:6379/0
+    volumes:
+      - glitchtip-uploads:/code/uploads
+
+  glitchtip-migrate:
+    image: glitchtip/glitchtip
+    command: ./bin/run-migrate.sh
+    depends_on: [gt-postgres, gt-redis]
+    environment:
+      <<: *glitchtip-env
+      REDIS_URL: redis://gt-redis:6379/0
+    restart: "no"
+
+volumes:
+  uptime-kuma-data:
+  glitchtip-pg:
+  glitchtip-uploads:

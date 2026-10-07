@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# [VL.11.A] Terminador TLS para el camino INTERNO de prod.
+#
+# ── Por qué existe ───────────────────────────────────────────────────────────
+# El túnel de Cloudflare resolvió "cómo entro sin IP fija", y funciona. Pero medido
+# el 2026-09-23 desde una máquina de la oficina, contra la MISMA API:
+#
+#     LAN directo a `md`   →    5.9 ms
+#     por el túnel         →  225–453 ms
+#
+# 38–76× más lento para gente sentada en el mismo edificio que el servidor. Una
+# pantalla que encadena 10 llamadas suma 2.2–4.5 s y rompe la regla del propio
+# proyecto (">1 s de carga = no funciona"). Además el enlace de subida son 44 Mbit
+# COMPARTIDOS con la oficina y los 14 carriles de ingesta: el mismo byte se paga dos veces.
+#
+# ── Por qué NO alcanza un certificado autofirmado ───────────────────────────
+# ⛔ Las apps mandan `Strict-Transport-Security: max-age=31536000; includeSubDomains`.
+# En cuanto un navegador visita el dominio, TODOS sus subdominios quedan bloqueados por
+# HSTS durante un año, y ahí un error de certificado DEJA DE SER SALTABLE: desaparece el
+# "proceder de todos modos". O sea que el certificado tiene que ser públicamente confiable
+# o la oficina se queda sin entrar, sin recurso.
+#
+# ── Por qué DNS-01 y no HTTP-01 ─────────────────────────────────────────────
+# HTTP-01 exige que el nombre resuelva a esta máquina y que el 80 sea alcanzable desde
+# internet. Ninguna de las dos se cumple: el dominio está *proxied* en Cloudflare y la IP
+# pública de `md` (189.199.107.46, Mega Cable) no es fija. DNS-01 no expone NINGÚN puerto.
+#
+# ── Por qué Caddy y no Traefik ──────────────────────────────────────────────
+# ⛔ Traefik es exactamente el proxy que Coolify metió en esta máquina y que ató 80, 443
+# **y 8080** —el puerto del API—, dejando prod caído 50 minutos (README §10.4). Este
+# contenedor liga SÓLO 80 y 443; 8080/8081/8082 siguen siendo de las apps.
+# Caddy además renueva solo y el binario con el módulo de Cloudflare son dos capas.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ⚠️ `caddy:2` no trae el proveedor de DNS de Cloudflare: los módulos de terceros se
+# compilan adentro del binario. Por eso hay una etapa de build.
+FROM caddy:2-builder AS builder
+RUN xcaddy build --with github.com/caddy-dns/cloudflare
+
+FROM caddy:2
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+
+# El Caddyfile se monta desde el host (`ops/prod/Caddyfile`, versionado) para poder
+# cambiar una ruta sin reconstruir la imagen.
+
+LABEL org.opencontainers.image.title="Trade Marketing — terminador TLS interno" \
+      org.opencontainers.image.description="Caddy + caddy-dns/cloudflare para ACME DNS-01" \
+      org.opencontainers.image.vendor="Mega Dulces"
