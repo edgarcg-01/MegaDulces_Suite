@@ -69,7 +69,7 @@ export async function generarEntregaPdf(d: PurchaseDeliveryDetail, emitido: Date
   y += 42 + 16;
 
   // ── Renglones, con brinco por sucursal ───────────────────────────────────────────────────
-  const head = ['#', 'Recepción', 'Factura', 'Proveedor', 'Folio Kepler', 'OC', 'Evidencia', ...(hayDecision ? ['Finanzas'] : []), 'Importe'];
+  const head = ['#', 'Recepción', 'Factura', 'Proveedor', 'Referencia', 'Folio Kepler', 'OC', 'Evidencia', ...(hayDecision ? ['Finanzas'] : []), 'Importe'];
   const nCols = head.length;
   const body: unknown[][] = [];
   let n = 0;
@@ -85,7 +85,7 @@ export async function generarEntregaPdf(d: PurchaseDeliveryDetail, emitido: Date
       const st = tachado ? { textColor: MUTED } : {};
       body.push([
         String(n), dia(l.reception_date), dia(l.invoice_date), l.supplier_name || l.supplier_code || '—',
-        `${l.doc_prefix} ${l.folio}`, l.oc_folio || '—', evidenciaLabel(l.evidence_status),
+        l.referencia || '—', `${l.doc_prefix} ${l.folio}`, l.oc_folio || '—', evidenciaLabel(l.evidence_status),
         ...(hayDecision ? [LINEA_LABEL[l.status] + (l.rejection_reason ? ` · ${l.rejection_reason}` : '')] : []),
         { content: money(l.amount), styles: { halign: 'right', ...st } },
       ].map((c) => (typeof c === 'string' ? { content: c, styles: st } : c)));
@@ -101,7 +101,7 @@ export async function generarEntregaPdf(d: PurchaseDeliveryDetail, emitido: Date
     ],
     footStyles: { fillColor: RULE, textColor: INK, fontStyle: 'bold', halign: 'right' },
     showFoot: 'lastPage',
-    columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 58 }, 2: { cellWidth: 58 }, 4: { cellWidth: 82 }, 5: { cellWidth: 52 }, 6: { cellWidth: 62 }, [nCols - 1]: { cellWidth: 78, halign: 'right' } },
+    columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 58 }, 2: { cellWidth: 58 }, 4: { cellWidth: 60 }, 5: { cellWidth: 82 }, 6: { cellWidth: 52 }, 7: { cellWidth: 62 }, [nCols - 1]: { cellWidth: 78, halign: 'right' } },
     didParseCell: alinearTitulos([nCols - 1]),
   });
   y = lastY(doc, y) + 12;

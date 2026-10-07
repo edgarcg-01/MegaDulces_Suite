@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Obligaciones a proveedor: la «Referencia» de la orden de entrada de Kepler (RE.32.2, 2026-10-07)
+- Columna **Referencia** antes de *Folio Kepler* en **Por entregar**, en el detalle de **Entregas** y en el **PDF de firmas**. Es el dato que Kepler muestra junto a «Referencia» en el documento *Aplica Orden Entrada* (p. ej. `30-0822`); lo pidieron los usuarios de Compras que ya lo usan en prod.
+- **De dónde sale:** `kdm1.c11` de la cabecera XA2001, verificado contra la pantalla de Kepler con un caso real (Morelia Abastos `XA2001-0000165` → `30-0822`; casan también el «Docto previo» y el importe). Es texto capturado a mano: se muestra tal cual, y «—» cuando no se capturó (3 % desde el 1-sep).
+- **Migraciones (2):** `20261007300000` agrega `referencia` al final de `analytics.erp_goods_receipts` (ninguna columna existente cambia; sus 3 dependientes no se tocan; misma velocidad, medido 153 vs 144 ms) y `20261007300100` la guarda en los renglones de cada entrega (snapshot de lo firmado) y rellena las entregas que ya existen. El servicio sondea las dos columnas: el código se puede desplegar antes que las migraciones sin dar error. Sin permisos nuevos → **sin re-login**.
 ### Fixed — Obligaciones a proveedor: el nombre de quien recibe salía cortado a una letra (RE.32.1, 2026-10-07)
 - En **Generar entrega a Finanzas** (`/compras/obligaciones`, pestaña *Por entregar*), el selector **Recibe (Finanzas)** mostraba sólo la primera letra del nombre («M») con la flecha en el renglón de abajo. Lo reportó un auxiliar de compras usándolo en prod.
 - **Causa:** el estilo de la página ponía el `p-select` en `display:block`. En PrimeNG 22 el texto del selector trae `width:1%` y sólo crece por `flex:1 1 auto`; sin un contenedor flex se queda en 1 % y la flecha (bloque) baja de renglón.

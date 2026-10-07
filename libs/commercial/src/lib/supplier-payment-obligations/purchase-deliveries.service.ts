@@ -16,11 +16,15 @@ const RECIPIENT_DEPARTMENTS = ['finanzas', 'tesoreria'];
 /** Los `line_id` llegan en el cuerpo: uno mal formado daría 22P02 (500) en Postgres. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-interface Readiness { view: boolean; tables: boolean; internal: boolean }
+interface Readiness {
+  view: boolean; tables: boolean; internal: boolean;
+  /** `[RE.32.2]` La vista publica `referencia` (mig 20261007300000) y los renglones la guardan (…300100). */
+  ref: boolean; lineRef: boolean;
+}
 type Trx = Knex.Transaction;
 
 interface RawPending {
-  sucursal: string; doc_prefix: string; folio: string; oc_folio: string | null;
+  sucursal: string; doc_prefix: string; folio: string; oc_folio: string | null; referencia: string | null;
   supplier_code: string | null; supplier_name: string | null;
   invoice_date: string | null; reception_date: string | null; reception_source: 'vale' | 'aplicacion' | null;
   amount: string | number; kepler_due_date: string | null; evidence_status: string | null;
@@ -62,10 +66,19 @@ export class PurchaseDeliveriesService {
           AND to_regclass('commercial.purchase_delivery_lines') IS NOT NULL
           AND to_regclass('commercial.purchase_delivery_sequences') IS NOT NULL) AS tables,
         EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'catalog.suppliers'::regclass
-                  AND attname = 'is_internal' AND NOT attisdropped) AS internal`);
-    const r: Readiness = { view: !!rows[0]?.view, tables: !!rows[0]?.tables, internal: !!rows[0]?.internal };
-    if (r.view && r.tables && r.internal) this.readyCache = r;
-    else this.logger.warn(`RE.32: migraciones pendientes — vista=${r.view} tablas=${r.tables} internos=${r.internal}`);
+                  AND attname = 'is_internal' AND NOT attisdropped) AS internal,
+        EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('analytics.erp_goods_receipts')
+                  AND attname = 'referencia' AND NOT attisdropped) AS ref,
+        EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('commercial.purchase_delivery_lines')
+                  AND attname = 'referencia' AND NOT attisdropped) AS line_ref`);
+    const r: Readiness = {
+      view: !!rows[0]?.view, tables: !!rows[0]?.tables, internal: !!rows[0]?.internal,
+      ref: !!rows[0]?.ref, lineRef: !!rows[0]?.line_ref,
+    };
+    // Las cinco: si se cacheara con `ref` en false, la referencia no aparecería hasta reiniciar la API
+    // aunque la migración ya estuviera aplicada.
+    if (r.view && r.tables && r.internal && r.ref && r.lineRef) this.readyCache = r;
+    else this.logger.warn(`RE.32: migraciones pendientes — vista=${r.view} tablas=${r.tables} internos=${r.internal} referencia=${r.ref}/${r.lineRef}`);
     return r;
   }
 
@@ -84,6 +97,7 @@ export class PurchaseDeliveriesService {
       const recepCol = ready.view ? 'r.fecha_recepcion' : 'NULL::date';
       const recepSrc = ready.view ? 'r.fecha_recepcion_fuente' : 'NULL::text';
       const dateExpr = basis === 'recepcion' ? 'r.fecha_recepcion' : 'r.receipt_date';
+      const refCol = ready.ref ? 'r.referencia' : 'NULL::text';
 
       const where: string[] = ['r.tenant_id = :t', 'r.dup_of_folio IS NULL', 'r.monto > 0'];
       const b: Record<string, unknown> = { t: tenantId, max: MAX_PENDING + 1 };
@@ -119,7 +133,7 @@ export class PurchaseDeliveriesService {
         WHERE ${where.join(' AND ')}`;
 
       const { rows } = await trx.raw(`
-        SELECT r.sucursal, r.doc_prefix, r.folio, r.oc_folio,
+        SELECT r.sucursal, r.doc_prefix, r.folio, r.oc_folio, ${refCol} AS referencia,
                r.proveedor_code AS supplier_code, r.proveedor_nombre AS supplier_name,
                to_char(r.receipt_date, 'YYYY-MM-DD') AS invoice_date,
                to_char(${recepCol}, 'YYYY-MM-DD') AS reception_date,
@@ -161,6 +175,7 @@ export class PurchaseDeliveriesService {
           doc_prefix: r.doc_prefix,
           folio: r.folio,
           oc_folio: r.oc_folio,
+          referencia: r.referencia,
           supplier_code: r.supplier_code,
           supplier_name: r.supplier_name,
           invoice_date: r.invoice_date,
@@ -258,7 +273,7 @@ export class PurchaseDeliveriesService {
 
         // Las entradas se leen de la vista viva: nada del cliente se toma como dato, sólo la llave.
         const { rows: recs } = await trx.raw(`
-          SELECT r.sucursal, r.doc_prefix, r.folio, r.oc_folio, r.proveedor_code, r.proveedor_nombre,
+          SELECT r.sucursal, r.doc_prefix, r.folio, r.oc_folio, ${ready.ref ? 'r.referencia' : 'NULL::text AS referencia'}, r.proveedor_code, r.proveedor_nombre,
                  r.receipt_date, r.fecha_recepcion, r.fecha_recepcion_fuente, r.monto, r.fecha_vence, r.dup_of_folio,
                  COALESCE(s.is_internal, false) AS is_internal,
                  (SELECT p.status FROM finance.goods_receipt_proofs p
@@ -310,6 +325,7 @@ export class PurchaseDeliveriesService {
           receipt_doc_prefix: r.doc_prefix,
           receipt_folio: r.folio,
           oc_folio: r.oc_folio,
+          ...(ready.lineRef ? { referencia: r.referencia } : {}),
           supplier_code: r.proveedor_code,
           supplier_name: r.proveedor_nombre,
           invoice_date: r.receipt_date,
@@ -410,8 +426,10 @@ export class PurchaseDeliveriesService {
   private async loadDetail(trx: Trx, tenantId: string, id: string): Promise<PurchaseDeliveryDetail> {
     const head = await trx('commercial.purchase_deliveries').where({ tenant_id: tenantId, id }).first(this.summaryCols(trx));
     if (!head) throw new NotFoundException('Entrega no encontrada');
+    const { lineRef } = await this.readiness(trx);
     const lines = await trx('commercial.purchase_delivery_lines').where({ tenant_id: tenantId, delivery_id: id })
       .select('id', 'receipt_sucursal as sucursal', 'receipt_doc_prefix as doc_prefix', 'receipt_folio as folio', 'oc_folio',
+        lineRef ? 'referencia' : trx.raw('NULL::text AS referencia'),
         'supplier_code', 'supplier_name',
         trx.raw(`to_char(invoice_date, 'YYYY-MM-DD') AS invoice_date`), trx.raw(`to_char(reception_date, 'YYYY-MM-DD') AS reception_date`),
         'reception_source', 'amount', trx.raw(`to_char(kepler_due_date, 'YYYY-MM-DD') AS kepler_due_date`),

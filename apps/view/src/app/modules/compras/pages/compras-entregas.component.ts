@@ -89,11 +89,11 @@ import { ESTADO_ENTREGA_LABEL, agruparPorSucursal, dia, evidenciaLabel } from '.
           <ng-template #header>
             <tr>
               @if (canReceive(d)) { <th style="width:5.5rem">Rechazar</th> }
-              <th>Recepción</th><th>Factura</th><th>Proveedor</th><th>Folio Kepler</th><th>Evidencia</th><th>Estado</th><th class="ta-r">Importe</th>
+              <th>Recepción</th><th>Factura</th><th>Proveedor</th><th title="«Referencia» del documento en Kepler (la captura quien da entrada)">Referencia</th><th>Folio Kepler</th><th>Evidencia</th><th>Estado</th><th class="ta-r">Importe</th>
             </tr>
           </ng-template>
           <ng-template #groupheader let-l>
-            <tr class="en-group"><td [attr.colspan]="canReceive(d) ? 7 : 6" role="cell"><b>{{ grupoDe(l.sucursal)?.nombre }}</b> · {{ grupoDe(l.sucursal)?.rows?.length }}</td>
+            <tr class="en-group"><td [attr.colspan]="canReceive(d) ? 8 : 7" role="cell"><b>{{ grupoDe(l.sucursal)?.nombre }}</b> · {{ grupoDe(l.sucursal)?.rows?.length }}</td>
               <td class="ta-r mono dt-num" role="cell" data-label="Total sucursal"><b>{{ money(subtotal(l.sucursal)) }}</b></td></tr>
           </ng-template>
           <ng-template #body let-l>
@@ -104,6 +104,7 @@ import { ESTADO_ENTREGA_LABEL, agruparPorSucursal, dia, evidenciaLabel } from '.
               <td class="mono" role="cell" data-label="Recepción">{{ dia(l.reception_date) }}</td>
               <td class="mono en-muted" role="cell" data-label="Factura">{{ dia(l.invoice_date) }}</td>
               <td class="dt-id" role="cell" data-label="Proveedor">{{ l.supplier_name || l.supplier_code || '—' }}</td>
+              <td class="mono" role="cell" data-label="Referencia">{{ l.referencia || '—' }}</td>
               <td class="mono" role="cell" data-label="Folio Kepler">{{ l.folio }}</td>
               <td role="cell" data-label="Evidencia">{{ evidencia(l.evidence_status) }}</td>
               <td role="cell" data-label="Estado">
