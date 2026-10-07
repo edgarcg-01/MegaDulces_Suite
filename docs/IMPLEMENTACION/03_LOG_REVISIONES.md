@@ -10623,3 +10623,66 @@ séptima sin declarar **falla**.
 - ⬜ **Validación visual** de `/presupuesto` con el árbitro nuevo y los huecos.
 - ⬜ **`[VE]` no tiene renglón en el roadmap.** Nació en esta sesión; falta decidir si cuelga de
   Fase PU o abre fase propia.
+
+---
+
+## 2026-10-06 — `[VE.3]` El presupuesto se mantiene solo
+
+Edgar: *«todo presupuestos debe funcionar en automático. Botones innecesarios o métricas de inicio
+que se piden son innecesarias»*.
+
+### El módulo tenía cuatro motores y ningún reloj
+
+Medido: `budget/` tiene **cero `@Cron`**. Los cuatro motores que producen el presupuesto —plan de
+ventas desde el histórico, plan de gastos desde Kepler, proyección 13×4→mes y materialización a
+partidas— salían **únicamente apretando un botón**. El resultado en prod: `expense_plan_lines`
+**0** · `budget_lines` **0** · `line_movements` **0** · `commercial.sales_targets` **0**, y la
+materialización nunca corrió.
+
+⭐ El diagnóstico que circulaba —*«falta que alguien le dé al botón de proponer»*— describe el
+síntoma **y acepta la causa**. Un número que sólo existe si alguien se acuerda de pedirlo no es un
+presupuesto: es un reporte a demanda.
+
+`BudgetAutopilotService`, `@Cron` 03:30 MX, latido `budget_autopilot` con umbral en `CRON_JOBS`.
+
+### Por qué fue seguro, y por qué el candado mira el código
+
+Los tres pasos **ya nacieron respetando la mano humana**: `proposePlan` y `proposeExpensePlan`
+saltan toda celda `method='manual'` y la cuentan en `coverage.manual_kept`; `materialize` sólo toca
+`source='plan'` y ajusta el vigente de las partidas con saldo en vez de reescribirlas. Los tres
+exigen `borrador`/`en_revision`: **un presupuesto aprobado no lo toca nadie.**
+
+⛔ **Si alguien quita esa guarda en un refactor, el cron pasa de rellenar huecos a borrar el trabajo
+de la gente todas las noches** — y ningún test de datos se enteraría, porque la guarda es una línea.
+Por eso `test-newdb-budget-autopilot.js` lee el **código fuente**: **11 ✓ / 0 ✗ / 1 NO MEDIDO**.
+
+⚠️ Y el candado se puso rojo por su propio comentario en la primera corrida: buscaba la palabra
+`overwrite_manual` y la encontró en el JSDoc que explica *que nunca se manda*. El criterio no puede
+ser que la palabra no exista, sino el **paso real** (`overwrite_manual:` como clave). *Un detector
+que no distingue el código de lo que lo explica no está midiendo el código.*
+
+### Lo que NO se automatizó, a propósito
+
+El piloto **no aprueba, no cierra, no fija la capacidad de pago y no crea ejercicios**. Eso no son
+métricas, son decisiones, y `PRESUPUESTOS_GESTIONAR` las reparte a personas (`[VE.2]`).
+*Automatizar una decisión no es quitar un botón innecesario: es quitarle la firma a quien responde
+por ella.* El candado lo vigila por nombre de método.
+
+### Las métricas que había que pedir
+
+`loadSummaryReal`, `loadSalesComparison` y `loadCashflow` no cargaban hasta apretar. Ahora se
+disparan solas al entrar a su pestaña; el botón se queda, pero ahora significa *«volvé a
+consultar»*, no *«traémelo por primera vez»*.
+
+⚠️ **El diferimiento del backend NO era una precaución vieja.** Medido contra prod: el agregado del
+real recorre **2.2 M filas** de `mv_sales_blended` y tarda **1,893 ms en frío** (283 ms caliente).
+Por eso se dispara **en segundo plano** y fuera del `forkJoin` que pinta el ejercicio — meterlo
+adentro haría esperar 2 s a la pantalla entera. El arreglo de fondo (un agregado mensual
+precomputado) queda **declarado, no hecho**.
+
+### Pendientes con nombre
+
+- ⬜ **Redeploy** — sin él no hay cron, y el bloque [5] del candado seguirá en NO MEDIDO.
+- ⬜ **Primera corrida real**: hoy hay 1 ejercicio en `borrador` (FY2027) y 1 en `pendiente` (que el
+  piloto no toca). La primera pasada debería llenar gastos, targets y partidas.
+- ⬜ **El agregado del real sigue costando 1.9 s en frío.** Declarado arriba.

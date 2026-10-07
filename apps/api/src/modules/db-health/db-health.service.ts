@@ -933,6 +933,14 @@ const CRON_JOBS: CronCfg[] = [
   // la cadencia — así que esto es sólo el rótulo, pero es el rótulo contra el que alguien decide
   // si "hace 20 minutos" es normal o es una alarma.
   { key: 'kepler_stock',        label: 'Kepler stock vivo (multi-sucursal)', cadence: 'cada 15 min', warnH: 3,  critH: 12 },
+  // `[VE.3]` El presupuesto que se mantiene solo (`BudgetAutopilotService`, @Cron 03:30 MX).
+  // Existe porque el módulo tenía CUATRO motores que producen el presupuesto —plan de ventas,
+  // plan de gastos, proyección 13x4→mes y materialización— y ninguno tenía cron: los cuatro
+  // salían sólo apretando un botón, y el resultado medido eran 4 tablas en 0 filas.
+  // Job diario: warn al saltarse una corrida, crítico al saltarse dos — mismo criterio que
+  // `sales_daily`. Sin esta fila, `db-health` lo clasifica con el `cfg ? classify : 'ok'` que
+  // la Fase VP midió dando verde incondicional a las 3 matvistas del sell-out.
+  { key: 'budget_autopilot',    label: 'Presupuesto que se mantiene solo',  cadence: 'diario 03:30 MX', warnH: 30, critH: 54 },
   // Respaldo del dataset 'concentrada' (mes que rueda del 'actual'). Semanal → umbral holgado:
   // warn a ~9 días (una corrida perdida), critical a ~16 (dos). Ver wincaja_month_coverage.
   // [VL.6.3] EL RESPALDO DE PROD. Era invisible: 36 job_key vigilados y ninguno era el
