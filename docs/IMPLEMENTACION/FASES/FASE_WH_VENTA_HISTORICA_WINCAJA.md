@@ -629,6 +629,39 @@ están en la imagen del pod. Se resuelve copiando esos 4 archivos al pod antes d
 
 ---
 
+### 🚀 `[WH.2b]` — La vista, **EN PROD 2026-10-07** (`batch 782`)
+
+`analytics.v_wincaja_hist_sales` — derive-no-copy sobre el FDW, con las cinco decisiones medidas
+adentro (dinero sin impuesto · día de la fecha parseada · dedup por identidad · clase desde el
+padrón · cordura como **veredicto, no filtro**).
+
+**El candado: reproduce lo ya medido.** Padre Hidalgo 2023:
+
+| clase | tickets | `valor_venta` | margen |
+|---|---:|---:|---:|
+| `venta_cliente` | 269,554 | $147,289,045 | **12.21 %** |
+| `traspaso_interno` | 1,042 | $58,033,035 | **2.00 %** |
+| `surtido_ruta` | 1,737 | $25,983,201 | **15.06 %** |
+| **total** | | **$231,305,281** | |
+
+Contra los **$231,340,190** del barrido crudo: Δ **$34,909 (0.015 %)**, explicable por el dedup y
+por acotar la ventana con la FECHA en vez del nombre del corte.
+
+⭐ **Y una corroboración que no se buscaba: el traspaso interno da 2.00 % de margen** —
+prácticamente a costo, que es exactamente lo que un movimiento interno tiene que ser — contra
+12.21 % de la venta. Si el padrón estuviera mal clasificando, esos tres márgenes saldrían
+mezclados. **El margen valida la clasificación sin que nadie se lo haya pedido.**
+
+**Prueba negativa, en prod:** Padre Hidalgo 2025 devuelve **1 renglón `fuera_de_rango` con
+$995,263,779,541,730 A LA VISTA** y 1,488,064 renglones `ok` con $239,654,860. El veneno se
+**marca**, no se borra. Y son 1 y no 2 porque el dedup colapsó el ticket duplicado: esa pieza
+también quedó probada.
+
+⚠️ **53 s y 31 s por consulta** — confirmado lo que la migración ya declaraba: **la vista NO es
+interactiva**. Es la definición auditable; quien la consume es la matvista de `[WH.4]`.
+
+---
+
 ### `[WH.3]` — El puente producto: Wincaja `Articulo` → `catalog.products.id`
 
 Es el riesgo silencioso más grande de la fase. Nueve años de catálogo incluyen SKUs que ya no
