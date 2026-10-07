@@ -1687,3 +1687,49 @@ del clic deja de ser una casilla de 14 px.
 - ⚠️ **Ninguna prueba estaba protegiendo el texto que se borró** — coherente con que fuera
   decoración, pero vale decirlo: se fue sin que nada se pusiera rojo.
 - ⚠️⚠️ **Novena vez** que un acento grave en un comentario del `template:` rompe el build acá.
+
+---
+
+## 21. `[CG.55]` La casilla que no se puede tocar, fuera (2026-10-07)
+
+**Edgar, sobre la pantalla corriendo en local:** *"se siguen mostrando los checkbox"*.
+
+### Qué pasaba, medido en su propia captura
+
+La bandeja decía *«23 de 44 se confirman de un clic · el resto necesita que su cuenta esté
+declarada»* — y mostraba **44 casillas**. Las otras **21 estaban deshabilitadas**, y en tema oscuro
+una casilla apagada se ve casi igual que una viva. La columna ofrecía 44 veces algo que podía hacer
+23: un control que promete lo que no puede cumplir.
+
+**La fila que no se puede confirmar ya no muestra casilla.** Lo que esa fila *sí* puede hacer ya
+estaba dicho dos veces: su etiqueta de motivo («ruta sin declarar», «falta elegir concepto») y su
+botón **«Capturar»**.
+
+### ⚠️ Lo que se verificó antes de elegir el mecanismo
+
+La salida obvia era `[pSelectableRowDisabled]`. **No sirve, y se comprobó en el fuente de
+`primeng@22` en vez de suponerlo:** `findNextSelectableRow()` recorre hermanos buscando
+`[data-p-selectable-row="true"]` y **salta** los que no lo tienen. Marcar la fila como no
+seleccionable la volvería **inalcanzable con las flechas** — y hay que llegar a ella justamente para
+apretar «Capturar». Las filas trabadas siguen navegables; lo que se fue es la casilla.
+
+⚠️ **Se declara el borde:** con la fila trabada enfocada, `Space` no hace nada y no lo explica.
+El filtro por `confirmable` vive en `onSeleccionTabla` (`[CG.50]`), así que la selección se descarta
+en silencio. La señal visual existe —no hay casilla y hay etiqueta de motivo—, pero el teclado no
+dice nada. Queda anotado, no resuelto.
+
+### Verificación
+
+- `nx test view` caja-general: **212/212** (1 prueba nueva, 1 endurecida). `typecheck`,
+  `check:templates` y `check:teclado` verdes.
+- **Mutación**: devolver la casilla a todas las filas → 1 roja.
+- ⭐ La prueba nueva es la que impide que «limpiar» se pase de rosca: afirma que la fila
+  **confirmable SÍ** tiene casilla. Sin ella, borrar la casilla de *todas* las filas dejaría la
+  bandeja sin forma de marcar nada y la otra prueba seguiría verde.
+
+### Lo que esto NO toca
+
+El acto sigue siendo el mismo y su circuito sigue roto (§20): **2 movimientos en el libro contra
+12,976 pendientes, 0 cortes, 1 regla declarada, y nada río abajo lee `finance.cash_ledger`.**
+Esconder la casilla donde no sirve es higiene de interfaz; que confirmar le sirva a alguien es otra
+decisión, y está abierta.
