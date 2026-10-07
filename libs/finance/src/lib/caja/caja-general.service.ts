@@ -556,7 +556,23 @@ export class CajaGeneralService {
         .andWhere('fecha_valor', '>=', from).andWhere('fecha_valor', '<=', to)
         .select('sucursal', 'clave_banco', 'folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
 
-      const key = (f: any) => String(f).slice(0, 10);
+      /**
+       * ⛔ Acá decía `const key = (f: any) => String(f).slice(0, 10)`, y eso **no devuelve una
+       * fecha**: pg entrega un `date` como objeto `Date`, y `String(new Date(...)).slice(0,10)`
+       * da **`"Sat Oct 03"`**. Estaba a la vista en la columna FECHA del detalle del día y nadie
+       * lo leyó como un defecto — parecía un formato feo, no un dato roto.
+       *
+       * Rompía tres cosas a la vez:
+       *   1. la fecha que se imprime (`dmy()` no puede formatear "Sat Oct 03");
+       *   2. **el orden de las filas**: el `.sort()` de abajo hace `a.fecha.localeCompare(b.fecha)`
+       *      sobre ese texto, o sea alfabético por día de la semana — `Fri < Mon < Sat < Tue`;
+       *   3. cualquier consumidor que intente parsearla (el resolvedor de ruta de `[CG.20]`
+       *      recibía `"Sat Oct 03"` y devolvía null en TODAS las filas, que es como se encontró).
+       *
+       * `ymd` ya vive en este archivo —y dos métodos más abajo ya se usa como `const key = ymd`—
+       * y arma la fecha con las partes LOCALES, no por UTC. Es el mismo defecto de `[LC.16]`.
+       */
+      const key = ymd;
 
       /**
        * ⭐ [CG.20] CUARTA FUENTE: **la venta que registró el Kepler de la propia camioneta.**

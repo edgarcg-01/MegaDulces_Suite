@@ -96,5 +96,22 @@ describe('caja-ruta.engine — leer la venta de ruta que declara el texto', () =
     it('sin declaracion, null', () => {
       expect(fechaDeVentaDeclarada('pago tdc computo', '2026-10-03')).toBeNull();
     });
+
+    /**
+     * ⛔ ESTE caso no es teorico: asi se rompio en la primera corrida contra prod. El servicio
+     * pasaba la fecha de captura por un `String(fecha).slice(0,10)` sobre un `date` de pg -- que
+     * es un objeto Date -- y entregaba "Sat Oct 03". La funcion devolvia null en TODAS las filas
+     * y la columna Ruta salia vacia, sin un solo error. Que rechace es correcto; lo que estaba
+     * mal era quien la llamaba (ver `const key = ymd` en conciliacionDia).
+     */
+    it('⛔ una fecha que no es ISO se RECHAZA, no se adivina ("Sat Oct 03" de un Date mal serializado)', () => {
+      expect(fechaDeVentaDeclarada('Ventas 01/10 RD21', 'Sat Oct 03')).toBeNull();
+    });
+    it('…y con la fecha bien armada, la misma fila resuelve', () => {
+      expect(fechaDeVentaDeclarada('Ventas 01/10 RD21', '2026-10-03')).toBe('2026-10-01');
+    });
+    it('acepta un Date directo, que es lo que pg entrega', () => {
+      expect(fechaDeVentaDeclarada('Ventas 01/10 RD21', new Date(Date.UTC(2026, 9, 3)))).toBe('2026-10-01');
+    });
   });
 });
