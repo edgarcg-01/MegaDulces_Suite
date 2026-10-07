@@ -635,6 +635,39 @@ Fase VP) ya mide traslape **y hueco**: se corre antes y después, y tiene que se
 
 ### `[WH.6]` — Cobertura y procedencia en pantalla
 
+> **Para qué sirve todo esto, en palabras de Edgar (2026-10-07):** *"más que nada para métricas y
+> gráficas que importan bastante a la hora de hacer una compra"*. El consumidor concreto es el
+> globo **«Venta por mes»** de `/compras/pedido` (`[RA-PRO.65]`), que hoy enseña trece meses con la
+> serie **«año anterior» vacía** y el prorrateo 60/40 en `—`.
+
+**Cuánto de eso arregla esta fase, medido en Padre Hidalgo:**
+
+| | SKUs |
+|---|---:|
+| activos que **venden hoy** y **no tienen con qué comparar** (su serie de año anterior está muda) | **1,352** |
+| …de ésos, los que **sí tienen historia en Wincaja** → recuperan la comparación | **698 (51.6 %)** |
+| …los que **no** la tienen: son productos nuevos, su gráfica está muda **con razón** | 654 |
+
+⭐ **Más de la mitad de las gráficas mudas se arreglan. La otra mitad está muda con razón** — y eso
+también hay que decirlo, no esconderlo.
+
+⛔ **Y ahí está el defecto que esta fase tiene que corregir en la pantalla.** El globo dice hoy
+**«sin venta registrada el año anterior»** en los dos casos, y **no son el mismo caso**:
+
+- **No vendió** → afirmación medida. Correcta.
+- **No hay historia cargada** → *no se midió*, y decir «no vendió» es afirmar un cero que nadie
+  comprobó. Es exactamente ADR-056 sobre la pantalla en la que más cuesta: la de decidir una compra.
+
+**Ejemplo real, de la captura que lo disparó:** SKU **95775** (*EST GOM PELAFRUT MANGO 800GR /
+KALU*) en 01 Padre Hidalgo. Su serie de año anterior está vacía, y **está bien**: el producto se dio
+de alta en el catálogo el **2026-06-29**, dos días después de que PH migrara a Kepler, y **no existe
+en el espejo de Wincaja** (0 renglones en 9 años). Para ese SKU la fase no aporta nada — y la
+pantalla debería decir *«producto nuevo: no hay año anterior»*, no *«sin venta registrada»*.
+
+**Entregable de WH.6:** cada serie histórica viaja con su cobertura (`Coverage` del contrato de
+procedencia) y la pantalla distingue **tres** estados, no dos: *vendió X · no vendió · no hay
+historia para este producto/sucursal*.
+
 Que las pantallas que ya consumen el fact (sell-out, `/comercial/ventas-por-ruta`, Command Center,
 Rentabilidad) **declaren** desde cuándo hay historia por sucursal. Hoy un comparativo 2024 vs 2025
 devuelve cero para 2024 y se lee como «vendimos cero», no como «no hay dato».
