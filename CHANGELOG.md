@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Obligaciones a proveedor: el nombre de quien recibe salía cortado a una letra (RE.32.1, 2026-10-07)
+- En **Generar entrega a Finanzas** (`/compras/obligaciones`, pestaña *Por entregar*), el selector **Recibe (Finanzas)** mostraba sólo la primera letra del nombre («M») con la flecha en el renglón de abajo. Lo reportó un auxiliar de compras usándolo en prod.
+- **Causa:** el estilo de la página ponía el `p-select` en `display:block`. En PrimeNG 22 el texto del selector trae `width:1%` y sólo crece por `flex:1 1 auto`; sin un contenedor flex se queda en 1 % y la flecha (bloque) baja de renglón.
+- **Arreglo:** `display:flex` (una línea, con comentario del porqué). Era la única pantalla de `apps/view` con ese patrón. Sin migraciones ni permisos → **sin re-login**.
 ### Changed — Arqueo de caja: monedas y billetes en una sola lista, de 50¢ a $1,000 (SM.42, 2026-10-07)
 - `/tienda/arqueo`: el conteo deja de ser dos columnas (billetes | monedas, de mayor a menor) y pasa a **una tabla «Monedas / billetes» de menor a mayor** —50¢, $1, $2, $5, $10, $20 moneda, $20 billete, $50 … $1,000— con cantidad, importe y **«Total en efectivo»** al pie, como la hoja de arqueo de la operación. En todas las pestañas.
 - Al lado, lo que cada tipo lleva: el **retiro** muestra los retiros ya guardados del turno y el que se cuenta, y **ya no pide medios de pago**; cierre, RD y RV conservan sus medios; relevo, nada.
