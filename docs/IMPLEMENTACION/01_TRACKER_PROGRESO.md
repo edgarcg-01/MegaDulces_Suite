@@ -2021,11 +2021,16 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   **Arreglado de paso:** el formulario manual pedía «Por ruta / Viaje largo» y lo tiraba (no había
   columna), y guardaba la fecha en UTC (después de las 18:00 se guardaba mañana).
   **Falta:** aplicar la migración a prod (una por una) + redeploy api+view (sin permisos nuevos).
-- [ ] **[EMB.13]** ⬜ **Comisión de un viaje con varias rutas.** El catálogo de rutas tiene una
-  tarifa por ruta y una guía cruza hasta 5 (medido: 71 de 122 guías de Telemarketing de PH son de
-  una sola). EMB.12 precarga la **mayor** del viaje en la comisión del chofer (editable); la regla
-  es una propuesta que decide Logística. Y el emparejamiento es por `kepler_code` o nombre EXACTO: Kepler escribe
-  «SANTAGIO TANGAMNADAPIO», que no es «TANGAMANDAPIO» — se declara «sin tarifa», no se adivina.
+- [x] **[EMB.13]** 🧪 **La comisión se CALCULA y va bloqueada** (2026-10-07, decidido con el usuario).
+  Fórmula de la beta de Logística (`Documents/megadulces_beta (14).html`, `autoFillComisionChofer` /
+  `autoFillComisionAyudante`): chofer = tarifa de chofer de la ruta, cada ayudante que va = tarifa de
+  ayudante; la beta tenía UN destino por embarque y una guía de Kepler cruza hasta 5 rutas → se aplica
+  la de **MAYOR** tarifa. La beta guardaba **0** sin tarifa y Liquidaciones paga lo que dice la guía
+  (`driver_commission` NOT NULL DEFAULT 0): un 0 es no pagar. Por eso **sin tarifa no se crea** — basta
+  UNA ruta del viaje sin tarifa, porque con «la mayor» la que falta podría ser la mayor. La regla vive
+  en el contrato (`comisionesDeLaGuia` / `erroresDeTarifa`) y la leen la hoja (botón) y la API (400);
+  la API además rechaza una comisión tecleada distinta. Emparejamiento por `kepler_code` o nombre
+  EXACTO (`SANTAGIO TANGAMNADAPIO` ≠ `TANGAMANDAPIO`: no se adivina).
 - [ ] **[EMB.14]** ⬜ **Tarifas de viáticos sin configurar** (`logistics.config_finance` no tiene la
   categoría `viatico` en la base local): la hoja pide el total a mano. Configurarlas activa el
   checklist persona × comida que ya existe en la pantalla.
@@ -2039,6 +2044,18 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   10 de 30 unidades no tienen uno asignado — entre ellas la `00008`, la que más embarca (0.2% de sus
   embarques de Telemarketing traen chofer). La pantalla lo pide; el arreglo de fondo es asignarles
   chofer en el catálogo de unidades de Kepler.
+- [ ] **[EMB.17]** ⚠️ **Tarifar las rutas que Kepler usa y la Suite no tiene** — desde EMB.13 frenan la
+  toma. Medido 2026-10-07 (catálogo LOCAL; prod sin medir): de 49 rutas en embarques de 60 días (suc
+  01, 06, 07), **29 están en 0/0 = 49% de las paradas** — las de más movimiento: SANTA ANA PACUECO
+  (453), LA PIEDAD (337), CANINDO ZAMORA (240), SAN FRANCISCO DEL RINCON (79), AYOTLAN (36). La
+  tarifa de «SAN FRANCISCO / PURISIMA DEL RINCON» existe con ese nombre combinado y Kepler las trae
+  separadas. Se capturan en Logística › Configuración › Comisiones. Kepler NO tiene tarifas (sólo lo
+  pagado como gasto, conceptos 075/128, desde 24-sep y sólo en Canindo, sin chofer ni guía en el texto).
+- [ ] **[EMB.18]** ⬜ **Lo demás de la beta de Logística que no se implementó**: viáticos por horario
+  (café $50 si sale antes de 6:00 · desayuno $100 antes de 7:00 · comida $100 si llega después de
+  15:00 · cena $100 si duerme o llega después de 20:00), carga de salida ($30 por cargador), descarga
+  de regreso ($1 por caja, reparto igual) y maniobra LAB (monto en reparto igual). Y la comisión de
+  **repartidor** del catálogo original, que la tabla de rutas no guarda.
 - [ ] **[EMB.8]** ⬜ `analytics.erp_shipments.route` **no es una ruta**: dos valores en todo el
   histórico (`'40'` 102,310 · `'35'` 44) = el tipo de documento padre, 0/10 match contra
   `kdm_rutas`. Lo pintan como ruta la pantalla de analytics de logística y una tool de Thot.

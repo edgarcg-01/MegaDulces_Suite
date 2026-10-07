@@ -9,6 +9,7 @@ import { catchError } from 'rxjs/operators';
 import {
   ConfigItem, Driver, LogisticaService, NuevoEmbarqueHoja, TomaKeplerBody,
 } from '../logistica.service';
+import { comisionesDeLaGuia, erroresDeTarifa } from '@megadulces/contracts';
 import { datosDeKepler } from '../components/kepler-hoja.component';
 import { KeplerParadasComponent } from '../components/kepler-paradas.component';
 
@@ -21,9 +22,6 @@ export interface CapturaEmbarque {
   driver_id: string | null;
   helper1_id: string | null;
   helper2_id: string | null;
-  driver_commission: number | null;
-  helper1_commission: number | null;
-  helper2_commission: number | null;
   per_diem_total: number | null;
   overnight: boolean;
   freight_revenue: number | null;
@@ -37,7 +35,10 @@ export interface CapturaEmbarque {
  * servidor (`validarToma` en libs/logistics): se repite aquí para que el botón diga por qué no
  * avanza, no para reemplazar al servidor — él decide.
  */
-export function erroresDeCaptura(c: CapturaEmbarque, h: Pick<NuevoEmbarqueHoja, 'chofer' | 'tomado'>): string[] {
+export function erroresDeCaptura(
+  c: CapturaEmbarque,
+  h: Pick<NuevoEmbarqueHoja, 'chofer' | 'tomado' | 'comision' | 'resumen'>,
+): string[] {
   const e: string[] = [];
   if (h.tomado) e.push(`Este viaje ya se tomó en el embarque ${h.tomado.folio}.`);
   if (!c.delivery_type) e.push('Elige el tipo de entrega.');
@@ -47,9 +48,6 @@ export function erroresDeCaptura(c: CapturaEmbarque, h: Pick<NuevoEmbarqueHoja, 
   if (c.helper1_id && c.helper1_id === c.helper2_id) e.push('Ayudante 1 y ayudante 2 son la misma persona.');
   if (c.helper2_id && !c.helper1_id) e.push('Captura primero al ayudante 1.');
   const montos: Array<[number | null, string]> = [
-    [c.driver_commission, 'La comisión del chofer'],
-    [c.helper1_commission, 'La comisión del ayudante 1'],
-    [c.helper2_commission, 'La comisión del ayudante 2'],
     [c.per_diem_total, 'Los viáticos'],
     [c.freight_revenue, 'El flete cobrado'],
     [c.total_weight_kg, 'El peso'],
@@ -60,6 +58,8 @@ export function erroresDeCaptura(c: CapturaEmbarque, h: Pick<NuevoEmbarqueHoja, 
   if (c.actual_km != null && (!Number.isInteger(Number(c.actual_km)) || Number(c.actual_km) < 0)) {
     e.push('Los kilómetros deben ser un número entero.');
   }
+  // La comisión se calcula de la tarifa de las rutas: si falta una, no se crea (misma regla que la API).
+  e.push(...erroresDeTarifa(h.comision, h.resumen.paradas_sin_ruta, { helper1: !!c.helper1_id, helper2: !!c.helper2_id }));
   return e;
 }
 
@@ -85,9 +85,6 @@ export function cuerpoDeToma(
     driver_id: c.driver_id || null,
     helper1_id: c.helper1_id || null,
     helper2_id: c.helper2_id || null,
-    driver_commission: num(c.driver_commission),
-    helper1_commission: c.helper1_id ? num(c.helper1_commission) : null,
-    helper2_commission: c.helper2_id ? num(c.helper2_commission) : null,
     per_diem_total: num(c.per_diem_total),
     ...(extra.per_diem_breakdown ? { per_diem_breakdown: extra.per_diem_breakdown } : {}),
     overnight: !!c.overnight,
@@ -231,18 +228,10 @@ export function cuerpoDeToma(
           <section class="hj-sec" aria-labelledby="hj-s-com">
             <h2 id="hj-s-com">Comisiones y viáticos</h2>
             <div class="hj-grid">
-              <label class="hj-f" for="hj-com1">
-                <span>Comisión chofer</span>
-                <input id="hj-com1" class="hj-txt" type="number" min="0" step="0.01" name="com1" [(ngModel)]="c.driver_commission" (ngModelChange)="tocar()" placeholder="0.00" />
-              </label>
-              <label class="hj-f" for="hj-com2">
-                <span>Comisión ayudante 1</span>
-                <input id="hj-com2" class="hj-txt" type="number" min="0" step="0.01" name="com2" [(ngModel)]="c.helper1_commission" (ngModelChange)="tocar()" [disabled]="!c.helper1_id" placeholder="0.00" />
-              </label>
-              <label class="hj-f" for="hj-com3">
-                <span>Comisión ayudante 2</span>
-                <input id="hj-com3" class="hj-txt" type="number" min="0" step="0.01" name="com3" [(ngModel)]="c.helper2_commission" (ngModelChange)="tocar()" [disabled]="!c.helper2_id" placeholder="0.00" />
-              </label>
+              @let k = comisiones();
+              <dl class="hj-f"><dt>Comisión chofer</dt><dd class="hj-lock hj-num">{{ k ? (k.driver_commission | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</dd></dl>
+              <dl class="hj-f"><dt>Comisión ayudante 1</dt><dd class="hj-lock hj-num">{{ k && c.helper1_id ? (k.helper1_commission | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</dd></dl>
+              <dl class="hj-f"><dt>Comisión ayudante 2</dt><dd class="hj-lock hj-num">{{ k && c.helper2_id ? (k.helper2_commission | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</dd></dl>
             </div>
             @if (hayTarifas()) {
               <div class="hj-table-wrap">
@@ -388,7 +377,6 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
 
   c: CapturaEmbarque = {
     delivery_type: null, driver_id: null, helper1_id: null, helper2_id: null,
-    driver_commission: null, helper1_commission: null, helper2_commission: null,
     per_diem_total: null, overnight: false, freight_revenue: null, actual_km: null,
     total_weight_kg: null, notes: '',
   };
@@ -398,6 +386,16 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
     helper2: { cafe: false, desayuno: false, comida: false, cena: false },
   };
 
+  /** La comisión de la guía, CALCULADA de la tarifa del viaje. null = falta una tarifa (no se adivina). */
+  readonly comisiones = computed(() => {
+    this.version();
+    const h = this.hoja();
+    if (!h) return null;
+    const ayudantes = { helper1: !!this.c.helper1_id, helper2: !!this.c.helper2_id };
+    return erroresDeTarifa(h.comision, h.resumen.paradas_sin_ruta, ayudantes).length
+      ? null
+      : comisionesDeLaGuia(h.comision, ayudantes);
+  });
   readonly datos = computed(() => {
     const h = this.hoja();
     return h ? datosDeKepler(h) : null;
@@ -441,8 +439,6 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
           if (COMIDAS.includes(m)) t[m] = Number(v.value) || 0;
         }
         this.tarifas.set(t);
-        // La comisión del chofer arranca con la del catálogo de rutas de la Suite. Es editable.
-        if (hoja.comision.driver != null) this.c.driver_commission = hoja.comision.driver;
         this.cargando.set(false);
         this.tocar();
       },
@@ -458,12 +454,8 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
   tocar() { this.version.update((v) => v + 1); }
 
   alElegirAyudante(quien: 'helper1' | 'helper2') {
-    const h = this.hoja();
-    if (quien === 'helper1') {
-      if (!this.c.helper1_id) { this.c.helper2_id = null; this.c.helper1_commission = null; this.c.helper2_commission = null; }
-      else if (this.c.helper1_commission == null && h?.comision.helper != null) this.c.helper1_commission = h.comision.helper;
-    } else if (!this.c.helper2_id) this.c.helper2_commission = null;
-    else if (this.c.helper2_commission == null && h?.comision.helper != null) this.c.helper2_commission = h.comision.helper;
+    // Sin ayudante 1 no hay ayudante 2. Las comisiones no se tocan aquí: se calculan (`comisiones`).
+    if (quien === 'helper1' && !this.c.helper1_id) this.c.helper2_id = null;
     this.recalcularViaticos();
     this.tocar();
   }
