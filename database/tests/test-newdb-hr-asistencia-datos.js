@@ -91,9 +91,9 @@ const check = (cond, msg) => {
       const { rows: cols } = await trx.raw(`
         SELECT table_name || '.' || column_name AS c FROM information_schema.columns
          WHERE table_schema = 'hr' AND (table_name, column_name) IN
-           (('attendance_devices','ingest_mode'),('attendance_devices','is_paused'),('device_enrollments','user_id'),
+           (('attendance_devices','ingest_mode'),('attendance_devices','is_paused'),('device_enrollments','user_id'),('device_enrollments','person_code'),
             ('attendance_logs','user_id'),('attendance_logs','source'))`);
-      check(cols.length === 5, `columnas nuevas en las tablas de la Fase CH (hay ${cols.length} de 5)`);
+      check(cols.length === 6, `columnas nuevas en las tablas de la Fase CH (hay ${cols.length} de 6)`);
 
       console.log('\n[3] Permisos de app_runtime');
       const priv = async (table, p) => (await trx.raw(`SELECT has_table_privilege('app_runtime', ?, ?) AS ok`, [`hr.${table}`, p])).rows[0].ok;
@@ -196,6 +196,16 @@ const check = (cond, msg) => {
         `INSERT INTO hr.attendance_logs (tenant_id, device_id, device_user_id, punched_at, punched_local, source) VALUES (?, ?, '15', now(), now(), 'excel')`, [TENANT, deviceId]);
       await expectOk('checada de carga única',
         `INSERT INTO hr.attendance_logs (tenant_id, device_id, device_user_id, punched_at, punched_local, source) VALUES (?, ?, '15', now(), now(), 'carga_unica')`, [TENANT, deviceId]);
+
+      // Vista por sitio: el código del reloj se traduce al código de la persona en el sitio
+      await trx.raw(`UPDATE hr.attendance_devices SET site_code = '01' WHERE id = ?`, [deviceId]);
+      await trx.raw(`INSERT INTO hr.device_enrollments (tenant_id, device_id, device_user_id, person_code, device_name) VALUES (?, ?, '15', '115', 'Ana')`, [TENANT, deviceId]);
+      const vp = (await trx.raw(`SELECT site_code, person_code, person_name, work_date FROM hr.v_site_punches WHERE tenant_id = ? AND serial_number LIKE 'RH-TEST-%'`, [TENANT])).rows;
+      check(vp.length === 1 && vp[0].site_code === '01' && vp[0].person_code === '115' && vp[0].person_name === 'Ana',
+        `la vista por sitio traduce el código del reloj (15) al de la persona en el sitio (${vp[0] ? vp[0].person_code : 'nada'})`);
+      await trx.raw(`UPDATE hr.device_enrollments SET match_status = 'ignorado' WHERE device_id = ? AND device_user_id = '15'`, [deviceId]);
+      const vi = (await trx.raw(`SELECT count(*)::int AS n FROM hr.v_site_punches WHERE serial_number LIKE 'RH-TEST-%'`)).rows[0].n;
+      check(vi === 0, `un enrolamiento ignorado no aparece en la vista (aparecen ${vi})`);
 
       console.log('\n[5] Aislamiento por empresa como app_runtime');
       await trx.raw(`SET LOCAL ROLE app_runtime`);

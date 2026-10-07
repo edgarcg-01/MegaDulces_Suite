@@ -114,6 +114,11 @@ exports.up = async function (knex) {
       END IF;
     END $$`);
   await knex.raw(`CREATE INDEX IF NOT EXISTS ix_hr_enr_user ON hr.device_enrollments (tenant_id, user_id)`);
+  // El código con el que la lógica de asistencia conoce a la persona DENTRO de su sitio.
+  // Casi siempre es el mismo `device_user_id`; cambia cuando un reloj numera distinto a la
+  // misma gente (en Mega Talento eso era `reloj_codigo_map`: el reloj de comida de
+  // corporativo traía otra numeración). NULL = usar `device_user_id` tal cual.
+  await addColumn('device_enrollments', 'person_code', `text`);
 
   // ── 3) Checadas: persona de la Suite + de dónde vino la marca ───────────────
   await addColumn('attendance_logs', 'user_id', `uuid`);
@@ -184,10 +189,43 @@ exports.up = async function (knex) {
     await rls('ingest_batches');
   }
 
+  // ── 6) Checadas vistas por sitio ────────────────────────────────────────────
+  // La forma exacta con la que trabaja la lógica de asistencia de Mega Talento (su tabla
+  // `checadas`): sitio, código de la persona en el sitio, fecha y hora de pared. Derivada,
+  // no copiada: si cambia el mapeo de un enrolamiento, cambia aquí sin migrar nada.
+  // `security_invoker` para que respete el RLS de quien consulta.
+  await knex.raw(`
+    CREATE OR REPLACE VIEW hr.v_site_punches WITH (security_invoker = true) AS
+    SELECT
+      l.tenant_id,
+      d.site_code,
+      COALESCE(e.person_code, l.device_user_id)              AS person_code,
+      COALESCE(e.user_id, l.user_id)                         AS user_id,
+      e.device_name                                          AS person_name,
+      d.serial_number,
+      l.device_user_id,
+      l.punched_at,
+      l.punched_local,
+      to_char(l.punched_local, 'YYYY-MM-DD')                 AS work_date,
+      to_char(l.punched_local, 'HH24:MI:SS')                 AS punch_time,
+      l.punch_type,
+      l.verify_mode,
+      l.source
+    FROM hr.attendance_logs l
+    JOIN hr.attendance_devices d
+      ON d.tenant_id = l.tenant_id AND d.id = l.device_id
+    LEFT JOIN hr.device_enrollments e
+      ON e.tenant_id = l.tenant_id AND e.device_id = l.device_id AND e.device_user_id = l.device_user_id
+    WHERE COALESCE(e.match_status, 'pendiente') <> 'ignorado'`);
+  await knex.raw(`GRANT SELECT ON hr.v_site_punches TO app_runtime`);
+  await knex.raw(`COMMENT ON VIEW hr.v_site_punches IS 'Fase RH: checadas por (sitio, código de la persona en el sitio), con la forma que usa la lógica de asistencia. Derivada, no copia. Excluye enrolamientos ignorados.'`);
+
   await knex.raw(`GRANT USAGE ON SCHEMA hr TO app_runtime`);
 };
 
 exports.down = async function (knex) {
+  await knex.raw(`DROP VIEW IF EXISTS hr.v_site_punches`);
+  await knex.raw(`ALTER TABLE hr.device_enrollments DROP COLUMN IF EXISTS person_code`);
   await knex.raw(`ALTER TABLE hr.attendance_devices DROP CONSTRAINT IF EXISTS attendance_devices_site_fk`);
   await knex.schema.withSchema('hr').dropTableIfExists('attendance_sites');
   await knex.schema.withSchema('hr').dropTableIfExists('ingest_batches');
