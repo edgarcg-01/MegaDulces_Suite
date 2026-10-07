@@ -24,7 +24,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError, Subject } from 'rxjs';
 
-import { CAJA_VENTANA_DIAS, denomDe, type Denominacion } from '@megadulces/contracts';
+import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, denomDe, type Denominacion } from '@megadulces/contracts';
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
  import { CONTEXT_HELP } from '../../../../shared/context-help/context-help.dictionary';
 import {
@@ -303,9 +303,17 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
     const html: string = fixture.nativeElement.innerHTML;
     expect(html).toContain('Movimientos por confirmar');
-    // Los tres p-select viven en el encabezado de la sección: si la sección se desmonta, la
-    // persona queda encerrada con el filtro puesto y sin forma de sacarlo.
-    expect(fixture.nativeElement.querySelectorAll('p-select').length).toBeGreaterThanOrEqual(3);
+
+    // ⛔ `[CG.51]` Esto decía "los tres p-select viven en el encabezado de la sección" y contaba
+    // `p-select` de TODA la página — el tercero vivía en los filtros del libro, 300 líneas abajo.
+    // Pasaba por acumulación, no por lo que afirmaba. Lo destapó plegar el historial.
+    // Lo que importa es que los filtros DE LA BANDEJA sigan ahí: con la lista vacía, si la sección
+    // se desmonta la persona queda encerrada con el filtro puesto y sin forma de sacarlo.
+    const bandeja: Element | null = fixture.nativeElement.querySelector('.cg-bandeja');
+    expect(bandeja).not.toBeNull();
+    expect(bandeja!.querySelectorAll('p-select').length).toBe(2);   // ventana + caja
+    expect(bandeja!.querySelectorAll('app-segmented').length).toBe(1); // entra / sale
+    expect(bandeja!.querySelectorAll('input[type="search"], input.cg-buscar').length).toBe(1);
   });
 
   it('un error de red en la bandeja se DECLARA, no se ve como "no hay nada"', () => {
@@ -748,6 +756,108 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(reja!.compareDocumentPosition(glosa!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // ── [CG.50] D.7: las tablas se RECORREN con las flechas ──────────────────────────────────
+  //
+  // Edgar: *"necesito que toda la interfaz se pueda usar con las flechas del teclado"*.
+  // Medido antes de tocar nada: **9 tablas en esta pantalla, 0 con `pSelectableRow`**. Con 100
+  // filas de bandeja el teclado sólo podía tabular (casilla → Abrir → casilla → …) = 200 paradas.
+  //
+  // ⚠️ El primitivo NO se diseña: DESIGN D.7 es explícito en que `pSelectableRow` de PrimeNG ya
+  // da ↑↓, Home/End, Enter/Space y **roving tabindex**, y que escribir una directiva propia para
+  // una tabla es un antipatrón. Lo que se prueba acá es que esté PUESTO.
+
+  it('las filas de la bandeja existen para el teclado: roving tabindex, no 200 paradas', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    // ⚠️ El selector va ACOTADO a la bandeja: la pantalla tiene 8 tablas y un `tbody tr` pelado
+    // devuelve las filas del libro y de los cortes también. La prueba lo encontró sola.
+    const filas = () =>
+      Array.from(fx.nativeElement.querySelectorAll('.cg-bandeja-tbl tbody tr')) as HTMLElement[];
+    expect(filas().length).toBe(2);
+
+    // Lo que esto afirma: las filas EXISTEN para el teclado. Antes no tenían `tabindex` y no se
+    // llegaba a ellas ni tabulando ni con flechas.
+    for (const tr of filas()) expect(tr.getAttribute('tabindex')).not.toBeNull();
+    expect(filas().every((tr) => tr.hasAttribute('data-p-selectable-row'))).toBe(true);
+
+    // ⛔ Y lo que NO es cierto, medido en el fuente de PrimeNG 22 (`setRowTabIndex`): el roving
+    // **no arranca encendido**. Mientras `anchorRowIndex` sea null, TODAS las filas devuelven 0
+    // — o sea N paradas de tabulador, justo lo que D.4a quiere evitar. Empieza a rotar recién
+    // cuando hay una fila ancla. DESIGN D.7 dice "el tabindex ya es roving" a secas: es media
+    // verdad, y acá queda medida en vez de repetida.
+    expect(filas().filter((tr) => tr.getAttribute('tabindex') === '0').length).toBe(2);
+
+    comp.marcar(FILA_A.origen_ref, true);
+    fx.detectChanges();
+    const conAncla = filas().filter((tr) => tr.getAttribute('tabindex') === '0').length;
+    expect(conAncla).toBeLessThanOrEqual(2);
+  });
+
+  it('marcar con el teclado NO mete una fila sin cuenta declarada (el servidor la rechazaría)', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    // Lo que emite p-table al marcar con Space sobre una fila trabada.
+    comp.onSeleccionTabla([GASTO_TRABADO]);
+    expect(comp.marcadas()).toEqual([]);
+  });
+
+  it('la selección de la tabla y la señal son UNA sola verdad, en los dos sentidos', () => {
+    montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+
+    // De la tabla a la señal.
+    comp.onSeleccionTabla([FILA_A]);
+    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
+    // Y de la señal a la tabla: `filasMarcadas` es una proyección, no un segundo estado.
+    expect(comp.filasMarcadas().map((f) => f.origen_ref)).toEqual([FILA_A.origen_ref]);
+
+    comp.marcar(FILA_B.origen_ref, true);
+    expect(comp.filasMarcadas().map((f) => f.origen_ref).sort())
+      .toEqual([FILA_A.origen_ref, FILA_B.origen_ref].sort());
+  });
+
+  // ── [CG.52] El movimiento entra ENTERO: el ancho sigue a la tarea ─────────────────────────
+  //
+  // Edgar: *"para ver el movimiento completo tengo que hacer scroll, este es un antipatrón"*.
+  // `[CG.49]` había puesto el arqueo arriba pero NO devuelto el ancho: el panel medía 32rem fijo,
+  // o sea un contenedor de ~486px contra un umbral de 736px — la condición para mostrar las dos
+  // columnas era **inalcanzable por construcción**, y por eso el formulario se apilaba.
+
+  it('el panel se ensancha SÓLO mientras se captura: la lista manda hasta que hay algo que contar', () => {
+    const fx = montar();
+    const split: HTMLElement | null = fx.nativeElement.querySelector('.cg-split');
+    expect(split).not.toBeNull();
+    expect(split!.classList.contains('cg-split-capturando')).toBe(false);
+
+    comp.abrirCaptura();
+    fx.detectChanges();
+    expect(split!.classList.contains('cg-split-capturando')).toBe(true);
+
+    comp.cerrarConFoco(comp.capturaAbierta);
+    fx.detectChanges();
+    expect(split!.classList.contains('cg-split-capturando')).toBe(false);
+  });
+
+  it('⛔ [negativa] los dos umbrales del panel son COMPLEMENTARIOS, o las columnas se invierten', () => {
+    // Si el colapso cae en 39rem y la posición se fija recién en 46, entre medio hay dos columnas
+    // SIN `grid-column` asignado: gana el orden del DOM y el CUÁNTO se va a la izquierda. Dos
+    // columnas invertidas, en silencio, en una franja de anchos. Esto lo congela.
+    const meta = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
+    const css = (meta.ɵcmp?.styles ?? []).join('\n');
+    expect(css.length).toBeGreaterThan(0);
+
+    const colapso = css.match(/@container\s*\(max-width:\s*([\d.]+)rem\)/);
+    const posicion = css.match(/@container\s*\(min-width:\s*([\d.]+)rem\)/);
+    expect(colapso).not.toBeNull();
+    expect(posicion).not.toBeNull();
+
+    const hastaUna = Number(colapso![1]);
+    const desdeDos = Number(posicion![1]);
+    expect(desdeDos).toBeGreaterThan(hastaUna);
+    // Pegados: sin franja muerta entre los dos.
+    expect(desdeDos - hastaUna).toBeLessThanOrEqual(0.5);
+  });
+
   it('la primera columna del panel es la del CUÁNTO, y la segunda la del QUÉ', async () => {
     const fx = montar();
     comp.abrirCaptura();
@@ -1043,11 +1153,49 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.piezasDe(den('20'))).toBe(3);
   });
 
-  it('[negativa] el MONTO no se puede teclear: sale del conteo y va deshabilitado', async () => {
+  it('[negativa] el MONTO no se puede teclear: sale del conteo y NO es un campo', async () => {
     const fx = await capturaEnPantalla();
-    const monto: HTMLInputElement | null = fx.nativeElement.querySelector('input#cg-monto');
-    expect(monto).not.toBeNull();
-    expect(monto!.disabled).toBe(true);
+    // ⭐ `[CG.53]` Esto era un `<input disabled>` en el pie de la tabla y ahora es el número grande
+    // de la pantalla. La afirmación se endurece: antes había un campo apagado, hoy **no hay campo**.
+    expect(fx.nativeElement.querySelector('input#cg-monto')).toBeNull();
+    expect(fx.nativeElement.querySelector('.cg-total-n')).not.toBeNull();
+
+    // Y sigue sin haber ninguna forma de teclear el monto dentro del bloque del total.
+    const bloque: Element = fx.nativeElement.querySelector('.cg-total-bloque');
+    expect(bloque.querySelectorAll('input, textarea, select').length).toBe(0);
+  });
+
+  it('el veredicto del arqueo distingue TRES ausencias, no dos', () => {
+    // ⚠️ Anclado a un documento DE VERDAD: `capturaEnPantalla()` abre una captura libre y ahí no
+    // hay contra qué cuadrar. Lo encontró esta misma prueba, afirmando 'cuadra' sobre una captura
+    // sin documento — que es exactamente el cuadre inventado que el tercer estado existe para
+    // evitar.
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);          // el documento dice 1060
+
+    // Sin contar no es "no cuadra": es que todavía no hay cifra.
+    expect(comp.arqueoVeredicto().estado).toBe('sin_contar');
+
+    contar({ 500: 2, 20: 3 });                  // 1060
+    expect(comp.arqueoVeredicto().estado).toBe('cuadra');
+
+    contar({ 500: 2, 20: 4 });                  // 1080
+    const v = comp.arqueoVeredicto();
+    expect(v.estado).toBe('sobra');
+    expect(v.dif).toBe(20);
+    expect(comp.textoVeredicto(v)).toContain('Sobra');
+    expect(v.esperado).toBe(1060);
+  });
+
+  it('⛔ [negativa] sin documento anclado NO se pinta un cuadre que nadie comprobó', () => {
+    montar();
+    comp.abrirCaptura();          // captura libre: sin ancla en Kepler
+    comp.setPiezas(den(500), 2);
+    const v = comp.arqueoVeredicto();
+    expect(v.estado).toBe('sin_documento');
+    expect(v.esperado).toBeNull();
+    // Lo contado es la verdad, pero no hay contra qué cuadrarlo — y eso se dice.
+    expect(comp.textoVeredicto(v)).toContain('Sin documento');
   });
 
   it('contar llena el monto y el importe del renglón, sin tocar el teclado del total', async () => {
@@ -1059,8 +1207,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.subtotalDe(den(20))).toBe(60);
     expect(comp.f().monto).toBe(1060);
 
-    const monto: HTMLInputElement = fx.nativeElement.querySelector('input#cg-monto');
-    expect(monto.value).toContain('1,060');
+    // `[CG.53]` El total dejó de ser un input apagado y es el número grande de la pantalla.
+    const monto: Element | null = fx.nativeElement.querySelector('.cg-total-n');
+    expect(monto).not.toBeNull();
+    expect(monto!.textContent).toContain('1,060');
   });
 
   it('la morralla suma al monto sin desglosarse: "en morralla queda perfecto"', async () => {
@@ -1635,11 +1785,49 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // eran justamente los del futuro: el ERP captura con 3 dias de mediana y ninguno legitimo
   // tiene `fecha_valor` de hoy.
 
-  it('la ventana por default es la MEDIDA, no la de pruebas', () => {
+  it('la ventana por default es la MEDIDA, no la de pruebas ni «hoy»', () => {
     // Estuvo en 1 dia desde el 22-sep "para las pruebas de CG.21", con un comentario que decia
     // que tenia que volver. Se quedo ocho dias.
+    //
+    // `[CG.51]` Y ahora arranca en LA JORNADA (3 dias) por pedido de Edgar -- "por default solo
+    // deben ser los movimientos del dia"-- pero NO en 1 dia, que es lo que esa frase pide al pie
+    // de la letra. Medido contra prod el 2026-10-07 antes de cambiarlo: hoy = 0 movimientos, y el
+    // dia mas reciente con volumen real es el 05/10. `fecha_valor` es la fecha del DOCUMENTO y el
+    // ERP captura con 3 dias de mediana, asi que "hoy" abre la pantalla VACIA todos los dias.
     montar();
-    expect(comp.ventanaDias()).toBe(CAJA_VENTANA_DIAS);
+    expect(comp.ventanaDias()).toBe(CAJA_JORNADA_DIAS);
+    expect(comp.ventanaDias()).not.toBe(1);
+    expect(comp.ventanaDias()).toBeLessThan(CAJA_VENTANA_DIAS);
+  });
+
+  // ── [CG.51] El scroll: el historial se pliega, pero NO se esconde ─────────────────────────
+
+  it('el historial arranca CERRADO: debajo del area de trabajo no hay 800px de archivo', () => {
+    const fx = montar();
+    expect(comp.historialAbierto()).toBe(false);
+    // La tabla del libro y la de los cortes no estan en el DOM mientras este cerrado.
+    expect(fx.nativeElement.querySelector('app-metric-strip')).toBeNull();
+  });
+
+  it('cerrado NO es escondido: la cabecera dice el rango y cuanto hay adentro', () => {
+    const fx = montar();
+    const h: HTMLElement | null = fx.nativeElement.querySelector('.cg-historial-h');
+    expect(h).not.toBeNull();
+    // Plegar algo sin decir que tiene adentro lo vuelve indistinguible de que no exista.
+    expect(h!.textContent).toContain('Historial');
+    expect(h!.textContent).toContain('movimiento(s) en el libro');
+    expect(h!.textContent).toContain('corte(s)');
+    // Y es un <button> con su estado anunciado, no un <h2> con (click).
+    expect(h!.tagName).toBe('BUTTON');
+    expect(h!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('al abrirlo aparece el libro, y el aria-expanded lo acompana', () => {
+    const fx = montar();
+    comp.historialAbierto.set(true);
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelector('app-metric-strip')).not.toBeNull();
+    expect(fx.nativeElement.querySelector('.cg-historial-h')!.getAttribute('aria-expanded')).toBe('true');
   });
 
   it('⛔ [negativa] los mal fechados se DICEN, no se esconden', () => {

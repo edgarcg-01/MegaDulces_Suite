@@ -400,7 +400,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // GX.10 — una sola pantalla para el ciclo del gasto: el tablero para quien puede
           // ver, la captura mínima para quien sólo captura. Antes eran dos nodos porque
           // eran dos rutas.
-          { id: 'gastos', label: 'Gastos (solicitudes, captura y evidencia)', route: '/finanzas/gastos', view: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_VER_ALL, Permission.FINANCE_EXPENSES_CAPTURAR], manage: [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_FINDINGS_GESTIONAR] },
+          // [GX.71] HISTORIAL_TODOS va en `manage` y no en `view`: es una llave extra dentro del
+          // módulo, y en `view` haría aparecer la tarjeta de Gastos a quien sólo la tuviera.
+          { id: 'gastos', label: 'Gastos (solicitudes, captura y evidencia)', route: '/finanzas/gastos', view: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_VER_ALL, Permission.FINANCE_EXPENSES_CAPTURAR], manage: [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_FINDINGS_GESTIONAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS] },
           { id: 'hallazgos', label: 'Hallazgos', route: '/finanzas/hallazgos', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
           { id: 'maat', label: 'Pregúntale a Maat', route: '/finanzas/maat', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
         ],

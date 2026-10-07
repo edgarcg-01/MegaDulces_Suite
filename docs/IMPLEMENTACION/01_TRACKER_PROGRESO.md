@@ -3546,6 +3546,80 @@ cerrados con `validated_by = 'Claude Vision'`.
   1 ms**. Los estaba ahogando el workbook.
   ⚠️ El commit de la copia materializada (`257244bc`) se rotuló `[RA-PERF.1]`, **código ya
   ocupado** arriba por el reparto de tránsito por ventana; en el código se lo referencia por hash.
+- [x] **[RA-PERF.5]** 🧪 **El CLS de toda la app se guardaba en CERO.** `UsoService.medirWebVitals()`
+  hacía `Math.round(m.value)` para las tres métricas por igual. INP y LCP son milisegundos y está
+  bien; **CLS es un score sin unidad entre 0 y ~1**, cuyos umbrales son 0.1 y 0.25 — así que
+  `Math.round(0.31)` da **0**. Medido contra prod el 2026-10-07 sobre las 795 muestras existentes:
+  **145 de 145** `needs-improvement` y **91 de 188** `poor` quedaron archivadas con valor 0, o sea
+  **236 mediciones malas con cara de score perfecto**. ⭐ Lo que permitió verlo es que el `rating`
+  viaja al lado y **lo calcula la librería, no nosotros**: siempre dijo la verdad. ⚠️ **Lo ya
+  guardado no se puede reparar** — el análisis histórico de CLS tiene que agrupar por `rating`.
+  Arreglo en `web-vital-valor.ts` (la unidad decide el redondeo); candado `web-vital-valor.spec.ts`
+  **13/13 verde, 6/13 rojo** al devolver el `Math.round`.
+  ⛔ **Y lo que destapó:** con el `rating` a la vista, `/compras/pedido` es **la pantalla con peor
+  estabilidad visual de toda la suite** — **37 de 49 muestras `poor` (75.5 %)**, contra `/projects`
+  21 de 96 (22 %). La causa es la secuencia de carga de la propia pantalla (tabla primero, y hasta
+  8 s después el `forkJoin` rellena cada fila): **se declara, no se arregló acá** — reservar el
+  alto de las filas es rediseño, y se mide después de que esta medición acumule historia.
+- [x] **[RA-PERF.6]** 🧪 **El testigo del crash llevaba 69 días sin poder ver nada.** El guard de
+  `money()` (commit `c684fc36d`, 2026-07-30, *"quitar cuando se identifique la causa"*) medía
+  `(new Error().stack || '').split('\n').length > 300`, y **`Error.stackTraceLimit` vale 10 por
+  default en V8** — no se sube en ningún lado del repo. Medido: con **500 marcos reales anidados
+  esa expresión devuelve 11**. La condición no podía ser verdad nunca: no logueaba, no cortaba, y
+  pagaba un `queueMicrotask` por tick para siempre. La causa del "Maximum call stack" nunca se
+  identificó porque **el instrumento era ciego**. ⭐ Es ADR-056 aplicado a un instrumento: *un gate
+  sin prueba negativa es una intención* — nadie lo rompió a propósito ni una vez.
+  Ahora `pedido-recursion.ts` sube el límite antes de capturar y mide **dos señales**: `marcos`
+  (profundidad real) y `vueltas` (cuántas veces aparece `money` en su propio stack), que es la
+  señal **sin umbral** — tres vueltas no son volumen, son re-entrada.
+  ⛔ **Y el reporte no salía del navegador**: el `throw` muere dentro de una expresión de template
+  y lo come el `ErrorHandler` de Angular. Medido en prod: en 30 días hay **un solo** evento
+  `kind='error'`, y es de `/portal/login`. Se agrega `UsoService.reportarIncidente()` para que el
+  diagnóstico (marcos, vueltas, la cima del stack y el contexto de la pantalla) llegue por el canal
+  de telemetría. Candado `pedido-recursion.spec.ts` **12/12 verde, 1/12 rojo** al devolver el
+  límite a 10. ⚠️ **La causa raíz del crash sigue abierta** — lo que esta entrega arregla es que
+  ahora haya cómo verla.
+- [x] **[RA-PERF.7]** 🧪 `/compras/pedido` — **el trabajo O(n²) estaba en el template.** Por cada
+  fila expandida y en cada pasada de detección de cambios, la plantilla llamaba `trasRows(pid)` ×4
+  y `prodTr(pid)` ×3, y las dos colgaban de un `detailRows(pid)` que **filtraba y ordenaba `urows()`
+  completo en cada invocación** — hasta 3,000 renglones (3 endpoints × `pageSize: 1000`). Con 20
+  filas abiertas son **~140 barridos ≈ 420,000 iteraciones por pasada**, más 140 arreglos
+  intermedios; y como `onQtyEdit()` dispara `tick()`, **cada tecla en una cantidad lo pagaba
+  entero**. `pedidoTipico(r)` era peor: recorría `knownRows()` **dentro de cada fila** para publicar
+  un dato idéntico para todas las filas del mismo proveedor. Ahora son índices memoizados
+  (`pedido-indices.ts`), el mismo patrón que `branchBuyMap` ya usaba 1,100 líneas más arriba en el
+  mismo archivo. ⭐ El candado **cruza dos implementaciones** —el índice contra el
+  `filter().sort()` que reemplaza, producto por producto— en vez de verificar el índice contra sí
+  mismo: `pedido-indices.spec.ts` **10/10 verde, 2/10 rojo** al quitar el orden.
+  ⚠️ **La mejora no está medida en campo.** Lo medido es el trabajo que se evita, no el INP
+  resultante; el INP p75 de la pantalla ya era 130 ms (bueno) y la cola llegaba a 576 ms.
+- [x] **[RA-PERF.8]** 🧪 **La píldora decía la edad de la CONSULTA porque no había de dónde sacar la
+  del DATO** — y al ir a buscarla, la fuente obvia resultó ser una trampa.
+  ⛔ **`analytics.replenishment_plan.computed_at` NO sirve.** El UPSERT del importer es **sin
+  churn** (`WHERE … IS DISTINCT FROM …`), así que esa columna dice *cuándo cambió esa fila*, no
+  *cuándo se verificó*. Medido contra prod el 2026-10-07: **415 sellos distintos repartidos en 34
+  días**, con el 31.5 % de las filas de más de un día — **todas correctas, simplemente quietas**.
+  Un `max()` publicaría «hace 4 minutos» y un `min()` «hace 34 días»: las dos mentira, en
+  direcciones opuestas. *(Mi primer diagnóstico fue el del `max()`; lo corrigió la medición.)*
+  ⛔ **El latido del CARRIL (`feed_stock`) tampoco alcanza**: `run-prod-feeds.js` sólo reporta
+  `error` si fallan **todos** sus pasos, así que un fallo de este paso salía en verde.
+  Se le pone al importer un **latido propio** (ADR-053: lo que late es la ENTREGA del fact), con
+  llave parametrizable por carril (`--hb=stock` / `--hb=nightly`) porque la PK de
+  `analytics.cron_runs` es `(tenant_id, job_key)` sin host y dos emisores sobre una llave fabrican
+  falsos *"no reportó cierre"* — la misma trampa que ya documentó `SALES_FACT_HB_KEY` (304 falsos
+  en 7 días). Dos entradas nuevas en `CRON_JOBS` con umbrales distintos, porque sus cadencias lo
+  son. El backend compone un `Freshness` con el primitivo canónico (`laneAt`/`evalInput`/
+  `composeFreshness`) y la píldora pasa a `measures="data"`.
+  ⚠️ **Se mide sólo el carril de 15 min**, a propósito: las dos llaves no son una cadena sino
+  alternativas, y componer las dos publicaría «hace 20 h» cuando el carril rápido corrió hace 3
+  minutos. ⚠️ Sin latido el veredicto es **`unknown` y la pantalla dice «datos sin medir»** — no se
+  esconde la píldora ni se cae a `now()`, que es el bug que VP.0 corrigió en 21 de 24 píldoras.
+  Candado `compras-pedido-real.component.spec.ts` **8/8** — y es **la primera prueba que existe
+  sobre este componente**: las cuatro specs del módulo cubrían los ayudantes ya extraídos, y las
+  3,652 líneas con la orquestación, el grafo de signals y el guard no tenían ninguna.
+  ⚠️ **Pendiente prod:** desplegar api + view + la imagen `trade-ingest` (el importer va por imagen
+  `trade-ingest:__COMMIT__`, ya **no** es deploy instantáneo). Hasta entonces la píldora dirá
+  «datos sin medir», que es lo correcto. Sin migraciones ni permisos nuevos → **sin re-login**.
 
 ### `[RQ]` — Lo que pasa DESPUÉS de generar una requisición en `/compras/pedido`
 
@@ -4075,6 +4149,56 @@ se subió antes de leerlo (hoy sólo se detecta dentro del lote). · ⚠️ **Ap
 prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columnas que no existen y
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
+
+### 🔨 [GX.71] · Mayra Gutiérrez ve el historial de gastos de ella y de todos — 2026-10-07
+
+- [x] **[GX.71]** 🧪 Pedido: *«al usuario de mayra_gutierrez dale el permiso de que pueda ver el historial de ella
+  y de todos»*. La pestaña «Todos» de `/finanzas/gastos-historial` (+ `GET /finance/expenses/proofs` y el
+  calendario con `alcance=todos`) era **sólo god-mode** desde `[GX.26]`. Llave nueva
+  `FINANCE_EXPENSES_HISTORIAL_TODOS`, **fuera de todo MODULE_GROUP y de todo rol**, dada **por persona**
+  (`identity.user_permissions`, mig `20261007230000`, molde `[GX.17]`): su rol lo comparten otras personas y
+  dárselo al rol les abriría el gasto de toda la empresa sin que nadie las nombrara. La regla vive UNA vez en
+  el contrato (`puedeVerHistorialDeTodos`: god-mode **o** la llave) y la usan las dos rutas y la pantalla;
+  `FINANCE_EXPENSES_VER` **sigue sin alcanzar** (candado negativo). La llave también abre `/mine`, el
+  calendario propio y el detalle `:id` (`PERMISOS_VEN_CUALQUIER_EXPEDIENTE`): sin eso «Todos» mostraría vales
+  que responden 403. Ruta, pestaña y menú del Historial la aceptan. Migración probada en local dentro de una
+  transacción revertida: up → 1 fila · 2º up → 0 (idempotente) · down → 0.
+  ⚠️ En local Mayra es `finanzas_operativo`; los docs dicen `auxiliar_finanzas` en prod — por eso la llave
+  sola alcanza para abrir el Historial, sin depender de su rol.
+- [ ] **[GX.71.p]** Aplicar `20261007230000` a prod (una por una) + redeploy api+view + re-login de Mayra.
+
+### 🔨 [GX.72] · Expediente: filtro por fechas y por departamento — 2026-10-07
+
+- [x] **[GX.72]** 🧪 Pedido: *«en la sección de expedientes agrega un filtro para fechas y departamentos»*.
+  **En el SERVIDOR**, no en la pantalla: filtrar lo ya cargado dejaba los KPIs contando todo y, con el tope de
+  filas, un periodo viejo salía vacío. `GET /expediente?desde&hasta&departamento`; la fecha es la del
+  **levantamiento** en hora de México (la misma que muestra cada vale), cortada como instante sobre
+  `created_at` — **verificado en local: 72/72 días idénticos** al día MX calculado directo, incluidos 47 vales
+  levantados después de las 18:00 (UTC ya es el día siguiente). Filtro inválido o rango al revés → **400**,
+  nunca «sin filtro» en silencio. Departamento = texto libre del vale: las opciones salen de los DATOS con su
+  conteo (sin fusionar «RRHH» con «RECURSOS HUMANOS»: nadie decidió esa equivalencia) + «Sin departamento»
+  (`__sin__`). La respuesta devuelve el filtro aplicado y el rótulo se arma con él. Petición anterior se
+  cancela al cambiar el filtro. Specs: view 1956/1956 · finance 590/590 · contracts 393/393.
+- [ ] **[GX.72.u]** Validación visual de la barra de filtros (no se levanta el front en local por regla).
+
+### 🔨 [GX.70] · el «Expediente en PDF» respondía «No se pudo armar el expediente» — 2026-10-07
+
+- [x] **[GX.70]** 🧪 Reporte: en `/finanzas/expediente` el botón «Expediente en PDF» sólo decía *«No se pudo
+  armar el expediente»*. **Dos fallas apiladas:** (1) **alcance distinto entre la lista y el PDF** — la lista
+  (`[GX.59]`) muestra los vales **de todos** a quien tiene `FINANCE_EXPENSES_COMPROBAR`, pero el PDF pasaba por
+  `alcanceDelUsuario` (sólo abre todo con god-mode o `VER_ALL`). Medido en local: Jesús Carrillo
+  (`finanzas_operativo` + `COMPROBAR` por persona, `[GX.17]`, **0 áreas, sin `VER_ALL`**) recibía 404 «fuera de
+  tu alcance» en **8 de 8** vales. Fix: `veCualquierExpediente()` en `expediente-gasto.service.ts` (COMPROBAR ve
+  todo, **sólo en esta superficie**; `alcanceDelUsuario` no se toca) + `COMPROBAR` en el `RequireAnyPermission`
+  de las dos rutas del expediente; `listas-para-comprobar` NO se ensancha (candado negativo). (2) **el aviso era
+  mudo**: con `responseType: 'blob'` el motivo del servidor llega dentro del Blob y nadie lo leía. Fix: helper
+  `core/http/blob-error.ts` (`mensajeDeErrorBlob`, sube el privado de `comercial-documentos`, que además
+  **no funcionaba bajo jsdom**: `Blob.text()` no existe ahí → respaldo `FileReader`); lo usan Expediente y
+  Capturar gasto. Specs: finance 20/20 (con mutación: quitar COMPROBAR → rojo) · view 65/65.
+  ⚠️ **No verificado contra prod** (sin SSH ni sesión desde esta máquina): si quien reportó es superadmin o
+  tesorería, la causa (1) no le aplica — con este cambio el aviso dirá el motivo real.
+- [ ] **[GX.70.f]** El PDF muestra la fecha de la solicitud como `Mon Sep 28` (`fecha()` hace `String(Date)` sobre
+  un `date` de pg; mismo síndrome que LC.16). Cosmético, no rompe el PDF.
 
 ### 🔨 [GX.69] · el importe del vale es el SALDO del gasto en Kepler — 2026-10-06
 
@@ -9272,6 +9396,7 @@ semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso)
 - [x] **[MS.3.14]** 🧪 2026-10-05 **«Oficinas Corporativas» en la lista de sucursales de la solicitud** (pedido de Sistemas, con captura del formulario). Las oficinas no son una sucursal Kepler (`00`–`08`): no tienen almacén, venta ni inventario, así que **no se agregaron a `STORE_BRANCHES` ni a `KEPLER_BRANCH_NAMES`** (eso las metería a los alcances, al monitor de Tienda y a todo lo que lee esas listas). Se guardan en la MISMA columna (`servicedesk.requests.warehouse_code`, varchar(20) **sin CHECK**: sin migración) con el código **`OF`**, que no puede chocar con los de Kepler (dos dígitos contra letras). Una sola lista en el contrato (`SD_UBICACIONES_EXTRA` en `service-desk.contract.ts`) que usan el servidor (valida y nombra) y el formulario (ofrece, al final): si vivieran en dos sitios uno aceptaría lo que el otro no ofrece. ⛔ **No relaja nada:** los códigos de Kepler se validan exactamente como antes y `30`, `32`, `09` y los desconocidos siguen dando 400 (prueba negativa explícita); «of» en minúsculas se guarda como `OF`. Funciona en toda la mesa: una categoría que EXIGE sucursal la acepta, la bandeja filtra por ella, la ficha dice «Oficinas Corporativas» y el reporte por sucursal la trae con su nombre. `service-desk` 142→148 (6 de `ubicaciones`, incl. que no hereda propiedades del prototipo) · view 1768 (3: las 9 sucursales intactas en su orden, «OF» al final, sin códigos repetidos) · E2E 320→331 (bloque 20) · revisado en navegador (el desplegable trae las 10 opciones, Oficinas al final). **El campo se llama «Ubicación»** (decisión de Sistemas): formulario (etiqueta, selector, enlace y marcador), ficha, columna de la bandeja, reportes («Por ubicación», «Sin ubicación indicada»), configuración de categorías («Exige ubicación») y los mensajes del servidor. NO se renombró «A toda mi sucursal» (es el alcance de un problema, y sí habla de la sucursal) ni la categoría «Soporte a sucursal» (dato). Los identificadores (`warehouse_code`, `por_sucursal`) no cambian: son contrato de API. view 1770 (2 pruebas del rótulo; **mutación atrapada**). Otras ubicaciones que no sean sucursal (una bodega rentada, una ruta) se agregan en una línea de `SD_UBICACIONES_EXTRA`.
 - [x] **[MS.3.16]** 🧪 2026-10-05 **La bandeja filtra y ordena, y la migaja deja volver a la Mesa de Servicio** (pedido de Sistemas con dos capturas de la bandeja). **(1) Filtros:** estado, categoría, quién atiende (con «Sin asignar»), ubicación y rango de fecha de alta, además de lo que ya había (alcance, prioridad, búsqueda); se combinan y hay «Limpiar filtros». Los filtros van al SERVIDOR (`category_id`, `assigned_to` = usuario o `none`, `from`/`to`): la bandeja trae 100 de N, y filtrar sólo esas 100 en la pantalla diría «no hay» donde sí hay. El día se mide en la zona de la mesa. **(2) Orden por columna** (`sort`/`dir`, también en el servidor): clic = dirección natural, segundo clic = inversa, tercero = vuelve al orden por urgencia; `aria-sort` en el encabezado y «Ordenado por… · Quitar orden». ⛔ **Lista cerrada:** la columna llega por la URL y va a un `ORDER BY` en crudo, así que sólo se acepta lo de `COLUMNAS_ORDEN` (`domain/inbox-sort.ts`, puro); lo demás es 400 (probado con una inyección y comprobando que la tabla sigue ahí). Los vacíos (`NULL`) van SIEMPRE al final, asc o desc; el desempate es fijo (antigüedad, id) y la lista no baila entre cargas; prioridad y estado ordenan por gravedad/ciclo de vida, no alfabéticamente; y la ubicación por el NOMBRE que se ve («8 Esquinas», «Oficinas Corporativas»), no por su código (con el código, «La Piedad» salía antes que «8 Esquinas»: verlo en pantalla lo destapó). Una respuesta vieja que llega tarde NO pisa a la nueva (clics seguidos). En teléfono los filtros quedan tras un botón que cuenta cuántos hay puestos (apilados empujaban la lista fuera de la pantalla). **(3) Migaja:** «Mesa de Servicio» (y el proyecto de cualquier espacio) ahora es enlace a su inicio; antes sólo lo era el espacio. Función pura `construirMigas(url)` (`layout-crumbs.ts`) en vez de `computed` dentro del layout. `service-desk` 162 (14 nuevas) · view specs nuevas (12 de filtros/orden, 5 de migaja) · E2E 363/0 (bloque 20b, 18/18 combinaciones columna×dirección). **Mutaciones atrapadas:** quitar el guardián de respuesta vieja, anular el enlace de la migaja y quitar `NULLS LAST` ponen rojas sus pruebas. Revisado en navegador (escritorio y 390 px). **Declarado:** al pulsar la migaja estando en la bandeja de quien atiende se queda en la bandeja (es el inicio de la Mesa para esa persona); el orden por columna no está en la vista de tarjetas del teléfono (no hay encabezados); `check:signal-reactivity` marca `comercial-inventory-variance` (preexistente, ajeno).
 - [x] **[MS.3.15]** 🧪 2026-10-05 **El tiempo registrado se ve: lista en la ficha y horas por categoría en Reportes** (pregunta de Sistemas: «¿dónde aparece el registro de tiempo?»). Hasta aquí el tiempo sólo aparecía como un TOTAL en la ficha («Tiempo: 1 h 45 min», sólo para quien atiende); la nota «Qué hiciste» se guardaba en `work_log.note` y **ninguna pantalla la mostraba**, no había detalle de quién/cuándo y los reportes no usaban el tiempo. **(1) Ficha:** `time_entries` en el detalle (quién, cuándo, cuánto, qué hizo y si vino de la Bitácora; del más viejo al más nuevo) y el resumen «Registrar tiempo trabajado · 2 registros (1 h 45 min)» con la lista debajo; `time_logged_minutes` es la SUMA de esa lista, no un número aparte. ⛔ **Para quien reportó es `null`** (no «lista vacía»: no tiene acceso) y en nada de su respuesta aparece la nota del trabajo. **(2) Reportes:** horas registradas por categoría + cuántas solicitudes tienen registro («3 de 3»), y el total en un KPI. ⛔ **Sin ceros dibujados:** una categoría donde nadie registró sale `null` («—»), no «0 min»; el tiempo de un ticket cancelado sí cuenta (se trabajó). ⛔ **No se desglosa por persona** (mismo criterio que el resto del reporte: mide el servicio, no a quien atiende; el detalle por persona vive sólo en la ficha de cada ticket) y se **declara** que el tiempo es sólo lo que se registra a mano: un ticket sin registro no es un ticket sin trabajo, por eso se muestra la cobertura. `service-desk` 148 (6 nuevas del reporte, con la negativa «null, no 0») · view 1777 (6 de la ficha y 4 de Reportes) · E2E 335/0 (bloque 21). **Mutación atrapada (privacidad):** abriendo `time_entries` a todo el mundo quien reportó recibe la lista con los nombres y la nota, y 3 comprobaciones se ponen rojas (una de ellas ya existía: «el solicitante NO ve el tiempo»). Revisado en navegador (ficha y Reportes); salió un defecto visual —«1 h 15 min» partido en dos renglones— ya corregido. **Declarado:** sigue sin haber edición ni baja de un registro (`app_runtime` no tiene UPDATE/DELETE sobre `work_log`: es registro, a propósito); un error de captura se corrige con una nota.
+- [x] **[MS.7.18]** 🧪 2026-10-07 **«Mi trabajo» y Reportes por cola** ([`FASE_MS7`](docs/IMPLEMENTACION/FASES/FASE_MS7_MANTENIMIENTO.md) §9.1). La bandeja `servicio-sin-asignar` de Mi trabajo cuenta **sólo las colas de la persona** (misma definición que su alcance «Sin asignar»); ⛔ sin ninguna cola **no devuelve 0** sino que se declara en `no_medido` con el motivo. El reporte declara `colas` y `cola_id` y la pantalla ofrece el selector sólo si coordina más de una. **Cae la compuerta de MS.7.14** (sembrar Mantenimiento). E2E 445/0 (bloque 23); view con 4 pruebas nuevas; **mutación atrapada** (3 rojas). `me-tasks` no se acota a propósito (lo asignado a ti es tuyo). Sin migraciones ni permisos.
 - [x] **[MS.7.1]+[MS.7.6]** 🧪 2026-10-06 **Acceso por cola: la clave `SERVICIO_*` deja de abrir todas las colas** (primer paso de la Mesa multi-área, [`FASE_MS7`](docs/IMPLEMENTACION/FASES/FASE_MS7_MANTENIMIENTO.md) §9). Antes `puedeVer = esAgente || solicitante`: quien atendía veía los tickets de TODA la empresa. Ahora el poder efectivo es **clave ∩ pertenencia a la cola del ticket**. **MS.7.1:** `servicedesk.queue_members` (coordinador | técnico) + `queues.default_assignee_id` + `queues.priority_model`, con backfill de quien hoy atiende TI (migración `20261006130000`, reversible). **MS.7.6:** `domain/queue-access.ts` (puro, `accesoATicket` ya con el hueco `completo|basico|ninguno` de RH) acota ficha, bandeja, tablero, reporte, tomar/asignar/notas/tiempo/prioridad, avisos y ruteo; API de miembros (sólo la coordinación de esa cola; la cola nunca se queda sin coordinación; no se quita a quien tiene tickets abiertos). E2E 438/0, `service-desk` 179, view 132; **mutaciones atrapadas** (6 unitarias + 28 de HTTP). ⛔ **Orden de despliegue:** migración ANTES del deploy (con la tabla vacía nadie ve nada); después dar `SERVICIO_ATENDER` ya no basta, hay que agregar a la persona a una cola. **Declarado:** sin pantalla de miembros (MS.7.17), `me-work`/`me-tasks` sin acotar (MS.7.18, **antes de sembrar Mantenimiento**), configuración global sin acotar.
 - [ ] **[MS.7]** 📋 2026-10-06 **La Mesa de Servicio multi-área, empezando por Mantenimiento** (pedido de Sistemas: todos los departamentos con un responsable por área). Llegaron `CLAUDE.md` + `PLAN_MANTENIMIENTO.md`; se contrastaron con el código y se adecuaron en [`FASE_MS7_MANTENIMIENTO`](docs/IMPLEMENTACION/FASES/FASE_MS7_MANTENIMIENTO.md). **Lo medido:** el modelo multi-cola **ya existe** (`queues`, `categories`, `queue_id`, editor de colas), pero ⛔ **el acceso por cola NO** (`puedeVer = esAgente || solicitante`, claves `SERVICIO_*` globales) — es el cambio más delicado y va primero (MS.7.6): sin él, sembrar Mantenimiento mete sus tickets en la bandeja de TI. También faltan SLA por cola, prioridad por modelo, campos extra, `is_test`, zonas, ruteo por ubicación y transferir entre colas; los estados y el folio están en CHECK y no se configuran por cola (decisiones **M2/M3**: folio único `SRV` y motivo de pausa). Acceso = **dato** (`queue_members`), no una clave por área: sin permisos nuevos, sin re-login. 19 sprints (BD → lógica → siembra → visual); Fases 2 y 3 del plan (activos/QR, preventivos, padre-hijo) quedan como fases propias tras 30 d de SLA medido. **Decisiones de Sistemas (2026-10-06):** folio único `SRV`, sin estado Diagnóstico, «Urgente» no se renombra, SLA en horario hábil, visión de Dirección como está hoy, responsable de Mantenimiento = **Ubaldo Barajas Valencia** (sin proveedores externos), `SMTP_*`/`S3_*` como están (foto opcional). **Pendiente:** confirmar su alta/permisos en prod, las dos lecturas de los plazos del SLA con Frank y quienes atenderán cada sitio. Sin código.
 - [ ] **[RH]** 📋 2026-10-06 **La Mesa de Servicio de Recursos Humanos (cola confidencial)** — [`FASE_RH_MESA_DE_SERVICIO`](docs/IMPLEMENTACION/FASES/FASE_RH_MESA_DE_SERVICIO.md). Plan de Sistemas contrastado con el código: **se puede construir**, pero el prerrequisito no está cumplido (el PR #269 es sólo el plan: no existe `queue_members` ni acceso por cola) y el plan no cubría 9 fugas (H1–H9): el administrador puede agregarse a RH, 9 archivos leen `servicedesk.requests` sin punto único de control, el título se copia a `notification_log`, URLs de adjunto de 600 s, `priority` NOT NULL, `UPDATE` libre sobre la marca, levantar a nombre de otro, reportes globales y el puerto de Bitácora. Diseño: marca de la cola copiada al ticket y fijada por **trigger**, acceso por ticket completo|básico|ninguno, **candado estático** de lecturas, avisos neutros al escribir, sin prioridad ni SLA (`uses_priority`/`sla_enabled`), reportes con mínimo de casos. RLS por ticket descartado por ahora. Sprints RH.0–RH.4 y **matriz de 20 casos**; prompt maestro corregido en el Apéndice. **Abiertas:** R3 (un ticket de RH no sale a una cola no confidencial), R8 (cómo llega a RH), categorías con RH, alta de Lesly Berber y Tania Solorio en prod, aviso de privacidad. Sin código.

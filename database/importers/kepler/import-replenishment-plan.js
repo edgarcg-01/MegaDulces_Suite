@@ -17,10 +17,33 @@
  */
 
 const { Client } = require('pg');
+const hb = require('../lib/cron-heartbeat');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
+
+// ── `[RA-PERF.8]` LATIDO: cuándo quedó VERIFICADO el fact que publica /compras/pedido ──────────
+// Este fact no tenía latido. La pantalla mostraba una píldora `measures="fetch"` ("cargado hace
+// N"), que es la edad de la CONSULTA, no la del dato, y no había de dónde sacar la del dato:
+//   · `replenishment_plan.computed_at` NO sirve. El UPSERT de abajo es sin churn
+//     (`WHERE … IS DISTINCT FROM …`), así que esa columna dice **cuándo cambió esa fila**, no
+//     cuándo se verificó. Medido en prod el 2026-10-07: 415 sellos distintos repartidos en 34
+//     días, y el 31.5 % de las filas con más de un día — todas correctas, simplemente quietas.
+//     Un `max()` diría "4 minutos" y un `min()` diría "34 días"; las dos serían mentira.
+//   · El latido del CARRIL (`feed_stock`) tampoco alcanza: `run-prod-feeds.js` reporta `ok`
+//     salvo que fallen TODOS sus pasos, así que un fallo de ESTE paso sale en verde.
+// Por eso la llave es propia del importer: lo que late es la ENTREGA de este fact (ADR-053).
+//
+// ⚠️ La llave es parametrizable y NO por capricho: la PK de `analytics.cron_runs` es
+// `(tenant_id, job_key)` sin host, y a este importer lo corren DOS carriles (`stock` @15 min y
+// `nightly`). Dos emisores sobre una llave se pisan el renglón y `hb.begin()` cierra como ERROR
+// la corrida que encuentre `running` → falsos "no reportó cierre". Es la misma trampa, con la
+// misma solución, que `SALES_FACT_HB_KEY` en `import-sales-fact.js` (ahí: 304 falsos en 7 días).
+const HB_ARG = process.argv.find((a) => a.startsWith('--hb='));
+const HB_SUFIJO = HB_ARG ? HB_ARG.slice(5) : (process.env.RPLAN_HB_SUFIJO || '');
+const HB_KEY = 'fact_replenishment_plan' + (HB_SUFIJO ? '_' + HB_SUFIJO : '');
+const HB_LABEL = `Fact del pedido (replenishment_plan${HB_SUFIJO ? ', ' + HB_SUFIJO : ''})`;
 
 // RA-PRO.38: el factor de caja ya NO se resuelve aquí. Viene del RESOLVEDOR CANÓNICO
 // `analytics.v_product_box_factor` (override > c84 Kepler > etiquetera > factor_sale, con
@@ -564,6 +587,10 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
 (async () => {
   const db = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
   await db.connect();
+  // `[RA-PERF.8]` El latido va en el APPLY, no en el dry-run: lo que se publica es que el fact
+  // quedó VERIFICADO, no que el script corrió. Sólo así `/compras/pedido` puede declarar su edad.
+  let hbStat = { status: 'ok', rows: 0 };
+  if (APPLY) await hb.begin(HB_KEY, HB_LABEL).catch(() => {});
   try {
     console.log(`\n=== REPLENISHMENT PLAN → analytics.replenishment_plan (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
     // El tránsito y el lead time se derivan del ODS (sin tabla ni importer). Sin ODS igual se arma.
@@ -711,11 +738,17 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
                            WHERE s.warehouse_id = t.warehouse_id AND s.product_id = t.product_id)`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas) en ${((Date.now() - t0) / 1000).toFixed(1)}s.`);
+    // ⚠️ `rows` es lo que CAMBIÓ, no lo verificado: el UPSERT es sin churn, así que una corrida
+    // perfecta sobre un día quieto escribe 0 filas. **0 escritas es éxito, no silencio** — por eso
+    // el veredicto del carril es `status`, nunca `rows > 0`.
+    hbStat = { status: 'ok', rows: up.rowCount + del.rowCount, note: `${up.rowCount} upsert · ${del.rowCount} baja` };
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
+    hbStat = { status: 'error', error: e.message };
     process.exitCode = 1;
   } finally {
     await db.end();
+    if (APPLY) await hb.end(HB_KEY, hbStat).catch(() => {});
   }
 })();

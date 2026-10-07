@@ -15,6 +15,10 @@ interface AuthedRequest {
  * Las dos rutas abren a **VER o CAPTURAR**: quien captura tiene que poder abrir e imprimir
  * lo suyo (es su respaldo), y el servicio ya lo acota por áreas — exigir `VER` lo dejaría
  * afuera, que son los 75 usuarios medidos en GX.10.
+ *
+ * `[GX.70]` Y también a **COMPROBAR**: quien autoriza ve los vales de todos en
+ * `/finanzas/expediente` (`[GX.59]`), y el botón «Expediente PDF» de esa pantalla tiene que
+ * abrir lo mismo que la lista muestra. El servicio lo trata igual (`veCualquierExpediente`).
  */
 @ApiTags('finance-expediente-gasto')
 @ApiBearerAuth()
@@ -38,14 +42,14 @@ export class ExpedienteGastoController {
   }
 
   @Get(':sucursal/:folio')
-  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: '[GX.15] El expediente completo de una solicitud: solicitud (XA1501) + expediente propio + gastos aplicados (XA1001, pueden ser varios) + comprobaciones, con la etapa del trámite y qué falta.' })
   expediente(@Param('sucursal') sucursal: string, @Param('folio') folio: string, @Req() req?: AuthedRequest) {
     return this.svc.expediente(sucursal, folio, req?.user);
   }
 
   @Get(':sucursal/:folio/pdf')
-  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_COMPROBAR)
   @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: '[GX.15] El mismo expediente, imprimible. Respaldo interno: NO es comprobante fiscal ni póliza, y las evidencias no viajan embebidas (se listan).' })
   async pdf(

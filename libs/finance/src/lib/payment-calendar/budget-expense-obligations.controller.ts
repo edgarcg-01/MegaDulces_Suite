@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nest
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { BudgetExpenseObligationsService, CreateExpenseObligationDto } from './budget-expense-obligations.service';
+import { ObligationsAutopilotService } from './obligations-autopilot.service';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -11,7 +12,10 @@ interface AuthedRequest { user?: { username?: string; full_name?: string } }
 @UseGuards(RolesGuard)
 @Controller('finance/budget/expenses')
 export class BudgetExpenseObligationsController {
-  constructor(private readonly svc: BudgetExpenseObligationsService) {}
+  constructor(
+    private readonly svc: BudgetExpenseObligationsService,
+    private readonly autopilot: ObligationsAutopilotService,
+  ) {}
 
   @Get()
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
@@ -31,6 +35,18 @@ export class BudgetExpenseObligationsController {
   create(@Body() dto: CreateExpenseObligationDto, @Req() req: AuthedRequest) {
     return this.svc.create(dto, req.user?.username || 'sistema');
   }
+
+  /**
+   * `[VE.8]` La segunda mitad de la pasada: las obligaciones recurrentes del plan de gastos, en
+   * estado `propuesta`. Va por separado del piloto de Presupuestos porque vive de este lado de la
+   * frontera de módulos (`[VE.4]`), y corre 20 min después por cron.
+   *
+   * ⛔ Sigue sin autorizar nada: lo que genera espera firma humana (`propuesta → pending`).
+   */
+  @Post('autopilot/run')
+  @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
+  @ApiOperation({ summary: '[VE.8] Corre ahora la generación de obligaciones recurrentes (la misma del cron 03:50). Nacen en propuesta: no entran al Calendario hasta que un humano las autoriza.' })
+  runAutopilot() { return this.autopilot.run(); }
 
   @Post('from-plan')
   @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
