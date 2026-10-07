@@ -1202,3 +1202,84 @@ viejo no puede escribir. No hace falta un error de nadie: basta el orden.
 - Dos consultas sobre el gate de 500 ms, las dos sobre `analytics.kepler_bank_movements`:
   `cajas()` en 742 ms y el leg de Conciliación en 769 ms. Ver `[CG.41.1]` para lo que **no** hay
   que reintentar.
+
+---
+
+## 14. `[CG.48]` El lote deja de contar dinero (2026-10-07)
+
+**Pedido de Edgar**, sobre la columna «Contado» de la bandeja: *"este botón no debe existir, se
+debe generar un arqueo a todo y este botón no cumple esa función"*.
+
+### Qué estaba mal, medido
+
+La pantalla tenía **tres formas de contar el mismo dinero**, y sólo dos llevaban desglose:
+
+| Camino | Lleva denominaciones | Dónde |
+|---|---|---|
+| Columna «Contado» de la bandeja | ⛔ **no** | `cg-contado`, un número suelto por renglón |
+| Captura anclada | ✅ sí, el monto NACE del desglose | diálogo de captura |
+| Corte de caja | ✅ sí, con morralla y doble llave | `finance.cash_ledger_cuts` |
+
+El primero era el agujero: `assertArqueo` hacía `if (!dens?.length && credito <= 0) return`, o sea
+que **el desglose era opcional**. Un lote confirmado entraba al libro con un importe que nadie
+podía reconstruir, y el arqueo del día no cuadraba contra el libro que lo registró.
+
+### Lo que se hizo
+
+1. **La columna muere**, con todo su estado: `contado`, `contadoDe`, `setContado`,
+   `contadoBandeja`, `moverEnColumna`, la poda en `podarSeleccion`, la regla CSS y la pista
+   *«ya habías contado X en la bandeja»*.
+2. **El lote espeja al ERP.** `confirmarLote` manda sólo `origen_ref`; `crearLote` ya no acepta
+   `monto_contado` ni evalúa descuadre (sin conteo la diferencia es cero por construcción, y un
+   hallazgo siempre-cero es ruido). Es la asimetría que el módulo ya declaraba: *el egreso lo
+   manda el documento, el ingreso se cuenta*.
+3. **Contar distinto tiene un solo camino**: «Capturar» abre el documento anclado y el monto sale
+   del desglose. Ese botón ya existía como salida de una fila trabada; ahora es también la salida
+   de una fila contada distinto.
+4. **El candado sube al motor.** `evaluarArqueo` en `caja-lote.engine.ts`, pura y probada;
+   `assertArqueo` sólo traduce el veredicto a HTTP. Vivía como método privado del servicio y por
+   eso **no tenía una sola prueba que la rompiera**: probarla exigía un doble de Knex, y un doble
+   de Knex no ejecuta SQL.
+
+### Dos defectos que aparecieron al extraer la regla
+
+- ⛔ **La morralla quedaba fuera del único chequeo que la validaba.** El corte temprano miraba sólo
+  `dens`, así que un movimiento de pura morralla se guardaba **sin cuadrarla contra el monto**. Es
+  anterior a este cambio y lo encontró la extracción, no una falla en prod.
+- ⚠️ **El rótulo de Morralla mentía desde `[CG.38]`.** Decía «Morralla» a secas y su `aria-label`
+  *«todas las monedas juntas»* — cierto hasta que las seis monedas tuvieron renglón propio. Hoy es
+  **sólo el metal de menos de 50¢**, y así se rotula en las dos rejas. Un rótulo que invita a
+  volcar ahí monedas que sí tienen renglón es un bulto dentro del arqueo.
+- ⛔ **El borrador se habría caído en silencio.** `leer()` exigía que `contado` FUERA un array; al
+  dejar de escribirlo, **todos los borradores nuevos** se habrían rechazado — y `leer()` devuelve
+  `null` igual que cuando no hay nada guardado, así que nadie lo habría notado. Hoy lo obligatorio
+  es `marcadas` y `contado` se tolera ausente. Un borrador viejo con conteos **lo declara**
+  (`conteosViejos`) en vez de tirarlos callado; con TTL de 12 h el campo se apaga solo.
+
+### Lo que NO se hizo, y por qué
+
+- **No se inventó una tabla para «el arqueo del lote».** No hace falta: `finance.cash_ledger_cuts`
+  + `cash_ledger_cut_denominations` ya modelan exactamente *«contado = Σ(denom × piezas) + morralla
+  vs esperado = fondo + ingresos − gastos − depósitos»*, con doble llave en un CHECK de la DB. El
+  arqueo «de todo» **es el corte**, y existe desde `[CG.15]` sin usarse (0 cortes en prod).
+- **El arqueo del corte no se saca a la pantalla principal.** Es un **conteo ciego**: el esperado
+  se revela al sellar. Ponerlo al lado del saldo filtraría justo lo que no se puede ver antes de
+  contar.
+- **El canje de denominaciones no se construyó**: ya existe desde `[CG.38]` y ya va en los dos
+  sentidos — las rejas de «recibido» y «devuelto» corren sobre la misma escalera de 11
+  denominaciones, así que billete→monedas y monedas→billete son el mismo formulario.
+
+### Verificación
+
+- `nx test view` scope caja-general: **196/196**. `nx test finance`: **505/505**.
+- **Mutación**, que es lo que dice si el candado está puesto: quitar el freno de
+  `conteo_sin_desglose` → 1 roja; sacar la morralla del desglose → 3 rojas; devolver
+  `monto_contado` al payload del lote → 1 roja.
+- `check:templates` verde (⚠️ **séptima vez** que un acento grave en un comentario del `template:`
+  rompe el build acá — lo agarró la compuerta, no el CI).
+- ⛔ **Pendiente**: `git push` + redeploy api+view. Sin migraciones ni permisos nuevos → **sin
+  re-login**. Validación visual pendiente.
+- ⚠️ Compuertas rojas que **no son de este cambio**: 10 tests de
+  `compras-requisiciones.component.spec.ts`, más `lint`/`build`/`sin emojis`/`migrations` sobre
+  trabajo a medias de otras sesiones en el árbol. `typecheck` de api y de `view` en verde, y los
+  ocho archivos tocados acá lintean con **0 errores**.

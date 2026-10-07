@@ -430,6 +430,68 @@ export function evaluarDescuadre(
   };
 }
 
+// ── El arqueo: contar sin decir con qué no es contar ──────────────────────────────────────────
+
+/** Un renglón del desglose. Las piezas van por LLAVE, no por valor: hay billete y moneda de $20. */
+export interface RenglonArqueo {
+  denominacion: number | string;
+  piezas: number | string;
+}
+
+export type VeredictoArqueo =
+  /** No se declaró conteo y no hay desglose: el movimiento toma el importe del documento. */
+  | { ok: true; motivo: 'sin_arqueo' }
+  /** Hay desglose y suma lo que debe. */
+  | { ok: true; motivo: 'cuadra'; suma: number }
+  /** Se declaró un conteo distinto del documento SIN decir con qué billetes. */
+  | { ok: false; motivo: 'conteo_sin_desglose' }
+  /** Hay desglose y no suma el monto. */
+  | { ok: false; motivo: 'no_cuadra'; suma: number; diferencia: number };
+
+/**
+ * ⭐ `[CG.48]` **Un conteo sin desglose no es un arqueo: es un número suelto.**
+ *
+ * Edgar, 2026-10-07: *"se debe generar un arqueo a todo"*. El defecto que lo motivó: la bandeja
+ * tenía una columna "Contado" por renglón y el servidor dejaba las denominaciones **opcionales**,
+ * así que un lote confirmado entraba al libro con un importe que **nadie podía reconstruir** —
+ * y el arqueo del día no cuadraba contra el libro que lo registró.
+ *
+ * Tres reglas, y las tres importan:
+ *
+ * 1. **La morralla ES desglose.** Hay movimientos que son puro metal de menos de 50¢, que no
+ *    tiene renglón propio. ⛔ Antes el corte temprano miraba sólo las denominaciones, así que un
+ *    movimiento con morralla y sin billetes se guardaba **sin cuadrar la morralla contra el
+ *    monto**: el único desglose declarado quedaba fuera del único chequeo que lo validaba.
+ * 2. **Declarar un conteo OBLIGA al desglose.** Si no, vuelve el agujero por la puerta de atrás.
+ * 3. **La venta a crédito cuenta como parte pagada**: un cobro mixto no tiene todo en efectivo.
+ *
+ * Es PURA a propósito: el servicio la usaba como método privado y por eso no tenía ni una prueba
+ * que la rompiera. Acá se puede mutar y ver el rojo.
+ */
+export function evaluarArqueo(
+  monto: number,
+  morralla: number,
+  dens: readonly RenglonArqueo[] | null | undefined,
+  ventaCredito = 0,
+  hayConteo = false,
+  epsilon = LOTE_EPSILON,
+): VeredictoArqueo {
+  const credito = Math.max(0, Number(ventaCredito) || 0);
+  const metal = Number(morralla || 0);
+  const hayDesglose = (dens?.length ?? 0) > 0 || metal > 0;
+
+  if (hayConteo && !hayDesglose && credito <= 0) return { ok: false, motivo: 'conteo_sin_desglose' };
+  if (!hayDesglose && credito <= 0) return { ok: true, motivo: 'sin_arqueo' };
+
+  const suma = redondea2(
+    (dens ?? []).reduce((a, d) => a + Number(d.denominacion) * Number(d.piezas), 0) + metal + credito,
+  );
+  const diferencia = redondea2(suma - Number(monto));
+  return Math.abs(diferencia) > epsilon
+    ? { ok: false, motivo: 'no_cuadra', suma, diferencia }
+    : { ok: true, motivo: 'cuadra', suma };
+}
+
 // ── Gasto: lo que se repite se ofrece, no se reescribe ────────────────────────────────────────
 
 export interface UsoGasto {

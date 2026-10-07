@@ -1,17 +1,21 @@
 import { Injectable } from '@angular/core';
 
 /**
- * Borrador local de la bandeja de caja — **lo contado sobrevive a un F5**.
+ * Borrador local de la bandeja de caja — **lo marcado sobrevive a un F5**.
  *
  * ── Por qué existe ──────────────────────────────────────────────────────────────────────────
  * Medido el 2026-09-22 en `/finanzas/caja-general`: la pantalla NO persistía nada. `contado` y
  * `seleccion` eran señales en memoria, así que un refresh accidental —o que el navegador mate la
  * pestaña— borraba todo lo tecleado. Con 12,207 movimientos pendientes y hasta 100 filas por
- * pantalla, eso es mucho trabajo de conteo tirado por una tecla.
+ * pantalla, eso es mucho trabajo tirado por una tecla.
+ *
+ * ⚠️ `[CG.48]` Nació guardando DOS cosas, lo contado y lo marcado. La columna "Contado" de la
+ * bandeja se retiró (era la única vía de meter una cifra contada al libro sin desglose), así que
+ * hoy guarda sólo la selección. El campo `contado` queda como legado de sólo lectura.
  *
  * ── Qué se guarda y qué NO ──────────────────────────────────────────────────────────────────
- * Sólo **lo contado** y **lo marcado**: los dos son intención de la persona y no existen en
- * ningún otro lado todavía. El movimiento en sí NO se copia — vive en Kepler y en el matview, y
+ * Sólo **lo marcado**: es intención de la persona y no existe en ningún otro lado
+ * todavía. El movimiento en sí NO se copia — vive en Kepler y en el matview, y
  * duplicarlo acá crearía una segunda verdad que se desfasa en cuanto otra persona confirma desde
  * otro equipo. Es la misma regla que ya aplica el borrador del Andén.
  *
@@ -33,8 +37,13 @@ const TTL_MS = 12 * 60 * 60 * 1000;
 export interface BorradorCaja {
   usuario: string;
   guardadoEn: number;
-  /** `origen_ref` → lo que se contó. Pares y no objeto: los `origen_ref` llevan `|`. */
-  contado: Array<[string, number]>;
+  /**
+   * ⛔ `[CG.48]` LEGADO, sólo lectura. Eran los conteos por renglón de la columna "Contado" de
+   * la bandeja, que se retiró: el lote espeja al ERP y contar lleva desglose. Ya no se escribe.
+   * Se sigue leyendo para poder DECIRLE a quien tenga un borrador de antes que esos conteos no
+   * se revivieron — con TTL de 12 h el campo desaparece solo.
+   */
+  contado?: Array<[string, number]>;
   marcadas: string[];
 }
 
@@ -48,15 +57,14 @@ export class CajaBorradorService {
    * **Nunca lanza.** Si el storage está lleno, bloqueado o el navegador va en modo privado, la
    * bandeja tiene que seguir funcionando: el borrador es una red, no una dependencia.
    */
-  guardar(usuario: string, contado: Map<string, number | null>, marcadas: Set<string>): boolean {
+  guardar(usuario: string, marcadas: Set<string>): boolean {
     if (!usuario) return false;
     try {
-      const pares: Array<[string, number]> = [];
-      for (const [ref, v] of contado) if (v != null && Number(v) > 0) pares.push([ref, Number(v)]);
       // Un borrador vacío no se guarda: dejaría una entrada muerta que después hay que barrer.
-      if (!pares.length && !marcadas.size) { this.borrar(usuario); return true; }
+      if (!marcadas.size) { this.borrar(usuario); return true; }
+      // `contado` NO se escribe: la columna que lo alimentaba se retiró en `[CG.48]`.
       const b: BorradorCaja = {
-        usuario, guardadoEn: Date.now(), contado: pares, marcadas: [...marcadas],
+        usuario, guardadoEn: Date.now(), marcadas: [...marcadas],
       };
       localStorage.setItem(this.clave(usuario), JSON.stringify(b));
       return true;
@@ -74,7 +82,12 @@ export class CajaBorradorService {
       const b = JSON.parse(raw) as BorradorCaja;
       // Defensivo: un borrador corrupto no puede tumbar una pantalla de caja.
       if (!b || typeof b !== 'object' || b.usuario !== usuario) return null;
-      if (!Array.isArray(b.contado) || !Array.isArray(b.marcadas)) return null;
+      // ⛔ `[CG.48]` Acá se exigía que `contado` FUERA un array, y al dejar de escribirlo eso
+      // habría rechazado **todos** los borradores nuevos — la red se caía justo al quitarle una
+      // pata, y en silencio: `leer()` devuelve `null` igual que cuando no hay nada guardado.
+      // Lo obligatorio es `marcadas`; `contado` se tolera ausente (nuevo) o presente (legado).
+      if (!Array.isArray(b.marcadas)) return null;
+      if (b.contado !== undefined && !Array.isArray(b.contado)) return null;
       if (Date.now() - (b.guardadoEn || 0) > TTL_MS) { this.borrar(usuario); return null; }
       return b;
     } catch {

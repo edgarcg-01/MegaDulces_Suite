@@ -195,9 +195,9 @@ export class CashLedgerController {
    */
   @Post('lote')
   @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
-  @ApiOperation({ summary: 'CG.20/CG.21 — Confirma N movimientos de un golpe, entren o salgan. Cada fila va en SU transacción: una que falla NO tumba a las demás (si el lote fuera todo-o-nada, la persona volvería a capturar de a una). Devuelve el estado por fila: guardado | duplicado | rechazado | no_confirmable, y el total suma SÓLO lo guardado. `monto_contado` manda sobre el importe del ERP y levanta un hallazgo: el efectivo nunca se rechaza.' })
+  @ApiOperation({ summary: 'CG.20/CG.21 — Confirma N movimientos de un golpe, entren o salgan. Cada fila va en SU transacción: una que falla NO tumba a las demás (si el lote fuera todo-o-nada, la persona volvería a capturar de a una). Devuelve el estado por fila: guardado | duplicado | rechazado | no_confirmable, y el total suma SÓLO lo guardado. [CG.48] El lote ESPEJA al ERP: ya no acepta `monto_contado` por fila — era la única vía por la que una cifra contada entraba al libro sin desglose por denominación. Contar distinto va por POST / (captura anclada, el monto nace del desglose); contar el día va por el corte.' })
   crearLote(
-    @Body() body: { items: Array<{ origen_ref: string; monto_contado?: number; fecha?: string; sucursal?: string; client_uuid?: string }> },
+    @Body() body: { items: Array<{ origen_ref: string; fecha?: string; sucursal?: string; client_uuid?: string }> },
     @Req() req: AuthedRequest,
   ) {
     return this.svc.crearLote(body ?? { items: [] }, this.user(req));

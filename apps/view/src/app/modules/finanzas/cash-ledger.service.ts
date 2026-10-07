@@ -179,8 +179,12 @@ export class CashLedgerService {
   /**
    * CG.20/CG.21 — **Confirma N movimientos de un golpe.** El backend corre cada fila en su propia
    * transacción: una que falle NO tumba a las demás, y el resultado viene por fila.
+   *
+   * ⛔ `[CG.48]` El lote ESPEJA al ERP: ya no lleva `monto_contado` por fila. Era la única vía por
+   * la que una cifra contada entraba al libro **sin un billete declarado detrás**, y volvía
+   * irreconstruible el arqueo del día. Contar distinto va por la captura anclada, con desglose.
    */
-  confirmarLote(items: Array<{ origen_ref: string; monto_contado?: number }>): Observable<ResumenLote> {
+  confirmarLote(items: Array<{ origen_ref: string }>): Observable<ResumenLote> {
     return this.http.post<ResumenLote>(`${this.base}/lote`, {
       // El `client_uuid` va por fila: si la red corta y la persona reintenta, el reintento
       // devuelve lo que ya se guardó en vez de duplicarlo.

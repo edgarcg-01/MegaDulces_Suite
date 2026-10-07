@@ -4,7 +4,7 @@ import { FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, type FinanceFindingsSink
 import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
 import {
-  esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, rankearFrecuentes,
+  esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueo, rankearFrecuentes,
   esFechaFutura, reglaQueAplica, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
   type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
   type FilaLote, type ResumenLote, type Descuadre,
@@ -252,16 +252,27 @@ export class CashLedgerService {
    * a crédito no llegó en efectivo pero es parte del total. `efectivo + venta_credito = monto`. Si no
    * hay ni efectivo ni crédito, no hay nada que validar (el CHECK `monto > 0` lo frena por otro lado).
    */
-  private assertArqueo(monto: number, morralla: number, dens: DenominationInput[], ventaCredito = 0) {
-    const credito = Math.max(0, Number(ventaCredito) || 0);
-    if (!dens?.length && credito <= 0) return;
-    const suma = dens.reduce((a, d) => a + Number(d.denominacion) * Number(d.piezas), 0) + Number(morralla || 0) + credito;
-    const dif = Math.abs(suma - Number(monto));
-    if (dif > ARQUEO_EPSILON) {
+  /**
+   * ⭐ `[CG.48]` La REGLA vive en `caja-lote.engine` (`evaluarArqueo`), pura y probada. Acá sólo
+   * queda traducir el veredicto a un error HTTP.
+   *
+   * Vivía entera acá, como método privado, y por eso **no tenía una sola prueba que la rompiera**:
+   * probarla exigía un doble de Knex, y un doble de Knex no ejecuta SQL. Al subirla al motor se
+   * puede mutar y ver el rojo — que es la única forma de saber que un candado está puesto.
+   */
+  private assertArqueo(monto: number, morralla: number, dens: DenominationInput[], ventaCredito = 0, hayConteo = false) {
+    const v = evaluarArqueo(monto, morralla, dens, ventaCredito, hayConteo, ARQUEO_EPSILON);
+    if (v.ok) return;
+    if (v.motivo === 'conteo_sin_desglose') {
       throw new BadRequestException(
-        `El desglose (efectivo + crédito) no cuadra con el monto: ${suma.toFixed(2)} contra ${Number(monto).toFixed(2)} (diferencia ${dif.toFixed(2)}).`,
+        'Contaste un importe distinto del documento: el desglose por denominación es obligatorio. '
+        + 'Un conteo sin desglose no se puede reconstruir después.',
       );
     }
+    throw new BadRequestException(
+      `El desglose (efectivo + crédito) no cuadra con el monto: ${v.suma.toFixed(2)} contra `
+      + `${Number(monto).toFixed(2)} (diferencia ${Math.abs(v.diferencia).toFixed(2)}).`,
+    );
   }
 
   /**
@@ -730,7 +741,8 @@ export class CashLedgerService {
       // ⚠️ El arqueo se comprueba contra el monto RESUELTO, no contra el que llegó. Si se validara
       // antes (como estaba), un movimiento anclado podría guardarse con un desglose que cuadra
       // contra la cifra del formulario y NO contra la del documento.
-      this.assertArqueo(monto, input.morralla ?? 0, dens, input.venta_credito);
+      // `hayConteo` va al candado: declarar que se contó distinto del documento OBLIGA al desglose.
+      this.assertArqueo(monto, input.morralla ?? 0, dens, input.venta_credito, hayConteo);
 
       // La fecha NO se toma del cobro a propósito: `cobro_date` es cuándo Kepler registró el
       // documento y `fecha` es cuándo entró el efectivo a la caja. Son dos hechos distintos y
@@ -1621,7 +1633,7 @@ export class CashLedgerService {
    * rechazo.
    */
   async crearLote(
-    input: { items: Array<{ origen_ref: string; monto_contado?: number; fecha?: string; sucursal?: string; client_uuid?: string }> },
+    input: { items: Array<{ origen_ref: string; fecha?: string; sucursal?: string; client_uuid?: string }> },
     user: { id?: string; username?: string },
   ): Promise<ResumenLote> {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -1653,13 +1665,19 @@ export class CashLedgerService {
           continue;
         }
 
-        // ⭐ Lo CONTADO manda sobre el documento (decisión de Edgar): el efectivo NUNCA se rechaza.
-        // Viaja en `monto_contado`, un campo propio — antes se mandaba en `monto` y `create()` lo
-        // pisaba con el importe del ERP, así que lo contado no llegaba al libro.
-        const contado = Number(it.monto_contado);
-        const hayConteo = Number.isFinite(contado) && contado > 0;
-        const clase = CLASE_DESCUADRE[String(pend.tipo)] ?? 'caja_entrega';
-        const d = evaluarDescuadre(pend.origen_ref, Number(pend.monto), hayConteo ? contado : Number(pend.monto), clase);
+        // ⛔ `[CG.48]` Acá se leía `it.monto_contado` y lo contado mandaba sobre el documento.
+        // La regla de Edgar —*el efectivo NUNCA se rechaza*— sigue en pie, pero el LOTE no es
+        // su lugar: era la única vía por la que una cifra contada entraba al libro **sin un
+        // billete declarado detrás** (`assertArqueo` dejaba el desglose opcional), así que el
+        // arqueo del día no se podía reconstruir desde el libro que lo registró.
+        //
+        // El lote ESPEJA al ERP. Contar distinto va por la captura anclada, donde el monto NACE
+        // del desglose — y contar todo el día va por el corte, que ya tiene su propia reja, su
+        // morralla, su diferencia declarada y su doble llave.
+        //
+        // ⚠️ Y queda asimétrico a propósito, como el resto del módulo: el egreso lo manda el
+        // documento (ya salió por lo que decía el pago); el ingreso se cuenta, y por eso tiene
+        // un camino propio donde el conteo lleva denominaciones.
 
         const mov: any = await this.create({
           tipo: pend.tipo,
@@ -1671,7 +1689,6 @@ export class CashLedgerService {
           glosa: `${pend.doc_tipo} ${pend.folio} · ${pend.beneficiario || pend.entidad_code || 'sin beneficiario'}`.slice(0, 200),
           beneficiario: pend.beneficiario ?? null,
           monto: Number(pend.monto),
-          monto_contado: hayConteo ? contado : undefined,
           origen_tipo: pend.origen_tipo,
           origen_ref: pend.origen_ref,
           client_uuid: it.client_uuid,
@@ -1680,7 +1697,10 @@ export class CashLedgerService {
         montos.set(it.origen_ref, Number(mov.monto));
         filas.push({ origen_ref: it.origen_ref, estado: 'guardado', folio: mov.folio });
 
-        if (d.hay) await this.empujarDescuadre(tenantId, pend, d, clase);
+        // ⛔ `[CG.48]` Acá se evaluaba el descuadre contra `monto_contado` y se empujaba el
+        // hallazgo. Sin conteo por fila no hay nada que comparar: el lote guarda el importe del
+        // ERP, así que la diferencia es cero **por construcción** y un hallazgo sería ruido.
+        // La diferencia real la levanta el corte, contra el efectivo contado de verdad.
       } catch (e: any) {
         if (e?.code === '23505') {
           filas.push({ origen_ref: it.origen_ref, estado: 'duplicado',

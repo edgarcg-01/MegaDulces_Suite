@@ -8,7 +8,7 @@
  *     volvería a capturar de a una y toda la fase sería inútil.
  */
 import {
-  esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, rankearFrecuentes,
+  esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, evaluarArqueo, rankearFrecuentes,
   esFechaFutura, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
   type MapaRuta, type FilaLote, type UsoGasto, type ReglaGasto,
 } from './caja-lote.engine';
@@ -382,6 +382,69 @@ describe('propuestaDe — la cuenta que la contabilidad ya usó', () => {
     expect(propuestaDe(undefined)).toBeNull();
     expect(propuestaDe({ cuenta: '606-014', concepto: '', usos: 99, tot: 99 })).toBeNull();
     expect(propuestaDe({ cuenta: '', concepto: '074', usos: 99, tot: 99 })).toBeNull();
+  });
+});
+
+// ── [CG.48] El arqueo: contar sin decir con qué no es contar ─────────────────────────────────
+//
+// Edgar, 2026-10-07, sobre la columna "Contado" de la bandeja: *"este botón no debe existir, se
+// debe generar un arqueo a todo y este botón no cumple esa función"*. La regla vivía como método
+// privado del servicio y por eso NO tenía ni una prueba: probarla exigía un doble de Knex, y un
+// doble de Knex no ejecuta SQL. Acá es pura, y las que mandan son las negativas.
+
+describe('evaluarArqueo — un conteo sin desglose no es un arqueo', () => {
+  const b = (v: number, p: number) => ({ denominacion: v, piezas: p });
+
+  it('sin desglose y sin conteo declarado: pasa — el movimiento toma el importe del documento', () => {
+    expect(evaluarArqueo(1060, 0, [])).toEqual({ ok: true, motivo: 'sin_arqueo' });
+    expect(evaluarArqueo(1060, 0, null)).toEqual({ ok: true, motivo: 'sin_arqueo' });
+  });
+
+  it('⛔ [negativa] declarar un conteo SIN desglose se rechaza: es el agujero que cerró CG.48', () => {
+    const v = evaluarArqueo(1100, 0, [], 0, true);
+    expect(v.ok).toBe(false);
+    expect(v.motivo).toBe('conteo_sin_desglose');
+  });
+
+  it('con desglose que suma, cuadra', () => {
+    const v = evaluarArqueo(1100, 0, [b(500, 2), b(100, 1)]);
+    expect(v).toEqual({ ok: true, motivo: 'cuadra', suma: 1100 });
+  });
+
+  it('⛔ [negativa] con desglose que NO suma, no cuadra — y dice de cuánto es la diferencia', () => {
+    const v = evaluarArqueo(1100, 0, [b(500, 2)]);
+    expect(v.ok).toBe(false);
+    expect(v.motivo).toBe('no_cuadra');
+    if (v.motivo === 'no_cuadra') expect(v.diferencia).toBe(-100);
+  });
+
+  // ⭐ El segundo defecto que encontró esta extracción: el corte temprano miraba SÓLO las
+  // denominaciones, así que un movimiento de pura morralla se guardaba sin que nadie la cuadrara
+  // contra el monto. El único desglose declarado quedaba fuera del único chequeo que lo validaba.
+  it('la morralla ES desglose: un movimiento de puro metal se CUADRA, no se saltea', () => {
+    expect(evaluarArqueo(37.5, 37.5, [])).toEqual({ ok: true, motivo: 'cuadra', suma: 37.5 });
+  });
+
+  it('⛔ [negativa] y una morralla que no cuadra se rechaza (antes pasaba derecho)', () => {
+    const v = evaluarArqueo(50, 37.5, []);
+    expect(v.ok).toBe(false);
+    expect(v.motivo).toBe('no_cuadra');
+  });
+
+  it('una morralla declarada ya cuenta como desglose: con conteo declarado NO se rechaza', () => {
+    expect(evaluarArqueo(37.5, 37.5, [], 0, true).ok).toBe(true);
+  });
+
+  it('la venta a crédito cuenta como parte pagada: un cobro mixto no es todo efectivo', () => {
+    // $400 en billetes + $600 a crédito = el cobro de $1,000.
+    expect(evaluarArqueo(1000, 0, [b(200, 2)], 600)).toEqual({ ok: true, motivo: 'cuadra', suma: 1000 });
+    // Y sólo crédito, sin un billete, sigue siendo un desglose válido.
+    expect(evaluarArqueo(1000, 0, [], 1000, true).ok).toBe(true);
+  });
+
+  it('el centavo de redondeo de numeric no rompe el cuadre', () => {
+    expect(evaluarArqueo(100.004, 0, [b(100, 1)]).ok).toBe(true);
+    expect(evaluarArqueo(100.02, 0, [b(100, 1)]).ok).toBe(false);
   });
 });
 
