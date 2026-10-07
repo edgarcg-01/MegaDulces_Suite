@@ -4,15 +4,18 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import type { Subscription } from 'rxjs';
 import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
+import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import {
-  ETAPA_PROTOCOLO_LABEL, ORDEN_ETAPA_PROTOCOLO,
+  DEPARTAMENTO_SIN, ETAPA_PROTOCOLO_LABEL, ORDEN_ETAPA_PROTOCOLO,
   type EtapaProtocolo, type PersonaExpediente, type RespuestaExpediente, type ValeExpediente,
 } from '@megadulces/contracts';
 import { ComprobacionesService } from '../comprobaciones.service';
+import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 
 /**
@@ -49,7 +52,7 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 @Component({
   selector: 'app-finanzas-expediente',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ToastModule, InputTextModule],
+  imports: [CommonModule, FormsModule, RouterLink, ToastModule, InputTextModule, SelectModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -60,6 +63,37 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
           <p>El trámite de gasto de cada persona, y qué le falta para cerrar.</p>
         </div>
       </header>
+
+      <!--
+        [GX.72] Filtros. Viven FUERA del bloque de carga a proposito: si se escondieran mientras
+        recarga, cada cambio de fecha haria saltar la barra bajo el cursor. Los aplica el SERVIDOR
+        (los KPIs salen de lo filtrado). La fecha es la del LEVANTAMIENTO, la misma que muestra
+        cada vale; se dice en la etiqueta para que nadie la lea como la fecha del gasto.
+      -->
+      <div class="exp-filtros" role="search" aria-label="Filtrar el expediente">
+        <label class="exp-f">
+          <span class="exp-f-l">Levantado desde</span>
+          <input type="date" class="exp-f-in" [ngModel]="fDesde()" (ngModelChange)="cambiarFecha('desde', $event)"
+                 [attr.max]="fHasta() || null" aria-label="Levantado desde" />
+        </label>
+        <label class="exp-f">
+          <span class="exp-f-l">Hasta</span>
+          <input type="date" class="exp-f-in" [ngModel]="fHasta()" (ngModelChange)="cambiarFecha('hasta', $event)"
+                 [attr.min]="fDesde() || null" aria-label="Levantado hasta" />
+        </label>
+        <div class="exp-f">
+          <span class="exp-f-l" id="exp-f-depto">Departamento</span>
+          <p-select [options]="opcionesDepartamento()" [ngModel]="fDepto()" (ngModelChange)="cambiarDepartamento($event)"
+                    optionLabel="label" optionValue="value" placeholder="Todos" [showClear]="true" [filter]="true"
+                    class="exp-f-sel" ariaLabelledBy="exp-f-depto" />
+        </div>
+        @if (hayFiltro()) {
+          <button type="button" class="exp-btn ghost exp-f-limpiar" (click)="limpiarFiltros()">Limpiar filtros</button>
+        }
+      </div>
+      @if (rangoAlReves()) {
+        <p class="exp-f-aviso" role="alert">La fecha «desde» es posterior a «hasta»: corrígela para filtrar.</p>
+      }
 
       @if (cargando()) {
         <div class="exp-msg">Cargando el expediente…</div>
@@ -84,6 +118,11 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
           }
           <div class="exp-kpi"><span class="k">Monto</span><b>{{ money(d.total.monto) }}</b></div>
         </div>
+        <!-- [GX.72] Lo que se conto, dicho con el filtro que DEVOLVIO el servidor, no con el
+             que la pantalla cree haber mandado: asi el rotulo y los numeros no se separan. -->
+        @if (resumenFiltro(); as r) {
+          <p class="exp-f-resumen">Mostrando {{ r }}.</p>
+        }
 
         @if (d.truncado) {
           <p class="exp-trunc">Se llegó al tope de filas: hay más vales de los que se muestran.</p>
@@ -100,6 +139,10 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
           </p>
         }
 
+        @if (d.total.vales === 0 && resumenFiltro()) {
+          <!-- [GX.72] Cero con filtro no es «no hay vales»: es «no hay vales EN ESTO». -->
+          <p class="exp-msg">Ningún vale con estos filtros. Prueba otro periodo u otro departamento.</p>
+        } @else {
         <div class="exp-split">
           <!-- Rail de personas. -->
           <aside class="exp-rail">
@@ -231,6 +274,7 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
             }
           </section>
         </div>
+        }
       }
       <p-toast />
     </div>
@@ -242,6 +286,22 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
     .exp { display: flex; flex-direction: column; gap: var(--sp-3); }
     .exp-msg { font-size: var(--fs-body); color: var(--fg-2); padding: var(--sp-4); }
     .exp-msg.bad { color: var(--bad-fg); }
+
+    /* [GX.72] Barra de filtros: etiqueta arriba del control, todo en una fila que se parte en
+       pantallas angostas. */
+    .exp-filtros { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-3);
+      background: var(--surface-card); border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md); padding: var(--sp-2) var(--sp-3); }
+    .exp-f { display: flex; flex-direction: column; gap: 2px; }
+    .exp-f-l { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em;
+      color: var(--fg-2); font-weight: var(--fw-bold); }
+    .exp-f-in { font-family: inherit; font-size: var(--fs-body); padding: 6px 8px; color: var(--fg-1);
+      background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); }
+    /* La clase va en el HOST de p-select (v22 retiró styleClass): la regla es propia, sin ng-deep. */
+    .exp-f-sel { min-width: 14rem; }
+    .exp-f-limpiar { align-self: flex-end; }
+    .exp-f-aviso { margin: 0; font-size: var(--fs-sm); color: var(--bad-fg); }
+    .exp-f-resumen { margin: 0; font-size: var(--fs-sm); color: var(--fg-2); }
 
     .exp-kpis { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
     .exp-kpi { flex: 1 1 140px; background: var(--surface-card); border: 1px solid var(--surface-border);
@@ -402,10 +462,13 @@ export class FinanzasExpedienteComponent {
           setTimeout(() => URL.revokeObjectURL(url), 60_000);
           this.pdfCargando.set(null);
         },
-        error: () => {
+        // `[GX.70]` El motivo del servidor viaja DENTRO del blob: sin leerlo, un 404 de
+        // alcance y una falla del motor de PDF se veían igual — «no se pudo», sin pista.
+        error: (e) => {
           this.pdfCargando.set(null);
-          this.toast.add({ severity: 'error', summary: 'No se pudo armar el expediente',
-            detail: `Solicitud ${v.folio_solicitud}` });
+          mensajeDeErrorBlob(e, 'Intenta de nuevo.').then((motivo) => this.toast.add({
+            severity: 'error', summary: 'No se pudo armar el expediente',
+            detail: `Solicitud ${v.folio_solicitud}: ${motivo}`, life: 8000 }));
         },
       });
   }
@@ -415,17 +478,103 @@ export class FinanzasExpedienteComponent {
     return v.protocolo.faltan.some((f) => f.id === 'factura_del_gasto') && !!v.folio_solicitud;
   }
 
-  constructor() {
-    this.svc.expedientePorUsuario().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+  // ── `[GX.72]` Filtros: fechas de levantamiento + departamento ─────────────────────────
+  /** Día de México (AAAA-MM-DD) o vacío. Señales: las leen `computed` y la plantilla. */
+  readonly fDesde = signal('');
+  readonly fHasta = signal('');
+  /** Departamento exacto, `DEPARTAMENTO_SIN`, o `null` = todos. */
+  readonly fDepto = signal<string | null>(null);
+
+  readonly hayFiltro = computed(() => !!(this.fDesde() || this.fHasta() || this.fDepto()));
+  /** Con AAAA-MM-DD el orden de texto ES el de fechas. */
+  readonly rangoAlReves = computed(() => !!this.fDesde() && !!this.fHasta() && this.fDesde() > this.fHasta());
+
+  /**
+   * Las opciones salen de lo que el SERVIDOR contó en el periodo (sin el filtro de
+   * departamento), con cuántos vales trae cada una: ninguna opción lleva a una pantalla vacía.
+   * Si lo elegido ya no aparece en el periodo nuevo se conserva con 0 — si desapareciera, el
+   * selector se vería vacío mientras la consulta sigue filtrando por él.
+   */
+  readonly opcionesDepartamento = computed<{ label: string; value: string }[]>(() => {
+    const ops = (this.datos()?.departamentos ?? []).map((o) => ({
+      label: `${o.departamento ?? 'Sin departamento'} · ${o.vales}`,
+      value: o.departamento ?? DEPARTAMENTO_SIN,
+    }));
+    const sel = this.fDepto();
+    if (sel && !ops.some((o) => o.value === sel)) {
+      ops.unshift({ label: `${sel === DEPARTAMENTO_SIN ? 'Sin departamento' : sel} · 0`, value: sel });
+    }
+    return ops;
+  });
+
+  /**
+   * El rótulo de lo que se contó, armado con el filtro que DEVOLVIÓ el servidor (no con el que
+   * la pantalla cree haber mandado). `null` = sin filtro: no hay nada que aclarar.
+   */
+  readonly resumenFiltro = computed<string | null>(() => {
+    const f = this.datos()?.filtro;
+    if (!f || !(f.desde || f.hasta || f.departamento)) return null;
+    const dia = (s: string) => { const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
+    const partes: string[] = [];
+    if (f.desde && f.hasta) partes.push(f.desde === f.hasta ? `lo levantado el ${dia(f.desde)}` : `lo levantado del ${dia(f.desde)} al ${dia(f.hasta)}`);
+    else if (f.desde) partes.push(`lo levantado desde el ${dia(f.desde)}`);
+    else if (f.hasta) partes.push(`lo levantado hasta el ${dia(f.hasta)}`);
+    else partes.push('todas las fechas');
+    if (f.departamento) partes.push(f.departamento === DEPARTAMENTO_SIN ? 'vales sin departamento' : `departamento ${f.departamento}`);
+    return partes.join(' · ');
+  });
+
+  cambiarFecha(cual: 'desde' | 'hasta', v: string | null): void {
+    (cual === 'desde' ? this.fDesde : this.fHasta).set(String(v || ''));
+    this.cargar();
+  }
+
+  cambiarDepartamento(v: string | null): void {
+    this.fDepto.set(v || null);
+    this.cargar();
+  }
+
+  limpiarFiltros(): void {
+    this.fDesde.set('');
+    this.fHasta.set('');
+    this.fDepto.set(null);
+    this.cargar();
+  }
+
+  /** La petición en curso: un filtro nuevo la cancela, para que no gane la respuesta vieja. */
+  private peticion: Subscription | null = null;
+
+  /**
+   * Pide el expediente con el filtro vigente. Con el rango al revés NO se pide: el servidor lo
+   * rechazaría igual, y la pantalla ya lo está diciendo junto a las fechas.
+   */
+  private cargar(): void {
+    if (this.rangoAlReves()) return;
+    this.peticion?.unsubscribe();
+    this.cargando.set(true);
+    this.error.set(null);
+    this.peticion = this.svc.expedientePorUsuario({
+      desde: this.fDesde() || null,
+      hasta: this.fHasta() || null,
+      departamento: this.fDepto(),
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
         this.datos.set(d);
         this.cargando.set(false);
-        if (d.personas.length) this.seleccion.set(d.personas[0].clave);
+        // Se conserva la persona elegida si sigue en el resultado; si no, la primera.
+        const sel = this.seleccion();
+        if (!sel || !d.personas.some((p) => p.clave === sel)) {
+          this.seleccion.set(d.personas.length ? d.personas[0].clave : null);
+        }
       },
       error: (e) => {
         this.cargando.set(false);
         this.error.set(e?.error?.message || 'No se pudo cargar el expediente.');
       },
     });
+  }
+
+  constructor() {
+    this.cargar();
   }
 }

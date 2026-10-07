@@ -2,7 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import type { RespuestaExpediente, ValeExpediente, VeredictoProtocolo } from '@megadulces/contracts';
+import { MessageService } from 'primeng/api';
+import { DEPARTAMENTO_SIN, type RespuestaExpediente, type ValeExpediente, type VeredictoProtocolo } from '@megadulces/contracts';
 import { FinanzasExpedienteComponent } from './finanzas-expediente.component';
 
 /**
@@ -41,6 +42,12 @@ const VALE = (over: Partial<ValeExpediente> = {}): ValeExpediente => ({
 });
 
 const REPORTE = (over: Partial<RespuestaExpediente> = {}): RespuestaExpediente => ({
+  filtro: { desde: null, hasta: null, departamento: null },
+  departamentos: [
+    { departamento: 'LOGISTICA', vales: 2 },
+    { departamento: 'SISTEMAS', vales: 1 },
+    { departamento: null, vales: 1 },
+  ],
   personas: [
     {
       clave: 'david_cisneros', username: 'david_cisneros', nombre: 'David Cisneros Ramírez',
@@ -272,6 +279,45 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
       http.expectOne((q) => q.url.includes('/pdf')).flush(new Blob(['%PDF']));
     });
 
+    /**
+     * ⭐ `[GX.70]` Si el PDF falla, el aviso dice POR QUÉ. El cuerpo del error llega como
+     * Blob (la petición es `responseType: 'blob'`) y antes nadie lo leía: un 404 de alcance
+     * y una falla del motor de PDF se veían igual, «No se pudo armar el expediente».
+     */
+    it('⭐ si el PDF falla, el aviso trae el motivo del servidor', async () => {
+      montar();
+      const toast = fix.debugElement.injector.get(MessageService);
+      const avisos: Array<{ severity?: string; summary?: string; detail?: string }> = [];
+      vi.spyOn(toast, 'add').mockImplementation((m) => { avisos.push(m); });
+
+      c.verExpediente(c.persona()!.vales[0]);
+      http.expectOne((q) => q.url.includes('/pdf')).flush(
+        new Blob([JSON.stringify({ statusCode: 404, message: 'la solicitud 0009946 no está dentro de tu alcance' })],
+          { type: 'application/json' }),
+        { status: 404, statusText: 'Not Found' });
+
+      await vi.waitFor(() => expect(avisos.length).toBe(1));
+      expect(avisos[0].severity).toBe('error');
+      expect(avisos[0].detail).toContain('0009946');
+      expect(avisos[0].detail).toContain('no está dentro de tu alcance');
+      expect(c.pdfCargando()).toBeNull();   // el botón se vuelve a habilitar
+    });
+
+    /** Si el cuerpo no trae motivo legible, igual avisa — nunca se queda callado. */
+    it('sin motivo legible en el cuerpo, avisa igual con el folio', async () => {
+      montar();
+      const toast = fix.debugElement.injector.get(MessageService);
+      const avisos: Array<{ detail?: string }> = [];
+      vi.spyOn(toast, 'add').mockImplementation((m) => { avisos.push(m); });
+
+      c.verExpediente(c.persona()!.vales[0]);
+      http.expectOne((q) => q.url.includes('/pdf')).flush(new Blob(['<html>502</html>']),
+        { status: 502, statusText: 'Bad Gateway' });
+
+      await vi.waitFor(() => expect(avisos.length).toBe(1));
+      expect(avisos[0].detail).toContain('0009946');
+    });
+
     /** ⛔ Sin folio o sin sucursal no hay expediente que armar. */
     it('sin folio no pide nada', () => {
       montar();
@@ -344,6 +390,130 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
       fix.detectChanges();
       expect(c.cargando()).toBe(false);
       expect(txt()).toContain('no autorizado');
+    });
+  });
+
+  /**
+   * `[GX.72]` **Los filtros: fechas de levantamiento y departamento.** Los aplica el SERVIDOR,
+   * así que lo que se vigila es (1) que viajen bien, (2) que la pantalla no mienta sobre qué
+   * contó y (3) que una respuesta vieja no pise a la nueva.
+   */
+  describe('[GX.72] los filtros', () => {
+    const pedido = () => http.expectOne((q) => q.url.endsWith('/expediente'));
+
+    it('la primera carga no manda filtros', () => {
+      fix.detectChanges();
+      const req = pedido();
+      expect(req.request.params.has('desde')).toBe(false);
+      expect(req.request.params.has('hasta')).toBe(false);
+      expect(req.request.params.has('departamento')).toBe(false);
+      req.flush(REPORTE());
+    });
+
+    it('la barra de filtros está en pantalla con fechas y departamento', () => {
+      montar();
+      const barra = fix.nativeElement.querySelector('.exp-filtros') as HTMLElement;
+      expect(barra).toBeTruthy();
+      expect(barra.querySelectorAll('input[type="date"]').length).toBe(2);
+      expect(barra.textContent).toContain('Levantado desde');
+      expect(barra.textContent).toContain('Departamento');
+    });
+
+    it('cambiar las fechas vuelve a pedir con desde y hasta', () => {
+      montar();
+      c.cambiarFecha('desde', '2026-09-01');
+      pedido().flush(REPORTE());
+      c.cambiarFecha('hasta', '2026-09-30');
+      const req = pedido();
+      expect(req.request.params.get('desde')).toBe('2026-09-01');
+      expect(req.request.params.get('hasta')).toBe('2026-09-30');
+      req.flush(REPORTE());
+    });
+
+    it('el departamento viaja tal cual; «Sin departamento» viaja con su valor propio', () => {
+      montar();
+      const sin = c.opcionesDepartamento().find((o) => o.label.startsWith('Sin departamento'));
+      expect(sin?.value).toBe(DEPARTAMENTO_SIN);
+      c.cambiarDepartamento('LOGISTICA');
+      expect(pedido().request.params.get('departamento')).toBe('LOGISTICA');
+      c.cambiarDepartamento(DEPARTAMENTO_SIN);
+      expect(pedido().request.params.get('departamento')).toBe(DEPARTAMENTO_SIN);
+    });
+
+    it('las opciones dicen cuántos vales trae cada departamento', () => {
+      montar();
+      expect(c.opcionesDepartamento().map((o) => o.label))
+        .toEqual(['LOGISTICA · 2', 'SISTEMAS · 1', 'Sin departamento · 1']);
+    });
+
+    /** Si lo elegido no está en el periodo nuevo, el selector no puede quedar en blanco. */
+    it('el departamento elegido que ya no aparece se conserva con 0', () => {
+      montar();
+      c.cambiarDepartamento('RRHH');
+      pedido().flush(REPORTE());
+      expect(c.opcionesDepartamento()[0]).toEqual({ label: 'RRHH · 0', value: 'RRHH' });
+    });
+
+    /** ⛔ Dos cambios seguidos: la respuesta del primero NO puede pisar al segundo. */
+    it('⛔ un filtro nuevo cancela la petición anterior', () => {
+      montar();
+      c.cambiarFecha('desde', '2026-09-01');
+      const viejo = pedido();
+      c.cambiarFecha('desde', '2026-09-15');
+      expect(viejo.cancelled).toBe(true);
+      const nuevo = pedido();
+      expect(nuevo.request.params.get('desde')).toBe('2026-09-15');
+      nuevo.flush(REPORTE());
+    });
+
+    /** ⛔ Con el rango al revés no se pide nada: se dice junto a las fechas. */
+    it('⛔ rango al revés: no consulta y lo avisa', () => {
+      montar();
+      c.cambiarFecha('desde', '2026-10-07');
+      pedido().flush(REPORTE());
+      c.cambiarFecha('hasta', '2026-10-01');
+      http.expectNone((q) => q.url.endsWith('/expediente'));
+      fix.detectChanges();
+      expect(txt()).toContain('posterior');
+    });
+
+    /** El rótulo sale del filtro que DEVOLVIÓ el servidor: lo que dice es lo que se contó. */
+    it('el rótulo dice el periodo y el departamento que contó el servidor', () => {
+      montar(REPORTE({ filtro: { desde: '2026-09-01', hasta: '2026-09-30', departamento: 'LOGISTICA' } }));
+      expect(txt()).toContain('del 01/09/2026 al 30/09/2026');
+      expect(txt()).toContain('departamento LOGISTICA');
+    });
+
+    it('sin filtro no hay rótulo que aclarar', () => {
+      montar();
+      expect(c.resumenFiltro()).toBeNull();
+      expect(fix.nativeElement.querySelector('.exp-f-resumen')).toBeNull();
+    });
+
+    it('cero vales con filtro lo dice, en vez de «elegí una persona»', () => {
+      montar(REPORTE({
+        filtro: { desde: '2026-01-01', hasta: '2026-01-31', departamento: null },
+        personas: [],
+        total: { personas: 0, vales: 0, completos: 0, incompletos: 0, en_captura: 0, sin_medir: 0, monto: 0 },
+        personas_sin_usuario: 0,
+      }));
+      expect(txt()).toContain('Ningún vale con estos filtros');
+      expect(txt()).not.toContain('Elegí una persona');
+    });
+
+    it('«Limpiar filtros» vuelve a pedir sin ninguno', () => {
+      montar();
+      c.cambiarDepartamento('SISTEMAS');
+      pedido().flush(REPORTE());
+      fix.detectChanges();
+      const btn = [...fix.nativeElement.querySelectorAll('button')]
+        .find((b: Element) => (b.textContent || '').includes('Limpiar filtros')) as HTMLButtonElement;
+      expect(btn).toBeTruthy();
+      btn.click();
+      const req = pedido();
+      expect(req.request.params.has('departamento')).toBe(false);
+      expect(c.hayFiltro()).toBe(false);
+      req.flush(REPORTE());
     });
   });
 });
