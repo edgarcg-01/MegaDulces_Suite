@@ -2619,6 +2619,8 @@ Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FA
 
 **Hereda:** ADR-016 (el motor decide, el LLM fuera del dinero) · ADR-021 (aprendizaje determinista, colector antes que learner, pin humano) · ADR-040 (read-only sobre el ERP y ContPAQi) · ADR-056 (lo no medido se declara; un gate sin prueba negativa es una intención) · ADR-065 (preparar ≠ autorizar). Detalle y cifras en [`FASE_RE` §RE.35–RE.41](FASES/FASE_RE_RECEPCION_MERCANCIA.md).
 
+**Evolución (2026-10-06, decisiones de Francisco):** (1) **el CFDI manda sobre el OCR** — si el CFDI está ligado de forma exacta y cuadra con Kepler, la entrada pasa aunque el OCR haya leído mal el total del papel (RE.35.6); el OCR identifica, no arbitra importes. (2) **Regla R-v2**: el papel archivado vale por su **sello de recibido** y su **firma**; si el OCR ve que faltan, el expediente no pasa solo; sin dato (lecturas anteriores) no bloquea (RE.35.7).
+
 ---
 
 ---

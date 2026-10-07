@@ -123,6 +123,13 @@ export interface ExpedienteLectura {
   total: number | null;
   fecha: string | null;
   ocr_status: string | null;
+  /**
+   * `[RE.35.7]` Lo que da valor al papel: el sello de recibido y la firma de quien recibió.
+   * `null` = no se distingue o la lectura es anterior a RE.35.7 (no bloquea).
+   */
+  sello?: boolean | null;
+  firma?: boolean | null;
+  sello_evidencia?: string | null;
 }
 
 export interface ReceiptExpediente {
@@ -177,4 +184,87 @@ export interface EntradasSinOcResumen {
   total_entradas: number;
   total_sin_oc: number;
   monto_sin_oc: number;
+}
+
+// ═══════════════════════════ [RE.35.7] Captura por lote: identificar la entrada ═══════════════════════════
+
+/** Lo leído de UN papel escaneado (lo que manda la pantalla para identificar su entrada). */
+export interface IdentificarLectura {
+  uuid?: string | null;
+  rfc?: string | null;
+  proveedor?: string | null;
+  folio?: string | null;
+  total?: number | null;
+  fecha?: string | null;
+  sello?: boolean | null;
+  firma?: boolean | null;
+}
+
+/** Una entrada de Kepler que puede ser la de ese papel. */
+export interface IdentificacionCandidata {
+  sucursal: string;
+  folio: string;
+  receipt_date: string | null;
+  proveedor_nombre: string | null;
+  proveedor_rfc: string | null;
+  oc_folio: string | null;
+  monto: number;
+  /** total del documento (CFDI, o lo leído) − entrada. */
+  diferencia: number;
+  /** El proveedor de la entrada es el emisor (por RFC o por nombre). null = no se pudo comparar. */
+  proveedor_ok: boolean | null;
+  /** Documentos ya adjuntos a esa entrada. */
+  deposits: number;
+}
+
+export type IdentificacionConfianza = 'listo' | 'revisar' | 'elegir' | 'sin_entrada';
+
+export type IdentificacionMotivo =
+  | 'todo_coincide'
+  | 'sin_cfdi'
+  | 'liga_sugerida'
+  | 'proveedor_sin_confirmar'
+  | 'sin_sello'
+  | 'sin_firma'
+  | 'sello_no_visible'
+  | 'ya_tiene_papel'
+  | 'varias_entradas'
+  | 'otras_parecidas'
+  | 'fecha_lejana'
+  | 'sin_lectura'
+  | 'sin_candidatas';
+
+/**
+ * `POST /finance/goods-receipts/identificar`. El papel identifica (UUID, RFC, folio, total), el CFDI
+ * de ContPAQi informa (total y emisor), y con eso se buscan las entradas de Kepler que cuadran.
+ * ⛔ Nada se guarda aquí: «listo» sólo significa que la propuesta viene pre-marcada.
+ */
+export interface IdentificacionEntrada {
+  cfdi: { uuid: string; emisor_rfc: string; emisor_nombre: string | null; folio: string | null; total: number; fecha: string | null } | null;
+  liga: ExpedienteLiga | null;
+  candidatas: IdentificacionCandidata[];
+  confianza: IdentificacionConfianza;
+  /** La entrada propuesta (null en «elegir» y «sin_entrada»). */
+  propuesta: { sucursal: string; folio: string } | null;
+  /** Todo lo que impide «listo», en orden. Vacío si es «listo». */
+  motivos: IdentificacionMotivo[];
+}
+
+/** Texto corto que explica POR QUÉ la fila quedó como quedó (pantalla y servidor dicen lo mismo). */
+export function textoMotivoIdentificacion(m: IdentificacionMotivo): string {
+  switch (m) {
+    case 'todo_coincide': return 'CFDI exacto, una entrada que cuadra, sello y firma';
+    case 'sin_cfdi': return 'Sin CFDI en ContPAQi que lo confirme';
+    case 'liga_sugerida': return 'CFDI sugerido (no exacto): confírmalo';
+    case 'proveedor_sin_confirmar': return 'El proveedor de la entrada no se pudo confirmar';
+    case 'sin_sello': return 'El papel no trae sello de recibido';
+    case 'sin_firma': return 'El papel no trae firma de quien recibió';
+    case 'sello_no_visible': return 'No se distinguió el sello o la firma';
+    case 'ya_tiene_papel': return 'Esa entrada ya tiene documento: confirma';
+    case 'varias_entradas': return 'Varias entradas posibles: elige';
+    case 'fecha_lejana': return 'La entrada está lejos de la fecha de la factura: confirma';
+    case 'otras_parecidas': return 'Hay otras entradas del mismo proveedor e importe: confirma la fecha';
+    case 'sin_lectura': return 'No se leyó ni el total ni el UUID';
+    case 'sin_candidatas': return 'Ninguna entrada de Kepler cuadra';
+  }
 }

@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import type { EntradasSinOcResumen, ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, ReceiptExpediente } from '@megadulces/contracts';
+import type { EntradasSinOcResumen, ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, IdentificacionEntrada, IdentificarLectura, ReceiptExpediente } from '@megadulces/contracts';
 
 /**
  * CC (extensión) — cliente de Comprobantes de Orden de Entrada (proyecto Compras).
@@ -409,6 +409,11 @@ export interface RemisionOcr {
   documents_present?: DocPresence[];
   // RE.11.0 — renglones extraídos (para conciliación por línea).
   lines?: RemisionLine[];
+  // [RE.35.7] Folio fiscal y la prueba de la entrega: sello de recibido y firma (null = no se distingue).
+  uuid?: string | null;
+  sello_recibido?: boolean | null;
+  firma_recibido?: boolean | null;
+  sello_evidencia?: string | null;
 }
 
 /** RE.11.2 — un renglón conciliado: remisión ↔ línea Kepler ↔ SKU resuelto. */
@@ -647,6 +652,13 @@ export class EntradasService {
    *  también el hash + si es duplicada (misma hoja o folio ya subido). `role` afina el dedup. */
   ocr(file_base64: string, role?: string): Observable<RemisionOcr> {
     return this.http.post<RemisionOcr>(`${this.base}/ocr`, { file_base64, role });
+  }
+  /**
+   * [RE.35.7] Captura por lote: con lo leído de UN papel, su CFDI de ContPAQi y las entradas que
+   * cuadran. Sólo lectura: la persona confirma y guarda con attach().
+   */
+  identificar(lectura: IdentificarLectura): Observable<IdentificacionEntrada> {
+    return this.http.post<IdentificacionEntrada>(`${this.base}/identificar`, lectura);
   }
   /** FOTO-PRIMERO: enlaza por OCR de la Aplica Orden Entrada (folio/total) o busca manual. */
   matchByOcr(q: { folio?: string; total?: number; fecha?: string; search?: string }): Observable<{ entradas: EntradaRow[] }> {

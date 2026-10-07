@@ -3,13 +3,16 @@ import type { Knex } from 'knex';
 import { ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import type {
   EntradasSinOcFila, EntradasSinOcResumen, ExpedienteConteos, ExpedienteCubo, ExpedienteDocTipo, ExpedienteHallazgo,
-  ExpedienteLectura, ExpedienteLiga, ExpedienteResumenFila, ReceiptExpediente,
+  ExpedienteLectura, ExpedienteLiga, ExpedienteResumenFila, IdentificacionCandidata, IdentificacionEntrada,
+  IdentificarLectura, ReceiptExpediente,
 } from '@megadulces/contracts';
 import {
   CfdiCandidato, HistorialEmisor, NotaCredito, REGLA_EXPEDIENTE, TOLERANCIA_ABS, TOLERANCIA_PCT, Veredicto,
   cuadra, extraerUuid, hallazgosDe, ligarCfdi, notaQueExplica, promoverRfcImporte, proveedorEnContpaqi, veredictoExpediente,
+  UMBRAL_NOMBRE_CONTPAQI,
 } from './expediente-verdict';
-import { COMERCIAL_CATS } from './receipt-match';
+import { COMERCIAL_CATS, parecidoNombre, rfcBienFormado, rfcComparable } from './receipt-match';
+import { EntradaParaIdentificar, clasificarIdentificacion } from './identificar-entrada';
 
 /** Filas tal como las devuelven las consultas (tipadas: el boundary no admite `any`). */
 interface EntradaFila {
@@ -60,6 +63,13 @@ export interface ExpedienteCalculado {
 export interface LlaveEntrada { sucursal: string; folio: string }
 
 const llave = (s: string, f: string) => `${s}/${f}`;
+
+/** `[RE.35.7]` La lectura cruda del OCR (JSON en `ocr_raw`); null si es texto viejo o no parsea. */
+function lecturaCruda(raw: unknown): Record<string, unknown> | null {
+  if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
+  if (typeof raw !== 'string' || !raw.trim().startsWith('{')) return null;
+  try { return JSON.parse(raw) as Record<string, unknown>; } catch { return null; }
+}
 const sumarDias = (ymd: string, n: number) => new Date(Date.parse(ymd.slice(0, 10)) + n * 864e5).toISOString().slice(0, 10);
 const difDias = (a: string, b: string) => Math.round((Date.parse(a.slice(0, 10)) - Date.parse(b.slice(0, 10))) / 864e5);
 
@@ -222,9 +232,14 @@ export class GoodsReceiptExpedienteService {
       }
       // Sólo cuentan los documentos DEL PROVEEDOR: una orden de entrada o un vale son hojas nuestras.
       const docTipo: ExpedienteDocTipo = roles.has('factura') ? 'factura' : roles.has('remision') ? 'remision' : 'ninguno';
+      // `[RE.35.7]` Sello y firma viven en la lectura cruda (ocr_raw); las anteriores a RE.35.7 no los traen.
+      const crudo = proof ? lecturaCruda(proof.ocr_raw) : null;
       const lectura = proof ? {
         uuid: extraerUuid(proof.ocr_raw), folio: proof.ocr_folio ?? null, rfc: proof.ocr_rfc ?? null,
         total: proof.ocr_monto ?? null, fecha: proof.ocr_fecha ?? null, ocr_status: proof.ocr_status ?? null,
+        sello: typeof crudo?.['sello_recibido'] === 'boolean' ? crudo['sello_recibido'] as boolean : null,
+        firma: typeof crudo?.['firma_recibido'] === 'boolean' ? crudo['firma_recibido'] as boolean : null,
+        sello_evidencia: typeof crudo?.['sello_evidencia'] === 'string' ? crudo['sello_evidencia'] as string : null,
       } : null;
       const interno = (!!e.proveedor_rfc && !!receptorRfc && e.proveedor_rfc.trim().toUpperCase() === receptorRfc.toUpperCase())
         || (!!e.proveedor_code && internos.has(e.proveedor_code.trim()));
@@ -377,6 +392,7 @@ export class GoodsReceiptExpedienteService {
         },
         notaCredito,
         proveedorEnContpaqi: l?.enContpaqi,
+        sello: p.lectura?.sello ?? null, firma: p.lectura?.firma ?? null, selloEvidencia: p.lectura?.sello_evidencia ?? null,
         hoy,
       });
       out.set(p.k, {
@@ -391,6 +407,120 @@ export class GoodsReceiptExpedienteService {
    * `[RE.35.3]` Entradas sin OC por sucursal y por quién las capturó en Kepler, en el periodo.
    * Sólo las sucursales que la persona puede ver (mismo alcance que la lista de entradas).
    */
+  // ─────────────────────────── [RE.35.7] captura por lote: identificar ───────────────────────────
+  /**
+   * ¿De qué entrada es este papel? Primero su CFDI (con `ligarCfdi`, sólo con lo leído), luego las
+   * entradas que cuadran con el total del CFDI (o lo leído) y cuyo proveedor es el emisor. Sólo
+   * lectura: no guarda nada. El alcance por sucursal aplica (no se propone una entrada ajena).
+   */
+  async identificar(l: IdentificarLectura): Promise<IdentificacionEntrada> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const ymd = /^\d{4}-\d{2}-\d{2}/;
+    const uuidRe = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/;
+    const uuid = typeof l?.uuid === 'string' && uuidRe.test(l.uuid.trim().toUpperCase()) ? l.uuid.trim().toUpperCase() : null;
+    const rfc = rfcBienFormado(l?.rfc) ? String(l.rfc).trim().toUpperCase() : null;
+    const total = typeof l?.total === 'number' && isFinite(l.total) && l.total > 0 ? l.total : null;
+    const fecha = typeof l?.fecha === 'string' && ymd.test(l.fecha) ? l.fecha.slice(0, 10) : null;
+    const folio = typeof l?.folio === 'string' && l.folio.trim() ? l.folio.trim().slice(0, 60) : null;
+    const nombreLeido = typeof l?.proveedor === 'string' ? l.proveedor.slice(0, 200) : null;
+    const alcance = await this.scope.current();
+    const visibles = this.scope.intersect(alcance, 'warehouse', null);
+
+    return this.tk.run(async (trx) => {
+      // 1. El CFDI, sólo con las llaves del papel.
+      let cfdi: CfdiCandidato | null = null;
+      let liga: ExpedienteLiga | null = null;
+      if (uuid || rfc || total != null) {
+        const filas = (await trx('fiscal.cfdis')
+          .where({ tenant_id: tenantId, rol: 'recibidas', tipo_comprobante: 'I' })
+          .andWhere((w) => {
+            if (uuid) w.orWhere('uuid', uuid);
+            if (rfc || total != null) {
+              w.orWhere((v) => {
+                if (fecha) v.whereRaw('(fecha >= ?::date AND fecha < ?::date)', [sumarDias(fecha, -VENTANA_BUSQUEDA), sumarDias(fecha, VENTANA_BUSQUEDA + 1)]);
+                else v.whereRaw(`fecha >= current_date - 120`);
+                v.andWhere((x) => {
+                  if (rfc) x.orWhere('emisor_rfc', rfc);
+                  if (total != null) x.orWhereRaw('abs(total - ?) <= 1', [total]);
+                });
+              });
+            }
+          })
+          .select(trx.raw(CFDI_COLS))
+          .limit(500)) as CfdiFila[];
+        const cands: CfdiCandidato[] = filas.map((r) => ({ ...r, iva_trasladado: null, ieps_trasladado: null, ieps_por_cuota: false }));
+        const r = ligarCfdi({
+          uuidLeido: uuid, folioLeido: folio, rfcLeido: rfc, totalLeido: total, fechaLeida: fecha,
+          rfcKepler: null, montoEntrada: Number.NaN, fechaEntrada: fecha, asignadoId: null,
+        }, cands);
+        cfdi = r.cfdi; liga = r.liga;
+      }
+
+      // 2. Las entradas que cuadran con el total del CFDI (o lo leído) y son de ese emisor.
+      const totalObj = cfdi?.total ?? total;
+      const rfcObj = cfdi?.emisor_rfc ?? rfc;
+      const nombreObj = cfdi?.emisor_nombre ?? nombreLeido;
+      const fechaObj = cfdi?.fecha ?? fecha;
+      let candidatas: IdentificacionCandidata[] = [];
+      if (totalObj != null) {
+        const inicio = await this.inicioRecepcion(trx, tenantId);
+        const dep = trx('finance.goods_receipt_proofs')
+          .where({ tenant_id: tenantId }).whereNot('status', 'rechazado')
+          .groupBy('sucursal', 'folio').select('sucursal', 'folio').count('* as n').as('d');
+        const q = trx('analytics.erp_goods_receipts as c')
+          .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
+          .where('c.tenant_id', tenantId).whereNull('c.dup_of_folio').where('c.monto', '>', 0)
+          .whereRaw('abs(c.monto - ?) < ?', [totalObj, TOLERANCIA_ABS])
+          .select('c.sucursal', 'c.folio', 'c.proveedor_nombre', 'c.proveedor_rfc', 'c.oc_folio',
+            trx.raw(`to_char(c.receipt_date, 'YYYY-MM-DD') AS receipt_date`), trx.raw('c.monto::float8 AS monto'),
+            trx.raw('COALESCE(d.n, 0)::int AS deposits'))
+          .limit(50);
+        if (inicio) q.where('c.receipt_date', '>=', inicio);
+        // La entrada se captura alrededor de la fecha de la factura: unos días antes (llegó antes de
+        // facturarse) o hasta dos meses después (factura adelantada).
+        if (fechaObj) q.whereBetween('c.receipt_date', [sumarDias(fechaObj, -15), sumarDias(fechaObj, VENTANA_BUSQUEDA)]);
+        else q.whereRaw(`c.receipt_date >= current_date - 120`);
+        if (visibles) { if (visibles.length) q.whereIn('c.sucursal', visibles); else q.whereRaw('false'); }
+        const filas = (await q) as EntradaParaIdentificar[];
+        const rfcCmp = rfcBienFormado(rfcObj) ? rfcComparable(rfcObj) : null;
+        candidatas = filas
+          .map((e) => {
+            const monto = Number(e.monto);
+            const diferencia = Math.round((totalObj - monto) * 100) / 100;
+            const rfcEq = rfcCmp && rfcBienFormado(e.proveedor_rfc) ? rfcComparable(e.proveedor_rfc) === rfcCmp : null;
+            const nom = parecidoNombre(nombreObj, e.proveedor_nombre);
+            // El RFC de Kepler falta o está mal en ~60%: el nombre también confirma. Sólo se descarta
+            // cuando las dos señales dicen que es OTRO proveedor.
+            const proveedor_ok = rfcEq === true || (nom != null && nom >= UMBRAL_NOMBRE_CONTPAQI) ? true
+              : (rfcEq === false && (nom == null || nom < 0.3)) || (rfcEq == null && nom != null && nom < 0.3) ? false
+              : null;
+            return { ...e, monto, diferencia, proveedor_ok, deposits: Number(e.deposits) || 0 };
+          })
+          // Sólo donde se puede ESCRIBIR: proponer una entrada de una sucursal que sólo se ve terminaría
+          // en un 403 al guardar.
+          .filter((c) => cuadra(c.diferencia, c.monto) && c.proveedor_ok !== false && this.scope.canWrite(alcance, 'warehouse', c.sucursal))
+          .sort((a, b) => a.deposits - b.deposits || Math.abs(a.diferencia) - Math.abs(b.diferencia));
+      }
+
+      const c = clasificarIdentificacion({
+        hayLectura: !!uuid || total != null || !!cfdi, cfdi: !!cfdi, liga,
+        sello: l?.sello, firma: l?.firma, candidatas, fechaDocumento: fechaObj,
+      });
+      return {
+        cfdi: cfdi ? { uuid: cfdi.uuid, emisor_rfc: cfdi.emisor_rfc, emisor_nombre: cfdi.emisor_nombre, folio: cfdi.folio, total: cfdi.total, fecha: cfdi.fecha } : null,
+        liga, candidatas, confianza: c.confianza, propuesta: c.propuesta, motivos: c.motivos,
+      };
+    });
+  }
+
+  /** Arranque del proceso de recepción (`finance.receipt_settings`): no se liga a histórico previo. */
+  private async inicioRecepcion(trx: Knex.Transaction, tenantId: string): Promise<string | null> {
+    if (!(await this.existeTabla(trx, 'finance', 'receipt_settings'))) return null;
+    const row = (await trx('finance.receipt_settings').where({ tenant_id: tenantId })
+      .first(trx.raw(`to_char(reception_start, 'YYYY-MM-DD') AS inicio`))) as { inicio: string | null } | undefined;
+    return row?.inicio ?? null;
+  }
+
   async sinOc(desde?: string, hasta?: string): Promise<EntradasSinOcResumen> {
     const tenantId = this.tenantCtx.requireTenantId();
     const ymd = /^\d{4}-\d{2}-\d{2}$/;
