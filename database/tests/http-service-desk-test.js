@@ -1706,6 +1706,76 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       await knex('servicedesk.sla_policies').whereIn('queue_id', [qO, qD, qV]).del();
     }
 
+    // ── 32. [MS.7.19] Punta a punta con las DOS áreas reales (TI y Mantenimiento): ciclo completo, traslado y acceso cruzado ──
+    {
+      console.log('\n32 — punta a punta: levantar → asignar → pausar → resolver → cerrar → transferir; acceso cruzado TI ↔ Mantenimiento');
+      const mto = await knex('servicedesk.queues').where({ tenant_id: T, code: 'mantenimiento' }).first('id', 'active');
+      if (!mto) {
+        noMedido.push('punta a punta con Mantenimiento (MS.7.19): la cola no está sembrada en este destino');
+      } else {
+        if (mtoActivaAntes === null) mtoActivaAntes = mto.active; // la restaura el cierre del test
+        await knex('servicedesk.queues').where({ id: mto.id }).update({ active: true });
+        const catPlom = await knex('servicedesk.categories').where({ queue_id: mto.id, code: 'plomeria' }).first('id');
+        const jefeM = await crearUsuario('e2e_mjefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: mto.id, role: 'coordinador' }]);
+        const tecM = await crearUsuario('e2e_mtec', ['SERVICIO_ATENDER'], [{ queue_id: mto.id, role: 'tecnico' }]);
+        usuarios.push(jefeM, tecM);
+        const st = (id, tok, body) => req('POST', `${SD}/requests/${id}/status`, tok, body);
+        const ver = async (id, tok) => req('GET', `${SD}/requests/${id}`, tok);
+        const inbox = async (tok) => new Set(((await req('GET', `${SD}/requests/inbox?scope=all&limit=300`, tok)).body?.rows ?? []).map((r) => r.id));
+
+        // ── Historia 1: un ticket de Mantenimiento, de principio a fin ──
+        const t1 = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlom.id, title: 'SMOKE 7.19 fuga en el andén', warehouse_code: 'EC', zone_code: 'anden', safety_risk: true, blocks_work: true });
+        check('1. levantar: Mantenimiento, urgente por riesgo×operación, con su zona y SIN asignar', t1.status === 201 && t1.body?.priority === 'urgente' && t1.body?.zone_name === 'Andén' && t1.body?.status === 'nuevo' && t1.body?.assigned_to === null, dump(t1));
+        const id1 = t1.body?.id;
+        const folio1 = t1.body?.folio;
+        check('⛔ acceso cruzado: el agente de TI NO ve ese ticket (404) ni en su bandeja', (await ver(id1, agente.token)).status === 404 && !(await inbox(agente.token)).has(id1));
+        check('⛔ y la coordinación de TI tampoco puede asignarlo ni cambiarle el estado (404)', (await req('POST', `${SD}/requests/${id1}/assign`, coord.token, { user_id: agente.id })).status === 404 && (await st(id1, coord.token, { status: 'en_proceso' })).status === 404);
+        check('⭐ el técnico de Mantenimiento SÍ lo ve en su bandeja', (await inbox(tecM.token)).has(id1));
+        check('2. asignar: la coordinación de Mantenimiento lo asigna a su técnico', (await req('POST', `${SD}/requests/${id1}/assign`, jefeM.token, { user_id: tecM.id })).status < 300);
+        check('⛔ y no a alguien de TI (no es de esa cola) → 400', (await req('POST', `${SD}/requests/${id1}/assign`, jefeM.token, { user_id: agente.id })).status === 400);
+        check('el técnico inicia', (await st(id1, tecM.token, { status: 'en_proceso' })).status < 300);
+        const pausa = await st(id1, tecM.token, { status: 'en_espera', pause_reason: 'refaccion', note: 'Espero la pieza' });
+        check('3. pausar: en espera por REFACCIÓN, con el reloj pausado', pausa.status < 300 && pausa.body?.pause_reason === 'refaccion' && pausa.body?.sla?.paused === true, dump(pausa));
+        await req('POST', `${SD}/requests/${id1}/messages`, sol.token, { body: '¿Ya llegó la pieza?' });
+        const sigue = (await ver(id1, sol.token)).body;
+        check('⭐ quien reportó pregunta y la espera por refacción NO se reanuda sola', sigue?.status === 'en_espera' && sigue?.sla?.paused === true, `${sigue?.status} paused=${sigue?.sla?.paused}`);
+        check('el técnico reanuda cuando llega la pieza', (await st(id1, tecM.token, { status: 'en_proceso', note: 'Llegó' })).status < 300);
+        const res1 = await st(id1, tecM.token, { status: 'resuelto', note: 'Se cambió la tubería' });
+        check('4. resolver: con nota', res1.status < 300 && res1.body?.status === 'resuelto', dump(res1));
+        check('⛔ el técnico no cierra su propio trabajo (lo confirma quien reportó) → 403', (await req('POST', `${SD}/requests/${id1}/confirm`, tecM.token, {})).status === 403);
+        const cierre = await req('POST', `${SD}/requests/${id1}/confirm`, sol.token, {});
+        check('5. cerrar: quien reportó confirma → cerrado', cierre.status < 300 && cierre.body?.status === 'cerrado' && cierre.body?.close_reason === 'confirmado', dump(cierre));
+        check('⛔ lo cerrado ya no se traslada (409)', (await req('POST', `${SD}/requests/${id1}/transfer`, jefeM.token, { queue_id: (await knex('servicedesk.queues').where({ tenant_id: T, code: 'ti' }).first('id')).id, category_id: catSimple.id, reason: 'x' })).status === 409);
+        const hilo1 = (await ver(id1, jefeM.token)).body?.messages ?? [];
+        check('el hilo cuenta toda la historia (asignación, pausa con motivo, comentario, resolución y cierre)', ['assignment', 'status', 'comment'].every((k) => hilo1.some((m) => m.kind === k)) && hilo1.some((m) => m.meta?.pause_reason === 'refaccion'), JSON.stringify(hilo1.map((m) => m.kind)));
+
+        // ── Historia 2: se reportó en TI pero es de Mantenimiento: transferir, y de vuelta ──
+        const ti = (await knex('servicedesk.queues').where({ tenant_id: T, code: 'ti' }).first('id')).id;
+        const t2 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.19 en realidad es una fuga', impact: 'yo', blocks_work: false });
+        const id2 = t2.body?.id;
+        check('6. levantar en TI', t2.status === 201 && (await inbox(agente.token)).has(id2) && !(await inbox(tecM.token)).has(id2));
+        await req('POST', `${SD}/requests/${id2}/assign`, coord.token, { user_id: agente.id });
+        await req('POST', `${SD}/requests/${id2}/messages`, agente.token, { body: 'Nota de TI antes de trasladar', visibility: 'internal' });
+        check('⛔ un técnico de Mantenimiento (sin la clave de coordinar) no traslada → 403', (await req('POST', `${SD}/requests/${id2}/transfer`, tecM.token, { queue_id: mto.id, category_id: catPlom.id, reason: 'x' })).status === 403);
+        check('⛔ y la coordinación de Mantenimiento no puede «traer» un ticket de TI: ni lo ve → 404', (await req('POST', `${SD}/requests/${id2}/transfer`, jefeM.token, { queue_id: mto.id, category_id: catPlom.id, reason: 'x' })).status === 404);
+        const tr = await req('POST', `${SD}/requests/${id2}/transfer`, coord.token, { queue_id: mto.id, category_id: catPlom.id, reason: 'Es una fuga: es de Mantenimiento' });
+        check('7. transferir TI → Mantenimiento: mismo folio, ahora en Mantenimiento y sin asignar', tr.status < 300 && tr.body?.folio === t2.body?.folio && tr.body?.queue_name === 'Mantenimiento' && tr.body?.status === 'nuevo', dump(tr));
+        check('⛔ acceso cruzado tras el traslado: TI ya no lo ve; Mantenimiento sí', (await ver(id2, agente.token)).status === 404 && (await ver(id2, tecM.token)).status === 200 && (await inbox(jefeM.token)).has(id2));
+        const f2 = (await ver(id2, jefeM.token)).body;
+        check('⭐ el hilo viaja entero (incluida la nota interna de TI) y trae el traslado con quién y por qué', (f2?.messages ?? []).some((m) => m.body === 'Nota de TI antes de trasladar') && (f2?.messages ?? []).some((m) => m.kind === 'transfer' && m.meta?.from_queue && m.meta?.to_queue === 'Mantenimiento'), JSON.stringify((f2?.messages ?? []).map((m) => m.kind)));
+        const vuelta = await req('POST', `${SD}/requests/${id2}/transfer`, jefeM.token, { queue_id: ti, category_id: catSimple.id, reason: 'Mejor lo ve TI al final' });
+        check('8. y de vuelta: Mantenimiento → TI con el mismo folio', vuelta.status < 300 && vuelta.body?.folio === t2.body?.folio && vuelta.body?.queue_id === ti, dump(vuelta));
+        const f3 = (await ver(id2, coord.token)).body;
+        check('el hilo suma los DOS traslados (ida y vuelta) y conserva todo lo anterior', (f3?.messages ?? []).filter((m) => m.kind === 'transfer').length === 2 && (f3?.messages ?? []).some((m) => m.body === 'Nota de TI antes de trasladar'), JSON.stringify((f3?.messages ?? []).map((m) => m.kind)));
+        check('⭐ y TI vuelve a verlo mientras Mantenimiento ya no', (await inbox(agente.token)).has(id2) && !(await inbox(tecM.token)).has(id2));
+
+        // ── Cierre: ninguno de estos tickets contaminó al otro área en los números ──
+        const stTi = (await req('GET', `${SD}/requests/stats`, coord.token)).body;
+        const stM = (await req('GET', `${SD}/requests/stats`, jefeM.token)).body;
+        check('⭐ cada área cuenta SÓLO lo suyo (Mantenimiento no ve las colas de TI en su selector y viceversa)', !(stM?.queues ?? []).some((q) => q.id === ti) && !(stTi?.queues ?? []).some((q) => q.id === mto.id), JSON.stringify([stM?.queues, stTi?.queues]));
+      }
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
