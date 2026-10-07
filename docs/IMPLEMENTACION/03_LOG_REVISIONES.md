@@ -5,6 +5,100 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-06 — `[GP.1]` Revisión de PM (Edgar) al PR #271
+
+**Lo que resolvió Edgar en la rama** (`00a42cf16`, `c33b5e094`, `df4285581`, `f61196f90`): merge de `main`, ADR-084/085 →
+**ADR-086/087**, `ERP_KEPLER.md` §3.y.1/§3.y.2 → **§3.y.3/§3.y.4**, migración → **`20261006370000`**,
+`down` acotado para `encargado_bodega` (por `NOTA_BODEGA`) y para el permiso (sólo donde vale `true`).
+
+**Lo que se agregó encima:**
+- **Renglones anclados a su sucursal (punto 7: era bug).** La consulta de `kdm2` no anclaba
+  `btrim(c1) = sucursal` como sus hermanas. Medido en prod (solo lectura): la base de la `03` guarda
+  864 pedidos copia de la `02`, y **los 41 pedidos propios de la `03` chocan** en serie y folio con una
+  copia. El `03/0000001` (TI008, AUTORIZADO) mostraba 4 renglones, 3 del pedido EMBARCADO de la `02`;
+  ahora 1. Octubre: 16 renglones ajenos fuera; la lista bajó de 126 a 65 ms.
+- **El `down` también acota por nota** el alcance de Estefanía (`NOTA_ESTEFANIA`), con el mismo criterio
+  que `NOTA_BODEGA`: si alguien lo edita después desde /admin, el `down` ya no se lo lleva. Los alcances
+  de los perfiles nuevos NO se acotan: `role_scopes` cae en cascada (`ON DELETE CASCADE`) con su perfil,
+  y el `down` sólo borra un perfil que nadie usa; acotar ahí sería una protección de adorno.
+- Dos referencias que quedaban viejas: el servicio citaba §3.y.1 (es §3.y.3) y `[GP.4.1]` §3.y.2 (es §3.y.4).
+
+**Verificado:** up → down → up en local con un `false` puesto a mano y una regla ajena de
+`encargado_bodega`: los dos sobreviven al `down` y el `up` respeta el `false`.
+
+**Lección:** «llega por la llave de una cabecera ya anclada» no basta: `(sucursal, serie, folio)` no es
+única dentro de una base que guarda copias de otra sucursal. Toda consulta a `kdm1`/`kdm2` ancla `c1`.
+
+---
+## 2026-10-06 — `[GP.1]` Tablero de pedidos: revisión con el usuario, acceso y estándares
+
+**Qué cambió tras revisarlo con Francisco en localhost:** casilla «Sólo autorizados en adelante»;
+diseño compacto para monitor de 16" (fuera las tarjetas de indicadores, encabezado en una línea, la
+tabla ocupa el ancho y el alto, detalle en panel lateral); origen bajo el folio; volumen por unidad
+bajo los renglones; ubicación de cada etapa bajo su cantidad. Claves en cero de Kepler (`0`,
+`00000`) se devuelven vacías. API renombrada a `/api/warehouse/orders` por la convención de
+URLs en inglés. Permiso propio `ALMACEN_PEDIDOS_VER` y migración de acceso `20261006200000`.
+
+**Verificado:** en navegador a 1366×768, claro y oscuro, contra una base local (Docker) sembrada con
+pedidos reales de octubre copiados de prod en solo lectura; la API local sin una sola conexión a prod
+y con los 51 cron apagados (autorizado por Francisco). Migración probada up/down/up en local.
+
+**Lecciones:**
+1. **Una migración que sólo toca datos frena el auto-deploy de todos**: la compuerta no le puede
+   extraer objetos y la clasifica NO_MEDIDO. Se aplica en prod ANTES del merge (RUNBOOK §3).
+2. **Cambiar `users.role_name` no quita el perfil anterior**: `trg_sync_primary_role` lo degrada a
+   complemento. Lo había declarado al revés (que Estefanía perdía Compras) antes de medirlo.
+3. **`'?'` dentro del SQL rompe `knex.raw`** (lo toma como parámetro) y **`$'` en el texto de
+   un `String.replace`** pega el resto del archivo: usar un reemplazo por función.
+4. **El script de bootstrap local no arrancaba para nadie** por comillas invertidas dentro de un
+   template literal: el mismo tipo de error que `CLAUDE.md` ya registraba en builds.
+
+---
+## 2026-10-06 — `[GP.1]` Tablero de pedidos del almacén
+
+**Qué se entregó:** `/almacen/pedidos` — pedidos Kepler U-D-40 por periodo (default mes en curso),
+filtro por estatus con conteos, origen, sucursal y búsqueda; detalle por renglón y embarques.
+Backend `libs/commercial/src/lib/warehouse-orders/` (SQL directo sobre `kepler_ods`, sin migración),
+contrato `libs/contracts/src/http/warehouse-orders.contract.ts`, área "Pedidos" en Almacén.
+
+**Verificado:** SQL contra prod en solo lectura (los pedidos 2781 y 2749 cuadran con las capturas de
+Kepler, incluido el embarque UD4101-0002683); motor 14/14 con prueba negativa vista en rojo;
+contratos 375/375; pestañas de Almacén 9/9. **No verificado:** build (lo hace el CI), la spec de
+landing-guards (necesita el compilador de Angular) y la pantalla en el navegador.
+
+**Lección:** el conteo de renglones como JOIN + GROUP BY tardaba 10–12 s porque el planner estimaba
+UN pedido (eran 514) y re-agregaba kdm2 por cada uno (~780 mil búsquedas). Con la cabecera
+MATERIALIZED y el conteo como LATERAL por pedido: 130–215 ms. Medir el plan, no sólo el resultado.
+
+---
+## 2026-10-06 — Ubicaciones: bodega y piso de venta en un solo almacén (ADR-087)
+
+**Qué se entregó:** addendum [`FASE_WMS` §12](FASES/FASE_WMS.md) y ADR-087. Sin código.
+
+**Lección:** antes de abrir una fase, buscar si ya existe el plan. Iba a abrir una fase de
+ubicaciones y `FASE_WMS` ya tenía tipos de zona, censo, secuencia de recorrido, surtido y checado.
+Lo nuevo de hoy se agregó ahí (piso de venta, asignación por producto, cantidad diferida) y GP quedó
+declarada como la implementación de WMS.5/WMS.6 para los pedidos de Kepler.
+
+---
+## 2026-10-06 — `[GP.0]` Gestión de pedidos en almacén: el pedido se queda en Kepler, el piso se va a la Suite
+
+**Qué se entregó:** plan [`FASE_GP`](FASES/FASE_GP_GESTION_PEDIDOS_ALMACEN.md), ADR-086 y decode del pedido
+`U-D-40` en [`ERP_KEPLER.md` §3.y.3](../ERP_KEPLER.md). Sin código.
+
+**Verificado:** contra prod en solo lectura, anclado a tres capturas de Kepler (pedido 2781 de sucursal,
+pedido de telemarketing y embarque 2683 → pedido 2749). El orden de las cantidades por etapa se probó con
+29,551 renglones: se llenan en el mismo orden en que avanza el estatus.
+
+**Lecciones:**
+1. **Telemarketing y sucursal son el mismo documento**; sólo cambia `c27`. Y "sucursal" abastece tres
+   destinos distintos (tienda, ruta, reparto directo).
+2. **Kepler no guarda la hora de cada etapa.** Los tiempos de surtido sólo van a existir si la Suite los
+   registra: no hay línea base que rescatar.
+3. **Una captura que "muestra la diferencia" puede no mostrarla**: las dos primeras decían `TELEMARK`
+   porque la forma de alta se reutiliza. Hizo falta un pedido ya guardado.
+
+---
 ## 2026-10-06 — `[IC.23]` El encargado de sucursal asigna quién cuenta (y los tres gates mal partidos que aparecieron)
 
 **Disparador:** al presentar el plan de los tres ritmos ([`FASE_IC_RITMOS_Y_ABC`](FASES/FASE_IC_RITMOS_Y_ABC.md)),

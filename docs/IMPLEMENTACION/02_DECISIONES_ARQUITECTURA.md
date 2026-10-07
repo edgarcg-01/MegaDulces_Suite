@@ -2620,3 +2620,44 @@ Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FA
 **Hereda:** ADR-016 (el motor decide, el LLM fuera del dinero) · ADR-021 (aprendizaje determinista, colector antes que learner, pin humano) · ADR-040 (read-only sobre el ERP y ContPAQi) · ADR-056 (lo no medido se declara; un gate sin prueba negativa es una intención) · ADR-065 (preparar ≠ autorizar). Detalle y cifras en [`FASE_RE` §RE.35–RE.41](FASES/FASE_RE_RECEPCION_MERCANCIA.md).
 
 ---
+
+---
+
+## ADR-086 — El trabajo de piso del pedido se hace en la Suite; Kepler recibe UNA captura del resultado
+
+**Fecha:** 2026-10-06 · **Estado:** ⏳ propuesto · **Fase:** GP (`/almacen`, gestión de pedidos)
+
+**Contexto.** En Kepler el pedido (`U-D-40`, telemarketing o sucursal) se surte, checa y embarca con **hojas impresas**, y las pantallas de *Estatus Surtido / Checado / Embarque* pierden la vista del pedido en cuanto avanza: la historia sólo se recupera en *Salida por Embarque*. Medido en prod (solo lectura): Kepler guarda las cuatro cantidades por renglón (`kdm2.c51`–`c54`) y los tres responsables (`kdm1.c100/c102/c103`), pero **no la hora de cada etapa**, y el estatus del renglón no se actualiza.
+
+**Decisión (Francisco, 2026-10-06).** Opción A de tres:
+1. **El pedido sigue naciendo y viviendo en Kepler.** La Suite lo lee del ODS como **vista derivada** (regla principal: cero importers).
+2. **Surtido, checado y embarque se ejecutan en la Suite**, sin papel. Cada paso es un **evento propio** (quién, cuándo, cantidad por renglón): dato HITL que no existe en ningún ERP, así que es tabla real legítima.
+3. **El almacenista captura a Kepler una sola vez** el resultado (cantidades + responsables). **La Suite no escribe en Kepler.**
+4. **La Suite cuadra** su registro contra lo que aparece después en `kepler_ods`: diferencias de captura y pedidos que avanzaron en Kepler sin pasar por la Suite van a una bandeja, no se corrigen solos.
+5. El motor de surtido **se reusa** (`commercial-picking`, ADR-067) agregándole un origen Kepler; no se construye otro.
+
+**Rechazado:** (B) escribir el estatus y las cantidades directamente en Kepler — *"en algún futuro, cuando la Suite domine el 99% de las funciones consultivas, comenzaremos con las operativas; será historia de otro momento"*; (C) sólo medir y dejar el papel, porque no cumple el objetivo.
+
+**Lo que se DECLARA (ADR-056).** No hay línea base histórica de tiempos por etapa (Kepler no la guarda): se mide desde el piloto. El porcentaje de surtido completo no se publica mientras pedida y surtida puedan venir en unidades distintas.
+
+**Hereda:** ADR-040 (read-only sobre el ERP) · ADR-067 (surtido por olas, sin apartar existencia) · ADR-056 · ADR-057 (unidad). Plan en [`FASE_GP`](FASES/FASE_GP_GESTION_PEDIDOS_ALMACEN.md).
+
+---
+
+## ADR-087 — Bodega y piso de venta son zonas de UN almacén; la ubicación se separa en tres capas y la cantidad por ubicación va al final
+
+**Fecha:** 2026-10-06 · **Estado:** ⏳ propuesto · **Fase:** WMS (addendum §12) + GP
+
+**Contexto.** Kepler no gestiona ubicaciones. En cada sucursal la bodega y el piso de venta están en el mismo edificio, Kepler lleva una sola existencia para los dos, y un mismo producto vive en ambos. La Suite tiene desde WMS-REC las tablas `warehouse_bins` y `stock_lot_locations`, pero en prod están vacías (1 fila cada una). La ubicación por etapa del pedido existe en Kepler (`kdm2.c59/c60/c61`) y no se llena: PH 0%, Canindo 99% relleno.
+
+**Decisión (Francisco, 2026-10-06; propuesta de Claude).**
+1. **Bodega y piso de venta = zonas del mismo `commercial.warehouses`**, no dos almacenes: subir producto al anaquel no es un traspaso que Kepler registre.
+2. **Tres capas**, como los WMS líderes: **ubicación física** (jerarquía + tipo de zona + secuencia de recorrido + dígito verificador), **asignación** producto × ubicación × papel con mínimo/máximo (nueva), y **cantidad por ubicación**.
+3. **La cantidad por ubicación se difiere** hasta que las dos primeras capas se usen, porque exige escanear cada movimiento; sin eso se desvía del ERP. Enmienda WMS.5, que la planeaba al surtir.
+4. **Las ubicaciones móviles** (carretas, tarimas, estibas) son un tipo de zona del mismo catálogo.
+5. **La reposición del anaquel** es una tarea del anaquelista, ligada a planogramas de Trade y a la lista de faltantes (FLT).
+6. Piloto en PH.
+
+**Rechazado:** dos almacenes por sucursal (bodega / tienda), porque rompe el cuadre con Kepler; cantidad por ubicación desde el día uno, porque repite el relevo "operador anota, nadie registra".
+
+**Hereda:** ADR-044 (Kepler = SoR de la cantidad; la app dueña de la ubicación) · ADR-086 · ADR-056 (lo que no tiene cantidad por ubicación no la dibuja). Detalle en [`FASE_WMS` §12](FASES/FASE_WMS.md).

@@ -209,6 +209,20 @@ La arquitectura de referencia insiste con **silos** (que en WMS son granel: gran
 
 Si existe producto que se cuenta y se vende **por kilo**, entonces `quantity` en piezas es incorrecto para esos SKUs, y **no es un detalle de UI**: cambia el conteo, el surtido, la merma, la caducidad del lote abierto, y mete básculas al flujo. Es lo único del documento de referencia capaz de forzar un rediseño de fondo. **No arrancar WMS.5 sin esta respuesta.**
 
+> ✅ **Contestada (Francisco, 2026-10-06): en el almacén NO hay granel suelto.** Todo lo que llega a
+> granel **se empaca** en presentaciones fijas (1 kg, 500 g, 250 g…): son las unidades `KG`, `500`,
+> `250` de Kepler. **El surtidor siempre cuenta paquetes**, nunca pesa. Hay productos que, aunque
+> van en paquete, **se venden por kilo** (p. ej. bolsas en rollo); esos **se pesan sólo en la báscula
+> de las cajas** (punto de venta), no en el almacén. **No hace falta rediseñar `quantity` ni meter
+> básculas al surtido ni al conteo.**
+> Medido en PH (pedidos embarcados, 21 días): 969 renglones (~8%, ~$760k) se venden en `KG`; 290
+> se piden en bulto y 39 en caja (se cuenta el empaque, el peso sale del factor) y 640 en `KG`, de
+> los cuales **160 traen peso con decimales** (p. ej. "ALTOS ROLLO VERDE 25X35 1KG", 6.14 kg en
+> pedido, surtido y embarque). ⚠️ **Pendiente:** si la báscula está sólo en cajas, ¿de dónde sale el
+> peso de esos 160 renglones de pedido? (¿se pesa al tomar el pedido, o el pedido se corrige al
+> facturar?). No cambia el surtido —se cuentan paquetes— pero define si el checado debe capturar
+> un peso.
+
 **6.2 — Autoridad del inventario en la salida.**
 ADR-044 reparte limpio en entrada porque Kepler **no codifica caducidad**: el dato es net-new, sin conflicto. En salida se rompe la simetría, porque surtir **decrementa**. Dos caminos: (a) la app queda como capa sombra que reconcilia contra las salidas de Kepler —y el operario puede surtir algo que Kepler ya vendió—, o (b) la app pasa a ser SoR de la capa física y Kepler del comercial/fiscal. Define si el picking es **sugerencia o autoridad**. → ADR nuevo (§9).
 
@@ -279,3 +293,180 @@ Restrictivos, **sin seed** (se asignan en `/admin/roles` + re-login), siguiendo 
 ## 11. Relación con otras fases
 
 [`FASE_WMS_ESTACION_RECEPCION`](FASE_WMS_ESTACION_RECEPCION.md) (WMS-REC.1-5, inbound ✅) · [`PROYECTO_WMS_INVENTARIO_TRAZABLE`](PROYECTO_WMS_INVENTARIO_TRAZABLE.md) (el mapa de brechas original) · `FASE_I_INVENTARIO` (conteo ✅) · [`FASE_PREVENCION_INVENTARIOS`](FASE_PREVENCION_INVENTARIOS.md) (PREV ✅) · `FASE_FEFO_CADUCIDAD` (P2 ✅) · `FASE_PASILLOS_EQUIPOS` (PA ✅) · `FASE_ABC_CYCLE_COUNT` (✅) · [`FASE_RA_REABASTECIMIENTO`](FASE_RA_REABASTECIMIENTO.md) (compras ✅, consumidor) · `FASE_J*` (logística: embarque ✅) · [`FASE_VR`](FASE_VR_VENTA_EN_RUTA.md) / [`FASE_LM`](FASE_LM_ULTIMA_MILLA.md) (canales de salida diseñados, sin código) · [`FASE_AX`](FASE_AX_ANEXO_VENTA.md) (factor de cajas `kdii.c84`).
+
+---
+
+## 12. Addendum 2026-10-06 — Ubicaciones de bodega Y piso de venta (ADR-087) y relación con la Fase GP
+
+**Origen:** conversación con Francisco al diseñar la Fase GP ([`FASE_GP`](FASE_GP_GESTION_PEDIDOS_ALMACEN.md)).
+Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones en **bodega** y en
+**piso de venta**, y un mismo producto convive en las dos.
+
+### 12.1 Lo medido
+
+- **Las tablas de §2 A.1 existen pero están vacías en prod:** `warehouse_aisles` 4 filas,
+  `warehouse_bins` **1**, `stock_lot_locations` **1**. No hay datos que migrar ni que cuidar.
+- **Kepler lleva UNA existencia por sucursal** ("ALMACÉN PH") y la Suite un `commercial.warehouses`
+  por sucursal (más uno por camión de ruta). Bodega y piso de venta están **en el mismo edificio**
+  (confirmado por Francisco) y Kepler no los distingue.
+- **La ubicación por etapa del pedido existe en Kepler y nadie la llena** (`kdm2.c59/c60/c61`:
+  PH 0%/0%/33%; Canindo 99% relleno). Detalle en `FASE_GP` §2.6.
+
+### 12.2 Decisiones (ADR-087)
+
+1. **Bodega y piso de venta son ZONAS del mismo almacén, no dos almacenes.** Separarlos obligaría a
+   registrar un traspaso cada vez que el anaquelista sube producto, traspaso que Kepler nunca ve, y
+   la existencia dejaría de cuadrar con el ERP.
+2. **Tres capas separadas**, como los WMS líderes (Manhattan, Blue Yonder, SAP EWM, Oracle):
+   - **Ubicación física** (`warehouse_bins`): sucursal → zona → pasillo → rack/góndola → nivel →
+     posición, con **tipo de zona**, **secuencia de recorrido** (= §4.1), **dígito verificador**
+     en la etiqueta, unidad que admite y si es móvil.
+   - **Asignación (slotting)** — ⬜ **nuevo, no estaba en este plan**: producto × sucursal ×
+     ubicación × papel (`surtido_fijo` · `exhibicion_tienda` · `reserva_preferida`) + mínimo/máximo.
+     Dice dónde **debe** estar el producto sin llevar cantidad.
+   - **Cantidad por ubicación** (`stock_lot_locations`): **se difiere**. Exige escanear cada
+     movimiento; sin eso se desvía de Kepler en semanas (es el "el operador anota y nadie registra"
+     de `FASE_GP` §2.6). ⚠️ **Esto cambia WMS.5**, que planeaba el decremento real de
+     `stock_lot_locations` al surtir: queda condicionado a que las capas 1 y 2 se usen.
+3. **Tipos de zona** (amplía WMS.2): `recepcion` · `reserva` · `surtido` (frente) ·
+   **`tienda_piso`** · **`tienda_cabecera`** · `espera` · `anden` · `cuarentena` · `merma` ·
+   **`contenedor`** (carretas, tarimas y estibas de camión: **las ubicaciones móviles de GP entran
+   en este mismo catálogo**) · zonas especiales (p. ej. fresco), que **sí existen** según Francisco.
+4. **Formato de código: el que ya usa el piso** (Francisco, 2026-10-06). La propuesta inicial
+   (`B03-05-2` pasillo-rack-nivel) **se descarta**: la numeración física ya existe y es más simple.
+   - **Bodega `B01`, `B02`…** y **tienda `T01`, `T02`…**, consecutivos y **sin tope en 99**
+     (Francisco amplió el rango, 2026-10-06): 4 pasillos en planta baja y 4 en planta alta de 15
+     secciones dan 120, así que hay `B100` en adelante. **Se ordena por número, no por texto**
+     (para que `B100` vaya después de `B99`). Cada código es una
+     **sección**; no hay nivel ni posición dentro del código.
+   - **El pasillo se deduce del número**, en bloques de 15: pasillo 1 = `B01`–`B15`, pasillo 2 =
+     `B16`–`B30`, **pasillo superior 1** = `B31`–`B45`, y así consecutivamente.
+   - **El orden de surtido es el orden numérico** (`B01` → `B99`): la secuencia de recorrido de
+     §4.1 es el propio número, no un dato aparte que haya que capturar. Se guarda igual como columna
+     (`pick_sequence`) para poder corregirla si algún tramo se recorre distinto.
+   - **Espacios de espera de checado y embarque: `E01`, `E02`…** Se renombran (autorizado por
+     Francisco, 2026-10-06) porque los nombres de hoy (`A1`…`B3`) chocaban con bodega `B01`–`B03`.
+     La letra dice el tipo: `B` bodega · `T` tienda · `E` espera · `C` carreta.
+   - ⚠️ **Choque de letras a resolver:** `C` ya es carreta (`C52`) **y** el prefijo de la etiqueta
+     de caja de producto (`C06001`). No se confunden por largo (2 dígitos contra la clave completa),
+     pero falta letra para los **contenedores de plástico** (GP §5c): se propone `K01`, `K02`…
+   - Carretas `C52`, estibas por unidad.
+5. **Reposición de anaquel = tarea del anaquelista** (amplía WMS.7 al piso de venta): bodega →
+   anaquel cuando la exhibición baja del mínimo. Se liga a la lista de faltantes de piso (Fase FLT)
+   y a los planogramas de Trade (`trade.planogram_skus`): la ubicación de exhibición se toma del
+   planograma donde exista, no se captura dos veces.
+6. **Piloto: PH**, igual que GP.
+
+### 12.3 Lo que esto contesta de §6 y §8
+
+- **§6.2 (autoridad en la salida):** resuelta por **ADR-086**: el pedido sigue en Kepler; la Suite
+  lleva el trabajo de piso y **no escribe en Kepler**; se le captura una vez el resultado.
+- **§6.3 (de dónde viene la demanda de salida):** del **pedido Kepler `U-D-40`**, que cubre
+  sucursal (incluye tiendas, rutas y reparto directo) y telemarketing: 1,823 + 2,164 pedidos en 60
+  días. No de `commercial.orders`.
+- **WMS.5 / WMS.6 se implementan como GP.3 / GP.4** sobre ese origen. No se construyen dos veces.
+- **WMS.3 se destraba en parte:** la numeración física existe; falta recibir el croquis o la lista
+  de PH para levantar el censo.
+- **§6.1 (granel por peso): contestada.** Todo se empaca; el surtidor cuenta paquetes; los productos
+  que se venden por kilo se pesan sólo en la báscula de cajas.
+
+### 12.4 Preguntas abiertas
+
+| # | Pregunta | Bloquea |
+|---|---|---|
+| ~~U1~~ | ✅ `B01`–`B99` bodega, `T01`–`T99` tienda; pasillos de 15 secciones; hay pasillos superiores | — |
+| ~~U2~~ | ✅ Por el momento no hay zonas especiales | — |
+| U4 | Después de "pasillo superior 1" (`B31`–`B45`), ¿`B46`–`B60` es pasillo 3 de planta baja o superior 2? ¿Cuántos pasillos hay arriba y abajo en PH? | Censo (WMS.3) |
+| U5 | ¿La tienda también va en bloques de 15 por pasillo (`T01`–`T15`…)? ¿Cuántas secciones `T` tiene PH? | Censo (WMS.3) |
+| ~~U6~~ | ✅ Sí se renombran: espacios de espera de checado y embarque = `E01`, `E02`… | — |
+| ~~U7~~ | ✅ Se amplía el rango (`B100`+). Los rangos de cada pasillo se capturan en la pantalla de ubicaciones (planta, pasillo, desde, hasta), no bloquean: el orden de surtido es el número | — |
+| ~~U8~~ | ✅ El checado tiene báscula; ahí se cobra el peso exacto | — |
+| U3 | ¿Cómo sabe hoy el anaquelista qué subir? (recorrido, lista, a ojo) | Reposición (WMS.7) |
+
+---
+
+## 13. Addendum 2026-10-06 — Maestro logístico: peso y volumen por unidad
+
+**Origen:** Francisco, al medir la carga de pedidos (`FASE_GP` §4b): *"los auxiliares de volumen y
+peso tampoco están en Kepler, podemos desarrollarlos en la Suite"*.
+
+### 13.1 Lo medido
+
+- **Kepler no tiene peso ni dimensiones** de producto (confirmado por Francisco).
+- **La Suite tampoco:** ninguna columna de peso, largo, ancho, alto o volumen en `catalog`,
+  `commercial` ni `logistics` para productos. Sólo existen campos **de destino** que nadie llena
+  con base en el producto: `logistics.guide_recipients.weight_kg` (default 0),
+  `logistics.shipments.total_weight_kg`.
+- **Unidades de reparto:** `logistics.vehicles` tiene `capacity_kg` y `capacity_boxes`, pero de
+  **97 vehículos sólo 1 tiene capacidad en kg y 34 en cajas**. No hay volumen (m³) ni estibas.
+- **Cuántos productos hay que medir** (renglones de pedidos embarcados, 28 días):
+
+  | Alcance | SKUs distintos | SKUs para 50% · 80% · 90% · 95% de los renglones |
+  |---|---|---|
+  | Todas las sucursales | 2,997 | 264 · 861 · 1,365 · 1,822 |
+  | **PH** | 2,074 | **198 · 634** · 1,013 · 1,363 |
+
+  **Con ~200 productos se cubre la mitad de lo que se mueve en PH y con ~630, el 80%.** Es trabajo
+  de semanas, no de meses.
+
+### 13.2 Cómo lo hacen los WMS líderes
+
+Un **maestro logístico por unidad de medida**: para cada nivel (pieza → paquete → caja → tarima)
+se guarda largo, ancho, alto, **peso bruto** y, para tarima, cuántas cajas por cama y cuántas camas.
+Se llena de tres formas, de mejor a peor dato: **medido** en el almacén (cinta y báscula, o un
+dimensionador automático), **del proveedor** (catálogos electrónicos de producto), o **estimado**.
+Cada dato lleva su origen.
+
+### 13.3 Propuesta
+
+1. **Tabla propia de la Suite** (dato que no existe en ningún ERP): producto × unidad (base / dos /
+   tres, mismas unidades de `kdii`) × largo, ancho, alto (cm), peso bruto (kg), **origen**
+   (`medido` / `proveedor` / `estimado`), quién y cuándo.
+2. **Se mide la unidad mayor** (la caja o bulto, que es lo que se carga) y la base. Las intermedias
+   se derivan con el factor, y una diferencia grande entre lo derivado y lo medido se marca como
+   dato a revisar.
+3. **Se captura donde ya se trabaja:** en la recepción (estación de entrada, WMS-REC), cuando
+   llega un producto sin medidas, la pantalla pide medir **una** caja. Mismo principio de GP:
+   quien hace el trabajo lo registra.
+4. **Orden de captura por Pareto:** primero los ~200 productos que hacen la mitad de los renglones
+   de PH.
+5. **La báscula del checado sirve de testigo:** al cerrar una caja `P` o un contenedor se puede
+   pesar y comparar contra el peso calculado de su contenido. Si no cuadra, o está mal el dato
+   maestro o está mal el contenido.
+6. **Unidades de reparto:** completar `capacity_kg` y agregar volumen (m³) y número de estibas por
+   tipo de unidad. Con eso la carga de una guía se compara contra la capacidad del camión.
+
+**Lo que habilita:** peso y volumen por pedido, por bulto y por guía; aviso de camión pasado de
+peso o volumen; y el `weight_kg` de los destinatarios de la guía calculado en lugar de capturado.
+
+**Regla (ADR-056):** un pedido con productos sin medir **no muestra un peso total como si estuviera
+completo**: muestra el peso de lo medido y cuánto falta por medir.
+
+### 13.4 Decisiones de Francisco (2026-10-06)
+
+- **El maestro logístico es parte del módulo de Catálogo**, no del WMS: vive como pestaña nueva
+  **"Medidas y peso"** en `/compras/catalogo` (junto a Productos, Costos, Precios, Códigos…). El
+  almacén lo **consume** (recepción, checado, carga); no es su dueño.
+- **Hay báscula y cinta en recepción**: la captura en la entrada (punto 3) es viable.
+- **Los proveedores sí mandan fichas técnicas** con medidas y peso: se cargan como origen
+  `proveedor` y la medición en recepción las confirma o corrige.
+
+### 13.5 Tipos de unidad de reparto y capacidad (Francisco, 2026-10-06)
+
+| Tipo | Capacidad de carga |
+|---|---|
+| Tortón | 18,000 kg |
+| Rabón | 10,000 kg |
+| 5 toneladas | 5,000 kg |
+| 3.5 toneladas | 3,500 kg |
+| Nissan | 1,000 kg |
+| Ligeras (Rapid, RAM 700) | 600 kg |
+
+**El alta de la flota no permite asignar el tipo automáticamente** (medido en
+`logistics.vehicles`, 2026-10-06): de 97 vehículos, **33 son de prueba** (`MODELO TEST`, inactivos)
+y en el resto la marca y el modelo están revueltos (`NISSAN` a veces en marca y a veces en modelo;
+`FORD 350/450/550`, `INTERNACIONAL`, `FREIGHTLINER`, `HINO 500` sin tipo). Sólo el **Isuzu NPR**
+tiene capacidad (3,500 kg, consistente con "3.5 toneladas"). Propuesta: un **catálogo de tipos de
+unidad** con su capacidad (kg, y después m³ y estibas) y que **cada vehículo se asigne a un tipo**
+en la pantalla de flota, por alguien que conozca la unidad. La capacidad se hereda del tipo; no se
+captura vehículo por vehículo.
