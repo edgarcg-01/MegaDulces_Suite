@@ -362,7 +362,7 @@ está en Kepler y manda con su embarque.
 
 **Qué se entregó:** el Andén ofrece los embarques que vienen a cada almacén (destino resuelto por el
 mapa curado `analytics.transfer_dest_map`, sólo almacenes vivos), abre el vale desde el embarque
-(`erp_transfer`, migración `20261006140000` amplía el CHECK), busca por folio de embarque, y el
+(`erp_transfer`, migración `20261006143917` amplía el CHECK), busca por folio de embarque, y el
 reclamo de un faltante va a la sucursal que embarcó con el costo del embarque. Más: botón «Cambiar
 de camión» + lista «En curso» para volver a un vale a medias, sin cancelarlo.
 
