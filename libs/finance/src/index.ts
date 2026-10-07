@@ -49,6 +49,8 @@ export * from './lib/caja/caja-autofill.service';
 export * from './lib/caja/caja-autofill.engine';
 export * from './lib/caja/cash-cut.service';
 export * from './lib/caja/cash-cut.engine';
+// [CG.58] El conciliador de ingresos de CAOS. El MOTOR no se reexporta (patron de la casa).
+export * from './lib/caos/caos-ingreso-recon.service';
 export * from './lib/cancelled-docs/finance-cancelled-docs.module';
 export * from './lib/cancelled-docs/cancelled-docs.service';
 // [CSU.1] Cortes/Sucursales. El motor NO se reexporta: sus nombres cortos (r2, estadoCobro) chocarían en el barril.
