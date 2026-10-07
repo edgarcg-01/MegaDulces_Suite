@@ -20,6 +20,8 @@ import {
   UpdateShipmentDto,
   ShipmentStatus,
 } from './logistics-shipments.service';
+import type { TomaKeplerResultado } from '@megadulces/contracts';
+import type { TomaInput } from '../logistics-erp-shipments/nuevo-embarque.logic';
 
 /**
  * `[AUTHZ.5]` — Controller sin ningún decorador de autorización hasta acá (ver el comentario de
@@ -43,6 +45,17 @@ export class LogisticsShipmentsController {
   @ApiOperation({ summary: 'Crear shipment (status=programado)' })
   create(@Body() body: CreateShipmentDto) {
     return this.service.create(body);
+  }
+
+  @Post('from-kepler/:sucursal/:guia')
+  @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'EMB.12 — Tomar un viaje de Kepler: crea el embarque con la llave de la guía, la guía de entrega y un destinatario por parada. Sólo se captura lo que Kepler no tiene.' })
+  createFromKepler(
+    @Param('sucursal') sucursal: string,
+    @Param('guia') guia: string,
+    @Body() body: TomaInput,
+  ): Promise<TomaKeplerResultado> {
+    return this.service.createFromKepler(sucursal, guia, body ?? {});
   }
 
   @Get()

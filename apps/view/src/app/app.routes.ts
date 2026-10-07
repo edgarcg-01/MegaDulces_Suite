@@ -1668,6 +1668,18 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.LOGISTICS_TRANSFERS_VER)]
       },
       {
+        // EMB.12 — «Nuevo embarque» toma el viaje que almacén ya dio de salida en Kepler.
+        // ⚠️ Van ANTES de 'shipments/:id': si no, Angular resuelve «nuevo» como un id.
+        path: 'shipments/nuevo',
+        loadComponent: () => import('./modules/logistica/pages/logistica-nuevo-embarque.component').then(m => m.LogisticaNuevoEmbarqueComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
+      },
+      {
+        path: 'shipments/nuevo/:sucursal/:guia',
+        loadComponent: () => import('./modules/logistica/pages/logistica-nuevo-embarque-form.component').then(m => m.LogisticaNuevoEmbarqueFormComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
+      },
+      {
         path: 'shipments/:id',
         loadComponent: () => import('./modules/logistica/pages/logistica-shipment-detail.component').then(m => m.LogisticaShipmentDetailComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
