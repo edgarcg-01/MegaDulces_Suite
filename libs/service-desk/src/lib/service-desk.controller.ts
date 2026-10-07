@@ -29,6 +29,8 @@ import {
   type SdQueueCandidateDto,
   type SdQueueMembersResponse,
   type SdUpsertQueueDto,
+  type SdTransferDto,
+  type SdTransferResult,
   type SdUpsertFieldDto,
   type SdUpsertQueueMemberDto,
   type SdUpsertZoneDto,
@@ -214,6 +216,13 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'La coordinación asigna o reasigna a quien atiende.' })
   assign(@Param('id') id: string, @Body() dto: SdAssignDto, @Req() req: AuthedRequest): Promise<SdRequestDetail> {
     return this.actors.resolve(req).then((ctx) => this.requests.assign(ctx, id, dto));
+  }
+
+  @Post('requests/:id/transfer')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Traslada la solicitud a otra cola (mismo folio, hilo y adjuntos). Sólo la coordinación del área de origen; el destino debe tener quién la atienda.' })
+  transfer(@Param('id') id: string, @Body() dto: SdTransferDto, @Req() req: AuthedRequest): Promise<SdTransferResult> {
+    return this.actors.resolve(req).then((ctx) => this.requests.transfer(ctx, id, dto));
   }
 
   @Post('requests/:id/priority')

@@ -41,6 +41,8 @@ import {
   type SdRequestRow,
   type SdSlaView,
   type SdStatsResponse,
+  type SdTransferDto,
+  type SdTransferResult,
   type SdWorkLogEntryDto,
   type SdStatus,
   type SdVisibility,
@@ -55,6 +57,7 @@ import { nombreUbicacionExtra, ubicacionExtra } from './domain/ubicaciones';
 import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments.service';
 import { efectosDe, motivoDeCierre, puedeTransicionar, respuestaReanuda, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
+import { estadoTrasTraslado, terminaEspera, validarTraslado } from './domain/traslado';
 import { normalizarUbicacion } from './ubicacion.util';
 import { validarCamposExtra, type CampoDef } from './domain/campos-extra';
 import { clausulasOrden, validarOrden } from './domain/inbox-sort';
@@ -791,6 +794,112 @@ export class ServiceDeskRequestsService {
     });
     await this.despachar(efectos);
     return this.detail(ctx, id);
+  }
+
+  /**
+   * `[MS.7.11]` Traslada el MISMO ticket a otra cola (M6): mismo folio, hilo y adjuntos. Sólo la coordinación del área de ORIGEN.
+   * Qué se puede y qué estado queda lo decide `domain/traslado` (puro); acá se leen los datos y se escribe en UNA transacción:
+   * cola + categoría + asignación + plazos + el mensaje del hilo, o nada.
+   *
+   * La prioridad que una persona ya confirmó se conserva (el modelo de la cola nueva pide datos que el ticket quizá no tiene);
+   * se recalculan los PLAZOS con la política de la cola destino para esa prioridad.
+   */
+  async transfer(ctx: ActorCtx, id: string, dto: SdTransferDto): Promise<SdTransferResult> {
+    if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
+    if (!esUuid(dto?.queue_id)) throw new BadRequestException('queue_id inválido');
+    if (!esUuid(dto?.category_id)) throw new BadRequestException('category_id inválido');
+    const motivo = String(dto?.reason ?? '').trim();
+    if (motivo.length > MAX_TEXTO) throw new BadRequestException(`El motivo admite hasta ${MAX_TEXTO} caracteres`);
+    const { efectos, resultado } = await this.tk.run(async (trx) => {
+      const config = await this.cfg.load(trx);
+      const r = await this.bloquear(trx, id);
+      if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
+      if (!ctx.esCoordinador || !puedeCoordinarCola(ctx.colas, r.queue_id)) throw new ForbiddenException('Sólo la coordinación del área donde está la solicitud puede trasladarla');
+
+      const destino = await trx('servicedesk.queues').where({ id: dto.queue_id, active: true }).whereNull('deleted_at').first('id', 'name');
+      const categoria = destino
+        ? await trx('servicedesk.categories').where({ id: dto.category_id, queue_id: dto.queue_id, active: true }).whereNull('deleted_at').first('id', 'name')
+        : null;
+      const miembros = destino ? (await this.agents.listIn(trx, dto.queue_id)).map((a) => a.user_id) : [];
+      const veto = validarTraslado({
+        status: r.status as SdStatus,
+        origenId: r.queue_id,
+        destinoId: dto.queue_id,
+        destinoActiva: !!destino,
+        categoriaEsDelDestino: !!categoria,
+        miembrosDestino: miembros.length,
+        motivo,
+      });
+      if (veto) throw veto.http === 400 ? new BadRequestException(veto.mensaje) : new ConflictException(veto.mensaje);
+
+      const politica = politicaDe(config, dto.queue_id, r.priority as SdPriority);
+      if (!politica) throw new ConflictException(`El área destino no tiene política de SLA para la prioridad «${r.priority}»`);
+      const now = new Date();
+      /*
+       * Un ticket EN ESPERA termina su espera al trasladarse (ver `estadoTrasTraslado`): se acredita lo que ya estuvo en pausa
+       * —con el calendario, igual que al reanudar— y los plazos se calculan sobre ese total, con la política del área destino.
+       */
+      let pausado = Number(r.paused_minutes);
+      let liberaPausa = false;
+      if (terminaEspera(r.status as SdStatus)) {
+        if (!r.paused_at) throw new ConflictException('La solicitud está en espera pero no tiene hora de pausa registrada');
+        const rr = reanudarTrasPausa(
+          { due_at: r.due_at ? new Date(r.due_at) : null, first_response_due_at: r.first_response_due_at ? new Date(r.first_response_due_at) : null, first_responded_at: r.first_responded_at ? new Date(r.first_responded_at) : null, paused_at: new Date(r.paused_at) },
+          now,
+          politica,
+          config.settings.calendar,
+        );
+        pausado += rr.paused_delta_minutes;
+        liberaPausa = true;
+      }
+      const plazos = plazosTrasCambioDePrioridad(new Date(r.created_at), pausado, r.first_responded_at ? new Date(r.first_responded_at) : null, politica, config.settings.calendar);
+      const origen = await trx('servicedesk.queues').where({ id: r.queue_id }).first('name');
+      const catOrigen = await trx('servicedesk.categories').where({ id: r.category_id }).first('name');
+      const nuevoEstado = estadoTrasTraslado(r.status as SdStatus);
+      await trx('servicedesk.requests').where({ id }).update({
+        queue_id: dto.queue_id,
+        category_id: dto.category_id,
+        status: nuevoEstado,
+        assigned_to: null,
+        assigned_by: null,
+        assigned_at: null,
+        due_at: plazos.due_at,
+        first_response_due_at: plazos.first_response_due_at,
+        ...(liberaPausa ? { paused_at: null, pause_reason: null, paused_minutes: pausado } : {}),
+        // Un plazo nuevo es una medición nueva: lo ya marcado como vencido bajo la política de la otra área deja de valer.
+        sla_first_breached_at: null,
+        sla_resolution_breached_at: null,
+        updated_at: now,
+        updated_by: ctx.userId,
+      });
+      // El hilo es el registro del traslado (no hay tabla aparte): de→a, quién y por qué. Es público: quien reportó ve que su solicitud
+      // cambió de área. Las respuestas de los campos propios del área de origen se conservan en la base y se anotan aquí.
+      await this.addMessage(trx, r.tenant_id, id, {
+        kind: 'transfer',
+        visibility: 'public',
+        authorId: ctx.userId,
+        authorLabel: ctx.nombre,
+        body: motivo,
+        meta: {
+          from_queue_id: r.queue_id,
+          from_queue: origen?.name ?? null,
+          to_queue_id: dto.queue_id,
+          to_queue: destino.name,
+          from_category: catOrigen?.name ?? null,
+          to_category: categoria?.name ?? null,
+          from_assignee: r.assigned_to ?? null,
+          ...(r.extra && Object.keys(r.extra).length ? { extra_origen: r.extra } : {}),
+        },
+      });
+      const fx = sinEfectos();
+      fx.bitacora.push({ tenantId: r.tenant_id, requestId: id, folio: r.folio, event: 'assigned', status: nuevoEstado, assignedTo: null });
+      // Le avisa a quien atiende el área DESTINO (menos a quien traslada).
+      fx.avisos.push(this.evento(r, 'transferido', miembros, ctx, { extracto: destino.name, discriminador: now.getTime() }));
+      const resultado: SdTransferResult = { id, folio: r.folio, queue_id: dto.queue_id, queue_name: destino.name, category_name: categoria?.name ?? '', status: nuevoEstado };
+      return { efectos: fx, resultado };
+    });
+    await this.despachar(efectos);
+    return resultado;
   }
 
   async changePriority(ctx: ActorCtx, id: string, dto: SdChangePriorityDto): Promise<SdRequestDetail> {

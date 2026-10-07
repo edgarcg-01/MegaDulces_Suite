@@ -51,7 +51,7 @@ export type SdImpact = (typeof SD_IMPACTS)[number];
 export const SD_CHANNELS = ['web', 'vendor', 'public_link', 'whatsapp', 'bitacora'] as const;
 export type SdChannel = (typeof SD_CHANNELS)[number];
 
-export const SD_MESSAGE_KINDS = ['comment', 'status', 'assignment', 'priority', 'system', 'internal_note'] as const;
+export const SD_MESSAGE_KINDS = ['comment', 'status', 'assignment', 'priority', 'system', 'internal_note', 'transfer'] as const;
 export type SdMessageKind = (typeof SD_MESSAGE_KINDS)[number];
 
 export type SdVisibility = 'public' | 'internal';
@@ -342,6 +342,32 @@ export interface SdChangeStatusDto {
   note?: string;
   /** `[MS.7.9]` OBLIGATORIO al pasar a `en_espera`; con cualquier otro estado → 400. */
   pause_reason?: SdPauseReason;
+}
+
+/**
+ * `[MS.7.11]` Trasladar un ticket a otra cola. Mueve el MISMO ticket (folio, hilo y adjuntos se conservan): cambia cola y categoría, quita
+ * la asignación y recalcula los plazos con la política de la cola destino. Sólo la coordinación del área de origen.
+ */
+export interface SdTransferDto {
+  /** La cola destino. Debe estar encendida y tener al menos una persona que la atienda. */
+  queue_id: string;
+  /** Una categoría DE la cola destino. */
+  category_id: string;
+  /** Por qué: lo leen las dos áreas en el hilo. Obligatorio. */
+  reason: string;
+}
+
+/**
+ * `[MS.7.11]` Lo que devuelve un traslado. NO es la ficha: tras trasladar, quien coordina el área de origen deja de ver el ticket (ya es
+ * de otra cola), así que devolver su ficha sería un 404 disfrazado de éxito.
+ */
+export interface SdTransferResult {
+  id: string;
+  folio: string;
+  queue_id: string;
+  queue_name: string;
+  category_name: string;
+  status: SdStatus;
 }
 
 export interface SdAssignDto {

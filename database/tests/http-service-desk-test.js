@@ -1596,6 +1596,102 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       await knex('servicedesk.routing_rules').whereIn('assignee_id', [tecR.id, jefeR.id]).del();
     }
 
+    // ── 31. [MS.7.11] Transferir un ticket a otra cola: mismo folio e hilo, plazos de la cola destino ────
+    {
+      console.log('\n31 — transferir entre colas');
+      const [{ id: qO }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_tr_o', name: 'SMOKE Origen', sort_order: 907 }).returning('id');
+      const [{ id: qD }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_tr_d', name: 'SMOKE Destino', sort_order: 908 }).returning('id');
+      const [{ id: qV }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_tr_v', name: 'SMOKE Vacía', sort_order: 909 }).returning('id');
+      const [{ id: catO }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qO, code: 'smoke_tr_co', name: 'SMOKE TR o', default_priority: 'media', requires_branch: false }).returning('id');
+      const [{ id: catD }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qD, code: 'smoke_tr_cd', name: 'SMOKE TR d', default_priority: 'media', requires_branch: false }).returning('id');
+      const [{ id: catV }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qV, code: 'smoke_tr_cv', name: 'SMOKE TR v', default_priority: 'media', requires_branch: false }).returning('id');
+      // El destino con plazos PROPIOS (más cortos que los generales) para ver que se recalculan.
+      await knex('servicedesk.sla_policies').insert({ tenant_id: T, queue_id: qD, priority: 'media', first_response_minutes: 15, resolution_minutes: 30, clock: 'calendar' });
+      const jefeO = await crearUsuario('tr_jefeo', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qO, role: 'coordinador' }]);
+      const tecO = await crearUsuario('tr_teco', ['SERVICIO_ATENDER'], [{ queue_id: qO, role: 'tecnico' }]);
+      const jefeD = await crearUsuario('tr_jefed', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qD, role: 'coordinador' }]);
+      usuarios.push(jefeO, tecO, jefeD);
+      const mk = async (extra = {}) => {
+        const r = await req('POST', `${SD}/requests`, sol.token, { category_id: catO, title: 'SMOKE 7.11 ' + Math.random().toString(36).slice(2, 7), ...extra });
+        return r.body;
+      };
+      const traslada = (id, token, dto) => req('POST', `${SD}/requests/${id}/transfer`, token, dto);
+      const ok = { queue_id: qD, category_id: catD, reason: 'Es una falla del área destino' };
+      const fichaD = async (id) => (await req('GET', `${SD}/requests/${id}`, jefeD.token)).body;
+
+      // Rechazos.
+      const t0 = await mk();
+      await req('POST', `${SD}/requests/${t0.id}/assign`, jefeO.token, { user_id: tecO.id });
+      check('⛔ quien reportó no traslada → 403', (await traslada(t0.id, sol.token, ok)).status === 403);
+      check('⛔ un técnico (sin COORDINAR) no traslada → 403', (await traslada(t0.id, tecO.token, ok)).status === 403);
+      check('⛔ quien coordina OTRA cola (TI) ni la ve → 404', (await traslada(t0.id, coord.token, ok)).status === 404);
+      check('⛔ la coordinación del DESTINO tampoco puede «traer» un ticket que no es de su cola → 404', (await traslada(t0.id, jefeD.token, ok)).status === 404);
+      check('⛔ sin motivo → 400', (await traslada(t0.id, jefeO.token, { ...ok, reason: '  ' })).status === 400);
+      check('⛔ a la misma cola → 400', (await traslada(t0.id, jefeO.token, { queue_id: qO, category_id: catO, reason: 'x' })).status === 400);
+      check('⛔ con una categoría que NO es del destino → 400', (await traslada(t0.id, jefeO.token, { queue_id: qD, category_id: catO, reason: 'x' })).status === 400);
+      check('⛔ a una cola que no existe → 400', (await traslada(t0.id, jefeO.token, { queue_id: '00000000-0000-4000-8000-000000000000', category_id: catD, reason: 'x' })).status === 400);
+      check('⛔ ids mal formados → 400', (await traslada(t0.id, jefeO.token, { queue_id: 'x', category_id: catD, reason: 'x' })).status === 400);
+      const vacia = await traslada(t0.id, jefeO.token, { queue_id: qV, category_id: catV, reason: 'x' });
+      check('⭐ a una cola que NADIE atiende → 409 (el ticket se perdería)', vacia.status === 409 && /nadie atiende/i.test(JSON.stringify(vacia.body)), dump(vacia));
+      const intacto = await knex('servicedesk.requests').where({ id: t0.id }).first('queue_id', 'assigned_to', 'status');
+      check('⭐ y nada cambió con los rechazos (misma cola, misma persona)', intacto.queue_id === qO && intacto.assigned_to === tecO.id && intacto.status === 'asignado', JSON.stringify(intacto));
+
+      // Traslado feliz, de un ticket ASIGNADO y en proceso, con hilo, adjunto, zona y campos.
+      await req('POST', `${SD}/requests/${t0.id}/status`, tecO.token, { status: 'en_proceso' });
+      await req('POST', `${SD}/requests/${t0.id}/messages`, tecO.token, { body: 'Nota del área de origen', visibility: 'internal' });
+      await req('POST', `${SD}/requests/${t0.id}/messages`, sol.token, { body: 'Comentario público de quien reportó' });
+      const dueAntes = (await req('GET', `${SD}/requests/${t0.id}`, jefeO.token)).body?.sla?.due_at;
+      const trs = await traslada(t0.id, jefeO.token, ok);
+      check('⭐ la coordinación del ORIGEN traslada y recibe un resultado (no la ficha: ya no la ve)', trs.status < 300 && trs.body?.id === t0.id && trs.body?.queue_id === qD && trs.body?.queue_name === 'SMOKE Destino' && trs.body?.status === 'nuevo', dump(trs));
+      check('⭐ MISMO folio (no se clona ni se renumera)', trs.body?.folio === t0.folio);
+      check('⛔ y quien trasladó YA NO ve el ticket (es de otra cola) → 404', (await req('GET', `${SD}/requests/${t0.id}`, jefeO.token)).status === 404);
+      const f = await fichaD(t0.id);
+      check('⭐ la coordinación del DESTINO lo ve, en la cola y categoría nuevas, SIN asignar y en «nuevo»', f?.queue_id === qD && f?.category_id === catD && f?.assigned_to === null && f?.status === 'nuevo', JSON.stringify([f?.queue_id === qD, f?.category_id === catD, f?.assigned_to, f?.status]));
+      check('⭐ la PRIORIDAD ya confirmada se conserva', f?.priority === 'media');
+      check('⭐ los plazos se recalculan con la política de la cola DESTINO (la propia, no la general)', f?.sla?.due_at !== dueAntes && !!f?.sla?.due_at, `${dueAntes} → ${f?.sla?.due_at}`);
+      const hilo = f?.messages ?? [];
+      check('⭐ el hilo se conserva ENTERO (nota interna y comentario público) y suma el mensaje de traslado', hilo.some((m) => m.body === 'Nota del área de origen') && hilo.some((m) => m.body === 'Comentario público de quien reportó') && hilo.some((m) => m.kind === 'transfer'), JSON.stringify(hilo.map((m) => m.kind)));
+      const mt = hilo.find((m) => m.kind === 'transfer');
+      check('el mensaje dice de→a, quién y por qué', mt?.body === 'Es una falla del área destino' && mt?.meta?.from_queue === 'SMOKE Origen' && mt?.meta?.to_queue === 'SMOKE Destino' && mt?.meta?.from_assignee === tecO.id && mt?.author_label, JSON.stringify(mt));
+      const fSol = (await req('GET', `${SD}/requests/${t0.id}`, sol.token)).body;
+      check('⭐ quien reportó ve su solicitud (con el traslado en el hilo) y la cola nueva', fSol?.queue_name === 'SMOKE Destino' && (fSol?.messages ?? []).some((m) => m.kind === 'transfer'), JSON.stringify(fSol?.queue_name));
+      check('⛔ quien reportó NO ve la nota interna del área de origen', !(fSol?.messages ?? []).some((m) => m.body === 'Nota del área de origen'));
+      const aviso = await req('GET', `${SD}/me/notifications`, jefeD.token);
+      check('⭐ el DESTINO recibe «Te trasladaron una solicitud» con el nombre del área', (aviso.body ?? []).some((n) => n.event === 'transferido' && n.folio === t0.folio && /SMOKE Destino/.test(n.message)), JSON.stringify((aviso.body ?? []).slice(0, 2)));
+      const avisoOrigen = await req('GET', `${SD}/me/notifications`, jefeO.token);
+      check('⛔ y quien traslada NO se avisa a sí mismo', !(avisoOrigen.body ?? []).some((n) => n.event === 'transferido'));
+      check('⭐ el destino ya puede tomarla o asignarla (y el técnico del origen ya NO la ve)', (await req('POST', `${SD}/requests/${t0.id}/assign`, jefeD.token, { user_id: jefeD.id })).status < 300 && (await req('GET', `${SD}/requests/${t0.id}`, tecO.token)).status === 404);
+
+      // Estados que no se trasladan; en espera se queda en espera.
+      const tr = await mk();
+      await req('POST', `${SD}/requests/${tr.id}/assign`, jefeO.token, { user_id: tecO.id });
+      await req('POST', `${SD}/requests/${tr.id}/status`, tecO.token, { status: 'en_proceso' });
+      await req('POST', `${SD}/requests/${tr.id}/status`, tecO.token, { status: 'resuelto', note: 'listo' });
+      check('⛔ una solicitud RESUELTA no se traslada → 409', (await traslada(tr.id, jefeO.token, ok)).status === 409);
+      const te = await mk();
+      await req('POST', `${SD}/requests/${te.id}/assign`, jefeO.token, { user_id: tecO.id });
+      await req('POST', `${SD}/requests/${te.id}/status`, tecO.token, { status: 'en_espera', pause_reason: 'proveedor' });
+      const trE = await traslada(te.id, jefeO.token, ok);
+      check('⭐ una solicitud EN ESPERA llega al destino como «nuevo» (la espera termina)', trE.status < 300 && trE.body?.status === 'nuevo', dump(trE));
+      const fE = await fichaD(te.id);
+      check('⭐ la espera TERMINA: sin motivo, el reloj corriendo y sin asignar (no queda atorada en espera sin asignado)', fE?.pause_reason === null && fE?.sla?.paused === false && fE?.assigned_to === null && fE?.status === 'nuevo', JSON.stringify([fE?.pause_reason, fE?.sla?.paused, fE?.assigned_to, fE?.status]));
+      const enBase = await knex('servicedesk.requests').where({ id: te.id }).first('paused_at', 'pause_reason', 'paused_minutes');
+      check('en la base: pausa cerrada y el tiempo en pausa acreditado (>= 0)', enBase.paused_at === null && enBase.pause_reason === null && Number(enBase.paused_minutes) >= 0, JSON.stringify(enBase));
+      const toma = await req('POST', `${SD}/requests/${te.id}/assign`, jefeD.token, { user_id: jefeD.id });
+      const sigue = await req('POST', `${SD}/requests/${te.id}/status`, jefeD.token, { status: 'en_proceso' });
+      check('⭐ el destino la toma y la inicia con normalidad', toma.status < 300 && sigue.status < 300 && sigue.body?.status === 'en_proceso', dump(sigue));
+      const reEspera = await req('POST', `${SD}/requests/${te.id}/status`, jefeD.token, { status: 'en_espera', pause_reason: 'refaccion' });
+      check('y si lo esperado sigue pendiente la vuelve a poner en espera con SU motivo', reEspera.status < 300 && reEspera.body?.pause_reason === 'refaccion', dump(reEspera));
+
+      // TI no se tocó.
+      check('⛔ el agente de TI no ve ninguno de estos tickets en su bandeja', await (async () => {
+        const ids = new Set(((await req('GET', `${SD}/requests/inbox?scope=all&limit=200`, agente.token)).body?.rows ?? []).map((r) => r.id));
+        return !ids.has(t0.id) && !ids.has(te.id);
+      })());
+
+      await knex('servicedesk.sla_policies').whereIn('queue_id', [qO, qD, qV]).del();
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
