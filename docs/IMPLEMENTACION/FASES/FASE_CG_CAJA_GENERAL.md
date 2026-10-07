@@ -1923,3 +1923,62 @@ sin `ORDER BY`.
 3. La pantalla: los tres cubos —**cubierto · sin respaldo · sin depositar**— y el enlace a sus
    cobros.
 4. ⛔ **La migración no se aplica a prod sin autorización** (regla de la casa).
+
+### `[CG.58.1]` La tabla, el servicio y los dos endpoints (2026-10-07)
+
+**Migración `20261007330000_cg58_caos_ingreso_atribucion`** — `finance.caos_ingreso_atribucion`,
+RLS forzado, aditiva, idempotente. Guarda **los tramos**: qué parte de qué cobro entró a qué
+depósito. No copia ni el cobro ni el depósito — ésos viven en `kepler_ods` y en
+`analytics.caos_cash_movements`.
+
+Dos candados, **en la base y no en el servicio**:
+
+- `ux_caos_atrib_cobro_vivo` — **un cobro no se atribuye dos veces.** Sin esto el 100% sería de
+  mentira: bastaría con reusar el mismo cobro hasta cubrir todo.
+- `caos_atrib_orden_chk` — `cobro_fecha <= caos_occurred_at::date`. **La ley del proceso, como
+  CHECK.** Un reparto que la viole no es un reparto: es un respaldo inventado.
+
+⚠️ El timestamp original `…300000` **colisionaba con una migración congelada de otra sesión**
+(`re32_referencia_orden_entrada`); lo agarró `check:mig-colisiones` y se renombró a `…330000`.
+
+⚠️ `COMMENT ON` va con el escapador `lit()`: **no admite binds**, y esta misma sesión ya se comió
+ese bug (`syntax error at or near "$1"`) en dos migraciones.
+
+**`CaosIngresoReconService`** — lee, llama al motor y escribe. Toda la aritmética sigue en el motor
+puro: si viviera en el servicio haría falta un doble de Knex para probarla, y un doble de Knex no
+ejecuta SQL.
+
+⭐ **Es idempotente**: descuenta del pool lo **ya atribuido** antes de repartir, así que correrlo
+dos veces no duplica tramos ni cambia el reparto. Inserta en lotes de 500 — 708 depósitos pueden
+dar miles de tramos y un `INSERT` único sería una sentencia de megabytes.
+
+**Dos endpoints** en `/finance/caos`:
+
+| | Permiso | Qué hace |
+|---|---|---|
+| `GET ingresos/estado` | `FINANCE_CAOS_VER` | la foto, sin escribir |
+| `POST ingresos/conciliar` | `FINANCE_CAJA_GESTIONAR` | reparte y guarda |
+
+⚠️ **No se inventó un permiso nuevo.** La conciliación corre *al generar el arqueo*, que ya exige
+`FINANCE_CAJA_GESTIONAR` — y un permiso nuevo sin repartir es un módulo que nadie puede abrir
+(`[LC.6.2]`). Cero migraciones de permisos.
+
+⚠️ El `GET` publica **tres cantidades separadas** (ADR-056): *conciliado* · *pendiente* (depósito
+sin cobros que lo expliquen) · *sin depositar* (cobros que todavía no entraron al equipo). Las dos
+últimas **no son lo mismo y las arregla gente distinta**.
+
+### Verificación
+
+- `nx test finance` **608/608** · `nx run api:typecheck` verde · `check:mig-colisiones`,
+  `check:migrations`, `check:sql-backticks` y `check:wiring` verdes.
+
+### ⛔ Lo que falta
+
+1. **Aplicar la migración a prod** — no se hace sin autorización explícita, y va **una por una** con
+   `apply-one-migration-prod.js` dentro de `prod-api` (nunca `migrate:latest`: hay dos
+   `knex_migrations`).
+2. **Correr el primer reparto** y contrastar el resultado contra la medición: deben salir **708
+   cubiertos, 0 sin respaldo**. Si no sale eso, la implementación no coincide con lo medido y hay
+   que parar.
+3. **La pantalla** con los tres cubos.
+4. El enganche automático al cerrar la jornada (hoy el `POST` es manual).
