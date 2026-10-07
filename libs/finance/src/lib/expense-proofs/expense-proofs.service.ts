@@ -33,7 +33,8 @@ import { LARGO_MINIMO_USUARIO, normalizarUsuarioKepler, type ValeAsignado } from
 import { constanciaDeAutorizacion, documentoKepler, quedaDebiendoComprobante } from '@megadulces/contracts';
 // [GX.59] La regla del protocolo: la MISMA que lee la pantalla del Expediente.
 import { protocoloDelVale } from '@megadulces/contracts';
-import type { PersonaExpediente, RespuestaExpediente, ValeExpediente } from '@megadulces/contracts';
+import type { FiltroExpediente, OpcionDepartamentoExpediente, PersonaExpediente, RespuestaExpediente, ValeExpediente } from '@megadulces/contracts';
+import { pideSinDepartamento } from './expediente-filtro';
 import type { AutorizacionKepler } from '@megadulces/contracts';
 
 /**
@@ -2481,12 +2482,48 @@ export class ExpenseProofsService {
    * `[GX.65.2]` Desde el 2026-10-03 la comprobación **ya no decide** si el vale cierra: se sigue
    * mandando como dato informativo, pero `protocoloDelVale` no la lee, así que `null` ya no
    * produce `sin_medir`.
+   *
+   * ## `[GX.72]` El filtro (fechas + departamento) va en el SERVIDOR
+   * Filtrar en la pantalla sobre lo ya cargado se veía igual, pero mentía en dos lugares: los KPIs
+   * de arriba seguirían contando todo, y con el tope de filas (`truncado`) un periodo viejo saldría
+   * vacío aunque tuviera vales. Acá el filtro recorta la consulta y los totales salen de lo filtrado.
+   *
+   * ⚠️ La fecha es la del **levantamiento** en hora de México (`created_at`), la misma que muestra
+   * cada vale (`created_dia`). El corte se hace convirtiendo el día de México a instante, para que
+   * la condición caiga sobre la columna y no sobre una expresión: un gasto levantado a las 20:00
+   * de acá ya es el día siguiente en UTC, y cortar en UTC lo mudaría de casilla.
    */
-  async expedientePorUsuario(limit = 2000): Promise<RespuestaExpediente> {
+  async expedientePorUsuario(
+    limit = 2000,
+    filtro: FiltroExpediente = { desde: null, hasta: null, departamento: null },
+  ): Promise<RespuestaExpediente> {
     const tenantId = this.tenantCtx.requireTenantId();
     const lim = Math.min(5000, Math.max(1, Number(limit) || 2000));
 
     return this.tk.run(async (trx) => {
+      /** El rango de fechas, sobre cualquier consulta de `v_expense_proofs as p`. */
+      const porFechas = (qb: Knex.QueryBuilder) => {
+        if (filtro.desde) {
+          qb.where('p.created_at', '>=', trx.raw(`(?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [filtro.desde]));
+        }
+        if (filtro.hasta) {
+          // `< día siguiente`, no `<= hasta 23:59:59`: el segundo pierde lo levantado en el último segundo.
+          qb.where('p.created_at', '<', trx.raw(`((?::date) + 1)::timestamp AT TIME ZONE 'America/Mexico_City'`, [filtro.hasta]));
+        }
+        return qb;
+      };
+
+      // Las opciones de departamento: con el filtro de fechas, SIN el de departamento.
+      const opcionesCrudas: { departamento: string | null; vales: number | string }[] = await porFechas(
+        trx('finance.v_expense_proofs as p')
+          .where('p.tenant_id', tenantId)
+          .select(trx.raw(`NULLIF(btrim(p.departamento), '') AS departamento`), trx.raw('count(*)::int AS vales'))
+          .groupByRaw(`NULLIF(btrim(p.departamento), '')`)
+          .orderByRaw('count(*) DESC, 1 ASC'));
+      const departamentos: OpcionDepartamentoExpediente[] = opcionesCrudas.map((o) => ({
+        departamento: o.departamento, vales: Number(o.vales) || 0,
+      }));
+
       // ⛔ Se pregunta por la tabla ANTES de leerla. Un `catch` que devuelve `[]` convertiría
       // «no pude medir» en «nadie comprobó», que es la mentira que este módulo evita.
       const [{ existe }] = await trx.select(
@@ -2515,6 +2552,14 @@ export class ExpenseProofsService {
           trx.raw('p.importe::numeric AS importe'),
           trx.raw(`to_char(p.fecha_gasto, 'YYYY-MM-DD') AS fecha_gasto`),
           trx.raw(`to_char(p.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS created_dia`));
+
+      // `[GX.72]` El filtro recorta la consulta, no la pantalla (ver el encabezado).
+      porFechas(q);
+      if (pideSinDepartamento(filtro)) {
+        q.where((w) => w.whereNull('p.departamento').orWhereRaw(`btrim(p.departamento) = ''`));
+      } else if (filtro.departamento) {
+        q.whereRaw('btrim(p.departamento) = ?', [filtro.departamento]);
+      }
 
       if (hayTablaComprobaciones) {
         q.select(
@@ -2658,6 +2703,8 @@ export class ExpenseProofsService {
       }), { vales: 0, completos: 0, incompletos: 0, en_captura: 0, sin_medir: 0, monto: 0 });
 
       return {
+        filtro,
+        departamentos,
         personas,
         total: {
           personas: personas.length,

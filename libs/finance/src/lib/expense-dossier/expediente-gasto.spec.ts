@@ -1,4 +1,6 @@
-import { cuadraImporte, derivarEtapa, ETAPA_LABEL, type EntradaEtapa } from './expediente-gasto.service';
+import { ANY_PERMISSIONS_KEY, Permission } from '@megadulces/platform-core';
+import { cuadraImporte, derivarEtapa, ETAPA_LABEL, veCualquierExpediente, type EntradaEtapa } from './expediente-gasto.service';
+import { ExpedienteGastoController } from './expediente-gasto.controller';
 
 /**
  * `[GX.15]` La etapa del trámite es lo que le dice a una persona qué tiene que hacer. Si
@@ -122,5 +124,45 @@ describe('[GX.15] el cuadre de importes', () => {
     // Importa: en prod las canceladas tienen importe 0 y no deben «cuadrar» con nada.
     expect(cuadraImporte(0, 0)).toBe(true);
     expect(cuadraImporte(0, 500)).toBe(false);
+  });
+});
+
+/**
+ * `[GX.70]` El botón «Expediente PDF» de `/finanzas/expediente` respondía «No se pudo armar
+ * el expediente» a quien autoriza sin áreas ni `VER_ALL`: la lista le mostraba los vales de
+ * todos (`[GX.59]`, gateada por COMPROBAR) y el PDF le aplicaba el alcance por áreas.
+ */
+describe('[GX.70] quien autoriza abre el expediente de cualquier vale', () => {
+  it('COMPROBAR abre todo aunque el alcance por áreas no', () => {
+    // El caso medido: Jesús Carrillo — COMPROBAR por persona, sin áreas, sin VER_ALL.
+    expect(veCualquierExpediente(false, { [Permission.FINANCE_EXPENSES_COMPROBAR]: true })).toBe(true);
+  });
+
+  it('el alcance que ya abría todo (god-mode o VER_ALL) se respeta', () => {
+    expect(veCualquierExpediente(true, {})).toBe(true);
+    expect(veCualquierExpediente(true, undefined)).toBe(true);
+  });
+
+  /** Prueba negativa: sin COMPROBAR la regla vieja manda — no se abre a quien sólo captura. */
+  it('sólo VER o CAPTURAR NO abren el expediente ajeno', () => {
+    expect(veCualquierExpediente(false, {
+      [Permission.FINANCE_EXPENSES_VER]: true,
+      [Permission.FINANCE_EXPENSES_CAPTURAR]: true,
+    })).toBe(false);
+    expect(veCualquierExpediente(false, { [Permission.FINANCE_EXPENSES_COMPROBAR]: false })).toBe(false);
+    expect(veCualquierExpediente(false, undefined)).toBe(false);
+  });
+
+  const permisosDe = (metodo: keyof ExpedienteGastoController): string[] =>
+    Reflect.getMetadata(ANY_PERMISSIONS_KEY, ExpedienteGastoController.prototype[metodo]) ?? [];
+
+  it('las dos rutas del expediente dejan pasar a COMPROBAR (el guard no lo frena antes)', () => {
+    expect(permisosDe('expediente')).toContain(Permission.FINANCE_EXPENSES_COMPROBAR);
+    expect(permisosDe('pdf')).toContain(Permission.FINANCE_EXPENSES_COMPROBAR);
+  });
+
+  it('«listas para comprobar» NO se ensancha: es otra superficie', () => {
+    expect(permisosDe('listasParaComprobar')).not.toContain(Permission.FINANCE_EXPENSES_COMPROBAR);
+    expect(permisosDe('listasParaComprobar').length).toBeGreaterThan(0);
   });
 });

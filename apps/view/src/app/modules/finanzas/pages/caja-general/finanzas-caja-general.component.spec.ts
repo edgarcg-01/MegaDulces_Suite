@@ -816,6 +816,48 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       .toEqual([FILA_A.origen_ref, FILA_B.origen_ref].sort());
   });
 
+  // ── [CG.52] El movimiento entra ENTERO: el ancho sigue a la tarea ─────────────────────────
+  //
+  // Edgar: *"para ver el movimiento completo tengo que hacer scroll, este es un antipatrón"*.
+  // `[CG.49]` había puesto el arqueo arriba pero NO devuelto el ancho: el panel medía 32rem fijo,
+  // o sea un contenedor de ~486px contra un umbral de 736px — la condición para mostrar las dos
+  // columnas era **inalcanzable por construcción**, y por eso el formulario se apilaba.
+
+  it('el panel se ensancha SÓLO mientras se captura: la lista manda hasta que hay algo que contar', () => {
+    const fx = montar();
+    const split: HTMLElement | null = fx.nativeElement.querySelector('.cg-split');
+    expect(split).not.toBeNull();
+    expect(split!.classList.contains('cg-split-capturando')).toBe(false);
+
+    comp.abrirCaptura();
+    fx.detectChanges();
+    expect(split!.classList.contains('cg-split-capturando')).toBe(true);
+
+    comp.cerrarConFoco(comp.capturaAbierta);
+    fx.detectChanges();
+    expect(split!.classList.contains('cg-split-capturando')).toBe(false);
+  });
+
+  it('⛔ [negativa] los dos umbrales del panel son COMPLEMENTARIOS, o las columnas se invierten', () => {
+    // Si el colapso cae en 39rem y la posición se fija recién en 46, entre medio hay dos columnas
+    // SIN `grid-column` asignado: gana el orden del DOM y el CUÁNTO se va a la izquierda. Dos
+    // columnas invertidas, en silencio, en una franja de anchos. Esto lo congela.
+    const meta = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
+    const css = (meta.ɵcmp?.styles ?? []).join('\n');
+    expect(css.length).toBeGreaterThan(0);
+
+    const colapso = css.match(/@container\s*\(max-width:\s*([\d.]+)rem\)/);
+    const posicion = css.match(/@container\s*\(min-width:\s*([\d.]+)rem\)/);
+    expect(colapso).not.toBeNull();
+    expect(posicion).not.toBeNull();
+
+    const hastaUna = Number(colapso![1]);
+    const desdeDos = Number(posicion![1]);
+    expect(desdeDos).toBeGreaterThan(hastaUna);
+    // Pegados: sin franja muerta entre los dos.
+    expect(desdeDos - hastaUna).toBeLessThanOrEqual(0.5);
+  });
+
   it('la primera columna del panel es la del CUÁNTO, y la segunda la del QUÉ', async () => {
     const fx = montar();
     comp.abrirCaptura();
@@ -1111,11 +1153,49 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.piezasDe(den('20'))).toBe(3);
   });
 
-  it('[negativa] el MONTO no se puede teclear: sale del conteo y va deshabilitado', async () => {
+  it('[negativa] el MONTO no se puede teclear: sale del conteo y NO es un campo', async () => {
     const fx = await capturaEnPantalla();
-    const monto: HTMLInputElement | null = fx.nativeElement.querySelector('input#cg-monto');
-    expect(monto).not.toBeNull();
-    expect(monto!.disabled).toBe(true);
+    // ⭐ `[CG.53]` Esto era un `<input disabled>` en el pie de la tabla y ahora es el número grande
+    // de la pantalla. La afirmación se endurece: antes había un campo apagado, hoy **no hay campo**.
+    expect(fx.nativeElement.querySelector('input#cg-monto')).toBeNull();
+    expect(fx.nativeElement.querySelector('.cg-total-n')).not.toBeNull();
+
+    // Y sigue sin haber ninguna forma de teclear el monto dentro del bloque del total.
+    const bloque: Element = fx.nativeElement.querySelector('.cg-total-bloque');
+    expect(bloque.querySelectorAll('input, textarea, select').length).toBe(0);
+  });
+
+  it('el veredicto del arqueo distingue TRES ausencias, no dos', () => {
+    // ⚠️ Anclado a un documento DE VERDAD: `capturaEnPantalla()` abre una captura libre y ahí no
+    // hay contra qué cuadrar. Lo encontró esta misma prueba, afirmando 'cuadra' sobre una captura
+    // sin documento — que es exactamente el cuadre inventado que el tercer estado existe para
+    // evitar.
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);          // el documento dice 1060
+
+    // Sin contar no es "no cuadra": es que todavía no hay cifra.
+    expect(comp.arqueoVeredicto().estado).toBe('sin_contar');
+
+    contar({ 500: 2, 20: 3 });                  // 1060
+    expect(comp.arqueoVeredicto().estado).toBe('cuadra');
+
+    contar({ 500: 2, 20: 4 });                  // 1080
+    const v = comp.arqueoVeredicto();
+    expect(v.estado).toBe('sobra');
+    expect(v.dif).toBe(20);
+    expect(comp.textoVeredicto(v)).toContain('Sobra');
+    expect(v.esperado).toBe(1060);
+  });
+
+  it('⛔ [negativa] sin documento anclado NO se pinta un cuadre que nadie comprobó', () => {
+    montar();
+    comp.abrirCaptura();          // captura libre: sin ancla en Kepler
+    comp.setPiezas(den(500), 2);
+    const v = comp.arqueoVeredicto();
+    expect(v.estado).toBe('sin_documento');
+    expect(v.esperado).toBeNull();
+    // Lo contado es la verdad, pero no hay contra qué cuadrarlo — y eso se dice.
+    expect(comp.textoVeredicto(v)).toContain('Sin documento');
   });
 
   it('contar llena el monto y el importe del renglón, sin tocar el teclado del total', async () => {
@@ -1127,8 +1207,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.subtotalDe(den(20))).toBe(60);
     expect(comp.f().monto).toBe(1060);
 
-    const monto: HTMLInputElement = fx.nativeElement.querySelector('input#cg-monto');
-    expect(monto.value).toContain('1,060');
+    // `[CG.53]` El total dejó de ser un input apagado y es el número grande de la pantalla.
+    const monto: Element | null = fx.nativeElement.querySelector('.cg-total-n');
+    expect(monto).not.toBeNull();
+    expect(monto!.textContent).toContain('1,060');
   });
 
   it('la morralla suma al monto sin desglosarse: "en morralla queda perfecto"', async () => {

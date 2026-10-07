@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, ObjectStorageService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ObjectStorageService, Permission } from '@megadulces/platform-core';
 import { ExpenseProofsService } from '../expense-proofs/expense-proofs.service';
 
 /**
@@ -123,6 +123,28 @@ export function derivarEtapa(e: EntradaEtapa): { etapa: EtapaExpediente; label: 
   return { etapa, label: ETAPA_LABEL[etapa], falta };
 }
 
+/**
+ * `[GX.70]` ¿Abre el expediente de CUALQUIER vale, o sólo el de su alcance?
+ *
+ * La pantalla `/finanzas/expediente` (`[GX.59]`) le muestra los vales **de todos** a quien
+ * tiene `FINANCE_EXPENSES_COMPROBAR`: es la gente que firma, y firmar exige ver. Pero el PDF
+ * de cada vale pasaba por `alcanceDelUsuario`, que sólo abre todo con god-mode o
+ * `VER_ALL`. Resultado medido: Jesús Carrillo (`finanzas_operativo` + `COMPROBAR` por
+ * persona, `[GX.17]`, sin áreas y sin `VER_ALL`) veía la lista completa y el botón
+ * «Expediente PDF» le respondía 404 «fuera de tu alcance» en **8 de 8** vales — la pantalla
+ * sólo decía «No se pudo armar el expediente».
+ *
+ * ⚠️ Se amplía SÓLO aquí, no en `alcanceDelUsuario`: esa regla gobierna también la búsqueda y
+ * «listas para comprobar», y `[GX.59]` ya dejó escrito que ensanchar una superficie sin que
+ * nadie lo pida no se hace. Ésta es la misma puerta que la pantalla ya abrió.
+ */
+export function veCualquierExpediente(
+  veTodoPorAlcance: boolean,
+  permissions?: Record<string, boolean>,
+): boolean {
+  return veTodoPorAlcance || permissions?.[Permission.FINANCE_EXPENSES_COMPROBAR] === true;
+}
+
 @Injectable()
 export class ExpedienteGastoService {
   private readonly logger = new Logger(ExpedienteGastoService.name);
@@ -152,7 +174,8 @@ export class ExpedienteGastoService {
    * El expediente completo de una solicitud.
    *
    * `user` acota: quien no tiene alcance sobre el área del gasto no lo abre. Se resuelve
-   * con el MISMO `alcanceDelUsuario` que la búsqueda — si esa regla cambia, cambia acá.
+   * con el MISMO `alcanceDelUsuario` que la búsqueda — si esa regla cambia, cambia acá —
+   * más quien autoriza gastos, que ve los de todos (`veCualquierExpediente`, `[GX.70]`).
    */
   async expediente(
     sucursal: string,
@@ -165,7 +188,9 @@ export class ExpedienteGastoService {
     if (!suc || !fol) throw new NotFoundException('hace falta la sucursal y el folio de la solicitud');
 
     return this.tk.run(async (trx) => {
-      const { veTodo, claves } = await this.proofs.alcanceDelUsuario(trx, user);
+      const alcance = await this.proofs.alcanceDelUsuario(trx, user);
+      const veTodo = veCualquierExpediente(alcance.veTodo, user?.permissions);
+      const { claves } = alcance;
 
       // ── 1 · La solicitud (Kepler XA1501) ──────────────────────────────────────────
       const s: any = await trx('analytics.expense_requests')

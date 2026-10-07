@@ -1490,11 +1490,11 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-dropzone-row { display: flex; gap: var(--sp-2); align-items: stretch; }
     .cb-dropzone-row input { flex: 1 1 auto; min-width: 10rem; }
     .cb-upload-big { min-height: 3.4rem; padding-inline: 1.1rem; gap: .5rem; white-space: nowrap; }
-    .cb-upload-big .pi { font-size: 1.1rem; }
+    .cb-upload-big .pi { font-size: var(--fs-lg); }
     /* [RE.35.7] Varias recepciones a la vez: mismo alto que Subir factura, menos peso visual. */
     .cb-upload-varias { min-height: 3.4rem; padding-inline: .9rem; gap: .5rem; white-space: nowrap; }
     .cb-upload-txt { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; }
-    .cb-upload-txt b { font-size: 1rem; }
+    .cb-upload-txt b { font-size: var(--fs-h3); }
     .cb-upload-txt small { font-size: var(--fs-micro); opacity: .9; font-weight: 500; }
     .cb-dropzone-hint { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 700; color: var(--action); pointer-events: none; }
     .cb-periodo { display: flex; gap: var(--sp-1); align-items: center; flex-wrap: wrap; }

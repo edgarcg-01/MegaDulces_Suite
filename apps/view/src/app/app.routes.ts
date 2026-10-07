@@ -482,7 +482,8 @@ export const routes: Routes = [
         // tampoco los cubre. Consultar no es aprobar, pero tampoco es no tener nada.
         path: 'gastos-historial',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos-historial.component').then(m => m.FinanzasGastosHistorialComponent),
-        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR)]
+        // `[GX.71]` + HISTORIAL_TODOS: la llave por persona que abre la pestaña «Todos».
+        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS)]
       },
       {
         /**
