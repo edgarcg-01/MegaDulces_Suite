@@ -2,12 +2,18 @@ import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { InventoryTeamService } from './inventory-team.service';
 import type { GenerateTeamsDto, SetTeamsDto } from './inventory-team.service';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 
 /**
  * Fase PA.3 — Tablero de equipos por folio (staffing por pasillo).
  *   SUPERVISAR → ver el tablero.
- *   ASIGNAR    → auto-generar (parejo) + ajuste manual.
+ *   ASIGNAR    → ver el tablero + auto-generar (parejo) + ajuste manual.
+ *
+ * `[IC.23]` El ver lo tenía SÓLO `SUPERVISAR`, así que quien tenía `ASIGNAR` podía
+ * **auto-generar y ajustar un tablero que no podía mirar**. Mismo gate mal partido que
+ * `WMS-REC.9`, y latente por el mismo motivo: nadie tenía `ASIGNAR` sin `SUPERVISAR` hasta
+ * que `encargado_tienda` lo recibió en esta fase. Acá se cae la página entera, no una sección:
+ * `getBoard` es lo primero que carga.
  */
 @ApiTags('commercial-inventory-teams')
 @ApiBearerAuth()
@@ -17,7 +23,10 @@ export class InventoryTeamController {
   constructor(private readonly service: InventoryTeamService) {}
 
   @Get('counts/:id/aisle-teams')
-  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @RequireAnyPermission(
+    Permission.COMMERCIAL_INVENTORY_SUPERVISAR,
+    Permission.COMMERCIAL_INVENTORY_ASIGNAR,
+  )
   @ApiOperation({ summary: 'Tablero de equipos del folio: pasillos + supervisor/contadores por pasillo — PA.3' })
   board(@Param('id') id: string) {
     return this.service.getBoard(id);

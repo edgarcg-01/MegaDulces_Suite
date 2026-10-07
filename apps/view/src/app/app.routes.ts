@@ -1096,6 +1096,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
       {
+        // [RE.35.3] Entradas sin orden de compra por quién las capturó en Kepler (sólo lectura).
+        path: 'entradas/control/sin-oc',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-sin-oc.component').then(m => m.ComprasEntradasSinOcComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      {
         // RE.16.3 — parámetros del proceso (arranque, tolerancia, los dos SLA, tope de lote).
         // VALIDAR y no VER: mover la fecha de arranque cambia el tablero de toda la red.
         path: 'entradas/control/ajustes',
@@ -1321,13 +1327,20 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
       },
       {
-        // Fase I.3 — supervisor: lista + apertura de folios
+        // Fase I.3 — supervisor: lista + apertura de folios.
+        // [IC.23] También entra quien ASIGNA: el encargado de sucursal arma el equipo del
+        // conteo diario (decisión 2026-10-06) y ésta es la única puerta a sus folios. El
+        // backend ya servía esta lista con INVENTORY_VER, así que la ruta era MÁS estricta
+        // que el dato que protege. No se abre a VER a secas: `prevencion` y `customer_b2b`
+        // lo tienen, y esta pantalla además abre y congela almacenes.
         path: 'inventory/sessions',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-sessions.component').then(m => m.ComercialInventorySessionsComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
       },
       {
-        // Fase I.3 — supervisor: detalle del folio + reconciliación
+        // Fase I.3 — supervisor: detalle del folio + reconciliación.
+        // ⛔ [IC.23] Ésta NO se abre a ASIGNAR: carga `:id/items`, que trae el TEÓRICO fila por
+        // fila. Quien sólo asigna va a `:id/teams` (abajo), que es su pantalla.
         path: 'inventory/sessions/:id',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-session-detail.component').then(m => m.ComercialInventorySessionDetailComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
@@ -1665,6 +1678,18 @@ export const routes: Routes = [
         path: 'traspasos',
         loadComponent: () => import('./modules/logistica/pages/logistica-traspasos.component').then(m => m.LogisticaTraspasosComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_TRANSFERS_VER)]
+      },
+      {
+        // EMB.12 — «Nuevo embarque» toma el viaje que almacén ya dio de salida en Kepler.
+        // ⚠️ Van ANTES de 'shipments/:id': si no, Angular resuelve «nuevo» como un id.
+        path: 'shipments/nuevo',
+        loadComponent: () => import('./modules/logistica/pages/logistica-nuevo-embarque.component').then(m => m.LogisticaNuevoEmbarqueComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
+      },
+      {
+        path: 'shipments/nuevo/:sucursal/:guia',
+        loadComponent: () => import('./modules/logistica/pages/logistica-nuevo-embarque-form.component').then(m => m.LogisticaNuevoEmbarqueFormComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
       },
       {
         path: 'shipments/:id',

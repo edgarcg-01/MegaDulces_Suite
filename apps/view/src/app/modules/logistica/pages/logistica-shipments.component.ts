@@ -83,9 +83,8 @@ function severityForStatus(s: ShipmentStatus): Severity {
         </div>
         <div class="sh-head-actions">
           <button pButton [text]="true" severity="secondary" size="small" (click)="reloadCurrent()" [loading]="loading() || loadingPending() || loadingStats()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
-          @if (mode() !== 'erp') {
-            <button pButton size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo embarque</span></button>
-          }
+          <!-- EMB.12 — «Nuevo embarque» toma el viaje que almacén ya dio de salida en Kepler. -->
+          <a pButton size="small" routerLink="/logistica/shipments/nuevo"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo embarque</span></a>
         </div>
       </header>
     
@@ -268,7 +267,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                         [icon]="statusFilterValue ? 'pi pi-refresh' : 'pi pi-plus'"
                         severity="primary"
                         size="small"
-                        [label]="statusFilterValue ? 'Limpiar filtro' : 'Nuevo embarque'"
+                        [label]="statusFilterValue ? 'Limpiar filtro' : 'Embarque manual'"
                         (click)="statusFilterValue ? clearFilter() : openCreate()"
                       ></p-button>
                     </div>
@@ -570,6 +569,12 @@ export class LogisticaShipmentsComponent {
     this.route.queryParamMap.subscribe((q) => {
       const orderId = q.get('order_id');
       if (orderId) this.openCreate(orderId);
+      // EMB.12 — «Embarque manual» desde /logistica/shipments/nuevo: lo que Kepler no emite
+      // (recolección, viaje sin documento) sigue entrando por el formulario de siempre.
+      else if (q.get('manual') === '1') {
+        this.setMode('shipments');
+        this.openCreate();
+      }
     });
   }
 

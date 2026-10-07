@@ -167,7 +167,9 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     ],
     tabs: [
       // exact:false — el tab sigue activo en el detalle del folio y en Equipos.
-      { label: 'Folios', icon: 'pi pi-clipboard', route: '/almacen/inventory/sessions', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, exact: false },
+      // [IC.23] `anyOf` y no `permission`: el encargado de sucursal entra con ASIGNAR a armar
+      // el equipo del conteo diario. Con permiso único perdía el tab aunque el guard lo dejara pasar.
+      { label: 'Folios', icon: 'pi pi-clipboard', route: '/almacen/inventory/sessions', anyOf: [Permission.COMMERCIAL_INVENTORY_SUPERVISAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR], exact: false },
       { label: 'Cíclico (ABC)', icon: 'pi pi-sync', route: '/almacen/inventory/abc', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, exact: true },
       { label: 'Pasillos', icon: 'pi pi-th-large', route: '/almacen/inventory/aisles', permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR, exact: true },
       { label: 'Exactitud (IRA)', icon: 'pi pi-verified', route: '/almacen/inventory/ira', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, exact: true },

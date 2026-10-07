@@ -464,6 +464,11 @@ export interface RequisitionRow {
   warehouse_code: string | null;
   warehouse_name: string | null;
   supplier_name: string | null;
+  /** `[RQ.2]` Días desde que se creó, calculados por el SERVIDOR (VP.0: nunca el reloj del navegador). */
+  dias?: number;
+  /** `[RQ.1]` Vigencia de sus costos. `null` = no se pudo medir ninguno. */
+  vigencia?: RequisitionVigencia | null;
+  recalculated_at?: string | null;
 }
 export interface RequisitionLine {
   id: string;
@@ -485,11 +490,92 @@ export interface RequisitionLine {
   received_qty: number | null;
   unit_cost: number;
   line_cost: number;
+  /** `[RQ.1]` El costo que tiene HOY este producto en este almacén. `null` = no medible, nunca 0. */
+  costo_hoy?: number | null;
+  /** `true` movido · `false` igual · `null` **no se pudo medir** (no es lo mismo que "igual"). */
+  costo_movido?: boolean | null;
+}
+/**
+ * `[RQ.1]` ¿Los costos de esta requisición siguen siendo los de hoy?
+ *
+ * `vigente` es TERNARIO: `true` medido y sin cambio · `false` medido y movido · `null` **no se
+ * pudo medir**. `sin_medir` dice cuántos renglones quedaron fuera, para que un "vigente" sobre
+ * 2 de 130 renglones no se lea igual que uno sobre los 130.
+ */
+export interface RequisitionVigencia {
+  renglones: number;
+  medibles: number;
+  movidos: number;
+  sin_medir: number;
+  monto_capturado: number;
+  monto_hoy: number;
+  delta: number;
+  vigente: boolean | null;
+}
+/** `[RQ.8]` Lo que devuelve crear un lote completo. */
+export interface RequisitionBatchResult {
+  batch_id: string;
+  /** `null` cuando la migración del lote todavía no llegó: se crean igual, pero sueltas. */
+  batch_folio: string | null;
+  total: number;
+  compras: number;
+  traspasos: number;
+  folios: string[];
+}
+/** `[RQ.8]` Una fila de la bandeja agrupada: UN «Armar», no un documento. */
+export interface RequisitionBatchRow {
+  lote: string;
+  batch_folio: string | null;
+  documentos: number;
+  compras: number;
+  traspasos: number;
+  almacenes: number;
+  proveedores: number;
+  renglones: number;
+  monto: number;
+  created_at: string;
+  dias: number;
+  /** `mixto` cuando los documentos del lote NO están todos en el mismo estado. */
+  estado: RequisitionEstado | 'mixto';
+  pendientes: number;
+  autor: string | null;
+  proveedor_muestra: string[] | null;
+  almacen_muestra: string[] | null;
+}
+export interface RequisitionBatchListDto {
+  total: number; page: number; pageSize: number; rows: RequisitionBatchRow[];
+  /** `false` = falta la migración 20261006190000. La pantalla lo DECLARA en vez de salir vacía. */
+  disponible: boolean;
+}
+
+/** `[RQ.2]` Cuántas requisiciones hay en cada estado, su monto y su antigüedad. */
+export interface RequisitionResumen {
+  estado: RequisitionEstado;
+  n: number;
+  monto: number;
+  dias_prom: number;
+  dias_max: number;
+  /** `[RQ.2]` Las que pasaron los 30 días — el escalón donde el costo deja de ser el de hoy. */
+  n_mas_30: number;
+  monto_mas_30: number;
 }
 export interface RequisitionDetail extends RequisitionRow {
   lines: RequisitionLine[];
   purchase_order_id: string | null;   // RA.15 — OC generada desde esta requisición
   purchase_order_folio: string | null;
+  /** `[RQ.2]` Días parada. Lo calcula el SERVIDOR, no el reloj del navegador (VP.0). */
+  dias?: number;
+  vigencia?: RequisitionVigencia | null;
+  recalculated_at?: string | null;
+  /**
+   * `[RQ.8]` A dónde BAJA esta compra. Se DERIVA de la FK bajada→compra, no se copia: las
+   * sucursales destino de una compra consolidada son, exactamente, los destinos de sus bajadas.
+   */
+  bajadas?: Array<{ id: string; folio: string; estado: string; code: string | null; name: string | null; total_cost: number }>;
+  /** `[RQ.8]` De qué compra baja este traspaso. `null` cuando la bajada juntó varios proveedores. */
+  origen?: { id: string; folio: string; estado: string; supplier_name: string | null } | null;
+  /** `[RQ.8]` El «Armar» del que salió, y cuántos documentos más lo acompañan. */
+  lote?: { documentos: number; folio: string | null } | null;
 }
 export interface CreateRequisitionLine {
   product_id: string;
@@ -513,6 +599,17 @@ export interface CreateRequisitionDto {
   target_basis?: TargetBasis;
   notes?: string;
   lines: CreateRequisitionLine[];
+  /**
+   * `[RQ.8]` Para un lote: el ÍNDICE dentro del arreglo que manda el navegador, de la compra que
+   * origina esta bajada. Es un índice y no un id porque cuando el front arma el pedido los ids
+   * todavía no existen — el servidor los resuelve al insertar, que es el único lugar donde los
+   * conoce. Sólo tiene sentido en `POST /requisitions/batch`.
+   *
+   * ⚠️ Copiado VERBATIM del DTO del servidor (`commercial-replenishment.service.ts:171`), que ya
+   * lo declaraba y lo consume. Este tipo es una copia a mano del de allá: por eso el campo pudo
+   * existir de un lado y no del otro, y el build se cayó.
+   */
+  link_to?: number | null;
 }
 export interface ReceiveLine { line_id: string; received_qty: number; }
 
@@ -1107,15 +1204,45 @@ export class ComprasService {
     return this.http.post<{ groups: number; merged: number; products_repointed: number }>(`${this.base}/categories/auto-dedup`, {});
   }
 
-  listRequisitions(q?: { estado?: string; warehouse_id?: string; source_type?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[] }> {
+  listRequisitions(q?: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[]; resumen: RequisitionResumen[] }> {
     const p = new URLSearchParams();
     if (q?.estado) p.set('estado', q.estado);
     if (q?.warehouse_id) p.set('warehouse_id', q.warehouse_id);
     if (q?.source_type) p.set('source_type', q.source_type);
+    if (q?.batch_id) p.set('batch_id', q.batch_id);
+    if (q?.search) p.set('search', q.search);
     if (q?.page) p.set('page', String(q.page));
     if (q?.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
-    return this.http.get<{ total: number; page: number; pageSize: number; rows: RequisitionRow[] }>(`${this.base}/requisitions${qs ? '?' + qs : ''}`);
+    return this.http.get<{ total: number; page: number; pageSize: number; rows: RequisitionRow[]; resumen: RequisitionResumen[] }>(`${this.base}/requisitions${qs ? '?' + qs : ''}`);
+  }
+
+  /**
+   * `[RQ.8]` Crea TODAS las requisiciones de un «Armar» en una sola transacción, bajo un folio de
+   * lote. Reemplaza las N llamadas sueltas: con aquéllas, un fallo a la mitad dejaba medio pedido
+   * creado y el aviso decía «error parcial» sin decir cuál.
+   */
+  createRequisitionBatch(requisitions: CreateRequisitionDto[]): Observable<RequisitionBatchResult> {
+    return this.http.post<RequisitionBatchResult>(`${this.base}/requisitions/batch`, { requisitions });
+  }
+  /** `[RQ.8]` La bandeja por lote: una fila por «Armar», no por documento. */
+  listRequisitionBatches(q?: { estado?: string; source_type?: string; page?: number; pageSize?: number }): Observable<RequisitionBatchListDto> {
+    const p = new URLSearchParams();
+    if (q?.estado) p.set('estado', q.estado);
+    if (q?.source_type) p.set('source_type', q.source_type);
+    if (q?.page) p.set('page', String(q.page));
+    if (q?.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<RequisitionBatchListDto>(`${this.base}/requisitions/batches${qs ? '?' + qs : ''}`);
+  }
+
+  /** `[RQ.1]` Refresca los costos contra el plan de hoy (sólo el costo, nunca la cantidad). */
+  recalcularRequisicion(id: string): Observable<{ id: string; renglones_actualizados: number; total_cost: number; vigencia: RequisitionVigencia | null }> {
+    return this.http.post<{ id: string; renglones_actualizados: number; total_cost: number; vigencia: RequisitionVigencia | null }>(`${this.base}/requisitions/${id}/recalculate`, {});
+  }
+  /** `[RQ.4]` Aprueba o rechaza varias de una; lo que no pasa vuelve con su motivo. */
+  bulkRequisiciones(ids: string[], accion: 'approve' | 'reject'): Observable<{ pedidas: number; hechas: number; ok: string[]; fallas: Array<{ id: string; motivo: string }> }> {
+    return this.http.post<{ pedidas: number; hechas: number; ok: string[]; fallas: Array<{ id: string; motivo: string }> }>(`${this.base}/requisitions/bulk`, { ids, accion });
   }
 
   getRequisition(id: string): Observable<RequisitionDetail> {

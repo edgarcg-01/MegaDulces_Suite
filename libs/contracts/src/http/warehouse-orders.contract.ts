@@ -3,7 +3,7 @@
  *
  * El pedido es el documento Kepler `U-D-40` ("Pedido"), el mismo para telemarketing y para
  * sucursal: los separa sólo el **origen** (`kdm1.c27`). La Suite lo LEE del ODS y no lo
- * escribe (ADR-084). Decode en `docs/ERP_KEPLER.md` §3.y.1.
+ * escribe (ADR-086). Decode en `docs/ERP_KEPLER.md` §3.y.3.
  *
  * La lógica (periodo por defecto, antigüedad, conteos) vive en
  * `libs/commercial/src/lib/warehouse-orders/warehouse-orders.engine.ts`; acá sólo la forma.
@@ -55,7 +55,7 @@ export interface WarehouseOrderRow {
   /**
    * Horas desde que se CREÓ el pedido (fecha + hora del ticket, hora de México). `null` si ya
    * está `EMBARCADO` o si falta la hora. ⚠️ No es el tiempo en la etapa actual: Kepler no guarda
-   * cuándo cambió de estatus (ERP_KEPLER §3.y.1), así que ese dato no existe.
+   * cuándo cambió de estatus (ERP_KEPLER §3.y.3), así que ese dato no existe.
    */
   horas_abierto: number | null;
 }

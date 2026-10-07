@@ -1,6 +1,6 @@
 # Fase GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel)
 
-> **Tesis (ADR-084 propuesto):** el pedido **sigue naciendo y viviendo en Kepler**. Lo que se
+> **Tesis (ADR-086 propuesto):** el pedido **sigue naciendo y viviendo en Kepler**. Lo que se
 > mueve a la Suite es el **trabajo de piso**: surtir, checar y embarcar, que hoy se hace sobre hojas
 > impresas desde Kepler. La Suite registra quién hizo cada paso, cuándo y con qué cantidades, y el
 > almacenista le captura a Kepler **una sola vez** el resultado. **La Suite no escribe en Kepler.**
@@ -58,7 +58,7 @@ los registre igual. Hay que confirmar si el "tercer tipo, tienda" del pedido ori
 ### 2.2 El decode, anclado a capturas de pantalla
 
 Encabezado anclado al pedido `UD4001-0002781` (PH, `RUTA 21`, 05-oct) y embarque anclado a
-`UD4101-0002683` → pedido `UD4001-0002749`. Detalle en [`ERP_KEPLER.md` §3.y.1](../../ERP_KEPLER.md).
+`UD4101-0002683` → pedido `UD4001-0002749`. Detalle en [`ERP_KEPLER.md` §3.y.3](../../ERP_KEPLER.md).
 
 | Pantalla | Columna (`U-D-40`) |
 |---|---|
@@ -349,7 +349,7 @@ no se verificó si `kdii` tiene dimensiones; se declara, no se estima.
 
 **El checador "rastrilla"**: escanea cada artículo y la Suite lo registra contra el pedido. El
 código dice **qué producto y en qué unidad** (pieza, paquete o caja; decode completo en
-[`ERP_KEPLER.md` §3.y.2](../../ERP_KEPLER.md)), así que un escaneo del paquete cuenta un paquete y
+[`ERP_KEPLER.md` §3.y.4](../../ERP_KEPLER.md)), así que un escaneo del paquete cuenta un paquete y
 uno de la caja cuenta una caja.
 
 **Lo que la pantalla hace con cada escaneo:**
@@ -423,8 +423,8 @@ ubicaciones (WMS.2–WMS.4). **GP no la duplica: es su implementación para los 
 - GP.3 / GP.4 = WMS.5 / WMS.6 sobre el pedido `U-D-40`.
 - La lista del surtidor se ordena por la **secuencia de recorrido** de WMS.4.
 - Carretas, espacios de espera y estibas son ubicaciones de tipo `contenedor`/`espera` del catálogo
-  de ubicaciones (ADR-085, `FASE_WMS` §12).
-- ADR-084 contesta la decisión abierta WMS §6.2 y la medición de §2.1 contesta §6.3.
+  de ubicaciones (ADR-087, `FASE_WMS` §12).
+- ADR-086 contesta la decisión abierta WMS §6.2 y la medición de §2.1 contesta §6.3.
 
 ## 6. Riesgos
 
@@ -434,4 +434,4 @@ ubicaciones (WMS.2–WMS.4). **GP no la duplica: es su implementación para los 
 | Diferencias de captura al teclear en Kepler | Mismo cuadre de GP.6 |
 | **La captura en Kepler se degrada igual que hoy** (relevo operador → capturista, §2.6 punto 5) | Resumen corto para capturar + GP.6 diario con nombre del responsable; si se cae, es el argumento para la opción B |
 | Se publica un % de surtido con unidades mezcladas | Prohibido hasta resolver la unidad (§2.3) |
-| Querer escribir en Kepler "para ahorrar un paso" | Fuera de alcance por ADR-084; es la opción B y tiene su propio momento |
+| Querer escribir en Kepler "para ahorrar un paso" | Fuera de alcance por ADR-086; es la opción B y tiene su propio momento |

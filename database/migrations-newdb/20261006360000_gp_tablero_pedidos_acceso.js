@@ -82,6 +82,13 @@ const PUESTOS = { facturador: 'facturacion', facturacion_cedis: 'facturacion', e
 const ITEM = 'GP.1';
 const ACTOR = 'migracion [GP.1]';
 const AUTORIZA = 'Autorizado por Francisco López (2026-10-06)';
+/**
+ * La nota de la regla de sucursal que crea el `up`. Es la FIRMA de esa fila: el `down` borra sólo
+ * la que lleva esta nota, no cualquier regla de almacén de `encargado_bodega`. El `up` inserta con
+ * `.onConflict().ignore()` —o sea, si ya había una regla no la toca—, así que un `down` que borrara
+ * por rol + dimensión se llevaría una regla que esta migración nunca creó.
+ */
+const NOTA_BODEGA = '[GP.1] no tenía regla de sucursal: con el permiso habría visto la lista vacía';
 
 exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
@@ -138,7 +145,7 @@ exports.up = async function up(knex) {
   await knex('identity.role_scopes')
     .insert({
       tenant_id: tenant, role_name: 'encargado_bodega', dimension: 'warehouse', area: '*', mode: 'listed',
-      values: ['00'], nota: '[GP.1] no tenía regla de sucursal: con el permiso habría visto la lista vacía',
+      values: ['00'], nota: NOTA_BODEGA,
     })
     .onConflict(['tenant_id', 'role_name', 'dimension', 'area'])
     .ignore();
@@ -268,10 +275,17 @@ exports.down = async function down(knex) {
   for (const [puesto, rol] of Object.entries(PUESTOS)) {
     await knex('identity.positions').where({ tenant_id: tenant, code: puesto, default_role: rol }).update({ default_role: null });
   }
-  await knex('identity.role_scopes').where({ tenant_id: tenant, role_name: 'encargado_bodega', dimension: 'warehouse' }).del();
+  // Sólo la fila que creó el `up` (su nota la firma). Ver `NOTA_BODEGA`.
+  await knex('identity.role_scopes')
+    .where({ tenant_id: tenant, role_name: 'encargado_bodega', dimension: 'warehouse', nota: NOTA_BODEGA })
+    .del();
+  // Sólo donde el `up` la puso en `true`. Un `false` puesto a mano desde /admin/roles NO se borra:
+  // el `up` lo respetó (`permissions -> 'X' IS NULL`) y el `down` tiene que respetarlo igual, o se
+  // pierde el registro de que un humano dijo que no — el residuo que causó `[LC.6.2]`.
   await knex.raw(
-    `UPDATE identity.role_permissions SET permissions = permissions - ?::text WHERE tenant_id = ?`,
-    [PERMISO, tenant],
+    `UPDATE identity.role_permissions SET permissions = permissions - ?::text
+      WHERE tenant_id = ? AND (permissions -> ?)::text = 'true'`,
+    [PERMISO, tenant, PERMISO],
   );
   for (const rol of Object.keys(PERFILES)) {
     const quedan = await knex('identity.users').where({ tenant_id: tenant, role_name: rol }).whereNull('deleted_at').count({ n: '*' }).first();

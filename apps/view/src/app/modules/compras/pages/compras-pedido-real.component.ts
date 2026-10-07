@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, c
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { compareWarehouseCodes, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
@@ -108,7 +108,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
   selector: 'app-compras-pedido-real',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
+    CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, PopoverModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, ComprasFlujoComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -128,6 +128,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
              stop para el grupo en vez de uno por opción. -->
         <app-segmented [options]="modeOpts" [value]="mode()" ariaLabel="Vista"
                        (valueChange)="setMode($any($event))"></app-segmented>
+        <!-- [RQ.6] El siguiente paso, a la vista y ANTES de crear nada. La requisición que sale
+             de esta pantalla no le pide nada a nadie hasta que alguien la aprueba allá, y esta
+             pantalla no lo decía en ningún lado. -->
+        <a pButton routerLink="/compras/requisiciones" class="p-button-sm p-button-text pr-req-link"
+           title="Lo que se genera acá espera aprobación en Requisiciones"><span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Requisiciones</span></a>
       </header>
 
       <!-- [VP.0] Acá había una píldora hecha a mano que decía "Datos actualizados hace N min"
@@ -765,6 +770,48 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         </p-dialog>
 
         <!-- RA-PRO.28 — override manual de unidad de venta (se abre desde el desglose por sucursal) -->
+        <!-- [RQ.8] Lo que el clic va a crear, ANTES de crearlo. El botón decía
+             «Requisiciones (50)» contando PRODUCTOS marcados, no documentos: nadie podía saber
+             si iban a salir 6 o 117. Medido: promedio 8.2, mediana 6, peor 117. -->
+        <p-dialog [(visible)]="planVisible" [modal]="true" [style]="{ width: '40rem' }" [dismissableMask]="!saving()"
+                  header="Revisá lo que se va a generar">
+          @if (planResumen(); as p) {
+            <div class="pr-plan">
+              <p class="pr-plan-tit">Vas a generar <strong>{{ p.total }}</strong> documento{{ p.total === 1 ? '' : 's' }}
+                · <strong>{{ p.renglones }}</strong> renglón{{ p.renglones === 1 ? '' : 'es' }}
+                · <strong>{{ money(p.monto) }}</strong></p>
+              <table class="pr-plan-tbl">
+                <tbody>
+                  @if (p.compras > 0) {
+                    <tr>
+                      <td class="pr-plan-n">{{ p.compras }}</td>
+                      <td><strong>COMPRA{{ p.compras === 1 ? '' : 'S' }}</strong> a {{ p.proveedores }} proveedor{{ p.proveedores === 1 ? '' : 'es' }}
+                        <div class="pr-plan-sub">entrega en <strong>{{ p.entregas.join(', ') }}</strong></div></td>
+                      <td class="pr-plan-m">{{ money(p.montoCompra) }}</td>
+                    </tr>
+                  }
+                  @if (p.traspasos > 0) {
+                    <tr>
+                      <td class="pr-plan-n">{{ p.traspasos }}</td>
+                      <td><strong>TRASPASO{{ p.traspasos === 1 ? '' : 'S' }}</strong>
+                        <div class="pr-plan-sub">bajan a <strong>{{ p.destinos.join(', ') }}</strong>@if (p.ligadas > 0) { · {{ p.ligadas }} ligado(s) a su compra }</div></td>
+                      <td class="pr-plan-m">{{ money(p.montoTraspaso) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              <p class="pr-plan-hint">
+                Se crean bajo <strong>un folio de lote</strong> y en una sola operación: o entran todos o no entra ninguno.
+                Quedan <strong>esperando aprobación</strong> en Compras › Requisiciones.
+              </p>
+              <div class="pr-uov-actions">
+                <p-button type="button" label="Cancelar" styleClass="p-button-sm p-button-text" (click)="cancelarPlan()" [disabled]="saving()"></p-button>
+                <p-button type="button" [label]="saving() ? 'Generando…' : 'Generar los ' + p.total" icon="pi pi-check" styleClass="p-button-sm" (click)="confirmarPlan()" [disabled]="saving()"></p-button>
+              </div>
+            </div>
+          }
+        </p-dialog>
+
         <p-dialog [(visible)]="unitVisible" [modal]="true" [style]="{ width: '32rem' }" [dismissableMask]="true" header="Unidad de venta">
           @if (unitRow(); as u) {
             <div class="pr-uov">
@@ -983,6 +1030,14 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-uov-f input { width: 100%; }
     .pr-uov-f small { display: block; font-size: var(--fs-micro); color: var(--text-muted); margin-top: .2rem; }
     .pr-uov-actions { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; }
+    /* [RQ.8] El plan: el número grande a la izquierda es lo que se lee primero. */
+    .pr-plan-tit { margin: 0 0 .75rem; font-size: var(--fs-body); }
+    .pr-plan-tbl { width: 100%; border-collapse: collapse; }
+    .pr-plan-tbl td { padding: .5rem .4rem; border-top: 1px solid var(--surface-border); vertical-align: top; }
+    .pr-plan-n { width: 3rem; text-align: right; font-size: var(--fs-h3); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .pr-plan-m { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .pr-plan-sub { color: var(--text-muted); font-size: var(--fs-xs); margin-top: .15rem; }
+    .pr-plan-hint { margin: .75rem 0 0; color: var(--text-muted); font-size: var(--fs-xs); }
     :host ::ng-deep .pr-abc { font-size: var(--fs-nano); padding: .02rem .3rem; line-height: 1.3; }
     /* group header por sucursal */
     .pr-grp td { background: var(--overlay-hover, var(--hover-bg)); border-top: 1px solid var(--border-color); }
@@ -3364,11 +3419,14 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       const k = `${l.r.supplier_id || 'none'}|${l.toWh ?? l.wh}`;
       (buyGroups.get(k) ?? buyGroups.set(k, []).get(k)!).push(l);
     }
-    for (const ls of buyGroups.values()) {
+    // `[RQ.8]` Dónde quedó cada compra dentro de `dtos`, para que su bajada la pueda señalar.
+    const idxCompra = new Map<string, number>();
+    for (const [k, ls] of buyGroups) {
       const consol = ls.filter((l) => l.toCode);
       const nota = consol.length
         ? ` — consolidado: ${[...new Set(consol.map((l) => l.b.code))].join(', ')} bajan por traspaso`
         : '';
+      idxCompra.set(k, dtos.length);
       dtos.push({
         warehouse_id: (ls[0].toWh ?? ls[0].wh)!, supplier_id: ls[0].r.supplier_id || null, source_type: 'supplier',
         notes: `Demand-driven (venta × cobertura ${this.coverage}d) — por sucursal${nota}`,
@@ -3388,8 +3446,22 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       (bajadas.get(k) ?? bajadas.set(k, []).get(k)!).push(l);
     }
     for (const ls of bajadas.values()) {
+      // `[RQ.8]` La bajada APUNTA a la compra que la originó, por índice dentro de este arreglo
+      // (los ids todavía no existen: los resuelve el servidor al insertar). Antes la liga vivía
+      // sólo en `notes` como texto libre — 197 traspasos por $7.12M que no se podían rastrear.
+      //
+      // ⚠️ SÓLO cuando la bajada viene de UN proveedor. La bajada se agrupa por (destino × CEDIS),
+      // así que puede juntar productos de varios proveedores que consolidan en el mismo CEDIS;
+      // ahí no hay UNA compra que la origine y apuntar a la primera sería inventar la liga. Se
+      // deja `null` y el detalle lo declara. ⛔ La otra salida —partir también la bajada por
+      // proveedor— multiplicaría los documentos, que es justo lo que esta fase vino a bajar.
+      const provs = new Set(ls.map((l) => l.r.supplier_id || 'none'));
+      const compraIdx = provs.size === 1
+        ? idxCompra.get(`${[...provs][0]}|${ls[0].toWh}`)
+        : undefined;
       dtos.push({
         warehouse_id: ls[0].wh!, supplier_id: null, source_type: 'branch', source_warehouse_id: ls[0].toWh!,
+        link_to: compraIdx ?? null,
         notes: `Bajada de compra consolidada ${ls[0].toCode} → ${ls[0].b.code}`,
         lines: ls.map<CreateRequisitionLine>((l) => ({
           product_id: l.r.product_id, source_type: 'branch', source_warehouse_id: l.toWh!,
@@ -3410,19 +3482,80 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       });
     }
     if (!dtos.length) return;
-    this.saving.set(true);
-    let done = 0; const folios: string[] = []; let failed = 0;
-    const finish = () => {
-      this.saving.set(false);
-      if (folios.length) this.toast.add({ severity: 'success', summary: `${folios.length} requisición(es)`, detail: folios.join(', ') });
-      if (failed) this.toast.add({ severity: 'error', summary: 'Error parcial', detail: `${failed} no se pudieron crear.` });
-      if (folios.length) { this.mode() === 'muerto' ? this.loadDead() : this.loadWorkbook(); }
+    // `[RQ.8]` NO SE CREA NADA TODAVÍA: primero se muestra qué va a salir.
+    //
+    // Medido en prod sobre 82 generaciones reales: promedio 8.2 documentos por «Armar», mediana 6
+    // y **117 en el peor**. El botón decía «Requisiciones (50)» y ese 50 eran PRODUCTOS marcados,
+    // no documentos — nadie podía saber si ese clic iba a crear 6 o 117. Acá se para y se enseña.
+    this.plan.set(dtos);
+    this.planVisible = true;
+  }
+
+  /** `[RQ.8]` Lo que el próximo clic va a crear. Vacío = no hay nada en vuelo. */
+  readonly plan = signal<CreateRequisitionDto[]>([]);
+  planVisible = false;
+
+  /** El desglose que se muestra ANTES de crear, armado del mismo arreglo que se va a mandar. */
+  readonly planResumen = computed(() => {
+    const d = this.plan();
+    const compras = d.filter((x) => x.source_type !== 'branch');
+    const traspasos = d.filter((x) => x.source_type === 'branch');
+    const monto = (xs: CreateRequisitionDto[]) =>
+      xs.reduce((s, x) => s + x.lines.reduce((t, l) => t + Number(l.final_qty || 0) * Number(l.unit_cost || 0), 0), 0);
+    const codigo = (id?: string | null) => (id && this.whCode().get(id)) || '—';
+    return {
+      total: d.length,
+      compras: compras.length, traspasos: traspasos.length,
+      renglones: d.reduce((s, x) => s + x.lines.length, 0),
+      montoCompra: monto(compras), montoTraspaso: monto(traspasos), monto: monto(d),
+      proveedores: new Set(compras.map((x) => x.supplier_id || 'none')).size,
+      // Lo que el comprador pregunta y la pantalla nunca contestó: DÓNDE entrega y A DÓNDE baja.
+      entregas: [...new Set(compras.map((x) => codigo(x.warehouse_id)))].sort(),
+      destinos: [...new Set(traspasos.map((x) => codigo(x.warehouse_id)))].sort(),
+      ligadas: traspasos.filter((x) => typeof x.link_to === 'number').length,
     };
-    dtos.forEach((dto) => {
-      this.api.createRequisition(dto).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (r) => { folios.push(r.folio); if (++done === dtos.length) finish(); },
-        error: () => { failed++; if (++done === dtos.length) finish(); },
-      });
+  });
+
+  /** code → id está en `whId`; acá el camino inverso, para rotular el plan. */
+  private readonly whCode = computed(() => {
+    const m = new Map<string, string>();
+    for (const w of this.filters()?.warehouses ?? []) m.set(w.id, w.code);
+    return m;
+  });
+
+  cancelarPlan(): void { this.planVisible = false; this.plan.set([]); }
+
+  /**
+   * `[RQ.8]` Manda el lote COMPLETO en una sola llamada.
+   *
+   * Antes eran N peticiones sueltas en paralelo: si una fallaba, quedaba medio pedido creado y el
+   * aviso decía «error parcial» sin decir cuál. Ahora o entran todas o no entra ninguna, y vuelven
+   * con un folio de lote con el que se puede hablar de ellas.
+   */
+  confirmarPlan(): void {
+    const dtos = this.plan();
+    if (!dtos.length) return;
+    this.saving.set(true);
+    this.api.createRequisitionBatch(dtos).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.saving.set(false);
+        this.planVisible = false; this.plan.set([]);
+        const nombre = r.batch_folio ? `Lote ${r.batch_folio}` : `${r.total} requisición(es)`;
+        this.toast.add({
+          severity: 'success', life: 12000,
+          summary: `${nombre}: ${r.compras} compra(s) + ${r.traspasos} traspaso(s)`,
+          detail: 'Quedan ESPERANDO APROBACIÓN. Abrí Compras › Requisiciones para aprobar el lote completo — hasta entonces no se le pide nada a nadie.',
+        });
+        this.mode() === 'muerto' ? this.loadDead() : this.loadWorkbook();
+      },
+      error: (e) => {
+        this.saving.set(false);
+        // No se cierra el diálogo: lo que se intentó sigue a la vista para poder reintentar.
+        this.toast.add({
+          severity: 'error', life: 15000, summary: 'No se creó NINGUNA requisición',
+          detail: (e?.error?.message || 'Error del servidor') + ' — el lote entero se revirtió, no quedó nada a medias.',
+        });
+      },
     });
   }
 

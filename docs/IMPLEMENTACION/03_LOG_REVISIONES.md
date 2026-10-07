@@ -46,9 +46,9 @@ UN pedido (eran 514) y re-agregaba kdm2 por cada uno (~780 mil búsquedas). Con 
 MATERIALIZED y el conteo como LATERAL por pedido: 130–215 ms. Medir el plan, no sólo el resultado.
 
 ---
-## 2026-10-06 — Ubicaciones: bodega y piso de venta en un solo almacén (ADR-085)
+## 2026-10-06 — Ubicaciones: bodega y piso de venta en un solo almacén (ADR-087)
 
-**Qué se entregó:** addendum [`FASE_WMS` §12](FASES/FASE_WMS.md) y ADR-085. Sin código.
+**Qué se entregó:** addendum [`FASE_WMS` §12](FASES/FASE_WMS.md) y ADR-087. Sin código.
 
 **Lección:** antes de abrir una fase, buscar si ya existe el plan. Iba a abrir una fase de
 ubicaciones y `FASE_WMS` ya tenía tipos de zona, censo, secuencia de recorrido, surtido y checado.
@@ -58,8 +58,8 @@ declarada como la implementación de WMS.5/WMS.6 para los pedidos de Kepler.
 ---
 ## 2026-10-06 — `[GP.0]` Gestión de pedidos en almacén: el pedido se queda en Kepler, el piso se va a la Suite
 
-**Qué se entregó:** plan [`FASE_GP`](FASES/FASE_GP_GESTION_PEDIDOS_ALMACEN.md), ADR-084 y decode del pedido
-`U-D-40` en [`ERP_KEPLER.md` §3.y.1](../ERP_KEPLER.md). Sin código.
+**Qué se entregó:** plan [`FASE_GP`](FASES/FASE_GP_GESTION_PEDIDOS_ALMACEN.md), ADR-086 y decode del pedido
+`U-D-40` en [`ERP_KEPLER.md` §3.y.3](../ERP_KEPLER.md). Sin código.
 
 **Verificado:** contra prod en solo lectura, anclado a tres capturas de Kepler (pedido 2781 de sucursal,
 pedido de telemarketing y embarque 2683 → pedido 2749). El orden de las cantidades por etapa se probó con
@@ -74,6 +74,72 @@ pedido de telemarketing y embarque 2683 → pedido 2749). El orden de las cantid
    porque la forma de alta se reutiliza. Hizo falta un pedido ya guardado.
 
 ---
+## 2026-10-06 — `[IC.23]` El encargado de sucursal asigna quién cuenta (y los tres gates mal partidos que aparecieron)
+
+**Disparador:** al presentar el plan de los tres ritmos ([`FASE_IC_RITMOS_Y_ABC`](FASES/FASE_IC_RITMOS_Y_ABC.md)),
+Edgar resolvió las tres decisiones abiertas: el segundo eje del ABC es **capital parado** (no COGS),
+hay que **resolver el acceso del piso de tienda**, y **el encargado de sucursal asigna quién cuenta**.
+
+**La pregunta no era «¿le damos acceso?» sino «¿qué facultad es ésta?».** `SUPERVISAR` abre
+`GET :id/items`, que devuelve `expected_qty` **fila por fila** — el teórico. Es la misma puerta que
+`[IC.2]` le quitó al `almacenista` para no romper el conteo ciego; dársela al encargado lo pondría a
+saber el número antes que quien cuenta. La facultad correcta es `ASIGNAR`: armar el equipo y mirar
+el avance, sin ver contra qué se cuenta.
+
+**Y al ir a usarla aparecieron tres gates mal partidos** — el mismo patrón que `WMS-REC.9` corrigió
+en el Andén, y **latentes por la misma razón**: medido en prod, los 5 roles con `ASIGNAR`
+(compras, gerente_compras, marketing, supervisor, superadmin) tienen **también** `SUPERVISAR`, así
+que nadie los había pisado nunca. Se rompen justo en el acto de repartir `ASIGNAR`:
+
+| Endpoint | Qué pasaba |
+|---|---|
+| `GET :id/assignments` | podía **escribir** la lista de asignados y **no leerla** |
+| `GET :id/progress` | quien arma el equipo no podía saber si alguien contó |
+| `GET counts/:id/aisle-teams` | podía auto-generar un tablero **que no podía mirar** |
+
+Se verificó que `getProgress` devuelve **sólo agregados** antes de abrirlo. `:id/items` **no se
+abre**, y es justamente lo que permite abrir las otras tres.
+
+**Lecciones:**
+
+- ⭐⭐ **La medición evitó un callejón sin salida que ya estaba escrito.** El primer diseño mandaba
+  al encargado a la pantalla de **Equipos** (`:id/teams`, que ya era `ASIGNAR` y parecía hecha a
+  medida). `generateTeams` **exige pasillos activos**, y en prod **sólo Padre Hidalgo tiene
+  pasillos (4); los otros 8 almacenes tienen CERO**. Seis de los siete encargados habrían llegado a
+  un *«No hay pasillos activos en este almacén»*. **Una pantalla que ya existe y tiene el permiso
+  correcto no es, por eso, la pantalla correcta.**
+- ⭐ **Un permiso en `false` explícito no es lo mismo que ausente.** El patrón estándar de las
+  migraciones de permisos de este repo (`-> 'KEY' IS NULL`, para no pisar lo puesto a mano) habría
+  sido un **no-op**: `encargado_tienda` ya traía la clave en `false`, residuo de guardar el mapa
+  completo desde `/admin/roles` — la misma causa que `[LC.6.2]`.
+- ⭐ **Un diálogo de asignación se abre con lo que YA está asignado, nunca en blanco.**
+  `setAssignments` **reemplaza** la lista del rol: guardar sin haber cargado lo existente borraría a
+  todos sin avisar. Si la lectura falla, el diálogo se cierra (fail-closed) en vez de dejar un
+  Guardar que destruye.
+- ⚠️ **La ruta era MÁS estricta que el dato que protege.** `/almacen/inventory/sessions` exigía
+  `SUPERVISAR` mientras el endpoint que la alimenta servía con `VER`. No es simetría cosmética: es
+  por qué `prevencion` (3 personas con `VER`) rebotaba en una pantalla cuyos datos el API ya les daba.
+
+**Qué se entregó:** 3 gates abiertos + 1 explícitamente cerrado · migración `20261006200000`
+(`encargado_tienda` → `COMMERCIAL_INVENTORY_ASIGNAR`, pre-vuelo read-only contra prod: 1 fila, con
+prueba negativa y verificación de que `jsonb_set` no toca otra clave) · ruta a
+`anyPermissionGuard` · tab con `anyOf` · landing nuevo · diálogo de asignación en la lista ·
+candado `inventory-count.asignar.spec.ts` **12 aserciones, mutado a rojo** abriendo `:id/items`.
+`COMMERCIAL_INVENTORY_ASIGNAR` **sale de la lista `DEUDA`** de `landing-guards.spec.ts`.
+
+**Verificación:** inventario 40/40 · landing-guards 33/33 · almacen-tabs + panel-routes +
+drilldown 53/53 · `check:templates`, `check:tokens`, `check:tables`, `check:teclado`,
+`check:mig-colisiones` verdes.
+
+**Abierto y declarado:** **04 (Yurécuaro) y 08 (Morelia Abastos) no tienen encargado de tienda** —
+hueco de puesto, no de código · `ASIGNAR` **no lleva alcance por sucursal** (inventario no migró a
+`ScopeService`, aunque los 7 encargados **sí** tienen `warehouse_code`) · **abrir un folio sigue
+atado a ver el teórico**, así que hasta `[IC.18]` el folio diario lo abre alguien de compras.
+
+**Falta:** aplicar la migración a prod + redeploy api+view + **re-login de los 7 encargados**.
+
+---
+
 ## 2026-10-06 — `[IC.13]` Folios de inventario: el «cíclico» no era parcial y «estancado» medía la apertura
 
 **Disparador:** *«analizá `/almacen/inventory/sessions`»*. Lo medido contra prod antes de tocar
@@ -199,6 +265,8 @@ negativa ("sin arqueo nunca cuadra") rompe al mutar la regla. Compuertas estáti
 **Actualización 2026-10-05 — MS.3.15 y MS.3.16 (#260 y #263 ya en `main`).** **MS.3.15:** el tiempo registrado se ve (lista de registros en la ficha, sólo para quien atiende; horas por categoría en Reportes con su cobertura, sin ceros dibujados ni desglose por persona). **MS.3.16:** la bandeja **filtra** (estado, categoría, quién atiende con «Sin asignar», ubicación, fechas de alta) y **ordena por columna en el servidor** (`sort`/`dir`, lista cerrada → 400 fuera de ella, vacíos siempre al final, desempate fijo, ubicación por el nombre visible), y la migaja «Mesa de Servicio» pasa a ser enlace al inicio del proyecto (`construirMigas`). Lección: **ordenar por lo que se ve, no por lo que se guarda** — verlo en pantalla destapó que el orden por código ponía «La Piedad» antes que «8 Esquinas»; y un `ORDER BY` armado desde la URL sólo admite una lista cerrada. E2E 378/0 con #260 incluido; mutaciones atrapadas. Sin migraciones ni permisos nuevos. **MS.3.17:** reporte de campo — «al levantar la orden no aparece la ubicación»: el selector iba tras un enlace «Indicar ubicación (opcional)» que nadie pulsaba; ahora se muestra siempre (con asterisco si la categoría la exige). Lección: **un campo opcional escondido tras un enlace es un campo que no existe** para quien no sabe que está ahí, sobre todo cuando otra pregunta del mismo formulario («A toda mi sucursal») depende de él.
 
 ⚠️ **Rojo heredado, medido y NO de este trabajo:** `mi-trabajo.component.spec.ts` tiene **5 pruebas en rojo en `origin/main` puro** (las de «cuántos submódulos abre», «QUEDARSE» y los homónimos de Mi trabajo); se verificó sacando la rama del camino y corriéndolas sobre `origin/main`. Vienen de la integración de 152 commits (#259 no toca ese componente). Aviso al dueño de esa integración.
+
+**Actualización 2026-10-06 — la Mesa pasa a multi-área: planes de Mantenimiento y RH, y el acceso por cola (PR #272 por mergear; #265/#269/#270 ya en `main`).** Llegó el pedido de sumar todos los departamentos, cada uno con un responsable. **Lo medido:** el modelo multi-cola ya existía (`queues`, `categories`, `queue_id`), pero **el acceso por cola no**: `puedeVer = esAgente || solicitante` y las claves `SERVICIO_*` eran globales, o sea que quien atendía veía los tickets de TODA la empresa. Eso es lo que habría metido los tickets (y las fotos) de Mantenimiento y de RH en la bandeja de TI. **Decisiones** ([`FASE_MS7`](FASES/FASE_MS7_MANTENIMIENTO.md)): el «dónde» es un **dato** (`queue_members`, coordinador | técnico) y no una clave por área (que obligaría a tocar enum, árbol y roles por cada departamento = el `if (cola === …)` que la regla 1 prohíbe); folio único `SRV`; mismos estados + motivo de pausa; SLA en horario hábil; responsable de Mantenimiento: Ubaldo Barajas Valencia. **RH** ([`FASE_RH`](FASES/FASE_RH_MESA_DE_SERVICIO.md)): el plan de Sistemas se contrastó con el código y se encontraron 9 fugas que no cubría (el administrador podía agregarse a RH, 9 archivos leen `servicedesk.requests` sin punto único de control, el título se copia a `notification_log`, URLs de adjunto de 600 s…); matriz de **20 casos**, prompt corregido, R3 confirmado y las 10 categorías registradas. **Construido (MS.7.1 + MS.7.6):** `queue_members` con backfill de quien atendía TI, `domain/queue-access.ts` (clave ∩ pertenencia; `accesoATicket` ya con el hueco `completo|basico|ninguno` de RH), API de miembros con reglas (sólo la coordinación de esa cola; la cola nunca sin coordinador; no se quita a quien tiene tickets abiertos). E2E 438/0 y **mutaciones atrapadas** (6 unitarias + 28 de HTTP). **Lecciones:** (1) *un plan externo se contrasta con el código antes de aceptarlo*: la mitad de lo que pedía ya existía y lo más delicado (el acceso) no; (2) *quitarle poder a una clave global exige un respaldo en la misma migración*: con la tabla vacía nadie vería nada, y por eso la migración va ANTES del deploy; (3) *la prueba que importa es la negativa*: quien tiene las claves pero ninguna cola debe ver **0**, no «todo» (el `whereIn` de un arreglo vacío ya se leyó una vez como «sin filtro»). **Declarado, no construido:** pantalla de miembros (MS.7.17), «Mi trabajo» sin acotar por cola (⛔ antes de sembrar Mantenimiento), configuración global sin acotar, levantar a nombre de otro como capacidad global.
 
 **Pendiente — todo depende de personas.**
 - ~~Edgar: revisar/mergear la cadena #241 → #240~~ — hecho el 2026-10-03.

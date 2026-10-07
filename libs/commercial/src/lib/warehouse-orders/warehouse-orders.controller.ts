@@ -6,7 +6,7 @@ import { WarehouseOrdersService } from './warehouse-orders.service';
 
 /**
  * `[GP.1]` Tablero de pedidos del almacén (`/almacen/pedidos`): pedidos Kepler `U-D-40`
- * (telemarketing y sucursal) por estatus y periodo. Sólo lectura sobre el ODS (ADR-084).
+ * (telemarketing y sucursal) por estatus y periodo. Sólo lectura sobre el ODS (ADR-086).
  *
  * Permiso propio `ALMACEN_PEDIDOS_VER` (repartido por la migración 20261006200000). No es el de
  * surtido: el tablero lo ven telemarketing y facturación, y con aquél se les abría Reparto › Surtido.

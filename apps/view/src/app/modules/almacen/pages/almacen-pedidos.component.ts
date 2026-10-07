@@ -45,7 +45,7 @@ const dmy = (v: string | null | undefined): string => {
  *
  * Los pedidos Kepler `U-D-40` (telemarketing y sucursal) del periodo, filtrables por estatus,
  * origen, sucursal y texto, con el detalle por renglón: cantidad pedida/surtida/checada/
- * embarcada y la ubicación de cada etapa. Sólo lectura (ADR-084): el pedido se sigue
+ * embarcada y la ubicación de cada etapa. Sólo lectura (ADR-086): el pedido se sigue
  * avanzando en Kepler. El periodo arranca en el **mes en curso** (decisión de Francisco).
  *
  * Lo que Kepler no guarda se declara, no se dibuja: no hay hora por etapa, así que la columna

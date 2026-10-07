@@ -3,7 +3,7 @@ import { WarehouseOrdersController } from './warehouse-orders.controller';
 import { WarehouseOrdersService } from './warehouse-orders.service';
 
 /**
- * `[GP.1]` Tablero de pedidos del almacén (Fase GP, ADR-084).
+ * `[GP.1]` Tablero de pedidos del almacén (Fase GP, ADR-086).
  * TenantKnexService, TenantContextService y ScopeService son globales.
  */
 @Module({

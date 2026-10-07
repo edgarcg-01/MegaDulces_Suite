@@ -6,6 +6,7 @@ import {
   validarSeguimiento,
 } from '@megadulces/contracts';
 import { Knex } from 'knex';
+import { randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
 
@@ -161,6 +162,13 @@ export interface CreateRequisitionDto {
   target_basis?: string;
   notes?: string;
   lines: RequisitionLineDto[];
+  /**
+   * `[RQ.8]` Para un lote: el ÍNDICE dentro del arreglo que manda el navegador, de la compra que
+   * origina esta bajada. Es un índice y no un id porque cuando el front arma el pedido los ids
+   * todavía no existen — el servidor los resuelve al insertar, que es el único lugar donde los
+   * conoce. Sólo tiene sentido en `POST /requisitions/batch`.
+   */
+  link_to?: number | null;
 }
 interface ReceiveLineDto { line_id: string; received_qty: number; }
 
@@ -198,12 +206,45 @@ export interface RequisitionListRowDto {
   source_warehouse_name: string | null;
 }
 
+/**
+ * `[RQ.1]` Veredicto de vigencia de una requisición: ¿sus costos siguen siendo los de hoy?
+ *
+ * `vigente` es TERNARIO a propósito (ADR-056): `true` medido y sin cambio · `false` medido y
+ * movido · `null` **no se pudo medir** (ningún renglón tiene fila en el plan o alguno de los dos
+ * costos es cero). `sin_medir` dice cuántos renglones quedaron fuera de la medición, para que un
+ * "vigente" sobre 2 de 130 renglones no se lea igual que uno sobre los 130.
+ */
+export interface RequisitionVigenciaDto {
+  renglones: number;
+  medibles: number;
+  movidos: number;
+  sin_medir: number;
+  monto_capturado: number;
+  monto_hoy: number;
+  delta: number;
+  vigente: boolean | null;
+}
+
+/** `[RQ.2]` Conteo por estado del universo filtrado — no de la página. */
+export interface RequisitionResumenDto {
+  estado: string;
+  n: number;
+  monto: number;
+  dias_prom: number;
+  dias_max: number;
+  /** `[RQ.2]` Las que pasaron los 30 días — el escalón donde el costo deja de ser el de hoy. */
+  n_mas_30: number;
+  monto_mas_30: number;
+}
+
 /** `[MT.6]` Pagina de requisiciones. */
 export interface RequisitionListDto {
   total: number;
   page: number;
   pageSize: number;
   rows: RequisitionListRowDto[];
+  /** `[RQ.2]` Cuántas hay en cada estado, su monto y su antigüedad. Sobre TODO el filtro. */
+  resumen: RequisitionResumenDto[];
 }
 
 export interface ReceiveRequisitionDto { lines?: ReceiveLineDto[]; }
@@ -3032,6 +3073,17 @@ export class CommercialReplenishmentService {
   // ── Requisiciones (HITL) ──────────────────────────────────────────────
   async createRequisition(dto: CreateRequisitionDto) {
     const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run((trx) => this.insertRequisition(trx, tenantId, dto));
+  }
+
+  /**
+   * `[RQ.8]` El insert de UNA requisición, con sus validaciones, **recibiendo la transacción**.
+   *
+   * Se extrajo de `createRequisition` para que la creación suelta y la del lote compartan
+   * exactamente el mismo código. ⚠️ No abre su propia transacción a propósito: anidar
+   * `tk.run()` dentro de otro `tk.run()` es un error conocido de este repo.
+   */
+  private async insertRequisition(trx: Knex.Transaction, tenantId: string, dto: CreateRequisitionDto) {
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!dto?.warehouse_id || !UUID_RX.test(dto.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
     const basis = this.basis(dto.target_basis);
@@ -3058,7 +3110,7 @@ export class CommercialReplenishmentService {
     const hdrSrcWh = hdrBranch && dto.source_warehouse_id && UUID_RX.test(dto.source_warehouse_id) ? dto.source_warehouse_id : null;
     if (hdrBranch && !hdrSrcWh) throw new BadRequestException('El traspaso requiere almacén origen');
 
-    return this.tk.run(async (trx) => {
+    {
       const year = new Date().getFullYear();
       const seqRes = await trx.raw(
         `INSERT INTO commercial.requisition_sequences (tenant_id, year, last_seq) VALUES (?, ?, 1)
@@ -3094,16 +3146,149 @@ export class CommercialReplenishmentService {
 
       this.logger.log(`Requisición ${folio} creada (${lines.length} líneas, ${totalUnits} u) por ${userId ?? 'system'}`);
       return { id: req.id, folio: req.folio, estado: req.estado, total_lines: lines.length, total_units: totalUnits, total_cost: totalCost };
+    }
+  }
+
+  /**
+   * `[RQ.8]` CREA TODAS LAS REQUISICIONES DE UN «ARMAR» EN UNA SOLA TRANSACCIÓN, bajo un folio
+   * de lote, y ata cada bajada a la compra que la originó.
+   *
+   * Reemplaza N llamadas HTTP sueltas desde el navegador. Tres cosas que así no se podían:
+   *   1. **El lote existe como dato.** Antes había que inferirlo con una ventana de 90 s sobre
+   *      `created_at` — medido así: 82 generaciones, promedio 8.2, peor **117**.
+   *   2. **O entran todas o no entra ninguna.** Con N llamadas, un fallo a la mitad dejaba medio
+   *      pedido creado y el otro medio no, y el aviso decía "error parcial" sin decir cuál.
+   *   3. **La bajada puede apuntar a su compra**, porque acá —y sólo acá— se conocen las dos.
+   *
+   * ⚠️ El orden importa: las compras se insertan PRIMERO para que las bajadas tengan a quién
+   * apuntar. El `link` que manda el front es un índice dentro de este mismo arreglo, no un id:
+   * los ids todavía no existen cuando el navegador arma el pedido.
+   */
+  async createRequisitionBatch(dto: { requisitions?: CreateRequisitionDto[] }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const entrada = dto?.requisitions || [];
+    if (!entrada.length) throw new BadRequestException('El lote no trae requisiciones');
+    if (entrada.length > 300) throw new BadRequestException('Máximo 300 requisiciones por lote');
+    // Las compras primero: una bajada no puede apuntar a algo que todavía no se insertó.
+    const orden = entrada.map((r, i) => ({ r, i }))
+      .sort((a, b) => (a.r.source_type === 'branch' ? 1 : 0) - (b.r.source_type === 'branch' ? 1 : 0));
+    const vigCols = await this.tk.run((trx) => this.loteColsListas(trx));
+    return this.tk.run(async (trx) => {
+      const year = new Date().getFullYear();
+      const batchId = randomUUID();
+      let batchFolio: string | null = null;
+      if (vigCols) {
+        const s = await trx.raw(
+          `INSERT INTO commercial.purchase_doc_sequences (tenant_id, year, doc_kind, last_seq) VALUES (?, ?, 'RQL', 1)
+           ON CONFLICT (tenant_id, year, doc_kind) DO UPDATE SET last_seq = commercial.purchase_doc_sequences.last_seq + 1
+           RETURNING last_seq`, [tenantId, year]);
+        batchFolio = `RQ-LOTE-${year}-${String(s.rows[0].last_seq).padStart(5, '0')}`;
+      }
+      const porIndice = new Map<number, string>();   // índice en el arreglo → id creado
+      const creadas: Array<{ id: string; folio: string; source_type: string }> = [];
+      for (const { r, i } of orden) {
+        const hecha = await this.insertRequisition(trx, tenantId, r);
+        porIndice.set(i, hecha.id);
+        creadas.push({ id: hecha.id, folio: hecha.folio, source_type: r.source_type === 'branch' ? 'branch' : 'supplier' });
+        if (vigCols) {
+          const origen = typeof r.link_to === 'number' ? porIndice.get(r.link_to) ?? null : null;
+          await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id: hecha.id })
+            .update({ batch_id: batchId, batch_folio: batchFolio, origin_requisition_id: origen });
+        }
+      }
+      this.logger.log(`Lote ${batchFolio ?? batchId}: ${creadas.length} requisición(es)`);
+      return {
+        batch_id: batchId, batch_folio: batchFolio, total: creadas.length,
+        compras: creadas.filter((x) => x.source_type === 'supplier').length,
+        traspasos: creadas.filter((x) => x.source_type === 'branch').length,
+        folios: creadas.map((x) => x.folio),
+      };
     });
   }
 
+  /**
+   * `[RQ.8]` LA BANDEJA, POR LOTE: una fila por «Armar», no por documento.
+   *
+   * Es la vista que faltaba. Medido: el promedio es 8.2 documentos por generación y el peor 117,
+   * así que la lista plana obliga a leer 117 renglones para entender **un** clic.
+   *
+   * ⚠️ Pagina por LOTE, no por documento: agrupar la página de 50 documentos partiría lotes por
+   * la mitad y el conteo de cada uno mentiría según dónde cayera el corte.
+   *
+   * ⚠️ Lo anterior a la migración tiene `batch_id` NULL. Se agrupa por su propio id, o sea sale
+   * como **lote de uno** — que es lo que de verdad se sabe de ellas. Inventarles un lote hacia
+   * atrás con una ventana de tiempo sería publicar una reconstrucción como si fuera un hecho.
+   */
+  async listRequisitionBatches(q: { estado?: string; source_type?: string; page?: number; pageSize?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(q.pageSize) || 25));
+    return this.tk.run(async (trx) => {
+      if (!(await this.loteColsListas(trx))) return { total: 0, page, pageSize, rows: [], disponible: false };
+      const binds: Record<string, unknown> = { t: tenantId };
+      const conds = ['r.tenant_id = :t'];
+      if (q.estado) { conds.push('r.estado = :est'); binds.est = q.estado; }
+      if (q.source_type === 'supplier' || q.source_type === 'branch') { conds.push('r.source_type = :st'); binds.st = q.source_type; }
+      const where = conds.join(' AND ');
+      const inner = `
+        SELECT COALESCE(r.batch_id, r.id)                                   AS lote,
+               max(r.batch_folio)                                           AS batch_folio,
+               count(*)::int                                                AS documentos,
+               count(*) FILTER (WHERE r.source_type = 'supplier')::int      AS compras,
+               count(*) FILTER (WHERE r.source_type = 'branch')::int        AS traspasos,
+               count(DISTINCT r.warehouse_id)::int                          AS almacenes,
+               count(DISTINCT r.supplier_id) FILTER (WHERE r.supplier_id IS NOT NULL)::int AS proveedores,
+               COALESCE(sum(r.total_lines), 0)::int                         AS renglones,
+               COALESCE(sum(r.total_cost), 0)                               AS monto,
+               min(r.created_at)                                            AS created_at,
+               floor(extract(epoch FROM now() - min(r.created_at)) / 86400)::int AS dias,
+               -- El estado del LOTE no se inventa: si todos coinciden es ése, y si no, se DICE
+               -- que está mezclado. Un "pendiente" sobre un lote medio aprobado sería mentira.
+               CASE WHEN count(DISTINCT r.estado) = 1 THEN min(r.estado) ELSE 'mixto' END AS estado,
+               count(*) FILTER (WHERE r.estado = 'pending_approval')::int   AS pendientes,
+               max(u.username)                                              AS autor,
+               (array_agg(DISTINCT sup.name) FILTER (WHERE sup.name IS NOT NULL))[1:3] AS proveedor_muestra,
+               (array_agg(DISTINCT w.code ORDER BY w.code))[1:6]            AS almacen_muestra
+          FROM commercial.purchase_requisitions r
+          LEFT JOIN identity.users u      ON u.id = r.created_by
+          LEFT JOIN catalog.suppliers sup ON sup.tenant_id = r.tenant_id AND sup.id = r.supplier_id
+          LEFT JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
+         WHERE ${where}
+         GROUP BY COALESCE(r.batch_id, r.id)`;
+      const tot = (await trx.raw(`SELECT count(*)::int c FROM (${inner}) z`, binds)).rows[0];
+      const rows = (await trx.raw(
+        `${inner} ORDER BY min(r.created_at) DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+      return { total: Number(tot?.c || 0), page, pageSize, rows, disponible: true };
+    });
+  }
+
+  /** `[RQ.8]` ¿Llegó la migración del lote? Se pregunta, no se asume (igual que `[RQ.1]`). */
+  private rqLoteCols: boolean | null = null;
+  private async loteColsListas(trx: Knex.Transaction): Promise<boolean> {
+    if (this.rqLoteCols != null) return this.rqLoteCols;
+    try {
+      const r = await trx.raw(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+        WHERE table_schema='commercial' AND table_name='purchase_requisitions'
+          AND column_name='batch_id') AS t`);
+      this.rqLoteCols = !!r.rows?.[0]?.t;
+    } catch { this.rqLoteCols = false; }
+    if (!this.rqLoteCols)
+      this.logger.warn('[RQ.8] falta la migración 20261006190000 — las requisiciones se crean igual, pero sueltas: sin folio de lote y sin liga bajada→compra.');
+    return this.rqLoteCols;
+  }
+
   async listRequisitions(
-    q: { estado?: string; warehouse_id?: string; source_type?: string; page?: number; pageSize?: number },
+    q: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; page?: number; pageSize?: number },
   ): Promise<RequisitionListDto> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(q.pageSize) || 50));
     return this.tk.run(async (trx) => {
+      // Se preguntan ANTES de armar el WHERE: la búsqueda toca `batch_folio`, que no existe
+      // hasta que corre la migración, y un SELECT sobre una columna ausente es un 42703 que se
+      // lleva la bandeja entera.
+      const vigCols = await this.vigenciaColsListas(trx);
+      const loteCols = await this.loteColsListas(trx);
       const base = trx('commercial.purchase_requisitions as r')
         .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'r.tenant_id').andOn('w.id', 'r.warehouse_id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'r.tenant_id').andOn('sup.id', 'r.supplier_id'))
@@ -3114,15 +3299,143 @@ export class CommercialReplenishmentService {
       if (q.source_type && (q.source_type === 'supplier' || q.source_type === 'branch')) {
         base.andWhere('r.source_type', q.source_type);
       }
+      // `[RQ.8]` Los documentos de UN lote. Es lo que abre la fila de la bandeja agrupada.
+      if (q.batch_id && UUID_RX.test(q.batch_id)) base.andWhere('r.batch_id', q.batch_id);
+      // `[RQ.9]` Buscar por folio o por proveedor. Hasta acá el ÚNICO filtro de la pantalla era
+      // el estado: con 670 requisiciones y 50 por página, encontrar un folio eran 14 páginas.
+      if (q.search && q.search.trim()) {
+        const t = `%${q.search.trim()}%`;
+        base.andWhere((w) => {
+          w.whereRaw('r.folio ILIKE ?', [t]).orWhereRaw('sup.name ILIKE ?', [t]);
+          if (loteCols) w.orWhereRaw("COALESCE(r.batch_folio, '') ILIKE ?", [t]);
+        });
+      }
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
       const rows = await base.clone()
         .select('r.id', 'r.folio', 'r.estado', 'r.source_type', 'r.source_warehouse_id', 'r.target_basis', 'r.total_lines', 'r.total_units', 'r.total_cost',
-          'r.notes', 'r.created_at', 'r.approved_at', trx.raw('w.code AS warehouse_code'), trx.raw('w.name AS warehouse_name'),
+          'r.notes', 'r.created_at', 'r.approved_at',
+          ...(vigCols ? ['r.recalculated_at'] : []),
+          ...(loteCols ? ['r.batch_id', 'r.batch_folio', 'r.origin_requisition_id'] : []),
+          trx.raw('w.code AS warehouse_code'), trx.raw('w.name AS warehouse_name'),
           trx.raw('sup.name AS supplier_name'),
-          trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'))
+          trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'),
+          // `[RQ.2]` La ANTIGUEDAD viaja en la fila. Sin ella la lista ordena por fecha y el
+          // lector tiene que restar de cabeza para darse cuenta de que esa requisicion lleva
+          // 77 dias parada. Se calcula en el servidor, con SU reloj, no con el del navegador
+          // (VP.0 midio 21 de 24 pildoras de esta app mintiendo por medir el reloj del cliente).
+          trx.raw(`floor(extract(epoch FROM now() - r.created_at) / 86400)::int AS dias`))
         .orderBy('r.created_at', 'desc').limit(pageSize).offset((page - 1) * pageSize);
-      return { total: Number(totalRow?.c || 0), page, pageSize, rows };
+
+      // `[RQ.2]` LA VIGENCIA, SOLO DE LA PAGINA QUE SE MUESTRA. Cruzar los renglones contra el
+      // plan de hoy cuesta; hacerlo sobre las 670 para pintar 50 seria pagar 13 veces de mas.
+      const vig = await this.vigenciaDeRequisiciones(trx, tenantId, rows.map((r: any) => r.id));
+      for (const r of rows as any[]) r.vigencia = vig.get(r.id) ?? null;
+
+      // `[RQ.2]` EL RESUMEN POR ESTADO, SOBRE TODO EL UNIVERSO FILTRADO (no sobre la pagina).
+      // Es lo que faltaba para que alguien pueda ver que hay 610 esperando: la lista devolvia
+      // un `total` y nada mas, y con el filtro por defecto en "todos los estados" las pendientes
+      // quedaban mezcladas con las canceladas y las recibidas, 50 por pagina, ordenadas por
+      // fecha — o sea que las mas viejas, que son las que importan, caian en la pagina 12.
+      const resumenRows = await base.clone().clearSelect().clearOrder()
+        .groupBy('r.estado')
+        .select('r.estado',
+          trx.raw('count(*)::int AS n'),
+          trx.raw('COALESCE(sum(r.total_cost), 0) AS monto'),
+          trx.raw(`COALESCE(max(floor(extract(epoch FROM now() - r.created_at) / 86400)), 0)::int AS dias_max`),
+          trx.raw(`COALESCE(round(avg(floor(extract(epoch FROM now() - r.created_at) / 86400))), 0)::int AS dias_prom`),
+          // `[RQ.2]` El corte de 30 días no es de gusto: es el escalón donde la medición cambia de
+          // régimen. En prod, el costo capturado ya se había movido en el 13.6 % de los renglones
+          // de 8-30 días y en el 83.5 % de los de 31-60 — ahí es donde la requisición deja de ser
+          // verdad y hay que recalcularla antes de aprobar.
+          trx.raw(`count(*) FILTER (WHERE r.created_at < now() - interval '30 days')::int AS n_mas_30`),
+          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE r.created_at < now() - interval '30 days'), 0) AS monto_mas_30`));
+      const resumen = (resumenRows as any[]).map((x) => ({
+        estado: String(x.estado), n: Number(x.n) || 0, monto: Number(x.monto) || 0,
+        dias_prom: Number(x.dias_prom) || 0, dias_max: Number(x.dias_max) || 0,
+        n_mas_30: Number(x.n_mas_30) || 0, monto_mas_30: Number(x.monto_mas_30) || 0,
+      }));
+      return { total: Number(totalRow?.c || 0), page, pageSize, rows, resumen };
     });
+  }
+
+  /**
+   * `[RQ.1]` ¿LOS COSTOS DE ESTA REQUISICION SIGUEN SIENDO LOS DE HOY?
+   *
+   * Se MIDE al leer, nunca se guarda: un veredicto guardado envejece solo y vuelve a mentir.
+   * Compara el `unit_cost` que capturo el renglon contra el `caja_cost` que tiene hoy
+   * `analytics.replenishment_plan` para ese (producto, almacen) — la MISMA fuente de la que
+   * salio, verificada con razon 1.0000 exacta en 435 de 435 renglones de 0-3 dias.
+   *
+   * ⚠️ TRES RESULTADOS, NO DOS (ADR-056). Un renglon sin fila en el plan, o con costo cero de
+   * cualquiera de los dos lados, **no se puede medir**: no cuenta como sano ni como movido, se
+   * cuenta aparte en `sin_medir`. Fundirlo con "sin cambio" diria que esta bien algo que nadie
+   * comprobo, que es justo la forma de mentir que esta fase viene a quitar.
+   *
+   * El umbral es **1 %**, y no es un numero elegido de gusto: es el mismo con el que se midio la
+   * deriva contra prod (6.1 % de los renglones de 0-7 dias contra 98.7 % de los de 60+). Mover
+   * el umbral mueve la medicion que justifica toda la regla.
+   */
+  /**
+   * `[RQ.1]` ¿Ya llegó la migración de `recalculated_at` / `recalculated_by`?
+   *
+   * Se PREGUNTA, no se asume: el código y el DDL viajan por caminos distintos y llegan
+   * desordenados — el despliegue sube la imagen y las migraciones se aplican una por una a mano
+   * (`apply-one-migration-prod.js`). Sin esto, el primer `SELECT r.recalculated_at` después del
+   * redeploy tira 42703 y se cae la bandeja entera, que es justo la pantalla que esta fase viene
+   * a arreglar. Mismo patrón que `existencia.service.ts` `[EX-PERF.2]` y que la copia
+   * materializada del workbook.
+   */
+  private rqVigenciaCols: boolean | null = null;
+  private async vigenciaColsListas(trx: Knex.Transaction): Promise<boolean> {
+    if (this.rqVigenciaCols != null) return this.rqVigenciaCols;
+    try {
+      const r = await trx.raw(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+        WHERE table_schema='commercial' AND table_name='purchase_requisitions'
+          AND column_name='recalculated_at') AS t`);
+      this.rqVigenciaCols = !!r.rows?.[0]?.t;
+    } catch { this.rqVigenciaCols = false; }
+    if (!this.rqVigenciaCols)
+      this.logger.warn('[RQ.1] falta la migración 20261006180000 — la requisición no deja constancia de su recálculo (el resto de la vigencia SÍ funciona: se mide, no se guarda).');
+    return this.rqVigenciaCols;
+  }
+
+  private async vigenciaDeRequisiciones(
+    trx: Knex.Transaction, tenantId: string, ids: string[],
+  ): Promise<Map<string, RequisitionVigenciaDto>> {
+    const out = new Map<string, RequisitionVigenciaDto>();
+    if (!ids.length) return out;
+    const rows = await trx.raw(`
+      SELECT l.requisition_id,
+             count(*)::int                                                              AS renglones,
+             count(*) FILTER (WHERE rp.caja_cost > 0 AND l.unit_cost > 0)::int          AS medibles,
+             count(*) FILTER (WHERE rp.caja_cost > 0 AND l.unit_cost > 0
+                                AND abs(l.unit_cost - rp.caja_cost) > 0.01 * rp.caja_cost)::int AS movidos,
+             COALESCE(sum(l.line_cost), 0)                                              AS monto_capturado,
+             COALESCE(sum(CASE WHEN rp.caja_cost > 0 AND l.unit_cost > 0
+                               THEN l.final_qty * rp.caja_cost ELSE l.line_cost END), 0) AS monto_hoy
+        FROM commercial.purchase_requisition_lines l
+        JOIN commercial.purchase_requisitions r
+          ON r.tenant_id = l.tenant_id AND r.id = l.requisition_id
+        LEFT JOIN analytics.replenishment_plan rp
+          ON rp.tenant_id = l.tenant_id AND rp.product_id = l.product_id AND rp.warehouse_id = r.warehouse_id
+       WHERE l.tenant_id = :t AND l.requisition_id = ANY(:ids)
+       GROUP BY l.requisition_id`, { t: tenantId, ids });
+    for (const x of rows.rows as any[]) {
+      const renglones = Number(x.renglones) || 0;
+      const medibles = Number(x.medibles) || 0;
+      const movidos = Number(x.movidos) || 0;
+      const capturado = Number(x.monto_capturado) || 0;
+      const hoy = Number(x.monto_hoy) || 0;
+      out.set(String(x.requisition_id), {
+        renglones, medibles, movidos, sin_medir: renglones - medibles,
+        monto_capturado: Number(capturado.toFixed(2)), monto_hoy: Number(hoy.toFixed(2)),
+        delta: Number((hoy - capturado).toFixed(2)),
+        // `vigente` es TERNARIO: `false` solo cuando se midio y se movio; `null` cuando NO se
+        // pudo medir ni un renglon. Un booleano no sabe decir "no se".
+        vigente: medibles === 0 ? null : movidos === 0,
+      });
+    }
+    return out;
   }
 
   async getRequisition(id: string) {
@@ -3150,7 +3463,109 @@ export class CommercialReplenishmentService {
       const po: any = await trx('commercial.purchase_orders')
         .where({ tenant_id: tenantId, requisition_id: id }).whereNot('estado', 'cancelled')
         .select('id', 'folio', 'estado').orderBy('created_at', 'desc').first();
-      return { ...header, lines, purchase_order_id: po?.id ?? null, purchase_order_folio: po?.folio ?? null };
+      // `[RQ.1]` El costo de HOY, renglón por renglón, al lado del que se capturó. Va en la ficha
+      // porque es donde se decide: aprobar una requisición de 39 días sin ver que su costo se
+      // movió es ordenar a un precio que ya no existe.
+      const vivos = await trx('analytics.replenishment_plan')
+        .where({ tenant_id: tenantId, warehouse_id: header.warehouse_id })
+        .whereIn('product_id', (lines as any[]).map((l) => l.product_id))
+        .select('product_id', 'caja_cost');
+      const costoHoy = new Map<string, number>();
+      for (const v of vivos as any[]) costoHoy.set(String(v.product_id), Number(v.caja_cost) || 0);
+      for (const l of lines as any[]) {
+        const hoy = costoHoy.get(String(l.product_id));
+        const cap = Number(l.unit_cost) || 0;
+        // `null` = no medible, NUNCA 0: un cero acá se leería "hoy no cuesta nada".
+        l.costo_hoy = hoy != null && hoy > 0 ? Number(hoy.toFixed(4)) : null;
+        l.costo_movido = l.costo_hoy != null && cap > 0 ? Math.abs(cap - l.costo_hoy) > 0.01 * l.costo_hoy : null;
+      }
+      const vig = (await this.vigenciaDeRequisiciones(trx, tenantId, [id])).get(id) ?? null;
+      const dias = Math.floor((Date.now() - new Date(header.created_at).getTime()) / 86400000);
+
+      // `[RQ.8]` DE DÓNDE VIENE Y A DÓNDE VA — derivado de la FK, no copiado.
+      //
+      // Hasta acá una compra consolidada se veía igual que una directa: la pantalla mostraba un
+      // solo almacén (el punto de ENTREGA) y las sucursales para las que era vivían en `notes`
+      // como texto libre. Medido: **48 compras consolidadas por $7,422,219** eran indistinguibles,
+      // y **197 traspasos por $7,121,283** decían "Bajada de compra consolidada 00 → 03" sin
+      // forma de volver al folio que los originó.
+      //
+      // Las sucursales destino NO se guardan en ningún lado: SON los destinos de sus bajadas.
+      let bajadas: Array<{ id: string; folio: string; estado: string; code: string | null; name: string | null; total_cost: number }> = [];
+      let origen: { id: string; folio: string; estado: string; supplier_name: string | null } | null = null;
+      let lote: { documentos: number; folio: string | null } | null = null;
+      if (await this.loteColsListas(trx)) {
+        bajadas = (await trx('commercial.purchase_requisitions as r')
+          .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'r.tenant_id').andOn('w.id', 'r.warehouse_id'))
+          .where({ 'r.tenant_id': tenantId, 'r.origin_requisition_id': id })
+          .select('r.id', 'r.folio', 'r.estado', 'r.total_cost',
+            trx.raw('w.code AS code'), trx.raw('w.name AS name'))
+          .orderBy('w.code')) as never;
+        if (header.origin_requisition_id) {
+          origen = (await trx('commercial.purchase_requisitions as r')
+            .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'r.tenant_id').andOn('sup.id', 'r.supplier_id'))
+            .where({ 'r.tenant_id': tenantId, 'r.id': header.origin_requisition_id })
+            .select('r.id', 'r.folio', 'r.estado', trx.raw('sup.name AS supplier_name'))
+            .first()) as never;
+        }
+        if (header.batch_id) {
+          const n: any = await trx('commercial.purchase_requisitions')
+            .where({ tenant_id: tenantId, batch_id: header.batch_id }).count('* as c').first();
+          lote = { documentos: Number(n?.c || 0), folio: header.batch_folio ?? null };
+        }
+      }
+      return {
+        ...header, lines, dias, vigencia: vig, bajadas, origen, lote,
+        purchase_order_id: po?.id ?? null, purchase_order_folio: po?.folio ?? null,
+      };
+    });
+  }
+
+  /**
+   * `[RQ.1]` REFRESCA LOS COSTOS DE UNA REQUISICIÓN CONTRA EL PLAN DE HOY.
+   *
+   * Es la salida del freno de `approve()`: en vez de dejar la requisición atrapada, un clic la
+   * vuelve a hacer verdad. Toca **sólo el costo**, nunca la cantidad — cuánto pedir es decisión
+   * del comprador y recalcularla por abajo le cambiaría el pedido sin avisar.
+   *
+   * ⚠️ Los renglones que NO se pueden medir se dejan como estaban y se declaran en el resultado.
+   * Pisarlos con cero sería inventar un costo.
+   */
+  async recalcularCostos(id: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const userId = this.tenantCtx.get()?.userId ?? null;
+    if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
+    return this.tk.run(async (trx) => {
+      const req: any = await trx('commercial.purchase_requisitions')
+        .where({ tenant_id: tenantId, id }).forUpdate().first();
+      if (!req) throw new NotFoundException('Requisición no encontrada');
+      if (req.estado !== 'pending_approval' && req.estado !== 'approved')
+        throw new BadRequestException(`Sólo se recalcula una requisición pendiente o aprobada (está '${req.estado}')`);
+      const upd = await trx.raw(`
+        UPDATE commercial.purchase_requisition_lines l
+           SET unit_cost = rp.caja_cost,
+               line_cost = round((l.final_qty * rp.caja_cost)::numeric, 4)
+          FROM analytics.replenishment_plan rp
+         WHERE l.tenant_id = :t AND l.requisition_id = :id
+           AND rp.tenant_id = l.tenant_id AND rp.product_id = l.product_id AND rp.warehouse_id = :wh
+           AND rp.caja_cost > 0
+           AND l.unit_cost IS DISTINCT FROM rp.caja_cost
+        RETURNING l.id`, { t: tenantId, id, wh: req.warehouse_id });
+      const tocados = upd.rows.length;
+      const tot: any = await trx('commercial.purchase_requisition_lines')
+        .where({ tenant_id: tenantId, requisition_id: id })
+        .select(trx.raw('COALESCE(sum(line_cost), 0) AS c'), trx.raw('COALESCE(sum(final_qty), 0) AS u'))
+        .first();
+      const vigCols = await this.vigenciaColsListas(trx);
+      await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id }).update({
+        total_cost: Number(Number(tot?.c || 0).toFixed(4)), total_units: Number(tot?.u || 0),
+        updated_at: trx.fn.now(),
+        // Sin la migración se recalcula igual — lo que falta es la CONSTANCIA, no el efecto.
+        ...(vigCols ? { recalculated_at: trx.fn.now(), recalculated_by: userId } : {}),
+      });
+      const vig = (await this.vigenciaDeRequisiciones(trx, tenantId, [id])).get(id) ?? null;
+      this.logger.log(`Requisición ${req.folio}: ${tocados} renglón(es) recalculados por ${userId ?? 'system'}`);
+      return { id, renglones_actualizados: tocados, total_cost: Number(tot?.c || 0), vigencia: vig };
     });
   }
 
@@ -3169,8 +3584,63 @@ export class CommercialReplenishmentService {
       return { id, estado: to };
     });
   }
-  approve(id: string) { return this.setEstado(id, 'pending_approval', 'approved'); }
+  /**
+   * `[RQ.3]` APROBAR EXIGE QUE EL COSTO SEA EL DE HOY.
+   *
+   * El freno es MEDIDO, no una política: una requisición de 31-60 días tiene el 83.5 % de sus
+   * renglones con un costo que ya se movió, y una de 60+ el 98.7 % (prod, 2026-10-06). Aprobar
+   * eso es ordenar a un precio que no existe y, peor, valuar la compra con él.
+   *
+   * ⚠️ NO ES UN CALLEJÓN: el mensaje nombra la salida y es de un clic — `Recalcular` trae los
+   * costos de hoy y entonces aprueba. Un freno sin salida habría empeorado justo el problema que
+   * esta fase cierra (610 requisiciones que nadie mueve).
+   *
+   * ⚠️ Y NO FRENA LO QUE NO PUDO MEDIR. Si ningún renglón tiene costo comparable, `vigente` es
+   * `null` y la aprobación pasa: castigar la ausencia de medición es dibujar un veredicto que
+   * nadie emitió (ADR-056).
+   */
+  async approve(id: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
+    const vig = await this.tk.run(async (trx) => (await this.vigenciaDeRequisiciones(trx, tenantId, [id])).get(id) ?? null);
+    if (vig && vig.vigente === false) {
+      throw new BadRequestException(
+        `${vig.movidos} de ${vig.medibles} renglones ya no tienen el costo de hoy (${this.pesos(vig.monto_capturado)} capturados contra ${this.pesos(vig.monto_hoy)} actuales). Usá "Recalcular" y volvé a aprobar.`);
+    }
+    return this.setEstado(id, 'pending_approval', 'approved');
+  }
   reject(id: string) { return this.setEstado(id, 'pending_approval', 'cancelled'); }
+
+  /** Montos en el mensaje de error, para que diga CUÁNTO se movió y no sólo que se movió. */
+  private pesos(n: number): string {
+    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(n || 0);
+  }
+
+  /**
+   * `[RQ.4]` APROBAR O RECHAZAR VARIAS DE UNA.
+   *
+   * Hasta acá mover las 610 pendientes exigía abrir 610 fichas, una por una. El costo de la
+   * bandeja ERA el trámite; con eso, la bandeja no se vacía nunca.
+   *
+   * ⚠️ CADA UNA VA EN SU PROPIA TRANSACCIÓN y el resultado se informa POR FOLIO. Una sola
+   * transacción para todas haría que un renglón con el costo movido tirara abajo las otras 49, y
+   * quien aprueba se quedaría sin saber cuál falló. Lo que no pasa, se dice con su motivo.
+   */
+  async bulkEstado(ids: string[], accion: 'approve' | 'reject') {
+    const unicos = [...new Set((ids || []).filter((x) => typeof x === 'string' && UUID_RX.test(x)))];
+    if (!unicos.length) throw new BadRequestException('No se recibió ninguna requisición válida');
+    if (unicos.length > 200) throw new BadRequestException('Máximo 200 requisiciones por lote');
+    const ok: string[] = []; const fallas: Array<{ id: string; motivo: string }> = [];
+    for (const id of unicos) {
+      try {
+        await (accion === 'approve' ? this.approve(id) : this.reject(id));
+        ok.push(id);
+      } catch (e: unknown) {
+        fallas.push({ id, motivo: (e as { message?: string })?.message || 'no se pudo' });
+      }
+    }
+    return { pedidas: unicos.length, hechas: ok.length, ok, fallas };
+  }
   /** RA.14 — approved → ordered (OC emitida / exportada al proveedor). */
   markOrdered(id: string) { return this.setEstado(id, 'approved', 'ordered'); }
 

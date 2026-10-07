@@ -12,7 +12,7 @@ import { armarRespuesta, horasAbierto, periodo, PeriodoInvalido, relojMx, type F
 
 /**
  * `[GP.1]` Tablero de pedidos del almacén — lectura pura sobre el ODS, sin importer
- * (derive-no-copy, mismo patrón que Cortes/Sucursales). La Suite NO escribe en Kepler (ADR-084).
+ * (derive-no-copy, mismo patrón que Cortes/Sucursales). La Suite NO escribe en Kepler (ADR-086).
  *
  *  · Pedido   = `kepler_ods.kdm1` `U-D-40`. Origen `c27`, estatus `c11`, responsables
  *               `c100/c102/c103`, transporte/chofer/guía `c83/c84/c86`. Decode: ERP_KEPLER §3.y.1.

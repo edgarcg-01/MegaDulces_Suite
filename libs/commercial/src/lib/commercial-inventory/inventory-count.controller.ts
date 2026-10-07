@@ -172,8 +172,19 @@ export class InventoryCountController {
     return this.service.listInterruptions(id);
   }
 
+  /**
+   * `[IC.23]` **Quien ASIGNA tiene que poder LEER a quién asignó.** Hasta acá `ASIGNAR` podía
+   * escribir la lista (`POST`, abajo) y no leerla — un gate mal partido, el mismo que
+   * `WMS-REC.9` corrigió en el Andén. Estaba latente porque **hoy nadie tiene `ASIGNAR` sin
+   * `SUPERVISAR`** (medido en prod: compras, gerente_compras, marketing, supervisor y
+   * superadmin tienen las dos). Se rompe en el momento en que `encargado_tienda` recibe
+   * `ASIGNAR` — que es exactamente lo que hace la migración de esta fase.
+   */
   @Get(':id/assignments')
-  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @RequireAnyPermission(
+    Permission.COMMERCIAL_INVENTORY_SUPERVISAR,
+    Permission.COMMERCIAL_INVENTORY_ASIGNAR,
+  )
   @ApiOperation({ summary: 'Contadores y supervisores asignados al folio' })
   assignments(@Param('id') id: string) {
     return this.service.listAssignments(id);
@@ -189,8 +200,20 @@ export class InventoryCountController {
     return this.service.setAssignments(id, body?.role, body?.user_ids || []);
   }
 
+  /**
+   * `[IC.23]` Abierto también a `ASIGNAR`: quien arma el equipo necesita ver **cómo va**, o
+   * asigna a ciegas y no se entera de que nadie contó.
+   *
+   * ⚠️ Se verificó que NO filtra el teórico antes de abrirlo: `getProgress` devuelve
+   * **sólo agregados** (total / contados / discrepancias / `value_at_variance` sumado /
+   * productividad por contador / bloqueos con su conteo). El teórico por SKU vive en
+   * `:id/items`, que **sigue exigiendo `SUPERVISAR` a secas** — ver el bloque de ahí abajo.
+   */
   @Get(':id/progress')
-  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @RequireAnyPermission(
+    Permission.COMMERCIAL_INVENTORY_SUPERVISAR,
+    Permission.COMMERCIAL_INVENTORY_ASIGNAR,
+  )
   @ApiOperation({ summary: 'Tablero del supervisor: avance, discrepancias, valor en riesgo' })
   progress(@Param('id') id: string) {
     return this.service.getProgress(id);
@@ -203,6 +226,13 @@ export class InventoryCountController {
     return this.service.aisleProgress(id);
   }
 
+  /**
+   * ⛔ `[IC.23]` **ESTA NO SE ABRE, y es la razón por la que las otras sí se pudieron abrir.**
+   * Devuelve `expected_qty` — el teórico — fila por fila. Es la puerta que `[IC.2]` le quitó al
+   * `almacenista` para no romper el conteo ciego, y la que separa «armo el equipo y miro el
+   * avance» (`ASIGNAR`) de «veo contra qué se está contando» (`SUPERVISAR`). Si algún día se
+   * abre a `ASIGNAR`, el encargado de sucursal pasa a saber el número antes que quien cuenta.
+   */
   @Get(':id/items')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
   @ApiOperation({ summary: 'Items del folio con teórico + varianza (no para contadores)' })

@@ -579,7 +579,55 @@ testigos que no comparten origen (uno de la cabecera, otro de los renglones). �
 hacerlo: un embarque dirigido a una **RUTA** (`RD 5xx`) comparte folio con recepciones de sucursal,
 y desempatar por fecha le acreditaba **39 recepciones que nunca existieron, por $494,300**.
 
-### 3.y.1 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06)
+#### 3.y.1 Lo que la cabecera NO trae y Kepler sí tiene (EMB.12, medido 2026-10-05)
+
+Medido directo en los POS de Padre Hidalgo (`md_01`) y Canindo (`md_06`), 60 días. **Corrige dos
+afirmaciones de arriba**: la ruta sí se puede derivar, y los catálogos de responsables sí llegan al
+ODS (el esquema de `kepler_ods` los trae; falta confirmar filas en prod).
+
+| Dato | Dónde está | Nota |
+|---|---|---|
+| **Ruta de la parada** | `kdm1.c10` (cliente) + **`c85` (domicilio de entrega)** → `kdudent.c13` → `kdm_rutas` | **100%** en ambas sucursales; sólo 4 de 715 contradicen `kdm_rutas2`. `c85` vacío = domicilio `1` (declararlo). La clave de ruta es **por sucursal**. |
+| Orden de visita | `kdm_rutas2.c4` por (ruta, cliente `c2`, domicilio `c3`) | Es una clave de orden (`9.50` entre `9` y `10`), no km. |
+| Domicilio | `kdudent`: `c1` cliente · `c2` número · `c3` calle · `c5` ciudad · `c6` teléfono · **`c13` ruta** | El cliente C1087 va a Zinapáro con `c85=2` y a Churintzio con `c85=3`. |
+| Facturación | `kdm1.c43` | `F` = 879/879 con factura hija `U-D-8`; `R` también; `N` sin factura; `A` sin decodificar. |
+| Usuario que capturó | `kdm1.c67` | Valores como `VIVIANA`, `01JZICO`: no es zona. |
+| Hora de captura | `kdm1.c69` (`HH:MM`) | **No es la hora de salida** (Telemarketing de PH captura entre 18:00 y 19:50). |
+| Nota de almacén | `kdm1.c24`–`c26` | Dos dialectos: PH «CJ 13 PQ 1 UB 3», Canindo «10 CAJAS A-1». **UB / A-1 = ubicación en el andén**, no un conteo. «CJ n» cuadra con los renglones en el 77% (327/424). |
+| Cajas | `kdm2.c54` en la **unidad de manejo** `c55` (CJA/BTO/PAQ/KG…), `c58` = piezas por empaque | `c9 = c54 × c58` en el 100%. Cajas = `c54` donde `c55` ∈ {CJA, BTO}; el resto son sueltos. Fuente mejor que la nota. |
+| Peso | **No existe** | `kdii` no trae kg ni volumen por producto. Sólo se conocen los kilos de renglones vendidos por KG. |
+| Estado por renglón | `kdm2.c28` CREADO → AUTORIZADO → SURTIDO → CHECADO → EMBARCADO | El pedido `U-D-40` lleva el mismo flujo en `kdm1.c11` y ya trae la unidad (`c83`) antes de la guía. |
+| Responsables | `c80` surtidor → `kdm_cat_sur` · `c81` checador → `kdm_cat_che` · `c82` embarcador → `kdm_cat_emb` | ⚠️ Clave corta colisionada: en checadores de PH `1` = JUAN DIEGO y `01` = IRENE. Exacto → normalizado → NULL. |
+| Chofer vacío | `c84` lo **precarga** el chofer asignado a la unidad (`kdm_transporte.c4`) | 10 de 30 unidades de PH no tienen chofer asignado; la `00008` (la que más embarca) trae chofer en el **0.2%** de sus embarques. |
+| **Llegada del traspaso** | `U-A-50` en la sucursal destino: `c10` = origen `TI###`, **`c37/c38/c39` = el `U-D-41-2` que la envió** | PH → Canindo: 18 de 19 con recepción, mismo importe al centavo, 1–5 días después **en esa muestra**. Es la confirmación de entrega que sí existe (para traspasos). ⛔ **No ligar por fecha**: en general el desfase va de −2 a +63 días y el folio se repite entre plazas — se liga por el back-pointer y el destino (ver arriba, `[DM.20]`). |
+| Serie 2 | `c10` = `TI###` (sucursal, ver `pv_suc_ip`) o `RUTA 2x`/`RD 50x` (camión de ruta) | Una misma guía puede mezclar serie 1 (venta con impuestos) y serie 2 (traspaso **a costo**): no se suman. |
+
+Vistas: `analytics.erp_shipment_stops`, `analytics.erp_shipment_stop_load`,
+`analytics.v_kepler_responsables` (mig `20261006210000`).
+
+#### 3.y.2 El gasto del embarque en Kepler (medido 2026-10-05)
+
+Solicitud `X-A-15` → Gasto `X-A-10` (`c37/c39` apunta a la solicitud) → Pago `X-D-26`. **Los
+renglones del gasto viven en `kdm6`, no en `kdm2`**: `c8` cuenta · `c9` texto · `c11` importe ·
+**`c12` concepto** (`kdco`: código → nombre → cuenta) · **`c13` proyecto** (`kdcp`, p. ej.
+«PRESUPUESTO 2026 CANINDO TLMKT») · **`c16` departamento** (`kdc3`, p. ej. «TLMKT CANINDO»,
+«RD PADRE HIDALGO», «LOGISTICA GENERAL»). En la póliza (`kdc2YYMM`) el mismo concepto va en `c20`
+y los segmentos en `c13`/`c21`.
+
+- ⛔ **Cada gasto aparece dos veces en `kdm6`**: en la solicitud y en el gasto. Contar uno.
+- El grano más fino es **sucursal × departamento × concepto × día**. No hay departamento por
+  unidad, por ruta individual ni por guía; la unidad, el chofer y el periodo **sólo vienen en el
+  texto libre** (`kdm1.c24`–`c26`: «combustible para la unidad RAM 4000», «viáticos del 24/09 al
+  01/10»).
+- Cuentas de logística: **602** (`-003` combustibles, `-004` casetas, `-007…-012/-018`
+  mantenimiento, `-013` permisos, `-015` viáticos y comisiones, `-021` pensión), **514** (fletes,
+  combustible y casetas de compras/traspasos), **611-006** combustibles ventas. ⚠️ El combustible
+  de reparto se está registrando en `611-006` y no en `602-003`.
+- No existe concepto de **hospedaje** de logística (sólo «hotel administración», `608-005`) ni
+  concepto que use `602-006` (macheteros).
+- Desde el corte del 1-oct las sucursales registran su propio gasto; antes todo pasaba por el CEDIS.
+
+### 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06)
 
 `U-D-40` = **Pedido**, pantalla *Ventas › TeleMarketing › Pedido Telemarketing* y *Almacenes ›
 Control de Pedidos › Pedido de Sucursal*: **es la misma pantalla (`pv_tk.kpl`) y el mismo
@@ -634,7 +682,7 @@ pasar, no una carreta. Ninguna carreta real (p. ej. 52) aparece entre los valore
 **Sucursal ≠ tienda.** Los pedidos `SUCURSAL` van a clientes internos de tres clases: `TI00x`
 (tiendas), `RD 50x` (reparto directo) y `RUTA nn`. Nacen `AUTORIZADO` (nunca `CREADO`). Fase GP.
 
-### 3.y.2 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06)
+### 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06)
 
 Pantalla *Catálogo de productos › Estructura de Unidades para POS*: tres unidades (Base / Dos /
 Tres), cada una con **tres casillas de código**. Anclado a capturas de `78158` (LECHITA SANTA

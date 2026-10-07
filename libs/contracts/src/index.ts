@@ -85,6 +85,10 @@ export * from './http/replenishment-monthly.contract';
 export * from './http/replenishment-signals.contract';
 export * from './http/vendor-route-day-pick.contract';
 export * from './http/service-desk.contract';
+// [EMB.12] «Nuevo embarque» desde Kepler: la hoja del viaje, la lista y la toma. Sólo tipos.
+export * from './http/nuevo-embarque.contract';
+// [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).
+export * from './http/receipt-expediente.contract';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.
 //   · forma-pago          = catálogo cerrado, atado a los códigos que Kepler ya usa (kdm1.c90).
 //   · aporte-solicitante  = la compuerta (qué falta para mandar), leída por el botón Y por el 400.
@@ -104,9 +108,16 @@ export * from './finance/ver-expediente.contract';
 export * from './finance/coincidencia-pago.contract';
 
 // ── [ID.28] authz — NO se re-exporta desde acá, a propósito ───────────────────
-// El catálogo de permisos vive en `./authz` y se importa por SUBRUTA:
-//   · `@megadulces/contracts/permissions` → el enum `Permission` (caliente)
-//   · `@megadulces/contracts/authz`       → enum + árbol + etiquetas + presets
+// El catálogo de permisos vive en `./authz` y se importa por SUBRUTA. ⚠️ Las rutas que decían
+// estas dos líneas (`/permissions` y `/authz` a secas) **NO EXISTEN en `tsconfig.base.json`** —
+// corregidas el 2026-10-06 después de que `compras-requisiciones.component.ts` importara del
+// barrel y tumbara el build de `main` con `TS2305`. Seguir el comentario viejo llevaba a otro
+// import que tampoco resuelve. Las reales, verificadas contra el mapeo:
+//   · `@megadulces/contracts/authz/permissions`     → el enum `Permission` (lo que casi siempre querés)
+//   · `@megadulces/contracts/authz/authz-tree`      → el árbol
+//   · `@megadulces/contracts/authz/permission-meta` → etiquetas
+//   · `@megadulces/contracts/authz/role-presets`    → presets
+//   · `@megadulces/contracts/authz/suite-map`       → el mapa de la suite
 //
 // Colgarlo de este barrel fue el primer intento y **rompió el presupuesto de
 // bundle de `apps/view`**: este archivo lo importan cosas del chunk inicial de

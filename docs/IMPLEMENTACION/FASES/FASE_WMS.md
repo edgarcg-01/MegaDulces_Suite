@@ -296,7 +296,7 @@ Restrictivos, **sin seed** (se asignan en `/admin/roles` + re-login), siguiendo 
 
 ---
 
-## 12. Addendum 2026-10-06 — Ubicaciones de bodega Y piso de venta (ADR-085) y relación con la Fase GP
+## 12. Addendum 2026-10-06 — Ubicaciones de bodega Y piso de venta (ADR-087) y relación con la Fase GP
 
 **Origen:** conversación con Francisco al diseñar la Fase GP ([`FASE_GP`](FASE_GP_GESTION_PEDIDOS_ALMACEN.md)).
 Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones en **bodega** y en
@@ -312,7 +312,7 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
 - **La ubicación por etapa del pedido existe en Kepler y nadie la llena** (`kdm2.c59/c60/c61`:
   PH 0%/0%/33%; Canindo 99% relleno). Detalle en `FASE_GP` §2.6.
 
-### 12.2 Decisiones (ADR-085)
+### 12.2 Decisiones (ADR-087)
 
 1. **Bodega y piso de venta son ZONAS del mismo almacén, no dos almacenes.** Separarlos obligaría a
    registrar un traspaso cada vez que el anaquelista sube producto, traspaso que Kepler nunca ve, y
@@ -359,7 +359,7 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
 
 ### 12.3 Lo que esto contesta de §6 y §8
 
-- **§6.2 (autoridad en la salida):** resuelta por **ADR-084**: el pedido sigue en Kepler; la Suite
+- **§6.2 (autoridad en la salida):** resuelta por **ADR-086**: el pedido sigue en Kepler; la Suite
   lleva el trabajo de piso y **no escribe en Kepler**; se le captura una vez el resultado.
 - **§6.3 (de dónde viene la demanda de salida):** del **pedido Kepler `U-D-40`**, que cubre
   sucursal (incluye tiendas, rutas y reparto directo) y telemarketing: 1,823 + 2,164 pedidos en 60

@@ -372,17 +372,33 @@ export class CommercialReplenishmentController {
     return this.svc.worklist({ warehouse_id, warehouse_ids, via, status, search, target_basis, category_id, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
-  @Get('requisitions')
+  // ⚠️ `requisitions/batches` va ANTES que `requisitions/:id`: con el orden al revés, Nest casa
+  // 'batches' como un id y devuelve 400. Es el mismo error que la Fase LC pagó con `no-asociados`.
+  @Get('requisitions/batches')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_VER)
-  @ApiOperation({ summary: 'Lista de requisiciones. Filtros: estado, warehouse_id, source_type.' })
-  listRequisitions(
+  @ApiOperation({ summary: '[RQ.8] La bandeja POR LOTE: una fila por «Armar» (documentos, compras, traspasos, almacenes, proveedores, monto, antigüedad y estado — `mixto` cuando no todos coinciden). Pagina por LOTE, no por documento. `disponible:false` cuando falta la migración 20261006190000.' })
+  listRequisitionBatches(
     @Query('estado') estado?: string,
-    @Query('warehouse_id') warehouse_id?: string,
     @Query('source_type') source_type?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.listRequisitions({ estado, warehouse_id, source_type, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.listRequisitionBatches({ estado, source_type, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
+  @Get('requisitions')
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_VER)
+  @ApiOperation({ summary: '[RQ.9] Lista de requisiciones. Filtros: estado, warehouse_id, source_type, batch_id (los documentos de un lote) y search (folio, proveedor o folio de lote).' })
+  listRequisitions(
+    @Query('estado') estado?: string,
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('source_type') source_type?: string,
+    @Query('batch_id') batch_id?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.listRequisitions({ estado, warehouse_id, source_type, batch_id, search, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('requisitions/:id')
@@ -395,10 +411,29 @@ export class CommercialReplenishmentController {
   @ApiOperation({ summary: 'Crea una requisición desde el sugerido (estado pending_approval).' })
   createRequisition(@Body() dto: CreateRequisitionDto) { return this.svc.createRequisition(dto); }
 
+  @Post('requisitions/batch')
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
+  @ApiOperation({ summary: '[RQ.8] Crea TODAS las requisiciones de un «Armar» en UNA transacción, bajo un folio de lote RQ-LOTE-AAAA-NNNNN, y ata cada bajada a la compra que la originó (`link_to` = índice dentro del arreglo). O entran todas o no entra ninguna. Máx. 300.' })
+  createRequisitionBatch(@Body() dto: { requisitions?: CreateRequisitionDto[] }) {
+    return this.svc.createRequisitionBatch(dto);
+  }
+
   @Post('requisitions/:id/approve')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
-  @ApiOperation({ summary: 'Aprueba una requisición (pending_approval → approved).' })
+  @ApiOperation({ summary: '[RQ.3] Aprueba una requisición (pending_approval → approved). FRENA si algún renglón ya no tiene el costo de hoy — la salida es POST /requisitions/:id/recalculate. No frena lo que no se pudo medir.' })
   approve(@Param('id') id: string) { return this.svc.approve(id); }
+
+  @Post('requisitions/:id/recalculate')
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
+  @ApiOperation({ summary: '[RQ.1] Refresca los costos de los renglones contra analytics.replenishment_plan (sólo el costo, nunca la cantidad) y recalcula los totales. Deja constancia en recalculated_at/_by. Aplica a pending_approval y approved.' })
+  recalculate(@Param('id') id: string) { return this.svc.recalcularCostos(id); }
+
+  @Post('requisitions/bulk')
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
+  @ApiOperation({ summary: '[RQ.4] Aprueba o rechaza varias requisiciones de una (máx. 200). Cada una va en su propia transacción: lo que no pasa se informa con su motivo, sin tirar abajo el resto.' })
+  bulk(@Body() dto: { ids?: string[]; accion?: 'approve' | 'reject' }) {
+    return this.svc.bulkEstado(dto?.ids || [], dto?.accion === 'reject' ? 'reject' : 'approve');
+  }
 
   @Post('requisitions/:id/reject')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
