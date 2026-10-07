@@ -60,6 +60,40 @@
  * `rango_almacen`, `skus_en_almacen` y `aporte_individual`: las tres piezas que `[IC.20]` pide
  * para explicar «por qué es A y no B» y que `v_abc_class` calcula y tira. Acá nacen publicadas.
  *
+ * ── ⛔ EL COSTO: lee la MATVISTA, no la vista (medido en prod antes de aplicar, 2026-10-07) ──
+ *
+ * Esta migración se escribió contra `analytics.v_erp_unit_cost` y **nunca llegó a aplicarse así**.
+ * Medido contra prod con la vista:
+ * ```
+ *   v_erp_stock_on_hand (filtrada)        440 ms  ·  21,630 filas
+ *   v_erp_unit_cost                     1,900 ms  · 248,578 filas
+ *   las dos unidas, UN almacén (03)    54,479 ms  ·   2,924 filas   ⛔
+ *   las dos unidas, los 9 almacenes      >180 s (abortada)
+ * ```
+ * El plan lo explica: `Nested Loop Left Join` contra una UNION con `Seq Scan` sobre `products`,
+ * `product_unit_overrides`, `branches` y `warehouses`. El almacén 03 es el 13.5 % del universo,
+ * así que los 9 proyectan **6–8 min** — y eso corre DENTRO de la transacción de esta migración,
+ * o sea **6–8 min con `knex_migrations_lock` tomado**, que es el mecanismo del incidente de los
+ * 22 minutos que `CLAUDE.md` documenta: mientras dura, ningún despliegue de nadie entra.
+ *
+ * ⭐ **El arreglo ya existía desde el 2026-09-29 y esta migración no lo usaba:** `[MR.8.5]`
+ * (mig `20260929130000`) creó `analytics.mv_erp_unit_cost` como `SELECT * FROM v_erp_unit_cost`
+ * literal, **exactamente para este camino caliente**. Mismas 14 columnas, mismas 248,578 filas;
+ * las cuatro que esta vista usa (`costo_unitario`, `costo_source`, `tiene_testigo`, `veredicto`)
+ * están todas. Es reemplazo directo. Medido con la matvista:
+ * ```
+ *   UN almacén (03)        54,479 ms →     98 ms   (554×)
+ *   los 9 almacenes          >180 s  →    666 ms   (bajo el tope de 1 s)
+ * ```
+ * Con eso la verificación de abajo deja de ser un problema de candado: 666 ms, no 8 minutos.
+ *
+ * ⚠️ **Lo que se paga, declarado:** la matvista se refresca cada 15 min (`AnalyticsRefreshService`,
+ * latido agregado `analytics_refresh`, verificado `ok` al momento de medir). El capital total sale
+ * **$64,971,035** contra **$64,503,081** que la vista daba al escribir esta cabecera: **0.7 %**, que
+ * es costo unitario moviéndose dentro de la ventana (recepciones). Para un ABC de capital —ritmo
+ * mensual— 15 minutos de rezago no cambian ninguna clase; para algo que necesite el dato al
+ * segundo, la vista sigue viva y sin tocar.
+ *
  * ⚠️ `security_invoker` + `GRANT` van explícitos (lección U.7): un `CREATE OR REPLACE VIEW` no
  * los hereda, y el candado lo verifica en metadata.
  *
@@ -88,7 +122,7 @@ WITH base AS (
          uc.tiene_testigo,
          uc.veredicto                             AS costo_veredicto
     FROM analytics.v_erp_stock_on_hand s
-    LEFT JOIN analytics.v_erp_unit_cost uc
+    LEFT JOIN analytics.mv_erp_unit_cost uc
            ON uc.tenant_id    = s.tenant_id
           AND uc.warehouse_id = s.warehouse_id
           AND uc.product_id   = s.product_id
