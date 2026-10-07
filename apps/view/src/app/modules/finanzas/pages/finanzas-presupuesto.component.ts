@@ -577,6 +577,19 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 </p>
               }
 
+              <!-- [VE.1] Los huecos: el backend los arma desde PU.R y la pantalla NO los mostraba,
+                   asi que lo que esta pantalla no puede medir no se veia en ningun lado. Un hueco
+                   con nombre y monto es el mensaje, no una nota al pie (ADR-056). -->
+              @for (h of res.huecos; track h.key) {
+                <p class="pres-nodata">
+                  <span class="pi pi-flag"></span>
+                  <strong>{{ h.label }}</strong>
+                  @if (h.monto !== null) { — <span class="pres-mono">{{ money(h.monto) }}</span>. }
+                  @else { — <em>monto no medido</em>. }
+                  {{ h.nota }}
+                </p>
+              }
+
               <p-table [value]="res.months" styleClass="p-datatable-sm surf-table pres-table">
                 <ng-template #header>
                   <tr>
