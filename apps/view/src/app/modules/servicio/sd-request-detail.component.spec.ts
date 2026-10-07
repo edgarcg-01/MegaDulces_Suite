@@ -17,7 +17,7 @@ import { SdRequestDetailComponent } from './sd-request-detail.component';
 
 const t = (status: SdStatus, over: Partial<SdRequestDetail> = {}): SdRequestDetail => ({
   id: 't1', folio: 'SRV-2026-00001', queue_id: 'q', queue_name: 'TI', category_id: 'c', category_name: 'Sistema de caja',
-  title: 'No abre la caja', priority: 'alta', priority_suggested: 'alta', impact: 'sucursal', blocks_work: true, pause_reason: null, status,
+  title: 'No abre la caja', priority: 'alta', priority_suggested: 'alta', impact: 'sucursal', blocks_work: true, pause_reason: null, is_test: false, status,
   requester_id: 'u1', requester_name: 'Ana', warehouse_code: '02', warehouse_name: 'La Piedad Abastos', zone_code: null, zone_name: null,
   assigned_to: status === 'nuevo' ? null : 'u2', assigned_to_name: status === 'nuevo' ? null : 'Jorge', assigned_at: null,
   created_at: '2026-10-02T15:00:00.000Z', updated_at: '2026-10-02T15:00:00.000Z',

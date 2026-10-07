@@ -121,7 +121,7 @@ const direccionInicial = (c: ColumnaOrden): 'asc' | 'desc' => (c === 'prioridad'
                 @for (t of rows(); track t.id) {
                   <tr [class.sel]="selId() === t.id" (click)="abrir(t.id)" tabindex="0" (keydown.enter)="abrir(t.id)">
                     <td class="mono" role="cell" data-label="Folio">{{ t.folio }}</td>
-                    <td class="tit dt-id" role="cell" data-label="Solicitud">{{ t.title }}<small>@if (hayVariasColas() && t.queue_name) { <b class="cola">{{ t.queue_name }}</b> · }{{ t.category_name }}</small></td>
+                    <td class="tit dt-id" role="cell" data-label="Solicitud">{{ t.title }}@if (t.is_test) { <span class="prueba" title="Solicitud de prueba: no cuenta en reportes, tablero ni avisos">Prueba</span> }<small>@if (hayVariasColas() && t.queue_name) { <b class="cola">{{ t.queue_name }}</b> · }{{ t.category_name }}</small></td>
                     <td class="opc" role="cell" data-label="Reportó">{{ t.requester_name || '—' }}</td>
                     <td class="opc" role="cell" data-label="Ubicación">{{ t.warehouse_name || '—' }}</td>
                     <td role="cell" data-label="Prioridad"><span class="pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span></td>
@@ -193,6 +193,7 @@ const direccionInicial = (c: ColumnaOrden): 'asc' | 'desc' => (c === 'prioridad'
     .sb-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .sb-banner.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .cola { color: var(--text-main); }
+    .prueba { margin-left: var(--sp-2); padding: 0 var(--sp-2); border: 1px dashed currentColor; border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--warn-soft-fg); }
     .espera { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
     .sb-body { display: grid; grid-template-columns: 1fr; gap: var(--sp-4); align-items: start; }
     .sb-body.has-detail { grid-template-columns: minmax(0, 1.3fr) minmax(380px, 1fr); }

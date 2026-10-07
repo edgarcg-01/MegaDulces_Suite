@@ -7,7 +7,7 @@ import type {
   SdCreateRequestDto, SdListResponse, SdLogTimeDto, SdNotificationDto, SdPostMessageDto, SdPreferencesDto,
   SdPriority, SdRequestDetail, SdSettingsDto, SdSlaPolicyDto, SdSlaScanResult, SdStatsResponse, SdStatus,
   SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact, SdRoutingResponse, SdUpsertRoutingRuleDto, SdReportResponse, SdRequesterDto, SdDepartmentDto,
-  SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole, SdTransferDto, SdTransferResult, SdUpsertFieldDto, SdUpsertZoneDto,
+  SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole, SdMarkTestDto, SdTransferDto, SdTransferResult, SdUpsertFieldDto, SdUpsertZoneDto,
 } from '@megadulces/contracts';
 import { SD_PAUSE_REASONS } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
@@ -91,6 +91,8 @@ export class ServiceDeskService {
   inbox(q: SdInboxQuery = {}): Observable<SdListResponse> {
     return this.http.get<SdListResponse>(`${this.base}/requests/inbox`, { params: this.params(q) });
   }
+  /** `[MS.7.12]` Marca (o quita la marca de) ticket de prueba. Sólo la coordinación del área. */
+  markTest(id: string, dto: SdMarkTestDto): Observable<SdRequestDetail> { return this.http.post<SdRequestDetail>(`${this.base}/requests/${id}/test`, dto); }
   /** `[MS.7.11]` Traslada un ticket a otra cola. Devuelve un resultado, NO la ficha: quien traslada ya no la ve. */
   transfer(id: string, dto: SdTransferDto): Observable<SdTransferResult> { return this.http.post<SdTransferResult>(`${this.base}/requests/${id}/transfer`, dto); }
   stats(): Observable<SdStatsResponse> { return this.http.get<SdStatsResponse>(`${this.base}/requests/stats`); }

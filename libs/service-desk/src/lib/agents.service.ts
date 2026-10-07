@@ -65,7 +65,7 @@ export class ServiceDeskAgentsService {
     const { rows } = await trx.raw(
       `SELECT u.id AS user_id, u.username, u.nombre AS name,
               (SELECT count(*)::int FROM servicedesk.requests r
-                WHERE r.tenant_id = u.tenant_id AND r.assigned_to = u.id AND r.deleted_at IS NULL
+                WHERE r.tenant_id = u.tenant_id AND r.assigned_to = u.id AND r.deleted_at IS NULL AND NOT r.is_test
                   AND r.status IN ('asignado','en_proceso','en_espera')) AS open_count
          FROM identity.users u
         WHERE u.deleted_at IS NULL

@@ -241,6 +241,8 @@ export interface SdRequestRow {
   priority_suggested: SdPriority | null;
   impact: SdImpact;
   blocks_work: boolean;
+  /** `[MS.7.12]` Ticket de prueba (lo marca la coordinación): no cuenta en reportes, tablero, carga, Mi trabajo ni avisos. */
+  is_test: boolean;
   /** `[MS.7.9]` Por qué está en espera (sólo mientras `status = en_espera`; `null` si no, o si la espera es anterior al motivo). */
   pause_reason: SdPauseReason | null;
   /** `[MS.7.7]` «¿Hay riesgo para personas?». `null` = no se preguntó (cola de impacto): nunca un `false` inventado. */
@@ -368,6 +370,13 @@ export interface SdTransferResult {
   queue_name: string;
   category_name: string;
   status: SdStatus;
+}
+
+/** `[MS.7.12]` Marcar (o quitar la marca de) ticket de prueba. Sólo la coordinación del área donde está; queda en el hilo. */
+export interface SdMarkTestDto {
+  is_test: boolean;
+  /** Opcional: por qué (p. ej. «prueba del flujo de Mantenimiento»). */
+  reason?: string;
 }
 
 export interface SdAssignDto {
