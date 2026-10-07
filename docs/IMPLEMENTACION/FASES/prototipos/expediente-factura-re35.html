@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expediente de factura</title>
+<!-- [RE.35–RE.41] Maqueta SOBRE la pantalla real /compras/costo-por-compra (compras-entradas.component, lente «El dinero»). Lo nuevo va marcado NUEVO, lo modificado CAMBIA. Datos de EJEMPLO; cifras de cobertura medidas en prod el 2026-10-06. ADR-085. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: la pantalla existente (encabezado → pestañas de página → filtros → tira de KPIs → frescura → tabla densa → panel lateral «Orden de entrada») + barra NUEVA de entrega + pestaña NUEVA Aprendizaje */
+:root{
+  --bg:#FAFAF9; --surface:#FFFFFF; --sunken:#F5F5F4; --line:#E7E5E4; --line-strong:#D6D3D1;
+  --fg:#1C1917; --muted:#57534E; --faint:#A8A29E;
+  --action:#EA580C; --action-soft:#FFEDD5; --action-fg:#9A3412;
+  --ok:#15803D; --ok-soft:#DCFCE7; --no:#B91C1C; --no-soft:#FEE2E2; --warn:#A16207; --warn-soft:#FEF9C3; --info:#1D4ED8; --info-soft:#DBEAFE;
+  --new:#7C2D12; --new-bg:#FFEDD5; --chg:#1E3A8A; --chg-bg:#DBEAFE;
+  --scrim:rgb(28 25 23 / .28);
+  --f-ui:"Hanken Grotesk", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --f-mono:"Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --r-sm:4px; --r-md:6px; --r-lg:10px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111111; --surface:#18181B; --sunken:#1F1F23; --line:#2A2A2E; --line-strong:#3F3F46;
+  --fg:#F4F4F5; --muted:#A1A1AA; --faint:#71717A;
+  --action:#FB923C; --action-soft:#3B1D0B; --action-fg:#FDBA74;
+  --ok:#4ADE80; --ok-soft:#0F2A1A; --no:#F87171; --no-soft:#2E1212; --warn:#FACC15; --warn-soft:#2A2408; --info:#93C5FD; --info-soft:#13213D;
+  --new:#FDBA74; --new-bg:#3B1D0B; --chg:#93C5FD; --chg-bg:#13213D; --scrim:rgb(0 0 0 / .5);
+  color-scheme: dark; } }
+:root[data-theme="dark"]{
+  --bg:#111111; --surface:#18181B; --sunken:#1F1F23; --line:#2A2A2E; --line-strong:#3F3F46;
+  --fg:#F4F4F5; --muted:#A1A1AA; --faint:#71717A;
+  --action:#FB923C; --action-soft:#3B1D0B; --action-fg:#FDBA74;
+  --ok:#4ADE80; --ok-soft:#0F2A1A; --no:#F87171; --no-soft:#2E1212; --warn:#FACC15; --warn-soft:#2A2408; --info:#93C5FD; --info-soft:#13213D;
+  --new:#FDBA74; --new-bg:#3B1D0B; --chg:#93C5FD; --chg-bg:#13213D; --scrim:rgb(0 0 0 / .5);
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px;line-height:1.45}
+.wrap{max-width:1400px;margin:0 auto;padding-inline:20px;padding-block:14px 120px;display:flex;flex-direction:column;gap:12px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.ta-r{text-align:right} .muted{color:var(--muted)} .faint{color:var(--faint)} .strong{font-weight:700}
+h1{font-size:1.4rem;font-weight:700;margin:0;letter-spacing:-.01em}
+h2{font-size:.95rem;font-weight:700;margin:0}
+h3{font-size:.72rem;font-weight:700;margin:0;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+a{color:var(--action-fg)}
+button{font:inherit}
+:focus-visible{outline:2px solid var(--action);outline-offset:2px}
+
+/* Marcas de cambio */
+.tag{display:inline-flex;align-items:center;font-size:.6rem;font-weight:800;letter-spacing:.06em;padding:1px 5px;border-radius:3px;vertical-align:middle;margin-left:4px;white-space:nowrap}
+.tag.new{background:var(--new-bg);color:var(--new);border:1px solid color-mix(in srgb,var(--new) 35%,transparent)}
+.tag.chg{background:var(--chg-bg);color:var(--chg);border:1px solid color-mix(in srgb,var(--chg) 35%,transparent)}
+.hl-new{outline:2px dashed color-mix(in srgb,var(--action) 70%,transparent);outline-offset:2px;border-radius:var(--r-md)}
+.hl-chg{outline:2px dashed color-mix(in srgb,var(--chg) 60%,transparent);outline-offset:2px;border-radius:var(--r-md)}
+body.no-hl .tag{display:none} body.no-hl .hl-new,body.no-hl .hl-chg{outline:none}
+.mockbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;font-size:.76rem;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-md);padding:6px 10px}
+.mockbar label{display:inline-flex;gap:6px;align-items:center;cursor:pointer;font-weight:600}
+
+/* Encabezado real */
+.head{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between}
+.head-text{display:flex;flex-direction:column;gap:4px;max-width:78ch;min-width:0}
+.sub{margin:0;color:var(--muted);font-size:.86rem}
+.head-actions{display:flex;gap:8px;align-items:center}
+.pill{font-size:.72rem;border:1px solid var(--line);border-radius:999px;padding:3px 9px;color:var(--muted);background:var(--surface)}
+.iconbtn{all:unset;cursor:pointer;width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--line);border-radius:var(--r-md);color:var(--muted);background:var(--surface)}
+
+/* Pestañas de página */
+.ptabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto}
+.ptabs button{all:unset;cursor:pointer;padding:8px 12px;font-size:.84rem;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+.ptabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--action)}
+
+/* Filtros reales */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);min-width:0}
+.filters{display:flex;flex-wrap:wrap;gap:10px 12px;padding:10px 12px;align-items:flex-end}
+.fld{display:flex;flex-direction:column;gap:3px;min-width:0}
+.fld > label{font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+.fld.grow{flex:1 1 14rem}
+.seg{display:inline-flex;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-md);padding:2px;gap:2px;flex-wrap:wrap}
+.seg button{all:unset;cursor:pointer;padding:4px 9px;border-radius:var(--r-sm);font-weight:600;font-size:.78rem;color:var(--muted);white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgb(0 0 0 / .08)}
+.fake{font-size:.8rem;padding:5px 9px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--muted);min-width:7.5rem;white-space:nowrap}
+.fake.on{color:var(--fg);font-weight:600}
+input[type=text],select{font:inherit;font-size:.82rem;padding:6px 9px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--fg);width:100%}
+.btn{all:unset;cursor:pointer;font-weight:600;font-size:.8rem;padding:6px 11px;border-radius:var(--r-md);border:1px solid var(--line-strong);background:var(--surface);color:var(--fg);display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.btn.primary{background:var(--action);border-color:var(--action);color:#fff}
+.btn.text{border-color:transparent;background:none;padding:4px 6px}
+.btn.okb{color:var(--ok)} .btn.nob{color:var(--no)}
+.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+
+/* Tira de KPIs */
+.strip{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface)}
+.kp{padding:9px 14px;border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:8.5rem}
+.kp:last-child{border-right:0}
+.kp .l{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+.kp .v{font-size:1.2rem;font-weight:700;font-family:var(--f-mono)}
+.kp.ok .v{color:var(--ok)} .kp.warn .v{color:var(--warn)} .kp.info .v{color:var(--info)}
+.kp .d{font-size:.7rem;color:var(--faint)}
+.fresh{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:.74rem}
+.fresh .chip{border:1px solid var(--line);border-radius:999px;padding:2px 8px;background:var(--surface)}
+
+/* Tabla real */
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.8rem}
+th{font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--sunken)}
+td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+tbody tr:hover{background:var(--sunken)}
+tbody tr.open{background:var(--action-soft)}
+.folio{all:unset;cursor:pointer;font-family:var(--f-mono);font-weight:600;color:var(--action-fg);text-decoration:underline;text-underline-offset:2px}
+.sub2{font-size:.7rem;color:var(--muted);font-family:var(--f-mono)}
+.prov{font-weight:600;max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ptag{font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap}
+.ptag.ok{background:var(--ok-soft);color:var(--ok)} .ptag.warn{background:var(--warn-soft);color:var(--warn)} .ptag.no{background:var(--no-soft);color:var(--no)} .ptag.info{background:var(--info-soft);color:var(--info)} .ptag.plain{background:var(--sunken);color:var(--muted)}
+.cuadre{font-size:.7rem;font-weight:600;margin-left:4px}
+.cuadre.ok{color:var(--ok)} .cuadre.warn{color:var(--warn)} .cuadre.faint{color:var(--faint)}
+.checks{display:flex;gap:3px;flex-wrap:wrap}
+.ck{font-family:var(--f-mono);font-size:.62rem;font-weight:600;padding:1px 4px;border-radius:3px;border:1px solid var(--line);color:var(--muted)}
+.ck.y{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.ck.n{color:var(--no);border-color:color-mix(in srgb,var(--no) 40%,transparent);background:var(--no-soft)}
+.ck.p{color:var(--faint);border-style:dashed}
+.ver{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.dpos{color:var(--no)} .dneg{color:var(--info)}
+.cb{width:15px;height:15px;accent-color:var(--action)}
+.newcol{background:color-mix(in srgb,var(--action-soft) 45%,transparent)}
+body.no-hl .newcol{background:none}
+tfoot td{font-weight:700;background:var(--sunken);font-size:.78rem}
+
+/* Panel lateral real (SidePeek) */
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:20}
+.peek{position:fixed;top:0;right:0;bottom:0;width:min(820px,100vw);background:var(--surface);border-left:1px solid var(--line-strong);z-index:21;display:flex;flex-direction:column;box-shadow:-8px 0 30px rgb(0 0 0 / .15)}
+.peek-h{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:12px 16px calc(12px);border-bottom:1px solid var(--line);padding-top:calc(12px + env(safe-area-inset-top,0px))}
+.peek-b{overflow-y:auto;padding:14px 16px 24px;display:flex;flex-direction:column;gap:14px}
+.verdict{border:1px solid var(--line);border-left-width:4px;border-radius:var(--r-md);padding:9px 12px;display:flex;flex-direction:column;gap:2px}
+.verdict.ok{border-left-color:var(--ok)} .verdict.warn{border-left-color:var(--warn)} .verdict.info{border-left-color:var(--info)} .verdict.bad{border-left-color:var(--no)}
+.verdict .vt{font-weight:700} .verdict .vs{font-size:.8rem;color:var(--muted)}
+.tri{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0}
+.tri > div{border:1px solid var(--line);border-radius:var(--r-md);padding:8px 10px;background:var(--sunken);min-width:0}
+.tri dt{font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+.tri dd{margin:2px 0 0;font-family:var(--f-mono);font-weight:700;font-size:.95rem}
+.tri p{margin:2px 0 0;font-size:.68rem;color:var(--faint)}
+.cobro{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;font-size:.82rem}
+.cobro .lbl{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+.sect{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--line);border-radius:var(--r-lg)}
+.cmp{font-size:.78rem}
+.cmp th{background:none}
+.cmp td{padding:5px 6px;word-break:break-word}
+.cmp td.lbl{color:var(--muted);white-space:nowrap}
+.cmp td.res{white-space:nowrap;font-weight:700;text-align:right}
+.ok-t{color:var(--ok);font-weight:700} .no-t{color:var(--no);font-weight:700} .warn-t{color:var(--warn);font-weight:700}
+.src{font-size:.68rem;color:var(--faint)}
+.note{font-size:.76rem;color:var(--muted);background:var(--sunken);border-radius:var(--r-md);padding:8px 10px}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+.seal{font-size:.78rem;color:var(--muted)}
+
+/* Barra de entrega (NUEVA) */
+.deliver{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line-strong);padding:9px 20px calc(9px + env(safe-area-inset-bottom,0px));box-shadow:0 -4px 16px rgb(0 0 0 / .06);z-index:10}
+.deliver-in{max-width:1400px;margin:0 auto;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.deliver select{width:auto;min-width:13rem}
+.toast{position:fixed;right:20px;bottom:80px;background:var(--fg);color:var(--bg);padding:10px 14px;border-radius:var(--r-md);font-size:.84rem;max-width:min(26rem,calc(100vw - 40px));z-index:30;box-shadow:0 6px 24px rgb(0 0 0 / .2)}
+
+/* Aprendizaje (pestaña NUEVA) */
+.learn{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.card-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.card-b{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.trend{display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px;align-items:center}
+.trend svg{width:100%;height:auto;max-width:100%}
+.kpi .v{font-size:1.8rem;font-weight:700;font-family:var(--f-mono);display:block}
+.st{font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.st.activa{background:var(--ok-soft);color:var(--ok)} .st.sombra{background:var(--info-soft);color:var(--info)}
+.st.propuesta{background:var(--action-soft);color:var(--action-fg)} .st.rechazada{background:var(--no-soft);color:var(--no)}
+.st.fija{background:var(--sunken);color:var(--fg);border:1px solid var(--line-strong)}
+.ev{font-size:.75rem;color:var(--muted)}
+.never{display:flex;flex-wrap:wrap;gap:6px}
+.never span{font-size:.74rem;border:1px solid var(--line-strong);border-radius:999px;padding:3px 10px;background:var(--sunken)}
+.bar{height:8px;background:var(--sunken);border-radius:999px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--warn)}
+.flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:.76rem}
+.flow b{background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-md);padding:4px 8px;font-weight:600}
+.flow span{color:var(--faint)}
+.full{grid-column:1 / -1}
+
+@media (max-width: 900px){ .learn{grid-template-columns:minmax(0,1fr)} .tri,.cobro{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width: 520px){ .wrap{padding-inline:16px} .deliver{padding-inline:16px} }
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+</style>
+</head><body>
+
+<div class="wrap">
+  <div class="mockbar">
+    <span><strong>Maqueta sobre la pantalla actual</strong> · datos de ejemplo · <span class="tag new">NUEVO</span> se agrega · <span class="tag chg">CAMBIA</span> se modifica · lo que no lleva marca ya existe hoy</span>
+    <label for="hl"><input type="checkbox" id="hl" checked> Resaltar cambios</label>
+  </div>
+
+  <header class="head">
+    <div class="head-text">
+      <h1>Costo por compra</h1>
+      <p class="sub">Una fila por compra: lo que facturó el proveedor, los ajustes ligados que lo bajaron (devoluciones y notas de crédito) y el <strong>neto que realmente pagamos</strong>, <strong>del 29 sep al 5 oct</strong>. La misma cifra agregada por proveedor está en <a href="#">Costo por proveedor</a>.</p>
+    </div>
+    <div class="head-actions">
+      <span class="iconbtn" title="Densidad de la tabla">≡</span>
+      <span class="pill">Actualizado hace 1 min</span>
+      <span class="iconbtn" title="Ayuda">?</span>
+    </div>
+  </header>
+
+  <nav class="ptabs" role="tablist" aria-label="Control de entradas">
+    <button role="tab" aria-selected="false" data-ptab="x">Cobertura por sucursal</button>
+    <button role="tab" aria-selected="true" data-ptab="listado" id="pt-listado">Listado</button>
+    <button role="tab" aria-selected="false" data-ptab="x">Capturas duplicadas</button>
+    <button role="tab" aria-selected="false" data-ptab="x">Parámetros <span class="tag chg">CAMBIA</span></button>
+    <button role="tab" aria-selected="false" data-ptab="aprendizaje" id="pt-apr">Aprendizaje <span class="tag new">NUEVO</span></button>
+  </nav>
+
+  <!-- ================= LISTADO (la pantalla de hoy + cambios) ================= -->
+  <section id="v-listado" style="display:flex;flex-direction:column;gap:12px">
+    <div class="card filters">
+      <div class="fld"><label>Ver</label><div class="seg"><button aria-pressed="false">El proceso</button><button aria-pressed="true">El dinero</button></div></div>
+      <div class="fld"><label>Periodo</label><span class="fake on">Esta semana</span></div>
+      <div class="fld"><label>Desde</label><span class="fake mono">2026-09-29</span></div>
+      <div class="fld"><label>Hasta</label><span class="fake mono">2026-10-05</span></div>
+      <div class="fld"><label>Estado</label><div class="seg" id="estado">
+        <button aria-pressed="false">Pendientes</button><button aria-pressed="false">Con remisión</button><button aria-pressed="false">Por validar</button><button aria-pressed="false">Validadas</button><button aria-pressed="true">Todas</button><button aria-pressed="false">Descartadas</button></div></div>
+      <div class="fld"><label>Cuadre</label><span class="fake">Cualquiera</span></div>
+      <div class="fld hl-new"><label>Expediente <span class="tag new">NUEVO</span></label>
+        <select id="f-ver" aria-label="Filtrar por veredicto del expediente">
+          <option value="">Cualquiera</option><option value="auto">Pasa sola</option><option value="rev">Por revisar</option><option value="pend">Sin CFDI aún</option><option value="lista">Lista para entregar</option>
+        </select></div>
+      <div class="fld"><label>Plaza</label><span class="fake">Cualquiera</span></div>
+      <div class="fld"><label>Ajuste</label><span class="fake">Todas</span></div>
+      <div class="fld"><label>Orden de compra</label><span class="fake">Todas</span></div>
+      <div class="fld grow"><label>Buscar</label><input type="text" id="q" placeholder="Últimos 4 del folio (ej. 0397), o proveedor / RFC / OC…"></div>
+      <div class="fld"><label>&nbsp;</label><span class="btn">⟲ Ver rezago</span></div>
+      <div class="fld"><label>&nbsp;</label><span class="btn primary hl-chg">＋ Subir factura (PDF o XML) <span class="tag chg">CAMBIA</span></span></div>
+    </div>
+
+    <div class="strip" role="group" aria-label="Resumen">
+      <div class="kp"><span class="l">Entradas</span><span class="v">648</span></div>
+      <div class="kp ok hl-new"><span class="l">Pasan solas <span class="tag new">NUEVO</span></span><span class="v">412</span><span class="d">63.6% · regla y versión selladas</span></div>
+      <div class="kp warn hl-chg"><span class="l">Por revisar <span class="tag chg">CAMBIA</span></span><span class="v">187</span><span class="d">ahora suma fiscal, OC y cuadre</span></div>
+      <div class="kp info hl-new"><span class="l">Sin CFDI aún <span class="tag new">NUEVO</span></span><span class="v">38</span><span class="d">ContPAQi sincroniza diario</span></div>
+      <div class="kp"><span class="l">No se leyó</span><span class="v">11</span></div>
+      <div class="kp warn"><span class="l">$ por comprobar</span><span class="v">$4.8M</span></div>
+      <div class="kp hl-new"><span class="l">Candado <span class="tag new">NUEVO</span></span><span class="v ok-t" style="font-size:.95rem">✓ 648 = 648</span><span class="d">412 + 187 + 38 + 11 fuera de alcance</span></div>
+    </div>
+
+    <div class="fresh" role="status">
+      <span class="muted" style="font-weight:600">Datos al día</span>
+      <span class="chip"><b>00</b> hoy</span><span class="chip"><b>01</b> hoy</span><span class="chip"><b>03</b> hoy</span><span class="chip"><b>04</b> hoy</span><span class="chip"><b>06</b> hoy</span><span class="chip"><b>WCJ 30</b> ayer</span>
+      <span class="chip hl-new"><b>CFDI ContPAQi</b> hoy 03:10 <span class="tag new">NUEVO</span></span>
+    </div>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th class="newcol" style="width:2rem" title="Marcar para entregar a Finanzas">Ent.<span class="tag new">NUEVO</span></th>
+            <th>Fecha</th><th>Entrada</th><th>Proveedor</th><th>OC</th>
+            <th class="ta-r">Factura</th><th class="ta-r">Ajuste</th><th class="ta-r">Neto</th>
+            <th>Remisión</th>
+            <th class="newcol">Expediente <span class="tag new">NUEVO</span></th>
+            <th>Acciones <span class="tag chg">CAMBIA</span></th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+          <tfoot><tr><td></td><td colspan="4">Todo lo filtrado · <strong>648</strong> compras</td><td class="ta-r mono">$31,204,118.40</td><td class="ta-r mono">−$412,906.10</td><td class="ta-r mono">$30,791,212.30</td><td colspan="3"></td></tr></tfoot>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= APRENDIZAJE (pestaña NUEVA) ================= -->
+  <section id="v-apr" hidden>
+    <div class="learn">
+      <div class="card">
+        <div class="card-h"><h2>% que pasa solo</h2><span class="faint" style="font-size:.74rem">por semana · denominador declarado</span></div>
+        <div class="card-b">
+          <div class="trend">
+            <div class="kpi"><span class="v">63.6%</span><span class="muted" style="font-size:.76rem">412 de 648 entradas</span></div>
+            <svg viewBox="0 0 320 110" role="img" aria-label="Porcentaje automático por semana: 56, 58, 61, 63.6">
+              <g stroke="var(--line)" stroke-width="1"><line x1="30" y1="15" x2="310" y2="15"/><line x1="30" y1="50" x2="310" y2="50"/><line x1="30" y1="85" x2="310" y2="85"/></g>
+              <g fill="var(--faint)" font-size="9" font-family="Geist Mono, monospace"><text x="2" y="18">70%</text><text x="2" y="53">60%</text><text x="2" y="88">50%</text><text x="36" y="104">8 sep</text><text x="122" y="104">15 sep</text><text x="208" y="104">22 sep</text><text x="272" y="104">29 sep</text></g>
+              <path d="M50 64 L136 57 L222 46.5 L298 37.4 L298 85 L50 85 Z" fill="color-mix(in srgb, var(--ok) 14%, transparent)"/>
+              <path d="M50 64 L136 57 L222 46.5 L298 37.4" fill="none" stroke="var(--ok)" stroke-width="2"/>
+              <circle cx="298" cy="37.4" r="4" fill="var(--ok)"/>
+            </svg>
+          </div>
+          <div class="note"><strong>Muestra auditada de lo automático:</strong> 20 de 412 revisadas por una persona · <span class="ok-t">0 devueltas</span>. Si una se devuelve, la regla que la aprobó se suspende sola y abre un hallazgo. Si el % sube y la muestra se ensucia, no cuenta como progreso.</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Cómo nace una regla</h2></div>
+        <div class="card-b">
+          <div class="flow"><b>Tu decisión + motivo</b><span>→</span><b>Patrón nocturno</b><span>→</span><b>Banco de pruebas</b><span>→</span><b>Sombra</b><span>→</span><b>Aprueba jefe de compras</b><span>→</span><b>Activa</b></div>
+          <p class="ev" style="margin:0">El banco de pruebas re-juega la regla contra <strong>todas</strong> las decisiones anteriores: no puede aprobar <strong>ni una</strong> entrada que una persona haya devuelto. En sombra registra lo que haría sin decidir. Quien propone (el sistema) no aprueba. El LLM sólo clasifica el texto de «Otro» y redacta.</p>
+          <h3>Esto nunca se aprende</h3>
+          <div class="never"><span>RFC receptor</span><span>Uso CFDI G01</span><span>Método ↔ forma (PPD = 99)</span><span>Factura cancelada</span><span>OC obligatoria</span></div>
+          <p class="ev" style="margin:0">La tolerancia (0.25% y $200) vive en <strong>Parámetros</strong> <span class="tag chg">CAMBIA</span> y sólo la cambia dirección.</p>
+        </div>
+      </div>
+      <div class="card full">
+        <div class="card-h"><h2>Reglas</h2><span class="faint" style="font-size:.74rem">cada aprobación automática queda sellada con la regla y la versión que la decidió</span></div>
+        <div class="tbl-wrap"><table><thead><tr><th>Regla</th><th>Qué hace</th><th>De dónde salió</th><th>Banco de pruebas</th><th>Estado</th><th></th></tr></thead><tbody id="rules"></tbody></table></div>
+      </div>
+      <div class="card full">
+        <div class="card-h"><h2>Correctivos al origen</h2><span class="faint" style="font-size:.74rem">por qué se cae y dónde se corrige: en la captura, no aflojando la regla</span></div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Causa</th><th>Quién / dónde</th><th class="ta-r">Entradas</th><th class="ta-r">Monto</th><th style="width:26%">Peso en la cola</th><th>Correctivo</th></tr></thead>
+          <tbody>
+            <tr><td>Entrada sin OC</td><td>Usuario A · 00 CEDIS</td><td class="ta-r mono">166</td><td class="ta-r mono">$8.2M</td><td><div class="bar"><i style="width:38%"></i></div></td><td class="ev">60% de sus capturas van sin OC. Aviso al usuario y a su jefe.</td></tr>
+            <tr><td>Entrada sin OC</td><td>Usuario A · 08</td><td class="ta-r mono">55</td><td class="ta-r mono">$1.8M</td><td><div class="bar"><i style="width:13%"></i></div></td><td class="ev">80% de sus capturas en esta sucursal.</td></tr>
+            <tr><td>RFC mal capturado en Kepler</td><td>12 proveedores</td><td class="ta-r mono">92</td><td class="ta-r mono">$6.1M</td><td><div class="bar"><i style="width:21%"></i></div></td><td class="ev">Lista para corregir en el catálogo de Kepler (el CFDI trae el correcto).</td></tr>
+            <tr><td>Precio distinto al de la OC</td><td>3 proveedores</td><td class="ta-r mono">71</td><td class="ta-r mono">$0.4M Δ</td><td><div class="bar"><i style="width:16%"></i></div></td><td class="ev">Va a Compras: el precio pactado no está en la OC.</td></tr>
+          </tbody></table></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="deliver hl-new" id="deliver" role="region" aria-label="Entrega a Finanzas">
+  <div class="deliver-in">
+    <div style="display:flex;gap:14px;align-items:baseline;flex-wrap:wrap">
+      <strong>Entrega a Finanzas <span class="tag new">NUEVO</span></strong>
+      <span id="sel-n" class="strong">0 marcadas</span><span class="mono muted" id="sel-m">$0.00</span>
+      <span class="faint" style="font-size:.74rem">Se pueden marcar las que pasaron solas o que ya aceptaste. Hoy esto vive en Obligaciones › Por entregar.</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label for="recibe" class="faint" style="font-size:.74rem">Recibe</label>
+      <select id="recibe"><option>Jefa de Tesorería</option><option>Auxiliar de finanzas</option><option>Jefe de finanzas</option></select>
+      <button class="btn primary" id="btn-ent" aria-disabled="true">Generar entrega ENT-2026-00031</button>
+    </div>
+  </div>
+</div>
+
+<div id="peek-root" hidden>
+  <div class="scrim" id="scrim"></div>
+  <aside class="peek" role="dialog" aria-modal="true" aria-labelledby="peek-t">
+    <div class="peek-h"><div><div class="strong" id="peek-t">Orden de entrada</div><div class="sub2" id="peek-s"></div></div><button class="btn text" id="peek-x" aria-label="Cerrar">✕</button></div>
+    <div class="peek-b" id="peek-b"></div>
+  </aside>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const RECEPTOR = 'LOGL85…AQ5';
+const fmt = (n) => n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+const ROWS = [
+  { id:'00-4512', fecha:'30/09/26', suc:'00', folio:'XA2001-4512', prov:'HERSHEY MEXICO SA DE CV', rfc:'HME910101AB1', doc:'Factura', ent:84320.50, fac:84320.50, aj:0, oc:'0000881', rec:'30 sep', dep:'por_validar', cua:'cuadra', ver:'auto', rule:'R-v1', liga:'pdf',
+    cfdi:{ rfc:'HME910101AB1', nom:'HERSHEY MEXICO', reg:'601', uso:'G01', met:'PPD', forma:'99', uuid:'3F1C…A20E' } },
+  { id:'00-4519', fecha:'30/09/26', suc:'00', folio:'XA2001-4519', prov:'MARCAS NESTLE S.A. DE C.V.', rfc:'MNE800101CD2', doc:'Factura', ent:52118.00, fac:52190.00, aj:0, oc:'0000890', rec:'30 sep', dep:'por_validar', cua:'cuadra', ver:'auto', rule:'R-v1', liga:'xml',
+    cfdi:{ rfc:'MNE800101CD2', nom:'MARCAS NESTLE', reg:'601', uso:'G01', met:'PPD', forma:'99', uuid:'8B2D…11F7' } },
+  { id:'00-4530', fecha:'01/10/26', suc:'00', folio:'XA2001-4530', prov:'BOLSAS DE LOS ALTOS S. DE R.L DE C.V.', rfc:'BALO20930EL9', doc:'Factura', ent:86206.39, fac:86206.79, aj:0, oc:'0000901', rec:'1 oct', dep:'por_validar', cua:'revisar', ver:'auto', rule:'A-003 (factura múltiple)', multi:3, kepRfcBad:true, liga:'pdf',
+    cfdi:{ rfc:'BAL020930EL9', nom:'BOLSAS DE LOS ALTOS', reg:'601', uso:'G01', met:'PPD', forma:'99', uuid:'C41A…9D03' } },
+  { id:'00-4533', fecha:'01/10/26', suc:'00', folio:'XA2001-4533', prov:'COMERCIALIZADORA GONAC SA DE CV', rfc:'', doc:'Factura', ent:41250.00, fac:41250.00, aj:0, oc:null, rec:'1 oct', dep:'por_validar', cua:'cuadra', ver:'rev', motivos:['Sin orden de compra · la capturó Usuario A'], liga:'pdf',
+    cfdi:{ rfc:'CGO990101EF3', nom:'COMERCIALIZADORA GONAC', reg:'601', uso:'G01', met:'PPD', forma:'99', uuid:'7E90…44B1' } },
+  { id:'00-4540', fecha:'02/10/26', suc:'00', folio:'XA2001-4540', prov:'BOTANAS PAU', rfc:'', doc:'Remisión', ent:6176.00, fac:6176.00, aj:0, oc:'0000912', rec:'2 oct', dep:'por_validar', cua:'cuadra', ver:'auto', rule:'R-v1 (remisión)' },
+  { id:'01-0397', fecha:'22/09/26', suc:'01', folio:'XA2001-0397', prov:'DISTRIBUIDORA DE LA ROSA SA DE CV', rfc:'DRS020122GH4', doc:'Factura', ent:97571.97, fac:97502.44, aj:0, oc:'0000291', rec:'22 sep', dep:'por_validar', cua:'cuadra', ver:'auto', rule:'R-v1', liga:'pdf',
+    cfdi:{ rfc:'DRS020122GH4', nom:'DISTRIBUIDORA DE LA ROSA', reg:'601', uso:'G01', met:'PPD', forma:'99', uuid:'5A6B…0C9E' } },
+  { id:'01-0402', fecha:'23/09/26', suc:'01', folio:'XA2001-0402', prov:'DISTRIBUIDORA DE LA ROSA SA DE CV', rfc:'DRS020122GH4', doc:'Factura', ent:297475.01, fac:294401.84, aj:0, oc:'0000294', rec:'23 sep', dep:'por_validar', cua:'revisar', ver:'rev', motivos:['La factura viene $3,073.17 menor (1.03%) · fuera de tolerancia'], liga:'pdf',
+    cfdi:{ rfc:'DRS020122GH4', nom:'DISTRIBUIDORA DE LA ROSA', reg:'601', uso:'G01', met:'PPD', forma:'99', uuid:'9D17…EE02' } },
+  { id:'03-0288', fecha:'24/09/26', suc:'03', folio:'XA2001-0288', prov:'DULCES LAS DELICIAS SA DE CV', rfc:'DDL010329IJ5', doc:'Factura', ent:18936.37, fac:18657.22, aj:0, oc:'0000133', rec:'24 sep', dep:'por_validar', cua:'revisar', ver:'rev', motivos:['La factura viene $279.15 menor · pasa de $200', 'La liga al CFDI es sugerida: el PDF es un escaneo sin texto'], liga:'sugerida',
+    cfdi:{ rfc:'DDL010329IJ5', nom:'DULCES LAS DELICIAS', reg:'601', uso:'G01', met:'PPD', forma:'99', uuid:'2C88…7A10' } },
+  { id:'04-0077', fecha:'25/09/26', suc:'04', folio:'XA2001-0077', prov:'ALCARRUZZ S DE RL DE CV', rfc:'ALC150101KL6', doc:'Factura', ent:42836.21, fac:42836.21, aj:0, oc:'0000058', rec:'25 sep', dep:'por_validar', cua:'cuadra', ver:'rev', motivos:['PUE con forma 99: el SAT no lo permite'], nomOk:'alias A-001', liga:'xml',
+    cfdi:{ rfc:'ALC150101KL6', nom:'ALCARUZZ', reg:'601', uso:'G01', met:'PUE', forma:'99', uuid:'B0E4…63C5' } },
+  { id:'05-0211', fecha:'05/10/26', suc:'05', folio:'XA2001-0211', prov:'GRUPO INDUSTRIAL SWEETS SA DE CV', rfc:'GIS050101OP8', doc:'Factura', ent:65410.00, fac:null, aj:0, oc:'0000177', rec:'5 oct', dep:null, cua:null, ver:'pend' },
+  { id:'06-0151', fecha:'26/09/26', suc:'06', folio:'XA2001-0151', prov:'TRESMONTES LUCHETTI (NUTRESA)', rfc:'TLM970101MN7', doc:'Factura', ent:199814.67, fac:199814.67, aj:2140.50, oc:'0000102', rec:'26 sep', dep:'por_validar', cua:'cuadra', ver:'auto', rule:'R-v1 + alias A-001', nomOk:'alias A-001', liga:'pdf',
+    cfdi:{ rfc:'TLM970101MN7', nom:'TRESMONTES LUCCHETTI MEXICO', reg:'601', uso:'G01', met:'PPD', forma:'99', uuid:'E7F2…5B98' } },
+];
+const RULES = [
+  { id:'R-v1', que:'Regla base: 8 checks fiscales + OC + fecha + cuadre < 0.25% y < $200', origen:'Decisión de dirección (ADR-085)', banco:'—', st:'fija' },
+  { id:'A-001', que:'Alias de nombre: el nombre de Kepler y el del CFDI son el mismo proveedor (TRESMONTES LUCHETTI ↔ LUCCHETTI MEXICO; ALCARRUZZ ↔ ALCARUZZ)', origen:'9 aceptaciones con motivo «Error de captura en Kepler»', banco:'9/9 · 0 que se habrían devuelto', st:'activa', por:'Aprobó: jefe de compras · 2 oct' },
+  { id:'A-002', que:'Régimen alterno 612/621 para un proveedor persona física que usa los dos', origen:'14 aceptaciones con motivo «Régimen alterno legítimo»', banco:'14/14 · 9 días en sombra, 9 coincidencias con el humano', st:'sombra' },
+  { id:'A-003', que:'Una factura cubre varias entradas del mismo proveedor (por UUID); cuadra contra la suma', origen:'22 aceptaciones con motivo «Factura cubre varias entradas»', banco:'22/22 · 0 devueltas', st:'propuesta' },
+  { id:'A-004', que:'Tolerancia de 1% para DISTRIBUIDORA DE LA ROSA', origen:'41 aceptaciones con motivo «Precio acordado»', banco:'✗ 3 de 41 se habrían aprobado y una persona las devolvió', st:'rechazada' },
+];
+const MOTIVOS = [['', 'Elige un motivo…'], ['precio_acordado', 'Precio acordado con el proveedor'], ['nc_pendiente', 'Nota de crédito pendiente'], ['error_captura_kepler', 'Error de captura en Kepler'], ['factura_multiple', 'Factura cubre varias entradas'], ['oc_tardia', 'OC hecha después (regularizada)'], ['otro', 'Otro (explicar)']];
+const state = { open: null, picked: new Set(), decided: {}, filtro: '', q: '' };
+
+const delta = (r) => r.fac == null ? null : r.fac - r.ent;
+const cuadra = (r) => { const d = delta(r); return d != null && Math.abs(d) < 200 && Math.abs(d) < 0.0025 * r.ent; };
+const verOf = (r) => state.decided[r.id] ? 'dec' : r.ver;
+const deliverable = (r) => r.ver === 'auto' || (state.decided[r.id] && state.decided[r.id].tipo === 'aceptar');
+
+function checksOf(r) {
+  if (r.ver === 'pend') return [['FIS', 'p'], ['OC', r.oc ? 'y' : 'n'], ['FEC', 'y'], ['CUA', 'p']];
+  const out = [];
+  if (r.doc !== 'Remisión') out.push(['FIS', r.cfdi.met === 'PUE' && r.cfdi.forma === '99' ? 'n' : 'y']);
+  out.push(['OC', r.oc ? 'y' : 'n'], ['FEC', 'y'], ['CUA', (r.multi || cuadra(r)) ? 'y' : 'n']);
+  return out;
+}
+function verChip(r) {
+  const v = verOf(r);
+  if (v === 'auto') return `<span class="ptag ok">● Pasa sola</span><span class="sub2">${r.rule}</span>`;
+  if (v === 'pend') return '<span class="ptag info">◌ Sin CFDI aún</span><span class="sub2">se re-evalúa mañana</span>';
+  if (v === 'dec') { const d = state.decided[r.id]; return d.tipo === 'aceptar' ? `<span class="ptag plain">✓ Aceptada por ti</span><span class="sub2">${d.motivoTxt}</span>` : `<span class="ptag no">↩ ${d.tipo === 'devolver' ? 'Devuelta' : 'Corregir en Kepler'}</span>`; }
+  return `<span class="ptag warn">▲ Revisar</span><span class="sub2">${(r.motivos || [''])[0].split(' · ')[0]}</span>`;
+}
+function depCell(r) {
+  if (!r.dep) return '<span class="faint">📎 Sin remisión</span>';
+  const t = { por_validar: ['warn', 'Por validar'], validado: ['ok', 'Validada'], rechazado: ['no', 'Devuelta'] };
+  let d = r.dep; if (verOf(r) === 'auto') d = 'validado'; if (state.decided[r.id]) d = state.decided[r.id].tipo === 'aceptar' ? 'validado' : 'rechazado';
+  const c = { cuadra: ['ok', '✓ Cuadra'], revisar: ['warn', '▲ Revisar'], sin_datos: ['faint', '· No se leyó'] }[r.cua] || ['faint', ''];
+  return `<span class="ptag ${t[d][0]}">${t[d][1]}</span><span class="cuadre ${c[0]}">${c[1]}</span>`;
+}
+function accCell(r) {
+  const v = verOf(r);
+  const adj = `<button class="btn text" title="Adjuntar otra remisión">📎 Otra</button>`;
+  if (v === 'auto') return `${adj} <span class="ok-t" style="font-size:.74rem" title="La validó la regla, no una persona">✓ Validada por regla</span>`;
+  if (v === 'pend') return adj;
+  if (v === 'dec') return `${adj} <span class="muted" style="font-size:.74rem">Decidida</span>`;
+  return `${adj} <button class="btn text okb" data-open="${r.id}" title="Dar por buena: pide motivo">✓</button><button class="btn text nob" data-open="${r.id}" title="Devolver">✕</button>`;
+}
+
+function renderTable() {
+  const q = state.q.toLowerCase();
+  const rows = ROWS.filter(r => (!state.filtro || (state.filtro === 'lista' ? deliverable(r) : verOf(r) === state.filtro)) &&
+    (!q || (r.folio + r.prov + r.rfc + (r.oc || '')).toLowerCase().includes(q)));
+  document.getElementById('tbody').innerHTML = rows.length ? rows.map(r => {
+    const d = delta(r);
+    const dtxt = d == null ? '' : Math.abs(d) < 0.005 ? '<span class="sub2">CFDI = Kepler</span>' : `<span class="sub2 ${d > 0 ? 'dpos' : 'dneg'}">CFDI ${d > 0 ? '+' : '−'}${fmt(Math.abs(d))} (${(Math.abs(d) / r.ent * 100).toFixed(2)}%)</span>`;
+    return `<tr class="${state.open === r.id ? 'open' : ''}">
+      <td class="newcol"><input type="checkbox" class="cb" aria-label="Marcar ${r.folio} para entregar" ${deliverable(r) ? '' : 'disabled'} ${state.picked.has(r.id) ? 'checked' : ''} data-pick="${r.id}"></td>
+      <td class="mono">${r.fecha}</td>
+      <td><button class="folio" data-open="${r.id}">${r.suc}/${r.folio.slice(7)}</button></td>
+      <td><div class="prov" title="${r.prov}">${r.prov}</div><div class="sub2">${r.rfc || '—'}${r.kepRfcBad ? ' <span class="no-t" title="El RFC de Kepler no existe en el SAT">✗</span>' : ''}</div></td>
+      <td class="mono muted">${r.oc || '—'}</td>
+      <td class="ta-r mono strong">${fmt(r.ent)}</td>
+      <td class="ta-r mono">${r.aj ? '−' + fmt(r.aj) : '<span class="faint">—</span>'}</td>
+      <td class="ta-r mono strong">${fmt(r.ent - r.aj)}</td>
+      <td>${depCell(r)}</td>
+      <td class="newcol"><div class="ver"><div class="checks">${checksOf(r).map(([k, s]) => `<span class="ck ${s}" title="${({ FIS: 'Fiscal (8 checks contra el CFDI)', OC: 'Orden de compra', FEC: 'Fecha de recepción', CUA: 'Cuadre < 0.25% y < $200' })[k]}">${k}${s === 'y' ? '✓' : s === 'n' ? '✗' : '·'}</span>`).join('')}</div>${verChip(r)}${dtxt}</div></td>
+      <td style="white-space:nowrap">${accCell(r)}</td></tr>`;
+  }).join('') : '<tr><td colspan="11" class="muted" style="padding:18px;text-align:center">El ejemplo no trae filas con este filtro.</td></tr>';
+  document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openPeek(b.dataset.open));
+  document.querySelectorAll('[data-pick]').forEach(cb => cb.onchange = () => { cb.checked ? state.picked.add(cb.dataset.pick) : state.picked.delete(cb.dataset.pick); renderDeliver(); });
+}
+
+const mark = (ok, txt) => (ok === null ? '<span class="faint">·</span>' : ok ? '<span class="ok-t">✓</span>' : '<span class="no-t">✗</span>') + (txt ? ` <span class="faint" style="font-weight:500">${txt}</span>` : '');
+function imp(r) { // desglose de ejemplo: dulcería con IVA 0 y una parte con IEPS 8%
+  const c = r.cfdi; if (c.imp) return c.imp;
+  const ieps = Math.round(r.fac * 0.05 * 100) / 100; const desc = r.id === '06-0151' ? 2140.5 : 0;
+  return { sub: Math.round((r.fac - ieps + desc) * 100) / 100, desc, iva0: Math.round((r.fac - ieps) * 100) / 100, iva16: 0, ieps, iepsTipo: r.id === '01-0402' ? 'Cuota' : 'Tasa 8%', ret: 0, mon: 'MXN', timbre: r.fecha + ' 10:42', lugar: '58000', lista: r.id === '03-0288' ? '69 · créditos firmes' : '' };
+}
+function identRows(r) {
+  const c = r.cfdi; if (!c) return [];
+  const via = ({ pdf: 'QR del SAT', xml: 'XML', sugerida: 'no se leyó (escaneo)' })[r.liga];
+  return [
+    ['UUID', r.liga === 'sugerida' ? '<span class="faint">—</span>' : c.uuid, c.uuid, mark(r.liga === 'sugerida' ? null : true, via)],
+    ['Serie y folio', r.liga === 'sugerida' ? 'A-' + r.folio.slice(7) : 'A-' + r.folio.slice(7), 'A-' + r.folio.slice(7), mark(true)],
+    ['RFC emisor', r.liga === 'sugerida' ? '<span class="faint">no se leyó</span>' : c.rfc, c.rfc, mark(r.liga === 'sugerida' ? null : true)],
+    ['Total', fmt(r.fac), fmt(r.fac), mark(true)],
+  ];
+}
+function fiscRows(r) {
+  const c = r.cfdi; const x = imp(r); const pueBad = c.met === 'PUE' && c.forma === '99';
+  return [
+    ['RFC y nombre del emisor', c.rfc + ' · ' + c.nom, mark(true, r.kepRfcBad ? 'Kepler lo tiene mal tecleado' : (r.nomOk || ''))],
+    ['Régimen del emisor', c.reg, mark(true, 'el de siempre')],
+    ['RFC y régimen del receptor', RECEPTOR + ' · 612', mark(true)],
+    ['Uso CFDI', c.uso, mark(c.uso === 'G01')],
+    ['Método de pago', c.met, mark(!pueBad, c.met === 'PUE' ? 'su habitual es PPD' : '')],
+    ['Forma de pago', c.forma, mark(!pueBad, pueBad ? 'PUE no admite 99' : '')],
+    ['Moneda', x.mon, mark(x.mon === 'MXN')],
+    ['Subtotal · descuento', fmt(x.sub) + (x.desc ? ' · −' + fmt(x.desc) : ' · $0.00'), mark(null, x.desc ? 'se descuenta en el cuadre' : '')],
+    ['IVA', 'tasa 0% sobre ' + fmt(x.iva0) + (x.iva16 ? ' · 16% ' + fmt(x.iva16) : ''), mark(null)],
+    ['IEPS', fmt(x.ieps) + ' · ' + x.iepsTipo, x.iepsTipo === 'Cuota' ? '<span class="warn-t">▲</span> <span class="faint" style="font-weight:500">aviso a contabilidad: se acredita</span>' : mark(null)],
+    ['Retenciones', fmt(x.ret), mark(x.ret === 0)],
+    ['Timbrado · lugar de expedición', x.timbre + ' · CP ' + x.lugar, mark(null)],
+    ['Listas del SAT', x.lista ? 'Lista ' + x.lista : 'No aparece', x.lista ? '<span class="warn-t">▲</span> <span class="faint" style="font-weight:500">aviso, no bloquea</span>' : mark(true, '69-B: no')],
+    ['Estatus de cancelación', '<span class="faint">sin verificar</span>', '<span class="warn-t">·</span> <span class="faint" style="font-weight:500">ContPAQi no lo trae</span>'],
+  ];
+}
+function entRows(r) {
+  const tot = r.doc === 'Remisión' ? fmt(r.fac) : r.cfdi ? fmt(r.fac) : '—';
+  return [
+    ['Total vs entrada', fmt(r.ent) + ' vs ' + tot, r.fac == null ? '<span class="faint">esperando factura</span>' : mark(r.multi ? true : cuadra(r) || delta(r) === 0, r.multi ? `cuadra con la suma de ${r.multi} entradas` : (cuadra(r) || delta(r) === 0 ? '' : `Δ ${fmt(Math.abs(delta(r)))}`))],
+    ['Orden de compra', r.oc || '<span class="no-t">sin OC</span>', mark(!!r.oc, r.oc ? '' : 'capturó Usuario A')],
+    ['Fecha de recepción', r.rec, mark(true)],
+  ];
+}
+const tbl = (head, rows) => `<div class="tbl-wrap"><table class="cmp"><thead><tr>${head.map((h, i) => `<th${i === head.length - 1 ? ' style="text-align:right"' : ''}>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(rw => '<tr>' + rw.map((v, i) => `<td class="${i === 0 ? 'lbl' : i === rw.length - 1 ? 'res' : 'mono'}">${v}</td>`).join('') + '</tr>').join('')}</tbody></table></div>`;
+
+const LIGA = {
+  pdf: ['ok', 'Liga exacta · UUID leído del texto del PDF que subiste', 'Guardada en la asignación CFDI ↔ entrada; no necesita que nadie la confirme.'],
+  xml: ['ok', 'Liga exacta · UUID del XML que subiste', 'El XML trae los 7 datos fiscales al momento: no hay que esperar a que ContPAQi sincronice.'],
+  sugerida: ['warn', 'Liga sugerida · por RFC, importe y fecha', 'El PDF es un escaneo sin texto y no se pudo leer el UUID. Confírmala o sube el XML.'],
+};
+function ligaHtml(r) {
+  if (r.doc === 'Remisión') return '<div class="note">Remisión: no hay CFDI que ligar. Se revisa cuadre, OC y fecha.</div>';
+  if (!r.liga) return '<div class="note">Aún no se sube la factura. Cuando llegue el PDF o el XML, la liga se hace sola por UUID.</div>';
+  const [t, a, b] = LIGA[r.liga]; const conf = state.ligaOk && state.ligaOk[r.id];
+  return `<div class="verdict ${conf ? 'ok' : t}"><span class="vt">${conf ? 'Liga confirmada por ti' : a}</span><span class="vs">${conf ? 'Quedó guardada como confirmada; ya no se vuelve a sugerir.' : b}</span>${r.liga === 'sugerida' && !conf ? '<div class="btns" style="margin-top:6px"><button class="btn" id="b-liga">Confirmar esta liga</button><button class="btn text">Elegir otro CFDI</button></div>' : ''}</div>`;
+}
+function openPeek(id) {
+  state.open = id; const r = ROWS.find(x => x.id === id); const v = verOf(r);
+  document.getElementById('peek-s').textContent = `${r.suc}/${r.folio} · ${r.prov}`;
+  const cuadreTxt = r.fac == null ? ['info', 'Falta la factura del SAT', 'La remisión aún no se sube y el CFDI no llega.'] : cuadra(r) || r.multi ? ['ok', 'El documento cuadra con la entrada', 'Proveedor y total concuerdan con lo que Kepler registró.'] : ['bad', 'El total no cuadra', `El documento dice ${fmt(r.fac)} y Kepler ${fmt(r.ent)}.`];
+  const V = {
+    auto: ['ok', 'Pasa sola', `La aprobó <strong>${r.rule}</strong> el 6 oct, 03:00. Queda sellada con regla y versión; si cae en la muestra auditada, una persona la revisa.`],
+    rev: ['warn', 'Revisar', (r.motivos || []).join(' · ')],
+    pend: ['info', 'Sin CFDI aún', 'La factura es del 5 oct y ContPAQi sincroniza una vez al día. No es una falla: se re-evalúa sola mañana.'],
+    dec: ['ok', 'Decidida por ti', state.decided[id] ? `${({ aceptar: 'Aceptada', devolver: 'Devuelta al proveedor', kepler: 'Mandada a corregir en Kepler' })[state.decided[id].tipo]} · motivo: ${state.decided[id].motivoTxt}. Quedó en la bitácora de aprendizaje.` : ''],
+  }[v];
+  let decide = '';
+  if (v === 'rev') decide = `<div class="sect hl-new"><h3>Tu decisión <span class="tag new">NUEVO</span></h3>
+      <label for="motivo" class="ev">Motivo de lista cerrada: así el sistema aprende de tu decisión</label>
+      <select id="motivo">${MOTIVOS.map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select>
+      <input type="text" id="otro" placeholder="Explica por qué (obligatorio con «Otro»)" hidden>
+      <div class="btns"><button class="btn primary" id="b-acep" aria-disabled="true">Dar por buena</button><button class="btn nob" id="b-dev" aria-disabled="true">Devolver al proveedor</button><button class="btn" id="b-kep" aria-disabled="true">Corregir en Kepler</button></div>
+      ${!r.oc ? '<div class="note">Sin OC no hay excepción: puedes darla por buena con motivo, pero queda registrado quién la capturó sin OC y suma a Correctivos al origen.</div>' : ''}
+      <span class="ev">Hoy «Dar por buena» y «Devolver» ya existen en la fila; lo que <span class="tag chg">CAMBIA</span> es que ahora piden motivo.</span></div>`;
+  document.getElementById('peek-b').innerHTML = `
+    <div class="verdict ${cuadreTxt[0]}"><span class="vt">${cuadreTxt[1]}</span><span class="vs">${cuadreTxt[2]}</span></div>
+    <dl class="tri">
+      <div><dt>Kepler</dt><dd>${fmt(r.ent)}</dd><p>total registrado, con IVA</p></div>
+      <div><dt>Σ renglones</dt><dd>${fmt(r.ent / 1.0)}</dd><p>suma de los renglones</p></div>
+      <div><dt>Documento (OCR)</dt><dd>${r.fac != null ? fmt(r.fac) : '—'}</dd><p>lo que leyó la hoja</p></div>
+      <div class="hl-new"><dt>CFDI (SAT) <span class="tag new">NUEVO</span></dt><dd>${r.cfdi ? fmt(r.fac) : r.doc === 'Remisión' ? 'no aplica' : '—'}</dd><p>${r.cfdi ? 'UUID ' + r.cfdi.uuid + ' · ' + ({ pdf: 'leído del PDF', xml: 'del XML', sugerida: 'sugerido' })[r.liga] + (r.multi ? ` · cubre ${r.multi} entradas` : '') : r.doc === 'Remisión' ? 'remisión sin CFDI' : 'aún no llega'}</p></div>
+    </dl>
+    <div class="cobro"><div><span class="lbl">Entrada</span><span class="mono strong">${r.suc}/${r.folio}</span></div><div><span class="lbl">Proveedor</span><strong>${r.prov}</strong></div><div><span class="lbl">Fecha</span><strong>${r.fecha}</strong></div><div><span class="lbl">OC / Vale</span><strong class="mono">${r.oc || '—'}</strong></div></div>
+    <div class="sect hl-new">
+      <h3>Expediente ${r.doc === 'Remisión' ? 'de la remisión' : 'fiscal'} <span class="tag new">NUEVO</span></h3>
+      ${ligaHtml(r)}
+      <div class="verdict ${({ auto: 'ok', rev: 'warn', pend: 'info', dec: 'ok' })[v]}"><span class="vt">${V[1]}</span><span class="vs">${V[2]}</span></div>
+      ${r.cfdi ? '<h3 style="margin-top:4px">Para identificar · del papel</h3>' + tbl(['', 'Lo que se leyó', 'CFDI', 'Coincide'], identRows(r)) : ''}
+      ${r.cfdi ? '<h3 style="margin-top:4px">Datos fiscales · del CFDI (ContPAQi)</h3>' + tbl(['', 'Valor', 'Check'], fiscRows(r)) : ''}
+      <h3 style="margin-top:4px">Contra la entrada · Kepler</h3>${tbl(['', 'Valor', 'Check'], entRows(r))}
+      <span class="src">Del papel sólo se leen las llaves para encontrar la factura. Todo dato fiscal sale del CFDI que sincroniza ContPAQi, nunca del OCR</span>
+    </div>
+    ${decide}
+    <div class="sect"><h3>Renglones · Ajustes · Remisión adjunta</h3><span class="ev">Sin cambios: siguen como hoy (detalle por línea, devoluciones y notas de crédito ligadas, la hoja subida con su historial).</span></div>`;
+  document.getElementById('peek-root').hidden = false;
+  const bl = document.getElementById('b-liga'); if (bl) bl.onclick = () => { state.ligaOk = state.ligaOk || {}; state.ligaOk[id] = true; toast('Liga confirmada: se guarda como asignación confirmada y no se vuelve a sugerir.'); openPeek(id); };
+  if (v === 'rev') {
+    const sel = document.getElementById('motivo'), otro = document.getElementById('otro'), bs = ['b-acep', 'b-dev', 'b-kep'].map(x => document.getElementById(x));
+    const okNow = () => sel.value && (sel.value !== 'otro' || otro.value.trim().length > 3);
+    const sync = () => { otro.hidden = sel.value !== 'otro'; bs.forEach(b => b.setAttribute('aria-disabled', String(!okNow()))); };
+    sel.onchange = sync; otro.oninput = sync;
+    const go = (tipo) => () => { if (!okNow()) return; const txt = sel.value === 'otro' ? otro.value.trim() : sel.options[sel.selectedIndex].text;
+      state.decided[id] = { tipo, motivoTxt: txt }; toast(`Registrado: ${({ aceptar: 'dada por buena', devolver: 'devuelta', kepler: 'a corregir en Kepler' })[tipo]} · «${txt}». Entra a la bitácora de aprendizaje.`); openPeek(id); renderTable(); renderDeliver(); };
+    bs[0].onclick = go('aceptar'); bs[1].onclick = go('devolver'); bs[2].onclick = go('kepler');
+  }
+  renderTable();
+}
+function closePeek() { document.getElementById('peek-root').hidden = true; state.open = null; renderTable(); }
+document.getElementById('scrim').onclick = closePeek; document.getElementById('peek-x').onclick = closePeek;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && state.open) closePeek(); });
+
+function renderDeliver() {
+  const picked = ROWS.filter(r => state.picked.has(r.id) && deliverable(r));
+  document.getElementById('sel-n').textContent = `${picked.length} marcada${picked.length === 1 ? '' : 's'}`;
+  document.getElementById('sel-m').textContent = fmt(picked.reduce((s, r) => s + (r.fac ?? r.ent), 0));
+  const b = document.getElementById('btn-ent'); b.setAttribute('aria-disabled', String(!picked.length));
+  b.onclick = () => { if (picked.length) toast(`Entrega ENT-2026-00031 generada con ${picked.length} entradas para ${document.getElementById('recibe').value}. Finanzas confirma renglón por renglón.`); };
+}
+function renderRules() {
+  document.getElementById('rules').innerHTML = RULES.map(x => `<tr><td class="mono strong">${x.id}</td><td>${x.que}</td><td class="ev">${x.origen}</td><td class="ev">${x.banco}</td>
+    <td><span class="st ${x.st}">${({ fija: 'Fija', activa: 'Activa', sombra: 'En sombra', propuesta: 'Propuesta', rechazada: 'No pasó' })[x.st]}</span>${x.por ? `<div class="ev">${x.por}</div>` : ''}</td>
+    <td>${x.st === 'propuesta' ? '<div class="btns"><button class="btn primary" data-rule="ok">Aprobar</button><button class="btn" data-rule="no">Rechazar</button></div><div class="ev">Sólo el jefe de compras</div>' : ''}</td></tr>`).join('');
+  document.querySelectorAll('[data-rule]').forEach(b => b.onclick = () => toast(b.dataset.rule === 'ok' ? 'A-003 pasa a sombra: 14 días registrando lo que haría antes de decidir.' : 'A-003 rechazada. Esas entradas siguen cayendo a revisión.'));
+}
+let tt; function toast(m) { const t = document.getElementById('toast'); t.textContent = m; t.hidden = false; clearTimeout(tt); tt = setTimeout(() => t.hidden = true, 4200); }
+
+function setTab(t) {
+  const apr = t === 'aprendizaje';
+  document.getElementById('v-listado').hidden = apr; document.getElementById('v-apr').hidden = !apr; document.getElementById('deliver').hidden = apr;
+  document.querySelectorAll('[data-ptab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.ptab === (apr ? 'aprendizaje' : 'listado'))));
+}
+document.querySelectorAll('[data-ptab]').forEach(b => b.onclick = () => { if (b.dataset.ptab === 'x') { toast('Esa pestaña existe hoy y no cambia en esta propuesta.'); return; } setTab(b.dataset.ptab); });
+document.getElementById('f-ver').onchange = (e) => { state.filtro = e.target.value; renderTable(); };
+document.getElementById('q').oninput = (e) => { state.q = e.target.value; renderTable(); };
+document.getElementById('hl').onchange = (e) => document.body.classList.toggle('no-hl', !e.target.checked);
+renderTable(); renderDeliver(); renderRules(); setTab(location.hash === '#aprendizaje' ? 'aprendizaje' : 'listado');
+</script>
+</body></html>
