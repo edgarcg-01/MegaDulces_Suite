@@ -13,7 +13,7 @@ const DIAS = [
   { n: 1, l: 'Lun' }, { n: 2, l: 'Mar' }, { n: 3, l: 'Mié' }, { n: 4, l: 'Jue' }, { n: 5, l: 'Vie' }, { n: 6, l: 'Sáb' }, { n: 0, l: 'Dom' },
 ];
 
-interface PolForm { priority: SdPriority; first_response_minutes: number; resolution_minutes: number; clock: SdClock }
+interface PolForm { priority: SdPriority; first_response_minutes: number; resolution_minutes: number; clock: SdClock; /** `[MS.7.2]` En el ámbito de una cola: ¿tiene plazo PROPIO (true) o hereda el general (false)? */ propia: boolean }
 
 /**
  * `[MS.3.5]` Mesa de Servicio › Configuración (`/servicio/configuracion`) — sólo coordinación.
@@ -73,17 +73,30 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
 
         <section class="sc-card" aria-labelledby="h-sla">
           <h2 id="h-sla">Plazos por prioridad</h2>
+          <!-- [MS.7.2] Cada cola puede tener sus plazos; lo que no cambia, lo hereda de la general. -->
+          <label class="sc-field sc-ambito"><span>¿De qué cola?</span>
+            <p-select [options]="ambitos()" optionLabel="name" optionValue="id" [ngModel]="ambito()" (ngModelChange)="elegirAmbito($event)"
+                      appendTo="body" ariaLabel="Plazos de la cola" /></label>
+          @if (ambito(); as qid) {
+            <p class="sc-hint" role="note">Estos son los plazos de <b>{{ nombreAmbito() }}</b>. Una prioridad con «propio» usa estos números; una «heredado» usa los generales hasta que la guardes aquí. Cambiar un plazo de esta cola <b>no toca a las demás</b>.</p>
+          } @else {
+            <p class="sc-hint" role="note">Plazos <b>generales</b>: los que usa toda cola que no tenga los suyos.</p>
+          }
           <p class="sc-hint">«Primera respuesta» es cuánto tarda alguien en tomarla o contestar; «resolución», cuánto en quedar resuelta. El reloj hábil sólo corre dentro del horario de arriba; el corrido, las 24 horas.</p>
           <table class="sc-table">
             <thead><tr><th>Prioridad</th><th>Primera respuesta (min)</th><th>Resolución (min)</th><th>Reloj</th><th></th></tr></thead>
             <tbody>
               @for (p of pol; track p.priority) {
                 <tr>
-                  <td><span class="sc-pri" [attr.data-p]="p.priority">{{ prioridad[p.priority] }}</span></td>
+                  <td><span class="sc-pri" [attr.data-p]="p.priority">{{ prioridad[p.priority] }}</span>
+                    @if (ambito()) { <em class="sc-tag" [class.propio]="p.propia">{{ p.propia ? 'propio' : 'heredado' }}</em> }</td>
                   <td><input pInputText type="number" min="1" [(ngModel)]="p.first_response_minutes" [attr.aria-label]="'Primera respuesta ' + prioridad[p.priority]" /></td>
                   <td><input pInputText type="number" min="1" [(ngModel)]="p.resolution_minutes" [attr.aria-label]="'Resolución ' + prioridad[p.priority]" /></td>
                   <td><p-select [options]="relojes" optionLabel="label" optionValue="value" [(ngModel)]="p.clock" appendTo="body" [ariaLabel]="'Reloj ' + prioridad[p.priority]" /></td>
-                  <td><p-button label="Guardar" size="small" severity="secondary" [outlined]="true" [loading]="guardando()" (onClick)="guardarPolitica(p)" /></td>
+                  <td class="sc-acc">
+                    <p-button label="Guardar" size="small" severity="secondary" [outlined]="true" [loading]="guardando()" (onClick)="guardarPolitica(p)" />
+                    @if (ambito() && p.propia) { <p-button label="Volver al general" size="small" severity="secondary" [text]="true" [loading]="guardando()" (onClick)="heredarGeneral(p)" /> }
+                  </td>
                 </tr>
               }
             </tbody>
@@ -227,6 +240,10 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
     .sc-pri { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--text-muted); }
     .sc-pri[data-p='alta'] { color: var(--warn-fg); background: var(--warn-soft-bg); }
     .sc-pri[data-p='urgente'] { color: var(--bad-fg); background: var(--bad-soft-bg); font-weight: 600; }
+    .sc-ambito { max-width: 22rem; }
+    .sc-tag { font-style: normal; font-size: var(--fs-xs); color: var(--text-muted); margin-left: var(--sp-2); }
+    .sc-tag.propio { color: var(--action); font-weight: 600; }
+    .sc-acc { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .sc-queue { display: flex; flex-direction: column; gap: var(--sp-2); overflow-x: auto; }
     .sc-qhead { display: flex; align-items: center; gap: var(--sp-2); }
     .sc-off { font-style: normal; font-size: var(--fs-xs); color: var(--warn-fg); }
@@ -266,6 +283,10 @@ export class ServicioConfiguracionComponent implements OnInit {
 
   reglas = { business_days: [] as number[], business_start: '08:00', business_end: '19:00', tz: 'America/Mexico_City', auto_close_days: 3, escalate_at_pct: 80, escalation_enabled: false, max_attachment_mb: 8, unassigned_alert_minutes: 60 };
   pol: PolForm[] = [];
+  /** `[MS.7.2]` `null` = los plazos GENERALES; con valor, los de esa cola. */
+  readonly ambito = signal<string | null>(null);
+  readonly ambitos = computed(() => [{ id: null as string | null, name: 'General (todas las colas)' }, ...(this.cfg()?.queues ?? []).map((q) => ({ id: q.id as string | null, name: q.name }))]);
+  readonly nombreAmbito = computed(() => (this.cfg()?.queues ?? []).find((q) => q.id === this.ambito())?.name ?? '');
   nueva: { queue_id: string | null; name: string; code: string; default_priority: SdPriority; requires_branch: boolean } = { queue_id: null, name: '', code: '', default_priority: 'media', requires_branch: false };
 
   ngOnInit(): void {
@@ -322,7 +343,7 @@ export class ServicioConfiguracionComponent implements OnInit {
   private aplicar(c: SdConfigResponse): void {
     this.cfg.set(c);
     this.reglas = { ...c.settings, business_days: [...c.settings.business_days] };
-    this.pol = c.policies.map((p) => ({ ...p }));
+    this.armarPlazos(c);
     if (!this.nueva.queue_id) this.nueva.queue_id = c.queues[0]?.id ?? null;
   }
 
@@ -352,10 +373,33 @@ export class ServicioConfiguracionComponent implements OnInit {
       unassigned_alert_minutes: Number(r.unassigned_alert_minutes),
     }), r.escalation_enabled ? 'Reglas guardadas. La escalación está ENCENDIDA: el barrido avisará los plazos vencidos.' : 'Reglas guardadas.');
   }
+  /**
+   * `[MS.7.2]` Las filas de la tabla de plazos para el ámbito elegido. General: las 4 generales. De una cola: su plazo propio
+   * donde lo tenga y, donde no, una copia de la general marcada «heredado» (al guardarla nace el plazo propio).
+   */
+  private armarPlazos(c: SdConfigResponse): void {
+    const generales = c.policies.filter((p) => p.queue_id === null);
+    const qid = this.ambito();
+    this.pol = generales.map((g) => {
+      const propia = qid ? c.policies.find((p) => p.queue_id === qid && p.priority === g.priority) : undefined;
+      const base = propia ?? g;
+      return { priority: g.priority, first_response_minutes: base.first_response_minutes, resolution_minutes: base.resolution_minutes, clock: base.clock, propia: !!propia };
+    });
+  }
+  elegirAmbito(id: string | null): void {
+    this.ambito.set(id);
+    const c = this.cfg();
+    if (c) this.armarPlazos(c);
+  }
   guardarPolitica(p: PolForm): void {
     this.guardar(this.api.updatePolicy(p.priority, {
       first_response_minutes: Number(p.first_response_minutes), resolution_minutes: Number(p.resolution_minutes), clock: p.clock,
-    }), `Plazos de «${PRIORITY_LABEL[p.priority]}» guardados.`);
+    }, this.ambito()), this.ambito() ? `Plazos de «${PRIORITY_LABEL[p.priority]}» guardados para ${this.nombreAmbito()}.` : `Plazos generales de «${PRIORITY_LABEL[p.priority]}» guardados.`);
+  }
+  heredarGeneral(p: PolForm): void {
+    const q = this.ambito();
+    if (!q) return;
+    this.guardar(this.api.removeQueuePolicy(p.priority, q), `${this.nombreAmbito()} vuelve a usar el plazo general de «${PRIORITY_LABEL[p.priority]}».`);
   }
   alternarCola(id: string, activa: boolean): void { this.guardar(this.api.updateQueue(id, { active: !activa }), activa ? 'Cola apagada.' : 'Cola encendida.'); }
   alternarCategoria(id: string, activa: boolean): void { this.guardar(this.api.updateCategory(id, { active: !activa }), activa ? 'Categoría apagada.' : 'Categoría encendida.'); }

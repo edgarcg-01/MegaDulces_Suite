@@ -37,9 +37,11 @@ import type {
 } from '@megadulces/contracts';
 import { SD_PRIORITIES } from '@megadulces/contracts';
 import { clockMinutesBetween, type BusinessCalendar } from './business-clock';
-import type { PoliticaSla } from './sla';
+import { politicaEfectiva, type PoliticaSla, type PoliticasPorPrioridad } from './sla';
 
 export interface FilaReporte {
+  /** `[MS.7.2]` La cola del ticket: de ella sale la política contra la que se mide (la propia o, si no, la general). */
+  queue_id?: string | null;
   priority: SdPriority;
   category_id: string;
   category_name: string;
@@ -59,6 +61,8 @@ export interface FilaReporte {
 export interface ConfigReporte {
   calendar: BusinessCalendar;
   policies: Readonly<Record<SdPriority, PoliticaSla>>;
+  /** `[MS.7.2]` Lo que cada cola cambió a su manera. Sin esto cada ticket se mediría contra la general aunque su cola tenga plazos propios. */
+  queuePolicies?: ReadonlyMap<string, PoliticasPorPrioridad>;
 }
 
 /** Cuántas veces tiene que repetirse una categoría en una sucursal para llamarse «recurrente». */
@@ -148,7 +152,7 @@ export function armarReporte(filas: readonly FilaReporte[], cfg: ConfigReporte, 
     if (reab) reabiertos++;
 
     const pr = porPrioridad.get(f.priority);
-    const pol = cfg.policies[f.priority];
+    const pol = politicaEfectiva(cfg.policies, f.queue_id ? cfg.queuePolicies?.get(f.queue_id) : undefined, f.priority);
     if (!pr || !pol) {
       sinPoliticaDePrioridad++;
       continue;

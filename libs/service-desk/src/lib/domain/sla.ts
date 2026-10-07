@@ -22,6 +22,22 @@ export interface PoliticaSla {
   clock: SdClock;
 }
 
+/** `[MS.7.2]` Las políticas propias de UNA cola: sólo las prioridades que cambió; el resto se hereda de la general. */
+export type PoliticasPorPrioridad = Readonly<Partial<Record<SdPriority, PoliticaSla>>>;
+
+/**
+ * `[MS.7.2]` La política que rige un ticket: la de SU cola para esa prioridad y, si la cola no la cambió, la general.
+ * Una cola nueva no necesita sembrar nada (hereda todo) y puede cambiar sólo la urgente y dejar las demás.
+ * `undefined` = ni la cola ni la general la tienen: quien llama DECLARA el hueco (409 / falla del barrido), no inventa un plazo.
+ */
+export function politicaEfectiva(
+  general: Readonly<Partial<Record<SdPriority, PoliticaSla>>>,
+  deCola: PoliticasPorPrioridad | undefined,
+  priority: SdPriority,
+): PoliticaSla | undefined {
+  return deCola?.[priority] ?? general[priority];
+}
+
 export interface Plazos {
   first_response_due_at: Date;
   due_at: Date;

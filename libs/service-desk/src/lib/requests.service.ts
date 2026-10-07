@@ -59,7 +59,7 @@ import { puedeCambiarPrioridad, sugerirPrioridad } from './domain/priority';
 import { evaluarSla, plazosIniciales, plazosTrasCambioDePrioridad, reanudarTrasPausa } from './domain/sla';
 import type { SdEventoClave } from './domain/notice';
 import { ServiceDeskNotificationsService, type SdEvento } from './notifications.service';
-import { ServiceDeskConfigService, type SdConfig } from './service-desk-config.service';
+import { ServiceDeskConfigService, politicaDe, type SdConfig } from './service-desk-config.service';
 import type { ActorCtx } from './service-desk.types';
 
 /** La fila de `servicedesk.requests` (y lo que `base()` le junta). `pg` entrega `timestamptz` como `Date`. */
@@ -243,7 +243,7 @@ export class ServiceDeskRequestsService {
         const nombreSolicitante = me?.nombre || me?.username || ctx.nombre;
         const now = new Date();
         const priority = sugerirPrioridad({ defaultPriority: cat.default_priority, impact, blocksWork });
-        const politica = config.policies[priority];
+        const politica = politicaDe(config, cat.queue_id, priority);
         if (!politica) throw new ConflictException(`No hay política de SLA configurada para la prioridad «${priority}»`);
         const plazos = plazosIniciales(now, politica, config.settings.calendar);
 
@@ -730,7 +730,7 @@ export class ServiceDeskRequestsService {
       if (!puedeCambiarPrioridad(actor)) throw new ForbiddenException('La prioridad la define quien atiende la solicitud');
       if (FINALES.includes(r.status) || r.status === 'resuelto') throw new ConflictException('La solicitud ya no admite cambio de prioridad');
       if (r.priority === dto.priority) throw new BadRequestException('La solicitud ya tiene esa prioridad');
-      const politica = config.policies[dto.priority];
+      const politica = politicaDe(config, r.queue_id, dto.priority);
       if (!politica) throw new ConflictException(`No hay política de SLA configurada para la prioridad «${dto.priority}»`);
       const now = new Date();
       const plazos = plazosTrasCambioDePrioridad(new Date(r.created_at), Number(r.paused_minutes), r.first_responded_at ? new Date(r.first_responded_at) : null, politica, config.settings.calendar);
@@ -818,7 +818,7 @@ export class ServiceDeskRequestsService {
 
     if (ef.pausa) patch.paused_at = now;
     if (ef.reanuda) {
-      const politica = config.policies[r.priority];
+      const politica = politicaDe(config, r.queue_id, r.priority as SdPriority);
       if (!politica) throw new ConflictException(`No hay política de SLA para la prioridad «${r.priority}»`);
       // Un CHECK de la base garantiza `paused_at` mientras está en espera; si falta, el dato mintió: no se adivina.
       if (!r.paused_at) throw new ConflictException('La solicitud está en espera pero no tiene hora de pausa registrada');
@@ -1080,7 +1080,7 @@ export class ServiceDeskRequestsService {
   }
 
   private slaView(r: RequestRow, config: SdConfig, now: Date): SdSlaView {
-    const politica = config.policies[r.priority as SdPriority];
+    const politica = politicaDe(config, r.queue_id, r.priority as SdPriority);
     const due = r.due_at ? new Date(r.due_at) : null;
     const firstDue = r.first_response_due_at ? new Date(r.first_response_due_at) : null;
     const v = politica

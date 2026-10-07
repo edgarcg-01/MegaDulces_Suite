@@ -95,6 +95,8 @@ exports.down = async function down(knex) {
     }
     await knex('servicedesk.routing_rules').whereIn('category_id', knex('servicedesk.categories').where({ queue_id: q.id }).select('id')).del();
     await knex('servicedesk.queue_members').where({ queue_id: q.id }).del();
+    // `[MS.7.2]` Si ya existe el SLA por cola, sus plazos propios también (la FK es RESTRICT: sin esto la cola no se podría borrar).
+    if (await knex.schema.withSchema('servicedesk').hasColumn('sla_policies', 'queue_id')) await knex('servicedesk.sla_policies').where({ queue_id: q.id }).del();
     await knex('servicedesk.categories').where({ queue_id: q.id }).del();
     await knex('servicedesk.queues').where({ id: q.id }).del();
   }

@@ -481,6 +481,8 @@ export interface SdUpsertRoutingRuleDto {
 }
 
 export interface SdSlaPolicyDto {
+  /** `[MS.7.2]` `null` = la política GENERAL del tenant; con valor, la que esa cola cambió para esta prioridad. */
+  queue_id: string | null;
   priority: SdPriority;
   first_response_minutes: number;
   resolution_minutes: number;
