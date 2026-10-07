@@ -1,0 +1,1036 @@
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { forkJoin, of } from 'rxjs';
+import { switchMap, map, catchError } from 'rxjs/operators';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ButtonModule } from 'primeng/button';
+import { TableModule } from 'primeng/table';
+import { ToastModule } from 'primeng/toast';
+import { SelectModule } from 'primeng/select';
+import { MultiSelectModule } from 'primeng/multiselect';
+import { TagModule } from 'primeng/tag';
+import { TooltipModule } from 'primeng/tooltip';
+import { InputTextModule } from 'primeng/inputtext';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { DialogModule } from 'primeng/dialog';
+import { MessageService } from 'primeng/api';
+import { ComprasService, WorklistRow, ReplenishmentFilters, ReplenishmentSummary, CriticalStockRow, CreateRequisitionDto, OrderBasis, SupplierOrderHistory, SupplierOrder, SupplierOrderLine, PedidoExportPayload, saveXlsxResponse } from '../compras.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+
+type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
+type WLRow = WorklistRow & { _key: string };
+type DetailLine = CriticalStockRow & { finalCajas: number; uxc: number };
+interface DetailState {
+  loading: boolean;
+  basis: OrderBasis;
+  lines: DetailLine[];
+  hub: Record<string, CriticalStockRow> | null;
+  hist: SupplierOrderHistory | null;
+  creating: boolean;
+}
+/** Línea del pedido consolidado por CATEGORÍA (abarca varios proveedores × almacenes). */
+type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; line_cost: number };
+
+/**
+ * RA-PRO.8/9/10 — Cockpit "Pedido". Master (almacén × proveedor) con: multi-select + generación
+ * masiva (pedido general de renglones seleccionados) y drill-down que concentra la compra (base
+ * cadencia/reorden/máx, cajas editables, ranking + $ que mueve, columnas ordenables, mínimo,
+ * traspaso no-surtible con split, histórico, export). Además "Pedido consolidado por proveedor"
+ * (todos sus almacenes de compra en un diálogo accionable). Operations: PrimeNG denso, tokens,
+ * monocromático quiet-luxury (solo se colorean los problemas).
+ */
+@Component({
+  selector: 'app-compras-que-toca',
+  standalone: true,
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule, TagModule, TooltipModule, InputTextModule, InputNumberModule, DialogModule, MetricStripComponent, FreshnessPillComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [MessageService],
+  template: `
+    <div class="surf-page in qt-page">
+      <p-toast></p-toast>
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Pedido</h1>
+          <p class="surf-page-sub">Ciclos de reabasto por proveedor y sucursal. Selecciona renglones para un pedido general, o abre uno para armar la compra (base, cajas, mínimo, traspaso). También hay pedido consolidado por proveedor.</p>
+        </div>
+        @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" /> }
+      </header>
+
+      <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de ciclos de reabasto" />
+
+      @if (abasto(); as a) {
+        <div class="qt-abasto">
+          <div class="qt-abasto-head">
+            <span class="qt-abasto-title">Punto de abasto <span class="qt-muted">· del filtro ({{ a.total_policies | number }} SKU)</span></span>
+            <p-select [options]="abastoUnidadOpts" [ngModel]="abastoUnidad()" (ngModelChange)="abastoUnidad.set($event)" optionLabel="label" optionValue="value" styleClass="qt-sel-sm" ariaLabel="Unidad del punto de abasto" appendTo="body"></p-select>
+          </div>
+          <div class="qt-abasto-cards">
+            <div class="qt-ab-card qt-ab-min"><span class="qt-ab-k">Mínimo</span><span class="qt-ab-v">{{ abastoFmt(a.min_valor, a.min_cajas) }}</span></div>
+            <div class="qt-ab-card qt-ab-reord"><span class="qt-ab-k">Punto de reorden</span><span class="qt-ab-v">{{ abastoFmt(a.reorden_valor, a.reorden_cajas) }}</span></div>
+            <div class="qt-ab-card qt-ab-max"><span class="qt-ab-k">Máximo</span><span class="qt-ab-v">{{ abastoFmt(a.max_valor, a.max_cajas) }}</span></div>
+            <div class="qt-ab-card qt-ab-exist"><span class="qt-ab-k">Existencia actual</span><span class="qt-ab-v">{{ abastoFmt(a.existencia_valor, a.existencia_cajas) }}</span></div>
+          </div>
+        </div>
+      }
+
+      <div class="qt-filters">
+        <div class="qt-wh">
+          <p-multiselect [options]="warehouses()" [(ngModel)]="fWh" (onChange)="reload()"
+                         optionLabel="label" optionValue="id" placeholder="Todos los almacenes" [showClear]="true"
+                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="qt-sel" appendTo="body"></p-multiselect>
+          <div class="qt-atajos">
+            <span class="qt-atajos-lbl">Atajos:</span>
+            <button type="button" class="qt-atajo" [class.on]="!fWh.length" (click)="clearWh()">Todos</button>
+            @for (t of territories; track t.label) {
+              <button type="button" class="qt-atajo" [class.on]="isTerr(t.codes)" (click)="applyTerr(t.codes)">{{ t.label }}</button>
+            }
+          </div>
+        </div>
+        <p-select [options]="viaOpts" [(ngModel)]="fVia" (onChange)="reload()" optionLabel="label" optionValue="value"
+                  placeholder="Canal" [showClear]="true" styleClass="qt-sel-sm" appendTo="body"></p-select>
+        <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="qt-sel-sm" appendTo="body"></p-select>
+        <p-select [options]="basisOpts" [ngModel]="fBasis()" (ngModelChange)="fBasis.set($event); reload()" optionLabel="label" optionValue="value"
+                  placeholder="Objetivo" styleClass="qt-sel-sm" ariaLabel="Base del sugerido (objetivo)" pTooltip="Nivel al que se llena el sugerido: aplica a la columna Costo est. y al detalle" tooltipPosition="bottom" appendTo="body"></p-select>
+        <p-select [options]="unitOpts" [ngModel]="orderUnit()" (ngModelChange)="orderUnit.set($event)" optionLabel="label" optionValue="value"
+                  styleClass="qt-sel-sm" ariaLabel="Unidad de captura del pedido" pTooltip="Capturar el pedido en cajas o en piezas (equivalen por el factor de la caja)" tooltipPosition="bottom" appendTo="body"></p-select>
+        <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="reload()" (onClear)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
+                  [filter]="true" filterBy="label" filterPlaceholder="Buscar por código o nombre (996, Guadalajara, Arandas…)" [resetFilterOnHide]="true"
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="qt-sel-wide" ariaLabel="Filtrar por categoría de compra" appendTo="body"></p-select>
+        <p-select [options]="supplierOpts()" [(ngModel)]="fSearch" (onChange)="reload()" (onClear)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
+                  [filter]="true" filterBy="label" filterPlaceholder="Buscar proveedor…" [resetFilterOnHide]="true"
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="qt-sel-wide" ariaLabel="Filtrar por proveedor" appendTo="body"></p-select>
+        <span class="qt-count">{{ total() | number }} par(es) activo(s)</span>
+      </div>
+
+      <!-- A3 — pedido consolidado de toda la categoría (todos sus proveedores de una) -->
+      @if (fCategory) {
+        <div class="qt-catbar">
+          <span class="qt-catbar-txt"><i class="pi pi-sitemap"></i> Categoría: <strong>{{ catLabel() }}</strong> — todos sus proveedores</span>
+          <button pButton class="p-button-sm" [loading]="catLoading()" (click)="openCategoryOrder()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Pedido de toda la categoría</span></button>
+        </div>
+      }
+
+      <!-- A1 — barra de acción del pedido general (selección múltiple) -->
+      @if (selectedRows().length) {
+        <div class="qt-bulk">
+          <span class="qt-bulk-txt"><strong>{{ selectedRows().length }}</strong> seleccionado(s) · {{ money(selTotal()) }}</span>
+          <button pButton class="p-button-sm" [loading]="bulkGenerating()" (click)="bulkGenerate()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Generar pedido general</span></button>
+          <button pButton class="p-button-sm p-button-text" (click)="selectedRows.set([])"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Limpiar</span></button>
+        </div>
+      }
+
+      <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
+               dataKey="_key" (onRowExpand)="onExpand($event.data)"
+               [selection]="selectedRows()" (selectionChange)="selectedRows.set($event)" selectionMode="multiple"
+               styleClass="p-datatable-sm qt-table">
+        <ng-template #header>
+          <tr>
+            <th style="width:2.2rem"><p-tableheadercheckbox /></th>
+            <th style="width:2.5rem"><span class="sr-only">Detalle</span></th>
+            <th>Estado</th><th>Próximo</th><th>Proveedor</th><th>Almacén</th><th>Canal</th>
+            <th class="qt-r">Cadencia</th><th>Última</th><th class="qt-r">SKUs</th>
+            <th class="qt-r" pTooltip="Sugerido a pedir, en CAJAS." tooltipPosition="bottom">Sugerido</th><th class="qt-r">Costo est.</th>
+          </tr>
+        </ng-template>
+        <ng-template #body let-r let-expanded="expanded">
+          <tr>
+            <td><p-tablecheckbox [value]="r" /></td>
+            <td>
+              <p-button type="button" [pRowToggler]="r" [text]="true" [rounded]="true"
+                      styleClass="p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button>
+            </td>
+            <td><p-tag [value]="estLabel(r)" [severity]="estSev(r)"></p-tag></td>
+            <td class="qt-nowrap" [class.qt-bad]="(r.days_to_due ?? 0) < 0">
+              {{ r.next_due_date | date:'dd/MM/yy' }}
+              <span class="qt-dd">{{ ddLabel(r.days_to_due) }}</span>
+            </td>
+            <td>{{ r.supplier_name || '—' }}</td>
+            <td class="qt-muted" [title]="r.warehouse_code">{{ r.warehouse_name || r.warehouse_code }}</td>
+            <td>
+              @if (r.via === 'transfer') {
+                <span class="qt-via qt-via-t" [pTooltip]="'Traspaso desde ' + (r.source_warehouse_code||'?')">
+                  <i class="pi pi-arrow-right-arrow-left"></i> Traspaso <span class="qt-muted">← {{ r.source_warehouse_code || '?' }}</span>
+                </span>
+              } @else {
+                <span class="qt-via qt-via-c"><i class="pi pi-shopping-cart"></i> Compra</span>
+              }
+            </td>
+            <td class="qt-r">
+              <span class="qt-cad">{{ r.cadence_days != null ? (r.cadence_days | number:'1.0-1') + 'd' : '—' }}</span>
+              @if (r.health_band) { <p-tag [value]="bandLabel(r.health_band)" [severity]="bandSev(r.health_band)" styleClass="qt-band"></p-tag> }
+            </td>
+            <td class="qt-muted qt-nowrap">{{ r.last_delivery_date | date:'dd/MM/yy' }}</td>
+            <td class="qt-r"><span [class.qt-strong]="r.n_below>0">{{ r.n_below | number }}</span><span class="qt-muted">/{{ r.n_skus | number }}</span></td>
+            <td class="qt-r">{{ r.suggested_qty | number:'1.0-0' }}</td>
+            <td class="qt-r qt-strong">{{ money(r.suggested_cost) }}</td>
+          </tr>
+        </ng-template>
+        <ng-template #expandedrow let-r>
+          <tr class="qt-detrow">
+            <td colspan="12">
+              @if (detail()[r._key]; as st) {
+                @if (st.loading && !st.lines.length) {
+                  <div class="qt-det-msg">Cargando pedido…</div>
+                } @else {
+                <div class="qt-det">
+                  <div class="qt-det-bar">
+                    <span class="qt-basis-lbl">Objetivo: <strong>{{ basisLabel(fBasis()) }}</strong> <span class="qt-muted">(cambialo en el filtro de arriba)</span></span>
+                    @if (st.hist; as h) {
+                      <div class="qt-hist" [pTooltip]="histTip(h)" tooltipPosition="left">
+                        <i class="pi pi-history"></i>
+                        @if (h.last) {
+                          Última compra {{ h.last.date | date:'dd/MM/yy' }} · {{ money(h.last.amount) }}
+                          <span class="qt-muted">· típico ~{{ money(h.typical_amount) }} · {{ h.n_orders }} órdenes</span>
+                        } @else {
+                          <span class="qt-muted">Sin compras directas{{ r.via==='transfer' ? ' (se surte por traspaso)' : '' }}</span>
+                        }
+                      </div>
+                    }
+                  </div>
+
+                  @if (r.via==='transfer' && hubShortCount(r._key) > 0) {
+                    <div class="qt-block" role="alert">
+                      <i class="pi pi-exclamation-triangle"></i>
+                      <span>El hub <strong>{{ r.source_warehouse_code }}</strong> no tiene stock para surtir {{ hubShortCount(r._key) }} línea(s).</span>
+                      <button pButton class="p-button-sm qt-block-btn" [loading]="st.creating" (click)="splitTransfer(r)"><span class="p-button-icon p-button-icon-left pi pi-arrows-h" aria-hidden="true"></span><span class="p-button-label">Traspasar disponible + comprar faltante</span></button>
+                    </div>
+                  }
+
+                  @if (st.lines.length) {
+                    <table class="qt-det-table">
+                      <thead>
+                        <tr>
+                          <th class="qt-sortable" (click)="setSort('sku')">SKU {{ sortArrow('sku') }}</th>
+                          <th class="qt-sortable" (click)="setSort('nombre')">Producto {{ sortArrow('nombre') }}</th>
+                          <th class="qt-r qt-sortable" (click)="setSort('rank')" pTooltip="Ranking de ventas en la sucursal (#1 = el que más vende)">Rank {{ sortArrow('rank') }}</th>
+                          <th class="qt-r qt-sortable" (click)="setSort('rev')" pTooltip="Venta mensual estimada ($ que mueve)">$ mueve {{ sortArrow('rev') }}</th>
+                          <th class="qt-r qt-sortable" (click)="setSort('oh')" pTooltip="Existencia, en CAJAS.">Existencia {{ sortArrow('oh') }}</th>
+                          @if (r.via==='transfer') { <th class="qt-r" pTooltip="Existencia en el hub de origen, en CAJAS.">En hub</th> }
+                          <th class="qt-r" pTooltip="Nivel objetivo (existencia + tránsito + sugerido), en CAJAS.">Objetivo</th>
+                          <th class="qt-r qt-sortable" (click)="setSort('sug')" pTooltip="Sugerido a pedir, en CAJAS.">Sugerido {{ sortArrow('sug') }}</th>
+                          <th class="qt-r" pTooltip="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar. En CAJAS." tooltipPosition="top">Traspaso</th>
+                          <th class="qt-r qt-pedir qt-sortable" (click)="setSort('cajas')">Pedir ({{ orderUnit() }}) {{ sortArrow('cajas') }}</th>
+                          <th class="qt-r qt-sortable" (click)="setSort('pz')">{{ orderUnit()==='cajas' ? 'Piezas' : 'Cajas' }} {{ sortArrow('pz') }}</th>
+                          <th class="qt-r qt-sortable" (click)="setSort('line')">$ línea {{ sortArrow('line') }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (l of sortedLines(r._key); track l.product_id) {
+                          <tr [class.qt-det-below]="l.on_hand <= l.reorder_point">
+                            <td class="qt-mono">{{ l.sku }}</td>
+                            <td>{{ l.nombre }}</td>
+                            <td class="qt-r qt-muted">{{ l.sales_rank ? ('#' + l.sales_rank) : '—' }}</td>
+                            <td class="qt-r qt-muted">{{ money(l.monthly_revenue) }}</td>
+                            <td class="qt-r" [class.qt-bad]="l.on_hand <= 0">{{ l.on_hand | number:'1.0-0' }}</td>
+                            @if (r.via==='transfer') {
+                              <td class="qt-r" [class.qt-bad]="hubShort(r._key, l)" [pTooltip]="hubShort(r._key, l) ? 'El hub no alcanza a surtir lo pedido' : ''">
+                                {{ hubOnHand(r._key, l) === null ? '—' : (hubOnHand(r._key, l) | number:'1.0-0') }}
+                              </td>
+                            }
+                            <td class="qt-r qt-muted">{{ objetivo(l) | number:'1.0-0' }}</td>
+                            <td class="qt-r">{{ l.suggested_qty | number:'1.0-0' }}</td>
+                            <td class="qt-r" [class.qt-muted]="!(l.transfer_in)" [class.qt-transfer]="(l.transfer_in || 0) > 0" [pTooltip]="(l.surplus_network || 0) > 0 ? ('Sobrante en la red: ' + (l.surplus_network | number:'1.0-0') + ' — traspasa en vez de comprar') : ''">{{ (l.transfer_in || 0) > 0 ? (l.transfer_in | number:'1.0-0') : '—' }}</td>
+                            <td class="qt-r qt-pedir"><p-inputnumber [ngModel]="orderUnit()==='cajas' ? l.finalCajas : pzOf(l)" (ngModelChange)="setQty(l, $event)" [min]="0" [showButtons]="false" inputStyleClass="qt-qty"></p-inputnumber></td>
+                            <td class="qt-r qt-muted">{{ (orderUnit()==='cajas' ? pzOf(l) : l.finalCajas) | number:'1.0-0' }}</td>
+                            <td class="qt-r">{{ money(lineCost(l)) }}</td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                    <div class="qt-det-foot">
+                      @if (r.via==='purchase' && minWarn(r._key); as mw) {
+                        <p-tag severity="warn" [value]="mw" styleClass="qt-mintag" [pTooltip]="'Mínimo de compra del proveedor (captúralo en Proveedores).'"></p-tag>
+                        <button pButton class="p-button-sm p-button-text" (click)="padToMin(r)"><span class="p-button-icon p-button-icon-left pi pi-arrow-up" aria-hidden="true"></span><span class="p-button-label">Subir al mínimo</span></button>
+                      }
+                      <button pButton class="p-button-sm p-button-text qt-cons-open" (click)="openConsolidated(r.supplier_id, r.supplier_name)"><span class="p-button-icon p-button-icon-left pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">Pedido consolidado del proveedor</span></button>
+                      <span class="qt-foot-tot">
+                        {{ countToOrder(r._key) }} línea(s) · {{ totalCajas(r._key) | number:'1.0-0' }} cajas ·
+                        {{ totalPz(r._key) | number:'1.0-0' }} pz · <strong>{{ money(detailTotal(r._key)) }}</strong>
+                      </span>
+                      <button pButton class="p-button-sm p-button-text" [loading]="exporting()" [disabled]="countToOrder(r._key)===0" (click)="exportRow(r)"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar</span></button>
+                      <p-button [label]="r.via==='transfer' ? 'Crear traspaso' : 'Crear requisición'"
+                              icon="pi pi-file-edit" styleClass="p-button-sm"
+                              [loading]="st.creating" [disabled]="countToOrder(r._key)===0"
+                              (click)="createReq(r)"></p-button>
+                    </div>
+                  } @else {
+                    <div class="qt-det-msg">Sin SKUs por pedir con base “{{ basisLabel(st.basis) }}” (todo cubierto).</div>
+                  }
+                </div>
+                }
+              }
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template #emptymessage>
+          <tr><td colspan="12" class="qt-empty">Sin ciclos activos con estos filtros. Ajusta el territorio o corre el job de cadencia.</td></tr>
+        </ng-template>
+      </p-table>
+    </div>
+
+    <!-- A2 — Pedido consolidado por proveedor (todos sus almacenes de compra) -->
+    <p-dialog [visible]="consVisible()" (visibleChange)="consVisible.set($event)" [modal]="true"
+              [style]="{width:'min(1040px,96vw)'}" [header]="consHeader()" (onHide)="consOrder.set(null)">
+      @if (consLoading()) {
+        <div class="qt-det-msg">Cargando pedido consolidado…</div>
+      } @else {
+        @if (consOrder(); as o) {
+        <div class="qt-cons">
+          <div class="qt-cons-wh">
+            <span class="qt-basis-lbl">Almacenes:</span>
+            @for (w of consWhs(); track w.id) {
+              <p-button type="button" [label]="w.code + ' · ' + w.n" styleClass="p-button-sm"
+                      [ngClass]="isWhIncluded(w.id) ? 'p-button-outlined' : 'p-button-text'" (click)="toggleWh(w.id)"></p-button>
+            }
+          </div>
+          @if (consLinesFiltered().length) {
+            <div class="qt-cons-scroll">
+              <table class="qt-det-table">
+                <thead><tr><th>Almacén</th><th>SKU</th><th>Producto</th><th class="qt-r">Cajas</th><th class="qt-r">Piezas</th><th class="qt-r">$ línea</th></tr></thead>
+                <tbody>
+                  @for (l of consLinesFiltered(); track l.product_id + '_' + l.warehouse_id) {
+                    <tr>
+                      <td class="qt-muted">{{ l.warehouse_code }}</td>
+                      <td class="qt-mono">{{ l.sku }}</td>
+                      <td>{{ l.nombre }}</td>
+                      <td class="qt-r">{{ l.cajas | number:'1.0-0' }}</td>
+                      <td class="qt-r qt-muted">{{ l.piezas | number:'1.0-0' }}</td>
+                      <td class="qt-r">{{ money(l.line_cost) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <div class="qt-det-foot">
+              @if (o.padded) { <p-tag severity="info" value="Subido al mínimo" styleClass="qt-mintag"></p-tag> }
+              <span class="qt-foot-tot">
+                {{ consWhsIncluded() }} almacén(es) · {{ consTotCajas() | number:'1.0-0' }} cajas · <strong>{{ money(consTotAmount()) }}</strong>
+              </span>
+              <button pButton class="p-button-sm p-button-text" [loading]="consExporting()" [disabled]="!consLinesFiltered().length" (click)="exportConsolidated()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar</span></button>
+              <button pButton class="p-button-sm" [loading]="consGenerating()" [disabled]="!consLinesFiltered().length" (click)="generateConsolidated()"><span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span><span class="p-button-label">Generar requisiciones</span></button>
+            </div>
+          } @else {
+            <div class="qt-det-msg">Sin líneas por pedir (o desactivaste todos los almacenes).</div>
+          }
+        </div>
+      } @else {
+        <div class="qt-det-msg">Sin pedido de compra para este proveedor.</div>
+      }
+      }
+    </p-dialog>
+
+    <!-- A3 — Pedido consolidado por CATEGORÍA (multi-proveedor × almacén) -->
+    <p-dialog [visible]="catVisible()" (visibleChange)="catVisible.set($event)" [modal]="true"
+              [style]="{width:'min(1120px,97vw)'}" [header]="'Pedido de categoría · ' + catLabel()" (onHide)="catRows.set([])">
+      @if (catLoading()) {
+        <div class="qt-det-msg">Cargando pedido de la categoría…</div>
+      } @else if (catRows().length) {
+        <div class="qt-cons">
+          <div class="qt-cons-scroll">
+            <table class="qt-det-table">
+              <thead><tr><th>Proveedor</th><th>Almacén</th><th>SKU</th><th>Producto</th>
+                <th class="qt-r" pTooltip="Sugerido a pedir, en CAJAS.">Sugerido</th><th class="qt-r">Cajas</th><th class="qt-r">Piezas</th><th class="qt-r">$ línea</th></tr></thead>
+              <tbody>
+                @for (l of catRows(); track l.product_id + '_' + l.warehouse_id) {
+                  <tr>
+                    <td class="qt-muted">{{ l.supplier_name || '—' }}</td>
+                    <td class="qt-muted">{{ l.warehouse_code }}</td>
+                    <td class="qt-mono">{{ l.sku }}</td>
+                    <td>{{ l.nombre }}</td>
+                    <td class="qt-r qt-muted">{{ l.suggested_qty | number:'1.0-0' }}</td>
+                    <td class="qt-r">{{ l.cajas | number:'1.0-0' }}</td>
+                    <td class="qt-r qt-muted">{{ l.piezas | number:'1.0-0' }}</td>
+                    <td class="qt-r">{{ money(l.line_cost) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <div class="qt-det-foot">
+            <span class="qt-foot-tot">
+              {{ catSuppliers() }} proveedor(es) · {{ catRows().length }} líneas · {{ catTotCajas() | number:'1.0-0' }} cajas · <strong>{{ money(catTotAmount()) }}</strong>
+            </span>
+            <button pButton class="p-button-sm p-button-text" [loading]="catExporting()" (click)="exportCategoryOrder()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar</span></button>
+            <button pButton class="p-button-sm" [loading]="catGenerating()" (click)="generateCategoryOrder()"><span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span><span class="p-button-label">Generar requisiciones</span></button>
+          </div>
+        </div>
+      } @else {
+        <div class="qt-det-msg">Sin líneas por pedir en esta categoría (todo cubierto).</div>
+      }
+    </p-dialog>
+  `,
+  styles: [`
+    :host { display: block; }
+    app-metric-strip { display: block; margin-bottom: .9rem; }
+    .qt-abasto { border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); padding: .6rem .75rem; margin-bottom: .75rem; background: var(--surface-card, var(--card-bg)); }
+    .qt-abasto-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .5rem; }
+    .qt-abasto-title { font-size: .82rem; font-weight: 600; }
+    .qt-abasto-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .5rem; }
+    .qt-ab-card { display: flex; flex-direction: column; gap: .15rem; padding: .5rem .65rem; border-radius: var(--r-sm, 6px); border-left: 3px solid var(--border-color); background: var(--surface-hover, rgba(0,0,0,.02)); }
+    .qt-ab-k { font-size: .7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+    .qt-ab-v { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .qt-ab-min { border-left-color: var(--bad-fg, #b0342a); }
+    .qt-ab-reord { border-left-color: var(--warn-fg, #b06a12); }
+    .qt-ab-max { border-left-color: var(--text-muted); }
+    .qt-ab-exist { border-left-color: var(--action); }
+    .qt-transfer { color: var(--good-fg, #3f7d3f); font-weight: 600; }
+    .qt-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; margin-bottom: .75rem; }
+    .qt-wh { display: flex; flex-direction: column; gap: .25rem; }
+    .qt-atajos { display: flex; align-items: center; gap: .1rem; flex-wrap: wrap; }
+    .qt-atajos-lbl { font-size: .7rem; color: var(--text-muted); margin-right: .2rem; }
+    .qt-atajo { border: none; background: none; cursor: pointer; font-size: .74rem; color: var(--text-muted);
+      padding: .05rem .4rem; border-radius: var(--r-sm, 6px); font-family: inherit; }
+    .qt-atajo:hover { color: var(--text-main); background: color-mix(in srgb, var(--text-main) 6%, transparent); }
+    .qt-atajo.on { color: var(--action); font-weight: 600; }
+    .qt-sel { min-width: 14rem; }
+    .qt-sel-sm { min-width: 9rem; }
+    .qt-sel-wide { min-width: 15rem; }
+    .qt-count { color: var(--text-muted); font-size: .82rem; margin-left: auto; }
+    .qt-bulk { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; padding: .45rem .7rem;
+      background: var(--action-ring, color-mix(in srgb, var(--action) 12%, transparent)); border-radius: var(--r-sm, 6px); }
+    .qt-bulk-txt { font-size: .82rem; color: var(--text-main); }
+    .qt-catbar { display: flex; align-items: center; gap: .75rem; margin-bottom: .6rem; padding: .45rem .7rem;
+      background: var(--surface-2); border-radius: var(--r-sm, 6px); }
+    .qt-catbar-txt { font-size: .82rem; color: var(--text-main); margin-right: auto; }
+    .qt-catbar-txt i { color: var(--action); margin-right: .3rem; }
+    .qt-table { font-size: .82rem; }
+    .qt-r { text-align: right; font-variant-numeric: tabular-nums; }
+    .qt-nowrap { white-space: nowrap; }
+    .qt-muted { color: var(--text-muted); }
+    .qt-strong { font-weight: 700; }
+    .qt-bad { color: var(--bad-fg); font-weight: 600; }
+    .qt-dd { font-size: .72rem; color: var(--text-muted); margin-left: .35rem; }
+    .qt-via { display: inline-flex; align-items: center; gap: .3rem; font-size: .78rem; }
+    .qt-via i { font-size: .7rem; }
+    .qt-via-t { color: var(--action); }
+    .qt-cad { font-variant-numeric: tabular-nums; margin-right: .35rem; }
+    :host ::ng-deep .qt-band { font-size: .62rem !important; padding: .05rem .3rem !important; }
+    .qt-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
+    /* La fila expandida NO debe estirar las columnas de la p-table (header sticky se
+       desalinea). El wrapper .qt-det es un BFC con scroll propio: la tabla ancha del
+       drill scrollea DENTRO en vez de ensanchar el cuerpo. min-width:0 en la celda
+       evita que el contenido imponga su ancho mínimo a la tabla exterior. */
+    .qt-detrow > td { background: var(--surface-2); padding: .4rem .75rem .6rem; min-width: 0; }
+    .qt-det { min-width: 0; overflow-x: auto; }
+    .qt-det-msg { color: var(--text-muted); font-size: .82rem; padding: .5rem; }
+    .qt-det-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: .1rem .1rem .5rem; }
+    .qt-basis { display: flex; align-items: center; gap: .1rem; }
+    .qt-basis-lbl { font-size: .74rem; color: var(--text-muted); margin-right: .3rem; }
+    .qt-hist { font-size: .76rem; color: var(--text-main); display: inline-flex; align-items: center; gap: .35rem; }
+    .qt-hist i { font-size: .72rem; color: var(--text-muted); }
+    .qt-block { display: flex; align-items: center; gap: .5rem; font-size: .78rem;
+      background: var(--bad-soft-bg); color: var(--bad-soft-fg); border: 1px solid var(--bad-border);
+      border-radius: var(--r-sm, 6px); padding: .4rem .6rem; margin-bottom: .5rem; flex-wrap: wrap; }
+    .qt-block i { font-size: .8rem; }
+    .qt-block-btn { margin-left: auto; }
+    .qt-det-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    .qt-det-table th { text-align: left; color: var(--text-muted); font-weight: 600; font-size: .72rem;
+      text-transform: uppercase; letter-spacing: .02em; padding: .25rem .5rem; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+    .qt-sortable { cursor: pointer; user-select: none; }
+    .qt-sortable:hover { color: var(--text-main); }
+    .qt-det-table td { padding: .25rem .5rem; border-bottom: 1px solid var(--border-color); }
+    .qt-det-below td { background: color-mix(in srgb, var(--bad-fg) 6%, transparent); }
+    .qt-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .76rem; }
+    .qt-pedir { width: 7rem; }
+    :host ::ng-deep .qt-qty { width: 5.5rem; text-align: right; font-size: .8rem; padding: .2rem .4rem; }
+    .qt-det-foot { display: flex; align-items: center; justify-content: flex-end; gap: .75rem; padding: .55rem .5rem 0; flex-wrap: wrap; }
+    .qt-foot-tot { font-size: .82rem; color: var(--text-main); }
+    .qt-cons-open { margin-right: auto; }
+    :host ::ng-deep .qt-mintag { font-size: .68rem !important; }
+    .qt-cons-wh { display: flex; align-items: center; gap: .2rem; flex-wrap: wrap; margin-bottom: .6rem; }
+    .qt-cons-scroll { max-height: 55vh; overflow: auto; }
+  `],
+})
+export class ComprasQueTocaComponent implements OnInit {
+  private readonly api = inject(ComprasService);
+  private readonly toast = inject(MessageService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  rows = signal<WLRow[]>([]);
+  abasto = signal<ReplenishmentSummary | null>(null);
+  abastoUnidad = signal<'valor' | 'cajas'>('valor');
+  warehouses = signal<{ id: string; code: string; label: string }[]>([]);
+  supplierOpts = signal<{ label: string; value: string }[]>([]);
+  detail = signal<Record<string, DetailState>>({});
+  total = signal(0);
+  vencidos = signal(0);
+  hoy = signal(0);
+  prox7 = signal(0);
+  loading = signal(false);
+  readonly loadedAt = signal<number | null>(null);
+  private readonly touchTick = signal(0);
+  sugeridoTotal = computed(() => this.rows().reduce((s, r) => s + (Number(r.suggested_cost) || 0), 0));
+
+  // A1 — selección múltiple + generación masiva
+  selectedRows = signal<WLRow[]>([]);
+  bulkGenerating = signal(false);
+  // D — orden del detalle (default por $ que mueve, estable al editar)
+  detSort = signal<{ f: string; d: 1 | -1 }>({ f: 'rev', d: -1 });
+  // A2 — pedido consolidado por proveedor
+  consVisible = signal(false);
+  consLoading = signal(false);
+  consGenerating = signal(false);
+  consOrder = signal<SupplierOrder | null>(null);
+  consSupplier = signal<{ id: string; name: string | null } | null>(null);
+  consExcluded = signal<Set<string>>(new Set());
+  // A3 — pedido consolidado por CATEGORÍA (sourcing: Guadalajara/Arandas → todos sus proveedores)
+  categoryOpts = signal<{ label: string; value: string }[]>([]);
+  fCategory = '';
+  catVisible = signal(false);
+  catLoading = signal(false);
+  catGenerating = signal(false);
+  catExporting = signal(false);
+  catRows = signal<CatLine[]>([]);
+
+  readonly kpiItems = computed<MetricStripItem[]>(() => [
+    { label: 'Vencidos', value: this.vencidos(), tone: this.vencidos() > 0 ? 'bad' : 'default' },
+    { label: 'Hoy', value: this.hoy(), tone: this.hoy() > 0 ? 'warn' : 'default' },
+    { label: 'Próx. 7 días', value: this.prox7() },
+    { label: 'Sugerido (visible)', value: this.sugeridoTotal(), format: 'currency', tone: 'brand' },
+  ]);
+
+  fWh: string[] = [];
+  fVia = '';
+  fStatus = '';
+  fSearch = '';
+  /** Base GLOBAL (como "Objetivo" de Existencia Crítica): manda el sugerido/costo de
+   * TODA la vista — columna "Costo est.", KPI y drill usan la misma. Default = máximo. */
+  fBasis = signal<OrderBasis>('cadence');
+  // Unidad dual de captura del pedido (canónico interno = cajas; piezas = cajas × uxc).
+  orderUnit = signal<'cajas' | 'piezas'>('cajas');
+  unitOpts = [{ label: 'En cajas', value: 'cajas' }, { label: 'En piezas', value: 'piezas' }];
+  viaOpts = [{ label: 'Compra', value: 'purchase' }, { label: 'Traspaso', value: 'transfer' }];
+  statusOpts = [{ label: 'Activos', value: '' }, { label: 'Solo lo que toca (≤ hoy)', value: 'due' }];
+  basisOpts: { label: string; value: OrderBasis }[] = [
+    { label: 'Para este ciclo (cadencia)', value: 'cadence' },
+    { label: 'Hasta el máximo', value: 'max' },
+    { label: 'Hasta reorden', value: 'reorder' },
+    { label: 'Hasta el mínimo', value: 'min' },
+  ];
+  territories = [
+    { label: 'Bajío', codes: ['01', '02', '03', '04'] },
+    { label: 'Morelia', codes: ['MD-30', 'MD-32'] },
+    { label: 'Zamora', codes: ['05', '06'] },
+    { label: 'CEDIS', codes: ['00'] },
+  ];
+
+  ngOnInit(): void {
+    this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (f: ReplenishmentFilters) => {
+        this.warehouses.set(f.warehouses.map((w) => ({ id: w.id, code: w.code, label: `${w.code} · ${w.name}` })));
+        this.supplierOpts.set(f.suppliers.map((s) => ({ label: s.name, value: s.name })));
+        // Etiqueta con CÓDIGO + nombre (+ #prov) → el filtro del p-select busca por ambos (filterBy=label).
+        this.categoryOpts.set((f.categories || []).map((c) => ({ label: `${c.code ? c.code + ' · ' : ''}${c.name} · ${c.n_suppliers} prov`, value: c.id })));
+      },
+      error: () => {},
+    });
+    this.reload();
+  }
+
+  reload(): void {
+    this.loading.set(true);
+    this.detail.set({});
+    this.selectedRows.set([]);
+    // RA-PRO.15 — valor del punto de abasto (mín/reorden/máx) según el filtro activo.
+    this.api.summary({ warehouse_ids: this.fWh.length ? this.fWh : undefined, search: this.fSearch || undefined, category_id: this.fCategory || undefined, target_basis: this.fBasis() })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (s) => this.abasto.set(s), error: () => this.abasto.set(null) });
+    this.api.worklist({ warehouse_ids: this.fWh.length ? this.fWh : undefined, via: this.fVia || undefined, status: this.fStatus || undefined, search: this.fSearch || undefined, target_basis: this.fBasis(), category_id: this.fCategory || undefined, pageSize: 500 })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.rows.set(r.rows.map((x) => ({ ...x, _key: `${x.warehouse_id}__${x.supplier_id}` })));
+          this.total.set(r.total); this.vencidos.set(r.vencidos); this.hoy.set(r.hoy); this.prox7.set(r.prox7);
+          this.loading.set(false); this.loadedAt.set(Date.now());
+        },
+        error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el pedido.' }); },
+      });
+  }
+
+  // ── Drill-down ──
+  onExpand(r: WLRow): void {
+    const cur = this.detail()[r._key];
+    if (cur && !cur.loading) return;
+    this.loadLines(r, this.fBasis(), true);
+  }
+
+  private loadLines(r: WLRow, basis: OrderBasis, withContext: boolean): void {
+    this.detail.update((d) => ({
+      ...d,
+      [r._key]: { loading: true, basis, lines: d[r._key]?.lines ?? [], hub: d[r._key]?.hub ?? null, hist: d[r._key]?.hist ?? null, creating: false },
+    }));
+    this.api.criticalStock({ supplier_id: r.supplier_id, warehouse_id: r.warehouse_id, category_id: this.fCategory || undefined, target_basis: basis, scope: 'all', pageSize: 500 })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (res) => {
+          // El backend entrega cantidades en CAJAS (unidad canónica: stock/min/máx/costo en cajas).
+          // uxc = piezas/caja, sólo para la vista dual (columna Piezas). suggested_qty ya está en cajas.
+          const lines: DetailLine[] = res.rows
+            .filter((x) => Number(x.suggested_qty) > 0)
+            .map((x) => { const uxc = this.uxc(x); return { ...x, uxc, finalCajas: Math.ceil(Number(x.suggested_qty) || 0) }; });
+          this.detail.update((d) => (d[r._key] ? { ...d, [r._key]: { ...d[r._key], loading: false, basis, lines } } : d));
+        },
+        error: () => {
+          this.detail.update((d) => (d[r._key] ? { ...d, [r._key]: { ...d[r._key], loading: false, lines: [] } } : d));
+          this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los SKUs.' });
+        },
+      });
+    if (!withContext) return;
+    const buyWh = r.via === 'transfer' ? (r.source_warehouse_id ?? undefined) : r.warehouse_id;
+    this.api.supplierOrderHistory(r.supplier_id, buyWh).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (h) => this.detail.update((d) => (d[r._key] ? { ...d, [r._key]: { ...d[r._key], hist: h } } : d)),
+      error: () => {},
+    });
+    if (r.via === 'transfer' && r.source_warehouse_id) {
+      this.api.criticalStock({ supplier_id: r.supplier_id, warehouse_id: r.source_warehouse_id, target_basis: 'max', scope: 'all', pageSize: 1000 })
+        .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: (res) => {
+            const hub: Record<string, CriticalStockRow> = {};
+            for (const x of res.rows) hub[x.product_id] = x;
+            this.detail.update((d) => (d[r._key] ? { ...d, [r._key]: { ...d[r._key], hub } } : d));
+          },
+          error: () => {},
+        });
+    }
+  }
+
+  touch(): void { this.touchTick.update((n) => n + 1); }
+  objetivo(l: DetailLine): number { return Math.round(Number(l.on_hand) + Number(l.in_transit) + Number(l.suggested_qty)); }
+  // RA-PRO.30 — uxc CANÓNICO: box_size (Pz/Cja) MANDA si la etiqueta es consistente
+  // (box_size=factor_sale×pack_size, pack_size>1 → factor_sale son PAQUETES, no piezas); si no,
+  // factor_sale (piezas/caja); último recurso box_size suelto / factor_purchase → 1. Espeja uxcExpr() del motor.
+  private uxc(l: CriticalStockRow): number {
+    const fs = Number(l.factor_sale), bs = Number(l.box_size), ps = Number(l.pack_size), fp = Number(l.factor_purchase);
+    if (bs > 1 && ps > 1 && bs === fs * ps) return bs;
+    return fs > 1 ? fs : (bs > 1 ? bs : (fp > 1 ? fp : 1));
+  }
+  pzOf(l: DetailLine): number { return Math.round(Number(l.finalCajas || 0) * (l.uxc || 1)); }
+  // Captura dual: el input edita en cajas o piezas según el toggle; el estado canónico es finalCajas.
+  setQty(l: DetailLine, v: number): void {
+    const n = Math.max(0, Number(v) || 0);
+    l.finalCajas = this.orderUnit() === 'piezas' ? Math.ceil(n / (l.uxc || 1)) : Math.round(n);
+    this.touch();
+  }
+  // Costo por CAJA (unit_cost es por caja); el $ = cajas × costo_caja.
+  lineCost(l: DetailLine): number { return Number(l.finalCajas || 0) * Number(l.unit_cost || 0); }
+
+  private linesOf(key: string): DetailLine[] { this.touchTick(); return this.detail()[key]?.lines ?? []; }
+  countToOrder(key: string): number { return this.linesOf(key).filter((l) => Number(l.finalCajas) > 0).length; }
+  totalCajas(key: string): number { return this.linesOf(key).reduce((s, l) => s + Number(l.finalCajas || 0), 0); }
+  totalPz(key: string): number { return this.linesOf(key).reduce((s, l) => s + this.pzOf(l), 0); }
+  detailTotal(key: string): number { return this.linesOf(key).reduce((s, l) => s + Number(l.finalCajas || 0) * Number(l.unit_cost || 0), 0); }
+
+  // D — orden por columna (no lee touchTick → no salta la fila mientras editas)
+  setSort(f: string): void { this.detSort.update((s) => (s.f === f ? { f, d: (s.d === 1 ? -1 : 1) as 1 | -1 } : { f, d: 1 })); }
+  sortArrow(f: string): string { const s = this.detSort(); return s.f === f ? (s.d === 1 ? '↑' : '↓') : ''; }
+  sortedLines(key: string): DetailLine[] {
+    const st = this.detail()[key]; if (!st) return [];
+    const { f, d } = this.detSort();
+    const val = (l: DetailLine): number | string => {
+      switch (f) {
+        case 'sku': return l.sku || '';
+        case 'nombre': return l.nombre || '';
+        case 'rank': return l.sales_rank == null ? 1e9 : Number(l.sales_rank);
+        case 'rev': return Number(l.monthly_revenue || 0);
+        case 'oh': return Number(l.on_hand || 0);
+        case 'sug': return Number(l.suggested_qty || 0);
+        case 'cajas': return Number(l.finalCajas || 0);
+        case 'pz': return this.pzOf(l);
+        default: return this.lineCost(l);
+      }
+    };
+    return [...st.lines].sort((a, b) => {
+      const va = val(a), vb = val(b);
+      if (typeof va === 'string' || typeof vb === 'string') return d * String(va).localeCompare(String(vb));
+      return d * ((va as number) - (vb as number));
+    });
+  }
+
+  // Hub on_hand viene en CAJAS (canónico) → se compara contra las cajas pedidas (finalCajas).
+  hubOnHand(key: string, l: DetailLine): number | null { const h = this.detail()[key]?.hub; return h ? Number(h[l.product_id]?.on_hand ?? 0) : null; }
+  hubShort(key: string, l: DetailLine): boolean {
+    const st = this.detail()[key]; this.touchTick();
+    if (!st?.hub) return false; return Number(st.hub[l.product_id]?.on_hand ?? 0) < Number(l.finalCajas || 0);
+  }
+  hubShortCount(key: string): number {
+    const st = this.detail()[key]; this.touchTick();
+    if (!st?.hub) return 0; return st.lines.filter((l) => Number(st.hub![l.product_id]?.on_hand ?? 0) < Number(l.finalCajas || 0)).length;
+  }
+
+  minWarn(key: string): string | null {
+    this.touchTick();
+    const st = this.detail()[key]; if (!st?.lines.length) return null;
+    const l0 = st.lines[0];
+    const minA = l0.supplier_min_amount != null ? Number(l0.supplier_min_amount) : null;
+    const minB = l0.supplier_min_boxes != null ? Number(l0.supplier_min_boxes) : null;
+    if (minA != null && this.detailTotal(key) < minA) return `Bajo mínimo · ${this.money(this.detailTotal(key))} < ${this.money(minA)}`;
+    if (minB != null && this.totalCajas(key) < minB) return `Bajo mínimo · ${this.totalCajas(key)} < ${minB} cajas`;
+    return null;
+  }
+
+  padToMin(r: WLRow): void {
+    const key = r._key, st = this.detail()[key];
+    if (!st?.lines.length) return;
+    const l0 = st.lines[0];
+    const minA = l0.supplier_min_amount != null ? Number(l0.supplier_min_amount) : null;
+    const minB = l0.supplier_min_boxes != null ? Number(l0.supplier_min_boxes) : null;
+    const sumAvg = st.lines.reduce((s, l) => s + Math.max(Number(l.avg_daily_units) || 0, 0), 0);
+    const w = (l: DetailLine) => (sumAvg > 0 ? Math.max(Number(l.avg_daily_units) || 0, 0) / sumAvg : 1 / st.lines.length);
+    if (minA != null && this.detailTotal(key) < minA) {
+      const short = minA - this.detailTotal(key);
+      for (const l of st.lines) { const cc = Number(l.unit_cost) || 0; if (cc > 0) l.finalCajas = Number(l.finalCajas || 0) + Math.ceil((short * w(l)) / cc); }
+    } else if (minB != null && this.totalCajas(key) < minB) {
+      const short = minB - this.totalCajas(key);
+      for (const l of st.lines) l.finalCajas = Number(l.finalCajas || 0) + Math.ceil(short * w(l));
+    } else { return; }
+    this.touch();
+    this.toast.add({ severity: 'info', summary: 'Pedido subido al mínimo', detail: `${this.totalCajas(key)} cajas · ${this.money(this.detailTotal(key))}` });
+  }
+
+  histTip(h: SupplierOrderHistory): string {
+    if (!h.recent?.length) return '';
+    const recent = h.recent.map((e) => `${new Date(e.date).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' })}  ${this.money(e.amount)}`).join('\n');
+    return `Últimas compras:\n${recent}\n\nMediana ${this.money(h.median_amount)} · máx ${this.money(h.max_amount)}`;
+  }
+
+  createReq(r: WLRow): void {
+    const st = this.detail()[r._key];
+    if (!st) return;
+    const picked = st.lines.filter((l) => Number(l.finalCajas) > 0);
+    if (!picked.length) return;
+    const isTransfer = r.via === 'transfer';
+    if (isTransfer && !r.source_warehouse_id) {
+      this.toast.add({ severity: 'warn', summary: 'Sin origen', detail: 'Este traspaso no tiene almacén origen (hub). Configúralo en Red de abasto.' });
+      return;
+    }
+    const dto: CreateRequisitionDto = {
+      warehouse_id: r.warehouse_id,
+      supplier_id: isTransfer ? null : r.supplier_id,
+      source_type: isTransfer ? 'branch' : 'supplier',
+      source_warehouse_id: isTransfer ? r.source_warehouse_id : null,
+      notes: `Pedido ${r.supplier_name || ''} @ ${r.warehouse_code} · base ${st.basis}`.trim(),
+      lines: picked.map((l) => this.reqLine(l, Number(l.finalCajas || 0), isTransfer ? 'branch' : 'supplier', isTransfer ? null : (l.supplier_id ?? r.supplier_id), isTransfer ? r.source_warehouse_id : null)),
+    };
+    this.detail.update((d) => ({ ...d, [r._key]: { ...d[r._key], creating: true } }));
+    this.api.createRequisition(dto).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (req) => {
+        this.detail.update((d) => ({ ...d, [r._key]: { ...d[r._key], creating: false } }));
+        this.toast.add({ severity: 'success', summary: isTransfer ? 'Traspaso creado' : 'Requisición creada', detail: `${req.folio} · ${picked.length} línea(s)` });
+      },
+      error: (e) => {
+        this.detail.update((d) => ({ ...d, [r._key]: { ...d[r._key], creating: false } }));
+        this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo crear.' });
+      },
+    });
+  }
+
+  splitTransfer(r: WLRow): void {
+    const key = r._key, st = this.detail()[key];
+    if (!st?.hub || !r.source_warehouse_id) return;
+    const transfer: { l: DetailLine; qty: number }[] = [];
+    const purchase: { l: DetailLine; qty: number }[] = [];
+    for (const l of st.lines) {
+      const want = Number(l.finalCajas || 0); if (want <= 0) continue; // en CAJAS (igual que hub on_hand)
+      const avail = Math.max(0, Math.min(want, Number(st.hub[l.product_id]?.on_hand ?? 0)));
+      if (avail > 0) transfer.push({ l, qty: avail });
+      if (want - avail > 0) purchase.push({ l, qty: want - avail });
+    }
+    if (!transfer.length && !purchase.length) return;
+    const jobs = [];
+    if (transfer.length) jobs.push(this.api.createRequisition({
+      warehouse_id: r.warehouse_id, supplier_id: null, source_type: 'branch', source_warehouse_id: r.source_warehouse_id,
+      notes: `Traspaso disponible ${r.supplier_name || ''} @ ${r.warehouse_code}`.trim(),
+      lines: transfer.map(({ l, qty }) => this.reqLine(l, qty, 'branch', null, r.source_warehouse_id)),
+    }));
+    if (purchase.length) jobs.push(this.api.createRequisition({
+      warehouse_id: r.source_warehouse_id, supplier_id: r.supplier_id, source_type: 'supplier', source_warehouse_id: null,
+      notes: `Compra faltante ${r.supplier_name || ''} @ hub ${r.source_warehouse_code} (para surtir ${r.warehouse_code})`.trim(),
+      lines: purchase.map(({ l, qty }) => { const hr = st.hub![l.product_id]; return this.reqLine(hr ?? l, qty, 'supplier', r.supplier_id, null); }),
+    }));
+    this.detail.update((d) => ({ ...d, [key]: { ...d[key], creating: true } }));
+    forkJoin(jobs).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.detail.update((d) => ({ ...d, [key]: { ...d[key], creating: false } }));
+        const folios = res.map((x) => x.folio).join(' + ');
+        this.toast.add({ severity: 'success', summary: 'Traspaso + compra', detail: `${folios} · ${transfer.length} traspaso / ${purchase.length} compra` });
+      },
+      error: (e) => {
+        this.detail.update((d) => ({ ...d, [key]: { ...d[key], creating: false } }));
+        this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo crear el split.' });
+      },
+    });
+  }
+
+  // finalCajas y todas las cantidades van en CAJAS; unit_cost es por caja → total = cajas × costo_caja.
+  private reqLine(l: CriticalStockRow, finalCajas: number, sourceType: 'supplier' | 'branch', supplierId: string | null, sourceWh: string | null) {
+    return {
+      product_id: l.product_id,
+      supplier_id: supplierId,
+      source_type: sourceType,
+      source_warehouse_id: sourceWh,
+      on_hand: Number(l.on_hand), in_transit: Number(l.in_transit),
+      min_stock: Number(l.min_stock), reorder_point: Number(l.reorder_point), max_stock: Number(l.max_stock),
+      suggested_qty: Number(finalCajas), final_qty: Number(finalCajas), unit_cost: Number(l.unit_cost || 0),
+    };
+  }
+
+  // A1 — pedido general: genera la requisición/traspaso de cada renglón seleccionado (cadencia, redondeo a caja)
+  selTotal(): number { return this.selectedRows().reduce((s, r) => s + (Number(r.suggested_cost) || 0), 0); }
+  bulkGenerate(): void {
+    const rows = this.selectedRows();
+    if (!rows.length) return;
+    this.bulkGenerating.set(true);
+    const jobs = rows.map((r) =>
+      this.api.criticalStock({ supplier_id: r.supplier_id, warehouse_id: r.warehouse_id, target_basis: 'cadence', scope: 'all', pageSize: 500 }).pipe(
+        switchMap((res) => {
+          const picked = res.rows.filter((x) => Number(x.suggested_qty) > 0);
+          const isTransfer = r.via === 'transfer';
+          if (!picked.length) return of({ ok: false, wh: r.warehouse_code });
+          if (isTransfer && !r.source_warehouse_id) return of({ ok: false, wh: r.warehouse_code });
+          const dto: CreateRequisitionDto = {
+            warehouse_id: r.warehouse_id, supplier_id: isTransfer ? null : r.supplier_id,
+            source_type: isTransfer ? 'branch' : 'supplier', source_warehouse_id: isTransfer ? r.source_warehouse_id : null,
+            notes: `Pedido general ${r.supplier_name || ''} @ ${r.warehouse_code}`.trim(),
+            lines: picked.map((l) => { const cajas = Math.ceil(Number(l.suggested_qty) || 0); return this.reqLine(l, cajas, isTransfer ? 'branch' : 'supplier', isTransfer ? null : (l.supplier_id ?? r.supplier_id), isTransfer ? r.source_warehouse_id : null); }),
+          };
+          return this.api.createRequisition(dto).pipe(map((req) => ({ ok: true, wh: r.warehouse_code, folio: req.folio })), catchError(() => of({ ok: false, wh: r.warehouse_code })));
+        }),
+        catchError(() => of({ ok: false, wh: r.warehouse_code })),
+      ),
+    );
+    forkJoin(jobs).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (results) => {
+        this.bulkGenerating.set(false);
+        const ok = results.filter((x: any) => x.ok);
+        const skip = results.filter((x: any) => !x.ok);
+        this.toast.add({ severity: ok.length ? 'success' : 'warn', summary: `${ok.length} pedido(s) creado(s)`, detail: skip.length ? `${skip.length} sin líneas/omitidos: ${skip.map((s: any) => s.wh).join(', ')}` : 'Todos OK' });
+        this.selectedRows.set([]);
+        this.reload();
+      },
+      error: () => { this.bulkGenerating.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'Falló la generación masiva.' }); },
+    });
+  }
+
+  // A2 — pedido consolidado por proveedor (todos sus almacenes de compra)
+  openConsolidated(supplierId: string, name: string | null): void {
+    this.consSupplier.set({ id: supplierId, name });
+    this.consExcluded.set(new Set());
+    this.consOrder.set(null);
+    this.consLoading.set(true);
+    this.consVisible.set(true);
+    this.api.supplierOrder(supplierId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (o) => { this.consOrder.set(o); this.consLoading.set(false); },
+      error: () => { this.consLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el pedido consolidado.' }); },
+    });
+  }
+  consHeader(): string { return `Pedido consolidado · ${this.consSupplier()?.name || ''}`; }
+  consWhs(): { id: string; code: string; n: number }[] {
+    const o = this.consOrder(); if (!o) return [];
+    const m = new Map<string, { id: string; code: string; n: number }>();
+    for (const l of o.lines) { const e = m.get(l.warehouse_id) || { id: l.warehouse_id, code: l.warehouse_code, n: 0 }; e.n++; m.set(l.warehouse_id, e); }
+    return [...m.values()].sort((a, b) => a.code.localeCompare(b.code));
+  }
+  isWhIncluded(id: string): boolean { return !this.consExcluded().has(id); }
+  toggleWh(id: string): void { this.consExcluded.update((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
+  consLinesFiltered(): SupplierOrderLine[] { const o = this.consOrder(); if (!o) return []; const ex = this.consExcluded(); return o.lines.filter((l) => !ex.has(l.warehouse_id)); }
+  consWhsIncluded(): number { return new Set(this.consLinesFiltered().map((l) => l.warehouse_id)).size; }
+  consTotCajas(): number { return this.consLinesFiltered().reduce((s, l) => s + Number(l.cajas || 0), 0); }
+  consTotAmount(): number { return this.consLinesFiltered().reduce((s, l) => s + Number(l.line_cost || 0), 0); }
+  generateConsolidated(): void {
+    const sup = this.consSupplier(); const lines = this.consLinesFiltered();
+    if (!sup || !lines.length) return;
+    const byWh = new Map<string, SupplierOrderLine[]>();
+    for (const l of lines) { if (!byWh.has(l.warehouse_id)) byWh.set(l.warehouse_id, []); byWh.get(l.warehouse_id)!.push(l); }
+    this.consGenerating.set(true);
+    const jobs = [...byWh.entries()].map(([whId, ls]) => this.api.createRequisition({
+      warehouse_id: whId, supplier_id: sup.id, source_type: 'supplier', source_warehouse_id: null,
+      notes: `Pedido consolidado ${sup.name || ''} @ ${ls[0].warehouse_code}`.trim(),
+      lines: ls.map((l) => ({ product_id: l.product_id, supplier_id: sup.id, source_type: 'supplier' as const, source_warehouse_id: null, on_hand: Number(l.on_hand), in_transit: 0, min_stock: 0, reorder_point: 0, max_stock: 0, suggested_qty: Number(l.final), final_qty: Number(l.final), unit_cost: Number(l.unit_cost) })),
+    }).pipe(map((req) => req.folio as string | null), catchError(() => of(null))));
+    forkJoin(jobs).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (folios) => {
+        this.consGenerating.set(false);
+        const ok = folios.filter(Boolean);
+        this.toast.add({ severity: ok.length ? 'success' : 'warn', summary: `${ok.length} requisición(es)`, detail: ok.join(' + ') || 'Nada creado' });
+        this.consVisible.set(false); this.reload();
+      },
+      error: () => { this.consGenerating.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'Falló la generación.' }); },
+    });
+  }
+
+  // A3 — pedido consolidado por CATEGORÍA (todos los proveedores de la plaza: Guadalajara/Arandas)
+  catLabel(): string { return this.categoryOpts().find((o) => o.value === this.fCategory)?.label || '—'; }
+  openCategoryOrder(): void {
+    const catId = this.fCategory; if (!catId) return;
+    this.catLoading.set(true); this.catVisible.set(true); this.catRows.set([]);
+    this.api.criticalStock({ category_id: catId, warehouse_ids: this.fWh.length ? this.fWh : undefined, target_basis: this.fBasis(), scope: 'all', pageSize: 5000 })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (res) => {
+          const lines: CatLine[] = res.rows
+            .filter((x) => Number(x.suggested_qty) > 0)
+            .map((x) => { const uxc = this.uxc(x); const cajas = Math.ceil(Number(x.suggested_qty) || 0); const piezas = cajas * uxc; return { ...x, uxc, cajas, piezas, line_cost: cajas * Number(x.unit_cost || 0) }; })
+            .sort((a, b) => (a.supplier_name || '').localeCompare(b.supplier_name || '') || (a.warehouse_code || '').localeCompare(b.warehouse_code || '') || (a.sales_rank ?? 1e9) - (b.sales_rank ?? 1e9));
+          this.catRows.set(lines); this.catLoading.set(false);
+        },
+        error: () => { this.catLoading.set(false); this.catVisible.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el pedido de la categoría.' }); },
+      });
+  }
+  catTotCajas(): number { return this.catRows().reduce((s, l) => s + Number(l.cajas || 0), 0); }
+  catTotAmount(): number { return this.catRows().reduce((s, l) => s + Number(l.line_cost || 0), 0); }
+  catSuppliers(): number { return new Set(this.catRows().map((l) => l.supplier_id)).size; }
+
+  exportCategoryOrder(): void {
+    const lines = this.catRows(); if (!lines.length) return;
+    const payload: PedidoExportPayload = {
+      title: `PEDIDO DE CATEGORÍA · ${this.catLabel()}`,
+      via: 'purchase', multi_warehouse: true,
+      lines: lines.map((l) => ({
+        supplier_name: l.supplier_name, warehouse_code: l.warehouse_code,
+        sku: l.sku, nombre: l.nombre, abc_class: l.abc_class, xyz_class: l.xyz_class,
+        sales_rank: l.sales_rank, monthly_revenue: l.monthly_revenue == null ? null : Number(l.monthly_revenue),
+        on_hand: Number(l.on_hand), in_transit: Number(l.in_transit),
+        reorder_point: Number(l.reorder_point), max_stock: Number(l.max_stock),
+        suggested_qty: Number(l.suggested_qty), uxc: l.uxc, cajas: l.cajas, piezas: l.piezas,
+        unit_cost: Number(l.unit_cost || 0), line_cost: l.line_cost,
+      })),
+    };
+    this.catExporting.set(true);
+    this.api.exportPedidoXlsx(payload).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { this.catExporting.set(false); saveXlsxResponse(resp, 'Pedido_categoria.xlsx'); },
+      error: () => { this.catExporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
+    });
+  }
+
+  generateCategoryOrder(): void {
+    const lines = this.catRows(); if (!lines.length) return;
+    // Una requisición por (proveedor × almacén); solo líneas con proveedor real (compra).
+    const groups = new Map<string, CatLine[]>();
+    for (const l of lines) {
+      if (!l.supplier_id) continue;
+      const k = `${l.supplier_id}__${l.warehouse_id}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k)!.push(l);
+    }
+    if (!groups.size) { this.toast.add({ severity: 'warn', summary: 'Sin proveedor', detail: 'Las líneas no tienen proveedor asignado.' }); return; }
+    this.catGenerating.set(true);
+    const jobs = [...groups.values()].map((ls) => this.api.createRequisition({
+      warehouse_id: ls[0].warehouse_id, supplier_id: ls[0].supplier_id, source_type: 'supplier', source_warehouse_id: null,
+      notes: `Pedido categoría ${this.catLabel()} · ${ls[0].supplier_name || ''} @ ${ls[0].warehouse_code}`.trim(),
+      lines: ls.map((l) => this.reqLine(l, l.piezas, 'supplier', l.supplier_id, null)),
+    }).pipe(map((req) => req.folio as string | null), catchError(() => of(null))));
+    forkJoin(jobs).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (folios) => {
+        this.catGenerating.set(false);
+        const ok = folios.filter(Boolean);
+        this.toast.add({ severity: ok.length ? 'success' : 'warn', summary: `${ok.length} requisición(es)`, detail: ok.slice(0, 8).join(' + ') || 'Nada creado' });
+        this.catVisible.set(false); this.reload();
+      },
+      error: () => { this.catGenerating.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'Falló la generación.' }); },
+    });
+  }
+
+  exporting = signal(false);
+  /** Export XLSX con diseño del pedido de esta fila (base cajas editada, ranking + $ que mueve). */
+  exportRow(r: WLRow): void {
+    const st = this.detail()[r._key];
+    const picked = (st?.lines ?? []).filter((l) => Number(l.finalCajas) > 0);
+    if (!picked.length) return;
+    const isTransfer = r.via === 'transfer';
+    const payload: PedidoExportPayload = {
+      title: `PEDIDO · ${r.supplier_name || ''} · ${r.warehouse_code}`.trim(),
+      supplier_name: r.supplier_name,
+      warehouse_label: `${r.warehouse_code}${r.warehouse_name ? ' · ' + r.warehouse_name : ''}`,
+      via: r.via,
+      basis: st?.basis ?? this.fBasis(),
+      source_warehouse_code: r.source_warehouse_code ?? null,
+      lines: picked.map((l) => ({
+        sku: l.sku, nombre: l.nombre,
+        abc_class: l.abc_class, xyz_class: l.xyz_class,
+        sales_rank: l.sales_rank, monthly_revenue: l.monthly_revenue == null ? null : Number(l.monthly_revenue),
+        on_hand: Number(l.on_hand), in_transit: Number(l.in_transit),
+        hub_on_hand: isTransfer ? this.hubOnHand(r._key, l) : null,
+        hub_short: isTransfer ? this.hubShort(r._key, l) : false,
+        reorder_point: Number(l.reorder_point), max_stock: Number(l.max_stock),
+        suggested_qty: Number(l.suggested_qty),
+        uxc: l.uxc, cajas: Number(l.finalCajas), piezas: this.pzOf(l),
+        unit_cost: Number(l.unit_cost || 0), line_cost: this.lineCost(l),
+      })),
+    };
+    this.exporting.set(true);
+    this.api.exportPedidoXlsx(payload).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { this.exporting.set(false); saveXlsxResponse(resp, `Pedido_${r.warehouse_code}.xlsx`); },
+      error: () => { this.exporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el Excel.' }); },
+    });
+  }
+
+  // A2 — export XLSX del pedido consolidado (multi-almacén)
+  consExporting = signal(false);
+  exportConsolidated(): void {
+    const sup = this.consSupplier(); const lines = this.consLinesFiltered();
+    if (!sup || !lines.length) return;
+    const payload: PedidoExportPayload = {
+      title: `PEDIDO CONSOLIDADO · ${sup.name || ''}`.trim(),
+      supplier_name: sup.name,
+      via: 'purchase',
+      multi_warehouse: true,
+      lines: lines.map((l) => ({
+        warehouse_code: l.warehouse_code,
+        sku: l.sku, nombre: l.nombre,
+        on_hand: Number(l.on_hand),
+        suggested_qty: Number(l.suggested),
+        uxc: Number(l.uxc), cajas: Number(l.cajas), piezas: Number(l.piezas),
+        unit_cost: Number(l.unit_cost), line_cost: Number(l.line_cost),
+      })),
+    };
+    this.consExporting.set(true);
+    this.api.exportPedidoXlsx(payload).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { this.consExporting.set(false); saveXlsxResponse(resp, 'Pedido_consolidado.xlsx'); },
+      error: () => { this.consExporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
+    });
+  }
+
+  isTerr(codes: string[]): boolean {
+    const ids = this.idsForCodes(codes);
+    return ids.length > 0 && ids.length === this.fWh.length && ids.every((i) => this.fWh.includes(i));
+  }
+  applyTerr(codes: string[]): void {
+    const ids = this.idsForCodes(codes);
+    this.fWh = this.isTerr(codes) ? [] : ids;
+    this.reload();
+  }
+  clearWh(): void { this.fWh = []; this.reload(); }
+  private idsForCodes(codes: string[]): string[] {
+    return this.warehouses().filter((w) => codes.includes(w.code)).map((w) => w.id);
+  }
+
+  estLabel(r: WLRow): string {
+    const d = r.days_to_due ?? 99;
+    return d < 0 ? 'Vencido' : d === 0 ? 'Hoy' : d <= 7 ? 'Próximo' : 'Futuro';
+  }
+  estSev(r: WLRow): Sev {
+    const d = r.days_to_due ?? 99;
+    return d < 0 ? 'danger' : d === 0 ? 'warn' : d <= 7 ? 'info' : 'secondary';
+  }
+  ddLabel(d: number | null): string {
+    if (d == null) return '';
+    if (d < 0) return `${Math.abs(d)}d tarde`;
+    if (d === 0) return 'hoy';
+    return `en ${d}d`;
+  }
+  basisLabel(b: OrderBasis): string { return ({ cadence: 'Cadencia', reorder: 'Reorden', max: 'Máximo', min: 'Mínimo' } as Record<string, string>)[b] || b; }
+  bandLabel(b: string): string { return ({ rapida: 'rápida', promedio: 'promedio', mal_abasto: 'lento' } as Record<string, string>)[b] || b; }
+  bandSev(b: string): Sev { return ({ rapida: 'success', promedio: 'info', mal_abasto: 'danger' } as Record<string, Sev>)[b] || 'secondary'; }
+  // U.2 — null = "no se está midiendo" (peldaño contradicho por el costo), NO cero. Ver la misma
+  // regla en compras-existencia-critica.component.ts.
+  money(v: number | string | null | undefined) {
+    if (v === null || v === undefined || v === '') return '—';
+    return (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+  }
+  abastoUnidadOpts = [{ label: 'En $', value: 'valor' }, { label: 'En cajas', value: 'cajas' }];
+  abastoFmt(valor: number | null | undefined, cajas: number | null | undefined): string {
+    return this.abastoUnidad() === 'valor'
+      ? this.money(valor)
+      : `${(Number(cajas) || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })} cajas`;
+  }
+}

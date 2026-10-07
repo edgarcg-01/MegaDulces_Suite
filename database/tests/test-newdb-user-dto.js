@@ -1,0 +1,278 @@
+#!/usr/bin/env node
+/**
+ * `[ID.7]` — DTO único de usuario (Fase ID / ADR-050).
+ *
+ * Lee los DTOs REALES vía ts-node y saca sus campos de la metadata de
+ * class-validator (que ya incluye lo heredado), así que el test sigue al código
+ * en vez de copiarlo. Mismo patrón que `test-newdb-entity-ref` / `scope-params`.
+ *
+ * Qué cubre:
+ *   1. Cero duplicación: los campos comunes viven SOLO en `UserWriteDto`;
+ *      `CreateUserDto` no declara ninguno propio.
+ *   2. Simetría: todo lo que se puede editar se puede setear al crear. Las dos
+ *      asimetrías que había —`finance_expense_area_ids` sólo en update y
+ *      `department_code` obligatorio sólo en create— eran defectos, no reglas.
+ *   3. El form del admin y el DTO **no divergen**: se comparan las claves del
+ *      `FormGroup` (parseadas del componente) contra las del DTO. Es el chequeo
+ *      que faltaba: los dos se escribían a mano y ya se habían separado.
+ *   4. `zona`/`zona_id` siguen aceptándose (alias deprecados) pero el canónico
+ *      es `zone_id`, y el front manda SÓLO el canónico.
+ *   5. `warehouse_code` ya no se valida con regex de forma: el DTO no debe
+ *      tener `@Matches` (aceptaba `'99'`), la existencia la valida el service
+ *      contra el catálogo.
+ *
+ * No toca la DB salvo un chequeo final de que el catálogo de sucursales que el
+ * service consulta existe y tiene filas.
+ *
+ * Correr: node database/tests/test-newdb-user-dto.js
+ */
+
+const fs = require('fs');
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
+
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) { console.log(`  ✓ ${m}`); pass++; } else { console.error(`  ✗ ${m}`); fail++; } };
+const unicos = (a) => a.filter((x, i, arr) => arr.indexOf(x) === i);
+
+/**
+ * Campos que existen SÓLO en el update, y está bien que sea así: son el ciclo de
+ * vida (`[ID.8]`). Una cuenta nueva nace activa.
+ *
+ * ⚠️ `[CH.1.10]` — `must_change_password` YA NO está en esta lista. El comentario
+ * que estaba acá decía que "elegir 'debe cambiar contraseña' en el alta no tiene
+ * sentido operativo", y era razonable hasta que apareció el caso que lo desmiente:
+ * una pantalla de kiosco NO puede exigir cambio de contraseña, porque la primera
+ * persona que pasa la cambia y la pantalla queda afuera. Así que el campo subió a
+ * `UserWriteDto` y el alta lo puede declarar (gateado: `false` exige
+ * `token_ttl_days`). Es un conjunto PERMITIDO, no una igualdad, así que sacarlo
+ * de acá no afloja ninguna aserción.
+ */
+const SOLO_UPDATE = ['activo', 'status'];
+
+require('ts-node').register({
+  transpileOnly: true, skipProject: true,
+  compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node', experimentalDecorators: true, emitDecoratorMetadata: true, ignoreDeprecations: '6.0' },
+});
+
+// `[CH.1.10]` Los alias `@megadulces/*` de `tsconfig.base.json`.
+//
+// `skipProject: true` (necesario: sin él ts-node toma el tsconfig del monorepo y
+// falla con TS5011) también descarta los `paths`, así que un DTO que importa del
+// barrel de una lib reventaba con MODULE_NOT_FOUND. Y no es hipotético: pasó al
+// traer `MAX_TOKEN_TTL_DAYS` de `platform-core` y `USER_KINDS` de `contracts`.
+//
+// Se registra el resolvedor en vez de evitar el import: la alternativa sería un
+// deep-import entre libs, que es justo lo que el lint de tags prohíbe. El test
+// tiene que poder cargar el código real, no una versión del código que se deja
+// cargar por el test.
+// `[ID.30]` ⚠️ Se lee con el parser de TypeScript, NO con `require()`.
+// `tsconfig.base.json` es JSONC: TypeScript acepta comentarios ahí y `JSON.parse`
+// no. Estuvo con `require()` hasta que `[ID.28]` documentó adentro por qué el
+// catálogo de authz entra por subruta y no por barrel — 22 líneas de `//` que
+// dejaron este archivo sin poder ni CARGAR («Expected double-quoted property
+// name»). El commit que lo rompió reporta "user-dto 33/0" en su propio mensaje,
+// porque midió antes de escribir el comentario.
+//
+// El arreglo no es pedir que nadie comente el tsconfig: es leerlo con quien lo
+// lee de verdad. `ts.parseConfigFileTextToJson` es la misma función que usa el
+// compilador, así que este test no puede volver a discrepar del formato real.
+const ts = require('typescript');
+const TSCONFIG = path.resolve(__dirname, '..', '..', 'tsconfig.base.json');
+const parsed = ts.parseConfigFileTextToJson(TSCONFIG, fs.readFileSync(TSCONFIG, 'utf8'));
+if (parsed.error) {
+  throw new Error(`tsconfig.base.json no se pudo leer ni con el parser de TS: ${
+    ts.flattenDiagnosticMessageText(parsed.error.messageText, ' ')}`);
+}
+require('tsconfig-paths').register({
+  baseUrl: path.resolve(__dirname, '..', '..'),
+  paths: parsed.config.compilerOptions.paths,
+});
+
+const DTO_DIR = path.resolve(__dirname, '../../libs/trade/src/lib/users/dto');
+const { UserWriteDto } = require(path.join(DTO_DIR, 'user-write.dto.ts'));
+const { CreateUserDto } = require(path.join(DTO_DIR, 'create-user.dto.ts'));
+const { UpdateUserDto } = require(path.join(DTO_DIR, 'update-user.dto.ts'));
+const { getMetadataStorage } = require('class-validator');
+
+/** Campos con validación declarada en la clase (incluye heredados). */
+function campos(cls) {
+  const metas = getMetadataStorage().getTargetValidationMetadatas(cls, '', true, false);
+  return unicos(metas.map((m) => m.propertyName)).sort();
+}
+/** Campos declarados EN la clase misma, sin heredar — para probar la no-duplicación. */
+function camposPropios(cls) {
+  const metas = getMetadataStorage()
+    .getTargetValidationMetadatas(cls, '', true, false)
+    .filter((m) => m.target === cls);
+  return unicos(metas.map((m) => m.propertyName)).sort();
+}
+/** ¿El campo es obligatorio? (no lleva @IsOptional) */
+function obligatorios(cls) {
+  const metas = getMetadataStorage().getTargetValidationMetadatas(cls, '', true, false);
+  const opcionales = unicos(metas.filter((m) => m.type === 'conditionalValidation').map((m) => m.propertyName));
+  return campos(cls).filter((c) => !opcionales.includes(c));
+}
+
+(async () => {
+  try {
+    const base = campos(UserWriteDto);
+    const create = campos(CreateUserDto);
+    const update = campos(UpdateUserDto);
+
+    console.log('\n═══ 1. Cero duplicación ═══');
+    ok(base.length >= 10, `UserWriteDto declara los campos comunes (${base.length})`);
+    ok(camposPropios(CreateUserDto).length === 0, 'CreateUserDto no declara ningún campo propio: todo heredado');
+    ok(
+      JSON.stringify(create) === JSON.stringify(base),
+      `CreateUserDto == UserWriteDto (${create.length} campos)`,
+    );
+    // `[ID.8]` sumó el ciclo de vida al update. Son update-only A PROPÓSITO: no
+    // se elige un estado ni un "debe cambiar contraseña" al crear una cuenta.
+    // La aserción se escribe como conjunto PERMITIDO y no como igualdad exacta,
+    // que es lo que la hacía romperse al agregar un campo legítimo.
+    const propiosUpd = camposPropios(UpdateUserDto);
+    const sobranUpd = propiosUpd.filter((c) => !SOLO_UPDATE.includes(c));
+    ok(
+      sobranUpd.length === 0,
+      `UpdateUserDto sólo agrega campos de ciclo de vida (agrega: ${propiosUpd.join(',') || 'nada'})`,
+    );
+
+    console.log('\n═══ 2. Simetría create/update ═══');
+    const soloUpdate = update.filter((c) => !create.includes(c) && !SOLO_UPDATE.includes(c));
+    const soloCreate = create.filter((c) => !update.includes(c));
+    ok(soloUpdate.length === 0, `nada editable que no se pueda setear al crear${soloUpdate.length ? ` — ${soloUpdate.join(', ')}` : ''}`);
+    ok(soloCreate.length === 0, `nada del create ausente en el update${soloCreate.length ? ` — ${soloCreate.join(', ')}` : ''}`);
+    ok(create.includes('finance_expense_area_ids'), 'finance_expense_area_ids ya se puede setear al CREAR (era sólo update)');
+    ok(update.includes('activo'), "`activo` existe en update");
+    // `[ID.30]` Esto decía `ok(!create.includes('activo') || true, …)`. El `|| true`
+    // la volvía una aserción que NO PUEDE FALLAR: hubiera dado verde con `activo`
+    // en el create, con el create vacío y con el archivo borrado. Es la misma
+    // familia que el «verde sobre el vacío» de ID.28, y afirmaba justo el campo
+    // alrededor del cual gira este bloque.
+    ok(!create.includes('activo'), '`activo` NO se acepta al crear (`[ID.7]`: un alta nace activa)');
+    ok(!create.includes('status'), '`status` tampoco: el ciclo de vida es cosa de la edición');
+
+    console.log('\n═══ 3. Obligatorios ═══');
+    const req = obligatorios(CreateUserDto);
+    for (const c of ['username', 'password', 'role_name', 'department_code']) {
+      ok(req.includes(c), `create exige ${c}`);
+    }
+    for (const c of ['nombre', 'zone_id', 'position_code', 'warehouse_code', 'supervisor_id']) {
+      ok(!req.includes(c), `create NO exige ${c}`);
+    }
+    ok(obligatorios(UpdateUserDto).length === 0, `update no exige nada (PATCH manda sólo lo que cambia)`);
+
+    console.log('\n═══ 4. La zona: canónico + alias deprecados ═══');
+    ok(base.includes('zone_id'), 'existe el canónico zone_id');
+    ok(base.includes('zona_id') && base.includes('zona'), 'se siguen aceptando zona_id y zona (no rompe al front viejo)');
+    const src = fs.readFileSync(path.join(DTO_DIR, 'user-write.dto.ts'), 'utf8');
+    ok(/deprecated: true/.test(src), 'los alias están marcados deprecated en Swagger');
+
+    console.log('\n═══ 5. warehouse_code se valida contra el catálogo, no con regex ═══');
+    // Se descartan los comentarios antes de buscar: el propio JSDoc del campo
+    // CITA el regex viejo para explicar por qué se fue, y eso daba falso positivo.
+    const sinComentarios = src
+      .split('\n')
+      .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l))
+      .join('\n');
+    const iWh = sinComentarios.indexOf('warehouse_code?');
+    const bloqueWh = sinComentarios.slice(Math.max(0, iWh - 400), iWh);
+    ok(!/@Matches/.test(bloqueWh), 'los decoradores de warehouse_code ya NO traen @Matches (el regex aceptaba "99")');
+    const svc = fs.readFileSync(path.resolve(__dirname, '../../libs/trade/src/lib/users/users.service.ts'), 'utf8');
+    ok(/assertOrgCodes\([\s\S]{0,200}warehouseCode/.test(svc), 'el service valida warehouseCode en assertOrgCodes');
+    ok(/commercial\.warehouses/.test(svc), 'y lo hace contra commercial.warehouses');
+
+    console.log('\n═══ 6. El form del admin no divergió del DTO ═══');
+    const comp = fs.readFileSync(
+      path.resolve(__dirname, '../../apps/view/src/app/modules/dashboard/admin-users/admin-users.component.ts'),
+      'utf8',
+    );
+    const grupo = comp.slice(comp.indexOf('this.userForm = this.fb.group({'));
+    const cuerpo = grupo.slice(0, grupo.indexOf('});'));
+    const claves = unicos(
+      (cuerpo.match(/^\s{6}([a-z_]+):/gm) || []).map((l) => l.trim().replace(':', '')),
+    ).sort();
+    ok(claves.length > 0, `se pudieron leer las claves del FormGroup (${claves.length})`);
+    const permitidas = unicos(update.concat(['password']));
+    const sobran = claves.filter((k) => !permitidas.includes(k));
+    ok(sobran.length === 0, `el form no manda campos que el DTO no acepta${sobran.length ? ` — ${sobran.join(', ')}` : ''}`);
+    ok(!claves.includes('zona'), "el form ya no tiene el control duplicado 'zona'");
+    ok(claves.includes('zone_id'), "el form usa el canónico 'zone_id'");
+    const faltan = ['username', 'role_name', 'department_code'].filter((k) => !claves.includes(k));
+    ok(faltan.length === 0, `el form cubre los obligatorios${faltan.length ? ` — faltan ${faltan.join(', ')}` : ''}`);
+
+    // `[CH.1.10]` El punto ciego que este bloque tenía: comparaba el form SÓLO
+    // contra el DTO de UPDATE. Un control que el CREATE no acepta se descarta en
+    // silencio (`whitelist: true`) y el test seguía verde — que es exactamente
+    // cómo el toggle "Estado activo" del alta no hizo nada durante meses.
+    //
+    // `[ID.30]` dejó de ser una DECLARACIÓN y pasó a ser aserción. Lo que se
+    // afirma NO es "el form no tiene controles que el create rechace" —el form es
+    // uno solo para alta y edición, y `activo` tiene que existir para editar—
+    // sino lo que de verdad importa: **nada de lo que el alta ENVÍA se descarta**.
+    // Es la diferencia entre el control y el payload.
+    ok(
+      claves.includes('token_ttl_days') && create.includes('token_ttl_days'),
+      'el control de duración de sesión existe en el form Y el CREATE lo acepta',
+    );
+
+    // Lo que el alta saca del payload a propósito, leído del código real.
+    const ramaAlta = comp.slice(comp.indexOf('const createData: UserCreatePayload'));
+    const quitadas = unicos(
+      [...ramaAlta.slice(0, ramaAlta.indexOf('.create(createData)'))
+        .matchAll(/delete\s+(?:\(\s*createData[^)]*\)|createData)\s*\.\s*([a-z_]+)/g)].map((m) => m[1]),
+    );
+    ok(quitadas.includes('activo'), 'el alta saca `activo` del payload en vez de mandarlo a la basura del whitelist');
+
+    const enviadasEnAlta = claves.filter((k) => !quitadas.includes(k) && k !== 'password');
+    const tiradas = enviadasEnAlta.filter((k) => !create.includes(k));
+    ok(
+      tiradas.length === 0,
+      tiradas.length === 0
+        ? `nada de lo que el alta envía se descarta en silencio (${enviadasEnAlta.length} campos, todos aceptados)`
+        : `el alta envía ${tiradas.length} campo(s) que el CREATE tira sin avisar: ${tiradas.join(', ')}`,
+    );
+
+    // La otra mitad del mismo arreglo: si el payload ya no lo lleva pero la
+    // pantalla sigue pintando el interruptor en el alta, la mentira vuelve —
+    // ahora peor, porque el control no haría NADA en absoluto.
+    const html = fs.readFileSync(
+      path.resolve(__dirname, '../../apps/view/src/app/modules/dashboard/admin-users/admin-users.component.html'),
+      'utf8',
+    );
+    const iToggle = html.indexOf('formControlName="activo"');
+    ok(iToggle > 0, 'el interruptor de estado sigue existiendo (hace falta para EDITAR)');
+    ok(
+      /@if\s*\(isEditing\(\)\)\s*\{/.test(html.slice(Math.max(0, iToggle - 900), iToggle)),
+      'y sólo se pinta al editar: en el alta no se ofrece un interruptor que no hace nada',
+    );
+
+    console.log('\n═══ 7. El catálogo que valida el service existe ═══');
+    const DST = process.env.DATABASE_URL_NEW;
+    if (!DST) {
+      console.log('  — sin DATABASE_URL_NEW: se omite');
+    } else {
+      const knex = require('knex')({
+        client: 'pg',
+        connection: /localhost|127\.0\.0\.1|192\.168/.test(DST) ? DST : { connectionString: DST, ssl: { rejectUnauthorized: false } },
+        pool: { min: 0, max: 2 },
+      });
+      try {
+        const n = await knex.raw(`SELECT count(*) c FROM commercial.warehouses WHERE deleted_at IS NULL`);
+        ok(Number(n.rows[0].c) > 0, `commercial.warehouses tiene ${n.rows[0].c} almacenes vivos`);
+        const mala = await knex.raw(
+          `SELECT count(*) c FROM commercial.warehouses WHERE code = '99' AND deleted_at IS NULL`);
+        ok(Number(mala.rows[0].c) === 0, "'99' NO existe: el regex viejo lo habría aceptado igual");
+      } finally {
+        await knex.destroy();
+      }
+    }
+
+    console.log(`\n═══════════ Resultado: ${pass} pass / ${fail} fail ═══════════`);
+    if (fail) process.exitCode = 1;
+  } catch (e) {
+    console.error('ERROR:', e.message);
+    process.exitCode = 1;
+  }
+})();

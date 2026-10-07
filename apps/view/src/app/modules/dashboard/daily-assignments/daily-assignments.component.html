@@ -1,0 +1,149 @@
+<div class="p-4 sm:p-6 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-6 min-h-[100dvh] flex flex-col space-y-6">
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-4">
+    <div>
+      <h1 class="title-premium flex items-center gap-2">
+        <i class="pi pi-calendar-clock text-content-main text-2xl sm:text-3xl"></i> Configuración de Semana Estándar
+      </h1>
+      <p class="text-sm text-content-muted">Asigna la ruta fija para cada día de la semana. Estas se repetirán automáticamente.</p>
+    </div>
+    <div class="bg-surface-card border border-divider px-3 sm:px-4 py-2 rounded-xl shadow-sm flex items-center gap-3">
+        <div class="text-xs font-semibold text-content-muted border-r border-divider pr-3">Equipos activos</div>
+        <div class="flex -space-x-2">
+            @for (m of filteredTeam().slice(0, 5); track m.id) {
+                <div class="w-8 h-8 rounded-full border-2 border-surface-card bg-surface-ground flex items-center justify-center text-xs font-semibold text-content-main">
+                    {{ m.username.substring(0,1) | uppercase }}
+                </div>
+            }
+            @if (filteredTeam().length > 5) {
+                <div class="w-8 h-8 rounded-full border-2 border-surface-card bg-surface-ground flex items-center justify-center text-xs font-semibold text-content-faint">
+                    +{{ filteredTeam().length - 5 }}
+                </div>
+            }
+        </div>
+    </div>
+  </div>
+
+  <div class="flex flex-1 flex-col lg:flex-row gap-4 sm:gap-6 overflow-hidden min-h-0 lg:min-h-[500px]">
+    <!-- Left: Master / Members -->
+    <div class="w-full lg:w-80 flex flex-col bg-surface-card border border-divider rounded-xl shadow-sm overflow-hidden max-h-[200px] lg:max-h-none">
+      <div class="p-4 border-b border-divider bg-surface-ground/30">
+        <div class="relative w-full">
+            <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-content-faint text-xs"></i>
+            <input type="search" pInputText placeholder="Buscar colaborador..."
+                   [ngModel]="searchQuery()"
+                   (ngModelChange)="onSearchChange($event)"
+                   inputmode="search"
+                   enterkeyhint="search"
+                   autocapitalize="none"
+                   autocorrect="off"
+                   spellcheck="false"
+                   class="w-full min-h-11 pl-9 py-2 text-sm bg-surface-ground border border-divider rounded-lg outline-none focus:border-brand motion-safe:transition-colors" />
+        </div>
+      </div>
+      <div class="flex-1 overflow-y-auto p-2 custom-scrollbar">
+        @for (member of filteredTeam(); track member.id) {
+          <div (click)="selectMember(member)"
+               [class.active-member]="selectedMember()?.id === member.id"
+               class="member-card p-3 mb-2 rounded-xl cursor-pointer border border-transparent flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-surface-ground border border-divider flex items-center justify-center text-content-main text-sm font-semibold">
+              {{ member.username.substring(0,2) | uppercase }}
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <div class="text-sm font-semibold text-content-main truncate">{{ member.nombre || member.username }}</div>
+                @if (member.isSupervisor) {
+                  <span class="bg-brand text-neutral-950 text-[9px] font-bold px-1.5 py-0.5 rounded-full">Supervisor</span>
+                }
+              </div>
+              <div class="text-[11px] text-content-muted truncate">{{ member.zona }}</div>
+            </div>
+            <i class="pi pi-chevron-right text-xs text-content-faint" aria-hidden="true"></i>
+          </div>
+        }
+      </div>
+    </div>
+
+    <!-- Right: Detail / Weekly View -->
+    <div class="flex-1 flex flex-col bg-surface-card border border-divider rounded-xl shadow-sm overflow-hidden relative">
+      @if (selectedMember()) {
+        <div class="px-6 py-4 border-b border-divider flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div class="flex flex-col gap-0.5">
+                <span class="text-xs text-content-muted">Gestionando agenda de</span>
+                <span class="text-base font-semibold text-content-main truncate">{{ selectedMember()?.nombre || selectedMember()?.username }}</span>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+                <span class="text-content-muted">Zona</span>
+                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface-ground border border-divider text-content-main font-medium">
+                    {{ selectedMember()?.zona }}
+                </span>
+            </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+            @for (day of days; track day.id) {
+              <div class="day-card bg-surface-card border border-divider rounded-2xl p-4 flex flex-col gap-4"
+                   [class.today-card]="todayNumber() === day.id">
+                <div class="flex justify-between items-start pb-3 border-b border-divider">
+                  <div class="flex flex-col">
+                    <span class="text-xl font-semibold text-content-main">{{ day.label }}</span>
+                  </div>
+                  @if (todayNumber() === day.id) {
+                    <span class="bg-brand text-neutral-950 text-[10px] font-bold px-2 py-0.5 rounded-full">Hoy</span>
+                  }
+                </div>
+
+                <div class="space-y-3">
+                  <div>
+                    <label class="text-[11px] text-content-muted mb-1 block">Ruta del día</label>
+                    <p-select [options]="routes()"
+                                [ngModel]="routeIdForDay(day.id)"
+                                (onChange)="saveAssignment(day.id, $event.value)"
+                                [disabled]="savingDay() === day.id"
+                                placeholder="Sin ruta" class="w-full" styleClass="w-full text-sm"
+                                optionLabel="label" optionValue="value" [filter]="true"></p-select>
+                  </div>
+                </div>
+
+                <div class="mt-auto pt-3 flex items-center justify-between">
+                    @if (routeIdForDay(day.id); as rid) {
+                        <div class="flex items-center gap-1.5 min-w-0">
+                            <span class="status-dot status-ok" aria-hidden="true"></span>
+                            <span class="text-xs text-content-main font-medium truncate max-w-[140px]" [title]="getRouteName(rid)">
+                                {{ getRouteName(rid) }}
+                            </span>
+                        </div>
+                        <button type="button"
+                                class="icon-btn-ghost icon-btn-ghost-bad w-6 h-6"
+                                [disabled]="savingDay() === day.id"
+                                (click)="clearAssignment(day.id)"
+                                pTooltip="Quitar ruta del día"
+                                aria-label="Quitar ruta del día">
+                            <i class="pi pi-times text-xs" aria-hidden="true"></i>
+                        </button>
+                    } @else {
+                        <div class="flex items-center gap-1.5">
+                            <span class="status-dot status-warn" aria-hidden="true"></span>
+                            <span class="text-xs text-content-muted">Sin asignar</span>
+                        </div>
+                    }
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      } @else {
+        <div class="flex-1 flex flex-col items-center justify-center p-12 text-center">
+          <div class="w-20 h-20 rounded-3xl bg-surface-ground border border-divider flex items-center justify-center mb-5">
+            <i class="pi pi-users text-3xl text-content-faint" aria-hidden="true"></i>
+          </div>
+          <h3 class="font-semibold text-lg text-content-main mb-1">Selecciona un colaborador</h3>
+          <p class="text-sm max-w-sm text-content-muted leading-relaxed">Elegí alguien del panel para definir su ruta repetitiva por día de la semana.</p>
+        </div>
+      }
+    </div>
+  </div>
+</div>
+
+<p-toast></p-toast>
+<p-confirmdialog></p-confirmdialog>

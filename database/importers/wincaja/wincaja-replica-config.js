@@ -1,0 +1,137 @@
+'use strict';
+/**
+ * Fase WR — configuración de la RÉPLICA CRUDA continua de las bases Wincaja (Access 97 → Postgres).
+ * Destino (decisión Edgar 2026-08-18): DB centralizada `wincaja` @ :5433, un schema por sucursal.
+ *
+ * Credenciales locales del contenedor pgvector-md (:5433, donde viven kepler_md_XX). El password
+ * `superoot` es COMPARTIDO y está pendiente de rotar — no hardcodear en scripts que se compartan;
+ * override por env cuando toque.
+ */
+/**
+ * ⚠️ `Z:` es una unidad MAPEADA y los mapeos de Windows son POR SESIÓN de login: un servicio, una
+ * tarea como SYSTEM o un PM2 levantado en otra sesión puede no verla NUNCA. Preferí una ruta UNC
+ * (\\servidor\share\...) en WINCAJA_MDB_BASE — no depende de la sesión. El default queda en Z: por
+ * compatibilidad con la box actual; el replicador hace preflight y avisa si no la alcanza.
+ */
+const MDB_BASE = process.env.WINCAJA_MDB_BASE || 'Z:/Salidas/Bases/Actuales';
+const REPLICA_URL = process.env.WINCAJA_REPLICA_URL || 'postgresql://postgres:superoot@localhost:5433/wincaja';
+const ADMIN_URL = process.env.WINCAJA_REPLICA_ADMIN_URL || 'postgresql://postgres:superoot@localhost:5433/postgres';
+
+/**
+ * Sucursales objetivo. Canindo `50` migró su POS a Kepler `06` (Fase Canindo) → fuera.
+ * PH `10` congelada 31/05 → histórico (no continuo).
+ * CEDIS Irapuato `00`: hay DOS archivos, pero el bueno es **`… MOV.MDB`** — es la DB COMPLETA y
+ *   ACTUAL (catálogo lleno Articulos 15446/Precios 90185 + movimientos MaestroMovAlmacen 3239…).
+ *   El `0 BPIRAPUATO.mdb` (sin MOV) es un snapshot de catálogo VIEJO/parcial con movimientos=0 →
+ *   se ignora (verificado 2026-08-18). Por eso `w00` se replica solo del MOV.
+ * Rutas: se agregan tras probar el loop en 30/32.
+ */
+const BRANCHES = [
+  // ⛔ `30` Morelia Abastos y `32` Morelia Madero SALIERON del carril vivo: las dos migraron su
+  // PdV a Kepler y sus `.mdb` dejaron de moverse. Mismo criterio que Canindo `50`.
+  //
+  // Medido antes de sacarlas (2026-09-18), y el control importa: los dos carriles PM2 llevaban
+  // 3 días online con 0 reinicios, así que "no llega nada nuevo" es una medición, no un carril
+  // muerto.
+  //   w32 Madero  — último movimiento 2026-09-07; Kepler `md_07` arranca el 09-08.
+  //   w30 Abastos — último movimiento 2026-09-17 (651 movs); Kepler `md_08` arranca el 09-18,
+  //                 y `md_08.md.kdm1` NO tiene un solo documento anterior a esa fecha.
+  // Cero traslape y cero hueco en las dos. Dejarlas acá sería girar en vacío contra un archivo
+  // que ya nadie escribe.
+  //
+  // ⚠️ El HISTÓRICO se queda: los schemas `w30` y `w32` de la réplica son la única copia de lo
+  // que esas sucursales vendieron en Wincaja. Esto saca el carril CONTINUO, no el dato.
+  //
+  // ═══ [WR.7 2026-10-01] Y SALIÓ LA ÚLTIMA: `00` CEDIS Irapuato ═══════════════════════════
+  // Mismo criterio, misma evidencia. El CEDIS migró su PdV a Kepler el 2026-09-30 y con él se
+  // fue la última sucursal que quedaba viva en Wincaja: **ya no opera ninguna**.
+  //
+  // Medido antes de sacarla, con el mismo control que se usó para 30 y 32 —los dos carriles PM2
+  // llevaban 36 h online con 0 reinicios, así que "no llega nada nuevo" es una medición y no un
+  // carril muerto—:
+  //   w00 CEDIS — último movimiento 2026-09-29; el corte declarado es el 09-30 y la réplica
+  //               corrió el 09-30 15:04, DESPUÉS del último dato. Cero traslape, cero hueco.
+  //   el carril `inc`  escribía 0 cada 2 min (133 pasadas seguidas revisadas, todas en 0);
+  //   el carril `hash` leía **188,456 filas en 123 s** por ciclo para escribir **0**.
+  // Girar en vacío contra un archivo que ya nadie escribe, cada minuto, para siempre.
+  //
+  // Y el otro lado del cutover está verificado, no supuesto: Kepler `00` lleva 126,062
+  // documentos desde 2025-08-29 y 4,653 SKUs con saldo propio; de los 196 SKUs con existencia
+  // en Wincaja `00` que están en el catálogo de Kepler, **185 ya tienen saldo allá**
+  // (`check-cedis-cutover.js`, bloque 3).
+  //
+  // ⚠️ LA LISTA QUEDA VACÍA A PROPÓSITO, y eso APAGA el carril: `access-replicate.js` lanza si
+  // no hay ramas, en vez de dar una pasada en cero por buena. Los procesos PM2 `wincaja-inc`,
+  // `wincaja-hash` y `wincaja-live-tickets` se retiraron el mismo día (`pm2 delete` + `pm2 save`,
+  // para que un `resurrect` no los reviva). Reactivar una rama = volver a ponerla en este array
+  // y `pm2 start ecosystem.wincaja.config.js`.
+  //
+  // ⛔ NO BORRAR los schemas `w00`/`w30`/`w32` de la réplica: son la única copia de lo que esas
+  // sucursales vendieron en Wincaja, y el sell-out los lee para el período anterior a cada corte
+  // a través de `analytics.v_branch_erp_cutover`.
+];
+
+/**
+ * Carril de LECTURA desde Access (separado del conflict-target de escritura, ver access-mirror.js):
+ *  - INCREMENTAL: `SELECT ... WHERE <col> > watermark` — append-only y monótono (barato).
+ *  - todo lo demás: full-scan + hash-delta — captura UPDATES (Saldo, Precio, Existencia, Costo…).
+ *
+ * OJO: MovimientoClientes/MovimientoProveedores NO son incremental (su `Saldo`/`FechaUltimoPago`
+ * MUTAN al aplicar pagos) → van por hash-delta aunque parezcan movimientos.
+ */
+const INCREMENTAL = {
+  MaestroMovAlmacen: 'Consecutivo',
+  DetallesMovAlmacen: 'Consecutivo',
+  PagosDia: 'Consecutivo',
+  Arqueos: 'Consecutivo',
+  // ⛔ `Cortes` y `Retiros` ESTABAN acá con watermark `Folio` y NO pueden estar — ver
+  //    `WM_INVARIANTE` abajo. Su PK es `(Folio, Caja)`: el `Folio` **reinicia por caja**, así que
+  //    una marca escalar sobre `Folio` deja CIEGAS a todas las cajas cuyo folio quede por debajo
+  //    del máximo global. Medido el 2026-09-07 contra el archivo:
+  //      · w30.Cortes  → la marca quedó en 174,815 (caja 70). Las otras **5 de 6 cajas** viven
+  //        entre 663 y 7,157 → 162 de 193 filas invisibles; la réplica tenía 110.
+  //      · w30.Retiros → marca 88,154 (caja 32). 5 de 6 cajas por debajo → 2,939 de 4,193 filas;
+  //        la réplica tenía 2,675 de 4,193.
+  //      · w32: Cortes 193 de 226 · Retiros 3,764 de 4,344.
+  //    Y no se recuperaba solo: la marca ya estaba en el máximo, así que esas filas **no se iban a
+  //    leer nunca más**. Son cortes de caja y retiros de efectivo — dinero. Pasan a hash-delta
+  //    (full-scan): 193 y 4,193 filas, el escaneo es barato.
+};
+
+/**
+ * `[WR.7]` INVARIANTE del carril incremental: **la columna de watermark tiene que ser TODA la
+ * identidad de la tabla.** Si la PK tiene un segundo eje, la marca escalar es ciega para los demás
+ * valores de ese eje — no "se atrasa": no los vuelve a leer jamás. Lo aplica
+ * `watermarkSeguro()` en el replicador, y lo vigila `test-wincaja-replica-fidelidad.js`.
+ *
+ * Estado medido de las 4 que quedan (PK del espejo en `:5433/wincaja`):
+ *   MaestroMovAlmacen  PK (Consecutivo)  == watermark  → OK, probado
+ *   Arqueos            PK (Consecutivo)  == watermark  → OK, probado
+ *   DetallesMovAlmacen SIN PK                          → ver `WM_SIN_PK`
+ *   PagosDia           SIN PK                          → ver `WM_SIN_PK`
+ */
+const WM_INVARIANTE = 'la columna de watermark debe ser la PK completa de la tabla';
+
+/**
+ * Tablas incrementales que el origen declara SIN PK, así que el invariante no se puede *probar*
+ * contra la PK. Se permiten sólo declaradas acá con el motivo, y el motivo tiene que ser una razón
+ * de por qué la columna es monótona GLOBAL (no por caja, no por día, no por sucursal).
+ * Esto no es un permiso: es la deuda escrita con nombre — si el motivo resulta falso, es el mismo
+ * agujero que Cortes/Retiros.
+ */
+const WM_SIN_PK = {
+  DetallesMovAlmacen: 'Consecutivo es el número del MOVIMIENTO PADRE (MaestroMovAlmacen), cuya PK '
+    + 'sí es (Consecutivo) y es monótona global: el detalle hereda una marca que ya está probada. '
+    + 'Riesgo residual declarado: si a un movimiento ya leído se le AGREGAN renglones después, esos '
+    + 'renglones quedan por debajo de la marca. No medido.',
+  PagosDia: 'Consecutivo propio, monótono global (33,927 filas / 33,927 valores distintos en el '
+    + 'corte Actuales de la 30, medido 2026-09-07). Sin segundo eje.',
+};
+
+/** Devuelve la columna watermark si la tabla es incremental, o null si va por hash-delta. */
+function watermarkCol(table) { return INCREMENTAL[table] || null; }
+
+module.exports = {
+  BRANCHES, INCREMENTAL, watermarkCol, REPLICA_URL, ADMIN_URL, MDB_BASE,
+  WM_INVARIANTE, WM_SIN_PK,
+};

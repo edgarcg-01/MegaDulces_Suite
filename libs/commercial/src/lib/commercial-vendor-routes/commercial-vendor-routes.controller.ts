@@ -1,0 +1,221 @@
+import type { DayPickCleared, DayPickChoice, DayPickState } from '@megadulces/contracts';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import {
+  CommercialVendorRoutesService,
+  AssignRouteDto,
+  SetRouteOrderDto,
+  CheckInDto,
+  SetLocationDto,
+  FinishVisitDto,
+  CreateVendorCustomerDto,
+} from './commercial-vendor-routes.service';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { RequireAnyPermission } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
+
+/**
+ * V.0 Modo Vendedor v2 — cartera del vendedor (rutas de venta) y orden de visita.
+ * Módulo autosuficiente (Comercial · Cartera):
+ *  - COMMERCIAL_CARTERA_VER: el vendedor OPERA su cartera con UN permiso — lecturas
+ *    (mi ruta/cobertura/cercanos) + sus writes de campo (check-in, cierre de visita,
+ *    corregir ubicación, alta rápida de cliente). NO arrastra CUSTOMERS/VISITAS/ORDERS.
+ *  - COMMERCIAL_CARTERA_GESTIONAR: administración (asignar ruta a vendedor, orden de
+ *    visita, desasignar). El vendedor NO la tiene → no puede reasignar carteras.
+ */
+@ApiTags('commercial-vendor-routes')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
+@Controller('commercial/vendor-routes')
+export class CommercialVendorRoutesController {
+  constructor(private readonly service: CommercialVendorRoutesService) {}
+
+  @Get('sales-routes')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'Rutas de venta del tenant (distinct) + conteo de clientes + a quién están asignadas' })
+  listSalesRoutes() {
+    return this.service.listSalesRoutes();
+  }
+
+  @Get('vendors')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'Vendedores asignables (usuarios de campo activos)' })
+  listVendors() {
+    return this.service.listVendors();
+  }
+
+  @Get('route-catalog')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'Catálogo de rutas (trade.catalogs) con zona, para el picker de asignación de rutas' })
+  routeCatalog() {
+    return this.service.listRouteCatalog();
+  }
+
+  @Get('customers')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'Clientes de una ruta (?sales_route=) ordenados por visit_sequence, para reordenar' })
+  customersByRoute(@Query('sales_route') salesRoute: string) {
+    return this.service.customersByRoute(salesRoute);
+  }
+
+  @Get('my')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'Cartera del vendedor logueado: sus rutas de venta' })
+  myRoutes() {
+    return this.service.myRoutes();
+  }
+
+  @Get('my-stock-sources')
+  @RequireAnyPermission(Permission.COMMERCIAL_CARTERA_VER, Permission.VENDOR_APP_ACCESS)
+  @ApiOperation({
+    summary: 'Fuentes de existencia del vendedor: su sucursal de surtido + su camioneta (para el toggle ver sucursal/camioneta)',
+  })
+  myStockSources() {
+    return this.service.myStockSources();
+  }
+
+  @Get('coverage')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({
+    summary: 'V.4: cobertura del día — cartera del vendedor anotada con visited_today + última visita',
+  })
+  coverage() {
+    return this.service.myCoverageToday();
+  }
+
+  @Get('home')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({
+    summary: 'V.5: feed "Mi ruta" — cartera anotada (visitado/ordenado hoy + pedidos pendientes) de un fetch',
+  })
+  home() {
+    return this.service.myHome();
+  }
+
+  @Get('day-pick')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({
+    summary:
+      'VR.SUP.1: ruta del día — si el usuario puede escoger (tiene equipo), su elección de hoy, su agenda de hoy y las rutas de su equipo',
+  })
+  dayPick(): Promise<DayPickState> {
+    return this.service.dayPickState();
+  }
+
+  @Put('day-pick')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'VR.SUP.1: el supervisor escoge qué ruta de su equipo trabaja HOY (vale solo para hoy)' })
+  setDayPick(@Body('route_id') routeId: string): Promise<DayPickChoice> {
+    return this.service.setDayPick(routeId);
+  }
+
+  @Delete('day-pick')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'VR.SUP.1: vuelve a la agenda normal de hoy (borra la elección del día)' })
+  clearDayPick(): Promise<DayPickCleared> {
+    return this.service.clearDayPick();
+  }
+
+  @Post('check-in')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'V.4: registra un check-in de visita del vendedor a un cliente (acepta lat/lng → backfill capture-on-visit)' })
+  checkIn(@Body() body: CheckInDto) {
+    return this.service.checkIn(body);
+  }
+
+  @Post('visits/finish')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'V.7: cierra la visita con su resultado (had_order/had_ticket/no_sale_reason); reusa la visita abierta de hoy o crea una' })
+  finishVisit(@Body() body: FinishVisitDto) {
+    return this.service.finishVisit(body);
+  }
+
+  @Get('nearby')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({
+    summary: 'V.6: clientes de la cartera cerca del vendedor (?lat&lng&radius), ordenados por distancia',
+  })
+  nearby(
+    @Query('lat') lat: string,
+    @Query('lng') lng: string,
+    @Query('radius') radius?: string,
+  ) {
+    return this.service.nearbyCustomers(
+      Number(lat),
+      Number(lng),
+      radius != null ? Number(radius) : undefined,
+    );
+  }
+
+  @Post('customers/:id/location')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({
+    summary: 'V.6: setea/corrige las coords del cliente con guard anti-traslape (force para confirmar pese a colisión)',
+  })
+  setLocation(@Param('id') id: string, @Body() body: SetLocationDto) {
+    return this.service.setCustomerLocation(id, body);
+  }
+
+  @Post('customers')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({
+    summary:
+      'Alta rápida de cliente desde la app del vendedor (auto-genera code + price list default + geo opcional). Solo crea.',
+  })
+  createCustomer(@Body() body: CreateVendorCustomerDto) {
+    return this.service.createCustomer(body);
+  }
+
+  @Get()
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'Asignaciones cartera (vendedor → rutas). ?user_id filtra por vendedor.' })
+  listAssignments(@Query('user_id') userId?: string) {
+    return this.service.listAssignments(userId);
+  }
+
+  @Post()
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
+  @ApiOperation({ summary: 'Asigna una ruta de venta a un vendedor (idempotente)' })
+  assign(@Body() body: AssignRouteDto) {
+    return this.service.assign(body);
+  }
+
+  @Get('routes-warehouses')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
+  @ApiOperation({ summary: 'Rutas del catálogo con su sucursal de surtido asignada + sugerencia por zona (para asignar)' })
+  routesWarehouses() {
+    return this.service.listRoutesWithWarehouse();
+  }
+
+  @Put('routes/:routeId/warehouse')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
+  @ApiOperation({ summary: 'Asigna/cambia la sucursal de surtido de una ruta (idempotente)' })
+  setRouteWarehouse(@Param('routeId') routeId: string, @Body('warehouse_id') warehouseId: string) {
+    return this.service.setRouteWarehouse(routeId, warehouseId);
+  }
+
+  @Put('order')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
+  @ApiOperation({ summary: 'Setea el orden de visita (visit_sequence 1..N) de los clientes de una ruta' })
+  setOrder(@Body() body: SetRouteOrderDto) {
+    return this.service.setRouteOrder(body);
+  }
+
+  @Delete(':id')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
+  @ApiOperation({ summary: 'Quita una asignación de ruta a vendedor' })
+  unassign(@Param('id') id: string) {
+    return this.service.unassign(id);
+  }
+}

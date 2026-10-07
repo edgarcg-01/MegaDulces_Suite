@@ -1,0 +1,258 @@
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ButtonModule } from 'primeng/button';
+import { TableModule } from 'primeng/table';
+import { TagModule } from 'primeng/tag';
+import { DialogModule } from 'primeng/dialog';
+import { InputTextModule } from 'primeng/inputtext';
+import { ToastModule } from 'primeng/toast';
+import { MessageService } from 'primeng/api';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
+import { ComprasService, PurchaseOrderDetail, PurchaseOrderLine, PurchaseOrderEstado, CreateReceiptLine, saveXlsxResponse } from '../compras.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+
+type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
+
+/** Línea editable del diálogo de recepción (OE). */
+interface RecvLine {
+  po_line_id: string;
+  sku: string;
+  nombre: string;
+  ordered_qty: number;
+  already: number;
+  pending: number;
+  received_qty: number; // a recibir ahora
+  unit_cost: number;
+}
+
+/**
+ * RA.15 (ADR-031) — Detalle de OC + recepción (OE). El detalle muestra pedido vs
+ * recibido por línea; "Registrar recepción" abre el diálogo que captura lo que llegó
+ * (permite parciales) y al confirmar MUEVE stock (movimiento 'in'; Kepler reconcilia).
+ */
+@Component({
+  selector: 'app-compras-orden-detalle',
+  standalone: true,
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, TagModule, DialogModule, InputTextModule, ToastModule, MetricStripComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [MessageService],
+  template: `
+    <div class="surf-page in od-page">
+      <p-toast></p-toast>
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <a pButton class="p-button-text p-button-sm od-back" routerLink="/compras/ordenes"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Órdenes de compra</span></a>
+          @if (po(); as p) {
+            <h1>{{ p.folio }} <p-tag [value]="estadoLabel(p.estado)" [severity]="estadoSev(p.estado)"></p-tag></h1>
+            <p class="surf-page-sub">
+              {{ p.source_type === 'branch' ? 'Traspaso desde ' + (p.source_code || '—') : (p.supplier_name || 'Proveedor') }}
+              · destino {{ p.warehouse_code }}
+              @if (p.requisition_folio) { · req <a class="od-link" [routerLink]="['/compras/requisiciones', p.requisition_id]">{{ p.requisition_folio }}</a> }
+              @if (p.expected_date) { · esperada {{ p.expected_date | date:'dd/MM/yy' }} }
+            </p>
+          }
+        </div>
+        @if (po(); as p) {
+          <div class="od-actions">
+            <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [loading]="exporting()" (click)="exportXlsx()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Exportar Excel</span></button>
+            @if (canManage) {
+              @if (p.estado === 'open' || p.estado === 'partial') {
+                <button pButton type="button" class="p-button-sm" (click)="openReceive()"><span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Registrar recepción</span></button>
+              }
+              @if (p.estado === 'open' && p.received_units === 0) {
+                <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="cancel()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar OC</span></button>
+              }
+            }
+          </div>
+        }
+      </header>
+
+      @if (po(); as p) {
+        <app-metric-strip [items]="kpiItems(p)" ariaLabel="Resumen de la orden de compra" />
+
+        <h2 class="od-h2">Líneas</h2>
+        <p-table [value]="p.lines" styleClass="p-datatable-sm od-table">
+          <ng-template #header>
+            <tr><th>SKU</th><th>Producto</th><th class="od-r">Pedido</th><th class="od-r">Recibido</th><th class="od-r">Pendiente</th><th class="od-r">Costo unit.</th><th class="od-r">Importe</th></tr>
+          </ng-template>
+          <ng-template #body let-l>
+            <tr>
+              <td class="od-mono">{{ l.sku }}</td>
+              <td>{{ l.nombre }}</td>
+              <td class="od-r">{{ l.ordered_qty | number:'1.0-0' }}</td>
+              <td class="od-r">{{ l.received_qty | number:'1.0-0' }}</td>
+              <td class="od-r" [class.od-pending]="(l.ordered_qty - l.received_qty) > 0">{{ (l.ordered_qty - l.received_qty) | number:'1.0-0' }}</td>
+              <td class="od-r od-muted">{{ money(l.unit_cost) }}</td>
+              <td class="od-r">{{ money(l.line_cost) }}</td>
+            </tr>
+          </ng-template>
+        </p-table>
+
+        @if (p.receipts.length) {
+          <h2 class="od-h2">Recepciones (órdenes de entrada)</h2>
+          <p-table [value]="p.receipts" styleClass="p-datatable-sm od-table">
+            <ng-template #header>
+              <tr><th>Folio OE</th><th>Fecha</th><th class="od-r">Unidades</th><th class="od-r">Costo</th><th>Stock</th><th>Nota</th></tr>
+            </ng-template>
+            <ng-template #body let-g>
+              <tr>
+                <td class="od-mono">{{ g.folio }}</td>
+                <td class="od-muted">{{ g.received_at | date:'dd/MM/yy HH:mm' }}</td>
+                <td class="od-r">{{ g.total_units | number:'1.0-0' }}</td>
+                <td class="od-r">{{ money(g.total_cost) }}</td>
+                <td>@if (g.stock_applied) { <span class="od-applied"><i class="pi pi-check"></i> aplicado</span> } @else { <span class="od-muted">—</span> }</td>
+                <td class="od-muted">{{ g.notes || '—' }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+        }
+      } @else if (!loading()) {
+        <p class="od-empty">Orden de compra no encontrada.</p>
+      }
+    </div>
+
+    <!-- Diálogo recepción (OE) -->
+    <p-dialog [visible]="recvOpen()" (visibleChange)="recvOpen.set($event)" [modal]="true" appendTo="body" [style]="{ width: '48rem', maxWidth: '96vw' }" header="Registrar recepción" [dismissableMask]="true">
+      <div class="od-dlg">
+        <p class="od-dlg-sub">Captura lo que llegó de verdad (default = pendiente). Al confirmar suma a existencia del almacén destino.</p>
+        <div class="od-dlg-lines">
+          @for (l of recvLines(); track l.po_line_id) {
+            <div class="od-dlg-line" [class.od-dlg-done]="l.pending <= 0">
+              <span class="od-dlg-name"><span class="od-mono">{{ l.sku }}</span> {{ l.nombre }}
+                <span class="od-muted">· pend. {{ l.pending | number:'1.0-0' }}</span></span>
+              <input pInputText type="number" min="0" [(ngModel)]="l.received_qty" class="od-dlg-qty" title="Cantidad recibida" />
+              <input pInputText type="number" min="0" step="0.01" [(ngModel)]="l.unit_cost" class="od-dlg-cost" title="Costo unitario real" />
+            </div>
+          }
+        </div>
+        <input pInputText type="text" [(ngModel)]="recvNotes" placeholder="Nota / referencia de la entrada (opcional)" class="od-dlg-notes" />
+      </div>
+      <ng-template #footer>
+        <button pButton type="button" class="p-button-text p-button-sm" (click)="recvOpen.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" class="p-button-sm" [loading]="saving()" (click)="confirmReceive()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Confirmar recepción</span></button>
+      </ng-template>
+    </p-dialog>
+  `,
+  styles: [`
+    :host { display: block; }
+    .od-back { margin-bottom: .25rem; margin-left: -.5rem; }
+    .surf-page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+    .od-actions { display: flex; gap: .5rem; }
+    .od-link { color: var(--action); text-decoration: none; } .od-link:hover { text-decoration: underline; }
+    app-metric-strip { display:block; margin: 1rem 0; }
+    .od-h2 { font-size: .95rem; font-weight: 700; margin: 1.25rem 0 .5rem; }
+    .od-table { font-size: .84rem; }
+    .od-r { text-align: right; font-variant-numeric: tabular-nums; }
+    .od-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; }
+    .od-muted { color: var(--text-muted); }
+    .od-pending { color: var(--warn-fg); font-weight: 600; }
+    .od-applied { color: var(--ok-fg); font-size: .78rem; }
+    .od-empty { color: var(--text-muted); padding: 2rem; text-align: center; }
+    .od-dlg-sub { color: var(--text-muted); font-size: .85rem; margin-bottom: .6rem; }
+    .od-dlg-lines { max-height: 26rem; overflow-y: auto; display: flex; flex-direction: column; gap: .35rem; }
+    .od-dlg-line { display: flex; gap: .5rem; align-items: center; }
+    .od-dlg-done { opacity: .55; }
+    .od-dlg-name { font-size: .82rem; flex: 1; min-width: 0; }
+    .od-dlg-qty { width: 5.5rem; text-align: right; }
+    .od-dlg-cost { width: 6rem; text-align: right; }
+    .od-dlg-notes { width: 100%; margin-top: .6rem; }
+  `],
+})
+export class ComprasOrdenDetalleComponent implements OnInit {
+  private readonly api = inject(ComprasService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly toast = inject(MessageService);
+  private readonly perms = inject(PermissionsService);
+  private readonly auth = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  po = signal<PurchaseOrderDetail | null>(null);
+  loading = signal(true);
+  busy = signal(false);
+  saving = signal(false);
+  exporting = signal(false);
+
+  /** Export XLSX con diseño (header + líneas). Disponible en cualquier estado. */
+  exportXlsx(): void {
+    const p = this.po(); if (!p) return;
+    this.exporting.set(true);
+    this.api.exportPurchaseOrderXlsx(p.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { this.exporting.set(false); saveXlsxResponse(resp, `${p.folio}.xlsx`); },
+      error: () => { this.exporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
+    });
+  }
+  recvOpen = signal(false);
+  recvLines = signal<RecvLine[]>([]);
+  recvNotes = '';
+  canManage = this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMPRAS_ORDENES_GESTIONAR];
+  private id = '';
+
+  ngOnInit(): void { this.id = this.route.snapshot.paramMap.get('id') || ''; this.load(); }
+
+  private load(): void {
+    this.loading.set(true);
+    this.api.getPurchaseOrder(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => { this.po.set(p); this.loading.set(false); },
+      error: () => { this.loading.set(false); this.po.set(null); },
+    });
+  }
+
+  openReceive(): void {
+    const p = this.po();
+    if (!p) return;
+    this.recvLines.set(p.lines.map((l: PurchaseOrderLine) => {
+      const pending = Math.max(0, Number(l.ordered_qty) - Number(l.received_qty));
+      return {
+        po_line_id: l.id, sku: l.sku, nombre: l.nombre,
+        ordered_qty: Number(l.ordered_qty), already: Number(l.received_qty), pending,
+        received_qty: pending, unit_cost: Number(l.unit_cost) || 0,
+      };
+    }));
+    this.recvNotes = '';
+    this.recvOpen.set(true);
+  }
+
+  confirmReceive(): void {
+    const lines: CreateReceiptLine[] = this.recvLines()
+      .filter((l) => Number(l.received_qty) > 0)
+      .map((l) => ({ po_line_id: l.po_line_id, received_qty: Number(l.received_qty), unit_cost: Number(l.unit_cost) || 0 }));
+    if (!lines.length) { this.toast.add({ severity: 'warn', summary: 'Sin cantidades', detail: 'Captura lo recibido (> 0).' }); return; }
+    this.saving.set(true);
+    this.api.createReceipt(this.id, { lines, notes: this.recvNotes || undefined })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.saving.set(false); this.recvOpen.set(false);
+          this.toast.add({ severity: 'success', summary: `Recepción ${r.folio}`, detail: `${r.total_units} u · stock actualizado · OC ${this.estadoLabel(r.po_estado)}` });
+          this.load();
+        },
+        error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo registrar la recepción.' }); },
+      });
+  }
+
+  cancel(): void {
+    this.busy.set(true);
+    this.api.cancelPurchaseOrder(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.busy.set(false); this.toast.add({ severity: 'info', summary: 'OC cancelada' }); this.load(); },
+      error: (e) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cancelar.' }); },
+    });
+  }
+
+  fill(p: PurchaseOrderDetail): number { return Number(p.total_units) > 0 ? Number(p.received_units) / Number(p.total_units) : 0; }
+
+  kpiItems(p: PurchaseOrderDetail): MetricStripItem[] {
+    return [
+      { label: 'Pedido', value: p.total_units },
+      { label: 'Recibido', value: p.received_units },
+      { label: 'Avance (fill rate)', value: Math.round(this.fill(p) * 100), format: 'percent' },
+      { label: 'Costo pactado', value: p.total_cost, format: 'currency', tone: 'brand' },
+    ];
+  }
+  money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  estadoLabel(e: PurchaseOrderEstado) { return ({ open: 'Abierta', partial: 'Parcial', received: 'Recibida', cancelled: 'Cancelada' } as Record<PurchaseOrderEstado, string>)[e]; }
+  estadoSev(e: PurchaseOrderEstado): Sev { return ({ open: 'info', partial: 'warn', received: 'success', cancelled: 'danger' } as Record<PurchaseOrderEstado, Sev>)[e]; }
+}

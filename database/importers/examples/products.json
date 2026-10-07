@@ -1,0 +1,5 @@
+[
+  { "brand_nombre": "Marca Demo A", "nombre": "Producto A1", "activo": true, "orden": 1, "puntuacion": 1.0 },
+  { "brand_nombre": "Marca Demo A", "nombre": "Producto A2", "activo": true, "orden": 2, "puntuacion": 0.8 },
+  { "brand_nombre": "Marca Demo B", "nombre": "Producto B1", "activo": true, "orden": 1, "puntuacion": 1.2 }
+]

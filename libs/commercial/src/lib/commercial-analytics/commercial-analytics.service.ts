@@ -1,0 +1,9021 @@
+import { Injectable, BadRequestException, NotFoundException, ServiceUnavailableException, Logger, Inject } from '@nestjs/common';
+import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, stepAt, tableAt } from '../shared/freshness';
+// [CPU.2] El resolvedor de unidad se LEE de la copia materializada, y la copia declara su edad.
+// Estas tres pantallas tenían `analytics.v_unit_truth` clavada a mano con la MV poblada al lado.
+import { unitTruth } from '../shared/unit-truth';
+import { loadSelloutChannelMap, type SelloutChannelMap } from './sellout-channel-map';
+import type { MaterializedProvenance } from '@megadulces/platform-core';
+// [GX.19]/[IG.1] Cobertura por período: lógica pura y probada (period-coverage.spec.ts), fuera del
+// god service. Se llama `period-*` y no `expense-*` porque el mismo motor sirve a egresos (grupo =
+// sucursal) y a ingresos (grupo = plaza) — ver el encabezado del módulo.
+import {
+  computePeriodComparativo, computePeriodCoverage, ETIQUETA_PLAZA, ETIQUETA_SUCURSAL,
+  type ExpenseQueryFilters, type IncomeQueryFilters, type PeriodComparativo, type PeriodCoverage,
+  type PeriodSlice,
+} from './period-coverage';
+import { TenantKnexService, KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
+import type {
+  NetworkOverview,
+  NetworkTopProductRow,
+  SalesByBrandRow,
+  NetworkDailyRow,
+  LowStockResponse,
+  InactiveCustomersResponse,
+  RankingOutOfStockRow,
+  OverviewResponse,
+  TopCustomerRow,
+  TopProductRow,
+  DailySeriesRow,
+  ErpCustomerRow,
+} from '@megadulces/contracts';
+// [GX.9] Familias de egreso: etiqueta y clave de serie en UNA fuente (ADR-056).
+import { EXPENSE_FAMILIA_SERIES_KEY, expenseFamiliaLabel } from '@megadulces/contracts';
+// [IG.1] Canales de venta: la etiqueta se define UNA vez (el canal vive en c6, no en la cuenta).
+import { SALES_CANAL_RESIDUO, SALES_CANAL_SERIES_KEY, salesCanalLabel } from '@megadulces/contracts';
+import type { IncomeBridgeItem, IncomeCuenta, IncomeGrain, IncomeRecon, IncomeReconRow,
+  IncomeReconDetalle, IncomeReconDoc,
+  IncomeDocumento, IncomeReconTotals, IncomeReport, IncomeSources, IncomeTree,
+  IncomeTreeChildren, IncomeTreeNode } from '@megadulces/contracts';
+/** Nodos del árbol de ingresos mientras se arma (los hijos viven en un Map por clave). */
+interface TreePlaza { key: string; label: string; level: string; total: number; movs: number }
+/** Un agregado de una sola columna `v`; knex devuelve el numérico de Postgres como texto. */
+type Agregado = { v: string } | undefined;
+interface TreeCanal { key: string; label: string; level: string; total: number; movs: number; children: Map<string, TreePlaza> }
+/** Fila cruda de la serie mensual de ingresos: knex devuelve los numéricos como texto. */
+/** Cómo se nombra el bucket residual cuando se lo cuenta como UN grupo en la cobertura. */
+const RESIDUO_LABEL = 'Sin canal declarado (crédito individual)';
+interface IncomeSeriesRaw {
+  mes: string; total: string;
+  mostrador: string; telemarketing: string; ruta: string; vecinal: string; contado: string; otro: string;
+}
+import { calculateRouteSalesPace } from './route-sales-pace';
+
+/**
+ * Sales analytics agregado sobre `commercial.*`.
+ *
+ * Queries con tenant context activo (RLS filtra commercial.*). Solo cuenta
+ * pedidos en estado 'fulfilled' para revenue real.
+ *
+ * Estrategia para C.1 (mv-first):
+ *   - overview, top-customers, top-products → leen de `analytics.mv_*` (refresh
+ *     cada 15 min via AnalyticsRefreshService). Param `?live=true` fuerza
+ *     fallback a on-the-fly aggregation cuando se necesita data fresca.
+ *   - inactive-customers, sales-by-brand, low-stock, daily-series → on-the-fly
+ *     (no se beneficiarían de materialización porque cambian con cada read).
+ *
+ * NOTA RLS: las MVs no soportan RLS directo. El service filtra por
+ * `tenant_id = current_tenant_id()` explícitamente en cada query de MVs.
+ */
+
+export interface DateRangeQuery {
+  from?: string;
+  to?: string;
+}
+
+// ── Fase RS — Sell-Out ──
+export type SellOutGroupBy = 'branch' | 'branch_channel';
+/**
+ * Vista del reporte (RS.2):
+ *  - `product`        → filas producto/empresa × columnas sucursal[×canal] (default, la de siempre).
+ *  - `month_columns`  → filas producto/empresa × columnas MES (evolución temporal por SKU).
+ *  - `month_summary`  → filas MES × columnas sucursal[×canal] (resumen mensual; TOTAL = venta del mes).
+ */
+export type SellOutView = 'product' | 'month_columns' | 'month_summary';
+
+export interface SellOutQuery {
+  /** Marca/empresa. Vacío = TODAS las empresas (reporte general). */
+  brand_id?: string;
+  from: string;
+  to: string;
+  group_by?: SellOutGroupBy;
+  view?: SellOutView;
+  channels?: string[];
+  /** Códigos de almacén (commercial.warehouses.code) a incluir. Vacío = todos. */
+  warehouses?: string[];
+  /** RS.4 — filtro CANAL jerárquico: tokens `"<canal>|<warehouse_code>"` o `"<canal>|*"`
+   *  (canal = mostrador|ruta|preventa|credito). Selección de hojas del árbol Canal→Sucursal.
+   *  Si viene, gana sobre channels/warehouses sueltos. */
+  cells?: string[];
+  include_zeros?: boolean;
+  /** Filtro por producto (SKU o nombre, ILIKE) — aplica en todas las empresas. */
+  search?: string;
+  /** RS — filtro de promos: `sin` (default, excluye marcadores $0.01) · `solo` (solo promos) · `todo` (ambos). */
+  promo?: SellOutPromo;
+  /** RS.13 — layout de columnas: `plaza` = formato estándar (plaza × SUCURSAL/MAYOREO/RUTAS). Vacío = dinámico. */
+  layout?: 'plaza';
+}
+
+export type SellOutPromo = 'sin' | 'solo' | 'todo';
+
+export interface SellOutWarehouseRow {
+  code: string;
+  name: string;
+}
+
+// ── Fase SAL — Salidas/Ventas por Producto ──
+export interface SalidasQuery {
+  year?: number;
+  // Modo rango (SAL.5): si vienen from/to (ISO), el reporte usa venta DIARIA
+  // (analytics.product_sales_daily) y colapsa a una Venta/Costo del período.
+  from?: string;
+  to?: string;
+  warehouses?: string[];
+  brand_id?: string;
+  supplier_id?: string;
+  category_id?: string; // RA-PRO.12 — categoría de compra (sourcing)
+  search?: string;
+}
+
+export interface SalidasRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  product_id: string;
+  sku: string;
+  nombre: string;
+  uxc: number | null;
+  unit_sale: string | null;      // unidad de venta Kepler (PZA/CJA/KGS…) — define si la conversión aplica
+  pack_size: number | null;      // pzas por PAQUETE (kdii.c81)
+  box_size: number | null;       // pzas por CAJA (kdii.c84) — Kepler rara vez lo define
+  supplier: string | null;
+  brand: string | null;
+  categoria: string | null;      // SAL.6 clasificación
+  rotation_tier: string | null;  // SAL.6 ABC/rotación (baja|media|alta)
+  costo_civa: number | null;
+  costo_caja: number | null;
+  // Existencia en los 3 niveles de la jerarquía Kepler. Pieza = base (kdil).
+  // Paquete/Caja = null si la unidad no es pieza o si Kepler no define el factor.
+  exist_paq: number;             // PIEZA (base)
+  exist_paquete: number | null;  // existPaq ÷ pack_size
+  exist_caja: number | null;     // existPaq ÷ box_size
+  costo_existencia: number;
+  monthly: Record<string, { venta: number; costo: number }>;
+  venta_total: number;
+  costo_total: number;
+  venta_paquetes: number | null;   // venta_total ÷ pzas por paquete (null si no hay paquete)
+  venta_cajas: number | null;      // venta_total ÷ pzas por caja (null si no hay caja)
+  dias_cobertura: number | null;   // SAL.6 existencia ÷ venta diaria del período
+  venta_prev: number | null;       // SAL.6 tendencia — venta período anterior (solo rango)
+  venta_delta_pct: number | null;  // SAL.6 % variación vs período anterior
+}
+
+export interface SalidasReport {
+  mode: 'year' | 'range';
+  year?: number;
+  from?: string;
+  to?: string;
+  dias_periodo: number;   // SAL.6 días del período (para cobertura + tendencia)
+  has_trend: boolean;     // SAL.6 si venta_prev fue calculado (modo rango)
+  months: string[];
+  rows: SalidasRow[];
+  generated_at: string;
+  freshness: Freshness;
+}
+
+// ── Fase RR — Ventas por Ruta ──
+export interface SalesByRouteQuery {
+  year: number;
+  warehouses?: string[];
+  /** Filtro por ruta: claves compuestas `warehouse_code|route_code` (route_code
+   * de Kepler colisiona entre sucursales → el warehouse desambigua). */
+  routes?: string[];
+  /** Filtro por producto (SKU exacto): re-agrega la matriz desde v_sales_lines. */
+  sku?: string;
+  /** Filtro por cliente (código exacto): re-agrega la matriz desde v_sales_lines. */
+  client?: string;
+}
+
+export interface SalesByRouteOption {
+  value: string; // `warehouse_code|route_code`
+  label: string; // `Sucursal · Ruta N`
+  warehouse_code: string;
+  warehouse_name: string;
+  route_code: string;
+  route_no: string;
+}
+
+/**
+ * `[RD.10]` Tope de filas del detalle por SKU. **1,000 y no 500**: medido contra prod, las 11
+ * rutas tienen entre 549 y 938 pares `(sku, unidad)`, así que el tope anterior truncaba TODAS.
+ * Si alguna vez se pasara, el servicio devuelve `truncado: true` y la pantalla lo declara — un
+ * corte mudo es una tabla que no suma su propio total.
+ */
+const DETALLE_TOPE = 1000;
+
+/**
+ * `[VEC.2]` Código de RUTA VECINAL en Kepler (`kdm1.c12`): `1V001`, `2V003`, `3V001`…
+ *
+ * ⚠️ El discriminante es el CÓDIGO, no el nombre. En Michoacán las rutas se llaman con el
+ * nombre de la persona (`RVMM01 GUILLERMO HERNANDEZ`), así que filtrar por `'RUTA VECINAL%'`
+ * deja fuera dos rutas que venden. Medido 2026-10-06 contra prod.
+ *
+ * Sirve para dos cosas opuestas y por eso vive acá, en un solo lugar: **excluir** la vecinal del
+ * rollup `sales_by_route_monthly` (donde quedó dato de un importer retirado) e **incluirla**
+ * desde `analytics.v_kepler_vecinal_monthly`, que la deriva del ODS.
+ */
+const VECINAL_RX = '^[0-9]V[0-9]';
+
+/**
+ * `[RD.10]` Una ruta en el cuadre de inventario. **Las dos columnas cierran**:
+ * `carga_* − (cogs_costo | venta_cliente) − inventario_* = 0`, y `delta_*` lo lleva a pantalla.
+ */
+export interface RouteInventoryRow {
+  route_no: string;
+  plaza: string;
+  carga_desde: string | null;
+  /** Último día con carga o venta. Es lo que delata a una ruta parada. */
+  ultimo_movimiento: string | null;
+  /**
+   * Lo que se le subió al camión AYER. **`null` = no hubo embarque**, que no es lo mismo que
+   * haberle cargado $0 — por eso no se colapsa a cero. Medido: cargan 6 de 11 rutas por día.
+   */
+  cargado_ayer_costo: number | null;
+  cargado_ayer_qty: number | null;
+  /** El último día que se le cargó algo. Contesta «y si no fue ayer, ¿cuándo?». */
+  ultima_carga: string | null;
+  /** El ultimo dia que vendio algo, y cuanto. El domingo es inhabil: "ayer" no sirve de pregunta. */
+  ultima_venta: string | null;
+  ultima_carga_imp: number | null;
+  ultima_venta_imp: number | null;
+  /** Tope de inventario del camion, en pesos al costo. NULL = sin tope declarado. */
+  tope_inventario: number | null;
+  /** Lo que el cliente pago DE VERDAD. Viaja aparte del vendido que cierra la identidad. */
+  cobrado_real: number | null;
+  // Columna COSTO — valuada con el costo del EMBARQUE (lo que la sucursal le cargó al camión).
+  carga_costo: number; cogs_costo: number; inventario_costo: number;
+  inventario_costo_pos: number; inventario_costo_neg: number; delta_costo: number;
+  // Columna VENTA — valuada con el precio REALIZADO de esa ruta en la ventana.
+  carga_venta: number; venta_cliente: number; inventario_venta: number;
+  inventario_venta_pos: number; inventario_venta_neg: number; delta_venta: number;
+  /** ⚠️ Línea de CONTRASTE: el `c62` del ERP. Mide otra cosa que `cogs_costo`; no se suman. */
+  cogs_erp: number | null;
+  pares: number; pares_pos: number; pares_neg: number;
+  pares_sin_costo: number; venta_sin_costo: number | null;
+  pares_sin_precio: number; carga_sin_precio: number | null;
+  /**
+   * La cobertura del contraste del ERP. Sin esto, `cogs_erp` se lee como si fuera el COGS y
+   * publica un margen del 79%: le falta el costo al 69.93% de los pares y al 100% de Canindo.
+   */
+  pares_vendidos: number; pares_sin_cogs_erp: number;
+  /** La venta sin testigo de costo del ERP, EN PESOS. Por pares da 77.7%, en dinero 38%. */
+  venta_sin_cogs_erp: number | null;
+}
+
+export interface RouteInventoryDetailRow {
+  sku: string; unidad: string; producto: string;
+  qty_carga: number; qty_venta: number; saldo: number;
+  costo_unitario: number | null; precio_unitario: number | null;
+  saldo_costo: number | null; saldo_venta: number | null;
+  /** Por qué no hay cifra, si no la hay. Es ortogonal a `ya_lo_traia`: una fila puede ser las dos. */
+  veredicto: 'ok' | 'sin_costo' | 'sin_precio';
+  /** Vendió más de lo que se le cargó en la ventana: mercancía previa al primer embarque. */
+  ya_lo_traia: boolean;
+}
+
+/** `[RD.18]` Un día de la serie. Las dos valuaciones viajan juntas; la pantalla elige una. */
+export interface RouteSeriesPoint {
+  fecha: string;
+  /** Las DOS valuaciones, cada una consistente consigo misma. La pantalla elige una. */
+  cargado_costo: number; vendido_costo: number;
+  cargado_venta: number; vendido_venta: number;
+  /** El saldo acumulado en la MISMA moneda que las columnas de arriba. */
+  saldo_costo_acum: number; saldo_venta_acum: number;
+  cargado_qty: number; vendido_qty: number;
+  /** Saldo del camión al cierre de ese día. Cuando cruza a negativo, ahí empezó el rojo. */
+  saldo_qty_acum: number;
+}
+
+/** `[RD.19]` Un embarque. El documento es la unidad: se firma y se reclama por su folio. */
+export interface RouteShipment {
+  fecha: string; serie: string | null; folio: string;
+  lineas: number; importe: number; unidades: number;
+}
+
+export interface RouteShipmentLine {
+  sku: string; producto: string; unidad: string;
+  qty: number; costo_unitario: number; importe: number;
+  costo_mediano: number | null;
+  /** El costo de esta línea salta >=2x contra el mediano del SKU: huele a cambio de peldaño. */
+  salto_peldano: boolean;
+}
+
+/** `[RD.20]` Un número rojo, con su familia y desde cuándo lo es. */
+export interface RouteNegativeRow {
+  sku: string; producto: string; unidad: string;
+  saldo: number;
+  /** `nunca_cargado` no se puede valuar: sin carga no hay costo. No es cero, es sin medir. */
+  familia: 'nunca_cargado' | 'se_acabo';
+  desde: string | null; dias_en_rojo: number | null;
+  valor_costo: number | null;
+}
+
+/** El detalle **con su total**, para que la pantalla pueda declarar si el tope cortó. */
+export interface RouteInventoryDetail {
+  rows: RouteInventoryDetailRow[];
+  total: number;
+  truncado: boolean;
+}
+
+/**
+ * `[RD.31]` Un renglón del conteo físico de un camión.
+ *
+ * ⚠️ `unidad` es parte de la llave, no un adorno: el mismo SKU se cuenta en PZA y en PAQ, y
+ * mezclarlos es el error que ADR-055/057 documentan en todo el proyecto.
+ */
+export interface RouteCountLineInput {
+  sku: string;
+  unidad: string;
+  qty: number;
+  descripcion?: string | null;
+  /** El costo que IMPRIME el origen. Alimenta la valuación cuando la ruta no vuelve a cargar. */
+  costo_unitario?: number | null;
+  importe?: number | null;
+}
+
+/** `[RD.31]` El conteo completo. `count_date` la **declara** quien captura, no el archivo. */
+export interface RouteCountInput {
+  route_no: string;
+  count_date: string;
+  lines: RouteCountLineInput[];
+  source?: 'excel' | 'manual' | 'kepler';
+  /** Lo que el papel dice que suma. `null` = no lo declaró; **nunca 0** (ADR-056). */
+  declared_total?: number | null;
+  note?: string | null;
+  counted_by?: string | null;
+  counted_by_username?: string | null;
+}
+
+export interface RouteCountResult {
+  count_id: string;
+  route_no: string;
+  count_date: string;
+  renglones: number;
+  importe_sumado: number;
+  importe_declarado: number | null;
+  /** `null` = el origen no declaró un total, así que **no hay con qué cuadrar**. */
+  cuadra: boolean | null;
+  aviso: string;
+}
+
+export interface RouteInventoryReport {
+  desde: string; hasta: string;
+  /** El día que la pantalla llama «ayer», resuelto en TZ MX por el servidor, no por el navegador. */
+  ayer: string;
+  /** De cuántas rutas se tiene embarque de ayer. Se cuenta sobre el nulo, no sobre la suma. */
+  rutas_cargaron_ayer: number;
+  rutas_totales: number;
+  /** Frescura del DATO: hasta qué día hay movimiento. */
+  data_as_of: string | null;
+  /** Frescura de la COPIA: cuándo terminó el último refresco de matvistas. `poblado ≠ fresco`. */
+  copia_al: string | null;
+  copia_status: 'ok' | 'error' | 'sin_medir';
+  copia_edad_min: number | null;
+  routes: RouteInventoryRow[];
+  totales: Record<string, number>;
+  /**
+   * ⛔ Ternario, no booleano: **no cuadrar y no haber podido comprobarlo son cosas distintas**.
+   * `sin_medir` = ninguna ruta tuvo movimiento en la ventana, así que no hay nada que cuadre.
+   */
+  cuadra: 'cierra' | 'no_cierra' | 'sin_medir';
+  declara: { sin_ancla: string; costo: string; faltante: string; fuera_de_alcance: string };
+}
+
+export interface SalesByRouteDashboard {
+  /**
+   * Serie diaria REAL (una fila por dia del periodo), de `analytics.mv_rd_route_daily_200d`.
+   * ⚠️ `lines` son RENGLONES, no unidades: la matvista hace `count(*)`, nunca `sum(qty)`.
+   */
+  series: Array<{ date: string; revenue: number; lines: number; tickets: number; cost: number | null }>;
+  /**
+   * `[AUD-DAT.21]` El desglose POR RUTA **del mismo rango de fechas**, de la misma matvista.
+   *
+   * Existe porque el consumidor lo estaba derivando de `sales_by_route_monthly` —grano MENSUAL—
+   * y para cuadrarlo con un rango de fechas hacia dos cosas que no se pueden hacer: redondeaba
+   * el rango a meses enteros (el preset de 30 dias sumaba agosto COMPLETO mas septiembre
+   * COMPLETO) y, por debajo de 25 dias, **prorrateaba** el mes por `dias/30`. Con esto el
+   * desglose y los KPIs salen del MISMO dato y del MISMO periodo, y coinciden por construccion.
+   */
+  by_route: Array<{
+    route_code: string; route_no: string;
+    warehouse_code: string; warehouse_name: string;
+    /** Con impuesto, misma base que `coverage.revenue`. */
+    revenue: number;
+    /** Sin impuesto. La otra base, para poder cuadrar contra reportes que publican el neto. */
+    subtotal: number;
+    lines: number; tickets: number;
+    cost: number | null; revenue_with_cost: number;
+  }>;
+  /**
+   * El hueco del COSTO, DECLARADO en vez de rellenado. `revenue_with_cost` es el denominador
+   * honesto: el push de camionetas no trae costo (`costo_status='sin_dato_en_la_fuente'`), asi
+   * que un margen sobre la venta TOTAL estaria dividiendo por un numero que el costo no cubre.
+   */
+  coverage: {
+    revenue: number;
+    revenue_with_cost: number;
+    cost: number;
+    margin_pct: number | null;
+    cost_coverage_pct: number;
+    /** Hasta cuando alcanza la matvista, para que la frescura viaje con el dato (ADR-056). */
+    data_as_of: string | null;
+    /**
+     * DESDE cuando alcanza. La matvista guarda 200 dias: si el rango pedido empieza antes, lo
+     * que se publica NO es el rango pedido y hay que decirlo. El preset «Este ano» son 272 dias.
+     */
+    data_from: string | null;
+  };
+}
+
+/**
+ * `[AUD-DAT.20]` — Las dos listas PESADAS, separadas del tablero a proposito.
+ *
+ * Viven en su propio endpoint porque cuestan tres ordenes de magnitud mas que el resto de la
+ * pantalla (medido: serie + cobertura **7 ms**, estas dos listas **3,941 ms**) y estan **debajo
+ * del pliegue**. Pedirlas junto con los KPIs obligaba a esperarlas para pintar el encabezado.
+ */
+export interface SalesByRouteTops {
+  top_products: Array<{ sku: string; name: string; revenue: number; units: number; share_pct: number }>;
+  top_clients: Array<{ code: string; name: string; revenue: number; tickets: number }>;
+  /**
+   * CON QUE se calcularon estas dos listas (ADR-056: el numero viaja con su procedencia).
+   * `incluye_wincaja` en `false` NO significa que falte venta: significa que en esta ventana
+   * Wincaja no tiene ni una linea de ruta, y se midio antes de decidirlo.
+   */
+  fuente: { incluye_wincaja: boolean; wincaja_ultimo_dia: string | null; motivo: string };
+}
+
+export interface SalesByRouteDetail {
+  route_no: string;
+  route_code: string;
+  warehouse_name: string;
+  year: number;
+  /** `lines` = renglones del periodo. `units/lines` = profundidad (cuánto se llevan de
+   *  cada producto). Los promedios de venta/SKUs/tickets van POR CLIENTE (`per_client`),
+   *  no por ticket: en ruta la unidad de negocio es la tiendita, no el documento. */
+  totals: { revenue: number; units: number; tickets: number; skus: number; clients: number; lines: number };
+  /** RR4 — Promedios POR CLIENTE IDENTIFICADO, calculados en SQL como promedio de los
+   *  agregados de cada cliente (un cliente = una observación), NO como total/clientes:
+   *  `skus / clients` subestimaría el surtido porque los SKUs distintos del periodo se
+   *  reparten entre tienditas. El público (cliente NULL/''/'0001' = "Mostrador a bordo")
+   *  NO tiene identidad de cliente → queda fuera del promedio y se DECLARA cuánta venta
+   *  representa (`public_revenue`, `public_pct`). `clients` = 0 → promedios en null. */
+  per_client: {
+    clients: number; revenue: number; public_revenue: number; public_pct: number;
+    avg_revenue: number | null; avg_skus: number | null; avg_tickets: number | null;
+    avg_lines: number | null; avg_units: number | null;
+    /** Dos descomposiciones auditables del ritmo:
+     * venta/cliente = artículos/cliente × valor/artículo
+     * venta/cliente = unidades/cliente × valor/unidad. */
+    avg_value_per_article: number | null;
+    avg_unit_value: number | null;
+  };
+  products: { sku: string; name: string; units: number; revenue: number; share_pct: number; lines: number; units_per_line: number }[];
+  daily: { date: string; revenue: number; units: number; tickets: number }[];
+  clients: { code: string; name: string; revenue: number; units: number; tickets: number; is_public: boolean }[];
+  tickets: { folio: string; date: string; lines: number; units: number; revenue: number }[];
+  /** RR2 — Mezcla por unidad de medida en la que se vendió (PZA/PAQ/KG/CJA…). El rótulo
+   * lo dice la fuente; `unidad: null` = el SKU no está en el catálogo de la fuente. */
+  units_mix: { unidad: string | null; lines: number; units: number; revenue: number; share_pct: number }[];
+  /** RR2 — Margen del periodo. `coverage_pct` = % del importe que SÍ trae costo en la
+   * fuente (el push de camionetas no lo trae) → un margen sin su cobertura sería falso. */
+  margin: { revenue_with_cost: number; cost: number; margin_pct: number | null; coverage_pct: number };
+}
+
+// ── RR2 — Desglose por TICKET ──
+export interface SalesByRouteTicketsQuery {
+  /** Ruta obligatoria: sin scope la consulta barre toda la tabla-hecho. */
+  route: string;
+  year?: number;
+  from?: string;
+  to?: string;
+  client?: string;
+  sku?: string;
+  /** Unidad de venta (rótulo tal como lo dice la fuente). */
+  unit?: string;
+  /** Código de forma de pago (sólo tramo Wincaja). */
+  paymentMethod?: string;
+  /** 'ticket' | 'factura' (sólo tramo Wincaja). */
+  docType?: string;
+  minRevenue?: number;
+  maxRevenue?: number;
+  q?: string;
+  sort?: 'date' | 'revenue' | 'units' | 'lines' | 'margin';
+  dir?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
+}
+
+export interface SalesByRouteTicket {
+  /** Llave del drill: el folio del documento no basta (el push repite folio entre rutas). */
+  key: string;
+  source: 'wincaja' | 'push';
+  route_no: string;
+  folio: string;
+  date: string;
+  time: string | null;
+  doc_type: string | null;
+  client_code: string | null;
+  client_name: string | null;
+  is_public: boolean;
+  payment_method: string | null;
+  payment_method_label: string | null;
+  seller: string | null;
+  lines: number;
+  skus: number;
+  units: number;
+  revenue: number;
+  cost: number | null;
+  margin_pct: number | null;
+}
+
+export interface SalesByRouteTicketsPage {
+  rows: SalesByRouteTicket[];
+  total: number;
+  limit: number;
+  offset: number;
+  totals: { revenue: number; units: number; tickets: number; avg_ticket: number };
+  generated_at: string;
+  freshness: Freshness;
+}
+
+export interface SalesByRouteTicketLine {
+  sku: string;
+  name: string | null;
+  unidad: string | null;
+  /** 'linea' = la fuente lo declara por renglón · 'catalogo' = sale del catálogo del SKU. */
+  unidad_origen: string | null;
+  qty: number;
+  /** Equivalencia en cajas: sólo con factor canónico real y compra ≥ 1 caja. */
+  boxes: number | null;
+  box_factor: number | null;
+  precio_unitario: number | null;
+  importe: number;
+  costo: number | null;
+  margin_pct: number | null;
+  iva: number | null;
+  ieps: number | null;
+}
+
+export interface SalesByRouteTicketDetail extends SalesByRouteTicket {
+  warehouse_name: string | null;
+  lines_detail: SalesByRouteTicketLine[];
+}
+
+export interface SalesByRouteCell {
+  revenue: number;
+  units: number;
+  tickets: number;
+}
+
+export interface SalesByRouteRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  route_code: string;
+  route_no: string;
+  label: string;
+  monthly: Record<string, SalesByRouteCell>;
+  revenue_total: number;
+  units_total: number;
+  tickets_total: number;
+  share_pct: number;
+}
+
+export interface SalesByRouteReport {
+  year: number;
+  months: string[];
+  rows: SalesByRouteRow[];
+  totals: SalesByRouteCell;
+  monthly_totals: Record<string, SalesByRouteCell>;
+  generated_at: string;
+  freshness: Freshness;
+}
+
+// ── RR — Conciliación de cierre de ruta (corte vendedor vs venta real) ──
+export interface RouteClosureIncidencia {
+  route_no: number;
+  date: string;
+  real_revenue: number;
+  corte: number;
+  diff: number; // corte − venta real
+  diff_pct: number | null;
+  tickets: number;
+  status: 'cierre_faltante' | 'descuadre' | 'cierre_sin_venta';
+}
+export interface RouteClosureReconciliation {
+  period: { from: string; to: string };
+  summary: {
+    routes: number;
+    real_total: number;
+    corte_total: number;
+    cierre_faltante: number;
+    descuadre: number;
+    cierre_sin_venta: number;
+    ok: number;
+  };
+  incidencias: RouteClosureIncidencia[];
+}
+
+// ── Fase T — Traspasos / movimientos que NO son venta ──
+export type TransferKind = 'salida_cedis' | 'consolidacion' | 'recepcion' | 'traspaso_salida' | 'traspaso_entrada';
+
+export interface TransfersQuery {
+  year: number;
+  warehouses?: string[];
+}
+
+export interface TransfersCell {
+  value: number;
+  units: number;
+  docs: number;
+}
+
+export interface TransfersRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  kind: TransferKind;
+  kind_label: string;
+  dest_label: string;
+  monthly: Record<string, TransfersCell>;
+  value_total: number;
+  units_total: number;
+  docs_total: number;
+  share_pct: number;
+}
+
+export interface TransfersReport {
+  year: number;
+  months: string[];
+  rows: TransfersRow[];
+  totals: TransfersCell;
+  monthly_totals: Record<string, TransfersCell>;
+  by_kind: { kind: TransferKind; kind_label: string; value: number; share_pct: number }[];
+  generated_at: string;
+  freshness: Freshness;
+}
+
+export interface SellOutColumn {
+  key: string;
+  branch_code: string;
+  branch_name: string;
+  channel?: string;
+  channel_label?: string;
+  /** RS.5 — fuente/sistema de origen: 'kepler' | 'wincaja'. Separadas, NO fusionadas. */
+  source?: 'kepler' | 'wincaja';
+  source_label?: string;
+  /** RS.2 — vista month_columns: mes ISO 'YYYY-MM' de la columna (null en vistas por sucursal). */
+  month?: string;
+}
+
+/** [U.7] Cómo se puede convertir a cajas ESTA celda (producto × almacén), leído de
+ *  `analytics.v_unit_truth.metodo_cajas`. El orden lo fija la vista, no el consumidor:
+ *  `dinero` (ingreso ÷ precio de caja, inmune a la unidad del numerador) › `peso` (granel: son
+ *  kilos) › `divisor` (÷ box_factor, SÓLO con el factor verificado) › `sin_metodo` (se declara). */
+export interface BoxMethod {
+  metodo: 'dinero' | 'peso' | 'divisor' | 'unidad_es_caja' | 'sin_metodo';
+  boxFactor: number;
+  cjaPrice: number;
+  isWeight: boolean;
+  /** [SO.U] Rótulo de la unidad BASE de este almacén (`v_unit_truth.base_label`). El resolvedor ya
+   *  lo traía; nadie lo leía, así que la cantidad se publicaba sin decir nunca en qué unidad está. */
+  baseLabel: string | null;
+}
+
+/** [U.7] Lo que NO se pudo convertir a cajas, para declararlo en vez de dibujarlo. */
+export interface SellOutSinMetodo {
+  skus: number;
+  unidades: number;
+  monto: number;
+}
+
+export interface SellOutCell {
+  cajas: number;
+  monto: number;
+  /** NETO DE DESCUENTO (con IVA) = total de la factura (Kepler: c16 prorrateado; Wincaja/rutas: ya neto).
+   *  `monto` es el BRUTO de línea (antes del descuento de cabecera). Las cajas NO cambian (son volumen). */
+  monto_neto: number;
+  /**
+   * [SO.U] La cantidad en la UNIDAD BASE del ERP, **sin convertir**: es `sales_daily.units` tal
+   * cual, que en Kepler es su `c9` (cantidad base) y en Wincaja su unidad de venta.
+   *
+   * Existe porque la pantalla publicaba SIEMPRE cajas y nunca ofrecía la unidad en la que el ERP
+   * realmente registró el renglón. Verificado contra Kepler (mes cerrado anterior):
+   * `265,799 renglones / 999,865.98 u base` contra `999,334.89` de este campo = **-0.05%**.
+   *
+   * ⛔ NO es comparable entre ERPs ni se suma a ciegas. El rótulo va en `unit`, **de la celda**:
+   * medido en prod sobre el mes cerrado (ago-2026), **2,349 de 4,893 renglones del reporte —el
+   * 49% de las filas y el 70% del dinero ($38.9M de $55.2M)— mezclan dos unidades entre columnas**,
+   * casi siempre `PAQ / PZA` (Kepler guarda la cantidad base, Wincaja la de su unidad de venta,
+   * ADR-055). O sea la unidad NO es un atributo de la fila: es de la celda. Los totales de columna
+   * y el gran total NUNCA se publican en esta unidad — suman productos distintos.
+   */
+  units: number;
+  /**
+   * [SO.U] Rótulo de la unidad en la que está `units` de ESTA celda (`PZA`, `PAQ`, `KG`, `500`…),
+   * de `analytics.v_unit_truth.base_label`. `null` = nadie la declara (29,785 celdas del resolvedor
+   * no traen rótulo) o las filas que alimentan la celda no coinciden. Una ausencia no se dibuja
+   * como `PZA`: Kepler a veces guarda ahí el GRAMAJE (`500`, `250`), no un nombre de unidad.
+   */
+  unit?: string | null;
+}
+
+export interface SellOutRow {
+  product_id: string;
+  sku: string;
+  nombre: string;
+  /**
+   * [UXC.1] Piezas por caja, del resolvedor CANÓNICO
+   * (`analytics.v_product_box_factor_consensus`), **no** de `catalog.products.factor_sale`.
+   *
+   * `null` NO es "no aplica": es "no se puede afirmar", y `uxc_veredicto` dice por qué. Medido
+   * 2026-09-11 en prod, leer `factor_sale` publicaba **1** en 208 productos donde el resolvedor
+   * dice >1 ($4,971,338 de venta / 90 d) — el caso que lo destapó fue `96504 RUFFLES QUESO 27G`,
+   * que publicaba 1 contra **58** confirmado por Kepler `c84`, por `wincaja.factor_venta` y por
+   * lo PAGADO al proveedor.
+   */
+  uxc: number | null;
+  /**
+   * [UXC.1] Por qué el `uxc` vale lo que vale. `consenso` = las plazas con testigo concuerdan ·
+   * `difiere_entre_plazas` = hay más de un factor real (488 productos, $19.07M/90 d) → `uxc` va
+   * NULL, nunca una moda (ADR-056) · `sin_testigo` = ninguna plaza lo declara (2,197 productos).
+   */
+  uxc_veredicto?: 'consenso' | 'difiere_entre_plazas' | 'sin_testigo' | null;
+  /** [UXC.1] Con `difiere_entre_plazas`, el rango observado — para que el lector vea la brecha. */
+  uxc_rango?: string | null;
+  /** RS.3 — 'weight' → la cantidad está en KG (granel/bulto, NO se divide a cajas);
+   *  'piece'/undefined → cantidad en CAJAS (piezas ÷ factor). El frontend etiqueta según esto. */
+  unit_kind?: 'piece' | 'weight';
+  /**
+   * [SO.U] Rótulo de la unidad BASE **cuando TODA la fila está en la misma** (`PZA`, `KG`, `PAQ`…),
+   * de `analytics.v_unit_truth.base_label`. `null` = ninguna columna lo declara, **o** las columnas
+   * no coinciden entre sí (`base_label_mixto`). Una ausencia NO se dibuja como "PZA" (ADR-056):
+   * Kepler a veces guarda ahí el gramaje de la bolsa (`500`, `250`), que no es un nombre de unidad.
+   */
+  base_label?: string | null;
+  /**
+   * [SO.U] `true` = las columnas de esta fila NO están en la misma unidad base (típico cuando la
+   * fila mezcla Kepler —unidad base— con Wincaja —unidad de venta, ADR-055). Con esto en `true` el
+   * total de la fila **no se publica** en unidad base: sumar paquetes con piezas da un número que
+   * no está en ninguna unidad.
+   */
+  base_label_mixto?: boolean;
+  cells: Record<string, SellOutCell>;
+  total: SellOutCell;
+}
+
+export interface SellOutReport {
+  brand: { id: string | null; nombre: string; code: string | null };
+  period: { from: string; to: string };
+  group_by: SellOutGroupBy;
+  view: SellOutView;
+  /** Dimensión de las filas: 'brand' = reporte general por empresa · 'product' = detalle · 'month' = resumen mensual. */
+  row_dim: 'brand' | 'product' | 'month';
+  /** RS.13 — layout de columnas: 'plaza' = formato estándar (el exporter lo saca en cajas). */
+  layout?: 'plaza';
+  columns: SellOutColumn[];
+  rows: SellOutRow[];
+  column_totals: Record<string, SellOutCell>;
+  grand_total: SellOutCell;
+  /**
+   * [VP.0.6] `measured` distingue "medí y no falta ninguna sucursal" de "no medí" — que con arreglos
+   * vacíos se leen IGUAL y son cosas opuestas. El camino por vendedor agrupa por vendedor, no por
+   * sucursal: ahí este eje no existe y devolvía `[]` + una nota estática de ALCANCE presentada como
+   * si fuera una medición. Una nota fija en el campo de la cobertura es la falla de fondo de la fase
+   * en miniatura: el consumidor no tiene cómo saber que nadie contó nada.
+   */
+  coverage: { branches_with_data: string[]; branches_missing: string[]; branches_out_of_scope?: string[]; note: string; measured: boolean };
+  /**
+   * [VP.0.3] Edad del dato con el que se calculó. NO es `generated_at`: ése es cuándo corrió la
+   * consulta, y un servidor que responde en 200 ms sobre matviews de hace seis días lo reporta
+   * igual de fresco. Son las dos preguntas que la fase OBS separó.
+   */
+  freshness: Freshness;
+  /**
+   * [CPU.2] De cuándo es el RESOLVEDOR DE UNIDAD (ADR-057) con el que se convirtió a cajas.
+   *
+   * Va aparte de `freshness` y no como un eslabón suyo, con motivo: `freshness` compone la edad de
+   * los HECHOS y se queda con el tramo MÁS VIEJO a propósito. El resolvedor es una DIMENSIÓN de
+   * catálogo —factor de caja, método, rótulo— que cambia por día, no por segundo; meterlo ahí
+   * pintaría de rezagada la pantalla entera por algo que no lo está. Son dos preguntas distintas.
+   *
+   * `source: 'view'` = se leyó la vista viva (es en vivo, pero paga la derivación completa por
+   * llamada). Pasa cuando la migración de la MV no está aplicada en ese entorno.
+   */
+  unit_provenance: MaterializedProvenance;
+  /**
+   * [U.7] Venta que NO se pudo expresar en cajas, declarada en vez de dibujada. Hasta hoy esas
+   * celdas caían a `units / 1` y se publicaban como "cajas" siendo PIEZAS: medido, 716,742
+   * unidades en 710 SKUs ($14,279,457 = 2.2% de la venta 365d). Cero no es la respuesta —
+   * "no hay con qué convertirlo" sí. Pasa cuando no hay precio de caja, ni el factor tiene
+   * testigo, o el almacén no está cubierto por el resolvedor (las 6 rutas de La Piedad).
+   */
+  sin_metodo: SellOutSinMetodo;
+  generated_at: string;
+}
+
+// ─── BI.3 "Explica el cambio" (delta_bridge) ─────────────────────────────────
+// Descompone el delta del sell-out entre dos periodos por UNA dimension. La venta
+// es una SUMA sobre la dimension, asi que el reparto es EXACTO: Σ contrib = Δ total,
+// al centavo (a diferencia de la heuristica de PowerBI). Mismo universo que el
+// reporte (v_sellout_daily/mv_sellout_monthly) -> cuadra por construccion.
+export type SellOutExplainDim = 'brand' | 'branch' | 'channel';
+export type SellOutExplainCompare = 'prev' | 'yoy';
+export interface SellOutExplainQuery {
+  from: string;
+  to: string;
+  dim?: string;
+  compare?: string;
+  brand_id?: string;
+  measure?: string;
+  promo?: string;
+  search?: string;
+  warehouses?: string[];
+  /** BI.2 — acota el drill a un canal (mostrador|ruta|credito|preventa). */
+  channel?: string;
+}
+export interface SellOutMover {
+  key: string;
+  label: string;
+  code: string | null;
+  prev: number;
+  curr: number;
+  delta: number;
+  /** null = no habia base en el periodo espejo (delta% indefinido, es un 'nuevo'). */
+  delta_pct: number | null;
+  kind: 'nuevo' | 'perdido' | 'crecio' | 'cayo' | 'igual';
+}
+export interface SellOutExplainReport {
+  dimension: SellOutExplainDim;
+  compare: SellOutExplainCompare;
+  measure: 'monto' | 'monto_neto';
+  period: { from: string; to: string };
+  mirror: { from: string; to: string };
+  total: { curr: number; prev: number; delta: number; delta_pct: number | null };
+  /** Los movimientos que explican ~80% del |Δ| (min 3, max 15), ordenados por |Δ| desc. */
+  movers: SellOutMover[];
+  /** El resto agrupado (lo que no entro al top), para que Σ siga cuadrando. */
+  otros: { count: number; delta: number };
+  narrative: string;
+  freshness: Freshness;
+  generated_at: string;
+}
+
+// ─── BI.6 "Radar" (anomalías proactivas) ─────────────────────────────────────
+// Cada miembro contra SU PROPIO promedio de los meses previos (baseline), no solo
+// vs el mes pasado. Surface lo raro sin que el usuario pregunte. Solo meses cerrados.
+export interface SelloutAnomaliesQuery {
+  month?: string;   // 'YYYY-MM' (default: último mes cerrado)
+  dim?: string;     // brand | branch | channel (default brand)
+  lookback?: number; // meses de baseline (default 3)
+}
+export interface SelloutAnomaly {
+  key: string;
+  label: string;
+  current: number;
+  baseline: number;
+  deviation: number;
+  deviation_pct: number | null;
+  kind: 'caida' | 'pico' | 'perdido' | 'nuevo';
+  reason: string;
+}
+export interface SelloutAnomaliesReport {
+  month: string;
+  baseline_months: string[];
+  dim: SellOutExplainDim;
+  anomalies: SelloutAnomaly[];
+  generated_at: string;
+  freshness: Freshness;
+}
+
+// ─── BI.4 gráficas de soporte (tendencia + Pareto/ABC) ───────────────────────
+export interface SelloutSeriesPoint { month: string; monto: number; }
+export interface SelloutSeriesReport { months: SelloutSeriesPoint[]; brand_id: string | null; generated_at: string; freshness: Freshness; }
+export interface SelloutParetoRow { key: string; label: string; monto: number; share: number; cum_share: number; abc: 'A' | 'B' | 'C'; }
+export interface SelloutParetoReport { month: string; dim: SellOutExplainDim; total: number; rows: SelloutParetoRow[]; generated_at: string; freshness: Freshness; }
+
+// ─── BI.9 objetivos / metas ───────────────────────────────────────────────────
+export interface SelloutTargetRow { scope: 'total' | 'branch' | 'channel' | 'route'; scope_key: string; label: string; target: number; actual: number; pct: number | null; }
+// [RD.7] `routes` = meta por ruta de RD. Sale de `analytics.v_rd_route_daily`, no de
+// `v_sellout_daily`, que mete la venta de ruta como warehouse_code LIKE 'RUTA-%' sin
+// distinguir las 13. Llega vacío si esa vista no existe en el destino.
+export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; routes: SelloutTargetRow[]; generated_at: string; freshness: Freshness; }
+export interface SelloutTargetUpsert { scope?: string; scope_key?: string; year_month?: string; target_monto?: number; }
+
+export interface SellOutBrandRow {
+  id: string;
+  nombre: string;
+  code: string | null;
+  products: number;
+}
+
+const RS_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// [VSO.1] El vocabulario de canal del sell-out vive en `sellout-channel-map.ts`, que lee
+// `analytics.sellout_channel_map`. Acá NO se re-declara: el mismo resolvedor lo usa el chat del
+// sell-out, que consultaba el canal CRUDO y por eso contestaba mal sobre mayoreo.
+
+// `TI*` = traspaso interno entre sucursales (logística, sale de CEDIS). NO es
+// venta a cliente → se excluye del sell-out (contarlo duplica + infla).
+const NON_SALE_CHANNEL = 'traspaso';
+// [SD.3] Fuente de la venta: el twin ODS-derivado en vez de la tabla imperativa
+// `analytics.sales_daily` (3.76 GB, importer). Mismo grano/columnas; el twin YA cuenta
+// tickets por folio (SD.4b, 99.68%) y trae la taxonomía cruda de canal incl. `mayoreo`
+// (SD-CH). No tiene columna `margin` → se deriva `revenue - cost`. Constante como en
+// `commercial-profitability`/`weekly-analytics`.
+const SALES_FACT = 'analytics.mv_sales_blended';
+// Canales CRUDOS que NO son venta real. VACÍO a propósito (SD.3): `mv_sales_blended`
+// sólo contiene ventas reales — los no-venta (`traspaso`/devoluciones) ya se excluyen
+// aguas arriba en `mv_kepler_sales_daily`. `mayoreo` **es venta de telemarketing** (K.3:
+// Factura Telemarketing U-D-8; la suposición vieja "mayoreo=TI% traspaso, la venta real
+// vive en credito" fue REFUTADA — TI001/TI002 no existen en kdud, y el telemarketing
+// aterriza en `mayoreo`, no en `credito`). SD-CH lo preservó en el blend y en Sell-Out.
+// `whereNotIn('channel', [])` es no-op seguro → los call-sites del filtro quedan inertes.
+const NON_SALE_RAW_CHANNELS: string[] = [];
+// RS.12 — cota de tiempo para queries de sell-out (protege el pool del path en vivo pesado).
+const SELLOUT_STMT_TIMEOUT = '45s';
+/**
+ * [VSO.17] Días de cola diaria que las consultas de PRESENCIA leen además del rollup. El rollup se
+ * materializa de noche (~06:28 MX), así que lo de hoy todavía no está ahí; 2 días cubren el día en
+ * curso y el anterior por si el refresh de una noche no corrió. Subirlo no rompe nada —el traslape
+ * es inofensivo en presencia— pero cada día extra vuelve a costar escaneo diario.
+ */
+const PRESENCIA_COLA_DIAS = 2;
+
+/**
+ * RS.13 — Layout "por plaza" (formato estándar del reporte que usa el equipo comercial):
+ * columnas FIJAS = plaza × tipo (SUCURSAL / MAYOREO / RUTAS), consolidando TODAS las rutas de
+ * una plaza en una sola columna. `branches` matchea el código de almacén; `routeParents` matchea las
+ * camionetas (`RUTA-NN`) por su SUCURSAL PADRE — resuelta canónicamente en `analytics.v_route_plaza`
+ * (derivada de wincaja.branches), NO por el primer dígito (heurística frágil que atribuía mal las
+ * rutas de PH a Morelia). `channels` = canales normalizados que caen en la columna ('*' = todos).
+ * Orden de columnas = orden del array. Config en código a propósito (editable + versionada).
+ * Lo que no matchee cae en 'OTROS' → nada se pierde y el TOTAL de columnas cuadra con el total fila.
+ */
+type PlazaCol = { key: string; label: string; branches?: string[]; routeParents?: string[]; channels: string[] | '*' };
+/**
+ * ⚠️ [VSO.1] `branches`/`routeParents` son códigos de ALMACÉN (`warehouse_code`), que es la
+ * identidad que funde las dos piernas del cutover — NO el `source_branch` de cada ERP. Medido en
+ * prod el 2026-09-28: `MD-30` **no existe** como almacén y `MD-32` tiene **0 filas** de sell-out
+ * (toda Morelia vive en `07`/`08` desde que `[RL.10]` cerró su cutover), así que las columnas de
+ * Morelia matcheaban NADA y su venta caía en OTROS — $22.66M de $49.88M (45.4%) en sep-2026,
+ * sumando el mayoreo Kepler que tampoco tenía columna. `channels` va en canal de NEGOCIO.
+ */
+const SELLOUT_PLAZA_COLUMNS: PlazaCol[] = [
+  { key: 'suc_padre_hidalgo',  label: 'SUCURSAL PADRE HIDALGO',    branches: ['01'],          channels: ['mostrador', 'preventa'] },
+  { key: 'may_la_piedad',      label: 'MAYOREO LA PIEDAD',         branches: ['01', '02'],    channels: ['mayoreo'] },
+  { key: 'rutas_la_piedad',    label: 'RUTAS LA PIEDAD',           routeParents: ['01', '02'], channels: ['ruta'] },
+  { key: 'suc_mor_abastos',    label: 'SUCURSAL MORELIA ABASTOS',  branches: ['08'],          channels: ['mostrador', 'preventa'] },
+  { key: 'may_morelia',        label: 'MAYOREO MORELIA',           branches: ['08', '07'],    channels: ['mayoreo'] },
+  { key: 'suc_mor_madero',     label: 'SUCURSAL MORELIA MADERO',   branches: ['07'],          channels: ['mostrador', 'preventa'] },
+  { key: 'rutas_morelia',      label: 'RUTAS MORELIA',             routeParents: ['08', '07'], channels: ['ruta'] },
+  { key: 'suc_8esq',           label: 'SUCURSAL 8 ESQUINAS',       branches: ['03'],          channels: '*' },
+  { key: 'suc_abastos_piedad', label: 'SUCURSAL ABASTOS LA PIEDAD', branches: ['02'],         channels: ['mostrador', 'preventa'] },
+  { key: 'suc_yurecuaro',      label: 'SUCURSAL YURECUARO',        branches: ['04'],          channels: '*' },
+  { key: 'suc_canindo',        label: 'SUCURSAL CANINDO',          branches: ['06'],          channels: ['mostrador', 'preventa'] },
+  { key: 'may_canindo',        label: 'MAYOREO CANINDO',           branches: ['06'],          channels: ['mayoreo'] },
+  { key: 'rutas_canindo',      label: 'RUTAS CANINDO',             routeParents: ['06'],      channels: ['ruta'] },
+  { key: 'suc_zam_centro',     label: 'SUCURSAL ZAM CENTRO',       branches: ['05'],          channels: '*' },
+];
+const PLAZA_OTROS_KEY = '__otros__';
+/**
+ * Resuelve (almacén, canal) → columna de plaza (primera que matchea) o null (→ OTROS).
+ * `routePlaza` = mapa RUTA-NN → almacén de la sucursal PADRE (de `analytics.v_route_plaza`). Las
+ * columnas de rutas matchean por esa plaza padre (canónica), NO por el primer dígito del número.
+ */
+function plazaColKey(branchCode: string, channel: string, routePlaza: Map<string, string>): string | null {
+  const code = String(branchCode || '');
+  const isRoute = /^RUTA-/i.test(code);
+  const routeParent = isRoute ? routePlaza.get(code) : null; // plaza padre de la camioneta
+  for (const col of SELLOUT_PLAZA_COLUMNS) {
+    const chOk = col.channels === '*' || col.channels.includes(channel);
+    if (!chOk) continue;
+    if (col.routeParents) {
+      if (isRoute && routeParent && col.routeParents.includes(routeParent)) return col.key;
+      continue; // columna de rutas: solo matchea camionetas
+    }
+    if (!isRoute && col.branches?.includes(code)) return col.key;
+  }
+  return null;
+}
+// RS.2 — etiqueta corta de mes para las vistas por mes ('2026-01' → 'Ene 2026').
+const MONTH_ABBR_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+function sellOutMonthLabel(ym: string): string {
+  const [y, m] = (ym || '').split('-');
+  const idx = Number(m) - 1;
+  return idx >= 0 && idx < 12 ? `${MONTH_ABBR_ES[idx]} ${y}` : ym;
+}
+
+/**
+ * [U.7] Convierte una celda de venta a CAJAS con el método que declara
+ * `analytics.v_unit_truth.metodo_cajas`. El orden lo fija la vista y este archivo lo obedece:
+ *
+ *   · `dinero`  — ingreso ÷ precio de caja. Va primero porque es **inmune a la unidad del
+ *                 numerador**, que es exactamente lo que falla: medido, `sales_daily.units` mezcla
+ *                 peldaños incluso dentro de un mismo almacén (`42029` en el almacén `01` promedia
+ *                 $71.07/unidad — ni la pieza de $12.46 ni el paquete de $115.25).
+ *   · `peso`    — granel: la cantidad YA está en kilos, no se divide.
+ *   · `divisor` — cantidad ÷ box_factor, sólo cuando el factor tiene testigo.
+ *   · `unidad_es_caja` — no hay paquete ni caja en la escalera y ningún testigo dice que la haya:
+ *                 la unidad de venta ES la más grande, así que cajas = unidades. Verificado contra
+ *                 el precio realizado en 240 de 278 SKUs (`57009 CUBETA 20K` a $1,453 contra p1
+ *                 $1,500; `87234` con `unit_base = CJA`). No es un default: tratarlo como
+ *                 ignorancia bajaba el total del sell-out un **33.6%**.
+ *   · resto     — **no se convierte**. `ok = false` y quien llama lo declara.
+ *
+ * Devuelve `cajas: 0` con `ok: false` a propósito: sumar cero no inventa volumen. Lo que estaba
+ * mal antes era dividir por 1 y publicar piezas con la etiqueta "cajas".
+ */
+/**
+ * [SO.U] Acumula en la fila el rótulo de la unidad base de cada celda.
+ *
+ * ⚠️ La regla que importa es la del DESACUERDO: si dos columnas de la misma fila están en unidades
+ * distintas (típico cuando la fila mezcla Kepler —unidad base— con Wincaja —unidad de venta,
+ * ADR-055), la fila deja de tener UNA unidad y el total en unidad base no se publica. Sumar
+ * paquetes con piezas da un número que no está en ninguna unidad.
+ *
+ * Una ausencia (`null`, cadena vacía) NO vota: ni confirma el rótulo ni lo contradice.
+ */
+function marcarUnidadBase(row: SellOutRow, label: string | null | undefined): void {
+  const l = String(label ?? '').trim().toUpperCase();
+  if (!l || row.base_label_mixto) return;
+  if (row.base_label == null) { row.base_label = l; return; }
+  if (row.base_label !== l) { row.base_label = null; row.base_label_mixto = true; }
+}
+
+/**
+ * [SO.U] Lo mismo, pero para la CELDA — que es donde la unidad de verdad vive: la columna es una
+ * sucursal, y una sucursal corre UN ERP. Si dos renglones de la misma celda (distintos canales)
+ * trajeran rótulos distintos, la celda se queda sin rótulo en vez de elegir uno.
+ */
+function marcarUnidadCelda(cell: SellOutCell, label: string | null | undefined): void {
+  const l = String(label ?? '').trim().toUpperCase();
+  if (!l) return;
+  if (cell.unit === undefined) { cell.unit = l; return; }
+  if (cell.unit !== l) cell.unit = null;
+}
+
+function cajasDe(
+  m: BoxMethod | undefined,
+  units: number,
+  monto: number,
+  isWeightRow: boolean,
+): { cajas: number; ok: boolean } {
+  // El fact manda sobre el catálogo para decidir si la fila es de peso: `unit_kind` se calculó
+  // sobre la venta real, y ahí la cantidad ya viene en kilos.
+  if (isWeightRow) return { cajas: units, ok: true };
+  if (!m) return { cajas: 0, ok: false }; // almacén sin fila en el resolvedor (ver v_unit_truth_coverage)
+  if (m.metodo === 'dinero') {
+    return m.cjaPrice > 0 ? { cajas: monto / m.cjaPrice, ok: true } : { cajas: 0, ok: false };
+  }
+  if (m.metodo === 'peso') return { cajas: units, ok: true };
+  if (m.metodo === 'divisor') {
+    return m.boxFactor > 1 ? { cajas: units / m.boxFactor, ok: true } : { cajas: 0, ok: false };
+  }
+  if (m.metodo === 'unidad_es_caja') return { cajas: units, ok: true };
+  return { cajas: 0, ok: false }; // sin_metodo
+}
+
+const REVENUE_STATUSES = ['fulfilled'];
+// Para "trabajo en curso" que cuenta como pipeline (no revenue): 'confirmed'
+
+@Injectable()
+export class CommercialAnalyticsService {
+  private readonly logger = new Logger(CommercialAnalyticsService.name);
+
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+    // PERF/RLS (2026-09-01): conexión admin (postgres, bypassa RLS) para el scan en vivo de
+    // wincaja. Bajo RLS (app_runtime) la barrera de seguridad impide usar el índice de fecha
+    // de maestro_mov_almacen → Seq Scan de 1.44M filas → timeout 45s en /comercial/sell-out.
+    // Se lee con filtro tenant_id EXPLÍCITO (aislamiento garantizado, mismo patrón que los
+    // matviews analytics.* que tampoco tienen RLS). Fallback a `trx` (RLS) si no está disponible.
+    @Inject(KNEX_NEW_DB_ADMIN) private readonly adminKnex: Knex | null,
+  ) {}
+
+  /**
+   * Venta bruta de la red en los últimos 30 días, por tenant. La calcula
+   * `networkOverview` como subproducto de su desglose por canal, y la usa
+   * `networkTopProducts` para el `share_pct` — que antes le costaba una SEGUNDA
+   * pasada completa por `analytics.sales_daily` (400 MB, ~900k filas, ~1.3 s en
+   * prod) para llegar al MISMO número. Con TTL de 60 s la ventana móvil de 30
+   * días no alcanza a moverse.
+   */
+  private readonly netRevenue30d = new Map<string, { revenue: number; at: number }>();
+  private static readonly NET_REVENUE_TTL_MS = 60_000;
+
+  private netRevenue30dCached(tenantId: string): number | null {
+    const hit = this.netRevenue30d.get(tenantId);
+    if (!hit) return null;
+    if (Date.now() - hit.at > CommercialAnalyticsService.NET_REVENUE_TTL_MS) {
+      this.netRevenue30d.delete(tenantId);
+      return null;
+    }
+    return hit.revenue;
+  }
+
+  /**
+   * Las queries `analytics_external.*` leen el ERP vía FDW (server
+   * `mega_dulces_srv` en la LAN 192.168.0.245). Ese host NO es alcanzable desde
+   * Railway, así que en prod el FDW da timeout (08001 / "could not connect to
+   * server"). En vez de tirar un 500, degradamos: logueamos y devolvemos el
+   * fallback (típicamente `[]`) para que la UI muestre estado vacío.
+   */
+  private isErpUnavailable(err: any): boolean {
+    const code = String(err?.code || '');
+    // 08*=conexión, 57P01=admin shutdown, 57014=statement_timeout (FDW colgado),
+    // 55000=MV ERP sin popular todavía. Todos → data del ERP no disponible → fallback.
+    if (['08001', '08006', '08004', '08003', '57P01', '57014', '55000'].includes(code)) return true;
+    const msg = String(err?.message || err?.detail || '').toLowerCase();
+    return (
+      msg.includes('mega_dulces_srv') ||
+      msg.includes('could not connect to server') ||
+      msg.includes('connection timed out') ||
+      msg.includes('has not been populated')
+    );
+  }
+
+  private async guardErp<T>(label: string, fallback: T, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err: any) {
+      if (this.isErpUnavailable(err)) {
+        this.logger.warn(
+          `ERP (FDW mega_dulces_srv) no disponible en ${label}: ${err?.code || ''} ${err?.message || err}`,
+        );
+        return fallback;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Overview rolling 30d desde MV (default) o on-the-fly si live=true o si hay
+   * date range explícito (las MVs son siempre 30d).
+   */
+  async overview30dFromMv(): Promise<OverviewResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const row = await trx('analytics.mv_sales_overview_30d')
+        .where({ tenant_id: tenantId })
+        .first();
+
+      if (!row) {
+        // MV vacía o sin refresh aún para este tenant — devolver zeros.
+        return this.emptyOverview('mv', null);
+      }
+
+      const revenue = Number(row.revenue_gross);
+      const orders = Number(row.orders_fulfilled);
+
+      return {
+        source: 'mv' as const,
+        refreshed_at: row.refreshed_at,
+        period: { rolling_days: 30 },
+        revenue: {
+          gross: revenue,
+          net: Number(row.revenue_net),
+          tax: Number(row.tax_collected),
+          currency: 'MXN',
+        },
+        orders: {
+          fulfilled: orders,
+          confirmed: Number(row.orders_confirmed),
+          draft: Number(row.orders_draft),
+          cancelled: Number(row.orders_cancelled),
+          avg_order_value: orders > 0 ? +(revenue / orders).toFixed(2) : 0,
+        },
+        unique_customers: Number(row.unique_customers),
+      };
+    });
+  }
+
+  /**
+   * Overview general del período: pedidos, revenue, unidades, AOV, clientes únicos.
+   * Si `q` viene vacío, prefiere leer de MV (mucho más rápido). Si hay date range
+   * o `live=true`, agrega on-the-fly.
+   */
+  async overview(q: DateRangeQuery & { live?: boolean }): Promise<OverviewResponse> {
+    const hasRange = !!(q.from || q.to);
+    if (!hasRange && !q.live) {
+      return this.overview30dFromMv();
+    }
+    return this.overviewLive(q);
+  }
+
+  private emptyOverview(source: 'mv' | 'live', period: any) {
+    return {
+      source,
+      refreshed_at: null,
+      period,
+      revenue: { gross: 0, net: 0, tax: 0, currency: 'MXN' },
+      orders: { fulfilled: 0, confirmed: 0, draft: 0, cancelled: 0, avg_order_value: 0 },
+      units_sold: 0,
+      unique_customers: 0,
+    };
+  }
+
+  private async overviewLive(q: DateRangeQuery): Promise<OverviewResponse> {
+    const { from, to } = this.parseDateRange(q);
+
+    return this.tk.run(async (trx) => {
+      const orders = trx('commercial.orders').whereNull('deleted_at');
+
+      const fulfilled = orders.clone().whereIn('status', REVENUE_STATUSES);
+      const confirmed = orders.clone().where('status', 'confirmed');
+      const draft = orders.clone().where('status', 'draft');
+      const cancelled = orders.clone().where('status', 'cancelled');
+
+      if (from) {
+        fulfilled.where('created_at', '>=', from);
+        confirmed.where('created_at', '>=', from);
+        draft.where('created_at', '>=', from);
+        cancelled.where('created_at', '>=', from);
+      }
+      if (to) {
+        fulfilled.where('created_at', '<=', to);
+        confirmed.where('created_at', '<=', to);
+        draft.where('created_at', '<=', to);
+        cancelled.where('created_at', '<=', to);
+      }
+
+      const [fulfilledStats] = await fulfilled
+        .clone()
+        .select(
+          trx.raw('COUNT(*)::int as orders_count'),
+          trx.raw('COALESCE(SUM(total), 0)::numeric as revenue'),
+          trx.raw('COALESCE(SUM(subtotal), 0)::numeric as net_revenue'),
+          trx.raw('COALESCE(SUM(tax_total), 0)::numeric as tax_collected'),
+          trx.raw('COUNT(DISTINCT customer_id)::int as unique_customers'),
+        );
+
+      const [unitsRow] = await trx('commercial.order_lines as ol')
+        .join('commercial.orders as o', 'o.id', 'ol.order_id')
+        .whereIn('o.status', REVENUE_STATUSES)
+        .modify((qb) => {
+          if (from) qb.where('o.created_at', '>=', from);
+          if (to) qb.where('o.created_at', '<=', to);
+        })
+        .select(trx.raw('COALESCE(SUM(ol.quantity), 0)::numeric as units_sold'));
+
+      const [confirmedCount] = await confirmed.clone().count<{ count: string }[]>('* as count');
+      const [draftCount] = await draft.clone().count<{ count: string }[]>('* as count');
+      const [cancelledCount] = await cancelled.clone().count<{ count: string }[]>('* as count');
+
+      const revenue = Number(fulfilledStats.revenue);
+      const ordersCount = Number(fulfilledStats.orders_count);
+
+      return {
+        source: 'live' as const,
+        refreshed_at: null,
+        period: { from: from || null, to: to || null },
+        revenue: {
+          gross: revenue,
+          net: Number(fulfilledStats.net_revenue),
+          tax: Number(fulfilledStats.tax_collected),
+          currency: 'MXN',
+        },
+        orders: {
+          fulfilled: ordersCount,
+          confirmed: Number(confirmedCount.count),
+          draft: Number(draftCount.count),
+          cancelled: Number(cancelledCount.count),
+          avg_order_value: ordersCount > 0 ? +(revenue / ordersCount).toFixed(2) : 0,
+        },
+        units_sold: Number(unitsRow.units_sold),
+        unique_customers: Number(fulfilledStats.unique_customers),
+      };
+    });
+  }
+
+  /**
+   * Top N customers por revenue. Sin date range → MV (rolling 30d).
+   * Con date range o live=true → on-the-fly.
+   */
+  async topCustomers(q: DateRangeQuery & { limit?: number; live?: boolean }): Promise<TopCustomerRow[]> {
+    const hasRange = !!(q.from || q.to);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 10));
+
+    if (!hasRange && !q.live) {
+      const tenantId = this.tenantCtx.requireTenantId();
+      return this.tk.run(async (trx) => {
+        const rows = await trx('analytics.mv_top_customers_30d')
+          .where({ tenant_id: tenantId })
+          .orderBy('rank', 'asc')
+          .limit(limit);
+        return rows.map((r: any) => ({
+          source: 'mv',
+          customer_id: r.customer_id,
+          code: r.code,
+          name: r.name,
+          orders_count: Number(r.orders_count),
+          revenue: Number(r.revenue),
+          avg_order_value: Number(r.avg_order_value),
+          last_order_at: r.last_order_at,
+          rank: Number(r.rank),
+        }));
+      });
+    }
+    return this.topCustomersLive({ ...q, limit });
+  }
+
+  private async topCustomersLive(q: DateRangeQuery & { limit: number }) {
+    const { from, to } = this.parseDateRange(q);
+    return this.tk.run(async (trx) => {
+      const rows = await trx('commercial.orders as o')
+        .join('commercial.customers as c', 'c.id', 'o.customer_id')
+        .whereNull('o.deleted_at')
+        .whereIn('o.status', REVENUE_STATUSES)
+        .modify((qb) => {
+          if (from) qb.where('o.created_at', '>=', from);
+          if (to) qb.where('o.created_at', '<=', to);
+        })
+        .select(
+          'c.id as customer_id',
+          'c.code',
+          'c.name',
+          trx.raw('COUNT(o.id)::int as orders_count'),
+          trx.raw('COALESCE(SUM(o.total), 0)::numeric as revenue'),
+          trx.raw('COALESCE(AVG(o.total), 0)::numeric as avg_order_value'),
+          trx.raw('MAX(o.created_at) as last_order_at'),
+        )
+        .groupBy('c.id', 'c.code', 'c.name')
+        .orderBy('revenue', 'desc')
+        .limit(q.limit);
+
+      return rows.map((r) => ({
+        source: 'live',
+        ...r,
+        revenue: Number(r.revenue),
+        avg_order_value: Number(r.avg_order_value),
+      }));
+    });
+  }
+
+  /**
+   * Top N productos por unidades o revenue. Sin date range → MV (rolling 30d).
+   * Con date range o live=true → on-the-fly.
+   */
+  async topProducts(
+    q: DateRangeQuery & { limit?: number; orderBy?: 'units' | 'revenue'; live?: boolean },
+  ): Promise<TopProductRow[]> {
+    const hasRange = !!(q.from || q.to);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 10));
+    const orderBy = q.orderBy === 'revenue' ? 'revenue' : 'units';
+
+    if (!hasRange && !q.live) {
+      const tenantId = this.tenantCtx.requireTenantId();
+      return this.tk.run(async (trx) => {
+        const rankCol = orderBy === 'revenue' ? 'rank_by_revenue' : 'rank_by_units';
+        const rows = await trx('analytics.mv_top_products_30d')
+          .where({ tenant_id: tenantId })
+          .orderBy(rankCol, 'asc')
+          .limit(limit);
+        return rows.map((r: any) => ({
+          source: 'mv',
+          product_id: r.product_id,
+          product_name: r.product_name,
+          brand_name: r.brand_name,
+          units_sold: Number(r.units_sold),
+          revenue: Number(r.revenue),
+          orders_count: Number(r.orders_count),
+          rank_by_units: Number(r.rank_by_units),
+          rank_by_revenue: Number(r.rank_by_revenue),
+        }));
+      });
+    }
+    return this.topProductsLive({ ...q, limit, orderBy });
+  }
+
+  private async topProductsLive(q: DateRangeQuery & { limit: number; orderBy: string }) {
+    const { from, to } = this.parseDateRange(q);
+    const orderByCol = q.orderBy === 'revenue' ? 'revenue' : 'units_sold';
+
+    return this.tk.run(async (trx) => {
+      const rows = await trx('commercial.order_lines as ol')
+        .join('commercial.orders as o', 'o.id', 'ol.order_id')
+        .leftJoin('public.products as p', 'p.id', 'ol.product_id')
+        .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
+        .whereNull('o.deleted_at')
+        .whereIn('o.status', REVENUE_STATUSES)
+        .modify((qb) => {
+          if (from) qb.where('o.created_at', '>=', from);
+          if (to) qb.where('o.created_at', '<=', to);
+        })
+        .select(
+          'p.id as product_id',
+          'p.nombre as product_name',
+          'b.nombre as brand_name',
+          trx.raw('COALESCE(SUM(ol.quantity), 0)::numeric as units_sold'),
+          trx.raw('COALESCE(SUM(ol.line_total), 0)::numeric as revenue'),
+          trx.raw('COUNT(DISTINCT o.id)::int as orders_count'),
+        )
+        .groupBy('p.id', 'p.nombre', 'b.nombre')
+        .orderBy(orderByCol, 'desc')
+        .limit(q.limit);
+
+      return rows.map((r) => ({
+        source: 'live',
+        ...r,
+        units_sold: Number(r.units_sold),
+        revenue: Number(r.revenue),
+      }));
+    });
+  }
+
+  /**
+   * Customers sin pedidos en los últimos N días (oportunidad de recuperación).
+   */
+  async inactiveCustomers(daysParam?: string | number, limitParam?: string | number): Promise<InactiveCustomersResponse> {
+    const days = Math.max(1, Math.min(365, Number(daysParam) || 30));
+    const limit = Math.min(200, Math.max(1, Number(limitParam) || 50));
+
+    return this.tk.run(async (trx) => {
+      // Customers activos sin pedido fulfilled o confirmed en los últimos N días
+      const rows = await trx
+        .select(
+          'c.id as customer_id',
+          'c.code',
+          'c.name',
+          'c.phone',
+          'c.credit_limit',
+          trx.raw('MAX(o.created_at) as last_order_at'),
+          trx.raw(`
+            CASE WHEN MAX(o.created_at) IS NULL
+              THEN NULL
+              ELSE EXTRACT(DAY FROM (NOW() - MAX(o.created_at)))::int
+            END as days_since_last_order
+          `),
+        )
+        .from('commercial.customers as c')
+        .leftJoin('commercial.orders as o', function () {
+          this.on('o.customer_id', '=', 'c.id').andOnIn('o.status', ['confirmed', 'fulfilled']);
+        })
+        .where('c.active', true)
+        .whereNull('c.deleted_at')
+        .groupBy('c.id', 'c.code', 'c.name', 'c.phone', 'c.credit_limit')
+        .havingRaw(
+          `MAX(o.created_at) IS NULL OR MAX(o.created_at) < NOW() - INTERVAL '${days} days'`,
+        )
+        .orderByRaw('MAX(o.created_at) ASC NULLS FIRST')
+        .limit(limit);
+
+      return {
+        threshold_days: days,
+        customers: rows.map((r) => ({
+          ...r,
+          credit_limit: Number(r.credit_limit),
+        })),
+      };
+    });
+  }
+
+  /**
+   * Revenue/units por brand en el período + share % del total.
+   */
+  async salesByBrand(q: DateRangeQuery): Promise<SalesByBrandRow[]> {
+    const { from, to } = this.parseDateRange(q);
+
+    return this.tk.run(async (trx) => {
+      const rows = await trx('commercial.order_lines as ol')
+        .join('commercial.orders as o', 'o.id', 'ol.order_id')
+        .leftJoin('public.products as p', 'p.id', 'ol.product_id')
+        .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
+        .whereNull('o.deleted_at')
+        .whereIn('o.status', REVENUE_STATUSES)
+        .modify((qb) => {
+          if (from) qb.where('o.created_at', '>=', from);
+          if (to) qb.where('o.created_at', '<=', to);
+        })
+        .select(
+          'b.id as brand_id',
+          'b.nombre as brand_name',
+          trx.raw('COALESCE(SUM(ol.quantity), 0)::numeric as units'),
+          trx.raw('COALESCE(SUM(ol.line_total), 0)::numeric as revenue'),
+        )
+        .groupBy('b.id', 'b.nombre')
+        .orderBy('revenue', 'desc');
+
+      const totalRevenue = rows.reduce((s, r) => s + Number(r.revenue), 0);
+
+      return rows.map((r) => ({
+        brand_id: r.brand_id,
+        brand_name: r.brand_name,
+        units: Number(r.units),
+        revenue: Number(r.revenue),
+        share_pct: totalRevenue > 0 ? +((Number(r.revenue) / totalRevenue) * 100).toFixed(2) : 0,
+      }));
+    });
+  }
+
+  /**
+   * Stock muerto: existencia > 0 pero sin venta reciente (rotación). Capital
+   * parado al costo. Accionable para el comprador (qué liquidar / dejar de surtir).
+   * "Muerto" = sales_units_30d = 0; rotation_tier null/baja matiza la severidad.
+   */
+  async deadStock(warehouseIdParam?: string, limitParam?: string | number) {
+    const limit = Math.min(2000, Math.max(1, Number(limitParam) || 500));
+    // El CEDIS central distribuye por TRASPASOS, no por venta → medir "muerto =
+    // venta 0" ahí sobre-marca fast-movers (Coca/Takis). Se excluye del reporte.
+    const CEDIS_CODE = '00';
+    return this.tk.run(async (trx) => {
+      // catalog.products (tabla real) — la vista public.products no expone
+      // sales_units_30d/rotation_tier (columnas nuevas).
+      const base = trx('commercial.stock as s')
+        .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
+        .leftJoin('catalog.products as p', 'p.id', 's.product_id')
+        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+        // La verdad de ventas es analytics.product_sales_stats (mismo fact que el
+        // Command Center), NO catalog.products.sales_units_90d (feed de rotación
+        // que divergía → falsos positivos). INNER join: sin registro de stats =
+        // venta desconocida = NO se marca muerto.
+        .join('analytics.product_sales_stats as st', function () {
+          this.on('st.product_id', '=', 's.product_id').andOn('st.tenant_id', '=', 's.tenant_id');
+        })
+        .where('s.quantity', '>', 0)
+        // Excluir almacenes soft-deleted (p.ej. warehouses efímeros de tests):
+        // sin esto el reporte contaba stock de almacenes ya borrados.
+        .whereNull('w.deleted_at')
+        .whereNot('w.code', CEDIS_CODE)
+        // Ventana 90d sobre el fact autoritativo. = 0 estricto (hay registro y dice 0).
+        .where('st.units_90d', 0)
+        // [KE.3] El costo sale del resolvedor unico, no de `catalog.products.cost_base`.
+        // Medido: el catalogo valuaba este mismo capital $5.49M por encima del testigo
+        // del propio ERP. LEFT JOIN a proposito: sin fila, `costo_unitario` llega NULL
+        // y el capital se declara NULL en vez de dibujarse en cero.
+        .leftJoin('analytics.v_erp_unit_cost as uc', function () {
+          this.on('uc.tenant_id', '=', 's.tenant_id')
+            .andOn('uc.warehouse_id', '=', 's.warehouse_id')
+            .andOn('uc.product_id', '=', 's.product_id');
+        });
+      if (warehouseIdParam) base.where('s.warehouse_id', warehouseIdParam);
+
+      const items = await base.clone()
+        .select(
+          's.warehouse_id',
+          'w.code as warehouse_code',
+          'w.name as warehouse_name',
+          's.product_id',
+          'p.sku',
+          'p.nombre as product_name',
+          'b.nombre as brand_name',
+          'p.rotation_tier',
+          'p.unit_sale',
+          's.quantity',
+          trx.raw('uc.costo_unitario AS costo_unitario'),
+          trx.raw('uc.costo_source AS costo_source'),
+          trx.raw('ROUND((s.quantity * uc.costo_unitario)::numeric, 2) AS capital_parado'),
+        )
+        .orderByRaw('(s.quantity * uc.costo_unitario) DESC NULLS LAST')
+        .limit(limit);
+
+      const byWh = await base.clone()
+        .groupBy('s.warehouse_id', 'w.code', 'w.name')
+        .select(
+          'w.code as warehouse_code',
+          'w.name as warehouse_name',
+          trx.raw('COUNT(*)::int AS skus'),
+          trx.raw('COUNT(*) FILTER (WHERE uc.tiene_testigo)::int AS skus_con_testigo'),
+          trx.raw('COUNT(*) FILTER (WHERE uc.costo_unitario IS NULL)::int AS skus_sin_costo'),
+          trx.raw('ROUND(SUM(s.quantity * uc.costo_unitario)::numeric, 2) AS capital_parado'),
+        )
+        .orderByRaw('SUM(s.quantity * uc.costo_unitario) DESC NULLS LAST');
+
+      const totalCapital = byWh.reduce((acc: number, r: any) => acc + Number(r.capital_parado || 0), 0);
+      // [KE.3] La cobertura viaja con la cifra (ADR-056): sin esto, un capital calculado
+      // sobre el 60% de los SKUs se lee igual que uno calculado sobre el 100%.
+      const skus = byWh.reduce((a: number, r: any) => a + Number(r.skus || 0), 0);
+      const conTestigo = byWh.reduce((a: number, r: any) => a + Number(r.skus_con_testigo || 0), 0);
+      const sinCosto = byWh.reduce((a: number, r: any) => a + Number(r.skus_sin_costo || 0), 0);
+      return {
+        warehouse_id: warehouseIdParam || null,
+        total_skus: items.length,
+        total_capital_parado: +totalCapital.toFixed(2),
+        costo: {
+          resolver: 'analytics.v_erp_unit_cost',
+          skus,
+          con_testigo_erp: conTestigo,
+          sin_costo: sinCosto,
+          cobertura_pct: skus > 0 ? +((conTestigo / skus) * 100).toFixed(2) : null,
+        },
+        by_warehouse: byWh,
+        items: items.map((r: any) => ({
+          ...r,
+          quantity: Number(r.quantity),
+          costo_unitario: r.costo_unitario != null ? Number(r.costo_unitario) : null,
+          costo_source: r.costo_source ?? null,
+          capital_parado: r.capital_parado != null ? Number(r.capital_parado) : null,
+        })),
+      };
+    });
+  }
+
+  /**
+   * Productos con stock disponible (quantity - reserved) bajo threshold.
+   * Útil para alertas de reposición.
+   */
+  async lowStock(
+    thresholdParam?: string | number,
+    warehouseIdParam?: string,
+    limitParam?: string | number,
+  ): Promise<LowStockResponse> {
+    const threshold = Math.max(0, Number(thresholdParam) || 10);
+    // Límite duro: el command-center solo muestra los más críticos. Sin esto, con
+    // threshold alto sobre el catálogo real la respuesta llegaba a ~10 MB.
+    const limit = Math.min(500, Math.max(1, Number(limitParam) || 50));
+
+    return this.tk.run(async (trx) => {
+      // Filtro base reutilizable (disponible < threshold + almacén opcional).
+      const filtered = () => {
+        const q = trx('commercial.stock as s').whereRaw(
+          '(s.quantity - s.reserved_quantity) < ?',
+          [threshold],
+        );
+        // Excluir stock en almacenes soft-deleted (warehouses efímeros de tests).
+        q.whereNotIn(
+          's.warehouse_id',
+          trx('commercial.warehouses').select('id').whereNotNull('deleted_at'),
+        );
+        if (warehouseIdParam) q.where('s.warehouse_id', warehouseIdParam);
+        return q;
+      };
+
+      // Total real (sin joins) para el contador del dashboard.
+      const [{ count }] = await filtered().count('* as count');
+      const total = Number(count);
+
+      const rows = await filtered()
+        .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
+        .leftJoin('public.products as p', 'p.id', 's.product_id')
+        .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
+        .select(
+          's.warehouse_id',
+          'w.code as warehouse_code',
+          'w.name as warehouse_name',
+          's.product_id',
+          'p.nombre as product_name',
+          'b.nombre as brand_name',
+          's.quantity',
+          's.reserved_quantity',
+          trx.raw('(s.quantity - s.reserved_quantity) as available_quantity'),
+        )
+        .orderByRaw('(s.quantity - s.reserved_quantity) ASC')
+        .limit(limit);
+
+      return {
+        threshold,
+        warehouse_id: warehouseIdParam || null,
+        total,
+        items: rows.map((r) => ({
+          ...r,
+          quantity: Number(r.quantity),
+          reserved_quantity: Number(r.reserved_quantity),
+          available_quantity: Number(r.available_quantity),
+        })),
+      };
+    });
+  }
+
+  /**
+   * Series diarias de revenue + orders count para gráficos. Solo fulfilled.
+   */
+  async dailySeries(q: DateRangeQuery): Promise<DailySeriesRow[]> {
+    const { from, to } = this.parseDateRange(q);
+
+    return this.tk.run(async (trx) => {
+      const rows = await trx('commercial.orders')
+        .whereNull('deleted_at')
+        .whereIn('status', REVENUE_STATUSES)
+        .modify((qb) => {
+          if (from) qb.where('created_at', '>=', from);
+          if (to) qb.where('created_at', '<=', to);
+        })
+        .select(
+          trx.raw(`DATE_TRUNC('day', created_at AT TIME ZONE 'America/Mexico_City')::date as day`),
+          trx.raw('COUNT(*)::int as orders_count'),
+          trx.raw('COUNT(DISTINCT customer_id)::int as unique_customers'),
+          trx.raw('COALESCE(SUM(total), 0)::numeric as revenue'),
+          trx.raw('COALESCE(SUM(subtotal), 0)::numeric as net_revenue'),
+        )
+        .groupByRaw(`DATE_TRUNC('day', created_at AT TIME ZONE 'America/Mexico_City')`)
+        .orderBy('day', 'asc');
+
+      return rows.map((r) => ({
+        day: r.day,
+        orders_count: Number(r.orders_count),
+        unique_customers: Number(r.unique_customers),
+        revenue: Number(r.revenue),
+        net_revenue: Number(r.net_revenue),
+      }));
+    });
+  }
+
+  // ─────────── Sprint M.3 — Ventas históricas (ERP Mega_Dulces vía FDW) ───────────
+
+  /**
+   * Series diarias desde `analytics_external.ventas_legacy` (foreign table sobre
+   * `Mega_Dulces.public.ventas` en .245). Datos transaccionales desnormalizados,
+   * NO pasan por commercial.orders. Sirve para reportería de ventas reales del
+   * ERP (no de pedidos B2B levantados por la app).
+   *
+   * Pushdown FDW: WHERE fecha/zona se aplica remotamente. Para período corto
+   * (<30d) el GROUP BY también baja, así que aunque la tabla source tenga 2.1M
+   * rows, el plan solo transfiere el resultado agregado (decenas de filas).
+   */
+  async historicalSalesDaily(q: { from?: string; to?: string; zona?: string }) {
+    const { from, to } = this.parseDateRange(q);
+    const tenantId = this.tenantCtx.requireTenantId();
+    // KV.1: lee venta real de analytics.sales_daily (push on-prem) en vez del FDW
+    // analytics_external.ventas_legacy (inalcanzable desde Railway). revenue/units
+    // exactos; `lines` = sum(tickets) (proxy de actividad, grano-producto no aditivo);
+    // cost/margin = 0 hasta KV.4 (margen con kdpv_prod_util).
+    return this.tk.run(async (trx) => {
+      const rows = await trx(SALES_FACT)
+        .where('tenant_id', tenantId)
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
+        .modify((qb) => {
+          if (from) qb.where('sale_date', '>=', from);
+          if (to) qb.where('sale_date', '<=', to);
+          if (q.zona)
+            qb.whereRaw(
+              'warehouse_id IN (SELECT id FROM commercial.warehouses WHERE tenant_id = ? AND (name ILIKE ? OR code = ?))',
+              [tenantId, q.zona, q.zona],
+            );
+        })
+        .select(
+          'sale_date AS day',
+          trx.raw('SUM(tickets)::int AS lines'),
+          trx.raw('COALESCE(SUM(units), 0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(revenue), 0)::numeric AS revenue'),
+        )
+        .groupBy('sale_date')
+        .orderBy('sale_date', 'asc');
+      return rows.map((r) => ({
+        day: r.day,
+        lines: Number(r.lines),
+        units: Number(r.units),
+        revenue: Number(r.revenue),
+        cost: 0,
+        margin: 0,
+      }));
+    });
+  }
+
+  /** Top productos del ERP por revenue en el período. */
+  async historicalTopProducts(q: { from?: string; to?: string; zona?: string; limit?: number }) {
+    const { from, to } = this.parseDateRange(q);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
+    const tenantId = this.tenantCtx.requireTenantId();
+    // PARIDAD/ODS: venta real consolidada del blend (recupera telemarketing Kepler) ⋈ catálogo.
+    // subfamilia = marca (en Kepler subfamilia == brand). revenue/units exactos.
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.mv_sales_blended AS s')
+        .join('catalog.products AS p', 'p.id', 's.product_id')
+        .leftJoin('catalog.categories AS cat', 'cat.id', 'p.category_id')
+        .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
+        .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
+        .modify((qb) => {
+          if (from) qb.where('s.sale_date', '>=', from);
+          if (to) qb.where('s.sale_date', '<=', to);
+          if (q.zona)
+            qb.whereRaw(
+              's.warehouse_id IN (SELECT id FROM commercial.warehouses WHERE tenant_id = ? AND (name ILIKE ? OR code = ?))',
+              [tenantId, q.zona, q.zona],
+            );
+        })
+        .select(
+          'p.id AS producto_id',
+          'p.nombre AS producto',
+          'cat.name AS categoria',
+          'b.nombre AS subfamilia',
+          trx.raw('COALESCE(SUM(s.units), 0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue'),
+        )
+        .groupBy('p.id', 'p.nombre', 'cat.name', 'b.nombre')
+        .orderBy('revenue', 'desc')
+        .limit(limit);
+      return rows.map((r) => ({
+        producto_id: r.producto_id,
+        producto: r.producto,
+        categoria: r.categoria,
+        subfamilia: r.subfamilia,
+        units: Number(r.units),
+        revenue: Number(r.revenue),
+      }));
+    });
+  }
+
+  /**
+   * Top N productos pre-calculado por el ERP (Mega_Dulces.ranking_productos).
+   * Esta tabla mantiene un top 1000 calculado por el ERP que cuenta TODA la
+   * venta (no solo lo levantado por el portal/vendor app), por eso es más
+   * fiel que el ranking derivado de `commercial.orders`.
+   *
+   * No acepta filtros — el ERP precalcula con su propia ventana temporal.
+   */
+  async historicalRanking(q: { limit?: number }) {
+    const limit = Math.min(1000, Math.max(1, Number(q.limit) || 100));
+    const tenantId = this.tenantCtx.requireTenantId();
+    // KV.2: ranking por venta real desde analytics.product_sales_stats (365d) en
+    // vez del FDW ranking_legacy (muerto en Railway). total_cajas no derivable del
+    // fact por-producto → 0; piezas = units_365d.
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.product_sales_stats AS s')
+        .join('catalog.products AS p', 'p.id', 's.product_id')
+        .where('s.tenant_id', tenantId)
+        .andWhere('p.is_promo', false)
+        .whereRaw('COALESCE(s.revenue_365d,0) > 0')
+        .select('p.sku AS articulo', 'p.nombre AS nombre', 's.units_365d', 's.revenue_365d')
+        .orderBy('s.revenue_365d', 'desc')
+        .limit(limit);
+      return rows.map((r, i) => ({
+        posicion: i + 1,
+        articulo: r.articulo,
+        nombre: r.nombre,
+        total_cajas: 0,
+        total_piezas: Number(r.units_365d || 0),
+        total_piezas_totales: Number(r.units_365d || 0),
+        total_venta: Number(r.revenue_365d || 0),
+      }));
+    });
+  }
+
+  /**
+   * Margen por categoría sobre ventas del período.
+   *
+   * `ventas.categoria` deja de poblarse en el ERP desde mayo 2026, así que
+   * JOIN-eamos por sku=articulo a `public.products` → `public.categories.name`
+   * para obtener categoría estable. Costo usa `ventas.costo` cuando viene
+   * (histórico al momento de venta), fallback a `cantidad × products.cost_base`
+   * (costo actual).
+   */
+  async historicalMarginByCategory(q: { from?: string; to?: string; limit?: number }) {
+    const { from, to } = this.parseDateRange(q);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 30));
+    // KV.4 / PARIDAD-ODS: margen por categoría desde el blend consolidado (mv_sales_blended, recupera
+    // telemarketing Kepler). cost = revenue/(1+markup) (cero regresión de margen; costo real por peldaño
+    // = MR/ADR-051). cost/margin sólo de productos con markup; categorías sin costo dan margin_pct NULL.
+    return this.tk.run(async (trx) => {
+      const tenantId = this.tenantCtx.requireTenantId();
+      const rows = await trx.raw(
+        `
+        SELECT
+          COALESCE(cat.name, 'Sin categoría')        AS category,
+          cat.id                                      AS category_id,
+          COUNT(DISTINCT s.product_id)::int           AS products,
+          COUNT(*)::int                               AS lines,
+          COALESCE(SUM(s.units), 0)::numeric          AS units,
+          COALESCE(SUM(s.revenue), 0)::numeric        AS revenue,
+          COALESCE(SUM(s.cost), 0)::numeric           AS cost,
+          (COALESCE(SUM(s.revenue),0) - COALESCE(SUM(s.cost),0))::numeric AS margin,
+          CASE WHEN SUM(s.cost) IS NOT NULL AND SUM(s.revenue) > 0
+            THEN ROUND(((SUM(s.revenue) - SUM(s.cost)) / SUM(s.revenue)) * 100, 2)
+            ELSE NULL END                             AS margin_pct
+        FROM analytics.mv_sales_blended s
+        JOIN catalog.products p ON p.id = s.product_id
+        LEFT JOIN catalog.categories cat ON cat.id = p.category_id AND cat.tenant_id = ?
+        WHERE s.tenant_id = ?
+          AND s.channel NOT IN ('mayoreo')  -- =TI% traspaso interno, no es venta
+          ${from ? `AND s.sale_date >= ?` : ''}
+          ${to ? `AND s.sale_date <= ?` : ''}
+        GROUP BY cat.id, cat.name
+        ORDER BY revenue DESC
+        LIMIT ?
+        `,
+        [tenantId, tenantId, ...(from ? [from] : []), ...(to ? [to] : []), limit],
+      );
+      return rows.rows.map((r: any) => ({
+        category: r.category,
+        category_id: r.category_id,
+        products: Number(r.products),
+        lines: Number(r.lines),
+        units: Number(r.units),
+        revenue: Number(r.revenue),
+        cost: Number(r.cost),
+        margin: Number(r.margin),
+        margin_pct: r.margin_pct != null ? Number(r.margin_pct) : null,
+      }));
+    });
+  }
+
+  /**
+   * Productos en el top del ERP pero con stock=0 en commercial.stock.
+   * Señal crítica: el ERP los considera best-sellers pero la app no tiene
+   * dónde surtirlos → oportunidad de venta perdida.
+   *
+   * Match por SKU = articulo del ERP.
+   */
+  async rankingOutOfStock(q: { limit?: number; topN?: number }): Promise<RankingOutOfStockRow[]> {
+    const limit = Math.min(50, Math.max(1, Number(q.limit) || 10));
+    // Solo escaneamos el top-N del ERP (más relevante; el ERP ya ordenó).
+    const topN = Math.min(1000, Math.max(50, Number(q.topN) || 200));
+
+    return this.guardErp('rankingOutOfStock', [], () =>
+     this.tk.run(async (trx) => {
+      const tenantId = this.tenantCtx.requireTenantId();
+      // Leemos de la MV LOCAL `products_top_sellers` (sincronizada desde el ERP
+      // por cron @15min) en vez de live-joinear el foreign table FDW
+      // `analytics_external.ranking_legacy` — el FDW Railway→.245 colgaba el
+      // request hasta el gateway timeout (504). Además acotamos el agregado de
+      // stock SOLO al topN (antes escaneaba todo el catálogo). Safety net:
+      // statement_timeout corta cualquier patología en 15s → guardErp cae a [].
+      await trx.raw(`SET LOCAL statement_timeout = '15s'`);
+      const rows = await trx.raw(
+        `
+        WITH top_erp AS (
+          SELECT id AS product_id, sku AS articulo, nombre,
+                 sales_rank AS posicion, revenue AS total_venta, units_total AS total_piezas_totales
+            FROM public.products_top_sellers
+           WHERE tenant_id = ?
+           ORDER BY sales_rank ASC
+           LIMIT ?
+        ),
+        stock_agg AS (
+          SELECT s.product_id,
+                 SUM(s.quantity)::numeric AS total_qty,
+                 SUM(s.reserved_quantity)::numeric AS total_reserved
+            FROM commercial.stock s
+           WHERE s.product_id IN (SELECT product_id FROM top_erp)
+           GROUP BY s.product_id
+        )
+        SELECT t.posicion,
+               t.articulo,
+               t.nombre AS erp_name,
+               t.total_venta,
+               t.total_piezas_totales,
+               t.product_id,
+               COALESCE(sa.total_qty, 0)::numeric AS total_qty,
+               COALESCE(sa.total_reserved, 0)::numeric AS total_reserved,
+               GREATEST(COALESCE(sa.total_qty, 0) - COALESCE(sa.total_reserved, 0), 0)::numeric AS available
+          FROM top_erp t
+          LEFT JOIN stock_agg sa ON sa.product_id = t.product_id
+         WHERE COALESCE(sa.total_qty, 0) - COALESCE(sa.total_reserved, 0) <= 0
+         ORDER BY t.posicion ASC
+         LIMIT ?
+        `,
+        [tenantId, topN, limit],
+      );
+
+      return rows.rows.map((r: any) => ({
+        posicion: Number(r.posicion),
+        articulo: r.articulo,
+        product_id: r.product_id || null,
+        nombre: r.erp_name,
+        total_venta: Number(r.total_venta || 0),
+        total_piezas_totales: Number(r.total_piezas_totales || 0),
+        total_qty: Number(r.total_qty),
+        total_reserved: Number(r.total_reserved),
+        available: Number(r.available),
+      }));
+    }));
+  }
+
+  /** Resumen por zona/sucursal en el período. */
+  async historicalSalesByZona(q: { from?: string; to?: string }) {
+    const { from, to } = this.parseDateRange(q);
+    const tenantId = this.tenantCtx.requireTenantId();
+    // KV.1: venta real por almacén desde analytics.sales_daily ⋈ warehouses.
+    // revenue/units exactos; tickets = sum proxy (grano-producto, no aditivo);
+    // unique_customers = 0 (no derivable del fact por-producto, llega en KV.3).
+    return this.tk.run(async (trx) => {
+      const rows = await trx(`${SALES_FACT} AS s`)
+        .join('commercial.warehouses AS w', 'w.id', 's.warehouse_id')
+        .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
+        .modify((qb) => {
+          if (from) qb.where('s.sale_date', '>=', from);
+          if (to) qb.where('s.sale_date', '<=', to);
+        })
+        .select(
+          'w.name AS zona',
+          'w.code AS almacen',
+          trx.raw('SUM(s.tickets)::int AS tickets'),
+          trx.raw('COALESCE(SUM(s.units), 0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue'),
+        )
+        .groupBy('w.name', 'w.code')
+        .orderBy('revenue', 'desc');
+      return rows.map((r) => ({
+        zona: r.zona,
+        almacen: r.almacen,
+        tickets: Number(r.tickets),
+        unique_customers: 0,
+        units: Number(r.units),
+        revenue: Number(r.revenue),
+      }));
+    });
+  }
+
+  // ─────────── KV.3/5/6 — consumo de analytics.* (venta real Kepler) ───────────
+
+  // ── Command Center sobre VENTA REAL de la red (analytics.*, no commercial.orders) ──
+  // Estos leen las tablas KV.1/2/3 que los feeds Kepler aterrizan en el platform DB
+  // (funcionan en prod). analytics.* NO tiene RLS → filtro tenant_id explícito.
+
+  /** Ventana rolling 30d en TZ MX como expresión SQL reusable. */
+  private since30d(trx: any) {
+    return trx.raw(`((now() AT TIME ZONE 'America/Mexico_City')::date - 29)`);
+  }
+  /** Tope superior = hoy MX. Evita que filas con fecha futura (parseo malo del feed) inflen la ventana. */
+  private untilToday(trx: any) {
+    return trx.raw(`((now() AT TIME ZONE 'America/Mexico_City')::date)`);
+  }
+
+  /** Valor de una fila agregada según la métrica pedida (mismos SUM que los reportes probados). */
+  private metricValue(metric: string, r: any): number {
+    const rev = Number(r?.revenue || 0), cost = Number(r?.cost || 0), units = Number(r?.units || 0), tickets = Number(r?.tickets || 0);
+    if (metric === 'margen') return rev - cost;
+    if (metric === 'unidades') return units;
+    if (metric === 'tickets') return tickets;
+    if (metric === 'ticket_promedio') return tickets > 0 ? +(rev / tickets).toFixed(2) : 0;
+    return rev; // ventas ($)
+  }
+
+  /**
+   * VG.1 — consulta semántica de ventas. Resuelve (metric × dimension × rango) sobre
+   * `analytics.sales_daily` de forma DETERMINISTA, con los MISMOS SUM(revenue/cost/units/
+   * tickets) que usan networkOverview/networkTopProducts/networkSalesByBrand (venta real).
+   * El agente (Thot) NO calcula: elige metric/dimension/rango y este método pone los números.
+   * Dimensiones: canal, marca, categoria, sucursal, producto (join a catalog/warehouses) y
+   * tiempo (serie por día). Rango por from/to (YYYY-MM-DD); default = 30d móvil MX.
+   */
+  async salesQuery(p: {
+    metric?: string; dimension?: string; from?: string; to?: string; limit?: number;
+    channel?: string; warehouse_id?: string; brand_id?: string; category_id?: string;
+    sku?: string; brand?: string; category?: string;
+  }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const METRICS = ['ventas', 'margen', 'unidades', 'tickets', 'ticket_promedio'];
+    const DIMS = ['canal', 'marca', 'categoria', 'sucursal', 'producto', 'tiempo'];
+    const metric = METRICS.includes(p?.metric || '') ? (p!.metric as string) : 'ventas';
+    const dimension = DIMS.includes(p?.dimension || '') ? (p!.dimension as string) : 'canal';
+    const limit = Math.min(200, Math.max(1, Number(p?.limit) || 20));
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const from = typeof p?.from === 'string' && dateRe.test(p.from) ? p.from : null;
+    const to = typeof p?.to === 'string' && dateRe.test(p.to) ? p.to : null;
+    // Filtros de alcance (WHERE) — recortan el universo antes de agrupar por la dimensión.
+    const channel = typeof p?.channel === 'string' && p.channel ? p.channel : null;
+    const warehouseId = typeof p?.warehouse_id === 'string' && p.warehouse_id ? p.warehouse_id : null;
+    const brandId = typeof p?.brand_id === 'string' && p.brand_id ? p.brand_id : null;
+    const categoryId = typeof p?.category_id === 'string' && p.category_id ? p.category_id : null;
+    // Filtros que Thot (VG.2) emite por TEXTO desde lenguaje natural: SKU exacto (ej. "79141"),
+    // o nombre de marca/categoría (se resuelven a id abajo). No calculan cifras, solo recortan.
+    const sku = typeof p?.sku === 'string' && p.sku.trim() ? p.sku.trim() : null;
+    const brandName = typeof p?.brand === 'string' && p.brand.trim() ? p.brand.trim() : null;
+    const categoryName = typeof p?.category === 'string' && p.category.trim() ? p.category.trim() : null;
+
+    return this.tk.run(async (trx) => {
+      const lo = from ?? this.since30d(trx);
+      const hi = to ?? this.untilToday(trx);
+      // Resuelve marca/categoría por nombre → id (solo si no vino ya un id de la UI).
+      let brandIdEff = brandId;
+      let categoryIdEff = categoryId;
+      if (!brandIdEff && brandName) {
+        const b = await trx('catalog.brands').where('tenant_id', tenantId).whereRaw('nombre ILIKE ?', [brandName]).first('id');
+        brandIdEff = b?.id || null;
+      }
+      if (!categoryIdEff && categoryName) {
+        const c = await trx('catalog.categories').where('tenant_id', tenantId).whereRaw('name ILIKE ?', [categoryName]).first('id');
+        categoryIdEff = c?.id || null;
+      }
+      const sums = [
+        trx.raw('COALESCE(SUM(s.revenue),0)::numeric AS revenue'),
+        trx.raw('COALESCE(SUM(s.cost),0)::numeric AS cost'),
+        trx.raw('COALESCE(SUM(s.units),0)::numeric AS units'),
+        trx.raw('COALESCE(SUM(s.tickets),0)::int AS tickets'),
+      ];
+      // Aplica los filtros de alcance a cualquier query base (breakdown y total).
+      // brand/category via EXISTS sobre catalog.products → compone con cualquier dimensión
+      // sin chocar con los joins (alias p) que agregan las ramas producto/marca/categoria.
+      const applyFilters = (qb: any) => {
+        qb.whereNotIn('s.channel', NON_SALE_RAW_CHANNELS); // mayoreo=TI% traspaso, no es venta
+        if (channel) qb.andWhere('s.channel', channel);
+        if (warehouseId) qb.andWhere('s.warehouse_id', warehouseId);
+        if (brandIdEff) qb.whereExists(function (this: any) {
+          this.select(trx.raw('1')).from('catalog.products AS pf')
+            .whereRaw('pf.id = s.product_id').andWhere('pf.tenant_id', tenantId).andWhere('pf.brand_id', brandIdEff);
+        });
+        if (categoryIdEff) qb.whereExists(function (this: any) {
+          this.select(trx.raw('1')).from('catalog.products AS pf')
+            .whereRaw('pf.id = s.product_id').andWhere('pf.tenant_id', tenantId).andWhere('pf.category_id', categoryIdEff);
+        });
+        if (sku) qb.whereExists(function (this: any) {
+          this.select(trx.raw('1')).from('catalog.products AS pf')
+            .whereRaw('pf.id = s.product_id').andWhere('pf.tenant_id', tenantId).andWhereRaw('pf.sku = ?', [sku]);
+        });
+        return qb;
+      };
+      const base = () => applyFilters(trx(`${SALES_FACT} AS s`)
+        .where('s.tenant_id', tenantId)
+        .andWhere('s.sale_date', '>=', lo)
+        .andWhere('s.sale_date', '<=', hi));
+
+      let raw: any[] = [];
+      if (dimension === 'canal') {
+        raw = await base().groupBy('s.channel').select(trx.raw("COALESCE(s.channel,'—') AS label"), ...sums).orderByRaw('SUM(s.revenue) DESC');
+      } else if (dimension === 'tiempo') {
+        raw = await base().groupBy('s.sale_date').select(trx.raw("to_char(s.sale_date,'YYYY-MM-DD') AS label"), ...sums).orderBy('s.sale_date', 'asc');
+      } else if (dimension === 'producto') {
+        raw = await base()
+          .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+          .groupBy('s.product_id', 'p.nombre').select(trx.raw("COALESCE(p.nombre,'—') AS label"), ...sums)
+          .orderByRaw('SUM(s.revenue) DESC').limit(limit);
+      } else if (dimension === 'marca') {
+        raw = await base()
+          .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+          .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
+          .groupBy('b.id', 'b.nombre').select(trx.raw("COALESCE(b.nombre,'—') AS label"), ...sums)
+          .orderByRaw('SUM(s.revenue) DESC').limit(limit);
+      } else if (dimension === 'categoria') {
+        raw = await base()
+          .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+          .leftJoin('catalog.categories AS c', 'c.id', 'p.category_id')
+          .groupBy('c.id', 'c.name').select(trx.raw("COALESCE(c.name,'Sin categoría') AS label"), ...sums)
+          .orderByRaw('SUM(s.revenue) DESC').limit(limit);
+      } else { // sucursal
+        raw = await base()
+          .leftJoin('commercial.warehouses AS w', (j: any) => j.on('w.id', 's.warehouse_id').andOn('w.tenant_id', 's.tenant_id'))
+          .groupBy('w.id', 'w.code', 'w.name')
+          .select(trx.raw("COALESCE(w.code,'—') AS code"), trx.raw("COALESCE(w.name,'') AS name"), ...sums)
+          .orderByRaw('SUM(s.revenue) DESC').limit(limit);
+      }
+
+      const rows = raw.map((r) => ({
+        label: dimension === 'sucursal' ? `${r.code} ${r.name}`.trim() : String(r.label),
+        value: this.metricValue(metric, r),
+        revenue: Number(r.revenue), cost: Number(r.cost),
+        margin: Number(r.revenue) - Number(r.cost), units: Number(r.units), tickets: Number(r.tickets),
+      }));
+
+      // Total + cobertura de costo sobre el rango YA FILTRADO (para share y confianza del margen).
+      const [tot] = await applyFilters(trx(`${SALES_FACT} AS s`)
+        .where('s.tenant_id', tenantId)
+        .andWhere('s.sale_date', '>=', lo)
+        .andWhere('s.sale_date', '<=', hi))
+        .select(...sums, trx.raw('COALESCE(SUM(s.revenue) FILTER (WHERE s.cost > 0),0)::numeric AS revenue_with_cost'));
+      const totalRevenue = Number(tot?.revenue || 0);
+      const totalValue = this.metricValue(metric, tot || {});
+      for (const r of rows) (r as any).share = totalValue > 0 ? +((r.value / totalValue) * 100).toFixed(2) : 0;
+
+      const tRev = Number(tot?.revenue || 0), tCost = Number(tot?.cost || 0), tTickets = Number(tot?.tickets || 0);
+      return {
+        metric, dimension,
+        total: totalValue,
+        coverage_pct: totalRevenue > 0 ? +((Number(tot?.revenue_with_cost || 0) / totalRevenue) * 100).toFixed(1) : 0,
+        // Totales del alcance filtrado → alimentan el KPI-strip cuando hay filtros activos.
+        totals: {
+          revenue: tRev, cost: tCost, margin: tRev - tCost, units: Number(tot?.units || 0),
+          tickets: tTickets, avg_ticket: tTickets > 0 ? +(tRev / tTickets).toFixed(2) : 0,
+        },
+        rows,
+      };
+    });
+  }
+
+  /**
+   * VG.1 — opciones para los filtros de "Ventas Generales". Self-sufficient (analytics):
+   * canales/sucursales/marcas/categorías CON venta real en los últimos 90 días, para no
+   * ofrecer filtros que devuelvan vacío. Todo desde analytics.sales_daily ⋈ catalog/warehouses.
+   */
+  async salesQueryFilters() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const since = trx.raw(`((now() AT TIME ZONE 'America/Mexico_City')::date - 89)`);
+      const channels = await trx(`${SALES_FACT} AS s`)
+        .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since).whereNotNull('s.channel')
+        .groupBy('s.channel').select('s.channel AS value').orderByRaw('SUM(s.revenue) DESC');
+      const warehouses = await trx(`${SALES_FACT} AS s`)
+        .join('commercial.warehouses AS w', (j: any) => j.on('w.id', 's.warehouse_id').andOn('w.tenant_id', 's.tenant_id'))
+        .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since)
+        .groupBy('w.id', 'w.code', 'w.name').select('w.id AS value', 'w.code AS code', 'w.name AS name')
+        .orderByRaw('SUM(s.revenue) DESC');
+      const brands = await trx(`${SALES_FACT} AS s`)
+        .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+        .join('catalog.brands AS b', 'b.id', 'p.brand_id')
+        .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since)
+        .groupBy('b.id', 'b.nombre').select('b.id AS value', 'b.nombre AS label')
+        .orderByRaw('SUM(s.revenue) DESC').limit(300);
+      const categories = await trx(`${SALES_FACT} AS s`)
+        .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+        .join('catalog.categories AS c', 'c.id', 'p.category_id')
+        .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since)
+        .groupBy('c.id', 'c.name').select('c.id AS value', 'c.name AS label')
+        .orderByRaw('SUM(s.revenue) DESC').limit(300);
+      return {
+        channels: channels.map((r: any) => ({ value: r.value, label: r.value })),
+        warehouses: warehouses.map((r: any) => ({ value: r.value, label: `${r.code} ${r.name || ''}`.trim() })),
+        brands,
+        categories,
+      };
+    });
+  }
+
+  /**
+   * KPIs del Command Center desde `analytics.sales_daily` (venta real 30d):
+   * venta bruta, costo→margen, unidades, tickets, ticket prom, mix por canal +
+   * clientes activos (KV.3). El pipeline (draft/confirmed/cancelled) se conserva
+   * de `commercial.orders` — es el único bloque que sigue en data de plataforma.
+   */
+  async networkOverview(): Promise<NetworkOverview> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      // UNA sola pasada por sales_daily, agrupada por canal; los totales salen de sumar
+      // los canales. Antes eran DOS consultas con el mismo WHERE sobre la misma tabla
+      // (400 MB, ~900k filas): el total y el desglose. Cada pasada cuesta ~1.5 s en prod
+      // y todo esto corre en UNA conexión (tk.run abre transacción), así que los tiempos
+      // se suman en vez de solaparse. Medido en prod: este endpoint tardaba 4.4 s y era
+      // el que dejaba el tablero en esqueletos — los otros 9 paneles ya tenían datos.
+      // PARIDAD/ODS — revenue/cost/units/canal de la venta real CONSOLIDADA (mv_sales_blended: Kepler
+      // del ODS + rutas + Wincaja), NO la copia sales_daily que sub-cuenta Kepler ~$8M/mes.
+      const channels = await trx('analytics.mv_sales_blended')
+        .where('tenant_id', tenantId)
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
+        .andWhere('sale_date', '>=', this.since30d(trx))
+        .andWhere('sale_date', '<=', this.untilToday(trx))
+        .groupBy('channel')
+        .select(
+          'channel',
+          trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(cost),0)::numeric AS cost'),
+          trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
+          trx.raw('MAX(sale_date) AS last_sale_date'),
+          trx.raw('MAX(updated_at) AS updated_at'),
+          // cobertura de costo: % del revenue que tiene costo capturado (para el chip de confianza).
+          trx.raw('COALESCE(SUM(revenue) FILTER (WHERE cost > 0),0)::numeric AS revenue_with_cost'),
+        )
+        .orderByRaw('SUM(revenue) DESC');
+      // TICKETS aún de sales_daily (los matviews del ODS no cuentan folio): total + por canal, mismo
+      // vocabulario de canal → se cruza con el blend. Aproximado (le falta el ticket del telemarketing,
+      // que la copia no tiene) → avg_ticket queda levemente alto; el revenue SÍ es el real consolidado.
+      const ticketRows: any[] = await trx(SALES_FACT)
+        .where('tenant_id', tenantId)
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS)
+        .andWhere('sale_date', '>=', this.since30d(trx))
+        .andWhere('sale_date', '<=', this.untilToday(trx))
+        .groupBy('channel')
+        .select('channel', trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'));
+      const ticketByChannel = new Map<string, number>(ticketRows.map((r: any) => [r.channel, Number(r.tickets || 0)]));
+
+      // El total es la suma de los canales, y los MAX son el mayor de los MAX por canal:
+      // exactamente lo mismo que devolvía el agregado global. Sin filas, todo queda en 0 /
+      // null, igual que antes.
+      const maxOf = (k: 'last_sale_date' | 'updated_at') =>
+        channels.reduce((m: any, r: any) => (r[k] && (!m || r[k] > m) ? r[k] : m), null);
+      const tot = {
+        revenue: channels.reduce((a: number, r: any) => a + Number(r.revenue || 0), 0),
+        cost: channels.reduce((a: number, r: any) => a + Number(r.cost || 0), 0),
+        units: channels.reduce((a: number, r: any) => a + Number(r.units || 0), 0),
+        tickets: ticketRows.reduce((a: number, r: any) => a + Number(r.tickets || 0), 0), // tickets de sales_daily (ver nota)
+        revenue_with_cost: channels.reduce((a: number, r: any) => a + Number(r.revenue_with_cost || 0), 0),
+        last_sale_date: maxOf('last_sale_date'),
+        updated_at: maxOf('updated_at'),
+      };
+
+      const [cust] = await trx('analytics.customer_product_sales')
+        .where('tenant_id', tenantId)
+        .andWhere('last_purchase_date', '>=', this.since30d(trx))
+        .countDistinct<{ n: string }[]>('erp_code as n');
+
+      const pipeRows: any[] = await trx('commercial.orders')
+        .whereNull('deleted_at')
+        .whereIn('status', ['confirmed', 'draft', 'cancelled'])
+        .andWhere('created_at', '>=', this.since30d(trx))
+        .groupBy('status')
+        .select('status', trx.raw('count(*)::int AS n'));
+      const pipe = (s: string) => Number(pipeRows.find((r) => r.status === s)?.n || 0);
+
+      const revenue = Number(tot?.revenue || 0);
+      const cost = Number(tot?.cost || 0);
+      const margin = revenue - cost;
+      const tickets = Number(tot?.tickets || 0);
+
+      // Se lo dejamos servido a networkTopProducts (mismo WHERE, mismo número).
+      this.netRevenue30d.set(tenantId, { revenue, at: Date.now() });
+
+      const revWithCost = Number(tot?.revenue_with_cost || 0);
+      return {
+        source: 'network',
+        updated_at: tot?.updated_at || null,
+        // rolling 30d MÓVIL (hoy−29 .. hoy), no el mes calendario.
+        period: { rolling_days: 30, last_sale_date: tot?.last_sale_date || null },
+        // % del revenue con costo capturado → "qué tan confiable es el margen".
+        cost_coverage_pct: revenue > 0 ? +((revWithCost / revenue) * 100).toFixed(1) : 0,
+        revenue: {
+          gross: revenue,
+          cost,
+          margin,
+          margin_pct: revenue > 0 ? +((margin / revenue) * 100).toFixed(1) : 0,
+          currency: 'MXN',
+        },
+        units: Number(tot?.units || 0),
+        tickets,
+        avg_ticket: tickets > 0 ? +(revenue / tickets).toFixed(2) : 0,
+        unique_customers: Number(cust?.n || 0),
+        by_channel: channels.map((c: any) => {
+          const chRev = Number(c.revenue);
+          const chMargin = chRev - Number(c.cost);
+          return {
+            channel: c.channel,
+            revenue: chRev,
+            cost: Number(c.cost),
+            margin: chMargin,
+            margin_pct: chRev > 0 ? +((chMargin / chRev) * 100).toFixed(1) : 0,
+            units: Number(c.units),
+            tickets: ticketByChannel.get(c.channel) || 0, // tickets de sales_daily por canal (ver nota)
+            share_pct: revenue > 0 ? +((chRev / revenue) * 100).toFixed(1) : 0,
+          };
+        }),
+        pipeline: {
+          confirmed: pipe('confirmed'),
+          draft: pipe('draft'),
+          cancelled: pipe('cancelled'),
+        },
+      };
+    });
+  }
+
+  /**
+   * Top productos por venta real 30d MÓVIL. Fuente = `analytics.sales_daily` (misma que el KPI
+   * total) para traer COSTO→MARGEN consistente; `abc_class` desde product_sales_stats (KV.2).
+   */
+  async networkTopProducts(limitParam?: number | string, opts?: { share?: boolean }): Promise<NetworkTopProductRow[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(50, Math.max(1, Number(limitParam) || 5));
+    return this.tk.run(async (trx) => {
+      // PARIDAD/ODS — venta real consolidada del blend (recupera telemarketing Kepler), no la copia.
+      const rows: any[] = await trx('analytics.mv_sales_blended AS s')
+        .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+        .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
+        .leftJoin('analytics.product_sales_stats AS st', (j: any) =>
+          j.on('st.product_id', 's.product_id').andOn('st.tenant_id', 's.tenant_id'))
+        .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
+        .andWhere('s.sale_date', '>=', this.since30d(trx))
+        .andWhere('s.sale_date', '<=', this.untilToday(trx))
+        .andWhere('p.is_promo', false)
+        .groupBy('s.product_id', 'p.nombre', 'b.nombre', 'st.abc_class')
+        .havingRaw('SUM(s.revenue) > 0')
+        .select(
+          's.product_id',
+          'p.nombre AS product_name',
+          'b.nombre AS brand_name',
+          trx.raw('COALESCE(SUM(s.units),0)::numeric AS units_sold'),
+          trx.raw('COALESCE(SUM(s.revenue),0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(s.cost),0)::numeric AS cost'),
+          trx.raw('MAX(st.abc_class) AS abc_class'),
+        )
+        .orderByRaw('SUM(s.revenue) DESC')
+        .limit(limit);
+      // share sobre el revenue total de la red 30d (no sobre el top-N) → coherente con by_channel/marca.
+      // Ese total es EXACTAMENTE el que ya calculó networkOverview (mismo WHERE, sin filtro de
+      // promo), así que se toma del memo. Recalcularlo costaba una segunda pasada por
+      // sales_daily — ~1.3 s en prod, en la misma conexión, o sea sumados: el tablero esperaba
+      // 3.6 s por un dato que ningún consumidor lee (el Centro de control calcula su propio
+      // share sobre el top-N, y Ventas Generales solo usa revenue/margen/unidades).
+      // Sin memo fresco → `share_pct: null` ("no lo sé sin otra pasada"), salvo `?share=true`.
+      let netTotal = this.netRevenue30dCached(tenantId);
+      if (netTotal === null && opts?.share) {
+        const [tot] = await trx('analytics.mv_sales_blended')
+          .where('tenant_id', tenantId)
+          .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
+          .andWhere('sale_date', '>=', this.since30d(trx))
+          .andWhere('sale_date', '<=', this.untilToday(trx))
+          .select(trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'));
+        netTotal = Number(tot?.revenue || 0);
+        this.netRevenue30d.set(tenantId, { revenue: netTotal, at: Date.now() });
+      }
+      return rows.map((r, i) => {
+        const revenue = Number(r.revenue);
+        const margin = revenue - Number(r.cost);
+        return {
+          source: 'network',
+          product_id: r.product_id,
+          product_name: r.product_name,
+          brand_name: r.brand_name || '—',
+          units_sold: Number(r.units_sold),
+          revenue,
+          cost: Number(r.cost),
+          margin,
+          margin_pct: revenue > 0 ? +((margin / revenue) * 100).toFixed(1) : 0,
+          abc_class: r.abc_class || null,
+          share_pct: netTotal === null ? null : netTotal > 0 ? +((revenue / netTotal) * 100).toFixed(2) : 0,
+          rank_by_revenue: i + 1,
+        };
+      });
+    });
+  }
+
+  /** Mix por marca sobre venta real 30d MÓVIL (analytics.mv_sales_blended join catalog.*), con margen. */
+  async networkSalesByBrand(): Promise<SalesByBrandRow[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      // PARIDAD/ODS — blend consolidado (recupera telemarketing Kepler), no la copia sales_daily.
+      const rows: any[] = await trx('analytics.mv_sales_blended AS s')
+        .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
+        .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
+        .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
+        .andWhere('s.sale_date', '>=', this.since30d(trx))
+        .andWhere('s.sale_date', '<=', this.untilToday(trx))
+        .groupBy('b.id', 'b.nombre')
+        .select(
+          'b.id AS brand_id',
+          'b.nombre AS brand_name',
+          trx.raw('COALESCE(SUM(s.units),0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(s.revenue),0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(s.cost),0)::numeric AS cost'),
+        )
+        .orderByRaw('SUM(s.revenue) DESC')
+        .limit(20);
+      const total = rows.reduce((a, r) => a + Number(r.revenue), 0);
+      return rows.map((r) => {
+        const revenue = Number(r.revenue);
+        const margin = revenue - Number(r.cost);
+        return {
+          brand_id: r.brand_id,
+          brand_name: r.brand_name || 'Sin marca',
+          units: Number(r.units),
+          revenue,
+          cost: Number(r.cost),
+          margin,
+          margin_pct: revenue > 0 ? +((margin / revenue) * 100).toFixed(1) : 0,
+          share_pct: total > 0 ? +((revenue / total) * 100).toFixed(2) : 0,
+        };
+      });
+    });
+  }
+
+  /** Serie diaria de venta real (revenue/units/tickets) para el sparkline del hero. */
+  async networkDailySeries(q: DateRangeQuery): Promise<NetworkDailyRow[]> {
+    const { from, to } = this.parseDateRange(q);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      // PARIDAD/ODS — revenue/units del blend consolidado (recupera telemarketing Kepler).
+      const dayFilter = (qb: any) => qb
+        .where('tenant_id', tenantId)
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS)
+        .andWhere('sale_date', '<=', this.untilToday(trx))
+        .modify((q: any) => { if (from) q.where('sale_date', '>=', from); if (to) q.where('sale_date', '<=', to); });
+      const rows: any[] = await dayFilter(trx('analytics.mv_sales_blended'))
+        .groupBy('sale_date')
+        .select(
+          trx.raw('sale_date::text AS day'),
+          trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
+        )
+        .orderBy('sale_date', 'asc');
+      // Tickets aún de sales_daily (los matviews del ODS no cuentan folio) → sparkline de tickets
+      // aproximado (le falta el telemarketing); revenue/units SÍ son el real consolidado.
+      const tRows: any[] = await dayFilter(trx(SALES_FACT))
+        .groupBy('sale_date')
+        .select(trx.raw('sale_date::text AS day'), trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'));
+      const tByDay = new Map<string, number>(tRows.map((r: any) => [r.day, Number(r.tickets || 0)]));
+      return rows.map((r) => ({
+        day: r.day,
+        revenue: Number(r.revenue),
+        units: Number(r.units),
+        tickets: tByDay.get(r.day) || 0,
+      }));
+    });
+  }
+
+  /** KV.5 — Salud de inventario: días de cobertura + status por producto×almacén. */
+  async inventoryHealth(q: { warehouse_id?: string; status?: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      // Excluir filas de almacenes soft-deleted (warehouses efímeros de tests).
+      const notDeletedWh = trx('commercial.warehouses').select('id').whereNotNull('deleted_at');
+      const summary = await trx('analytics.inventory_health AS h')
+        .where('h.tenant_id', tenantId)
+        .whereNotIn('h.warehouse_id', notDeletedWh.clone())
+        .modify((qb) => { if (q.warehouse_id) qb.where('h.warehouse_id', q.warehouse_id); })
+        .groupBy('h.status')
+        .select('h.status', trx.raw('count(*)::int AS n'));
+      const items = await trx('analytics.inventory_health AS h')
+        .join('catalog.products AS p', 'p.id', 'h.product_id')
+        .leftJoin('commercial.warehouses AS w', 'w.id', 'h.warehouse_id')
+        .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
+        .where('h.tenant_id', tenantId)
+        .whereNotIn('h.warehouse_id', notDeletedWh.clone())
+        .modify((qb) => {
+          if (q.warehouse_id) qb.where('h.warehouse_id', q.warehouse_id);
+          if (q.status) qb.where('h.status', q.status);
+        })
+        .select(
+          'w.code AS warehouse_code', 'p.sku', 'p.nombre AS product_name', 'b.nombre AS brand_name',
+          'h.on_hand', 'h.avg_daily_units', 'h.days_cover', 'h.status',
+        )
+        .orderByRaw('h.days_cover ASC NULLS LAST')
+        .limit(2000);
+      return { summary, items };
+    });
+  }
+
+  // ─────────── GX v2 — Egresos contables (motor dinámico) ───────────
+
+  // [GX.19] La forma de los filtros de egreso, que hasta ahora viajaba como `any` de punta a punta.
+  // Se tipa acá y no en `libs/contracts` porque NO es forma de wire: el controller ya recibe los
+  // parámetros sueltos y los arma con `parseExpenseFilters`. Los `*_null` son el drill del bucket
+  // "(sin …)" y los `*_eq` el drill exacto desde una fila — ver `expenseQuery`.
+  private static readonly EXPENSE_FILTER_KEYS = [
+    'sucursal', 'familia', 'doc_tipo', 'cuenta', 'cuenta_mayor', 'area', 'dpto', 'beneficiario',
+    'min_importe', 'max_importe',
+  ] as const;
+
+  /** Rango [from,to] con default 90d + período previo del mismo largo. */
+  private expenseRange(q: { from?: string; to?: string }) {
+    const to = q.to || new Date().toISOString().slice(0, 10);
+    const from = q.from || (() => { const d = new Date(to); d.setDate(d.getDate() - 90); return d.toISOString().slice(0, 10); })();
+    const DAY = 86400000;
+    const span = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / DAY) + 1);
+    const prev_to = new Date(Date.parse(from) - DAY).toISOString().slice(0, 10);
+    const prev_from = new Date(Date.parse(from) - DAY * span).toISOString().slice(0, 10);
+    return { from, to, prev_from, prev_to };
+  }
+
+  /** Query base de expense_entries con todos los filtros aplicados. */
+  private expenseQuery(trx: Knex.Transaction, tenantId: string, from: string, to: string, q: ExpenseQueryFilters) {
+    const b = trx('analytics.expense_entries as e')
+      .where('e.tenant_id', tenantId)
+      .andWhere('e.fecha', '>=', from)
+      .andWhere('e.fecha', '<=', to);
+    if (q.sucursal?.length) b.whereIn('e.sucursal', q.sucursal);
+    if (q.familia) b.where('e.familia', q.familia);
+    if (q.doc_tipo) b.where('e.doc_tipo', q.doc_tipo);
+    if (q.cuenta) b.where('e.cuenta', q.cuenta);
+    if (q.cuenta_mayor) b.where('e.cuenta_mayor', q.cuenta_mayor);
+    if (q.area_null) b.whereNull('e.area');
+    else if (q.area) b.where('e.area', q.area);
+    if (q.dpto_null) b.whereNull('e.dpto');
+    else if (q.dpto) b.where('e.dpto', q.dpto);
+    // concepto = 3er nivel contable (nómina bancos, arrendamiento…); se filtra por nombre
+    // porque el código c20 se repite entre subcuentas.
+    if (q.concepto_null) b.whereNull('e.concepto_nombre');
+    else if (q.concepto) b.where('e.concepto_nombre', q.concepto);
+    // *_null = drill del bucket "(sin …)"; *_eq = drill exacto desde una fila; beneficiario solo = búsqueda libre (ILIKE)
+    if (q.beneficiario_null) b.whereNull('e.beneficiario');
+    else if (q.beneficiario_eq) b.where('e.beneficiario', q.beneficiario_eq);
+    else if (q.beneficiario) b.whereRaw('e.beneficiario ILIKE ?', [`%${q.beneficiario}%`]);
+    if (q.min_importe != null) b.where('e.importe', '>=', q.min_importe);
+    if (q.max_importe != null) b.where('e.importe', '<=', q.max_importe);
+    return b;
+  }
+
+  /** Mapea la dimensión de agrupación (group_by) a SQL. */
+  private expenseDim(gb?: string) {
+    switch (gb) {
+      case 'cuenta_mayor':
+        return { key: 'cuenta_mayor', groupSql: 'e.cuenta_mayor, e.cuenta_mayor_nombre', keySql: "COALESCE(e.cuenta_mayor,'-')", labelSql: "CASE WHEN COALESCE(e.cuenta_mayor_nombre,'')<>'' THEN e.cuenta_mayor||' · '||e.cuenta_mayor_nombre ELSE COALESCE(e.cuenta_mayor,'-') END", familia: false };
+      case 'beneficiario':
+        return { key: 'beneficiario', groupSql: 'e.beneficiario', keySql: "COALESCE(e.beneficiario,'(sin beneficiario)')", labelSql: "COALESCE(e.beneficiario,'(sin beneficiario)')", familia: false };
+      case 'sucursal':
+        return { key: 'sucursal', groupSql: 'e.sucursal', keySql: 'e.sucursal', labelSql: 'e.sucursal', familia: false };
+      case 'doc_tipo':
+        return { key: 'doc_tipo', groupSql: 'e.doc_tipo', keySql: 'e.doc_tipo', labelSql: 'e.doc_tipo', familia: false };
+      case 'area': // e.area = kdm1.c48 = SOLICITANTE (persona que pide el egreso); key '(sin área)' se mantiene para el drill
+        return { key: 'area', groupSql: 'e.area', keySql: "COALESCE(e.area,'(sin área)')", labelSql: "COALESCE(e.area,'(sin solicitante)')", familia: false };
+      case 'dpto':
+        return { key: 'dpto', groupSql: 'e.dpto, e.dpto_nombre', keySql: "COALESCE(e.dpto,'(sin depto)')", labelSql: "COALESCE(e.dpto_nombre, e.dpto, '(sin depto)')", familia: false };
+      case 'concepto':
+        return { key: 'concepto', groupSql: 'e.concepto_nombre', keySql: "COALESCE(e.concepto_nombre,'(sin concepto)')", labelSql: "COALESCE(e.concepto_nombre,'(sin concepto)')", familia: false };
+      case 'mes':
+        return { key: 'mes', groupSql: "to_char(e.fecha,'YYYY-MM')", keySql: "to_char(e.fecha,'YYYY-MM')", labelSql: "to_char(e.fecha,'YYYY-MM')", familia: false };
+      case 'cuenta':
+      default:
+        return { key: 'cuenta', groupSql: 'e.cuenta, e.cuenta_nombre, e.familia', keySql: 'e.cuenta', labelSql: "CASE WHEN COALESCE(e.cuenta_nombre,'')<>'' THEN e.cuenta||' · '||e.cuenta_nombre ELSE e.cuenta END", familia: true };
+    }
+  }
+
+  /**
+   * [GX.19] Frescura de los egresos — DOS eslabones, porque ninguno solo alcanza.
+   *
+   *  1. El PASO `import-expenses-polizas.js` en `analytics.cron_run_log`. No sirve el latido del
+   *     carril: `run-prod-feeds.js` cierra `feed_nightly` en `ok` mientras no fallen TODOS sus
+   *     pasos, así que el carril puede estar verde con este importer muerto. Medido: el
+   *     2026-09-23 no hay corrida registrada de este paso y la pantalla sirvió el dato del 22 sin
+   *     decirlo.
+   *  2. `max(computed_at)` de la tabla — el latido de ENTREGA (ADR-053): que el paso corra no
+   *     prueba que haya escrito. El merge es sin churn, así que esto se mueve sólo si algo cambió;
+   *     en la práctica el mes en curso cambia todas las noches (verificado en prod: coincide con
+   *     la hora de la corrida al segundo).
+   *
+   * Tolerancia 26 h, la misma que ya usan los otros consumidores de feeds nocturnos (corren 03:xx:
+   * 24 h de edad son sanas, 26 h significan que se saltó una corrida). No se inventa un número
+   * nuevo. NO bloquea: declara. Y si falla el medidor, `unknown` — que falle la medición no
+   * autoriza a afirmar lo que no se midió.
+   */
+  private async expenseFreshness(trx: Knex.Transaction, tenantId: string): Promise<Freshness> {
+    try {
+      // ⛔ SECUENCIAL, no `Promise.all`. Los dos medidores abren un SAVEPOINT sobre la MISMA
+      // transacción (`vp_step` y `vp_freshness`), y knex serializa las consultas de una tx en su
+      // única conexión pero NO ordena dos cadenas async independientes: la intercalación posible es
+      //   SAVEPOINT vp_step · SAVEPOINT vp_freshness · … · RELEASE vp_step · RELEASE vp_freshness
+      // y en Postgres liberar el savepoint EXTERNO destruye los internos, así que el segundo
+      // `RELEASE` revienta. Lo atrapa el `catch` de `tableAt` y devuelve `null` — o sea que la
+      // frescura se declararía «sin medir» por un defecto NUESTRO, no por el dato. Es exactamente
+      // la mentira que esta clase de código existe para cerrar. Correrlos en fila cuesta ~1 ms más
+      // (los dos van por índice y `tableAt` cachea 60 s) y no tiene esa trampa.
+      const paso = await stepAt(trx, 'feed_nightly/import-expenses-polizas.js', tenantId);
+      const tabla = await tableAt(trx, 'analytics.expense_entries', 'computed_at');
+      return composeFreshness([
+        evalInput('feed_expenses', 'Feed de pólizas de egreso', paso, 26),
+        evalInput('expense_entries', 'Egresos contables', tabla, 26),
+      ]);
+    } catch {
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  /**
+   * [GX.19] Totales por (mes × sucursal) del período — el insumo de la cobertura.
+   *
+   * Va aparte de `series` (que agrupa sólo por mes) porque lo que hay que declarar es **quién**
+   * reporta en cada mes, no cuánto. Misma query base y mismo índice `ix_expense_fecha`, así que
+   * cuesta otro index scan del mismo rango: medido 18.7 ms / 3,153 páginas para 90 días.
+   */
+  private async expenseMonthBranch(
+    trx: Knex.Transaction, tenantId: string, from: string, to: string, q: ExpenseQueryFilters,
+  ): Promise<PeriodSlice[]> {
+    const rows: Array<{ mes: string; sucursal: string; total: string }> =
+      await this.expenseQuery(trx, tenantId, from, to, q)
+        .groupByRaw("to_char(e.fecha,'YYYY-MM'), e.sucursal")
+        .select(
+          trx.raw("to_char(e.fecha,'YYYY-MM') AS mes"),
+          'e.sucursal',
+          trx.raw('SUM(importe)::numeric AS total'),
+        );
+    return rows.map((r) => ({ mes: r.mes, grupo: r.sucursal, total: Number(r.total) }));
+  }
+
+  /**
+   * GX v2 — Egresos contables agregados por dimensión dinámica (`group_by`):
+   * cuenta | cuenta_mayor | beneficiario | sucursal | doc_tipo | area | mes.
+   * Filtros: from/to (default 90d), sucursal[], familia, doc_tipo, cuenta,
+   * cuenta_mayor, area, beneficiario(ILIKE), min/max importe. `compare=true` →
+   * Δ% vs período previo del mismo largo. Incluye serie mensual (compras/gastos).
+   */
+  async expenses(q: any) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to, prev_from, prev_to } = this.expenseRange(q);
+    const dim = this.expenseDim(q.group_by);
+    return this.tk.run(async (trx) => {
+      const base = (f = from, t = to) => this.expenseQuery(trx, tenantId, f, t, q);
+
+      const totalsRow: any = await base().clone()
+        .select(trx.raw('COALESCE(SUM(importe),0)::numeric AS total'), trx.raw('COUNT(*)::int AS movs'))
+        .first();
+      const total = Number(totalsRow?.total || 0);
+
+      // [GX.9] La etiqueta ya NO se arma en SQL: sale del contrato compartido con el
+      // frontend, para que una familia nueva no vuelva a salir como '1'/'7' pelado.
+      const byFamilia = await base().clone()
+        .groupBy('e.familia')
+        .select('e.familia',
+          trx.raw('ROUND(SUM(importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'))
+        .orderByRaw('SUM(importe) DESC');
+
+      const rowsQ = base().clone()
+        .groupByRaw(dim.groupSql)
+        .select(
+          trx.raw(`${dim.keySql} AS key`),
+          trx.raw(`${dim.labelSql} AS label`),
+          trx.raw('ROUND(SUM(importe)::numeric,2) AS total'),
+          trx.raw('COUNT(*)::int AS movs'),
+        )
+        .orderByRaw('SUM(importe) DESC')
+        .limit(1000);
+      if (dim.familia) rowsQ.select(trx.raw('MAX(e.familia) AS familia'));
+      const rows: any[] = await rowsQ;
+
+      let prevMap = new Map<string, number>();
+      if (q.compare) {
+        const prev = await base(prev_from, prev_to).clone()
+          .groupByRaw(dim.groupSql)
+          .select(trx.raw(`${dim.keySql} AS key`), trx.raw('SUM(importe)::numeric AS total'));
+        prevMap = new Map((prev as Array<{ key: string; total: string }>).map((r) => [String(r.key), Number(r.total)]));
+      }
+
+      // [GX.9] Una columna por familia del contrato (compras · gastos · financiero ·
+      // activo): antes estaban clavadas las dos de siempre y la gráfica de tendencia
+      // sumaba en `total` un dinero que ninguna barra mostraba.
+      const seriesQ = base().clone()
+        .groupByRaw("to_char(e.fecha,'YYYY-MM')")
+        .select(
+          trx.raw("to_char(e.fecha,'YYYY-MM') AS mes"),
+          trx.raw('ROUND(SUM(importe)::numeric,2) AS total'),
+        );
+      for (const [fam, key] of Object.entries(EXPENSE_FAMILIA_SERIES_KEY)) {
+        seriesQ.select(trx.raw(`ROUND(COALESCE(SUM(importe) FILTER (WHERE e.familia=?),0)::numeric,2) AS ${key}`, [fam]));
+      }
+      const series = await seriesQ.orderBy('mes');
+
+      // [GX.19] Cobertura + frescura. Se piden SIEMPRE (no sólo con `compare=true`): la deriva de
+      // universo distorsiona la tendencia aunque nadie prenda el comparativo, y era justamente la
+      // vista por defecto la que publicaba +27 % de "gasto" que eran sucursales entrando.
+      // Secuencial por el mismo motivo que adentro de `expenseFreshness`: ése pone
+      // `SET LOCAL statement_timeout='2s'` mientras mide, y en la misma transacción ese tope le
+      // caería encima a cualquier consulta que corra intercalada — la medición de procedencia
+      // tumbando la consulta que venía a describir.
+      const mesSuc = await this.expenseMonthBranch(trx, tenantId, from, to, q);
+      const freshness = await this.expenseFreshness(trx, tenantId);
+      const coverage: PeriodCoverage = computePeriodCoverage(mesSuc, from, to, ETIQUETA_SUCURSAL);
+      const comparativo: PeriodComparativo | null = q.compare
+        ? computePeriodComparativo(mesSuc, await this.expenseMonthBranch(trx, tenantId, prev_from, prev_to, q))
+        : null;
+      const parciales = new Set(coverage.meses_parciales);
+      // Sucursales que reportan en CADA mes: es lo que convierte un escalón de la gráfica en
+      // "entró una sucursal" en vez de "se gastó más".
+      const sucPorMes = new Map<string, number>();
+      for (const f of mesSuc) sucPorMes.set(f.mes, (sucPorMes.get(f.mes) ?? 0) + 1);
+
+      return {
+        from, to, prev_from, prev_to,
+        freshness,
+        coverage,
+        comparativo,
+        group_by: dim.key,
+        total: +total.toFixed(2),
+        movimientos: Number(totalsRow?.movs || 0),
+        by_familia: byFamilia.map((r: any) => ({
+          ...r, label: expenseFamiliaLabel(r.familia), total: Number(r.total), movs: Number(r.movs),
+        })),
+        rows: rows.map((r) => {
+          const t = Number(r.total);
+          const prev = prevMap.get(String(r.key));
+          return {
+            key: r.key, label: r.label, familia: r.familia ?? null,
+            total: t, movs: Number(r.movs),
+            share_pct: total ? +((t / total) * 100).toFixed(1) : 0,
+            prev_total: prev ?? null,
+            delta_pct: q.compare && prev ? +(((t - prev) / prev) * 100).toFixed(1) : null,
+          };
+        }),
+        series: series.map((r: any) => ({
+          mes: r.mes, total: Number(r.total),
+          compras: Number(r.compras) || 0, gastos: Number(r.gastos) || 0,
+          financiero: Number(r.financiero) || 0, activo: Number(r.activo) || 0,
+          // [GX.19] `parcial` = el rango corta ese mes (las dos puntas del default de 90 días, y
+          // siempre el mes en curso). Sin esto la barra más baja se lee como caída del gasto.
+          parcial: parciales.has(r.mes),
+          sucursales: sucPorMes.get(r.mes) ?? 0,
+        })),
+      };
+    });
+  }
+
+  /**
+   * GX v2 — Árbol jerárquico para el desglose tipo menú:
+   * Familia → Cuenta mayor → Subcuenta. Con totales/movs/share por nodo.
+   * Los niveles beneficiario/documento se cargan on-demand vía expenses()/expenseDocuments().
+   */
+  async expensesTree(q: any) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    return this.tk.run(async (trx) => {
+      const rows: any[] = await this.expenseQuery(trx, tenantId, from, to, q)
+        .groupBy('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre', 'e.concepto', 'e.concepto_nombre')
+        .select('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre', 'e.concepto', 'e.concepto_nombre',
+          trx.raw('ROUND(SUM(importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'));
+
+      const total = rows.reduce((a, r) => a + Number(r.total), 0);
+      const famLabel = (f: string) => (f === '?' ? '(sin familia)' : expenseFamiliaLabel(f));
+      const fam = new Map<string, any>();
+      for (const r of rows) {
+        const fk = r.familia || '?';
+        if (!fam.has(fk)) fam.set(fk, { key: fk, label: famLabel(fk), total: 0, movs: 0, children: new Map() });
+        const F = fam.get(fk);
+        F.total += Number(r.total); F.movs += Number(r.movs);
+        const mk = r.cuenta_mayor || '?';
+        // Siempre CÓDIGO · nombre para identificación precisa (ej. '601 · SUELDOS Y SALARIOS').
+        const mkLabel = r.cuenta_mayor ? (r.cuenta_mayor_nombre ? `${r.cuenta_mayor} · ${r.cuenta_mayor_nombre}` : r.cuenta_mayor) : '?';
+        if (!F.children.has(mk)) F.children.set(mk, { key: mk, label: mkLabel, total: 0, movs: 0, children: new Map() });
+        const Mn = F.children.get(mk);
+        Mn.total += Number(r.total); Mn.movs += Number(r.movs);
+        const sk = r.cuenta;
+        const skLabel = r.cuenta_nombre ? `${r.cuenta} · ${r.cuenta_nombre}` : r.cuenta;
+        if (!Mn.children.has(sk)) Mn.children.set(sk, { key: sk, label: skLabel, total: 0, movs: 0, children: new Map() });
+        const Sc = Mn.children.get(sk);
+        Sc.total += Number(r.total); Sc.movs += Number(r.movs);
+        // Concepto = 4º nivel, SOLO gastos (fam 6/7); compras (5) no llevan concepto.
+        if (fk === '6' || fk === '7') {
+          const cnombre = r.concepto_nombre || '(sin concepto)';
+          const clabel = r.concepto ? `${r.concepto} · ${cnombre}` : cnombre;
+          if (!Sc.children.has(cnombre)) Sc.children.set(cnombre, { key: `${sk}|${cnombre}`, label: clabel, total: 0, movs: 0 });
+          const C = Sc.children.get(cnombre);
+          C.total += Number(r.total); C.movs += Number(r.movs);
+        }
+      }
+      const share = (v: number) => (total ? +((v / total) * 100).toFixed(1) : 0);
+      // Guard defensivo: `[...node.children.values()]` explota si algún nodo llega sin
+      // Map children. Fallback a [] en cada nivel.
+      const vals = (m: any): any[] => (m instanceof Map ? Array.from(m.values()) : []);
+      const tree = Array.from(fam.values())
+        .sort((a, b) => b.total - a.total)
+        .map((F) => ({
+          key: F.key, label: F.label, level: 'familia', total: F.total, movs: F.movs, share_pct: share(F.total),
+          children: vals(F.children).sort((a: any, b: any) => b.total - a.total).map((Mn: any) => ({
+            key: Mn.key, label: Mn.label, level: 'mayor', total: Mn.total, movs: Mn.movs, share_pct: share(Mn.total),
+            children: vals(Mn.children).sort((a: any, b: any) => b.total - a.total).map((Sc: any) => ({
+              key: Sc.key, label: Sc.label, level: 'cuenta', total: Sc.total, movs: Sc.movs, share_pct: share(Sc.total),
+              children: vals(Sc.children).sort((a: any, b: any) => b.total - a.total)
+                .map((C: any) => ({ ...C, level: 'concepto', share_pct: share(C.total) })),
+            })),
+          })),
+        }));
+      return { from, to, total: +total.toFixed(2), tree };
+    });
+  }
+
+  /** GX v2 — Renglones de egreso de un documento (drill final). */
+  async expenseDocuments(q: any) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    return this.tk.run(async (trx) => {
+      const items = await this.expenseQuery(trx, tenantId, from, to, q)
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', 'e.tenant_id').andOn('w.code', 'e.sucursal');
+        })
+        .select('e.fecha', 'e.sucursal', 'w.name as sucursal_nombre', 'e.doc_tipo', 'e.doc_folio',
+          'e.beneficiario', 'e.beneficiario_doc', 'e.cuenta', 'e.cuenta_nombre', 'e.concepto_nombre',
+          'e.comentario', 'e.area', trx.raw('e.importe::numeric AS importe'))
+        .orderBy('e.fecha', 'desc')
+        .limit(3000);
+      return items.map((r: any) => ({ ...r, importe: Number(r.importe) }));
+    });
+  }
+
+  // ─────────── IG — Ingresos contables (el otro lado del libro) ───────────
+  //
+  // Hermana de los egresos y con el MISMO motor de cobertura/frescura, pero con las dimensiones
+  // que de verdad miden acá. La fuente es `analytics.income_entries_src(from,to)`: vista viva
+  // derive-no-copy sobre `kepler_ods.kdc2YYMM`, no una tabla de importer. Las tres reglas duras
+  // (sólo CEDIS · sólo UD1301 · canal por `c6`) viven ADENTRO de la función, no acá — ver la
+  // migración `20260925150000_analytics_income_entries.js`. Sin ellas el número sube **+69 %**.
+
+  /** Query base de ingresos con los filtros aplicados. La función ya acota el rango. */
+  private incomeQuery(trx: Knex.Transaction, tenantId: string, from: string, to: string, q: IncomeQueryFilters) {
+    const b = trx
+      .from(trx.raw('analytics.income_entries_src(?::date, ?::date) AS e', [from, to]))
+      .where('e.tenant_id', tenantId);
+    if (q.canal?.length) b.whereIn('e.canal', q.canal);
+    if (q.plaza) b.where('e.plaza', q.plaza);
+    // Búsqueda libre sobre el concepto crudo de la póliza (donde vive el nombre del cliente).
+    if (q.concepto) b.whereRaw('e.concepto ILIKE ?', [`%${q.concepto}%`]);
+    if (q.min_importe != null) b.where('e.importe', '>=', q.min_importe);
+    if (q.max_importe != null) b.where('e.importe', '<=', q.max_importe);
+    return b;
+  }
+
+  /** Dimensión de agrupación del reporte de ingresos. */
+  private incomeDim(gb?: string) {
+    switch (gb) {
+      case 'plaza':
+        return { key: 'plaza', groupSql: 'e.plaza, e.canal', keySql: "COALESCE(NULLIF(e.plaza,''),'(sin plaza)')", labelSql: "COALESCE(NULLIF(e.plaza,''),'(sin plaza)')", canal: true };
+      case 'mes':
+        return { key: 'mes', groupSql: 'e.anio_mes', keySql: 'e.anio_mes', labelSql: 'e.anio_mes', canal: false };
+      case 'documento':
+        return { key: 'documento', groupSql: 'e.folio', keySql: 'e.folio', labelSql: 'e.folio', canal: false };
+      case 'canal':
+      default:
+        return { key: 'canal', groupSql: 'e.canal', keySql: 'e.canal', labelSql: 'e.canal', canal: false };
+    }
+  }
+
+  /**
+   * `[IG.1.3]` Frescura del ingreso — **un solo eslabón, y a propósito**.
+   *
+   * El número publicado sale de la derivación sobre el ODS, así que su edad es la del carril que
+   * alimenta el ODS (`ods_live_hot`, que corre cada 15 s), NO la del feed nocturno. Componer las
+   * dos haría que la píldora dijera «8 h» sobre un dato de minutos: sería pesimista, y una etiqueta
+   * que miente hacia el lado prudente sigue siendo una etiqueta que miente.
+   *
+   * La edad del feed nocturno SÍ importa, pero como **árbitro**: va en el cuadre de fuentes
+   * (`incomeSources`), donde es lo que se está comparando.
+   *
+   * Tolerancia 1 h: el carril corre cada 15 s, así que una hora de silencio ya es una falla — y es
+   * generosa comparada con su cadencia real.
+   */
+  private async incomeFreshness(trx: Knex.Transaction): Promise<Freshness> {
+    try {
+      return composeFreshness([
+        evalInput('ods_live_hot', 'Réplica ODS (pólizas)', await laneAt(trx, 'ods_live_hot'), 1),
+      ]);
+    } catch {
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  /**
+   * Totales por (mes × plaza) — el insumo de la cobertura. Mismo motor que egresos.
+   *
+   * ⚠️ **El residuo cuenta como UN grupo, no como sus 233 "plazas".** Medido en el rango por
+   * defecto: de 261 plazas, **233 son el bucket `otro`** — crédito individual cuyo concepto trae
+   * nombre de cliente y ningún prefijo de canal. Contarlas una por una hacía que la cobertura
+   * dijera *«237 plazas no están en todos los meses»*, que es un muro de nombres de clientes y
+   * además es FALSO como medición: un cliente que compró en agosto y no en julio **no es deriva
+   * de universo**, es un cliente. Las plazas reales parciales son **4**.
+   *
+   * Colapsarlo acá y no en la pantalla es a propósito: el `pct` y el Δ comparable se calculan con
+   * esto, así que si el residuo entra partido, el número —no sólo el texto— queda mal.
+   */
+  private async incomeMonthPlaza(
+    trx: Knex.Transaction, tenantId: string, from: string, to: string, q: IncomeQueryFilters,
+  ): Promise<PeriodSlice[]> {
+    const grupoSql = `CASE WHEN e.canal = '${SALES_CANAL_RESIDUO}' THEN '${RESIDUO_LABEL}'
+                           ELSE COALESCE(NULLIF(e.plaza,''),'(sin plaza)') END`;
+    const rows: Array<{ mes: string; plaza: string; total: string }> =
+      await this.incomeQuery(trx, tenantId, from, to, q)
+        .groupByRaw(`e.anio_mes, ${grupoSql}`)
+        .select(
+          trx.raw('e.anio_mes AS mes'),
+          trx.raw(`${grupoSql} AS plaza`),
+          trx.raw('SUM(e.importe)::numeric AS total'),
+        );
+    return rows.map((r) => ({ mes: r.mes, grupo: r.plaza, total: Number(r.total) }));
+  }
+
+  /**
+   * `[IG.1.1]` Ingresos contables agregados por dimensión dinámica
+   * (`group_by = canal | plaza | mes | documento`), con cobertura, frescura y comparativo.
+   *
+   * Devuelve lo mismo que `expenses()` en forma, para que la pantalla pueda reusar sus organismos.
+   */
+  async income(q: IncomeQueryFilters): Promise<IncomeReport> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to, prev_from, prev_to } = this.expenseRange(q); // mismo cálculo de ventana
+    const dim = this.incomeDim(q.group_by);
+    return this.tk.run(async (trx) => {
+      const base = (f = from, t = to) => this.incomeQuery(trx, tenantId, f, t, q);
+
+      // Las filas crudas de knex se tipan acá y no con `any`: son el borde entre el SQL y el
+      // contrato, y es justo donde un campo que cambia de nombre pasa inadvertido.
+      const totalsRow = await base().clone()
+        .select(trx.raw('COALESCE(SUM(e.importe),0)::numeric AS total'), trx.raw('COUNT(*)::int AS movs'))
+        .first() as { total: string; movs: number } | undefined;
+      const total = Number(totalsRow?.total || 0);
+
+      const byCanal: Array<{ canal: string; total: string; movs: number }> = await base().clone()
+        .groupBy('e.canal')
+        .select('e.canal', trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'))
+        .orderByRaw('SUM(e.importe) DESC');
+
+      const rowsQ = base().clone()
+        .groupByRaw(dim.groupSql)
+        .select(
+          trx.raw(`${dim.keySql} AS key`),
+          trx.raw(`${dim.labelSql} AS label`),
+          trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'),
+          trx.raw('COUNT(*)::int AS movs'),
+        )
+        .orderByRaw('SUM(e.importe) DESC')
+        .limit(1000);
+      if (dim.canal) rowsQ.select(trx.raw('MAX(e.canal) AS canal'));
+      const rows: Array<{ key: string; label: string; canal?: string; total: string; movs: number }> = await rowsQ;
+
+      let prevMap = new Map<string, number>();
+      if (q.compare) {
+        const prev = await base(prev_from, prev_to).clone()
+          .groupByRaw(dim.groupSql)
+          .select(trx.raw(`${dim.keySql} AS key`), trx.raw('SUM(e.importe)::numeric AS total'));
+        prevMap = new Map((prev as Array<{ key: string; total: string }>).map((r) => [String(r.key), Number(r.total)]));
+      }
+
+      // Serie mensual con una columna por canal — misma forma que la de egresos por familia.
+      const seriesQ = base().clone()
+        .groupBy('e.anio_mes')
+        .select(trx.raw('e.anio_mes AS mes'), trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'));
+      for (const [canal, key] of Object.entries(SALES_CANAL_SERIES_KEY)) {
+        seriesQ.select(trx.raw(`ROUND(COALESCE(SUM(e.importe) FILTER (WHERE e.canal=?),0)::numeric,2) AS ${key}`, [canal]));
+      }
+      const series = await seriesQ.orderBy('mes');
+
+      // Secuencial, no `Promise.all`: `laneAt`/`tableAt` tocan la misma transacción (ver el bloque
+      // de `expenseFreshness`).
+      const mesPlaza = await this.incomeMonthPlaza(trx, tenantId, from, to, q);
+      const freshness = await this.incomeFreshness(trx);
+      const coverage: PeriodCoverage = computePeriodCoverage(mesPlaza, from, to, ETIQUETA_PLAZA);
+      const comparativo: PeriodComparativo | null = q.compare
+        ? computePeriodComparativo(mesPlaza, await this.incomeMonthPlaza(trx, tenantId, prev_from, prev_to, q))
+        : null;
+      const parciales = new Set(coverage.meses_parciales);
+      const plazasPorMes = new Map<string, number>();
+      for (const f of mesPlaza) plazasPorMes.set(f.mes, (plazasPorMes.get(f.mes) ?? 0) + 1);
+
+      return {
+        from, to, prev_from, prev_to,
+        freshness, coverage, comparativo,
+        group_by: dim.key,
+        total: +total.toFixed(2),
+        movimientos: Number(totalsRow?.movs || 0),
+        by_canal: byCanal.map((r) => ({
+          canal: r.canal, label: salesCanalLabel(r.canal), total: Number(r.total), movs: Number(r.movs),
+        })),
+        rows: rows.map((r) => {
+          const t = Number(r.total);
+          const prev = prevMap.get(String(r.key));
+          return {
+            key: r.key, label: r.label, canal: r.canal ?? null,
+            total: t, movs: Number(r.movs),
+            share_pct: total ? +((t / total) * 100).toFixed(1) : 0,
+            prev_total: prev ?? null,
+            delta_pct: q.compare && prev ? +(((t - prev) / prev) * 100).toFixed(1) : null,
+          };
+        }),
+        series: (series as IncomeSeriesRaw[]).map((r) => ({
+          mes: r.mes, total: Number(r.total),
+          mostrador: Number(r.mostrador) || 0, telemarketing: Number(r.telemarketing) || 0,
+          ruta: Number(r.ruta) || 0, vecinal: Number(r.vecinal) || 0,
+          contado: Number(r.contado) || 0, otro: Number(r.otro) || 0,
+          parcial: parciales.has(r.mes),
+          plazas: plazasPorMes.get(r.mes) ?? 0,
+        })),
+      };
+    });
+  }
+
+  /** `[IG.1.2]` Árbol Canal → Plaza, con totales y share por nodo. */
+  async incomeTree(q: IncomeQueryFilters & { grain?: IncomeGrain }): Promise<IncomeTree> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    const grain: IncomeGrain =
+      q.grain === 'mes' || q.grain === 'trimestre' ? q.grain : 'dia';
+
+    return this.tk.run(async (trx) => {
+      // ⚠️ Los dos primeros niveles siguen saliendo de `income_entries_src` con los MISMOS filtros
+      // que la pestaña Tabla, y agrupados igual que siempre: canal y plaza. Lo que cambió es que
+      // la plaza ya NO es el final del camino — abajo tiene día, folio y depósito.
+      const rows: Array<{ canal: string; plaza: string; total: string; movs: number }> =
+        await this.incomeQuery(trx, tenantId, from, to, q)
+          .groupByRaw('e.canal, e.plaza')
+          .select('e.canal', trx.raw("COALESCE(NULLIF(e.plaza,''),'(sin plaza)') AS plaza"),
+            trx.raw('ROUND(SUM(e.importe)::numeric,2) AS total'),
+            trx.raw('COUNT(*)::int AS movs'));
+
+      const total = rows.reduce((a, r) => a + Number(r.total), 0);
+      const share = (v: number) => (total ? +((v / total) * 100).toFixed(1) : 0);
+
+      const canales = new Map<string, { total: number; movs: number; hijos: IncomeTreeNode[] }>();
+      for (const r of rows) {
+        const ck = r.canal || 'otro';
+        if (!canales.has(ck)) canales.set(ck, { total: 0, movs: 0, hijos: [] });
+        const C = canales.get(ck)!;
+        C.total += Number(r.total);
+        C.movs += Number(r.movs);
+        // ⚠️ El residuo NO se desglosa: sus "plazas" son nombres de cliente sueltos (233 de 271 en
+        // el rango por defecto). Desplegarlas fingiría 233 puntos de venta.
+        if (ck === SALES_CANAL_RESIDUO) continue;
+        C.hijos.push({
+          key: `${ck}|${r.plaza}`, label: r.plaza, level: 'plaza',
+          total: +Number(r.total).toFixed(2), movs: Number(r.movs),
+          share_pct: share(Number(r.total)),
+          leaf: false,
+          kind: this.plazaKind(ck),
+          canal: ck, plaza: r.plaza,
+        });
+      }
+
+      const tree: IncomeTreeNode[] = [...canales.entries()]
+        .sort((a, b) => {
+          if (a[0] === SALES_CANAL_RESIDUO) return 1;
+          if (b[0] === SALES_CANAL_RESIDUO) return -1;
+          return b[1].total - a[1].total;
+        })
+        .map(([ck, C]) => ({
+          key: ck, label: salesCanalLabel(ck), level: 'canal',
+          total: +C.total.toFixed(2), movs: C.movs, share_pct: share(C.total),
+          leaf: ck === SALES_CANAL_RESIDUO,
+          canal: ck,
+          children: C.hijos.sort((a, b) => b.total - a.total),
+        }));
+
+      return { from, to, total: +total.toFixed(2), grain, tree };
+    });
+  }
+
+  /**
+   * `[IG.10]` **Qué ES la "plaza" de ese canal.** Edgar: *"mencionar canal, pero también sucursal
+   * o ruta o repartidor"*.
+   *
+   * El segundo nivel del árbol no es lo mismo en todos los canales: en mostrador es una sucursal,
+   * en ruta es una ruta, en reparto vecinal es la persona que reparte. Llamarlos a todos «plaza»
+   * obliga a cada lector a traducir, y el que no sabe traduce mal.
+   */
+  private plazaKind(canal: string): string {
+    switch (canal) {
+      case 'mostrador': return 'Sucursal';
+      case 'telemarketing': return 'Punto de telemarketing';
+      case 'ruta': return 'Ruta';
+      case 'reparto_vecinal': return 'Repartidor';
+      case 'contado': return 'Punto de venta';
+      default: return 'Cliente';
+    }
+  }
+
+  /** La etiqueta del período en palabras: este árbol lo lee una persona, no una máquina. */
+  private periodoLabel(p: string, grain: IncomeGrain): string {
+    if (grain === 'trimestre') return p.replace('-T', ' · trimestre ');
+    const MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+      'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const parte = p.split('-');
+    const mes = MES[Number(parte[1]) - 1] ?? parte[1];
+    return grain === 'mes' ? `${mes} ${parte[0]}` : `${Number(parte[2])} de ${mes} ${parte[0]}`;
+  }
+
+  /**
+   * `[IG.9]`+`[IG.10]` **Los niveles de abajo del árbol, pedidos al abrir.**
+   *
+   * Edgar: *"necesitamos mostrar por día, y de ahí mostrar por folio"* · *"luego los movimientos y
+   * sus depósitos"* · *"mencionar canal, pero también sucursal o ruta o repartidor"*.
+   *
+   * El camino completo es **canal › sucursal|ruta|repartidor › día › folio › depósito**, y de ahí
+   * para abajo todo se pide al abrir:
+   *  - sólo `plaza` → **los días** en que esa sucursal/ruta/repartidor facturó.
+   *  - `+ fecha` → **los documentos** de ese día, con su cliente, su veredicto y lo cobrado.
+   *  - `+ folio` → **cada depósito**, con su banco, su fecha y su monto. El fondo del árbol.
+   *
+   * ⛔ **Por qué por demanda y no en la carga inicial.** Un canal de 90 días son miles de
+   * documentos y decenas de miles de aplicaciones de cobro. Traerlos de una haría exactamente lo
+   * contrario de lo que este árbol existe para hacer.
+   */
+  async incomeTreeChildren(
+    q: { canal: string; plaza?: string; fecha?: string; folio?: string;
+         from?: string; to?: string; grain?: IncomeGrain },
+  ): Promise<IncomeTreeChildren> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const fecha = q.fecha ? String(q.fecha).slice(0, 10) : '';
+    if (fecha && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(fecha)) {
+      throw new BadRequestException('fecha invalida: se espera YYYY-MM-DD');
+    }
+
+    return this.tk.run(async (trx) => {
+      // ── Nivel 3: los días de esa sucursal / ruta / repartidor ────────────────────────────
+      if (!fecha) {
+        const { from, to } = this.expenseRange({ from: q.from, to: q.to } as IncomeQueryFilters);
+        const grain: IncomeGrain =
+          q.grain === 'mes' || q.grain === 'trimestre' ? q.grain : 'dia';
+        const per = grain === 'trimestre'
+          ? "to_char(e.fecha, 'YYYY') || '-T' || to_char(e.fecha, 'Q')"
+          : `to_char(e.fecha, '${grain === 'mes' ? 'YYYY-MM' : 'YYYY-MM-DD'}')`;
+
+        const rows = (await trx.raw(
+          `SELECT ${per} AS periodo,
+                  ROUND(SUM(e.importe)::numeric, 2) AS total, COUNT(*)::int AS movs,
+                  min(e.fecha)::date AS desde, max(e.fecha)::date AS hasta
+             FROM analytics.income_entries_src(?::date, ?::date) e
+            WHERE e.tenant_id = ? AND e.canal = ?
+              AND COALESCE(NULLIF(e.plaza, ''), '(sin plaza)') = ?
+            GROUP BY 1 ORDER BY 1 DESC`,
+          [from, to, tenantId, q.canal, q.plaza ?? '(sin plaza)'])).rows as Array<Record<string, unknown>>;
+
+        const tot = rows.reduce((a, r) => a + Number(r['total'] ?? 0), 0);
+        const nodes: IncomeTreeNode[] = rows.map((r) => ({
+          key: `${q.canal}|${q.plaza}|${r['periodo']}`,
+          label: this.periodoLabel(String(r['periodo']), grain),
+          level: 'periodo',
+          total: +Number(r['total'] ?? 0).toFixed(2),
+          movs: Number(r['movs'] ?? 0),
+          share_pct: tot ? +((Number(r['total'] ?? 0) / tot) * 100).toFixed(1) : 0,
+          // ⛔ Sólo el grano DÍA baja a folio: un mes de una sucursal son decenas de documentos y
+          // el árbol dejaría de ser legible. Con mes o trimestre el período es hoja, y se dice.
+          leaf: grain !== 'dia',
+          canal: q.canal, plaza: q.plaza ?? null,
+          fecha: grain === 'dia' ? String(r['periodo']) : null,
+        }));
+        return { level: 'periodo', nodes };
+      }
+
+      // ── Nivel 4: los documentos de ese día ───────────────────────────────────────────────
+      if (!q.folio) {
+        const rows = (await trx.raw(
+          `SELECT folio, plaza, cliente_code, cliente_nombre, kind, doc_cancelado, doc_tipo,
+                  importe, lineas, cobrado, pagos, pendiente, cuentas
+             FROM analytics.income_bridge_src(?::date, ?::date)
+            WHERE tenant_id = ? AND canal = ?
+              AND (?::text IS NULL OR COALESCE(NULLIF(plaza, ''), '(sin plaza)') = ?)
+            ORDER BY importe DESC`,
+          [fecha, fecha, tenantId, q.canal, q.plaza ?? null, q.plaza ?? ''])).rows as Array<Record<string, unknown>>;
+
+        const tot = rows.reduce((a, r) => a + Number(r['importe'] ?? 0), 0);
+        const nodes: IncomeTreeNode[] = rows.map((r) => {
+          const ctas = (r['cuentas'] as Array<{ nombre: string | null }> | null) ?? [];
+          const pagos = Number(r['pagos'] ?? 0);
+          const cancelado = Boolean(r['doc_cancelado']);
+          const esNota = String(r['doc_tipo']) !== 'UD1301';
+          const banco = ctas.length === 1 ? ctas[0].nombre : `${ctas.length} bancos`;
+          return {
+            key: `${q.canal}|${q.plaza}|${fecha}|${r['folio']}`,
+            label: `Folio ${r['folio']}`,
+            level: 'folio',
+            total: +Number(r['importe'] ?? 0).toFixed(2),
+            movs: Number(r['lineas'] ?? 1),
+            share_pct: tot ? +((Number(r['importe'] ?? 0) / tot) * 100).toFixed(1) : 0,
+            leaf: pagos === 0,
+            sub: String(r['cliente_nombre'] ?? r['cliente_code'] ?? '') || null,
+            kind: cancelado ? 'CANCELADO' : (esNota ? 'Nota de credito' : (r['kind'] as string | null)),
+            cancelado,
+            cobrado: r['cobrado'] === null ? null : +Number(r['cobrado']).toFixed(2),
+            pendiente: r['pendiente'] === null ? null : +Number(r['pendiente']).toFixed(2),
+            como: cancelado
+              ? 'el ERP lo cancelo y su ingreso sigue publicado'
+              : (pagos === 0
+                ? (esNota ? 'se aplica contra una factura' : 'sin cobro todavia')
+                : `${pagos} ${pagos === 1 ? 'deposito' : 'depositos'}`
+                  + (ctas.length ? ` · ${banco}` : '')),
+            canal: q.canal, plaza: q.plaza ?? null, fecha, folio: String(r['folio']),
+          };
+        });
+        return { level: 'folio', nodes };
+      }
+
+      // ── Nivel 5: cada aplicación de cobro contra ese documento ───────────────────────────
+      // ⛔ El cobro CANCELADO se excluye. `kdm5` conserva su aplicación aunque el cobro valga
+      // $0.00: el 0029792 sigue ahí por $19,810.54 contra la factura 0008789.
+      const nodes = await this.incomeDocPagos(trx, String(q.folio), q.canal, q.plaza ?? null, fecha);
+      return { level: 'pago', nodes };
+    });
+  }
+
+  /** Las aplicaciones de cobro de un documento, como nodos del árbol. */
+  private async incomeDocPagos(
+    trx: Knex.Transaction, folio: string, canal: string, plaza: string | null, fecha: string,
+  ): Promise<IncomeTreeNode[]> {
+    const rows = (await trx.raw(
+      `SELECT co.c9::date AS fecha, btrim(x.c6) AS folio_cobro,
+              (x.c4 IN (5, 7)) AS es_dinero, x.c12::numeric AS monto,
+              btrim(co.c45) AS cuenta, b.c2 AS banco,
+              CASE WHEN btrim(coalesce(b.c3, '')) = 'EFECTIVO' THEN 'efectivo'
+                   WHEN btrim(coalesce(b.c3, '')) ~ '^[0-9]+$' THEN 'banco'
+                   WHEN b.c3 IS NOT NULL THEN 'ajuste'
+                   ELSE 'sin_catalogo' END AS medio
+         FROM kepler_ods.kdm5 x
+         JOIN kepler_ods.kdm1 co
+           ON co.sucursal = x.sucursal AND co.c1 = x.c1 AND co.c2 = x.c2 AND co.c3 = x.c3
+          AND co.c4::numeric = x.c4 AND co.c5::numeric = x.c5 AND btrim(co.c6) = btrim(x.c6)
+         LEFT JOIN kepler_ods.kdb1 b
+           ON b.sucursal = x.sucursal AND btrim(b.c1) = btrim(co.c45)
+        WHERE x.sucursal = '00' AND x.c2 = 'U' AND x.c3 = 'A'
+          AND x.c8 = 'D' AND x.c9 = 13 AND x.c10 = 1 AND btrim(x.c11) = ?
+          AND btrim(coalesce(co.c43::text, '')) <> 'C'
+        ORDER BY (x.c4 IN (5, 7)) DESC, x.c12::numeric DESC`,
+      [folio])).rows as Array<Record<string, unknown>>;
+
+    const tot = rows.reduce((a, r) => a + Number(r['monto'] ?? 0), 0);
+    return rows.map((r, i) => {
+      const dinero = Boolean(r['es_dinero']);
+      const medio = String(r['medio']);
+      return {
+        key: `${canal}|${plaza}|${fecha}|${folio}|${r['folio_cobro']}|${i}`,
+        label: dinero ? `Cobro ${r['folio_cobro']}` : `Nota de credito ${r['folio_cobro']}`,
+        level: 'pago',
+        total: +Number(r['monto'] ?? 0).toFixed(2),
+        movs: 1,
+        share_pct: tot ? +((Number(r['monto'] ?? 0) / tot) * 100).toFixed(1) : 0,
+        leaf: true,
+        sub: `${String(r['fecha']).slice(0, 10)} · ${r['banco'] ?? r['cuenta'] ?? 'sin catalogo'}`,
+        kind: null, cancelado: false, cobrado: null, pendiente: null,
+        como: medio === 'efectivo' ? 'efectivo'
+          : (medio === 'banco' ? 'deposito'
+            : (dinero ? 'ajuste - no es un deposito' : 'nota de credito')),
+        canal, plaza, fecha, folio,
+      };
+    });
+  }
+
+  /**
+   * `[IG.10]` **Ver el documento.** Edgar: *"ahora al dar clic al folio, dar la opción de ver ese
+   * doc"*.
+   *
+   * ⛔⛔ **Y lo primero que hay que decir es lo que NO trae, porque es casi todo.** Medido sobre
+   * 30 días: de los 1,548 documentos `U-D-13` del CEDIS, **1,280 tienen UN SOLO renglón y 268 no
+   * tienen ninguno — ninguno tiene dos**. Ese renglón único es el SKU `1`, descripción `00001`,
+   * cantidad 1, **unidad `SER` (servicio)**, y su importe es el total del documento.
+   *
+   * O sea: **la factura de traspaso del CEDIS no detalla mercancía.** No es que falte el dato en
+   * nuestra copia — el ERP no lo escribe. Por eso la Fase AX excluyó este doctype de su visor de
+   * documentos (y por eso el folio de este árbol no aparece allá). Se buscó un documento hermano
+   * que sí lo tuviera, para el mismo cliente y el mismo día: no existe, sólo están la factura y
+   * sus cobros.
+   *
+   * Entonces "ver el documento" es el documento de verdad: su encabezado, su renglón tal como lo
+   * escribió el ERP, y **sus cobros uno por uno**. La ausencia del detalle se DECLARA en la
+   * pantalla, no se tapa con una tabla vacía que se leería como "no compró nada".
+   */
+  async incomeDocumento(q: { folio: string; fecha: string }): Promise<IncomeDocumento> {
+    this.tenantCtx.requireTenantId();
+    const fecha = String(q.fecha || '').slice(0, 10);
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(fecha)) {
+      throw new BadRequestException('fecha invalida: se espera YYYY-MM-DD');
+    }
+    const folio = String(q.folio || '').trim();
+    if (!folio) throw new BadRequestException('falta el folio');
+
+    return this.tk.run(async (trx) => {
+      const [cab] = (await trx.raw(
+        `SELECT m.c2 || '-' || m.c3 || '-' || m.c4 || '-' || m.c5 AS doctype,
+                mm.c5 AS doctype_label, btrim(m.c6) AS folio, m.c9::date AS fecha,
+                btrim(m.c10) AS cliente_code, m.c16::numeric AS total,
+                btrim(coalesce(m.c30, '')) AS condicion,
+                (btrim(coalesce(m.c43::text, '')) = 'C') AS cancelado,
+                d.c3 AS cliente_nombre, k.kind, k.sucursal_destino
+           FROM kepler_ods.kdm1 m
+           LEFT JOIN kepler_ods.kdmm mm
+             ON mm.sucursal = m.sucursal AND mm.c1 = m.c2 AND mm.c2 = m.c3
+            AND mm.c3::numeric = m.c4::numeric AND mm.c4::numeric = m.c5::numeric
+           LEFT JOIN kepler_ods.kdud d ON d.sucursal = m.sucursal AND btrim(d.c2) = btrim(m.c10)
+           LEFT JOIN analytics.v_kepler_customer_kind k
+             ON k.sucursal = '00' AND k.cliente_code = btrim(m.c10)
+          WHERE m.sucursal = '00' AND m.c2 = 'U' AND m.c3 = 'D' AND m.c4 = '13' AND m.c5 = '1'
+            AND btrim(m.c6) = ? AND m.c9::date = ?::date`,
+        [folio, fecha])).rows as Array<Record<string, unknown>>;
+
+      if (!cab) throw new NotFoundException(`no existe el documento U-D-13 folio ${folio} del ${fecha}`);
+
+      // ⛔ El decode de `kdm2` costó un 500 en vivo y estaba mal DOS veces:
+      //   `c7` es el NÚMERO DE RENGLÓN y es `numeric` — `btrim(c7)` revienta con 42883.
+      //   `c8` es el CÓDIGO DE PRODUCTO, no la descripción (verificado: el `17083` de un ticket
+      //   resuelve a «ALTOS CAM CHICA COLOR 1KG CLASICA» en `kdii`).
+      // El nombre NO vive en el documento: se trae del catálogo con un LEFT JOIN, y si no
+      // resuelve se publica NULL en vez de mostrar el código disfrazado de nombre.
+      const renglones = (await trx.raw(
+        `SELECT l.c7::int AS renglon, btrim(l.c8) AS sku, i.c2 AS descripcion,
+                l.c9::numeric AS cantidad, btrim(l.c11) AS unidad,
+                l.c12::numeric AS precio, l.c13::numeric AS importe
+           FROM kepler_ods.kdm2 l
+           LEFT JOIN kepler_ods.kdii i
+             ON i.sucursal = l.sucursal AND btrim(i.c1) = btrim(l.c8)
+          WHERE l.sucursal = '00' AND l.c2 = 'U' AND l.c3 = 'D' AND l.c4 = '13' AND l.c5 = '1'
+            AND btrim(l.c6) = ?
+          ORDER BY l.c7::int`,
+        [folio])).rows as Array<Record<string, unknown>>;
+
+      const pagos = await this.incomeDocPagos(trx, folio, '', null, fecha);
+      const cobrado = pagos.filter((p) => p.como === 'efectivo' || p.como === 'deposito'
+        || p.como === 'ajuste - no es un deposito').reduce((a, p) => a + p.total, 0);
+      const notaCredito = pagos.filter((p) => p.como === 'nota de credito')
+        .reduce((a, p) => a + p.total, 0);
+
+      // ⭐ El renglón de servicio NO es mercancía: es el total del documento disfrazado de línea.
+      // Se marca para que nadie lo lea como "vendió 1 pieza de algo".
+      const soloServicio = renglones.length <= 1
+        && renglones.every((r) => String(r['unidad']).toUpperCase() === 'SER');
+
+      return {
+        folio, fecha,
+        doctype: String(cab['doctype']),
+        doctype_label: (cab['doctype_label'] as string | null) ?? null,
+        cliente_code: String(cab['cliente_code'] ?? ''),
+        cliente_nombre: (cab['cliente_nombre'] as string | null) ?? null,
+        kind: (cab['kind'] as string | null) ?? null,
+        sucursal_destino: (cab['sucursal_destino'] as string | null) ?? null,
+        condicion: (cab['condicion'] as string | null) || null,
+        cancelado: Boolean(cab['cancelado']),
+        total: +Number(cab['total'] ?? 0).toFixed(2),
+        cobrado: +cobrado.toFixed(2),
+        nota_credito: +notaCredito.toFixed(2),
+        pendiente: +(Number(cab['total'] ?? 0) - cobrado - notaCredito).toFixed(2),
+        renglones: renglones.map((r) => ({
+          renglon: Number(r['renglon'] ?? 0),
+          sku: String(r['sku'] ?? ''),
+          descripcion: (r['descripcion'] as string | null) ?? null,
+          cantidad: Number(r['cantidad'] ?? 0), unidad: String(r['unidad'] ?? ''),
+          precio: +Number(r['precio'] ?? 0).toFixed(2), importe: +Number(r['importe'] ?? 0).toFixed(2),
+        })),
+        solo_servicio: soloServicio,
+        pagos,
+      };
+    });
+  }
+
+  /**
+   * `[IG.7]` **Conciliación ligada por FOLIO: de dónde viene cada peso y cómo entró.**
+   *
+   * Lo que pidió Edgar, textual: *"ventas PH día de ayer, ¿se hizo un depósito? ¿se dio efectivo?
+   * ¿cuántos depósitos o pagos diferentes se casaron?"*. Y lo que dijo al ver la versión anterior:
+   * *"aún no ligas los ingresos"*. Tenía razón.
+   *
+   * ⛔ **Por qué se reescribió.** `[IG.6]` agrupaba por **almacén emisor** y la pestaña Árbol de la
+   * misma pantalla agrupa por **plaza** (leída del concepto de la póliza). Son dos ejes distintos:
+   * el Árbol decía "PADRE HIDALGO PISO" y la conciliación decía "01 Padre Hidalgo" / "00 CEDIS".
+   * Dos tablas que hablan de lo mismo y no se pueden restar renglón por renglón. Además tardaba
+   * **4.7 s un día y 43.8 s siete**, contra una compuerta de 1 s.
+   *
+   * ⭐ Ahora las dos pestañas comparten universo, grano y llaves: esta tabla sale de
+   * `analytics.income_bridge_src()`, que es **el mismo `income_entries_src()` del Árbol** ligado por
+   * folio a su documento. `vendido` de acá == el número del Árbol, celda por celda. Y cuesta
+   * **79 ms un día, 710 ms noventa**.
+   *
+   * ⛔⛔ **Lo que la liga destapa.** Con el documento en la mano se sabe quién es el cliente: el
+   * **84 % de lo que esta pantalla llama ingreso es el CEDIS facturándole a sus propias tiendas y
+   * rutas**. Y los rótulos del Árbol están dados vuelta — lo que dice "mostrador" es el traspaso
+   * interno, y la venta de mayoreo a clientes reales cae en "otro" porque el clasificador de canal
+   * lee el concepto de la póliza, donde va el nombre del cliente. Por eso cada renglón publica su
+   * `kind` al lado del canal: no se corrige el rótulo a espaldas de nadie, se muestra al lado.
+   *
+   * ⚠️ `cobrado` es **a la fecha** (contesta "¿esta factura está pagada?") y `cobrado_en_periodo`
+   * es **flujo de caja** (contesta "¿cuánto dinero entró en el mes?"). Son dos preguntas distintas
+   * y por eso son dos columnas; mezclarlas es el error que hace que una pantalla de cobranza
+   * parezca un faltante.
+   *
+   * ⛔ **HUECO DECLARADO, el grande**: el medio de pago del MOSTRADOR AL PÚBLICO no existe en
+   * Kepler (`kdm1.c45` vacía en el 100 % de los documentos de venta, corte `U-D-23` 1 de cada 5
+   * días) — y además esas ventas ni siquiera entran a este universo, porque el Árbol es la póliza
+   * de ingreso del CEDIS. Va al puente como tramo sin monto, no como cero.
+   */
+  async incomeRecon(q: IncomeQueryFilters & { grain?: IncomeGrain }): Promise<IncomeRecon> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    const grain: IncomeGrain =
+      q.grain === 'dia' || q.grain === 'trimestre' ? q.grain : 'mes';
+    const per = (col: string) =>
+      grain === 'trimestre'
+        ? `to_char(${col}, 'YYYY') || '-T' || to_char(${col}, 'Q')`
+        : `to_char(${col}, '${grain === 'dia' ? 'YYYY-MM-DD' : 'YYYY-MM'}')`;
+
+    return this.tk.run(async (trx) => {
+      const freshness = await this.incomeFreshness(trx);
+
+      // Los filtros de la pantalla (canal/plaza) se aplican ACÁ y no después, para que los totales
+      // del puente sean los de lo que el usuario está viendo. Si se filtrara en memoria, el puente
+      // diría una cosa y la tabla otra.
+      const cond: string[] = ['b.tenant_id = ?'];
+      const args: Knex.RawBinding[] = [from, to, tenantId];
+      if (q.canal?.length) {
+        cond.push(`b.canal = ANY(?)`);
+        args.push(q.canal as unknown as Knex.RawBinding);
+      }
+      if (q.plaza) { cond.push('b.plaza = ?'); args.push(q.plaza); }
+
+      const rowsRaw = (await trx.raw(
+        // ⛔ MATERIALIZED NO ES ADORNO: sin el, esta pantalla tarda MAS DE 120 SEGUNDOS.
+        // income_bridge_src es LANGUAGE sql STABLE, o sea INLINABLE: el planner mete su
+        // cuerpo entero aca adentro, aplana sus CTEs (ing/doc/pag/agg/cta), estima rows=1 y
+        // elige un Nested Loop que RE-EVALUA pag por cada fila. Medido contra prod el
+        // 2026-10-02: >120 s sin la palabra, 754 ms con ella -- el mismo cuadro que [PERF.1]
+        // y [RA-DYN.U3] ya pagaron en este repo.
+        `WITH b AS MATERIALIZED (SELECT * FROM analytics.income_bridge_src(?::date, ?::date)),
+              f AS (SELECT * FROM b WHERE ${cond.join(' AND ')}),
+              -- Las cuentas se explotan y se re-agregan POR CELDA: el jsonb que trae la fuente es
+              -- por documento, y lo que la pantalla necesita es "por esta plaza, en este período,
+              -- entró dinero por estas N cuentas".
+              ct AS (
+                SELECT ${per('f.fecha')} AS periodo, f.plaza, f.canal,
+                       c->>'code' AS code, c->>'nombre' AS nombre, c->>'medio' AS medio,
+                       sum((c->>'pagos')::int)::int AS pagos,
+                       sum((c->>'importe')::numeric) AS importe
+                  FROM f CROSS JOIN LATERAL jsonb_array_elements(f.cuentas) c
+                 GROUP BY 1,2,3,4,5,6),
+              cta AS (
+                SELECT periodo, plaza, canal,
+                       jsonb_agg(jsonb_build_object('code', code, 'nombre', nombre, 'medio', medio,
+                                                    'pagos', pagos, 'importe', round(importe, 2))
+                                 ORDER BY importe DESC) AS cuentas
+                  FROM ct GROUP BY 1,2,3),
+              -- ⚠️ El agregado va en su propia etapa y las cuentas se pegan DESPUES: la
+              -- columna cuentas es jsonb y no existe un max(jsonb), asi que no se puede arrastrar
+              -- por el GROUP BY. Lo descubrio ejercer la consulta real contra prod; el build
+              -- pasaba igual -- y esta es la SEXTA vez que un acento grave adentro de un
+              -- literal de plantilla rompe la compilacion de este repo.
+              ag AS (
+         SELECT ${per('f.fecha')} AS periodo, f.plaza, f.canal,
+                CASE WHEN count(DISTINCT f.kind) FILTER (WHERE f.kind IS NOT NULL) = 0
+                       THEN 'sin_documento'
+                     WHEN count(DISTINCT f.kind) FILTER (WHERE f.kind IS NOT NULL) = 1
+                       THEN max(f.kind)
+                     ELSE 'mixto' END                                     AS kind,
+                CASE WHEN count(*) FILTER (WHERE f.ligado) = 0 THEN NULL
+                     ELSE bool_and(f.es_interno) FILTER (WHERE f.ligado) END AS es_interno,
+                sum(f.importe)                                            AS vendido,
+                count(*)::int                                             AS docs,
+                count(*) FILTER (WHERE f.ligado)::int                     AS docs_ligados,
+                count(*) FILTER (WHERE f.doc_cancelado)::int              AS docs_cancelados,
+                coalesce(sum(f.importe) FILTER (WHERE f.doc_cancelado), 0) AS vendido_cancelado,
+                coalesce(sum(f.cobrado), 0)                               AS cobrado,
+                coalesce(sum(f.pagos), 0)::int                            AS pagos,
+                coalesce(sum(f.nota_credito), 0)                          AS nota_credito,
+                sum(f.pendiente)                                          AS pendiente,
+                coalesce(sum(f.efectivo), 0)                              AS efectivo,
+                coalesce(sum(f.banco), 0)                                 AS banco,
+                coalesce(sum(f.otro_medio), 0)                            AS ajuste,
+                coalesce(sum(f.cobrado_en_periodo), 0)                    AS cobrado_en_periodo,
+                coalesce(sum(f.pagos_en_periodo), 0)::int                 AS pagos_en_periodo,
+                coalesce(max(f.pagos), 0)::int                            AS max_pagos,
+                -- [IG.12] to_char, no la fecha cruda: pg entrega un date como OBJETO Date y
+                -- el String(x).slice(0,10) de mas abajo devolvia "Mon Sep 28". Nadie lo vio
+                -- porque hoy la pantalla no dibuja estas dos columnas, pero salen por la API.
+                to_char(min(f.primer_cobro), 'YYYY-MM-DD')                AS primer_cobro,
+                to_char(max(f.ultimo_cobro), 'YYYY-MM-DD')                AS ultimo_cobro
+           FROM f GROUP BY 1, 2, 3)
+         SELECT ag.*, coalesce(cta.cuentas, '[]'::jsonb) AS cuentas
+           FROM ag
+           LEFT JOIN cta ON cta.periodo = ag.periodo
+                        AND cta.plaza = ag.plaza AND cta.canal = ag.canal
+          ORDER BY ag.periodo DESC, ag.vendido DESC`,
+        args)).rows as Array<Record<string, unknown>>;
+
+      const n = (x: unknown) => +(Number(x ?? 0).toFixed(2));
+      const nn = (x: unknown) => (x === null || x === undefined ? null : n(x));
+      const d = (x: unknown) => (x ? String(x).slice(0, 10) : null);
+
+      const rows: IncomeReconRow[] = rowsRaw.map((r) => ({
+        periodo: String(r['periodo']),
+        plaza: String(r['plaza'] ?? '') || '(sin plaza)',
+        canal: String(r['canal']),
+        kind: r['kind'] as IncomeReconRow['kind'],
+        es_interno: r['es_interno'] === null || r['es_interno'] === undefined
+          ? null : Boolean(r['es_interno']),
+        vendido: n(r['vendido']),
+        docs: Number(r['docs'] ?? 0),
+        docs_ligados: Number(r['docs_ligados'] ?? 0),
+        docs_cancelados: Number(r['docs_cancelados'] ?? 0),
+        vendido_cancelado: n(r['vendido_cancelado']),
+        cobrado: n(r['cobrado']),
+        pagos: Number(r['pagos'] ?? 0),
+        nota_credito: n(r['nota_credito']),
+        pendiente: nn(r['pendiente']),
+        efectivo: n(r['efectivo']),
+        banco: n(r['banco']),
+        ajuste: n(r['ajuste']),
+        cobrado_en_periodo: n(r['cobrado_en_periodo']),
+        pagos_en_periodo: Number(r['pagos_en_periodo'] ?? 0),
+        primer_cobro: d(r['primer_cobro']),
+        ultimo_cobro: d(r['ultimo_cobro']),
+        cuentas: (r['cuentas'] as IncomeCuenta[] | null) ?? [],
+      }));
+
+      const sum = (f: (r: IncomeReconRow) => number) => n(rows.reduce((s, r) => s + f(r), 0));
+      const esInterno = (r: IncomeReconRow) => r.es_interno === true;
+      const esExterno = (r: IncomeReconRow) => r.es_interno === false;
+      const totales: IncomeReconTotals = {
+        vendido: sum((r) => r.vendido),
+        vendido_externo: n(rows.filter(esExterno).reduce((s, r) => s + r.vendido, 0)),
+        vendido_interno: n(rows.filter(esInterno).reduce((s, r) => s + r.vendido, 0)),
+        vendido_sin_clasificar: n(rows.filter((r) => r.es_interno === null)
+          .reduce((s, r) => s + r.vendido, 0)),
+        docs: rows.reduce((s, r) => s + r.docs, 0),
+        docs_ligados: rows.reduce((s, r) => s + r.docs_ligados, 0),
+        docs_cancelados: rows.reduce((s, r) => s + r.docs_cancelados, 0),
+        vendido_cancelado: sum((r) => r.vendido_cancelado),
+        cobrado: sum((r) => r.cobrado),
+        pagos: rows.reduce((s, r) => s + r.pagos, 0),
+        nota_credito: sum((r) => r.nota_credito),
+        pendiente: sum((r) => r.pendiente ?? 0),
+        efectivo: sum((r) => r.efectivo),
+        banco: sum((r) => r.banco),
+        ajuste: sum((r) => r.ajuste),
+        cobrado_en_periodo: sum((r) => r.cobrado_en_periodo),
+        pagos_en_periodo: rows.reduce((s, r) => s + r.pagos_en_periodo, 0),
+        max_pagos_por_factura: rowsRaw.reduce((s, r) => Math.max(s, Number(r['max_pagos'] ?? 0)), 0),
+      };
+
+      // El puente se lee de arriba hacia abajo y CIERRA: vendido − cobrado − nota de crédito =
+      // pendiente. Que cierre no es cosmético: es lo que permite arbitrarlo contra la cartera.
+      const bridge: IncomeBridgeItem[] = [
+        { key: 'vendido', label: 'Facturado en el período', monto: totales.vendido, resta: false,
+          nota: 'Lo mismo que publica la pestaña Árbol, celda por celda. De eso, '
+            + `$${totales.vendido_interno.toLocaleString('es-MX')} es traspaso dentro de la casa.` },
+        { key: 'cobrado', label: 'Cobrado contra esas facturas (a la fecha)',
+          monto: totales.cobrado, resta: true,
+          nota: `${totales.pagos} pagos casados en el libro de aplicaciones del ERP. `
+            + `Efectivo $${totales.efectivo.toLocaleString('es-MX')} · `
+            + `depósito $${totales.banco.toLocaleString('es-MX')}.` },
+        { key: 'nota_credito', label: 'Nota de crédito aplicada', monto: totales.nota_credito,
+          resta: true,
+          nota: 'Dinero que ya no va a entrar. Se resta aparte del cobro: sin esto el saldo no '
+            + 'cuadra con la cartera (521 facturas difieren en vez de 42).' },
+        { key: 'pendiente', label: 'Pendiente de cobro', monto: totales.pendiente, resta: false,
+          nota: 'NO es faltante: es plazo de crédito. Arbitrado contra la cartera de clientes '
+            + '(otra implementación, sale de kdue) con 0.28 % de diferencia.' },
+      ];
+
+      const sinLigar = totales.docs - totales.docs_ligados;
+      const huecos: IncomeBridgeItem[] = [
+        // ⛔ Esto NO es un hueco de medición: es dinero de más en la cifra publicada. Se declara
+        // acá porque es lo que hay que restar para leer el ingreso, y el monto va con nombre.
+        { key: 'cancelado',
+          label: `Documento CANCELADO con su ingreso todavía publicado (${totales.docs_cancelados})`,
+          monto: totales.vendido_cancelado, resta: true,
+          nota: 'El ERP canceló el documento ($0.00) y su póliza de ingreso sigue viva, sin '
+            + 'reversar. No es una falla de medición: cuando Kepler da de baja, escribe un marcador '
+            + 'en $0.00 y borra la póliza — pasa en 154 de 158 cancelados. Estos no. Separar si el '
+            + 'DELETE no se propagó o si la cancelación quedó a medias exige leer el Kepler vivo; '
+            + 'el veredicto no cambia: el documento vale $0.00.' },
+        { key: 'sin_documento', label: `Pólizas sin documento — NO MEDIDO (${sinLigar})`,
+          monto: sinLigar > 0 ? totales.vendido_sin_clasificar : 0, resta: false,
+          nota: sinLigar > 0
+            ? 'La póliza existe y su factura no aparece en el ERP, ni siquiera cancelada. Es una '
+              + 'causa NUEVA: hasta ahora las 4,814 líneas encontraban su documento.'
+            : 'Cero. Las 4,814 pólizas del rango encontraron su documento, su cliente y su '
+              + 'veredicto. Antes decía 5: era un filtro propio que dejaba fuera a los cancelados, '
+              + 'no una ausencia del ERP.' },
+        { key: 'ajuste', label: 'Entró por cuenta de devolución o ajuste, no por banco',
+          monto: totales.ajuste, resta: false,
+          nota: 'Las cuentas DEVOLUCIONES y AJUSTE A SALDO no son un depósito. La versión anterior '
+            + 'las publicaba como banco.' },
+        { key: 'mostrador_sin_medio', label: 'Medio de pago del mostrador al público — NO MEDIDO',
+          monto: null, resta: false,
+          nota: 'kdm1.c45 viene vacía en el 100 % de los documentos de venta y el corte de caja '
+            + 'U-D-23 existe 1 de cada 5 días: Kepler no guarda si el ticket se pagó en efectivo o '
+            + 'con tarjeta. Además esas ventas no entran a este universo, que es la póliza de '
+            + 'ingreso del CEDIS.' },
+      ];
+
+      return { from, to, grain, freshness, rows, totales, bridge, huecos };
+    });
+  }
+
+  /**
+   * `[IG.12]` **El desglose de una celda de la conciliación: sus documentos, uno por uno.**
+   *
+   * Edgar: *"conciliación no me desglosa la información al detalle, como se está pidiendo"*. La
+   * tabla publicaba `(período × plaza × canal)` y ahí se terminaba, cuando el pedido de antes era
+   * explícito: **por día, y de ahí por folio**. El Árbol ya baja a folio; la Conciliación no, y es
+   * la pestaña donde está el cobro — o sea justo donde hace falta ver cuál factura es la que debe.
+   *
+   * ⭐ El dato ya existía: `income_bridge_src` devuelve **una fila por folio** con su cliente, su
+   * cobro, sus cuentas y su saldo. `incomeRecon` lo agregaba y tiraba el detalle. Esto es el mismo
+   * puente leído sin agregar.
+   *
+   * ── Por qué la ventana se RECORTA, y no es un detalle ────────────────────────────────────────
+   * El detalle no pide los 90 días de la pantalla: pide **el período de la celda ∩ el rango**. Las
+   * dos mitades importan.
+   *
+   * · Achicar a su período es lo que lo hace barato (un día cuesta ~0.4 s contra los 0.75 s del
+   *   rango entero) y es **exacto** porque la póliza y su documento comparten folio **y fecha**:
+   *   medido 4,809 de 4,809, cero días de desfase. Si no fuera así, achicar la ventana rompería la
+   *   liga y aparecerían «sin documento» que no existen.
+   * · Recortarlo AL RANGO es lo que lo hace **cuadrar**: con la pantalla puesta en *4-jul → 2-oct*,
+   *   el renglón `2026-07` sólo contiene del 4 al 31. Pedir el mes entero traería los tres primeros
+   *   días de julio y el detalle sumaría más que su propio total — el clásico desglose que no
+   *   suma al encabezado.
+   */
+  async incomeReconDetalle(q: {
+    periodo: string; plaza: string; canal: string;
+    from?: string; to?: string; grain?: IncomeGrain;
+  }): Promise<IncomeReconDetalle> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    const grain: IncomeGrain = q.grain === 'dia' || q.grain === 'trimestre' ? q.grain : 'mes';
+    const periodo = String(q.periodo || '');
+
+    // Sin `Date`: con UTC-6 `new Date('2026-07-01')` cae el 30 de junio por la noche y el período
+    // arranca un día antes. Es aritmética de texto a propósito.
+    let ini: string; let fin: string;
+    if (grain === 'dia') {
+      ini = periodo; fin = periodo;
+    } else if (grain === 'trimestre') {
+      const [y, t] = periodo.split('-T');
+      const m = (Number(t) - 1) * 3 + 1;
+      ini = `${y}-${String(m).padStart(2, '0')}-01`;
+      fin = this.ultimoDiaDelMes(`${y}-${String(m + 2).padStart(2, '0')}-01`);
+    } else {
+      ini = `${periodo}-01`; fin = this.ultimoDiaDelMes(ini);
+    }
+    const desde = ini > from ? ini : from;   // la intersección, en texto ISO: comparar strings
+    const hasta = fin < to ? fin : to;       // `YYYY-MM-DD` ordena igual que las fechas
+    const vacio: IncomeReconDetalle = { periodo, plaza: q.plaza, canal: q.canal, from: desde, to: hasta, docs: [], vendido: 0 };
+    if (!periodo || desde > hasta) return vacio;
+
+    return this.tk.run(async (trx) => {
+      const rowsRaw = (await trx.raw(
+        // MATERIALIZED por la misma razón que en `incomeRecon`: la función es `LANGUAGE sql
+        // STABLE`, o sea inlinable, y sin la palabra el planner aplana sus CTEs, estima rows=1 y
+        // elige un Nested Loop que re-evalúa `pag` por cada fila.
+        `WITH b AS MATERIALIZED (SELECT * FROM analytics.income_bridge_src(?::date, ?::date))
+         -- to_char y NO la columna cruda: pg devuelve un date como OBJETO Date de JS, y
+         -- String(d).slice(0,10) da "Mon Sep 28", no "2026-09-28". Es el mismo defecto que
+         -- [LC.16] encontro en el libro de compras, donde ademas corria el DIA porque el objeto
+         -- se construye en UTC y se renderiza en hora de Mexico. En la lista de seleccion
+         -- to_char es gratis; lo que anula un indice es envolver la fecha en el WHERE.
+         SELECT to_char(b.fecha, 'YYYY-MM-DD')         AS fecha,
+                b.folio, b.doc_tipo, b.cliente_code, b.cliente_nombre, b.kind,
+                b.es_interno, b.ligado, b.doc_cancelado, b.importe, b.cobrado, b.pagos,
+                b.nota_credito, b.pendiente,
+                to_char(b.primer_cobro, 'YYYY-MM-DD')  AS primer_cobro,
+                to_char(b.ultimo_cobro, 'YYYY-MM-DD')  AS ultimo_cobro,
+                b.cuentas
+           FROM b
+          WHERE b.tenant_id = ?
+            AND b.canal = ?
+            AND coalesce(nullif(btrim(b.plaza), ''), '(sin plaza)') = ?
+          ORDER BY abs(b.importe) DESC, b.folio`,
+        [desde, hasta, tenantId, q.canal, q.plaza || '(sin plaza)'])).rows as Array<Record<string, unknown>>;
+
+      const n = (x: unknown) => +(Number(x ?? 0).toFixed(2));
+      const nn = (x: unknown) => (x === null || x === undefined ? null : n(x));
+      const d = (x: unknown) => (x ? String(x).slice(0, 10) : null);
+
+      const docs: IncomeReconDoc[] = rowsRaw.map((r) => ({
+        fecha: d(r['fecha']) ?? desde,
+        folio: String(r['folio'] ?? ''),
+        doc_tipo: String(r['doc_tipo'] ?? ''),
+        cliente_code: (r['cliente_code'] as string | null) ?? null,
+        cliente_nombre: (r['cliente_nombre'] as string | null) ?? null,
+        kind: (r['kind'] as IncomeReconDoc['kind']) ?? null,
+        es_interno: r['es_interno'] === null || r['es_interno'] === undefined ? null : Boolean(r['es_interno']),
+        ligado: Boolean(r['ligado']),
+        cancelado: Boolean(r['doc_cancelado']),
+        importe: n(r['importe']),
+        // ⚠️ `nn`, no `n`: en lo que no es factura estos vienen NULL del puente y tienen que
+        // llegar NULL a la pantalla. Un `0` acá se leería como «no se cobró nada».
+        cobrado: nn(r['cobrado']),
+        pagos: r['pagos'] === null || r['pagos'] === undefined ? null : Number(r['pagos']),
+        nota_credito: nn(r['nota_credito']),
+        pendiente: nn(r['pendiente']),
+        primer_cobro: d(r['primer_cobro']),
+        ultimo_cobro: d(r['ultimo_cobro']),
+        cuentas: (r['cuentas'] as IncomeCuenta[] | null) ?? [],
+      }));
+
+      return {
+        periodo, plaza: q.plaza, canal: q.canal, from: desde, to: hasta, docs,
+        vendido: n(docs.reduce((s, x) => s + x.importe, 0)),
+      };
+    });
+  }
+
+  /**
+   * `[IG.3]` **Cuadre de fuentes** — el organismo que hoy no existe en ninguna pantalla.
+   *
+   * Pone lado a lado los cuatro caminos que llevan al mismo peso de venta. No es adorno: es lo que
+   * ADR-059 pide (un número se ARBITRA) y lo único que permite decir si la cifra es confiable.
+   * Medido en prod para agosto-2026:
+   *
+   *   A contable (esta pantalla) ... $55,940,323.96
+   *   D por canal (feed nocturno) .. $55,863,192.60   Δ −0.14 %  ← se validan mutuamente
+   *   B hecho de venta ............. $54,265,356.22   Δ −3.0 %   ← otro camino, otra fuente
+   *   C cobranza ................... $43,930,836.96   Δ −21.5 %  ← NO es discrepancia: es DSO
+   *
+   * ⚠️ `C` se muestra **explícitamente marcado como no comparable de frente**. Es lo que se cobró,
+   * no lo que se devengó; leerlo como faltante es el error que esta pestaña tiene que impedir.
+   */
+  async incomeSources(q: IncomeQueryFilters): Promise<IncomeSources> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    const mesIni = from.slice(0, 7);
+    const mesFin = to.slice(0, 7);
+    return this.tk.run(async (trx) => {
+      const uno = async (fn: () => Promise<string | number | null | undefined>): Promise<number | null> => {
+        try { const r = await fn(); return r == null ? null : Number(r); } catch { return null; }
+      };
+
+      // `[IG.4.1]` El puente: la venta BRUTA es lo que el feed nocturno puede cuadrar (él es sólo
+      // `UD1301`); la devolución es lo que este número resta y aquél no. Sin las dos piernas, el
+      // delta del feed se leería como descuadre cuando es justamente la corrección.
+      //
+      // `[IG.12]` Las tres salen de UNA sola evaluación de `income_entries_src`, con `FILTER`.
+      // Antes eran tres pasadas idénticas sobre la misma función y la misma ventana: 3 × 198 ms
+      // para leer tres veces lo mismo. Medido contra prod, 90 días: **600 ms → 183 ms**.
+      // Y hay un beneficio que no es de velocidad: así `contable = bruta + devoluciones` es cierto
+      // POR CONSTRUCCIÓN. Con tres consultas separadas podían verse filas distintas entre una y
+      // otra y el puente de la pantalla dejaba de cerrar sin que nada fallara.
+      const tri = await this.tri(trx, tenantId, from, to);
+      const contable = tri.contable;
+      const bruta = tri.bruta;
+      const devoluciones = tri.devoluciones;
+
+      // El feed nocturno es MENSUAL: sólo se compara si el rango son meses enteros, o el Δ sería
+      // un artefacto del recorte. Si no lo son, se DECLARA no comparable en vez de restar peras.
+      const mesesEnteros = from.endsWith('-01') && to === this.ultimoDiaDelMes(to);
+      const porCanal = mesesEnteros ? await uno(async () => (await trx('analytics.sales_by_channel_monthly')
+        .where('tenant_id', tenantId).andWhere('anio_mes', '>=', mesIni).andWhere('anio_mes', '<=', mesFin)
+        .select(trx.raw('COALESCE(SUM(ventas),0)::numeric AS v')).first() as Agregado)?.v) : null;
+
+      const hechoVenta = await uno(async () => (await trx('analytics.mv_sales_blended')
+        .where('tenant_id', tenantId).andWhereBetween('sale_date', [from, to])
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS)
+        .select(trx.raw('COALESCE(SUM(revenue),0)::numeric AS v')).first() as Agregado)?.v);
+
+      const cobranza = await uno(async () => (await trx('analytics.erp_collections')
+        .where('tenant_id', tenantId).andWhereBetween('cobro_date', [from, to])
+        .select(trx.raw('COALESCE(SUM(monto),0)::numeric AS v')).first() as Agregado)?.v);
+
+      // `[IG.3.1]` **Lo que queda FUERA del alcance, medido y declarado.** La pregunta «¿no nos
+      // estamos saltando ningún tipo de ingreso?» no la contesta el candado de paridad: ése compara
+      // contra un feed que usa LAS MISMAS tres reglas, así que es un espejo (ADR-059 regla 5).
+      //
+      // Medido en prod sobre 12 meses, familia 4 del CEDIS fuera de `UD1301`:
+      //   · `UA2501`/`UA2502` «Nota Créd/Dev NoFis POS» = **−$1,505,625.79** que NO se restan.
+      //   · `UD1201` «Factura Cont No Fiscal» = **$4,809,937.99** que NO se suman.
+      //   · `UD4102` «Embarque Sucursal» con concepto «TRASPASO A SUCURSAL…» — traspaso interno,
+      //     bien excluido, pero nadie lo decía y quien cuadre contra la balanza lo va a buscar.
+      const fueraDeAlcance = await this.incomeOutOfScope(trx, from, to);
+      const contpaqi = mesesEnteros ? await this.contpaqiIngreso(trx, mesIni, mesFin) : null;
+      const cfdi = await this.cfdiEmitido(trx, from, to);
+      const edadContpaqi = await stepAt(trx, 'feed_contpaqi-slow', tenantId);
+
+      const edadFeed = await stepAt(trx, 'feed_nightly/import-sales-by-channel.js', tenantId);
+      const pct = (v: number | null) => (v == null || !contable ? null : +(((v - contable) / contable) * 100).toFixed(1));
+
+      return {
+        from, to,
+        fuentes: [
+          { key: 'venta_bruta', label: 'Venta bruta (UD1301)', monto: bruta, delta_pct: null, comparable: true,
+            nota: 'La venta antes de devoluciones. Es la pierna que el feed nocturno puede cuadrar, porque él sólo trae este documento.' },
+          { key: 'devoluciones', label: 'Devoluciones y notas de crédito (UA25xx)', monto: devoluciones, delta_pct: null, comparable: true,
+            nota: 'Se RESTAN del total, cada una en su canal y su plaza. Antes quedaban fuera y el ingreso salía inflado: −$1,505,625.79 en 12 meses.' },
+          { key: 'contable', label: 'Contable NETO (lo que publica esta pantalla)', monto: contable, delta_pct: 0, comparable: true,
+            nota: 'Venta bruta menos devoluciones. Derivado del ODS al minuto.' },
+          { key: 'canal', label: 'Por canal (feed nocturno)', monto: porCanal,
+            delta_pct: porCanal == null || !bruta ? null : +(((porCanal - bruta) / bruta) * 100).toFixed(1),
+            comparable: true, medido_al: edadFeed,
+            nota: mesesEnteros
+              ? '⚠️ Se compara contra la venta BRUTA, no contra el neto: este feed es sólo UD1301 y no resta devoluciones. Contra la bruta debe dar $0.00 — así salió en los 6 meses cerrados de feb–jul 2026.'
+              : 'NO MEDIDO: este feed es mensual y el rango no son meses enteros. Compararlo restaría peras con manzanas.' },
+          { key: 'hecho_venta', label: 'Hecho de venta (mv_sales_blended)', monto: hechoVenta, delta_pct: pct(hechoVenta), comparable: true,
+            nota: 'Testigo independiente: otra fuente y otro camino. Un ~3 % de diferencia es sano; una brecha grande es señal.' },
+          { key: 'cobranza', label: 'Cobranza (UA0501)', monto: cobranza, delta_pct: pct(cobranza), comparable: false,
+            nota: '⚠️ NO comparable de frente: es lo que se COBRÓ, no lo que se devengó. La diferencia es plazo de crédito (DSO), no faltante.' },
+          // Las tres de abajo NO son fuentes alternativas: son lo que el alcance deja fuera. Van
+          // acá porque es donde alguien viene a preguntarse si el número está completo.
+          { key: 'contado_nf', label: 'Factura Contado No Fiscal (NO sumada)', monto: fueraDeAlcance.contado_nf,
+            delta_pct: null, comparable: false,
+            nota: 'UD1201, fuera del alcance por decode heredado («notas»). Sus conceptos recientes son rutas (R.D. 21, R.D. 22), así que podrían ser venta real. Necesita que contabilidad lo dictamine.' },
+          { key: 'traspasos', label: 'Traspasos a sucursal (excluidos a propósito)', monto: fueraDeAlcance.traspasos,
+            delta_pct: null, comparable: false,
+            nota: 'UD4102 «Embarque Sucursal»: mercancía que se mueve dentro de la empresa, no venta externa. '
+              + '⭐ Es lo que explica por qué la balanza del CEDIS se separó de los libros fiscales en ago–sep 2026: '
+              + 'creció de golpe con la migración de las sucursales 06, 07 y 08 a Kepler (el CEDIS les empezó a '
+              + 'embarcar). Medido en septiembre, la cuenta 401 del CEDIS son $70.5M, de los cuales $18.0M son '
+              + 'este documento — y por eso nunca llegan a ContPAQi.' },
+          // `[IG.15]` El cuarto testigo, y el único que baja a la FACTURA. Va antes del de la
+          // balanza porque es más fino: aquél compara totales del mes, éste compara documentos.
+          { key: 'cfdi_emitido', label: 'CFDI emitidos (factura por factura)',
+            monto: cfdi ? cfdi.total : null,
+            delta_pct: cfdi == null || !hechoVenta ? null
+              : +(((cfdi.total - hechoVenta) / hechoVenta) * 100).toFixed(1),
+            comparable: true,
+            nota: cfdi
+              ? `${cfdi.filas} comprobantes timbrados en el rango. De ese dinero, `
+                + `${this.pctCfdi(cfdi, 'cuadra')} encuentra su documento en Kepler con el importe al `
+                + `centavo, ${this.pctCfdi(cfdi, 'difiere_importe')} lo encuentra con otro importe y `
+                + `${this.pctCfdi(cfdi, 'ambiguo')} casa con más de un documento. `
+                + `⚠️ ${this.pctCfdi(cfdi, 'fuera_de_kepler')} está FUERA del alcance de Kepler y no es `
+                + 'un hueco: son las plazas que en esa fecha todavía vendían en Wincaja — cada serie '
+                + 'muere en la fecha de corte que v_branch_erp_cutover tiene registrada, y con el CEDIS '
+                + 'ya cortado la cobertura converge sola.'
+              : 'NO MEDIDO: no hay CFDI emitidos cargados para el rango.' },
+          // `[IG.13]` El TERCER testigo, y el único fiscal. Edgar: *"casemos con ContPAQi para tener
+          // doble validez y tener una verdad sobre lo fiscal"*.
+          { key: 'contpaqi', label: 'Libros fiscales (ContPAQi, familia 4)', monto: contpaqi,
+            delta_pct: contpaqi == null || !hechoVenta ? null
+              : +(((contpaqi - hechoVenta) / hechoVenta) * 100).toFixed(1),
+            comparable: true, medido_al: edadContpaqi,
+            nota: mesesEnteros
+              ? '⭐ El único testigo FISCAL: la balanza del contador, consolidada por RFC. Se compara contra el '
+                + 'HECHO DE VENTA y no contra esta pantalla, porque los dos miden lo mismo —venta a terceros de '
+                + 'toda la entidad— mientras que el ingreso contable del CEDIS es en un 79–96 % la casa '
+                + 'facturándose a sí misma. ⚠️ Un delta negativo NO es sub-declaración por sí solo: medido '
+                + 'ene–jul 2026 el hueco es ESTRUCTURAL y estable (~21 % contra la balanza del CEDIS) y lo '
+                + 'mueven el IVA, el alcance de la entidad fiscal (un RFC contra la operación completa) y el '
+                + 'cierre contable del mes en curso, que todavía se está posteando.'
+              : 'NO MEDIDO: los libros son mensuales y el rango no son meses enteros. Compararlo restaría peras '
+                + 'con manzanas.' },
+        ],
+      };
+    });
+  }
+
+  /**
+   * `[IG.3.1]` Lo que el alcance del ingreso deja fuera, en el mismo rango y con el mismo filtro de
+   * CEDIS. Se lee del ODS directo porque justamente son las filas que `income_entries_src()`
+   * descarta.
+   *
+   * ⚠️ No se suma al total ni se resta: se DECLARA. Cambiar el número es una decisión de negocio
+   * (restar devoluciones lo separa del feed nocturno que hoy es el árbitro), y esta capa no la
+   * toma sola.
+   */
+  private async incomeOutOfScope(
+    trx: Knex.Transaction, from: string, to: string,
+  ): Promise<{ devoluciones: number | null; contado_nf: number | null; traspasos: number | null }> {
+    const vacio = { devoluciones: null, contado_nf: null, traspasos: null };
+    try {
+      const { rows } = await trx.raw(
+        `SELECT
+           COALESCE(SUM(v) FILTER (WHERE dt LIKE 'UA25%'), 0)::numeric  AS devoluciones,
+           COALESCE(SUM(v) FILTER (WHERE dt = 'UD1201'), 0)::numeric    AS contado_nf,
+           COALESCE(SUM(v) FILTER (WHERE dt = 'UD4102'), 0)::numeric    AS traspasos
+         FROM analytics.income_out_of_scope(?::date, ?::date)`, [from, to]);
+      const r = rows?.[0];
+      return r
+        ? { devoluciones: Number(r.devoluciones), contado_nf: Number(r.contado_nf), traspasos: Number(r.traspasos) }
+        : vacio;
+    } catch {
+      return vacio; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
+    }
+  }
+
+  /**
+   * `[IG.12]` Las tres piernas del cuadre contable en **una sola** evaluación del ODS.
+   *
+   * `income_entries_src()` es una derivación viva: cada llamada la vuelve a calcular entera. Pedirle
+   * el total, después sólo `UD1301` y después sólo `UA25xx` eran tres recorridos del mismo rango
+   * para repartir las mismas filas en tres cubetas que `FILTER` resuelve en una pasada.
+   *
+   * ⚠️ Si falla, fallan las tres juntas y se publican como NO MEDIDO. Es a propósito: son la misma
+   * medición: publicar dos de tres dejaría un puente que no cierra, que es peor que no publicarlo.
+   */
+  private async tri(
+    trx: Knex.Transaction, tenantId: string, from: string, to: string,
+  ): Promise<{ contable: number | null; bruta: number | null; devoluciones: number | null }> {
+    try {
+      const { rows: [r] } = await trx.raw(
+        `SELECT COALESCE(SUM(e.importe),0)::numeric                                        AS contable,
+                COALESCE(SUM(e.importe) FILTER (WHERE e.doc_tipo = 'UD1301'),0)::numeric   AS bruta,
+                COALESCE(SUM(e.importe) FILTER (WHERE e.doc_tipo LIKE 'UA25%'),0)::numeric AS devoluciones
+           FROM analytics.income_entries_src(?::date, ?::date) AS e
+          WHERE e.tenant_id = ?`, [from, to, tenantId]);
+      return r
+        ? { contable: Number(r.contable), bruta: Number(r.bruta), devoluciones: Number(r.devoluciones) }
+        : { contable: null, bruta: null, devoluciones: null };
+    } catch {
+      return { contable: null, bruta: null, devoluciones: null }; // NO MEDIDO, nunca cero
+    }
+  }
+
+  /**
+   * `[IG.13]` **El ingreso según los libros fiscales de ContPAQi** — el tercer testigo.
+   *
+   * Es el único de los cuatro que no sale de Kepler: lo escribe el contador y es lo que ve el SAT.
+   * Familia 4 de `analytics.contpaqi_ledger_monthly`, consolidada por RFC.
+   *
+   * ⚠️ **Y por eso no se compara contra esta pantalla.** El ingreso contable del CEDIS es, medido
+   * mes a mes en 2026, entre **79 % y 96 % traspaso interno**; los libros fiscales no tienen
+   * traspasos porque venderse a uno mismo no es una venta. El contraste honesto es contra el hecho
+   * de venta, que mide lo mismo: lo que la entidad le vendió a terceros.
+   *
+   * ⛔ **Lo que este testigo NO puede dar**: el CFDI emitido. `fiscal.cfdis` trae **168,701
+   * comprobantes y los 168,701 son RECIBIDOS** (`rol = 'recibidas'`) — el ADD de ContPAQi que
+   * alimenta la Fase LC es el de compras. Sin CFDI emitido no hay forma de casar factura por
+   * factura contra el ingreso: lo máximo que se puede hoy es el total mensual de la balanza.
+   */
+  private async contpaqiIngreso(
+    trx: Knex.Transaction, mesIni: string, mesFin: string,
+  ): Promise<number | null> {
+    try {
+      const { rows } = await trx.raw(
+        `SELECT sum(abonos - cargos)::numeric AS v
+           FROM analytics.contpaqi_ledger_monthly
+          WHERE familia = '4' AND anio_mes BETWEEN ? AND ?`, [mesIni, mesFin]);
+      const v = (rows as Array<{ v: string | null }>)[0]?.v;
+      return v === null || v === undefined ? null : +Number(v).toFixed(2);
+    } catch {
+      return null; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
+    }
+  }
+
+  /**
+   * `[IG.15]` **El cruce FISCAL del ingreso, factura por factura.**
+   *
+   * `analytics.v_cfdi_emitido_match` da una fila por CFDI emitido con su documento de Kepler y su
+   * veredicto. Acá se resume para la pestaña de cuadre: cuánto se facturó, y de eso cuánto
+   * encuentra su documento, cuánto difiere y cuánto está fuera del alcance de Kepler.
+   *
+   * ⚠️ `fuera_de_kepler` NO es una falla: son las plazas que en esa fecha todavía vendían en
+   * Wincaja, y cada serie muere en la fecha de corte que `v_branch_erp_cutover` tiene registrada.
+   * Contarlo como hueco diría que falta algo que nunca existió de ese lado.
+   */
+  private async cfdiEmitido(
+    trx: Knex.Transaction, from: string, to: string,
+  ): Promise<{ total: number; filas: number; detalle: Record<string, { n: number; monto: number }> } | null> {
+    try {
+      const { rows } = await trx.raw(
+        `SELECT veredicto, count(*)::int AS n, round(sum(total), 2)::numeric AS monto
+           FROM analytics.v_cfdi_emitido_match
+          WHERE fecha >= ?::date AND fecha <= ?::date
+          GROUP BY 1`, [from, to]);
+      const r = rows as Array<{ veredicto: string; n: number; monto: string }>;
+      if (!r.length) return null;
+      const detalle: Record<string, { n: number; monto: number }> = {};
+      let total = 0; let filas = 0;
+      for (const x of r) {
+        const monto = +Number(x.monto).toFixed(2);
+        detalle[x.veredicto] = { n: x.n, monto };
+        total += monto; filas += x.n;
+      }
+      return { total: +total.toFixed(2), filas, detalle };
+    } catch {
+      return null; // NO MEDIDO — la pantalla lo dice, no lo dibuja como cero
+    }
+  }
+
+  /**
+   * El peso de un veredicto dentro del total facturado, en texto listo para la nota.
+   * Devuelve «0 %» explícito cuando el veredicto no aparece: en este resumen la ausencia de un
+   * veredicto SÍ es un cero de negocio (ninguna factura cayó ahí), no un dato que falte.
+   */
+  private pctCfdi(c: { total: number; detalle: Record<string, { n: number; monto: number }> }, k: string): string {
+    const m = c.detalle[k]?.monto ?? 0;
+    const pct = c.total ? (m / c.total) * 100 : 0;
+    return `${pct.toFixed(1)} % ($${m.toLocaleString('es-MX')})`;
+  }
+
+  /** Último día del mes de una fecha `YYYY-MM-DD`, sin `Date` (UTC-6 corre el día). */
+  private ultimoDiaDelMes(d: string): string {
+    const y = Number(d.slice(0, 4)); const m = Number(d.slice(5, 7));
+    const bis = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    const dias = [31, bis ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+    return `${d.slice(0, 7)}-${String(dias).padStart(2, '0')}`;
+  }
+
+  /**
+   * GX v3 — Drill al documento fuente detrás de una póliza de egreso.
+   * Devuelve: cabecera del documento (proveedor, RFC, concepto, área, total, IVA),
+   * las posturas contables (renglones de la póliza) y las líneas de producto
+   * (solo compras XA2001; los gastos XA1001 no tienen líneas en Kepler).
+   */
+  async expenseDocument(q: { sucursal: string; doc_tipo: string; folio: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { sucursal, doc_tipo, folio } = q;
+    if (!sucursal || !doc_tipo || !folio) return { header: null, postings: [], lines: [] };
+    return this.tk.run(async (trx) => {
+      const key = { tenant_id: tenantId, sucursal, doc_tipo, doc_folio: folio };
+
+      const header = await trx('analytics.expense_documents as d')
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', 'd.tenant_id').andOn('w.code', 'd.sucursal');
+        })
+        // columnas calificadas con d.* — el join con warehouses también tiene tenant_id/sucursal (evita 42702 ambiguo)
+        .where({ 'd.tenant_id': tenantId, 'd.sucursal': sucursal, 'd.doc_tipo': doc_tipo, 'd.doc_folio': folio })
+        .select('d.sucursal', 'w.name as sucursal_nombre', 'd.doc_tipo', 'd.doc_folio',
+          'd.fecha', 'd.fecha_doc', 'd.beneficiario', 'd.rfc', 'd.concepto', 'd.area',
+          trx.raw('d.importe::numeric AS importe'), trx.raw('d.iva::numeric AS iva'),
+          'd.usuario', 'd.clase', 'd.solicitud_tipo', 'd.solicitud_folio')
+        .first();
+
+      const postings = await trx('analytics.expense_entries')
+        .where(key)
+        .select('linea', 'cuenta', 'cuenta_nombre', 'cuenta_mayor', 'familia',
+          'concepto_nombre', 'comentario', 'beneficiario_doc',
+          trx.raw('importe::numeric AS importe'))
+        .orderBy('linea');
+
+      const lines = await trx('analytics.expense_document_lines')
+        .where(key)
+        .select('linea', 'sku', 'producto', trx.raw('cantidad::numeric AS cantidad'),
+          'presentacion', trx.raw('costo_unitario::numeric AS costo_unitario'),
+          trx.raw('importe::numeric AS importe'))
+        .orderBy('importe', 'desc');
+
+      // MAAT.1 — cadena de aprovisionamiento (solo compras XA2001; feed import-ledger-chain)
+      let chain = null;
+      if (doc_tipo === 'XA2001') {
+        const ch = await trx('analytics.expense_doc_chain')
+          .where({ tenant_id: tenantId, sucursal, factura_folio: folio })
+          .select('orden_folio', 'orden_fecha', 'recepcion_folio', 'recepcion_fecha',
+            'factura_folio', 'factura_fecha', 'pago_folio', 'pago_fecha',
+            'lead_days', 'pago_days', 'match_confidence')
+          .first();
+        if (ch) chain = { ...ch, lead_days: ch.lead_days != null ? Number(ch.lead_days) : null, pago_days: ch.pago_days != null ? Number(ch.pago_days) : null };
+      }
+
+      // GX.6 — cadena de gasto: la solicitud (XA1501) que originó este gasto (XA1001).
+      let request = null;
+      if (doc_tipo === 'XA1001' && header?.solicitud_folio) {
+        const rq = await trx('analytics.expense_requests')
+          .where({ tenant_id: tenantId, sucursal, folio: header.solicitud_folio })
+          .select('folio', 'fecha', trx.raw('importe::numeric AS importe'), 'solicitante', 'beneficiario', 'concepto', 'estado', 'usuario', 'aplicada')
+          .first();
+        if (rq) {
+          const lead = header.fecha && rq.fecha ? Math.round((Date.parse(String(header.fecha)) - Date.parse(String(rq.fecha))) / 86400000) : null;
+          request = { ...rq, importe: Number(rq.importe), lead_days: Number.isFinite(lead) ? lead : null };
+        }
+      }
+
+      return {
+        header: header
+          ? { ...header, importe: Number(header.importe), iva: Number(header.iva) }
+          : null,
+        request,
+        postings: postings.map((r: any) => ({ ...r, importe: Number(r.importe) })),
+        lines: lines.map((r: any) => ({
+          ...r,
+          cantidad: r.cantidad != null ? Number(r.cantidad) : null,
+          costo_unitario: r.costo_unitario != null ? Number(r.costo_unitario) : null,
+          importe: Number(r.importe),
+        })),
+        chain,
+      };
+    });
+  }
+
+  /**
+   * GX.6 — Solicitudes de gasto (XA1501) con su estado y si ya se aplicaron (gasto
+   * XA1001). KPIs + filas para la página "Solicitudes de gasto". Filtros: from/to,
+   * sucursal[], estado (F/A/C/N), solicitante (ILIKE), aplicada (bool), search.
+   */
+  /**
+   * Columnas de `analytics.expense_requests` presentes en ESTA base.
+   *
+   * La vista pasó de 13 a 23 columnas (mig 20260821200000). Sondear en vez de asumir
+   * deja que el código y la migración se desplieguen en cualquier orden: sin la
+   * migración simplemente no se piden los campos nuevos, en vez de tirar un 500.
+   * Se cachea: el esquema no cambia en caliente.
+   */
+  private erCols: Set<string> | null = null;
+  private async expenseRequestCols(trx: any): Promise<Set<string>> {
+    if (this.erCols) return this.erCols;
+    const r = await trx.raw(`SELECT column_name FROM information_schema.columns
+                              WHERE table_schema='analytics' AND table_name='expense_requests'`);
+    this.erCols = new Set((r.rows || []).map((x: any) => x.column_name));
+    return this.erCols;
+  }
+
+  /**
+   * Con qué se identifica "lo mío" en las solicitudes de gasto.
+   *
+   * Kepler NO guarda quién pidió: `c48` es texto libre con 693 variantes que mezclan
+   * personas y áreas, y `c67` es quien CAPTURÓ (un solo código llega a teclear 2,250
+   * documentos de 91 solicitantes distintos). No hay identidad de usuario que heredar.
+   *
+   * Así que "mío" se ancla en dos cosas, y se dicen las dos para que quien mira entienda
+   * por qué ve lo que ve:
+   *   1. Las áreas de gasto asignadas al usuario (`users.finance_expense_area_ids` →
+   *      `finance.expense_areas.norm_key`). Es el mecanismo que ya existe y administra
+   *      /admin/users; hoy no lo tiene configurado nadie.
+   *   2. Su propio nombre (`users.nombre`) como solicitante. Cubre 19 de 111 usuarios sin
+   *      configurar nada, y no puede mostrar de más salvo homónimos exactos.
+   */
+  private async misClavesDeGasto(trx: any, userId?: string): Promise<{ keys: string[]; areas: number; nombre: string | null }> {
+    const vacio = { keys: [] as string[], areas: 0, nombre: null as string | null };
+    if (!userId) return vacio;
+    const u = await trx('users').where({ id: userId }).first('nombre', 'finance_expense_area_ids');
+    if (!u) return vacio;
+    const norm = (v: any) => String(v ?? '').trim().replace(/\s+/g, ' ').toUpperCase() || null;
+    const nombre = norm(u.nombre);
+    const ids: string[] = Array.isArray(u.finance_expense_area_ids) ? u.finance_expense_area_ids.filter(Boolean) : [];
+    const areaKeys: string[] = ids.length
+      ? (await trx('finance.expense_areas').whereIn('id', ids).pluck('norm_key')).map(norm).filter(Boolean)
+      : [];
+    // Dedup sin Set: el spread de iteradores se transpila mal en el bundle del API.
+    const keys: string[] = [];
+    for (const k of [...areaKeys, ...(nombre ? [nombre] : [])]) if (k && keys.indexOf(k) === -1) keys.push(k);
+    return { keys, areas: areaKeys.length, nombre };
+  }
+
+  async expenseRequests(q: {
+    from?: string; to?: string; sucursal?: string[]; estado?: string;
+    solicitante?: string; aplicada?: boolean; search?: string;
+    grupo?: string[]; min_importe?: number; mias?: boolean; userId?: string; limit?: number;
+  }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(5000, Math.max(1, Number(q.limit) || 2000));
+    return this.tk.run(async (trx) => {
+      const enriquecida = (await this.expenseRequestCols(trx)).has('cuenta_grupo');
+      const mi = await this.misClavesDeGasto(trx, q.userId);
+      const applyFilters = (b: any) => {
+        b.where('r.tenant_id', tenantId);
+        if (q.from) b.andWhere('r.fecha', '>=', q.from);
+        if (q.to) b.andWhere('r.fecha', '<=', q.to);
+        if (q.sucursal?.length) b.whereIn('r.sucursal', q.sucursal);
+        if (q.estado) b.where('r.estado', q.estado);
+        if (q.solicitante?.trim()) b.whereRaw('r.solicitante ILIKE ?', [`%${q.solicitante.trim()}%`]);
+        if (q.aplicada != null) b.where('r.aplicada', q.aplicada);
+        // Filtros del autorizador (sólo si la vista enriquecida ya está aplicada).
+        if (q.grupo?.length && enriquecida) b.whereIn('r.cuenta_grupo', q.grupo);
+        if (q.min_importe != null && Number.isFinite(q.min_importe)) b.where('r.importe', '>=', q.min_importe);
+        // "Mis solicitudes". Sin anclas no se devuelve nada: mostrar todo sería mentir
+        // sobre de quién es, y el frontend ya explica que faltan áreas por asignar.
+        if (q.mias) {
+          if (!mi.keys.length) b.whereRaw('1=0');
+          else b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ANY(?::text[])", [mi.keys]);
+        }
+        if (q.search?.trim()) {
+          const s = `%${q.search.trim()}%`;
+          b.andWhere((w: any) => w.whereRaw('r.folio ILIKE ?', [s]).orWhereRaw('r.beneficiario ILIKE ?', [s]).orWhereRaw('r.concepto ILIKE ?', [s]));
+        }
+        return b;
+      };
+
+      const k: any = await applyFilters(trx('analytics.expense_requests as r'))
+        .select(
+          trx.raw('COUNT(*)::int AS total'),
+          trx.raw('COALESCE(SUM(r.importe),0)::numeric AS importe'),
+          trx.raw("COUNT(*) FILTER (WHERE NOT r.aplicada AND r.estado <> 'C')::int AS pendientes"),
+          trx.raw("COALESCE(SUM(r.importe) FILTER (WHERE NOT r.aplicada AND r.estado <> 'C'),0)::numeric AS pendientes_importe"),
+          trx.raw('COUNT(*) FILTER (WHERE r.aplicada)::int AS aplicadas'),
+        ).first();
+
+      const rows = await applyFilters(trx('analytics.expense_requests as r'))
+        .leftJoin('commercial.warehouses as w', function () { this.on('w.tenant_id', 'r.tenant_id').andOn('w.code', 'r.sucursal'); })
+        .leftJoin('analytics.expense_documents as g', function () {
+          this.on('g.tenant_id', 'r.tenant_id').andOn('g.sucursal', 'r.sucursal').andOn('g.solicitud_folio', 'r.folio').andOnVal('g.doc_tipo', 'XA1001');
+        })
+        .select('r.folio', 'r.sucursal', 'w.name as sucursal_nombre', 'r.fecha',
+          trx.raw('r.importe::numeric AS importe'), 'r.solicitante', 'r.beneficiario', 'r.concepto',
+          'r.estado', 'r.aplicada', 'g.doc_folio as gasto_folio', 'g.fecha as gasto_fecha',
+          trx.raw('(g.fecha - r.fecha) AS lead_days'),
+          // Campos de Kepler que la vista dejó de esconder (mig 20260821200000).
+          ...(enriquecida
+            ? ['r.cuenta_clave', 'r.cuenta_grupo', 'r.acreedor', 'r.acreedor_rfc', 'r.rfc',
+               'r.forma_pago', 'r.autoriza', 'r.referencia', trx.raw('r.iva::numeric AS iva')]
+            : []))
+        .orderBy('r.fecha', 'desc')
+        .limit(limit);
+
+      return {
+        // El alcance viaja SIEMPRE: la pantalla tiene que poder decir contra qué está
+        // resolviendo "mío", y avisar cuando no hay nada con qué resolverlo.
+        mi_scope: { keys: mi.keys, areas: mi.areas, nombre: mi.nombre },
+        kpis: {
+          total: Number(k?.total || 0),
+          importe: Number(k?.importe || 0),
+          pendientes: Number(k?.pendientes || 0),
+          pendientes_importe: Number(k?.pendientes_importe || 0),
+          aplicadas: Number(k?.aplicadas || 0),
+        },
+        rows: rows.map((x: any) => ({
+          ...x,
+          importe: Number(x.importe),
+          iva: x.iva == null ? null : Number(x.iva),
+          lead_days: x.lead_days != null ? Number(x.lead_days) : null,
+        })),
+      };
+    });
+  }
+
+  /**
+   * GX v3 — Auxiliar de proveedores (cuenta 201): compra, pagos, saldo, #facturas,
+   * última compra y DPO (días de pago aprox). Agregado por proveedor a través de
+   * las sucursales. Filtros: search (ILIKE), sucursal[], limit.
+   */
+  async apProviders(q: { search?: string; sucursal?: string[]; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(500, Math.max(1, Number(q.limit) || 100));
+    return this.tk.run(async (trx) => {
+      const b = trx('analytics.ap_provider').where('tenant_id', tenantId);
+      if (q.sucursal?.length) b.whereIn('sucursal', q.sucursal);
+      if (q.search?.trim()) b.whereRaw('proveedor ILIKE ?', [`%${q.search.trim()}%`]);
+      const rows = await b
+        .groupBy('proveedor_norm')
+        .select(
+          trx.raw('MAX(proveedor) AS proveedor'),
+          trx.raw('SUM(compra_12m)::numeric AS compra_12m'),
+          trx.raw('SUM(pagos_12m)::numeric AS pagos_12m'),
+          trx.raw('SUM(saldo)::numeric AS saldo'),
+          trx.raw('SUM(num_facturas)::int AS num_facturas'),
+          trx.raw('MAX(ultima_compra) AS ultima_compra'),
+          trx.raw('ROUND(AVG(dpo_dias))::int AS dpo_dias'),
+        )
+        .orderByRaw('SUM(compra_12m) DESC')
+        .limit(limit);
+      const totalCompra = rows.reduce((a: number, r: any) => a + Number(r.compra_12m), 0);
+      return rows.map((r: any) => ({
+        proveedor: r.proveedor,
+        compra_12m: Number(r.compra_12m),
+        pagos_12m: Number(r.pagos_12m),
+        saldo: Number(r.saldo),
+        num_facturas: Number(r.num_facturas),
+        ultima_compra: r.ultima_compra,
+        dpo_dias: r.dpo_dias != null ? Number(r.dpo_dias) : null,
+        share_pct: totalCompra ? +((Number(r.compra_12m) / totalCompra) * 100).toFixed(1) : 0,
+      }));
+    });
+  }
+
+  /**
+   * GX v3 — Hallazgos contables navegables (antes CSV para finanzas):
+   * tipo = iva_bug | prov_203 | anticipo_107. Devuelve resumen por tipo + filas.
+   */
+  async expenseFindings(q: { tipo?: string; sucursal?: string[]; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(5000, Math.max(1, Number(q.limit) || 500));
+    return this.tk.run(async (trx) => {
+      // alias f.* en todo — la query de filas hace join con warehouses (que también
+      // tiene tenant_id) → calificar evita el 42702 "column reference ambiguous".
+      const base = () => {
+        const b = trx('analytics.expense_findings as f').where('f.tenant_id', tenantId);
+        if (q.sucursal?.length) b.whereIn('f.sucursal', q.sucursal);
+        return b;
+      };
+      const summary = await base()
+        .groupBy('f.tipo')
+        .select('f.tipo as tipo', trx.raw('COUNT(*)::int AS num'), trx.raw('ROUND(SUM(f.importe)::numeric,2) AS total'))
+        .orderByRaw('SUM(f.importe) DESC');
+
+      let rows: any[] = [];
+      if (q.tipo) {
+        rows = await base().where('f.tipo', q.tipo)
+          .leftJoin('commercial.warehouses as w', function () {
+            this.on('w.tenant_id', 'f.tenant_id').andOn('w.code', 'f.sucursal');
+          })
+          .select('f.fecha', 'f.sucursal', 'w.name as sucursal_nombre', 'f.doc_tipo', 'f.doc_folio',
+            'f.beneficiario', 'f.cuenta', trx.raw('f.importe::numeric AS importe'), 'f.nota')
+          .orderBy('f.importe', 'desc')
+          .limit(limit);
+      }
+      return {
+        summary: summary.map((s: any) => ({ tipo: s.tipo, num: Number(s.num), total: Number(s.total) })),
+        tipo: q.tipo || null,
+        rows: rows.map((r: any) => ({ ...r, importe: Number(r.importe) })),
+      };
+    });
+  }
+
+  /**
+   * GX.4.2 — Proveedor 360: lo que el desglose genérico no tiene. Resumen de la
+   * cuenta 201 (saldo/pagos/DPO/última compra desde ap_provider) + top productos
+   * que se le compran (desde expense_document_lines). El resto (compra/tendencia/
+   * documentos) ya lo trae /expenses con beneficiario_eq.
+   */
+  async expenseProvider(q: { key: string; sucursal?: string[] }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!q.key) return { summary: null, top_products: [] };
+    return this.tk.run(async (trx) => {
+      const ap = trx('analytics.ap_provider').where('tenant_id', tenantId).where('proveedor', q.key);
+      if (q.sucursal?.length) ap.whereIn('sucursal', q.sucursal);
+      const s: any = await ap.select(
+        trx.raw('MAX(proveedor) AS proveedor'),
+        trx.raw('SUM(compra_12m)::numeric AS compra_12m'),
+        trx.raw('SUM(pagos_12m)::numeric AS pagos_12m'),
+        trx.raw('SUM(saldo)::numeric AS saldo'),
+        trx.raw('SUM(num_facturas)::int AS num_facturas'),
+        trx.raw('MAX(ultima_compra) AS ultima_compra'),
+      ).first();
+
+      const lp = trx('analytics.expense_document_lines as l')
+        .join('analytics.expense_documents as d', function () {
+          this.on('d.tenant_id', 'l.tenant_id').andOn('d.sucursal', 'l.sucursal')
+            .andOn('d.doc_tipo', 'l.doc_tipo').andOn('d.doc_folio', 'l.doc_folio');
+        })
+        .where('l.tenant_id', tenantId).where('d.beneficiario', q.key);
+      if (q.sucursal?.length) lp.whereIn('l.sucursal', q.sucursal);
+      const products = await lp
+        .groupBy('l.sku')
+        .select('l.sku',
+          trx.raw('MAX(l.producto) AS producto'),
+          trx.raw('SUM(l.cantidad)::numeric AS cantidad'),
+          trx.raw('SUM(l.importe)::numeric AS importe'),
+          trx.raw('COUNT(DISTINCT l.doc_folio)::int AS docs'))
+        .orderByRaw('SUM(l.importe) DESC')
+        .limit(20);
+
+      const has = s && Number(s.compra_12m) > 0;
+      const compra = Number(s?.compra_12m || 0);
+      const saldo = Number(s?.saldo || 0);
+      // DPO ponderado desde los agregados (no AVG por-sucursal, que sesga con sucursales chicas)
+      const dpo = compra > 0 && saldo > 0 ? Math.round(saldo / (compra / 365)) : null;
+      return {
+        summary: has ? {
+          proveedor: s.proveedor,
+          compra_12m: compra,
+          pagos_12m: Number(s.pagos_12m),
+          saldo,
+          num_facturas: Number(s.num_facturas),
+          dpo_dias: dpo,
+          ultima_compra: s.ultima_compra,
+        } : null,
+        top_products: products.map((r: any) => ({
+          sku: r.sku, producto: r.producto,
+          cantidad: r.cantidad != null ? Number(r.cantidad) : null,
+          importe: Number(r.importe), docs: Number(r.docs),
+        })),
+      };
+    });
+  }
+
+  /** GX v2 — Valores para poblar los filtros del reporte (tipos doc, áreas, mayores). */
+  async expensesFilters() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const base = () => trx('analytics.expense_entries').where('tenant_id', tenantId);
+      const [doc_tipos, areas, mayores, dptos, conceptos] = await Promise.all([
+        base().distinct('doc_tipo').whereNotNull('doc_tipo').orderBy('doc_tipo').then((r) => r.map((x: any) => x.doc_tipo)),
+        base().distinct('area').whereNotNull('area').orderBy('area').then((r) => r.map((x: any) => x.area)),
+        base().distinct('cuenta_mayor', 'cuenta_mayor_nombre').whereNotNull('cuenta_mayor').orderBy('cuenta_mayor')
+          .then((r) => r.map((x: any) => ({ code: x.cuenta_mayor, nombre: x.cuenta_mayor_nombre }))),
+        base().distinct('dpto', 'dpto_nombre').whereNotNull('dpto').orderBy('dpto')
+          .then((r) => r.map((x: any) => ({ code: x.dpto, nombre: x.dpto_nombre }))),
+        base().distinct('concepto_nombre').whereNotNull('concepto_nombre').orderBy('concepto_nombre')
+          .then((r) => r.map((x: any) => x.concepto_nombre)),
+      ]);
+      return { doc_tipos, areas, mayores, dptos, conceptos };
+    });
+  }
+
+  /** GX — Sucursales presentes en egresos (para el selector del reporte). */
+  async expensesSucursales() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) =>
+      trx('analytics.expense_entries as e')
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', 'e.tenant_id').andOn('w.code', 'e.sucursal');
+        })
+        .where('e.tenant_id', tenantId)
+        .groupBy('e.sucursal', 'w.name')
+        .select('e.sucursal as code', 'w.name')
+        .orderBy('e.sucursal'),
+    );
+  }
+
+  /** KV.3 — Lista de clientes Kepler con su compra agregada (180d). */
+  async erpCustomers(q: { search?: string; limit?: number }): Promise<ErpCustomerRow[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(500, Math.max(1, Number(q.limit) || 100));
+    return this.tk.run(async (trx) => {
+      const agg = trx('analytics.customer_product_sales')
+        .where('tenant_id', tenantId)
+        .groupBy('erp_code')
+        .select(
+          'erp_code',
+          trx.raw('sum(revenue_180d) AS rev_180d'),
+          trx.raw('count(*)::int AS products'),
+          trx.raw('max(last_purchase_date) AS last_purchase'),
+        )
+        .as('s');
+      return trx('analytics.erp_customers AS c')
+        .leftJoin(agg, 's.erp_code', 'c.erp_code')
+        .where('c.tenant_id', tenantId)
+        .modify((qb) => { if (q.search) qb.whereRaw('c.name ILIKE ?', [`%${q.search}%`]); })
+        .select(
+          'c.erp_code', 'c.name', 'c.rfc', 'c.city', 's.last_purchase',
+          trx.raw('COALESCE(s.rev_180d,0)::numeric AS rev_180d'),
+          trx.raw('COALESCE(s.products,0)::int AS products'),
+        )
+        .orderByRaw('COALESCE(s.rev_180d,0) DESC')
+        .limit(limit);
+    });
+  }
+
+  /** KV.3 — Productos comprados por un cliente Kepler (90/180d). */
+  async erpCustomerProducts(erpCode: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) =>
+      trx('analytics.customer_product_sales AS s')
+        .join('catalog.products AS p', 'p.id', 's.product_id')
+        .where('s.tenant_id', tenantId)
+        .andWhere('s.erp_code', erpCode)
+        .select(
+          'p.sku', 'p.nombre AS product_name',
+          's.units_90d', 's.revenue_90d', 's.units_180d', 's.revenue_180d', 's.last_purchase_date',
+        )
+        .orderBy('s.revenue_180d', 'desc')
+        .limit(500),
+    );
+  }
+
+  /** KV.8 — Embarques reales del ERP (kdpord) agregados por dimensión. */
+  async erpShipments(q: { from?: string; to?: string; group_by?: string; route?: string; status?: string }) {
+    const { from, to } = this.parseDateRange(q);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const DIMS: Record<string, string> = {
+      route: 'route', status: 'status', warehouse: 'warehouse_code',
+      day: 'shipped_date', product: 'product_id',
+    };
+    const dim = DIMS[q.group_by || 'route'] || 'route';
+    return this.tk.run(async (trx) => {
+      // Degrada a vacío si el feed KV.8 aún no creó la tabla (no aborta la trx).
+      const reg = await trx.raw(`SELECT to_regclass('analytics.erp_shipments') AS t`);
+      if (!reg.rows?.[0]?.t) {
+        return { group_by: q.group_by || 'route', period: { from, to }, source: 'embarques reales ERP (analytics.erp_shipments)', totals: { folios: 0, lines: 0, units: 0 }, rows: [] };
+      }
+      const base = trx('analytics.erp_shipments AS s')
+        .where('s.tenant_id', tenantId)
+        .modify((qb) => {
+          if (from) qb.where('s.shipped_date', '>=', from);
+          if (to) qb.where('s.shipped_date', '<=', to);
+          if (q.route) qb.whereRaw('s.route ILIKE ?', [`%${q.route}%`]);
+          if (q.status) qb.where('s.status', q.status);
+        });
+      // warehouse: JOIN a la dim canónica (nombre actual), no el warehouse_code denorm (stale).
+      const isProduct = dim === 'product_id';
+      const isWarehouse = (q.group_by || 'route') === 'warehouse';
+      const labelExpr = isProduct ? 'p.nombre'
+        : isWarehouse ? 'COALESCE(w.name, s.warehouse_code::text)'
+          : `s.${dim}::text`;
+      const rows: any[] = await base.clone()
+        .modify((qb) => {
+          if (isProduct) qb.leftJoin('catalog.products AS p', 'p.id', 's.product_id');
+          else if (isWarehouse) qb.leftJoin('commercial.warehouses AS w', 'w.id', 's.warehouse_id');
+        })
+        .select(
+          trx.raw(`COALESCE(${labelExpr}, '(s/d)') AS label`),
+          trx.raw('COUNT(*)::int AS lines'),
+          trx.raw('COUNT(DISTINCT s.shipment_folio)::int AS folios'),
+          trx.raw('COALESCE(SUM(s.quantity),0)::numeric AS units'),
+        )
+        .groupByRaw(labelExpr)
+        .orderByRaw('SUM(s.quantity) DESC NULLS LAST')
+        .limit(200);
+      const [tot] = await base.clone().select(
+        trx.raw('COUNT(*)::int AS lines'),
+        trx.raw('COUNT(DISTINCT s.shipment_folio)::int AS folios'),
+        trx.raw('COALESCE(SUM(s.quantity),0)::numeric AS units'),
+      );
+      return {
+        group_by: q.group_by || 'route',
+        period: { from: from || null, to: to || null },
+        source: 'embarques reales ERP (analytics.erp_shipments)',
+        totals: { folios: Number(tot?.folios || 0), lines: Number(tot?.lines || 0), units: Number(tot?.units || 0) },
+        rows: rows.map((r: any) => ({ label: r.label, folios: Number(r.folios), lines: Number(r.lines), units: Number(r.units) })),
+      };
+    });
+  }
+
+  /** KV.6 — Promos vigentes del ERP. */
+  async erpPromotions() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) =>
+      trx('analytics.erp_promotions AS pr')
+        .join('catalog.products AS p', 'p.id', 'pr.product_id')
+        .leftJoin('catalog.products AS fp', 'fp.id', 'pr.free_product_id')
+        .leftJoin('commercial.warehouses AS w', 'w.id', 'pr.warehouse_id') // nombre actual de la dim, no el code denorm (stale)
+        .where('pr.tenant_id', tenantId)
+        .select(
+          'p.sku', 'p.nombre AS product_name', 'pr.promo_type', 'pr.threshold', 'pr.benefit',
+          'fp.nombre AS free_product_name', 'pr.valid_from', 'pr.valid_to',
+          trx.raw('COALESCE(w.name, pr.warehouse_code) AS warehouse_code'),
+        )
+        .orderBy('pr.valid_to', 'asc')
+        .limit(1000),
+    );
+  }
+
+  // ─────────── Fase RS — Generador Sell-Out por empresa (marca/proveedor) ───────────
+
+  /**
+   * Reporte Sell-Out: matriz Producto × (Sucursal[×Canal]) con cajas + monto,
+   * filtrado por marca/proveedor y periodo. Fuente = `analytics.sales_daily`:
+   * Kepler (01-05) + Wincaja (Morelia 30/32, Canindo 50 y sus rutas). Resuelve los
+   * SKUs de la marca en `catalog.*` y agrega por (sucursal, canal, producto).
+   *
+   *   cajas = SUM(units) / factor_sale (UXC)   ·   monto = SUM(revenue)
+   *
+   * Columnas DINÁMICAS: solo aparecen las sucursales×canales con venta en el
+   * periodo. Canal Wincaja preserva sub-canal (mostrador/credito/preventa/ruta).
+   */
+  /** RS — aplica el filtro de promos a un query que joinea `catalog.products as p`.
+   *  `sin` (default) excluye is_promo; `solo` deja solo promos; `todo` no filtra. */
+  private promoFilter(qb: any, mode: SellOutPromo) {
+    if (mode === 'solo') qb.andWhere('p.is_promo', true);
+    else if (mode !== 'todo') qb.andWhere('p.is_promo', false);
+  }
+
+  async sellOut(q: SellOutQuery): Promise<SellOutReport> {
+    const brandId = (q.brand_id || '').trim();
+    const promoMode: SellOutPromo = q.promo === 'solo' || q.promo === 'todo' ? q.promo : 'sin';
+    if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    const search = (q.search || '').trim();
+    // RS.13 — layout "por plaza" (formato estándar): columnas fijas plaza×tipo. Incompatible con
+    // las vistas por mes y con el agrupado por empresa → siempre filas por PRODUCTO.
+    const plaza = q.layout === 'plaza';
+    // RS.2 — vista: producto (default) / mes en columnas / resumen mensual.
+    const view: SellOutView = !plaza && (q.view === 'month_columns' || q.view === 'month_summary') ? q.view : 'product';
+    const monthCols = view === 'month_columns';
+    const monthRows = view === 'month_summary';
+    const needMonth = monthCols || monthRows;
+    // Sin empresa y sin búsqueda → reporte GENERAL agrupado por EMPRESA (matriz chica,
+    // ~decenas de filas). Con empresa elegida o búsqueda → detalle por PRODUCTO.
+    // En resumen mensual las filas SON los meses (no producto/empresa). Plaza → siempre producto.
+    const byBrand = !plaza && !monthRows && !brandId && !search;
+    if (!q.from || !q.to || !this.isIsoDate(q.from) || !this.isIsoDate(q.to))
+      throw new BadRequestException('from/to requeridos (ISO 8601)');
+    const from = q.from.slice(0, 10);
+    const to = q.to.slice(0, 10);
+    if (from > to) throw new BadRequestException('from posterior a to');
+    // RS — al filtrar SUCURSAL(es), abrir SIEMPRE por canal (Mostrador/Mayoreo/Vecinal/Ruta) aunque
+    // el trabajo sea "Sucursales": una plaza filtrada como columna ÚNICA fundida no deja ver sus
+    // canales ("tiene todo pero no muestra todos"). No aplica a la vista por mes (columnas=mes) ni al
+    // layout plaza (que ya trae su propio desglose SUCURSAL/MAYOREO/RUTAS).
+    const forceChannel = !!(q.warehouses && q.warehouses.length) && !plaza && !monthCols;
+    const groupBy: SellOutGroupBy = forceChannel ? 'branch_channel' : (q.group_by === 'branch' ? 'branch' : 'branch_channel');
+    const channelFilter = (q.channels && q.channels.length)
+      ? new Set(q.channels.map((c) => c.trim().toLowerCase()).filter(Boolean))
+      : null;
+    // RS.4 — filtro por celdas (canal|almacén, el árbol "Avanzado"). Se COMBINA (AND) con el filtro
+    // de canal y con el de sucursal; NO los reemplaza. El frontend evita mandarlos juntos (una vía
+    // activa por dimensión, sincronía de filtros), así que en la práctica llega uno u otro.
+    const cellFilter = (q.cells && q.cells.length)
+      ? new Set(q.cells.map((c) => c.trim().toLowerCase()).filter(Boolean))
+      : null;
+    const warehouseFilter = (q.warehouses && q.warehouses.length)
+      ? q.warehouses.map((w) => w.trim()).filter(Boolean)
+      : null;
+
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
+    // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
+    const { brand, products, raw, retail, retailCodes, fuentes, plazasCanon, boxMethods, uxcRows, identMap, chMap, freshness, routePlaza, unitProv } = await this.tk.run(async (trx) => {
+      // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
+      // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
+      // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
+      await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`);
+      // RS — al elegir una SUCURSAL, incluir también sus CAMIONETAS de ruta (canal `ruta` vive en
+      // almacenes propios `RUTA-NN`, no en el código de la sucursal → sin esto la columna Ruta
+      // desaparecía al filtrar por sucursal). Vínculo autoritativo = wincaja.branches.parent_branch.
+      const whFilter = await this.expandRouteWarehouses(trx, warehouseFilter);
+      const b = brandId
+        ? await trx('catalog.brands as b')
+            .where('b.id', brandId)
+            .whereNull('b.deleted_at')
+            .select('b.id', 'b.nombre', 'b.code')
+            .first()
+        : { id: null, nombre: 'Todas las empresas', code: null };
+      if (!b) throw new BadRequestException('Marca no encontrada');
+
+      // include_zeros solo con marca elegida (sin marca sería traer el catálogo completo de todas las empresas).
+      const ps = (q.include_zeros && brandId)
+        ? await trx('catalog.products as p')
+            .where('p.brand_id', brandId)
+            .whereNull('p.deleted_at')
+            // [UXC.4] Fuera los fantasmas del seed de MAYO-2026 (previos al import real de Kepler
+            // de junio): productos SIN SKU, o sea sin identidad en el ERP. Medido en prod hoy:
+            // **1,144** vivos, **0 con existencia** y **0 con venta de por vida**. Eran el 52% de
+            // los renglones que esta pantalla pintaba con guion en UxC — y no es que falte el
+            // factor, es que no hay producto que medir. Misma regla que ya se aplicó en
+            // `salidasReport()` (commit b2fc112): se CONSERVA el que tenga existencia real, para
+            // que la anomalía se siga viendo donde sí es una anomalía.
+            .whereRaw(`(nullif(btrim(coalesce(p.sku, '')), '') IS NOT NULL
+               OR EXISTS (SELECT 1 FROM commercial.stock s
+                           WHERE s.tenant_id = p.tenant_id AND s.product_id = p.id
+                             AND s.quantity <> 0))`)
+            .modify((qb) => this.promoFilter(qb, promoMode))
+            .modify((qb) => { if (search) qb.whereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
+            .select('p.id', 'p.sku', 'p.nombre', 'p.factor_sale')
+            .orderBy('p.nombre')
+        : [];
+
+      // FUENTE UNIFICADA (sintonía + velocidad) — el pivote lee el MISMO universo que los filtros:
+      // meses ENTEROS y CERRADOS desde el rollup `analytics.mv_sellout_monthly` (rápido) + el borde
+      // parcial/mes-en-curso desde la vista `analytics.v_sellout_daily` (fresco). Un solo dedup, un
+      // solo vocabulario de canal, una sola identidad de vendedor → adiós a las divergencias A–I y al
+      // 500 del full-year. Se RETIRAN los fallbacks legacy (sales_boxes_monthly / sales_by_vendor_monthly
+      // / v_sales_lines vivo / mv_sales_current_month): si las MV base no están pobladas → 503 "Refresh".
+      if (!(await this.selloutViewReady(trx)))
+        throw new ServiceUnavailableException('Analytics de sell-out aún no poblado — corré Refresh en el Command Center.');
+
+      // El resolvedor unifica las 3 piernas (kepler dedup + wincaja blend + rutas) con el dedup y el
+      // vocabulario de canal horneados en `v_sellout_daily`, y rutea meses cerrados → rollup / borde → vista.
+      const rawRows = await this.fetchSelloutRows(trx, { tenantId, from, to, brandId, search, promoMode, warehouseFilter: whFilter, needMonth, byBrand });
+
+      // [VP.0.3] Poblado ≠ fresco. Los guards de arriba sólo saben lo primero.
+      const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
+
+
+      // RA-PRO.38/39 — factor de caja (resolvedor) + precio de CJA (money-anchored) por producto.
+      // = ANY(?::uuid[]) en vez de whereIn: maneja el array VACÍO sin crashear (whereIn([]) bindeaba
+      // '{}' → "invalid input syntax for type uuid"). Solo UUIDs válidos.
+      // Dedup con filter+indexOf, NO `[...new Set()]`: el bundle webpack de la API downlevelea mal
+      // el spread de Set → `pids` salía como `[Set]` (length=1, burla el guard) y el Set se
+      // serializaba a '{}' → crash `string_to_uuid('{}')` en prod (mismo bug que bc6799da en DM).
+      const uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const pidsAll = rawRows.map((r) => r.product_id).filter((p) => typeof p === 'string' && uuidRx.test(p));
+      const pids = pidsAll.filter((v, i) => pidsAll.indexOf(v) === i);
+      // [UXC.2] ⛔ `pids` sale de las filas de VENTA — y la columna UxC también la piden los SKUs
+      // SIN venta, los que entran por `include_zeros`. Ésos se arman abajo con `uxcFor(p.id)` con
+      // un id que NUNCA se consultó, así que caían al default del índice y la pantalla imprimía
+      // «—» con el tooltip «Sin dato de factor de caja» sobre productos cuyo factor el resolvedor
+      // SÍ publica por consenso. Medido en prod (2026-09-14) con la vista de una marca:
+      // `00395 GALL CRACKETS 135G` salía «—» y el resolvedor dice **20**; igual `00531` (8),
+      // `01021` (18), `01027` (25), `01075` (50), `44001` (12). El patrón delata la causa: los
+      // que SÍ mostraban número son exactamente los que tuvieron venta en la ventana.
+      //
+      // ⚠️ `pids` NO se toca: además del UxC alimenta la lectura por (producto × almacén) de
+      // `v_unit_truth`, que sí debe ceñirse a lo vendido — un SKU sin venta no tiene celda que
+      // convertir y ampliarlo multiplicaría esa consulta por el catálogo entero de la marca.
+      const uxcPids = Array.from(new Set(pids.concat(
+        (ps as any[]).map((p) => p.id).filter((p) => typeof p === 'string' && uuidRx.test(p)),
+      )));
+      // [U.7] Una sola lectura al resolvedor: trae el divisor NATIVO del almacén (ADR-055), el
+      // precio de caja y — lo que faltaba — el MÉTODO con el que se puede convertir. Reemplaza
+      // las dos consultas separadas a `v_product_box_factor` + `product_box_price`, cuya cascada
+      // terminaba en `factor_sale ?? box_size ?? 1`: medido, ese último recurso publicaba
+      // **716,742 PIEZAS rotuladas como cajas** en 710 SKUs ($14,279,457 = 2.2% de la venta).
+      // El grano es (producto × almacén) porque el divisor lo es; se indexa por las dos claves.
+      //
+      // [CPU.2] Se lee la COPIA materializada, no la vista viva. Medido el 2026-09-25: filtrar por
+      // SKU no ahorraba nada — el filtro cae sobre `btrim(columna)`, que ningún índice atiende, así
+      // que cada llamada pagaba la derivación COMPLETA (1.55 s filtrada contra 1.32 s escaneando
+      // las 180,272 filas enteras). Entre este sitio y los otros dos eran 9,694 s de CPU en 21 h =
+      // el 16.4 % de TODO el SQL de producción. La MV tiene UNIQUE (tenant, almacén, producto), así
+      // que acá pasa a ser una búsqueda indexada. Su edad viaja en `unit_provenance`.
+      const { rel: unitRel, provenance: unitProv } = await unitTruth(trx, this.logger);
+      const boxMethods = pids.length
+        ? await trx(unitRel)
+            .where('tenant_id', tenantId)
+            .whereRaw('product_id = ANY(?::uuid[])', [pids])
+            .select('product_id', 'warehouse_code', 'box_factor', 'cja_price',
+              // [SO.U] `base_label` = en qué unidad está `sales_daily.units` para este almacén.
+              'metodo_cajas', 'is_weight', 'base_label')
+        : [];
+
+      // [UXC.1] La columna UxC que se MUESTRA y se EXPORTA salía de `catalog.products.factor_sale`,
+      // que es otra fuente distinta del resolvedor canónico (ADR-055). Medido en prod: publicaba
+      // **1** en 208 productos donde el resolvedor dice >1 ($4,971,338 de venta / 90 d). El caso
+      // que lo destapó: `96504 RUFFLES QUESO 27G` con UxC 1 contra **58** que confirman Kepler
+      // `c84`, `wincaja.factor_venta` y lo PAGADO al proveedor ($281.35 / $4.85 = 58.01).
+      //
+      // El grano es PRODUCTO porque el renglón de Sell-Out lo es, y la vista trae el veredicto de
+      // consenso entre plazas: cuando los testigos reales no concuerdan devuelve NULL con motivo
+      // en vez de una moda (488 productos, $19.07M / 90 d). ADR-056: lo que no se puede afirmar
+      // se declara. El cálculo de CAJAS no se toca — ése ya sale del dinero desde U.7.
+      const uxcRows = uxcPids.length
+        ? await trx('analytics.v_product_box_factor_consensus')
+            .where('tenant_id', tenantId)
+            .whereRaw('product_id = ANY(?::uuid[])', [uxcPids])
+            // [UXC.3] `is_weight` viaja en la MISMA lectura (la vista ya lo trae): el renglón a
+            // granel no tiene "piezas por caja" y la pantalla ya sabe imprimir `kg`, pero sólo se
+            // enteraba por la fila de VENTA. Un SKU a granel SIN venta caía al guion mudo, que se
+            // lee como "falta el dato" cuando lo correcto es "va en kilos". Medido: 77 productos
+            // a granel, $3,031,966 de venta / 90 d.
+            .select('product_id', 'box_factor_publicable', 'veredicto', 'factor_min', 'factor_max',
+              'is_weight')
+        : [];
+
+      // Cobertura: almacenes con venta (CUALQUIER marca) en el periodo, de la MISMA fuente unificada que
+      // el pivote (antes escaneaba sales_daily aparte → su universo podía no coincidir con lo mostrado).
+      // [VSO.14] `s.source` se agrega acá para que la línea de PROCEDENCIA se derive del periodo en
+      // vez de estar escrita a mano (ver `sellOutCoverage`). No cuesta un viaje más: es la misma
+      // consulta, una columna más.
+      const retailRows = await this.selloutLeaves(trx, { tenantId, from, to }, 's.source, s.warehouse_code, s.branch_name',
+        (qb) => { if (whFilter) qb.whereIn('s.warehouse_code', whFilter); });
+
+      // [VSO.13] PISO DE COBERTURA. `retailRows` son los almacenes con venta EN EL PERIODO, así que
+      // una plaza que todavía no existía en ese periodo no aparece por ningún lado: ni en
+      // `branches_with_data` ni en `branches_missing`. La pantalla dice "19 sucursales" y calla que
+      // otras tres no estaban. Medido en prod el 2026-09-28: el universo tiene las 8 plazas desde
+      // **2026-03**; en 2025 son CINCO (faltan 8 Esquinas, Yurécuaro y Zamora), y las tres valen el
+      // **13.1%** de la venta actual — o sea que un año contra año compara 8 plazas contra 5 y esos
+      // 13 puntos se leen como crecimiento. La serie no tiene escalón que lo delate.
+      //
+      // ⚠️ `kepler_code`, NO `warehouse_code`: medido el 2026-09-28 en `[IC.CEDIS]`, la columna
+      // `warehouse_code` del resolvedor resuelve 2 de 8 (trae `MD-10`, `MD-40`… salvo Morelia) y
+      // `kepler_code` resuelve 8 de 8, que es la identidad que usa el pivote.
+      //
+      // ⛔ Sólo se calcula sin filtro de sucursal: con `whFilter` el usuario acotó a propósito y
+      // listar como "fuera de cobertura" lo que él mismo excluyó sería ruido.
+      const plazasCanon: Array<{ code: string; name: string | null }> = whFilter ? [] : await trx(
+        'analytics.v_branch_erp_cutover as x')
+        .leftJoin('commercial.warehouses as w', function (this: any) {
+          this.on('w.code', 'x.kepler_code').andOn('w.tenant_id', 'x.tenant_id');
+        })
+        .where('x.tenant_id', tenantId)
+        .distinct('x.kepler_code as code', 'w.name as name')
+        .catch(() => [] as any[]);
+
+      const identMap = await this.loadVendorIdentity(trx, tenantId);
+      // [VSO.1] El vocabulario de canal sale del resolvedor, no de constantes de este archivo.
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      // RS.13 — layout plaza: mapa canónico RUTA-NN → almacén de la sucursal padre (v_route_plaza).
+      // Sólo se necesita en el layout plaza (agrupa camionetas por plaza); en otros modos se salta.
+      const routePlaza = new Map<string, string>();
+      if (plaza) {
+        const rp = await trx('analytics.v_route_plaza').select('route_warehouse_code', 'parent_warehouse_code').catch(() => [] as any[]);
+        for (const r of rp) {
+          if (r.route_warehouse_code && r.parent_warehouse_code) routePlaza.set(r.route_warehouse_code, r.parent_warehouse_code);
+        }
+      }
+      return {
+        brand: b, products: ps, raw: rawRows,
+        // ⚠️ Con `source` en el SELECT una misma sucursal puede venir DOS veces (las dos piernas del
+        // cutover en el mes del corte), así que `retail` se deduplica: alimenta una lista que se
+        // imprime y un `missing` que se lee.
+        retail: retailRows
+          .map((r: { branch_name: string }) => r.branch_name)
+          .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
+        retailCodes: retailRows.map((r: { warehouse_code: string }) => r.warehouse_code),
+        fuentes: retailRows.map((r: { source: string; branch_name: string }) => ({ source: r.source, branch: r.branch_name })),
+        plazasCanon,
+        boxMethods, uxcRows, identMap, chMap, freshness, routePlaza, unitProv,
+      };
+    });
+    // [U.7] Dos índices sobre la MISMA lectura: por (producto, almacén) — el correcto, porque el
+    // divisor es del almacén — y por producto, para las filas cuyo almacén el resolvedor no cubre
+    // (las 6 rutas de La Piedad, que cambiaron de ERP; ver `v_unit_truth_coverage`). Sin fila en
+    // ninguno de los dos, la celda NO se convierte: se declara.
+    const methodByCell = new Map<string, BoxMethod>();
+    const methodByProduct = new Map<string, BoxMethod>();
+    for (const m of boxMethods as any[]) {
+      const v: BoxMethod = {
+        metodo: m.metodo_cajas,
+        boxFactor: Number(m.box_factor) || 1,
+        cjaPrice: Number(m.cja_price) || 0,
+        isWeight: !!m.is_weight,
+        baseLabel: m.base_label ? String(m.base_label).trim().toUpperCase() : null,
+      };
+      methodByCell.set(`${m.product_id}|${m.warehouse_code}`, v);
+      if (!methodByProduct.has(m.product_id)) methodByProduct.set(m.product_id, v);
+    }
+    const methodFor = (pid: string, whCode: unknown): BoxMethod | undefined =>
+      methodByCell.get(`${pid}|${String(whCode)}`) ?? methodByProduct.get(pid);
+
+    // [UXC.1] El UxC que se publica, con su veredicto. Un producto SIN fila en el resolvedor no
+    // llega como 1: llega como NULL declarado — una ausencia dibujada como 1 es justo lo que
+    // ADR-056 prohíbe, y en esta pantalla se exporta a Excel y se manda afuera.
+    type UxcInfo = {
+      uxc: number | null; veredicto: SellOutRow['uxc_veredicto']; rango: string | null;
+      /** [UXC.3] El renglón va en kilos: no tiene "piezas por caja" y no es un dato faltante. */
+      peso: boolean;
+    };
+    const uxcByProduct = new Map<string, UxcInfo>();
+    for (const u of (uxcRows ?? []) as any[]) {
+      const min = u.factor_min != null ? Number(u.factor_min) : null;
+      const max = u.factor_max != null ? Number(u.factor_max) : null;
+      uxcByProduct.set(u.product_id, {
+        uxc: u.box_factor_publicable != null ? Number(u.box_factor_publicable) : null,
+        veredicto: u.veredicto ?? null,
+        rango: u.veredicto === 'difiere_entre_plazas' && min != null && max != null
+          ? `${min}–${max}` : null,
+        peso: !!u.is_weight,
+      });
+    }
+    const uxcFor = (pid: string): UxcInfo =>
+      uxcByProduct.get(pid) ?? { uxc: null, veredicto: null, rango: null, peso: false };
+    // Lo que no se pudo convertir se CUENTA, no se dibuja como cero ni se cuela como piezas.
+    const sinMetodo = { skus: new Set<string>(), unidades: 0, monto: 0 };
+
+    // `coverage` y `freshness` se resuelven al final, junto con las filas: una necesita saber qué
+    // sucursales trajeron dato, la otra se midió con el trx. Se agregan en el return.
+    // [CPU.2] `unit_provenance` se suma a los que se resuelven al final: la edad del resolvedor
+    // sale de la misma sonda que eligió la relación, o sea dentro del `tk.run`, no acá.
+    const base: Omit<SellOutReport, 'coverage' | 'freshness' | 'sin_metodo' | 'unit_provenance'> = {
+      brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
+      period: { from, to },
+      group_by: groupBy,
+      view,
+      row_dim: monthRows ? 'month' : byBrand ? 'brand' : 'product',
+      layout: plaza ? 'plaza' : undefined,
+      columns: [],
+      rows: [],
+      column_totals: {},
+      grand_total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
+      generated_at: new Date().toISOString(),
+    };
+
+    // [VSO.1] Los filtros llegan en el vocabulario DEL CLIENTE, que puede ser el viejo (`credito`
+    // por Mayoreo, en enlaces guardados y en la app desplegada). Se traducen a canal de NEGOCIO
+    // una sola vez acá; romperlos sería esconder el cambio detrás de un filtro que "no hace nada".
+    const channelFilterCanon = channelFilter
+      ? new Set(Array.from(channelFilter).map((c) => chMap.normalize(c)))
+      : null;
+    const cellFilterCanon = cellFilter
+      ? new Set(Array.from(cellFilter).map((c) => {
+          const i = String(c).indexOf('|');
+          return i < 0 ? String(c) : `${chMap.normalize(String(c).slice(0, i))}|${String(c).slice(i + 1)}`;
+        }))
+      : null;
+
+    // Paso 3 — pivote en Node
+    const columns = new Map<string, SellOutColumn>();
+    const rowMap = new Map<string, SellOutRow>();
+    const colTotals = new Map<string, SellOutCell>();
+    const branchesWithData = new Set<string>();
+    let grandCajas = 0;
+    let grandMonto = 0;
+    let grandMontoNeto = 0;
+    let excludedTransfers = 0;
+
+    // RS.13 — plaza: pre-crear TODAS las columnas del template (en orden), aun vacías, para que
+    // el reporte tenga el layout fijo esperado. `branch_name` = etiqueta de la columna (el
+    // exporter y el front usan branch_name como título de columna).
+    if (plaza) {
+      for (const col of SELLOUT_PLAZA_COLUMNS) {
+        columns.set(col.key, { key: col.key, branch_code: col.key, branch_name: col.label });
+        colTotals.set(col.key, { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
+      }
+    }
+
+    for (const r of raw) {
+      const channel: string = r.channel;
+      if (channel === NON_SALE_CHANNEL) {
+        excludedTransfers += Number(r.monto) || 0;
+        continue;
+      }
+      // [VSO.1] De acá para abajo se habla en canal de NEGOCIO: `wincaja:credito` y
+      // `kepler:mayoreo` son el mismo Mayoreo a los dos lados del cutover, y `kepler:contado_nf`
+      // (U-D-12) es mostrador. El crudo (`channel`) ya no decide nada salvo el corte de arriba.
+      const canal = chMap.canon(r.source, channel);
+
+      // RS.13 — layout "por plaza": mapear (almacén, canal) → columna fija del template. Fila =
+      // producto; sin desglose por vendedor. SÍ honra los filtros de canal y de celda (Avanzado):
+      // un filtro puesto DEBE aplicar en todo layout (sincronía de filtros). Lo que no matchea el
+      // template cae en OTROS y el total cuadra.
+      if (plaza) {
+        if (channelFilterCanon && !channelFilterCanon.has(canal)) continue;
+        if (cellFilterCanon) {
+          const leafKey = `${canal}|${String(r.branch_code).toLowerCase()}`;
+          if (!cellFilterCanon.has(leafKey) && !cellFilterCanon.has(`${canal}|*`)) continue;
+        }
+        const colKey = plazaColKey(r.branch_code, canal, routePlaza) ?? PLAZA_OTROS_KEY;
+        if (!columns.has(colKey)) {
+          columns.set(colKey, { key: colKey, branch_code: colKey, branch_name: 'OTROS' });
+          colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
+        }
+        const punits = Number(r.units) || 0;
+        const pmonto = Number(r.monto) || 0;
+        const pmontoNeto = Number(r.monto_neto) || 0;
+        const pIsWeight = r.unit_kind === 'weight';
+        // [U.7] El método sale del resolvedor. Antes caía a `factor_sale ?? box_size ?? 1`.
+        const pconv = cajasDe(methodFor(r.product_id, r.branch_code), punits, pmonto, pIsWeight);
+        if (!pconv.ok) {
+          sinMetodo.skus.add(r.sku); sinMetodo.unidades += punits; sinMetodo.monto += pmonto;
+        }
+        const pcajas = pconv.cajas;
+        branchesWithData.add(r.branch_name);
+        let prow = rowMap.get(r.sku);
+        if (!prow) {
+          prow = {
+            product_id: r.product_id, sku: r.sku, nombre: r.nombre,
+            uxc: uxcFor(r.product_id).uxc, uxc_veredicto: uxcFor(r.product_id).veredicto, uxc_rango: uxcFor(r.product_id).rango,
+            unit_kind: pIsWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
+          };
+          rowMap.set(r.sku, prow);
+        }
+        // [SO.U] La cantidad NATIVA también se acumula, sin convertir, con el rótulo de su unidad.
+        const pBaseU = pIsWeight ? 'KG' : methodFor(r.product_id, r.branch_code)?.baseLabel;
+        marcarUnidadBase(prow, pBaseU);
+        const pcell = prow.cells[colKey] ?? (prow.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
+        marcarUnidadCelda(pcell, pBaseU);
+        pcell.cajas += pcajas; pcell.monto += pmonto; pcell.monto_neto += pmontoNeto; pcell.units += punits;
+        prow.total.cajas += pcajas; prow.total.monto += pmonto; prow.total.monto_neto += pmontoNeto; prow.total.units += punits;
+        const pct = colTotals.get(colKey)!; pct.cajas += pcajas; pct.monto += pmonto; pct.monto_neto += pmontoNeto;
+        grandCajas += pcajas; grandMonto += pmonto; grandMontoNeto += pmontoNeto;
+        continue;
+      }
+
+      if (channelFilterCanon && !channelFilterCanon.has(canal)) continue;
+      // RS.10 / PARIDAD — Mayoreo se desglosa POR VENDEDOR. Wincaja SIEMPRE trae vendedor; Kepler
+      // también (kdm1.c12 horneado en mv_kepler) → el telemarketing Kepler (Sergio/Cinthia) se abre
+      // por persona, simétrico a Wincaja, y el mismo humano colapsa a UNA columna a través del
+      // cutover vía la identidad canónica. Sólo las filas sin vendedor caen en un bucket 'Sin vendedor'.
+      // [VSO.1] La condición es el canal de NEGOCIO: con el crudo, `kepler:mayoreo` (U-D-8, los
+      // $21.4M del telemarketing) no entraba acá y se perdía el desglose por persona.
+      const isMayoreo = canal === 'mayoreo' && groupBy === 'branch_channel';
+      // RS.11 — identidad canónica del vendedor (une fragmentos Wincaja+Kepler + nombre limpio).
+      const mayId = isMayoreo && r.vendor_code ? this.canonVendor(identMap, r.vendor_code, r.vendor_name) : null;
+      // RS.11b — en Mayoreo, fuera los que no son vendedor real (buckets 00/99, nulos, genéricos).
+      if (isMayoreo && r.vendor_code && (mayId!.exclude || this.isNoiseVendor(r.vendor_code))) continue;
+      const mayoreoLeaf = isMayoreo
+        ? (mayId ? mayId.key : 'sin-vendedor')   // fix D: bucket ÚNICO seleccionable (el árbol emite mayoreo|sin-vendedor)
+        : null;
+      // RS.4 — filtro CANAL jerárquico por celda (canal|almacén o canal|*); Mayoreo → canal|vendedor.
+      if (cellFilterCanon) {
+        const leafKey = isMayoreo
+          ? `mayoreo|${mayoreoLeaf!.toLowerCase()}`
+          : `${canal}|${String(r.branch_code).toLowerCase()}`;
+        if (!cellFilterCanon.has(leafKey) && !cellFilterCanon.has(`${canal}|*`)) continue;
+      }
+      const units = Number(r.units) || 0;
+      const monto = Number(r.monto) || 0;
+      // RS.3 — producto de PESO: units ya está en kg → NO se divide (mostrar kg). Producto
+      // de PIEZA: units son piezas → cajas = piezas / (factor_sale, o box_size si factor=1).
+      const isWeight = r.unit_kind === 'weight';
+      // [U.7] El método de conversión lo decide `analytics.v_unit_truth.metodo_cajas`, no este
+      // archivo: dinero › peso › divisor VERIFICADO › declarar. La cascada anterior terminaba en
+      // `factor_sale ?? box_size ?? 1`, y ese `1` publicaba PIEZAS con la etiqueta "cajas" —
+      // medido, 716,742 unidades en 710 SKUs ($14,279,457 = 2.2% de la venta).
+      let cajas: number;
+      if (r.units_sin_metodo != null) {
+        // Pierna a grano MARCA (`selloutBrandLeg`): las cajas ya vienen sumadas en SQL con el
+        // mismo orden de métodos, y lo no convertible viene declarado aparte. `cajas` puede ser
+        // NULL cuando NINGUNA fila del grupo tenía método — ahí es 0 y todo se declara.
+        cajas = Number(r.cajas) || 0;
+        const un = Number(r.units_sin_metodo) || 0;
+        if (un > 0) {
+          // A grano marca no hay SKU: se cuenta la marca. Lo que importa acá es el volumen.
+          sinMetodo.skus.add(String(r.brand_id ?? r.sku ?? '·'));
+          sinMetodo.unidades += un;
+          sinMetodo.monto += Number(r.monto_sin_metodo) || 0;
+        }
+      } else {
+        const conv = cajasDe(methodFor(r.product_id, r.branch_code), units, monto, isWeight);
+        if (!conv.ok) {
+          sinMetodo.skus.add(r.sku); sinMetodo.unidades += units; sinMetodo.monto += monto;
+        }
+        cajas = conv.cajas;
+      }
+      branchesWithData.add(r.branch_name);
+
+      // Columnas: por MES (month_columns) o por sucursal[×canal]×FUENTE (RS.5). RS.6 — la
+      // fuente WINCAJA se abre además POR VENDEDOR (una columna por persona); KEPLER queda
+      // agregado (no tiene vendedor). Kepler y Wincaja nunca comparten columna.
+      const src: 'kepler' | 'wincaja' = r.source === 'wincaja' ? 'wincaja' : 'kepler';
+      const vendorCode = src === 'wincaja' ? String(r.vendor_code ?? '·') : null;
+      const srcLabel = src === 'wincaja' ? String(r.vendor_name ?? 'Wincaja') : 'Kepler';
+      const colTail = src === 'wincaja' ? `wincaja|${vendorCode}` : 'kepler';
+      // RS.10 — Mayoreo: la columna ES el vendedor (una por persona), no sucursal·fuente. Ambas fuentes.
+      const mayVendorName = mayId
+        ? mayId.name
+        : (src === 'wincaja' ? String(r.vendor_name ?? vendorCode ?? 'Wincaja') : 'Sin vendedor (Kepler)');
+      const colKey = monthCols
+        ? r.sale_month
+        : isMayoreo ? `mayoreo|${mayoreoLeaf}`
+        : groupBy === 'branch' ? `${r.branch_code}|${colTail}` : `${r.branch_code}|${canal}|${colTail}`;
+      if (!columns.has(colKey)) {
+        columns.set(colKey, monthCols
+          ? {
+              key: colKey,
+              branch_code: '',
+              branch_name: sellOutMonthLabel(r.sale_month), // el exporter usa branch_name como etiqueta de columna
+              month: r.sale_month,
+            }
+          : isMayoreo
+          ? {
+              key: colKey,
+              branch_code: String(mayoreoLeaf),   // vendor_code ('50:23') o 'k-sin-vendedor'
+              branch_name: mayVendorName,          // el rótulo = nombre del vendedor
+              channel,
+              channel_label: 'Mayoreo',
+              source: undefined,
+              source_label: undefined,
+            }
+          : {
+              key: colKey,
+              branch_code: r.branch_code,
+              branch_name: r.branch_name,
+              channel: groupBy === 'branch' ? undefined : canal,
+              channel_label: groupBy === 'branch' ? undefined : chMap.label(canal),
+              source: src,
+              source_label: srcLabel,
+            });
+        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
+      }
+
+      // Filas: por MES (month_summary), por EMPRESA (byBrand → product_id lleva el
+      // brand_id para el drill), o por PRODUCTO.
+      const rowKey = monthRows ? r.sale_month : byBrand ? (r.brand_id || 'sin-empresa') : r.sku;
+      let row = rowMap.get(rowKey);
+      if (!row) {
+        row = monthRows
+          ? {
+              product_id: r.sale_month,
+              sku: '',
+              nombre: sellOutMonthLabel(r.sale_month), // el exporter usa nombre como etiqueta de fila
+              uxc: null,
+              cells: {},
+              total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
+            }
+          : byBrand
+          ? {
+              product_id: r.brand_id || '',
+              sku: r.brand_code || '',
+              nombre: r.brand_nombre || 'Sin empresa',
+              uxc: null,
+              cells: {},
+              total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
+            }
+          : {
+              product_id: r.product_id,
+              sku: r.sku,
+              nombre: r.nombre,
+              uxc: uxcFor(r.product_id).uxc, uxc_veredicto: uxcFor(r.product_id).veredicto, uxc_rango: uxcFor(r.product_id).rango,
+              unit_kind: isWeight ? 'weight' : 'piece',
+              cells: {},
+              total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
+            };
+        rowMap.set(rowKey, row);
+      }
+      // [SO.U] El rótulo de la unidad en la que está `units` para ESTA celda. Una fila que mezcla
+      // Kepler (unidad base) con Wincaja (unidad de venta, ADR-055) queda marcada como mixta y su
+      // total NO se publica en unidad base.
+      const baseU = isWeight ? 'KG' : methodFor(r.product_id, r.branch_code)?.baseLabel;
+      marcarUnidadBase(row, baseU);
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
+      marcarUnidadCelda(cell, baseU);
+      // ⚠️ `monto_neto` NO se acumulaba acá: las dos piernas SQL lo SELECCIONAN (ver
+      // `sum(s.monto_neto) as monto_neto`), el redondeo de abajo lo redondea y el contrato lo
+      // publica — pero ninguna línea lo sumaba, así que fuera del layout `plaza` salía en CERO en
+      // toda la matriz. Medido hoy: hoy NO tiene consumidor (ni el front ni el exporter leen
+      // `SellOutCell.monto_neto`), así que no llegó a mentirle a nadie — pero un campo del
+      // contrato que siempre vale cero es una trampa armada para el primero que lo lea.
+      const montoNetoCell = Number(r.monto_neto) || 0;
+      cell.cajas += cajas;
+      cell.monto += monto;
+      cell.monto_neto += montoNetoCell;
+      cell.units += units;
+      row.total.cajas += cajas;
+      row.total.monto += monto;
+      row.total.monto_neto += montoNetoCell;
+      row.total.units += units;
+      // ⛔ El total de COLUMNA no acumula `units`: suma productos distintos (piezas con kilos con
+      // paquetes). En unidad base la pantalla deja los totales en cajas y los rotula.
+      const ct = colTotals.get(colKey)!;
+      ct.cajas += cajas;
+      ct.monto += monto;
+      ct.monto_neto += montoNetoCell;
+      grandCajas += cajas;
+      grandMonto += monto;
+      grandMontoNeto += montoNetoCell;
+    }
+
+    // Filas: incluir SKUs sin venta si include_zeros (solo aplica a filas por producto).
+    const rows = Array.from(rowMap.values());
+    if (q.include_zeros && !monthRows) {
+      for (const p of products) {
+        if (!rowMap.has(p.sku)) {
+          rows.push({
+            product_id: p.id,
+            sku: p.sku,
+            nombre: p.nombre,
+            uxc: uxcFor(p.id).uxc, uxc_veredicto: uxcFor(p.id).veredicto, uxc_rango: uxcFor(p.id).rango,
+            // [UXC.3] El camino de VENTA rotula la unidad (`isWeight`) y éste no lo hacía: un SKU
+            // a granel sin venta salía con guion mudo en vez de `kg`.
+            unit_kind: uxcFor(p.id).peso ? 'weight' : 'piece',
+            cells: {},
+            total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
+          });
+        }
+      }
+    }
+    // Resumen mensual → filas cronológicas (mes asc). Plaza → por código (SKU) asc, como el
+    // reporte estándar. Demás vistas → por monto desc.
+    if (monthRows) rows.sort((a, b) => a.product_id.localeCompare(b.product_id));
+    else if (plaza) rows.sort((a, b) => String(a.sku).localeCompare(String(b.sku), 'es', { numeric: true }));
+    else rows.sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
+
+    // Orden de columnas: plaza → orden del template (Map ya viene en ese orden + OTROS al final).
+    // Si no, mes asc (month_columns) o sucursal → canal (orden fijo) → fuente (Kepler, Wincaja).
+    // RS.13 — "Por plaza" con FILTRO de sucursal: ocultar las columnas de plaza VACÍAS. El template
+    // fijo de 14 columnas es para la vista de TODA la empresa (comparar plazas); filtrando una sola
+    // plaza, las otras ~11 iban en cero y sólo ensuciaban ("14 columnas" cuando sólo 3 tienen dato).
+    // Sin filtro se conserva el template completo.
+    const plazaColHasData = (c: SellOutColumn) => {
+      const t = colTotals.get(c.key);
+      return !!t && (Number(t.monto) !== 0 || Number(t.cajas) !== 0 || Number(t.monto_neto) !== 0);
+    };
+    const orderedCols = plaza
+      ? (warehouseFilter ? Array.from(columns.values()).filter(plazaColHasData) : Array.from(columns.values()))
+      : Array.from(columns.values()).sort((a, b) => {
+      if (monthCols) return (a.month ?? '').localeCompare(b.month ?? '');
+      // RS.10 — Mayoreo (credito) forma su propio bloque, DESPUÉS de las sucursales, ordenado
+      // por nombre de vendedor. Así queda separado y comprensible (sucursales | vendedores mayoreo).
+      const aMay = a.channel === 'mayoreo' ? 1 : 0;
+      const bMay = b.channel === 'mayoreo' ? 1 : 0;
+      if (aMay !== bMay) return aMay - bMay;
+      if (aMay === 1) return a.branch_name.localeCompare(b.branch_name, 'es');
+      if (a.branch_code !== b.branch_code) return a.branch_code.localeCompare(b.branch_code);
+      const ch = chMap.orden(a.channel ?? '') - chMap.orden(b.channel ?? '');
+      if (ch !== 0) return ch;
+      return (a.source ?? '').localeCompare(b.source ?? '');
+    });
+
+    // Redondeo de presentación
+    const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    for (const row of rows) {
+      for (const k of Object.keys(row.cells)) {
+        // ⚠️ Este redondeo RECONSTRUYE la celda: todo campo que no se copie acá se pierde en
+        // silencio. `unit` es el rótulo, y sin él la cantidad vuelve a ser un número sin unidad.
+        row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2), units: round(row.cells[k].units, 3), unit: row.cells[k].unit ?? null };
+      }
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2), units: round(row.total.units, 3) };
+    }
+    // Los totales de columna siguen a las columnas MOSTRADAS (así no quedan claves de plazas podadas).
+    const columnTotalsObj: Record<string, SellOutCell> = {};
+    for (const c of orderedCols) { const v = colTotals.get(c.key); if (v) columnTotalsObj[c.key] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2), units: 0 }; }
+
+    return {
+      ...base,
+      columns: orderedCols,
+      rows,
+      column_totals: columnTotalsObj,
+      // ⛔ El gran total NO lleva `units`: suma productos distintos, y ahí no hay una sola unidad
+      // que nombrar. En unidad base la pantalla deja el total en cajas y lo rotula.
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2), units: 0 },
+      coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers, fuentes,
+        // [VSO.13] Plazas que el resolvedor declara y que el PERIODO no tiene. No es "no vendieron":
+        // es que no estaban en el universo, y la diferencia cambia cómo se lee el número.
+        plazasCanon
+          .filter((p) => !new Set(retailCodes).has(p.code))
+          .map((p) => p.name || p.code)
+          .sort()),
+      freshness,
+      // [CPU.2] De cuándo es el RESOLVEDOR DE UNIDAD con el que se convirtió a cajas. Va aparte de
+      // `freshness` a propósito: ése compone la edad de los HECHOS (la venta) y se queda con el
+      // eslabón más viejo, así que meter acá una dimensión de catálogo que se refresca cada media
+      // hora pintaría de rezagada la pantalla entera por algo que cambia por día, no por segundo.
+      // Son dos preguntas distintas y se responden por separado.
+      unit_provenance: unitProv,
+      // [U.7] La venta que no se pudo expresar en cajas va DECLARADA, no sumada al total con un
+      // divisor inventado. El total baja respecto de ayer y eso es el arreglo, no el defecto.
+      sin_metodo: {
+        skus: sinMetodo.skus.size,
+        unidades: round(sinMetodo.unidades, 3),
+        monto: round(sinMetodo.monto, 2),
+      },
+    };
+  }
+
+  /** [VSO.1] Delega en el resolvedor compartido (`sellout-channel-map.ts`). Se dejó este envoltorio
+   *  para no tocar los ~10 call-sites y para que el `logger` del servicio viaje al aviso de respaldo. */
+  private loadChannelMap(trx: any, tenantId: string): Promise<SelloutChannelMap> {
+    return loadSelloutChannelMap(trx, tenantId, this.logger);
+  }
+
+  /**
+   * RS.11 — Mapa de identidad de vendedor (`analytics.vendor_identity`): (sucursal:código) →
+   * { key canónica, nombre limpio }. Une fragmentos Wincaja del mismo humano (varias filas
+   * con la misma key = merge) y normaliza el nombre (fuente Kepler). Sin fila = pass-through.
+   */
+  private async loadVendorIdentity(trx: any, tenantId: string): Promise<Map<string, { key: string; name: string; exclude: boolean }>> {
+    const rows = await trx('analytics.vendor_identity').where('tenant_id', tenantId)
+      .select('source_branch', 'vendedor', 'canonical_key', 'canonical_name', 'exclude');
+    const m = new Map<string, { key: string; name: string; exclude: boolean }>();
+    for (const r of rows) m.set(`${r.source_branch}:${r.vendedor}`, { key: r.canonical_key, name: r.canonical_name, exclude: !!r.exclude });
+    return m;
+  }
+  /** Resuelve un vendor_code 'sucursal:código' + nombre a su identidad canónica (o pass-through). */
+  private canonVendor(map: Map<string, { key: string; name: string; exclude: boolean }>, vendorCode: any, vendorName: any): { key: string; name: string; exclude: boolean } {
+    const hit = map.get(String(vendorCode));
+    return hit ?? { key: String(vendorCode ?? '·'), name: String(vendorName ?? vendorCode ?? 'Wincaja'), exclude: false };
+  }
+
+  /**
+   * RV — índice de identidad por CÓDIGO DE RUTA vecinal (1V0NN/3V001), no por 'sucursal:código'.
+   * Los códigos vecinales de Kepler son GLOBALES (1V004=Yurécuaro en cualquier sucursal), pero el
+   * catálogo `kduv` está replicado y la venta se rocía entre varias sucursales → el mismo código
+   * salía como 4 columnas. Este índice (sólo entradas NO excluidas, p.ej. Candy 1V001/Rafael 1V002)
+   * deja resolver el nombre por ruta y fundir la fuga entre sucursales.
+   */
+  private buildRouteIdent(identMap: Map<string, { key: string; name: string; exclude: boolean }>): Map<string, { key: string; name: string; exclude: boolean }> {
+    const m = new Map<string, { key: string; name: string; exclude: boolean }>();
+    for (const [k, v] of identMap) {
+      if (v.exclude) continue; // una entrada excluida (purga) NO define la ruta
+      const parts = k.split(':');
+      if (parts.length === 2 && /^\d+V\d/i.test(parts[1])) m.set(parts[1].toUpperCase(), v);
+    }
+    return m;
+  }
+  private cleanVecinalName(name: any): string {
+    return String(name ?? 'Vecinal').replace(/\s+/g, ' ').replace(/\.+\s*$/, '').trim() || 'Vecinal';
+  }
+
+  /**
+   * Identidad de una fila del pivote por-vendedor. Tres reglas:
+   *   · RD (ruta): la identidad es la RUTA (almacén RUTA-2N) — Kepler no trae vendedor y se funde
+   *     con su yo Wincaja por warehouse_code.
+   *   · RV (preventa) Kepler (código 1V0NN/3V001, GLOBAL): la identidad es el CÓDIGO DE RUTA →
+   *     funde la fuga del mismo código entre sucursales (Yurécuaro 1V004 salía 4 veces).
+   *   · resto (mostrador/crédito, o RV Wincaja con código numérico por-sucursal): por PERSONA.
+   * `chan` acepta el sale_channel del pivote ('ruta_venta'/'preventa_vecinal') o el channel crudo
+   * del árbol ('ruta'/'preventa'). Devuelve null si es ruido o está excluido (se salta la fila).
+   */
+  private resolveByVendorId(
+    chan: string, vendorCode: any, vendorName: any, warehouseCode: any, branchName: any,
+    identMap: Map<string, { key: string; name: string; exclude: boolean }>,
+    routeIdent: Map<string, { key: string; name: string; exclude: boolean }>,
+  ): { key: string; name: string; exclude: boolean } | null {
+    if (chan === 'ruta_venta' || chan === 'ruta') {
+      const wc = warehouseCode || vendorCode;
+      if (this.isNoiseVendor(wc)) return null;
+      const v = this.canonVendor(identMap, wc, branchName || wc || 'Ruta');
+      return v.exclude ? null : v;
+    }
+    if (chan === 'preventa_vecinal' || chan === 'preventa') {
+      const raw = String(vendorCode ?? '');
+      const routeCode = raw.includes(':') ? raw.split(':')[1] : raw;
+      if (/^\d+V\d/i.test(routeCode)) {
+        const rc = routeCode.toUpperCase();
+        const ov = routeIdent.get(rc);
+        if (ov) return ov.exclude ? null : ov;
+        return { key: 'rv-' + rc.toLowerCase(), name: this.cleanVecinalName(vendorName), exclude: false };
+      }
+      // RV Wincaja (código numérico por-sucursal) → cae al camino por-persona de abajo.
+    }
+    if (this.isNoiseVendor(vendorCode)) return null;
+    const v = this.canonVendor(identMap, vendorCode, vendorName);
+    return v.exclude ? null : v;
+  }
+  /**
+   * RS.11b — ¿el vendedor NO aporta información (no es persona)? Regla objetiva: nulo/vacío,
+   * o el código dentro de la sucursal es '00' (piso/mostrador) o '99' (traspaso). El
+   * vendor_code llega como 'sucursal:código'. Los genéricos con código propio (OMNICANAL…)
+   * se marcan con exclude en analytics.vendor_identity, no acá.
+   */
+  private isNoiseVendor(vendorCode: any): boolean {
+    const s = String(vendorCode ?? '').trim();
+    if (!s || s === '·') return true;
+    const code = s.includes(':') ? s.split(':')[1] : s;
+    return code === '' || code === '00' || code === '99';
+  }
+
+  // [VP.1.1] Acá vivía `KEPLER_SELLOUT_DEDUP`, el predicado de cutover Kepler↔Wincaja, con un
+  // docstring que decía "centralizado acá para que vendedores/canales lo reusen sin re-duplicar los
+  // literales". Al mover el dedup adentro de `analytics.v_sellout_daily` (RS) la constante quedó con
+  // UNA sola referencia: su propia declaración. Nadie la leía.
+  //
+  // Se retira en vez de dejarla "por si acaso". Una copia muerta que sigue PARECIENDO canónica es
+  // peor que no tenerla: el próximo que necesite mover una fecha de corte la encuentra primero, la
+  // edita, y no pasa absolutamente nada — o peor, edita la buena y deja ésta contradiciéndola para
+  // el que lea después. Es la misma regla que GOTCHAS §32 aplicada a un literal: no hay copias, hay
+  // una fuente.
+  //
+  // Hoy la fuente es la vista. `database/tests/test-newdb-sellout-parity.js` vigila que las copias
+  // que QUEDAN vivas (las dos migraciones + el proyector del feed) no se separen entre sí.
+
+  /** ¿mv_kepler_sales_daily existe, poblado y enriquecido (columna branch_name)? — mismo guard que sellOut. */
+  private async keplerMvReady(trx: any): Promise<boolean> {
+    return !!(await trx.raw(
+      `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'mv_kepler_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
+          AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
+    )).rows?.[0];
+  }
+
+  // ============ SELL-OUT — resolvedor de fuente UNIFICADO (sintonía + velocidad) ============
+  // Un solo universo (`analytics.v_sellout_daily` + su rollup `analytics.mv_sellout_monthly`) del que
+  // derivan EL PIVOTE y TODOS los filtros → filtros↔datos en sintonía POR CONSTRUCCIÓN. Los meses
+  // cerrados salen del rollup mensual (velocidad: full-year ~0.9s vs ~70s del diario); el borde
+  // parcial/actual, de la vista (fresco a la última corrida nocturna). Mismo dedup, mismo vocabulario
+  // de canal, misma identidad de vendedor en ambos → adiós a las 9 divergencias A–I.
+
+  /**
+   * [VP.0.3] ¿este rango pasa por el rollup mensual? UNA definición, dos consumidores: el que trae
+   * las filas y el que declara la frescura. Recalcularla aparte en cada uno es cómo un par de
+   * literales se separa en silencio — la lección del dedup escrito a mano en 11 archivos.
+   */
+  private async selloutUsesRollup(trx: any, plan: ReturnType<CommercialAnalyticsService['planSellOutSources']>): Promise<boolean> {
+    return !!plan.monthly && (await this.selloutMonthlyReady(trx));
+  }
+
+  /** ¿`mv_sellout_monthly` poblado? (fast-path de meses cerrados). */
+  private async selloutMonthlyReady(trx: any): Promise<boolean> {
+    return !!(await trx.raw(
+      `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relname='mv_sellout_monthly' AND n.nspname='analytics' AND c.relispopulated`,
+    )).rows?.[0];
+  }
+
+  /** ¿la vista `v_sellout_daily` es consultable? (sus dos matviews base poblados). Si no, el sell-out
+   *  no tiene fuente (se retiraron los fallbacks legacy) → el caller lanza 503 "corré Refresh". */
+  private async selloutViewReady(trx: any): Promise<boolean> {
+    return (await trx.raw(
+      `SELECT bool_and(c.relispopulated) AS ok FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='analytics' AND c.relname IN ('mv_kepler_sales_daily','mv_wincaja_sales_daily')`,
+    )).rows?.[0]?.ok === true;
+  }
+
+  /**
+   * [VP.0.3] La EDAD de las matviews que arman el sell-out, declarada en la respuesta.
+   *
+   * Los tres guards de acá arriba preguntan `relispopulated`, que es `true` **para siempre** después
+   * del primer populate. Un `mv_kepler_sales_daily` que falló el refresh cinco noches seguidas los
+   * pasa los tres y se sirve sin una palabra: el reporte queda armado sobre una pierna vieja y otra
+   * fresca, que es la forma exacta de "los números cambiaron sin que nadie tocara nada". Poblado no
+   * es fresco — son dos preguntas distintas y sólo se estaba haciendo la primera.
+   *
+   * La señal ya existía y no llegaba al consumidor: `AnalyticsRefreshService` escribe un latido por
+   * MV en `analytics.cron_runs` (con `status:'error'` cuando falla), y ningún endpoint que sirve esas
+   * MV leía esa fila. `laneAt()` la lee por el mismo camino que el resto de la plataforma
+   * (`analytics.v_feed_freshness`).
+   *
+   * Tolerancia 26 h = el mismo `warnH` con el que `CRON_JOBS` juzga estos jobs: el cron es nocturno
+   * (06:20 MX), así que 24 h de edad son sanas y 26 h significan que se saltó una corrida. Un solo
+   * número para las dos audiencias, tomado de la que ya lo tenía.
+   *
+   * NO bloquea — informa. El 503 sigue siendo sólo para "no hay fuente".
+   */
+  private async selloutFreshness(trx: any, usaRollup: boolean): Promise<Freshness> {
+    try {
+      const carriles: [string, string][] = [
+        ['analytics_refresh_kepler', 'Venta Kepler (mv_kepler_sales_daily)'],
+        ['analytics_refresh_wincaja', 'Venta Wincaja (mv_wincaja_sales_daily)'],
+      ];
+      // El rollup mensual sólo es un eslabón cuando el rango efectivamente lo usa; sumarlo siempre
+      // marcaría viejo un reporte del borde que no lo tocó.
+      if (usaRollup) carriles.push(['analytics_refresh_sellout_monthly', 'Rollup mensual (mv_sellout_monthly)']);
+      const inputs = await Promise.all(
+        carriles.map(async ([key, label]) => evalInput(key, label, await laneAt(trx, key), 26)),
+      );
+      return composeFreshness(inputs);
+    } catch {
+      // Que falle el medidor no autoriza a afirmar lo que no se midió (regla 2 de shared/freshness).
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  /**
+   * [VP.2.2] Frescura de un reporte que lee TABLAS de feed, no las matvistas del sell-out.
+   *
+   * Venta por ruta, salidas y traspasos no salen de `mv_sellout_monthly` sino de
+   * `analytics.sales_by_route_monthly` / `sales_boxes_monthly` / `transfers_monthly` /
+   * `route_push_lines`, que son tablas que llena un importer. Se verificó que **ninguno** de esos
+   * importers llama a `cron-heartbeat` (VP.3.4 abierto), así que `laneAt()` no tiene nada que leer y
+   * con él estas pantallas sólo podrían declarar "no medido" para siempre. `tableAt()` mide la
+   * ENTREGA en la tabla misma, que además es la mejor de las dos señales: un importer puede latir
+   * `ok` sin haber escrito una fila.
+   *
+   * Tolerancia 26 h: los tres feeds mensuales corren de noche (medido en prod: 03:xx), igual que el
+   * refresh del sell-out — 24 h de edad son sanas y 26 h significan que se saltó una corrida. Se
+   * reusa el número que `CRON_JOBS` ya usa para juzgar jobs nocturnos en vez de inventar otro.
+   *
+   * NO bloquea: declara. Y si el medidor falla, `unknown` — que falle la medición no autoriza a
+   * afirmar lo que no se midió (regla 2 de shared/freshness).
+   */
+  private async feedFreshness(
+    trx: any, fuentes: Array<[string, string, string]>, maxHours = 26,
+  ): Promise<Freshness> {
+    try {
+      const inputs = await Promise.all(
+        fuentes.map(async ([tabla, col, label]) => evalInput(tabla, label, await tableAt(trx, tabla, col), maxHours)),
+      );
+      return composeFreshness(inputs);
+    } catch {
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  private selloutMonthStart(d: string): string { return d.slice(0, 8) + '01'; }
+  private selloutShiftDay(d: string, days: number): string {
+    return new Date(new Date(`${d}T00:00:00Z`).getTime() + days * 86400000).toISOString().slice(0, 10);
+  }
+  private selloutNextMonthStart(d: string): string {
+    const y = +d.slice(0, 4), m = +d.slice(5, 7);
+    return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  }
+  private selloutIsLastDayOfMonth(d: string): boolean {
+    return this.selloutShiftDay(d, 1).slice(8, 10) === '01';
+  }
+
+  /**
+   * Descompone [from,to] en: meses ENTEROS y CERRADOS (→ rollup `mv_sellout_monthly`, rápido) +
+   * bordes DIARIOS (primer mes parcial + mes en curso y posteriores → vista `v_sellout_daily`, fresco).
+   * El mes en curso NUNCA va al rollup (decisión de frescura nocturna). Ej. `2026-01-01..2026-12-31`
+   * hoy 2026-09 → monthly=`2026-01..2026-08`, daily=`[2026-09-01..2026-12-31]` (la vista se auto-acota
+   * a <= hoy_MX, así que el borde sólo escanea sep-a-hoy). Éste es el fix del 500 del full-year.
+   */
+  private planSellOutSources(from: string, to: string): { monthly: { fromMonth: string; toMonth: string } | null; daily: Array<{ from: string; to: string }> } {
+    const openStart = this.currentMonthStartMx();
+    const dayBeforeOpen = this.selloutShiftDay(openStart, -1);
+    const daily: Array<{ from: string; to: string }> = [];
+    const firstWhole = from.slice(8, 10) === '01' ? from : this.selloutNextMonthStart(from);
+    const lastWhole = this.selloutIsLastDayOfMonth(to) ? to : this.selloutShiftDay(this.selloutMonthStart(to), -1);
+    const lastClosed = dayBeforeOpen < lastWhole ? dayBeforeOpen : lastWhole; // min(lastWhole, díaAntesDelMesEnCurso)
+    let monthly: { fromMonth: string; toMonth: string } | null = null;
+    if (firstWhole <= lastClosed) {
+      monthly = { fromMonth: firstWhole.slice(0, 7), toMonth: lastClosed.slice(0, 7) };
+      if (from < firstWhole) daily.push({ from, to: this.selloutShiftDay(firstWhole, -1) });   // borde inicial parcial
+      const afterClosed = this.selloutShiftDay(lastClosed, 1);
+      if (afterClosed <= to) daily.push({ from: afterClosed, to });                             // cola parcial + mes en curso
+    } else {
+      daily.push({ from, to });                                                                 // sin meses cerrados enteros → todo diario
+    }
+    return { monthly, daily };
+  }
+
+  /**
+   * [VSO.17] Plan de fuentes para las consultas de **PRESENCIA** (las que arman los FILTROS).
+   *
+   * `planSellOutSources` excluye el mes EN CURSO del rollup **y hace bien**: un bucket mensual no se
+   * puede partir, así que mezclarlo con la vista diaria duplicaría importes. Pero las cinco
+   * llamadas a `selloutLeaves` —canales, vendedores, sucursales, el árbol Avanzado, la cobertura—
+   * **no publican importe**: sólo preguntan *qué existe* y filtran por `_m > 0`. Para ellas el
+   * traslape es inofensivo, y pagar el escaneo diario del mes entero no tiene sentido.
+   *
+   * **Medido en prod (2026-09-29, mes en curso, 29 días):** el escaneo diario cuesta **1,119 ms**
+   * —190,883 páginas del `Append` de las cuatro piernas— y el rollup devuelve **exactamente las
+   * mismas 21 combinaciones en 80 ms**. La diferencia no es el `GROUP BY`: es que la vista diaria
+   * arrastra los joins a producto, marca y precios de etiqueta que una lista de sucursales no
+   * necesita.
+   *
+   * ⛔ **La condición no es negociable y es lo que hace correcto el atajo:** el bucket del mes en
+   * curso sólo se puede usar si TODO él cae dentro del rango, y eso exige `from <= inicio de mes`
+   * **y** `to >= hoy`. Con `to` anterior a hoy el bucket incluye días POSTERIORES al rango y el
+   * filtro ofrecería sucursales que no vendieron en la ventana elegida — justo la desincronía
+   * entre filtro y pivote que esto viene a evitar.
+   *
+   * **No es teórico, está medido**: para `2026-09-01 → 2026-09-15` el rango real tiene **20** hojas
+   * y el bucket mensual **21**. La de más es `kepler|08` — Morelia Abastos por Kepler, que no
+   * vendió en esa quincena porque **su corte fue el 19-sep**. Sin este guardrail, el filtro
+   * ofrecería una sucursal que el pivote muestra vacía. Por eso se cae al plan estricto.
+   *
+   * La cola diaria se recorta a `PRESENCIA_COLA_DIAS` porque el rollup se materializa de noche: lo
+   * que entró hoy todavía no está ahí. Es un traslape a propósito, no un descuido.
+   */
+  private planSellOutPresence(from: string, to: string): ReturnType<CommercialAnalyticsService['planSellOutSources']> {
+    const estricto = this.planSellOutSources(from, to);
+    const openStart = this.currentMonthStartMx();
+    const hoy = this.todayMx();
+    // El rango tiene que cubrir el mes en curso desde su día 1 y llegar hasta hoy.
+    if (!(from <= openStart && to >= hoy)) return estricto;
+
+    const mesActual = openStart.slice(0, 7);
+    const monthly = estricto.monthly
+      ? { fromMonth: estricto.monthly.fromMonth, toMonth: mesActual }
+      : { fromMonth: mesActual, toMonth: mesActual };
+
+    // Se conserva el borde inicial parcial (días sueltos ANTES del primer mes entero); la cola
+    // larga —el mes en curso día por día— se reemplaza por los últimos días.
+    const inicioMesDelRango = this.selloutMonthStart(from);
+    const daily = estricto.daily.filter((d) => d.to < inicioMesDelRango || from > inicioMesDelRango);
+    const colaFrom = this.selloutShiftDay(hoy, -PRESENCIA_COLA_DIAS);
+    daily.push({ from: colaFrom < from ? from : colaFrom, to });
+    return { monthly, daily };
+  }
+
+  /**
+   * Un tramo de fuente (rollup mensual o vista diaria) → filas del pivote, en versión LEAN: la
+   * agregación SÓLO toca las columnas del índice covering (warehouse/product/channel/source/vendor/
+   * unit_kind + sumas) → INDEX-ONLY, sin heap-fetch de los `max(sku/nombre/marca/box_size)` que en
+   * prod costaban ~3s del full-year (medido: FULL ~7-10s vs LEAN ~3.8s). Los textos por producto/almacén
+   * se resuelven en Node en `fetchSelloutRows` (un lookup por id, barato). `vendor_name` se conserva
+   * (pocos valores) para no dar otra vuelta.
+   */
+  private selloutPivotLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any, monthExpr: string) {
+    const qb = trx(`${table} as s`)
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.brandId) b.andWhere('s.brand_id', o.brandId);
+        if (o.search) b.andWhereRaw('(s.sku ILIKE ? OR s.nombre ILIKE ?)', [`%${o.search}%`, `%${o.search}%`]);
+        if (o.warehouseFilter && o.warehouseFilter.length) b.whereIn('s.warehouse_code', o.warehouseFilter);
+      })
+      .select(
+        trx.raw('s.warehouse_code as branch_code'),
+        's.product_id', 's.channel', 's.source', 's.vendor_code', 's.vendor_name', 's.unit_kind',
+        trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'),
+      )
+      .groupByRaw('s.warehouse_code, s.product_id, s.channel, s.source, s.vendor_code, s.vendor_name, s.unit_kind' + (o.needMonth ? `, ${monthExpr}` : ''));
+    if (o.needMonth) qb.select(trx.raw(`${monthExpr} as sale_month`));
+    return qb;
+  }
+
+  /**
+   * VELOCIDAD (overview por empresa) — un tramo agregado a grano MARCA con las `cajas` money-anchored
+   * calculadas EN SQL (join a `v_product_box_factor` + `product_box_price`), no a grano producto. El
+   * overview default (byBrand) mostraba ~40 empresas pero traía 126k filas de producto para colapsarlas
+   * en Node (~4-12s en Railway, single-thread). A grano marca son ~16k grupos → **~1s** (medido). Las
+   * cajas quedan CORRECTAS (Σ por-producto de `weight→units / cja_price>0→monto/cja_price / else
+   * units/box_factor`; la fórmula es sumable porque cja_price y box_factor son constantes por producto).
+   */
+  private selloutBrandLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any, monthExpr: string) {
+    // [U.7] MISMA cascada que el pivote por-producto, pero leída del resolvedor: el método lo
+    // declara `analytics.v_unit_truth.metodo_cajas` (dinero › peso › divisor VERIFICADO › nada).
+    // Sigue siendo sumable a grano marca porque `cja_price` y `box_factor` son constantes por
+    // (producto, almacén) y el GROUP BY incluye `warehouse_code`.
+    // ⚠️ El `ELSE NULL` es deliberado: antes cerraba en `/1` y publicaba PIEZAS como cajas —
+    // medido, 716,742 unidades en 710 SKUs ($14,279,457). `sum()` ignora los NULL, así que el
+    // total deja de inflarse; lo omitido se declara en `sin_metodo` del reporte.
+    const cajas = `sum(CASE
+        WHEN s.unit_kind = 'weight'                     THEN s.units
+        WHEN ut.metodo_cajas = 'dinero'
+         AND ut.cja_price > 0                           THEN s.monto / ut.cja_price
+        WHEN ut.metodo_cajas = 'peso'                   THEN s.units
+        WHEN ut.metodo_cajas = 'divisor'
+         AND ut.box_factor > 1                          THEN s.units / ut.box_factor
+        WHEN ut.metodo_cajas = 'unidad_es_caja'         THEN s.units
+        ELSE NULL END)`;
+    // Lo que no se pudo convertir, para declararlo en vez de que desaparezca en silencio. Es el
+    // complemento EXACTO del CASE de arriba: la rama que ahí da NULL, acá suma.
+    const noConvertible = `(s.unit_kind <> 'weight'
+        AND NOT (ut.metodo_cajas = 'dinero'  AND ut.cja_price  > 0)
+        AND NOT (ut.metodo_cajas = 'peso')
+        AND NOT (ut.metodo_cajas = 'divisor' AND ut.box_factor > 1)
+        AND NOT (ut.metodo_cajas = 'unidad_es_caja'))`;
+    const sinMetodoUn = `sum(CASE WHEN ${noConvertible} THEN s.units ELSE 0 END)`;
+    const sinMetodoMonto = `sum(CASE WHEN ${noConvertible} THEN s.monto ELSE 0 END)`;
+    const qb = trx(`${table} as s`)
+      .leftJoin('analytics.v_unit_truth as ut', function (this: any) {
+        this.on('ut.tenant_id', 's.tenant_id').andOn('ut.product_id', 's.product_id')
+          .andOn('ut.warehouse_code', 's.warehouse_code');
+      })
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.warehouseFilter && o.warehouseFilter.length) b.whereIn('s.warehouse_code', o.warehouseFilter);
+      })
+      .select(
+        's.brand_id', trx.raw('max(s.brand_nombre) as brand_nombre'), trx.raw('max(s.brand_code) as brand_code'),
+        trx.raw('s.warehouse_code as branch_code'), trx.raw('max(s.branch_name) as branch_name'),
+        's.channel', 's.source', 's.vendor_code', 's.vendor_name', 's.unit_kind',
+        trx.raw(`${cajas} as cajas`), trx.raw(`${sinMetodoUn} as units_sin_metodo`),
+        trx.raw(`${sinMetodoMonto} as monto_sin_metodo`),
+        trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'),
+      )
+      .groupByRaw('s.brand_id, s.warehouse_code, s.channel, s.source, s.vendor_code, s.vendor_name, s.unit_kind' + (o.needMonth ? `, ${monthExpr}` : ''));
+    if (o.needMonth) qb.select(trx.raw(`${monthExpr} as sale_month`));
+    return qb;
+  }
+
+  /** Overview por empresa: filas a grano MARCA (cajas pre-calculadas) — rollup cerrados + vista borde. */
+  private async fetchSelloutBrandRows(trx: any, o: any): Promise<any[]> {
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = await this.selloutUsesRollup(trx, plan);
+    const out: any[] = [];
+    if (useRollup) out.push(...await this.selloutBrandLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, 's.year_month'));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) out.push(...await this.selloutBrandLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o, `to_char(s.business_date, 'YYYY-MM')`));
+    return out;
+  }
+
+  /** Filas del pivote unificadas (rollup meses cerrados + vista borde), LEAN + enriquecidas en Node con
+   *  los nombres por producto/almacén → el pivote recibe el MISMO shape de siempre (sin cambios abajo).
+   *  `byBrand` (overview sin empresa/búsqueda) toma el fast-path a grano marca (cajas en SQL). */
+  /**
+   * RS — expande un filtro de SUCURSAL para incluir sus CAMIONETAS de ruta. El canal `ruta` no vive
+   * en el almacén de la sucursal (01/06/MD-30…) sino en almacenes propios `RUTA-NN` (kind='truck'),
+   * que NO tienen vínculo a la sucursal en commercial.warehouses. El vínculo canónico lo resuelve
+   * `analytics.v_route_plaza` (derivado de wincaja.branches, sin mapa hardcodeado): cada camioneta →
+   * su sucursal padre. Sin esta expansión, filtrar por una sucursal tiraba TODO el canal ruta.
+   * Devuelve el filtro tal cual si es null/vacío o si no hay rutas que sumar.
+   */
+  private async expandRouteWarehouses(trx: any, warehouseFilter: string[] | null): Promise<string[] | null> {
+    if (!warehouseFilter || !warehouseFilter.length) return warehouseFilter;
+    const routes = await trx('analytics.v_route_plaza')
+      .whereIn('parent_warehouse_code', warehouseFilter)
+      .select('route_warehouse_code')
+      .catch(() => [] as any[]);
+    const extra = routes.map((r: any) => r.route_warehouse_code).filter(Boolean);
+    return extra.length ? [...warehouseFilter, ...extra] : warehouseFilter;
+  }
+
+  private async fetchSelloutRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo; warehouseFilter: string[] | null; needMonth: boolean; byBrand?: boolean }): Promise<any[]> {
+    if (o.byBrand) return this.fetchSelloutBrandRows(trx, o);
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = await this.selloutUsesRollup(trx, plan);
+    const out: any[] = [];
+    if (useRollup) out.push(...await this.selloutPivotLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, 's.year_month'));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) out.push(...await this.selloutPivotLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o, `to_char(s.business_date, 'YYYY-MM')`));
+    if (!out.length) return out;
+    // Enriquecimiento en Node (sku/nombre/factor_sale/box_size/marca por producto + nombre de almacén).
+    const uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const pidsAll = out.map((r) => r.product_id).filter((p) => typeof p === 'string' && uuidRx.test(p));
+    const pids = pidsAll.filter((v, i) => pidsAll.indexOf(v) === i);
+    const whAll = out.map((r) => r.branch_code).filter((w) => typeof w === 'string' && w);
+    const whs = whAll.filter((v, i) => whAll.indexOf(v) === i);
+    const pmeta = pids.length
+      ? await trx('catalog.products as p')
+          .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+          .where('p.tenant_id', o.tenantId).whereRaw('p.id = ANY(?::uuid[])', [pids])
+          .select('p.id', 'p.sku', 'p.nombre', 'p.factor_sale', 'p.brand_id',
+            trx.raw('b.nombre as brand_nombre'), trx.raw('b.code as brand_code'),
+            trx.raw('(SELECT max(lp.box_size) FROM commercial.v_product_label_prices lp WHERE lp.product_id = p.id AND lp.tenant_id = p.tenant_id) as box_size'))
+      : [];
+    const pm = new Map<string, any>(pmeta.map((r: any) => [r.id, r]));
+    const wmeta = whs.length
+      ? await trx('commercial.warehouses').where('tenant_id', o.tenantId).whereIn('code', whs).select('code', 'name')
+      : [];
+    const wm = new Map<string, string>(wmeta.map((r: any) => [r.code, r.name]));
+    for (const r of out) {
+      const p = pm.get(r.product_id) || {};
+      r.branch_name = wm.get(r.branch_code) ?? r.branch_code;
+      r.sku = p.sku; r.nombre = p.nombre; r.factor_sale = p.factor_sale; r.box_size = p.box_size;
+      r.brand_id = p.brand_id; r.brand_nombre = p.brand_nombre; r.brand_code = p.brand_code;
+    }
+    return out;
+  }
+
+  /** Un tramo → filas con el SHAPE de `sellOutByVendor()`. Scoped a canales con vendedor: crédito
+   *  (ambas fuentes) + ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida). */
+  // [CPU.2] `unitRel` llega RESUELTA por parámetro y no se resuelve acá adentro: esta función NO es
+  // async (devuelve el query builder para que el llamador lo componga), así que no puede esperar la
+  // sonda. El llamador la resuelve una vez y la pasa a las dos piernas.
+  private selloutVendorLeg(
+    trx: Knex.Transaction, table: string, dateCol: string, lo: string, hi: string,
+    o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo; chMap: SelloutChannelMap },
+    unitRel: string,
+  ) {
+    // [VSO.1] El alcance y la traducción a `sale_channel` salen del resolvedor, no de literales.
+    // El literal `s.channel='credito'` dejaba fuera a `kepler:mayoreo` (U-D-8): $21,373,739 y 16
+    // vendedores que el reporte por vendedor no podía mostrar.
+    const rawsVend = o.chMap.raws(['mayoreo', 'preventa', 'ruta']);
+    // `sale_channel` conserva el vocabulario que el pivote por-vendedor ya usa aguas abajo
+    // (mayoreo_credito / ruta_venta / preventa_vecinal); lo que cambia es de dónde sale el mapeo.
+    const LEGACY: Record<string, string> = { mayoreo: 'mayoreo_credito', ruta: 'ruta_venta', preventa: 'preventa_vecinal' };
+    const caseBinds: string[] = [];
+    const caseSql = rawsVend.map((rawCh) => {
+      caseBinds.push(rawCh, LEGACY[o.chMap.canon(undefined, rawCh)] ?? rawCh);
+      return 'WHEN s.channel = ? THEN ?';
+    }).join(' ');
+    const saleChannelCase = trx.raw(`CASE ${caseSql} END as sale_channel`, caseBinds);
+    return trx(`${table} as s`)
+      // [U.7] El precio de CAJA, a su grano natural (producto). Este pivote agrupa por VENDEDOR y
+      // nunca trae almacén, así que el divisor nativo de ADR-055 no está disponible acá — pero el
+      // método de dinero no lo necesita, y cubre el 92.9% de la venta. Lo que quede sin precio se
+      // declara; antes esta pierna convertía SÓLO con `factor_sale`, la única fuente probada sin
+      // unidad (mitad piezas, un tercio paquetes).
+      .leftJoin('analytics.product_box_price as bp', function (this: any) {
+        this.on('bp.tenant_id', 's.tenant_id').andOn('bp.product_id', 's.product_id');
+      })
+      // El método a grano PRODUCTO. ⚠️ Es una aproximación declarada: `metodo_cajas` se resuelve
+      // por (producto × almacén) y acá no hay almacén, así que se toma el método del producto con
+      // `bool_or`. Sólo se usa para la rama `unidad_es_caja`, que NO depende del almacén (es una
+      // propiedad del empaque: no hay paquete ni caja en la escalera del ERP).
+      // [CPU.2] Acá el cambio pesa MÁS que en los otros dos sitios: esta subconsulta NO filtra —
+      // agrupa el resolvedor ENTERO por producto. Contra la vista viva eso es derivar las 180,272
+      // filas desde `kepler_ods` en cada pierna y en cada corrida; contra la copia es un scan de
+      // 106 MB ya materializados.
+      .leftJoin(
+        trx(unitRel)
+          .select('tenant_id', 'product_id')
+          .select(trx.raw(`bool_or(metodo_cajas = 'unidad_es_caja') AS unidad_es_caja`))
+          .groupBy('tenant_id', 'product_id')
+          .as('utp'),
+        function (this: any) {
+          this.on('utp.tenant_id', 's.tenant_id').andOn('utp.product_id', 's.product_id');
+        },
+      )
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      // RV (preventa) = vecinal de AMBAS fuentes (kepler 1V0NN/3V001 + wincaja). RD (ruta) = AMBAS
+      // fuentes también: las camionetas 21-28 de PH pasaron de Wincaja (hasta jun-2026) a Kepler
+      // (jul+) en el cutover, comparten warehouse_code RUTA-2N y NO se traslapan → se funden por
+      // almacén (abajo, en el pivote). Kepler ruta = camionetas puras (la vecinal ya es preventa).
+      .whereIn('s.channel', rawsVend)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.brandId) b.andWhere('s.brand_id', o.brandId);
+        if (o.search) b.andWhereRaw('(s.sku ILIKE ? OR s.nombre ILIKE ?)', [`%${o.search}%`, `%${o.search}%`]);
+      })
+      .select(
+        's.vendor_code as vendor_code', 's.vendor_name as vendor_name',
+        // Almacén: para RD (ruta) la identidad es la RUTA, no la persona (Kepler no trae vendedor).
+        's.warehouse_code as warehouse_code', trx.raw('max(s.branch_name) as branch_name'),
+        saleChannelCase,
+        's.product_id as product_id',
+        trx.raw('max(s.sku) as sku'), trx.raw('max(s.nombre) as nombre'), trx.raw('max(s.factor_sale) as factor_sale'),
+        's.brand_id as brand_id', trx.raw('max(s.brand_nombre) as brand_nombre'), trx.raw('max(s.brand_code) as brand_code'),
+        trx.raw('max(s.box_size) as box_size'),
+        trx.raw(`CASE WHEN s.unit_kind='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
+        trx.raw('1 as fac_win'),
+        trx.raw('sum(s.units) as qty'), trx.raw('sum(s.monto) as monto'),
+        // El neto NO se seleccionaba, así que `monto_neto` llegaba undefined y el pivote por
+        // vendedor publicaba SIEMPRE $0 en esa columna. Una columna que existe y vale cero se lee
+        // como "no hubo descuento", no como "nadie la trajo".
+        trx.raw('sum(s.monto_neto) as monto_neto'),
+        // [U.7] Cajas ancladas al dinero + lo que no se pudo convertir, declarado aparte.
+        trx.raw(`max(bp.cja_price) as cja_price`),
+        trx.raw(`bool_or(COALESCE(utp.unidad_es_caja, false)) as unidad_es_caja`),
+      )
+      .groupByRaw('s.vendor_code, s.vendor_name, s.warehouse_code, s.channel, s.product_id, s.brand_id, s.unit_kind');
+  }
+
+  /** Filas de `sellOutByVendor()` unificadas (rollup meses cerrados + vista borde). */
+  private async fetchSelloutVendorRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo; chMap: SelloutChannelMap }): Promise<any[]> {
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = await this.selloutUsesRollup(trx, plan);
+    const out: any[] = [];
+    // [CPU.2] Una sola sonda para las dos piernas: la sonda está cacheada por proceso, pero
+    // resolverla acá deja explícito que las dos leen LA MISMA relación — si una leyera la copia y
+    // la otra la vista viva, el mismo reporte mezclaría dos edades del resolvedor sin decirlo.
+    const { rel: unitRel } = await unitTruth(trx, this.logger);
+    if (useRollup) out.push(...await this.selloutVendorLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, unitRel));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) out.push(...await this.selloutVendorLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o, unitRel));
+    return out;
+  }
+
+  // ─── BI.3 "Explica el cambio" (delta_bridge) ───────────────────────────────
+  // Un tramo agregado a grano de UNA dimension (marca/sucursal/canal). Mismo universo
+  // y mismos filtros que el pivote; excluye 'traspaso' igual que sellOut(). La venta
+  // es sumable sobre la dimension -> la contribucion por miembro es EXACTA.
+  private selloutExplainLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any) {
+    const keyExpr = o.dim === 'branch' ? 's.warehouse_code' : o.dim === 'channel' ? 's.channel' : 's.brand_id';
+    const qb = trx(`${table} as s`)
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      .andWhereRaw(`s.channel <> 'traspaso'`)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.brandId) b.andWhere('s.brand_id', o.brandId);
+        // [VSO.1] El filtro llega como canal de NEGOCIO y se traduce a sus canales CRUDOS: pedir
+        // "Mayoreo" tiene que traer `wincaja:credito` Y `kepler:mayoreo`, no uno de los dos.
+        if (o.channelRaws && o.channelRaws.length) b.whereIn('s.channel', o.channelRaws);
+        if (o.search) b.andWhereRaw('(s.sku ILIKE ? OR s.nombre ILIKE ?)', [`%${o.search}%`, `%${o.search}%`]);
+        if (o.warehouseFilter && o.warehouseFilter.length) b.whereIn('s.warehouse_code', o.warehouseFilter);
+      })
+      .select(trx.raw(`COALESCE(${keyExpr}::text, '__none__') as k`))
+      .select(trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'), trx.raw('SUM(s.units) as units'))
+      .groupByRaw(`COALESCE(${keyExpr}::text, '__none__')`);
+    if (o.dim === 'brand') qb.select(trx.raw('max(s.brand_nombre) as label'), trx.raw('max(s.brand_code) as code'));
+    else if (o.dim === 'branch') qb.select(trx.raw('max(s.branch_name) as label'));
+    return qb;
+  }
+
+  /** Suma por miembro de la dimension en [from,to] (rollup cerrados + vista borde), unificado en Node. */
+  private async fetchExplainDims(trx: any, o: any): Promise<Map<string, { label: string | null; code: string | null; monto: number; monto_neto: number; units: number }>> {
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = await this.selloutUsesRollup(trx, plan);
+    const rows: any[] = [];
+    if (useRollup) rows.push(...await this.selloutExplainLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) rows.push(...await this.selloutExplainLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o));
+    const m = new Map<string, { label: string | null; code: string | null; monto: number; monto_neto: number; units: number }>();
+    for (const r of rows) {
+      // [VSO.1] Con dim=canal, los miembros son canales de NEGOCIO: si no, `wincaja:credito` y
+      // `kepler:mayoreo` salían como dos renglones distintos del mismo Mayoreo, y "qué cambió"
+      // atribuía a un canal inexistente la caída del otro en el mes del cutover.
+      if (o.dim === 'channel') r.k = o.chMap.canon(undefined, r.k);
+      const cur = m.get(r.k) || { label: null, code: null, monto: 0, monto_neto: 0, units: 0 };
+      cur.monto += Number(r.monto) || 0;
+      cur.monto_neto += Number(r.monto_neto) || 0;
+      cur.units += Number(r.units) || 0;
+      if (!cur.label && r.label) cur.label = r.label;
+      if (!cur.code && r.code) cur.code = r.code;
+      m.set(r.k, cur);
+    }
+    return m;
+  }
+
+  /** Rango espejo del mismo largo: 'prev' = inmediatamente antes; 'yoy' = -1 año. */
+  private selloutMirrorRange(from: string, to: string, compare: SellOutExplainCompare): { from: string; to: string } {
+    if (compare === 'yoy') {
+      const shift = (d: string) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCFullYear(x.getUTCFullYear() - 1); return x.toISOString().slice(0, 10); };
+      return { from: shift(from), to: shift(to) };
+    }
+    const lenDays = Math.round((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86400000) + 1;
+    return { from: this.selloutShiftDay(from, -lenDays), to: this.selloutShiftDay(from, -1) };
+  }
+
+  private explainDimLabel(dim: SellOutExplainDim, k: string, raw: string | null, chMap: SelloutChannelMap): string {
+    // [VSO.1] El rótulo sale del resolvedor, que es obligatorio: los tres call-sites lo cargan, y
+    // dejarlo opcional invitaba a un cuarto que rotulara con el crudo sin que nadie lo notara.
+    if (dim === 'channel') return chMap.label(k);
+    if (dim === 'brand' && k === '__none__') return 'Sin marca';
+    if (dim === 'branch' && k === '__none__') return 'Sin sucursal';
+    return raw || k;
+  }
+
+  private explainNarrative(dim: SellOutExplainDim, compare: SellOutExplainCompare, total: SellOutExplainReport['total'], top: SellOutMover[]): string {
+    const fmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+    const signed = (n: number) => (n >= 0 ? '+' : '-') + fmt.format(Math.abs(n)).replace('MX$', '$');
+    const vs = compare === 'yoy' ? 'el mismo periodo del año pasado' : 'el periodo anterior';
+    if (total.delta === 0 || total.prev === 0) {
+      return `La venta ${total.prev === 0 ? 'no tiene base comparable en' : 'quedó igual vs'} ${vs}.`;
+    }
+    const dir = total.delta > 0 ? 'subió' : 'cayó';
+    const pct = total.delta_pct == null ? '' : ` ${total.delta_pct > 0 ? '+' : ''}${total.delta_pct.toFixed(1)}%`;
+    const drops = top.filter((m) => m.delta < 0).slice(0, 2);
+    const gains = top.filter((m) => m.delta > 0).slice(0, 1);
+    const lost = top.find((m) => m.kind === 'perdido');
+    const drivers = (total.delta < 0 ? drops : gains.concat(top.filter((m) => m.delta > 0).slice(1, 2)))
+      .map((m) => `${m.label} (${signed(m.delta)})`);
+    let s = `La venta ${dir}${pct} (${signed(total.delta)}) vs ${vs}.`;
+    if (drivers.length) s += ` Lo explican sobre todo ${drivers.join(' y ')}.`;
+    if (lost && lost.delta < 0 && (!drops.length || lost.key !== drops[0].key)) s += ` Ojo con ${lost.label}, que dejó de vender (${signed(lost.delta)}).`;
+    const comp = total.delta < 0 ? gains[0] : drops[0];
+    if (comp) s += ` Parcialmente compensado por ${comp.label} (${signed(comp.delta)}).`;
+    return s;
+  }
+
+  /**
+   * BI.3 — descompone el cambio del sell-out entre [from,to] y su periodo espejo, por dimension.
+   * Σ de las contribuciones = Δ total EXACTO (la venta es sumable). Mismo universo que el reporte.
+   */
+  async explainChange(q: SellOutExplainQuery): Promise<SellOutExplainReport> {
+    const dim: SellOutExplainDim = q.dim === 'branch' || q.dim === 'channel' ? q.dim : 'brand';
+    const compare: SellOutExplainCompare = q.compare === 'yoy' ? 'yoy' : 'prev';
+    const measure: 'monto' | 'monto_neto' = q.measure === 'neto' || q.measure === 'monto_neto' ? 'monto_neto' : 'monto';
+    const brandId = (q.brand_id || '').trim();
+    if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    const promoMode: SellOutPromo = q.promo === 'solo' || q.promo === 'todo' ? q.promo : 'sin';
+    const search = (q.search || '').trim();
+    if (!q.from || !q.to || !this.isIsoDate(q.from) || !this.isIsoDate(q.to))
+      throw new BadRequestException('from/to requeridos (ISO 8601)');
+    const from = q.from.slice(0, 10);
+    const to = q.to.slice(0, 10);
+    if (from > to) throw new BadRequestException('from posterior a to');
+    const warehouseFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
+    // [VSO.1] Ya no hay lista blanca literal: el vocabulario válido lo define el resolvedor, y el
+    // valor se normaliza (acepta `credito` de enlaces viejos). Antes, pedir el canal `mayoreo`
+    // —$21.4M— caía al `else null`, o sea "sin filtro", y el usuario veía TODO creyendo que filtró.
+    const channelIn = (q.channel || '').trim().toLowerCase() || null;
+    const mirror = this.selloutMirrorRange(from, to, compare);
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    return this.tk.run(async (trx) => {
+      await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`);
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      const channelRaws = channelIn ? chMap.raws([chMap.normalize(channelIn)]) : null;
+      if (channelIn && (!channelRaws || !channelRaws.length)) throw new BadRequestException(`canal inválido: ${channelIn}`);
+      const base = { tenantId, dim, brandId, promoMode, search, warehouseFilter, channelRaws, chMap };
+      const cur = await this.fetchExplainDims(trx, { ...base, from, to });
+      const prev = await this.fetchExplainDims(trx, { ...base, from: mirror.from, to: mirror.to });
+      const usaRollup = await this.selloutUsesRollup(trx, this.planSellOutSources(from, to));
+      const freshness = await this.selloutFreshness(trx, usaRollup);
+
+      const pick = (x: any) => (x ? (measure === 'monto_neto' ? x.monto_neto : x.monto) : 0);
+      const keys = new Set<string>([...cur.keys(), ...prev.keys()]);
+      const all: SellOutMover[] = [];
+      let totalCur = 0, totalPrev = 0;
+      for (const k of keys) {
+        const c = cur.get(k), p = prev.get(k);
+        const cv = pick(c), pv = pick(p);
+        totalCur += cv; totalPrev += pv;
+        const delta = cv - pv;
+        const kind: SellOutMover['kind'] = pv === 0 && cv > 0 ? 'nuevo' : cv === 0 && pv > 0 ? 'perdido' : delta > 0 ? 'crecio' : delta < 0 ? 'cayo' : 'igual';
+        all.push({
+          key: k,
+          label: this.explainDimLabel(dim, k, (c?.label ?? p?.label) ?? null, chMap),
+          code: (c?.code ?? p?.code) ?? null,
+          prev: pv, curr: cv, delta,
+          delta_pct: pv > 0 ? (delta / pv) * 100 : null,
+          kind,
+        });
+      }
+      all.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+      const totalAbs = all.reduce((s, m) => s + Math.abs(m.delta), 0);
+      const top: SellOutMover[] = [];
+      let acc = 0;
+      for (const m of all) {
+        top.push(m); acc += Math.abs(m.delta);
+        if ((top.length >= 3 && acc >= 0.8 * totalAbs) || top.length >= 15) break;
+      }
+      const rest = all.slice(top.length);
+      const total = { curr: totalCur, prev: totalPrev, delta: totalCur - totalPrev, delta_pct: totalPrev > 0 ? ((totalCur - totalPrev) / totalPrev) * 100 : null };
+      return {
+        dimension: dim, compare, measure,
+        period: { from, to }, mirror,
+        total,
+        movers: top,
+        otros: { count: rest.length, delta: rest.reduce((s, m) => s + m.delta, 0) },
+        narrative: this.explainNarrative(dim, compare, total, top),
+        freshness,
+        generated_at: new Date().toISOString(),
+      };
+    });
+  }
+
+  // ─── BI.6 "Radar" ───────────────────────────────────────────────────────────
+  private selloutMonthMinus(ym: string, n: number): string {
+    const y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+    const idx = y * 12 + (m - 1) - n;
+    return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
+  }
+
+  /**
+   * Anomalías: por cada miembro (empresa/sucursal/canal), su venta del mes objetivo vs su
+   * PROPIO promedio de los `lookback` meses previos. Surface caídas/picos/perdidos/nuevos con
+   * materialidad mínima para no gritar por ruido. Solo meses cerrados (rollup). Cero heurística
+   * del LLM: umbrales fijos, deterministas.
+   */
+  async selloutAnomalies(q: SelloutAnomaliesQuery): Promise<SelloutAnomaliesReport> {
+    const dim: SellOutExplainDim = q.dim === 'branch' || q.dim === 'channel' ? q.dim : 'brand';
+    const lookback = Math.min(6, Math.max(1, Number(q.lookback) || 3));
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    const lastClosed = this.selloutMonthMinus(openYm, 1);
+    let month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : lastClosed;
+    if (month >= openYm) month = lastClosed; // el mes en curso es parcial → no se juzga
+    const baselineMonths: string[] = [];
+    for (let i = 1; i <= lookback; i++) baselineMonths.push(this.selloutMonthMinus(month, i));
+    const months = [month, ...baselineMonths];
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    return this.tk.run(async (trx) => {
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      const keyExpr = dim === 'branch' ? 's.warehouse_code' : dim === 'channel' ? 's.channel' : 's.brand_id';
+      const labelExpr = dim === 'branch' ? 'max(s.branch_name)' : dim === 'channel' ? 'max(s.channel)' : 'max(s.brand_nombre)';
+      const rows = await trx('analytics.mv_sellout_monthly as s')
+        .where('s.tenant_id', tenantId).whereIn('s.year_month', months)
+        .andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`)
+        .select(trx.raw(`COALESCE(${keyExpr}::text, '__none__') as k`), trx.raw(`${labelExpr} as label`), 's.year_month', trx.raw('SUM(s.monto)::numeric as monto'))
+        .groupByRaw(`COALESCE(${keyExpr}::text, '__none__'), s.year_month`);
+
+      const mem = new Map<string, { label: string | null; by: Record<string, number> }>();
+      for (const r of rows) {
+        // [VSO.1] dim=canal ⇒ miembros en canal de NEGOCIO. Sin esto, el mes del cutover marcaba
+        // `credito` como "perdido" y `mayoreo` como "nuevo": dos anomalías inventadas por la
+        // etiqueta, sobre una venta que no se movió.
+        const k = dim === 'channel' ? chMap.canon(undefined, r.k) : r.k;
+        const e = mem.get(k) || { label: null, by: {} };
+        e.by[r.year_month] = (e.by[r.year_month] || 0) + (Number(r.monto) || 0);
+        if (!e.label && r.label) e.label = r.label;
+        mem.set(k, e);
+      }
+
+      const R = (n: number) => Math.round(n);
+      const fmt = (n: number) => '$' + R(n).toLocaleString('en-US');
+      const anomalies: SelloutAnomaly[] = [];
+      for (const [k, e] of mem) {
+        if (k === '__none__') continue;
+        const current = e.by[month] || 0;
+        const baseline = baselineMonths.reduce((a, m) => a + (e.by[m] || 0), 0) / baselineMonths.length;
+        const deviation = current - baseline;
+        const dpct = baseline > 0 ? deviation / baseline : null;
+        const label = this.explainDimLabel(dim, k, e.label, chMap);
+        let kind: SelloutAnomaly['kind'] | null = null;
+        let reason = '';
+        // Baseline < $5k = sin historial real: el % es ruido (un baseline de $8 da "+1166763%").
+        // Se juzga como aparición ("nuevo"), no como pico. El pico/caída exige baseline material.
+        if (baseline >= 50000 && current === 0) {
+          kind = 'perdido'; reason = `Dejó de vender (promedio ${fmt(baseline)} en ${lookback}m).`;
+        } else if (baseline < 5000 && current >= 100000) {
+          kind = 'nuevo'; reason = `Nuevo: ${fmt(current)} sin historial en ${lookback}m.`;
+        } else if (baseline >= 5000 && dpct !== null && Math.abs(dpct) >= 0.35 && Math.abs(deviation) >= 50000) {
+          kind = deviation < 0 ? 'caida' : 'pico';
+          reason = `${deviation < 0 ? 'Cayó' : 'Subió'} ${Math.abs(dpct * 100).toFixed(0)}% vs su promedio (${fmt(baseline)} → ${fmt(current)}).`;
+        }
+        if (kind) anomalies.push({ key: k, label, current: R(current), baseline: R(baseline), deviation: R(deviation), deviation_pct: dpct == null ? null : Number((dpct * 100).toFixed(1)), kind, reason });
+      }
+      anomalies.sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
+      // [VP.2.2] Lee `mv_sellout_monthly` ⇒ declara la edad del rollup. Y acá pesa más que en otros
+      // reportes: una anomalía se calcula contra el promedio de los meses previos, así que un rollup
+      // que se saltó corridas no produce una cifra "un poco vieja" — produce una CAÍDA INVENTADA en
+      // el mes objetivo, que es exactamente la alarma que la pantalla existe para disparar.
+      const freshness = await this.selloutFreshness(trx, true);
+      return { month, baseline_months: baselineMonths, dim, anomalies: anomalies.slice(0, 12), generated_at: new Date().toISOString(), freshness };
+    });
+  }
+
+  // ─── BI.4 gráficas ───────────────────────────────────────────────────────────
+  /** Serie mensual de monto (tendencia) terminando en `to_month`, N meses hacia atrás. Meses cerrados. */
+  async selloutSeries(q: { to_month?: string; months?: number; brand_id?: string; channel?: string }): Promise<SelloutSeriesReport> {
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    let toM = /^\d{4}-\d{2}$/.test(q.to_month || '') ? (q.to_month as string) : this.selloutMonthMinus(openYm, 1);
+    if (toM >= openYm) toM = this.selloutMonthMinus(openYm, 1);
+    const n = Math.min(24, Math.max(2, Number(q.months) || 12));
+    const monthsArr: string[] = [];
+    for (let i = n - 1; i >= 0; i--) monthsArr.push(this.selloutMonthMinus(toM, i));
+    const brandId = (q.brand_id || '').trim();
+    if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    const channelIn = (q.channel || '').trim().toLowerCase() || null;
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      // [VSO.1] canal de NEGOCIO → sus canales crudos (ver `loadChannelMap`).
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      const channelRaws = channelIn ? chMap.raws([chMap.normalize(channelIn)]) : null;
+      const rows = await trx('analytics.mv_sellout_monthly as s')
+        .where('s.tenant_id', tenantId).whereIn('s.year_month', monthsArr).andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`)
+        .modify((b: any) => { if (brandId) b.andWhere('s.brand_id', brandId); if (channelRaws && channelRaws.length) b.whereIn('s.channel', channelRaws); })
+        .select('s.year_month', trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.year_month');
+      const map = new Map<string, number>(rows.map((r: any) => [r.year_month, Number(r.monto) || 0]));
+      const freshness = await this.selloutFreshness(trx, true); // [VP.2.2] lee el rollup mensual
+      return { months: monthsArr.map((m) => ({ month: m, monto: Math.round(map.get(m) || 0) })), brand_id: brandId || null, generated_at: new Date().toISOString(), freshness };
+    });
+  }
+
+  /** Pareto/ABC: miembros ordenados por monto con share acumulado y clase A(<=80%)/B(<=95%)/C. */
+  async selloutPareto(q: { month?: string; dim?: string; n?: number; channel?: string }): Promise<SelloutParetoReport> {
+    const dim: SellOutExplainDim = q.dim === 'branch' || q.dim === 'channel' ? q.dim : 'brand';
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    let month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : this.selloutMonthMinus(openYm, 1);
+    if (month >= openYm) month = this.selloutMonthMinus(openYm, 1);
+    const topN = Math.min(50, Math.max(5, Number(q.n) || 20));
+    const channelIn = (q.channel || '').trim().toLowerCase() || null;
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      const channelRaws = channelIn ? chMap.raws([chMap.normalize(channelIn)]) : null;
+      const keyExpr = dim === 'branch' ? 's.warehouse_code' : dim === 'channel' ? 's.channel' : 's.brand_id';
+      const labelExpr = dim === 'branch' ? 'max(s.branch_name)' : dim === 'channel' ? 'max(s.channel)' : 'max(s.brand_nombre)';
+      const rawRows = await trx('analytics.mv_sellout_monthly as s')
+        .where('s.tenant_id', tenantId).andWhere('s.year_month', month).andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`)
+        .modify((b: any) => { if (channelRaws && channelRaws.length) b.whereIn('s.channel', channelRaws); })
+        .select(trx.raw(`COALESCE(${keyExpr}::text, '__none__') as k`), trx.raw(`${labelExpr} as label`), trx.raw('SUM(s.monto)::numeric as monto'))
+        .groupByRaw(`COALESCE(${keyExpr}::text, '__none__')`)
+        .havingRaw('SUM(s.monto) > 0')
+        .orderByRaw('SUM(s.monto) desc');
+      // [VSO.1] Con dim=canal el GROUP BY de SQL es por canal CRUDO; los canales de negocio que se
+      // componen de dos crudos (Mayoreo = wincaja:credito + kepler:mayoreo) se colapsan acá. Sin
+      // esto el Pareto partía Mayoreo en dos miembros y le calculaba mal la clase ABC a los dos.
+      const rows = dim !== 'channel' ? rawRows : (() => {
+        const acc = new Map<string, { k: string; label: string; monto: number }>();
+        for (const r of rawRows as any[]) {
+          const k = chMap.canon(undefined, r.k);
+          const cur = acc.get(k) || { k, label: k, monto: 0 };
+          cur.monto += Number(r.monto) || 0;
+          acc.set(k, cur);
+        }
+        return [...acc.values()].sort((a, b) => b.monto - a.monto);
+      })();
+      const total = rows.reduce((a: number, r: any) => a + (Number(r.monto) || 0), 0) || 1;
+      let cum = 0;
+      const out: SelloutParetoRow[] = rows.slice(0, topN).map((r: any) => {
+        const monto = Number(r.monto) || 0;
+        cum += monto;
+        const cumShare = cum / total;
+        return {
+          key: r.k, label: this.explainDimLabel(dim, r.k, r.label, chMap),
+          monto: Math.round(monto), share: Number(((monto / total) * 100).toFixed(1)), cum_share: Number((cumShare * 100).toFixed(1)),
+          abc: (cumShare <= 0.8 ? 'A' : cumShare <= 0.95 ? 'B' : 'C') as 'A' | 'B' | 'C',
+        };
+      });
+      const freshness = await this.selloutFreshness(trx, true); // [VP.2.2] lee el rollup mensual
+      return { month, dim, total: Math.round(total), rows: out, generated_at: new Date().toISOString(), freshness };
+    });
+  }
+
+  // ─── BI.9 objetivos ───────────────────────────────────────────────────────────
+  private selloutMonthRange(ym: string): { from: string; to: string } {
+    const y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return { from: `${ym}-01`, to: `${ym}-${String(lastDay).padStart(2, '0')}` };
+  }
+
+  /** Metas del mes vs lo real (total + por sucursal + por canal). El real sale de v_sellout_daily
+   *  (sirve mes cerrado o en curso hasta hoy). Sin metas capturadas -> target 0 (se declara, no se inventa). */
+  async selloutTargets(q: { month?: string }): Promise<SelloutTargetsReport> {
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    const month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : openYm;
+    const { from, to } = this.selloutMonthRange(month);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const chMapT = await this.loadChannelMap(trx, tenantId);
+      const baseActual = () => trx('analytics.v_sellout_daily as s')
+        .where('s.tenant_id', tenantId).andWhere('s.business_date', '>=', from).andWhere('s.business_date', '<=', to)
+        .andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`);
+      // [RD.7] El real por RUTA no puede salir de `v_sellout_daily`: esa vista mete la venta
+      // de ruta como `warehouse_code LIKE 'RUTA-%'` y no distingue las 13. Sale de
+      // `analytics.v_rd_route_daily` (RD.2), que además declara su procedencia. Si la vista
+      // todavía no existe en el destino, el bloque sale vacío en lugar de tumbar el reporte.
+      const routeActual = async (): Promise<any[]> => {
+        const { rows: existe } = await trx.raw(`SELECT to_regclass('analytics.v_rd_route_daily') AS t`);
+        if (!existe[0]?.t) return [];
+        const { rows } = await trx.raw(
+          `SELECT route_code AS k, SUM(venta)::numeric AS monto
+             FROM analytics.v_rd_route_daily
+            WHERE tenant_id = ? AND business_date >= ? AND business_date <= ?
+            GROUP BY 1`, [tenantId, from, to]);
+        return rows;
+      };
+      const [totRow, branchRows, channelRows, routeRows, targets] = await Promise.all([
+        baseActual().select(trx.raw('COALESCE(SUM(s.monto),0)::numeric as monto')).first(),
+        baseActual().select('s.warehouse_code as k', trx.raw('max(s.branch_name) as label'), trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.warehouse_code'),
+        baseActual().select('s.channel as k', trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.channel'),
+        routeActual(),
+        trx('commercial.sales_targets').where('tenant_id', tenantId).andWhere('year_month', month).select('scope', 'scope_key', 'target_monto'),
+      ]);
+      const tgt = new Map<string, number>(targets.map((r: any) => [`${r.scope}|${r.scope_key}`, Number(r.target_monto) || 0]));
+      const mk = (scope: 'total' | 'branch' | 'channel' | 'route', key: string, label: string, actual: number): SelloutTargetRow => {
+        const target = tgt.get(`${scope}|${key}`) || 0;
+        return { scope, scope_key: key, label, target: Math.round(target), actual: Math.round(actual), pct: target > 0 ? Number(((actual / target) * 100).toFixed(1)) : null };
+      };
+      const total = mk('total', '', 'Total', Number(totRow?.monto || 0));
+      const branches = branchRows.map((r: any) => mk('branch', r.k, r.label || r.k, Number(r.monto || 0))).sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
+      // [VSO.1] El `scope_key` de una meta por canal es el canal de NEGOCIO, no el crudo: si no,
+      // Mayoreo necesitaría DOS metas (una por ERP) y ninguna se cumpliría sola. Verificado antes
+      // de cambiar la llave: `commercial.sales_targets` está VACÍA en prod, así que no hay metas
+      // capturadas que se queden huérfanas. ⚠️ Si alguna vez se capturan con el vocabulario viejo,
+      // migrarlas (`credito` → `mayoreo`) en el mismo commit que las introduzca.
+      const chAcc = new Map<string, number>();
+      for (const r of channelRows as any[]) {
+        const k = chMapT.canon(undefined, r.k);
+        chAcc.set(k, (chAcc.get(k) || 0) + Number(r.monto || 0));
+      }
+      const channels = [...chAcc.entries()]
+        .map(([k, monto]) => mk('channel', k, chMapT.label(k), monto))
+        .sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
+      // [RD.7] Metas por ruta. Se listan también las rutas con meta capturada y SIN venta en
+      // el mes: una ruta que no vendió nada es justo lo que hay que ver, y si sólo saliera
+      // lo que tiene venta el cumplimiento en cero quedaría invisible.
+      const conVenta = new Map<string, number>(routeRows.map((r: any) => [String(r.k), Number(r.monto || 0)]));
+      for (const t of targets) if (t.scope === 'route' && !conVenta.has(t.scope_key)) conVenta.set(t.scope_key, 0);
+      const routes = [...conVenta.entries()]
+        .map(([k, monto]) => mk('route', k, `Ruta ${k}`, monto))
+        .sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
+      // [VP.2.2] Lee `v_sellout_daily`, que se arma de las DOS matvistas diarias y NO del rollup
+      // mensual ⇒ `usaRollup: false`. Sumar el carril mensual marcaría viejo un avance del mes en
+      // curso que nunca lo tocó — declarar de más también es declarar mal.
+      const freshness = await this.selloutFreshness(trx, false);
+      return { month, total, branches, channels, routes, generated_at: new Date().toISOString(), freshness };
+    });
+  }
+
+  /** Upsert de una meta (captura HITL). scope total|branch|channel; total -> scope_key=''. */
+  async upsertSelloutTarget(b: SelloutTargetUpsert): Promise<{ ok: true }> {
+    // [RD.7] 'route' → scope_key es el route_code de RD ('21'…'505').
+    const scope = ['total', 'branch', 'channel', 'route'].includes(b.scope || '') ? (b.scope as string) : null;
+    if (!scope) throw new BadRequestException('scope inválido');
+    const year_month = String(b.year_month || '');
+    if (!/^\d{4}-\d{2}$/.test(year_month)) throw new BadRequestException('year_month inválido (YYYY-MM)');
+    const scope_key = scope === 'total' ? '' : String(b.scope_key || '').trim();
+    if (scope !== 'total' && !scope_key) throw new BadRequestException('scope_key requerido');
+    const target = Number(b.target_monto);
+    if (!Number.isFinite(target) || target < 0) throw new BadRequestException('target_monto inválido');
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      await trx.raw(
+        `INSERT INTO commercial.sales_targets (tenant_id, scope, scope_key, year_month, target_monto)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (tenant_id, scope, scope_key, year_month)
+         DO UPDATE SET target_monto = EXCLUDED.target_monto, updated_at = now()`,
+        [tenantId, scope, scope_key, year_month, target],
+      );
+      return { ok: true };
+    });
+  }
+
+  /**
+   * Hojas del universo sell-out (dimensiones + `monto>0`) para los ÁRBOLES de filtro y el selector de
+   * almacenes — MISMA fuente/dedup/rango que el pivote → sintonía. `dims` = columnas raw a agrupar;
+   * `extra` = filtros opcionales (canal/fuente). El `monto>0` se evalúa DESPUÉS de sumar rollup+borde
+   * (una hoja puede ser >0 sólo al juntar meses cerrados con el borde).
+   */
+  private async selloutLeaves(trx: any, o: { tenantId: string; from: string; to: string }, dims: string, extra?: (b: any) => void): Promise<any[]> {
+    const plan = this.planSellOutPresence(o.from, o.to);
+    const useRollup = await this.selloutUsesRollup(trx, plan);
+    const acc = new Map<string, any>();
+    const run = async (table: string, dateCol: string, lo: string, hi: string) => {
+      const rows = await trx(`${table} as s`)
+        .where('s.tenant_id', o.tenantId).andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+        .modify((b: any) => { if (extra) extra(b); })
+        .select(trx.raw(dims)).sum({ _m: 's.monto' }).groupByRaw(dims);
+      for (const r of rows) {
+        const { _m, ...key } = r;
+        const k = JSON.stringify(key);
+        const cur = acc.get(k) || { ...key, _m: 0 };
+        cur._m += Number(_m) || 0;
+        acc.set(k, cur);
+      }
+    };
+    if (useRollup) await run('analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth);
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const dr of dailyRanges) await run('analytics.v_sellout_daily', 's.business_date', dr.from, dr.to);
+    return [...acc.values()].filter((r) => r._m > 0);
+  }
+
+  /**
+   * RS.4 — Sell-Out POR VENDEDOR (solo Wincaja: la dimensión vendedor solo existe ahí;
+   * Kepler mart.ventas no la trae). Matriz Producto × Vendedor, agrupada MAYOREO
+   * (mayoreo_credito) / RD (ruta_venta) / RV (preventa_vecinal). On-demand desde
+   * `wincaja.v_sales_lines` con normalización de unidad por artículo + nombres de
+   * `wincaja.vendedores`. Devuelve el mismo shape SellOutReport → reusa la tabla del front.
+   */
+  async sellOutByVendor(q: SellOutQuery): Promise<SellOutReport> {
+    const brandId = (q.brand_id || '').trim();
+    if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    const search = (q.search || '').trim();
+    if (!q.from || !q.to || !this.isIsoDate(q.from) || !this.isIsoDate(q.to))
+      throw new BadRequestException('from/to requeridos (ISO 8601)');
+    const from = q.from.slice(0, 10);
+    const to = q.to.slice(0, 10);
+    if (from > to) throw new BadRequestException('from posterior a to');
+    const cellFilter = (q.cells && q.cells.length) ? new Set(q.cells.map((c) => c.trim().toLowerCase())) : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+    const promoMode: SellOutPromo = q.promo === 'solo' || q.promo === 'todo' ? q.promo : 'sin';
+    // mayoreo_credito → 'mayoreo' · ruta_venta → 'ruta' (RD) · preventa_vecinal → 'preventa' (RV)
+    const GROUP: Record<string, string> = { mayoreo_credito: 'mayoreo', ruta_venta: 'ruta', preventa_vecinal: 'preventa' };
+    const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
+    const GROUP_ORD: Record<string, number> = { mayoreo: 0, ruta: 1, preventa: 2 };
+
+    const { brand, raw, uxcRows, baseRows, identMap, freshness, unitProv } = await this.tk.run(async (trx) => {
+      await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`); // RS.12 — ver nota en sellOut()
+      const b = brandId
+        ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
+        : { id: null, nombre: 'Todas las empresas', code: null };
+      if (!b) throw new BadRequestException('Marca no encontrada');
+      if (!(await this.selloutViewReady(trx)))
+        throw new ServiceUnavailableException('Analytics de sell-out aún no poblado — corré Refresh en el Command Center.');
+      // FUENTE UNIFICADA — mismo universo/dedup/rango que el pivote y los filtros, scoped a los canales
+      // CON vendedor: crédito (ambas fuentes: Kepler telemarketing Sergio/Cinthia + Wincaja) + ruta/preventa
+      // SÓLO de Wincaja (RD/RV; kepler ruta = decisión RD-vs-RV, diferida). Rutas numeradas → sin vendedor
+      // → se auto-descartan por isNoiseVendor. Shape esperado por el pivote (sale_channel/uv_win/fac_win/qty).
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      const raw = await this.fetchSelloutVendorRows(trx, { tenantId, from, to, brandId, search, promoMode, chMap });
+      const identMap = await this.loadVendorIdentity(trx, tenantId);
+      // [UXC.1] Mismo resolvedor canónico que el pivote principal, mismo motivo: esta columna
+      // salía de `catalog.products.factor_sale` y publicaba 1 donde el ERP y lo pagado al
+      // proveedor dicen >1. Se lee aparte (y no dentro de `fetchSelloutVendorRows`) para no
+      // tocar el fetcher que comparten las dos vistas.
+      const vpids = Array.from(new Set((raw as any[]).map((x) => x.product_id).filter(Boolean)));
+      const uxcRows = vpids.length
+        ? await trx('analytics.v_product_box_factor_consensus')
+            .where('tenant_id', tenantId)
+            .whereRaw('product_id = ANY(?::uuid[])', [vpids])
+            .select('product_id', 'box_factor_publicable', 'veredicto', 'factor_min', 'factor_max')
+        : [];
+      // [SO.U] El rótulo de la unidad BASE, del resolvedor y por (producto, almacén).
+      // ⚠️ NO se toma de `uv_win`: ese campo es un `CASE ... ELSE 'PZA'` del propio leg, o sea
+      // rotula PZA todo lo que no es peso — y `sales_daily.units` de Kepler está en la unidad
+      // base real del renglón (`c11`), que también puede ser PAQ o un gramaje. Rotular por
+      // conveniencia es inventar la unidad, que es el defecto que esta fase persigue.
+      // [CPU.2] De la copia materializada, igual que el pivote principal — y por el mismo motivo:
+      // el filtro por SKU cae sobre `btrim(columna)` y no ahorra derivación.
+      const { rel: unitRel, provenance: unitProv } = await unitTruth(trx, this.logger);
+      const baseRows = vpids.length
+        ? await trx(unitRel)
+            .where('tenant_id', tenantId)
+            .whereRaw('product_id = ANY(?::uuid[])', [vpids])
+            .select('product_id', 'warehouse_code', 'base_label')
+        : [];
+      // [VP.0.3] Mismas MV, misma declaración de edad que el pivote principal.
+      const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
+      return { brand: b, raw, uxcRows, baseRows, identMap, freshness, unitProv };
+    });
+    // [SO.U] Índice del rótulo por celda y por producto (el segundo para los almacenes que el
+    // resolvedor no cubre). Sin fila NO se rotula: una ausencia no se dibuja como 'PZA'.
+    const baseByCell = new Map<string, string>();
+    for (const b of (baseRows ?? []) as any[]) {
+      const l = b.base_label ? String(b.base_label).trim().toUpperCase() : '';
+      if (l) baseByCell.set(`${b.product_id}|${b.warehouse_code}`, l);
+    }
+
+    // [UXC.1] Índice por producto. Sin fila en el resolvedor el UxC va NULL declarado, nunca 1.
+    const uxcByProduct = new Map<string, { uxc: number | null; veredicto: SellOutRow['uxc_veredicto']; rango: string | null }>();
+    for (const u of (uxcRows ?? []) as any[]) {
+      const mn = u.factor_min != null ? Number(u.factor_min) : null;
+      const mx = u.factor_max != null ? Number(u.factor_max) : null;
+      uxcByProduct.set(u.product_id, {
+        uxc: u.box_factor_publicable != null ? Number(u.box_factor_publicable) : null,
+        veredicto: u.veredicto ?? null,
+        rango: u.veredicto === 'difiere_entre_plazas' && mn != null && mx != null ? `${mn}–${mx}` : null,
+      });
+    }
+    const uxcFor = (pid: string) => uxcByProduct.get(pid) ?? { uxc: null, veredicto: null as SellOutRow['uxc_veredicto'], rango: null };
+
+    const columns = new Map<string, SellOutColumn>();
+    const rowMap = new Map<string, SellOutRow>();
+    const colTotals = new Map<string, SellOutCell>();
+    let grandCajas = 0, grandMonto = 0, grandMontoNeto = 0;
+    // [U.7] Lo que no se pudo expresar en cajas, para declararlo en vez de dibujarlo.
+    const sinMetodo = { skus: new Set<string>(), unidades: 0, monto: 0 };
+    const routeIdent = this.buildRouteIdent(identMap);
+    for (const r of raw) {
+      const group = GROUP[r.sale_channel]; if (!group) continue;
+      // Identidad por regla de canal: RD→ruta(almacén), RV Kepler→código de ruta (funde fuga entre
+      // sucursales), resto→persona. Devuelve null para ruido/excluido.
+      const vId = this.resolveByVendorId(r.sale_channel, r.vendor_code, r.vendor_name, r.warehouse_code, r.branch_name, identMap, routeIdent);
+      if (!vId) continue;
+      const colKey = `${group}|${vId.key}`;
+      if (cellFilter && !cellFilter.has(colKey.toLowerCase()) && !cellFilter.has(`${group}|*`)) continue;
+      const uv = String(r.uv_win ?? '').trim().toUpperCase();
+      const isWeight = uv === 'KGS';
+      const qty = Number(r.qty) || 0;
+      const facWin = Number(r.fac_win) || 1;
+      const units = isWeight ? qty : (uv === 'CJA' ? qty * (facWin > 1 ? facWin : 1) : qty);
+      const monto = Number(r.monto) || 0;
+      const montoNeto = Number(r.monto_neto) || 0;
+      // [U.7] Cajas por DINERO (ingreso ÷ precio de caja), no por `factor_sale`. Peso → kilos.
+      // Sin precio de caja NO se convierte: se declara. Antes dividía por
+      // `factor_sale ?? box_size ?? 1`, y ese `1` publicaba piezas rotuladas como cajas.
+      const cjaPrice = Number(r.cja_price) || 0;
+      let cajas = 0;
+      if (isWeight) cajas = units;
+      else if (cjaPrice > 0) cajas = monto / cjaPrice;
+      else if (r.unidad_es_caja) cajas = units; // la unidad de venta ES la más grande
+      else { sinMetodo.skus.add(r.sku); sinMetodo.unidades += units; sinMetodo.monto += monto; }
+      if (!columns.has(colKey)) {
+        columns.set(colKey, { key: colKey, branch_code: vId.key, branch_name: vId.name, channel: group, channel_label: GROUP_LABEL[group] });
+        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
+      }
+      let row = rowMap.get(r.sku);
+      if (!row) { const ui = uxcFor(r.product_id); row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: ui.uxc, uxc_veredicto: ui.veredicto, uxc_rango: ui.rango, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 } }; rowMap.set(r.sku, row); }
+      // [SO.U] La unidad base acá sale del propio renglón (`uv_win`, la unidad de medida con que
+      // Wincaja registró la línea), ya normalizada arriba: en `CJA` el `units` viene multiplicado
+      // por el factor, así que queda en la unidad SUELTA — que es la que el rótulo nombra.
+      const baseU = isWeight ? 'KG' : baseByCell.get(`${r.product_id}|${r.warehouse_code}`);
+      marcarUnidadBase(row, baseU);
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
+      marcarUnidadCelda(cell, baseU);
+      cell.cajas += cajas; cell.monto += monto; cell.monto_neto += montoNeto; cell.units += units;
+      row.total.cajas += cajas; row.total.monto += monto; row.total.monto_neto += montoNeto; row.total.units += units;
+      const ct = colTotals.get(colKey)!; ct.cajas += cajas; ct.monto += monto; ct.monto_neto += montoNeto;
+      grandCajas += cajas; grandMonto += monto; grandMontoNeto += montoNeto;
+    }
+    const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    const rows = Array.from(rowMap.values()).sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
+    for (const row of rows) {
+      // ⚠️ Reconstruye la celda: `unit` se copia explícito o el rótulo se pierde.
+      for (const k of Object.keys(row.cells)) row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2), units: round(row.cells[k].units, 3), unit: row.cells[k].unit ?? null };
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2), units: round(row.total.units, 3) };
+    }
+    const orderedCols = Array.from(columns.values()).sort((a, b) =>
+      (GROUP_ORD[a.channel ?? ''] ?? 9) - (GROUP_ORD[b.channel ?? ''] ?? 9) || a.branch_name.localeCompare(b.branch_name, 'es'));
+    const columnTotalsObj: Record<string, SellOutCell> = {};
+    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2), units: 0 };
+    return {
+      brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
+      period: { from, to }, group_by: 'branch_channel', view: 'product', row_dim: 'product',
+      columns: orderedCols, rows, column_totals: columnTotalsObj,
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2), units: 0 },
+      // [VP.0.6] La nota de alcance es CIERTA y útil, pero no es una cobertura: este pivote agrupa
+      // por vendedor y nunca trae sucursal (`selloutVendorLeg` no la selecciona), así que el eje no
+      // se puede medir acá. `measured: false` lo dice; antes los dos arreglos vacíos se leían como
+      // "no falta ninguna sucursal", que es una afirmación que nadie hizo.
+      coverage: {
+        branches_with_data: [], branches_missing: [], measured: false,
+        note: 'Alcance por vendedor: Mayoreo (Kepler telemarketing + Wincaja) · RD/RV (Wincaja). '
+          + 'La cobertura por sucursal no aplica en esta vista (el pivote agrupa por vendedor).',
+      },
+      freshness,
+      // [CPU.2] La edad del resolvedor de unidad, declarada igual que en el pivote principal.
+      unit_provenance: unitProv,
+      sin_metodo: {
+        skus: sinMetodo.skus.size,
+        unidades: round(sinMetodo.unidades, 3),
+        monto: round(sinMetodo.monto, 2),
+      },
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  /** RS.4 — Árbol CANAL para el slicer: grupos (Sucursal/RD/RV/Mayoreo) → sucursales con venta. */
+  async sellOutCanales(from?: string, to?: string): Promise<{ group: string; group_label: string; leaves: { channel: string; code: string; name: string }[] }[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const f = from && this.isIsoDate(from) ? from.slice(0, 10) : '2020-01-01';
+    const t = to && this.isIsoDate(to) ? to.slice(0, 10) : '2099-12-31';
+    const { chanRows, credRows, identMap, chMap } = await this.tk.run(async (trx) => {
+      const identMap = await this.loadVendorIdentity(trx, tenantId);
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      if (!(await this.selloutViewReady(trx))) return { chanRows: [] as any[], credRows: [] as any[], identMap, chMap };
+      // Hojas Sucursal/RD/RV = canal×almacén, de la MISMA fuente/dedup/rango que el pivote → sintonía
+      // (fix A/B/F: mismo origen, dedup aplicado, vocabulario unificado, acotado al rango elegido).
+      // [VSO.1] Los canales CRUDOS a traer salen del resolvedor, no de una lista literal: la lista
+      // literal era `['mostrador','ruta','preventa']` y por eso `contado_nf` (que ES mostrador) no
+      // tenía hoja, y `mayoreo` tampoco — y sin hoja, el `cellFilter` del árbol los DESCARTA.
+      const chanRows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
+        's.source, s.channel, s.warehouse_code, s.branch_name',
+        (qb) => qb.whereIn('s.channel', chMap.raws(['mostrador', 'ruta', 'preventa'])));
+      // Mayoreo = por VENDEDOR (ambas fuentes vía canonVendor): `wincaja:credito` + `kepler:mayoreo`.
+      const credRows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
+        's.vendor_code, s.vendor_name',
+        (qb) => qb.whereIn('s.channel', chMap.raws(['mayoreo'])));
+      return { chanRows, credRows, identMap, chMap };
+    });
+    const GROUP: Record<string, { g: string; label: string; ord: number }> = {
+      mostrador: { g: 'mostrador', label: 'Sucursal', ord: 0 },
+      ruta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
+      preventa: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
+    };
+    const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
+    const vistos = new Set<string>();
+    for (const r of chanRows as any[]) {
+      // El grupo y la hoja hablan en canal de NEGOCIO; si no, `contado_nf` abriría una hoja gemela
+      // de la misma sucursal que el pivote (que ya canoniza) nunca podría casar.
+      const canal = chMap.canon(r.source, r.channel);
+      const meta = GROUP[canal]; if (!meta) continue;
+      if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
+      const dedup = `${canal}|${r.warehouse_code}`;
+      if (vistos.has(dedup)) continue;
+      vistos.add(dedup);
+      map.get(meta.g)!.leaves.push({ channel: canal, code: r.warehouse_code, name: r.branch_name });
+    }
+    // Mayoreo = vendedores canónicos (Wincaja+Kepler colapsados por canonVendor) + bucket ÚNICO
+    // 'sin-vendedor' seleccionable (fix D) cuando hay mayoreo sin vendedor real con venta.
+    const seen = new Map<string, { channel: string; code: string; name: string }>();
+    let sinVend = 0;
+    for (const v of credRows as any[]) {
+      if (this.isNoiseVendor(v.vendor_code)) { sinVend += Number(v._m) || 0; continue; }
+      const id = this.canonVendor(identMap, v.vendor_code, v.vendor_name);
+      if (id.exclude) continue;
+      if (!seen.has(id.key)) seen.set(id.key, { channel: 'mayoreo', code: id.key, name: id.name });
+    }
+    const credLeaves = Array.from(seen.values());
+    if (sinVend > 0) credLeaves.push({ channel: 'mayoreo', code: 'sin-vendedor', name: 'Sin vendedor' });
+    if (credLeaves.length) map.set('mayoreo', { group: 'mayoreo', group_label: 'Mayoreo', ord: 3, leaves: credLeaves });
+    return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
+      .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => String(a.name).localeCompare(String(b.name), 'es')) }));
+  }
+
+  /** RS.4 — Árbol VENDEDOR para el slicer: MAYOREO (Kepler+Wincaja) / RD / RV (Wincaja) → vendedores con
+   *  venta EN EL RANGO. Misma fuente/dedup que el pivote by-vendor → sintonía (fix B/C/E). */
+  async sellOutVendors(from?: string, to?: string): Promise<{ group: string; group_label: string; leaves: { code: string; name: string }[] }[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const f = from && this.isIsoDate(from) ? from.slice(0, 10) : '2020-01-01';
+    const t = to && this.isIsoDate(to) ? to.slice(0, 10) : '2099-12-31';
+    // [VSO.1] Los grupos van en canal de NEGOCIO. Antes la llave era `credito`, así que el
+    // telemarketing Kepler (`mayoreo`, U-D-8) no entraba: 16 vendedores y $21,373,739 (jul-sep 2026)
+    // sin columna en el trabajo "Vendedores" — SERGIO MENDOZA $7.83M, DANIEL FRANCO $6.50M,
+    // CINTHIA DEL VALLE $4.13M entre ellos.
+    const GROUP: Record<string, { g: string; label: string; ord: number }> = {
+      mayoreo: { g: 'mayoreo', label: 'Mayoreo', ord: 0 },
+      ruta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
+      preventa: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
+    };
+    const { rows, identMap, chMap } = await this.tk.run(async (trx) => {
+      const identMap = await this.loadVendorIdentity(trx, tenantId);
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      if (!(await this.selloutViewReady(trx))) return { rows: [] as any[], identMap, chMap };
+      // Vendedores del universo unificado, scoped como el reporte by-vendor: mayoreo (ambas fuentes)
+      // + ruta/preventa.
+      const rows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
+        's.source, s.channel, s.vendor_code, s.vendor_name, s.warehouse_code, s.branch_name',
+        // RV (preventa) y RD (ruta) = AMBAS fuentes. Las camionetas kepler no traen vendedor → la
+        // RUTA (almacén) es la identidad, y se funde con su yo Wincaja por warehouse_code.
+        (qb) => qb.whereIn('s.channel', chMap.raws(['mayoreo', 'preventa', 'ruta'])));
+      return { rows, identMap, chMap };
+    });
+    const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
+    const addLeaf = (g: string, label: string, ord: number, id: { key: string; name: string }) => {
+      if (!map.has(g)) map.set(g, { group: g, group_label: label, ord, leaves: [] });
+      const bucket = map.get(g)!;
+      if (!bucket.leaves.some((l) => l.code === id.key)) bucket.leaves.push({ code: id.key, name: id.name });
+    };
+    const routeIdent = this.buildRouteIdent(identMap);
+    let sinVend = 0;
+    for (const r of rows as any[]) {
+      const canal = chMap.canon(r.source, r.channel);
+      const meta = GROUP[canal]; if (!meta) continue;
+      // RD (ruta→almacén) y RV (vecinal Kepler→código de ruta): misma regla que el pivote.
+      if (canal === 'ruta' || canal === 'preventa') {
+        const id = this.resolveByVendorId(canal, r.vendor_code, r.vendor_name, r.warehouse_code, r.branch_name, identMap, routeIdent);
+        if (id) addLeaf(meta.g, meta.label, meta.ord, id);
+        continue;
+      }
+      // Mayoreo: ruido → bucket ÚNICO 'sin-vendedor' (fix D); si no, por persona.
+      if (this.isNoiseVendor(r.vendor_code)) { if (meta.g === 'mayoreo') sinVend += Number(r._m) || 0; continue; }
+      const id = this.canonVendor(identMap, r.vendor_code, r.vendor_name);
+      if (id.exclude) continue;
+      addLeaf(meta.g, meta.label, meta.ord, id);
+    }
+    if (sinVend > 0) addLeaf('mayoreo', 'Mayoreo', 0, { key: 'sin-vendedor', name: 'Sin vendedor' });
+    return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
+      .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => String(a.name).localeCompare(String(b.name), 'es')) }));
+  }
+
+  /**
+   * [VSO.1] Los canales de NEGOCIO que el filtro puede ofrecer, del resolvedor.
+   *
+   * Existe para que el vocabulario no viva DOS veces (acá y en una constante del front): esa
+   * duplicación es exactamente la que dejó `mayoreo` sin casilla mientras la base ya lo publicaba.
+   * `from_db=false` avisa que se está sirviendo el respaldo degradado.
+   */
+  async sellOutChannels(): Promise<{ channels: { value: string; label: string }[]; from_db: boolean }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const chMap = await this.loadChannelMap(trx, tenantId);
+      return { channels: chMap.canales(), from_db: chMap.fromDb };
+    });
+  }
+
+  /** Marcas/proveedores con al menos 1 producto — para el selector de empresa. */
+  async sellOutBrands(search?: string): Promise<SellOutBrandRow[]> {
+    const term = (search || '').trim();
+    return this.tk.run(async (trx) => {
+      let q = trx('catalog.brands as b')
+        .whereNull('b.deleted_at')
+        .whereExists(function () {
+          this.select(trx.raw('1'))
+            .from('catalog.products as p')
+            .whereRaw('p.brand_id = b.id')
+            .whereNull('p.deleted_at');
+        })
+        .select(
+          'b.id',
+          'b.nombre',
+          'b.code',
+          trx.raw(
+            '(SELECT count(*) FROM catalog.products p WHERE p.brand_id = b.id AND p.deleted_at IS NULL)::int AS products',
+          ),
+        )
+        .orderBy('b.nombre')
+        .limit(1000);
+      if (term) q = q.where('b.nombre', 'ilike', `%${term}%`);
+      return q;
+    });
+  }
+
+  /** Almacenes con venta en el rango — para el selector. MISMA fuente unificada que el pivote/filtros
+   *  (sintonía): lista exactamente los almacenes que el reporte puede mostrar para [from,to]. Sin rango
+   *  → all-time (selector estable). */
+  async sellOutWarehouses(from?: string, to?: string): Promise<SellOutWarehouseRow[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const f = from && this.isIsoDate(from) ? from.slice(0, 10) : '2020-01-01';
+    const t = to && this.isIsoDate(to) ? to.slice(0, 10) : '2099-12-31'; // la vista se auto-acota a hoy_MX
+    return this.tk.run(async (trx) => {
+      if (!(await this.selloutViewReady(trx))) return [];
+      const leaves = await this.selloutLeaves(trx, { tenantId, from: f, to: t }, 's.warehouse_code, s.branch_name');
+      return leaves
+        .map((r: any) => ({ code: r.warehouse_code, name: r.branch_name }))
+        .sort((a: any, b: any) => String(a.code).localeCompare(String(b.code), 'es')) as SellOutWarehouseRow[];
+    });
+  }
+
+  /**
+   * SAL — Reporte Salidas/Ventas por Producto: fila por (sucursal, producto)
+   * con venta+costo mensual, existencia actual, costos y proveedor/marca.
+   * Costo mensual = venta × costo_por_caja (fórmula del ERP).
+   *
+   * ⚠️ [AUD-DAT.1] ESTE COMENTARIO DECÍA `analytics.product_sales_monthly` Y ES FALSO: `salidasReport`
+   * lee `analytics.sales_boxes_monthly` (modo AÑO) y `analytics.sales_daily` (modo RANGO) — ver la
+   * nota "Fuente CANÓNICA" adentro del método. Mandaba al que viniera a leer a la tabla equivocada.
+   * `product_sales_monthly` NO tiene un solo consumidor en la app (medido 2026-09-28: sus únicos
+   * lectores son sus propios importers y `database/scripts/deactivate-legacy-skus.js`), y además
+   * está incompleta — cero filas de Canindo (06) en jun/jul-2026 y la mitad en ago, porque es
+   * Kepler-only y esa sucursal cortó de Wincaja el 2026-08-15.
+   *
+   * ⚠️ Y el ALCANCE, que sí aplica acá: las dos fuentes reales cuelgan de `sales_daily`, que cubre
+   * **6 de las 8 sucursales** — Morelia (07/08) sólo aparece desde su corte a Kepler (sep-2026).
+   * Este reporte las excluye antes de esa fecha. Es el mismo hueco que `[AUD-DAT.1]` cerró en
+   * presupuestos migrando a `mv_sales_blended`; acá NO se migró porque `sales_boxes_monthly` trae
+   * la conversión a cajas (`v_product_box_factor`) que el blend no tiene. Queda DECLARADO, no tapado.
+   */
+  /** SAL — categorías de compra con productos activos (para el filtro de Salidas). */
+  async salidasCategories() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    // Mismo CONJUNTO que /compras/categorias (commercial-replenishment.listCategories):
+    // LEFT join → TODAS las categorías no borradas del tenant, con `code` + conteo de
+    // productos activos. Antes era INNER + p.activo y sin code → el filtro de salidas no
+    // podía buscarse por código (ej "874").
+    return this.tk.run(async (trx) =>
+      trx('catalog.categories as c')
+        .leftJoin('catalog.products as p', (j: any) => j.on('p.tenant_id', 'c.tenant_id').andOn('p.category_id', 'c.id'))
+        .where('c.tenant_id', tenantId).whereNull('c.deleted_at')
+        .groupBy('c.id', 'c.code', 'c.name')
+        .select('c.id as id', 'c.code as code', 'c.name as name')
+        .select(trx.raw('count(DISTINCT p.id) FILTER (WHERE p.activo)::int as n_products'))
+        .orderByRaw('count(DISTINCT p.id) FILTER (WHERE p.activo) DESC, c.name ASC'),
+    );
+  }
+
+  async salidasReport(q: SalidasQuery): Promise<SalidasReport> {
+    const isRange = !!(q.from && q.to);
+    const whFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
+    const brandId = q.brand_id && RS_UUID.test(q.brand_id) ? q.brand_id : null;
+    const supplierId = q.supplier_id && RS_UUID.test(q.supplier_id) ? q.supplier_id : null;
+    const categoryId = q.category_id && RS_UUID.test(q.category_id) ? q.category_id : null;
+    const term = (q.search || '').trim();
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    // Fuente CANÓNICA (primaria): modo AÑO → analytics.sales_boxes_monthly (piezas/kg + cajas ya
+    // calculadas con v_product_box_factor = Kepler kdii.c84); modo RANGO → analytics.sales_daily
+    // (piezas/kg canónicas; cajas = piezas / factor canónico). Incluye los canales de VENTA
+    // (mostrador/crédito/preventa/ruta, Kepler y Wincaja) y EXCLUYE `mayoreo` (=TI% traspaso
+    // interno, ver NON_SALE_RAW_CHANNELS) para igualar la definición de Sell-Out. Reemplaza a
+    // product_sales_* (crudo: unidad vendida sin normalizar, solo U-D-10) que subcontaba el
+    // crédito y no convertía a cajas los productos vendidos en paquete/granel.
+    let year = 0, from = '', toIncl = '';
+    if (isRange) {
+      if (!this.isIsoDate(q.from!) || !this.isIsoDate(q.to!)) throw new BadRequestException('from/to inválido (ISO 8601)');
+      from = q.from!; toIncl = q.to!;
+      if (from > toIncl) throw new BadRequestException('from > to');
+    } else {
+      year = Number(q.year) || new Date().getFullYear();
+      if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
+      from = `${year}-01-01`;
+    }
+    const ymFrom = `${year}-01`, ymTo = `${year}-12`; // bounds de year_month (texto) para sales_boxes_monthly
+
+    // SAL.6 — días del período (cobertura) + ventana anterior (tendencia).
+    const DAY = 86400000;
+    const parseIso = (s: string) => new Date(s + 'T00:00:00Z');
+    const isoOf = (d: Date) => d.toISOString().slice(0, 10);
+    let diasPeriodo: number, prevFrom = '', prevTo = '';
+    if (isRange) {
+      diasPeriodo = Math.round((parseIso(toIncl).getTime() - parseIso(from).getTime()) / DAY) + 1;
+      const pT = new Date(parseIso(from).getTime() - DAY);
+      const pF = new Date(pT.getTime() - (diasPeriodo - 1) * DAY);
+      prevTo = isoOf(pT); prevFrom = isoOf(pF);
+    } else {
+      const yStart = parseIso(from);
+      const yEnd = parseIso(`${year}-12-31`);
+      const now = new Date();
+      const end = now < yEnd ? now : yEnd;
+      diasPeriodo = Math.max(1, Math.round((end.getTime() - yStart.getTime()) / DAY) + 1);
+    }
+
+    // [VP.2.2] La fuente CAMBIA con el modo, y la frescura tiene que cambiar con ella: modo AÑO lee
+    // el mensual nocturno, modo RANGO lee `sales_daily` (continuo). Declarar el mensual en un
+    // reporte por rango marcaria viejo un dato que nunca lo tocó — declarar de más también es
+    // declarar mal, y es el mismo cuidado que `usaRollup` en el sell-out.
+    let freshness: Freshness = FRESHNESS_UNKNOWN;
+    const { salesRows, prodRows, prevRows, stkRows, scopeWh } = await this.tk.run(async (trx) => {
+      freshness = await this.feedFreshness(trx, isRange
+        ? [[SALES_FACT, 'updated_at', 'Venta diaria']]
+        : [['analytics.sales_boxes_monthly', 'updated_at', 'Venta en cajas (mensual)']]);
+      const applyFilters = (qb: any) => {
+        if (whFilter) qb.whereIn('w.code', whFilter);
+        if (brandId) qb.andWhere('p.brand_id', brandId);
+        if (supplierId) qb.andWhere('p.supplier_id', supplierId);
+        if (categoryId) qb.andWhere('p.category_id', categoryId);
+        if (term) qb.andWhere((b: any) => b.where('p.nombre', 'ilike', `%${term}%`).orWhere('p.sku', 'ilike', `%${term}%`));
+      };
+
+      // Venta por (sucursal, producto[, mes]) desde la fuente CANÓNICA: `units` = base natural
+      // (piezas para pieza, kg para granel) · `boxes` = cajas con el factor canónico. Todos los canales.
+      let sq: any;
+      if (isRange) {
+        sq = trx(`${SALES_FACT} as m`)
+          .join('catalog.products as p', 'p.id', 'm.product_id')
+          .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .leftJoin('analytics.v_product_box_factor as vbf', function (this: any) {
+            this.on('vbf.product_id', 'm.product_id').andOn('vbf.tenant_id', 'm.tenant_id');
+          })
+          .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', from).andWhere('m.sale_date', '<=', toIncl)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
+          .select('w.code as wcode', 'm.product_id as product_id')
+          .select(trx.raw('sum(m.units) as units'))
+          .select(trx.raw(`sum(CASE WHEN m.unit_kind = 'weight' THEN 0 ELSE m.units / GREATEST(COALESCE(vbf.box_factor, 1), 1) END) as boxes`))
+          .groupByRaw('w.code, m.product_id');
+      } else {
+        sq = trx('analytics.sales_boxes_monthly as m')
+          .join('catalog.products as p', 'p.id', 'm.product_id')
+          .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .where('m.tenant_id', tenantId).andWhere('m.year_month', '>=', ymFrom).andWhere('m.year_month', '<=', ymTo)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
+          .select('w.code as wcode', 'm.product_id as product_id', trx.raw(`right(m.year_month, 2) as mes`))
+          .select(trx.raw('sum(coalesce(m.pieces, 0) + coalesce(m.kg, 0)) as units'))
+          .select(trx.raw('sum(coalesce(m.boxes, 0)) as boxes'))
+          .groupByRaw('w.code, m.product_id, right(m.year_month, 2)');
+      }
+      applyFilters(sq);
+
+      // SAL.6 — tendencia: venta del período ANTERIOR (misma duración, solo rango).
+      let prevRows: any[] = [];
+      if (isRange && prevFrom && prevTo) {
+        const pq = trx(`${SALES_FACT} as m`)
+          .join('catalog.products as p', 'p.id', 'm.product_id')
+          .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', prevFrom).andWhere('m.sale_date', '<=', prevTo)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
+          .select('w.code as wcode', 'm.product_id as product_id')
+          .select(trx.raw('sum(m.units) as units'))
+          .groupByRaw('w.code, m.product_id');
+        applyFilters(pq);
+        prevRows = await pq;
+      }
+
+      // CATÁLOGO COMPLETO × SUCURSALES (decisión Edgar 2026-07-15): mostrar TODO producto activo en
+      // cada sucursal en scope (venta 0 / exist 0 permitidos). Scope = sucursales con venta en el período.
+      let scopeWh: any[];
+      if (isRange) {
+        scopeWh = await trx(`${SALES_FACT} as m`).join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', from).andWhere('m.sale_date', '<=', toIncl)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
+          .distinct('w.id as id', 'w.code as code', 'w.name as name');
+      } else {
+        scopeWh = await trx('analytics.sales_boxes_monthly as m').join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .where('m.tenant_id', tenantId).andWhere('m.year_month', '>=', ymFrom).andWhere('m.year_month', '<=', ymTo)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
+          .distinct('w.id as id', 'w.code as code', 'w.name as name');
+      }
+      if (whFilter) scopeWh = scopeWh.filter((w) => whFilter.includes(w.code));
+
+      const pq2 = trx('catalog.products as p')
+        .leftJoin('catalog.suppliers as s', 's.id', 'p.supplier_id')
+        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+        .leftJoin('catalog.categories as cat', 'cat.id', 'p.category_id')
+        .leftJoin('commercial.v_product_label_prices as lp', function (this: any) {
+          this.on('lp.product_id', 'p.id').andOn('lp.tenant_id', 'p.tenant_id');
+        })
+        .leftJoin('analytics.v_product_box_factor as vbf', function (this: any) {
+          this.on('vbf.product_id', 'p.id').andOn('vbf.tenant_id', 'p.tenant_id');
+        })
+        .where('p.tenant_id', tenantId).andWhere('p.activo', true)
+        .select(
+          'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
+          'p.factor_sale as factor_sale', 'p.unit_sale as unit_sale',
+          'lp.pack_size as pack_size', 'lp.box_size as box_size', 'vbf.box_factor as box_factor',
+          'p.cost_with_tax as cost_with_tax', 'p.cost_per_case as cost_per_case',
+          's.name as supplier', 'b.nombre as brand', 'cat.name as categoria', 'p.rotation_tier as rotation_tier',
+        );
+      if (brandId) pq2.andWhere('p.brand_id', brandId);
+      if (supplierId) pq2.andWhere('p.supplier_id', supplierId);
+      if (categoryId) pq2.andWhere('p.category_id', categoryId);
+      if (term) pq2.andWhere((qb: any) => qb.where('p.nombre', 'ilike', `%${term}%`).orWhere('p.sku', 'ilike', `%${term}%`));
+
+      const scopeIds = scopeWh.map((w) => w.id);
+      let stkRows: any[] = [];
+      if (scopeIds.length) {
+        stkRows = await trx('commercial.stock as st')
+          .join('commercial.warehouses as w', 'w.id', 'st.warehouse_id')
+          .where('st.tenant_id', tenantId).whereIn('st.warehouse_id', scopeIds)
+          .select('w.code as wcode', 'st.product_id as product_id', 'st.quantity as quantity');
+      }
+
+      return { salesRows: await sq, prodRows: await pq2, prevRows, stkRows, scopeWh };
+    });
+
+    // Merge en Node.
+    const monthsSet = new Set<string>();
+    const salesByKey = new Map<string, Record<string, number>>(); // modo año: mes→units (piezas/kg canónicas)
+    const totalByKey = new Map<string, number>();                 // modo rango: units del período
+    const boxesByKey = new Map<string, number>();                 // cajas canónicas del período (ambos modos)
+    for (const r of salesRows as any[]) {
+      const key = `${r.wcode}|${r.product_id}`;
+      boxesByKey.set(key, (boxesByKey.get(key) ?? 0) + (Number(r.boxes) || 0));
+      if (isRange) {
+        totalByKey.set(key, Number(r.units) || 0);
+      } else {
+        monthsSet.add(r.mes);
+        (salesByKey.get(key) ?? salesByKey.set(key, {}).get(key)!)[r.mes] = Number(r.units) || 0;
+      }
+    }
+    const prevByKey = new Map<string, number>();
+    for (const r of prevRows as any[]) prevByKey.set(`${r.wcode}|${r.product_id}`, Number(r.units) || 0);
+    const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    // Matriz sucursal×producto: TODO producto activo en CADA sucursal en scope, con su
+    // existencia (0 si no hay) y venta (0 si no vendió). Dedup de productos por si el
+    // join a product_label_prices trae >1 fila. El .map de abajo computa Venta desde
+    // salesByKey/totalByKey (ausente → 0).
+    const stockMap = new Map<string, number>();
+    for (const s of stkRows as any[]) stockMap.set(`${s.wcode}|${s.product_id}`, Number(s.quantity) || 0);
+    const prodMap = new Map<string, any>();
+    for (const p of prodRows as any[]) if (!prodMap.has(p.product_id)) prodMap.set(p.product_id, p);
+    // Fantasmas pre-Kepler: productos SIN SKU creados por el seed/capturas de mayo-2026,
+    // superados por el catálogo real de Kepler (junio) → sin identidad Kepler ni forma de
+    // reordenarlos. Se ocultan de salidas SALVO que tengan stock o venta real en scope (los
+    // pocos con existencia se muestran para que se note la anomalía y se les asigne SKU).
+    const hasStockAny = new Set<string>();
+    for (const s of stkRows as any[]) if ((Number(s.quantity) || 0) !== 0) hasStockAny.add(s.product_id);
+    const hasSalesAny = new Set<string>();
+    for (const r of salesRows as any[]) if ((Number(r.units) || 0) !== 0) hasSalesAny.add(r.product_id);
+    const isGhost = (p: any) => (!p.sku || !String(p.sku).trim()) && !hasStockAny.has(p.product_id) && !hasSalesAny.has(p.product_id);
+    const allMeta: any[] = [];
+    for (const w of scopeWh as any[]) {
+      for (const p of prodMap.values()) {
+        if (isGhost(p)) continue;
+        allMeta.push({
+          wcode: w.code, wname: w.name, product_id: p.product_id, sku: p.sku, nombre: p.nombre,
+          factor_sale: p.factor_sale, unit_sale: p.unit_sale, pack_size: p.pack_size, box_size: p.box_size, box_factor: p.box_factor,
+          cost_with_tax: p.cost_with_tax, cost_per_case: p.cost_per_case, supplier: p.supplier,
+          brand: p.brand, categoria: p.categoria, rotation_tier: p.rotation_tier,
+          stock_qty: stockMap.get(`${w.code}|${p.product_id}`) ?? 0,
+        });
+      }
+    }
+    const rows: SalidasRow[] = allMeta.map((r) => {
+      const key = `${r.wcode}|${r.product_id}`;
+      const factor = Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 1;
+      const costCase = r.cost_per_case != null ? Number(r.cost_per_case) : 0;
+      // Costo de la VENTA = unidades × costo UNITARIO (CostoCIVA). La venta está en
+      // unidades; multiplicarla por el costo de una CAJA la inflaba ×UXC (bug
+      // heredado del Excel). Cae a cost_per_case/UXC si falta cost_with_tax.
+      const costUnit = r.cost_with_tax != null ? Number(r.cost_with_tax) : (factor > 0 ? costCase / factor : costCase);
+      const monthly: Record<string, { venta: number; costo: number }> = {};
+      let ventaTotal = 0, costoTotal = 0;
+      if (isRange) {
+        ventaTotal = totalByKey.get(key) ?? 0;
+        costoTotal = round(ventaTotal * costUnit);
+      } else {
+        const months = salesByKey.get(key) ?? {};
+        for (const [mes, venta] of Object.entries(months)) {
+          const costo = round(venta * costUnit);
+          monthly[mes] = { venta: round(venta, 2), costo };
+          ventaTotal += venta;
+          costoTotal += costo;
+        }
+      }
+      const existPaq = Number(r.stock_qty) || 0;
+      // Jerarquía de unidades Kepler: PIEZA (base) → PAQUETE (pzas por paquete,
+      // kdii.c81) → CAJA (pzas por caja, kdii.c84). factor_sale coincide con
+      // pack_size en Kepler → fallback del paquete. La conversión SOLO aplica si
+      // la unidad es pieza; para CJA (ya en caja) o KGS (granel) dividir descuadra
+      // → null y la UI muestra "—". Caja suele venir sin factor (c84=0) → "—".
+      const unitSale = String(r.unit_sale ?? '').trim().toUpperCase();
+      const pieceUnit = unitSale === '' || unitSale === 'PZA' || unitSale === 'PZAS' || unitSale === 'PIEZA' || unitSale === 'PZ';
+      // Si la unidad de venta YA es caja/paquete, la existencia está en esa unidad
+      // (factor 1) → mostrarla directo en su columna en vez de "—".
+      const cjaUnit = unitSale === 'CJA' || unitSale === 'CAJA';
+      const paqUnit = unitSale === 'PAQ' || unitSale === 'PAQUETE';
+      // packF (PAQ) = pack_size del catálogo de etiquetas (estricto). boxF (CJA) =
+      // box_size de etiquetas, y si falta CAE a factor_sale — el mismo factor con que
+      // se calcula "Costo x Caja" (cost_per_case = cost × factor_sale). Antes boxF era
+      // estricto de etiquetas → un producto SIN etiqueta mostraba Costo x Caja $565.20
+      // pero Pz/Cja y Exist. Cja en "—" (incoherente; caso 83769 GUSTINOS /20KG).
+      const packF = Number(r.pack_size) > 0 ? Number(r.pack_size) : 0;
+      // boxF = factor de caja CANÓNICO (v_product_box_factor = Kepler kdii.c84); cae a la etiqueta y
+      // luego a factor_sale solo si falta el canónico. Mismo factor en venta, existencia y costo.
+      const boxF = Number(r.box_factor) > 1 ? Number(r.box_factor)
+        : (Number(r.box_size) > 0 ? Number(r.box_size)
+        : (Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 0));
+      const weightUnit = unitSale === 'KG' || unitSale === 'KGS' || unitSale === 'KILO' || unitSale === 'KILOS';
+      const existPaquete = pieceUnit && packF > 0 ? round(existPaq / packF, 2) : (paqUnit ? existPaq : null);
+      const existCaja = pieceUnit && boxF > 0 ? round(existPaq / boxF, 2) : (cjaUnit ? existPaq : null);
+      // Venta en CAJAS: ya viene en cajas de la fuente canónica (piezas ÷ factor canónico, TODA
+      // unidad incl. paquete). Granel (kg) no tiene caja → "—".
+      const ventaCajas = weightUnit ? null : round(boxesByKey.get(key) ?? 0, 2);
+      // Paquetes: desde las piezas canónicas (ventaTotal) ÷ pzas por paquete.
+      const ventaPaquetes = weightUnit ? null : (packF > 0 ? round(ventaTotal / packF, 2) : null);
+      const diasCobertura = ventaTotal > 0 ? Math.round((existPaq * diasPeriodo) / ventaTotal) : null;
+      const ventaPrev = isRange ? (prevByKey.get(key) ?? 0) : null;
+      const ventaDelta = isRange && ventaPrev != null && ventaPrev > 0
+        ? round(((ventaTotal - ventaPrev) / ventaPrev) * 100, 1) : null;
+      return {
+        warehouse_code: r.wcode,
+        warehouse_name: r.wname,
+        product_id: r.product_id,
+        sku: r.sku,
+        nombre: r.nombre,
+        // [UXC.1] El UxC que se MUESTRA es el MISMO `boxF` con el que ya se calculan `exist_caja`,
+        // `venta_cajas` y `costo_caja`. Antes salía de `factor_sale` crudo: el renglón podía
+        // enseñar UxC 1 mientras la columna de cajas de al lado estaba dividida entre 58
+        // (medido: 208 productos con factor_sale = 1 y resolvedor > 1). Sin factor no va 1: va
+        // NULL, porque una ausencia dibujada como 1 se lee como "se vende por pieza".
+        uxc: boxF > 0 ? boxF : null,
+        unit_sale: r.unit_sale ?? null,
+        pack_size: r.pack_size != null ? Number(r.pack_size) : null,
+        box_size: boxF > 0 ? boxF : null, // etiqueta box_size, o factor_sale de fallback (coherente con Costo x Caja)
+        supplier: r.supplier ?? null,
+        brand: r.brand ?? null,
+        categoria: r.categoria ?? null,
+        rotation_tier: r.rotation_tier ?? null,
+        costo_civa: r.cost_with_tax != null ? Number(r.cost_with_tax) : null,
+        costo_caja: r.cost_per_case != null ? Number(r.cost_per_case) : null,
+        exist_paq: existPaq,
+        exist_paquete: existPaquete,
+        exist_caja: existCaja,
+        costo_existencia: round(existPaq * costUnit),
+        monthly,
+        venta_total: round(ventaTotal, 2),
+        costo_total: round(costoTotal),
+        venta_paquetes: ventaPaquetes,
+        venta_cajas: ventaCajas,
+        dias_cobertura: diasCobertura,
+        venta_prev: ventaPrev != null ? round(ventaPrev, 2) : null,
+        venta_delta_pct: ventaDelta,
+      };
+    });
+    rows.sort((a, b) =>
+      a.warehouse_name.localeCompare(b.warehouse_name, 'es') || b.venta_total - a.venta_total,
+    );
+
+    const months = Array.from(monthsSet).sort();
+    return isRange
+      ? { mode: 'range', from, to: toIncl, dias_periodo: diasPeriodo, has_trend: true, months: [], rows, generated_at: new Date().toISOString(), freshness }
+      : { mode: 'year', year, dias_periodo: diasPeriodo, has_trend: false, months, rows, generated_at: new Date().toISOString(), freshness };
+  }
+
+  /**
+   * RR — Ventas por Ruta: fila por (sucursal, ruta) con venta (importe/unidades/
+   * tickets) mes a mes + total + share%. SOLO rutas de reparto REALES (venta a bordo):
+   * filtra route_code LIKE 'WIN-%' (feed import-wincaja-routes-monthly.js, atribuidas a
+   * la sucursal madre). Las series Kepler `c63` UD100N NO son rutas: son CAJAS de
+   * mostrador (UD10+nº de caja = c5; verificado 2026-07-14) → se excluyen de este reporte.
+   * Fuente: analytics.sales_by_route_monthly (las filas Kepler quedan inertes; el feed
+   * import-sales-by-route-monthly.js queda pendiente de retiro).
+   */
+  /** Opciones del filtro de /comercial/ventas-por-ruta: SOLO las rutas presentes
+   * en el reporte (no sucursales/almacenes/camiones). value = `wcode|route_code`
+   * porque el route_code de Kepler (serie UD100N) se repite entre sucursales. */
+  async salesByRouteRoutes(): Promise<SalesByRouteOption[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    // `[VEC.2]` Dos piernas: el rollup (camionetas + Wincaja) y la vecinal DERIVADA del ODS.
+    // La vecinal ya no sale de `sales_by_route_monthly` ni de `wincaja.branches` — una ruta
+    // nueva aparece sola el día que vende, sin que nadie la dé de alta en ninguna lista.
+    const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
+      `SELECT w.code AS warehouse_code, w.name AS warehouse_name, s.route_code, s.route_no
+         FROM analytics.sales_by_route_monthly s
+         JOIN commercial.warehouses w ON w.id = s.warehouse_id
+        WHERE s.tenant_id = ? AND s.route_code LIKE 'WIN-%'
+          AND COALESCE(s.route_no, '') !~ '${VECINAL_RX}'
+       UNION
+       SELECT v.warehouse_code, w.name, v.route_code, v.route_no
+         FROM analytics.v_kepler_vecinal_monthly v
+         JOIN commercial.warehouses w ON w.tenant_id = v.tenant_id
+          AND w.code = v.warehouse_code AND w.deleted_at IS NULL
+        WHERE v.tenant_id = ?
+        ORDER BY 2, 4`, [tenantId, tenantId])).rows);
+    return rows.map((r) => ({
+      value: `${r.warehouse_code}|${r.route_code}`,
+      label: `${r.warehouse_name} · Ruta ${r.route_no ?? r.route_code}`,
+      warehouse_code: r.warehouse_code,
+      warehouse_name: r.warehouse_name,
+      route_code: r.route_code,
+      route_no: r.route_no ?? '—',
+    }));
+  }
+
+  /**
+   * RR — Opciones del filtro por PRODUCTO (SKUs vendidos en ruta, últimos 2 años, por venta).
+   *
+   * `[AUD-DAT.17]` Lee el catálogo materializado. Antes leía `analytics.v_route_sales_lines`, que
+   * es el contrato ENRIQUECIDO del desglose por ticket: por cada una de 1,194,719 líneas pagaba
+   * un LATERAL a `wincaja.articulos` y otro anidado a `pagos_dia`→`formas_pago` para rellenar
+   * columnas que un combo no lee. Su hermana de clientes, idéntica en forma, medía **96 s**.
+   */
+  async salesByRouteProducts(): Promise<{ value: string; label: string }[]> {
+    return this.routeFilterOptions('sku');
+  }
+
+  /**
+   * `[AUD-DAT.17]` El lector de los dos combos de `/dashboard/ventas-detalle`.
+   *
+   * ⚠️ RESPALDO DECLARADO, y el motivo importa: si la matvista todavía no se pobló, devolver una
+   * lista vacía NO sería «declarar» nada — un combo en blanco se lee como «no hay clientes», que
+   * es justo el modo de falla que ADR-056 prohíbe. Así que cae a la consulta EN VIVO (la misma,
+   * lean, ~12 s) y lo deja dicho en el log. Lento y correcto le gana a rápido y mudo.
+   */
+  private async routeFilterOptions(kind: 'sku' | 'cliente'): Promise<{ value: string; label: string }[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
+      `SELECT value, label FROM analytics.mv_route_filter_options
+        WHERE tenant_id = ? AND kind = ? ORDER BY rev DESC NULLS LAST LIMIT 5000`,
+      [tenantId, kind])).rows).catch(() => []);
+    if (rows.length) {
+      return rows.map((r) => ({ value: r.value, label: r.label }));
+    }
+
+    this.logger.warn(`[AUD-DAT.17] mv_route_filter_options vacía o ausente para kind=${kind} — `
+      + 'cayendo a la consulta en vivo (~12 s). Correr la migración 20260929170000 y su REFRESH.');
+    const live: any[] = await this.tk.run(async (trx) => (await trx.raw(
+      `WITH lineas AS (
+         SELECT vl.tenant_id, vl.cliente, vl.sku, vl.importe
+           FROM wincaja.v_sales_lines vl
+          WHERE vl.sale_channel = 'ruta_venta'
+            AND vl.business_date >= (CURRENT_DATE - INTERVAL '2 years')
+         UNION ALL
+         SELECT rpl.tenant_id, rpl.cliente, rpl.sku, rpl.importe
+           FROM analytics.route_push_lines rpl
+          WHERE rpl.business_date >= (CURRENT_DATE - INTERVAL '2 years')
+         UNION ALL
+         SELECT vl.tenant_id, vl.cliente, vl.sku, vl.importe
+           FROM wincaja.v_sales_lines vl
+          WHERE vl.sale_channel = 'preventa_vecinal' AND vl.source_branch = '10'
+            AND vl.business_date < '2026-06-28'::date
+            AND vl.business_date >= (CURRENT_DATE - INTERVAL '2 years'))
+       SELECT CASE WHEN ? = 'sku' THEN l.sku ELSE l.cliente END AS value,
+              sum(l.importe) AS rev
+         FROM lineas l
+        WHERE l.tenant_id = ?
+          AND CASE WHEN ? = 'sku' THEN l.sku IS NOT NULL
+                   ELSE l.cliente IS NOT NULL AND btrim(l.cliente) <> '' AND l.cliente <> '0001' END
+        GROUP BY 1 ORDER BY 2 DESC NULLS LAST LIMIT 5000`,
+      [kind, tenantId, kind])).rows);
+    return live.map((r) => ({ value: r.value, label: r.value }));
+  }
+
+  /**
+   * RR — Opciones del filtro por CLIENTE (clientes de ruta, sin público, últimos 2 años).
+   *
+   * `[AUD-DAT.17]` Ésta era **la consulta más cara de la pantalla**: 96,303 ms de promedio y
+   * 116,793 ms el peor caso, tocando 490 M páginas, para llenar una lista desplegable. Ahora lee
+   * el catálogo materializado. Verificado idéntico al centavo antes de cambiarlo:
+   * 6,298 clientes / $88,125,359.60.
+   */
+  async salesByRouteClients(): Promise<{ value: string; label: string }[]> {
+    return this.routeFilterOptions('cliente');
+  }
+
+  /**
+   * `[AUD-DAT.18]` — **Los bloques de `/dashboard/ventas-detalle` que estaban INVENTADOS.**
+   *
+   * El frontend armaba tres bloques sin tocar la base, en un metodo llamado `synthesizeReport`:
+   *
+   *   - **la serie diaria** de la grafica: tomaba el total del periodo, lo dividia entre los dias
+   *     y lo modulaba con pesos inventados por dia de semana (0.15 domingo, 1.35 vie/sab) mas
+   *     `varFactor = 0.88 + ((i * 17) % 25) / 100` -- una ondulacion derivada del indice del
+   *     bucle, para que la curva pareciera organica;
+   *   - **el margen**: `dayRev * 0.125`, un 12.5 % plano;
+   *   - **Top Productos y Top Clientes**: arreglos escritos a mano con `share` fijo, y las
+   *     unidades salian de `parseInt(sku.slice(0,2)) % 15`.
+   *
+   * Y el 12.5 % no era una aproximacion: tapaba un hueco. Medido en prod el 2026-09-29 sobre el
+   * ultimo mes cerrado, **el costo solo existe en el 12.4 % de la venta de ruta**
+   * ($883,701.87 con costo contra $6,467,210.96 sin el). El push de camionetas no trae costo y
+   * la fuente lo declara (`costo_status='sin_dato_en_la_fuente'`). Por eso aca el margen NO se
+   * publica sobre la venta total: viaja con `revenue_with_cost` y su cobertura.
+   *
+   * De donde sale cada cosa:
+   *   - serie diaria -> `analytics.mv_rd_route_daily_200d` (ya materializada, refresco cada
+   *     30 min, y declara la procedencia de cada numero: `subtotal_origen`, `venta_origen`,
+   *     `costo_status`). Medido: **1.7 ms** para un mes.
+   *   - top productos / clientes -> la union LEAN de las tres ramas de `v_route_sales_lines`,
+   *     sin sus LATERAL de enriquecimiento (`[AUD-DAT.17]`, `[RR-PROMO.6]`). Con los LATERAL,
+   *     un mes costaba **1,608 ms**.
+   *
+   * `business_date <= CURRENT_DATE` no es cosmetico: la fuente trae fechas futuras corruptas
+   * (`mv_rd_route_daily_200d` llega a 2026-12-06). Mismo filtro que usa `salesByRouteDetail`.
+   */
+  async salesByRouteDashboard(from: string, to: string): Promise<SalesByRouteDashboard> {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dRx.test(from) || !dRx.test(to)) throw new BadRequestException('from/to deben ser YYYY-MM-DD');
+    if (from > to) throw new BadRequestException('from no puede ser mayor que to');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const num = (v: any) => Number(v) || 0;
+
+    // `[AUD-DAT.20]` Este metodo ya NO trae las dos listas pesadas: viven en `salesByRouteTops`.
+    // Las dos consultas que quedan leen una matvista de 656 kB y responden en **7 ms** juntas.
+    return this.tk.run(async (trx) => {
+      const series = (await trx.raw(
+        `SELECT to_char(business_date,'YYYY-MM-DD') AS date,
+                round(sum(venta),2)::float          AS revenue,
+                -- ⚠️ RENGLONES, no unidades: la matvista hace count(*), nunca sum(qty).
+                sum(lineas)::int                    AS lines,
+                sum(tickets)::int                   AS tickets,
+                round(sum(costo),2)::float          AS cost
+           FROM analytics.mv_rd_route_daily_200d
+          WHERE tenant_id = ? AND business_date >= ? AND business_date <= ?
+            AND business_date <= CURRENT_DATE
+          GROUP BY business_date ORDER BY business_date`, [tenantId, from, to])).rows;
+
+      const cov = (await trx.raw(
+        `SELECT round(sum(venta),2)::float revenue,
+                round(sum(venta) FILTER (WHERE costo IS NOT NULL),2)::float revenue_with_cost,
+                round(sum(costo),2)::float cost,
+                to_char(max(business_date),'YYYY-MM-DD') data_as_of,
+                to_char(min(business_date),'YYYY-MM-DD') data_from
+           FROM analytics.mv_rd_route_daily_200d
+          WHERE tenant_id = ? AND business_date >= ? AND business_date <= ?
+            AND business_date <= CURRENT_DATE`, [tenantId, from, to])).rows[0];
+
+      // `[AUD-DAT.21]` El desglose POR RUTA del MISMO rango. La atadura ruta -> almacen es la
+      // MISMA que usa `salesByRoute` (branches.is_route -> parent_branch -> warehouse), para que
+      // las dos pantallas hablen de la misma sucursal.
+      //
+      // ⛔ Los tres JOIN son LEFT a proposito. Con INNER, una ruta sin fila en `wincaja.branches`
+      // —`VEC-PH-H`, que no es numerica— desaparece del desglose y su venta se evapora sin que
+      // nada avise. Perder una fila es peor que no saber su almacen: lo segundo se declara.
+      const rutas = (await trx.raw(
+        `SELECT COALESCE(w.code, '(sin almacen)')                        AS warehouse_code,
+                COALESCE(w.name, initcap(pb.branch_name), 'Sin almacen') AS warehouse_name,
+                'WIN-' || d.route_code                                   AS route_code,
+                d.route_code                                             AS route_no,
+                round(sum(d.venta),2)::float                             AS revenue,
+                round(sum(d.subtotal),2)::float                          AS subtotal,
+                sum(d.lineas)::int                                       AS lines,
+                sum(d.tickets)::int                                      AS tickets,
+                round(sum(d.costo),2)::float                             AS cost,
+                round(sum(d.venta) FILTER (WHERE d.costo IS NOT NULL),2)::float AS revenue_with_cost
+           FROM analytics.mv_rd_route_daily_200d d
+           LEFT JOIN wincaja.branches b
+                  ON b.tenant_id = d.tenant_id AND b.source_branch = d.route_code AND b.is_route = true
+           LEFT JOIN wincaja.branches pb
+                  ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch
+           LEFT JOIN commercial.warehouses w
+                  ON w.tenant_id = d.tenant_id
+                 AND w.code = COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+          WHERE d.tenant_id = ? AND d.business_date >= ? AND d.business_date <= ?
+            AND d.business_date <= CURRENT_DATE
+          GROUP BY 1, 2, 3, 4 ORDER BY 5 DESC`, [tenantId, from, to])).rows;
+
+      const revenue = num(cov?.revenue);
+      const revWithCost = num(cov?.revenue_with_cost);
+      const cost = num(cov?.cost);
+
+      return {
+        series: series.map((r: any) => ({
+          date: r.date, revenue: num(r.revenue), lines: num(r.lines),
+          tickets: num(r.tickets),
+          // null, NO 0: un dia sin costo en la fuente no vendio con costo cero.
+          cost: r.cost === null ? null : num(r.cost),
+        })),
+        by_route: rutas.map((r: any) => ({
+          route_code: r.route_code, route_no: r.route_no,
+          warehouse_code: r.warehouse_code, warehouse_name: r.warehouse_name,
+          revenue: num(r.revenue), subtotal: num(r.subtotal),
+          lines: num(r.lines), tickets: num(r.tickets),
+          cost: r.cost === null ? null : num(r.cost),
+          revenue_with_cost: num(r.revenue_with_cost),
+        })),
+        coverage: {
+          revenue, revenue_with_cost: revWithCost, cost,
+          // El margen se calcula SOBRE LO QUE TIENE COSTO. Si nada lo tiene, es null: no hay
+          // margen que reportar, y un 0 % se leeria como "vendimos sin ganancia".
+          margin_pct: revWithCost > 0
+            ? Number((((revWithCost - cost) / revWithCost) * 100).toFixed(2)) : null,
+          cost_coverage_pct: revenue > 0
+            ? Number(((revWithCost / revenue) * 100).toFixed(1)) : 0,
+          data_as_of: cov?.data_as_of ?? null,
+          data_from: cov?.data_from ?? null,
+        },
+      };
+    });
+  }
+
+  /**
+   * `[AUD-DAT.20]` — **Top Productos y Top Clientes, y por que ya no tardan 4 segundos.**
+   *
+   * ── LO QUE SE MIDIO (prod, 2026-09-29) ─────────────────────────────────────────────────────
+   * La union de tres ramas costaba **3,941 ms** para un mes. El plan mostro donde se iba:
+   *
+   *     rama Wincaja ruta ........ 3,954 ms -> **rows=0**   (593,016 paginas de buffer)
+   *     rama vecinal PH .......... 	167 ms -> **rows=0**
+   *     route_push_lines .........   31 ms ->  67,894 filas   <- lo unico que aporta
+   *
+   * Dos de las tres ramas se llevaban el 99 % del tiempo para no devolver nada. No es un bug de
+   * la vista: es que **la venta de ruta migro de Wincaja a Kepler**. Medido por mes:
+   *
+   *     2026-05   Wincaja $6,056,041   Kepler   $696,618
+   *     2026-07   Wincaja $2,422,729   Kepler $5,230,021
+   *     2026-08   Wincaja   $883,702   Kepler $6,467,211
+   *     2026-09   Wincaja         $0   Kepler $6,205,083
+   *
+   * ── LA COTA SALE DEL DATO, NUNCA CLAVADA ───────────────────────────────────────────────────
+   * El ultimo dia con venta de ruta en Wincaja se **consulta** (2 ms sobre una matvista de
+   * 656 kB). Si la ventana pedida arranca despues, las dos ramas de Wincaja se omiten.
+   *
+   * ⛔ La primera version de esa cota daba **2026-12-06**: hay UNA fila corrupta con fecha
+   * futura ($261.91 / 2 tickets) y sin el tope a CURRENT_DATE la optimizacion quedaba envenenada
+   * en silencio — nunca habria saltado nada. La cota real es **2026-08-12**.
+   *
+   * ⚠️ Y si la ventana empieza antes de donde alcanza la matvista (200 dias), **no se salta**:
+   * no hay con que afirmar que Wincaja no aporta, y una omision sin evidencia es una perdida de
+   * venta, no una optimizacion.
+   *
+   * ── PRUEBA EN LAS DOS DIRECCIONES (sin esto el atajo es una intencion) ──────────────────────
+   *     ventana 31-ago -> 29-sep (post corte):  3,941 ms -> **195 ms**, resultado **IDENTICO**
+   *     ventana 01-ago -> 30-ago (con Wincaja): omitir cambia **10 de 20 filas** -> NO se omite
+   *
+   * Candado: `database/tests/test-newdb-route-tops-cutover.js`.
+   */
+  async salesByRouteTops(from: string, to: string): Promise<SalesByRouteTops> {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dRx.test(from) || !dRx.test(to)) throw new BadRequestException('from/to deben ser YYYY-MM-DD');
+    if (from > to) throw new BadRequestException('from no puede ser mayor que to');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const num = (v: any) => Number(v) || 0;
+
+    const RAMA_PUSH = `
+      SELECT rpl.tenant_id, rpl.business_date, rpl.cliente, rpl.sku, rpl.qty, rpl.importe,
+             rpl.folio AS consecutivo
+        FROM analytics.route_push_lines rpl
+       WHERE rpl.business_date >= ? AND rpl.business_date <= ? AND rpl.business_date <= CURRENT_DATE`;
+    // ⚠️ El push va PRIMERO: en un UNION los nombres de columna los pone la primera rama, y por
+    // eso "folio" lleva alias explicito. Sin el alias la consulta truena con
+    // "column l.consecutivo does not exist" -- paso al escribir el candado.
+    const RAMA_WCJ_RUTA = `
+      SELECT vl.tenant_id, vl.business_date, vl.cliente, vl.sku, vl.qty, vl.importe, vl.consecutivo
+        FROM wincaja.v_sales_lines vl
+       WHERE vl.sale_channel = 'ruta_venta'
+         AND vl.business_date >= ? AND vl.business_date <= ? AND vl.business_date <= CURRENT_DATE`;
+    const RAMA_WCJ_VECINAL = `
+      SELECT vl.tenant_id, vl.business_date, vl.cliente, vl.sku, vl.qty, vl.importe, vl.consecutivo
+        FROM wincaja.v_sales_lines vl
+       WHERE vl.sale_channel = 'preventa_vecinal' AND vl.source_branch = '10'
+         AND vl.business_date < '2026-06-28'::date
+         AND vl.business_date >= ? AND vl.business_date <= ? AND vl.business_date <= CURRENT_DATE`;
+
+    return this.tk.run(async (trx) => {
+      const corte = (await trx.raw(
+        `SELECT to_char(max(business_date) FILTER (
+                  WHERE venta_origen = 'derivado_tasa_linea' AND venta > 0),'YYYY-MM-DD') AS wincaja_ultimo,
+                to_char(min(business_date),'YYYY-MM-DD') AS piso
+           FROM analytics.mv_rd_route_daily_200d
+          WHERE tenant_id = ? AND business_date <= CURRENT_DATE`, [tenantId])).rows[0];
+
+      const piso: string | null = corte?.piso ?? null;
+      const wUlt: string | null = corte?.wincaja_ultimo ?? null;
+      // Solo se puede AFIRMAR que Wincaja no aporta si la matvista cubre toda la ventana pedida.
+      const cubierta = !!piso && from >= piso;
+      const saltar = cubierta && (wUlt === null || from > wUlt);
+      const motivo = !cubierta
+        ? `La ventana empieza antes del ${piso ?? '(sin piso)'}, donde la matvista de 200 dias ya no `
+          + 'alcanza a decir si Wincaja aporta: se leen las tres ramas.'
+        : wUlt === null
+          ? 'Wincaja no tiene ni un dia de venta de ruta en los 200 dias que cubre la matvista.'
+          : saltar
+            ? `Wincaja dejo de vender por ruta el ${wUlt} y la ventana arranca despues: sus dos ramas `
+              + 'no pueden aportar ni una linea.'
+            : `Wincaja aporta venta de ruta hasta el ${wUlt}, dentro de la ventana: se leen las tres ramas.`;
+
+      const ramas = [RAMA_PUSH];
+      const params: any[] = [from, to];
+      if (!saltar) {
+        ramas.push(RAMA_WCJ_RUTA, RAMA_WCJ_VECINAL);
+        params.push(from, to, from, to);
+      }
+      const LINEAS = ramas.join('\n      UNION ALL');
+
+      // UN SOLO BARRIDO para las dos listas y para el total. Productos y clientes agregan
+      // EXACTAMENTE las mismas filas: en dos consultas se pagaba el escaneo dos veces.
+      // "MATERIALIZED" es explicito a proposito -- Postgres ya materializa un CTE referenciado
+      // mas de una vez, pero dejarlo escrito evita que un tercer uso cambie el plan sin que nadie
+      // lo note.
+      const tops = (await trx.raw(
+        `WITH lineas AS MATERIALIZED (${LINEAS}),
+              mias AS (SELECT * FROM lineas WHERE tenant_id = ?),
+              tot AS (SELECT sum(importe) AS rev FROM mias),
+              p AS (
+                SELECT 'sku'::text kind, l.sku AS code,
+                       round(sum(l.importe),2)::float rev, round(sum(l.qty),2)::float units,
+                       0::int tickets
+                  FROM mias l WHERE l.sku IS NOT NULL
+                 GROUP BY l.sku ORDER BY 3 DESC NULLS LAST LIMIT 10),
+              c AS (
+                SELECT 'cliente'::text kind, l.cliente AS code,
+                       round(sum(l.importe),2)::float rev, 0::float units,
+                       count(DISTINCT l.consecutivo)::int tickets
+                  FROM mias l
+                 WHERE l.cliente IS NOT NULL AND btrim(l.cliente) <> '' AND l.cliente <> '0001'
+                 GROUP BY l.cliente ORDER BY 3 DESC NULLS LAST LIMIT 10),
+              u AS (SELECT * FROM p UNION ALL SELECT * FROM c)
+         SELECT u.kind, u.code, u.rev, u.units, u.tickets,
+                (SELECT rev FROM tot)::float AS total_periodo,
+                COALESCE(
+                  CASE WHEN u.kind = 'sku'
+                       THEN (SELECT pp.nombre FROM catalog.products pp
+                              WHERE pp.tenant_id = ? AND pp.sku = u.code AND pp.deleted_at IS NULL
+                              ORDER BY pp.sku LIMIT 1)
+                       ELSE (SELECT cc.nombre FROM wincaja.clientes cc
+                              WHERE cc.tenant_id = ? AND cc.cliente = u.code
+                              ORDER BY cc.cliente, cc.source_dataset DESC LIMIT 1)
+                  END, u.code) AS name
+           FROM u`,
+        [...params, tenantId, tenantId, tenantId])).rows;
+      // El rotulo se resuelve DESPUES del LIMIT 10: son 20 lookups, no uno por linea.
+      const total = num(tops[0]?.total_periodo);
+
+      return {
+        // ⚠️ "share_pct" es sobre la venta de ruta DEL PERIODO, no sobre el top 10: un 8 % del
+        // top 10 y un 8 % del total son numeros distintos y el segundo es el que se lee.
+        top_products: tops.filter((r: any) => r.kind === 'sku').map((r: any) => ({
+          sku: r.code, name: r.name, revenue: num(r.rev), units: num(r.units),
+          share_pct: total > 0 ? Number(((num(r.rev) / total) * 100).toFixed(1)) : 0,
+        })),
+        top_clients: tops.filter((r: any) => r.kind === 'cliente').map((r: any) => ({
+          code: r.code, name: r.name, revenue: num(r.rev), tickets: num(r.tickets),
+        })),
+        fuente: { incluye_wincaja: !saltar, wincaja_ultimo_dia: wUlt, motivo },
+      };
+    });
+  }
+
+  async salesByRoute(q: SalesByRouteQuery): Promise<SalesByRouteReport> {
+    const year = Number(q.year) || new Date().getFullYear();
+    if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
+    const from = `${year}-01-01`;
+    const to = `${year + 1}-01-01`;
+    const whFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
+    const routeFilter = (q.routes && q.routes.length) ? q.routes.map((r) => r.trim()).filter(Boolean) : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    // Path A (default): matriz pre-agregada de la MV (rápida, todos los productos).
+    // Path B (filtro producto/cliente): re-agrega desde la tabla-hecho v_sales_lines,
+    // que SÍ trae sku/cliente. Reusa el mapeo ruta→sucursal probado del detalle
+    // (branches is_route → parent_branch → warehouse) y emite el MISMO shape/identidad
+    // (route_code = 'WIN-'+source_branch) para que el drill-down siga funcionando.
+    const factFilter = !!(q.sku || q.client);
+    // [VP.2.2] Dos ramas, dos fuentes, dos frescuras. Con `factFilter` el reporte se arma EN VIVO
+    // sobre `v_route_sales_lines` (que lee la replica de Wincaja); sin él, del mensual
+    // `sales_by_route_monthly`. Declarar la del mensual en el camino en vivo sería hablar de una
+    // tabla que esa consulta no tocó.
+    //
+    // ⚠️ La pierna Wincaja se mide por `maestro_mov_almacen.imported_at` — cuándo la CARGAMOS, no
+    // el `fecha` del ticket. La fecha del movimiento es un dato de negocio: un ticket de ayer
+    // cargado hoy es fresco, y uno de hoy que nunca se cargó no existe para el reporte.
+    let freshness: Freshness = FRESHNESS_UNKNOWN;
+    const rawRows: any[] = await this.tk.run(async (trx) => {
+      const medidas = await this.feedFreshness(trx, factFilter
+        ? [
+          ['analytics.route_push_lines', 'imported_at', 'Empuje a ruta'],
+          ['wincaja.maestro_mov_almacen', 'imported_at', 'Venta Wincaja (carga)'],
+        ]
+        : [['analytics.sales_by_route_monthly', 'updated_at', 'Venta por ruta (mensual)']]);
+      // `[VEC.2]` La vecinal ya no sale de una tabla copiada: se deriva del ODS. Su frescura es
+      // la del carril que lo alimenta, y por eso entra como eslabón propio — declarar sólo la
+      // del rollup sería hablar de una tabla que ya no gobierna esa parte del número.
+      freshness = composeFreshness([
+        ...(medidas.inputs ?? []),
+        evalInput('ods_live_hot', 'Venta ERP en vivo (ODS)', await laneAt(trx, 'ods_live_hot'), 2),
+      ]);
+      if (factFilter) {
+        // `[VEC.2]` Los dos primeros tenant son del CTE `rutas` (ver abajo).
+        const params: any[] = [tenantId, tenantId, tenantId, from, to];
+        let extra = '';
+        if (q.sku) { extra += ' AND sl.sku = ?'; params.push(q.sku); }
+        if (q.client) { extra += ' AND sl.cliente = ?'; params.push(q.client); }
+        let scope = '';
+        if (routeFilter) { scope = ` AND (r.wcode || '|' || ('WIN-' || sl.source_branch)) = ANY(?)`; params.push(routeFilter); }
+        else if (whFilter) { scope = ' AND r.wcode = ANY(?)'; params.push(whFilter); }
+        // `[VEC.2]` El mapeo ruta→almacén sale de DOS lados: `wincaja.branches` para las
+        // camionetas y el histórico, y la propia vista vecinal para las rutas del ODS — que no
+        // están dadas de alta en ese catálogo y, si dependieran de él, desaparecerían del
+        // reporte en cuanto alguien filtra por producto o cliente.
+        const res = await trx.raw(
+          `WITH rutas AS (
+             SELECT b.source_branch, w.code AS wcode,
+                    COALESCE(w.name, initcap(pb.branch_name)) AS wname
+               FROM wincaja.branches b
+               JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
+               LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
+                    AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+              WHERE b.tenant_id=? AND b.is_route=true
+                AND COALESCE(b.source_branch,'') !~ '${VECINAL_RX}'
+              UNION
+             SELECT DISTINCT v.route_no, v.warehouse_code, w.name
+               FROM analytics.v_kepler_vecinal_monthly v
+               JOIN commercial.warehouses w ON w.tenant_id=v.tenant_id
+                AND w.code=v.warehouse_code AND w.deleted_at IS NULL
+              WHERE v.tenant_id=?
+           )
+           SELECT r.wcode, r.wname,
+                  ('WIN-' || sl.source_branch) AS route_code, sl.source_branch AS route_no,
+                  to_char(sl.business_date,'MM') AS mes,
+                  sum(sl.importe) AS revenue, sum(sl.qty) AS units, count(distinct sl.consecutivo) AS tickets
+           FROM analytics.v_route_sales_lines sl
+           JOIN rutas r ON r.source_branch = sl.source_branch
+           WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
+             AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE
+             ${extra}${scope}
+           GROUP BY r.wcode, r.wname, sl.source_branch, to_char(sl.business_date,'MM')`,
+          params,
+        );
+        return res.rows;
+      }
+      // `[VEC.2]` La matriz se arma de DOS piernas, no de una tabla:
+      //   · el rollup `sales_by_route_monthly` — camionetas (push `.249`) e histórico Wincaja;
+      //   · `analytics.v_kepler_vecinal_monthly` — la vecinal, DERIVADA del ODS en vivo.
+      //
+      // ⛔ La vecinal se excluye del rollup a propósito. Ahí quedó lo que escribió
+      // `import-kepler-vecinal-routes.js` (retirado): un monto **2.07×** el real, porque unía
+      // cabecera y líneas sin la CAJA (`c5`) y le pegaba a cada ticket las líneas de los
+      // tickets homónimos de las otras cajas. Y como ese rollup sube con `GREATEST(...)`,
+      // **nunca baja**: no se corrige re-corriendo nada, se corrige dejando de leerlo.
+      const params: any[] = [tenantId, from, to, tenantId, from, to];
+      let filtro = '';
+      if (routeFilter) { filtro = ` AND (wcode || '|' || route_code) = ANY(?)`; params.push(routeFilter); }
+      else if (whFilter) { filtro = ' AND wcode = ANY(?)'; params.push(whFilter); }
+      const res = await trx.raw(
+        `WITH base AS (
+           SELECT w.code AS wcode, w.name AS wname, s.route_code, s.route_no,
+                  to_char(s.month,'MM') AS mes, s.units, s.revenue, s.tickets
+             FROM analytics.sales_by_route_monthly s
+             JOIN commercial.warehouses w ON w.id = s.warehouse_id
+            WHERE s.tenant_id = ? AND s.month >= ? AND s.month < ?
+              AND s.route_code LIKE 'WIN-%'
+              AND COALESCE(s.route_no, '') !~ '${VECINAL_RX}'
+           UNION ALL
+           SELECT v.warehouse_code, w.name, v.route_code, v.route_no,
+                  to_char(v.month,'MM'), v.units, v.revenue, v.tickets
+             FROM analytics.v_kepler_vecinal_monthly v
+             JOIN commercial.warehouses w ON w.tenant_id = v.tenant_id
+              AND w.code = v.warehouse_code AND w.deleted_at IS NULL
+            WHERE v.tenant_id = ? AND v.month >= ? AND v.month < ?
+         )
+         SELECT wcode, wname, route_code, route_no, mes,
+                sum(units) AS units, sum(revenue) AS revenue, sum(tickets) AS tickets
+           FROM base
+          WHERE true ${filtro}
+          GROUP BY wcode, wname, route_code, route_no, mes`, params);
+      return res.rows;
+    });
+
+    const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    const monthsSet = new Set<string>();
+    const byRoute = new Map<string, SalesByRouteRow>();
+    const monthlyTotals: Record<string, SalesByRouteCell> = {};
+    const totals: SalesByRouteCell = { revenue: 0, units: 0, tickets: 0 };
+
+    for (const r of rawRows) {
+      const key = `${r.wcode}|${r.route_code}`;
+      monthsSet.add(r.mes);
+      const revenue = Number(r.revenue) || 0;
+      const units = Number(r.units) || 0;
+      const tickets = Number(r.tickets) || 0;
+
+      let row = byRoute.get(key);
+      if (!row) {
+        row = {
+          warehouse_code: r.wcode,
+          warehouse_name: r.wname,
+          route_code: r.route_code,
+          route_no: r.route_no ?? '—',
+          label: `${r.wname} · Ruta ${r.route_no ?? r.route_code}`,
+          monthly: {},
+          revenue_total: 0,
+          units_total: 0,
+          tickets_total: 0,
+          share_pct: 0,
+        };
+        byRoute.set(key, row);
+      }
+      row.monthly[r.mes] = { revenue: round(revenue), units: round(units), tickets };
+      row.revenue_total += revenue;
+      row.units_total += units;
+      row.tickets_total += tickets;
+
+      const mt = monthlyTotals[r.mes] ?? (monthlyTotals[r.mes] = { revenue: 0, units: 0, tickets: 0 });
+      mt.revenue += revenue; mt.units += units; mt.tickets += tickets;
+      totals.revenue += revenue; totals.units += units; totals.tickets += tickets;
+    }
+
+    const rows = Array.from(byRoute.values());
+    for (const row of rows) {
+      row.revenue_total = round(row.revenue_total);
+      row.units_total = round(row.units_total);
+      row.share_pct = totals.revenue > 0 ? round((row.revenue_total / totals.revenue) * 100, 1) : 0;
+    }
+    for (const m of Object.values(monthlyTotals)) { m.revenue = round(m.revenue); m.units = round(m.units); }
+    totals.revenue = round(totals.revenue); totals.units = round(totals.units);
+
+    rows.sort((a, b) =>
+      a.warehouse_name.localeCompare(b.warehouse_name, 'es') || a.route_no.localeCompare(b.route_no, 'es'),
+    );
+
+    const months = Array.from(monthsSet).sort();
+    return { year, months, rows, totals, monthly_totals: monthlyTotals, generated_at: new Date().toISOString(), freshness };
+  }
+
+  /**
+   * RR — Desglose de UNA ruta (venta a bordo Wincaja): productos, serie diaria,
+   * clientes (tienditas) y tickets. Lee el silver `wincaja.v_sales_lines` filtrado a
+   * la ruta (source_branch = route_code sin 'WIN-'), scoped al año. Público general
+   * (cliente NULL / '0001' = "cliente libre") se agrupa como "Mostrador a bordo".
+   */
+  async salesByRouteDetail(
+    routeCode: string, year: number,
+    opts?: { from?: string; to?: string; sku?: string; client?: string; unit?: string },
+  ): Promise<SalesByRouteDetail> {
+    const y = Number(year) || new Date().getFullYear();
+    if (y < 2020 || y > 2100) throw new BadRequestException('year inválido');
+    const src = (routeCode || '').replace(/^WIN-/i, '').trim();
+    if (!src) throw new BadRequestException('route requerido');
+    // El desglose respeta los filtros de la vista: rango de meses (from/to) + producto/cliente.
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const from = (opts?.from && dRx.test(opts.from)) ? opts.from : `${y}-01-01`;
+    const to = (opts?.to && dRx.test(opts.to)) ? opts.to : `${y + 1}-01-01`;
+    const tenantId = this.tenantCtx.requireTenantId();
+    const num = (v: any) => Number(v) || 0;
+
+    return this.tk.run(async (trx) => {
+      // `[VEC.2]` La cabecera se resuelve por el catálogo de rutas (camionetas e histórico) o,
+      // si la ruta es vecinal, por la vista derivada del ODS: esas rutas no están dadas de alta
+      // en `wincaja.branches` y pedirles que lo estén es volver a la lista a mano que dejaba
+      // fuera a Zamora y a las dos de Morelia.
+      const head = (await trx.raw(
+        `SELECT b.source_branch AS route_no, COALESCE(pw.name, initcap(pb.branch_name)) AS wname
+         FROM wincaja.branches b
+         JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
+         LEFT JOIN commercial.warehouses pw ON pw.tenant_id=b.tenant_id
+           AND pw.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
+         WHERE b.tenant_id=? AND b.source_branch=? AND b.is_route=true
+         UNION ALL
+         SELECT v.route_no, COALESCE(w.name, v.route_name)
+         FROM analytics.v_kepler_vecinal_monthly v
+         LEFT JOIN commercial.warehouses w ON w.tenant_id=v.tenant_id
+           AND w.code=v.warehouse_code AND w.deleted_at IS NULL
+         WHERE v.tenant_id=? AND v.route_no=?
+         LIMIT 1`, [tenantId, src, tenantId, src])).rows[0];
+      if (!head) throw new NotFoundException('ruta no encontrada');
+
+      // WHERE común (mismo scope que el feed: canal ruta, año, sin fechas futuras corruptas)
+      let W = `sl.tenant_id=? AND sl.source_branch=? AND sl.sale_channel='ruta_venta'
+                 AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE`;
+      const P: any[] = [tenantId, src, from, to];
+      if (opts?.sku) { W += ' AND sl.sku = ?'; P.push(opts.sku); }
+      if (opts?.client) { W += ' AND sl.cliente = ?'; P.push(opts.client); }
+      // RR3: la faceta de unidad acota TODO el desglose (no sólo la lista de tickets),
+      // para que las pestañas sigan contando la misma población que los chips declaran.
+      if (opts?.unit) { W += ' AND sl.unidad = ?'; P.push(opts.unit.toUpperCase()); }
+
+      // RR2: el margen viaja en el MISMO barrido (sólo suma dos columnas más). `cost` sale
+      // de `valor_costo`, que es el monto EXTENDIDO de la línea (verificado: Σcosto/Σventa
+      // da 13-16% por ruta; × qty daría −93%..−1234%) → NUNCA multiplicar por qty.
+      // `revenue_with_cost` es el denominador honesto: el push de camionetas no trae costo.
+      const totals = (await trx.raw(
+        `SELECT sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets,
+                count(distinct sl.sku) skus,
+                count(distinct sl.cliente) FILTER (WHERE sl.cliente IS NOT NULL AND btrim(sl.cliente)<>'' AND sl.cliente<>'0001') clients,
+                count(*) lines,
+                sum(sl.costo) cost,
+                sum(sl.importe) FILTER (WHERE sl.costo IS NOT NULL) revenue_with_cost
+         FROM analytics.v_route_sales_lines sl WHERE ${W}`, P)).rows[0];
+      const totRev = num(totals.revenue);
+      const revWithCost = num(totals.revenue_with_cost);
+      const cost = num(totals.cost);
+
+      // RR4 — promedios POR CLIENTE (pedido de negocio 2026-09-09: "el promedio se debe hacer
+      // vs cliente, no vs ticket"). Un cliente = una observación: se agrega por cliente y
+      // luego se promedia. Misma definición de "identificado" que `clients` arriba.
+      const IDENT = `sl.cliente IS NOT NULL AND btrim(sl.cliente)<>'' AND sl.cliente<>'0001'`;
+      const pc = (await trx.raw(
+        `WITH c AS (
+           SELECT sl.cliente, sum(sl.importe) revenue, sum(sl.qty) units,
+                  count(distinct sl.sku) skus, count(distinct sl.consecutivo) tickets, count(*) lines
+           FROM analytics.v_route_sales_lines sl WHERE ${W} AND ${IDENT}
+           GROUP BY sl.cliente)
+         SELECT count(*) clients, sum(revenue) revenue, sum(units) units, sum(skus) articles,
+                sum(tickets) tickets, sum(lines) lines
+         FROM c`, P)).rows[0];
+      const perClient = calculateRouteSalesPace({
+        totalRevenue: totRev,
+        clients: num(pc?.clients),
+        identifiedRevenue: num(pc?.revenue),
+        units: num(pc?.units),
+        articles: num(pc?.articles),
+        tickets: num(pc?.tickets),
+        lines: num(pc?.lines),
+      });
+
+      // `lines` por SKU sale del mismo barrido; `units/lines` dice si el producto se
+      // vende de a uno o de a bulto — la señal directa para el tamaño de empaque.
+      const products = (await trx.raw(
+        `SELECT sl.sku, COALESCE(p.nombre, sl.sku) AS name, sum(sl.qty) units, sum(sl.importe) revenue,
+                count(*) lines
+         FROM analytics.v_route_sales_lines sl
+         LEFT JOIN catalog.products p ON p.tenant_id=sl.tenant_id AND p.sku=sl.sku AND p.deleted_at IS NULL
+         WHERE ${W} GROUP BY sl.sku, p.nombre ORDER BY revenue DESC NULLS LAST LIMIT 50`, P)).rows;
+
+      const daily = (await trx.raw(
+        `SELECT sl.business_date::date AS date, sum(sl.importe) revenue, sum(sl.qty) units,
+                count(distinct sl.consecutivo) tickets
+         FROM analytics.v_route_sales_lines sl WHERE ${W} GROUP BY 1 ORDER BY 1`, P)).rows;
+
+      const clients = (await trx.raw(
+        `SELECT
+           (sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001') AS is_public,
+           CASE WHEN sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001'
+                THEN '—' ELSE sl.cliente END AS code,
+           CASE WHEN sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001'
+                THEN 'Mostrador a bordo (público)' ELSE COALESCE(c.nombre, sl.cliente) END AS name,
+           sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets
+         FROM analytics.v_route_sales_lines sl
+         LEFT JOIN (SELECT DISTINCT ON (source_branch, cliente) source_branch, cliente, nombre
+                    FROM wincaja.clientes WHERE tenant_id=? AND source_branch=? ORDER BY source_branch, cliente, source_dataset DESC) c
+           ON c.source_branch=sl.source_branch AND c.cliente=sl.cliente
+         WHERE ${W} GROUP BY 1,2,3 ORDER BY revenue DESC NULLS LAST LIMIT 50`, [tenantId, src, ...P])).rows;
+
+      const tickets = (await trx.raw(
+        `SELECT max(sl.doc_ref) folio, sl.consecutivo, max(sl.business_date::date) AS date,
+                count(*) lines, sum(sl.qty) units, sum(sl.importe) revenue
+         FROM analytics.v_route_sales_lines sl WHERE ${W}
+         GROUP BY sl.consecutivo ORDER BY max(sl.business_date) DESC, revenue DESC NULLS LAST LIMIT 100`, P)).rows;
+
+      // RR2: mezcla por unidad de medida. El rótulo es passthrough de la fuente
+      // (Wincaja: catálogo del artículo · push/Kepler: `unidad` del renglón) — cero
+      // unidades inventadas, cero pluralización.
+      const unitsMix = (await trx.raw(
+        `SELECT sl.unidad, count(*) lines, sum(sl.qty) units, sum(sl.importe) revenue
+         FROM analytics.v_route_sales_lines sl WHERE ${W}
+         GROUP BY sl.unidad ORDER BY revenue DESC NULLS LAST`, P)).rows;
+
+      return {
+        route_no: head.route_no,
+        route_code: `WIN-${src}`,
+        warehouse_name: head.wname,
+        year: y,
+        totals: {
+          revenue: totRev, units: num(totals.units), tickets: num(totals.tickets),
+          skus: num(totals.skus), clients: num(totals.clients), lines: num(totals.lines),
+        },
+        per_client: perClient,
+        products: products.map((r: any) => {
+          const lines = num(r.lines);
+          return {
+            sku: r.sku, name: r.name, units: num(r.units), revenue: num(r.revenue),
+            share_pct: totRev > 0 ? Math.round((num(r.revenue) / totRev) * 1000) / 10 : 0,
+            lines,
+            units_per_line: lines > 0 ? Math.round((num(r.units) / lines) * 100) / 100 : 0,
+          };
+        }),
+        daily: daily.map((r: any) => ({
+          date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
+          revenue: num(r.revenue), units: num(r.units), tickets: num(r.tickets),
+        })),
+        clients: clients.map((r: any) => ({
+          code: r.code, name: r.name, revenue: num(r.revenue), units: num(r.units),
+          tickets: num(r.tickets), is_public: !!r.is_public,
+        })),
+        tickets: tickets.map((r: any) => ({
+          folio: r.folio || r.consecutivo, date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
+          lines: num(r.lines), units: num(r.units), revenue: num(r.revenue),
+        })),
+        units_mix: unitsMix.map((r: any) => ({
+          unidad: r.unidad ?? null, lines: num(r.lines), units: num(r.units), revenue: num(r.revenue),
+          share_pct: totRev > 0 ? Math.round((num(r.revenue) / totRev) * 1000) / 10 : 0,
+        })),
+        margin: {
+          revenue_with_cost: revWithCost,
+          cost,
+          margin_pct: revWithCost > 0 ? Math.round((1 - cost / revWithCost) * 1000) / 10 : null,
+          coverage_pct: totRev > 0 ? Math.round((revWithCost / totRev) * 1000) / 10 : 0,
+        },
+      };
+    });
+  }
+
+  // ── RR2 — Desglose por TICKET ────────────────────────────────────────────────
+  /** Ruta → `source_branch` de la tabla-hecho (el UI manda `WIN-<n>`). */
+  private routeSrc(routeCode: string): string {
+    const src = (routeCode || '').replace(/^WIN-/i, '').trim();
+    if (!src) throw new BadRequestException('route requerido');
+    return src;
+  }
+
+  /** Llave del ticket: el folio NO es único (el push lo repite entre rutas y días). */
+  private ticketKey(r: { source: string; source_branch: string; date: string; consecutivo: string }): string {
+    return [r.source, r.source_branch, r.date, r.consecutivo].join('|');
+  }
+
+  private parseTicketKey(key: string) {
+    const parts = (key || '').split('|');
+    if (parts.length < 4) throw new BadRequestException('key de ticket inválida');
+    const [source, sourceBranch, date] = parts;
+    const consecutivo = parts.slice(3).join('|'); // el consecutivo puede traer separadores
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('key de ticket inválida');
+    if (source !== 'wincaja' && source !== 'push') throw new BadRequestException('key de ticket inválida');
+    return { source, sourceBranch, date, consecutivo };
+  }
+
+  private static readonly TICKET_SORT: Record<string, string> = {
+    date: 'business_date', revenue: 'revenue', units: 'units', lines: 'lines', margin: 'margin_pct',
+  };
+
+  /**
+   * RR2 — Lista de TICKETS de una ruta (paginada, server-side). Grano = documento:
+   * `(source, source_branch, business_date, consecutivo)`.
+   *
+   * `route` es OBLIGATORIA a propósito: sin scope la consulta barre la tabla-hecho
+   * completa (medido en prod: 1 ruta × 1 mes = 1.9 s vs barrido anual de todas = 110 s).
+   *
+   * Los filtros de LÍNEA (sku, unidad) eligen QUÉ tickets salen, pero los totales del
+   * ticket siguen siendo los completos — un ticket con un total recortado a las líneas
+   * que casaron el filtro sería una cifra falsa.
+   */
+  async salesByRouteTickets(q: SalesByRouteTicketsQuery): Promise<SalesByRouteTicketsPage> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const src = this.routeSrc(q.route);
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const y = Number(q.year) || new Date().getFullYear();
+    if (y < 2020 || y > 2100) throw new BadRequestException('year inválido');
+    const from = q.from && dRx.test(q.from) ? q.from : `${y}-01-01`;
+    const to = q.to && dRx.test(q.to) ? q.to : `${y + 1}-01-01`;
+    const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
+    const offset = Math.max(Number(q.offset) || 0, 0);
+    const sortCol = CommercialAnalyticsService.TICKET_SORT[q.sort || 'date'] || 'business_date';
+    const dir = q.dir === 'asc' ? 'ASC' : 'DESC';
+    const num = (v: any) => Number(v) || 0;
+
+    // Scope: común a los dos pasos (selección de tickets y agregación de sus líneas).
+    const scope = `sl.tenant_id = ? AND sl.source_branch = ? AND sl.sale_channel = 'ruta_venta'
+                   AND sl.business_date >= ? AND sl.business_date < ? AND sl.business_date <= CURRENT_DATE`;
+    const scopeP: any[] = [tenantId, src, from, to];
+
+    // Filtros de LÍNEA → sólo acotan el conjunto de tickets.
+    let lineW = '';
+    const lineP: any[] = [];
+    if (q.sku) { lineW += ' AND sl.sku = ?'; lineP.push(q.sku); }
+    if (q.unit) { lineW += ' AND sl.unidad = ?'; lineP.push(q.unit.toUpperCase()); }
+
+    // Filtros de TICKET → se aplican sobre el agregado.
+    let tickW = '';
+    const tickP: any[] = [];
+    if (q.client) { tickW += ' AND a.cliente = ?'; tickP.push(q.client); }
+    if (q.paymentMethod) { tickW += ' AND a.forma_pago = ?'; tickP.push(q.paymentMethod); }
+    if (q.docType) { tickW += ' AND a.doc_tipo = ?'; tickP.push(q.docType); }
+    if (q.minRevenue != null && Number.isFinite(Number(q.minRevenue))) { tickW += ' AND a.revenue >= ?'; tickP.push(Number(q.minRevenue)); }
+    if (q.maxRevenue != null && Number.isFinite(Number(q.maxRevenue))) { tickW += ' AND a.revenue <= ?'; tickP.push(Number(q.maxRevenue)); }
+    if (q.q && q.q.trim()) {
+      // Paréntesis obligatorios: sin ellos el OR se come los AND anteriores.
+      tickW += ` AND (a.folio ILIKE ? OR COALESCE(a.cliente,'') ILIKE ? OR COALESCE(a.cliente_nombre,'') ILIKE ?)`;
+      const like = `%${q.q.trim()}%`;
+      tickP.push(like, like, like);
+    }
+
+    // [VP.2.2] Este reporte va SIEMPRE en vivo sobre `v_route_sales_lines`, que lee la replica de
+    // Wincaja + el empuje a ruta. Se declaran las dos piernas: la más vieja gana el titular, que es
+    // lo correcto — una cadena es tan fresca como su peor tramo.
+    let freshness: Freshness = FRESHNESS_UNKNOWN;
+    const rows: any[] = await this.tk.run(async (trx) => {
+      freshness = await this.feedFreshness(trx, [
+        ['analytics.route_push_lines', 'imported_at', 'Empuje a ruta'],
+        ['wincaja.maestro_mov_almacen', 'imported_at', 'Venta Wincaja (carga)'],
+      ]);
+      return (await trx.raw(
+      `WITH sel AS (
+         SELECT DISTINCT sl.source, sl.source_branch, sl.business_date, sl.consecutivo
+         FROM analytics.v_route_sales_lines sl
+         WHERE ${scope}${lineW}
+       ),
+       agg AS (
+         SELECT sl.source, sl.source_branch, sl.business_date, sl.consecutivo,
+                max(sl.doc_ref) folio, max(sl.hora) hora, max(sl.doc_tipo) doc_tipo,
+                max(sl.forma_pago) forma_pago, max(sl.forma_pago_desc) forma_pago_desc,
+                max(sl.vendedor) vendedor, max(sl.cliente) cliente,
+                count(*) lines, count(distinct sl.sku) skus,
+                sum(sl.qty) units, sum(sl.importe) revenue,
+                sum(sl.costo) cost,
+                sum(sl.importe) FILTER (WHERE sl.costo IS NOT NULL) revenue_with_cost
+         FROM analytics.v_route_sales_lines sl
+         JOIN sel ON sel.source = sl.source AND sel.source_branch = sl.source_branch
+                 AND sel.business_date = sl.business_date AND sel.consecutivo = sl.consecutivo
+         WHERE ${scope}
+         GROUP BY 1, 2, 3, 4
+       ),
+       enr AS (
+         SELECT a.*, c.nombre AS cliente_nombre,
+                CASE WHEN a.revenue_with_cost > 0 THEN round((1 - a.cost / a.revenue_with_cost) * 100, 1) END AS margin_pct
+         FROM agg a
+         LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre FROM wincaja.clientes
+                    WHERE tenant_id = ? AND source_branch = ? ORDER BY cliente, source_dataset DESC) c
+           ON c.cliente = a.cliente
+       )
+       SELECT *, count(*) OVER () AS total_rows,
+              sum(revenue) OVER () AS grand_revenue,
+              sum(units)   OVER () AS grand_units
+       FROM enr a
+       WHERE true${tickW}
+       ORDER BY ${sortCol} ${dir} NULLS LAST, folio ${dir}
+       LIMIT ? OFFSET ?`,
+      [...scopeP, ...lineP, ...scopeP, tenantId, src, ...tickP, limit, offset],
+      )).rows;
+    });
+
+    const total = rows.length ? num(rows[0].total_rows) : 0;
+    const grandRevenue = rows.length ? num(rows[0].grand_revenue) : 0;
+    const grandUnits = rows.length ? num(rows[0].grand_units) : 0;
+    const isPublic = (code: any) => !code || !String(code).trim() || String(code) === '0001';
+
+    return {
+      rows: rows.map((r) => {
+        const date = r.business_date instanceof Date
+          ? r.business_date.toISOString().slice(0, 10)
+          : String(r.business_date).slice(0, 10);
+        return {
+          key: this.ticketKey({ source: r.source, source_branch: r.source_branch, date, consecutivo: r.consecutivo }),
+          source: r.source,
+          route_no: r.source_branch,
+          folio: r.folio || r.consecutivo,
+          date,
+          time: r.hora ?? null,
+          doc_type: r.doc_tipo ?? null,
+          client_code: isPublic(r.cliente) ? null : r.cliente,
+          client_name: isPublic(r.cliente) ? 'Mostrador a bordo (público)' : (r.cliente_nombre || r.cliente),
+          is_public: isPublic(r.cliente),
+          payment_method: r.forma_pago ?? null,
+          payment_method_label: r.forma_pago_desc ?? null,
+          seller: r.vendedor ?? null,
+          lines: num(r.lines),
+          skus: num(r.skus),
+          units: num(r.units),
+          revenue: num(r.revenue),
+          cost: r.cost == null ? null : num(r.cost),
+          margin_pct: r.margin_pct == null ? null : Number(r.margin_pct),
+        };
+      }),
+      total,
+      limit,
+      offset,
+      totals: {
+        revenue: Math.round(grandRevenue * 100) / 100,
+        units: Math.round(grandUnits * 100) / 100,
+        tickets: total,
+        avg_ticket: total > 0 ? Math.round((grandRevenue / total) * 100) / 100 : 0,
+      },
+      generated_at: new Date().toISOString(),
+      freshness,
+    };
+  }
+
+  /**
+   * RR2 — Un TICKET con sus renglones: unidad en la que se vendió, precio unitario,
+   * equivalencia en cajas, costo/margen e impuestos.
+   *
+   * Equivalencia en cajas (misma regla que la Fase AX, para no contradecir al resto del
+   * sistema): sólo con el factor CANÓNICO (`analytics.v_product_box_factor`), sólo si
+   * el renglón se vendió EN LA UNIDAD que ese factor cuenta (`unit_base`), sólo si el
+   * factor es > 1, no está marcado sospechoso, no es producto a peso y la compra alcanza
+   * al menos una caja. Si algo de eso falla se devuelve NULL — no se dibuja una
+   * equivalencia falsa.
+   */
+  async salesByRouteTicket(key: string): Promise<SalesByRouteTicketDetail> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { source, sourceBranch, date, consecutivo } = this.parseTicketKey(key);
+    const num = (v: any) => Number(v) || 0;
+
+    return this.tk.run(async (trx) => {
+      const W = `sl.tenant_id = ? AND sl.source = ? AND sl.source_branch = ?
+                 AND sl.business_date = ? AND sl.consecutivo = ?`;
+      const P: any[] = [tenantId, source, sourceBranch, date, consecutivo];
+
+      const head = (await trx.raw(
+        `SELECT max(sl.doc_ref) folio, max(sl.hora) hora, max(sl.doc_tipo) doc_tipo,
+                max(sl.forma_pago) forma_pago, max(sl.forma_pago_desc) forma_pago_desc,
+                max(sl.vendedor) vendedor, max(sl.cliente) cliente,
+                count(*) lines, count(distinct sl.sku) skus,
+                sum(sl.qty) units, sum(sl.importe) revenue, sum(sl.costo) cost,
+                sum(sl.importe) FILTER (WHERE sl.costo IS NOT NULL) revenue_with_cost
+         FROM analytics.v_route_sales_lines sl WHERE ${W}`, P)).rows[0];
+      if (!head || !num(head.lines)) throw new NotFoundException('ticket no encontrado');
+
+      const wname = (await trx.raw(
+        `SELECT COALESCE(pw.name, initcap(pb.branch_name)) AS wname
+         FROM wincaja.branches b
+         LEFT JOIN wincaja.branches pb ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch
+         LEFT JOIN commercial.warehouses pw ON pw.tenant_id = b.tenant_id
+           AND pw.code = COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
+         WHERE b.tenant_id = ? AND b.source_branch = ?`, [tenantId, sourceBranch])).rows[0];
+
+      const clientRow = (await trx.raw(
+        `SELECT nombre FROM wincaja.clientes
+         WHERE tenant_id = ? AND cliente = ? ORDER BY (source_branch = ?) DESC, source_dataset DESC LIMIT 1`,
+        [tenantId, head.cliente || '', sourceBranch])).rows[0];
+
+      const lines = (await trx.raw(
+        `SELECT sl.sku, COALESCE(sl.producto, p.nombre) AS name, sl.unidad, sl.unidad_origen,
+                sl.qty, sl.precio_unitario, sl.importe, sl.costo, sl.iva, sl.ieps,
+                CASE WHEN bf.box_factor > 1 AND COALESCE(bf.is_master_suspect, false) = false
+                       AND COALESCE(bf.is_weight, false) = false
+                       AND sl.unidad IS NOT NULL AND upper(btrim(bf.unit_base)) = sl.unidad
+                       AND sl.qty >= bf.box_factor
+                     THEN bf.box_factor END AS box_factor
+         FROM analytics.v_route_sales_lines sl
+         LEFT JOIN catalog.products p ON p.tenant_id = sl.tenant_id AND p.sku = sl.sku AND p.deleted_at IS NULL
+         LEFT JOIN analytics.v_product_box_factor bf
+           ON bf.tenant_id = sl.tenant_id AND bf.product_id = COALESCE(sl.product_id, p.id)
+         WHERE ${W}
+         ORDER BY sl.importe DESC NULLS LAST, sl.sku`, P)).rows;
+
+      const revWithCost = num(head.revenue_with_cost);
+      const cost = num(head.cost);
+      const isPublic = !head.cliente || !String(head.cliente).trim() || String(head.cliente) === '0001';
+
+      return {
+        key,
+        source: source as 'wincaja' | 'push',
+        route_no: sourceBranch,
+        folio: head.folio || consecutivo,
+        date,
+        time: head.hora ?? null,
+        doc_type: head.doc_tipo ?? null,
+        client_code: isPublic ? null : head.cliente,
+        client_name: isPublic ? 'Mostrador a bordo (público)' : (clientRow?.nombre || head.cliente),
+        is_public: isPublic,
+        payment_method: head.forma_pago ?? null,
+        payment_method_label: head.forma_pago_desc ?? null,
+        seller: head.vendedor ?? null,
+        lines: num(head.lines),
+        skus: num(head.skus),
+        units: num(head.units),
+        revenue: num(head.revenue),
+        cost: head.cost == null ? null : cost,
+        margin_pct: revWithCost > 0 ? Math.round((1 - cost / revWithCost) * 1000) / 10 : null,
+        warehouse_name: wname?.wname ?? null,
+        lines_detail: lines.map((r: any) => {
+          const importe = num(r.importe);
+          const lineCost = r.costo == null ? null : num(r.costo);
+          const factor = r.box_factor == null ? null : Number(r.box_factor);
+          return {
+            sku: r.sku,
+            name: r.name ?? null,
+            unidad: r.unidad ?? null,
+            unidad_origen: r.unidad_origen ?? null,
+            qty: num(r.qty),
+            box_factor: factor,
+            boxes: factor ? Math.round((num(r.qty) / factor) * 100) / 100 : null,
+            precio_unitario: r.precio_unitario == null ? null : num(r.precio_unitario),
+            importe,
+            costo: lineCost,
+            margin_pct: lineCost != null && importe > 0 ? Math.round((1 - lineCost / importe) * 1000) / 10 : null,
+            iva: r.iva == null ? null : num(r.iva),
+            ieps: r.ieps == null ? null : num(r.ieps),
+          };
+        }),
+      };
+    });
+  }
+
+  /**
+   * RR — Conciliación de CIERRE DE RUTA (histórico, D+1). Cruza el corte que el
+   * vendedor sube (commercial.route_tickets, ticket_type='venta') contra la venta
+   * REAL por ruta (analytics.v_route_sales_lines, canal ruta = Wincaja on-board +
+   * Kepler PH push unificados), por ruta + día. Detecta incidencias:
+   *   - cierre_faltante: hubo venta real en una ruta de vendedor pero no subió corte.
+   *   - descuadre_corte: |corte − venta real| supera el umbral.
+   *   - cierre_sin_venta: subió corte pero no hay venta real ese día.
+   * Llave de ruta = número (route_tickets.route_code dígitos ↔ v_route_sales_lines
+   * .source_branch numérico). Scope de "faltante": solo rutas de vendedor
+   * (commercial.vendor_sales_routes). Nunca marca ventas de mostrador (1V001, 5xx).
+   */
+  async routeClosureReconciliation(
+    fromArg?: string,
+    toArg?: string,
+    thresholdPct = 0.05,
+    thresholdAbs = 200,
+  ): Promise<RouteClosureReconciliation> {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const today = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+    const to = toArg && dRx.test(toArg) ? toArg : today;
+    // Default: últimos 45 días (D+1 → el histórico reciente es lo accionable).
+    const defFrom = new Date(new Date(`${to}T00:00:00Z`).getTime() - 45 * 86400000).toISOString().slice(0, 10);
+    const from = fromArg && dRx.test(fromArg) ? fromArg : defFrom;
+    if (from > to) throw new BadRequestException('from no puede ser mayor que to');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const num = (v: any) => Number(v) || 0;
+    const digits = (s: string): number | null => { const m = (s || '').replace(/\D/g, ''); return m ? parseInt(m, 10) : null; };
+
+    return this.tk.run(async (trx) => {
+      // 1) Venta real por ruta/día (canal ruta, source_branch numérico).
+      const salesRows = (await trx.raw(
+        `SELECT sl.source_branch AS route_no, sl.business_date::date AS date,
+                sum(sl.importe) real_revenue, count(distinct sl.consecutivo) tickets
+         FROM analytics.v_route_sales_lines sl
+         WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
+           AND sl.business_date>=? AND sl.business_date<=? AND sl.business_date<=CURRENT_DATE
+           AND sl.source_branch ~ '^[0-9]+$'
+         GROUP BY 1,2`, [tenantId, from, to])).rows as Array<{ route_no: string; date: any; real_revenue: any; tickets: any }>;
+
+      // 2) Corte del vendedor por ruta/día (route_tickets venta).
+      const corteRows = (await trx.raw(
+        `SELECT route_code, ticket_date::date AS date, sum(total) corte, count(*) n
+         FROM commercial.route_tickets
+         WHERE tenant_id=? AND deleted_at IS NULL AND ticket_type='venta'
+           AND ticket_date>=? AND ticket_date<=? AND route_code ~ '^[0-9]+$'
+         GROUP BY 1,2`, [tenantId, from, to])).rows as Array<{ route_code: string; date: any; corte: any; n: any }>;
+
+      // 3) Rutas de "cierre esperado" (scope de faltante) = catálogo de rutas ∪
+      //    asignaciones de vendedor ∪ rutas que tuvieron algún corte. Así NO
+      //    marca ventas de mostrador (1V001, 5xx) pero sí las rutas reales aunque
+      //    vendor_sales_routes esté vacío.
+      const [vrRows, catRows] = await Promise.all([
+        trx('commercial.vendor_sales_routes').where('tenant_id', tenantId).whereNotNull('sales_route').distinct('sales_route'),
+        trx('catalogs').where({ tenant_id: tenantId, catalog_id: 'rutas' }).select('value'),
+      ]);
+      const vendorRoutes = new Set<number>();
+      for (const r of vrRows as Array<{ sales_route: string }>) { const n = digits(r.sales_route); if (n != null) vendorRoutes.add(n); }
+      for (const r of catRows as Array<{ value: string }>) { const n = digits(r.value); if (n != null) vendorRoutes.add(n); }
+      for (const c of corteRows) { const n = digits(c.route_code); if (n != null) vendorRoutes.add(n); }
+
+      const iso = (d: any) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
+      const salesMap = new Map<string, { route_no: number; date: string; real: number; tickets: number }>();
+      for (const s of salesRows) {
+        const rn = digits(s.route_no); if (rn == null) continue;
+        salesMap.set(`${rn}|${iso(s.date)}`, { route_no: rn, date: iso(s.date), real: num(s.real_revenue), tickets: num(s.tickets) });
+      }
+      const corteMap = new Map<string, { route_no: number; date: string; corte: number; n: number }>();
+      for (const c of corteRows) {
+        const rn = digits(c.route_code); if (rn == null) continue;
+        corteMap.set(`${rn}|${iso(c.date)}`, { route_no: rn, date: iso(c.date), corte: num(c.corte), n: num(c.n) });
+      }
+
+      // 4) Universo de llaves: cortes ∪ ventas de rutas de vendedor.
+      const keys = new Set<string>(corteMap.keys());
+      for (const [k, v] of salesMap) if (vendorRoutes.has(v.route_no)) keys.add(k);
+
+      const incidencias: RouteClosureIncidencia[] = [];
+      const summary = { routes: 0, real_total: 0, corte_total: 0, cierre_faltante: 0, descuadre: 0, cierre_sin_venta: 0, ok: 0 };
+      const routeSet = new Set<number>();
+      for (const k of keys) {
+        const s = salesMap.get(k); const c = corteMap.get(k);
+        const [rnStr, date] = k.split('|');
+        const route_no = Number(rnStr);
+        const real = s?.real ?? 0; const corte = c?.corte ?? 0;
+        const diff = corte - real;
+        summary.real_total += real; summary.corte_total += corte; routeSet.add(route_no);
+        let status: 'ok' | RouteClosureIncidencia['status'];
+        if (corte > 0 && real > 0) status = Math.abs(diff) > Math.max(thresholdAbs, thresholdPct * real) ? 'descuadre' : 'ok';
+        else if (corte > 0) status = 'cierre_sin_venta';
+        else status = 'cierre_faltante';
+        summary[status === 'ok' ? 'ok' : status]++;
+        if (status !== 'ok') {
+          incidencias.push({
+            route_no, date, real_revenue: real, corte,
+            diff, diff_pct: real > 0 ? Math.round((diff / real) * 1000) / 10 : null,
+            tickets: s?.tickets ?? 0, status,
+          });
+        }
+      }
+      summary.routes = routeSet.size;
+      incidencias.sort((a, b) => (b.date.localeCompare(a.date)) || (Math.abs(b.diff) - Math.abs(a.diff)));
+
+      return { period: { from, to }, summary, incidencias: incidencias.slice(0, 500) };
+    });
+  }
+
+  /**
+   * Fase T — Traspasos / movimientos que NO son venta (analytics.transfers_monthly):
+   * consolidación interna (UD06), recepción (UA50), traspasos entrada/salida.
+   * Fila por (sucursal, tipo) con valor/unidades/docs mes a mes + share%. Vive en
+   * /logistica/traspasos, SEPARADO de todo reporte de venta.
+   */
+  async transfersReport(q: TransfersQuery): Promise<TransfersReport> {
+    const year = Number(q.year) || new Date().getFullYear();
+    if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
+    const from = `${year}-01-01`;
+    const to = `${year + 1}-01-01`;
+    const whFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    const LABEL: Record<TransferKind, string> = {
+      salida_cedis: 'Salida CEDIS',
+      consolidacion: 'Consolidación interna',
+      recepcion: 'Recepción de traspaso',
+      traspaso_salida: 'Salida por traspaso',
+      traspaso_entrada: 'Entrada por traspaso',
+    };
+
+    // [VP.2.2] La frescura se mide DENTRO del mismo tk.run: fuera no hay trx, y abrir otro sólo
+    // para preguntar la edad sería una segunda conexión por request.
+    let freshness: Freshness = FRESHNESS_UNKNOWN;
+    const rawRows: any[] = await this.tk.run(async (trx) => {
+      freshness = await this.feedFreshness(trx, [
+        ['analytics.transfers_monthly', 'updated_at', 'Traspasos (mensual)'],
+      ]);
+      const qb = trx('analytics.transfers_monthly as t')
+        .join('commercial.warehouses as w', 'w.id', 't.warehouse_id')
+        .where('t.tenant_id', tenantId)
+        .andWhere('t.month', '>=', from)
+        .andWhere('t.month', '<', to)
+        .select(
+          'w.code as wcode', 'w.name as wname', 't.kind as kind', 't.dest_label as dest_label',
+          trx.raw(`to_char(t.month,'MM') as mes`),
+        )
+        .sum({ units: 't.units' })
+        .sum({ value: 't.value' })
+        .sum({ docs: 't.docs' })
+        .groupByRaw(`w.code, w.name, t.kind, t.dest_label, to_char(t.month,'MM')`);
+      if (whFilter) qb.whereIn('w.code', whFilter);
+      return qb;
+    });
+
+    const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    const monthsSet = new Set<string>();
+    const byRow = new Map<string, TransfersRow>();
+    const monthlyTotals: Record<string, TransfersCell> = {};
+    const totals: TransfersCell = { value: 0, units: 0, docs: 0 };
+    const kindTotals: Record<string, number> = {};
+
+    for (const r of rawRows) {
+      const kind = r.kind as TransferKind;
+      const dest = r.dest_label ?? '';
+      const key = `${r.wcode}|${kind}|${dest}`;
+      monthsSet.add(r.mes);
+      const value = Number(r.value) || 0;
+      const units = Number(r.units) || 0;
+      const docs = Number(r.docs) || 0;
+
+      let row = byRow.get(key);
+      if (!row) {
+        row = {
+          warehouse_code: r.wcode,
+          warehouse_name: r.wname,
+          kind,
+          kind_label: LABEL[kind] ?? kind,
+          dest_label: dest,
+          monthly: {},
+          value_total: 0,
+          units_total: 0,
+          docs_total: 0,
+          share_pct: 0,
+        };
+        byRow.set(key, row);
+      }
+      row.monthly[r.mes] = { value: round(value), units: round(units), docs };
+      row.value_total += value;
+      row.units_total += units;
+      row.docs_total += docs;
+
+      const mt = monthlyTotals[r.mes] ?? (monthlyTotals[r.mes] = { value: 0, units: 0, docs: 0 });
+      mt.value += value; mt.units += units; mt.docs += docs;
+      totals.value += value; totals.units += units; totals.docs += docs;
+      kindTotals[kind] = (kindTotals[kind] || 0) + value;
+    }
+
+    const rows = Array.from(byRow.values());
+    for (const row of rows) {
+      row.value_total = round(row.value_total);
+      row.units_total = round(row.units_total);
+      // share DENTRO del tipo (los tipos NO son sumables: son la misma mercancía en
+      // etapas distintas — salida CEDIS → consolidación → venta). Compartir contra el
+      // total mezclado sería doble conteo.
+      const kt = kindTotals[row.kind] || 0;
+      row.share_pct = kt > 0 ? round((row.value_total / kt) * 100, 1) : 0;
+    }
+    for (const m of Object.values(monthlyTotals)) { m.value = round(m.value); m.units = round(m.units); }
+    totals.value = round(totals.value); totals.units = round(totals.units);
+
+    rows.sort((a, b) =>
+      a.warehouse_name.localeCompare(b.warehouse_name, 'es')
+      || a.kind_label.localeCompare(b.kind_label, 'es')
+      || (b.value_total - a.value_total)
+      || a.dest_label.localeCompare(b.dest_label, 'es'),
+    );
+
+    const by_kind = Object.entries(kindTotals)
+      .map(([k, v]) => ({
+        kind: k as TransferKind,
+        kind_label: LABEL[k as TransferKind] ?? k,
+        value: round(v),
+        share_pct: totals.value > 0 ? round((v / totals.value) * 100, 1) : 0,
+      }))
+      .sort((a, b) => b.value - a.value);
+
+    const months = Array.from(monthsSet).sort();
+    return { year, months, rows, totals, monthly_totals: monthlyTotals, by_kind, generated_at: new Date().toISOString(), freshness };
+  }
+
+  private sellOutCoverage(
+    withData: string[],
+    retail: string[],
+    excludedTransfers = 0,
+    fuentes: Array<{ source: string; branch: string }> = [],
+    outOfScope: string[] = [],
+  ): SellOutReport['coverage'] {
+    const set = new Set(withData);
+    const missing = retail.filter((n) => !set.has(n));
+
+    // [VSO.14] La PROCEDENCIA se deriva del periodo. Antes era una constante idéntica para toda
+    // marca y todo periodo, y **se contradecía con su propio reporte**: decía que Canindo era
+    // Kepler, y en la captura de Hershey de ago-2026 Canindo aportó $63,901.11 desde WINCAJA (su
+    // corte fue el 15-ago, a media captura) más $26,595.22 de sus rutas — $90,496.33 mal
+    // atribuidos, el 8.4% del número publicado. Y ya era falsa de plano: Morelia Madero pasó a
+    // Kepler el 08-sep y Abastos el 19-sep, así que en cualquier periodo de septiembre la frase
+    // decía que Morelia era Wincaja. Es la MISMA falla que [SB.1]/[VSO.7] persiguieron en el SQL
+    // —el corte escrito como literal— sobreviviendo en prosa, donde ningún candado lee.
+    const porFuente = new Map<string, string[]>();
+    for (const f of fuentes) {
+      if (!f?.source || !f?.branch) continue;
+      const lista = porFuente.get(f.source) ?? [];
+      if (!lista.includes(f.branch)) lista.push(f.branch);
+      porFuente.set(f.source, lista);
+    }
+    const ROTULO: Record<string, string> = { kepler: 'Kepler del ODS', wincaja: 'Wincaja' };
+    const tramos = [...porFuente.entries()]
+      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .map(([src, br]) => `${ROTULO[src] ?? src} (${br.slice().sort((x, y) => x.localeCompare(y, 'es')).join(', ')})`);
+    const parts: string[] = [
+      tramos.length
+        ? `Fuente unificada — venta real DE ESTE PERIODO: ${tramos.join(' + ')}. `
+          + 'Las rutas de reparto (venta a bordo) suben del Kepler local de cada camioneta.'
+        // Sin `fuentes` no se inventa la frase: se declara que no se midió, en vez de repetir de
+        // memoria una lista que ya demostró envejecer.
+        : 'Fuente unificada Kepler + Wincaja. ⓘ Procedencia por sucursal NO MEDIDA en esta respuesta.',
+    ];
+    if (excludedTransfers > 0) {
+      const m = Math.round(excludedTransfers).toLocaleString('es-MX');
+      parts.push(`Se excluyeron traspasos internos (movimientos entre sucursales) por $${m} — no son venta.`);
+    }
+    if (missing.length)
+      parts.push(`Sin venta de esta empresa en el periodo: ${missing.join(', ')}.`);
+    // [VSO.13] Dos ausencias que NO son la misma, y hasta hoy sólo se nombraba una:
+    //   · `missing`    — la sucursal operaba y esta empresa no vendió ahí. Es un dato de negocio.
+    //   · `outOfScope` — la sucursal NO ESTABA en el universo. No es que vendiera cero: es que no
+    //     hay con qué compararla, y sumar o comparar a través de ese borde infla el resultado.
+    if (outOfScope.length)
+      parts.push(`⚠️ Fuera de cobertura en este periodo: ${outOfScope.join(', ')} — `
+        + 'esas plazas no estaban en el universo, así que su venta no es cero, es inexistente. '
+        + 'No compares este periodo contra otro que sí las tenga.');
+    return {
+      branches_with_data: withData,
+      branches_missing: missing,
+      branches_out_of_scope: outOfScope,
+      note: parts.join(' '),
+      measured: true,
+    };
+  }
+
+  // ─────────── helpers ───────────
+
+  private parseDateRange(q: DateRangeQuery): { from?: string; to?: string } {
+    const out: { from?: string; to?: string } = {};
+    if (q.from) {
+      if (!this.isIsoDate(q.from))
+        throw new BadRequestException('from inválido (esperado ISO 8601)');
+      out.from = q.from;
+    }
+    if (q.to) {
+      if (!this.isIsoDate(q.to))
+        throw new BadRequestException('to inválido (esperado ISO 8601)');
+      out.to = q.to;
+    }
+    return out;
+  }
+
+  private isIsoDate(s: string): boolean {
+    return !Number.isNaN(Date.parse(s));
+  }
+
+  /** RS.9 — [from,to] son fronteras de mes(es) completo(s) (día 1 → último del mes). */
+  private isFullMonthRange(from: string, to: string): boolean {
+    if (from.slice(8, 10) !== '01') return false;
+    const d = new Date(`${to}T00:00:00Z`);
+    return new Date(d.getTime() + 86400000).getUTCDate() === 1;
+  }
+
+  /** Habilita el fast path por rollup KEPLER (`sales_boxes_monthly`). Solo meses YA
+   *  CERRADOS: para el mes en curso el rollup kepler va atrás de las crudas (reconstruye
+   *  month-to-date y subcontaba ~29%) → mes actual/futuro = cálculo EN VIVO (sales_daily,
+   *  que es rápido). El fast path WINCAJA es aparte (ver isWincajaRollupOk). */
+  private isMonthAligned(from: string, to: string): boolean {
+    return this.isFullMonthRange(from, to) && to < this.currentMonthStartMx();
+  }
+
+  /** PERF — ¿el rango ES el mes en curso? (el default de sellOut). `from` = inicio del mes
+   *  actual y `to` dentro del mismo mes. Habilita el fast path por matview
+   *  `mv_sales_current_month`, que cubre [inicio de mes .. hoy] — el mismo universo que el
+   *  path diario acota con `sale_date <= hoy`, así que da los mismos números (verificado). */
+  private isCurrentMonthRange(from: string, to: string): boolean {
+    const start = this.currentMonthStartMx();
+    return from === start && to.slice(0, 7) === start.slice(0, 7);
+  }
+
+  /** Habilita el fast path por rollup WINCAJA (`sales_by_vendor_monthly`) para CUALQUIER
+   *  rango de meses completos, INCLUIDO el mes en curso. Razón: el live de wincaja escanea
+   *  la vista `v_sales_lines` (CTE conc_dates + LATERAL por fila) → ~9s/mes para todas las
+   *  empresas → 504 en prod (dejaba el reporte del mes anterior en pantalla). El rollup es
+   *  ~ms y ~98% fiel; su frescura la monitorea "Salud BD frescura de feeds". Un rango
+   *  parcial (no fronteras de mes) sigue yendo live (el rollup es de grano mensual). */
+  private isWincajaRollupOk(from: string, to: string): boolean {
+    return this.isFullMonthRange(from, to);
+  }
+
+  // ─────────── Fase RD — Inventario de los camiones de Ruta Directa ───────────
+
+  /**
+   * `[RD.10]` Cuadre de inventario por ruta, en las DOS valuaciones, para un rango.
+   *
+   * ⭐ La identidad `carga − vendido = inventario` **cierra al centavo en las dos columnas**, y
+   * cierra por construcción: las tres líneas de cada columna usan el MISMO valor unitario
+   * (`costo_u` del embarque · `precio_u` realizado). Por eso `delta` viaja en la respuesta: si
+   * algún día deja de ser 0, es que alguien mezcló valuaciones.
+   *
+   * ⚠️ `cogs_erp` es **línea de contraste, no la misma cifra**: es el `c62` que el ERP escribe en
+   * la línea de venta, y mide otra cosa que el costo del embarque (razón medida 1.1744 sobre el
+   * mismo universo). No se suma ni se promedia con la columna de costo.
+   *
+   * ⚠️ El inventario sale partido en `_pos` y `_neg`. El negativo **no es un error**: son SKUs que
+   * el camión ya traía antes de que arranque la ventana (no hay conteo inicial). Se probó que NO
+   * los fabrica el split de unidad: de 229 SKUs negativos en la ruta 23, sólo 1 tiene además
+   * saldo positivo en otro peldaño.
+   */
+  async routeInventory(from?: string, to?: string): Promise<RouteInventoryReport> {
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const ayer = this.ayerMx();
+    return this.tk.run(async (trx) => {
+      const rows = (await trx.raw(
+        `WITH win AS (
+           SELECT l.route_no, l.sku, l.unidad,
+                  sum(l.qty)       FILTER (WHERE l.clase='carga') AS cq,
+                  sum(l.costo_doc) FILTER (WHERE l.clase='carga') AS cv,
+                  -- [RD.31] El conteo fisico es el ARRANQUE del saldo, no una carga. Viaja en su
+                  -- propia clase para que carga_costo siga diciendo lo que se le SUBIO al camion:
+                  -- sumarlo ahi inflaria el cargado del periodo con mercancia que ya estaba arriba.
+                  sum(l.qty)       FILTER (WHERE l.clase='conteo') AS kq,
+                  sum(l.costo_doc) FILTER (WHERE l.clase='conteo') AS kv,
+                  sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
+                  sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi,
+                  sum(l.costo_erp) FILTER (WHERE l.clase='venta') AS ce,
+                  -- La venta que el contraste del ERP NO alcanza a explicar, EN DINERO.
+                  --
+                  -- Tiene que medirse acá, a nivel línea, y no contando pares afuera: medido
+                  -- contra prod, por pares el contraste "cubre" el 77.7% y en dinero cubre el
+                  -- 38%. Un par con una sola línea con costo cuenta como cubierto entero. La
+                  -- cobertura se declara en la unidad en la que se publica la cifra.
+                  sum(l.venta_doc) FILTER (WHERE l.clase='venta' AND l.costo_erp IS NULL) AS vi_sin_ce,
+                  max(l.business_date)                            AS ultimo
+             FROM analytics.mv_rd_route_ledger l
+            WHERE l.tenant_id = ? AND l.business_date >= ? AND l.business_date <= ?
+            GROUP BY 1,2,3
+         ), val AS (
+           /**
+            * ⛔ El unitario NO se calcula acá. Se LEE del resolvedor, y la diferencia no es de
+            * estilo: calcularlo por columna hacia que las dos sumaran UNIVERSOS DISTINTOS.
+            * Un par con carga y sin venta tenia costo y no precio, asi que entraba al COSTO y
+            * se caia del PRECIO; con los negativos pasaba al reves. Resultado medido el
+            * 2026-10-05: 10 de 11 rutas publicaban un inventario que costaba MAS de lo que
+            * vale al cliente. Con el resolvedor quedan 5, y son exactamente las de saldo
+            * negativo -- donde invertirse es lo correcto.
+            */
+           SELECT w.*, u.costo_u, u.precio_u, u.origen_costo, u.origen_precio,
+                  -- [RD.31] saldo = lo contado + lo cargado despues - lo vendido despues. Sin
+                  -- conteo, kq es NULL y la cuenta es la de siempre: la columna no cambia de
+                  -- significado, gana un sumando que hasta hoy no existia.
+                  coalesce(w.cq,0) + coalesce(w.kq,0) - coalesce(w.vq,0) AS saldo
+             FROM win w
+             LEFT JOIN analytics.mv_rd_route_unit_value u
+               ON u.tenant_id = ? AND u.route_no = w.route_no
+              AND u.sku = w.sku AND u.unidad = w.unidad
+         ), carga_dia AS (
+           -- Lo que se le subio al camion AYER, y cuando fue la ultima vez que se le subio algo.
+           -- Va al margen de la ventana elegida: es senal del dia, no del periodo.
+           --
+           -- Las dos salen de UN solo barrido. La version con un CTE por pregunta recorria la
+           -- matvista dos veces y el presupuesto de esta pantalla es de 500 ms.
+           --
+           -- NULL cuando no hubo embarque, nunca 0: "no le cargamos" y "le cargamos nada" son
+           -- cosas distintas, y un 0 diria que le mandamos el camion vacio (ADR-056). Medido el
+           -- 2026-10-02: cargaron 6 de 11 rutas, asi que cinco filas caen aca todos los dias.
+           SELECT l.route_no,
+                  sum(l.qty)       FILTER (WHERE l.business_date = ?::date) AS ayer_q,
+                  sum(l.costo_doc) FILTER (WHERE l.business_date = ?::date) AS ayer_costo,
+                  max(l.business_date) FILTER (WHERE l.clase='carga')        AS ultima_carga,
+                  max(l.business_date) FILTER (WHERE l.clase='venta')        AS ultima_venta
+             FROM analytics.mv_rd_route_ledger l
+            WHERE l.tenant_id = ?
+            GROUP BY 1
+         ), ultimo_dia AS (
+           /**
+            * Lo que movio la ULTIMA VEZ, no "ayer". El domingo es inhabil y el sabado tampoco
+            * cargan: medido el 2026-10-05, "ayer" daba 0 de 11 camiones y la columna no decia
+            * nada util. La pregunta del negocio no es que paso ayer sino **cuando fue la ultima
+            * vez y cuanto**, que ademas funciona igual en lunes que en domingo.
+            */
+           SELECT l.route_no, l.clase,
+                  sum(l.qty)                                     AS qty,
+                  sum(coalesce(l.costo_doc, l.venta_doc))        AS imp
+             FROM analytics.mv_rd_route_ledger l
+             JOIN carga_dia cd ON cd.route_no = l.route_no
+            WHERE l.tenant_id = ?
+              AND l.business_date = CASE WHEN l.clase='carga' THEN cd.ultima_carga
+                                         ELSE cd.ultima_venta END
+            GROUP BY 1,2
+         )
+         SELECT i.route_no, i.plaza, to_char(i.carga_desde,'YYYY-MM-DD') AS carga_desde,
+                round(max(cd.ayer_costo),2)::float                        AS cargado_ayer_costo,
+                round(max(cd.ayer_q),2)::float                            AS cargado_ayer_qty,
+                to_char(max(cd.ultima_carga),'YYYY-MM-DD')                AS ultima_carga,
+                to_char(max(cd.ultima_venta),'YYYY-MM-DD')                AS ultima_venta,
+                round(max(uc.imp),2)::float                               AS ultima_carga_imp,
+                round(max(uv.imp),2)::float                               AS ultima_venta_imp,
+                -- El tope lo lleva el camion (commercial.warehouses). NULL = sin tope declarado.
+                round(max(w.inventory_max_mxn),2)::float                  AS tope_inventario,
+                -- La última actividad de la ruta, del MISMO barrido que todo lo demás. Es lo que
+                -- delata a una ruta parada: medido, la 505 no mueve nada desde el 10-sep y se veía
+                -- igual que las diez vivas.
+                to_char(max(v.ultimo),'YYYY-MM-DD')                           AS ultimo_movimiento,
+                round(sum(v.cq * v.costo_u),2)::float                          AS carga_costo,
+                round(sum(coalesce(v.vq,0) * v.costo_u),2)::float              AS cogs_costo,
+                round(sum(v.saldo * v.costo_u),2)::float                       AS inventario_costo,
+                round(sum(v.saldo * v.costo_u) FILTER (WHERE v.saldo > 0),2)::float AS inventario_costo_pos,
+                round(sum(v.saldo * v.costo_u) FILTER (WHERE v.saldo < 0),2)::float AS inventario_costo_neg,
+                round(sum(v.cq * v.costo_u) - sum(coalesce(v.vq,0) * v.costo_u)
+                      - sum(v.saldo * v.costo_u),2)::float                     AS delta_costo,
+                round(sum(coalesce(v.cq,0) * v.precio_u),2)::float             AS carga_venta,
+                /**
+                 * ⛔ El vendido de la columna VENTA se valua con el precio RESUELTO, no con el
+                 * dinero crudo del periodo. Medido el 2026-10-05: con el dinero crudo la
+                 * identidad se rompia en cuanto la ventana era corta -- en un solo dia daba
+                 * -$1,636 en 9 de 11 rutas y la pantalla gritaba "la cuenta no cierra" mientras
+                 * la columna de descuadre mostraba 0, porque esa columna solo mira el costo.
+                 * Sobre toda la historia cerraba, asi que el defecto solo salia al filtrar.
+                 *
+                 * La causa: precio_u sale del resolvedor (toda la historia) y vi es el
+                 * dinero de la ventana; cuando el precio del periodo difiere del historico,
+                 * qty x precio_u deja de ser vi y la resta no cuadra.
+                 */
+                round(sum(coalesce(v.vq,0) * v.precio_u),2)::float             AS venta_cliente,
+                /** Lo que el cliente pago DE VERDAD en la ventana. Es un hecho y viaja aparte. */
+                round(sum(v.vi),2)::float                                      AS cobrado_real,
+                round(sum(v.saldo * v.precio_u),2)::float                      AS inventario_venta,
+                round(sum(v.saldo * v.precio_u) FILTER (WHERE v.saldo > 0),2)::float AS inventario_venta_pos,
+                round(sum(v.saldo * v.precio_u) FILTER (WHERE v.saldo < 0),2)::float AS inventario_venta_neg,
+                round(sum(coalesce(v.cq,0) * v.precio_u) - sum(v.vi)
+                      - sum(v.saldo * v.precio_u),2)::float                    AS delta_venta,
+                round(sum(v.ce),2)::float                                      AS cogs_erp,
+                count(v.sku)::int                                             AS pares,
+                count(*) FILTER (WHERE v.saldo > 0)::int                       AS pares_pos,
+                count(*) FILTER (WHERE v.saldo < 0)::int                       AS pares_neg,
+                count(*) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.costo_u IS NULL)::int AS pares_sin_costo,
+                round(sum(v.vi) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.costo_u IS NULL),2)::float AS venta_sin_costo,
+                count(*) FILTER (WHERE coalesce(v.cq,0) > 0 AND v.precio_u IS NULL)::int AS pares_sin_precio,
+                round(sum(v.cv) FILTER (WHERE coalesce(v.cq,0) > 0 AND v.precio_u IS NULL),2)::float AS carga_sin_precio,
+                -- La COBERTURA del contraste, no solo su suma. Medido contra prod el 2026-10-03:
+                -- el c62 que el ERP escribe en la linea de venta falta en el 69.93% de los pares
+                -- y en el 100% de las cinco rutas de Canindo, porque el U-D-10 de la sucursal ve
+                -- menos de la mitad de la venta de ruta. Publicar esa suma sin su cobertura hace
+                -- creer que el margen es del 79%; con la cobertura al lado se lee como lo que es.
+                count(*) FILTER (WHERE coalesce(v.vq,0) > 0)::int                 AS pares_vendidos,
+                count(*) FILTER (WHERE coalesce(v.vq,0) > 0 AND v.ce IS NULL)::int AS pares_sin_cogs_erp,
+                round(sum(v.vi_sin_ce),2)::float                                  AS venta_sin_cogs_erp,
+                -- De donde salio el unitario. Un valor tomado de la ficha es un hecho de Kepler,
+                -- no un relleno -- pero el que lo lee tiene derecho a saber cual uso (ADR-056).
+                count(*) FILTER (WHERE v.origen_costo  = 'kepler')::int             AS costo_de_ficha,
+                count(*) FILTER (WHERE v.origen_precio = 'kepler')::int             AS precio_de_ficha,
+                count(*) FILTER (WHERE v.costo_u  IS NULL AND v.sku IS NOT NULL)::int AS sin_costo_resuelto,
+                count(*) FILTER (WHERE v.precio_u IS NULL AND v.sku IS NOT NULL)::int AS sin_precio_resuelto
+           FROM analytics.mv_rd_route_identity i
+           LEFT JOIN val v ON v.route_no = i.route_no
+           LEFT JOIN carga_dia cd ON cd.route_no = i.route_no
+           LEFT JOIN ultimo_dia uc ON uc.route_no = i.route_no AND uc.clase = 'carga'
+           LEFT JOIN ultimo_dia uv ON uv.route_no = i.route_no AND uv.clase = 'venta'
+           LEFT JOIN commercial.warehouses w
+             ON w.id = i.warehouse_id AND w.deleted_at IS NULL
+          WHERE i.tenant_id = ?
+          GROUP BY i.route_no, i.plaza, i.carga_desde
+          ORDER BY i.plaza, i.route_no`,
+        [tenantId, desde, hasta, tenantId, ayer, ayer, tenantId, tenantId, tenantId],
+      )).rows;
+
+      const asOf = (await trx.raw(
+        `SELECT to_char(max(business_date),'YYYY-MM-DD') AS data_as_of
+           FROM analytics.mv_rd_route_ledger WHERE tenant_id = ?`, [tenantId])).rows[0];
+
+      /**
+       * ⛔ **`data_as_of` es la frescura del DATO, no la de la COPIA**, y confundirlas es el
+       * `poblado ≠ fresco` de ADR-056: si el `REFRESH` de 30 min se cae, la matvista sigue
+       * diciendo «hasta el 2-oct» con toda confianza mientras sirve lo de ayer.
+       *
+       * La frescura de la copia sale del latido que el ciclo de matvistas YA escribe
+       * (`analytics.cron_runs`, job `analytics_refresh`) — primitivo existente, no uno nuevo.
+       * Si no hay latido, se declara `sin_medir`; no se dibuja un verde.
+       */
+      const copia = (await trx.raw(
+        `SELECT to_char(last_finish AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI') AS copia_al,
+                status,
+                round(extract(epoch from (now() - last_finish))/60)::int AS copia_edad_min
+           FROM analytics.cron_runs
+          WHERE tenant_id = ? AND job_key = 'analytics_refresh'`, [tenantId])).rows[0];
+
+      const num = (k: keyof RouteInventoryRow) =>
+        rows.reduce((a: number, r: Record<string, number>) => a + (Number(r[k as string]) || 0), 0);
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+
+      return {
+        desde, hasta, ayer,
+        data_as_of: asOf?.data_as_of ?? null,
+        routes: rows as RouteInventoryRow[],
+        /**
+         * Cuántas rutas cargaron ayer, de las que existen. Se cuenta sobre `cargado_ayer_costo`
+         * NO NULO, no sobre la suma: con la suma, un día sin un solo embarque y un día en que
+         * todas cargaron $0 dan el mismo total y se leen igual.
+         */
+        rutas_cargaron_ayer: rows.filter(
+          (r: Record<string, unknown>) => r.cargado_ayer_costo !== null).length,
+        rutas_totales: rows.length,
+        totales: {
+          carga_costo: r2(num('carga_costo')),
+          cogs_costo: r2(num('cogs_costo')),
+          cargado_ayer_costo: r2(num('cargado_ayer_costo')),
+          inventario_costo: r2(num('inventario_costo')),
+          inventario_costo_pos: r2(num('inventario_costo_pos')),
+          inventario_costo_neg: r2(num('inventario_costo_neg')),
+          carga_venta: r2(num('carga_venta')),
+          venta_cliente: r2(num('venta_cliente')),
+          inventario_venta: r2(num('inventario_venta')),
+          inventario_venta_pos: r2(num('inventario_venta_pos')),
+          inventario_venta_neg: r2(num('inventario_venta_neg')),
+          cogs_erp: r2(num('cogs_erp')),
+          venta_sin_cogs_erp: r2(num('venta_sin_cogs_erp')),
+          venta_sin_costo: r2(num('venta_sin_costo')),
+          carga_sin_precio: r2(num('carga_sin_precio')),
+        },
+        copia_al: copia?.copia_al ?? null,
+        copia_status: copia ? (copia.status === 'ok' ? 'ok' : 'error') : 'sin_medir',
+        copia_edad_min: copia?.copia_edad_min ?? null,
+        /**
+         * ⛔ TERNARIO a propósito. Con un booleano, una ventana sin movimiento devuelve 11 filas
+         * de deltas NULL, `Number(null)||0` da 0, y la pantalla pinta **«Cierra» en verde sobre
+         * nada** — el `cfg ? classify : 'ok'` que la Fase VP midió. No cuadrar y no haber podido
+         * comprobarlo son cosas distintas y se dicen distinto.
+         */
+        cuadra: (() => {
+          const conMovimiento = rows.filter((r: Record<string, number>) =>
+            Number(r.pares) > 0 && (r.delta_costo !== null || r.delta_venta !== null));
+          if (!conMovimiento.length) return 'sin_medir' as const;
+          return conMovimiento.every((r: Record<string, number>) =>
+            Math.abs(Number(r.delta_costo) || 0) < 0.01
+            && Math.abs(Number(r.delta_venta) || 0) < 0.01) ? ('cierra' as const) : ('no_cierra' as const);
+        })(),
+        // Declaraciones: ADR-056 — lo que no se midió se dice, no se dibuja en cero.
+        declara: {
+          /**
+           * ⭐ Reescrito el 2026-10-05 tras auditar la ruta 21 de punta a punta contra Kepler.
+           * Antes decía que el saldo negativo «es mercancía que el camión ya traía» — cierto,
+           * pero igual se la restaba al inventario, y eso publicaba cinco rutas en negativo y
+           * el total 4.6 veces por debajo de lo real ($84,389 contra $389,165).
+           */
+          sin_ancla: 'Nadie cuenta los camiones: la cuenta arranca en el PRIMER EMBARQUE '
+            + 'documentado de cada ruta. Lo que vendieron de antes existió y se cobró, pero no '
+            + 'está contado — así que se DECLARA aparte y NO se resta de lo que traen. Medido en '
+            + 'la ruta 21: vendió $179,044 entre el 6 y el 14 de julio, antes de su primera carga.',
+          costo: 'El costo es el del EMBARQUE (lo que la sucursal le cargó al camión), con cobertura '
+            + 'del 100% de las líneas de carga. El contraste del ERP mide otra cosa y no se suma.',
+          /**
+           * ⛔ Lo que esta pantalla NO puede contestar, dicho antes de que alguien lo suponga.
+           * Medido contra prod el 2026-10-03 sobre los 10 doctypes que tocan un almacén de ruta
+           * en 180 días: ticket, recepción de traspaso, corte de caja y cobro. Ninguno es una
+           * devolución, y el conteo físico del camión aparece UNA sola vez (2026-06-26).
+           */
+          faltante: 'Kepler NO tiene documento de retorno de ruta, y el camión se contó una sola vez '
+            + '(2026-06-26). El saldo en contra es un INDICIO (vendió más de lo que se le cargó), '
+            + 'no un faltante medido: para eso hay que contar el camión.',
+          fuera_de_alcance: 'Morelia 321/322 y las rutas vecinales 1V00N no tienen embarque en Kepler.',
+        },
+      };
+    });
+  }
+
+  /**
+   * `[RD.10]` El detalle por SKU de una ruta. Mismo cuadre, grano fino.
+   *
+   * ⛔ **El tope no puede ser mudo.** La versión anterior cortaba en 500 y **las 11 rutas tienen
+   * entre 549 y 938 pares** `(sku, unidad)` — o sea que truncaba todas, y el `ORDER BY` mandaba al
+   * final justo a los `sin_costo` (633 pares), que es lo que la cabecera declara como hueco: la
+   * tabla nunca sumaba el total de su propia fila y nada lo decía. Ahora el tope es **1,000** (cabe
+   * la ruta más grande con margen) y viaja el `total`, para que la pantalla declare si cortó.
+   */
+  async routeInventoryDetail(routeNo: string, from?: string, to?: string): Promise<RouteInventoryDetail> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `WITH win AS (
+         SELECT l.sku, l.unidad,
+                sum(l.qty)       FILTER (WHERE l.clase='carga') AS cq,
+                sum(l.costo_doc) FILTER (WHERE l.clase='carga') AS cv,
+                -- [RD.31] el conteo fisico: arranque del saldo, en su propia clase.
+                sum(l.qty)       FILTER (WHERE l.clase='conteo') AS kq,
+                sum(l.costo_doc) FILTER (WHERE l.clase='conteo') AS kv,
+                sum(l.qty)       FILTER (WHERE l.clase='venta') AS vq,
+                sum(l.venta_doc) FILTER (WHERE l.clase='venta') AS vi
+           FROM analytics.mv_rd_route_ledger l
+          WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date >= ? AND l.business_date <= ?
+          GROUP BY 1,2
+       ), d AS (
+         -- El saldo y los unitarios se calculan UNA vez. Antes la misma expresion aparecia cinco
+         -- veces y cualquier cambio tenia que acertarle a las cinco; con el conteo serian siete.
+         SELECT w.*,
+                coalesce(w.cq,0) + coalesce(w.kq,0) - coalesce(w.vq,0)        AS saldo,
+                -- El costo del conteo entra DESPUES del de la ruta y ANTES de nada: un producto
+                -- anclado y no vuelto a cargar no tiene carga en la ventana, y sin esto quedaria
+                -- sin valuar justo el dia en que por fin sabemos cuanto trae.
+                coalesce(w.cv / nullif(w.cq,0), w.kv / nullif(w.kq,0))        AS cu,
+                w.vi / nullif(w.vq,0)                                         AS pu
+           FROM win w
+       )
+       SELECT d.sku, d.unidad,
+              coalesce(p.description, d.sku)                     AS producto,
+              round(coalesce(d.cq,0),3)::float                   AS qty_carga,
+              round(coalesce(d.vq,0),3)::float                   AS qty_venta,
+              round(d.saldo,3)::float                            AS saldo,
+              round(d.cu,4)::float                               AS costo_unitario,
+              round(d.pu,4)::float                               AS precio_unitario,
+              round(d.saldo * d.cu,2)::float                     AS saldo_costo,
+              round(d.saldo * d.pu,2)::float                     AS saldo_venta,
+              -- ⚠️ El veredicto COMPONE, no elige. Todo "sin costo" es por construcción negativo
+              -- (no hubo carga ⇒ saldo = −vendido), así que un CASE excluyente le quitaba a esas
+              -- filas justo la etiqueta que explica por qué están en rojo.
+              -- ⛔ Sin acentos graves acá adentro: cierran el template literal, y check:templates
+              -- NO mira este archivo (sólo *.component.ts). Lo atrapó el candado, por suerte.
+              CASE WHEN d.cu IS NULL THEN 'sin_costo'
+                   WHEN d.pu IS NULL THEN 'sin_precio'
+                   ELSE 'ok' END                                 AS veredicto,
+              -- ⚠️ Con un conteo de por medio esto ya NO es "lo traia de antes": el conteo puso el
+              -- arranque en cero y todo lo anterior salio del calculo. Un negativo DESPUES de un
+              -- conteo es un descuadre nuevo, y por eso la columna se apaga cuando hay ancla.
+              (d.saldo < 0 AND coalesce(d.kq,0) = 0)             AS ya_lo_traia,
+              count(*) OVER ()::int                              AS _total
+         FROM d
+         LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = d.sku AND p.deleted_at IS NULL
+        ORDER BY abs(coalesce(d.saldo * d.cu,0)) DESC
+        LIMIT ?`,
+      [tenantId, ruta, desde, hasta, tenantId, DETALLE_TOPE],
+    )).rows).then((filas: (RouteInventoryDetailRow & { _total: number })[]) => {
+      const total = filas.length ? Number(filas[0]._total) : 0;
+      return {
+        rows: filas.map(({ _total, ...f }) => f) as RouteInventoryDetailRow[],
+        total,
+        // Si alguna vez corta, la pantalla lo DICE. Un corte mudo es un total que no suma.
+        truncado: total > DETALLE_TOPE,
+      };
+    });
+  }
+
+  /**
+   * `[RD.18]` **La serie: cargado contra vendido, día por día, con el saldo acumulado.**
+   *
+   * El acumulado es la columna que contesta "¿desde cuándo?" sin que nadie sume a mano: es
+   * `sum(cargado − vendido) OVER (ORDER BY día)`, el saldo del camión al cierre de cada jornada.
+   * Cuando cruza a negativo, ése es el día en que empezó a vender lo que ya traía.
+   *
+   * ⚠️ Las dos valuaciones viajan juntas y **la pantalla elige una**; no se suman entre sí.
+   *
+   * ── ⛔ Lo que esto corrige, y es el mismo error que esta pantalla denuncia ────────────────
+   *
+   * La primera versión devolvía `cargado` **al costo** y `vendido` **a precio de cliente**, y la
+   * tabla los pintaba en columnas vecinas. O sea: la **lectura A** de `VERDAD_ABSOLUTA` §19 —
+   * restar precio de costo— metida dentro de la pantalla que existe para denunciarla. Medido en
+   * la ruta 21 el 2026-09-26: `$3,820` cargado contra `$17,227` vendido. El ojo lee «vendió 4.5
+   * veces lo que cargó» y lo que pasó es que son dos monedas.
+   *
+   * Peor todavía era la barra de proporción: normalizaba los dos contra un máximo común, así que
+   * **dibujaba el margen como si fuera sobreventa, todos los días**.
+   *
+   * Y el acumulado iba en **unidades** — una tercera magnitud, en una fila cuyas otras dos
+   * columnas son pesos, avisado sólo con un `(uds)` entre paréntesis.
+   *
+   * ⭐ Ahora el valor unitario de cada par `(sku, unidad)` se resuelve **una vez sobre la
+   * ventana** y se aplica a los dos lados, igual que en el resumen. Así `cargado` y `vendido`
+   * están siempre en la MISMA moneda, y el saldo acumulado también.
+   */
+  async routeSeries(routeNo: string, from?: string, to?: string): Promise<RouteSeriesPoint[]> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `WITH u AS (
+         -- El valor unitario de cada par, resuelto UNA vez sobre toda la ventana. Es el mismo
+         -- criterio del resumen: si cada dia resolviera el suyo, un dia sin carga dejaria el
+         -- COGS de ese dia en cero y el saldo saltaria sin que nada se haya movido.
+         SELECT sku, unidad,
+                -- [RD.31] El costo del conteo entra despues del de la ruta: una ruta recien
+                -- anclada no tiene carga posterior y sin esto su COGS del dia saldria en cero.
+                coalesce(
+                  sum(costo_doc) FILTER (WHERE clase='carga')
+                    / nullif(sum(qty) FILTER (WHERE clase='carga'),0),
+                  sum(costo_doc) FILTER (WHERE clase='conteo')
+                    / nullif(sum(qty) FILTER (WHERE clase='conteo'),0)
+                )                                                  AS costo_u,
+                sum(venta_doc) FILTER (WHERE clase='venta')
+                  / nullif(sum(qty) FILTER (WHERE clase='venta'),0) AS precio_u
+           FROM analytics.mv_rd_route_ledger
+          WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
+          GROUP BY 1,2
+       ), d AS (
+         SELECT l.business_date,
+                sum(l.qty) FILTER (WHERE l.clase='carga')             AS carga_qty,
+                sum(l.qty) FILTER (WHERE l.clase='venta')             AS venta_qty,
+                -- [RD.31] El conteo NO se suma a "cargado": no se le subio nada al camion ese dia,
+                -- se midio lo que ya traia. Viaja aparte y entra solo al ACUMULADO, que es el saldo.
+                sum(l.qty)              FILTER (WHERE l.clase='conteo') AS conteo_qty,
+                sum(l.costo_doc)        FILTER (WHERE l.clase='conteo') AS conteo_costo,
+                sum(l.qty * u.precio_u) FILTER (WHERE l.clase='conteo') AS conteo_precio,
+                -- Columna COSTO: lo cargado y lo vendido, los dos al costo del embarque.
+                sum(l.costo_doc)        FILTER (WHERE l.clase='carga') AS carga_costo,
+                sum(l.qty * u.costo_u)  FILTER (WHERE l.clase='venta') AS cogs_costo,
+                -- Columna VENTA: los dos al precio realizado de esta ruta.
+                sum(l.qty * u.precio_u) FILTER (WHERE l.clase='carga') AS carga_precio,
+                sum(l.venta_doc)        FILTER (WHERE l.clase='venta') AS venta_precio
+           FROM analytics.mv_rd_route_ledger l
+           LEFT JOIN u ON u.sku = l.sku AND u.unidad = l.unidad
+          WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date >= ? AND l.business_date <= ?
+          GROUP BY 1
+       )
+       SELECT to_char(business_date,'YYYY-MM-DD')             AS fecha,
+              round(coalesce(carga_costo,0),2)::float         AS cargado_costo,
+              round(coalesce(cogs_costo,0),2)::float          AS vendido_costo,
+              round(coalesce(carga_precio,0),2)::float        AS cargado_venta,
+              round(coalesce(venta_precio,0),2)::float        AS vendido_venta,
+              round(coalesce(carga_qty,0),2)::float           AS cargado_qty,
+              round(coalesce(venta_qty,0),2)::float           AS vendido_qty,
+              -- [RD.31] El acumulado ARRANCA en el conteo cuando lo hay. Es legible porque el
+              -- ledger ya no publica nada anterior al ancla: el primer punto de la serie ES el dia
+              -- del conteo, y la linea empieza donde el camion de verdad estaba.
+              round(sum(coalesce(carga_qty,0) + coalesce(conteo_qty,0) - coalesce(venta_qty,0))
+                    OVER (ORDER BY business_date),2)::float   AS saldo_qty_acum,
+              round(sum(coalesce(carga_costo,0) + coalesce(conteo_costo,0) - coalesce(cogs_costo,0))
+                    OVER (ORDER BY business_date),2)::float   AS saldo_costo_acum,
+              round(sum(coalesce(carga_precio,0) + coalesce(conteo_precio,0) - coalesce(venta_precio,0))
+                    OVER (ORDER BY business_date),2)::float   AS saldo_venta_acum
+         FROM d ORDER BY business_date`,
+      [tenantId, ruta, desde, hasta, tenantId, ruta, desde, hasta],
+    )).rows as RouteSeriesPoint[]);
+  }
+
+  /**
+   * `[RD.19]` **Los traspasos, documento por documento.** Medido: 25-72 embarques por ruta y
+   * ~18 ms la lista, así que se devuelve entera — paginarla sería esconder el histórico que se
+   * pidió ver.
+   */
+  async routeShipments(routeNo: string, from?: string, to?: string): Promise<RouteShipment[]> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `SELECT to_char(business_date,'YYYY-MM-DD') AS fecha, serie, folio,
+              count(*)::int                       AS lineas,
+              round(sum(importe),2)::float        AS importe,
+              round(sum(qty),2)::float            AS unidades
+         FROM analytics.v_rd_route_shipment_lines
+        WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
+        GROUP BY 1,2,3
+        ORDER BY 1 DESC, 3 DESC`,
+      [tenantId, ruta, desde, hasta],
+    )).rows as RouteShipment[]);
+  }
+
+  /**
+   * `[RD.19]`+`[RD.21]` Las líneas de UN embarque, **con el costo al que se cargó cada producto**.
+   *
+   * `salto_peldano` compara el costo de la línea contra el **mediano histórico** del mismo
+   * `(ruta, sku, unidad)`. El umbral es **2.00 y no se eligió de oído**: `[CE.8]` midió que el
+   * factor de caja mínimo del catálogo es 2.00, así que por debajo de eso un salto es precio, no
+   * unidad. Medido: sólo **9 pares** en toda la historia lo cruzan.
+   */
+  async routeShipmentLines(routeNo: string, folio: string, serie?: string): Promise<RouteShipmentLine[]> {
+    const ruta = this.routeNoValido(routeNo);
+    if (!folio || !/^[0-9A-Za-z-]{1,20}$/.test(folio)) throw new BadRequestException('folio inválido');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const ser = serie && /^[0-9A-Za-z]{1,4}$/.test(serie) ? serie : null;
+    return this.tk.run(async (trx) => (await trx.raw(
+      // ⚠️ El documento se resuelve PRIMERO y la mediana se acota a SUS skus. La versión que
+      // calculaba la mediana de toda la ruta y después filtraba el folio tardaba **518 ms** —
+      // por encima del presupuesto de 500. Mismo resultado, un orden de magnitud menos.
+      `WITH doc AS (
+         SELECT * FROM analytics.v_rd_route_shipment_lines
+          WHERE tenant_id = ? AND route_no = ? AND folio = ?
+            AND (?::text IS NULL OR serie = ?::text)
+       ), mediano AS (
+         SELECT l.sku, l.unidad,
+                -- ::numeric obligatorio: percentile_cont devuelve double precision y
+                -- round(double, int) NO existe en Postgres. Lo caza una consulta real, no el build.
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY l.costo_unitario)::numeric AS costo_mediano
+           FROM analytics.v_rd_route_shipment_lines l
+          WHERE l.tenant_id = ? AND l.route_no = ? AND l.qty > 0
+            AND EXISTS (SELECT 1 FROM doc d WHERE d.sku = l.sku AND d.unidad = l.unidad)
+          GROUP BY 1,2
+       )
+       SELECT l.sku, coalesce(p.description, l.producto_erp, l.sku) AS producto, l.unidad,
+              round(l.qty,2)::float            AS qty,
+              round(l.costo_unitario,4)::float AS costo_unitario,
+              round(l.importe,2)::float        AS importe,
+              round(m.costo_mediano,4)::float  AS costo_mediano,
+              (m.costo_mediano > 0 AND (
+                 l.costo_unitario / m.costo_mediano >= 2
+                 OR m.costo_mediano / nullif(l.costo_unitario,0) >= 2)) AS salto_peldano
+         FROM doc l
+         LEFT JOIN mediano m ON m.sku = l.sku AND m.unidad = l.unidad
+         LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = l.sku AND p.deleted_at IS NULL
+        ORDER BY l.importe DESC`,
+      [tenantId, ruta, folio, ser, ser, tenantId, ruta, tenantId],
+    )).rows as RouteShipmentLine[]);
+  }
+
+  /**
+   * `[RD.20]` **Los números rojos, partidos en sus dos familias y con su antigüedad.**
+   *
+   * No son un problema, son dos, y confundirlos es lo que hacía la pantalla:
+   *  - `nunca_cargado` — el camión lo vendió sin que nadie se lo cargara en la ventana: mercancía
+   *    anterior al primer embarque. **No se puede valuar** (sin carga no hay costo) y se declara,
+   *    no se dibuja en $0. Medido: 635 pares.
+   *  - `se_acabo` — sí se le cargó, lo vendió todo y siguió vendiendo. **1,564 pares, −$250,975**,
+   *    y es la familia accionable.
+   *
+   * `desde` es el primer día en que el saldo acumulado cruzó a negativo — la respuesta literal a
+   * "¿desde cuándo?". Medido en la ruta 23: el rojo promedio lleva **~70 días**.
+   */
+  async routeNegatives(routeNo: string, from?: string, to?: string): Promise<RouteNegativeRow[]> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `WITH mov AS (
+         SELECT sku, unidad, business_date,
+                -- ⛔ [RD.31] La clase del conteo SUMA, no resta. Con el CASE anterior
+                -- (solo 'carga' suma, ELSE resta) un conteo fisico se habria restado como si
+                -- fuera una venta, y esta pantalla habria marcado en rojo justo los productos
+                -- que alguien acaba de contar ARRIBA del camion. Un tercer valor en una columna
+                -- de clase rompe todo ELSE que la trate como binaria.
+                sum(CASE WHEN clase IN ('carga','conteo') THEN qty ELSE -qty END) AS neto,
+                sum(qty)       FILTER (WHERE clase='carga')  AS cq,
+                sum(costo_doc) FILTER (WHERE clase='carga')  AS cv,
+                sum(qty)       FILTER (WHERE clase='conteo') AS kq,
+                sum(costo_doc) FILTER (WHERE clase='conteo') AS kv
+           FROM analytics.mv_rd_route_ledger
+          WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
+          GROUP BY 1,2,3
+       ), acum AS (
+         SELECT m.*, sum(neto) OVER (PARTITION BY sku, unidad ORDER BY business_date) AS saldo
+           FROM mov m
+       ), f AS (
+         SELECT sku, unidad,
+                sum(neto)                                   AS saldo_final,
+                sum(coalesce(cq,0))                         AS carga_total,
+                sum(coalesce(kq,0))                         AS conteo_total,
+                coalesce(sum(cv) / nullif(sum(cq),0),
+                         sum(kv) / nullif(sum(kq),0))       AS costo_u,
+                min(business_date) FILTER (WHERE saldo < 0) AS desde
+           FROM acum GROUP BY 1,2
+       )
+       SELECT f.sku, coalesce(p.description, f.sku) AS producto, f.unidad,
+              round(f.saldo_final,2)::float             AS saldo,
+              -- Un producto contado SI tiene arranque conocido, aunque nunca se le haya cargado
+              -- despues: ya no es "nunca cargado", es un descuadre posterior al conteo.
+              CASE WHEN f.carga_total = 0 AND f.conteo_total = 0
+                   THEN 'nunca_cargado' ELSE 'se_acabo' END AS familia,
+              to_char(f.desde,'YYYY-MM-DD')             AS desde,
+              (CURRENT_DATE - f.desde)::int             AS dias_en_rojo,
+              round(f.saldo_final * f.costo_u,2)::float AS valor_costo
+         FROM f
+         LEFT JOIN catalog.products p ON p.tenant_id = ? AND p.sku = f.sku AND p.deleted_at IS NULL
+        WHERE f.saldo_final < 0
+        ORDER BY coalesce(f.saldo_final * f.costo_u, 0) ASC, f.saldo_final ASC
+        LIMIT ?`,
+      [tenantId, ruta, desde, hasta, tenantId, DETALLE_TOPE],
+    )).rows as RouteNegativeRow[]);
+  }
+
+  /**
+   * `[RD.31]` **Registra el conteo físico de un camión: el ancla.**
+   *
+   * Es la única forma de matar el saldo que ningún documento explica. Medido en la ruta 21 el
+   * 2026-10-05: la pantalla publicaba **$18,427** y el camión traía **$37,766**; de los −$35,376
+   * del lado «en contra», **$31,357 (89 %)** eran productos cargados la primera semana o nunca
+   * cargados — mercancía que el camión ya traía antes de que pudiéramos ver sus ventas.
+   *
+   * ⭐ **Un conteo RESETEA, no parchea.** A partir de su fecha, un producto que el conteo no lista
+   * queda en **cero** aunque antes tuviera saldo: la persona miró el camión y no estaba. El ledger
+   * lo consigue excluyendo todo lo anterior al ancla, no restando nada.
+   *
+   * ⚠️ **Es el saldo de CIERRE de su día**: los movimientos entran estrictamente después. Si se
+   * registra con la fecha de hoy, la venta de hoy ya está adentro y no se vuelve a restar.
+   *
+   * ⚠️ **La fecha la declara quien captura, NO se deduce del archivo.** El conteo que originó esta
+   * fase venía en un archivo llamado `rd21 05-sep.xlsx` y era del **5 de octubre**: de 36 productos
+   * cuyo costo cambió entre septiembre y octubre, los 36 traían el de octubre. Un nombre de archivo
+   * no es un dato.
+   *
+   * Idempotente por `(ruta, fecha)`: volver a enviar el mismo día **reemplaza** los renglones en la
+   * misma transacción, no acumula un segundo conteo.
+   */
+  async registerRouteCount(input: RouteCountInput): Promise<RouteCountResult> {
+    const ruta = this.routeNoValido(input.route_no);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.count_date ?? '')) {
+      throw new BadRequestException('count_date debe ser YYYY-MM-DD');
+    }
+    if (!Array.isArray(input.lines) || input.lines.length === 0) {
+      throw new BadRequestException('el conteo no trae renglones');
+    }
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    // ⛔ El SKU se recorta, NO se le quitan los ceros de la izquierda. Parece al reves y por eso
+    // va escrito: el archivo que origino esta fase traia 8057 donde el ledger dice 08057, y la
+    // conclusion facil era "el Kepler del camion los imprime sin cero". Medido el 2026-10-05, es
+    // FALSO: las tres fuentes de Kepler los conservan (kdik.c2 480 de 4,514 · kdii.c1 1,072 de
+    // 9,642 · kdm2.c8 6,811 de 65,789). Quien los perdio fue EXCEL, que leyo 08057 como numero.
+    // Pelarlos aca colapsaria dos SKU distintos que solo se diferencian por el cero.
+    const norm = (s: unknown) => String(s ?? '').trim();
+    const lineas = input.lines.map((l) => ({
+      sku: norm(l.sku),
+      unidad: norm(l.unidad).toUpperCase(),
+      descripcion: l.descripcion ? String(l.descripcion).slice(0, 200) : null,
+      qty: Number(l.qty),
+      costo_unitario: l.costo_unitario == null ? null : Number(l.costo_unitario),
+      importe: l.importe == null ? null : Number(l.importe),
+    }));
+    const malas = lineas.filter(
+      (l) => !l.sku || !l.unidad || !Number.isFinite(l.qty) || l.qty < 0,
+    );
+    if (malas.length) {
+      throw new BadRequestException(
+        `${malas.length} renglon(es) sin SKU, sin unidad o con cantidad invalida (ej. ${malas[0].sku || '(vacio)'})`,
+      );
+    }
+    // Dos renglones del mismo (sku, unidad) son un error de captura, no algo que haya que sumar
+    // en silencio: si el archivo trae el mismo producto dos veces, alguien tiene que mirarlo.
+    const vistos = new Set<string>();
+    for (const l of lineas) {
+      const k = `${l.sku}|${l.unidad}`;
+      if (vistos.has(k)) throw new BadRequestException(`el conteo repite ${l.sku} en ${l.unidad}`);
+      vistos.add(k);
+    }
+
+    return this.tk.run(async (trx) => {
+      const wh = (await trx('commercial.warehouses')
+        .select('id')
+        .where({ tenant_id: tenantId, kind: 'truck' })
+        .whereNull('deleted_at')
+        .whereRaw(`split_part(code, '-', 2) = ?`, [ruta])
+        .first()) as { id: string } | undefined;
+      if (!wh) throw new BadRequestException(`la ruta ${ruta} no existe como almacen de camion`);
+
+      // Reemplazo idempotente del conteo de ese dia: se cancela el anterior y se inserta el nuevo.
+      // Cancelar en vez de borrar deja el rastro de que hubo una correccion.
+      await trx('commercial.route_counts')
+        .where({ tenant_id: tenantId, warehouse_id: wh.id, count_date: input.count_date })
+        .whereNot('status', 'cancelled')
+        .update({ status: 'cancelled', updated_at: trx.fn.now() });
+
+      const [cab] = (await trx('commercial.route_counts')
+        .insert({
+          tenant_id: tenantId,
+          warehouse_id: wh.id,
+          count_date: input.count_date,
+          status: 'active',
+          source: input.source ?? 'excel',
+          declared_total: input.declared_total ?? null,
+          note: input.note ?? null,
+          counted_by: input.counted_by ?? null,
+          counted_by_username: input.counted_by_username ?? null,
+        })
+        .returning(['id'])) as Array<{ id: string }>;
+
+      await trx.batchInsert(
+        'commercial.route_count_lines',
+        lineas.map((l) => ({ tenant_id: tenantId, count_id: cab.id, ...l })),
+        500,
+      );
+
+      // El contraste contra lo que el papel DICE que suma. No bloquea: declara. Un conteo cuyo
+      // total no cuadra con sus renglones sigue siendo mejor que no tener conteo -- pero quien
+      // lo lea tiene derecho a saberlo (ADR-056).
+      const sumado = lineas.reduce((a, l) => a + (Number.isFinite(l.importe as number) ? (l.importe as number) : 0), 0);
+      const declarado = input.declared_total ?? null;
+      return {
+        count_id: cab.id,
+        route_no: ruta,
+        count_date: input.count_date,
+        renglones: lineas.length,
+        importe_sumado: Math.round(sumado * 100) / 100,
+        importe_declarado: declarado,
+        cuadra: declarado == null ? null : Math.abs(sumado - declarado) < 1,
+        // El ancla no se ve hasta que la copia por costo se refresca (cada 30 min) o alguien
+        // la fuerza. Decirlo evita el reporte de "lo subi y no cambio nada".
+        aviso: 'El saldo de la pantalla cambia cuando se refresque la copia (hasta 30 min).',
+      };
+    });
+  }
+
+  /** `route_no` sale de un código canónico (`RUTA-23` -> `23`): acotado y validado en un solo lugar. */
+  private routeNoValido(routeNo: string): string {
+    if (!routeNo || !/^[0-9A-Za-z]{1,8}$/.test(routeNo)) throw new BadRequestException('route_no inválido');
+    return routeNo;
+  }
+
+  /**
+   * Rango por default = **toda la ventana disponible** (desde la primera carga). Es lo que
+   * contesta "cuánto inventario tienen"; acotar el rango contesta "qué pasó en este periodo".
+   */
+  private routeInventoryRange(from?: string, to?: string): { desde: string; hasta: string } {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const desde = from && dRx.test(from) ? from : '2000-01-01';
+    const hasta = to && dRx.test(to) ? to : this.todayMx();
+    if (from && !dRx.test(from)) throw new BadRequestException('from debe ser YYYY-MM-DD');
+    if (to && !dRx.test(to)) throw new BadRequestException('to debe ser YYYY-MM-DD');
+    if (desde > hasta) throw new BadRequestException('from no puede ser mayor que to');
+    return { desde, hasta };
+  }
+
+  /**
+   * Ayer en TZ MX (UTC-6 fijo). `YYYY-MM-DD`.
+   *
+   * Se resta un día ANTES de recortar a fecha, no después: con `todayMx()` y un `- 1` en SQL
+   * el día lo decidiría el reloj del servidor de base, que corre en UTC — entre las 18:00 y la
+   * medianoche de México ya es "mañana" allá y la pantalla mostraría la carga de hoy rotulada
+   * como la de ayer. Es el mismo descuido que `[LC.16]` pagó con fechas corridas un día.
+   */
+  private ayerMx(): string {
+    const mx = new Date(Date.now() - 6 * 3600 * 1000 - 24 * 3600 * 1000);
+    return mx.toISOString().slice(0, 10);
+  }
+
+  // Inicio del mes actual en TZ MX (UTC-6 fijo, MX abolió DST en 2023). Formato YYYY-MM-01.
+  private currentMonthStartMx(): string {
+    const mx = new Date(Date.now() - 6 * 3600 * 1000);
+    return `${mx.getUTCFullYear()}-${String(mx.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  }
+
+  /** Hoy en TZ MX (UTC-6 fijo). `YYYY-MM-DD`. */
+  private todayMx(): string {
+    return new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+  }
+
+}

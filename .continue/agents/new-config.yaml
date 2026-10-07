@@ -1,0 +1,20 @@
+# This is an example configuration file
+# To learn more, see the full config.yaml reference: https://docs.continue.dev/reference
+
+name: Example Config
+version: 1.0.0
+schema: v1
+
+models:
+  - name: Qwen 2.5 Coder (Gratis)
+    provider: openrouter
+    model: qwen/qwen-2.5-coder-32b-instruct:free
+    apiKey: ${OPENROUTER_API_KEY}
+
+  - name: Auto-Router (Siempre Gratis)
+    provider: openrouter
+    model: openrouter/free
+    apiKey: ${OPENROUTER_API_KEY}
+
+mcpServers:
+  - uses: anthropic/memory-mcp

@@ -1,0 +1,119 @@
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
+import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
+
+import { FormsModule } from '@angular/forms';
+import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent } from 'primeng/autocomplete';
+import { ComercialService } from '../comercial.service';
+
+export interface ProductHit { id: string; label: string; sku: string | null; brand: string | null; }
+
+/**
+ * Buscador inteligente de producto (typeahead). Filtra mientras se escribe contra
+ * catalog.products (nombre o SKU) y muestra un menú de coincidencias. Al elegir una,
+ * emite `productSelected` con el hit (o null al limpiar). Reutilizable en cualquier
+ * pantalla Operations que quiera "mostrar un producto en específico".
+ *
+ * Data reactiva vía rxResource (Angular 22): el `query` signal dispara el fetch y la
+ * Resource API cancela sola las peticiones viejas (mata las race conditions del typeahead).
+ */
+@Component({
+  selector: 'app-product-search',
+  standalone: true,
+  imports: [FormsModule, AutoCompleteModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <p-autocomplete
+      [(ngModel)]="selected"
+      [suggestions]="suggestions()"
+      (completeMethod)="search($event)"
+      (onSelect)="onSelect($event)"
+      (onClear)="onClear()"
+      optionLabel="label"
+      [delay]="250"
+      [minQueryLength]="2"
+      [showClear]="true"
+      [placeholder]="placeholder"
+      appendTo="body"
+    >
+      <ng-template let-p #item>
+        <div class="ps-item">
+          <span class="ps-name">{{ p.label }}</span>
+          <span class="ps-meta">
+            @if (p.sku) { <code class="ps-sku">{{ p.sku }}</code> }
+            @if (p.brand) { <span class="ps-brand">{{ p.brand }}</span> }
+          </span>
+        </div>
+      </ng-template>
+      <ng-template #empty><div class="ps-empty">Sin coincidencias</div></ng-template>
+    </p-autocomplete>
+  `,
+  styles: [`
+    :host { display: inline-block; }
+    :host ::ng-deep .ps-ac, :host ::ng-deep .ps-ac .p-autocomplete-input { min-width: 280px; width: 100%; }
+    .ps-item { display: flex; flex-direction: column; gap: .1rem; padding: .15rem 0; }
+    .ps-name { font-size: var(--fs-sm, .85rem); color: var(--c-text-1); }
+    .ps-meta { display: flex; gap: .5rem; align-items: center; }
+    .ps-sku { font-family: var(--font-mono, monospace); font-size: var(--fs-xs, .72rem); color: var(--c-text-2); }
+    .ps-brand { font-size: var(--fs-xs, .72rem); color: var(--c-text-3, var(--text-muted)); }
+    .ps-empty { padding: .5rem .75rem; color: var(--c-text-2, var(--text-muted)); font-size: .85rem; }
+  `],
+})
+export class ProductSearchComponent {
+  @Input() placeholder = 'Buscar producto por nombre o SKU…';
+  /** Scoping opcional a un set de marcas (promotor de marca propia → solo sus SKUs). */
+  @Input() set brandIds(v: string[] | null | undefined) { this._brandIds.set(v && v.length ? v : null); }
+  /** Incluir productos inactivos (activo=false) en el resultado. Default false (solo activos).
+   *  Sell-Out lo pone true: es histórico → un SKU descontinuado sigue teniendo ventas pasadas. */
+  @Input() set includeInactive(v: boolean | null | undefined) { this._includeInactive.set(!!v); }
+  /**
+   * Fuente alterna de datos. Por default el typeahead pega a
+   * `GET /commercial/products`, que exige `COMMERCIAL_PRODUCTS_VER`; una pantalla
+   * cuyo operador no tiene ese permiso (el colaborador que captura caducidades)
+   * pasa acá el buscador de SU módulo y el componente se reusa tal cual, sin
+   * repartir un permiso de catálogo entero para poder escribir un nombre.
+   */
+  @Input() fetch?: (q: string) => Observable<ProductHit[]>;
+  @Output() productSelected = new EventEmitter<ProductHit | null>();
+
+  private readonly svc = inject(ComercialService);
+
+  private readonly query = signal<string>('');
+  private readonly _brandIds = signal<string[] | null>(null);
+  private readonly _includeInactive = signal<boolean>(false);
+  selected: ProductHit | string | null = null;
+
+  private readonly productsRes = rxResource({
+    params: () => {
+      const q = this.query();
+      if (q.length < 2) return undefined; // undefined => resource idle, sin fetch
+      return { q, brandIds: this._brandIds(), includeInactive: this._includeInactive() };
+    },
+    stream: ({ params }) =>
+      this.fetch
+        ? this.fetch(params.q)
+        : this.svc.listProducts({ search: params.q, brand_ids: params.brandIds ?? undefined, pageSize: 12, active: params.includeInactive ? undefined : true }).pipe(
+            map((r) => (r.data || []).map((p): ProductHit => ({
+              id: p.id, label: p.nombre, sku: p.sku, brand: p.brand_name ?? null,
+            }))),
+          ),
+    defaultValue: [] as ProductHit[],
+  });
+
+  readonly suggestions = computed<ProductHit[]>(() => this.productsRes.value() ?? []);
+
+  search(e: AutoCompleteCompleteEvent): void {
+    this.query.set(e.query);
+  }
+
+  onSelect(e: AutoCompleteSelectEvent): void {
+    this.productSelected.emit(e.value as ProductHit);
+  }
+
+  onClear(): void {
+    this.selected = null;
+    this.query.set('');
+    this.productSelected.emit(null);
+  }
+}

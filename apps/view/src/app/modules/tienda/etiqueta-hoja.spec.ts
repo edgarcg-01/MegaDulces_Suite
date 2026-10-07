@@ -1,0 +1,911 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+/**
+ * Candado de la geometría de la etiquetera (`/tienda/etiquetas`).
+ *
+ * La etiqueta se imprime; su tamaño vive en el CSS de `label.component`, cuántas caben por hoja
+ * en una constante de `tienda-etiquetas.component`, y el tamaño ROTULADO en el texto de la
+ * pantalla. Los tres pueden desincronizarse sin que nada falle — y lo estaban: la pantalla
+ * afirmaba **100×40 mm** mientras el CSS imprimía **115×40**, quince milímetros más ancho que el
+ * material que declaraba usar. Nadie lo iba a ver en código; sólo al medir un rollo.
+ *
+ * Acá se comprueba la aritmética completa: medida → huella con margen de recorte → columnas ×
+ * filas → `PER_SHEET`, más que el rótulo diga la verdad y que el código de barras conserve su
+ * mínimo físico.
+ */
+
+const LABEL = readFileSync(join(__dirname, 'components', 'label.component.ts'), 'utf8');
+const PAGE = readFileSync(join(__dirname, 'pages', 'tienda-etiquetas.component.ts'), 'utf8');
+/** CSS global de la app: ahí se declaran las tipografías de la etiqueta (ver el candado de abajo). */
+const GLOBAL = readFileSync(join(__dirname, '..', '..', '..', 'styles.css'), 'utf8');
+/** El arnés de geometría: el que mide el papel, y el único que puede medir el peor caso. */
+const HARNESS = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'scripts', 'etiqueta-geometria.js'), 'utf8');
+
+/**
+ * ⛔ El mismo archivo SIN COMENTARIOS — para toda aserción que pregunte "¿el código dice X?".
+ *
+ * Tres veces ya un candado de este archivo se rompió por leer comentarios como si fueran código,
+ * y las tres en direcciones distintas: el orden de `layout()` se ponía verde porque mi comentario
+ * nombraba `fitPrice`; la lista de familias se ponía roja porque el comentario del padre nombraba
+ * a Baloo 2; y la negativa de `@font-face` se ponía roja porque el comentario que dice DÓNDE NO
+ * va lo nombra. Un comentario tiene que poder explicar el porqué —incluso citando lo que prohíbe—
+ * sin mover el veredicto.
+ */
+const sinComentarios = (s: string): string =>
+  s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const LABEL_CODIGO = sinComentarios(LABEL);
+
+/** Carta horizontal (279.4×215.9 mm) con el margen de `@page`, redondeado a mm enteros. */
+const MARGEN_PAGE = Number(/@page\s*\{\s*size:\s*letter landscape;\s*margin:\s*([\d.]+)mm/.exec(PAGE)![1]);
+const HOJA_W = Math.floor(279.4 - 2 * MARGEN_PAGE);
+const HOJA_H = Math.floor(215.9 - 2 * MARGEN_PAGE);
+
+const W = Number(/\.etq-label\{[\s\S]*?width:([\d.]+)mm/.exec(LABEL)![1]);
+const H = Number(/\.etq-label\{[\s\S]*?height:([\d.]+)mm/.exec(LABEL)![1]);
+/** Margen de recorte de cada etiqueta en la hoja (los tres lugares tienen que coincidir). */
+const MARGENES = [...PAGE.matchAll(/app-label\{[^}]*margin:([\d.]+)mm/g)].map((m) => Number(m[1]));
+const M = MARGENES[0];
+const PER_SHEET = Number(/PER_SHEET = (\d+)/.exec(PAGE)![1]);
+
+const cols = Math.floor(HOJA_W / (W + 2 * M));
+const rows = Math.floor(HOJA_H / (H + 2 * M));
+
+describe('etiquetera · la etiqueta, la hoja y el rótulo dicen lo mismo', () => {
+  it('la etiqueta mide 82×35 mm', () => {
+    expect({ W, H }).toEqual({ W: 82, H: 35 });
+  });
+
+  it('el margen de recorte es el MISMO en la simulación y en las dos rutas de impresión', () => {
+    // Si divergen, la pantalla muestra una hoja que no es la que sale de la impresora.
+    expect(MARGENES).toHaveLength(3);
+    expect(new Set(MARGENES).size).toBe(1);
+  });
+
+  it('columnas × filas == PER_SHEET (la constante no puede quedarse atrás del tamaño)', () => {
+    expect(cols * rows).toBe(PER_SHEET);
+    expect(PER_SHEET).toBe(15);
+  });
+
+  it('la última fila y la última columna entran con holgura, no al ras', () => {
+    // A 2.5 mm de margen la huella medía 87×40 y cinco filas daban 200 mm contra 200 mm
+    // disponibles: cero tolerancia, y cualquier redondeo de subpíxel manda la 5ª fila a la
+    // hoja siguiente — 12 aquí y 3 allá, gastando MÁS papel que antes.
+    expect(HOJA_W - cols * (W + 2 * M)).toBeGreaterThanOrEqual(3);
+    expect(HOJA_H - rows * (H + 2 * M)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('el rótulo de la pantalla dice la medida REAL', () => {
+    // Éste es el bug que existió: el texto decía 100×40 y el CSS imprimía 115×40.
+    const rotulos = [...PAGE.matchAll(/etiqueta\s+(\d+)×(\d+)&nbsp;mm/g)].map((m) => [Number(m[1]), Number(m[2])]);
+    expect(rotulos.length).toBeGreaterThan(0);
+    for (const [w, h] of rotulos) expect([w, h]).toEqual([W, H]);
+  });
+
+  it('el rótulo dice cuántas caben, y coincide con PER_SHEET', () => {
+    const n = Number(/(\d+) por hoja/.exec(PAGE)![1]);
+    expect(n).toBe(PER_SHEET);
+  });
+
+  it('el código de barras conserva su mínimo físico', () => {
+    // Un EAN-13 necesita ~29.83 mm de ancho al 80% de magnificación. El ANCHO es el mínimo
+    // duro; el ALTO pasó a ser dinámico (`fitBarcode` le pasa el aire que sobra), así que acá
+    // se verifica su piso y que el techo sea mayor.
+    const anchoCol = Number(/\.etq-right\{\s*width:([\d.]+)mm/.exec(LABEL)![1]);
+    const pctBarcode = Number(/\.etq-barcode svg\{[^}]*width:([\d.]+)%/.exec(LABEL)![1]);
+    const arranque = Number(/\.etq-barcode svg\{[^}]*height:([\d.]+)mm/.exec(LABEL)![1]);
+    const min = Number(/const BARCODE_MIN_MM = ([\d.]+)/.exec(LABEL)![1]);
+    const max = Number(/const BARCODE_MAX_MM = ([\d.]+)/.exec(LABEL)![1]);
+    expect(anchoCol * pctBarcode / 100).toBeGreaterThanOrEqual(29.83);
+    expect(arranque).toBe(min);
+    expect(min).toBeGreaterThanOrEqual(5);
+    expect(max).toBeGreaterThan(min);
+  });
+
+  it('las dos columnas más el padding suman el ancho de la etiqueta', () => {
+    // Si no cuadran, o sobra papel a la derecha o la columna derecha se sale (invisible en
+    // pantalla por el overflow:hidden, visible en el rollo impreso).
+    const izq = Number(/\.etq-left\{\s*width:([\d.]+)mm/.exec(LABEL)![1]);
+    const der = Number(/\.etq-right\{\s*width:([\d.]+)mm/.exec(LABEL)![1]);
+    const body = /\.etq-body\{[^}]*padding:([\d.]+)mm ([\d.]+)mm ([\d.]+)mm ([\d.]+)mm[^}]*gap:([\d.]+)mm/.exec(LABEL)!;
+    const padX = Number(body[2]) + Number(body[4]);
+    const gap = Number(body[5]);
+    expect(izq + gap + der + padX).toBeCloseTo(W, 5);
+  });
+
+  it('el alto de la banda del nombre más el cuerpo no exceden el alto de la etiqueta', () => {
+    const head = Number(/\.etq-head\{[^}]*height:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(head).toBeLessThan(H * 0.25); // la banda no puede comerse un cuarto de la etiqueta
+  });
+});
+
+/**
+ * El número que "a veces se ve más chico" y el mayoreo ilegible. Dos defectos distintos con
+ * la misma raíz: el tamaño de un número lo decide una MEDICIÓN, y una medición puede hacerse
+ * en el momento equivocado (fuente no cargada, caja sin ancho) o contra una caja demasiado
+ * chica. Ninguno de los dos rompía nada visible en código.
+ */
+describe('etiquetera · el tamaño de los números no se decide por accidente', () => {
+  it('el arranque del CSS y el del TS son el MISMO número', () => {
+    // Si divergen, el número arranca de un tamaño y se mide contra otro. Están duplicados
+    // porque el CSS lo necesita antes de que corra el TS (primer render y clon de impresión).
+    const precioCss = Number(/\.etq-price\{[^}]*font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    // `[ETQ-FIT.1]` El monto ya no arranca de un literal suelto: arranca de
+    // `min(5.4mm, alto de la caja / n)`. El 5.4 sigue teniendo que ser el mismo número.
+    const montoCss = Number(/\.etq-tier \.amt\{[^}]*font-size:min\(([\d.]+)mm/.exec(LABEL)![1]);
+    expect(precioCss).toBe(Number(/const PRECIO_MM = ([\d.]+)/.exec(LABEL)![1]));
+    expect(montoCss).toBe(Number(/const MONTO_MM = ([\d.]+)/.exec(LABEL)![1]));
+  });
+
+  /**
+   * ⭐⭐ `[ETQ-FIT.1]` LOS RENGLONES CABEN SIN QUE CORRA JAVASCRIPT.
+   *
+   * Reporte del mostrador: *"el dinamismo hace que las etiquetas salgan mal en otros equipos"*.
+   * La causa medida: el alto del renglón dependía de la tipografía por DOS caminos —el rótulo
+   * envolvía a dos líneas con una fuente más ancha, y el monto arrancaba de una constante en vez
+   * del alto disponible—. Ahora el techo lo calcula el navegador con `cqh` y el rótulo es de una
+   * sola línea, así que el ajuste pasó a ser una MEJORA y no el motivo por el que la etiqueta
+   * cabe.
+   *
+   * Medido con el arnés sobre el mismo corpus de 220, SIN las tipografías:
+   * `tiers_recortado` 14 → **0** · montos disparejos 33 → **0** · rotas 48 → **2**.
+   */
+  it('⭐⭐ el alto del renglón NO depende de la tipografía', () => {
+    const amt = /\.etq-tier \.amt\{[\s\S]*?\}/.exec(LABEL)![0];
+    // El techo sale de la caja (cqh) y del número de renglones, no de un literal.
+    expect(amt).toContain('100cqh');
+    expect(amt).toContain('var(--n,1)');
+    // Sin line-height explícito el alto lo decide la métrica de la familia (normal = 1.15..1.35).
+    expect(amt).toMatch(/line-height:1\s*;/);
+    // Y el contenedor tiene que declararse como tal, o `cqh` no resuelve contra él.
+    expect(LABEL).toMatch(/\.etq-tiers\{[^}]*container-type:size/);
+    // ⛔ El rótulo, en UNA línea: es el que crecía y hacía desbordar la caja.
+    const txt = /\.etq-tier \.txt\{[\s\S]*?\}/.exec(LABEL)![0];
+    expect(txt).toContain('white-space:nowrap');
+    expect(txt).toContain('text-overflow:ellipsis');
+    // Y el componente tiene que publicar el número de renglones que DIBUJA (no el que cuenta el
+    // ahorro, que vive en su propia barra).
+    expect(LABEL).toContain('[style.--n]="renglonesImpresos"');
+    expect(LABEL).toMatch(/get renglonesImpresos\(\): number/);
+  });
+
+  it('⭐ se mide cuando cambia LO QUE SE MIDE, no cuando un hook cree que algo cambió', () => {
+    // NEGATIVA del bug, que se arregló tres veces "en el momento que faltaba" y las tres dejaron
+    // abierto el siguiente: `fonts.ready` resolvía antes del @font-face (medía con la fallback,
+    // precio 17% más chico); el re-layout vivía sólo en `ngAfterViewInit` (las etiquetas de la
+    // cola nacen de un cambio de input); y el número se medía una vez y el insumo cambiaba
+    // DESPUÉS (2026-09-15, Yurécuaro: 15 mm con 127 px en 120 disponibles). Ya no hay momentos:
+    // hay observadores de los tres insumos de la medida y una firma que decide si se re-mide.
+    expect(LABEL).toContain('FUENTES_USABLES');
+    // Nadie vuelve a colgar el re-layout de `fonts.ready` a secas.
+    expect(/ngAfterViewInit\(\)[^\n]*fonts\??\.ready/.test(LABEL)).toBe(false);
+    expect(LABEL).toContain('f.check(s)');
+    // Los tres insumos están observados: geometría, texto, tipografía…
+    expect(LABEL).toMatch(/new ResizeObserver\(/);
+    expect(LABEL).toMatch(/new MutationObserver\(/);
+    expect(LABEL).toMatch(/addEventListener\?\.\('loadingdone'/);
+    // …el observador de texto NO mira atributos (los ajustes escriben `style`: sería un lazo)…
+    const mo = /\.mo\.observe\(root, \{([^}]*)\}\)/.exec(LABEL)![1];
+    expect(mo).toContain('characterData: true');
+    expect(mo).toContain('childList: true');
+    expect(mo).not.toContain('attributes');
+    // …los dos hooks PIDEN medir en vez de medir (la decisión es de `ajustar()`)…
+    expect(/ngAfterViewInit\(\): void \{[^\n]*this\.render\(\)/.test(LABEL)).toBe(true);
+    expect(/ngOnChanges\(\): void \{[^\n]*this\.render\(\)/.test(LABEL)).toBe(true);
+    expect(/private render\(\): void \{[^\n]*this\.programar\(\)/.test(LABEL)).toBe(true);
+    expect(/private render\(\): void \{[^\n]*this\.layout\(\)/.test(LABEL)).toBe(false);
+    // …y la firma lleva los tres insumos MÁS la medida misma: el que falte, ese cambio no re-mide.
+    //
+    // ⭐ `priceEl` es el que faltaba y el que costó el bug: la etiqueta es de tamaño FIJO, así que
+    // `root.offsetWidth/offsetHeight` no cambian NUNCA y el `ResizeObserver` de la raíz no dispara
+    // jamás. Vigilando sólo las causas, un re-maquetado tardío (el swap de la tipografía, que
+    // ocurre DESPUÉS de que `document.fonts` dice "cargada") era invisible: medido en Yurécuaro,
+    // estilo de 15 mm con 91 px de ancho, y 91 px es lo que ese número mide a 10.75 mm.
+    const firma = /private firma\(\): string \{[\s\S]*?\n  \}/.exec(sinComentarios(LABEL))![0];
+    for (const insumo of ['root?.offsetWidth', 'root?.offsetHeight', 'this.fuentesOk', 'root?.textContent']) {
+      expect(firma).toContain(insumo);
+    }
+    expect(firma).toMatch(/price\?\.offsetWidth/);
+    // Y cada pase que MAQUETA pide otro pase: así la corrección llega sola al cuadro siguiente,
+    // sin depender de que algún evento externo avise. Converge porque la firma se recalcula
+    // DESPUÉS de maquetar (si nada se movió, el pase siguiente no hace nada).
+    const aj = /private ajustar\(\): void \{[\s\S]*?\n  \}/.exec(sinComentarios(LABEL))![0];
+    expect(aj).toMatch(/this\.layout\(\);\s*this\.ultimaFirma = this\.firma\(\);\s*this\.programar\(\);/);
+    // Y se limpia: sin `ngOnDestroy` cada etiqueta de una cola de 300 dejaría tres observadores vivos.
+    expect(LABEL).toMatch(/ngOnDestroy\(\): void \{[\s\S]*?\.disconnect\(\)[\s\S]*?removeEventListener/);
+  });
+
+  it('una caja sin ancho NO encoge el número hasta el piso', () => {
+    // La otra mitad del bug: clientWidth 0 → avail negativo → el bucle llegaba al mínimo.
+    expect(LABEL).toContain('if (!(avail > 0)) return;');
+    expect(LABEL).toContain('if (!(box.clientHeight > 0)) return;');
+  });
+
+  it('el bloque de tiers se ajusta a lo ALTO antes de encoger cada monto', () => {
+    // Sin esto el 4º renglón se recortaba en silencio (lo tapa el overflow:hidden) — ya pasaba
+    // en la etiqueta de 115×40: 100 px de contenido contra 92 de caja.
+    expect(LABEL).toContain('private fitTiers()');
+    const orden = /private layout\(\): void \{([^}]*)\}/.exec(LABEL)![1];
+    expect(orden.indexOf('fitTiers')).toBeLessThan(orden.indexOf('fitAmts'));
+    expect(orden.indexOf('fitTiers')).toBeGreaterThan(-1);
+  });
+
+  it('el monto de mayoreo es el más visible del renglonaje', () => {
+    const trazoNormal = Number(/\.etq-tier \.amt\{[^}]*-webkit-text-stroke:([\d.]+)mm/.exec(LABEL)![1]);
+    const trazoMayoreo = Number(/\.etq-tier\.is-mayoreo \.amt\{[^}]*-webkit-text-stroke:([\d.]+)mm/.exec(LABEL)![1]);
+    // El peso va por TRAZO porque Bebas Neue no tiene bold real: medido, `font-weight:700`
+    // daba el mismo ancho al píxel, o sea ningún cambio visible.
+    expect(trazoMayoreo).toBeGreaterThan(trazoNormal);
+    expect(LABEL).toMatch(/\.etq-tier\.is-mayoreo\{[^}]*background:/);
+    // El realce es CONDICIONAL: un binding, y ninguna clase estática que se lo salte.
+    // `[ETQ-PRES.4]` Eran DOS bindings porque había dos bloques de renglón escritos a mano
+    // (mayoreo de pieza y mayoreo de paquete). Ahora hay un solo `@for` sobre la lista de
+    // presentaciones, así que dos sería señal de que alguien volvió a escribir un cajón fijo.
+    expect((LABEL.match(/\[class\.is-mayoreo\]/g) || []).length).toBe(1);
+    expect((LABEL.match(/class="etq-tier is-mayoreo"/g) || []).length).toBe(0);
+  });
+
+  it('los ajustes son BIDIRECCIONALES y con techo acotado', () => {
+    const P = Number(/const PRECIO_MM = ([\d.]+)/.exec(LABEL)![1]);
+    const PMAX = Number(/const PRECIO_MAX_MM = ([\d.]+)/.exec(LABEL)![1]);
+    const M = Number(/const MONTO_MM = ([\d.]+)/.exec(LABEL)![1]);
+    const MMAX = Number(/const MONTO_MAX_MM = ([\d.]+)/.exec(LABEL)![1]);
+    expect(PMAX).toBeGreaterThan(P);
+    expect(MMAX).toBeGreaterThan(M);
+    // ⭐ JERARQUÍA: el monto de un renglón no puede acercarse al precio grande. 7.5 mm sería el
+    // llenado perfecto de 2 renglones, pero contra un hero de 10.25 da 1.37:1 y no lee como dos
+    // niveles distintos.
+    expect(MMAX).toBeLessThanOrEqual(P * 0.7);
+  });
+
+  it('el techo del monto se clampea contra el precio MEDIDO, no sólo contra la constante', () => {
+    // Con un precio de 4 cifras el hero baja de 10 mm y un monto de 7 sería más grande que el
+    // precio grande. Sin este clamp, "el precio grande es el número más grande" deja de ser cierto.
+    const fit = /private fitTiers\(\): void \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    expect(fit).toContain('Math.min(MONTO_MAX_MM');
+    expect(fit).toContain('heroMm * k');
+    // [ETQ-PROMO.5] Dos techos: 0.7 general y uno mas apretado bajo oferta. El criterio de
+    // anaquel pide que el precio sea ~2x el texto de apoyo (comprador a 50-100 cm); el 0.7
+    // permitia que la barra de beneficio EMPATARA con el precio — que es lo que se vio.
+    expect(fit).toContain('this.enPromo ? MONTO_MAX_PROMO_K : 0.7');
+    const kPromo = Number(/const MONTO_MAX_PROMO_K = ([\d.]+)/.exec(LABEL)![1]);
+    expect(kPromo).toBeLessThan(0.7);        // bajo oferta APRIETA, nunca afloja
+    expect(kPromo).toBeLessThanOrEqual(0.5); // ~2x el texto de apoyo
+  });
+
+  it('ANTI-TRINQUETE: los dos ajustes arrancan de su constante, no del tamaño actual', () => {
+    // `layout()` corre 2-4 veces por etiqueta (dos hooks + render + el pase de fuentes). Crecer
+    // desde el tamaño ACTUAL subiría en cada pasada. El defecto no existía cuando todo encogía.
+    expect(/private fitPrice\(\): void \{[\s\S]*?let size = PRECIO_MM;/.test(LABEL)).toBe(true);
+    /**
+     * ⭐ `[ETQ-FIT.1]` El monto ya NO arranca de `MONTO_MM`: arranca del techo que puso el CSS,
+     * que es `min(5.4mm, alto de la caja / n)`. Arrancar de la constante **pisaba ese techo** con
+     * un inline más grande y devolvía el desborde — medido apenas se puso.
+     *
+     * El anti-trinquete sigue vivo, y es lo que este caso cuida: se BORRA el tamaño inline antes
+     * de leer el calculado. Sin eso se leería el del pase anterior y el ajuste subiría en cada
+     * pasada, que es exactamente el defecto que la constante estaba evitando.
+     */
+    const ft = /private fitTiers\(\): void \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    expect(ft).toMatch(/amts\.forEach\(\(r\) => \{ r\.nativeElement\.style\.fontSize = ''; \}\);/);
+    expect(ft).toContain('getComputedStyle(amts.first.nativeElement).fontSize');
+    expect(ft).toMatch(/let size = techoBase;/);
+    // Y el crecimiento tampoco puede pasarse del techo del CSS.
+    expect(ft).toMatch(/const techo = Math\.min\(techoBase,/);
+  });
+
+  it('sólo se CRECE con las fuentes usables — y "usables" se lee AL MEDIR, nunca de una bandera de una vez', () => {
+    // Encoger midiendo la fuente equivocada era seguro (quedaba chico pero cabía). Crecer con
+    // una fallback más ANGOSTA deja el número más grande de lo que Anton aguanta → se recorta.
+    //
+    // El seguro viejo era `let FUENTES_OK = false` puesto en `true` al resolver la espera — y la
+    // espera resolvía TAMBIÉN cuando ganaba el tope de 3 s. En una caja con internet lento el
+    // número crecía contra la de respaldo, Anton llegaba a los 4 s y nadie re-medía.
+    expect(LABEL).not.toContain('let FUENTES_OK');
+    expect(LABEL).toMatch(/this\.fuentesOk = familiasFaltantes\(\)\?\.length === 0;/);
+    for (const m of ['fitPrice', 'fitTiers']) {
+      const fn = new RegExp(`private ${m}\\(\\): void \\{[\\s\\S]*?\\n  \\}`).exec(LABEL)![0];
+      expect(fn).toContain('this.fuentesOk ?');
+    }
+    // `fonts.check()` devuelve true cuando NINGUNA cara coincide (es la especificación): con las
+    // familias por @import decía "sí" antes de que el CSS bajara. Se exige además una cara cargada.
+    expect(LABEL).toContain("status === 'loaded'");
+    // La espera con tope gobierna sólo la MARCA que espera la impresión — nunca el techo.
+    expect(LABEL).toContain('ESPERA_FUENTES_TERMINADA');
+    expect(/const techo = [^\n]*ESPERA_FUENTES_TERMINADA/.test(LABEL)).toBe(false);
+    expect(/data-etq-settled', 'fallback'\)/.test(LABEL)).toBe(true);
+  });
+
+  it('la guarda del precio se MIDE, no se escribe', () => {
+    // Hoy no hay obstáculo en la caja (el brote se mudó a la banda del nombre) y la guarda sale
+    // 0 sola. Si mañana alguien mete una insignia ahí, el número tiene que protegerse solo.
+    const fit = /private fitPrice\(\): void \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    expect(fit).toContain("querySelector<HTMLElement>('.etq-sprout')");
+    expect(fit).not.toMatch(/const guarda = [\d.]+/);
+  });
+
+  it('el aire NO se mide con scrollHeight', () => {
+    // Con `justify-content:center`, scrollHeight nunca baja de clientHeight: reporta 0 de aire
+    // donde hay 6 mm, y no ve el desborde por arriba. Para encoger era tolerable; para crecer
+    // y para repartirle el sobrante al código de barras es un recorte.
+    expect(LABEL).toContain('private altoTiers(');
+    for (const m of ['fitTiers', 'fitBarcode']) {
+      const fn = new RegExp(`private ${m}\\(\\): void \\{[\\s\\S]*?\\n  \\}`).exec(LABEL)![0];
+      expect(fn).not.toContain('scrollHeight');
+      expect(fn).toContain('this.altoTiers(');
+    }
+  });
+
+  it('el orden de los ajustes es el que las dependencias exigen', () => {
+    // ⛔ SIN LOS COMENTARIOS. Este candado lee el cuerpo de `layout()` como texto, así que un
+    // comentario que nombre un ajuste cuenta como si fuera la llamada — y entonces el candado
+    // **se cumple a sí mismo**. Pasó de verdad al escribir la verificación final de ET.5: se
+    // quitó la llamada a propósito para ver el rojo, y el test siguió verde porque el comentario
+    // de al lado decía `fitPrice`. Un verde que mira el texto equivocado es un falso verde
+    // (ADR-056), y acá sale gratis cerrarlo para las SEIS aserciones, no sólo para la nueva.
+    const orden = /private layout\(\): void \{([\s\S]*?)\n  \}/.exec(LABEL)![1]
+      .replace(/\/\/.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    const i = (m: string) => orden.indexOf(m);
+    expect(i('fitUnit')).toBeGreaterThan(-1);
+    expect(i('fitMeta')).toBeLessThan(i('fitPrice'));   // el renglón del código define el alto disponible
+    expect(i('fitUnit')).toBeLessThan(i('fitPrice'));   // la franja define el alto disponible
+    expect(i('fitPrice')).toBeLessThan(i('fitTiers'));  // el techo del monto lee el hero
+    expect(i('fitTiers')).toBeLessThan(i('fitAmts'));   // uniforme antes que individual
+    // ⭐ INVERTIDO a propósito. La premisa vieja ("el aire se mide al final") se midió FALSA:
+    // corriendo al final, `fitTiers` ya se había llevado el aire y el símbolo quedaba en su
+    // mínimo de 5 mm (19% de un EAN-13) con 2, 3 y 4 renglones. Mide 0/1/2/3/4 renglones si
+    // alguien quiere revertirlo.
+    expect(i('fitBarcode')).toBeLessThan(i('fitTiers'));
+
+    // [ET.5] El último ajuste vuelve a ser el precio: cierre barato e idempotente del pase, por si
+    // alguno de los cuatro ajustes de en medio mueve la caja del precio dentro de UN pase.
+    //
+    // ⚠️ Se publicó como LA causa del desborde de Yurécuaro (15/09/2026) y NO lo era: con este
+    // cierre ya en producción el número seguía a 15 mm (el techo) con 127 px en 120 disponibles,
+    // y devolver los montos a su arranque movía la caja del precio 0 px. Para crecer a 15 mm el
+    // bucle tuvo que medir ≤107 px: el insumo (texto/tipografía) cambió DESPUÉS del pase. Eso lo
+    // cierra el mecanismo de observadores + firma (candado de arriba), no este orden.
+    expect(orden.lastIndexOf('fitPrice')).toBeGreaterThan(i('fitAmts'));
+  });
+
+  /**
+   * ⭐ El renglón "contenido | Código: NNNNN" no puede decidir el tamaño del precio.
+   *
+   * Era la causa del reporte "problemas con el tamaño de los precios": el renglón no tenía alto
+   * fijo y, al envolver, se quedaba con 3.4 mm que salen de la caja del precio, que topa por
+   * alto. Medido en Chrome con la geometría real: 1 línea → 14.75 mm · 2 líneas → 11.00 mm
+   * (−25%) · 2 líneas anchas → 8.50 mm (−42%).
+   */
+  it('⭐ el renglón del código tiene alto FIJO: el precio no depende de cuántas líneas ocupe', () => {
+    const meta = /\.etq-meta\{([\s\S]*?)\}/.exec(LABEL)![1];
+    // Las tres condiciones son conjuntas: sin nowrap envuelve, sin height el envoltorio se
+    // traduce en alto, y sin overflow el texto que ya no envuelve se derrama sobre el precio.
+    expect(meta).toContain('white-space:nowrap');
+    expect(meta).toContain('overflow:hidden');
+    const alto = Number(/height:([\d.]+)mm/.exec(meta)![1]);
+    expect(alto).toBe(Number(/const META_ALTO_MM = ([\d.]+)/.exec(LABEL)![1]));
+    // …y con nowrap, lo que antes envolvía ahora se RECORTARÍA: tiene que haber quien lo encoja.
+    expect(LABEL).toContain('private fitMeta()');
+    const arranque = Number(/\.etq-meta\{[\s\S]*?font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(arranque).toBe(Number(/const META_MM = ([\d.]+)/.exec(LABEL)![1]));
+  });
+
+  /**
+   * ⭐ El ancho del renglón no puede depender de QUÉ dígitos trae el SKU.
+   *
+   * Medido en Baloo 2: sin cifras tabulares, cinco dígitos miden 23.76, 31.79 o 36.33 px según
+   * cuáles sean — hasta 54% de diferencia. Por eso `500 ml` con el SKU 59108 imprimía el precio
+   * a 14.75 mm y con el 44604 a 8.50: misma forma, 42% de diferencia, inexplicable en el anaquel.
+   */
+  it('⭐ el renglón del código usa cifras tabulares (el SKU no cambia de ancho según sus dígitos)', () => {
+    const meta = /\.etq-meta\{([\s\S]*?)\}/.exec(LABEL)![1];
+    expect(meta).toContain('font-variant-numeric:tabular-nums');
+  });
+
+  /**
+   * ⭐ El diagnóstico de la pantalla mira las fuentes que DECIDEN el tamaño.
+   *
+   * Comprobaba sólo Anton —la del número— y podía pintar "tipografía ✓" con Baloo 2 sin cargar,
+   * que es la del renglón del código y la que define el alto de la caja del precio: verde en
+   * pantalla, precio 25% más chico en el papel. Un verde que mira la fuente equivocada es un
+   * falso verde (ADR-056).
+   */
+  it('⭐ la pantalla declara las TRES familias, y no las duplica a mano', () => {
+    expect(LABEL).toContain('export const FUENTES_SPECS');
+    // La página pregunta por las familias a través del MISMO helper con que la etiqueta mide
+    // (`familiasFaltantes`, construido sobre FUENTES_SPECS): una sola verdad para pantalla y medida.
+    expect(PAGE).toContain('familiasFaltantes()');
+    expect(LABEL).toMatch(/return FUENTES_SPECS\.filter\(/);
+    // La página NO puede nombrar una familia por su cuenta: en el momento en que escribe un
+    // literal propio, esa lista puede divergir de la que el guardián espera y vuelve el falso
+    // verde. Se mira el CÓDIGO, no los comentarios — el porqué del cambio vive ahí y debe poder
+    // nombrar a Anton y a Baloo 2 sin disparar el candado.
+    const codigo = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    for (const familia of ['Anton', 'Bebas Neue', 'Baloo 2']) {
+      expect(codigo).not.toContain(familia);
+    }
+    // Las tres que espera el guardián son las tres que se declaran.
+    const specs = /FUENTES_SPECS: readonly string\[\] = \[([^\]]*)\]/.exec(LABEL)![1];
+    expect(specs).toContain('Anton');
+    expect(specs).toContain('Bebas Neue');
+    expect(specs).toContain('Baloo 2');
+  });
+
+  it('la reserva de la franja está en lockstep con el punteado interior', () => {
+    // Son dos declaraciones del MISMO número; si se mueve una sola, el borde punteado se mete
+    // debajo de la franja verde y nadie lo nota hasta imprimir.
+    const pad = Number(/\.etq-pricebox\{[^}]*padding:[\d.]+mm [\d.]+mm ([\d.]+)mm/.exec(LABEL)![1]);
+    const inset = Number(/\.etq-pricebox::before\{[^}]*inset:[\d.]+mm [\d.]+mm ([\d.]+)mm/.exec(LABEL)![1]);
+    const franja = Number(/\.etq-pieza\{[^}]*height:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(pad).toBe(inset);
+    expect(pad).toBeGreaterThanOrEqual(franja);
+  });
+
+  it('⭐ la UNIDAD del precio tiene jerarquía propia', () => {
+    // 73.5% de las etiquetas muestran un precio de PAQUETE y el cliente compra esa unidad en el
+    // 92.8% de los renglones: leer el número sin su unidad es el error más caro del proyecto.
+    const unidad = Number(/const UNIDAD_MM = ([\d.]+)/.exec(LABEL)![1]);
+    const rotulo = Number(/\.etq-tier \.txt\{[^}]*font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(unidad).toBeGreaterThan(2.7);              // era 2.7 mm, lo más chico del bloque
+    expect(unidad).toBeGreaterThanOrEqual(rotulo * 1.5);
+    // Y sin mayúsculas forzadas: `bigUnit.word` puede ser "500 g" y saldría "500 G".
+    expect(/\.etq-pieza\{[^}]*text-transform/.test(LABEL)).toBe(false);
+  });
+
+  /**
+   * `[ETQ-PRES.4]` **Los tres cajones no pueden volver.**
+   *
+   * Acá había dos candados que leían el fuente buscando `mayoreoMin`, `hasMayoreoPza`,
+   * `hasMayoreoPaq`, `realceMayoreoPza` y `realceMayoreoPaq` — los dieciséis miembros que existían
+   * sólo para decidir qué palabra ponerle a un precio que llegaba sin su unidad. Ya no existen, y
+   * lo que se comprueba ahora es que **no los reponga nadie**: el umbral y el realce se prueban
+   * contra el DOM en `components/label.component.spec.ts`, que es donde se ve lo que se imprime.
+   *
+   * ⚠️ Esta prueba es de FORMA, no de comportamiento. Vale como red de contención justamente
+   * porque su gemela de comportamiento existe: sola, un regex sobre el fuente no prueba nada.
+   */
+  it('⭐⭐ NEGATIVA: la etiqueta no vuelve a leer los tres cajones', () => {
+    for (const muerto of [
+      'wholesale_piece_price', 'wholesale_pack_price', 'wholesale_piece_min_qty',
+      'wholesale_pack_min_qty', 'pack_size', 'pack_price', 'box_size', 'box_price',
+    ]) {
+      // Declararlos en `LabelModel` está bien (el camino sin plaza todavía los recibe);
+      // LEERLOS con `this.model?.<campo>` es lo que vuelve a atar el papel a los cajones.
+      expect(LABEL).not.toContain(`this.model?.${muerto}`);
+    }
+    // Y el vocabulario de unidades sale del contrato, una sola vez, no de una cascada local.
+    expect(LABEL).toContain('unidadLegible');
+    expect(LABEL).not.toMatch(/get mayoreo(Group|Base)Word\(\)/);
+    expect(LABEL).not.toMatch(/get has(MayoreoPza|MayoreoPaq|Paquete|Caja)\(\)/);
+  });
+
+  it('⭐ el realce de oferta exige que haya descuento, y es UNA sola regla', () => {
+    // 265 productos imprimían chip amarillo + trazo grueso sobre un precio materialmente igual.
+    const min = Number(/const MAYOREO_MIN_DESC = ([\d.]+)/.exec(LABEL)![1]);
+    expect(min).toBeGreaterThan(0);
+    expect(min).toBeLessThanOrEqual(0.05);
+    // ⭐ Se USA en un solo lugar: eran dos getters y cada uno elegía su base con una cascada
+    // distinta. Se cuentan las COMPARACIONES, no las menciones — los comentarios la nombran.
+    expect((LABEL.match(/>= MAYOREO_MIN_DESC/g) || []).length).toBe(1);
+  });
+
+  it('el brote salió de la caja del precio', () => {
+    // Era el techo del crecimiento: medido, con la franja de unidad más alta, dejarlo adentro
+    // anulaba el trabajo (−0.1% contra +17.4%).
+    expect(LABEL).toMatch(/\.etq-head \.etq-sprout\{/);
+    expect(/\.etq-sprout\{\s*position:absolute/.test(LABEL)).toBe(false);
+  });
+
+  it('el bloque de estilos no tiene acentos graves (parten el template literal)', () => {
+    // Pasó otra vez al documentar el CSS: un acento grave dentro de un comentario CSS cierra
+    // el template literal y el compilador de Angular tira "Failed to resolve styles at
+    // position 1 to a string". ⚠️ El transformador de los tests NO lo detecta (no hace el análisis estático de
+    // Angular), así que los tests salían verdes con el build roto.
+    const bloque = /styles:\s*\[`([\s\S]*?)`\],/.exec(LABEL)![1];
+    expect(bloque).not.toContain('`');
+  });
+
+  it('la celda del monto es más ancha que la mitad del precio unitario', () => {
+    // El reparto se movió a propósito: el mayoreo es donde el cliente compara.
+    const izq = Number(/\.etq-left\{\s*width:([\d.]+)mm/.exec(LABEL)![1]);
+    const cell = Number(/\.etq-tier \.pricecell\{\s*width:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(cell).toBeGreaterThan(izq / 2);
+  });
+});
+
+/**
+ * Revisión del 2026-09-08 — ocho hallazgos leídos en el código, ninguno cubierto por los
+ * candados de arriba. Cada uno se escribió ANTES del fix y se vio en rojo una vez: un gate sin
+ * prueba negativa es una intención (ADR-056). Lo que se RENDERIZA se prueba aparte, en
+ * `components/label.component.spec.ts` y `pages/tienda-etiquetas.component.spec.ts`.
+ */
+describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
+  /** Cuerpo de un método de la página: desde su FIRMA (para no chocar con el template) hasta el cierre con sangría de clase. */
+  const metodo = (src: string, firma: string): string => {
+    const ini = src.indexOf(firma);
+    expect(ini).toBeGreaterThan(-1);
+    return src.slice(ini, src.indexOf('\n  }', ini));
+  };
+  /** Luminancia relativa (WCAG) de un #rrggbb. */
+  const lum = (hex: string): number => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const contraste = (a: string, b: string): number => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  it('⭐ el texto CHICO en naranja contrasta al menos 4.5:1 contra la crema', () => {
+    // `.etq-red` va en el SKU (3.2 mm) y en las cantidades de los renglones (2.6 mm): el texto
+    // más chico de la etiqueta. El brand-700 (#F05A28) daba 3.1:1 sobre la crema — pasa en un
+    // titular, no en letra de 3 mm en una impresora gastada. Es papel, así que WCAG no aplica
+    // literal, pero es la única vara medible que hay y 4.5 es la del texto pequeño.
+    const cream = /--cream:(#[0-9a-fA-F]{6})/.exec(LABEL)![1];
+    const red = /--red:(#[0-9a-fA-F]{6})/.exec(LABEL)![1];
+    expect(contraste(red, cream)).toBeGreaterThanOrEqual(4.5);
+    // …y sigue siendo un tono de la escala de marca, no uno inventado.
+    const TOKENS = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'libs', 'design-tokens', 'tokens.css'), 'utf8');
+    expect(TOKENS.toLowerCase()).toContain(red.toLowerCase());
+  });
+
+  it('el bloque de renglones encoge también por ANCHO, no sólo por alto', () => {
+    // `fitTiers` sólo miraba el alto; el ancho lo revisaba después `fitAmts`, renglón por
+    // renglón. Un monto de 4 cifras que ya no cabía en su celda al arranque bajaba SOLO, y un
+    // monto más chico que su vecino se lee como error de dato, no como diseño.
+    const fit = /private fitTiers\(\): void \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    const anchoOk = fit.indexOf('const anchoOk');
+    expect(anchoOk).toBeGreaterThan(-1);
+    expect(anchoOk).toBeLessThan(fit.indexOf('if (noCabe()'));
+    expect(fit).toMatch(/while \(\(noCabe\(\) \|\| !anchoOk\(\)\)/);
+  });
+
+  it('el símbolo lleva su zona muda ADENTRO y conserva la magnificación mínima', () => {
+    // Con `margin: 0` la zona muda quedaba a merced del layout: la franja verde de la unidad
+    // estaba a 1.6 mm de la primera barra, donde un EAN-13 pide 11 módulos (~5 mm). Ahora la
+    // lleva el propio SVG, así que se estira con las barras y nadie la puede pisar.
+    expect(LABEL).not.toMatch(/JsBarcode\([^)]*margin: 0/);
+    const tabla = /const ZONA_MUDA[^=]*=\s*\{([\s\S]*?)\};/.exec(LABEL)![1];
+    const mod = (f: string): [number, number] => {
+      const m = new RegExp(`${f}:\\s*\\[(\\d+),\\s*(\\d+)\\]`).exec(tabla)!;
+      return [Number(m[1]), Number(m[2])];
+    };
+    expect(mod('EAN13')).toEqual([11, 7]);
+    expect(mod('UPC')).toEqual([9, 9]);
+    expect(mod('EAN8')).toEqual([7, 7]);
+    expect(mod('CODE128')).toEqual([10, 10]);
+    // El ancho de la columna se reparte entre 95 módulos + la zona muda: el módulo resultante
+    // no baja del 80% de magnificación (0.264 mm), que es el mínimo que el candado de arriba
+    // ya defendía para el símbolo pelado.
+    const anchoCol = Number(/\.etq-right\{\s*width:([\d.]+)mm/.exec(LABEL)![1]);
+    const [l, r] = mod('EAN13');
+    expect(anchoCol / (95 + l + r)).toBeGreaterThanOrEqual(0.264);
+  });
+
+  it('el número del EAN se imprime debajo de las barras, legible, y sin duplicar el SKU', () => {
+    // `displayValue:false` dejaba el símbolo sin dígitos: si el lector falla, no hay qué
+    // teclear. Los dibuja el componente (no JsBarcode: con preserveAspectRatio:none el texto se
+    // estiraría con las barras) y sólo para EAN/UPC — el CODE128 de respaldo codifica el SKU,
+    // que ya está impreso arriba en "Código:".
+    expect(LABEL).toMatch(/get barcodeDigits\(\): string \| null/);
+    expect(LABEL).toMatch(/class="etq-bc-digits"/);
+    expect(LABEL).toMatch(/displayValue: false/);
+    const digitos = Number(/\.etq-bc-digits\{[^}]*font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    const masChico = Number(/\.etq-tier \.unit\{[^}]*font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(digitos).toBeGreaterThanOrEqual(masChico);
+    expect(LABEL).toMatch(/\.etq-bc-digits\{[^}]*tabular-nums/);
+  });
+
+  it('la impresión espera a que cada etiqueta se haya AJUSTADO, no 500 ms fijos', () => {
+    // `FUENTES_USABLES` tarda hasta 3 s en resolver; el `setTimeout(..., 500)` clonaba al
+    // iframe los tamaños medidos con la fallback: el número chico, por la única puerta que los
+    // candados de arriba no cerraban.
+    expect(PAGE).not.toMatch(/setTimeout\(\(\) => this\.printIsolated\(\), \d+\)/);
+    expect(LABEL).toMatch(/^export const FUENTES_USABLES/m);
+    expect(PAGE).toContain('await FUENTES_USABLES');
+    // La etiqueta MARCA cuándo terminó y la impresión espera esa marca — con tope, y si el tope
+    // gana se DECLARA, no se calla.
+    expect(LABEL).toContain("'data-etq-settled'");
+    expect(PAGE).toContain('[data-etq-settled]');
+    expect(PAGE).toMatch(/no terminaron de ajustarse/);
+  });
+
+  it('⭐ la impresión DECLARA cuántas etiquetas quedaron con el precio desbordado', () => {
+    // Después de medir, la etiqueta deja su veredicto en el DOM. Tres valores, no dos: lo que no
+    // se pudo medir (caja sin ancho) se dice `sin_medida`, nunca `ok` (ADR-056). La impresión
+    // cuenta los `overflow` y lo dice antes de mandar a la impresora — imprime igual (el
+    // operador decide), pero nunca callada.
+    expect(LABEL).toContain("'data-etq-fit'");
+    expect(LABEL).toMatch(/'ok' \| 'overflow' \| 'sin_medida'/);
+    expect(LABEL).toMatch(/if \(!\(avail > 0\)\) return 'sin_medida';/);
+    expect(PAGE).toContain('[data-etq-fit="overflow"]');
+    expect(PAGE).toMatch(/precio desbordado/);
+    // …y el RASTRO de la medición queda escrito: tamaño, ancho del número, espacio y con qué
+    // tipografía se midió. Sin esto, "salió de otro tamaño" sólo se puede responder con sondas a
+    // medida en la caja que falla — cuatro hipótesis refutadas y un parche inútil salieron de ahí.
+    expect(LABEL).toContain("'data-etq-medida'");
+    const rastro = /data-etq-medida', `([^`]*)`/.exec(LABEL)![1];
+    for (const dato of ['fontSize', 'offsetWidth', 'avail', 'fuentesOk']) expect(rastro).toContain(dato);
+  });
+
+  it('⭐⭐ el tamaño del precio se CALCULA con las métricas de la tipografía, no se mide del DOM', () => {
+    // Cuatro entregas arreglando "el momento de medir" y las cuatro fallaron: lo frágil no era el
+    // momento, era medir el DOM. `measureText` lee las tablas de la fuente — sin elemento, sin
+    // reflow, sin maquetación y por lo tanto sin momento.
+    expect(LABEL).toContain('export const MEDIDOR_DE_TEXTO');
+    expect(LABEL).toMatch(/measureText\(txt\)\.width/);
+    const fit = /private fitPrice\(\): void \{[\s\S]*?\n  \}/.exec(sinComentarios(LABEL))![0];
+    // El tamaño se DESPEJA (ancho y alto), no se busca con un bucle que lee el elemento.
+    // El ancho es AFÍN: el margen del signo está en mm y NO escala con el cuerpo. Si entrara en el
+    // ancho por milímetro crecería con el número y el tamaño saldría chico de más.
+    expect(fit).toMatch(/const porAncho = \(avail \/ PRECIO_ANCHO_K - met\.fijoPx\) \/ met\.porMm;/);
+    expect(Number(/\.etq-price \.cur\{[^}]*margin-right:([\d.]+)mm/.exec(LABEL)![1]))
+      .toBe(Number(/PRECIO_CUR_MARGIN_MM = ([\d.]+)/.exec(LABEL)![1]));
+    expect(fit).toMatch(/const porAlto = availH \/ \(PX_POR_MM \* PRECIO_LINE_H\);/);
+    // Al paso hacia ABAJO: redondear hacia arriba es volver a desbordar.
+    expect(fit).toMatch(/Math\.floor\(max \/ PRECIO_PASO_MM\) \* PRECIO_PASO_MM/);
+    // Y el VEREDICTO juzga con la misma regla — si juzga con `offsetWidth` vuelve a decir `ok`
+    // sobre un número desbordado, que es lo que pasó: leía los mismos 91 px falsos.
+    const ver = /private veredicto\(\): 'ok'[\s\S]*?\n  \}/.exec(sinComentarios(LABEL))![0];
+    expect(ver).toMatch(/const met = this\.anchoPrecioPorMm\(el\);/);
+    expect(ver).not.toMatch(/el\.offsetWidth \* PRECIO_ANCHO_K > avail/);
+
+    // Los tres números del CSS que usa el cálculo tienen que ser los MISMOS con los que se dibuja.
+    // Si se mueve uno solo, el tamaño se decide contra una geometría que no es la que se imprime.
+    const css = (re: RegExp) => Number(re.exec(LABEL)![1]);
+    expect(css(/\.etq-price\{[^}]*line-height:([\d.]+)/)).toBe(Number(/PRECIO_LINE_H = ([\d.]+)/.exec(LABEL)![1]));
+    expect(css(/\.etq-price \.cur\{[^}]*font-size:([\d.]+)em/)).toBe(Number(/PRECIO_CUR_EM = ([\d.]+)/.exec(LABEL)![1]));
+    expect(css(/\.etq-price \.dot\{[^}]*font-size:([\d.]+)em/)).toBe(Number(/PRECIO_DOT_EM = ([\d.]+)/.exec(LABEL)![1]));
+    // El signo y el punto se miden con SU cuerpo, no con el del número: medir la cadena entera a
+    // un solo tamaño da de más y el precio saldría más chico de lo que puede.
+    expect(LABEL).toMatch(/private segmentosPrecio\(\)/);
+    expect(LABEL).toMatch(/\{ txt: '\$', em: PRECIO_CUR_EM \}/);
+    expect(LABEL).toMatch(/\{ txt: '\.', em: PRECIO_DOT_EM \}/);
+  });
+
+  it('⭐ un pase NO puede TERMINAR en desborde si un tamaño menor cabe', () => {
+    // El invariante que no depende de entender la causa. Sea lo que sea lo que dejó el número
+    // grande —una tipografía más angosta al medir, un texto que llegó después, una geometría que
+    // se movió—, el pase se re-ajusta y se vuelve a juzgar antes de escribir el veredicto.
+    // Un solo reintento: si sigue desbordado es que no cabe ni en el piso, y eso se DECLARA.
+    const fn = /private ajustar\(\): void \{[\s\S]*?\n  \}/.exec(sinComentarios(LABEL))![0];
+    expect(fn).toMatch(/let v = this\.veredicto\(\);/);
+    expect(fn).toMatch(/if \(v === 'overflow'\) \{ this\.fitPrice\(\); v = this\.veredicto\(\); \}/);
+    expect(fn).toMatch(/'data-etq-fit', v\)/);
+    // NEGATIVA: el veredicto no puede escribirse SIN pasar por el reintento.
+    expect(fn).not.toMatch(/'data-etq-fit', this\.veredicto\(\)\)/);
+    // El veredicto y el ajuste comparten el factor del scaleX: si midieran con dos números
+    // distintos, uno diría "cabe" y el otro "desborda" sobre el mismo texto.
+    expect((LABEL.match(/\* PRECIO_ANCHO_K/g) || []).length).toBe(2);
+    expect(LABEL).not.toMatch(/offsetWidth \* 1\.12/);
+  });
+
+  it('⭐ las tipografías viajan CON la app y se declaran en el CSS GLOBAL, no en el componente', () => {
+    // Dos defectos distintos, los dos medidos, y el candado cierra los dos:
+    //
+    // (1) Con el `@import` a fonts.googleapis.com la misma etiqueta se medía con Anton en una caja
+    //     y con Impact en la de al lado según su salida a internet (hasta 17% en el número).
+    // (2) Con el `@font-face` dentro de los estilos del COMPONENTE, Angular los inyecta al primer
+    //     render de ese componente: sin ninguna etiqueta en pantalla no existía ninguna cara, las
+    //     fuentes no empezaban a bajar, y el chip decía "falta Anton, Bebas Neue y Baloo 2" antes
+    //     de agregar nada — la primera etiqueta siempre se medía con la de respaldo.
+    // Se mira el CÓDIGO, no los comentarios: el comentario que dice dónde NO va la declaración
+    // tiene que poder nombrarla (ver `sinComentarios`, y las tres veces que esto ya falló).
+    expect(LABEL_CODIGO).not.toMatch(/@import url\(/);
+    expect(LABEL_CODIGO).not.toContain('fonts.googleapis.com/css');
+    // NEGATIVA de (2): la declaración NO puede volver a los estilos del componente.
+    expect(LABEL_CODIGO).not.toContain('@font-face');
+    const caras = [...GLOBAL.matchAll(/@font-face\{[^}]*font-family:'([^']+)'[^}]*src:url\('\/assets\/fonts\/([^']+)'\)/g)];
+    expect(caras.map((m) => m[1]).sort()).toEqual(['Anton', 'Baloo 2', 'Bebas Neue']);
+    // Las tres que se declaran son exactamente las tres de las que depende la MEDIDA.
+    const specs = /FUENTES_SPECS: readonly string\[\] = \[([^\]]*)\]/.exec(LABEL)![1];
+    for (const [, familia] of caras) expect(specs).toContain(familia);
+    const dir = join(__dirname, '..', '..', '..', 'assets', 'fonts');
+    for (const [, familia, archivo] of caras) {
+      // El archivo existe y es woff2 de verdad (no un HTML de error guardado con ese nombre).
+      expect({ familia, existe: existsSync(join(dir, archivo)) }).toEqual({ familia, existe: true });
+      expect(readFileSync(join(dir, archivo)).subarray(0, 4).toString('latin1')).toBe('wOF2');
+    }
+    // Redistribuir una fuente OFL exige acompañarla de su licencia.
+    for (const f of ['OFL-anton.txt', 'OFL-baloo2.txt', 'OFL-bebasneue.txt']) expect(existsSync(join(dir, f))).toBe(true);
+    // Baloo 2 es variable: una sola cara declara el rango que usa la etiqueta (500–800).
+    expect(GLOBAL).toMatch(/font-family:'Baloo 2'[^}]*font-weight:500 800/);
+  });
+
+  /**
+   * ⭐⭐ `[ETQ-FIT.2]` LA CAUSA, NO EL SÍNTOMA: las tipografías se bajan AL INSTALAR.
+   *
+   * *"El dinamismo hace que las etiquetas salgan mal en otros equipos"*. Por qué en OTROS
+   * equipos: las tres familias caían en el grupo `assets` del service worker, que es
+   * **`installMode: lazy`** — el SW no las descarga en la instalación, sólo las guarda DESPUÉS de
+   * que el navegador las haya pedido una vez.
+   *
+   * En una app declaradamente offline (el verificador de mostrador lo es) eso significa que un
+   * equipo puede quedar instalado y **sin las tres familias, indefinidamente**. Y la etiqueta
+   * calcula sus tamaños midiendo texto: ahí imprime con la de respaldo. Medido sobre 220
+   * etiquetas reales sin las fuentes, antes de `[ETQ-FIT.1]`: **48 salían rotas**.
+   *
+   * Este candado deriva la lista de los `@font-face` de `styles.css` — no de una copia — y exige
+   * que un grupo `prefetch` las cubra. Agregar una familia sin prefetchearla pone el build en
+   * rojo, que es lo que hace que esto no pueda volver.
+   */
+  it('⭐⭐ el service worker PREFETCHEA las tipografías de la etiqueta, no las deja en lazy', () => {
+    const ngsw = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', '..', 'ngsw-config.json'), 'utf8'));
+    const archivos = [...GLOBAL.matchAll(/@font-face\{[^}]*src:url\('(\/assets\/fonts\/[^']+)'\)/g)].map((m) => m[1]);
+    expect(archivos.length).toBeGreaterThanOrEqual(3);
+
+    /** ⚠️ En ngsw gana el PRIMER grupo que casa: uno en prefetch DESPUÉS de un lazy que ya casó no sirve. */
+    const casa = (patron: string, url: string): boolean => {
+      const rx = new RegExp('^' + patron.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*\*/g, '\u0000').replace(/\*/g, '[^/]*').replace(/\u0000/g, '.*') + '$');
+      return rx.test(url);
+    };
+    for (const url of archivos) {
+      const grupo = (ngsw.assetGroups as { name: string; installMode: string; resources: { files: string[] } }[])
+        .find((g) => (g.resources?.files ?? []).some((f) => casa(f, url)));
+      expect({ url, grupo: grupo?.name ?? 'NINGUNO', installMode: grupo?.installMode ?? 'ninguno' })
+        .toEqual({ url, grupo: grupo!.name, installMode: 'prefetch' });
+    }
+
+    // ⛔ NEGATIVA de la trampa del orden: el grupo de las fuentes va ANTES del genérico `assets`.
+    const nombres = (ngsw.assetGroups as { name: string }[]).map((g) => g.name);
+    expect(nombres.indexOf('fuentes-etiqueta')).toBeGreaterThanOrEqual(0);
+    expect(nombres.indexOf('fuentes-etiqueta')).toBeLessThan(nombres.indexOf('assets'));
+  });
+
+  it('la cola tiene tope, es un número entero de hojas y se muestra antes de chocar con él', () => {
+    // `resolve` acepta 1,000 códigos y `printLabels` renderizaba TODAS las etiquetas de golpe en
+    // el DOM oculto; `PER_SHEET` sólo acotaba la vista previa. El tope es una decisión de lote
+    // de papel (N hojas), no un límite medido de rendimiento — lo que mantiene viva la pantalla
+    // es que el render de impresión se hace por hojas, cediendo el hilo entre una y otra.
+    const hojas = Number(/readonly MAX_SHEETS = (\d+);/.exec(PAGE)![1]);
+    expect(hojas).toBeGreaterThanOrEqual(5);
+    expect(PAGE).toContain('readonly MAX_LABELS = this.MAX_SHEETS * this.PER_SHEET;');
+    // Se aplica donde entran etiquetas y donde se multiplican…
+    expect(metodo(PAGE, 'private pushLabels(')).toContain('MAX_LABELS');
+    expect(metodo(PAGE, 'maxCopies(i: number): number')).toContain('MAX_LABELS');
+    expect(metodo(PAGE, 'setCopies(i: number, val: number)')).toContain('this.maxCopies(');
+    // …el operador lo ve en el contador de la cola…
+    const caption = /<div class="etqp-tcap">([\s\S]*?)<\/div>/.exec(PAGE)![1];
+    expect(caption).toContain('MAX_LABELS');
+    // …y lo que no entró vuelve al textarea, no se pierde.
+    expect(metodo(PAGE, 'addBulk(): void')).toContain('leftover');
+    // …y la hoja oculta se arma por hojas, cediendo el hilo entre una y otra.
+    expect(metodo(PAGE, 'async print(): Promise<void>')).toContain('this.PER_SHEET');
+  });
+
+  /**
+   * `[ETQ-PRES.4]` El multiselect pasó de cinco cajones a DOS EJES.
+   *
+   * Eran "Mayoreo por pieza · Paquete · Mayoreo por paquete · Caja · Granel: kg y porción": cinco
+   * interruptores con el nombre de una ranura fija. Con la etiqueta imprimiendo la LISTA no hay
+   * "el paquete" — hay las presentaciones que el ERP publique, y para el `18022` son tres.
+   */
+  it('las secciones son los dos ejes reales, y el interruptor llega a los dos renglones', () => {
+    expect(LABEL).toMatch(/ALL_SECTIONS: LabelSections = \{ mayoreo: true, presentaciones: true, barcode: true \}/);
+    expect(LABEL).toContain('this.show.presentaciones');
+    expect(LABEL).toContain('this.show.mayoreo');
+    expect(PAGE).toMatch(/value: 'presentaciones'/);
+    expect(PAGE).toMatch(/value: 'mayoreo'/);
+    // ⛔ NEGATIVA: ninguna ranura fija sobrevive en el selector.
+    for (const viejo of ['mayoreoPza', 'mayoreoPaq', "value: 'paquete'", "value: 'caja'", "value: 'granel'"]) {
+      expect(PAGE).not.toContain(viejo);
+    }
+  });
+
+  it('la frescura que se pinta es la PEOR de la cola, no la del último escaneo', () => {
+    // `freshness.set(r.freshness)` en cada resolve: un lote agregado con rezago seguía en la
+    // cola después de que un escaneo fresco apagaba el banner. La edad viaja con cada ítem y el
+    // banner muestra la peor; stale > unknown > fresh.
+    expect(PAGE).not.toMatch(/this\.freshness\.set\(/);
+    expect(PAGE).toMatch(/readonly freshness = computed\(/);
+    expect(PAGE).toMatch(/interface QueueItem \{[^}]*freshness: Freshness \| null/);
+    expect(PAGE).toMatch(/const RANGO_FRESCURA[^=]*=\s*\{\s*stale: 2,\s*unknown: 1,\s*fresh: 0\s*\}/);
+  });
+
+  it('la vista de hoja se puede pasar de página, y la página se clampea si la cola se achica', () => {
+    expect(PAGE).toMatch(/sheetPage = signal\(1\)/);
+    expect(PAGE).toContain('pi-chevron-left');
+    expect(PAGE).toContain('pi-chevron-right');
+    expect(PAGE).toMatch(/Math\.min\(this\.sheetPage\(\), this\.totalSheets\(\)\)/);
+  });
+
+  /**
+   * ⭐⭐ `[ETQ-FUENTE.1]` SIN TIPOGRAFÍA NO SE IMPRIME — y el freno tiene que estar en los DOS
+   * lados.
+   *
+   * Reporte del mostrador: *"el dinamismo hace que las etiquetas salgan mal en otros equipos"*.
+   * La etiqueta calcula sus tamaños midiendo texto, así que la medida sólo vale para la
+   * tipografía con la que se midió. Medido con el arnés sobre el mismo corpus de 220:
+   * **48 etiquetas (21.8%) rompen un invariante sin las fuentes** — 14 con un renglón recortado,
+   * 33 con los montos a distinto tamaño. Correr `node scripts/etiqueta-geometria.js x
+   * --sin-fuentes` lo reproduce.
+   *
+   * El diagnóstico YA existía (el chip "tipografía de respaldo") y no frenaba nada. Un aviso sin
+   * consecuencia es una decoración: el papel salía mal igual.
+   */
+  it('⭐⭐ con la tipografía de respaldo el botón de imprimir se bloquea, y `print()` también', () => {
+    expect(PAGE).toMatch(/readonly bloqueoTipografia = computed<string \| null>/);
+    // El botón no puede ser el único freno: `print()` es público y se llega por teclado.
+    expect(PAGE).toMatch(/\[disabled\]="!totalLabels\(\) \|\| !!bloqueoTipografia\(\)"/);
+    const fn = /async print\(\): Promise<void> \{[\s\S]*?\n  \}/.exec(PAGE)![0];
+    expect(fn).toContain('this.bloqueoTipografia()');
+    // ⛔ Y frena SÓLO por 'respaldo'. `sin_medir` es "este navegador no deja preguntar": bloquear
+    // por no saber dejaría a esa tienda sin poder etiquetar, que es peor que el riesgo.
+    const g = /readonly bloqueoTipografia = computed<string \| null>\(\(\) => \{[\s\S]*?\n  \}\);/.exec(PAGE)![0];
+    expect(g).toContain("this.fuenteEtiqueta() !== 'respaldo'");
+    expect(g).not.toContain('sin_medir');
+  });
+
+  /**
+   * El arnés tiene que PODER medir el peor caso. Sin `--sin-fuentes` aborta cuando las
+   * tipografías no cargan (y está bien: publicar milímetros medidos con la de respaldo fue un
+   * defecto real), pero entonces nadie podía medir cómo sale la etiqueta en un equipo sin ellas.
+   */
+  /**
+   * ⛔ `[ETQ-FIT.4]` Lo que vigila a `scripts/` NO vive acá — vive en
+   * `scripts/check-etiqueta-gate.js`, que corre en `npm run check`.
+   *
+   * Medido: un caso de este spec que leía `scripts/etiqueta-geometria.js` **se quedaba verde con
+   * la comprobación rota**. Este spec lo corre Nx con caché y un cambio en `scripts/` no la
+   * invalida; sólo se ponía rojo con `--skip-nx-cache`. Declarar el archivo en `sharedGlobals`
+   * de `nx.json` tampoco alcanzó (probado y revertido).
+   *
+   * Un guardián que puede quedar cacheado sobre una versión vieja de lo que vigila no guarda
+   * nada, y es peor que no tenerlo: da la sensación de que alguien está mirando.
+   */
+  it('el arnés puede correr a propósito SIN las tipografías, y lo declara', () => {
+    expect(HARNESS).toContain('CORRIDA SIN TIPOGRAFIAS');
+  });
+
+  /**
+   * ⭐⭐ `[ETQ-FIT.3]` EL NOMBRE COMPLETO, AUNQUE NO ENTRE EN UN RENGLÓN.
+   *
+   * Los nombres que no entraban a 2.3 mm salían con puntos suspensivos, y los cinco casos eran
+   * descripciones de promoción de 55-83 caracteres (*"2 CJS TRIDENT VALUPACK = GRATIS 1 CJ GREEN
+   * PACK 60 X 90 /10"*) — o sea justo donde el nombre ES lo que se vende.
+   *
+   * La banda mide 6.8 mm fijos, así que dos renglones entran hasta 3.23 mm de cuerpo. El
+   * `line-clamp:2` es lo que impide que un tercero desborde: el alto de la banda no lo decide el
+   * texto, ni en un modo ni en el otro.
+   */
+  it('⭐⭐ el encabezado usa DOS renglones antes que recortar el nombre', () => {
+    expect(LABEL).toMatch(/\.etq-head\.es-doble \.etq-head-txt\{[^}]*-webkit-line-clamp:2/);
+    expect(LABEL).toMatch(/\.etq-head\.es-doble \.etq-head-txt\{[^}]*white-space:normal/);
+    const fh = /private fitHead\(\): void \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    // Anti-trinquete: cada pase vuelve a decidir el modo, no hereda el anterior.
+    expect(fh).toContain("head.classList.remove('es-doble')");
+    expect(fh).toContain("head.classList.add('es-doble')");
+    // 3.2 mm: dos renglones a 1.05 de interlínea entran en los 6.8 mm de la banda.
+    expect(fh).toMatch(/Math\.min\(size, 3\.2\)/);
+  });
+
+  /**
+   * ⭐⭐ `[ETQ-FIT.4]` CERO INVARIANTES ROTOS, **CERO EXCEPCIONES** — y la compuerta corre sola.
+   *
+   * Dos cosas que este caso sostiene, y las dos son la respuesta a *"no se pueden seguir
+   * imprimiendo mal las etiquetas"*:
+   *
+   * 1. `CONOCIDOS` está VACÍO. Tenía cinco etiquetas declaradas como "no tienen arreglo", y el
+   *    efecto real era que el arnés salía verde con cinco imprimiéndose recortadas. Las cinco se
+   *    arreglaron. Una entrada acá es decir *"esta etiqueta sale mal y lo aceptamos"*.
+   * 2. El arnés es una COMPUERTA de `npm run check`, en sus dos escenarios. Estaba escrito y
+   *    había que acordarse de correrlo: se corrió dos veces en toda su vida, las dos por un
+   *    reporte del mostrador.
+   */
+  it('⭐⭐ existe una compuerta PLANA que vigila al arnés (no cacheable)', () => {
+    // La comprobación de fondo —`CONOCIDOS` vacío y las dos corridas en `npm run check`— vive en
+    // node plano justamente porque acá quedaba cacheada. Lo que este caso asegura es que ese
+    // guardián EXISTA y esté enchufado; el contenido lo comprueba él, corriendo.
+    const gate = join(__dirname, '..', '..', '..', '..', '..', '..', 'scripts', 'check-etiqueta-gate.js');
+    expect(existsSync(gate)).toBe(true);
+    // [KBD.3] El refactor del 2026-10-01 movio las compuertas a UN registro
+    // (`scripts/compuertas.js`) del que leen los DOS runners. Este caso seguia preguntandole a
+    // `check-all.js`, donde ya no estan: el spec quedo apuntando a donde la cosa VIVIA, y se
+    // puso rojo sin que nadie rompiera nada. Ahora mira el registro, que es la fuente.
+    const registro = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'scripts', 'compuertas.js'), 'utf8');
+    expect(registro).toContain('check-etiqueta-gate.js');
+  });
+});

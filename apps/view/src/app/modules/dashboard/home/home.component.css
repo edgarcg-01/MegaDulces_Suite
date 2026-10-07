@@ -1,0 +1,150 @@
+:host {
+  display: block;
+  /* Redundant variables imported from styles.css globally now. */
+}
+
+.dashboard-container {
+  /* min-height + pb mobile/desktop ya los maneja el wrapper via Tailwind
+     (`min-h-[100dvh]` + `pb-[calc(56px+env(...))]`). Acá solo flex chain. */
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  font-family: var(--font-body);
+  transition: background-color var(--dur-standard, 250ms) var(--ease-standard), color var(--dur-standard, 250ms) var(--ease-standard);
+  overflow-x: hidden;
+}
+
+@media (max-width: 40rem) {
+  .dashboard-container { gap: 1rem; }
+}
+
+/* Header */
+.title-premium {
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  background: linear-gradient(to bottom right, var(--text-main), var(--text-muted));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+:host-context(.theme-monochrome) .title-premium {
+  background: var(--text-main);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: var(--text-main);
+}
+
+/* Cards */
+.card-premium {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-light);
+  /*
+   * Antes `transition: all` animaba layout props (problema en mobile + costo
+   * de paint). Solo transicionamos lo que cambia en hover: box-shadow + transform.
+   */
+  transition:
+    box-shadow 0.3s var(--ease-standard),
+    transform 0.3s var(--ease-standard);
+}
+
+/*
+ * Hover lift gateado por `@media (hover: hover)`: en touch devices el "hover"
+ * se dispara al tap y deja la card flotando hasta scrollear — efecto bouncy
+ * raro. Apple/Google los suprimen en touch.
+ */
+@media (hover: hover) {
+  .card-premium:hover {
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-2px);
+  }
+  .card-premium.card-flat:hover {
+    box-shadow: var(--shadow-light);
+    transform: none;
+  }
+  :host-context(.theme-monochrome) .card-premium:hover {
+    border-color: var(--border-color);
+  }
+}
+
+/* Scores */
+.stat-value {
+  font-size: 2rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--text-main);
+}
+
+.stat-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+/* Progress Bars */
+.progress-container {
+  width: 100%;
+  height: 8px;
+  background: var(--skeleton-bg);
+  border-radius: 4px;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  /* [DS.1] 0.8s eran 2.3x el techo de 350ms de DESIGN.md. La propiedad sigue siendo width. */
+  transition: width var(--dur-standard, 250ms) var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+/* Highlight card: oscuro en light, sigue card-bg en dark (donde ya todo es oscuro). */
+.monochrome-highlight {
+  background: var(--neutral-950);
+  color: var(--neutral-50);
+  border: none;
+}
+
+.theme-monochrome .monochrome-highlight {
+  background: var(--card-bg);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+}
+
+.monochrome-highlight .text-dim        { color: var(--neutral-500); }
+.monochrome-highlight .text-dim-strong { color: var(--neutral-300); }
+
+.theme-monochrome .monochrome-highlight .text-dim        { color: var(--text-muted); }
+.theme-monochrome .monochrome-highlight .text-dim-strong { color: var(--text-faint); }
+
+/* Animations */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slideUp var(--dur-max, 350ms) cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+/* Fix for PrimeNG inputNumber width in metas dialog */
+.metas-input-full-width {
+  width: 100% !important;
+  display: flex !important;
+}
+
+.metas-input-full-width .p-inputnumber-input {
+  width: 100% !important;
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+
+.metas-input-full-width .p-inputnumber-button-group {
+  flex-shrink: 0 !important;
+}
+
+

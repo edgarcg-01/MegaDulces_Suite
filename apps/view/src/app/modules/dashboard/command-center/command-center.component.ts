@@ -1,0 +1,432 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  OnInit,
+  computed,
+  inject,
+  signal,
+  type WritableSignal,
+} from '@angular/core';
+
+import { ButtonModule } from 'primeng/button';
+import { SkeletonModule } from 'primeng/skeleton';
+import { ToastModule } from 'primeng/toast';
+import { TooltipModule } from 'primeng/tooltip';
+import { MessageService } from 'primeng/api';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { of, type Observable } from 'rxjs';
+import { catchError, timeout } from 'rxjs/operators';
+
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { Customer360PanelComponent } from '../../../shared/components/customer-360-panel/customer-360-panel.component';
+import { CountUpDirective } from '../../../shared/directives/count-up.directive';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
+import {
+  CommandCenterService,
+  NetworkOverviewResponse,
+  NetworkTopProductRow,
+  NetworkDailyRow,
+  NetworkChannelRow,
+  ErpCustomerRow,
+  SalesByBrandRow,
+  LowStockResponse,
+  InactiveCustomersResponse,
+  RankingOutOfStockRow,
+  ConversionSummary,
+  ConversionDailyRow,
+  ProductStockRow,
+} from './command-center.service';
+
+/** Shape mínimo para abrir el 360° de un cliente desde cualquier tabla. */
+interface CustomerPeekRef {
+  customer_id: string;
+  name: string;
+  code: string;
+  revenue?: number;
+}
+
+/** Shape mínimo para abrir el peek de un producto desde cualquier tabla. */
+interface ProductPeekRef {
+  product_id: string;
+  product_name: string;
+  brand_name: string;
+  units_sold?: number;
+  revenue?: number;
+  orders_count?: number;
+}
+
+@Component({
+  selector: 'app-command-center',
+  standalone: true,
+  imports: [
+    ButtonModule,
+    SkeletonModule,
+    ToastModule,
+    TooltipModule,
+    SidePeekComponent,
+    Customer360PanelComponent,
+    CountUpDirective,
+    PageTabsComponent,
+    MetricStripComponent
+],
+  providers: [MessageService],
+  templateUrl: './command-center.component.html',
+  styleUrls: ['./command-center.component.css'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class CommandCenterComponent implements OnInit {
+  readonly analyticsTabs = ANALYTICS_TABS;
+
+  private readonly api = inject(CommandCenterService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  // Señales — TODO sobre VENTA REAL de la red (analytics.*, feeds Kepler),
+  // excepto el pipeline B2B (netOverview.pipeline, de commercial.orders).
+  readonly refreshing = signal(false);
+  readonly overview = signal<NetworkOverviewResponse | null>(null);
+  readonly topProducts = signal<NetworkTopProductRow[]>([]);
+  readonly salesByBrand = signal<SalesByBrandRow[]>([]);
+  readonly netCustomers = signal<ErpCustomerRow[]>([]);
+  readonly dailySeries = signal<NetworkDailyRow[]>([]);
+  readonly lowStock = signal<LowStockResponse | null>(null);
+  readonly inactiveCustomers = signal<InactiveCustomersResponse | null>(null);
+  readonly rankingOOS = signal<RankingOutOfStockRow[]>([]);
+  readonly conversion = signal<ConversionSummary | null>(null);
+  readonly conversionSeries = signal<ConversionDailyRow[]>([]);
+  readonly dueCount = signal<number | null>(null);
+
+  // ── Un "cargando" por panel, no uno para todo el tablero ────────────────
+  // Medido en prod: de las 11 llamadas, 9 cierran en ≤1.8 s y la peor a 3.6 s. Con un
+  // `loading()` único, esos 9 paneles se quedaban invisibles esperando al último y la
+  // pantalla se veía muerta ~4 s — que es el "se queda congelado" que reportó Edgar.
+  // Ahora cada panel se pinta en cuanto llega SU dato.
+  readonly ovLoading = signal(true);
+  readonly dsLoading = signal(true);
+  readonly tpLoading = signal(true);
+  readonly sbbLoading = signal(true);
+  readonly custLoading = signal(true);
+  readonly lsLoading = signal(true);
+  readonly icLoading = signal(true);
+  readonly convLoading = signal(true);
+
+  /** Hero de venta: KPIs (overview) + sparkline (serie diaria). */
+  readonly heroLoading = computed(() => this.ovLoading() || this.dsLoading());
+  /** Sheet de top productos + mejores clientes de la red. */
+  readonly productsLoading = computed(() => this.tpLoading() || this.custLoading());
+  /** Sheet operacional: bajo stock + clientes inactivos. */
+  readonly opsLoading = computed(() => this.lsLoading() || this.icLoading());
+  /** ¿Queda algún panel en vuelo? (deshabilita "Recargar", retiene el aviso de degradado). */
+  readonly anyLoading = computed(() =>
+    this.heroLoading() || this.productsLoading() || this.opsLoading() ||
+    this.sbbLoading() || this.convLoading());
+
+  // Reveal escalonado SOLO en el primer paint (nunca en refresh — DESIGN.md motion #5).
+  readonly stagger = signal(false);
+  private hasEntered = false;
+
+  // ── Side-peek: drill-down 360° del cliente (Customer360PanelComponent) ──
+  readonly peekOpen = signal(false);
+  readonly peekRow = signal<CustomerPeekRef | null>(null);
+
+  // ── Side-peek: drill-down de producto (stock por almacén) ──
+  readonly prodOpen = signal(false);
+  readonly prodRow = signal<ProductPeekRef | null>(null);
+  readonly prodStock = signal<ProductStockRow[]>([]);
+  readonly prodLoading = signal(false);
+
+  /** Canales de venta ordenados por revenue (ruta/mostrador/preventa…). */
+  readonly channels = computed<NetworkChannelRow[]>(() => this.overview()?.by_channel ?? []);
+
+  readonly revenueSpark = computed(() => {
+    const series = this.dailySeries();
+    if (series.length < 2) return null;
+    const W = 280;
+    const H = 64;
+    const padX = 4;
+    const padY = 6;
+    const values = series.map((d) => d.revenue);
+    const max = Math.max(...values, 1);
+    const min = Math.min(...values, 0);
+    const range = max - min || 1;
+    const n = series.length;
+    const stepX = (W - 2 * padX) / Math.max(n - 1, 1);
+    const points = series.map((d, i) => {
+      const x = padX + i * stepX;
+      const y = padY + (H - 2 * padY) * (1 - (d.revenue - min) / range);
+      return { x, y, v: d.revenue, day: d.day };
+    });
+    const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    const area = `${line} L${points[points.length - 1].x.toFixed(1)},${H - padY} L${points[0].x.toFixed(1)},${H - padY} Z`;
+    return { W, H, line, area, points, last: points[points.length - 1] };
+  });
+
+  readonly revenueDelta = computed(() => {
+    const series = this.dailySeries();
+    if (series.length < 4) return null;
+    const mid = Math.floor(series.length / 2);
+    const first = series.slice(0, mid).reduce((s, d) => s + d.revenue, 0);
+    const second = series.slice(mid).reduce((s, d) => s + d.revenue, 0);
+    if (first === 0) return null;
+    const pct = ((second - first) / first) * 100;
+    return { pct, direction: pct >= 0 ? 'up' : 'down' as 'up' | 'down' };
+  });
+
+  /** Mini-barras (tickets/día) — venta real. */
+  readonly ticketsBars = computed(() => this.bars(this.dailySeries().map((d) => d.tickets)));
+  /** Mini-barras (unidades/día) — venta real. */
+  readonly unitsBars = computed(() => this.bars(this.dailySeries().map((d) => d.units)));
+  /** Mini-barras del Motor — ofertas/día, convertidas/día. */
+  readonly offersBars = computed(() => this.bars(this.conversionSeries().map((d) => d.offers)));
+  readonly convertedBars = computed(() => this.bars(this.conversionSeries().map((d) => d.converted)));
+  readonly conversionSpark = computed(() => this.miniSpark(this.conversionSeries().map((d) => d.conversion_pct)));
+
+  /** "En curso": composición del pipeline B2B (commercial.orders). */
+  readonly pipelineStack = computed(() => {
+    const o = this.overview()?.pipeline;
+    if (!o) return null;
+    const total = (o.confirmed || 0) + (o.draft || 0) + (o.cancelled || 0);
+    if (total <= 0) return null;
+    return {
+      confirmedPct: ((o.confirmed || 0) / total) * 100,
+      draftPct: ((o.draft || 0) / total) * 100,
+      cancelledPct: ((o.cancelled || 0) / total) * 100,
+    };
+  });
+
+  /** Sparkline línea para cards chicas (viewBox 100×28, stretch). */
+  private miniSpark(values: number[]) {
+    const n = values.length;
+    if (n < 2) return null;
+    const W = 100;
+    const H = 28;
+    const padY = 3;
+    const max = Math.max(...values);
+    const min = Math.min(...values, 0);
+    const range = max - min || 1;
+    const stepX = W / (n - 1);
+    const pts = values.map((v, i) => ({
+      x: i * stepX,
+      y: padY + (H - 2 * padY) * (1 - (v - min) / range),
+    }));
+    const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    const area = `${line} L${W},${H} L0,${H} Z`;
+    return { W, H, line, area, last: pts[pts.length - 1] };
+  }
+
+  /** Geometría de un mini-bar chart. viewBox 100×28, stretch. */
+  private bars(values: number[]) {
+    const n = values.length;
+    if (n < 2) return null;
+    const W = 100;
+    const H = 28;
+    const gap = 1.2;
+    const max = Math.max(...values, 1);
+    const barW = (W - gap * (n - 1)) / n;
+    const rects = values.map((v, i) => {
+      const h = max > 0 ? (v / max) * H : 0;
+      return { x: i * (barW + gap), y: H - h, w: barW, h };
+    });
+    return { W, H, rects };
+  }
+
+  ngOnInit(): void {
+    this.loadAll();
+  }
+
+  /**
+   * Tope de espera por panel. Un endpoint que no responde tiene que rendirse solo: antes,
+   * con `forkJoin` sin timeout, dejaba la pantalla cargando para siempre. El `catchError`
+   * de cada llamada no alcanzaba — atrapa errores, no silencio.
+   */
+  private static readonly PANEL_TIMEOUT_MS = 20_000;
+
+  /** Paneles que no alcanzaron a cargar en esta corrida (tiempo agotado o error). */
+  readonly degraded = signal(0);
+
+  /**
+   * Dispara UNA llamada de panel y la escribe en cuanto llega — sin esperar a las otras
+   * diez. Si tarda de más o falla: valor por defecto, se cuenta como degradado y el panel
+   * deja de estar en "cargando" igual (no se queda colgado).
+   */
+  private panel<T>(src: Observable<T>, fallback: T, flag: WritableSignal<boolean> | null, apply: (v: T) => void): void {
+    flag?.set(true);
+    src
+      .pipe(
+        timeout(CommandCenterComponent.PANEL_TIMEOUT_MS),
+        catchError(() => { this.degraded.update((n) => n + 1); return of(fallback); }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((v) => {
+        apply(v);
+        flag?.set(false);
+        this.markEntered();
+      });
+  }
+
+  /** El reveal escalonado arranca con el PRIMER panel que pinta, no con el último. */
+  private markEntered(): void {
+    if (this.hasEntered) return;
+    this.hasEntered = true;
+    this.stagger.set(true);
+    setTimeout(() => this.stagger.set(false), 1200);
+  }
+
+  loadAll(): void {
+    this.degraded.set(0);
+
+    // BFF (ADR-052): los 7 paneles COMMERCIAL_ANALYTICS_VER en 1 request tipada
+    // (contrato compartido). Antes eran 7 llamadas sueltas; sus banderas de carga se
+    // resuelven juntas porque llegan en la misma respuesta. Los params (30d, low-stock
+    // 200, inactivos 5) los fija el BFF server-side para replicar exactamente esta vista.
+    const bffFlags = [this.ovLoading, this.dsLoading, this.tpLoading, this.sbbLoading, this.lsLoading, this.icLoading];
+    bffFlags.forEach((f) => f.set(true));
+    this.api
+      .commandCenter()
+      .pipe(
+        timeout(CommandCenterComponent.PANEL_TIMEOUT_MS),
+        catchError(() => { this.degraded.update((n) => n + 1); return of(null); }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((d) => {
+        if (d) {
+          this.overview.set(d.overview);
+          this.dailySeries.set(d.daily_series);
+          this.topProducts.set(d.top_products);
+          this.salesByBrand.set(d.sales_by_brand);
+          this.lowStock.set(d.low_stock);
+          this.inactiveCustomers.set(d.inactive_customers);
+          this.rankingOOS.set(d.ranking_out_of_stock);
+        }
+        bffFlags.forEach((f) => f.set(false));
+        this.markEntered();
+      });
+
+    // Los 4 paneles con OTRO permiso (erp-customers=CUSTOMERS360_VER, conversion/nba=
+    // intelligence) siguen APARTE, best-effort y progresivos, para no bypassear su gate.
+    this.panel(this.api.erpCustomers(6), [] as ErpCustomerRow[], this.custLoading, (v) => this.netCustomers.set(v));
+    this.panel(this.api.conversionSummary(30), null, this.convLoading, (v) => this.conversion.set(v));
+    this.panel(this.api.conversionDaily(30), [] as ConversionDailyRow[], null, (v) => this.conversionSeries.set(v));
+    this.panel(this.api.nbaDue(100), [] as Array<{ customer_id: string }>, null, (v) => this.dueCount.set(v.length));
+  }
+
+  /** Recarga los datos (los feeds Kepler corren server-side; acá solo re-fetch). */
+  reload(): void {
+    this.refreshing.set(true);
+    this.loadAll();
+    // loadAll deja cada panel en "cargando"; el spinner del botón es sólo el acuse del clic.
+    setTimeout(() => this.refreshing.set(false), 400);
+  }
+
+  /** Formato MXN con separadores de miles. */
+  fmtMoney(n: number | undefined | null): string {
+    if (n === null || n === undefined) return '—';
+    return new Intl.NumberFormat('es-MX', {
+      style: 'currency',
+      currency: 'MXN',
+      maximumFractionDigits: 2,
+    }).format(Number(n));
+  }
+
+  /** Formato MXN compact ($706.42K, $5.76M) para headlines. */
+  fmtMoneyShort(n: number | undefined | null): string {
+    if (n === null || n === undefined) return '—';
+    const v = Number(n);
+    if (Math.abs(v) >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
+    if (Math.abs(v) >= 1e3) return '$' + (v / 1e3).toFixed(2) + 'K';
+    return '$' + v.toFixed(0);
+  }
+
+  fmtNumber(n: number | undefined | null, decimals = 0): string {
+    if (n === null || n === undefined) return '—';
+    return new Intl.NumberFormat('es-MX', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(Number(n));
+  }
+
+  fmtDate(s: string | null | undefined): string {
+    if (!s) return '—';
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return s;
+    return d.toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: '2-digit' });
+  }
+
+  /** Etiqueta amigable para el canal de venta. */
+  channelLabel(c: string): string {
+    const map: Record<string, string> = {
+      ruta: 'Ruta',
+      mostrador: 'Mostrador',
+      contado: 'Mostrador',
+      preventa: 'Preventa',
+      autoventa: 'Autoventa',
+      credito: 'Crédito',
+      mayoreo: 'Mayoreo',
+    };
+    const k = (c || '').toLowerCase();
+    return map[k] || (c ? c.charAt(0).toUpperCase() + c.slice(1) : '—');
+  }
+
+  /** Tono del badge ABC (A = núcleo, C = cola). */
+  abcTone(cls: string | null): string {
+    if (cls === 'A') return 'is-active';
+    if (cls === 'B') return 'is-info';
+    if (cls === 'C') return 'is-warn';
+    return '';
+  }
+
+  /** Clase de comm-pill según disponibilidad. */
+  stockPillClass(qty: number): string {
+    if (qty < 50) return 'is-bad';
+    if (qty < 200) return 'is-warn';
+    return 'is-active';
+  }
+
+  topShareProduct(rev: number): number {
+    const total = this.topProducts().reduce((s, r) => s + Number(r.revenue || 0), 0);
+    if (total <= 0) return 0;
+    return (Number(rev || 0) / total) * 100;
+  }
+
+  /** Abre el side-peek 360° del cliente (solo clientes B2B de commercial: inactivos). */
+  openCustomer(row: CustomerPeekRef): void {
+    this.peekRow.set(row);
+    this.peekOpen.set(true);
+  }
+
+  /** Abre el side-peek de un producto con su stock por almacén. */
+  openProduct(row: ProductPeekRef): void {
+    this.prodRow.set(row);
+    this.prodStock.set([]);
+    this.prodLoading.set(true);
+    this.prodOpen.set(true);
+    this.api
+      .productStock(row.product_id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.prodStock.set(r.data || []);
+          this.prodLoading.set(false);
+        },
+        error: () => this.prodLoading.set(false),
+      });
+  }
+
+  /** Total disponible sumando almacenes (header del peek de producto). */
+  prodTotalAvailable(): number {
+    return this.prodStock().reduce((s, r) => s + Number(r.available_quantity || 0), 0);
+  }
+
+  /** Métricas del peek de producto vía MetricStrip (sin caja). */
+  peekKpis(p: { units_sold?: number | null; revenue?: number | null }): MetricStripItem[] {
+    const items: MetricStripItem[] = [];
+    if (p.units_sold != null) {
+      items.push({ label: 'Unidades · 30d', value: p.units_sold });
+      items.push({ label: 'Ventas · 30d', value: p.revenue ?? 0, format: 'currency-short' });
+    }
+    items.push({ label: 'Disponible (total)', value: this.prodTotalAvailable() });
+    return items;
+  }
+}

@@ -1,0 +1,796 @@
+<div class="surf-page in au-page">
+  <p-toast position="top-right"></p-toast>
+
+  <p-confirmdialog
+    header="Confirmar"
+    icon="pi pi-exclamation-triangle"
+    [style]="{width: '450px'}"
+    acceptButtonStyleClass="p-button-danger"
+    rejectButtonStyleClass="p-button-secondary"
+  ></p-confirmdialog>
+
+  <header class="surf-page-head">
+    <div class="surf-page-head-text">
+      <h1>Usuarios</h1>
+      <p class="surf-page-sub">
+        Accesos al sistema por departamento. El departamento y el puesto vienen del organigrama;
+        el rol define aparte qué puede hacer cada uno.
+      </p>
+    </div>
+    @if (canManageUsers()) {
+      <p-button label="Nuevo usuario" icon="pi pi-plus" styleClass="p-button-sm"
+                (onClick)="openNewDialog()"></p-button>
+    }
+  </header>
+
+  <!-- Resumen: total + higiene de accesos. Answer-first antes del índice. -->
+  <div class="au-summary">
+    <span class="au-sum-item">
+      <b class="mono">{{ users().length | number }}</b> cuentas
+    </span>
+    <span class="au-sum-item">
+      <b class="mono">{{ departments().length }}</b> departamentos
+    </span>
+    @if (sinPuestoTotal() > 0) {
+      <button type="button" class="au-sum-item au-sum-warn" [class.au-sum-on]="onlyNoPosition()"
+              [attr.aria-pressed]="onlyNoPosition()" (click)="toggleNoPosition()"
+              title="Filtrar a las cuentas sin puesto del organigrama asignado">
+        <i class="pi pi-id-card" aria-hidden="true"></i>
+        <b class="mono">{{ sinPuestoTotal() }}</b> sin puesto
+        @if (onlyNoPosition()) { <i class="pi pi-times au-sum-x" aria-hidden="true"></i> }
+      </button>
+    }
+    @if (alertTotal() > 0) {
+      <button type="button" class="au-sum-item au-sum-warn" [class.au-sum-on]="onlyAlerts()"
+              [attr.aria-pressed]="onlyAlerts()" (click)="toggleAlerts()"
+              title="Filtrar a las cuentas activas que nunca entraron o llevan más de 90 días sin entrar">
+        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+        <b class="mono">{{ alertTotal() }}</b> con alerta de acceso
+        @if (onlyAlerts()) { <i class="pi pi-times au-sum-x" aria-hidden="true"></i> }
+      </button>
+    }
+    <!--
+      [CH.1.11] Cuántas cuentas tienen sesión más larga que el default. Es la
+      superficie de auditoría que faltaba: el TTL existía en la base desde
+      [CH.1.1] y no había NINGÚN lugar de la app donde ver quién lo tenía.
+      Deliberadamente NO usa `au-sum-warn`: una sesión larga es una decisión
+      declarada, no un defecto, y pintarla en ámbar la leería como una alarma.
+    -->
+    @if (deviceTotal() > 0) {
+      <button type="button" class="au-sum-item au-sum-info" [class.au-sum-on]="onlyDevices()"
+              [attr.aria-pressed]="onlyDevices()" (click)="toggleDevices()"
+              title="Filtrar a las cuentas de dispositivo: pantallas desatendidas cuyo token vive más de las 12 h del default">
+        <i class="pi pi-desktop" aria-hidden="true"></i>
+        <b class="mono">{{ deviceTotal() }}</b> con sesión larga
+        @if (onlyDevices()) { <i class="pi pi-times au-sum-x" aria-hidden="true"></i> }
+      </button>
+    }
+  </div>
+
+  <div class="au-grid">
+    <!-- ── Índice de departamentos (master) ───────────────────────────────── -->
+    <nav class="au-aside" aria-label="Departamentos">
+      <div class="au-aside-h">Departamentos</div>
+
+      <button type="button" class="au-dept" [attr.aria-current]="selectedDept() === ''"
+              (click)="selectDept('')">
+        <i class="pi pi-users au-dept-ico" aria-hidden="true"></i>
+        <span class="au-dept-nm">Todos</span>
+        <span class="au-dept-n mono">{{ users().length }}</span>
+      </button>
+
+      @for (d of departments(); track d.area.slug) {
+        <button type="button" class="au-dept" [attr.aria-current]="selectedDept() === d.area.slug"
+                (click)="selectDept(d.area.slug)">
+          <i [class]="d.area.icon + ' au-dept-ico'" aria-hidden="true"></i>
+          <span class="au-dept-nm">{{ d.area.label }}</span>
+          <span class="au-dept-n mono">{{ d.total }}</span>
+          @if (deptAlert(d); as alert) {
+            <span class="au-dept-alert">{{ alert }}</span>
+          }
+        </button>
+      }
+    </nav>
+
+    <!-- ── Usuarios del departamento (detail) ─────────────────────────────── -->
+    <section class="au-main">
+      <div class="au-toolbar">
+        <p-iconfield class="au-search">
+          <p-inputicon class="pi pi-search"></p-inputicon>
+          <input
+            pInputText
+            type="search"
+            [ngModel]="searchText()"
+            (ngModelChange)="onSearchChange($event)"
+            placeholder="Buscar por nombre, usuario, rol o zona…"
+            inputmode="search"
+            enterkeyhint="search"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            aria-label="Buscar usuario"
+          />
+        </p-iconfield>
+        <span class="au-count">
+          @if (currentDept(); as d) {
+            <b>{{ d.area.label }}</b> · {{ deptUsers().length | number }} de {{ d.total | number }}
+          } @else {
+            {{ deptUsers().length | number }} de {{ users().length | number }}
+          }
+        </span>
+      </div>
+
+      <div class="au-panel">
+        <div class="au-tbl-scroll">
+          <p-table [value]="deptUsers()" [loading]="loading()" styleClass="p-datatable-sm"
+                   [rowHover]="true" [paginator]="deptUsers().length > 50" [rows]="50"
+                   [rowsPerPageOptions]="[50, 100, 200]">
+            <ng-template #header>
+              <tr>
+                <th pSortableColumn="nombre">Usuario <p-sorticon field="nombre" /></th>
+                <th pSortableColumn="position_name">Puesto · Rol · Zona <p-sorticon field="position_name" /></th>
+                <th pSortableColumn="last_login_at">Actividad · Ruta <p-sorticon field="last_login_at" /></th>
+                <th class="au-col-act"></th>
+              </tr>
+            </ng-template>
+
+            <ng-template #body let-user>
+              <tr class="au-row" [class.au-row-sel]="currentUserId() === user.id">
+                <td>
+                  <div class="au-u">
+                    <span class="au-av"
+                          [style.background-color]="avatarColorFor(user.username || user.id || '?')"
+                          [attr.aria-label]="'Avatar de ' + (user.nombre || user.username)">
+                      {{ getInitials(user.nombre || user.username) }}
+                    </span>
+                    <span class="au-u-txt">
+                      <span class="au-u-nm">{{ user.nombre || 'Sin nombre' }}</span>
+                      <span class="au-u-un mono">{{ '@' + user.username }}</span>
+                      @if (isSupervisedRole(user.role_name) && user.supervisor_id) {
+                        <span class="au-u-sup">
+                          <i class="pi pi-arrow-up-right" aria-hidden="true"></i>
+                          {{ getSupervisorName(user.supervisor_id) }}
+                        </span>
+                      }
+                    </span>
+                  </div>
+                </td>
+
+                <td>
+                  <span class="au-puesto">{{ user.position_name || 'Sin puesto' }}</span>
+                  <span class="au-role mono">{{ user.role_name }}</span>
+                  <span class="au-zona">{{ user.zona || '—' }}</span>
+                </td>
+
+                <td [title]="formatLastLoginAbs(user.last_login_at)">
+                  <span class="au-act">
+                    <span class="au-dot" [style.background-color]="activityDotColor(user)" aria-hidden="true"></span>
+                    {{ user.activo ? formatLastLogin(user.last_login_at) : 'Inactivo' }}
+                  </span>
+                  <!--
+                    [CH.1.11] La duración de sesión va en la celda de Actividad y NO en una
+                    columna nueva: la tabla ya tiene 4 y DESIGN.md pide primera columna
+                    congelada en grids anchas. Va acá además porque es lo que EXPLICA la
+                    celda: un kiosco entra una vez y no vuelve, así que "hace 4 meses" no
+                    es abandono.
+                  -->
+                  @if (esDispositivoRow(user)) {
+                    <p-tag severity="info" [value]="sessionLabelFor(user)" styleClass="au-tag-sesion" />
+                  } @else {
+                    <span class="au-ruta" [class.au-ruta-none]="!user.has_route_today">
+                      {{ user.has_route_today ? user.route_name_today : 'Sin ruta' }}
+                    </span>
+                  }
+                </td>
+
+                <td class="au-col-act">
+                  @if (canManageUsers()) {
+                    <div class="au-rowact">
+                      <button type="button" class="icon-btn-ghost icon-btn-ghost-info"
+                              (click)="openEditDialog(user)" aria-label="Editar usuario" title="Editar">
+                        <i class="pi pi-pencil" aria-hidden="true"></i>
+                      </button>
+                      <button type="button" class="icon-btn-ghost icon-btn-ghost-bad"
+                              (click)="deleteUser(user)" aria-label="Eliminar usuario" title="Eliminar">
+                        <i class="pi pi-trash" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                  }
+                </td>
+              </tr>
+            </ng-template>
+
+            <ng-template #emptymessage>
+              <tr>
+                <td colspan="4">
+                  <div class="surf-empty">
+                    <i class="pi pi-inbox" aria-hidden="true"></i>
+                    @if (searchText()) {
+                      <p>Ningún usuario coincide con «{{ searchText() }}»@if (currentDept(); as d) { en {{ d.area.label }}}.</p>
+                      <p-button label="Quitar filtros" icon="pi pi-filter-slash"
+                                styleClass="p-button-sm p-button-text" (onClick)="clearFilters()"></p-button>
+                    } @else if (onlyNoPosition()) {
+                      <p>@if (currentDept(); as d) { {{ d.area.label }} no tiene } @else { No hay } cuentas sin puesto: el organigrama está capturado.</p>
+                      <p-button label="Quitar filtros" icon="pi pi-filter-slash"
+                                styleClass="p-button-sm p-button-text" (onClick)="clearFilters()"></p-button>
+                    } @else if (onlyAlerts()) {
+                      <p>Sin cuentas con alerta de acceso@if (currentDept(); as d) { en {{ d.area.label }}}.</p>
+                      <p-button label="Quitar filtros" icon="pi pi-filter-slash"
+                                styleClass="p-button-sm p-button-text" (onClick)="clearFilters()"></p-button>
+                    } @else if (currentDept(); as d) {
+                      <p>{{ d.area.label }} no tiene usuarios.</p>
+                    } @else {
+                      <p>No hay usuarios configurados.</p>
+                    }
+                  </div>
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ── Editor en side-peek (DESIGN #8): se edita sin perder la lista, para poder
+     copiar la configuración de un compañero del mismo departamento. ────────── -->
+<app-side-peek [open]="displayDialog()" (openChange)="displayDialog.set($event)"
+               [title]="isEditing() ? 'Editar usuario' : 'Nuevo usuario'"
+               [subtitle]="isEditing() ? ('@' + (userForm.get('username')?.value || '')) : 'Alta de acceso al sistema'">
+
+  <form [formGroup]="userForm" (ngSubmit)="saveUser()" class="au-form">
+
+    <!-- ── [CH.1.11] Persona o dispositivo ──────────────────────────────────
+         El principio de esta pantalla: el control de la sesión larga NO EXISTE
+         en el formulario de una persona. No se le puede poner un año por
+         accidente porque el campo no está ahí; la compuerta del servidor es la
+         segunda llave, no la primera.
+
+         Sólo aparece en el ALTA, y en la edición únicamente si la cuenta YA es
+         un dispositivo. Editar a una persona no ofrece convertirla: se crea
+         otra cuenta, porque la invariante es UNA cuenta por dispositivo
+         (revocar es por cuenta, y apagar un kiosco comprometido no puede
+         implicar apagar los otros ocho). ─────────────────────────────────── -->
+    @if (!isEditing() || esDispositivo()) {
+      <div class="au-field">
+        <label>Tipo de cuenta</label>
+        <div class="au-scope-modes" role="group" aria-label="Tipo de cuenta">
+          <button type="button" class="au-scope-m" [class.au-scope-m-on]="!esDispositivo()"
+                  [attr.aria-pressed]="!esDispositivo()" (click)="setModoDispositivo(false)"
+                  [disabled]="isEditing()">
+            <i class="pi pi-user" aria-hidden="true"></i> Persona
+          </button>
+          <button type="button" class="au-scope-m" [class.au-scope-m-on]="esDispositivo()"
+                  [attr.aria-pressed]="esDispositivo()" (click)="setModoDispositivo(true)"
+                  [disabled]="isEditing() || !puedeEmitirSesionLarga()"
+                  [title]="puedeEmitirSesionLarga()
+                    ? 'Una pantalla que se queda prendida'
+                    : 'Sólo un superadmin puede emitir una sesión de dispositivo. Pedilo a Sistemas.'">
+            <i class="pi pi-desktop" aria-hidden="true"></i> Dispositivo
+          </button>
+        </div>
+        <small class="au-hint">
+          @if (esDispositivo()) {
+            Una pantalla que se queda prendida: checador, etiquetera, verificador de precios.
+            Su sesión dura lo que digas abajo y nadie la teclea cada mañana.
+          } @else {
+            Una persona con su propia contraseña. Entra, trabaja, y su sesión caduca a las 12 h.
+          }
+        </small>
+      </div>
+    }
+
+    <div class="au-field">
+      <label for="nombre">{{ esDispositivo() ? 'Nombre de la pantalla' : 'Nombre del empleado' }}</label>
+      <input pInputText id="nombre" formControlName="nombre"
+             [placeholder]="esDispositivo() ? 'Ej: Checador - 8 Esquinas' : 'Ej: Juan Pérez'" />
+    </div>
+
+    <div class="au-field">
+      <label for="username">Nombre de usuario (login)</label>
+      <input pInputText id="username" formControlName="username"
+             [placeholder]="esDispositivo() ? 'checador.03' : 'jperez'" />
+      @if (userForm.get('username')?.invalid && userForm.get('username')?.touched) {
+        <small class="au-err">El usuario es obligatorio (3+ caracteres, sin espacios).</small>
+      }
+      @if (esDispositivo()) {
+        <!--
+          No es cosmética. La convención es `<que>.NN` con el código de 2 dígitos
+          de la sucursal, y si alguien escribe `checador03` (sin punto) queda una
+          SEGUNDA cuenta para el mismo sitio: dos credenciales de un año para una
+          pantalla, y revocar una no revoca la otra.
+        -->
+        <small class="au-hint">
+          Convención: <code>checador.NN</code> o <code>etiquetas.NN</code>, con el código de
+          2 dígitos de la sucursal. Una cuenta por pantalla — si el sitio ya tiene la suya,
+          no se crea otra.
+        </small>
+      }
+    </div>
+
+    <!-- ── [ID.22] El PUESTO manda ──────────────────────────────────────────
+         Es la primera pregunta y de ella salen las otras dos: el departamento y
+         el nivel de acceso. Antes se preguntaban las tres por separado, así que
+         quien daba de alta tenía que saber qué rol le toca a un "ENC. DE
+         SUCURSAL" entre 25 opciones. Ahora se elige el puesto y el sistema
+         propone; sólo se ajusta si de verdad hace falta.
+
+         [CH.1.11] En modo dispositivo NO se pregunta: los 43 puestos del
+         organigrama describen empleados, y un checador no es un empleado. El
+         comentario original decía que "una cuenta sin puesto es un cliente del
+         portal o una cuenta de servicio, que no se dan de alta acá" — con este
+         ticket eso dejó de ser cierto. ──────────────────────────────────────── -->
+    @if (!esDispositivo()) {
+    <div class="au-field">
+      <label for="position_code">Puesto @if (!isEditing()) {<span class="au-req" aria-hidden="true">*</span>}</label>
+      <p-select id="position_code" [options]="positionChoices()" formControlName="position_code"
+                placeholder="Sin puesto" [showClear]="true" [filter]="true" filterBy="name,orgText"
+                optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
+      @if (userForm.get('position_code')?.invalid && userForm.get('position_code')?.touched) {
+        <small class="au-err">Elegí el puesto: de él salen el departamento, el nivel de acceso y qué se te pregunta después.</small>
+      } @else if (selectedPositionOrg(); as org) {
+        <small class="au-hint">En el organigrama aparece como <b>{{ org }}</b>. De acá salen el departamento y el nivel de acceso.</small>
+      } @else {
+        <small class="au-hint">Puesto del ORGANIGRAMA 2026. Se puede buscar como está escrito en el PDF (ej. «ENC. DE SUCURSAL»).</small>
+      }
+    </div>
+    }
+
+    <!-- Departamento: viene con el puesto. El select sólo aparece si el puesto
+         no lo trae o si alguien pide ajustarlo. -->
+    @if (departamentoEsEditable()) {
+      <div class="au-field">
+        <label for="department_code">Departamento @if (!isEditing()) {<span class="au-req" aria-hidden="true">*</span>}</label>
+        <p-select id="department_code" [options]="departmentOptions()" formControlName="department_code"
+                  [placeholder]="isEditing() ? 'Sin departamento' : 'Elige el departamento'"
+                  [showClear]="isEditing()"
+                  optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
+        @if (userForm.get('department_code')?.invalid && userForm.get('department_code')?.touched) {
+          <small class="au-err">Todo usuario nuevo tiene que quedar en un departamento existente.</small>
+        } @else {
+          <small class="au-hint">Dónde trabaja la persona (organigrama). No otorga permisos.</small>
+        }
+      </div>
+    } @else {
+      <div class="au-derived">
+        <span class="au-derived-k">Departamento</span>
+        <span class="au-derived-v">{{ departamentoNombre() }}</span>
+        <button type="button" class="au-derived-btn" (click)="departamentoManual.set(true)">Ajustar</button>
+      </div>
+    }
+
+    <!-- Nivel de acceso (perfil base): también viene con el puesto. -->
+    @if (perfilEsEditable()) {
+      <div class="au-field">
+        <label for="role_name">Nivel de acceso</label>
+        <p-select id="role_name" [options]="assignableRoles()" formControlName="role_name"
+                  placeholder="Selecciona el perfil" optionLabel="label" optionValue="value"
+                  appendTo="body" styleClass="w-full"></p-select>
+        @if (perfilBaseEsTarea()) {
+          <!-- [ID.14] El caso de los 22 de captura_gastos: su "rol" es una tarea de
+               1 permiso. La pantalla lo dice en vez de esconderlo. -->
+          <small class="au-err">Este rol es una <b>tarea</b>, no un puesto. Elegí el perfil que corresponde al puesto y sumá la tarea como complemento.</small>
+        } @else if (puestoSinPerfil()) {
+          <small class="au-err">El puesto elegido todavía no tiene un nivel de acceso definido: hay que elegirlo a mano.</small>
+        } @else {
+          <small class="au-hint">El paquete de permisos estándar del puesto. Las diferencias de cada persona se ajustan más abajo.</small>
+        }
+      </div>
+    } @else {
+      <div class="au-derived">
+        <span class="au-derived-k">Nivel de acceso</span>
+        <span class="au-derived-v mono">{{ userForm.get('role_name')?.value }}</span>
+        <button type="button" class="au-derived-btn" (click)="perfilManual.set(true)">Ajustar</button>
+      </div>
+    }
+
+    <!-- [OR.2] Apartarse del puesto se puede; en silencio, no. Aparece SÓLO cuando
+         este formulario crea la divergencia: 14 de 100 personas ya llevan un perfil
+         distinto al que propone su puesto, y pedirles motivo al editarles el
+         teléfono sería cobrarles una decisión que tomó otro hace meses. -->
+    @if (desviacionNueva()) {
+      <div class="au-field">
+        <!-- [OR.2.1] Dos casos distintos y dos textos distintos: apartarse de lo que el puesto
+             propone no es lo mismo que elegir a dedo porque el puesto no propone nada. El
+             segundo tiene ademas un arreglo de fondo, y la pantalla lo dice. -->
+        <label for="motivo_desvio">
+          {{ puestoSinPropuesta() ? 'Motivo de este perfil' : 'Motivo de apartarse del puesto' }}
+        </label>
+        <input id="motivo_desvio" type="text" pInputText formControlName="motivo_desvio"
+               class="w-full" maxlength="300"
+               [placeholder]="puestoSinPropuesta()
+                 ? 'Por qué este perfil, si el puesto no propone ninguno'
+                 : 'Por qué este perfil y no el que propone el puesto'" />
+        <small class="au-err">
+          @if (puestoSinPropuesta()) {
+            Este puesto <b>no propone ningún perfil</b>, así que
+            <b class="mono">{{ userForm.get('role_name')?.value }}</b> es una elección a dedo y no
+            hay contra qué contrastarla. Escribí por qué: queda en la bitácora de la persona.
+            Lo que lo cierra de raíz es darle un perfil al puesto en Puestos.
+          } @else {
+            El puesto propone <b class="mono">{{ perfilPropuesto() }}</b> y elegiste
+            <b class="mono">{{ userForm.get('role_name')?.value }}</b>. Escribí por qué: queda
+            en la bitácora de la persona.
+          }
+        </small>
+      </div>
+    }
+
+    <!-- [CH.1.11] Un dispositivo no lleva complementos: el JWT lleva la UNIÓN de
+         roles, así que un complemento le sumaría permisos a una pantalla que se
+         queda prendida un año. El script de alta que esta pantalla reemplaza
+         tenía una compuerta que reventaba justo contra roles de más. -->
+    @if (!esDispositivo()) {
+    <div class="au-field">
+      <label for="complementos">Complementos</label>
+      <!-- [ID.13] Tareas que se SUMAN al perfil base. Es lo que evita la segunda
+           cuenta: la encargada de tienda que además cobra en caja lleva
+           `encargado_tienda` + el complemento de arqueo, no dos usuarios. -->
+      <p-multiselect id="complementos" [options]="complementoOptions()"
+                     [ngModel]="complementos()" (ngModelChange)="complementos.set($event)"
+                     [ngModelOptions]="{ standalone: true }"
+                     placeholder="Ninguno" [showClear]="true"
+                     optionLabel="label" optionValue="value" [maxSelectedLabels]="3"
+                     selectedItemsLabel="{0} complementos"
+                     appendTo="body" styleClass="w-full"></p-multiselect>
+      <small class="au-hint">Tareas que se suman al perfil base (capturar gasto, etiquetas, arqueo). Sólo agregan permisos, nunca quitan.</small>
+    </div>
+    }
+
+    @if (isSupervisedRole($safeNavigationMigration(userForm.get('role_name')?.value))) {
+      <div class="au-field">
+        <label for="supervisor_id">Jefe / supervisor de ventas</label>
+        <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id"
+                  placeholder="Asigna un supervisor" optionLabel="label" optionValue="value"
+                  [filter]="true" appendTo="body" styleClass="w-full"></p-select>
+        @if (userForm.get('supervisor_id')?.invalid && userForm.get('supervisor_id')?.touched) {
+          <small class="au-err">Debes asignar un supervisor para este usuario.</small>
+        }
+      </div>
+    }
+
+    <!-- ── [ID.24] El EJE del puesto decide qué se pregunta ─────────────────
+         La medición: `ruta_directa` son 34 personas con zona y CERO con
+         sucursal; `cajas` son 27 con sucursal y CERO con zona. Cada población
+         ya llenaba un solo campo — sólo faltaba declarar cuál. Ahora se pregunta
+         el eje que corresponde y nada más. ────────────────────────────────── -->
+    @if (ejeTexto(); as txt) {
+      <p class="au-eje"><i class="pi pi-compass" aria-hidden="true"></i> {{ txt }}</p>
+    }
+
+    @if (ejeActivo() === 'ruta') {
+      <div class="au-field">
+        <label for="route_id">Ruta</label>
+        <p-select id="route_id" [options]="routeOptions()" formControlName="route_id"
+                  placeholder="Sin ruta asignada" [showClear]="true" [filter]="true"
+                  optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
+        @if (rutaPickSinZona()) {
+          <small class="au-err">Esa ruta no tiene tiendas cargadas, así que no define zona: hay que elegirla a mano.</small>
+        } @else {
+          <small class="au-hint">Su territorio. La zona sale de acá — ninguna ruta cruza de zona.</small>
+        }
+      </div>
+    }
+
+    @if (ejeActivo() === 'sucursal' || ejeActivo() === null) {
+      <div class="au-field">
+        <label for="warehouse_code">Sucursal</label>
+        <p-select id="warehouse_code" [options]="branchOptions()" formControlName="warehouse_code"
+                  placeholder="Sin sucursal" [showClear]="true"
+                  optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
+        <small class="au-hint">Dónde está parada la persona. Define su zona y qué tienda ve en el monitor.</small>
+      </div>
+    }
+
+    @if (ejeActivo() !== 'red' && ejeActivo() !== 'cartera' && ejeActivo() !== 'cliente') {
+      @if (zonaEsEditable()) {
+        <div class="au-field">
+          <label for="zona">Zona</label>
+          <p-select id="zona" [options]="zones()" formControlName="zone_id" placeholder="Selecciona zona"
+                    optionLabel="label" optionValue="id" appendTo="body" styleClass="w-full"></p-select>
+          @if (branchPickSinPlaza()) {
+            <small class="au-err">La sucursal elegida todavía no tiene zona definida (se configura en /comercial/almacenes): hay que elegirla a mano.</small>
+          } @else if (ejeActivo() === 'zona') {
+            <small class="au-hint">La plaza que supervisa. Acá la zona ES el dato, no una consecuencia.</small>
+          } @else {
+            <small class="au-hint">Territorio de trabajo.</small>
+          }
+        </div>
+      } @else {
+        <div class="au-derived">
+          <span class="au-derived-k">Zona</span>
+          <span class="au-derived-v">{{ zonaDerivada()?.zone_name }}</span>
+          <span class="au-derived-de">de {{ zonaDerivada()?.de }}</span>
+          <button type="button" class="au-derived-btn" (click)="zonaManual.set(true)">Ajustar</button>
+        </div>
+      }
+    }
+
+    <div class="au-field">
+      <label for="finance_expense_area_ids">Áreas de gasto visibles</label>
+      <p-multiselect id="finance_expense_area_ids" [options]="financeAreas()"
+                     formControlName="finance_expense_area_ids"
+                     placeholder="Ninguna (salvo permiso Ver todos)" [showClear]="true" [filter]="true"
+                     optionLabel="name" optionValue="id" [maxSelectedLabels]="3" selectedItemsLabel="{0} áreas"
+                     appendTo="body" styleClass="w-full"></p-multiselect>
+      <small class="au-hint">Gastos de qué departamentos ve en /finanzas/solicitudes.</small>
+    </div>
+
+    <!-- ── [ID.21] Permisos de ESTA persona ─────────────────────────────────
+         El nivel de acceso da el paquete estándar del puesto; acá se ajusta la
+         diferencia de la persona. Es lo que evita las dos salidas malas de
+         antes: inflarle el rol a los 27 cajeros para que uno vea costos, o
+         clonar el rol para uno solo. Arranca colapsado porque la mayoría de las
+         cuentas no necesita ninguna excepción. ──────────────────────────────── -->
+    @if (isEditing() && permisosDetalle(); as det) {
+      <div class="au-perms">
+        <button type="button" class="au-perms-head" (click)="permisosAbierto.set(!permisosAbierto())"
+                [attr.aria-expanded]="permisosAbierto()">
+          <i class="pi" [class.pi-chevron-right]="!permisosAbierto()" [class.pi-chevron-down]="permisosAbierto()"
+             aria-hidden="true"></i>
+          <span class="au-perms-t">Permisos de esta persona</span>
+          <span class="au-perms-sum mono">
+            {{ efectivoSet().size }}
+            @if (deMas().length) { <b class="au-perms-plus">+{{ deMas().length }}</b> }
+            @if (deMenos().length) { <b class="au-perms-minus">−{{ deMenos().length }}</b> }
+          </span>
+        </button>
+
+        @if (permisosAbierto()) {
+          @if (det.platform_admin) {
+            <p class="au-hint au-perms-note">
+              <b>{{ det.perfil_base }}</b> tiene acceso total por rol: los permisos por persona no le aplican.
+              Para limitarla hay que cambiarle el nivel de acceso.
+            </p>
+          } @else {
+            <p class="au-hint au-perms-note">
+              El puesto le da <b>{{ det.del_puesto.length }}</b> permisos.
+              Lo que cambies acá aplica <b>sólo a {{ det.username }}</b>, no a sus compañeros de puesto.
+            </p>
+
+            <div class="au-perms-tools">
+              <p-iconfield iconPosition="left" styleClass="au-perms-search">
+                <p-inputicon styleClass="pi pi-search" />
+                <input pInputText type="text" placeholder="Buscar un permiso para conceder…"
+                       [value]="permisoFiltro()" (input)="permisoFiltro.set($any($event.target).value)" />
+              </p-iconfield>
+              @if (deMas().length || deMenos().length) {
+                <button type="button" class="au-derived-btn" (click)="volverAlPuesto()">
+                  Volver al estándar del puesto
+                </button>
+              }
+            </div>
+
+            <ul class="au-perms-list">
+              @for (p of permisoRows(); track p.key) {
+                <li class="au-perm" [class.au-perm-exc]="p.excepcion">
+                  <label class="au-perm-lbl">
+                    <input type="checkbox" [checked]="p.efectivo" (change)="togglePermiso(p.key)" />
+                    <span class="au-perm-nm">{{ p.label }}</span>
+                  </label>
+                  @if (p.excepcion === 'de_mas') {
+                    <span class="au-perm-tag au-perm-plus">de más</span>
+                  } @else if (p.excepcion === 'de_menos') {
+                    <span class="au-perm-tag au-perm-minus">quitado</span>
+                  } @else if (p.enPuesto) {
+                    <span class="au-perm-tag">del puesto</span>
+                  }
+                </li>
+              } @empty {
+                <li class="au-hint au-perms-note">
+                  @if (permisoFiltro()) { Ningún permiso coincide con «{{ permisoFiltro() }}». }
+                  @else { Su puesto no le da ningún permiso todavía. Buscá arriba para concederle alguno. }
+                </li>
+              }
+            </ul>
+            @if (!permisoFiltro()) {
+              <small class="au-hint">Se listan los permisos que ya tiene. Para darle uno nuevo, buscalo arriba.</small>
+            }
+          }
+        }
+      </div>
+    }
+
+    <!-- ── [RE.27.B1] Qué DATOS ve esta persona ─────────────────────────────
+         El permiso dice qué acción; el alcance dice sobre qué filas. Hasta acá
+         sólo se administraba el primero: `user_scopes` se tocaba por script
+         contra prod, y en los hechos nadie acotaba a nadie — medido, ningún
+         usuario tenía `listed` en sucursales. Es el bisturí que hace innecesario
+         el martillo de quitarle el permiso a un rol entero. ─────────────────── -->
+    @if (isEditing() && alcanceDetalle()) {
+      <div class="au-perms">
+        <button type="button" class="au-perms-head" (click)="alcanceAbierto.set(!alcanceAbierto())"
+                [attr.aria-expanded]="alcanceAbierto()">
+          <i class="pi" [class.pi-chevron-right]="!alcanceAbierto()" [class.pi-chevron-down]="alcanceAbierto()"
+             aria-hidden="true"></i>
+          <span class="au-perms-t">Qué datos ve esta persona</span>
+          <span class="au-perms-sum mono">{{ alcanceResumen() }}</span>
+        </button>
+
+        @if (alcanceAbierto()) {
+          @if (alcanceEsAdminPlataforma()) {
+            <p class="au-hint au-perms-note">
+              <b>{{ alcanceDetalle()?.role_name }}</b> ve toda la red por su nivel de acceso: el alcance por
+              persona no le aplica. Para limitarla hay que cambiarle el nivel de acceso.
+            </p>
+          } @else {
+            <p class="au-hint au-perms-note">
+              Acotar acá <b>no le quita permisos</b>: le dice sobre qué filas los ejerce.
+              Aplica en menos de un minuto, <b>sin volver a iniciar sesión</b>.
+            </p>
+
+            @for (d of alcanceFilas(); track d.code) {
+              <div class="au-scope">
+                <div class="au-scope-head">
+                  <span class="au-scope-t">{{ d.label }}</span>
+                  @if (d.sucio) {
+                    <span class="au-perm-tag au-perm-plus">sin guardar</span>
+                  } @else if (d.source === 'user') {
+                    <span class="au-perm-tag au-perm-plus">propio de esta persona</span>
+                  } @else if (d.source === 'role') {
+                    <span class="au-perm-tag">de su rol</span>
+                  } @else {
+                    <span class="au-perm-tag au-perm-minus">sin regla</span>
+                  }
+                  @if (d.sucio) {
+                    <button type="button" class="au-derived-btn" (click)="descartarAlcance(d.code)">Deshacer</button>
+                  } @else if (d.source === 'user') {
+                    <button type="button" class="au-derived-btn" (click)="heredarAlcance(d.code)">Volver a su rol</button>
+                  }
+                </div>
+
+                <div class="au-scope-modes" role="group" [attr.aria-label]="'Alcance de ' + d.label">
+                  @for (m of MODOS_ALCANCE; track m.value) {
+                    @if (m.value !== 'own' || d.puedeOwn) {
+                      <button type="button" class="au-scope-m" [class.au-scope-m-on]="d.mode === m.value"
+                              [title]="m.hint" (click)="setAlcanceModo(d.code, m.value)">{{ m.label }}</button>
+                    }
+                  }
+                </div>
+
+                @if (d.mode === 'listed') {
+                  <p-multiselect [options]="d.universo"
+                                 [ngModel]="d.values" (ngModelChange)="setAlcanceValores(d.code, $event)"
+                                 [ngModelOptions]="{ standalone: true }"
+                                 placeholder="Elegí cuáles" [filter]="true"
+                                 optionLabel="label" optionValue="value" [maxSelectedLabels]="4"
+                                 selectedItemsLabel="{0} seleccionadas"
+                                 appendTo="body" styleClass="w-full"></p-multiselect>
+                  @if (!d.values.length) {
+                    <small class="au-err">Sin ninguna marcada no ve nada. Si es lo que querés, usá «Nada».</small>
+                  }
+                }
+
+                <small class="au-hint">{{ d.ayuda }}</small>
+
+                <!-- La escritura puede ser más chica que la lectura: «ve las tres
+                     sucursales de su zona, captura sólo en la suya». Se pregunta
+                     sólo cuando hay algo que ver, y hereda por default. -->
+                @if (d.mode !== 'none') {
+                  <label class="au-scope-w">
+                    <input type="checkbox" [checked]="!d.heredaEscritura"
+                           (change)="setAlcanceEscritura(d.code, d.heredaEscritura ? 'none' : null)" />
+                    <span>Sólo lectura: alcanza lo mismo, pero no puede modificarlo</span>
+                  </label>
+                }
+              </div>
+            }
+          }
+        }
+      </div>
+    }
+
+    <!-- ── [CH.1.11] Duración de la sesión ──────────────────────────────────
+         Presets y NO un campo numérico libre: la única razón para tipear un
+         número es tipear el equivocado. Como efecto secundario, el techo de
+         3650 días no es alcanzable desde acá y no hace falta duplicarlo en el
+         front. ─────────────────────────────────────────────────────────────── -->
+    @if (esDispositivo()) {
+      <div class="au-field au-boxed">
+        <label for="token_ttl_days">Duración de la sesión</label>
+        <p-select id="token_ttl_days" [options]="sessionPresets" formControlName="token_ttl_days"
+                  optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
+        <small class="au-hint">
+          Cuánto vive su token antes de volver a pedir contraseña. Un año significa que se
+          teclea UNA vez, el día que se instala.
+        </small>
+        <!--
+          Esta segunda línea no es negociable: es la única parte del modelo que
+          esta pantalla puede contar mal. Bajar la duración NO corta un acceso ya
+          emitido, sólo aplica al próximo ingreso.
+        -->
+        <small class="au-err">
+          Bajar esta duración <b>no le corta el acceso</b>: sólo aplica a su próximo ingreso.
+          Lo que lo corta en menos de un minuto es apagar «Estado activo».
+        </small>
+      </div>
+
+      <!-- Derivado, no un control: que sea una fila de sólo lectura con su
+           MOTIVO evita que alguien lo apague sin entender qué implica. -->
+      <div class="au-field">
+        <label>Cambio de contraseña</label>
+        <div class="au-derived">
+          <span class="au-derived-v">No se fuerza</span>
+          <span class="au-derived-de">porque es un dispositivo</span>
+        </div>
+        <small class="au-hint">
+          Si se forzara, la primera persona que pasa la cambia y el kiosco queda afuera.
+        </small>
+      </div>
+    }
+
+    <div class="au-field au-boxed">
+      <label for="password">{{ isEditing() ? 'Actualizar contraseña (opcional)' : 'Contraseña segura' }}</label>
+      <div class="au-pass-row">
+        <input pInputText id="password" [type]="passwordVisible() ? 'text' : 'password'"
+               formControlName="password"
+               [placeholder]="isEditing() ? 'Dejar en blanco para no cambiar' : 'Mín. 6 caracteres'" />
+        @if (esDispositivo()) {
+          <button type="button" class="icon-btn-ghost" (click)="generarPassword()"
+                  title="Generar una contraseña sin caracteres ambiguos" aria-label="Generar contraseña">
+            <i class="pi pi-refresh" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="icon-btn-ghost" (click)="copiarPassword()"
+                  title="Copiar al portapapeles" aria-label="Copiar contraseña">
+            <i class="pi pi-copy" aria-hidden="true"></i>
+          </button>
+        }
+      </div>
+      @if (userForm.get('password')?.hasError('minlength')) {
+        <small class="au-err">Requiere al menos 6 caracteres.</small>
+      }
+      @if (esDispositivo()) {
+        <small class="au-hint">
+          Se teclea una sola vez, en el kiosco, a veces leyéndola de un papel escrito a mano:
+          la generada no trae caracteres ambiguos (no hay 0/O ni 1/l/I). <b>Anotala antes de
+          guardar</b> — después queda hasheada y no se puede volver a ver.
+        </small>
+      }
+    </div>
+
+    <!--
+      `[ID.30]` El interruptor SÓLO existe al editar, porque sólo ahí hace algo.
+
+      `[ID.7]` decidió que el ciclo de vida vive únicamente en la edición —«un alta nace
+      activa»— y el DTO del alta no declara `activo` ni `status`. Con
+      `ValidationPipe({ whitelist: true })` eso significa que el campo se DESCARTA sin
+      error: el alta devolvía 200 y creaba la cuenta ACTIVA igual. O sea que un admin
+      podía apagar el interruptor, leer «Usuario creado correctamente» y quedarse con una
+      credencial viva que él creía apagada. Lo detectó `test-newdb-user-dto.js`
+      comparando el formulario contra el DTO real.
+
+      Se corrige del lado que mentía. No se agrega `status` al alta: sería dar vuelta una
+      decisión documentada de identidad para tapar un defecto de la pantalla, y además
+      abriría el alta a `terminated`/`invited`, que en un alta no significan nada.
+    -->
+    @if (isEditing()) {
+      <div class="au-toggle">
+        <div>
+          <div class="au-toggle-t">Estado activo</div>
+          <div class="au-toggle-s">
+            @if (esDispositivo()) {
+              Es el corte de verdad: apagarlo revoca el token en menos de un minuto, aunque le
+              queden 300 días de vida. Apagar este kiosco no toca a los demás.
+            } @else {
+              Al desactivar, se revoca el acceso al sistema.
+            }
+          </div>
+        </div>
+        <p-toggleswitch formControlName="activo"></p-toggleswitch>
+      </div>
+    } @else {
+      <small class="au-hint">
+        El alta nace <b>activa</b>. Para dejarla sin acceso hay que crearla y después
+        apagarla desde <b>Estado activo</b>, que aparece al editar.
+      </small>
+    }
+
+    <div class="au-form-actions">
+      <p-button label="Cancelar" severity="secondary" [text]="true"
+                (onClick)="closeEditor()" [disabled]="saving()"></p-button>
+      <p-button [label]="isEditing() ? 'Actualizar' : 'Registrar'" type="submit"
+                [disabled]="userForm.invalid || saving()" [loading]="saving()"></p-button>
+    </div>
+  </form>
+</app-side-peek>

@@ -1,0 +1,1392 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  HostListener,
+  OnDestroy,
+  OnInit,
+  Renderer2,
+  computed,
+  effect,
+  inject,
+  signal,
+  DOCUMENT
+} from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { ActivatedRoute, NavigationEnd, Router, RouterModule, UrlTree } from '@angular/router';
+import { MenuModule } from 'primeng/menu';
+import type { MenuItem } from 'primeng/api';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { filter, map, startWith } from 'rxjs/operators';
+import { AuthService } from '../../../core/services/auth.service';
+import { branchName } from '../../../core/constants/store-branches';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { ThemeService } from '../../../core/services/theme.service';
+import { DataUpdateService } from '../../../core/services/data-update.service';
+import { WebSocketService } from '../../../core/services/websocket.service';
+import { HapticService } from '../../../core/services/haptic.service';
+import { CountFocusService } from '../../../core/services/count-focus.service';
+import { Permission } from '../../../core/constants/permissions';
+// `[SN.4]` El proyecto y el espacio activos salen del mapa de la suite (ADR-061), no de una
+// union hardcodeada + cadena de `startsWith`. Es lo que permite la migaja Espacio › Proyecto ›
+// Página con las etiquetas de negocio de la spec ("Configuración de la suite", "Punto de Venta").
+import { LANDING_ROUTE, resolveProjectForUrl } from '../../../core/constants/suite-map';
+import { construirMigas, type Miga } from './layout-crumbs';
+import { ModoDetalle, MultitareaService } from '../../../core/services/multitarea.service';
+// WMS.1 — fuente única de áreas/tabs del proyecto Almacén: el sidebar deriva
+// sus items de acá para que nunca se desincronice de la barra de tabs.
+import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../../almacen/almacen-tabs';
+import { HealthAlertToastComponent } from './health-alert-toast.component';
+import { NotificationsBellComponent } from './notifications-bell.component';
+
+/** Clave interna de proyecto de este layout: indexa los `*NavGroups` escritos a mano (deuda SN). */
+type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores' | 'servicio';
+
+/** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp) cae al default. */
+const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
+  trade: 'trademk',
+  pdv: 'tienda',
+  comercial: 'comercial',
+  admin: 'admin',
+  logistica: 'logistica',
+  reparto: 'reparto',
+  finanzas: 'finanzas',
+  contabilidad: 'contabilidad',
+  almacen: 'almacen',
+  compras: 'compras',
+  // `[E.13]` El id del árbol es `televenta` (histórico) y la clave interna `telemarketing`,
+  // que es como se llama el canal en el ERP y en la URL. Sin esta entrada el proyecto caía
+  // al default `trademk` y el sidebar le habría mostrado el nav de Trade Marketing.
+  televenta: 'telemarketing',
+  desarrolladores: 'desarrolladores',
+  servicio: 'servicio',
+};
+
+interface NavItem {
+  label: string;
+  icon: string;
+  route: string;
+  /**
+   * Ausente = **sin compuerta**: lo ve cualquiera con sesión. Sólo para items cuya RUTA
+   * tampoco pide permiso (`canActivate: []`); si la ruta gatea y el item no, el menú
+   * ofrece una puerta que rebota. Hoy el único caso es «Gastos» (`[GX.17]`).
+   */
+  permission?: Permission;
+  /**
+   * Si está set, el item es visible si el usuario tiene CUALQUIERA de estas
+   * perms (OR). Reemplaza a `permission` para el gate. Útil en superficies
+   * que sirven a dos roles (ej. Movimientos: inventario o prevención).
+   */
+  anyOf?: Permission[];
+  /**
+   * Si es `true`, `routerLinkActive` solo matchea cuando la URL es
+   * exactamente `route` (no sub-rutas). Necesario para `/dashboard`, que
+   * como root sería prefix de TODAS las otras rutas.
+   */
+  exact?: boolean;
+  /**
+   * Fase WMS.1 — item de **área** del proyecto Almacén. Se marca activo cuando
+   * la URL resuelve a esta área, no por prefijo del propio `route`: un área
+   * cubre rutas que NO comparten prefijo (`/almacen/warehouses`,
+   * `/almacen/dead-stock`, `/almacen/inventory-health`…).
+   *
+   * Usa el MISMO resolvedor que la barra de tabs (`resolveAlmacenArea`, prefijo
+   * más largo). Con prefijos sueltos, `/almacen/inventory` marcaba
+   * **Inventario** y **Conteo** a la vez, porque `/almacen/inventory/sessions`
+   * también empieza con `/almacen/inventory/`.
+   */
+  activeAreaKey?: string;
+}
+
+@Component({
+  selector: 'app-layout',
+  standalone: true,
+  imports: [CommonModule, RouterModule, MenuModule, HealthAlertToastComponent, NotificationsBellComponent],
+  templateUrl: './layout.component.html',
+  styleUrls: ['./layout.component.css'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class LayoutComponent implements OnInit, OnDestroy {
+  private authService = inject(AuthService);
+  private perms = inject(PermissionsService);
+  private router = inject(Router);
+  /** `[MT.5]` La ruta del ÁREA: es el nivel donde vive el outlet `panel`. */
+  private readonly rutaDelArea = inject(ActivatedRoute);
+
+  themeService = inject(ThemeService);
+  private renderer = inject(Renderer2);
+  private document = inject(DOCUMENT);
+  private dataUpdateService = inject(DataUpdateService);
+  private wsService = inject(WebSocketService);
+  private haptic = inject(HapticService);
+  private countFocus = inject(CountFocusService);
+
+  // Modo foco del conteo físico: oculta todo el chrome de navegación.
+  countFocusActive = this.countFocus.active;
+
+  // ── Auth ──────────────────────────────────────────────────────────
+  user = this.authService.user;
+
+  /**
+   * Qué se muestra al lado del rol. Para el personal de tienda, su SUCURSAL; para
+   * el resto, la zona de trade marketing.
+   *
+   * Antes siempre mostraba `zona`, y a una cajera de Padre Hidalgo le decía
+   * "CAJERO · LA PIEDAD RD" — que es su zona comercial, pero ella lo lee como su
+   * tienda. Poner el nombre equivocado de la sucursal arriba de una pantalla donde
+   * se sella efectivo es peor que no poner nada.
+   */
+  readonly contexto = computed(() => {
+    const u = this.user();
+    return u?.warehouse_code ? branchName(u.warehouse_code) : (u?.zona || '');
+  });
+
+  // ── UI state ─────────────────────────────────────────────────────
+  /** Drawer móvil abierto (overlay). En desktop no aplica. */
+  sidebarOpen = signal(false);
+
+  /**
+   * Estado de hover/focus del sidebar en desktop. Conjuntamente con
+   * `sidebarFocused` componen `sidebarExpanded`. Tener dos signals separados
+   * evita que el sidebar se colapse mientras el usuario navega con Tab
+   * (focus dentro) aunque haya salido del hover físico del mouse.
+   */
+  sidebarHover = signal(false);
+  sidebarFocused = signal(false);
+
+  /**
+   * Modalidad del último input del usuario (teclado vs pointer). Necesario
+   * para emular `:focus-visible` en TS: cuando el usuario CLICKEA un nav-item,
+   * el `<a>` retiene focus tras la navegación y nuestro `(focusin)` disparaba
+   * `sidebarFocused = true`, dejando el sidebar pegado expandido aunque
+   * sacaras el mouse. Con esta flag, solo expandimos por focus si el focus
+   * vino de Tab/Shift+Tab (teclado real).
+   */
+  private keyboardFocus = false;
+
+  /** Menú del avatar de usuario en el topbar (sincronizado con onShow/onHide). */
+  userMenuOpen = signal(false);
+  /** `[MT.3]` Multitarea: la accion y la preferencia del boton del header. */
+  readonly multitarea = inject(MultitareaService);
+
+  private readonly mobileMql =
+    typeof window !== 'undefined'
+      ? window.matchMedia('(max-width: 1023.98px)')
+      : null;
+
+  isMobile = signal(this.mobileMql?.matches ?? false);
+
+  private readonly mobileMqlListener = (e: MediaQueryListEvent): void => {
+    this.isMobile.set(e.matches);
+  };
+
+  /**
+   * "Expandido" = se muestran labels + secciones completas.
+   * - Mobile: lo controla el drawer (`sidebarOpen`)
+   * - Desktop: hover sobre el sidebar O focus de teclado dentro
+   * Patrón VS Code/Discord: el sidebar mantiene su rail de iconos siempre
+   * visible y se expande SOBRE el contenido (no empuja).
+   */
+  sidebarExpanded = computed(() => {
+    if (this.isMobile()) return this.sidebarOpen();
+    return this.sidebarHover() || this.sidebarFocused();
+  });
+
+  // ── Data Update / WS ──────────────────────────────────────────────
+  hasPendingUpdate = this.dataUpdateService.hasPendingUpdate;
+  wsConnected = this.wsService.connected;
+
+  // ── Router-aware signal — alimenta `currentPageTitle` y permite
+  // resaltado del item activo con `routerLinkActive` en el template.
+  private currentUrl = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map((e) => e.urlAfterRedirects),
+      startWith(this.router.url),
+    ),
+    { initialValue: this.router.url },
+  );
+
+  // ── Effects ──────────────────────────────────────────────────────
+  constructor() {
+    effect(() => {
+      if (this.themeService.isMonochrome()) {
+        this.renderer.addClass(this.document.body, 'theme-monochrome');
+      } else {
+        this.renderer.removeClass(this.document.body, 'theme-monochrome');
+      }
+    });
+  }
+
+  /**
+   * `[SW.2]` **El tiempo real se enciende sólo donde sus eventos significan algo.**
+   *
+   * `LayoutComponent` es UNA sola y la comparten **13 árboles de rutas** (dashboard, comercial,
+   * finanzas, presupuesto, contabilidad, compras, almacén, tienda, logística, admin, reparto…).
+   * Como `ngOnInit` llamaba a `dataUpdateService.init()` sin mirar dónde está el usuario, **entrar
+   * a cualquiera de las 13 abría una conexión socket.io** con toda su maquinaria de reconexión.
+   *
+   * ⛔ Y lo que ese socket escucha son **eventos de CAPTURA** (`capture:created/synced/deleted`):
+   * auditoría de ruta, o sea el mundo de `/dashboard`. En `/comercial/tickets`, en Finanzas o en
+   * Compras esa conexión no puede traer nada que la pantalla use — es costo sin destinatario.
+   *
+   * Reportado por 0Sistemas mirando la traza de red de `/comercial/tickets`.
+   *
+   * ⚠️ El banner «hay capturas nuevas» **no se pierde**: vive donde viven las capturas. Lo que se
+   * evita es prometerlo —y pagar la conexión— en 12 proyectos que no las tienen.
+   */
+  private tiempoRealAplica(): boolean {
+    return this.router.url.startsWith('/dashboard');
+  }
+
+  ngOnInit(): void {
+    // `[MT.5]` El outlet `panel` vive en el nivel de ESTA ruta (el área), así que
+    // el servicio necesita esta `ActivatedRoute` para poder armar el enlace que
+    // abre algo al lado. Se registra acá y no en el servicio porque el servicio
+    // es de la app entera y no sabe en qué área está parado el usuario.
+    this.multitarea.registrarRutaDelArea(this.rutaDelArea);
+    // ⛔ La condición va acá y no dentro de `init()`: el servicio es `providedIn: 'root'` y lo
+    // usan otros; el que sabe en qué pantalla está el usuario es la shell, no el servicio.
+    if (this.tiempoRealAplica()) this.dataUpdateService.init();
+    this.mobileMql?.addEventListener('change', this.mobileMqlListener);
+  }
+
+  ngOnDestroy(): void {
+    // `destroy()` se llama igual: es idempotente y no cuesta nada, y así no hay que recordar
+    // en qué rama se encendió. Encender condicional y apagar incondicional es el lado seguro.
+    this.dataUpdateService.destroy();
+    this.mobileMql?.removeEventListener('change', this.mobileMqlListener);
+  }
+
+  /**
+   * `[SW.2]` El punto de «conectado en tiempo real» sólo se pinta donde hay tiempo real. Antes se
+   * mostraba en las 13, y en 12 de ellas decía **rojo permanente** — un indicador que siempre
+   * está en falla enseña a ignorar los indicadores.
+   */
+  readonly muestraTiempoReal = computed(() => this.tiempoRealAplica());
+
+  // ── Data Update Methods ────────────────────────────────────────────
+  /**
+   * El botón "refresh" del topbar marca el indicador de actualización como
+   * visto. No recarga datos: cada módulo se suscribe al WS y se actualiza
+   * por su cuenta.
+   */
+  dismissPendingUpdate(): void {
+    this.dataUpdateService.dismissUpdate();
+  }
+
+  // ── Listeners ────────────────────────────────────────────────────
+  /**
+   * Escape listener: short-circuit en el primer check, evita procesar la
+   * tecla cuando el sidebar mobile no está abierto. Esto importa porque
+   * Angular registra UN listener por instancia del component a nivel del
+   * `document` — sin el short-circuit, cada tecla del usuario en un form
+   * pasa por la lógica de modo/sidebar inútilmente.
+   */
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (!this.sidebarOpen() || !this.isMobile()) return;
+    this.closeSidebar();
+  }
+
+  /**
+   * Trackers de modalidad del input. Cualquier keydown de Tab marca al
+   * usuario como "navegando con teclado"; cualquier pointerdown lo desmarca
+   * (y además colapsa el sidebar si estaba abierto por focus, para que el
+   * hover sea quien decida desde ese momento).
+   */
+  @HostListener('document:keydown', ['$event'])
+  onAnyKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Tab') this.keyboardFocus = true;
+  }
+
+  @HostListener('document:pointerdown')
+  onAnyPointerDown(): void {
+    this.keyboardFocus = false;
+    // Si veníamos con sidebarFocused (Tab previo) y ahora el usuario tomó
+    // el mouse, devolvemos el control al hover — sin esto, el sidebar
+    // quedaba pegado abierto al alternar entre teclado y mouse.
+    if (this.sidebarFocused()) this.sidebarFocused.set(false);
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────
+  /** Solo aplica en mobile (drawer). En desktop el hover decide. */
+  openSidebar(): void {
+    this.sidebarOpen.set(true);
+  }
+  closeSidebar(): void {
+    this.sidebarOpen.set(false);
+  }
+
+  /**
+   * Hover handlers — solo activan en desktop. En mobile el sidebar es
+   * drawer controlado por sidebarOpen, así que ignoramos el hover ahí.
+   *
+   * `onSidebarFocusIn` se gatea por `keyboardFocus`: si el focus vino de
+   * un click (pointerdown previo bajó la flag a false), NO mantenemos el
+   * sidebar expandido — solo el hover decide. Esto soluciona el bug en
+   * que clickear un nav-item dejaba el `<a>` con focus y el sidebar pegado
+   * abierto aunque el mouse saliera.
+   */
+  onSidebarEnter(): void {
+    if (!this.isMobile()) this.sidebarHover.set(true);
+  }
+  onSidebarLeave(): void {
+    if (!this.isMobile()) this.sidebarHover.set(false);
+  }
+  onSidebarFocusIn(): void {
+    if (!this.isMobile() && this.keyboardFocus) this.sidebarFocused.set(true);
+  }
+  onSidebarFocusOut(): void {
+    if (!this.isMobile()) this.sidebarFocused.set(false);
+  }
+
+  // ── Nav items por proyecto ────────────────────────────────────────
+  // Cada proyecto tiene su propio set. El shell elige cuál mostrar según
+  // el URL prefix actual (/dashboard, /comercial, /admin).
+  // Sección "Trade": auditoría de ejecución en ruta (exhibiciones, scoring, reportes).
+  private tradeMkNavItems: NavItem[] = [
+    { label: 'Dashboard',         icon: 'pi pi-th-large',      route: '/dashboard',                      permission: Permission.REPORTES_VER_PROPIO,   exact: true },
+    { label: 'Venta al detalle',  icon: 'pi pi-chart-line',    route: '/dashboard/ventas-detalle',       permission: Permission.STORE_ANALYTICS_VER   },
+    { label: 'Captura Diaria',    icon: 'pi pi-pencil',        route: '/dashboard/captures',             permission: Permission.VISITAS_REGISTRAR     },
+    { label: 'Reportes',          icon: 'pi pi-chart-bar',     route: '/dashboard/reports',              permission: Permission.REPORTES_VER_PROPIO   },
+    { label: 'Seguimiento',       icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',          permission: Permission.VER_SEGUIMIENTO       },
+    { label: 'Mapa de Campo',     icon: 'pi pi-map',           route: '/dashboard/field-map',            permission: Permission.RUTAS_VER             },
+    { label: 'Auditoría de ruta', icon: 'pi pi-check-circle',  route: '/dashboard/route-audit',          permission: Permission.RUTAS_VER             },
+    { label: 'Mapa Comercial',    icon: 'pi pi-map-marker',    route: '/dashboard/commercial-map',       permission: Permission.COMMERCIAL_MAP_VER    },
+    { label: 'Supervisor IA',     icon: 'pi pi-sparkles',      route: '/dashboard/supervisor-ai',        permission: Permission.SUPERVISOR_AI_VER     },
+    { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
+    { label: 'Tiendas',           icon: 'pi pi-building',      route: '/dashboard/stores',               permission: Permission.TIENDAS_VER           },
+  ];
+
+  private tradeMkAdminItems: NavItem[] = [
+    { label: 'Catálogos',   icon: 'pi pi-sliders-h',  route: '/dashboard/admin/catalogs/conceptos',   permission: Permission.CATALOGO_GESTIONAR    },
+    { label: 'Planograma',  icon: 'pi pi-list',       route: '/dashboard/admin/planograma',           permission: Permission.PLANOGRAMAS_GESTIONAR },
+  ];
+
+  // Comercial agrupado por dominio (el shell renderiza una sección por grupo).
+  private comercialNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Ventas',
+      items: [
+        { label: 'Centro de Control', icon: 'pi pi-compass',   route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
+        { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
+        { label: 'Clientes',          icon: 'pi pi-users',      route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
+        // [TK.2] Va en Ventas y no en Reportes: no es un reporte, es la consulta de UN documento
+        // para reimprimírselo al cliente que lo está pidiendo. Al lado de "Documentos"
+        // (Reportes) hay solape aparente, pero aquél lista facturas de telemarketing con su
+        // cartera y éste busca cualquier folio de cualquier canal — por eso tienen permisos
+        // distintos.
+        { label: 'Tickets',           icon: 'pi pi-receipt',    route: '/comercial/tickets',        permission: Permission.COMMERCIAL_TICKETS_VER },
+        { label: 'Razonamiento (Thot)', icon: 'pi pi-lightbulb', route: '/comercial/razonamiento', permission: Permission.COMMERCIAL_THOT_VER },
+      ],
+    },
+    {
+      // [CAT.1] Se llamaba "Catálogo", pero el catálogo se fue a Compras y adentro quedaron sólo
+      // precios y promos. Un grupo llamado Catálogo sin catálogo adentro manda a la gente a
+      // buscarlo justo donde ya no está.
+      title: 'Precios y promociones',
+      items: [
+        { label: 'Listas de precios', icon: 'pi pi-tag',          route: '/comercial/pricing',    permission: Permission.COMMERCIAL_PRICING_VER },
+        // `[PR.V2]` Eran DOS renglones que responden la misma pregunta en dos tiempos: el motor
+        // dice qué precio conviene mover, y el experimento es lo único que puede convertir esa
+        // acción de «efecto no medido» a medida. Ahora es una entrada con selector segmentado.
+        // ⚠️ `anyOf`, no `permission`: `compras`/`finanzas` ven sólo el motor y `telemarketing`
+        //    sólo los experimentos — con un permiso único, alguien perdía la entrada entera.
+        { label: 'Control de margen', icon: 'pi pi-sliders-h',    route: '/comercial/precios',
+          anyOf: [Permission.COMMERCIAL_MARGIN_ENGINE_VER, Permission.COMMERCIAL_PRICE_EXPERIMENT_VER, Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR] },
+        { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
+        { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
+      ],
+    },
+    {
+      title: 'Ruta y vendedores',
+      items: [
+        { label: 'Cartera de ventas',  icon: 'pi pi-sitemap',    route: '/comercial/cartera',       permission: Permission.USUARIOS_ASIGNAR_RUTA },
+        { label: 'Cierre de ruta',     icon: 'pi pi-receipt',    route: '/comercial/route-tickets', permission: Permission.ROUTE_CONTROL_VER },
+        { label: 'Ventas de vendedor', icon: 'pi pi-money-bill', route: '/comercial/vendor-sales',  permission: Permission.COMMERCIAL_VENDOR_SALES_VER },
+      ],
+    },
+    {
+      title: 'Reportes',
+      items: [
+        { label: 'Ventas generales', icon: 'pi pi-sparkles', route: '/comercial/ventas-generales', permission: Permission.COMMERCIAL_ANALYTICS_VER },
+        { label: 'Rentabilidad', icon: 'pi pi-percentage', route: '/comercial/rentabilidad', permission: Permission.COMMERCIAL_PROFITABILITY_VER },
+        { label: 'Sell-Out por empresa', icon: 'pi pi-file-excel', route: '/comercial/sell-out', permission: Permission.COMMERCIAL_SELLOUT_VER },
+        { label: 'Salidas por producto', icon: 'pi pi-box', route: '/comercial/salidas', permission: Permission.COMMERCIAL_SALIDAS_VER },
+        { label: 'Ventas por ruta', icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', permission: Permission.COMMERCIAL_ROUTE_SALES_VER },
+        { label: 'Documentos', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
+        { label: 'Sucursales Wincaja', icon: 'pi pi-building', route: '/comercial/wincaja', permission: Permission.COMMERCIAL_ANALYTICS_VER },
+      ],
+    },
+  ];
+
+  private adminNavItems: NavItem[] = [
+    // `[AU.1]` Con `USUARIOS_GESTIONAR` el ítem no se pintaba para las 10 personas
+    // que tienen `USUARIOS_VER`: aunque la ruta abriera, no tenían por dónde llegar.
+    { label: 'Personas', icon: 'pi pi-users',  route: '/admin/users', permission: Permission.USUARIOS_VER },
+    // `[AU.3]`/`[AU.4]` Estaban sólo como pestañas: una pantalla que no está en el
+    // sidebar, para quien no conoce la pestaña, no existe.
+    { label: 'Puestos',  icon: 'pi pi-sitemap', route: '/admin/puestos', permission: Permission.USUARIOS_VER },
+    { label: 'Responsabilidades', icon: 'pi pi-flag', route: '/admin/responsabilidades', permission: Permission.USUARIOS_VER },
+    { label: 'Promotores de marca', icon: 'pi pi-id-card', route: '/admin/promotores', permission: Permission.COMMERCIAL_PROMOTERS_GESTIONAR },
+    // La ruta pide `ROLES_VER`; con `ROLES_CONFIGURAR` el ítem no se pintaba para
+    // quien sí puede abrirla.
+    { label: 'Roles',    icon: 'pi pi-shield', route: '/admin/roles', permission: Permission.ROLES_VER },
+    { label: 'Salud DB', icon: 'pi pi-heart',  route: '/admin/db-health', permission: Permission.PLATFORM_HEALTH_VER },
+  ];
+
+  private logisticaNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Operación',
+      items: [
+        { label: 'Dashboard',    icon: 'pi pi-th-large',  route: '/logistica/dashboard',      permission: Permission.LOGISTICS_SHIPMENTS_VER },
+        { label: 'Embarques',    icon: 'pi pi-truck',     route: '/logistica/shipments',      permission: Permission.LOGISTICS_SHIPMENTS_VER },
+        { label: 'Planeador',    icon: 'pi pi-compass',   route: '/logistica/planner',        permission: Permission.LOGISTICS_SHIPMENTS_VER },
+        { label: 'Mis entregas', icon: 'pi pi-mobile',    route: '/logistica/my-assignments', permission: Permission.LOGISTICS_SHIPMENTS_VER },
+        { label: 'Guías',        icon: 'pi pi-file-edit', route: '/logistica/guides',         permission: Permission.LOGISTICS_GUIDES_VER },
+      ],
+    },
+    {
+      title: 'Flota y personal',
+      items: [
+        { label: 'Rastreo',       icon: 'pi pi-map-marker', route: '/logistica/tracking', permission: Permission.LOGISTICS_FLEET_VER },
+        { label: 'Flotilla',      icon: 'pi pi-car',        route: '/logistica/fleet',    permission: Permission.LOGISTICS_FLEET_VER },
+        { label: 'Liquidaciones', icon: 'pi pi-wallet',     route: '/logistica/payroll',  permission: Permission.LOGISTICS_PAYROLL_VER },
+      ],
+    },
+    {
+      title: 'Costos y reportes',
+      items: [
+        { label: 'Costos',        icon: 'pi pi-money-bill', route: '/logistica/costs',     permission: Permission.LOGISTICS_EXPENSES_VER },
+        { label: 'Gasto de ruta', icon: 'pi pi-car',        route: '/logistica/gasto-ruta', permission: Permission.LOGISTICS_ROUTE_EXPENSES_VER },
+        { label: 'Traspasos',     icon: 'pi pi-sync',       route: '/logistica/traspasos', permission: Permission.LOGISTICS_TRANSFERS_VER },
+        { label: 'Reportes',      icon: 'pi pi-chart-bar',  route: '/logistica/reports',   permission: Permission.LOGISTICS_SHIPMENTS_VER },
+        { label: 'Configuración', icon: 'pi pi-cog',        route: '/logistica/config',    permission: Permission.LOGISTICS_CONFIG_GESTIONAR },
+      ],
+    },
+  ];
+
+  /**
+   * Chequeo por CLAVE EXACTA del permiso + god-mode de plataforma.
+   *
+   * Ya no consulta reglas de CASL por `subject`. Ese paso era estrictamente MAS permisivo que
+   * el chequeo exacto: varias claves comparten subject, asi que un item que pide
+   * COMMERCIAL_ORDERS_CONFIRMAR se mostraba a quien solo tenia ORDERS_VER — nav visible que el
+   * API rechaza con 403.
+   *
+   * El god-mode va PRIMERO: un superadmin debe ver TODO el nav sin depender de
+   * que cada permiso nuevo esté mapeado en `permToSubject` ni backfilleado como
+   * clave literal en su JSONB (+ re-login). Sin esto, cada item nuevo (ej.
+   * Etiquetas / STORE_LABELS_VER) quedaba invisible para el superadmin hasta
+   * backfillear la clave — el mismo trap que ya resuelven `permissionGuard` y
+   * `projects.component`. Las perms commercial siguen sin subject CASL, por eso
+   * el fallback al record legacy se mantiene.
+   */
+  private hasPermFor(item: NavItem): boolean {
+    if (this.perms.isAdmin()) return true;
+    const legacy = this.user()?.permissions;
+    // Gate OR: si el item declara `anyOf`, basta con una de esas perms.
+    if (item.anyOf?.length) {
+      return item.anyOf.some((p) => (legacy ? legacy[p] === true : false));
+    }
+    // Sin `anyOf` y sin `permission` el item no tiene compuerta. Sin esta línea caería en
+    // `legacy[undefined]` → `false`, o sea que un item declarado para todos se escondería
+    // de TODOS menos del god-mode — invisible y sin error.
+    if (!item.permission) return true;
+    return legacy ? legacy[item.permission] === true : false;
+  }
+
+  /**
+   * Igual que `hasPermFor` pero para un permiso suelto (sin NavItem). Lo usa el
+   * getter de áreas de Almacén (WMS.1) para elegir el primer tab accesible.
+   */
+  private canPerm(p: Permission): boolean {
+    if (this.perms.isAdmin()) return true;
+    const legacy = this.user()?.permissions;
+    return legacy ? legacy[p] === true : false;
+  }
+
+  /**
+   * Resaltado del sidebar por **área** (WMS.1). `routerLinkActive` solo matchea
+   * el `route` del propio item; un área cubre rutas de prefijos distintos, así
+   * que el template hace OR entre las dos señales.
+   *
+   * Delega en `resolveAlmacenArea` —**el mismo** resolvedor de la barra de
+   * tabs— para que sidebar y tabs no puedan discrepar. Exactamente **un** item
+   * de área queda activo a la vez.
+   */
+  isNavActive(item: NavItem): boolean {
+    if (!item.activeAreaKey) return false;
+    return resolveAlmacenArea(this.currentUrl())?.key === item.activeAreaKey;
+  }
+
+  /**
+   * Proyecto activo. `[SN.4]` Sale del árbol (`resolveProjectForUrl`, por SEGMENTO: `/administracion`
+   * no es `/admin`; un proyecto con `route: ''` nunca casa) y se traduce a la clave interna de este
+   * componente, que sigue siendo la misma union: los `*NavGroups` se indexan por ella. Default =
+   * trade marketing, como antes — `isRestricted()` depende de ese default para las URLs sin
+   * proyecto (`/sin-acceso`, 404). (`/telemarketing` SÍ monta este layout: el botón de la Mesa de Servicio lo
+   * hereda; ver `servicio/entradas.spec.ts`.)
+   */
+  private currentProject = computed<LayoutProject>(() => {
+    const id = resolveProjectForUrl(this.currentUrl())?.id;
+    return (id && PROJECT_KEY[id]) || 'trademk';
+  });
+
+  /**
+   * Migaja sin la página: Espacio › Proyecto, deduplicando cuando coinciden (Configuración de la
+   * suite es espacio y proyecto a la vez; repetirlo sería ruido).
+   */
+  crumbs = computed<Miga[]>(() => construirMigas(this.currentUrl()));
+
+  private tiendaNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Operación',
+      items: [
+        { label: 'Verificador de precios', icon: 'pi pi-barcode', route: '/tienda/verificador', permission: Permission.STORE_PRICE_CHECK_VER },
+        { label: 'Monitor en vivo', icon: 'pi pi-bolt',       route: '/tienda/live',     permission: Permission.STORE_LIVE_VER },
+        { label: 'Sucursales',      icon: 'pi pi-building',    route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
+        { label: 'Ritmo del día',   icon: 'pi pi-chart-line', route: '/tienda/pace',     permission: Permission.STORE_LIVE_VER },
+        { label: 'Cajas abiertas',  icon: 'pi pi-inbox',      route: '/tienda/cajas',    permission: Permission.STORE_LIVE_VER },
+        // `[FLT.11]` Va en Operación y no en Análisis: es captura de mostrador, se usa con el
+        // cliente enfrente. `anyOf` porque la cajera sólo tiene CAPTURAR — con el gate en VER el
+        // item no le aparecería en el menú, que es el mismo defecto que tuvo Caducidades.
+        { label: 'Lista de faltantes', icon: 'pi pi-flag',    route: '/tienda/faltantes', permission: Permission.STORE_STOCKOUT_VER,
+          anyOf: [Permission.STORE_STOCKOUT_VER, Permission.STORE_STOCKOUT_CAPTURAR] },
+      ],
+    },
+    {
+      title: 'Análisis y control',
+      items: [
+        { label: 'Análisis de ventas', icon: 'pi pi-chart-bar', route: '/tienda/analisis-semanal', permission: Permission.STORE_ANALYTICS_VER },
+        // Una sola entrada: adentro son pestanas (ARQUEO_TABS). El acto de contar y
+        // la vista por persona son el mismo tema, no dos modulos.
+        { label: 'Arqueo de caja',     icon: 'pi pi-eye-slash', route: '/tienda/arqueo',           permission: Permission.STORE_ARQUEO_VER },
+        // `anyOf`: el colaborador de sucursal solo tiene CAPTURAR — con el gate
+        // en VER, la pantalla donde trabaja no le aparecía en el menú.
+        { label: 'Caducidades',        icon: 'pi pi-clipboard', route: '/tienda/caducidades',      permission: Permission.COMMERCIAL_EXPIRY_VER,
+          anyOf: [Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
+        { label: 'Etiquetas',          icon: 'pi pi-tag',       route: '/tienda/etiquetas',        permission: Permission.STORE_LABELS_VER },
+      ],
+    },
+  ];
+
+  // Finanzas (egresos contables, CxP). Crece aquí lo contable — no en Ventas.
+  /**
+   * `[E.13]` Telemarketing. Los mismos destinos que tenía la barra superior del shell propio,
+   * en el mismo orden — reestructurar es mover, no rediseñar: lo que ya funcionaba no se tira.
+   *
+   * Dos grupos porque son dos oficios distintos: el trabajo del turno (a quién llamo ahora) y
+   * lo que sale del canal (qué se ofreció, qué se facturó). Facturación sale a
+   * `/comercial/documentos`, que es de OTRO proyecto: se ofrece igual porque es el resultado del
+   * canal, y gateada por SU permiso — un enlace que lleva a un rebote es peor que no mostrarlo.
+   */
+  private telemarketingNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Mi turno',
+      items: [
+        { label: 'Resumen', icon: 'pi pi-chart-bar', route: '/telemarketing/dashboard', permission: Permission.COMMERCIAL_TELEVENTA_OPERATE },
+        { label: 'Cola priorizada', icon: 'pi pi-list', route: '/telemarketing/queue', permission: Permission.COMMERCIAL_TELEVENTA_OPERATE },
+        { label: 'Mis activos', icon: 'pi pi-bookmark', route: '/telemarketing/my', permission: Permission.COMMERCIAL_TELEVENTA_OPERATE },
+      ],
+    },
+    {
+      title: 'Lo que sale del canal',
+      items: [
+        { label: 'Cotizaciones', icon: 'pi pi-calculator', route: '/telemarketing/cotizaciones', permission: Permission.COMMERCIAL_QUOTES_VER },
+        { label: 'Facturación', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
+      ],
+    },
+  ];
+
+  // Orden alineado a FINANZAS_TABS (finanzas-tabs.ts): mismo orden en sidebar y pestañas.
+  private finanzasNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Egresos y bancos',
+      items: [
+        { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
+        { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
+        { label: 'Caja General', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
+        { label: 'Caja (captura)', icon: 'pi pi-pencil', route: '/finanzas/caja-general', permission: Permission.FINANCE_CAJA_VER },
+        // [IG.2] Faltaba en el sidebar: tenía pestaña desde CS.2 pero no entrada acá, así que se
+        // llegaba sólo escribiendo la URL. Lo destapó el candado nuevo de `finanzas-tabs.spec.ts`,
+        // que ahora recorre TODAS las pestañas en vez de nombrar tres rutas a mano.
+        { label: 'Caja Fuerte', icon: 'pi pi-lock', route: '/finanzas/caos', permission: Permission.FINANCE_CAOS_VER },
+        { label: 'Cancelados', icon: 'pi pi-ban', route: '/finanzas/cancelados', permission: Permission.FINANCE_BANK_VER },
+        { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
+        /**
+         * `[SM.9]` Llegó de Almacén. Cuadra el arqueo ciego contra el corte de caja
+         * (ADR-029) — dinero con una pata en inventario, no al revés. Su permiso
+         * `RECONCILIATION_*` es de dominio propio y no cambió al mudarse.
+         */
+        { label: 'Cuadre de movimientos', icon: 'pi pi-sliders-h', route: '/finanzas/cuadre', permission: Permission.RECONCILIATION_VER },
+      ],
+    },
+    {
+      // [CSU.2] Sección propia para el lado ingreso (decisión de Francisco, 2026-10-05): lo que
+      // vendieron las cajas, el libro de ingresos y lo que deben/pagaron los clientes.
+      title: 'Ingresos',
+      items: [
+        { label: 'Cortes / Sucursales', icon: 'pi pi-shop', route: '/finanzas/cortes-sucursales', permission: Permission.FINANCE_CORTES_VER },
+        // [IG.2] Permiso PROPIO: hay roles que ven la venta y no el gasto, así que no se cuelga
+        // de FINANCE_EXPENSES_VER.
+        { label: 'Ingresos contables', icon: 'pi pi-arrow-down-left', route: '/finanzas/ingresos', permission: Permission.FINANCE_INCOME_VER },
+        /**
+         * UNA entrada para Cartera y Cobranza: son las dos mitades del mismo oficio (lo
+         * que te deben / lo que te pagaron) y adentro se cambia con el selector. `anyOf`
+         * porque exigen permisos distintos; la ruta la protege `carteraEntryGuard`, que
+         * lleva a su mitad a quien sólo tiene una — no lo rebota.
+         */
+        { label: 'Crédito', icon: 'pi pi-address-book', route: '/finanzas/cartera',
+          permission: Permission.FINANCE_RECEIVABLES_VER,
+          anyOf: [Permission.FINANCE_RECEIVABLES_VER, Permission.FINANCE_COLLECTIONS_VER] },
+      ],
+    },
+    {
+      title: 'Pagos',
+      items: [
+        { label: 'Pagos a proveedor', icon: 'pi pi-send', route: '/finanzas/pagos-comprobantes', permission: Permission.FINANCE_PAYMENTS_VER },
+        { label: 'Calendario de pagos', icon: 'pi pi-calendar', route: '/finanzas/calendario-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
+        { label: 'Programa de pagos', icon: 'pi pi-calendar', route: '/finanzas/programa-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
+        { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
+        { label: 'Cuentas por pagar', icon: 'pi pi-chart-bar', route: '/finanzas/pagos-control', permission: Permission.FINANCE_AI_CHAT },
+      ],
+    },
+    {
+      title: 'Gastos',
+      items: [
+        /**
+         * `[GX.17]` GX.10 había fundido todo en UN destino porque las dos mitades eran
+         * vistas del mismo trámite. Ya no: subir, firmar y consultar son tres oficios
+         * con tres públicos distintos, y las dos rutas nuevas nacieron SIN entrada —
+         * sólo se llegaba escribiendo la URL. Es la falla de `[LC.6.2]`: una pantalla
+         * en prod que nadie puede abrir.
+         *
+         * El grupo crece sólo para quien firma. Medido en `platform_test` (166 usuarios
+         * activos): 166 ven «Gastos», 12 ven «Aprobación», 25 ven «Tablero».
+         *
+         * Las bandejas "Reembolsos" y "Comprobación de gastos" se retiraron el 2026-08-21.
+         */
+        // SIN compuerta, a propósito: la ruta es `canActivate: []` («para este tendrán
+        // acceso todos», GX.17). Con el `anyOf` que traía, 66 de los 166 activos podían
+        // ENTRAR escribiendo la URL pero no veían el renglón — el menú contradecía a la
+        // ruta. El dato sigue acotado por áreas del lado del backend.
+        // `[GX.18]` Se llama LEVANTAMIENTO: es el acto de levantar el gasto, no el gasto.
+        // `[GX.42]` **«Levantamiento de gasto» se retiro del menu por pedido del usuario:**
+        // el gasto ya no se busca, LLEGA -- Kepler lo asigna por la caja «Solicita» y aparece
+        // en «Mis gastos». La RUTA sigue viva porque es a donde lleva «Subir evidencia»; lo que
+        // se quita es la puerta de entrada por folio tecleado.
+        // Dar luz verde. `FINANCE_EXPENSES_COMPROBAR` ya existía (GX.7) y ya gateaba
+        // approve/validate/reject — no se inventó un permiso para la misma puerta.
+        { label: 'Aprobación de gastos', icon: 'pi pi-verified', route: '/finanzas/aprobacion-gastos',
+          permission: Permission.FINANCE_EXPENSES_COMPROBAR },
+        // `[GX.33]` Lo que levantó UNO MISMO. Es lo que ve quien sólo captura -- para él
+        // el «Historial» prometía la empresa entera y le daba lo propio.
+        { label: 'Mis gastos', icon: 'pi pi-wallet', route: '/finanzas/mis-gastos',
+          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR] },
+        // `[GX.33]` El Historial pasa a ser de quien REVISA (ver el comentario de la ruta).
+        // ⚠️ Sin `permission:` suelto: con `anyOf` presente el filtro devuelve ahí mismo y
+        // esa clave era letra muerta -- se leía como una segunda compuerta que no existía.
+        // `[GX.59]` EXPEDIENTE: el tramite de todas las personas, agrupado por persona.
+        // Va ARRIBA de Historial porque es la pantalla que pidio el usuario para reemplazarlo.
+        // ⚠️ Historial se conserva: con `_COMPROBAR` sola, 14 personas (direccion,
+        // contabilidad, finanzas_operativo, credito_cobranza, gerente_compras, marketing) se
+        // quedaban sin ninguna vista de empresa. Retirarlo es decision del usuario.
+        { label: 'Expediente', icon: 'pi pi-folder-open', route: '/finanzas/expediente',
+          permission: Permission.FINANCE_EXPENSES_COMPROBAR },
+        { label: 'Historial', icon: 'pi pi-history', route: '/finanzas/gastos-historial',
+          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR] },
+        // `[GX.18]` El «Tablero de gastos» salió del menú por pedido del usuario. ⚠️ La RUTA
+        // `/finanzas/gastos-tablero` sigue viva: 25 personas con `_VER` la tenían en
+        // marcadores y hay enlaces internos que apuntan ahí. Quitar el renglón es esconder
+        // la puerta; borrar la ruta es romperle el enlace a alguien.
+      ],
+    },
+    {
+      title: 'Inteligencia',
+      items: [
+        { label: 'Hallazgos', icon: 'pi pi-flag', route: '/finanzas/hallazgos', permission: Permission.FINANCE_AI_CHAT },
+        { label: 'Pregúntale a Maat', icon: 'pi pi-sparkles', route: '/finanzas/maat', permission: Permission.FINANCE_AI_CHAT },
+      ],
+    },
+  ];
+
+  // Contabilidad (cumplimiento SAT / CFDI). Proyecto propio, separado de Finanzas.
+  // Fase DEV — Desarrolladores. Un solo módulo hoy; nav propio para no caer al de Trade.
+  private desarrolladoresNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Desarrolladores',
+      items: [
+        { label: 'Proyectos', icon: 'pi pi-code', route: '/desarrolladores/proyectos', anyOf: [Permission.DEV_PROJECTS_VER, Permission.DEV_PROJECTS_GESTIONAR] },
+      ],
+    },
+  ];
+
+  // Fase MS — Mesa de Servicio. «Mis solicitudes» sólo exige REPORTAR (todo rol con personas lo tiene);
+  // Bandeja y Configuración, ATENDER/COORDINAR. Cada item por su permiso, igual que la ruta.
+  private servicioNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Mesa de Servicio',
+      items: [
+        { label: 'Bandeja', icon: 'pi pi-inbox', route: '/servicio/bandeja', anyOf: [Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR] },
+        { label: 'Mis solicitudes', icon: 'pi pi-ticket', route: '/servicio/solicitudes', anyOf: [Permission.SERVICIO_REPORTAR] },
+        { label: 'Reportes', icon: 'pi pi-chart-bar', route: '/servicio/reportes', anyOf: [Permission.SERVICIO_COORDINAR] },
+        { label: 'Configuración', icon: 'pi pi-sliders-h', route: '/servicio/configuracion', anyOf: [Permission.SERVICIO_COORDINAR] },
+      ],
+    },
+  ];
+
+  private contabilidadNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Fiscal / SAT',
+      items: [
+        { label: 'Listas SAT',    icon: 'pi pi-shield',         route: '/contabilidad/listas-sat',   permission: Permission.FISCAL_LISTAS_VER },
+        { label: 'CFDI',          icon: 'pi pi-file',           route: '/contabilidad/cfdi',         permission: Permission.FISCAL_CFDI_VER },
+        { label: 'Descarga CFDI', icon: 'pi pi-cloud-download', route: '/contabilidad/descarga',     permission: Permission.FISCAL_DESCARGA_VER },
+        { label: 'Materialidad',  icon: 'pi pi-folder-open',    route: '/contabilidad/materialidad', permission: Permission.FISCAL_LISTAS_VER },
+      ],
+    },
+    {
+      title: 'Facturación',
+      items: [
+        { label: 'Facturar',    icon: 'pi pi-file-edit', route: '/contabilidad/facturar',    permission: Permission.FISCAL_FACTURAR_VER },
+        { label: 'Diagnóstico', icon: 'pi pi-wrench',    route: '/contabilidad/diagnostico', permission: Permission.FISCAL_FACTURAR_VER },
+      ],
+    },
+    {
+      title: 'Contabilidad',
+      items: [
+        { label: 'Conciliación',    icon: 'pi pi-check-square', route: '/contabilidad/conciliacion', permission: Permission.FISCAL_CONCILIACION_VER },
+        { label: 'Contabilidad e.', icon: 'pi pi-book',         route: '/contabilidad/contabilidad', permission: Permission.FISCAL_CONTAB_VER },
+        { label: 'ContPAQi',        icon: 'pi pi-database',     route: '/contabilidad/contpaqi',     permission: Permission.FISCAL_CONTAB_VER },
+        /**
+         * Las dos del Libro de Compras vivían SÓLO en la barra de arriba del proyecto
+         * (`contabilidad-tabs`). Al retirar esa barra —que repetía lo que ya está acá—
+         * se habrían quedado sin ninguna puerta. Se agregan ANTES de quitarla.
+         */
+        { label: 'Libro de Compras', icon: 'pi pi-book', route: '/contabilidad/libro-de-compras', permission: Permission.FISCAL_PURCHASE_BOOK_VER },
+        { label: 'No asociados',     icon: 'pi pi-link', route: '/contabilidad/movimientos-no-asociados', permission: Permission.FISCAL_PURCHASE_BOOK_VER },
+        { label: 'Pólizas',         icon: 'pi pi-check-circle', route: '/contabilidad/polizas',      permission: Permission.FISCAL_CONTAB_VER },
+      ],
+    },
+    {
+      title: 'Impuestos',
+      items: [
+        { label: 'DIOT / IVA',    icon: 'pi pi-percentage', route: '/contabilidad/diot',      permission: Permission.FISCAL_DIOT_VER },
+        { label: 'Provisionales', icon: 'pi pi-calculator', route: '/contabilidad/impuestos', permission: Permission.FISCAL_DIOT_VER },
+      ],
+    },
+    {
+      title: 'Credenciales',
+      items: [
+        { label: 'e.firma', icon: 'pi pi-key', route: '/contabilidad/credenciales', permission: Permission.FISCAL_CREDENCIALES_GESTIONAR },
+      ],
+    },
+  ];
+
+  // Compras / Reabastecimiento (Fase RA — ADR-030). Existencia crítica → sugerido →
+  // requisición (HITL). Proyecto propio; cada submódulo gateado por su permiso COMPRAS_*.
+  private comprasNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Planeación',
+      items: [
+        // Existencia va ANTES de Pedido, y el orden es la tesis: primero ves qué hay, después
+        // decidís qué comprar. Es el mismo componente que /almacen/inventory/existencia.
+        { label: 'Existencia',       icon: 'pi pi-box',       route: '/compras/existencia', permission: Permission.EXISTENCIA_VER },
+        { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_PEDIDO_VER },
+        { label: 'Asistente (Thot)', icon: 'pi pi-comments',  route: '/compras/asistente', permission: Permission.COMPRAS_PEDIDO_GESTIONAR },
+        { label: 'Red de abasto',    icon: 'pi pi-sitemap',   route: '/compras/red',       permission: Permission.COMPRAS_RED_VER },
+      ],
+    },
+    {
+      // RE.20.0 — el grupo dice la ETAPA del proceso, no el tipo de documento. Se llamaba
+      // "Órdenes" y adentro convivían "Órdenes de compra" (lo que pedimos) con las facturas de
+      // entrada (lo que llega): dos cosas opuestas bajo el mismo sustantivo, y con dos rutas
+      // casi idénticas (`/compras/ordenes` vs `/compras/entradas/control/ordenes`).
+      title: 'Compra',
+      items: [
+        { label: 'Requisiciones',     icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_REQUISICIONES_VER },
+        { label: 'Órdenes de compra', icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_ORDENES_VER },
+        // RA-PRO.45 — las OCs de Kepler que quedaron abiertas: lo que hay que cerrar o cancelar
+        // para que dejen de tapar el pedido. Mismo permiso que Pedido (es la otra cara del dato).
+        { label: 'Abiertas en Kepler', icon: 'pi pi-hourglass',    route: '/compras/oc-abiertas',   permission: Permission.COMPRAS_PEDIDO_VER },
+      ],
+    },
+    {
+      // RE.20.0 — la otra etapa. Los nombres son SUSTANTIVOS, como el resto del sidebar
+      // (Ventas · Existencias · Pagos · Conteo físico), y cada uno usa **la palabra de la
+      // máquina de estados**: el estado es "Por revisar" → la pantalla es "Revisión". Antes la
+      // misma pantalla se llamaba de tres formas (sidebar "Revisión", título "Bandeja de
+      // revisión", permiso `_VALIDAR`) y quien la abría no sabía qué iba a hacer ahí.
+      title: 'Recepción',
+      items: [
+        // Captura pide GESTIONAR (todo lo que se hace ahí lo exige); observar es Control.
+        { label: 'Captura de facturas',  icon: 'pi pi-file-pdf', route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
+        // `[RE.24]` "Revisión de facturas" salió de uso (2026-09-02): validar y rechazar ya
+        // viven en la lista de órdenes, a la que se llega por Control. Una pantalla menos que
+        // aprender y un solo lugar donde se decide. La ruta redirige, no tira 404.
+        { label: 'Control de entradas',  icon: 'pi pi-sitemap',  route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
+        // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
+        { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
+      ],
+    },
+    {
+      // RE.20.5 — las cuatro son el MISMO dinero cortado distinto, y lo único que las
+      // distingue es la unidad de la fila. Los nombres lo dicen: "por compra" y "por
+      // proveedor" son la misma cifra a dos granularidades y se leen de un vistazo.
+      // `Compras 360` era vocabulario del backend (execution_360, Customer 360): decía algo
+      // al que lo construyó y nada al comprador.
+      title: 'Análisis',
+      items: [
+        // RE.20.1 — la fusión: es la MISMA pantalla que `Control de entradas · Listado`, con el
+        // otro lente. Y pide `COMPRAS_ENTRADAS_VER` y no `COMPRAS_360_VER` porque el primero es
+        // superconjunto del segundo (medido): así nadie pierde acceso al fusionar.
+        { label: 'Costo por compra',    icon: 'pi pi-table',      route: '/compras/costo-por-compra', permission: Permission.COMPRAS_ENTRADAS_VER },
+        { label: 'Costo por proveedor', icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
+        { label: 'Costo estándar',     icon: 'pi pi-book',       route: '/compras/costo-estandar', permission: Permission.COMPRAS_COSTO_ESTANDAR_VER },
+        { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },
+        { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_HALLAZGOS_VER },
+        // `[FLT.14]` Lo que el mostrador reportó: la demanda que ningún feed puede ver, porque una
+        // venta que no ocurrió no deja rastro en el ERP. Mismo permiso que Hallazgos y Reclamos —
+        // las tres bandejas las trabaja el mismo comprador.
+        { label: 'Faltantes de piso',   icon: 'pi pi-megaphone',  route: '/compras/faltantes',   permission: Permission.COMPRAS_HALLAZGOS_VER },
+        // WMS-REC.8 — el faltante del andén con responsable y seguimiento. Mismo permiso
+        // que Hallazgos: es la bandeja del mismo comprador.
+        { label: 'Reclamos',            icon: 'pi pi-inbox',      route: '/compras/reclamos',    permission: Permission.COMPRAS_HALLAZGOS_VER },
+      ],
+    },
+    {
+      title: 'Catálogo',
+      items: [
+        // [CAT.1] Vino de Ventas. Adentro trae su pestaña de códigos repetidos.
+        { label: 'Catálogo',    icon: 'pi pi-shopping-bag', route: '/compras/catalogo', permission: Permission.COMMERCIAL_PRODUCTS_VER },
+        { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_PROVEEDORES_VER },
+        { label: 'Obligaciones a proveedor', icon: 'pi pi-calendar', route: '/compras/obligaciones', permission: Permission.COMPRAS_OBLIGACIONES_VER },
+        { label: 'Cuentas de pago',          icon: 'pi pi-credit-card', route: '/compras/cuentas-pago', permission: Permission.COMPRAS_OBLIGACIONES_VER },
+        { label: 'Categorías',  icon: 'pi pi-tags',  route: '/compras/categorias',  permission: Permission.COMPRAS_CATEGORIAS_VER },
+      ],
+    },
+  ];
+
+  /** Icono por área de Almacén (WMS.1). Vive acá y no en `almacen-tabs.ts`
+   *  porque es cosa del sidebar, no de la barra de tabs. */
+  private readonly almacenAreaIcons: Record<string, string> = {
+    anden: 'pi pi-truck',
+    entrada: 'pi pi-inbox',
+    inventario: 'pi pi-box',
+    abasto: 'pi pi-shopping-cart',
+    conteo: 'pi pi-qrcode',
+    control: 'pi pi-shield',
+    'analisis-bi': 'pi pi-chart-line',
+  };
+
+  /**
+   * **Diario de Movimientos — intocable** (decisión del equipo, 2026-08-31).
+   * No entra en ninguna área: item propio, sin barra de tabs, y su ruta cuelga
+   * fuera del shell. Se declara aparte a propósito para que un refactor futuro
+   * de áreas no se lo lleve por delante.
+   */
+  private readonly almacenMovimientosItem: NavItem = {
+    label: 'Movimientos',
+    icon: 'pi pi-arrow-right-arrow-left',
+    route: '/almacen/movimientos',
+    permission: Permission.COMMERCIAL_MOVEMENTS_VER,
+    anyOf: [Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER],
+  };
+
+  /**
+   * Almacén (WMS) — **Fase WMS.1**: un área = **un** item de sidebar; los
+   * subtemas son **tabs** (`app-page-tabs`).
+   *
+   * Antes eran 3 grupos con **19 items planos**, y tres de ellos —*Caducidades*,
+   * *Recepción*, *Vales de entrada*— no eran tres áreas: eran tres estados del
+   * MISMO trabajo (un vale pasa por los tres).
+   *
+   * Es un **getter** y no un campo porque la ruta destino de cada área se elige
+   * en vivo: **el primer tab que el rol alcanza**. Con ruta fija, un contador
+   * con solo `CONTAR` aterrizaría en Folios (`SUPERVISAR`) y comería un 403, y
+   * un promotor con solo `EXPIRY_VER` perdería las hojas de anaquel. La fuente
+   * única de áreas y tabs es `modules/almacen/almacen-tabs.ts`.
+   */
+  private get almacenNavGroups(): { title: string; items: NavItem[] }[] {
+    const items: NavItem[] = [];
+    for (const area of ALMACEN_AREAS) {
+      // Áreas ocultas (WMS-REC.7): siguen resolviendo URLs y dando su barra de
+      // tabs por deep-link, pero no se pintan como puerta de entrada. Es el caso
+      // de `entrada`, reemplazada por el Andén.
+      if (area.hidden) continue;
+      // Primera pantalla accesible → destino del item. Incluye las de foco
+      // (`focusEntries`) al final: un contador con solo CONTAR no alcanza
+      // ningún tab de Conteo y aterriza en Contar. Si no hay ninguna, el área
+      // no se pinta (el rol no tiene nada que hacer ahí).
+      const landing = almacenLandingCandidates(area).find(
+        (t) => !t.permission || this.canPerm(t.permission),
+      );
+      if (!landing) continue;
+      items.push({
+        label: area.label,
+        icon: this.almacenAreaIcons[area.key] ?? 'pi pi-circle',
+        route: landing.route,
+        // Mismo permiso que el destino: `hasPermFor` volverá a evaluarlo y
+        // coincidirá con `canPerm`, así que nunca hay item que no se pueda abrir.
+        permission: landing.permission ?? Permission.COMMERCIAL_INVENTORY_VER,
+        // Resaltado por área, resuelto con el mismo `resolveAlmacenArea` que
+        // alimenta la barra de tabs → nunca dos items activos a la vez.
+        activeAreaKey: area.key,
+      });
+    }
+    // Movimientos va al final, fuera de las áreas y sin activePrefixes: su
+    // propio routerLinkActive lo resuelve. Intocable.
+    if (this.hasPermFor(this.almacenMovimientosItem)) items.push(this.almacenMovimientosItem);
+    return items.length ? [{ title: 'WMS', items }] : [];
+  }
+
+  // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla
+  // el acceso a la superficie, por eso el nav no se re-filtra por permiso.
+  private repartoNavItems: NavItem[] = [
+    // ⛔ `[VEC.7]` Surtido NO estaba acá, y por eso no se podía llegar desde el menú.
+    // La Fase SU (ADR-067) construyó la pantalla, le dio ruta propia, ajustó el `repartoGuard`
+    // y el `repartoHomeGuard` para que `almacenista` no rebotara… y nunca la agregó al nav.
+    // Quedaba alcanzable sólo escribiendo la URL o entrando por «Mi trabajo» — o sea invisible
+    // para quien abre Reparto por el sidebar, que es como se abre un proyecto.
+    // Va PRIMERO porque es lo primero del flujo: se surte, después se reparte.
+    // ⚠️ Es el ÚNICO con permiso propio (`COMMERCIAL_PICKING_VER`): los otros cuatro usan
+    // `REPARTO_DESPACHAR`, que `almacenista` tiene en **false explícito**. Si se copiara el
+    // permiso del vecino, la persona que surte seguiría sin ver su propia pantalla.
+    { label: 'Surtido',          icon: 'pi pi-list-check', route: '/reparto/surtido',          permission: Permission.COMMERCIAL_PICKING_VER },
+    { label: 'Asignar pedido',   icon: 'pi pi-send',       route: '/reparto/asignar',          permission: Permission.REPARTO_DESPACHAR },
+    { label: 'Pedidos WhatsApp', icon: 'pi pi-whatsapp',   route: '/reparto/pedidos-whatsapp', permission: Permission.REPARTO_DESPACHAR },
+    { label: 'Seguimiento',      icon: 'pi pi-map-marker', route: '/reparto/seguimiento',      permission: Permission.REPARTO_DESPACHAR },
+    { label: 'Cortes de caja',   icon: 'pi pi-wallet',     route: '/reparto/cortes',           permission: Permission.REPARTO_DESPACHAR },
+  ];
+
+  /**
+   * Título de la primera sección del sidebar. En «Venta al detalle» se llama «Auditoría en
+   * ruta»: la auditoría de ejecución NO es el proyecto, es LO QUE SE HACE adentro (decisión
+   * 2026-09-21, junto con el renombre de la tarjeta). Decía «Trade», que no se lo dice a nadie
+   * que no venga de trade marketing. Resto de proyectos, «Operaciones».
+   */
+  mainSectionTitle = computed(() =>
+    this.currentProject() === 'trademk' ? 'Auditoría en ruta' : 'Operaciones',
+  );
+
+  navItems = computed(() => {
+    const user = this.user();
+    if (!user) return [];
+    // Reparto: superficie de personal de tienda; nav propio, sin depender del dashboard completo.
+    if (this.currentProject() === 'reparto') {
+      return this.dedupeByRoute(this.repartoNavItems.filter((i) => this.hasPermFor(i)));
+    }
+    // Finanzas: superficie contable con nav propio, sin depender del dashboard completo
+    // (un usuario de finanzas puede no tener REPORTES_VER_*). Cada item por su permiso:
+    // el route-guard bloquea la navegación pero no oculta el link.
+    if (this.currentProject() === 'finanzas') {
+      return this.dedupeByRoute(this.flatOf(this.finanzasNavGroups).filter((i) => this.hasPermFor(i)));
+    }
+    // Contabilidad: superficie contable/fiscal propia. Un rol contable puede no tener
+    // REPORTES_VER_* → early-return para que el sidebar no quede vacío. Cada item por permiso.
+    if (this.currentProject() === 'desarrolladores') {
+      return this.dedupeByRoute(this.flatOf(this.desarrolladoresNavGroups).filter((i) => this.hasPermFor(i)));
+    }
+    if (this.currentProject() === 'servicio') {
+      return this.dedupeByRoute(this.flatOf(this.servicioNavGroups).filter((i) => this.hasPermFor(i)));
+    }
+    if (this.currentProject() === 'contabilidad') {
+      return this.dedupeByRoute(this.flatOf(this.contabilidadNavGroups).filter((i) => this.hasPermFor(i)));
+    }
+    // Compras: superficie propia con nav propio (un comprador puede no tener REPORTES_VER_*).
+    // Cada item por su permiso: sin esto, dar COMPRAS_ENTRADAS_VER a un auxiliar le
+    // mostraba las 12 vistas del módulo y al hacer clic rebotaba en el route-guard.
+    if (this.currentProject() === 'compras') {
+      return this.dedupeByRoute(this.flatOf(this.comprasNavGroups).filter((i) => this.hasPermFor(i)));
+    }
+    // Tienda: superficie de sucursal (cajeras/encargados). Un rol `sucursal` no tiene
+    // REPORTES_VER_* → sin este early-return el nav de tienda no renderizaría. Cada item
+    // se filtra por su permiso (STORE_LIVE_VER / STORE_ARQUEO_VER / STORE_LABELS_VER).
+    if (this.currentProject() === 'tienda') {
+      return this.dedupeByRoute(this.flatOf(this.tiendaNavGroups).filter((i) => this.hasPermFor(i)));
+    }
+    // Almacén / Logística: superficies operativas con nav propio. Un rol operativo
+    // (p.ej. `compras`, encargado de almacén) NO tiene REPORTES_VER_EQUIPO/GLOBAL,
+    // así que sin este early-return caía en el gate `!fullDashboard` de abajo y el
+    // sidebar quedaba vacío. Cada item se filtra por su permiso (COMMERCIAL_INVENTORY_*, etc.).
+    if (this.currentProject() === 'almacen') {
+      return this.dedupeByRoute(this.flatOf(this.almacenNavGroups).filter((i) => this.hasPermFor(i)));
+    }
+    if (this.currentProject() === 'logistica') {
+      return this.dedupeByRoute(this.flatOf(this.logisticaNavGroups).filter((i) => this.hasPermFor(i)));
+    }
+    // `[E.13]` Telemarketing. El operador entra con `COMMERCIAL_TELEVENTA_OPERATE` y NO tiene
+    // `REPORTES_VER_*`, así que sin este early-return caía en el gate `!fullDashboard` de abajo
+    // y el sidebar le quedaba vacío — el mismo defecto que ya pagaron tienda y compras.
+    if (this.currentProject() === 'telemarketing') {
+      return this.dedupeByRoute(this.flatOf(this.telemarketingNavGroups).filter((i) => this.hasPermFor(i)));
+    }
+    // Colaborador restringido (sin reportes de equipo/global): solo captura diaria.
+    const legacy = user.permissions;
+    const fullDashboard =
+      legacy?.[Permission.REPORTES_VER_EQUIPO] === true ||
+      legacy?.[Permission.REPORTES_VER_GLOBAL] === true;
+    if (!fullDashboard) {
+      // El vendedor (CAPTURE_TICKET_USE) usa su app dedicada (/vendor), no Trade:
+      // acá no se le muestra "Captura Diaria". El colaborador sin esa capacidad sí.
+      const isVendor = legacy?.[Permission.CAPTURE_TICKET_USE] === true;
+      return this.dedupeByRoute(
+        this.tradeMkNavItems.filter(
+          (i) => i.route === '/dashboard/captures' && !isVendor && this.hasPermFor(i),
+        ),
+      );
+    }
+    const project = this.currentProject();
+    const items =
+      project === 'comercial'
+        ? this.flatOf(this.comercialNavGroups)
+        : project === 'admin'
+        ? this.adminNavItems
+        : this.tradeMkNavItems;
+    return this.dedupeByRoute(items.filter((i) => this.hasPermFor(i)));
+  });
+
+  /**
+   * Secciones del sidebar. Comercial se agrupa por dominio (Ventas, Inventario,
+   * Catálogo, Ruta); el resto de proyectos conserva su estructura previa
+   * (Trade: principal + Captura Vendedor + Administración; admin/logística: una
+   * sola sección). Grupos vacíos (sin items con permiso) se descartan.
+   */
+  navGroups = computed<{ title: string; items: NavItem[] }[]>(() => {
+    const user = this.user();
+    if (!user) return [];
+    // Cada superficie agrupa sus submódulos por dominio (títulos de sección), como
+    // Trade/Comercial. TODAS filtran por permiso: el route-guard bloquea la
+    // navegación pero NO oculta el link, así que sin filtrar el sidebar mostraba
+    // el módulo completo y al hacer clic rebotaba. Efecto reportado: dar
+    // COMPRAS_ENTRADAS_VER a un auxiliar "le daba acceso a todo Compras".
+    if (this.currentProject() === 'reparto') {
+      return this.mapGroups([{ title: 'Reparto', items: this.repartoNavItems }], true);
+    }
+    if (this.currentProject() === 'finanzas') {
+      return this.mapGroups(this.finanzasNavGroups, true);
+    }
+    if (this.currentProject() === 'desarrolladores') {
+      return this.mapGroups(this.desarrolladoresNavGroups, true);
+    }
+    if (this.currentProject() === 'servicio') {
+      return this.mapGroups(this.servicioNavGroups, true);
+    }
+    if (this.currentProject() === 'contabilidad') {
+      return this.mapGroups(this.contabilidadNavGroups, true);
+    }
+    if (this.currentProject() === 'compras') {
+      return this.mapGroups(this.comprasNavGroups, true);
+    }
+    if (this.currentProject() === 'tienda') {
+      return this.mapGroups(this.tiendaNavGroups, true);
+    }
+    if (this.currentProject() === 'almacen') {
+      return this.mapGroups(this.almacenNavGroups, true);
+    }
+    if (this.currentProject() === 'logistica') {
+      return this.mapGroups(this.logisticaNavGroups, true);
+    }
+    if (this.currentProject() === 'telemarketing') {
+      return this.mapGroups(this.telemarketingNavGroups, true);
+    }
+    if (this.currentProject() === 'admin') {
+      // `[SN.4]` §22 de la spec: "Administración" → "Configuración de la suite" cuando se refiere
+      // a usuarios y permisos. (La sección "Administración" de Trade, más abajo, es otra cosa:
+      // catálogos y planograma, y se queda.)
+      return this.mapGroups([{ title: 'Configuración de la suite', items: this.adminNavItems }], true);
+    }
+    if (this.currentProject() === 'comercial') {
+      return this.mapGroups(this.comercialNavGroups, true);
+    }
+    const groups: { title: string; items: NavItem[] }[] = [];
+    // Agrupar las superficies de mapa bajo una sección "Mapas" (hermanas).
+    const MAP_ROUTES = new Set(['/dashboard/field-map', '/dashboard/route-audit', '/dashboard/commercial-map']);
+    const all = this.navItems();
+    const mapItems = all.filter((i) => MAP_ROUTES.has(i.route));
+    const mainItems = all.filter((i) => !MAP_ROUTES.has(i.route));
+    if (mainItems.length) groups.push({ title: this.mainSectionTitle(), items: mainItems });
+    if (mapItems.length) groups.push({ title: 'Mapas', items: mapItems });
+    if (this.adminItems().length) groups.push({ title: 'Administración', items: this.adminItems() });
+    return groups;
+  });
+
+  /**
+   * Dedupe por route preservando el primero que pasó el filtro de permisos.
+   * Evita dos items al mismo destino (ej. "Captura Diaria" y "Captura de
+   * vendedor" → /dashboard/captures): el usuario full ve "Captura Diaria",
+   * el vendedor sin VISITAS_REGISTRAR ve "Captura de vendedor".
+   */
+  private dedupeByRoute(items: NavItem[]): NavItem[] {
+    const seen = new Set<string>();
+    return items.filter((i) => {
+      if (seen.has(i.route)) return false;
+      seen.add(i.route);
+      return true;
+    });
+  }
+
+  /** Aplana los grupos de un proyecto a una lista de items (para navItems/bottomNav/título). */
+  private flatOf(groups: { title: string; items: NavItem[] }[]): NavItem[] {
+    return groups.flatMap((g) => g.items);
+  }
+
+  /** Mapea grupos → {title, items} filtrados; descarta grupos vacíos. `filter`=aplicar permiso. */
+  private mapGroups(groups: { title: string; items: NavItem[] }[], filter: boolean): { title: string; items: NavItem[] }[] {
+    return groups
+      .map((g) => ({ title: g.title, items: this.dedupeByRoute(filter ? g.items.filter((i) => this.hasPermFor(i)) : g.items) }))
+      .filter((g) => g.items.length > 0);
+  }
+
+  adminItems = computed(() => {
+    const user = this.user();
+    if (!user) return [];
+    // Solo Trade Marketing tiene sección admin separada (catálogos + planograma).
+    // En /comercial y /admin no hay sub-sección admin.
+    if (this.currentProject() !== 'trademk') return [];
+    return this.tradeMkAdminItems.filter((i) => this.hasPermFor(i));
+  });
+
+  /**
+   * Items del menú que abre el avatar/nombre del usuario en el topbar.
+   * Reactivo al theme actual (cambia el copy/icono del toggle) y al user
+   * (oculta "Proyectos" si no aplica). Reemplaza la dependencia exclusiva
+   * de los botones del footer del sidebar — útil cuando el usuario está
+   * restringido (sin sidebar) o en mobile con el menú cerrado.
+   */
+  /**
+   * `[MT.3]` El menú de multitarea: una ACCIÓN y una PREFERENCIA, que son dos
+   * cosas distintas y por eso van separadas por una línea.
+   *
+   * La acción no cambia el estado de nada. La preferencia sí, y se sincroniza
+   * con las demás ventanas (`[MT.2]`): una preferencia de multitarea que no
+   * llega a las otras ventanas es una preferencia que miente.
+   */
+  readonly mtMenuOpen = signal(false);
+  readonly mtMenu = computed<MenuItem[]>(() => {
+    const modo = this.multitarea.modo();
+    /** El modo se dice con el ícono Y con la palabra: un check solo obliga a
+     *  acordarse de qué significaba que estuviera prendido. */
+    const opcion = (m: ModoDetalle, label: string, icono: string): MenuItem => ({
+      label,
+      icon: modo === m ? 'pi pi-check-circle' : icono,
+      styleClass: modo === m ? 'mt-menu-on' : undefined,
+      command: () => this.multitarea.ponerModo(m),
+    });
+    return [
+      {
+        label: 'Abrir esta pantalla en otra ventana',
+        icon: 'pi pi-external-link',
+        command: () => this.multitarea.abrirEstaPantallaAparte(),
+      },
+      { separator: true },
+      { label: 'Al abrir un detalle…', disabled: true },
+      opcion('aqui', 'Reemplazar esta pantalla', 'pi pi-stop'),
+      opcion('lado', 'Abrirlo al lado (pantalla partida)', 'pi pi-stop'),
+      opcion('ventana', 'Abrirlo en otra ventana', 'pi pi-stop'),
+    ];
+  });
+
+  // ── `[MT.5]` Pantalla partida ──────────────────────────────────────────────
+  /** ¿Hay algo en el panel? Lo dice el propio outlet al activarse, no la URL. */
+  readonly panelAbierto = signal(false);
+
+  /** El camino que vive en el panel, leído de la URL (que es donde vive el split). */
+  private readonly panelUrl = computed<string | null>(() => {
+    const m = /panel:([^)]*)/.exec(this.currentUrl());
+    if (!m) return null;
+    const ruta = m[1].split('//')[0];
+    return ruta ? '/' + ruta : null;
+  });
+
+  readonly panelTitulo = computed(() => {
+    const u = this.panelUrl();
+    if (!u) return '';
+    return resolveProjectForUrl(u)?.label ?? u;
+  });
+
+  /**
+   * `[MT.5]` Los 47 que se declaran en vez de bloquearse.
+   *
+   * `dashboard` (28 rutas) y `tienda` (19) comparten estado de PANTALLA entre
+   * sus páginas — `FiltersStateService`, `TiendaStateService` y
+   * `AnalisisStateService` son `providedIn: 'root'`, o sea uno solo para toda
+   * la app. Dos paneles de la MISMA familia se pisan los filtros.
+   *
+   * Se avisa en vez de impedirlo: comparar dos reportes es un caso legítimo, y
+   * el que lo abre tiene que saber qué está viendo. Medido: 47 de 225 rutas, y
+   * sólo cuando los dos lados caen en la misma familia — los cruces que
+   * motivaron la pantalla partida (cartera|documento, existencia|pedido) no
+   * están afectados.
+   */
+  private static readonly FAMILIAS_QUE_COMPARTEN_ESTADO = ['dashboard', 'tienda'];
+  readonly panelMismaFamilia = computed(() => {
+    const p = this.panelUrl();
+    if (!p) return false;
+    const areaPanel = p.split('/')[1] ?? '';
+    const areaPrimaria = (this.currentUrl().split('/')[1] ?? '').split('(')[0];
+    return areaPanel === areaPrimaria && LayoutComponent.FAMILIAS_QUE_COMPARTEN_ESTADO.includes(areaPanel);
+  });
+
+  /** Vaciar el outlet del panel, sin tocar lo de la izquierda. */
+  readonly enlaceCerrarPanel = computed(() => [{ outlets: { panel: null } }]);
+  /**
+   * Llevar lo del panel a pantalla completa.
+   *
+   * ⚠️ Un camino absoluto NO alcanza, y esto se midió: `createUrlTree` conserva
+   * los outlets que los comandos no nombran, así que `/finanzas/bancos` daba
+   * `/compras/(finanzas/bancos//panel:finanzas/bancos)` — la misma pantalla dos
+   * veces y el split intacto. Un `UrlTree` parseado del camino es el árbol
+   * COMPLETO, sin outlets heredados: es la única forma de que maximizar deshaga
+   * la partición.
+   */
+  readonly enlacePanelACompleto = computed<UrlTree | string>(() => {
+    const u = this.panelUrl();
+    return u ? this.router.parseUrl(u) : '.';
+  });
+
+  /**
+   * En kiosco o en móvil no hay ancho que partir. El CSS ya lo esconde, pero
+   * esconder no es cerrar: el componente del panel seguiría vivo consultando.
+   */
+  private readonly cerrarPanelDondeNoCabe = effect(() => {
+    if (!this.panelAbierto()) return;
+    if (!this.isMobile() && !this.isRestricted()) return;
+    void this.router.navigate([{ outlets: { panel: null } }], { relativeTo: this.rutaDelArea });
+  });
+
+  userMenu = computed<MenuItem[]>(() => {
+    const isDark = this.themeService.isMonochrome();
+    return [
+      {
+        label: isDark ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro',
+        icon: isDark ? 'pi pi-sun' : 'pi pi-moon',
+        command: () => this.toggleTheme(),
+      },
+      {
+        label: 'Mi trabajo',
+        icon: 'pi pi-home',
+        command: () => this.goToProjects(),
+      },
+      { separator: true },
+      {
+        label: 'Cerrar sesión',
+        icon: 'pi pi-sign-out',
+        styleClass: 'text-content-main',
+        command: () => this.logout(),
+      },
+    ];
+  });
+
+  /**
+   * "Restringido" = el usuario tiene como máximo una vista accesible.
+   * En ese caso ocultamos el sidebar y dejamos solo el topbar con logout.
+   * Antes esto se basaba en `reports_team`, lo que dejaba sin sidebar a
+   * usuarios con permisos válidos (p.ej. VER_SEGUIMIENTO).
+   */
+  /**
+   * `[MS.3.1]` ¿Se ofrece «Reportar un problema» en el header? Quien tiene `SERVICIO_REPORTAR`. Es la
+   * ÚNICA entrada para quien sólo reporta: la clave no es destino del mapa de la suite a propósito
+   * (le quitaría a cajeras y almacenistas su entrada directa a `/projects`).
+   */
+  puedeReportar = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
+
+  isRestricted = computed(() => {
+    // Modo "kiosco" (oculta el chrome) SOLO para el colaborador de Trade con acceso
+    // a una sola pantalla (Captura). Las superficies dedicadas (finanzas, reparto,
+    // tienda, etc.) tienen su propio nav aunque sea de 1 item → nunca se restringen.
+    if (this.currentProject() !== 'trademk') return false;
+    return this.navItems().length + this.adminItems().length <= 1;
+  });
+
+  /**
+   * Bottom nav activo cuando: mobile + no restringido. Trae los primeros 4
+   * items del proyecto activo. Si hay más, el slot #5 es "Más" → abre drawer.
+   * Patrón FB / Instagram / Twitter / Slack mobile.
+   */
+  useBottomNav = computed(() => this.isMobile() && !this.isRestricted() && !this.countFocusActive());
+
+  bottomNavItems = computed(() => {
+    if (!this.useBottomNav()) return [];
+    return [...this.navItems()].slice(0, 4);
+  });
+
+  hasOverflowItems = computed(() => {
+    if (!this.useBottomNav()) return false;
+    // Siempre ofrecer "Más" en móvil: abre el drawer con TODAS las secciones y el
+    // footer (Proyectos / Tema / Cerrar sesión). Sin esto, proyectos con ≤4 items
+    // (ej. Finanzas) quedaban sin hamburguesa NI "Más" → el menú lateral no se abría.
+    return true;
+  });
+
+  // ── Page title (reactivo a NavigationEnd) ──────────────────────────
+  currentPageTitle = computed(() => {
+    const url = this.currentUrl();
+    const all = [...this.navItems(), ...this.adminItems()];
+    // WMS.1 — el item de ÁREA manda, y se resuelve con `resolveAlmacenArea`
+    // (prefijo más largo), no con el match laxo de abajo. Ese match decía
+    // "Inventario" en `/almacen/inventory/ubicaciones`, que pertenece a
+    // **Entrada**, sólo porque la URL empieza con `/almacen/inventory/`.
+    // Mismo bug de prefijo ingenuo que ya se corrigió en el resaltado del
+    // sidebar. Sólo aplica a los items que declaran `activeAreaKey`, así que
+    // el resto de los proyectos cae al comportamiento de siempre.
+    const byArea = all.find((i) => this.isNavActive(i));
+    if (byArea) return byArea.label;
+    // Match más laxo que ===: cubre query params, hijos y trailing slashes.
+    const item =
+      all.find((i) => url === i.route) ||
+      all.find((i) => url.startsWith(i.route + '/')) ||
+      all.find((i) => url.startsWith(i.route + '?'));
+    if (item) return item.label;
+    // Las páginas que viven en pestañas (Contabilidad, Compras, Finanzas…) no son items de
+    // nav, así que caían acá — y "Página Actual" es un placeholder que NUNCA es correcto: en
+    // /contabilidad/movimientos-no-asociados el breadcrumb decía "Contabilidad / Página
+    // Actual". El último segmento del slug ya es el nombre de la página en toda la app.
+    return this.tituloDesdeUrl(url) ?? 'Página Actual';
+  });
+
+  /**
+   * "movimientos-no-asociados" → "Movimientos no asociados". Sólo para slugs de palabras:
+   * un id o un UUID en la URL devuelve null y se mantiene el texto anterior, porque
+   * "Abc 123" como título de página es peor que un genérico.
+   */
+  private tituloDesdeUrl(url: string): string | null {
+    const seg = url.split(/[?#]/)[0].split('/').filter(Boolean).pop();
+    if (!seg || !/^[a-záéíóúüñ]+(-[a-záéíóúüñ]+)*$/i.test(seg)) return null;
+    const t = seg.replace(/-/g, ' ');
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  // ── Routing ───────────────────────────────────────────────────────
+  /** En mobile el sidebar se cierra al tocar un link de navegación. */
+  onNavClick(): void {
+    if (this.isMobile()) this.closeSidebar();
+  }
+
+  /**
+   * `[SEG.2]` El cierre de sesión VOLUNTARIO derriba la app: `logout({ derribar: true })` borra
+   * el rastro y recarga con una navegación dura. Con `router.navigate` el inyector sobrevive y
+   * los servicios `root` se quedan con los datos de quien se fue — y en un mostrador o una
+   * tablet compartida, el siguiente los ve.
+   */
+  logout(): void {
+    this.haptic.impact('medium');
+    this.authService.logout({ derribar: true });
+  }
+
+  /**
+   * A "Mi trabajo". `state.stay` es el escape de la auto-entrada: quien tiene UNA sola puerta
+   * entra directo al abrir la landing, pero si viene desde acá es porque QUIERE verla.
+   */
+  goToProjects(): void {
+    this.haptic.impact('light');
+    this.router.navigate([LANDING_ROUTE], { state: { stay: true } });
+  }
+
+  /** Wrapper: theme toggle + haptic. Usar este en lugar de llamar al service directo. */
+  toggleTheme(): void {
+    this.haptic.selection();
+    this.themeService.toggleMonochrome();
+  }
+}

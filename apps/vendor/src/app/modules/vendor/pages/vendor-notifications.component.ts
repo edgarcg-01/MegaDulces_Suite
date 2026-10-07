@@ -1,0 +1,340 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+
+import { Router } from '@angular/router';
+import { CardModule } from 'primeng/card';
+import { SkeletonModule } from 'primeng/skeleton';
+import { ButtonModule } from 'primeng/button';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { forkJoin, of, catchError } from 'rxjs';
+import {
+  VendorService,
+  HomeCustomer,
+  NbaDue,
+  VendorOrder,
+  SupervisorTask,
+  SupervisorCoaching,
+} from '../vendor.service';
+import { Order } from '../../portal/portal.service';
+import { nextBusinessDay, nextBusinessDayIso, toLocalIso } from '../../../core/date/biz-days';
+
+/**
+ * Notificaciones del vendedor — inbox derivado (sin backend persistente todavía):
+ * agrega lo accionable de endpoints existentes — preventa pendiente, clientes
+ * para reordenar hoy (NBA) y pedidos de hoy. Cada fila lleva a la acción.
+ */
+@Component({
+  selector: 'app-vendor-notifications',
+  standalone: true,
+  imports: [CardModule, SkeletonModule, ButtonModule],
+  template: `
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Notificaciones</h1>
+        @if (!loading() && !loadError()) {
+          <p class="subtitle">{{ totalCount() }} {{ totalCount() === 1 ? 'aviso' : 'avisos' }}</p>
+        }
+      </div>
+      @if (!loading()) {
+        <button
+          type="button"
+          class="refresh"
+          [class.spinning]="refreshing()"
+          [disabled]="refreshing()"
+          (click)="refresh()"
+          aria-label="Actualizar notificaciones"
+          >
+          <i class="pi pi-refresh"></i>
+        </button>
+      }
+    </div>
+    
+    @if (loading()) {
+      <p-skeleton height="400px"></p-skeleton>
+    }
+    
+    <!-- Sin red: todas las fuentes fallaron (distinto de "vas al día") -->
+    @if (!loading() && loadError()) {
+      <p-card>
+        <div class="empty">
+          <i class="pi pi-cloud"></i>
+          <p>No se pudieron cargar tus avisos.</p>
+          <button pButton severity="secondary" [text]="true" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
+        </div>
+      </p-card>
+    }
+    
+    @if (!loading() && !loadError() && totalCount() === 0) {
+      <p-card>
+        <div class="empty">
+          <i class="pi pi-check-circle"></i>
+          <p>Sin pendientes. Vas al día.</p>
+        </div>
+      </p-card>
+    }
+    
+    @if (!loading() && totalCount() > 0) {
+      @if (carga().length > 0) {
+        <div class="group">Para cargar</div>
+        <button class="nrow" (click)="goCarga()">
+          <span class="nic warn"><i class="pi pi-truck"></i></span>
+          <span class="nb">
+            <span class="nt">Cargá {{ carga().length }} {{ carga().length === 1 ? 'pedido' : 'pedidos' }} para {{ cargaLabel }}</span>
+            <span class="nd">Verificá lo que subís al camión antes de salir.</span>
+          </span>
+          <i class="pi pi-chevron-right go"></i>
+        </button>
+      }
+      @if (preventa().length > 0) {
+        <div class="group">Requieren acción</div>
+        @for (p of preventa(); track p) {
+          <button class="nrow" (click)="goPending()">
+            <span class="nic warn"><i class="pi pi-inbox"></i></span>
+            <span class="nb">
+              <span class="nt">Nueva preventa · {{ p.name }}</span>
+              <span class="nd">Pidió {{ fmtMoney(p.pending_total) }} por el Portal. Revisá y aprobá.</span>
+            </span>
+            <i class="pi pi-chevron-right go"></i>
+          </button>
+        }
+      }
+      @if (supCoaching().length > 0 || supTasks().length > 0) {
+        <div class="group">De tu supervisor · IA</div>
+        @for (c of supCoaching(); track c) {
+          <button class="nrow" (click)="ackCoaching(c)">
+            <span class="nic ai"><i class="pi pi-comment"></i></span>
+            <span class="nb">
+              <span class="nt">Coaching</span>
+              <span class="nd">{{ c.message }}</span>
+            </span>
+            <span class="ack">Visto</span>
+          </button>
+        }
+        @for (t of supTasks(); track t) {
+          <button class="nrow" (click)="ackTask(t)">
+            <span class="nic warn"><i [class]="taskIcon(t.task_type)"></i></span>
+            <span class="nb">
+              <span class="nt">{{ t.title }}</span>
+              <span class="nd">Tarea de campo · tocá para marcar hecha</span>
+            </span>
+            <span class="ack">Hecho</span>
+          </button>
+        }
+      }
+      @if (due().length > 0) {
+        <div class="group">Para reordenar hoy · IA</div>
+        @for (d of due(); track d) {
+          <button class="nrow" (click)="goReorder(d)">
+            <span class="nic ai"><i class="pi pi-sparkles"></i></span>
+            <span class="nb">
+              <span class="nt">{{ d.name || 'Cliente' }}</span>
+              <span class="nd">{{ dueLabel(d) }}</span>
+            </span>
+            <i class="pi pi-chevron-right go"></i>
+          </button>
+        }
+      }
+      @if (todayOrders().length > 0) {
+        <div class="group">Hoy</div>
+        @for (o of todayOrders(); track o) {
+          <div class="nrow flat">
+            <span class="nic ok"><i class="pi pi-check-circle"></i></span>
+            <span class="nb">
+              <span class="nt">Pedido {{ o.code }}</span>
+              <span class="nd">{{ statusLabel(o.status) }} · {{ fmtMoney(o.total) }}</span>
+            </span>
+          </div>
+        }
+      }
+    }
+    `,
+  styles: [
+    `
+      .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
+      .page-title { margin: 0 0 0.2rem; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text-main); }
+      .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: var(--fs-body); }
+      .refresh { flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); display: grid; place-items: center; cursor: pointer; transition: transform 0.08s var(--ease, ease); }
+      .refresh:active { transform: scale(0.92); } .refresh:disabled { opacity: 0.6; }
+      .refresh i { font-size: 0.9rem; }
+      .refresh.spinning i { animation: notif-spin 0.8s linear infinite; }
+      @keyframes notif-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .refresh.spinning i { animation: none; } }
+      .empty { text-align: center; padding: 2rem 1rem; color: var(--text-muted); }
+      .empty i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; color: var(--ok-fg); }
+      .group { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin: 1.1rem 0 0.5rem; }
+      .nrow {
+        display: flex; align-items: center; gap: 0.75rem; width: 100%; text-align: left;
+        background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px);
+        padding: 0.75rem; margin-bottom: 0.5rem; cursor: pointer;
+        transition: transform 0.08s var(--ease, ease);
+      }
+      .nrow:not(.flat):active { transform: scale(0.99); }
+      @media (prefers-reduced-motion: reduce) { .nrow { transition: none; } }
+      .nrow.flat { cursor: default; }
+      .nic { width: 2.35rem; height: 2.35rem; border-radius: 14px; display: grid; place-items: center; font-size: 1rem; flex-shrink: 0; color: #fff; }
+      .nic.warn { background: var(--warn-fg); }
+      .nic.ai { background: var(--ember-grad); }
+      .nic.ok { background: var(--ok-fg); }
+      .nb { flex: 1; min-width: 0; }
+      .nt { display: block; font-weight: 700; font-size: var(--fs-body); color: var(--text-main); }
+      .nd { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 1px; }
+      .go { color: var(--text-faint); font-size: 0.85rem; flex-shrink: 0; }
+      .ack { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); flex-shrink: 0; padding: 0.2rem 0.55rem; border: 1px solid var(--border-color); border-radius: 999px; }
+    `,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class VendorNotificationsComponent implements OnInit {
+  private readonly api = inject(VendorService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+
+  readonly loading = signal(true);
+  /** Todas las fuentes fallaron (sin red) — distinto de "vas al día" (estándar PWA §5). */
+  readonly loadError = signal(false);
+  readonly refreshing = signal(false);
+  readonly preventa = signal<HomeCustomer[]>([]);
+  readonly due = signal<NbaDue[]>([]);
+  readonly todayOrders = signal<Order[]>([]);
+  readonly carga = signal<VendorOrder[]>([]);
+  readonly supCoaching = signal<SupervisorCoaching[]>([]);
+  readonly supTasks = signal<SupervisorTask[]>([]);
+  readonly cargaLabel = this.nextBusinessDayLabel();
+
+  /** Formatter reutilizado — no instanciar Intl por fila (estándar PWA perf). */
+  private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+  private static readonly SOURCES = 6;
+
+  readonly totalCount = computed(
+    () =>
+      this.preventa().length +
+      this.due().length +
+      this.todayOrders().length +
+      this.supCoaching().length +
+      this.supTasks().length +
+      (this.carga().length ? 1 : 0),
+  );
+
+  ngOnInit(): void {
+    this.load();
+  }
+
+  load(silent = false): void {
+    if (silent) this.refreshing.set(true);
+    else this.loading.set(true);
+    this.loadError.set(false);
+    // Cuenta cuántas fuentes fallaron: si fallan TODAS = sin red (no "vas al día").
+    let failures = 0;
+    const guard =
+      <T>(fb: T) =>
+      (src: import('rxjs').Observable<T>) =>
+        src.pipe(catchError(() => { failures++; return of(fb); }));
+    forkJoin({
+      home: this.api.home().pipe(guard<HomeCustomer[]>([])),
+      due: this.api.nbaDue().pipe(guard<NbaDue[]>([])),
+      today: this.api.myOrdersToday().pipe(guard<Order[]>([])),
+      carga: this.api.cargaOrders().pipe(guard<VendorOrder[]>([])),
+      coaching: this.api.mySupervisorCoaching().pipe(guard<SupervisorCoaching[]>([])),
+      tasks: this.api.mySupervisorTasks().pipe(guard<SupervisorTask[]>([])),
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ home, due, today, carga, coaching, tasks }) => {
+          this.preventa.set(home.filter((c) => c.has_preventa_pending));
+          this.due.set(due);
+          this.todayOrders.set(today);
+          const iso = this.nextBizIso();
+          this.carga.set(carga.filter((o) => !o.requested_delivery_date || o.requested_delivery_date.slice(0, 10) === iso));
+          this.supCoaching.set(coaching);
+          this.supTasks.set(tasks);
+          this.loadError.set(failures === VendorNotificationsComponent.SOURCES);
+          this.loading.set(false);
+          this.refreshing.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+          this.refreshing.set(false);
+          this.loadError.set(true);
+        },
+      });
+  }
+
+  /** Refresh manual: recarga el inbox sin blanquear la pantalla. */
+  refresh(): void {
+    if (this.refreshing()) return;
+    this.load(true);
+  }
+
+  goPending(): void {
+    this.router.navigate(['/vendor/pending']);
+  }
+  goReorder(d: NbaDue): void {
+    this.router.navigate(['/vendor/take-order', d.customer_id], { queryParams: { mode: 'instante' } });
+  }
+  goCarga(): void {
+    this.router.navigate(['/vendor/carga']);
+  }
+
+  /** Acuse optimista: lo saco del inbox y persisto en background (self-scoped en el backend). */
+  ackCoaching(c: SupervisorCoaching): void {
+    this.supCoaching.update((l) => l.filter((x) => x.id !== c.id));
+    this.api
+      .ackSupervisorCoaching(c.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ error: () => undefined });
+  }
+  ackTask(t: SupervisorTask): void {
+    this.supTasks.update((l) => l.filter((x) => x.id !== t.id));
+    this.api
+      .ackSupervisorTask(t.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ error: () => undefined });
+  }
+  taskIcon(t: string): string {
+    return t === 'visit'
+      ? 'pi pi-map-marker'
+      : t === 'recover'
+        ? 'pi pi-shopping-cart'
+        : t === 'reprioritize'
+          ? 'pi pi-sort-alt-slash'
+          : 'pi pi-camera';
+  }
+
+  /** ISO del próximo día hábil (fuente única compartida con Carga y take-order). */
+  private nextBizIso(): string {
+    return nextBusinessDayIso();
+  }
+  private nextBusinessDayLabel(): string {
+    const d = nextBusinessDay();
+    const tomorrow = new Date();
+    tomorrow.setHours(0, 0, 0, 0);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return toLocalIso(d) === toLocalIso(tomorrow) ? 'mañana' : `el ${d.toLocaleDateString('es-MX', { weekday: 'long' })}`;
+  }
+
+  dueLabel(d: NbaDue): string {
+    const cad = d.cadence_days ? `suele pedir cada ${d.cadence_days} días` : 'tiempo de reordenar';
+    const over = d.days_overdue > 0 ? ` · ${d.days_overdue} días de atraso` : '';
+    return cad + over;
+  }
+  statusLabel(s: string): string {
+    switch (s) {
+      case 'fulfilled': return 'Entregado';
+      case 'confirmed': return 'Confirmado';
+      case 'pending_approval': return 'Por aprobar';
+      case 'draft': return 'Borrador';
+      case 'cancelled': return 'Cancelado';
+      default: return s;
+    }
+  }
+  fmtMoney(n: unknown): string {
+    return this.money.format(Number(n) || 0);
+  }
+}

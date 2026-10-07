@@ -1,0 +1,788 @@
+<main class="p-6 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-6 space-y-6 min-h-[100dvh]">
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div>
+      <h1 class="flex items-center gap-3 text-lg font-bold tracking-tight text-content-main">
+        <i class="pi pi-eye text-content-muted"></i> Seguimiento Diario
+      </h1>
+      <p class="text-content-muted text-sm">
+        Score promedio por ejecutivo · {{ periodLabel() === 'día' ? 'del día' : periodLabel() === 'semana' ? 'de la semana' : 'del mes' }}
+        — {{ filtersState.rangeLabel() }}
+      </p>
+    </div>
+    <div class="flex items-center gap-3 flex-wrap">
+      <span class="text-xs text-content-faint">{{ lastUpdate() }}</span>
+      <p-button
+        icon="pi pi-refresh"
+        label="Actualizar"
+        severity="secondary"
+        [outlined]="true"
+        (onClick)="refreshAll()"
+        [disabled]="loadingChart() || loadingTabla()"
+      />
+      @if (canEditMetas()) {
+        <p-button
+          label="Metas"
+          icon="pi pi-sliders-h"
+          styleClass="p-button-brand"
+          size="small"
+          (click)="openMetasDialog()"
+        />
+      }
+    </div>
+  </div>
+
+  <!-- Toggle de vista de nivel superior: Scoring vs Reporte por vendedor (Horus). -->
+  <div class="inline-flex rounded-lg border border-divider bg-surface-card p-0.5" role="radiogroup" aria-label="Vista">
+    <button
+      type="button"
+      role="radio"
+      [attr.aria-checked]="viewMode() === 'scoring'"
+      (click)="setViewMode('scoring')"
+      class="px-4 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+      [class.bg-surface-active]="viewMode() === 'scoring'"
+      [class.text-content-active]="viewMode() === 'scoring'"
+      [class.text-content-muted]="viewMode() !== 'scoring'">
+      <i class="pi pi-chart-bar text-[10px] mr-1" aria-hidden="true"></i>
+      Scoring
+    </button>
+    <button
+      type="button"
+      role="radio"
+      [attr.aria-checked]="viewMode() === 'reporte'"
+      (click)="setViewMode('reporte')"
+      class="px-4 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+      [class.bg-surface-active]="viewMode() === 'reporte'"
+      [class.text-content-active]="viewMode() === 'reporte'"
+      [class.text-content-muted]="viewMode() !== 'reporte'">
+      <i class="pi pi-verified text-[10px] mr-1" aria-hidden="true"></i>
+      Reporte por vendedor
+    </button>
+  </div>
+
+  @if (viewMode() === 'reporte') {
+    <div class="mt-2">
+      <app-global-filters />
+    </div>
+    <app-vendor-review />
+  } @else {
+  <!-- Sub-header + segmented toggle. Solo se muestra una vista a la vez. -->
+  <div class="flex items-center justify-between gap-4 flex-wrap">
+    <!-- KPIs del modo activo como MetricStrip (ADR-033), sin cajitas ad-hoc. -->
+    <div class="min-w-0 flex-1">
+      <app-metric-strip [items]="kpiStrip()" ariaLabel="Resumen de ejecutivos" />
+    </div>
+
+    <!-- Toggle: 4 modos ortogonales. role=tablist para a11y. -->
+    <div class="inline-flex rounded-lg border border-divider bg-surface-card p-0.5 flex-wrap" role="radiogroup" aria-label="Tipo de gráfica">
+      <button
+        type="button"
+        role="radio"
+        [attr.aria-checked]="chartMode() === 'avg'"
+        (click)="setChartMode('avg')"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
+        [class.bg-surface-active]="chartMode() === 'avg'"
+        [class.text-content-active]="chartMode() === 'avg'"
+        [class.text-content-muted]="chartMode() !== 'avg'"
+        [class.hover:text-content-main]="chartMode() !== 'avg'">
+        <i class="pi pi-chart-bar text-[10px] mr-1" aria-hidden="true"></i>
+        Promedio
+      </button>
+      <button
+        type="button"
+        role="radio"
+        [attr.aria-checked]="chartMode() === 'adherence'"
+        (click)="setChartMode('adherence')"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
+        [class.bg-surface-active]="chartMode() === 'adherence'"
+        [class.text-content-active]="chartMode() === 'adherence'"
+        [class.text-content-muted]="chartMode() !== 'adherence'"
+        [class.hover:text-content-main]="chartMode() !== 'adherence'">
+        <i class="pi pi-calendar-clock text-[10px] mr-1" aria-hidden="true"></i>
+        Adherencia
+      </button>
+      <button
+        type="button"
+        role="radio"
+        [attr.aria-checked]="chartMode() === 'volume'"
+        (click)="setChartMode('volume')"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
+        [class.bg-surface-active]="chartMode() === 'volume'"
+        [class.text-content-active]="chartMode() === 'volume'"
+        [class.text-content-muted]="chartMode() !== 'volume'"
+        [class.hover:text-content-main]="chartMode() !== 'volume'">
+        <i class="pi pi-sigma text-[10px] mr-1" aria-hidden="true"></i>
+        Volumen
+      </button>
+      <button
+        type="button"
+        role="radio"
+        [attr.aria-checked]="chartMode() === 'efficiency'"
+        (click)="setChartMode('efficiency')"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
+        [class.bg-surface-active]="chartMode() === 'efficiency'"
+        [class.text-content-active]="chartMode() === 'efficiency'"
+        [class.text-content-muted]="chartMode() !== 'efficiency'"
+        [class.hover:text-content-main]="chartMode() !== 'efficiency'">
+        <i class="pi pi-bolt text-[10px] mr-1" aria-hidden="true"></i>
+        Eficiencia
+      </button>
+    </div>
+  </div>
+
+  <!-- Chart activo (uno a la vez). -->
+  <div class="card-premium">
+    <div [style.height.px]="chartHeight()">
+      @if (loadingChart()) {
+        <!-- Skeleton dimensionado (CLS 0), no spinner de bloque (DESIGN §datos-densos 4). -->
+        <div class="flex flex-col justify-end gap-3 h-full py-2" aria-hidden="true">
+          @for (w of [70,52,88,44,64,36]; track $index) {
+            <p-skeleton [width]="w + '%'" height="1.25rem" borderRadius="6px" />
+          }
+        </div>
+      } @else if (chartErrored()) {
+        <!-- Error de red ≠ empty (DESIGN §Ing.UI 2): banner + reintento aislado. -->
+        <div class="flex flex-col items-center justify-center h-full gap-3 text-center">
+          <i class="pi pi-exclamation-triangle text-2xl status-bad status-text" aria-hidden="true"></i>
+          <p class="text-sm text-content-muted">No se pudo cargar la gráfica de scores.</p>
+          <p-button label="Reintentar" icon="pi pi-refresh" severity="secondary" [outlined]="true" size="small" (onClick)="retryChart()" />
+        </div>
+      } @else if (chartMode() === 'avg') {
+        @if (chartData(); as cd) {
+          <p-chart
+            type="bar"
+            [data]="$any(cd)"
+            [options]="chartOptions()"
+            [plugins]="$any(chartPlugins)"
+            height="100%"
+          />
+        } @else {
+          <div class="flex items-center justify-center h-full text-content-muted">
+            No hay datos para el período seleccionado
+          </div>
+        }
+      } @else {
+        @if (altChartData(); as ad) {
+          <p-chart
+            type="bar"
+            [data]="$any(ad)"
+            [options]="altChartOptions()"
+            [plugins]="$any(chartPlugins)"
+            height="100%"
+          />
+        } @else {
+          <div class="flex items-center justify-center h-full text-content-muted">
+            No hay datos para el período seleccionado
+          </div>
+        }
+      }
+    </div>
+  </div>
+
+  <!-- Leyenda contextual al modo activo. -->
+  @if (chartMode() === 'avg') {
+    <div class="flex items-center gap-4 text-xs text-content-faint flex-wrap">
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-low)"></span>
+        Bajo
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-mid)"></span>
+        Medio
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-high)"></span>
+        Alto (&ge;{{ scoreOpt() }})
+      </span>
+      <span class="flex items-center gap-1.5 ml-2">
+        <span class="w-6 inline-block border-t-2 border-dashed" style="border-color: var(--chart-meta-line)"></span>
+        Meta ({{ scoreOpt() }} pts)
+      </span>
+    </div>
+  } @else if (chartMode() === 'adherence') {
+    <div class="flex items-center gap-4 text-xs text-content-faint flex-wrap">
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-high)"></span>
+        % Adherencia (días con captura ÷ días del rango)
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-mid)"></span>
+        Visitas totales
+      </span>
+    </div>
+  } @else if (chartMode() === 'volume') {
+    <div class="flex items-center gap-4 text-xs text-content-faint flex-wrap">
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-high)"></span>
+        Puntos generados (suma real de todas las visitas)
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-mid)"></span>
+        Score promedio (referencia de calidad)
+      </span>
+    </div>
+  } @else {
+    <div class="flex items-center gap-4 text-xs text-content-faint flex-wrap">
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-high)"></span>
+        Puntos por visita (total pts ÷ total visitas)
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-mid)"></span>
+        Visitas por día con captura
+      </span>
+    </div>
+  }
+
+  <div class="mt-10 pt-6 border-t border-divider">
+    <!-- El efecto reactivo sobre filtersState.filtersDebounced() ya dispara
+         el refetch; no se necesita callback (filtersChanged). -->
+    <app-global-filters />
+
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+      <h2 class="text-sm font-semibold tracking-tight text-content-main shrink-0">Visitas</h2>
+      <div class="flex items-center gap-3 w-full sm:w-auto">
+        <p-iconfield iconPosition="left" class="flex-1 sm:flex-none sm:w-72 min-w-0">
+          <p-inputicon styleClass="pi pi-search" />
+          <input
+            type="search"
+            pInputText
+            [ngModel]="searchText()"
+            (ngModelChange)="searchText.set($event)"
+            placeholder="Buscar visita..."
+            inputmode="search"
+            enterkeyhint="search"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            aria-label="Buscar visita"
+            class="w-full"
+          />
+        </p-iconfield>
+        <span class="text-xs text-content-muted whitespace-nowrap shrink-0">{{ allVisits().length }} visita(s)</span>
+      </div>
+    </div>
+
+    @if (selectedVisitsCount() > 0) {
+      <div class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider mb-4">
+        <span class="text-xs text-content-muted flex-1">{{ selectedVisitsCount() }} visita(s) seleccionada(s)</span>
+        <p-button label="Comparar" icon="pi pi-sliders-h" severity="secondary" size="small" (click)="toggleComparison()" />
+      </div>
+    }
+
+    @if (loadingTabla()) {
+      <!-- Skeleton-cards dimensionadas (CLS 0), no spinner de bloque. -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-hidden="true">
+        @for (i of [1,2,3,4,5,6]; track i) {
+          <div class="card-premium">
+            <div class="flex items-start gap-3">
+              <p-skeleton width="1rem" height="1rem" borderRadius="4px" />
+              <div class="flex-1">
+                <p-skeleton width="60%" height="0.7rem" styleClass="mb-2" />
+                <p-skeleton width="80%" height="0.9rem" styleClass="mb-1" />
+                <p-skeleton width="40%" height="0.7rem" />
+              </div>
+              <p-skeleton width="3.5rem" height="3.5rem" borderRadius="12px" />
+            </div>
+            <div class="pt-3 mt-3 border-t border-divider">
+              <p-skeleton width="50%" height="0.8rem" />
+            </div>
+          </div>
+        }
+      </div>
+    } @else if (tablaErrored()) {
+      <!-- Error de red ≠ empty (DESIGN §Ing.UI 2): banner + reintento aislado. -->
+      <div class="flex flex-col items-center justify-center py-12 gap-3 text-center">
+        <i class="pi pi-exclamation-triangle text-3xl status-bad status-text" aria-hidden="true"></i>
+        <p class="text-sm text-content-muted">No se pudieron cargar las visitas.</p>
+        <p-button label="Reintentar" icon="pi pi-refresh" severity="secondary" [outlined]="true" size="small" (onClick)="retryTabla()" />
+      </div>
+    } @else {
+      @if (allVisits().length > 0) {
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          @for (visit of filteredVisits(); track visit.folio) {
+            <div
+              class="card-premium seg-visit-card cursor-pointer
+                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+              [class.ring-2]="isVisitSelected(visit.folio)"
+              [class.ring-brand-orange]="isVisitSelected(visit.folio)"
+              (click)="viewDetail(visit)"
+              tabindex="0"
+              role="button"
+              [attr.aria-label]="'Ver detalle de visita #' + visit.folio + ' de ' + visit.captured_by_username"
+              (keydown.enter)="viewDetail(visit)"
+              (keydown.space)="$event.preventDefault(); viewDetail(visit)"
+            >
+              <!-- Top row: checkbox + identidad + score badge -->
+              <div class="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  [ngModel]="isVisitSelected(visit.folio)"
+                  (ngModelChange)="toggleVisitSelection(visit.folio, $event)"
+                  (click)="$event.stopPropagation()"
+                  style="accent-color: var(--checkbox-accent); margin-top: 3px;"
+                  class="w-4 h-4 cursor-pointer focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] shrink-0"
+                  [attr.aria-label]="'Seleccionar visita #' + visit.folio + ' para comparar'"
+                />
+                <div class="flex-1 min-w-0">
+                  <div class="text-[11px] text-content-faint font-mono uppercase tracking-wide truncate">
+                    #{{ visit.folio }} · {{ visit.fecha | date:'dd MMM':'UTC' }}
+                  </div>
+                  <div class="font-bold text-sm text-content-main truncate mt-0.5">{{ visit.captured_by_username }}</div>
+                  <div class="text-[11px] text-content-muted uppercase tracking-wide mt-0.5 truncate">{{ visit.zona_captura }}</div>
+                </div>
+                @if (isVendorVisit(visit)) {
+                  <span class="chip-brand shrink-0" pTooltip="Visita de vendedor">Vendedor</span>
+                } @else {
+                  <div class="flex flex-col items-center justify-center w-14 h-14 rounded-xl shrink-0 bg-surface-card border border-divider status-text"
+                       [class]="'status-' + visitScoreStatus(visit)">
+                    <span class="text-lg font-bold leading-none tabular-nums">{{ fmtScore($safeNavigationMigration(visit.stats?.puntuacionTotal)) }}</span>
+                    <span class="text-[10px] font-medium mt-0.5 opacity-70 uppercase tracking-wider">pts</span>
+                  </div>
+                }
+              </div>
+
+              <!-- Chips de ownership (solo si hay datos clasificados; nunca en visitas de vendedor) -->
+              @if (!isVendorVisit(visit) && hasOwnershipData(visit.exhibiciones)) {
+                <div class="flex gap-1.5 mt-3 flex-wrap">
+                  @if (countOwnBrand(visit.exhibiciones) > 0) {
+                    <span class="chip-brand inline-flex items-center gap-1" pTooltip="Exhibiciones de Mega Dulces">
+                      <i class="pi pi-check-circle"></i>
+                      {{ countOwnBrand(visit.exhibiciones) }} Mega Dulces
+                    </span>
+                  }
+                  @if (countCompetition(visit.exhibiciones) > 0) {
+                    <span class="chip-competition" pTooltip="Exhibiciones de competencia">
+                      <i class="pi pi-flag"></i>
+                      {{ countCompetition(visit.exhibiciones) }} Competencia
+                    </span>
+                  }
+                </div>
+              }
+
+              <!-- Footer: métricas + chevron -->
+              <div class="flex items-center justify-between pt-3 mt-3 border-t border-divider">
+                <span class="text-xs text-content-muted">
+                  <span class="font-semibold text-content-main tabular-nums">{{ visit.exhibiciones?.length ?? 0 }}</span> exhib.
+                  @if (visit.stats?.ventaTotal) {
+                    <span class="text-content-faint mx-1">·</span>
+                    <span class="font-semibold text-content-main tabular-nums">${{ $safeNavigationMigration(visit.stats?.ventaTotal) | number:'1.0-0' }}</span>
+                  }
+                </span>
+                <i class="pi pi-chevron-right text-xs text-content-faint" aria-hidden="true"></i>
+              </div>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="text-center py-12 text-content-muted flex flex-col items-center gap-2">
+          <i class="pi pi-inbox text-3xl text-content-faint" aria-hidden="true"></i>
+          <p class="text-sm">
+            @if (searchText()) {
+              Sin resultados para <span class="font-semibold">"{{ searchText() }}"</span>
+            } @else {
+              No hay visitas para este período
+            }
+          </p>
+        </div>
+      }
+    }
+
+    @if (showComparison() && selectedVisitsCount() >= 2) {
+      <div class="card-premium card-flat mt-4">
+        <h3 class="text-sm font-bold mb-4 text-content-main">Vista comparativa</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse text-sm">
+            <thead>
+              <tr class="text-xs uppercase text-content-muted border-b border-divider">
+                <th class="py-2 text-left sticky left-0 bg-surface-card z-10">Métrica</th>
+                @for (v of selectedVisits(); track v.folio) {
+                  <th class="py-2 text-center">
+                    <span class="font-bold text-content-main">#{{ v.folio }}</span><br />
+                    <span class="text-xs font-normal">{{ v.captured_by_username }}</span>
+                  </th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b border-divider/50">
+                <td class="py-2 text-content-muted sticky left-0 bg-surface-card z-10">Score final</td>
+                @for (v of selectedVisits(); track v.folio) {
+                  <td class="py-2 text-center font-bold status-text"
+                      [class]="isVendorVisit(v) ? '' : 'status-' + visitScoreStatus(v)">
+                    @if (isVendorVisit(v)) {
+                      <span class="text-content-faint">—</span>
+                    } @else {
+                      {{ fmtScore($safeNavigationMigration(v.stats?.puntuacionTotal)) }}
+                    }
+                  </td>
+                }
+              </tr>
+              <tr class="border-b border-divider/50">
+                <td class="py-2 text-content-muted sticky left-0 bg-surface-card z-10">Exhibiciones</td>
+                @for (v of selectedVisits(); track v.folio) {
+                  <td class="py-2 text-center">{{ v.exhibiciones?.length ?? 0 }}</td>
+                }
+              </tr>
+              <tr class="border-b border-divider/50">
+                <td class="py-2 text-content-muted sticky left-0 bg-surface-card z-10">Zona</td>
+                @for (v of selectedVisits(); track v.folio) {
+                  <td class="py-2 text-center text-content-muted text-xs uppercase">{{ v.zona_captura }}</td>
+                }
+              </tr>
+              <tr class="border-b border-divider/50">
+                <td class="py-2 text-content-muted sticky left-0 bg-surface-card z-10">GPS</td>
+                @for (v of selectedVisits(); track v.folio) {
+                  <td class="py-2 text-center">
+                    <span class="font-bold text-xs status-text" [class]="v.latitud ? 'status-ok' : 'status-bad'">
+                      {{ v.latitud ? 'Sí' : 'No' }}
+                    </span>
+                  </td>
+                }
+              </tr>
+              <tr>
+                <td class="py-2 text-content-muted sticky left-0 bg-surface-card z-10">Venta total</td>
+                @for (v of selectedVisits(); track v.folio) {
+                  <td class="py-2 text-center font-bold">{{ (v.stats?.ventaTotal ?? 0) | number:'1.0-0' }}</td>
+                }
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  </div>
+  }
+</main>
+
+<!--
+  Detail dialog con header custom interno (`showHeader=false`). El
+  `ariaLabelledBy` apunta al `<h2>` del header custom para que screen
+  readers anuncien la visita seleccionada al abrir el dialog.
+-->
+<p-dialog
+  [visible]="showDetail()"
+  (visibleChange)="showDetail.set($event)"
+  [modal]="true"
+  [style]="{ width: '94vw', maxWidth: '860px', height: '85vh' }"
+  [breakpoints]="{'640px': '100vw'}"
+  [draggable]="false"
+  [resizable]="false"
+  [blockScroll]="true"
+  [focusOnShow]="true"
+  [closable]="false"
+  [appendTo]="'body'"
+  styleClass="seguimiento-detail-dialog"
+  [showHeader]="false"
+  ariaLabelledBy="seguimiento-detail-title"
+>
+  @if (selectedRow(); as selectedRow) {
+    <div class="flex flex-col h-full overflow-hidden bg-surface-card rounded-xl">
+
+      <!-- ═══ HEADER ═══ -->
+      <div class="px-6 pt-5 pb-4 border-b border-divider shrink-0">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-xs font-semibold text-content-faint uppercase tracking-wider">#{{ selectedRow.folio }}</span>
+              <span class="text-content-faint" aria-hidden="true">·</span>
+              <span class="text-xs font-semibold text-content-faint uppercase tracking-wider">{{ selectedRow.zona_captura }}</span>
+            </div>
+            <h2 id="seguimiento-detail-title" class="text-xl font-bold text-content-main truncate leading-snug">
+              {{ selectedRow.cliente_nombre || selectedRow.sucursal || 'Tienda sin nombre' }}
+            </h2>
+            <div class="flex items-center gap-3 mt-1.5 text-xs text-content-muted flex-wrap">
+              <span class="flex items-center gap-1"><i class="pi pi-user text-xs" aria-hidden="true"></i> {{ selectedRow.captured_by_username }}</span>
+              <span class="flex items-center gap-1"><i class="pi pi-calendar text-xs" aria-hidden="true"></i> {{ selectedRow.fecha | date:'dd MMM yyyy':'UTC' }}</span>
+              @if (selectedRow.hora_inicio) {
+                <span class="flex items-center gap-1"><i class="pi pi-play text-xs" aria-hidden="true"></i> Inicio {{ selectedRow.hora_inicio | date:'HH:mm' }}</span>
+              }
+              @if (selectedRow.hora_fin) {
+                <span class="flex items-center gap-1"><i class="pi pi-stop text-xs" aria-hidden="true"></i> Fin {{ selectedRow.hora_fin | date:'HH:mm' }}</span>
+              }
+            </div>
+          </div>
+          <div class="flex items-center gap-3 shrink-0">
+            @if (isVendorVisit(selectedRow)) {
+              <div class="text-right">
+                <span class="chip-brand" pTooltip="Visita de vendedor">Vendedor</span>
+              </div>
+            } @else {
+              <div class="text-right" [class]="'status-' + visitScoreStatus(selectedRow)">
+                <div class="text-3xl font-extrabold text-content-main leading-none">{{ fmtScore($safeNavigationMigration(selectedRow.stats?.puntuacionTotal)) }}</div>
+                <div class="text-xs font-bold uppercase tracking-wide mt-0.5 status-text">
+                  {{ scoreStatusLabel(selectedRow) }}
+                </div>
+              </div>
+            }
+            @if (canDeleteVisit()) {
+              <button
+                (click)="deleteVisit(selectedRow)"
+                [disabled]="deletingVisit()"
+                aria-label="Eliminar visita"
+                class="w-8 h-8 rounded-lg border flex items-center justify-center transition-colors -mt-1 disabled:opacity-50 disabled:cursor-not-allowed
+                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]
+                       status-bad status-text"
+                style="border-color: var(--status-border)"
+              >
+                @if (deletingVisit()) {
+                  <i class="pi pi-spin pi-spinner text-sm" aria-hidden="true"></i>
+                } @else {
+                  <i class="pi pi-trash text-sm" aria-hidden="true"></i>
+                }
+              </button>
+            }
+            <button (click)="closeDetail()"
+                    aria-label="Cerrar detalle"
+                    class="w-8 h-8 rounded-lg border border-divider hover:bg-surface-hover flex items-center justify-center text-content-faint hover:text-content-main transition-colors -mt-1
+                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]">
+              <i class="pi pi-times text-sm" aria-hidden="true"></i>
+            </button>
+          </div>
+        </div>
+
+        <!--
+          Stats inline — en mobile se envuelve con flex-wrap y los dividers
+          verticales se ocultan via `hidden sm:block` para que no queden
+          flotando entre líneas.
+        -->
+        <div class="flex items-center gap-3 sm:gap-5 mt-4 pt-3 border-t border-divider flex-wrap">
+          <div class="flex items-center gap-1.5">
+            <i class="pi pi-dollar text-xs text-content-faint" aria-hidden="true"></i>
+            <span class="text-sm font-semibold text-content-main">&dollar;{{ (selectedRow.stats?.ventaTotal || 0) | number:'1.0-0' }}</span>
+            <span class="text-xs text-content-faint">venta</span>
+          </div>
+          <div class="w-px h-3.5 bg-divider hidden sm:block"></div>
+          <div class="flex items-center gap-1.5">
+            <i class="pi pi-th-large text-xs text-content-faint" aria-hidden="true"></i>
+            <span class="text-sm font-semibold text-content-main">{{ selectedRow.exhibiciones?.length || 0 }}</span>
+            <span class="text-xs text-content-faint">muebles</span>
+          </div>
+          <div class="w-px h-3.5 bg-divider hidden sm:block"></div>
+          <div class="flex items-center gap-1.5">
+            <i class="pi pi-camera text-xs text-content-faint" aria-hidden="true"></i>
+            <span class="text-sm font-semibold text-content-main">{{ countPhotos(selectedRow.exhibiciones) }}</span>
+            <span class="text-xs text-content-faint">fotos</span>
+          </div>
+          @if (selectedRow.stats?.rangoCompra; as rango) {
+            <div class="w-px h-3.5 bg-divider hidden sm:block"></div>
+            <div class="flex items-center gap-1.5">
+              <i class="pi pi-chart-bar text-xs text-content-faint" aria-hidden="true"></i>
+              <span class="text-sm font-semibold text-content-main">{{ rango }}</span>
+              <span class="text-xs text-content-faint">rango</span>
+            </div>
+          }
+          <div class="w-px h-3.5 bg-divider hidden sm:block"></div>
+          @if (selectedRow.latitud && selectedRow.longitud) {
+            <a [href]="'https://www.google.com/maps?q=' + selectedRow.latitud + ',' + selectedRow.longitud"
+               target="_blank"
+               rel="noopener noreferrer"
+               class="flex items-center gap-1.5 text-sm font-semibold status-ok status-text hover:opacity-80 transition-opacity"
+               aria-label="Abrir ubicación GPS en Google Maps">
+              <i class="pi pi-map-marker text-xs" aria-hidden="true"></i> GPS
+              <i class="pi pi-external-link text-xs ml-0.5" aria-hidden="true"></i>
+            </a>
+          } @else {
+            <span class="flex items-center gap-1.5 text-sm text-content-faint">
+              <i class="pi pi-map-marker text-xs" aria-hidden="true"></i> Sin GPS
+            </span>
+          }
+        </div>
+      </div>
+
+      <!-- ═══ EXHIBITION LIST ═══ -->
+      <div class="flex-1 overflow-y-auto">
+        <div class="px-6 py-4">
+          <div class="text-xs font-bold uppercase tracking-wider text-content-faint mb-3">
+            Exhibiciones ({{ selectedRow.exhibiciones?.length || 0 }})
+          </div>
+
+          <div>
+            @for (ex of selectedRow.exhibiciones; track $index) {
+              <div class="py-5 first:pt-0 last:pb-0 border-b border-divider last:border-b-0">
+                <div class="flex items-center gap-2 mb-3">
+                  <span class="text-xs font-bold text-content-faint uppercase tracking-wider">Exhibición #{{ $index + 1 }}</span>
+                  @if (ex.horaRegistro) {
+                    <span class="text-xs text-content-faint">· {{ ex.horaRegistro | date:'HH:mm' }}</span>
+                  }
+                </div>
+                <div class="flex gap-4">
+
+                  <!-- Photo -->
+                  @if (ex.fotoUrl) {
+                    <button type="button"
+                            (click)="openImagePreview(getImageUrl(ex.fotoUrl))"
+                            class="shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-surface-layout cursor-pointer group p-0 border-0
+                                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+                            aria-label="Abrir foto en tamaño grande">
+                      <img [src]="getImageUrl(ex.fotoUrl)"
+                           alt="Foto de exhibición"
+                           class="w-full h-full object-cover motion-safe:transition-transform" />
+                    </button>
+                  } @else {
+                    <div class="shrink-0 w-16 h-16 rounded-lg bg-surface-layout border border-dashed border-divider flex items-center justify-center">
+                      <i class="pi pi-image text-content-faint text-lg" aria-hidden="true"></i>
+                    </div>
+                  }
+
+                  <!-- Info -->
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                          @if (isVendorVisit(selectedRow)) {
+                            <h4 class="text-base font-bold text-content-main truncate">Exhibición</h4>
+                          } @else {
+                            <h4 class="text-base font-bold text-content-main truncate">{{ getConceptoName()(ex.conceptoId) || ex.rango || 'Sin concepto' }}</h4>
+                            <span class="text-xs font-medium text-content-faint uppercase shrink-0">{{ ex.formato || 'Mueble' }}</span>
+                            @if (ex.perteneceMegaDulces === true) {
+                              <span class="chip-brand shrink-0">Mega Dulces</span>
+                            } @else if (ex.perteneceMegaDulces === false) {
+                              <span class="chip-competition shrink-0">Competencia</span>
+                            }
+                          }
+                        </div>
+                        <div class="flex flex-wrap items-center gap-1.5 mt-2">
+                          @for (p of getProductNames()(ex); track $index) {
+                            <span class="px-2 py-1 bg-surface-layout text-content-main rounded-md text-xs font-medium leading-snug">{{ p }}</span>
+                          } @empty {
+                            <span class="text-xs text-content-faint italic">Sin productos</span>
+                          }
+                        </div>
+                      </div>
+                      @if (!isVendorVisit(selectedRow)) {
+                        <div class="text-right shrink-0" [class]="'status-' + nivelSeverity(ex.nivelEjecucion || ex.nivel)">
+                          <div class="text-lg font-extrabold text-content-main leading-none">{{ ex.puntuacionCalculada || ex.puntos || 0 }}</div>
+                          <div class="text-xs font-semibold uppercase mt-0.5"
+                               [class.status-text]="!!(ex.nivelEjecucion || ex.nivel)"
+                               [class.text-content-faint]="!(ex.nivelEjecucion || ex.nivel)">
+                            {{ (ex.nivelEjecucion || ex.nivel || '—') | titlecase }}
+                          </div>
+                        </div>
+                      }
+                    </div>
+                    @if ((ex.ventaTotal ?? 0) > 0) {
+                      <div class="mt-2 text-xs text-content-muted">
+                        Venta: <span class="font-semibold text-content-main">&dollar;{{ ex.ventaTotal | number:'1.0-0' }}</span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              </div>
+            } @empty {
+              <div class="py-12 text-center text-content-faint text-sm">
+                <i class="pi pi-inbox text-2xl mb-2 block opacity-40" aria-hidden="true"></i>
+                No hay exhibiciones registradas
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  }
+</p-dialog>
+
+<p-dialog
+  [visible]="showImagePreview()"
+  (visibleChange)="showImagePreview.set($event)"
+  [modal]="true"
+  [closable]="false"
+  [appendTo]="'body'"
+  [style]="{ width: '90vw', maxWidth: '1200px', maxHeight: '90vh' }"
+  [breakpoints]="{'640px': '100vw'}"
+  [draggable]="false"
+  [resizable]="false"
+  [blockScroll]="true"
+  [focusOnShow]="true"
+  ariaLabel="Previsualización de imagen de exhibición"
+>
+  <div class="relative w-full h-full flex flex-col">
+    <button (click)="closeImagePreview()"
+            aria-label="Cerrar previsualización de imagen"
+            class="btn-close-overlay absolute top-4 right-4 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white border-2 border-white shadow-lg hover:scale-110
+                   focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--focus-ring)]">
+      <i class="pi pi-times text-xl" aria-hidden="true"></i>
+    </button>
+    <img [src]="previewImageUrl()" alt="Imagen ampliada de exhibición"
+         class="w-full h-full object-contain max-h-[85vh] cursor-zoom-out"
+         (click)="closeImagePreview()" />
+  </div>
+</p-dialog>
+
+<p-dialog
+  header="Metas y rangos de cumplimiento"
+  [visible]="showMetasDialog()"
+  (visibleChange)="showMetasDialog.set($event)"
+  [modal]="true"
+  [style]="{ width: '90vw', maxWidth: '680px' }"
+  [breakpoints]="{'640px': '100vw'}"
+  [draggable]="false"
+  [resizable]="false"
+  [blockScroll]="true"
+  [focusOnShow]="true"
+  [appendTo]="'body'"
+  styleClass="surface-card rounded-2xl"
+  [contentStyleClass]="'bg-surface-card'"
+>
+  <div class="space-y-6 pt-2">
+    <div class="flex gap-3 p-3 bg-surface-layout rounded-xl border border-divider text-xs text-content-muted">
+      <i class="pi pi-info-circle mt-0.5 text-content-faint"></i>
+      <span>Define dos umbrales por KPI. El dashboard y los reportes usar&aacute;n estos rangos para colorear el sem&aacute;foro autom&aacute;ticamente. Los cambios se guardan en el navegador.</span>
+    </div>
+    <div class="flex gap-4 flex-wrap text-xs">
+      <span class="flex items-center gap-1.5 status-bad">
+        <span class="w-3 h-3 rounded inline-block status-fill"></span>
+        <span class="status-text">Por debajo del mínimo</span>
+      </span>
+      <span class="flex items-center gap-1.5 status-warn">
+        <span class="w-3 h-3 rounded inline-block status-fill"></span>
+        <span class="status-text">Entre mínimo y óptimo</span>
+      </span>
+      <span class="flex items-center gap-1.5 status-ok">
+        <span class="w-3 h-3 rounded inline-block status-fill"></span>
+        <span class="status-text">Óptimo o superior</span>
+      </span>
+    </div>
+    <div>
+      <h4 class="text-xs font-black uppercase tracking-widest text-content-faint mb-3">KPIs de ejecución</h4>
+      <div class="space-y-4">
+        @for (r of editableKpi; track r.id) {
+          <div class="p-4 bg-surface-layout rounded-xl border border-divider">
+            <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <span class="font-bold text-sm">{{ r.label }}</span>
+              <div class="flex gap-2 text-xs">
+                <span class="status-chip status-bad">&lt; {{ r.min }}{{ r.unit }} = bajo</span>
+                <span class="status-chip status-ok">&ge; {{ r.opt }}{{ r.unit }} = óptimo</span>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-bold text-content-faint uppercase">Meta mínima</label>
+                <p-inputnumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="true" buttonLayout="horizontal" decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''" class="w-full" />
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-bold text-content-faint uppercase">Meta óptima</label>
+                <p-inputnumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="true" buttonLayout="horizontal" decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''" class="w-full" />
+              </div>
+            </div>
+            <div class="mt-3 h-2 rounded-full overflow-hidden flex">
+              <div class="status-bad status-fill" [style.flex]="r.min"></div>
+              <div class="status-warn status-fill" [style.flex]="r.opt - r.min"></div>
+              <div class="status-ok status-fill" [style.flex]="r.opt * 0.5"></div>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+  <ng-template #footer>
+    <div class="flex justify-end gap-3">
+      <p-button label="Cancelar" icon="pi pi-times" severity="secondary" (click)="cancelMetas()" />
+      <p-button label="Guardar metas" icon="pi pi-check" styleClass="p-button-brand" (click)="saveMetas()" />
+    </div>
+  </ng-template>
+</p-dialog>
+
+<!-- Toast y ConfirmDialog necesarios para los `MessageService`/`ConfirmationService` inyectados. -->
+<p-toast></p-toast>
+<p-confirmdialog></p-confirmdialog>
+

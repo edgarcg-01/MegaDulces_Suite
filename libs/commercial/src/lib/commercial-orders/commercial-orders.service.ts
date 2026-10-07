@@ -1,0 +1,2798 @@
+import {
+  Injectable,
+  Inject,
+  Optional,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantContextService, isPlatformAdminRole } from '@megadulces/platform-core';
+import { vendorTodayRouteExistsSql } from '../shared/vendor-cartera.sql';
+import { CommercialPricingService } from '../commercial-pricing/commercial-pricing.service';
+import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
+import { AlertsService } from '../commercial-alerts/alerts.service';
+import { CommercialPushService } from '../commercial-push/commercial-push.service';
+import { OrderStockService } from './order-stock.service';
+import { QuotePricingService, rungDeRotulo, type Rung } from '../commercial-quotes/quote-pricing.service';
+import type { Knex } from 'knex';
+import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
+
+// ─────────── tipos ───────────
+
+export type OrderStatus = 'draft' | 'pending_approval' | 'confirmed' | 'fulfilled' | 'cancelled';
+
+export type DeliveryType = 'route' | 'long_trip' | 'home_delivery';
+
+/** Fase LM: dirección ad-hoc del domicilio (no atada a customer.shipping_address). */
+export interface DeliveryAddress {
+  recipient_name?: string;
+  phone?: string;
+  street?: string;
+  references?: string;
+  lat?: number;
+  lng?: number;
+}
+
+export type DeliveryChannel = 'phone' | 'whatsapp' | 'social' | 'walk_in';
+
+export interface CreateDraftDto {
+  customer_id: string;
+  warehouse_id: string;
+  /**
+   * Integridad preventa: id local del pedido en el device (Dexie). Si viene, el
+   * backend deduplica por (tenant_id, client_uuid) → un reintento de sync tras
+   * respuesta perdida devuelve el MISMO pedido en vez de crear un duplicado.
+   */
+  client_uuid?: string;
+  notes?: string;
+  /**
+   * J.6.6: tipo de entrega. `route` (default) = entrega por ruta regular;
+   * `long_trip` = viaje largo dedicado; `home_delivery` (Fase LM) = domicilio local.
+   */
+  delivery_type?: DeliveryType;
+  /** V.5: fecha de entrega agendada (YYYY-MM-DD) para "pedido futuro". NULL = inmediato. */
+  requested_delivery_date?: string;
+  /** Fase LM (solo home_delivery): domicilio ad-hoc + canal + ETA prometido. */
+  delivery_address?: DeliveryAddress;
+  delivery_channel?: DeliveryChannel;
+  promised_eta_min?: number;
+}
+
+export interface UpdateOrderDraftDto {
+  notes?: string;
+  delivery_type?: DeliveryType;
+  requested_delivery_date?: string | null;
+}
+
+export interface AddLineDto {
+  product_id: string;
+  /**
+   * La cantidad. ⚠️ Con `qty_unit` presente, va **en esa unidad** (2 = dos cajas); sin `qty_unit`
+   * va como siempre, en la unidad base, y la línea queda SIN unidad declarada.
+   */
+  quantity: number;
+  /**
+   * [VU.2] En qué unidad la capturó el humano (`PZA`, `CJA`, `PAQ`…, el rótulo del ERP).
+   *
+   * Opcional y **aditivo**: sin él todo se comporta igual que antes. Con él, el servidor —no el
+   * cliente— resuelve el factor contra `analytics.v_product_box_factor` y sella la línea. Si el
+   * resolvedor no puede AFIRMAR el factor, la línea se **rechaza**: pedir "2 cajas" sin saber
+   * cuántas piezas son no se resuelve multiplicando por 1.
+   */
+  qty_unit?: string;
+  /**
+   * [VU.3] El factor que usó la pantalla, como ÚLTIMO recurso. El servidor prefiere siempre el
+   * suyo; éste sólo entra cuando el resolvedor no puede afirmar nada, y queda rotulado
+   * `cliente_declara` para que se note que es dato de menor autoridad.
+   *
+   * ⚠️ Si el servidor SÍ tiene factor y el del cliente no coincide, la línea se **rechaza**: son
+   * dos cifras distintas para la misma caja, y elegir en silencio cambiaría el pedido respecto de
+   * lo que el humano vio en pantalla.
+   */
+  qty_factor?: number;
+  /** Override del descuento por línea (0..1). Si no viene, 0. */
+  discount_percent?: number;
+  notes?: string;
+}
+
+/** [VU.2] Lo que el servidor sella junto a la cantidad. `null` en los tres = no se registró. */
+interface SelloUnidad {
+  qty_unit: string | null;
+  qty_factor: number | null;
+  qty_factor_source: string | null;
+}
+
+export interface UpdateLineDto {
+  /**
+   * La cantidad. ⚠️ Mismo contrato que `AddLineDto`: con `qty_unit` presente va **en esa
+   * unidad** (2 = dos cajas); sin `qty_unit` va en unidad base y la línea queda SIN unidad
+   * declarada — el sello anterior se borra, porque describía otra cifra.
+   */
+  quantity?: number;
+  /**
+   * [VU.4] En qué unidad la recapturó el humano. Sin esto, ajustar una cantidad **borraba** el
+   * sello que `addLine` había puesto: en la toma de pedido del vendedor todo ajuste pasa por
+   * acá (los steppers del carrito), así que el primer "+" dejaba la línea sin procedencia y el
+   * protocolo de unidad no llegaba a sobrevivir a la primera interacción.
+   *
+   * Mismas reglas que en `addLine`: el servidor resuelve el factor contra
+   * `analytics.v_product_box_factor`, rechaza el desacuerdo en vez de arbitrarlo, y rotula
+   * `cliente_declara` lo que solo afirma la pantalla.
+   */
+  qty_unit?: string;
+  /** [VU.4] El factor que mostró la pantalla, como último recurso. Ver `AddLineDto.qty_factor`. */
+  qty_factor?: number;
+  discount_percent?: number;
+  notes?: string;
+}
+
+export interface ReplaceLinesDto {
+  lines: AddLineDto[];
+}
+
+export interface FrequentProductRow {
+  product_id: string;
+  product_name: string | null;
+  sku: string | null;
+  brand_name: string | null;
+  order_count: number;
+  total_qty: number;
+  avg_qty: number;
+  last_ordered_at: string;
+}
+
+export interface ListOrdersQuery {
+  status?: OrderStatus;
+  /** Multi-status CSV, ej "pending_approval,confirmed". Se suma a `status`. */
+  statuses?: string;
+  customer_id?: string;
+  user_id?: string;
+  /** Restringe a pedidos de clientes en la cartera del vendedor del JWT (vendor_sales_routes). */
+  mine?: boolean;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+@Injectable()
+export class CommercialOrdersService {
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+    private readonly pricing: CommercialPricingService,
+    private readonly inventory: CommercialInventoryService,
+    private readonly alerts: AlertsService,
+    private readonly push: CommercialPushService,
+    private readonly stock: OrderStockService,
+    // [VTK.2] El precio del renglón sale del MISMO motor que cotizaciones (Kepler por sucursal y
+    // peldaño + volumen + promociones), no de una lista propia.
+    private readonly quotePricing: QuotePricingService,
+    @Optional() @Inject(INVOICE_ISSUER_PORT) private readonly invoiceIssuer?: InvoiceIssuerPort,
+  ) {}
+
+  private readonly logger = new Logger(CommercialOrdersService.name);
+
+  /**
+   * `[VTK.2]` Precio de un renglón con el motor de cotizaciones: la escalera de Kepler de la
+   * SUCURSAL del pedido (precio por peldaño PZA/PAQ/CJA) + precio por volumen + promociones por
+   * cantidad. Es el mismo cálculo que ya usa Telemarketing; acá la venta va en firme.
+   *
+   * ── Las dos diferencias que esta función absorbe ─────────────────────────────────────────────
+   *   · IVA: el precio del ERP YA TRAE impuestos (Σ kdm2.c13 = kdm1.c16, 99.84%). El pedido, en
+   *     cambio, guarda `unit_price` SIN impuesto y suma `line_tax`. Por eso el TOTAL del renglón
+   *     es el del motor y el subtotal se calcula HACIA ATRÁS con la tasa del producto. Sumarle el
+   *     IVA encima cobraría el impuesto dos veces.
+   *   · Unidad: el motor tarifica "N cajas a precio de caja"; el pedido guarda la cantidad en la
+   *     unidad BASE. El peldaño se resuelve contra la escalera de ESE SKU (`rungDeRotulo`) y, si la
+   *     cantidad base no es múltiplo exacto del peldaño (un renglón que suma cajas y piezas), se
+   *     tarifica en la base: no se inventa un peldaño que la cantidad no tiene.
+   *
+   * Devuelve `null` cuando el motor no puede tarificar (almacén sin sucursal Kepler, SKU sin
+   * escalera, peldaño sin precio): el caller cae al cálculo anterior (`resolvePriceForQty`) en vez
+   * de dejar el renglón sin precio. Lo que se DECLARA y no se aplica: el regalo por cantidad
+   * (`free_goods`) — el pedido no tiene todavía renglones hijos de regalo — y el descuento del
+   * cliente (capa de documento, no de renglón).
+   */
+  private async tarificarConMotor(
+    trx: Knex | Knex.Transaction,
+    warehouseId: string | null | undefined,
+    productId: string,
+    qtyBase: number,
+    qtyUnit: string | null | undefined,
+    discount: number,
+  ): Promise<{
+    unit_price: number;
+    tax_rate: number;
+    line_subtotal: number;
+    line_tax: number;
+    line_total: number;
+    /** Total de Kepler con impuestos, antes del descuento manual → `order_lines.erp_gross_total`. */
+    erp_gross_total: number;
+    rung: Rung;
+  } | null> {
+    if (!warehouseId || !(qtyBase > 0)) return null;
+    const wh = await trx('commercial.warehouses').where({ id: warehouseId }).first('kepler_code');
+    const branch = String(wh?.kepler_code ?? '').trim();
+    if (!branch) return null;
+    const prod = await trx('catalog.products').where({ id: productId }).first('sku');
+    const sku = String(prod?.sku ?? '').trim();
+    if (!sku) return null;
+
+    const led = (await this.quotePricing.ladders(trx, branch, [sku])).get(sku);
+    if (!led) return null;
+
+    let rung: Rung = rungDeRotulo(qtyUnit ?? null, led);
+    let size = rung === 'base' ? 1 : Number(led.rungs[rung]?.size ?? 0);
+    let qtyRung = size > 0 ? qtyBase / size : 0;
+    if (!(size > 0) || Math.abs(qtyRung - Math.round(qtyRung)) > 1e-6) {
+      rung = 'base';
+      size = 1;
+      qtyRung = qtyBase;
+    }
+
+    const priced = await this.quotePricing.priceLine(trx, { branch, sku, quantity: qtyRung, rung });
+    if (priced.line_total === null || priced.unit_price === null) return null;
+
+    // Tasa del PRODUCTO (la misma que usaba el cálculo anterior); el motor asume 16% para todo.
+    const tp = await trx('commercial.product_prices as pp')
+      .join('commercial.price_lists as pl', function (this: Knex.JoinClause) {
+        this.on('pl.id', '=', 'pp.price_list_id').andOn('pl.tenant_id', '=', 'pp.tenant_id');
+      })
+      .where('pp.product_id', productId)
+      .whereNull('pp.deleted_at')
+      .orderByRaw("CASE WHEN pl.code = 'BASE-MXN' THEN 0 ELSE 1 END")
+      .first('pp.tax_rate');
+    const taxRate = tp?.tax_rate !== undefined && tp?.tax_rate !== null ? Number(tp.tax_rate) : Number(priced.tax_rate);
+
+    const grossTotal = Number(priced.line_total);
+    const lineTotal = +(grossTotal * (1 - discount)).toFixed(2);
+    const lineSubtotal = +(lineTotal / (1 + taxRate)).toFixed(2);
+    const lineTax = +(lineTotal - lineSubtotal).toFixed(2);
+    const unitPrice = +(grossTotal / (1 + taxRate) / qtyBase).toFixed(4);
+    return {
+      unit_price: unitPrice, tax_rate: taxRate, line_subtotal: lineSubtotal, line_tax: lineTax,
+      line_total: lineTotal, erp_gross_total: +grossTotal.toFixed(2), rung,
+    };
+  }
+
+  /**
+   * Push fire-and-forget al cliente del pedido (Fase 3). Nunca lanza ni bloquea
+   * la operación de la orden — la notificación es best-effort.
+   */
+  private notifyCustomer(customerId: string, orderId: string, title: string, body: string): void {
+    void this.push
+      .sendToCustomer(customerId, { title, body, url: `/portal/orders/${orderId}`, tag: `order-${orderId}` })
+      .catch(() => void 0);
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Crear draft
+  // ─────────────────────────────────────────────────────────────────
+
+  async createDraft(dto: CreateDraftDto) {
+    if (!UUID_REGEX.test(dto.customer_id))
+      throw new BadRequestException('customer_id inválido');
+    if (!UUID_REGEX.test(dto.warehouse_id))
+      throw new BadRequestException('warehouse_id inválido');
+
+    if (dto.client_uuid && !UUID_REGEX.test(dto.client_uuid))
+      throw new BadRequestException('client_uuid inválido');
+
+    return this.tk.run(async (trx) => {
+      const userId = this.requireUserId();
+
+      // `[AUTHZ-HARD.1]` Un `customer_b2b` sólo puede crear pedidos a SU nombre: el customer_id se
+      // resuelve del JWT, nunca se confía del body (antes podía abrir un draft bajo otro cliente y
+      // quemar folio). Los internos (vendedor/admin) sí eligen el cliente.
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const me = await this.resolveCustomerIdFromUser(trx);
+        if (!me) throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+        dto = { ...dto, customer_id: me };
+      }
+
+      // Idempotencia (Fix #1 preventa): si el device ya creó este pedido y
+      // reintenta (respuesta perdida), devolver el existente en vez de duplicar.
+      // El índice único parcial (tenant_id, client_uuid) es el backstop ante la
+      // carrera concurrente rara: el perdedor aborta y el device reintenta → acá
+      // lo encuentra. NO se consume folio en el camino de dedup.
+      if (dto.client_uuid) {
+        const dup = await trx('commercial.orders')
+          .where({ client_uuid: dto.client_uuid })
+          .whereNull('deleted_at')
+          .first();
+        if (dup) return dup;
+      }
+
+      // Validar customer + warehouse activos
+      const customer = await trx('commercial.customers')
+        .where({ id: dto.customer_id })
+        .whereNull('deleted_at')
+        .first();
+      if (!customer)
+        throw new NotFoundException(`Customer ${dto.customer_id} no encontrado`);
+      if (!customer.active)
+        throw new ConflictException('Customer inactivo no puede tener pedidos');
+
+      const warehouse = await trx('commercial.warehouses')
+        .where({ id: dto.warehouse_id })
+        .whereNull('deleted_at')
+        .first();
+      if (!warehouse)
+        throw new NotFoundException(`Warehouse ${dto.warehouse_id} no encontrado`);
+      if (!warehouse.active)
+        throw new ConflictException('Warehouse inactivo');
+
+      // Generar code secuencial
+      const code = await this.nextCode(trx);
+
+      // Snapshot del price_list que aplica al cliente
+      const priceListId = customer.default_price_list_id || (await this.findDefaultPriceListId(trx));
+
+      const deliveryType = dto.delivery_type ?? 'route';
+      if (!['route', 'long_trip', 'home_delivery'].includes(deliveryType)) {
+        throw new BadRequestException(
+          `delivery_type inválido: ${deliveryType}. Debe ser 'route', 'long_trip' o 'home_delivery'.`,
+        );
+      }
+      if (dto.delivery_channel && !['phone', 'whatsapp', 'social', 'walk_in'].includes(dto.delivery_channel)) {
+        throw new BadRequestException(`delivery_channel inválido: ${dto.delivery_channel}`);
+      }
+
+      const requestedDeliveryDate = dto.requested_delivery_date || null;
+      if (requestedDeliveryDate && !DATE_REGEX.test(requestedDeliveryDate)) {
+        throw new BadRequestException('requested_delivery_date debe ser YYYY-MM-DD');
+      }
+
+      const [order] = await trx('commercial.orders')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          code,
+          client_uuid: dto.client_uuid || null,
+          customer_id: dto.customer_id,
+          user_id: userId,
+          warehouse_id: dto.warehouse_id,
+          price_list_id: priceListId,
+          // Snapshot de la ruta del cliente al draft. Si el cliente luego cambia
+          // de ruta, esta orden mantiene la asignada al momento del pedido.
+          route_id: customer.route_id || null,
+          status: 'draft',
+          payment_method: 'cash',
+          delivery_type: deliveryType,
+          requested_delivery_date: requestedDeliveryDate,
+          // Fase LM — domicilio: dirección ad-hoc + canal + hora recepción + ETA prometido.
+          delivery_address: dto.delivery_address ? JSON.stringify(dto.delivery_address) : null,
+          delivery_channel: dto.delivery_channel || null,
+          received_at: deliveryType === 'home_delivery' ? trx.fn.now() : null,
+          promised_eta_min: dto.promised_eta_min ?? null,
+          subtotal: 0,
+          tax_total: 0,
+          total: 0,
+          paid_amount: 0,
+          balance_due: 0,
+          currency: 'MXN',
+          notes: dto.notes || null,
+          created_by: userId,
+        })
+        .returning('*');
+
+      // Audit trail: creación
+      await this.recordHistory(trx, order.id, null, 'draft', null);
+
+      return order;
+    });
+  }
+
+  /**
+   * J.6.6 — Actualiza campos del header del order (solo en draft).
+   * Por ahora limitado a `notes` + `delivery_type`. Otros campos requieren
+   * lógica adicional (price_list_id cambia totales, etc.).
+   */
+  async updateDraft(orderId: string, dto: UpdateOrderDraftDto) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+      if (order.status !== 'draft') {
+        throw new ConflictException(
+          `Solo se pueden editar pedidos en draft. Estado actual: '${order.status}'.`,
+        );
+      }
+
+      const patch: Record<string, any> = { updated_at: trx.fn.now() };
+      if (dto.notes !== undefined) patch.notes = dto.notes || null;
+      if (dto.delivery_type !== undefined) {
+        if (!['route', 'long_trip'].includes(dto.delivery_type)) {
+          throw new BadRequestException(`delivery_type inválido: ${dto.delivery_type}`);
+        }
+        patch.delivery_type = dto.delivery_type;
+      }
+      if (dto.requested_delivery_date !== undefined) {
+        const d = dto.requested_delivery_date || null;
+        if (d && !DATE_REGEX.test(d)) {
+          throw new BadRequestException('requested_delivery_date debe ser YYYY-MM-DD');
+        }
+        patch.requested_delivery_date = d;
+      }
+
+      if (Object.keys(patch).length === 1) {
+        // Solo updated_at → no-op real, devolver tal cual
+        return order;
+      }
+
+      const [updated] = await trx('commercial.orders')
+        .where({ id: orderId })
+        .update(patch)
+        .returning('*');
+      return updated;
+    });
+  }
+
+  /**
+   * Reagenda la fecha de entrega de un pedido ya `confirmed`/`pending_approval`.
+   * `updateDraft` solo acepta drafts; esto permite corregir un pedido mal fechado
+   * (p.ej. el default viejo del vendedor que caía en domingo) sin retomarlo. Solo
+   * toca `requested_delivery_date` — preventa no reserva stock, así que no hay
+   * implicación de inventario. No aplica a fulfilled/cancelled.
+   */
+  async reschedule(orderId: string, requestedDeliveryDate: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+    const d = requestedDeliveryDate || null;
+    if (!d || !DATE_REGEX.test(d)) {
+      throw new BadRequestException('requested_delivery_date debe ser YYYY-MM-DD');
+    }
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+      if (!['confirmed', 'pending_approval'].includes(order.status)) {
+        throw new ConflictException(
+          `Solo se puede reagendar un pedido confirmado o por aprobar. Estado actual: '${order.status}'.`,
+        );
+      }
+      const [updated] = await trx('commercial.orders')
+        .where({ id: orderId })
+        .update({ requested_delivery_date: d, updated_at: trx.fn.now() })
+        .returning('*');
+      return updated;
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Líneas (solo en draft)
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * [VU.2] Convierte la cantidad capturada a la unidad base y **sella** con qué la convirtió.
+   *
+   * ── Por qué lo hace el SERVIDOR y no el cliente ─────────────────────────────────────────
+   *
+   * Hasta hoy la conversión vivía en el frontend: la pantalla mostraba "caja de 24", multiplicaba
+   * y mandaba piezas. El servidor recibía un número pelado y lo guardaba sin saber de dónde venía.
+   * Eso es dos defectos en uno — el factor lo elige un cliente que puede tener una versión vieja,
+   * y la conversión no queda escrita en ningún lado (VU.0/VU.1, censo 2026-09-12).
+   *
+   * ⛔ **Sin afirmación no se convierte.** Si el resolvedor no puede sostener el factor —`source`
+   * = `default`, o la fila marcada `is_master_suspect` (pallet/granel)— la línea se RECHAZA con el
+   * motivo. Multiplicar por 1 metería una pieza donde el humano pidió una caja, y ese error es
+   * silencioso: el pedido sale, el cliente recibe 1 en vez de 24, y nadie se entera hasta el
+   * reclamo. Fallar acá es ruidoso y barato.
+   */
+  private async resolverUnidadCaptura(
+    trx: any,
+    productId: string,
+    capturada: number,
+    qtyUnit?: string,
+    qtyFactorCliente?: number,
+  ): Promise<{ quantity: number; sello: SelloUnidad }> {
+    const u = String(qtyUnit ?? '').trim().toUpperCase();
+    // Sin unidad declarada: se comporta EXACTAMENTE como antes y el sello queda en null. Un null
+    // acá es honesto; un 'PZA' de relleno sería una afirmación que nadie hizo (ADR-056).
+    if (!u) {
+      return { quantity: capturada, sello: { qty_unit: null, qty_factor: null, qty_factor_source: null } };
+    }
+
+    const bf = await trx('analytics.v_product_box_factor')
+      .where('tenant_id', trx.raw('public.current_tenant_id()'))
+      .andWhere('product_id', productId)
+      .first('box_factor', 'source', 'unit_base', 'is_master_suspect');
+
+    const base = String(bf?.unit_base ?? '').trim().toUpperCase();
+    // Capturó en la unidad base del ERP: no hay conversión que justificar.
+    if (base && u === base) {
+      return {
+        quantity: capturada,
+        sello: { qty_unit: u, qty_factor: 1, qty_factor_source: 'captura_directa' },
+      };
+    }
+
+    // ⛔ Sólo se aceptan DOS unidades: la base declarada por el ERP (arriba) y la CAJA. Cualquier
+    // otro rótulo se rechaza, y no por purismo: medido en prod, la unidad base es **PAQ en 6,595
+    // productos** y PZA en sólo 1,940. Si la pantalla manda 'PZA' para un producto cuya base es
+    // PAQ, el único factor que hay acá es el de la CAJA — multiplicar por él metería una caja
+    // donde el humano pidió una pieza. El peldaño PZA→PAQ es otro, y `v_product_box_factor` no lo
+    // publica: la escalera completa vive en `analytics.mv_kepler_unit_ladder` (ADR-063) y cablearla
+    // es una decisión aparte, no algo que este método deba improvisar.
+    const esCaja = u === 'CJA' || u === 'CAJA';
+    const factor = Number(bf?.box_factor ?? 0);
+    // El servidor sólo puede AFIRMAR el peldaño de la CAJA: es el único que este resolvedor
+    // publica. Un rótulo intermedio (PAQ cuando la base es PZA) no lo sabe.
+    const afirma = esCaja && !!bf && bf.source !== 'default'
+      && bf.is_master_suspect !== true && factor > 1;
+
+    const fc = Number(qtyFactorCliente);
+    const clienteDeclara = Number.isFinite(fc) && fc > 0;
+
+    // [VU.3] Las dos cifras existen y NO coinciden: se rechaza en vez de elegir en silencio.
+    // Elegir la del servidor cambiaría el pedido respecto de lo que el humano vio en pantalla;
+    // elegir la del cliente tiraría la evidencia del ERP. Un desacuerdo se muestra, no se arbitra
+    // de contrabando dentro de un insert.
+    if (afirma && clienteDeclara && Math.abs(fc - factor) > 0.0001) {
+      throw new BadRequestException(
+        `Desacuerdo de empaque en "${u}": la pantalla usó ${fc} y el ERP dice ${factor}. `
+        + 'La línea no se guarda con ninguno de los dos: refrescá el catálogo de la pantalla o '
+        + 'corregí el empaque, pero que los dos digan lo mismo antes de pedir.',
+      );
+    }
+
+    if (afirma) {
+      return {
+        quantity: capturada * factor,
+        sello: { qty_unit: u, qty_factor: factor, qty_factor_source: String(bf.source) },
+      };
+    }
+
+    // [VU.3] El servidor no puede afirmarlo. Si la pantalla trae SU factor, se usa y se ROTULA
+    // como suyo. Medido 2026-09-14: el vendedor captura por default en PAQ y en 1,940 productos
+    // ($33.7M/90d) la base es PZA — exigir el peldaño PAQ->PZA habría roto la toma de pedidos en
+    // la cuarta parte del dinero, y `mv_kepler_unit_ladder` sólo lo tiene en 302 SKUs con 96
+    // ambiguos. Aceptarlo rotulado es peor que tener el peldaño y mejor que no poder pedir.
+    if (clienteDeclara) {
+      return {
+        quantity: capturada * fc,
+        sello: { qty_unit: u, qty_factor: fc, qty_factor_source: 'cliente_declara' },
+      };
+    }
+
+    throw new BadRequestException(
+      `No se puede convertir "${u}" a la unidad base de este producto`
+      + `${base ? ` (${base})` : ' (el ERP no declara su unidad base)'}: `
+      + (esCaja
+        ? (bf
+          ? `el resolvedor no afirma el factor de caja (source=${bf.source}`
+            + `${bf.is_master_suspect ? ', marcado sospechoso de pallet/granel' : ''}`
+            + `, factor=${factor}). `
+          : 'el producto no está en el resolvedor de unidad. ')
+        : 'es un rótulo intermedio y este resolvedor sólo publica el peldaño de la caja. ')
+      + 'Mandá `qty_factor` con el empaque que mostró la pantalla, capturá en la unidad base, o '
+      + 'corregí el empaque en el catálogo — multiplicar por 1 metería una pieza donde pediste '
+      + 'una caja.',
+    );
+  }
+
+  async addLine(orderId: string, dto: AddLineDto) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+    if (!UUID_REGEX.test(dto.product_id))
+      throw new BadRequestException('product_id inválido');
+    if (typeof dto.quantity !== 'number' || dto.quantity <= 0)
+      throw new BadRequestException('quantity debe ser > 0');
+    if (
+      dto.discount_percent !== undefined &&
+      (dto.discount_percent < 0 || dto.discount_percent > 1)
+    )
+      throw new BadRequestException('discount_percent debe estar en [0..1]');
+
+    return this.tk.run(async (trx) => {
+      // Lock pesimista sobre la row del order. Serializa addLine concurrentes
+      // sobre el mismo order y evita race en el MAX(line_number)+1 que
+      // explotaba el UNIQUE (tenant_id, order_id, line_number). El lock dura
+      // hasta el commit de esta trx.
+      await trx.raw('SELECT id FROM commercial.orders WHERE id = ? FOR UPDATE', [orderId]);
+
+      const order = await this.requireDraft(trx, orderId);
+      await this.enforceOrderOwnership(trx, order);
+
+      // [VU.2] La conversión va ANTES de tarificar: el tier de volumen (FIQ.3) se resuelve por
+      // cantidad en la unidad BASE, así que pedir "2 cajas" tiene que consultar el precio de 116
+      // piezas, no el de 2. Convertir después habría dejado el precio de pieza suelta.
+      const conv = await this.resolverUnidadCaptura(
+        trx, dto.product_id, dto.quantity, dto.qty_unit, dto.qty_factor);
+      const qtyBase = conv.quantity;
+
+      // Merge por producto: si el SKU ya tiene línea en el carrito, se INCREMENTA
+      // (igual que updateLine: conserva el snapshot de precio y recalcula) en vez
+      // de crear una línea duplicada. Antes addLine SIEMPRE insertaba → el mismo
+      // producto aparecía como líneas separadas al re-agregarlo desde rails/sheet.
+      const existing = await trx('commercial.order_lines')
+        .where({ order_id: orderId, product_id: dto.product_id })
+        .first();
+      if (existing) {
+        const newQty = Number(existing.quantity) + qtyBase;
+        const exDiscount = Number(existing.discount_percent) || 0;
+        const mismaUnidad = String(existing.qty_unit ?? '') === String(conv.sello.qty_unit ?? '');
+        // [VTK.2] Motor de cotizaciones primero (Kepler por sucursal y peldaño); si no puede,
+        // el cálculo anterior. Con unidades distintas se tarifica en la base.
+        const motor = await this.tarificarConMotor(
+          trx, order.warehouse_id, dto.product_id, newQty,
+          mismaUnidad ? conv.sello.qty_unit : null, exDiscount);
+        // FIQ.3: re-tarificar por el NUEVO total — el tier de volumen puede bajar
+        // el precio/pza al acumular (pieza→caja). Fallback al snapshot si no resuelve.
+        const pi = motor ? null : await this.pricing.resolvePriceForQty(dto.product_id, newQty);
+        const exUnit = motor ? motor.unit_price : (pi!.price != null ? Number(pi!.price) : Number(existing.unit_price));
+        const exTax = motor ? motor.tax_rate : (pi!.price != null ? Number(pi!.tax_rate) : Number(existing.tax_rate));
+        const exSubtotal = motor ? motor.line_subtotal : +(newQty * exUnit * (1 - exDiscount)).toFixed(2);
+        const exLineTax = motor ? motor.line_tax : +(exSubtotal * exTax).toFixed(2);
+        const exTotal = motor ? motor.line_total : +(exSubtotal + exLineTax).toFixed(2);
+        const [merged] = await trx('commercial.order_lines')
+          .where({ id: existing.id })
+          .update({
+            quantity: newQty,
+            // draft-only (requireDraft arriba): la cantidad pedida sigue al carrito.
+            requested_quantity: newQty,
+            unit_price: exUnit,
+            tax_rate: exTax,
+            line_subtotal: exSubtotal,
+            line_tax: exLineTax,
+            line_total: exTotal,
+            erp_gross_total: motor ? motor.erp_gross_total : null,
+            // [VU.2] Al FUSIONAR, el sello de la línea vieja ya no describe el total. Si las dos
+            // capturas fueron en la misma unidad, el sello sigue siendo cierto; si no, se pone en
+            // null: una línea que suma 2 cajas + 5 piezas no está "en cajas" ni "en piezas", y
+            // dejar el sello viejo sería peor que no tenerlo.
+            ...(String(existing.qty_unit ?? '') === String(conv.sello.qty_unit ?? '')
+              ? {}
+              : { qty_unit: null, qty_factor: null, qty_factor_source: null }),
+          })
+          .returning('*');
+        await this.recalcOrderTotals(trx, orderId);
+        return merged;
+      }
+
+      const discount = dto.discount_percent ?? 0;
+      // [VTK.2] Línea nueva: el motor de cotizaciones (Kepler por sucursal y peldaño + volumen +
+      // promos). Kepler vende desde 1 unidad: con el motor no hay mínimo de compra.
+      const motor = await this.tarificarConMotor(
+        trx, order.warehouse_id, dto.product_id, qtyBase, conv.sello.qty_unit, discount);
+
+      let unitPrice: number;
+      let taxRate: number;
+      let lineSubtotal: number;
+      let lineTax: number;
+      let lineTotal: number;
+      if (motor) {
+        ({ unit_price: unitPrice, tax_rate: taxRate, line_subtotal: lineSubtotal, line_tax: lineTax, line_total: lineTotal } = motor);
+      } else {
+        // Cálculo anterior: precio por CANTIDAD (tier de volumen, FIQ.3) + validar MOQ.
+        // El precio/pza depende de la cantidad pedida (pieza suelta vs caja).
+        const priceInfo = await this.pricing.resolvePriceForQty(dto.product_id, qtyBase);
+        if (priceInfo.price === null) {
+          if (priceInfo.source === 'below_min') {
+            throw new ConflictException(
+              `Cantidad mínima ${priceInfo.min_purchase} para este producto`,
+            );
+          }
+          throw new ConflictException(
+            `Producto ${dto.product_id} sin precio configurado`,
+          );
+        }
+        unitPrice = Number(priceInfo.price);
+        taxRate = Number(priceInfo.tax_rate);
+        lineSubtotal = +(qtyBase * unitPrice * (1 - discount)).toFixed(2);
+        lineTax = +(lineSubtotal * taxRate).toFixed(2);
+        lineTotal = +(lineSubtotal + lineTax).toFixed(2);
+      }
+
+      // line_number consecutivo (safe ahora gracias al FOR UPDATE arriba).
+      const [{ next_line }] = await trx('commercial.order_lines')
+        .where({ order_id: orderId })
+        .max({ next_line: 'line_number' });
+      const lineNumber = (Number(next_line) || 0) + 1;
+
+      const [line] = await trx('commercial.order_lines')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          order_id: orderId,
+          product_id: dto.product_id,
+          line_number: lineNumber,
+          quantity: qtyBase,
+          requested_quantity: qtyBase,
+          ...conv.sello,
+          unit_price: unitPrice,
+          tax_rate: taxRate,
+          discount_percent: discount,
+          line_subtotal: lineSubtotal,
+          line_tax: lineTax,
+          line_total: lineTotal,
+          erp_gross_total: motor ? motor.erp_gross_total : null,
+          notes: dto.notes || null,
+        })
+        .returning('*');
+
+      await this.recalcOrderTotals(trx, orderId);
+      return line;
+    });
+  }
+
+  /**
+   * VQ: reemplaza TODAS las líneas del draft con el set provisto, en una sola
+   * transacción (un solo lock). Pensado para el "order pad" del vendedor: la UI
+   * mantiene el estado completo del pedido (producto→cantidad) y al confirmar
+   * manda el set entero. Dedupe por product_id (suma cantidades), clampea a
+   * min_qty, y omite (sin abortar) los productos sin precio para el cliente.
+   */
+  async replaceLines(orderId: string, dto: ReplaceLinesDto) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    // [VU.2] El dedupe suma cantidades por producto. Si dos renglones del mismo producto vienen en
+    // unidades DISTINTAS, sumarlos crudo daría un número que no está en ninguna unidad — así que
+    // se marca `unidad_mixta` y más abajo esa línea se rechaza en vez de inventar un total.
+    const merged = new Map<string, {
+      quantity: number; discount_percent?: number; notes?: string;
+      qty_unit?: string; qty_factor?: number; unidad_mixta?: boolean;
+    }>();
+    for (const l of dto?.lines || []) {
+      if (!l || !UUID_REGEX.test(l.product_id)) continue;
+      const qty = Number(l.quantity);
+      if (!Number.isFinite(qty) || qty <= 0) continue;
+      const u = String(l.qty_unit ?? '').trim().toUpperCase() || undefined;
+      const prev = merged.get(l.product_id);
+      if (prev) {
+        prev.quantity += qty;
+        if ((prev.qty_unit ?? '') !== (u ?? '')) prev.unidad_mixta = true;
+      } else {
+        merged.set(l.product_id, {
+          quantity: qty, discount_percent: l.discount_percent, notes: l.notes,
+          qty_unit: u, qty_factor: l.qty_factor,
+        });
+      }
+    }
+
+    return this.tk.run(async (trx) => {
+      await trx.raw('SELECT id FROM commercial.orders WHERE id = ? FOR UPDATE', [orderId]);
+      const order = await this.requireDraft(trx, orderId);
+      await this.enforceOrderOwnership(trx, order);
+
+      await trx('commercial.order_lines').where({ order_id: orderId }).del();
+
+      const skipped: { product_id: string; reason: string }[] = [];
+      let lineNumber = 0;
+      for (const [productId, info] of merged) {
+        // [VU.2] Dos capturas del mismo producto en unidades distintas no se suman: se declara.
+        if (info.unidad_mixta) {
+          skipped.push({ product_id: productId, reason: 'renglones en unidades distintas' });
+          continue;
+        }
+        // [VU.2] Convertir ANTES de tarificar: el tier de volumen se resuelve en la unidad base.
+        let conv;
+        try {
+          conv = await this.resolverUnidadCaptura(
+            trx, productId, info.quantity, info.qty_unit, info.qty_factor);
+        } catch (e: any) {
+          // En el lote NO se aborta el pedido entero: el renglón se omite CON su motivo, igual que
+          // los que no tienen precio. Abortar los 40 renglones por uno sin factor sería peor.
+          skipped.push({ product_id: productId, reason: e?.message || 'unidad no resoluble' });
+          continue;
+        }
+        info.quantity = conv.quantity;
+        const discountMotor = info.discount_percent ?? 0;
+        if (discountMotor < 0 || discountMotor > 1) {
+          skipped.push({ product_id: productId, reason: 'descuento inválido' });
+          continue;
+        }
+        // [VTK.2] Motor de cotizaciones (Kepler por sucursal y peldaño + volumen + promos). Sin
+        // mínimo de compra: Kepler vende desde 1. Si no puede tarificar, el cálculo anterior.
+        const motor = await this.tarificarConMotor(
+          trx, order.warehouse_id, productId, info.quantity, conv.sello.qty_unit, discountMotor);
+        if (motor) {
+          lineNumber += 1;
+          await trx('commercial.order_lines').insert({
+            tenant_id: trx.raw('public.current_tenant_id()'),
+            order_id: orderId,
+            product_id: productId,
+            line_number: lineNumber,
+            quantity: info.quantity,
+            requested_quantity: info.quantity,
+            unit_price: motor.unit_price,
+            tax_rate: motor.tax_rate,
+            discount_percent: discountMotor,
+            line_subtotal: motor.line_subtotal,
+            line_tax: motor.line_tax,
+            line_total: motor.line_total,
+            erp_gross_total: motor.erp_gross_total,
+            notes: info.notes || null,
+            ...conv.sello,
+          });
+          continue;
+        }
+        // FIQ.3: precio por CANTIDAD (tier de volumen). Resolver mínimo, bumpear qty
+        // al mínimo si hace falta, y tarificar al qty efectivo (el tier puede cambiar).
+        const first = await this.pricing.resolvePriceForQty(productId, info.quantity);
+        if (first.min_purchase == null) {
+          skipped.push({ product_id: productId, reason: 'sin precio' });
+          continue;
+        }
+        const discount = info.discount_percent ?? 0;
+        if (discount < 0 || discount > 1) {
+          skipped.push({ product_id: productId, reason: 'descuento inválido' });
+          continue;
+        }
+        const minQty = first.min_purchase || 1;
+        const qty = info.quantity < minQty ? minQty : info.quantity;
+        const priceInfo = qty === info.quantity ? first : await this.pricing.resolvePriceForQty(productId, qty);
+        if (priceInfo.price === null) {
+          skipped.push({ product_id: productId, reason: 'sin precio' });
+          continue;
+        }
+        const unitPrice = Number(priceInfo.price);
+        const taxRate = Number(priceInfo.tax_rate);
+        const lineSubtotal = +(qty * unitPrice * (1 - discount)).toFixed(2);
+        const lineTax = +(lineSubtotal * taxRate).toFixed(2);
+        const lineTotal = +(lineSubtotal + lineTax).toFixed(2);
+        lineNumber += 1;
+        await trx('commercial.order_lines').insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          order_id: orderId,
+          product_id: productId,
+          line_number: lineNumber,
+          quantity: qty,
+          requested_quantity: qty,
+          unit_price: unitPrice,
+          tax_rate: taxRate,
+          discount_percent: discount,
+          line_subtotal: lineSubtotal,
+          line_tax: lineTax,
+          line_total: lineTotal,
+          notes: info.notes || null,
+          // [VU.2] Si el MOQ subió la cantidad, la captura original ya no describe la línea: el
+          // sello se conserva sólo cuando no hubo bump.
+          ...(qty === info.quantity
+            ? conv.sello
+            : { qty_unit: null, qty_factor: null, qty_factor_source: null }),
+        });
+      }
+
+      await this.recalcOrderTotals(trx, orderId);
+      return { order_id: orderId, added: lineNumber, skipped };
+    });
+  }
+
+  /**
+   * VQ: productos que el cliente compra habitualmente (agregado de order_lines
+   * de pedidos confirmed/fulfilled en la ventana). Alimenta el order pad —
+   * sección "Habituales" con cantidad sugerida = promedio histórico.
+   */
+  async frequentProducts(
+    customerId: string,
+    opts: { days?: number; limit?: number } = {},
+  ): Promise<FrequentProductRow[]> {
+    if (!UUID_REGEX.test(customerId))
+      throw new BadRequestException('customer_id inválido');
+    const days = Math.min(Math.max(opts.days ?? 120, 1), 365);
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+
+    return this.tk.run(async (trx) => {
+      // `[AUTHZ-HARD.1]` Ownership: es la ÚNICA lectura de este service que no pasaba por
+      // enforceOrderOwnership. Un `customer_b2b` leía el mix de SKUs, volúmenes y última compra de
+      // la competencia pasando otro customer_id. Para el cliente, exigimos que sea el suyo.
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const me = await this.resolveCustomerIdFromUser(trx);
+        if (!me || me !== customerId) {
+          throw new ForbiddenException('No tenés acceso a la información de este cliente.');
+        }
+      }
+      return trx('commercial.order_lines as ol')
+        .join('commercial.orders as o', 'o.id', 'ol.order_id')
+        .leftJoin('public.products as p', 'p.id', 'ol.product_id')
+        .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
+        .where('o.customer_id', customerId)
+        .whereIn('o.status', ['confirmed', 'fulfilled'])
+        .whereRaw(`o.created_at >= now() - (? || ' days')::interval`, [days])
+        .groupBy('ol.product_id', 'p.nombre', 'p.sku', 'b.nombre')
+        .select(
+          'ol.product_id',
+          trx.raw('p.nombre as product_name'),
+          trx.raw('p.sku as sku'),
+          trx.raw('b.nombre as brand_name'),
+          trx.raw('count(distinct o.id)::int as order_count'),
+          trx.raw('sum(ol.quantity)::numeric as total_qty'),
+          trx.raw('greatest(round(avg(ol.quantity)), 1)::int as avg_qty'),
+          trx.raw('max(o.created_at) as last_ordered_at'),
+        )
+        .orderByRaw('count(distinct o.id) desc, sum(ol.quantity) desc')
+        .limit(limit) as unknown as FrequentProductRow[];
+    });
+  }
+
+  async updateLine(orderId: string, lineId: string, dto: UpdateLineDto) {
+    if (!UUID_REGEX.test(orderId) || !UUID_REGEX.test(lineId))
+      throw new BadRequestException('id inválido');
+
+    return this.tk.run(async (trx) => {
+      const order = await this.requireEditableForLines(trx, orderId);
+      await this.enforceOrderOwnership(trx, order);
+
+      const line = await trx('commercial.order_lines')
+        .where({ id: lineId, order_id: orderId })
+        .first();
+      if (!line) throw new NotFoundException(`Line ${lineId} no encontrada`);
+
+      const prevQty = Number(line.quantity);
+      const requested = Number(line.requested_quantity ?? line.quantity);
+
+      // [VU.4] Recaptura CON unidad: se convierte igual que en addLine (el servidor resuelve el
+      // factor, no el cliente) y la línea queda sellada. Sin unidad se mantiene el
+      // comportamiento de siempre: la cantidad llega en base.
+      let quantity = dto.quantity !== undefined ? Number(dto.quantity) : prevQty;
+      let selloTrasEdicion: Record<string, any> = {};
+      if (dto.quantity !== undefined && String(dto.qty_unit ?? '').trim()) {
+        const conv = await this.resolverUnidadCaptura(
+          trx, line.product_id, Number(dto.quantity), dto.qty_unit, dto.qty_factor);
+        quantity = conv.quantity;
+        selloTrasEdicion = { ...conv.sello };
+      } else if (dto.quantity !== undefined && quantity !== prevQty) {
+        // [VU.2] Editar la cantidad a mano NO trae unidad: el sello anterior describia otra cifra.
+        // Se borra en vez de quedar mintiendo. Volver a sellarla exige recapturarla con su unidad.
+        selloTrasEdicion = { qty_unit: null, qty_factor: null, qty_factor_source: null };
+      }
+      const discount =
+        dto.discount_percent !== undefined
+          ? dto.discount_percent
+          : Number(line.discount_percent);
+
+      if (quantity <= 0) throw new BadRequestException('quantity debe ser > 0');
+      if (discount < 0 || discount > 1)
+        throw new BadRequestException('discount_percent en [0..1]');
+
+      // En pending_approval el vendedor solo puede RECORTAR la cantidad: nunca
+      // entregar más de lo que el cliente pidió. La cantidad pedida queda
+      // congelada en `requested_quantity` al entrar a pending_approval.
+      if (order.status === 'pending_approval' && quantity > requested) {
+        throw new BadRequestException(
+          `La cantidad aprobada (${quantity}) no puede superar la pedida por el cliente (${requested}).`,
+        );
+      }
+
+      // Si el pedido ya está pending_approval, el stock está reservado.
+      // Ajustar la reserva por delta: liberar exceso o reservar lo nuevo.
+      if (order.status === 'pending_approval' && quantity !== prevQty) {
+        const delta = quantity - prevQty;
+        if (delta > 0) {
+          await this.stock.reserve(trx, order.warehouse_id, line.product_id, delta, orderId);
+        } else {
+          await this.stock.release(trx, order.warehouse_id, line.product_id, -delta, orderId);
+        }
+      }
+
+      // [VTK.2] Si cambió la cantidad (o el descuento), se vuelve a tarificar con el motor de
+      // cotizaciones: el precio de Kepler depende de la cantidad (volumen, promos). Antes la
+      // edición conservaba el precio viejo, que con el motor quedaría mal. Si el motor no puede,
+      // se conserva el precio del renglón como siempre y se suelta el total de Kepler (ya no
+      // describe la nueva cantidad).
+      const unidadTrasEdicion = 'qty_unit' in selloTrasEdicion ? selloTrasEdicion.qty_unit : line.qty_unit;
+      const motor = (quantity !== prevQty || discount !== Number(line.discount_percent))
+        ? await this.tarificarConMotor(trx, order.warehouse_id, line.product_id, quantity, unidadTrasEdicion, discount)
+        : null;
+      const unitPrice = motor ? motor.unit_price : Number(line.unit_price);
+      const taxRate = motor ? motor.tax_rate : Number(line.tax_rate);
+      const lineSubtotal = motor ? motor.line_subtotal : +(quantity * unitPrice * (1 - discount)).toFixed(2);
+      const lineTax = motor ? motor.line_tax : +(lineSubtotal * taxRate).toFixed(2);
+      const lineTotal = motor ? motor.line_total : +(lineSubtotal + lineTax).toFixed(2);
+      const sinCambioDePrecio = quantity === prevQty && discount === Number(line.discount_percent);
+
+      // En draft el cliente sigue armando — `requested_quantity` se sincroniza
+      // con `quantity` porque NO existe todavía una "cantidad pedida congelada".
+      // En pending_approval queda intocable.
+      const updatePatch: Record<string, any> = {
+        quantity,
+        discount_percent: discount,
+        unit_price: unitPrice,
+        tax_rate: taxRate,
+        line_subtotal: lineSubtotal,
+        line_tax: lineTax,
+        line_total: lineTotal,
+        erp_gross_total: motor ? motor.erp_gross_total : (sinCambioDePrecio ? line.erp_gross_total : null),
+        notes: dto.notes !== undefined ? dto.notes : line.notes,
+        ...selloTrasEdicion,
+      };
+      if (order.status === 'draft') {
+        updatePatch.requested_quantity = quantity;
+      }
+
+      const [updated] = await trx('commercial.order_lines')
+        .where({ id: lineId })
+        .update(updatePatch)
+        .returning('*');
+
+      await this.recalcOrderTotals(trx, orderId);
+      return updated;
+    });
+  }
+
+  async removeLine(orderId: string, lineId: string) {
+    if (!UUID_REGEX.test(orderId) || !UUID_REGEX.test(lineId))
+      throw new BadRequestException('id inválido');
+
+    return this.tk.run(async (trx) => {
+      const order = await this.requireEditableForLines(trx, orderId);
+      await this.enforceOrderOwnership(trx, order);
+
+      const line = await trx('commercial.order_lines')
+        .where({ id: lineId, order_id: orderId })
+        .first();
+      if (!line) throw new NotFoundException(`Line ${lineId} no encontrada`);
+
+      // Si el pedido está pending_approval, liberar la reserva antes de borrar.
+      if (order.status === 'pending_approval') {
+        await this.stock.release(
+          trx,
+          order.warehouse_id,
+          line.product_id,
+          Number(line.quantity),
+          orderId,
+        );
+      }
+
+      await trx('commercial.order_lines').where({ id: lineId }).delete();
+      await this.recalcOrderTotals(trx, orderId);
+      return { deleted: true, id: lineId };
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // State machine
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * draft → pending_approval
+   * El CLIENTE confirma su pedido. Stock se reserva inmediatamente para
+   * proteger inventario; el vendedor luego revisa y llama a `approve()`
+   * para mover a `confirmed`.
+   */
+  async confirm(orderId: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      const order = await this.requireDraft(trx, orderId);
+      await this.enforceOrderOwnership(trx, order);
+
+      const lines = await trx('commercial.order_lines')
+        .where({ order_id: orderId })
+        .orderBy('line_number');
+      if (lines.length === 0)
+        throw new ConflictException('Pedido sin líneas no puede confirmarse');
+
+      // Preventa (pedido con fecha de entrega agendada): NO reservar stock — se
+      // entrega después y el inventario se consume en el reparto (fulfill). Un
+      // pedido sin fecha (portal/inmediato) sí reserva al confirmar.
+      const isPreventa = !!order.requested_delivery_date;
+      if (!isPreventa) {
+        for (const line of lines) {
+          await this.stock.reserve(trx, order.warehouse_id, line.product_id, Number(line.quantity), orderId);
+        }
+      }
+
+      // Congelar la cantidad pedida por el cliente. A partir de acá el vendedor
+      // solo puede recortar (quantity <= requested_quantity).
+      await trx('commercial.order_lines')
+        .where({ order_id: orderId })
+        .whereNull('requested_quantity')
+        .update({ requested_quantity: trx.raw('quantity') });
+
+      const [updated] = await trx('commercial.orders')
+        .where({ id: orderId })
+        .update({
+          status: 'pending_approval',
+          pending_approval_at: trx.fn.now(),
+          updated_at: trx.fn.now(),
+          updated_by: this.tenantCtx.get()?.userId || null,
+        })
+        .returning('*');
+
+      await this.recordHistory(trx, orderId, 'draft', 'pending_approval', null);
+
+      // La alert "order_confirmed" la disparamos cuando el vendedor apruebe.
+      // Aquí solo emitimos large_order (señal interna de monitoreo de tamaños).
+      const tenantId = this.tenantCtx.requireTenantId();
+      const customer = await trx('commercial.customers')
+        .where({ id: order.customer_id })
+        .select('name')
+        .first();
+      const customerName = customer?.name || order.customer_id;
+      const total = Number(updated.total);
+
+      this.alerts.emitLargeOrder(tenantId, {
+        order_id: orderId,
+        code: updated.code,
+        customer_id: order.customer_id,
+        customer_name: customerName,
+        total,
+      });
+
+      this.notifyCustomer(
+        order.customer_id,
+        orderId,
+        'Pedido recibido',
+        `Recibimos tu pedido ${updated.code}. Te avisamos cuando se confirme.`,
+      );
+
+      return updated;
+    });
+  }
+
+  /**
+   * pending_approval → confirmed
+   * El VENDEDOR aprueba el pedido del cliente. Sin cambio de inventario
+   * (stock ya estaba reservado desde el confirm del cliente).
+   */
+  async approve(orderId: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      // FOR UPDATE (Fix #4): bloqueo del pedido para serializar la transición.
+      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      if (order.status !== 'pending_approval') {
+        throw new ConflictException(
+          `Solo se puede aprobar desde 'pending_approval'. Estado actual: '${order.status}'`,
+        );
+      }
+
+      const [updated] = await trx('commercial.orders')
+        .where({ id: orderId })
+        .update({
+          status: 'confirmed',
+          confirmed_at: trx.fn.now(),
+          updated_at: trx.fn.now(),
+          updated_by: this.tenantCtx.get()?.userId || null,
+        })
+        .returning('*');
+
+      await this.recordHistory(trx, orderId, 'pending_approval', 'confirmed', null);
+
+      const tenantId = this.tenantCtx.requireTenantId();
+      const customer = await trx('commercial.customers')
+        .where({ id: order.customer_id })
+        .select('name')
+        .first();
+      const customerName = customer?.name || order.customer_id;
+      const total = Number(updated.total);
+
+      this.alerts.emitOrderConfirmed(tenantId, {
+        order_id: orderId,
+        code: updated.code,
+        customer_id: order.customer_id,
+        customer_name: customerName,
+        total,
+      });
+
+      this.notifyCustomer(
+        order.customer_id,
+        orderId,
+        'Pedido confirmado ✓',
+        `Tu pedido ${updated.code} fue confirmado y está en proceso.`,
+      );
+
+      // [VEC.4] Y el aviso a la SUCURSAL que lo tiene que armar. Va en los DOS caminos que
+      // llegan a `confirmed` (`place` del campo y `approve` del escritorio) porque los dos
+      // meten el pedido al pool: avisar sólo en uno dejaría pedidos visibles para surtir que
+      // nunca avisaron a nadie, y esa discrepancia no se nota hasta que falta mercancía.
+      await this.avisarSucursal(trx, updated, customerName);
+
+      return updated;
+    });
+  }
+
+  /**
+   * "Tomar pedido en campo" (preventa): el vendedor arma el pedido y lo deja
+   * `confirmed` en UNA transacción atómica e idempotente. Equivale a
+   * updateDraft(fecha) + confirm + approve, pero sin los 3 round-trips ni el
+   * riesgo de quedar a medias (un fallo de red dejaba el pedido en
+   * `pending_approval` y el reintento moría en "solo desde draft").
+   *
+   * Avanza lo que falte e ignora lo ya hecho:
+   *   - draft            → confirmed (camino normal)
+   *   - pending_approval → confirmed (reintento tras un place a medias)
+   *   - confirmed        → no-op (reintento por red; la trx previa ya aplicó)
+   *   - fulfilled/cancelled → 409
+   *
+   * Stock: la preventa (con fecha de entrega) NO reserva — se consume en el
+   * reparto (fulfill), igual que confirm(). Sin fecha sí reserva al confirmar.
+   */
+  async place(orderId: string, dto: UpdateOrderDraftDto = {}) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      // FOR UPDATE (Fix #4): bloqueo del pedido → evita doble reserva de stock si
+      // el device reintenta place (o el vendedor da doble-tap) de forma solapada.
+      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+
+      if (order.status === 'confirmed') return order; // idempotente: ya tomado
+      if (order.status === 'fulfilled')
+        throw new ConflictException('Pedido ya entregado');
+      if (order.status === 'cancelled')
+        throw new ConflictException('Pedido cancelado no se puede tomar');
+
+      const userId = this.tenantCtx.get()?.userId || null;
+
+      // Header (fecha de entrega / notes / delivery_type): solo editable en draft.
+      if (order.status === 'draft') {
+        const patch: Record<string, any> = {};
+        if (dto.notes !== undefined) patch.notes = dto.notes || null;
+        if (dto.delivery_type !== undefined) {
+          if (!['route', 'long_trip'].includes(dto.delivery_type))
+            throw new BadRequestException(`delivery_type inválido: ${dto.delivery_type}`);
+          patch.delivery_type = dto.delivery_type;
+        }
+        if (dto.requested_delivery_date !== undefined) {
+          const d = dto.requested_delivery_date || null;
+          if (d && !DATE_REGEX.test(d))
+            throw new BadRequestException('requested_delivery_date debe ser YYYY-MM-DD');
+          patch.requested_delivery_date = d;
+        }
+        if (Object.keys(patch).length) {
+          await trx('commercial.orders').where({ id: orderId }).update(patch);
+          Object.assign(order, patch);
+        }
+      }
+
+      const lines = await trx('commercial.order_lines')
+        .where({ order_id: orderId })
+        .orderBy('line_number');
+      if (lines.length === 0)
+        throw new ConflictException('Pedido sin líneas no puede confirmarse');
+
+      const isPreventa = !!order.requested_delivery_date;
+
+      // Paso draft → pending_approval (reserva si no es preventa, congela qty).
+      // Si ya entró en pending_approval, este paso ya se hizo en el confirm previo.
+      if (order.status === 'draft') {
+        if (!isPreventa) {
+          for (const line of lines) {
+            await this.stock.reserve(trx, order.warehouse_id, line.product_id, Number(line.quantity), orderId);
+          }
+        }
+        await trx('commercial.order_lines')
+          .where({ order_id: orderId })
+          .whereNull('requested_quantity')
+          .update({ requested_quantity: trx.raw('quantity') });
+        await this.recordHistory(trx, orderId, 'draft', 'pending_approval', null);
+      }
+
+      const [updated] = await trx('commercial.orders')
+        .where({ id: orderId })
+        .update({
+          status: 'confirmed',
+          pending_approval_at: order.pending_approval_at || trx.fn.now(),
+          confirmed_at: trx.fn.now(),
+          updated_at: trx.fn.now(),
+          updated_by: userId,
+        })
+        .returning('*');
+
+      await this.recordHistory(trx, orderId, 'pending_approval', 'confirmed', 'preventa: tomada en campo');
+
+      // Mismas señales que confirm() + approve() juntas.
+      const tenantId = this.tenantCtx.requireTenantId();
+      const customer = await trx('commercial.customers')
+        .where({ id: order.customer_id })
+        .select('name')
+        .first();
+      const customerName = customer?.name || order.customer_id;
+      const total = Number(updated.total);
+
+      this.alerts.emitLargeOrder(tenantId, {
+        order_id: orderId, code: updated.code, customer_id: order.customer_id, customer_name: customerName, total,
+      });
+      this.alerts.emitOrderConfirmed(tenantId, {
+        order_id: orderId, code: updated.code, customer_id: order.customer_id, customer_name: customerName, total,
+      });
+      this.notifyCustomer(
+        order.customer_id,
+        orderId,
+        'Pedido confirmado ✓',
+        `Tu pedido ${updated.code} fue confirmado y está en proceso.`,
+      );
+
+      // [VEC.4] Y el aviso a la SUCURSAL que lo tiene que armar. Va en los DOS caminos que
+      // llegan a `confirmed` (`place` del campo y `approve` del escritorio) porque los dos
+      // meten el pedido al pool: avisar sólo en uno dejaría pedidos visibles para surtir que
+      // nunca avisaron a nadie, y esa discrepancia no se nota hasta que falta mercancía.
+      await this.avisarSucursal(trx, updated, customerName);
+
+      return updated;
+    });
+  }
+
+  /**
+   * `[VEC.4]` Deja constancia de que una sucursal tiene un pedido por armar, y lo empuja en
+   * vivo a su gente.
+   *
+   * ── Por qué una fila y no sólo el WebSocket ─────────────────────────────────────────
+   * `emitOrderConfirmed` va a la room `tenant:<id>`: es **efímero y para todos**. Si nadie de
+   * esa sucursal tiene la pantalla abierta en ese segundo, el aviso se evapora sin dejar
+   * rastro; y a Morelia le llega el pedido de La Piedad. La fila es la memoria, el `emitTo`
+   * dirigido es la inmediatez: ninguna reemplaza a la otra.
+   *
+   * ⚠️ **Nunca tira el pedido.** Un fallo acá (la tabla todavía sin migrar, por ejemplo) no
+   * puede costar una venta ya tomada en campo: se registra y se sigue. Lo que se pierde es el
+   * aviso, no el pedido — y el pedido igual aparece en el pool, que se deriva del estado.
+   *
+   * ⚠️ El `ON CONFLICT DO NOTHING` no es decorativo: `place()` es idempotente y el device
+   * reintenta sin señal. Sin él, un reintento metería el mismo pedido tres veces en la bandeja.
+   */
+  private async avisarSucursal(
+    trx: Knex.Transaction,
+    order: { id: string; tenant_id: string; code: string; warehouse_id: string | null },
+    customerName: string,
+  ): Promise<void> {
+    if (!order?.warehouse_id) return; // sin sucursal resuelta no hay a quién avisarle
+    try {
+      await trx.raw(
+        `INSERT INTO commercial.order_notifications (tenant_id, order_id, warehouse_id, created_by)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (tenant_id, order_id) DO NOTHING`,
+        [order.tenant_id, order.id, order.warehouse_id, this.tenantCtx.get()?.userId || null],
+      );
+
+      // Empuje en vivo, SÓLO a quien le toca. `emitTo` (room `u:<tenant>:<username>`) ya
+      // existía desde la Fase C.4 y nadie lo usaba para esto.
+      const { rows: gente } = await trx.raw(
+        `SELECT DISTINCT u.username
+           FROM identity.users u
+           JOIN identity.role_permissions rp
+             ON rp.role_name = u.role_name AND rp.deleted_at IS NULL
+          WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL
+            AND u.warehouse_id = ?
+            AND (rp.permissions ->> 'COMMERCIAL_PICKING_GESTIONAR') = 'true'`,
+        [order.tenant_id, order.warehouse_id],
+      );
+      for (const g of gente) {
+        this.alerts.emitTo(order.tenant_id, g.username, {
+          type: 'order_to_pick',
+          severity: 'info',
+          title: 'Pedido por armar',
+          message: `${order.code} — ${customerName}`,
+          data: { order_id: order.id, code: order.code, warehouse_id: order.warehouse_id },
+        });
+      }
+      // ⚠️ Medido 2026-10-06: sólo 1 de los 6 `almacenista` tiene `warehouse_id`, así que este
+      // empuje alcanza a poca gente HOY. NO se "arregla" cayendo a tenant-wide — eso devolvería
+      // el ruido que esta fase quita. La bandeja (que recorta con `ScopeService` y muestra todo
+      // a quien no tiene alcance declarado) es la red de seguridad; asignarles sucursal a esas
+      // 5 personas es trabajo humano, y queda declarado en vez de disimulado.
+      if (!gente.length) {
+        this.logger.warn(
+          `[VEC.4] ${order.code}: nadie con warehouse_id=${order.warehouse_id} y permiso de surtir. ` +
+            'Queda en la bandeja; en vivo no le llegó a nadie.',
+        );
+      }
+    } catch (e) {
+      this.logger.error(
+        `[VEC.4] no se pudo avisar a la sucursal de ${order.code}: ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * confirmed → fulfilled
+   * Consume reservas como `sale`. Wrapper que abre su propio trx.
+   *
+   * A diferencia de `fulfillInTransaction()` (idempotente para hooks), este
+   * endpoint REST valida estrictamente que el order esté en `confirmed` y
+   * lanza 409 si no — para no enmascarar bugs de UI/cliente que disparen
+   * fulfill en estados ilegales.
+   */
+  async fulfill(orderId: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+    const order = await this.tk.run(async (trx) => {
+      const o = await trx('commercial.orders').where({ id: orderId }).first();
+      if (!o) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      if (o.status !== 'confirmed') {
+        throw new ConflictException(
+          `Solo se puede fulfillar desde 'confirmed'. Estado actual: '${o.status}'`,
+        );
+      }
+      return this.fulfillInTransaction(trx, orderId);
+    });
+    await this.tryAutoInvoice(order); // FE.5 best-effort (fuera de la trx)
+    return order;
+  }
+
+  /**
+   * V.5 — Autoventa "pedido al instante": fast-forward a `fulfilled` en UNA sola
+   * transacción. El vendedor arma el pedido y lo entrega en el acto (vende de la
+   * mercancía del camión), sin pasar por la aprobación en 2 tiempos.
+   *
+   * Acepta cualquier estado previo a la entrega y avanza lo que falte:
+   *   - draft           → reserva stock + congela requested_quantity + confirmed → fulfilled
+   *   - pending_approval → confirmed → fulfilled (stock ya reservado en el confirm)
+   *   - confirmed        → fulfilled
+   * Idempotente-ish: 409 si ya está fulfilled/cancelled.
+   *
+   * El consumo de inventario sale del almacén central (beta); la conciliación
+   * real del camión vive en los tickets de carga/venta del cierre de ruta.
+   */
+  async deliverNow(orderId: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    const fulfilled = await this.tk.run(async (trx) => {
+      // FOR UPDATE (Fix #4): bloqueo del pedido para serializar reserva+consumo.
+      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+      if (order.status === 'fulfilled')
+        throw new ConflictException('Pedido ya entregado');
+      if (order.status === 'cancelled')
+        throw new ConflictException('Pedido cancelado no se puede entregar');
+
+      const userId = this.tenantCtx.get()?.userId || null;
+
+      if (order.status === 'draft') {
+        const lines = await trx('commercial.order_lines')
+          .where({ order_id: orderId })
+          .orderBy('line_number');
+        if (lines.length === 0)
+          throw new ConflictException('Pedido sin líneas no puede entregarse');
+
+        for (const line of lines) {
+          await this.stock.reserve(trx, order.warehouse_id, line.product_id, Number(line.quantity), orderId);
+        }
+        await trx('commercial.order_lines')
+          .where({ order_id: orderId })
+          .whereNull('requested_quantity')
+          .update({ requested_quantity: trx.raw('quantity') });
+
+        await trx('commercial.orders')
+          .where({ id: orderId })
+          .update({
+            status: 'confirmed',
+            pending_approval_at: trx.fn.now(),
+            confirmed_at: trx.fn.now(),
+            updated_at: trx.fn.now(),
+            updated_by: userId,
+          });
+        await this.recordHistory(trx, orderId, 'draft', 'confirmed', 'autoventa: entrega inmediata');
+      } else if (order.status === 'pending_approval') {
+        await trx('commercial.orders')
+          .where({ id: orderId })
+          .update({
+            status: 'confirmed',
+            confirmed_at: trx.fn.now(),
+            updated_at: trx.fn.now(),
+            updated_by: userId,
+          });
+        await this.recordHistory(trx, orderId, 'pending_approval', 'confirmed', 'autoventa: entrega inmediata');
+      }
+
+      // Estado garantizado 'confirmed' → fulfillInTransaction consume y entrega.
+      return this.fulfillInTransaction(trx, orderId);
+    });
+    await this.tryAutoInvoice(fulfilled); // FE.5 best-effort (fuera de la trx)
+    return fulfilled;
+  }
+
+  /**
+   * Fulfill ejecutado dentro de un trx EXISTENTE. Mismo efecto que `fulfill()`
+   * pero reusa el trx del caller. Único uso conocido: hook
+   * `LogisticsShipmentsService.close()` que dispara fulfill cuando se cierra
+   * la última shipment del order (fix J.6.1 — antes hacía UPDATE pelado que
+   * NO consumía stock ni registraba history ni emitía alerts).
+   *
+   * Validaciones: idempotente — si el order NO está `confirmed` (ej: ya estaba
+   * fulfilled por otra shipment, o fue cancelado), retorna el order sin tocar.
+   * Esto permite que el hook se ejecute sin romper transacciones por carrera.
+   */
+  async fulfillInTransaction(trx: any, orderId: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    // FOR UPDATE (Fix #4): bloqueo del pedido → el consumo de inventario no puede
+    // ejecutarse dos veces en transacciones solapadas (doble decremento físico).
+    const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+    if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+
+    // Idempotencia para uso desde hooks: si no está confirmed, no-op.
+    // (Llamadas directas via REST `POST /:id/fulfill` ya validaron status.)
+    if (order.status !== 'confirmed') return order;
+
+    const lines = await trx('commercial.order_lines').where({ order_id: orderId });
+
+    const expiredHits: Array<{ product_id: string; quantity_from_expired: number }> = [];
+    for (const line of lines) {
+      const { expiredConsumed } = await this.stock.consume(
+        trx,
+        order.warehouse_id,
+        line.product_id,
+        Number(line.quantity),
+        orderId,
+      );
+      if (expiredConsumed > 0)
+        expiredHits.push({ product_id: line.product_id, quantity_from_expired: expiredConsumed });
+    }
+
+    const [updated] = await trx('commercial.orders')
+      .where({ id: orderId })
+      .update({
+        status: 'fulfilled',
+        fulfilled_at: trx.fn.now(),
+        updated_at: trx.fn.now(),
+        updated_by: this.tenantCtx.get()?.userId || null,
+      })
+      .returning('*');
+
+    await this.recordHistory(trx, orderId, 'confirmed', 'fulfilled', null);
+
+    const tenantId = this.tenantCtx.requireTenantId();
+    const customer = await trx('commercial.customers')
+      .where({ id: order.customer_id })
+      .select('name')
+      .first();
+    this.alerts.emitOrderFulfilled(tenantId, {
+      order_id: orderId,
+      code: updated.code,
+      customer_id: order.customer_id,
+      customer_name: customer?.name || order.customer_id,
+      total: Number(updated.total),
+    });
+
+    if (expiredHits.length) {
+      this.alerts.emitSoldExpired(tenantId, {
+        order_id: orderId,
+        order_code: updated.code,
+        customer_name: customer?.name || order.customer_id,
+        items: expiredHits,
+      });
+    }
+
+    return updated;
+  }
+
+  // ── FE.5: auto-factura al entregar (best-effort, idempotente por cfdi_uuid) ──
+  /** Arma el CFDI nominativa desde pedido+cliente+líneas. null si el cliente no
+   *  tiene datos fiscales completos (mostrador va al global de mostrador, FE.6). */
+  private async buildInvoiceInput(orderId: string): Promise<IssueInvoiceInput | null> {
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      if (!order || order.status !== 'fulfilled' || order.cfdi_uuid) return null;
+      const c = await trx('commercial.customers').where({ id: order.customer_id }).first();
+      const cp = c?.billing_address?.zip || null;
+      if (!c?.rfc || !c?.legal_name || !c?.regimen_fiscal || !c?.uso_cfdi || !cp) return null;
+      const lines = await trx('commercial.order_lines as ol')
+        .leftJoin('public.products as p', 'p.id', 'ol.product_id')
+        .where('ol.order_id', orderId)
+        .orderBy('ol.line_number')
+        .select('ol.quantity', 'ol.unit_price', 'ol.tax_rate', 'p.nombre', 'p.sku');
+      if (!lines.length) return null;
+      const conceptos = lines.map((l: any) => {
+        const tasa = Number(l.tax_rate ?? 0.16);
+        return {
+          descripcion: String(l.nombre || 'Producto'),
+          cantidad: Number(l.quantity),
+          valor_unitario: Number(l.unit_price),
+          no_identificacion: l.sku || undefined,
+          objeto_imp: tasa > 0 ? '02' : '01',
+          tasa_iva: tasa,
+        };
+      });
+      // FE.8 — cliente a crédito (payment_terms_days > 0) → PPD (lleva REP al cobrar);
+      // contado → PUE. En PPD la forma de pago va '99' (por definir) hasta el REP.
+      const isPPD = Number(c.payment_terms_days ?? 0) > 0;
+      return {
+        tipo: 'nominativa',
+        order_id: orderId,
+        forma_pago: isPPD ? '99' : (order.payment_method === 'cash' ? '01' : '99'),
+        metodo_pago: isPPD ? 'PPD' : 'PUE',
+        receptor: {
+          rfc: c.rfc, nombre: c.legal_name, regimen_fiscal: c.regimen_fiscal,
+          domicilio_cp: String(cp), uso_cfdi: c.uso_cfdi,
+        },
+        conceptos,
+      } as IssueInvoiceInput;
+    });
+  }
+
+  /**
+   * Dispara la emisión del CFDI tras entregar. Best-effort: nunca rompe el fulfill.
+   * FE.13 — si el cliente no tiene datos fiscales (input null) NO es error (va al
+   * global de mostrador). Si el PAC falla con datos válidos, registra el error +
+   * incrementa intentos en la orden (queda en la cola de contingencia).
+   */
+  private async tryAutoInvoice(order: any): Promise<void> {
+    if (!this.invoiceIssuer || !order || order.status !== 'fulfilled' || order.cfdi_uuid) return;
+    let input;
+    try {
+      input = await this.buildInvoiceInput(order.id);
+    } catch {
+      input = null;
+    }
+    if (!input) return; // mostrador → factura global (no es fallo)
+    try {
+      const tenantId = this.tenantCtx.requireTenantId();
+      const res = await this.invoiceIssuer.issue(tenantId, input);
+      if (res?.uuid) {
+        await this.tk.run(async (trx) =>
+          trx('commercial.orders').where({ id: order.id }).update({ cfdi_uuid: res.uuid, cfdi_error: null, updated_at: trx.fn.now() }));
+        order.cfdi_uuid = res.uuid;
+      }
+    } catch (e: any) {
+      const msg = String(e?.message || e).slice(0, 500);
+      this.logger.warn(`Auto-factura best-effort falló (order ${order?.id}): ${msg}`);
+      await this.tk.run(async (trx) =>
+        trx('commercial.orders').where({ id: order.id }).update({
+          cfdi_error: msg,
+          cfdi_attempts: trx.raw('COALESCE(cfdi_attempts, 0) + 1'),
+          cfdi_last_attempt_at: trx.fn.now(),
+          updated_at: trx.fn.now(),
+        })).catch(() => undefined);
+    }
+  }
+
+  /**
+   * FE.13 — Reintenta la auto-factura de los pedidos entregados que quedaron sin
+   * CFDI pese a tener datos fiscales completos (el PAC falló, o los datos se
+   * cargaron después de entregar). Idempotente (cfdi_uuid) + acotado por intentos.
+   * Corre dentro de un scope de tenant (request o cron con CLS sintético).
+   */
+  async retryPendingInvoices(opts: { days?: number; limit?: number; maxAttempts?: number } = {}): Promise<{ attempted: number; invoiced: number; failed: number }> {
+    if (!this.invoiceIssuer) return { attempted: 0, invoiced: 0, failed: 0 };
+    const days = Math.min(Math.max(opts.days ?? 7, 1), 90);
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
+    const maxAttempts = Math.min(Math.max(opts.maxAttempts ?? 5, 1), 20);
+
+    const ids: string[] = await this.tk.run(async (trx) =>
+      trx('commercial.orders as o')
+        .join('commercial.customers as c', 'c.id', 'o.customer_id')
+        .where('o.status', 'fulfilled')
+        .whereNull('o.cfdi_uuid')
+        .whereRaw(`o.fulfilled_at >= now() - (? || ' days')::interval`, [days])
+        .whereRaw('COALESCE(o.cfdi_attempts, 0) < ?', [maxAttempts])
+        .whereNotNull('c.rfc').whereNotNull('c.legal_name')
+        .whereNotNull('c.regimen_fiscal').whereNotNull('c.uso_cfdi')
+        .whereRaw(`(c.billing_address->>'zip') IS NOT NULL`)
+        .orderBy('o.fulfilled_at', 'asc')
+        .limit(limit)
+        .pluck('o.id'));
+
+    let invoiced = 0, failed = 0;
+    for (const id of ids) {
+      const order = await this.tk.run(async (trx) => trx('commercial.orders').where({ id }).first());
+      await this.tryAutoInvoice(order);
+      if (order?.cfdi_uuid) invoiced++; else failed++;
+    }
+    if (ids.length) this.logger.log(`FE.13 retry: ${ids.length} intentos → ${invoiced} facturados, ${failed} pendientes`);
+    return { attempted: ids.length, invoiced, failed };
+  }
+
+  /**
+   * FE.13 — Reporte de contingencia: pedidos entregados SIN CFDI. Separa el "gap"
+   * real (nominativa: tienen datos fiscales pero no se facturaron → revisar error)
+   * del mostrador (van a la factura global del día, agrupados por día).
+   */
+  async invoiceReconciliation(opts: { days?: number } = {}) {
+    const days = Math.min(Math.max(opts.days ?? 30, 1), 365);
+    return this.tk.run(async (trx) => {
+      const hasFiscal =
+        `(c.rfc IS NOT NULL AND c.legal_name IS NOT NULL AND c.regimen_fiscal IS NOT NULL
+          AND c.uso_cfdi IS NOT NULL AND (c.billing_address->>'zip') IS NOT NULL)`;
+      const base = () =>
+        trx('commercial.orders as o')
+          .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+          .where('o.status', 'fulfilled')
+          .whereNull('o.cfdi_uuid')
+          .whereRaw(`o.fulfilled_at >= now() - (? || ' days')::interval`, [days]);
+
+      const pendingNominativa = await base()
+        .whereRaw(hasFiscal)
+        .select('o.id', 'o.code', 'o.customer_id', 'c.name as customer_name', 'o.total',
+          'o.fulfilled_at', 'o.cfdi_attempts', 'o.cfdi_error', 'o.cfdi_last_attempt_at')
+        .orderBy('o.fulfilled_at', 'asc')
+        .limit(200);
+
+      const pendingGlobalByDay = await base()
+        .whereRaw(`NOT ${hasFiscal}`)
+        .select(trx.raw(`(o.fulfilled_at AT TIME ZONE 'America/Mexico_City')::date as day`))
+        .count('* as orders')
+        .sum('o.total as total')
+        .groupByRaw(`(o.fulfilled_at AT TIME ZONE 'America/Mexico_City')::date`)
+        .orderBy('day', 'desc')
+        .limit(90);
+
+      return {
+        days,
+        pending_nominativa: pendingNominativa,
+        pending_global_by_day: pendingGlobalByDay,
+        counts: {
+          nominativa: pendingNominativa.length,
+          global_days: pendingGlobalByDay.length,
+        },
+      };
+    });
+  }
+
+  /** FE.5 — emisión manual del CFDI de un pedido entregado (endpoint /:id/facturar). */
+  async issueForOrder(orderId: string): Promise<IssueInvoiceResult> {
+    if (!UUID_REGEX.test(orderId)) throw new BadRequestException('orderId inválido');
+    if (!this.invoiceIssuer) throw new ServiceUnavailableException('Facturación no disponible (módulo fiscal apagado).');
+    const order = await this.tk.run(async (trx) => trx('commercial.orders').where({ id: orderId }).first());
+    if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+    if (order.status !== 'fulfilled') throw new ConflictException('Solo se factura un pedido entregado (fulfilled).');
+    if (order.cfdi_uuid) throw new ConflictException(`El pedido ya tiene CFDI: ${order.cfdi_uuid}`);
+    const input = await this.buildInvoiceInput(orderId);
+    if (!input) throw new BadRequestException('El cliente no tiene datos fiscales completos (RFC, razón social, régimen fiscal, uso CFDI y CP en billing_address).');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const res = await this.invoiceIssuer.issue(tenantId, input);
+    if (!res?.uuid) throw new ServiceUnavailableException('El PAC no devolvió UUID.');
+    await this.tk.run(async (trx) =>
+      trx('commercial.orders').where({ id: orderId }).update({ cfdi_uuid: res.uuid, updated_at: trx.fn.now() }));
+    return res;
+  }
+
+  // ── FE.7: self-service de facturación desde el Portal B2B ────────────────────
+
+  /**
+   * FE.7 — El CLIENTE (customer_b2b) factura SU propio pedido entregado desde el
+   * portal. Ownership forzado (solo su pedido). Acepta datos fiscales opcionales
+   * para capturarlos/actualizarlos sobre `commercial.customers` antes de timbrar
+   * (self-service de "mis datos de facturación"). Idempotente por `cfdi_uuid`.
+   *
+   * Restringido a customer_b2b: los usuarios internos usan `/:id/facturar`
+   * (FISCAL_FACTURAR_GESTIONAR) — así este endpoint scoped no es un bypass de ese
+   * permiso administrativo.
+   */
+  async selfInvoiceOrder(
+    orderId: string,
+    fiscal?: { rfc?: string; legal_name?: string; regimen_fiscal?: string; uso_cfdi?: string; zip?: string },
+  ): Promise<IssueInvoiceResult> {
+    if (!UUID_REGEX.test(orderId)) throw new BadRequestException('orderId inválido');
+    if (!this.invoiceIssuer) throw new ServiceUnavailableException('Facturación no disponible (módulo fiscal apagado).');
+    const ctx = this.tenantCtx.get();
+    if (ctx?.roleName !== 'customer_b2b') {
+      throw new ForbiddenException('La auto-factura es solo para clientes del portal. Los internos usan facturación administrativa.');
+    }
+    if (fiscal?.rfc && !/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(String(fiscal.rfc).toUpperCase())) {
+      throw new BadRequestException('RFC inválido.');
+    }
+    if (fiscal?.zip && !/^\d{5}$/.test(String(fiscal.zip))) {
+      throw new BadRequestException('CP inválido (5 dígitos).');
+    }
+
+    await this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+      if (order.status !== 'fulfilled') throw new ConflictException('Solo se factura un pedido entregado (fulfilled).');
+      if (order.cfdi_uuid) throw new ConflictException(`El pedido ya tiene CFDI: ${order.cfdi_uuid}`);
+
+      if (fiscal && (fiscal.rfc || fiscal.legal_name || fiscal.regimen_fiscal || fiscal.uso_cfdi || fiscal.zip)) {
+        const c = await trx('commercial.customers').where({ id: order.customer_id }).first();
+        const patch: Record<string, any> = { updated_at: trx.fn.now() };
+        if (fiscal.rfc) patch.rfc = String(fiscal.rfc).toUpperCase();
+        if (fiscal.legal_name) patch.legal_name = String(fiscal.legal_name).trim();
+        if (fiscal.regimen_fiscal) patch.regimen_fiscal = String(fiscal.regimen_fiscal).trim();
+        if (fiscal.uso_cfdi) patch.uso_cfdi = String(fiscal.uso_cfdi).trim().toUpperCase();
+        if (fiscal.zip) {
+          const addr = c?.billing_address && typeof c.billing_address === 'object' ? c.billing_address : {};
+          patch.billing_address = JSON.stringify({ ...addr, zip: String(fiscal.zip).trim() });
+        }
+        await trx('commercial.customers').where({ id: order.customer_id }).update(patch);
+      }
+    });
+
+    const input = await this.buildInvoiceInput(orderId);
+    if (!input) throw new BadRequestException('Faltan datos fiscales completos (RFC, razón social, régimen fiscal, uso CFDI y CP).');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const res = await this.invoiceIssuer.issue(tenantId, input);
+    if (!res?.uuid) throw new ServiceUnavailableException('El PAC no devolvió UUID.');
+    await this.tk.run(async (trx) =>
+      trx('commercial.orders').where({ id: orderId }).update({ cfdi_uuid: res.uuid, updated_at: trx.fn.now() }));
+    return res;
+  }
+
+  /** FE.7 — UUID del CFDI del pedido, con ownership (customer_b2b solo el suyo). */
+  private async requireOwnedCfdiUuid(orderId: string): Promise<string> {
+    if (!UUID_REGEX.test(orderId)) throw new BadRequestException('orderId inválido');
+    if (!this.invoiceIssuer) throw new ServiceUnavailableException('Facturación no disponible.');
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).select('customer_id', 'cfdi_uuid').first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+      if (!order.cfdi_uuid) throw new NotFoundException('Este pedido no tiene CFDI emitido.');
+      return order.cfdi_uuid as string;
+    });
+  }
+
+  /** FE.7 — XML timbrado del pedido (descarga desde el portal). */
+  async getCfdiXml(orderId: string): Promise<string> {
+    const uuid = await this.requireOwnedCfdiUuid(orderId);
+    const xml = await this.invoiceIssuer!.getXml(this.tenantCtx.requireTenantId(), uuid);
+    if (!xml) throw new NotFoundException('XML del CFDI no disponible.');
+    return xml;
+  }
+
+  /** FE.7 — PDF (base64) del pedido; el motor lo genera/cachea. */
+  async getCfdiPdf(orderId: string): Promise<{ pdf_base64: string }> {
+    const uuid = await this.requireOwnedCfdiUuid(orderId);
+    const pdf = await this.invoiceIssuer!.getPdf(this.tenantCtx.requireTenantId(), uuid);
+    if (!pdf) throw new NotFoundException('PDF del CFDI no disponible.');
+    return { pdf_base64: pdf };
+  }
+
+  /**
+   * FE.6 — Factura global de mostrador: agrega los pedidos ENTREGADOS de un día
+   * cuyo cliente NO tiene datos fiscales completos (los nominativos ya los facturó
+   * FE.5) en UN solo CFDI global (público en general). Idempotente: marca cada
+   * pedido incluido con el UUID de la global (no se re-incluye). Trigger manual;
+   * el cron queda diferido hasta verificar la emisión en vivo.
+   */
+  async issueDailyGlobal(dateStr?: string): Promise<{ issued: boolean; uuid?: string; count: number; total: number }> {
+    if (!this.invoiceIssuer) throw new ServiceUnavailableException('Facturación no disponible (módulo fiscal apagado).');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const date = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : this.mxToday();
+
+    const { orderIds, conceptos } = await this.tk.run(async (trx) => {
+      const rows = await trx('commercial.orders as o')
+        .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+        .whereRaw(`(o.fulfilled_at AT TIME ZONE 'America/Mexico_City')::date = ?`, [date])
+        .where('o.status', 'fulfilled')
+        .whereNull('o.cfdi_uuid')
+        .where((w: any) =>
+          w.whereNull('c.rfc').orWhereNull('c.legal_name').orWhereNull('c.regimen_fiscal')
+            .orWhereNull('c.uso_cfdi').orWhereRaw(`(c.billing_address->>'zip') IS NULL`))
+        .select('o.id');
+      const ids = rows.map((r: any) => r.id);
+      if (!ids.length) return { orderIds: [] as string[], conceptos: [] as any[] };
+      const agg = await trx('commercial.order_lines')
+        .whereIn('order_id', ids)
+        .groupBy('tax_rate')
+        .select('tax_rate')
+        .sum('line_subtotal as base');
+      const conceptos = agg
+        .map((a: any) => ({ tasa: Number(a.tax_rate ?? 0), base: Number(a.base) }))
+        .filter((x: any) => x.base > 0)
+        .map((x: any) => ({
+          descripcion: `Ventas al público en general${x.tasa > 0 ? ` (IVA ${(x.tasa * 100).toFixed(0)}%)` : ''}`,
+          cantidad: 1,
+          valor_unitario: Number(x.base.toFixed(2)),
+          objeto_imp: x.tasa > 0 ? '02' : '01',
+          tasa_iva: x.tasa,
+        }));
+      return { orderIds: ids, conceptos };
+    });
+
+    if (!orderIds.length || !conceptos.length) return { issued: false, count: 0, total: 0 };
+
+    const res = await this.invoiceIssuer.issue(tenantId, {
+      tipo: 'global', periodicidad: '01', forma_pago: '01', metodo_pago: 'PUE', conceptos,
+    } as IssueInvoiceInput);
+    if (!res?.uuid) throw new ServiceUnavailableException('El PAC no devolvió UUID para la factura global.');
+
+    await this.tk.run(async (trx) =>
+      trx('commercial.orders').whereIn('id', orderIds).update({ cfdi_uuid: res.uuid, updated_at: trx.fn.now() }));
+
+    this.logger.log(`Factura global ${date}: ${orderIds.length} pedidos → CFDI ${res.uuid}`);
+    return { issued: true, uuid: res.uuid, count: orderIds.length, total: res.total };
+  }
+
+  private mxToday(): string {
+    const p: any = Object.fromEntries(
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' })
+        .formatToParts(new Date()).map((x) => [x.type, x.value]),
+    );
+    return `${p.year}-${p.month}-${p.day}`;
+  }
+
+  /**
+   * draft/pending_approval/confirmed → cancelled
+   * Si está pending_approval o confirmed, libera reservas (stock se reserva en
+   * el confirm del cliente, sigue reservado hasta cancel o fulfill).
+   */
+  async cancel(orderId: string, reason?: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      // FOR UPDATE (Fix #4): bloqueo del pedido → la liberación de stock al cancelar
+      // no compite con un confirm/fulfill solapado.
+      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+      if (order.status === 'cancelled')
+        throw new ConflictException('Pedido ya estaba cancelado');
+      if (order.status === 'fulfilled')
+        throw new ConflictException(
+          'No se puede cancelar un pedido ya entregado. Generar devolución.',
+        );
+
+      if (order.status === 'confirmed' || order.status === 'pending_approval') {
+        const lines = await trx('commercial.order_lines')
+          .where({ order_id: orderId });
+        for (const line of lines) {
+          await this.stock.release(
+            trx,
+            order.warehouse_id,
+            line.product_id,
+            Number(line.quantity),
+            orderId,
+          );
+        }
+      }
+
+      const [updated] = await trx('commercial.orders')
+        .where({ id: orderId })
+        .update({
+          status: 'cancelled',
+          cancelled_at: trx.fn.now(),
+          cancellation_reason: reason || null,
+          updated_at: trx.fn.now(),
+          updated_by: this.tenantCtx.get()?.userId || null,
+        })
+        .returning('*');
+
+      await this.recordHistory(trx, orderId, order.status, 'cancelled', reason || null);
+
+      return updated;
+    });
+  }
+
+  /**
+   * Reabrir para corregir: `confirmed` → `draft`.
+   *
+   * El vendedor agendó y se equivocó. Hasta ahora la única salida era cancelar y
+   * recapturar el pedido entero (y `commercial.orders` tiene la huella de eso).
+   * Reabrir deja el pedido en el MISMO estado que cualquier borrador, así que toda
+   * la edición que ya existe —líneas, cantidades, fecha— sirve tal cual, y volver a
+   * agendar es el mismo `place()` de siempre, que es idempotente.
+   *
+   * Se reabre en vez de permitir editar líneas sobre `confirmed` a propósito: un
+   * pedido que se está corrigiendo NO está listo para surtir, y el estado tiene que
+   * decirlo. El folio (`code`) se conserva: es el mismo pedido, no uno nuevo.
+   *
+   * Lo que NO se reabre, y por qué:
+   *   - `fulfilled`: ya consumió inventario y ya es venta publicada → devolución.
+   *   - `cancelled`: no hay nada que corregir.
+   *   - un pedido de otro vendedor (salvo rol de plataforma).
+   *   - si ese cliente ya tiene otro borrador abierto del mismo vendedor: quedarían
+   *     dos y `take-order` abre "el" borrador del cliente — se avisa en vez de
+   *     dejar el lío armado.
+   *
+   * El stock se libera SÓLO por lo que este pedido apartó de verdad, leído del
+   * libro de movimientos (`reserve` − `release` con este `reference_id`), no por
+   * la cantidad de la línea: en preventa `place()` nunca reserva, así que restar la
+   * línea le estaría soltando el apartado a OTRO pedido.
+   */
+  async reopen(orderId: string, reason?: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+
+      if (order.status === 'draft') return order; // idempotente: ya editable
+      if (order.status !== 'confirmed' && order.status !== 'pending_approval')
+        throw new ConflictException(
+          order.status === 'fulfilled'
+            ? 'Pedido ya entregado: se corrige con una devolución, no reabriéndolo'
+            : `Pedido en estado '${order.status}' no se puede reabrir`,
+        );
+
+      const ctx = this.tenantCtx.get();
+      const userId = ctx?.userId || null;
+      if (
+        order.user_id &&
+        userId &&
+        order.user_id !== userId &&
+        !isPlatformAdminRole(ctx?.roleName)
+      ) {
+        throw new ForbiddenException('Este pedido lo tomó otro vendedor');
+      }
+
+      const otroBorrador = await trx('commercial.orders')
+        .where({ customer_id: order.customer_id, status: 'draft' })
+        .modify((q: any) => {
+          if (order.user_id) q.where('user_id', order.user_id);
+        })
+        .whereNot('id', orderId)
+        .first();
+      if (otroBorrador)
+        throw new ConflictException(
+          `Este cliente ya tiene un pedido en curso (${otroBorrador.code}). Terminalo o cancelalo antes de corregir este.`,
+        );
+
+      // Lo efectivamente apartado por ESTE pedido, por producto.
+      const apartado = await trx('commercial.stock_movements')
+        .where({ reference_type: 'order', reference_id: orderId })
+        .whereIn('movement_type', ['reserve', 'release'])
+        .groupBy('product_id')
+        .select('product_id')
+        .sum({
+          neto: trx.raw(
+            "CASE WHEN movement_type = 'reserve' THEN quantity ELSE -quantity END",
+          ),
+        });
+      for (const row of apartado as Array<{ product_id: string; neto: string }>) {
+        const neto = Number(row.neto);
+        if (neto > 0)
+          await this.stock.release(trx, order.warehouse_id, row.product_id, neto, orderId);
+      }
+
+      const [updated] = await trx('commercial.orders')
+        .where({ id: orderId })
+        .update({
+          status: 'draft',
+          confirmed_at: null,
+          pending_approval_at: null,
+          updated_at: trx.fn.now(),
+          updated_by: userId,
+        })
+        .returning('*');
+
+      await this.recordHistory(
+        trx,
+        orderId,
+        order.status,
+        'draft',
+        reason || 'reabierto para corregir',
+      );
+
+      return updated;
+    });
+  }
+
+  /** Devuelve historial de cambios de status para un pedido. */
+  async getHistory(orderId: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+
+      return trx('commercial.order_status_history')
+        .where({ order_id: orderId })
+        .orderBy('changed_at', 'asc')
+        .select(
+          'id',
+          'from_status',
+          'to_status',
+          'changed_by',
+          'changed_by_username',
+          'reason',
+          'snapshot',
+          'changed_at',
+        );
+    });
+  }
+
+  /**
+   * J.10 — Tracking de embarques desde el módulo comercial.
+   *
+   * Devuelve los shipments asociados a un order (filtrados por tenant via RLS),
+   * incluyendo timestamps de cada transición. Pensado para que el Portal B2B
+   * y el módulo vendedor muestren el estado real de entrega sin requerir el
+   * permiso `LOGISTICS_SHIPMENTS_VER` (este endpoint vive en commercial y
+   * reusa `COMMERCIAL_ORDERS_VER`).
+   *
+   * customer_b2b solo puede leer shipments de SUS órdenes (ownership check).
+   */
+  async getShipments(orderId: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders')
+        .where({ id: orderId })
+        .select('id', 'customer_id')
+        .first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+
+      return trx('logistics.shipments as s')
+        .leftJoin('logistics.vehicles as v', 'v.id', 's.vehicle_id')
+        .leftJoin('logistics.routes as r', 'r.id', 's.route_id')
+        .where('s.order_id', orderId)
+        .whereNull('s.deleted_at')
+        .orderBy('s.created_at', 'asc')
+        .select(
+          's.id',
+          's.folio',
+          's.status',
+          's.type',
+          's.origin',
+          's.destination',
+          's.shipment_date',
+          's.departure_at',
+          's.arrival_at',
+          's.closed_at',
+          's.created_at',
+          'v.plate as vehicle_plate',
+          'r.name as route_name',
+        );
+    });
+  }
+
+  /** Lista pedidos del customer del JWT actual (Portal B2B). */
+  async listMyOrders(query: ListOrdersQuery & { customer_id?: string }) {
+    const customerId = await this.resolveCustomerIdFromCtx();
+    if (!customerId) {
+      // Sin customer_id linkeado (= no es customer_b2b o user mal configurado)
+      // → respuesta vacía 200 en vez de 400. El portal frontend leakea
+      // refreshCart() a navegaciones admin (bug) y el 400 ensucia la consola
+      // a admins legítimos. Si el user es realmente un customer_b2b sin link,
+      // verá un carrito vacío que es el comportamiento esperado.
+      const page = Math.max(1, Number(query.page) || 1);
+      const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 50));
+      return {
+        data: [],
+        page,
+        pageSize,
+        total: 0,
+        pagination: { page, pageSize, total: 0, pageCount: 0 },
+      };
+    }
+    return this.list({ ...query, customer_id: customerId });
+  }
+
+  private async resolveCustomerIdFromCtx(): Promise<string | null> {
+    const userId = this.tenantCtx.get()?.userId;
+    if (!userId) return null;
+    return this.tk.run(async (trx) => {
+      const row = await trx('public.users')
+        .where({ id: userId })
+        .select('customer_id')
+        .first();
+      return row?.customer_id || null;
+    });
+  }
+
+  /**
+   * Variante de `resolveCustomerIdFromCtx` que usa una trx existente —
+   * evita abrir un sub-trx anidado cuando ya estamos dentro de `tk.run`.
+   */
+  private async resolveCustomerIdFromUser(trx: any): Promise<string | null> {
+    const userId = this.tenantCtx.get()?.userId;
+    if (!userId) return null;
+    const row = await trx('public.users')
+      .where({ id: userId })
+      .select('customer_id')
+      .first();
+    return row?.customer_id || null;
+  }
+
+  /**
+   * Defense in depth: para usuarios con rol `customer_b2b`, valida que el
+   * pedido pertenezca al customer linkeado al user. Sin esta validación, un
+   * customer_b2b autenticado podría leer / modificar pedidos de cualquier
+   * otro customer del mismo tenant (RLS no protege porque comparten tenant).
+   * Admin / vendedor / supervisor pasan sin validación (su permiso ya implica
+   * scope global tenant).
+   */
+  private async enforceOrderOwnership(trx: any, order: { customer_id: string }): Promise<void> {
+    const ctx = this.tenantCtx.get();
+    if (ctx?.roleName !== 'customer_b2b') return;
+    const myCustomerId = await this.resolveCustomerIdFromUser(trx);
+    if (!myCustomerId) {
+      throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+    }
+    if (order.customer_id !== myCustomerId) {
+      throw new ForbiddenException('No tenés acceso a este pedido');
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Reads
+  // ─────────────────────────────────────────────────────────────────
+
+  async findById(orderId: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      // Ownership pre-check con query liviano antes del join completo.
+      const headOnly = await trx('commercial.orders')
+        .where({ id: orderId })
+        .select('id', 'customer_id')
+        .first();
+      if (!headOnly) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, headOnly);
+
+      const order = await trx('commercial.orders as o')
+        .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+        .leftJoin('commercial.warehouses as w', 'w.id', 'o.warehouse_id')
+        .leftJoin('public.users as u', 'u.id', 'o.user_id')
+        .leftJoin('logistics.routes as r', 'r.id', 'o.route_id')
+        .where('o.id', orderId)
+        .first(
+          'o.*',
+          'o.code as folio',
+          'c.name as customer_name',
+          'w.code as warehouse_code',
+          'w.name as warehouse_name',
+          'u.username as user_username',
+          'r.name as route_name',
+        );
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      const lines = await trx('commercial.order_lines as ol')
+        .leftJoin('public.products as p', 'p.id', 'ol.product_id')
+        .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
+        .leftJoin('commercial.stock as s', function () {
+          this.on('s.product_id', '=', 'ol.product_id').andOn(
+            's.warehouse_id',
+            '=',
+            trx.raw('?', [order.warehouse_id]),
+          );
+        })
+        .where('ol.order_id', orderId)
+        .orderBy('ol.line_number')
+        .select(
+          'ol.*',
+          'p.nombre as product_name',
+          'b.nombre as brand_name',
+          trx.raw('COALESCE(s.quantity, 0) as stock_quantity'),
+          trx.raw('COALESCE(s.reserved_quantity, 0) as stock_reserved'),
+          // Stock disponible para ESTA línea: si el pedido está pending_approval/confirmed,
+          // la qty de la línea ya está incluida en reserved → se suma de vuelta para
+          // mostrar el tope al que se puede subir la línea. En draft no se reserva,
+          // así que (quantity - reserved) ya es el disponible real.
+          trx.raw(
+            `GREATEST(
+               COALESCE(s.quantity, 0) - COALESCE(s.reserved_quantity, 0)
+               + CASE WHEN ? IN ('pending_approval','confirmed') THEN ol.quantity ELSE 0 END,
+               0
+             ) as stock_available`,
+            [order.status],
+          ),
+        );
+      return { ...order, lines };
+    });
+  }
+
+  async list(query: ListOrdersQuery) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 50));
+    const offset = (page - 1) * pageSize;
+
+    return this.tk.run(async (trx) => {
+      // Defense in depth: si el rol es customer_b2b, sobrescribir cualquier
+      // customer_id que venga en la query con el customer del JWT. Sin esto,
+      // un customer_b2b podría listar pedidos de otros customers del tenant
+      // pasando `?customer_id=<otro>` (RLS no diferencia entre customers).
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const myCustomerId = await this.resolveCustomerIdFromUser(trx);
+        if (!myCustomerId) {
+          throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+        }
+        query = { ...query, customer_id: myCustomerId };
+      }
+
+      let q = trx('commercial.orders as o')
+        .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+        .leftJoin('commercial.warehouses as w', 'w.id', 'o.warehouse_id')
+        .leftJoin('public.users as u', 'u.id', 'o.user_id')
+        .leftJoin('logistics.routes as r', 'r.id', 'o.route_id')
+        .whereNull('o.deleted_at');
+
+      if (query.status) q = q.where('o.status', query.status);
+      if (query.statuses) {
+        const list = query.statuses
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (list.length) q = q.whereIn('o.status', list);
+      }
+      if (query.customer_id) q = q.where('o.customer_id', query.customer_id);
+      if (query.user_id) q = q.where('o.user_id', query.user_id);
+      if (query.mine) {
+        // Cartera del vendedor: pedidos de clientes en la ruta que trade le
+        // asignó para HOY (daily_assignments). Incluye preventa (customer_b2b) y
+        // de campo por igual. Ver vendorTodayRouteExistsSql.
+        const meId = this.tenantCtx.get()?.userId || null;
+        q = q.whereRaw(vendorTodayRouteExistsSql('c'), [meId]);
+      }
+      if (query.from) q = q.where('o.created_at', '>=', query.from);
+      if (query.to) q = q.where('o.created_at', '<=', query.to);
+
+      const [agg] = await q
+        .clone()
+        .select(
+          trx.raw('count(o.id)::int as count'),
+          trx.raw('coalesce(sum(o.total), 0)::numeric as total_amount'),
+        );
+      const total = Number(agg?.count) || 0;
+      const totalAmount = Number(agg?.total_amount) || 0;
+
+      const data = await q
+        .select(
+          'o.id',
+          'o.code as folio',
+          'o.code',
+          'o.status',
+          'o.delivery_type',
+          'o.requested_delivery_date',
+          'o.customer_id',
+          'c.name as customer_name',
+          'o.warehouse_id',
+          'w.code as warehouse_code',
+          'w.name as warehouse_name',
+          'o.subtotal',
+          'o.tax_total',
+          'o.total',
+          'o.balance_due',
+          'o.basket_promo_code',
+          'o.basket_discount_amount',
+          'o.notes',
+          'o.user_id',
+          'u.username as user_username',
+          // Preventa = pedido originado por el propio cliente vía Portal B2B
+          // (su user es customer_b2b). Campo = lo tomó un vendedor en sitio.
+          trx.raw("(u.role_name = 'customer_b2b') as is_preventa"),
+          'o.route_id',
+          'r.name as route_name',
+          'o.created_at',
+          'o.pending_approval_at',
+          'o.confirmed_at',
+          'o.fulfilled_at',
+          'o.cancelled_at',
+        )
+        .orderBy('o.created_at', 'desc')
+        .limit(pageSize)
+        .offset(offset);
+
+      return {
+        data,
+        page,
+        pageSize,
+        total,
+        total_amount: totalAmount,
+        pagination: {
+          page,
+          pageSize,
+          total,
+          pageCount: Math.ceil(total / pageSize) || 0,
+        },
+      };
+    });
+  }
+
+  /**
+   * Conteo de pedidos agrupado por status en UNA query (GROUP BY). Reemplaza el
+   * N+1 del front (un listOrders por chip). Respeta los mismos filtros base que
+   * list() + el scope customer_b2b. NO filtra por status: devuelve el conteo de
+   * todos para que el front pinte los chips que necesite.
+   */
+  async countsByStatus(query: ListOrdersQuery) {
+    return this.tk.run(async (trx) => {
+      let q2 = query;
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const myCustomerId = await this.resolveCustomerIdFromUser(trx);
+        if (!myCustomerId) {
+          throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+        }
+        q2 = { ...query, customer_id: myCustomerId };
+      }
+
+      let q = trx('commercial.orders as o')
+        .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+        .whereNull('o.deleted_at');
+
+      if (q2.customer_id) q = q.where('o.customer_id', q2.customer_id);
+      if (q2.user_id) q = q.where('o.user_id', q2.user_id);
+      if (q2.mine) {
+        const meId = this.tenantCtx.get()?.userId || null;
+        q = q.whereRaw(vendorTodayRouteExistsSql('c'), [meId]);
+      }
+      if (q2.from) q = q.where('o.created_at', '>=', q2.from);
+      if (q2.to) q = q.where('o.created_at', '<=', q2.to);
+
+      const rows = await q.select('o.status').count('o.id as count').groupBy('o.status');
+
+      const counts: Record<string, number> = {};
+      let total = 0;
+      for (const r of rows as any[]) {
+        const n = Number(r.count) || 0;
+        counts[r.status] = n;
+        total += n;
+      }
+      return { counts, total };
+    });
+  }
+
+  /**
+   * J16 — serie diaria de monto + conteo de pedidos para el sparkline del KPI hero.
+   * Mismo scope/filtros que countsByStatus (incl. customer_b2b). Si no se da rango,
+   * usa los últimos 30 días (la sparkline necesita una ventana acotada). Alinea a
+   * todos los días del rango (0 en días sin pedidos). 1 query, sin N+1.
+   */
+  async dailySeries(query: ListOrdersQuery) {
+    return this.tk.run(async (trx) => {
+      let q2 = query;
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const myCustomerId = await this.resolveCustomerIdFromUser(trx);
+        if (!myCustomerId) {
+          throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+        }
+        q2 = { ...query, customer_id: myCustomerId };
+      }
+
+      const to = q2.to || new Date().toISOString().slice(0, 10);
+      const from = q2.from || (() => { const d = new Date(to); d.setDate(d.getDate() - 29); return d.toISOString().slice(0, 10); })();
+      const toTs = /^\d{4}-\d{2}-\d{2}$/.test(to) ? `${to} 23:59:59` : to;
+
+      let q = trx('commercial.orders as o')
+        .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+        .whereNull('o.deleted_at')
+        .where('o.created_at', '>=', from)
+        .where('o.created_at', '<=', toTs);
+
+      if (q2.customer_id) q = q.where('o.customer_id', q2.customer_id);
+      if (q2.user_id) q = q.where('o.user_id', q2.user_id);
+      if (q2.mine) {
+        const meId = this.tenantCtx.get()?.userId || null;
+        q = q.whereRaw(vendorTodayRouteExistsSql('c'), [meId]);
+      }
+
+      const rows = await q
+        .groupByRaw('o.created_at::date')
+        .select([
+          trx.raw('o.created_at::date as d'),
+          trx.raw('coalesce(sum(o.total), 0)::numeric as amount'),
+          trx.raw('count(o.id)::int as count'),
+        ]);
+
+      const key = (d: any) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
+      const map = new Map<string, { amount: number; count: number }>();
+      for (const r of rows as any[]) map.set(key(r.d), { amount: Number(r.amount), count: Number(r.count) });
+
+      const dates: string[] = [];
+      const cur = new Date(from);
+      const end = new Date(to);
+      let guard = 0;
+      while (cur <= end && guard++ < 400) {
+        dates.push(cur.toISOString().slice(0, 10));
+        cur.setDate(cur.getDate() + 1);
+      }
+
+      return {
+        range: { from, to },
+        dates,
+        amount: dates.map((d) => map.get(d)?.amount ?? 0),
+        count: dates.map((d) => map.get(d)?.count ?? 0),
+      };
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Helpers privados
+  // ─────────────────────────────────────────────────────────────────
+
+  private async requireDraft(trx: any, orderId: string) {
+    // FOR UPDATE (Fix #4 integridad): serializa transiciones concurrentes del
+    // mismo pedido (doble-tap del vendedor / reintento solapado) para que el
+    // guard de estado no deje pasar dos veces → evita doble reserva de stock.
+    const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+    if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+    if (order.status !== 'draft')
+      throw new ConflictException(
+        `Pedido en estado '${order.status}' no admite modificación de líneas`,
+      );
+    return order;
+  }
+
+  /**
+   * Permite editar/borrar líneas mientras el pedido sea editable por alguien:
+   *   - `draft`: el cliente sigue armando, stock NO reservado todavía.
+   *   - `pending_approval`: el vendedor ajusta cantidades antes de aprobar;
+   *     stock SÍ reservado → cualquier delta debe re-reservar/liberar.
+   */
+  private async requireEditableForLines(trx: any, orderId: string) {
+    // FOR UPDATE (Fix #4): serializa ediciones de líneas concurrentes → sin esto
+    // dos updates a líneas distintas recalculan el total con lost-update.
+    const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+    if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+    if (order.status !== 'draft' && order.status !== 'pending_approval')
+      throw new ConflictException(
+        `Pedido en estado '${order.status}' no admite modificación de líneas`,
+      );
+    return order;
+  }
+
+  /**
+   * Inserta una fila en commercial.order_status_history. Llamado en cada
+   * transición (incluyendo creación, donde from_status es null).
+   */
+  private async recordHistory(
+    trx: any,
+    orderId: string,
+    fromStatus: string | null,
+    toStatus: string,
+    reason: string | null,
+  ): Promise<void> {
+    const ctx = this.tenantCtx.get();
+    // Snapshot ligero de totals para debugging futuro
+    const order = await trx('commercial.orders')
+      .where({ id: orderId })
+      .select('subtotal', 'tax_total', 'total', 'balance_due')
+      .first();
+
+    await trx('commercial.order_status_history').insert({
+      tenant_id: trx.raw('public.current_tenant_id()'),
+      order_id: orderId,
+      from_status: fromStatus,
+      to_status: toStatus,
+      changed_by: ctx?.userId || null,
+      changed_by_username: ctx?.username || null,
+      reason,
+      snapshot: order ? JSON.stringify(order) : null,
+    });
+  }
+
+  /**
+   * Recalcula totals del order. Aplica promos active del tenant ANTES de sumar
+   * (nxm, percent_off_product, volume_discount, bundle_fixed_price, cross_sell).
+   * El basket-level (percent_off_basket) se aplica al final sobre subtotal+tax.
+   *
+   * Cada call es idempotente: parte siempre de `quantity * unit_price * (1 - manual_discount)`
+   * (no del line_subtotal stored), y reescribe los 3 totals de la línea. Permite
+   * re-correr el recalc al editar líneas sin acumular discounts.
+   */
+  private async recalcOrderTotals(trx: any, orderId: string): Promise<void> {
+    const lines = await trx('commercial.order_lines')
+      .where({ order_id: orderId })
+      .orderBy('line_number');
+
+    const promos = await this.loadActivePromotions(trx);
+
+    // Index de qty por product_id en este order (para bundle / cross_sell).
+    const qtyByProduct = new Map<string, number>();
+    for (const l of lines) {
+      qtyByProduct.set(l.product_id, (qtyByProduct.get(l.product_id) || 0) + Number(l.quantity));
+    }
+
+    // Pre-compute: qué lines tienen bundle aplicable (todos los items del bundle
+    // cumplen qty). Marcamos line.product_id → bundle.id que la cubre.
+    const bundleByLine = new Map<string, any>();
+    const bundles = promos.filter((p) => p.promotion_type === 'bundle_fixed_price');
+    for (const promo of bundles) {
+      const items: Array<{ product_id: string; quantity: number }> = Array.isArray(promo.rules?.items)
+        ? promo.rules.items
+        : [];
+      if (!items.length) continue;
+      const fulfilled = items.every((it) => (qtyByProduct.get(it.product_id) || 0) >= Number(it.quantity || 1));
+      if (!fulfilled) continue;
+      for (const it of items) {
+        // Solo aplicamos bundle si esta línea no fue tomada ya por otra bundle de mayor priority.
+        if (!bundleByLine.has(it.product_id)) bundleByLine.set(it.product_id, promo);
+      }
+    }
+
+    for (const line of lines) {
+      const qty = Number(line.quantity);
+      const unitPrice = Number(line.unit_price);
+      const manualDiscount = Number(line.discount_percent) || 0;
+      const taxRate = Number(line.tax_rate);
+
+      const baseSubtotal = qty * unitPrice * (1 - manualDiscount);
+      let lineSubtotal = baseSubtotal;
+      let appliedPromoCode: string | null = null;
+      let appliedPromoType: string | null = null;
+
+      const bundle = bundleByLine.get(line.product_id);
+      if (bundle) {
+        const items: Array<{ product_id: string; quantity: number }> = bundle.rules.items;
+        const bundlePrice = Number(bundle.rules.price);
+        const bundleBaseTotal = items.reduce((acc, it) => {
+          const ln = lines.find((l) => l.product_id === it.product_id);
+          if (!ln) return acc;
+          return acc + Number(it.quantity) * Number(ln.unit_price);
+        }, 0);
+        if (bundleBaseTotal > 0) {
+          const lineWeight = (qty * unitPrice) / bundleBaseTotal;
+          lineSubtotal = +(bundlePrice * lineWeight).toFixed(2);
+          appliedPromoCode = bundle.code;
+          appliedPromoType = 'bundle_fixed_price';
+        }
+      } else {
+        for (const p of promos) {
+          if (p.promotion_type === 'bundle_fixed_price' || p.promotion_type === 'percent_off_basket') continue;
+          const r = p.rules || {};
+          let discountAmount = 0;
+
+          if (p.promotion_type === 'nxm' && r.product_id === line.product_id) {
+            const nBuy = Math.max(1, Number(r.n_buy) || 1);
+            const mPay = Math.max(1, Number(r.m_pay) || nBuy);
+            if (mPay < nBuy && qty >= nBuy) {
+              const groups = Math.floor(qty / nBuy);
+              const freeUnits = groups * (nBuy - mPay);
+              discountAmount = freeUnits * unitPrice;
+            }
+          } else if (p.promotion_type === 'percent_off_product' && r.product_id === line.product_id) {
+            const pct = Math.min(1, Math.max(0, Number(r.percent) || 0));
+            discountAmount = qty * unitPrice * pct;
+          } else if (p.promotion_type === 'volume_discount' && r.product_id === line.product_id) {
+            const tiers: Array<{ min_qty: number; percent: number }> = Array.isArray(r.tiers) ? r.tiers : [];
+            const sorted = [...tiers].sort((a, b) => Number(b.min_qty) - Number(a.min_qty));
+            const tier = sorted.find((t) => qty >= Number(t.min_qty));
+            if (tier) {
+              const pct = Math.min(1, Math.max(0, Number(tier.percent) || 0));
+              discountAmount = qty * unitPrice * pct;
+            }
+          } else if (p.promotion_type === 'cross_sell_discount') {
+            const trigger = qtyByProduct.get(r.trigger_product_id) || 0;
+            if (trigger > 0 && r.target_product_id === line.product_id) {
+              const pct = Math.min(1, Math.max(0, Number(r.percent) || 0));
+              discountAmount = qty * unitPrice * pct;
+            }
+          }
+
+          if (discountAmount > 0) {
+            lineSubtotal = +(baseSubtotal - discountAmount).toFixed(2);
+            appliedPromoCode = p.code;
+            appliedPromoType = p.promotion_type;
+            break;
+          }
+        }
+      }
+
+      lineSubtotal = Math.max(0, +lineSubtotal.toFixed(2));
+      let lineTax = +(lineSubtotal * taxRate).toFixed(2);
+      let lineTotal = +(lineSubtotal + lineTax).toFixed(2);
+      // [VTK.2] Renglón tarificado con el motor de cotizaciones: el total es el de Kepler (con
+      // impuestos) al centavo y el subtotal se calcula hacia atrás. Rehacerlo desde `unit_price`
+      // (4 decimales, sin impuesto, por pieza) perdía centavos. Si además aplicó una promoción
+      // propia de la Suite, manda el cálculo de arriba, como siempre.
+      const precioMotor = line.erp_gross_total !== null && line.erp_gross_total !== undefined && !appliedPromoCode;
+      if (precioMotor) {
+        lineTotal = +(Number(line.erp_gross_total) * (1 - manualDiscount)).toFixed(2);
+        lineSubtotal = +(lineTotal / (1 + taxRate)).toFixed(2);
+        lineTax = +(lineTotal - lineSubtotal).toFixed(2);
+      }
+      // Con el precio del motor no hubo promoción de la Suite: el centavo de diferencia entre
+      // `unit_price` redondeado y el subtotal real no es un descuento y no se publica como tal.
+      const discountAmount = precioMotor ? 0 : +Math.max(0, baseSubtotal - lineSubtotal).toFixed(2);
+
+      const cleanedNotes = typeof line.notes === 'string' && line.notes.startsWith('Promo aplicada:')
+        ? null
+        : line.notes;
+
+      await trx('commercial.order_lines')
+        .where({ id: line.id })
+        .update({
+          line_subtotal: lineSubtotal,
+          line_tax: lineTax,
+          line_total: lineTotal,
+          applied_promo_code: appliedPromoCode,
+          applied_promo_type: appliedPromoType,
+          discount_amount: discountAmount,
+          notes: cleanedNotes,
+        });
+    }
+
+    // Sum lines.
+    const sums = await trx('commercial.order_lines')
+      .where({ order_id: orderId })
+      .sum({ subtotal: 'line_subtotal', tax: 'line_tax', total: 'line_total' });
+    let { subtotal, tax, total } = sums[0] as {
+      subtotal: string | null;
+      tax: string | null;
+      total: string | null;
+    };
+    let s = Number(subtotal) || 0;
+    let t = Number(tax) || 0;
+    let g = Number(total) || 0;
+
+    let basketPromoCode: string | null = null;
+    let basketDiscountAmount = 0;
+    const basketPromo = promos.find((p) => p.promotion_type === 'percent_off_basket');
+    if (basketPromo) {
+      const pct = Math.min(1, Math.max(0, Number(basketPromo.rules?.percent) || 0));
+      const minOrder = Number(basketPromo.min_order_amount) || 0;
+      if (pct > 0 && g >= minOrder) {
+        const totalBefore = g;
+        s = +(s * (1 - pct)).toFixed(2);
+        t = +(t * (1 - pct)).toFixed(2);
+        g = +(s + t).toFixed(2);
+        basketPromoCode = basketPromo.code;
+        basketDiscountAmount = +(totalBefore - g).toFixed(2);
+      }
+    }
+
+    await trx('commercial.orders')
+      .where({ id: orderId })
+      .update({
+        subtotal: s,
+        tax_total: t,
+        total: g,
+        balance_due: g,
+        basket_promo_code: basketPromoCode,
+        basket_discount_amount: basketDiscountAmount,
+        updated_at: trx.fn.now(),
+      });
+  }
+
+  /**
+   * Lee promociones activas del tenant ordenadas por priority (menor = más fuerte).
+   * Filtra por vigencia (starts_at/ends_at) y por flag `active`.
+   * Ignora `applies_to_customer_ids` por ahora (todas se asumen all_customers
+   * en beta).
+   */
+  private async loadActivePromotions(trx: any): Promise<any[]> {
+    const now = new Date();
+    return trx('commercial.promotions')
+      .where({ active: true })
+      .whereNull('deleted_at')
+      .andWhere((q: any) => {
+        q.whereNull('starts_at').orWhere('starts_at', '<=', now);
+      })
+      .andWhere((q: any) => {
+        q.whereNull('ends_at').orWhere('ends_at', '>=', now);
+      })
+      .orderBy('priority', 'asc')
+      .orderBy('code', 'asc');
+  }
+
+  private async nextCode(trx: any): Promise<string> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const year = new Date().getFullYear();
+
+    // Atomic upsert + increment
+    const [{ current_value }] = await trx.raw(
+      `
+      INSERT INTO commercial.order_sequences (tenant_id, year, current_value)
+      VALUES (?, ?, 1)
+      ON CONFLICT (tenant_id, year) DO UPDATE
+        SET current_value = commercial.order_sequences.current_value + 1,
+            updated_at = now()
+      RETURNING current_value
+      `,
+      [tenantId, year],
+    ).then((r: any) => r.rows);
+
+    const padded = String(current_value).padStart(5, '0');
+    return `PD-${year}-${padded}`;
+  }
+
+  private async findDefaultPriceListId(trx: any): Promise<string | null> {
+    const pl = await trx('commercial.price_lists')
+      .where({ is_default: true, active: true })
+      .whereNull('deleted_at')
+      .first();
+    return pl?.id || null;
+  }
+
+  private requireUserId(): string {
+    const ctx = this.tenantCtx.get();
+    if (!ctx?.userId) {
+      throw new BadRequestException(
+        'Usuario no identificado — orders requiere request autenticado',
+      );
+    }
+    return ctx.userId;
+  }
+}

@@ -1,0 +1,177 @@
+# ═══ pg-prod — LA BASE DE PRODUCCIÓN ═══  [K3S.39]
+#
+# 26.3 GB, la base `railway` de 25 GB, y la cadena de respaldo de pgBackRest colgando: 25,398
+# WAL archivados con 0 fallos y un repositorio de 111 GB. Es lo último que se migra y lo único
+# cuyo peor caso no se recupera solo.
+#
+# ── CUATRO MONTAJES, NO UNO, Y CADA UNO TIENE QUE ESTAR ────────────────────
+#
+#   · `/var/lib/postgresql`   el dato. Sin esto no hay nada.
+#   · `/var/lib/pgbackrest`   el REPOSITORIO de respaldo. ⛔ Si falta, `archive_command` falla
+#                             y el WAL se acumula en el datadir hasta llenar el disco. No da
+#                             error visible en la app: se ve como "el disco se está llenando".
+#   · `/var/log/pgbackrest`   sus logs. Sin esto, cuando el archivado falle no habrá dónde
+#                             mirar — y lo que no deja rastro se diagnostica dos veces.
+#   · `/var/run/postgresql`   el SOCKET UNIX. Lo usa `prod-backup` desde el host para conectarse
+#                             sin TCP. Si no se monta, el respaldo deja de correr en silencio.
+#
+# ── ⛔ `PGDATA` SÍ VA ACÁ, Y NO ES UNA CONTRADICCIÓN ────────────────────────
+#
+# En `pg-rag` quitar `PGDATA` fue el arreglo; acá ponerlo es lo correcto, y la diferencia no es
+# de opinión: se MIDIÓ en el contenedor vivo. Esta imagen es NUESTRA (`trade-prod-pg`) y trae
+# `PGDATA=/var/lib/postgresql/18/docker` en su entorno, que coincide con el `data_directory`
+# real. Omitirlo sería apostar a que el default de la imagen base es el mismo.
+# ⭐ La regla no es "siempre PGDATA" ni "nunca PGDATA": es preguntarle al servicio que se migra.
+#
+# ── ⛔ LA SONDA NO PUEDE CONTAR BASES ───────────────────────────────────────
+#
+# En `pgvector-md` la sonda cuenta bases y alcanza. Acá NO: un cluster recién inicializado con
+# `POSTGRES_DB=railway` crearía `postgres` + `railway` y daría los mismos DOS que el real.
+# Contaría igual y estaría vacío — la misma falla que `pg-rag` escondió detrás de `select 1`.
+# Por eso la sonda consulta una TABLA que sólo existe con los datos puestos.
+#
+# ── Las trampas de siempre ─────────────────────────────────────────────────
+#
+# ⛔ SIN `limits.memory` (el cgroup cuenta el page cache) · `/dev/shm` de 1 GB (el default de
+# 64 MB rompe los parallel workers) · `replicas: 1` + `Recreate` (dos Postgres sobre el mismo
+# datadir es corrupción) · gracia de 300 s para que cierre su checkpoint sin que lo maten.
+#
+# ⚠️ El contenedor `pg-prod` se deja DETENIDO, no se borra: protege el volumen de
+# `docker volume prune` y es la vuelta atrás inmediata.
+---
+apiVersion: v1
+kind: Service
+metadata: { name: pg-prod-pod, namespace: prod }
+spec:
+  selector: { app: pg-prod }
+  ports: [{ name: postgres, port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-prod
+  namespace: prod
+  labels: { app: pg-prod, singleton: "true", migracion: migrado }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: pg-prod }
+  template:
+    metadata:
+      labels: { app: pg-prod }
+    spec:
+      terminationGracePeriodSeconds: 300
+      containers:
+        - name: postgres
+          image: localhost:5000/trade-prod-pg:__COMMIT__
+          # ═══ [K3S.42] EL `command` DEL COMPOSE — SIN ESTO EL POD ARRANCA EN DEFAULTS ═══
+          #
+          # ⛔⛔ ESTO FALTABA EN LOS TRES MANIFIESTOS Y DOS YA ESTABAN EN PRODUCCIÓN ASÍ.
+          #
+          # Medido el 2026-10-01: los pods de `pg-rag` y `pgvector-md` corrían con
+          # shared_buffers en 16384 bloques = 128 MB, el default de fábrica. En Compose eran
+          # 512 MB y 4 GB. O sea 32× menos caché en la base que alimenta los 7 carriles.
+          #
+          # ⭐ Por qué se escapó: el manifiesto se escribió mirando `docker inspect` —volúmenes,
+          # entorno, puertos, sondas— y TODO eso estaba bien. La afinación no vive ahí: vive en
+          # el `command`, que es lo único que un vistazo a la configuración del contenedor no
+          # devuelve con el mismo nombre. Lo que se copia por parecido deja afuera lo que no se
+          # parece.
+          #
+          # ⚠️ Y no todo se perdía: `wal_level`, los slots y los workers de replicación SÍ
+          # sobrevivieron, porque viven en el `postgresql.conf` del datadir y el datadir viaja.
+          # La mitad que sobrevive es justamente lo que hace que la otra mitad no se note.
+          args:
+            # Transcrito del compose y CONTRASTADO contra los 21 ajustes que el contenedor vivo
+            # reporta con source='command line' (2026-10-01). Los tres que de verdad muerden:
+            #   · archive_mode=on   -> sin esto pgBackRest deja de recibir WAL y la recuperación
+            #     a un punto en el tiempo se corta EN SILENCIO desde el corte.
+            #   · ssl=on            -> la app exige TLS contra la base: sin esto no conecta.
+            #   · shared_preload_libraries=pg_stat_statements -> sin esto la extensión no carga
+            #     y toda consulta contra ella falla.
+            # ⚠️ En el compose archive_mode sale de PGPROD_ARCHIVE_MODE (default off). Acá va
+            #    fijo en `on` porque es lo que el cluster vivo tiene: el manifiesto no puede
+            #    heredar un default que apaga el archivado.
+            - postgres
+            - "-c"
+            - "shared_buffers=12GB"
+            - "-c"
+            - "effective_cache_size=16GB"
+            - "-c"
+            - "maintenance_work_mem=4GB"
+            - "-c"
+            - "work_mem=64MB"
+            - "-c"
+            - "max_wal_size=8GB"
+            - "-c"
+            - "checkpoint_completion_target=0.9"
+            - "-c"
+            - "random_page_cost=1.1"
+            - "-c"
+            - "effective_io_concurrency=200"
+            - "-c"
+            - "max_connections=200"
+            - "-c"
+            - "shared_preload_libraries=pg_stat_statements"
+            - "-c"
+            - "timezone=America/Mexico_City"
+            - "-c"
+            - "log_min_duration_statement=1000"
+            - "-c"
+            - "track_io_timing=on"
+            - "-c"
+            - "log_temp_files=0"
+            - "-c"
+            - "log_lock_waits=on"
+            - "-c"
+            - "archive_mode=on"
+            - "-c"
+            - "archive_command=pgbackrest --stanza=prod archive-push %p"
+            - "-c"
+            - "archive_timeout=300"
+            - "-c"
+            - "ssl=on"
+            - "-c"
+            - "ssl_cert_file=/var/lib/postgresql/18/docker/server.crt"
+            - "-c"
+            - "ssl_key_file=/var/lib/postgresql/18/docker/server.key"
+          imagePullPolicy: IfNotPresent
+          ports:
+            # hostPort 5434, el MISMO que publicaba Compose: el puente `pg-prod` de los
+            # namespaces apunta a 192.168.0.222:5434 y no se entera.
+            - { name: postgres, containerPort: 5432, hostPort: 5434, protocol: TCP }
+          env:
+            - { name: TZ,          value: America/Mexico_City }
+            - { name: PGDATA,      value: /var/lib/postgresql/18/docker }   # medido, ver arriba
+            - { name: POSTGRES_DB, value: railway }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: pg-prod-env, key: POSTGRES_PASSWORD }
+          volumeMounts:
+            - { name: datos,    mountPath: /var/lib/postgresql }
+            - { name: repo,     mountPath: /var/lib/pgbackrest }
+            - { name: repolog,  mountPath: /var/log/pgbackrest }
+            - { name: socket,   mountPath: /var/run/postgresql }
+            - { name: shm,      mountPath: /dev/shm }
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "psql -U postgres -d railway -t -A -c 'select 1 from analytics.cron_runs limit 1' | grep -q 1"]
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 15
+          resources:
+            # ⛔ SIN limits.memory.
+            requests: { memory: "4Gi", cpu: "500m" }
+      volumes:
+        - name: datos
+          hostPath: { path: /var/lib/docker/volumes/prod_pg-prod-data/_data, type: Directory }
+        - name: repo
+          hostPath: { path: /home/superoot/pgbackrest, type: Directory }
+        - name: repolog
+          hostPath: { path: /home/superoot/pgbackrest-log, type: Directory }
+        - name: socket
+          hostPath: { path: /home/superoot/pgsock, type: Directory }
+        - name: shm
+          emptyDir: { medium: Memory, sizeLimit: 1Gi }

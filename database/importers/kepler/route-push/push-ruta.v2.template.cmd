@@ -1,0 +1,100 @@
+@echo off
+REM ============================================================================
+REM  PUSH de ventas de RUTA v2 — camioneta -> runner.  REACTIVO A LA RED.
+REM  Cambios vs v1:
+REM    - Precheck de conectividad (connect_timeout=5): sale en <5s si no hay linea,
+REM      en vez de colgarse en el timeout largo de psql. Loguea ONLINE/OFFLINE.
+REM    - El heartbeat lo escribe merge_route_sales en el runner (ver runner-heartbeat.sql).
+REM  Se dispara por la tarea 'ruta.task.xml' (evento red-conectada + cada 15 min).
+REM
+REM  Copiar a  C:\KeplerPush\push-ruta.cmd  (FUERA del repo: lleva credenciales)
+REM  y llenar los <...>.  Una camioneta = un archivo + una tarea.
+REM ============================================================================
+setlocal
+set PGCLIENTENCODING=UTF8
+
+REM ===== CONFIG (por camioneta) ===============================================
+set PSQL=
+if exist "C:\Program Files\PostgreSQL\18\bin\psql.exe" set PSQL="C:\Program Files\PostgreSQL\18\bin\psql.exe"
+if not defined PSQL if exist "C:\Program Files\PostgreSQL\17\bin\psql.exe" set PSQL="C:\Program Files\PostgreSQL\17\bin\psql.exe"
+if not defined PSQL if exist "C:\Program Files\PostgreSQL\16\bin\psql.exe" set PSQL="C:\Program Files\PostgreSQL\16\bin\psql.exe"
+if not defined PSQL if exist "C:\Program Files\PostgreSQL\15\bin\psql.exe" set PSQL="C:\Program Files\PostgreSQL\15\bin\psql.exe"
+if not defined PSQL if exist "C:\Program Files\PostgreSQL\14\bin\psql.exe" set PSQL="C:\Program Files\PostgreSQL\14\bin\psql.exe"
+
+REM  TRUCK = clave de sucursal en mart.ventas (numero de ruta de la EMPRESA, ej. ruta_27).
+set TRUCK=ruta_27
+set DAYS=15
+
+REM  SERIE local de la ruta (folio c63 SIN el guion). Verificar por base:
+REM    %PSQL% "%SRC%" -c "select distinct rtrim(btrim(c63),'-') from md.kdm1 where c4=10 and c2='U' and c3='D'"
+REM  OJO: si la base tiene VARIAS rutas, este filtro es OBLIGATORIO (o hay doble conteo).
+set ROUTE_SERIE=UD1001
+
+REM  SRC = Postgres LOCAL de la camioneta.  DST = runner (fijo).  connect_timeout=5 -> no cuelga.
+REM
+REM  [VL.7.6] EL RUNNER ES 192.168.0.222 (el servidor Linux `md`), NO 192.168.0.249.
+REM  La ingesta se mudo el 2026-09-11; el :5433 de .249 quedo JUBILADO y hoy solo sobrevive como
+REM  un reenvio TCP (netsh portproxy) hacia .222, puesto para no tener que visitar las camionetas
+REM  el mismo dia. Una van dada de alta contra .249 funciona -- por el reenvio -- y por eso el
+REM  error no se ve: queda colgando de una maquina de escritorio que ya no es servidor de nada.
+REM  Alta nueva => .222 directo.  Van vieja => ver CASO 4 del RUNBOOK_ALTA_CAMIONETA.md.
+set SRC=postgresql://postgres:<CLAVE_LOCAL>@localhost:5432/<DB_LOCAL>?connect_timeout=5
+set DST=postgresql://postgres:<CLAVE_RUNNER>@192.168.0.222:5433/kepler_consolidado?connect_timeout=5
+
+set LOG=C:\KeplerPush\push_%TRUCK%.log
+REM ============================================================================
+
+if not defined PSQL echo [%date% %time%] ERROR: psql.exe no encontrado >> "%LOG%"
+if not defined PSQL goto :eof
+
+REM 0) PRECHECK: el runner responde? Si no, salir rapido (se reintenta al reconectar).
+%PSQL% "%DST%" -tAc "select 1" >nul 2>&1
+if errorlevel 1 (
+  echo [%date% %time%] OFFLINE: runner .249 no alcanzable; se reintenta al reconectar >> "%LOG%"
+  goto :eof
+)
+echo [%date% %time%] --- ONLINE, push %TRUCK% (serie %ROUTE_SERIE%) --- >> "%LOG%"
+
+REM 1) Limpiar staging de esta camioneta en el runner.
+%PSQL% "%DST%" -c "delete from ingest.route_sales_stg where truck='%TRUCK%'" >> "%LOG%" 2>&1
+
+REM 2) DIRECTO: venta local -> staging del runner (pipe, sin archivo).
+%PSQL% "%SRC%" -c "\copy (select '%TRUCK%',h.c1,h.c6,h.c9::date,h.c10,d.c8,d.c10,d.c11,d.c9::numeric,d.c12::numeric,d.c13::numeric from md.kdm2 d join md.kdm1 h on h.c1=d.c1 and h.c2=d.c2 and h.c3=d.c3 and h.c4=d.c4 and h.c5=d.c5 and h.c6=d.c6 where d.c2='U' and d.c3='D' and h.c4=10 and rtrim(btrim(h.c63),'-')='%ROUTE_SERIE%' and h.c9>=current_date-%DAYS%) to stdout csv" | %PSQL% "%DST%" -c "\copy ingest.route_sales_stg (truck,almacen,folio,fecha,forma_pago,sku,producto,unidad,cantidad,precio_neto,importe) from stdin csv" >> "%LOG%" 2>&1
+
+REM 3) Merge idempotente en mart.ventas (tambien escribe el heartbeat).
+echo [%date% %time%] merge -^> filas: >> "%LOG%"
+%PSQL% "%DST%" -c "select ingest.merge_route_sales('%TRUCK%', %DAYS%)" >> "%LOG%" 2>&1
+
+REM ===========================================================================
+REM  [RD.32] 4-6) LA EXISTENCIA DEL CAMION. Mismo canal, una consulta mas.
+REM
+REM  Kepler CENTRAL no publica saldo de ruta (kdik solo tiene una fila por
+REM  sucursal; los almacenes 01-00N no aparecen) y no existe documento de
+REM  retorno, asi que el saldo se venia RECONSTRUYENDO de embarque menos venta.
+REM  Medido el 2026-10-05 en la ruta 21: la pantalla publicaba 18,427 y el
+REM  camion traia 37,766 -- el 89% de la diferencia es mercancia que ya traia
+REM  antes de que pudieramos ver sus ventas, y que ningun documento registra.
+REM
+REM  El Kepler DE ESTA LAPTOP si lo sabe. Por eso va aca y no en una pantalla
+REM  para subir un Excel a mano: el dato tiene que llegar solo.
+REM
+REM  Columnas verificadas contra el ODS el 2026-10-05, NO adivinadas:
+REM    kdii.c1=SKU  kdii.c2=descripcion  kdii.c11=unidad  kdik.c2=SKU  kdik.c5=existencia  kdik.c16=costo
+REM  La unidad del reporte que imprime el camion coincide con kdii.c11 en
+REM  256 de 257 renglones (la unica que no, viene en blanco en el origen).
+REM
+REM  OJO: existencia > 0: el catalogo trae miles de productos en cero y subirlos
+REM     todos los dias es ruido. El merge del runner tambien lo filtra.
+REM  OJO: Esto NO lleva ventana de dias: es una FOTO del momento, y el merge del
+REM     runner REEMPLAZA la del dia en vez de acumular.
+REM ===========================================================================
+%PSQL% "%DST%" -c "delete from ingest.route_stock_stg where truck='%TRUCK%'" >> "%LOG%" 2>&1
+
+%PSQL% "%SRC%" -c "\copy (select '%TRUCK%',btrim(k.c2),btrim(i.c2),btrim(i.c11),k.c5::numeric,k.c16::numeric,(k.c5*k.c16)::numeric from md.kdik k join md.kdii i on btrim(i.c1)=btrim(k.c2) where k.c5 > 0) to stdout csv" | %PSQL% "%DST%" -c "\copy ingest.route_stock_stg (truck,sku,producto,unidad,existencia,costo,importe) from stdin csv" >> "%LOG%" 2>&1
+
+echo [%date% %time%] merge existencia -^> filas: >> "%LOG%"
+%PSQL% "%DST%" -c "select ingest.merge_route_stock('%TRUCK%')" >> "%LOG%" 2>&1
+
+echo [%date% %time%] OK %TRUCK% >> "%LOG%"
+
+endlocal

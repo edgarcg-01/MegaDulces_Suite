@@ -1,0 +1,68 @@
+# ═══ WORKER — el singleton de los 51 @Cron ═══  [K3S.28]
+#
+# ⭐ VIVE EN SU PROPIO ARCHIVO, y no es cosmética: `aplicar-k3s-prod.sh` filtra POR ARCHIVO, y
+# `npm run check:k3s` exige que un archivo no mezcle `migrado` con `preparado`. Mientras el
+# worker estaba junto a `redis` y `api` —que siguen en Compose— no se podía migrar sin
+# arrastrarlos. Un archivo = una unidad de migración.
+#
+# ⛔ SIN `REDIS_URL` Y SIN EL initContainer QUE ESPERABA A REDIS, y eso se MIDIÓ antes de
+# quitarlo, no se asumió:
+#
+#   · `redis-cli client list` sobre el redis de prod, con el worker llevando ~5 h arriba y
+#     51 @Cron corriendo: los únicos clientes eran `prod-api` y el propio redis. El worker
+#     NO tenía ni una conexión.
+#   · `app.module.ts:387` → `const store = url ? createKeyv(url) : new Keyv()`. Con
+#     `REDIS_URL` la caché es de Redis; sin él, en memoria. Keyv conecta de forma PEREZOSA,
+#     así que cero conexiones en cinco horas significa cero operaciones de caché.
+#   · El adaptador de socket.io es cosa del API: el worker arranca `bootstrapWorker`, sin
+#     HTTP ni WS.
+#
+# ⚠️ Lo que se pierde y queda DECLARADO: si algún día un @Cron invalidara una clave de caché,
+# el API no se enteraría. Hoy eso no pasa —medido—, pero si pasara sería silencioso. El día
+# que `redis` y `api` migren, basta con devolverle `REDIS_URL` apuntando al Service del
+# clúster. Dejarlo apuntando a un Service SIN endpoints sería peor: fallaría al primer uso.
+#
+# ⛔ `replicas: 1` + `Recreate` NUNCA se tocan: son 51 @Cron. Dos pods = cada tarea dos veces,
+# y el solape de RollingUpdate alcanza para duplicar una escritura.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: prod
+  labels: { app: worker, singleton: "true", migracion: migrado }
+spec:
+  replicas: 1             # ⛔ NUNCA subir: son 51 @Cron, dos pods = cada uno dos veces
+  strategy:
+    type: Recreate        # ⛔ RollingUpdate solaparía dos workers durante el despliegue
+  selector:
+    matchLabels: { app: worker }
+  template:
+    metadata:
+      labels: { app: worker }
+    spec:
+      # ⛔ [K3S.28] ACÁ HABÍA UN initContainer QUE ESPERABA A REDIS, y se quitó MIDIENDO.
+      #
+      # Lo puso [K3S.18] para reemplazar al `depends_on: condition: service_healthy` de Compose,
+      # después de que su ausencia mordiera de verdad: el API ganó la carrera, pidió Redis,
+      # recibió ECONNREFUSED y su adaptador de socket.io se quedó in-memory PARA SIEMPRE.
+      #
+      # ⭐ Pero esa lección es del API, no del worker, y copiarla acá era conservar la FORMA sin
+      # la razón. El worker no habla con Redis (ver la cabecera del archivo), así que este
+      # initContainer sólo garantizaba una cosa: que el worker NO ARRANCARA mientras `redis`
+      # siga en Compose, porque el Service del clúster no tiene endpoints. Un guardia que no
+      # protege nada y bloquea el arranque.
+      containers:
+        - name: worker
+          image: localhost:5000/trade-prod-worker:__COMMIT__
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef: { name: prod-env }
+          env:
+            - { name: TZ,                     value: America/Mexico_City }
+            - { name: NODE_ENV,               value: production }
+            - { name: WORKER,                 value: "true" }
+            - { name: ENABLE_WORKER_QUEUE,    value: "true" }
+            - { name: RUN_MIGRATIONS_ON_BOOT, value: "0" }
+          resources:
+            requests: { memory: "256Mi", cpu: "100m" }
+            limits:   { memory: "2Gi" }

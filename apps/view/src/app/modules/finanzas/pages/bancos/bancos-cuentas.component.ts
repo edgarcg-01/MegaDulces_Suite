@@ -1,0 +1,183 @@
+import { ChangeDetectionStrategy, Component, EventEmitter, Output, input, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { ButtonModule } from 'primeng/button';
+import { TableModule } from 'primeng/table';
+import { Balances, BankStatement, Diagnostico } from '../../bank.service';
+import { cuadra, kindLabel } from './bancos-shared';
+import { exportXlsx } from '../../../../shared/export/xlsx-export';
+import { BANCOS_STYLES } from './bancos.styles';
+
+/**
+ * CB.14 — Vista CUENTAS (cuadre de saldos por cuenta + fallback estados de cuenta).
+ * Presentacional: recibe balances/statements/diagnóstico; emite `openAccount` para
+ * que el shell navegue a Movimientos filtrado por esa cuenta.
+ */
+@Component({
+  selector: 'bancos-cuentas',
+  standalone: true,
+  imports: [CommonModule, ButtonModule, TableModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    @if (balances(); as bal) {
+      <div class="card-premium card-flat fb-tablewrap fb-bal">
+        <h3 class="fb-card-title fb-pnl-title">Cuadre de saldos <span class="muted">— inicial + depósitos − retiros = final · clic en una cuenta para ver sus movimientos</span><button type="button" class="fb-xls" [disabled]="exporting()" (click)="exportXls()" title="Descarga el cuadre de saldos y los estados cargados"><i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel</button>
+          @if (bal.cuentas_descuadradas > 0) { <span class="fb-bal-badge bad">{{ bal.cuentas_descuadradas }} sin cuadrar</span> }
+          @else if (bal.cuentas_sin_saldo === bal.accounts.length) { <span class="fb-bal-badge warn">sin saldos</span> }
+          @else { <span class="fb-bal-badge ok">todo cuadra</span> }
+        </h3>
+        <p-table [value]="bal.accounts" dataKey="statement_id" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
+          <ng-template #header>
+            <tr><th class="col-w25"><span class="sr-only">Detalle</span></th><th pSortableColumn="bank">Cuenta <p-sorticon field="bank" /></th><th class="ta-r" pSortableColumn="opening">Inicial <p-sorticon field="opening" /></th><th class="ta-r" pSortableColumn="total_in">Depósitos <p-sorticon field="total_in" /></th><th class="ta-r" pSortableColumn="total_out">Retiros <p-sorticon field="total_out" /></th><th class="ta-r" pSortableColumn="computed">Calculado <p-sorticon field="computed" /></th><th class="ta-r" pSortableColumn="closing">Final <p-sorticon field="closing" /></th><th class="ta-r" pSortableColumn="delta">Δ <p-sorticon field="delta" /></th><th class="col-w5 ta-c" pSortableColumn="cuadra">Estado <p-sorticon field="cuadra" /></th></tr>
+          </ng-template>
+          <ng-template #body let-a let-expanded="expanded">
+            <tr class="fb-row-click" [class.fb-bal-sinsaldo]="a.sin_saldo" tabindex="0" role="button"
+                (click)="openAccount.emit(a)" (keyup.enter)="openAccount.emit(a)"
+                [attr.aria-label]="'Ver movimientos de ' + a.bank + ' ' + a.account_label">
+              <td class="ta-c">
+                @if (!a.cuadra && !a.sin_saldo && breaksFor(a).length) {
+                  <p-button type="button" [pRowToggler]="a" (click)="$event.stopPropagation()"
+                          [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                          styleClass="p-button-text p-button-sm" aria-label="Ver dónde salta el saldo"></p-button>
+                }
+              </td>
+              <td>{{ a.bank }} <span class="muted mono">{{ a.account_label }}</span></td>
+              <td class="ta-r mono">{{ a.opening | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono">{{ a.total_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono">{{ a.total_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono muted">{{ a.computed_closing | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono fb-strong">{{ a.closing | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono">
+                @if (a.sin_saldo) { <span class="muted">—</span> }
+                @else { <span [class.bad]="!a.cuadra" [class.ok]="a.cuadra">{{ a.delta | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> }
+              </td>
+              <td class="ta-c">
+                @if (a.sin_saldo) { <span class="fb-kind">sin saldo</span> }
+                @else if (a.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
+                @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra"></i> }
+              </td>
+            </tr>
+          </ng-template>
+          <ng-template #expandedrow let-a>
+            <tr class="fb-break-row"><td colspan="9">
+              <div class="fb-breaks">
+                <span class="fb-breaks-h"><i class="pi pi-search-plus"></i> Dónde salta el saldo</span>
+                @for (b of breaksFor(a); track b.label) {
+                  <div class="fb-break">
+                    <span class="fb-break-l mono">{{ b.label }}</span>
+                    <span class="fb-break-m mono" [class.bad]="(b.monto || 0) < 0">{{ b.monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                  </div>
+                }
+                <p class="fb-breaks-note muted">En estos renglones el saldo del estado de cuenta salta más de lo que explica el movimiento: ahí falta capturar algo, o el saldo quedó mal tecleado.</p>
+              </div>
+            </td></tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr><td colspan="9"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas cargadas para {{ period() }}.</p></div></td></tr>
+          </ng-template>
+        </p-table>
+        <p class="fb-recon-note muted">
+          Traspasos internos (TI=TE): entra {{ bal.traspasos.entra | currency:'MXN':'symbol-narrow':'1.2-2' }} vs sale {{ bal.traspasos.sale | currency:'MXN':'symbol-narrow':'1.2-2' }}
+          <span [class.bad]="!cuadra(bal.traspasos.delta)" [class.ok]="cuadra(bal.traspasos.delta)">(Δ {{ bal.traspasos.delta | currency:'MXN':'symbol-narrow':'1.2-2' }})</span>.
+          @if (bal.cuentas_sin_saldo > 0) { · {{ bal.cuentas_sin_saldo }} cuenta(s) sin columna SALDO en el Excel (no verificable). }
+        </p>
+      </div>
+    } @else {
+      <div class="card-premium card-flat fb-tablewrap fb-bal">
+        <h3 class="fb-card-title fb-pnl-title">Cuentas del periodo <span class="muted">— estados de cuenta cargados (sin saldos para verificar el cuadre)</span></h3>
+        <p-table [value]="statements()" styleClass="p-datatable-sm" [rowHover]="true">
+          <ng-template #header>
+            <tr><th pSortableColumn="bank">Banco <p-sorticon field="bank" /></th><th pSortableColumn="account_label">Cuenta <p-sorticon field="account_label" /></th><th pSortableColumn="kind">Tipo <p-sorticon field="kind" /></th><th class="ta-r" pSortableColumn="total_in">Depósitos <p-sorticon field="total_in" /></th><th class="ta-r" pSortableColumn="total_out">Retiros <p-sorticon field="total_out" /></th><th class="ta-r" pSortableColumn="closing_balance">Saldo final <p-sorticon field="closing_balance" /></th></tr>
+          </ng-template>
+          <ng-template #body let-s>
+            <tr>
+              <td>{{ s.bank }}</td>
+              <td class="mono">{{ s.account_label }}</td>
+              <td><span class="fb-kind">{{ kind(s.kind) }}</span></td>
+              <td class="ta-r mono">{{ s.total_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono">{{ s.total_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="ta-r mono fb-strong">{{ s.closing_balance | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr><td colspan="6"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas cargadas para {{ period() }}.</p></div></td></tr>
+          </ng-template>
+        </p-table>
+      </div>
+    }
+  `,
+  styles: [BANCOS_STYLES, `
+    /* Boton de export: ghost, discreto -- accion secundaria. */
+    .fb-xls { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); color: var(--text-muted); font: inherit; font-size: var(--fs-xs);
+      padding: 2px var(--sp-2); cursor: pointer; margin-left: var(--sp-2); vertical-align: middle; }
+    .fb-xls:hover:not(:disabled) { color: var(--text-main); background: var(--hover-bg); }
+    .fb-xls:disabled { opacity: .6; cursor: default; }
+    .fb-xls:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
+    .fb-bal { margin-bottom: var(--sp-3); }
+    .fb-kind { font-size: var(--fs-xs); text-transform: capitalize; color: var(--text-muted); }
+    .fb-bal-sinsaldo { opacity: 0.55; }
+    .fb-bal-badge { font-size: var(--fs-xs); font-weight: 600; padding: 1px var(--sp-2); border-radius: var(--r-sm); margin-left: var(--sp-2); }
+    .fb-bal-badge.ok { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 12%, transparent); }
+    .fb-bal-badge.bad { color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 12%, transparent); }
+    .fb-bal-badge.warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
+    .fb-break-row > td { background: var(--surface-ground); }
+    .fb-breaks { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-2) var(--sp-3); }
+    .fb-breaks-h { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); text-transform: uppercase; letter-spacing: .04em; margin-bottom: var(--sp-1); }
+    .fb-break { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); font-size: var(--fs-xs); padding: 2px 0; border-bottom: 1px solid var(--border-color); }
+    .fb-break-l { color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fb-break-m { font-weight: 600; color: var(--text-main); flex: none; }
+    .fb-breaks-note { font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
+  `],
+})
+export class BancosCuentasComponent {
+  readonly exporting = signal(false);
+  async exportXls(): Promise<void> {
+    this.exporting.set(true);
+    try {
+      const b = this.balances();
+      await exportXlsx('Cuentas ' + this.period(), [
+        {
+          name: 'Cuadre de saldos', subtitle: this.period(), rows: b?.accounts ?? [],
+          cols: [
+            { header: 'Banco', get: (r: any) => r.bank, width: 20 },
+            { header: 'Cuenta', get: (r: any) => r.account_label, width: 16 },
+            { header: 'Inicial', get: (r: any) => r.opening, type: 'money' },
+            { header: 'Depositos', get: (r: any) => r.total_in, type: 'money', total: true },
+            { header: 'Retiros', get: (r: any) => r.total_out, type: 'money', total: true },
+            { header: 'Calculado', get: (r: any) => r.computed, type: 'money' },
+            { header: 'Final', get: (r: any) => r.closing, type: 'money' },
+            { header: 'Diferencia', get: (r: any) => r.delta, type: 'money', total: true },
+            { header: 'Cuadra', get: (r: any) => (r.sin_saldo ? 'Sin saldo' : r.cuadra ? 'Si' : 'No'), width: 12 },
+          ],
+        },
+        {
+          name: 'Estados cargados', rows: this.statements() ?? [],
+          cols: [
+            { header: 'Banco', get: (r: any) => r.bank, width: 20 },
+            { header: 'Cuenta', get: (r: any) => r.account_label, width: 16 },
+            { header: 'Tipo', get: (r: any) => r.kind, width: 12 },
+            { header: 'Depositos', get: (r: any) => r.total_in, type: 'money', total: true },
+            { header: 'Retiros', get: (r: any) => r.total_out, type: 'money', total: true },
+            { header: 'Saldo final', get: (r: any) => r.closing_balance, type: 'money' },
+          ],
+        },
+      ]);
+    } finally { this.exporting.set(false); }
+  }
+
+  readonly balances = input.required<Balances | null>();
+  readonly statements = input.required<BankStatement[]>();
+  readonly diagnostico = input.required<Diagnostico | null>();
+  readonly period = input<string>('');
+  @Output() openAccount = new EventEmitter<{ bank: string; account_label: string }>();
+
+  cuadra = cuadra;
+  kind(k: string): string { return kindLabel(k); }
+
+  breaksFor(a: { bank: string; account_label: string }): { label: string; monto?: number }[] {
+    const key = `${a.bank} ${a.account_label}:`;
+    const it = this.diagnostico()?.items.find((x) => x.tipo === 'saldo_no_cuadra' && x.titulo.startsWith(key));
+    return it?.evidencia ?? [];
+  }
+}

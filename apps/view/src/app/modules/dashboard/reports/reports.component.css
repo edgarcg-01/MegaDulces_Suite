@@ -1,0 +1,259 @@
+/* Modern table styling */
+:host ::ng-deep .p-datatable-modern {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-radius: 0.75rem !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-datatable-thead > tr > th {
+  background: var(--surface-ground) !important;
+  color: var(--text-faint) !important;
+  border-color: var(--border-color) !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 0.625rem !important;
+  letter-spacing: 0.05em !important;
+  padding: 0.75rem 1rem !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-datatable-tbody > tr {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+  transition: background-color 0.2s ease !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-datatable-tbody > tr:hover {
+  background: var(--hover-bg) !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-paginator {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+  padding: 1rem !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-paginator .p-paginator-pages .p-paginator-page {
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+  background: var(--card-bg) !important;
+  min-width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 0.5rem !important;
+  margin: 0 0.125rem !important;
+  transition: all 0.2s ease !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-paginator .p-paginator-pages .p-paginator-page:hover {
+  background: var(--hover-bg) !important;
+  color: var(--text-main) !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-paginator .p-paginator-pages .p-paginator-page.p-highlight {
+  background: var(--brand-400) !important;
+  color: var(--neutral-950) !important;
+  border-color: var(--brand-400) !important;
+}
+
+/* Modern button styles */
+:host ::ng-deep .p-button-modern {
+  border-radius: 0.75rem !important;
+  font-weight: 600 !important;
+  font-size: 0.875rem !important;
+  padding: 0.625rem 1rem !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease !important;
+  border: 1px solid var(--border-color) !important;
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+}
+
+:host ::ng-deep .p-button-modern:hover {
+  background: var(--hover-bg) !important;
+  border-color: var(--brand-700) !important;
+  color: var(--brand-700) !important;
+}
+
+:host ::ng-deep .p-button-modern.p-button-brand {
+  background: var(--brand-400) !important;
+  color: var(--neutral-950) !important;
+  border-color: var(--brand-400) !important;
+}
+
+:host ::ng-deep .p-button-modern.p-button-brand:hover {
+  background: var(--brand-500) !important;
+  border-color: var(--brand-500) !important;
+  color: var(--neutral-950) !important;
+}
+
+:host ::ng-deep .p-button-ghost {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--text-muted) !important;
+}
+
+:host ::ng-deep .p-button-ghost:hover {
+  background: var(--hover-bg) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* Dark mode support for buttons */
+.theme-monochrome :host ::ng-deep .p-button-modern {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-button-modern:hover {
+  background: var(--hover-bg) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-button-ghost {
+  color: var(--text-muted) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-button-ghost:hover {
+  background: var(--hover-bg) !important;
+  color: var(--text-main) !important;
+}
+
+/* Modern styling for Metrics and Records tabs */
+:host ::ng-deep .p-tabs,
+:host ::ng-deep .p-tabs.p-component {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:host ::ng-deep .p-tablist,
+:host ::ng-deep .p-tablist.p-component {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 2px solid var(--border-color) !important;
+  padding: 0 !important;
+  margin-bottom: 1.5rem !important;
+  box-shadow: none !important;
+}
+
+:host ::ng-deep .p-tablist-content {
+  background: transparent !important;
+}
+
+:host ::ng-deep .p-tablist-tab-list {
+  display: flex !important;
+  gap: 0 !important;
+  background: transparent !important;
+}
+
+:host ::ng-deep .p-tab,
+:host ::ng-deep .p-tab.p-component,
+:host ::ng-deep .p-tab.p-ripple {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 1.5rem !important;
+  margin: 0 !important;
+  position: relative !important;
+  transition: color 0.2s ease, border-color 0.2s ease !important;
+  font-weight: 600 !important;
+  font-size: 0.875rem !important;
+  color: var(--text-muted) !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  outline: none !important;
+  text-decoration: none !important;
+}
+ :host ::ng-deep .p-tab:focus-visible, :host ::ng-deep .p-tab.p-component:focus-visible, :host ::ng-deep .p-tab.p-ripple:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+:host ::ng-deep .p-tab:hover,
+:host ::ng-deep .p-tab.p-component:hover,
+:host ::ng-deep .p-tab.p-ripple:hover {
+  background: transparent !important;
+  color: var(--text-main) !important;
+  box-shadow: none !important;
+}
+
+/* Active tab: brand-700 sunset cumple AA Large + WCAG 1.4.11 (3:1 contraste UI). brand-400 amarillo fallaba (1.07). */
+:host ::ng-deep .p-tab.p-tab-active,
+:host ::ng-deep .p-tab.p-component.p-tab-active,
+:host ::ng-deep .p-tab.p-ripple.p-tab-active {
+  background: transparent !important;
+  color: var(--brand-700) !important;
+  border-bottom: 3px solid var(--brand-700) !important;
+  margin-bottom: -2px !important;
+  box-shadow: none !important;
+}
+
+:host ::ng-deep .p-tabpanels,
+:host ::ng-deep .p-tabpanels.p-component {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+:host ::ng-deep .p-tabpanel,
+:host ::ng-deep .p-tabpanel.p-component {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Dark mode support for tabs */
+.theme-monochrome :host ::ng-deep .p-tablist {
+  border-bottom-color: var(--border-color) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-tab {
+  color: var(--text-muted) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-tab:hover {
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-tab.p-tab-active {
+  color: var(--brand-400) !important;
+  border-bottom-color: var(--brand-400) !important;
+}
+
+/*
+ * Tabs wrapper con fade en bordes — sugiere visualmente que hay más tabs
+ * cuando el scroll horizontal está activo en mobile. El gradient se atenúa
+ * cuando el contenido cabe sin overflow (no scroll).
+ */
+.modern-tabs-wrapper {
+  position: relative;
+  isolation: isolate;
+}
+.modern-tabs-wrapper::before,
+.modern-tabs-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  z-index: 2;
+}
+.modern-tabs-wrapper::before {
+  left: 0;
+  background: linear-gradient(to right, var(--layout-bg) 0%, transparent 100%);
+}
+.modern-tabs-wrapper::after {
+  right: 0;
+  background: linear-gradient(to left, var(--layout-bg) 0%, transparent 100%);
+}
+@media (min-width: 48rem) {
+  /* En desktop no hace falta el hint visual: tabs caben sin scroll */
+  .modern-tabs-wrapper::before,
+  .modern-tabs-wrapper::after {
+    display: none;
+  }
+}

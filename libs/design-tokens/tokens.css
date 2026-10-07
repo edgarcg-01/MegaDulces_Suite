@@ -1,0 +1,647 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS — FUENTE ÚNICA DE VERDAD para apps/view, apps/portal y apps/vendor.
+
+   Consolidado 2026-08-12. Antes vivía triplicado en apps/{view,portal,vendor}/src/
+   styles/tokens.css + un segundo bloque duplicado dentro de cada styles.css.
+   Ese esquema ya había divergido: portal quedó con Inter/JetBrains Mono en :root
+   (retiradas por decisión 2026-06-04) y --ease-standard tenía dos valores distintos.
+
+   REGLA: cualquier token nuevo se agrega AQUÍ. Ningún componente inventa un hex.
+   Contrato completo en DESIGN.md; el porqué en docs/DESIGN_FOUNDATIONS.md.
+
+   Overrides scopeados por surface viven al final del archivo:
+     .portal-shell / .pl-wrap  → Storefront
+     .vendor-shell             → Modo vendedor
+   ════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── TIPOGRAFÍA — familias ────────────────────────────────────────────────
+     Hanken Grotesk (body/UI) + Poppins (display, SOLO storefront) + Geist Mono (data).
+     Por qué no Inter: es el "default de convergencia" de toda app SaaS. Hanken da
+     calidez sin perder neutralidad de herramienta; ver DESIGN_FOUNDATIONS.md §3.
+     Fraunces quedó RETIRADA (decisión 2026-06-24: identidad Poppins tipo delivery). */
+  --font-body:    'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* ⚠️ El respaldo importa más de lo que parece: si Geist Mono no carga (red del campo, CSP,
+     Google Fonts bloqueado) ESTO es lo que imprime los precios. Decía 'Courier New', que es
+     la peor opción posible para una columna de cifras — trazo fino y con serifas. Consolas va
+     primero porque la flota es Windows. Unificado desde el Storefront el 2026-10-03: antes
+     .portal-shell declaraba su propio respaldo y los dos ya habían divergido. */
+  --font-mono:    'Geist Mono', ui-monospace, SFMono-Regular, Consolas, Menlo, monospace;
+
+  /* Display scale (storefront hero + section heads, clamp responsive) */
+  --text-display-xl: clamp(2.5rem, 7vw, 3.5rem);     /* hero h1 */
+  --text-display-lg: clamp(1.875rem, 4.5vw, 2.5rem); /* section feature */
+  --text-display-md: clamp(1.375rem, 3vw, 1.625rem); /* card title */
+
+  /* ── TIPOGRAFÍA — escala de tamaño (major-third 1.25) ─────────────────────
+     Escala ESTRICTA: un font-size que no sea uno de estos es un bug.
+     Esta es la única escala tipográfica del sistema — DESIGN.md la nombra --fs-*.
+     (No existe ni debe crearse un namespace --text-<rol> para tamaños: --text-*
+     ya significa COLOR de texto en este archivo. No colisionar los prefijos.) */
+  --fs-display: 2.5rem;   /* 40px — headline metric, UNA por vista */
+  --fs-h1:      1.875rem; /* 30px — page hero title (storefront) */
+  --fs-h2:      1.25rem;  /* 20px — page standard title */
+  --fs-h3:      1rem;     /* 16px — panel title */
+  /* 18px — KPI/valor destacado dentro de un panel y page-head de apartado. Agregado
+     2026-08-13: faltaba el escalón entre 16 y 20, y las pantallas se lo inventaban
+     (`var(--fs-lg, 1.125rem)` con fallback hardcodeado en /finanzas/bancos). */
+  --fs-lg:      1.125rem; /* 18px */
+  --fs-body:    0.875rem; /* 14px — body default */
+  --fs-sm:      0.8125rem;/* 13px — cell body / table cell (base Operations) */
+  --fs-xs:      0.75rem;  /* 12px — small text / metadatos */
+  --fs-micro:   0.6875rem;/* 11px — uppercase label / chip */
+  --fs-nano:    0.625rem; /* 10px — micro label (último recurso) */
+
+  /* Pesos — sólo 4. No mezclar. */
+  --fw-regular: 400;
+  --fw-medium:  500;
+  --fw-bold:    700;
+  --fw-black:   800;  /* sólo en headline metric */
+
+  /* ── BRAND (cálido — Mega Dulces) ────────────────────────────────────────
+     400=sello, 600=secondary, 700=sunset-action.
+     brand-400 NUNCA con texto blanco encima (APCA Lc ~10 — usar neutral-950). */
+  --brand-50:  #FFFEF0;
+  --brand-100: #FFF8BC;
+  --brand-200: #FEEC7C;
+  --brand-300: #FDE044;
+  --brand-400: #FDE707; /* SELLO de marca — momentos, logo, pulsos "live". */
+  --brand-500: #F8B400;
+  --brand-600: #F68F1E; /* SECONDARY — naranja */
+  --brand-700: #F05A28; /* SUNSET — acción interactiva (alias → --action) */
+  --brand-800: #C53E15;
+  --brand-900: #8C2308;
+  --brand-950: #4B1300;
+
+  /* ── NEUTRAL — Zinc (PrimeNG Aura) ───────────────────────────────────────
+     Decisión Edgar 2026-09-14: los neutrales de OPERATIONS pasan de Stone
+     cálido a la paleta de PrimeNG Aura — el tema del componente que ya usamos.
+
+     Primero se probó SLATE (el default de Aura en claro) y se revirtió el
+     mismo día: "demasiado azulado" sobre la app real. La medición explica por
+     qué, y la lección vale para cualquier rampa futura:
+
+       LO QUE TIÑE UNA PANTALLA NO ES EL FONDO, ES EL CHROME.
+       El croma de slate crece rápido bajando la rampa — ground 0.0069, borde
+       0.0126, texto faint 0.0351 (5× el ground). Los bordes de las cards, los
+       iconos y el texto secundario cubren mucha más superficie visual que el
+       fondo, así que mandan ellos. Al elegir neutrales, mirar los pasos
+       200–600, no el 100.
+
+     Zinc corta ese tinte ~70% en cada paso (ground 0.0013 · borde 0.0040 ·
+     faint 0.0129) conservando un frío mínimo, y —clave— es la MISMA familia
+     que el modo oscuro, que en Aura ya era zinc. Una sola familia en los dos
+     modos: Aura misma se parte en slate/zinc y eso era justo la incoherencia
+     que originó todo. Ver DESIGN.md → Decisions Log 2026-09-14.
+
+     ⚠️ ALCANCE: TODA la suite. Arrancó siendo sólo Operations y el mismo día
+     se extendió al Storefront (decisión Edgar): `.portal-shell`/`.pl-wrap`
+     dejaron de pisar los neutrales y ahora heredan de acá. UNA sola familia
+     en las 3 apps y en los dos modos. La rampa --stone-* se retiró en el mismo
+     commit (había quedado con cero consumidores); está en git si hace falta.
+     La calidez de marca la llevan --brand-*, --action y --ember-*. */
+  --neutral-50:  #FAFAFA;
+  --neutral-100: #F4F4F5;
+  --neutral-200: #E4E4E7;
+  --neutral-300: #D4D4D8;
+  --neutral-400: #A1A1AA;
+  --neutral-500: #71717A;
+  --neutral-600: #52525B;
+  --neutral-700: #3F3F46;
+  --neutral-800: #27272A;
+  --neutral-900: #18181B;
+  --neutral-950: #09090B;
+
+  /* ── SEMÁNTICOS — fg=sólido, soft-bg=chip, soft-fg=texto sobre soft-bg ──── */
+  --ok-fg:        #16A34A;
+  --ok-soft-bg:   #DCFCE7;
+  --ok-soft-fg:   #166534;
+  --ok-border:    #BBF7D0;
+
+  --warn-fg:      #F59E0B;
+  --warn-soft-bg: #FEF3C7;
+  --warn-soft-fg: #92400E;
+  --warn-border:  #FDE68A;
+
+  --bad-fg:       #DC2626;
+  --bad-soft-bg:  #FEE2E2;
+  --bad-soft-fg:  #991B1B;
+  --bad-border:   #FECACA;
+
+  /* Azul legítimo COMO INFORMACIÓN. Prohibido como acento de IA (eso es ember)
+     y como color de acción (eso es --action). Ver DESIGN.md §antipatrones. */
+  --info-fg:      #2563EB;
+  --info-soft-bg: #DBEAFE;
+  --info-soft-fg: #1E40AF;
+  --info-border:  #BFDBFE;
+
+  /* ── CHARTS — secuencia categórica de 8 series ───────────────────────────
+     Data-viz: el color codifica dato, no decora → excepción confirmada a la
+     regla monocromática. Orden por máxima separación perceptual: usar 1→8 en
+     ese orden para N series. Sin morado (chart-3 es verde). Par en dark abajo. */
+  --chart-1: #F68F1E; /* brand orange */
+  --chart-2: #185FA5; /* corporate blue */
+  --chart-3: #2F855A; /* green (reemplaza el morado #9333EA) */
+  --chart-4: #0EA5E9; /* cyan */
+  --chart-5: #EC4899; /* pink */
+  --chart-6: #14B8A6; /* teal */
+  --chart-7: #F59E0B; /* amber */
+  --chart-8: #71717A; /* neutral (baseline / "otros") */
+
+  --chart-grid:      rgba(0, 0, 0, 0.05);
+  --chart-axis-text: var(--neutral-500);
+  --chart-meta-line: var(--neutral-400);
+
+  --chart-fill-low:  #D4D4D8; /* zinc-300 */
+  --chart-fill-mid:  #71717A; /* zinc-500 */
+  --chart-fill-high: #27272A; /* zinc-800 */
+
+  /* ── AVATARS — 8 colores estables, AA ≥ 4.5 con texto blanco ──────────── */
+  --avatar-1: #C53E15; /* brand-800 (warm anchor) */
+  --avatar-2: #185FA5;
+  --avatar-3: #15803D; /* green-700 */
+  --avatar-4: #7E22CE; /* purple-700 */
+  --avatar-5: #0F766E; /* teal-700 */
+  --avatar-6: #B91C1C; /* red-700 */
+  --avatar-7: #BE185D; /* pink-700 */
+  --avatar-8: #52525B; /* neutral-600 */
+
+  /* ── SUPERFICIES / TEXTO / BORDES — LIGHT (dark override abajo) ───────── */
+  --layout-bg:     var(--neutral-100);
+  --sidebar-bg:    #FFFFFF;
+  --card-bg:       #FFFFFF;
+  --surface-ground:var(--neutral-50);
+  --hover-bg:      var(--neutral-100);
+  --active-bg:     var(--neutral-950);
+  --active-text:   #FFFFFF;
+
+  --border-color:  var(--neutral-200);
+  --table-border:  var(--neutral-50);
+  /* Tinta base de los overlays interactivos (se voltea en dark). LIGHT = slate-950. */
+  --ink-rgb: 9, 9, 11;
+  /* Hover de tabla = overlay de rol (deriva de --ink-rgb, sirve en ambos modos). */
+  --table-hover:   var(--overlay-hover);
+  /* --table-zebra: deprecado (directiva no-zebra 2026-06-23) — sin consumidores. */
+  --table-zebra:   transparent;
+
+  /* Color de texto. Namespace --text-* = COLOR (no tamaño; el tamaño es --fs-*). */
+  --text-main:     var(--neutral-950);
+  --text-muted:    var(--neutral-600);
+  --text-faint:    var(--neutral-400);
+  --text-disabled: rgba(9, 9, 11, 0.45);
+
+  /* Alias de foreground con nombre no ambiguo — preferir en código nuevo. */
+  --fg-1:        var(--text-main);
+  --fg-2:        var(--text-muted);
+  --fg-3:        var(--text-faint);
+  --fg-disabled: var(--text-disabled);
+
+  --shadow-light:  0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-hover:  0 10px 30px -10px rgba(0, 0, 0, 0.1);
+  /* Overlay flotante (menú/popover/sheet). Regla de elevación: in-page = borde
+     hairline SIN sombra; overlay = sombra + borde. Ver DESIGN.md §datos densos 1. */
+  --shadow-float:  0 2px 4px rgba(9, 9, 11, 0.04), 0 10px 24px -12px rgba(9, 9, 11, 0.16);
+  --skeleton-bg:   #E4E4E7; /* zinc-200 */
+
+  /* Form controls — action (sunset) en vez de info (azul). */
+  --checkbox-accent:       var(--action);
+  --checkbox-accent-hover: var(--action-hover);
+
+  /* ⚠️ DOS TOKENS PORQUE SON DOS ROLES, y confundirlos costaba 103 anillos (2026-10-03):
+       --action-ring  = HALO translúcido, para `box-shadow: 0 0 0 3px ...`. Ahí el 30% de
+                        alpha es correcto: es un resplandor alrededor del control.
+       --focus-ring   = ANILLO sólido, para `outline: 2px solid ...`. Un outline NO se
+                        suma al fondo como un halo: se dibuja encima, y a 30% de alpha
+                        queda en 1.44:1 sobre tarjeta clara — contra el piso de 3:1 que
+                        §datos densos 13 y WCAG 1.4.11 exigen para un indicador de foco.
+     Medido en los cuatro fondos: el translúcido daba 1.41–1.52:1 (FALLA en los cuatro);
+     el sólido da 3.08 (ground claro) · 3.39 (tarjeta clara) · 5.23 y 5.87 en oscuro.
+     ⚠️ Nota de precisión: 3.39:1 es el MISMO número que hace fallar a --action-ink, y acá
+     PASA. No es contradicción: un indicador de foco pide 3:1 y un texto pide 4.5:1.
+     El mismo contraste, dos pisos distintos, dos veredictos distintos. */
+  --focus-ring:            var(--action);
+
+  /* ── ROLES DE COLOR (capa de composición) ────────────────────────────────
+     Disciplina 3 capas de texto + 1 acento + semánticos. Reemplazan a las
+     variables de PrimeNG (text-color-secondary, primary-color/azul leak).
+     Los fallbacks apuntan a tokens del sistema, NUNCA a un hex frío suelto:
+     un hex acá se veía bien en light y roto en dark. */
+  --c-text-1: var(--text-main);
+  --c-text-2: var(--text-color-secondary, var(--text-muted));
+  --c-text-3: var(--text-faint);
+
+  --c-surface-0: var(--layout-bg);  /* fondo de página */
+  --c-surface-1: var(--card-bg);    /* fondo de celda/panel */
+  --c-surface-2: var(--neutral-100);/* hover, subtle bg */
+
+  --c-divider:   var(--border-color); /* hairline 1px */
+
+  /* Acento de composición — uso restricto: headline metric (1 por vista),
+     tab/chip activo, hover row left-stripe, focus ring.
+     ⚠ PENDIENTE DE DECISIÓN: DESIGN.md declara --action (sunset) como ÚNICO
+     acento interactivo, pero --c-accent apunta a brand-500 (ámbar). Se conserva
+     el valor actual para no cambiar visuales sin aprobación. */
+  --c-accent:    var(--brand-500);
+  --c-accent-fg: var(--brand-700);
+
+  /* Semánticos de composición — sólo en pills, deltas, status dots, chart bars. */
+  --c-ok:    var(--ok-fg);
+  --c-warn:  var(--warn-fg);
+  --c-bad:   var(--bad-fg);
+  --c-info:  var(--info-fg);
+
+  /* ── AI accent — identidad ember (ámbar→sunset) ──────────────────────────
+     Mata el azul/morado SaaS genérico. Toda superficie de IA usa ember:
+     búsqueda semántica, chips "Sugeridos", scores. Ver DESIGN_FOUNDATIONS.md §1. */
+  --ai-accent:          var(--action);
+  --ai-accent-soft-bg:  var(--ember-soft);
+  --ai-accent-soft-fg:  var(--brand-900);
+  --ai-accent-border:   var(--ember-border);
+
+  /* ── Shim de compat de tokens (BINDING) ──────────────────────────────────
+     Nombres mal escritos en componentes viejos (varios dialectos) que NO existen
+     como token → sin esto, la declaración cae al fallback hex y queda HARDCODEADA
+     (rota en dark). El alias los resuelve a canónico que flipea por tema, en ambas
+     formas `var(--x)` y `var(--x, #hex)`. Canónico preferido en código nuevo;
+     migrar y quitar del shim con el tiempo. Ver [[feedback_canonical_tokens_border_radius]]. */
+  --border:        var(--border-color);
+  --divider:       var(--border-color);
+  --radius-sm:     var(--r-sm);
+  --radius-md:     var(--r-md);
+  --radius-lg:     var(--r-lg);
+  --text:          var(--text-main);
+  --text-soft:     var(--text-muted);
+  --text-dim:      var(--text-faint);
+  --content-main:  var(--text-main);
+  --content-muted: var(--text-muted);
+  --content-soft:  var(--text-muted);
+  --content-faint: var(--text-faint);
+  --content-dim:   var(--text-faint);
+  --content-disabled: var(--text-disabled);
+  --surface-card:  var(--card-bg);
+  --c-surface:     var(--card-bg);
+  --surface-border:var(--border-color);
+  --surface-layout:var(--layout-bg);
+  --surface-hover: var(--hover-bg);
+  --surface-2:     var(--layout-bg);
+  --surface-100:   var(--layout-bg);
+  --surface-200:   var(--hover-bg);
+  --hover:         var(--hover-bg);
+  --bad:           var(--bad-fg);
+  --ok:            var(--ok-fg);
+  --warn:          var(--warn-fg);
+  --orange-500:    var(--action);
+
+  /* Aliases legacy (codemod posterior los limpia) */
+  --brand-primary:        var(--brand-400);
+  --brand-orange:         var(--brand-600);
+  --brand-sunset:         var(--brand-700);
+  --brand-light:          var(--brand-100);
+  --accent-brand:         var(--brand-400);
+  --accent-brand-light:   rgba(253, 231, 7, 0.15);
+  --accent-brand-orange:  var(--brand-600);
+  --accent-brand-sunset:  var(--brand-700);
+
+  --status-ok-fg:         var(--ok-fg);
+  --status-ok-soft-bg:    var(--ok-soft-bg);
+  --status-ok-soft-fg:    var(--ok-soft-fg);
+  --status-ok-border:     var(--ok-border);
+
+  --status-warn-fg:       var(--warn-fg);
+  --status-warn-soft-bg:  var(--warn-soft-bg);
+  --status-warn-soft-fg:  var(--warn-soft-fg);
+  --status-warn-border:   var(--warn-border);
+
+  --status-bad-fg:        var(--bad-fg);
+  --status-bad-soft-bg:   var(--bad-soft-bg);
+  --status-bad-soft-fg:   var(--bad-soft-fg);
+  --status-bad-border:    var(--bad-border);
+
+  --chip-info-bg:         var(--info-soft-bg);
+  --chip-info-fg:         var(--info-soft-fg);
+  --chip-info-border:     var(--info-border);
+  --chip-warn-soft-bg:    var(--warn-soft-bg);
+  --chip-warn-soft-fg:    var(--warn-soft-fg);
+  --chip-warn-soft-border:var(--warn-border);
+  --chip-brand-bg:        var(--brand-100);
+  --chip-brand-fg:        var(--brand-900);
+  --chip-brand-border:    var(--brand-200);
+
+  /* Competencia — neutral informacional. No es error (no rojo), no es alerta (no
+     ámbar), no es marca (no amarillo). Diferencia "exhibidor ajeno" sin estigma. */
+  --chip-competition-bg:     var(--neutral-100);
+  --chip-competition-fg:     var(--neutral-700);
+  --chip-competition-border: var(--neutral-300);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   DARK MODE — Operations surface: ZINC (PrimeNG Aura).
+   Aura define `surface: light-dark({slate}, {zinc})` — su modo oscuro NO es
+   slate, es zinc. Decisión Edgar 2026-09-14: se adopta Aura completo, así que
+   el oscuro de Operations es la rampa zinc de Aura, no hexes escritos a mano.
+
+   Qué cambió respecto del set anterior: los valores viejos (#111111/#1A1A1A/
+   #2A2A2A) tenían croma EXACTAMENTE 0 y no salían de ninguna rampa — se
+   escribieron a mano y el texto encima era cálido (stone, hue 79°), lo que
+   hacía leer la superficie como fría por contraste simultáneo. Ahora
+   superficie y texto son la MISMA familia (zinc), que es la regla de fondo:
+   el texto pertenece a la familia de la superficie que lo sostiene.
+
+   El Storefront (/portal) mantiene el espresso cálido vía el override de abajo.
+   Ver DESIGN_FOUNDATIONS.md §1.1 — calibrar contraste con APCA.
+
+   ⛔ EL SELECTOR LLEVA `:root` A PROPÓSITO, y no es cosmético — 2026-09-15.
+   Los ~32 ALIAS de `:root` (`--c-text-1: var(--text-main)`, `--fg-1`, `--text`,
+   `--content-*`, `--c-surface-*`, `--status-*-fg`…) se COMPUTAN en el elemento
+   donde se declaran, o sea en `<html>`: su `var()` se sustituye ahí y ese valor
+   YA RESUELTO es el que heredan los hijos. Con los tokens sólo en `body`, `<html>`
+   nunca los veía, así que cada alias quedaba CONGELADO en su valor CLARO y lo
+   repartía a toda la página, aunque `body` sí tuviera el valor oscuro.
+   Medido en navegador antes de tocar esto: un `h1` con `color: var(--c-text-1)`
+   computaba `rgb(9,9,11)` = **exactamente `--layout-bg`** — texto invisible, no
+   bajo contraste. Es lo que reportó Edgar en /almacen/movimientos. El control con
+   `var(--text-main)` directo daba `#FAFAFA`: fallaban SÓLO los alias.
+   ThemeService ya pone la clase en `<html>` y en `<body>` (theme.service.ts:128),
+   así que esto no cambia nada del lado del TS.
+   ⚠️ Si algún día se agrega otro bloque de tema, tiene que cubrir los DOS o vuelve.
+   ════════════════════════════════════════════════════════════════════════════ */
+:root.theme-monochrome,
+body.theme-monochrome {
+  --layout-bg:     #09090B;   /* zinc-950 */
+  --sidebar-bg:    #18181B;   /* zinc-900 */
+  --card-bg:       #18181B;   /* zinc-900 */
+  --surface-ground:#111113;   /* entre 950 y 900 */
+  --hover-bg:      #27272A;   /* zinc-800 */
+  --active-bg:     #FAFAFA;   /* zinc-50  */
+  --active-text:   #09090B;
+
+  --border-color:  #27272A;   /* zinc-800 */
+  --table-border:  #1F1F22;
+  /* DARK: la tinta del overlay se vuelve clara → hover/active/selected recalculan solos. */
+  --ink-rgb: 250, 250, 250;   /* zinc-50 */
+  /* --table-hover y --table-zebra heredan del :root (derivan de --ink-rgb). */
+
+  --text-main:     #FAFAFA;   /* zinc-50  */
+  --text-muted:    #A1A1AA;   /* zinc-400 */
+  --text-faint:    #71717A;   /* zinc-500 */
+  --text-disabled: rgba(250, 250, 250, 0.45);
+
+  --shadow-light:  0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-hover:  0 0 20px rgba(251, 244, 233, 0.08);
+  --shadow-float:  0 2px 6px rgba(0, 0, 0, 0.4), 0 12px 28px -14px rgba(0, 0, 0, 0.6);
+  --skeleton-bg:   #27272A;
+
+  --accent-brand-light: rgba(253, 231, 7, 0.2);
+
+  --ember-soft: rgba(248, 180, 0, 0.16);
+
+  --ok-fg:        #22C55E;
+  --ok-soft-bg:   rgba(34, 197, 94, 0.15);
+  --ok-soft-fg:   #86EFAC;
+  --ok-border:    rgba(34, 197, 94, 0.35);
+
+  --warn-fg:      #FBBF24;
+  --warn-soft-bg: rgba(251, 191, 36, 0.15);
+  --warn-soft-fg: #FCD34D;
+  --warn-border:  rgba(251, 191, 36, 0.35);
+
+  --bad-fg:       #F87171;
+  --bad-soft-bg:  rgba(248, 113, 113, 0.15);
+  --bad-soft-fg:  #FCA5A5;
+  --bad-border:   rgba(248, 113, 113, 0.35);
+
+  --info-fg:      #60A5FA;
+  --info-soft-bg: rgba(96, 165, 250, 0.15);
+  --info-soft-fg: #93C5FD;
+  --info-border:  rgba(96, 165, 250, 0.35);
+
+  --checkbox-accent:       var(--action);
+  --checkbox-accent-hover: var(--action-hover);
+  /* Anillo sólido también en oscuro — ahí el sunset da 5.23:1 sobre tarjeta. Ver la nota
+     de los dos roles en el bloque claro: --action-ring sigue siendo el halo de box-shadow. */
+  --focus-ring:            var(--action);
+
+  --chart-1: #FBA94E;
+  --chart-2: #60A5FA;
+  --chart-3: #5FBF8F; /* green dark (reemplaza el morado #C084FC) */
+  --chart-4: #38BDF8;
+  --chart-5: #F472B6;
+  --chart-6: #2DD4BF;
+  --chart-7: #FCD34D;
+  --chart-8: #A1A1AA;
+
+  --chart-grid:      rgba(255, 255, 255, 0.06);
+  --chart-axis-text: #A1A1AA; /* zinc-400 — era stone-400 (cálido sobre superficie fría) */
+  --chart-meta-line: #71717A; /* zinc-500 — era stone-500 */
+
+  --chart-fill-low:  #3F3F46; /* zinc-700 */
+  --chart-fill-mid:  #A1A1AA; /* zinc-400 */
+  --chart-fill-high: #FAFAFA; /* zinc-50  */
+
+  --avatar-1: #FB923C;
+  --avatar-2: #60A5FA;
+  --avatar-3: #4ADE80;
+  --avatar-4: #C084FC;
+  --avatar-5: #5EEAD4;
+  --avatar-6: #FCA5A5;
+  --avatar-7: #F9A8D4;
+  --avatar-8: #A1A1AA;
+
+  --chip-brand-bg:     rgba(253, 231, 7, 0.15);
+  --chip-brand-fg:     #FDE047;
+  --chip-brand-border: rgba(253, 231, 7, 0.35);
+
+  --chip-competition-bg:     rgba(255, 255, 255, 0.06);
+  --chip-competition-fg:     var(--neutral-300);
+  --chip-competition-border: rgba(255, 255, 255, 0.15);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Primitivas globales aditivas — disponibles en TODA la app.
+   Stone-*  = acceso explícito a la rampa cálida.
+   Action-* = único acento interactivo (sunset naranja).
+   Ember-*  = identidad IA (ámbar→sunset gradiente).
+   Radii / Spacing / Motion / Density / Interacción.
+   ════════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* La rampa --stone-* (neutrales cálidos) se RETIRÓ el 2026-09-14 al unificar
+     toda la suite en zinc. Tenía cero consumidores después de que el portal
+     dejara de pisar sus neutrales, y dejarla declarada invitaba a volver a
+     partir el sistema en dos familias. Está en git (commit de esa fecha) si
+     hiciera falta recuperarla. La calidez de marca vive en --brand-*,
+     --action y --ember-*, no en el sustrato. */
+
+  --action:       #F05A28;
+  --action-hover: #D2451C;
+  --action-press: #B83C15;
+  --action-ink:   #FFFFFF;
+  --action-ring:  rgba(240, 90, 40, 0.30);
+
+  /* Radii — single source. sm=chips/tags, md=controles/botones, lg=tarjetas,
+     xl=tarjetas grandes, 2xl=hero/sheets, pill=full rounded. */
+  --r-sm:   8px;
+  --r-md:   12px;
+  --r-lg:   16px;
+  --r-xl:   20px;
+  --r-2xl:  24px;
+  --r-pill: 999px;
+
+  /* Spacing — escala 4px (rem para respetar el zoom). ÚNICO origen de paddings/
+     gaps/margins de layout (Linear/Stripe/Geist usan grid de 4px). No usar rem
+     sueltos fuera de grid. Excepciones legítimas: 1px (bordes/hairlines) y
+     micro-nudges <4px en chips/badges. La tipografía tiene su escala (--fs-*). */
+  --sp-1:  0.25rem; /*  4 */
+  --sp-2:  0.5rem;  /*  8 */
+  --sp-3:  0.75rem; /* 12 */
+  --sp-4:  1rem;    /* 16 */
+  --sp-5:  1.25rem; /* 20 */
+  --sp-6:  1.5rem;  /* 24 */
+  --sp-8:  2rem;    /* 32 */
+  --sp-10: 2.5rem;  /* 40 */
+  --sp-12: 3rem;    /* 48 */
+
+  --ember-from:   #F8B400;
+  --ember-to:     #F05A28;
+  --ember-grad:   linear-gradient(135deg, #F8B400 0%, #F05A28 100%);
+  --ember-soft:   rgba(248, 180, 0, 0.12);
+  --ember-border: rgba(240, 90, 40, 0.30);
+
+  /* ── MOTION ──────────────────────────────────────────────────────────────
+     Presupuesto BINDING: micro 150ms · standard 250ms · TECHO DURO 350ms.
+     Animar sólo `transform` + `opacity`. Nada de width/height/margin en tablas.
+     Todo gateado por `prefers-reduced-motion`. Ver DESIGN.md §motion. */
+  --dur-micro:    120ms; /* feedback inmediato: press, tint de hover */
+  --dur-short:    150ms; /* micro-transiciones */
+  --dur-standard: 250ms; /* entradas/salidas estándar (drawer, side-peek) */
+  --dur-max:      350ms; /* techo duro — nada supera esto */
+
+  /* Curvas. --ease-standard es el movimiento general (sidebar, hover lift);
+     --ease-emphasized es la curva "Mercado" documentada en DESIGN.md.
+     NOTA: hasta la consolidación 2026-08-12 --ease-standard estaba declarado dos
+     veces con valores distintos (tokens.css 0.2,0,0,1 vs styles.css 0.4,0,0.2,1);
+     ganaba el segundo. Se conserva el valor EFECTIVO para no alterar visuales. */
+  --ease-standard:   cubic-bezier(0.4, 0, 0.2, 1);
+  --ease:            cubic-bezier(0.2, 0, 0, 1);
+  --ease-out:        cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out:     cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer:     cubic-bezier(0.32, 0.72, 0, 1);  /* bottom-sheets (iOS) */
+  --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);      /* entrada en pantalla */
+  --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);      /* salida de pantalla */
+  --ease-spring:     cubic-bezier(0.34, 1.4, 0.5, 1); /* gestos drag-to-dismiss */
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);      /* acción destacada */
+
+  /* ── DENSIDAD — altura de fila parametrizable ────────────────────────────
+     Operations usa --row-h-md (compact++); Storefront usa --row-h-xl.
+     Override en el shell del surface: .operations-shell { --row-h: var(--row-h-md); }
+     Fuente: Carbon Design System v11 (xs=24, sm=32, md=40, lg=48, xl=64). */
+  --row-h-xs: 24px;   /* ultra-compact: headers/chips */
+  --row-h-sm: 32px;   /* compact: Operations auxiliar */
+  --row-h-md: 40px;   /* compact++: Operations default */
+  --row-h-lg: 48px;   /* cómodo: listas con info secundaria */
+  --row-h-xl: 64px;   /* comfortable: Storefront lista / vendor */
+  --row-h:    var(--row-h-md); /* default global */
+
+  /* ── INTERACCIÓN (Tier-2 de rol) — overlays por alpha sobre --ink-rgb ────
+     Una sola definición sirve light+dark: la tinta se voltea en cada modo
+     (light=stone-950, dark=stone-50). Nunca inventar un hex de hover por
+     componente: referenciar estos roles o los tokens de componente de abajo. */
+  --overlay-hover:    rgba(var(--ink-rgb), 0.045);
+  --overlay-active:   rgba(var(--ink-rgb), 0.09);
+  --overlay-selected: rgba(var(--ink-rgb), 0.07);
+
+  /* ── COMPONENTE (Tier-3) — el valor exacto por elemento. Cambiar el look de
+     un componente = tocar SU token, sin efectos colaterales en el sistema. ── */
+  --surface-hover-bg:        var(--overlay-hover);
+  --surface-active-bg:       var(--overlay-active);
+  --surface-selected-bg:     var(--overlay-selected);
+  --table-row-hover-bg:      var(--overlay-hover);
+  --table-row-selected-bg:   var(--overlay-selected);
+  --btn-primary-bg:          var(--action);
+  --btn-primary-bg-hover:    var(--action-hover);
+  --btn-primary-bg-press:    var(--action-press);
+  --btn-primary-ink:         var(--action-ink);
+
+  /* Tap target mínimo — fine pointer no fuerza mínimo (densidad ultra-compacta);
+     coarse lo sube a 44px (ver @media abajo). Ley de Fitts en touch. */
+  --tap-min: 0px;
+}
+
+/* ── DENSIDAD POR MÉTODO DE ENTRADA (Polaris/Carbon) — la densidad la decide el
+   PUNTERO del dispositivo, no el surface. Touch (Capacitor/apps/vendor) sube las
+   filas y los hit areas a ≥44px para evitar fat-finger; mouse mantiene compacto. */
+@media (pointer: coarse) {
+  :root {
+    --row-h-sm: 44px;
+    --row-h-md: 48px;
+    --tap-min:  44px;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SURFACE — Storefront (Portal B2B). Overrides SCOPEADOS a .portal-shell/.pl-wrap.
+
+   ⚠️ NEUTRALES: desde el 2026-09-14 el portal NO los pisa — hereda el zinc de
+   `:root` y de `body.theme-monochrome`, igual que Operations. Decisión de Edgar:
+   UNA sola familia de neutrales en toda la suite.
+
+   Hasta esa fecha acá se re-apuntaba --neutral-* a --stone-* (cálido) y el dark
+   era espresso (#16130F). Se retiró entero, no se reescribió a zinc: heredar es
+   más barato que duplicar, y un override que repite el valor del padre es la
+   forma más común de que las dos definiciones diverjan sin que nadie lo note
+   (ya pasó una vez en este archivo — ver la cabecera, consolidación 2026-08-12).
+
+   Lo que el portal SÍ conserva propio: su tipografía (Poppins entra por
+   --font-display en :root, pero body/mono se fijan acá por herencia histórica)
+   y la identidad IA ámbar. La calidez de marca ahora la llevan --action sunset,
+   --brand-* y --ember-*, no el sustrato.
+   ════════════════════════════════════════════════════════════════════════════ */
+.portal-shell,
+.pl-wrap {
+  /* ⛔ Acá vivían --font-body y --font-mono, y eran exactamente lo que el comentario de
+     arriba advierte. Medido 2026-10-03:
+       · --font-body era copia LITERAL de :root  → cero efecto, puro ruido.
+       · --font-mono YA HABÍA DIVERGIDO: :root cae a 'Courier New' y esto caía a
+         SFMono-Regular/Menlo. O sea que el día que Geist Mono no cargue (red del campo,
+         bloqueo de Google Fonts, CSP), Operations imprime las cifras en una Courier con
+         serifas y el Storefront en SF Mono. Dos tipografías distintas para el MISMO rol,
+         en la columna que existe para que los números se puedan comparar.
+     El Storefront hereda de :root, como los neutrales desde el 2026-09-14. */
+  --ai-accent: #F8B400; /* ember-from: identidad IA en storefront */
+}
+
+body.theme-monochrome .portal-shell,
+body.theme-monochrome .pl-wrap {
+  --ember-soft:     rgba(248, 180, 0, 0.16);
+  --ai-accent:      #F8B400;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SURFACE — Modo Vendedor. Radios más redondeados (look moderno) + colorimetría
+   golden de /vendor-capture. Scopeado a .vendor-shell; cascada a todos los
+   componentes del módulo. Sunset --action se conserva en CTAs sólidos.
+   ════════════════════════════════════════════════════════════════════════════ */
+.vendor-shell {
+  --r-sm:  10px;
+  --r-md:  14px;
+  --r-lg:  18px;
+  --r-xl:  22px;
+  --r-2xl: 26px;
+  --v-hero-grad: linear-gradient(160deg, #F8B400 -10%, #F68F1E 55%, #C53E15 125%);
+  --v-seq-bg: var(--brand-100);
+  --v-seq-fg: var(--brand-900);
+}
+
+/* Focus visible (a11y) — anillo de foco para teclado en todo el módulo vendedor.
+   Un stylesheet global penetra los componentes Angular (selectores de elemento/
+   clase no quedan scopeados). Sólido (--action) para pasar contraste 3:1; el
+   outline sigue el border-radius del elemento. Los contenedores de búsqueda lo
+   muestran vía focus-within. */
+.vendor-shell button:focus-visible,
+.vendor-shell a:focus-visible,
+.vendor-shell [role='button']:focus-visible,
+.vendor-shell .search:focus-within,
+.vendor-shell .search-wrap:focus-within {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}

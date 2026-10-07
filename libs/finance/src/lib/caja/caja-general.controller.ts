@@ -1,0 +1,146 @@
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { CajaGeneralService, CajaQuery } from './caja-general.service';
+
+interface AuthedRequest { user?: { username?: string } }
+
+/**
+ * Fase CG.3 — Caja General (Tesorería). Read-only sobre analytics.caja_*.
+ * Permiso FINANCE_BANK_VER (misma persona que Bancos/CB — la caja general concilia
+ * contra el estado de cuenta bancario).
+ *
+ * ⚠️ **CG.19 — tres de estos quince endpoints NO TIENEN LLAMADOR.** Medido: `/finanzas/caja` es
+ * el único consumidor de `/finance/caja/*` en todo el repo, y no pide `cuadre`,
+ * `workbook-movimientos` ni `kepler-movimientos`. Los dos últimos son el diseño anterior del
+ * drill por día, que `conciliacion-dia` reemplazó devolviendo los dos lados en `rows`; `cuadre`
+ * tiene su tipo y su constructor de KPIs en el frontend, pero la pestaña "Cuadre" pide
+ * `conciliacion-workbook`.
+ *
+ * Quedan expuestos y marcados, no borrados: retirar superficie de API es una decisión aparte de
+ * arreglar fórmulas, y borrar a ciegas un endpoint que responde 200 es cómo se rompe un consumidor
+ * que nadie recordaba. Si al cerrar la Capa 4 siguen sin llamador, se retiran con su nota.
+ */
+@ApiTags('finance-caja')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
+@Controller('finance/caja')
+export class CajaGeneralController {
+  constructor(private readonly svc: CajaGeneralService) {}
+
+  private q(month?: string, from?: string, to?: string, instance?: string, banco?: string, almacen?: string, tipo?: string, search?: string, limit?: string): CajaQuery {
+    return { month, from, to, instance, banco, almacen, tipo, search, limit: limit ? Number(limit) : undefined };
+  }
+
+  @Get('general')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'CAJA GENERAL viva (Doctos): ingresos/gastos por cuenta + KPIs + por-mes + movimientos. Filtros: month|from/to, tipo(Ingreso|Gasto), search.' })
+  general(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('tipo') tipo?: string, @Query('search') search?: string) {
+    return this.svc.general(this.q(month, from, to, undefined, undefined, undefined, tipo, search));
+  }
+
+  @Get('cuadre')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'CUADRE caja general: ingreso vs gasto (desglose depósito banco) → neto, por día, con arqueo físico como testigo.' })
+  cuadre(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.cajaCuadre(this.q(month, from, to));
+  }
+
+  @Get('conciliacion-workbook')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Conciliación operativo↔manual: caja viva (.mdb/Doctos) vs copia manual del workbook (CAJA GENERAL), por día + Δ.' })
+  conciliacionWorkbook(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.conciliacionWorkbook(this.q(month, from, to));
+  }
+
+  @Get('workbook-movimientos')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Movimientos del lado MANUAL (workbook, kind=cash) para el desglose por día del Vs Workbook.' })
+  workbookMovimientos(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.workbookMovimientos(this.q(month, from, to));
+  }
+
+  @Get('kepler-movimientos')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Movimientos del lado KEPLER (tesorería CAJA GENERAL, account_label=CG) para el desglose por día del Vs Workbook.' })
+  keplerMovimientos(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.keplerMovimientos(this.q(month, from, to));
+  }
+
+  @Get('conciliacion-dia')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Drill "¿dónde está el descuadre?" de un día: match greedy por importe .mdb↔Manual y .mdb↔Kepler → huérfanos de cada lado (espejo de Bancos).' })
+  conciliacionDia(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.conciliacionDia(this.q(month, from, to));
+  }
+
+  @Get('movement')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Detalle COMPLETO de un movimiento del Cuadre (click en el drill). source=control|workbook|kepler + key (PK codificada).' })
+  movement(@Query('source') source: string, @Query('key') key: string) {
+    return this.svc.movementDetail(source, key);
+  }
+
+  @Get('overview')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'KPIs del periodo: venta vs depositado por forma de pago + descuadre. Filtros: month|from/to, instance(SI|NO).' })
+  overview(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('instance') instance?: string) {
+    return this.svc.overview(this.q(month, from, to, instance));
+  }
+
+  @Get('por-sucursal')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Venta vs depositado por sucursal + descuadre + % depositado.' })
+  porSucursal(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('instance') instance?: string) {
+    return this.svc.porSucursal(this.q(month, from, to, instance));
+  }
+
+  @Get('depositos')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Ledger de depósitos + KPIs + desglose por banco. Filtros: month|from/to, banco, almacen, search.' })
+  depositos(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('instance') instance?: string, @Query('banco') banco?: string, @Query('almacen') almacen?: string, @Query('search') search?: string, @Query('limit') limit?: string) {
+    return this.svc.depositos({ month, from, to, instance, banco, almacen, search, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('arqueos')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Arqueos de caja (conteo por denominación). Filtros: month|from/to, tipo, almacen(=caja), search.' })
+  arqueos(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('tipo') tipo?: string, @Query('almacen') almacen?: string, @Query('search') search?: string, @Query('limit') limit?: string) {
+    return this.svc.arqueos({ month, from, to, tipo, almacen, search, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('conciliacion')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Depósitos de caja ↔ ingresos del banco (CB) por banco. Delta informativo (universos distintos); cuadre por totales ±$1,000.' })
+  conciliacion(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('instance') instance?: string) {
+    return this.svc.conciliacion(this.q(month, from, to, instance));
+  }
+
+  @Get('conciliacion-detalle')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Conciliación de ingresos a nivel movimiento: depósito Caja ↔ ingreso banco (matched / caja sin banco = fuga / banco sin caja = cobranza). Filtro banco opcional.' })
+  conciliacionDetalle(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('instance') instance?: string, @Query('banco') banco?: string) {
+    return this.svc.conciliacionDetalle(this.q(month, from, to, instance, banco));
+  }
+
+  @Get('facets')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Facetas para filtros: meses, bancos, empresas, cajas.' })
+  facets() {
+    return this.svc.facets();
+  }
+
+  @Get('crosswalk')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Enlace de cuentas Caja→banco: estado actual + sugerencia vía Kepler (match depósitos monto+fecha) + alternativas.' })
+  crosswalk() {
+    return this.svc.crosswalk();
+  }
+
+  @Post('crosswalk')
+  @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @ApiOperation({ summary: 'Confirma/edita el enlace de una cuenta de Caja a su account_label (CB/Kepler). label vacío = desenlazar.' })
+  crosswalkSet(@Body() body: { banco_code: string; account_label?: string | null; matches?: number }, @Req() req: AuthedRequest) {
+    return this.svc.crosswalkSet(body.banco_code, body.account_label ?? null, Number(body.matches) || 0, req.user?.username);
+  }
+}

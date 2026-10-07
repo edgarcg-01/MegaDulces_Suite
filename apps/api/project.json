@@ -1,0 +1,112 @@
+{
+  "name": "api",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/api/src",
+  "projectType": "application",
+  "tags": [
+    "scope:api",
+    "type:app"
+  ],
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": [
+        "{options.outputPath}"
+      ],
+      "//": [
+        "⛔ Los `assets` de abajo traen DOS carpetas de FUERA del proyecto (database/migrations y",
+        "database/seeds). El input por default de Nx es {projectRoot}/**/* + sharedGlobals, o sea",
+        "que esas dos NO entran al hash. MEDIDO el 2026-09-17, con la cache recien encendida:",
+        "creando un archivo nuevo en database/migrations, `nx build api` daba 2/2 hit (100%) y",
+        "[local cache] -- el build salia SIN esa migracion. Con estos inputs da 1/2 y reconstruye.",
+        "",
+        "Mientras NADA se cacheaba el hueco era inofensivo. Al encender la cache se vuelve un bug",
+        "de produccion: agregar una migracion y desplegar serviria un bundle viejo.",
+        "",
+        "Regla: si un target copia algo de fuera de su projectRoot, ese algo va en `inputs`."
+      ],
+      "inputs": [
+        "production",
+        "^production",
+        "{workspaceRoot}/database/migrations/**/*",
+        "{workspaceRoot}/database/seeds/**/*"
+      ],
+      "options": {
+        "target": "node",
+        "compiler": "swc",
+        "outputPath": "dist/apps/api",
+        "main": "apps/api/src/main.ts",
+        "tsConfig": "apps/api/tsconfig.app.json",
+        "webpackConfig": "apps/api/webpack.config.js",
+        "assets": [
+          {
+            "glob": "**/*",
+            "input": "database/migrations",
+            "output": "database/migrations"
+          },
+          {
+            "glob": "**/*",
+            "input": "database/seeds",
+            "output": "database/seeds"
+          },
+          {
+            "glob": "**/*.hbs",
+            "input": "apps/api/templates",
+            "output": "templates"
+          }
+        ]
+      },
+      "configurations": {
+        "production": {
+          "optimization": true,
+          "extractLicenses": true,
+          "inspect": false
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "options": {
+        "buildTarget": "api:build"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "//": [
+        "`[NX.7]` El typecheck de la api vivía SÓLO como script de npm (`typecheck:fast`), o sea",
+        "fuera de Nx: sin caché, sin `affected`, y sin aparecer en `nx run-many`. Acá adentro",
+        "gana las tres cosas y se puede exigir en CI junto al resto.",
+        "",
+        "Por qué es la api y no cada proyecto: `apps/api` compila con SWC, que BORRA los tipos",
+        "sin comprobarlos — `nx build api` no typechequea nada. Las tres apps Angular sí lo",
+        "hacen en el build (AOT). O sea que este target cubre el único hueco real.",
+        "",
+        "`tsconfig.ts7.json` entra en `inputs` explícito porque vive en la RAÍZ, fuera de",
+        "{projectRoot}: sin esa línea, cambiarle los `paths` NO invalidaría la caché y el",
+        "typecheck serviría un verde viejo. Es la misma regla que ya cobró con",
+        "database/migrations en `build` (`[NX.1]`) y con vitest.shared.ts en `test` (`[NX.3]`).",
+        "",
+        "`^default` (no `^production`): las pruebas de una lib no se compilan, pero sus tipos",
+        "sí participan de la resolución.",
+        "",
+        "Medido 2026-09-18: 5.5 s en frío. Con caché, hit inmediato."
+      ],
+      "inputs": [
+        "default",
+        "^default",
+        "{workspaceRoot}/tsconfig.ts7.json"
+      ],
+      "outputs": [],
+      "options": {
+        "command": "tsgo -p tsconfig.ts7.json",
+        "cwd": "{workspaceRoot}"
+      }
+    }
+  },
+  "//lint": [
+    "`[NX.6]` `lint` lo infiere `@nx/eslint/plugin`; el executor `@nx/eslint:lint` explícito se",
+    "retiró porque está deprecado y se va en Nx v24. Ver el detalle en libs/contracts/project.json.",
+    "Medido antes/después (2026-09-18): 213 problems (64 errors, 149 warnings) en los dos casos."
+  ]
+}

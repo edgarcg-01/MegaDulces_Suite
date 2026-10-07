@@ -1,0 +1,41 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# [VL.9.6] La base de prod, con pgBackRest adentro.
+#
+# ── POR QUÉ ─────────────────────────────────────────────────────────────────
+# Medido el 2026-09-22, los dos lados:
+#     Railway (prod hoy)      archive_mode = on   · pgbackrest-archive-push-wrapper.sh
+#     pg-prod en md           archive_mode = off  · (disabled)
+# ⛔ O sea que el corte, tal como estaba planeado, **bajaba el RPO de minutos a 24 horas**
+#    — de recuperación a un punto en el tiempo a "la foto de anoche" — y eso no figuraba en
+#    ninguno de los 7 bloqueos. No es una mejora: es reponer una capacidad que prod YA TIENE
+#    y que estábamos por perder sin decirlo.
+#
+# Y es lo único de la lista que no escala solo: cuanto más grande la base, más caro montarlo
+# después. Con 10× (340 GB) el volcado completo pasa de ~75 min a ~12 h y deja de existir
+# como estrategia — el archivado continuo de WAL es lo que sigue funcionando a esa escala.
+#
+# `pgbackrest` tiene que vivir DENTRO de este contenedor porque `archive_command` lo ejecuta
+# el propio Postgres: no hay forma de que corra en otro lado. Por eso la imagen se extiende
+# en vez de poner un contenedor al lado.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM pgvector/pgvector:pg18
+
+# 2.59.1 desde PGDG, que el repo de esta imagen ya trae configurado. Se fija la versión a
+# propósito: una imagen que instala "lo último" no es reproducible, y el respaldo es
+# justamente donde uno no quiere sorpresas de versión.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends pgbackrest=2.59.1-1.pgdg12+1 \
+ && rm -rf /var/lib/apt/lists/*
+
+# La configuración va HORNEADA, no montada desde el host: así vive versionada en el repo y no
+# puede divergir en silencio. Es la misma razón por la que la agenda del cron está en el repo.
+COPY ops/prod/pgbackrest.conf /etc/pgbackrest/pgbackrest.conf
+
+# `postgres` es quien corre `archive_command`, así que es quien tiene que poder escribir el
+# repositorio y los logs. Sin esto el archivado falla con un permiso denegado — y un
+# archive_command que falla hace que el WAL se ACUMULE hasta llenar el disco, que es la
+# trampa clásica de encender esto a medias.
+RUN mkdir -p /var/lib/pgbackrest /var/log/pgbackrest /var/spool/pgbackrest \
+ && chown -R postgres:postgres /var/lib/pgbackrest /var/log/pgbackrest /var/spool/pgbackrest \
+ && chmod 0750 /var/lib/pgbackrest /var/log/pgbackrest \
+ && chmod 0644 /etc/pgbackrest/pgbackrest.conf

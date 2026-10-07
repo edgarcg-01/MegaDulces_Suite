@@ -1,0 +1,75 @@
+import { HttpClient } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { Observable, shareReplay } from 'rxjs';
+import type { MeContext, MeWork, MeWorkZona, MeZonaPeriodo } from '@megadulces/contracts';
+import { environment } from '../../../environments/environment';
+import { AuthService } from './auth.service';
+
+/**
+ * `[SN.3]` — Contexto de la persona en sesión (`GET /users/me/context`): nombre, rol, puesto,
+ * departamento, sucursal y zona de la FICHA. Alimenta el bloque "Mi contexto" de la landing.
+ *
+ * No está en `auth.user()` porque el JWT no lo trae (`nombre`, puesto y departamento viven en
+ * `identity.users` y sus catálogos) y no se quiere engordar el token por un dato de pantalla.
+ * Es self-scoped y sin permiso, igual que `me/scope`.
+ *
+ * Cache por sesión, ATADO al `sub` del usuario: si cambia la persona (logout/login en la misma
+ * pestaña) el cache se invalida solo — no hace falta que `AuthService.logout()` conozca a este
+ * servicio. Los errores HTTP NO se tragan acá: la pantalla los muestra como error, que es
+ * distinto de "sin datos" (DESIGN pre-vuelo 6).
+ */
+@Injectable({ providedIn: 'root' })
+export class MeContextService {
+  private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
+  private cache$?: Observable<MeContext>;
+  private cachedFor: string | null = null;
+
+  mine(): Observable<MeContext> {
+    const sub = this.auth.user()?.sub ?? null;
+    if (!this.cache$ || this.cachedFor !== sub) {
+      this.cachedFor = sub;
+      this.cache$ = this.http
+        .get<MeContext>(`${environment.apiUrl}/users/me/context`)
+        .pipe(shareReplay({ bufferSize: 1, refCount: false }));
+    }
+    return this.cache$;
+  }
+
+  /**
+   * `[SN.7]` — Trabajo pendiente de la persona (`GET /users/me/work`).
+   *
+   * SIN cache, a propósito: un conteo de pendientes es un número que cambia mientras la persona
+   * trabaja, y servirlo de un `shareReplay` mostraría "12 por revisar" después de haber revisado
+   * los 12. La landing lo pide cada vez que se abre, y el botón "Actualizar" lo vuelve a pedir.
+   */
+  work(periodoZona?: MeZonaPeriodo): Observable<MeWork> {
+    /*
+     * `[JZ.4]` El grano del bloque «Cómo va tu zona» viaja en la URL, no en el cliente: cada grano
+     * tiene su propio COMPARADOR (día contra el mismo día de la semana, semana contra los 7
+     * cerrados anteriores, mes contra el mismo tramo) y ésos se calculan del lado del servidor,
+     * que es donde vive la regla. Recortar en el navegador daría el mismo total con el comparador
+     * equivocado — el error más difícil de ver de los tres.
+     */
+    const q = periodoZona ? `?periodo=${periodoZona}` : '';
+    return this.http.get<MeWork>(`${environment.apiUrl}/users/me/work${q}`);
+  }
+
+  /**
+   * `[JZ.5]` — Sólo el bloque de zona. Es lo que se vuelve a pedir cuando el WebSocket de tienda
+   * avisa que entró un ticket de una sucursal de esta zona.
+   *
+   * ⛔ Endpoint aparte a propósito: `me/work` cuesta 14 mediciones y el ticket sólo puede mover
+   * una. Pagar el reporte completo por cada ticket sería gastar trece consultas para nada.
+   */
+  workZona(periodoZona: MeZonaPeriodo): Observable<MeWorkZona> {
+    return this.http.get<MeWorkZona>(
+      `${environment.apiUrl}/users/me/work/zona?periodo=${periodoZona}`,
+    );
+  }
+
+  reset(): void {
+    this.cache$ = undefined;
+    this.cachedFor = null;
+  }
+}

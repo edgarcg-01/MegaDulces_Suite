@@ -1,0 +1,59 @@
+[RD.32] PARCHE DE EXISTENCIA — DEFINITIVO, UNA SOLA LINEA
+==========================================================
+
+Trae ya lo que costo descubrir en la ruta_22 y en la ruta_27 (2026-10-06):
+
+  · `-d "%CONN%"`, no la cadena posicional. psql en Windows no acepta opciones
+    despues del operando y responde "se ignoro argumento extra".
+  · el saldo sale de `md.kdij` (kardex: entradas menos salidas), NO de `md.kdik`,
+    que ACUMULA y nunca se releva: en la 22 daba 1,101,314 contra 65,101 reales.
+  · ⭐ DOS filtros de almacen, no uno. El Kepler de una van puede traer mas de
+    una sucursal (la 27 trae `00` del CEDIS con 36,065 renglones y la suya,
+    `01-005`, con 19,993):
+      - en `md.kdij`  -> si no, los `X-A-40` del CEDIS meten 97.7 M de unidades
+        como entradas y la foto sale en $596,312,276.
+      - en `md.kdik`  -> `kdik` tiene UNA FILA POR ALMACEN, asi que sin el filtro
+        cada SKU entra dos veces; y `merge_route_stock` SUMA (`sum(existencia)`,
+        `sum(importe)`), o sea que la existencia se cuenta DOBLE en silencio.
+    La sucursal se deriva del nombre de la base (`md_01-005` -> `01-005`), asi
+    que no hay constante por camioneta que mantener.
+  · los nombres de las conexiones se DETECTAN del propio agente (LOCAL_CONN /
+    RUNNER_CONN en las vans reales, SRC / DST en las plantillas del repo).
+  · entra con c5='A' (U-A-50 Recepcion) y sale con c5='D' (U-D-10 Ticket).
+
+⚠️ `md.kdii` es catalogo por SKU y NO duplica (medido: 9,526 filas / 9,526 SKU).
+   El unico que necesita el filtro de almacen es `kdik`.
+
+⚠️ Cada renglon del bloque va entre PARENTESIS. Sin ellas, PowerShell parte la
+   concatenacion en tres elementos del arreglo y el .cmd queda con el nombre de
+   la variable en su propia linea. Paso, y la verificacion debil de la primera
+   version lo dejo pasar: ahora tambien se comprueba que no haya quedado ninguna
+   linea que sea solo un nombre de variable.
+
+Es idempotente. Si no encuentra las conexiones o el lugar de insercion, se
+detiene y lo dice en vez de adivinar.
+
+--- COPIAR DESDE AQUI (una sola linea) ----------------------------------------
+
+$p='C:\KeplerPush\push-ruta.cmd'; $e=[Text.Encoding]::Default; $t=[IO.File]::ReadAllText($p,$e); $l=([regex]::Match($t,'(?im)^\s*set\s+(\w+)\s*=\s*(?=.*(?:host=|postgresql://)).*localhost.*$')).Groups[1].Value; $r=([regex]::Match($t,'(?im)^\s*set\s+(\w+)\s*=\s*(?=.*(?:host=|postgresql://))(?!.*localhost).*$')).Groups[1].Value; $a=[regex]::Matches($t,'(?im)^echo .*OK .*%TRUCK%.*$'); if($a.Count -eq 0){$a=[regex]::Matches($t,'(?im)^endlocal\s*$')}; if($t -match 'route_stock_stg'){'YA PARCHADO'}elseif(-not $l -or -not $r){"NO ENCONTRE LAS CONEXIONES (local=$l runner=$r) -- parar y avisar"}elseif($a.Count -eq 0){'NO ENCONTRE DONDE INSERTAR -- parar y avisar'}else{[IO.File]::Copy($p,$p+'.bak',$true); $b=(@('', 'REM [RD.32] LA EXISTENCIA DEL CAMION. Saldo del kardex de SU almacen: entradas (c5=A) menos salidas.', ('%PSQL% -d "%'+$r+'%" -c "delete from ingest.route_stock_stg where truck=''%TRUCK%''" >> "%LOG%" 2>&1'), '', ('%PSQL% -d "%'+$l+'%" -c "\copy (select ''%TRUCK%'',s.sku,btrim(i.c2),btrim(i.c11),s.saldo,k.c16,(s.saldo*k.c16) from (select c3 as sku, sum(case when c5=''A'' then c11 else -c11 end) as saldo from md.kdij where btrim(c1) = regexp_replace(current_database(),''^md_'','''') group by c3) s join md.kdik k on btrim(k.c2)=btrim(s.sku) and btrim(k.c1) = regexp_replace(current_database(),''^md_'','''') join md.kdii i on btrim(i.c1)=btrim(s.sku) where s.saldo > 0) to stdout csv" | %PSQL% -d "%'+$r+'%" -c "\copy ingest.route_stock_stg (truck,sku,producto,unidad,existencia,costo,importe) from stdin csv" >> "%LOG%" 2>&1'), '', 'echo [%date% %time%] merge existencia -^> filas: >> "%LOG%"', ('%PSQL% -d "%'+$r+'%" -c "select ingest.merge_route_stock(''%TRUCK%'')" >> "%LOG%" 2>&1'), '') -join "`r`n"); $i=$a[$a.Count-1].Index; [IO.File]::WriteAllText($p,($t.Substring(0,$i)+$b+$t.Substring($i)),$e); $v=[IO.File]::ReadAllText($p,$e); if(($v -match 'md\.kdij') -and (([regex]::Matches($v,'regexp_replace\(current_database')).Count -eq 2) -and ($v -match 'btrim\(k\.c1\)') -and ($v -match 'merge_route_sales') -and (([regex]::Matches($v,'route_stock_stg')).Count -eq 2) -and ($v -notmatch '(?m)^\s*\w+_CONN\s*$') -and ($v -notmatch '(?m)^\s*(SRC|DST)\s*$') -and (([regex]::Matches($v,'(?m)^%PSQL% -d "%\w+%" -c ')).Count -ge 3)){"PARCHADO OK  (local=$l runner=$r)"}else{[IO.File]::Copy($p+'.bak',$p,$true);'FALLO: se restauro el respaldo'}}
+
+--- HASTA AQUI ----------------------------------------------------------------
+
+DESPUES (cambiar el 27 por el numero de la camioneta):
+
+schtasks /End /TN "Ruta27" 2>$null; Start-Sleep 3; schtasks /Run /TN "Ruta27"; Start-Sleep 60; Get-Content C:\KeplerPush\push_ruta_27.log -Tail 8
+
+⭐⭐ EL CONTROL QUE DELATA EL DOBLE CONTEO: en el log, `COPY <n>` y
+   `merge_route_stock <n>` tienen que dar EL MISMO numero. Si el COPY es mayor,
+   `kdik` esta aportando mas de una fila por SKU y la existencia se esta sumando
+   dos veces. En la ruta_27 se vio `COPY 541` contra `merge_route_stock 280`.
+
+Y DESDE LA MAQUINA DE TRABAJO, el veredicto:
+
+  node database/scripts/check-route-stock-push.js
+
+Si la banda de plausibilidad sale muy arriba de 1x, NO se corrige a mano: se
+diagnostica el kardex de esa van con DIAGNOSTICO-KARDEX.txt. El piso de empalme
+del importador (50 %) impide que una foto mala llegue a la plataforma, pero el
+piso es la ultima linea, no la primera — y NO detecta el doble conteo, porque
+una foto duplicada empalma al 100 %.

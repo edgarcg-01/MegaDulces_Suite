@@ -1,0 +1,5 @@
+[
+  { "product_brand": "Marca Demo A", "product_nombre": "Producto A1", "quantity": 500 },
+  { "product_brand": "Marca Demo A", "product_nombre": "Producto A2", "quantity": 1200 },
+  { "product_brand": "Marca Demo B", "product_nombre": "Producto B1", "quantity": 300 }
+]

@@ -1,0 +1,116 @@
+# Los scripts de arranque de contenedores DEBEN ser LF: un shebang con CRLF
+# (#!/bin/sh\r) hace que Linux no encuentre el intérprete y el contenedor no
+# arranca (falla silenciosa de deploy). Forzar LF aunque se editen en Windows.
+*.sh text eol=lf
+start.sh text eol=lf
+
+# La AGENDA del cron tambien: no termina en .sh, asi que la regla de arriba NO la cubria.
+# 2026-09-11: se edito desde Windows, git la exporto con CRLF y el 
+# quedo pegado al final de
+# cada comando -> `--apply
+#`. Como `argv.includes('--apply')` es EXACTO, los 9 carriles corrieron
+# en SECO y salieron con codigo 0: el log decia "ok en 9s" y no se escribia una sola fila.
+# Un fallo disfrazado de exito, que es la peor clase.
+# ⚠️ La regla nombraba UNA ruta (`ops/vl/crontab.feeds`) en vez del patrón, así que la
+# siguiente agenda que se creara volvía a quedar afuera -- verificado el 2026-09-22 con
+# `git check-attr` sobre `ops/prod/crontab.backup`: `eol: unspecified`. Una regla que sólo
+# cubre el caso que ya falló no es una regla, es una anécdota.
+crontab.* text eol=lf
+# Y los Dockerfile, por lo mismo: no terminan en .sh ni en .yml. `git archive` con
+# core.autocrlf=true exporta CRLF lo que no tiene regla, y un `RUN` con 
+ al final
+# rompe el build o -- peor -- pega el 
+ DENTRO de una ruta o un chmod.
+Dockerfile*     text eol=lf
+# Y los archivos de configuración de servicios. Tercera vez en el mismo día que un archivo
+# nuevo queda afuera por no terminar en una extensión ya cubierta: un `
+` pegado a
+# `repo1-path=` rompe el parser de pgBackRest, y el síntoma no menciona ni CRLF ni git.
+*.conf          text eol=lf
+*.ini           text eol=lf
+ops/**/*.yml    text eol=lf
+*.env text eol=lf
+# ⛔ [VL.11.C] Y `.dockerignore`, que llevaba roto desde siempre sin que nadie lo notara.
+# MEDIDO el 2026-09-23 sobre lo que `git archive HEAD` entrega al servidor:
+#     .dockerignore  → 81 bytes CR      ⇒ CRLF
+#     Dockerfile     →  0               ⇒ su regla de acá arriba sí funciona
+#     deploy.sh      →  0
+# Cada patrón quedaba con un `\r` pegado (`node_modules\r`), así que **no matcheaba nada**:
+# el `.dockerignore` era decorativo en `md`. No explotó porque `deploy.sh` manda
+# `git archive HEAD`, o sea sólo archivos versionados —y lo que más pesa (`node_modules`,
+# `.nx`, `.angular`, los volcados) no está versionado—, pero **un `docker build .` local o
+# de CI sí lee el archivo** y ahí el no-op cuesta cientos de MB.
+# ⚠️ Cuarta vez en este repo que un archivo sin extensión conocida queda fuera y falla
+# callado. El patrón de la falla ya tiene nombre; lo que faltaba era ESTA línea.
+.dockerignore   text eol=lf
+
+# ⭐⭐ [VL.11.A] Y ACÁ SE CORTA EL PATRÓN, EN VEZ DE AGREGAR LA SEXTA REGLA PUNTUAL.
+# En un solo día este archivo sumó reglas para `crontab.*`, `Dockerfile*`, `*.conf`, `*.ini`
+# y `.dockerignore`, todas por el MISMO motivo: un archivo sin extensión conocida queda sin
+# regla, `git archive` con `core.autocrlf=true` lo exporta con CRLF, y el `
+` rompe algo
+# CALLADO. El sexto caso apareció el mismo día: `ops/prod/Caddyfile`, 64 bytes CR medidos.
+#
+# Medido antes de escribir esta línea: bajo `ops/` hay **57 archivos versionados, ninguno
+# binario** (`file` describe a los `.sh` como "ASCII text executable", que no es lo mismo),
+# y **12 seguían sin regla** — entre ellos `ops/vl/netplan-md.yaml`, porque la regla vieja
+# cubría `*.yml` y NO `*.yaml`.
+#
+# `ops/` es infraestructura que corre en Linux por definición: no hay un solo archivo ahí
+# que deba tener CRLF. La regla amplia hace que el próximo archivo nazca correcto sin que
+# nadie se acuerde de esto.
+# ⚠️ Si algún día entra un binario a `ops/`, hay que exceptuarlo con `-text` explícito.
+ops/**          text eol=lf
+
+# ⛔ SÉPTIMO caso del mismo patrón, y esta vez el archivo nació HOY (2026-09-30): los git
+# hooks del repo. `.githooks/pre-push` no termina en `.sh`, no está bajo `ops/`, y con
+# `core.autocrlf=true` git avisó en el `git add` — "LF will be replaced by CRLF".
+# Un hook con CRLF no falla raro: falla con `bad interpreter: /bin/sh^M` en Git Bash y en
+# Linux, o sea que la compuerta de push **no corre en ninguna máquina del equipo** y el
+# push pasa derecho. Otra vez lo mismo: no se rompe, se vuelve un no-op silencioso.
+# Regla AMPLIA a propósito, siguiendo [VL.11.A]: el directorio entero es shell que ejecuta
+# `sh`, así que el próximo hook nace correcto sin que nadie se acuerde de esta línea.
+.githooks/**    text eol=lf
+
+# -- [VL.11.B] Los MOLDES de configuracion, y los guiones de Windows ---------
+# ⛔ `*.env` ya tenia regla, pero **`service.env.example` NO la hereda** -- termina en
+# `.example`, no en `.env`. Medido: 19 bytes CR en lo que git entrega. Y es el archivo que
+# la gente COPIA para crear su configuracion real, asi que el CR se propaga a un valor vivo.
+# Es EXACTAMENTE el bug que dejo los 9 carriles corriendo en seco diciendo `ok`: un CR al
+# final volvia invalido el UUID del tenant. Son 7 moldes en el repo; ninguno tenia regla
+# salvo el que cayo bajo `ops/**`.
+*.example       text eol=lf
+
+# ⭐ Y aca al reves, DECLARADO en vez de accidental: un `.cmd` lo ejecuta `cmd.exe` en una
+# caja Windows, asi que CRLF es lo CORRECTO. Hasta ahora quedaba bien POR CASUALIDAD (sin
+# regla + core.autocrlf=true); en una maquina con otra configuracion de git habria salido
+# LF. Que funcione por accidente no es que funcione.
+*.cmd           text eol=crlf
+*.bat           text eol=crlf
+
+# Los .sql tambien: el driver de VL.10 arma la contrasena con `\set clave '...'`, y un
+# CRLF le pegaria un 
+# DENTRO de la credencial. La persona veria 'password
+# authentication failed' con una clave que a la vista es correcta -- el mismo cuadro que
+# el CRON_TENANT_ID invalido del 2026-09-11.
+*.sql text eol=lf
+
+# Los .md tambien: 252 de los 253 del repo ya son LF. El unico CRLF era el tracker,
+# y por eso cada herramienta que lo tocaba lo "normalizaba" sin querer: 895f42b9 (GX.10)
+# y 3b8dcba4 (GX.11) lo pasaron entero a LF, con diffs de ~3,000 lineas por cambio de fin
+# de linea sobre 38 lineas reales. Se fija la norma que el repo ya tenia de hecho.
+*.md text eol=lf
+
+# ── merge=union: los 3 archivos APPEND-ONLY que chocan en CADA merge ──────────────────────────
+# Con ~10 sesiones y decenas de PR/dia, estos tres acumulan una entrada nueva por trabajo y las
+# entradas caen SIEMPRE en el mismo lugar (arriba de [Unreleased] / al final del bloque de fase).
+# Dos sesiones que agregan su entrada = conflicto de contenido, que hasta ahora se resolvia A MANO
+# en un worktree en cada merge (medido: es la mitad de los "problemas de ramas"). `merge=union`
+# le dice a git que, ante un choque en estos archivos, CONSERVE AMBOS lados en vez de frenar.
+# ⚠️ union CONCATENA los dos hunks: puede dejar dos entradas juntas o el orden cronologico
+# mezclado, nunca borra. Es exactamente lo que se quiere para un log de solo-agregar; el equipo
+# ordena de vez en cuando. NO poner union en codigo: ahi "conservar ambos" produce basura que
+# compila mal. Solo estos tres, que son prosa append-only.
+CHANGELOG.md                              merge=union
+docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md merge=union
+docs/IMPLEMENTACION/03_LOG_REVISIONES.md   merge=union

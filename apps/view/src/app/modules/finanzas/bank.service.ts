@@ -1,0 +1,496 @@
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { environment } from '../../../environments/environment';
+import { JobAccepted } from './bancos-socket.service';
+
+/** CB.2/CB.3 — cliente del tablero de conciliación bancaria (finance.bank_*). */
+
+export interface BankAccount {
+  id: string; bank: string; account_label: string; alias: string | null;
+  kind: 'bank' | 'cash' | 'factoraje'; kepler_link: string | null; active: boolean;
+}
+
+export interface MovementCategory {
+  id: string; code: string; name: string; flow: 'in' | 'out' | 'both' | 'none';
+  kepler_account: string | null; group_key: string; kepler_note: string | null;
+  sort_order: number; active: boolean;
+}
+
+export interface BankStatement {
+  id: string; bank_account_id: string; bank: string; account_label: string; alias: string | null;
+  kind: string; opening_balance: number; closing_balance: number;
+  total_in: number; total_out: number; source_file: string | null; status: string; imported_at: string | null;
+}
+
+export interface BankMovement {
+  id: string; movement_date: string; bank: string; account_label: string; bank_account_id: string;
+  category_id: string | null; category_code: string | null; category_name: string | null;
+  group_key: string | null; kepler_account: string | null;
+  raw_type: string | null; raw_code: string | null; sucursal: string | null; concept: string | null;
+  amount_in: number; amount_out: number; running_balance: number | null; recon_status: string;
+  kepler_doc_tipo?: string | null; kepler_doc_folio?: string | null;
+}
+
+export interface MovementsPage { total: number; rows: BankMovement[]; }
+
+export interface ConcentradoGroup { deposits: number; withdrawals: number; movs: number; }
+export interface ConcentradoAccount {
+  account_id: string; bank: string; account_label: string; alias: string | null; kind: string;
+  groups: Record<string, ConcentradoGroup>; deposits: number; withdrawals: number; movs: number;
+}
+export interface Concentrado {
+  period: string; accounts: ConcentradoAccount[];
+  groupTotals: Record<string, ConcentradoGroup>; grand: ConcentradoGroup;
+}
+
+export interface ReconCash {
+  bank_in: number; kepler_102_cargos: number; delta_in: number;
+  bank_out: number; kepler_102_abonos: number; delta_out: number;
+  kepler_source?: 'tesoreria' | 'contable';
+}
+// CB.35 — Control de ingresos: cada depósito clasificado por su fuente + excepciones.
+export interface IngresosControlBucket { n: number; monto: number; }
+export interface IngresosException { id: string; fecha: string; bank: string; account_label: string; monto: number; concept: string; }
+// Desglose por cuenta: cuánto de los depósitos de esa cuenta explica Kepler (tesorería+cobranza=mayoreo)
+// vs tienda (caja) vs sin explicar.
+export interface IngresosControlCuenta {
+  account_label: string | null; bank: string | null; bank_total: number; n: number;
+  via_tesoreria: number; via_cobranza: number; via_caja: number; sin_explicar: number;
+  kepler: number; retail: number;
+  /** CB.47 — traspaso entre cuentas propias: dinero nuestro moviéndose, NO ingreso del negocio. */
+  via_traspaso?: number; traspaso_sin_contraparte?: number; via_factoraje?: number;
+  /** CB.46 — la fecha está fuera del periodo de su estado de cuenta; no se pudo buscar el origen. */
+  fecha_invalida?: number;
+}
+/**
+ * CB.46/47 — lo que NO se pudo medir se declara en su propio bucket, fuera de `explicado` y de
+ * `sin_explicar`: un depósito con la fecha rota o un traspaso al que le falta la pata contraria
+ * no es «un ingreso sin origen», y contarlo como tal llena la bandeja de falsos.
+ */
+export interface IngresosDeclarado {
+  n: number; monto: number;
+  items: { id: string; fecha: string; bank: string; account_label: string; monto: number; concept: string;
+    raw_type?: string | null; desvio_meses?: number }[];
+}
+export interface IngresosControl {
+  period: string; bank_total: number; bank_n: number;
+  por_cuenta: IngresosControlCuenta[];
+  via_tesoreria: IngresosControlBucket; via_cobranza: IngresosControlBucket; via_caja: IngresosControlBucket;
+  via_traspaso?: IngresosControlBucket; via_factoraje?: IngresosControlBucket;
+  traspaso_sin_contraparte?: IngresosDeclarado; fecha_invalida?: IngresosDeclarado;
+  sin_explicar: IngresosControlBucket; explicado: number; cuadra: boolean; tol: number;
+  /**
+   * [CG.40] Con qué evidencia se calculó el veredicto. Una fuente muerta y una fuente sin
+   * movimientos en el mes producen el mismo `sin_explicar`; sin esto no se distinguen.
+   * `ultimo_dato` (sólo en `caja`) es lo que vuelve accionable el cero.
+   */
+  fuentes?: Record<string, { estado: 'consultado' | 'sin_fuente'; filas: number; ultimo_dato?: string | null }>;
+  /** NO es «todo bien»: es «el veredicto se calculó con todas sus pruebas». */
+  veredicto_completo?: boolean;
+  exceptions: IngresosException[];
+  fuga: { n: number; monto: number; items: { fecha: string; almacen: string; banco: string; monto: number }[] };
+}
+export interface ReconAccount { kepler_account: string; concept: string; bank: number; book: number; delta: number; }
+export interface ReconFactoraje { compra: number; pago: number; total: number; }
+export interface ReconCaja { ingresos: number; egresos: number; total: number; }
+export interface Reconciliation {
+  period: string; cash: ReconCash; accounts: ReconAccount[]; cobranza: number; sin_clasificar: number;
+  factoraje?: ReconFactoraje; caja?: ReconCaja;
+}
+
+export interface MatchResult {
+  period: string; bank_movements: number; matched: number; second_pass?: number; name_pass?: number; group_pass?: number; unmatched_bank: number;
+  kepler_postings: number; unmatched_kepler: number; matched_amount: number; bank_amount: number; match_rate: number;
+}
+
+/** CB.8 — cuadre de saldos por cuenta. */
+export interface BalanceRow {
+  statement_id: string; bank: string; account_label: string; kind: string;
+  opening: number; total_in: number; total_out: number; computed_closing: number; closing: number; delta: number;
+  cuadra: boolean; sin_saldo: boolean;
+}
+export interface Balances {
+  period: string; accounts: BalanceRow[];
+  traspasos: { entra: number; sale: number; delta: number };
+  totals: { opening: number; total_in: number; total_out: number; closing: number; descuadre: number };
+  cuentas_descuadradas: number; cuentas_sin_saldo: number;
+}
+
+export interface DiffTotal { count: number; amount: number; }
+export interface Differences {
+  period: string;
+  bank_unmatched: { id: string; movement_date: string; amount_out: number; concept: string | null; raw_code: string | null; raw_type: string | null; category_name: string | null; group_key: string | null; kepler_account: string | null }[];
+  kepler_unmatched: { doc_tipo: string; folio: string; fecha: string | null; importe: number; contraparte: string | null }[];
+  bank_total: DiffTotal;
+  kepler_total: DiffTotal;
+}
+
+/** CB.6 — regla de clasificación editable (finance.bank_classify_rules). */
+export interface ClassifyRule {
+  id: string; priority: number;
+  match_type: string | null; match_code: string | null; match_concept: string | null;
+  category_code: string; category_name: string | null; group_key: string | null;
+  note: string | null; active: boolean;
+}
+/** CB.13 — cuenta del catálogo real de Kepler (finance.kepler_accounts). */
+export interface KeplerAccount { cuenta: string; cuenta_nombre: string | null; cuenta_mayor: string; cuenta_mayor_nombre: string | null; es_mayor: boolean; }
+export interface ReclassifyResult { scanned: number; changed: number; }
+export interface SyncFindingsResult { pushed: number; inserted: number; skipped: number; }
+
+/** CB.9 — diagnóstico "¿por qué no cuadra y qué falta?". */
+export interface DiagnosticoEvidencia { label: string; monto?: number; count?: number; folio?: string; }
+export interface DiagnosticoItem {
+  tipo: string; severidad: 'warn' | 'bad'; importe: number;
+  titulo: string; detalle: string; accion: string;
+  evidencia?: DiagnosticoEvidencia[];
+}
+/**
+ * CB.46 — Estado PERSISTIDO de la conciliación, para que el encabezado pueda decir en qué va
+ * sin obligar a re-disparar el POST. `stale` = el estado de cuenta se re-importó después del
+ * último match, así que el porcentaje describe un universo que ya cambió: se declara, no se
+ * pinta de verde ni se omite.
+ */
+export interface ReconEstado {
+  matched_amount: number; bank_amount: number; pct: number;
+  last_match_at: string | null; last_import_at: string | null; stale: boolean;
+}
+export interface Diagnostico {
+  period: string; ingresos: number; egresos: number; neto: number; movimientos: number;
+  cuadra: boolean; cuentas_ok: number; cuentas_total: number; total_descuadre: number;
+  tiene_balanza_kepler: boolean; items: DiagnosticoItem[];
+  /** Sin clasificar del MISMO universo que `movimientos` (incluye la caja general). */
+  sin_clasificar_n?: number; sin_clasificar_monto?: number;
+  /** `null` = la conciliación nunca corrió en este periodo. */
+  recon_estado?: ReconEstado | null;
+}
+
+/** CB.15.2 — Flujo de un movimiento (de dónde viene). */
+export interface FlowChainRow {
+  factura_folio: string | null; factura_fecha: string | null; orden_folio: string | null;
+  recepcion_folio: string | null; pago_folio: string | null; pago_fecha: string | null;
+  beneficiario: string | null; total: number; lead_days: number | null; pago_days: number | null; match_confidence: string | null;
+}
+export interface FlowDoc {
+  doc_tipo: string; folio: string; fecha: string | null; importe: number; contraparte: string | null; forma?: string | null;
+}
+export interface MovementFlow {
+  period: string;
+  movement: {
+    id: string; fecha: string; bank: string; account_label: string; concept: string | null;
+    raw_type: string | null; raw_code: string | null; sucursal: string | null;
+    categoria: string | null; grupo: string | null; kepler_account: string | null;
+    es_retiro: boolean; monto: number; recon_status: string; kepler_folio: string | null;
+  };
+  tipo: 'pago' | 'deposito';
+  proveedor: { nombre: string; banco_total_mes: number; banco_movs: number; kepler_total_mes: number; kepler_movs: number } | null;
+  cadena: FlowChainRow[];
+  cobranza: { kepler_movs: number; kepler_suma: number } | null;
+  docs: FlowDoc[];
+  nota: string;
+}
+
+/** CB.16 — Comparador lado a lado Excel ↔ Kepler. */
+export interface SideExcelRow {
+  id: string; fecha: string; cuenta: string; account_id: string; concepto: string | null; tipo: string | null;
+  codigo: string | null; sucursal: string | null; grupo: string | null; categoria: string | null;
+  kepler_account: string | null; entra: number; sale: number;
+  recon_status: string; match_key: string | null;
+}
+export interface SideKeplerRow {
+  doc_tipo: string; folio: string; fecha: string | null; cargo_abono: string;
+  importe: number; contraparte: string | null; forma: string | null; bank_movement_id: string | null; match_key: string;
+}
+
+/** CP.2 (Fase CP) — Comparación banco (Excel) vs LIBROS de ContPAQi por cuenta. */
+export interface ContpaqiCompareRow {
+  id: string; bank: string; account_label: string; alias: string | null; kind: string;
+  contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null; linked: boolean;
+  excel_in: number; excel_out: number; contpaqi_in: number; contpaqi_out: number;
+  delta_in: number; delta_out: number; contpaqi_movs: number;
+}
+export interface ContpaqiCompare {
+  period: string; linked: number; rows: ContpaqiCompareRow[];
+  totals: { excel_in: number; excel_out: number; contpaqi_in: number; contpaqi_out: number; delta_in: number; delta_out: number };
+}
+export interface ContpaqiLinkResult {
+  linked: number; total: number;
+  results: { bank: string; account_label: string; contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null }[];
+}
+/** CP.2 — cuenta contable de banco ContPAQi disponible para el selector de enlace manual. */
+export interface ContpaqiBankAccount {
+  cuenta: string; cuenta_nombre: string; movs: number; taken: boolean; taken_by: string | null;
+}
+
+/** CP.2 drill — ¿dónde está el descuadre de una cuenta? Huérfanos de cada lado. */
+export interface CpqBankOnly { id: string; fecha: string; importe: number; concepto: string | null; tipo: string | null; codigo: string | null; categoria: string | null; }
+export interface CpqPolizaOnly { id: number; fecha: string; importe: number; concepto: string | null; poliza_tipo: number | null; poliza_folio: number | null; }
+export interface CpqReconSide {
+  bank_total: number; contpaqi_total: number; delta: number;
+  matched_count: number; matched_amount: number;
+  bank_only: CpqBankOnly[]; contpaqi_only: CpqPolizaOnly[];
+  bank_only_amount: number; contpaqi_only_amount: number;
+}
+export interface ContpaqiDetail {
+  period: string;
+  account: { id: string; bank: string; account_label: string; alias: string | null; contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null; linked: boolean };
+  deposits: CpqReconSide; withdrawals: CpqReconSide;
+}
+
+/** CP.2 factoraje — compras factoradas del Excel por proveedor vs su CxP/costo en ContPAQi. */
+export interface FactorajeRow {
+  proveedor: string; excel_in: number; excel_out: number; movs: number;
+  cxp_cuenta: string | null; cxp_nombre: string | null; cxp_saldo_ini: number; cxp_cargos: number; cxp_abonos: number;
+  costo_cargos: number; costo_cuentas: number; match_score: number; matched: boolean;
+}
+export interface FactorajeCompare {
+  period: string; proveedores: number; matched: number; rows: FactorajeRow[];
+  totals: { excel_in: number; excel_out: number; costo_cargos: number };
+}
+
+export interface MovementsQuery {
+  period?: string; account_id?: string; category_id?: string; group_key?: string;
+  uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
+}
+
+/** CB.24 — Cuadre 3 vías (Workbook ↔ Kepler 102 ↔ ContPAQi). */
+export interface ThreeWayRow {
+  label: string; workbook: number; kepler: number; contpaqi: number;
+  delta_wk: number; delta_wc: number; delta_kc: number; cuadra: boolean;
+}
+export interface ThreeWayAccount {
+  bank: string; account_label: string; alias: string | null; linked: boolean;
+  wb_in: number; wb_out: number; cp_in: number; cp_out: number;
+  kep_in: number; kep_out: number; kep_has: boolean;
+  delta_in: number; delta_out: number; delta_wk_in: number; delta_wk_out: number; cuadra: boolean;
+  /** Hay al menos una fuente contra la cual comparar (Kepler con datos o ContPAQi enlazada). */
+  comparable: boolean;
+  /** Peor desviación contra el banco entre las fuentes disponibles, y de cuál viene. */
+  worst_delta: number; worst_abs: number; worst_src: 'K' | 'C' | null;
+}
+/**
+ * Frescura de una fuente en el periodo. `pct` es cobertura EN DÍAS (hasta qué día del mes
+ * llegó la captura contra el día esperado), no participación sobre el total de movimientos.
+ */
+export interface ThreeWaySource {
+  movs: number; pct: number; last: string | null; stale: boolean; sin_datos?: boolean;
+  days_covered: number; days_target: number;
+}
+export interface ThreeWayCoverage {
+  is_current_month: boolean;
+  workbook: ThreeWaySource; kepler: ThreeWaySource; contpaqi: ThreeWaySource;
+}
+export interface ThreeWay {
+  period: string; tolerance: number; cuadra: boolean;
+  total: { ingresos: ThreeWayRow; egresos: ThreeWayRow };
+  por_cuenta: ThreeWayAccount[];
+  coverage: ThreeWayCoverage;
+  kepler_movs: number; kepler_linked: number; kepler_por_cuenta: boolean; nota: string;
+}
+
+/** CB.30 — Cheques en tránsito (gap de timing banco↔Kepler). */
+export interface ChequeTransito {
+  doc_tipo: string; folio: string; account_label: string; banco_nombre: string | null;
+  importe: number; fecha: string; beneficiario: string | null;
+  cobrado: boolean; fecha_cobro: string | null; lag_dias: number | null;
+}
+export interface ChequesTransito {
+  period: string;
+  total: { cheques_n: number; en_transito_n: number; en_transito_monto: number; cobrado_n: number; cobrado_monto: number };
+  cheques: ChequeTransito[];
+}
+
+/** CB.33 — Drill 3 vías por cuenta a nivel movimiento. */
+export type BankMovSource = 'workbook' | 'kepler' | 'contpaqi';
+export interface BankMovDetail { source: BankMovSource; title: string; fields: { label: string; value: string | number | null }[] }
+export type ReconStatus = 'casado' | 'traspaso' | 'factoraje' | 'fiscal' | 'partido' | 'sin_categoria' | 'sin_match';
+export interface ThreeWayDetailExcel {
+  id: string; source: 'workbook'; key: string; fecha: string; concepto: string | null; codigo: string | null;
+  dir: 'in' | 'out'; importe: number; kepler: boolean; contpaqi: boolean; recon: ReconStatus;
+  kepler_importe: number | null; contpaqi_importe: number | null;
+  kepler_doc: string | null; contpaqi_poliza: string | null;
+  kepler_key: string | null; contpaqi_key: string | null;
+}
+export interface ThreeWayDetail {
+  period: string;
+  account: { bank: string; account_label: string; contpaqi_cuenta: string | null; contpaqi_nombre: string | null; linked_cpq: boolean };
+  excel: ThreeWayDetailExcel[];
+  kepler_only: { source: 'kepler'; key: string; doc: string; fecha: string; importe: number; dir: string; concepto: string | null; metodo: string | null;
+    /** CB.45 — null = huérfano real; con valor = el banco SÍ lo tiene, en otro periodo (desfase de corte). */
+    casado_otro_periodo: { period: string; fecha_banco: string; concepto_banco: string | null; matched_by: string | null } | null;
+    /** CB.50 — no existe NINGÚN depósito de este importe en la cuenta y el mes: el banco lo agrupó. */
+    sin_importe_en_banco?: boolean;
+    /**
+     * CB.50 — por qué no casó, resuelto en el backend para que todas las vistas cuenten lo mismo.
+     * `otro_periodo` y `banco_agrupa` están EXPLICADOS; sólo `sin_casar` es excepción a investigar.
+     */
+    motivo?: 'otro_periodo' | 'banco_agrupa' | 'sin_casar' }[];
+  contpaqi_only: { source: 'contpaqi'; key: string; poliza: string; fecha: string; importe: number; dir: string; concepto: string | null }[];
+  recon_totals: Record<ReconStatus, { n: number; monto: number }>;
+  agg: { bank_in: number; kepler_in: number; bank_out: number; kepler_out: number; delta_in: number; delta_out: number };
+  totals: { excel_n: number; excel_monto: number; excel_en_kepler: number; excel_en_contpaqi: number;
+    sin_match_n: number; sin_match_monto: number;
+    kepler_only_n: number; kepler_only_monto: number;
+    kepler_only_otro_periodo_n: number; kepler_only_otro_periodo_monto: number;
+    /** CB.50 — partición de `kepler_only`: los tres n suman `kepler_only_n`. */
+    kepler_only_banco_agrupa_n?: number; kepler_only_banco_agrupa_monto?: number;
+    kepler_only_sin_casar_n?: number; kepler_only_sin_casar_monto?: number;
+    contpaqi_only_n: number; contpaqi_only_monto: number };
+}
+
+export interface ThreeWayDailyRow {
+  dia: string; bank_in: number; bank_out: number; kepler_in: number; kepler_out: number;
+  delta_in: number; delta_out: number; cum_delta_in: number; cum_delta_out: number;
+  n_bank: number; n_kepler: number; dup_n: number; dup_monto: number;
+}
+export interface ThreeWayDaily {
+  period: string;
+  account: { bank: string; account_label: string };
+  days: ThreeWayDailyRow[];
+  totals: { bank_in: number; kepler_in: number; bank_out: number; kepler_out: number; delta_in: number; delta_out: number; dup_n: number; dup_monto: number };
+}
+
+/** CB.23 — Sync del workbook maestro (Google Sheet vía export público). */
+export interface SheetSyncConfig {
+  id: string; sheet_id: string; period: string; active: boolean;
+  last_hash: string | null; last_synced_at: string | null; last_rows: number | null;
+  last_changed: number | null; last_error: string | null;
+}
+export interface SheetSyncRunResult {
+  skipped: boolean; reason?: string; period: string;
+  total?: number; swept?: number; sin_clasificar?: number;
+}
+
+@Injectable({ providedIn: 'root' })
+export class BankService {
+  private readonly http = inject(HttpClient);
+  private readonly base = `${environment.apiUrl}/finance/bank`;
+
+  accounts(): Observable<BankAccount[]> { return this.http.get<BankAccount[]>(`${this.base}/accounts`); }
+  categories(): Observable<MovementCategory[]> { return this.http.get<MovementCategory[]>(`${this.base}/categories`); }
+  periods(): Observable<string[]> { return this.http.get<string[]>(`${this.base}/periods`); }
+  statements(period: string): Observable<BankStatement[]> { return this.http.get<BankStatement[]>(`${this.base}/statements?period=${encodeURIComponent(period)}`); }
+  concentrado(period: string): Observable<Concentrado> { return this.http.get<Concentrado>(`${this.base}/concentrado?period=${encodeURIComponent(period)}`); }
+  reconciliation(period: string): Observable<Reconciliation> { return this.http.get<Reconciliation>(`${this.base}/reconciliation?period=${encodeURIComponent(period)}`); }
+  balances(period: string): Observable<Balances> { return this.http.get<Balances>(`${this.base}/balances?period=${encodeURIComponent(period)}`); }
+  diagnostico(period: string): Observable<Diagnostico> { return this.http.get<Diagnostico>(`${this.base}/diagnostico?period=${encodeURIComponent(period)}`); }
+  keplerAccounts(search: string): Observable<KeplerAccount[]> { return this.http.get<KeplerAccount[]>(`${this.base}/kepler-accounts?search=${encodeURIComponent(search || '')}`); }
+
+  movements(q: MovementsQuery): Observable<MovementsPage> {
+    const p = new URLSearchParams();
+    if (q.period) p.set('period', q.period);
+    if (q.account_id) p.set('account_id', q.account_id);
+    if (q.category_id) p.set('category_id', q.category_id);
+    if (q.group_key) p.set('group_key', q.group_key);
+    if (q.uncategorized) p.set('uncategorized', 'true');
+    if (q.recon_status) p.set('recon_status', q.recon_status);
+    if (q.search) p.set('search', q.search);
+    if (q.limit != null) p.set('limit', String(q.limit));
+    if (q.offset != null) p.set('offset', String(q.offset));
+    return this.http.get<MovementsPage>(`${this.base}/movements?${p.toString()}`);
+  }
+
+  movementFlow(id: string): Observable<MovementFlow> {
+    return this.http.get<MovementFlow>(`${this.base}/movements/${id}/flow`);
+  }
+
+  // ── CP.2 (Fase CP) — comparación vs LIBROS ContPAQi ──
+  contpaqiCompare(period: string): Observable<ContpaqiCompare> {
+    return this.http.get<ContpaqiCompare>(`${this.base}/contpaqi-compare?period=${encodeURIComponent(period)}`);
+  }
+  linkContpaqi(): Observable<ContpaqiLinkResult> {
+    return this.http.post<ContpaqiLinkResult>(`${this.base}/contpaqi/link`, {});
+  }
+  contpaqiAccounts(): Observable<ContpaqiBankAccount[]> {
+    return this.http.get<ContpaqiBankAccount[]>(`${this.base}/contpaqi-accounts`);
+  }
+  contpaqiDetail(period: string, accountId: string): Observable<ContpaqiDetail> {
+    return this.http.get<ContpaqiDetail>(`${this.base}/contpaqi-detail?period=${encodeURIComponent(period)}&account_id=${encodeURIComponent(accountId)}`);
+  }
+  factorajeCompare(period: string): Observable<FactorajeCompare> {
+    return this.http.get<FactorajeCompare>(`${this.base}/factoraje-compare?period=${encodeURIComponent(period)}`);
+  }
+  manualLinkContpaqi(bankAccountId: string, contpaqiCuenta: string | null): Observable<unknown> {
+    return this.http.post(`${this.base}/contpaqi/manual-link`, { bank_account_id: bankAccountId, contpaqi_cuenta: contpaqiCuenta });
+  }
+
+  reclassify(id: string, categoryId: string | null): Observable<unknown> {
+    return this.http.patch(`${this.base}/movements/${id}/category`, { category_id: categoryId });
+  }
+
+  /**
+   * COMM-P0 — 202: el resultado (MatchResult) llega por WS `finance_job`
+   * (name `bank-match`). `?sync=true` sigue existiendo para CLI/smokes.
+   */
+  runMatch(period: string): Observable<JobAccepted> {
+    return this.http.post<JobAccepted>(`${this.base}/match`, { period });
+  }
+  differences(period: string): Observable<Differences> {
+    return this.http.get<Differences>(`${this.base}/differences?period=${encodeURIComponent(period)}`);
+  }
+  ingresosControl(period: string): Observable<IngresosControl> {
+    return this.http.get<IngresosControl>(`${this.base}/ingresos-control?period=${encodeURIComponent(period)}`);
+  }
+  /** COMM-P0 — 202: SyncFindingsResult llega por WS (`bank-findings-sync`). */
+  syncFindings(period: string): Observable<JobAccepted> {
+    return this.http.post<JobAccepted>(`${this.base}/findings/sync`, { period });
+  }
+
+  /**
+   * COMM-P0 — 202: ImportResult llega por WS (`bank-import`). Un workbook de
+   * ~6.5k movimientos se pasaba de los 60 s de nginx y el navegador veía 504.
+   */
+  importWorkbook(fileBase64: string, period: string, sourceFile: string): Observable<JobAccepted> {
+    return this.http.post<JobAccepted>(`${this.base}/import`, { file_base64: fileBase64, period, source_file: sourceFile });
+  }
+
+  // ── CB.6 Admin ──
+  createAccount(body: Partial<BankAccount>): Observable<BankAccount> { return this.http.post<BankAccount>(`${this.base}/accounts`, body); }
+  updateAccount(id: string, body: Partial<BankAccount>): Observable<BankAccount> { return this.http.patch<BankAccount>(`${this.base}/accounts/${id}`, body); }
+  createCategory(body: Partial<MovementCategory>): Observable<MovementCategory> { return this.http.post<MovementCategory>(`${this.base}/categories`, body); }
+  updateCategory(id: string, body: Partial<MovementCategory>): Observable<MovementCategory> { return this.http.patch<MovementCategory>(`${this.base}/categories/${id}`, body); }
+
+  rules(): Observable<ClassifyRule[]> { return this.http.get<ClassifyRule[]>(`${this.base}/rules`); }
+  createRule(body: Partial<ClassifyRule>): Observable<ClassifyRule> { return this.http.post<ClassifyRule>(`${this.base}/rules`, body); }
+  updateRule(id: string, body: Partial<ClassifyRule>): Observable<ClassifyRule> { return this.http.patch<ClassifyRule>(`${this.base}/rules/${id}`, body); }
+  deleteRule(id: string): Observable<unknown> { return this.http.delete(`${this.base}/rules/${id}`); }
+  /** COMM-P0 — 202: ReclassifyResult llega por WS (`bank-reclassify`). */
+  reclassifyAll(period?: string): Observable<JobAccepted> { return this.http.post<JobAccepted>(`${this.base}/reclassify`, { period }); }
+
+  // ── CB.24 — Cuadre 3 vías ──
+  threeWay(period: string): Observable<ThreeWay> {
+    return this.http.get<ThreeWay>(`${this.base}/three-way?period=${encodeURIComponent(period)}`);
+  }
+  threeWayDetail(period: string, accountLabel: string): Observable<ThreeWayDetail> {
+    return this.http.get<ThreeWayDetail>(`${this.base}/three-way-detail?period=${encodeURIComponent(period)}&account_label=${encodeURIComponent(accountLabel)}`);
+  }
+  /** CB.42 — conciliación por día de una cuenta (banco vs Kepler + Δ acumulado + duplicados). */
+  threeWayDaily(period: string, accountLabel: string): Observable<ThreeWayDaily> {
+    return this.http.get<ThreeWayDaily>(`${this.base}/three-way-daily?period=${encodeURIComponent(period)}&account_label=${encodeURIComponent(accountLabel)}`);
+  }
+  /** CB.40 — detalle completo de un movimiento del cuadre (click en el drill). */
+  bankMovement(source: BankMovSource, key: string): Observable<BankMovDetail> {
+    return this.http.get<BankMovDetail>(`${this.base}/movement?source=${source}&key=${encodeURIComponent(key)}`);
+  }
+  chequesTransito(period: string): Observable<ChequesTransito> {
+    return this.http.get<ChequesTransito>(`${this.base}/cheques-transito?period=${encodeURIComponent(period)}`);
+  }
+
+  // ── CB.23 — Sync del workbook maestro (Google Sheet) ──
+  sheetSyncConfig(): Observable<SheetSyncConfig | null> {
+    return this.http.get<SheetSyncConfig | null>(`${this.base}/sheet-sync/config`);
+  }
+  sheetSyncUpdate(body: { sheet_id?: string; period?: string; active?: boolean }): Observable<SheetSyncConfig> {
+    return this.http.patch<SheetSyncConfig>(`${this.base}/sheet-sync/config`, body);
+  }
+  /** COMM-P0 — 202: SheetSyncRunResult llega por WS (`bank-sheet-sync`). */
+  sheetSyncRun(): Observable<JobAccepted> {
+    return this.http.post<JobAccepted>(`${this.base}/sheet-sync/run`, {});
+  }
+}
+
+export interface ImportResult {
+  period: string;
+  accounts: { sheet: string; movs?: number; deposits?: number; withdrawals?: number; sin_clasificar?: number; note?: string }[];
+  total: number; deposits: number; withdrawals: number; sin_clasificar: number;
+}

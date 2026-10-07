@@ -1,0 +1,349 @@
+/* eslint-disable no-console */
+/**
+ * KV.1 — Fact de VENTA REAL → analytics.sales_daily, MODO BULK.
+ *
+ * Fuente: mart.ventas_enriched (consolidación on-prem, 6 sucursales, con channel).
+ * Agrega por (almacen, sku, channel, día) en ventana de 13 meses, resuelve
+ * sku→product_id y almacen→warehouse_id contra el destino, calcula costo con
+ * catalog.products.cost_base (costo actual; sale-time cost = refinamiento futuro),
+ * carga staging temp y hace UPSERT server-side churn-free.
+ *
+ * RS.3 (2026-07-20) — NORMALIZACIÓN DE UNIDAD. La fuente registra cada línea en su
+ * unidad de venta real (columna `unidad`: PAQ/PZA/KG/500/CJA/CUB…). Sumar `cantidad`
+ * a ciegas mezclaba paquetes + piezas + kg en un solo `units` → el sell-out dividía
+ * ese revoltijo por `factor_sale` y mostraba "cajas" inexistentes (granel/bulto). Ahora
+ * agrupamos POR unidad y convertimos cada línea a un canónico coherente por producto:
+ *   · producto de PIEZA  → units en PIEZAS (PAQ×pack, CJA×box, PZA×1)   unit_kind='piece'
+ *   · producto de PESO   → units en KG     (KG×1, 500×.5, PAQ/CUB×gramaje) unit_kind='weight'
+ * El reporte usa unit_kind: piece → cajas=units/factor_sale · weight → muestra kg.
+ *
+ * Modo --watch: cicla cada N segundos (default 60) con src+destino persistentes; en watch
+ * la ventana default cae a 2 días (SALES_FACT_DAYS override) → cada ciclo re-deriva solo lo
+ * reciente (barato) desde el mart fresco. Kepler-sales "al momento" sin re-arrancar el proceso.
+ *
+ *   node database/importers/kepler/import-sales-fact.js               # dry-run
+ *   node database/importers/kepler/import-sales-fact.js --apply       # commit (ventana 13m)
+ *   node database/importers/kepler/import-sales-fact.js --apply --watch=60   # loop live (2d/ciclo)
+ */
+
+const { Client } = require('pg');
+const hb = require('../lib/cron-heartbeat');
+const { analyzeIfStale } = require('../lib/analyze-if-stale');
+const { productKind, buildModel, toCanonicalPriced } = require('./unit-normalization');
+
+const M = '00000000-0000-0000-0000-00000000d01c';
+const SRC = process.env.DATABASE_URL_KEPLER_CONSOLIDADO || 'postgresql://postgres:superoot@localhost:5433/kepler_consolidado';
+const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
+const APPLY = process.argv.includes('--apply');
+const WATCH_ARG = process.argv.find((a) => a === '--watch' || a.startsWith('--watch='));
+const WATCH_SEC = WATCH_ARG ? Math.max(15, Number(WATCH_ARG.split('=')[1] || 60)) : 0;
+const BATCH = 2000;
+const MONTHS = 13;
+// Ventana refrescada. Default = 13 meses (nightly, refresco completo). El feed LIVE
+// (intradía) pasa SALES_FACT_DAYS=N o corre con --watch (default 2d) para refrescar solo
+// los últimos N días → UPSERT acotado, barato. Los días viejos ya cargados no se tocan.
+const DAYS = process.env.SALES_FACT_DAYS ? parseInt(process.env.SALES_FACT_DAYS, 10) : (WATCH_SEC ? 2 : null);
+const WIN = DAYS ? `current_date - interval '${DAYS} days'` : `current_date - interval '${MONTHS} months'`;
+// [NORM.3] LA LLAVE DE LATIDO ES PARAMETRIZABLE — y no es un capricho: este importer lo corren
+// DOS carriles con ventanas distintas (`livefast` @60 s = 2 días · `nightly` @03:00 = 13 meses).
+// La PK de `analytics.cron_runs` es `(tenant_id, job_key)` SIN host, así que dos emisores sobre
+// una sola llave se pisan el renglón y pasan tres cosas, las tres malas:
+//   · `hb.begin()` cierra como ERROR toda corrida que encuentre en `running` → cada cruce fabrica
+//     un "la corrida anterior no reportó cierre". Medido en prod: 304 falsos en 7 días (4.8 %).
+//   · `duration_ms` se calcula `now() - last_start`, y el `last_start` puede ser del OTRO → la
+//     duración publicada no es de nadie.
+//   · el emisor más frecuente repinta la llave en verde y tapa al que murió.
+// Mismo patrón, misma razón, que `CONTPAQI_HB_KEY` (incremental vs reconciliador de CFDIs).
+const HB_KEY = process.env.SALES_FACT_HB_KEY || 'kepler_sales_fact';
+const HB_LABEL = process.env.SALES_FACT_HB_LABEL
+  || `Kepler ventas (sales-fact, ${DAYS ? DAYS + 'd' : MONTHS + 'm'})`;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Sub-almacenes de RUTA de PH: Kepler los emite como '01-NNN' (empieza ~2026-06-29),
+// pero la MISMA ruta ya vive como warehouse 'RUTA-NN' alimentado por Wincaja hasta
+// 2026-06-27 (canal wincaja_ruta). Se traduce 01-NNN → RUTA-NN para que cada ruta quede
+// en UN solo almacén con timeline continua (cutover natural: Wincaja <06-28, Kepler >=06-29,
+// sin solape). Mapeo por número de ruta (verificado vía forma_pago). NO crear 01-NNN.
+// ⛔ ESTE MAPA ERA FIJO Y SE PUDRIÓ. Decía exactamente esto y nada más:
+//     { '01-001':'RUTA-21', '01-002':'RUTA-22', '01-003':'RUTA-23',
+//       '01-004':'RUTA-26', '01-005':'RUTA-27', '01-006':'RUTA-28' }
+// El 2026-09-09 se dieron de alta **cinco camionetas más** (Canindo, `ruta_501`…`ruta_505`), que
+// empujan a `mart.ventas` con almacén `06-001`…`06-005`. Como no estaban acá, `mapAlmacen` las
+// devolvía tal cual, `whTo.get('06-001')` no encontraba nada y la fila se **descartaba**: sólo
+// engordaba el contador `noWh`, un número sin nombres en un log que nadie mira. Resultado medido
+// el 2026-10-01: **49 días** de venta de ruta llegando al runner y sin publicarse — la `ruta_502`
+// tenía venta de HOY en `mart.ventas` y la pantalla la mostraba congelada en el 11 de agosto.
+//
+// ⭐ El arreglo no es agregar cinco líneas: es **dejar de mantener la lista a mano**. El par
+// (ruta → almacén) ya viaja en el propio push —`mart.ventas` guarda `sucursal='ruta_501'` junto a
+// `almacen='06-001'`— así que el mapa se DERIVA del dato y una camioneta nueva se registra sola.
+// Verificado antes de reemplazar: la derivación reproduce las 6 entradas fijas **exactas** y suma
+// las 5 que faltaban. Esa coincidencia es la prueba cruzada, no una suposición.
+//
+// ⚠️ Es el mismo defecto que el inventario `INVENTARIO_Y_PLAN_RUTAS.md` ya se había detectado a sí
+// mismo («decía FLOTA COMPLETA: 6 camionetas… y en producción hay 11»). Ahí se corrigió el doc;
+// acá nadie corrigió el código. Un control que se declara cerrado deja de mirarse.
+let ROUTE_MAP = {};
+const mapAlmacen = (a) => ROUTE_MAP[a] || a;
+
+/** Deriva almacén→warehouse de ruta desde el propio push. `ruta_501` + `06-001` → RUTA-501. */
+async function buildRouteMap(src) {
+  const { rows } = await src.query(
+    `SELECT DISTINCT almacen, 'RUTA-' || upper(split_part(sucursal, '_', 2)) AS destino
+       FROM mart.ventas
+      WHERE sucursal LIKE 'ruta\\_%' AND coalesce(btrim(almacen),'') <> ''`);
+  return Object.fromEntries(rows.map((r) => [r.almacen, r.destino]));
+}
+
+/** Un ciclo completo: lee el mart, normaliza unidades, UPSERT a analytics.sales_daily.
+ *  src/db persistentes. Devuelve stat {status, rows} para el heartbeat. */
+async function runCycle(src, db) {
+  console.log(`\n=== Fact de ventas → analytics.sales_daily (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}, ventana ${DAYS ? DAYS + 'd (LIVE)' : MONTHS + 'm'}) ===\n`);
+
+  // Lookups del destino + MODELO DE UNIDAD por producto (RS.3).
+  const prods = (await db.query(
+    `SELECT p.id, p.sku, p.markup_pct,
+            upper(btrim(coalesce(p.unit_sale,''))) AS unit_sale, p.factor_sale,
+            l.pack_size, l.box_size, l.unit_base, l.content
+       FROM catalog.products p
+       LEFT JOIN commercial.v_product_label_prices l ON l.product_id=p.id AND l.tenant_id=p.tenant_id
+      WHERE p.tenant_id=$1 AND btrim(coalesce(p.sku,''))<>''`, [M])).rows;
+  const skuTo = new Map();
+  for (const p of prods) {
+    skuTo.set(p.sku, { id: p.id, markup_pct: p.markup_pct, ...buildModel(p) });
+  }
+  // Escala de precios PROPIA de Kepler (kdii) por sku: c90 pieza / c91 paquete / c92 caja +
+  // factores c81/c84. Se fusiona en el modelo para que toCanonicalPriced identifique el nivel de
+  // cada línea por su PRECIO real (el label `unidad` de Kepler es inconsistente: escribe 'PAQ'
+  // tanto para la pieza base como para un pack). Union de las sucursales de kepler_consolidado.
+  const kschemasAll = (await src.query(
+    `SELECT table_schema FROM information_schema.tables WHERE table_name='kdii' AND table_schema LIKE 'md\\_%'`)).rows.map((r) => r.table_schema);
+  // Los esquemas md_* son foreign tables (postgres_fdw) sobre srv_mdNN. Si una sucursal
+  // está caída (p.ej. Zamora/srv_md05), el UNION completo aborta con "could not connect to
+  // server". SALTAMOS la caída: probamos cada esquema (con statement_timeout acotado para no
+  // colgarnos en el connect) y unimos solo los accesibles. La sucursal omitida no aporta su
+  // escala de precios kdii → sus SKUs caen al modelo del catálogo (degradación aceptable);
+  // sus ventas ya viven en mart.ventas (tabla local, no FDW) y no se pierden.
+  const kschemas = [];
+  const kskipped = [];
+  await src.query(`SET statement_timeout = '8000'`);
+  for (const s of kschemasAll) {
+    try { await src.query(`SELECT 1 FROM ${s}.kdii LIMIT 1`); kschemas.push(s); }
+    catch (e) { kskipped.push(s); console.warn(`  ⚠️  omito ${s} (FDW no accesible): ${String(e.message || '').split('\n')[0]}`); }
+  }
+  await src.query(`SET statement_timeout = 0`);
+  if (kskipped.length) console.warn(`  ⚠️  sucursales omitidas en escala kdii: ${kskipped.join(', ')} — corrida parcial (se completa cuando vuelvan).`);
+  if (kschemas.length) {
+    const union = kschemas.map((s) => `SELECT c1,c81,c84,c90,c91,c92 FROM ${s}.kdii`).join(' UNION ALL ');
+    const ladder = (await src.query(
+      `SELECT c1 AS sku, max(c90::numeric) p_pza, max(c91::numeric) p_paq, max(c92::numeric) p_caja,
+              max(c81::numeric) c81, max(c84::numeric) c84 FROM (${union}) t GROUP BY c1`)).rows;
+    let merged = 0;
+    for (const k of ladder) {
+      const m = skuTo.get(String(k.sku));
+      if (!m) continue;
+      m.pPza = Number(k.p_pza) || 0; m.pPaq = Number(k.p_paq) || 0; m.pCaja = Number(k.p_caja) || 0;
+      m.c81 = Number(k.c81) > 1 ? Number(k.c81) : 0; m.c84 = Number(k.c84) > 1 ? Number(k.c84) : 0;
+      merged++;
+    }
+    console.log(`  escala kdii: ${ladder.length} skus en kepler (${kschemas.length} sucursales) · ${merged} match con catálogo`);
+  }
+  const whs = (await db.query(`SELECT id, code FROM commercial.warehouses WHERE tenant_id=$1`, [M])).rows;
+  const whTo = new Map(whs.map((w) => [w.code, w.id]));
+
+  // El mapa de rutas se deriva del push en cada corrida: una camioneta nueva entra sola.
+  ROUTE_MAP = await buildRouteMap(src);
+  const rutasSinWh = Object.entries(ROUTE_MAP).filter(([, dest]) => !whTo.has(dest));
+  console.log(`  mapa de rutas (derivado del push): ${Object.keys(ROUTE_MAP).length} almacenes `
+    + `→ ${Object.entries(ROUTE_MAP).map(([a, d]) => `${a}→${d}`).join(' ')}`);
+  if (rutasSinWh.length) {
+    // ⛔ Esto NO puede volver a ser un número sin nombre: una camioneta que empuja y cuyo almacén
+    // destino no existe pierde su venta entera, en silencio, hasta que alguien lo note (49 días).
+    console.warn(`  ⛔ ${rutasSinWh.length} ruta(s) empujan pero su almacén NO existe en `
+      + `commercial.warehouses: ${rutasSinWh.map(([a, d]) => `${a}→${d}`).join(', ')} `
+      + '— su venta se va a DESCARTAR. Darlos de alta o la cifra de esas rutas queda congelada.');
+  }
+  const nWeight = prods.filter((p) => productKind(p.unit_sale, p.unit_base) === 'weight').length;
+  console.log(`  lookup destino: ${skuTo.size} products c/sku (${nWeight} de peso) · ${whTo.size} warehouses`);
+
+  // Origen: agregado POR unidad de venta real (para poder convertir cada bucket).
+  // PH ('01'): Wincaja manda `< 2026-07-01` (venta real ene–jun), Kepler desde jul 1
+  // (Kepler recién tomó PH). Excluir el pre-julio de PH aquí cierra el solape de junio
+  // con el feed Wincaja → cero doble conteo. Ver import-wincaja-analytics.js (PH_CUTOVER).
+  const { rows: agg } = await src.query(
+    `SELECT almacen, sku, channel, fecha, upper(btrim(coalesce(unidad,''))) AS unidad,
+            sum(cantidad)::numeric        AS cant,
+            round(sum(importe),2)::numeric AS revenue
+       FROM mart.ventas_enriched
+      WHERE fecha >= ${WIN}
+        AND fecha <= current_date
+        AND NOT (almacen = '01' AND fecha < DATE '2026-07-01')
+      GROUP BY almacen, sku, channel, fecha, upper(btrim(coalesce(unidad,'')))`);
+  // Tickets: aparte, SIN unidad, para no sobrecontar folios con varias unidades.
+  const { rows: tk } = await src.query(
+    `SELECT almacen, sku, channel, fecha, count(DISTINCT folio)::int AS tickets
+       FROM mart.ventas_enriched
+      WHERE fecha >= ${WIN}
+        AND fecha <= current_date
+        AND NOT (almacen = '01' AND fecha < DATE '2026-07-01')
+      GROUP BY almacen, sku, channel, fecha`);
+  const tkMap = new Map(tk.map((r) => [`${mapAlmacen(r.almacen)}|${r.sku}|${r.channel}|${r.fecha.toISOString().slice(0, 10)}`, r.tickets]));
+  console.log(`  origen: ${agg.length} filas (almacen×sku×canal×día×unidad) · ${tk.length} grupos de tickets`);
+
+  // Transform: convertir cada bucket de unidad → canónico y RE-AGREGAR por
+  // (product, warehouse, channel, fecha). cost = revenue/(1+markup/100) al final.
+  const acc = new Map();
+  let noSku = 0, noWh = 0, unconv = 0;
+  // Qué almacenes se están tirando, con su peso. El contador agregado `noWh` existía desde
+  // siempre y no alcanzó: hay que poder NOMBRAR al que se cae, no sólo contarlo.
+  const whFaltantes = new Map();
+  for (const r of agg) {
+    const p = skuTo.get(r.sku);
+    if (!p) { noSku++; continue; }
+    const alm = mapAlmacen(r.almacen);
+    const wid = whTo.get(alm);
+    if (!wid) {
+      noWh++;
+      const f = whFaltantes.get(alm) || { filas: 0, revenue: 0 };
+      f.filas++; f.revenue += Number(r.revenue || 0);
+      whFaltantes.set(alm, f);
+      continue;
+    }
+    const cant = Number(r.cant);
+    const unitPrice = cant !== 0 ? Number(r.revenue) / cant : 0;
+    const conv = toCanonicalPriced(p, r.unidad, cant, unitPrice);
+    if (!conv.ok) unconv++;
+    const fecha = r.fecha.toISOString().slice(0, 10);
+    const key = `${p.id}|${wid}|${r.channel}|${fecha}`;
+    let a = acc.get(key);
+    if (!a) {
+      a = { pid: p.id, wid, channel: r.channel, fecha, sku: r.sku, almacen: alm,
+            markup: p.markup_pct, units: 0, revenue: 0, kind: p.kind,
+            rungF: null, rungMixed: false, unitsUnres: 0 };
+      acc.set(key, a);
+    }
+    a.units += conv.qty;
+    a.revenue += Number(r.revenue);
+    // U.5 — el peldaño se DECLARA. Esta fila agrega varios buckets de `unidad` del mismo día, así
+    // que en principio podría absorber piezas y paquetes a la vez. Medido sobre 695,127 filas de
+    // origen: NUNCA pasa (0 mezcladas). Queda como candado — si `rungMixed` deja de ser cero,
+    // `units` está sumando dos unidades distintas. Cuando pasa NO se elige una: `rung_factor` va
+    // NULL, porque repartir la cantidad entre peldaños sería inventar el reparto.
+    // La mezcla real vive ENTRE almacenes (311 SKUs / $17.4M), y se ve comparando `rung_factor`
+    // entre filas — no acá.
+    if (conv.ok) {
+      if (a.rungF == null) a.rungF = conv.f;
+      else if (Math.abs(a.rungF - conv.f) > 1e-9) a.rungMixed = true;
+    } else {
+      a.unitsUnres += conv.qty;
+    }
+  }
+  const rows = []; let noMarkup = 0; let mixed = 0;
+  const byChannel = {};
+  for (const a of acc.values()) {
+    const m = a.markup != null ? Number(a.markup) : null;
+    const cost = m != null && m > -100 ? a.revenue / (1 + m / 100) : null;
+    if (cost == null) noMarkup++;
+    const tickets = tkMap.get(`${a.almacen}|${a.sku}|${a.channel}|${a.fecha}`) || 0;
+    rows.push([a.pid, a.wid, a.channel, a.fecha,
+      Math.round(a.units * 1000) / 1000, Math.round(a.revenue * 100) / 100, cost, tickets, a.kind,
+      // U.5 — con peldaños mezclados el factor va NULL: no hay UN factor que describa la fila.
+      a.rungMixed ? null : a.rungF, a.rungMixed, Math.round(a.unitsUnres * 1000) / 1000]);
+    const c = (byChannel[a.channel] ||= { filas: 0, revenue: 0 });
+    c.filas++; c.revenue += a.revenue;
+    if (a.rungMixed) mixed++;
+  }
+  console.log(`  (sin markup → cost NULL: ${noMarkup} · líneas sin conversión limpia: ${unconv}`
+    + ` · filas con peldaño MEZCLADO: ${mixed})`);
+  console.log(`  a cargar: ${rows.length} (sin sku en catálogo: ${noSku}, sin warehouse: ${noWh})`);
+  if (whFaltantes.size) {
+    // Ordenado por DINERO, no por filas: lo que importa es cuánta venta se está perdiendo.
+    const top = [...whFaltantes.entries()].sort((a, b) => b[1].revenue - a[1].revenue);
+    console.warn(`  ⛔ venta DESCARTADA por almacén sin warehouse (${whFaltantes.size} almacenes): `
+      + top.map(([a, f]) => `${a} ${f.filas} filas $${Math.round(f.revenue).toLocaleString('es-MX')}`)
+          .join(' · '));
+  }
+  console.table(Object.fromEntries(Object.entries(byChannel).map(([k, v]) => [k, { filas: v.filas, revenue: Math.round(v.revenue) }])));
+
+  if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return { status: 'ok', rows: 0 }; }
+
+  await db.query('BEGIN');
+  await db.query(`SET LOCAL app.tenant_id = '${M}'`);
+  await db.query(`CREATE TEMP TABLE stg_sf (product_id uuid, warehouse_id uuid, channel text, sale_date date, units numeric, revenue numeric, cost numeric, tickets int, unit_kind text, rung_factor numeric, rung_mixed boolean, units_unresolved numeric) ON COMMIT DROP`);
+  const NCOL = 12;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH);
+    const vals = [], params = [];
+    chunk.forEach((row, ri) => {
+      const b = ri * NCOL;
+      vals.push(`(${Array.from({ length: NCOL }, (_, k) => `$${b + k + 1}`).join(',')})`);
+      params.push(...row);
+    });
+    await db.query(`INSERT INTO stg_sf VALUES ${vals.join(',')}`, params);
+  }
+  // Refresco por UPSERT (sin DELETE → cero churn/bloat). Los canales wincaja_* NO se tocan.
+  const up = await db.query(
+    `INSERT INTO analytics.sales_daily AS sd
+       (id, tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind,
+        rung_factor, rung_mixed, units_unresolved, updated_at)
+     SELECT gen_random_uuid(), $1, product_id, warehouse_id, channel, sale_date,
+            sum(units), sum(revenue), sum(cost), sum(tickets), max(unit_kind),
+            -- U.5 — el GROUP BY replica la clave del acumulador, así que normalmente hay 1 fila
+            -- por grupo. El CASE es la red: si alguna vez llegaran dos factores distintos al mismo
+            -- grupo, max() elegiría uno y escondería la mezcla. Acá se declara, no se elige.
+            CASE WHEN count(DISTINCT rung_factor) > 1 THEN NULL ELSE max(rung_factor) END,
+            bool_or(rung_mixed) OR count(DISTINCT rung_factor) > 1,
+            sum(units_unresolved), now()
+       FROM stg_sf
+      GROUP BY product_id, warehouse_id, channel, sale_date
+     ON CONFLICT (tenant_id, product_id, warehouse_id, channel, sale_date)
+     DO UPDATE SET units=EXCLUDED.units, revenue=EXCLUDED.revenue, cost=EXCLUDED.cost,
+                   tickets=EXCLUDED.tickets, unit_kind=EXCLUDED.unit_kind,
+                   rung_factor=EXCLUDED.rung_factor, rung_mixed=EXCLUDED.rung_mixed,
+                   units_unresolved=EXCLUDED.units_unresolved, updated_at=now()
+     -- Las tres columnas nuevas ENTRAN al guard: sin esto, una fila cuyo único cambio es el
+     -- peldaño no se actualizaría y el backfill nunca aterrizaría (la primera pasada trae todas
+     -- las filas con rung_factor NULL en destino y con valor en origen).
+     WHERE (sd.units, sd.revenue, sd.cost, sd.tickets, sd.unit_kind,
+            sd.rung_factor, sd.rung_mixed, sd.units_unresolved)
+           IS DISTINCT FROM
+           (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind,
+            EXCLUDED.rung_factor, EXCLUDED.rung_mixed, EXCLUDED.units_unresolved)`, [M]);
+  await db.query('COMMIT');
+  // RS.12c — stats frescas → plan bueno en sell-out. [DB-MEM.9] Ahora CONDICIONAL: el carril
+  // `livefast` (loop ~60 s) llamaba a este importer sin parar y disparaba un ANALYZE completo de
+  // una tabla de 4.5 GB ~20 veces por hora, la mitad de ellas con `n_mod_since_analyze = 0`.
+  await analyzeIfStale((s) => db.query(s), 'analytics.sales_daily');
+  console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas en analytics.sales_daily.`);
+  return { status: 'ok', rows: up.rowCount };
+}
+
+(async () => {
+  const src = new Client({ connectionString: SRC });
+  const db = new Client({ connectionString: DST });
+  await src.connect();
+  await db.connect();
+  if (WATCH_SEC) console.log(`\n=== sales-fact WATCH ${WATCH_SEC}s · Ctrl+C para salir ===`);
+  try {
+    let cycle = 0;
+    do {
+      cycle++;
+      if (WATCH_SEC) console.log(`\n──── ciclo ${cycle} @ ${new Date().toLocaleTimeString()} ────`);
+      let stat = { status: 'ok', rows: 0 };
+      if (APPLY) await hb.begin(HB_KEY, HB_LABEL).catch(() => {});
+      try {
+        stat = await runCycle(src, db);
+      } catch (e) {
+        await db.query('ROLLBACK').catch(() => {});
+        console.error('\nERROR (rollback):', e.message);
+        stat = { status: 'error', error: e.message };
+        if (!WATCH_SEC) process.exitCode = 1;
+      }
+      if (APPLY) await hb.end(HB_KEY, stat).catch(() => {});
+      if (WATCH_SEC) await sleep(WATCH_SEC * 1000);
+    } while (WATCH_SEC);
+  } finally {
+    await src.end();
+    await db.end();
+  }
+})();

@@ -1,0 +1,31 @@
+[
+  { "product_brand": "Chocolates Premium", "product_nombre": "Barra Chocolate Amargo 70%", "quantity": 350 },
+  { "product_brand": "Chocolates Premium", "product_nombre": "Trufas Surtidas 12pz", "quantity": 120 },
+  { "product_brand": "Chocolates Premium", "product_nombre": "Bombones Rellenos 24pz", "quantity": 200 },
+  { "product_brand": "Chocolates Premium", "product_nombre": "Chocolate con Almendras 80g", "quantity": 800 },
+  { "product_brand": "Chocolates Premium", "product_nombre": "Chocolate Blanco Premium", "quantity": 250 },
+
+  { "product_brand": "Dulces Típicos MX", "product_nombre": "Tamarindo Enchilado 500g", "quantity": 500 },
+  { "product_brand": "Dulces Típicos MX", "product_nombre": "Pulparindo 20pz", "quantity": 1200 },
+  { "product_brand": "Dulces Típicos MX", "product_nombre": "Cacahuates Japoneses 1kg", "quantity": 600 },
+  { "product_brand": "Dulces Típicos MX", "product_nombre": "Cocadas Tradicional 24pz", "quantity": 300 },
+  { "product_brand": "Dulces Típicos MX", "product_nombre": "Mazapán 30pz", "quantity": 450 },
+
+  { "product_brand": "Chicles & Gomitas", "product_nombre": "Chicle Bomba Bubble 100pz", "quantity": 700 },
+  { "product_brand": "Chicles & Gomitas", "product_nombre": "Gomitas Frutales 1kg", "quantity": 400 },
+  { "product_brand": "Chicles & Gomitas", "product_nombre": "Gomitas Acidas 1kg", "quantity": 380 },
+  { "product_brand": "Chicles & Gomitas", "product_nombre": "Chicle Menta Display 50pz", "quantity": 600 },
+  { "product_brand": "Chicles & Gomitas", "product_nombre": "Gomitas de Tiburón 500g", "quantity": 320 },
+
+  { "product_brand": "Paletas y Helados", "product_nombre": "Paleta Payaso 20pz", "quantity": 550 },
+  { "product_brand": "Paletas y Helados", "product_nombre": "Paleta Tutsi Pop 100pz", "quantity": 280 },
+  { "product_brand": "Paletas y Helados", "product_nombre": "Bolis Surtidos 24pz", "quantity": 1500 },
+  { "product_brand": "Paletas y Helados", "product_nombre": "Paleta Glaseada Caramelo", "quantity": 2400 },
+  { "product_brand": "Paletas y Helados", "product_nombre": "Paleta de Chamoy 25pz", "quantity": 420 },
+
+  { "product_brand": "Galletas y Snacks", "product_nombre": "Galletas Marías 1kg", "quantity": 800 },
+  { "product_brand": "Galletas y Snacks", "product_nombre": "Galletas Chocolate Chip 500g", "quantity": 500 },
+  { "product_brand": "Galletas y Snacks", "product_nombre": "Palomitas Caramelo 200g", "quantity": 900 },
+  { "product_brand": "Galletas y Snacks", "product_nombre": "Pretzels Salados 300g", "quantity": 650 },
+  { "product_brand": "Galletas y Snacks", "product_nombre": "Cacahuates Salados 1kg", "quantity": 720 }
+]

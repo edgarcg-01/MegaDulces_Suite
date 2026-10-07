@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>{{title}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+@page { size: A4; margin: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+html, body { background: #fff; color: #0a0a0a; font-family: 'Inter', system-ui, sans-serif; font-size: 11px; line-height: 1.5; }
+.page {
+  width: 210mm; min-height: 297mm; padding: 18mm 16mm; position: relative;
+  page-break-after: always; break-after: page; overflow: hidden;
+}
+.page:last-child { page-break-after: auto; break-after: auto; }
+.serif { font-family: 'Fraunces', 'Times New Roman', serif; font-weight: 600; letter-spacing: -0.01em; }
+.muted { color: #71717a; }
+.strong { font-weight: 600; color: #18181b; }
+.hr { border: 0; border-top: 1px solid #e4e4e7; margin: 12px 0; }
+.uppercase { text-transform: uppercase; letter-spacing: 0.08em; font-size: 9px; font-weight: 600; color: #52525b; }
+
+.header-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding-bottom: 10px; border-bottom: 1px solid #e4e4e7; margin-bottom: 22px;
+}
+.header-bar .brand-lockup { display: flex; align-items: center; gap: 10px; }
+.header-bar .brand-lockup img { height: 24px; }
+.header-bar .brand-lockup .tenant-name { font-weight: 700; font-size: 11px; letter-spacing: 0.04em; color: #18181b; }
+.header-bar .doc-meta { text-align: right; font-size: 9px; color: #52525b; }
+.header-bar .doc-meta .doc-title { font-weight: 600; color: #18181b; }
+.footer-bar {
+  position: absolute; bottom: 10mm; left: 16mm; right: 16mm;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 8.5px; color: #a1a1aa; border-top: 1px solid #f4f4f5; padding-top: 8px;
+}
+
+/* COVER */
+.cover { display: flex; flex-direction: column; height: 261mm; padding: 0; }
+.cover-top {
+  background: linear-gradient(135deg, #0a0a0a 0%, #1f1f23 70%, #2a2a30 100%);
+  color: #fff; padding: 28mm 16mm 22mm 16mm; flex: 1;
+  display: flex; flex-direction: column; justify-content: space-between;
+}
+.cover-top .badge { font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: #d4d4d8; }
+.cover-top h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 48px; line-height: 1.05; margin: 12px 0 6px; letter-spacing: -0.02em; }
+.cover-top h2 { font-family: 'Fraunces', serif; font-weight: 400; font-size: 20px; color: #e4e4e7; line-height: 1.2; }
+.cover-top .period { margin-top: 24px; font-size: 12px; color: #d4d4d8; font-weight: 500; }
+.cover-top .period .num { font-size: 16px; font-weight: 600; color: #fff; }
+.cover-summary { padding: 14mm 16mm 10mm; background: #fafafa; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12mm 18mm; }
+.cover-summary .stat .label { text-transform: uppercase; letter-spacing: 0.12em; color: #71717a; font-weight: 600; font-size: 8.5px; }
+.cover-summary .stat .val { font-family: 'Fraunces', serif; font-size: 24px; color: #18181b; font-weight: 600; margin-top: 4px; letter-spacing: -0.01em; line-height: 1; }
+.cover-summary .stat .sub { font-size: 9px; color: #52525b; margin-top: 4px; }
+.cover-meta { padding: 8mm 16mm 14mm; background: #fafafa; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16mm; border-top: 1px solid #e4e4e7; }
+.cover-meta .cell .label { text-transform: uppercase; letter-spacing: 0.12em; color: #71717a; font-weight: 600; font-size: 8.5px; }
+.cover-meta .cell .val { font-size: 11px; color: #18181b; font-weight: 600; margin-top: 4px; }
+.cover-meta .cell .val small { font-weight: 400; color: #52525b; }
+.cover-tenant { display: flex; align-items: center; gap: 12px; }
+.cover-tenant img { height: 32px; filter: brightness(0) invert(1); opacity: 0.95; }
+.cover-tenant .name { font-weight: 700; letter-spacing: 0.06em; font-size: 12px; color: #fff; }
+.cover-toc { padding: 6mm 16mm 0; background: #fafafa; }
+.cover-toc h4 { font-family: 'Fraunces', serif; font-size: 13px; color: #18181b; margin-bottom: 8px; }
+.cover-toc ul { list-style: none; columns: 2; column-gap: 14mm; }
+.cover-toc li { font-size: 10px; color: #3f3f46; margin-bottom: 4px; }
+.cover-toc li::before { content: '— '; color: #a1a1aa; }
+
+/* KPI grid */
+.kpi-grid { display: grid; gap: 10px; }
+.kpi-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.kpi-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.kpi-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.kpi {
+  border: 1px solid #e4e4e7; border-radius: 10px; padding: 12px 14px;
+  background: #fff; position: relative;
+}
+.kpi .label { font-size: 9px; color: #71717a; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.kpi .value { font-family: 'Fraunces', serif; font-size: 24px; font-weight: 600; color: #18181b; margin-top: 4px; line-height: 1; letter-spacing: -0.02em; }
+.kpi .sublabel { font-size: 9.5px; color: #52525b; margin-top: 4px; }
+.kpi .delta { font-size: 9px; margin-top: 2px; font-weight: 500; }
+.kpi .delta.up { color: #16a34a; }
+.kpi .delta.down { color: #dc2626; }
+.kpi .delta.flat { color: #71717a; }
+.kpi .rag-pill {
+  position: absolute; top: 10px; right: 12px;
+  font-size: 8.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.rag-green { background: #dcfce7; color: #14532d; }
+.rag-amber { background: #fef3c7; color: #78350f; }
+.rag-red { background: #fee2e2; color: #7f1d1d; }
+.rag-neutral { background: #f4f4f5; color: #52525b; }
+.kpi-bar { height: 3px; border-radius: 999px; margin-top: 8px; background: #f4f4f5; overflow: hidden; }
+.kpi-bar > span { display: block; height: 100%; }
+.kpi-bar > span.green { background: #16a34a; }
+.kpi-bar > span.amber { background: #f59e0b; }
+.kpi-bar > span.red { background: #dc2626; }
+
+/* Section heading */
+.section-title { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; color: #18181b; margin-bottom: 4px; letter-spacing: -0.01em; }
+.section-sub { font-size: 10.5px; color: #71717a; margin-bottom: 14px; }
+.section-mark { display: inline-block; padding: 2px 8px; border-radius: 4px; background: #18181b; color: #fff; font-size: 8.5px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600; margin-bottom: 10px; }
+
+/* Tables */
+table.data { width: 100%; border-collapse: collapse; font-size: 10px; }
+table.data thead th {
+  text-align: left; font-weight: 600; padding: 8px 10px; background: #18181b; color: #fafafa;
+  font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+table.data thead th.num, table.data tbody td.num { text-align: right; }
+table.data thead th.center, table.data tbody td.center { text-align: center; }
+table.data tbody td { padding: 8px 10px; border-bottom: 1px solid #f4f4f5; color: #27272a; }
+table.data tbody tr:nth-child(even) td { background: #fafafa; }
+table.data tbody tr:last-child td { border-bottom: 0; }
+.rag-cell { font-weight: 700; padding: 3px 8px; border-radius: 4px; display: inline-block; font-size: 9px; letter-spacing: 0.04em; }
+.stars { letter-spacing: 1px; color: #f59e0b; }
+
+/* Chart container */
+.chart-wrap { background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; padding: 14px 16px; }
+.chart-wrap .chart-canvas-wrap { height: 220px; position: relative; }
+.chart-wrap.tall .chart-canvas-wrap { height: 280px; }
+.chart-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; }
+
+/* Progress bar (furniture) */
+.fbar { background: #f4f4f5; height: 8px; border-radius: 999px; overflow: hidden; }
+.fbar > span { display: block; height: 100%; }
+.fbar > span.green { background: #16a34a; }
+.fbar > span.amber { background: #f59e0b; }
+.fbar > span.red { background: #dc2626; }
+
+/* Banner */
+.banner {
+  background: #f4f4f5; border-left: 3px solid #18181b; padding: 10px 14px; border-radius: 4px;
+  font-size: 10px; color: #3f3f46; margin: 10px 0 14px;
+}
+.banner strong { color: #18181b; }
+
+.empty-state {
+  border: 1px dashed #e4e4e7; padding: 40px; border-radius: 10px; text-align: center;
+  color: #71717a; font-size: 11px;
+}
+.empty-state h3 { font-family: 'Fraunces', serif; font-size: 22px; color: #18181b; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+{{!-- ===========================  COVER  =========================== --}}
+<section class="page cover">
+  <div class="cover-top">
+    <div class="cover-tenant">
+      {{#if tenant.logoDataUri}}<img src="{{tenant.logoDataUri}}" alt="">{{/if}}
+      <span class="name">{{tenant.name}}</span>
+    </div>
+    <div>
+      <div class="badge">{{title}}</div>
+      <h1>Reporte<br>Ejecutivo</h1>
+      <h2>{{tenant.name}} · Trade Marketing</h2>
+      <div class="period">
+        Periodo de análisis<br>
+        <span class="num">{{period.label}}</span>
+      </div>
+    </div>
+  </div>
+  <div class="cover-summary">
+    <div class="stat">
+      <div class="label">Visitas</div>
+      <div class="val">{{fmtNum totals.visits}}</div>
+      <div class="sub">en el periodo</div>
+    </div>
+    <div class="stat">
+      <div class="label">Capturas</div>
+      <div class="val">{{fmtNum totals.captures}}</div>
+      <div class="sub">registros únicos</div>
+    </div>
+    <div class="stat">
+      <div class="label">Score promedio</div>
+      <div class="val">{{fmtNum totals.avgScore 0}}</div>
+      <div class="sub">puntos sobre 100</div>
+    </div>
+    <div class="stat">
+      <div class="label">Impacto venta</div>
+      <div class="val">{{fmtMoney totals.sales}}</div>
+      <div class="sub">acumulado</div>
+    </div>
+  </div>
+  <div class="cover-meta">
+    <div class="cell">
+      <div class="label">Preparado para</div>
+      <div class="val">{{#if preparedFor}}{{preparedFor}}{{else}}Dirección · {{tenant.name}}{{/if}}</div>
+    </div>
+    <div class="cell">
+      <div class="label">Preparado por</div>
+      <div class="val">{{preparedBy.name}}<br><small>{{preparedBy.email}}</small></div>
+    </div>
+    <div class="cell">
+      <div class="label">Generado</div>
+      <div class="val">{{fmtDate generatedAt}}</div>
+    </div>
+  </div>
+  <div class="cover-toc">
+    <h4>Contenido</h4>
+    <ul>
+      {{#if sections.metrics}}<li>Métricas principales</li>{{/if}}
+      {{#if sections.trend}}<li>Tendencia de ejecución</li>{{/if}}
+      {{#if sections.distribution}}<li>Distribución de calidad</li>{{/if}}
+      {{#if sections.byZone}}<li>Desempeño por zona</li>{{/if}}
+      {{#if sections.furniture}}<li>Cumplimiento de mobiliario</li>{{/if}}
+      {{#if sections.ranking}}<li>Ranking de ejecutivos</li>{{/if}}
+      {{#if sections.table}}<li>Registros detallados</li>{{/if}}
+    </ul>
+  </div>
+</section>
+
+{{#if hasData}}
+
+{{!-- ===========================  METRICS  =========================== --}}
+{{#if sections.metrics}}
+<section class="page">
+  <div class="header-bar">
+    <div class="brand-lockup">
+      {{#if tenant.logoDataUri}}<img src="{{tenant.logoDataUri}}" alt="">{{/if}}
+      <span class="tenant-name">{{tenant.name}}</span>
+    </div>
+    <div class="doc-meta">
+      <div class="doc-title">{{title}}</div>
+      <div>{{period.label}}</div>
+    </div>
+  </div>
+
+  <div class="section-mark">01 · Métricas principales</div>
+  <h2 class="section-title">KPIs operativos del periodo</h2>
+  <p class="section-sub">Lectura del desempeño global comparado contra metas configuradas y, cuando hay datos, contra el periodo anterior.</p>
+
+  <div class="kpi-grid cols-2">
+    {{#each kpis}}
+    <div class="kpi">
+      <div class="label">{{label}} <span class="muted" style="font-weight:400">· meta {{meta}}</span></div>
+      <div class="value">{{value}}</div>
+      {{#if delta}}<div class="delta {{deltaDir}}">{{delta}}</div>{{/if}}
+      <span class="rag-pill {{ragClass rag}}">{{#if (eq rag "green")}}En meta{{else if (eq rag "amber")}}Cerca{{else if (eq rag "red")}}Debajo{{else}}—{{/if}}</span>
+      <div class="kpi-bar"><span class="{{rag}}" style="width: {{pct}}%;"></span></div>
+    </div>
+    {{/each}}
+  </div>
+
+  <div class="footer-bar">
+    <span>{{tenant.name}} · {{title}}</span>
+    <span>Página 2</span>
+  </div>
+</section>
+{{/if}}
+
+{{!-- ===========================  TREND + DISTRIBUTION  =========================== --}}
+{{#if (or sections.trend sections.distribution)}}
+<section class="page">
+  <div class="header-bar">
+    <div class="brand-lockup">
+      {{#if tenant.logoDataUri}}<img src="{{tenant.logoDataUri}}" alt="">{{/if}}
+      <span class="tenant-name">{{tenant.name}}</span>
+    </div>
+    <div class="doc-meta">
+      <div class="doc-title">{{title}}</div>
+      <div>{{period.label}}</div>
+    </div>
+  </div>
+
+  <div class="section-mark">02 · Análisis visual</div>
+  <h2 class="section-title">Tendencia y distribución</h2>
+  <p class="section-sub">Comportamiento del score diario y cómo se distribuyen las visitas según su calidad de ejecución.</p>
+
+  <div class="chart-row">
+    {{#if sections.trend}}
+    <div class="chart-wrap tall">
+      <h3 class="serif" style="font-size: 13px; margin-bottom: 8px;">Tendencia diaria de score</h3>
+      <div class="chart-canvas-wrap"><canvas id="trendChart"></canvas></div>
+    </div>
+    {{/if}}
+    {{#if sections.distribution}}
+    <div class="chart-wrap tall">
+      <h3 class="serif" style="font-size: 13px; margin-bottom: 8px;">Distribución de calidad</h3>
+      <div class="chart-canvas-wrap"><canvas id="distChart"></canvas></div>
+    </div>
+    {{/if}}
+  </div>
+
+  <div class="footer-bar">
+    <span>{{tenant.name}} · {{title}}</span>
+    <span>Página 3</span>
+  </div>
+</section>
+{{/if}}
+
+{{!-- ===========================  BY ZONE  =========================== --}}
+{{#if sections.byZone}}
+<section class="page">
+  <div class="header-bar">
+    <div class="brand-lockup">
+      {{#if tenant.logoDataUri}}<img src="{{tenant.logoDataUri}}" alt="">{{/if}}
+      <span class="tenant-name">{{tenant.name}}</span>
+    </div>
+    <div class="doc-meta">
+      <div class="doc-title">{{title}}</div>
+      <div>{{period.label}}</div>
+    </div>
+  </div>
+
+  <div class="section-mark">03 · Por zona</div>
+  <h2 class="section-title">Desempeño por zona operativa</h2>
+  <p class="section-sub">Score promedio, visitas y venta acumulada por zona.</p>
+
+  {{#if byZone.length}}
+  <table class="data">
+    <thead>
+      <tr>
+        <th style="width: 6%;">#</th>
+        <th>Zona</th>
+        <th class="num">Visitas</th>
+        <th class="num">Score</th>
+        <th class="num">Venta</th>
+        <th class="center" style="width: 14%;">Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each byZone}}
+      <tr>
+        <td class="muted">{{inc @index}}</td>
+        <td class="strong">{{zone}}</td>
+        <td class="num">{{fmtNum visits}}</td>
+        <td class="num">{{fmtNum avgScore}} pts</td>
+        <td class="num">{{fmtMoney totalSales}}</td>
+        <td class="center"><span class="rag-cell {{ragClass rag}}">{{#if (eq rag "green")}}OK{{else if (eq rag "amber")}}REGULAR{{else}}BAJO{{/if}}</span></td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty-state">Sin datos suficientes para desglose por zona en este periodo.</div>
+  {{/if}}
+
+  <div class="footer-bar">
+    <span>{{tenant.name}} · {{title}}</span>
+    <span>Página 4</span>
+  </div>
+</section>
+{{/if}}
+
+{{!-- ===========================  FURNITURE  =========================== --}}
+{{#if sections.furniture}}
+<section class="page">
+  <div class="header-bar">
+    <div class="brand-lockup">
+      {{#if tenant.logoDataUri}}<img src="{{tenant.logoDataUri}}" alt="">{{/if}}
+      <span class="tenant-name">{{tenant.name}}</span>
+    </div>
+    <div class="doc-meta">
+      <div class="doc-title">{{title}}</div>
+      <div>{{period.label}}</div>
+    </div>
+  </div>
+
+  <div class="section-mark">04 · Mobiliario</div>
+  <h2 class="section-title">Cumplimiento de mobiliario</h2>
+  <p class="section-sub">Progreso vs meta de cada tipo de mobiliario auditado en el periodo.</p>
+
+  {{#if furniture.length}}
+  <table class="data">
+    <thead>
+      <tr>
+        <th>Mobiliario</th>
+        <th class="num" style="width: 14%;">Actual</th>
+        <th class="num" style="width: 14%;">Meta</th>
+        <th class="num" style="width: 14%;">% Cumpl.</th>
+        <th style="width: 26%;">Progreso</th>
+        <th class="center" style="width: 14%;">Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each furniture}}
+      <tr>
+        <td class="strong">{{label}}</td>
+        <td class="num">{{fmtNum current}}</td>
+        <td class="num">{{fmtNum target}}</td>
+        <td class="num">{{progressPct}}%</td>
+        <td>
+          <div class="fbar"><span class="{{rag}}" style="width: {{progressPct}}%;"></span></div>
+        </td>
+        <td class="center"><span class="rag-cell {{ragClass rag}}">{{#if (eq rag "green")}}OK{{else if (eq rag "amber")}}CERCA{{else}}BAJO{{/if}}</span></td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty-state">Sin datos de mobiliario en el periodo.</div>
+  {{/if}}
+
+  <div class="footer-bar">
+    <span>{{tenant.name}} · {{title}}</span>
+    <span>Página 5</span>
+  </div>
+</section>
+{{/if}}
+
+{{!-- ===========================  RANKING  =========================== --}}
+{{#if sections.ranking}}
+<section class="page">
+  <div class="header-bar">
+    <div class="brand-lockup">
+      {{#if tenant.logoDataUri}}<img src="{{tenant.logoDataUri}}" alt="">{{/if}}
+      <span class="tenant-name">{{tenant.name}}</span>
+    </div>
+    <div class="doc-meta">
+      <div class="doc-title">{{title}}</div>
+      <div>{{period.label}}</div>
+    </div>
+  </div>
+
+  <div class="section-mark">05 · Ranking</div>
+  <h2 class="section-title">Ranking de ejecutivos</h2>
+  <p class="section-sub">Ordenado por score promedio. Top {{ranking.length}}.</p>
+
+  {{#if ranking.length}}
+  <table class="data">
+    <thead>
+      <tr>
+        <th style="width: 6%;">#</th>
+        <th>Ejecutivo</th>
+        <th class="num" style="width: 14%;">Visitas</th>
+        <th class="num" style="width: 14%;">Score Prom.</th>
+        <th class="center" style="width: 18%;">Calificación</th>
+        <th class="center" style="width: 14%;">Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each ranking}}
+      <tr>
+        <td class="muted">{{rank}}</td>
+        <td class="strong">{{username}}</td>
+        <td class="num">{{fmtNum visits}}</td>
+        <td class="num">{{fmtNum avgScore}} pts</td>
+        <td class="center"><span class="stars">{{stars}}</span></td>
+        <td class="center"><span class="rag-cell {{ragClass rag}}">{{#if (eq rag "green")}}OK{{else if (eq rag "amber")}}REGULAR{{else}}BAJO{{/if}}</span></td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty-state">Sin datos de ejecutivos en el periodo.</div>
+  {{/if}}
+
+  <div class="footer-bar">
+    <span>{{tenant.name}} · {{title}}</span>
+    <span>Página 6</span>
+  </div>
+</section>
+{{/if}}
+
+{{!-- ===========================  TABLE OF RECORDS  =========================== --}}
+{{#if sections.table}}
+<section class="page">
+  <div class="header-bar">
+    <div class="brand-lockup">
+      {{#if tenant.logoDataUri}}<img src="{{tenant.logoDataUri}}" alt="">{{/if}}
+      <span class="tenant-name">{{tenant.name}}</span>
+    </div>
+    <div class="doc-meta">
+      <div class="doc-title">{{title}}</div>
+      <div>{{period.label}}</div>
+    </div>
+  </div>
+
+  <div class="section-mark">06 · Registros</div>
+  <h2 class="section-title">Detalle de capturas</h2>
+  <p class="section-sub">Primeras {{table.length}} capturas del periodo, ordenadas más reciente primero.</p>
+
+  {{#if table.length}}
+  <table class="data">
+    <thead>
+      <tr>
+        <th style="width: 12%;">Folio</th>
+        <th style="width: 11%;">Fecha</th>
+        <th>Ejecutivo</th>
+        <th style="width: 14%;">Zona</th>
+        <th class="num" style="width: 10%;">Score</th>
+        <th class="center" style="width: 10%;">Estado</th>
+        <th class="num" style="width: 14%;">Venta</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each table}}
+      <tr>
+        <td>{{folio}}</td>
+        <td>{{date}}</td>
+        <td class="strong">{{user}}</td>
+        <td>{{zone}}</td>
+        <td class="num">{{score}} pts</td>
+        <td class="center"><span class="rag-cell {{ragClass rag}}">{{status}}</span></td>
+        <td class="num">{{fmtMoney sales}}</td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty-state">Sin capturas en el periodo.</div>
+  {{/if}}
+
+  <div class="footer-bar">
+    <span>{{tenant.name}} · {{title}}</span>
+    <span>Página 7</span>
+  </div>
+</section>
+{{/if}}
+
+{{else}}
+<section class="page">
+  <div class="header-bar">
+    <div class="brand-lockup">
+      {{#if tenant.logoDataUri}}<img src="{{tenant.logoDataUri}}" alt="">{{/if}}
+      <span class="tenant-name">{{tenant.name}}</span>
+    </div>
+    <div class="doc-meta">
+      <div class="doc-title">{{title}}</div>
+      <div>{{period.label}}</div>
+    </div>
+  </div>
+  <div class="empty-state" style="margin-top: 60px;">
+    <h3>Sin datos en el periodo seleccionado</h3>
+    <p>No se encontraron capturas entre <strong>{{period.label}}</strong>.</p>
+  </div>
+  <div class="footer-bar">
+    <span>{{tenant.name}} · {{title}}</span>
+    <span>—</span>
+  </div>
+</section>
+{{/if}}
+
+{{#if (or sections.trend sections.distribution)}}
+<script>
+(function () {
+  try {
+    {{#if sections.trend}}
+    var trendCtx = document.getElementById('trendChart');
+    if (trendCtx && {{trend.labels.length}} > 0) {
+      new Chart(trendCtx, {
+        type: 'line',
+        data: {
+          labels: {{{json trend.labels}}},
+          datasets: [{
+            data: {{{json trend.data}}},
+            borderColor: '#18181b',
+            backgroundColor: 'rgba(24,24,27,0.06)',
+            tension: 0.3,
+            fill: true,
+            pointRadius: 3,
+            pointBackgroundColor: '#18181b',
+            borderWidth: 2,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { family: 'Inter', size: 9 }, color: '#71717a' } },
+            y: { beginAtZero: false, grid: { color: '#f4f4f5' }, ticks: { font: { family: 'Inter', size: 9 }, color: '#71717a' } }
+          }
+        }
+      });
+    }
+    {{/if}}
+
+    {{#if sections.distribution}}
+    var distCtx = document.getElementById('distChart');
+    if (distCtx) {
+      new Chart(distCtx, {
+        type: 'doughnut',
+        data: {
+          labels: {{{json distribution.labels}}},
+          datasets: [{
+            data: {{{json distribution.data}}},
+            backgroundColor: {{{json distribution.colors}}},
+            borderColor: '#fff',
+            borderWidth: 2,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false, cutout: '60%',
+          plugins: {
+            legend: { position: 'bottom', labels: { font: { family: 'Inter', size: 9 }, color: '#52525b', boxWidth: 10 } },
+            tooltip: { enabled: false }
+          }
+        }
+      });
+    }
+    {{/if}}
+  } catch (e) { console.error('chart render failed', e); }
+})();
+</script>
+{{/if}}
+
+</body>
+</html>

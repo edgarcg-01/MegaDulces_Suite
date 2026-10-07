@@ -1,0 +1,624 @@
+import { Component, computed, inject, signal, OnInit, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { SelectModule } from 'primeng/select';
+import { InputTextModule } from 'primeng/inputtext';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { DatePickerModule } from 'primeng/datepicker';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
+import { TableModule } from 'primeng/table';
+import { TagModule } from 'primeng/tag';
+import { ButtonModule } from 'primeng/button';
+import {
+  DispatchFromKeplerPayload,
+  GeocodeResult,
+  Rider,
+  FleetVehicle,
+  HomeDeliveryService,
+  KeplerTicket,
+  PendingOrder,
+} from '../home-delivery.service';
+import { MapComponent } from '../../../shared/components/map/map.component';
+
+/**
+ * LM-K.4 — Persona de tienda: captura folio Kepler → ve el pedido → captura
+ * domicilio → asigna repartidor+moto. Superficie de campo (tablet): un paso a la
+ * vez, targets grandes, decisión de asignación asistida (estado + capacidad).
+ */
+@Component({
+  selector: 'app-home-delivery-dispatch',
+  standalone: true,
+  imports: [
+    CommonModule, FormsModule, SelectModule, InputTextModule, InputNumberModule,
+    DatePickerModule, ToggleSwitchModule, TableModule, TagModule, ButtonModule,
+    MapComponent,
+  ],
+  template: `
+    <div class="surf-page in rd">
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Asignar entrega a domicilio</h1>
+          <p class="surf-page-sub">Buscá el folio Kepler, capturá el domicilio y asigná repartidor + moto</p>
+        </div>
+      </header>
+    
+      <!-- Por despachar: pedidos de intake (bot/portal/tel) confirmados sin asignar.
+      Independiente del flujo Kepler de abajo. -->
+      @if (pendingOrders().length) {
+        <div class="card-premium rd-card rd-pending">
+          <h2 class="rd-sectitle" style="margin-top:0">
+            Pedidos por despachar <span class="rd-hint">· bot / portal · {{ pendingOrders().length }}</span>
+          </h2>
+          <div class="rd-grid">
+            <div class="rd-field">
+              <label for="psd">Fecha de entrega</label>
+              <p-datepicker inputId="psd" [(ngModel)]="shipmentDate" dateFormat="dd/mm/yy"
+                [minDate]="today" [showIcon]="true" appendTo="body" styleClass="rd-full" />
+              </div>
+            </div>
+            <p-table [value]="pendingOrders()" styleClass="p-datatable-sm surf-table rd-mt">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Canal</th>
+                  <th scope="col">Domicilio</th>
+                  <th scope="col" class="comm-num">Cobra</th>
+                  <th scope="col">Repartidor</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-o>
+                <tr>
+                  <td>
+                    <div class="rd-opt-main">{{ o.customer_name }}</div>
+                    <div class="rd-opt-sub">{{ o.phone || 'sin teléfono' }} · {{ o.code }}</div>
+                  </td>
+                  <td><p-tag [value]="o.channel || 'intake'" severity="info" /></td>
+                  <td>
+                    @if (o.street) {
+                      {{ o.street }}@if (o.references) {
+                      <span class="rd-opt-sub"> · {{ o.references }}</span>
+                    }
+                  } @else { <span class="rd-geo-hint">sin domicilio</span> }
+                </td>
+                <td class="comm-num">{{ money(o.amount_to_collect) }}</td>
+                <td>
+                  <p-select [options]="riders()" [(ngModel)]="assignRider[o.order_id]" optionValue="rider_user_id"
+                    appendTo="body" styleClass="rd-full" placeholder="Repartidor"
+                    [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores'">
+                    <ng-template let-d #item><span>{{ d.full_name || d.username }}</span></ng-template>
+                    <ng-template let-d #selectedItem>@if (d) {
+                      <span>{{ d.full_name || d.username }}</span>
+                    }</ng-template>
+                  </p-select>
+                </td>
+                <td>
+                  <button pButton size="small" [loading]="assigningId() === o.order_id" (click)="assignOrder(o)"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Asignar</span></button>
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
+    
+          <!-- Mapa de los pedidos con ubicación compartida (pin del cliente). -->
+          @if (pendingMarkers().length) {
+            <div class="rd-mt">
+              <app-map [markers]="pendingMarkers()" height="260px" />
+            </div>
+          }
+          @if (pendingWithoutCoords() > 0) {
+            <p class="rd-geo-hint rd-mt">
+              <i class="pi pi-info-circle"></i>
+              {{ pendingWithoutCoords() }} pedido(s) sin ubicación en el mapa (dirección capturada a mano).
+              Cuando el cliente comparte su ubicación por WhatsApp, el pedido aparece con su pin.
+            </p>
+          }
+          @if (assignError()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ assignError() }}</p> }
+          @if (assignOk()) { <p class="rd-geo-ok rd-mt"><i class="pi pi-check-circle"></i> {{ assignOk() }}</p> }
+        </div>
+      }
+    
+      <ol class="rd-steps" aria-label="Progreso">
+        <li [class.on]="step() === 0" [class.done]="step() > 0"><span class="rd-num">1</span> Buscar folio</li>
+        <li [class.on]="step() === 1" [class.done]="step() > 1"><span class="rd-num">2</span> Domicilio y repartidor</li>
+        <li [class.on]="step() === 2"><span class="rd-num">3</span> Confirmado</li>
+      </ol>
+    
+      <!-- Paso 1: buscar folio -->
+      @if (!result()) {
+        <div class="card-premium rd-card">
+          <div class="rd-grid">
+            <div class="rd-field">
+              <label for="wh">Sucursal</label>
+              <p-select inputId="wh" [options]="warehouseOpts" [(ngModel)]="warehouse"
+                optionLabel="label" optionValue="value" appendTo="body" styleClass="rd-full" />
+              </div>
+              <div class="rd-field">
+                <label for="folio">Folio Kepler</label>
+                <input id="folio" pInputText class="rd-in" [(ngModel)]="folio" placeholder="ej. 12345"
+                  (keyup.enter)="lookup()" inputmode="numeric" />
+                </div>
+                <div class="rd-field">
+                  <label for="serie">Serie <span class="rd-hint">(opcional)</span></label>
+                  <input id="serie" pInputText class="rd-in" [(ngModel)]="serie" placeholder="ej. UD0101" />
+                </div>
+              </div>
+              <div class="rd-actions">
+                <p-button [label]="loading() ? 'Buscando…' : 'Buscar ticket'" icon="pi pi-search"
+                [loading]="loading()" [disabled]="!folio.trim()" (click)="lookup()"></p-button>
+              </div>
+              @if (error()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ error() }}</p> }
+            </div>
+          }
+    
+          <!-- Paso 2: ticket + domicilio + asignación -->
+          @if (ticket(); as t) {
+            <div class="card-premium rd-card">
+              <div class="rd-ticket-head">
+                <div>
+                  <div class="rd-ticket-title">{{ t.warehouse_name }} · Folio {{ t.folio }}</div>
+                  <div class="rd-ticket-total">{{ money(t.total) }}</div>
+                </div>
+                <p-tag severity="warn" value="Contra-entrega" icon="pi pi-wallet" />
+              </div>
+    
+              <p-table [value]="t.items" styleClass="p-datatable-sm surf-table rd-lines">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col">SKU</th>
+                    <th scope="col">Producto</th>
+                    <th scope="col" class="comm-num">Cant</th>
+                    <th scope="col" class="comm-num">Importe</th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-it>
+                  <tr>
+                    <td><code class="comm-code">{{ it.sku }}</code></td>
+                    <td>{{ it.nombre }}</td>
+                    <td class="comm-num">{{ it.cant }}</td>
+                    <td class="comm-num">{{ money(it.importe) }}</td>
+                  </tr>
+                </ng-template>
+                <ng-template #footer>
+                  <tr>
+                    <td colspan="3" class="comm-num">Total</td>
+                    <td class="comm-num"><b>{{ money(t.total) }}</b></td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </div>
+    
+            <div class="card-premium rd-card">
+              <h2 class="rd-sectitle">Domicilio de entrega</h2>
+              <div class="rd-grid">
+                <div class="rd-field">
+                  <label for="rn">Nombre de quien recibe</label>
+                  <input id="rn" pInputText class="rd-in" [(ngModel)]="recipientName" />
+                </div>
+                <div class="rd-field">
+                  <label for="ph">Teléfono <span class="req">*</span></label>
+                  <input id="ph" pInputText class="rd-in" [(ngModel)]="phone" inputmode="tel" placeholder="10 dígitos" />
+                </div>
+              </div>
+              <div class="rd-field rd-mt">
+                <label for="st">Calle y número <span class="req">*</span></label>
+                <input id="st" pInputText class="rd-in" [(ngModel)]="street" />
+              </div>
+              <div class="rd-field rd-mt">
+                <label for="rf">Referencias</label>
+                <input id="rf" pInputText class="rd-in" [(ngModel)]="references" placeholder="entre calles, color de casa…" />
+              </div>
+    
+              <!-- Ubicación en mapa (opcional pero recomendada: habilita la mejor ruta) -->
+              <div class="rd-field rd-mt">
+                <label>Ubicación en el mapa <span class="rd-hint">· mejora el orden de reparto</span></label>
+                <div class="rd-geo">
+                  <p-button type="button" size="small" severity="secondary" [outlined]="true"
+                    icon="pi pi-search-plus" [label]="geocoding() ? 'Buscando…' : 'Ubicar dirección'"
+                  [loading]="geocoding()" [disabled]="!street.trim()" (click)="locate()"></p-button>
+                  @if (picked(); as p) {
+                    <span class="rd-geo-ok"><i class="pi pi-check-circle"></i> Ubicado ({{ p.lat | number:'1.4-4' }}, {{ p.lng | number:'1.4-4' }})</span>
+                  } @else {
+                    <span class="rd-geo-hint">Buscá la dirección o tocá el mapa para fijar el punto.</span>
+                  }
+                </div>
+                @if (geoResults().length > 1) {
+                  <p-select [options]="geoResults()" [(ngModel)]="chosenGeo" optionLabel="place_name"
+                    appendTo="body" styleClass="rd-full" placeholder="Elegí el match correcto"
+                    (onChange)="chooseGeo($event.value)" />
+                  }
+                  <app-map [pickable]="true" [pickedPoint]="picked()" (mapClick)="onPick($event)"
+                    height="240px" [autoFit]="'off'" [showBasemapToggle]="false" />
+                  </div>
+    
+                  <h2 class="rd-sectitle">Asignación</h2>
+                  <div class="rd-grid">
+                    <div class="rd-field">
+                      <label for="drv">Repartidor <span class="req">*</span></label>
+                      <p-select inputId="drv" [options]="riders()" [(ngModel)]="riderUserId" optionValue="rider_user_id"
+                        appendTo="body" styleClass="rd-full" placeholder="Elegí repartidor"
+                        [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores activos'">
+                        <ng-template let-d #item>
+                          <div class="rd-opt">
+                            <span class="rd-opt-main">{{ d.full_name || d.username }}</span>
+                            @if (d.warehouse_code) {
+                              <span class="rd-opt-sub">Suc. {{ d.warehouse_code }}</span>
+                            }
+                          </div>
+                        </ng-template>
+                        <ng-template let-d #selectedItem>
+                          @if (d) {
+                            <span>{{ d.full_name || d.username }}</span>
+                          }
+                        </ng-template>
+                      </p-select>
+                    </div>
+                    <div class="rd-field">
+                      <label for="veh">Moto</label>
+                      <p-select inputId="veh" [options]="vehicles()" [(ngModel)]="vehicleId" optionValue="id"
+                        appendTo="body" styleClass="rd-full" placeholder="Moto (opcional)" [showClear]="true"
+                        [emptyMessage]="'Sin motos activas'">
+                        <ng-template let-v #item>
+                          <div class="rd-opt">
+                            <span class="rd-opt-main">{{ v.plate }}</span>
+                            <span class="rd-opt-sub">{{ v.model || v.brand || 'moto' }}</span>
+                            @if (v.capacity_boxes != null) {
+                              <span class="rd-cap">{{ v.capacity_boxes }} cajas</span>
+                            }
+                          </div>
+                        </ng-template>
+                        <ng-template let-v #selectedItem>
+                          @if (v) {
+                            <span>{{ v.plate }}<span class="rd-opt-sub"> · {{ v.model || v.brand }}</span></span>
+                          }
+                        </ng-template>
+                      </p-select>
+                    </div>
+                  </div>
+    
+                  @if (capacityInfo(); as ci) {
+                    @if (ci.over) {
+                      <div class="rd-advisory warn">
+                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        <span>El pedido son ~{{ ci.units }} u y esta moto rinde {{ ci.cap }} cajas. Podría no caber — se valida al asignar (o considerá CEDIS).</span>
+                      </div>
+                    } @else if (ci.cap != null) {
+                      <div class="rd-advisory info">
+                        <i class="pi pi-box" aria-hidden="true"></i>
+                        <span>{{ ci.units }} u en el pedido · capacidad de la moto {{ ci.cap }} cajas.</span>
+                      </div>
+                    }
+                  }
+    
+                  <div class="rd-grid rd-mt">
+                    <div class="rd-field">
+                      <label for="sd">Fecha de entrega</label>
+                      <p-datepicker inputId="sd" [(ngModel)]="shipmentDate" dateFormat="dd/mm/yy"
+                        [minDate]="today" [showIcon]="true" appendTo="body" styleClass="rd-full" />
+                      </div>
+                    </div>
+    
+                    <div class="rd-advisory info">
+                      <i class="pi pi-wallet" aria-hidden="true"></i>
+                      <span>Contra-entrega — el repartidor cobra <b>{{ money(t.total) }}</b> en efectivo al entregar. El monto es fijo del ticket.</span>
+                    </div>
+    
+                    @if (dispatchError()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ dispatchError() }}</p> }
+                    <div class="rd-actions">
+                      <p-button [label]="saving() ? 'Asignando…' : 'Asignar a repartidor'" icon="pi pi-send"
+                      [loading]="saving()" (click)="dispatch()"></p-button>
+                    </div>
+                  </div>
+                }
+    
+                <!-- Resultado -->
+                @if (result(); as r) {
+                  <div class="card-premium rd-card rd-ok">
+                    <div class="rd-ok-head"><i class="pi pi-check-circle" aria-hidden="true"></i> Entrega asignada</div>
+                    <div class="rd-ok-meta">Embarque {{ r.folio }} · Guía {{ r.guide_number }}</div>
+                    @if (r.requires_cedis) {
+                      <div class="rd-advisory warn rd-mt">
+                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        <span>Excede la capacidad de la moto ({{ r.total_units }} u). Considerá surtir desde CEDIS.</span>
+                      </div>
+                    }
+                    <div class="rd-actions">
+                      <button pButton severity="secondary" [outlined]="true" (click)="reset()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Despachar otro</span></button>
+                    </div>
+                  </div>
+                }
+              </div>
+    `,
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styles: [`
+    :host { display:block; }
+    .rd { max-width: 860px; }
+
+    .rd-steps { display:flex; gap:.5rem; list-style:none; padding:0; margin:0 0 1.25rem; flex-wrap:wrap; }
+    .rd-steps li { display:inline-flex; align-items:center; gap:.45rem; font-size:.82rem; font-weight:600;
+      color:var(--text-faint); padding:.4rem .8rem; border:1px solid var(--border-color); border-radius:var(--r-pill); }
+    .rd-steps .rd-num { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:50%;
+      background:var(--layout-bg); color:var(--text-muted); font-size:.72rem; }
+    .rd-steps li.on { color:var(--text-main); border-color:var(--text-muted); }
+    .rd-steps li.on .rd-num { background:var(--action); color:var(--action-ink); }
+    .rd-steps li.done { color:var(--action); border-color:var(--action); }
+    .rd-steps li.done .rd-num { background:var(--action); color:var(--action-ink); }
+
+    .rd-card { margin-bottom:1rem; }
+    .rd-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem; }
+    .rd-field { display:flex; flex-direction:column; gap:.4rem; }
+    .rd-field > label { font-size:.78rem; font-weight:600; color:var(--text-muted); }
+    .rd-field .req { color:var(--bad-fg); }
+    .rd-hint { color:var(--text-faint); font-weight:400; }
+    .rd-mt { margin-top:1rem; }
+
+    .rd-sectitle { font-size:.95rem; font-weight:700; color:var(--text-main); margin:1.25rem 0 .75rem; }
+    .rd-sectitle:first-child { margin-top:0; }
+
+    /* Controles a ancho de campo (tablet). */
+    .rd-in { width:100%; }
+    :host ::ng-deep .rd-full { width:100%; }
+    :host ::ng-deep .rd-full .p-inputnumber-input { width:100%; }
+    :host ::ng-deep .rd-full .p-datepicker-input { width:100%; }
+
+    .rd-ticket-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+    .rd-ticket-title { font-weight:700; color:var(--text-main); }
+    .rd-ticket-total { font-size:1.25rem; font-weight:800; font-variant-numeric:tabular-nums; color:var(--text-main); margin-top:.15rem; }
+
+    /* Opciones enriquecidas de repartidor / moto */
+    .rd-opt { display:flex; align-items:center; gap:.5rem; width:100%; }
+    .rd-opt-main { font-weight:600; }
+    .rd-opt-sub { color:var(--text-muted); font-size:.85em; }
+    .rd-cap { margin-left:auto; font-size:var(--fs-xs); color:var(--text-muted); font-variant-numeric:tabular-nums; }
+    .rd-dot { width:9px; height:9px; border-radius:50%; background:var(--text-faint); flex-shrink:0; }
+    .rd-dot.ok { background:var(--ok-fg); }
+    .rd-dot.busy { background:var(--warn-fg); }
+    .rd-dot.off { background:var(--text-faint); }
+
+    .rd-advisory { display:flex; gap:.5rem; align-items:flex-start; padding:.65rem .85rem; border-radius:var(--r-sm);
+      font-size:.85rem; margin-top:.75rem; line-height:1.4; }
+    .rd-advisory i { margin-top:.1rem; }
+    .rd-advisory.warn { background:var(--warn-soft-bg); color:var(--warn-soft-fg); border:1px solid var(--warn-border); }
+    .rd-advisory.info { background:var(--layout-bg); color:var(--text-muted); border:1px solid var(--border-color); }
+
+    .rd-geo { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; margin-bottom:.6rem; }
+    .rd-geo-ok { font-size:.82rem; color:var(--ok-fg); display:inline-flex; align-items:center; gap:.35rem; font-variant-numeric:tabular-nums; }
+    .rd-geo-hint { font-size:.82rem; color:var(--text-faint); }
+
+    .rd-cod { display:flex; align-items:center; gap:.65rem; margin:1rem 0 .25rem; }
+    .rd-cod-label { font-size:.9rem; color:var(--text-main); }
+    .rd-cod-amount { margin-top:.6rem; max-width:280px; }
+
+    .rd-actions { margin-top:1.25rem; display:flex; gap:.6rem; flex-wrap:wrap; }
+    .rd-err { color:var(--bad-fg); font-size:.85rem; margin:.75rem 0 0; display:flex; align-items:center; gap:.4rem; }
+
+    .rd-ok { border-color:var(--ok-border); }
+    .rd-ok-head { display:flex; align-items:center; gap:.5rem; font-weight:700; font-size:1.05rem; color:var(--ok-fg); }
+    .rd-ok-meta { margin-top:.35rem; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+
+    @media (max-width:40rem) {
+      .rd-grid { grid-template-columns:1fr; }
+      .rd-cod-amount { max-width:none; }
+    }
+  `],
+})
+export class HomeDeliveryDispatchComponent implements OnInit {
+  private readonly svc = inject(HomeDeliveryService);
+  private readonly cdr = inject(ChangeDetectorRef); // zoneless: CD tras callbacks async imperativos
+
+  readonly ticket = signal<KeplerTicket | null>(null);
+  readonly riders = signal<Rider[]>([]);
+  readonly vehicles = signal<FleetVehicle[]>([]);
+  readonly loading = signal(false);
+  readonly saving = signal(false);
+  readonly error = signal<string | null>(null);
+  readonly dispatchError = signal<string | null>(null);
+  readonly result = signal<any | null>(null);
+
+  // Bandeja "por despachar": pedidos de intake (bot/portal) confirmados sin parada.
+  readonly pendingOrders = signal<PendingOrder[]>([]);
+  readonly assigningId = signal<string | null>(null);
+  readonly assignError = signal<string | null>(null);
+  readonly assignOk = signal<string | null>(null);
+  assignRider: Record<string, string> = {};
+
+  /** Pines de los pedidos por despachar QUE tienen coordenadas (pin del cliente). */
+  readonly pendingMarkers = computed(() =>
+    this.pendingOrders()
+      .filter((o) => Number.isFinite(Number(o.lat)) && Number.isFinite(Number(o.lng)))
+      .map((o) => ({
+        id: o.order_id,
+        lat: Number(o.lat),
+        lng: Number(o.lng),
+        title: `${o.customer_name} · ${o.code}`,
+        kind: 'pin' as const,
+      })),
+  );
+  /** Cuántos pedidos por despachar NO tienen coordenadas (dirección a mano). */
+  readonly pendingWithoutCoords = computed(() => this.pendingOrders().length - this.pendingMarkers().length);
+
+  readonly step = computed(() => (this.result() ? 2 : this.ticket() ? 1 : 0));
+
+  // Picker de ubicación (geocoding + click/arrastre en mapa).
+  readonly picked = signal<{ lat: number; lng: number } | null>(null);
+  readonly geocoding = signal(false);
+  readonly geoResults = signal<GeocodeResult[]>([]);
+  chosenGeo: GeocodeResult | null = null;
+
+  readonly warehouseOpts = [
+    { label: 'Padre Hidalgo', value: '01' },
+    { label: 'La Piedad Abastos', value: '02' },
+    { label: '8 Esquinas', value: '03' },
+  ];
+
+  readonly today = new Date();
+  warehouse = '01';
+  folio = '';
+  serie = '';
+  recipientName = '';
+  phone = '';
+  street = '';
+  references = '';
+  riderUserId = '';
+  vehicleId = '';
+  shipmentDate: Date = new Date();
+  collect = false;
+  amount = 0;
+
+  ngOnInit(): void {
+    this.svc.listRiders().subscribe({ next: (d) => this.riders.set(d || []), error: () => {} });
+    this.svc.listVehicles().subscribe({ next: (v) => this.vehicles.set(v || []), error: () => {} });
+    this.loadPending();
+  }
+
+  /** Carga la bandeja de pedidos de intake por despachar (bot/portal/tel). */
+  loadPending(): void {
+    this.svc.listPendingOrders().subscribe({
+      next: (d) => this.pendingOrders.set(d || []),
+      error: () => {},
+    });
+  }
+
+  /** Asigna un pedido de intake ya existente a un repartidor (crea la parada). */
+  assignOrder(o: PendingOrder): void {
+    this.assignError.set(null);
+    this.assignOk.set(null);
+    const rider = this.assignRider[o.order_id];
+    if (!rider) { this.assignError.set(`Elegí un repartidor para ${o.customer_name}.`); return; }
+    this.assigningId.set(o.order_id);
+    this.svc
+      .dispatchOrder(o.order_id, {
+        rider_user_id: rider,
+        vehicle_id: this.vehicleId || undefined,
+        shipment_date: this.iso(this.shipmentDate),
+      })
+      .subscribe({
+        next: (r) => {
+          this.assigningId.set(null);
+          this.assignOk.set(`Pedido ${o.code} asignado (${r?.folio || 'REP'}).`);
+          this.pendingOrders.update((list) => list.filter((x) => x.order_id !== o.order_id));
+        },
+        error: (e) => {
+          this.assigningId.set(null);
+          this.assignError.set(e?.error?.message || 'No se pudo asignar.');
+        },
+      });
+  }
+
+  money(v: number | undefined): string {
+    return Number(v ?? 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  }
+
+  private iso(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  /** Aviso proactivo de capacidad: unidades del pedido vs capacidad de la moto elegida. */
+  capacityInfo(): { units: number; cap: number | null; over: boolean } | null {
+    const t = this.ticket();
+    if (!t) return null;
+    const v = this.vehicles().find((x) => x.id === this.vehicleId);
+    if (!v) return null;
+    const units = (t.items || []).reduce((s, i) => s + (Number(i.cant) || 0), 0);
+    const cap = v.capacity_boxes ?? null;
+    return { units, cap, over: cap != null && units > cap };
+  }
+
+  lookup(): void {
+    this.error.set(null);
+    this.result.set(null);
+    this.loading.set(true);
+    this.svc.ticketLookup(this.folio.trim(), this.warehouse, this.serie.trim() || undefined).subscribe({
+      next: (t) => {
+        this.ticket.set(t);
+        // Todo a domicilio es contra-entrega: siempre se cobra el total del ticket.
+        this.collect = true;
+        this.amount = t.total;
+        this.loading.set(false);
+      },
+      error: (e) => { this.ticket.set(null); this.error.set(e?.error?.message || 'Ticket no encontrado.'); this.loading.set(false); },
+    });
+  }
+
+  /** Geocodifica la calle escrita y fija el pin en el mejor match. */
+  locate(): void {
+    const q = [this.street.trim(), this.references.trim()].filter(Boolean).join(', ');
+    if (!q) return;
+    this.geocoding.set(true);
+    this.geoResults.set([]);
+    this.svc.geocode(q).subscribe({
+      next: (r) => {
+        const results = r?.results || [];
+        this.geoResults.set(results);
+        if (results.length) this.chooseGeo(results[0]);
+        this.geocoding.set(false);
+      },
+      error: () => { this.geocoding.set(false); },
+    });
+  }
+
+  chooseGeo(g: GeocodeResult): void {
+    this.chosenGeo = g;
+    this.picked.set({ lat: g.lat, lng: g.lng });
+  }
+
+  /** Click/arrastre en el mapa: fija el punto y trae la dirección legible. */
+  onPick(p: { lat: number; lng: number }): void {
+    this.picked.set(p);
+    this.svc.reverseGeocode(p.lat, p.lng).subscribe({
+      next: (r) => { if (r?.place_name && !this.street.trim()) { this.street = r.place_name; this.cdr.markForCheck(); } },
+      error: () => {},
+    });
+  }
+
+  dispatch(): void {
+    const t = this.ticket();
+    if (!t) return;
+    this.dispatchError.set(null);
+    if (!this.phone.trim()) { this.dispatchError.set('Captura el teléfono de quien recibe (el repartidor lo necesita).'); return; }
+    if (!this.street.trim()) { this.dispatchError.set('Captura la calle del domicilio.'); return; }
+    if (!this.riderUserId) { this.dispatchError.set('Elige un repartidor.'); return; }
+
+    const payload: DispatchFromKeplerPayload = {
+      folio: t.folio,
+      serie: t.serie,
+      warehouse_code: t.warehouse_code,
+      rider_user_id: this.riderUserId,
+      vehicle_id: this.vehicleId || undefined,
+      shipment_date: this.iso(this.shipmentDate),
+      delivery_address: {
+        recipient_name: this.recipientName.trim() || undefined,
+        phone: this.phone.trim() || undefined,
+        street: this.street.trim(),
+        references: this.references.trim() || undefined,
+        lat: this.picked()?.lat,
+        lng: this.picked()?.lng,
+      },
+      collect_on_delivery: this.collect,
+      amount_to_collect: this.collect ? Number(this.amount) : undefined,
+    };
+    this.saving.set(true);
+    this.svc.dispatchFromKepler(payload).subscribe({
+      next: (r) => { this.saving.set(false); this.result.set(r); this.ticket.set(null); },
+      error: (e) => { this.saving.set(false); this.dispatchError.set(e?.error?.message || 'No se pudo asignar.'); },
+    });
+  }
+
+  reset(): void {
+    this.result.set(null);
+    this.ticket.set(null);
+    this.folio = '';
+    this.serie = '';
+    this.recipientName = '';
+    this.phone = '';
+    this.street = '';
+    this.references = '';
+    this.riderUserId = '';
+    this.vehicleId = '';
+    this.collect = false;
+    this.amount = 0;
+    this.shipmentDate = new Date();
+    this.picked.set(null);
+    this.geoResults.set([]);
+    this.chosenGeo = null;
+  }
+}

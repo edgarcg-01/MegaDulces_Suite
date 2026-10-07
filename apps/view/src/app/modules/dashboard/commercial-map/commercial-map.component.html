@@ -1,0 +1,562 @@
+<div class="surf-page cm">
+  <header class="surf-page-head">
+    <div class="surf-page-head-text">
+      <h1>Mapa Comercial</h1>
+      <p class="surf-page-sub">
+        Exhibidores Mega Dulces vs competencia · {{ mappableCount() }} tiendas en el mapa
+      </p>
+    </div>
+    <div class="cm-head-actions">
+      <button pButton type="button" severity="secondary" [text]="true" size="small" [loading]="loading()" (click)="load()" aria-label="Recargar mapa" title="Recargar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+    </div>
+  </header>
+
+  @if (error()) {
+    <div class="cm-error">{{ error() }}</div>
+  }
+
+  <!-- FILTROS + SUPERBUSCADOR + LEYENDA ───────────────────────────── -->
+  <div class="surf-panel cm-filters">
+    <!-- Superbuscador de productos (autocomplete · siempre inteligente) -->
+    <div class="cm-pb-row">
+      <i class="pi pi-search cm-pb-icon" aria-hidden="true"></i>
+      <p-autocomplete
+        [(ngModel)]="acModel"
+        [suggestions]="productSuggestions()"
+        (completeMethod)="completeProducts($event)"
+        (onSelect)="onProductSelected($event)"
+        (onClear)="clearProductSearch()"
+        optionLabel="nombre"
+        [forceSelection]="true"
+        [delay]="350"
+        [minQueryLength]="2"
+        [showClear]="true"
+        placeholder="Buscar un producto y ver en qué visitas aparece…"
+        styleClass="cm-ac"
+        appendTo="body"
+        ariaLabel="Buscar producto"
+      >
+        <ng-template let-p #item>
+          <div class="cm-ac-item">
+            <span class="cm-ac-name">{{ p.nombre }}</span>
+            @if (p.brand_name) { <span class="cm-ac-brand">{{ p.brand_name }}</span> }
+          </div>
+        </ng-template>
+      </p-autocomplete>
+      @if (searching()) {
+        <i class="pi pi-spin pi-spinner cm-pb-spin" aria-hidden="true"></i>
+      }
+      @if (searchActive()) {
+        <button pButton type="button" severity="secondary" [text]="true" size="small" (click)="clearProductSearch()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Limpiar</span></button>
+      }
+    </div>
+
+    <div class="surf-panel-body cm-filters-body">
+      <div class="cm-seg" role="group" aria-label="Filtrar por presencia">
+        @for (opt of presenceOptions; track opt.value) {
+          <button
+            type="button"
+            class="cm-seg-btn"
+            [class.is-active]="presence() === opt.value"
+            (click)="presence.set(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        }
+      </div>
+
+      <p-select
+        [options]="zonaOptions()"
+        [ngModel]="zonaFilter()"
+        (ngModelChange)="zonaFilter.set($event)"
+        placeholder="Todas las zonas"
+        [showClear]="true"
+        styleClass="cm-select"
+        appendTo="body"
+      ></p-select>
+
+      <span class="cm-search">
+        <i class="pi pi-search" aria-hidden="true"></i>
+        <input
+          type="text"
+          [ngModel]="search()"
+          (ngModelChange)="search.set($event)"
+          placeholder="Buscar tienda…"
+          aria-label="Buscar tienda"
+        />
+      </span>
+
+      <p-select
+        [options]="periodOptions"
+        [ngModel]="period()"
+        (ngModelChange)="onPeriodSelected($event)"
+        optionLabel="label"
+        optionValue="value"
+        styleClass="cm-select"
+        appendTo="body"
+        aria-label="Período"
+      ></p-select>
+
+      @if (period() === 'custom') {
+        <p-datepicker
+          [ngModel]="customRange()"
+          (ngModelChange)="onCustomRange($event)"
+          selectionMode="range"
+          [readonlyInput]="true"
+          [showButtonBar]="true"
+          dateFormat="dd/mm/yy"
+          placeholder="Rango de fechas"
+          appendTo="body"
+          styleClass="cm-datepicker"
+        ></p-datepicker>
+      }
+    </div>
+
+    <div class="cm-legend">
+      <span class="cm-legend-item">
+        <i class="cm-dot" style="background: var(--ok-fg)" aria-hidden="true"></i>
+        Mega Dulces <b>{{ presenceCounts().own }}</b>
+      </span>
+      <span class="cm-legend-item">
+        <i class="cm-dot" style="background: var(--bad-fg)" aria-hidden="true"></i>
+        Competencia <b>{{ presenceCounts().competitor }}</b>
+      </span>
+      <span class="cm-legend-item">
+        <i class="cm-dot" style="background: var(--warn-fg)" aria-hidden="true"></i>
+        Ambas <b>{{ presenceCounts().both }}</b>
+      </span>
+      @if (presenceCounts().unknown > 0) {
+        <span class="cm-legend-item">
+          <i class="cm-dot" style="background: var(--info-fg)" aria-hidden="true"></i>
+          Sin clasificar <b>{{ presenceCounts().unknown }}</b>
+        </span>
+      }
+      <span class="cm-legend-item">
+        <i class="cm-dot" style="background: var(--neutral-400)" aria-hidden="true"></i>
+        Sin visitar <b>{{ presenceCounts().none }}</b>
+      </span>
+      @if (unlocatedCount() > 0) {
+        <span class="cm-legend-item cm-unlocated">
+          <i class="pi pi-map-marker" aria-hidden="true"></i>
+          {{ unlocatedCount() }} sin ubicar
+        </span>
+      }
+    </div>
+  </div>
+
+  <!-- MAPA + DETALLE ────────────────────────────────────────────── -->
+  <div class="cm-main">
+    <!-- Mapa -->
+    <div class="surf-panel cm-map-panel">
+      <div class="surf-panel-head">
+        <h3><i class="pi pi-map-marker" aria-hidden="true"></i>&nbsp;Tiendas</h3>
+      </div>
+      <div class="surf-panel-body is-flush">
+        @if (canSeeLive() || canSeeProspects()) {
+          <div class="cm-maptools">
+            <app-map-legend [layers]="mapToolsLegend()" (toggle)="onLayerToggle($event)"></app-map-legend>
+            <span class="cm-maptools-actions">
+              @if (canSeeProspects()) {
+                <button pButton type="button" severity="secondary" [text]="true" size="small" (click)="openPenetration()" title="Penetración de mercado: clientes vs universo INEGI DENUE"><span class="p-button-icon p-button-icon-left pi pi-chart-pie" aria-hidden="true"></span><span class="p-button-label">Penetración</span></button>
+              }
+              @if (canManageProspects()) {
+                <button pButton type="button" severity="secondary" [text]="true" size="small" [loading]="ingesting()" (click)="ingestHere()" title="Cosecha PdV de INEGI DENUE en el área configurada (puede tardar)"><span class="p-button-icon p-button-icon-left pi pi-compass" aria-hidden="true"></span><span class="p-button-label">Cosechar oportunidades (DENUE)</span></button>
+              }
+            </span>
+          </div>
+        }
+        @if (loading()) {
+          <p-skeleton height="560px"></p-skeleton>
+        } @else if (mapMarkers().length === 0 && !showLive() && !showProspects()) {
+          <div class="cm-empty">Sin tiendas ubicables con los filtros actuales.</div>
+        } @else {
+          <app-map
+            [markers]="mapMarkers()"
+            [layers]="mapLayers()"
+            height="560px"
+            (markerClick)="onMarkerClick($event)"
+          ></app-map>
+        }
+      </div>
+    </div>
+
+    <!-- Panel lateral: lista o detalle -->
+    <div class="surf-panel cm-side">
+      @if (selectedId()) {
+        <div class="surf-panel-head">
+          <h3>
+            <i class="pi pi-shop" aria-hidden="true"></i>&nbsp;{{ detail()?.store?.nombre || 'Tienda' }}
+          </h3>
+          <p-button
+           
+            type="button"
+            [icon]="searchActive() ? 'pi pi-arrow-left' : 'pi pi-times'"
+            severity="secondary"
+            [text]="true"
+            size="small"
+            (click)="closeDetail()"
+            [attr.aria-label]="searchActive() ? 'Volver a resultados' : 'Cerrar detalle'"
+          ></p-button>
+        </div>
+        <div class="surf-panel-body cm-side-body">
+          @if (loadingDetail()) {
+            <p-skeleton height="100px"></p-skeleton>
+            <p-skeleton height="180px" styleClass="cm-mt"></p-skeleton>
+          } @else {
+            @if (detail(); as d) {
+            <div class="cm-store-meta">
+              <p class="cm-store-addr">
+                {{ d.store.zona }}@if (d.store.ruta) { · <b>Ruta {{ d.store.ruta }}</b> }@if (d.store.direccion) { · {{ d.store.direccion }} }
+              </p>
+              <app-metric-strip [items]="storeKpis(d.store)" ariaLabel="Resumen de la tienda" />
+              @if (d.store.diasSinVisita !== null) {
+                <p class="cm-muted">
+                  Última visita: {{ d.store.ultimaVisita }} · hace {{ d.store.diasSinVisita }} d
+                </p>
+              }
+            </div>
+
+            <!-- Productos más frecuentes (desde las capturas de la tienda) -->
+            <div class="cm-tp">
+              <div class="cm-tp-head">
+                <span><i class="pi pi-bolt" aria-hidden="true"></i>&nbsp;Productos más frecuentes</span>
+              </div>
+              @if (loadingTopProducts()) {
+                <p-skeleton height="80px"></p-skeleton>
+              } @else {
+                @if (topProducts(); as tp) {
+                  @if (tp.items.length === 0) {
+                    <div class="cm-tp-empty">Sin productos capturados en esta tienda.</div>
+                  } @else {
+                    <ol class="cm-tp-list">
+                      @for (it of tp.items; track it.product_id; let i = $index) {
+                        <li class="cm-tp-row">
+                          <span class="cm-tp-rank">{{ i + 1 }}</span>
+                          <span class="cm-tp-name">
+                            {{ it.product_name }}@if (it.brand_name) { <small>{{ it.brand_name }}</small> }
+                          </span>
+                          <span class="cm-tp-units" [title]="'En ' + it.capture_count + ' de ' + tp.store_captures + ' visitas · ' + it.mark_count + ' veces marcado'">
+                            {{ it.capture_count }}/{{ tp.store_captures }} vis
+                          </span>
+                        </li>
+                      }
+                    </ol>
+                  }
+                }
+              }
+            </div>
+
+            <div class="cm-visit-list-head">Visitas ({{ d.visits.length }})</div>
+            @if (d.visits.length === 0) {
+              <div class="cm-empty">Sin visitas en el período.</div>
+            }
+            @for (v of d.visits; track v.capture_id) {
+              <button type="button" class="cm-visit-row" (click)="openVisit(v)" title="Ver descripción de la visita">
+                <span class="cm-visit-date">
+                  <i class="pi pi-calendar" aria-hidden="true"></i>&nbsp;{{ v.fecha }}
+                </span>
+                <span class="cm-visit-user">{{ v.usuario }}</span>
+                <span class="cm-visit-meta">
+                  <span class="cm-vchip" title="Exhibiciones">{{ v.exhibiciones.length }}</span>
+                  <span class="cm-vscore" title="Score">{{ v.score }}</span>
+                  <i class="pi pi-chevron-right" aria-hidden="true"></i>
+                </span>
+              </button>
+            }
+            }
+          }
+        </div>
+      } @else if (searchActive()) {
+        <div class="surf-panel-head">
+          <h3><i class="pi pi-search" aria-hidden="true"></i>&nbsp;Resultados</h3>
+          <span class="comm-muted is-small">
+            {{ searchResult()?.totalStores || 0 }} tiendas · {{ searchResult()?.totalVisits || 0 }} visitas
+          </span>
+        </div>
+        <div class="surf-panel-body cm-side-body">
+          @if (searchResult()?.products?.length) {
+            <div class="cm-pb-products">
+              @for (p of searchResult()!.products; track p.id) {
+                <span class="cm-pb-prod-chip" [title]="p.brand_name">{{ p.nombre }}</span>
+              }
+            </div>
+          }
+          @if ((searchResult()?.stores?.length || 0) === 0) {
+            <div class="cm-empty">No se encontró ese producto en ninguna visita.</div>
+          }
+          @for (st of searchResult()?.stores || []; track st.id) {
+            <div class="cm-res-store">
+              <button type="button" class="cm-res-store-head" (click)="selectStore(st.id)" title="Ver tienda">
+                <span class="cm-res-store-name">
+                  {{ st.nombre }}<small>{{ st.zona }}@if (st.ruta) { · Ruta {{ st.ruta }} }</small>
+                </span>
+                <span class="cm-vchip" title="Visitas con el producto">{{ st.visitCount }}</span>
+              </button>
+              @for (vis of st.visits; track vis.capture_id) {
+                <div class="cm-res-visit">
+                  <span class="cm-res-visit-date">
+                    <i class="pi pi-calendar" aria-hidden="true"></i>&nbsp;{{ vis.fecha }}
+                  </span>
+                  <span class="cm-res-visit-user">{{ vis.usuario }}</span>
+                  @if (vis.matchedProducts.length) {
+                    <span class="cm-res-visit-prods">{{ vis.matchedProducts.join(', ') }}</span>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="surf-panel-head">
+          <h3><i class="pi pi-list" aria-hidden="true"></i>&nbsp;Tiendas ({{ filteredStores().length }})</h3>
+        </div>
+        <div class="surf-panel-body is-flush cm-side-body">
+          @if (loading()) {
+            <p-skeleton height="420px"></p-skeleton>
+          } @else if (filteredStores().length === 0) {
+            <div class="cm-empty">Sin tiendas con los filtros actuales.</div>
+          } @else {
+            <ul class="cm-store-list">
+              @for (s of filteredStores(); track s.id) {
+                <li
+                  class="cm-store-row"
+                  [class.is-unlocated]="!s.located"
+                  (click)="selectStore(s.id)"
+                  tabindex="0"
+                  (keydown.enter)="selectStore(s.id)"
+                >
+                  <span class="cm-dot" [style.background]="presenceColor(s.presence)" aria-hidden="true"></span>
+                  <span class="cm-store-name">
+                    {{ s.nombre }}<small>{{ s.zona }}{{ s.located ? '' : ' · sin ubicar' }}</small>
+                  </span>
+                  <span class="cm-store-counts" [title]="'Mega Dulces / Competencia'">
+                    <b style="color: var(--ok-fg)">{{ s.own }}</b
+                    >/<b style="color: var(--bad-fg)">{{ s.competitor }}</b>
+                  </span>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+      }
+    </div>
+  </div>
+</div>
+
+<!-- Ventana con la descripción de la visita (como en Seguimiento) -->
+<p-dialog
+  [visible]="showVisitDialog()"
+  (visibleChange)="showVisitDialog.set($event)"
+  [modal]="true"
+  [appendTo]="'body'"
+  [header]="visitDialogTitle()"
+  [style]="{ width: '92vw', maxWidth: '720px', maxHeight: '90vh' }"
+  [breakpoints]="{ '640px': '100vw' }"
+  [draggable]="false"
+  [resizable]="false"
+  [dismissableMask]="true"
+  [blockScroll]="true"
+  styleClass="cm-visit-dialog"
+>
+  @if (selectedVisit(); as v) {
+    <div class="cm-vd-summary">
+      <span class="cm-vd-folio">{{ v.folio }}</span>
+      <span class="cm-vd-sub">{{ v.usuario }}@if (storeName()) { · {{ storeName() }} }@if (storeRuta()) { · Ruta {{ storeRuta() }} }</span>
+      <span class="cm-vd-score">Score {{ v.score }}</span>
+    </div>
+
+    <div class="cm-vd-exh-count">Exhibiciones ({{ v.exhibiciones.length }})</div>
+
+    @for (e of v.exhibiciones; track $index) {
+      <div class="cm-vd-exh">
+        @if (e.fotoUrl) {
+          <button
+            type="button"
+            class="cm-vd-foto"
+            (click)="openImagePreview(e.fotoUrl)"
+            aria-label="Abrir foto en grande"
+          >
+            <img [src]="getImageUrl(e.fotoUrl)" alt="Foto de exhibición" loading="lazy" />
+          </button>
+        } @else {
+          <div class="cm-vd-foto is-empty"><i class="pi pi-image" aria-hidden="true"></i></div>
+        }
+
+        <div class="cm-vd-info">
+          <div class="cm-vd-concepto">
+            <span class="cm-vd-concepto-name">{{ e.concepto }}</span>
+            @if (e.perteneceMegaDulces === true) {
+              <span class="cm-chip cm-chip-own">Mega Dulces</span>
+            } @else if (e.perteneceMegaDulces === false) {
+              <span class="cm-chip cm-chip-comp">Competencia</span>
+            }
+          </div>
+          <div class="cm-vd-meta">
+            {{ e.ubicacion }}@if (e.nivel) { · {{ e.nivel }} }
+          </div>
+          @if (e.productos?.length) {
+            <div class="cm-vd-prods">
+              @for (p of e.productos; track $index) {
+                <span class="cm-vd-prod">{{ p }}</span>
+              }
+            </div>
+          }
+        </div>
+
+        @if (e.score !== null) {
+          <span class="cm-vd-exh-score">{{ e.score }}</span>
+        }
+      </div>
+    }
+  }
+</p-dialog>
+
+<!-- Lightbox de imagen de exhibición (como en Seguimiento) -->
+<p-dialog
+  [visible]="showImagePreview()"
+  (visibleChange)="showImagePreview.set($event)"
+  [modal]="true"
+  [closable]="false"
+  [appendTo]="'body'"
+  [style]="{ width: '90vw', maxWidth: '1100px', maxHeight: '90vh' }"
+  [breakpoints]="{ '640px': '100vw' }"
+  [draggable]="false"
+  [resizable]="false"
+  [blockScroll]="true"
+  [focusOnShow]="false"
+  ariaLabel="Previsualización de imagen de exhibición"
+>
+  <div class="cm-lightbox">
+    <button
+      type="button"
+      (click)="closeImagePreview()"
+      aria-label="Cerrar previsualización"
+      class="cm-lightbox-close"
+    >
+      <i class="pi pi-times" aria-hidden="true"></i>
+    </button>
+    <img
+      [src]="previewImageUrl()"
+      alt="Imagen ampliada de exhibición"
+      class="cm-lightbox-img"
+      (click)="closeImagePreview()"
+    />
+  </div>
+</p-dialog>
+
+<!-- Tienda de oportunidad (prospecto DENUE) -->
+<p-dialog
+  [visible]="showProspectDialog()"
+  (visibleChange)="showProspectDialog.set($event)"
+  [modal]="true"
+  [appendTo]="'body'"
+  header="Tienda de oportunidad"
+  [style]="{ width: '92vw', maxWidth: '460px' }"
+  [breakpoints]="{ '640px': '100vw' }"
+  [draggable]="false"
+  [resizable]="false"
+  [dismissableMask]="true"
+>
+  @if (selectedProspect(); as p) {
+    <div class="cm-pr">
+      <div class="cm-pr-name">{{ p.nombre }}</div>
+      @if (p.razon_social && p.razon_social !== p.nombre) {
+        <div class="cm-pr-razon">{{ p.razon_social }}</div>
+      }
+      <div class="cm-pr-meta">
+        @if (p.tipo) { <span class="cm-vchip">{{ p.tipo }}</span> }
+        @if (p.estrato) { <span class="cm-pr-estrato">{{ p.estrato }}</span> }
+        @if (p.whitespace_score != null) {
+          <span class="cm-pr-score" title="Prioridad de oportunidad">Oportunidad {{ p.whitespace_score }}</span>
+        }
+      </div>
+      @if (p.direccion) { <div class="cm-pr-addr"><i class="pi pi-map-marker" aria-hidden="true"></i>&nbsp;{{ p.direccion }}</div> }
+      @if (p.municipio || p.entidad) { <div class="cm-pr-addr">{{ p.municipio }}{{ p.municipio && p.entidad ? ', ' : '' }}{{ p.entidad }}</div> }
+      @if (p.nearest_customer_m != null) {
+        <div class="cm-muted">Cliente propio más cercano: {{ p.nearest_customer_m }} m</div>
+      }
+      <div class="cm-pr-contact">
+        @if (p.telefono) { <a [href]="'tel:' + p.telefono"><i class="pi pi-phone" aria-hidden="true"></i> {{ p.telefono }}</a> }
+        @if (p.email) { <a [href]="'mailto:' + p.email"><i class="pi pi-envelope" aria-hidden="true"></i> {{ p.email }}</a> }
+      </div>
+      @if (canManageProspects()) {
+        <div class="cm-pr-actions">
+          <button pButton type="button" severity="secondary" [text]="true" size="small" (click)="dismissProspect(p)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Descartar</span></button>
+        </div>
+      }
+      <div class="cm-pr-attr">Fuente: INEGI · DENUE</div>
+    </div>
+  }
+</p-dialog>
+
+<!-- Penetración de mercado (clientes ÷ universo DENUE) -->
+<p-dialog
+  [visible]="showPenetrationDialog()"
+  (visibleChange)="showPenetrationDialog.set($event)"
+  [modal]="true"
+  [appendTo]="'body'"
+  header="Penetración de mercado · INEGI DENUE"
+  [style]="{ width: '94vw', maxWidth: '720px', maxHeight: '90vh' }"
+  [breakpoints]="{ '640px': '100vw' }"
+  [draggable]="false"
+  [resizable]="false"
+  [dismissableMask]="true"
+>
+  @if (loadingPenetration()) {
+    <p-skeleton height="220px"></p-skeleton>
+  } @else if (penetration()) {
+    @if (penetration(); as pen) {
+    <div class="cm-pen">
+      <div class="cm-pen-total">
+        <div class="cm-pen-big">{{ pen.total.pct }}%</div>
+        <div class="cm-pen-total-l">
+          penetración global · <b>{{ pen.total.mine }}</b> tuyas de <b>{{ pen.total.universe }}</b> PdV ·
+          <b style="color: var(--action)">{{ pen.total.candidates }}</b> de oportunidad
+        </div>
+      </div>
+
+      <div class="cm-pen-sec">Por giro (SCIAN)</div>
+      <table class="cm-pen-table">
+        <thead><tr><th>SCIAN</th><th>Universo</th><th>Tuyas</th><th>Oportunidad</th><th>Penetración</th></tr></thead>
+        <tbody>
+          @for (r of pen.by_scian; track r.scian) {
+            <tr>
+              <td>{{ r.scian }}@if (r.denue_entidad_total != null) { <small> · {{ r.denue_entidad_total }} en el estado</small> }</td>
+              <td class="num">{{ r.universe }}</td>
+              <td class="num">{{ r.mine }}</td>
+              <td class="num" style="color: var(--action)">{{ r.candidates }}</td>
+              <td class="num"><b>{{ r.pct }}%</b></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+
+      <div class="cm-pen-sec">Por municipio (densidad)</div>
+      <table class="cm-pen-table">
+        <thead><tr><th>Municipio</th><th>Universo</th><th>Tuyas</th><th>Oportunidad</th><th>Pen.</th></tr></thead>
+        <tbody>
+          @for (r of pen.by_municipio; track r.key) {
+            <tr>
+              <td>{{ r.key }}</td>
+              <td class="num">{{ r.universe }}</td>
+              <td class="num">{{ r.mine }}</td>
+              <td class="num" style="color: var(--action)">{{ r.candidates }}</td>
+              <td class="num"><b>{{ r.pct }}%</b></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+
+      @if (canManageProspects()) {
+        <div class="cm-pen-enrich">
+          <button pButton type="button" severity="secondary" [text]="true" size="small" [loading]="enriching()" (click)="enrichCustomers()" title="Completa teléfono/email vacíos de tus clientes desde su registro DENUE"><span class="p-button-icon p-button-icon-left pi pi-sparkles" aria-hidden="true"></span><span class="p-button-label">Enriquecer clientes con DENUE</span></button>
+          @if (enrichMsg()) { <span class="cm-pen-enrich-msg">{{ enrichMsg() }}</span> }
+        </div>
+      }
+      <div class="cm-pr-attr">Universo = lo cosechado dentro de la geocerca · Fuente: INEGI · DENUE</div>
+    </div>
+    }
+  } @else {
+    <div class="cm-empty">Sin datos. Cosechá oportunidades primero para calcular la penetración.</div>
+  }
+</p-dialog>

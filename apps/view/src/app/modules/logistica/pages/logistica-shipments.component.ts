@@ -1,0 +1,747 @@
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
+import { ButtonModule } from 'primeng/button';
+import { CardModule } from 'primeng/card';
+import { TableModule } from 'primeng/table';
+import { DialogModule } from 'primeng/dialog';
+import { InputTextModule } from 'primeng/inputtext';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { DatePickerModule } from 'primeng/datepicker';
+import { SelectModule } from 'primeng/select';
+import { TagModule } from 'primeng/tag';
+import { SkeletonModule } from 'primeng/skeleton';
+import { TooltipModule } from 'primeng/tooltip';
+import { ToastModule } from 'primeng/toast';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { MessageService, ConfirmationService } from 'primeng/api';
+import {
+  LogisticaService, PendingOrder, Shipment, ShipmentCounts, ShipmentStatus, ShipmentType, Vehicle,
+} from '../logistica.service';
+import { ShipmentFormDialogComponent } from '../components/shipment-form-dialog.component';
+import { ErpTripsPanelComponent } from '../components/erp-trips-panel.component';
+
+import { MultitareaService } from '../../../core/services/multitarea.service';
+const STATUS_OPTIONS: { label: string; value: ShipmentStatus | '' }[] = [
+  { label: 'Todos', value: '' },
+  { label: 'Programado', value: 'programado' },
+  { label: 'En ruta', value: 'en_ruta' },
+  { label: 'Entregado', value: 'entregado' },
+  { label: 'Cerrado', value: 'cerrado' },
+  { label: 'Cancelado', value: 'cancelado' },
+];
+const TYPE_OPTIONS: { label: string; value: ShipmentType }[] = [
+  { label: 'Entrega', value: 'entrega' },
+  { label: 'Traspaso', value: 'traspaso' },
+  { label: 'Recolección', value: 'recoleccion' },
+];
+
+type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
+function severityForStatus(s: ShipmentStatus): Severity {
+  switch (s) {
+    case 'programado': return 'info';
+    case 'checklist_salida': return 'info';
+    case 'en_ruta': return 'warn';
+    case 'entregado': return 'success';
+    case 'checklist_llegada': return 'success';
+    case 'costos_pendientes': return 'warn';
+    case 'cerrado': return 'secondary';
+    case 'cancelado': return 'danger';
+  }
+}
+
+@Component({
+  selector: 'app-logistica-shipments',
+  standalone: true,
+  imports: [RouterLink, 
+    CommonModule, FormsModule, ReactiveFormsModule,
+    ButtonModule, CardModule, TableModule, DialogModule,
+    InputTextModule, InputNumberModule, DatePickerModule, SelectModule,
+    TagModule, SkeletonModule, TooltipModule, ToastModule, ConfirmDialogModule,
+    ShipmentFormDialogComponent, ErpTripsPanelComponent,
+  ],
+  providers: [MessageService, ConfirmationService],
+  template: `
+    <div class="surf-page sh">
+      <p-toast></p-toast>
+      <p-confirmdialog></p-confirmdialog>
+    
+      <!-- PAGE HEAD -->
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Embarques</h1>
+          <p class="surf-page-sub">
+            @if (mode() === 'erp') {
+              Viajes reales del ERP · el documento de embarque de Kepler, en vivo
+            } @else {
+              <b>{{ page().total }}</b> registrado{{ page().total === 1 ? '' : 's' }} en la app
+              <span class="sh-divider" aria-hidden="true">·</span>
+              <b>{{ pendingOrders().length }}</b> pedido{{ pendingOrders().length === 1 ? '' : 's' }} esperando programar
+            }
+          </p>
+        </div>
+        <div class="sh-head-actions">
+          <button pButton [text]="true" severity="secondary" size="small" (click)="reloadCurrent()" [loading]="loading() || loadingPending() || loadingStats()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+          @if (mode() !== 'erp') {
+            <button pButton size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo embarque</span></button>
+          }
+        </div>
+      </header>
+    
+      <!-- KPI STRIP -->
+      @if (loadingStats() && mode() !== 'erp') {
+        <p-skeleton height="120px"></p-skeleton>
+      }
+      @if (mode() !== 'erp' && !loadingStats() && stats(); as st) {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-truck"></i>
+            </span>
+            <span class="cell-label">Total embarques</span>
+            <span class="cell-value is-headline">{{ st.total }}</span>
+            <span class="cell-sub">registrados en el tenant</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-send"></i>
+            </span>
+            <span class="cell-label">En ruta</span>
+            <span class="cell-value">{{ st.enRuta }}</span>
+            <span class="cell-sub">en tránsito</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-check-circle"></i>
+            </span>
+            <span class="cell-label">Entregados</span>
+            <span class="cell-value">{{ st.entregados }}</span>
+            <span class="cell-sub">completados</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-inbox"></i>
+            </span>
+            <span class="cell-label">Pendientes</span>
+            <span class="cell-value">{{ pendingOrders().length }}</span>
+            <span class="cell-sub">esperando programar</span>
+          </article>
+        </div>
+      }
+    
+      <!-- MODE TABS sheet propio -->
+      <div class="sheet cols-12">
+        <article class="cell cell-span-12 is-flush sh-tabs-cell">
+          <nav class="sh-mode-tabs" role="radiogroup" aria-label="Vista de embarques">
+            <button
+              type="button"
+              class="sh-mode-tab"
+              [class.active]="mode() === 'erp'"
+              role="radio"
+              [attr.aria-checked]="mode() === 'erp'"
+              (click)="setMode('erp')"
+              >
+              <i class="pi pi-send" aria-hidden="true"></i>
+              <span>Viajes del ERP</span>
+            </button>
+            <button
+              type="button"
+              class="sh-mode-tab"
+              [class.active]="mode() === 'shipments'"
+              role="radio"
+              [attr.aria-checked]="mode() === 'shipments'"
+              (click)="setMode('shipments')"
+              >
+              <i class="pi pi-truck" aria-hidden="true"></i>
+              <span>Propios de la app</span>
+              <span class="sh-mode-count">{{ page().total }}</span>
+            </button>
+            <button
+              type="button"
+              class="sh-mode-tab"
+              [class.active]="mode() === 'pending'"
+              role="radio"
+              [attr.aria-checked]="mode() === 'pending'"
+              (click)="setMode('pending')"
+              >
+              <i class="pi pi-inbox" aria-hidden="true"></i>
+              <span>Pendientes</span>
+              @if (pendingOrders().length > 0) {
+                <span class="sh-mode-count is-warn">
+                  {{ pendingOrders().length }}
+                </span>
+              }
+            </button>
+          </nav>
+        </article>
+      </div>
+    
+      <!-- ── MODE: ERP (viajes reales de Kepler) ── -->
+      @if (mode() === 'erp') {
+        <app-erp-trips-panel></app-erp-trips-panel>
+      }
+
+      <!-- ── MODE: SHIPMENTS ── -->
+      @if (mode() === 'shipments') {
+        <!-- Status-chip strip (filtro 1-click + conteo por estado) -->
+        <div class="sh-chipbar" role="radiogroup" aria-label="Filtrar por estado">
+          @for (c of statusChips(); track c) {
+            <button
+              type="button"
+              [class]="'sh-chip ' + c.pillClass + (statusFilter() === c.value ? ' active' : '')"
+              role="radio"
+              [attr.aria-checked]="statusFilter() === c.value"
+              (click)="setStatusFilter(c.value)"
+              >
+              <span class="sh-chip-dot" aria-hidden="true"></span>
+              <span class="sh-chip-label">{{ c.label }}</span>
+              <span class="sh-chip-count">{{ c.count }}</span>
+            </button>
+          }
+        </div>
+        <!-- Tabla flush -->
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12 is-flush">
+            <p-table [value]="page().items" [loading]="loading()"
+              styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first"
+              [paginator]="true" [rows]="page().pageSize" [totalRecords]="page().total" [lazy]="true"
+              [rowsPerPageOptions]="[25, 50, 100, 200]"
+              (onLazyLoad)="onPageChange($event)">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Folio</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Origen → Destino</th>
+                  <th scope="col" class="comm-num">Cajas</th>
+                  <th scope="col" class="comm-num">km</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-s>
+                <tr (click)="goDetail(s)"
+                  class="comm-row-clickable"
+                  role="button"
+                  tabindex="0"
+                  [attr.aria-label]="'Ver embarque ' + s.folio"
+                  (keydown.enter)="goDetail(s)"
+                  (keydown.space)="$event.preventDefault(); goDetail(s)">
+                  <td><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/logistica/shipments', s.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()"><code class="comm-code">{{ s.folio }}</code></a></td>
+                  <td>{{ s.shipment_date | date:'dd MMM' }}</td>
+                  <td>{{ typeLabel(s.type) }}</td>
+                  <td class="comm-cell-strong">{{ (s.origin || '—') + ' → ' + (s.destination || '—') }}</td>
+                  <td class="comm-num">{{ s.boxes_count }}</td>
+                  <td class="comm-num">{{ s.actual_km || '—' }}</td>
+                  <td>
+                    <span class="comm-pill" [class]="statusPillClass(s.status)">
+                      {{ statusLabel(s.status) }}
+                    </span>
+                  </td>
+                  <td class="comm-actions" (click)="$event.stopPropagation()">
+                    @if (s.status === 'programado') {
+                      <button pButton size="small" severity="secondary" [text]="true" pTooltip="Marcar en ruta" (click)="action(s, 'depart')"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span></button>
+                    }
+                    @if (s.status === 'en_ruta') {
+                      <button pButton size="small" severity="secondary" [text]="true" pTooltip="Marcar entregado" (click)="action(s, 'deliver')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
+                    }
+                    @if (s.status === 'entregado') {
+                      <button pButton size="small" severity="secondary" [text]="true" pTooltip="Cerrar" (click)="action(s, 'close')"><span class="p-button-icon p-button-icon-left pi pi-lock" aria-hidden="true"></span></button>
+                    }
+                    @if (s.status === 'programado' || s.status === 'en_ruta') {
+                      <button pButton size="small" severity="secondary" [text]="true" pTooltip="Cancelar" (click)="confirmCancel(s)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
+                    }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr>
+                  <td colspan="8" class="comm-empty-cell">
+                    <div class="comm-empty">
+                      <div class="comm-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div>
+                      <h3>Sin embarques</h3>
+                      <p>{{ statusFilterValue ? 'No hay embarques en este estado.' : 'Creá tu primer embarque para empezar a operar.' }}</p>
+                      <p-button
+                        type="button"
+                       
+                        [icon]="statusFilterValue ? 'pi pi-refresh' : 'pi pi-plus'"
+                        severity="primary"
+                        size="small"
+                        [label]="statusFilterValue ? 'Limpiar filtro' : 'Nuevo embarque'"
+                        (click)="statusFilterValue ? clearFilter() : openCreate()"
+                      ></p-button>
+                    </div>
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </article>
+        </div>
+      }
+    
+      <!-- ── MODE: PENDING ── -->
+      @if (mode() === 'pending') {
+        <!-- Tabla pendientes flush -->
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12 is-flush">
+            <p-table [value]="pendingOrders()" [loading]="loadingPending()"
+              styleClass="p-datatable-sm surf-table surf-table--sticky">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Folio</th>
+                  <th scope="col">Confirmado</th>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Almacén</th>
+                  <th scope="col">Entrega</th>
+                  <th scope="col" class="comm-num">Total</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-o>
+                <tr>
+                  <td><code class="comm-code">{{ o.code }}</code></td>
+                  <td>
+                    <div>{{ o.confirmed_at | date:'dd MMM' }}</div>
+                    <div class="comm-muted is-small">{{ o.confirmed_at | date:'HH:mm' }}</div>
+                  </td>
+                  <td>
+                    <div class="comm-cell-strong">{{ o.customer_name || o.customer_id }}</div>
+                    @if (o.customer_code) {
+                      <div class="comm-muted is-small">{{ o.customer_code }}</div>
+                    }
+                  </td>
+                  <td>{{ o.warehouse_name || '—' }}</td>
+                  <td>
+                    <span class="sh-delivery" [class.is-long]="o.delivery_type === 'long_trip'">
+                      <i [class]="o.delivery_type === 'long_trip' ? 'pi pi-globe' : 'pi pi-truck'" aria-hidden="true"></i>
+                      {{ o.delivery_type === 'long_trip' ? 'Viaje largo' : 'Por ruta' }}
+                    </span>
+                  </td>
+                  <td class="comm-num is-strong">{{ o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="comm-actions">
+                    <button pButton size="small" severity="primary" (click)="openCreateForOrder(o)" pTooltip="Crear embarque"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Crear</span></button>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr>
+                  <td colspan="7" class="comm-empty-cell">
+                    <div class="comm-empty">
+                      <div class="comm-empty-icon"><i class="pi pi-check" aria-hidden="true"></i></div>
+                      <h3>Logística al día</h3>
+                      <p>No hay pedidos confirmados esperando programación.</p>
+                    </div>
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </article>
+        </div>
+      }
+    
+      <!-- J.9.10 — Shipment Form rico -->
+      <app-shipment-form-dialog
+        [visible]="dialogVisible"
+        [prefilledOrderId]="prefilledOrderId()"
+        (visibleChange)="dialogVisible = $event"
+        (saved)="onShipmentCreated($event)"
+      ></app-shipment-form-dialog>
+    </div>
+    `,
+  styles: [`
+    :host { display:block; }
+
+    .sh-head-actions { display:flex; gap:.5rem; align-items:center; }
+    .sh-divider { opacity: 0.4; }
+    .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
+
+    /* ── MODE TABS sheet propio (entre KPI y filtros) ── */
+    .sh-tabs-cell {
+      display: flex;
+      padding: .5rem .75rem;
+    }
+    .sh-mode-tabs {
+      display: inline-flex;
+      gap: .25rem;
+      padding: 3px;
+      background: var(--c-surface-2);
+      border: 1px solid var(--c-divider);
+      border-radius: 10px;
+    }
+    .sh-mode-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      background: transparent;
+      border: none;
+      padding: .4rem .75rem;
+      font-size: var(--fs-sm);
+      font-weight: var(--fw-medium);
+      color: var(--c-text-2);
+      cursor: pointer;
+      border-radius: 7px;
+      transition: all 120ms var(--ease-standard);
+      white-space: nowrap;
+    }
+    .sh-mode-tab:hover { color: var(--c-text-1); }
+    .sh-mode-tab:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .sh-mode-tab.active {
+      background: var(--c-surface-1);
+      color: var(--c-text-1);
+      box-shadow: 0 1px 2px rgba(0,0,0,.08);
+      font-weight: var(--fw-bold);
+    }
+    .sh-mode-tab i { font-size: var(--fs-sm); }
+    .sh-mode-count {
+      background: var(--c-surface-1);
+      color: var(--c-text-2);
+      border: 1px solid var(--c-divider);
+      font-size: var(--fs-micro);
+      font-weight: var(--fw-bold);
+      padding: .05rem .4rem;
+      border-radius: 999px;
+      font-variant-numeric: tabular-nums;
+      min-width: 18px;
+      text-align: center;
+    }
+    .sh-mode-tab.active .sh-mode-count {
+      background: var(--c-surface-2);
+      border-color: var(--c-divider);
+    }
+    .sh-mode-count.is-warn {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--c-warn);
+      border-color: transparent;
+    }
+
+    /* ── STATUS-CHIP STRIP (filtro 1-click + conteo por estado) ── */
+    .sh-chipbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      padding: .125rem 0;
+    }
+    .sh-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+      height: 34px;
+      padding: 0 .75rem;
+      background: var(--c-surface-1);
+      border: 1px solid var(--c-divider);
+      border-radius: var(--r-pill, 999px);
+      color: var(--c-text-2);
+      font-size: var(--fs-sm);
+      font-weight: var(--fw-medium);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: border-color 120ms var(--ease-standard),
+                  background-color 120ms var(--ease-standard),
+                  color 120ms var(--ease-standard);
+    }
+    .sh-chip:hover { border-color: var(--c-text-3); color: var(--c-text-1); }
+    .sh-chip:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+
+    /* Punto de color semántico por estado (toma el color del modificador). */
+    .sh-chip-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--c-text-3);
+      flex-shrink: 0;
+    }
+    .sh-chip.is-all .sh-chip-dot     { background: var(--c-text-3); }
+    .sh-chip.is-info .sh-chip-dot    { background: var(--c-info); }
+    .sh-chip.is-warn .sh-chip-dot    { background: var(--c-warn); }
+    .sh-chip.is-ok .sh-chip-dot      { background: var(--c-ok); }
+    .sh-chip.is-bad .sh-chip-dot     { background: var(--c-bad); }
+    .sh-chip.is-neutral .sh-chip-dot { background: var(--c-text-3); }
+
+    .sh-chip-count {
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-bold);
+      font-variant-numeric: tabular-nums;
+      color: var(--c-text-3);
+      background: var(--c-surface-2);
+      border-radius: 999px;
+      min-width: 20px;
+      padding: .05rem .35rem;
+      text-align: center;
+    }
+
+    /* Activo: borde + texto sunset, sin relleno cargado (densidad Operations). */
+    .sh-chip.active {
+      border-color: var(--action);
+      color: var(--action);
+      background: var(--action-ring, rgba(240, 90, 40, 0.12));
+    }
+    .sh-chip.active .sh-chip-count {
+      background: var(--action);
+      color: var(--action-ink, #fff);
+    }
+
+    /* ── DELIVERY PILL (consistente con comercial-orders) ── */
+    .sh-delivery {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .15rem .55rem;
+      border-radius: 6px;
+      background: var(--c-surface-2);
+      color: var(--c-text-1);
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-medium);
+      white-space: nowrap;
+    }
+    .sh-delivery i { font-size: var(--fs-xs); color: var(--c-text-2); }
+    .sh-delivery.is-long {
+      background: var(--warn-soft-bg);
+      color: var(--warn-soft-fg, var(--c-warn));
+    }
+    .sh-delivery.is-long i { color: var(--c-warn); }
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class LogisticaShipmentsComponent {
+  /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
+  readonly multitarea = inject(MultitareaService);
+  private readonly api = inject(LogisticaService);
+  private readonly fb = inject(FormBuilder);
+  private readonly toast = inject(MessageService);
+  private readonly confirm = inject(ConfirmationService);
+
+  readonly page = signal<{ items: Shipment[]; total: number; pageSize: number; page: number }>({
+    items: [], total: 0, pageSize: 25, page: 1,
+  });
+  readonly loading = signal(false);
+  readonly saving = signal(false);
+  // `erp` es el default: es donde está la operación real (miles de viajes de Kepler),
+  // mientras que los embarques PROPIOS de la app son 1 registro de prueba.
+  readonly mode = signal<'erp' | 'shipments' | 'pending'>('erp');
+
+  // KPI strip stats + conteo por estado (J13: 1 request a /shipments/counts)
+  readonly loadingStats = signal(true);
+  readonly stats = signal<{ total: number; enRuta: number; entregados: number; cancelados: number } | null>(null);
+  readonly counts = signal<ShipmentCounts | null>(null);
+
+  /** Tira de status-chips: cada opción de estado con su conteo y clase de pill. */
+  readonly statusChips = computed(() => {
+    const c = this.counts();
+    return STATUS_OPTIONS.map((o) => ({
+      label: o.label,
+      value: o.value,
+      count: o.value === '' ? (c?.total ?? 0) : (c?.byStatus?.[o.value] ?? 0),
+      pillClass: o.value === '' ? 'is-all' : this.statusPillClass(o.value as ShipmentStatus),
+    }));
+  });
+
+  readonly vehicles = signal<Vehicle[]>([]);
+  readonly vehicleOptions = computed(() =>
+    this.vehicles().map((v) => ({ label: `${v.plate} — ${v.model || ''}`, value: v.id })),
+  );
+
+  dialogVisible = false;
+  /** Order_id pre-llenado para el form rico (J.9.10), via signal para reactividad. */
+  readonly prefilledOrderId = signal<string | null>(null);
+  statusFilterValue: ShipmentStatus | '' = '';
+  readonly statusFilter = signal<ShipmentStatus | ''>('');
+  readonly statusOptions = STATUS_OPTIONS;
+  readonly typeOptions = TYPE_OPTIONS;
+
+  // J.7.1 — bandeja de pedidos confirmed sin shipment activo
+  readonly pendingOrders = signal<PendingOrder[]>([]);
+  readonly loadingPending = signal(false);
+
+  // El form inline fue reemplazado por <app-shipment-form-dialog> (J.9.10).
+  // Lo dejamos undefined para no romper imports legacy, pero ya no se usa.
+  form: any = null;
+
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
+  constructor() {
+    this.load(1);
+    this.loadPending();
+    this.loadStats();
+    this.api.listVehicles({ active: true }).subscribe((r) => this.vehicles.set(r || []));
+    // Si entramos con ?order_id=X (link desde comercial-order-detail "Crear embarque"),
+    // auto-abrir el dialog con order_id pre-llenado.
+    this.route.queryParamMap.subscribe((q) => {
+      const orderId = q.get('order_id');
+      if (orderId) this.openCreate(orderId);
+    });
+  }
+
+  /** J13 — conteo por estado en 1 request (alimenta KPI strip + status-chips). */
+  loadStats() {
+    this.loadingStats.set(true);
+    this.api.shipmentCounts().subscribe({
+      next: (c) => {
+        this.counts.set(c);
+        this.stats.set({
+          total:      c.total || 0,
+          enRuta:     c.byStatus?.en_ruta || 0,
+          entregados: c.byStatus?.entregado || 0,
+          cancelados: c.byStatus?.cancelado || 0,
+        });
+        this.loadingStats.set(false);
+      },
+      error: () => this.loadingStats.set(false),
+    });
+  }
+
+  /** J.7.1 — carga bandeja de pedidos confirmed pendientes de embarque. */
+  loadPending() {
+    this.loadingPending.set(true);
+    this.api.listPendingOrders().subscribe({
+      next: (r) => { this.pendingOrders.set(r || []); this.loadingPending.set(false); },
+      error: () => { this.loadingPending.set(false); /* silencioso */ },
+    });
+  }
+
+  /**
+   * J.7.1 — Click "Crear embarque" en una fila de pendientes.
+   * Pre-llena order_id + customer destination + cajas estimadas del order.
+   */
+  /**
+   * J.7.1 — Click "Crear embarque" en una fila de pendientes.
+   * Pre-llena order_id (el form rico J.9.10 hace el resto de pre-fill via su
+   * propio effect sobre prefilledOrderId).
+   */
+  openCreateForOrder(o: PendingOrder) {
+    this.openCreate(o.id);
+  }
+
+  load(page: number, pageSize = 25) {
+    this.loading.set(true);
+    const status = this.statusFilter() || undefined;
+    this.api.listShipments({ status, page, pageSize }).subscribe({
+      next: (r) => {
+        this.page.set({ items: r.items, total: r.total, pageSize: r.pageSize, page: r.page });
+        this.loading.set(false);
+      },
+      error: () => {
+        this.loading.set(false);
+        this.toast.add({ severity:'error', summary:'Error', detail:'No se cargaron embarques' });
+      },
+    });
+  }
+
+  onPageChange(ev: any) {
+    const page = Math.floor((ev.first || 0) / (ev.rows || 25)) + 1;
+    this.load(page, ev.rows || 25);
+  }
+  onFilterChange() {
+    this.statusFilter.set(this.statusFilterValue);
+    this.load(1);
+  }
+
+  /** J13 — click en un status-chip: fija el filtro y recarga la página 1. */
+  setStatusFilter(value: ShipmentStatus | '') {
+    if (this.statusFilter() === value) return;
+    this.statusFilter.set(value);
+    this.statusFilterValue = value;
+    this.load(1);
+  }
+
+  clearFilter() {
+    this.statusFilterValue = '';
+    this.statusFilter.set('');
+    this.load(1);
+  }
+
+  setMode(m: 'erp' | 'shipments' | 'pending') {
+    if (this.mode() === m) return;
+    this.mode.set(m);
+    if (m === 'pending') this.loadPending();
+  }
+
+  /** Refresca lo visible + recalcula stats. */
+  reloadCurrent() {
+    if (this.mode() === 'erp') return; // el panel del ERP tiene su propio refresco
+    this.loadStats();
+    if (this.mode() === 'shipments') this.load(this.page().page);
+    else this.loadPending();
+  }
+
+  goDetail(s: Shipment) {
+    this.router.navigate(['/logistica/shipments', s.id]);
+  }
+
+  severity(s: ShipmentStatus): Severity { return severityForStatus(s); }
+  typeLabel(t: ShipmentType): string {
+    return TYPE_OPTIONS.find((o) => o.value === t)?.label || t;
+  }
+
+  /** Clase de comm-pill semántica por estado de embarque. */
+  statusPillClass(s: ShipmentStatus): string {
+    switch (s) {
+      case 'programado':
+      case 'checklist_salida':
+        return 'is-info';
+      case 'en_ruta':
+      case 'costos_pendientes':
+        return 'is-warn';
+      case 'entregado':
+      case 'checklist_llegada':
+        return 'is-ok';
+      case 'cerrado':
+        return 'is-neutral';
+      case 'cancelado':
+        return 'is-bad';
+    }
+  }
+
+  /** Label legible de estado (reemplaza al raw value `programado` etc.). */
+  statusLabel(s: ShipmentStatus): string {
+    const map: Record<ShipmentStatus, string> = {
+      programado: 'Programado',
+      checklist_salida: 'Checklist salida',
+      en_ruta: 'En ruta',
+      entregado: 'Entregado',
+      checklist_llegada: 'Checklist llegada',
+      costos_pendientes: 'Costos pendientes',
+      cerrado: 'Cerrado',
+      cancelado: 'Cancelado',
+    };
+    return map[s] || s;
+  }
+
+  /** J.9.10 — abre el form rico (componente standalone) con pre-fill opcional. */
+  openCreate(prefilledOrderId?: string) {
+    this.prefilledOrderId.set(prefilledOrderId || null);
+    this.dialogVisible = true;
+  }
+
+  /** Handler cuando el form rico emite `saved` — refresca lista + pendientes. */
+  onShipmentCreated(_s: Shipment): void {
+    this.load(this.page().page);
+    this.loadPending();
+  }
+
+  action(s: Shipment, kind: 'depart' | 'deliver' | 'close') {
+    const fn = kind === 'depart' ? this.api.shipmentDepart(s.id)
+            : kind === 'deliver' ? this.api.shipmentDeliver(s.id)
+            : this.api.shipmentClose(s.id);
+    fn.subscribe({
+      next: () => {
+        this.toast.add({ severity:'success', summary:`Embarque ${s.folio} actualizado` });
+        this.load(this.page().page);
+      },
+      error: (err) => this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' }),
+    });
+  }
+  confirmCancel(s: Shipment) {
+    this.confirm.confirm({
+      message: `¿Cancelar embarque ${s.folio}? Esto liberará la unidad asignada.`,
+      header: 'Confirmar', icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, cancelar', rejectLabel: 'Volver',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => this.api.shipmentCancel(s.id, 'Cancelado desde admin').subscribe({
+        next: () => { this.toast.add({ severity:'info', summary:'Embarque cancelado' }); this.load(this.page().page); },
+        error: (err) => this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' }),
+      }),
+    });
+  }
+}

@@ -1,0 +1,1367 @@
+import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  NgZone,
+  OnDestroy,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { CommonModule } from '@angular/common';
+import { Router, RouterModule, RouterOutlet } from '@angular/router';
+import { ButtonModule } from 'primeng/button';
+import { ToastModule } from 'primeng/toast';
+import { MessageService } from 'primeng/api';
+import { AuthService } from '../../core/services/auth.service';
+import { ThemeService } from '../../core/services/theme.service';
+import { PortalService } from './portal.service';
+import { CartFxService } from './cart-fx.service';
+import { CountUpDirective } from './ui/count-up.directive';
+import { NotificationPrefsService, NotifKey } from './notification-prefs.service';
+import {
+  AlertsSocketService,
+  CommercialAlert,
+} from '../dashboard/command-center/alerts-socket.service';
+
+interface NavItem {
+  path: string;
+  label: string;
+  icon: string;
+  isCart?: boolean;
+}
+
+@Component({
+  selector: 'app-portal-shell',
+  standalone: true,
+  imports: [
+    CommonModule,
+    RouterModule,
+    RouterOutlet,
+    ButtonModule,
+    ToastModule,
+    CountUpDirective,
+  ],
+  providers: [MessageService],
+  template: `
+    <div class="portal-shell">
+      <p-toast position="top-right"></p-toast>
+    
+      <!-- DESKTOP SIDEBAR -->
+      <aside class="portal-sidebar" aria-label="Navegación principal">
+        <a routerLink="/portal/home" class="portal-brand">
+          <img
+            src="/assets/logos/mega-dulces-logo-240.webp"
+            alt="Mega Dulces"
+            class="portal-brand-logo"
+            />
+            <div class="portal-brand-text">
+              <span class="portal-brand-name">Mega Dulces</span>
+              <span class="portal-brand-sub">Portal B2B</span>
+            </div>
+          </a>
+    
+          <nav class="portal-nav-desktop">
+            @for (item of navItems; track item) {
+              <a
+                [routerLink]="item.path"
+                routerLinkActive="active"
+                class="portal-nav-item"
+            [attr.aria-label]="item.isCart && cart.cartLineCount() > 0
+              ? item.label + ': ' + cart.cartLineCount() + ' item(s)'
+              : null"
+                >
+                <span class="portal-nav-icon-wrap" [class.cart-fx-target]="item.isCart">
+                  <i [class]="item.icon" aria-hidden="true"></i>
+                  @if (item.isCart && cart.cartLineCount() > 0) {
+                    @for (n of [cart.cartLineCount()]; track n) {
+                      <span
+                        class="portal-cart-badge"
+                        aria-hidden="true"
+                        animate.enter="portal-badge-pop"
+                      >{{ n }}</span>
+                    }
+                  }
+                </span>
+                <span class="portal-nav-label">{{ item.label }}</span>
+              </a>
+            }
+          </nav>
+    
+          <div class="portal-sidebar-foot">
+            <button
+              type="button"
+              class="portal-user-card portal-user-card-btn"
+              (click)="openSettings()"
+              title="Abrir configuración"
+              aria-label="Abrir configuración"
+              >
+              <div class="portal-user-avatar">{{ initial() }}</div>
+              <div class="portal-user-info">
+                <span class="portal-user-name">{{ username() }}</span>
+                <span class="portal-user-role">Cliente B2B</span>
+              </div>
+              <i class="pi pi-cog portal-user-cog" aria-hidden="true"></i>
+            </button>
+          </div>
+        </aside>
+    
+        <!-- MAIN COLUMN -->
+        <div class="portal-column">
+          <!-- MOBILE HEADER -->
+          <header class="portal-header-mobile">
+            <a routerLink="/portal/home" class="portal-brand-mobile">
+              <img
+                src="/assets/logos/mega-dulces-logo-240.webp"
+                alt="Mega Dulces"
+                class="portal-brand-logo-mobile"
+                />
+                <span>Mega Dulces</span>
+              </a>
+              <button
+                type="button"
+                class="portal-icon-btn"
+                (click)="openSettings()"
+                title="Configuración"
+                aria-label="Abrir configuración"
+                >
+                <i class="pi pi-cog" aria-hidden="true"></i>
+              </button>
+            </header>
+    
+            <!-- CONTENT -->
+            <main class="portal-main">
+              @if (accountUnlinked()) {
+                <div class="portal-unlinked" role="alert">
+                  <i class="pi pi-id-card portal-unlinked-ico" aria-hidden="true"></i>
+                  <h2 class="portal-unlinked-title">Tu cuenta aún no está vinculada</h2>
+                  <p class="portal-unlinked-text">
+                    Tu usuario existe pero todavía no está asociado a un cliente, así que aún no
+                    puedes ver tus precios ni hacer pedidos. Pídele a tu asesor de Mega Dulces
+                    que active tu acceso al portal.
+                  </p>
+                  <button type="button" class="portal-btn-primary" (click)="logout()">
+                    Cerrar sesión
+                  </button>
+                </div>
+              } @else {
+                <router-outlet></router-outlet>
+              }
+            </main>
+    
+            <!-- MOBILE BOTTOM TAB DOCK (píldora 4 destinos + búsqueda circular, Rappi-style) -->
+            <div class="portal-tabdock">
+              <nav class="portal-tabbar" aria-label="Navegación móvil">
+                @for (item of tabItems; track item) {
+                  <a
+                    [routerLink]="item.path"
+                    routerLinkActive="active"
+                    class="portal-tab"
+              [attr.aria-label]="item.isCart && cart.cartLineCount() > 0
+                ? item.label + ': ' + cart.cartLineCount() + ' item(s)'
+                : item.label"
+                    >
+                    <span class="portal-tab-icon-wrap" [class.cart-fx-target]="item.isCart">
+                      <i [class]="item.icon" aria-hidden="true"></i>
+                      @if (item.isCart && cart.cartLineCount() > 0) {
+                        @for (n of [cart.cartLineCount()]; track n) {
+                          <span
+                            class="portal-cart-badge-mobile"
+                            aria-hidden="true"
+                            animate.enter="portal-badge-pop"
+                          >{{ n }}</span>
+                        }
+                      }
+                    </span>
+                    <span class="portal-tab-label">{{ item.label }}</span>
+                  </a>
+                }
+              </nav>
+              <a
+                routerLink="/portal/catalog"
+                [queryParams]="{ focus: 'search' }"
+                class="portal-tabsearch"
+                aria-label="Buscar en el catálogo"
+                >
+                <i class="pi pi-search" aria-hidden="true"></i>
+              </a>
+            </div>
+    
+            <!-- STICKY CART BAR (móvil) — flota sobre el dock cuando hay items.
+            Patrón de conversión Rappi/Uber Eats: total + count siempre a mano. -->
+            <button
+              type="button"
+              class="portal-cartbar"
+              [class.show]="cart.cartLineCount() > 0"
+              [attr.aria-hidden]="cart.cartLineCount() === 0"
+              [attr.tabindex]="cart.cartLineCount() === 0 ? -1 : 0"
+          [attr.aria-label]="cartBelowMin()
+            ? 'Carrito: te faltan para el mínimo'
+            : 'Ver carrito, ' + cart.cartLineCount() + ' productos'"
+              (click)="goCart()"
+              >
+              <span class="cb-fill" [style.width.%]="cartProgress() * 100" aria-hidden="true"></span>
+              @for (n of [cart.cartLineCount()]; track n) {
+                <span class="cb-count" animate.enter="portal-badge-pop">{{ n }}</span>
+              }
+              <span class="cb-label">
+                {{ cartBelowMin() ? 'Te faltan ' + (cartRemaining() | currency:'MXN':'symbol-narrow':'1.0-0') : 'Ver carrito' }}
+              </span>
+              <span class="cb-total" [countUp]="cart.cartTotal()"></span>
+              <i class="pi pi-arrow-right cb-arrow" aria-hidden="true"></i>
+            </button>
+    
+          </div>
+    
+          <!-- ── SETTINGS PANEL (slide-in derecha) ────────────────────── -->
+          <div
+            class="ps-backdrop"
+            [class.open]="settingsOpen()"
+            (click)="closeSettings()"
+            aria-hidden="true"
+          ></div>
+          <aside
+            class="ps-panel"
+            [class.open]="settingsOpen()"
+            role="dialog"
+            aria-label="Configuración"
+            >
+            <header class="ps-head">
+              <div>
+                <span class="ps-eyebrow">Tu cuenta</span>
+                <h2>Configuración</h2>
+              </div>
+              <button
+                type="button"
+                class="ps-close"
+                (click)="closeSettings()"
+                aria-label="Cerrar configuración"
+                ><i class="pi pi-times" aria-hidden="true"></i></button>
+              </header>
+    
+              <div class="ps-body">
+                <!-- Usuario -->
+                <section class="ps-section">
+                  <div class="ps-user">
+                    <div class="ps-user-avatar">{{ initial() }}</div>
+                    <div class="ps-user-info">
+                      <span class="ps-user-name">{{ username() }}</span>
+                      <span class="ps-user-role">Cliente B2B · Mega Dulces</span>
+                    </div>
+                  </div>
+                </section>
+    
+                <!-- Apariencia -->
+                <section class="ps-section">
+                  <h3 class="ps-section-title">
+                    <i class="pi pi-palette" aria-hidden="true"></i> Apariencia
+                  </h3>
+                  <div class="ps-segment" role="radiogroup" aria-label="Tema">
+                    <button
+                      type="button"
+                      class="ps-segment-btn"
+                      [class.active]="themeMode() === 'system'"
+                      (click)="setTheme('system')"
+                      role="radio"
+                      [attr.aria-checked]="themeMode() === 'system'"
+                      >
+                      <i class="pi pi-desktop"></i>
+                      <span>Sistema</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="ps-segment-btn"
+                      [class.active]="themeMode() === 'light'"
+                      (click)="setTheme('light')"
+                      role="radio"
+                      [attr.aria-checked]="themeMode() === 'light'"
+                      >
+                      <i class="pi pi-sun"></i>
+                      <span>Claro</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="ps-segment-btn"
+                      [class.active]="themeMode() === 'dark'"
+                      (click)="setTheme('dark')"
+                      role="radio"
+                      [attr.aria-checked]="themeMode() === 'dark'"
+                      >
+                      <i class="pi pi-moon"></i>
+                      <span>Oscuro</span>
+                    </button>
+                  </div>
+                  <p class="ps-hint">
+                    "Sistema" sigue las preferencias de tu dispositivo automáticamente.
+                  </p>
+                </section>
+    
+                <!-- Notificaciones -->
+                <section class="ps-section">
+                  <h3 class="ps-section-title">
+                    <i class="pi pi-bell" aria-hidden="true"></i> Notificaciones
+                  </h3>
+    
+                  <ul class="ps-notif-list">
+                    <li class="ps-notif-item">
+                      <span class="ps-notif-icon"><i class="pi pi-receipt" aria-hidden="true"></i></span>
+                      <div class="ps-notif-text">
+                        <span class="ps-notif-title">Estado de pedidos</span>
+                        <span class="ps-notif-desc">Aviso en tiempo real cuando confirmen o entreguen tu pedido.</span>
+                      </div>
+                      <button
+                        type="button"
+                        class="ps-switch"
+                        [class.on]="notif.prefs().orders"
+                        (click)="toggleNotif('orders')"
+                        [attr.aria-checked]="notif.prefs().orders"
+                        role="switch"
+                        [attr.aria-label]="'Notificaciones de pedidos: ' + (notif.prefs().orders ? 'activadas' : 'desactivadas')"
+                        ><span class="ps-switch-thumb" aria-hidden="true"></span></button>
+                      </li>
+                    </ul>
+                  </section>
+                </div>
+    
+                <footer class="ps-foot">
+                  <button type="button" class="ps-logout" (click)="logout()">
+                    <i class="pi pi-sign-out" aria-hidden="true"></i>
+                    Cerrar sesión
+                  </button>
+                </footer>
+              </aside>
+            </div>
+    `,
+  styles: [
+    `
+      :host { display: block; }
+
+      .portal-shell {
+        min-height: 100dvh;
+        display: flex;
+        background: var(--surface-ground);
+        color: var(--text-main);
+      }
+
+      /* ── DESKTOP SIDEBAR ───────────────────────────────────────────── */
+      .portal-sidebar {
+        width: 248px;
+        flex-shrink: 0;
+        background: var(--card-bg);
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        padding: 1.25rem 0.875rem calc(1rem + env(safe-area-inset-bottom));
+        position: sticky;
+        top: 0;
+        height: 100dvh;
+        gap: 1.25rem;
+      }
+
+      .portal-brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.5rem 0.5rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        text-decoration: none;
+        color: inherit;
+      }
+      .portal-brand-logo {
+        width: 44px;
+        height: 44px;
+        object-fit: contain;
+        border-radius: var(--r-md);
+        background: var(--neutral-100);
+        padding: 4px;
+      }
+      .portal-brand-text { display: flex; flex-direction: column; line-height: 1.1; min-width: 0; }
+      .portal-brand-name {
+        font-weight: 700;
+        font-size: var(--fs-body);
+        color: var(--text-main);
+      }
+      .portal-brand-sub {
+        font-size: var(--fs-micro);
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-top: 2px;
+      }
+
+      .portal-nav-desktop {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex: 1;
+        overflow-y: auto;
+      }
+      .portal-nav-item {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.625rem 0.75rem;
+        border-radius: var(--r-md);
+        color: var(--text-muted);
+        text-decoration: none;
+        font-size: var(--fs-body);
+        font-weight: 500;
+        position: relative;
+        transition: background-color 150ms var(--ease-standard), color 150ms var(--ease-standard);
+      }
+      .portal-nav-item:hover {
+        background: var(--hover-bg);
+        color: var(--text-main);
+      }
+      .portal-nav-item.active {
+        background: var(--neutral-100);
+        color: var(--text-main);
+        font-weight: 600;
+      }
+      .portal-nav-item.active::before {
+        content: '';
+        position: absolute;
+        left: -0.875rem;
+        top: 8px;
+        bottom: 8px;
+        width: 3px;
+        border-radius: 0 3px 3px 0;
+        background: var(--brand-500);
+      }
+      .portal-nav-icon-wrap {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+      }
+      .portal-nav-icon-wrap i { font-size: var(--fs-h3); }
+
+      .portal-cart-badge {
+        position: absolute;
+        top: -6px;
+        right: -8px;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: var(--r-sm);
+        background: var(--brand-400);
+        color: var(--text-main);
+        font-size: var(--fs-nano);
+        font-weight: 800;
+        line-height: 18px;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+      /* Badge del carrito: aparece + rebota al cambiar la cantidad (nativa Angular
+         animate.enter; el @for re-crea el badge al cambiar el conteo). Unifica el
+         antiguo :enter (aparecer) y :increment (rebote) en una sola animación. */
+      @keyframes portal-badge-pop {
+        0% { transform: scale(0.4); opacity: 0; }
+        35% { transform: scale(1.45); opacity: 1; }
+        65% { transform: scale(0.9); }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      .portal-badge-pop { animation: portal-badge-pop 380ms cubic-bezier(0.34, 1.4, 0.5, 1) backwards; }
+      @media (prefers-reduced-motion: reduce) { .portal-badge-pop { animation: none; } }
+
+      .portal-sidebar-foot {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border-color);
+      }
+      .portal-user-card {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        padding: 0.5rem;
+        border-radius: var(--r-md);
+        background: var(--surface-ground);
+      }
+      .portal-user-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: var(--neutral-900);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        font-size: var(--fs-h3);
+        flex-shrink: 0;
+      }
+      .portal-user-info {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.15;
+        min-width: 0;
+        overflow: hidden;
+      }
+      .portal-user-name {
+        font-size: var(--fs-body);
+        font-weight: 600;
+        color: var(--text-main);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .portal-user-role {
+        font-size: var(--fs-micro);
+        color: var(--text-muted);
+      }
+
+      .portal-logout :deep(.p-button-label) { font-weight: 500; }
+
+      /* ── MAIN COLUMN ──────────────────────────────────────────────── */
+      .portal-column {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .portal-header-mobile {
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: calc(0.625rem + env(safe-area-inset-top))
+          max(1rem, env(safe-area-inset-right)) 0.625rem
+          max(1rem, env(safe-area-inset-left));
+        background: var(--card-bg);
+        border-bottom: 1px solid var(--border-color);
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        backdrop-filter: blur(10px) saturate(180%);
+        -webkit-backdrop-filter: blur(10px) saturate(180%);
+        will-change: transform;
+        transition: transform 320ms var(--ease-standard);
+      }
+      /* Header se retrae al hacer scroll hacia abajo (gesto inmersivo, GSAP Observer). */
+      .portal-header-mobile.nav-hidden { transform: translateY(-100%); }
+      .portal-brand-mobile {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        text-decoration: none;
+        color: var(--text-main);
+        font-weight: 700;
+        font-size: var(--fs-h3);
+      }
+      .portal-brand-logo-mobile {
+        width: 32px;
+        height: 32px;
+        object-fit: contain;
+        border-radius: var(--r-sm);
+        background: var(--neutral-100);
+        padding: 3px;
+      }
+      .portal-icon-btn {
+        width: 40px;
+        height: 40px;
+        border-radius: var(--r-md);
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        transition: background-color 150ms var(--ease-standard), color 150ms var(--ease-standard);
+      }
+      .portal-icon-btn:hover { background: var(--hover-bg); color: var(--text-main); }
+      .portal-icon-btn:active { transform: scale(0.94); }
+
+      .portal-main {
+        flex: 1;
+        padding: 1.5rem max(1.5rem, env(safe-area-inset-right))
+          calc(1.5rem + env(safe-area-inset-bottom))
+          max(1.5rem, env(safe-area-inset-left));
+        max-width: 1280px;
+        width: 100%;
+        margin: 0 auto;
+        box-sizing: border-box;
+      }
+
+      /* ── MOBILE BOTTOM TAB DOCK (píldora + búsqueda circular — Rappi style) ─── */
+      .portal-tabdock {
+        display: none;
+        position: fixed;
+        bottom: calc(1rem + env(safe-area-inset-bottom));
+        left: 50%;
+        transform: translateX(-50%);
+        width: 94%;
+        max-width: min(520px, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 2rem));
+        z-index: 40;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .portal-tabbar {
+        flex: 1;
+        display: flex;
+        background: color-mix(in srgb, var(--card-bg) 86%, transparent);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-pill);
+        padding: 0.375rem;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+      }
+      .portal-tabsearch {
+        flex: 0 0 auto;
+        width: 54px;
+        height: 54px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: var(--text-main);
+        background: color-mix(in srgb, var(--card-bg) 86%, transparent);
+        border: 1px solid var(--border-color);
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        text-decoration: none;
+        transition: transform 160ms var(--ease-standard);
+      }
+      .portal-tabsearch i { font-size: var(--fs-h2); }
+      .portal-tabsearch:active { transform: scale(0.92); }
+      .portal-tab {
+        flex: 1;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        min-height: 44px;
+        padding: 0.375rem 0.5rem;
+        border-radius: var(--r-pill);
+        text-decoration: none;
+        color: var(--text-muted);
+        font-size: var(--fs-nano);
+        font-weight: 600;
+        transition:
+          color 220ms var(--ease-standard),
+          background-color 220ms var(--ease-standard),
+          padding 220ms var(--ease-standard),
+          flex 220ms var(--ease-standard);
+      }
+      .portal-tab.active {
+        background: var(--neutral-950);
+        color: var(--brand-400);
+        flex: 0 0 auto;
+        padding: 0.5rem 1.125rem;
+      }
+      .portal-tab.active .portal-tab-icon-wrap i {
+        color: var(--brand-400);
+      }
+      .portal-tab:active {
+        transform: scale(0.92);
+      }
+      .portal-tab-icon-wrap {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+      }
+      .portal-tab-icon-wrap i { font-size: var(--fs-h2); }
+      .portal-tab-label {
+        line-height: 1;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }
+      .portal-tab:not(.active) .portal-tab-label {
+        display: none;
+      }
+
+      /* ── STICKY CART BAR (móvil) ──────────────────────────────────── */
+      .portal-cartbar {
+        display: none;
+        position: fixed;
+        left: 50%;
+        bottom: calc(5.25rem + env(safe-area-inset-bottom));
+        width: 94%;
+        max-width: 520px;
+        z-index: 39;
+        align-items: center;
+        gap: 0.625rem;
+        padding: 0.75rem 0.875rem 0.75rem 0.75rem;
+        border: none;
+        border-radius: var(--r-pill);
+        background: var(--neutral-950);
+        color: #fff;
+        cursor: pointer;
+        font-family: var(--font-body);
+        box-shadow: 0 18px 44px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        transform: translateX(-50%) translateY(180%);
+        opacity: 0;
+        pointer-events: none;
+        overflow: hidden;
+        transition: transform 420ms var(--ease-spring), opacity 240ms var(--ease-standard);
+      }
+      /* Relleno determinado: el pill se "carga" hacia el mínimo de pedido. */
+      .cb-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 0;
+        background: rgba(253, 231, 7, 0.20);
+        z-index: 0;
+        transition: width var(--dur-max, 350ms) var(--ease-spring);
+      }
+      .portal-cartbar > :not(.cb-fill) { position: relative; z-index: 1; }
+      .portal-cartbar.show {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .cb-count {
+        flex-shrink: 0;
+        min-width: 28px;
+        height: 28px;
+        padding: 0 6px;
+        border-radius: var(--r-pill);
+        background: var(--brand-400);
+        color: var(--text-main);
+        font-size: var(--fs-sm);
+        font-weight: 800;
+        line-height: 28px;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+      .cb-label {
+        flex: 1;
+        text-align: left;
+        font-size: var(--fs-body);
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .cb-total {
+        font-size: var(--fs-body);
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.01em;
+      }
+      .cb-arrow {
+        flex-shrink: 0;
+        font-size: var(--fs-sm);
+        opacity: 0.7;
+      }
+      .portal-cartbar:active { transform: translateX(-50%) translateY(0) scale(0.98); }
+
+      .portal-cart-badge-mobile {
+        position: absolute;
+        top: -6px;
+        right: -10px;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: var(--r-sm);
+        background: var(--brand-400);
+        color: var(--text-main);
+        font-size: var(--fs-nano);
+        font-weight: 800;
+        line-height: 18px;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+        box-shadow: 0 0 0 2px var(--card-bg);
+      }
+
+      /* ── RESPONSIVE BREAKPOINT ────────────────────────────────────── */
+      @media (max-width: 56.25rem) {
+        .portal-sidebar { display: none; }
+        .portal-header-mobile { display: flex; }
+        .portal-tabdock { display: flex; }
+        .portal-cartbar { display: flex; }
+        .portal-main {
+          /* 5rem tabbar + 1rem margen + safe-area garantizan que el contenido
+             no quede oculto detrás del tabbar flotante (Stitch style). */
+          padding: 1rem max(1rem, env(safe-area-inset-right))
+            calc(6.5rem + env(safe-area-inset-bottom))
+            max(1rem, env(safe-area-inset-left));
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .ps-panel,
+        .ps-backdrop,
+        .portal-tab,
+        .portal-header-mobile,
+        .portal-cartbar,
+        .ps-switch-thumb { transition: none !important; animation: none !important; }
+      }
+
+      /* ── USER CARD BUTTON (sidebar foot) ─────────────────────── */
+      .portal-user-card-btn {
+        width: 100%;
+        cursor: pointer;
+        border: none;
+        text-align: left;
+        gap: 0.625rem;
+        transition: background-color 150ms var(--ease-standard);
+      }
+      .portal-user-card-btn:hover {
+        background: var(--neutral-200);
+      }
+      .portal-user-cog {
+        color: var(--text-faint);
+        font-size: var(--fs-body);
+        margin-left: auto;
+      }
+      .portal-user-card-btn:hover .portal-user-cog {
+        color: var(--text-main);
+      }
+
+      /* ── SETTINGS PANEL (slide-in derecha) ───────────────────── */
+      .ps-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 220ms var(--ease-standard), visibility 220ms;
+        z-index: 100;
+        backdrop-filter: blur(2px);
+      }
+      .ps-backdrop.open { opacity: 1; visibility: visible; }
+
+      .ps-panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        height: 100dvh;
+        width: min(400px, 100vw);
+        background: var(--card-bg);
+        z-index: 101;
+        display: flex;
+        flex-direction: column;
+        box-shadow: -12px 0 32px -8px rgba(0, 0, 0, 0.2);
+        transform: translateX(100%);
+        transition: transform 320ms cubic-bezier(0.2, 0, 0, 1);
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-right: env(safe-area-inset-right);
+      }
+      .ps-panel.open { transform: translateX(0); }
+
+      .ps-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 1.25rem 1.25rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+      }
+      .ps-eyebrow {
+        display: block;
+        font-size: var(--fs-micro);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-muted);
+        margin-bottom: 0.25rem;
+      }
+      .ps-head h2 {
+        margin: 0;
+        font-size: var(--fs-h2);
+        font-weight: 800;
+        color: var(--text-main);
+        letter-spacing: -0.015em;
+      }
+      .ps-close {
+        width: 36px;
+        height: 36px;
+        border-radius: var(--r-md);
+        background: var(--neutral-100);
+        border: none;
+        cursor: pointer;
+        color: var(--text-muted);
+        display: grid;
+        place-items: center;
+      }
+      .ps-close:hover {
+        background: var(--neutral-200);
+        color: var(--text-main);
+      }
+
+      .ps-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+
+      .ps-section { display: flex; flex-direction: column; gap: 0.625rem; }
+      .ps-section-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0;
+        font-size: var(--fs-sm);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-muted);
+      }
+      .ps-section-title i {
+        font-size: var(--fs-body);
+        color: var(--text-muted);
+      }
+      .ps-section-count {
+        margin-left: auto;
+        font-size: var(--fs-micro);
+        font-weight: 600;
+        color: var(--text-faint);
+        text-transform: none;
+        letter-spacing: 0;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .ps-user {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.875rem;
+        background: var(--neutral-100);
+        border-radius: var(--r-md);
+      }
+      .ps-user-avatar {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--neutral-900);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        font-size: var(--fs-h3);
+        flex-shrink: 0;
+      }
+      .ps-user-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .ps-user-name {
+        font-size: var(--fs-body);
+        font-weight: 700;
+        color: var(--text-main);
+      }
+      .ps-user-role {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+      }
+
+      /* ── Segment control (Sistema / Claro / Oscuro) ──────────── */
+      .ps-segment {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+        padding: 4px;
+        background: var(--neutral-100);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-md);
+      }
+      .ps-segment-btn {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 0.625rem 0.5rem;
+        background: transparent;
+        border: none;
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+        font-weight: 600;
+        transition: background-color 180ms var(--ease-standard), color 180ms var(--ease-standard);
+      }
+      .ps-segment-btn i { font-size: var(--fs-h3); }
+      .ps-segment-btn:hover:not(.active) {
+        color: var(--text-main);
+      }
+      .ps-segment-btn.active {
+        background: var(--card-bg);
+        color: var(--text-main);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06),
+                    inset 0 -2px 0 var(--brand-500);
+      }
+      .ps-hint {
+        margin: 0;
+        font-size: var(--fs-micro);
+        color: var(--text-faint);
+        line-height: 1.4;
+      }
+
+      /* ── Notification list with switches ─────────────────────── */
+      .ps-notif-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+      }
+      .ps-notif-item {
+        display: grid;
+        grid-template-columns: 36px 1fr auto;
+        gap: 0.75rem;
+        align-items: center;
+        padding: 0.75rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-md);
+      }
+      .ps-notif-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: var(--r-md);
+        background: var(--neutral-100);
+        color: var(--text-main);
+        display: grid;
+        place-items: center;
+      }
+      .ps-notif-icon i { font-size: var(--fs-h3); }
+      .ps-notif-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .ps-notif-title {
+        font-size: var(--fs-body);
+        font-weight: 700;
+        color: var(--text-main);
+        line-height: 1.2;
+      }
+      .ps-notif-desc {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        line-height: 1.3;
+      }
+
+      /* ── Switch ─────────────────────────────────────────────── */
+      .ps-switch {
+        width: 40px;
+        height: 22px;
+        border-radius: var(--r-pill);
+        background: var(--neutral-300);
+        border: none;
+        position: relative;
+        cursor: pointer;
+        padding: 2px;
+        flex-shrink: 0;
+        transition: background-color 200ms var(--ease-standard);
+      }
+      .ps-switch-thumb {
+        display: block;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+        transition: transform 220ms cubic-bezier(0.34, 1.4, 0.5, 1);
+        transform: translateX(0);
+      }
+      .ps-switch.on {
+        background: var(--neutral-900);
+      }
+      .ps-switch.on .ps-switch-thumb {
+        transform: translateX(18px);
+        background: var(--brand-400);
+      }
+      .ps-switch:focus-visible {
+        outline: 2px solid var(--brand-500);
+        outline-offset: 2px;
+      }
+
+      /* ── Footer ─────────────────────────────────────────────── */
+      .ps-foot {
+        padding: 1rem 1.25rem 1.25rem;
+        border-top: 1px solid var(--border-color);
+      }
+      .ps-logout {
+        width: 100%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        background: transparent;
+        color: var(--bad-fg);
+        border: 1px solid var(--bad-border);
+        border-radius: var(--r-md);
+        font-weight: 700;
+        font-size: var(--fs-body);
+        cursor: pointer;
+        transition: background-color 150ms var(--ease-standard);
+      }
+      .ps-logout:hover {
+        background: var(--bad-soft-bg);
+      }
+
+      /* Gate "cuenta no vinculada" (customer_b2b sin customer_id) */
+      .portal-unlinked {
+        max-width: 460px;
+        margin: clamp(2rem, 10vh, 6rem) auto;
+        padding: 0 1.5rem;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+      }
+      .portal-unlinked-ico {
+        font-size: 2.5rem;
+        color: var(--text-muted);
+      }
+      .portal-unlinked-title {
+        font-family: var(--font-display);
+        font-size: var(--fs-h2);
+        font-weight: 700;
+        margin: 0;
+        color: var(--text-main);
+      }
+      .portal-unlinked-text {
+        margin: 0;
+        font-size: var(--fs-body);
+        line-height: 1.5;
+        color: var(--text-muted);
+      }
+      .portal-unlinked .portal-btn-primary {
+        margin-top: 0.5rem;
+      }
+    `,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class PortalShellComponent implements AfterViewInit, OnDestroy {
+  private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
+  private readonly theme = inject(ThemeService);
+  private readonly toast = inject(MessageService);
+  private readonly alerts = inject(AlertsSocketService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly el = inject(ElementRef<HTMLElement>);
+  private readonly zone = inject(NgZone);
+  private readonly cartFx = inject(CartFxService);
+  readonly cart = inject(PortalService);
+  readonly notif = inject(NotificationPrefsService);
+
+  /** GSAP Observer que retrae el header al hacer scroll abajo (lazy, cacheado). */
+  private chromeObserver?: { kill: () => void };
+  /** Estado del header retraído — coordina el Observer con el listener de resize. */
+  private headerHidden = false;
+  /** Cleanup del listener de resize que re-mide la altura del header. */
+  private stickyResizeOff?: () => void;
+
+  readonly username = signal<string>(this.auth.user()?.username || '');
+  readonly initial = computed(() =>
+    (this.username() || '?').trim().charAt(0).toUpperCase() || '?',
+  );
+
+  readonly settingsOpen = signal<boolean>(false);
+
+  /** Mínimo de pedido B2B (Mega Dulces). Driver del nudge de progreso. */
+  readonly MIN_ORDER = 2500;
+  readonly cartProgress = computed(() => Math.min(1, this.cart.cartTotal() / this.MIN_ORDER));
+  readonly cartRemaining = computed(() => Math.max(0, this.MIN_ORDER - this.cart.cartTotal()));
+  readonly cartBelowMin = computed(
+    () => this.cart.cartLineCount() > 0 && this.cart.cartTotal() < this.MIN_ORDER,
+  );
+
+  readonly themeMode = computed<'system' | 'light' | 'dark'>(() => {
+    if (this.theme.followingSystem()) return 'system';
+    return this.theme.isMonochrome() ? 'dark' : 'light';
+  });
+
+  private readonly myCustomerId = signal<string | null>(null);
+  /** customer_b2b autenticado pero SIN cliente vinculado (users.customer_id null,
+   *  o apuntando a un cliente borrado). No puede ver precios ni pedir → en vez del
+   *  mix confuso (carrito vacío + 403 al precio + toast suelto) mostramos UN gate
+   *  claro. Solo aplica a customer_b2b; superadmin (preview QA) navega normal. */
+  readonly accountUnlinked = signal<boolean>(false);
+
+  openSettings(): void { this.settingsOpen.set(true); }
+  closeSettings(): void { this.settingsOpen.set(false); }
+
+  setTheme(mode: 'system' | 'light' | 'dark'): void {
+    if (mode === 'system') this.theme.resetToSystem();
+    else this.theme.setMonochrome(mode === 'dark');
+  }
+
+  toggleNotif(key: NotifKey): void {
+    this.notif.toggle(key);
+  }
+
+  /** Sidebar desktop: nav completa (incluye Promos). */
+  readonly navItems: NavItem[] = [
+    { path: 'home', label: 'Inicio', icon: 'pi pi-home' },
+    { path: 'catalog', label: 'Catálogo', icon: 'pi pi-th-large' },
+    { path: 'assistant', label: 'Asistente', icon: 'pi pi-sparkles' },
+    { path: 'promotions', label: 'Promos', icon: 'pi pi-megaphone' },
+    { path: 'cart', label: 'Carrito', icon: 'pi pi-shopping-bag', isCart: true },
+    { path: 'orders', label: 'Pedidos', icon: 'pi pi-receipt' },
+  ];
+
+  /** Tab bar móvil: 4 destinos persistentes (Material 3) + búsqueda circular
+   *  aparte (firma Rappi). Promos sale del bar — sigue en home/catálogo. */
+  readonly tabItems: NavItem[] = [
+    { path: 'home', label: 'Inicio', icon: 'pi pi-home' },
+    { path: 'catalog', label: 'Catálogo', icon: 'pi pi-th-large' },
+    { path: 'orders', label: 'Pedidos', icon: 'pi pi-receipt' },
+    { path: 'cart', label: 'Carrito', icon: 'pi pi-shopping-bag', isCart: true },
+  ];
+
+  /** Detecta el cruce del mínimo (below → not-below con items) para celebrar. */
+  private prevBelowMin = false;
+
+  constructor() {
+    // Celebración al alcanzar el mínimo de pedido.
+    effect(() => {
+      const below = this.cartBelowMin();
+      const reached = this.prevBelowMin && !below && this.cart.cartLineCount() > 0;
+      this.prevBelowMin = below;
+      if (reached) this.cartFx.celebrate();
+    });
+
+    this.cart.refreshCart();
+
+    // Resolver el customer_id del JWT una vez al montar (lo usamos para filtrar
+    // alertas WS que llegan tenant-wide).
+    this.cart.myCustomerInfo().subscribe({
+      next: (c) => {
+        this.myCustomerId.set(c?.id || null);
+        this.accountUnlinked.set(!c?.id && this.auth.user()?.role_name === 'customer_b2b');
+      },
+      error: () => {
+        // Error de red ≠ cuenta no vinculada → no bloquear (el flujo normal ya
+        // muestra sus propios errores de carga).
+        this.myCustomerId.set(null);
+        this.accountUnlinked.set(false);
+      },
+    });
+
+    // Conectar al namespace /alerts. Las alertas llegan a TODO el tenant —
+    // acá filtramos por customer_id propio + tipo + preferencia local.
+    this.alerts.connect();
+    this.alerts.alert$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((a) => this.handleAlert(a));
+
+    this.destroyRef.onDestroy(() => this.alerts.disconnect());
+  }
+
+  private handleAlert(a: CommercialAlert): void {
+    if (!this.notif.prefs().orders) return;
+    if (a.type !== 'order_confirmed' && a.type !== 'order_fulfilled') return;
+    const mine = this.myCustomerId();
+    if (!mine || a.data?.customer_id !== mine) return;
+
+    this.toast.add({
+      severity: 'success',
+      summary: a.title,
+      detail: a.message,
+      life: 6000,
+    });
+    this.cart.refreshCart();
+  }
+
+  logout(): void {
+    this.auth.logout();
+    this.router.navigateByUrl('/portal/login');
+  }
+
+  goCart(): void {
+    if (this.cart.cartLineCount() === 0) return;
+    this.router.navigateByUrl('/portal/cart');
+  }
+
+  ngAfterViewInit(): void {
+    this.setupScrollChrome();
+  }
+
+  ngOnDestroy(): void {
+    this.chromeObserver?.kill?.();
+    this.stickyResizeOff?.();
+  }
+
+  /**
+   * Gesto inmersivo móvil: el header se retrae al hacer scroll hacia abajo y
+   * reaparece al subir (firma Rappi). GSAP Observer unifica wheel/touch/scroll
+   * — sin matemática de scroll ni listeners propios. Lazy + fuera de zona +
+   * apagado bajo prefers-reduced-motion. El window es el scroller del portal.
+   */
+  private async setupScrollChrome(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    const header = this.el.nativeElement.querySelector(
+      '.portal-header-mobile',
+    ) as HTMLElement | null;
+    if (!header) return;
+
+    // Ancla sticky para el contenido sticky de las páginas (p.ej. el buscador del
+    // catálogo): = alto del header cuando se muestra, 0 cuando se retrae. La var
+    // se publica en el host del shell y se hereda por el subtree. En desktop el
+    // header es display:none → offsetHeight 0 → las páginas pegan a top:0.
+    const host = this.el.nativeElement as HTMLElement;
+    const setStickyTop = (px: number) =>
+      host.style.setProperty('--portal-sticky-top', `${px}px`);
+    setStickyTop(header.offsetHeight);
+    this.zone.runOutsideAngular(() => {
+      const onResize = () => {
+        if (!this.headerHidden) setStickyTop(header.offsetHeight);
+      };
+      window.addEventListener('resize', onResize, { passive: true });
+      this.stickyResizeOff = () => window.removeEventListener('resize', onResize);
+    });
+
+    // Header fijo bajo prefers-reduced-motion: la var queda en el alto del header.
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    try {
+      const mod: any = await import('gsap');
+      const gsap = mod.gsap || mod.default;
+      const Observer = (await import('gsap/Observer')).Observer;
+      gsap.registerPlugin(Observer);
+      this.zone.runOutsideAngular(() => {
+        const show = () => {
+          if (this.headerHidden) {
+            this.headerHidden = false;
+            header.classList.remove('nav-hidden');
+            setStickyTop(header.offsetHeight);
+          }
+        };
+        const hide = () => {
+          if (!this.headerHidden && window.scrollY > 90) {
+            this.headerHidden = true;
+            header.classList.add('nav-hidden');
+            setStickyTop(0);
+          }
+        };
+        this.chromeObserver = Observer.create({
+          target: window,
+          type: 'wheel,touch,scroll',
+          tolerance: 12,
+          onUp: show,
+          onDown: hide,
+        });
+      });
+    } catch {
+      /* gsap opcional — sin él el header queda fijo (sin regresión). */
+    }
+  }
+}

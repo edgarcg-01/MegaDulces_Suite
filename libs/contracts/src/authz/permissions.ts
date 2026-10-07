@@ -1,0 +1,604 @@
+/**
+ * `[ID.28]` — LA definición del catálogo de permisos. Única, para todo el repo.
+ *
+ * ── Por qué vive acá y no en `platform-core` ─────────────────────────────────
+ * `libs/contracts` es `scope:shared` / `type:util` y **no importa NestJS**: es
+ * la única etiqueta de la que dependen a la vez `scope:api` y los 3 frontends.
+ * `platform-core` es `scope:platform` y arrastraría NestJS a un bundle de
+ * Angular. No es preferencia: es la razón por la que había copias.
+ *
+ * ── Lo que había antes, medido ───────────────────────────────────────────────
+ * **Cinco** copias del enum, con deriva visible:
+ *   · `libs/platform-core`  175 claves  (el backend)
+ *   · `apps/view`           175 claves  (idénticas clave por clave, verificado)
+ *   · `apps/vendor`          63 claves  → drift de 112
+ *   · `apps/portal`          54 claves  → drift de 121
+ *   · `libs/shared-auth`     36 claves  → 18 de ellas **no existen** en el enum
+ *                                         canónico, y **cero archivos la importan**
+ * Y el smoke de paridad sólo comparaba back ↔ `apps/view`, o sea justamente las
+ * dos que ya coincidían: **las tres copias drifteadas no las miraba nadie.**
+ *
+ * ⚠️ Al agregar un permiso hay que cablearlo acá + en `authz-tree` + en el gate
+ * por clave (ADR-054: el permiso es una CLAVE, no una tupla acción/sujeto — no
+ * hay mapas de subject/action que actualizar). Y `[LC.6.2]`: **declararlo en el
+ * enum no es entregarlo** — hasta que un rol vivo lo conceda en prod, el módulo
+ * no está entregado.
+ */
+export enum Permission {
+  // Módulo: Usuarios
+  USUARIOS_VER = 'USUARIOS_VER',
+  USUARIOS_GESTIONAR = 'USUARIOS_GESTIONAR',
+  USUARIOS_PASSWORDS = 'USUARIOS_PASSWORDS',
+  USUARIOS_ASIGNAR_RUTA = 'USUARIOS_ASIGNAR_RUTA',
+
+  // Módulo: Reportes y KPI
+  REPORTES_VER_PROPIO = 'REPORTES_VER_PROPIO',
+  REPORTES_VER_EQUIPO = 'REPORTES_VER_EQUIPO',
+  REPORTES_VER_GLOBAL = 'REPORTES_VER_GLOBAL',
+  REPORTES_EXPORTAR = 'REPORTES_EXPORTAR',
+  REPORTES_GESTIONAR = 'REPORTES_GESTIONAR',
+
+  // Módulo: Operación en Campo (Auditoría)
+  VISITAS_REGISTRAR = 'VISITAS_REGISTRAR',
+  VISITAS_VER = 'VISITAS_VER',
+  VISITAS_AUDITAR = 'VISITAS_AUDITAR',
+
+  // Módulo: Administración (Catálogos y Sistema)
+  CATALOGO_GESTIONAR = 'CATALOGO_GESTIONAR',
+  PLANOGRAMAS_GESTIONAR = 'PLANOGRAMAS_GESTIONAR',
+  TIENDAS_VER = 'TIENDAS_VER',
+  TIENDAS_CREAR = 'TIENDAS_CREAR',
+  ROLES_CONFIGURAR = 'ROLES_CONFIGURAR',
+  SCORING_CONFIG_VER = 'SCORING_CONFIG_VER',
+  SCORING_CONFIG_GESTIONAR = 'SCORING_CONFIG_GESTIONAR',
+
+  // Módulo: Seguimiento
+  VER_SEGUIMIENTO = 'VER_SEGUIMIENTO',
+
+  // Módulo: Rutas (análisis: tiendas por ruta, tiempos de visita, trazabilidad)
+  RUTAS_VER = 'RUTAS_VER',
+
+  // Módulo: Mapa Comercial (exhibidores Mega Dulces vs competencia en mapa + historial por tienda)
+  COMMERCIAL_MAP_VER = 'COMMERCIAL_MAP_VER',
+
+  // Módulo: Prospección DENUE (tiendas de oportunidad descubiertas en INEGI DENUE)
+  COMMERCIAL_MAP_PROSPECTS_VER = 'COMMERCIAL_MAP_PROSPECTS_VER',
+  COMMERCIAL_MAP_PROSPECTS_GESTIONAR = 'COMMERCIAL_MAP_PROSPECTS_GESTIONAR',
+
+  // Módulo: Supervisor AI de ejecución (Horus) — parte diario, auditoría visual, fraude (co-piloto)
+  SUPERVISOR_AI_VER = 'SUPERVISOR_AI_VER',
+  SUPERVISOR_AI_APROBAR = 'SUPERVISOR_AI_APROBAR',
+
+  // Módulo: Tienda — monitor de tickets de venta en vivo (proyecto TDA)
+  STORE_LIVE_VER = 'STORE_LIVE_VER',
+  // Módulo: Tienda — etiquetera de anaquel (impresión de etiquetas)
+  STORE_LABELS_VER = 'STORE_LABELS_VER',
+  // Módulo: Tienda — arqueo ciego de caja para cajeras (captura + ver). Superficie
+  // acotada del arqueo del Supervisor de Movimientos (sin el motor de reconciliación).
+  STORE_ARQUEO_CAPTURAR = 'STORE_ARQUEO_CAPTURAR',
+  STORE_ARQUEO_VER = 'STORE_ARQUEO_VER',
+  /**
+   * SM.36 — Arqueo de las rutas (RD/RV): la entrega del vendedor de ruta en la
+   * tienda. Permiso APARTE de STORE_ARQUEO_CAPTURAR a proposito: ese lo tienen
+   * tambien `cajero` y `piso_tienda` (medido en prod), y recibir el dinero de
+   * una ruta es acto de encargada, no de mostrador. Se reparte solo a
+   * `encargado_tienda` y `auxiliar_tienda`.
+   */
+  STORE_ARQUEO_RUTA_CAPTURAR = 'STORE_ARQUEO_RUTA_CAPTURAR',
+  // Módulo: Tienda — análisis semanal de venta por sucursal (ISO week, WoW + tendencia)
+  STORE_ANALYTICS_VER = 'STORE_ANALYTICS_VER',
+  // Módulo: RH / Asistencia — el acto de checar en el kiosco de una sucursal (Fase CH).
+  // Cuenta de DISPOSITIVO (`checador_kiosco`, una por sitio), no de persona: el empleado
+  // se identifica en la pantalla, no con esta credencial. Restrictivo: no se reparte a
+  // ningún rol existente. ⚠️ La pantalla que gatea es `[CH.0.10]` y todavía no existe.
+  HR_ATTENDANCE_CHECAR = 'HR_ATTENDANCE_CHECAR',
+
+  // Módulo: Tienda — verificador de precios de mostrador (kiosco con lector de barras).
+  // Sólo lectura de precio de venta: nunca costo ni margen. Los endpoints que consume
+  // (`/api/kp/*`, `/api/sucursales`) son `@Public()` porque también los lee el kiosco sin
+  // sesión; esta clave gatea la PANTALLA, que es lo que se le da a una persona.
+  STORE_PRICE_CHECK_VER = 'STORE_PRICE_CHECK_VER',
+
+  // Módulo: Tienda — Lista de faltantes (`[FLT]`). El kiosco donde el piso reporta la venta que
+  // NO ocurrió: "no hay", "no lo trabajamos", "el código no pasó". Es el único instrumento capaz
+  // de registrar ese hecho — una venta que no pasó no deja rastro en ninguna fuente.
+  //
+  // Dos claves porque parten dos oficios, igual que el arqueo (CAPTURAR/VER) y las caducidades:
+  //  · CAPTURAR — la cajera/anaquelista reporta. Es lo único que necesita para trabajar, y se le
+  //    da a la cuenta de mostrador, que corre SIN sesión de persona.
+  //  · VER      — el encargado mira lo reportado en su sucursal y la lista de códigos que fallan.
+  // La bandeja de Compras NO usa estas claves: reusa `COMPRAS_HALLAZGOS_VER/GESTIONAR`, que es la
+  // misma persona que ya trabaja Hallazgos y Reclamos.
+  STORE_STOCKOUT_CAPTURAR = 'STORE_STOCKOUT_CAPTURAR',
+  STORE_STOCKOUT_VER = 'STORE_STOCKOUT_VER',
+
+  // Módulo: Tienda — Bitácora de renglones retirados del ticket (`[BP]`). Medido el 2026-09-28
+  // contra las 9 ramas y en vivo en una caja: cuando el cajero quita un producto del ticket,
+  // Kepler EXIGE contraseña de supervisor (`POS.k_passRow=1`) y después **no lo escribe en
+  // ningún lado** — `pv_aut_cambios.kpl` sólo lee para validar, la marca "ELIMINADO" vive en
+  // memoria, y el guardado rechaza cualquier renglón en cantidad 0. Cero coincidencias en las
+  // 46 columnas de texto de `kdm2`. Tampoco hay parámetro que prender: `kdconfig` trae el
+  // catálogo completo de 48 y ninguno es de bitácora. Por eso el dato nace de una persona.
+  //
+  // Dos claves porque parten dos oficios, igual que faltantes y arqueo:
+  //  · CAPTURAR — quien AUTORIZA el retiro lo registra. Es su firma, no la del cajero.
+  //  · VER      — supervisión de tienda y prevención de pérdidas, que es el consumidor natural
+  //    de una señal antifraude.
+  STORE_POS_VOID_CAPTURAR = 'STORE_POS_VOID_CAPTURAR',
+  STORE_POS_VOID_VER = 'STORE_POS_VOID_VER',
+
+  // Módulo: Comercial — Clientes B2B (Fase B)
+  COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',
+  COMMERCIAL_CUSTOMERS_GESTIONAR = 'COMMERCIAL_CUSTOMERS_GESTIONAR',
+
+  // Módulo: Comercial — Almacenes y Pricing
+  COMMERCIAL_WAREHOUSES_VER = 'COMMERCIAL_WAREHOUSES_VER',
+  COMMERCIAL_WAREHOUSES_GESTIONAR = 'COMMERCIAL_WAREHOUSES_GESTIONAR',
+  COMMERCIAL_PRICING_VER = 'COMMERCIAL_PRICING_VER',
+  COMMERCIAL_PRICING_GESTIONAR = 'COMMERCIAL_PRICING_GESTIONAR',
+  // [PR.D2] El experimento de precio. Permiso PROPIO y separado de PRICING: diseñar un
+  // experimento decide qué precios se van a mover y sobre qué venta, así que no viaja
+  // de paquete con "ver listas de precios".
+  COMMERCIAL_PRICE_EXPERIMENT_VER = 'COMMERCIAL_PRICE_EXPERIMENT_VER',
+  COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR = 'COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR',
+  /**
+   * `[PR.V1]` El motor de margen. SOLO lectura: no hay _GESTIONAR porque Kepler es read-only
+   * (ADR-040) y el precio lo captura una persona alla. Y NO reusa COMMERCIAL_PRICING_VER, que
+   * en prod lo tienen 3 usuarios customer_b2b -que son CLIENTES- mas 35 de campo: esta pantalla
+   * publica costo, margen realizado y la fuga de descuento de todo el catalogo.
+   */
+  COMMERCIAL_MARGIN_ENGINE_VER = 'COMMERCIAL_MARGIN_ENGINE_VER',
+
+  // Módulo: Comercial — Inventario
+  COMMERCIAL_INVENTORY_VER = 'COMMERCIAL_INVENTORY_VER',
+  COMMERCIAL_INVENTORY_AJUSTAR = 'COMMERCIAL_INVENTORY_AJUSTAR',
+  // Inventario físico (Fase I): jerarquía contador → supervisor → reconciliador
+  COMMERCIAL_INVENTORY_CONTAR = 'COMMERCIAL_INVENTORY_CONTAR',
+  COMMERCIAL_INVENTORY_SUPERVISAR = 'COMMERCIAL_INVENTORY_SUPERVISAR',
+  COMMERCIAL_INVENTORY_RECONCILIAR = 'COMMERCIAL_INVENTORY_RECONCILIAR',
+  COMMERCIAL_INVENTORY_ASIGNAR = 'COMMERCIAL_INVENTORY_ASIGNAR',
+  // Fase WMS-REC.16 — ABANDONAR un folio de conteo NO es aplicarlo. Hasta acá las dos
+  // acciones colgaban de RECONCILIAR, o sea que la accion SEGURA (cancelar: no toca stock)
+  // estaba encerrada detras de la PELIGROSA (reconciliar: ajusta el saldo al fisico contado).
+  // Medido el 2026-09-28 en produccion: eso dejo a `INV-2026-00009` congelando Padre Hidalgo
+  // 100 dias, y a 4 de las 5 personas que entran al Anden sin forma de destrabarse.
+  // Molde TP.6: clave propia, FUERA de todo MODULE_GROUP — se reparte por migracion, no
+  // 'de paquete'. Quien tiene RECONCILIAR sigue pudiendo cancelar: el gate acepta cualquiera
+  // de las dos, asi que nadie pierde nada.
+  // ⛔ NO va en `AUTHZ_TREE`, y no es un olvido: se intento y el candado SN.4 lo rechazo con
+  //    razon — `physical-inventory` apunta a /almacen/inventory/sessions, que exige SUPERVISAR,
+  //    asi que listarla ahi le ofreceria a su portador una pagina que le rebota. Esta llave no
+  //    abre una pantalla: habilita UNA accion dentro del Anden. Se asigna desde /admin/roles,
+  //    que enumera por PERMISSION_META, no por el arbol.
+  COMMERCIAL_INVENTORY_CANCELAR_CONTEO = 'COMMERCIAL_INVENTORY_CANCELAR_CONTEO',
+  // Auditor de recepción por caducidad (Fase WMS-REC, ADR-044): captura foto+OCR + semáforo en la puerta
+  COMMERCIAL_INVENTORY_RECIBIR = 'COMMERCIAL_INVENTORY_RECIBIR',
+  // Control de Caducidades (Fase P2.6): inspección de anaquel + captura de caducidad → FEFO
+  COMMERCIAL_EXPIRY_VER = 'COMMERCIAL_EXPIRY_VER',
+  COMMERCIAL_EXPIRY_CAPTURAR = 'COMMERCIAL_EXPIRY_CAPTURAR',
+  // Prevención de Inventarios (Fase PREV): expediente de investigación de diferencias (segregado de conteo/reconcile)
+  COMMERCIAL_PREVENTION_VER = 'COMMERCIAL_PREVENTION_VER',
+  COMMERCIAL_PREVENTION_GESTIONAR = 'COMMERCIAL_PREVENTION_GESTIONAR',
+
+  // Módulo: Comercial — Pedidos y Cobros (Sprint B.2, declarados acá para tener el set completo)
+  COMMERCIAL_ORDERS_VER = 'COMMERCIAL_ORDERS_VER',
+  COMMERCIAL_ORDERS_CREAR = 'COMMERCIAL_ORDERS_CREAR',
+  COMMERCIAL_ORDERS_CONFIRMAR = 'COMMERCIAL_ORDERS_CONFIRMAR',
+  COMMERCIAL_ORDERS_CANCELAR = 'COMMERCIAL_ORDERS_CANCELAR',
+  COMMERCIAL_ORDERS_FULFILL = 'COMMERCIAL_ORDERS_FULFILL',
+  COMMERCIAL_PAYMENTS_REGISTRAR = 'COMMERCIAL_PAYMENTS_REGISTRAR',
+  // Fase LM — Última milla: verificar/reversar cobros + gestionar corte de caja del repartidor
+  COMMERCIAL_PAYMENTS_VERIFICAR = 'COMMERCIAL_PAYMENTS_VERIFICAR',
+  COMMERCIAL_PAYMENTS_REVERSAR = 'COMMERCIAL_PAYMENTS_REVERSAR',
+  COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR = 'COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR',
+
+  // Fase SU — Surtido por olas (ADR-067). Vive en el proyecto ALMACÉN, no en Comercial: el pool
+  // y la ola son trabajo de piso, no de venta. Sólo se declaran los que gatean algo HOY; el del
+  // surtidor (tomar la ola y confirmar líneas) nace con su endpoint en SU.4 — un permiso que no
+  // gatea nada es ruido en /admin/roles y nadie sabe si repartirlo ([LC.6.2]).
+  COMMERCIAL_PICKING_VER = 'COMMERCIAL_PICKING_VER',
+  COMMERCIAL_PICKING_GESTIONAR = 'COMMERCIAL_PICKING_GESTIONAR',
+
+  // Módulo: Comercial — Promociones (Fase G.2)
+  COMMERCIAL_PROMOTIONS_VER = 'COMMERCIAL_PROMOTIONS_VER',
+  COMMERCIAL_PROMOTIONS_GESTIONAR = 'COMMERCIAL_PROMOTIONS_GESTIONAR',
+
+  // Módulo: MKT — Acuerdos promocionales con proveedor, el formato MKTN001 (`[MKT.1]`).
+  // Par PROPIO y no derivado de COMMERCIAL_PROMOTIONS_*: ésas gobiernan el motor de PRECIO que
+  // aplica reglas a un pedido; éstas gobiernan el CONVENIO firmado con el proveedor, con su
+  // presupuesto, su evidencia y su autorización. Distinto dueño y distinto ciclo de vida.
+  MKT_AGREEMENTS_VER = 'MKT_AGREEMENTS_VER',
+  MKT_AGREEMENTS_GESTIONAR = 'MKT_AGREEMENTS_GESTIONAR',
+  // Tercera clave, FUERA del par: subir la foto de la exhibición es lo que hace la plaza, y no
+  // debe arrastrar consigo poder crear ni autorizar un acuerdo (mismo criterio que
+  // `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` en TP.6: preparar ≠ autorizar).
+  MKT_AGREEMENT_EVIDENCE_SUBIR = 'MKT_AGREEMENT_EVIDENCE_SUBIR',
+
+  // Módulo: Comercial — Telemarketing (Fase E; antes "Televenta" / "Remote Manager")
+  COMMERCIAL_TELEVENTA_VER = 'COMMERCIAL_TELEVENTA_VER',
+  COMMERCIAL_TELEVENTA_OPERATE = 'COMMERCIAL_TELEVENTA_OPERATE',
+
+  // Submódulo: Telemarketing — Cotizaciones de mayoreo (Fase E.12).
+  // Par PROPIO y no derivado de COMMERCIAL_TELEVENTA_*: cotizar es ofrecer un precio, y quien
+  // trabaja la cola de llamadas no necesariamente tiene autorizado mover precio. Separarlos
+  // ahora es gratis; separarlos después de haberlos repartido juntos no lo es ([LC.6.2]).
+  COMMERCIAL_QUOTES_VER = 'COMMERCIAL_QUOTES_VER',
+  COMMERCIAL_QUOTES_GESTIONAR = 'COMMERCIAL_QUOTES_GESTIONAR',
+
+  // Fase V — Vendedor de campo con OCR de ticket
+  CAPTURE_TICKET_USE = 'CAPTURE_TICKET_USE',
+
+  // Acceso a la app de vendedor standalone (gate administrable desde /admin/roles)
+  VENDOR_APP_ACCESS = 'VENDOR_APP_ACCESS',
+
+  // Módulo: Comercial — Cierre de ruta (tickets venta/carga/combustible)
+  ROUTE_TICKET_CAPTURE = 'ROUTE_TICKET_CAPTURE', // vendedor: subir/ver sus tickets
+  ROUTE_CONTROL_VER = 'ROUTE_CONTROL_VER', // admin: ver todos + reportes de ruta
+
+  // Módulo: Logística — Flotilla y choferes (Fase J)
+  LOGISTICS_FLEET_VER = 'LOGISTICS_FLEET_VER',
+  LOGISTICS_FLEET_GESTIONAR = 'LOGISTICS_FLEET_GESTIONAR',
+
+  // RD.4 — gasto de flota de Ruta Directa (logistics.route_expenses). Permiso propio:
+  // el gasto se captura contra la RUTA y lo lleva quien administra la flota, no quien
+  // consulta unidades. GESTIONAR = capturar, corregir y reclasificar.
+  LOGISTICS_ROUTE_EXPENSES_VER = 'LOGISTICS_ROUTE_EXPENSES_VER',
+  LOGISTICS_ROUTE_EXPENSES_GESTIONAR = 'LOGISTICS_ROUTE_EXPENSES_GESTIONAR',
+
+  // Módulo: Logística — Embarques (state machine)
+  LOGISTICS_SHIPMENTS_VER = 'LOGISTICS_SHIPMENTS_VER',
+  LOGISTICS_SHIPMENTS_GESTIONAR = 'LOGISTICS_SHIPMENTS_GESTIONAR',
+
+  // Módulo: Logística — Guías + destinatarios
+  LOGISTICS_GUIDES_VER = 'LOGISTICS_GUIDES_VER',
+  LOGISTICS_GUIDES_GESTIONAR = 'LOGISTICS_GUIDES_GESTIONAR',
+  // Fase LM-K — despacho a domicilio desde folio Kepler (persona de tienda captura + asigna)
+  LOGISTICS_HOME_DISPATCH = 'LOGISTICS_HOME_DISPATCH',
+
+  // Módulo: Logística — Costos del viaje
+  LOGISTICS_EXPENSES_VER = 'LOGISTICS_EXPENSES_VER',
+  LOGISTICS_EXPENSES_GESTIONAR = 'LOGISTICS_EXPENSES_GESTIONAR',
+
+  // Módulo: Logística — Liquidaciones y períodos
+  LOGISTICS_PAYROLL_VER = 'LOGISTICS_PAYROLL_VER',
+  LOGISTICS_PAYROLL_GESTIONAR = 'LOGISTICS_PAYROLL_GESTIONAR',
+
+  // Módulo: Logística — Configuración financiera (factores, costo km)
+  LOGISTICS_CONFIG_GESTIONAR = 'LOGISTICS_CONFIG_GESTIONAR',
+
+  // Módulo: Logística — Carta Porte 3.1 (CFDI Traslado vía PAC)
+  LOGISTICS_CARTAPORTE_VER = 'LOGISTICS_CARTAPORTE_VER',
+  LOGISTICS_CARTAPORTE_GESTIONAR = 'LOGISTICS_CARTAPORTE_GESTIONAR',
+
+  // ── Reparto / Última Milla (proyecto propio — ADR-027) ────────────────
+  // Dominio autosuficiente: NO depende de ORDERS_*/PAYMENTS_*/LOGISTICS_*.
+  // DESPACHAR = persona de tienda (captura folio, asigna repartidor+moto, ve
+  // tracking y KPIs). ENTREGAR = repartidor (ve su ruta, cierra parada, cobra,
+  // arqueo ciego). Reemplazan el uso prestado de LOGISTICS_HOME_DISPATCH +
+  // COMMERCIAL_ORDERS_FULFILL + COMMERCIAL_PAYMENTS_REGISTRAR + LOGISTICS_SHIPMENTS_VER.
+  REPARTO_DESPACHAR = 'REPARTO_DESPACHAR',
+  REPARTO_ENTREGAR = 'REPARTO_ENTREGAR',
+
+  // ── Comercial — Carga al camión (feature propia, no arrastra Pedidos) ──
+  COMMERCIAL_CARGA_VER = 'COMMERCIAL_CARGA_VER',
+  COMMERCIAL_CARGA_GESTIONAR = 'COMMERCIAL_CARGA_GESTIONAR',
+
+  // ── Comercial — Diario de movimientos de stock (feature propia, no Inventario) ──
+  COMMERCIAL_MOVEMENTS_VER = 'COMMERCIAL_MOVEMENTS_VER',
+  COMMERCIAL_MOVEMENTS_GESTIONAR = 'COMMERCIAL_MOVEMENTS_GESTIONAR',
+
+  // ── Fase AZ — permisos jerárquicos (App → Proyecto → Módulo) ──────────
+  // Nacen al partir permisos que antes gateaban varios módulos a la vez, para
+  // que cada módulo tenga los suyos. Backfill determinista en la migración.
+  // Ver docs/IMPLEMENTACION/FASES/FASE_AZ_AUTHZ_JERARQUICO.md.
+  ROLES_VER = 'ROLES_VER',
+  // `[AZ.2]` Tres pantallas que colgaban de `USUARIOS_GESTIONAR` y NO son administrar personas.
+  // El permiso de dar de alta gente abria ademas la salud de la base de datos, el catalogo de
+  // areas de gasto de Finanzas y los promotores de marca: tres oficios distintos, tres riesgos
+  // distintos. Se reparten a quien hoy tiene `USUARIOS_GESTIONAR` (estado vivo), asi que nadie
+  // pierde acceso; lo que cambia es que a partir de ahora se pueden dar por separado.
+  PLATFORM_HEALTH_VER = 'PLATFORM_HEALTH_VER',
+  FINANCE_EXPENSE_AREAS_GESTIONAR = 'FINANCE_EXPENSE_AREAS_GESTIONAR',
+  COMMERCIAL_PROMOTERS_GESTIONAR = 'COMMERCIAL_PROMOTERS_GESTIONAR',
+  // COMMERCIAL_ANALYTICS_VER = paraguas del Command Center + endpoints agregados
+  // (overview/network/top-*/erp-*). Cada REPORTE tiene su propio permiso abajo
+  // para poder acotar un rol a un solo reporte sin abrir todo el analytics.
+  COMMERCIAL_ANALYTICS_VER = 'COMMERCIAL_ANALYTICS_VER',
+  COMMERCIAL_SELLOUT_VER = 'COMMERCIAL_SELLOUT_VER',
+  // `[MR.PERM]` Rentabilidad (`/comercial/rentabilidad`, Fase MR) era el ÚNICO reporte de esta
+  // familia sin permiso propio: lo abría el paraguas `COMMERCIAL_ANALYTICS_VER`, o sea que dárselo
+  // a alguien para que viera el margen le abría además Command Center, Ventas generales y Wincaja.
+  // Es la regla que esta misma sección ya declaraba —«cada REPORTE tiene su propio permiso abajo»—
+  // y que a esta pantalla no se le había aplicado. Se reparte a quien hoy tiene el paraguas, leído
+  // del estado vivo: nadie pierde acceso.
+  COMMERCIAL_PROFITABILITY_VER = 'COMMERCIAL_PROFITABILITY_VER',
+  // BI — sub-modulo "Analisis" (Sell-Out BI): explica el cambio, preguntale,
+  // radar de anomalias. Lee el mismo SellOutReport; se reparte a los roles que
+  // ya tienen COMMERCIAL_SELLOUT_VER (mig 20260907130000). El reporte base no se toca.
+  COMMERCIAL_SELLOUT_ANALYSIS_VER = 'COMMERCIAL_SELLOUT_ANALYSIS_VER',
+  // BI.9 — capturar/editar metas de venta (commercial.sales_targets). Leerlas va con
+  // ANALYSIS_VER; escribirlas es management -> permiso GESTIONAR propio.
+  COMMERCIAL_SELLOUT_TARGETS_GESTIONAR = 'COMMERCIAL_SELLOUT_TARGETS_GESTIONAR',
+  COMMERCIAL_SALIDAS_VER = 'COMMERCIAL_SALIDAS_VER',
+  COMMERCIAL_ROUTE_SALES_VER = 'COMMERCIAL_ROUTE_SALES_VER',
+  // RD.31 — registrar el CONTEO FISICO de un camion. Permiso PROPIO y no colgado de
+  // ROUTE_SALES_VER: un conteo no es una lectura, es lo que MUEVE el inventario publicado de
+  // esa ruta (resetea el saldo y manda a cero lo que no lista). Quien cuenta el camion no es
+  // necesariamente quien cuenta el almacen, asi que tampoco se reusa INVENTORY_CONTAR.
+  COMMERCIAL_ROUTE_COUNT_REGISTRAR = 'COMMERCIAL_ROUTE_COUNT_REGISTRAR',
+  // RD.6 — comisiones de Ruta Directa. Permiso PROPIO y no colgado de ROUTE_SALES_VER:
+  // ver cuánto vendió una ruta y ver cuánto cobra su chofer son dos cosas distintas, y
+  // esto último es nómina. GESTIONAR = calcular, aprobar y marcar pagada la corrida.
+  COMMERCIAL_COMMISSIONS_VER = 'COMMERCIAL_COMMISSIONS_VER',
+  COMMERCIAL_COMMISSIONS_GESTIONAR = 'COMMERCIAL_COMMISSIONS_GESTIONAR',
+  // /comercial/documentos (AX.2, facturas de venta + anexo imprimible). Nació
+  // reusando COMMERCIAL_ORDERS_VER, así que no se podía asignar sin dar Pedidos
+  // ni quitar sin quitarlos. Backfill ← ORDERS_VER en 20260825120000.
+  COMMERCIAL_SALES_DOCS_VER = 'COMMERCIAL_SALES_DOCS_VER',
+  // /comercial/tickets (Fase TK) — buscar CUALQUIER folio de venta y reimprimirlo.
+  // Permiso PROPIO y no COMMERCIAL_SALES_DOCS_VER, aunque se reparta calcando a ése:
+  // aquel gatea SOLO telemarketing (U/D/8) y éste alcanza además el ticket de mostrador
+  // (U/D/10, 30k docs/30d) y los pedidos propios. Compartirlos haría imposible dar uno
+  // sin el otro — el mismo error que AX ya pagó al nacer reusando ORDERS_VER.
+  // Reparto ← SALES_DOCS_VER en la migración 20260918140000.
+  COMMERCIAL_TICKETS_VER = 'COMMERCIAL_TICKETS_VER',
+  // Traspasos NO tiene permiso propio nuevo: reusa el ya existente
+  // LOGISTICS_TRANSFERS_VER (la ruta /logistica/traspasos ya lo usa).
+  COMMERCIAL_CUSTOMERS360_VER = 'COMMERCIAL_CUSTOMERS360_VER',
+  COMMERCIAL_HISTORICAL_VER = 'COMMERCIAL_HISTORICAL_VER',
+  COMMERCIAL_DEADSTOCK_VER = 'COMMERCIAL_DEADSTOCK_VER',
+  COMMERCIAL_INVHEALTH_VER = 'COMMERCIAL_INVHEALTH_VER',
+  // Existencia — la matriz producto × almacén, en vivo desde el ODS. Vive en DOS proyectos
+  // (Almacén y Compras) con UN solo permiso, calcando el precedente de Caducidades
+  // (/almacen/inventory/caducidades + /tienda/caducidades comparten COMMERCIAL_EXPIRY_VER).
+  // SIN prefijo de proyecto a propósito: un ALMACEN_* sería falso — vive en los dos, y ese
+  // prefijo no existe (Almacén reusa COMMERCIAL_*). Precedentes de nombre pelado: RUTAS_VER,
+  // RECONCILIATION_VER.
+  // _GESTIONAR gatea el EXPORT del dataset valuado (privilegio real: es la existencia de toda
+  // la red a costo). No gatea una bandeja de arbitraje de unidad porque esa bandeja NO EXISTE
+  // todavía — verificado, no supuesto; se agrega cuando exista.
+  EXISTENCIA_VER = 'EXISTENCIA_VER',
+  EXISTENCIA_GESTIONAR = 'EXISTENCIA_GESTIONAR',
+  // Análisis BI — el espacio de indicadores cruzados de Almacén (/almacen/analisis-bi).
+  // Permiso PROPIO y no un COMMERCIAL_* reusado: el módulo existe sólo en Almacén (a diferencia
+  // de EXISTENCIA_*, que vive en dos proyectos y por eso va sin prefijo), y compartirlo con
+  // INVHEALTH/DEADSTOCK haría imposible dar el BI sin dar esas dos pantallas, ni quitarlo sin
+  // quitarlas. Precedentes de clave con prefijo propio de superficie: STORE_*, REPARTO_*.
+  // Sin _GESTIONAR: la pantalla todavía no escribe nada, y un gate sin acción que gatear es un
+  // permiso muerto (ADR-054). Se agrega cuando exista la acción.
+  ALMACEN_BI_VER = 'ALMACEN_BI_VER',
+  // ── Autoabasto y Nivelación (Fase AB) — /almacen/autoabasto y /almacen/nivelacion.
+  //
+  // Claves PROPIAS, no COMPRAS_* reusadas, por una razón de negocio y una medida:
+  //  · de negocio — el módulo es del ALMACENISTA y del ENCARGADO; el comprador *recibe* la
+  //    solicitud y la gestiona en Compras. Reusar COMPRAS_* volvería a mezclar las dos
+  //    audiencias que la fase existe para separar.
+  //  · medida — COMPRAS_VER está repartido en 0 de 37 roles (platform_test), así que colgarse
+  //    de él dejaría el módulo inalcanzable el día uno, que es justo el bug de LC.6.2.
+  //
+  // SOLICITAR ≠ AUTORIZAR a propósito (§2 del pedido), y EXCEDER_TOPE es una TERCERA llave, no
+  // un AUTORIZAR más grande: el tope de inventario sólo lo pasa dirección comercial o general.
+  // Por eso queda FUERA de cualquier MODULE_GROUP — no se otorga "de paquete", igual que
+  // FINANCE_PAYMENT_CALENDAR_AUTORIZAR (TP.6), que es el precedente vivo del mismo criterio.
+  AUTOABASTO_VER = 'AUTOABASTO_VER',
+  AUTOABASTO_SOLICITAR = 'AUTOABASTO_SOLICITAR',
+  AUTOABASTO_AUTORIZAR = 'AUTOABASTO_AUTORIZAR',
+  AUTOABASTO_EXCEDER_TOPE = 'AUTOABASTO_EXCEDER_TOPE',
+  // Mover el umbral del ±50% y los calendarios de temporada. Deciden dirección general y
+  // comercial; proponen gerencia de zona, encargado y almacenista (decisión del PM #12).
+  AUTOABASTO_POLITICA = 'AUTOABASTO_POLITICA',
+  // Nivelación: separado de AUTOABASTO_* porque su público incluye al almacén de ORIGEN, que
+  // confirma o rechaza un traspaso sin tener nada que ver con el autoabasto del destino.
+  NIVELACION_VER = 'NIVELACION_VER',
+  NIVELACION_GESTIONAR = 'NIVELACION_GESTIONAR',
+  // Páginas independientes que estaban bajo un permiso compartido:
+  COMMERCIAL_ERP_PROMOS_VER = 'COMMERCIAL_ERP_PROMOS_VER',   // /mkt/erp-promos (promos del ERP)
+  COMMERCIAL_VENDOR_SALES_VER = 'COMMERCIAL_VENDOR_SALES_VER', // /comercial/vendor-sales (ventas de vendedor)
+  COMMERCIAL_CARTERA_VER = 'COMMERCIAL_CARTERA_VER',
+  COMMERCIAL_CARTERA_GESTIONAR = 'COMMERCIAL_CARTERA_GESTIONAR',
+  COMMERCIAL_PRODUCTS_VER = 'COMMERCIAL_PRODUCTS_VER',
+  COMMERCIAL_PRODUCTS_GESTIONAR = 'COMMERCIAL_PRODUCTS_GESTIONAR',
+  COMMERCIAL_THOT_VER = 'COMMERCIAL_THOT_VER',
+  COMMERCIAL_THOT_GESTIONAR = 'COMMERCIAL_THOT_GESTIONAR',
+  // `[AUTHZ-HARD.1]` Superficie INTERNA de inteligencia (hallazgos/diagnósticos/acciones/autonomía/
+  // señales agregadas). Antes esas lecturas colgaban de ORDERS_VER/CUSTOMERS_VER, que `customer_b2b`
+  // tiene → un cliente veía el back-office. Se separa en su propia clave, que el cliente NO recibe.
+  COMMERCIAL_INTELLIGENCE_VER = 'COMMERCIAL_INTELLIGENCE_VER',
+  TRADE_ROUTE_PLAN_VER = 'TRADE_ROUTE_PLAN_VER',
+  TRADE_ROUTE_PLAN_GESTIONAR = 'TRADE_ROUTE_PLAN_GESTIONAR',
+  LOGISTICS_TRANSFERS_VER = 'LOGISTICS_TRANSFERS_VER',
+  PORTAL_B2B_ACCESS = 'PORTAL_B2B_ACCESS',
+
+  // ── Proyecto Finanzas (egresos contables, CxP, hallazgos) ─────────────
+  // Separado de ventas: un rol contable no debe arrastrar permisos comerciales.
+  FINANCE_EXPENSES_VER = 'FINANCE_EXPENSES_VER',
+  // [IG.1.4] El otro lado del libro: ingresos contables (pólizas 401). Permiso PROPIO y no un
+  // alias de egresos — hay roles que deben ver la venta sin ver el gasto, y al revés.
+  FINANCE_INCOME_VER = 'FINANCE_INCOME_VER',
+  // [CSU.1] Cortes/Sucursales: corte de caja POS → cobro → arqueo del turno, por sucursal.
+  // Sólo lectura; se reparte a quien ya ve los ingresos contables.
+  FINANCE_CORTES_VER = 'FINANCE_CORTES_VER',
+  // MAAT (ADR-028) — chat AI de finanzas + gestión de hallazgos/conocimiento
+  FINANCE_AI_CHAT = 'FINANCE_AI_CHAT',
+  FINANCE_FINDINGS_GESTIONAR = 'FINANCE_FINDINGS_GESTIONAR',
+  // Conciliación bancaria (CB / ADR-033) — permiso propio del módulo Bancos.
+  FINANCE_BANK_VER = 'FINANCE_BANK_VER',
+  FINANCE_BANK_GESTIONAR = 'FINANCE_BANK_GESTIONAR',
+  // Comprobantes de Cobranza (CC) — adjuntar ficha de depósito + OCR a un cobro
+  // de Kepler (UA0501). VER = capturista adjunta; GESTIONAR = revisor valida/rechaza.
+  FINANCE_COLLECTIONS_VER = 'FINANCE_COLLECTIONS_VER',
+  FINANCE_COLLECTIONS_GESTIONAR = 'FINANCE_COLLECTIONS_GESTIONAR',
+  // Comprobantes de Pago a Proveedor (CC ext) — adjuntar comprobante de
+  // transferencia + OCR a un pago de Kepler (XD2501). VER = capturista adjunta;
+  // GESTIONAR = revisor valida/rechaza.
+  FINANCE_PAYMENTS_VER = 'FINANCE_PAYMENTS_VER',
+  FINANCE_PAYMENTS_GESTIONAR = 'FINANCE_PAYMENTS_GESTIONAR',
+  // Fase TP.6 (ADR-064) — separación de funciones: quien PREPARA el lote del Calendario de
+  // Pagos (FINANCE_PAYMENTS_GESTIONAR) NO es quien lo AUTORIZA. Permiso deliberadamente NO
+  // incluido en ningún MODULE_GROUP (para que no se otorgue "de paquete") — se reparte por
+  // migración a roles de gerencia/dirección. Mismo permiso autoriza el cambio de cuenta
+  // bancaria de un proveedor (TP.7) — un solo "autorizador" de Finanzas para todo el módulo.
+  FINANCE_PAYMENT_CALENDAR_AUTORIZAR = 'FINANCE_PAYMENT_CALENDAR_AUTORIZAR',
+  // Fase CG (ADR-070) — Caja General: la plataforma pasa a ser la FUENTE PRINCIPAL de los
+  // ingresos y egresos de efectivo (hoy se capturan en el Access `Control`). Permisos PROPIOS:
+  // hasta ahora los 15 endpoints de /finanzas/caja colgaban de FINANCE_BANK_VER, que es de
+  // Bancos. VER = consulta; GESTIONAR = captura el movimiento; AUTORIZAR = cierra el corte.
+  // AUTORIZAR va deliberadamente FUERA de todo MODULE_GROUP (molde TP.6): capturar ≠ autorizar,
+  // y un permiso que se otorga "de paquete" no separa funciones.
+  FINANCE_CAJA_VER = 'FINANCE_CAJA_VER',
+  FINANCE_CAJA_GESTIONAR = 'FINANCE_CAJA_GESTIONAR',
+  FINANCE_CAJA_AUTORIZAR = 'FINANCE_CAJA_AUTORIZAR',
+  // CAOS — caja fuerte de efectivo (sistema externo, Fase CS). Sólo lectura por ahora: el reporte
+  // de movimientos (depósitos/dispensaciones por denominación). Permiso propio y no un alias de
+  // FINANCE_CAJA_VER porque es otro circuito de efectivo (bóveda virtual, dispensaciones).
+  FINANCE_CAOS_VER = 'FINANCE_CAOS_VER',
+  // Cartera de clientes / Partidas vivas (CXC / ADR-048) — estado de cuenta CxC
+  // read-only sobre Kepler (kdue). VER = consultar cartera + aging + drill por cliente.
+  FINANCE_RECEIVABLES_VER = 'FINANCE_RECEIVABLES_VER',
+  // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
+  FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
+  // MA — marca "recibe tareas de conciliación": define el pool del área de Finanzas
+  // al que el motor reparte (solo el equipo real, no cualquiera con acceso a Bancos).
+  FINANCE_RECON_RECIBIR = 'FINANCE_RECON_RECIBIR',
+  // GX.8 Comprobación de Gastos — scoping por departamento (área). Sin VER_ALL el
+  // usuario ve SOLO sus áreas asignadas (users.finance_expense_area_ids); con él, todas.
+  FINANCE_EXPENSES_VER_ALL = 'FINANCE_EXPENSES_VER_ALL',
+  // Comprobar (validar/rechazar) un gasto. Separado de la captura (FINANCE_EXPENSES_VER).
+  FINANCE_EXPENSES_COMPROBAR = 'FINANCE_EXPENSES_COMPROBAR',
+  // Capturar: subir folio + comprobante SIN acceso a la bandeja de revisión (rol capturista).
+  FINANCE_EXPENSES_CAPTURAR = 'FINANCE_EXPENSES_CAPTURAR',
+
+  // ── Presupuestos (Fase TP — ADR-064) ──────────────────────────────────
+  // Módulo NUEVO: capacidad de pago por fecha + gastos autorizados. Dueño real:
+  // rol legado `coordinador_presupuestos`. Separado de FINANCE_PAYMENTS_* porque
+  // Presupuestos y Tesorería son responsables distintos del mismo proceso.
+  PRESUPUESTOS_VER = 'PRESUPUESTOS_VER',
+  PRESUPUESTOS_GESTIONAR = 'PRESUPUESTOS_GESTIONAR',
+
+  // ── Supervisor de Movimientos (cuadre / reconciliación) — ADR-029 ─────
+  RECONCILIATION_VER = 'RECONCILIATION_VER',
+  RECONCILIATION_GESTIONAR = 'RECONCILIATION_GESTIONAR',
+
+  // ── Compras / Reabastecimiento (Fase RA — ADR-030) ────────────────────
+  // Permiso INDIVIDUAL por submódulo de /compras (VER lee · GESTIONAR escribe).
+  // Pedido = existencia crítica + sugerido + workbook + asistente Thot + settings.
+  COMPRAS_PEDIDO_VER = 'COMPRAS_PEDIDO_VER',
+  COMPRAS_PEDIDO_GESTIONAR = 'COMPRAS_PEDIDO_GESTIONAR',
+  // Red de abasto (DRP): topología CEDIS→sucursal.
+  COMPRAS_RED_VER = 'COMPRAS_RED_VER',
+  COMPRAS_RED_GESTIONAR = 'COMPRAS_RED_GESTIONAR',
+  // Requisiciones (HITL): crear/aprobar/rechazar/ordenar/recibir.
+  COMPRAS_REQUISICIONES_VER = 'COMPRAS_REQUISICIONES_VER',
+  COMPRAS_REQUISICIONES_GESTIONAR = 'COMPRAS_REQUISICIONES_GESTIONAR',
+  // Órdenes de compra (OC) + recepciones (OE).
+  COMPRAS_ORDENES_VER = 'COMPRAS_ORDENES_VER',
+  COMPRAS_ORDENES_GESTIONAR = 'COMPRAS_ORDENES_GESTIONAR',
+  // Órdenes de entrada (recepción de mercancía) + evidencia/OCR. VALIDAR = permiso
+  // especial restringido para validar/rechazar la remisión (NO lo incluye GESTIONAR).
+  COMPRAS_ENTRADAS_VER = 'COMPRAS_ENTRADAS_VER',
+  COMPRAS_ENTRADAS_GESTIONAR = 'COMPRAS_ENTRADAS_GESTIONAR',
+  COMPRAS_ENTRADAS_VALIDAR = 'COMPRAS_ENTRADAS_VALIDAR',
+  // Análisis (solo lectura).
+  COMPRAS_360_VER = 'COMPRAS_360_VER',
+  COMPRAS_COSTO_NETO_VER = 'COMPRAS_COSTO_NETO_VER',
+  // `[CE.3]` Costo estandar del catalogo de Kepler (el que FIJA el precio), contra el costo de
+  // reposicion del ERP. Clave PROPIA y no `COMPRAS_COSTO_NETO_VER` reusada: el hermano publica
+  // el landed cost por proveedor (lo que salio de la chequera) y esto publica el DATO MAESTRO
+  // con el que se pone precio. Distinto dueno: quien lo corrige edita el catalogo, no la compra.
+  COMPRAS_COSTO_ESTANDAR_VER = 'COMPRAS_COSTO_ESTANDAR_VER',
+  // Descuentos y apoyos (ajustes X-D-40/55) + facturas duplicadas.
+  COMPRAS_DESCUENTOS_VER = 'COMPRAS_DESCUENTOS_VER',
+  COMPRAS_DESCUENTOS_GESTIONAR = 'COMPRAS_DESCUENTOS_GESTIONAR',
+  // Hallazgos de reabastecimiento (bandeja + scanner).
+  COMPRAS_HALLAZGOS_VER = 'COMPRAS_HALLAZGOS_VER',
+  COMPRAS_HALLAZGOS_GESTIONAR = 'COMPRAS_HALLAZGOS_GESTIONAR',
+  // Proveedores (lead time + mínimo en cajas + parámetros de pedido).
+  COMPRAS_PROVEEDORES_VER = 'COMPRAS_PROVEEDORES_VER',
+  COMPRAS_PROVEEDORES_GESTIONAR = 'COMPRAS_PROVEEDORES_GESTIONAR',
+  // Categorías de compra (normalización/fusión).
+  COMPRAS_CATEGORIAS_VER = 'COMPRAS_CATEGORIAS_VER',
+  COMPRAS_CATEGORIAS_GESTIONAR = 'COMPRAS_CATEGORIAS_GESTIONAR',
+  // Obligaciones a proveedor de mercancía (Fase TP — ADR-064): la "cuenta por pagar"
+  // que alimenta el Calendario de Pagos. Permiso propio (no COMPRAS_ORDENES_*: una OC
+  // es unidades/costo pactado, esto es saldo pendiente con vencimiento negociable).
+  COMPRAS_OBLIGACIONES_VER = 'COMPRAS_OBLIGACIONES_VER',
+  COMPRAS_OBLIGACIONES_GESTIONAR = 'COMPRAS_OBLIGACIONES_GESTIONAR',
+  // [RE.30] Fijar el plazo de pago PACTADO con el proveedor (días + desde factura/recepción).
+  // Llave aparte de _GESTIONAR a propósito: el auxiliar OPERA las obligaciones (y extiende el
+  // plazo de UNA factura cuando llega con plazo adicional), pero el plazo lo NEGOCIAN el
+  // comprador o dirección (Francisco, 2026-09-29). FUERA de todo MODULE_GROUP — no se otorga
+  // "de paquete", mismo criterio que FINANCE_PAYMENT_CALENDAR_AUTORIZAR (TP.6).
+  COMPRAS_PLAZOS_AUTORIZAR = 'COMPRAS_PLAZOS_AUTORIZAR',
+
+  // ── Fiscal (auditoría CFDI / cumplimiento SAT — libs/fiscal) ──────────
+  // FISCAL.0/1 = motor de listas SAT (EFOS 69-B, Art. 69) + validación RFC.
+  FISCAL_LISTAS_VER = 'FISCAL_LISTAS_VER',
+  FISCAL_LISTAS_GESTIONAR = 'FISCAL_LISTAS_GESTIONAR',
+  // FISCAL.2 = bóveda de credenciales SAT (e.firma/CIEC) — muy sensible.
+  FISCAL_CREDENCIALES_GESTIONAR = 'FISCAL_CREDENCIALES_GESTIONAR',
+  // FISCAL.4 = descarga masiva de CFDI (WS SAT).
+  FISCAL_DESCARGA_VER = 'FISCAL_DESCARGA_VER',
+  FISCAL_DESCARGA_GESTIONAR = 'FISCAL_DESCARGA_GESTIONAR',
+  // FISCAL.4.2 = almacén CFDI 4.0 (parser + fiscal.cfdis).
+  FISCAL_CFDI_VER = 'FISCAL_CFDI_VER',
+  // FISCAL.5 = conciliación CFDI↔póliza + PUE/PPD↔REP (saldo insoluto).
+  FISCAL_CONCILIACION_VER = 'FISCAL_CONCILIACION_VER',
+  // FISCAL.8 = DIOT + conciliación de IVA (efectivamente pagado).
+  FISCAL_DIOT_VER = 'FISCAL_DIOT_VER',
+  // FISCAL.9 = contabilidad electrónica (XMLs SAT: catálogo + balanza).
+  FISCAL_CONTAB_VER = 'FISCAL_CONTAB_VER',
+  // FE.11 = gestión del mapeo cuenta mayor → código agrupador SAT.
+  FISCAL_CONTAB_GESTIONAR = 'FISCAL_CONTAB_GESTIONAR',
+  // LC (ADR-052) = Libro de Compras: el trámite mensual de la póliza que se le
+  // entrega a ContPAQi. Permiso PROPIO — no se hereda de contabilidad electrónica
+  // ni de Pólizas: quien arma el libro no es necesariamente quien emite los XML
+  // del SAT, y el árbol de authz exige que cada permiso viva en un solo módulo.
+  FISCAL_PURCHASE_BOOK_VER = 'FISCAL_PURCHASE_BOOK_VER',
+  FISCAL_PURCHASE_BOOK_GESTIONAR = 'FISCAL_PURCHASE_BOOK_GESTIONAR',
+  // FE = facturación electrónica (emisión/timbrado CFDI 4.0 vía PAC SW/Conectia).
+  FISCAL_FACTURAR_VER = 'FISCAL_FACTURAR_VER',
+  FISCAL_FACTURAR_GESTIONAR = 'FISCAL_FACTURAR_GESTIONAR',
+  // FISCAL.18 = impuestos provisionales (feature propia, ya no toma prestado DIOT).
+  FISCAL_IMPUESTOS_VER = 'FISCAL_IMPUESTOS_VER',
+  // FISCAL.10.1 = expediente de materialidad por RFC (feature propia, ya no toma prestado LISTAS).
+  FISCAL_MATERIALIDAD_VER = 'FISCAL_MATERIALIDAD_VER',
+  // MAT.1 = confirmar/descartar la asignación CFDI↔operación (evidencia de materialidad).
+  FISCAL_MATERIALIDAD_GESTIONAR = 'FISCAL_MATERIALIDAD_GESTIONAR',
+
+  // ── Fase F — Comercio conversacional por WhatsApp (ADR-006/007/034) ────
+  // VER = ver conversaciones + la bandeja de pedidos WhatsApp. GESTIONAR =
+  // confirmar pedidos de la bandeja, tomar handoff, responder manual. Anclados
+  // a REPARTO_DESPACHAR (quien opera el reparto). El bot NO cobra: el motor
+  // decide el dinero, el humano confirma (ADR-016/034).
+  WHATSAPP_BOT_VER = 'WHATSAPP_BOT_VER',
+  WHATSAPP_BOT_GESTIONAR = 'WHATSAPP_BOT_GESTIONAR',
+
+  // ── Fase CV — Catálogo interno (mostrador), absorbido desde el repo
+  // standalone 0SistemasMD/catalogo-kp. COSTOS_VER separado de VER a
+  // propósito: ver existencia/precio no implica ver cuánto cuesta o cuánto
+  // se gana — dato más sensible, mismo criterio que costo/margen en otros
+  // módulos comerciales. Pendiente de que Edgar confirme a qué role_name(s)
+  // se les asigna cada uno (ver PR).
+  CATALOGO_INTERNO_VER = 'CATALOGO_INTERNO_VER',
+  CATALOGO_INTERNO_COSTOS_VER = 'CATALOGO_INTERNO_COSTOS_VER',
+
+  // ── Desarrolladores › Proyectos (Fase DEV, 2026-10-01) ────────────────
+  // Bitácora de ideas/proyectos del equipo de desarrollo: cada idea se da de
+  // alta como una orden (folio DEV-AAAA-NNNN) con objetivo, evidencia
+  // (documentos, fotos, video, dictado) y un responsable del equipo.
+  DEV_PROJECTS_VER = 'DEV_PROJECTS_VER',
+  DEV_PROJECTS_GESTIONAR = 'DEV_PROJECTS_GESTIONAR',
+
+  // ── Mesa de Servicio (Fase MS, ADR-081, 2026-10-02) ───────────────────
+  // Tickets de servicio: cualquier persona reporta un problema o necesidad; el ticket es la
+  // tarea de quien lo atiende. TRES claves, y la diferencia importa:
+  //  · REPORTAR  — reportar y ver/comentar LO PROPIO (self-scoped: el id sale del JWT, nunca del
+  //                body). Se reparte a todo rol con personas. NO es un destino del mapa de la
+  //                suite: vive en un módulo sin ruta, y se alcanza con un botón del header, para
+  //                no quitarle la entrada directa a `/projects` a los roles de un solo destino.
+  //  · ATENDER   — bandeja de la cola: tomar, nota interna, cambiar estado, resolver, tiempo.
+  //  · COORDINAR — asignar/reasignar, cambiar prioridad, reportes, catálogos y plazos.
+  SERVICIO_REPORTAR = 'SERVICIO_REPORTAR',
+  SERVICIO_ATENDER = 'SERVICIO_ATENDER',
+  SERVICIO_COORDINAR = 'SERVICIO_COORDINAR',
+}
