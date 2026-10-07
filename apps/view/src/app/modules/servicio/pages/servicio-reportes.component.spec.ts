@@ -14,6 +14,8 @@ const T = { n: 0, p50: null, p90: null };
 
 const REPORTE: SdReportResponse = {
   periodo: { desde: '2026-10-01', hasta: '2026-10-05' },
+  colas: [{ id: 'q-ti', code: 'ti', name: 'TI (Sistemas)' }],
+  cola_id: null,
   medido_at: '2026-10-05T18:00:00.000Z',
   truncado: false,
   totales: { creados: 5, resueltos: 3, abiertos: 2, cancelados: 0, reabiertos: 0, reabiertos_pct: 0, minutos_trabajados: 135, con_tiempo: 3 },
@@ -72,3 +74,48 @@ describe('[MS.3.15] ServicioReportesComponent — tiempo registrado', () => {
     expect(texto()).toContain('No se desglosa por persona');
   });
 });
+
+describe('[MS.7.18] ServicioReportesComponent — el reporte por cola', () => {
+  let fix: ComponentFixture<ServicioReportesComponent>;
+  let report: ReturnType<typeof vi.fn>;
+  const COLAS2 = [{ id: 'q-ti', code: 'ti', name: 'TI (Sistemas)' }, { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento' }];
+  const el = () => fix.nativeElement as HTMLElement;
+
+  async function render(colas = COLAS2) {
+    report = vi.fn(() => of({ ...REPORTE, colas }));
+    await TestBed.configureTestingModule({
+      imports: [ServicioReportesComponent],
+      providers: [{ provide: ServiceDeskService, useValue: { report } }],
+    }).compileComponents();
+    fix = TestBed.createComponent(ServicioReportesComponent);
+    fix.detectChanges();
+    await fix.whenStable();
+    fix.detectChanges();
+  }
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('⭐ quien coordina MÁS de una cola ve el selector de cola', async () => {
+    await render();
+    expect(el().querySelector('p-select[arialabel="Cola"], p-select[ariaLabel="Cola"]')).toBeTruthy();
+  });
+
+  it('⛔ NEGATIVA — con una sola cola no hay nada que elegir: no aparece el selector', async () => {
+    await render([COLAS2[0]]);
+    expect(el().querySelector('p-select[arialabel="Cola"], p-select[ariaLabel="Cola"]')).toBeNull();
+  });
+
+  it('la primera carga pide TODAS las colas (sin queue_id), y elegir una la acota en el servidor', async () => {
+    await render();
+    expect(report.mock.calls[0][2]).toBeUndefined();
+    fix.componentInstance.elegirCola('q-mto');
+    expect(report.mock.calls[report.mock.calls.length - 1][2]).toBe('q-mto');
+    fix.componentInstance.elegirCola(null);
+    expect(report.mock.calls[report.mock.calls.length - 1][2]).toBeUndefined();
+  });
+
+  it('las opciones traen «Todas mis colas» primero y luego cada cola por nombre', async () => {
+    await render();
+    expect(fix.componentInstance.opcionesCola().map((o) => o.name)).toEqual(['Todas mis colas', 'TI (Sistemas)', 'Mantenimiento']);
+  });
+});
+

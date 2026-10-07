@@ -121,7 +121,7 @@ export interface OpcionesReporte {
   nombreSucursal: (code: string) => string | null;
 }
 
-export function armarReporte(filas: readonly FilaReporte[], cfg: ConfigReporte, o: OpcionesReporte): SdReportResponse {
+export function armarReporte(filas: readonly FilaReporte[], cfg: ConfigReporte, o: OpcionesReporte): Omit<SdReportResponse, 'colas' | 'cola_id'> {
   const totalCuenta = { primera: new Cuenta(), resolucion: new Cuenta() };
   const porPrioridad = new Map<SdPriority, { creados: number; resueltos: number; p: Cuenta; r: Cuenta; tp: number[]; tr: number[] }>();
   for (const pr of SD_PRIORITIES) porPrioridad.set(pr, { creados: 0, resueltos: 0, p: new Cuenta(), r: new Cuenta(), tp: [], tr: [] });

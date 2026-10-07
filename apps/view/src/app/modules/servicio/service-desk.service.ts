@@ -111,8 +111,9 @@ export class ServiceDeskService {
     return this.http.get<SdRequesterDto[]>(`${this.base}/requesters`, { params: this.params({ search }) });
   }
   departments(): Observable<SdDepartmentDto[]> { return this.http.get<SdDepartmentDto[]>(`${this.base}/departments`); }
-  report(from?: string, to?: string): Observable<SdReportResponse> {
-    return this.http.get<SdReportResponse>(`${this.base}/reports`, { params: this.params({ from, to }) });
+  /** `[MS.7.18]` Con `queueId`, sólo esa cola (una de las que la persona coordina); sin él, todas las suyas. */
+  report(from?: string, to?: string, queueId?: string): Observable<SdReportResponse> {
+    return this.http.get<SdReportResponse>(`${this.base}/reports`, { params: this.params({ from, to, queue_id: queueId }) });
   }
   routing(): Observable<SdRoutingResponse> { return this.http.get<SdRoutingResponse>(`${this.base}/config/routing`); }
   createRouting(dto: SdUpsertRoutingRuleDto): Observable<SdRoutingResponse> { return this.http.post<SdRoutingResponse>(`${this.base}/config/routing`, dto); }
