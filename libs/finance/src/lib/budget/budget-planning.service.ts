@@ -195,4 +195,41 @@ export class BudgetPlanningService {
       };
     });
   }
+
+  /**
+   * `[PU.VA]` El estado REAL de la pasada que arma el presupuesto.
+   *
+   * ⛔ Nace de una medición incómoda: la pantalla decía *«si el ejercicio ya tiene planes y esto
+   * sigue vacío, la pasada no corrió»* — una conjetura — mientras `analytics.cron_runs` tenía el
+   * veredicto escrito. El 2026-10-07, en prod: `budget_autopilot` en **`error`**, con
+   * *«no se vio ni un ejercicio en ninguna tabla: ¿contexto de tenant / RLS?»*, y
+   * `budget.generation_runs` en **cero filas** desde siempre. El sistema sabía exactamente qué
+   * pasaba y nadie se lo preguntaba.
+   *
+   * ⚠️ `cron_runs` guarda **sólo la última corrida**: contesta «cómo fue la última», nunca «desde
+   * cuándo viene fallando». Por eso se devuelve `generation_runs` al lado — ahí sí hay historia, y
+   * un cero ahí significa que la pasada **nunca completó**, que es una afirmación más fuerte.
+   */
+  async autopilotStatus() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const lat = await trx('analytics.cron_runs')
+        .where({ tenant_id: tenantId, job_key: 'budget_autopilot' })
+        .select('status', 'last_start', 'last_finish', 'note', 'error', 'host')
+        .first();
+      const [{ n }] = await trx('budget.generation_runs').where({ tenant_id: tenantId }).count({ n: '*' });
+      const pasadas = Number(n ?? 0);
+      return {
+        // `null` ≠ `ok`: que no haya latido es «no sé si corrió», no «corrió bien» (ADR-056).
+        status: (lat?.status as string) ?? null,
+        last_start: lat?.last_start ?? null,
+        last_finish: lat?.last_finish ?? null,
+        note: lat?.note ?? null,
+        error: lat?.error ?? null,
+        host: lat?.host ?? null,
+        pasadas_completadas: pasadas,
+        nunca_completo: pasadas === 0,
+      };
+    });
+  }
 }

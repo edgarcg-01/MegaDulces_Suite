@@ -263,6 +263,10 @@ export class BudgetSalesPlanService {
       const y1 = years[years.length - 1];
       const y0 = years[years.length - 2];
       const rows = await this.realByEntityYearPeriod(trx, tenantId, [y0, y1]);
+      // `[PU.VA]` El periodo que todavía no cerró es una fracción, no un periodo. El pareo exigía
+      // sólo `> 0` en ambos años, así que entraba igual y comparaba una parte contra un entero —
+      // la misma trampa que el mes en curso le costaba al motor de gastos (`VERDAD_ABSOLUTA` §22.5).
+      const abierto = await this.periodoAbierto(trx, y1);
 
       // yoy(channelFilter): crecimiento sobre periodos con real en AMBOS años
       const yoy = (pred: (channel: string) => boolean) => {
@@ -273,14 +277,19 @@ export class BudgetSalesPlanService {
           if (r.year === y0) e.a += r.monto; else if (r.year === y1) e.b += r.monto;
           byPeriod.set(r.period, e);
         }
-        let a = 0, bb = 0, paired = 0;
-        for (const [, e] of byPeriod) { if (e.a > 0 && e.b > 0) { a += e.a; bb += e.b; paired++; } }
+        let a = 0, bb = 0, paired = 0, abiertos = 0;
+        for (const [p, e] of byPeriod) {
+          if (abierto != null && p >= abierto) { abiertos++; continue; } // `[PU.VA]` ni el abierto ni los posteriores
+          if (e.a > 0 && e.b > 0) { a += e.a; bb += e.b; paired++; }
+        }
         // YoY sólo confiable con suficientes periodos apareados (rampa: año anterior parcial → no confiar)
-        return paired >= MIN_PAIRED_PERIODS && a > 0 ? { growth_pct: round4((bb - a) / a), paired } : null;
+        return paired >= MIN_PAIRED_PERIODS && a > 0 ? { growth_pct: round4((bb - a) / a), paired, abiertos } : null;
       };
 
       const g = yoy(() => true);
-      const global = g ? { growth_pct: g.growth_pct, basis: 'yoy_paired' as const, paired_periods: g.paired } : { growth_pct: def, basis: 'default' as const, paired_periods: 0 };
+      const global = g
+        ? { growth_pct: g.growth_pct, basis: 'yoy_paired' as const, paired_periods: g.paired, periodos_abiertos_excluidos: g.abiertos }
+        : { growth_pct: def, basis: 'default' as const, paired_periods: 0, periodos_abiertos_excluidos: 0 };
       const by_channel: Record<string, { growth_pct: number; basis: string; paired_periods: number; years_used: number[] }> = {};
       for (const ch of canales) {
         const c = yoy((x) => x === ch);
@@ -288,7 +297,54 @@ export class BudgetSalesPlanService {
         else if (global.basis === 'yoy_paired') by_channel[ch] = { growth_pct: global.growth_pct, basis: 'global', paired_periods: global.paired_periods, years_used: [y0, y1] };
         else by_channel[ch] = { growth_pct: def, basis: 'default', paired_periods: 0, years_used: [] };
       }
-      return { by_channel, global, years_available: years, fiscal_year: fy, min_paired_periods: MIN_PAIRED_PERIODS };
+      return { by_channel, global, years_available: years, fiscal_year: fy, min_paired_periods: MIN_PAIRED_PERIODS, periodo_abierto: abierto };
+    });
+  }
+
+  /**
+   * `[PU.VA]` El primer periodo del año fiscal `fy` que **todavía no cerró** (o `null` si el año
+   * terminó entero). Sale del calendario 13×4 real, `analytics.v_retail_calendar`, no de una
+   * aproximación: un periodo está cerrado cuando su ÚLTIMO día ya pasó.
+   *
+   * ⛔ Se descartó el atajo «el `period_no` más alto con dato»: ese criterio confunde *«el periodo
+   * está a medio llenar»* con *«esa entidad no vendió en el último periodo»*, y las dos cosas se
+   * ven igual desde los datos.
+   */
+  private async periodoAbierto(trx: import('knex').Knex, fy: number): Promise<number | null> {
+    const res = await trx.raw(
+      `SELECT min(period_no)::int AS p FROM (
+         SELECT period_no FROM analytics.v_retail_calendar
+          WHERE fiscal_year = ? GROUP BY period_no HAVING max(date) >= current_date
+       ) t`,
+      [fy],
+    );
+    const p = (res.rows || res)[0]?.p;
+    return p == null || !Number.isFinite(Number(p)) ? null : Number(p);
+  }
+
+  /**
+   * `[PU.VA]` Reemplaza el monto de los periodos **no cerrados** del año base por el promedio de
+   * los cerrados de la misma entidad. Si `abierto` es `null` (año terminado) no toca nada.
+   *
+   * Una entidad sin ningún periodo cerrado queda en cero y **se declara** por el camino que ya
+   * existe (`sin_base_declarado`): no se le inventa una base a partir de una fracción.
+   */
+  private sustituirPeriodosAbiertos(
+    rows: Array<{ entity_key: string; channel: string; period: number; monto: number }>,
+    abierto: number | null,
+  ) {
+    if (abierto == null) return rows;
+    const cerradosPorEntidad = new Map<string, { suma: number; n: number }>();
+    for (const r of rows) {
+      if (r.period >= abierto || !(r.monto > 0)) continue;
+      const e = cerradosPorEntidad.get(r.entity_key) || { suma: 0, n: 0 };
+      e.suma += r.monto; e.n++;
+      cerradosPorEntidad.set(r.entity_key, e);
+    }
+    return rows.map((r) => {
+      if (r.period < abierto) return r;
+      const e = cerradosPorEntidad.get(r.entity_key);
+      return { ...r, monto: e && e.n > 0 ? e.suma / e.n : 0 };
     });
   }
 
@@ -349,7 +405,19 @@ export class BudgetSalesPlanService {
       const growthFor = (ch: string) => (growthByChannel[ch] != null && Number.isFinite(Number(growthByChannel[ch])) ? Number(growthByChannel[ch]) : def);
 
       // real del año anterior por entidad×periodo + catálogo de entidades
-      const realY1 = await this.realByEntityYearPeriod(trx, tenantId, [priorYear]);
+      const realY1Crudo = await this.realByEntityYearPeriod(trx, tenantId, [priorYear]);
+      // `[PU.VA]` ⛔ Si el año base es el año EN CURSO, su último periodo está a medio llenar y
+      // entraba como base completa del plan del año que viene. Se descarta —igual que el mes en
+      // curso en gastos— y con él los posteriores, que ni empezaron. Medido en el motor hermano:
+      // además de arruinar su propia celda, un periodo parcial baja el promedio con el que se
+      // rellenan TODAS las demás (`VERDAD_ABSOLUTA` §22.5 y la medición de $6.40 M).
+      //
+      // ⭐ No se BORRA el periodo abierto: se SUSTITUYE por el promedio de los cerrados de esa
+      // misma entidad. Borrarlo dejaría el anual corto —y con él la meta de todo el año— y le
+      // daría share 0 en el índice estacional, o sea un hueco en el plan. Sustituirlo es el mismo
+      // tratamiento que ya reciben los periodos sin dato, y mantiene las 13 celdas.
+      const abiertoBase = await this.periodoAbierto(trx, priorYear);
+      const realY1 = this.sustituirPeriodosAbiertos(realY1Crudo, abiertoBase);
       const entities = await trx('analytics.v_sales_entity').where({ tenant_id: tenantId });
       const realMap = new Map<string, Map<number, number>>();
       const entityAnnual = new Map<string, number>();
