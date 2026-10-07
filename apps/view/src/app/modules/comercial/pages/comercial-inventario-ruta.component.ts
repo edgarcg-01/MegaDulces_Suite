@@ -911,8 +911,17 @@ export class ComercialInventarioRutaComponent {
   readonly totalInv = computed(() => this.suma((r) => this.inv(r)));
   readonly totalPos = computed(() => this.suma((r) => this.invPos(r)));
   readonly totalNeg = computed(() => this.suma((r) => this.invNeg(r)));
-  /** Lo que la flota entera trae y el embarque no explica. Ver `sinEmbarque()`. */
-  readonly totalSinEmbarque = computed(() => this.suma((r) => this.sinEmbarque(r)));
+  /**
+   * ⛔ **El NETO de esta columna NO es el titular: se cancela.** Medido el 2026-10-07:
+   * $140,030 llegaron sin papel y $169,003 salieron sin papel, y el neto da **−$28,972** —
+   * que se lee como "casi resuelto" cuando lo que de verdad no está explicado son **$309,033**.
+   *
+   * Por eso el mosaico publica el BRUTO (la suma de los valores absolutos) y el neto queda
+   * como nota. Un agregado que se cancela esconde justo lo que hay que mirar.
+   */
+  readonly brutoSinEmbarque = computed(() => this.suma((r) => Math.abs(this.sinEmbarque(r))));
+  readonly llegoSinEmbarque = computed(() => this.suma((r) => Math.max(0, this.sinEmbarque(r))));
+  readonly salioSinEmbarque = computed(() => this.suma((r) => Math.min(0, this.sinEmbarque(r))));
   readonly totalCogsErp = computed(() => this.suma((r) => Number(r.cogs_erp) || 0));
   /** El COGS que SÍ se publica: valuado al costo del embarque, cobertura 100% de las cargas. */
   /** Camiones que pasan su tope, y por cuánto. Es la pregunta del negocio, no un adorno. */
@@ -982,9 +991,12 @@ export class ComercialInventarioRutaComponent {
     // ⛔ Antes decía "la cuenta cierra al centavo contra lo cargado y lo vendido". Con el ancla
     // de `[RD.34]` dejó de ser cierto, y además es lo contrario de lo interesante: lo que el
     // camión trae es lo que él mismo mide, y lo que NO cuadra contra el embarque es el dato.
-    const sinEmb = Math.abs(this.totalSinEmbarque());
-    const cierre = sinEmb > 0
-      ? `. De eso, ${this.money(sinEmb)} llegó sin documento de embarque.`
+    // ⚠️ Se dicen las DOS mitades, nunca el neto: se cancelan y el titular quedaria en una
+    //    fraccion de lo que de verdad no esta explicado.
+    const entro = this.llegoSinEmbarque();
+    const salio = Math.abs(this.salioSinEmbarque());
+    const cierre = (entro + salio) > 0
+      ? `. Sin documento que lo explique: ${this.money(entro)} que llegó y ${this.money(salio)} que salió.`
       : '.';
     const p = `${Math.abs(pct).toFixed(1)} %`;
     const previa = Math.abs(this.totalNeg());
@@ -1061,13 +1073,13 @@ export class ComercialInventarioRutaComponent {
         // El mosaico ya no anuncia si "la cuenta cierra": con el ancla puesta esa igualdad es
         // cierta por construcción y publicarla sería teatro. Lo que sí vale decir es cuánta
         // mercancía llegó sin documento de embarque.
-        label: 'Llegó sin embarque',
-        value: this.totalSinEmbarque(),
+        label: 'Sin documento',
+        value: this.brutoSinEmbarque(),
         format: 'currency2',
         tone: 'default',
         sub: d?.cuadra === 'sin_medir'
           ? 'ninguna ruta se movió: no hay qué medir'
-          : 'lo que traen y el embarque no explica',
+          : `${this.money(this.llegoSinEmbarque())} llegó · ${this.money(Math.abs(this.salioSinEmbarque()))} salió`,
       },
     ];
   });
