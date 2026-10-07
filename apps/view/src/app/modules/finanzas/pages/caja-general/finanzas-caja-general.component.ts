@@ -885,7 +885,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             }
           }
           <p class="sr-only">Movimientos de Kepler pendientes de confirmar en el libro de caja</p>
-          <p-table [value]="pendientes()" size="small">
+          <!-- [CG.50] D.7 — la bandeja se RECORRE con las flechas. Medido antes de tocarla: las 9
+               tablas de esta pantalla tenian CERO pSelectableRow, asi que con 100 filas el teclado
+               solo podia tabular (casilla, Abrir, casilla, Abrir...) = 200 paradas.
+               pSelectableRow da ↑↓, Home/End, Enter/Space y roving tabindex (la tabla entera es UN
+               stop), y la guarda global installRowNavGuard —ya instalada en main.ts— impide que le
+               robe las teclas a los campos de la fila.
+               ⚠️ La verdad de la seleccion sigue siendo la senal "seleccion": PrimeNG entra como
+               DISPOSITIVO DE ENTRADA, no como segundo dueno del estado. Por eso [selection] va de
+               una via y (selectionChange) escribe en la senal. -->
+          <p-table [value]="pendientes()" size="small" class="cg-bandeja-tbl" dataKey="origen_ref"
+                   selectionMode="multiple" [metaKeySelection]="false"
+                   [selection]="filasMarcadas()" (selectionChange)="onSeleccionTabla($event)">
             <ng-template #header>
               <tr>
                 <th scope="col" class="ta-c"><p-checkbox [binary]="true" [ngModel]="todasMarcadas()"
@@ -902,7 +913,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               </tr>
             </ng-template>
             <ng-template #body let-p>
-                <tr [class.cg-trabada]="!p.confirmable">
+                <tr [class.cg-trabada]="!p.confirmable" [pSelectableRow]="p">
                   <td class="ta-c">
                     <p-checkbox [binary]="true" [disabled]="!p.confirmable"
                            [ngModel]="estaMarcada(p.origen_ref)"
@@ -1063,7 +1074,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         @if (recAbierto()) {
         @if (recurrentes(); as rc) {
           <p class="cg-cap">Beneficiarios recurrentes sin regla de clasificacion declarada</p>
-          <p-table [value]="rc.rows" size="small">
+              <!-- [CG.50] D.7: sus filas llevan acciones (comprobante, declarar, autorizar) y sin esto el teclado solo llega tabulando fila por fila. pSelectableRow = roving tabindex + flechas + Home/End, y la tabla entera es UN stop. -->
+          <p-table [value]="rc.rows" size="small" dataKey="beneficiario" selectionMode="single" [(selection)]="filaRecurrente">
             <ng-template #header>
               <tr>
                 <th scope="col">Beneficiario</th>
@@ -1076,7 +1088,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               </tr>
             </ng-template>
             <ng-template #body let-r>
-                <tr>
+                <tr [pSelectableRow]="r">
                   <td>
                     {{ r.beneficiario }}
                     @if (r.pagos_con_regla > 0) {
@@ -1161,7 +1173,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       emptyIcon="pi-book" emptyTitle="Sin movimientos en el periodo"
                       emptyHint="Probá con otro rango de fechas o quitá el filtro de tipo."
                       (retry)="cargar()">
-      <p-table [value]="rows()" size="small"
+      <p-table [value]="rows()" size="small" dataKey="id" selectionMode="single" [(selection)]="filaLibro"
                [scrollable]="true" scrollHeight="flex">
         <ng-template #header>
           <tr>
@@ -1173,7 +1185,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           </tr>
         </ng-template>
         <ng-template #body let-m>
-          <tr>
+          <tr [pSelectableRow]="m">
             <td class="mono">{{ m.folio }}</td>
             <td>{{ dmy(m.fecha) }}</td>
             <td><p-tag [value]="etiquetaTipo(m.tipo)" [severity]="sevTipo(m.tipo)"></p-tag></td>
@@ -1215,7 +1227,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       emptyIcon="pi-lock-open" emptyTitle="Sin cortes en el periodo"
                       emptyHint="Los cortes se listan por el mismo rango de fechas de arriba."
                       (retry)="cargarCortes()">
-      <p-table [value]="cortes()" size="small">
+      <p-table [value]="cortes()" size="small" dataKey="id" selectionMode="single" [(selection)]="filaCorte">
         <ng-template #header>
           <tr>
             <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Sucursal</th><th scope="col">Estado</th>
@@ -1224,7 +1236,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           </tr>
         </ng-template>
         <ng-template #body let-c>
-          <tr>
+          <tr [pSelectableRow]="c">
             <td class="mono">{{ c.folio }}</td>
             <td>{{ dmy(c.fecha) }}</td>
             <td>{{ c.sucursal }}</td>
@@ -2211,6 +2223,40 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const posibles = this.pendientes().filter((p) => p.confirmable);
     return posibles.length > 0 && posibles.every((p) => this.seleccion().has(p.origen_ref));
   });
+
+  /**
+   * `[CG.50]` Las FILAS marcadas, en el formato que `p-table` entiende.
+   *
+   * ⚠️ Es una PROYECCIÓN de `seleccion`, no un segundo estado. La tabla entra como dispositivo de
+   * entrada —flechas, Space, Home/End— y la verdad sigue viviendo en la señal, que es la que
+   * persiste el borrador, la que poda `podarSeleccion` y la que arma el lote. Dos dueños del mismo
+   * estado es exactamente cómo una selección se desincroniza de lo que se confirma.
+   */
+  filasMarcadas = computed(() => {
+    const s = this.seleccion();
+    return this.pendientes().filter((p) => s.has(p.origen_ref));
+  });
+
+  /**
+   * Lo que la tabla reporta al marcar con el teclado o con el clic en la fila.
+   *
+   * ⛔ Se FILTRA por `confirmable` por la misma razón que `marcarTodas`: una fila sin cuenta
+   * declarada iría al lote para que el servidor la rechace, y su casilla ya está deshabilitada.
+   * Con el teclado no hay casilla que apagar, así que el freno tiene que estar acá.
+   */
+  onSeleccionTabla(filas: readonly MovimientoPendiente[]): void {
+    this.seleccion.set(new Set((filas ?? []).filter((f) => f?.confirmable).map((f) => f.origen_ref)));
+    this.persistir();
+  }
+
+  /**
+   * `[CG.50]` La fila enfocada de las tres tablas de LECTURA con acciones (recurrentes, libro,
+   * cortes). `selectionMode="single"` necesita dónde guardar lo elegido, y sin eso `pSelectableRow`
+   * no enciende el roving tabindex. No alimenta ninguna decisión: es sólo el cursor del teclado.
+   */
+  filaRecurrente: unknown = null;
+  filaLibro: unknown = null;
+  filaCorte: unknown = null;
   /**
    * El tipo real del endpoint, no uno recortado a mano: la fila TRAE `sucursal` y acá se estaba
    * tirando, que es justo lo que hacía falta para que la sucursal deje de ser texto libre.

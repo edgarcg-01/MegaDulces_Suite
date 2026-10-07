@@ -1342,3 +1342,80 @@ pie con Guardar, y **eso sí scrollea**. Es el orden correcto del trabajo: se cu
 clasifica después. Si hace falta que entre literalmente todo, lo que hay que recortar es el
 **encabezado de página + el bloque «Cierre de la jornada»**, que juntos se comen ~360 px antes de
 que el panel empiece — no el formulario.
+
+---
+
+## 16. `[CG.50]` La pantalla se recorre con las flechas (2026-10-07)
+
+**Pedido de Edgar:** *"necesito que toda la interfaz se pueda usar con las flechas del teclado"*.
+
+### Lo primero fue NO escribir una directiva
+
+DESIGN **D.7** es explícito: *"Lo que se hace con el mouse se tiene que poder hacer con el teclado.
+Y el primitivo YA EXISTE: no se escribe otro"*. `pSelectableRow` de PrimeNG da `↑↓`, `Home`/`End`,
+`Enter`/`Space`; la guarda global [`installRowNavGuard`](libs/ui-web/src/keyboard/row-nav.ts) —ya
+instalada en el `main.ts` de las 3 apps— impide que PrimeNG le robe esas teclas a los campos de la
+fila. Escribir una navegación propia para una tabla está listado como **antipatrón** en la propia D.7.
+
+### Medición antes de tocar
+
+| | |
+|---|---|
+| Tablas reales en la pantalla | **8** |
+| Con `pSelectableRow` | **0** |
+| Con `selectionMode` | **0** |
+| Guardas globales instaladas | ✅ las 3 apps |
+
+Con 100 filas de bandeja, el teclado sólo podía **tabular**: casilla → Abrir → casilla → Abrir… =
+**200 paradas** para cruzar la lista.
+
+⚠️ **Y la compuerta `check:teclado` aprobaba esta pantalla.** Su criterio es `selectionMode="single"`
+o un `<tr (click)>`; la bandeja no tiene ninguno de los dos (su acción es una casilla y un botón),
+así que el archivo pasaba limpio y la tabla no se recorría. *Una compuerta verde no dice que la
+pantalla esté bien: dice que no cayó en el patrón que esa compuerta busca.*
+
+### Lo que se encendió
+
+- **Bandeja** (`.cg-bandeja-tbl`): `selectionMode="multiple"` + `[pSelectableRow]`. ⭐ La verdad de
+  la selección **sigue en la señal `seleccion`**: `[selection]` va de una vía y `(selectionChange)`
+  escribe en la señal. PrimeNG entra como **dispositivo de entrada**, no como segundo dueño del
+  estado — dos dueños del mismo estado es cómo una selección se desincroniza de lo que se confirma.
+  Y el filtro por `confirmable` se mueve al handler: con el teclado no hay casilla deshabilitada que
+  frene una fila sin cuenta declarada.
+- **Libro, Cortes y Recurrentes**: `selectionMode="single"` + `pSelectableRow`. Sus filas llevan
+  acciones (comprobante, autorizar, declarar) y sin esto sólo se llegaba tabulando fila por fila.
+- **No se tocó** la tabla de 3 renglones del cuadre (`cj.por_tipo`): es de sólo lectura y sin
+  acciones. D.7 exime a las de sólo lectura, *"y exigirle navegación sería ruido"*.
+- El único grupo de controles de la pantalla ya es `app-segmented`, que trae sus flechas.
+
+Verificado en el bundle **antes** de cablear: `handleRowClick` de PrimeNG **aborta** cuando el blanco
+del clic es `INPUT`, `BUTTON`, `A` o es clicable, así que la casilla y «Abrir» no se disparan dos
+veces. En este repo suponer sobre la API de PrimeNG ya costó dos veces (`styleClass` en `p-tag`,
+`pTemplate="footer"`).
+
+### Dos hallazgos que salieron de medir en vez de citar
+
+1. ⛔ **El roving de `pSelectableRow` NO arranca encendido, y DESIGN decía que sí.** Leído el fuente
+   de `primeng@22`: `setRowTabIndex()` devuelve `anchorIndex != null ? (anchorIndex === index ? 0 :
+   -1) : 0` — o sea que **mientras no haya fila ancla, todas devuelven `0`**, y una tabla recién
+   pintada son N paradas de tabulador: justo lo que D.4a quiere evitar. Empieza a rotar recién tras
+   el primer clic o la primera selección por teclado. **DESIGN quedó enmendado** con la medición, y
+   la prueba afirma el estado real (2 filas con `tabindex=0`) en vez del deseado. Deuda con nombre:
+   no hay API pública para sembrar el ancla.
+2. ⛔ **El `← →` de D.5 no existe en ningún lado del repo.** D.5 prescribe para una columna de
+   captura: *`↑↓` y `Enter`/`Shift+Enter` mueven · `← →` restan/suman un paso · `Alt+↑↓` el mismo
+   paso*. Medido: **cero** `keydown.arrowleft` / `keydown.arrowright` / `keydown.alt.arrow` en las
+   tres apps. Las rejas de arqueo tienen la mitad navegable (`↑↓`/`Enter` mueven, `select()` al
+   llegar, sin vuelta en el borde) y les falta el paso. **No se construyó acá a propósito**: es un
+   mecanismo genérico y escribirlo en una pantalla es el primitivo-en-un-solo-lugar que ADR-056
+   prohíbe; como guarda global cambiaría **todo** `input[type=number]` de las 3 apps. Queda
+   declarado para `libs/ui-web/src/keyboard/`.
+
+### Verificación
+
+- `nx test view` caja-general: **201/201** (3 pruebas nuevas). `check:teclado` y `check:templates`
+  verdes; `typecheck` de `view` verde.
+- **Mutación**: quitar `[pSelectableRow]` de la bandeja → 1 roja.
+- ⚠️ La prueba del `tabindex` nació con un selector `tbody tr` pelado y agarró **7 filas** — las del
+  libro y los cortes. La encontró ella sola; quedó acotada a `.cg-bandeja-tbl`.
+- ⚠️⚠️ **Octava vez** que un acento grave en un comentario del `template:` rompe el build acá.
