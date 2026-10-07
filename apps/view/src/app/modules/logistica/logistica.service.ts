@@ -3,6 +3,9 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
+import type {
+  KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado,
+} from '@megadulces/contracts';
 
 // ── Tipos ────────────────────────────────────────────────────────────────
 
@@ -97,6 +100,10 @@ export interface Shipment {
   arrival_at?: string | null;
   closed_at?: string | null;
   notes?: string | null;
+  /** EMB.12 — llave del viaje de Kepler que este embarque tomó (null = embarque propio de la app). */
+  kepler_sucursal?: string | null;
+  kepler_guia?: string | null;
+  delivery_type?: 'route' | 'long_trip' | null;
   // Campos opcionales que vienen de JOIN (my-driver endpoint, ?include=...)
   vehicle_plate?: string | null;
   vehicle_model?: string | null;
@@ -104,6 +111,14 @@ export interface Shipment {
   order_code?: string | null;
   customer_name?: string | null;
 }
+
+// ── EMB.12 — «Nuevo embarque» desde Kepler ────────────────────────────────
+
+// EMB.12 — «Nuevo embarque» desde Kepler: la forma la define el contrato compartido con el
+// servidor (ADR-052). Se reexporta para que los componentes sigan importando de este servicio.
+export type {
+  KeplerTripRow, KeplerTripList, NuevoEmbarqueParada, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado,
+} from '@megadulces/contracts';
 
 export interface ShipmentsPage {
   items: Shipment[];
@@ -150,6 +165,10 @@ export interface GuideRecipient {
   gps_lat?: number | null;
   gps_lng?: number | null;
   notes?: string | null;
+  /** LM-K / EMB.12 — el documento de Kepler de esta parada. */
+  kepler_folio?: string | null;
+  kepler_serie?: string | null;
+  kepler_warehouse_code?: string | null;
 }
 
 export interface DeliveryGuide {
@@ -992,6 +1011,26 @@ export class LogisticaService {
   }
   createShipment(body: Partial<Shipment>) {
     return this.http.post<Shipment>(`${this.base}/shipments`, body);
+  }
+
+  // ── EMB.12 — «Nuevo embarque» toma el viaje de Kepler ────────────────────
+  /** Viajes (guías) de Kepler de un día, con si ya se tomaron en la Suite y a dónde van. */
+  listKeplerTrips(opts: { fecha?: string; sucursal?: string | null; solo_sin_tomar?: boolean; limit?: number } = {}) {
+    let p = new HttpParams().set('limit', String(opts.limit ?? 200));
+    if (opts.fecha) p = p.set('fecha', opts.fecha);
+    if (opts.sucursal) p = p.set('sucursal', opts.sucursal);
+    if (opts.solo_sin_tomar) p = p.set('solo_sin_tomar', 'true');
+    return this.http.get<KeplerTripList>(`${this.base}/erp-shipments/trips`, { params: p });
+  }
+  /** La hoja de un viaje de Kepler: lo que ya capturó almacén + tarifa sugerida + si ya se tomó. */
+  getNuevoEmbarque(sucursal: string, guia: string) {
+    return this.http.get<NuevoEmbarqueHoja>(
+      `${this.base}/erp-shipments/trips/${encodeURIComponent(sucursal)}/${encodeURIComponent(guia)}/nuevo-embarque`);
+  }
+  /** Crea el embarque con la llave de la guía + la guía de entrega + un destinatario por parada. */
+  createShipmentFromKepler(sucursal: string, guia: string, body: TomaKeplerBody) {
+    return this.http.post<TomaKeplerResultado>(
+      `${this.base}/shipments/from-kepler/${encodeURIComponent(sucursal)}/${encodeURIComponent(guia)}`, body);
   }
   updateShipment(id: string, body: Partial<Shipment>) {
     return this.http.patch<Shipment>(`${this.base}/shipments/${id}`, body);

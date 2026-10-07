@@ -32,6 +32,13 @@
  * ──────────────────────────────────────────────────────────────────────────────────────────
  */
 
+/**
+ * Categorías de ajuste de compra (X-D-55) que son beneficio NEGOCIADO, no algo que salió mal. Una sola
+ * fuente para el listado de entradas y el expediente (`[RE.35.5]`): si cada uno tuviera su lista, la
+ * fila y el filtro dirían cosas distintas.
+ */
+export const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
+
 /** Un importe iguala a otro por debajo de esto. Se sobreescribe con `receipt_settings`. */
 export const TOLERANCIA_DEFAULT = 1;
 
@@ -58,7 +65,20 @@ const SOCIETARIO =
 const VACIAS = new Set(['LOS', 'LAS', 'DEL', 'CON', 'POR', 'PARA', 'SUS', 'SUC', 'THE']);
 
 /** Normaliza un nombre: sin acentos, sin puntuación, sin sufijos societarios. */
+const memoNombre = new Map<string, string | null>();
 export function normalizarNombre(s?: string | null): string | null {
+  // `[RE.35.5]` Pura y repetida miles de veces en el expediente por lote: se memoriza.
+  if (s) {
+    const m = memoNombre.get(s);
+    if (m !== undefined) return m;
+    if (memoNombre.size > 20000) memoNombre.clear();
+    const r = normalizarNombreSinMemo(s);
+    memoNombre.set(s, r);
+    return r;
+  }
+  return normalizarNombreSinMemo(s);
+}
+function normalizarNombreSinMemo(s?: string | null): string | null {
   if (!s) return null;
   const n = String(s)
     .toUpperCase()
@@ -118,8 +138,18 @@ export function parecidoNombre(a?: string | null, b?: string | null): number | n
 const GLIFOS: Record<string, string> = { O: '0', I: '1', L: '1', S: '5', B: '8', Z: '2', G: '6' };
 
 /** RFC comparable: sin puntuación, en mayúsculas, con los glifos ambiguos plegados. */
+const memoRfc = new Map<string, string | null>();
 export function rfcComparable(s?: string | null): string | null {
   if (!s) return null;
+  // `[RE.35.5]` El expediente por lote compara el mismo RFC miles de veces: se memoriza (es pura).
+  const m = memoRfc.get(s);
+  if (m !== undefined) return m;
+  if (memoRfc.size > 20000) memoRfc.clear();
+  const r = rfcComparableSinMemo(s);
+  memoRfc.set(s, r);
+  return r;
+}
+function rfcComparableSinMemo(s: string): string | null {
   const limpio = String(s).toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!limpio) return null;
   return limpio
@@ -174,8 +204,18 @@ export function evaluarPaquete(
  * También tolera `No. 0006668` y `Folio 353`, que es como lo imprimen algunas sucursales.
  * Devuelve el número sin ceros a la izquierda, o `null` si no hay ninguno.
  */
+const memoFolio = new Map<string, string | null>();
 export function folioNumero(s?: string | null): string | null {
   if (!s) return null;
+  // `[RE.35.5]` Igual que rfcComparable: pura y repetida miles de veces en el lote.
+  const m = memoFolio.get(s);
+  if (m !== undefined) return m;
+  if (memoFolio.size > 20000) memoFolio.clear();
+  const r = folioNumeroSinMemo(s);
+  memoFolio.set(s, r);
+  return r;
+}
+function folioNumeroSinMemo(s: string): string | null {
   let t = String(s).toUpperCase().trim();
   t = t.replace(/^[A-Z]{1,3}\d{3,4}\s*[-–]\s*/, ''); // XA2001-… / UD41-…
   t = t.replace(/^(NO\.?|NUM\.?|FOLIO)\s*/, ''); // "No. 0006668"

@@ -84,6 +84,10 @@ export * from './http/replenishment-monthly.contract';
 export * from './http/replenishment-signals.contract';
 export * from './http/vendor-route-day-pick.contract';
 export * from './http/service-desk.contract';
+// [EMB.12] «Nuevo embarque» desde Kepler: la hoja del viaje, la lista y la toma. Sólo tipos.
+export * from './http/nuevo-embarque.contract';
+// [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).
+export * from './http/receipt-expediente.contract';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.
 //   · forma-pago          = catálogo cerrado, atado a los códigos que Kepler ya usa (kdm1.c90).
 //   · aporte-solicitante  = la compuerta (qué falta para mandar), leída por el botón Y por el 400.

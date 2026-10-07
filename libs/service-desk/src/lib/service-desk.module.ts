@@ -9,6 +9,7 @@ import { ServiceDeskConfigAdminService } from './config-admin.service';
 import { NullBitacoraAdapter } from './null-bitacora.adapter';
 import { ServiceDeskNotificationsService } from './notifications.service';
 import { ServiceDeskPreferencesService } from './preferences.service';
+import { ServiceDeskQueueMembersService } from './queue-members.service';
 import { ServiceDeskController } from './service-desk.controller';
 import { ServiceDeskRequestsService } from './requests.service';
 import { ServiceDeskReportsService } from './reports.service';
@@ -33,6 +34,7 @@ import { ServiceDeskSlaService } from './sla.service';
     ServiceDeskAgentsService,
     ServiceDeskNotificationsService,
     ServiceDeskPreferencesService,
+    ServiceDeskQueueMembersService,
     ServiceDeskConfigAdminService,
     ServiceDeskRoutingService,
     ServiceDeskReportsService,

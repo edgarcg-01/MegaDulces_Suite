@@ -1,5 +1,15 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
+import type { NuevoEmbarqueHoja, NuevoEmbarqueParada } from '@megadulces/contracts';
+import {
+  comisionSugerida,
+  EntradaCatalogo,
+  fechaISO,
+  ordenarParadas,
+  resolverPorCodigo,
+  resumirViaje,
+  tipoDeViaje,
+} from './nuevo-embarque.logic';
 
 /**
  * EMB — Los embarques REALES del ERP Kepler para la pantalla de Embarques.
@@ -43,6 +53,85 @@ export interface TripRow {
   gps_speed: number | null;
 }
 
+/** EMB.12 — la fila de la lista con lo que necesita «Nuevo embarque» para elegir el viaje. */
+interface TripListRow extends TripRow {
+  chofer_code: string | null;
+  multi_transporte: boolean;
+  multi_chofer: boolean;
+  series: number;
+  tomado_shipment_id: string | null;
+  tomado_folio: string | null;
+  destinos_texto?: string | null;
+  tipo_etiqueta?: string | null;
+  chofer_falta?: boolean;
+}
+
+/** EMB.12 — el viaje como lo da `analytics.erp_shipment_trips`. */
+interface ViajeRow {
+  guia_digital: string;
+  fecha: Date | string | null;
+  vehicle_id: string | null;
+  transporte_descripcion: string | null;
+  transporte_placas: string | null;
+  multi_transporte: boolean;
+  multi_chofer: boolean;
+  multi_fecha: boolean;
+}
+
+/** EMB.12 — una cabecera `U-D-41` de la guía, como la da `analytics.erp_shipment_headers`. */
+interface CabeceraParadaRow {
+  serie: number | string;
+  serie_label: string;
+  folio: string;
+  folio_digital: string;
+  fecha: Date | string | null;
+  cliente_code: string | null;
+  destino_nombre: string | null;
+  destino_colonia: string | null;
+  destino_ciudad: string | null;
+  destino_estado: string | null;
+  total: number | string | null;
+  pedido_folio: string | null;
+  pedido_folio_digital: string | null;
+  resp_surtido: string | null;
+  resp_checado: string | null;
+  resp_embarque: string | null;
+  transporte_code: string | null;
+  transporte_clave_kepler: string | null;
+  transporte_metodo: string | null;
+  chofer_code: string | null;
+  chofer_clave_kepler: string | null;
+  chofer_nombre: string | null;
+  chofer_metodo: string | null;
+  chofer_asignado_a_la_unidad: string | null;
+}
+
+/** EMB.12 — ruta, domicilio y carga de la parada (`erp_shipment_stops` ⋈ `erp_shipment_stop_load`). */
+interface CargaParadaRow {
+  serie: number | string;
+  folio: string;
+  domicilio: string | null;
+  domicilio_supuesto: boolean | null;
+  domicilio_calle: string | null;
+  domicilio_ciudad: string | null;
+  ruta_clave: string | null;
+  ruta_nombre: string | null;
+  orden_visita: number | string | null;
+  ruta_metodo: string | null;
+  facturacion: string | null;
+  facturado: boolean | null;
+  hora_captura: string | null;
+  nota_almacen: string | null;
+  renglones: number | string | null;
+  cajas: number | string | null;
+  sueltos: number | string | null;
+  kg: number | string | null;
+  renglones_sin_empaque: number | string | null;
+}
+
+/** Número o null — `numeric` de Postgres llega como texto, y una ausencia no es cero. */
+const numONull = (v: number | string | null | undefined): number | null => (v == null ? null : Number(v));
+
 @Injectable()
 export class ErpShipmentsService {
   private readonly logger = new Logger(ErpShipmentsService.name);
@@ -51,23 +140,33 @@ export class ErpShipmentsService {
 
   /** Los viajes (guía de embarque), que es el grano que corresponde a un camión saliendo. */
   async listTrips(q: {
-    from?: string; to?: string; sucursal?: string; serie?: string;
-    search?: string; solo_hoy?: string; page?: string; limit?: string;
+    from?: string; to?: string; fecha?: string; sucursal?: string; serie?: string;
+    search?: string; solo_hoy?: string; solo_sin_tomar?: string; page?: string; limit?: string;
   }) {
     const page = Math.max(1, parseInt(q.page || '1', 10) || 1);
     const limit = Math.min(200, Math.max(1, parseInt(q.limit || '50', 10) || 50));
     const hoy = q.solo_hoy === 'true' || q.solo_hoy === '1';
+    const sinTomar = q.solo_sin_tomar === 'true' || q.solo_sin_tomar === '1';
+    const fecha = q.fecha && /^\d{4}-\d{2}-\d{2}$/.test(q.fecha) ? q.fecha : null;
+
+    // EMB.12 — el embarque de la Suite que ya TOMÓ esta guía (si alguno). La guía cancelada se
+    // puede volver a tomar, así que no cuenta.
+    const tomadoSql = (col: 'id' | 'folio') => `(SELECT s.${col} FROM logistics.shipments s
+        WHERE s.tenant_id = t.tenant_id AND s.kepler_sucursal = t.sucursal AND s.kepler_guia = t.guia_embarque
+          AND s.deleted_at IS NULL AND s.status <> 'cancelado' LIMIT 1)`;
 
     return this.tk.run(M, async (trx) => {
       const base = () => {
         const b = trx('analytics.erp_shipment_trips as t').where('t.tenant_id', M);
         if (hoy) b.whereRaw('t.fecha = (now() AT TIME ZONE ?)::date', ['America/Mexico_City']);
+        else if (fecha) b.where('t.fecha', fecha);
         else {
           if (q.from) b.where('t.fecha', '>=', q.from);
           if (q.to) b.where('t.fecha', '<=', q.to);
           if (!q.from && !q.to) b.whereRaw("t.fecha >= current_date - 30");
         }
         if (q.sucursal) b.where('t.sucursal', q.sucursal);
+        if (sinTomar) b.whereRaw(`${tomadoSql('id')} IS NULL`);
         if (q.search) {
           const s = `%${q.search.trim().toLowerCase()}%`;
           b.where((w: any) =>
@@ -81,12 +180,14 @@ export class ErpShipmentsService {
       };
 
       const [{ count }] = await base().clone().count({ count: '*' });
-      const rows = await base()
+      const rows: TripListRow[] = await base()
         .select(
           't.sucursal', 't.guia_embarque', 't.guia_digital', 't.fecha', 't.paradas', 't.destinos',
           't.transporte_code', 't.transporte_descripcion', 't.transporte_placas',
-          't.chofer_nombre', 't.total', 't.vehicle_id', 't.vehicle_plate',
-          't.multi_transporte', 't.multi_chofer',
+          't.chofer_code', 't.chofer_nombre', 't.total', 't.vehicle_id', 't.vehicle_plate',
+          't.multi_transporte', 't.multi_chofer', 't.series',
+          trx.raw(`${tomadoSql('id')} as tomado_shipment_id`),
+          trx.raw(`${tomadoSql('folio')} as tomado_folio`),
           trx.raw("(t.fecha = (now() AT TIME ZONE 'America/Mexico_City')::date) as en_calle"),
           // El GPS se trae por LATERAL para no multiplicar filas cuando la unidad lleva
           // dos rastreadores (hay 4 unidades así).
@@ -102,6 +203,32 @@ export class ErpShipmentsService {
         )
         .orderBy([{ column: 't.fecha', order: 'desc' }, { column: 't.paradas', order: 'desc' }])
         .limit(limit).offset((page - 1) * limit);
+
+      // EMB.12 — a dónde va cada viaje, en palabras. Sale de `erp_shipment_stops` filtrando por
+      // sucursal (usa `ix_kdm1_venta_doc`), no de la cabecera completa recalculada otra vez.
+      const porGuia = new Map<string, Array<{ serie: number; cliente_code: string | null; donde: string | null }>>();
+      if (rows.length) {
+        const sucs = [...new Set(rows.map((r) => r.sucursal))];
+        const guias = [...new Set(rows.map((r) => r.guia_embarque))];
+        // ⚠️ whereIn y no `= ANY(?)` en un raw: knex expande un arreglo en `?` a varios placeholders.
+        const d = await trx('analytics.erp_shipment_stops')
+          .whereIn('sucursal', sucs).whereIn('guia_embarque', guias)
+          .select('sucursal', 'guia_embarque', 'serie', 'cliente_code',
+            trx.raw('coalesce(destino_ciudad, destino_nombre, cliente_code) AS donde'));
+        for (const x of d) {
+          const k = `${x.sucursal}|${x.guia_embarque}`;
+          if (!porGuia.has(k)) porGuia.set(k, []);
+          porGuia.get(k)!.push({ serie: Number(x.serie), cliente_code: x.cliente_code, donde: x.donde });
+        }
+      }
+      for (const r of rows) {
+        const paradas = porGuia.get(`${r.sucursal}|${r.guia_embarque}`) ?? [];
+        r.destinos_texto = [...new Set(paradas.map((p) => p.donde).filter(Boolean))].join(' · ') || null;
+        r.tipo_etiqueta = paradas.length ? tipoDeViaje(paradas).etiqueta : null;
+        // Kepler precarga el chofer desde la unidad: la 00008 de Padre Hidalgo no tiene uno
+        // asignado, así que sale vacío en el 99.8% de sus embarques. Se dice, no se inventa.
+        r.chofer_falta = !r.chofer_code;
+      }
 
       return {
         rows,
@@ -189,6 +316,205 @@ export class ErpShipmentsService {
         rastreo_motivo: !trip.vehicle_id
           ? 'la unidad de Kepler no tiene fila en la flota de la Suite'
           : (!gps ? 'la unidad no tiene rastreador dado de alta' : null),
+      };
+    });
+  }
+
+  /**
+   * EMB.12 — Todo lo que «Nuevo embarque» necesita de UN viaje de Kepler, en una llamada.
+   *
+   * Es de sólo lectura: arma la hoja con lo que Kepler ya capturó (unidad, chofer, paradas con su
+   * ruta y orden, carga, valor, responsables de almacén) y lo que la Suite sabe de esos mismos
+   * objetos (la unidad en la flota, el chofer en el padrón, la tarifa de la ruta). Lo que no
+   * existe en ninguno de los dos lados se devuelve null CON MOTIVO, nunca en cero.
+   *
+   * Cuatro consultas, todas filtradas por sucursal + guía: la cabecera (resolvedores de unidad y
+   * chofer), las paradas enriquecidas con su carga (LATERAL para que el filtro llegue a los
+   * índices de kdm2), los catálogos de responsables de esa sucursal, y lo de la Suite.
+   */
+  async nuevoEmbarque(sucursal: string, guia: string): Promise<NuevoEmbarqueHoja> {
+    return this.tk.run(M, async (trx) => {
+      const trip: ViajeRow | undefined = await trx('analytics.erp_shipment_trips')
+        .where({ tenant_id: M, sucursal, guia_embarque: guia }).first();
+      if (!trip) throw new NotFoundException(`Kepler no tiene el viaje ${sucursal}-G${guia}`);
+
+      const headers: CabeceraParadaRow[] = await trx('analytics.erp_shipment_headers')
+        .where({ tenant_id: M, sucursal, guia_embarque: guia })
+        .select('serie', 'serie_label', 'folio', 'folio_digital', 'fecha', 'cliente_code',
+          'destino_nombre', 'destino_colonia', 'destino_ciudad', 'destino_estado', 'total',
+          'pedido_folio', 'pedido_folio_digital', 'comentarios',
+          'resp_surtido', 'resp_checado', 'resp_embarque',
+          'transporte_code', 'transporte_clave_kepler', 'transporte_descripcion', 'transporte_placas',
+          'transporte_metodo', 'chofer_code', 'chofer_clave_kepler', 'chofer_nombre', 'chofer_metodo',
+          'chofer_asignado_a_la_unidad', 'vehicle_id', 'vehicle_plate');
+
+      const { rows: extras } = await trx.raw<{ rows: CargaParadaRow[] }>(
+        `SELECT s.serie, s.folio, s.domicilio, s.domicilio_supuesto, s.domicilio_calle,
+                s.domicilio_ciudad, s.domicilio_telefono, s.ruta_clave, s.ruta_nombre,
+                s.orden_visita, s.ruta_metodo, s.facturacion, s.facturado,
+                s.hora_captura, s.usuario_captura, s.nota_almacen,
+                l.renglones, l.cajas, l.sueltos, l.kg, l.renglones_kg, l.renglones_sin_empaque
+           FROM analytics.erp_shipment_stops s
+           LEFT JOIN LATERAL (
+             SELECT * FROM analytics.erp_shipment_stop_load x
+              WHERE x.sucursal = s.sucursal AND x.serie = s.serie AND x.folio = s.folio
+           ) l ON true
+          WHERE s.sucursal = ? AND s.guia_embarque = ?`, [sucursal, guia]);
+      const extraDe = new Map<string, CargaParadaRow>(extras.map((e) => [`${e.serie}|${e.folio}`, e]));
+
+      const catalogos: Array<{ rol: string; codigo: string; nombre: string | null }> =
+        await trx('analytics.v_kepler_responsables').where({ sucursal }).select('rol', 'codigo', 'nombre');
+      const cat = (rol: string): EntradaCatalogo[] =>
+        catalogos.filter((c) => c.rol === rol).map((c) => ({ codigo: c.codigo, nombre: c.nombre }));
+      const catSur = cat('surtido');
+      const catChe = cat('checado');
+      const catEmb = cat('embarque');
+
+      // Cada parada se arma campo por campo con la forma del contrato: lo que viaja al front es
+      // exactamente lo que `NuevoEmbarqueParada` declara, no la fila cruda de la vista.
+      const paradas = ordenarParadas(headers.map((h): NuevoEmbarqueParada => {
+        const e = extraDe.get(`${h.serie}|${h.folio}`);
+        return {
+          serie: Number(h.serie),
+          serie_label: h.serie_label,
+          folio: h.folio,
+          folio_digital: h.folio_digital,
+          fecha: fechaISO(h.fecha),
+          cliente_code: h.cliente_code,
+          destino_nombre: h.destino_nombre,
+          destino_colonia: h.destino_colonia,
+          destino_ciudad: h.destino_ciudad,
+          destino_estado: h.destino_estado,
+          domicilio: e?.domicilio ?? null,
+          domicilio_supuesto: e?.domicilio_supuesto ?? null,
+          domicilio_calle: e?.domicilio_calle ?? null,
+          domicilio_ciudad: e?.domicilio_ciudad ?? null,
+          ruta_clave: e?.ruta_clave ?? null,
+          ruta_nombre: e?.ruta_nombre ?? null,
+          orden_visita: numONull(e?.orden_visita),
+          ruta_metodo: e?.ruta_metodo ?? null,
+          total: Number(h.total ?? 0),
+          cajas: numONull(e?.cajas),
+          sueltos: numONull(e?.sueltos),
+          kg: numONull(e?.kg),
+          renglones: numONull(e?.renglones),
+          renglones_sin_empaque: numONull(e?.renglones_sin_empaque),
+          facturacion: e?.facturacion ?? null,
+          facturado: e?.facturado ?? null,
+          hora_captura: e?.hora_captura ?? null,
+          nota_almacen: e?.nota_almacen ?? null,
+          pedido_folio: h.pedido_folio,
+          pedido_folio_digital: h.pedido_folio_digital,
+          surtio: resolverPorCodigo(h.resp_surtido, catSur),
+          checo: resolverPorCodigo(h.resp_checado, catChe),
+          embarco: resolverPorCodigo(h.resp_embarque, catEmb),
+        };
+      }));
+
+      const resumen = resumirViaje(paradas);
+      const tipo = tipoDeViaje(paradas);
+
+      // ── Lo que la Suite sabe de los mismos objetos ───────────────────────────────────
+      const primero = <K extends keyof CabeceraParadaRow>(k: K): CabeceraParadaRow[K] | null =>
+        headers.map((h) => h[k]).find((v) => v != null) ?? null;
+      const choferClave = primero('chofer_clave_kepler');
+      const vehicleId = trip.vehicle_id ?? null;
+
+      // El nombre de la sucursal sale del catálogo de Kepler (`pv_suc_ip`: 06 → «Sucursal Canindo»).
+      // ⚠️ Se pregunta antes si la tabla existe: una consulta que falla dentro de la transacción
+      // la aborta entera, y el nombre no vale tumbar la hoja.
+      const { rows: [hayPv] } = await trx.raw<{ rows: Array<{ ok: boolean }> }>(
+        `SELECT to_regclass('kepler_ods.pv_suc_ip') IS NOT NULL AS ok`);
+      const sucNombre: string | null = hayPv?.ok
+        ? await trx.raw<{ rows: Array<{ nombre: string | null }> }>(
+          `SELECT btrim(c2) AS nombre FROM kepler_ods.pv_suc_ip WHERE btrim(c1) = ? LIMIT 1`, [sucursal])
+          .then((r) => r.rows?.[0]?.nombre ?? null)
+        : null;
+
+      // ⚠️ En SECUENCIA, no con Promise.all: dentro de una transacción todas van por el MISMO
+      // cliente de pg, y mandarle consultas simultáneas está deprecado (pg@9 lo quita). Medido:
+      // con Promise.all el driver avisaba «client is already executing a query».
+      const vehiculo = vehicleId
+        ? await trx('logistics.vehicles').where({ id: vehicleId }).whereNull('deleted_at')
+          .first('id', 'plate', 'brand', 'model', 'status', 'active')
+        : null;
+      const conGps = vehicleId
+        ? await trx('logistics.trackers').where({ vehicle_id: vehicleId }).whereNull('deleted_at').first('id')
+        : null;
+      const chofer = choferClave
+        ? await trx('logistics.drivers').where({ kepler_code: choferClave }).whereNull('deleted_at')
+          .first('id', 'full_name', 'active')
+        : null;
+      const rutas = await trx('logistics.routes').whereNull('deleted_at').where('active', true)
+        .select('id', 'name', 'kepler_code', 'driver_commission', 'helper_commission');
+      const tomado = await trx('logistics.shipments')
+        .where({ kepler_sucursal: sucursal, kepler_guia: guia })
+        .whereNull('deleted_at').whereNot('status', 'cancelado')
+        .first('id', 'folio', 'status');
+
+      const nombresUnicos = (k: 'surtio' | 'checo' | 'embarco'): string[] =>
+        [...new Set(paradas.map((p) => p[k].nombre).filter((x): x is string => !!x))];
+      const sinResolver = paradas.reduce((a, p) =>
+        a + (['surtio', 'checo', 'embarco'] as const)
+          .filter((k) => { const m = p[k].metodo; return !!m && m !== 'exacto' && m !== 'normalizado'; }).length, 0);
+      const horas = paradas.map((p) => p.hora_captura).filter((x): x is string => !!x).sort();
+
+      return {
+        viaje: {
+          sucursal,
+          sucursal_nombre: sucNombre,
+          guia,
+          guia_digital: trip.guia_digital,
+          fecha: fechaISO(trip.fecha),
+          hora_captura_desde: horas[0] ?? null,
+          hora_captura_hasta: horas[horas.length - 1] ?? null,
+          tipo,
+          multi_transporte: trip.multi_transporte,
+          multi_chofer: trip.multi_chofer,
+          multi_fecha: trip.multi_fecha,
+        },
+        unidad: {
+          kepler_code: primero('transporte_clave_kepler') ?? primero('transporte_code'),
+          descripcion: trip.transporte_descripcion,
+          placas: trip.transporte_placas,
+          metodo: primero('transporte_metodo'),
+          vehicle_id: vehiculo?.id ?? null,
+          suite: vehiculo ? { plate: vehiculo.plate, model: vehiculo.model, brand: vehiculo.brand, status: vehiculo.status } : null,
+          gps: !!conGps,
+          motivo: !vehicleId
+            ? 'La unidad de Kepler no tiene fila en la flota de la Suite.'
+            : (!conGps ? 'La unidad no tiene rastreador: los km se capturan.' : null),
+        },
+        chofer: {
+          kepler_code: choferClave ?? primero('chofer_code'),
+          nombre: primero('chofer_nombre'),
+          metodo: primero('chofer_metodo'),
+          asignado_a_la_unidad: primero('chofer_asignado_a_la_unidad'),
+          driver_id: chofer?.id ?? null,
+          en_suite: !!chofer,
+          falta: !primero('chofer_code'),
+          motivo: !primero('chofer_code')
+            ? 'Kepler no trae chofer: lo precarga de la unidad y esta unidad no tiene uno asignado.'
+            : (!chofer ? 'El chofer de Kepler no está en el padrón de la Suite.' : null),
+        },
+        responsables: {
+          surtio: nombresUnicos('surtio'),
+          checo: nombresUnicos('checo'),
+          embarco: nombresUnicos('embarco'),
+          sin_resolver: sinResolver,
+        },
+        paradas,
+        resumen,
+        comision: comisionSugerida(resumen.rutas, rutas),
+        tomado: tomado ?? null,
+        procedencia: {
+          fuente: 'kepler_ods: kdm1/kdm2 U-D-41 + kdudent/kdm_rutas/kdm_rutas2 + kdm_cat_* (vistas en vivo)',
+          ruta: 'Por domicilio de entrega (cliente c10 + domicilio c85 → kdudent.c13). El embarque no la trae.',
+          cajas: 'De los renglones: kdm2.c54 en unidad de manejo CJA/BTO. La nota manual de almacén no se usa como fuente.',
+          peso: 'No existe en Kepler (sin peso por producto). Sólo se conocen los kilos de renglones vendidos por kilo.',
+          valor: 'Entrega a cliente = precio de venta con impuestos; traspaso = costo. No se suman.',
+          entrega: 'Kepler no registra la llegada; la confirma el chofer en la Suite.',
+        },
       };
     });
   }

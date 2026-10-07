@@ -8,7 +8,10 @@ import {
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { ORDER_FULFILLMENT_PORT, OrderFulfillmentPort } from '@megadulces/contracts';
+import type { TomaKeplerResultado } from '@megadulces/contracts';
 import { haversineKm } from '../logistics-routing/route-solver';
+import { ErpShipmentsService } from '../logistics-erp-shipments/erp-shipments.service';
+import { armarDestinatarios, TomaInput, validarToma } from '../logistics-erp-shipments/nuevo-embarque.logic';
 
 export type ShipmentStatus =
   | 'programado'
@@ -33,6 +36,8 @@ export interface CreateShipmentDto {
   boxes_count?: number;
   total_weight_kg?: number;
   notes?: string;
+  /** EMB.12 — por ruta o viaje largo. */
+  delivery_type?: 'route' | 'long_trip';
 }
 
 export interface UpdateShipmentDto extends Partial<CreateShipmentDto> {
@@ -83,7 +88,125 @@ export class LogisticsShipmentsService {
     private readonly tenantCtx: TenantContextService,
     @Inject(ORDER_FULFILLMENT_PORT)
     private readonly orderFulfillment: OrderFulfillmentPort,
+    private readonly erp: ErpShipmentsService,
   ) {}
+
+  // ── EMB.12: tomar un viaje de Kepler ─────────────────────────────────────
+
+  /**
+   * Crea el embarque de la Suite a partir de una guía de Kepler, en vez de recapturarla.
+   *
+   * Guarda la LLAVE (`kepler_sucursal` + `kepler_guia`) y lo que Kepler no tiene: tipo de
+   * entrega, ayudantes, comisiones, viáticos, flete, km y peso si alguien los midió. Crea además
+   * la guía de entrega (chofer y ayudantes) y un destinatario por parada, que es donde el chofer
+   * confirma la entrega — Kepler registra la salida, no la llegada.
+   *
+   * ⚠️ NO valida la agenda de la unidad (`assertVehicleAvailable`): ese freno es para embarques
+   * PROPIOS de la app. Aquí la unidad la asignó almacén en Kepler, y una misma camioneta hace
+   * varios viajes en un día (medido: la 00008 de Padre Hidalgo salió en 4 guías el 3-oct). Frenar
+   * el segundo viaje sería contradecir al ERP que es dueño de la asignación.
+   *
+   * Cajas y valor se guardan en el embarque y en cada destinatario como la HOJA con la que salió
+   * el chofer: es un acuse, y un acuse no cambia si después se corrige el documento en Kepler.
+   * La hoja en pantalla sigue leyendo Kepler en vivo y puede mostrar la diferencia.
+   */
+  async createFromKepler(sucursal: string, guia: string, dto: TomaInput): Promise<TomaKeplerResultado> {
+    if (!/^[0-9A-Za-z]{1,10}$/.test(sucursal || '') || !/^[0-9]{1,20}$/.test(guia || '')) {
+      throw new BadRequestException('Sucursal o guía inválida');
+    }
+    for (const id of [dto.driver_id, dto.helper1_id, dto.helper2_id]) {
+      if (id && !UUID_REGEX.test(id)) throw new BadRequestException('Id de persona inválido');
+    }
+
+    const hoja = await this.erp.nuevoEmbarque(sucursal, guia);
+    if (!hoja.viaje.fecha) throw new BadRequestException('El viaje de Kepler no tiene fecha válida');
+    const errores = validarToma(dto, {
+      chofer_kepler_driver_id: hoja.chofer.driver_id,
+      ya_tomado_folio: hoja.tomado?.folio ?? null,
+    });
+    if (hoja.tomado) throw new ConflictException(errores[0]);
+    if (errores.length) throw new BadRequestException(errores.join(' '));
+
+    const driverId = dto.driver_id || hoja.chofer.driver_id;
+    const destinatarios = armarDestinatarios(hoja.paradas, sucursal);
+
+    return this.tk.run(async (trx) => {
+      for (const [id, rol] of [[driverId, 'chofer'], [dto.helper1_id, 'ayudante 1'], [dto.helper2_id, 'ayudante 2']] as const) {
+        if (!id) continue;
+        const d = await trx('logistics.drivers').where({ id }).whereNull('deleted_at').first('id', 'active', 'full_name');
+        if (!d) throw new NotFoundException(`No existe el ${rol} elegido`);
+        if (!d.active) throw new ConflictException(`${d.full_name} está inactivo y no puede ir como ${rol}`);
+      }
+
+      const folio = await this.nextFolio(trx, 'EMB');
+      const r = hoja.resumen;
+      let shipment: TomaKeplerResultado['shipment'];
+      try {
+        [shipment] = await trx('logistics.shipments')
+          .insert({
+            tenant_id: trx.raw('public.current_tenant_id()'),
+            folio,
+            // Ya viene como YYYY-MM-DD desde `fechaISO` (no String(Date): LC.16).
+            shipment_date: hoja.viaje.fecha,
+            vehicle_id: hoja.unidad.vehicle_id,
+            route_id: hoja.comision.ruta_usada?.route_id ?? null,
+            origin: hoja.viaje.sucursal_nombre || `Sucursal ${sucursal}`,
+            destination: r.rutas.map((x) => x.nombre || x.clave).join(' · ').slice(0, 200) || null,
+            type: hoja.viaje.tipo.tipo,
+            delivery_type: dto.delivery_type,
+            cargo_value: Math.round((r.valor_venta + r.valor_traspaso) * 100) / 100,
+            boxes_count: Math.round(r.cajas),
+            total_weight_kg: dto.total_weight_kg ?? 0,
+            actual_km: dto.actual_km ?? null,
+            freight_revenue: dto.freight_revenue ?? 0,
+            status: 'programado',
+            notes: dto.notes || null,
+            kepler_sucursal: sucursal,
+            kepler_guia: guia,
+          })
+          .returning('*');
+      } catch (e: unknown) {
+        // Dos personas tomando la misma guía a la vez: gana la primera, la segunda lo sabe.
+        const pg = e as { code?: string; constraint?: string; message?: string } | null;
+        if (pg?.code === '23505' && String(pg?.constraint || pg?.message).includes('kepler_guia')) {
+          throw new ConflictException('Otra persona acaba de tomar este viaje. Recarga la lista.');
+        }
+        throw e;
+      }
+
+      const guideNumber = await this.nextFolio(trx, 'GUIA');
+      const [guide]: Array<TomaKeplerResultado['guide']> = await trx('logistics.delivery_guides')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          number: guideNumber,
+          shipment_id: shipment.id,
+          type: hoja.viaje.tipo.tipo,
+          status: 'pendiente',
+          driver_id: driverId,
+          driver_commission: dto.driver_commission ?? 0,
+          helper1_id: dto.helper1_id || null,
+          helper1_commission: dto.helper1_commission ?? 0,
+          helper2_id: dto.helper2_id || null,
+          helper2_commission: dto.helper2_commission ?? 0,
+          overnight: dto.overnight ?? false,
+          per_diem_total: dto.per_diem_total ?? 0,
+          per_diem_breakdown: dto.per_diem_breakdown ? JSON.stringify(dto.per_diem_breakdown) : null,
+          notes: null,
+        })
+        .returning('*');
+
+      if (destinatarios.length) {
+        await trx('logistics.guide_recipients').insert(destinatarios.map((d) => ({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          guide_id: guide.id,
+          status: 'pendiente',
+          ...d,
+        })));
+      }
+
+      return { shipment, guide, destinatarios: destinatarios.length };
+    });
+  }
 
   // ── Create ───────────────────────────────────────────────────────────────
 
@@ -112,6 +235,8 @@ export class LogisticsShipmentsService {
           cargo_value: dto.cargo_value || 0,
           boxes_count: dto.boxes_count || 0,
           total_weight_kg: dto.total_weight_kg || 0,
+          // EMB.12 — el formulario lo pedía y se tiraba: no había columna.
+          delivery_type: dto.delivery_type || null,
           status: 'programado',
           notes: dto.notes || null,
         })
@@ -902,6 +1027,9 @@ export class LogisticsShipmentsService {
 
   private validateCreate(dto: CreateShipmentDto): void {
     if (!dto.shipment_date) throw new BadRequestException('shipment_date requerido');
+    if (dto.delivery_type && !['route', 'long_trip'].includes(dto.delivery_type)) {
+      throw new BadRequestException(`delivery_type inválido: ${dto.delivery_type}`);
+    }
     if (dto.type && !['entrega', 'traspaso', 'recoleccion'].includes(dto.type)) {
       throw new BadRequestException(`type inválido: ${dto.type}`);
     }

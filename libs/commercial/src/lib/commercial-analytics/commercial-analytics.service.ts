@@ -6929,7 +6929,8 @@ export class CommercialAnalyticsService {
     // `[VEC.2]` Dos piernas: el rollup (camionetas + Wincaja) y la vecinal DERIVADA del ODS.
     // La vecinal ya no sale de `sales_by_route_monthly` ni de `wincaja.branches` — una ruta
     // nueva aparece sola el día que vende, sin que nadie la dé de alta en ninguna lista.
-    const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
+    type FilaRuta = { warehouse_code: string; warehouse_name: string; route_code: string; route_no: string | null };
+    const rows: FilaRuta[] = await this.tk.run(async (trx) => (await trx.raw(
       `SELECT w.code AS warehouse_code, w.name AS warehouse_name, s.route_code, s.route_no
          FROM analytics.sales_by_route_monthly s
          JOIN commercial.warehouses w ON w.id = s.warehouse_id
@@ -7337,7 +7338,7 @@ export class CommercialAnalyticsService {
       ]);
       if (factFilter) {
         // `[VEC.2]` Los dos primeros tenant son del CTE `rutas` (ver abajo).
-        const params: any[] = [tenantId, tenantId, tenantId, from, to];
+        const params: Array<string | string[]> = [tenantId, tenantId, tenantId, from, to];
         let extra = '';
         if (q.sku) { extra += ' AND sl.sku = ?'; params.push(q.sku); }
         if (q.client) { extra += ' AND sl.cliente = ?'; params.push(q.client); }
@@ -7388,7 +7389,7 @@ export class CommercialAnalyticsService {
       // cabecera y líneas sin la CAJA (`c5`) y le pegaba a cada ticket las líneas de los
       // tickets homónimos de las otras cajas. Y como ese rollup sube con `GREATEST(...)`,
       // **nunca baja**: no se corrige re-corriendo nada, se corrige dejando de leerlo.
-      const params: any[] = [tenantId, from, to, tenantId, from, to];
+      const params: Array<string | string[]> = [tenantId, from, to, tenantId, from, to];
       let filtro = '';
       if (routeFilter) { filtro = ` AND (wcode || '|' || route_code) = ANY(?)`; params.push(routeFilter); }
       else if (whFilter) { filtro = ' AND wcode = ANY(?)'; params.push(whFilter); }
