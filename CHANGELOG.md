@@ -9,6 +9,16 @@
 ---
 
 ## [Unreleased]
+### Fixed — Obligaciones a proveedor: el nombre de quien recibe salía cortado a una letra (RE.32.1, 2026-10-07)
+- En **Generar entrega a Finanzas** (`/compras/obligaciones`, pestaña *Por entregar*), el selector **Recibe (Finanzas)** mostraba sólo la primera letra del nombre («M») con la flecha en el renglón de abajo. Lo reportó un auxiliar de compras usándolo en prod.
+- **Causa:** el estilo de la página ponía el `p-select` en `display:block`. En PrimeNG 22 el texto del selector trae `width:1%` y sólo crece por `flex:1 1 auto`; sin un contenedor flex se queda en 1 % y la flecha (bloque) baja de renglón.
+- **Arreglo:** `display:flex` (una línea, con comentario del porqué). Era la única pantalla de `apps/view` con ese patrón. Sin migraciones ni permisos → **sin re-login**.
+### Changed — Arqueo de caja: monedas y billetes en una sola lista, de 50¢ a $1,000 (SM.42, 2026-10-07)
+- `/tienda/arqueo`: el conteo deja de ser dos columnas (billetes | monedas, de mayor a menor) y pasa a **una tabla «Monedas / billetes» de menor a mayor** —50¢, $1, $2, $5, $10, $20 moneda, $20 billete, $50 … $1,000— con cantidad, importe y **«Total en efectivo»** al pie, como la hoja de arqueo de la operación. En todas las pestañas.
+- Al lado, lo que cada tipo lleva: el **retiro** muestra los retiros ya guardados del turno y el que se cuenta, y **ya no pide medios de pago**; cierre, RD y RV conservan sus medios; relevo, nada.
+- Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
+- Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
+
 ### Fixed — `/compras/pedido`: el testigo del crash estaba ciego, el CLS de toda la app se guardaba en 0, y la píldora no podía decir la edad del dato (RA-PERF.5–8, 2026-10-07)
 - **El guard del "Maximum call stack" llevaba 69 días sin poder disparar.** Medía `(new Error().stack).split('\n').length > 300` y **`Error.stackTraceLimit` vale 10 por default en V8**: con **500 marcos reales anidados esa expresión devuelve 11**. Por eso la causa del crash nunca se identificó — el instrumento no veía nada, y encima pagaba un `queueMicrotask` por tick. Ahora sube el límite antes de capturar y mide **dos** señales: profundidad real y **re-entrada** (cuántas veces aparece `money` en su propio stack), que es la señal sin umbral. ⚠️ **La causa raíz sigue abierta**; lo que se arregló es que ahora haya cómo verla.
 - **Y el crash no salía del navegador**: el `throw` muere dentro de una expresión de template y lo come el `ErrorHandler` de Angular. Medido en prod: en 30 días hay **un solo** evento `kind='error'`, de `/portal/login`. El diagnóstico ahora se reporta por telemetría.
@@ -18,6 +28,13 @@
 - **La píldora pasa a decir la edad del DATO.** ⛔ `replenishment_plan.computed_at` **no servía**: el UPSERT es sin churn, así que dice *cuándo cambió esa fila*, no *cuándo se verificó* — **415 sellos distintos en 34 días** sobre una tabla sana, donde un `max()` diría «hace 4 min» y un `min()` «hace 34 días». La fuente correcta es un **latido propio del importer** (el del carril `feed_stock` tampoco sirve: `run-prod-feeds.js` reporta `ok` salvo que fallen *todos* sus pasos). Sin latido, la pantalla dice **«datos sin medir»** en vez de esconderse.
 - **Primera prueba que existe sobre este componente** (3,652 líneas: las 4 specs del módulo cubrían sólo los ayudantes ya extraídos). 43 aserciones nuevas en 4 archivos, **las cuatro mutadas a rojo**. Suite de `view`: 1,991 verdes.
 - ⚠️ **Pendiente: desplegar api + view + la imagen `trade-ingest`.** Sin migraciones ni permisos nuevos → **sin re-login**.
+### Added — Finanzas › Expediente: filtro por fechas y por departamento (GX.72, 2026-10-07)
+- Barra de filtros arriba de los KPIs: **levantado desde / hasta** (día de México) y **departamento** (las opciones salen de los vales del periodo, con su conteo, más «Sin departamento»). Lo filtra el servidor: los KPIs y las personas salen de lo filtrado, y el rótulo dice qué se contó.
+### Added — Finanzas › Historial: Mayra Gutiérrez ve el historial de todos (GX.71, 2026-10-07)
+- Permiso nuevo **«Ver el historial de gastos de TODOS»** (`FINANCE_EXPENSES_HISTORIAL_TODOS`), dado por persona a `mayra_gutierrez`. Abre la pestaña «Todos» del Historial sin hacerla administradora; «Ver gastos» sigue sin abrirla.
+### Fixed — Finanzas › Expediente: el «Expediente en PDF» ya abre, y si falla dice por qué (GX.70, 2026-10-07)
+- Quien autoriza gastos (`FINANCE_EXPENSES_COMPROBAR`) ya puede abrir el PDF de cualquier vale que la pantalla le muestra; antes la lista enseñaba los vales de todos y el PDF le respondía «fuera de tu alcance» (medido: 8 de 8 vales para un autorizador sin áreas).
+- El aviso de error ahora trae el motivo del servidor (antes sólo «No se pudo armar el expediente»), en Expediente y en Capturar gasto. El lector del error de un blob sube a `core/http/blob-error.ts`.
 ### Added — Costo por compra: archivar varias facturas recibidas a la vez, con sello y firma (RE.35.7, 2026-10-06)
 - Botón **Varias** (y soltar 2 o más PDF en la barra; varias fotos soltadas ahí siguen siendo UNA factura): PDF o fotos, **una recepción por archivo**. Como la captura por lote de pagos a proveedores: la IA lee cada papel de 3 en 3, busca su **CFDI en ContPAQi** y la **entrada de Kepler** que cuadra, y la fila viene lista / por confirmar / elegir / sin entrada. Nada se guarda sin «Guardar». Al guardar, lo archivado **sale de la lista** (como en pagos, PC.8) y queda un resumen: cuántas pasan solas, cuántas por revisar y el atajo «Ver por revisar».
 - El OCR ahora lee el **UUID**, el **sello de recibido** y la **firma** de quien recibió (lo que da valor al papel archivado). El expediente suma los checks **Sello de recibido** y **Firma** (regla **R-v2**): si el papel no los trae no pasa solo; las lecturas anteriores quedan «sin medir» y no bloquean.
@@ -80,6 +97,7 @@
 - ⚠️ Los **7 encargados tienen que volver a entrar** para que el permiso surta efecto. Y queda declarado: **Yurécuaro y Morelia Abastos no tienen encargado de tienda**, así que ahí todavía no hay quién asigne.
 ### Added — «Nuevo embarque» toma el viaje de Kepler en vez de recapturarlo (EMB.12, 2026-10-06)
 - `/logistica/shipments/nuevo`: se elige la guía de embarque que almacén ya dio de salida en Kepler (con tipo, destinos, unidad, chofer y si ya se tomó). `/logistica/shipments/nuevo/:sucursal/:guia`: la hoja de embarque — un solo formato donde lo que Kepler ya tiene (fecha, origen, unidad, chofer, rutas, cajas, valor, almacén, paradas con su ruta y orden) va lleno y bloqueado, y lo demás se teclea: tipo de entrega, ayudantes, comisiones (la del chofer precargada del catálogo de rutas), viáticos, flete, km y peso.
+- La comisión de chofer y ayudantes se calcula de la tarifa de las rutas del viaje (la mayor) y va bloqueada en la hoja; si una ruta no tiene tarifa, la hoja no deja crear el embarque y dice cuál falta tarifar en Configuración › Comisiones.
 - Al crear se guarda la llave de la guía (`kepler_sucursal` + `kepler_guia`, una guía activa a la vez), la guía de entrega y un destinatario por parada para que el chofer confirme cada entrega. El detalle del embarque muestra la hoja final con entregas y costo estimado.
 - Vistas nuevas sobre el ODS: `analytics.erp_shipment_stops` (ruta por domicilio de entrega), `erp_shipment_stop_load` (cajas y sueltos desde los renglones) y `v_kepler_responsables` (mig `20261006210000`). «Embarque manual» sigue para lo que Kepler no emite.
 - Fixed: el formulario manual pedía «Por ruta / Viaje largo» y no se guardaba, y la fecha se mandaba en UTC (después de las 18:00 quedaba el día siguiente).
@@ -411,6 +429,11 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 
 **Oficinas Corporativas (MS.3.14):** al levantar una solicitud, la lista de ubicaciones (antes «Sucursal»; el campo ahora se llama «Ubicación» en toda la mesa) ofrece «Oficinas Corporativas» (al final). No es una sucursal de la red: se guarda con su propio código (`OF`) sin tocar los de Kepler, y funciona en toda la mesa (categorías que exigen sucursal, filtro de la bandeja, ficha y reporte por sucursal).
 **La ubicación se ve siempre (MS.3.17):** al levantar una solicitud, el campo «Ubicación (opcional)» ya no está escondido tras un enlace; se muestra desde el principio (y con asterisco si la categoría la exige).
+
+**Mantenimiento sembrada, apagada (MS.7.14):** la Mesa tiene la cola de Mantenimiento con sus 11 categorías y la ubicación «Estacionamiento CEDIS». Nace apagada y sin miembros: no se ofrece a nadie hasta que un administrador nombre a su coordinación y ésta la encienda desde Configuración.
+**Pantalla de miembros de la cola (MS.7.17):** en Configuración de la Mesa, cada cola muestra quién la atiende y la coordinación de esa cola puede agregar personas (las que ya tienen el permiso de atender), cambiar su rol o quitarlas, sin pasar por la API. Marca a quien perdió el permiso y explica con claridad lo que no se puede (la cola no se queda sin coordinación; no se quita a quien tiene solicitudes abiertas).
+
+**«Mi trabajo» y Reportes por cola (MS.7.18):** lo «sin asignar» de Mi trabajo cuenta sólo las colas a las que perteneces (si no perteneces a ninguna, lo dice en vez de mostrar un cero), y Reportes ofrece elegir la cola cuando coordinas más de una.
 
 **Acceso por cola (MS.7.1 y MS.7.6):** quien atiende la Mesa de Servicio ya no ve los tickets de todas las áreas: sólo los de las colas a las que pertenece (la clave de atender dice *qué* puede hacer; la pertenencia, *dónde*). La bandeja, el tablero, el reporte, los avisos de urgentes y de plazo y la asignación respetan la cola del ticket; la coordinación de cada cola administra a sus miembros (API) y la cola nunca se queda sin coordinación. Quien ya atendía TI queda como miembro de TI al aplicar la migración. Es la base para sumar Mantenimiento y Recursos Humanos.
 

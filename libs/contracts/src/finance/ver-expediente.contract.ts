@@ -41,7 +41,36 @@ import type { IdentidadQueDecide } from './dueno-del-vale.contract';
 export const PERMISOS_VEN_CUALQUIER_EXPEDIENTE = Object.freeze([
   'FINANCE_EXPENSES_VER',
   'FINANCE_EXPENSES_COMPROBAR',
+  // `[GX.71]` Quien ve el historial de TODOS tiene que poder abrir el vale que ese historial
+  // le muestra; si no, la pestaña «Todos» le enseñaría vales que le responden 403.
+  'FINANCE_EXPENSES_HISTORIAL_TODOS',
 ] as const);
+
+/**
+ * `[GX.71]` La llave que abre el historial de gastos de toda la empresa sin ser admin.
+ * Literal por la misma razón que la lista de arriba.
+ */
+export const PERMISO_HISTORIAL_TODOS = 'FINANCE_EXPENSES_HISTORIAL_TODOS' as const;
+
+/**
+ * `[GX.71]` ¿Ve el historial de gastos de **toda la empresa** (la pestaña «Todos»)?
+ *
+ * Desde `[GX.26]` la respuesta era «sólo god-mode», y la comprobaban por separado la ruta
+ * `GET /finance/expenses/proofs`, el calendario con `alcance=todos` y la pantalla. Al abrirlo a
+ * una persona (Mayra Gutiérrez, pedido del 2026-10-07) la regla pasa a vivir **acá, una vez**:
+ * si cada lado la reescribiera, la pestaña podría ofrecer lo que la ruta niega.
+ *
+ * ⚠️ Sigue siendo una puerta ANGOSTA a propósito: `FINANCE_EXPENSES_VER` (25 personas en
+ * `[GX.26]`) **no** la abre. Sólo el rol de plataforma o esta llave, que se da por persona.
+ */
+export function puedeVerHistorialDeTodos(
+  quien: QuienAbreExpediente | null | undefined,
+  esAdminDePlataforma: (rol?: string | null) => boolean = () => false,
+): boolean {
+  if (!quien) return false;
+  if (esAdminDePlataforma(quien.role_name ?? null)) return true;
+  return quien.permissions?.[PERMISO_HISTORIAL_TODOS] === true;
+}
 
 /** Lo que se sabe de quien abre el expediente. Es la forma del token, nada más. */
 export interface QuienAbreExpediente extends IdentidadQueDecide {

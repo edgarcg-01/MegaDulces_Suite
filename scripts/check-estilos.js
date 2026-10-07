@@ -138,7 +138,7 @@ const TOPE = {
   //    escala -- convertirlos MUEVE el texto de la pantalla con la que la cajera cuenta
   //    dinero. Eso se decide abriendola, no desde un gate. Deuda CON NOMBRE: ese archivo
   //    necesita su propio barrido, y es el tercer push seguido que lo nombra.
-  fontSize:   2702,
+  fontSize:   2701,
   hex:        1449,  // hex crudo en declaración de color
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,

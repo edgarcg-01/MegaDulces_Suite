@@ -107,6 +107,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
   console.log('\n=== [MS.2.9] Mesa de Servicio por HTTP — roles mínimos y pruebas negativas ===\n');
   const usuarios = [];
   let restaurar = null;
+  let mtoActivaAntes = null; // `[MS.7.14]` la cola de Mantenimiento vuelve a como estaba
   try {
     // ── 0. Los cuatro usuarios efímeros ──────────────────────────────────────────
     console.log('0 — usuarios de prueba (se borran al final)');
@@ -566,7 +567,10 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     check('calendario corrido para medir sin depender de la hora de la corrida', (await put('/config/settings', { business_days: [0, 1, 2, 3, 4, 5, 6], business_start: '00:00', business_end: '23:59' })).status < 300);
     const tn = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: nadie lo ha tomado' });
     await knex('servicedesk.requests').where({ id: tn.body?.id }).update({ created_at: new Date(Date.now() - 3 * 3600e3) });
-    const viejoDb = await knex('servicedesk.requests').where({ tenant_id: T, status: 'nuevo' }).whereNull('assigned_to').whereNull('deleted_at').min({ m: 'created_at' }).count({ n: '*' }).first();
+    // `[MS.7.18]` «Sin asignar» es el de las colas de ESTA persona (coord es de TI), no el de toda la empresa.
+    const viejoDb = await knex('servicedesk.requests').where({ tenant_id: T, status: 'nuevo' }).whereNull('assigned_to').whereNull('deleted_at')
+      .whereIn('queue_id', knex('servicedesk.queue_members').where({ user_id: coord.id, active: true }).select('queue_id'))
+      .min({ m: 'created_at' }).count({ n: '*' }).first();
 
     const w16 = await req('GET', '/users/me/work', coord.token);
     const b16 = pendDe(w16);
@@ -978,6 +982,22 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('⭐ y deja de verlos', !ids(await filasDe(huerfano.token)).has(idMto));
       check('el god-mode también administra miembros', (await req('PUT', `${SD}/config/queues/${qMto}/members/${huerfano.id}`, dios.token, { role: 'tecnico' })).status === 200);
 
+      // ── `[MS.7.17]` la pantalla de miembros: a quién se puede agregar y quién puede administrar ──
+      const cand = await req('GET', `${SD}/config/queues/${qMto}/candidates`, coordMto.token);
+      const idsCand = new Set((cand.body ?? []).map((x) => x.user_id));
+      check('⭐ los candidatos son quienes tienen la clave y aún NO son miembros (el agente y el coordinador de TI)', cand.status === 200 && idsCand.has(agente.id) && idsCand.has(coord.id), dump(cand));
+      check('⛔ y NO aparecen quienes ya son miembros', !idsCand.has(tecMto.id) && !idsCand.has(coordMto.id) && !idsCand.has(huerfano.id));
+      check('⛔ ni quien no tiene la clave de atender (el solicitante)', !idsCand.has(sol.id));
+      check('cada candidato dice si podría coordinar', (cand.body ?? []).find((x) => x.user_id === coord.id)?.can_coordinate === true && (cand.body ?? []).find((x) => x.user_id === agente.id)?.can_coordinate === false);
+      check('⛔ el coordinador de TI NO ve los candidatos de Mantenimiento → 403', (await req('GET', `${SD}/config/queues/${qMto}/candidates`, coord.token)).status === 403);
+      check('⛔ el técnico (sin la clave de coordinar) tampoco → 403', (await req('GET', `${SD}/config/queues/${qMto}/candidates`, tecMto.token)).status === 403);
+      check('⛔ una cola inexistente → 404', (await req('GET', `${SD}/config/queues/00000000-0000-0000-0000-000000000000/candidates`, dios.token)).status === 404);
+      const mgCoord = await req('GET', `${SD}/config/queues/${qMto}/members`, coordMto.token);
+      const mgTec = await req('GET', `${SD}/config/queues/${qMto}/members`, tecMto.token);
+      check('⭐ la respuesta dice si quien pregunta puede administrar: la coordinación sí…', mgCoord.body?.can_manage === true);
+      check('⛔ …el técnico NO (ve con quién trabaja, pero la pantalla no le ofrece los controles)', mgTec.status === 200 && mgTec.body?.can_manage === false);
+      check('el god-mode sí', (await req('GET', `${SD}/config/queues/${qMto}/members`, dios.token)).body?.can_manage === true);
+
       // ── configuración de la cola ──
       check('⛔ la coordinación de TI NO cambia una categoría de Mantenimiento → 403', (await req('PUT', `${SD}/config/categories/${catMto}`, coord.token, { name: 'robada' })).status === 403);
       check('⛔ ni le agrega una → 403', (await req('POST', `${SD}/config/categories`, coord.token, { queue_id: qMto, code: 'smoke_x', name: 'x' })).status === 403);
@@ -1004,6 +1024,93 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
         check('⛔ y NO despierta a TI', !dest.has(agente.id) && !dest.has(coord.id), JSON.stringify([...dest]));
       } else {
         noMedido.push('avisos por cola: el aviso «nuevo prioritario» no dejó filas en notification_log (canal apagado en este entorno)');
+      }
+    }
+
+    // ── 23. [MS.7.18] «Mi trabajo»: lo sin asignar es de TUS colas ───────────────────────────────────
+    {
+      console.log('\n23 — Mi trabajo › lo sin asignar se cuenta sólo en las colas de cada persona');
+      const BAND = 'servicio-sin-asignar';
+      const colaTi = await knex('servicedesk.queues').where({ tenant_id: T, code: 'ti' }).first('id');
+      const [{ id: qCnt }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_mw718', name: 'SMOKE Mi trabajo', sort_order: 901 }).returning('id');
+      const [{ id: catCnt }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qCnt, code: 'smoke_mw718_cat', name: 'SMOKE MW cat', default_priority: 'media', requires_branch: false }).returning('id');
+      const reparte = await crearUsuario('mw_reparte', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qCnt, role: 'coordinador' }]);
+      const sinCola = await crearUsuario('mw_sincola', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], []);
+      usuarios.push(reparte, sinCola);
+      for (const u of [reparte, sinCola]) {
+        await knex('identity.user_responsibilities').insert({ tenant_id: T, user_id: u.id, responsibility_key: 'servicio.atender', accion: 'suma', nota: 'smoke http-service-desk-test' });
+      }
+      // Dos sin asignar en la cola nueva, uno más en TI.
+      await req('POST', `${SD}/requests`, sol.token, { category_id: catCnt, title: 'SMOKE 7.18 sin asignar A' });
+      await req('POST', `${SD}/requests`, sol.token, { category_id: catCnt, title: 'SMOKE 7.18 sin asignar B' });
+      await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.18 sin asignar en TI' });
+      const sinAsignarDe = async (queueIds) => Number((await knex('servicedesk.requests').where({ tenant_id: T, status: 'nuevo' }).whereNull('assigned_to').whereNull('deleted_at').whereIn('queue_id', queueIds).count({ n: '*' }).first()).n);
+      const pend = (r) => (r.body?.pendientes ?? []).find((p) => p.id === BAND);
+      const wR = await req('GET', '/users/me/work', reparte.token);
+      check('⭐ quien reparte la cola nueva ve sus 2 sin asignar, y NO los de TI', pend(wR)?.total === (await sinAsignarDe([qCnt])) && pend(wR)?.total === 2, JSON.stringify([pend(wR)?.total, await sinAsignarDe([qCnt])]));
+      const wC = await req('GET', '/users/me/work', coord.token);
+      const totalTi = await sinAsignarDe([colaTi.id]);
+      check('⭐ y quien reparte TI cuenta SÓLO los de TI (no suma la cola nueva)', pend(wC)?.total === totalTi, JSON.stringify([pend(wC)?.total, totalTi]));
+      const wS = await req('GET', '/users/me/work', sinCola.token);
+      check('⛔ NEGATIVA — quien responde de repartir pero NO pertenece a ninguna cola no ve «0 por asignar»', !pend(wS), JSON.stringify(pend(wS)));
+      const noMed = (wS.body?.no_medido ?? []).find((n) => n.id === BAND);
+      check('⭐ …se DECLARA que no se pudo medir, con el motivo (no se dibuja un cero que se lea «estás al día»)', !!noMed && /ninguna cola/i.test(noMed.motivo ?? ''), JSON.stringify(wS.body?.no_medido));
+      // Agregarlo a una cola lo arregla en la SIGUIENTE lectura.
+      await knex('servicedesk.queue_members').insert({ tenant_id: T, queue_id: qCnt, user_id: sinCola.id, role: 'tecnico' });
+      const wS2 = await req('GET', '/users/me/work', sinCola.token);
+      check('al agregarlo a la cola, la siguiente lectura ya cuenta lo suyo', pend(wS2)?.total === 2, JSON.stringify(pend(wS2)?.total));
+
+      // El reporte dice de qué colas puede ser, para el selector.
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const repR = await req('GET', `${SD}/reports?from=${hoy}&to=${hoy}`, reparte.token);
+      check('⭐ el reporte declara las colas de las que puede ser (sólo las que coordina) y que no se acotó', repR.status === 200 && repR.body?.colas?.length === 1 && repR.body.colas[0].id === qCnt && repR.body.cola_id === null, JSON.stringify([repR.body?.colas, repR.body?.cola_id]));
+      const repR2 = await req('GET', `${SD}/reports?from=${hoy}&to=${hoy}&queue_id=${qCnt}`, reparte.token);
+      check('y al acotar por queue_id lo repite en cola_id', repR2.status === 200 && repR2.body?.cola_id === qCnt);
+    }
+
+    // ── 24. [MS.7.14] Mantenimiento: sembrada APAGADA, y se enciende desde la pantalla ───────────────
+    {
+      console.log('\n24 — Mantenimiento sembrada: apagada y sin miembros hasta que su coordinación la enciende');
+      const mto = await knex('servicedesk.queues').where({ tenant_id: T, code: 'mantenimiento' }).first('id', 'active');
+      if (!mto) {
+        noMedido.push('siembra de Mantenimiento (MS.7.14): la cola no está sembrada en este destino; se omiten sus comprobaciones');
+      } else {
+        mtoActivaAntes = mto.active;
+        await knex('servicedesk.queues').where({ id: mto.id }).update({ active: false }); // punto de partida conocido
+        const catPlomeria = await knex('servicedesk.categories').where({ queue_id: mto.id, code: 'plomeria' }).first('id');
+        const dios2 = await crearUsuario('dios2');
+        await knex('identity.users').where({ id: dios2.id }).update({ role_name: 'superadmin' });
+        dios2.token = (await req('POST', '/auth-mt/login', null, { tenant_slug: 'mega_dulces', username: dios2.username, password: PASS_PLANO })).body?.access_token ?? null;
+        const jefe = await crearUsuario('mto_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], []);
+        usuarios.push(dios2, jefe);
+
+        const idsDe = async (token) => new Set(((await req('GET', `${SD}/requests/inbox?scope=all&limit=200`, token)).body?.rows ?? []).map((r) => r.id));
+        const cat0 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+        check('⭐ APAGADA: el catálogo NO ofrece la cola ni sus categorías (un ticket ahí nacería en una bandeja que nadie ve)', !(cat0?.queues ?? []).some((q) => q.id === mto.id) && !(cat0?.categories ?? []).some((k) => k.queue_id === mto.id), JSON.stringify((cat0?.queues ?? []).map((q) => q.name)));
+        const intento = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlomeria.id, title: 'SMOKE 7.14 con la cola apagada', warehouse_code: 'EC' });
+        check('⛔ y levantar un ticket en una categoría suya → 400 (no queda un ticket huérfano)', intento.status === 400, dump(intento));
+        const cfgDios = await req('GET', `${SD}/config`, dios2.token);
+        check('el god-mode SÍ la ve en la configuración (apagada) para poder encenderla', (cfgDios.body?.queues ?? []).some((q) => q.id === mto.id && q.active === false));
+        check('⛔ quien tiene las claves pero NO es de la cola no puede encenderla → 403', (await req('PUT', `${SD}/config/queues/${mto.id}`, jefe.token, { active: true })).status === 403);
+
+        // El camino real: un administrador nombra a la coordinación; ella enciende la cola.
+        const nombra = await req('PUT', `${SD}/config/queues/${mto.id}/members/${jefe.id}`, dios2.token, { role: 'coordinador' });
+        check('⭐ 1) un administrador nombra a quien coordina la cola', nombra.status === 200 && nombra.body?.members?.some((m) => m.user_id === jefe.id && m.role === 'coordinador'), dump(nombra));
+        const enciende = await req('PUT', `${SD}/config/queues/${mto.id}`, jefe.token, { active: true });
+        check('⭐ 2) ESA coordinación enciende la cola (no hizo falta código ni migración)', enciende.status === 200 && (enciende.body?.queues ?? []).some((q) => q.id === mto.id && q.active === true), dump(enciende));
+        const cat1 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+        const susCats = (cat1?.categories ?? []).filter((k) => k.queue_id === mto.id);
+        check('⭐ encendida, el catálogo ofrece sus 11 categorías', susCats.length === 11, String(susCats.length));
+        check('y todas exigen ubicación', susCats.every((k) => k.requires_branch === true));
+        const sinUbic = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlomeria.id, title: 'SMOKE 7.14 sin ubicación' });
+        check('⛔ sin ubicación → 400 (una falla de mantenimiento es EN un sitio)', sinUbic.status === 400, dump(sinUbic));
+        const tEc = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlomeria.id, title: 'SMOKE 7.14 fuga en el estacionamiento', warehouse_code: 'EC' });
+        check('⭐ «Estacionamiento CEDIS» (EC) es una ubicación válida y se nombra bien', tEc.status === 201 && tEc.body?.warehouse_name === 'Estacionamiento CEDIS', dump(tEc));
+        const bJefe = await idsDe(jefe.token);
+        check('⭐ la coordinación de Mantenimiento ve el ticket en SU bandeja', bJefe.has(tEc.body?.id));
+        const bTi = await idsDe(agente.token);
+        check('⛔ y la gente de TI NO lo ve (el aislamiento por cola ya lo garantiza)', !bTi.has(tEc.body?.id));
+        check('el ticket cae SIN asignar (no hay regla ni responsable por omisión: lo reparte la coordinación)', tEc.body?.status === 'nuevo' && !tEc.body?.assigned_to, JSON.stringify([tEc.body?.status, tEc.body?.assigned_to]));
       }
     }
 
@@ -1170,6 +1277,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
         });
       }
     }
+    if (mtoActivaAntes !== null) await knex('servicedesk.queues').where({ tenant_id: T, code: 'mantenimiento' }).update({ active: mtoActivaAntes });
     // Se borra con la conexión PRIVILEGIADA: `app_runtime` no tiene DELETE sobre el registro, y es lo correcto.
     const ids = usuarios.map((u) => u.id);
     if (ids.length) {

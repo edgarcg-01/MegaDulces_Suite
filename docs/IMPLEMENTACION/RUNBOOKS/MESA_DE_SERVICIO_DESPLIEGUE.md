@@ -281,7 +281,29 @@ A partir de la fase multi-área ([`FASE_MS7`](../FASES/FASE_MS7_MANTENIMIENTO.md
 
 **Por qué antes:** con `queue_members` vacía el código nuevo no deja ver ningún ticket a nadie. El backfill de la migración es lo que lo evita; por eso el paso 2 no es opcional.
 
-**Dar de alta a una persona nueva** (cambia el §5): además de `SERVICIO_ATENDER` (y `SERVICIO_COORDINAR` si reparte), la coordinación **de esa cola** la agrega: `PUT /service-desk/config/queues/:id/members/:userId` con `{"role":"tecnico"}` (o `"coordinador"`). Hoy es por API: la pantalla es MS.7.17. La API se niega con un mensaje claro si a la persona le falta la clave.
+**Dar de alta a una persona nueva** (cambia el §5): además de `SERVICIO_ATENDER` (y `SERVICIO_COORDINAR` si reparte), la coordinación **de esa cola** la agrega: `PUT /service-desk/config/queues/:id/members/:userId` con `{"role":"tecnico"}` (o `"coordinador"`). **Desde MS.7.17 se hace en la pantalla:** `/servicio/configuracion` › la cola › «Quién atiende esta cola» › Agregar (la API se niega con un mensaje claro si a la persona le falta la clave, y la lista de candidatos sólo ofrece a quien ya la tiene).
 
 **Reversa:** la migración trae `down` (quita la tabla y las dos columnas). ⚠️ Si ya se desplegó el código nuevo, **revertir primero el código**: sin la tabla, `actors.service` falla al leer las membresías.
+
+---
+
+## 12. Activar Mantenimiento (MS.7.14) — la cola nace apagada
+
+**Antes de empezar (todo debe estar listo; si falta algo, NO encender):** `20261006130000` (miembros) aplicada y verificada (§11); el código con **acceso por cola**, **«Mi trabajo» por cola** (MS.7.18) y **la pantalla de miembros** (MS.7.17) desplegado; y la persona que coordinará con **`SERVICIO_ATENDER` y `SERVICIO_COORDINAR`** dados desde Personas.
+
+1. Aplicar **una** migración, con el candado de identidad: `20261007240000_servicedesk_seed_mantenimiento.js`. Es segura en cualquier momento: la cola nace **apagada** y el catálogo esconde las categorías de una cola apagada, así que no cambia nada visible.
+2. **Verificar** (debe dar `false`, 11 y 0):
+   ```sql
+   SELECT q.active, (SELECT count(*) FROM servicedesk.categories c WHERE c.queue_id = q.id) AS categorias,
+                    (SELECT count(*) FROM servicedesk.queue_members m WHERE m.queue_id = q.id AND m.active) AS miembros
+     FROM servicedesk.queues q WHERE q.code = 'mantenimiento';
+   ```
+3. **Nombrar a la coordinación** (sólo un administrador puede: aún no hay nadie que la coordine): `/servicio/configuracion` › Mantenimiento › «Quién atiende esta cola» › Agregar, rol *Coordinación*. La lista sólo ofrece a quien ya tiene la clave.
+4. **Esa persona** agrega a su gente y **enciende la cola** («Encender cola»). Desde ese momento «Nueva solicitud» ofrece sus 11 categorías (todas piden ubicación; «Oficinas Corporativas» y «Estacionamiento CEDIS» están en la lista).
+5. **Verificar con dos personas:** alguien de TI **no** ve el ticket de prueba de Mantenimiento; la coordinación de Mantenimiento **sí**, sin asignar.
+6. **Validar con Frank** (se cambia desde la pantalla): la prioridad por defecto de cada categoría (nacen en `media`) y si todas deben exigir ubicación.
+
+**Lo que Mantenimiento NO tiene aún:** SLA propio en horario hábil (hereda los plazos generales; MS.7.2), prioridad por riesgo × operación (MS.7.7), zonas (MS.7.3) ni los dos campos de riesgo (MS.7.4). Hasta entonces la prioridad se sugiere con la matriz de impacto de siempre.
+
+**Reversa:** apagar la cola desde la pantalla (los tickets ya levantados se conservan). La migración trae `down`, pero **conserva** la cola si ya tiene tickets.
 

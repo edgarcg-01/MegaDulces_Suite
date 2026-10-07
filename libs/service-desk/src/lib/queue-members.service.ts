@@ -16,7 +16,7 @@
  */
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { SD_QUEUE_ROLES, type SdQueueMemberDto, type SdQueueMembersResponse, type SdQueueRole } from '@megadulces/contracts';
+import { SD_QUEUE_ROLES, type SdQueueCandidateDto, type SdQueueMemberDto, type SdQueueMembersResponse, type SdQueueRole } from '@megadulces/contracts';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { ServiceDeskAgentsService } from './agents.service';
 import { puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
@@ -37,7 +37,17 @@ export class ServiceDeskQueueMembersService {
   async list(ctx: ActorCtx, queueId: string): Promise<SdQueueMembersResponse> {
     if (!UUID_RE.test(queueId)) throw new NotFoundException('Cola no encontrada');
     if (!puedeAtenderCola(ctx.colas, queueId)) throw new NotFoundException('Cola no encontrada');
-    return this.tk.run((trx) => this.leer(trx, queueId));
+    return this.tk.run((trx) => this.leer(trx, queueId, ctx));
+  }
+
+  /** Quién podría entrar: la coordinación de esa cola ve a quienes tienen la clave y aún no son miembros. */
+  async candidates(ctx: ActorCtx, queueId: string): Promise<SdQueueCandidateDto[]> {
+    if (!UUID_RE.test(queueId)) throw new NotFoundException('Cola no encontrada');
+    return this.tk.run(async (trx) => {
+      await this.exigirCola(trx, queueId);
+      this.exigirCoordinacion(ctx, queueId);
+      return this.agents.candidatos(trx, queueId);
+    });
   }
 
   async upsert(ctx: ActorCtx, queueId: string, userId: string, role: unknown): Promise<SdQueueMembersResponse> {
@@ -83,7 +93,7 @@ export class ServiceDeskQueueMembersService {
           updated_by: ctx.userId,
         });
       }
-      return this.leer(trx, queueId);
+      return this.leer(trx, queueId, ctx);
     });
   }
 
@@ -107,7 +117,7 @@ export class ServiceDeskQueueMembersService {
         throw new ConflictException(`Tiene ${n} solicitud${n === 1 ? '' : 'es'} abierta${n === 1 ? '' : 's'} asignada${n === 1 ? '' : 's'}: reasígnalas antes de quitarla de la cola`);
       }
       await trx('servicedesk.queue_members').where({ id: m.id }).update({ active: false, updated_at: trx.fn.now(), updated_by: ctx.userId });
-      return this.leer(trx, queueId);
+      return this.leer(trx, queueId, ctx);
     });
   }
 
@@ -137,7 +147,7 @@ export class ServiceDeskQueueMembersService {
     if (Number(otros?.n ?? 0) === 0) throw new ConflictException('La cola no puede quedarse sin coordinación: nombra a otra persona coordinadora primero');
   }
 
-  private async leer(trx: Knex.Transaction, queueId: string): Promise<SdQueueMembersResponse> {
+  private async leer(trx: Knex.Transaction, queueId: string, ctx: ActorCtx): Promise<SdQueueMembersResponse> {
     const filas = (await trx('servicedesk.queue_members as m')
       .join('identity.users as u', function () {
         this.on('u.tenant_id', 'm.tenant_id').andOn('u.id', 'm.user_id');
@@ -155,6 +165,6 @@ export class ServiceDeskQueueMembersService {
       can_attend: caps.get(f.user_id)?.atender === true || caps.get(f.user_id)?.coordinar === true,
       can_coordinate: caps.get(f.user_id)?.coordinar === true,
     }));
-    return { queue_id: queueId, members };
+    return { queue_id: queueId, members, can_manage: (ctx.esCoordinador || ctx.esGod) && puedeCoordinarCola(ctx.colas, queueId) };
   }
 }

@@ -16,6 +16,7 @@ import {
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { DataScopeService } from '../../../core/services/data-scope.service';
+import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { TELEMARKETING_TABS } from '../telemarketing-tabs';
@@ -675,23 +676,12 @@ export class ComercialDocumentosComponent {
         },
         error: (e) => {
           this.busy.set(null);
-          this.mensajeDeBlob(e).then((detail) => this.toast.add({
+          // El endpoint responde blob: el mensaje del backend viene DENTRO del blob.
+          mensajeDeErrorBlob(e).then((detail) => this.toast.add({
             severity: 'error', summary: 'No se pudo generar la guía', detail, life: 8000,
           }));
         },
       });
-  }
-
-  /** El endpoint responde blob: el mensaje del backend viene DENTRO del blob. */
-  private async mensajeDeBlob(e: { error?: unknown }): Promise<string> {
-    try {
-      const cuerpo = e?.error instanceof Blob ? await e.error.text() : null;
-      const json = cuerpo ? JSON.parse(cuerpo) : (e?.error as { message?: string | string[] });
-      const m = (json as { message?: string | string[] })?.message;
-      return Array.isArray(m) ? m.join(' · ') : String(m || 'Intenta de nuevo.');
-    } catch {
-      return 'Intenta de nuevo.';
-    }
   }
 
   /** Abre el detalle por folio digital, venga de la tabla o de un deep-link. */

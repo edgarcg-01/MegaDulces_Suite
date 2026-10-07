@@ -20,7 +20,11 @@ function hoja(over: Record<string, any> = {}) {
     viaje: { fecha: '2026-10-03', sucursal_nombre: 'Sucursal Canindo', tipo: tipoDeViaje(PARADAS) },
     unidad: { vehicle_id: 'aaaaaaaa-0000-4000-8000-000000000017' },
     chofer: { driver_id: 'bbbbbbbb-0000-4000-8000-000000000017' },
-    comision: { ruta_usada: { route_id: 'cccccccc-0000-4000-8000-000000000041' } },
+    // La tarifa del viaje: la mayor de sus rutas (JIQUILPAN). Todas sus rutas tienen tarifa.
+    comision: {
+      driver: 98.04, helper: 57.76, sin_tarifa: [],
+      ruta_usada: { clave: 'R0057', nombre: 'JIQUILPAN', route_id: 'cccccccc-0000-4000-8000-000000000041' },
+    },
     resumen: resumirViaje(PARADAS),
     paradas: PARADAS,
     tomado: null,
@@ -95,7 +99,7 @@ describe('LogisticsShipmentsService.createFromKepler', () => {
     const { svc, k } = servicio(hoja());
     const r = await svc.createFromKepler('06', '0001419', {
       delivery_type: 'route', helper1_id: 'dddddddd-0000-4000-8000-000000000001',
-      driver_commission: 103.2, helper1_commission: 63.84, per_diem_total: 320, freight_revenue: 0,
+      per_diem_total: 320, freight_revenue: 0,
     });
 
     const [s] = k.inserts['logistics.shipments'];
@@ -120,15 +124,37 @@ describe('LogisticsShipmentsService.createFromKepler', () => {
     expect(k.llamadas.filter((l) => l.tabla === 'logistics.vehicles')).toHaveLength(0);
   });
 
-  it('la guía de entrega lleva al chofer de Kepler y las comisiones capturadas', async () => {
+  it('la guía lleva al chofer de Kepler y la comisión CALCULADA de la tarifa del viaje', async () => {
     const { svc, k } = servicio(hoja());
-    await svc.createFromKepler('06', '0001419', { delivery_type: 'route', driver_commission: 103.2 });
+    await svc.createFromKepler('06', '0001419', { delivery_type: 'route' });
     const [g] = k.inserts['logistics.delivery_guides'];
     expect(g).toMatchObject({
-      driver_id: 'bbbbbbbb-0000-4000-8000-000000000017', driver_commission: 103.2,
+      driver_id: 'bbbbbbbb-0000-4000-8000-000000000017', driver_commission: 98.04,
       helper1_id: null, helper1_commission: 0, status: 'pendiente', type: 'entrega',
     });
     expect(g.number).toMatch(/^GUIA-\d{4}-\d{5}$/);
+  });
+
+  it('cada ayudante que va cobra la tarifa de ayudante; el que no va, 0', async () => {
+    const { svc, k } = servicio(hoja());
+    await svc.createFromKepler('06', '0001419', { delivery_type: 'route', helper1_id: 'dddddddd-0000-4000-8000-000000000001' });
+    expect(k.inserts['logistics.delivery_guides'][0]).toMatchObject({ helper1_commission: 57.76, helper2_commission: 0 });
+  });
+
+  it('si una ruta del viaje no tiene tarifa, no crea nada y dice cuál falta', async () => {
+    const h = hoja({ comision: { driver: 98.04, helper: 57.76, ruta_usada: null, sin_tarifa: [{ clave: 'R0041', nombre: 'SANTAGIO TANGAMNADAPIO' }] } });
+    const { svc, k } = servicio(h);
+    await expect(svc.createFromKepler('06', '0001419', { delivery_type: 'route' }))
+      .rejects.toThrow(/Falta la tarifa de SANTAGIO TANGAMNADAPIO/);
+    expect(k.inserts['logistics.shipments']).toBeUndefined();
+    expect(k.inserts['logistics.delivery_guides']).toBeUndefined();
+  });
+
+  it('una comisión tecleada que no es la calculada se rechaza (no se paga de más ni de menos)', async () => {
+    const { svc, k } = servicio(hoja());
+    await expect(svc.createFromKepler('06', '0001419', { delivery_type: 'route', driver_commission: 150 }))
+      .rejects.toThrow(/La comisión se calcula de la tarifa de la ruta/);
+    expect(k.inserts['logistics.delivery_guides']).toBeUndefined();
   });
 
   it('un destinatario por parada, en orden de ruta y con la llave del documento de Kepler', async () => {

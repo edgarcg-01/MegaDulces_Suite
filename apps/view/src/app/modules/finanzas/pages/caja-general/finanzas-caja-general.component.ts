@@ -2162,9 +2162,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /**
    * `[CG.53]` Las dos mitades de la reja, para pintarlas lado a lado. `reja` sigue existiendo y
    * sigue siendo la misma lista: lo que cambia es cómo se acomoda, no qué se cuenta.
+   *
+   * ⛔ Copia, igual que `reja` y por la misma razón (ver arriba): con `= BILLETES_CAJA` directo
+   * el `[value]` de `p-table` tira TS4104 y rompió el build de `main`.
    */
-  readonly rejaBilletes = BILLETES_CAJA;
-  readonly rejaMonedas = MONEDAS_CAJA;
+  readonly rejaBilletes = [...BILLETES_CAJA];
+  readonly rejaMonedas = [...MONEDAS_CAJA];
 
   /**
    * `[CG.53]` El veredicto del arqueo, pegado al número en vez de en una pista tres bloques abajo.

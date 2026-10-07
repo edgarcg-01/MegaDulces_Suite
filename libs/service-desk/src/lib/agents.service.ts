@@ -11,7 +11,7 @@
  */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
-import type { SdAgentDto } from '@megadulces/contracts';
+import type { SdAgentDto, SdQueueCandidateDto } from '@megadulces/contracts';
 import { Permission, TenantKnexService } from '@megadulces/platform-core';
 import { puedeAtenderCola } from './domain/queue-access';
 import type { ActorCtx } from './service-desk.types';
@@ -101,6 +101,32 @@ export class ServiceDeskAgentsService {
     );
     for (const r of rows as { id: string; atender: boolean; coordinar: boolean }[]) out.set(r.id, { atender: r.atender === true, coordinar: r.coordinar === true });
     return out;
+  }
+
+  /**
+   * `[MS.7.17]` Quién PODRÍA entrar a `queueId`: tiene la clave de atender o coordinar (efectiva) y todavía no es miembro activo.
+   * Es lo que alimenta el selector de «agregar a la cola»: sin esto la coordinación tendría que adivinar a quién ya se le dio la clave.
+   */
+  async candidatos(trx: Knex.Transaction, queueId: string): Promise<SdQueueCandidateDto[]> {
+    const { rows } = await trx.raw(
+      `SELECT u.id AS user_id, u.username, u.nombre AS name, (${EFECTIVO}) AS can_coordinate
+         FROM identity.users u
+        WHERE u.deleted_at IS NULL
+          AND COALESCE(u.kind, 'interno') <> 'servicio'
+          AND u.role_name NOT LIKE 'retirado%'
+          AND (${EFECTIVO} OR ${EFECTIVO})
+          AND NOT EXISTS (
+            SELECT 1 FROM servicedesk.queue_members m
+             WHERE m.tenant_id = u.tenant_id AND m.user_id = u.id AND m.queue_id = ? AND m.active)
+        ORDER BY lower(coalesce(u.nombre, u.username))`,
+      [CLAVES[1], CLAVES[1], CLAVES[0], CLAVES[0], CLAVES[1], CLAVES[1], queueId],
+    );
+    return (rows as { user_id: string; username: string; name: string | null; can_coordinate: boolean }[]).map((r) => ({
+      user_id: r.user_id,
+      username: r.username,
+      name: r.name ?? null,
+      can_coordinate: r.can_coordinate === true,
+    }));
   }
 
   /** ¿`userId` puede ser asignado? Con `queueId`, ¿puede serlo EN ESA cola? */
