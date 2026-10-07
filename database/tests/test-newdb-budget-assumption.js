@@ -249,6 +249,53 @@ const ym = (y, m) => `${y}-${String(m).padStart(2, '0')}`;
       chk(!(lat.status === 'ok' && Number(gr.n) === 0),
         'no puede reportar `ok` sin una sola pasada completada: eso es exactamente el cero que se lee como «no había nada que hacer»');
     }
+    // ── [7] ⭐⭐ la consulta del servicio, ARMADA COMO LA ARMA ÉL ──────────────────────────────
+    //
+    // Este bloque nació de una falla que los seis de arriba NO vieron: `netByAccountYearMonth`
+    // interpola `''` como columna de sucursal y la metía **también en el GROUP BY**, donde Postgres
+    // responde `non-integer constant in GROUP BY`. Como `by_sucursal` es **false por defecto**, eso
+    // no era un borde: era el camino normal, y significa que el plan de gastos **nunca pudo
+    // proponerse**. Lo encontró la verificación por HTTP; acá pasaba en verde porque los bloques de
+    // arriba **replican** la consulta con `GROUP BY 1, 2` en vez de armarla como el servicio.
+    //
+    // ⭐ *Reproducir una consulta no es ejecutarla.* Por eso este bloque construye el SQL con la
+    // MISMA interpolación del servicio y lo corre contra la base, en los DOS modos.
+    console.log('\n[7] La consulta del servicio se EJECUTA, en los dos modos de `by_sucursal`');
+    const sqlDelServicio = (bySuc) => {
+      const sucSel = bySuc ? "coalesce(sucursal, '')" : `''`;
+      const sucGroup = bySuc ? "coalesce(sucursal, '')" : '';
+      return `SELECT cuenta_mayor AS account_code, max(cuenta_mayor_nombre) AS account_name,
+                     max(familia) AS familia, ${sucSel} AS sucursal,
+                     extract(year from fecha)::int AS year, extract(month from fecha)::int AS month,
+                     sum(CASE WHEN cargo_abono = 'A' THEN -importe ELSE importe END) AS monto
+                FROM analytics.expense_entries
+               WHERE tenant_id = $1 AND familia = ANY($2) AND cuenta_mayor IS NOT NULL AND cuenta_mayor <> ''
+                 AND extract(year from fecha) = ANY($3)
+               GROUP BY cuenta_mayor${sucGroup ? `, ${sucGroup}` : ''}, extract(year from fecha), extract(month from fecha)`;
+    };
+    for (const bySuc of [false, true]) {
+      try {
+        const r = await c.query(sqlDelServicio(bySuc), [T, FAMILIAS, ys.length ? ys.slice(-2) : [2025, 2026]]);
+        chk(true, `by_sucursal=${bySuc}: la consulta CORRE (${r.rows.length} filas)`);
+      } catch (e) {
+        chk(false, `by_sucursal=${bySuc}: la consulta REVIENTA → ${String(e.message).slice(0, 80)}`);
+      }
+    }
+    // ⭐ PRUEBA NEGATIVA: la forma vieja tiene que SEGUIR siendo rechazada por Postgres. Sin esto,
+    // el bloque de arriba sólo prueba que el SQL bueno corre — y eso también sería cierto si el
+    // motor hubiera empezado a tolerar la constante, que es justo lo que no se quiere suponer.
+    try {
+      await c.query(
+        `SELECT cuenta_mayor, '' AS sucursal, sum(importe) FROM analytics.expense_entries
+          WHERE tenant_id = $1 GROUP BY cuenta_mayor, '', extract(year from fecha)`, [T]);
+      chk(false, 'PRUEBA NEGATIVA: Postgres ACEPTÓ la constante en el GROUP BY — la premisa del arreglo ya no vale');
+    } catch (e) {
+      chk(/non-integer constant in GROUP BY/i.test(e.message),
+        `PRUEBA NEGATIVA: la forma vieja sigue siendo ilegal (${String(e.message).slice(0, 48)})`);
+    }
+    // Y la premisa, vigilada en el fuente: no puede volver a interpolarse la constante en el GROUP BY.
+    chk(!/GROUP BY cuenta_mayor, \$\{sucSel\}/.test(src),
+      'el fuente ya no interpola la columna del SELECT dentro del GROUP BY — ahí es donde la constante es ilegal');
   } finally {
     await c.end().catch(() => undefined);
   }
