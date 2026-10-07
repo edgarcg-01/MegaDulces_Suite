@@ -1836,3 +1836,90 @@ pantalla.
 Las seis entregas anteriores pasaron **todos** los gates y la suite entera, y tres de ellas
 llegaron rotas a la pantalla. **Ninguna compuerta de este repo mide layout.** La validación visual
 no es un trámite al final: es la única que ve esta familia de defectos.
+
+---
+
+## 24. `[CG.58]` El ingreso de CAOS se concilia al 100% — y aparece un número de $18.8 M (2026-10-07)
+
+**Pedido de Edgar:** *"hay que conciliar el 100% de los ingresos de CAOS"* → *"un ingreso a CAOS
+conciliarlo con el movimiento de Kepler. primero se debe tomar el ingreso en Kepler y luego en
+CAOS, todos estos ingresos a CAOS deben estar vinculados automáticamente a la hora de generar el
+arqueo"* → *"necesito el 100% de los ingresos, el egreso no se puede cazar como tal pero el
+ingreso sí"*.
+
+**Tiene razón, y la diferencia es estructural**: el egreso se casa por **parecido** (monto, día,
+tokens del `ref`) y nunca va a ser 100% — 1 de cada 3 matches por monto es falso por azar. El
+ingreso tiene una **ley**: el cobro se registra en Kepler **antes** de que el efectivo entre al
+equipo. Eso convierte «adivinar cuál» en «consumir en orden», que sí cierra.
+
+### El estado de partida, medido en prod
+
+| | |
+|---|---|
+| Depósitos de CAOS (`type_id=0`) | **708** · **$17,424,120** · 27-may → 7-oct |
+| Equipo / personas | 1 (`AST700-19758`) / 3 |
+| **Enlaces en `finance.caos_cash_links`** | **0** — la conciliación estaba en **0%**, no incompleta |
+| Cobros de Kepler en la ventana | 1,835 `U-A-5` · $35.67 M · caja `0011` |
+| Frescura del feed | último movimiento 21:45, sync 21:46 — **el feed funciona** |
+
+### ⭐ La prueba de que el 100% es alcanzable
+
+Saldo corrido de (cobros **+**) y (depósitos **−**) en orden cronológico, sobre **2,548 eventos**:
+
+> **depósitos sin respaldo: 0 de 708** · peor saldo **+$7,776.41** · el saldo **nunca se va a
+> negativo**.
+
+En todo momento hubo cobros anteriores suficientes. El 100% no sale de un casador astuto: sale de
+que **la ley del proceso se cumple en los 708 casos**.
+
+### ⛔ Lo que se descartó, midiendo antes de intentarlo
+
+**El 1:1 por importe es imposible por construcción.** Los 708 depósitos son **múltiplos de 10**
+(efectivo contado) y el **57%** de los cobros de Kepler traen **centavos**; sólo **25 de 708
+(3.5%)** tendrían un cobro anterior de monto exacto. El vínculo es **N:1** — varios cobros forman
+un depósito — y el último tramo de cada depósito queda **parcial**.
+
+### ⛔⛔ El hallazgo que salió de paso: $18.8 M cobrados y nunca depositados
+
+El mismo saldo corrido, leído al cierre de cada mes, **es el efectivo cobrado que no entró a la
+caja fuerte**:
+
+| may | jun | jul | ago | **sep** | oct |
+|---|---|---|---|---|---|
+| $384,724 | $4,642,827 | $12,050,116 | $14,949,712 | **$19,297,190** | $18,811,734 |
+
+⚠️ **No se afirma que sea un faltante.** Puede ser cobranza que no es efectivo, o efectivo que pagó
+gastos sin pasar por el equipo. Lo que sí es cierto es que **con el dato que hay no se puede
+distinguir**: `metodo` sólo trae `Cob`/`Not` y **no separa efectivo de transferencia**. El
+conciliador no explica ese número — lo **publica**, y hoy no lo mira nadie.
+
+### Lo construido en esta entrega
+
+`caja-caos-ingreso.engine.ts`, **puro y determinista** (patrón `caja-lote.engine`):
+`repartirIngresosCaos()` asigna FIFO los cobros disponibles a los depósitos, del más viejo al más
+nuevo, **sólo con cobros anteriores o del mismo día**, sin reusar ninguno, y devuelve por depósito
+`cubierto | sin_respaldo` con sus tramos — más **lo que quedó sin aplicar**, que es el número de
+arriba.
+
+⚠️ **El orden ES el algoritmo**, y por eso está fijado: un reparto que cambia según cómo llegaron
+las filas no se puede auditar. Es la misma lección que `caja-cuadre.engine` aprendió con su greedy
+sin `ORDER BY`.
+
+### Verificación
+
+- `nx test finance`: **608/608** (9 pruebas nuevas).
+- **Mutación**: permitir un cobro posterior → 1 roja · dejar de consumir el cobro (reusarlo) →
+  **5 rojas**.
+
+### ⛔ Lo que FALTA, y una decisión de esquema
+
+1. **`finance.caos_cash_links` no modela N:1.** Su índice es
+   `UNIQUE (tenant_id, caos_device, caos_external_id) WHERE deleted_at IS NULL` — **un enlace vivo
+   por movimiento de CAOS**. Sirve para *un depósito ↔ un asiento de caja*; la atribución *depósito
+   ↔ los N cobros que lo explican* **no tiene dónde vivir**. Hace falta tabla.
+   ⚠️ **Tabla y no vista derivada**: una atribución de efectivo que se recalcula sola cambia el
+   pasado cada vez que llega un cobro nuevo, y eso en dinero no se sostiene.
+2. El enganche al **generar el arqueo** (el corte), que es donde el pedido lo pone.
+3. La pantalla: los tres cubos —**cubierto · sin respaldo · sin depositar**— y el enlace a sus
+   cobros.
+4. ⛔ **La migración no se aplica a prod sin autorización** (regla de la casa).
