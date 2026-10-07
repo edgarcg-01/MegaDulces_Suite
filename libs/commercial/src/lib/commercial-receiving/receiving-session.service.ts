@@ -8,7 +8,14 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
-import type { ErpPendingMenu, ErpPendingBranch, ErpOrderMatch, AndenValeEnCurso } from '@megadulces/contracts';
+import type {
+  ErpPendingMenu,
+  ErpPendingBranch,
+  ErpOrderMatch,
+  AndenValeEnCurso,
+  AndenLineaOffline,
+  AndenPaqueteOffline,
+} from '@megadulces/contracts';
 import { DIAS_PENDIENTES_ANDEN } from '@megadulces/contracts';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { classifyReceivingOrigin } from './receiving-origin';
@@ -94,6 +101,28 @@ interface FilaEmbarque {
   recibido_kepler: string | null;
   abierto: boolean;
   hoy: string;
+}
+
+/**
+ * `[WMS-REC.20]` El documento de Kepler del que sale un vale: una orden de entrada (`XA2001`, por
+ * sucursal y folio) o un embarque de traspaso (`U-D-41`, por origen, serie y folio).
+ */
+export type DocErp =
+  | { tipo: 'compra'; sucursal: string; folio: string }
+  | { tipo: 'traspaso'; sucursal: string; serie: number; folio: string };
+
+/** La llave de un documento: la MISMA forma que `source_ref` del vale que se abre desde él. */
+export function claveDoc(d: DocErp): string {
+  return d.tipo === 'compra'
+    ? `${d.sucursal}/${d.folio}`
+    : transferRef({ origen: d.sucursal, serie: d.serie, folio: d.folio });
+}
+
+/** De un vale del menú a su documento. En un embarque, `sucursal` es la que EMBARCA. */
+export function docDeVale(v: Pick<ErpOrderMatch, 'fuente' | 'sucursal' | 'serie' | 'folio'>): DocErp {
+  return v.fuente === 'embarque'
+    ? { tipo: 'traspaso', sucursal: v.sucursal, serie: Number(v.serie), folio: v.folio }
+    : { tipo: 'compra', sucursal: v.sucursal, folio: v.folio };
 }
 
 export interface ScanDto {
@@ -385,59 +414,152 @@ export class ReceivingSessionService {
           status: 'open',
           notes: dto.notes || null,
           created_by: userId,
-          client_uuid: clientUuid,
+          // Sólo con llave: así el código no depende de que la migración ya esté aplicada
+          // para los equipos que todavía no la mandan.
+          ...(clientUuid ? { client_uuid: clientUuid } : {}),
         })
         .returning('*');
 
-      // Precarga de líneas esperadas desde el espejo ERP (mapea SKU Kepler → catálogo).
-      if (erpHeader) {
-        const tenantId = this.tenantCtx.get()?.tenantId || null;
-        // Los renglones `SER` son servicios (flete, maniobra): no son mercancía, no
-        // se reciben ni se ubican. Se excluyen del vale y se muestran aparte en la ficha.
-        const erpLines = await trx('analytics.erp_goods_receipt_lines')
-          .where({ tenant_id: tenantId, sucursal: erpHeader.sucursal, folio: erpHeader.folio })
-          .whereRaw(`COALESCE(TRIM(unidad),'') <> 'SER'`)
-          .select('sku', 'nombre', 'cantidad');
-        for (const el of erpLines) {
-          const prod = el.sku ? await trx('public.products').where({ sku: String(el.sku) }).first('id') : null;
-          await trx('commercial.receiving_lines').insert({
-            tenant_id: trx.raw('public.current_tenant_id()'),
-            session_id: session.id,
-            product_id: prod?.id || null,
-            expected_sku: el.sku || null,
-            expected_name: el.nombre || null,
-            expected_qty: Number(el.cantidad) || 0,
-            received_qty: 0,
-            discrepancy_kind: 'pending',
-          });
-        }
-      }
-
-      // `[WMS-REC.17]` Precarga desde el EMBARQUE: lo que la sucursal de origen subió al
-      // camión es lo esperado. Mismo trato que la orden de entrada: los `SER` no se
-      // reciben y el SKU se liga al catálogo por el mismo camino.
-      if (embarque) {
-        const tenantId = this.tenantCtx.get()?.tenantId || null;
-        const lineasEmb = await trx('analytics.erp_shipment_lines')
-          .where({ tenant_id: tenantId, sucursal: embarque.origen, serie: embarque.serie, folio: embarque.folio })
-          .whereRaw(`COALESCE(TRIM(unidad),'') <> 'SER'`)
-          .orderBy('nro_linea')
-          .select('sku', 'descripcion', 'cantidad');
-        for (const el of lineasEmb) {
-          const prod = el.sku ? await trx('public.products').where({ sku: String(el.sku) }).first('id') : null;
-          await trx('commercial.receiving_lines').insert({
-            tenant_id: trx.raw('public.current_tenant_id()'),
-            session_id: session.id,
-            product_id: prod?.id || null,
-            expected_sku: el.sku || null,
-            expected_name: el.descripcion || null,
-            expected_qty: Number(el.cantidad) || 0,
-            received_qty: 0,
-            discrepancy_kind: 'pending',
-          });
-        }
+      // Precarga de lo que el vale espera: de la orden de entrada o, en un traspaso
+      // (`[WMS-REC.17]`), de lo que la sucursal de origen subió al camión.
+      // `[WMS-REC.20]` La arma `lineasEsperadas`, la MISMA función que el paquete sin red: así una
+      // captura hecha sin red cae, al sincronizar, en el renglón de su producto.
+      const doc: DocErp | null = erpHeader
+        ? { tipo: 'compra', sucursal: erpHeader.sucursal, folio: erpHeader.folio }
+        : embarque
+          ? { tipo: 'traspaso', sucursal: embarque.origen, serie: embarque.serie, folio: embarque.folio }
+          : null;
+      if (doc) {
+        const lineas = (await this.lineasEsperadas(trx, [doc])).get(claveDoc(doc)) ?? [];
+        if (lineas.length)
+          await trx('commercial.receiving_lines').insert(
+            lineas.map((el) => ({
+              tenant_id: trx.raw('public.current_tenant_id()'),
+              session_id: session.id,
+              product_id: el.product_id,
+              expected_sku: el.expected_sku,
+              expected_name: el.expected_name,
+              expected_qty: el.expected_qty,
+              received_qty: 0,
+              discrepancy_kind: 'pending',
+            })),
+          );
       }
       return this.detailTx(trx, session.id);
+    });
+  }
+
+  /**
+   * `[WMS-REC.20]` **Lo que esperan uno o varios vales, en una pasada.**
+   *
+   * La usan `open()` (un documento) y `offlinePack()` (todos los de una sucursal). Que sea UNA
+   * función es la garantía de que el renglón que el equipo trabajó sin red y el que el servidor
+   * crea al abrir son el mismo: mismo producto por SKU, misma cantidad, los `SER` (flete,
+   * maniobra) fuera — no son mercancía, no se reciben ni se ubican.
+   *
+   * El orden es el de Kepler (`linea` en la orden de entrada, `nro_linea` en el embarque). La
+   * unidad se deriva por SKU dentro del documento, como en el detalle: si trae dos, `ambigua`.
+   */
+  private async lineasEsperadas(trx: Knex.Transaction, docs: DocErp[]): Promise<Map<string, AndenLineaOffline[]>> {
+    const tenantId = this.tenantCtx.get()?.tenantId || null;
+    const compras = docs.filter((d): d is Extract<DocErp, { tipo: 'compra' }> => d.tipo === 'compra');
+    const traspasos = docs.filter((d): d is Extract<DocErp, { tipo: 'traspaso' }> => d.tipo === 'traspaso');
+    const filas: Array<{ clave: string; sku: string | null; nombre: string | null; cantidad: unknown; unidad: string | null }> = [];
+
+    if (compras.length) {
+      const rs = await trx('analytics.erp_goods_receipt_lines')
+        .where({ tenant_id: tenantId })
+        .whereIn(['sucursal', 'folio'], compras.map((d) => [d.sucursal, d.folio]))
+        .whereRaw(`COALESCE(TRIM(unidad),'') <> 'SER'`)
+        .orderBy('sucursal')
+        .orderBy('folio')
+        .orderByRaw('length(linea), linea')
+        .select('sucursal', 'folio', 'sku', 'nombre', 'cantidad', 'unidad');
+      for (const r of rs)
+        filas.push({ clave: claveDoc({ tipo: 'compra', sucursal: r.sucursal, folio: r.folio }), sku: r.sku, nombre: r.nombre, cantidad: r.cantidad, unidad: r.unidad });
+    }
+    if (traspasos.length) {
+      const rs = await trx('analytics.erp_shipment_lines')
+        .where({ tenant_id: tenantId })
+        .whereIn(['sucursal', 'serie', 'folio'], traspasos.map((d) => [d.sucursal, d.serie, d.folio]))
+        .whereRaw(`COALESCE(TRIM(unidad),'') <> 'SER'`)
+        .orderBy('sucursal')
+        .orderBy('serie')
+        .orderBy('folio')
+        .orderBy('nro_linea')
+        .select('sucursal', 'serie', 'folio', 'sku', 'descripcion', 'cantidad', 'unidad');
+      for (const r of rs)
+        filas.push({
+          clave: claveDoc({ tipo: 'traspaso', sucursal: r.sucursal, serie: Number(r.serie), folio: r.folio }),
+          sku: r.sku, nombre: r.descripcion, cantidad: r.cantidad, unidad: r.unidad,
+        });
+    }
+
+    const productos = await this.productosPorSku(trx, filas.map((f) => String(f.sku || '')));
+    const unidades = new Map<string, Set<string>>();
+    for (const f of filas) {
+      const u = String(f.unidad || '').trim();
+      if (!u) continue;
+      const k = `${f.clave}|${f.sku}`;
+      const set = unidades.get(k) ?? new Set<string>();
+      set.add(u);
+      unidades.set(k, set);
+    }
+
+    const out = new Map<string, AndenLineaOffline[]>(docs.map((d) => [claveDoc(d), []]));
+    for (const f of filas) {
+      const p = f.sku ? productos.get(String(f.sku)) : undefined;
+      const us = unidades.get(`${f.clave}|${f.sku}`);
+      out.get(f.clave)?.push({
+        expected_sku: f.sku || null,
+        expected_name: f.nombre || null,
+        expected_qty: Number(f.cantidad) || 0,
+        expected_unit: !us ? null : us.size > 1 ? 'ambigua' : [...us][0],
+        product_id: p?.id ?? null,
+        sku: p?.sku ?? null,
+        product_name: p?.nombre ?? null,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * `[WMS-REC.20]` El producto del catálogo de cada SKU de Kepler, en UNA consulta.
+   *
+   * Antes `open()` hacía un `.first()` por renglón y sin orden: con un SKU repetido en el catálogo
+   * se quedaba con cualquiera. Ahora prefiere el vivo y desempata por id — y elige igual para abrir
+   * y para el paquete sin red. Si eligieran distinto, la captura hecha sin red chocaría al
+   * sincronizar con "El renglón corresponde a otro producto".
+   */
+  private async productosPorSku(trx: Knex.Transaction, skus: string[]): Promise<Map<string, { id: string; sku: string; nombre: string | null }>> {
+    const unicos = [...new Set(skus.filter(Boolean))];
+    if (!unicos.length) return new Map();
+    const rows: Array<{ id: string; sku: string; nombre: string | null }> = await trx('public.products')
+      .whereIn('sku', unicos)
+      .distinctOn('sku')
+      .orderBy('sku')
+      .orderByRaw('(deleted_at IS NOT NULL), id')
+      .select('id', 'sku', 'nombre');
+    return new Map(rows.map((r) => [String(r.sku), r]));
+  }
+
+  /**
+   * `[WMS-REC.20]` **El paquete para trabajar sin red**: los vales del menú de una sucursal (los
+   * mismos que `pendingErpOrders`, con su alcance) y lo que espera cada uno. El equipo lo baja
+   * mientras tiene red; sin ella abre el vale desde aquí y lo sincroniza al volver.
+   *
+   * Cuesta una consulta de renglones por TIPO de documento, no una por vale. No medido en prod.
+   */
+  async offlinePack(sucursal: string): Promise<AndenPaqueteOffline> {
+    const vales = await this.pendingErpOrders(sucursal, 200);
+    return this.tk.run(async (trx) => {
+      const docs = vales.map(docDeVale);
+      const lineas = await this.lineasEsperadas(trx, docs);
+      return {
+        sucursal: String(sucursal).trim(),
+        generado_en: new Date().toISOString(),
+        vales: vales.map((v, i) => ({ ...v, lineas: lineas.get(claveDoc(docs[i])) ?? [] })),
+      };
     });
   }
 

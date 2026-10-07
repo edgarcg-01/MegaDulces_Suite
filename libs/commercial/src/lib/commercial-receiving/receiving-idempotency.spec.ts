@@ -71,8 +71,10 @@ describe('[WMS-REC.19] abrir el vale', () => {
     expect(abrir.indexOf('sesionPorLlave(trx, clientUuid)')).toBeLessThan(abrir.indexOf('folio_ya_recibido'));
   });
 
-  it('la llave se guarda en el vale', () => {
-    expect(abrir).toMatch(/client_uuid: clientUuid,/);
+  it('la llave se guarda en el vale, y SÓLO cuando viene', () => {
+    // Sin el condicional, abrir un vale fallaría para TODOS si el código llega a prod antes
+    // que la migración: el INSERT nombraría una columna que todavía no existe.
+    expect(abrir).toContain('...(clientUuid ? { client_uuid: clientUuid } : {})');
   });
 });
 
@@ -96,10 +98,19 @@ describe('[WMS-REC.19] fechar una caducidad', () => {
 
   it('si el alta de stock falla, la captura se revierte y SUELTA la llave', () => {
     // Sin soltarla, cada reintento recibiría la captura muerta y la mercancía no entraría nunca.
-    expect(evaluar).toMatch(/status: 'rejected', resolution_notes: 'alta de stock fallida — captura revertida', client_uuid: null/);
+    const comp = evaluar.slice(evaluar.indexOf("status: 'rejected'"), evaluar.indexOf("status: 'rejected'") + 200);
+    expect(comp).toContain('...(clientUuid ? { client_uuid: null } : {})');
   });
 
-  it('la llave se guarda en la captura', () => {
-    expect(cuerpo(AUDITOR, 'private guardarCaptura(')).toMatch(/client_uuid: clientUuid,/);
+  it('la llave se guarda en la captura, y SÓLO cuando viene', () => {
+    expect(cuerpo(AUDITOR, 'private guardarCaptura(')).toContain('...(clientUuid ? { client_uuid: clientUuid } : {})');
+  });
+
+  it('sin llave, ni evaluate ni open nombran la columna nueva (el código no depende del orden de despliegue)', () => {
+    // Cada mención de `client_uuid` en un INSERT/UPDATE tiene que estar detrás del condicional.
+    for (const fuente of [SESION, AUDITOR]) {
+      const sueltas = fuente.split('\n').filter((l) => /client_uuid:/.test(l) && !/clientUuid \?/.test(l) && !/where\(/.test(l));
+      expect(sueltas).toEqual([]);
+    }
   });
 });

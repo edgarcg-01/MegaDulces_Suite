@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import type { ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso } from '@megadulces/contracts';
+import type { ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso, AndenPaqueteOffline } from '@megadulces/contracts';
 import {
   ReceivingSessionService,
   OpenSessionDto,
@@ -98,6 +98,20 @@ export class ReceivingSessionController {
   })
   erpPending(@Query('sucursal') sucursal: string, @Query('limit') limit?: string): Promise<ErpOrderMatch[]> {
     return this.service.pendingErpOrders(sucursal, limit ? Number(limit) : undefined);
+  }
+
+  /**
+   * `[WMS-REC.20]` Lo que el equipo baja para seguir sin red: los vales pendientes de UNA sucursal
+   * con lo que espera cada uno. Va ANTES de `@Get(':id')`, igual que `en-curso`.
+   */
+  @Get('offline-pack')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({
+    summary:
+      'Paquete sin red del Anden: los vales pendientes de una sucursal (los mismos del menu, con su alcance) con los renglones que espera cada uno, armados igual que al abrir el vale.',
+  })
+  offlinePack(@Query('sucursal') sucursal: string): Promise<AndenPaqueteOffline> {
+    return this.service.offlinePack(sucursal);
   }
 
   @Get('erp-search')

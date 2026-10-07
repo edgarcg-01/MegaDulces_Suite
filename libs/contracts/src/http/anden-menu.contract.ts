@@ -152,3 +152,38 @@ export interface AndenValeEnCurso {
   abierto_por: string | null;
   created_at: string;
 }
+
+/**
+ * `[WMS-REC.20]` Un renglón que un vale ESPERA, antes de que el vale exista en el servidor.
+ *
+ * Lo arma la MISMA función que usa abrir el vale (`lineasEsperadas`), así que cuando el equipo abre
+ * sin red y después sincroniza, cada captura cae en el renglón que el servidor creó para ese
+ * producto: mismo producto por SKU, mismas cantidades, los servicios (`SER`) fuera.
+ */
+export interface AndenLineaOffline {
+  expected_sku: string | null;
+  expected_name: string | null;
+  expected_qty: number;
+  /** Unidad tal cual la manda Kepler (`PAQ`, `PZA`…); `ambigua` si el SKU trae dos dentro del vale. */
+  expected_unit: string | null;
+  /** Producto del catálogo; `null` si el SKU no existe ahí (esa mercancía no se puede fechar). */
+  product_id: string | null;
+  sku: string | null;
+  product_name: string | null;
+}
+
+/** `[WMS-REC.20]` Un vale pendiente de la sucursal, con sus renglones, para abrirlo sin red. */
+export interface AndenValeOffline extends ErpOrderMatch {
+  lineas: AndenLineaOffline[];
+}
+
+/**
+ * `[WMS-REC.20]` Lo que el equipo baja mientras tiene red para poder seguir sin ella: los mismos
+ * vales que el menú de esa sucursal (hoy y los atrasados, sin abrir) con lo que cada uno espera.
+ */
+export interface AndenPaqueteOffline {
+  sucursal: string;
+  /** Cuándo se armó, en ISO. La pantalla lo dice: "vales al 12:40". */
+  generado_en: string;
+  vales: AndenValeOffline[];
+}

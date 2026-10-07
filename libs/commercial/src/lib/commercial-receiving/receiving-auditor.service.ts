@@ -244,7 +244,11 @@ export class ReceivingAuditorService {
         await this.tk.run(async (trx) => {
           await trx('commercial.receiving_lot_captures')
             .where({ id: captureId })
-            .update({ status: 'rejected', resolution_notes: 'alta de stock fallida — captura revertida', client_uuid: null });
+            .update({
+              status: 'rejected',
+              resolution_notes: 'alta de stock fallida — captura revertida',
+              ...(clientUuid ? { client_uuid: null } : {}),
+            });
         });
         this.logger.error(`Captura ${captureId} revertida (falló el alta de stock): ${e?.message || e}`);
         throw e;
@@ -363,7 +367,9 @@ export class ReceivingAuditorService {
           rule_broken,
           status,
           created_by: userId,
-          client_uuid: clientUuid,
+          // Sólo con llave: así el código no depende de que la migración ya esté aplicada
+          // para los equipos que todavía no la mandan.
+          ...(clientUuid ? { client_uuid: clientUuid } : {}),
         })
         .returning('id');
       return cap.id as string;
