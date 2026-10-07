@@ -29,6 +29,33 @@ describe('caja-ruta.engine — leer la venta de ruta que declara el texto', () =
     });
   });
 
+  /**
+   * ⭐ El MISMO parser lee el lado de Kepler. Estos son los `concepto` reales de los cobros
+   * `U-A-5` a la cuenta CAJA GENERAL, medidos en prod: traen la ruta y el día igual que la caja,
+   * pero con guiones y CON año. Que sea una sola expresión es el punto — la identidad ruta+día es
+   * la misma de los dos lados, y dos parsers divergen (ya pasó con el regex de ruta, que vivía en
+   * tres lugares con dos formas distintas).
+   */
+  describe('el lado KEPLER: el concepto del cobro declara lo mismo, con guiones y con año', () => {
+    const casos: [string, string, number, number, number][] = [
+      ['VENTA RD 27 01-10-2026', '27', 10, 1, 2026],
+      ['VENTA RD 501 29-09-2026', '501', 9, 29, 2026],
+      ['VENTA RD 504 30-09-2026', '504', 9, 30, 2026],
+      ['VENTA RD 23 01/10/2026', '23', 10, 1, 2026],
+    ];
+    it.each(casos)('%s', (texto, ruta, mes, dia, anio) => {
+      expect(leerVentaDeRuta(texto)).toEqual({ ruta, mes, dia, anio });
+    });
+
+    it('⭐ con año en el texto NO se infiere nada: manda el que está escrito', () => {
+      // La captura es de 2027 y el concepto dice 2026: gana el concepto.
+      expect(fechaDeVentaDeclarada('VENTA RD 27 01-10-2026', '2027-01-15')).toBe('2026-10-01');
+    });
+    it('el año de cuatro dígitos no se confunde con el día', () => {
+      expect(leerVentaDeRuta('VENTA RD 27 01-10-26')).toEqual({ ruta: '27', mes: 10, dia: 1 });
+    });
+  });
+
   describe('lo que NO declara ruta — y devolver null es la respuesta correcta', () => {
     // La vecinal entra por nombre de persona. Si esto devolviera una ruta, la caja le aplicaria
     // la venta de un camion a un vendedor que no lo maneja.

@@ -638,6 +638,37 @@ export class CajaGeneralService {
       const kepSide = (sign: 1 | -1) => (kep as any[]).filter((r) => (n(r.signo) > 0 ? 1 : -1) === sign).map((r) => ({
         amt: n(r.importe), lbl: { id: String(r.folio), source: 'kepler' as const, key: `${r.sucursal}|${r.doc_tipo}|${r.folio}|${r.clave_banco}`, fecha: key(r.fecha), importe: r2(n(r.importe)), concepto: r.concepto || null, extra: [this.keplerSucursal(r.sucursal), r.doc_tipo, r.beneficiario].filter(Boolean).join(' · ') || null } }));
 
+      /**
+       * ⭐ [CG.20.1] LA LLAVE ESTÁ DE LOS DOS LADOS, y hasta hoy no se usaba de ninguno.
+       *
+       * El cobro de Kepler trae en su `concepto` la ruta y el día — `VENTA RD 27 01-10-2026`,
+       * con beneficiario `R.D. 27 PH Martinez Patlan Mariano`. O sea que la identidad
+       * (ruta, día de venta) está escrita en el ERP igual que en la caja. Casarlos por importe
+       * ±$5, teniendo eso, era tirar la llave y adivinar.
+       *
+       * Acá se indexa el lado Kepler por esa identidad. En `rows` tiene PRECEDENCIA sobre el
+       * casamiento por importe: un par por identidad no puede ser ambiguo, y el de importe sí
+       * (medido: 25.8% de los movimientos tienen más de un candidato a esa distancia).
+       *
+       * ⚠️ Si dos cobros declaran la misma (ruta, día) —pasa cuando un día se cobra en dos
+       * partidas— la identidad deja de ser única y **no se usa**: esa fila vuelve al casamiento
+       * por importe, que al menos declara su ambigüedad. Una llave que colapsa es peor que
+       * ninguna, porque no avisa.
+       */
+      const kepIdentCount = new Map<string, number>();
+      const kepIdent = new Map<string, Lbl>();
+      for (const sign of [1, -1] as const) {
+        for (const x of kepSide(sign)) {
+          const dia = fechaDeVentaDeclarada(x.lbl.concepto, x.lbl.fecha);
+          const d = leerVentaDeRuta(x.lbl.concepto);
+          if (!dia || !d) continue;
+          const id = `${sign > 0 ? 'in' : 'out'}|${d.ruta}|${dia}`;
+          kepIdentCount.set(id, (kepIdentCount.get(id) ?? 0) + 1);
+          kepIdent.set(id, x.lbl);
+        }
+      }
+      for (const [id, n2] of kepIdentCount) if (n2 > 1) kepIdent.delete(id);
+
       const mdbIn = mdbSide('ingreso'), mdbGas = mdbSide('gasto');
       const vs_manual = { ingresos: matchDir(mdbIn, manSide('amount_in')), gastos: matchDir(mdbGas, manSide('amount_out')) };
       const vs_kepler = { ingresos: matchDir(mdbIn, kepSide(1)), gastos: matchDir(mdbGas, kepSide(-1)) };
@@ -671,24 +702,57 @@ export class CajaGeneralService {
         // $28,678 en la caja contra cero venta en su Kepler). Por eso viaja `ruta_motivo`.
         const rt = rutaPorMov.get(m.lbl.key) ?? null;
         const vt = rt ? (ventaRuta.get(`${rt.ruta}|${rt.dia}`) ?? null) : null;
+        // [CG.20.1] El cobro de Kepler que declara ESTA MISMA (ruta, día). Gana sobre el par por
+        // importe: es una identidad, no un parecido.
+        const kepId = rt ? (kepIdent.get(`${dir}|${rt.ruta}|${rt.dia}`) ?? null) : null;
+
+        /**
+         * Qué va en la celda de Kepler, por orden de fuerza de la evidencia:
+         *   1. el cobro del ERP casado por IDENTIDAD (ruta + día declarados de los dos lados);
+         *   2. el cobro casado por importe ±$5, como siempre (con su `~` si fue ambiguo);
+         *   3. la venta que registró el Kepler DE LA CAMIONETA, cuando la tesorería no la tiene
+         *      — que es el caso de Canindo en octubre, medido: cero cobros del mes;
+         *   4. nada, y si el texto declaraba una venta de ruta, el motivo de por qué nada.
+         * Las cuatro viven en la MISMA columna porque las cuatro son Kepler; lo que cambia es de
+         * qué documento salen, y eso lo dice `kepler_origen` y lo abre el clic.
+         */
+        const kepLbl = kepId ?? (kep2 ? kep2.other : null);
+        const porIdentidad = !!kepId;
+        const usaRuta = !kepLbl && !!vt;
+        const kImporte = kepLbl ? kepLbl.importe : (usaRuta ? (vt as { venta: number }).venta : null);
         return {
           id: m.lbl.id, key: m.lbl.key, fecha: m.lbl.fecha, dir, importe: m.lbl.importe,
           concepto: m.lbl.concepto, extra: m.lbl.extra,
-          ruta: !!vt,
-          ruta_importe: vt ? vt.venta : null,
-          ruta_ref: rt ? `Ruta ${rt.ruta} · venta del ${rt.dia}` : null,
-          ruta_key: rt && vt ? `${rt.ruta}|${rt.dia}` : null,
-          ruta_delta: vt ? r2(m.lbl.importe - vt.venta) : null,
-          ruta_motivo: rt && !vt ? `la ruta ${rt.ruta} no reportó venta el ${rt.dia}` : null,
           manual: !!man, manual_importe: man ? man.other.importe : null, manual_ref: man ? man.other.extra : null, manual_key: man ? man.other.key : null,
-          kepler: !!kep2, kepler_importe: kep2 ? kep2.other.importe : null, kepler_ref: kep2 ? kep2.other.extra : null, kepler_key: kep2 ? kep2.other.key : null,
+          kepler: !!kepLbl || usaRuta,
+          kepler_importe: kImporte,
+          // La referencia dice de QUÉ documento salió. Con el cobro, el que ya se imprimía
+          // (sucursal · doc · beneficiario); con la venta de la camioneta, ruta y día.
+          kepler_ref: kepLbl ? kepLbl.extra : (usaRuta ? `Ruta ${rt?.ruta} · venta del ${rt?.dia}` : null),
+          // La llave que abre el detalle. `ruta|<n>|<dia>` es una fuente propia en movementDetail:
+          // no hay un folio de tesorería que abrir porque ese cobro no existe.
+          kepler_key: kepLbl ? kepLbl.key : (usaRuta ? `${rt?.ruta}|${rt?.dia}` : null),
+          kepler_source: kepLbl ? ('kepler' as const) : (usaRuta ? ('ruta' as const) : null),
+          /**
+           * De dónde salió el número y con qué método. Son tres cosas distintas y la pantalla
+           * las pinta distinto:
+           *   `identidad`  el cobro del ERP que declara la misma ruta y el mismo día — certeza;
+           *   `importe`    el casamiento de siempre, ±$5, que puede ser ambiguo;
+           *   `ruta`       no hay cobro en tesorería: es la venta del Kepler de la camioneta.
+           */
+          kepler_origen: porIdentidad ? ('identidad' as const) : (kepLbl ? ('importe' as const) : (usaRuta ? ('ruta' as const) : null)),
           // ⭐ Cuánto vale ESTE casamiento. `ambiguo` = había más de un candidato a la misma
           // distancia de importe, o sea que pudo haber casado con otro movimiento; `delta` ≠ 0 =
           // existe sólo porque la tolerancia de ±$5 lo permitió. Sin esto, un par forzado y un par
           // que salió de 40 iguales se pintaban idénticos, y la pantalla insinuaba una certeza
           // que el método no tiene (M3: ligar por importe+fecha es un atributo débil).
           manual_ambiguo: !!man?.ambiguo, manual_delta: man ? man.delta : null,
-          kepler_ambiguo: !!kep2?.ambiguo, kepler_delta: kep2 ? kep2.delta : null,
+          // Un par por identidad NO puede ser ambiguo: la llave es única o no se usa.
+          kepler_ambiguo: porIdentidad ? false : !!kep2?.ambiguo,
+          kepler_delta: kImporte == null ? null : r2(m.lbl.importe - kImporte),
+          // El texto declaró una venta de ruta y esa ruta no reportó venta: entró efectivo que
+          // ningún Kepler registra. Es un hallazgo, no un hueco de render.
+          kepler_motivo: rt && !kepLbl && !vt ? `la ruta ${rt.ruta} no reportó venta el ${rt.dia}` : null,
         };
         // Desempate final por `key`: sin él, dos movimientos del mismo día y mismo importe
         // quedaban en orden indefinido — el mismo defecto que este commit vino a matar.
@@ -715,9 +779,11 @@ export class CajaGeneralService {
         // [CG.20] La cuarta vía se mide aparte porque su universo es otro: sólo aplica a los
         // movimientos que DECLARAN una venta de ruta, no a los 11 del día. Publicar
         // "3 de 11 en Ruta" leería como cobertura mala cuando 8 de esos 11 no son ventas de ruta.
-        ruta_declarados: rows.filter((r) => r.ruta || r.ruta_motivo).length,
-        ruta_casados: rows.filter((r) => r.ruta).length,
-        ruta_sin_venta: rows.filter((r) => !!r.ruta_motivo).length,
+        ruta_declarados: rows.filter((r) => r.kepler_origen === 'identidad' || r.kepler_origen === 'ruta' || r.kepler_motivo).length,
+        ruta_casados: rows.filter((r) => r.kepler_origen === 'identidad' || r.kepler_origen === 'ruta').length,
+        ruta_sin_venta: rows.filter((r) => !!r.kepler_motivo).length,
+        // Cuántos de los pares con Kepler salieron de una IDENTIDAD y no de un parecido de importe.
+        kepler_por_identidad: rows.filter((r) => r.kepler_origen === 'identidad').length,
         // Un número que el texto llama ruta y el registro operativo no conoce. Se cuenta, porque
         // si esto sube es que alguien está tecleando una ruta que no existe.
         ruta_no_reconocidas: [...rutasInvalidas],
@@ -784,7 +850,43 @@ export class CajaGeneralService {
           { label: 'Traspaso', value: r.es_traspaso ? `sí (contra ${r.contra_clave || '—'}${r.pierna ? ', ' + r.pierna : ''})` : 'no' },
         ] };
       }
-      throw new BadRequestException('source inválido (control|workbook|kepler)');
+      /**
+       * [CG.20.1] La venta del Kepler DE LA CAMIONETA. Es una fuente propia y no un cobro de
+       * tesorería: no tiene folio ni cuenta contable porque ese documento **no existe** —
+       * medido, Canindo no tiene un solo cobro de octubre. Lo que sí existe, y es lo que se
+       * abre acá, es la venta del día de esa ruta con su procedencia declarada.
+       */
+      if (source === 'ruta') {
+        const [route_code, dia] = String(key).split('|');
+        if (!route_code || !dia) throw new BadRequestException('key de ruta inválida');
+        const r: any = await trx('analytics.v_rd_route_daily')
+          .where({ tenant_id: tenantId, route_code, business_date: dia }).first();
+        if (!r) throw new BadRequestException('la ruta no reportó venta ese día');
+        const z: any = await trx('analytics.v_route_zone')
+          .where({ tenant_id: tenantId, route_code }).first();
+        return {
+          source, title: `Venta en ruta · ${z?.route_name || `Ruta ${route_code}`} · ${dia}`,
+          fields: [
+            { label: 'Ruta', value: route_code },
+            { label: 'Nombre', value: z?.route_name ?? null },
+            { label: 'Plaza', value: z?.parent_name ?? null },
+            { label: 'Día de venta', value: dia },
+            { label: 'Venta (con impuestos)', value: money(r.venta) },
+            { label: 'Subtotal', value: money(r.subtotal) },
+            { label: 'Tickets', value: r.tickets ?? null },
+            { label: 'Líneas', value: r.lineas ?? null },
+            // ADR-056: el número viaja con qué lo calculó. `subtotal_origen`/`venta_origen`
+            // distinguen el tramo del push del de Wincaja, y no son lo mismo.
+            { label: 'Origen del dato', value: r.source ?? null },
+            { label: 'Origen del subtotal', value: r.subtotal_origen ?? null },
+            { label: 'Origen de la venta', value: r.venta_origen ?? null },
+            { label: 'Costo', value: r.costo == null ? null : money(r.costo) },
+            { label: 'Estado del costo', value: r.costo_status ?? null },
+            { label: 'Documento de tesorería', value: 'no existe — este cobro no se registró en Kepler' },
+          ],
+        };
+      }
+      throw new BadRequestException('source inválido (control|workbook|kepler|ruta)');
     });
   }
 

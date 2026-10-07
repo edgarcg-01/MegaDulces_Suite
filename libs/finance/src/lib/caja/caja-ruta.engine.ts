@@ -34,12 +34,14 @@
  *   'Ventas Ruta Vecinal 30/09' · 'Ventas RV 02/10' · 'Vetas Ruta Vecinal 01/10'
  */
 
-/** Lo que el texto declara. `mes`/`dia` sin anio: el anio lo pone el llamador (ver `anioDeVenta`). */
+/** Lo que el texto declara. `anio` sólo si el texto lo trae; si no, lo pone `anioDeVenta`. */
 export interface VentaDeRutaDeclarada {
   /** Numero de ruta tal como lo escribio la persona, sin ceros a la izquierda. */
   ruta: string;
   mes: number;
   dia: number;
+  /** Presente sólo cuando el texto declara el año (el lado Kepler sí lo hace). */
+  anio?: number;
 }
 
 /**
@@ -47,8 +49,21 @@ export interface VentaDeRutaDeclarada {
  * El `\b` final evita que `RD 5011` se lea como la ruta 501.
  */
 const RX_RUTA = /\bR\.?\s?D\.?\s*(?:[A-Za-zÁÉÍÓÚÑáéíóúñ]+\s+)?0*(\d{2,3})\b/i;
-/** `\/+` y no `\/`: `06//10` ya existe en produccion y es una venta real, no basura. */
-const RX_FECHA = /\b(\d{1,2})\/+(\d{1,2})\b/;
+/**
+ * La fecha. UNA expresion para los DOS lados, y por eso acepta tres cosas que el corpus trae:
+ *
+ *   `01/10`        caja (Access)   -- sin anio
+ *   `06//10`       caja            -- doble barra, errata que ya esta en produccion
+ *   `01-10-2026`   Kepler (cobro)  -- con guiones y con anio
+ *   `01/10/2026`   Kepler          -- el mismo concepto escrito con barras
+ *
+ * Tener una sola expresion es el punto: la identidad ruta+dia es la MISMA de los dos lados, y
+ * dos parsers divergen (ya paso con el regex de ruta, que vivia en tres lugares con dos formas).
+ *
+ * ⚠️ El anio es opcional pero su grupo NO es `\d{2,4}`: con `\d{2}` se comeria el dia de
+ * `01-10-26 RD 23` mal escrito. Cuatro digitos o nada.
+ */
+const RX_FECHA = /\b(\d{1,2})[/-]+(\d{1,2})(?:[/-]+(\d{4}))?\b/;
 
 /**
  * Lee la declaracion. Devuelve null si falta cualquiera de las dos mitades: media declaracion no
@@ -64,7 +79,8 @@ export function leerVentaDeRuta(texto: string | null | undefined): VentaDeRutaDe
   const dia = Number(mf[1]);
   const mes = Number(mf[2]);
   if (!(mes >= 1 && mes <= 12) || !(dia >= 1 && dia <= 31)) return null;
-  return { ruta: String(Number(mr[1])), mes, dia };
+  const anio = mf[3] ? Number(mf[3]) : undefined;
+  return anio ? { ruta: String(Number(mr[1])), mes, dia, anio } : { ruta: String(Number(mr[1])), mes, dia };
 }
 
 /**
@@ -84,10 +100,20 @@ export function anioDeVenta(capturado: Date, mes: number, dia: number): number {
   return mismo <= limite ? y : y - 1;
 }
 
-/** `YYYY-MM-DD` de la venta declarada, o null si el texto no la declara. */
+/**
+ * `YYYY-MM-DD` de la venta declarada, o null si el texto no la declara.
+ *
+ * Si el texto TRAE el año (el concepto de Kepler lo trae: `VENTA RD 27 01-10-2026`) se usa ése y
+ * no se infiere nada. `capturado` sólo hace falta para el lado de la caja, que escribe `dd/mm`.
+ */
 export function fechaDeVentaDeclarada(texto: string | null | undefined, capturado: string | Date): string | null {
   const d = leerVentaDeRuta(texto);
   if (!d) return null;
+  if (d.anio) {
+    const exacta = new Date(Date.UTC(d.anio, d.mes - 1, d.dia));
+    if (exacta.getUTCMonth() !== d.mes - 1 || exacta.getUTCDate() !== d.dia) return null;
+    return exacta.toISOString().slice(0, 10);
+  }
   const cap = capturado instanceof Date ? capturado : new Date(`${String(capturado).slice(0, 10)}T00:00:00Z`);
   if (Number.isNaN(cap.getTime())) return null;
   const y = anioDeVenta(cap, d.mes, d.dia);
