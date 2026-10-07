@@ -265,7 +265,48 @@ export interface PersonaExpediente {
   vales: ValeExpediente[];
 }
 
+/**
+ * `[GX.72]` Valor del filtro de departamento para los vales que NO traen departamento.
+ * Es un valor propio y no `null`, porque `null` ya significa «todos los departamentos».
+ */
+export const DEPARTAMENTO_SIN = '__sin__';
+
+/**
+ * `[GX.72]` El filtro del Expediente, **tal como lo aplicó el servidor**.
+ *
+ * Viaja de vuelta en la respuesta para que la pantalla no pueda mostrar KPIs de un periodo
+ * rotulados con otro: lo que dice el encabezado es lo que se contó.
+ */
+export interface FiltroExpediente {
+  /** Día de México (YYYY-MM-DD) en que se levantó el vale, desde, inclusive. `null` = sin tope. */
+  desde: string | null;
+  /** Día de México (YYYY-MM-DD), hasta, inclusive. `null` = sin tope. */
+  hasta: string | null;
+  /** Departamento exacto como viene en el vale, `DEPARTAMENTO_SIN`, o `null` = todos. */
+  departamento: string | null;
+}
+
+/**
+ * `[GX.72]` Un departamento que aparece en los vales del periodo, con cuántos vales trae.
+ *
+ * ⚠️ Sale de los DATOS, no de un catálogo: el departamento del vale es texto libre y conviven
+ * «RRHH» y «RECURSOS HUMANOS». Fusionarlos sería inventar una equivalencia que nadie decidió;
+ * listarlos tal cual garantiza que ninguna opción devuelva una pantalla vacía.
+ */
+export interface OpcionDepartamentoExpediente {
+  /** El texto tal cual viene en el vale; `null` = vales sin departamento. */
+  departamento: string | null;
+  vales: number;
+}
+
 export interface RespuestaExpediente {
+  /** `[GX.72]` El filtro que se aplicó. */
+  filtro: FiltroExpediente;
+  /**
+   * `[GX.72]` Los departamentos del periodo (con el filtro de FECHAS pero SIN el de
+   * departamento): así la lista de opciones no se encoge a una sola al elegir una.
+   */
+  departamentos: OpcionDepartamentoExpediente[];
   personas: PersonaExpediente[];
   total: {
     personas: number;

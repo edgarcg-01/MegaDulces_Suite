@@ -471,6 +471,12 @@ export enum Permission {
   FINANCE_EXPENSES_COMPROBAR = 'FINANCE_EXPENSES_COMPROBAR',
   // Capturar: subir folio + comprobante SIN acceso a la bandeja de revisión (rol capturista).
   FINANCE_EXPENSES_CAPTURAR = 'FINANCE_EXPENSES_CAPTURAR',
+  // [GX.71] Ver el HISTORIAL de gastos de toda la empresa (pestaña «Todos» de
+  // /finanzas/gastos-historial). Desde [GX.26] era sólo god-mode; esta llave lo abre a una
+  // PERSONA sin hacerla superadmin. FUERA de todo MODULE_GROUP y de todo rol — se reparte por
+  // persona (identity.user_permissions), mismo criterio que la firma de [GX.17]: darlo a un rol
+  // le abriría el gasto de toda la empresa a gente que nadie nombró.
+  FINANCE_EXPENSES_HISTORIAL_TODOS = 'FINANCE_EXPENSES_HISTORIAL_TODOS',
 
   // ── Presupuestos (Fase TP — ADR-064) ──────────────────────────────────
   // Módulo NUEVO: capacidad de pago por fecha + gastos autorizados. Dueño real:

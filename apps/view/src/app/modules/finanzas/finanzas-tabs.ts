@@ -151,7 +151,8 @@ export const FINANZAS_TABS: PageTab[] = [
     label: 'Historial',
     route: '/finanzas/gastos-historial',
     icon: 'pi pi-history',
-    anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR],
+    // `[GX.71]` + HISTORIAL_TODOS (por persona), el mismo trío que la ruta.
+    anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS],
   },
   // `[GX.18]` La pestaña del tablero salió por pedido del usuario. La ruta sigue viva.
   {
