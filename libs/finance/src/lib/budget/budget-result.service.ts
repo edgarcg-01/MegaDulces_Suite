@@ -55,13 +55,19 @@ import type {
  *   fuente**: atrapan un error de filtro o de agregación —por eso ene-mar salta— y **no pueden
  *   atrapar un error de la fuente**. *Otra implementación no es otro testigo.*
  *
- *   ⛔ El árbitro **independiente** del gasto existe, está poblado y está fresco, y **no está
- *   cableado a ninguna pantalla**: `analytics.contpaqi_ledger_monthly`, los libros del contador.
- *   Medido ene-sep 2026 por `agrupador_sat`: `601` gastos **$39,984,066.74** + `602` IMSS
- *   **$4,056,129.98** = **$44,040,196.72**, contra los **$55,951,943.94** de Kepler familia 6 —
- *   **−21.3 %**, el mismo orden de magnitud que la brecha del ingreso (−16.4 %, `[IG.13]`).
- *   Esa coincidencia es una pista de que el hueco es el alcance de la entidad fiscal, **no una
- *   conclusión**: nadie lo ha verificado.
+ *   ✅ `[VE.1]` **El árbitro independiente YA ESTÁ CABLEADO** — `analytics.v_expense_arbiter`,
+ *   sobre `analytics.contpaqi_ledger_monthly` (los libros del contador, Fase CP / ADR-040). Esta
+ *   pantalla publica los dos: el interno dice si la derivación es consistente, el independiente
+ *   si el hecho lo es.
+ *
+ *   ⚠️ **Dos correcciones a lo que decía esta cabecera**, las dos medidas el 2026-10-06:
+ *   (a) el filtro era `agrupador_sat IN ('601','602')` y **devuelve NULL**: el dato real trae
+ *       subnivel (`601.01`, `602.56`), así que son `LIKE '601%'`/`'602%'`. La cifra de
+ *       $44,040,196.72 estaba bien; el filtro con el que se la describía, no.
+ *   (b) «el hueco es el alcance de la entidad fiscal» sigue **sin verificar**, y ahora además
+ *       está medido en contra: la brecha no es un factor constante —va de −7.2 % a −44.1 % según
+ *       el bloque— y en 3 de los 4 bloques hay al menos un mes donde el signo se invierte. Lo que
+ *       falta es la correspondencia concepto→agrupador, y **la firma Contabilidad**.
  * · **Venta** contra `ledger_monthly` familia 4: **`no_comparable`, a propósito**. La balanza
  *   familia 4 trae el traspaso interno del CEDIS a sus propias tiendas —el 84.49 % de la póliza
  *   de ingreso en agosto-2026— y el fact de venta no. Restarlas daría una brecha que no es un
@@ -120,6 +126,8 @@ export class BudgetResultService {
       const real = await this.realVenta(trx, tenantId, from, to);
       const gasto = await this.realGasto(trx, tenantId, from, to);
       const balanza = await this.balanzaGasto(trx, tenantId, fy);
+      // `[VE.1]` El segundo testigo, el que NO comparte fuente primaria con nosotros.
+      const libros = await this.arbitroIndependiente(trx, tenantId, fy);
 
       const months: BudgetResultMonth[] = [];
       for (let mm = 1; mm <= 12; mm++) {
@@ -225,6 +233,7 @@ export class BudgetResultService {
 
       const arbitros: BudgetResultArbitro[] = [
         this.arbitroGasto(annual.gasto_operativo.real, balanza),
+        this.arbitroLibros(libros),
         {
           renglon: 'Venta',
           mio: annual.venta.real,
@@ -240,6 +249,17 @@ export class BudgetResultService {
       ];
 
       const huecos: BudgetResultHueco[] = [
+        {
+          key: 'mapeo_fiscal_sin_firmar',
+          label: 'La operación y los libros no están pareados concepto por concepto',
+          monto: libros.kepler !== null && libros.contpaqi !== null
+            ? round2(libros.contpaqi - libros.kepler) : null,
+          nota: 'Kepler y ContPAQi usan planes de cuentas distintos; el único eje común es el '
+            + 'agrupador SAT. Mientras Contabilidad no firme qué cuenta corresponde a qué '
+            + 'agrupador, esta diferencia se puede VER pero no se le puede echar la culpa a ningún '
+            + 'lado. Medido 2026: no es un factor constante — va de −7.2 % a −44.1 % según el '
+            + 'bloque, así que no hay una sola causa.',
+        },
         {
           key: 'costo_ventas_sin_plan',
           label: 'Costo de ventas sin presupuestar',
@@ -387,6 +407,70 @@ export class BudgetResultService {
       [tenantId, `${fy}-01`, `${fy}-12`]);
     const v = (rows as Array<{ v: string | null }>)[0]?.v;
     return v === null || v === undefined ? null : round2(Number(v));
+  }
+
+  /**
+   * `[VE.1]` El árbitro **independiente**: los libros del contador, por `analytics.v_expense_arbiter`.
+   *
+   * ⚠️ Excluye el mes EN CURSO (`mes_en_curso`). Medido el 2026-10-06, día 6: incluirlo movía la
+   * brecha de nómina de −$5,745,896 a −$2,582,497 —55 %— sin que pasara nada en el negocio, porque
+   * los dos lados llenan el mes a ritmos distintos. Un acumulado que lo sume cambia todos los días.
+   *
+   * ⚠️ Y descarta las celdas con una sola pierna: ahí `delta` viene en NULL a propósito. Sumarlas
+   * fue lo que hizo parecer que financieros estaba invertido.
+   */
+  private async arbitroIndependiente(
+    trx: Knex.Transaction, tenantId: string, fy: number,
+  ): Promise<{ kepler: number | null; contpaqi: number | null; meses: number; difieren: number }> {
+    const { rows } = await trx.raw(
+      `SELECT sum(kepler)::numeric                              AS kepler,
+              sum(contpaqi)::numeric                            AS contpaqi,
+              count(*)::int                                     AS meses,
+              count(*) FILTER (WHERE veredicto = 'difiere')::int AS difieren
+         FROM analytics.v_expense_arbiter
+        WHERE tenant_id = ? AND anio_mes BETWEEN ? AND ?
+          AND bloque IN ('nomina', 'gasto_resto')
+          AND delta IS NOT NULL
+          AND mes_en_curso = false`,
+      [tenantId, `${fy}-01`, `${fy}-12`]);
+    const r = (rows as Array<{ kepler: string | null; contpaqi: string | null; meses: number; difieren: number }>)[0];
+    return {
+      kepler: r?.kepler == null ? null : round2(Number(r.kepler)),
+      contpaqi: r?.contpaqi == null ? null : round2(Number(r.contpaqi)),
+      meses: Number(r?.meses ?? 0),
+      difieren: Number(r?.difieren ?? 0),
+    };
+  }
+
+  private arbitroLibros(
+    v: { kepler: number | null; contpaqi: number | null; meses: number; difieren: number },
+  ): BudgetResultArbitro {
+    const base = {
+      renglon: 'Gasto operativo (testigo independiente)',
+      mio: v.kepler,
+      arbitro: v.contpaqi,
+      fuente_arbitro: 'analytics.v_expense_arbiter → contpaqi_ledger_monthly (los libros del contador)',
+    };
+    if (v.kepler === null || v.contpaqi === null || v.meses === 0) {
+      return {
+        ...base, delta: null, delta_pct: null, veredicto: 'no_medido' as const,
+        nota: 'No hay meses terminados con las dos piernas en este ejercicio. No se afirma que '
+          + 'cuadre ni que no.',
+      };
+    }
+    const delta = round2(v.contpaqi - v.kepler);
+    const deltaPct = pct(delta, v.contpaqi);
+    return {
+      ...base, delta, delta_pct: deltaPct,
+      veredicto: v.difieren > 0 ? 'difiere' as const : 'cuadra' as const,
+      nota: v.difieren > 0
+        ? `A diferencia de la balanza, este testigo NO lee la misma tabla primaria: es la `
+          + `contabilidad fiscal. Difiere en ${v.difieren} de ${v.meses} celdas medidas sobre meses `
+          + 'terminados. ⚠️ Eso declara una BRECHA, no imputa un error: la correspondencia entre el '
+          + 'plan de cuentas de Kepler y el agrupador SAT todavía no está firmada por Contabilidad, '
+          + 'y sin ese pareo no se puede decir cuál de los dos lados tiene razón.'
+        : 'La operación y los libros dicen lo mismo dentro del 0.5 % en todos los meses medidos.',
+    };
   }
 
   private arbitroGasto(mio: number | null, arbitro: number | null): BudgetResultArbitro {
