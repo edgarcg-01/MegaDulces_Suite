@@ -27,7 +27,13 @@
  *
  *   DATABASE_URL_NEW=… node database/tests/test-newdb-budget-entity-sync.js
  */
+const path = require('path');
 const { Client } = require('pg');
+
+// `[VE.6]` Tercer candado del dominio con el mismo defecto: `run-all-tests.js` carga el `.env` y
+// corriendo el archivo suelto no hay quien lo haga. Un candado que no se puede correr a mano es un
+// candado que nadie corre al tocar su dominio — y éste es el que vigila las metas del plan.
+require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
 
 const URL = process.env.DATABASE_URL_NEW || process.env.DST_URL || process.env.FLEET_DB_URL
   || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW o FLEET_DB_URL'); })();
@@ -135,6 +141,51 @@ const SQL_HUERFANAS = `
         !!vuelta && vuelta.k === semilla.entity_key && vuelta.s === semilla.status,
         `quedó llave=${vuelta ? vuelta.k : '(sin fila)'} estado=${vuelta ? vuelta.s : '—'} — revisar a mano`);
     }
+  }
+
+  // ── `[VE.6]` El canal del catálogo es el CANÓNICO, no el crudo ──────────────────────────
+  //
+  // ⛔ Lo que este bloque cubre es el agujero que el resto de este archivo NO podía ver: vigilaba
+  // que cada `entity_key` EXISTIERA en `v_sales_entity`, y `credito` existía — así que pasaba en
+  // verde mientras $76.0 M de meta (16.2 % del plan) apuntaban a un canal que el negocio dejó de
+  // emitir el 2026-09-18. Es el patrón que `[VSO.1]` nombró: *la distancia entre el vocabulario
+  // real y el publicado no estaba en ninguna lista*.
+  try {
+    const { rows: crudos } = await c.query(
+      `SELECT DISTINCT m.raw_channel
+         FROM analytics.sellout_channel_map m
+        WHERE m.raw_channel <> m.canonical_channel`);
+    const muertos = crudos.map((r) => r.raw_channel);
+
+    if (!muertos.length) {
+      nm++; console.log('  ◻ NO MEDIDO — el mapa no declara ningún alias: no hay qué vigilar');
+    } else {
+      const { rows: enVista } = await c.query(
+        `SELECT DISTINCT channel FROM analytics.v_sales_entity WHERE channel = ANY($1)`, [muertos]);
+      if (enVista.length) {
+        fail++; console.log(`  ✖ v_sales_entity publica canal CRUDO: ${enVista.map((r) => r.channel).join(', ')} `
+          + `— el mapa los declara alias de otro canal, y el plan se parte en dos`);
+      } else {
+        ok++; console.log(`  ✔ v_sales_entity publica sólo canal canónico (alias vigilados: ${muertos.join(', ')})`);
+      }
+
+      const { rows: metas } = await c.query(
+        `SELECT split_part(entity_key, ':', 1) AS canal, count(*)::int n, sum(meta_amount)::numeric monto
+           FROM budget.sales_plan_lines
+          WHERE split_part(entity_key, ':', 1) = ANY($1)
+          GROUP BY 1 ORDER BY 3 DESC`, [muertos]);
+      if (metas.length) {
+        const tot = metas.reduce((a, r) => a + Number(r.monto), 0);
+        fail++; console.log(`  ✖ ${metas.reduce((a, r) => a + r.n, 0)} metas por `
+          + `$${tot.toLocaleString('es-MX')} apuntan a un canal alias `
+          + `(${metas.map((r) => r.canal).join(', ')}): el real entra por el canónico y esas filas `
+          + 'van a marcar 0 % de cumplimiento para siempre');
+      } else {
+        ok++; console.log('  ✔ ninguna meta apunta a un canal alias');
+      }
+    }
+  } catch (e) {
+    nm++; console.log(`  ◻ NO MEDIDO — no se pudo leer el mapa de canales (${e.code || e.message})`);
   }
 
   await c.end();
