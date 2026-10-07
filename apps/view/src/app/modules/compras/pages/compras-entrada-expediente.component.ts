@@ -136,7 +136,7 @@ const LIGA: Record<string, string> = {
     .ex-tbl th { border-top: 1px solid var(--border-color); }
     .ex-val { font-family: var(--font-mono); color: var(--text-main); word-break: break-word; }
     .ex-est { white-space: nowrap; text-align: right; font-weight: 600; }
-    .ex-est .pi { font-size: .75rem; margin-right: .25rem; }
+    .ex-est .pi { font-size: var(--fs-xs); margin-right: .25rem; }
     .ex-est[data-estado="ok"] { color: var(--ok-fg); }
     .ex-est[data-estado="falla"] { color: var(--bad-fg); }
     .ex-est[data-estado="aviso"] { color: var(--warn-fg); }
