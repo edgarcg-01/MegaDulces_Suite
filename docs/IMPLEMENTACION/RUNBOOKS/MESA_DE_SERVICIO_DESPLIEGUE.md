@@ -258,3 +258,30 @@ rollback automático.
 - **Reportes** (MS.3.5): ya están (`/servicio/reportes`, sin migraciones ni permisos nuevos: sale en vivo de los tickets y lo gatea `SERVICIO_COORDINAR`). *(El botón en tienda/telemarketing, MS.3.7, ya existía: montan el mismo layout.)* «A tu nombre» de Mi trabajo ya está (MS.3.6); la cola SIN asignar como bandeja de Mi trabajo (MS.3.8) también está, con plazo de 60 min hábiles ajustable — pero **no se ve hasta repartir la responsabilidad `servicio.atender`** (a quien reparte los tickets) desde `/admin/personas`, y su migración `20261003100000` va después de las cuatro de la mesa.
 - **Teléfono físico y lector de pantalla**: la revisión visual usó un viewport de 390 px.
 - **El E2E (190 aserciones) corre contra una base local**, nunca contra prod; lo que valida prod es §7.
+
+---
+
+## 11. Acceso por cola (MS.7.1 + MS.7.6) — un paso más, y el ORDEN cambia
+
+A partir de la fase multi-área ([`FASE_MS7`](../FASES/FASE_MS7_MANTENIMIENTO.md) §9) **atender ya no es sólo tener la clave**: es la clave **más** pertenecer a la cola del ticket (`servicedesk.queue_members`).
+
+**Orden (a diferencia del resto de este runbook, aquí la migración va ANTES del deploy):**
+
+1. Migrar **una sola** migración, con el candado de identidad: `20261006130000_servicedesk_queue_members.js` (`apply-one-migration-prod.js`). Es aditiva; el código viejo la ignora.
+2. **Medir el respaldo** (debe ser TODA la gente que hoy atiende TI):
+   ```sql
+   SELECT u.username, m.role FROM servicedesk.queue_members m
+     JOIN identity.users u ON u.id = m.user_id
+     JOIN servicedesk.queues q ON q.id = m.queue_id AND q.code = 'ti' AND m.active
+    ORDER BY m.role, u.username;
+   -- Debe coincidir con GET /service-desk/agents de antes del cambio. Si falta alguien con SERVICIO_ATENDER, NO desplegar.
+   ```
+3. Desplegar api + view. **No hay permisos nuevos: sin re-login.**
+4. **Verificar con dos personas:** una de TI abre su bandeja (debe ver lo de siempre) y alguien con la clave pero sin cola ve **0** (no «todo»).
+
+**Por qué antes:** con `queue_members` vacía el código nuevo no deja ver ningún ticket a nadie. El backfill de la migración es lo que lo evita; por eso el paso 2 no es opcional.
+
+**Dar de alta a una persona nueva** (cambia el §5): además de `SERVICIO_ATENDER` (y `SERVICIO_COORDINAR` si reparte), la coordinación **de esa cola** la agrega: `PUT /service-desk/config/queues/:id/members/:userId` con `{"role":"tecnico"}` (o `"coordinador"`). Hoy es por API: la pantalla es MS.7.17. La API se niega con un mensaje claro si a la persona le falta la clave.
+
+**Reversa:** la migración trae `down` (quita la tabla y las dos columnas). ⚠️ Si ya se desplegó el código nuevo, **revertir primero el código**: sin la tabla, `actors.service` falla al leer las membresías.
+

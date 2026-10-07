@@ -51,32 +51,36 @@ const money = (n) => (n == null ? '' : Number(n).toFixed(2));
   // Un solo SELECT: el vale, su solicitud por (sucursal, folio), y cuántas plazas comparten el folio.
   const { rows } = await c.query(`
     WITH k AS (
-      SELECT tenant_id, sucursal, folio, importe::numeric AS importe,
+      SELECT tenant_id, sucursal, folio, importe::numeric AS importe, btrim(estado) AS estado,
              count(*) OVER (PARTITION BY tenant_id, folio) AS plazas
         FROM analytics.expense_requests)
     SELECT p.id, p.tenant_id, p.sucursal, p.folio_solicitud AS folio, p.status, p.origen,
            p.importe::numeric AS importe_vale, p.created_by,
            to_char(p.created_at AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD') AS creado,
-           k.sucursal AS sucursal_kepler, k.importe AS importe_kepler, k.plazas,
+           k.sucursal AS sucursal_kepler, k.importe AS importe_kepler, k.estado AS estado_kepler, k.plazas,
            (SELECT max(plazas) FROM k k2 WHERE k2.tenant_id = p.tenant_id AND k2.folio = p.folio_solicitud) AS plazas_folio
       FROM finance.expense_proofs p
       LEFT JOIN k ON k.tenant_id = p.tenant_id AND k.folio = p.folio_solicitud
                  AND (k.sucursal = p.sucursal OR (NULLIF(btrim(p.sucursal),'') IS NULL AND k.plazas = 1))
      WHERE p.folio_solicitud IS NOT NULL`);
 
-  const corregir = []; const sinKepler = []; const ambiguos = []; let cuadran = 0;
+  const corregir = []; const sinKepler = []; const ambiguos = []; const keplerCero = []; let cuadran = 0;
   for (const r of rows) {
     if (r.importe_kepler == null) {
       (Number(r.plazas_folio) > 1 && !String(r.sucursal || '').trim() ? ambiguos : sinKepler).push(r);
       continue;
     }
     const dif = Math.round((Number(r.importe_kepler) - Number(r.importe_vale)) * 100) / 100;
-    if (Math.abs(dif) < 0.01 || !(Number(r.importe_kepler) > 0)) { cuadran++; continue; }
+    if (Math.abs(dif) < 0.01) { cuadran++; continue; }
+    // Kepler en $0 con el vale en otro monto NO cuadra, pero tampoco se corrige a cero: se DECLARA.
+    // Casi siempre es una solicitud CANCELADA (`estado='C'`): medido en prod, las 539 canceladas
+    // están en $0. El vale vivo sobre una solicitud cancelada es lo que hay que revisar.
+    if (!(Number(r.importe_kepler) > 0)) { keplerCero.push(r); continue; }
     corregir.push({ ...r, diferencia: dif });
   }
 
   console.log(`vales con folio: ${rows.length} · cuadran con Kepler: ${cuadran} · a corregir: ${corregir.length}`
-    + ` · sin su solicitud en Kepler: ${sinKepler.length} · folio ambiguo sin sucursal: ${ambiguos.length}`);
+    + ` · Kepler en $0: ${keplerCero.length} · sin su solicitud en Kepler: ${sinKepler.length} · folio ambiguo sin sucursal: ${ambiguos.length}`);
   console.log(`Δ neto a corregir: $${money(corregir.reduce((s, r) => s + r.diferencia, 0))}`);
   console.table(corregir.map((r) => ({
     sucursal: plaza(r.sucursal_kepler), folio: r.folio, creado: r.creado, status: r.status, origen: r.origen,
@@ -84,6 +88,7 @@ const money = (n) => (n == null ? '' : Number(n).toFixed(2));
     folio_en_plazas: r.plazas_folio,
   })));
   if (sinKepler.length) console.table(sinKepler.map((r) => ({ sucursal: plaza(r.sucursal), folio: r.folio, importe: money(r.importe_vale), motivo: 'no está en Kepler' })));
+  if (keplerCero.length) console.table(keplerCero.map((r) => ({ sucursal: plaza(r.sucursal_kepler), folio: r.folio, status: r.status, vale: money(r.importe_vale), kepler: money(r.importe_kepler), motivo: r.estado_kepler === 'C' ? 'solicitud CANCELADA en Kepler (Kepler la deja en $0)' : 'Kepler trae $0 sin estar cancelada' })));
   if (ambiguos.length) console.table(ambiguos.map((r) => ({ folio: r.folio, importe: money(r.importe_vale), motivo: `folio en ${r.plazas_folio} plazas y el vale no trae sucursal` })));
 
   if (CSV) {

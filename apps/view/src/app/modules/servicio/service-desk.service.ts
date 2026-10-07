@@ -68,7 +68,8 @@ export class ServiceDeskService {
   private readonly base = `${environment.apiUrl}/service-desk`;
 
   catalog(): Observable<SdCatalogResponse> { return this.http.get<SdCatalogResponse>(`${this.base}/catalog`); }
-  agents(): Observable<SdAgentDto[]> { return this.http.get<SdAgentDto[]>(`${this.base}/agents`); }
+  /** `[MS.7.6]` Con `queueId`, las personas de ESA cola (lo que se ofrece al asignar un ticket); sin él, las de las colas de quien pregunta. */
+  agents(queueId?: string): Observable<SdAgentDto[]> { return this.http.get<SdAgentDto[]>(`${this.base}/agents`, { params: this.params({ queue_id: queueId }) }); }
 
   create(dto: SdCreateRequestDto): Observable<SdRequestDetail> { return this.http.post<SdRequestDetail>(`${this.base}/requests`, dto); }
   mine(q: { scope?: string; search?: string; limit?: number; offset?: number } = {}): Observable<SdListResponse> {

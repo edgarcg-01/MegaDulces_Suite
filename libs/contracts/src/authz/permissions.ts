@@ -367,6 +367,10 @@ export enum Permission {
   // Sin _GESTIONAR: la pantalla todavía no escribe nada, y un gate sin acción que gatear es un
   // permiso muerto (ADR-054). Se agrega cuando exista la acción.
   ALMACEN_BI_VER = 'ALMACEN_BI_VER',
+  // `[GP.1]` Tablero de pedidos Kepler U-D-40 (/almacen/pedidos). Clave PROPIA y no
+  // COMMERCIAL_PICKING_VER: el tablero lo ven telemarketing y facturación, y con la de surtido
+  // también se les abría Reparto › Surtido. Sin _GESTIONAR: el tablero sólo lee (ADR-086).
+  ALMACEN_PEDIDOS_VER = 'ALMACEN_PEDIDOS_VER',
   // ── Autoabasto y Nivelación (Fase AB) — /almacen/autoabasto y /almacen/nivelacion.
   //
   // Claves PROPIAS, no COMPRAS_* reusadas, por una razón de negocio y una medida:

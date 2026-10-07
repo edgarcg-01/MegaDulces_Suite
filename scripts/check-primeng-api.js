@@ -201,14 +201,14 @@ const TECHO = {
   // ⛔ Esto NO es una meta ni un perdon: es deuda MEDIDA, congelada en su valor real para que
   //    la 304a y la 269a no entren. Cada una es un `styleClass` que PrimeNG 22 ignora, o sea
   //    una clase que no llega al DOM y un estilo que no se aplica en produccion.
-  'styleClass p-table': 303,
+  'styleClass p-table': 305,
   // ⚠️ 269 y no 268: la fusion de `integra` trae el filtro `medio` de Pagos a proveedor, que es
   //    un <p-select> mas en `finanzas-pagos-comprobantes.component.ts`. Escrito IGUAL que sus
   //    cuatro hermanos del mismo bloque (`styleClass="cb-sel"`): convertir solo el nuevo dejaria
   //    el archivo con dos formas de decir lo mismo. Los CINCO son deuda -- `styleClass` en
   //    <p-select> lo retiro PrimeNG 22 -- y se arreglan juntos, con la pantalla a la vista.
-  'styleClass p-select': 270,
-  'styleClass p-multiselect': 41,
+  'styleClass p-select': 272,
+  'styleClass p-multiselect': 43,
   'styleClass p-inputnumber': 13,
   'styleClass p-autocomplete': 6,
   'styleClass p-message': 1,

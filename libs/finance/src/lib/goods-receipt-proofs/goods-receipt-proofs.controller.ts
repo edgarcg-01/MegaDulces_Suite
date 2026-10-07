@@ -4,6 +4,8 @@ import { RolesGuard, RequirePermissions, Permission, parseScopeParam } from '@me
 import { GoodsReceiptProofsService, ListReceiptsQuery, AttachReceiptDto, ReceiptSettings } from './goods-receipt-proofs.service';
 import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
 import { ReceiptSlaService } from './receipt-sla.service';
+import { GoodsReceiptExpedienteService } from './goods-receipt-expediente.service';
+import type { EntradasSinOcResumen, IdentificacionEntrada, IdentificarLectura, ReceiptExpediente } from '@megadulces/contracts';
 import { RemisionLine } from '@megadulces/platform-core';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
@@ -24,6 +26,7 @@ export class GoodsReceiptProofsController {
     private readonly svc: GoodsReceiptProofsService,
     private readonly twins: GoodsReceiptTwinsService,
     private readonly slaSvc: ReceiptSlaService,
+    private readonly expedienteSvc: GoodsReceiptExpedienteService,
   ) {}
 
   @Get()
@@ -63,6 +66,12 @@ export class GoodsReceiptProofsController {
       plaza: ['propia', 'otra', 'sin_declarar'].includes(String(query['plaza']))
         ? (query['plaza'] as ListReceiptsQuery['plaza'])
         : undefined,
+      // `[RE.35.5]` La Bandeja (veredicto del expediente) y el Hallazgo. Lista blanca: un valor
+      // inventado se volvería un filtro que no matchea nada y se leería como "no hay nada".
+      bandeja: ['auto', 'revisar', 'sin_cfdi_aun'].includes(String(query['bandeja']))
+        ? (query['bandeja'] as ListReceiptsQuery['bandeja']) : undefined,
+      hallazgo: ['cobrar_nc', 'mal_emitida', 'incompleta', 'sin_oc', 'nc_aplicada', 'comercial'].includes(String(query['hallazgo']))
+        ? (query['hallazgo'] as ListReceiptsQuery['hallazgo']) : undefined,
       page: query['page'] ? Number(query['page']) : undefined,
       pageSize: query['pageSize'] ? Number(query['pageSize']) : undefined,
     };
@@ -220,11 +229,32 @@ export class GoodsReceiptProofsController {
     return this.svc.reactivar(sucursal, folio, req?.user?.full_name || req?.user?.username);
   }
 
+  @Get('sin-oc')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
+  @ApiOperation({ summary: '[RE.35.3] Entradas sin orden de compra por sucursal y por quién las capturó en Kepler (from/to YYYY-MM-DD; por default los últimos 30 días). Sólo lectura.' })
+  sinOc(@Query('from') from?: string, @Query('to') to?: string): Promise<EntradasSinOcResumen> {
+    return this.expedienteSvc.sinOc(from, to);
+  }
+
+  @Get(':sucursal/:folio/expediente')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
+  @ApiOperation({ summary: '[RE.35] El expediente de la factura: liga la entrada con su CFDI de ContPAQi (el papel identifica, el CFDI informa) y da el veredicto (pasa sola / revisar / sin CFDI aún). Sólo lectura.' })
+  expediente(@Param('sucursal') sucursal: string, @Param('folio') folio: string): Promise<ReceiptExpediente> {
+    return this.expedienteSvc.expediente(sucursal, folio);
+  }
+
   @Get(':sucursal/:folio')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
   @ApiOperation({ summary: 'Detalle de la entrada + sus remisiones adjuntas. Acepta el folio de OFICINAS (00): si es espejo, devuelve la canónica de sucursal + `redirigido_de`.' })
   detail(@Param('sucursal') sucursal: string, @Param('folio') folio: string) {
     return this.svc.detail(sucursal, folio);
+  }
+
+  @Post('identificar')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
+  @ApiOperation({ summary: '[RE.35.7] Captura por lote: con lo leído de UN papel (UUID, RFC, folio, total, sello, firma) busca su CFDI en ContPAQi y las entradas de Kepler que cuadran, y dice si la propuesta viene lista. Sólo lectura: no guarda nada.' })
+  identificar(@Body() body: IdentificarLectura): Promise<IdentificacionEntrada> {
+    return this.expedienteSvc.identificar(body || {});
   }
 
   @Post('ocr')

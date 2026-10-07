@@ -2579,3 +2579,87 @@ Plan, capas y sprints en [`FASE_MS_MESA_DE_SERVICIO.md`](FASES/FASE_MS_MESA_DE_S
 **Lo que se DECLARA y no se hace (ADR-056).** El regalo por cantidad (`free_goods`) no genera renglón hijo; el descuento del cliente (capa de documento, `kdud`) no se aplica todavía al pedido; la reserva de inventario y el bot de WhatsApp siguen con `resolvePriceForQty` y van a mostrar otro precio hasta migrarlos; varios productos traen `tax_rate = 0` en la lista de precios (42029, 70001, 57009), lo que no cambia el total cobrado pero sí el reparto subtotal/impuesto.
 
 **Hereda:** ADR-016 (el motor pone el número; el vendedor no inventa descuentos) · ADR-040 (read-only sobre el ERP) · ADR-055/057 (la unidad se resuelve contra la escalera de ese SKU, no por rótulo) · ADR-056 · ADR-059 (el precio se arbitra con evidencia del mismo ERP y la misma sucursal).
+
+## ADR-084 — Mega Talento entra a la Suite como el espacio Recursos Humanos: una persona, un lector de relojes, un libro de WhatsApp
+
+**Estado:** propuesto 2026-10-06 (Fase RH). **Contexto.** Mega Talento (reclutamiento con bot de WhatsApp, asistencia de 12 relojes ZKTeco, incidencias y cierre semanal para prenómina) corre fuera de la Suite: API Express + front Angular + bot en Railway, un agente de Windows en una PC del corporativo, y su esquema en una base Postgres de Railway **compartida con otros cuatro sistemas**. Medido antes de decidir: (1) el "sistema del proveedor" del que el agente leía checadas es la **Fase CH de la propia Suite** (mismo esquema `hr.*`, misma carga del 2026-08-17: 129,461 vs 129,477 filas); (2) se escribieron **cuatro lectores** para los mismos relojes (un ZKTeco acepta una sola sesión TCP) y el único vivo corre en **una laptop**; (3) la Suite ya decidió que **el usuario ES la persona** (`[OR.0]`) y tiene el espacio Recursos Humanos `planned` y vacío, con `[ID.16]` bloqueado por falta de módulo; (4) Mega Talento expone en producción endpoints sin autenticación con datos personales.
+
+**Decisión.**
+
+1. **Persona = `identity.users`.** Los ~500 empleados del padrón de relojes entran como `kind='interno'`, `status='invited'` sin contraseña (o `terminated`), con `department_code`, `position_code` y `warehouse_code` mapeados **y validados por RH**. `hr.employees` se retira; `hr.device_enrollments` apunta a `identity.users`.
+2. **Un solo lector de relojes:** el agente de Mega Talento, movido al monorepo y corriendo en el namespace `ingesta` de `md`, empuja a la API con llave que falla cerrada; latido de entrega con umbral en `CRON_JOBS`. Es la **excepción declarada** a "CERO importers": la marca del reloj no existe en el ODS.
+3. **Los datos históricos entran por una carga única y verificada por corte**, no por un importer: se corre una vez, deja un reporte de cuadre, y si no cuadra no hay corte.
+4. **Esquemas:** asistencia en `hr.*` (extiende la Fase CH); reclutamiento en `talent.*`; la conversación del bot en `whatsapp.*` (un solo libro). Permisos con prefijo `HR_*`, cada uno repartido por migración.
+5. **Orden:** asistencia primero; reclutamiento y bot en el **mismo** corte (el bot escribe directo en candidatos). La app vieja queda de sólo lectura dos semanas tras cada corte.
+6. **El portal de candidatos** son rutas públicas de `apps/view` con token firmado (patrón `/captura/:token`); el id del candidato deja de funcionar como contraseña.
+
+**Se rechaza:** mantener Mega Talento o el bot como apps con entrypoint propio (estándar de la Fase CV); una tabla de empleados paralela a `identity.users`; dos lectores de relojes "mientras tanto"; sincronizar dos bases durante la transición; copiar el CSS y las pantallas tal cual en lugar de reescribirlas con `DESIGN.md`; migrar los esquemas de los otros sistemas que comparten la base de Railway.
+
+**Consecuencias.** `identity.users` crece de ~130 a ~600 filas y `/admin/users` necesita distinguir "con acceso / sin acceso". La Suite gana asistencia real (la base de la nómina) y un segundo número de WhatsApp en `libs/whatsapp`. Al terminar se apagan tres servicios de Railway y un servicio de Windows, y se rota la contraseña de la base compartida.
+
+**Hereda:** ADR-010 (`tenant_id` + RLS) · ADR-053 (el latido mide entrega) · ADR-054 (permiso = clave; declarar no es entregar) · ADR-056 (lo no medido se declara) · ADR-061 (el espacio se deriva del mapa de la suite) · ADR-081 (no hay tabla `tickets`; el patrón de reparto de permisos).
+
+Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FASE_RH_MIGRACION_MEGA_TALENTO.md).
+
+## ADR-085 — La factura de compra pasa sola si cuadra; lo que se queda en manos del auxiliar enseña al motor, nunca al revés
+
+**Fecha:** 2026-10-06 · **Estado:** ⏳ propuesto · **Fase:** RE (RE.35–RE.41, `/compras/costo-por-compra`)
+
+**Contexto.** El auxiliar de entradas valida a mano cada factura (RFC, nombre y régimen del emisor, RFC receptor, uso CFDI, forma y método de pago) y que la entrada cuadre con ella; con el expediente armado lo entrega a Finanzas. Medido en prod (sólo lectura, 2026-10-06): los siete datos fiscales ya existen en `fiscal.cfdis` y los checks fiscales pasan solos en el **99.3%** de las facturas ligadas; lo que frena la automatización es el **cuadre** factura-vs-entrada (diferencias de precio reales en las dos direcciones), la **falta de OC** (13.7%, concentrada en un usuario de captura) y que una factura cubra varias entradas. Kepler no guarda el UUID; su RFC falta en el 43% de las entradas y está mal en ~17%.
+
+**Decisión (Francisco, 2026-10-06).**
+1. **Regla v1:** pasa sola la entrada que cumple los checks fiscales, tiene OC y fecha de recepción, y cuadra con **diferencia < 0.25% y < $200**. Sin OC **no hay excepción**: cae al auxiliar y queda la traza de quién capturó. Meta de arranque: **60–70% automático**.
+2. **Lo que cae al humano es material de aprendizaje.** Cada decisión se registra con la foto de los checks y un motivo de lista cerrada; un minero nocturno **determinista** propone reglas **tipadas** (parámetros, no código libre); cada candidata pasa un banco de pruebas sobre todo el historial con **cero aprobaciones que el humano habría devuelto**, corre en sombra, y la activa una persona distinta de quien la propuso. Toda auto-aprobación queda sellada con su regla y versión.
+3. **Sin huecos:** auditoría por muestreo de lo automático con suspensión automática de la regla si una muestra se devuelve; precisión por regla; candado diario de que cada entrada cae en **exactamente un** cubo (`auto` · `revisar` · `sin_cfdi_aun` · `fuera_de_alcance`); deriva del proveedor → humano.
+4. **No se aprende:** receptor, uso CFDI, método↔forma, cancelación y OC obligatoria cambian sólo por decisión humana con ADR.
+5. **La liga entrada → CFDI sale del documento que ya se sube:** UUID por búsqueda de texto en el PDF (o del XML), guardada en `fiscal.cfdi_assignments` (MAT.1, ya existe y hoy está vacía) con `match_source = uuid_documento`. Kepler no guarda el UUID y ContPAQi asocia el CFDI a pólizas, no a entradas (medido). El emparejamiento por importe y fecha queda sólo como sugerencia.
+6. **Correctivos al origen:** el aprendizaje también señala **quién y dónde** se origina el error (sin OC, RFC mal tecleado), para corregir la captura en Kepler en vez de aflojar la regla.
+
+**Rechazado:** abrir la tolerancia o exentar la OC para llegar al 90% (convierte hallazgos de control en aprobaciones invisibles); fine-tunear o dejar que un LLM apruebe (ADR-016/021: el LLM sólo clasifica el texto libre y redacta); ligar por el RFC de Kepler (no es identidad); dar por «vigente» un CFDI cuyo estatus nadie verificó.
+
+**Hereda:** ADR-016 (el motor decide, el LLM fuera del dinero) · ADR-021 (aprendizaje determinista, colector antes que learner, pin humano) · ADR-040 (read-only sobre el ERP y ContPAQi) · ADR-056 (lo no medido se declara; un gate sin prueba negativa es una intención) · ADR-065 (preparar ≠ autorizar). Detalle y cifras en [`FASE_RE` §RE.35–RE.41](FASES/FASE_RE_RECEPCION_MERCANCIA.md).
+
+**Evolución (2026-10-06, decisiones de Francisco):** (1) **el CFDI manda sobre el OCR** — si el CFDI está ligado de forma exacta y cuadra con Kepler, la entrada pasa aunque el OCR haya leído mal el total del papel (RE.35.6); el OCR identifica, no arbitra importes. (2) **Regla R-v2**: el papel archivado vale por su **sello de recibido** y su **firma**; si el OCR ve que faltan, el expediente no pasa solo; sin dato (lecturas anteriores) no bloquea (RE.35.7).
+
+---
+
+---
+
+## ADR-086 — El trabajo de piso del pedido se hace en la Suite; Kepler recibe UNA captura del resultado
+
+**Fecha:** 2026-10-06 · **Estado:** ⏳ propuesto · **Fase:** GP (`/almacen`, gestión de pedidos)
+
+**Contexto.** En Kepler el pedido (`U-D-40`, telemarketing o sucursal) se surte, checa y embarca con **hojas impresas**, y las pantallas de *Estatus Surtido / Checado / Embarque* pierden la vista del pedido en cuanto avanza: la historia sólo se recupera en *Salida por Embarque*. Medido en prod (solo lectura): Kepler guarda las cuatro cantidades por renglón (`kdm2.c51`–`c54`) y los tres responsables (`kdm1.c100/c102/c103`), pero **no la hora de cada etapa**, y el estatus del renglón no se actualiza.
+
+**Decisión (Francisco, 2026-10-06).** Opción A de tres:
+1. **El pedido sigue naciendo y viviendo en Kepler.** La Suite lo lee del ODS como **vista derivada** (regla principal: cero importers).
+2. **Surtido, checado y embarque se ejecutan en la Suite**, sin papel. Cada paso es un **evento propio** (quién, cuándo, cantidad por renglón): dato HITL que no existe en ningún ERP, así que es tabla real legítima.
+3. **El almacenista captura a Kepler una sola vez** el resultado (cantidades + responsables). **La Suite no escribe en Kepler.**
+4. **La Suite cuadra** su registro contra lo que aparece después en `kepler_ods`: diferencias de captura y pedidos que avanzaron en Kepler sin pasar por la Suite van a una bandeja, no se corrigen solos.
+5. El motor de surtido **se reusa** (`commercial-picking`, ADR-067) agregándole un origen Kepler; no se construye otro.
+
+**Rechazado:** (B) escribir el estatus y las cantidades directamente en Kepler — *"en algún futuro, cuando la Suite domine el 99% de las funciones consultivas, comenzaremos con las operativas; será historia de otro momento"*; (C) sólo medir y dejar el papel, porque no cumple el objetivo.
+
+**Lo que se DECLARA (ADR-056).** No hay línea base histórica de tiempos por etapa (Kepler no la guarda): se mide desde el piloto. El porcentaje de surtido completo no se publica mientras pedida y surtida puedan venir en unidades distintas.
+
+**Hereda:** ADR-040 (read-only sobre el ERP) · ADR-067 (surtido por olas, sin apartar existencia) · ADR-056 · ADR-057 (unidad). Plan en [`FASE_GP`](FASES/FASE_GP_GESTION_PEDIDOS_ALMACEN.md).
+
+---
+
+## ADR-087 — Bodega y piso de venta son zonas de UN almacén; la ubicación se separa en tres capas y la cantidad por ubicación va al final
+
+**Fecha:** 2026-10-06 · **Estado:** ⏳ propuesto · **Fase:** WMS (addendum §12) + GP
+
+**Contexto.** Kepler no gestiona ubicaciones. En cada sucursal la bodega y el piso de venta están en el mismo edificio, Kepler lleva una sola existencia para los dos, y un mismo producto vive en ambos. La Suite tiene desde WMS-REC las tablas `warehouse_bins` y `stock_lot_locations`, pero en prod están vacías (1 fila cada una). La ubicación por etapa del pedido existe en Kepler (`kdm2.c59/c60/c61`) y no se llena: PH 0%, Canindo 99% relleno.
+
+**Decisión (Francisco, 2026-10-06; propuesta de Claude).**
+1. **Bodega y piso de venta = zonas del mismo `commercial.warehouses`**, no dos almacenes: subir producto al anaquel no es un traspaso que Kepler registre.
+2. **Tres capas**, como los WMS líderes: **ubicación física** (jerarquía + tipo de zona + secuencia de recorrido + dígito verificador), **asignación** producto × ubicación × papel con mínimo/máximo (nueva), y **cantidad por ubicación**.
+3. **La cantidad por ubicación se difiere** hasta que las dos primeras capas se usen, porque exige escanear cada movimiento; sin eso se desvía del ERP. Enmienda WMS.5, que la planeaba al surtir.
+4. **Las ubicaciones móviles** (carretas, tarimas, estibas) son un tipo de zona del mismo catálogo.
+5. **La reposición del anaquel** es una tarea del anaquelista, ligada a planogramas de Trade y a la lista de faltantes (FLT).
+6. Piloto en PH.
+
+**Rechazado:** dos almacenes por sucursal (bodega / tienda), porque rompe el cuadre con Kepler; cantidad por ubicación desde el día uno, porque repite el relevo "operador anota, nadie registra".
+
+**Hereda:** ADR-044 (Kepler = SoR de la cantidad; la app dueña de la ubicación) · ADR-086 · ADR-056 (lo que no tiene cantidad por ubicación no la dibuja). Detalle en [`FASE_WMS` §12](FASES/FASE_WMS.md).

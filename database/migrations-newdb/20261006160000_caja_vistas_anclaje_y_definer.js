@@ -110,16 +110,10 @@ const COMENTARIO_DEFINER = (q) => `[CG.40] NO agregar security_invoker. app_runt
   + `El aislamiento por tenant vive DENTRO de la vista (patron kepler_ods, CG.9c). `
   + `Si alguna vez se quiere invoker: GRANT USAGE primero, medir la pantalla, y recien despues.`;
 
-/**
- * ⛔ `COMMENT ON` **no admite parámetros**: es un comando de utilidad, no una consulta, y el
- * planificador nunca ve un bind. `knex.raw('COMMENT ON ... IS ?', [txt])` manda `IS $1` y el
- * servidor responde `syntax error at or near "$1"` — la migración revienta entera y revierte.
- * Medido acá el 2026-10-06: fallaba para cualquiera, en cualquier base.
- *
- * El texto va LITERAL, con las comillas simples duplicadas. Hace falta de verdad: los comentarios
- * de abajo citan `sucursal='00'`.
- */
-const lit = (s) => `'${String(s).replace(/'/g, "''")}'`;
+// ⛔ `COMMENT ON` NO admite parametros: Postgres contesta "syntax error at or near $1".
+// No es knex -- es la gramatica del servidor, que pide un literal. Medido en PROD el 2026-10-06:
+// esta migracion FALLO entera por esto. Se escapa la comilla simple y se embebe.
+const lit = (s) => "'" + String(s).replace(/'/g, "''") + "'";
 
 exports.up = async function up(knex) {
   // ── 1 · De-anclar la vista huérfana ────────────────────────────────────────────────────

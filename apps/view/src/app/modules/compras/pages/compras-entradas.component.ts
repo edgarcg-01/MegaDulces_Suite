@@ -23,17 +23,22 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ComprasEntradaExpedienteComponent } from './compras-entrada-expediente.component';
+import { ComprasCapturaLoteComponent } from './compras-captura-lote.component';
+import { MultiSelectModule } from 'primeng/multiselect';
+import { esImagen, prepararArchivos } from '../imagenes-a-pdf';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
+import type { ReceiptExpediente } from '@megadulces/contracts';
 import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
 import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
-import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel, MOTIVOS_RECHAZO } from '../receipt-verdict';
+import { receiptVerdict, cfdiQueCuadra, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel, MOTIVOS_RECHAZO } from '../receipt-verdict';
 import { ofrecerSelectorSucursal } from '../sucursal-selector';
 import {
   FuenteRecepcion, REQUIRED_BY_SOURCE, receptionSource, roleOptsFor,
@@ -69,6 +74,9 @@ interface AttachFile {
   dup?: DuplicateHit | null; // ya subida antes (misma hoja o folio ya capturado)
 }
 
+/** [RE.35.5] La puerta de costo por compra arranca en "Por revisar"; el listado de control, en "Sin papel". */
+function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { return data?.['lente'] === 'dinero'; }
+
 /**
  * CC (extensión) — "Comprobantes de Orden de Entrada" (proyecto Compras). Lista las
  * órdenes de entrada de Kepler (documento X-A-40) y le adjunta a cada una la
@@ -82,7 +90,7 @@ interface AttachFile {
   standalone: true,
   imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, SelectModule,
     DatePickerModule,
-    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent,
+    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent, ComprasEntradaExpedienteComponent, ComprasCapturaLoteComponent, MultiSelectModule,
     LoadStateComponent, EntityInspectorComponent, PageTabsComponent, SidePeekComponent, DocViewerComponent,
     FreshnessPillComponent, ContextHelpComponent, TableDensityComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -93,7 +101,7 @@ interface AttachFile {
       <p-confirmdialog />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>{{ dinero() ? 'Costo por compra' : 'Control de entradas · Listado' }}</h1>
+          <h1>{{ titulo }}</h1>
           <!-- RE.19 — la ventana se dice, no se deduce. La lista arranca en el inicio del
                proceso y lo anterior vive en "Ver rezago"; sin decirlo, una orden de julio que
                no aparece se lee como dato faltante.
@@ -124,102 +132,59 @@ interface AttachFile {
 
       <app-page-tabs [tabs]="tabs" />
 
+      <!-- [RE.35.4] Barra compacta: sin "Ver" (una sola vista, la completa), periodo con Rango y
+           Rezago adentro, sucursal múltiple, Hallazgo (absorbe Ajuste y OC) y Buscar + Subir factura
+           como UNA zona para soltar PDF o fotos. -->
       <div class="cb-filters card-premium card-flat">
-        <!-- RE.20.1 — EL LENTE. Las mismas filas contestando dos preguntas. Era una pantalla
-             aparte ("Compras 360") con su propio endpoint, su propio detalle y su propia
-             paginación sobre exactamente la misma entidad; nadie sabía cuál de las dos abrir. -->
-        <div class="cb-field"><label>Ver</label>
-          <app-segmented [options]="lenteOpts" [value]="lente()" (valueChange)="setLente($event)" ariaLabel="Lente de la vista" /></div>
-        <!--
-          [RE.29] — EL PERIODO. El backend siempre supo acotar por fecha (from/to, y los
-          aplica a las filas **y** a los KPIs), pero la pantalla no los mandaba: el único control
-          de ventana era el botón de rezago, o sea "desde el arranque del proceso" contra "todo
-          lo anterior". Un mes cerrado no se podía pedir, y en el lente del dinero eso es la
-          pregunta entera ("¿cuánto pagamos en agosto?").
-
-          Va PRIMERO porque define el universo: periodo → estado → cuadre. Mismo control que su
-          hermana /compras/costo-neto (Jakob: no se reinventa el patrón entre dos pantallas del
-          mismo proyecto).
-
-          maxDate/minDate cruzados: un rango invertido no se puede ni teclear. Vale más que
-          un mensaje de error — el rango imposible no llega nunca al server.
-        -->
+        <!-- [RE.35.5] Bandeja: Estado + Cuadre en uno. Las tres primeras son documentos ESPERANDO
+             DECISIÓN separados por el veredicto del expediente; el resto, los estados de siempre. -->
+        <div class="cb-field"><label>Bandeja</label>
+          <app-segmented [options]="bandejaOpts()" [value]="bandejaSel()" (valueChange)="setBandeja($event)" ariaLabel="Bandeja de trabajo" /></div>
         <div class="cb-field"><label>Periodo</label>
-          <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)"
-                    optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true"
-                    appendTo="body" ariaLabel="Rango de fecha rápido" /></div>
-        <div class="cb-field"><label>Desde</label>
-          <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)"
-                        dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" [maxDate]="dateTo()"
-                        appendTo="body" placeholder="Desde" styleClass="cb-dp" ariaLabel="Desde" /></div>
-        <div class="cb-field"><label>Hasta</label>
-          <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)"
-                        dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" [minDate]="dateFrom()"
-                        appendTo="body" placeholder="Hasta" styleClass="cb-dp" ariaLabel="Hasta" /></div>
-        <div class="cb-field"><label>Estado</label>
-          <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
-        <!--
-          RE.25 — Cuadre. Eje SEPARADO del Estado a propósito: "Validado" dice que alguien
-          decidió, "Cuadra" dice que los números concuerdan. Una entrada puede estar validada a
-          mano y no cuadrar, y ése es justo el caso que hay que poder pedir.
-        -->
-        <div class="cb-field"><label>Cuadre</label>
-          <p-select [options]="cuadreOpts" [ngModel]="cuadreSel()" (onChange)="setCuadre($event.value)"
-                    optionLabel="label" optionValue="value" placeholder="Cualquiera" [showClear]="true"
-                    appendTo="body" ariaLabel="Filtrar por cuadre del documento" /></div>
-        <!--
-          [DM.19] Plaza. Tercer eje, y el que contesta la pregunta que originó la fase:
-          "mostrame lo que NO es del CEDIS". No se fusiona con Estado ni con Cuadre porque
-          responde otra cosa — a quién le toca el gasto, no en qué va el trámite.
-        -->
-        <div class="cb-field"><label>Plaza</label>
-          <p-select [options]="plazaOpts" [ngModel]="plazaSel()" (onChange)="setPlaza($event.value)"
-                    optionLabel="label" optionValue="value" placeholder="Cualquiera" [showClear]="true"
-                    appendTo="body" ariaLabel="Filtrar por la plaza a la que corresponde la compra" /></div>
-        @if (dinero()) {
-          <div class="cb-field"><label>Ajuste</label>
-            <p-select [options]="ajusteOpts" [ngModel]="ajusteSel()" (onChange)="setAjuste($event.value)"
-                      optionLabel="label" optionValue="value" appendTo="body" ariaLabel="Filtrar por ajuste" /></div>
-          <div class="cb-field"><label>Orden de compra</label>
-            <p-select [options]="ocOpts" [ngModel]="ocSel()" (onChange)="setOc($event.value)"
-                      optionLabel="label" optionValue="value" appendTo="body" ariaLabel="Filtrar por orden de compra" /></div>
-        }
+          <div class="cb-periodo">
+            <p-select [options]="periodoOpts" [ngModel]="periodoSel()" (onChange)="onPeriodo($event.value)"
+                      optionLabel="label" optionValue="value" placeholder="Desde el arranque" [showClear]="true"
+                      appendTo="body" ariaLabel="Periodo" />
+            @if (mostrarRango()) {
+              <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)"
+                            dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" [maxDate]="dateTo()"
+                            appendTo="body" placeholder="Desde" styleClass="cb-dp" ariaLabel="Desde" />
+              <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)"
+                            dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" [minDate]="dateFrom()"
+                            appendTo="body" placeholder="Hasta" styleClass="cb-dp" ariaLabel="Hasta" />
+            }
+          </div></div>
         @if (variasSucursales()) {
           <div class="cb-field"><label>Sucursal</label>
-            <p-select [options]="sucursalOpts()" [ngModel]="sucursalSel()" (onChange)="setSucursal($event.value)"
-                      optionLabel="label" optionValue="value" placeholder="Todas las mías" [showClear]="true"
-                      appendTo="body" ariaLabel="Sucursal" /></div>
+            <p-multiselect [options]="sucursalOpts()" [ngModel]="sucursalesSel()" (onChange)="setSucursales($event.value)"
+                           optionLabel="label" optionValue="value" placeholder="Todas" [maxSelectedLabels]="1"
+                           [selectedItemsLabel]="'{0} sucursales'" appendTo="body" ariaLabel="Sucursal" /></div>
         }
-        <div class="cb-field cb-grow"><label>Buscar</label>
-          <input pInputText [(ngModel)]="search" placeholder="Últimos 4 del folio (ej. 0397), o proveedor / RFC / OC…" (keyup.enter)="load()" (blur)="queue()" /></div>
-        <div class="cb-field"><label>&nbsp;</label>
-          <!-- [RE.29] — el MISMO hueco, ahora con tres estados. El rezago es un atajo de
-               ventana ("todo lo anterior al arranque"); con un periodo explícito puesto sería un
-               segundo control diciendo lo mismo, y dos ventanas que se intersectan en silencio
-               es justo la trampa de la que se sale acá. Con rango activo, el botón ofrece
-               soltarlo — y dice cuál está puesto. -->
-          @if (rango()) {
-            <button pButton type="button" class="p-button-text" (click)="limpiarPeriodo()"
-                    [pTooltip]="'Volver al periodo del proceso (' + ventanaTexto() + ' puesto a mano)'" tooltipPosition="bottom">
-              <span class="p-button-icon p-button-icon-left pi pi-filter-slash" aria-hidden="true"></span>
-              <span class="p-button-label">Limpiar periodo</span>
+        <div class="cb-field"><label>Hallazgo</label>
+          <p-select [options]="hallazgoOptsTodas()" [ngModel]="hallazgoSel()" (onChange)="setHallazgo($event.value)"
+                    optionLabel="label" optionValue="value" appendTo="body" ariaLabel="Hallazgo: qué hacer y con quién" /></div>
+        <div class="cb-field cb-grow cb-dropzone" [class.drag]="draggingBarra()"
+             (dragover)="onDragOverBarra($event)" (dragleave)="onDragLeaveBarra($event)" (drop)="soltarEnBarra($event)">
+          <label>Buscar</label>
+          <div class="cb-dropzone-row">
+            <input pInputText [(ngModel)]="search" (keyup.enter)="load()" (blur)="queue()"
+                   placeholder="Últimos 4 del folio, proveedor, RFC u OC · o arrastra aquí la factura" />
+            <button pButton type="button" class="cb-upload-big" (click)="openAttachPhotoFirst()"
+                    title="Sube la factura (PDF o fotos): la IA la lee y busca su entrada">
+              <span class="p-button-icon pi pi-plus" aria-hidden="true"></span>
+              <span class="cb-upload-txt"><b>Subir factura</b><small>o arrástrala aquí · PDF o fotos</small></span>
             </button>
-          } @else if (rezago()) {
-            <button pButton type="button" class="p-button-text" (click)="setRezago(false)"
-                    pTooltip="Volver al periodo del proceso" tooltipPosition="bottom">
-              <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span>
-              <span class="p-button-label">Salir del rezago</span>
-            </button>
-          } @else if (report()?.settings; as cfg) {
-            <button pButton type="button" class="p-button-text" (click)="setRezago(true)"
-                    [pTooltip]="'Entradas anteriores al ' + cfg.reception_start + ' — fuera del proceso vivo'" tooltipPosition="bottom">
-              <span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span>
-              <span class="p-button-label">Ver rezago</span>
-            </button>
-          }
+            <!-- [RE.35.7] Varias recepciones a la vez (como pagos a proveedores). Soltar 2 o más PDF aquí abre lo mismo (fotos solas = una factura). -->
+            @if (canManage()) {
+              <button pButton type="button" severity="secondary" outlined class="cb-upload-varias" (click)="abrirCapturaLote()"
+                      title="Varias facturas recibidas a la vez (PDF o fotos, una recepción por archivo): la IA identifica cada una y tú confirmas">
+                <span class="p-button-icon pi pi-copy" aria-hidden="true"></span>
+                <span class="cb-upload-txt"><b>Varias</b><small>una por archivo</small></span>
+              </button>
+            }
+          </div>
+          @if (draggingBarra()) { <span class="cb-dropzone-hint">Suelta aquí la factura · PDF o fotos</span> }
         </div>
-        <div class="cb-field"><label>&nbsp;</label>
-          <button pButton type="button" (click)="openAttachPhotoFirst()" title="Identificá la entrada por folio y subí la factura"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Subir factura</span></button></div>
         <!-- RE.28.4 — el lote vuelve. Aparece sólo con "Por validar" + "Cuadra": el filtro ES la
              selección, y con esos dos puestos lo que hay en pantalla es exactamente lo que el
              server va a aceptar. Sin el segundo filtro prometería N y entregaría 3. -->
@@ -244,6 +209,9 @@ interface AttachFile {
       @if (frescura().length) {
         <div class="fresh-bar" role="status">
           <span class="fresh-lbl">Datos al día</span>
+          @if (!algunaAtrasada()) {
+            <span class="fresh-chip" [title]="frescuraTitulo()">{{ frescura().length }} fuentes al día</span>
+          } @else {
           @for (f of frescura(); track f.source_branch) {
             <span class="fresh-chip" [class.late]="f.atrasada"
                   [title]="f.origen === 'kepler' ? 'Kepler — réplica continua' : 'Wincaja — copia periódica del .mdb'">
@@ -251,6 +219,7 @@ interface AttachFile {
               {{ f.dias === 0 ? 'hoy' : f.dias === 1 ? 'ayer' : 'hace ' + f.dias + ' d' }}
               @if (f.atrasada) { <i class="pi pi-exclamation-triangle"></i> }
             </span>
+          }
           }
           @if (algunaAtrasada()) {
             <span class="fresh-note">Su cadencia normal es menor: revisá el feed de esa fuente.</span>
@@ -301,6 +270,7 @@ interface AttachFile {
                 <th class="ta-r" style="width:9.5rem">Neto</th>
               }
               <th style="width:11rem">Remisión</th>
+              <th style="width:12rem">Expediente</th>
               <th style="width:12rem">Acciones</th>
             </tr>
           </ng-template>
@@ -393,10 +363,10 @@ interface AttachFile {
                       equivocado con el monto correcto — que es justo donde se paga de más.
                       El motivo va en el tooltip: el chip dice qué, el texto dice por qué.
                     -->
-                    <span class="cb-cuadre" [attr.data-cuadre]="c.cuadre"
-                          [pTooltip]="c.cuadre_motivo || ''" tooltipPosition="left">
-                      <i class="pi" [ngClass]="cuadreIcon(c.cuadre)" aria-hidden="true"></i>
-                      <span class="cb-cuadre-txt">{{ cuadreLabel(c.cuadre) }}</span>
+                    <span class="cb-cuadre" [attr.data-cuadre]="cuadreFila(c)"
+                          [pTooltip]="cuadreMotivoFila(c)" tooltipPosition="left">
+                      <i class="pi" [ngClass]="cuadreIcon(cuadreFila(c))" aria-hidden="true"></i>
+                      <span class="cb-cuadre-txt">{{ cuadreLabel(cuadreFila(c)) }}</span>
                     </span>
                     <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
@@ -408,6 +378,17 @@ interface AttachFile {
                     <i class="pi pi-ban" aria-hidden="true"></i> {{ motivoDescarteLabel(c.descarte_motivo) || 'Descartada' }}
                   </span>
                 } @else { <span class="muted cb-comp-empty"><i class="pi pi-paperclip" aria-hidden="true"></i> Sin remisión</span> }
+              </td>
+              <!-- [RE.35.5] El veredicto del expediente (el mismo cálculo que el panel lateral). -->
+              <td class="cb-exp-cell">
+                @if (c.expediente; as x) {
+                  <span class="cb-cubo" [attr.data-cubo]="x.cubo" [pTooltip]="x.motivo || ''" tooltipPosition="left">{{ cuboTexto(x.cubo) }}</span>
+                  @for (h of x.hallazgos; track h) { <span class="cb-hal" [attr.data-h]="h">{{ hallazgoTexto(h) }}</span> }
+                } @else if (c.deposit_status === 'validado') {
+                  <span class="muted cb-comp-empty">Ya validada</span>
+                } @else if (c.deposit_status === 'rechazado') {
+                  <span class="muted cb-comp-empty">Devuelta</span>
+                } @else { <span class="muted cb-comp-empty">—</span> }
               </td>
               <td>
                 @if (verDescartadas()) {
@@ -467,7 +448,7 @@ interface AttachFile {
             </tr>
             @if (filaAbierta() === claveFila(c)) {
               <tr class="cb-exp">
-                <td [attr.colspan]="dinero() ? 9 : 7">
+                <td [attr.colspan]="dinero() ? 10 : 8">
                   @if (filaLoading()) {
                     <p class="cb-exp-nota"><i class="pi pi-spin pi-spinner"></i> Abriendo el movimiento…</p>
                   } @else if (filaError()) {
@@ -525,11 +506,11 @@ interface AttachFile {
                 <td class="ta-r">{{ money(t.factura) }}</td>
                 <td class="ta-r cb-ajuste">{{ t.ajuste ? '−' + money(t.ajuste) : '—' }}</td>
                 <td class="ta-r strong">{{ money(t.neto) }}</td>
-                <td colspan="2"></td>
+                <td colspan="3"></td>
               </tr>
             </ng-template>
           }
-          <ng-template #emptymessage><tr><td [attr.colspan]="dinero() ? 9 : 7" class="cb-empty">Sin entradas para el filtro.</td></tr></ng-template>
+          <ng-template #emptymessage><tr><td [attr.colspan]="dinero() ? 10 : 8" class="cb-empty">Sin entradas para el filtro.</td></tr></ng-template>
         </p-table>
 
         <!-- RE.17.5 — paginación de servidor. El p-table paginaba las 150 filas que ya tenía en
@@ -567,7 +548,7 @@ interface AttachFile {
               <div class="cb-drop-main"><span class="cb-opt-tag">opcional</span> Arrastrá el <strong>PDF de la orden de entrada</strong> para enlazarla sola</div>
               <div class="cb-drop-or">o</div>
               <label class="cb-pickbtn"><i class="pi pi-upload"></i> Elegir PDF
-                <input type="file" accept="application/pdf" (change)="onFiles($event)" hidden />
+                <input type="file" accept="application/pdf,image/*" (change)="onFiles($event)" hidden />
               </label>
               <div class="cb-drop-hint">Si prefieres, mejor identifícala por el folio abajo — es más rápido.</div>
             </div>
@@ -653,10 +634,10 @@ interface AttachFile {
             <div class="cb-drop" [class.drag]="dragging()"
                  (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
               <i class="pi pi-file-pdf cb-drop-ico" aria-hidden="true"></i>
-              <div class="cb-drop-main">Arrastrá aquí la <strong>factura del proveedor</strong> (PDF)</div>
+              <div class="cb-drop-main">Arrastrá aquí la <strong>factura del proveedor</strong> (PDF o fotos)</div>
               <div class="cb-drop-or">o</div>
               <label class="cb-pickbtn"><i class="pi pi-upload"></i> Elegir PDF
-                <input type="file" accept="application/pdf" (change)="onFiles($event)" hidden multiple />
+                <input type="file" accept="application/pdf,image/*" (change)="onFiles($event)" hidden multiple />
               </label>
             </div>
           }
@@ -692,7 +673,7 @@ interface AttachFile {
               <div class="cb-addmore" [class.drag]="dragging()"
                    (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
                 <label class="cb-pickbtn"><i class="pi pi-upload"></i> Elegir más PDF
-                  <input type="file" accept="application/pdf" (change)="onFiles($event)" hidden multiple />
+                  <input type="file" accept="application/pdf,image/*" (change)="onFiles($event)" hidden multiple />
                 </label>
                 <span class="cb-addmore-drop"><i class="pi pi-arrow-down" aria-hidden="true"></i> o arrastrá aquí</span>
                 <span class="cb-addmore-n">{{ attachFiles().length }} adjunta(s)</span>
@@ -818,6 +799,12 @@ interface AttachFile {
       Un toast que dice "12 de 15" no sirve para saber cuáles tres se quedaron ni por qué —y el
       server omite por motivos distintos: descuadre, la subiste vos, otro ya decidió.
     -->
+    <!-- [RE.35.7] Captura por lote: el papel con su sello y firma se archiva; la IA identifica su entrada. -->
+    <p-dialog [visible]="showCapturaLote()" (visibleChange)="onCapturaLoteVisible($event)" [modal]="true" [draggable]="false"
+              [style]="{ width: '72rem', maxWidth: '96vw' }" header="Archivar varias facturas recibidas">
+      <app-compras-captura-lote [entrantes]="archivosLote()" (guardados)="load()" (verPorRevisar)="verPorRevisarLote()" />
+    </p-dialog>
+
     <p-dialog [visible]="showLote()" (visibleChange)="onLoteVisible($event)" [modal]="true"
               [draggable]="false" [style]="{ width: '34rem', maxWidth: '96vw' }"
               [header]="loteResultado().length ? 'Resultado del lote' : 'Aprobar las que cuadran'">
@@ -957,13 +944,17 @@ interface AttachFile {
               <dd>{{ money(q.lineas) }}</dd>
               <p>{{ q.lineasMeta }}</p>
             </div>
-            <div class="cb-tri-c" [class.is-off]="q.tone === 'bad'">
+            <div class="cb-tri-c" [class.is-off]="q.tone === 'bad'" [class.is-desmentido]="q.ocrDesmentido">
               <dt>Documento (OCR)</dt>
               <dd>{{ q.ocr != null ? money(q.ocr) : '—' }}</dd>
               <p>{{ q.ocrMeta }}</p>
             </div>
           </dl>
         }
+
+        <!-- [RE.35] El expediente de la factura: el CFDI de ContPAQi ligado a esta entrada y el
+             veredicto (pasa sola / revisar / sin CFDI aun). El papel identifica, el CFDI informa. -->
+        <app-compras-entrada-expediente class="cb-expediente" [sucursal]="d.entrada.sucursal" [folio]="d.entrada.folio" (cargado)="expedientePanel.set($event)" />
 
         <div class="cb-cobro">
           <div><span class="cb-lbl">Entrada</span>
@@ -1483,6 +1474,32 @@ interface AttachFile {
     .cb-verdict-s { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.5;
       font-variant-numeric: tabular-nums; }
 
+    /* [RE.35.5] Veredicto y hallazgos en la fila. El color nunca va solo: siempre la palabra. */
+    .cb-exp-cell { white-space: normal; }
+    .cb-cubo { display: inline-block; font-size: var(--fs-micro); font-weight: 700; padding: .1rem .45rem; border-radius: 999px; margin: 0 .25rem .15rem 0; border: 1px solid var(--border-color); color: var(--text-muted); }
+    .cb-cubo[data-cubo="auto"] { color: var(--ok-fg); border-color: var(--ok-fg); }
+    .cb-cubo[data-cubo="revisar"] { color: var(--warn-fg); border-color: var(--warn-fg); }
+    .cb-cubo[data-cubo="sin_cfdi_aun"] { color: var(--action); border-color: var(--action); }
+    .cb-hal { display: inline-block; font-size: var(--fs-micro); padding: .05rem .4rem; border-radius: var(--r-sm); margin: 0 .25rem .15rem 0; background: var(--surface-2); color: var(--text-main); }
+    .cb-hal[data-h="cobrar_nc"], .cb-hal[data-h="mal_emitida"] { color: var(--bad-fg); }
+    .cb-hal[data-h="sin_oc"], .cb-hal[data-h="incompleta"] { color: var(--warn-fg); }
+    .cb-hal[data-h="nc_aplicada"] { color: var(--ok-fg); }
+    /* [RE.35.4] Buscar + Subir factura = una zona para soltar; el botón, al doble. */
+    .cb-dropzone { position: relative; border: 2px dashed transparent; border-radius: var(--r-md); padding: 2px; margin: -4px; }
+    .cb-dropzone.drag { border-color: var(--action); background: var(--warn-soft-bg); }
+    .cb-dropzone-row { display: flex; gap: var(--sp-2); align-items: stretch; }
+    .cb-dropzone-row input { flex: 1 1 auto; min-width: 10rem; }
+    .cb-upload-big { min-height: 3.4rem; padding-inline: 1.1rem; gap: .5rem; white-space: nowrap; }
+    .cb-upload-big .pi { font-size: 1.1rem; }
+    /* [RE.35.7] Varias recepciones a la vez: mismo alto que Subir factura, menos peso visual. */
+    .cb-upload-varias { min-height: 3.4rem; padding-inline: .9rem; gap: .5rem; white-space: nowrap; }
+    .cb-upload-txt { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; }
+    .cb-upload-txt b { font-size: 1rem; }
+    .cb-upload-txt small { font-size: var(--fs-micro); opacity: .9; font-weight: 500; }
+    .cb-dropzone-hint { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 700; color: var(--action); pointer-events: none; }
+    .cb-periodo { display: flex; gap: var(--sp-1); align-items: center; flex-wrap: wrap; }
+    /* [RE.35] El expediente de la factura, entre el cuadre y los datos de la entrada. */
+    .cb-expediente { display: block; margin-top: var(--sp-3); }
     .cb-tri { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: .6rem 0 0;
       border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
     /* Separacion por hairline, sin caja por cifra: mismo criterio que MetricStrip. */
@@ -1496,6 +1513,8 @@ interface AttachFile {
     /* La cifra que NO cuadra se marca en el borde, no tiñendo el numero. */
     .cb-tri-c.is-off { box-shadow: inset 0 -2px 0 var(--bad-fg); }
     .cb-tri-c.is-off dd { color: var(--bad-fg); }
+    /* [RE.35.6] El OCR leyó otra cifra que el CFDI que cuadra: se ve, tachada y sin alarma. */
+    .cb-tri-c.is-desmentido dd { color: var(--text-muted); text-decoration: line-through; }
     @media (max-width: 46rem) {
       .cb-tri { grid-template-columns: 1fr; }
       .cb-tri-c + .cb-tri-c { border-left: 0; border-top: 1px solid var(--border-color); }
@@ -1741,8 +1760,10 @@ export class ComprasEntradasComponent {
    * modos, y un botón que promete N y entrega 3 se deja de usar.
    */
   readonly puedeLote = computed(() =>
-    this.canValidate() && this.estadoSel() === 'por_validar' && this.cuadreSel() === 'cuadra'
-    && this.loteObjetivo().length > 1);
+    this.canValidate() && this.loteObjetivo().length > 1
+    // [RE.35.5] El lote vive en "Pasan solas": es exactamente lo que la regla deja pasar. El
+    // servidor vuelve a revisar cada una al aprobar (descuadre, la subiste vos, otro ya decidió).
+    && (this.bandejaSel() === 'auto' || (this.estadoSel() === 'por_validar' && this.cuadreSel() === 'cuadra')));
   readonly showLote = signal(false);
   readonly bulking = signal(false);
   /** Resultado POR EXPEDIENTE de la última corrida. Vacío = el diálogo pide confirmación. */
@@ -1802,37 +1823,9 @@ export class ComprasEntradasComponent {
    */
   readonly lente = signal<'proceso' | 'dinero'>('proceso');
   readonly dinero = computed(() => this.lente() === 'dinero');
-  readonly lenteOpts = [
-    { label: 'El proceso', value: 'proceso' },
-    { label: 'El dinero', value: 'dinero' },
-  ];
-  /** Filtros que sólo existen en el lente del dinero (venían de Compras 360). */
+  /** Filtros del dinero (venían de Compras 360); hoy los fija el Hallazgo (ver `setHallazgo`). */
   readonly ajusteSel = signal<'' | 'con' | 'sin' | 'operativo' | 'comercial'>('');
-  readonly ajusteOpts = [
-    { label: 'Todas', value: '' },
-    { label: 'Con ajuste', value: 'con' },
-    { label: 'Sin ajuste', value: 'sin' },
-    // El orden no es alfabético: primero el que es un problema. Operativo = faltante, mal
-    // estado, no solicitado. Comercial = descuento, pronto pago, apoyo de marca.
-    { label: 'Sólo ajuste operativo', value: 'operativo' },
-    { label: 'Sólo ajuste comercial', value: 'comercial' },
-  ];
   readonly ocSel = signal<'' | 'con' | 'sin'>('');
-  readonly ocOpts = [
-    { label: 'Todas', value: '' },
-    { label: 'Con orden de compra', value: 'con' },
-    { label: 'Sin orden de compra', value: 'sin' },
-  ];
-
-  setLente(v: string): void {
-    this.lente.set(v === 'dinero' ? 'dinero' : 'proceso');
-    // Los filtros de dinero no aplican en proceso: dejarlos puestos filtraría la lista sin que
-    // se vea el control que lo está haciendo.
-    if (!this.dinero()) { this.ajusteSel.set(''); this.ocSel.set(''); }
-    this.page.set(1); this.syncUrl(); this.load();
-  }
-  setAjuste(v: string): void { this.ajusteSel.set((v || '') as any); this.page.set(1); this.load(); }
-  setOc(v: string): void { this.ocSel.set((v || '') as any); this.page.set(1); this.load(); }
 
   /** Qué compone el ajuste de esta fila, para el tooltip: el total solo no dice si preocupa. */
   ajusteTip(c: EntradaRow): string {
@@ -2106,24 +2099,32 @@ export class ComprasEntradasComponent {
     // de la primera carga, o el primer viaje sale sin el filtro que el link promete.
     const qp = this.route.snapshot.queryParamMap;
     const suc = qp.get('suc');
-    if (suc) this.sucursalSel.set(suc);
+    if (suc) this.sucursalesSel.set(suc.split(',').map((x) => x.trim()).filter(Boolean));
     // RE.20.1 — el lente lo fija la puerta. `data.lente` viene de la ruta (Costo por compra
     // abre en dinero); `?lente=` lo pisa, para que un link pegado en un chat llegue con el que
     // se compartió. Antes de la primera carga: si no, el primer viaje va con el lente que no es
     // y la tabla parpadea de un juego de columnas al otro.
+    // [RE.35.4] Una sola vista, la completa: "El proceso" y "El dinero" mostraban la misma fila;
+    // el dinero sólo agrega Ajuste, Neto y el total al pie. La ruta sólo decide el título.
     const deRuta = this.route.snapshot.data?.['lente'];
-    const deUrl = qp.get('lente');
-    if (deUrl === 'dinero' || deUrl === 'proceso') this.lente.set(deUrl);
-    else if (deRuta === 'dinero') this.lente.set('dinero');
+    this.lente.set('dinero');
+    this.titulo = deRuta === 'dinero' ? 'Costo por compra' : 'Control de entradas · Listado';
     const est = qp.get('estado');
     if (est && this.estadoOpts.some((o) => o.value === est)) this.estadoSel.set(est as any);
+    // [RE.35.5] La Bandeja manda. Un ?estado= de un link viejo se traduce; ?bandeja= gana.
+    const ban = qp.get('bandeja');
+    if (ban && ['revisar', 'auto', 'sin_cfdi_aun', 'pendiente', 'validado', 'descartada', 'todas'].includes(ban)) this.setBandejaInicial(ban);
+    else if (est === 'pendiente' || est === 'validado' || est === 'descartada') this.setBandejaInicial(est);
+    else if (est === 'por_validar') this.setBandejaInicial('revisar');
+    else if (est !== null) this.setBandejaInicial('todas');
+    else this.setBandejaInicial(deRutaDinero(this.route.snapshot.data) ? 'revisar' : 'pendiente');
     // RE.25 — se valida contra las opciones por la misma razón que `estado`: un valor inventado
     // en la URL tiene que ignorarse, no convertirse en un filtro vacío que parece "sin datos".
-    const cua = qp.get('cuadre');
-    if (cua && this.cuadreOpts.some((o) => o.value === cua)) this.cuadreSel.set(cua);
+    // [RE.35.5] "Cuadre" salió de la barra (lo juzga el expediente). Un ?cuadre= viejo NO se aplica:
+    // filtraría la lista sin un control visible que lo diga.
     // `[DM.19]` Misma validación: "mandame las 5,820 que no son del CEDIS" tiene que ser un link.
-    const pl = qp.get('plaza');
-    if (pl && this.plazaOpts.some((o) => o.value === pl)) this.plazaSel.set(pl);
+    // [RE.35.4] "Plaza" salió de la barra (la sucursal ya filtra; "de otra plaza" queda como etiqueta
+    // en la fila). Un ?plaza= viejo NO se aplica: filtraría la lista sin un control visible que lo diga.
     // `[RE.29]` El periodo, ANTES de la primera carga: si se leyera después, el primer viaje
     // sale con el carril del proceso y la tabla salta de un universo al otro. `fromIso` devuelve
     // `null` ante basura, así que un `?from=ayer` se ignora en vez de convertirse en un filtro
@@ -2218,7 +2219,6 @@ export class ComprasEntradasComponent {
     ];
   }
 
-  setEstado(v: string) { this.estadoSel.set((v || '') as Exclude<EntradasQuery['estado'], undefined>); this.page.set(1); this.load(); }
   queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => { this.page.set(1); this.load(); }, 300); }
 
   // ── RE.17.5: filtros que la pantalla decía tener y no mandaba ────────────────
@@ -2227,35 +2227,15 @@ export class ComprasEntradasComponent {
    * el link prometía la sucursal filtrada y caías en las primeras 300 de la red entera. Ahora
    * viaja como `warehouse_codes` (el server igual lo intersecta con el alcance).
    */
-  readonly sucursalSel = signal<string | null>(null);
+  /** [RE.35.4] Selección múltiple: vacía = todas las sucursales que la persona puede ver. */
+  readonly sucursalesSel = signal<string[]>([]);
+  titulo = 'Costo por compra';
   /**
    * `[RE.25]` — el cuadre del documento. `sin_evidencia` NO se ofrece acá: para eso ya está
    * `Estado = Pendientes`, y dos controles que contestan lo mismo con nombres distintos es la
    * forma más rápida de que nadie confíe en ninguno.
    */
   readonly cuadreSel = signal<string | null>(null);
-  readonly cuadreOpts = [
-    { label: 'Cuadra', value: 'cuadra' },
-    { label: 'Por revisar', value: 'revisar' },
-    { label: 'No se leyó', value: 'sin_datos' },
-  ];
-  setCuadre(v: string | null) { this.cuadreSel.set(v || null); this.page.set(1); this.syncUrl(); this.load(); }
-  /**
-   * `[DM.19]` — **de qué PLAZA es la compra.** Eje separado de todo lo demás: no habla del
-   * trámite ni del documento, sino de a quién le toca el gasto.
-   *
-   * ⚠️ `Sin declarar` dice literalmente eso. **No es "del CEDIS"**: son documentos de nov-2025
-   * a ene-2026, cuando el centro de compra casi no se llenaba, y su monto promedio queda ENTRE
-   * el del CEDIS y el de las otras plazas — o sea que es mezcla. Ofrecerlo como filtro propio
-   * es lo que impide que se lea como "lo demás es mío".
-   */
-  readonly plazaSel = signal<string | null>(null);
-  readonly plazaOpts = [
-    { label: 'De esta sucursal', value: 'propia' },
-    { label: 'De otra plaza', value: 'otra' },
-    { label: 'Sin declarar', value: 'sin_declarar' },
-  ];
-  setPlaza(v: string | null) { this.plazaSel.set(v || null); this.page.set(1); this.syncUrl(); this.load(); }
   /**
    * `[RE.29]` — **el periodo.** `from`/`to` existían en el contrato del endpoint desde RE.13.0
    * y se aplican tanto a las filas como a los KPIs (`kpiBase`), pero esta pantalla nunca los
@@ -2379,7 +2359,7 @@ export class ComprasEntradasComponent {
    * soltarlo (ni recargando: viaja en la URL). Una regla repetida se arregla tantas veces como
    * copias tenga.
    */
-  readonly variasSucursales = computed(() => ofrecerSelectorSucursal(this.alcance(), this.sucursalSel()));
+  readonly variasSucursales = computed(() => ofrecerSelectorSucursal(this.alcance(), this.sucursalesSel()[0] ?? null));
   /**
    * `[RE.23]` El problema que resolvió el fallback y que sigue vigente: con alcance
    * `all` el server no manda lista, y el desplegable se armaba con las sucursales
@@ -2405,7 +2385,142 @@ export class ComprasEntradasComponent {
   });
   suc(code: string): string { return branchName(code) || code; }
 
-  setSucursal(v: string | null) { this.sucursalSel.set(v || null); this.page.set(1); this.syncUrl(); this.load(); }
+  setSucursales(v: string[] | null) { this.sucursalesSel.set(v ?? []); this.page.set(1); this.syncUrl(); this.load(); }
+
+  // ── [RE.35.4] Periodo: rápido, Rango y Rezago en UN control ──
+  readonly periodoOpts = [
+    ...DATE_PRESET_OPTIONS,
+    { label: 'Rango…', value: 'rango' },
+    { label: 'Rezago (antes del arranque)', value: 'rezago' },
+  ];
+  readonly periodoSel = computed(() => this.rezago() ? 'rezago' : (this.preset() || (this.rango() ? 'rango' : '')));
+  readonly mostrarRango = computed(() => this.periodoSel() === 'rango');
+  onPeriodo(v: string | null): void {
+    if (v === 'rezago') { this.preset.set(''); this.setRezago(true); return; }
+    if (this.rezago()) this.rezago.set(false);
+    if (v === 'rango') { this.preset.set('rango'); return; } // se carga al elegir las fechas
+    this.onPreset(v);
+  }
+
+  // ── [RE.35.4] Hallazgo: qué hacer y con quién. Absorbe los filtros de Ajuste y de OC. ──
+  // "Cobrar nota de crédito" y "Factura mal emitida" llegan con el veredicto en la lista.
+  /** [RE.35.5] Hallazgos que calcula el expediente (con su conteo en la bandeja). */
+  readonly hallazgoVer = signal<'' | 'cobrar_nc' | 'mal_emitida' | 'nc_aplicada'>('');
+  readonly hallazgoOptsExp = computed(() => {
+    const n = this.report()?.expediente?.por_hallazgo;
+    const c = (k: 'cobrar_nc' | 'mal_emitida' | 'nc_aplicada') => (n ? ` · ${n[k]}` : '');
+    return [
+      { label: 'Cobrar nota de crédito' + c('cobrar_nc'), value: 'cobrar_nc' },
+      { label: 'Factura mal emitida (refacturar)' + c('mal_emitida'), value: 'mal_emitida' },
+      { label: 'Nota de crédito ya aplicada' + c('nc_aplicada'), value: 'nc_aplicada' },
+    ];
+  });
+  readonly hallazgoOptsTodas = computed(() => [this.hallazgoOpts[0], ...this.hallazgoOptsExp(), ...this.hallazgoOpts.slice(1)]);
+  readonly hallazgoOpts = [
+    { label: 'Cualquiera', value: '' },
+    { label: 'Entrega incompleta (devolución en Kepler)', value: 'operativo' },
+    { label: 'Sin orden de compra', value: 'sin_oc' },
+    { label: 'Ajuste comercial (descuento, apoyo)', value: 'comercial' },
+    { label: 'Con cualquier ajuste', value: 'con' },
+    { label: 'Sin ajuste', value: 'sin' },
+  ];
+  readonly hallazgoSel = computed(() => this.hallazgoVer() || (this.ocSel() === 'sin' ? 'sin_oc' : (this.ajusteSel() || '')));
+  setHallazgo(v: string | null): void {
+    this.hallazgoVer.set('');
+    if (v === 'cobrar_nc' || v === 'mal_emitida' || v === 'nc_aplicada') { this.ajusteSel.set(''); this.ocSel.set(''); this.hallazgoVer.set(v); }
+    else if (v === 'sin_oc') { this.ajusteSel.set(''); this.ocSel.set('sin'); }
+    else { this.ocSel.set(''); this.ajusteSel.set((v || '') as '' | 'con' | 'sin' | 'operativo' | 'comercial'); }
+    this.page.set(1); this.load();
+  }
+
+  /** Las fuentes al día, en el título de la píldora (la tira completa sólo sale si alguna se atrasa). */
+  frescuraTitulo(): string {
+    return this.frescura().map((f) => `${this.etiquetaFuente(f.source_branch)} ${f.dias === 0 ? 'hoy' : f.dias === 1 ? 'ayer' : 'hace ' + f.dias + ' d'}`).join(' · ');
+  }
+
+  // ── [RE.35.5] Bandeja: Estado + Cuadre en uno ──
+  readonly bandejaSel = signal<string>('revisar');
+  readonly bandejaOpts = computed(() => {
+    const e = this.report()?.expediente?.por_cubo;
+    const k = this.report()?.kpis;
+    const n = (v: number | undefined) => (v == null ? '' : ` · ${v}`);
+    return [
+      { label: 'Por revisar' + n(e?.revisar), value: 'revisar' },
+      { label: 'Pasan solas' + n(e?.auto), value: 'auto' },
+      { label: 'Sin CFDI aún' + n(e?.sin_cfdi_aun), value: 'sin_cfdi_aun' },
+      { label: 'Sin papel' + n(k ? Math.max(0, k.entradas - k.con_comprobante) : undefined), value: 'pendiente' },
+      { label: 'Validadas' + n(k?.validados), value: 'validado' },
+      { label: 'Descartadas', value: 'descartada' },
+      { label: 'Todas', value: 'todas' },
+    ];
+  });
+  /** La bandeja se traduce al estado del trámite que entiende el servidor (+ el veredicto). */
+  private setBandejaInicial(v: string) {
+    this.bandejaSel.set(v);
+    this.cuadreSel.set(null);
+    const estado = v === 'pendiente' || v === 'validado' || v === 'descartada' ? v
+      : v === 'todas' ? '' : 'por_validar';
+    this.estadoSel.set(estado as Exclude<EntradasQuery['estado'], undefined>);
+  }
+  setBandeja(v: string) { this.setBandejaInicial(v || 'todas'); this.page.set(1); this.syncUrl(); this.load(); }
+  cuboTexto(c: string): string {
+    return ({ auto: 'Pasa sola', revisar: 'Revisar', sin_cfdi_aun: 'Sin CFDI aún', sin_documento: 'Sin papel', fuera_de_alcance: 'Fuera de alcance' } as Record<string, string>)[c] ?? c;
+  }
+  hallazgoTexto(h: string): string {
+    return ({ cobrar_nc: 'Cobrar NC', mal_emitida: 'Mal emitida', incompleta: 'Incompleta', sin_oc: 'Sin OC', nc_aplicada: 'NC aplicada', comercial: 'Comercial' } as Record<string, string>)[h] ?? h;
+  }
+
+  // ── [RE.35.4] Soltar la factura en la barra: abre la carga ya con el archivo como FACTURA ──
+  readonly draggingBarra = signal(false);
+  /** Mientras es true, lo que se suelta en el paso 1 es la factura (no la orden de entrada). */
+  private desdeBarra = false;
+  onDragOverBarra(ev: DragEvent) { ev.preventDefault(); if (!this.draggingBarra()) this.draggingBarra.set(true); }
+  onDragLeaveBarra(ev: DragEvent) {
+    const sale = ev.relatedTarget as Node | null;
+    if (sale && (ev.currentTarget as HTMLElement).contains(sale)) return;
+    this.draggingBarra.set(false);
+  }
+  async soltarEnBarra(ev: DragEvent) {
+    ev.preventDefault();
+    this.draggingBarra.set(false);
+    const files = ev.dataTransfer?.files ? Array.from(ev.dataTransfer.files) : [];
+    if (!files.length) return;
+    // [RE.35.7] Dos o más PDF = varias recepciones: van a la captura por lote. Si son sólo FOTOS, se
+    // conserva lo de antes (las páginas de UNA factura se juntan en un PDF); para varias facturas en
+    // foto está el botón «Varias».
+    if (files.length > 1 && this.canManage() && !files.every((f) => esImagen(f))) { this.abrirCapturaLote(files); return; }
+    this.openAttachPhotoFirst();
+    this.desdeBarra = true;
+    await this.agregarArchivos(files);
+  }
+
+  // ── [RE.35.7] Captura por lote ──
+  readonly showCapturaLote = signal(false);
+  /** Lo soltado en la barra; cada arreglo nuevo lo agrega la captura una vez. */
+  readonly archivosLote = signal<File[] | null>(null);
+  abrirCapturaLote(files: File[] | null = null): void {
+    this.archivosLote.set(files);
+    this.showCapturaLote.set(true);
+  }
+  onCapturaLoteVisible(v: boolean): void {
+    this.showCapturaLote.set(v);
+    if (!v) this.archivosLote.set(null);
+  }
+  /** Del resumen del lote a la bandeja donde quedaron las que no pasaron solas. */
+  verPorRevisarLote(): void {
+    this.onCapturaLoteVisible(false);
+    this.setBandeja('revisar');
+  }
+
+  /** PDF tal cual; si hay fotos, se juntan en UN PDF (regla: un expediente, un archivo). */
+  private async agregarArchivos(files: File[]) {
+    let prep: { listos: File[]; fotos: number; otros: File[] };
+    try { prep = await prepararArchivos(files); }
+    catch { this.attachError.set('No se pudieron juntar las fotos en un PDF. Prueba con un PDF.'); return; }
+    if (!prep.listos.length) { this.attachError.set('Sube un PDF o fotos de la factura.'); return; }
+    for (const f of prep.listos) await this.addOne(f);
+    if (prep.otros.length) this.attachError.set(`Se ignoraron ${prep.otros.length} archivo(s) que no son PDF ni foto.`);
+  }
   /**
    * `[RE.29]` — entrar al rezago SUELTA el periodo puesto a mano. Son dos formas de decir la
    * misma cosa (qué ventana mirar) y dejar las dos puestas las intersecta en silencio: el
@@ -2427,11 +2542,12 @@ export class ComprasEntradasComponent {
       // RE.20.1 — el lente viaja en la URL para que el link se pueda pegar. `proceso` es el
       // default, así que se omite y la URL no se ensucia con lo que ya es implícito.
       queryParams: {
-        suc: this.sucursalSel() || null, lente: this.dinero() ? 'dinero' : null,
+        suc: this.sucursalesSel().join(',') || null, lente: null,
         // RE.25 — el cuadre viaja en la URL para que "mandame las 44 que no se leyeron" sea un
         // link que se pega en un chat, igual que el resto de los lentes de esta pantalla.
-        cuadre: this.cuadreSel() || null,
-        plaza: this.plazaSel() || null,
+        cuadre: null,
+        bandeja: this.bandejaSel() || null,
+        plaza: null,
         // `[RE.29]` El periodo, en la URL. DESIGN.md §Ing.UI: en Operations el rango de fechas
         // vive en query params — sin eso, F5 pierde el mes que estabas mirando y "mandame agosto"
         // no es un link. Los nombres son los del endpoint (`from`/`to`), como en costo-neto.
@@ -2450,9 +2566,8 @@ export class ComprasEntradasComponent {
     this.svc.list({
       estado: this.estadoSel() || undefined,
       search: this.search || undefined,
-      warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
+      warehouse_codes: this.sucursalesSel().length ? this.sucursalesSel() : undefined,
       cuadre: (this.cuadreSel() || undefined) as EntradasQuery['cuadre'],
-      plaza: (this.plazaSel() || undefined) as EntradasQuery['plaza'],
       // `[RE.29]` El periodo. Va junto con el carril que le corresponde (ver `carril()`): con
       // rango explícito el carril se abre a `todo`, o el propio backend se comería el rango.
       from: this.toIso(this.dateFrom()),
@@ -2465,6 +2580,8 @@ export class ComprasEntradasComponent {
       lente: this.lente(),
       ajuste: this.dinero() ? (this.ajusteSel() || undefined) : undefined,
       con_oc: this.dinero() ? (this.ocSel() || undefined) : undefined,
+      bandeja: (['auto', 'revisar', 'sin_cfdi_aun'].includes(this.bandejaSel()) ? this.bandejaSel() : undefined) as EntradasQuery['bandeja'],
+      hallazgo: (this.hallazgoVer() || undefined) as EntradasQuery['hallazgo'],
       page: this.page(),
       pageSize: this.pageSize,
     })
@@ -2520,6 +2637,7 @@ export class ComprasEntradasComponent {
   onRejectVisible(v: boolean) { if (v) this.showReject.set(true); else if (this.rejectDirty()) this.closeReject(); else this.showReject.set(false); }
 
   openAttach(c: EntradaRow) {
+    this.desdeBarra = false;
     this.photoFirst.set(false);
     this.attachTarget.set(c);
     this.resetAttach();
@@ -2529,6 +2647,7 @@ export class ComprasEntradasComponent {
 
   /** Foto-primero: sin entrada; se enlaza por el OCR de la Aplica Orden Entrada (o manual). */
   openAttachPhotoFirst() {
+    this.desdeBarra = false;
     this.photoFirst.set(true);
     this.attachTarget.set(null);
     this.resetAttach();
@@ -2557,7 +2676,7 @@ export class ComprasEntradasComponent {
     const input = ev.target as HTMLInputElement;
     const picked = input.files ? Array.from(input.files) : [];
     input.value = ''; // permite volver a elegir el mismo archivo
-    for (const file of picked) await this.addOne(file);
+    await this.agregarArchivos(picked);
   }
 
   // RE.7 — arrastrar el PDF y que corra el OCR solo (reusa el mismo pipeline que onFiles).
@@ -2568,11 +2687,7 @@ export class ComprasEntradasComponent {
     ev.preventDefault(); ev.stopPropagation();
     this.dragging.set(false);
     const files = ev.dataTransfer?.files ? Array.from(ev.dataTransfer.files) : [];
-    const pdfs = files.filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
-    if (!pdfs.length) { this.attachError.set('Solo se aceptan archivos PDF — arrastrá un PDF.'); return; }
-    const rejected = files.length - pdfs.length;
-    if (rejected > 0) this.attachError.set(`Se ignoraron ${rejected} archivo(s) que no son PDF.`);
-    for (const f of pdfs) await this.addOne(f); // 1º = ★ Aplica Orden Entrada → OCR + enlace automático
+    await this.agregarArchivos(files); // [RE.35.4] PDF o fotos (las fotos se juntan en un PDF)
   }
 
   private async addOne(file: File) {
@@ -2592,7 +2707,7 @@ export class ComprasEntradasComponent {
     // El ENFOQUE es la FACTURA: el 1er archivo default = factura/remisión (★, la que cuadra
     // contra Kepler). La orden de entrada queda como slot opcional posterior. EXCEPCIÓN: el drop
     // del PASO 1 (foto-primero) es específicamente la orden de entrada → rol orden_entrada + auto-enlace.
-    const step1Oe = this.photoFirst() && this.attachStep() === 1;
+    const step1Oe = this.photoFirst() && this.attachStep() === 1 && !this.desdeBarra;
     const roleSeq = this.srcKind() === 'wincaja'
       ? ['remision', 'orden_entrada', 'ticket']
       : ['factura', 'orden_entrada'];
@@ -2710,6 +2825,15 @@ export class ComprasEntradasComponent {
             sha256: r.sha256 || f.sha256, dup: r.duplicate ?? null,
           });
           if (r.duplicate) this.attachError.set(this.dupMsg(f.name, r.duplicate));
+          // [RE.35.4] Lo soltado en la barra entra como factura; si el OCR dice que es SÓLO la orden de
+          // entrada de Kepler (nuestra hoja, con el folio exacto), se reclasifica: no es la factura del
+          // proveedor y el expediente no la debe juzgar como tal. La entrada se identifica igual.
+          if (this.desdeBarra) {
+            const tipos = (r.documents_present ?? []).map((d) => d.type);
+            if (tipos.includes('aplica_orden_entrada') && !tipos.some((t) => t === 'factura' || t === 'remision')) {
+              this.patch(id, { role: 'orden_entrada' });
+            }
+          }
           const cur = this.attachFiles().find((x) => x.id === id);
           if (cur?.primary) { this.ocrForm = { ...r }; this.ocrRun.set(true); this.ocrLoading.set(false); this.afterOcrMatch(); }
           this.maybeDropBase64(id);
@@ -2835,6 +2959,7 @@ export class ComprasEntradasComponent {
     if (!c.deposit_id || this.actingId()) return;
     const aviso = c.cuadre === 'cuadra'
       ? 'El importe y el proveedor concuerdan.'
+      : this.cuadreFila(c) === 'cuadra' ? this.cuadreMotivoFila(c)
       : (c.cuadre_motivo || 'Este documento no cuadró automáticamente.');
     const folio = c.folio_interno_ok === false
       ? ` Ojo: la hoja interna del paquete dice ${c.folio_interno}, no ${c.folio}.`
@@ -2987,7 +3112,14 @@ export class ComprasEntradasComponent {
    * **bandeja de revisión** (RE.13.2) muestra el mismo veredicto: dos copias garantizaban que
    * las dos pantallas terminaran diciendo cosas distintas del mismo expediente.
    */
-  cuadre(d: EntradaDetail) { return receiptVerdict(d, this.explains().length > 0); }
+  cuadre(d: EntradaDetail) {
+    // `[RE.35.6]` Si el CFDI de ContPAQi de ESTA entrada ya cuadra con Kepler, manda sobre el OCR.
+    const x = this.expedientePanel();
+    const cfdi = x && x.sucursal === d.entrada.sucursal && x.folio === d.entrada.folio ? cfdiQueCuadra(x) : null;
+    return receiptVerdict(d, this.explains().length > 0, cfdi);
+  }
+  /** `[RE.35.6]` El expediente que cargó el panel lateral (lo emite `app-compras-entrada-expediente`). */
+  readonly expedientePanel = signal<ReceiptExpediente | null>(null);
 
   /** El archivo ELEGIDO (data URI, aún sin subir) es imagen / PDF. */
   /** Un archivo YA subido (Cloudinary) es imagen (por kind o extensión) — si no, se trata como PDF/archivo. */
@@ -3011,6 +3143,19 @@ export class ComprasEntradasComponent {
    * `sin_datos` se llama **"No se leyó"** y no "Revisar" a propósito: no es un descuadre, es una
    * hoja ilegible. El trabajo es re-escanearla, no auditarla, y son 27% de los comprobantes.
    */
+  /**
+   * `[RE.35.6]` El cuadre que muestra la fila. El de `CUADRE_SQL` es del OCR; si el expediente pasa
+   * solo (CFDI de ContPAQi ligado de forma exacta y cuadrando con Kepler), manda el expediente:
+   * el chip no puede decir "Revisar" al lado de una columna que dice "Pasa sola".
+   */
+  cuadreFila(c: EntradaRow): string | null {
+    return c.expediente?.cubo === 'auto' ? 'cuadra' : c.cuadre;
+  }
+  cuadreMotivoFila(c: EntradaRow): string {
+    return c.expediente?.cubo === 'auto' && c.cuadre !== 'cuadra'
+      ? 'Cuadra con su CFDI de ContPAQi; la lectura del OCR no manda.'
+      : (c.cuadre_motivo || '');
+  }
   cuadreLabel(k: string | null): string {
     return ({ cuadra: 'Cuadra', revisar: 'Revisar', sin_datos: 'No se leyó', sin_evidencia: '' } as Record<string, string>)[k || ''] ?? '';
   }
